@@ -1,6 +1,6 @@
 {
   "name": "@tangle-network/agent-eval",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Reusable evaluation framework for Tangle agent applications",
   "type": "module",
   "main": "./dist/index.js",
@@ -26,6 +26,7 @@
     "@tangle-network/tcloud": "^0.2.0"
   },
   "devDependencies": {
+    "@types/node": "^25.6.0",
     "tsup": "^8.0.0",
     "typescript": "^5.7.0",
     "vitest": "^3.0.0"
