@@ -147,6 +147,57 @@ export class BuilderSession {
     await this.builderEmitter.endRun({ pass: outcome.pass, score: outcome.score, notes: outcome.notes })
   }
 
+  /**
+   * Inline app-runtime run — for cases where the "scenario" isn't a
+   * SWE-bench-style test suite but a live agent interaction (LLM chat,
+   * domain flow). Returns an emitter bound to a fresh Run in the
+   * `app-runtime` layer; caller emits spans inside and calls
+   * `.endRun()` with the final verdict.
+   */
+  async startAppRuntime(scenarioId: string): Promise<TraceEmitter> {
+    const parentRunId = this.lastBuildRunId ?? this.builderRunId
+    if (!parentRunId) throw new Error('BuilderSession.startAppRuntime: call startChat() + (optionally) ship() first')
+    const emitter = new TraceEmitter(this.store)
+    await emitter.startRun({
+      scenarioId,
+      projectId: this.projectId,
+      chatId: this.chatId,
+      parentRunId,
+      layer: 'app-runtime',
+    })
+    return emitter
+  }
+
+  /**
+   * Lightweight "ship marker" — record an app-build Run with a caller-
+   * provided verdict. Use when there isn't a sandbox harness to run but
+   * you still want to mark the build state at publish time.
+   */
+  async recordShipMarker(args: {
+    pass: boolean
+    score: number
+    scenarioId?: string
+    notes?: string
+  }): Promise<string> {
+    if (!this.builderRunId) throw new Error('BuilderSession.recordShipMarker: call startChat() first')
+    const emitter = new TraceEmitter(this.store)
+    await emitter.startRun({
+      scenarioId: args.scenarioId ?? `${this.projectId}/ship`,
+      projectId: this.projectId,
+      chatId: this.chatId,
+      parentRunId: this.builderRunId,
+      layer: 'app-build',
+    })
+    await emitter.endRun({
+      pass: args.pass,
+      score: args.score,
+      failureClass: args.pass ? 'success' : 'sandbox_failure',
+      notes: args.notes,
+    })
+    this.lastBuildRunId = emitter.runId
+    return emitter.runId
+  }
+
   get lastBuildRunIdValue(): string | undefined { return this.lastBuildRunId }
   get builderRunIdValue(): string | undefined { return this.builderRunId }
 }
