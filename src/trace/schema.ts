@@ -30,6 +30,15 @@ export interface RunOutcome {
   notes?: string
 }
 
+/**
+ * Layer — optional classification in a nested build workflow.
+ * `builder`: the meta-agent editing a project (e.g. agent-builder Forge chat).
+ * `app-build`: sandbox harness that compiled + tested the generated scaffold.
+ * `app-runtime`: a run of the generated agent against a domain scenario.
+ * `meta`: any meta-eval (judge replay, correlation analysis).
+ */
+export type RunLayer = 'builder' | 'app-build' | 'app-runtime' | 'meta' | 'custom'
+
 export interface Run {
   runId: string
   scenarioId: string
@@ -46,6 +55,15 @@ export interface Run {
   envFingerprint?: Record<string, string>
   /** Version of the redaction rules applied to this run. */
   redactionVersion?: string
+  /** Parent run in a nested build workflow. A builder run's children are
+   *  app-build runs; those children are app-runtime runs. */
+  parentRunId?: string
+  /** Stable project identifier — groups runs across chats + sessions. */
+  projectId?: string
+  /** Chat/conversation identifier within a project. */
+  chatId?: string
+  /** Layer classification — hint for aggregation; not enforced. */
+  layer?: RunLayer
   startedAt: number
   endedAt?: number
   status: RunStatus

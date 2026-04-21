@@ -258,3 +258,7 @@ export type { Mutator, RobustnessResult } from './paraphrase'
 
 export { visualDiff, pixelDeltaRatio } from './visual-diff'
 export type { ImageData, VisualDiffResult, VisualDiffOptions } from './visual-diff'
+
+// ── builder-of-builders eval ─────────────────────────────────────────
+
+export * from './builder-eval'

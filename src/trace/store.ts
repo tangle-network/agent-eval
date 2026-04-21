@@ -28,6 +28,10 @@ export interface RunFilter {
   since?: number
   until?: number
   tag?: { key: string; value: string }
+  parentRunId?: string
+  projectId?: string
+  chatId?: string
+  layer?: import('./schema').RunLayer
 }
 
 export interface SpanFilter {
@@ -141,6 +145,10 @@ function matchesRun(r: Run, f: RunFilter): boolean {
   if (f.since !== undefined && r.startedAt < f.since) return false
   if (f.until !== undefined && r.startedAt > f.until) return false
   if (f.tag && r.tags?.[f.tag.key] !== f.tag.value) return false
+  if (f.parentRunId && r.parentRunId !== f.parentRunId) return false
+  if (f.projectId && r.projectId !== f.projectId) return false
+  if (f.chatId && r.chatId !== f.chatId) return false
+  if (f.layer && r.layer !== f.layer) return false
   return true
 }
 
