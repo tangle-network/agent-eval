@@ -234,3 +234,27 @@ export type {
   VerbosityBiasResult,
   SelfPreferenceResult,
 } from './judge-calibration'
+
+export { evaluateContract, renderMarkdownReport } from './ci-gate'
+export type { ContractMetric, ThresholdContract, ContractReport } from './ci-gate'
+
+export {
+  toLangfuseEnvelope,
+  toPrometheusText,
+  replayTraceThroughJudge,
+} from './observability'
+export type { LangfuseGeneration, LangfuseScore, LangfuseEnvelope, JudgeReplayResult } from './observability'
+
+export {
+  paraphraseRobustness,
+  DEFAULT_MUTATORS,
+  lowercaseMutator,
+  sentenceReorderMutator,
+  typoMutator,
+  politenessPrefixMutator,
+  whitespaceCollapseMutator,
+} from './paraphrase'
+export type { Mutator, RobustnessResult } from './paraphrase'
+
+export { visualDiff, pixelDeltaRatio } from './visual-diff'
+export type { ImageData, VisualDiffResult, VisualDiffOptions } from './visual-diff'
