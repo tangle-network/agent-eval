@@ -184,6 +184,147 @@ export function partialCredit(current: number, target: number): number {
   return Math.min(1, Math.max(0, current / target))
 }
 
+/**
+ * Paired t-test — before/after measurements on the SAME items.
+ * Pairing removes inter-item variance, giving tighter significance than
+ * an unpaired test when comparing prompt v1 vs prompt v2 on identical
+ * scenarios.
+ */
+export function pairedTTest(before: number[], after: number[]): { t: number; df: number; p: number } {
+  if (before.length !== after.length) {
+    throw new Error(`pairedTTest: unequal sample sizes (${before.length} vs ${after.length})`)
+  }
+  const n = before.length
+  if (n < 2) return { t: 0, df: 0, p: 1 }
+
+  const diffs = before.map((b, i) => after[i] - b)
+  const mean = diffs.reduce((a, b) => a + b, 0) / n
+  const variance = diffs.reduce((acc, d) => acc + (d - mean) ** 2, 0) / (n - 1)
+  const se = Math.sqrt(variance / n)
+  if (se === 0) return { t: mean === 0 ? 0 : Infinity, df: n - 1, p: mean === 0 ? 1 : 0 }
+
+  const t = mean / se
+  const df = n - 1
+  const p = 2 * (1 - studentTCdf(Math.abs(t), df))
+  return { t, df, p }
+}
+
+/**
+ * Wilcoxon signed-rank test — paired non-parametric alternative.
+ * Use when the differences aren't normally distributed.
+ */
+export function wilcoxonSignedRank(before: number[], after: number[]): { w: number; p: number } {
+  if (before.length !== after.length) {
+    throw new Error(`wilcoxonSignedRank: unequal sample sizes (${before.length} vs ${after.length})`)
+  }
+  const diffs = before.map((b, i) => after[i] - b).filter((d) => d !== 0)
+  const n = diffs.length
+  if (n < 6) return { w: 0, p: 1 }
+
+  const absRanks = diffs
+    .map((d, i) => ({ abs: Math.abs(d), sign: Math.sign(d), i }))
+    .sort((a, b) => a.abs - b.abs)
+  const ranks: number[] = new Array(n)
+  let i = 0
+  while (i < n) {
+    let j = i
+    while (j < n && absRanks[j].abs === absRanks[i].abs) j++
+    const avg = (i + 1 + j) / 2
+    for (let k = i; k < j; k++) ranks[absRanks[k].i] = avg
+    i = j
+  }
+  let wPlus = 0
+  for (let k = 0; k < n; k++) if (diffs[k] > 0) wPlus += ranks[k]
+
+  const mean = (n * (n + 1)) / 4
+  const variance = (n * (n + 1) * (2 * n + 1)) / 24
+  const z = (wPlus - mean) / Math.sqrt(variance)
+  const p = 2 * (1 - normalCdf(Math.abs(z)))
+  return { w: wPlus, p }
+}
+
+/**
+ * Cohen's d — standardized effect size for two independent groups.
+ * Positive d means group b has higher mean than group a.
+ * Rule of thumb: |d| < 0.2 negligible, 0.2–0.5 small, 0.5–0.8 medium, > 0.8 large.
+ */
+export function cohensD(a: number[], b: number[]): number {
+  if (a.length < 2 || b.length < 2) return 0
+  const meanA = a.reduce((x, y) => x + y, 0) / a.length
+  const meanB = b.reduce((x, y) => x + y, 0) / b.length
+  const varA = a.reduce((acc, x) => acc + (x - meanA) ** 2, 0) / (a.length - 1)
+  const varB = b.reduce((acc, x) => acc + (x - meanB) ** 2, 0) / (b.length - 1)
+  const pooled = Math.sqrt(
+    ((a.length - 1) * varA + (b.length - 1) * varB) / (a.length + b.length - 2),
+  )
+  if (pooled === 0) return 0
+  return (meanB - meanA) / pooled
+}
+
+/** Student-t CDF approximation via Abramowitz-Stegun series. */
+function studentTCdf(t: number, df: number): number {
+  if (df <= 0) return 0.5
+  if (df > 100) return normalCdf(t)
+  const x = df / (df + t * t)
+  const a = df / 2
+  const b = 0.5
+  const ib = incompleteBeta(x, a, b)
+  return t >= 0 ? 1 - 0.5 * ib : 0.5 * ib
+}
+
+/** Regularized incomplete beta function via continued fraction (Lentz). */
+function incompleteBeta(x: number, a: number, b: number): number {
+  if (x <= 0) return 0
+  if (x >= 1) return 1
+  const lnBeta = lnGamma(a) + lnGamma(b) - lnGamma(a + b)
+  const front = Math.exp(Math.log(x) * a + Math.log(1 - x) * b - lnBeta) / a
+  const maxIter = 200
+  const eps = 3e-7
+  let c = 1
+  let d = 1 - ((a + b) * x) / (a + 1)
+  if (Math.abs(d) < 1e-30) d = 1e-30
+  d = 1 / d
+  let f = d
+  for (let m = 1; m <= maxIter; m++) {
+    const m2 = 2 * m
+    let num = (m * (b - m) * x) / ((a + m2 - 1) * (a + m2))
+    d = 1 + num * d
+    if (Math.abs(d) < 1e-30) d = 1e-30
+    c = 1 + num / c
+    if (Math.abs(c) < 1e-30) c = 1e-30
+    d = 1 / d
+    f *= d * c
+    num = -((a + m) * (a + b + m) * x) / ((a + m2) * (a + m2 + 1))
+    d = 1 + num * d
+    if (Math.abs(d) < 1e-30) d = 1e-30
+    c = 1 + num / c
+    if (Math.abs(c) < 1e-30) c = 1e-30
+    d = 1 / d
+    const delta = d * c
+    f *= delta
+    if (Math.abs(delta - 1) < eps) break
+  }
+  return front * f
+}
+
+/** Lanczos approximation to ln Γ(z). */
+function lnGamma(z: number): number {
+  const g = 7
+  const coefs = [
+    0.99999999999980993, 676.5203681218851, -1259.1392167224028,
+    771.32342877765313, -176.61502916214059, 12.507343278686905,
+    -0.13857109526572012, 9.9843695780195716e-6, 1.5056327351493116e-7,
+  ]
+  if (z < 0.5) {
+    return Math.log(Math.PI / Math.sin(Math.PI * z)) - lnGamma(1 - z)
+  }
+  z -= 1
+  let x = coefs[0]
+  for (let i = 1; i < g + 2; i++) x += coefs[i] / (z + i)
+  const t = z + g + 0.5
+  return 0.5 * Math.log(2 * Math.PI) + (z + 0.5) * Math.log(t) - t + Math.log(x)
+}
+
 // Standard normal CDF approximation (Abramowitz and Stegun)
 function normalCdf(x: number): number {
   const a1 = 0.254829592

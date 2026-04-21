@@ -1,7 +1,7 @@
 {
   "name": "@tangle-network/agent-eval",
-  "version": "0.1.0",
-  "description": "Reusable evaluation framework for Tangle agent applications",
+  "version": "0.6.0",
+  "description": "Trace-first evaluation framework for Tangle agents. Core (spans, pipelines, sandbox harness, OTLP export), trust (dataset, red-team, calibration, behavior DSL), builder-of-builders (three-layer eval, resumable sessions, meta-runtime correlation), and frontier (meta-eval correlation study, Process Reward Modeling, bisector).",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -26,6 +26,7 @@
     "@tangle-network/tcloud": "^0.2.0"
   },
   "devDependencies": {
+    "@types/node": "^25.6.0",
     "tsup": "^8.0.0",
     "typescript": "^5.7.0",
     "vitest": "^3.0.0"
