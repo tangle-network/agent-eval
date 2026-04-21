@@ -324,3 +324,7 @@ export {
   replayScorerOverCorpus,
 } from './reward-model-export'
 export type { ExportedRewardModel, InferenceScorer } from './reward-model-export'
+
+// ── 0.6 governance templates ─────────────────────────────────────────
+
+export * from './governance'
