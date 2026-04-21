@@ -262,3 +262,14 @@ export type { ImageData, VisualDiffResult, VisualDiffOptions } from './visual-di
 // ── builder-of-builders eval ─────────────────────────────────────────
 
 export * from './builder-eval'
+
+// ── 0.6 Tier 1 — meta-eval correlation, PRM, bisector ────────────────
+
+export * from './meta-eval'
+export * from './prm'
+export {
+  bisect,
+  commitBisect,
+  promptBisect,
+} from './bisector'
+export type { BisectOptions, BisectResult, BisectStep } from './bisector'
