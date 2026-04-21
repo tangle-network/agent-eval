@@ -1,7 +1,7 @@
 {
   "name": "@tangle-network/agent-eval",
-  "version": "0.4.0",
-  "description": "Trace-first evaluation framework for Tangle agents — spans, pipelines, sandbox harness, failure taxonomy, OTLP export, dataset + red-team + calibration + behavior DSL.",
+  "version": "0.5.0",
+  "description": "Trace-first evaluation framework for Tangle agents. Core (spans, pipelines, sandbox harness, OTLP export), trust (dataset, red-team, calibration, behavior DSL), builder-of-builders (three-layer eval, resumable sessions, meta-runtime correlation).",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
