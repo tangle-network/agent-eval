@@ -273,3 +273,24 @@ export {
   promptBisect,
 } from './bisector'
 export type { BisectOptions, BisectResult, BisectStep } from './bisector'
+
+// ── 0.6 Tier 2 — counterfactual + cross-trace diff + pre-registration ─
+
+export { runCounterfactual, attributeCounterfactuals } from './counterfactual'
+export type {
+  CounterfactualMutation,
+  CounterfactualContext,
+  CounterfactualResult,
+  CounterfactualRunner,
+} from './counterfactual'
+
+export { crossTraceDiff } from './cross-trace-diff'
+export type {
+  AlignmentOp,
+  StepAttribution,
+  CrossTraceDiff,
+  CrossTraceDiffOptions,
+} from './cross-trace-diff'
+
+export { signManifest, verifyManifest, evaluateHypothesis } from './pre-registration'
+export type { HypothesisManifest, SignedManifest, HypothesisResult } from './pre-registration'
