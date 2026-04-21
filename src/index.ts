@@ -184,3 +184,53 @@ export {
   statusAdvanced,
 } from './state-continuity'
 export type { ContinuityCheck, ContinuityCheckResult, ContinuityReport, ContinuitySnapshotPair } from './state-continuity'
+
+// ── 0.4 trust surface ────────────────────────────────────────────────
+
+export { Dataset, HoldoutLockedError, hashScenarios } from './dataset'
+export type {
+  DatasetScenario,
+  DatasetProvenance,
+  DatasetManifest,
+  DatasetSplit,
+  DatasetDifficulty,
+  SliceOptions,
+} from './dataset'
+
+export { checkCanaries, canaryLeakView, HoldoutAuditor } from './contamination-guard'
+export type { CanaryLeak } from './contamination-guard'
+
+export {
+  DEFAULT_RED_TEAM_CORPUS,
+  redTeamDataset,
+  redTeamReport,
+  scoreRedTeamOutput,
+  toolNamesForRun,
+} from './red-team'
+export type {
+  RedTeamCategory,
+  RedTeamPayload,
+  RedTeamCase,
+  RedTeamFinding,
+  RedTeamReport,
+} from './red-team'
+
+export { requiredSampleSize, bonferroni, benjaminiHochberg } from './power-analysis'
+
+export { expectAgent, runExpectations } from './behavior-dsl'
+export type { MatcherResult, Expectation, BehaviorAssertion, CallExpectation } from './behavior-dsl'
+
+export {
+  calibrateJudge,
+  positionalBias,
+  verbosityBias,
+  selfPreference,
+} from './judge-calibration'
+export type {
+  GoldenItem,
+  CandidateScore,
+  CalibrationResult,
+  PositionalBiasResult,
+  VerbosityBiasResult,
+  SelfPreferenceResult,
+} from './judge-calibration'

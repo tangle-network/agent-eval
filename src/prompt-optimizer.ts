@@ -15,6 +15,7 @@
  */
 
 import { confidenceInterval, mannWhitneyU } from './statistics'
+import { benjaminiHochberg } from './power-analysis'
 
 export interface PromptVariant {
   id: string
@@ -60,6 +61,9 @@ export interface PairwiseComparison {
   variantA: string
   variantB: string
   pValue: number
+  /** BH-FDR-corrected q-value across all n*(n-1)/2 pairwise tests. */
+  qValue: number
+  /** True when q-value passes the FDR threshold. Prefer over raw p-value when variants > 2. */
   significant: boolean
   meanDelta: number
 }
@@ -146,24 +150,27 @@ export class PromptOptimizer {
       }
     })
 
-    // Pairwise comparisons.
-    const pairwise: PairwiseComparison[] = []
+    // Pairwise comparisons — raw p-values first, then BH-FDR correction
+    // across the full n*(n-1)/2 matrix. Without correction, 3+ variants
+    // pump false-positive rate way past alpha.
+    const rawPairs: Array<{ a: VariantScore; b: VariantScore; p: number }> = []
     for (let i = 0; i < scores.length; i++) {
       for (let j = i + 1; j < scores.length; j++) {
         const a = scores[i]
         const b = scores[j]
-        const samplesA = flatSamples(a)
-        const samplesB = flatSamples(b)
-        const { p } = mannWhitneyU(samplesA, samplesB)
-        pairwise.push({
-          variantA: a.variantId,
-          variantB: b.variantId,
-          pValue: p,
-          significant: p < alpha,
-          meanDelta: b.mean - a.mean,
-        })
+        const { p } = mannWhitneyU(flatSamples(a), flatSamples(b))
+        rawPairs.push({ a, b, p })
       }
     }
+    const { qValues } = benjaminiHochberg(rawPairs.map((r) => r.p), alpha)
+    const pairwise: PairwiseComparison[] = rawPairs.map((r, idx) => ({
+      variantA: r.a.variantId,
+      variantB: r.b.variantId,
+      pValue: r.p,
+      qValue: qValues[idx],
+      significant: qValues[idx] < alpha,
+      meanDelta: r.b.mean - r.a.mean,
+    }))
 
     // Winner: highest mean. Flag significance if the winner beats every other
     // variant at the alpha threshold in its pairwise comparison.
