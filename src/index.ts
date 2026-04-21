@@ -1,4 +1,4 @@
-// Core types
+// ── Core types ───────────────────────────────────────────────────────
 export type {
   Scenario,
   Turn,
@@ -29,10 +29,8 @@ export type {
   EvalResult,
 } from './types'
 
-// Client
+// ── Client / driver / judges / executor / benchmark / registry / reporter ─
 export { ProductClient, runE2EWorkflow } from './client'
-
-// Judges
 export {
   createDomainExpertJudge,
   codeExecutionJudge,
@@ -41,18 +39,16 @@ export {
   createCustomJudge,
   defaultJudges,
 } from './judges'
-
-// Executor
 export { executeScenario } from './executor'
 export type { ExecutorConfig } from './executor'
-
-// Benchmark
 export { BenchmarkRunner } from './benchmark'
-
-// Metrics
 export { MetricsCollector, TokenCounter, estimateTokens, estimateCost, MODEL_PRICING } from './metrics'
+export { ScenarioRegistry } from './registry'
+export { AgentDriver } from './driver'
+export type { AgentDriverConfig } from './driver'
+export { formatBenchmarkReport, formatDriverReport, printDriverSummary } from './reporter'
 
-// Statistics
+// ── Statistics ───────────────────────────────────────────────────────
 export {
   normalizeScores,
   weightedMean,
@@ -65,43 +61,15 @@ export {
   partialCredit,
 } from './statistics'
 
-// Convergence
+// ── 0.2 primitives ───────────────────────────────────────────────────
+
 export { ConvergenceTracker } from './convergence'
-
-// Registry
-export { ScenarioRegistry } from './registry'
-
-// Driver
-export { AgentDriver } from './driver'
-export type { AgentDriverConfig } from './driver'
-
-// Reporter
-export {
-  formatBenchmarkReport,
-  formatDriverReport,
-  printDriverSummary,
-} from './reporter'
-
-// ── 0.2 framework primitives ──
 
 export { PromptRegistry, hashContent } from './prompt-registry'
 export type { PromptHandle } from './prompt-registry'
 
-export { MemoryTraceStore, FileSystemTraceStore } from './trace-store'
-export type {
-  LlmTrace,
-  TraceStore,
-  TraceQuery,
-  FileSystemTraceStoreOptions,
-} from './trace-store'
-
 export { createAntiSlopJudge, analyzeAntiSlop } from './anti-slop'
-export type {
-  AntiSlopConfig,
-  AntiSlopIssue,
-  AntiSlopReport,
-  SlopCategory,
-} from './anti-slop'
+export type { AntiSlopConfig, AntiSlopIssue, AntiSlopReport, SlopCategory } from './anti-slop'
 
 export {
   composeValidators,
@@ -111,7 +79,7 @@ export {
   containsAll,
 } from './artifact-validator'
 export type {
-  Artifact,
+  Artifact as ArtifactCheckArtifact,
   ArtifactValidator,
   ValidationContext,
   ValidationIssue,
@@ -135,13 +103,7 @@ export type {
 } from './workspace-inspector'
 
 export { ExperimentTracker, InMemoryExperimentStore } from './experiment-tracker'
-export type {
-  Experiment,
-  ExperimentStore,
-  Run,
-  RunConfig,
-  RunDiff,
-} from './experiment-tracker'
+export type { Experiment, ExperimentStore, Run as ExperimentRun, RunConfig, RunDiff } from './experiment-tracker'
 
 export { PromptOptimizer } from './prompt-optimizer'
 export type {
@@ -160,3 +122,65 @@ export type {
   DualAgentReport,
   DualAgentRound,
 } from './dual-agent-bench'
+
+// ── 0.3 trace-first chassis ──────────────────────────────────────────
+
+export * from './trace'
+
+// ── 0.3 producers ────────────────────────────────────────────────────
+
+export { SandboxHarness, SubprocessSandboxDriver, DockerSandboxDriver, composeParsers, vitestTestParser, pytestTestParser, jestTestParser } from './sandbox-harness'
+export type { HarnessConfig, SandboxDriver, SandboxResult, SandboxHarnessResult, TestOutputParser } from './sandbox-harness'
+
+export { runTestGradedScenario } from './test-graded-scenario'
+export type { TestGradedScenario, TestGradedRunOptions, TestGradedRunResult } from './test-graded-scenario'
+
+export { BudgetGuard, BudgetBreachError } from './budget-guard'
+
+export { classifyFailure, DEFAULT_RULES as DEFAULT_FAILURE_RULES, FAILURE_CLASSES } from './failure-taxonomy'
+export type { FailureClass, FailureClassification, FailureRule, FailureContext } from './failure-taxonomy'
+
+export { buildTrajectory } from './trajectory'
+export type { Trajectory, TrajectoryStep } from './trajectory'
+
+export { computeToolUseMetrics } from './tool-use-metrics'
+export type { ToolUseMetrics, ToolStats, ToolUseOptions } from './tool-use-metrics'
+
+// ── 0.3 canned pipelines (views over the trace corpus) ───────────────
+
+export * from './pipelines'
+
+// ── 0.3 auxiliary statistical + decision modules ─────────────────────
+
+export { checkSlos, DEFAULT_AGENT_SLOS } from './slo'
+export type { Slo, SloCheckResult, SloReport, SloSeverity, SloComparator } from './slo'
+
+export { compareToBaseline, iqr, welchsTTest } from './baseline'
+export type { BaselineOptions, BaselineReport, MetricSamples, MetricVerdict } from './baseline'
+
+export {
+  evaluateOracles,
+  textInSnapshot,
+  urlContains,
+  jsonShape,
+  regexMatches,
+  notBlocked,
+} from './oracle'
+export type { Oracle, OracleObservation, OracleReport, OracleResult } from './oracle'
+
+export { CostTracker } from './cost-tracker'
+export type { CostEntry, ScenarioCost, CostSummary, TokenSpec } from './cost-tracker'
+
+export { dominates, paretoFrontier } from './pareto'
+export type { Direction, Objective, ParetoResult } from './pareto'
+
+export { analyzeSeries } from './series-convergence'
+export type { SeriesConvergenceOptions, SeriesConvergenceResult } from './series-convergence'
+
+export {
+  scoreContinuity,
+  keyPreserved,
+  collectionPreserved,
+  statusAdvanced,
+} from './state-continuity'
+export type { ContinuityCheck, ContinuityCheckResult, ContinuityReport, ContinuitySnapshotPair } from './state-continuity'
