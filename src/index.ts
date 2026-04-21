@@ -294,3 +294,33 @@ export type {
 
 export { signManifest, verifyManifest, evaluateHypothesis } from './pre-registration'
 export type { HypothesisManifest, SignedManifest, HypothesisResult } from './pre-registration'
+
+// ── 0.6 Tier 3 — self-play + causal + active learning + RM export ────
+
+export { runSelfPlay } from './self-play'
+export type {
+  CandidateScenario,
+  ScoredTarget,
+  EvolutionRound,
+  SelfPlayOptions,
+  SelfPlayProposer,
+  SelfPlayScorer,
+} from './self-play'
+
+export { causalAttribution } from './causal-attribution'
+export type {
+  FactorialCell,
+  FactorContribution,
+  InteractionContribution,
+  CausalAttributionReport,
+} from './causal-attribution'
+
+export { proposeSynthesisTargets } from './active-learning'
+export type { SynthesisTarget, SynthesisReason, ActiveLearningOptions } from './active-learning'
+
+export {
+  exportRewardModel,
+  loadScorerFromGrader,
+  replayScorerOverCorpus,
+} from './reward-model-export'
+export type { ExportedRewardModel, InferenceScorer } from './reward-model-export'
