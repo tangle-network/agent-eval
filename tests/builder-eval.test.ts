@@ -93,6 +93,36 @@ describe('BuilderSession', () => {
   })
 })
 
+async function scaffoldOnlyProject(
+  store: InMemoryTraceStore,
+  projectId: string,
+  metaScore: number,
+  buildPassed: boolean,
+): Promise<void> {
+  // Like completeProject but skips runAppScenario — simulates a scaffold
+  // eval where the builder composes a project and ships it, but no runtime
+  // scenarios are executed. This is the scaffold-foundry use case.
+  const driver = new FakeDriver()
+  driver.result = {
+    test: {
+      phase: 'test',
+      exitCode: buildPassed ? 0 : 1,
+      stdout: '',
+      stderr: '',
+      wallMs: 5,
+      testsTotal: 10,
+      testsPassed: buildPassed ? 10 : 5,
+    },
+  }
+  const session = new BuilderSession(store, { projectId }, driver)
+  await session.startChat()
+  const edit = await session.emitter.span({ kind: 'custom', name: 'edit', attributes: { file: 'app.ts' } })
+  await edit.end()
+  await session.recordMetaScore(metaScore, 'simulated')
+  await session.ship({ harness: { testCommand: 'pnpm test' } })
+  await session.endChat({ pass: buildPassed, score: metaScore })
+}
+
 describe('scoreProject + correlateLayers', () => {
   it('rolls up meta/build/runtime scores and flags complete=true', async () => {
     const store = new InMemoryTraceStore()
@@ -101,7 +131,44 @@ describe('scoreProject + correlateLayers', () => {
     expect(report.metaScore).toBeCloseTo(0.8)
     expect(report.buildScore).toBe(1)
     expect(report.runtimeScore).toBeCloseTo(0.9)
+    expect(report.kind).toBe('full')
     expect(report.complete).toBe(true)
+  })
+
+  it('scaffold-only project: kind="scaffold-only", complete reflects meta+build only', async () => {
+    // Regression: before the kind discriminator, scaffold-only projects
+    // had complete=false because runtime was null — indistinguishable from
+    // a broken three-layer pipeline. Scaffold-foundry's eval is a
+    // scaffold-only project by design (compose + build, no runtime
+    // scenarios), and needed to be able to report as "done and good"
+    // without flipping the complete bit to mean "broken".
+    const store = new InMemoryTraceStore()
+    await scaffoldOnlyProject(store, 'proj-scaffold', 0.85, true)
+    const report = await scoreProject(store, 'proj-scaffold')
+    expect(report.kind).toBe('scaffold-only')
+    expect(report.metaScore).toBeCloseTo(0.85)
+    expect(report.buildScore).toBe(1)
+    expect(report.runtimeScore).toBeNull()
+    expect(report.runtimePassRate).toBeNull()
+    expect(report.appRuntimeRunIds).toHaveLength(0)
+    expect(report.complete).toBe(true) // meta + build both scored
+  })
+
+  it('scaffold-only project with null meta: complete=false (meta was expected)', async () => {
+    const store = new InMemoryTraceStore()
+    // buildPassed but meta omitted — simulate a ship that never went
+    // through a meta-judge pass.
+    const driver = new FakeDriver()
+    driver.result = { test: { phase: 'test', exitCode: 0, stdout: '', stderr: '', wallMs: 5, testsTotal: 10, testsPassed: 10 } }
+    const session = new BuilderSession(store, { projectId: 'proj-nometa' }, driver)
+    await session.startChat()
+    await session.ship({ harness: { testCommand: 'pnpm test' } })
+    await session.endChat({ pass: true, score: 1 })
+    const report = await scoreProject(store, 'proj-nometa')
+    expect(report.kind).toBe('scaffold-only')
+    expect(report.metaScore).toBeNull()
+    expect(report.buildScore).toBe(1)
+    expect(report.complete).toBe(false)
   })
 
   it('correlateLayers surfaces meta→runtime correlation across projects — regression: if builder self-score is uncorrelated with reality it must show as low r', async () => {

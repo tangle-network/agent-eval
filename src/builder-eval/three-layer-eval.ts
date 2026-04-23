@@ -13,14 +13,30 @@
  * is the highest-leverage signal the framework computes — if
  * meta_score doesn't predict runtime_score, the builder's self-scoring
  * is broken.
+ *
+ * Scaffold-only mode: when a project has no `app-runtime` runs (e.g. a
+ * scaffold-builder eval that grades compose + build without driving a
+ * runtime scenario), `kind` is `'scaffold-only'` and `complete` measures
+ * meta + build only. Consumers can tell the two apart without having to
+ * interpret null-runtime as either "not yet computed" or "N/A for this
+ * project shape".
  */
 
 import type { Run } from '../trace/schema'
 import type { TraceStore } from '../trace/store'
 import { judgeSpans } from '../trace/query'
 
+export type ProjectKind = 'full' | 'scaffold-only'
+
 export interface ThreeLayerProjectReport {
   projectId: string
+  /**
+   * `'full'` when the project has at least one `app-runtime` run;
+   * `'scaffold-only'` when it only has meta + build layers. Lets
+   * downstream consumers treat a null runtime score as expected
+   * (scaffold-only) vs. missing (full, pipeline broke).
+   */
+  kind: ProjectKind
   builderRunId?: string
   /** Judge-verdict score on the builder run (0..1 after normalization). */
   metaScore: number | null
@@ -28,10 +44,14 @@ export interface ThreeLayerProjectReport {
   /** 0..1 from the sandbox harness (testsPassed / testsTotal). */
   buildScore: number | null
   appRuntimeRunIds: string[]
-  /** Mean of outcome.score over app-runtime runs, 0..1. */
+  /** Mean of outcome.score over app-runtime runs, 0..1. Always null in scaffold-only mode. */
   runtimeScore: number | null
   runtimePassRate: number | null
-  /** True when all three layers produced a score. */
+  /**
+   * Layer-aware completeness:
+   *   - `kind='full'`: all three layers scored
+   *   - `kind='scaffold-only'`: meta + build scored (runtime not applicable)
+   */
   complete: boolean
 }
 
@@ -48,8 +68,14 @@ export async function scoreProject(store: TraceStore, projectId: string): Promis
   const runtimePassed = runtime.filter((r) => r.outcome?.pass === true).length
   const runtimePassRate = runtime.length > 0 ? runtimePassed / runtime.length : null
 
+  const kind: ProjectKind = runtime.length === 0 ? 'scaffold-only' : 'full'
+  const complete = kind === 'scaffold-only'
+    ? metaScore !== null && buildScore !== null
+    : metaScore !== null && buildScore !== null && runtimeScore !== null
+
   return {
     projectId,
+    kind,
     builderRunId: builder?.runId,
     metaScore,
     buildRunId: build?.runId,
@@ -57,7 +83,7 @@ export async function scoreProject(store: TraceStore, projectId: string): Promis
     appRuntimeRunIds: runtime.map((r) => r.runId),
     runtimeScore,
     runtimePassRate,
-    complete: metaScore !== null && buildScore !== null && runtimeScore !== null,
+    complete,
   }
 }
 
