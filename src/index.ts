@@ -113,6 +113,54 @@ export type {
   PairwiseComparison,
   VariantScore,
 } from './prompt-optimizer'
+export { mergeSteeringBundle, renderSteeringText } from './steering'
+export type { SteeringBundle, SteeringDelta, SteeringRolePrompt } from './steering'
+export { aggregateRunScore, clamp01, DEFAULT_RUN_SCORE_WEIGHTS } from './run-score'
+export type { RunScore, RunScoreWeights } from './run-score'
+export { RunCritic } from './run-critic'
+export type { RunTrace, RunCriticOptions } from './run-critic'
+export { distillPlaybook, renderPlaybookMarkdown } from './playbook'
+export type { Playbook, PlaybookEntry } from './playbook'
+export { OptimizationLoop } from './optimization-loop'
+export type {
+  OptimizationExample,
+  SteeringEvaluation,
+  SteeringVariantReport,
+  OptimizationLoopResult,
+  OptimizationLoopConfig,
+} from './optimization-loop'
+export { PairwiseSteeringOptimizer, AxGepaSteeringOptimizer } from './steering-optimizer'
+export type {
+  SteeringOptimizerBackend,
+  SteeringOptimizationRow,
+  SteeringOptimizationSelector,
+  SteeringOptimizationResult,
+  SteeringOptimizerConfig,
+  AxSteeringOptimizerConfig,
+} from './steering-optimizer'
+export {
+  JudgeRunner,
+  runJudgeFleet,
+  compilerJudge,
+  testJudge,
+  linterJudge,
+  securityJudge,
+} from './judge-runner'
+export type {
+  SandboxJudgeKind,
+  SandboxJudgeSpec,
+  SandboxJudgeResult,
+  JudgeFleetOptions,
+} from './judge-runner'
+export type {
+  HostedJudgeConfig,
+  HostedJudgeDimension,
+  HostedJudgeRequest,
+  HostedJudgeResponse,
+  HostedRunCriticConfig,
+  HostedRunScoreRequest,
+  HostedRunScoreResponse,
+} from './eval-api'
 
 export { DualAgentBench } from './dual-agent-bench'
 export type {
@@ -122,6 +170,30 @@ export type {
   DualAgentReport,
   DualAgentRound,
 } from './dual-agent-bench'
+
+export {
+  runProposeReview,
+  inMemoryReviewStore,
+  jsonlReviewStore,
+  createLlmReviewer,
+} from './propose-review'
+export type {
+  Verification,
+  Review,
+  ReviewMemoryEntry,
+  ReviewMemoryStore,
+  ProposeInput,
+  ProposeOutput,
+  ReviewInput,
+  ProposeFn,
+  VerifyFn,
+  ReviewFn,
+  ProposeReviewConfig,
+  ProposeReviewShot,
+  ProposeReviewReport,
+  LlmJsonCall,
+  LlmReviewerConfig,
+} from './propose-review'
 
 // ── 0.3 trace-first chassis ──────────────────────────────────────────
 

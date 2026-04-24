@@ -26,7 +26,7 @@ describe('PromptOptimizer', () => {
 
   it('flags non-significant lead — regression: declaring a "winner" on noise would push bad prompts to prod', async () => {
     const opt = new PromptOptimizer()
-    // Both variants ~ same distribution
+    const samples = [-0.01, -0.004, 0, 0.004, 0.01]
     const result = await opt.run({
       variants: [
         { id: 'a', prompt: 'a' },
@@ -34,7 +34,7 @@ describe('PromptOptimizer', () => {
       ],
       scenarioIds: ['s1', 's2', 's3'],
       trialsPerScenario: 5,
-      scoreVariant: async () => 0.5 + (Math.random() - 0.5) * 0.02,
+      scoreVariant: async ({ trialIndex }) => 0.5 + samples[trialIndex % samples.length],
     })
     expect(result.winner.significant).toBe(false)
   })
