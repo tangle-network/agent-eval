@@ -72,6 +72,38 @@ export class CostTracker {
     bucket.completed = completed
   }
 
+  /**
+   * Convenience: record + markOutcome in one call from a
+   * `{ usage, verdict }`-shaped response (starter-foundry's
+   * `invokeMetaJudge` returns this shape; consumers that wrap any
+   * judge/critic can follow the same convention).
+   *
+   * `usage.model` must be present in `MODEL_PRICING` for cost math to
+   * populate; otherwise totalCostUsd stays at 0 for the entry but
+   * tokens still aggregate.
+   */
+  recordVerdict(
+    verdict: {
+      usage?: { inputTokens: number; outputTokens: number; model: string; cachedTokens?: number; reasoningTokens?: number }
+      verdict?: 'pass' | 'fail' | 'borderline' | string
+    },
+    scenarioId: string,
+    tags?: Record<string, string>,
+  ): CostEntry | null {
+    if (!verdict.usage) return null
+    const entry = this.record({
+      scenarioId,
+      model: verdict.usage.model,
+      inputTokens: verdict.usage.inputTokens,
+      outputTokens: verdict.usage.outputTokens,
+      cachedTokens: verdict.usage.cachedTokens,
+      reasoningTokens: verdict.usage.reasoningTokens,
+      tags,
+    })
+    this.markOutcome(scenarioId, verdict.verdict === 'pass')
+    return entry
+  }
+
   get(scenarioId: string): ScenarioCost | undefined {
     return this.byScenario.get(scenarioId)
   }
