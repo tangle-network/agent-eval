@@ -114,17 +114,49 @@ export function composeParsers(...parsers: TestOutputParser[]): TestOutputParser
 
 // ── Drivers ──────────────────────────────────────────────────────────
 
+export interface SubprocessSandboxDriverOptions {
+  /**
+   * Default cwd for all `exec` calls. Used when the per-call `HarnessConfig`
+   * does not set its own `cwd`. Lets callers bind the driver to a working
+   * directory once instead of spreading cwd into every harness config —
+   * useful when the harness config is constructed far from the call site
+   * (e.g. starter-foundry's promoter passes a static HarnessConfig per
+   * family taxonomy but needs a per-run composed-scaffold cwd).
+   */
+  cwd?: string
+  /**
+   * Default env merged into every `exec` call's env (per-call `HarnessConfig.env`
+   * still wins on key collision). Same ergonomic rationale as `cwd` above.
+   */
+  env?: Record<string, string>
+}
+
 export class SubprocessSandboxDriver implements SandboxDriver {
   id = 'subprocess'
+  private defaultCwd?: string
+  private defaultEnv?: Record<string, string>
+
+  constructor(options: SubprocessSandboxDriverOptions = {}) {
+    this.defaultCwd = options.cwd
+    this.defaultEnv = options.env
+  }
 
   async exec(phase: SandboxResult['phase'], command: string, config: HarnessConfig): Promise<SandboxResult> {
     const { spawn } = await import('node:child_process')
     const start = Date.now()
+    // Per-call config wins; fall back to constructor defaults. Historically
+    // `config.cwd` was the only path, which silently dropped the constructor
+    // arg when callers passed `new SubprocessSandboxDriver({ cwd })` — the
+    // subprocess then inherited Node's cwd and e.g. ran `tsc --noEmit`
+    // against the wrong repo. Honoring the constructor `cwd` restores the
+    // invariant implied by the constructor shape.
+    const effectiveCwd = config.cwd ?? this.defaultCwd
+    const effectiveEnv = { ...process.env, ...(this.defaultEnv ?? {}), ...(config.env ?? {}) }
     return await new Promise<SandboxResult>((resolve) => {
       const child = spawn(command, {
         shell: true,
-        cwd: config.cwd,
-        env: { ...process.env, ...(config.env ?? {}) },
+        cwd: effectiveCwd,
+        env: effectiveEnv,
       })
       let stdout = ''
       let stderr = ''
