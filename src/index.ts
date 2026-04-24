@@ -266,6 +266,19 @@ export type { CostEntry, ScenarioCost, CostSummary, TokenSpec } from './cost-tra
 export { dominates, paretoFrontier } from './pareto'
 export type { Direction, Objective, ParetoResult } from './pareto'
 
+export {
+  scanForMuffledGates,
+  formatFindings,
+  DEFAULT_FINDERS,
+  UNIVERSAL_FINDERS,
+  findFallbackToPass,
+  findLiteralTruePass,
+  findConstructorCwdDropped,
+  findAutoMatchNoExpectation,
+  findSkipCountsAsPass,
+} from './muffled-gate-scanner'
+export type { MuffledFinding, MuffledFinder, ScanOptions } from './muffled-gate-scanner'
+
 export { analyzeSeries } from './series-convergence'
 export type { SeriesConvergenceOptions, SeriesConvergenceResult } from './series-convergence'
 
