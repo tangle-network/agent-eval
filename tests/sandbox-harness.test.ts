@@ -128,4 +128,58 @@ describe('SubprocessSandboxDriver', () => {
     expect(result.exitCode).toBe(0)
     expect(result.stdout).toContain('hello')
   })
+
+  it('constructor defaults.cwd is honored when HarnessConfig.cwd is unset (0.7.1 footgun fix)', async () => {
+    // Pre-0.7.1: constructor took no args — `new Driver({cwd})` compiled,
+    // silent-dropped the arg, spawn inherited node's cwd. Two shipped bugs
+    // traced to this. 0.7.1 honors defaults as fallbacks.
+    const { mkdtempSync, realpathSync, rmSync } = await import('node:fs')
+    const { tmpdir } = await import('node:os')
+    const { join } = await import('node:path')
+    const dir = realpathSync(mkdtempSync(join(tmpdir(), 'driver-default-cwd-')))
+    try {
+      const driver = new SubprocessSandboxDriver({ cwd: dir })
+      const result = await driver.exec('run', 'pwd', {})
+      expect(result.exitCode).toBe(0)
+      expect(result.stdout.trim()).toBe(dir)
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  it('per-call HarnessConfig.cwd wins over constructor default', async () => {
+    const { mkdtempSync, realpathSync, rmSync } = await import('node:fs')
+    const { tmpdir } = await import('node:os')
+    const { join } = await import('node:path')
+    const defaultDir = realpathSync(mkdtempSync(join(tmpdir(), 'driver-default-cwd-')))
+    const callDir = realpathSync(mkdtempSync(join(tmpdir(), 'driver-call-cwd-')))
+    try {
+      const driver = new SubprocessSandboxDriver({ cwd: defaultDir })
+      const result = await driver.exec('run', 'pwd', { cwd: callDir })
+      expect(result.exitCode).toBe(0)
+      expect(result.stdout.trim()).toBe(callDir)
+    } finally {
+      rmSync(defaultDir, { recursive: true, force: true })
+      rmSync(callDir, { recursive: true, force: true })
+    }
+  })
+
+  it('constructor defaults.env is merged; per-call env wins on conflict', async () => {
+    const driver = new SubprocessSandboxDriver({ env: { FROM_DEFAULT: 'd', SHARED: 'default' } })
+    // `env | grep` form survives missing vars; `printenv A B C` exits on
+    // the first miss and swallows the rest, making the assertion flaky.
+    const result = await driver.exec('run', 'env | grep -E "^(FROM_|SHARED=)" | sort', {
+      env: { FROM_CALL: 'c', SHARED: 'call' },
+    })
+    expect(result.exitCode).toBe(0)
+    const vars = Object.fromEntries(
+      result.stdout.trim().split('\n').map((l) => {
+        const eq = l.indexOf('=')
+        return [l.slice(0, eq), l.slice(eq + 1)]
+      }),
+    )
+    expect(vars.FROM_DEFAULT).toBe('d')
+    expect(vars.FROM_CALL).toBe('c')
+    expect(vars.SHARED).toBe('call') // per-call wins over driver default
+  })
 })

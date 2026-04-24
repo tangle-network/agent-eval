@@ -114,8 +114,34 @@ export function composeParsers(...parsers: TestOutputParser[]): TestOutputParser
 
 // ── Drivers ──────────────────────────────────────────────────────────
 
+/**
+ * Driver defaults applied when a per-call `HarnessConfig` does not specify
+ * them. Per-call config always wins over defaults — the driver never
+ * silently overrides an explicit `cwd` or `env` in the config.
+ *
+ * History: pre-0.7.1 this constructor accepted no args. Callers that wrote
+ * `new SubprocessSandboxDriver({ cwd })` (the natural mistake — the class
+ * is a `SandboxDriver` and `cwd` is a `HarnessConfig` field, not a driver
+ * field) got zero-arg TS tolerance and silent runtime drop, because the
+ * arg was never read. Two shipped-and-caught bugs (starter-foundry Gen 8b
+ * promoter + Round-0 runtime eval) were this exact shape. 0.7.1 honors
+ * the args as fallbacks — the footgun now does the obvious thing instead
+ * of silently failing.
+ */
+export interface SubprocessDriverDefaults {
+  /** Default cwd when `HarnessConfig.cwd` is unset. */
+  cwd?: string
+  /** Default env vars merged into every exec (after `process.env`, before `HarnessConfig.env`). */
+  env?: Record<string, string>
+}
+
 export class SubprocessSandboxDriver implements SandboxDriver {
   id = 'subprocess'
+  private readonly defaults: SubprocessDriverDefaults
+
+  constructor(defaults: SubprocessDriverDefaults = {}) {
+    this.defaults = defaults
+  }
 
   async exec(phase: SandboxResult['phase'], command: string, config: HarnessConfig): Promise<SandboxResult> {
     const { spawn } = await import('node:child_process')
@@ -123,8 +149,10 @@ export class SubprocessSandboxDriver implements SandboxDriver {
     return await new Promise<SandboxResult>((resolve) => {
       const child = spawn(command, {
         shell: true,
-        cwd: config.cwd,
-        env: { ...process.env, ...(config.env ?? {}) },
+        // Per-call config.cwd wins; driver default is a fallback for
+        // callers that set a single project cwd once at construction.
+        cwd: config.cwd ?? this.defaults.cwd,
+        env: { ...process.env, ...(this.defaults.env ?? {}), ...(config.env ?? {}) },
       })
       let stdout = ''
       let stderr = ''
