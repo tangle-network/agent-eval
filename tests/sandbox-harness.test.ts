@@ -169,15 +169,24 @@ describe('SubprocessSandboxDriver', () => {
     const driver = new SubprocessSandboxDriver({
       env: { AGENT_EVAL_DEFAULT: 'from-ctor', AGENT_EVAL_SHARED: 'ctor' },
     })
+    // `env | grep` survives missing vars; `printenv A B C` is BSD-on-macOS
+    // vs GNU-on-Linux inconsistent (BSD prints only the first hit, exits 0
+    // and hides subsequent vars), so the naive form passes on CI and fails
+    // on Darwin.
     const result = await driver.exec(
       'run',
-      'printenv AGENT_EVAL_DEFAULT AGENT_EVAL_SHARED AGENT_EVAL_PER_CALL',
+      'env | grep -E "^AGENT_EVAL_" | sort',
       { env: { AGENT_EVAL_SHARED: 'call', AGENT_EVAL_PER_CALL: 'from-call' } },
     )
     expect(result.exitCode).toBe(0)
-    const lines = result.stdout.trim().split('\n')
-    expect(lines[0]).toBe('from-ctor')
-    expect(lines[1]).toBe('call') // per-call wins on collision
-    expect(lines[2]).toBe('from-call')
+    const vars = Object.fromEntries(
+      result.stdout.trim().split('\n').map((l) => {
+        const eq = l.indexOf('=')
+        return [l.slice(0, eq), l.slice(eq + 1)]
+      }),
+    )
+    expect(vars.AGENT_EVAL_DEFAULT).toBe('from-ctor')
+    expect(vars.AGENT_EVAL_SHARED).toBe('call') // per-call wins on collision
+    expect(vars.AGENT_EVAL_PER_CALL).toBe('from-call')
   })
 })
