@@ -50,6 +50,9 @@ export class RunCritic {
     const toolSpans = trace.spans.filter((s): s is Extract<Span, { kind: 'tool' }> => s.kind === 'tool')
     const judgeSpans = trace.spans.filter((s): s is Extract<Span, { kind: 'judge' }> => s.kind === 'judge')
     const sandboxSpans = trace.spans.filter((s): s is Extract<Span, { kind: 'sandbox' }> => s.kind === 'sandbox')
+    const finalGateSpans = judgeSpans.filter((span) =>
+      span.dimension === 'final_gate' || span.attributes?.finalGate === true,
+    )
 
     const success = trace.run.outcome?.pass === true ? 1 : trace.run.status === 'completed' ? 0.5 : 0
     if (!success) notes.push('run did not complete with pass=true')
@@ -77,6 +80,17 @@ export class RunCritic {
         ? 0.4
         : 0
     if (!testReality) notes.push('no real test/build evidence recorded')
+
+    const blockerSpans = judgeSpans.filter((span) =>
+      isBlockingJudge(span),
+    )
+    const finalGateBlockers = finalGateSpans.filter((span) => isBlockingJudge(span))
+    const finalGate = finalGateSpans.length ? (finalGateBlockers.length ? 0 : 1) : success
+    if (finalGateBlockers.length) notes.push(`final gate blocked by ${finalGateBlockers.length} reviewer(s)`)
+    else if (!finalGateSpans.length) notes.push('no final gate judgment recorded')
+
+    const reviewerBlockers = judgeSpans.length ? blockerSpans.length / judgeSpans.length : 0
+    if (reviewerBlockers) notes.push(`detected ${blockerSpans.length} blocking reviewer signal(s)`)
 
     const positiveGroundingSignals =
       patchEvidence +
@@ -108,6 +122,8 @@ export class RunCritic {
       toolUseQuality,
       patchQuality,
       testReality,
+      finalGate,
+      reviewerBlockers,
       costUsd,
       wallSeconds,
       notes,
@@ -129,4 +145,16 @@ function normalizeJudgeScore(score: number): number {
 
 function looksRepoGrounded(text: string): boolean {
   return /(?:src\/|tests?\/|package\.json|tsconfig|\.ts\b|\.tsx\b|git status|pnpm |npm |vitest|pytest|jest)/i.test(text)
+}
+
+function isBlockingJudge(span: Extract<Span, { kind: 'judge' }>): boolean {
+  return span.attributes?.blocking === true ||
+    span.attributes?.verdict === 'BLOCKING' ||
+    positiveNumber(span.attributes?.blockingFindings) ||
+    positiveNumber(span.attributes?.highFindings) ||
+    span.score <= 2
+}
+
+function positiveNumber(value: unknown): boolean {
+  return typeof value === 'number' && value > 0
 }

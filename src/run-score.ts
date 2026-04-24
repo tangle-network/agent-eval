@@ -6,6 +6,8 @@ export interface RunScore {
   toolUseQuality: number
   patchQuality: number
   testReality: number
+  finalGate: number
+  reviewerBlockers: number
   costUsd: number
   wallSeconds: number
   notes?: string[]
@@ -19,6 +21,8 @@ export interface RunScoreWeights {
   toolUseQuality: number
   patchQuality: number
   testReality: number
+  finalGate: number
+  reviewerBlockers: number
   costUsd: number
   wallSeconds: number
 }
@@ -31,6 +35,8 @@ export const DEFAULT_RUN_SCORE_WEIGHTS: RunScoreWeights = {
   toolUseQuality: 1,
   patchQuality: 1.25,
   testReality: 1.5,
+  finalGate: 3,
+  reviewerBlockers: -2,
   costUsd: -0.2,
   wallSeconds: -0.1,
 }
@@ -48,6 +54,8 @@ export function aggregateRunScore(
     w.toolUseQuality * clamp01(score.toolUseQuality) +
     w.patchQuality * clamp01(score.patchQuality) +
     w.testReality * clamp01(score.testReality) +
+    w.finalGate * clamp01(score.finalGate) +
+    w.reviewerBlockers * clamp01(score.reviewerBlockers) +
     w.costUsd * Math.max(0, score.costUsd) +
     w.wallSeconds * Math.max(0, score.wallSeconds / 60)
   )

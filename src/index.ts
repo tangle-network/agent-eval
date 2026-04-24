@@ -139,6 +139,26 @@ export type {
   AxSteeringOptimizerConfig,
 } from './steering-optimizer'
 export {
+  DEFAULT_HARNESS_OBJECTIVES,
+  runHarnessExperiment,
+  selectHarnessVariant,
+  summarizeHarnessResults,
+} from './harness-optimizer'
+export type {
+  HarnessAdapter,
+  HarnessExperimentConfig,
+  HarnessExperimentResult,
+  HarnessIntervention,
+  HarnessRunRequest,
+  HarnessRunResult,
+  HarnessScenario,
+  HarnessSelection,
+  HarnessVariant,
+  HarnessVariantReport,
+  MeasurementPolicy,
+  WorkflowTopology,
+} from './harness-optimizer'
+export {
   JudgeRunner,
   runJudgeFleet,
   compilerJudge,
