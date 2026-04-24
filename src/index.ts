@@ -433,3 +433,58 @@ export type { ExportedRewardModel, InferenceScorer } from './reward-model-export
 // ── 0.6 governance templates ─────────────────────────────────────────
 
 export * from './governance'
+
+// ── 0.8 extraction: LLM client, multi-layer verifier, semantic concept judge, error-count ─
+
+export {
+  callLlm,
+  callLlmJson,
+  stripFencedJson,
+  LlmCallError,
+  LlmClient,
+} from './llm-client'
+export type {
+  LlmMessage,
+  LlmCallRequest,
+  LlmCallResult,
+  LlmUsage,
+  LlmClientOptions,
+} from './llm-client'
+
+export {
+  MultiLayerVerifier,
+  gradeSemanticStatus,
+} from './multi-layer-verifier'
+export type {
+  Layer,
+  LayerResult,
+  LayerStatus,
+  Severity,
+  Finding,
+  VerifyContext,
+  VerifyOptions,
+  VerificationReport,
+} from './multi-layer-verifier'
+
+export {
+  runSemanticConceptJudge,
+  createSemanticConceptJudge,
+  SEMANTIC_CONCEPT_JUDGE_VERSION,
+} from './semantic-concept-judge'
+export type {
+  ConceptSpec,
+  ConceptFinding,
+  SemanticConceptJudgeInput,
+  SemanticConceptJudgeResult,
+  SemanticConceptJudgeOptions,
+} from './semantic-concept-judge'
+
+export {
+  extractErrorCount,
+  ERROR_COUNT_PATTERNS,
+} from './error-count-extractor'
+export type {
+  ErrorCountPattern,
+  ExtractOptions,
+  ExtractResult,
+} from './error-count-extractor'
