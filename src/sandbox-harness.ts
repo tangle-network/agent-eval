@@ -114,45 +114,49 @@ export function composeParsers(...parsers: TestOutputParser[]): TestOutputParser
 
 // ── Drivers ──────────────────────────────────────────────────────────
 
-/**
- * Driver defaults applied when a per-call `HarnessConfig` does not specify
- * them. Per-call config always wins over defaults — the driver never
- * silently overrides an explicit `cwd` or `env` in the config.
- *
- * History: pre-0.7.1 this constructor accepted no args. Callers that wrote
- * `new SubprocessSandboxDriver({ cwd })` (the natural mistake — the class
- * is a `SandboxDriver` and `cwd` is a `HarnessConfig` field, not a driver
- * field) got zero-arg TS tolerance and silent runtime drop, because the
- * arg was never read. Two shipped-and-caught bugs (starter-foundry Gen 8b
- * promoter + Round-0 runtime eval) were this exact shape. 0.7.1 honors
- * the args as fallbacks — the footgun now does the obvious thing instead
- * of silently failing.
- */
-export interface SubprocessDriverDefaults {
-  /** Default cwd when `HarnessConfig.cwd` is unset. */
+export interface SubprocessSandboxDriverOptions {
+  /**
+   * Default cwd for all `exec` calls. Used when the per-call `HarnessConfig`
+   * does not set its own `cwd`. Lets callers bind the driver to a working
+   * directory once instead of spreading cwd into every harness config —
+   * useful when the harness config is constructed far from the call site
+   * (e.g. starter-foundry's promoter passes a static HarnessConfig per
+   * family taxonomy but needs a per-run composed-scaffold cwd).
+   */
   cwd?: string
-  /** Default env vars merged into every exec (after `process.env`, before `HarnessConfig.env`). */
+  /**
+   * Default env merged into every `exec` call's env (per-call `HarnessConfig.env`
+   * still wins on key collision). Same ergonomic rationale as `cwd` above.
+   */
   env?: Record<string, string>
 }
 
 export class SubprocessSandboxDriver implements SandboxDriver {
   id = 'subprocess'
-  private readonly defaults: SubprocessDriverDefaults
+  private defaultCwd?: string
+  private defaultEnv?: Record<string, string>
 
-  constructor(defaults: SubprocessDriverDefaults = {}) {
-    this.defaults = defaults
+  constructor(options: SubprocessSandboxDriverOptions = {}) {
+    this.defaultCwd = options.cwd
+    this.defaultEnv = options.env
   }
 
   async exec(phase: SandboxResult['phase'], command: string, config: HarnessConfig): Promise<SandboxResult> {
     const { spawn } = await import('node:child_process')
     const start = Date.now()
+    // Per-call config wins; fall back to constructor defaults. Historically
+    // `config.cwd` was the only path, which silently dropped the constructor
+    // arg when callers passed `new SubprocessSandboxDriver({ cwd })` — the
+    // subprocess then inherited Node's cwd and e.g. ran `tsc --noEmit`
+    // against the wrong repo. Honoring the constructor `cwd` restores the
+    // invariant implied by the constructor shape.
+    const effectiveCwd = config.cwd ?? this.defaultCwd
+    const effectiveEnv = { ...process.env, ...(this.defaultEnv ?? {}), ...(config.env ?? {}) }
     return await new Promise<SandboxResult>((resolve) => {
       const child = spawn(command, {
         shell: true,
-        // Per-call config.cwd wins; driver default is a fallback for
-        // callers that set a single project cwd once at construction.
-        cwd: config.cwd ?? this.defaults.cwd,
-        env: { ...process.env, ...(this.defaults.env ?? {}), ...(config.env ?? {}) },
+        cwd: effectiveCwd,
+        env: effectiveEnv,
       })
       let stdout = ''
       let stderr = ''

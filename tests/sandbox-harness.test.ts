@@ -129,14 +129,15 @@ describe('SubprocessSandboxDriver', () => {
     expect(result.stdout).toContain('hello')
   })
 
-  it('constructor defaults.cwd is honored when HarnessConfig.cwd is unset (0.7.1 footgun fix)', async () => {
-    // Pre-0.7.1: constructor took no args — `new Driver({cwd})` compiled,
-    // silent-dropped the arg, spawn inherited node's cwd. Two shipped bugs
-    // traced to this. 0.7.1 honors defaults as fallbacks.
-    const { mkdtempSync, realpathSync, rmSync } = await import('node:fs')
+  it('constructor cwd is used when HarnessConfig.cwd is not set', async () => {
+    // Regression guard: previously the constructor accepted `{ cwd }` via duck
+    // typing but silently dropped it — exec only read config.cwd. Consumers
+    // who passed cwd to the constructor got subprocesses that inherited
+    // Node's cwd. Now the constructor arg is a real default.
+    const { mkdtempSync, rmSync, realpathSync } = await import('node:fs')
     const { tmpdir } = await import('node:os')
     const { join } = await import('node:path')
-    const dir = realpathSync(mkdtempSync(join(tmpdir(), 'driver-default-cwd-')))
+    const dir = realpathSync(mkdtempSync(join(tmpdir(), 'sdk-cwd-ctor-')))
     try {
       const driver = new SubprocessSandboxDriver({ cwd: dir })
       const result = await driver.exec('run', 'pwd', {})
@@ -147,30 +148,36 @@ describe('SubprocessSandboxDriver', () => {
     }
   })
 
-  it('per-call HarnessConfig.cwd wins over constructor default', async () => {
-    const { mkdtempSync, realpathSync, rmSync } = await import('node:fs')
+  it('per-call HarnessConfig.cwd overrides constructor cwd', async () => {
+    const { mkdtempSync, rmSync, realpathSync } = await import('node:fs')
     const { tmpdir } = await import('node:os')
     const { join } = await import('node:path')
-    const defaultDir = realpathSync(mkdtempSync(join(tmpdir(), 'driver-default-cwd-')))
-    const callDir = realpathSync(mkdtempSync(join(tmpdir(), 'driver-call-cwd-')))
+    const ctorDir = realpathSync(mkdtempSync(join(tmpdir(), 'sdk-cwd-ctor-')))
+    const callDir = realpathSync(mkdtempSync(join(tmpdir(), 'sdk-cwd-call-')))
     try {
-      const driver = new SubprocessSandboxDriver({ cwd: defaultDir })
+      const driver = new SubprocessSandboxDriver({ cwd: ctorDir })
       const result = await driver.exec('run', 'pwd', { cwd: callDir })
       expect(result.exitCode).toBe(0)
       expect(result.stdout.trim()).toBe(callDir)
     } finally {
-      rmSync(defaultDir, { recursive: true, force: true })
+      rmSync(ctorDir, { recursive: true, force: true })
       rmSync(callDir, { recursive: true, force: true })
     }
   })
 
-  it('constructor defaults.env is merged; per-call env wins on conflict', async () => {
-    const driver = new SubprocessSandboxDriver({ env: { FROM_DEFAULT: 'd', SHARED: 'default' } })
-    // `env | grep` form survives missing vars; `printenv A B C` exits on
-    // the first miss and swallows the rest, making the assertion flaky.
-    const result = await driver.exec('run', 'env | grep -E "^(FROM_|SHARED=)" | sort', {
-      env: { FROM_CALL: 'c', SHARED: 'call' },
+  it('constructor env merges with per-call env (per-call wins on collision)', async () => {
+    const driver = new SubprocessSandboxDriver({
+      env: { AGENT_EVAL_DEFAULT: 'from-ctor', AGENT_EVAL_SHARED: 'ctor' },
     })
+    // `env | grep` survives missing vars; `printenv A B C` is BSD-on-macOS
+    // vs GNU-on-Linux inconsistent (BSD prints only the first hit, exits 0
+    // and hides subsequent vars), so the naive form passes on CI and fails
+    // on Darwin.
+    const result = await driver.exec(
+      'run',
+      'env | grep -E "^AGENT_EVAL_" | sort',
+      { env: { AGENT_EVAL_SHARED: 'call', AGENT_EVAL_PER_CALL: 'from-call' } },
+    )
     expect(result.exitCode).toBe(0)
     const vars = Object.fromEntries(
       result.stdout.trim().split('\n').map((l) => {
@@ -178,8 +185,8 @@ describe('SubprocessSandboxDriver', () => {
         return [l.slice(0, eq), l.slice(eq + 1)]
       }),
     )
-    expect(vars.FROM_DEFAULT).toBe('d')
-    expect(vars.FROM_CALL).toBe('c')
-    expect(vars.SHARED).toBe('call') // per-call wins over driver default
+    expect(vars.AGENT_EVAL_DEFAULT).toBe('from-ctor')
+    expect(vars.AGENT_EVAL_SHARED).toBe('call') // per-call wins on collision
+    expect(vars.AGENT_EVAL_PER_CALL).toBe('from-call')
   })
 })

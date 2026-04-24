@@ -202,7 +202,7 @@ export * from './trace'
 // ── 0.3 producers ────────────────────────────────────────────────────
 
 export { SandboxHarness, SubprocessSandboxDriver, DockerSandboxDriver, composeParsers, vitestTestParser, pytestTestParser, jestTestParser } from './sandbox-harness'
-export type { HarnessConfig, SandboxDriver, SandboxResult, SandboxHarnessResult, SubprocessDriverDefaults, TestOutputParser } from './sandbox-harness'
+export type { HarnessConfig, SandboxDriver, SandboxResult, SandboxHarnessResult, SubprocessSandboxDriverOptions, TestOutputParser } from './sandbox-harness'
 
 export { runTestGradedScenario } from './test-graded-scenario'
 export type { TestGradedScenario, TestGradedRunOptions, TestGradedRunResult } from './test-graded-scenario'
