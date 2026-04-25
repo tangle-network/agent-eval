@@ -323,6 +323,42 @@ function parseJsonSafely<T>(content: string, model: string): T {
 }
 
 /**
+ * Probe whether a model is reachable. Returns latency + null error on
+ * success; `ok=false` + error message on any failure (HTTP, timeout,
+ * network, parse). Designed for sweep preflights — fail loud at the
+ * boundary before burning a 30-leaf run on a misconfigured router.
+ *
+ * Sends a tiny `ping` message with `maxTokens=64`. Reasoning models
+ * (glm-5.1, deepseek-v4) can burn the entire budget on internal reasoning
+ * for short prompts, so don't tighten this further. We don't validate
+ * content; HTTP 200 means reachable.
+ */
+export async function probeLlm(
+  model: string,
+  opts: LlmClientOptions & { timeoutMs?: number } = {},
+): Promise<{ ok: boolean; latencyMs: number; error: string | null }> {
+  const start = Date.now()
+  try {
+    await callLlm(
+      {
+        model,
+        messages: [{ role: 'user', content: 'ping' }],
+        maxTokens: 64,
+        timeoutMs: opts.timeoutMs ?? 30_000,
+      },
+      opts,
+    )
+    return { ok: true, latencyMs: Date.now() - start, error: null }
+  } catch (err) {
+    return {
+      ok: false,
+      latencyMs: Date.now() - start,
+      error: err instanceof Error ? err.message : String(err),
+    }
+  }
+}
+
+/**
  * Stateful client — construct once with defaults, call many times.
  * Thin wrapper around the free functions; exists for callers that want
  * to inject a single configured instance into multiple primitives.

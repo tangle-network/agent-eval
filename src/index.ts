@@ -439,6 +439,7 @@ export * from './governance'
 export {
   callLlm,
   callLlmJson,
+  probeLlm,
   stripFencedJson,
   LlmCallError,
   LlmClient,
@@ -471,6 +472,19 @@ export {
   createSemanticConceptJudge,
   SEMANTIC_CONCEPT_JUDGE_VERSION,
 } from './semantic-concept-judge'
+
+export {
+  runKeywordCoverageJudge,
+  runKeywordCoverageJudgeUrl,
+  htmlContainsElement,
+  extractAssetUrls,
+} from './keyword-coverage-judge'
+export type {
+  KeywordConceptSpec,
+  KeywordCoverageFinding,
+  KeywordCoverageResult,
+  KeywordCoverageOptions,
+} from './keyword-coverage-judge'
 export type {
   ConceptSpec,
   ConceptFinding,

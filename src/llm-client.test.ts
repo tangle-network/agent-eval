@@ -250,6 +250,37 @@ describe('llm-client — callLlmJson + schema degrade', () => {
   })
 })
 
+describe('llm-client — probeLlm', () => {
+  it('returns ok=true + latency when LLM responds', async () => {
+    const fetch = mockFetch([
+      async () => mkOkResponse({ choices: [{ message: { content: 'pong' } }], usage: {} }),
+    ])
+    const { probeLlm } = await import('./llm-client')
+    const r = await probeLlm('m', { fetch })
+    expect(r.ok).toBe(true)
+    expect(r.error).toBeNull()
+    expect(r.latencyMs).toBeGreaterThanOrEqual(0)
+  })
+
+  it('returns ok=false with error message on 4xx', async () => {
+    const fetch = mockFetch([async () => mkErrResponse(401, 'Invalid Authentication')])
+    const { probeLlm } = await import('./llm-client')
+    const r = await probeLlm('m', { fetch, maxRetries: 1 })
+    expect(r.ok).toBe(false)
+    expect(r.error).toMatch(/401|Invalid Authentication/)
+  })
+
+  it('returns ok=false on network error', async () => {
+    const failingFetch: typeof globalThis.fetch = (async () => {
+      throw new Error('fetch failed')
+    }) as unknown as typeof globalThis.fetch
+    const { probeLlm } = await import('./llm-client')
+    const r = await probeLlm('m', { fetch: failingFetch, maxRetries: 1 })
+    expect(r.ok).toBe(false)
+    expect(r.error).toMatch(/fetch failed/)
+  })
+})
+
 describe('llm-client — LlmClient wrapper', () => {
   it('inherits default opts and allows per-call overrides', async () => {
     const fetch = vi.fn(async () =>
