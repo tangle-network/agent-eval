@@ -599,8 +599,8 @@ export type {
 export { passOrthogonality } from './orthogonality'
 export type { OrthogonalityInput, OrthogonalityResult } from './orthogonality'
 
-export { bootstrapCi } from './promotion-gate'
-export type { Verdict, BootstrapResult, BootstrapOptions } from './promotion-gate'
+export { bootstrapCi, judgeReplayGate } from './promotion-gate'
+export type { Verdict, BootstrapResult, BootstrapOptions, JudgeReplayGateArgs } from './promotion-gate'
 
 export {
   buildReflectionPrompt,

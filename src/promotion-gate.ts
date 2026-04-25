@@ -157,3 +157,68 @@ function hashSeed(a: number[], b: number[]): number {
   }
   return h >>> 0
 }
+
+/**
+ * Judge-replay promotion gate.
+ *
+ * The cheap inner-loop judge that drives an evolution run is by definition
+ * fast and noisy. When you're about to promote a winning variant to the
+ * canonical default, you want a STRONGER judge (a more expensive model, a
+ * human grader, a separately-trained reward model) to confirm the win
+ * generalises beyond the inner loop.
+ *
+ * This helper takes raw winner + baseline outputs, scores both through the
+ * stronger judge, and applies `bootstrapCi`. ADVANCE means the stronger
+ * judge agrees the winner is real with the configured confidence. Doesn't
+ * matter what shape your "output" is — pass a string, an object, anything
+ * the judge can read.
+ */
+export interface JudgeReplayGateArgs<TOutput> {
+  baselineOutputs: TOutput[]
+  candidateOutputs: TOutput[]
+  /** Stronger judge — async to allow LLM calls. Return a 0..N scalar score. */
+  judge: (output: TOutput) => Promise<number> | number
+  alpha?: number
+  iterations?: number
+  /** RNG seed for reproducibility. */
+  seed?: number
+  /** Maximum concurrent judge calls. Default 4. */
+  judgeConcurrency?: number
+}
+
+export async function judgeReplayGate<TOutput>(
+  args: JudgeReplayGateArgs<TOutput>,
+): Promise<BootstrapResult & { baselineSamples: number; candidateSamples: number }> {
+  const concurrency = args.judgeConcurrency ?? 4
+  const baselineScores = await scoreAll(args.baselineOutputs, args.judge, concurrency)
+  const candidateScores = await scoreAll(args.candidateOutputs, args.judge, concurrency)
+  const ci = bootstrapCi(baselineScores, candidateScores, {
+    ...(args.alpha !== undefined ? { alpha: args.alpha } : {}),
+    ...(args.iterations !== undefined ? { iterations: args.iterations } : {}),
+    ...(args.seed !== undefined ? { seed: args.seed } : {}),
+  })
+  return {
+    ...ci,
+    baselineSamples: baselineScores.length,
+    candidateSamples: candidateScores.length,
+  }
+}
+
+async function scoreAll<TOutput>(
+  outputs: TOutput[],
+  judge: (output: TOutput) => Promise<number> | number,
+  concurrency: number,
+): Promise<number[]> {
+  const results: number[] = new Array(outputs.length)
+  let next = 0
+  async function worker(): Promise<void> {
+    while (true) {
+      const i = next++
+      if (i >= outputs.length) return
+      const v = await judge(outputs[i]!)
+      results[i] = Number.isFinite(v) ? v : 0
+    }
+  }
+  await Promise.all(Array.from({ length: Math.max(1, concurrency) }, () => worker()))
+  return results
+}
