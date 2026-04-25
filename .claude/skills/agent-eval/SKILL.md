@@ -5,9 +5,27 @@ description: Trace-first evaluation framework for code-generator + LLM-in-the-lo
 
 # agent-eval — usage directives
 
-**One authoritative doc.** `README.md`, `CLAUDE.md`, inline JSDoc all
-point here. The rules below were paid for in real bugs; skip one and
-the bug class reappears.
+**You're an agent writing integration code? Read this whole file.** Each rule below was paid for in a shipped bug; skip one and the bug class reappears.
+
+**You're a human onboarding?** Read [`docs/concepts.md`](../../../docs/concepts.md) first — 5-minute mental model — then come back. The rest of this file is dense by design (it's a footgun bible, not a tutorial).
+
+## Vocabulary you need before reading the rules
+
+| Term | Plain English |
+|---|---|
+| **Artifact** | The thing being judged. Often a workdir; sometimes text. |
+| **Snapshot** | Frozen view of an artifact (`files: Record<path,string>`). What judges read. |
+| **Harness** | Description of how to run the artifact: setupCommand, testCommand, cwd, timeoutMs. |
+| **Sandbox driver** | The thing that actually runs commands. `SubprocessSandboxDriver` runs locally. |
+| **Layer** | One stage of a verifier pipeline (install / typecheck / build / semantic / …). |
+| **Judge** | A function that scores one artifact. Some are LLM-backed, some deterministic. |
+| **Rubric** | Data describing what a judge scores on, with weights. |
+| **Trace store** | Append-only log of spans. `BuilderSession` writes here. |
+| **Composite score** | 0..1 number combining all dimensions — the gate value. |
+| **Muffled gate** | A check that should fail loud but silently passes. The most expensive bug class — see Footgun 1 and §Common bug classes. |
+| **L0 / L1 / L2** | Three layers of code-generator eval: agent session / app-build / app-runtime. |
+
+If a term below isn't in this table or in `docs/concepts.md`, that's a bug — file an issue.
 
 ---
 
