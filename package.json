@@ -1,6 +1,6 @@
 {
   "name": "@tangle-network/agent-eval",
-  "version": "0.11.0",
+  "version": "0.11.1",
   "description": "Trace-first evaluation framework for Tangle agents. Core (spans, pipelines, sandbox harness, OTLP export), trust (dataset, red-team, calibration, behavior DSL), builder-of-builders (three-layer eval, resumable sessions, meta-runtime correlation), and frontier (meta-eval correlation study, Process Reward Modeling, bisector).",
   "type": "module",
   "main": "./dist/index.js",

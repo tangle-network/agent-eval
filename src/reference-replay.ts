@@ -11,6 +11,7 @@ import { appendFileSync, existsSync, mkdirSync, readFileSync } from 'node:fs'
 import { dirname } from 'node:path'
 
 export type ReferenceReplaySplit = 'train' | 'dev' | 'test' | 'holdout'
+export type ReferenceReplayMatchStrategy = 'reference-order' | 'global-greedy'
 
 export interface ReferenceReplayItem {
   id: string
@@ -130,6 +131,7 @@ export type ReferenceReplayMatcher = (
 export interface ReferenceReplayScoreOptions {
   matcher?: ReferenceReplayMatcher
   matchThreshold?: number
+  matchStrategy?: ReferenceReplayMatchStrategy
   includeHoldout?: boolean
   splits?: ReferenceReplaySplit[]
 }
@@ -254,6 +256,7 @@ export async function runReferenceReplay<Input = unknown>(
     const scoreOptions: ReferenceReplayScoreOptions = {
       matcher: options.matcher,
       matchThreshold: options.matchThreshold,
+      matchStrategy: options.matchStrategy,
       includeHoldout: true,
     }
     const scenarioScore = scoreReferenceReplay([scenario], scoreOptions).scenarios[0]
@@ -274,6 +277,7 @@ export async function runReferenceReplay<Input = unknown>(
   const scoreOptions: ReferenceReplayScoreOptions = {
     matcher: options.matcher,
     matchThreshold: options.matchThreshold,
+    matchStrategy: options.matchStrategy,
     includeHoldout: true,
   }
   const run: ReferenceReplayRun<Input> = {
@@ -338,6 +342,7 @@ export function scoreReferenceReplay(
 ): ReferenceReplayScore {
   const matcher = options.matcher ?? defaultReferenceReplayMatcher
   const threshold = options.matchThreshold ?? DEFAULT_MATCH_THRESHOLD
+  const matchStrategy = options.matchStrategy ?? 'reference-order'
   const allowedSplits = new Set(options.splits ?? ALL_SPLITS)
   const scores = scenarios
     .filter((scenario) => {
@@ -345,7 +350,7 @@ export function scoreReferenceReplay(
       if (split === 'holdout' && !options.includeHoldout) return false
       return allowedSplits.has(split)
     })
-    .map((scenario) => scoreScenario(scenario, matcher, threshold))
+    .map((scenario) => scoreScenario(scenario, matcher, threshold, matchStrategy))
 
   return {
     scenarios: scores,
@@ -471,6 +476,17 @@ function scoreScenario(
   scenario: ReferenceReplayScenario,
   matcher: ReferenceReplayMatcher,
   threshold: number,
+  matchStrategy: ReferenceReplayMatchStrategy,
+): ReferenceReplayScenarioScore {
+  return matchStrategy === 'global-greedy'
+    ? scoreScenarioGlobalGreedy(scenario, matcher, threshold)
+    : scoreScenarioReferenceOrder(scenario, matcher, threshold)
+}
+
+function scoreScenarioReferenceOrder(
+  scenario: ReferenceReplayScenario,
+  matcher: ReferenceReplayMatcher,
+  threshold: number,
 ): ReferenceReplayScenarioScore {
   const candidatesLeft = scenario.candidates.map((candidate, index) => ({ candidate, index }))
   const matches: ReferenceReplayMatch[] = []
@@ -478,12 +494,9 @@ function scoreScenario(
   for (const reference of scenario.references) {
     let best: { candidate: ReferenceReplayCandidate; index: number; score: number; reason: string } | null = null
     for (const item of candidatesLeft) {
-      const result = matcher(reference, item.candidate, scenario)
-      if (!Number.isFinite(result.score)) {
-        throw new Error(`reference replay matcher returned non-finite score for ${scenario.id}:${reference.id}:${item.candidate.id}`)
-      }
+      const result = scorePair(scenario, matcher, reference, item.candidate)
       if (!best || result.score > best.score) {
-        best = { ...item, score: clamp01(result.score), reason: result.reason ?? '' }
+        best = { ...item, ...result }
       }
     }
 
@@ -513,9 +526,101 @@ function scoreScenario(
     }
   }
 
+  return buildScenarioScore(scenario, matches, candidatesLeft.length)
+}
+
+interface ReferenceCandidatePair {
+  referenceIndex: number
+  candidateIndex: number
+  reference: ReferenceReplayItem
+  candidate: ReferenceReplayCandidate
+  score: number
+  reason: string
+}
+
+function scoreScenarioGlobalGreedy(
+  scenario: ReferenceReplayScenario,
+  matcher: ReferenceReplayMatcher,
+  threshold: number,
+): ReferenceReplayScenarioScore {
+  const pairs: ReferenceCandidatePair[] = []
+  for (const [referenceIndex, reference] of scenario.references.entries()) {
+    for (const [candidateIndex, candidate] of scenario.candidates.entries()) {
+      pairs.push({
+        referenceIndex,
+        candidateIndex,
+        reference,
+        candidate,
+        ...scorePair(scenario, matcher, reference, candidate),
+      })
+    }
+  }
+
+  pairs.sort((a, b) =>
+    b.score - a.score ||
+    a.referenceIndex - b.referenceIndex ||
+    a.candidateIndex - b.candidateIndex
+  )
+
+  const selectedByReference = new Map<number, ReferenceCandidatePair>()
+  const selectedCandidates = new Set<number>()
+  for (const pair of pairs) {
+    if (pair.score < threshold) break
+    if (selectedByReference.has(pair.referenceIndex) || selectedCandidates.has(pair.candidateIndex)) continue
+    selectedByReference.set(pair.referenceIndex, pair)
+    selectedCandidates.add(pair.candidateIndex)
+  }
+
+  const matches = scenario.references.map((reference, referenceIndex) => {
+    const weight = reference.weight ?? 1
+    const selected = selectedByReference.get(referenceIndex)
+    if (selected) {
+      return {
+        scenarioId: scenario.id,
+        referenceId: reference.id,
+        candidateId: selected.candidate.id,
+        score: selected.score,
+        matched: true,
+        weight,
+        reason: selected.reason,
+      }
+    }
+
+    const bestRejected = pairs.find((pair) => pair.referenceIndex === referenceIndex)
+    return {
+      scenarioId: scenario.id,
+      referenceId: reference.id,
+      candidateId: bestRejected?.candidate.id ?? null,
+      score: bestRejected?.score ?? 0,
+      matched: false,
+      weight,
+      reason: bestRejected?.reason ?? 'no candidates',
+    }
+  })
+
+  return buildScenarioScore(scenario, matches, scenario.candidates.length - selectedCandidates.size)
+}
+
+function scorePair(
+  scenario: ReferenceReplayScenario,
+  matcher: ReferenceReplayMatcher,
+  reference: ReferenceReplayItem,
+  candidate: ReferenceReplayCandidate,
+): { score: number; reason: string } {
+  const result = matcher(reference, candidate, scenario)
+  if (!Number.isFinite(result.score)) {
+    throw new Error(`reference replay matcher returned non-finite score for ${scenario.id}:${reference.id}:${candidate.id}`)
+  }
+  return { score: clamp01(result.score), reason: result.reason ?? '' }
+}
+
+function buildScenarioScore(
+  scenario: ReferenceReplayScenario,
+  matches: ReferenceReplayMatch[],
+  falsePositives: number,
+): ReferenceReplayScenarioScore {
   const matched = matches.filter((match) => match.matched).length
   const total = scenario.references.length
-  const falsePositives = candidatesLeft.length
   const matchedWeight = matches.filter((match) => match.matched).reduce((sum, match) => sum + match.weight, 0)
   const totalWeight = matches.reduce((sum, match) => sum + match.weight, 0)
   const precision = ratio(matched, matched + falsePositives)

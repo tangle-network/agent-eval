@@ -596,5 +596,14 @@ export type {
   ReferenceReplayScoreOptions,
   ReferenceReplaySplit,
   ReferenceReplaySplitComparison,
+  ReferenceReplayMatchStrategy,
   ReferenceMatchResult,
 } from './reference-replay'
+
+export {
+  referenceReplayRunsToSteeringRows,
+  referenceReplayScenarioToRunScore,
+} from './reference-replay-steering'
+export type {
+  ReferenceReplaySteeringRowsOptions,
+} from './reference-replay-steering'
