@@ -10,8 +10,13 @@ import {
   runReferenceReplay,
   scoreReferenceReplay,
   type ReferenceReplayCase,
+  type ReferenceReplayMatcher,
   type ReferenceReplayScenario,
 } from '../src/reference-replay'
+import {
+  referenceReplayRunsToSteeringRows,
+  referenceReplayScenarioToRunScore,
+} from '../src/reference-replay-steering'
 
 describe('reference replay', () => {
   it('scores hidden references after execution and keeps unmatched candidates as false positives', () => {
@@ -82,6 +87,53 @@ describe('reference replay', () => {
         ],
       },
     ])
+
+    expect(score.scenarios[0].matched).toBe(1)
+    expect(score.scenarios[0].falsePositives).toBe(1)
+    expect(score.aggregate.precision).toBeCloseTo(0.5)
+  })
+
+  it('keeps reference-order matching as the default for compatibility', () => {
+    const score = scoreReferenceReplay([ambiguousMatchingScenario()], {
+      matcher: ambiguousMatcher,
+    })
+
+    expect(score.scenarios[0].matches.map((match) => [match.referenceId, match.candidateId, match.score])).toEqual([
+      ['r1', 'c1', 0.7],
+      ['r2', 'c2', 0.1],
+    ])
+    expect(score.scenarios[0].matched).toBe(1)
+    expect(score.scenarios[0].falsePositives).toBe(1)
+  })
+
+  it('supports global greedy matching by pair score for public-audit replay', () => {
+    const score = scoreReferenceReplay([ambiguousMatchingScenario()], {
+      matcher: ambiguousMatcher,
+      matchStrategy: 'global-greedy',
+    })
+
+    expect(score.scenarios[0].matches.map((match) => [match.referenceId, match.candidateId, match.score])).toEqual([
+      ['r1', 'c2', 0.6],
+      ['r2', 'c1', 0.95],
+    ])
+    expect(score.scenarios[0].matched).toBe(2)
+    expect(score.scenarios[0].falsePositives).toBe(0)
+  })
+
+  it('does not collapse duplicate candidate ids under global greedy matching', () => {
+    const score = scoreReferenceReplay([
+      {
+        id: 'case-1',
+        split: 'dev',
+        references: [{ id: 'r1', title: 'unsafe callback reentrancy' }],
+        candidates: [
+          { id: 'duplicate', title: 'unsafe callback reentrancy' },
+          { id: 'duplicate', title: 'button label alignment issue' },
+        ],
+      },
+    ], {
+      matchStrategy: 'global-greedy',
+    })
 
     expect(score.scenarios[0].matched).toBe(1)
     expect(score.scenarios[0].falsePositives).toBe(1)
@@ -308,6 +360,53 @@ describe('reference replay', () => {
     expect(decision.promote).toBe(false)
     expect(decision.reason).toBe('Regression in holdout')
   })
+
+  it('maps reference replay runs into steering rows for variant selection', async () => {
+    const run = await runReferenceReplay([
+      replayCase('dev-1', 'dev', true),
+      replayCase('dev-2', 'dev', false),
+    ], {
+      runId: 'variant-run',
+      variantId: 'variant-a',
+      adapter: adapterFromMatchedFlag(),
+    })
+
+    const rows = referenceReplayRunsToSteeringRows([run])
+
+    expect(rows).toHaveLength(2)
+    expect(rows[0].variantId).toBe('variant-a')
+    expect(rows[0].bundle.id).toBe('variant-a')
+    expect(rows[0].metadata).toMatchObject({
+      runId: 'variant-run',
+      split: 'dev',
+      matched: 1,
+      total: 1,
+      f1: 1,
+    })
+    expect(rows[0].score.success).toBe(1)
+    expect(rows[1].score.success).toBe(0)
+  })
+
+  it('converts reference replay scenario scores into run scores with precision and recall retained', () => {
+    const runScore = referenceReplayScenarioToRunScore({
+      scenarioId: 'case-1',
+      split: 'dev',
+      matched: 1,
+      total: 2,
+      falsePositives: 1,
+      matchedWeight: 1,
+      totalWeight: 2,
+      precision: 0.5,
+      recall: 0.5,
+      f1: 0.5,
+      matches: [],
+    }, 1234)
+
+    expect(runScore.success).toBe(0.5)
+    expect(runScore.goalProgress).toBe(0.5)
+    expect(runScore.repoGroundedness).toBe(0.5)
+    expect(runScore.wallSeconds).toBeCloseTo(1.234)
+  })
 })
 
 function scenario(id: string, split: ReferenceReplayScenario['split'], matched: boolean): ReferenceReplayScenario {
@@ -342,6 +441,31 @@ function adapterFromMatchedFlag() {
         : [{ id: 'c1', title: 'button label alignment issue', tags: ['ui'] }]
     },
   }
+}
+
+function ambiguousMatchingScenario(): ReferenceReplayScenario {
+  return {
+    id: 'ambiguous',
+    split: 'dev',
+    references: [
+      { id: 'r1', title: 'reference one' },
+      { id: 'r2', title: 'reference two' },
+    ],
+    candidates: [
+      { id: 'c1', title: 'candidate one' },
+      { id: 'c2', title: 'candidate two' },
+    ],
+  }
+}
+
+const ambiguousMatcher: ReferenceReplayMatcher = (reference, candidate) => {
+  const scores: Record<string, number> = {
+    'r1:c1': 0.7,
+    'r1:c2': 0.6,
+    'r2:c1': 0.95,
+    'r2:c2': 0.1,
+  }
+  return { score: scores[`${reference.id}:${candidate.id}`] ?? 0 }
 }
 
 function fixedClock(values: number[]) {
