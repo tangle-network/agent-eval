@@ -5,6 +5,8 @@ export default defineConfig({
     index: 'src/index.ts',
     'telemetry/index': 'src/telemetry/index.ts',
     'telemetry/file': 'src/telemetry/sink-file.ts',
+    'wire/index': 'src/wire/index.ts',
+    cli: 'src/cli.ts',
   },
   format: ['esm'],
   dts: true,
