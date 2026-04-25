@@ -60,17 +60,46 @@ export interface AdapterRun {
   result: LayerResult
 }
 
+export interface MergeOptions {
+  /**
+   * How to combine per-adapter `durationMs`. Default `'max'` (parallel
+   * wall-clock). Set `'sum'` when reporting total work done across
+   * adapters rather than wall time.
+   */
+  mergeDuration?: 'max' | 'sum'
+  /**
+   * Prefix finding messages with a per-adapter tag (e.g. `[pnpm] typecheck failed`).
+   * Default: no prefix (renderers read `detail.adapter` instead).
+   */
+  messagePrefixer?: (adapter: string) => string
+  /**
+   * How to reduce per-adapter `LayerResult.diagnostics` into the merged
+   * result's diagnostics. `'max'` (default) — for each key, merged =
+   * max across adapters where value is non-null (matches "if ANY adapter
+   * saw N errors, merged saw N"). `'sum'` — sum non-null values.
+   */
+  mergeDiagnostics?: 'max' | 'sum'
+}
+
 /**
  * Reduce N adapter runs to a single `LayerResult` for a logical layer.
  *
  *   - status: worst of the parts (pass < skipped < fail < timeout < error)
  *   - score: weighted mean of numeric scores (skip = no contribution)
- *   - findings: union, each tagged with `detail.adapter` so renderers
- *     can attribute back to pnpm vs npm vs cargo
- *   - durationMs: max of parts (parallel execution = wall = worst part)
- *   - reason: comma-joined "name: status" per adapter for one-line summary
+ *   - findings: union, each tagged with `detail.adapter`
+ *   - durationMs: `mergeDuration` option (default 'max' for parallel wall-clock)
+ *   - diagnostics: `mergeDiagnostics` option (default 'max' per key)
+ *   - reason: " · "-joined `name: status` per adapter
  */
-export function mergeLayerResults(name: string, perAdapter: AdapterRun[]): LayerResult {
+export function mergeLayerResults(
+  name: string,
+  perAdapter: AdapterRun[],
+  options: MergeOptions = {},
+): LayerResult {
+  const mergeDuration = options.mergeDuration ?? 'max'
+  const mergeDiagnostics = options.mergeDiagnostics ?? 'max'
+  const prefix = options.messagePrefixer
+
   if (perAdapter.length === 0) {
     return {
       layer: name,
@@ -88,6 +117,7 @@ export function mergeLayerResults(name: string, perAdapter: AdapterRun[]): Layer
       findings: only.result.findings.map((f) => ({
         ...f,
         layer: name,
+        message: prefix ? `${prefix(only.adapter)} ${f.message}` : f.message,
         detail: { ...(f.detail ?? {}), adapter: only.adapter },
       })),
       reason: only.result.reason ?? `${only.adapter}: ${only.result.status}`,
@@ -100,6 +130,7 @@ export function mergeLayerResults(name: string, perAdapter: AdapterRun[]): Layer
   const findings: LayerResult['findings'] = []
   let durationMs = 0
   const reasonParts: string[] = []
+  const diagnostics: Record<string, number | null> = {}
 
   for (const { adapter, result } of perAdapter) {
     status = worst(status, result.status)
@@ -107,14 +138,21 @@ export function mergeLayerResults(name: string, perAdapter: AdapterRun[]): Layer
       weightedScoreSum += result.score
       weightCount += 1
     }
-    durationMs = Math.max(durationMs, result.durationMs)
+    durationMs = mergeDuration === 'sum' ? durationMs + result.durationMs : Math.max(durationMs, result.durationMs)
     reasonParts.push(`${adapter}: ${result.status}`)
     for (const f of result.findings) {
       findings.push({
         ...f,
         layer: name,
+        message: prefix ? `${prefix(adapter)} ${f.message}` : f.message,
         detail: { ...(f.detail ?? {}), adapter },
       })
+    }
+    for (const [k, v] of Object.entries(result.diagnostics ?? {})) {
+      if (typeof v !== 'number' || !Number.isFinite(v)) continue
+      const prev = diagnostics[k]
+      if (prev == null) diagnostics[k] = v
+      else diagnostics[k] = mergeDiagnostics === 'sum' ? prev + v : Math.max(prev, v)
     }
   }
 
@@ -125,6 +163,7 @@ export function mergeLayerResults(name: string, perAdapter: AdapterRun[]): Layer
     durationMs,
     findings,
     reason: reasonParts.join(' · '),
+    diagnostics: Object.keys(diagnostics).length > 0 ? diagnostics : undefined,
     detail: {
       adapters: perAdapter.map(({ adapter, result }) => ({
         adapter,

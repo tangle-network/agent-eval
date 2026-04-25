@@ -51,6 +51,15 @@ export interface LayerResult {
   findings: Finding[]
   /** Short human-readable summary (one line). */
   reason?: string
+  /**
+   * Numeric layer-level diagnostics: error counts, warning counts,
+   * cyclomatic complexity, total adapter wall-time, etc. Keyed by
+   * diagnostic name; null = "diagnostic not applicable / not measured."
+   * Renderers that know the keys can display them; ones that don't,
+   * ignore. Free-form on purpose — consumers type the value shape in
+   * their own namespace. Added in 0.10.
+   */
+  diagnostics?: Record<string, number | null>
   /** Any rich per-layer detail — rendered as-is by consumers that know the layer. */
   detail?: Record<string, unknown>
 }

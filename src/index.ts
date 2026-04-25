@@ -468,8 +468,19 @@ export type {
 export { multiToolchainLayer, mergeLayerResults } from './multi-toolchain-layer'
 export type {
   AdapterRun,
+  MergeOptions,
   MultiToolchainLayerConfig,
 } from './multi-toolchain-layer'
+
+export { buildReviewerPrompt, createDefaultReviewer } from './reviewer'
+export type {
+  ReviewerMemoryEntry,
+  ReviewerVerificationSummary,
+  ReviewerPromptInput,
+  ReviewerOutput,
+  ReviewerSoftFailDefaults,
+  CreateDefaultReviewerOptions,
+} from './reviewer'
 export type {
   Layer,
   LayerResult,
