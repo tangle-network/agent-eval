@@ -563,6 +563,10 @@ export type {
 } from './error-count-extractor'
 
 export {
+  runReferenceReplay,
+  decideReferenceReplayRunPromotion,
+  inMemoryReferenceReplayStore,
+  jsonlReferenceReplayStore,
   scoreReferenceReplay,
   compareReferenceReplay,
   decideReferenceReplayPromotion,
@@ -570,12 +574,22 @@ export {
 } from './reference-replay'
 export type {
   ReferenceReplayAggregate,
+  ReferenceReplayAdapter,
+  ReferenceReplayAdapterFn,
+  ReferenceReplayAdapterLike,
+  ReferenceReplayCase,
+  ReferenceReplayCaseRun,
   ReferenceReplayCandidate,
+  ReferenceReplayExecutionScenario,
   ReferenceReplayItem,
   ReferenceReplayMatch,
   ReferenceReplayMatcher,
   ReferenceReplayPromotionDecision,
   ReferenceReplayPromotionPolicy,
+  ReferenceReplayRun,
+  ReferenceReplayRunContext,
+  ReferenceReplayRunOptions,
+  ReferenceReplayRunStore,
   ReferenceReplayScenario,
   ReferenceReplayScenarioScore,
   ReferenceReplayScore,

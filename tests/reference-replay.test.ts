@@ -1,7 +1,15 @@
 import { describe, expect, it } from 'vitest'
+import { mkdtempSync, rmSync } from 'node:fs'
+import { join } from 'node:path'
+import { tmpdir } from 'node:os'
 import {
+  decideReferenceReplayRunPromotion,
   decideReferenceReplayPromotion,
+  inMemoryReferenceReplayStore,
+  jsonlReferenceReplayStore,
+  runReferenceReplay,
   scoreReferenceReplay,
+  type ReferenceReplayCase,
   type ReferenceReplayScenario,
 } from '../src/reference-replay'
 
@@ -62,6 +70,36 @@ describe('reference replay', () => {
     expect(score.scenarios[0].falsePositives).toBe(1)
   })
 
+  it('does not collapse duplicate candidate ids when counting false positives', () => {
+    const score = scoreReferenceReplay([
+      {
+        id: 'case-1',
+        split: 'dev',
+        references: [{ id: 'r1', title: 'unsafe callback reentrancy' }],
+        candidates: [
+          { id: 'duplicate', title: 'unsafe callback reentrancy' },
+          { id: 'duplicate', title: 'button label alignment issue' },
+        ],
+      },
+    ])
+
+    expect(score.scenarios[0].matched).toBe(1)
+    expect(score.scenarios[0].falsePositives).toBe(1)
+    expect(score.aggregate.precision).toBeCloseTo(0.5)
+  })
+
+  it('rejects non-finite matcher scores', () => {
+    expect(() => scoreReferenceReplay([
+      {
+        id: 'case-1',
+        references: [{ id: 'r1', title: 'unsafe callback reentrancy' }],
+        candidates: [{ id: 'c1', title: 'unsafe callback reentrancy' }],
+      },
+    ], {
+      matcher: () => ({ score: Number.NaN }),
+    })).toThrow(/non-finite score/)
+  })
+
   it('promotes only when required splits improve and holdout does not regress', () => {
     const baseline = scoreReferenceReplay([
       scenario('dev-1', 'dev', false),
@@ -96,6 +134,180 @@ describe('reference replay', () => {
     expect(decision.promote).toBe(false)
     expect(decision.reason).toMatch(/Regression in holdout/)
   })
+
+  it('rejects promotion when required split coverage is missing from either side', () => {
+    const baseline = scoreReferenceReplay([
+      scenario('train-1', 'train', false),
+      scenario('holdout-1', 'holdout', true),
+    ], { includeHoldout: true })
+    const candidate = scoreReferenceReplay([
+      scenario('dev-1', 'dev', true),
+      scenario('holdout-1', 'holdout', true),
+    ], { includeHoldout: true })
+
+    const decision = decideReferenceReplayPromotion(baseline, candidate, {
+      requiredSplits: ['dev'],
+      requireHoldoutNonRegression: true,
+    })
+    expect(decision.promote).toBe(false)
+    expect(decision.reason).toBe('Required split missing from baseline or candidate: dev')
+  })
+
+  it('rejects promotion when holdout coverage is missing from either side', () => {
+    const baseline = scoreReferenceReplay([
+      scenario('dev-1', 'dev', false),
+    ], { includeHoldout: true })
+    const candidate = scoreReferenceReplay([
+      scenario('dev-1', 'dev', true),
+      scenario('holdout-1', 'holdout', true),
+    ], { includeHoldout: true })
+
+    const decision = decideReferenceReplayPromotion(baseline, candidate, {
+      requiredSplits: ['dev'],
+      requireHoldoutNonRegression: true,
+    })
+    expect(decision.promote).toBe(false)
+    expect(decision.reason).toBe('Holdout split is required for promotion')
+  })
+
+  it('runs adapters without exposing hidden references and persists full run records', async () => {
+    const seen: unknown[] = []
+    const store = inMemoryReferenceReplayStore<string>()
+    const replayCases: ReferenceReplayCase<string>[] = [{
+      id: 'case-1',
+      split: 'dev',
+      input: 'audit repo acme/vault',
+      references: [{ id: 'r1', title: 'unchecked withdrawal authorization', tags: ['auth'] }],
+      metadata: { repo: 'acme/vault' },
+    }]
+
+    const run = await runReferenceReplay(replayCases, {
+      runId: 'run-1',
+      variantId: 'candidate-a',
+      store,
+      adapter: {
+        async run(executionScenario) {
+          seen.push(executionScenario)
+          return [{ id: 'c1', title: 'withdrawal authorization is unchecked', tags: ['auth'] }]
+        },
+      },
+      now: fixedClock([1000, 1010, 1020, 1030]),
+    })
+
+    expect(seen).toEqual([{
+      id: 'case-1',
+      split: 'dev',
+      input: 'audit repo acme/vault',
+      metadata: { repo: 'acme/vault' },
+    }])
+    expect(run.id).toBe('run-1')
+    expect(run.score.aggregate.matched).toBe(1)
+    expect(run.cases[0].references).toEqual(replayCases[0].references)
+    expect(await store.list()).toEqual([run])
+  })
+
+  it('records adapter failures as scored misses when continueOnError is enabled', async () => {
+    const run = await runReferenceReplay([{
+      id: 'case-1',
+      split: 'dev',
+      input: { repo: 'acme/vault' },
+      references: [{ id: 'r1', title: 'oracle accepts stale prices' }],
+    }], {
+      runId: 'run-errors',
+      continueOnError: true,
+      adapter: {
+        async run() {
+          throw new Error('sandbox exited')
+        },
+      },
+    })
+
+    expect(run.cases[0].error).toBe('sandbox exited')
+    expect(run.score.aggregate.matched).toBe(0)
+    expect(run.score.aggregate.total).toBe(1)
+  })
+
+  it('round-trips run records through jsonl storage', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'reference-replay-'))
+    try {
+      const store = jsonlReferenceReplayStore<string>(join(dir, 'runs.jsonl'))
+      const run = await runReferenceReplay([{
+        id: 'case-1',
+        split: 'dev',
+        input: 'audit repo',
+        references: [{ id: 'r1', title: 'reentrancy in callback' }],
+      }], {
+        runId: 'jsonl-run',
+        store,
+        adapter: {
+          async run() {
+            return [{ id: 'c1', title: 'callback reentrancy' }]
+          },
+        },
+      })
+
+      expect(await store.list()).toEqual([run])
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  it('accepts function adapters for simple runners', async () => {
+    const run = await runReferenceReplay([{
+      id: 'case-1',
+      split: 'dev',
+      input: 'audit repo',
+      references: [{ id: 'r1', title: 'reentrancy in callback' }],
+    }], {
+      runId: 'function-adapter',
+      adapter: async () => [{ id: 'c1', title: 'callback reentrancy' }],
+    })
+
+    expect(run.score.aggregate.matched).toBe(1)
+  })
+
+  it('does not convert aborts into scored misses', async () => {
+    const controller = new AbortController()
+    controller.abort(new Error('stop replay'))
+
+    await expect(runReferenceReplay([{
+      id: 'case-1',
+      split: 'dev',
+      input: 'audit repo',
+      references: [{ id: 'r1', title: 'reentrancy in callback' }],
+    }], {
+      runId: 'aborted',
+      continueOnError: true,
+      abortSignal: controller.signal,
+      adapter: async () => [{ id: 'c1', title: 'callback reentrancy' }],
+    })).rejects.toThrow('stop replay')
+  })
+
+  it('compares stored runs for promotion decisions', async () => {
+    const baseline = await runReferenceReplay([
+      replayCase('dev-1', 'dev', false),
+      replayCase('holdout-1', 'holdout', true),
+    ], {
+      runId: 'baseline',
+      includeHoldout: true,
+      adapter: adapterFromMatchedFlag(),
+    })
+    const candidate = await runReferenceReplay([
+      replayCase('dev-1', 'dev', true),
+      replayCase('holdout-1', 'holdout', false),
+    ], {
+      runId: 'candidate',
+      includeHoldout: true,
+      adapter: adapterFromMatchedFlag(),
+    })
+
+    const decision = decideReferenceReplayRunPromotion(baseline, candidate, {
+      requiredSplits: ['dev'],
+      requireHoldoutNonRegression: true,
+    })
+    expect(decision.promote).toBe(false)
+    expect(decision.reason).toBe('Regression in holdout')
+  })
 })
 
 function scenario(id: string, split: ReferenceReplayScenario['split'], matched: boolean): ReferenceReplayScenario {
@@ -107,4 +319,32 @@ function scenario(id: string, split: ReferenceReplayScenario['split'], matched: 
       ? [{ id: 'c1', title: 'unchecked transfer lets admin drain funds', tags: ['auth'] }]
       : [{ id: 'c1', title: 'button label alignment issue', tags: ['ui'] }],
   }
+}
+
+function replayCase(
+  id: string,
+  split: ReferenceReplayCase<{ matched: boolean }>['split'],
+  matched: boolean,
+): ReferenceReplayCase<{ matched: boolean }> {
+  return {
+    id,
+    split,
+    input: { matched },
+    references: [{ id: 'r1', title: 'admin can drain funds through unchecked transfer', tags: ['auth'] }],
+  }
+}
+
+function adapterFromMatchedFlag() {
+  return {
+    async run(testCase: { input: { matched: boolean } }) {
+      return testCase.input.matched
+        ? [{ id: 'c1', title: 'unchecked transfer lets admin drain funds', tags: ['auth'] }]
+        : [{ id: 'c1', title: 'button label alignment issue', tags: ['ui'] }]
+    },
+  }
+}
+
+function fixedClock(values: number[]) {
+  let index = 0
+  return () => values[Math.min(index++, values.length - 1)]
 }
