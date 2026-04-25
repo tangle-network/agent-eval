@@ -1,0 +1,190 @@
+/**
+ * Reflective mutation — primitives for trace-conditioned prompt rewriting.
+ *
+ * Used by `prompt-evolution.ts` (and any consumer running iterative
+ * improvement). Given a parent prompt + concrete trace evidence (top trials,
+ * bottom trials, missed expectations), produce an LLM-ready prompt that
+ * proposes targeted mutations — not blind rephrasings.
+ *
+ * Why this lives outside `prompt-evolution.ts`: any consumer that wants to
+ * run reflective rewriting WITHOUT the population/Pareto machinery can
+ * import these primitives directly.
+ *
+ * Quality bar (vs. naive "mutate this prompt"):
+ *   - Show parent ↔ children diff, not just one variant
+ *   - Quote specific missed goldens with their match phrases
+ *   - Surface the model's actual emitted output side-by-side with what was expected
+ *   - Quote concrete mutation primitives so the model has a vocabulary
+ */
+
+export interface TrialTrace {
+  /** Stable id for the trial — surfaces in the prompt for grounding. */
+  id: string
+  /** Score the trial received on its primary metric. */
+  score: number
+  /** Candidate inputs the agent was given (e.g., the fixture or scenario). */
+  inputName?: string
+  /**
+   * Goldens / expectations this trial was tested against, with whether each
+   * was matched. The reflection prompt quotes the missed ones specifically.
+   */
+  expectations?: Array<{ id: string; phrase: string; matched: boolean }>
+  /** Free-form text — what the agent actually emitted (e.g., findings, plan). */
+  emitted?: string
+  /** Optional structured metrics (recall, precision, cost, latency). */
+  metrics?: Record<string, number>
+}
+
+export interface ReflectionContext {
+  /** What is being mutated — appears in the system prompt for orientation. */
+  target: string
+  /** Current variant's payload — JSON-serialised for the prompt. */
+  parentPayload: unknown
+  /** Best-performing trials this generation. */
+  topTrials: TrialTrace[]
+  /** Worst-performing trials this generation — the missed-golden source. */
+  bottomTrials: TrialTrace[]
+  /** How many children the mutator should propose. */
+  childCount: number
+  /** Optional: domain-specific mutation primitives the model can pick from. */
+  mutationPrimitives?: string[]
+}
+
+export const DEFAULT_MUTATION_PRIMITIVES: string[] = [
+  'Strengthen an imperative ("should" → "must")',
+  'Add a concrete example pulled from a missed-golden phrase',
+  'Remove a redundant rule that did not improve recall',
+  'Add a counterfactual ("if X is missing, the score is capped at Y")',
+  'Reorder sections so the highest-impact rule is first',
+  'Replace abstract language with a domain-specific noun the trial misses',
+]
+
+/**
+ * Build the LLM-ready reflection prompt. Output is plain text — pass it as
+ * the user message. The system message should be small and stable (e.g.
+ * "Output ONLY a JSON object matching the schema below.").
+ */
+export function buildReflectionPrompt(ctx: ReflectionContext): string {
+  const primitives = ctx.mutationPrimitives ?? DEFAULT_MUTATION_PRIMITIVES
+  const sections: string[] = []
+
+  sections.push(`# Mutation target: ${ctx.target}`)
+  sections.push('')
+  sections.push(`You are tuning the prompt component named \`${ctx.target}\`. The current variant is shown below; you have ${ctx.topTrials.length} top trials and ${ctx.bottomTrials.length} bottom trials as evidence. Propose ${ctx.childCount} mutation${ctx.childCount === 1 ? '' : 's'} that fix specific weaknesses visible in the bottom trials. Avoid blank rephrasings.`)
+  sections.push('')
+
+  sections.push('## Current variant')
+  sections.push('```json')
+  sections.push(JSON.stringify(ctx.parentPayload, null, 2))
+  sections.push('```')
+  sections.push('')
+
+  if (ctx.bottomTrials.length > 0) {
+    sections.push('## Failures (bottom trials) — what went wrong')
+    sections.push('')
+    for (const trial of ctx.bottomTrials) {
+      sections.push(`### Trial \`${trial.id}\` — score ${trial.score.toFixed(2)}${trial.inputName ? ` (${trial.inputName})` : ''}`)
+      const missed = (trial.expectations ?? []).filter((e) => !e.matched)
+      if (missed.length > 0) {
+        sections.push('')
+        sections.push('**Missed expectations:**')
+        for (const m of missed) {
+          sections.push(`- \`${m.id}\`: should match phrase \`${quote(m.phrase)}\``)
+        }
+      }
+      if (trial.emitted) {
+        sections.push('')
+        sections.push('**What the agent emitted:**')
+        sections.push('```')
+        sections.push(truncate(trial.emitted, 600))
+        sections.push('```')
+      }
+      sections.push('')
+    }
+  }
+
+  if (ctx.topTrials.length > 0) {
+    sections.push('## Successes (top trials) — what to preserve')
+    sections.push('')
+    for (const trial of ctx.topTrials) {
+      sections.push(`- \`${trial.id}\`: score ${trial.score.toFixed(2)}${trial.inputName ? ` (${trial.inputName})` : ''}`)
+    }
+    sections.push('')
+  }
+
+  sections.push('## Allowed mutation primitives')
+  sections.push('')
+  for (const p of primitives) sections.push(`- ${p}`)
+  sections.push('')
+
+  sections.push('## Output schema')
+  sections.push('')
+  sections.push('Respond with a JSON object — no prose, no markdown fences:')
+  sections.push('```json')
+  sections.push(JSON.stringify(
+    {
+      proposals: [
+        {
+          label: '<short label, ≤ 40 chars>',
+          rationale: '<which failure this targets and which primitive you used>',
+          payload: '<full payload of the new variant — same shape as the current variant>',
+        },
+      ],
+    },
+    null,
+    2,
+  ))
+  sections.push('```')
+
+  return sections.join('\n')
+}
+
+function truncate(s: string, max: number): string {
+  if (s.length <= max) return s
+  return s.slice(0, max) + '… [truncated]'
+}
+
+function quote(s: string): string {
+  return s.replace(/`/g, '\\`')
+}
+
+export interface ReflectionProposal {
+  label: string
+  rationale: string
+  payload: unknown
+}
+
+/**
+ * Parse the model's JSON response back into proposals. Tolerates markdown
+ * fences and surrounding prose. Returns at most `maxProposals`.
+ */
+export function parseReflectionResponse(raw: string, maxProposals?: number): ReflectionProposal[] {
+  let text = raw.trim()
+  if (text.startsWith('```')) text = text.replace(/^```(?:json)?\n?/, '').replace(/\n?```$/, '')
+  const start = text.indexOf('{')
+  const end = text.lastIndexOf('}')
+  if (start < 0 || end <= start) return []
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(text.slice(start, end + 1))
+  } catch {
+    return []
+  }
+  if (!parsed || typeof parsed !== 'object') return []
+  const proposalsRaw = (parsed as { proposals?: unknown }).proposals
+  if (!Array.isArray(proposalsRaw)) return []
+
+  const out: ReflectionProposal[] = []
+  for (const p of proposalsRaw) {
+    if (!p || typeof p !== 'object') continue
+    const obj = p as { label?: unknown; rationale?: unknown; payload?: unknown }
+    if (!('payload' in obj)) continue
+    out.push({
+      label: typeof obj.label === 'string' ? obj.label : 'mutation',
+      rationale: typeof obj.rationale === 'string' ? obj.rationale : '',
+      payload: obj.payload,
+    })
+    if (maxProposals !== undefined && out.length >= maxProposals) break
+  }
+  return out
+}
