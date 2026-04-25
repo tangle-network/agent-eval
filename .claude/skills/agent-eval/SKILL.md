@@ -295,10 +295,44 @@ fork it. Canonical primitives:
 | Budget tokens/$ | `BudgetGuard`, `CostTracker` |
 | Track completion over turns | `ConvergenceTracker` |
 | Export traces | OTLP export via `observability` / trace store |
+| Call an LLM with retry + graceful json-schema degrade | `callLlm`, `callLlmJson`, `LlmClient`, `probeLlm` (0.8+) |
+| Fence-strip json response from models that wrap output | `stripFencedJson` (0.8+) |
+| Run a multi-layer verification pipeline (install → typecheck → build → …) | `MultiLayerVerifier` (0.8+) |
+| Grade a semantic-concept pass threshold (score + critical-gap veto) | `gradeSemanticStatus` (0.8+) |
+| Ask an LLM "did the artifact implement the asked-for concepts?" | `runSemanticConceptJudge`, `createSemanticConceptJudge` (0.8+) |
+| Cheap keyword + element coverage on served HTML | `runKeywordCoverageJudge`, `runKeywordCoverageJudgeUrl` (0.8.2+) |
+| Count compiler/runtime errors from stderr (tsc, pytest, cargo, go, eslint) | `extractErrorCount` + `ERROR_COUNT_PATTERNS` (0.8+) |
+| Abstract subprocess + fs surface (local vs sandbox) | `CommandRunner`, `localCommandRunner` (0.9+) |
+| Run one logical layer across N parallel toolchains + merge | `multiToolchainLayer`, `mergeLayerResults` (0.9+) |
 
 Don't build a "my-project-eval-runner.ts". If something you need isn't
 here, the PR that adds it to agent-eval is more valuable than a local
 copy that will drift.
+
+### 0.8 / 0.9 extraction history
+
+The table above grew from a measured dedup campaign across VerticalBench
+(`blueprint-agent/scripts/experiments/lib/*`). Gen 45 added the
+LLM/verifier/judge primitives (0.8.x); Gen 46 added `CommandRunner` +
+`multiToolchainLayer` (0.9.0). Consumers that previously shipped their
+own versions of these should check this table before adding new
+"my-project-*" modules.
+
+Two extractions are intentionally NOT here yet (deferred to a future
+generation that does the architectural design first):
+
+- **A default reviewer implementation** for `propose-review`'s
+  `ReviewFn` slot. `propose-review` ships the whole loop
+  (propose + verify + review + memory); it does NOT yet ship a
+  prebuilt reviewer. VerticalBench has one (`shot-reviewer.ts`) —
+  when the upstream primitive lands, callers plug it into
+  `ProposeReviewConfig.review`.
+
+- **A toolchain-flavored `mergeLayerResults` extension** that supports
+  per-layer numeric diagnostics (`layerErrorCount`) and customizable
+  finding-message formatting. The 0.9 primitive is cleaner than most
+  consumers need; VerticalBench keeps its own flavor today because
+  the upstream lacks per-toolchain error-count propagation.
 
 ---
 
