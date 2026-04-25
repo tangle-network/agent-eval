@@ -561,3 +561,26 @@ export type {
   ExtractOptions,
   ExtractResult,
 } from './error-count-extractor'
+
+export {
+  scoreReferenceReplay,
+  compareReferenceReplay,
+  decideReferenceReplayPromotion,
+  defaultReferenceReplayMatcher,
+} from './reference-replay'
+export type {
+  ReferenceReplayAggregate,
+  ReferenceReplayCandidate,
+  ReferenceReplayItem,
+  ReferenceReplayMatch,
+  ReferenceReplayMatcher,
+  ReferenceReplayPromotionDecision,
+  ReferenceReplayPromotionPolicy,
+  ReferenceReplayScenario,
+  ReferenceReplayScenarioScore,
+  ReferenceReplayScore,
+  ReferenceReplayScoreOptions,
+  ReferenceReplaySplit,
+  ReferenceReplaySplitComparison,
+  ReferenceMatchResult,
+} from './reference-replay'
