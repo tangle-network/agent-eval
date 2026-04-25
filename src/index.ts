@@ -562,6 +562,53 @@ export type {
   ExtractResult,
 } from './error-count-extractor'
 
+// ── 0.11.x: reference replay (from main) ─────────────────────────────
+export {
+  runReferenceReplay,
+  decideReferenceReplayRunPromotion,
+  inMemoryReferenceReplayStore,
+  jsonlReferenceReplayStore,
+  scoreReferenceReplay,
+  compareReferenceReplay,
+  decideReferenceReplayPromotion,
+  defaultReferenceReplayMatcher,
+} from './reference-replay'
+export type {
+  ReferenceReplayAggregate,
+  ReferenceReplayAdapter,
+  ReferenceReplayAdapterFn,
+  ReferenceReplayAdapterLike,
+  ReferenceReplayCase,
+  ReferenceReplayCaseRun,
+  ReferenceReplayCandidate,
+  ReferenceReplayExecutionScenario,
+  ReferenceReplayItem,
+  ReferenceReplayMatch,
+  ReferenceReplayMatcher,
+  ReferenceReplayPromotionDecision,
+  ReferenceReplayPromotionPolicy,
+  ReferenceReplayRun,
+  ReferenceReplayRunContext,
+  ReferenceReplayRunOptions,
+  ReferenceReplayRunStore,
+  ReferenceReplayScenario,
+  ReferenceReplayScenarioScore,
+  ReferenceReplayScore,
+  ReferenceReplayScoreOptions,
+  ReferenceReplaySplit,
+  ReferenceReplaySplitComparison,
+  ReferenceReplayMatchStrategy,
+  ReferenceMatchResult,
+} from './reference-replay'
+
+export {
+  referenceReplayRunsToSteeringRows,
+  referenceReplayScenarioToRunScore,
+} from './reference-replay-steering'
+export type {
+  ReferenceReplaySteeringRowsOptions,
+} from './reference-replay-steering'
+
 // ── 0.12.0: prompt evolution + golden matcher + orthogonality + promotion-gate ──
 export {
   runPromptEvolution,
