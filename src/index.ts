@@ -561,3 +561,57 @@ export type {
   ExtractOptions,
   ExtractResult,
 } from './error-count-extractor'
+
+// ── 0.12.0: prompt evolution + golden matcher + orthogonality + promotion-gate ──
+export {
+  runPromptEvolution,
+  InMemoryTrialCache,
+} from './prompt-evolution'
+export type {
+  // The 0.11.x `PromptVariant` is a single-shot pairwise-optimiser shape from
+  // prompt-optimizer.ts. The 0.12.x `EvolvableVariant` is the population-based
+  // shape (carries generation lineage). They're intentionally distinct types.
+  PromptVariant as EvolvableVariant,
+  TrialResult as PromptTrialResult,
+  ScenarioAggregate,
+  VariantAggregate,
+  ScoreAdapter,
+  MutateAdapter,
+  PromptEvolutionConfig,
+  PromptEvolutionEvent,
+  GenerationReport,
+  PromptEvolutionResult,
+  TrialCache,
+} from './prompt-evolution'
+
+export {
+  matchGoldens,
+  weightedRecall,
+  precision as goldenPrecision,
+  DEFAULT_SEVERITY_WEIGHTS,
+} from './golden-matcher'
+export type {
+  GoldenSpec,
+  GoldenSeverity,
+  MatchResult,
+} from './golden-matcher'
+
+export { passOrthogonality } from './orthogonality'
+export type { OrthogonalityInput, OrthogonalityResult } from './orthogonality'
+
+export { bootstrapCi } from './promotion-gate'
+export type { Verdict, BootstrapResult, BootstrapOptions } from './promotion-gate'
+
+export {
+  buildReflectionPrompt,
+  parseReflectionResponse,
+  DEFAULT_MUTATION_PRIMITIVES,
+} from './reflective-mutation'
+export type {
+  TrialTrace,
+  ReflectionContext,
+  ReflectionProposal,
+} from './reflective-mutation'
+
+// Pareto extensions (paretoFrontier + dominates already exported above)
+export { scalarScore, crowdingDistance, paretoFrontierWithCrowding } from './pareto'

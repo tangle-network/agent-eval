@@ -1,0 +1,58 @@
+import { describe, it, expect } from 'vitest'
+import { bootstrapCi } from '../src/index'
+
+describe('bootstrapCi', () => {
+  it('returns INCONCLUSIVE when sample count is below threshold', () => {
+    const r = bootstrapCi([1, 2], [3], { minTotalSamples: 6 })
+    expect(r.verdict).toBe('INCONCLUSIVE')
+    expect(r.iterations).toBe(0)
+  })
+
+  it('returns INCONCLUSIVE when one side is empty', () => {
+    const r = bootstrapCi([], [1, 2, 3], {})
+    expect(r.verdict).toBe('INCONCLUSIVE')
+  })
+
+  it('detects clear wins as ADVANCE', () => {
+    const baseline = [5, 5, 5, 5, 5, 5, 5, 5]
+    const candidate = [9, 9, 9, 9, 9, 9, 9, 9]
+    const r = bootstrapCi(baseline, candidate, { iterations: 500, seed: 42 })
+    expect(r.verdict).toBe('ADVANCE')
+    expect(r.delta).toBe(4)
+    expect(r.ciLower).toBeGreaterThan(0)
+  })
+
+  it('detects clear regressions as REVERT', () => {
+    const baseline = [9, 9, 9, 9, 9, 9, 9, 9]
+    const candidate = [5, 5, 5, 5, 5, 5, 5, 5]
+    const r = bootstrapCi(baseline, candidate, { iterations: 500, seed: 42 })
+    expect(r.verdict).toBe('REVERT')
+    expect(r.ciUpper).toBeLessThan(0)
+  })
+
+  it('returns KEEP for neutral overlapping distributions', () => {
+    const baseline = [5, 6, 5, 6, 5, 6, 5, 6]
+    const candidate = [5, 6, 5, 6, 5, 6, 5, 6]
+    const r = bootstrapCi(baseline, candidate, { iterations: 500, seed: 1 })
+    // Verdict depends on tiny numerical jitter — accept KEEP or INCONCLUSIVE
+    expect(['KEEP', 'INCONCLUSIVE']).toContain(r.verdict)
+  })
+
+  it('is deterministic given the same seed', () => {
+    const baseline = [5, 6, 7, 8]
+    const candidate = [6, 7, 8, 9]
+    const r1 = bootstrapCi(baseline, candidate, { iterations: 200, seed: 12345 })
+    const r2 = bootstrapCi(baseline, candidate, { iterations: 200, seed: 12345 })
+    expect(r1.ciLower).toBe(r2.ciLower)
+    expect(r1.ciUpper).toBe(r2.ciUpper)
+    expect(r1.verdict).toBe(r2.verdict)
+  })
+
+  it('respects alpha — wider CI at smaller alpha', () => {
+    const baseline = [3, 4, 5, 6, 7, 8]
+    const candidate = [4, 5, 6, 7, 8, 9]
+    const r95 = bootstrapCi(baseline, candidate, { iterations: 500, alpha: 0.05, seed: 1 })
+    const r99 = bootstrapCi(baseline, candidate, { iterations: 500, alpha: 0.01, seed: 1 })
+    expect(r99.ciUpper - r99.ciLower).toBeGreaterThanOrEqual(r95.ciUpper - r95.ciLower)
+  })
+})
