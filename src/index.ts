@@ -104,6 +104,10 @@ export type {
 
 export { ExperimentTracker, InMemoryExperimentStore } from './experiment-tracker'
 export type { Experiment, ExperimentStore, Run as ExperimentRun, RunConfig, RunDiff } from './experiment-tracker'
+export { FileSystemExperimentStore } from './experiment-tracker-fs'
+export type { FileSystemExperimentStoreOptions } from './experiment-tracker-fs'
+export { D1ExperimentStore } from './experiment-tracker-d1'
+export type { D1ExperimentStoreOptions, D1Like, D1PreparedStatementLike } from './experiment-tracker-d1'
 
 export { PromptOptimizer } from './prompt-optimizer'
 export type {
