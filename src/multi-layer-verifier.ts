@@ -34,6 +34,12 @@ export interface Finding {
   evidence?: string
   /** Optional layer name the finding belongs to (set by the verifier if omitted). */
   layer?: string
+  /**
+   * Free-form structured payload — used by `multiToolchainLayer` to attach
+   * `{ adapter: 'pnpm' }`, by judges to attach evidence pointers, etc.
+   * Renderers MAY interrogate; agent-eval primitives never assume shape.
+   */
+  detail?: Record<string, unknown>
 }
 
 export interface LayerResult {

@@ -456,6 +456,20 @@ export {
   MultiLayerVerifier,
   gradeSemanticStatus,
 } from './multi-layer-verifier'
+
+export { localCommandRunner } from './command-runner'
+export type {
+  CommandRunner,
+  RunCommandInput,
+  RunCommandResult,
+  DirEntry,
+} from './command-runner'
+
+export { multiToolchainLayer, mergeLayerResults } from './multi-toolchain-layer'
+export type {
+  AdapterRun,
+  MultiToolchainLayerConfig,
+} from './multi-toolchain-layer'
 export type {
   Layer,
   LayerResult,
