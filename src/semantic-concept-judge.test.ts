@@ -121,6 +121,80 @@ describe('semantic-concept-judge', () => {
     expect(r.error).toMatch(/no expected concepts/)
   })
 
+  it('weightConcepts: complexity weights integrate concepts higher than render', async () => {
+    const fetch = mockFetch([
+      {
+        summary: 's',
+        concepts: [
+          // Render concept: high score
+          { concept: 'mint button', present: true, score: 10, evidence: 'e', severity: 'info' },
+          // Integrate concept: low score
+          { concept: 'wallet connect', present: false, score: 0, evidence: 'e', severity: 'critical' },
+        ],
+      },
+    ])
+    const r = await runSemanticConceptJudge(
+      {
+        ...BASE_INPUT,
+        expectedConcepts: [
+          { name: 'mint button', complexity: 'render' },
+          { name: 'wallet connect', complexity: 'integrate' },
+        ],
+      },
+      { llm: { fetch }, weightConcepts: 'complexity' },
+    )
+    // weighted: (1.0*10 + 2.0*0) / (1.0 + 2.0) = 10/3 = 3.33 → /10 = 0.333
+    expect(r.score).toBeCloseTo(0.333, 2)
+  })
+
+  it('weightConcepts: mean (default) gives equal weight (preserves 0.10 behavior)', async () => {
+    const fetch = mockFetch([
+      {
+        summary: 's',
+        concepts: [
+          { concept: 'mint button', present: true, score: 10, evidence: 'e', severity: 'info' },
+          { concept: 'wallet connect', present: false, score: 0, evidence: 'e', severity: 'critical' },
+        ],
+      },
+    ])
+    const r = await runSemanticConceptJudge(
+      {
+        ...BASE_INPUT,
+        expectedConcepts: [
+          { name: 'mint button', complexity: 'render' },
+          { name: 'wallet connect', complexity: 'integrate' },
+        ],
+      },
+      { llm: { fetch } },
+    )
+    // mean: (10+0)/2 = 5 → /10 = 0.5
+    expect(r.score).toBeCloseTo(0.5, 2)
+  })
+
+  it('weightConcepts: explicit weight overrides complexity-derived weight', async () => {
+    const fetch = mockFetch([
+      {
+        summary: 's',
+        concepts: [
+          { concept: 'a', present: true, score: 10, evidence: 'e', severity: 'info' },
+          { concept: 'b', present: true, score: 0, evidence: 'e', severity: 'info' },
+        ],
+      },
+    ])
+    const r = await runSemanticConceptJudge(
+      {
+        ...BASE_INPUT,
+        expectedConcepts: [
+          { name: 'a', complexity: 'render', weight: 5 },
+          { name: 'b', complexity: 'integrate', weight: 1 },
+        ],
+      },
+      { llm: { fetch }, weightConcepts: 'complexity' },
+    )
+    // (5*10 + 1*0) / (5 + 1) = 50/6 = 8.33 → /10 = 0.833
+    expect(r.score).toBeCloseTo(0.833, 2)
+  })
+
   it('createSemanticConceptJudge factory — closure over options', async () => {
     const fetch = mockFetch([
       {

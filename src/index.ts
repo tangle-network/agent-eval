@@ -496,7 +496,39 @@ export {
   runSemanticConceptJudge,
   createSemanticConceptJudge,
   SEMANTIC_CONCEPT_JUDGE_VERSION,
+  DEFAULT_COMPLEXITY_WEIGHTS,
 } from './semantic-concept-judge'
+
+export {
+  runIntentMatchJudge,
+  createIntentMatchJudge,
+  INTENT_MATCH_JUDGE_VERSION,
+} from './intent-match-judge'
+export type {
+  IntentMatchInput,
+  IntentMatchResult,
+  IntentMatchOptions,
+} from './intent-match-judge'
+
+export { flowLayer } from './flow-layer'
+export type {
+  FlowAction,
+  FlowStep,
+  FlowSpec,
+  FlowRunner,
+  FlowRunnerStepResult,
+  FlowLayerEnv,
+  FlowLayerFactoryInput,
+} from './flow-layer'
+
+export { deployGateLayer, viteDeployRunner } from './deploy-gate-layer'
+export type {
+  DeployFamily,
+  DeployRunResult,
+  DeployRunner,
+  DeployGateLayerInput,
+  ViteDeployRunnerInput,
+} from './deploy-gate-layer'
 
 export {
   runKeywordCoverageJudge,
@@ -513,6 +545,8 @@ export type {
 export type {
   ConceptSpec,
   ConceptFinding,
+  ConceptComplexity,
+  ConceptWeightStrategy,
   SemanticConceptJudgeInput,
   SemanticConceptJudgeResult,
   SemanticConceptJudgeOptions,

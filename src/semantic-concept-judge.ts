@@ -24,12 +24,37 @@ import type { Severity } from './multi-layer-verifier'
 
 // ─── Types ──────────────────────────────────────────────────────────────
 
+/**
+ * Implementation complexity class for weighted scoring (added 0.11).
+ *
+ * - `render` (default): the concept is a UI surface that displays static
+ *   data — render a list, show a counter, lay out a button. Single-file
+ *   work, no external integration.
+ * - `integrate`: the concept requires wiring a real external system —
+ *   wallet connect (wagmi + RainbowKit + chain config), payment provider
+ *   (Stripe Elements + intent + webhook), an API client with auth.
+ *   Multi-file, library-knowledge, runtime correctness matters.
+ * - `compute`: the concept requires algorithmic work — solver, simulator,
+ *   constraint propagation, ML inference. Correctness > UI polish.
+ *
+ * Default weights (when applied via `weightConcepts: 'complexity'`):
+ *   render=1.0, integrate=2.0, compute=2.5
+ *
+ * Cross-vertical scoring without complexity weighting silently inflates
+ * the rate of UI-heavy verticals (healthcare, fintech dashboards) vs
+ * integration-heavy verticals (DeFi, wallets) — all concepts treated
+ * equally even though the agent does 2-3x the work for `integrate`.
+ */
+export type ConceptComplexity = 'render' | 'integrate' | 'compute'
+
 export interface ConceptSpec {
   name: string
   /** Short hints that help the judge; not used for matching. */
   keywords?: string[]
-  /** Optional explicit weight; default 1.0. */
+  /** Optional explicit weight; default 1.0. Overrides complexity-derived weight. */
   weight?: number
+  /** Implementation complexity class. Default `render`. */
+  complexity?: ConceptComplexity
 }
 
 export interface ConceptFinding {
@@ -71,6 +96,21 @@ export interface SemanticConceptJudgeResult {
   error?: string
 }
 
+/**
+ * Score-aggregation strategy. Default `mean` (legacy behavior — 0.10
+ * and earlier always averaged 0-10 scores). `complexity` applies the
+ * default weight table (render=1, integrate=2, compute=2.5) unless a
+ * concept has an explicit `weight`. `explicit` honors only `weight`
+ * (defaulting to 1 for unspecified).
+ */
+export type ConceptWeightStrategy = 'mean' | 'complexity' | 'explicit'
+
+export const DEFAULT_COMPLEXITY_WEIGHTS: Record<ConceptComplexity, number> = {
+  render: 1.0,
+  integrate: 2.0,
+  compute: 2.5,
+}
+
 export interface SemanticConceptJudgeOptions {
   /** Model id to call. Default 'claude-sonnet-4-6' via agent-eval defaults. */
   model?: string
@@ -84,6 +124,14 @@ export interface SemanticConceptJudgeOptions {
   maxHtmlChars?: number
   /** LlmClient config (baseUrl, apiKey, authHeader, …). */
   llm?: LlmClientOptions
+  /**
+   * Score aggregation strategy. Default `mean` for backward compatibility
+   * with 0.10 and earlier callers. Cross-vertical comparisons should use
+   * `complexity` to neutralize the integrate-vs-render asymmetry.
+   */
+  weightConcepts?: ConceptWeightStrategy
+  /** Override the default complexity → weight table. */
+  complexityWeights?: Partial<Record<ConceptComplexity, number>>
 }
 
 // ─── Prompt assembly ────────────────────────────────────────────────────
@@ -209,7 +257,25 @@ export async function runSemanticConceptJudge(
     maxPerFileChars: options.maxPerFileChars ?? DEFAULT_MAX_PER_FILE,
     maxHtmlChars: options.maxHtmlChars ?? DEFAULT_MAX_HTML,
     llm: options.llm ?? {},
+    weightConcepts: options.weightConcepts ?? 'mean',
+    complexityWeights: { ...DEFAULT_COMPLEXITY_WEIGHTS, ...(options.complexityWeights ?? {}) },
   }
+
+  // Build a name → weight map for aggregation. Mean strategy keeps every
+  // weight at 1 (preserves 0.10 behavior). Complexity strategy reads the
+  // table and lets explicit `weight` override. Explicit strategy uses
+  // ONLY the spec's `weight` (defaulting to 1).
+  const weightForConcept = (spec: ConceptSpec): number => {
+    if (opts.weightConcepts === 'mean') return 1
+    if (spec.weight != null) return spec.weight
+    if (opts.weightConcepts === 'complexity') {
+      return opts.complexityWeights[spec.complexity ?? 'render'] ?? 1
+    }
+    return 1
+  }
+  const weightByName = new Map<string, number>(
+    input.expectedConcepts.map((c) => [c.name, weightForConcept(c)]),
+  )
 
   try {
     const { value, result } = await callLlmJson<{
@@ -248,7 +314,16 @@ export async function runSemanticConceptJudge(
     }))
 
     const presentCount = findings.filter((f) => f.present && f.score >= 7).length
-    const scoreAvg = findings.reduce((a, f) => a + f.score, 0) / Math.max(1, findings.length)
+    let weightSum = 0
+    let weightedScoreSum = 0
+    for (const f of findings) {
+      const w = weightByName.get(f.concept) ?? 1
+      weightSum += w
+      weightedScoreSum += w * f.score
+    }
+    const scoreAvg = weightSum > 0
+      ? weightedScoreSum / weightSum
+      : findings.reduce((a, f) => a + f.score, 0) / Math.max(1, findings.length)
 
     return {
       kind: 'semantic-concept',
