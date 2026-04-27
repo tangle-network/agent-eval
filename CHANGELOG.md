@@ -1,5 +1,37 @@
 # Changelog
 
+## 0.17.0 — surface cleanup + SKILL pitfalls
+
+This release tightens the public benchmark surface and lands the SKILL.md guidance that the v0.15 dispatch couldn't write.
+
+### Moved
+
+- `src/benchmarks/gsm8k/` → `examples/benchmarks/gsm8k/`
+- `src/benchmarks/swebench-lite/` → `examples/benchmarks/swebench-lite/`
+
+These are reference implementations of `BenchmarkAdapter`, not core surface. Consumers read them, copy them, adapt them. The novel `routing` benchmark stays in `src/benchmarks/` because it's our own and broadly useful.
+
+`src/benchmarks/index.ts` now exports the shared types + the `routing` benchmark only. The previous `gsm8k` and `swebenchLite` namespace exports are gone — import directly from `examples/benchmarks/<name>/index.ts` (or copy the wrapper into your own project).
+
+### Added
+
+- `examples/benchmarks/README.md` documents how to use, copy, and extend the example wrappers.
+- `.claude/skills/agent-eval/SKILL.md` gains a "Production-rigor primitives (v0.16+)" section and a "Pitfalls" section with 13 footgun directives covering the v0.16 primitives. (Couldn't be written in v0.15 due to harness sandbox; landed in v0.17.)
+
+### Migration
+
+If you imported `gsm8k` or `swebenchLite` from `@tangle-network/agent-eval/benchmarks`:
+
+```ts
+// before
+import { gsm8k, swebenchLite } from '@tangle-network/agent-eval/benchmarks'
+
+// after — copy the file from examples/benchmarks/<name>/index.ts into your project,
+// or import via relative path from the cloned repo.
+```
+
+The `routing` benchmark and the shared `BenchmarkAdapter` types are unchanged.
+
 ## 0.16.0 — naming cleanup
 
 The v0.15 primitives were framed as "paper-grade" but most are production-rigor utilities any team needs. This release renames the three reporting helpers and drops the "paper" framing from the public API. Behavior unchanged.
