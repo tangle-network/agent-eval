@@ -577,6 +577,86 @@ export {
   decideReferenceReplayPromotion,
   defaultReferenceReplayMatcher,
 } from './reference-replay'
+
+// ── 0.15 paper-grade primitives ──────────────────────────────────────
+
+export {
+  pairedBootstrap,
+  pairedWilcoxon,
+  bhAdjust,
+} from './paired-stats'
+export type {
+  PairedBootstrapResult,
+  PairedBootstrapOptions,
+} from './paired-stats'
+
+export {
+  validateRunRecord,
+  isRunRecord,
+  parseRunRecordSafe,
+  roundTripRunRecord,
+  RunRecordValidationError,
+} from './run-record'
+export type {
+  RunRecord,
+  RunOutcome,
+  RunTokenUsage,
+  RunJudgeMetadata,
+  RunSplitTag,
+} from './run-record'
+
+export { HeldOutGate } from './held-out-gate'
+export type {
+  HeldOutGateConfig,
+  HeldOutGateRejectionCode,
+  GateDecision,
+  GateEvidence,
+} from './held-out-gate'
+
+export { NoopResearcher } from './researcher'
+export type {
+  Researcher,
+  FailureMode,
+  SteeringChange,
+  ExperimentPlan,
+  ExperimentResult,
+} from './researcher'
+
+export {
+  paperTable,
+  paretoFigure,
+  gainDistributionFigure,
+} from './paper-report'
+export type {
+  PaperTable,
+  PaperTableRow,
+  PaperTableOptions,
+  ParetoFigureSpec,
+  ParetoPoint,
+  GainDistributionFigureSpec,
+  GainDistributionBin,
+  GainDistributionOptions,
+} from './paper-report'
+
+export { runCanaries } from './canary'
+export type {
+  CanaryReport,
+  CanaryAlert,
+  CanaryKind,
+  CanarySeverity,
+  CanaryOptions,
+} from './canary'
+
+export {
+  deterministicSplit as benchmarkDeterministicSplit,
+  BENCHMARK_SPLIT_SEED,
+} from './benchmarks/types'
+export type {
+  BenchmarkAdapter,
+  BenchmarkDatasetItem,
+  BenchmarkEvaluation,
+} from './benchmarks/types'
+export * as benchmarks from './benchmarks/index'
 export type {
   ReferenceReplayAggregate,
   ReferenceReplayAdapter,

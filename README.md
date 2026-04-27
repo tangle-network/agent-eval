@@ -168,6 +168,35 @@ The `MutationTelemetry`, `LineageRecorder`, and `CostLedger` pass into the `code
 
 For the full primitive surface and rationale, read each module's JSDoc — `prompt-evolution.ts`, `composite-mutator.ts`, `sandbox-pool.ts`, `code-mutator.ts`, `reflective-mutation.ts`, `evolution-telemetry.ts`.
 
+## v0.15 highlights — paper-grade primitives
+
+- `HeldOutGate` — held-out paired-delta gate with `few_runs` /
+  `negative_delta` / `overfit_gap` rejection codes and a full evidence
+  block on every decision. Complementary to the existing bootstrap-CI
+  `promotion-gate.ts`: that one asks "is this real or noise?", this one
+  asks "is this a real win on held-out and not overfit?"
+- `RunRecord` — JSON-friendly run schema with mandatory paper fields
+  (`runId`, snapshot-versioned `model`, `promptHash`, `configHash`,
+  `commitSha`, `costUsd`, `splitTag`). Runtime validator throws on
+  missing fields.
+- `Researcher` — stable four-method hook (`inspectFailures` →
+  `proposeChange` → `applyChange` → `evaluateChange`) for autonomous
+  research drivers; `NoopResearcher` fails loud as a placeholder.
+- `paperTable`, `paretoFigure`, `gainDistributionFigure` — Table 1,
+  cost-vs-quality scatter, gain-distribution histogram. Returns data
+  specs, not images. Render with vega-lite, plotly, matplotlib, or
+  inline Canvas.
+- `runCanaries` — silent judge-fallback, calibration drift (KS test),
+  distribution shift (chi-square).
+- `pairedBootstrap` (+ `pairedWilcoxon`, `bhAdjust` aliases) — the
+  paired-bootstrap CI primitive that powers `HeldOutGate` and
+  `gainDistributionFigure`.
+- `benchmarks/` — `gsm8k`, `swebench-lite`, `routing` reference
+  wrappers behind one `BenchmarkAdapter` shape.
+
+See `CHANGELOG.md` for the full list. `.claude/skills/agent-eval/SKILL.md`
+covers usage directives and pitfalls.
+
 ## Tech stack
 
 - TypeScript strict, no semicolons, single quotes, 2-space indent
