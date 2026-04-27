@@ -1,18 +1,18 @@
 /**
- * Paper-grade reporting helpers — sit alongside `reporter.ts` rather
+ * Reporting helpers — production summaries and paper-quality figures — sit alongside `reporter.ts` rather
  * than replacing it.
  *
  * Three artefacts:
  *
- *   - `paperTable`           Markdown table of per-candidate means,
+ *   - `summaryTable`           Markdown table of per-candidate means,
  *                            95% bootstrap CIs, BH-adjusted Wilcoxon
  *                            p-values, and Cohen's d versus a
  *                            comparator candidate.
- *   - `paretoFigure`         Abstract spec for a cost vs quality
+ *   - `paretoChart`         Abstract spec for a cost vs quality
  *                            scatter, with gate decisions overlaid.
  *                            Returns numbers + labels — caller
  *                            chooses the plotting library.
- *   - `gainDistributionFigure`
+ *   - `gainHistogram`
  *                            Per-item paired holdout deltas as a
  *                            histogram spec (bins + counts + median +
  *                            CI). Same "data, not images" contract.
@@ -29,9 +29,9 @@ import { pairedBootstrap } from './paired-stats'
 import type { GateDecision } from './held-out-gate'
 import type { RunRecord } from './run-record'
 
-// ── paperTable ───────────────────────────────────────────────────────
+// ── summaryTable ───────────────────────────────────────────────────────
 
-export interface PaperTableOptions {
+export interface SummaryTableOptions {
   /** Comparator candidate id. Wilcoxon + Cohen's d are computed
    *  versus this candidate. Required for paired stats columns. */
   comparator?: string
@@ -43,7 +43,7 @@ export interface PaperTableOptions {
   fdr?: number
 }
 
-export interface PaperTableRow {
+export interface SummaryTableRow {
   candidateId: string
   n: number
   mean: number
@@ -55,8 +55,8 @@ export interface PaperTableRow {
   cohensD: number
 }
 
-export interface PaperTable {
-  rows: PaperTableRow[]
+export interface SummaryTable {
+  rows: SummaryTableRow[]
   comparator: string | null
   split: 'search' | 'holdout'
   /** Pre-rendered markdown — drop into a paper or PR. */
@@ -68,7 +68,7 @@ export interface PaperTable {
  * bootstrap CI on the chosen split, and (when a comparator is given)
  * BH-adjusted Wilcoxon p + Cohen's d versus that comparator.
  */
-export function paperTable(runs: RunRecord[], opts: PaperTableOptions = {}): PaperTable {
+export function summaryTable(runs: RunRecord[], opts: SummaryTableOptions = {}): SummaryTable {
   const split = opts.split ?? 'holdout'
   const confidence = opts.confidence ?? 0.95
   const fdr = opts.fdr ?? 0.05
@@ -90,7 +90,7 @@ export function paperTable(runs: RunRecord[], opts: PaperTableOptions = {}): Pap
   const compRuns = comparator ? byCandidate.get(comparator) : undefined
 
   // First pass: per-candidate means + CIs + raw p-values.
-  const tentative: Array<PaperTableRow & { rawP: number }> = []
+  const tentative: Array<SummaryTableRow & { rawP: number }> = []
   for (const id of candidateIds) {
     const bucket = byCandidate.get(id)!
     const ci = confidenceInterval(bucket.scores, confidence)
@@ -137,7 +137,7 @@ export function paperTable(runs: RunRecord[], opts: PaperTableOptions = {}): Pap
   }
 
   const rows = tentative.map(({ rawP: _rawP, ...rest }) => rest)
-  const markdown = renderPaperTableMarkdown(rows, comparator, split)
+  const markdown = renderSummaryTableMarkdown(rows, comparator, split)
   return { rows, comparator, split, markdown }
 }
 
@@ -167,14 +167,14 @@ function pairScoresByKey(
   return { before, after }
 }
 
-function renderPaperTableMarkdown(
-  rows: PaperTableRow[],
+function renderSummaryTableMarkdown(
+  rows: SummaryTableRow[],
   comparator: string | null,
   split: 'search' | 'holdout',
 ): string {
   const lines: string[] = []
   const cmpLabel = comparator ? ` (vs ${comparator})` : ''
-  lines.push(`Paper Table — ${split} split${cmpLabel}`)
+  lines.push(`Summary Table — ${split} split${cmpLabel}`)
   lines.push('')
   lines.push('| Candidate | N | Mean | 95% CI | q (BH) | Cohen\'s d |')
   lines.push('|---|---:|---:|---|---:|---:|')
@@ -187,7 +187,7 @@ function renderPaperTableMarkdown(
   return lines.join('\n')
 }
 
-// ── paretoFigure ─────────────────────────────────────────────────────
+// ── paretoChart ─────────────────────────────────────────────────────
 
 export interface ParetoPoint {
   candidateId: string
@@ -217,7 +217,7 @@ export interface ParetoFigureSpec {
  * candidate id; if present, every point picks up the gate verdict
  * for overlay.
  */
-export function paretoFigure(
+export function paretoChart(
   runs: RunRecord[],
   opts: {
     split?: 'search' | 'holdout'
@@ -279,7 +279,7 @@ function gateLabel(d: GateDecision): ParetoPoint['gate'] {
   return null
 }
 
-// ── gainDistributionFigure ───────────────────────────────────────────
+// ── gainHistogram ───────────────────────────────────────────
 
 export interface GainDistributionBin {
   /** Inclusive lower edge. */
@@ -320,7 +320,7 @@ export interface GainDistributionOptions {
  * comparator), histogrammed. Includes the bootstrap CI on the median
  * delta — same primitive the promotion gate uses.
  */
-export function gainDistributionFigure(
+export function gainHistogram(
   runs: RunRecord[],
   candidateId: string,
   comparator: string,
@@ -329,7 +329,7 @@ export function gainDistributionFigure(
   const split = opts.split ?? 'holdout'
   const scoreField = split === 'holdout' ? 'holdoutScore' : 'searchScore'
   const binCount = opts.bins ?? 11
-  if (binCount < 1) throw new Error('gainDistributionFigure: bins must be ≥ 1')
+  if (binCount < 1) throw new Error('gainHistogram: bins must be ≥ 1')
 
   const candidate = runs.filter((r) => r.candidateId === candidateId && r.splitTag === split)
   const baseline = runs.filter((r) => r.candidateId === comparator && r.splitTag === split)

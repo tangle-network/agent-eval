@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { HeldOutGate } from '../src/promotion-gate'
+import { HeldOutGate } from '../src/held-out-gate'
 import type { RunRecord } from '../src/run-record'
 
 function record(overrides: Partial<RunRecord>): RunRecord {

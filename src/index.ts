@@ -623,20 +623,20 @@ export type {
 } from './researcher'
 
 export {
-  paperTable,
-  paretoFigure,
-  gainDistributionFigure,
-} from './paper-report'
+  summaryTable,
+  paretoChart,
+  gainHistogram,
+} from './summary-report'
 export type {
-  PaperTable,
-  PaperTableRow,
-  PaperTableOptions,
+  SummaryTable,
+  SummaryTableRow,
+  SummaryTableOptions,
   ParetoFigureSpec,
   ParetoPoint,
   GainDistributionFigureSpec,
   GainDistributionBin,
   GainDistributionOptions,
-} from './paper-report'
+} from './summary-report'
 
 export { runCanaries } from './canary'
 export type {

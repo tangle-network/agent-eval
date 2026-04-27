@@ -168,31 +168,47 @@ The `MutationTelemetry`, `LineageRecorder`, and `CostLedger` pass into the `code
 
 For the full primitive surface and rationale, read each module's JSDoc — `prompt-evolution.ts`, `composite-mutator.ts`, `sandbox-pool.ts`, `code-mutator.ts`, `reflective-mutation.ts`, `evolution-telemetry.ts`.
 
-## v0.15 highlights — paper-grade primitives
+## v0.16 highlights — production-rigor primitives
+
+These are the primitives any team running prompt-optimization in production needs, regardless of whether they're writing a paper. v0.15 shipped them under "paper-grade" naming; v0.16 corrects that — they're production-first, paper-grade as a side effect.
 
 - `HeldOutGate` — held-out paired-delta gate with `few_runs` /
   `negative_delta` / `overfit_gap` rejection codes and a full evidence
-  block on every decision. Complementary to the existing bootstrap-CI
+  block on every decision. Sits alongside the existing bootstrap-CI
   `promotion-gate.ts`: that one asks "is this real or noise?", this one
-  asks "is this a real win on held-out and not overfit?"
-- `RunRecord` — JSON-friendly run schema with mandatory paper fields
-  (`runId`, snapshot-versioned `model`, `promptHash`, `configHash`,
-  `commitSha`, `costUsd`, `splitTag`). Runtime validator throws on
-  missing fields.
-- `Researcher` — stable four-method hook (`inspectFailures` →
-  `proposeChange` → `applyChange` → `evaluateChange`) for autonomous
-  research drivers; `NoopResearcher` fails loud as a placeholder.
-- `paperTable`, `paretoFigure`, `gainDistributionFigure` — Table 1,
-  cost-vs-quality scatter, gain-distribution histogram. Returns data
-  specs, not images. Render with vega-lite, plotly, matplotlib, or
-  inline Canvas.
+  asks "is this a real win on held-out and not overfit?". Use both.
+- `RunRecord` — typed run schema with mandatory snapshot-pinned `model`,
+  `promptHash`, `configHash`, `commitSha`, `costUsd`, `splitTag`.
+  Runtime validator throws on missing fields. Reproducibility falls
+  out for free.
+- `pairedBootstrap`, `pairedWilcoxon`, `bhAdjust` — statistical
+  primitives every rigorous A/B test needs. Already-existing primitives
+  are re-exported for paper-style aliases.
 - `runCanaries` — silent judge-fallback, calibration drift (KS test),
-  distribution shift (chi-square).
-- `pairedBootstrap` (+ `pairedWilcoxon`, `bhAdjust` aliases) — the
-  paired-bootstrap CI primitive that powers `HeldOutGate` and
-  `gainDistributionFigure`.
-- `benchmarks/` — `gsm8k`, `swebench-lite`, `routing` reference
-  wrappers behind one `BenchmarkAdapter` shape.
+  distribution shift (chi-square). Catches the failure mode where your
+  judge silently degrades to a constant-0.30 confidence and you ship
+  configs graded by a stub.
+- `summaryTable`, `paretoChart`, `gainHistogram` — A/B reporting
+  helpers. `summaryTable` emits markdown with means + 95% bootstrap
+  CIs + paired Wilcoxon p (BH-adjusted) + Cohen's d. Useful for both
+  internal status reports and paper Table 1s.
+- `Researcher` — stable interface for an external agent that drives the
+  meta-loop (`inspectFailures` → `proposeChange` → `applyChange` →
+  `evaluateChange`). Ship a `NoopResearcher` as a placeholder; real
+  implementations live downstream.
+- `benchmarks/{gsm8k,swebench-lite,routing}` — reference benchmark
+  wrappers behind one `BenchmarkAdapter` shape, with deterministic
+  splits and fail-loud env-var configuration. Mostly for reproducible
+  comparisons; not core surface.
+
+### v0.16 changes from v0.15
+
+- Renamed `paperTable` → `summaryTable`, `paretoFigure` → `paretoChart`,
+  `gainDistributionFigure` → `gainHistogram`. Underlying semantics
+  unchanged. Type names follow (`SummaryTable`, `SummaryTableOptions`,
+  `SummaryTableRow`).
+- File: `src/paper-report.ts` → `src/summary-report.ts`.
+- Drop the "paper-grade" framing — the primitives are production-first.
 
 See `CHANGELOG.md` for the full list. `.claude/skills/agent-eval/SKILL.md`
 covers usage directives and pitfalls.
