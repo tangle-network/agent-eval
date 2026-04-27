@@ -656,10 +656,26 @@ export type {
   LineageKind,
   LineageKindResolver,
   CostLedgerSnapshot,
+  CostLedgerGeneration,
 } from './evolution-telemetry'
 
 export { createCompositeMutator } from './composite-mutator'
 export type { CompositePolicy, CreateCompositeMutatorOpts } from './composite-mutator'
+
+export { createSandboxPool } from './sandbox-pool'
+export type {
+  SandboxPool,
+  SlotFactory,
+  PoolSlot,
+  CreateSandboxPoolOpts,
+} from './sandbox-pool'
+
+export { createSandboxCodeMutator } from './code-mutator'
+export type {
+  CodeMutationOutcome,
+  CodeMutationRunner,
+  CreateSandboxCodeMutatorOpts,
+} from './code-mutator'
 
 export {
   matchGoldens,

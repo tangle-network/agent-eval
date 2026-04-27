@@ -5,14 +5,18 @@
  * construction.
  *
  * Tail corruption (partial line at the bottom from a hard kill) is
- * tolerated — we skip unparseable lines and continue. Writers are
- * append-only for crash safety; concurrent in-process writers should wrap
- * this in a `Mutex.runExclusive` (or use `LockedJsonlTrialCache` if/when
- * that's needed).
+ * tolerated — we skip unparseable lines and continue.
+ *
+ * The cache surface (`get` / `set`) is synchronous because `TrialCache`
+ * is. Writes are mutex-serialised through a `LockedJsonlAppender`
+ * (kicked off with `void`) so two in-process callers can't tear a long
+ * line that exceeds POSIX `PIPE_BUF`. Cross-process safety still
+ * requires fcntl/flock and is deliberately out of scope.
  */
 
 import { appendFileSync, existsSync, mkdirSync, readFileSync } from 'node:fs'
 import { dirname } from 'node:path'
+import { LockedJsonlAppender } from './locked-jsonl-appender'
 import type { TrialCache, TrialResult } from './prompt-evolution'
 
 interface CacheLine {
@@ -21,17 +25,10 @@ interface CacheLine {
   writtenAt: number
 }
 
-/**
- * `appendFileSync` blocks the Node event loop, so two in-process callers
- * can never interleave their writes — atomicity holds at the JS-runtime
- * level even when the line exceeds POSIX `PIPE_BUF`. The cross-process
- * race is genuinely cross-process and would need fcntl/flock, which
- * `runPromptEvolution` deliberately doesn't take on (single-process loop).
- */
-
 export class JsonlTrialCache implements TrialCache {
   private readonly map = new Map<string, TrialResult>()
   private readonly path: string
+  private readonly appender: LockedJsonlAppender
 
   constructor(path: string) {
     this.path = path
@@ -48,6 +45,7 @@ export class JsonlTrialCache implements TrialCache {
     } else {
       mkdirSync(dirname(path), { recursive: true })
     }
+    this.appender = new LockedJsonlAppender(path)
   }
 
   get(key: string): TrialResult | undefined {
@@ -55,12 +53,29 @@ export class JsonlTrialCache implements TrialCache {
   }
 
   set(key: string, value: TrialResult): void {
+    // Update the in-memory map synchronously so subsequent get() calls
+    // see the new value immediately. Persist asynchronously through the
+    // shared appender — cache loss on a hard kill in the gap between
+    // map.set and disk write means at most one redundant trial run on
+    // resume, which is the same behaviour the old appendFileSync had on
+    // partial-line tear.
     this.map.set(key, value)
     const line: CacheLine = { key, result: value, writtenAt: Date.now() }
-    appendFileSync(this.path, `${JSON.stringify(line)}\n`)
+    void this.appender.append(line)
   }
 
   size(): number {
     return this.map.size
+  }
+
+  /**
+   * Synchronous fallback path for tests / CLI tools that want to be sure
+   * the line is on disk before returning. Bypasses the mutex (single-
+   * threaded callers only).
+   */
+  setSync(key: string, value: TrialResult): void {
+    this.map.set(key, value)
+    const line: CacheLine = { key, result: value, writtenAt: Date.now() }
+    appendFileSync(this.path, `${JSON.stringify(line)}\n`)
   }
 }
