@@ -1,0 +1,202 @@
+/**
+ * Pure handler functions — the "business logic" behind every wire-protocol
+ * method. The HTTP server (`server.ts`) and the stdio RPC (`rpc.ts`) both
+ * call these. Tests call these directly without spinning a server.
+ *
+ * Each handler:
+ *   - Takes a parsed request (already Zod-validated by the transport).
+ *   - Returns a result that matches the response schema.
+ *   - Throws `WireError` for caller-fixable errors (404, 400, 422).
+ *   - Lets unexpected errors bubble — the transport maps them to 500.
+ */
+import { callLlmJson } from '../llm-client'
+import { getBuiltinRubric, listBuiltinRubrics } from './rubrics'
+import {
+  hashRubric,
+  WIRE_VERSION,
+  type JudgeRequest,
+  type JudgeResult,
+  type ListRubricsResponse,
+  type Rubric,
+  type VersionResponse,
+} from './schemas'
+
+/** Caller-fixable error. The transport renders this to 4xx + ErrorResponse. */
+export class WireError extends Error {
+  constructor(
+    public readonly code: string,
+    message: string,
+    public readonly status: number = 400,
+    public readonly details?: unknown,
+  ) {
+    super(message)
+    this.name = 'WireError'
+  }
+}
+
+// ── judge ───────────────────────────────────────────────────────────
+
+/** The JSON schema we ask the judging LLM to fill in. */
+function judgeOutputSchema(rubric: Rubric) {
+  return {
+    name: 'JudgeOutput',
+    schema: {
+      type: 'object',
+      additionalProperties: false,
+      properties: {
+        dimensions: {
+          type: 'object',
+          additionalProperties: false,
+          properties: Object.fromEntries(
+            rubric.dimensions.map((d) => [
+              d.id,
+              { type: 'number', minimum: d.min, maximum: d.max },
+            ]),
+          ),
+          required: rubric.dimensions.map((d) => d.id),
+        },
+        failureModes: {
+          type: 'array',
+          items: { type: 'string', enum: rubric.failureModes.map((f) => f.id) },
+        },
+        wins: {
+          type: 'array',
+          items: { type: 'string', enum: rubric.wins.map((w) => w.id) },
+        },
+        rationale: { type: 'string' },
+      },
+      required: ['dimensions', 'rationale'],
+    } as Record<string, unknown>,
+  }
+}
+
+interface JudgeOutput {
+  dimensions: Record<string, number>
+  failureModes?: string[]
+  wins?: string[]
+  rationale: string
+}
+
+function compositeScore(dimensions: Record<string, number>, rubric: Rubric): number {
+  let weighted = 0
+  let totalWeight = 0
+  for (const dim of rubric.dimensions) {
+    const raw = dimensions[dim.id] ?? 0
+    const range = dim.max - dim.min || 1
+    const normalized = Math.max(0, Math.min(1, (raw - dim.min) / range))
+    weighted += normalized * dim.weight
+    totalWeight += dim.weight
+  }
+  return totalWeight > 0 ? weighted / totalWeight : 0
+}
+
+function buildJudgePrompt(content: string, context: unknown): string {
+  const ctx = context && Object.keys(context as object).length ? JSON.stringify(context) : ''
+  return [
+    `CONTENT TO JUDGE:`,
+    content,
+    '',
+    ctx ? `CONTEXT (metadata, analytics, etc.):` : '',
+    ctx ? ctx : '',
+  ]
+    .filter(Boolean)
+    .join('\n')
+}
+
+const DEFAULT_JUDGE_MODEL = 'claude-sonnet-4-6'
+
+export async function handleJudge(req: JudgeRequest): Promise<JudgeResult> {
+  // Resolve rubric
+  let rubric: Rubric
+  if (req.rubricName) {
+    const found = getBuiltinRubric(req.rubricName)
+    if (!found) {
+      throw new WireError('rubric_not_found', `No built-in rubric named "${req.rubricName}".`, 404)
+    }
+    rubric = found
+  } else if (req.rubric) {
+    rubric = req.rubric
+  } else {
+    // refine() in the schema should already have caught this — defense in depth
+    throw new WireError('validation_error', 'Provide either `rubricName` or `rubric`.', 422)
+  }
+
+  const startedAt = Date.now()
+  const model = req.model ?? DEFAULT_JUDGE_MODEL
+
+  const { value, result } = await callLlmJson<JudgeOutput>({
+    model,
+    messages: [
+      { role: 'system', content: rubric.systemPrompt },
+      { role: 'user', content: buildJudgePrompt(req.content, req.context) },
+    ],
+    jsonSchema: judgeOutputSchema(rubric),
+    temperature: 0.0,
+    timeoutMs: 60_000,
+  })
+
+  // Defensive: ensure dimensions object isn't malformed
+  if (!value || typeof value !== 'object' || !value.dimensions) {
+    throw new WireError('judge_error', 'Judge returned malformed output.', 500, value)
+  }
+
+  const composite = compositeScore(value.dimensions, rubric)
+  const durationMs = Date.now() - startedAt
+
+  return {
+    composite,
+    dimensions: value.dimensions,
+    failureModes: value.failureModes ?? [],
+    wins: value.wins ?? [],
+    rationale: value.rationale,
+    rubricVersion: hashRubric(rubric),
+    model: result.model,
+    durationMs,
+  }
+}
+
+// ── listRubrics ─────────────────────────────────────────────────────
+
+export function handleListRubrics(): ListRubricsResponse {
+  return { rubrics: listBuiltinRubrics() }
+}
+
+// ── version ─────────────────────────────────────────────────────────
+
+import { readFileSync } from 'node:fs'
+import { dirname, resolve } from 'node:path'
+import { fileURLToPath } from 'node:url'
+
+let CACHED_VERSION: string | undefined
+
+function readPackageVersion(): string {
+  if (CACHED_VERSION) return CACHED_VERSION
+  // Walk up from this file looking for the nearest package.json.
+  // In dist/ this is dist/.., in src/wire/ this is ../../package.json.
+  const here = dirname(fileURLToPath(import.meta.url))
+  const candidates = [
+    resolve(here, '..', '..', 'package.json'), // src/wire → repo root
+    resolve(here, '..', 'package.json'), // dist → repo root
+  ]
+  for (const path of candidates) {
+    try {
+      const pkg = JSON.parse(readFileSync(path, 'utf-8')) as { version?: string }
+      if (pkg.version) {
+        CACHED_VERSION = pkg.version
+        return pkg.version
+      }
+    } catch {
+      // try next
+    }
+  }
+  return '0.0.0-unknown'
+}
+
+export function handleVersion(): VersionResponse {
+  return {
+    package: '@tangle-network/agent-eval',
+    version: readPackageVersion(),
+    wireVersion: WIRE_VERSION,
+    apiSurface: ['judge', 'listRubrics', 'version'],
+  }
+}

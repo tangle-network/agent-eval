@@ -104,6 +104,10 @@ export type {
 
 export { ExperimentTracker, InMemoryExperimentStore } from './experiment-tracker'
 export type { Experiment, ExperimentStore, Run as ExperimentRun, RunConfig, RunDiff } from './experiment-tracker'
+export { FileSystemExperimentStore } from './experiment-tracker-fs'
+export type { FileSystemExperimentStoreOptions } from './experiment-tracker-fs'
+export { D1ExperimentStore } from './experiment-tracker-d1'
+export type { D1ExperimentStoreOptions, D1Like, D1PreparedStatementLike } from './experiment-tracker-d1'
 
 export { PromptOptimizer } from './prompt-optimizer'
 export type {
@@ -562,6 +566,7 @@ export type {
   ExtractResult,
 } from './error-count-extractor'
 
+// ── 0.11.x: reference replay (from main) ─────────────────────────────
 export {
   runReferenceReplay,
   decideReferenceReplayRunPromotion,
@@ -676,5 +681,110 @@ export type {
   ReferenceReplayScoreOptions,
   ReferenceReplaySplit,
   ReferenceReplaySplitComparison,
+  ReferenceReplayMatchStrategy,
   ReferenceMatchResult,
 } from './reference-replay'
+
+export {
+  referenceReplayRunsToSteeringRows,
+  referenceReplayScenarioToRunScore,
+} from './reference-replay-steering'
+export type {
+  ReferenceReplaySteeringRowsOptions,
+} from './reference-replay-steering'
+
+// ── 0.12.0: prompt evolution + golden matcher + orthogonality + promotion-gate ──
+export {
+  runPromptEvolution,
+  InMemoryTrialCache,
+} from './prompt-evolution'
+export type {
+  // The 0.11.x `PromptVariant` is a single-shot pairwise-optimiser shape from
+  // prompt-optimizer.ts. The 0.12.x `EvolvableVariant` is the population-based
+  // shape (carries generation lineage). They're intentionally distinct types.
+  PromptVariant as EvolvableVariant,
+  TrialResult as PromptTrialResult,
+  ScenarioAggregate,
+  VariantAggregate,
+  ScoreAdapter,
+  MutateAdapter,
+  PromptEvolutionConfig,
+  PromptEvolutionEvent,
+  GenerationReport,
+  PromptEvolutionResult,
+  TrialCache,
+} from './prompt-evolution'
+
+// ── 0.14.0: concurrency + persistence + telemetry primitives for evolution loops ──
+export { Mutex } from './concurrency'
+
+export { JsonlTrialCache } from './jsonl-trial-cache'
+
+export { LockedJsonlAppender, resetLockedAppendersForTesting } from './locked-jsonl-appender'
+
+export {
+  MutationTelemetry,
+  TrialTelemetry,
+  LineageRecorder,
+  CostLedger,
+} from './evolution-telemetry'
+export type {
+  MutationAttempt,
+  MutationChannel,
+  TrialAttempt,
+  LineageNode,
+  LineageKind,
+  LineageKindResolver,
+  CostLedgerSnapshot,
+  CostLedgerGeneration,
+} from './evolution-telemetry'
+
+export { createCompositeMutator } from './composite-mutator'
+export type { CompositePolicy, CreateCompositeMutatorOpts } from './composite-mutator'
+
+export { createSandboxPool } from './sandbox-pool'
+export type {
+  SandboxPool,
+  SlotFactory,
+  PoolSlot,
+  CreateSandboxPoolOpts,
+} from './sandbox-pool'
+
+export { createSandboxCodeMutator } from './code-mutator'
+export type {
+  CodeMutationOutcome,
+  CodeMutationRunner,
+  CreateSandboxCodeMutatorOpts,
+} from './code-mutator'
+
+export {
+  matchGoldens,
+  weightedRecall,
+  precision as goldenPrecision,
+  DEFAULT_SEVERITY_WEIGHTS,
+} from './golden-matcher'
+export type {
+  GoldenSpec,
+  GoldenSeverity,
+  MatchResult,
+} from './golden-matcher'
+
+export { passOrthogonality } from './orthogonality'
+export type { OrthogonalityInput, OrthogonalityResult } from './orthogonality'
+
+export { bootstrapCi, judgeReplayGate } from './promotion-gate'
+export type { Verdict, BootstrapResult, BootstrapOptions, JudgeReplayGateArgs } from './promotion-gate'
+
+export {
+  buildReflectionPrompt,
+  parseReflectionResponse,
+  DEFAULT_MUTATION_PRIMITIVES,
+} from './reflective-mutation'
+export type {
+  TrialTrace,
+  ReflectionContext,
+  ReflectionProposal,
+} from './reflective-mutation'
+
+// Pareto extensions (paretoFrontier + dominates already exported above)
+export { scalarScore, crowdingDistance, paretoFrontierWithCrowding } from './pareto'

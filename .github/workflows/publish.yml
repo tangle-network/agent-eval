@@ -7,7 +7,73 @@ on:
   workflow_dispatch:
 
 jobs:
-  publish:
+  # Verify both packages build and pass tests, in lockstep.
+  # If either fails, neither publishes.
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          registry-url: https://registry.npmjs.org
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install JS deps
+        run: pnpm install --frozen-lockfile
+
+      - name: Typecheck JS
+        run: pnpm typecheck
+
+      - name: Test JS
+        run: pnpm test
+
+      - name: Build JS
+        run: pnpm build
+
+      - name: Emit OpenAPI spec
+        run: pnpm openapi
+
+      - name: Verify version lock between npm and PyPI packages
+        run: |
+          NPM_VERSION=$(node -p "require('./package.json').version")
+          PY_VERSION=$(grep -E '^version' clients/python/pyproject.toml | head -1 | sed -E 's/.*"([^"]+)".*/\1/')
+          if [ "$NPM_VERSION" != "$PY_VERSION" ]; then
+            echo "::error::Version mismatch: npm=$NPM_VERSION pypi=$PY_VERSION. Bump them together."
+            exit 1
+          fi
+          echo "Versions locked: $NPM_VERSION"
+
+      - name: Install Python client
+        working-directory: clients/python
+        run: pip install -e ".[dev]"
+
+      - name: Test Python client (incl. real subprocess integration)
+        working-directory: clients/python
+        run: pytest -v
+
+      - name: Upload OpenAPI artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: openapi
+          path: dist/openapi.json
+
+      - name: Upload Python build context
+        uses: actions/upload-artifact@v4
+        with:
+          name: python-source
+          path: clients/python
+
+  publish-npm:
+    needs: verify
+    if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -24,10 +90,33 @@ jobs:
           registry-url: https://registry.npmjs.org
 
       - run: pnpm install --frozen-lockfile
-      - run: pnpm typecheck
-      - run: pnpm test
       - run: pnpm build
-
       - run: pnpm publish --no-git-checks --access public
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+  publish-pypi:
+    needs: [verify, publish-npm]
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install build tools
+        run: pip install build twine
+
+      - name: Build wheel + sdist
+        working-directory: clients/python
+        run: python -m build
+
+      - name: Publish to PyPI (trusted publishing)
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: clients/python/dist

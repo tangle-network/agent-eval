@@ -10,7 +10,25 @@
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js",
       "default": "./dist/index.js"
+    },
+    "./telemetry": {
+      "types": "./dist/telemetry/index.d.ts",
+      "import": "./dist/telemetry/index.js",
+      "default": "./dist/telemetry/index.js"
+    },
+    "./telemetry/file": {
+      "types": "./dist/telemetry/file.d.ts",
+      "import": "./dist/telemetry/file.js",
+      "default": "./dist/telemetry/file.js"
+    },
+    "./wire": {
+      "types": "./dist/wire/index.d.ts",
+      "import": "./dist/wire/index.js",
+      "default": "./dist/wire/index.js"
     }
+  },
+  "bin": {
+    "agent-eval": "./dist/cli.js"
   },
   "files": [
     "dist"
@@ -21,16 +39,23 @@
   "scripts": {
     "build": "tsup",
     "dev": "tsup --watch",
+    "prepare": "tsup",
     "test": "vitest run",
     "test:watch": "vitest",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "openapi": "node dist/cli.js openapi --out dist/openapi.json"
   },
   "dependencies": {
+    "@asteasolutions/zod-to-openapi": "^8.5.0",
     "@ax-llm/ax": "^19.0.25",
-    "@tangle-network/tcloud": "^0.2.0"
+    "@hono/node-server": "^2.0.0",
+    "@tangle-network/tcloud": "^0.2.0",
+    "hono": "^4.12.15",
+    "zod": "^4.3.6"
   },
   "devDependencies": {
     "@types/node": "^25.6.0",
+    "openapi3-ts": "^4.5.0",
     "tsup": "^8.0.0",
     "typescript": "^5.7.0",
     "vitest": "^3.0.0"
