@@ -600,13 +600,13 @@ export type {
   RunSplitTag,
 } from './run-record'
 
-export { PromotionGate } from './promotion-gate'
+export { HeldOutGate } from './held-out-gate'
 export type {
-  PromotionGateConfig,
-  PromotionGateRejectionCode,
+  HeldOutGateConfig,
+  HeldOutGateRejectionCode,
   GateDecision,
   GateEvidence,
-} from './promotion-gate'
+} from './held-out-gate'
 
 export { NoopResearcher } from './researcher'
 export type {

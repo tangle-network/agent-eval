@@ -1,5 +1,5 @@
 /**
- * PromotionGate — first-class held-out paired-delta promotion gate.
+ * HeldOutGate — first-class held-out paired-delta promotion gate.
  *
  * Encodes the "honesty override" pattern that lived inline in
  * `~/webb/redteam/scripts/agent-eval-autoresearch.ts:138–171`.
@@ -35,12 +35,12 @@
 import type { RunRecord } from './run-record'
 import { pairedBootstrap, pairedWilcoxon } from './paired-stats'
 
-export type PromotionGateRejectionCode =
+export type HeldOutGateRejectionCode =
   | 'few_runs'
   | 'negative_delta'
   | 'overfit_gap'
 
-export interface PromotionGateConfig {
+export interface HeldOutGateConfig {
   /** Minimum number of paired (candidate, baseline) holdout observations
    *  required before the gate will even consider promoting. Default 3. */
   minProductiveRuns?: number
@@ -94,7 +94,7 @@ export interface GateDecision {
   /** Human-readable reason. */
   reason: string
   /** Machine-readable rejection code, or null on promote. */
-  rejectionCode: PromotionGateRejectionCode | null
+  rejectionCode: HeldOutGateRejectionCode | null
 }
 
 /**
@@ -102,7 +102,7 @@ export interface GateDecision {
  * call `evaluate(candidateRuns, baselineRuns)` per (candidate,
  * baseline) pair. Stateless across calls.
  */
-export class PromotionGate {
+export class HeldOutGate {
   private readonly minProductiveRuns: number
   private readonly pairedDeltaThreshold: number
   private readonly overfitGapThreshold: number
@@ -111,9 +111,9 @@ export class PromotionGate {
   private readonly resamples: number
   private readonly seed?: number
 
-  constructor(config: PromotionGateConfig) {
+  constructor(config: HeldOutGateConfig) {
     if (!config.baselineKey) {
-      throw new Error('PromotionGate: baselineKey is required')
+      throw new Error('HeldOutGate: baselineKey is required')
     }
     this.minProductiveRuns = config.minProductiveRuns ?? 3
     this.pairedDeltaThreshold = config.pairedDeltaThreshold ?? 0

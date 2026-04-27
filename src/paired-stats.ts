@@ -1,7 +1,7 @@
 /**
  * Paper-grade paired statistics for held-out promotion gates.
  *
- * The promotion gate (`PromotionGate`) needs three things:
+ * The promotion gate (`HeldOutGate`) needs three things:
  *
  *   1. A bootstrap confidence interval on the per-item paired delta
  *      (`pairedBootstrap`). Median delta is the headline number; the

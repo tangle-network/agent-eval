@@ -36,5 +36,5 @@ but do NOT change the score — the grader is binary by design.
 Routing is the only one of the three reference benchmarks where we
 ship the data. GSM8K and SWE-Bench Lite require external sources by
 license; the routing tasks here exist to make the other paper
-machinery (split assignment, RunRecord shape, PromotionGate) testable
+machinery (split assignment, RunRecord shape, HeldOutGate) testable
 end-to-end without configuring external state.

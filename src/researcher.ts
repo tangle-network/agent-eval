@@ -30,7 +30,7 @@
  * (e.g. `Researcher2`) so existing implementations keep working.
  */
 
-import type { GateDecision } from './promotion-gate'
+import type { GateDecision } from './held-out-gate'
 import type { RunRecord, RunSplitTag } from './run-record'
 
 /** A diagnosed failure mode with the run-IDs that exhibit it. */

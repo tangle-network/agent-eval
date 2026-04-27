@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { PromotionGate } from '../src/promotion-gate'
+import { HeldOutGate } from '../src/promotion-gate'
 import type { RunRecord } from '../src/run-record'
 
 function record(overrides: Partial<RunRecord>): RunRecord {
@@ -71,13 +71,13 @@ function joinPairs(...pairs: ReturnType<typeof makePair>[]): {
   }
 }
 
-describe('PromotionGate — config', () => {
+describe('HeldOutGate — config', () => {
   it('throws when baselineKey is missing', () => {
-    expect(() => new PromotionGate({} as never)).toThrow(/baselineKey/)
+    expect(() => new HeldOutGate({} as never)).toThrow(/baselineKey/)
   })
 
   it('uses sensible defaults', () => {
-    const g = new PromotionGate({ baselineKey: 'baseline' })
+    const g = new HeldOutGate({ baselineKey: 'baseline' })
     // Smoke: with two productive runs and a strong delta, the
     // few_runs gate should still fire because default min is 3.
     const pairs = joinPairs(
@@ -90,9 +90,9 @@ describe('PromotionGate — config', () => {
   })
 })
 
-describe('PromotionGate — rejection paths', () => {
+describe('HeldOutGate — rejection paths', () => {
   it('rejects on few productive runs', () => {
-    const g = new PromotionGate({ baselineKey: 'baseline', minProductiveRuns: 3 })
+    const g = new HeldOutGate({ baselineKey: 'baseline', minProductiveRuns: 3 })
     const pairs = joinPairs(
       makePair('cand', 0, 0.95, 0.95, 0.5, 0.5),
       makePair('cand', 1, 0.95, 0.95, 0.5, 0.5),
@@ -105,7 +105,7 @@ describe('PromotionGate — rejection paths', () => {
   })
 
   it('rejects on negative paired delta on holdout', () => {
-    const g = new PromotionGate({ baselineKey: 'baseline', minProductiveRuns: 3, seed: 1 })
+    const g = new HeldOutGate({ baselineKey: 'baseline', minProductiveRuns: 3, seed: 1 })
     // Candidate worse than baseline on holdout.
     const pairs = joinPairs(
       makePair('cand', 0, 0.7, 0.4, 0.6, 0.6),
@@ -125,7 +125,7 @@ describe('PromotionGate — rejection paths', () => {
   it('rejects on excessive overfit gap', () => {
     // Candidate clears holdout delta, but search-vs-holdout gap is
     // far worse than baseline's gap.
-    const g = new PromotionGate({
+    const g = new HeldOutGate({
       baselineKey: 'baseline',
       minProductiveRuns: 3,
       overfitGapThreshold: 0.05,
@@ -148,9 +148,9 @@ describe('PromotionGate — rejection paths', () => {
   })
 })
 
-describe('PromotionGate — promotion path', () => {
+describe('HeldOutGate — promotion path', () => {
   it('promotes a clean win with positive lower CI', () => {
-    const g = new PromotionGate({
+    const g = new HeldOutGate({
       baselineKey: 'baseline',
       minProductiveRuns: 3,
       pairedDeltaThreshold: 0,
@@ -177,8 +177,8 @@ describe('PromotionGate — promotion path', () => {
   })
 
   it('decision is deterministic given a seed', () => {
-    const g1 = new PromotionGate({ baselineKey: 'baseline', minProductiveRuns: 3, seed: 7 })
-    const g2 = new PromotionGate({ baselineKey: 'baseline', minProductiveRuns: 3, seed: 7 })
+    const g1 = new HeldOutGate({ baselineKey: 'baseline', minProductiveRuns: 3, seed: 7 })
+    const g2 = new HeldOutGate({ baselineKey: 'baseline', minProductiveRuns: 3, seed: 7 })
     const pairs = joinPairs(
       makePair('cand', 0, 0.6, 0.61, 0.5, 0.5),
       makePair('cand', 1, 0.61, 0.62, 0.5, 0.5),
@@ -193,7 +193,7 @@ describe('PromotionGate — promotion path', () => {
   })
 
   it('drops candidate runs that have no matching baseline pair', () => {
-    const g = new PromotionGate({ baselineKey: 'baseline', minProductiveRuns: 3, seed: 1 })
+    const g = new HeldOutGate({ baselineKey: 'baseline', minProductiveRuns: 3, seed: 1 })
     // Five candidate runs but baseline only paired on 2 of them.
     const candidate: RunRecord[] = []
     const baseline: RunRecord[] = []

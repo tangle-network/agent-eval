@@ -7,7 +7,7 @@ optimization with held-out promotion gates.
 
 ### Added
 
-- **`PromotionGate`** (`src/promotion-gate.ts`) — first-class held-out
+- **`HeldOutGate`** (`src/promotion-gate.ts`) — first-class held-out
   paired-delta promotion gate. Three checks: minimum productive runs,
   positive lower bound on bootstrap CI of paired holdout median delta,
   bounded overfit-gap relative to baseline. Decisions carry a

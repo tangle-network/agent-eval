@@ -24,7 +24,7 @@ pnpm typecheck    # tsc --noEmit
 
 ## v0.15 highlights — paper-grade primitives
 
-- `PromotionGate` — held-out paired-delta gate with `few_runs` /
+- `HeldOutGate` — held-out paired-delta gate with `few_runs` /
   `negative_delta` / `overfit_gap` rejection codes and a full evidence
   block on every decision.
 - `RunRecord` — JSON-friendly run schema with mandatory paper fields
@@ -41,7 +41,7 @@ pnpm typecheck    # tsc --noEmit
 - `runCanaries` — silent judge-fallback, calibration drift (KS test),
   distribution shift (chi-square).
 - `pairedBootstrap` (+ `pairedWilcoxon`, `bhAdjust` aliases) — the
-  paired-bootstrap CI primitive that powers `PromotionGate` and
+  paired-bootstrap CI primitive that powers `HeldOutGate` and
   `gainDistributionFigure`.
 - `benchmarks/` — `gsm8k`, `swebench-lite`, `routing` reference
   wrappers behind one `BenchmarkAdapter` shape.

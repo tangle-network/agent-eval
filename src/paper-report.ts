@@ -26,7 +26,7 @@
 import { confidenceInterval, cohensD, wilcoxonSignedRank } from './statistics'
 import { benjaminiHochberg } from './power-analysis'
 import { pairedBootstrap } from './paired-stats'
-import type { GateDecision } from './promotion-gate'
+import type { GateDecision } from './held-out-gate'
 import type { RunRecord } from './run-record'
 
 // ── paperTable ───────────────────────────────────────────────────────
