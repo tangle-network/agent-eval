@@ -132,4 +132,25 @@ describe('parseReflectionResponse', () => {
     const raw = JSON.stringify({ proposals: [{ label: 'no payload' }, { payload: { x: 1 } }] })
     expect(parseReflectionResponse(raw)).toHaveLength(1)
   })
+
+  it('accepts a bare JSON array of proposals (regression)', () => {
+    // gpt-4o-mini and similar instruct-tuned models often emit just the
+    // array shown in the schema example instead of wrapping it in
+    // {proposals:[...]}. The parser must accept that shape so the mutator
+    // doesn't return zero children and stall the optimizer.
+    const raw = JSON.stringify([
+      { label: 'tighten', rationale: 'add concrete', payload: { persona: 'A' } },
+      { label: 'add example', rationale: 'cover gap',  payload: { persona: 'B' } },
+    ])
+    const out = parseReflectionResponse(raw, 5)
+    expect(out).toHaveLength(2)
+    expect((out[0].payload as { persona: string }).persona).toBe('A')
+  })
+
+  it('accepts a bare array even when the model adds prose around it', () => {
+    const raw = `Sure, here are my proposals:\n[ {"label":"l","rationale":"r","payload":{"persona":"X"}} ]\nLet me know if you want more.`
+    const out = parseReflectionResponse(raw)
+    expect(out).toHaveLength(1)
+    expect((out[0].payload as { persona: string }).persona).toBe('X')
+  })
 })
