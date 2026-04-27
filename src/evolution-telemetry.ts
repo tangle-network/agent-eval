@@ -116,6 +116,13 @@ export interface LineageNode {
   /** Filled when scoring lands. */
   meanScore?: number
   promotedToFrontier?: boolean
+  /**
+   * The variant payload (e.g. evolved persona text, code mutation diff).
+   * Persisted so a winning variant can be reproduced after a run completes
+   * without re-running the optimizer. Optional — pass `omitPayload: true` to
+   * `upsertVariant` for cases where the payload is too large to log.
+   */
+  payload?: unknown
 }
 
 /**
@@ -224,13 +231,14 @@ export class LineageRecorder<P = unknown> {
     })
   }
 
-  async upsertVariant(variant: PromptVariant<P>): Promise<void> {
+  async upsertVariant(variant: PromptVariant<P>, opts: { omitPayload?: boolean } = {}): Promise<void> {
     await this.upsert({
       id: variant.id,
       parentId: variant.parentId ?? null,
       generation: variant.generation,
       kind: this.kindOf(variant),
       ...(variant.rationale ? { rationale: variant.rationale } : {}),
+      ...(opts.omitPayload || variant.payload === undefined ? {} : { payload: variant.payload }),
     })
   }
 

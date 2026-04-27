@@ -171,6 +171,77 @@ describe('runPromptEvolution', () => {
     expect(peak).toBeLessThanOrEqual(2)
   })
 
+  it('aggregates meanScore over all graded trials, not just ok=true (regression)', async () => {
+    // Pre-fix bug: meanScore filtered to okTrials only. A scenario where every
+    // trial scored 0.6 but ok=false (below quality_bar) would yield meanScore=0
+    // because mean([]) returns 0 — torpedoing the variant aggregate even though
+    // 0.6 is real signal.
+    const adapter: ScoreAdapter<Payload> = {
+      async score({ variant, scenarioId, rep }) {
+        return {
+          variantId: variant.id,
+          scenarioId,
+          rep,
+          ok: false,           // failed quality_bar
+          score: 0.6,          // but the score is real
+          cost: 1,
+          durationMs: 1,
+        }
+      },
+    }
+    const mutator: MutateAdapter<Payload> = { async mutate() { return [] } }
+    const result = await runPromptEvolution<Payload>({
+      runId: 'graded-but-failed',
+      target: 't',
+      seedVariants: [seed(0.5, 'a')],
+      scenarioIds: ['s1'],
+      reps: 2,
+      generations: 1,
+      populationSize: 1,
+      scoreConcurrency: 1,
+      scoreAdapter: adapter,
+      mutateAdapter: mutator,
+      objectives,
+    })
+    expect(result.bestAggregate.meanScore).toBeCloseTo(0.6, 5)
+    expect(result.bestAggregate.okRate).toBe(0)
+    // Error trials still excluded — covered by the original score signal.
+  })
+
+  it('error trials are excluded from meanScore but counted in okRate', async () => {
+    let n = 0
+    const adapter: ScoreAdapter<Payload> = {
+      async score({ variant, scenarioId, rep }) {
+        n++
+        // First trial errors, second scores 0.8 and passes.
+        if (n === 1) {
+          return {
+            variantId: variant.id, scenarioId, rep,
+            ok: false, score: 0, error: 'agent crashed',
+          }
+        }
+        return { variantId: variant.id, scenarioId, rep, ok: true, score: 0.8 }
+      },
+    }
+    const mutator: MutateAdapter<Payload> = { async mutate() { return [] } }
+    const result = await runPromptEvolution<Payload>({
+      runId: 'mixed',
+      target: 't',
+      seedVariants: [seed(0.5, 'a')],
+      scenarioIds: ['s1'],
+      reps: 2,
+      generations: 1,
+      populationSize: 1,
+      scoreConcurrency: 1,
+      scoreAdapter: adapter,
+      mutateAdapter: mutator,
+      objectives,
+    })
+    // meanScore should be 0.8 (the one valid trial), not 0.4 (mean of [0, 0.8]).
+    expect(result.bestAggregate.meanScore).toBeCloseTo(0.8, 5)
+    expect(result.bestAggregate.okRate).toBe(0.5)
+  })
+
   it('early-stops on no improvement', async () => {
     const adapter: ScoreAdapter<Payload> = {
       async score({ variant, scenarioId, rep }) {

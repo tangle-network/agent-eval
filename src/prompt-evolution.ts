@@ -304,13 +304,19 @@ function aggregateTrials<P>(
     const scenarios = scenarioIds.map<ScenarioAggregate>((sid) => {
       const scenarioTrials = variantTrials.filter((t) => t.scenarioId === sid)
       const okTrials = scenarioTrials.filter((t) => t.ok)
-      const metrics = aggregateMetrics(okTrials.map((t) => t.metrics ?? {}))
+      // Mean score must include every successfully-graded trial — a trial
+      // with score=0.6 and ok=false (below quality_bar) is real signal, not
+      // noise. Only `error` trials (agent crash, judge crash) carry a
+      // synthetic score and are excluded. okRate continues to reflect the
+      // pass/fail rate against the configured quality_bar.
+      const gradedTrials = scenarioTrials.filter((t) => !t.error)
+      const metrics = aggregateMetrics(gradedTrials.map((t) => t.metrics ?? {}))
       return {
         variantId: variant.id,
         scenarioId: sid,
-        meanScore: mean(okTrials.map((t) => t.score)),
-        meanCost: mean(okTrials.map((t) => t.cost ?? 0)),
-        meanDurationMs: mean(okTrials.map((t) => t.durationMs ?? 0)),
+        meanScore: mean(gradedTrials.map((t) => t.score)),
+        meanCost: mean(gradedTrials.map((t) => t.cost ?? 0)),
+        meanDurationMs: mean(gradedTrials.map((t) => t.durationMs ?? 0)),
         okRate: scenarioTrials.length === 0 ? 0 : okTrials.length / scenarioTrials.length,
         trials: scenarioTrials.length,
         metrics,

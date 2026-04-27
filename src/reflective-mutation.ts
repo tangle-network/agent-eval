@@ -161,17 +161,42 @@ export interface ReflectionProposal {
 export function parseReflectionResponse(raw: string, maxProposals?: number): ReflectionProposal[] {
   let text = raw.trim()
   if (text.startsWith('```')) text = text.replace(/^```(?:json)?\n?/, '').replace(/\n?```$/, '')
-  const start = text.indexOf('{')
-  const end = text.lastIndexOf('}')
-  if (start < 0 || end <= start) return []
-  let parsed: unknown
-  try {
-    parsed = JSON.parse(text.slice(start, end + 1))
-  } catch {
-    return []
+
+  // Try to parse as either a JSON object `{proposals: [...]}` or a bare
+  // array `[...]`. LLMs frequently emit one or the other depending on how
+  // they read the schema example; accept both.
+  let parsed: unknown = null
+  const objectStart = text.indexOf('{')
+  const objectEnd = text.lastIndexOf('}')
+  const arrayStart = text.indexOf('[')
+  const arrayEnd = text.lastIndexOf(']')
+  // Prefer whichever delimiter comes first (the model committed to that shape).
+  const tryObjectFirst = objectStart >= 0 && (arrayStart < 0 || objectStart < arrayStart)
+  const candidates: string[] = []
+  if (tryObjectFirst) {
+    if (objectStart >= 0 && objectEnd > objectStart) candidates.push(text.slice(objectStart, objectEnd + 1))
+    if (arrayStart >= 0 && arrayEnd > arrayStart) candidates.push(text.slice(arrayStart, arrayEnd + 1))
+  } else {
+    if (arrayStart >= 0 && arrayEnd > arrayStart) candidates.push(text.slice(arrayStart, arrayEnd + 1))
+    if (objectStart >= 0 && objectEnd > objectStart) candidates.push(text.slice(objectStart, objectEnd + 1))
   }
-  if (!parsed || typeof parsed !== 'object') return []
-  const proposalsRaw = (parsed as { proposals?: unknown }).proposals
+  for (const slice of candidates) {
+    try {
+      parsed = JSON.parse(slice)
+      break
+    } catch {
+      // try next
+    }
+  }
+  if (parsed == null) return []
+
+  // Normalize: accept `{proposals: [...]}` or a bare array.
+  let proposalsRaw: unknown
+  if (Array.isArray(parsed)) {
+    proposalsRaw = parsed
+  } else if (parsed && typeof parsed === 'object') {
+    proposalsRaw = (parsed as { proposals?: unknown }).proposals
+  }
   if (!Array.isArray(proposalsRaw)) return []
 
   const out: ReflectionProposal[] = []
