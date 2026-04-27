@@ -78,7 +78,95 @@ The recipe for a code-generator eval is in [`SKILL.md` §Minimal working path](.
 | `clients/python/` | First-party Python client (`tangle-agent-eval` on PyPI). Version-locked to npm. | clients/python/README.md |
 | `BenchmarkRunner`, `executeScenario`, `ConvergenceTracker` | Multi-turn scenario execution + cross-run tracking. | SKILL.md |
 | `ExperimentTracker`, `PromptOptimizer`, `bisector` | A/B prompts, optimize steering, bisect regressions. | SKILL.md |
+| `runPromptEvolution`, `createCompositeMutator`, `createSandboxPool`, `createSandboxCodeMutator`, `MutationTelemetry`, `LineageRecorder`, `CostLedger`, `JsonlTrialCache` | Prompt + code evolution loops with bounded sandbox pools, durable JSONL telemetry, plateau-detecting composite mutators, crash-resumable trial cache. | §Evolution loop |
+| `reflective-mutation` (`buildReflectionPrompt`, `parseReflectionResponse`, `DEFAULT_MUTATION_PRIMITIVES`) | Trace-conditioned LLM mutator that reasons over top/bottom trials instead of blind rewrites. | inline JSDoc |
+| `correlationStudy`, `OutcomeStore`, `ProductRegistry` | Meta-eval: do our scores predict deployment outcomes (revenue, retention)? | inline JSDoc |
 | Telemetry (`telemetry/`, `telemetry/file`) | OTLP export, trace replay, file sinks. | inline JSDoc |
+
+## Evolution loop
+
+Closing the loop on a prompt or codebase is **two adapters + a config**. Compose `runPromptEvolution` with `createCompositeMutator` (plateau policy) and you get prompt-only optimization until improvement stalls, then automatic switch to code-channel mutations from a coding agent inside a `SandboxPool`.
+
+```ts
+import {
+  createSandboxPool,
+  createSandboxCodeMutator,
+  createCompositeMutator,
+  buildReflectionPrompt,
+  parseReflectionResponse,
+  runPromptEvolution,
+  MutationTelemetry,
+  LineageRecorder,
+  CostLedger,
+  JsonlTrialCache,
+} from '@tangle-network/agent-eval'
+
+// 1. Prompt mutator — reflective-mutation reasons over top/bottom trials
+const promptMutator = {
+  async mutate({ parent, topTrials, bottomTrials, childCount }) {
+    const ctx = { target: 'forge-prompt', parentPayload: parent.payload, topTrials, bottomTrials, childCount }
+    const reflection = buildReflectionPrompt(ctx)
+    const raw = await yourLlm(reflection)
+    return parseReflectionResponse(raw, childCount).map((p, i) => ({
+      id: `${parent.id}.g${parent.generation + 1}.prompt.${i}`,
+      payload: p.payload,
+      generation: parent.generation + 1,
+      parentId: parent.id,
+      label: p.label,
+      rationale: p.rationale,
+    }))
+  },
+}
+
+// 2. Code mutator — runs a coding agent in a sandbox slot, captures the diff
+const pool = createSandboxPool({
+  size: 4,
+  factory: {
+    async create(id) { return await yourSandboxClient.create({ name: id }) },
+    async reset(slot) { await slot.resource.exec('git reset --hard origin/main && git clean -fd') },
+    async destroy(slot) { await slot.resource.delete() },
+  },
+})
+const codeMutator = createSandboxCodeMutator({
+  pool,
+  runner: async ({ slot, parent, topTrials, bottomTrials }) => {
+    const result = await slot.resource.task(`Improve the prompt at /repo/forge-prompt.ts...`)
+    return [{ ok: true, latencyMs: result.durationMs, costUsd: result.costUsd, artifact: { diff: result.diff } }]
+  },
+  toVariantPayload: (outcome, parent) => ({ ...parent.payload, codeMutation: outcome.artifact }),
+})
+
+// 3. Compose — plateau policy auto-switches when prompt evolution stalls
+const composite = createCompositeMutator({
+  primary: promptMutator,
+  secondary: codeMutator,
+  policy: 'plateau',
+  plateauThreshold: 0.02,
+  plateauPatience: 2,
+})
+
+// 4. Run — durable telemetry to disk, crash-resumable
+const result = await runPromptEvolution({
+  runId: `forge_${Date.now()}`,
+  target: 'forge-prompt',
+  seedVariants: [{ id: 'v0', payload: { text: currentPrompt }, generation: 0, label: 'baseline' }],
+  scenarioIds: referenceCorpus.map(s => s.id),
+  reps: 3,
+  generations: 5,
+  populationSize: 4,
+  scoreAdapter: { /* runs your eval against (variant, scenario, rep) */ },
+  mutateAdapter: composite,
+  cache: new JsonlTrialCache('.evolve/cache.jsonl'),
+  objectives: [
+    { name: 'score', direction: 'maximize', value: a => a.meanScore },
+    { name: 'cost', direction: 'minimize', value: a => a.meanCost },
+  ],
+})
+```
+
+The `MutationTelemetry`, `LineageRecorder`, and `CostLedger` pass into the `code-mutator` (and any consumer that wants them) — they emit append-only JSONL of every attempt (success + failure with reason) and a snapshot lineage tree, so a finished run leaves a forensically complete trail under one directory.
+
+For the full primitive surface and rationale, read each module's JSDoc — `prompt-evolution.ts`, `composite-mutator.ts`, `sandbox-pool.ts`, `code-mutator.ts`, `reflective-mutation.ts`, `evolution-telemetry.ts`.
 
 ## Tech stack
 

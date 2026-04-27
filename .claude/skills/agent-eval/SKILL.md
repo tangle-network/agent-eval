@@ -292,6 +292,81 @@ Fail closed; use `// muffle-ok: <reason>` for the rare exception.
 
 ---
 
+## Evolution loops (prompt + code channels)
+
+When you need to optimize a prompt OR a code surface (a system prompt,
+a tool catalog, a scaffold template) against a measurable metric, use
+`runPromptEvolution` with `createCompositeMutator` rather than rolling a
+loop yourself. Two adapters and a config — that's the contract.
+
+**Adapter shape** (both already have reference impls, you supply the
+runtime hookup):
+
+- `ScoreAdapter.score({ variant, scenarioId, rep })` — runs your eval
+  for one (variant, scenario, rep) tuple. Returns `TrialResult` with
+  `score`, `cost`, `metrics`. The loop calls this in parallel up to
+  `scoreConcurrency`. Cache via `JsonlTrialCache` for crash resume.
+
+- `MutateAdapter.mutate({ parent, parentAggregate, topTrials,
+  bottomTrials, childCount, generation })` — proposes children of a
+  variant. Two reference implementations:
+  - `reflective-mutation.ts` (prompt channel) — `buildReflectionPrompt`
+    + `parseReflectionResponse` + your LLM. Trace-conditioned: the
+    model sees top/bottom trials and reasons about why some variants
+    outperformed, instead of blind paraphrase.
+  - `createSandboxCodeMutator` (code channel) — invokes a coding agent
+    inside a `SandboxPool` slot. Owns checkout/release, telemetry
+    write-through (mutations.jsonl, lineage, cost-ledger), failure
+    capture. You supply `runner` (invoke the agent) and
+    `toVariantPayload` (encode the diff).
+
+**Composite policy** is the load-bearing escape hatch. `policy:
+'plateau'` runs the prompt mutator until improvement stalls (delta <
+`plateauThreshold` for `plateauPatience` consecutive gens), then
+auto-switches to a 50/50 split with the code mutator. Without this,
+you either burn budget on prompt rewrites that have hit a structural
+ceiling, or you skip the cheap-wins gradient and dive straight into
+expensive code edits. The plateau path lets the loop hand its own
+flag to the more expensive mutator only when it's earned the cost.
+
+**Telemetry sinks** — pass them in if you want a forensic trail:
+`MutationTelemetry` (mutations.jsonl), `TrialTelemetry` (trials.jsonl),
+`LineageRecorder` (event-log lineage with optional snapshot via
+`compact()`), `CostLedger` (per-channel + per-generation breakdown).
+The `code-mutator` writes through automatically when you pass them as
+options; the `score-adapter` is yours to wire (call
+`trialTelemetry.record(...)` after each scored trial).
+
+### Footguns specific to evolution loops
+
+1. **Don't stash the prompt mutator's LLM responses outside the cache.**
+   `JsonlTrialCache` is for trial scores, not LLM responses. If you
+   want to dedup mutation calls (same parent + same top/bottom set →
+   same proposals), implement that inside your `MutateAdapter`. The
+   loop driver doesn't dedup mutations; that's deliberate — even
+   "same trial set" runs different LLM completions across reps.
+
+2. **The code channel needs a real reset() in your `SlotFactory`.**
+   `git reset --hard origin/main && git clean -fd` is the minimum;
+   anything less and child variant N+1 inherits N's diff. The pool
+   calls reset before reuse but does NOT call it before the very
+   first checkout — the factory's `create()` is responsible for
+   leaving the slot in a checked-out clean state.
+
+3. **Pareto objectives have a direction.** `direction: 'maximize'` for
+   score, `direction: 'minimize'` for cost. Forgetting `minimize`
+   makes the frontier think a $5 variant dominates a $1 variant.
+
+4. **Plateau detection requires reps ≥ 2.** With `reps: 1`, a single
+   trial-noise spike looks like real improvement and the loop never
+   detects the plateau. Three reps is the floor I'd run; five for
+   high-variance scoring.
+
+5. **`MutationChannel` is `'prompt' | 'code'` only.** Tools, scaffold,
+   tool descriptions, scoring code — all are `'code'` from the loop's
+   perspective (anything that runs through a coding agent in a
+   sandbox slot). Don't fork the type.
+
 ## Extend, don't duplicate
 
 Before adding machinery, check the "Decide where to start" table above.
