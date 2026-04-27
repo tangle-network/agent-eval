@@ -1,5 +1,28 @@
 # Changelog
 
+## 0.16.0 — naming cleanup
+
+The v0.15 primitives were framed as "paper-grade" but most are production-rigor utilities any team needs. This release renames the three reporting helpers and drops the "paper" framing from the public API. Behavior unchanged.
+
+### Renamed
+
+- `paperTable` → `summaryTable`
+- `paretoFigure` → `paretoChart`
+- `gainDistributionFigure` → `gainHistogram`
+- `PaperTable` / `PaperTableOptions` / `PaperTableRow` types → `SummaryTable` / `SummaryTableOptions` / `SummaryTableRow`
+- File: `src/paper-report.ts` → `src/summary-report.ts`
+
+### Migration
+
+Drop-in: search-and-replace the three function names and the file path. Type names follow the same pattern. No behavior change.
+
+```ts
+// before
+import { paperTable, paretoFigure, gainDistributionFigure } from '@tangle-network/agent-eval'
+// after
+import { summaryTable, paretoChart, gainHistogram } from '@tangle-network/agent-eval'
+```
+
 ## 0.15.0 — paper-grade primitives
 
 Substrate for the "Two Loops, Three Roles" paper on multi-level prompt
@@ -38,8 +61,8 @@ optimization with held-out promotion gates.
     `src/benchmarks/routing/README.md`.
   - `deterministicSplit(itemId, seed?)`: stable 60/20/20 split via
     FNV-1a hash. Default seed `agent-eval-v1`.
-- **`paperTable`, `paretoFigure`, `gainDistributionFigure`**
-  (`src/paper-report.ts`) — Table 1 + Pareto + gain-distribution specs.
+- **`summaryTable`, `paretoChart`, `gainHistogram`**
+  (`sr./summary-report.ts`) — Table 1 + Pareto + gain-distribution specs.
   Returns data structures (markdown table, point lists, histogram bins);
   caller picks the plotting library.
 - **`runCanaries`** (`src/canary.ts`) — three liveness canaries:

@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest'
 import {
-  paperTable,
-  paretoFigure,
-  gainDistributionFigure,
-} from '../src/paper-report'
+  summaryTable,
+  paretoChart,
+  gainHistogram,
+} from '../src/summary-report'
 import type { RunRecord } from '../src/run-record'
 import type { GateDecision } from '../src/promotion-gate'
 
@@ -35,17 +35,17 @@ function rec(
   }
 }
 
-describe('paperTable', () => {
+describe('summaryTable', () => {
   it('returns one row per candidate on the configured split', () => {
     const runs: RunRecord[] = []
     for (let i = 0; i < 6; i++) {
       runs.push(rec('A', i, 'holdout', 0.5 + i * 0.01))
       runs.push(rec('B', i, 'holdout', 0.6 + i * 0.01))
     }
-    const t = paperTable(runs, { split: 'holdout' })
+    const t = summaryTable(runs, { split: 'holdout' })
     expect(t.rows).toHaveLength(2)
     expect(t.rows.map((r) => r.candidateId).sort()).toEqual(['A', 'B'])
-    expect(t.markdown).toContain('Paper Table')
+    expect(t.markdown).toContain('Summary Table')
     expect(t.markdown).toContain('| A |')
     expect(t.markdown).toContain('| B |')
   })
@@ -57,7 +57,7 @@ describe('paperTable', () => {
       runs.push(rec('baseline', i, 'holdout', 0.5 + i * 0.001))
       runs.push(rec('cand', i, 'holdout', 0.7 + i * 0.001))
     }
-    const t = paperTable(runs, { comparator: 'baseline', split: 'holdout' })
+    const t = summaryTable(runs, { comparator: 'baseline', split: 'holdout' })
     const cand = t.rows.find((r) => r.candidateId === 'cand')!
     expect(cand.qValue).toBeLessThan(0.05)
     expect(cand.cohensD).toBeGreaterThan(0.8)
@@ -67,12 +67,12 @@ describe('paperTable', () => {
 
   it('skips candidates with no runs on the requested split', () => {
     const runs = [rec('A', 0, 'search', 0.8), rec('A', 1, 'search', 0.81)]
-    const t = paperTable(runs, { split: 'holdout' })
+    const t = summaryTable(runs, { split: 'holdout' })
     expect(t.rows).toHaveLength(0)
   })
 })
 
-describe('paretoFigure', () => {
+describe('paretoChart', () => {
   it('marks dominators on-frontier and dominated points off-frontier', () => {
     const runs: RunRecord[] = [
       // Dominated: high cost, low score.
@@ -82,7 +82,7 @@ describe('paretoFigure', () => {
       rec('cheap_good', 0, 'holdout', 0.8, 0.05),
       rec('cheap_good', 1, 'holdout', 0.8, 0.05),
     ]
-    const f = paretoFigure(runs, { split: 'holdout' })
+    const f = paretoChart(runs, { split: 'holdout' })
     const cheap = f.points.find((p) => p.candidateId === 'cheap_good')!
     const expensive = f.points.find((p) => p.candidateId === 'expensive_bad')!
     expect(cheap.onFrontier).toBe(true)
@@ -108,16 +108,16 @@ describe('paretoFigure', () => {
       reason: 'ok',
       rejectionCode: null,
     }
-    const f = paretoFigure(runs, { gateDecisions: { cand: decision } })
+    const f = paretoChart(runs, { gateDecisions: { cand: decision } })
     const p = f.points[0]!
     expect(p.gate).toBe('promote')
   })
 })
 
-describe('gainDistributionFigure', () => {
+describe('gainHistogram', () => {
   it('returns empty bins when no pairs match', () => {
     const runs = [rec('cand', 0, 'holdout', 0.7), rec('baseline', 1, 'holdout', 0.5)]
-    const f = gainDistributionFigure(runs, 'cand', 'baseline')
+    const f = gainHistogram(runs, 'cand', 'baseline')
     expect(f.n).toBe(0)
     expect(f.bins).toHaveLength(0)
   })
@@ -128,7 +128,7 @@ describe('gainDistributionFigure', () => {
       runs.push(rec('cand', i, 'holdout', 0.6 + (i % 3) * 0.05))
       runs.push(rec('baseline', i, 'holdout', 0.5))
     }
-    const f = gainDistributionFigure(runs, 'cand', 'baseline', { seed: 1, bins: 5 })
+    const f = gainHistogram(runs, 'cand', 'baseline', { seed: 1, bins: 5 })
     expect(f.n).toBe(12)
     const total = f.bins.reduce((s, b) => s + b.count, 0)
     expect(total).toBe(12)
@@ -138,6 +138,6 @@ describe('gainDistributionFigure', () => {
 
   it('rejects bins ≤ 0', () => {
     const runs = [rec('a', 0, 'holdout', 0.5), rec('b', 0, 'holdout', 0.5)]
-    expect(() => gainDistributionFigure(runs, 'a', 'b', { bins: 0 })).toThrow()
+    expect(() => gainHistogram(runs, 'a', 'b', { bins: 0 })).toThrow()
   })
 })
