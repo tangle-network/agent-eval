@@ -9,6 +9,7 @@
 
 import { appendFileSync, existsSync, mkdirSync, readFileSync } from 'node:fs'
 import { dirname } from 'node:path'
+import { Mutex } from './concurrency'
 
 export type ReferenceReplaySplit = 'train' | 'dev' | 'test' | 'holdout'
 export type ReferenceReplayMatchStrategy = 'reference-order' | 'global-greedy'
@@ -323,15 +324,36 @@ export function inMemoryReferenceReplayStore<Input = unknown>(
   }
 }
 
+// Per-path Mutex registry. `appendFileSync` on POSIX is only atomic up to
+// PIPE_BUF (~4KB) — and a `ReferenceReplayRun` line routinely exceeds that.
+// Concurrent in-process writers without a lock produce torn lines that
+// break `list()` on parse. Cross-process safety still requires file
+// locking (fcntl/flock); we don't take that on here because every current
+// agent-eval flow is single-process.
+const jsonlStoreLocks = new Map<string, Mutex>()
+function getJsonlStoreLock(path: string): Mutex {
+  let m = jsonlStoreLocks.get(path)
+  if (!m) {
+    m = new Mutex()
+    jsonlStoreLocks.set(path, m)
+  }
+  return m
+}
+
 export function jsonlReferenceReplayStore<Input = unknown>(path: string): ReferenceReplayRunStore<Input> {
+  const lock = getJsonlStoreLock(path)
   return {
     async save(run) {
-      mkdirSync(dirname(path), { recursive: true })
-      appendFileSync(path, JSON.stringify(run) + '\n')
+      await lock.runExclusive(() => {
+        mkdirSync(dirname(path), { recursive: true })
+        appendFileSync(path, JSON.stringify(run) + '\n')
+      })
     },
     async list() {
-      if (!existsSync(path)) return []
-      return readJsonl(path)
+      return lock.runExclusive(() => {
+        if (!existsSync(path)) return []
+        return readJsonl(path)
+      })
     },
   }
 }

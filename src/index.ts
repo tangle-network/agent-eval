@@ -635,6 +635,32 @@ export type {
   TrialCache,
 } from './prompt-evolution'
 
+// ── 0.14.0: concurrency + persistence + telemetry primitives for evolution loops ──
+export { Mutex } from './concurrency'
+
+export { JsonlTrialCache } from './jsonl-trial-cache'
+
+export { LockedJsonlAppender, resetLockedAppendersForTesting } from './locked-jsonl-appender'
+
+export {
+  MutationTelemetry,
+  TrialTelemetry,
+  LineageRecorder,
+  CostLedger,
+} from './evolution-telemetry'
+export type {
+  MutationAttempt,
+  MutationChannel,
+  TrialAttempt,
+  LineageNode,
+  LineageKind,
+  LineageKindResolver,
+  CostLedgerSnapshot,
+} from './evolution-telemetry'
+
+export { createCompositeMutator } from './composite-mutator'
+export type { CompositePolicy, CreateCompositeMutatorOpts } from './composite-mutator'
+
 export {
   matchGoldens,
   weightedRecall,
