@@ -158,6 +158,49 @@ export interface ReflectionProposal {
  * Parse the model's JSON response back into proposals. Tolerates markdown
  * fences and surrounding prose. Returns at most `maxProposals`.
  */
+/**
+ * Walk the input as JSON-aware (string vs not, escape-aware) and close
+ * unclosed `{` / `[` in LIFO order at the tail. If the input was already
+ * balanced returns it unchanged. If a string was open at end-of-input we
+ * also close it with `"` first, since a truncated string-mid-value is the
+ * most common LLM cap-hit failure mode and JSON.parse cannot proceed
+ * without one.
+ *
+ * Returns null when the structure is unrecoverable (e.g. depth would go
+ * negative — that's an *over*-closed prefix, not a truncation).
+ */
+function autoCloseTruncatedJson(raw: string): string | null {
+  const stack: Array<'{' | '['> = []
+  let inString = false
+  let escape = false
+  for (const c of raw) {
+    if (escape) {
+      escape = false
+      continue
+    }
+    if (inString) {
+      if (c === '\\') { escape = true; continue }
+      if (c === '"') { inString = false; continue }
+      continue
+    }
+    if (c === '"') { inString = true; continue }
+    if (c === '{' || c === '[') stack.push(c)
+    else if (c === '}') {
+      if (stack.pop() !== '{') return null
+    } else if (c === ']') {
+      if (stack.pop() !== '[') return null
+    }
+  }
+  if (stack.length === 0 && !inString) return raw
+  let suffix = ''
+  if (inString) suffix += '"'
+  while (stack.length > 0) {
+    const opener = stack.pop()!
+    suffix += opener === '{' ? '}' : ']'
+  }
+  return raw + suffix
+}
+
 export function parseReflectionResponse(raw: string, maxProposals?: number): ReflectionProposal[] {
   let text = raw.trim()
   if (text.startsWith('```')) text = text.replace(/^```(?:json)?\n?/, '').replace(/\n?```$/, '')
@@ -188,6 +231,26 @@ export function parseReflectionResponse(raw: string, maxProposals?: number): Ref
       // try next
     }
   }
+
+  // Truncation-tolerant fallback: LLMs frequently hit a max_tokens cap
+  // mid-emission, leaving N unclosed `}` / `]` at the tail. Close them in
+  // order from the deepest unclosed structure outward, by walking the
+  // candidate slice and tracking depth, then retrying JSON.parse. This
+  // recovers any complete proposals before the cutoff and drops the rest.
+  if (parsed == null) {
+    for (const slice of candidates) {
+      const closed = autoCloseTruncatedJson(slice)
+      if (closed != null && closed !== slice) {
+        try {
+          parsed = JSON.parse(closed)
+          break
+        } catch {
+          // give up on this candidate
+        }
+      }
+    }
+  }
+
   if (parsed == null) return []
 
   // Normalize: accept `{proposals: [...]}` or a bare array.

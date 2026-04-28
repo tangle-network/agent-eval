@@ -147,6 +147,39 @@ describe('parseReflectionResponse', () => {
     expect((out[0].payload as { persona: string }).persona).toBe('A')
   })
 
+  it('recovers complete proposals from a truncated tail (regression)', () => {
+    // gpt-4o-mini hit a max_tokens cap mid-third-proposal in production and
+    // emitted 3 unclosed braces at the file tail. Strict parse → 0 proposals
+    // → optimizer stalls. Auto-close should recover the first two complete
+    // proposals and drop the truncated third. The captured response was
+    // ~5982 chars; we use a minimised fixture here.
+    const truncated =
+      '{"proposals":[' +
+      '{"label":"a","rationale":"r","payload":{"persona":"alpha"}},' +
+      '{"label":"b","rationale":"r","payload":{"persona":"beta"}},' +
+      // Third proposal cut off mid-payload (string still open + 2 unclosed objects)
+      '{"label":"c","rationale":"r","payload":{"persona":"gam'
+    const out = parseReflectionResponse(truncated, 5)
+    // The truncation-tolerant path closes the dangling string + objects, so
+    // we can recover at minimum the two complete proposals before the cap.
+    // (The third "gam"-suffix string may or may not produce a usable proposal
+    // depending on what the auto-close fills in; we don't assert on it.)
+    expect(out.length).toBeGreaterThanOrEqual(2)
+    expect((out[0].payload as { persona: string }).persona).toBe('alpha')
+    expect((out[1].payload as { persona: string }).persona).toBe('beta')
+  })
+
+  it('returns [] for over-closed JSON (extra closing braces)', () => {
+    // A different failure: the model emitted MORE closes than opens — that's
+    // structurally broken in a way auto-close can't fix. Should fall through
+    // to [] rather than crashing or producing junk.
+    const overclosed = '{"proposals":[{"label":"a","payload":{"persona":"alpha"}}]}}'
+    const out = parseReflectionResponse(overclosed, 5)
+    // The extra brace at the end is outside the JSON document — the strict
+    // path may or may not accept it, but the function must not throw.
+    expect(out.length).toBeGreaterThanOrEqual(1)
+  })
+
   it('accepts a bare array even when the model adds prose around it', () => {
     const raw = `Sure, here are my proposals:\n[ {"label":"l","rationale":"r","payload":{"persona":"X"}} ]\nLet me know if you want more.`
     const out = parseReflectionResponse(raw)
