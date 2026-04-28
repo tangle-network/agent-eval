@@ -525,13 +525,14 @@ export type {
   FlowLayerFactoryInput,
 } from './flow-layer'
 
-export { deployGateLayer, viteDeployRunner } from './deploy-gate-layer'
+export { deployGateLayer, viteDeployRunner, wranglerDeployRunner } from './deploy-gate-layer'
 export type {
   DeployFamily,
   DeployRunResult,
   DeployRunner,
   DeployGateLayerInput,
   ViteDeployRunnerInput,
+  WranglerDeployRunnerInput,
 } from './deploy-gate-layer'
 
 export {

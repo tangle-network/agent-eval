@@ -216,3 +216,83 @@ export function viteDeployRunner(input: ViteDeployRunnerInput): DeployRunner {
     },
   }
 }
+
+// ─── Canonical wrangler runner ──────────────────────────────────────────
+
+export interface WranglerDeployRunnerInput {
+  workdir: string
+  exec: (cmd: string, opts?: { cwd?: string; timeoutMs?: number }) => Promise<{ stdout: string; stderr: string; exitCode: number }>
+  exists: (relativePath: string) => boolean | Promise<boolean>
+  /** Build command. Default `npm run build`. */
+  buildCommand?: string
+  /** Wrangler dry-run command. Default `npx wrangler deploy --dry-run --outdir dist`. */
+  dryRunCommand?: string
+  /** Per-step cap (ms). Default 120s. */
+  timeoutMs?: number
+}
+
+/**
+ * Canonical runner for the `fullstack-ts` family on Cloudflare Workers
+ * (Remix / React Router v7 / Hono on Workers). Detects wrangler.toml or
+ * wrangler.jsonc in the workdir, builds, then `wrangler deploy --dry-run`
+ * to catch missing bindings, syntax errors in wrangler config, and
+ * import-time crashes that don't surface in `tsc`.
+ *
+ * No wrangler config = skip with "no wrangler" evidence (not a failure
+ * — the gate caller decides whether to require deploy validation).
+ */
+export function wranglerDeployRunner(input: WranglerDeployRunnerInput): DeployRunner {
+  return {
+    run: async () => {
+      const start = Date.now()
+      const buildCmd = input.buildCommand ?? 'npm run build'
+      const dryCmd = input.dryRunCommand ?? 'npx wrangler deploy --dry-run --outdir dist'
+      const timeoutMs = input.timeoutMs ?? 120_000
+
+      const hasToml = await input.exists('wrangler.toml')
+      const hasJsonc = hasToml ? false : await input.exists('wrangler.jsonc')
+      if (!hasToml && !hasJsonc) {
+        return {
+          ok: false,
+          output: 'no wrangler config found (wrangler.toml / wrangler.jsonc absent)',
+          durationMs: Date.now() - start,
+          artifactDir: 'dist',
+          artifactValid: false,
+        }
+      }
+
+      const build = await input.exec(buildCmd, { cwd: input.workdir, timeoutMs })
+      if (build.exitCode !== 0) {
+        const tail = ((build.stderr || build.stdout) ?? '').slice(-1500)
+        return {
+          ok: false,
+          output: `build failed: ${tail}`,
+          durationMs: Date.now() - start,
+          artifactDir: 'dist',
+          artifactValid: false,
+        }
+      }
+
+      const dry = await input.exec(dryCmd, { cwd: input.workdir, timeoutMs })
+      if (dry.exitCode !== 0) {
+        const tail = ((dry.stderr || dry.stdout) ?? '').slice(-1500)
+        return {
+          ok: false,
+          output: `wrangler dry-run failed: ${tail}`,
+          durationMs: Date.now() - start,
+          artifactDir: 'dist',
+          artifactValid: false,
+        }
+      }
+
+      const tail = ((dry.stdout || dry.stderr) ?? '').slice(-1500)
+      return {
+        ok: true,
+        output: tail,
+        durationMs: Date.now() - start,
+        artifactDir: 'dist',
+        artifactValid: true,
+      }
+    },
+  }
+}
