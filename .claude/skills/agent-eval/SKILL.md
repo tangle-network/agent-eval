@@ -161,7 +161,7 @@ code doesn't change.
 ## Footgun 1: `cwd` belongs in `HarnessConfig`, not the driver constructor
 
 ```ts
-//  BROKEN — cwd silently dropped (pre-0.7.1)
+//  BROKEN — cwd silently dropped
 new SubprocessSandboxDriver({ cwd: dir })
 
 //  CORRECT — cwd travels with the call
@@ -171,8 +171,8 @@ session.ship({ harness: { cwd: dir, testCommand: 'pnpm exec tsc --noEmit', ... }
 
 **Why**: `SubprocessSandboxDriver.exec(phase, command, config)` spawns
 with `cwd: config.cwd`. The driver is stateless-per-call by design so
-one driver serves many concurrent sandboxes. 0.7.1+ treats
-`{cwd?, env?}` as fallbacks only — per-call config always wins.
+one driver serves many concurrent sandboxes. `{cwd?, env?}` on the
+constructor are fallbacks only — per-call config always wins.
 
 **Shipped incidents**: starter-foundry Gen 8b (promoters), Round 0
 post-Gen-9 (runtime eval). Silent-passed broken scaffolds with
