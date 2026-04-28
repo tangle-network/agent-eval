@@ -43,8 +43,27 @@ If a term below isn't in this table or in `docs/concepts.md`, that's a bug — f
 | Detect contamination / run red-team / guard anti-slop | `contamination-guard`, `red-team`, `createAntiSlopJudge` |
 | A/B prompts, optimize steering, bisect regressions | `ExperimentTracker`, `PromptOptimizer`, `bisector` |
 | Budget tokens/$/wall, track cost, export traces | `BudgetGuard`, `CostTracker`, `observability` (OTLP) |
+| Gate a candidate against held-out before promoting | `HeldOutGate` (paired-delta + overfit-gap, three rejection codes) |
+| Standardize a paper-grade run record (snapshot-pinned, hashed, costed) | `RunRecord` + `validateRunRecord` |
+| Detect silent judge fallback / calibration drift / distribution shift | `runCanaries` |
+| Emit an A/B summary table or Pareto / gain figure spec | `summaryTable` / `paretoChart` / `gainHistogram` |
+| Stable hook for an external research-driver agent | `Researcher` (interface) + `NoopResearcher` (placeholder) |
 
 Extend, don't fork — see §"Extend, don't duplicate."
+
+---
+
+## Production-rigor primitives
+
+| Primitive | Module | What it does |
+|---|---|---|
+| `HeldOutGate` | `held-out-gate.ts` | Paired-delta + overfit-gap gate. Three rejection codes: `few_runs`, `negative_delta`, `overfit_gap`. Use before promoting an optimizer's top-1. Pairs with `promotion-gate.ts` (bootstrap CI for "is this real?") — use both. |
+| `RunRecord` | `run-record.ts` | Typed run schema. `validateRunRecord` throws on missing fields and on bare model aliases — record the snapshot (`claude-sonnet-4-6@2025-04-15`). |
+| `pairedBootstrap`, `pairedWilcoxon`, `bhAdjust` | `paired-stats.ts` | Stats primitives. Pass `seed` to `pairedBootstrap` when the result feeds a CI / promotion decision. |
+| `runCanaries` | `canary.ts` | Silent fallback (constant confidence), calibration drift (KS), distribution shift (chi-square). Returns a report; doesn't fail tests — wire it to a notification. |
+| `summaryTable`, `paretoChart`, `gainHistogram` | `summary-report.ts` | A/B reporting. `summaryTable` emits markdown with bootstrap CIs + paired Wilcoxon p (BH-adjusted) + Cohen's d. The other two return vega-lite-friendly specs. |
+| `Researcher` (interface) + `NoopResearcher` | `researcher.ts` | Stable hook for an external agent that drives the meta-loop. Real implementations live downstream. |
+| `BenchmarkAdapter` + `routing` benchmark | `benchmarks/` | One adapter contract + the synthetic routing task we own. Reference wrappers for GSM8K and SWE-Bench-Lite live under `examples/benchmarks/`. `BENCHMARK_SPLIT_SEED = "agent-eval-v1"` — never change it. |
 
 ---
 
@@ -142,7 +161,7 @@ code doesn't change.
 ## Footgun 1: `cwd` belongs in `HarnessConfig`, not the driver constructor
 
 ```ts
-//  BROKEN — cwd silently dropped (pre-0.7.1)
+//  BROKEN — cwd silently dropped
 new SubprocessSandboxDriver({ cwd: dir })
 
 //  CORRECT — cwd travels with the call
@@ -152,8 +171,8 @@ session.ship({ harness: { cwd: dir, testCommand: 'pnpm exec tsc --noEmit', ... }
 
 **Why**: `SubprocessSandboxDriver.exec(phase, command, config)` spawns
 with `cwd: config.cwd`. The driver is stateless-per-call by design so
-one driver serves many concurrent sandboxes. 0.7.1+ treats
-`{cwd?, env?}` as fallbacks only — per-call config always wins.
+one driver serves many concurrent sandboxes. `{cwd?, env?}` on the
+constructor are fallbacks only — per-call config always wins.
 
 **Shipped incidents**: starter-foundry Gen 8b (promoters), Round 0
 post-Gen-9 (runtime eval). Silent-passed broken scaffolds with
@@ -277,6 +296,32 @@ Seven shapes. Audit before shipping any gate:
 
 Common shape: something that should fail loud returns silent success.
 Fail closed; use `// muffle-ok: <reason>` for the rare exception.
+
+---
+
+## Pitfalls
+
+1. **Pin the model snapshot.** `validateRunRecord` rejects bare aliases like `claude-sonnet-4-6`. Record `claude-sonnet-4-6@2025-04-15`. Aliases re-map silently; a bare-alias row can't be re-evaluated.
+
+2. **`costUsd` is mandatory.** If you don't have it, record `0` and set `outcome.raw.cost_unknown = 1`. Don't drop the field — the validator throws.
+
+3. **`HeldOutGate` pairs by `(experimentId, seed)`.** A candidate run with no matching baseline seed gets dropped. If productive-run counts look low, your seeds are misaligned.
+
+4. **`splitTag` is load-bearing.** `HeldOutGate` reads `'holdout'` for the paired delta and search-split for the overfit-gap. Mistagging corrupts the verdict.
+
+5. **`pairedBootstrap` needs a seed.** Default is `Math.random()`. Pass `seed` whenever the result feeds a CI / promotion decision; otherwise CIs wobble across runs.
+
+6. **`summaryTable`'s BH correction is local.** Adjusts within the comparator set only. Cross-experiment correction is your job.
+
+7. **Canaries don't fail tests.** `runCanaries` returns a report. Wire it to a notification channel.
+
+8. **Silent-fallback constant defaults to `0.30`** to match `propose-review.ts`. Override if your judge uses a different fallback.
+
+9. **Reference benchmarks fail loud.** GSM8K throws without `AGENT_EVAL_GSM8K_PATH`; SWE-Bench-Lite throws without `AGENT_EVAL_SWEBENCH_GRADER_CMD`. Never default to silent-pass.
+
+10. **Don't re-implement the gate.** Inline "honesty override" / "minimum runs" / "paired delta on holdout" blocks are `HeldOutGate`. Use the primitive.
+
+11. **`Researcher` is an interface, not an implementation.** Real brains live downstream. Keeping this stub-only is what keeps the contract stable.
 
 ---
 

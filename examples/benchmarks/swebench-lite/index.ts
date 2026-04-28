@@ -30,9 +30,9 @@ import type {
   BenchmarkAdapter,
   BenchmarkDatasetItem,
   BenchmarkEvaluation,
-} from '../types'
-import { deterministicSplit } from '../types'
-import type { RunSplitTag } from '../../run-record'
+} from '../../../src/benchmarks/types'
+import { deterministicSplit } from '../../../src/benchmarks/types'
+import type { RunSplitTag } from '../../../src/run-record'
 
 export interface SweBenchLitePayload {
   instanceId: string

@@ -196,10 +196,11 @@ These are the primitives any team running prompt-optimization in production need
   meta-loop (`inspectFailures` → `proposeChange` → `applyChange` →
   `evaluateChange`). Ship a `NoopResearcher` as a placeholder; real
   implementations live downstream.
-- `benchmarks/{gsm8k,swebench-lite,routing}` — reference benchmark
-  wrappers behind one `BenchmarkAdapter` shape, with deterministic
-  splits and fail-loud env-var configuration. Mostly for reproducible
-  comparisons; not core surface.
+- `benchmarks/routing` — synthetic 16-task router benchmark we own.
+  Ships in the package. Reference wrappers for GSM8K and SWE-Bench
+  Lite live under `examples/benchmarks/` — read, copy, adapt. All
+  three implement one `BenchmarkAdapter` shape with deterministic
+  splits and fail-loud env-var configuration.
 
 ### v0.16 changes from v0.15
 

@@ -3,9 +3,9 @@ import { mkdtempSync, writeFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
-import * as gsm8k from '../src/benchmarks/gsm8k/index'
+import * as gsm8k from '../examples/benchmarks/gsm8k/index'
 import * as routing from '../src/benchmarks/routing/index'
-import * as swebenchLite from '../src/benchmarks/swebench-lite/index'
+import * as swebenchLite from '../examples/benchmarks/swebench-lite/index'
 import {
   deterministicSplit,
   BENCHMARK_SPLIT_SEED,
