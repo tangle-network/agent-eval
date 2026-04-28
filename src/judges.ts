@@ -83,12 +83,13 @@ Respond with JSON only: [{"dimension":"executability","score":N,"reasoning":"...
  */
 export const coherenceJudge: JudgeFn = async (tc, { scenario, turns }) => {
   if (turns.length < 2) {
-    return [{
-      judgeName: 'coherence',
-      dimension: 'coherence',
-      score: 5,
-      reasoning: 'Single-turn scenario — coherence not fully testable.',
-    }]
+    // Single-turn scenarios have no multi-turn signal to grade. Returning a
+    // hardcoded 5/10 was strictly worse than no score: it pinned the
+    // coherence dimension to an N/A value that still folded into the
+    // aggregate, biasing comparisons against any agent that happened to be
+    // benchmarked on single-turn scenarios. Emit no judge scores so the
+    // dimension is correctly absent for this trial.
+    return []
   }
 
   const conversation = turns.map((t, i) =>
