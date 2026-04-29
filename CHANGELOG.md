@@ -1,5 +1,18 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- `runAgentControlLoop`, a generic `observe -> validate -> decide -> act`
+  runtime for agentic tasks with step, wall-clock, and recorded-cost budgets;
+  no-progress and repeated-action stop policies; structured runtime failures;
+  objective/subjective eval helpers; and `TraceStore` emission.
+- `runProposeReviewAsControlLoop`, a bridge preset that expresses
+  propose/verify/review as a specialization of the generic control runtime.
+- `docs/control-runtime.md`, with integration patterns for tax, legal,
+  agent-builder, and film-agent products.
+
 ## 0.17.0 — surface cleanup + SKILL pitfalls
 
 This release tightens the public benchmark surface and lands the SKILL.md guidance that the v0.15 dispatch couldn't write.

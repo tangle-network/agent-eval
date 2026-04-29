@@ -47,6 +47,29 @@ export { ScenarioRegistry } from './registry'
 export { AgentDriver } from './driver'
 export type { AgentDriverConfig } from './driver'
 export { formatBenchmarkReport, formatDriverReport, printDriverSummary } from './reporter'
+export {
+  runAgentControlLoop,
+  objectiveEval,
+  subjectiveEval,
+  allCriticalPassed,
+  stopOnNoProgress,
+  stopOnRepeatedAction,
+} from './control-runtime'
+export type {
+  ControlActionOutcome,
+  ControlActionFailureMode,
+  ControlBudget,
+  ControlContext,
+  ControlDecision,
+  ControlEvalResult,
+  ControlRunResult,
+  ControlRuntimeError,
+  ControlRuntimeConfig,
+  ControlSeverity,
+  ControlStep,
+  ControlStopPolicies,
+  StopDecision,
+} from './control-runtime'
 
 // ── Statistics ───────────────────────────────────────────────────────
 export {
@@ -201,6 +224,10 @@ export {
   jsonlReviewStore,
   createLlmReviewer,
 } from './propose-review'
+export {
+  controlFailureClassFromVerification,
+  runProposeReviewAsControlLoop,
+} from './propose-review-control'
 export type {
   Verification,
   Review,
@@ -218,6 +245,12 @@ export type {
   LlmJsonCall,
   LlmReviewerConfig,
 } from './propose-review'
+export type {
+  ProposeReviewControlAction,
+  ProposeReviewControlConfig,
+  ProposeReviewControlResult,
+  ProposeReviewControlState,
+} from './propose-review-control'
 
 // ── 0.3 trace-first chassis ──────────────────────────────────────────
 

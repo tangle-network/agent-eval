@@ -77,6 +77,7 @@ The recipe for a code-generator eval is in [`SKILL.md` §Minimal working path](.
 | Wire protocol (`agent-eval serve` / `rpc`) | HTTP and stdio RPC interface for cross-language clients. | wire-protocol.md |
 | `clients/python/` | First-party Python client (`tangle-agent-eval` on PyPI). Version-locked to npm. | clients/python/README.md |
 | `BenchmarkRunner`, `executeScenario`, `ConvergenceTracker` | Multi-turn scenario execution + cross-run tracking. | SKILL.md |
+| `runAgentControlLoop` | Policy-based runtime for agentic tasks: observe typed state, validate, decide, act, repeat with budgets, tracing, and stuck-loop guards. | [control-runtime.md](./docs/control-runtime.md) |
 | `ExperimentTracker`, `PromptOptimizer`, `bisector` | A/B prompts, optimize steering, bisect regressions. | SKILL.md |
 | `runPromptEvolution`, `createCompositeMutator`, `createSandboxPool`, `createSandboxCodeMutator`, `MutationTelemetry`, `LineageRecorder`, `CostLedger`, `JsonlTrialCache` | Prompt + code evolution loops with bounded sandbox pools, durable JSONL telemetry, plateau-detecting composite mutators, crash-resumable trial cache. | §Evolution loop |
 | `reflective-mutation` (`buildReflectionPrompt`, `parseReflectionResponse`, `DEFAULT_MUTATION_PRIMITIVES`) | Trace-conditioned LLM mutator that reasons over top/bottom trials instead of blind rewrites. | inline JSDoc |
