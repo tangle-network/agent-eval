@@ -60,6 +60,7 @@ export interface ProposeReviewControlConfig<State, Summary = unknown> {
   fallbackInstruction?: string
   confidenceFloor?: number
   confidenceFloorWindow?: number
+  failureClassFromVerification?: (verification: Verification) => FailureClass | undefined
   actionFailure?: ControlRuntimeConfig<
     ProposeReviewControlState<State, Summary>,
     ProposeReviewControlAction,
@@ -82,6 +83,7 @@ export async function runProposeReviewAsControlLoop<State, Summary = unknown>(
   const confidenceFloorWindow = config.confidenceFloorWindow ?? 2
   const memory = config.memory ?? inMemoryReviewStore()
   const fallbackInstruction = config.fallbackInstruction ?? DEFAULT_FALLBACK_INSTRUCTION
+  const failureClassFromVerification = config.failureClassFromVerification ?? controlFailureClassFromVerification
   let lowConfidenceStreak = 0
 
   let current: ProposeReviewControlState<State, Summary> = {
@@ -124,7 +126,7 @@ export async function runProposeReviewAsControlLoop<State, Summary = unknown>(
           pass: false,
           reason: 'reviewer stopped continuation',
           score: state.verification.score,
-          failureClass: controlFailureClassFromVerification(state.verification),
+          failureClass: failureClassFromVerification(state.verification),
         }
       }
       return { stop: false, pass: false, reason: 'verification still failing', score: state.verification.score }

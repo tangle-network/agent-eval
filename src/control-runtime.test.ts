@@ -329,4 +329,68 @@ describe('runAgentControlLoop', () => {
     expect(budget[0].dimension).toBe('usd')
     expect(budget[0].consumed).toBe(0.1)
   })
+
+  it('does not let trace sink failures abort the control loop', async () => {
+    class SpanFailingTraceStore extends InMemoryTraceStore {
+      override async appendSpan(): Promise<void> {
+        throw new Error('trace sink unavailable')
+      }
+    }
+
+    const state: TestState = { count: 0 }
+    const result = await runAgentControlLoop<TestState, TestAction, TestState>({
+      intent: 'complete despite broken telemetry',
+      store: new SpanFailingTraceStore(),
+      budget: { maxSteps: 2 },
+      observe: () => ({ ...state }),
+      validate: ({ state }) => [
+        objectiveEval({
+          id: 'count>=1',
+          passed: state.count >= 1,
+          severity: 'critical',
+        }),
+      ],
+      decide: () => ({ type: 'continue', action: { type: 'increment' } }),
+      act: () => {
+        state.count += 1
+        return { ...state }
+      },
+    })
+
+    expect(result.pass).toBe(true)
+    expect(result.stoppedBy).toBe('stop-policy')
+    expect(result.runtimeErrors.some((error) => error.phase === 'trace')).toBe(true)
+  })
+
+  it('records onStep failures without aborting a successful run', async () => {
+    const state: TestState = { count: 0 }
+
+    const result = await runAgentControlLoop<TestState, TestAction, TestState>({
+      intent: 'complete despite progress hook failure',
+      budget: { maxSteps: 2 },
+      observe: () => ({ ...state }),
+      validate: ({ state }) => [
+        objectiveEval({
+          id: 'count>=1',
+          passed: state.count >= 1,
+          severity: 'critical',
+        }),
+      ],
+      decide: () => ({ type: 'continue', action: { type: 'increment' } }),
+      act: () => {
+        state.count += 1
+        return { ...state }
+      },
+      onStep: () => {
+        throw new Error('progress callback failed')
+      },
+    })
+
+    expect(result.pass).toBe(true)
+    expect(result.runtimeErrors).toContainEqual({
+      phase: 'on-step',
+      stepIndex: 0,
+      message: 'progress callback failed',
+    })
+  })
 })

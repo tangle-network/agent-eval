@@ -105,4 +105,30 @@ describe('runProposeReviewAsControlLoop', () => {
     expect(result.failureClass).toBe('instruction_following')
     expect(result.steps).toHaveLength(1)
   })
+
+  it('lets callers map domain verification failures into shared failure classes', async () => {
+    const result = await runProposeReviewAsControlLoop<State>({
+      goal: 'unreachable because budget is gone',
+      initialState: { text: '' },
+      maxShots: 2,
+      failureClassFromVerification: (verification) =>
+        verification.failingLayers?.includes('cost') ? 'budget_exceeded' : 'unknown',
+      propose: async ({ state }) => ({ state }),
+      verify: async () => ({
+        pass: false,
+        score: 0,
+        failingLayers: ['cost'],
+      }),
+      review: async () => ({
+        observations: 'budget exhausted',
+        diagnosis: 'no further useful shot',
+        nextShotInstruction: 'stop',
+        shouldContinue: false,
+        confidence: 1,
+      }),
+    })
+
+    expect(result.pass).toBe(false)
+    expect(result.failureClass).toBe('budget_exceeded')
+  })
 })

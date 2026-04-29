@@ -70,6 +70,39 @@ export type {
   ControlStopPolicies,
   StopDecision,
 } from './control-runtime'
+export {
+  FileSystemFeedbackTrajectoryStore,
+  InMemoryFeedbackTrajectoryStore,
+  assignFeedbackSplit,
+  controlRunToFeedbackTrajectory,
+  createFeedbackTrajectory,
+  feedbackTrajectoriesToDatasetScenarios,
+  feedbackTrajectoriesToOptimizerRows,
+  feedbackTrajectoryToDatasetScenario,
+  feedbackTrajectoryToOptimizerRow,
+  parseFeedbackTrajectoriesJsonl,
+  renderPreferenceMemoryMarkdown,
+  serializeFeedbackTrajectoriesJsonl,
+  summarizePreferenceMemory,
+  withAssignedFeedbackSplit,
+} from './feedback-trajectory'
+export type {
+  FeedbackArtifactType,
+  FeedbackAttempt,
+  FeedbackLabel,
+  FeedbackLabelKind,
+  FeedbackLabelSource,
+  FeedbackOptimizerRow,
+  FeedbackOutcome,
+  FeedbackSeverity,
+  FeedbackSplitPolicy,
+  FeedbackTask,
+  FeedbackTrajectory,
+  FeedbackTrajectoryFilter,
+  FeedbackTrajectoryStore,
+  PreferenceMemoryEntry,
+  ProposedSideEffect,
+} from './feedback-trajectory'
 
 // ── Statistics ───────────────────────────────────────────────────────
 export {

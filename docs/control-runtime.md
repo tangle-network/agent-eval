@@ -95,6 +95,9 @@ const result = await runAgentControlLoop({
   abort.
 - observation, validation, decision, stop-policy, and action failures are
   returned as structured `runtimeErrors` instead of disappearing.
+- trace sink and `onStep` callback failures are recorded in `runtimeErrors`
+  but do not abort the control loop. Agent progress should not depend on
+  telemetry availability.
 - when a `TraceStore` is supplied, the runtime emits:
   - one run
   - one tool span per control step
@@ -140,6 +143,11 @@ const report = await runProposeReviewAsControlLoop({
 
   async review({ verification }) {
     return await reviewer.explainNextShot(verification)
+  },
+
+  failureClassFromVerification(verification) {
+    if (verification.failingLayers?.includes('tests')) return 'sandbox_failure'
+    return 'unknown'
   },
 })
 ```
@@ -328,4 +336,3 @@ For a new product integration:
 7. Add no-progress and repeated-action policies.
 8. Emit to a `TraceStore` in CI and production-like evals.
 9. Keep the adapter in the product repo until it proves reusable.
-

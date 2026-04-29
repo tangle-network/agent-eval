@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.17.2 — agent control runtime
 
 ### Added
 
@@ -10,8 +10,18 @@
   objective/subjective eval helpers; and `TraceStore` emission.
 - `runProposeReviewAsControlLoop`, a bridge preset that expresses
   propose/verify/review as a specialization of the generic control runtime.
+- feedback trajectory helpers for turning control-loop runs and user/judge
+  labels into reusable dataset scenarios, optimizer rows, and preference
+  memory.
 - `docs/control-runtime.md`, with integration patterns for tax, legal,
   agent-builder, and film-agent products.
+
+### Changed
+
+- control runtime trace sink and `onStep` callback failures are now recorded
+  as structured runtime errors without aborting an otherwise valid run.
+- `runProposeReviewAsControlLoop` accepts a caller-provided verifier failure
+  mapper for domain-specific failure classes.
 
 ## 0.17.0 — surface cleanup + SKILL pitfalls
 
