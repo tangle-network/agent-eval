@@ -7,9 +7,8 @@ loops:
 candidate artifact/action -> user/judge/environment feedback -> revision chain -> labeled example -> replay/eval/optimization
 ```
 
-They are deliberately domain-neutral. Legal memo review, tax fact gathering,
-browser task completion, code patch review, and research brief revision all fit
-the same structure.
+They are deliberately domain-neutral. Browser task completion, code patch
+review, and research brief revision all fit the same structure.
 
 ## Core Shape
 
@@ -81,7 +80,7 @@ Labels can come from multiple places:
 
 | Source | Example |
 | --- | --- |
-| `user` | Approved a draft, rejected a legal paragraph, selected option B. |
+| `user` | Approved a draft, rejected a draft, selected option B. |
 | `judge` | LLM/domain judge scores usefulness or voice. |
 | `environment` | Browser task completed, tests passed, API call succeeded. |
 | `metric` | A measured outcome improved or regressed. |
@@ -135,3 +134,31 @@ That is the reusable pattern:
 ```text
 normal agent usage -> labeled trajectory -> eval dataset -> optimizer input -> replay against held-out feedback
 ```
+
+## Split Discipline
+
+Treat feedback data like product analytics with labels:
+
+- `train`: examples the optimizer can directly learn from.
+- `dev`: examples used to choose among candidate variants.
+- `test`: examples used for honest reporting after a variant is chosen.
+- `holdout`: examples kept untouched until promotion or release review.
+
+Do not let an optimizer see `test` or `holdout` examples through prompt text,
+preference memory, few-shot examples, or manual tuning. If a trajectory becomes
+part of memory, mark which split it came from and keep that memory out of
+held-out evaluation.
+
+## What To Store
+
+A useful trajectory has enough information to replay the decision later:
+
+- user intent and relevant context
+- every attempted artifact or action
+- objective validation results
+- user/reviewer/environment labels with reasons
+- measured outcome when one exists
+- model, prompt/config hash, code commit, and cost in metadata
+
+If the record cannot answer "what did the agent try, why was it judged wrong,
+and what changed next?", it is not yet useful training data.

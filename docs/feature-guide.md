@@ -35,13 +35,33 @@ trying, and whether a change made them better or worse.
 | “Which prompt or signature wins?” | `PromptOptimizer`, `OptimizationLoop`, steering optimizers | Runs variants on scenarios and compares scores. |
 | “Improve prompts, then code if prompts plateau.” | `runPromptEvolution`, composite mutator, code mutator | Bounded evolution with telemetry and lineage. |
 | “Find why a regression happened.” | bisector, traces, run records | Narrows changes and preserves evidence. |
-| “Expose evals to another language.” | Wire protocol and Python client | HTTP/RPC boundary for non-TypeScript products. |
+| “Expose evals to another language.” | Wire protocol and Python client | HTTP/RPC boundary for non-TypeScript apps. |
 
 ## Integration Patterns
 
+### Recommended Agent Product Shape
+
+Use this shape when the product needs to keep pushing work forward instead of
+only answering once:
+
+```text
+user intent
+  -> product adapter observes typed state
+  -> runAgentControlLoop decides the next driver action
+  -> worker executes in the real product environment
+  -> validators and judges grade the new state
+  -> FeedbackTrajectory records user/environment/reviewer signal
+  -> datasets and optimizers replay the same adapter
+```
+
+The important part is that production and eval do not use different loops. The
+adapter can swap dependencies (real user session, replay fixture, sandbox), but
+the state shape, validators, actions, budgets, and stop policies should stay
+the same. That is what makes benchmark gains transfer to real usage.
+
 ### Agent Runtime Integration
 
-Use when you have a legal, tax, support, research, browser, coding, or operations agent.
+Use when you have a coding, browser, computer-use, research, or documentation agent.
 
 1. Represent the current task state.
 2. Validate that state with objective checks first and judges second.
@@ -54,6 +74,15 @@ Result:
 ```text
 normal agent usage -> labeled examples -> replay/eval -> optimization
 ```
+
+Implementation ownership:
+
+- Put reusable loop mechanics, trace schemas, budget accounting, split
+  assignment, and optimizer row conversion in `agent-eval`.
+- Put product state readers, action executors, approval policy, credentials,
+  workspace paths, and UI-specific storage in the downstream repo.
+- Promote a product adapter into `agent-eval` only after at least two products
+  need the same adapter shape.
 
 ### Code Generator
 
@@ -84,6 +113,12 @@ Result:
 ```text
 candidate variant -> repeated evals -> statistical comparison -> promotion gate
 ```
+
+Do not optimize a toy harness if users run a different product loop. Build
+training examples from `FeedbackTrajectory` and `controlRunToFeedbackTrajectory`,
+then replay them through the same product adapter used at runtime. Train on
+`train`, tune on `dev`, report on `test`, and keep `holdout` untouched until a
+promotion decision.
 
 ### Human Feedback Data
 
@@ -131,18 +166,28 @@ Store as `FeedbackTrajectory`, then derive:
 - Treat external side effects as downstream policy. The runtime can stop loops,
   but your adapter decides what requires approval.
 - Store user feedback with enough context to replay it later.
+- Treat telemetry as evidence, not control flow. A trace sink outage should be
+  visible in `runtimeErrors`, but it should not stop the worker from completing
+  the user task.
+
+## Highest-ROI Adoption Order
+
+1. Wrap one real product workflow in `runAgentControlLoop`.
+2. Add objective validators that can fail without an LLM.
+3. Emit traces and convert completed runs into feedback trajectories.
+4. Capture explicit user/reviewer feedback on attempts.
+5. Replay those trajectories as train/dev/test/holdout scenarios.
+6. Run prompt/signature optimization against that replay adapter.
+7. Promote only when held-out trajectories and product telemetry both improve.
 
 ## What Stays Out Of Core
 
 Domain-specific adapters should usually stay in downstream repos until they prove
 reusable:
 
-- ad approval policy
-- tax jurisdiction rules
-- legal practice boundaries
 - browser site-specific actions
 - repo-specific coding commands
 - workspace-specific storage paths
 
 Core should provide shapes, stores, runners, scoring, traces, and converters.
-Downstream integrations provide domain state, UI, policy, and storage.
+Downstream integrations provide domain state, policy, tools, and storage.

@@ -8,7 +8,7 @@
  * `Run.status` field one-to-one.
  *
  * Why this lives next to `InMemoryExperimentStore`:
- *   - bad-app, legal-agent, gtm-agent, film-agent all run as Workers
+ *   - browser, coding, and computer-use agents can all run as Workers
  *   - Workers cannot use `node:fs`, so `FileSystemExperimentStore` doesn't apply
  *   - Hand-rolling D1 SQL in every consumer is exactly the duplication this
  *     module exists to prevent
@@ -43,7 +43,7 @@ export interface D1ExperimentStoreOptions {
   db: D1Like
   /**
    * Optional table-name prefix so multiple ExperimentStores can share a DB
-   * without colliding (e.g. `tax_eval_experiments` vs `legal_eval_experiments`).
+   * without colliding (e.g. `browser_eval_experiments` vs `coding_eval_experiments`).
    * Default: `agent_eval_`.
    */
   tablePrefix?: string

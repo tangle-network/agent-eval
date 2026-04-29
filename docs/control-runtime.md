@@ -75,16 +75,48 @@ const result = await runAgentControlLoop({
 
 ## Design Rules
 
-- Keep domain adapters in product repos until they are reused by multiple
-  products.
+- Keep domain adapters in downstream repos until they are reused by multiple
+  integrations.
+- Use the same adapter in product, benchmark replay, and optimization. Swapping
+  the state reader or worker implementation is fine; changing validators,
+  action semantics, or stop policy means you are no longer measuring what users
+  experience.
 - Prefer objective validators over LLM judges. Use LLM judges for judgment,
   usefulness, clarity, and domain expert review.
 - Treat irreversible external actions as domain policy, not runtime policy.
-  The runtime can stop loops; the product must decide which actions require
-  approval before `act()`.
+  The runtime can stop loops; the downstream adapter must decide which actions
+  require approval before `act()`.
 - Use typed state. Do not make the policy reason only over transcript text.
 - Make `act()` return cost when possible so `maxCostUsd` can enforce recorded
   spend.
+
+## Product / Eval Contract
+
+The runtime is most useful when a downstream product exposes a small adapter:
+
+```ts
+interface ProductControlAdapter<State, Action, ActionResult> {
+  observe(): Promise<State>
+  validate(state: State): Promise<ControlEvalResult[]>
+  decide(ctx: ControlContext<State, Action, ActionResult>): Promise<ControlDecision<Action>>
+  act(action: Action): Promise<ActionResult>
+}
+```
+
+Production passes the adapter real sessions, credentials, and storage. Evals
+pass the same adapter replay fixtures, sandboxes, or recorded traces. The
+adapter boundary is the transfer point between training and real usage.
+
+Avoid this split:
+
+```text
+benchmark harness has one loop
+product runtime has another loop
+optimizer tunes only the benchmark loop
+```
+
+That creates benchmark wins that do not transfer. Keep one loop and vary only
+the dependencies behind `observe` and `act`.
 
 ## What the Runtime Guarantees
 
@@ -161,94 +193,38 @@ These examples show what belongs in product repos. They should not become core
 `agent-eval` adapters until the same adapter shape is reused by multiple
 products.
 
-### Tax Agent
+## Shared Sandbox Execution
 
-State:
+Yes, harnesses and judges can run against the same sandbox. The common pattern
+is to pass one sandbox driver and one workdir through every layer:
 
 ```ts
-interface TaxState {
-  facts: Array<{ id: string; value: string; source: 'user' | 'document' }>
-  jurisdiction?: string
-  taxYear?: number
-  draftAnswer: string
-  citations: Array<{ claimId: string; source: string; quote?: string }>
-  calculations: Array<{ id: string; ok: boolean; detail: string }>
-  openQuestions: string[]
-}
+const driver = new SubprocessSandboxDriver({ cwd: workdir, env })
+const harness = new SandboxHarness(driver)
 ```
 
-Actions:
+Use the same sandbox when checks need shared state:
+
+- install dependencies once, then typecheck/build/test in the same workdir
+- run a browser/computer-use scenario against the app the harness just started
+- let a judge inspect files, logs, screenshots, or traces produced by earlier
+  layers
+
+Use separate sandboxes when checks need isolation:
+
+- variants are running in parallel
+- a test mutates global state
+- credentials or network access differ by phase
+- one action can corrupt the workdir for later checks
+
+The important rule is explicit ownership: one driver/workdir means shared state;
+multiple drivers/workdirs means isolated state. Do not rely on hidden global
+state.
+
+### Coding Agent
 
 ```ts
-type TaxAction =
-  | { type: 'ask_user'; question: string }
-  | { type: 'retrieve_authority'; query: string }
-  | { type: 'revise_answer'; failures: string[] }
-  | { type: 'escalate'; reason: string }
-```
-
-Validators:
-
-- filing year present
-- jurisdiction present
-- every tax claim has a source
-- calculations reconcile
-- no unsupported deductions or credits
-- uncertainty and professional-review boundaries are explicit
-
-Stop policy:
-
-- stop when all critical source/math/fact validators pass
-- ask user when jurisdiction, year, or necessary facts are missing
-- escalate when advice would require professional judgment beyond available
-  facts
-
-### Legal Agent
-
-State:
-
-```ts
-interface LegalState {
-  matterType: string
-  jurisdiction?: string
-  userFacts: string[]
-  draft: string
-  authorities: Array<{ citation: string; relevance: string; current: boolean }>
-  risks: string[]
-  openQuestions: string[]
-}
-```
-
-Actions:
-
-```ts
-type LegalAction =
-  | { type: 'ask_user'; question: string }
-  | { type: 'research_authority'; query: string }
-  | { type: 'revise_draft'; failures: string[] }
-  | { type: 'refuse_or_escalate'; reason: string }
-```
-
-Validators:
-
-- jurisdiction identified
-- no fabricated case/statute citations
-- claims distinguish user facts from legal conclusions
-- risk language is present for uncertain or high-impact areas
-- current authority check passed when the task requires it
-
-Stop policy:
-
-- stop when draft is grounded and scoped
-- ask user for missing jurisdiction/facts
-- escalate for high-risk legal advice or unauthorized practice boundaries
-
-### Agent Builder
-
-State:
-
-```ts
-interface AgentBuilderState {
+interface CodingState {
   workdir: string
   diffSummary: string
   tests: { typecheck: boolean; unit: boolean; e2e?: boolean }
@@ -258,10 +234,8 @@ interface AgentBuilderState {
 }
 ```
 
-Actions:
-
 ```ts
-type AgentBuilderAction =
+type CodingAction =
   | { type: 'patch'; instruction: string }
   | { type: 'run_tests'; command: string }
   | { type: 'review_diff' }
@@ -272,7 +246,7 @@ Validators:
 
 - expected files exist
 - typecheck/build/tests pass
-- generated agent can complete a representative runtime scenario
+- generated app or agent completes a representative runtime scenario
 - no hardcoded fake success or placeholder integrations
 - reviewer findings resolved or explicitly accepted
 
@@ -280,59 +254,95 @@ Stop policy:
 
 - stop when build and runtime validators pass
 - stop on no progress after repeated patch/test cycles
-- ask user when product intent or credentials are missing
+- ask user when task intent or credentials are missing
 
-### Film Agent
+### Browser / Computer-Use Agent
 
-State:
+Use this shape when the agent controls a browser, desktop session, or remote
+computer and needs to complete a task end-to-end.
 
 ```ts
-interface FilmState {
-  brief: string
-  script: string
-  shotList: Array<{ scene: string; shot: string; purpose: string }>
-  assets: Array<{ id: string; type: 'image' | 'audio' | 'video'; licensed: boolean }>
-  renderStatus?: { ok: boolean; errors: string[] }
-  continuityIssues: string[]
+interface ComputerUseState {
+  url?: string
+  goal: string
+  screenshot?: string
+  accessibilityTree?: unknown
+  completedSteps: string[]
+  openIssues: string[]
+  assertions: Array<{ id: string; passed: boolean; detail?: string }>
 }
 ```
 
-Actions:
-
 ```ts
-type FilmAction =
+type ComputerUseAction =
+  | { type: 'navigate'; url: string }
+  | { type: 'click'; selectorOrDescription: string }
+  | { type: 'type'; selectorOrDescription: string; text: string }
+  | { type: 'inspect' }
   | { type: 'ask_user'; question: string }
-  | { type: 'revise_script'; failures: string[] }
-  | { type: 'generate_asset'; assetType: string; prompt: string }
-  | { type: 'render_preview' }
-  | { type: 'fix_continuity'; issues: string[] }
 ```
 
 Validators:
 
-- script satisfies the creative brief
-- shot list covers every scene
-- assets are present and licensed/allowed
-- render completes
-- continuity errors are below threshold
-- brand/tone constraints are met
+- required page or app state is reached
+- no blocking errors are visible
+- expected text, data, or UI state is present
+- screenshots or accessibility tree support the claimed success
+- repeated clicks or navigation loops are detected
 
 Stop policy:
 
-- stop when render and creative validators pass
-- ask user when taste/brand choices are ambiguous
-- fail fast on unavailable or disallowed asset sources
+- stop when objective UI assertions pass
+- stop on repeated action or no-progress policies
+- ask user when credentials, permissions, or ambiguous choices block progress
 
-## Product Integration Checklist
+### Research / Documentation Agent
 
-For a new product integration:
+Use this shape when the agent produces a brief, explanation, migration guide, or
+technical research note.
+
+```ts
+interface ResearchState {
+  question: string
+  draft: string
+  sources: Array<{ url: string; title?: string; relevant: boolean }>
+  unsupportedClaims: string[]
+  reviewerFindings: string[]
+}
+```
+
+```ts
+type ResearchAction =
+  | { type: 'search'; query: string }
+  | { type: 'read_source'; url: string }
+  | { type: 'revise_draft'; failures: string[] }
+  | { type: 'ask_user'; question: string }
+```
+
+Validators:
+
+- every important claim has a source
+- sources are relevant and current enough for the task
+- unsupported claims are removed or marked as uncertain
+- reviewer findings are resolved
+- final output answers the original question
+
+Stop policy:
+
+- stop when source coverage and reviewer checks pass
+- ask user when the question scope is ambiguous
+- stop on repeated research queries with no new evidence
+
+## Integration Checklist
+
+For a new downstream integration:
 
 1. Define typed state.
 2. Define domain actions.
 3. Write objective validators first.
 4. Add subjective judges only for judgment-heavy dimensions.
-5. Decide which actions require user approval before execution.
+5. Decide which actions require approval before execution.
 6. Add cost extraction for expensive actions.
 7. Add no-progress and repeated-action policies.
 8. Emit to a `TraceStore` in CI and production-like evals.
-9. Keep the adapter in the product repo until it proves reusable.
+9. Keep the adapter downstream until it proves reusable.

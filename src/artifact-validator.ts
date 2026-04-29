@@ -2,7 +2,7 @@
  * Artifact validators.
  *
  * Generic "score a produced artifact" primitive. Tax uses it for PDF form
- * correctness, legal for contract clauses, film for script breakdowns, GTM
+ * correctness, research for sourced briefs, browser for task assertions, coding
  * for social posts. One interface, many validators; all plug into
  * `BenchmarkRunner` the same way.
  *

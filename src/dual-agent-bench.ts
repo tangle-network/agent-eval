@@ -1,7 +1,7 @@
 /**
  * Dual-agent convergence bench.
  *
- * Pattern lifted from tax-agent + legal-agent: two agents take turns until
+ * Pattern lifted from dual-worker review loops: two agents take turns until
  * they converge on a consensus artifact. One proposes, the other critiques;
  * the proposer revises; repeat until a score threshold is hit or max rounds.
  *

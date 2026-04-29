@@ -2,7 +2,7 @@
  * State continuity scoring — measures how well a resumed/handed-off agent
  * preserves prior work.
  *
- * Lifted from tax-agent's run-resume-eval.ts. When session 2 continues
+ * When session 2 continues
  * session 1's work, the key question is: did it preserve key artifacts,
  * or start over and lose context? Each `ContinuityCheck` inspects one
  * aspect (file preserved, key count grew, status advanced) and yields

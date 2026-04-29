@@ -1,7 +1,7 @@
 /**
  * Cost tracker — token + USD accounting per scenario and per run.
  *
- * Lifted from tax/legal metrics.ts + tangle-router UsageEvent. Every
+ * Adapted from generic usage-event accounting. Every
  * optimizer needs to know "is the quality gain worth the cost delta?",
  * and every dashboard needs dollars-per-completed-task. MODEL_PRICING
  * from metrics.ts stays authoritative for estimate math; this module

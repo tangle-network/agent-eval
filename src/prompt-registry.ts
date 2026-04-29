@@ -11,7 +11,7 @@
  */
 
 export interface PromptHandle {
-  /** Stable human-readable id, e.g. 'legal.system' */
+  /** Stable human-readable id, e.g. 'browser.system' */
   id: string
   /** Caller-chosen version string, e.g. 'v3' or '2026-04-20' */
   version: string

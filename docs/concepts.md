@@ -54,10 +54,10 @@ workflow, not a separate labeling UI:
 agent proposes -> user approves/rejects/edits/selects -> agent revises -> outcome is measured
 ```
 
-`FeedbackTrajectory` is the portable record of that loop. Legal agents can store
-reviewed clauses, tax agents can store fact corrections, browser agents can
-store task outcomes, and coding agents can store patch review plus test
-results. The domain changes; the shape stays the same.
+`FeedbackTrajectory` is the portable record of that loop. Browser agents can
+store task outcomes, coding agents can store patch review plus test results,
+and research agents can store reviewer corrections. The domain changes; the
+shape stays the same.
 
 Those trajectories can be converted into preference memory, `DatasetScenario`
 rows, optimizer rows, and held-out examples for overfit checks.
@@ -148,7 +148,7 @@ You don't need to build the trace tree by hand. `BuilderSession` does it for you
 
 - **Need the layman feature map?** → [feature-guide.md](./feature-guide.md) — what each primitive does, when to use it, integration patterns, and guardrails.
 - **Just want to score a string against a rubric?** → [wire-protocol.md](./wire-protocol.md) — HTTP/RPC interface, pluggable from any language.
-- **Need a reusable driver/worker/evaluator loop?** → [control-runtime.md](./control-runtime.md) — generic runtime plus tax, legal, agent-builder, and film-agent integration patterns.
+- **Need a reusable driver/worker/evaluator loop?** → [control-runtime.md](./control-runtime.md) — generic runtime plus coding, browser, computer-use, and research integration patterns.
 - **Want review feedback to become eval/optimization data?** → [feedback-trajectories.md](./feedback-trajectories.md) — turn feedback into datasets, optimizer rows, and preference memory.
 - **Building a code-generator eval?** → SKILL.md §Minimal working path — the `BuilderSession` recipe.
 - **Multi-layer verifier?** → SKILL.md §Verification pipeline.
