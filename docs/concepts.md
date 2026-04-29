@@ -18,6 +18,12 @@ It exists because LLMs lie about whether they succeeded. A model will say "Done!
 
 That's the whole framework. Everything else (sessions, traces, layers) is plumbing around those three.
 
+When the thing being evaluated is an agent that should keep working, use
+[`runAgentControlLoop`](./control-runtime.md). It turns validators into a
+runtime loop: observe typed state, validate it, decide the next action, act,
+and repeat until the task passes, blocks, times out, spends too much, or stops
+making progress.
+
 ## Vocabulary, plain English
 
 | Term | Plain English |
@@ -118,6 +124,7 @@ You don't need to build the trace tree by hand. `BuilderSession` does it for you
 ## Where to go next
 
 - **Just want to score a string against a rubric?** → [wire-protocol.md](./wire-protocol.md) — HTTP/RPC interface, pluggable from any language.
+- **Need a reusable driver/worker/evaluator loop?** → [control-runtime.md](./control-runtime.md) — generic runtime plus tax, legal, agent-builder, and film-agent integration patterns.
 - **Building a code-generator eval?** → SKILL.md §Minimal working path — the `BuilderSession` recipe.
 - **Multi-layer verifier?** → SKILL.md §Verification pipeline.
 - **Adding a new judge or rubric?** → `src/wire/rubrics.ts` for the cross-language path; `src/anti-slop.ts` and `src/judges.ts` for the in-process path.
