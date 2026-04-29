@@ -81,6 +81,8 @@ export {
   feedbackTrajectoryToDatasetScenario,
   feedbackTrajectoryToOptimizerRow,
   parseFeedbackTrajectoriesJsonl,
+  replayFeedbackTrajectories,
+  replayFeedbackTrajectory,
   renderPreferenceMemoryMarkdown,
   serializeFeedbackTrajectoriesJsonl,
   summarizePreferenceMemory,
@@ -94,6 +96,8 @@ export type {
   FeedbackLabelSource,
   FeedbackOptimizerRow,
   FeedbackOutcome,
+  FeedbackReplayAdapter,
+  FeedbackReplayResult,
   FeedbackSeverity,
   FeedbackSplitPolicy,
   FeedbackTask,
@@ -103,6 +107,8 @@ export type {
   PreferenceMemoryEntry,
   ProposedSideEffect,
 } from './feedback-trajectory'
+export { evaluateActionPolicy } from './action-policy'
+export type { ActionExecutionPolicy, ActionPolicyDecision } from './action-policy'
 
 // ── Statistics ───────────────────────────────────────────────────────
 export {
