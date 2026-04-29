@@ -42,9 +42,6 @@ export function evaluateActionPolicy(
     requiresApproval = true
     reasons.push(`action type "${action.type}" requires approval`)
   }
-  if (policy.autoApproveTypes?.includes(action.type)) {
-    requiresApproval = false
-  }
   if (policy.requireApprovalForExternalSideEffects && action.externalSideEffect) {
     requiresApproval = true
     reasons.push('external side effect requires approval')
@@ -68,6 +65,9 @@ export function evaluateActionPolicy(
   if (policy.killCriteriaRequired && !action.metadata?.killCriteria) {
     blocked = true
     reasons.push('kill criteria are required')
+  }
+  if (policy.autoApproveTypes?.includes(action.type) && requiresApproval) {
+    reasons.push(`action type "${action.type}" is auto-approved only when no approval policy applies`)
   }
 
   if (!reasons.length) reasons.push(requiresApproval ? 'approval required' : 'action allowed')

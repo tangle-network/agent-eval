@@ -33,4 +33,22 @@ describe('evaluateActionPolicy', () => {
       'kill criteria are required',
     ])
   })
+
+  it('does not let auto-approve override explicit approval policies', () => {
+    const decision = evaluateActionPolicy(
+      { type: 'browser.submit-form', externalSideEffect: true },
+      {
+        autoApproveTypes: ['browser.submit-form'],
+        requireApprovalForExternalSideEffects: true,
+      },
+      { createdAt: '2026-01-01T00:00:00.000Z' },
+    )
+
+    expect(decision.allowed).toBe(true)
+    expect(decision.requiresApproval).toBe(true)
+    expect(decision.reasons).toEqual([
+      'external side effect requires approval',
+      'action type "browser.submit-form" is auto-approved only when no approval policy applies',
+    ])
+  })
 })
