@@ -78,6 +78,7 @@ The recipe for a code-generator eval is in [`SKILL.md` §Minimal working path](.
 | `clients/python/` | First-party Python client (`tangle-agent-eval` on PyPI). Version-locked to npm. | clients/python/README.md |
 | `BenchmarkRunner`, `executeScenario`, `ConvergenceTracker` | Multi-turn scenario execution + cross-run tracking. | SKILL.md |
 | `runAgentControlLoop` | Policy-based runtime for agentic tasks: observe typed state, validate, decide, act, repeat with budgets, tracing, and stuck-loop guards. | [control-runtime.md](./docs/control-runtime.md) |
+| `FeedbackTrajectory`, `InMemoryFeedbackTrajectoryStore`, `FileSystemFeedbackTrajectoryStore` | Product-native learning loops: capture approvals, rejections, choices, revisions, metrics, and policy blocks as train/dev/test/holdout examples. | [feedback-trajectories.md](./docs/feedback-trajectories.md) |
 | `ExperimentTracker`, `PromptOptimizer`, `bisector` | A/B prompts, optimize steering, bisect regressions. | SKILL.md |
 | `runPromptEvolution`, `createCompositeMutator`, `createSandboxPool`, `createSandboxCodeMutator`, `MutationTelemetry`, `LineageRecorder`, `CostLedger`, `JsonlTrialCache` | Prompt + code evolution loops with bounded sandbox pools, durable JSONL telemetry, plateau-detecting composite mutators, crash-resumable trial cache. | §Evolution loop |
 | `reflective-mutation` (`buildReflectionPrompt`, `parseReflectionResponse`, `DEFAULT_MUTATION_PRIMITIVES`) | Trace-conditioned LLM mutator that reasons over top/bottom trials instead of blind rewrites. | inline JSDoc |
@@ -168,6 +169,51 @@ const result = await runPromptEvolution({
 The `MutationTelemetry`, `LineageRecorder`, and `CostLedger` pass into the `code-mutator` (and any consumer that wants them) — they emit append-only JSONL of every attempt (success + failure with reason) and a snapshot lineage tree, so a finished run leaves a forensically complete trail under one directory.
 
 For the full primitive surface and rationale, read each module's JSDoc — `prompt-evolution.ts`, `composite-mutator.ts`, `sandbox-pool.ts`, `code-mutator.ts`, `reflective-mutation.ts`, `evolution-telemetry.ts`.
+
+## Product feedback loop
+
+When normal product usage should generate training/eval signal, use feedback
+trajectories. They turn approvals, rejections, option choices, edits, metrics,
+and policy blocks into reusable examples.
+
+```ts
+import {
+  createFeedbackTrajectory,
+  summarizePreferenceMemory,
+  feedbackTrajectoriesToDatasetScenarios,
+  feedbackTrajectoriesToOptimizerRows,
+} from '@tangle-network/agent-eval'
+
+const trajectory = createFeedbackTrajectory({
+  projectId: 'gtm-agent',
+  scenarioId: 'ad-positioning-choice',
+  task: { intent: 'Choose a paid-social positioning angle.' },
+  attempts: [{
+    id: 'draft-1',
+    stepIndex: 0,
+    artifactType: 'decision',
+    artifact: { option: 'enterprise procurement language' },
+    options: ['enterprise procurement', 'technical founder pain'],
+    createdAt: new Date().toISOString(),
+  }],
+  labels: [{
+    source: 'user',
+    kind: 'reject',
+    value: 'enterprise procurement',
+    reason: 'too enterprise; our buyer is a technical founder',
+    severity: 'error',
+    createdAt: new Date().toISOString(),
+  }],
+})
+
+const memory = summarizePreferenceMemory([trajectory])
+const scenarios = feedbackTrajectoriesToDatasetScenarios([trajectory])
+const optimizerRows = feedbackTrajectoriesToOptimizerRows([trajectory])
+```
+
+This is the bridge between product UX and optimization: normal user feedback
+becomes immediate memory, replayable eval scenarios, and prompt/signature/code
+optimizer input. See [`docs/feedback-trajectories.md`](./docs/feedback-trajectories.md).
 
 ## v0.16 highlights — production-rigor primitives
 

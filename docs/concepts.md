@@ -15,6 +15,7 @@ It exists because LLMs lie about whether they succeeded. A model will say "Done!
 | **Judge** | A function that scores one piece of output. | "Did this scaffold implement async fetching?" |
 | **Rubric** | The recipe a judge uses — what to score on, with what weights. | "Score on buyer_quality (0.5), voice (0.3), signal (0.2)." |
 | **Verifier** | A pipeline of judges run in order, with dependencies. | "install → typecheck → build → semantic" |
+| **Feedback trajectory** | A multi-shot record of attempts, approvals, rejections, edits, metrics, and policy outcomes. | "draft → user rejects → revised draft → approved → measured" |
 
 That's the whole framework. Everything else (sessions, traces, layers) is plumbing around those three.
 
@@ -23,6 +24,11 @@ When the thing being evaluated is an agent that should keep working, use
 runtime loop: observe typed state, validate it, decide the next action, act,
 and repeat until the task passes, blocks, times out, spends too much, or stops
 making progress.
+
+When normal product usage should become reusable training/eval signal, use
+[`FeedbackTrajectory`](./feedback-trajectories.md). It captures approvals,
+rejections, edits, option choices, metrics, and policy blocks as portable data
+that can seed memory, replay scenarios, and optimization.
 
 ## Vocabulary, plain English
 
@@ -38,6 +44,24 @@ making progress.
 | **Composite score** | A 0..1 number combining all dimensions. The single number you gate on. |
 | **Rubric version** | A stable hash of the rubric. Scores from different rubric versions are not comparable. |
 | **Muffled gate** | A check that should fail loud but silently passes (e.g. `command || true`). The most expensive bug class in this codebase — see SKILL.md. |
+
+## The product feedback loop
+
+For agentic products, the highest-quality labels often come from normal user
+workflow, not a separate labeling UI:
+
+```text
+agent proposes -> user approves/rejects/edits/selects -> agent revises -> outcome is measured
+```
+
+`FeedbackTrajectory` is the portable record of that loop. GTM agents can store
+ad approvals and rejected positioning, legal agents can store reviewed clauses,
+tax agents can store fact corrections, browser agents can store task outcomes,
+and coding agents can store patch review plus test results. The domain changes;
+the shape stays the same.
+
+Those trajectories can be converted into preference memory, `DatasetScenario`
+rows, optimizer rows, and held-out examples for overfit checks.
 
 ## The three-layer eval (for code generators)
 
@@ -125,6 +149,7 @@ You don't need to build the trace tree by hand. `BuilderSession` does it for you
 
 - **Just want to score a string against a rubric?** → [wire-protocol.md](./wire-protocol.md) — HTTP/RPC interface, pluggable from any language.
 - **Need a reusable driver/worker/evaluator loop?** → [control-runtime.md](./control-runtime.md) — generic runtime plus tax, legal, agent-builder, and film-agent integration patterns.
+- **Want product usage to become eval/optimization data?** → [feedback-trajectories.md](./feedback-trajectories.md) — turn feedback into datasets, optimizer rows, and preference memory.
 - **Building a code-generator eval?** → SKILL.md §Minimal working path — the `BuilderSession` recipe.
 - **Multi-layer verifier?** → SKILL.md §Verification pipeline.
 - **Adding a new judge or rubric?** → `src/wire/rubrics.ts` for the cross-language path; `src/anti-slop.ts` and `src/judges.ts` for the in-process path.
