@@ -1,15 +1,15 @@
 # Feedback Trajectories
 
-Feedback trajectories are the generic shape behind product-native learning
+Feedback trajectories are the generic shape behind feedback-driven learning
 loops:
 
 ```text
 candidate artifact/action -> user/judge/environment feedback -> revision chain -> labeled example -> replay/eval/optimization
 ```
 
-They are deliberately domain-neutral. GTM approvals, legal memo review, tax
-fact gathering, browser task completion, code patch review, and research brief
-revision all fit the same structure.
+They are deliberately domain-neutral. Legal memo review, tax fact gathering,
+browser task completion, code patch review, and research brief revision all fit
+the same structure.
 
 ## Core Shape
 
@@ -22,28 +22,27 @@ import {
 } from '@tangle-network/agent-eval'
 
 const trajectory = createFeedbackTrajectory({
-  projectId: 'gtm-agent',
-  scenarioId: 'positioning-ab-test',
+  projectId: 'research-agent',
+  scenarioId: 'brief-review',
   task: {
-    intent: 'Choose the best positioning angle for a paid LinkedIn test.',
-    context: { audience: 'technical founders' },
+    intent: 'Revise a research brief until it is specific and sourced.',
+    context: { audience: 'technical reviewer' },
   },
   attempts: [
     {
       id: 'attempt-1',
       stepIndex: 0,
-      artifactType: 'decision',
-      artifact: { recommendation: 'enterprise procurement angle' },
-      options: ['enterprise procurement', 'technical-founder pain'],
+      artifactType: 'research',
+      artifact: { summary: 'Initial brief with weak sourcing.' },
       createdAt: new Date().toISOString(),
     },
   ],
   labels: [
     {
       source: 'user',
-      kind: 'reject',
-      value: 'enterprise procurement',
-      reason: 'too enterprise; our buyer is a technical founder',
+      kind: 'revision_request',
+      value: 'needs stronger evidence',
+      reason: 'add primary sources and remove unsupported claims',
       severity: 'error',
       createdAt: new Date().toISOString(),
     },
@@ -68,13 +67,13 @@ const optimizerRows = feedbackTrajectoriesToOptimizerRows([trajectory])
 - preference-memory distillation
 - conversion from `runAgentControlLoop` results
 
-Product repos own domain adapters:
+Downstream repos own domain adapters:
 
-- how UI approvals map to labels
+- how review actions map to labels
 - how generated artifacts are represented
 - which side effects require approval
 - which budgets and metrics matter
-- where workspace-local data is stored
+- where task-local data is stored
 
 ## Label Sources
 
@@ -82,10 +81,10 @@ Labels can come from multiple places:
 
 | Source | Example |
 | --- | --- |
-| `user` | Approved an ad draft, rejected a legal paragraph, selected option B. |
+| `user` | Approved a draft, rejected a legal paragraph, selected option B. |
 | `judge` | LLM/domain judge scores usefulness or voice. |
 | `environment` | Browser task completed, tests passed, API call succeeded. |
-| `metric` | Campaign CAC improved, support deflection increased. |
+| `metric` | A measured outcome improved or regressed. |
 | `policy` | Budget cap blocked execution, approval required. |
 | `system` | Control loop passed or failed. |
 
@@ -119,7 +118,7 @@ const trajectory = controlRunToFeedbackTrajectory(run, {
 
 Use this for tasks where the agent works autonomously and the labels come from
 validators, policies, or environment outcomes. Use direct trajectory recording
-for UI-heavy workflows where a person approves, rejects, edits, ranks, or
+for review-heavy workflows where a person approves, rejects, edits, ranks, or
 comments.
 
 ## Optimization Loop
@@ -134,5 +133,5 @@ The same stored trajectories can feed three layers:
 That is the reusable pattern:
 
 ```text
-normal product usage -> labeled trajectory -> eval dataset -> optimizer input -> replay against held-out feedback
+normal agent usage -> labeled trajectory -> eval dataset -> optimizer input -> replay against held-out feedback
 ```

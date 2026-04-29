@@ -21,7 +21,7 @@ console.log(ship.result.passed, ship.result.score)
 - You ship a content generator and need quality signal beyond "the LLM said it's good".
 - You want a release gate that fails on regressions you can name, not vibes.
 
-If that's you, start with [`docs/concepts.md`](./docs/concepts.md) — 5-minute mental model — then come back here.
+If that's you, start with [`docs/concepts.md`](./docs/concepts.md) — 5-minute mental model — then use [`docs/feature-guide.md`](./docs/feature-guide.md) to choose the right primitive.
 
 ## Quickstart
 
@@ -65,6 +65,7 @@ The recipe for a code-generator eval is in [`SKILL.md` §Minimal working path](.
 ## Two ways to read this repo
 
 - **You're a human onboarding** — read [`docs/concepts.md`](./docs/concepts.md) for the mental model, then [`docs/wire-protocol.md`](./docs/wire-protocol.md) if you'll call from another language, or `SKILL.md` if you'll embed in TS.
+- **You're deciding what to integrate** — read [`docs/feature-guide.md`](./docs/feature-guide.md) for the layman explanation, use cases, feature map, and guardrails.
 - **You're an LLM agent writing integration code** — read `SKILL.md`. Every directive there encodes a shipped bug; skipping one reintroduces the bug class.
 
 ## What's in the box
@@ -78,7 +79,7 @@ The recipe for a code-generator eval is in [`SKILL.md` §Minimal working path](.
 | `clients/python/` | First-party Python client (`tangle-agent-eval` on PyPI). Version-locked to npm. | clients/python/README.md |
 | `BenchmarkRunner`, `executeScenario`, `ConvergenceTracker` | Multi-turn scenario execution + cross-run tracking. | SKILL.md |
 | `runAgentControlLoop` | Policy-based runtime for agentic tasks: observe typed state, validate, decide, act, repeat with budgets, tracing, and stuck-loop guards. | [control-runtime.md](./docs/control-runtime.md) |
-| `FeedbackTrajectory`, `InMemoryFeedbackTrajectoryStore`, `FileSystemFeedbackTrajectoryStore` | Product-native learning loops: capture approvals, rejections, choices, revisions, metrics, and policy blocks as train/dev/test/holdout examples. | [feedback-trajectories.md](./docs/feedback-trajectories.md) |
+| `FeedbackTrajectory`, `InMemoryFeedbackTrajectoryStore`, `FileSystemFeedbackTrajectoryStore` | Human/environment feedback loops: capture approvals, rejections, choices, revisions, metrics, and policy blocks as train/dev/test/holdout examples. | [feedback-trajectories.md](./docs/feedback-trajectories.md) |
 | `ExperimentTracker`, `PromptOptimizer`, `bisector` | A/B prompts, optimize steering, bisect regressions. | SKILL.md |
 | `runPromptEvolution`, `createCompositeMutator`, `createSandboxPool`, `createSandboxCodeMutator`, `MutationTelemetry`, `LineageRecorder`, `CostLedger`, `JsonlTrialCache` | Prompt + code evolution loops with bounded sandbox pools, durable JSONL telemetry, plateau-detecting composite mutators, crash-resumable trial cache. | §Evolution loop |
 | `reflective-mutation` (`buildReflectionPrompt`, `parseReflectionResponse`, `DEFAULT_MUTATION_PRIMITIVES`) | Trace-conditioned LLM mutator that reasons over top/bottom trials instead of blind rewrites. | inline JSDoc |
@@ -170,9 +171,9 @@ The `MutationTelemetry`, `LineageRecorder`, and `CostLedger` pass into the `code
 
 For the full primitive surface and rationale, read each module's JSDoc — `prompt-evolution.ts`, `composite-mutator.ts`, `sandbox-pool.ts`, `code-mutator.ts`, `reflective-mutation.ts`, `evolution-telemetry.ts`.
 
-## Product feedback loop
+## Feedback trajectory loop
 
-When normal product usage should generate training/eval signal, use feedback
+When normal agent usage should generate training/eval signal, use feedback
 trajectories. They turn approvals, rejections, option choices, edits, metrics,
 and policy blocks into reusable examples.
 
@@ -185,22 +186,21 @@ import {
 } from '@tangle-network/agent-eval'
 
 const trajectory = createFeedbackTrajectory({
-  projectId: 'gtm-agent',
-  scenarioId: 'ad-positioning-choice',
-  task: { intent: 'Choose a paid-social positioning angle.' },
+  projectId: 'research-agent',
+  scenarioId: 'brief-review',
+  task: { intent: 'Revise a research brief until it is specific and sourced.' },
   attempts: [{
     id: 'draft-1',
     stepIndex: 0,
-    artifactType: 'decision',
-    artifact: { option: 'enterprise procurement language' },
-    options: ['enterprise procurement', 'technical founder pain'],
+    artifactType: 'research',
+    artifact: { summary: 'Initial brief with weak sourcing.' },
     createdAt: new Date().toISOString(),
   }],
   labels: [{
     source: 'user',
-    kind: 'reject',
-    value: 'enterprise procurement',
-    reason: 'too enterprise; our buyer is a technical founder',
+    kind: 'revision_request',
+    value: 'needs stronger evidence',
+    reason: 'add primary sources and remove unsupported claims',
     severity: 'error',
     createdAt: new Date().toISOString(),
   }],
@@ -211,9 +211,9 @@ const scenarios = feedbackTrajectoriesToDatasetScenarios([trajectory])
 const optimizerRows = feedbackTrajectoriesToOptimizerRows([trajectory])
 ```
 
-This is the bridge between product UX and optimization: normal user feedback
-becomes immediate memory, replayable eval scenarios, and prompt/signature/code
-optimizer input. See [`docs/feedback-trajectories.md`](./docs/feedback-trajectories.md).
+This is the bridge between feedback and optimization: review signals become
+immediate memory, replayable eval scenarios, and prompt/signature/code optimizer
+input. See [`docs/feedback-trajectories.md`](./docs/feedback-trajectories.md).
 
 ## v0.16 highlights — production-rigor primitives
 
