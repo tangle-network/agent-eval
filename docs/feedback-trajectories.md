@@ -135,6 +135,35 @@ That is the reusable pattern:
 normal agent usage -> labeled trajectory -> eval dataset -> optimizer input -> replay against held-out feedback
 ```
 
+## Replay Adapter
+
+Use `replayFeedbackTrajectory` when a stored trajectory should be tested against
+a new prompt, signature, policy, or code path:
+
+```ts
+const result = await replayFeedbackTrajectory(trajectory, {
+  async replay(item) {
+    const run = await runCandidateOn(item.task, item.attempts)
+    return {
+      pass: run.pass,
+      score: run.score,
+      labels: run.pass ? [] : [{
+        source: 'environment',
+        kind: 'reject',
+        value: false,
+        reason: run.reason,
+        severity: 'error',
+        createdAt: new Date().toISOString(),
+      }],
+      outcome: { success: run.pass, score: run.score, detail: run.reason },
+    }
+  },
+})
+```
+
+Replay adapters live downstream because only the integration knows how to
+re-run a browser task, coding patch, or research brief.
+
 ## Split Discipline
 
 Treat feedback data like product analytics with labels:

@@ -130,6 +130,9 @@ the dependencies behind `observe` and `act`.
 - trace sink and `onStep` callback failures are recorded in `runtimeErrors`
   but do not abort the control loop. Agent progress should not depend on
   telemetry availability.
+- action-policy preflight belongs before `act()`. Use `evaluateActionPolicy`
+  to block or label side effects, budget breaches, and missing expected
+  outcomes before any irreversible action runs.
 - when a `TraceStore` is supplied, the runtime emits:
   - one run
   - one tool span per control step

@@ -1,6 +1,3 @@
-import { appendFile, mkdir, readFile } from 'node:fs/promises'
-import { join } from 'node:path'
-
 import type { DatasetScenario, DatasetSplit } from './dataset'
 import type { ControlEvalResult, ControlRunResult, ControlStep } from './control-runtime'
 import type { OptimizationExample } from './optimization-loop'
@@ -132,6 +129,19 @@ export interface FeedbackOptimizerRow extends OptimizationExample {
   score?: number
 }
 
+export interface FeedbackReplayResult {
+  trajectoryId: string
+  pass: boolean
+  score?: number
+  labels: FeedbackLabel[]
+  outcome?: FeedbackOutcome
+  metadata?: Record<string, unknown>
+}
+
+export interface FeedbackReplayAdapter {
+  replay(trajectory: FeedbackTrajectory): Promise<Omit<FeedbackReplayResult, 'trajectoryId'>> | Omit<FeedbackReplayResult, 'trajectoryId'>
+}
+
 const DEFAULT_SPLIT_POLICY: Required<FeedbackSplitPolicy> = {
   trainPct: 70,
   devPct: 15,
@@ -228,12 +238,16 @@ export class FileSystemFeedbackTrajectoryStore implements FeedbackTrajectoryStor
   }
 
   private async append(record: unknown): Promise<void> {
+    const { appendFile, mkdir } = await import('node:fs/promises')
+    const { join } = await import('node:path')
     await mkdir(this.dir, { recursive: true })
     await appendFile(join(this.dir, 'feedback-trajectories.ndjson'), JSON.stringify(record) + '\n', 'utf8')
   }
 
   private async load(): Promise<void> {
     if (this.loaded) return
+    const { readFile } = await import('node:fs/promises')
+    const { join } = await import('node:path')
     const file = join(this.dir, 'feedback-trajectories.ndjson')
     try {
       const raw = await readFile(file, 'utf8')
@@ -354,6 +368,52 @@ export function feedbackTrajectoriesToOptimizerRows(
   trajectories: FeedbackTrajectory[],
 ): FeedbackOptimizerRow[] {
   return trajectories.map(feedbackTrajectoryToOptimizerRow)
+}
+
+export async function replayFeedbackTrajectory(
+  trajectory: FeedbackTrajectory,
+  adapter: FeedbackReplayAdapter,
+): Promise<FeedbackReplayResult> {
+  try {
+    const result = await adapter.replay(trajectory)
+    return {
+      trajectoryId: trajectory.id,
+      ...result,
+    }
+  } catch (err) {
+    const createdAt = new Date().toISOString()
+    const message = err instanceof Error ? err.message : String(err)
+    return {
+      trajectoryId: trajectory.id,
+      pass: false,
+      labels: [{
+        source: 'system',
+        kind: 'reject',
+        value: false,
+        reason: message,
+        severity: 'error',
+        createdAt,
+      }],
+      outcome: {
+        success: false,
+        score: 0,
+        detail: message,
+        observedAt: createdAt,
+      },
+      metadata: { replayError: true },
+    }
+  }
+}
+
+export async function replayFeedbackTrajectories(
+  trajectories: FeedbackTrajectory[],
+  adapter: FeedbackReplayAdapter,
+): Promise<FeedbackReplayResult[]> {
+  const results: FeedbackReplayResult[] = []
+  for (const trajectory of trajectories) {
+    results.push(await replayFeedbackTrajectory(trajectory, adapter))
+  }
+  return results
 }
 
 export function summarizePreferenceMemory(

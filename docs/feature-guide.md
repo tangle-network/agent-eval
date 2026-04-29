@@ -31,6 +31,7 @@ trying, and whether a change made them better or worse.
 | “Should the agent keep trying?” | `runAgentControlLoop` | Budgeted `observe -> validate -> decide -> act` runtime. |
 | “The agent should propose, verify, review, and revise.” | `runProposeReviewAsControlLoop` | Reusable preset over the generic control loop. |
 | “Human feedback should become reusable eval data.” | `FeedbackTrajectory` | Captures approvals, rejections, edits, choices, metrics, and policy blocks. |
+| “Can this action run, or does it need approval?” | `evaluateActionPolicy` | Generic preflight for side effects, budgets, and required evidence. |
 | “I need train/dev/test/holdout examples.” | `Dataset` plus feedback trajectory conversion | Stable splits and contamination control. |
 | “Which prompt or signature wins?” | `PromptOptimizer`, `OptimizationLoop`, steering optimizers | Runs variants on scenarios and compares scores. |
 | “Improve prompts, then code if prompts plateau.” | `runPromptEvolution`, composite mutator, code mutator | Bounded evolution with telemetry and lineage. |
@@ -150,6 +151,7 @@ Store as `FeedbackTrajectory`, then derive:
 | Control | `runAgentControlLoop`, `objectiveEval`, `subjectiveEval` | Long-running agent tasks | Supports budgets, cost, stop policies, trace spans. |
 | Propose/review | `runProposeReview`, `runProposeReviewAsControlLoop` | Iterative artifact repair | Good for code, docs, plans, briefs. |
 | Feedback data | `FeedbackTrajectory`, stores, converters | Human/environment labels | Domain adapters live in downstream repos. |
+| Action policy | `evaluateActionPolicy` | Approval/budget preflight | Blocks or labels actions before `act()`. |
 | Datasets | `Dataset`, holdout tools, canaries | Train/dev/test/holdout corpora | Keeps optimization honest. |
 | Optimization | `PromptOptimizer`, `OptimizationLoop`, steering optimizers | Prompt/signature comparison | Use held-out gates before promotion. |
 | Evolution | prompt/code mutators, sandbox pool, telemetry | Autoresearch and mutation loops | Use budgets and lineage; do not run unbounded. |
@@ -166,6 +168,21 @@ Store as `FeedbackTrajectory`, then derive:
 - Treat external side effects as downstream policy. The runtime can stop loops,
   but your adapter decides what requires approval.
 - Store user feedback with enough context to replay it later.
+- Run harnesses and judges in the same sandbox when they need shared files,
+  logs, screenshots, or browser state. Use separate sandboxes for parallel
+  variants or destructive checks.
+
+## Same-Sandbox Example
+
+`examples/same-sandbox-harness/` shows the common coding/browser pattern:
+
+```text
+one sandbox/workdir -> install/build/test -> inspect evidence -> emit judge span
+```
+
+Use this when a judge needs evidence produced by earlier harness phases. Use
+isolated sandboxes when variants run in parallel or a phase can corrupt the
+workspace.
 - Treat telemetry as evidence, not control flow. A trace sink outage should be
   visible in `runtimeErrors`, but it should not stop the worker from completing
   the user task.

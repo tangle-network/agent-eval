@@ -11,6 +11,7 @@ import {
   createFeedbackTrajectory,
   feedbackTrajectoryToOptimizerRow,
   parseFeedbackTrajectoriesJsonl,
+  replayFeedbackTrajectory,
   renderPreferenceMemoryMarkdown,
   serializeFeedbackTrajectoriesJsonl,
   summarizePreferenceMemory,
@@ -135,6 +136,37 @@ describe('feedback trajectories', () => {
     } finally {
       await rm(dir, { recursive: true, force: true })
     }
+  })
+
+  it('replays trajectories through a caller adapter and returns structured failures', async () => {
+    const trajectory = createFeedbackTrajectory({
+      id: 'feedback-4',
+      task: { intent: 'complete browser checkout' },
+      createdAt: '2026-01-01T00:00:00.000Z',
+    })
+
+    const pass = await replayFeedbackTrajectory(trajectory, {
+      replay: () => ({
+        pass: true,
+        score: 0.9,
+        labels: [{
+          source: 'environment',
+          kind: 'approve',
+          value: true,
+          createdAt: '2026-01-01T00:01:00.000Z',
+        }],
+      }),
+    })
+    expect(pass).toMatchObject({ trajectoryId: 'feedback-4', pass: true, score: 0.9 })
+
+    const fail = await replayFeedbackTrajectory(trajectory, {
+      replay: () => {
+        throw new Error('browser assertion failed')
+      },
+    })
+    expect(fail.pass).toBe(false)
+    expect(fail.labels[0].reason).toBe('browser assertion failed')
+    expect(fail.metadata?.replayError).toBe(true)
   })
 })
 
