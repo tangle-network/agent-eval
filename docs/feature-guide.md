@@ -34,6 +34,7 @@ trying, and whether a change made them better or worse.
 | “Can this action run, or does it need approval?” | `evaluateActionPolicy` | Generic preflight for side effects, budgets, and required evidence. |
 | “I need train/dev/test/holdout examples.” | `Dataset` plus feedback trajectory conversion | Stable splits and contamination control. |
 | “Which prompt or signature wins?” | `PromptOptimizer`, `OptimizationLoop`, steering optimizers | Runs variants on scenarios and compares scores. |
+| “Improve a multi-turn agent over real task traces.” | `runMultiShotOptimization` | GEPA-style trajectory optimization with ASI and held-out promotion. |
 | “Improve prompts, then code if prompts plateau.” | `runPromptEvolution`, composite mutator, code mutator | Bounded evolution with telemetry and lineage. |
 | “Find why a regression happened.” | bisector, traces, run records | Narrows changes and preserves evidence. |
 | “Expose evals to another language.” | Wire protocol and Python client | HTTP/RPC boundary for non-TypeScript apps. |
@@ -104,10 +105,12 @@ generated code -> build/test/runtime gates -> score -> ship or revise
 
 Use when you want Ax/GEPA-style improvement.
 
-1. Build a dataset with train/dev/test/holdout splits.
-2. Evaluate variants against the same scenarios.
-3. Promote only when paired comparisons and held-out checks support it.
-4. Keep run records with prompt hash, model, config, cost, and commit.
+1. For variable-length agent tasks, use `runMultiShotOptimization`.
+2. Build search/dev/test/holdout splits from the real product loop.
+3. Score full trajectories, not just final text.
+4. Emit actionable side information for failures the mutator can fix.
+5. Promote only `promotedVariant`, never a rejected `searchBestVariant`.
+6. Keep run records with prompt hash, model, config, cost, and commit.
 
 Result:
 

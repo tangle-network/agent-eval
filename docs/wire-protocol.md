@@ -96,13 +96,13 @@ GET /v1/version
 ```json
 {
   "package": "@tangle-network/agent-eval",
-  "version": "0.12.0",
+  "version": "0.18.0",
   "wireVersion": "1.0.0",
   "apiSurface": ["judge", "listRubrics", "version"]
 }
 ```
 
-`version` matches the npm/PyPI package version. `wireVersion` bumps independently — only on breaking schema changes. A 0.13 server still serves 0.12 clients as long as `wireVersion` matches.
+`version` matches the npm/PyPI package version. `wireVersion` bumps independently — only on breaking request/response schema changes. Package versions can differ across releases as long as `wireVersion` matches.
 
 ### `GET /healthz` — liveness
 

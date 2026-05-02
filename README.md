@@ -82,12 +82,19 @@ The recipe for a code-generator eval is in [`SKILL.md` §Minimal working path](.
 | `FeedbackTrajectory`, `InMemoryFeedbackTrajectoryStore`, `FileSystemFeedbackTrajectoryStore` | Human/environment feedback loops: capture approvals, rejections, choices, revisions, metrics, and policy blocks as train/dev/test/holdout examples. | [feedback-trajectories.md](./docs/feedback-trajectories.md) |
 | `evaluateActionPolicy` | Generic action preflight for approval, budget, expected-outcome, and kill-criteria checks. | [feature-guide.md](./docs/feature-guide.md) |
 | `ExperimentTracker`, `PromptOptimizer`, `bisector` | A/B prompts, optimize steering, bisect regressions. | SKILL.md |
+| `runMultiShotOptimization`, `trialTraceFromMultiShotTrial` | GEPA-style optimization for variable-length agent trajectories with ASI, paired seeds, and optional held-out promotion gating. | [multi-shot-optimization.md](./docs/multi-shot-optimization.md) |
 | `runPromptEvolution`, `createCompositeMutator`, `createSandboxPool`, `createSandboxCodeMutator`, `MutationTelemetry`, `LineageRecorder`, `CostLedger`, `JsonlTrialCache` | Prompt + code evolution loops with bounded sandbox pools, durable JSONL telemetry, plateau-detecting composite mutators, crash-resumable trial cache. | §Evolution loop |
 | `reflective-mutation` (`buildReflectionPrompt`, `parseReflectionResponse`, `DEFAULT_MUTATION_PRIMITIVES`) | Trace-conditioned LLM mutator that reasons over top/bottom trials instead of blind rewrites. | inline JSDoc |
 | `correlationStudy`, `OutcomeStore`, `ProductRegistry` | Meta-eval: do our scores predict deployment outcomes (revenue, retention)? | inline JSDoc |
 | Telemetry (`telemetry/`, `telemetry/file`) | OTLP export, trace replay, file sinks. | inline JSDoc |
 
 ## Evolution loop
+
+For agent tasks that run across many chat turns or tool calls, start with
+[`runMultiShotOptimization`](./docs/multi-shot-optimization.md). It runs the
+same prompt-evolution core over full trajectories, carries actionable side
+information into reflection, and separates the search winner from the variant
+that actually passes held-out promotion.
 
 Closing the loop on a prompt or codebase is **two adapters + a config**. Compose `runPromptEvolution` with `createCompositeMutator` (plateau policy) and you get prompt-only optimization until improvement stalls, then automatic switch to code-channel mutations from a coding agent inside a `SandboxPool`.
 

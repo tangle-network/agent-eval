@@ -1,5 +1,31 @@
 # Changelog
 
+## 0.18.0 — multi-shot optimization
+
+### Added
+
+- `runMultiShotOptimization`, the canonical GEPA-style adapter for
+  variable-length agent trajectories. It wraps `runPromptEvolution` while
+  preserving full multi-shot traces, actionable side information, stable paired
+  seeds, score/cost objectives, and optional held-out promotion gating.
+- `trialTraceFromMultiShotTrial`, a bridge from multi-shot trial results into
+  reflective mutation prompts.
+- `ActionableSideInfo`, `MultiShotVariant`, `MultiShotTrace`, `MultiShotRun`,
+  `MultiShotScore`, `MultiShotTrialResult`, `MultiShotMutateAdapter`, and
+  related public types.
+- `docs/multi-shot-optimization.md` and
+  `examples/multi-shot-optimization/index.ts`.
+
+### Changed
+
+- The multi-shot result shape explicitly separates `searchBestVariant` from
+  `promotedVariant`. If a holdout gate rejects the search winner, the promoted
+  variant is the baseline.
+- `runMultiShotOptimization` validates release-critical configuration up front:
+  unique variant/scenario ids, positive integer run counts, population size,
+  disjoint search/holdout ids, and a gate baseline key matching the first seed
+  variant.
+
 ## 0.17.2 — agent control runtime
 
 ### Added
