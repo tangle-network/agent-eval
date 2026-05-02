@@ -19,7 +19,7 @@ import {
   runPromptEvolution,
   type PromptEvolutionEvent,
   type PromptEvolutionResult,
-  type PromptVariant,
+  type EvolvableVariant,
   type ScoreAdapter,
   type TrialCache,
   type TrialResult,
@@ -33,7 +33,7 @@ export type MultiShotSplit = 'search' | 'dev' | 'holdout'
 
 export type AsiSeverity = 'info' | 'warning' | 'error' | 'critical'
 
-export type MultiShotVariant<P = unknown> = PromptVariant<P>
+export type MultiShotVariant<P = unknown> = EvolvableVariant<P>
 
 export interface ActionableSideInfo {
   /** Stable expectation/check id when available. */
@@ -73,7 +73,7 @@ export interface MultiShotRun {
 }
 
 export interface MultiShotRunInput<P = unknown> {
-  variant: PromptVariant<P>
+  variant: EvolvableVariant<P>
   scenarioId: string
   rep: number
   split: MultiShotSplit
@@ -114,13 +114,13 @@ export interface MultiShotTrialResult extends TrialResult {
 
 export interface MultiShotMutateAdapter<P = unknown> {
   mutate(args: {
-    parent: PromptVariant<P>
+    parent: EvolvableVariant<P>
     parentAggregate: VariantAggregate
     topTrials: MultiShotTrialResult[]
     bottomTrials: MultiShotTrialResult[]
     childCount: number
     generation: number
-  }): Promise<PromptVariant<P>[]>
+  }): Promise<EvolvableVariant<P>[]>
 }
 
 export interface MultiShotGateConfig<P = unknown> {
@@ -131,7 +131,7 @@ export interface MultiShotGateConfig<P = unknown> {
   gate: HeldOutGateConfig
   /** Convert scored trajectory runs into paper-grade RunRecords. */
   toRunRecord(input: {
-    variant: PromptVariant<P>
+    variant: EvolvableVariant<P>
     scenarioId: string
     rep: number
     split: RunSplitTag
@@ -143,7 +143,7 @@ export interface MultiShotGateConfig<P = unknown> {
 export interface MultiShotOptimizationConfig<P = unknown> {
   runId: string
   target: string
-  seedVariants: PromptVariant<P>[]
+  seedVariants: EvolvableVariant<P>[]
   searchScenarioIds: string[]
   reps: number
   generations: number
@@ -170,10 +170,10 @@ export interface MultiShotGateResult {
 export interface MultiShotOptimizationResult<P = unknown> {
   evolution: PromptEvolutionResult<P>
   /** Best candidate on the optimizer-visible search split. */
-  searchBestVariant: PromptVariant<P>
+  searchBestVariant: EvolvableVariant<P>
   searchBestAggregate: VariantAggregate
   /** Variant callers should actually ship after optional holdout gating. */
-  promotedVariant: PromptVariant<P>
+  promotedVariant: EvolvableVariant<P>
   promotedAggregate: VariantAggregate
   /** Null when no gate was configured or the search-best candidate was the baseline. */
   gate: MultiShotGateResult | null
@@ -258,8 +258,8 @@ export function trialTraceFromMultiShotTrial(trial: MultiShotTrialResult): Trial
 
 async function evaluateMultiShotGate<P>(
   config: MultiShotOptimizationConfig<P>,
-  baseline: PromptVariant<P>,
-  candidate: PromptVariant<P>,
+  baseline: EvolvableVariant<P>,
+  candidate: EvolvableVariant<P>,
 ): Promise<MultiShotGateResult> {
   const gateConfig = config.gate!
   const reps = gateConfig.reps ?? config.reps
@@ -293,7 +293,7 @@ async function evaluateMultiShotGate<P>(
 
 async function scoreOne<P>(
   config: MultiShotOptimizationConfig<P>,
-  variant: PromptVariant<P>,
+  variant: EvolvableVariant<P>,
   scenarioId: string,
   rep: number,
   split: MultiShotSplit,
@@ -348,7 +348,7 @@ async function scoreOne<P>(
 
 function toValidatedRecord<P>(
   config: MultiShotOptimizationConfig<P>,
-  variant: PromptVariant<P>,
+  variant: EvolvableVariant<P>,
   scenarioId: string,
   rep: number,
   split: RunSplitTag,

@@ -1,6 +1,5 @@
 import type { DatasetScenario, DatasetSplit } from './dataset'
 import type { ControlEvalResult, ControlRunResult, ControlStep } from './control-runtime'
-import type { OptimizationExample } from './optimization-loop'
 
 export type FeedbackArtifactType =
   | 'text'
@@ -123,10 +122,12 @@ export interface PreferenceMemoryEntry {
   category?: string
 }
 
-export interface FeedbackOptimizerRow extends OptimizationExample {
+export interface FeedbackOptimizerRow {
+  scenarioId: string
   trajectoryId: string
   labelKinds: FeedbackLabelKind[]
   score?: number
+  metadata?: Record<string, unknown>
 }
 
 export interface FeedbackReplayResult {

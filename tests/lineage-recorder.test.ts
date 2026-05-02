@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync, readFileSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
 import { LineageRecorder } from '../src/index'
-import type { PromptVariant } from '../src/index'
+import type { EvolvableVariant } from '../src/index'
 
 interface PersonaPayload {
   persona: string
@@ -14,7 +14,7 @@ function makeVariant(
   parentId: string | null,
   generation: number,
   persona: string,
-): PromptVariant<PersonaPayload> {
+): EvolvableVariant<PersonaPayload> {
   return { id, parentId, generation, payload: { persona } }
 }
 
