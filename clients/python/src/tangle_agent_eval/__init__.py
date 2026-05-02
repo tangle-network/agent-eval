@@ -39,7 +39,7 @@ from .models import (
     VersionResponse,
 )
 
-__version__ = "0.12.0"
+__version__ = "0.18.0"
 
 __all__ = [
     "Client",

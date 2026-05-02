@@ -1,7 +1,15 @@
 {
   "name": "@tangle-network/agent-eval",
-  "version": "0.17.3",
+  "version": "0.18.0",
   "description": "Trace-first evaluation framework for Tangle agents. Core (spans, pipelines, sandbox harness, OTLP export), trust (dataset, red-team, calibration, behavior DSL), builder-of-builders (three-layer eval, resumable sessions, meta-runtime correlation), and frontier (meta-eval correlation study, Process Reward Modeling, bisector).",
+  "homepage": "https://github.com/tangle-network/agent-eval#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/tangle-network/agent-eval.git"
+  },
+  "bugs": {
+    "url": "https://github.com/tangle-network/agent-eval/issues"
+  },
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -31,7 +39,8 @@
     "agent-eval": "dist/cli.js"
   },
   "files": [
-    "dist"
+    "dist",
+    "docs"
   ],
   "publishConfig": {
     "access": "public"

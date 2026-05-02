@@ -788,6 +788,30 @@ export type {
   TrialCache,
 } from './prompt-evolution'
 
+export {
+  defaultMultiShotObjectives,
+  runMultiShotOptimization,
+  trialTraceFromMultiShotTrial,
+} from './multi-shot-optimization'
+export type {
+  ActionableSideInfo,
+  AsiSeverity,
+  MultiShotGateConfig,
+  MultiShotGateResult,
+  MultiShotMutateAdapter,
+  MultiShotOptimizationConfig,
+  MultiShotOptimizationResult,
+  MultiShotRun,
+  MultiShotRunInput,
+  MultiShotRunner,
+  MultiShotScore,
+  MultiShotScorer,
+  MultiShotSplit,
+  MultiShotTrace,
+  MultiShotTrialResult,
+  MultiShotVariant,
+} from './multi-shot-optimization'
+
 // ── 0.14.0: concurrency + persistence + telemetry primitives for evolution loops ──
 export { Mutex } from './concurrency'
 
