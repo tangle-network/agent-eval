@@ -16,7 +16,7 @@ import {
   MutationTelemetry,
 } from '../src/evolution-telemetry'
 import { resetLockedAppendersForTesting } from '../src/locked-jsonl-appender'
-import type { PromptVariant, VariantAggregate } from '../src/prompt-evolution'
+import type { EvolvableVariant, VariantAggregate } from '../src/prompt-evolution'
 
 interface DummyResource {
   id: string
@@ -31,7 +31,7 @@ function fixtureDir(): string {
   return mkdtempSync(join(tmpdir(), 'code-mutator-test-'))
 }
 
-function makeParent(): PromptVariant<DummyPayload> {
+function makeParent(): EvolvableVariant<DummyPayload> {
   return {
     id: 'seed',
     payload: { text: 'baseline' },

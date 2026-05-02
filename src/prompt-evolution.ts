@@ -9,7 +9,7 @@
  *   4. Repeat for N generations OR until convergence.
  *
  * Domain-agnostic. Consumers supply:
- *   - A seed population of `PromptVariant`s.
+ *   - A seed population of `EvolvableVariant`s.
  *   - A `ScoreAdapter` that runs (variant, scenario, rep) → `TrialResult`.
  *   - A `MutateAdapter` that produces children given trace evidence.
  *   - Pareto `Objective<TrialAggregate>[]` defining the multi-objective vector.
@@ -23,7 +23,7 @@
 
 import { paretoFrontierWithCrowding, scalarScore, type Objective } from './pareto'
 
-export interface PromptVariant<P = unknown> {
+export interface EvolvableVariant<P = unknown> {
   /** Stable id for the variant — surfaces in reports and trial results. */
   id: string
   /** Variant payload — interpretation is the consumer's responsibility. */
@@ -81,7 +81,7 @@ export interface VariantAggregate {
 
 export interface ScoreAdapter<P = unknown> {
   score(args: {
-    variant: PromptVariant<P>
+    variant: EvolvableVariant<P>
     scenarioId: string
     rep: number
   }): Promise<TrialResult>
@@ -89,20 +89,20 @@ export interface ScoreAdapter<P = unknown> {
 
 export interface MutateAdapter<P = unknown> {
   mutate(args: {
-    parent: PromptVariant<P>
+    parent: EvolvableVariant<P>
     parentAggregate: VariantAggregate
     topTrials: TrialResult[]
     bottomTrials: TrialResult[]
     childCount: number
     generation: number
-  }): Promise<PromptVariant<P>[]>
+  }): Promise<EvolvableVariant<P>[]>
 }
 
 export interface PromptEvolutionConfig<P = unknown> {
   runId: string
   /** What component is being mutated — surfaces in reports + reflection prompts. */
   target: string
-  seedVariants: PromptVariant<P>[]
+  seedVariants: EvolvableVariant<P>[]
   scenarioIds: string[]
   reps: number
   generations: number
@@ -149,7 +149,7 @@ export interface GenerationReport<P = unknown> {
   runId: string
   target: string
   generation: number
-  variants: PromptVariant<P>[]
+  variants: EvolvableVariant<P>[]
   aggregates: VariantAggregate[]
   /** Frontier candidates, sorted by descending crowding distance. */
   paretoFrontIds: string[]
@@ -164,7 +164,7 @@ export interface PromptEvolutionResult<P = unknown> {
   target: string
   generations: GenerationReport<P>[]
   /** Best variant by scalar score in the final generation. */
-  bestVariant: PromptVariant<P>
+  bestVariant: EvolvableVariant<P>
   /** Best aggregate (matches bestVariant). */
   bestAggregate: VariantAggregate
 }
@@ -174,7 +174,7 @@ export async function runPromptEvolution<P>(
 ): Promise<PromptEvolutionResult<P>> {
   const generations: GenerationReport<P>[] = []
   let population = [...config.seedVariants]
-  let bestVariant: PromptVariant<P> = population[0]!
+  let bestVariant: EvolvableVariant<P> = population[0]!
   let bestAggregate: VariantAggregate | null = null
 
   for (let generation = 0; generation < config.generations; generation++) {
@@ -235,7 +235,7 @@ export async function runPromptEvolution<P>(
 }
 
 async function scorePopulation<P>(
-  population: PromptVariant<P>[],
+  population: EvolvableVariant<P>[],
   config: PromptEvolutionConfig<P>,
   generation: number,
 ): Promise<TrialResult[]> {
@@ -295,7 +295,7 @@ async function runWithConcurrency<T>(jobs: Array<() => Promise<T>>, concurrency:
 }
 
 function aggregateTrials<P>(
-  population: PromptVariant<P>[],
+  population: EvolvableVariant<P>[],
   scenarioIds: string[],
   trials: TrialResult[],
 ): VariantAggregate[] {
@@ -355,13 +355,13 @@ function mean(xs: number[]): number {
 }
 
 async function nextPopulation<P>(
-  current: PromptVariant<P>[],
+  current: EvolvableVariant<P>[],
   aggregates: VariantAggregate[],
   trials: TrialResult[],
   front: Array<{ candidate: VariantAggregate; distance: number }>,
   config: PromptEvolutionConfig<P>,
   nextGeneration: number,
-): Promise<PromptVariant<P>[]> {
+): Promise<EvolvableVariant<P>[]> {
   const survivorIds = new Set(front.map((c) => c.candidate.variantId))
   const survivors = current.filter((v) => survivorIds.has(v.id))
 
@@ -375,7 +375,7 @@ async function nextPopulation<P>(
   const topTrials = topKTrialsByScore(trials, parent.id, 3)
   const bottomTrials = bottomKTrialsByScore(trials, parent.id, 3)
   const childCount = Math.max(0, config.populationSize - survivors.length)
-  let children: PromptVariant<P>[] = []
+  let children: EvolvableVariant<P>[] = []
   if (childCount > 0) {
     children = await config.mutateAdapter.mutate({
       parent,

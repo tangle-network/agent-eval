@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.19.0 — legacy optimizer removal
+
+### Removed
+
+- Removed the legacy pairwise prompt optimizer surface:
+  `PromptOptimizer`, `OptimizationLoop`, and their associated root-exported
+  types are gone. The blessed optimization path is now
+  `runMultiShotOptimization` for task trajectories and the steering-specific
+  optimizers for explicit steering tables.
+- Removed the old `PromptVariant` root export. Public callers should use
+  `MultiShotVariant` for multi-shot trajectory optimization or
+  `EvolvableVariant` for the lower-level prompt/code evolution core.
+
+### Changed
+
+- Documentation now points optimization users at `runMultiShotOptimization`
+  instead of the removed pairwise prompt optimizer.
+
 ## 0.18.0 — multi-shot optimization
 
 ### Added

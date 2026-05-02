@@ -18,7 +18,7 @@
 
 import type {
   MutateAdapter,
-  PromptVariant,
+  EvolvableVariant,
   TrialResult,
   VariantAggregate,
 } from './prompt-evolution'
@@ -42,7 +42,7 @@ export interface CreateCompositeMutatorOpts<P> {
 }
 
 interface MutateArgs<P> {
-  parent: PromptVariant<P>
+  parent: EvolvableVariant<P>
   parentAggregate: VariantAggregate
   topTrials: TrialResult[]
   bottomTrials: TrialResult[]
@@ -91,7 +91,7 @@ export function createCompositeMutator<P>(opts: CreateCompositeMutatorOpts<P>): 
   }
 
   return {
-    async mutate(args: MutateArgs<P>): Promise<PromptVariant<P>[]> {
+    async mutate(args: MutateArgs<P>): Promise<EvolvableVariant<P>[]> {
       const { mode, reason } = pickMode(args)
       opts.onPolicyDecision?.({ generation: args.generation, chose: mode, reason })
 

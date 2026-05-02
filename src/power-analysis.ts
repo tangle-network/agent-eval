@@ -6,9 +6,9 @@
  *      returns the N per arm needed to detect a given effect size.
  *   2. After running: `benjaminiHochberg(pValues, fdr)` and
  *      `bonferroni(pValues, alpha)` correct for multiple pairwise tests
- *      so PromptOptimizer's "significant" flag is statistically honest.
+ *      so pairwise variant comparisons stay statistically honest.
  *
- * Fixes the correctness bug in 0.2's PromptOptimizer which applied
+ * Fixes the correctness bug in 0.2's pairwise optimizer which applied
  * alpha directly across n*(n-1)/2 pairwise tests without correction —
  * dramatically inflating false-positive rate when variants ≥ 3.
  */

@@ -27,7 +27,7 @@ import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } fr
 import { dirname } from 'node:path'
 import { Mutex } from './concurrency'
 import { LockedJsonlAppender } from './locked-jsonl-appender'
-import type { PromptVariant } from './prompt-evolution'
+import type { EvolvableVariant } from './prompt-evolution'
 
 // ─── mutation telemetry ──────────────────────────────────────────────────
 
@@ -131,7 +131,7 @@ export interface LineageNode {
  * that field is part of the audit-bench convention but cheap enough to
  * accept any payload that mirrors it. Override by passing your own.
  */
-export type LineageKindResolver<P> = (variant: PromptVariant<P>) => LineageKind
+export type LineageKindResolver<P> = (variant: EvolvableVariant<P>) => LineageKind
 
 /**
  * Persistence shape:
@@ -231,7 +231,7 @@ export class LineageRecorder<P = unknown> {
     })
   }
 
-  async upsertVariant(variant: PromptVariant<P>, opts: { omitPayload?: boolean } = {}): Promise<void> {
+  async upsertVariant(variant: EvolvableVariant<P>, opts: { omitPayload?: boolean } = {}): Promise<void> {
     await this.upsert({
       id: variant.id,
       parentId: variant.parentId ?? null,
@@ -257,7 +257,7 @@ export class LineageRecorder<P = unknown> {
   }
 }
 
-function defaultKindOf<P>(variant: PromptVariant<P>): LineageKind {
+function defaultKindOf<P>(variant: EvolvableVariant<P>): LineageKind {
   if (variant.parentId === undefined) return 'seed'
   const payload = variant.payload as { codeMutation?: unknown } | null | undefined
   if (payload && typeof payload === 'object' && payload.codeMutation) return 'code'

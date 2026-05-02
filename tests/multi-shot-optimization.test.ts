@@ -2,8 +2,8 @@ import { describe, expect, it } from 'vitest'
 import {
   runMultiShotOptimization,
   trialTraceFromMultiShotTrial,
+  type MultiShotVariant,
   type MultiShotTrialResult,
-  type PromptVariant,
 } from '../src/index'
 import type { RunRecord, RunSplitTag } from '../src/run-record'
 
@@ -11,7 +11,7 @@ interface Payload {
   quality: number
 }
 
-function variant(id: string, quality: number): PromptVariant<Payload> {
+function variant(id: string, quality: number): MultiShotVariant<Payload> {
   return {
     id,
     label: id,
@@ -22,7 +22,7 @@ function variant(id: string, quality: number): PromptVariant<Payload> {
 
 function runRecord(input: {
   runId: string
-  variant: PromptVariant<Payload>
+  variant: MultiShotVariant<Payload>
   scenarioId: string
   rep: number
   split: RunSplitTag

@@ -5,7 +5,6 @@ import { RunCritic } from '../src/run-critic'
 import { aggregateRunScore } from '../src/run-score'
 import { mergeSteeringBundle, renderSteeringText } from '../src/steering'
 import { distillPlaybook, renderPlaybookMarkdown } from '../src/playbook'
-import { OptimizationLoop } from '../src/optimization-loop'
 
 describe('steering helpers', () => {
   it('merges steering bundle overrides without dropping existing reviewer prompts', () => {
@@ -137,33 +136,5 @@ describe('playbook', () => {
     expect(playbook.entries).toHaveLength(2)
     expect(playbook.entries[0]?.rationale).toBe('better')
     expect(renderPlaybookMarkdown(playbook)).toContain('Stay repo-first')
-  })
-})
-
-describe('OptimizationLoop', () => {
-  it('selects the highest-scoring steering bundle', async () => {
-    const loop = new OptimizationLoop()
-    const result = await loop.run({
-      variants: [
-        { id: 'weak', coderPrompt: 'be generic' },
-        { id: 'strong', coderPrompt: 'stay repo-first and test' },
-      ],
-      examples: [{ scenarioId: 's1' }, { scenarioId: 's2' }],
-      trialsPerScenario: 3,
-      evaluate: async ({ variant }) => ({
-        success: variant.id === 'strong' ? 1 : 0.2,
-        goalProgress: variant.id === 'strong' ? 0.9 : 0.3,
-        repoGroundedness: variant.id === 'strong' ? 0.9 : 0.1,
-        driftPenalty: variant.id === 'strong' ? 0.1 : 0.8,
-        toolUseQuality: variant.id === 'strong' ? 0.8 : 0.2,
-        patchQuality: variant.id === 'strong' ? 0.8 : 0.2,
-        testReality: variant.id === 'strong' ? 0.7 : 0.1,
-        costUsd: 0.2,
-        wallSeconds: 30,
-      }),
-    })
-    expect(result.winner.id).toBe('strong')
-    expect(result.significant).toBe(true)
-    expect(result.reports).toHaveLength(2)
   })
 })

@@ -171,14 +171,6 @@ export type { FileSystemExperimentStoreOptions } from './experiment-tracker-fs'
 export { D1ExperimentStore } from './experiment-tracker-d1'
 export type { D1ExperimentStoreOptions, D1Like, D1PreparedStatementLike } from './experiment-tracker-d1'
 
-export { PromptOptimizer } from './prompt-optimizer'
-export type {
-  OptimizationConfig,
-  OptimizationResult,
-  PromptVariant,
-  PairwiseComparison,
-  VariantScore,
-} from './prompt-optimizer'
 export { mergeSteeringBundle, renderSteeringText } from './steering'
 export type { SteeringBundle, SteeringDelta, SteeringRolePrompt } from './steering'
 export { aggregateRunScore, clamp01, DEFAULT_RUN_SCORE_WEIGHTS } from './run-score'
@@ -187,14 +179,6 @@ export { RunCritic } from './run-critic'
 export type { RunTrace, RunCriticOptions } from './run-critic'
 export { distillPlaybook, renderPlaybookMarkdown } from './playbook'
 export type { Playbook, PlaybookEntry } from './playbook'
-export { OptimizationLoop } from './optimization-loop'
-export type {
-  OptimizationExample,
-  SteeringEvaluation,
-  SteeringVariantReport,
-  OptimizationLoopResult,
-  OptimizationLoopConfig,
-} from './optimization-loop'
 export { PairwiseSteeringOptimizer, AxGepaSteeringOptimizer } from './steering-optimizer'
 export type {
   SteeringOptimizerBackend,
@@ -772,10 +756,7 @@ export {
   InMemoryTrialCache,
 } from './prompt-evolution'
 export type {
-  // The 0.11.x `PromptVariant` is a single-shot pairwise-optimiser shape from
-  // prompt-optimizer.ts. The 0.12.x `EvolvableVariant` is the population-based
-  // shape (carries generation lineage). They're intentionally distinct types.
-  PromptVariant as EvolvableVariant,
+  EvolvableVariant,
   TrialResult as PromptTrialResult,
   ScenarioAggregate,
   VariantAggregate,

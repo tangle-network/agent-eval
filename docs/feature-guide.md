@@ -33,7 +33,7 @@ trying, and whether a change made them better or worse.
 | “Human feedback should become reusable eval data.” | `FeedbackTrajectory` | Captures approvals, rejections, edits, choices, metrics, and policy blocks. |
 | “Can this action run, or does it need approval?” | `evaluateActionPolicy` | Generic preflight for side effects, budgets, and required evidence. |
 | “I need train/dev/test/holdout examples.” | `Dataset` plus feedback trajectory conversion | Stable splits and contamination control. |
-| “Which prompt or signature wins?” | `PromptOptimizer`, `OptimizationLoop`, steering optimizers | Runs variants on scenarios and compares scores. |
+| “Which prompt or signature wins?” | `runMultiShotOptimization`, steering optimizers | Runs variants on scenarios and compares scores. |
 | “Improve a multi-turn agent over real task traces.” | `runMultiShotOptimization` | GEPA-style trajectory optimization with ASI and held-out promotion. |
 | “Improve prompts, then code if prompts plateau.” | `runPromptEvolution`, composite mutator, code mutator | Bounded evolution with telemetry and lineage. |
 | “Find why a regression happened.” | bisector, traces, run records | Narrows changes and preserves evidence. |
@@ -156,7 +156,7 @@ Store as `FeedbackTrajectory`, then derive:
 | Feedback data | `FeedbackTrajectory`, stores, converters | Human/environment labels | Domain adapters live in downstream repos. |
 | Action policy | `evaluateActionPolicy` | Approval/budget preflight | Blocks or labels actions before `act()`. |
 | Datasets | `Dataset`, holdout tools, canaries | Train/dev/test/holdout corpora | Keeps optimization honest. |
-| Optimization | `PromptOptimizer`, `OptimizationLoop`, steering optimizers | Prompt/signature comparison | Use held-out gates before promotion. |
+| Optimization | `runMultiShotOptimization`, steering optimizers | Prompt/signature comparison | Use held-out gates before promotion. |
 | Evolution | prompt/code mutators, sandbox pool, telemetry | Autoresearch and mutation loops | Use budgets and lineage; do not run unbounded. |
 | Telemetry | `TraceStore`, OTLP, file sinks | Audit and replay | Treat traces as evidence, not just logs. |
 | Reporting | summaries, pareto, cost tracker | Decision support | Useful for PRs, launch gates, research notes. |

@@ -26,7 +26,7 @@
 
 import type {
   MutateAdapter,
-  PromptVariant,
+  EvolvableVariant,
   TrialResult,
   VariantAggregate,
 } from './prompt-evolution'
@@ -49,7 +49,7 @@ export interface CodeMutationOutcome {
   childId?: string
   /** Free-form one-liner: "tightened tool descriptions in forge-tools.ts". */
   description?: string
-  /** What the runner was trying to fix (carried into PromptVariant.rationale). */
+  /** What the runner was trying to fix (carried into EvolvableVariant.rationale). */
   rationale?: string
   /** Caller-defined diff payload. Mapped into the variant's payload by
    *  `toVariantPayload`; agent-eval treats it as opaque. */
@@ -67,7 +67,7 @@ export interface CodeMutationOutcome {
 
 export type CodeMutationRunner<T, P> = (args: {
   slot: PoolSlot<T>
-  parent: PromptVariant<P>
+  parent: EvolvableVariant<P>
   parentAggregate: VariantAggregate
   topTrials: TrialResult[]
   bottomTrials: TrialResult[]
@@ -83,25 +83,25 @@ export interface CreateSandboxCodeMutatorOpts<T, P> {
    * encode the diff however they want (file map, patch string, branch
    * ref, snapshot id) without agent-eval taking a stance.
    */
-  toVariantPayload(outcome: CodeMutationOutcome, parent: PromptVariant<P>): P
+  toVariantPayload(outcome: CodeMutationOutcome, parent: EvolvableVariant<P>): P
   /** Optional telemetry sinks. */
   mutationTelemetry?: MutationTelemetry
   costLedger?: CostLedger
   lineage?: LineageRecorder<P>
   /** Override id generation. Default: `${parent.id}.g${generation}.code.${i}`. */
-  childIdFor?(parent: PromptVariant<P>, generation: number, index: number): string
+  childIdFor?(parent: EvolvableVariant<P>, generation: number, index: number): string
   /** Default label for the variant (visible in reports). */
-  labelFor?(outcome: CodeMutationOutcome, parent: PromptVariant<P>, generation: number, index: number): string
+  labelFor?(outcome: CodeMutationOutcome, parent: EvolvableVariant<P>, generation: number, index: number): string
 }
 
 export function createSandboxCodeMutator<T, P>(
   opts: CreateSandboxCodeMutatorOpts<T, P>,
 ): MutateAdapter<P> {
   const childIdFor = opts.childIdFor
-    ?? ((parent: PromptVariant<P>, generation: number, index: number) =>
+    ?? ((parent: EvolvableVariant<P>, generation: number, index: number) =>
         `${parent.id}.g${generation}.code.${index}`)
   const labelFor = opts.labelFor
-    ?? ((outcome: CodeMutationOutcome, parent: PromptVariant<P>, _generation: number, index: number) =>
+    ?? ((outcome: CodeMutationOutcome, parent: EvolvableVariant<P>, _generation: number, index: number) =>
         outcome.description?.slice(0, 80) ?? `${parent.label} → code.${index}`)
 
   return {
@@ -136,7 +136,7 @@ export function createSandboxCodeMutator<T, P>(
         }
       })
 
-      const variants: PromptVariant<P>[] = []
+      const variants: EvolvableVariant<P>[] = []
       let index = 0
       for (const outcome of outcomes) {
         const childId = outcome.childId ?? childIdFor(parent, generation, index)
@@ -164,7 +164,7 @@ export function createSandboxCodeMutator<T, P>(
         }
 
         if (outcome.ok) {
-          const variant: PromptVariant<P> = {
+          const variant: EvolvableVariant<P> = {
             id: childId,
             payload: opts.toVariantPayload(outcome, parent),
             generation,
