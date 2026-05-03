@@ -70,6 +70,7 @@ export type {
   ControlStopPolicies,
   StopDecision,
 } from './control-runtime'
+export * from './knowledge'
 export {
   FileSystemFeedbackTrajectoryStore,
   InMemoryFeedbackTrajectoryStore,

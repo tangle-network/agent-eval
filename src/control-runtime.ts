@@ -32,6 +32,8 @@ export interface ControlEvalResult {
   evidence?: string
   /** True when the result came from deterministic state, not LLM judgment. */
   objective?: boolean
+  /** Structured details for downstream control policies and reports. */
+  metadata?: Record<string, unknown>
 }
 
 export interface ControlBudget {

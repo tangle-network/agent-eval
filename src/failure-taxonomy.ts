@@ -43,6 +43,72 @@ export const DEFAULT_RULES: FailureRule[] = [
       return null
     },
   },
+  {
+    id: 'knowledge-readiness-blocked',
+    match: ({ events }) => {
+      const event = events.find((e) => e.kind === 'custom' && e.payload.kind === 'readiness_scored' && e.payload.passed === false)
+      return event
+        ? {
+            failureClass: 'knowledge_readiness_blocked',
+            reason: 'knowledge readiness report blocked execution',
+            triggerEventId: event.eventId,
+          }
+        : null
+    },
+  },
+  {
+    id: 'missing-credentials',
+    match: ({ events }) => {
+      const event = events.find((e) => e.kind === 'custom' && e.payload.kind === 'knowledge_gap' && e.payload.category === 'credential_or_secret')
+      return event
+        ? {
+            failureClass: 'missing_credentials',
+            reason: 'required credential or secret was missing',
+            triggerEventId: event.eventId,
+          }
+        : null
+    },
+  },
+  {
+    id: 'bad-retrieval',
+    match: ({ run, spans }) => {
+      if (run.outcome?.pass !== false) return null
+      const retrieval = spans.find((s) => s.kind === 'retrieval' && (s.hits.length === 0 || s.hits.every((hit) => hit.score <= 0)))
+      return retrieval
+        ? {
+            failureClass: 'bad_retrieval',
+            reason: 'retrieval returned no useful hits for a failed run',
+            triggerSpanId: retrieval.spanId,
+          }
+        : null
+    },
+  },
+  {
+    id: 'insufficient-evidence',
+    match: ({ events }) => {
+      const event = events.find((e) => e.kind === 'custom' && e.payload.kind === 'knowledge_gap' && e.payload.reason === 'insufficient_evidence')
+      return event
+        ? {
+            failureClass: 'insufficient_evidence',
+            reason: 'task proceeded with insufficient supporting evidence',
+            triggerEventId: event.eventId,
+          }
+        : null
+    },
+  },
+  {
+    id: 'contradictory-evidence',
+    match: ({ events }) => {
+      const event = events.find((e) => e.kind === 'custom' && e.payload.kind === 'knowledge_gap' && e.payload.reason === 'contradictory_evidence')
+      return event
+        ? {
+            failureClass: 'contradictory_evidence',
+            reason: 'supporting evidence contradicted itself',
+            triggerEventId: event.eventId,
+          }
+        : null
+    },
+  },
   // Budget breach events
   {
     id: 'budget-breach',
