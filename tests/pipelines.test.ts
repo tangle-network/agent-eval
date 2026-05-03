@@ -100,6 +100,30 @@ describe('failureClusterView', () => {
     expect(report.clusters[0].toolName).toBe('search')
     expect(report.clusters[0].runCount).toBe(3)
   })
+
+  it('populates dimension from judge trigger span — regression: aggregators were overloading argPrefix to encode dimension', async () => {
+    const store = new InMemoryTraceStore()
+    for (let i = 0; i < 2; i++) {
+      const e = new TraceEmitter(store)
+      await e.startRun({ scenarioId: `scn-${i}` })
+      const target = await e.span({ kind: 'llm', name: 'call', model: 'claude', messages: [] })
+      await target.end()
+      await e.recordJudge({
+        judgeId: 'fmt',
+        targetSpanId: target.span.spanId,
+        dimension: 'format',
+        score: 0.1,
+        name: 'fmt-judge',
+      })
+      await e.endRun({ pass: false })
+    }
+    const report = await failureClusterView(store)
+    expect(report.totalFailures).toBe(2)
+    expect(report.clusters).toHaveLength(1)
+    expect(report.clusters[0].failureClass).toBe('format_drift')
+    expect(report.clusters[0].dimension).toBe('format')
+    expect(report.clusters[0].runCount).toBe(2)
+  })
 })
 
 describe('judgeAgreementView', () => {
