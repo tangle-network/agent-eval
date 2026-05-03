@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.19.1 — release confidence gate
+
+### Added
+
+- `evaluateReleaseConfidence`, a conservative release scorecard over corpus
+  coverage, search/holdout run evidence, ASI diagnostics, overfit checks, and
+  cost/latency budgets.
+- `assertReleaseConfidence`, a throwing variant for CI/release scripts.
+- `releaseTraceEvidenceFromMultiShotTrials`, a helper that projects
+  `MultiShotTrialResult` rows into release trace evidence so single-shot and
+  variable multi-shot apps use the same release gate.
+
 ## 0.19.0 — legacy optimizer removal
 
 ### Removed
