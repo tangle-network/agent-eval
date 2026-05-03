@@ -31,6 +31,13 @@ export type {
 
 // ── Client / driver / judges / executor / benchmark / registry / reporter ─
 export { ProductClient, runE2EWorkflow } from './client'
+export { runLiveProof } from './live-proof'
+export type {
+  LiveProofArtifact,
+  LiveProofConfig,
+  LiveProofContext,
+  LiveProofResult,
+} from './live-proof'
 export {
   createDomainExpertJudge,
   codeExecutionJudge,
