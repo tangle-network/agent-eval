@@ -793,6 +793,23 @@ export type {
   MultiShotVariant,
 } from './multi-shot-optimization'
 
+export {
+  assertReleaseConfidence,
+  evaluateReleaseConfidence,
+  releaseTraceEvidenceFromMultiShotTrials,
+} from './release-confidence'
+export type {
+  ReleaseConfidenceAxis,
+  ReleaseConfidenceAxisName,
+  ReleaseConfidenceInput,
+  ReleaseConfidenceIssue,
+  ReleaseConfidenceMetrics,
+  ReleaseConfidenceScorecard,
+  ReleaseConfidenceStatus,
+  ReleaseConfidenceThresholds,
+  ReleaseTraceEvidence,
+} from './release-confidence'
+
 // ── 0.14.0: concurrency + persistence + telemetry primitives for evolution loops ──
 export { Mutex } from './concurrency'
 

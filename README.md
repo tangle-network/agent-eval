@@ -83,10 +83,48 @@ The recipe for a code-generator eval is in [`SKILL.md` §Minimal working path](.
 | `evaluateActionPolicy` | Generic action preflight for approval, budget, expected-outcome, and kill-criteria checks. | [feature-guide.md](./docs/feature-guide.md) |
 | `ExperimentTracker`, steering optimizers, `bisector` | A/B prompts, optimize steering, bisect regressions. | SKILL.md |
 | `runMultiShotOptimization`, `trialTraceFromMultiShotTrial` | GEPA-style optimization for variable-length agent trajectories with ASI, paired seeds, and optional held-out promotion gating. | [multi-shot-optimization.md](./docs/multi-shot-optimization.md) |
+| `evaluateReleaseConfidence`, `assertReleaseConfidence` | Release scorecard that composes corpus coverage, search/holdout run evidence, ASI diagnostics, overfit checks, and cost/latency budgets. | §Release confidence |
 | `runPromptEvolution`, `createCompositeMutator`, `createSandboxPool`, `createSandboxCodeMutator`, `MutationTelemetry`, `LineageRecorder`, `CostLedger`, `JsonlTrialCache` | Prompt + code evolution loops with bounded sandbox pools, durable JSONL telemetry, plateau-detecting composite mutators, crash-resumable trial cache. | §Evolution loop |
 | `reflective-mutation` (`buildReflectionPrompt`, `parseReflectionResponse`, `DEFAULT_MUTATION_PRIMITIVES`) | Trace-conditioned LLM mutator that reasons over top/bottom trials instead of blind rewrites. | inline JSDoc |
 | `correlationStudy`, `OutcomeStore`, `ProductRegistry` | Meta-eval: do our scores predict deployment outcomes (revenue, retention)? | inline JSDoc |
 | Telemetry (`telemetry/`, `telemetry/file`) | OTLP export, trace replay, file sinks. | inline JSDoc |
+
+## Release confidence
+
+Use `evaluateReleaseConfidence` at the release boundary for every consuming
+agent surface. It fails closed unless the release has a versioned corpus,
+search and holdout run evidence, score/pass-rate evidence, ASI for failures,
+and budget/overfit checks. Single-shot and multi-shot apps use the same path:
+single-shot traces are just trace evidence with `turnCount: 1`.
+
+```ts
+import {
+  evaluateReleaseConfidence,
+  releaseTraceEvidenceFromMultiShotTrials,
+} from '@tangle-network/agent-eval'
+
+const scorecard = evaluateReleaseConfidence({
+  target: 'blueprint-agent/autoresearch',
+  candidateId: 'candidate-v3',
+  baselineId: 'baseline',
+  dataset: await dataset.manifest(),
+  runs: [...candidateRuns, ...baselineRuns],
+  traces: releaseTraceEvidenceFromMultiShotTrials(result.evolution.generations.flatMap((g) => g.trials)),
+  gateDecision: result.gate?.decision,
+  thresholds: {
+    minScenarioCount: 50,
+    minSearchRuns: 50,
+    minHoldoutRuns: 20,
+    minPassRate: 0.9,
+    minMeanScore: 0.8,
+    maxOverfitGap: 0.1,
+    maxMeanCostUsd: 0.05,
+    maxP95WallMs: 120_000,
+  },
+})
+
+if (!scorecard.promote) throw new Error(scorecard.summary)
+```
 
 ## Evolution loop
 
