@@ -138,6 +138,16 @@ describe('pre-registration', () => {
     expect(await verifyManifest(a)).toBe(true)
   })
 
+  it('signManifest populates algo and verifies legacy manifests without algo — regression: consumers could not tell which scheme produced contentHash', async () => {
+    const signed = await signManifest(base)
+    expect(signed.algo).toBe('sha256-content')
+
+    // Legacy serialized form: no `algo` field. Must still verify.
+    const { algo: _drop, ...legacy } = signed
+    void _drop
+    expect(await verifyManifest(legacy as typeof signed)).toBe(true)
+  })
+
   it('evaluateHypothesis confirms when all conditions met', async () => {
     const signed = await signManifest(base)
     const r = await evaluateHypothesis(signed, { n: 30, effect: 0.08, pValue: 0.01 })

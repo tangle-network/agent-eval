@@ -32,9 +32,31 @@ export interface HypothesisManifest {
   candidateLabel?: string
 }
 
+/**
+ * Identifier for the hashing scheme used to produce `contentHash`.
+ *
+ * `'sha256-content'` — sha256 hex over the canonicalized manifest with
+ * the `contentHash` and `algo` fields stripped. This is what
+ * `signManifest` produces today.
+ *
+ * Held as a string union so future schemes can be added without
+ * breaking parsers; legacy SignedManifest values written before this
+ * field existed will deserialize cleanly because the field is optional.
+ */
+export type SignedManifestAlgo = 'sha256-content'
+
 export interface SignedManifest extends HypothesisManifest {
-  /** sha256 hex of canonicalized manifest (everything except contentHash). */
+  /** sha256 hex of canonicalized manifest (everything except contentHash and algo). */
   contentHash: string
+  /**
+   * Algorithm string describing how `contentHash` was produced.
+   *
+   * Optional on the type so legacy serialized manifests (pre-`algo`)
+   * still parse, but ALWAYS populated by {@link signManifest}.
+   * Consumers that want to enforce a known algorithm should reject
+   * manifests where this field is missing or unrecognized.
+   */
+  algo?: SignedManifestAlgo
 }
 
 export interface HypothesisResult {
@@ -50,6 +72,16 @@ export interface HypothesisResult {
   notes?: string
 }
 
+/**
+ * Sign a manifest with a SHA-256 content hash.
+ *
+ * The hash covers the canonicalized manifest with the `contentHash`
+ * and `algo` fields stripped; this lets verifiers re-sign the rest and
+ * compare. Returned manifest always carries `algo: 'sha256-content'`
+ * so downstream consumers can identify the scheme; legacy serialized
+ * manifests without `algo` still verify because it is stripped before
+ * hashing on both sides.
+ */
 export async function signManifest(m: HypothesisManifest): Promise<SignedManifest> {
   const canonical = canonicalize(m)
   const bytes = new TextEncoder().encode(JSON.stringify(canonical))
@@ -57,12 +89,19 @@ export async function signManifest(m: HypothesisManifest): Promise<SignedManifes
   const hash = Array.from(new Uint8Array(digest))
     .map((b) => b.toString(16).padStart(2, '0'))
     .join('')
-  return { ...m, contentHash: hash }
+  return { ...m, contentHash: hash, algo: 'sha256-content' }
 }
 
-/** Verify that a signed manifest has not been tampered with. */
+/**
+ * Verify that a signed manifest has not been tampered with.
+ *
+ * Strips `contentHash` and `algo` before re-signing so legacy manifests
+ * (written before `algo` was emitted) verify identically to current
+ * ones.
+ */
 export async function verifyManifest(m: SignedManifest): Promise<boolean> {
-  const { contentHash, ...rest } = m
+  const { contentHash, algo: _algo, ...rest } = m
+  void _algo
   const resigned = await signManifest(rest)
   return resigned.contentHash === contentHash
 }

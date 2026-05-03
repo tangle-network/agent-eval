@@ -458,7 +458,12 @@ export type {
 } from './cross-trace-diff'
 
 export { signManifest, verifyManifest, evaluateHypothesis } from './pre-registration'
-export type { HypothesisManifest, SignedManifest, HypothesisResult } from './pre-registration'
+export type {
+  HypothesisManifest,
+  SignedManifest,
+  SignedManifestAlgo,
+  HypothesisResult,
+} from './pre-registration'
 
 // ── 0.6 Tier 3 — self-play + causal + active learning + RM export ────
 
