@@ -412,6 +412,7 @@ export type { LangfuseGeneration, LangfuseScore, LangfuseEnvelope, JudgeReplayRe
 
 export {
   paraphraseRobustness,
+  paraphraseRobustnessScenarios,
   DEFAULT_MUTATORS,
   lowercaseMutator,
   sentenceReorderMutator,
@@ -419,7 +420,12 @@ export {
   politenessPrefixMutator,
   whitespaceCollapseMutator,
 } from './paraphrase'
-export type { Mutator, RobustnessResult } from './paraphrase'
+export type {
+  Mutator,
+  RobustnessResult,
+  ParaphraseRobustnessScenarioInput,
+  ParaphraseRobustnessScenarioResult,
+} from './paraphrase'
 
 export { visualDiff, pixelDeltaRatio } from './visual-diff'
 export type { ImageData, VisualDiffResult, VisualDiffOptions } from './visual-diff'

@@ -3,6 +3,7 @@ import {
   DEFAULT_MUTATORS,
   lowercaseMutator,
   paraphraseRobustness,
+  paraphraseRobustnessScenarios,
   sentenceReorderMutator,
   typoMutator,
   whitespaceCollapseMutator,
@@ -43,6 +44,64 @@ describe('paraphraseRobustness', () => {
       async (p) => (p === p.toLowerCase() ? 0.3 : 0.9),
     )
     expect(r.robustness).toBeLessThan(1)
+  })
+})
+
+describe('paraphraseRobustnessScenarios', () => {
+  it('aggregates across multi-turn scenarios with deltas per mutator — regression: consumers re-implemented this loop', async () => {
+    const scenarios = [
+      { id: 's1', userTurns: ['Hello', 'World'] },
+      { id: 's2', userTurns: ['One', 'Two'] },
+    ]
+    const mutators = [
+      { name: 'shout', mutator: (t: string) => t.toUpperCase() },
+      { name: 'noop', mutator: (t: string) => t },
+    ]
+    const r = await paraphraseRobustnessScenarios({
+      scenarios,
+      mutators,
+      runScenario: async ({ userTurns }) => {
+        // Score = 1 if any turn is upper-case, else 0.5.
+        const yelled = userTurns.some((t) => t === t.toUpperCase() && /[A-Z]/.test(t))
+        return { score: yelled ? 1 : 0.5 }
+      },
+    })
+
+    expect(r.mutators).toEqual(['shout', 'noop'])
+    expect(r.perScenario).toHaveLength(2)
+    for (const p of r.perScenario) {
+      expect(p.originalScore).toBe(0.5)
+      expect(p.deltas['shout']).toBeCloseTo(0.5, 6)
+      expect(p.deltas['noop']).toBeCloseTo(0, 6)
+      // half the paraphrased runs scored 1, half 0.5 → mean 0.75
+      expect(p.paraphrasedMean).toBeCloseTo(0.75, 6)
+    }
+    // mean(paraphrased) / mean(original) = 0.75 / 0.5 = 1.5 → clipped to 1
+    expect(r.score).toBe(1)
+  })
+
+  it('clips to 0 when originals are all 0', async () => {
+    const r = await paraphraseRobustnessScenarios({
+      scenarios: [{ id: 's', userTurns: ['x'] }],
+      mutators: [{ name: 'm', mutator: (t) => t + '!' }],
+      runScenario: async () => ({ score: 0 }),
+    })
+    expect(r.score).toBe(0)
+  })
+
+  it('honors reps — runs each (scenario, mutator) pair `reps` times', async () => {
+    let calls = 0
+    await paraphraseRobustnessScenarios({
+      scenarios: [{ id: 's', userTurns: ['x'] }],
+      mutators: [{ name: 'a', mutator: (t) => t }, { name: 'b', mutator: (t) => t }],
+      reps: 3,
+      runScenario: async () => {
+        calls++
+        return { score: 0.5 }
+      },
+    })
+    // 1 baseline + 2 mutators × 3 reps = 7
+    expect(calls).toBe(7)
   })
 })
 
