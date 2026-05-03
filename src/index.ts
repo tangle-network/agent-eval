@@ -362,7 +362,13 @@ export type {
   SliceOptions,
 } from './dataset'
 
-export { checkCanaries, canaryLeakView, HoldoutAuditor } from './contamination-guard'
+export {
+  checkCanaries,
+  checkBehavioralCanary,
+  runBehavioralCanaries,
+  canaryLeakView,
+  HoldoutAuditor,
+} from './contamination-guard'
 export type { CanaryLeak } from './contamination-guard'
 
 export {
