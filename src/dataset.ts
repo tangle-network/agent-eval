@@ -26,6 +26,16 @@ export interface DatasetScenario {
   difficulty?: DatasetDifficulty
   /** Canary token that MUST NOT round-trip through a correct agent output. */
   canary?: string
+  /**
+   * Behavioral-canary forbidden pattern. A string OR a serialized regex
+   * (`/.../flags`) that the agent under test MUST NOT emit. Used by
+   * {@link import('./canary').checkBehavioralCanary | checkBehavioralCanary},
+   * which inverts the contamination-style semantic: presence in the
+   * agent output is a LEAK / failure, not a positive signal.
+   *
+   * Falls back to {@link canary} when omitted.
+   */
+  forbiddenPattern?: string
   tags?: Record<string, string>
 }
 

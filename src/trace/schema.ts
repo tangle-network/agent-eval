@@ -236,6 +236,17 @@ export type FailureClass =
   | 'cost_overrun'
   | 'timeout'
   | 'sandbox_failure'
+  | 'missing_user_data'
+  | 'missing_domain_data'
+  | 'missing_codebase_context'
+  | 'missing_runtime_context'
+  | 'missing_credentials'
+  | 'stale_external_data'
+  | 'bad_retrieval'
+  | 'insufficient_evidence'
+  | 'contradictory_evidence'
+  | 'ambiguous_user_intent'
+  | 'knowledge_readiness_blocked'
   | 'unknown'
 
 export const FAILURE_CLASSES: readonly FailureClass[] = [
@@ -255,6 +266,17 @@ export const FAILURE_CLASSES: readonly FailureClass[] = [
   'cost_overrun',
   'timeout',
   'sandbox_failure',
+  'missing_user_data',
+  'missing_domain_data',
+  'missing_codebase_context',
+  'missing_runtime_context',
+  'missing_credentials',
+  'stale_external_data',
+  'bad_retrieval',
+  'insufficient_evidence',
+  'contradictory_evidence',
+  'ambiguous_user_intent',
+  'knowledge_readiness_blocked',
   'unknown',
 ] as const
 

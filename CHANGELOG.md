@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.20.0 — knowledge readiness contracts
+
+### Added
+
+- First-class knowledge-readiness contracts: `KnowledgeRequirement`,
+  `KnowledgeBundle`, `KnowledgeReadinessReport`, `UserQuestion`, and
+  `DataAcquisitionPlan`.
+- `scoreKnowledgeReadiness`, `blockingKnowledgeEval`,
+  `userQuestionsForKnowledgeGaps`, and `acquisitionPlansForKnowledgeGaps`.
+- Knowledge/data failure classes including `knowledge_readiness_blocked`,
+  `missing_credentials`, `bad_retrieval`, `insufficient_evidence`, and
+  `contradictory_evidence`.
+- `docs/knowledge-readiness.md`, plus documented knowledge-related ASI
+  responsible surfaces for multi-shot optimization.
+
 ## 0.19.1 — release confidence gate
 
 ### Added

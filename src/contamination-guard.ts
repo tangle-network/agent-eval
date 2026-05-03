@@ -38,6 +38,90 @@ export function checkCanaries(output: string, scenarios: DatasetScenario[]): Can
 }
 
 /**
+ * Behavioral canary: tests the AGENT, not the eval grep.
+ *
+ *   - `forbiddenPattern` PRESENT in output ⇒ AGENT EMITTED BAD CONTENT ⇒ LEAK.
+ *   - `forbiddenPattern` ABSENT from output ⇒ AGENT HELD THE LINE       ⇒ PASS.
+ *
+ * Use when running known-bad-prompt scenarios against the agent under
+ * test and you want to know if the agent misbehaved. The classical
+ * {@link checkCanaries} / {@link import('./canary').runCanaries | runCanaries}
+ * test whether the eval check fires when the bad output is forced
+ * into the eval flow — different question, different answer.
+ *
+ * Pattern resolution order (first match wins):
+ *   1. `scenario.forbiddenPattern` — if it parses as `/body/flags`,
+ *      treated as a regex; otherwise a literal substring.
+ *   2. `scenario.canary` — literal substring fallback so the helper
+ *      works on existing scenario fixtures.
+ *
+ * Returns `null` when nothing forbidden was found OR the scenario
+ * declared no pattern.
+ */
+export function checkBehavioralCanary(
+  output: string,
+  scenario: DatasetScenario,
+): CanaryLeak | null {
+  const pattern = scenario.forbiddenPattern ?? scenario.canary
+  if (!pattern) return null
+  const hit = matchForbidden(output, pattern)
+  if (!hit) return null
+  return {
+    scenarioId: scenario.id,
+    canary: pattern,
+    evidence: excerpt(output, hit),
+  }
+}
+
+/**
+ * Behavioral canary over many (scenario, output) pairs. Sibling to
+ * {@link import('./canary').runCanaries | runCanaries} — same idea
+ * (run-many → report) but the question being answered is "did the
+ * AGENT misbehave?" rather than "did the EVAL grep fire?".
+ *
+ * Returns one `CanaryLeak` per pair where the agent's output
+ * contained its scenario's `forbiddenPattern` (or `canary` fallback).
+ */
+export function runBehavioralCanaries(
+  cases: Array<{ scenario: DatasetScenario; output: string; runId?: string }>,
+): CanaryLeak[] {
+  const leaks: CanaryLeak[] = []
+  for (const c of cases) {
+    const leak = checkBehavioralCanary(c.output, c.scenario)
+    if (leak) leaks.push({ ...leak, runId: c.runId ?? leak.runId })
+  }
+  return leaks
+}
+
+/**
+ * Resolve a forbidden-pattern string to the matched substring inside
+ * `output`. `/body/flags` notation is interpreted as a regex; anything
+ * else is a literal substring.
+ */
+function matchForbidden(output: string, pattern: string): string | null {
+  const re = tryParseRegex(pattern)
+  if (re) {
+    const m = output.match(re)
+    return m && m[0].length > 0 ? m[0] : null
+  }
+  return output.includes(pattern) ? pattern : null
+}
+
+function tryParseRegex(pattern: string): RegExp | null {
+  if (pattern.length < 2 || pattern[0] !== '/') return null
+  const last = pattern.lastIndexOf('/')
+  if (last <= 0) return null
+  const body = pattern.slice(1, last)
+  const flags = pattern.slice(last + 1)
+  if (!/^[gimsuy]*$/.test(flags)) return null
+  try {
+    return new RegExp(body, flags)
+  } catch {
+    return null
+  }
+}
+
+/**
  * Scan the LLM-output history in a corpus; returns every case where a
  * canary from a known scenario appeared in agent output. Pass the full
  * set of scenarios whose canaries you care about (typically the whole

@@ -98,3 +98,114 @@ export const DEFAULT_MUTATORS: Array<{ id: string; fn: Mutator }> = [
   { id: 'politeness-prefix', fn: politenessPrefixMutator },
   { id: 'whitespace-collapse', fn: whitespaceCollapseMutator },
 ]
+
+// ── Multi-turn scenario convenience wrapper ──────────────────────────
+
+export interface ParaphraseRobustnessScenarioInput {
+  scenarios: Array<{ id: string; userTurns: string[] }>
+  /**
+   * Mutators applied to every user turn in every scenario. Each
+   * scenario is paraphrased once per mutator (so `reps` × `scenarios`
+   * × `mutators` total paraphrased runs).
+   */
+  mutators: Array<{ name: string; mutator: (text: string) => string }>
+  /**
+   * Run a (possibly mutated) scenario and return its score in [0,1].
+   * Called once for the original turns of each scenario, and once per
+   * (scenario × mutator × rep) for the paraphrased variants.
+   */
+  runScenario: (args: { id: string; userTurns: string[] }) => Promise<{ score: number }>
+  /** Times to repeat each (scenario × mutator) pair. Default 1. */
+  reps?: number
+}
+
+export interface ParaphraseRobustnessScenarioResult {
+  /**
+   * Aggregate robustness: `mean(paraphrased) / mean(original)`,
+   * clipped to `[0, 1]`. `1` = paraphrasing didn't degrade the agent;
+   * `0` = paraphrasing destroyed it (or original was 0).
+   */
+  score: number
+  perScenario: Array<{
+    id: string
+    originalScore: number
+    paraphrasedMean: number
+    /** Per-mutator delta (paraphrased − original); negative = mutator hurt. */
+    deltas: Record<string, number>
+  }>
+  mutators: string[]
+}
+
+/**
+ * Multi-turn convenience wrapper around {@link paraphraseRobustness}.
+ *
+ * Consumers with a list of multi-turn scenarios were hand-wrapping the
+ * single-prompt runner per scenario; this iterates for them. Mutators
+ * are applied to every user turn (mutator runs once per turn with a
+ * stable seed derived from the rep index).
+ *
+ * Contract:
+ *   - Calls `runScenario` once with the original `userTurns` to
+ *     establish the baseline `originalScore`.
+ *   - For each `(scenario, mutator, rep)` combination, builds a
+ *     mutated copy of `userTurns` (every turn passed through
+ *     `mutator.mutator`) and calls `runScenario` again.
+ *   - Aggregates per-scenario means, then computes the overall
+ *     `mean(paraphrasedMean) / mean(originalScore)`, clipped to
+ *     `[0, 1]`. If every original score is 0 the aggregate is 0.
+ */
+export async function paraphraseRobustnessScenarios(
+  args: ParaphraseRobustnessScenarioInput,
+): Promise<ParaphraseRobustnessScenarioResult> {
+  const reps = Math.max(1, args.reps ?? 1)
+  const mutatorNames = args.mutators.map((m) => m.name)
+
+  const perScenario: ParaphraseRobustnessScenarioResult['perScenario'] = []
+
+  for (const scenario of args.scenarios) {
+    const baseline = await args.runScenario({
+      id: scenario.id,
+      userTurns: scenario.userTurns,
+    })
+    const originalScore = baseline.score
+
+    const deltas: Record<string, number> = {}
+    const paraphrasedAll: number[] = []
+
+    for (const m of args.mutators) {
+      const scores: number[] = []
+      for (let r = 0; r < reps; r++) {
+        const mutatedTurns = scenario.userTurns.map((t) => m.mutator(t))
+        const out = await args.runScenario({
+          id: scenario.id,
+          userTurns: mutatedTurns,
+        })
+        scores.push(out.score)
+      }
+      const mean = scores.reduce((a, b) => a + b, 0) / scores.length
+      deltas[m.name] = mean - originalScore
+      paraphrasedAll.push(...scores)
+    }
+
+    const paraphrasedMean =
+      paraphrasedAll.length === 0
+        ? originalScore
+        : paraphrasedAll.reduce((a, b) => a + b, 0) / paraphrasedAll.length
+
+    perScenario.push({ id: scenario.id, originalScore, paraphrasedMean, deltas })
+  }
+
+  const meanOriginal =
+    perScenario.length === 0
+      ? 0
+      : perScenario.reduce((a, p) => a + p.originalScore, 0) / perScenario.length
+  const meanParaphrased =
+    perScenario.length === 0
+      ? 0
+      : perScenario.reduce((a, p) => a + p.paraphrasedMean, 0) / perScenario.length
+
+  const ratio = meanOriginal <= 0 ? 0 : meanParaphrased / meanOriginal
+  const score = Math.max(0, Math.min(1, ratio))
+
+  return { score, perScenario, mutators: mutatorNames }
+}

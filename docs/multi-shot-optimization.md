@@ -52,6 +52,13 @@ The scorer should return `asi` rows for concrete failure modes:
 }
 ```
 
+Standard knowledge-related responsible surfaces are:
+
+- `knowledge-requirements`
+- `data-acquisition`
+- `retrieval-policy`
+- `user-question-policy`
+
 These rows become:
 
 - reflection expectations via `trialTraceFromMultiShotTrial`

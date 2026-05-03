@@ -31,6 +31,13 @@ export type {
 
 // ── Client / driver / judges / executor / benchmark / registry / reporter ─
 export { ProductClient, runE2EWorkflow } from './client'
+export { runLiveProof } from './live-proof'
+export type {
+  LiveProofArtifact,
+  LiveProofConfig,
+  LiveProofContext,
+  LiveProofResult,
+} from './live-proof'
 export {
   createDomainExpertJudge,
   codeExecutionJudge,
@@ -70,6 +77,7 @@ export type {
   ControlStopPolicies,
   StopDecision,
 } from './control-runtime'
+export * from './knowledge'
 export {
   FileSystemFeedbackTrajectoryStore,
   InMemoryFeedbackTrajectoryStore,
@@ -362,7 +370,13 @@ export type {
   SliceOptions,
 } from './dataset'
 
-export { checkCanaries, canaryLeakView, HoldoutAuditor } from './contamination-guard'
+export {
+  checkCanaries,
+  checkBehavioralCanary,
+  runBehavioralCanaries,
+  canaryLeakView,
+  HoldoutAuditor,
+} from './contamination-guard'
 export type { CanaryLeak } from './contamination-guard'
 
 export {
@@ -412,6 +426,7 @@ export type { LangfuseGeneration, LangfuseScore, LangfuseEnvelope, JudgeReplayRe
 
 export {
   paraphraseRobustness,
+  paraphraseRobustnessScenarios,
   DEFAULT_MUTATORS,
   lowercaseMutator,
   sentenceReorderMutator,
@@ -419,7 +434,12 @@ export {
   politenessPrefixMutator,
   whitespaceCollapseMutator,
 } from './paraphrase'
-export type { Mutator, RobustnessResult } from './paraphrase'
+export type {
+  Mutator,
+  RobustnessResult,
+  ParaphraseRobustnessScenarioInput,
+  ParaphraseRobustnessScenarioResult,
+} from './paraphrase'
 
 export { visualDiff, pixelDeltaRatio } from './visual-diff'
 export type { ImageData, VisualDiffResult, VisualDiffOptions } from './visual-diff'
@@ -458,7 +478,12 @@ export type {
 } from './cross-trace-diff'
 
 export { signManifest, verifyManifest, evaluateHypothesis } from './pre-registration'
-export type { HypothesisManifest, SignedManifest, HypothesisResult } from './pre-registration'
+export type {
+  HypothesisManifest,
+  SignedManifest,
+  SignedManifestAlgo,
+  HypothesisResult,
+} from './pre-registration'
 
 // ── 0.6 Tier 3 — self-play + causal + active learning + RM export ────
 
