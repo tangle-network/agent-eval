@@ -18,14 +18,16 @@ export interface ScoreKnowledgeReadinessOptions {
   wikiPageIds?: string[]
   userAnswers?: Record<string, string>
   metadata?: Record<string, unknown>
+  now?: Date
 }
 
 export function scoreKnowledgeReadiness(options: ScoreKnowledgeReadinessOptions): KnowledgeReadinessReport {
+  const now = options.now ?? new Date()
   const requirements = options.requirements.map(normalizeRequirement)
-  const missing = requirements.filter((requirement) => requirement.currentConfidence < requirement.confidenceNeeded)
+  const missing = requirements.filter((requirement) => isRequirementMissing(requirement, now))
   const blockingMissingRequirements = missing.filter(isBlockingGap)
   const nonBlockingGaps = missing.filter((requirement) => !isBlockingGap(requirement))
-  const readinessScore = weightedReadiness(requirements)
+  const readinessScore = weightedReadinessAt(requirements, now)
   const bundle: KnowledgeBundle = {
     taskId: options.taskId,
     requirements,
@@ -120,19 +122,32 @@ function normalizeRequirement(requirement: KnowledgeRequirement): KnowledgeRequi
   }
 }
 
-function weightedReadiness(requirements: KnowledgeRequirement[]): number {
+function weightedReadinessAt(requirements: KnowledgeRequirement[], now: Date): number {
   if (requirements.length === 0) return 1
   let weightSum = 0
   let scoreSum = 0
   for (const requirement of requirements) {
     const weight = importanceWeight(requirement.importance)
-    const score = requirement.confidenceNeeded <= 0
+    const score = isExpired(requirement, now)
+      ? 0
+      : requirement.confidenceNeeded <= 0
       ? 1
       : Math.min(1, requirement.currentConfidence / requirement.confidenceNeeded)
     weightSum += weight
     scoreSum += weight * score
   }
   return clamp01(scoreSum / weightSum)
+}
+
+function isRequirementMissing(requirement: KnowledgeRequirement, now: Date): boolean {
+  return isExpired(requirement, now) || requirement.currentConfidence < requirement.confidenceNeeded
+}
+
+function isExpired(requirement: KnowledgeRequirement, now: Date): boolean {
+  if (!requirement.validUntil) return false
+  const deadline = Date.parse(requirement.validUntil)
+  if (!Number.isFinite(deadline)) return false
+  return deadline <= now.getTime()
 }
 
 function isBlockingGap(requirement: KnowledgeRequirement): boolean {

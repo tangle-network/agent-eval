@@ -76,6 +76,28 @@ describe('knowledge readiness', () => {
     expect(plans[0]?.mode).toBe('ask_user')
     expect(plans[0]?.questions?.[0]?.id).toBe('question_customer-api-key')
   })
+
+  it('treats expired knowledge as missing even when confidence is high', () => {
+    const report = scoreKnowledgeReadiness({
+      taskId: 'task-stale',
+      now: new Date('2026-05-04T12:00:00.000Z'),
+      requirements: [
+        req({
+          id: 'irs-publication-current',
+          description: 'Current IRS publication for the requested tax year',
+          currentConfidence: 1,
+          confidenceNeeded: 0.8,
+          evidenceIds: ['source:irs-pub'],
+          validUntil: '2026-05-04T11:59:59.000Z',
+          lastVerifiedAt: '2026-04-01T00:00:00.000Z',
+        }),
+      ],
+    })
+
+    expect(report.readinessScore).toBe(0)
+    expect(report.blockingMissingRequirements.map((requirement) => requirement.id)).toEqual(['irs-publication-current'])
+    expect(blockingKnowledgeEval(report).passed).toBe(false)
+  })
 })
 
 describe('knowledge failure taxonomy', () => {

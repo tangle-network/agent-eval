@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.20.2 — freshness-aware knowledge readiness
+
+### Added
+
+- `KnowledgeRequirement.validUntil` and `lastVerifiedAt` for explicit freshness
+  contracts.
+- `scoreKnowledgeReadiness({ now })` support for deterministic freshness gates.
+
+### Changed
+
+- Expired knowledge requirements now score as missing even when confidence and
+  evidence are otherwise high.
+
 ## 0.20.0 — knowledge readiness contracts
 
 ### Added
