@@ -40,6 +40,13 @@ export interface KnowledgeRequirement {
   currentConfidence: number
   evidenceIds: string[]
   fallbackPolicy: KnowledgeFallbackPolicy
+  /**
+   * ISO timestamp after which this requirement must be treated as stale.
+   * Stale requirements score as missing even when they still have evidence.
+   */
+  validUntil?: string
+  /** ISO timestamp for the last source-grounding or human verification pass. */
+  lastVerifiedAt?: string
   metadata?: Record<string, unknown>
 }
 
