@@ -908,3 +908,6 @@ export type {
 
 // Pareto extensions (paretoFrontier + dominates already exported above)
 export { scalarScore, crowdingDistance, paretoFrontierWithCrowding } from './pareto'
+
+// Ax RLM trace analyst.
+export * from './trace-analyst'

@@ -1,0 +1,175 @@
+import {
+  AxJSRuntime,
+  agent,
+  type AxActorTurn,
+  type AxAIService,
+  type AxFunction,
+} from '@ax-llm/ax'
+
+import { TraceFileMissingError } from './store-otlp'
+import {
+  TRACE_ANALYST_ACTOR_DESCRIPTION,
+  TRACE_ANALYST_ACTOR_DESCRIPTION_VERSION,
+  TRACE_ANALYST_SUBAGENT_DESCRIPTION,
+} from './prompts'
+import { buildTraceAnalystTools } from './tools'
+import type { TraceAnalysisStore } from './store'
+import { OtlpFileTraceStore } from './store-otlp'
+
+export interface AnalyzeTracesInput {
+  /** The user-facing question. Domain framing belongs here, not in the
+   *  actor description. */
+  question: string
+}
+
+export interface AnalyzeTracesResult {
+  /** The responder's prose answer. */
+  answer: string
+  /** Bulleted findings extracted from the responder's structured output. */
+  findings: string[]
+  /** Per-actor-turn snapshots captured via `actorTurnCallback`. */
+  turns: AnalyzeTracesTurnSnapshot[]
+  /** Total turns the actor took. */
+  turnCount: number
+  /** Token usage by role. */
+  usage: { actor: unknown[]; responder: unknown[] }
+  /** Full system + assistant + tool message log by role. */
+  chatLog: { actor: unknown[]; responder: unknown[] }
+  /** Prompt version that produced this run. */
+  actorPromptVersion: string
+}
+
+export interface AnalyzeTracesTurnSnapshot {
+  turn: number
+  isError: boolean
+  /** The JS code the actor produced for this turn. */
+  code: string
+  /** The formatted action-log entry the actor sees on the next turn. */
+  output: string
+  /** Provider thought (when `actorOptions.showThoughts` is true and the
+   *  provider returns it). */
+  thought?: string
+}
+
+export interface AnalyzeTracesOptions {
+  /** Trace data source. Pass either an OTLP-JSONL path or a custom store. */
+  source: string | TraceAnalysisStore
+  /** Caller-provided AxAIService. */
+  ai: AxAIService
+  /** Model id forwarded to actor + responder. */
+  model?: string
+  /** Recursion depth. 0 = no sub-agent dispatch. Default 1. */
+  maxDepth?: number
+  /** Maximum actor turns. Default 12. */
+  maxTurns?: number
+  /** Maximum parallel sub-agent calls in batched llmQuery. Default 2. */
+  maxParallelSubagents?: number
+  /** Override the actor description. */
+  actorDescription?: string
+  /** Override the subagent description. */
+  subagentDescription?: string
+  /** Per-turn observability hook. */
+  onTurn?: (turn: AnalyzeTracesTurnSnapshot) => void | Promise<void>
+  /** Override max runtime characters per turn. Default 6000. */
+  maxRuntimeChars?: number
+}
+
+/**
+ * Run the trace analyst.
+ *
+ * Throws:
+ *   - `TraceFileMissingError` if `source` is a path and doesn't exist.
+ *   - `AxAgentClarificationError` if the analyst asks for clarification.
+ *   - Provider errors (auth, rate limits) propagate from the AI service.
+ */
+export async function analyzeTraces(
+  input: AnalyzeTracesInput,
+  options: AnalyzeTracesOptions,
+): Promise<AnalyzeTracesResult> {
+  if (!input.question || typeof input.question !== 'string') {
+    throw new TypeError('analyzeTraces: input.question must be a non-empty string')
+  }
+
+  const store: TraceAnalysisStore =
+    typeof options.source === 'string'
+      ? new OtlpFileTraceStore({ path: options.source })
+      : options.source
+
+  // Pre-warm file stores so missing inputs fail before the RLM starts.
+  if (store instanceof OtlpFileTraceStore) {
+    await store.ensureIndexed()
+  }
+
+  const tools: AxFunction[] = buildTraceAnalystTools({ store })
+  const turns: AnalyzeTracesTurnSnapshot[] = []
+
+  const actorTurnCallback = async (turn: AxActorTurn): Promise<void> => {
+    const snap: AnalyzeTracesTurnSnapshot = {
+      turn: turn.turn,
+      isError: turn.isError,
+      code: turn.code,
+      output: turn.output,
+      thought: turn.thought,
+    }
+    turns.push(snap)
+    if (options.onTurn) await options.onTurn(snap)
+  }
+
+  const maxDepth = options.maxDepth ?? 1
+  const maxTurns = options.maxTurns ?? 12
+  const maxParallelSubagents = options.maxParallelSubagents ?? 2
+  const maxRuntimeChars = options.maxRuntimeChars ?? 6000
+
+  const analyst = agent<{ question: string }, { answer: string; findings: string[] }>(
+    'question:string -> answer:string, findings:string[]',
+    {
+      agentIdentity: {
+        name: 'TraceAnalyst',
+        description:
+          'Analyzes OTLP-shaped JSONL traces using bounded discovery tools to identify systemic failure modes.',
+      },
+      contextFields: ['question'],
+      runtime: new AxJSRuntime({
+        permissions: [],
+        blockDynamicImport: true,
+        allowedModules: [],
+        freezeIntrinsics: true,
+        blockShadowRealm: true,
+        preventGlobalThisExtensions: true,
+      }),
+      mode: maxDepth > 0 ? 'advanced' : 'simple',
+      recursionOptions: maxDepth > 0 ? { maxDepth } : undefined,
+      maxTurns,
+      maxRuntimeChars,
+      maxBatchedLlmQueryConcurrency: maxParallelSubagents,
+      promptLevel: 'detailed',
+      contextPolicy: { preset: 'checkpointed', budget: 'balanced' },
+      functions: { local: tools },
+      actorOptions: {
+        description: options.actorDescription ?? TRACE_ANALYST_ACTOR_DESCRIPTION,
+        ...(options.model ? { model: options.model } : {}),
+      },
+      responderOptions: {
+        ...(options.model ? { model: options.model } : {}),
+        description:
+          options.subagentDescription ?? TRACE_ANALYST_SUBAGENT_DESCRIPTION,
+      },
+      actorTurnCallback,
+      bubbleErrors: [TraceFileMissingError],
+    },
+  )
+
+  const result = await analyst.forward(options.ai, { question: input.question })
+
+  return {
+    answer: typeof result.answer === 'string' ? result.answer : String(result.answer ?? ''),
+    findings: Array.isArray(result.findings)
+      ? result.findings.filter((s): s is string => typeof s === 'string')
+      : [],
+    turns,
+    turnCount: turns.length,
+    usage: analyst.getUsage(),
+    chatLog: analyst.getChatLog(),
+    actorPromptVersion: TRACE_ANALYST_ACTOR_DESCRIPTION_VERSION,
+  }
+}
