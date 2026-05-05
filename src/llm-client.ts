@@ -198,6 +198,66 @@ export function stripFencedJson(raw: string): string {
   return m ? m[1]!.trim() : trimmed
 }
 
+export function extractJsonPayload(raw: string): string {
+  const stripped = stripFencedJson(raw)
+  try {
+    JSON.parse(stripped)
+    return stripped
+  } catch {
+    // Continue with balanced extraction below.
+  }
+
+  const starts = [...stripped.matchAll(/[\[{]/g)].map((match) => match.index).filter((index) => index != null)
+  for (const start of starts) {
+    const candidate = extractBalancedJson(stripped, start)
+    if (!candidate) continue
+    try {
+      JSON.parse(candidate)
+      return candidate
+    } catch {
+      // Keep scanning; earlier braces may belong to prose.
+    }
+  }
+
+  return stripped
+}
+
+function extractBalancedJson(input: string, start: number): string | null {
+  const opener = input[start]
+  const closer = opener === '{' ? '}' : opener === '[' ? ']' : null
+  if (!closer) return null
+
+  const stack: string[] = [closer]
+  let isInString = false
+  let isEscaped = false
+
+  for (let i = start + 1; i < input.length; i++) {
+    const char = input[i]!
+    if (isEscaped) {
+      isEscaped = false
+      continue
+    }
+    if (char === '\\') {
+      isEscaped = isInString
+      continue
+    }
+    if (char === '"') {
+      isInString = !isInString
+      continue
+    }
+    if (isInString) continue
+
+    if (char === '{') stack.push('}')
+    else if (char === '[') stack.push(']')
+    else if (char === stack[stack.length - 1]) {
+      stack.pop()
+      if (stack.length === 0) return input.slice(start, i + 1)
+    }
+  }
+
+  return null
+}
+
 /**
  * Low-level call. Returns raw content + usage + cost. Retries on transient
  * failures; does NOT degrade schema here — callers that want graceful
@@ -310,7 +370,7 @@ export async function callLlmJson<T = unknown>(
 }
 
 function parseJsonSafely<T>(content: string, model: string): T {
-  const stripped = stripFencedJson(content)
+  const stripped = extractJsonPayload(content)
   try {
     return JSON.parse(stripped) as T
   } catch (err) {

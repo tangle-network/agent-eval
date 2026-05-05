@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest'
-import { callLlm, callLlmJson, stripFencedJson, LlmCallError, LlmClient } from './llm-client'
+import { callLlm, callLlmJson, stripFencedJson, extractJsonPayload, LlmCallError, LlmClient } from './llm-client'
 
 function mockFetch(handlers: Array<(url: string, init: RequestInit) => Promise<Response>>) {
   let call = 0
@@ -38,6 +38,20 @@ describe('llm-client — stripFencedJson', () => {
     const input = '```json\n{\n  "a": 1\n}\n```'
     const out = stripFencedJson(input)
     expect(JSON.parse(out)).toEqual({ a: 1 })
+  })
+})
+
+describe('llm-client — extractJsonPayload', () => {
+  it('extracts a balanced JSON object after prose', () => {
+    expect(extractJsonPayload('Reviewing artifact. {"ok": true, "items": [1, 2]}')).toBe('{"ok": true, "items": [1, 2]}')
+  })
+
+  it('skips prose braces before the real payload', () => {
+    expect(extractJsonPayload('note {not json} then {"ok": true} trailing')).toBe('{"ok": true}')
+  })
+
+  it('preserves braces inside strings', () => {
+    expect(extractJsonPayload('prefix {"text": "{literal}", "ok": true} suffix')).toBe('{"text": "{literal}", "ok": true}')
   })
 })
 
@@ -239,6 +253,21 @@ describe('llm-client — callLlmJson + schema degrade', () => {
       async () =>
         mkOkResponse({
           choices: [{ message: { content: '```json\n{"wrapped": true}\n```' } }],
+          usage: {},
+        }),
+    ])
+    const { value } = await callLlmJson<{ wrapped: boolean }>(
+      { model: 'm', messages: [{ role: 'user', content: 'x' }] },
+      { fetch },
+    )
+    expect(value.wrapped).toBe(true)
+  })
+
+  it('parses JSON payloads with leading prose', async () => {
+    const fetch = mockFetch([
+      async () =>
+        mkOkResponse({
+          choices: [{ message: { content: 'Reviewing artifact first. {"wrapped": true}' } }],
           usage: {},
         }),
     ])
