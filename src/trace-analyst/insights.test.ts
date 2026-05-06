@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 
 import {
   buildTraceInsightPrompt,
+  defaultTraceInsightPanel,
   describeTraceInsightScope,
   domainEvidencePattern,
   inferDomainKeywords,
@@ -54,6 +55,12 @@ describe('trace insight planning', () => {
       'reviewer-lift',
       'optimization-targets',
     ]))
+    expect(defaultTraceInsightPanel().map((role) => role.id)).toEqual([
+      'trace-forensics',
+      'root-cause',
+      'optimization',
+      'external-evidence',
+    ])
 
     const prompt = buildTraceInsightPrompt({
       suite,
@@ -63,6 +70,8 @@ describe('trace insight planning', () => {
       maxRepresentativeTraces: 3,
     })
     expect(prompt).toContain('Analyze this benchmark run')
+    expect(prompt).toContain('Analyst panel:')
+    expect(prompt).toContain('Trace Forensics')
     expect(prompt).toContain('at most 3 representative traces')
     expect(prompt).toContain('"inferredKeywords"')
     expect(prompt).not.toContain('VerticalBench')

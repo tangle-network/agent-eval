@@ -30,6 +30,7 @@ export {
 
 export {
   buildTraceInsightPrompt,
+  defaultTraceInsightPanel,
   describeTraceInsightScope,
   domainEvidencePattern,
   inferDomainKeywords,
@@ -38,6 +39,7 @@ export {
 } from './insights'
 export type {
   TraceInsightFinding,
+  TraceInsightPanelRole,
   TraceInsightPromptInput,
   TraceInsightQuestion,
   TraceInsightSuite,

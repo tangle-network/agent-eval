@@ -29,6 +29,12 @@ export interface TraceInsightQuestion {
   why: string
 }
 
+export interface TraceInsightPanelRole {
+  id: string
+  name: string
+  responsibility: string
+}
+
 export interface TraceInsightPromptInput {
   suite: TraceInsightSuite
   findings?: TraceInsightFinding[]
@@ -154,6 +160,31 @@ export function planTraceInsightQuestions(input: TraceInsightPromptInput): Trace
   return questions
 }
 
+export function defaultTraceInsightPanel(): TraceInsightPanelRole[] {
+  return [
+    {
+      id: 'trace-forensics',
+      name: 'Trace Forensics',
+      responsibility: 'Reconstruct what the worker did in order, including research, edits, reviewer interventions, verifier feedback, and stop reason.',
+    },
+    {
+      id: 'root-cause',
+      name: 'Root Cause',
+      responsibility: 'Map failures to prompt/scaffold, docs/examples, SDK/API/product ergonomics, evaluator, runtime, or model behavior.',
+    },
+    {
+      id: 'optimization',
+      name: 'Optimization',
+      responsibility: 'Identify prompt, reviewer, evaluator, scaffold, and GEPA/autoresearch changes that should be tested next.',
+    },
+    {
+      id: 'external-evidence',
+      name: 'External Evidence',
+      responsibility: 'Separate customer-safe claims from internal harness findings and reject conclusions without task, trace, span, code, reviewer, or verifier evidence.',
+    },
+  ]
+}
+
 export function buildTraceInsightPrompt(input: TraceInsightPromptInput): string {
   const questions = planTraceInsightQuestions(input)
   const keywords = inferDomainKeywords(input.suite)
@@ -166,6 +197,11 @@ Audience:
 
 Investigation plan:
 ${questions.map((item, index) => `${index + 1}. ${item.question} (${item.why})`).join('\n')}
+
+Analyst panel:
+${defaultTraceInsightPanel().map((role) => `- ${role.name}: ${role.responsibility}`).join('\n')}
+
+If the task branches are independent, use subagents for the panel roles above and aggregate their findings. Do not run a panel role unless its answer will change the final report.
 
 Required output:
 1. Executive verdict: what this run proves and does not prove.
