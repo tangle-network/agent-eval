@@ -28,7 +28,7 @@ describe('trace insight planning', () => {
   }
 
   it('infers reusable domain terms without benchmark-specific assumptions', () => {
-    expect(tokenizeDomainWords('Build the Acme Checkout workflow with API docs')).toEqual(['acme', 'checkout', 'api', 'docs'])
+    expect(tokenizeDomainWords('Build the Acme Checkout workflow with API docs for a hard task')).toEqual(['acme', 'checkout', 'api', 'docs'])
     expect(inferDomainKeywords(suite)).toEqual(expect.arrayContaining(['acme', 'checkout', 'payment']))
     expect(inferDomainKeywords(suite).length).toBeLessThanOrEqual(18)
     expect(describeTraceInsightScope(suite)).toBe('1 implementation task across checkout, payment.')
