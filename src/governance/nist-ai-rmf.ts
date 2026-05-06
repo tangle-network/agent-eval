@@ -11,7 +11,6 @@
  * GovernanceContext.
  */
 
-import { Dataset, hashScenarios } from '../dataset'
 import type { GovernanceContext, GovernanceFinding, GovernanceReport } from './types'
 import { summarize } from './types'
 
@@ -129,7 +128,7 @@ export async function nistAiRmfReport(ctx: GovernanceContext): Promise<Governanc
     }
   }
 
-  // Demonstrate dataset hash can be recomputed (self-audit)
+  // Validate that dataset manifests carry strong SHA-256-shaped content hashes.
   const hashChecks: Array<{ name: string; ok: boolean }> = []
   for (const manifest of ctx.datasets) {
     // We don't persist the scenarios here; the check is that the caller's
@@ -164,7 +163,3 @@ export async function nistAiRmfReport(ctx: GovernanceContext): Promise<Governanc
     generatedAt: new Date().toISOString(),
   }
 }
-
-// Re-export so governance/index.ts doesn't need a separate barrel for hashScenarios
-void hashScenarios
-void Dataset

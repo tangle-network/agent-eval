@@ -10,8 +10,8 @@
  * Example wrappers (under `examples/benchmarks/`, NOT in the bundle):
  *   - `gsm8k`         — exact-match math reasoning (HF mirror, dataset
  *                       not bundled).
- *   - `swebench-lite` — 30-instance SWE-Bench subset (stub; needs an
- *                       external grader).
+ *   - `swebench-lite` — 30-instance SWE-Bench subset via an external
+ *                       grader command.
  *
  * The example wrappers are reference implementations of `BenchmarkAdapter`.
  * Read them, copy them, adapt them. They're intentionally not in the main

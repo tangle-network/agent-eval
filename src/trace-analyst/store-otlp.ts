@@ -303,19 +303,26 @@ export class OtlpFileTraceStore implements TraceAnalysisStore {
     const buf = await this.buffer()
     const hits: SpanMatchRecord[] = []
     let total = 0
+    let capped = false
     for (const s of trace.spans) {
-      const localHits = await this.scanSpanForMatches(buf, trace.trace_id, s, re, this.perMatchTextBudget)
+      const remaining = max_matches - hits.length
+      const localHits = await this.scanSpanForMatches(buf, trace.trace_id, s, re, this.perMatchTextBudget, remaining)
       total += localHits.total
       for (const h of localHits.records) {
         if (hits.length >= max_matches) break
         hits.push(h)
+      }
+      if (hits.length >= max_matches) {
+        capped = true
+        total = Math.max(total, hits.length + 1)
+        break
       }
     }
     return {
       trace_id: trace.trace_id,
       hits,
       total_matches: total,
-      has_more: total > hits.length,
+      has_more: capped || total > hits.length,
     }
   }
 
@@ -338,14 +345,13 @@ export class OtlpFileTraceStore implements TraceAnalysisStore {
     }
     const re = compileSearchRegex(opts.regex_pattern)
     const buf = await this.buffer()
-    const localHits = await this.scanSpanForMatches(buf, trace.trace_id, span, re, this.perMatchTextBudget)
-    const truncated = localHits.records.slice(0, max_matches)
+    const localHits = await this.scanSpanForMatches(buf, trace.trace_id, span, re, this.perMatchTextBudget, max_matches)
     return {
       trace_id: trace.trace_id,
       span_id: span.span_id,
-      hits: truncated,
+      hits: localHits.records,
       total_matches: localHits.total,
-      has_more: localHits.total > truncated.length,
+      has_more: localHits.total > localHits.records.length,
     }
   }
 
@@ -628,7 +634,8 @@ export class OtlpFileTraceStore implements TraceAnalysisStore {
     s: SpanIndexEntry,
     re: RegExp,
     textBudget: number,
-  ): Promise<{ records: SpanMatchRecord[]; total: number }> {
+    recordCap: number,
+  ): Promise<{ records: SpanMatchRecord[]; total: number; hasMore: boolean }> {
     // We scan against the original raw JSONL slice for each span and
     // record byte positions; the matched_text + context window is
     // truncated to `textBudget` bytes per record so total tool output
@@ -639,10 +646,15 @@ export class OtlpFileTraceStore implements TraceAnalysisStore {
     const records: SpanMatchRecord[] = []
     const globalRe = new RegExp(re.source, re.flags.includes('g') ? re.flags : `${re.flags}g`)
     let total = 0
+    let hasMore = false
     let m: RegExpExecArray | null
     while ((m = globalRe.exec(slice)) !== null) {
       total += 1
       if (m.index === globalRe.lastIndex) globalRe.lastIndex += 1 // zero-width guard
+      if (records.length >= recordCap) {
+        hasMore = true
+        break
+      }
       const before = slice.slice(Math.max(0, m.index - textBudget / 2), m.index)
       const after = slice.slice(
         m.index + m[0].length,
@@ -660,7 +672,7 @@ export class OtlpFileTraceStore implements TraceAnalysisStore {
         match_offset: m.index,
       })
     }
-    return { records, total }
+    return { records, total, hasMore }
   }
 }
 

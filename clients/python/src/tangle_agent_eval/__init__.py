@@ -21,6 +21,8 @@ Or as a one-shot using the bundled `agent-eval` CLI:
 See README.md for the full guide.
 """
 
+from importlib.metadata import PackageNotFoundError, version
+
 from .client import Client
 from .errors import (
     AgentEvalError,
@@ -39,7 +41,10 @@ from .models import (
     VersionResponse,
 )
 
-__version__ = "0.20.9"
+try:
+    __version__ = version("tangle-agent-eval")
+except PackageNotFoundError:
+    __version__ = "0.20.10"
 
 __all__ = [
     "Client",

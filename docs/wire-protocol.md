@@ -96,7 +96,7 @@ GET /v1/version
 ```json
 {
   "package": "@tangle-network/agent-eval",
-  "version": "0.20.9",
+  "version": "0.20.10",
   "wireVersion": "1.0.0",
   "apiSurface": ["judge", "listRubrics", "version"]
 }
@@ -176,7 +176,7 @@ Each invocation is one process — Node startup adds ~500 ms. For more than a fe
 
 ## Clients
 
-- **Python**: source lives in [`clients/python`](../clients/python/README.md). Auto-detects HTTP, falls back to subprocess. Version-locked to npm.
+- **Python**: source lives in [`clients/python`](https://github.com/tangle-network/agent-eval/tree/main/clients/python). Auto-detects HTTP, falls back to subprocess. Version-locked to npm.
 - **TypeScript**: import directly from `@tangle-network/agent-eval` (no wire round-trip needed in-process).
 - **Rust / Go / Other**: generate from `dist/openapi.json`. PRs welcome to add an officially-maintained client.
 

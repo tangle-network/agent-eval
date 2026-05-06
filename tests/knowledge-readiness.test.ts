@@ -99,6 +99,25 @@ describe('knowledge readiness', () => {
     expect(blockingKnowledgeEval(report).passed).toBe(false)
   })
 
+  it('treats invalid validUntil timestamps as stale instead of fresh', () => {
+    const report = scoreKnowledgeReadiness({
+      taskId: 'task-invalid-date',
+      now: new Date('2026-05-04T12:00:00.000Z'),
+      requirements: [
+        req({
+          id: 'malformed-freshness',
+          currentConfidence: 1,
+          confidenceNeeded: 0.8,
+          evidenceIds: ['source:doc'],
+          validUntil: 'not-a-date',
+        }),
+      ],
+    })
+
+    expect(report.readinessScore).toBe(0)
+    expect(report.blockingMissingRequirements.map((requirement) => requirement.id)).toEqual(['malformed-freshness'])
+  })
+
   it.each([
     ['ask_user', 'ask_user'],
     ['search_web', 'collect_web_data'],

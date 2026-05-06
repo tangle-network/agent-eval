@@ -107,7 +107,7 @@ export function buildOpenApi(packageVersion: string): OpenAPIObject {
   })
 
   const generator = new OpenApiGeneratorV31(registry.definitions)
-  return generator.generateDocument({
+  const doc = generator.generateDocument({
     openapi: '3.1.0',
     info: {
       title: '@tangle-network/agent-eval — wire protocol',
@@ -120,4 +120,36 @@ Wire-protocol version: ${WIRE_VERSION}. Bumps on breaking changes to request/res
     },
     servers: [{ url: 'http://localhost:5005', description: 'Local agent-eval serve' }],
   })
+  const rubricRef = { $ref: '#/components/schemas/Rubric' } as const
+  const commonJudgeFields = {
+    content: { type: 'string', minLength: 1 },
+    context: { type: 'object', additionalProperties: true },
+    model: { type: 'string' },
+  } as const
+  doc.components ??= {}
+  doc.components.schemas ??= {}
+  doc.components.schemas.JudgeRequest = {
+    oneOf: [
+      {
+        type: 'object',
+        additionalProperties: false,
+        required: ['rubricName', 'content'],
+        properties: {
+          rubricName: { type: 'string', minLength: 1 },
+          ...commonJudgeFields,
+        },
+      },
+      {
+        type: 'object',
+        additionalProperties: false,
+        required: ['rubric', 'content'],
+        properties: {
+          rubric: rubricRef,
+          ...commonJudgeFields,
+        },
+      },
+    ],
+    description: 'Judge request. Provide exactly one of rubricName or rubric.',
+  }
+  return doc
 }

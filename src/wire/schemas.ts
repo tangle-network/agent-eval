@@ -222,12 +222,22 @@ export const WIRE_VERSION = '1.0.0'
  * if the rubricVersion matches, the rubric was identical.
  */
 export function hashRubric(rubric: Rubric): string {
-  // deterministic stringify (keys sorted) for stable hashing
-  const stable = JSON.stringify(rubric, Object.keys(rubric).sort())
+  const stable = stableStringify(rubric)
   let h = 5381
   for (let i = 0; i < stable.length; i++) {
     h = (h * 33) ^ stable.charCodeAt(i)
   }
   // Unsigned 32-bit hex, prefixed with rubric name + version slot
   return `${rubric.name}@${(h >>> 0).toString(16).padStart(8, '0')}`
+}
+
+function stableStringify(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map((item) => stableStringify(item)).join(',')}]`
+  if (value && typeof value === 'object') {
+    const entries = Object.entries(value as Record<string, unknown>)
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([key, item]) => `${JSON.stringify(key)}:${stableStringify(item)}`)
+    return `{${entries.join(',')}}`
+  }
+  return JSON.stringify(value)
 }

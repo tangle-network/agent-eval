@@ -75,6 +75,8 @@ describe('GET /openapi.json', () => {
     expect(Object.keys(spec.components.schemas)).toEqual(
       expect.arrayContaining(['JudgeRequest', 'JudgeResult', 'Rubric']),
     )
+    const judgeRequest = spec.components.schemas.JudgeRequest as { oneOf?: unknown[] }
+    expect(judgeRequest.oneOf).toHaveLength(2)
   })
 })
 

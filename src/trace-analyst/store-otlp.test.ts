@@ -16,6 +16,7 @@ import {
   TraceFileMissingError,
   TraceNotFoundError,
 } from './store-otlp'
+import { compileSearchRegex } from './store'
 
 const TINY_FIXTURE = new URL('../../tests/fixtures/trace-analyst/tiny-trace.jsonl', import.meta.url)
   .pathname
@@ -175,8 +176,25 @@ describe('OtlpFileTraceStore', () => {
       max_matches: 2,
     })
     expect(result.hits.length).toBe(2)
-    expect(result.total_matches).toBeGreaterThanOrEqual(4)
+    expect(result.total_matches).toBeGreaterThan(result.hits.length)
     expect(result.has_more).toBe(true)
+  })
+
+  it('supports (?i) case-insensitive regex prefix', () => {
+    const re = compileSearchRegex('(?i)status_code_error')
+    expect(re.test('STATUS_CODE_ERROR')).toBe(true)
+  })
+
+  it('bounds zero-width search output at max_matches', async () => {
+    const store = new OtlpFileTraceStore({ path: TINY_FIXTURE })
+    const result = await store.searchTrace({
+      trace_id: 't000000000001',
+      regex_pattern: '',
+      max_matches: 3,
+    })
+    expect(result.hits).toHaveLength(3)
+    expect(result.has_more).toBe(true)
+    expect(result.total_matches).toBeGreaterThan(3)
   })
 
   it('searchSpan returns hits scoped to one span only', async () => {

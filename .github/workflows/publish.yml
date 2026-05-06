@@ -35,19 +35,28 @@ jobs:
       - name: Test JS
         run: pnpm test
 
-      - name: Build JS
+      - name: Build JS and emit OpenAPI spec
         run: pnpm build
-
-      - name: Emit OpenAPI spec
-        run: pnpm openapi
 
       - name: Verify version lock between npm and PyPI packages
         run: |
           NPM_VERSION=$(node -p "require('./package.json').version")
           PY_VERSION=$(grep -E '^version' clients/python/pyproject.toml | head -1 | sed -E 's/.*"([^"]+)".*/\1/')
+          PY_RUNTIME_VERSION=$(python -c "import pathlib,re; text=pathlib.Path('clients/python/src/tangle_agent_eval/__init__.py').read_text(); match=re.search(r'__version__ = \"([^\"]+)\"', text); print(match.group(1) if match else '')")
           if [ "$NPM_VERSION" != "$PY_VERSION" ]; then
             echo "::error::Version mismatch: npm=$NPM_VERSION pypi=$PY_VERSION. Bump them together."
             exit 1
+          fi
+          if [ -n "$PY_RUNTIME_VERSION" ] && [ "$NPM_VERSION" != "$PY_RUNTIME_VERSION" ]; then
+            echo "::error::Version mismatch: npm=$NPM_VERSION python_runtime=$PY_RUNTIME_VERSION. Bump them together."
+            exit 1
+          fi
+          if [[ "${GITHUB_REF:-}" == refs/tags/v* ]]; then
+            TAG_VERSION="${GITHUB_REF#refs/tags/v}"
+            if [ "$TAG_VERSION" != "$NPM_VERSION" ]; then
+              echo "::error::Tag/version mismatch: tag=$TAG_VERSION package=$NPM_VERSION."
+              exit 1
+            fi
           fi
           echo "Versions locked: $NPM_VERSION"
 

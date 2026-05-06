@@ -201,7 +201,7 @@ const DEFAULT_BUDGET: ControlBudget = {
 export async function runAgentControlLoop<TState, TAction, TActionResult, TEval extends ControlEvalResult = ControlEvalResult>(
   config: ControlRuntimeConfig<TState, TAction, TActionResult, TEval>,
 ): Promise<ControlRunResult<TState, TAction, TActionResult, TEval>> {
-  const budget: ControlBudget = { ...DEFAULT_BUDGET, ...config.budget }
+  const budget = normalizeBudget(config.budget)
   const actionFailure = config.actionFailure ?? 'continue'
   const controller = new AbortController()
   const upstreamAbort = () => controller.abort(config.signal?.reason)
@@ -449,13 +449,14 @@ export async function runAgentControlLoop<TState, TAction, TActionResult, TEval 
       let actionOutcome: ControlActionOutcome<TActionResult>
       try {
         const result = await config.act(decision.action, ctx)
-        const costUsd = config.getActionCostUsd?.({
+        const rawCostUsd = config.getActionCostUsd?.({
           action: decision.action,
           result,
           state,
           evals,
           history,
         })
+        const costUsd = normalizeActionCostUsd(rawCostUsd, runtimeErrors, stepIndex)
         if (costUsd !== undefined && Number.isFinite(costUsd) && costUsd > 0) {
           spentCostUsd += costUsd
           await recordCostBudget(emitter, budget, spentCostUsd, stepHandle, runtimeErrors, stepIndex)
@@ -757,6 +758,40 @@ export function objectiveEval(input: Omit<ControlEvalResult, 'objective'>): Cont
 
 export function subjectiveEval(input: Omit<ControlEvalResult, 'objective'>): ControlEvalResult {
   return { ...input, objective: false }
+}
+
+function normalizeBudget(input: Partial<ControlBudget> | undefined): ControlBudget {
+  const raw = { ...DEFAULT_BUDGET, ...input } as Record<string, unknown>
+  if (!Number.isInteger(raw.maxSteps) || (raw.maxSteps as number) < 1) {
+    throw new RangeError(`ControlRuntime budget.maxSteps must be an integer >= 1, got ${String(raw.maxSteps)}`)
+  }
+  const budget: ControlBudget = { maxSteps: raw.maxSteps as number }
+  if (raw.maxWallMs !== undefined) {
+    if (typeof raw.maxWallMs !== 'number' || !Number.isFinite(raw.maxWallMs) || raw.maxWallMs <= 0) {
+      throw new RangeError(`ControlRuntime budget.maxWallMs must be a positive finite number, got ${String(raw.maxWallMs)}`)
+    }
+    budget.maxWallMs = raw.maxWallMs
+  }
+  if (raw.maxCostUsd !== undefined) {
+    if (typeof raw.maxCostUsd !== 'number' || !Number.isFinite(raw.maxCostUsd) || raw.maxCostUsd < 0) {
+      throw new RangeError(`ControlRuntime budget.maxCostUsd must be a nonnegative finite number, got ${String(raw.maxCostUsd)}`)
+    }
+    budget.maxCostUsd = raw.maxCostUsd
+  }
+  return budget
+}
+
+function normalizeActionCostUsd(
+  costUsd: number | undefined,
+  runtimeErrors: ControlRuntimeError[],
+  stepIndex: number,
+): number | undefined {
+  if (costUsd === undefined) return undefined
+  if (!Number.isFinite(costUsd) || costUsd < 0) {
+    runtimeErrors.push(runtimeError('act', stepIndex, new Error(`invalid action costUsd: ${String(costUsd)}`)))
+    return undefined
+  }
+  return costUsd
 }
 
 export function allCriticalPassed(evals: ControlEvalResult[]): boolean {

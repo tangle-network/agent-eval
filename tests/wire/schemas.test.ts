@@ -115,6 +115,23 @@ describe('hashRubric', () => {
     expect(hashRubric(r)).not.toEqual(hashRubric(r2))
   })
 
+  it('changes when nested rubric scoring fields change', () => {
+    expect(hashRubric(r)).not.toEqual(hashRubric({
+      ...r,
+      dimensions: [{ ...r.dimensions[0], weight: 2 }],
+    }))
+    expect(hashRubric(r)).not.toEqual(hashRubric({
+      ...r,
+      dimensions: [{ ...r.dimensions[0], min: -1 }],
+    }))
+    expect(hashRubric({ ...r, failureModes: [{ id: 'a', description: 'A' }] })).not.toEqual(
+      hashRubric({ ...r, failureModes: [{ id: 'b', description: 'A' }] }),
+    )
+    expect(hashRubric({ ...r, wins: [{ id: 'a', description: 'A' }] })).not.toEqual(
+      hashRubric({ ...r, wins: [{ id: 'a', description: 'B' }] }),
+    )
+  })
+
   it('starts with the rubric name for human-readability', () => {
     expect(hashRubric(r).startsWith('r@')).toBe(true)
   })

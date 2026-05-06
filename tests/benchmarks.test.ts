@@ -1,5 +1,5 @@
 import { describe, expect, it, beforeAll, afterAll } from 'vitest'
-import { mkdtempSync, writeFileSync, rmSync } from 'node:fs'
+import { mkdtempSync, writeFileSync, rmSync, chmodSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -163,9 +163,9 @@ describe('gsm8k benchmark', () => {
   })
 })
 
-// ── swebench-lite — stub ────────────────────────────────────────────
+// ── swebench-lite — external grader ─────────────────────────────────
 
-describe('swebench-lite benchmark (stub)', () => {
+describe('swebench-lite benchmark (external grader)', () => {
   it('throws when AGENT_EVAL_SWEBENCH_PATH is unset', async () => {
     const prev = process.env.AGENT_EVAL_SWEBENCH_PATH
     delete process.env.AGENT_EVAL_SWEBENCH_PATH
@@ -201,5 +201,69 @@ describe('swebench-lite benchmark (stub)', () => {
     expect(swebenchLite.assignSplit('django__django-1234')).toBe(
       swebenchLite.assignSplit('django__django-1234'),
     )
+  })
+
+  it('parses quoted grader commands', () => {
+    expect(swebenchLite.parseSweBenchGraderCommand('"node binary" ./grader.js --flag "two words"')).toEqual([
+      'node binary',
+      './grader.js',
+      '--flag',
+      'two words',
+    ])
+    expect(() => swebenchLite.parseSweBenchGraderCommand('"unterminated')).toThrow(/unterminated/)
+  })
+
+  it('runs a configured grader command', async () => {
+    const tmpDir = mkdtempSync(join(tmpdir(), 'agent-eval-swebench-'))
+    const graderPath = join(tmpDir, 'grader with space.mjs')
+    writeFileSync(
+      graderPath,
+      [
+        "let input = '';",
+        "process.stdin.on('data', (chunk) => input += chunk);",
+        "process.stdin.on('end', () => {",
+        "  const payload = JSON.parse(input);",
+        "  process.stdout.write(JSON.stringify({",
+        "    passed: payload.instance_id === 'inst1' && payload.patch.includes('fix'),",
+        "    fail_to_pass_passed: true,",
+        "    pass_to_pass_passed: true,",
+        "    log: 'ok'",
+        '  }));',
+        '});',
+      ].join('\n'),
+    )
+    chmodSync(graderPath, 0o755)
+    const prevGrader = process.env.AGENT_EVAL_SWEBENCH_GRADER_CMD
+    const prevTimeout = process.env.AGENT_EVAL_SWEBENCH_GRADER_TIMEOUT_MS
+    process.env.AGENT_EVAL_SWEBENCH_GRADER_CMD = `node "${graderPath}"`
+    process.env.AGENT_EVAL_SWEBENCH_GRADER_TIMEOUT_MS = '5000'
+    try {
+      const result = await swebenchLite.evaluate(
+        {
+          id: 'inst1',
+          payload: {
+            instanceId: 'inst1',
+            problemStatement: '',
+            baseCommit: '',
+            repo: '',
+            failToPass: [],
+            passToPass: [],
+          },
+        },
+        'fix patch',
+      )
+      expect(result.score).toBe(1)
+      expect(result.raw).toMatchObject({
+        passed: true,
+        failToPassPassed: true,
+        passToPassPassed: true,
+      })
+    } finally {
+      if (prevGrader) process.env.AGENT_EVAL_SWEBENCH_GRADER_CMD = prevGrader
+      else delete process.env.AGENT_EVAL_SWEBENCH_GRADER_CMD
+      if (prevTimeout) process.env.AGENT_EVAL_SWEBENCH_GRADER_TIMEOUT_MS = prevTimeout
+      else delete process.env.AGENT_EVAL_SWEBENCH_GRADER_TIMEOUT_MS
+      rmSync(tmpDir, { recursive: true, force: true })
+    }
   })
 })
