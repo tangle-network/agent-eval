@@ -43,7 +43,7 @@ that can seed memory, replay scenarios, and optimization.
 | **Trace store** | The append-only log of every span/event during a run. Replay = read this back. |
 | **Composite score** | A 0..1 number combining all dimensions. The single number you gate on. |
 | **Rubric version** | A stable hash of the rubric. Scores from different rubric versions are not comparable. |
-| **Muffled gate** | A check that should fail loud but silently passes (e.g. `command || true`). The most expensive bug class in this codebase — see SKILL.md. |
+| **Muffled gate** | A check that should fail loud but silently passes (e.g. `command || true`). The most expensive bug class in this codebase. |
 
 ## The feedback trajectory loop
 
@@ -119,7 +119,7 @@ report.blendedScore   // 0..1 — weighted aggregate
 report.layers         // per-layer status, findings, duration
 ```
 
-Two rules that will save you bugs (paid for in real incidents — see SKILL.md):
+Two rules that will save you bugs:
 
 1. **Run both gates.** Build gates catch code that doesn't compile; structural assertions catch missing files. Run both unconditionally — they catch orthogonal failures.
 
@@ -150,6 +150,6 @@ You don't need to build the trace tree by hand. `BuilderSession` does it for you
 - **Just want to score a string against a rubric?** → [wire-protocol.md](./wire-protocol.md) — HTTP/RPC interface, pluggable from any language.
 - **Need a reusable driver/worker/evaluator loop?** → [control-runtime.md](./control-runtime.md) — generic runtime plus coding, browser, computer-use, and research integration patterns.
 - **Want review feedback to become eval/optimization data?** → [feedback-trajectories.md](./feedback-trajectories.md) — turn feedback into datasets, optimizer rows, and preference memory.
-- **Building a code-generator eval?** → SKILL.md §Minimal working path — the `BuilderSession` recipe.
-- **Multi-layer verifier?** → SKILL.md §Verification pipeline.
+- **Building a code-generator eval?** → Start with `BuilderSession`, `SandboxHarness`, and `MultiLayerVerifier`.
+- **Multi-layer verifier?** → Use [control-runtime.md](./control-runtime.md) and `MultiLayerVerifier` for ordered gates with dependencies.
 - **Adding a new judge or rubric?** → `src/wire/rubrics.ts` for the cross-language path; `src/anti-slop.ts` and `src/judges.ts` for the in-process path.

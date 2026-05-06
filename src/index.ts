@@ -695,8 +695,9 @@ export type {
   GateEvidence,
 } from './held-out-gate'
 
-export { NoopResearcher } from './researcher'
+export { CallbackResearcher, NoopResearcher } from './researcher'
 export type {
+  CallbackResearcherOptions,
   Researcher,
   FailureMode,
   SteeringChange,

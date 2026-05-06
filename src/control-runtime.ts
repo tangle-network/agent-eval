@@ -243,12 +243,13 @@ export async function runAgentControlLoop<TState, TAction, TActionResult, TEval 
     try {
       state = await config.observe({ history, abortSignal: controller.signal })
     } catch (err) {
-      runtimeErrors.push(runtimeError('observe', 0, err))
+      const error = runtimeError('observe', 0, err)
+      runtimeErrors.push(error)
       return finish(emitter, {
         intent: config.intent,
         pass: false,
         completed: false,
-        reason: runtimeErrors[0].message,
+        reason: error.message,
         steps: history,
         finalState: undefined,
         finalEvals: [],
@@ -264,12 +265,13 @@ export async function runAgentControlLoop<TState, TAction, TActionResult, TEval 
       evals = await config.validate({ intent: config.intent, state, history, abortSignal: controller.signal })
       await recordEvalSpans(emitter, evals, 'initial', runtimeErrors, 0)
     } catch (err) {
-      runtimeErrors.push(runtimeError('validate', 0, err))
+      const error = runtimeError('validate', 0, err)
+      runtimeErrors.push(error)
       return finish(emitter, {
         intent: config.intent,
         pass: false,
         completed: false,
-        reason: runtimeErrors[0].message,
+        reason: error.message,
         steps: history,
         finalState: state,
         finalEvals: [],

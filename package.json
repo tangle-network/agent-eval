@@ -1,6 +1,6 @@
 {
   "name": "@tangle-network/agent-eval",
-  "version": "0.20.8",
+  "version": "0.20.9",
   "description": "Trace-first evaluation infrastructure for agent systems: traces, harnesses, verifier pipelines, judges, datasets, gates, optimization, and reporting.",
   "homepage": "https://github.com/tangle-network/agent-eval#readme",
   "repository": {
@@ -33,6 +33,14 @@
       "types": "./dist/wire/index.d.ts",
       "import": "./dist/wire/index.js",
       "default": "./dist/wire/index.js"
+    },
+    "./benchmarks": {
+      "types": "./dist/benchmarks/index.d.ts",
+      "import": "./dist/benchmarks/index.js",
+      "default": "./dist/benchmarks/index.js"
+    },
+    "./openapi.json": {
+      "default": "./dist/openapi.json"
     }
   },
   "bin": {
@@ -40,26 +48,25 @@
   },
   "files": [
     "dist",
-    "docs",
-    "examples"
+    "docs"
   ],
   "publishConfig": {
     "access": "public"
   },
   "scripts": {
-    "build": "tsup",
+    "build": "tsup && node dist/cli.js openapi --out dist/openapi.json",
     "dev": "tsup --watch",
-    "prepare": "tsup",
+    "prepare": "pnpm build",
     "test": "vitest run",
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit",
-    "openapi": "node dist/cli.js openapi --out dist/openapi.json"
+    "openapi": "pnpm build"
   },
   "dependencies": {
     "@asteasolutions/zod-to-openapi": "^8.5.0",
     "@ax-llm/ax": "^19.0.25",
     "@hono/node-server": "^2.0.0",
-    "@tangle-network/tcloud": "^0.2.0",
+    "@tangle-network/tcloud": "^0.4.6",
     "hono": "^4.12.15",
     "zod": "^4.3.6"
   },

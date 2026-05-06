@@ -11,17 +11,10 @@ The novel benchmark we ship and own — the synthetic routing task — lives in 
 
 ## Using these wrappers
 
-Two paths.
-
-**Option A — read and inline.** Copy the wrapper file into your project. Replace the import paths from `../../../src/benchmarks/types` and `../../../src/run-record` with `@tangle-network/agent-eval`. Done.
-
-**Option B — import from agent-eval source.** If your project sits in this monorepo (or you've cloned the repo), import directly:
-
-```ts
-import * as gsm8k from '@tangle-network/agent-eval/examples/benchmarks/gsm8k'
-```
-
-This requires adding `examples/**/*.ts` to your TypeScript paths. Easier to just copy.
+Read and inline them. Copy the wrapper file into your project, then replace
+imports such as `../../../src/benchmarks/types` and `../../../src/run-record`
+with `@tangle-network/agent-eval`. These examples are repository source, not
+published npm subpaths.
 
 ## What every BenchmarkAdapter exports
 

@@ -98,6 +98,55 @@ describe('knowledge readiness', () => {
     expect(report.blockingMissingRequirements.map((requirement) => requirement.id)).toEqual(['irs-publication-current'])
     expect(blockingKnowledgeEval(report).passed).toBe(false)
   })
+
+  it.each([
+    ['ask_user', 'ask_user'],
+    ['search_web', 'collect_web_data'],
+    ['query_connector', 'query_connectors'],
+    ['inspect_repo', 'inspect_repo'],
+  ] as const)('routes non-blocking %s gaps to %s', (acquisitionMode, expectedAction) => {
+    const report = scoreKnowledgeReadiness({
+      taskId: `task-${acquisitionMode}`,
+      requirements: [
+        req({
+          id: `gap-${acquisitionMode}`,
+          acquisitionMode,
+          importance: 'medium',
+          sensitivity: 'public',
+          confidenceNeeded: 0.9,
+          currentConfidence: 0.1,
+          fallbackPolicy: 'continue_with_caveat',
+        }),
+      ],
+    })
+
+    expect(report.blockingMissingRequirements).toEqual([])
+    expect(report.nonBlockingGaps.map((gap) => gap.id)).toEqual([`gap-${acquisitionMode}`])
+    expect(report.recommendedAction).toBe(expectedAction)
+  })
+
+  it('preserves blocking-gap priority over non-blocking gap acquisition modes', () => {
+    const report = scoreKnowledgeReadiness({
+      taskId: 'task-blocking-priority',
+      requirements: [
+        req({
+          id: 'blocking-repo-context',
+          acquisitionMode: 'inspect_repo',
+          importance: 'blocking',
+          fallbackPolicy: 'block',
+        }),
+        req({
+          id: 'nonblocking-user-preference',
+          acquisitionMode: 'ask_user',
+          importance: 'medium',
+          fallbackPolicy: 'continue_with_caveat',
+        }),
+      ],
+    })
+
+    expect(report.blockingMissingRequirements.map((gap) => gap.id)).toEqual(['blocking-repo-context'])
+    expect(report.recommendedAction).toBe('inspect_repo')
+  })
 })
 
 describe('knowledge failure taxonomy', () => {

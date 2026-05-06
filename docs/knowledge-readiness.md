@@ -2,8 +2,8 @@
 
 `agent-eval` owns the contract for deciding whether an agent had enough
 task-world context to run. It does not own web crawling, connector storage, wiki
-pages, credentials, or product policy. Those live in `agent-knowledge` and
-product repos.
+pages, credentials, or product policy. Those live in
+`@tangle-network/agent-knowledge` and product repos.
 
 The core loop is:
 

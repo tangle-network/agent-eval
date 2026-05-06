@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "tangle-agent-eval"
-version = "0.19.0"
+version = "0.20.9"
 description = "Python client for @tangle-network/agent-eval — judge content against rubrics over HTTP or stdio RPC."
 readme = "README.md"
 requires-python = ">=3.10"
