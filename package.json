@@ -1,6 +1,6 @@
 {
   "name": "@tangle-network/agent-eval",
-  "version": "0.20.9",
+  "version": "0.20.10",
   "description": "Trace-first evaluation infrastructure for agent systems: traces, harnesses, verifier pipelines, judges, datasets, gates, optimization, and reporting.",
   "homepage": "https://github.com/tangle-network/agent-eval#readme",
   "repository": {
@@ -48,19 +48,20 @@
   },
   "files": [
     "dist",
-    "docs"
+    "docs",
+    "CHANGELOG.md"
   ],
   "publishConfig": {
     "access": "public"
   },
   "scripts": {
-    "build": "tsup && node dist/cli.js openapi --out dist/openapi.json",
+    "build": "tsup && pnpm openapi",
     "dev": "tsup --watch",
     "prepare": "pnpm build",
     "test": "vitest run",
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit",
-    "openapi": "pnpm build"
+    "openapi": "node dist/cli.js openapi --out dist/openapi.json"
   },
   "dependencies": {
     "@asteasolutions/zod-to-openapi": "^8.5.0",

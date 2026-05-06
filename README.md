@@ -98,16 +98,20 @@ pip install -e .
 | `summaryTable`, `paretoChart`, `gainHistogram` | Report-ready structured outputs. |
 | `KnowledgeRequirement`, `KnowledgeBundle` | Shared contracts for knowledge readiness. |
 
+`NoopResearcher` is a fail-loud sentinel for wiring tests. Production systems
+should implement `Researcher` directly or use `CallbackResearcher`.
+
 ## Examples
 
-Runnable examples live in the repository's [`examples/`](./examples)
+Runnable examples live in the repository's
+[`examples/`](https://github.com/tangle-network/agent-eval/tree/main/examples)
 directory. They are not part of the published npm package.
 
-- [`examples/same-sandbox-harness`](./examples/same-sandbox-harness) - run
+- [`examples/same-sandbox-harness`](https://github.com/tangle-network/agent-eval/tree/main/examples/same-sandbox-harness) - run
   multiple eval passes against the same workspace.
-- [`examples/multi-shot-optimization`](./examples/multi-shot-optimization) -
+- [`examples/multi-shot-optimization`](https://github.com/tangle-network/agent-eval/tree/main/examples/multi-shot-optimization) -
   optimize full agent trajectories with held-out promotion.
-- [`examples/benchmarks`](./examples/benchmarks) - benchmark adapter shape and
+- [`examples/benchmarks`](https://github.com/tangle-network/agent-eval/tree/main/examples/benchmarks) - benchmark adapter shape and
   reference benchmark wrappers.
 
 The examples are intentionally kept outside the README so they can be expanded,

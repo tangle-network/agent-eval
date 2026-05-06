@@ -1,5 +1,29 @@
 # Changelog
 
+## 0.20.10 — hardening audit follow-up
+
+### Fixed
+
+- `hashRubric` now recursively sorts nested rubric fields before hashing, so
+  dimension, failure-mode, and win changes alter `rubricVersion`.
+- Wire judge handling now validates LLM output before returning it: finite
+  dimension scores, rationale, and known failure/win ids are enforced.
+- Control-runtime budgets reject invalid numeric config, and invalid action
+  costs are omitted from step telemetry instead of leaking `NaN`/`Infinity`.
+- Knowledge readiness now treats invalid `validUntil` timestamps as stale.
+- Trace-analyst regex search supports leading `(?i)` and stops scanning once
+  bounded match output is reached.
+- SWE-Bench Lite example wording now reflects the implemented external-grader
+  adapter, with quoted command parsing and timeout coverage.
+
+### Changed
+
+- Published package contents now include `CHANGELOG.md`.
+- Public docs now use GitHub URLs for repository-only examples and Python
+  client source.
+- Publish CI now checks npm, Python package, runtime fallback version, and tag
+  version agree before publishing.
+
 ## 0.20.9 — release hygiene and runtime failure fixes
 
 ### Fixed

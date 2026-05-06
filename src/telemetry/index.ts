@@ -2,7 +2,7 @@
  * Public entry for the telemetry sub-module.
  *
  * Workers-safe by default — only `fetch` + pure JS. The Node file sink is
- * exported separately via './sink-file' so consumers that import this entry
+ * exported separately via './telemetry/file' so consumers that import this entry
  * cannot accidentally pull `node:fs` into a Worker bundle.
  *
  * Consume:

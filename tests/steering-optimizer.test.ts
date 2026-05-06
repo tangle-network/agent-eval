@@ -20,6 +20,17 @@ describe('steering optimizer', () => {
     expect(result.skipped).toBe(true)
     expect(result.recommendedVariantId).toBe('strong')
   })
+
+  it('keeps rankings finite when runtime-loaded rows have invalid cost or latency', () => {
+    const bad = row('bad-metrics', 's3', 9)
+    bad.score.costUsd = Number.NaN
+    bad.score.wallSeconds = Number.NaN
+
+    const result = new PairwiseSteeringOptimizer().optimize([...rows(), bad])
+
+    expect(result.rankings.every((ranking) => Number.isFinite(ranking.mean))).toBe(true)
+    expect(result.recommendedVariantId).toBeTruthy()
+  })
 })
 
 function rows(): SteeringOptimizationRow[] {

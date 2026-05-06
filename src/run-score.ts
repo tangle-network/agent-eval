@@ -56,12 +56,16 @@ export function aggregateRunScore(
     w.testReality * clamp01(score.testReality) +
     w.finalGate * clamp01(score.finalGate) +
     w.reviewerBlockers * clamp01(score.reviewerBlockers) +
-    w.costUsd * Math.max(0, score.costUsd) +
-    w.wallSeconds * Math.max(0, score.wallSeconds / 60)
+    w.costUsd * Math.max(0, finiteOrZero(score.costUsd)) +
+    w.wallSeconds * Math.max(0, finiteOrZero(score.wallSeconds) / 60)
   )
 }
 
 export function clamp01(value: number): number {
   if (!Number.isFinite(value)) return 0
   return Math.max(0, Math.min(1, value))
+}
+
+function finiteOrZero(value: number): number {
+  return Number.isFinite(value) ? value : 0
 }

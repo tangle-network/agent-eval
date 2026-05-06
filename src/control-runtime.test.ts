@@ -198,6 +198,57 @@ describe('runAgentControlLoop', () => {
     expect(result.steps[0].actionOutcome?.costUsd).toBe(0.02)
   })
 
+  it.each([
+    [{ maxSteps: 0 }, /maxSteps/],
+    [{ maxSteps: Number.NaN }, /maxSteps/],
+    [{ maxSteps: undefined }, /maxSteps/],
+    [{ maxWallMs: -1 }, /maxWallMs/],
+    [{ maxCostUsd: Number.POSITIVE_INFINITY }, /maxCostUsd/],
+    [{ maxCostUsd: -0.01 }, /maxCostUsd/],
+  ] as const)('rejects invalid budget config %o', async (budget, message) => {
+    await expect(
+      runAgentControlLoop<TestState, TestAction, TestState>({
+        intent: 'invalid budget',
+        budget,
+        observe: () => ({ count: 0 }),
+        validate: () => [],
+        decide: () => ({ type: 'stop', reason: 'done', pass: true }),
+        act: () => ({ count: 0 }),
+      }),
+    ).rejects.toThrow(message)
+  })
+
+  it.each([Number.NaN, Number.POSITIVE_INFINITY, -0.01])('omits invalid action cost %s', async (costUsd) => {
+    const state: TestState = { count: 0 }
+    const result = await runAgentControlLoop<TestState, TestAction, TestState>({
+      intent: 'ignore invalid cost',
+      budget: { maxSteps: 2, maxCostUsd: 1 },
+      observe: () => ({ ...state }),
+      validate: ({ state }) => [
+        objectiveEval({
+          id: 'count>=1',
+          passed: state.count >= 1,
+          severity: 'critical',
+        }),
+      ],
+      decide: () => ({ type: 'continue', action: { type: 'increment' } }),
+      act: () => {
+        state.count += 1
+        return { ...state }
+      },
+      getActionCostUsd: () => costUsd,
+    })
+
+    expect(result.pass).toBe(true)
+    expect(result.spentCostUsd).toBe(0)
+    expect(result.steps[0].actionOutcome?.costUsd).toBeUndefined()
+    expect(result.runtimeErrors).toContainEqual({
+      phase: 'act',
+      stepIndex: 0,
+      message: `invalid action costUsd: ${String(costUsd)}`,
+    })
+  })
+
   it('stops repeated same-action loops before burning the whole step budget', async () => {
     const result = await runAgentControlLoop<TestState, TestAction, TestState>({
       intent: 'avoid repeated action loop',

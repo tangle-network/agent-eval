@@ -102,7 +102,7 @@ Return server + wire-protocol version. Match your `pip install` version to `vers
 
 ```python
 v = client.version()
-assert v.version.startswith("0.12")
+assert v.version.startswith("0.20")
 assert v.wire_version == "1.0.0"
 ```
 
@@ -141,7 +141,7 @@ All errors carry `.code` and `.details` (the structured payload from the server)
 
 ## Versioning
 
-This package is **version-locked** to the npm package. `tangle-agent-eval==0.20.9` ↔ `@tangle-network/agent-eval@0.20.9`. The two ship from the same git tag in the same CI workflow; if either fails to publish, neither does. Mismatched versions are a build-time error.
+This package is **version-locked** to the npm package. `tangle-agent-eval==0.20.10` ↔ `@tangle-network/agent-eval@0.20.10`. CI verifies the npm package, Python package, runtime `__version__`, and release tag all agree before publish. If one registry publish fails after the other succeeds, retry the failed publish from the same tag or supersede with the next patch release.
 
 `wire_version` is separate. It bumps only on breaking schema changes. Package versions can differ across releases as long as `wire_version` is the same.
 

@@ -3,7 +3,7 @@
  * `child_process`. Safe to import from a Cloudflare Worker, Lambda, edge
  * function, or browser extension.
  *
- * For Node-only file persistence, import from './sink-file' instead.
+ * For Node-only file persistence, import from '@tangle-network/agent-eval/telemetry/file'.
  */
 
 import type { TelemetryEnvelope } from './schema'

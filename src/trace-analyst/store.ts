@@ -73,9 +73,13 @@ export interface TraceAnalysisStore {
  *  implementations. Throws on invalid pattern — callers should surface
  *  that to the agent so it can refine instead of looping. */
 export function compileSearchRegex(pattern: string): RegExp {
-  // Multiline + case-sensitive by default. Agents that want
-  // case-insensitivity opt in via `(?i)` inline flag.
-  return new RegExp(pattern, 'm')
+  let source = pattern
+  let flags = 'm'
+  if (source.startsWith('(?i)')) {
+    source = source.slice(4)
+    flags += 'i'
+  }
+  return new RegExp(source, flags)
 }
 
 /** Truncate string payload deterministically for tool responses.

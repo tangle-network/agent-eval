@@ -146,7 +146,7 @@ function isRequirementMissing(requirement: KnowledgeRequirement, now: Date): boo
 function isExpired(requirement: KnowledgeRequirement, now: Date): boolean {
   if (!requirement.validUntil) return false
   const deadline = Date.parse(requirement.validUntil)
-  if (!Number.isFinite(deadline)) return false
+  if (!Number.isFinite(deadline)) return true
   return deadline <= now.getTime()
 }
 

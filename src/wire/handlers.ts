@@ -77,6 +77,57 @@ interface JudgeOutput {
   rationale: string
 }
 
+function validateJudgeOutput(value: unknown, rubric: Rubric): JudgeOutput {
+  if (!value || typeof value !== 'object') {
+    throw new WireError('judge_error', 'Judge returned malformed output.', 500, value)
+  }
+  const raw = value as Record<string, unknown>
+  const rawDimensions = raw.dimensions
+  if (!rawDimensions || typeof rawDimensions !== 'object' || Array.isArray(rawDimensions)) {
+    throw new WireError('judge_error', 'Judge returned malformed dimensions.', 500, value)
+  }
+
+  const dimensions: Record<string, number> = {}
+  const dimensionRecord = rawDimensions as Record<string, unknown>
+  for (const dim of rubric.dimensions) {
+    const score = dimensionRecord[dim.id]
+    if (typeof score !== 'number' || !Number.isFinite(score) || score < dim.min || score > dim.max) {
+      throw new WireError('judge_error', `Judge returned invalid score for dimension "${dim.id}".`, 500, value)
+    }
+    dimensions[dim.id] = score
+  }
+
+  const allowedFailures = new Set(rubric.failureModes.map((mode) => mode.id))
+  const allowedWins = new Set(rubric.wins.map((win) => win.id))
+  const failureModes = validateIdArray(raw.failureModes, allowedFailures, 'failureModes', value)
+  const wins = validateIdArray(raw.wins, allowedWins, 'wins', value)
+  if (typeof raw.rationale !== 'string' || raw.rationale.trim().length === 0) {
+    throw new WireError('judge_error', 'Judge returned missing rationale.', 500, value)
+  }
+
+  return { dimensions, failureModes, wins, rationale: raw.rationale }
+}
+
+function validateIdArray(
+  raw: unknown,
+  allowed: Set<string>,
+  field: 'failureModes' | 'wins',
+  original: unknown,
+): string[] {
+  if (raw === undefined) return []
+  if (!Array.isArray(raw)) {
+    throw new WireError('judge_error', `Judge returned non-array ${field}.`, 500, original)
+  }
+  const out: string[] = []
+  for (const item of raw) {
+    if (typeof item !== 'string' || !allowed.has(item)) {
+      throw new WireError('judge_error', `Judge returned unknown ${field} id "${String(item)}".`, 500, original)
+    }
+    out.push(item)
+  }
+  return out
+}
+
 function compositeScore(dimensions: Record<string, number>, rubric: Rubric): number {
   let weighted = 0
   let totalWeight = 0
@@ -135,20 +186,17 @@ export async function handleJudge(req: JudgeRequest): Promise<JudgeResult> {
     timeoutMs: 60_000,
   })
 
-  // Defensive: ensure dimensions object isn't malformed
-  if (!value || typeof value !== 'object' || !value.dimensions) {
-    throw new WireError('judge_error', 'Judge returned malformed output.', 500, value)
-  }
+  const output = validateJudgeOutput(value, rubric)
 
-  const composite = compositeScore(value.dimensions, rubric)
+  const composite = compositeScore(output.dimensions, rubric)
   const durationMs = Date.now() - startedAt
 
   return {
     composite,
-    dimensions: value.dimensions,
-    failureModes: value.failureModes ?? [],
-    wins: value.wins ?? [],
-    rationale: value.rationale,
+    dimensions: output.dimensions,
+    failureModes: output.failureModes ?? [],
+    wins: output.wins ?? [],
+    rationale: output.rationale,
     rubricVersion: hashRubric(rubric),
     model: result.model,
     durationMs,
