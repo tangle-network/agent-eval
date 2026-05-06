@@ -1,4 +1,8 @@
-import { describe, expect, it, vi } from 'vitest'
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { analyzeTraces } from './analyst'
 import type { TraceAnalysisStore } from './store'
@@ -7,6 +11,7 @@ import type { DatasetOverview } from './types'
 const axMock = vi.hoisted(() => ({
   agentCalls: [] as Array<{ signature: string; options: Record<string, unknown> }>,
   forwardCalls: [] as Array<{ ai: unknown; values: unknown }>,
+  forwardError: undefined as Error | undefined,
 }))
 
 vi.mock('@ax-llm/ax', () => {
@@ -95,6 +100,7 @@ vi.mock('@ax-llm/ax', () => {
               thought: 'inspect first',
             })
           }
+          if (axMock.forwardError) throw axMock.forwardError
           return {
             answer: 'publish_finding hits MaxTurnsExceeded in t000000000001/s004',
             findings: ['t000000000001/s004: publish_finding hit MaxTurnsExceeded'],
@@ -113,6 +119,12 @@ vi.mock('@ax-llm/ax', () => {
 })
 
 describe('analyzeTraces', () => {
+  beforeEach(() => {
+    axMock.agentCalls.length = 0
+    axMock.forwardCalls.length = 0
+    axMock.forwardError = undefined
+  })
+
   it('constructs an Ax RLM analyst with bounded trace tools and returns run telemetry', async () => {
     const overview: DatasetOverview = {
       total_traces: 1,
@@ -199,5 +211,95 @@ describe('analyzeTraces', () => {
       output: 'overview loaded',
     })
     expect(result.actorPromptVersion).toMatch(/^trace-analyst-actor-v\d+-/)
+    expect(result.usage.actor[0]).toEqual({ tokens: { totalTokens: 10 } })
+    expect(result.chatLog.actor[0]).toEqual({ role: 'assistant' })
+  })
+
+  it('persists progress turns even when the analyst crashes', async () => {
+    const tmpDir = mkdtempSync(join(tmpdir(), 'agent-eval-trace-analyst-'))
+    const progressLogPath = join(tmpDir, 'progress.jsonl')
+    const turns: unknown[] = []
+    axMock.forwardError = new Error('provider unavailable')
+    const store = minimalStore()
+
+    try {
+      await expect(analyzeTraces(
+        { question: 'What broke?' },
+        {
+          source: store,
+          ai: { provider: 'test' },
+          progressLogPath,
+          onTurn: (turn) => {
+            turns.push(turn)
+          },
+        },
+      )).rejects.toThrow('provider unavailable')
+
+      const lines = readFileSync(progressLogPath, 'utf8').trim().split('\n')
+      expect(lines).toHaveLength(1)
+      expect(JSON.parse(lines[0])).toMatchObject({
+        turn: 1,
+        output: 'overview loaded',
+        isError: false,
+      })
+      expect(turns).toEqual([
+        expect.objectContaining({ turn: 1, output: 'overview loaded' }),
+      ])
+    } finally {
+      rmSync(tmpDir, { recursive: true, force: true })
+    }
   })
 })
+
+function minimalStore(): TraceAnalysisStore {
+  const overview: DatasetOverview = {
+    total_traces: 1,
+    raw_jsonl_bytes: 100,
+    services: ['bench'],
+    agents: ['driver'],
+    models: ['model-a'],
+    tool_names: ['publish_finding'],
+    sample_trace_ids: ['t000000000001'],
+    errors: { trace_count: 1, span_count: 1 },
+    time_range: null,
+  }
+  return {
+    async getOverview() {
+      return overview
+    },
+    async queryTraces() {
+      return { traces: [], total: 0, has_more: false }
+    },
+    async countTraces() {
+      return 1
+    },
+    async viewTrace() {
+      return { trace_id: 't000000000001', spans: [] }
+    },
+    async viewSpans() {
+      return {
+        trace_id: 't000000000001',
+        spans: [],
+        missing_span_ids: [],
+        truncated_attribute_count: 0,
+      }
+    },
+    async searchTrace() {
+      return {
+        trace_id: 't000000000001',
+        hits: [],
+        total_matches: 0,
+        has_more: false,
+      }
+    },
+    async searchSpan() {
+      return {
+        trace_id: 't000000000001',
+        span_id: 's004',
+        hits: [],
+        total_matches: 0,
+        has_more: false,
+      }
+    },
+  }
+}

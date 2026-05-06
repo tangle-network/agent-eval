@@ -240,6 +240,28 @@ describe('runAgentControlLoop', () => {
     expect(result.finalState).toBeUndefined()
   })
 
+  it('reports the observe failure even when trace start also fails', async () => {
+    class RunFailingTraceStore extends InMemoryTraceStore {
+      override async appendRun(): Promise<void> {
+        throw new Error('trace run unavailable')
+      }
+    }
+
+    const result = await runAgentControlLoop<TestState, TestAction, TestState>({
+      intent: 'observe safely with broken trace start',
+      store: new RunFailingTraceStore(),
+      observe: () => {
+        throw new Error('state backend unavailable')
+      },
+      validate: () => [],
+      decide: () => ({ type: 'continue', action: { type: 'increment' } }),
+      act: () => ({ count: 1 }),
+    })
+
+    expect(result.reason).toBe('state backend unavailable')
+    expect(result.runtimeErrors.map((error) => error.phase)).toEqual(['trace', 'observe', 'trace'])
+  })
+
   it('returns structured results instead of throwing on validation failures', async () => {
     const result = await runAgentControlLoop<TestState, TestAction, TestState>({
       intent: 'validate safely',
@@ -257,6 +279,28 @@ describe('runAgentControlLoop', () => {
       { phase: 'validate', stepIndex: 0, message: 'validator unavailable' },
     ])
     expect(result.finalState).toEqual({ count: 0 })
+  })
+
+  it('reports the validate failure even when trace start also fails', async () => {
+    class RunFailingTraceStore extends InMemoryTraceStore {
+      override async appendRun(): Promise<void> {
+        throw new Error('trace run unavailable')
+      }
+    }
+
+    const result = await runAgentControlLoop<TestState, TestAction, TestState>({
+      intent: 'validate safely with broken trace start',
+      store: new RunFailingTraceStore(),
+      observe: () => ({ count: 0 }),
+      validate: () => {
+        throw new Error('validator unavailable')
+      },
+      decide: () => ({ type: 'continue', action: { type: 'increment' } }),
+      act: () => ({ count: 1 }),
+    })
+
+    expect(result.reason).toBe('validator unavailable')
+    expect(result.runtimeErrors.map((error) => error.phase)).toEqual(['trace', 'validate', 'trace'])
   })
 
   it('stops when state and score do not improve across steps', async () => {

@@ -106,6 +106,37 @@ export interface Researcher {
   evaluateChange(plan: ExperimentPlan): Promise<ExperimentResult>
 }
 
+export interface CallbackResearcherOptions {
+  inspectFailures: Researcher['inspectFailures']
+  proposeChange: Researcher['proposeChange']
+  applyChange: Researcher['applyChange']
+  evaluateChange: Researcher['evaluateChange']
+}
+
+/**
+ * Minimal concrete researcher for tests, scripts, and small integrations.
+ * Larger autonomous researchers can still implement `Researcher` directly.
+ */
+export class CallbackResearcher implements Researcher {
+  constructor(private readonly callbacks: CallbackResearcherOptions) {}
+
+  inspectFailures(runs: RunRecord[]): Promise<FailureMode[]> {
+    return this.callbacks.inspectFailures(runs)
+  }
+
+  proposeChange(failures: FailureMode[]): Promise<SteeringChange[]> {
+    return this.callbacks.proposeChange(failures)
+  }
+
+  applyChange(changes: SteeringChange[], baseline: ExperimentPlan): Promise<ExperimentPlan> {
+    return this.callbacks.applyChange(changes, baseline)
+  }
+
+  evaluateChange(plan: ExperimentPlan): Promise<ExperimentResult> {
+    return this.callbacks.evaluateChange(plan)
+  }
+}
+
 /**
  * No-op researcher — fails loud on every method. Use as a placeholder
  * in code paths that wire the interface but don't have an implementation

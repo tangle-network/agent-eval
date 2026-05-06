@@ -39,6 +39,57 @@ export interface AxSteeringOptimizerConfig extends SteeringOptimizerConfig {
   minRows?: number
 }
 
+interface AxServiceFactory {
+  (config: { name: 'openai' | 'anthropic'; apiKey: string; config: { model: string } }): unknown
+}
+
+interface AxSelectorProgram {
+  applyOptimization(compiled: unknown): void
+}
+
+interface AxFactory {
+  (signature: string, options: { description: string }): AxSelectorProgram
+}
+
+interface AxGepaCompileResult {
+  optimizedProgram?: unknown
+  bestScore?: number
+}
+
+interface AxGepaInstance {
+  compile(
+    selector: AxSelectorProgram,
+    train: ScenarioWinner[],
+    metric: (input: { prediction?: { variantId?: string }; example?: ScenarioWinner }) => number,
+    options: { validationExamples: ScenarioWinner[]; maxMetricCalls: number },
+  ): Promise<AxGepaCompileResult>
+}
+
+interface AxGepaConstructor {
+  new (config: {
+    studentAI: unknown
+    teacherAI: unknown
+    numTrials: number
+    minibatch: boolean
+    minibatchSize: number
+    earlyStoppingTrials: number
+    sampleCount: number
+  }): AxGepaInstance
+}
+
+interface AxModule {
+  ai: AxServiceFactory
+  ax: AxFactory
+  AxGEPA: AxGepaConstructor
+}
+
+interface ScenarioWinner {
+  task: string
+  split: string
+  seedPreview: string
+  variantId: string
+}
+
 export class PairwiseSteeringOptimizer {
   optimize(rows: SteeringOptimizationRow[], config: SteeringOptimizerConfig = {}): SteeringOptimizationResult {
     const ranked = rankRows(rows, config.weights)
@@ -69,9 +120,9 @@ export class AxGepaSteeringOptimizer {
       }
     }
 
-    let axLib: any
+    let axLib: AxModule
     try {
-      axLib = await import('@ax-llm/ax')
+      axLib = await import('@ax-llm/ax') as AxModule
     } catch {
       return {
         ...fallback,
@@ -111,13 +162,15 @@ export class AxGepaSteeringOptimizer {
     const compiled = await optimizer.compile(
       selector,
       train,
-      (({ prediction, example }: any) => prediction?.variantId === example?.variantId ? 1 : 0) as any,
+      ({ prediction, example }) => prediction?.variantId === example?.variantId ? 1 : 0,
       {
         validationExamples: validation,
         maxMetricCalls: 64,
       },
     )
-    selector.applyOptimization(compiled.optimizedProgram!)
+    if (compiled.optimizedProgram !== undefined) {
+      selector.applyOptimization(compiled.optimizedProgram)
+    }
 
     return {
       ...fallback,
@@ -169,7 +222,7 @@ function collapseScenarioWinners(rows: SteeringOptimizationRow[], weights?: Part
   })
 }
 
-function createAxService(aiFactory: any, provider: 'openai' | 'anthropic', apiKey: string, model: string) {
+function createAxService(aiFactory: AxServiceFactory, provider: 'openai' | 'anthropic', apiKey: string, model: string) {
   return aiFactory({
     name: provider,
     apiKey,

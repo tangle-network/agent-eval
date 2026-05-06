@@ -55,9 +55,9 @@ Package responsibilities:
   optimization, reporting.
 - Product app: domain state, tools, credentials, UI, storage, deployment, model
   gateway.
-- `agent-runtime`: production agent-loop/session runtime.
-- `agent-knowledge`: evidence stores, claim/page synthesis, retrieval, knowledge
-  readiness implementation.
+- `@tangle-network/agent-runtime`: production agent-loop/session runtime.
+- `@tangle-network/agent-knowledge`: evidence stores, claim/page synthesis,
+  retrieval, knowledge readiness implementation.
 
 ## Install
 
@@ -72,10 +72,12 @@ npm i -g @tangle-network/agent-eval
 agent-eval serve --port 5005
 ```
 
-Python client:
+Python client source lives in `clients/python`. Until the PyPI package is
+published, install it from the repo:
 
 ```sh
-pip install tangle-agent-eval
+cd clients/python
+pip install -e .
 ```
 
 ## Core Primitives
@@ -98,7 +100,8 @@ pip install tangle-agent-eval
 
 ## Examples
 
-Runnable examples live in [`examples/`](./examples):
+Runnable examples live in the repository's [`examples/`](./examples)
+directory. They are not part of the published npm package.
 
 - [`examples/same-sandbox-harness`](./examples/same-sandbox-harness) - run
   multiple eval passes against the same workspace.

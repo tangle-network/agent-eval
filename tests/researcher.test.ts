@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
+  CallbackResearcher,
   NoopResearcher,
   type ExperimentPlan,
   type Researcher,
@@ -21,6 +22,66 @@ describe('NoopResearcher', () => {
   it('honours a custom hint message', async () => {
     const r = new NoopResearcher('use FooResearcher from @x/y')
     await expect(r.inspectFailures([])).rejects.toThrow(/FooResearcher/)
+  })
+})
+
+describe('CallbackResearcher', () => {
+  it('provides a concrete callback-backed researcher implementation', async () => {
+    const baseline: ExperimentPlan = {
+      baselineCandidateId: 'base',
+      proposedCandidateId: 'candidate',
+      changes: [],
+      evaluationBudgetUsd: 1,
+      splits: { search: ['s1'], holdout: ['h1'] },
+    }
+    const researcher = new CallbackResearcher({
+      inspectFailures: async () => [{
+        code: 'missing-proof',
+        description: 'Missing executable proof',
+        evidence: { runIds: ['r1'], samples: 1 },
+      }],
+      proposeChange: async (failures) => [{
+        kind: 'threshold',
+        payload: { minProofCount: failures.length },
+        rationale: 'Require executable proof.',
+      }],
+      applyChange: async (changes, plan) => ({
+        ...plan,
+        changes,
+        proposedCandidateId: 'candidate-v2',
+      }),
+      evaluateChange: async (plan) => ({
+        plan,
+        runs: [],
+        gateDecision: {
+          promote: false,
+          candidateId: plan.proposedCandidateId,
+          baselineId: plan.baselineCandidateId,
+          evidence: {
+            productiveRuns: 0,
+            medianPairedDelta: 0,
+            pairedCI: { low: 0, high: 0 },
+            pairedPValue: 1,
+            searchScore: Number.NaN,
+            holdoutScore: Number.NaN,
+            overfitGap: Number.NaN,
+            baselineOverfitGap: Number.NaN,
+          },
+          reason: 'not enough runs',
+          rejectionCode: 'few_runs',
+        },
+      }),
+    })
+
+    const failures = await researcher.inspectFailures([])
+    const changes = await researcher.proposeChange(failures)
+    const plan = await researcher.applyChange(changes, baseline)
+    const result = await researcher.evaluateChange(plan)
+
+    expect(failures[0].code).toBe('missing-proof')
+    expect(changes[0].payload).toEqual({ minProofCount: 1 })
+    expect(plan.proposedCandidateId).toBe('candidate-v2')
+    expect(result.gateDecision.baselineId).toBe('base')
   })
 })
 

@@ -32,11 +32,29 @@ export interface AnalyzeTracesResult {
   /** Total turns the actor took. */
   turnCount: number
   /** Token usage by role. */
-  usage: { actor: unknown[]; responder: unknown[] }
+  usage: TraceAnalystUsage
   /** Full system + assistant + tool message log by role. */
-  chatLog: { actor: unknown[]; responder: unknown[] }
+  chatLog: TraceAnalystChatLog
   /** Prompt version that produced this run. */
   actorPromptVersion: string
+}
+
+export interface TraceAnalystUsage {
+  actor: TraceAnalystUsageEntry[]
+  responder: TraceAnalystUsageEntry[]
+}
+
+export interface TraceAnalystUsageEntry {
+  [key: string]: unknown
+}
+
+export interface TraceAnalystChatLog {
+  actor: TraceAnalystChatMessage[]
+  responder: TraceAnalystChatMessage[]
+}
+
+export interface TraceAnalystChatMessage {
+  [key: string]: unknown
 }
 
 export interface AnalyzeTracesTurnSnapshot {
@@ -204,8 +222,25 @@ export async function analyzeTraces(
       : [],
     turns,
     turnCount: turns.length,
-    usage: analyst.getUsage(),
-    chatLog: analyst.getChatLog(),
+    usage: normalizeRoleArrays(analyst.getUsage()),
+    chatLog: normalizeRoleArrays(analyst.getChatLog()),
     actorPromptVersion: TRACE_ANALYST_ACTOR_DESCRIPTION_VERSION,
   }
+}
+
+function normalizeRoleArrays(value: unknown): { actor: Record<string, unknown>[]; responder: Record<string, unknown>[] } {
+  const record = value && typeof value === 'object' ? value as Record<string, unknown> : {}
+  return {
+    actor: normalizeRecordArray(record.actor),
+    responder: normalizeRecordArray(record.responder),
+  }
+}
+
+function normalizeRecordArray(value: unknown): Record<string, unknown>[] {
+  if (!Array.isArray(value)) return []
+  return value.map((item) => (
+    item && typeof item === 'object'
+      ? { ...(item as Record<string, unknown>) }
+      : { value: item }
+  ))
 }

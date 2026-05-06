@@ -162,11 +162,11 @@ function chooseRecommendedAction(
 ): KnowledgeRecommendedAction {
   const gaps = blocking.length > 0 ? blocking : nonBlocking
   if (gaps.length === 0) return 'run_agent'
-  if (blocking.some((gap) => gap.acquisitionMode === 'ask_user' || gap.fallbackPolicy === 'ask')) return 'ask_user'
-  if (blocking.some((gap) => gap.acquisitionMode === 'query_connector')) return 'query_connectors'
-  if (blocking.some((gap) => gap.acquisitionMode === 'inspect_repo' || gap.acquisitionMode === 'run_command')) return 'inspect_repo'
-  if (blocking.some((gap) => gap.acquisitionMode === 'search_web')) return 'collect_web_data'
-  if (blocking.some((gap) => gap.acquisitionMode === 'not_available')) return 'abort_or_rescope'
+  if (gaps.some((gap) => gap.acquisitionMode === 'ask_user' || gap.fallbackPolicy === 'ask')) return 'ask_user'
+  if (gaps.some((gap) => gap.acquisitionMode === 'query_connector')) return 'query_connectors'
+  if (gaps.some((gap) => gap.acquisitionMode === 'inspect_repo' || gap.acquisitionMode === 'run_command')) return 'inspect_repo'
+  if (gaps.some((gap) => gap.acquisitionMode === 'search_web')) return 'collect_web_data'
+  if (gaps.some((gap) => gap.acquisitionMode === 'not_available')) return 'abort_or_rescope'
   if (nonBlocking.some((gap) => gap.importance === 'high')) return 'build_domain_wiki'
   return 'continue_with_caveat'
 }

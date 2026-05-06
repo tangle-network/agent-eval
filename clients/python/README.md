@@ -27,7 +27,8 @@ That's the entire surface for content judging.
 ## Install
 
 ```sh
-pip install tangle-agent-eval
+cd clients/python
+pip install -e .
 ```
 
 To use it, **one of**:
@@ -140,7 +141,7 @@ All errors carry `.code` and `.details` (the structured payload from the server)
 
 ## Versioning
 
-This package is **version-locked** to the npm package. `tangle-agent-eval==0.19.0` ↔ `@tangle-network/agent-eval@0.19.0`. The two ship from the same git tag in the same CI workflow; if either fails to publish, neither does. Mismatched versions are a build-time error.
+This package is **version-locked** to the npm package. `tangle-agent-eval==0.20.9` ↔ `@tangle-network/agent-eval@0.20.9`. The two ship from the same git tag in the same CI workflow; if either fails to publish, neither does. Mismatched versions are a build-time error.
 
 `wire_version` is separate. It bumps only on breaking schema changes. Package versions can differ across releases as long as `wire_version` is the same.
 

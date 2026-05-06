@@ -1,5 +1,31 @@
 # Changelog
 
+## 0.20.9 — release hygiene and runtime failure fixes
+
+### Fixed
+
+- Initial `runAgentControlLoop` observe/validate failures now report the
+  actual observe/validate error even when trace start/end emission also fails.
+- Knowledge readiness recommended actions now honor non-blocking gap
+  acquisition modes such as `ask_user`, `search_web`, `query_connector`, and
+  `inspect_repo`.
+- Npm builds now generate `dist/openapi.json`, and the package exports
+  `@tangle-network/agent-eval/openapi.json`.
+- Npm and Python client versions are locked at `0.20.9`.
+
+### Added
+
+- `CallbackResearcher`, a concrete callback-backed implementation of the
+  stable `Researcher` interface for scripts, tests, and small integrations.
+- Public `@tangle-network/agent-eval/benchmarks` subpath for the supported
+  routing benchmark surface.
+- Root MIT `LICENSE`.
+
+### Changed
+
+- Raw TypeScript examples are no longer included in the npm package; they remain
+  repository examples to read, copy, and adapt.
+
 ## 0.20.2 — freshness-aware knowledge readiness
 
 ### Added
@@ -107,9 +133,9 @@
 - `runProposeReviewAsControlLoop` accepts a caller-provided verifier failure
   mapper for domain-specific failure classes.
 
-## 0.17.0 — surface cleanup + SKILL pitfalls
+## 0.17.0 — surface cleanup + usage-guidance pitfalls
 
-This release tightens the public benchmark surface and lands the SKILL.md guidance that the v0.15 dispatch couldn't write.
+This release tightens the public benchmark surface and lands internal usage guidance that the v0.15 dispatch couldn't write.
 
 ### Moved
 
@@ -123,7 +149,7 @@ These are reference implementations of `BenchmarkAdapter`, not core surface. Con
 ### Added
 
 - `examples/benchmarks/README.md` documents how to use, copy, and extend the example wrappers.
-- `.claude/skills/agent-eval/SKILL.md` gains a "Production-rigor primitives (v0.16+)" section and a "Pitfalls" section with 13 footgun directives covering the v0.16 primitives. (Couldn't be written in v0.15 due to harness sandbox; landed in v0.17.)
+- Internal agent-eval usage guidance gains production-rigor and pitfalls sections covering the v0.16 primitives.
 
 ### Migration
 
@@ -218,8 +244,7 @@ optimization with held-out promotion gates.
   are additive.
 - All new public symbols carry JSDoc.
 - 87 new tests across 7 new test files. 571 total tests pass.
-- See `.claude/skills/agent-eval/SKILL.md` for usage directives and
-  pitfalls; `## Pitfalls` section added in this release.
+- See the package docs for usage directives and pitfalls.
 
 ## 0.11.0
 

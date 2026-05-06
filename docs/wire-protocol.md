@@ -96,13 +96,13 @@ GET /v1/version
 ```json
 {
   "package": "@tangle-network/agent-eval",
-  "version": "0.19.0",
+  "version": "0.20.9",
   "wireVersion": "1.0.0",
   "apiSurface": ["judge", "listRubrics", "version"]
 }
 ```
 
-`version` matches the npm/PyPI package version. `wireVersion` bumps independently — only on breaking request/response schema changes. Package versions can differ across releases as long as `wireVersion` matches.
+`version` matches the package version. `wireVersion` bumps independently — only on breaking request/response schema changes. Package versions can differ across releases as long as `wireVersion` matches.
 
 ### `GET /healthz` — liveness
 
@@ -176,7 +176,7 @@ Each invocation is one process — Node startup adds ~500 ms. For more than a fe
 
 ## Clients
 
-- **Python**: [`tangle-agent-eval`](../clients/python/README.md) on PyPI. Auto-detects HTTP, falls back to subprocess. Version-locked to npm.
+- **Python**: source lives in [`clients/python`](../clients/python/README.md). Auto-detects HTTP, falls back to subprocess. Version-locked to npm.
 - **TypeScript**: import directly from `@tangle-network/agent-eval` (no wire round-trip needed in-process).
 - **Rust / Go / Other**: generate from `dist/openapi.json`. PRs welcome to add an officially-maintained client.
 
