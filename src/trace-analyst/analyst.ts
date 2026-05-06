@@ -72,6 +72,12 @@ export interface AnalyzeTracesOptions {
   onTurn?: (turn: AnalyzeTracesTurnSnapshot) => void | Promise<void>
   /** Override max runtime characters per turn. Default 6000. */
   maxRuntimeChars?: number
+  /** When set, every turn's snapshot is appended to this JSONL file
+   *  immediately. If the analyst crashes mid-loop (provider 503,
+   *  network error, validator reject) the partial reasoning is still
+   *  on disk. Replay the file with the responder afterward to recover
+   *  evidence. */
+  progressLogPath?: string
 }
 
 /**
@@ -103,6 +109,16 @@ export async function analyzeTraces(
   const tools: AxFunction[] = buildTraceAnalystTools({ store })
   const turns: AnalyzeTracesTurnSnapshot[] = []
 
+  // Persist each turn as JSONL so interrupted analyst runs keep useful evidence.
+  let progressFs: import('node:fs').WriteStream | undefined
+  if (options.progressLogPath) {
+    const { createWriteStream } = await import('node:fs')
+    const { mkdir } = await import('node:fs/promises')
+    const { dirname } = await import('node:path')
+    await mkdir(dirname(options.progressLogPath), { recursive: true })
+    progressFs = createWriteStream(options.progressLogPath, { flags: 'a' })
+  }
+
   const actorTurnCallback = async (turn: AxActorTurn): Promise<void> => {
     const snap: AnalyzeTracesTurnSnapshot = {
       turn: turn.turn,
@@ -112,6 +128,13 @@ export async function analyzeTraces(
       thought: turn.thought,
     }
     turns.push(snap)
+    if (progressFs) {
+      try {
+        progressFs.write(`${JSON.stringify({ ...snap, ts: Date.now() })}\n`)
+      } catch {
+        // Progress logging must never fail the analyst.
+      }
+    }
     if (options.onTurn) await options.onTurn(snap)
   }
 
@@ -135,7 +158,8 @@ export async function analyzeTraces(
         allowedModules: [],
         freezeIntrinsics: true,
         blockShadowRealm: true,
-        preventGlobalThisExtensions: true,
+        // RLM stdout mode relies on runtime bindings persisting across turns.
+        preventGlobalThisExtensions: false,
       }),
       mode: maxDepth > 0 ? 'advanced' : 'simple',
       recursionOptions: maxDepth > 0 ? { maxDepth } : undefined,
@@ -143,23 +167,35 @@ export async function analyzeTraces(
       maxRuntimeChars,
       maxBatchedLlmQueryConcurrency: maxParallelSubagents,
       promptLevel: 'detailed',
-      contextPolicy: { preset: 'checkpointed', budget: 'balanced' },
+      // Trace analysis depends on exact prior tool results and runtime variables.
+      contextPolicy: { preset: 'full', budget: 'balanced' },
       functions: { local: tools },
       actorOptions: {
         description: options.actorDescription ?? TRACE_ANALYST_ACTOR_DESCRIPTION,
         ...(options.model ? { model: options.model } : {}),
+        // Keep actor messages tool-call/content shaped across reasoning models.
+        showThoughts: false,
+        thinkingTokenBudget: 'none' as unknown as number,
       },
       responderOptions: {
         ...(options.model ? { model: options.model } : {}),
         description:
           options.subagentDescription ?? TRACE_ANALYST_SUBAGENT_DESCRIPTION,
+        showThoughts: false,
       },
       actorTurnCallback,
       bubbleErrors: [TraceFileMissingError],
     },
   )
 
-  const result = await analyst.forward(options.ai, { question: input.question })
+  let result: { answer: unknown; findings: unknown }
+  try {
+    result = await analyst.forward(options.ai, { question: input.question })
+  } finally {
+    if (progressFs) {
+      await new Promise<void>((resolve) => progressFs!.end(() => resolve()))
+    }
+  }
 
   return {
     answer: typeof result.answer === 'string' ? result.answer : String(result.answer ?? ''),
