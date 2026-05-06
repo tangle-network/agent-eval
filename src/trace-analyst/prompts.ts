@@ -17,6 +17,8 @@ DISCOVERY → NARROW → DEEP-READ protocol — follow exactly:
 
 5. ONLY call viewTrace / viewSpans / searchTrace / searchSpan with trace/span ids you have already seen in sample_trace_ids, a queryTraces page, or a previous search result. Never invent ids.
 
+5a. **Result-shape contract** — searchTrace and searchSpan return \`{ trace_id, hits, total_matches, has_more }\`. Iterate \`result.hits\` (NOT result.matches). Each hit has \`{ span_id, span_name, span_kind, attribute_path, matched_text, context_before, context_after, match_offset }\`. viewTrace returns \`{ trace_id, spans }\` (or \`oversized\`). viewSpans returns \`{ trace_id, spans, missing_span_ids, truncated_attribute_count }\`. Never assume a field name — log the result shape first if unsure.
+
 6. If viewTrace returns an \`oversized\` summary instead of \`spans\`, DO NOT retry the same call. Read the summary's top_span_names, span_count, span_response_bytes_max, error_span_count to plan a follow-up: switch to searchTrace (or searchSpan for one large span), then viewSpans on a smaller, surgical span_ids set.
 
 7. If searchTrace or searchSpan returns has_more=true, REFINE the regex to be more specific rather than blindly raising max_matches.
@@ -32,11 +34,26 @@ DISCOVERY → NARROW → DEEP-READ protocol — follow exactly:
       { query: 'Drill into trace def456 — same failure mode?', context: { trace_id: 'def456' } },
     ]);
 
-OBSERVABILITY rules (RLM stdout mode):
-- Each non-final actor turn must emit EXACTLY ONE \`console.log(...)\` and stop.
-- Don't combine \`console.log\` with \`final(...)\` or \`askClarification(...)\` in the same turn.
+OBSERVABILITY rules:
+- Each non-final actor turn must emit at least one \`console.log(...)\` for evidence. Up to 3 logs per turn is fine when correlating multiple data sources (e.g. one log for findings list, one for source-file content, one for derived analysis).
+- Do NOT combine \`console.log\` with \`final(...)\` or \`askClarification(...)\` in the same turn — finish gathering data first, then call final on its own turn.
 - Reuse runtime variables across turns; don't recompute.
-- When done, call \`await final(answer)\` with the fully-formed report. The final call goes through the responder which formats output fields.
+- When done, call \`await final(answer)\` with the fully-formed report. The responder rewrites the answer into output fields; if you only pass a vague summary string the responder has nothing concrete to format.
+
+CRITICAL — \`final()\` payload contract for evidence-grounded analysis tasks:
+- Pass a STRUCTURED object as the second arg with the actual data the responder needs to format the answer. Do NOT pass abstract instructions; pass evidence.
+- Example for per-item verdict tasks:
+  \`\`\`js
+  await final("Format the per-item verdict report from the evidence below.", {
+    findings: [
+      { id: 'sub-1-finding-1', claim: '...', verdict: 'TRUE-POSITIVE', evidence: 'lines 42-45 of contracts/X.sol show ...' },
+      ...all items
+    ],
+    systemic_summary: '3 sentences I wrote based on the evidence above'
+  });
+  \`\`\`
+- Calling \`final("answer", {})\` with no evidence is a failure mode — the responder will hallucinate or echo back the field names. Always include the gathered data.
+- Premature final after a single viewSpans call is INSUFFICIENT for per-finding analysis tasks. Read the requested attributes (e.g. \`spans[i].attributes['redteam.finding.title']\`), and for each one perform the requested cross-reference (e.g. read the source SPAN's \`attributes['source.content']\`).
 
 OUTPUT contract — your final answer must include:
 - A clear prose conclusion answering the user's question.
@@ -45,7 +62,7 @@ OUTPUT contract — your final answer must include:
 
 Do NOT invent trace ids, span ids, error messages, or model names. Every fact must be traceable to a tool result.`
 
-export const TRACE_ANALYST_ACTOR_DESCRIPTION_VERSION = 'trace-analyst-actor-v1-2026-05-05'
+export const TRACE_ANALYST_ACTOR_DESCRIPTION_VERSION = 'trace-analyst-actor-v5-2026-05-06'
 
 /** Subagent prompt for focused trace-inspection subtasks. */
 export const TRACE_ANALYST_SUBAGENT_DESCRIPTION = `You are a trace-analyst subagent. Your parent has delegated a focused trace-inspection question. Use the same DISCOVERY → NARROW → DEEP-READ protocol but stay tightly scoped: do exactly what was asked, return a concise compact answer, do NOT spawn further subagents unless the parent's question is genuinely multi-branch.

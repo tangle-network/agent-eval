@@ -119,10 +119,14 @@ export function buildTraceAnalystTools(opts: BuildTraceAnalystToolsOpts): AxFunc
 
   const searchTrace = fn('searchTrace')
     .description(
-      'Regex search across all spans of one trace. Returns up to ' +
-        '`max_matches` SpanMatchRecords with surrounding context. Stays ' +
-        'bounded regardless of trace size. If has_more=true, REFINE the ' +
-        'regex rather than raising max_matches blindly.',
+      'Regex search across all spans of one trace. Returns ' +
+        '`{trace_id, hits: SpanMatchRecord[], total_matches, has_more}`. ' +
+        '**Iterate `result.hits`, NOT `result.matches`** — the field is ' +
+        '`hits`. Each hit has `{span_id, span_name, span_kind, ' +
+        'attribute_path, matched_text, context_before, context_after, ' +
+        'match_offset}`. Bounded regardless of trace size by max_matches ' +
+        '(1..500, default 50). If has_more=true, REFINE the regex rather ' +
+        'than blindly raising max_matches.',
     )
     .namespace(NAMESPACE)
     .arg('trace_id', f.string('Real trace id'))
@@ -141,7 +145,10 @@ export function buildTraceAnalystTools(opts: BuildTraceAnalystToolsOpts): AxFunc
   const searchSpan = fn('searchSpan')
     .description(
       'Regex search inside a single span. Use when viewSpans returned ' +
-        'a 16KB-truncated payload and you need to narrow further.',
+        'a 16KB-truncated payload and you need to narrow further. ' +
+        'Returns `{trace_id, span_id, hits: SpanMatchRecord[], ' +
+        'total_matches, has_more}` — iterate `result.hits`, NOT ' +
+        '`result.matches`.',
     )
     .namespace(NAMESPACE)
     .arg('trace_id', f.string('Real trace id'))

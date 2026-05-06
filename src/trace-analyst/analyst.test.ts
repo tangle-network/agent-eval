@@ -198,6 +198,6 @@ describe('analyzeTraces', () => {
       isError: false,
       output: 'overview loaded',
     })
-    expect(result.actorPromptVersion).toMatch(/^trace-analyst-actor-v1-/)
+    expect(result.actorPromptVersion).toMatch(/^trace-analyst-actor-v\d+-/)
   })
 })

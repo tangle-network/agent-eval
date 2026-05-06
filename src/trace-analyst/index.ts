@@ -28,6 +28,22 @@ export {
   TRACE_ANALYST_SUBAGENT_DESCRIPTION,
 } from './prompts'
 
+export {
+  buildTraceInsightPrompt,
+  describeTraceInsightScope,
+  domainEvidencePattern,
+  inferDomainKeywords,
+  planTraceInsightQuestions,
+  tokenizeDomainWords,
+} from './insights'
+export type {
+  TraceInsightFinding,
+  TraceInsightPromptInput,
+  TraceInsightQuestion,
+  TraceInsightSuite,
+  TraceInsightTask,
+} from './insights'
+
 export type {
   DatasetOverview,
   QueryTracesPage,
