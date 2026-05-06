@@ -2,11 +2,13 @@ import { describe, expect, it } from 'vitest'
 
 import {
   buildTraceInsightPrompt,
+  buildTraceInsightContext,
   defaultTraceInsightPanel,
   describeTraceInsightScope,
   domainEvidencePattern,
   inferDomainKeywords,
   planTraceInsightQuestions,
+  scoreTraceInsightReadiness,
   tokenizeDomainWords,
   type TraceInsightSuite,
 } from './insights'
@@ -76,5 +78,34 @@ describe('trace insight planning', () => {
     expect(prompt).toContain('"inferredKeywords"')
     expect(prompt).not.toContain('VerticalBench')
     expect(prompt).not.toContain('Coinbase')
+  })
+
+  it('scores insight readiness with explicit gates', () => {
+    const context = buildTraceInsightContext({
+      suite,
+      findings: [{ kind: 'missing-domain-integration', severity: 'high', taskIds: ['checkout'] }],
+    })
+    const readiness = scoreTraceInsightReadiness(context)
+    expect(readiness.grade).toBe('external-ready')
+    expect(readiness.score).toBe(1)
+    expect(readiness.gates.map((gate) => gate.id)).toEqual([
+      'domain-context',
+      'panel-coverage',
+      'failure-coverage',
+      'gap-evidence',
+    ])
+    expect(readiness.gates.every((gate) => gate.passed)).toBe(true)
+
+    const weak = scoreTraceInsightReadiness(buildTraceInsightContext({
+      suite: {
+        name: 'Untitled',
+        tasks: [{ id: 't1', name: 'Task', outcome: 'error' }],
+      },
+    }))
+    expect(weak.grade).toBe('raw-analysis')
+    expect(weak.gates.filter((gate) => !gate.passed).map((gate) => gate.id)).toEqual([
+      'failure-coverage',
+      'gap-evidence',
+    ])
   })
 })

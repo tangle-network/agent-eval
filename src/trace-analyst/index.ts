@@ -29,16 +29,21 @@ export {
 } from './prompts'
 
 export {
+  buildTraceInsightContext,
   buildTraceInsightPrompt,
   defaultTraceInsightPanel,
   describeTraceInsightScope,
   domainEvidencePattern,
   inferDomainKeywords,
   planTraceInsightQuestions,
+  scoreTraceInsightReadiness,
   tokenizeDomainWords,
 } from './insights'
 export type {
+  TraceInsightContext,
   TraceInsightFinding,
+  TraceInsightQualityGate,
+  TraceInsightReadiness,
   TraceInsightPanelRole,
   TraceInsightPromptInput,
   TraceInsightQuestion,

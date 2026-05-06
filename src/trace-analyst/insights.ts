@@ -43,6 +43,31 @@ export interface TraceInsightPromptInput {
   maxRepresentativeTraces?: number
 }
 
+export interface TraceInsightContext {
+  suite: TraceInsightSuite
+  scope: string
+  keywords: string[]
+  questions: TraceInsightQuestion[]
+  panel: TraceInsightPanelRole[]
+  findings: TraceInsightFinding[]
+  agent: Record<string, unknown> | null
+  totals: Record<string, unknown> | null
+}
+
+export interface TraceInsightQualityGate {
+  id: string
+  label: string
+  passed: boolean
+  severity: 'critical' | 'high' | 'medium' | 'low'
+  detail: string
+}
+
+export interface TraceInsightReadiness {
+  score: number
+  grade: 'external-ready' | 'internal-review' | 'raw-analysis'
+  gates: TraceInsightQualityGate[]
+}
+
 const DOMAIN_STOP_WORDS = new Set([
   'and',
   'advanced',
@@ -166,6 +191,73 @@ export function planTraceInsightQuestions(input: TraceInsightPromptInput): Trace
   return questions
 }
 
+export function buildTraceInsightContext(input: TraceInsightPromptInput): TraceInsightContext {
+  return {
+    suite: input.suite,
+    scope: describeTraceInsightScope(input.suite),
+    keywords: inferDomainKeywords(input.suite),
+    questions: planTraceInsightQuestions(input),
+    panel: defaultTraceInsightPanel(),
+    findings: input.findings ?? [],
+    agent: input.agent ?? null,
+    totals: input.totals ?? null,
+  }
+}
+
+export function scoreTraceInsightReadiness(context: TraceInsightContext): TraceInsightReadiness {
+  const failedTasks = context.suite.tasks.filter((task) => task.outcome && task.outcome !== 'satisfied')
+  const findingTaskIds = new Set(context.findings.flatMap((finding) => finding.taskIds))
+  const failedTasksWithFindings = failedTasks.filter((task) => findingTaskIds.has(task.id))
+  const tasksWithGaps = context.suite.tasks.filter((task) => (task.gaps ?? []).length > 0)
+  const gates: TraceInsightQualityGate[] = [
+    {
+      id: 'domain-context',
+      label: 'Domain context inferred',
+      passed: context.keywords.length > 0,
+      severity: 'high',
+      detail: context.keywords.length > 0
+        ? `${context.keywords.length} domain terms inferred: ${context.keywords.slice(0, 8).join(', ')}`
+        : 'No domain terms were inferred from suite, tasks, prompts, tags, or gaps.',
+    },
+    {
+      id: 'panel-coverage',
+      label: 'Analyst panel planned',
+      passed: context.panel.length >= 4 && context.questions.length >= 5,
+      severity: 'high',
+      detail: `${context.panel.length} panel roles and ${context.questions.length} investigation questions planned.`,
+    },
+    {
+      id: 'failure-coverage',
+      label: 'Failures mapped to findings',
+      passed: failedTasks.length === 0 || failedTasksWithFindings.length / failedTasks.length >= 0.5,
+      severity: 'critical',
+      detail: failedTasks.length === 0
+        ? 'No failed tasks in suite.'
+        : `${failedTasksWithFindings.length}/${failedTasks.length} failed tasks appear in finding clusters.`,
+    },
+    {
+      id: 'gap-evidence',
+      label: 'Task gaps captured',
+      passed: failedTasks.length === 0 || tasksWithGaps.length / failedTasks.length >= 0.5,
+      severity: 'medium',
+      detail: `${tasksWithGaps.length} tasks include explicit evaluator or analyst gaps.`,
+    },
+  ]
+  const penalty = gates.reduce((sum, gate) => {
+    if (gate.passed) return sum
+    if (gate.severity === 'critical') return sum + 35
+    if (gate.severity === 'high') return sum + 20
+    if (gate.severity === 'medium') return sum + 10
+    return sum + 5
+  }, 0)
+  const score = Math.max(0, Math.min(1, 1 - penalty / 100))
+  return {
+    score,
+    grade: score >= 0.9 ? 'external-ready' : score >= 0.7 ? 'internal-review' : 'raw-analysis',
+    gates,
+  }
+}
+
 export function defaultTraceInsightPanel(): TraceInsightPanelRole[] {
   return [
     {
@@ -192,8 +284,7 @@ export function defaultTraceInsightPanel(): TraceInsightPanelRole[] {
 }
 
 export function buildTraceInsightPrompt(input: TraceInsightPromptInput): string {
-  const questions = planTraceInsightQuestions(input)
-  const keywords = inferDomainKeywords(input.suite)
+  const context = buildTraceInsightContext(input)
   const maxRepresentativeTraces = input.maxRepresentativeTraces ?? 6
   return `Analyze this benchmark run and produce evidence-backed trace intelligence.
 
@@ -202,10 +293,10 @@ Audience:
 - possible customer-facing report for ${input.suite.name}
 
 Investigation plan:
-${questions.map((item, index) => `${index + 1}. ${item.question} (${item.why})`).join('\n')}
+${context.questions.map((item, index) => `${index + 1}. ${item.question} (${item.why})`).join('\n')}
 
 Analyst panel:
-${defaultTraceInsightPanel().map((role) => `- ${role.name}: ${role.responsibility}`).join('\n')}
+${context.panel.map((role) => `- ${role.name}: ${role.responsibility}`).join('\n')}
 
 If the task branches are independent, use subagents for the panel roles above and aggregate their findings. Do not run a panel role unless its answer will change the final report.
 
@@ -227,11 +318,11 @@ Budget:
 Run summary:
 ${JSON.stringify({
   suite: input.suite.name,
-  scope: describeTraceInsightScope(input.suite),
-  inferredKeywords: keywords,
-  agent: input.agent ?? null,
-  totals: input.totals ?? null,
-  findings: (input.findings ?? []).map((finding) => ({
+  scope: context.scope,
+  inferredKeywords: context.keywords,
+  agent: context.agent,
+  totals: context.totals,
+  findings: context.findings.map((finding) => ({
     kind: finding.kind,
     severity: finding.severity,
     taskCount: finding.taskIds.length,
