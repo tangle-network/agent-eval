@@ -1,10 +1,10 @@
 # @tangle-network/agent-eval
 
-Trace-first evaluation infrastructure for agent systems.
+Evaluation infrastructure for agent systems.
 
-`agent-eval` provides the contracts and runtime primitives for measuring agent
-behavior: traces, harnesses, verifier pipelines, judges, datasets, holdout
-gates, failure classification, optimization loops, and release reports.
+`agent-eval` gives agent products a reusable way to record what happened,
+verify outcomes, classify failures, compare variants, optimize prompts or
+policies, and make release decisions from evidence instead of anecdotes.
 
 It does not own your product state, credentials, UI, or model routing. Product
 teams keep those boundaries; this package standardizes how runs are recorded,
@@ -15,7 +15,9 @@ checked, compared, and promoted.
 - [When To Use It](#when-to-use-it)
 - [Architecture](#architecture)
 - [Install](#install)
+- [Quick Start](#quick-start)
 - [Core Primitives](#core-primitives)
+- [Adoption Path](#adoption-path)
 - [Examples](#examples)
 - [Documentation](#documentation)
 - [Development](#development)
@@ -80,6 +82,59 @@ cd clients/python
 pip install -e .
 ```
 
+## Quick Start
+
+Wrap the real product loop first. Do not build a toy eval path that users never
+exercise.
+
+```ts
+import {
+  objectiveEval,
+  runAgentControlLoop,
+} from '@tangle-network/agent-eval'
+
+const result = await runAgentControlLoop({
+  intent: task.prompt,
+  budget: { maxSteps: 8, maxWallMs: 180_000, maxCostUsd: 2 },
+
+  async observe() {
+    return productAdapter.readState(task.id)
+  },
+
+  async validate({ state }) {
+    return [
+      objectiveEval({
+        id: 'build-passes',
+        passed: state.build.exitCode === 0,
+        severity: 'critical',
+        metadata: state.build,
+      }),
+      objectiveEval({
+        id: 'preview-serves',
+        passed: state.preview.httpStatus === 200,
+        severity: 'critical',
+      }),
+    ]
+  },
+
+  async decide({ evals }) {
+    return evals.every((evalResult) => evalResult.passed)
+      ? { type: 'stop', reason: 'all critical checks passed' }
+      : { type: 'continue', action: { type: 'repair' }, reason: 'checks failed' }
+  },
+
+  async act(action) {
+    return productAdapter.runAgentStep(task.id, action)
+  },
+})
+
+await productAdapter.storeControlResult(task.id, result)
+```
+
+Once this loop represents production behavior, convert completed runs into
+feedback trajectories, split them into train/dev/test/holdout sets, and run
+multi-shot optimization against the same adapter.
+
 ## Core Primitives
 
 | Primitive | Purpose |
@@ -101,6 +156,24 @@ pip install -e .
 `NoopResearcher` is a fail-loud sentinel for wiring tests. Production systems
 should implement `Researcher` directly or use `CallbackResearcher`.
 
+## Adoption Path
+
+1. Choose one real workflow: code generation, browser task, research task,
+   workflow builder, voice interaction, or domain agent task.
+2. Write a product adapter that can observe state and execute one agent step.
+3. Add deterministic validators first: build, test, serve, schema, policy,
+   permission, retrieval, and deployment checks.
+4. Add LLM judges only for subjective quality that deterministic checks cannot
+   measure.
+5. Emit traces and convert successful and failed attempts into
+   `FeedbackTrajectory` records.
+6. Build train/dev/test/holdout scenarios from those trajectories.
+7. Run `runMultiShotOptimization()` or prompt/code evolution on train/dev.
+8. Promote only when test/holdout gates and real product telemetry improve.
+
+For a complete product integration guide, see
+[Product Eval Adoption](./docs/product-eval-adoption.md).
+
 ## Examples
 
 Runnable examples live in the repository's
@@ -121,6 +194,7 @@ tested, and copied without turning this page into a tutorial.
 
 - [Concepts](./docs/concepts.md)
 - [Feature Guide](./docs/feature-guide.md)
+- [Product Eval Adoption](./docs/product-eval-adoption.md)
 - [Control Runtime](./docs/control-runtime.md)
 - [Knowledge Readiness](./docs/knowledge-readiness.md)
 - [Multi-Shot Optimization](./docs/multi-shot-optimization.md)
