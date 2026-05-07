@@ -145,4 +145,42 @@ describe('TraceEmitter', () => {
     expect(r?.status).toBe('failed')
     expect(r?.outcome?.failureClass).toBe('tool_selection_error')
   })
+
+  it('startRun accepts input without scenarioId — defaults to layer / tags.kind / "runtime"', async () => {
+    // Runtime / operator / meta-eval runs don't have a curated scenario corpus
+    // to anchor to. Caller used to have to invent placeholder strings; now the
+    // emitter substitutes a sensible default while the persisted Run shape
+    // keeps scenarioId required for downstream filters + aggregations.
+    const store = new InMemoryTraceStore()
+
+    // Bare default: no layer, no tags → 'runtime'
+    {
+      const e = new TraceEmitter(store)
+      const run = await e.startRun({})
+      expect(run.scenarioId).toBe('runtime')
+      const persisted = await store.getRun(e.runId)
+      expect(persisted?.scenarioId).toBe('runtime')
+    }
+
+    // Layer wins over the bare default.
+    {
+      const e = new TraceEmitter(store)
+      const run = await e.startRun({ layer: 'meta' })
+      expect(run.scenarioId).toBe('meta')
+    }
+
+    // tags.kind wins over the bare default when no layer.
+    {
+      const e = new TraceEmitter(store)
+      const run = await e.startRun({ tags: { kind: 'inbound_email' } })
+      expect(run.scenarioId).toBe('inbound_email')
+    }
+
+    // Caller-provided scenarioId still wins — no behavior regression.
+    {
+      const e = new TraceEmitter(store)
+      const run = await e.startRun({ scenarioId: 'explicit', layer: 'meta', tags: { kind: 'x' } })
+      expect(run.scenarioId).toBe('explicit')
+    }
+  })
 })

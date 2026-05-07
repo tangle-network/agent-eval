@@ -41,6 +41,16 @@ export type RunLayer = 'builder' | 'app-build' | 'app-runtime' | 'meta' | 'custo
 
 export interface Run {
   runId: string
+  /**
+   * Stable identifier of the scenario being executed.
+   *
+   * Always populated on the persisted Run — but `TraceEmitter.startRun` accepts
+   * input WITHOUT this field, substituting a sensible default
+   * (`run.layer ?? run.tags?.['kind'] ?? 'runtime'`) when the caller has no
+   * curated scenario to anchor to (runtime / operator / meta-eval runs). This
+   * keeps the persisted shape unambiguous for downstream filters + aggregations
+   * while removing the boilerplate of inventing placeholder ids at the call site.
+   */
   scenarioId: string
   variantId?: string
   datasetVersion?: string
