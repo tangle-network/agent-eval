@@ -73,6 +73,55 @@ export interface HypothesisResult {
 }
 
 /**
+ * Deterministic JSON canonicalization — sort object keys recursively.
+ *
+ * Two semantically-equal objects produce byte-identical canonicalized output;
+ * this is what makes a content-hash stable across encoders, key insertion
+ * orders, and runtime versions. Exported for any consumer that needs the same
+ * canonicalization guarantee outside the manifest-signing path (e.g., signing
+ * an artifact bundle, hashing a dataset version, etc.).
+ */
+export function canonicalize(v: unknown): unknown {
+  if (v === null || typeof v !== 'object') return v
+  if (Array.isArray(v)) return v.map(canonicalize)
+  const keys = Object.keys(v as Record<string, unknown>).sort()
+  const out: Record<string, unknown> = {}
+  for (const k of keys) out[k] = canonicalize((v as Record<string, unknown>)[k])
+  return out
+}
+
+/**
+ * SHA-256 hex (full 64 chars) over the canonicalized JSON encoding of `obj`.
+ *
+ * The same primitive `signManifest` and `verifyManifest` are built on, exposed
+ * directly so consumers signing arbitrary structured content (artifact bundles,
+ * production packets, dataset manifests, etc.) don't have to re-derive
+ * canonicalize+sha256 from scratch.
+ *
+ * Stable across:
+ *   - object key insertion order (canonicalization sorts keys recursively)
+ *   - encoder choice (UTF-8 via TextEncoder, fixed)
+ *   - runtime (uses the Web Crypto subtle digest, present in Node ≥18 and browsers)
+ *
+ * Naming note: `hashJson` rather than `hashContent` because `hashContent` is
+ * already taken in `prompt-registry.ts` for the truncated 12-char prompt-id
+ * helper, which has different semantics (string input, short return). Both
+ * coexist; `hashJson` is the right name when you mean "canonicalize then hash."
+ *
+ * @example
+ *   const hash = await hashJson({ id: '1', kind: 'spec' })
+ *   // 'a3f1...' (64 hex chars)
+ */
+export async function hashJson<T>(obj: T): Promise<string> {
+  const canonical = canonicalize(obj)
+  const bytes = new TextEncoder().encode(JSON.stringify(canonical))
+  const digest = await globalThis.crypto.subtle.digest('SHA-256', bytes)
+  return Array.from(new Uint8Array(digest))
+    .map((b) => b.toString(16).padStart(2, '0'))
+    .join('')
+}
+
+/**
  * Sign a manifest with a SHA-256 content hash.
  *
  * The hash covers the canonicalized manifest with the `contentHash`
@@ -83,12 +132,7 @@ export interface HypothesisResult {
  * hashing on both sides.
  */
 export async function signManifest(m: HypothesisManifest): Promise<SignedManifest> {
-  const canonical = canonicalize(m)
-  const bytes = new TextEncoder().encode(JSON.stringify(canonical))
-  const digest = await globalThis.crypto.subtle.digest('SHA-256', bytes)
-  const hash = Array.from(new Uint8Array(digest))
-    .map((b) => b.toString(16).padStart(2, '0'))
-    .join('')
+  const hash = await hashJson(m)
   return { ...m, contentHash: hash, algo: 'sha256-content' }
 }
 
@@ -132,13 +176,4 @@ export async function evaluateHypothesis(
     confirmed: reasons.length === 0,
     rejectionReasons: reasons,
   }
-}
-
-function canonicalize(v: unknown): unknown {
-  if (v === null || typeof v !== 'object') return v
-  if (Array.isArray(v)) return v.map(canonicalize)
-  const keys = Object.keys(v as Record<string, unknown>).sort()
-  const out: Record<string, unknown> = {}
-  for (const k of keys) out[k] = canonicalize((v as Record<string, unknown>)[k])
-  return out
 }

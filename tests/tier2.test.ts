@@ -11,7 +11,9 @@ import {
 } from '../src/counterfactual'
 import { crossTraceDiff } from '../src/cross-trace-diff'
 import {
+  canonicalize,
   evaluateHypothesis,
+  hashJson,
   signManifest,
   verifyManifest,
   type HypothesisManifest,
@@ -171,5 +173,38 @@ describe('pre-registration', () => {
     await expect(
       evaluateHypothesis(tampered, { n: 30, effect: 0.003, pValue: 0.01 }),
     ).rejects.toThrow(/tampered|hash/i)
+  })
+
+  it('canonicalize sorts keys recursively and produces stable encoding', () => {
+    const a = canonicalize({ b: 2, a: { y: [3, 2, 1], x: 'k' } })
+    const b = canonicalize({ a: { x: 'k', y: [3, 2, 1] }, b: 2 })
+    expect(JSON.stringify(a)).toBe(JSON.stringify(b))
+    // Arrays preserve order (canonicalization sorts object keys, not array elements).
+    expect(JSON.stringify(canonicalize([3, 1, 2]))).toBe('[3,1,2]')
+    // Primitives pass through.
+    expect(canonicalize(42)).toBe(42)
+    expect(canonicalize('s')).toBe('s')
+    expect(canonicalize(null)).toBe(null)
+  })
+
+  it('hashJson is stable across key insertion order — the property signManifest depends on', async () => {
+    const ordered = await hashJson({ b: 2, a: 1 })
+    const reordered = await hashJson({ a: 1, b: 2 })
+    expect(ordered).toBe(reordered)
+    expect(ordered).toMatch(/^[0-9a-f]{64}$/)
+  })
+
+  it('hashJson matches signManifest contentHash for the same payload — generic primitive composes with the manifest signer', async () => {
+    const signed = await signManifest(base)
+    const direct = await hashJson(base)
+    expect(signed.contentHash).toBe(direct)
+  })
+
+  it('hashJson and prompt-registry hashContent are independent functions — different return shape', async () => {
+    // Regression: don't accidentally collapse the two. hashContent (prompt-registry)
+    // returns a 12-char id over a string. hashJson (here) returns 64 hex chars over
+    // canonicalized JSON.
+    const long = await hashJson('x')
+    expect(long).toMatch(/^[0-9a-f]{64}$/)
   })
 })
