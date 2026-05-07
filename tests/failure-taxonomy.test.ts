@@ -73,6 +73,86 @@ describe('classifyFailure', () => {
     expect(classifyFailure(ctx).failureClass).toBe('policy_violation')
   })
 
+  it('classifies missing integration connections before generic credential gaps', async () => {
+    const store = new InMemoryTraceStore()
+    const e = new TraceEmitter(store)
+    await e.startRun({ scenarioId: 'calendar-app' })
+    await e.emit({ kind: 'custom', payload: {
+      kind: 'integration_manifest_resolved',
+      manifestId: 'calendar-app',
+      missing: [{
+        status: 'missing_connection',
+        requirement: { id: 'calendar-read', connectorId: 'google-calendar' },
+        missingScopes: ['https://www.googleapis.com/auth/calendar.readonly'],
+      }],
+    } })
+    await e.endRun({ pass: false })
+    const ctx = await ctxFor(store, e.runId)
+    expect(classifyFailure(ctx)).toMatchObject({
+      failureClass: 'missing_integration_connection',
+      reason: 'required integration connection was missing',
+    })
+  })
+
+  it('classifies integration scope, approval, and policy failures distinctly', async () => {
+    const scopeStore = new InMemoryTraceStore()
+    const scopeEmitter = new TraceEmitter(scopeStore)
+    await scopeEmitter.startRun({ scenarioId: 'gmail-summary' })
+    await scopeEmitter.emit({ kind: 'custom', payload: {
+      kind: 'integration_invoke_failed',
+      action: 'gmail.messages.search',
+      code: 'scope_denied',
+    } })
+    await scopeEmitter.endRun({ pass: false })
+    expect(classifyFailure(await ctxFor(scopeStore, scopeEmitter.runId)).failureClass).toBe('missing_integration_scope')
+
+    const approvalStore = new InMemoryTraceStore()
+    const approvalEmitter = new TraceEmitter(approvalStore)
+    await approvalEmitter.startRun({ scenarioId: 'calendar-write' })
+    await approvalEmitter.emit({ kind: 'custom', payload: {
+      kind: 'integration_invoke',
+      action: 'google-calendar.events.create',
+      status: 'approval_required',
+    } })
+    await approvalEmitter.endRun({ pass: false })
+    expect(classifyFailure(await ctxFor(approvalStore, approvalEmitter.runId)).failureClass).toBe('integration_approval_required')
+
+    const deniedStore = new InMemoryTraceStore()
+    const deniedEmitter = new TraceEmitter(deniedStore)
+    await deniedEmitter.startRun({ scenarioId: 'unsafe-write' })
+    await deniedEmitter.emit({ kind: 'custom', payload: {
+      kind: 'integration_invoke_failed',
+      action: 'provider.http.request',
+      code: 'policy_denied',
+    } })
+    await deniedEmitter.endRun({ pass: false })
+    expect(classifyFailure(await ctxFor(deniedStore, deniedEmitter.runId)).failureClass).toBe('unsafe_integration_write_denied')
+  })
+
+  it('classifies bad integration manifests and provider failures', async () => {
+    const manifestStore = new InMemoryTraceStore()
+    const manifestEmitter = new TraceEmitter(manifestStore)
+    await manifestEmitter.startRun({ scenarioId: 'bad-manifest' })
+    await manifestEmitter.emit({ kind: 'custom', payload: {
+      kind: 'integration_manifest_validated',
+      valid: false,
+      issues: [{ path: 'requirements[0].requiredActions', message: 'required' }],
+    } })
+    await manifestEmitter.endRun({ pass: false })
+    expect(classifyFailure(await ctxFor(manifestStore, manifestEmitter.runId)).failureClass).toBe('bad_integration_manifest')
+
+    const providerStore = new InMemoryTraceStore()
+    const providerEmitter = new TraceEmitter(providerStore)
+    await providerEmitter.startRun({ scenarioId: 'provider-failure' })
+    await providerEmitter.emit({ kind: 'custom', payload: {
+      kind: 'integration_invoke_failed',
+      action: 'slack.messages.post',
+      code: 'provider_rate_limited',
+    } })
+    await providerEmitter.endRun({ pass: false })
+    expect(classifyFailure(await ctxFor(providerStore, providerEmitter.runId)).failureClass).toBe('integration_provider_failure')
+  })
+
   it('falls through to unknown when nothing else matches', async () => {
     const store = new InMemoryTraceStore()
     const e = new TraceEmitter(store)

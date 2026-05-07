@@ -57,6 +57,129 @@ export const DEFAULT_RULES: FailureRule[] = [
     },
   },
   {
+    id: 'bad-integration-manifest',
+    match: ({ events }) => {
+      const event = events.find((e) =>
+        e.kind === 'custom'
+        && e.payload.kind === 'integration_manifest_validated'
+        && e.payload.valid === false
+      )
+      return event
+        ? {
+            failureClass: 'bad_integration_manifest',
+            reason: 'integration manifest validation failed before launch',
+            triggerEventId: event.eventId,
+          }
+        : null
+    },
+  },
+  {
+    id: 'missing-integration-connection',
+    match: ({ events }) => {
+      const event = events.find((e) =>
+        e.kind === 'custom'
+        && e.payload.kind === 'integration_manifest_resolved'
+        && hasResolutionStatus(e.payload, 'missing_connection')
+      )
+      return event
+        ? {
+            failureClass: 'missing_integration_connection',
+            reason: 'required integration connection was missing',
+            triggerEventId: event.eventId,
+          }
+        : null
+    },
+  },
+  {
+    id: 'missing-integration-scope',
+    match: ({ events }) => {
+      const event = events.find((e) =>
+        e.kind === 'custom'
+        && (
+          (e.payload.kind === 'integration_manifest_resolved' && hasMissingScopes(e.payload)) ||
+          (e.payload.kind === 'integration_invoke_failed' && e.payload.code === 'scope_denied')
+        )
+      )
+      return event
+        ? {
+            failureClass: 'missing_integration_scope',
+            reason: 'integration grant or connection lacks required scopes',
+            triggerEventId: event.eventId,
+          }
+        : null
+    },
+  },
+  {
+    id: 'integration-approval-required',
+    match: ({ events }) => {
+      const event = events.find((e) =>
+        e.kind === 'custom'
+        && (
+          (e.payload.kind === 'integration_invoke' && e.payload.status === 'approval_required') ||
+          e.payload.kind === 'integration_approval_required'
+        )
+      )
+      return event
+        ? {
+            failureClass: 'integration_approval_required',
+            reason: 'integration write paused for user approval',
+            triggerEventId: event.eventId,
+          }
+        : null
+    },
+  },
+  {
+    id: 'integration-auth-expired',
+    match: ({ events }) => {
+      const event = events.find((e) =>
+        e.kind === 'custom'
+        && e.payload.kind === 'integration_invoke_failed'
+        && (e.payload.code === 'connection_not_active' || e.payload.code === 'capability_expired' || e.payload.status === 'expired')
+      )
+      return event
+        ? {
+            failureClass: 'integration_auth_expired',
+            reason: 'integration connection or capability expired',
+            triggerEventId: event.eventId,
+          }
+        : null
+    },
+  },
+  {
+    id: 'unsafe-integration-write-denied',
+    match: ({ events }) => {
+      const event = events.find((e) =>
+        e.kind === 'custom'
+        && e.payload.kind === 'integration_invoke_failed'
+        && (e.payload.code === 'policy_denied' || e.payload.code === 'action_denied')
+      )
+      return event
+        ? {
+            failureClass: 'unsafe_integration_write_denied',
+            reason: 'integration write was denied by policy or capability scope',
+            triggerEventId: event.eventId,
+          }
+        : null
+    },
+  },
+  {
+    id: 'integration-provider-failure',
+    match: ({ events }) => {
+      const event = events.find((e) =>
+        e.kind === 'custom'
+        && e.payload.kind === 'integration_invoke_failed'
+        && !['scope_denied', 'connection_not_active', 'capability_expired', 'policy_denied', 'action_denied'].includes(String(e.payload.code))
+      )
+      return event
+        ? {
+            failureClass: 'integration_provider_failure',
+            reason: 'integration provider invocation failed',
+            triggerEventId: event.eventId,
+          }
+        : null
+    },
+  },
+  {
     id: 'missing-credentials',
     match: ({ events }) => {
       const event = events.find((e) => e.kind === 'custom' && e.payload.kind === 'knowledge_gap' && e.payload.category === 'credential_or_secret')
@@ -202,6 +325,27 @@ export const DEFAULT_RULES: FailureRule[] = [
     },
   },
 ]
+
+function hasResolutionStatus(payload: Record<string, unknown>, status: string): boolean {
+  return resolutionItems(payload).some((item) => item.status === status)
+}
+
+function hasMissingScopes(payload: Record<string, unknown>): boolean {
+  return resolutionItems(payload).some((item) =>
+    Array.isArray(item.missingScopes) && item.missingScopes.length > 0
+  )
+}
+
+function resolutionItems(payload: Record<string, unknown>): Array<Record<string, unknown>> {
+  return [...records(payload.missing), ...records(payload.optionalMissing), ...records(payload.ready)]
+}
+
+function records(value: unknown): Array<Record<string, unknown>> {
+  if (!Array.isArray(value)) return []
+  return value.filter((item): item is Record<string, unknown> =>
+    Boolean(item) && typeof item === 'object' && !Array.isArray(item)
+  )
+}
 
 /** Classify the failure mode of a run using an ordered rule list. */
 export function classifyFailure(ctx: FailureContext, rules: FailureRule[] = DEFAULT_RULES): FailureClassification {
