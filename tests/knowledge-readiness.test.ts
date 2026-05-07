@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   acquisitionPlansForKnowledgeGaps,
   blockingKnowledgeEval,
+  knowledgeReadinessTracePayload,
   scoreKnowledgeReadiness,
   userQuestionsForKnowledgeGaps,
   type KnowledgeRequirement,
@@ -54,6 +55,12 @@ describe('knowledge readiness', () => {
     expect(evalResult.passed).toBe(false)
     expect(evalResult.severity).toBe('critical')
     expect(evalResult.metadata?.knowledgeReadiness).toBe(report)
+    expect(knowledgeReadinessTracePayload(report, { passed: false })).toMatchObject({
+      kind: 'readiness_scored',
+      taskId: 'task-1',
+      passed: false,
+      blockingRequirementIds: ['repo-build-command'],
+    })
   })
 
   it('builds reusable user questions and acquisition plans from gaps', () => {

@@ -43,26 +43,33 @@ failures:
 - `integration_provider_failure`
 - `unsafe_integration_write_denied`
 
-Emit custom trace events with these stable shapes:
+Use the helper payload builders and eval builders so products emit the same
+trace evidence:
 
 ```ts
-await trace.emit({
+const gate = {
+  connectorId: 'google-calendar',
+  actionId: 'events.create',
+  valid: true,
+  missingConnections: [],
+  missingScopes: ['calendar.events.write'],
+}
+
+const evals = integrationGateEvals(gate)
+
+await emitter.emit({
   kind: 'custom',
-  payload: {
-    kind: 'integration_manifest_resolved',
-    manifestId,
-    missing: resolution.missing,
-    optionalMissing: resolution.optionalMissing,
-  },
+  payload: integrationManifestResolvedPayload(gate),
 })
 
-await trace.emit({
+await emitter.emit({
   kind: 'custom',
-  payload: {
-    kind: 'integration_invoke_failed',
-    action: 'google-calendar.events.list',
-    code: 'connection_not_active',
-  },
+  payload: integrationInvokeFailedPayload({
+    connectorId: 'google-calendar',
+    actionId: 'events.create',
+    code: 'scope_denied',
+    message: 'calendar.events.write was not granted',
+  }),
 })
 ```
 

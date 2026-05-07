@@ -61,8 +61,10 @@ export const DEFAULT_RULES: FailureRule[] = [
     match: ({ events }) => {
       const event = events.find((e) =>
         e.kind === 'custom'
-        && e.payload.kind === 'integration_manifest_validated'
-        && e.payload.valid === false
+        && (
+          (e.payload.kind === 'integration_manifest_validated' && e.payload.valid === false) ||
+          (e.payload.kind === 'integration_invoke_failed' && e.payload.code === 'manifest_invalid')
+        )
       )
       return event
         ? {
@@ -116,6 +118,7 @@ export const DEFAULT_RULES: FailureRule[] = [
         e.kind === 'custom'
         && (
           (e.payload.kind === 'integration_invoke' && e.payload.status === 'approval_required') ||
+          (e.payload.kind === 'integration_invoke_failed' && e.payload.code === 'approval_required') ||
           e.payload.kind === 'integration_approval_required'
         )
       )
@@ -134,7 +137,7 @@ export const DEFAULT_RULES: FailureRule[] = [
       const event = events.find((e) =>
         e.kind === 'custom'
         && e.payload.kind === 'integration_invoke_failed'
-        && (e.payload.code === 'connection_not_active' || e.payload.code === 'capability_expired' || e.payload.status === 'expired')
+        && (e.payload.code === 'auth_expired' || e.payload.code === 'connection_not_active' || e.payload.code === 'capability_expired' || e.payload.status === 'expired')
       )
       return event
         ? {
@@ -151,7 +154,7 @@ export const DEFAULT_RULES: FailureRule[] = [
       const event = events.find((e) =>
         e.kind === 'custom'
         && e.payload.kind === 'integration_invoke_failed'
-        && (e.payload.code === 'policy_denied' || e.payload.code === 'action_denied')
+        && (e.payload.code === 'unsafe_write_denied' || e.payload.code === 'policy_denied' || e.payload.code === 'action_denied')
       )
       return event
         ? {
@@ -168,7 +171,17 @@ export const DEFAULT_RULES: FailureRule[] = [
       const event = events.find((e) =>
         e.kind === 'custom'
         && e.payload.kind === 'integration_invoke_failed'
-        && !['scope_denied', 'connection_not_active', 'capability_expired', 'policy_denied', 'action_denied'].includes(String(e.payload.code))
+        && ![
+          'scope_denied',
+          'approval_required',
+          'auth_expired',
+          'connection_not_active',
+          'capability_expired',
+          'unsafe_write_denied',
+          'policy_denied',
+          'action_denied',
+          'manifest_invalid',
+        ].includes(String(e.payload.code))
       )
       return event
         ? {
@@ -327,10 +340,12 @@ export const DEFAULT_RULES: FailureRule[] = [
 ]
 
 function hasResolutionStatus(payload: Record<string, unknown>, status: string): boolean {
+  if (status === 'missing_connection' && stringArray(payload.missingConnections).length > 0) return true
   return resolutionItems(payload).some((item) => item.status === status)
 }
 
 function hasMissingScopes(payload: Record<string, unknown>): boolean {
+  if (stringArray(payload.missingScopes).length > 0) return true
   return resolutionItems(payload).some((item) =>
     Array.isArray(item.missingScopes) && item.missingScopes.length > 0
   )
@@ -345,6 +360,10 @@ function records(value: unknown): Array<Record<string, unknown>> {
   return value.filter((item): item is Record<string, unknown> =>
     Boolean(item) && typeof item === 'object' && !Array.isArray(item)
   )
+}
+
+function stringArray(value: unknown): string[] {
+  return Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : []
 }
 
 /** Classify the failure mode of a run using an ordered rule list. */
