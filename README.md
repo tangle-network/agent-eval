@@ -197,6 +197,7 @@ tested, and copied without turning this page into a tutorial.
 - [Product Eval Adoption](./docs/product-eval-adoption.md)
 - [Control Runtime](./docs/control-runtime.md)
 - [Knowledge Readiness](./docs/knowledge-readiness.md)
+- [Integration Launch Gates](./docs/integration-launch-gates.md)
 - [Multi-Shot Optimization](./docs/multi-shot-optimization.md)
 - [Feedback Trajectories](./docs/feedback-trajectories.md)
 - [Wire Protocol](./docs/wire-protocol.md)

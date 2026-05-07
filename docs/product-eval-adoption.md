@@ -177,6 +177,11 @@ Use `@tangle-network/agent-integrations` manifests as readiness inputs. Gate
 missing connections, missing scopes, approval-required writes, and stale tokens
 before blaming the agent prompt.
 
+For generated apps and sandbox agents, also run the
+[Integration Launch Gates](./integration-launch-gates.md). The eval should prove
+that app code invokes through the integration bridge, not provider SDKs with raw
+OAuth tokens.
+
 ### Voice Agent
 
 Record transcript, timing, interruptions, tool calls, and task outcome. Judge

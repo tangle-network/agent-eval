@@ -241,6 +241,13 @@ export type FailureClass =
   | 'missing_codebase_context'
   | 'missing_runtime_context'
   | 'missing_credentials'
+  | 'missing_integration_connection'
+  | 'missing_integration_scope'
+  | 'integration_approval_required'
+  | 'integration_auth_expired'
+  | 'integration_provider_failure'
+  | 'bad_integration_manifest'
+  | 'unsafe_integration_write_denied'
   | 'stale_external_data'
   | 'bad_retrieval'
   | 'insufficient_evidence'
@@ -271,6 +278,13 @@ export const FAILURE_CLASSES: readonly FailureClass[] = [
   'missing_codebase_context',
   'missing_runtime_context',
   'missing_credentials',
+  'missing_integration_connection',
+  'missing_integration_scope',
+  'integration_approval_required',
+  'integration_auth_expired',
+  'integration_provider_failure',
+  'bad_integration_manifest',
+  'unsafe_integration_write_denied',
   'stale_external_data',
   'bad_retrieval',
   'insufficient_evidence',
