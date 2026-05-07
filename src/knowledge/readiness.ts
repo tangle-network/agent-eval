@@ -1,4 +1,5 @@
 import { objectiveEval, type ControlEvalResult } from '../control-runtime'
+import type { TraceEmitter } from '../trace/emitter'
 import type {
   DataAcquisitionPlan,
   KnowledgeAcquisitionMode,
@@ -65,10 +66,16 @@ export function scoreKnowledgeReadiness(options: ScoreKnowledgeReadinessOptions)
 
 export function blockingKnowledgeEval(
   report: KnowledgeReadinessReport,
-  options: { id?: string; minimumScore?: number } = {},
+  options: { id?: string; minimumScore?: number; emitter?: TraceEmitter } = {},
 ): ControlEvalResult {
   const minimumScore = options.minimumScore ?? 0.7
   const passed = report.blockingMissingRequirements.length === 0 && report.readinessScore >= minimumScore
+  if (options.emitter) {
+    void options.emitter.emit({
+      kind: 'custom',
+      payload: knowledgeReadinessTracePayload(report, { passed, minimumScore }),
+    }).catch(() => undefined)
+  }
   return objectiveEval({
     id: options.id ?? 'knowledge-ready',
     passed,
@@ -78,6 +85,24 @@ export function blockingKnowledgeEval(
     evidence: report.blockingMissingRequirements.map((r) => r.id).join(', ') || undefined,
     metadata: { knowledgeReadiness: report },
   })
+}
+
+export function knowledgeReadinessTracePayload(
+  report: KnowledgeReadinessReport,
+  options: { passed?: boolean; minimumScore?: number } = {},
+): Record<string, unknown> {
+  return {
+    kind: 'readiness_scored',
+    taskId: report.taskId,
+    passed: options.passed ?? report.blockingMissingRequirements.length === 0,
+    readinessScore: report.readinessScore,
+    minimumScore: options.minimumScore,
+    blockingRequirementIds: report.blockingMissingRequirements.map((r) => r.id),
+    nonBlockingRequirementIds: report.nonBlockingGaps.map((r) => r.id),
+    recommendedAction: report.recommendedAction,
+    severity: report.severity,
+    reason: report.reason,
+  }
 }
 
 export function userQuestionsForKnowledgeGaps(gaps: KnowledgeRequirement[]): UserQuestion[] {

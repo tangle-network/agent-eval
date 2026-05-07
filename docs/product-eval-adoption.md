@@ -98,6 +98,23 @@ replayable eval data.
 production run -> feedback trajectory -> dataset scenario -> optimizer row
 ```
 
+For promotion-grade runs, also project the completed control result into a
+strict `RunRecord`:
+
+```ts
+const record = controlRunToRunRecord(controlResult, {
+  experimentId,
+  candidateId,
+  seed,
+  model: 'gpt-4o-2024-11-20',
+  promptHash,
+  configHash,
+  commitSha,
+  splitTag: 'holdout',
+  tokenUsage,
+})
+```
+
 ## Datasets And Holdouts
 
 Use four splits:
@@ -106,6 +123,10 @@ Use four splits:
 - `dev`: tuning and threshold selection.
 - `test`: normal reporting.
 - `holdout`: promotion-only gate.
+
+The low-level `RunRecord` schema uses `search | dev | holdout`; map `train`
+and normal non-holdout test/report rows to `search` when producing promotion
+tables.
 
 Do not inspect or tune against holdout failures during optimization. If a
 holdout failure reveals a real product bug, fix the bug and rotate the holdout
@@ -149,6 +170,7 @@ A launch or promotion should require:
 - cost and latency within budget
 - no unresolved canary or contamination failures
 - trace evidence for representative successes and failures
+- TraceAnalyst findings for failure-heavy or regression-heavy corpora
 - human-readable report with failure clusters and next actions
 
 `evaluateReleaseConfidence()` and the paired statistics helpers provide the

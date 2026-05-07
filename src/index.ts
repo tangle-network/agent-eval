@@ -77,7 +77,27 @@ export type {
   ControlStopPolicies,
   StopDecision,
 } from './control-runtime'
+export {
+  controlRunToRunRecord,
+  scoreFromEvals,
+} from './run-evidence'
+export type {
+  ControlRunToRunRecordOptions,
+  RunEvidenceMetadata,
+} from './run-evidence'
 export * from './knowledge'
+export {
+  integrationAsi,
+  integrationGateEvals,
+  integrationInvokeFailedPayload,
+  integrationManifestResolvedPayload,
+  integrationManifestValidatedPayload,
+} from './integration-gates'
+export type {
+  IntegrationGateSurface,
+  IntegrationInvokeFailureInput,
+  IntegrationManifestGateInput,
+} from './integration-gates'
 export {
   FileSystemFeedbackTrajectoryStore,
   InMemoryFeedbackTrajectoryStore,
@@ -824,6 +844,7 @@ export {
   evaluateReleaseConfidence,
   releaseTraceEvidenceFromMultiShotTrials,
 } from './release-confidence'
+export { renderReleaseReport } from './release-report'
 export type {
   ReleaseConfidenceAxis,
   ReleaseConfidenceAxisName,
@@ -835,6 +856,7 @@ export type {
   ReleaseConfidenceThresholds,
   ReleaseTraceEvidence,
 } from './release-confidence'
+export type { RenderReleaseReportOptions } from './release-report'
 
 // ── 0.14.0: concurrency + persistence + telemetry primitives for evolution loops ──
 export { Mutex } from './concurrency'

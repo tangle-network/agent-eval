@@ -45,8 +45,9 @@ Use `agent-eval` when you need one or more of these:
 ```txt
 agent/product run
   -> TraceEmitter / TraceStore
+  -> TraceAnalyst / failure taxonomy
   -> SandboxHarness / MultiLayerVerifier / JudgeRunner
-  -> failure taxonomy + metrics
+  -> metrics + run records
   -> paired stats + held-out gates
   -> optimization + release confidence + reports
 ```
@@ -140,17 +141,19 @@ multi-shot optimization against the same adapter.
 | Primitive | Purpose |
 |---|---|
 | `TraceEmitter`, `TraceStore` | Append-only run/span/event/artifact/budget records. |
+| `TraceAnalyst` | Bounded investigation over trace corpora for systemic failure modes. |
 | `SandboxHarness` | Build/test/runtime checks with captured stdout, stderr, exit codes, wall time, and parsed test counts. |
 | `MultiLayerVerifier` | Ordered verification stages with dependencies, skip-on-fail, findings, scores, and time caps. |
 | `JudgeRunner` | Parallel deterministic or LLM-backed judges over the same artifact/run. |
 | `runAgentControlLoop` | Observe/validate/decide/act loop with budgets, stop policies, and structured eval results. |
+| `controlRunToRunRecord` | Converts control-loop evidence into strict promotion/report rows. |
 | `Dataset`, `RunRecord`, `HeldOutGate` | Versioned corpora, reproducible run metadata, and held-out promotion decisions. |
 | `pairedBootstrap`, `pairedWilcoxon`, `bhAdjust` | Paired experiment statistics and multiple-comparison correction. |
 | `classifyFailure` | Rule-based failure classification for agent, tool, sandbox, retrieval, and knowledge failures. |
 | `runMultiShotOptimization` | Optimization over full agent trajectories with actionable side information. |
 | `runPromptEvolution` | Prompt/steering/code evolution over scenario scores. |
 | `evaluateReleaseConfidence` | Release scorecard across evidence volume, pass rate, score, overfit, cost, latency, and gates. |
-| `summaryTable`, `paretoChart`, `gainHistogram` | Report-ready structured outputs. |
+| `renderReleaseReport`, `summaryTable`, `paretoChart`, `gainHistogram` | Report-ready decision artifacts and chart specs. |
 | `KnowledgeRequirement`, `KnowledgeBundle` | Shared contracts for knowledge readiness. |
 
 `NoopResearcher` is a fail-loud sentinel for wiring tests. Production systems
@@ -195,6 +198,7 @@ tested, and copied without turning this page into a tutorial.
 - [Concepts](./docs/concepts.md)
 - [Feature Guide](./docs/feature-guide.md)
 - [Product Eval Adoption](./docs/product-eval-adoption.md)
+- [Trace Analysis](./docs/trace-analysis.md)
 - [Control Runtime](./docs/control-runtime.md)
 - [Knowledge Readiness](./docs/knowledge-readiness.md)
 - [Integration Launch Gates](./docs/integration-launch-gates.md)
