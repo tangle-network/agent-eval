@@ -82,12 +82,12 @@ function normalizeRawMetrics<TState, TAction, TActionResult, TEval extends Contr
   score: number,
 ): Record<string, number> {
   return {
+    ...finiteOnly(raw ?? {}),
     score,
     pass: run.pass ? 1 : 0,
     completed: run.completed ? 1 : 0,
     steps: run.steps.length,
     runtimeErrors: run.runtimeErrors.length,
-    ...finiteOnly(raw ?? {}),
   }
 }
 

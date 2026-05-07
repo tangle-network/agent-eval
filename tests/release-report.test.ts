@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest'
-import { evaluateReleaseConfidence, renderReleaseReport, type RunRecord } from '../src'
+import { evaluateReleaseConfidence } from '../src/release-confidence'
+import { renderReleaseReport } from '../src/release-report'
+import type { RunRecord } from '../src/run-record'
 
 function rec(candidateId: string, score: number, splitTag: 'search' | 'holdout' = 'holdout'): RunRecord {
   return {

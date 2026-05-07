@@ -5,7 +5,7 @@ import {
   integrationInvokeFailedPayload,
   integrationManifestResolvedPayload,
   integrationManifestValidatedPayload,
-} from '../src'
+} from '../src/integration-gates'
 import { classifyFailure } from '../src/failure-taxonomy'
 import type { Run, TraceEvent } from '../src/trace/schema'
 
@@ -44,24 +44,76 @@ describe('integration gate helpers', () => {
       status: 'blocked',
       missingConnections: ['google-calendar'],
       missingScopes: ['calendar.events.write'],
+      missing: [
+        {
+          status: 'missing_connection',
+          connectorId: 'google-calendar',
+        },
+        {
+          status: 'missing_scope',
+          connectorId: 'google-calendar',
+          missingScopes: ['calendar.events.write'],
+        },
+      ],
     })
   })
 
-  it('emits payloads that classify integration failures', () => {
+  it('emits manifest payloads that classify missing connections', () => {
     const event: TraceEvent = {
       eventId: 'evt-1',
+      runId: 'run-1',
+      kind: 'custom',
+      timestamp: 1,
+      payload: integrationManifestResolvedPayload({
+        connectorId: 'google-calendar',
+        actionId: 'events.list',
+        valid: true,
+        missingConnections: ['google-calendar'],
+      }),
+    }
+
+    expect(classifyFailure({ run: failedRun, spans: [], events: [event] }).failureClass).toBe('missing_integration_connection')
+  })
+
+  it('emits manifest payloads that classify missing scopes', () => {
+    const event: TraceEvent = {
+      eventId: 'evt-1',
+      runId: 'run-1',
+      kind: 'custom',
+      timestamp: 1,
+      payload: integrationManifestResolvedPayload({
+        connectorId: 'google-calendar',
+        actionId: 'events.create',
+        valid: true,
+        missingScopes: ['calendar.events.write'],
+      }),
+    }
+
+    expect(classifyFailure({ run: failedRun, spans: [], events: [event] }).failureClass).toBe('missing_integration_scope')
+  })
+
+  it.each([
+    ['scope_denied', 'missing_integration_scope'],
+    ['auth_expired', 'integration_auth_expired'],
+    ['unsafe_write_denied', 'unsafe_integration_write_denied'],
+    ['manifest_invalid', 'bad_integration_manifest'],
+    ['approval_required', 'integration_approval_required'],
+    ['provider_failure', 'integration_provider_failure'],
+  ] as const)('classifies invoke failure code %s', (code, failureClass) => {
+    const event: TraceEvent = {
+      eventId: `evt-${code}`,
       runId: 'run-1',
       kind: 'custom',
       timestamp: 1,
       payload: integrationInvokeFailedPayload({
         connectorId: 'slack',
         actionId: 'chat.postMessage',
-        code: 'scope_denied',
-        message: 'missing chat:write',
+        code,
+        message: code,
       }),
     }
 
-    expect(classifyFailure({ run: failedRun, spans: [], events: [event] }).failureClass).toBe('missing_integration_scope')
+    expect(classifyFailure({ run: failedRun, spans: [], events: [event] }).failureClass).toBe(failureClass)
   })
 
   it('maps blocked gates into actionable side information', () => {

@@ -54,14 +54,29 @@ export function integrationManifestValidatedPayload(input: IntegrationManifestGa
 }
 
 export function integrationManifestResolvedPayload(input: IntegrationManifestGateInput): Record<string, unknown> {
+  const missingConnections = input.missingConnections ?? []
+  const missingScopes = input.missingScopes ?? []
+  const requiredScopes = input.requiredScopes ?? []
+  const status = input.status ?? statusForManifest(input)
+
   return {
     kind: 'integration_manifest_resolved',
     connectorId: input.connectorId,
     ...(input.actionId ? { actionId: input.actionId } : {}),
-    status: input.status ?? statusForManifest(input),
-    missingConnections: input.missingConnections ?? [],
-    missingScopes: input.missingScopes ?? [],
-    requiredScopes: input.requiredScopes ?? [],
+    status,
+    missingConnections,
+    missingScopes,
+    requiredScopes,
+    missing: resolutionMissingItems(input, missingConnections, missingScopes, requiredScopes),
+    optionalMissing: [],
+    ready: status === 'ready'
+      ? [{
+          status: 'ready',
+          connectorId: input.connectorId,
+          ...(input.actionId ? { actionId: input.actionId } : {}),
+          requiredScopes,
+        }]
+      : [],
     approvalRequired: input.approvalRequired ?? false,
     ...(input.reason ? { reason: input.reason } : {}),
     ...(input.metadata ? { metadata: input.metadata } : {}),
@@ -174,6 +189,33 @@ function statusForManifest(input: IntegrationManifestGateInput): 'ready' | 'bloc
   if (input.approvalRequired) return 'approval_required'
   if (!input.valid || (input.missingConnections?.length ?? 0) > 0 || (input.missingScopes?.length ?? 0) > 0) return 'blocked'
   return 'ready'
+}
+
+function resolutionMissingItems(
+  input: IntegrationManifestGateInput,
+  missingConnections: string[],
+  missingScopes: string[],
+  requiredScopes: string[],
+): Array<Record<string, unknown>> {
+  const connectionItems = missingConnections.map((connectorId) => ({
+    status: 'missing_connection',
+    connectorId,
+    ...(input.actionId ? { actionId: input.actionId } : {}),
+    requiredScopes,
+  }))
+
+  if (missingScopes.length === 0) return connectionItems
+
+  return [
+    ...connectionItems,
+    {
+      status: 'missing_scope',
+      connectorId: input.connectorId,
+      ...(input.actionId ? { actionId: input.actionId } : {}),
+      missingScopes,
+      requiredScopes,
+    },
+  ]
 }
 
 function surfaceForInvokeFailure(code: IntegrationInvokeFailureInput['code']): IntegrationGateSurface {
