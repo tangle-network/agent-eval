@@ -3,6 +3,7 @@ import {
   summaryTable,
   paretoChart,
   gainHistogram,
+  researchReport,
 } from '../src/summary-report'
 import type { RunRecord } from '../src/run-record'
 import type { GateDecision } from '../src/promotion-gate'
@@ -139,5 +140,81 @@ describe('gainHistogram', () => {
   it('rejects bins ≤ 0', () => {
     const runs = [rec('a', 0, 'holdout', 0.5), rec('b', 0, 'holdout', 0.5)]
     expect(() => gainHistogram(runs, 'a', 'b', { bins: 0 })).toThrow()
+  })
+})
+
+describe('researchReport', () => {
+  it('promotes the strongest coding-bench candidate when paired holdout evidence is decisive', () => {
+    const runs: RunRecord[] = []
+    for (let i = 0; i < 12; i++) {
+      runs.push(rec('baseline', i, 'holdout', 0.55 + i * 0.001, 0.08, `coding-task-${i}`))
+      runs.push(rec('tool_repair_v2', i, 'holdout', 0.72 + i * 0.001, 0.10, `coding-task-${i}`))
+      runs.push(rec('cheap_fast', i, 'holdout', 0.58 + i * 0.001, 0.02, `coding-task-${i}`))
+    }
+
+    const report = researchReport(runs, {
+      title: 'Coding Vertical Bench Report',
+      comparator: 'baseline',
+      generatedAt: '2026-05-03T00:00:00.000Z',
+      seed: 1,
+    })
+
+    expect(report.kind).toBe('agent-eval-research-report')
+    expect(report.recommendation.decision).toBe('promote')
+    expect(report.recommendation.candidateId).toBe('tool_repair_v2')
+    expect(report.candidates.find((c) => c.candidateId === 'tool_repair_v2')?.decision).toBe('promote')
+    expect(report.markdown).toContain('## Executive Summary')
+    expect(report.markdown).toContain('## Candidate Decision Table')
+    expect(report.markdown).toContain('```json')
+    expect(report.html).toContain('<table>')
+    expect(report.charts.pareto.points).toHaveLength(3)
+    expect(report.charts.gains).toHaveLength(2)
+  })
+
+  it('returns needs_more_data when paired coding runs are below threshold', () => {
+    const runs: RunRecord[] = []
+    for (let i = 0; i < 3; i++) {
+      runs.push(rec('baseline', i, 'holdout', 0.5, 0.05, `task-${i}`))
+      runs.push(rec('candidate', i, 'holdout', 0.7, 0.05, `task-${i}`))
+    }
+
+    const report = researchReport(runs, {
+      comparator: 'baseline',
+      minPairs: 6,
+      generatedAt: '2026-05-03T00:00:00.000Z',
+    })
+
+    expect(report.recommendation.decision).toBe('needs_more_data')
+    expect(report.candidates.find((c) => c.candidateId === 'candidate')?.decision).toBe('needs_more_data')
+    expect(report.recommendation.nextActions).toContain('Collect more matched holdout runs for inconclusive candidates.')
+  })
+
+  it('surfaces failure clusters as rollout risks and next actions', () => {
+    const runs: RunRecord[] = []
+    for (let i = 0; i < 8; i++) {
+      runs.push(rec('baseline', i, 'holdout', 0.6, 0.05, `task-${i}`))
+      runs.push(rec('candidate', i, 'holdout', 0.61, 0.05, `task-${i}`))
+    }
+
+    const report = researchReport(runs, {
+      comparator: 'baseline',
+      generatedAt: '2026-05-03T00:00:00.000Z',
+      failureClusters: {
+        totalFailures: 4,
+        totalRuns: 16,
+        clusters: [{
+          failureClass: 'tool_recovery_failure',
+          toolName: 'shell',
+          runCount: 4,
+          scenarioIds: ['task-1', 'task-2'],
+          exampleRunId: 'candidate-1-holdout',
+          exampleError: 'patch failed',
+        }],
+      },
+    })
+
+    expect(report.recommendation.risks.join('\n')).toContain('tool_recovery_failure')
+    expect(report.markdown).toContain('## Failure Clusters')
+    expect(report.markdown).toContain('patch failed')
   })
 })

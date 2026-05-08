@@ -735,6 +735,7 @@ export {
   summaryTable,
   paretoChart,
   gainHistogram,
+  researchReport,
 } from './summary-report'
 export type {
   SummaryTable,
@@ -745,6 +746,11 @@ export type {
   GainDistributionFigureSpec,
   GainDistributionBin,
   GainDistributionOptions,
+  ResearchReport,
+  ResearchReportOptions,
+  ResearchReportCandidate,
+  ResearchReportDecision,
+  ResearchReportRecommendation,
 } from './summary-report'
 
 export { runCanaries } from './canary'
