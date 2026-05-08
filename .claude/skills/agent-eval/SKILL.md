@@ -47,6 +47,11 @@ If a term below isn't in this table or in `docs/concepts.md`, that's a bug — f
 | Standardize a paper-grade run record (snapshot-pinned, hashed, costed) | `RunRecord` + `validateRunRecord` |
 | Detect silent judge fallback / calibration drift / distribution shift | `runCanaries` |
 | Emit an A/B summary table or Pareto / gain figure spec | `summaryTable` / `paretoChart` / `gainHistogram` |
+| Build a launch-decision-grade research report (paired stats, ROPE, MDE, fingerprint, methodology) | `researchReport` (§Research reports) |
+| Capture every provider HTTP request/response for forensics | `RawProviderSink` + `LlmClientOptions.rawSink` (§Capture integrity Directive 1) |
+| Fail loud if the eval would silently use the wrong route | `assertLlmRoute` (§Capture integrity Directive 2) |
+| Assert at run-end that the artifact is complete | `assertRunCaptured` + `throwIfRunIncomplete` (§Capture integrity Directive 3) |
+| Auto-execute the trace analyst on every run | `traceAnalystOnRunComplete` + `TraceEmitterOptions.onRunComplete` (§Capture integrity Directive 4) |
 | Stable hook for an external research-driver agent | `Researcher` (interface) + `NoopResearcher` (placeholder) |
 
 Extend, don't fork — see §"Extend, don't duplicate."
@@ -62,6 +67,11 @@ Extend, don't fork — see §"Extend, don't duplicate."
 | `pairedBootstrap`, `pairedWilcoxon`, `bhAdjust` | `paired-stats.ts` | Stats primitives. Pass `seed` to `pairedBootstrap` when the result feeds a CI / promotion decision. |
 | `runCanaries` | `canary.ts` | Silent fallback (constant confidence), calibration drift (KS), distribution shift (chi-square). Returns a report; doesn't fail tests — wire it to a notification. |
 | `summaryTable`, `paretoChart`, `gainHistogram` | `summary-report.ts` | A/B reporting. `summaryTable` emits markdown with bootstrap CIs + paired Wilcoxon p (BH-adjusted) + Cohen's d. The other two return vega-lite-friendly specs. |
+| `researchReport` | `summary-report.ts` | Async, launch-decision-grade artifact: paired-evidence-only verdicts (`promote` / `hold` / `equivalent` / `reject` / `needs_more_data`), ROPE, Pr(Δ>0), per-candidate MDE via `pairedMde`, SHA-256 `runFingerprint`, optional `preregistrationHash`, embedded methodology. See [`docs/research-report-methodology.md`](../../../docs/research-report-methodology.md). |
+| `RawProviderSink` + `callLlm({ rawSink })` | `trace/raw-provider-sink.ts`, `llm-client.ts` | First-class HTTP-level capture alongside `LlmSpan`. `Authorization` / `X-Api-Key` / credential-shaped body fields auto-redacted; `event.redactedFields` records what was stripped. `FileSystemRawProviderSink` rolls at 32 MiB. **Every eval run wires this** — see Directive 1. |
+| `assertLlmRoute` | `llm-client.ts` | Pure preflight guard. Throws `LlmRouteAssertionError` on missing baseUrl, blocked URL, missing auth, wrong provider. Call once at matrix-runner construction. See Directive 2. |
+| `assertRunCaptured` + `throwIfRunIncomplete` | `trace/integrity.ts` | Read-only run-completion check. `requireRawCoverageOfLlmSpans` catches the bug class where structured spans were emitted but raw HTTP capture went to a different sink. See Directive 3. |
+| `onRunComplete` hooks + `traceAnalystOnRunComplete` | `trace/emitter.ts`, `trace-analyst/hook.ts` | Declarative auto-orchestration after `endRun` / `abortRun`. Errors are swallowed and logged by default (auto-orchestration must not crash the underlying flow). See Directive 4. |
 | `Researcher` (interface) + `NoopResearcher` | `researcher.ts` | Stable hook for an external agent that drives the meta-loop. Real implementations live downstream. |
 | `BenchmarkAdapter` + `routing` benchmark | `benchmarks/` | One adapter contract + the synthetic routing task we own. Reference wrappers for GSM8K and SWE-Bench-Lite live under `examples/benchmarks/`. `BENCHMARK_SPLIT_SEED = "agent-eval-v1"` — never change it. |
 
@@ -299,6 +309,104 @@ Fail closed; use `// muffle-ok: <reason>` for the rare exception.
 
 ---
 
+## Capture integrity (REQUIRED for launch-grade adoption)
+
+A run that *appears* successful but lost its forensic evidence is worse than a failed run — a launch reviewer can't distinguish "we measured a real win" from "we measured nothing on the wrong route." The four directives below are the operational discipline that turns the analytical primitives into a launch-grade artifact. **Skip one and the consumer's run is descriptive, not anchoring** — the same failure mode that prompted the 0.21.0 release.
+
+If you're wrapping agent-eval in a matrix runner, propose-review loop, or `BuilderSession`-driven sweep, you wire all four. Trace evidence + paired stats + held-out gate is the analytical surface; capture + route guard + integrity assertion + auto-orchestration is what makes that surface trustworthy.
+
+### Directive 1 — every eval run wires a `RawProviderSink`
+
+```ts
+import { FileSystemRawProviderSink, callLlm } from '@tangle-network/agent-eval'
+const sink = new FileSystemRawProviderSink({ dir: `${workDir}/raw-events` })
+await callLlm(req, { rawSink: sink, traceContext: { runId, spanId }, ...llmOpts })
+```
+
+**Why**: `LlmSpan` records *intent* (model, messages, output, token counts). The raw HTTP body is *ground truth*. Token counts can lie; a proxy can echo a different `model` than answered. Without raw capture you cannot answer "did the verifier hit the wrong route?" or "where did the reasoning tokens go?" after the fact.
+
+**Default redaction** strips `Authorization` / `X-Api-Key` / `X-Auth-Token` / `Cookie` headers and credential-shaped body fields (`apiKey`, `bearer`, `password`, `secret`, `token`, `refresh_token`, …). `event.redactedFields` records the paths so a reviewer sees what was stripped without exposing values. Every retry attempt produces its own `request` and `response` (or `error`) event with `attemptIndex`.
+
+**Sinks**: `InMemoryRawProviderSink` (tests, dev), `FileSystemRawProviderSink` (rolls at 32 MiB, NDJSON), `NoopRawProviderSink` (when explicitly opting out — annotate why). DuckDB / Langfuse / object-store implementations land downstream against the same interface.
+
+**Shipped incident**: `blueprint-agent` matrix run failed launch review because raw events were never written; structured spans alone could not answer "was the verifier hitting the free-tier router?"
+
+### Directive 2 — assert the route at preflight
+
+```ts
+import { assertLlmRoute } from '@tangle-network/agent-eval'
+assertLlmRoute(llmOpts, {
+  requireExplicitBaseUrl: true,                                 // never silently fall back to DEFAULT_BASE_URL
+  allowedBaseUrls: [/api\.openai\.com/, /router\.tangle\.tools/],
+  requireAuth: true,
+  expectedProvider: 'openai',                                   // optional: pin the resolved provider
+})
+```
+
+**Why**: with `baseUrl` undefined, `callLlm` falls back to `DEFAULT_BASE_URL`. An eval sweep that quietly targets the public/free-tier route produces launch-decision-grade artifacts on the wrong provider — the report scores something the operator never intended to ship. Pure function, no I/O — call from constructors, CI gates, preflight validators.
+
+`LlmRouteAssertionError.code` is structured (`no_explicit_base_url` | `base_url_blocked` | `base_url_not_allowed` | `no_auth` | `wrong_provider`) for programmatic recovery.
+
+**Shipped incident**: same `blueprint-agent` matrix run silently used the public router; 0.21 ships this so the next consumer fails closed at preflight.
+
+### Directive 3 — assert the run captured before declaring done
+
+```ts
+import { assertRunCaptured, throwIfRunIncomplete } from '@tangle-network/agent-eval'
+const report = await assertRunCaptured(store, emitter.runId, {
+  llmSpansMin: 1,
+  judgeSpansMin: 1,
+  rawSink,
+  requireRawCoverageOfLlmSpans: true,    // every LlmSpan has a matching raw `request` event
+  requireOutcome: true,
+})
+throwIfRunIncomplete(report)             // strict; or branch on report.issues for retry
+```
+
+**Why**: a run can complete with `status='completed'` and zero raw events (sink wired to wrong dir, fs error swallowed, integrity wired but disk full). Without an end-of-run assertion the partial-capture bug class is invisible until launch review. `requireRawCoverageOfLlmSpans` specifically catches the case where the structured `LlmSpan` was emitted but the raw HTTP capture went to a different sink — the highest-stakes silent failure in the eval pipeline.
+
+Issue codes: `no_run` | `missing_llm_spans` | `missing_judge_spans` | `missing_tool_spans` | `missing_raw_events` | `no_raw_sink` | `orphan_llm_span` | `missing_outcome`.
+
+### Directive 4 — auto-execute the trace analyst via hook, not out-of-band
+
+```ts
+import { TraceEmitter } from '@tangle-network/agent-eval'
+import { traceAnalystOnRunComplete } from '@tangle-network/agent-eval/traces'
+
+const emitter = new TraceEmitter(store, {
+  onRunComplete: [
+    traceAnalystOnRunComplete({ analyze: { source, ai }, save: writeAnalysis }),
+  ],
+})
+```
+
+**Why**: out-of-band steps get skipped (CI flag forgotten, env var missing, "I'll run it manually after"). Declarative hooks fire as part of `endRun` / `abortRun` and never get omitted. Hook errors are swallowed and recorded as `log` events by default — auto-orchestration must not crash the underlying flow. Opt into propagation with `hookErrors: 'throw'` for tests.
+
+**Shipped incident**: `blueprint-agent` matrix run never produced an analyst artifact for a sweep the consumer expected to be self-analyzing.
+
+### Composed shape — the four together
+
+```ts
+const sink = new FileSystemRawProviderSink({ dir: `${workDir}/raw-events` })
+assertLlmRoute(llmOpts, { requireExplicitBaseUrl: true, allowedBaseUrls, requireAuth: true })
+
+const emitter = new TraceEmitter(store, {
+  onRunComplete: [traceAnalystOnRunComplete({ analyze: analystOpts, save: writeAnalysis })],
+})
+await emitter.startRun({ scenarioId, layer: 'app-runtime' })
+// LLM calls flow through callLlm with `{ rawSink: sink, traceContext: { runId, spanId } }`.
+await emitter.endRun({ pass, score })
+
+const integrity = await assertRunCaptured(store, emitter.runId, {
+  llmSpansMin: 1, rawSink: sink, requireRawCoverageOfLlmSpans: true, requireOutcome: true,
+})
+throwIfRunIncomplete(integrity)
+```
+
+If you're skipping any of the four for a reason that isn't "this is a unit test, capture is irrelevant," document the reason inline. The cost of capture is one NDJSON file; the cost of skipping it is the next launch decision.
+
+---
+
 ## Pitfalls
 
 1. **Pin the model snapshot.** `validateRunRecord` rejects bare aliases like `claude-sonnet-4-6`. Record `claude-sonnet-4-6@2025-04-15`. Aliases re-map silently; a bare-alias row can't be re-evaluated.
@@ -322,6 +430,14 @@ Fail closed; use `// muffle-ok: <reason>` for the rare exception.
 10. **Don't re-implement the gate.** Inline "honesty override" / "minimum runs" / "paired delta on holdout" blocks are `HeldOutGate`. Use the primitive.
 
 11. **`Researcher` is an interface, not an implementation.** Real brains live downstream. Keeping this stub-only is what keeps the contract stable.
+
+12. **`researchReport` is async (0.21+).** Web Crypto is used for the run fingerprint; `await` it. The only caller you might miss is a synchronous test helper.
+
+13. **`researchReport.minPairs` defaults to 20 (0.21+).** The pre-0.21 default was 6; that was the soft floor of a rigorous report and got bumped because the previous default invited promotion calls on under-powered evidence. The hard floor (`RESEARCH_REPORT_HARD_PAIR_FLOOR`) is 6 and overrides any caller setting below it.
+
+14. **`RawProviderSink` redaction is allowlist-of-strip, not allowlist-of-keep.** The default redactor strips well-known auth headers and credential-shaped body fields, but a custom header your proxy uses won't be auto-stripped. If a non-standard auth scheme is in play (`X-Org-Token`, etc.), pass a `redactor` that extends `defaultProviderRedactor`. The cost of a leaked token in NDJSON is high.
+
+15. **Hook errors are swallowed and logged by default.** `TraceEmitterOptions.onRunComplete` hooks that throw don't crash the run — that's intentional, auto-orchestration must not fail the underlying flow. If a hook is *load-bearing* for the run's correctness (e.g. a gate that must pass before declaring success), set `hookErrors: 'throw'` or wire the gate as an explicit assertion outside the hook.
 
 ---
 
