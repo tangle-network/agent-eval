@@ -1,14 +1,18 @@
-"""tangle-agent-eval — Python client for @tangle-network/agent-eval.
+"""agent-eval-rpc — Python RPC client for @tangle-network/agent-eval.
 
 The TypeScript package is the source of truth for evaluation logic. This
 client is a thin transport adapter — every judgement runs in the Node
 runtime, marshalled over HTTP or stdio RPC. Two languages, one
 implementation.
 
+The package distributes as ``agent-eval-rpc`` on PyPI and imports as
+``agent_eval_rpc`` to make the wire-client nature explicit; the rubric
+logic lives upstream in ``@tangle-network/agent-eval`` on npm.
+
 Quickstart
 ----------
 
-    from tangle_agent_eval import Client
+    from agent_eval_rpc import Client
 
     client = Client()  # auto-detects HTTP server, falls back to subprocess
     result = client.judge(content="our scaffold supports zero-copy IO", rubric_name="anti-slop")
@@ -42,7 +46,7 @@ from .models import (
 )
 
 try:
-    __version__ = version("tangle-agent-eval")
+    __version__ = version("agent-eval-rpc")
 except PackageNotFoundError:
     __version__ = "0.21.0"
 

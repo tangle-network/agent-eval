@@ -74,7 +74,9 @@ surface.
 
 ### Python client
 
-Locked at `tangle-agent-eval==0.21.0` to match the npm package.
+The PyPI distribution renamed from `tangle-agent-eval` to **`agent-eval-rpc`**, and the import path from `tangle_agent_eval` to `agent_eval_rpc`. The new name accurately describes the package — it is a thin RPC client over the Node runtime, not a Python re-implementation of the eval logic — and the npm scope (`@tangle-network/agent-eval`) already provides the namespacing the `tangle-` prefix was substituting for. No prior PyPI version ever shipped under the old name (Trusted Publisher misconfiguration; see issue #40), so this rename is a clean first publish rather than a migration.
+
+Locked at `agent-eval-rpc==0.21.0` to match the npm package.
 
 ## 0.20.10 — hardening audit follow-up
 

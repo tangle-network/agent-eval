@@ -42,7 +42,7 @@ jobs:
         run: |
           NPM_VERSION=$(node -p "require('./package.json').version")
           PY_VERSION=$(grep -E '^version' clients/python/pyproject.toml | head -1 | sed -E 's/.*"([^"]+)".*/\1/')
-          PY_RUNTIME_VERSION=$(python -c "import pathlib,re; text=pathlib.Path('clients/python/src/tangle_agent_eval/__init__.py').read_text(); match=re.search(r'__version__ = \"([^\"]+)\"', text); print(match.group(1) if match else '')")
+          PY_RUNTIME_VERSION=$(python -c "import pathlib,re; text=pathlib.Path('clients/python/src/agent_eval_rpc/__init__.py').read_text(); match=re.search(r'__version__ = \"([^\"]+)\"', text); print(match.group(1) if match else '')")
           if [ "$NPM_VERSION" != "$PY_VERSION" ]; then
             echo "::error::Version mismatch: npm=$NPM_VERSION pypi=$PY_VERSION. Bump them together."
             exit 1
@@ -144,8 +144,8 @@ jobs:
         id: pypi-check
         run: |
           VERSION=$(grep -E '^version' clients/python/pyproject.toml | head -1 | sed -E 's/.*"([^"]+)".*/\1/')
-          if curl -sf "https://pypi.org/pypi/tangle-agent-eval/$VERSION/json" >/dev/null; then
-            echo "tangle-agent-eval==$VERSION already on PyPI; skipping publish"
+          if curl -sf "https://pypi.org/pypi/agent-eval-rpc/$VERSION/json" >/dev/null; then
+            echo "agent-eval-rpc==$VERSION already on PyPI; skipping publish"
             echo "skip=true" >> "$GITHUB_OUTPUT"
           else
             echo "skip=false" >> "$GITHUB_OUTPUT"
