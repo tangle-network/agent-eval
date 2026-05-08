@@ -22,6 +22,9 @@ export {
   traceAnalystFunctionGroup,
 } from './tools'
 
+export { traceAnalystOnRunComplete } from './hook'
+export type { TraceAnalystHookOptions } from './hook'
+
 export {
   TRACE_ANALYST_ACTOR_DESCRIPTION,
   TRACE_ANALYST_ACTOR_DESCRIPTION_VERSION,

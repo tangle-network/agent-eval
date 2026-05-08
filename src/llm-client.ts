@@ -20,6 +20,14 @@
  * that need free-form text use `callLlm` and parse output themselves.
  */
 
+import {
+  defaultProviderRedactor,
+  providerFromBaseUrl,
+  type ProviderRedactor,
+  type RawProviderEvent,
+  type RawProviderSink,
+} from './trace/raw-provider-sink'
+
 // ─── Types ──────────────────────────────────────────────────────────────
 
 export interface LlmMessage {
@@ -100,6 +108,23 @@ export interface LlmClientOptions {
   maxRetries?: number
   /** Fetch implementation — defaults to global `fetch`. Override for custom transport (e.g. tests). */
   fetch?: typeof fetch
+  /**
+   * Optional raw HTTP capture sink. When provided, every request, response,
+   * and error (across all retry attempts) is recorded to the sink, with auth
+   * headers and credential-shaped body fields redacted by default. This is
+   * the layer-1 forensics primitive: structured `LlmSpan`s record intent,
+   * raw events record what actually crossed the wire.
+   */
+  rawSink?: RawProviderSink
+  /**
+   * Logical provider id attached to raw events. When omitted, derived from
+   * `baseUrl` via `providerFromBaseUrl`.
+   */
+  provider?: string
+  /** Trace context attached to raw events; populated by emitter-aware callers. */
+  traceContext?: { runId?: string; spanId?: string }
+  /** Override the redaction strategy for this call. Defaults to `defaultProviderRedactor`. */
+  redactor?: ProviderRedactor
 }
 
 // ─── Internals ──────────────────────────────────────────────────────────
@@ -276,28 +301,74 @@ export async function callLlm(
 ): Promise<LlmCallResult> {
   const baseUrl = (opts.baseUrl ?? DEFAULT_BASE_URL).replace(/\/+$/, '')
   const url = `${baseUrl}/chat/completions`
+  const endpoint = '/chat/completions'
   const timeoutMs = req.timeoutMs ?? opts.defaultTimeoutMs ?? DEFAULT_TIMEOUT_MS
   const maxRetries = opts.maxRetries ?? DEFAULT_MAX_RETRIES
   const fetchFn = opts.fetch ?? globalThis.fetch
   const headers = buildHeaders(opts)
+  const provider = opts.provider ?? providerFromBaseUrl(baseUrl)
+  const sink = opts.rawSink
+  const redactor = opts.redactor ?? defaultProviderRedactor
+  const traceContext = opts.traceContext
 
   let lastErr: unknown
   for (let attempt = 0; attempt < maxRetries; attempt++) {
     const controller = new AbortController()
     const timeoutHandle = setTimeout(() => controller.abort(), timeoutMs)
     const started = Date.now()
+    const requestBody = buildBody(req, false)
+    let attemptErrorRecorded = false
+    if (sink) {
+      await recordRaw(sink, redactor, {
+        eventId: cryptoEventId(),
+        runId: traceContext?.runId,
+        spanId: traceContext?.spanId,
+        provider,
+        model: req.model,
+        endpoint,
+        baseUrl,
+        attemptIndex: attempt,
+        direction: 'request',
+        timestamp: started,
+        requestHeaders: headers,
+        requestBody,
+        redactedFields: [],
+      })
+    }
 
     try {
       const res = await fetchFn(url, {
         method: 'POST',
         headers,
-        body: JSON.stringify(buildBody(req, false)),
+        body: JSON.stringify(requestBody),
         signal: controller.signal,
       })
       clearTimeout(timeoutHandle)
+      const responseHeaders = sink ? headersToObject(res.headers) : undefined
 
       if (!res.ok) {
         const body = await res.text()
+        if (sink) {
+          await recordRaw(sink, redactor, {
+            eventId: cryptoEventId(),
+            runId: traceContext?.runId,
+            spanId: traceContext?.spanId,
+            provider,
+            model: req.model,
+            endpoint,
+            baseUrl,
+            attemptIndex: attempt,
+            direction: 'error',
+            timestamp: Date.now(),
+            durationMs: Date.now() - started,
+            statusCode: res.status,
+            responseHeaders,
+            responseBody: body,
+            errorMessage: `HTTP ${res.status}`,
+            redactedFields: [],
+          })
+          attemptErrorRecorded = true
+        }
         const err = new LlmCallError(
           `LLM call ${res.status}: ${body.slice(0, 300)}`,
           res.status,
@@ -313,7 +384,53 @@ export async function callLlm(
         throw err
       }
 
-      const json = (await res.json()) as Record<string, unknown>
+      const text = await res.text()
+      let json: Record<string, unknown>
+      try {
+        json = JSON.parse(text) as Record<string, unknown>
+      } catch (parseErr) {
+        if (sink) {
+          await recordRaw(sink, redactor, {
+            eventId: cryptoEventId(),
+            runId: traceContext?.runId,
+            spanId: traceContext?.spanId,
+            provider,
+            model: req.model,
+            endpoint,
+            baseUrl,
+            attemptIndex: attempt,
+            direction: 'error',
+            timestamp: Date.now(),
+            durationMs: Date.now() - started,
+            statusCode: res.status,
+            responseHeaders,
+            responseBody: text,
+            errorMessage: `non-JSON response: ${parseErr instanceof Error ? parseErr.message : String(parseErr)}`,
+            redactedFields: [],
+          })
+          attemptErrorRecorded = true
+        }
+        throw parseErr
+      }
+      if (sink) {
+        await recordRaw(sink, redactor, {
+          eventId: cryptoEventId(),
+          runId: traceContext?.runId,
+          spanId: traceContext?.spanId,
+          provider,
+          model: req.model,
+          endpoint,
+          baseUrl,
+          attemptIndex: attempt,
+          direction: 'response',
+          timestamp: Date.now(),
+          durationMs: Date.now() - started,
+          statusCode: res.status,
+          responseHeaders,
+          responseBody: json,
+          redactedFields: [],
+        })
+      }
       const choice = (json.choices as Array<{ message?: { content?: string } }> | undefined)?.[0]
       const usageRaw = (json.usage as Record<string, unknown> | undefined) ?? {}
       const costFromProxy = (json._response_cost ?? json.cost_usd) as number | undefined
@@ -340,6 +457,26 @@ export async function callLlm(
     } catch (err) {
       clearTimeout(timeoutHandle)
       lastErr = err
+      if (sink && !attemptErrorRecorded) {
+        // Record only if neither the !res.ok branch nor the JSON.parse catch
+        // already produced an error event for this attempt. Covers network
+        // failures, timeouts, and aborts.
+        await recordRaw(sink, redactor, {
+          eventId: cryptoEventId(),
+          runId: traceContext?.runId,
+          spanId: traceContext?.spanId,
+          provider,
+          model: req.model,
+          endpoint,
+          baseUrl,
+          attemptIndex: attempt,
+          direction: 'error',
+          timestamp: Date.now(),
+          durationMs: Date.now() - started,
+          errorMessage: err instanceof Error ? err.message : String(err),
+          redactedFields: [],
+        })
+      }
       if (attempt < maxRetries - 1 && isRetryableError(err)) {
         await sleep(backoffMs(attempt))
         continue
@@ -348,6 +485,33 @@ export async function callLlm(
     }
   }
   throw lastErr instanceof Error ? lastErr : new Error(String(lastErr))
+}
+
+async function recordRaw(
+  sink: RawProviderSink,
+  redactor: ProviderRedactor,
+  event: RawProviderEvent,
+): Promise<void> {
+  // Errors from sinks must not crash the LLM call. Forensic capture is
+  // best-effort; the structured trace is the system of record.
+  try {
+    await sink.record(redactor(event))
+  } catch {
+    // Intentionally swallowed.
+  }
+}
+
+function headersToObject(h: Headers): Record<string, string> {
+  const out: Record<string, string> = {}
+  h.forEach((value, key) => {
+    out[key] = value
+  })
+  return out
+}
+
+function cryptoEventId(): string {
+  if (typeof globalThis.crypto?.randomUUID === 'function') return globalThis.crypto.randomUUID()
+  return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`
 }
 
 /**
@@ -387,6 +551,117 @@ function parseJsonSafely<T>(content: string, model: string): T {
       }\n--- raw content ---\n${content.slice(0, 800)}`,
     )
   }
+}
+
+// ─── Route assertion ────────────────────────────────────────────────────
+
+export class LlmRouteAssertionError extends Error {
+  constructor(
+    message: string,
+    public readonly code:
+      | 'no_explicit_base_url'
+      | 'base_url_blocked'
+      | 'base_url_not_allowed'
+      | 'no_auth'
+      | 'wrong_provider',
+    public readonly baseUrl: string,
+  ) {
+    super(message)
+    this.name = 'LlmRouteAssertionError'
+  }
+}
+
+export interface LlmRouteRequirements {
+  /**
+   * Throw if `opts.baseUrl` is undefined, i.e. the call would fall back to
+   * `DEFAULT_BASE_URL`. Set this for evaluation runs where silently using
+   * the public/free-tier router is a defect — the launch reviewer needs to
+   * know exactly which provider answered.
+   */
+  requireExplicitBaseUrl?: boolean
+  /**
+   * Allowlist of acceptable base URLs. Strings match by prefix
+   * (case-insensitive); RegExps test against the full base URL.
+   */
+  allowedBaseUrls?: Array<string | RegExp>
+  /** Blocklist that takes precedence over `allowedBaseUrls`. */
+  blockedBaseUrls?: Array<string | RegExp>
+  /** Throw if no auth header / api key is configured. */
+  requireAuth?: boolean
+  /**
+   * Logical provider id the configured `baseUrl` is expected to match (via
+   * `providerFromBaseUrl`). Mainly useful when paired with `requireExplicitBaseUrl`.
+   */
+  expectedProvider?: string
+}
+
+/**
+ * Fail-loud assertion that the configured LLM client points at the route
+ * the caller intends. Designed for the matrix-runner preflight: invoke
+ * once before any LLM call to catch misconfiguration before a sweep burns
+ * dollars on the wrong provider.
+ *
+ * Throws `LlmRouteAssertionError`. Pure — no I/O — so it's safe to call
+ * from constructors and CI gates.
+ */
+export function assertLlmRoute(opts: LlmClientOptions, req: LlmRouteRequirements = {}): void {
+  const baseUrlExplicit = opts.baseUrl !== undefined
+  const baseUrl = (opts.baseUrl ?? DEFAULT_BASE_URL).replace(/\/+$/, '')
+
+  if (req.requireExplicitBaseUrl && !baseUrlExplicit) {
+    throw new LlmRouteAssertionError(
+      `assertLlmRoute: requireExplicitBaseUrl set but opts.baseUrl is undefined; would fall back to ${DEFAULT_BASE_URL}.`,
+      'no_explicit_base_url',
+      baseUrl,
+    )
+  }
+
+  if (req.blockedBaseUrls?.some((p) => matchUrl(baseUrl, p))) {
+    throw new LlmRouteAssertionError(
+      `assertLlmRoute: baseUrl ${baseUrl} matches a blocked pattern.`,
+      'base_url_blocked',
+      baseUrl,
+    )
+  }
+
+  if (req.allowedBaseUrls && req.allowedBaseUrls.length > 0) {
+    const ok = req.allowedBaseUrls.some((p) => matchUrl(baseUrl, p))
+    if (!ok) {
+      throw new LlmRouteAssertionError(
+        `assertLlmRoute: baseUrl ${baseUrl} is not in the allowed list (${req.allowedBaseUrls.map(describePattern).join(', ')}).`,
+        'base_url_not_allowed',
+        baseUrl,
+      )
+    }
+  }
+
+  if (req.requireAuth && !opts.apiKey && !opts.bearer && !opts.authHeader) {
+    throw new LlmRouteAssertionError(
+      `assertLlmRoute: requireAuth set but no apiKey, bearer, or authHeader was supplied.`,
+      'no_auth',
+      baseUrl,
+    )
+  }
+
+  if (req.expectedProvider) {
+    const actual = opts.provider ?? providerFromBaseUrl(baseUrl)
+    if (actual !== req.expectedProvider) {
+      throw new LlmRouteAssertionError(
+        `assertLlmRoute: expected provider ${req.expectedProvider} but baseUrl ${baseUrl} resolves to ${actual}.`,
+        'wrong_provider',
+        baseUrl,
+      )
+    }
+  }
+}
+
+function matchUrl(url: string, pattern: string | RegExp): boolean {
+  if (pattern instanceof RegExp) return pattern.test(url)
+  return url.toLowerCase().startsWith(pattern.toLowerCase())
+}
+
+function describePattern(p: string | RegExp): string {
+  return p instanceof RegExp ? p.source : p
 }
 
 /**
