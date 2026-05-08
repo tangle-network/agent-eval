@@ -3,7 +3,7 @@
 This page explains the main `agent-eval` primitives in plain English first,
 then shows when to use each one.
 
-## ELI5
+## Overview
 
 LLM agents can write code, drafts, research, plans, and actions. The hard part
 is knowing whether they actually did a good job, whether they should keep
@@ -41,7 +41,7 @@ trying, and whether a change made them better or worse.
 
 ## Integration Patterns
 
-### Recommended Agent Product Shape
+### Recommended Product Shape
 
 Use this shape when the product needs to keep pushing work forward instead of
 only answering once:
@@ -175,21 +175,6 @@ Store as `FeedbackTrajectory`, then derive:
   logs, screenshots, or browser state. Use separate sandboxes for parallel
   variants or destructive checks.
 
-## Same-Sandbox Example
-
-`examples/same-sandbox-harness/` shows the common coding/browser pattern:
-
-```text
-one sandbox/workdir -> install/build/test -> inspect evidence -> emit judge span
-```
-
-Use this when a judge needs evidence produced by earlier harness phases. Use
-isolated sandboxes when variants run in parallel or a phase can corrupt the
-workspace.
-- Treat telemetry as evidence, not control flow. A trace sink outage should be
-  visible in `runtimeErrors`, but it should not stop the worker from completing
-  the user task.
-
 ## Highest-ROI Adoption Order
 
 1. Wrap one real product workflow in `runAgentControlLoop`.
@@ -211,3 +196,11 @@ reusable:
 
 Core should provide shapes, stores, runners, scoring, traces, and converters.
 Downstream integrations provide domain state, policy, tools, and storage.
+
+## Examples
+
+- `examples/same-sandbox-harness`: one workdir for install/build/test plus
+  evidence inspection.
+- `examples/multi-shot-optimization`: full-trajectory optimization with a
+  holdout gate.
+- `examples/benchmarks`: benchmark adapter contracts and reference wrappers.

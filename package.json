@@ -19,6 +19,26 @@
       "import": "./dist/index.js",
       "default": "./dist/index.js"
     },
+    "./control": {
+      "types": "./dist/control.d.ts",
+      "import": "./dist/control.js",
+      "default": "./dist/control.js"
+    },
+    "./optimization": {
+      "types": "./dist/optimization.d.ts",
+      "import": "./dist/optimization.js",
+      "default": "./dist/optimization.js"
+    },
+    "./reporting": {
+      "types": "./dist/reporting.d.ts",
+      "import": "./dist/reporting.js",
+      "default": "./dist/reporting.js"
+    },
+    "./traces": {
+      "types": "./dist/traces.d.ts",
+      "import": "./dist/traces.js",
+      "default": "./dist/traces.js"
+    },
     "./telemetry": {
       "types": "./dist/telemetry/index.d.ts",
       "import": "./dist/telemetry/index.js",

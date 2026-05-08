@@ -1,14 +1,15 @@
 # Concepts
 
-Read this once and the rest of agent-eval makes sense.
+`agent-eval` is for deciding whether an agent run should pass, keep working, be
+replayed, be optimized, or be promoted.
 
-## What is agent-eval?
+It exists because agent output is not evidence. A model can say a task is done
+while the build fails, the browser flow is broken, the integration was never
+connected, or the answer lacks required sources. The package gives products a
+shared way to record runs, check outcomes, classify failures, compare variants,
+and make release decisions.
 
-A library for **deciding whether a code generator or content generator did its job.** You give it a thing the generator produced (a scaffold, a patch, a tweet, a JSON config), and you get back a structured verdict: pass/fail, dimension scores, a reason in plain English.
-
-It exists because LLMs lie about whether they succeeded. A model will say "Done!" and ship code that doesn't compile. agent-eval is the layer between the model's output and your decision to ship.
-
-## The three things you'll touch most
+## Main Objects
 
 | Thing | What it is | One-line example |
 |---|---|---|
@@ -17,7 +18,8 @@ It exists because LLMs lie about whether they succeeded. A model will say "Done!
 | **Verifier** | A pipeline of judges run in order, with dependencies. | "install → typecheck → build → semantic" |
 | **Feedback trajectory** | A multi-shot record of attempts, approvals, rejections, edits, metrics, and policy outcomes. | "draft → user rejects → revised draft → approved → measured" |
 
-That's the whole framework. Everything else (sessions, traces, layers) is plumbing around those three.
+Everything else exists to make those objects useful in real product loops:
+traces, datasets, control runtime, optimizers, statistics, and reports.
 
 When the thing being evaluated is an agent that should keep working, use
 [`runAgentControlLoop`](./control-runtime.md). It turns validators into a
@@ -62,7 +64,7 @@ shape stays the same.
 Those trajectories can be converted into preference memory, `DatasetScenario`
 rows, optimizer rows, and held-out examples for overfit checks.
 
-## The three-layer eval (for code generators)
+## Code Generator Eval
 
 When the artifact is generated code, agent-eval scores it at three independent layers. Each layer fails differently, and you want to know which one broke:
 
@@ -125,7 +127,7 @@ Two rules that will save you bugs:
 
 2. **Pair LLM judges with build outcomes.** An LLM judge will rate non-compiling code as "looks right" (0.8). Always short-circuit on `buildOutcome.passed === false` before any LLM judging.
 
-## The trace model (skip on first read)
+## Trace Model
 
 Every operation emits structured spans into a `TraceStore`. A run is a tree:
 
@@ -142,7 +144,10 @@ builder-session                 [span]
 
 Spans are append-only and have stable ids — replay is reading the same store back. OTLP export ships them out for distributed tracing.
 
-You don't need to build the trace tree by hand. `BuilderSession` does it for you. Look at the trace store when you're debugging a flaky run; ignore it otherwise.
+You usually should not build this tree by hand. Product runtimes,
+`runAgentControlLoop`, harnesses, and verifiers should emit it while they run.
+Use traces when debugging a flaky run, building replay data, or explaining a
+release decision.
 
 ## Where to go next
 
