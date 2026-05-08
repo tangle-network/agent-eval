@@ -144,15 +144,15 @@ describe('gainHistogram', () => {
 })
 
 describe('researchReport', () => {
-  it('promotes the strongest coding-bench candidate when paired holdout evidence is decisive', () => {
+  it('promotes the strongest coding-bench candidate when paired holdout evidence is decisive', async () => {
     const runs: RunRecord[] = []
-    for (let i = 0; i < 12; i++) {
+    for (let i = 0; i < 24; i++) {
       runs.push(rec('baseline', i, 'holdout', 0.55 + i * 0.001, 0.08, `coding-task-${i}`))
       runs.push(rec('tool_repair_v2', i, 'holdout', 0.72 + i * 0.001, 0.10, `coding-task-${i}`))
       runs.push(rec('cheap_fast', i, 'holdout', 0.58 + i * 0.001, 0.02, `coding-task-${i}`))
     }
 
-    const report = researchReport(runs, {
+    const report = await researchReport(runs, {
       title: 'Coding Vertical Bench Report',
       comparator: 'baseline',
       generatedAt: '2026-05-03T00:00:00.000Z',
@@ -162,46 +162,144 @@ describe('researchReport', () => {
     expect(report.kind).toBe('agent-eval-research-report')
     expect(report.recommendation.decision).toBe('promote')
     expect(report.recommendation.candidateId).toBe('tool_repair_v2')
-    expect(report.candidates.find((c) => c.candidateId === 'tool_repair_v2')?.decision).toBe('promote')
+    const tr = report.candidates.find((c) => c.candidateId === 'tool_repair_v2')!
+    expect(tr.decision).toBe('promote')
+    expect(tr.prGreaterThanZero).not.toBeNull()
+    expect(tr.prGreaterThanZero!).toBeGreaterThan(0.95)
+    expect(tr.mde).not.toBeNull()
+    expect(Number.isFinite(tr.mde!)).toBe(true)
+    expect(report.runFingerprint).toMatch(/^[0-9a-f]{64}$/)
     expect(report.markdown).toContain('## Executive Summary')
     expect(report.markdown).toContain('## Candidate Decision Table')
+    expect(report.markdown).toContain('## Methodology')
+    expect(report.markdown).toContain('Pr(Δ>0)')
     expect(report.markdown).toContain('```json')
     expect(report.html).toContain('<table>')
     expect(report.charts.pareto.points).toHaveLength(3)
     expect(report.charts.gains).toHaveLength(2)
+    expect(report.methodology.assumptions.length).toBeGreaterThan(0)
+    expect(report.methodology.citations.some((c) => c.includes('Benjamini'))).toBe(true)
   })
 
-  it('returns needs_more_data when paired coding runs are below threshold', () => {
+  it('returns needs_more_data when paired coding runs are below the configured floor and reports an actionable MDE', async () => {
     const runs: RunRecord[] = []
-    for (let i = 0; i < 3; i++) {
-      runs.push(rec('baseline', i, 'holdout', 0.5, 0.05, `task-${i}`))
-      runs.push(rec('candidate', i, 'holdout', 0.7, 0.05, `task-${i}`))
+    for (let i = 0; i < 8; i++) {
+      runs.push(rec('baseline', i, 'holdout', 0.5 + i * 0.005, 0.05, `task-${i}`))
+      runs.push(rec('candidate', i, 'holdout', 0.7 + i * 0.005, 0.05, `task-${i}`))
     }
 
-    const report = researchReport(runs, {
+    const report = await researchReport(runs, {
       comparator: 'baseline',
-      minPairs: 6,
+      minPairs: 20,
       generatedAt: '2026-05-03T00:00:00.000Z',
+      seed: 1,
     })
 
     expect(report.recommendation.decision).toBe('needs_more_data')
-    expect(report.candidates.find((c) => c.candidateId === 'candidate')?.decision).toBe('needs_more_data')
-    expect(report.recommendation.nextActions).toContain('Collect more matched holdout runs for inconclusive candidates.')
+    const c = report.candidates.find((c) => c.candidateId === 'candidate')!
+    expect(c.decision).toBe('needs_more_data')
+    expect(c.pairedN).toBe(8)
+    expect(c.mde).not.toBeNull()
+    expect(c.decisionReason).toContain('minimum detectable effect')
+    expect(report.recommendation.nextActions.some((a) => /collect at least \d+ more matched/i.test(a))).toBe(true)
   })
 
-  it('surfaces failure clusters as rollout risks and next actions', () => {
+  it('hard-floors below 6 pairs regardless of minPairs', async () => {
     const runs: RunRecord[] = []
-    for (let i = 0; i < 8; i++) {
+    for (let i = 0; i < 4; i++) {
+      runs.push(rec('baseline', i, 'holdout', 0.5, 0.05, `task-${i}`))
+      runs.push(rec('candidate', i, 'holdout', 0.7, 0.05, `task-${i}`))
+    }
+    const report = await researchReport(runs, {
+      comparator: 'baseline',
+      minPairs: 1, // would-be override
+      generatedAt: '2026-05-03T00:00:00.000Z',
+      seed: 1,
+    })
+    expect(report.recommendation.decision).toBe('needs_more_data')
+    expect(report.candidates.find((c) => c.candidateId === 'candidate')?.decisionReason).toContain('hard floor')
+  })
+
+  it('returns equivalent when paired-delta CI is fully inside ROPE', async () => {
+    const runs: RunRecord[] = []
+    for (let i = 0; i < 30; i++) {
+      runs.push(rec('baseline', i, 'holdout', 0.6 + (i % 3) * 0.001, 0.05, `task-${i}`))
+      runs.push(rec('candidate', i, 'holdout', 0.6 + (i % 3) * 0.001 + 0.0005, 0.05, `task-${i}`))
+    }
+    const report = await researchReport(runs, {
+      comparator: 'baseline',
+      rope: { low: -0.02, high: 0.02 },
+      generatedAt: '2026-05-03T00:00:00.000Z',
+      seed: 1,
+    })
+    const c = report.candidates.find((c) => c.candidateId === 'candidate')!
+    expect(c.decision).toBe('equivalent')
+    expect(c.prInRope).not.toBeNull()
+    expect(c.prInRope!).toBeGreaterThan(0.9)
+    expect(report.markdown).toContain('ROPE')
+  })
+
+  it('rejects on a held-out gate verdict even when the paired stats look favourable', async () => {
+    const runs: RunRecord[] = []
+    for (let i = 0; i < 24; i++) {
+      runs.push(rec('baseline', i, 'holdout', 0.5 + i * 0.001, 0.08, `task-${i}`))
+      runs.push(rec('candidate', i, 'holdout', 0.7 + i * 0.001, 0.10, `task-${i}`))
+    }
+    const decision: GateDecision = {
+      promote: false,
+      candidateId: 'candidate',
+      baselineId: 'baseline',
+      evidence: {
+        productiveRuns: 24,
+        medianPairedDelta: 0.2,
+        pairedCI: { low: 0.18, high: 0.22 },
+        pairedPValue: 0.001,
+        searchScore: 0.7,
+        holdoutScore: 0.7,
+        overfitGap: 0.2,
+        baselineOverfitGap: 0.05,
+      },
+      reason: 'overfit',
+      rejectionCode: 'overfit_gap',
+    }
+    const report = await researchReport(runs, {
+      comparator: 'baseline',
+      gateDecisions: { candidate: decision },
+      generatedAt: '2026-05-03T00:00:00.000Z',
+      seed: 1,
+    })
+    const c = report.candidates.find((c) => c.candidateId === 'candidate')!
+    expect(c.decision).toBe('reject')
+    expect(c.decisionReason).toMatch(/Held-out gate/)
+  })
+
+  it('produces a deterministic run fingerprint and embeds preregistration hash when supplied', async () => {
+    const runs: RunRecord[] = []
+    for (let i = 0; i < 20; i++) {
+      runs.push(rec('baseline', i, 'holdout', 0.5, 0.05, `task-${i}`))
+      runs.push(rec('candidate', i, 'holdout', 0.7, 0.05, `task-${i}`))
+    }
+    const a = await researchReport(runs, { comparator: 'baseline', generatedAt: 'fixed', seed: 1, preregistrationHash: 'abc123' })
+    const b = await researchReport(runs.slice().reverse(), { comparator: 'baseline', generatedAt: 'fixed', seed: 1, preregistrationHash: 'abc123' })
+    expect(a.runFingerprint).toBe(b.runFingerprint)
+    expect(a.preregistrationHash).toBe('abc123')
+    expect(a.markdown).toContain('abc123')
+    expect(a.markdown).toContain('Preregistered analysis: abc123…')
+  })
+
+  it('surfaces failure clusters as rollout risks and next actions', async () => {
+    const runs: RunRecord[] = []
+    for (let i = 0; i < 24; i++) {
       runs.push(rec('baseline', i, 'holdout', 0.6, 0.05, `task-${i}`))
       runs.push(rec('candidate', i, 'holdout', 0.61, 0.05, `task-${i}`))
     }
 
-    const report = researchReport(runs, {
+    const report = await researchReport(runs, {
       comparator: 'baseline',
       generatedAt: '2026-05-03T00:00:00.000Z',
       failureClusters: {
         totalFailures: 4,
-        totalRuns: 16,
+        totalRuns: 48,
         clusters: [{
           failureClass: 'tool_recovery_failure',
           toolName: 'shell',
@@ -211,6 +309,7 @@ describe('researchReport', () => {
           exampleError: 'patch failed',
         }],
       },
+      seed: 1,
     })
 
     expect(report.recommendation.risks.join('\n')).toContain('tool_recovery_failure')

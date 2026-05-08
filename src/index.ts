@@ -736,6 +736,7 @@ export {
   paretoChart,
   gainHistogram,
   researchReport,
+  RESEARCH_REPORT_HARD_PAIR_FLOOR,
 } from './summary-report'
 export type {
   SummaryTable,
@@ -750,6 +751,7 @@ export type {
   ResearchReportOptions,
   ResearchReportCandidate,
   ResearchReportDecision,
+  ResearchReportMethodology,
   ResearchReportRecommendation,
 } from './summary-report'
 
