@@ -17,7 +17,7 @@ from pathlib import Path
 
 import pytest
 
-from tangle_agent_eval import Client, RubricNotFoundError, ValidationError
+from agent_eval_rpc import Client, RubricNotFoundError, ValidationError
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 CLI_DIST = REPO_ROOT / "dist" / "cli.js"
@@ -48,7 +48,7 @@ def _client() -> Client:
                 raise RuntimeError(f"no stdout. stderr: {proc.stderr}")
             envelope = json.loads(proc.stdout.strip().splitlines()[-1])
             if "error" in envelope:
-                from tangle_agent_eval.errors import from_error_body
+                from agent_eval_rpc.errors import from_error_body
                 raise from_error_body(proc.returncode or 500, envelope)
             return envelope["result"]
 

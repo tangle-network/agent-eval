@@ -1,4 +1,4 @@
-# tangle-agent-eval — Python client
+# agent-eval-rpc — Python client
 
 Python client for [`@tangle-network/agent-eval`](https://github.com/tangle-network/agent-eval) — a content/code judging framework written in TypeScript. This package is a **thin transport adapter**: every judgement runs in the Node runtime, marshalled over HTTP or stdio RPC. Two languages, one implementation. No drift.
 
@@ -7,7 +7,7 @@ Python client for [`@tangle-network/agent-eval`](https://github.com/tangle-netwo
 A function-call interface to score any string against a rubric:
 
 ```python
-from tangle_agent_eval import Client
+from agent_eval_rpc import Client
 
 client = Client()  # auto-detects HTTP server, falls back to subprocess
 result = client.judge(
@@ -111,7 +111,7 @@ assert v.wire_version == "1.0.0"
 Built-in `anti-slop` is tuned for technical-buyer audiences. For different scoring, pass a `Rubric` inline:
 
 ```python
-from tangle_agent_eval import Client, Rubric, RubricDimension, FailureMode
+from agent_eval_rpc import Client, Rubric, RubricDimension, FailureMode
 
 rubric = Rubric(
     name="my-rubric",
@@ -141,7 +141,7 @@ All errors carry `.code` and `.details` (the structured payload from the server)
 
 ## Versioning
 
-This package is **version-locked** to the npm package. `tangle-agent-eval==0.20.10` ↔ `@tangle-network/agent-eval@0.20.10`. CI verifies the npm package, Python package, runtime `__version__`, and release tag all agree before publish. If one registry publish fails after the other succeeds, retry the failed publish from the same tag or supersede with the next patch release.
+This package is **version-locked** to the npm package. `agent-eval-rpc==0.21.0` ↔ `@tangle-network/agent-eval@0.21.0`. CI verifies the npm package, Python package, runtime `__version__`, and release tag all agree before publish. If one registry publish fails after the other succeeds, retry the failed publish from the same tag or supersede with the next patch release.
 
 `wire_version` is separate. It bumps only on breaking schema changes. Package versions can differ across releases as long as `wire_version` is the same.
 

@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import pytest
 
-from tangle_agent_eval.models import JudgeRequest, Rubric, RubricDimension
+from agent_eval_rpc.models import JudgeRequest, Rubric, RubricDimension
 
 
 MIN_RUBRIC = Rubric(

@@ -188,7 +188,7 @@ Each invocation is one process — Node startup adds ~500 ms. For more than a fe
 4. **RPC case** — add `case 'x':` in `dispatchRpc` in `src/wire/rpc.ts`.
 5. **OpenAPI route** — register in `src/wire/openapi.ts` so it shows up in the spec.
 6. **Test** — add to `tests/wire/`. At minimum: schema validation, happy-path, error-path.
-7. **Python client** — add a method on `Client` in `clients/python/src/tangle_agent_eval/client.py`, plus pydantic models in `models.py` mirroring the new schemas.
+7. **Python client** — add a method on `Client` in `clients/python/src/agent_eval_rpc/client.py`, plus pydantic models in `models.py` mirroring the new schemas.
 
 The pattern is mechanical. When the surface grows past ~10 methods, swap the hand-written Python models for `datamodel-code-generator -i openapi.json -o models.py`.
 
