@@ -1,5 +1,84 @@
 # Changelog
 
+## 0.23.0 — RL primitives: bridge from eval to policy training
+
+0.22 made eval rigorous and integrated; 0.23 closes the loop back to RL training. The package now ships the canonical primitives a working RL-on-LLM-agents team needs — verifiable rewards, preference extraction, off-policy evaluation, process reward scaffolding, contamination probing, Bradley-Terry / Elo tournaments, adversarial scenario search, and test-time compute scaling — all designed to consume the standardised `RunRecord` artifact 0.22 produced. The auto-research loop is now coherent end-to-end.
+
+### Added
+
+#### RL barrel — `@tangle-network/agent-eval/rl` (new subpath)
+
+A single subpath for every RL-shaped primitive, importable as a unit. The 9 modules:
+
+1. **`run-record-adapters.ts`** — convert `TrialResult[]` (from `runPromptEvolution` / `runMultiShotOptimization`), `VerificationReport` (from `MultiLayerVerifier`), and `VariantAggregate` into canonical `RunRecord[]`. Closes the integration gap between the pre-0.22 optimization stack and the post-0.22 campaign artifact. Existing optimization runs become `replayCache`-able and `rubricPredictiveValidity`-scorable for free.
+
+2. **`verifiable-reward.ts`** — extract a clean `VerifiableReward` from `VerificationReport` or `RunRecord`. Distinguishes `'deterministic'` (compile, test, schema, sandbox) from `'probabilistic'` (judge) reward sources. The seam every credible 2025-2026 frontier RL result on coding agents leans on (DeepSeek-R1 GRPO on test pass-rate, AlphaProof on Lean kernel checking).
+
+3. **`preferences.ts`** — `extractPreferences(runRecords)` produces DPO/PPO/KTO-shape `(chosen, rejected)` triples with three documented strategies (`paired-by-scenario-and-seed`, `paired-by-scenario`, `top-vs-bottom`). Bridge from campaign artifact to RL training. Includes `toTRLFormat` and `toAnthropicFormat` adapters.
+
+4. **`off-policy.ts`** — IPS, SNIPS, doubly-robust off-policy estimators (Dudík–Langford–Li 2011 for DR, Owen 2013 for SNIPS SE). Caller supplies behavior + target propensity scores (typically from token log-probs). All three return matched-shape `OffPolicyEstimate` with effective-sample-size and max-importance-weight diagnostics. `offPolicyEstimateAll` runs all three side-by-side — agreement across estimators is a much stronger signal than any one alone.
+
+5. **`process-reward.ts`** — step-level credit assignment from trace spans. `extractStepRewards(store, runId, scorers)` produces `StepReward[]`; `prmTrainingPairs(stepRewardsByRun)` produces `(prefix, chosen_step, rejected_step)` triples in the canonical Lightman et al. / DeepSeek-R1 process supervision shape. We ship the data extraction, not the trainer — gradient descent over a transformer is out of scope for a TS package.
+
+6. **`contamination.ts`** — held-out perturbation contamination probe. `runContaminationProbe({ originals, perturbation, scoreFn })` runs the policy against original + perturbed scenarios, computes paired Wilcoxon on the deltas, and flags suspected contamination when median drop ≥ 5pp at p < 0.05. Stock perturbations: `renameVariables`, `shuffleOrder`, `injectIrrelevantClause`. Catches the SWE-Bench → SWE-Bench-Verified failure mode upstream.
+
+7. **`tournament.ts`** — `fitBradleyTerry(outcomes)` uses Hunter's MM algorithm to recover candidate strengths from pairwise outcomes; `applyEloUpdate(ratings, outcome)` for online updates with FIDE-style K-factor. `buildPairwiseFromCampaign` extracts pairwise outcomes from per-scenario campaign runs. Sample-efficient ranking for many-candidate sweeps; the methodology Chatbot Arena and AlpacaEval converged on.
+
+8. **`adversarial.ts`** — `adversarialScenarioSearch({ seeds, mutations, scoreFn })` actively searches for inputs the policy fails on. Hill-climb-against-failure-indicator loop (the simplest version of AdA / POET / auto-jailbreak rigs). Caller supplies mutation strategies; the harness deduplicates, budgets, and reports per-generation statistics.
+
+9. **`compute-curves.ts`** — characterize a candidate as a *curve* across compute budgets, not a point. `runComputeCurve` produces `(cost, score)` points + log-slope. `bestOfN`, `selfConsistency` are the canonical test-time-scaling primitives (Snell et al. 2024). `paretoFrontier` removes dominated (candidate, compute) combinations. Required for honest cost-quality reporting in the o1-era.
+
+#### Build / surface
+
+- New build entry: `dist/rl.{js,d.ts}` exposed via the `@tangle-network/agent-eval/rl` package subpath.
+- All RL primitives also re-exported from the root barrel for ergonomic single-import use.
+- Default `BradleyTerry` smoothing raised from 0 to 0.1 — Hunter's MM degenerates when a candidate has zero wins; 0.1 keeps the iteration well-conditioned without meaningfully biasing real win counts.
+
+### Why
+
+The previous release shipped EvalCampaign + replay + sequential + outcome calibration as parallel infrastructure to the existing optimization primitives. That left a real gap: `runMultiShotOptimization` and `runPromptEvolution` produced their own trial shapes that didn't compose with the new artifacts. 0.23 closes that gap with the adapter layer, and ships the eight downstream primitives that turn the unified artifact into RL training data, OPE estimates, contamination probes, tournament rankings, adversarial scenarios, and compute curves.
+
+After 0.23, the auto-research loop is coherent end-to-end:
+
+```
+mutate (existing primitives)
+  → trial outcomes (TrialResult)
+  → adapter (run-record-adapters)
+  → RunRecord[] (canonical artifact)
+  → preferences / verifiable rewards / OPE / step rewards
+  → policy update (consumer's choice of TRL / GRPO / PPO / DPO)
+  → next sweep
+```
+
+### References
+
+- Dudík, M., Langford, J., Li, L. (2011). Doubly Robust Policy Evaluation and Learning. *ICML*.
+- Owen, A. B. (2013). *Monte Carlo Theory, Methods and Examples*. Ch. 9 — Importance Sampling.
+- Hunter, D. R. (2004). MM algorithms for generalized Bradley-Terry models. *Annals of Statistics*, 32(1), 384–406.
+- Bradley, R. A., Terry, M. E. (1952). Rank analysis of incomplete block designs. *Biometrika*, 39(3/4).
+- Lightman, H. et al. (2023). Let's Verify Step by Step. *arXiv:2305.20050*.
+- Snell, C. et al. (2024). Scaling LLM Test-Time Compute Optimally. *arXiv:2408.03314*.
+- Plus the foundational citations from 0.21 / 0.22.
+
+### Migration
+
+All 0.23 primitives are additive. Existing consumers don't need to change. Recommended adoption sequence:
+
+1. Add `trialsToRunRecords(trials, ctx)` after every existing optimization sweep — every old run becomes replay-able and predictive-validity-scorable for free.
+2. Wire `extractVerifiableReward` into your scoring pipeline; route deterministic and probabilistic rewards into separate training batches.
+3. Use `extractPreferences` to produce DPO/PPO triples for any RL training the consumer runs.
+4. Run `rubricPredictiveValidity` quarterly + `runContaminationProbe` per release to keep the rubric weights honest.
+5. Replace fixed-comparator HeldOutGate with `fitBradleyTerry` once you have ≥ 5 candidates running on shared scenarios.
+6. Replace single-budget evaluation with `runComputeCurve` for any candidate where compute scaling is a question.
+
+### Caveats and out-of-scope
+
+- The DR estimator's Q-function is caller-supplied. We don't ship a learned Q-function trainer — that's a regression problem with too many domain-specific choices to ship a default.
+- PRM training itself (gradient descent over a transformer) is out of scope; we ship the data extraction shape.
+- The contamination probe's per-scenario q-values use a heuristic pseudo-p (the load-bearing test is the global Wilcoxon).
+- `prmTrainingPairs` matches trajectories by step name + kind; production use should replace this with a token-level prefix hash.
+- Adversarial scenario search is a simple hill-climb; novel scenario synthesis (compositional, language-model-driven) is future work.
+
 ## 0.22.0 — EvalCampaign + replay + always-valid + outcome calibration
 
 0.21 shipped the four capture-integrity primitives as opt-in. Every consumer still had to wire them by hand, and the bug class blueprint-agent reported (forgotten wiring → silent partial-capture) reappears the moment a new consumer adopts agent-eval cold. **0.22 makes the right thing the default path** — and adds three primitives that compound on top of standardized capture: replay-from-raw-events, anytime-valid sequential evaluation, and rubric predictive validity. The four primitives together turn agent-eval from a TS framework into research-grade evaluation infrastructure.

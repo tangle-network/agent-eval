@@ -96,9 +96,10 @@ import { renderReleaseReport } from '@tangle-network/agent-eval/reporting'
 | Subpath | Use for |
 | --- | --- |
 | `@tangle-network/agent-eval/control` | `observe -> validate -> decide -> act`, action policy, propose/review loops |
-| `@tangle-network/agent-eval/traces` | trace stores, emitters, TraceAnalyst |
-| `@tangle-network/agent-eval/optimization` | feedback trajectories, multi-shot optimization, prompt evolution |
-| `@tangle-network/agent-eval/reporting` | release confidence, paired stats, report/table/chart specs |
+| `@tangle-network/agent-eval/traces` | trace stores, emitters, TraceAnalyst, replay |
+| `@tangle-network/agent-eval/optimization` | feedback trajectories, multi-shot optimization, prompt evolution, EvalCampaign |
+| `@tangle-network/agent-eval/reporting` | release confidence, paired stats, sequential e-values, report/table/chart specs, predictive validity |
+| `@tangle-network/agent-eval/rl` | RL bridge: adapters, verifiable rewards, preferences, OPE, PRM, contamination, tournaments, adversarial, compute curves |
 | `@tangle-network/agent-eval/wire` | HTTP/RPC judge server and schemas |
 | `@tangle-network/agent-eval/benchmarks` | benchmark adapter contracts and reference wrappers |
 
@@ -120,6 +121,15 @@ import { renderReleaseReport } from '@tangle-network/agent-eval/reporting'
 | Re-judge / determinism-audit a past campaign for free | `ReplayCache`, `createReplayFetch` |
 | Ship-when-decisive with anytime-valid α across rolling looks | `pairedEvalueSequence`, `evaluateInterimReleaseConfidence` |
 | Tell load-bearing rubrics from decorative ones using deployment outcomes | `rubricPredictiveValidity` |
+| Bridge legacy optimization output to canonical `RunRecord[]` | `trialsToRunRecords`, `verificationReportToRunRecord` |
+| Extract a clean reward signal for RL training (compile/test/schema vs judge) | `extractVerifiableReward`, `filterDeterministicallyRewarded` |
+| Produce DPO / PPO / KTO `(chosen, rejected)` triples | `extractPreferences` |
+| Estimate a new policy's value on old trajectories without re-running | `offPolicyEstimateAll` (IPS + SNIPS + DR) |
+| Step-level credit assignment / PRM training data | `extractStepRewards`, `prmTrainingPairs` |
+| Detect benchmark contamination via held-out perturbations | `runContaminationProbe` |
+| Pairwise tournament ratings for many-candidate sweeps | `fitBradleyTerry`, `applyEloUpdate` |
+| Active search for inputs the policy fails on | `adversarialScenarioSearch` |
+| Characterise a candidate across compute budgets | `runComputeCurve`, `bestOfN`, `selfConsistency`, `paretoFrontier` |
 | Model missing context separately from bad reasoning | `KnowledgeRequirement`, `KnowledgeBundle` |
 
 ### Capture integrity (0.21+)

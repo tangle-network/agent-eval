@@ -52,6 +52,15 @@ If a term below isn't in this table or in `docs/concepts.md`, that's a bug — f
 | Re-run / re-judge / determinism-audit a past campaign for free | `ReplayCache` + `createReplayFetch` (§Replay & sequential evaluation) |
 | Ship the moment evidence is decisive, with anytime-valid α control across rolling looks | `pairedEvalueSequence`, `evaluateInterimReleaseConfidence` (§Replay & sequential evaluation) |
 | Tell load-bearing rubrics from decorative ones using deployment outcomes | `rubricPredictiveValidity` (§Outcome calibration) |
+| Bridge legacy optimization output to canonical `RunRecord[]` | `trialToRunRecord`, `verificationReportToRunRecord` (§RL bridge — 0.23+) |
+| Extract a clean reward signal for RL training (compile / test / schema vs judge) | `extractVerifiableReward`, `filterDeterministicallyRewarded` (§RL bridge — 0.23+) |
+| Produce DPO / PPO / KTO `(chosen, rejected)` triples from `RunRecord[]` | `extractPreferences` (§RL bridge — 0.23+) |
+| Estimate the value of a new policy on old trajectories without re-running | `inverseProbabilityWeighting`, `selfNormalizedImportanceWeighting`, `doublyRobust`, `offPolicyEstimateAll` (§RL bridge — 0.23+) |
+| Step-level credit assignment / PRM training data | `extractStepRewards`, `prmTrainingPairs` (§RL bridge — 0.23+) |
+| Detect benchmark contamination via held-out perturbations | `runContaminationProbe`, stock perturbations (§RL bridge — 0.23+) |
+| Pairwise tournament ratings for many-candidate sweeps | `fitBradleyTerry`, `applyEloUpdate`, `buildPairwiseFromCampaign` (§RL bridge — 0.23+) |
+| Active search for inputs the policy fails on | `adversarialScenarioSearch` (§RL bridge — 0.23+) |
+| Characterize a candidate across compute budgets (`bestOfN`, self-consistency, curves) | `runComputeCurve`, `bestOfN`, `selfConsistency`, `paretoFrontier` (§RL bridge — 0.23+) |
 | Capture every provider HTTP request/response for forensics | `RawProviderSink` + `LlmClientOptions.rawSink` (§Capture integrity Directive 1) |
 | Fail loud if the eval would silently use the wrong route | `assertLlmRoute` (§Capture integrity Directive 2) |
 | Assert at run-end that the artifact is complete | `assertRunCaptured` + `throwIfRunIncomplete` (§Capture integrity Directive 3) |
@@ -314,6 +323,47 @@ Seven shapes. Audit before shipping any gate:
 
 Common shape: something that should fail loud returns silent success.
 Fail closed; use `// muffle-ok: <reason>` for the rare exception.
+
+---
+
+## RL bridge — from eval to policy training (0.23+)
+
+Imported from `@tangle-network/agent-eval/rl` (or the root barrel). Eight modules; each one converts a piece of agent-eval output into a shape an RL pipeline can consume, or implements a canonical RL eval methodology that the rest of the package didn't cover.
+
+### Quick reference
+
+```ts
+import {
+  trialsToRunRecords,             // bridge legacy optimization output
+  extractVerifiableReward,        // clean reward signal (compile/test) vs judge
+  extractPreferences,             // (chosen, rejected) triples for DPO/PPO/KTO
+  offPolicyEstimateAll,           // IPS + SNIPS + DR side-by-side
+  extractStepRewards,             // step-level credit assignment
+  prmTrainingPairs,               // PRM training data
+  runContaminationProbe,          // held-out perturbation contamination
+  fitBradleyTerry, applyEloUpdate, // pairwise tournament ratings
+  adversarialScenarioSearch,      // active failure-mode discovery
+  runComputeCurve, bestOfN, selfConsistency, paretoFrontier,  // compute-axis evaluation
+} from '@tangle-network/agent-eval/rl'
+```
+
+### When you actually use each one
+
+- **You ran an existing `runPromptEvolution` or `runMultiShotOptimization` sweep** — wrap with `trialsToRunRecords(trials, ctx)` so the output composes with `replayCache`, `pairedEvalueSequence`, `rubricPredictiveValidity`, and the rest of the 0.22 surface. Single line, zero behavior change.
+- **You're training a policy with TRL / DPO / PPO / GRPO** — use `extractVerifiableReward` to separate deterministic rewards (compile/test/schema/sandbox) from probabilistic ones (judge), then `extractPreferences` to produce the `(chosen, rejected)` triples in the shape your trainer expects.
+- **You changed a policy and want to evaluate it on yesterday's trajectories without re-running** — use `offPolicyEstimateAll` with token log-prob propensity scores. Run all three estimators (IPS, SNIPS, DR); agreement across estimators is much stronger than any single number.
+- **You want step-level credit assignment for long-horizon agents** — `extractStepRewards` over the trace spans of completed runs, `prmTrainingPairs` to produce the training data for a PRM, then plug into your favourite trainer (we don't ship gradient descent).
+- **You're worried your benchmark scenarios leaked into training data** — `runContaminationProbe` with one of the stock perturbations (`renameVariables`, `shuffleOrder`, `injectIrrelevantClause`). Catches drift before the launch reviewer does.
+- **You have ≥ 5 candidates running on shared scenarios** — `fitBradleyTerry` is more sample-efficient than running every candidate against a fixed comparator. Use `applyEloUpdate` for online ratings as new comparisons arrive.
+- **You want to find the failure modes the curator didn't think of** — `adversarialScenarioSearch` hill-climbs against a failure indicator using caller-supplied mutation strategies. Pair with the contamination probe for two-sided robustness.
+- **You want to characterise a candidate's capability vs cost rather than at one budget** — `runComputeCurve` at `{1×, 4×, 16×}` with `bestOfN` or `selfConsistency` as the per-budget evaluator, then `paretoFrontier` over (candidate, compute) tuples.
+
+### When NOT to use these
+
+- The RL primitives don't replace `runEvalCampaign`. The campaign is the matrix runner with capture-integrity baked in; the RL primitives consume the campaign's `RunRecord[]` output. Keep the campaign as the entry point.
+- `doublyRobust` requires a Q-function. We don't ship a learned Q-function trainer — pass a heuristic (running mean per scenario), a regression fit you trained out-of-band, or `null` per-trajectory to fall back to IPS for that entry.
+- `prmTrainingPairs` matches trajectories by `(span name, span kind)` prefix. Production use should replace this with a token-level prefix hash; the heuristic is good for early-stage PRM scaffolding.
+- Contamination probe's per-scenario q-values use a heuristic pseudo-p — they're a display aid; the load-bearing test is the global Wilcoxon.
 
 ---
 
