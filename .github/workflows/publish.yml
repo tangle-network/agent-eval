@@ -100,12 +100,27 @@ jobs:
 
       - run: pnpm install --frozen-lockfile
       - run: pnpm build
-      - run: pnpm publish --no-git-checks --access public
+
+      # Idempotent: re-running a tag whose npm version is already published
+      # (e.g. after a manual `pnpm publish` plus a workflow rerun) must not
+      # block the downstream PyPI step.
+      - name: Publish to npm (skip if already published)
+        run: |
+          NAME=$(node -p "require('./package.json').name")
+          VERSION=$(node -p "require('./package.json').version")
+          if npm view "$NAME@$VERSION" version >/dev/null 2>&1; then
+            echo "$NAME@$VERSION already on registry; skipping publish"
+          else
+            pnpm publish --no-git-checks --access public
+          fi
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
   publish-pypi:
-    needs: [verify, publish-npm]
+    # PyPI publish is independent of npm — both gate on `verify` so a version
+    # mismatch blocks both, but a re-run after a successful npm publish must
+    # still be able to push the matching PyPI artifact.
+    needs: verify
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     permissions:
@@ -125,7 +140,19 @@ jobs:
         working-directory: clients/python
         run: python -m build
 
+      - name: Check whether this version is already on PyPI
+        id: pypi-check
+        run: |
+          VERSION=$(grep -E '^version' clients/python/pyproject.toml | head -1 | sed -E 's/.*"([^"]+)".*/\1/')
+          if curl -sf "https://pypi.org/pypi/tangle-agent-eval/$VERSION/json" >/dev/null; then
+            echo "tangle-agent-eval==$VERSION already on PyPI; skipping publish"
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Publish to PyPI (trusted publishing)
+        if: steps.pypi-check.outputs.skip != 'true'
         uses: pypa/gh-action-pypi-publish@release/v1
         with:
           packages-dir: clients/python/dist
