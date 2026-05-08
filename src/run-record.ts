@@ -112,6 +112,15 @@ export interface RunRecord {
   failureMode?: string
   /** Which split this run was drawn from. */
   splitTag: RunSplitTag
+  /**
+   * Stable scenario identifier the run was scored against. Optional for
+   * backwards compatibility, but **strongly recommended**: every primitive
+   * that pairs runs by scenario (preferences, paired stats, BT tournament)
+   * keys on this. The campaign artifact populates it canonically; legacy
+   * runs without it fall back to inference from `outcome.raw.scenario_id`
+   * or `experimentId`.
+   */
+  scenarioId?: string
 }
 
 // ── Validation ───────────────────────────────────────────────────────

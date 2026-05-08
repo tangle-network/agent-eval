@@ -846,6 +846,8 @@ export type {
   FailedRun,
 } from './eval-campaign'
 
+export * from './rl'
+
 export {
   ReplayCache,
   ReplayCacheMissError,
