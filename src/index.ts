@@ -847,6 +847,31 @@ export type {
 } from './eval-campaign'
 
 export {
+  ReplayCache,
+  ReplayCacheMissError,
+  createReplayFetch,
+  iterateRawCalls,
+} from './replay'
+export type {
+  ReplayCacheEntry,
+  ReplayCacheStats,
+  ReplayFetchOptions,
+} from './replay'
+
+export {
+  evaluateInterimReleaseConfidence,
+  pairedEvalueSequence,
+} from './sequential'
+export type {
+  InterimReleaseConfidence,
+  InterimReleaseConfidenceInput,
+  PairedEvalueOptions,
+  PairedEvalueSequence,
+  PairedEvalueStep,
+  SequentialDecision,
+} from './sequential'
+
+export {
   defaultMultiShotObjectives,
   runMultiShotOptimization,
   trialTraceFromMultiShotTrial,
