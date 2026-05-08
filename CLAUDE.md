@@ -22,3 +22,7 @@ pnpm build        # tsup
 pnpm test         # vitest
 pnpm typecheck    # tsc --noEmit
 ```
+
+## Authorship
+
+Do not add `Co-Authored-By:` trailers (or any other AI-attribution lines) to commits, PR descriptions, or other artifacts in this repo. Author = the human running the session. This applies even when the default Claude Code template suggests it.

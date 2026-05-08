@@ -33,6 +33,28 @@ export function requiredSampleSize(opts: { effect: number; alpha?: number; power
   return Math.ceil(n)
 }
 
+/**
+ * Minimum detectable paired effect (in standardised units) given a target
+ * paired sample size. Closed-form inverse of the paired-t / sign-rank power
+ * formula under the normal approximation:
+ *
+ *   d_min = (z_{1-α/2} + z_β) / sqrt(n_paired)
+ *
+ * Multiply by `sd(deltas)` to convert to score units. Treat as a lower bound:
+ * the Wilcoxon signed-rank test and bootstrap CIs have asymptotic relative
+ * efficiency below 1 against the t-test on heavy-tailed distributions, so the
+ * true achievable MDE in those regimes is somewhat larger.
+ */
+export function pairedMde(opts: { nPaired: number; alpha?: number; power?: number; twoSided?: boolean }): number {
+  if (!Number.isFinite(opts.nPaired) || opts.nPaired <= 0) return Infinity
+  const alpha = opts.alpha ?? 0.05
+  const power = opts.power ?? 0.8
+  const twoSided = opts.twoSided ?? true
+  const zAlpha = zQuantile(twoSided ? 1 - alpha / 2 : 1 - alpha)
+  const zBeta = zQuantile(power)
+  return (zAlpha + zBeta) / Math.sqrt(opts.nPaired)
+}
+
 /** Bonferroni adjustment: multiply every p-value by the number of tests, clamp at 1. */
 export function bonferroni(pValues: number[], alpha = 0.05): { adjusted: number[]; significant: boolean[] } {
   const k = pValues.length

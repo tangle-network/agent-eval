@@ -24,6 +24,7 @@ export {
   researchReport,
   summaryTable,
 } from './summary-report'
+export { RESEARCH_REPORT_HARD_PAIR_FLOOR } from './summary-report'
 export type {
   GainDistributionBin,
   GainDistributionFigureSpec,
@@ -33,6 +34,7 @@ export type {
   ResearchReport,
   ResearchReportCandidate,
   ResearchReportDecision,
+  ResearchReportMethodology,
   ResearchReportOptions,
   ResearchReportRecommendation,
   SummaryTable,

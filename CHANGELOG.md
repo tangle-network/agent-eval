@@ -7,8 +7,36 @@
 - `researchReport`, an executive research-report layer for coding-vertical
   benchmark runs. Composes `summaryTable`, `paretoChart`, `gainHistogram`,
   held-out gate decisions, and optional `failureClusterView` output into
-  promote/hold/reject guidance, risks, next actions, markdown, HTML, and JSON
-  chart specs.
+  promote / hold / equivalent / reject / needs-more-data guidance with
+  rationale, risks, next actions, markdown, HTML, and JSON chart specs.
+  - Decisions are made on paired evidence — never on marginal means alone.
+  - ROPE (Region of Practical Equivalence) supported via the `rope` option;
+    candidates whose paired-delta CI is fully inside the ROPE are returned
+    as `equivalent` rather than `hold`.
+  - Bayesian-bootstrap-style Pr(Δ>0) and Pr(Δ∈ROPE) summaries on the mean
+    paired delta (Rubin 1981 bootstrap-prior duality), reported per
+    candidate alongside the bootstrap CI on the median.
+  - Per-candidate minimum detectable paired effect at the configured power
+    and α via the new `pairedMde` primitive in `power-analysis`, so a
+    `needs_more_data` verdict is actionable.
+  - SHA-256 `runFingerprint` over the canonicalised input run set + an
+    optional `preregistrationHash` field so the report can cite a signed
+    `HypothesisManifest`.
+  - Soft floor `minPairs` (default 20) and a hard floor of 6 pairs
+    (`RESEARCH_REPORT_HARD_PAIR_FLOOR`) below which any paired call returns
+    `needs_more_data` regardless of the option.
+  - Embedded methodology section in the rendered markdown plus a standalone
+    [`docs/research-report-methodology.md`](./docs/research-report-methodology.md)
+    with assumptions, alternatives, when-not-to-apply, and citations
+    (Benjamini & Hochberg 1995; Wilcoxon 1945; Efron 1979; Rubin 1981;
+    Kruschke 2018).
+- `pairedMde` in `power-analysis`: closed-form minimum detectable paired
+  effect inverse to the paired-t / sign-rank power formula.
+
+### Changed
+
+- `researchReport` is now async (uses Web Crypto via `hashJson` for the run
+  fingerprint).
 
 ## 0.20.10 — hardening audit follow-up
 
