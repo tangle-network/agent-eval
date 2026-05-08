@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- `researchReport`, an executive research-report layer for coding-vertical
+  benchmark runs. Composes `summaryTable`, `paretoChart`, `gainHistogram`,
+  held-out gate decisions, and optional `failureClusterView` output into
+  promote/hold/reject guidance, risks, next actions, markdown, HTML, and JSON
+  chart specs.
+
 ## 0.20.10 — hardening audit follow-up
 
 ### Fixed

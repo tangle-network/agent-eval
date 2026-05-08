@@ -21,6 +21,7 @@ export type { RenderReleaseReportOptions } from './release-report'
 export {
   gainHistogram,
   paretoChart,
+  researchReport,
   summaryTable,
 } from './summary-report'
 export type {
@@ -29,6 +30,11 @@ export type {
   GainDistributionOptions,
   ParetoFigureSpec,
   ParetoPoint,
+  ResearchReport,
+  ResearchReportCandidate,
+  ResearchReportDecision,
+  ResearchReportOptions,
+  ResearchReportRecommendation,
   SummaryTable,
   SummaryTableOptions,
   SummaryTableRow,
