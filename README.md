@@ -111,8 +111,46 @@ import { renderReleaseReport } from '@tangle-network/agent-eval/reporting'
 | Compare prompt/tool/retrieval policies over full trajectories | `runMultiShotOptimization` |
 | Gate releases with paired evidence and holdouts | `evaluateReleaseConfidence`, `HeldOutGate` |
 | Explain regressions across trace corpora | `TraceAnalyst` / `analyzeTraces` |
-| Report a launch decision | `renderReleaseReport`, `summaryTable`, `paretoChart`, `gainHistogram` |
+| Report a launch decision | `renderReleaseReport`, `researchReport`, `summaryTable`, `paretoChart`, `gainHistogram` |
+| Capture every provider HTTP request / response for forensics | `RawProviderSink`, `LlmClientOptions.rawSink` |
+| Fail loud if an eval would silently use the wrong route | `assertLlmRoute` |
+| Assert at run-end that the artifact is complete | `assertRunCaptured`, `throwIfRunIncomplete` |
+| Auto-execute the trace analyst on every run | `traceAnalystOnRunComplete` + `TraceEmitterOptions.onRunComplete` |
 | Model missing context separately from bad reasoning | `KnowledgeRequirement`, `KnowledgeBundle` |
+
+### Capture integrity (0.21+)
+
+Launch-grade benchmark runs need four things that are easy to forget in glue
+code: (1) raw HTTP capture alongside the structured spans so a reviewer can
+verify which route answered, (2) a preflight assertion that the configured
+client points at the intended provider, (3) a run-end assertion that the
+expected events were actually written, and (4) auto-execution of the trace
+analyst as part of the run lifecycle. The wiring fits in a few lines:
+
+```ts
+import {
+  TraceEmitter, FileSystemRawProviderSink, callLlm, assertLlmRoute,
+  assertRunCaptured, throwIfRunIncomplete,
+} from '@tangle-network/agent-eval'
+import { traceAnalystOnRunComplete } from '@tangle-network/agent-eval/traces'
+
+const sink = new FileSystemRawProviderSink({ dir: `${workDir}/raw-events` })
+assertLlmRoute(llmOpts, { requireExplicitBaseUrl: true, allowedBaseUrls, requireAuth: true })
+
+const emitter = new TraceEmitter(store, {
+  onRunComplete: [traceAnalystOnRunComplete({ analyze: analystOpts, save })],
+})
+await emitter.startRun(/* ... */)
+// LLM calls flow through callLlm with `{ rawSink: sink, traceContext: { runId, spanId } }`.
+await emitter.endRun({ pass, score })
+
+throwIfRunIncomplete(await assertRunCaptured(store, emitter.runId, {
+  llmSpansMin: 1, rawSink: sink, requireRawCoverageOfLlmSpans: true, requireOutcome: true,
+}))
+```
+
+Directives, rationale, and shipped-bug context are in
+[`SKILL.md` § Capture integrity](./.claude/skills/agent-eval/SKILL.md#capture-integrity-required-for-launch-grade-adoption).
 
 ## Examples
 
