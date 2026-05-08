@@ -1,10 +1,45 @@
 # Changelog
 
-## 0.23.0 — RL primitives: bridge from eval to policy training
+## 0.23.0 — RL primitives + auto-research worked example
+
+In addition to the RL bridge primitives below, this release ships the
+canonical worked example of the auto-research loop end-to-end against
+agent-builder, plus a concrete prime-rl SFT integration. The auto-research
+thesis — capture → score → preferences → mutate → improved candidate —
+is now demonstrably real, not aspirational.
+
+### Added (worked examples)
+
+- **`examples/auto-research-with-agent-builder/`** — runnable demo of the
+  closed loop: a synthetic agent-builder driver iterates 4 generations
+  of prompt variants, with each generation's runs feeding
+  `analyzeOptimizationResult` for preferences + reward-hacking + sequential
+  verdict, and the next generation proposed via a deterministic mutator.
+  The demo shows score climbing from 0.739 → 0.973 over 4 iterations on
+  the synthetic environment. Real-driver mode (replace the synthetic
+  runner with `runForgeBuilderSim` from `agent-builder`) is documented
+  inline.
+- **`examples/fine-tune-with-prime-rl/`** — concrete integration with
+  Prime Intellect's prime-rl SFT trainer. Reads `RunRecord[]` (NDJSON),
+  filters to high-quality runs, projects via `toSftRows` to messages-list
+  JSONL, writes a 15-line prime-rl SFT TOML config, prints the runnable
+  command. ~150 LoC of glue. SFT was chosen as the first integration
+  because it's the cleanest fit between agent-eval's exporters and
+  prime-rl's entrypoints (DPO/PRM go to TRL; offline GRPO requires a
+  custom verifiers env — both called out in the README).
+- **`docs/three-package-architecture.md`** — the contracts between
+  agent-eval, agent-knowledge, agent-runtime. Dependency direction (both
+  consume agent-eval; agent-eval imports neither), shared data
+  interchange (RunRecord, Scenario, KnowledgeBundle), and known
+  contract gaps tracked as follow-ups.
+- **`docs/auto-research-loop-end-to-end.md`** — the runnable composition
+  pattern with the explicit invariants every iteration must preserve
+  (canonical RunRecord with scenarioId, capture wired by construction,
+  stable comparator, deterministic mutator).
+
+### Added (RL primitives)
 
 0.22 made eval rigorous and integrated; 0.23 closes the loop back to RL training. The package now ships the canonical primitives a working RL-on-LLM-agents team needs — verifiable rewards, preference extraction, off-policy evaluation, process reward scaffolding, contamination probing, Bradley-Terry / Elo tournaments, adversarial scenario search, and test-time compute scaling — all designed to consume the standardised `RunRecord` artifact 0.22 produced. The auto-research loop is now coherent end-to-end.
-
-### Added
 
 #### RL barrel — `@tangle-network/agent-eval/rl` (new subpath)
 
@@ -27,6 +62,26 @@ A single subpath for every RL-shaped primitive, importable as a unit. The 9 modu
 8. **`adversarial.ts`** — `adversarialScenarioSearch({ seeds, mutations, scoreFn })` actively searches for inputs the policy fails on. Hill-climb-against-failure-indicator loop (the simplest version of AdA / POET / auto-jailbreak rigs). Caller supplies mutation strategies; the harness deduplicates, budgets, and reports per-generation statistics.
 
 9. **`compute-curves.ts`** — characterize a candidate as a *curve* across compute budgets, not a point. `runComputeCurve` produces `(cost, score)` points + log-slope. `bestOfN`, `selfConsistency` are the canonical test-time-scaling primitives (Snell et al. 2024). `paretoFrontier` removes dominated (candidate, compute) combinations. Required for honest cost-quality reporting in the o1-era.
+
+#### RL barrel — additional experimental modules
+
+The 9 modules above are stable and tested. The following modules are also shipped under `@tangle-network/agent-eval/rl` as **experimental** — interfaces are reasonable but may evolve based on real production consumer feedback. Marked clearly in the barrel docstring; flagged here so consumers know the contract may shift.
+
+10. **`active-curriculum.ts`** — adaptive scenario allocation. `varianceBasedCurriculum` (Neyman 1934 optimal allocation: weight ∝ √variance + 1/√n for under-sampled-cell tie-break) and `thompsonCurriculum` (Beta-Bernoulli posterior + decision-threshold-weighted sampling) reallocate next-round budget toward cells whose outcome is uncertain.
+
+11. **`reward-hacking.ts`** — `detectRewardHacking({ runs, truthOf })` watches four signature signals (proxy-vs-truth divergence, distributional shift, reward disagreement between independent rewards, judge drift relative to deterministic reward) and returns a structured `'clean' | 'suspect' | 'gaming'` verdict with per-signal severity. Krakovna et al. + Skalse et al. 2022 + Kim et al. 2023 lineage.
+
+12. **`adaptation-eval.ts`** — `runAdaptationCurve` and `compareAdaptationCurves` for sample-efficient adaptation evaluation. The metric a foundation-model-based agent should be measured on isn't end-state performance but the curve of score vs k (k=0, 1, 2, 4, 8, 16 demonstrations). Returns area-under-curve summary + per-k bootstrap CIs.
+
+13. **`exporters.ts`** — trainer-format export functions. `toDpoRows` (HuggingFace TRL DPO/IPO/KTO format), `toGrpoRows` (offline GRPO `{prompt, completions[], rewards[]}`), `toSftRows` (TRL/prime-rl SFT messages list), `toPrmRows` (Lightman-style PRM training shape), `stepRewardsToJsonl` (step-level rewards for value-function regression). **Honest scope:** `toSftRows` is the only one that maps directly onto a prime-rl entrypoint; the others target TRL or custom trainers — see `examples/fine-tune-with-prime-rl/README.md` for the explicit fit table.
+
+14. **`rl-campaign.ts`** — `runRLCampaign(opts)` wraps `runEvalCampaign` and runs the full RL bridge (verifiable rewards + preferences + sequential interim verdict + reward-hacking + optional predictive validity + optional trainer export) in one call. The single top-level orchestrator the pre-0.23 audit panel called out as missing.
+
+15. **`auto-research.ts`** — `analyzeOptimizationResult({ result, ctx, comparator })` takes a `PromptEvolutionResult` or `MultiShotOptimizationResult` (the existing GEPA/AxRLM stack outputs) and runs the same RL bridge on top, producing a unified artifact. Closes the architectural fragmentation between the optimization primitives and the RL bridge.
+
+16. **`predictive-validity-researcher.ts`** — `PredictiveValidityResearcher` is a concrete `Researcher` interface implementation (the interface had been a placeholder + `NoopResearcher` until now). Drives steering changes from outcome-anchored predictive validity: rubrics that don't predict deployment outcomes get down-weighted; load-bearing rubrics get up-weighted.
+
+17. **`run-record.ts`** — `RunRecord.scenarioId` is now an optional canonical field (was previously inferred from `outcome.raw.scenario_id`). Populated automatically by `runEvalCampaign` and the optimization adapters; legacy `RunRecord[]` arrays without it fall back to the `outcome.raw.scenario_id` convention. Closes the fragility called out by the 0.23 audit.
 
 #### Build / surface
 

@@ -90,6 +90,7 @@ export function trialToRunRecord(
     outcome,
     failureMode: trial.ok ? undefined : (trial.error ? 'optimizer_trial_error' : 'optimizer_trial_failed'),
     splitTag,
+    scenarioId: trial.scenarioId,
   }
 }
 
@@ -160,6 +161,7 @@ export function verificationReportToRunRecord(
     outcome,
     failureMode: firstFail ? failureModeFromLayer(firstFail) : undefined,
     splitTag,
+    scenarioId: ctx.scenarioId,
   }
 }
 

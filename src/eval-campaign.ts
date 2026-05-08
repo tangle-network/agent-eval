@@ -471,6 +471,7 @@ export async function runEvalCampaign<V>(opts: EvalCampaignOptions<V>): Promise<
       outcome: recordOutcome,
       failureMode: outcome.failureMode,
       splitTag,
+      scenarioId: cell.scenario.scenarioId,
     }
     return { record, integrity: integrityReport }
   }

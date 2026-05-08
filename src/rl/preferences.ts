@@ -152,34 +152,17 @@ export function extractPreferences(
   let cellsInspected = 0
 
   if (strategy === 'paired-by-scenario-and-seed') {
-    // Group by (scenarioId, seed) → list of (variantId, run, score).
+    // Group by (scenarioId, seed). Canonical key is `run.scenarioId` (added
+    // in 0.23) — populated automatically by `runEvalCampaign` and the
+    // adapters. Falls back to `outcome.raw.scenario_id` then `experimentId`
+    // for legacy RunRecord arrays produced before 0.23.
     const groups = new Map<string, Array<{ run: RunRecord; score: number }>>()
     for (const e of scoredEntries) {
-      const key = `${e.run.outcome.raw.scenario_id ?? 'unknown'}::${e.run.seed}`
+      const sid = scenarioOf(e.run)
+      const key = `${sid}::${e.run.seed}`
       const arr = groups.get(key) ?? []
       arr.push(e)
       groups.set(key, arr)
-    }
-    // The campaign records scenario via experimentId-style fields; recover
-    // it from RunRecord directly by looking at runId structure or by
-    // grouping on a different key. The canonical campaign produces the
-    // scenarioId as part of the runId; for arbitrary RunRecord arrays we
-    // require the caller to add `outcome.raw.scenario_id` or provide it
-    // via the runId convention. We fall back to scenarios extracted from
-    // the runId pattern `*::scenarioId::seed`.
-    if (groups.size === 1 && [...groups.keys()][0]!.startsWith('unknown::')) {
-      // Fallback: parse from runId where the campaign default generator
-      // encodes (campaignId, variantId, scenarioId, seed) but the resulting
-      // run-id is hashed — so callers without scenario_id in raw should
-      // populate it. We document this in the docstring.
-      groups.clear()
-      for (const e of scoredEntries) {
-        const sid = inferScenarioId(e.run)
-        const key = `${sid}::${e.run.seed}`
-        const arr = groups.get(key) ?? []
-        arr.push(e)
-        groups.set(key, arr)
-      }
     }
 
     for (const [key, members] of groups.entries()) {
@@ -200,7 +183,7 @@ export function extractPreferences(
     // Group by scenarioId → average per (variantId, scenarioId) across seeds.
     const byScenarioVariant = new Map<string, Map<string, { run: RunRecord; sum: number; n: number }>>()
     for (const e of scoredEntries) {
-      const sid = inferScenarioId(e.run)
+      const sid = scenarioOf(e.run)
       let perScenario = byScenarioVariant.get(sid)
       if (!perScenario) {
         perScenario = new Map()
@@ -230,7 +213,7 @@ export function extractPreferences(
     // top-vs-bottom: per scenario, top vs bottom only.
     const byScenario = new Map<string, Array<{ run: RunRecord; score: number }>>()
     for (const e of scoredEntries) {
-      const sid = inferScenarioId(e.run)
+      const sid = scenarioOf(e.run)
       const arr = byScenario.get(sid) ?? []
       arr.push(e)
       byScenario.set(sid, arr)
@@ -317,12 +300,18 @@ function makePair(
   }
 }
 
-function inferScenarioId(run: RunRecord): string {
+/**
+ * Canonical scenario key for a RunRecord. Three-tier fallback:
+ *   1. `run.scenarioId` (added in 0.23; populated by `runEvalCampaign` and
+ *      every adapter)
+ *   2. `run.outcome.raw.scenario_id` (legacy convention; may be string or
+ *      numeric)
+ *   3. `run.experimentId` (worst-case bucket)
+ */
+function scenarioOf(run: RunRecord): string {
+  if (typeof run.scenarioId === 'string' && run.scenarioId.length > 0) return run.scenarioId
   const fromRaw = run.outcome.raw.scenario_id
-  if (typeof fromRaw === 'number') return String(fromRaw)
-  // Some campaigns encode it as a tag-like string in the runId; we accept
-  // a 'scenarioId' field on the run record's `experimentId` boundary. As
-  // a last resort we group everything under the experimentId so per-
-  // experiment top-vs-bottom still works.
+  if (typeof fromRaw === 'number' && Number.isFinite(fromRaw)) return String(fromRaw)
+  if (typeof fromRaw === 'string') return fromRaw
   return run.experimentId
 }
