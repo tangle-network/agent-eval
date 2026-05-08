@@ -1,5 +1,32 @@
 # Changelog
 
+## 0.22.0 — EvalCampaign: capture integrity by construction
+
+0.21 shipped the four capture-integrity primitives as opt-in. Every consumer still had to wire them by hand, and the bug class blueprint-agent reported (forgotten wiring → silent partial-capture) reappears the moment a new consumer adopts agent-eval cold. **0.22 makes the right thing the default path.**
+
+### Added
+
+- **`runEvalCampaign(opts)`** — opinionated matrix runner that wires the four directives by construction. Inputs: variants, scenarios, seeds, an `LlmClientOptions`, factories for `TraceStore` and `RawProviderSink`, and a `runner(ctx)` callback. Outputs: per-cell `RunRecord[]`, `RunIntegrityReport[]`, optional `researchReport`, and a campaign fingerprint.
+  - **Preflight:** `assertLlmRoute` is called once before any work, with `{ requireExplicitBaseUrl: true, requireAuth: true }` defaults. Misconfigured routes never burn a run.
+  - **Per run:** the campaign constructs the `TraceStore`, `RawProviderSink`, and `TraceEmitter` (with `onRunComplete` hooks attached), then hands the runner an `LlmClientOptions` already pre-wired with `rawSink` + `traceContext`. The runner cannot accidentally call an LLM without capture.
+  - **Run-completion:** `assertRunCaptured` runs after every `endRun` with `{ llmSpansMin: 1, requireRawCoverageOfLlmSpans: true, requireOutcome: true }` defaults. Failures are routed via `onIntegrityFailure: 'throw' | 'mark_failed' | 'log'` (default `'mark_failed'`).
+  - **End of campaign:** if `report.comparator` is set, computes `researchReport` over the collected `RunRecord`s and embeds the campaign fingerprint + `preregistrationHash`.
+  - **Concurrency:** local async worker pool, default 1, configurable via `concurrency`.
+  - **Failure isolation:** a runner that throws marks the cell failed; sibling cells continue. Genuine bugs (non-runner exceptions) propagate.
+  - **Determinism:** the default `runId` generator is a stable hash of `(campaignId, variantId, scenarioId, seed)`, so re-running the same campaign produces the same ids; override `runId` for non-deterministic generation.
+- **`NoopRawProviderSink.list()`** — returns `[]` so explicit opt-out from capture is not flagged by `assertRunCaptured` as `no_raw_sink`. Opt-out remains a deliberate choice; the campaign still requires the integrity overrides that match.
+- New exports from the root barrel and the `@tangle-network/agent-eval/optimization` subpath: `runEvalCampaign`, `CampaignRunner`, `CampaignRunContext`, `CampaignRunOutcome`, `CampaignVariant`, `CampaignScenario`, `EvalCampaignOptions`, `EvalCampaignResult`, `FailedRun`, `CampaignIntegrityPolicy`, `CampaignFactoryParams`.
+
+### Why
+
+Every consumer that adopted agent-eval before 0.22 wrote their own matrix runner, and every one of them re-introduced the same forgettable wiring (raw sink, route guard, integrity assertion, analyst hook). 0.21 documented the pattern; 0.22 owns it. The primitive is the migration target — consumers replace their hand-rolled runners with `runEvalCampaign`, deleting integration boilerplate and inheriting the four directives by construction.
+
+`runMultiShotOptimization` remains the right primitive for trajectory-shaped GEPA optimization sweeps; `runPromptEvolution` for prompt + code evolution loops with sandbox pools; `runEvalCampaign` for the simpler "compare N variants on M scenarios with K seeds and tell me which to ship" case that makes up the bulk of consumer evals.
+
+### Migration
+
+Existing consumers do not need to change. `runEvalCampaign` is additive. The recommended path: on the next eval-runner refactor, replace your hand-rolled matrix loop with a single `runEvalCampaign` call. The capture-integrity directives go from "things you might forget" to "things the framework owns."
+
 ## 0.21.0 — capture integrity + launch-grade reporting
 
 This release closes the layer-1 gap a downstream consumer surfaced: better

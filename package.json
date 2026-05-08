@@ -1,6 +1,6 @@
 {
   "name": "@tangle-network/agent-eval",
-  "version": "0.21.0",
+  "version": "0.22.0",
   "description": "Trace-first evaluation infrastructure for agent systems: traces, harnesses, verifier pipelines, judges, datasets, gates, optimization, and reporting.",
   "homepage": "https://github.com/tangle-network/agent-eval#readme",
   "repository": {

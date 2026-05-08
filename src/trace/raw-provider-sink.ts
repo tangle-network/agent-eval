@@ -177,6 +177,13 @@ export class InMemoryRawProviderSink implements RawProviderSink {
 
 export class NoopRawProviderSink implements RawProviderSink {
   async record(): Promise<void> { /* no-op */ }
+  /**
+   * Returns an empty array. Implemented so `assertRunCaptured` does not
+   * trip the `no_raw_sink` issue when a caller explicitly opts out of
+   * capture by passing this sink — opt-out is a deliberate choice, not a
+   * misconfiguration.
+   */
+  async list(): Promise<RawProviderEvent[]> { return [] }
 }
 
 // ── Filesystem (NDJSON) ──────────────────────────────────────────────────

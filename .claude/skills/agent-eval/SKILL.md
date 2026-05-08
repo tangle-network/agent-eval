@@ -48,6 +48,7 @@ If a term below isn't in this table or in `docs/concepts.md`, that's a bug — f
 | Detect silent judge fallback / calibration drift / distribution shift | `runCanaries` |
 | Emit an A/B summary table or Pareto / gain figure spec | `summaryTable` / `paretoChart` / `gainHistogram` |
 | Build a launch-decision-grade research report (paired stats, ROPE, MDE, fingerprint, methodology) | `researchReport` (§Research reports) |
+| Run a matrix of variants × scenarios × seeds with capture integrity by construction | `runEvalCampaign` (§EvalCampaign — preferred starting point for new evals) |
 | Capture every provider HTTP request/response for forensics | `RawProviderSink` + `LlmClientOptions.rawSink` (§Capture integrity Directive 1) |
 | Fail loud if the eval would silently use the wrong route | `assertLlmRoute` (§Capture integrity Directive 2) |
 | Assert at run-end that the artifact is complete | `assertRunCaptured` + `throwIfRunIncomplete` (§Capture integrity Directive 3) |
@@ -68,6 +69,7 @@ Extend, don't fork — see §"Extend, don't duplicate."
 | `runCanaries` | `canary.ts` | Silent fallback (constant confidence), calibration drift (KS), distribution shift (chi-square). Returns a report; doesn't fail tests — wire it to a notification. |
 | `summaryTable`, `paretoChart`, `gainHistogram` | `summary-report.ts` | A/B reporting. `summaryTable` emits markdown with bootstrap CIs + paired Wilcoxon p (BH-adjusted) + Cohen's d. The other two return vega-lite-friendly specs. |
 | `researchReport` | `summary-report.ts` | Async, launch-decision-grade artifact: paired-evidence-only verdicts (`promote` / `hold` / `equivalent` / `reject` / `needs_more_data`), ROPE, Pr(Δ>0), per-candidate MDE via `pairedMde`, SHA-256 `runFingerprint`, optional `preregistrationHash`, embedded methodology. See [`docs/research-report-methodology.md`](../../../docs/research-report-methodology.md). |
+| `runEvalCampaign` | `eval-campaign.ts` | The capture-integrity directives, made structural. Variants × scenarios × seeds → `RunRecord[]` + integrity reports + (optional) `researchReport`. Wires `assertLlmRoute` at preflight, builds `TraceStore` + `RawProviderSink` + `TraceEmitter` per run, asserts `requireRawCoverageOfLlmSpans` at run-end, runs the analyst on completion. See §EvalCampaign. |
 | `RawProviderSink` + `callLlm({ rawSink })` | `trace/raw-provider-sink.ts`, `llm-client.ts` | First-class HTTP-level capture alongside `LlmSpan`. `Authorization` / `X-Api-Key` / credential-shaped body fields auto-redacted; `event.redactedFields` records what was stripped. `FileSystemRawProviderSink` rolls at 32 MiB. **Every eval run wires this** — see Directive 1. |
 | `assertLlmRoute` | `llm-client.ts` | Pure preflight guard. Throws `LlmRouteAssertionError` on missing baseUrl, blocked URL, missing auth, wrong provider. Call once at matrix-runner construction. See Directive 2. |
 | `assertRunCaptured` + `throwIfRunIncomplete` | `trace/integrity.ts` | Read-only run-completion check. `requireRawCoverageOfLlmSpans` catches the bug class where structured spans were emitted but raw HTTP capture went to a different sink. See Directive 3. |
@@ -306,6 +308,69 @@ Seven shapes. Audit before shipping any gate:
 
 Common shape: something that should fail loud returns silent success.
 Fail closed; use `// muffle-ok: <reason>` for the rare exception.
+
+---
+
+## EvalCampaign — preferred starting point for new evals (0.22+)
+
+The four capture-integrity directives below are the operational discipline. **`runEvalCampaign` is what wires them by construction.** New consumers should reach for the campaign primitive first; the directives become "things the framework owns," not "things you might forget."
+
+```ts
+import { runEvalCampaign } from '@tangle-network/agent-eval'
+import { traceAnalystOnRunComplete } from '@tangle-network/agent-eval/traces'
+import { FileSystemTraceStore } from '@tangle-network/agent-eval/traces'
+
+const result = await runEvalCampaign({
+  campaignId: 'launch-2026-q2',
+  commitSha: process.env.GIT_SHA!,
+  variants: [
+    { id: 'baseline', payload: { prompt: PROMPTS.v1 } },
+    { id: 'cand-tool-repair', payload: { prompt: PROMPTS.v2 } },
+  ],
+  scenarios: scenarios,                        // [{ scenarioId: 'task-1' }, ...]
+  seeds: [0, 1, 2, 3, 4],
+  llmOpts: { baseUrl, apiKey, defaultTimeoutMs: 60_000 },
+  storeFactory: ({ runId }) => new FileSystemTraceStore({ root: `${WORK}/trace/${runId}` }),
+  workDir: WORK,                               // FileSystemRawProviderSink lands at WORK/raw-events/<runId>/
+  onRunComplete: [traceAnalystOnRunComplete({ analyze: analystOpts, save })],
+  preregistrationHash: signedManifest.contentHash,
+  report: { comparator: 'baseline', rope: { low: -0.02, high: 0.02 } },
+  runner: async (ctx) => {
+    await ctx.emitter.startRun({ scenarioId: ctx.scenarioId, layer: 'app-runtime' })
+    const { result } = await callLlmJson(req(ctx.variant), ctx.llmOpts)   // raw HTTP captured by construction
+    const score = await judgeOutput(result.content, ctx.scenarioId, ctx.llmOpts)
+    await ctx.emitter.endRun({ pass: score > 0.5, score })
+    return {
+      pass: score > 0.5, score,
+      costUsd: result.costUsd ?? 0,
+      tokenUsage: { input: result.usage.promptTokens, output: result.usage.completionTokens },
+      model: 'claude-sonnet-4-6@2025-04-15',
+      promptHash: hashPrompt(ctx.variant.prompt),
+      configHash: hashConfig(ctx.variant),
+    }
+  },
+})
+
+// result.runs:               RunRecord[] for downstream pipelines
+// result.integrityReports:   per-run capture-integrity reports
+// result.failedRuns:         cells that threw or failed integrity (mark_failed default)
+// result.report:             researchReport — promote/hold/equivalent/reject + methodology
+// result.campaignFingerprint: SHA-256 over the canonicalised plan
+```
+
+**What the campaign owns** so the consumer doesn't:
+- `assertLlmRoute(llmOpts, { requireExplicitBaseUrl: true, requireAuth: true })` once at preflight.
+- A fresh `TraceStore` and `RawProviderSink` per cell; the runner gets an `LlmClientOptions` already wired with `rawSink` + `traceContext`. Calling an LLM without capturing it requires actively bypassing the campaign.
+- `assertRunCaptured(store, runId, { requireRawCoverageOfLlmSpans: true, requireOutcome: true })` after every `endRun`.
+- Auto-execution of `traceAnalystOnRunComplete` if you pass an analyst config in `onRunComplete`.
+- `researchReport` over the collected runs at the end with the campaign's `preregistrationHash` baked in.
+
+**When NOT to use the campaign:**
+- Trajectory-shaped GEPA optimization → `runMultiShotOptimization` (steered prompts, paired seeds, intermediate metrics).
+- Prompt + code evolution with mutation, sandbox pools, lineage → `runPromptEvolution` + `createCompositeMutator`.
+- Long-running agent control loops with budgets → `runAgentControlLoop` (the campaign is for *measurement*, not the live runtime).
+
+The four directives below remain the source of truth for *why* the campaign does what it does. Read them when something fails — the issue codes (`missing_raw_events`, `orphan_llm_span`, `no_explicit_base_url`, …) are the campaign's failure modes too.
 
 ---
 

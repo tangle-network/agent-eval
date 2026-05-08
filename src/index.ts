@@ -832,6 +832,20 @@ export type {
   TrialCache,
 } from './prompt-evolution'
 
+export { runEvalCampaign } from './eval-campaign'
+export type {
+  CampaignFactoryParams,
+  CampaignIntegrityPolicy,
+  CampaignRunContext,
+  CampaignRunner,
+  CampaignRunOutcome,
+  CampaignScenario,
+  CampaignVariant,
+  EvalCampaignOptions,
+  EvalCampaignResult,
+  FailedRun,
+} from './eval-campaign'
+
 export {
   defaultMultiShotObjectives,
   runMultiShotOptimization,
