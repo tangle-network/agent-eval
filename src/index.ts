@@ -497,7 +497,13 @@ export type {
   CrossTraceDiffOptions,
 } from './cross-trace-diff'
 
-export { signManifest, verifyManifest, evaluateHypothesis } from './pre-registration'
+export {
+  signManifest,
+  verifyManifest,
+  evaluateHypothesis,
+  hashJson,
+  canonicalize,
+} from './pre-registration'
 export type {
   HypothesisManifest,
   SignedManifest,
