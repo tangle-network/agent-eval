@@ -1,66 +1,24 @@
 # @tangle-network/agent-eval
 
-Evaluation infrastructure for agent systems.
+Evaluation infrastructure for agent products.
 
-`agent-eval` gives agent products a reusable way to record what happened,
-verify outcomes, classify failures, compare variants, optimize prompts or
-policies, and make release decisions from evidence instead of anecdotes.
-
-It does not own your product state, credentials, UI, or model routing. Product
-teams keep those boundaries; this package standardizes how runs are recorded,
-checked, compared, and promoted.
-
-## Contents
-
-- [When To Use It](#when-to-use-it)
-- [Architecture](#architecture)
-- [Install](#install)
-- [Quick Start](#quick-start)
-- [Core Primitives](#core-primitives)
-- [Adoption Path](#adoption-path)
-- [Examples](#examples)
-- [Documentation](#documentation)
-- [Development](#development)
-- [Related Packages](#related-packages)
-
-## When To Use It
-
-Use `agent-eval` when you need one or more of these:
-
-- A reproducible eval harness for coding agents, builder agents, or multi-tool
-  workflows.
-- Structured traces for agent runs: spans, artifacts, events, budgets, tool
-  calls, retrieval, judge output, and sandbox execution.
-- Deterministic gates around build/test/deploy checks.
-- LLM-as-judge or deterministic judge fleets with calibration and canaries.
-- Dataset splits, holdouts, paired statistics, and release confidence gates.
-- Failure taxonomy that distinguishes prompt, tool, sandbox, retrieval,
-  evaluator, and knowledge-readiness failures.
-- Optimization loops over prompts, steering, code mutations, or full multi-shot
-  trajectories.
-- Report data for internal launch reviews, CI gates, and research analysis.
-
-## Architecture
+Use it to wrap the real workflow your users run, record what happened, verify
+the result, turn feedback into replay data, compare variants, and ship only
+when the evidence improves.
 
 ```txt
-agent/product run
-  -> TraceEmitter / TraceStore
-  -> TraceAnalyst / failure taxonomy
-  -> SandboxHarness / MultiLayerVerifier / JudgeRunner
-  -> metrics + run records
-  -> paired stats + held-out gates
-  -> optimization + release confidence + reports
+product task
+  -> observe state
+  -> validate with deterministic gates first
+  -> act through the real product adapter
+  -> trace + feedback trajectory
+  -> replay / optimize / release gate
 ```
 
-Package responsibilities:
-
-- `agent-eval`: run evidence, eval contracts, verification, statistics,
-  optimization, reporting.
-- Product app: domain state, tools, credentials, UI, storage, deployment, model
-  gateway.
-- `@tangle-network/agent-runtime`: production agent-loop/session runtime.
-- `@tangle-network/agent-knowledge`: evidence stores, claim/page synthesis,
-  retrieval, knowledge readiness implementation.
+`agent-eval` does not own product state, credentials, UI, storage, model
+routing, browser drivers, sandbox policy, or deployment. Products own those.
+This package owns eval contracts, loop mechanics, traces, statistics,
+optimization inputs, and release evidence.
 
 ## Install
 
@@ -68,41 +26,23 @@ Package responsibilities:
 pnpm add @tangle-network/agent-eval
 ```
 
-Wire protocol / CLI:
-
-```sh
-npm i -g @tangle-network/agent-eval
-agent-eval serve --port 5005
-```
-
-Python client source lives in `clients/python`. Until the PyPI package is
-published, install it from the repo:
-
-```sh
-cd clients/python
-pip install -e .
-```
-
 ## Quick Start
-
-Wrap the real product loop first. Do not build a toy eval path that users never
-exercise.
 
 ```ts
 import {
   objectiveEval,
   runAgentControlLoop,
-} from '@tangle-network/agent-eval'
+} from '@tangle-network/agent-eval/control'
 
 const result = await runAgentControlLoop({
   intent: task.prompt,
   budget: { maxSteps: 8, maxWallMs: 180_000, maxCostUsd: 2 },
 
-  async observe() {
-    return productAdapter.readState(task.id)
+  observe() {
+    return product.readState(task.id)
   },
 
-  async validate({ state }) {
+  validate({ state }) {
     return [
       objectiveEval({
         id: 'build-passes',
@@ -118,93 +58,100 @@ const result = await runAgentControlLoop({
     ]
   },
 
-  async decide({ evals }) {
-    return evals.every((evalResult) => evalResult.passed)
-      ? { type: 'stop', reason: 'all critical checks passed' }
-      : { type: 'continue', action: { type: 'repair' }, reason: 'checks failed' }
+  decide({ evals }) {
+    const failed = evals.filter((e) => !e.passed)
+    if (failed.length === 0) {
+      return { type: 'stop', pass: true, reason: 'all gates passed' }
+    }
+    return {
+      type: 'continue',
+      action: { type: 'repair', failed: failed.map((e) => e.id) },
+      reason: 'repair failed gates',
+    }
   },
 
-  async act(action) {
-    return productAdapter.runAgentStep(task.id, action)
+  act(action) {
+    return product.runAgentStep(task.id, action)
   },
 })
 
-await productAdapter.storeControlResult(task.id, result)
+await product.storeEvalResult(task.id, result)
 ```
 
-Once this loop represents production behavior, convert completed runs into
-feedback trajectories, split them into train/dev/test/holdout sets, and run
-multi-shot optimization against the same adapter.
+That loop should be the same shape in production, replay, benchmark, and
+optimization. Swap dependencies behind `observe()` and `act()`, not the eval
+contract itself.
 
-## Core Primitives
+## Import Paths
 
-| Primitive | Purpose |
-|---|---|
-| `TraceEmitter`, `TraceStore` | Append-only run/span/event/artifact/budget records. |
-| `TraceAnalyst` | Bounded investigation over trace corpora for systemic failure modes. |
-| `SandboxHarness` | Build/test/runtime checks with captured stdout, stderr, exit codes, wall time, and parsed test counts. |
-| `MultiLayerVerifier` | Ordered verification stages with dependencies, skip-on-fail, findings, scores, and time caps. |
-| `JudgeRunner` | Parallel deterministic or LLM-backed judges over the same artifact/run. |
-| `runAgentControlLoop` | Observe/validate/decide/act loop with budgets, stop policies, and structured eval results. |
-| `controlRunToRunRecord` | Converts control-loop evidence into strict promotion/report rows. |
-| `Dataset`, `RunRecord`, `HeldOutGate` | Versioned corpora, reproducible run metadata, and held-out promotion decisions. |
-| `pairedBootstrap`, `pairedWilcoxon`, `bhAdjust` | Paired experiment statistics and multiple-comparison correction. |
-| `classifyFailure` | Rule-based failure classification for agent, tool, sandbox, retrieval, and knowledge failures. |
-| `runMultiShotOptimization` | Optimization over full agent trajectories with actionable side information. |
-| `runPromptEvolution` | Prompt/steering/code evolution over scenario scores. |
-| `evaluateReleaseConfidence` | Release scorecard across evidence volume, pass rate, score, overfit, cost, latency, and gates. |
-| `renderReleaseReport`, `summaryTable`, `paretoChart`, `gainHistogram` | Report-ready decision artifacts and chart specs. |
-| `KnowledgeRequirement`, `KnowledgeBundle` | Shared contracts for knowledge readiness. |
+The root export remains available, but new code should prefer focused subpaths:
 
-`NoopResearcher` is a fail-loud sentinel for wiring tests. Production systems
-should implement `Researcher` directly or use `CallbackResearcher`.
+```ts
+import { runAgentControlLoop } from '@tangle-network/agent-eval/control'
+import { runMultiShotOptimization } from '@tangle-network/agent-eval/optimization'
+import { TraceEmitter } from '@tangle-network/agent-eval/traces'
+import { renderReleaseReport } from '@tangle-network/agent-eval/reporting'
+```
 
-## Adoption Path
+| Subpath | Use for |
+| --- | --- |
+| `@tangle-network/agent-eval/control` | `observe -> validate -> decide -> act`, action policy, propose/review loops |
+| `@tangle-network/agent-eval/traces` | trace stores, emitters, TraceAnalyst |
+| `@tangle-network/agent-eval/optimization` | feedback trajectories, multi-shot optimization, prompt evolution |
+| `@tangle-network/agent-eval/reporting` | release confidence, paired stats, report/table/chart specs |
+| `@tangle-network/agent-eval/wire` | HTTP/RPC judge server and schemas |
+| `@tangle-network/agent-eval/benchmarks` | benchmark adapter contracts and reference wrappers |
 
-1. Choose one real workflow: code generation, browser task, research task,
-   workflow builder, voice interaction, or domain agent task.
-2. Write a product adapter that can observe state and execute one agent step.
-3. Add deterministic validators first: build, test, serve, schema, policy,
-   permission, retrieval, and deployment checks.
-4. Add LLM judges only for subjective quality that deterministic checks cannot
-   measure.
-5. Emit traces and convert successful and failed attempts into
-   `FeedbackTrajectory` records.
-6. Build train/dev/test/holdout scenarios from those trajectories.
-7. Run `runMultiShotOptimization()` or prompt/code evolution on train/dev.
-8. Promote only when test/holdout gates and real product telemetry improve.
+## Core Pieces
 
-For a complete product integration guide, see
-[Product Eval Adoption](./docs/product-eval-adoption.md).
+| Need | Use |
+| --- | --- |
+| Keep an agent working until objective state passes | `runAgentControlLoop` |
+| Turn user/reviewer feedback into replay data | `FeedbackTrajectory` |
+| Compare prompt/tool/retrieval policies over full trajectories | `runMultiShotOptimization` |
+| Gate releases with paired evidence and holdouts | `evaluateReleaseConfidence`, `HeldOutGate` |
+| Explain regressions across trace corpora | `TraceAnalyst` / `analyzeTraces` |
+| Report a launch decision | `renderReleaseReport`, `summaryTable`, `paretoChart`, `gainHistogram` |
+| Model missing context separately from bad reasoning | `KnowledgeRequirement`, `KnowledgeBundle` |
 
 ## Examples
 
-Runnable examples live in the repository's
-[`examples/`](https://github.com/tangle-network/agent-eval/tree/main/examples)
-directory. They are not part of the published npm package.
+Runnable examples live in
+[`examples/`](https://github.com/tangle-network/agent-eval/tree/main/examples).
 
-- [`examples/same-sandbox-harness`](https://github.com/tangle-network/agent-eval/tree/main/examples/same-sandbox-harness) - run
-  multiple eval passes against the same workspace.
-- [`examples/multi-shot-optimization`](https://github.com/tangle-network/agent-eval/tree/main/examples/multi-shot-optimization) -
-  optimize full agent trajectories with held-out promotion.
-- [`examples/benchmarks`](https://github.com/tangle-network/agent-eval/tree/main/examples/benchmarks) - benchmark adapter shape and
-  reference benchmark wrappers.
+- [`examples/multi-shot-optimization`](https://github.com/tangle-network/agent-eval/tree/main/examples/multi-shot-optimization):
+  optimize full trajectories with held-out promotion.
+- [`examples/same-sandbox-harness`](https://github.com/tangle-network/agent-eval/tree/main/examples/same-sandbox-harness):
+  run setup/build/test and evidence checks in one workspace.
+- [`examples/benchmarks`](https://github.com/tangle-network/agent-eval/tree/main/examples/benchmarks):
+  benchmark adapter shape and reference wrappers.
 
-The examples are intentionally kept outside the README so they can be expanded,
-tested, and copied without turning this page into a tutorial.
+## Docs
 
-## Documentation
+Read in this order:
 
-- [Concepts](./docs/concepts.md)
-- [Feature Guide](./docs/feature-guide.md)
-- [Product Eval Adoption](./docs/product-eval-adoption.md)
-- [Trace Analysis](./docs/trace-analysis.md)
-- [Control Runtime](./docs/control-runtime.md)
-- [Knowledge Readiness](./docs/knowledge-readiness.md)
-- [Integration Launch Gates](./docs/integration-launch-gates.md)
-- [Multi-Shot Optimization](./docs/multi-shot-optimization.md)
-- [Feedback Trajectories](./docs/feedback-trajectories.md)
-- [Wire Protocol](./docs/wire-protocol.md)
+1. [Product Eval Adoption](./docs/product-eval-adoption.md)
+2. [Control Runtime](./docs/control-runtime.md)
+3. [Feedback Trajectories](./docs/feedback-trajectories.md)
+4. [Multi-Shot Optimization](./docs/multi-shot-optimization.md)
+5. [Trace Analysis](./docs/trace-analysis.md)
+6. [Knowledge Readiness](./docs/knowledge-readiness.md)
+7. [Integration Launch Gates](./docs/integration-launch-gates.md)
+8. [Wire Protocol](./docs/wire-protocol.md)
+
+## CLI / Wire Protocol
+
+```sh
+npm i -g @tangle-network/agent-eval
+agent-eval serve --port 5005
+```
+
+The Python client lives in `clients/python`:
+
+```sh
+cd clients/python
+pip install -e .
+```
 
 ## Development
 
@@ -216,34 +163,11 @@ pnpm build
 pnpm openapi
 ```
 
-Run the local server:
-
-```sh
-pnpm build
-node dist/cli.js serve --port 5005
-```
-
-Python client tests:
-
-```sh
-pnpm build
-cd clients/python
-pip install -e ".[dev]"
-pytest
-```
-
-## Release
-
-`@tangle-network/agent-eval` publishes to npm. The Python client lives under
-`clients/python` and is versioned from this repository.
-
 ## Related Packages
 
-- [`@tangle-network/agent-runtime`](https://github.com/tangle-network/agent-runtime)
-- [`@tangle-network/agent-knowledge`](https://github.com/tangle-network/agent-knowledge)
-- [`@tangle-network/agent-integrations`](https://github.com/tangle-network/agent-integrations)
-- [`@tangle-network/agent-gateway`](https://github.com/tangle-network/agent-gateway)
-- [`@tangle-network/tcloud`](https://github.com/tangle-network/tcloud)
+- `@tangle-network/agent-runtime`: production session/runtime layer.
+- `@tangle-network/agent-knowledge`: source-grounded knowledge bases and readiness.
+- `@tangle-network/agent-integrations`: connection, grant, capability, and integration invocation contracts.
 
 ## License
 

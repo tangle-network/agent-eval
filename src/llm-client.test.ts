@@ -90,6 +90,32 @@ describe('llm-client — callLlm happy path', () => {
     expect((init.headers as Record<string, string>).Authorization).toBe('Bearer sk-abc')
   })
 
+  it('uses max_completion_tokens for GPT-5 chat-completions models', async () => {
+    const fetch = vi.fn(async () => mkOkResponse({ choices: [{ message: { content: '' } }], usage: {} }))
+    await callLlm(
+      { model: 'gpt-5.4-mini', messages: [{ role: 'user', content: 'x' }], maxTokens: 64 },
+      { fetch: fetch as unknown as typeof globalThis.fetch, baseUrl: 'https://api.openai.com/v1', apiKey: 'sk-abc' },
+    )
+
+    const call = (fetch.mock.calls[0] ?? []) as unknown as [string, RequestInit]
+    const body = JSON.parse(String(call[1].body)) as Record<string, unknown>
+    expect(body.max_completion_tokens).toBe(64)
+    expect(body.max_tokens).toBeUndefined()
+  })
+
+  it('keeps max_tokens for other OpenAI-compatible chat models', async () => {
+    const fetch = vi.fn(async () => mkOkResponse({ choices: [{ message: { content: '' } }], usage: {} }))
+    await callLlm(
+      { model: 'gpt-4o-mini', messages: [{ role: 'user', content: 'x' }], maxTokens: 64 },
+      { fetch: fetch as unknown as typeof globalThis.fetch, baseUrl: 'https://api.openai.com/v1', apiKey: 'sk-abc' },
+    )
+
+    const call = (fetch.mock.calls[0] ?? []) as unknown as [string, RequestInit]
+    const body = JSON.parse(String(call[1].body)) as Record<string, unknown>
+    expect(body.max_tokens).toBe(64)
+    expect(body.max_completion_tokens).toBeUndefined()
+  })
+
   it('supports custom authHeader over apiKey', async () => {
     const fetch = vi.fn(async () => mkOkResponse({ choices: [], usage: {} }))
     await callLlm(
