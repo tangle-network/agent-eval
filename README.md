@@ -116,6 +116,10 @@ import { renderReleaseReport } from '@tangle-network/agent-eval/reporting'
 | Fail loud if an eval would silently use the wrong route | `assertLlmRoute` |
 | Assert at run-end that the artifact is complete | `assertRunCaptured`, `throwIfRunIncomplete` |
 | Auto-execute the trace analyst on every run | `traceAnalystOnRunComplete` + `TraceEmitterOptions.onRunComplete` |
+| Run a matrix of variants × scenarios × seeds with capture integrity by construction | `runEvalCampaign` |
+| Re-judge / determinism-audit a past campaign for free | `ReplayCache`, `createReplayFetch` |
+| Ship-when-decisive with anytime-valid α across rolling looks | `pairedEvalueSequence`, `evaluateInterimReleaseConfidence` |
+| Tell load-bearing rubrics from decorative ones using deployment outcomes | `rubricPredictiveValidity` |
 | Model missing context separately from bad reasoning | `KnowledgeRequirement`, `KnowledgeBundle` |
 
 ### Capture integrity (0.21+)

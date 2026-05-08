@@ -62,3 +62,26 @@ export type {
   JudgeReplayGateArgs,
   Verdict,
 } from './promotion-gate'
+
+export {
+  evaluateInterimReleaseConfidence,
+  pairedEvalueSequence,
+} from './sequential'
+export type {
+  InterimReleaseConfidence,
+  InterimReleaseConfidenceInput,
+  PairedEvalueOptions,
+  PairedEvalueSequence,
+  PairedEvalueStep,
+  SequentialDecision,
+} from './sequential'
+
+export {
+  rubricPredictiveValidity,
+} from './meta-eval/rubric-predictive-validity'
+export type {
+  RubricOutcomePair,
+  RubricPredictiveValidityInput,
+  RubricPredictiveValidityReport,
+  RubricRanking,
+} from './meta-eval/rubric-predictive-validity'

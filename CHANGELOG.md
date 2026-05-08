@@ -1,5 +1,104 @@
 # Changelog
 
+## 0.22.0 — EvalCampaign + replay + always-valid + outcome calibration
+
+0.21 shipped the four capture-integrity primitives as opt-in. Every consumer still had to wire them by hand, and the bug class blueprint-agent reported (forgotten wiring → silent partial-capture) reappears the moment a new consumer adopts agent-eval cold. **0.22 makes the right thing the default path** — and adds three primitives that compound on top of standardized capture: replay-from-raw-events, anytime-valid sequential evaluation, and rubric predictive validity. The four primitives together turn agent-eval from a TS framework into research-grade evaluation infrastructure.
+
+### Added
+
+#### `runEvalCampaign` — capture integrity by construction
+
+Opinionated matrix runner that wires the four directives by construction. Inputs: variants, scenarios, seeds, an `LlmClientOptions`, factories for `TraceStore` and `RawProviderSink`, and a `runner(ctx)` callback. Outputs: per-cell `RunRecord[]`, `RunIntegrityReport[]`, optional `researchReport`, and a campaign fingerprint.
+
+- **Preflight:** `assertLlmRoute` is called once before any work, with `{ requireExplicitBaseUrl: true, requireAuth: true }` defaults. Misconfigured routes never burn a run.
+- **Per run:** the campaign constructs the `TraceStore`, `RawProviderSink`, and `TraceEmitter` (with `onRunComplete` hooks attached), then hands the runner an `LlmClientOptions` already pre-wired with `rawSink` + `traceContext`. The runner cannot accidentally call an LLM without capture.
+- **Run-completion:** `assertRunCaptured` runs after every `endRun` with `{ llmSpansMin: 1, requireRawCoverageOfLlmSpans: true, requireOutcome: true }` defaults. Failures are routed via `onIntegrityFailure: 'throw' | 'mark_failed' | 'log'` (default `'mark_failed'`).
+- **End of campaign:** if `report.comparator` is set, computes `researchReport` over the collected `RunRecord`s and embeds the campaign fingerprint + `preregistrationHash`.
+- **Concurrency:** local async worker pool, default 1, configurable via `concurrency`.
+- **Determinism:** the default `runId` generator is a stable hash of `(campaignId, variantId, scenarioId, seed)`, so re-running the same campaign produces the same ids; override `runId` for non-deterministic generation.
+
+Exported from the root barrel and the `@tangle-network/agent-eval/optimization` subpath: `runEvalCampaign`, `CampaignRunner`, `CampaignRunContext`, `CampaignRunOutcome`, `CampaignVariant`, `CampaignScenario`, `EvalCampaignOptions`, `EvalCampaignResult`, `FailedRun`, `CampaignIntegrityPolicy`, `CampaignFactoryParams`.
+
+#### Replay-from-raw-events
+
+Every campaign run is now a re-runnable artifact. `ReplayCache.fromSink(sink)` turns a populated `RawProviderSink` into a deterministic `(canonicalised request → cached response)` map; `createReplayFetch(cache)` returns a `fetch`-shaped function that satisfies `/chat/completions` calls out of the cache and passes other URLs through.
+
+```ts
+const cache = await ReplayCache.fromSink(yesterdayRawSink)
+const replayFetch = createReplayFetch(cache, { onMiss: 'fail-closed' })
+await callLlm(req, { ...llmOpts, fetch: replayFetch }) // zero LLM cost
+```
+
+Use cases:
+
+- Post-hoc judging — apply a new judge or scorer to last week's runs without burning a single token.
+- Determinism audits — replay a campaign and verify the responses match byte-for-byte.
+- Free judge calibration — run two judges on identical responses and measure agreement.
+
+`onMiss` is `'throw' | 'fallback' | 'fail-closed'`. The cache hashes a canonical projection (`model + messages + temperature + max_tokens|max_completion_tokens + response_format`) so insertion-order quirks don't cause spurious misses.
+
+Exported from root and `@tangle-network/agent-eval/traces`: `ReplayCache`, `createReplayFetch`, `iterateRawCalls`, `ReplayCacheEntry`, `ReplayCacheStats`, `ReplayFetchOptions`, `ReplayCacheMissError`.
+
+#### Always-valid sequential evaluation
+
+`pairedEvalueSequence(deltas, opts)` and `evaluateInterimReleaseConfidence({ deltaSeries })` ship the predictable plug-in betting martingale of Waudby-Smith & Ramdas (2024) for paired bounded outcomes, plus the empirical Bernstein confidence sequence of Howard et al. (2021) for the running mean. Both are *anytime-valid* — type-I error is bounded by α at every stopping time, no peeking penalty.
+
+```ts
+const verdict = evaluateInterimReleaseConfidence({
+  deltaSeries: [{ candidateId: 'cand', deltas }],
+  alpha: 0.05,
+  rope: { low: -0.02, high: 0.02 },
+})
+// → { recommendation: { decision: 'promote_now' | 'continue' | 'reject_now' | 'equivalent', candidateId } }
+```
+
+This closes the methodological hole flagged in the 0.21 methodology doc as out-of-scope. Consumers running rolling campaigns can now ship the moment evidence is decisive, stop-early on dead-on-arrival variants, and accumulate evidence across partial runs without spending the FDR budget. Tested under-the-null at α=0.05 on 100 synthetic series; false-rejection rate stays below the bound.
+
+Exported from root and `@tangle-network/agent-eval/reporting`: `pairedEvalueSequence`, `evaluateInterimReleaseConfidence`, `PairedEvalueOptions`, `PairedEvalueSequence`, `PairedEvalueStep`, `InterimReleaseConfidence`, `InterimReleaseConfidenceInput`, `SequentialDecision`.
+
+#### Rubric predictive validity
+
+`rubricPredictiveValidity({ runs, outcomes, outcomeMetrics })` joins canonical campaign `RunRecord`s to a `DeploymentOutcomeStore` and reports per-rubric Pearson + Spearman + bootstrap CI against each outcome metric. Verdict bucketing: `'load_bearing' | 'informative' | 'decorative'` based on `|spearman|`. **Without this loop every rubric is faith-based;** with it, you know which rubrics earn their promotion power and which are decoration.
+
+```ts
+const validity = await rubricPredictiveValidity({
+  runs: lastQuarterRuns,
+  outcomes: shipFlagOutcomeStore,
+  outcomeMetrics: ['revenue_lift', 'retention_30d', 'csat'],
+})
+for (const r of validity.ranked) {
+  console.log(`${r.rubric} → ${r.bestOutcome}: ρ=${r.spearman.toFixed(2)} (${r.verdict})`)
+}
+```
+
+Builds on the existing `correlationStudy` primitive but works directly off `RunRecord` (the canonical campaign artifact) rather than `Run` from a `TraceStore`, so it composes cleanly with `runEvalCampaign`'s output. Returns a per-rubric ranking + every (rubric, outcome) pair tested + a list of rubrics that produced no usable data.
+
+Exported from root and `@tangle-network/agent-eval/reporting`: `rubricPredictiveValidity`, `RubricOutcomePair`, `RubricRanking`, `RubricPredictiveValidityInput`, `RubricPredictiveValidityReport`. The existing `correlationStudy`, `OutcomeStore`, `InMemoryOutcomeStore`, `FileSystemOutcomeStore` continue to work unchanged.
+
+#### `NoopRawProviderSink.list()` returns `[]`
+
+Explicit opt-out from capture is no longer flagged by `assertRunCaptured` as `no_raw_sink`. Opt-out remains a deliberate choice; the campaign still requires the matching integrity overrides.
+
+### Why
+
+Every consumer that adopted agent-eval before 0.22 wrote their own matrix runner, and every one of them re-introduced the same forgettable wiring (raw sink, route guard, integrity assertion, analyst hook). 0.21 documented the pattern; 0.22 owns it. The four new primitives compound:
+
+- `runEvalCampaign` standardises the artifact (`RunRecord` + raw events + fingerprint).
+- Replay turns every past run into free training/validation data for new judges.
+- Sequential evaluation makes "ship-when-evidence-says-so" mathematically defensible.
+- Predictive validity converts evals from belief-based to outcome-anchored.
+
+`runMultiShotOptimization` remains the right primitive for trajectory-shaped GEPA optimization sweeps; `runPromptEvolution` for prompt + code evolution loops with sandbox pools; `runEvalCampaign` for the "compare N variants on M scenarios with K seeds and tell me which to ship" case that makes up the bulk of consumer evals.
+
+### References
+
+- Howard, S. R., Ramdas, A., McAuliffe, J., Sekhon, J. (2021). Time-uniform, nonparametric, nonasymptotic confidence sequences. *Annals of Statistics*, 49(2), 1055–1080.
+- Waudby-Smith, I., Ramdas, A. (2024). Estimating means of bounded random variables by betting. *JRSS B*, 86(1), 1–27.
+
+### Migration
+
+Existing consumers do not need to change. All four primitives are additive. Recommended path: on the next eval-runner refactor, replace hand-rolled matrix loops with `runEvalCampaign`. Use `evaluateInterimReleaseConfidence` for any campaign you run on a recurring cadence. Wire `rubricPredictiveValidity` once you have ≥ 30 deployment outcomes joinable by `runId`. Replay is a free win — once campaigns are running, every eval R&D loop drops to CPU-bound.
+
 ## 0.21.0 — capture integrity + launch-grade reporting
 
 This release closes the layer-1 gap a downstream consumer surfaced: better

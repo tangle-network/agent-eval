@@ -113,15 +113,30 @@ risks list and the executive summary. Treat them as descriptive only.
 - **Unpaired Mann–Whitney.** Rejected: matched scenarios make pairing free,
   and unpaired tests throw away the variance reduction. Use the paired test
   by default.
-- **Sequential / always-valid inference (e-values, mSPRT, alpha-spending).**
-  Out of scope for a single-look report. If users iterate, wrap this report
-  in an alpha-spending schedule, or commit to one preregistered look.
+- **Sequential / always-valid inference (e-values, alpha-spending).**
+  **Shipped in 0.22.** `pairedEvalueSequence` and
+  `evaluateInterimReleaseConfidence` provide time-uniform inference using
+  the predictable plug-in betting martingale (Waudby-Smith & Ramdas 2024)
+  paired with the empirical Bernstein confidence sequence (Howard et al.
+  2021). For *rolling* analyses (interim looks at a campaign that's still
+  accumulating data) call those primitives directly; `researchReport`
+  remains the single-look summary. Paper-grade pre-registration covers the
+  static analysis; the sequential primitives cover the iterative one.
 - **Hierarchical Bayesian shrinkage across many candidates.** Future work.
   The current ranking is on raw paired statistics and over-credits the top
-  candidate when many are tested.
+  candidate when many are tested. A Bayesian hierarchical model with a
+  weakly informative prior would shrink each variant toward the grand mean,
+  reducing rank flips between near-tied candidates.
 - **Calibration / coverage simulation on the bootstrap CI.** Future work; we
   rely on the asymptotic guarantee plus the hard pair floor to keep coverage
   reasonable.
+- **Outcome-anchored calibration.** **Shipped in 0.22.**
+  `rubricPredictiveValidity` joins `RunRecord`s to a `DeploymentOutcomeStore`
+  and reports per-rubric Spearman against deployment outcomes (revenue,
+  retention, CSAT, …). Combined with the static methodology in this
+  document, the loop is: pre-register → measure with `researchReport` →
+  ship → observe outcomes → recalibrate rubric weights with
+  `rubricPredictiveValidity`.
 
 ## When NOT to apply
 

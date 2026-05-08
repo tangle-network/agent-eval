@@ -48,6 +48,10 @@ If a term below isn't in this table or in `docs/concepts.md`, that's a bug — f
 | Detect silent judge fallback / calibration drift / distribution shift | `runCanaries` |
 | Emit an A/B summary table or Pareto / gain figure spec | `summaryTable` / `paretoChart` / `gainHistogram` |
 | Build a launch-decision-grade research report (paired stats, ROPE, MDE, fingerprint, methodology) | `researchReport` (§Research reports) |
+| Run a matrix of variants × scenarios × seeds with capture integrity by construction | `runEvalCampaign` (§EvalCampaign — preferred starting point for new evals) |
+| Re-run / re-judge / determinism-audit a past campaign for free | `ReplayCache` + `createReplayFetch` (§Replay & sequential evaluation) |
+| Ship the moment evidence is decisive, with anytime-valid α control across rolling looks | `pairedEvalueSequence`, `evaluateInterimReleaseConfidence` (§Replay & sequential evaluation) |
+| Tell load-bearing rubrics from decorative ones using deployment outcomes | `rubricPredictiveValidity` (§Outcome calibration) |
 | Capture every provider HTTP request/response for forensics | `RawProviderSink` + `LlmClientOptions.rawSink` (§Capture integrity Directive 1) |
 | Fail loud if the eval would silently use the wrong route | `assertLlmRoute` (§Capture integrity Directive 2) |
 | Assert at run-end that the artifact is complete | `assertRunCaptured` + `throwIfRunIncomplete` (§Capture integrity Directive 3) |
@@ -68,6 +72,10 @@ Extend, don't fork — see §"Extend, don't duplicate."
 | `runCanaries` | `canary.ts` | Silent fallback (constant confidence), calibration drift (KS), distribution shift (chi-square). Returns a report; doesn't fail tests — wire it to a notification. |
 | `summaryTable`, `paretoChart`, `gainHistogram` | `summary-report.ts` | A/B reporting. `summaryTable` emits markdown with bootstrap CIs + paired Wilcoxon p (BH-adjusted) + Cohen's d. The other two return vega-lite-friendly specs. |
 | `researchReport` | `summary-report.ts` | Async, launch-decision-grade artifact: paired-evidence-only verdicts (`promote` / `hold` / `equivalent` / `reject` / `needs_more_data`), ROPE, Pr(Δ>0), per-candidate MDE via `pairedMde`, SHA-256 `runFingerprint`, optional `preregistrationHash`, embedded methodology. See [`docs/research-report-methodology.md`](../../../docs/research-report-methodology.md). |
+| `runEvalCampaign` | `eval-campaign.ts` | The capture-integrity directives, made structural. Variants × scenarios × seeds → `RunRecord[]` + integrity reports + (optional) `researchReport`. Wires `assertLlmRoute` at preflight, builds `TraceStore` + `RawProviderSink` + `TraceEmitter` per run, asserts `requireRawCoverageOfLlmSpans` at run-end, runs the analyst on completion. See §EvalCampaign. |
+| `ReplayCache` + `createReplayFetch` + `iterateRawCalls` | `replay.ts` | Turns a populated `RawProviderSink` into a `(canonical request → cached response)` cache + a `fetch`-shaped shim. Pass via `LlmClientOptions.fetch` and `callLlm` reads from the cache transparently; zero LLM cost for re-judging, post-hoc scoring, or determinism audits. See §Replay & sequential evaluation. |
+| `pairedEvalueSequence`, `evaluateInterimReleaseConfidence` | `sequential.ts` | Anytime-valid sequential evaluation: predictable plug-in betting martingale (Waudby-Smith & Ramdas 2024) + empirical Bernstein confidence sequence (Howard et al. 2021). Verdict at every interim look is type-I-error-controlled at α regardless of how many times you peeked. Pair with `runEvalCampaign` for ship-when-decisive. |
+| `rubricPredictiveValidity` | `meta-eval/rubric-predictive-validity.ts` | The outcome-calibration loop: joins campaign `RunRecord`s to deployment `OutcomeStore` and ranks rubrics by `\|spearman\|` against each outcome metric, with bootstrap CI. Buckets: `'load_bearing' \| 'informative' \| 'decorative'`. Use to deprecate decorative rubrics, re-weight composites, trigger recalibration when validity drops. |
 | `RawProviderSink` + `callLlm({ rawSink })` | `trace/raw-provider-sink.ts`, `llm-client.ts` | First-class HTTP-level capture alongside `LlmSpan`. `Authorization` / `X-Api-Key` / credential-shaped body fields auto-redacted; `event.redactedFields` records what was stripped. `FileSystemRawProviderSink` rolls at 32 MiB. **Every eval run wires this** — see Directive 1. |
 | `assertLlmRoute` | `llm-client.ts` | Pure preflight guard. Throws `LlmRouteAssertionError` on missing baseUrl, blocked URL, missing auth, wrong provider. Call once at matrix-runner construction. See Directive 2. |
 | `assertRunCaptured` + `throwIfRunIncomplete` | `trace/integrity.ts` | Read-only run-completion check. `requireRawCoverageOfLlmSpans` catches the bug class where structured spans were emitted but raw HTTP capture went to a different sink. See Directive 3. |
@@ -306,6 +314,142 @@ Seven shapes. Audit before shipping any gate:
 
 Common shape: something that should fail loud returns silent success.
 Fail closed; use `// muffle-ok: <reason>` for the rare exception.
+
+---
+
+## Replay & sequential evaluation (0.22+)
+
+Once `runEvalCampaign` standardises the output (every run is a `RunRecord` plus a SHA-256-keyed raw-event log) two compounding capabilities open up:
+
+### Replay — every past run is a re-runnable artifact
+
+Trying a new judge no longer means re-burning a sweep. Build a `ReplayCache` from the populated `RawProviderSink` of a previous run, install `createReplayFetch(cache)` as the `fetch` for `callLlm`, and the network call resolves out of the cache.
+
+```ts
+import { ReplayCache, createReplayFetch } from '@tangle-network/agent-eval/traces'
+
+const cache = await ReplayCache.fromSink(yesterdayCampaignSink)
+const replayFetch = createReplayFetch(cache, { onMiss: 'fail-closed' })
+
+await callLlm(req, { ...llmOpts, fetch: replayFetch })  // zero LLM cost
+```
+
+The cache hashes a canonical projection of the request body (`model + messages + temperature + max_tokens|max_completion_tokens + response_format`), so insertion-order quirks don't cause spurious misses. `onMiss` is `'throw' | 'fallback' | 'fail-closed'` — pick `fail-closed` for "I expect 100% replay; flag any new request as a determinism bug."
+
+For post-hoc scoring that doesn't even need a `fetch` shim, iterate the cached `(request, response)` pairs directly with `iterateRawCalls(sink)` and run your scorer in pure TS.
+
+### Sequential — ship the moment evidence is decisive
+
+Real consumers run campaigns weekly / nightly / per-PR. Each new look at the data silently inflates type-I error under the BH-FDR guarantee, which was for the *first* analysis. `pairedEvalueSequence(deltas, opts)` and `evaluateInterimReleaseConfidence({ deltaSeries })` ship time-uniform inference: Type-I error is bounded by α at *every* stopping time.
+
+```ts
+import { evaluateInterimReleaseConfidence } from '@tangle-network/agent-eval/reporting'
+
+const verdict = evaluateInterimReleaseConfidence({
+  deltaSeries: candidates.map((c) => ({ candidateId: c.id, deltas: c.pairedDeltas })),
+  alpha: 0.05,
+  rope: { low: -0.02, high: 0.02 },
+})
+// → recommendation: { decision: 'promote_now' | 'continue' | 'reject_now' | 'equivalent', candidateId }
+```
+
+Methodology: predictable plug-in betting martingale (Waudby-Smith & Ramdas 2024) for the e-value, empirical Bernstein confidence sequence (Howard et al. 2021) for the running mean. Use `decisionFiredAt` to early-stop campaigns that are decisive at, say, 30 paired observations rather than burning all 100 you budgeted for.
+
+**Common pattern:** call after every campaign tick. The recommendation is anytime-valid; if it returns `'continue'`, keep running; if it returns `'promote_now'` or `'reject_now'`, stop and act.
+
+---
+
+## Outcome calibration — does the rubric actually predict deployment? (0.22+)
+
+Without this loop every rubric is faith-based. `rubricPredictiveValidity` joins canonical `RunRecord`s to a `DeploymentOutcomeStore` (matched on `runId`), computes Pearson + Spearman + bootstrap CI per (rubric, outcome) pair, and ranks rubrics by `|spearman|` against the outcomes that actually matter (revenue, retention, CSAT, churn, support-tickets, …).
+
+```ts
+import { rubricPredictiveValidity } from '@tangle-network/agent-eval/reporting'
+import { FileSystemOutcomeStore } from '@tangle-network/agent-eval'
+
+const validity = await rubricPredictiveValidity({
+  runs: lastQuarterRuns,                          // RunRecord[] from runEvalCampaign
+  outcomes: new FileSystemOutcomeStore({ root: PROD_OUTCOMES }),
+  outcomeMetrics: ['revenue_lift', 'retention_30d', 'csat'],
+})
+
+for (const r of validity.ranked) {
+  console.log(`${r.rubric} → ${r.bestOutcome}: ρ=${r.spearman.toFixed(2)} (${r.verdict})`)
+}
+```
+
+Verdict bucketing on `|spearman|`:
+
+- `load_bearing` ≥ 0.7 — keep, weight heavily, defend in launch reviews.
+- `informative` ≥ 0.4 — useful as one signal among many; don't gate on it alone.
+- `decorative` < 0.4 — score is uncorrelated with the outcome that matters; deprecate, demote in composite weighting, or trigger recalibration. **A rubric with a strong negative correlation against a desired outcome buckets as `load_bearing` by magnitude — inspect the sign before promoting it.**
+
+Wire this on a quarterly cadence. When a previously-load-bearing rubric drifts toward `decorative` it's almost always one of: (a) the model has shifted, (b) the user base has changed, (c) the rubric has been overfit to last quarter's failure modes. Each has a different fix; the calibration check distinguishes them.
+
+`correlationStudy` continues to ship for the lower-level case of joining a `TraceStore` to an `OutcomeStore` over arbitrary eval metrics. `rubricPredictiveValidity` is the campaign-shaped wrapper purpose-built for the `RunRecord` artifact.
+
+---
+
+## EvalCampaign — preferred starting point for new evals (0.22+)
+
+The four capture-integrity directives below are the operational discipline. **`runEvalCampaign` is what wires them by construction.** New consumers should reach for the campaign primitive first; the directives become "things the framework owns," not "things you might forget."
+
+```ts
+import { runEvalCampaign } from '@tangle-network/agent-eval'
+import { traceAnalystOnRunComplete } from '@tangle-network/agent-eval/traces'
+import { FileSystemTraceStore } from '@tangle-network/agent-eval/traces'
+
+const result = await runEvalCampaign({
+  campaignId: 'launch-2026-q2',
+  commitSha: process.env.GIT_SHA!,
+  variants: [
+    { id: 'baseline', payload: { prompt: PROMPTS.v1 } },
+    { id: 'cand-tool-repair', payload: { prompt: PROMPTS.v2 } },
+  ],
+  scenarios: scenarios,                        // [{ scenarioId: 'task-1' }, ...]
+  seeds: [0, 1, 2, 3, 4],
+  llmOpts: { baseUrl, apiKey, defaultTimeoutMs: 60_000 },
+  storeFactory: ({ runId }) => new FileSystemTraceStore({ root: `${WORK}/trace/${runId}` }),
+  workDir: WORK,                               // FileSystemRawProviderSink lands at WORK/raw-events/<runId>/
+  onRunComplete: [traceAnalystOnRunComplete({ analyze: analystOpts, save })],
+  preregistrationHash: signedManifest.contentHash,
+  report: { comparator: 'baseline', rope: { low: -0.02, high: 0.02 } },
+  runner: async (ctx) => {
+    await ctx.emitter.startRun({ scenarioId: ctx.scenarioId, layer: 'app-runtime' })
+    const { result } = await callLlmJson(req(ctx.variant), ctx.llmOpts)   // raw HTTP captured by construction
+    const score = await judgeOutput(result.content, ctx.scenarioId, ctx.llmOpts)
+    await ctx.emitter.endRun({ pass: score > 0.5, score })
+    return {
+      pass: score > 0.5, score,
+      costUsd: result.costUsd ?? 0,
+      tokenUsage: { input: result.usage.promptTokens, output: result.usage.completionTokens },
+      model: 'claude-sonnet-4-6@2025-04-15',
+      promptHash: hashPrompt(ctx.variant.prompt),
+      configHash: hashConfig(ctx.variant),
+    }
+  },
+})
+
+// result.runs:               RunRecord[] for downstream pipelines
+// result.integrityReports:   per-run capture-integrity reports
+// result.failedRuns:         cells that threw or failed integrity (mark_failed default)
+// result.report:             researchReport — promote/hold/equivalent/reject + methodology
+// result.campaignFingerprint: SHA-256 over the canonicalised plan
+```
+
+**What the campaign owns** so the consumer doesn't:
+- `assertLlmRoute(llmOpts, { requireExplicitBaseUrl: true, requireAuth: true })` once at preflight.
+- A fresh `TraceStore` and `RawProviderSink` per cell; the runner gets an `LlmClientOptions` already wired with `rawSink` + `traceContext`. Calling an LLM without capturing it requires actively bypassing the campaign.
+- `assertRunCaptured(store, runId, { requireRawCoverageOfLlmSpans: true, requireOutcome: true })` after every `endRun`.
+- Auto-execution of `traceAnalystOnRunComplete` if you pass an analyst config in `onRunComplete`.
+- `researchReport` over the collected runs at the end with the campaign's `preregistrationHash` baked in.
+
+**When NOT to use the campaign:**
+- Trajectory-shaped GEPA optimization → `runMultiShotOptimization` (steered prompts, paired seeds, intermediate metrics).
+- Prompt + code evolution with mutation, sandbox pools, lineage → `runPromptEvolution` + `createCompositeMutator`.
+- Long-running agent control loops with budgets → `runAgentControlLoop` (the campaign is for *measurement*, not the live runtime).
+
+The four directives below remain the source of truth for *why* the campaign does what it does. Read them when something fails — the issue codes (`missing_raw_events`, `orphan_llm_span`, `no_explicit_base_url`, …) are the campaign's failure modes too.
 
 ---
 
