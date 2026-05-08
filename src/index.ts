@@ -554,6 +554,8 @@ export {
   stripFencedJson,
   LlmCallError,
   LlmClient,
+  assertLlmRoute,
+  LlmRouteAssertionError,
 } from './llm-client'
 export type {
   LlmMessage,
@@ -561,6 +563,7 @@ export type {
   LlmCallResult,
   LlmUsage,
   LlmClientOptions,
+  LlmRouteRequirements,
 } from './llm-client'
 
 export {

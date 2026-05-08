@@ -1,42 +1,80 @@
 # Changelog
 
-## Unreleased
+## 0.21.0 — capture integrity + launch-grade reporting
+
+This release closes the layer-1 gap a downstream consumer surfaced: better
+post-run statistics don't help if the underlying data wasn't captured. 0.21
+adds first-class raw provider-event capture, a fail-loud route guard, a
+run-completion integrity check, and run-complete hooks (with a trace-analyst
+auto-execution helper) so a direct matrix run produces complete forensics
+without out-of-band glue.
 
 ### Added
 
-- `researchReport`, an executive research-report layer for coding-vertical
-  benchmark runs. Composes `summaryTable`, `paretoChart`, `gainHistogram`,
-  held-out gate decisions, and optional `failureClusterView` output into
+- **`RawProviderSink` (capture).** First-class persistence for HTTP-level
+  provider request / response / error payloads alongside the structured
+  `LlmSpan`. `InMemoryRawProviderSink`, `FileSystemRawProviderSink` (NDJSON,
+  rolls at 32 MiB), and `NoopRawProviderSink` ship in core. Default redactor
+  strips `Authorization` / `X-Api-Key` / `Cookie` headers and credential-shaped
+  body fields (`apiKey`, `bearer`, `password`, `secret`, `token`); redacted
+  paths are recorded on `event.redactedFields` so a reviewer can see what was
+  stripped without exposing values. Wired into `callLlm` via
+  `LlmClientOptions.rawSink` — every retry attempt produces a `request` and
+  either a `response` or `error` event with the attempt index attached.
+- **`assertLlmRoute` (route guard).** Pure function that throws
+  `LlmRouteAssertionError` when the configured client doesn't match the
+  caller's route requirements: `requireExplicitBaseUrl`, `allowedBaseUrls`,
+  `blockedBaseUrls`, `requireAuth`, `expectedProvider`. Designed for the
+  matrix-runner preflight — fail loud at the boundary instead of silently
+  falling back to the public/free-tier router.
+- **`assertRunCaptured` (integrity check).** Read-only check on
+  `(store, runId, expectations)` that returns a structured
+  `RunIntegrityReport` with issue codes (`missing_llm_spans`,
+  `missing_raw_events`, `orphan_llm_span`, `no_raw_sink`, `missing_outcome`,
+  …). Pair with the new `requireRawCoverageOfLlmSpans` to assert every
+  `LlmSpan` has a matching raw `request` event. Use directly or via
+  `throwIfRunIncomplete` for strict mode.
+- **`onRunComplete` hooks on `TraceEmitter`.** New
+  `TraceEmitterOptions.onRunComplete` array fires after `endRun` / `abortRun`
+  with full run context (run id, outcome, status, store, emitter). Errors are
+  swallowed and recorded as `log` events by default; opt into propagation via
+  `hookErrors: 'throw'`. `addRunCompleteHook` attaches hooks after construction.
+- **`traceAnalystOnRunComplete` factory.** Drop-in run-complete hook that
+  runs `analyzeTraces` after each run and persists the result. Resolves the
+  "trace analyst never ran on this matrix sweep" complaint by making
+  auto-execution declarative.
+- **`researchReport`** — executive research-report layer for coding-vertical
+  benchmark runs (originally landed in #34, elevated in #35). Composes
+  `summaryTable`, `paretoChart`, `gainHistogram`, held-out gate decisions,
+  and optional `failureClusterView` output into one structured artifact:
   promote / hold / equivalent / reject / needs-more-data guidance with
   rationale, risks, next actions, markdown, HTML, and JSON chart specs.
   - Decisions are made on paired evidence — never on marginal means alone.
-  - ROPE (Region of Practical Equivalence) supported via the `rope` option;
-    candidates whose paired-delta CI is fully inside the ROPE are returned
-    as `equivalent` rather than `hold`.
-  - Bayesian-bootstrap-style Pr(Δ>0) and Pr(Δ∈ROPE) summaries on the mean
-    paired delta (Rubin 1981 bootstrap-prior duality), reported per
-    candidate alongside the bootstrap CI on the median.
-  - Per-candidate minimum detectable paired effect at the configured power
-    and α via the new `pairedMde` primitive in `power-analysis`, so a
-    `needs_more_data` verdict is actionable.
-  - SHA-256 `runFingerprint` over the canonicalised input run set + an
-    optional `preregistrationHash` field so the report can cite a signed
-    `HypothesisManifest`.
-  - Soft floor `minPairs` (default 20) and a hard floor of 6 pairs
-    (`RESEARCH_REPORT_HARD_PAIR_FLOOR`) below which any paired call returns
-    `needs_more_data` regardless of the option.
-  - Embedded methodology section in the rendered markdown plus a standalone
-    [`docs/research-report-methodology.md`](./docs/research-report-methodology.md)
-    with assumptions, alternatives, when-not-to-apply, and citations
-    (Benjamini & Hochberg 1995; Wilcoxon 1945; Efron 1979; Rubin 1981;
-    Kruschke 2018).
-- `pairedMde` in `power-analysis`: closed-form minimum detectable paired
-  effect inverse to the paired-t / sign-rank power formula.
+  - ROPE (Region of Practical Equivalence) supported via the `rope` option.
+  - Bayesian-bootstrap-style `Pr(Δ>0)` and `Pr(Δ∈ROPE)` summaries (Rubin 1981).
+  - Per-candidate minimum detectable paired effect via `pairedMde`.
+  - SHA-256 `runFingerprint` and optional `preregistrationHash` linking a
+    signed `HypothesisManifest`.
+  - Embedded methodology + `docs/research-report-methodology.md` companion.
+- **`pairedMde`** in `power-analysis`: closed-form minimum detectable paired
+  effect (inverse to the paired-t / sign-rank power formula).
 
 ### Changed
 
-- `researchReport` is now async (uses Web Crypto via `hashJson` for the run
+- `researchReport` is async (uses Web Crypto via `hashJson` for the run
   fingerprint).
+- Default `researchReport.minPairs` is 20 (soft floor); hard floor of 6 is
+  enforced regardless via `RESEARCH_REPORT_HARD_PAIR_FLOOR`.
+
+### Wire-protocol consumers
+
+No wire-protocol changes. The new capture / integrity / hook primitives are
+TypeScript-only; cross-language consumers continue to use the existing RPC
+surface.
+
+### Python client
+
+Locked at `tangle-agent-eval==0.21.0` to match the npm package.
 
 ## 0.20.10 — hardening audit follow-up
 

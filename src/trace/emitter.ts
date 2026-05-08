@@ -33,12 +33,36 @@ export interface SpanHandle<S extends Span = Span> {
   fail(error: string | Error, patch?: Partial<S>): Promise<void>
 }
 
+export interface RunCompleteHookContext {
+  runId: string
+  emitter: TraceEmitter
+  store: TraceStore
+  /** Outcome the caller passed to `endRun` (undefined for `abortRun`). */
+  outcome?: RunOutcome
+  /** Final run status. */
+  status: 'completed' | 'failed' | 'aborted'
+}
+
+export type RunCompleteHook = (ctx: RunCompleteHookContext) => Promise<void> | void
+
 export interface TraceEmitterOptions {
   runId?: string
   /** Inject a clock for deterministic tests. */
   now?: () => number
   /** Inject an id generator for deterministic tests. */
   id?: () => string
+  /**
+   * Hooks fired after `endRun` / `abortRun` writes the final run state.
+   * Designed for trace-analyst auto-execution, integrity assertions, and
+   * outbound notifications. Hooks run sequentially in the order supplied.
+   *
+   * By default a hook that throws is swallowed and logged as a `note` event
+   * on the run — auto-orchestration must not crash the underlying flow.
+   * Set `hookErrors: 'throw'` to propagate.
+   */
+  onRunComplete?: RunCompleteHook[]
+  /** `'swallow'` (default) | `'throw'`. */
+  hookErrors?: 'swallow' | 'throw'
 }
 
 export class TraceEmitter {
@@ -47,15 +71,26 @@ export class TraceEmitter {
   private _runId: string
   private now: () => number
   private id: () => string
+  private hooks: RunCompleteHook[]
+  private hookErrors: 'swallow' | 'throw'
 
   constructor(store: TraceStore, options: TraceEmitterOptions = {}) {
     this.store = store
     this.now = options.now ?? (() => Date.now())
     this.id = options.id ?? (() => cryptoRandomId())
     this._runId = options.runId ?? this.id()
+    this.hooks = options.onRunComplete ?? []
+    this.hookErrors = options.hookErrors ?? 'swallow'
   }
 
   get runId(): string { return this._runId }
+
+  get traceStore(): TraceStore { return this.store }
+
+  /** Append a hook after construction (e.g. attach the trace analyst). */
+  addRunCompleteHook(hook: RunCompleteHook): void {
+    this.hooks.push(hook)
+  }
 
   // ── Run lifecycle ──────────────────────────────────────────────────
 
@@ -89,16 +124,43 @@ export class TraceEmitter {
   }
 
   async endRun(outcome?: RunOutcome): Promise<void> {
-    const status = outcome?.pass === false ? 'failed' : 'completed'
+    const status: 'completed' | 'failed' = outcome?.pass === false ? 'failed' : 'completed'
     await this.store.updateRun(this._runId, { endedAt: this.now(), status, outcome })
+    await this.runHooks({ runId: this._runId, emitter: this, store: this.store, outcome, status })
   }
 
   async abortRun(reason: string): Promise<void> {
+    const outcome = { pass: false, notes: reason }
     await this.store.updateRun(this._runId, {
       endedAt: this.now(),
       status: 'aborted',
-      outcome: { pass: false, notes: reason },
+      outcome,
     })
+    await this.runHooks({ runId: this._runId, emitter: this, store: this.store, outcome, status: 'aborted' })
+  }
+
+  private async runHooks(ctx: RunCompleteHookContext): Promise<void> {
+    for (const hook of this.hooks) {
+      try {
+        await hook(ctx)
+      } catch (err) {
+        if (this.hookErrors === 'throw') throw err
+        try {
+          await this.store.appendEvent({
+            eventId: this.id(),
+            runId: this._runId,
+            kind: 'log',
+            timestamp: this.now(),
+            payload: {
+              source: 'run_complete_hook',
+              error: err instanceof Error ? err.message : String(err),
+            },
+          })
+        } catch {
+          // best-effort
+        }
+      }
+    }
   }
 
   // ── Generic span ───────────────────────────────────────────────────
