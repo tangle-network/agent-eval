@@ -167,7 +167,10 @@ function buildBody(req: LlmCallRequest, forceJsonObject: boolean): Record<string
     messages: req.messages,
     temperature: req.temperature ?? 0,
   }
-  if (req.maxTokens != null) body.max_tokens = req.maxTokens
+  if (req.maxTokens != null) {
+    if (usesMaxCompletionTokens(req.model)) body.max_completion_tokens = req.maxTokens
+    else body.max_tokens = req.maxTokens
+  }
 
   if (req.jsonSchema && !forceJsonObject) {
     body.response_format = {
@@ -179,6 +182,10 @@ function buildBody(req: LlmCallRequest, forceJsonObject: boolean): Record<string
   }
 
   return body
+}
+
+function usesMaxCompletionTokens(model: string): boolean {
+  return /^gpt-5(?:[.\-]|$)/i.test(model)
 }
 
 async function sleep(ms: number): Promise<void> {
