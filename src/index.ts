@@ -992,3 +992,33 @@ export { scalarScore, crowdingDistance, paretoFrontierWithCrowding } from './par
 
 // Ax RLM trace analyst.
 export * from './trace-analyst'
+
+// ── 0.24.0: persona eval primitive — canonical end-to-end entry ──────
+export {
+  runPersonaEval,
+  loadYamlPersonas,
+  loadTsPersonas,
+} from './persona'
+export type {
+  PersonaSpec,
+  PersonaTurn,
+  PersonaTurnExpectation,
+  PersonaRunState,
+  PersonaTurnHistory,
+  PersonaRunner,
+  PersonaRunnerContext,
+  PersonaRunnerEvent,
+  PersonaScorer,
+  PersonaScorerInput,
+  PersonaOutcome,
+  RunPersonaEvalOptions,
+  RunPersonaEvalCaptureIntegrity,
+  RunPersonaEvalComparator,
+  RunPersonaEvalManifestRunDefaults,
+  PersonaEvalArtifact,
+  PersonaEvalManifest,
+  PersonaRunResult,
+  AnalyzeRLBridgeReport,
+  LoadYamlPersonasOptions,
+  LoadTsPersonasOptions,
+} from './persona'

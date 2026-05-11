@@ -7,6 +7,7 @@ export default defineConfig({
     optimization: 'src/optimization.ts',
     reporting: 'src/reporting.ts',
     rl: 'src/rl/index.ts',
+    'persona/index': 'src/persona/index.ts',
     traces: 'src/traces.ts',
     'telemetry/index': 'src/telemetry/index.ts',
     'telemetry/file': 'src/telemetry/sink-file.ts',

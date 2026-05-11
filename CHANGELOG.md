@@ -1,5 +1,55 @@
 # Changelog
 
+## 0.24.0 — `runPersonaEval` primitive (canonical end-to-end eval entry)
+
+`runPersonaEval` is the top-level primitive every product agent should reach
+for. Tax-agent, legal-agent, creative-agent, gtm-agent, and forge-chat each
+had their own ad-hoc persona harness before 0.24 (100+ ad-hoc eval entry
+points across the five product agents); this primitive replaces them.
+Consumers write a 5-line call plus a `PersonaRunner` + `PersonaScorer` — the
+framework owns the rest of the pipeline (raws, traces, records, scoring,
+optional RL-bridge analysis, one audit-ready artifact).
+
+### Added
+
+- **`@tangle-network/agent-eval/persona`** — new subpath export.
+- **`runPersonaEval(opts)`** — owns the entire pipeline. Resolves the runId,
+  initialises `raws.jsonl` + `traces.jsonl` + `records.jsonl`, wires
+  `RawProviderSink` + `TraceEmitter`, runs the persona corpus through the
+  caller's runner, asserts capture integrity per persona, assembles a
+  `RunRecord` per persona, optionally runs RL-bridge analysis when a
+  `comparator` is supplied, and writes one `manifest.json` at the end.
+- **`PersonaSpec` / `PersonaTurn` / `PersonaRunState`** — canonical
+  persona-shaped multi-turn input.
+- **`PersonaRunner<TInput, TOutput>`** — async-iterable runner contract
+  intentionally generic across chat-runtime, forge-builder-sim,
+  customer-sim, forge-chat. The runner sees `ctx.capture.llmOpts` pre-wired
+  with the framework's sink + trace context — calling `callLlm` through
+  that opts captures raws by construction.
+- **`PersonaScorer<TOutput>`** — flat scoring function returning
+  `{ pass, score, raw?, failureMode?, notes? }`.
+- **`loadYamlPersonas` / `loadTsPersonas`** — adapters so consumers don't
+  rewrite their persona files. `loadYamlPersonas` takes a caller-supplied
+  parser (we don't add a YAML dependency); `loadTsPersonas` extracts from
+  a TS module via a heuristic with override.
+- Capture integrity wired by **construction**: `assertLlmRoute` at
+  preflight, `RawProviderSink` per eval, `assertRunCaptured` per persona,
+  `onRunComplete` hooks pre-attached to every cell's emitter.
+
+### Tests
+
+- Synthetic end-to-end test (`tests/persona-eval.test.ts`) — 8 cases
+  covering runner state threading, scorer context, persona filter, capture
+  integrity flags, comparator/RL-bridge, YAML + TS adapter shapes.
+- Real-creds smoke test (`tests/persona-eval-live.test.ts`) — gated on
+  `OPENAI_API_KEY` / `TANGLE_ROUTER_API_KEY`; produces a real artifact
+  directory and validates every emitted `RunRecord` at the boundary.
+
+### Docs
+
+- `.claude/skills/agent-eval/SKILL.md` § Persona evals — the canonical entry.
+- `README.md` Quickstart promotes `runPersonaEval` to the top of the page.
+
 ## 0.23.0 — RL primitives + auto-research worked example
 
 In addition to the RL bridge primitives below, this release ships the

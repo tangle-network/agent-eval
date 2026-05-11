@@ -28,6 +28,31 @@ pnpm add @tangle-network/agent-eval
 
 ## Quick Start
 
+The canonical end-to-end pattern (0.24+) is `runPersonaEval`. Wrap your existing
+persona files (YAML or TS), supply a runner and a scorer, and the framework
+owns the rest of the pipeline — raws, traces, records, scoring, optional
+RL-bridge analysis, one audit-ready artifact directory.
+
+```ts
+import { runPersonaEval, loadYamlPersonas } from '@tangle-network/agent-eval/persona'
+
+const artifact = await runPersonaEval({
+  personas: await loadYamlPersonas({ paths: 'eval/personas/*.yaml', parseYaml }),
+  runner,                                      // your system under test
+  scorer,                                      // your scoring fn
+  artifactDir: 'eval/.runs',
+  llmOpts: { baseUrl, apiKey },
+})
+// artifact.manifest.artifactPaths → { raws, traces, records, manifest, rlBridge? }
+```
+
+Capture integrity (raws + traces + records, route assertion at preflight,
+run-end integrity check) is wired by construction — see the
+[SKILL.md persona section](./.claude/skills/agent-eval/SKILL.md#persona-evals--the-canonical-entry-024).
+
+For the lower-level matrix runner (variant × scenario × seed sweeps with
+paired stats), use `runEvalCampaign`. For the live agent control loop, use:
+
 ```ts
 import {
   objectiveEval,
@@ -95,6 +120,7 @@ import { renderReleaseReport } from '@tangle-network/agent-eval/reporting'
 
 | Subpath | Use for |
 | --- | --- |
+| `@tangle-network/agent-eval/persona` | `runPersonaEval` — canonical end-to-end persona eval (multi-turn flow + scoring + RL bridge) |
 | `@tangle-network/agent-eval/control` | `observe -> validate -> decide -> act`, action policy, propose/review loops |
 | `@tangle-network/agent-eval/traces` | trace stores, emitters, TraceAnalyst, replay |
 | `@tangle-network/agent-eval/optimization` | feedback trajectories, multi-shot optimization, prompt evolution, EvalCampaign |
@@ -107,6 +133,7 @@ import { renderReleaseReport } from '@tangle-network/agent-eval/reporting'
 
 | Need | Use |
 | --- | --- |
+| Run a persona-shaped end-to-end eval (multi-turn flow + scoring + RL bridge) | `runPersonaEval` |
 | Keep an agent working until objective state passes | `runAgentControlLoop` |
 | Turn user/reviewer feedback into replay data | `FeedbackTrajectory` |
 | Compare prompt/tool/retrieval policies over full trajectories | `runMultiShotOptimization` |

@@ -33,6 +33,7 @@ If a term below isn't in this table or in `docs/concepts.md`, that's a bug — f
 
 | You want to… | Start with |
 |---|---|
+| Run a persona-shaped end-to-end eval (multi-turn flow + scoring + RL bridge) | `runPersonaEval` (§Persona evals — the canonical entry) |
 | Evaluate a code generator (scaffold / patch / config) end-to-end | §Minimal working path · `BuilderSession` + `SubprocessSandboxDriver` |
 | Verify a workdir across install → typecheck → build → lint → serve → semantic | `MultiLayerVerifier` + `multiToolchainLayer` (§Verification pipeline) |
 | Score multi-turn agents against scenarios + judges | `BenchmarkRunner` + `executeScenario` + `ConvergenceTracker` |
@@ -437,6 +438,62 @@ Verdict bucketing on `|spearman|`:
 Wire this on a quarterly cadence. When a previously-load-bearing rubric drifts toward `decorative` it's almost always one of: (a) the model has shifted, (b) the user base has changed, (c) the rubric has been overfit to last quarter's failure modes. Each has a different fix; the calibration check distinguishes them.
 
 `correlationStudy` continues to ship for the lower-level case of joining a `TraceStore` to an `OutcomeStore` over arbitrary eval metrics. `rubricPredictiveValidity` is the campaign-shaped wrapper purpose-built for the `RunRecord` artifact.
+
+---
+
+## Persona evals — the canonical entry (0.24+)
+
+`runPersonaEval` is the top-level primitive every product agent should reach for. Tax-agent, legal-agent, creative-agent, gtm-agent, and forge-chat each had their own ad-hoc persona harness before 0.24; this primitive replaces them. Consumers write a 5-line call plus a `PersonaRunner` + `PersonaScorer` — the framework owns the rest.
+
+```ts
+import { runPersonaEval, loadYamlPersonas } from '@tangle-network/agent-eval/persona'
+
+const artifact = await runPersonaEval({
+  personas: await loadYamlPersonas({ paths: 'eval/personas/*.yaml', parseYaml }),
+  runner,                                     // your system under test
+  scorer,                                     // your scoring fn
+  artifactDir: 'eval/.runs',
+  llmOpts: { baseUrl, apiKey },
+})
+// artifact.manifest.artifactPaths → { raws, traces, records, manifest, rlBridge? }
+```
+
+That's the whole consumer surface. Five lines, four directories of output (raws / traces / records / manifest), one audit-ready artifact.
+
+### Contracts
+
+- **`PersonaSpec<TInput, TDomain>`** — id, label, optional domain payload, `turns: PersonaTurn[]`, free-form `constraints | badData | mustAsk`. Persona-shaped multi-turn input.
+- **`PersonaTurn<TInput>`** — `id`, `input` (the user's message / payload), optional `expect` (`{ blocked?, blockingGapIds?, proposal?, rejectAndRetry?, vaultUpdate? }`) read by the scorer.
+- **`PersonaRunner<TInput, TOutput>`** — `(ctx) => AsyncIterable<PersonaRunnerEvent>`. The runner sees `ctx.persona`, `ctx.turn`, `ctx.state` (turn-by-turn history), and `ctx.capture` (a pre-wired `LlmClientOptions` + `RawProviderSink` — call your LLM through `ctx.capture.llmOpts` and raws land by construction). Yields normalised events: `text`, `tool_call`, `output`, `cost`, `model`, or `raw` for everything else. The runner contract is intentionally generic — chat-runtime callers, forge-builder-sim, customer-sim, and forge-chat all wear this shape.
+- **`PersonaScorer<TOutput>`** — `(input) => PersonaOutcome | Promise<PersonaOutcome>`. Receives the full `history`, `finalText`, and `raws`. Returns `{ pass, score, raw?, failureMode?, notes? }`.
+
+### Capture integrity wired by construction
+
+`runPersonaEval` is the structural fix for the four directives in §Capture integrity:
+
+1. `assertLlmRoute` runs at preflight when `llmOpts` is supplied (default `{ requireExplicitBaseUrl: true, requireAuth: true }`).
+2. Every persona run gets a fresh `TraceEmitter` + (shared) `RawProviderSink` — calling `callLlm(req, ctx.capture.llmOpts)` records raws + structured spans by construction.
+3. `assertRunCaptured` fires per persona with `requireOutcome: true` by default; toggle `rawProviderSinkRequired` when the persona must show ≥ 1 raw event.
+4. `onRunComplete` hooks (e.g. `traceAnalystOnRunComplete`) run on every persona's `endRun`.
+
+Opt-outs are explicit: pass `captureIntegrity: { rawProviderSinkRequired: false }` etc.
+
+### Comparator → RL bridge
+
+Pass `variants: { baseline, candidate }` + `comparator: { baseline: 'baseline', variant: 'candidate' }` and the framework emits `rl-bridge.json` alongside the manifest: paired preference extraction, verifiable-reward signals, anytime-valid interim verdict, reward-hacking diagnosis. Use this in place of hand-wiring `analyzeOptimizationResult` post-eval.
+
+### Adapters for legacy persona formats
+
+- `loadYamlPersonas({ paths, parseYaml })` — wraps tax-agent / legal-agent's `*.yaml` files. Bring your own YAML parser (`yaml.parse` from the `yaml` package — we don't take the dep).
+- `loadTsPersonas({ modulePath, toPersonaSpec })` — wraps creative-agent / gtm-agent's TS persona modules. `extract` defaults to scanning `default | personas | first-array-export`.
+
+Consumers don't need to rewrite their persona files; they wrap them in a one-liner.
+
+### When NOT to reach for `runPersonaEval`
+
+- Matrix sweep of (variant × scenario × seed) with stats-grade rigor → `runEvalCampaign` (§EvalCampaign). The persona primitive is the higher-level entry; the campaign is the lower-level matrix runner.
+- Trajectory-shaped GEPA optimization → `runMultiShotOptimization`.
+- Prompt + code evolution with mutation pools → `runPromptEvolution`.
 
 ---
 
