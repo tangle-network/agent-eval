@@ -1,5 +1,27 @@
 # Changelog
 
+## 0.23.1 — FileSystemTraceStore.updateRun no longer double-appends
+
+### Fixed
+
+- **`FileSystemTraceStore.updateRun` / `updateSpan`** — once the lazy
+  in-memory index had been populated (by any prior `getRun` / `listRuns` /
+  `spans` / `events` query), an `updateRun` would mirror the synthetic
+  update row back into the index via `appendRun`, throwing
+  `run X already exists`. Same root cause for `updateSpan`, which would
+  silently insert a phantom duplicate span row. The `append()` helper now
+  skips `insertInto` for rows carrying the internal `_update: true` marker;
+  `updateRun` / `updateSpan` continue to apply the patch directly via the
+  index's `updateRun` / `updateSpan` APIs.
+
+  Surfaced by tax-agent's canonical eval running multiple variants per
+  persona against a shared store: the second variant's `endRun`
+  consistently threw, forcing callers to instantiate one store per
+  (persona × variant) cell and stitch results back together post-hoc.
+  After this fix, a single `FileSystemTraceStore` can fan out runs across
+  arbitrarily many cells with interleaved reads, which is the intended
+  usage pattern. Regression test added in `tests/trace-store.test.ts`.
+
 ## 0.23.0 — RL primitives + auto-research worked example
 
 In addition to the RL bridge primitives below, this release ships the

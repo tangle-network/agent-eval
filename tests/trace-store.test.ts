@@ -96,6 +96,49 @@ describe('FileSystemTraceStore', () => {
     const runsFiles = entries.filter((e) => e.startsWith('runs.'))
     expect(runsFiles.length).toBeGreaterThan(1)
   })
+
+  it('updateRun after the index is loaded does not re-append — regression: 0.23.0 threw "run X already exists" on the second variant\'s endRun when a campaign shared one store across (persona × variant) cells and queried listRuns/getRun between variants', async () => {
+    const dir = await makeDir()
+    const store = new FileSystemTraceStore({ dir })
+
+    // Variant 1: write run, read (this populates the lazy in-memory index),
+    // then complete it via updateRun.
+    await store.appendRun(makeRun('r1'))
+    expect((await store.getRun('r1'))?.status).toBe('running')
+    await store.updateRun('r1', { status: 'completed', endedAt: 2_000_000 })
+
+    // Variant 2: append + endRun should not throw. The 0.23.0 bug surfaced
+    // here: append() mirrored the update row into the index via insertInto,
+    // which called index.appendRun(updateRow) — duplicate runId.
+    await store.appendRun(makeRun('r2'))
+    await expect(
+      store.updateRun('r2', { status: 'completed', endedAt: 2_000_001 }),
+    ).resolves.not.toThrow()
+
+    // Final state visible through the same in-memory index.
+    const r1 = await store.getRun('r1')
+    const r2 = await store.getRun('r2')
+    expect(r1?.status).toBe('completed')
+    expect(r2?.status).toBe('completed')
+
+    // And reloading from disk yields the same collapsed state.
+    const fresh = new FileSystemTraceStore({ dir })
+    expect((await fresh.getRun('r1'))?.status).toBe('completed')
+    expect((await fresh.getRun('r2'))?.status).toBe('completed')
+  })
+
+  it('updateSpan after the index is loaded does not re-append — same root cause as updateRun', async () => {
+    const dir = await makeDir()
+    const store = new FileSystemTraceStore({ dir })
+    await store.appendRun(makeRun('r1'))
+    await store.appendSpan({ runId: 'r1', spanId: 's1', kind: 'llm', model: 'm', messages: [], name: 'call', startedAt: 1 })
+    // Force the index to load.
+    expect(await store.spans({ runId: 'r1' })).toHaveLength(1)
+    await expect(store.updateSpan('s1', { endedAt: 2, status: 'ok' })).resolves.not.toThrow()
+    const spans = await store.spans({ runId: 'r1' })
+    expect(spans).toHaveLength(1)
+    expect(spans[0].endedAt).toBe(2)
+  })
 })
 
 describe('TraceEmitter', () => {

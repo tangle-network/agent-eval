@@ -213,7 +213,15 @@ export class FileSystemTraceStore implements TraceStore {
       /* file doesn't exist yet */
     }
     await fs.appendFile(active, JSON.stringify(record) + '\n', 'utf8')
-    if (this.index) void this.insertInto(name, record)
+    // Mirror genuinely-new rows into the lazy index. Update rows (marked
+    // with `_update: true` by updateRun/updateSpan) are applied by those
+    // methods directly via the index's update* APIs — re-inserting them
+    // here would trigger a duplicate-id error after the first read has
+    // populated the index. Regression: 0.23.0 endRun on the second
+    // variant against a shared store threw "run X already exists".
+    if (this.index && !(record as { _update?: boolean })?._update) {
+      void this.insertInto(name, record)
+    }
   }
 
   private async insertInto(name: string, record: unknown): Promise<void> {
