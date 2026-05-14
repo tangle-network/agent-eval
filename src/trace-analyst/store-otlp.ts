@@ -26,6 +26,7 @@
  */
 
 import { readFile, stat } from 'node:fs/promises'
+import { NotFoundError } from '../errors'
 import { compileSearchRegex, type TraceAnalysisStore, truncateForBudget } from './store'
 import {
   type DatasetOverview,
@@ -684,26 +685,23 @@ export class OtlpFileTraceStore implements TraceAnalysisStore {
 
 // ─── Errors ──────────────────────────────────────────────────────────
 
-export class TraceFileMissingError extends Error {
+export class TraceFileMissingError extends NotFoundError {
   constructor(path: string) {
     super(`trace file not found: ${path}`)
-    this.name = 'TraceFileMissingError'
   }
 }
-export class TraceNotFoundError extends Error {
+export class TraceNotFoundError extends NotFoundError {
   readonly trace_id: string
   constructor(trace_id: string) {
     super(`trace not found: ${trace_id}`)
-    this.name = 'TraceNotFoundError'
     this.trace_id = trace_id
   }
 }
-export class SpanNotFoundError extends Error {
+export class SpanNotFoundError extends NotFoundError {
   readonly trace_id: string
   readonly span_id: string
   constructor(trace_id: string, span_id: string) {
     super(`span ${span_id} not found in trace ${trace_id}`)
-    this.name = 'SpanNotFoundError'
     this.trace_id = trace_id
     this.span_id = span_id
   }

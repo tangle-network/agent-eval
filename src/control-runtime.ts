@@ -388,7 +388,7 @@ export async function runAgentControlLoop<
           intent: config.intent,
           pass: false,
           completed: false,
-          reason: runtimeErrors[runtimeErrors.length - 1].message,
+          reason: runtimeErrors[runtimeErrors.length - 1]!.message,
           score: averageScore(evals),
           steps: history,
           finalState: state,
@@ -429,7 +429,7 @@ export async function runAgentControlLoop<
           intent: config.intent,
           pass: false,
           completed: false,
-          reason: runtimeErrors[runtimeErrors.length - 1].message,
+          reason: runtimeErrors[runtimeErrors.length - 1]!.message,
           score: averageScore(evals),
           steps: history,
           finalState: state,
@@ -537,7 +537,7 @@ export async function runAgentControlLoop<
         runtimeErrors.push(runtimeError('act', stepIndex, err))
         actionOutcome = {
           ok: false,
-          error: runtimeErrors[runtimeErrors.length - 1].message,
+          error: runtimeErrors[runtimeErrors.length - 1]!.message,
           durationMs: Date.now() - actionStarted,
         }
         if (actionFailure === 'stop') {
@@ -593,14 +593,14 @@ export async function runAgentControlLoop<
         }
         history.push(step)
         await runTrace(runtimeErrors, stepIndex, () =>
-          stepHandle?.fail(runtimeErrors[runtimeErrors.length - 1].message),
+          stepHandle?.fail(runtimeErrors[runtimeErrors.length - 1]!.message),
         )
         await runOnStep(config.onStep, step, runtimeErrors)
         return finish(emitter, {
           intent: config.intent,
           pass: false,
           completed: false,
-          reason: runtimeErrors[runtimeErrors.length - 1].message,
+          reason: runtimeErrors[runtimeErrors.length - 1]!.message,
           score: averageScore(evals),
           steps: history,
           finalState: beforeState,
@@ -643,14 +643,14 @@ export async function runAgentControlLoop<
         }
         history.push(step)
         await runTrace(runtimeErrors, stepIndex, () =>
-          stepHandle?.fail(runtimeErrors[runtimeErrors.length - 1].message),
+          stepHandle?.fail(runtimeErrors[runtimeErrors.length - 1]!.message),
         )
         await runOnStep(config.onStep, step, runtimeErrors)
         return finish(emitter, {
           intent: config.intent,
           pass: false,
           completed: false,
-          reason: runtimeErrors[runtimeErrors.length - 1].message,
+          reason: runtimeErrors[runtimeErrors.length - 1]!.message,
           score: averageScore(evals),
           steps: history,
           finalState: state,
@@ -774,7 +774,7 @@ export async function runAgentControlLoop<
           intent: config.intent,
           pass: false,
           completed: false,
-          reason: runtimeErrors[runtimeErrors.length - 1].message,
+          reason: runtimeErrors[runtimeErrors.length - 1]!.message,
           score: averageScore(evals),
           steps: history,
           finalState: state,
@@ -828,7 +828,7 @@ export async function runAgentControlLoop<
       intent: config.intent,
       pass: false,
       completed: false,
-      reason: runtimeErrors[runtimeErrors.length - 1].message,
+      reason: runtimeErrors[runtimeErrors.length - 1]!.message,
       steps: history,
       finalState: undefined,
       finalEvals: [],

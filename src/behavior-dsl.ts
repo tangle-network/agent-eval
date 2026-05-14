@@ -123,7 +123,7 @@ export class BehaviorAssertion {
           : {
               ok: false,
               detail: `tool "${toolName}" called ${calls.length}x`,
-              evidence: calls[0].spanId,
+              evidence: calls[0]!.spanId,
             }
       },
     }

@@ -138,7 +138,7 @@ export class AgentDriver {
   ): Promise<string> {
     const lastResponse =
       history.length > 0
-        ? history[history.length - 1].content.slice(0, 2000)
+        ? history[history.length - 1]!.content.slice(0, 2000)
         : '(no conversation yet — this is the first message)'
 
     const recentHistory = history

@@ -37,7 +37,7 @@ export class ProductClient {
     })
     const setCookie = res.headers.get('set-cookie')
     if (setCookie) {
-      this.cookies = setCookie.split(';')[0]
+      this.cookies = setCookie.split(';')[0] ?? ''
     }
     const body = (await res.json()) as Record<string, unknown>
     if (!body.user) throw new Error(`Login failed: ${JSON.stringify(body)}`)
@@ -106,11 +106,11 @@ export class ProductClient {
     let match
     while ((match = blockRe.exec(text)) !== null) {
       const fields: Record<string, string> = {}
-      for (const line of match[2].split('\n')) {
+      for (const line of match[2]!.split('\n')) {
         const idx = line.indexOf(':')
         if (idx > 0) fields[line.slice(0, idx).trim()] = line.slice(idx + 1).trim()
       }
-      blocks.push({ type: match[1], title: fields.title ?? '' })
+      blocks.push({ type: match[1]!, title: fields.title ?? '' })
     }
 
     return { text, blocks }

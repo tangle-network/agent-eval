@@ -20,6 +20,7 @@
  * that need free-form text use `callLlm` and parse output themselves.
  */
 
+import { AgentEvalError, CaptureIntegrityError } from './errors'
 import {
   defaultProviderRedactor,
   type ProviderRedactor,
@@ -82,15 +83,14 @@ export interface LlmCallResult {
   raw: Record<string, unknown>
 }
 
-export class LlmCallError extends Error {
+export class LlmCallError extends AgentEvalError {
   constructor(
     message: string,
     public readonly status: number,
     public readonly body: string,
     public readonly model: string,
   ) {
-    super(message)
-    this.name = 'LlmCallError'
+    super('judge', message)
   }
 }
 
@@ -556,19 +556,20 @@ function parseJsonSafely<T>(content: string, model: string): T {
 
 // ─── Route assertion ────────────────────────────────────────────────────
 
-export class LlmRouteAssertionError extends Error {
+export type LlmRouteAssertionReason =
+  | 'no_explicit_base_url'
+  | 'base_url_blocked'
+  | 'base_url_not_allowed'
+  | 'no_auth'
+  | 'wrong_provider'
+
+export class LlmRouteAssertionError extends CaptureIntegrityError {
   constructor(
     message: string,
-    public readonly code:
-      | 'no_explicit_base_url'
-      | 'base_url_blocked'
-      | 'base_url_not_allowed'
-      | 'no_auth'
-      | 'wrong_provider',
+    public readonly reason: LlmRouteAssertionReason,
     public readonly baseUrl: string,
   ) {
     super(message)
-    this.name = 'LlmRouteAssertionError'
   }
 }
 

@@ -28,6 +28,7 @@
  * autoreject.
  */
 
+import { ValidationError } from '../errors'
 import { benjaminiHochberg } from '../power-analysis'
 import { wilcoxonSignedRank } from '../statistics'
 
@@ -108,12 +109,14 @@ export async function runContaminationProbe<S>(
   const floor = opts.scoreFloor ?? 0
 
   if (!input.perturbed && !input.perturbation) {
-    throw new Error('runContaminationProbe: must supply either `perturbed` or `perturbation`.')
+    throw new ValidationError(
+      'runContaminationProbe: must supply either `perturbed` or `perturbation`.',
+    )
   }
   const perturbed: S[] =
     input.perturbed ?? (await Promise.all(input.originals.map((s) => input.perturbation!.apply(s))))
   if (perturbed.length !== input.originals.length) {
-    throw new Error(
+    throw new ValidationError(
       `runContaminationProbe: perturbed length ${perturbed.length} ≠ originals ${input.originals.length}`,
     )
   }

@@ -83,7 +83,7 @@ export function createCompositeMutator<P>(opts: CreateCompositeMutatorOpts<P>): 
           return { mode: 'primary', reason: 'plateau: warming up with primary mutations' }
         }
         const window = recentScores.slice(-plateauPatience - 1)
-        const deltas = window.slice(1).map((v, i) => v - window[i])
+        const deltas = window.slice(1).map((v, i) => v - window[i]!)
         const stagnant = deltas.every((d) => d < plateauThreshold)
         if (stagnant) {
           return {
@@ -93,7 +93,7 @@ export function createCompositeMutator<P>(opts: CreateCompositeMutatorOpts<P>): 
         }
         return {
           mode: 'primary',
-          reason: `plateau: still improving (${deltas[deltas.length - 1].toFixed(3)})`,
+          reason: `plateau: still improving (${deltas[deltas.length - 1]!.toFixed(3)})`,
         }
       }
     }

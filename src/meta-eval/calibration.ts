@@ -64,7 +64,7 @@ export async function calibrationCurve(
     if (!os?.length) continue
     const x = await extract(run, traceStore)
     if (x === null || !Number.isFinite(x)) continue
-    const latest = [...os].sort((a, b) => b.capturedAt - a.capturedAt)[0]
+    const latest = [...os].sort((a, b) => b.capturedAt - a.capturedAt)[0]!
     const y = latest.metrics[outcomeMetric]
     if (typeof y !== 'number' || !Number.isFinite(y)) continue
     pairs.push({ x, y })

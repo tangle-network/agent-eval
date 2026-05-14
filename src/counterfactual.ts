@@ -12,6 +12,7 @@
  * pipelines see them natively.
  */
 
+import { NotFoundError, ValidationError } from './errors'
 import { TraceEmitter } from './trace/emitter'
 import type { LlmSpan, Span, ToolSpan } from './trace/schema'
 import type { TraceStore } from './trace/store'
@@ -70,14 +71,14 @@ export async function runCounterfactual(
   runner: CounterfactualRunner,
 ): Promise<CounterfactualResult> {
   const originalRun = await store.getRun(originalRunId)
-  if (!originalRun) throw new Error(`counterfactual: run ${originalRunId} not found`)
+  if (!originalRun) throw new NotFoundError(`counterfactual: run ${originalRunId} not found`)
   const trajectory = await buildTrajectory(store, originalRunId)
   if (mutation.at < 0 || mutation.at >= trajectory.steps.length) {
-    throw new Error(
+    throw new ValidationError(
       `counterfactual: mutation.at=${mutation.at} out of range [0, ${trajectory.steps.length})`,
     )
   }
-  const targetStep = trajectory.steps[mutation.at]
+  const targetStep = trajectory.steps[mutation.at]!
   const mutatedStep = applyMutation(targetStep, mutation)
 
   const cfEmitter = new TraceEmitter(store)

@@ -28,7 +28,7 @@ function parseArgs(argv: string[]): Args {
   const positional: string[] = []
   const flags: Record<string, string> = {}
   for (let i = 0; i < rest.length; i++) {
-    const tok = rest[i]
+    const tok = rest[i]!
     if (tok.startsWith('--')) {
       const key = tok.slice(2)
       const next = rest[i + 1]

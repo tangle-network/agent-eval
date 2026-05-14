@@ -8,6 +8,8 @@
  * in the driving test and pass the result here).
  */
 
+import { ValidationError } from './errors'
+
 export interface ImageData {
   width: number
   height: number
@@ -36,22 +38,22 @@ export function visualDiff(
   options: VisualDiffOptions = {},
 ): VisualDiffResult {
   if (a.width !== b.width || a.height !== b.height) {
-    throw new Error(
+    throw new ValidationError(
       `visualDiff: image dims differ (${a.width}x${a.height} vs ${b.width}x${b.height})`,
     )
   }
   if (a.data.length !== b.data.length) {
-    throw new Error('visualDiff: image data length mismatch')
+    throw new ValidationError('visualDiff: image data length mismatch')
   }
   const tolerance = options.tolerance ?? 8
   const totalPixels = a.width * a.height
   let differing = 0
   let maxDelta = 0
   for (let i = 0; i < a.data.length; i += 4) {
-    const dr = Math.abs(a.data[i] - b.data[i])
-    const dg = Math.abs(a.data[i + 1] - b.data[i + 1])
-    const db = Math.abs(a.data[i + 2] - b.data[i + 2])
-    const da = Math.abs(a.data[i + 3] - b.data[i + 3])
+    const dr = Math.abs(a.data[i]! - b.data[i]!)
+    const dg = Math.abs(a.data[i + 1]! - b.data[i + 1]!)
+    const db = Math.abs(a.data[i + 2]! - b.data[i + 2]!)
+    const da = Math.abs(a.data[i + 3]! - b.data[i + 3]!)
     const worst = Math.max(dr, dg, db, da)
     if (worst > maxDelta) maxDelta = worst
     if (worst > tolerance) differing++

@@ -135,7 +135,7 @@ export function iqr(xs: number[]): number {
     const idx = p * (sorted.length - 1)
     const lo = Math.floor(idx)
     const hi = Math.ceil(idx)
-    return sorted[lo] + (sorted[hi] - sorted[lo]) * (idx - lo)
+    return sorted[lo]! + (sorted[hi]! - sorted[lo]!) * (idx - lo)
   }
   return q(0.75) - q(0.25)
 }
@@ -214,8 +214,8 @@ function lnGamma(z: number): number {
   ]
   if (z < 0.5) return Math.log(Math.PI / Math.sin(Math.PI * z)) - lnGamma(1 - z)
   z -= 1
-  let x = coefs[0]
-  for (let i = 1; i < 9; i++) x += coefs[i] / (z + i)
+  let x = coefs[0]!
+  for (let i = 1; i < 9; i++) x += coefs[i]! / (z + i)
   const t = z + 7.5
   return 0.5 * Math.log(2 * Math.PI) + (z + 0.5) * Math.log(t) - t + Math.log(x)
 }

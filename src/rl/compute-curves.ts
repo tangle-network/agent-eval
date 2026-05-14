@@ -29,6 +29,8 @@
  * is on whatever axis they pick.
  */
 
+import { ValidationError } from '../errors'
+
 export interface ComputeCurveBudget {
   /** Identifier — for the report. Common: '1x', '4x', '16x'. */
   id: string
@@ -113,7 +115,7 @@ export interface ComputeBestOfNResult<O> {
 
 /** The simplest test-time scaling primitive. */
 export async function bestOfN<O>(opts: ComputeBestOfNOptions<O>): Promise<ComputeBestOfNResult<O>> {
-  if (opts.n <= 0) throw new Error('bestOfN: n must be > 0')
+  if (opts.n <= 0) throw new ValidationError('bestOfN: n must be > 0')
   const rollouts: O[] = []
   const scores: number[] = []
   for (let i = 0; i < opts.n; i++) {
@@ -160,7 +162,7 @@ export interface SelfConsistencyResult<O> {
 export async function selfConsistency<O>(
   opts: SelfConsistencyOptions<O>,
 ): Promise<SelfConsistencyResult<O>> {
-  if (opts.n <= 0) throw new Error('selfConsistency: n must be > 0')
+  if (opts.n <= 0) throw new ValidationError('selfConsistency: n must be > 0')
   const rollouts: O[] = []
   const histogram: Record<string, number> = {}
   for (let i = 0; i < opts.n; i++) {

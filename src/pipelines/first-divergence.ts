@@ -36,14 +36,16 @@ export async function firstDivergenceView(
   const eq = options.stepEquals ?? defaultStepEquals
   const minLen = Math.min(a.steps.length, b.steps.length)
   for (let i = 0; i < minLen; i++) {
-    if (!eq(a.steps[i], b.steps[i])) {
+    const aStep = a.steps[i]!
+    const bStep = b.steps[i]!
+    if (!eq(aStep, bStep)) {
       return {
         runA,
         runB,
         firstDivergenceIndex: i,
-        aStep: a.steps[i],
-        bStep: b.steps[i],
-        reason: describeDifference(a.steps[i], b.steps[i]),
+        aStep,
+        bStep,
+        reason: describeDifference(aStep, bStep),
         commonPrefixLen: i,
       }
     }

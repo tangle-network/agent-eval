@@ -27,7 +27,7 @@ export async function prmBestOfN(
   const ranked = [...graded].sort((a, b) => b.aggregateScore - a.aggregateScore)
   const mean = graded.reduce((a, g) => a + g.aggregateScore, 0) / graded.length
   const variance = graded.reduce((a, g) => a + (g.aggregateScore - mean) ** 2, 0) / graded.length
-  return { winner: ranked[0], ranked, stdDev: Math.sqrt(variance) }
+  return { winner: ranked[0]!, ranked, stdDev: Math.sqrt(variance) }
 }
 
 /**
@@ -57,12 +57,12 @@ export async function prmEnsembleBestOfN(
   }
   // Return a synthesized ranking using the first grader's graded traces
   // ordered by Borda score. aggregateScore field kept for UX.
-  const canonical = perGrader[0]
+  const canonical = perGrader[0]!
   const byRun = new Map(canonical.map((g) => [g.runId, g]))
   const ranked = [...byRun.values()].sort(
     (a, b) => (bordaScores.get(b.runId) ?? 0) - (bordaScores.get(a.runId) ?? 0),
   )
   const mean = ranked.reduce((a, g) => a + g.aggregateScore, 0) / ranked.length
   const variance = ranked.reduce((a, g) => a + (g.aggregateScore - mean) ** 2, 0) / ranked.length
-  return { winner: ranked[0], ranked, stdDev: Math.sqrt(variance) }
+  return { winner: ranked[0]!, ranked, stdDev: Math.sqrt(variance) }
 }

@@ -13,6 +13,7 @@
  */
 
 import type { DatasetManifest, DatasetScenario, DatasetSplit } from './dataset'
+import { VerificationError } from './errors'
 import type { GateDecision } from './held-out-gate'
 import type { ActionableSideInfo, MultiShotTrialResult } from './multi-shot-optimization'
 import type { RunRecord, RunSplitTag } from './run-record'
@@ -233,7 +234,7 @@ export function evaluateReleaseConfidence(
 export function assertReleaseConfidence(input: ReleaseConfidenceInput): ReleaseConfidenceScorecard {
   const scorecard = evaluateReleaseConfidence(input)
   if (scorecard.status === 'fail') {
-    throw new Error(scorecard.summary)
+    throw new VerificationError(scorecard.summary)
   }
   return scorecard
 }

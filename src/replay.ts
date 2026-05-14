@@ -25,17 +25,17 @@
  * the LLM client is needed; the cache hit is invisible to the runner.
  */
 
+import { ReplayError } from './errors'
 import { canonicalize, hashJson } from './pre-registration'
 import type { RawProviderEvent, RawProviderSink } from './trace/raw-provider-sink'
 
-export class ReplayCacheMissError extends Error {
+export class ReplayCacheMissError extends ReplayError {
   constructor(
     public readonly url: string,
     public readonly requestKey: string,
     message?: string,
   ) {
     super(message ?? `replay cache miss for ${url} (key=${requestKey})`)
-    this.name = 'ReplayCacheMissError'
   }
 }
 
@@ -75,7 +75,7 @@ export class ReplayCache {
     filter: { runId?: string; spanId?: string } = {},
   ): Promise<ReplayCache> {
     if (!sink.list) {
-      throw new Error('ReplayCache.fromSink: sink must implement list() to be replayable.')
+      throw new ReplayError('ReplayCache.fromSink: sink must implement list() to be replayable.')
     }
     const events = await sink.list(filter)
     return ReplayCache.fromEvents(events)
@@ -173,7 +173,9 @@ export function createReplayFetch(cache: ReplayCache, opts: ReplayFetchOptions =
       typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url
     if (!/\/chat\/completions(?:[?#].*)?$/.test(url)) {
       if (!fallback)
-        throw new Error(`replay fetch: non-completions URL ${url} but no fallbackFetch configured`)
+        throw new ReplayError(
+          `replay fetch: non-completions URL ${url} but no fallbackFetch configured`,
+        )
       return fallback(input as RequestInfo, init)
     }
     let bodyParsed: unknown
@@ -205,7 +207,8 @@ export function createReplayFetch(cache: ReplayCache, opts: ReplayFetchOptions =
     if (onMiss === 'fail-closed') {
       return new Response(JSON.stringify({ error: 'replay_cache_miss' }), { status: 599 })
     }
-    if (!fallback) throw new Error('replay fetch: onMiss=fallback but no fallbackFetch configured')
+    if (!fallback)
+      throw new ReplayError('replay fetch: onMiss=fallback but no fallbackFetch configured')
     return fallback(input as RequestInfo, init)
   }) as typeof fetch
 }
@@ -220,7 +223,7 @@ export async function* iterateRawCalls(
   filter: { runId?: string; spanId?: string } = {},
 ): AsyncGenerator<ReplayCacheEntry> {
   if (!sink.list) {
-    throw new Error('iterateRawCalls: sink must implement list().')
+    throw new ReplayError('iterateRawCalls: sink must implement list().')
   }
   const events = await sink.list(filter)
   const cache = await ReplayCache.fromEvents(events)

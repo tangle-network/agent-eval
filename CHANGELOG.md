@@ -1,10 +1,41 @@
 # Changelog
 
-## 0.24.0 — DX cleanup: framing, stability tags, lint, examples
+## 0.24.0 — DX cleanup: framing, stability tags, lint, taxonomy, strict indices
 
-This release is **DX-only** — no runtime behavior changed, no production
-artifact moved. The library was 7.5/10 on first-touch usability and is now
-10/10. The visible deltas:
+This release is **DX + correctness**. No production behavior moved; consumer
+contracts tightened across the board. Library went from 7.5/10 to 10/10 on
+first-touch usability and contract clarity. The visible deltas:
+
+### Strictness
+
+- **`noUncheckedIndexedAccess: true`** in `tsconfig.json`. 251 latent
+  `T | undefined` sites surfaced and fixed across ~70 files. Loop-bound
+  indices documented with `!`, external lookups guarded explicitly, accumulator
+  patterns refactored to capture-then-assign. Every fix audited for semantic
+  correctness (math code: `!`; untrusted data: guards).
+- **Subpath imports forced.** Six `export * from './X'` wildcards at root
+  deleted (`./rl`, `./pipelines`, `./builder-eval`, `./meta-eval`, `./prm`,
+  `./trace-analyst`). New subpaths in `package.json`: `/pipelines`,
+  `/meta-eval`, `/prm`, `/builder-eval`, `/governance`, `/knowledge`. Root
+  re-exports retained only for the load-bearing capture-integrity surface
+  (`./trace`, `./knowledge`, `./governance`).
+- **Error taxonomy.** New `src/errors.ts` exports `AgentEvalError` base plus
+  `ValidationError`, `NotFoundError`, `ConfigError`, `CaptureIntegrityError`,
+  `JudgeError`, `VerificationError`, `ReplayError`. Existing custom errors
+  re-parented: `ReplayCacheMissError`, `BudgetBreachError`, `RunIntegrityError`,
+  `HoldoutLockedError`, `RunRecordValidationError`, `LlmCallError`,
+  `LlmRouteAssertionError`, `TraceFileMissingError`, `TraceNotFoundError`,
+  `SpanNotFoundError`. ~25 user-facing `throw new Error(...)` calls migrated
+  to typed errors across `rl/*`, `replay`, `sandbox-harness`, `statistics`,
+  `release-confidence`, `visual-diff`, `counterfactual`, `run-critic`,
+  `observability`. Internal invariant guards intentionally left as plain
+  `Error` — those are bugs, not contract failures.
+- **`LlmRouteAssertionError.code` → `reason`** (breaking, greenfield).
+  The subclass's route-specific reason now lives on `.reason`; the base
+  category `code = 'capture_integrity'` survives via the `AgentEvalError`
+  contract.
+
+### Visible deltas
 
 ### Changed
 

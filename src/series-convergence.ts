@@ -56,7 +56,7 @@ export function analyzeSeries(
   let tailRun = 0
   let direction: 1 | -1 | 0 = 0
   for (let i = values.length - 1; i > 0; i--) {
-    const delta = values[i] - values[i - 1]
+    const delta = values[i]! - values[i - 1]!
     if (delta === 0) break
     const dir = delta > 0 ? 1 : -1
     if (direction === 0) direction = dir

@@ -62,6 +62,7 @@ export class ProjectRegistry {
       const builds = projectRuns.filter((r) => r.layer === 'app-build')
       const runtimes = projectRuns.filter((r) => r.layer === 'app-runtime')
       const latest = sorted[0]
+      if (!latest) continue
       summaries.push({
         projectId,
         chatCount: chats.length,

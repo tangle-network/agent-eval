@@ -37,6 +37,8 @@
  * match) for high-confidence answers and OPE for the gap.
  */
 
+import { ValidationError } from '../errors'
+
 export interface OffPolicyTrajectory {
   /** Stable id, for traceability through the dataset. */
   runId: string
@@ -109,7 +111,9 @@ export function inverseProbabilityWeighting(
   let maxW = 0
   for (const t of trajectories) {
     if (t.behaviorProb <= 0) {
-      throw new Error(`inverseProbabilityWeighting: behaviorProb must be > 0 (runId=${t.runId})`)
+      throw new ValidationError(
+        `inverseProbabilityWeighting: behaviorProb must be > 0 (runId=${t.runId})`,
+      )
     }
     const w = Math.min(cap, t.targetProb / t.behaviorProb)
     const r = clamp(t.reward, clip.low, clip.high)
@@ -151,7 +155,7 @@ export function selfNormalizedImportanceWeighting(
   let maxW = 0
   for (const t of trajectories) {
     if (t.behaviorProb <= 0) {
-      throw new Error(
+      throw new ValidationError(
         `selfNormalizedImportanceWeighting: behaviorProb must be > 0 (runId=${t.runId})`,
       )
     }
@@ -209,7 +213,7 @@ export function doublyRobust(
   let sumW2 = 0
   for (const t of trajectories) {
     if (t.behaviorProb <= 0) {
-      throw new Error(`doublyRobust: behaviorProb must be > 0 (runId=${t.runId})`)
+      throw new ValidationError(`doublyRobust: behaviorProb must be > 0 (runId=${t.runId})`)
     }
     const w = Math.min(cap, t.targetProb / t.behaviorProb)
     const r = clamp(t.reward, clip.low, clip.high)

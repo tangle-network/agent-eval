@@ -32,7 +32,7 @@ export class BenchmarkRunner {
     const results: ScenarioResult[] = []
 
     for (let i = 0; i < toRun.length; i++) {
-      const scenario = toRun[i]
+      const scenario = toRun[i]!
       console.log(`[${i + 1}/${toRun.length}] ${scenario.id} (${scenario.persona})`)
       console.log(`  thesis: ${scenario.thesis}`)
       console.log(`  turns: ${scenario.turns.length}`)
@@ -65,9 +65,10 @@ export class BenchmarkRunner {
       console.log(`  judges:`)
       const byJudge: Record<string, { scores: number[]; dimensions: string[] }> = {}
       for (const js of result.judgeScores) {
-        if (!byJudge[js.judgeName]) byJudge[js.judgeName] = { scores: [], dimensions: [] }
-        byJudge[js.judgeName].scores.push(js.score)
-        byJudge[js.judgeName].dimensions.push(`${js.dimension}=${js.score}`)
+        const entry = byJudge[js.judgeName] ?? { scores: [], dimensions: [] }
+        entry.scores.push(js.score)
+        entry.dimensions.push(`${js.dimension}=${js.score}`)
+        byJudge[js.judgeName] = entry
       }
       for (const [name, data] of Object.entries(byJudge)) {
         const avg = (data.scores.reduce((a, b) => a + b, 0) / data.scores.length).toFixed(1)
@@ -85,14 +86,16 @@ export class BenchmarkRunner {
     const byDimension: Record<string, { avg: number; scores: number[] }> = {}
 
     for (const r of results) {
-      if (!byPersona[r.persona]) byPersona[r.persona] = { avg: 0, passed: 0, total: 0 }
-      byPersona[r.persona].total++
-      byPersona[r.persona].avg += r.overallScore
-      if (r.overallScore >= passThreshold) byPersona[r.persona].passed++
+      const personaEntry = byPersona[r.persona] ?? { avg: 0, passed: 0, total: 0 }
+      personaEntry.total++
+      personaEntry.avg += r.overallScore
+      if (r.overallScore >= passThreshold) personaEntry.passed++
+      byPersona[r.persona] = personaEntry
 
       for (const js of r.judgeScores) {
-        if (!byDimension[js.dimension]) byDimension[js.dimension] = { avg: 0, scores: [] }
-        byDimension[js.dimension].scores.push(js.score)
+        const dimEntry = byDimension[js.dimension] ?? { avg: 0, scores: [] }
+        dimEntry.scores.push(js.score)
+        byDimension[js.dimension] = dimEntry
       }
     }
 

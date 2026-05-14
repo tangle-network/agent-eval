@@ -91,8 +91,8 @@ function align(
   const dp: number[][] = Array.from({ length: a.length + 1 }, () => new Array(b.length + 1).fill(0))
   for (let i = 1; i <= a.length; i++) {
     for (let j = 1; j <= b.length; j++) {
-      if (eq(a[i - 1], b[j - 1])) dp[i][j] = dp[i - 1][j - 1] + 1
-      else dp[i][j] = Math.max(dp[i - 1][j], dp[i][j - 1])
+      if (eq(a[i - 1]!, b[j - 1]!)) dp[i]![j] = dp[i - 1]![j - 1]! + 1
+      else dp[i]![j] = Math.max(dp[i - 1]![j]!, dp[i]![j - 1]!)
     }
   }
   // Walk back to recover ops.
@@ -100,28 +100,28 @@ function align(
   let i = a.length
   let j = b.length
   while (i > 0 || j > 0) {
-    if (i > 0 && j > 0 && eq(a[i - 1], b[j - 1])) {
-      ops.push({ op: 'match', a: a[i - 1], b: b[j - 1] })
+    if (i > 0 && j > 0 && eq(a[i - 1]!, b[j - 1]!)) {
+      ops.push({ op: 'match', a: a[i - 1]!, b: b[j - 1]! })
       i--
       j--
-    } else if (i > 0 && j > 0 && dp[i - 1][j] === dp[i][j - 1]) {
+    } else if (i > 0 && j > 0 && dp[i - 1]![j]! === dp[i]![j - 1]!) {
       // Tie → call it a replace when same kind, else delete+insert.
-      if (a[i - 1].span.kind === b[j - 1].span.kind) {
-        ops.push({ op: 'replace', a: a[i - 1], b: b[j - 1] })
+      if (a[i - 1]!.span.kind === b[j - 1]!.span.kind) {
+        ops.push({ op: 'replace', a: a[i - 1]!, b: b[j - 1]! })
         i--
         j--
-      } else if (dp[i - 1][j] >= dp[i][j - 1]) {
-        ops.push({ op: 'delete', a: a[i - 1] })
+      } else if (dp[i - 1]![j]! >= dp[i]![j - 1]!) {
+        ops.push({ op: 'delete', a: a[i - 1]! })
         i--
       } else {
-        ops.push({ op: 'insert', b: b[j - 1] })
+        ops.push({ op: 'insert', b: b[j - 1]! })
         j--
       }
-    } else if (i > 0 && (j === 0 || dp[i - 1][j] >= dp[i][j - 1])) {
-      ops.push({ op: 'delete', a: a[i - 1] })
+    } else if (i > 0 && (j === 0 || dp[i - 1]![j]! >= dp[i]![j - 1]!)) {
+      ops.push({ op: 'delete', a: a[i - 1]! })
       i--
     } else {
-      ops.push({ op: 'insert', b: b[j - 1] })
+      ops.push({ op: 'insert', b: b[j - 1]! })
       j--
     }
   }

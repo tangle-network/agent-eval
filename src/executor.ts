@@ -59,7 +59,7 @@ export async function executeScenario(
   const blockRe = config.blockPattern ?? /:::(\w+)\s*\n([\s\S]*?)\n\s*:::/g
 
   for (let i = 0; i < scenario.turns.length; i++) {
-    const turn = scenario.turns[i]
+    const turn = scenario.turns[i]!
     const turnStart = Date.now()
 
     messages.push({ role: 'user', content: turn.user })
@@ -81,7 +81,7 @@ export async function executeScenario(
     const codeRe = /```(\w+)?\n([\s\S]*?)```/g
     let codeMatch
     while ((codeMatch = codeRe.exec(content)) !== null) {
-      allCodeBlocks.push({ language: codeMatch[1] ?? 'text', code: codeMatch[2] })
+      allCodeBlocks.push({ language: codeMatch[1] ?? 'text', code: codeMatch[2] ?? '' })
     }
 
     // Extract structured blocks
@@ -90,12 +90,13 @@ export async function executeScenario(
     const blockReLocal = new RegExp(blockRe.source, blockRe.flags)
     while ((blockMatch = blockReLocal.exec(content)) !== null) {
       const fields: Record<string, string> = {}
-      for (const line of blockMatch[2].split('\n')) {
+      for (const line of (blockMatch[2] ?? '').split('\n')) {
         const idx = line.indexOf(':')
         if (idx > 0) fields[line.slice(0, idx).trim()] = line.slice(idx + 1).trim()
       }
-      allBlocks.push({ type: blockMatch[1], fields })
-      turnBlocks.push({ type: blockMatch[1], title: fields.title ?? '' })
+      const blockType = blockMatch[1] ?? ''
+      allBlocks.push({ type: blockType, fields })
+      turnBlocks.push({ type: blockType, title: fields.title ?? '' })
     }
 
     // Detect tool calls via configurable patterns

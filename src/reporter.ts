@@ -89,7 +89,7 @@ export function formatDriverReport(results: DriverResult[]): string {
     lines.push(``)
     lines.push('```')
     for (let i = 0; i < r.convergenceCurve.length; i++) {
-      const pct = r.convergenceCurve[i]
+      const pct = r.convergenceCurve[i]!
       const bar = '#'.repeat(Math.round(pct / 2))
       lines.push(`  turn ${String(i + 1).padStart(2)}: ${bar} ${pct.toFixed(0)}%`)
     }

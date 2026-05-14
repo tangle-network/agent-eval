@@ -1,3 +1,4 @@
+import { ValidationError } from './errors'
 import type { JudgeScore } from './types'
 
 /** Dimensions where lower raw score = better outcome (inverted semantics) */
@@ -37,7 +38,7 @@ export function confidenceInterval(
   confidence = 0.95,
 ): { mean: number; lower: number; upper: number } {
   if (scores.length === 0) return { mean: 0, lower: 0, upper: 0 }
-  if (scores.length === 1) return { mean: scores[0], lower: scores[0], upper: scores[0] }
+  if (scores.length === 1) return { mean: scores[0]!, lower: scores[0]!, upper: scores[0]! }
 
   const n = scores.length
   const mean = scores.reduce((a, b) => a + b, 0) / n
@@ -48,7 +49,7 @@ export function confidenceInterval(
   for (let i = 0; i < B; i++) {
     let sum = 0
     for (let j = 0; j < n; j++) {
-      sum += scores[Math.floor(Math.random() * n)]
+      sum += scores[Math.floor(Math.random() * n)]!
     }
     bootstrapMeans.push(sum / n)
   }
@@ -61,8 +62,8 @@ export function confidenceInterval(
 
   return {
     mean,
-    lower: bootstrapMeans[lowerIdx],
-    upper: bootstrapMeans[Math.min(upperIdx, B - 1)],
+    lower: bootstrapMeans[lowerIdx]!,
+    upper: bootstrapMeans[Math.min(upperIdx, B - 1)]!,
   }
 }
 
@@ -81,10 +82,10 @@ export function interRaterReliability(judgeScores: JudgeScore[][]): number {
     for (const s of judgeSet) {
       if (!dimensionMap.has(s.dimension)) dimensionMap.set(s.dimension, [])
       const arr = dimensionMap.get(s.dimension)!
-      if (arr.length === 0 || arr[arr.length - 1].length >= judgeScores.length) {
+      if (arr.length === 0 || arr[arr.length - 1]!.length >= judgeScores.length) {
         arr.push([s.score])
       } else {
-        arr[arr.length - 1].push(s.score)
+        arr[arr.length - 1]!.push(s.score)
       }
     }
   }
@@ -99,7 +100,7 @@ export function interRaterReliability(judgeScores: JudgeScore[][]): number {
       for (const v of ratings) allValues.push(v)
       for (let i = 0; i < ratings.length; i++) {
         for (let j = i + 1; j < ratings.length; j++) {
-          pairDiffs.push((ratings[i] - ratings[j]) ** 2)
+          pairDiffs.push((ratings[i]! - ratings[j]!) ** 2)
         }
       }
     }
@@ -114,7 +115,7 @@ export function interRaterReliability(judgeScores: JudgeScore[][]): number {
   let expectedCount = 0
   for (let i = 0; i < allValues.length; i++) {
     for (let j = i + 1; j < allValues.length; j++) {
-      expectedDisagreement += (allValues[i] - allValues[j]) ** 2
+      expectedDisagreement += (allValues[i]! - allValues[j]!) ** 2
       expectedCount++
     }
   }
@@ -145,7 +146,7 @@ export function mannWhitneyU(a: number[], b: number[]): { u: number; p: number }
   let i = 0
   while (i < combined.length) {
     let j = i
-    while (j < combined.length && combined[j].v === combined[i].v) j++
+    while (j < combined.length && combined[j]!.v === combined[i]!.v) j++
     const avgRank = (i + 1 + j) / 2
     for (let k = i; k < j; k++) ranks[k] = avgRank
     i = j
@@ -154,7 +155,7 @@ export function mannWhitneyU(a: number[], b: number[]): { u: number; p: number }
   // Sum ranks for group a
   let r1 = 0
   for (let k = 0; k < combined.length; k++) {
-    if (combined[k].group === 'a') r1 += ranks[k]
+    if (combined[k]!.group === 'a') r1 += ranks[k]!
   }
 
   const u1 = r1 - (n1 * (n1 + 1)) / 2
@@ -191,12 +192,14 @@ export function pairedTTest(
   after: number[],
 ): { t: number; df: number; p: number } {
   if (before.length !== after.length) {
-    throw new Error(`pairedTTest: unequal sample sizes (${before.length} vs ${after.length})`)
+    throw new ValidationError(
+      `pairedTTest: unequal sample sizes (${before.length} vs ${after.length})`,
+    )
   }
   const n = before.length
   if (n < 2) return { t: 0, df: 0, p: 1 }
 
-  const diffs = before.map((b, i) => after[i] - b)
+  const diffs = before.map((b, i) => after[i]! - b)
   const mean = diffs.reduce((a, b) => a + b, 0) / n
   const variance = diffs.reduce((acc, d) => acc + (d - mean) ** 2, 0) / (n - 1)
   const se = Math.sqrt(variance / n)
@@ -214,11 +217,11 @@ export function pairedTTest(
  */
 export function wilcoxonSignedRank(before: number[], after: number[]): { w: number; p: number } {
   if (before.length !== after.length) {
-    throw new Error(
+    throw new ValidationError(
       `wilcoxonSignedRank: unequal sample sizes (${before.length} vs ${after.length})`,
     )
   }
-  const diffs = before.map((b, i) => after[i] - b).filter((d) => d !== 0)
+  const diffs = before.map((b, i) => after[i]! - b).filter((d) => d !== 0)
   const n = diffs.length
   if (n < 6) return { w: 0, p: 1 }
 
@@ -229,13 +232,13 @@ export function wilcoxonSignedRank(before: number[], after: number[]): { w: numb
   let i = 0
   while (i < n) {
     let j = i
-    while (j < n && absRanks[j].abs === absRanks[i].abs) j++
+    while (j < n && absRanks[j]!.abs === absRanks[i]!.abs) j++
     const avg = (i + 1 + j) / 2
-    for (let k = i; k < j; k++) ranks[absRanks[k].i] = avg
+    for (let k = i; k < j; k++) ranks[absRanks[k]!.i] = avg
     i = j
   }
   let wPlus = 0
-  for (let k = 0; k < n; k++) if (diffs[k] > 0) wPlus += ranks[k]
+  for (let k = 0; k < n; k++) if (diffs[k]! > 0) wPlus += ranks[k]!
 
   const mean = (n * (n + 1)) / 4
   const variance = (n * (n + 1) * (2 * n + 1)) / 24
@@ -320,8 +323,8 @@ function lnGamma(z: number): number {
     return Math.log(Math.PI / Math.sin(Math.PI * z)) - lnGamma(1 - z)
   }
   z -= 1
-  let x = coefs[0]
-  for (let i = 1; i < g + 2; i++) x += coefs[i] / (z + i)
+  let x = coefs[0]!
+  for (let i = 1; i < g + 2; i++) x += coefs[i]! / (z + i)
   const t = z + g + 0.5
   return 0.5 * Math.log(2 * Math.PI) + (z + 0.5) * Math.log(t) - t + Math.log(x)
 }

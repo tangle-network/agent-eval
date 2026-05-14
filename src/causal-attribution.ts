@@ -48,7 +48,7 @@ export interface CausalAttributionReport {
 
 export function causalAttribution(cells: FactorialCell[]): CausalAttributionReport {
   if (cells.length < 4) throw new Error('causalAttribution: need ≥ 4 cells to estimate effects')
-  const factors = Object.keys(cells[0].levels)
+  const factors = Object.keys(cells[0]!.levels)
   if (factors.length < 2) throw new Error('causalAttribution: need ≥ 2 factors')
 
   const allScores = cells.map((c) => c.score)
@@ -67,7 +67,7 @@ export function causalAttribution(cells: FactorialCell[]): CausalAttributionRepo
 
   // Main effects: variance of cell-mean-by-level, averaged across other factors.
   const mainEffects: FactorContribution[] = factors.map((f) => {
-    const byLevel = groupBy(cells, (c) => c.levels[f])
+    const byLevel = groupBy(cells, (c) => c.levels[f] ?? '')
     const means: number[] = []
     for (const arr of byLevel.values()) {
       means.push(arr.reduce((a, c) => a + c.score, 0) / arr.length)
@@ -84,18 +84,20 @@ export function causalAttribution(cells: FactorialCell[]): CausalAttributionRepo
   const interactions: InteractionContribution[] = []
   for (let i = 0; i < factors.length; i++) {
     for (let j = i + 1; j < factors.length; j++) {
-      const byPair = groupBy(cells, (c) => `${c.levels[factors[i]]}|${c.levels[factors[j]]}`)
+      const fi = factors[i]!
+      const fj = factors[j]!
+      const byPair = groupBy(cells, (c) => `${c.levels[fi]}|${c.levels[fj]}`)
       const pairMeans: number[] = []
       for (const arr of byPair.values()) {
         pairMeans.push(arr.reduce((a, c) => a + c.score, 0) / arr.length)
       }
       const pairVariance =
         pairMeans.reduce((acc, m) => acc + (m - grandMean) ** 2, 0) / pairMeans.length
-      const mainI = mainEffects[i].shareOfVariance * totalVariance
-      const mainJ = mainEffects[j].shareOfVariance * totalVariance
+      const mainI = mainEffects[i]!.shareOfVariance * totalVariance
+      const mainJ = mainEffects[j]!.shareOfVariance * totalVariance
       const interactionVariance = Math.max(0, pairVariance - mainI - mainJ)
       interactions.push({
-        factors: [factors[i], factors[j]],
+        factors: [fi, fj],
         shareOfVariance: interactionVariance / totalVariance,
       })
     }

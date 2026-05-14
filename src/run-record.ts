@@ -141,13 +141,14 @@ const MANDATORY_TOP_LEVEL = [
   'splitTag',
 ] as const
 
+import { ValidationError } from './errors'
+
 const SPLIT_TAGS: ReadonlyArray<RunSplitTag> = ['search', 'dev', 'holdout']
 
-export class RunRecordValidationError extends Error {
+export class RunRecordValidationError extends ValidationError {
   readonly path: string
   constructor(message: string, path = '') {
     super(path ? `${message} (at ${path})` : message)
-    this.name = 'RunRecordValidationError'
     this.path = path
   }
 }

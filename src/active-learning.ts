@@ -150,5 +150,5 @@ function quantile(xs: number[], p: number): number {
   const idx = p * (sorted.length - 1)
   const lo = Math.floor(idx)
   const hi = Math.ceil(idx)
-  return sorted[lo] + (sorted[hi] - sorted[lo]) * (idx - lo)
+  return sorted[lo]! + (sorted[hi]! - sorted[lo]!) * (idx - lo)
 }

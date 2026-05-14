@@ -261,7 +261,7 @@ export async function runReferenceReplay<Input = unknown>(
       matchStrategy: options.matchStrategy,
       includeHoldout: true,
     }
-    const scenarioScore = scoreReferenceReplay([scenario], scoreOptions).scenarios[0]
+    const scenarioScore = scoreReferenceReplay([scenario], scoreOptions).scenarios[0]!
     caseRuns.push({
       caseId: replayCase.id,
       split,

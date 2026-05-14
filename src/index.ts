@@ -30,6 +30,20 @@ export {
 } from './control-runtime'
 export type { AgentDriverConfig } from './driver'
 export { AgentDriver } from './driver'
+export type { AgentEvalErrorCode } from './errors'
+// Error taxonomy — every error this package throws as part of its public
+// contract extends AgentEvalError. Pattern-match by `instanceof` or by the
+// stable string `code` on the base.
+export {
+  AgentEvalError,
+  CaptureIntegrityError,
+  ConfigError,
+  JudgeError,
+  NotFoundError,
+  ReplayError,
+  ValidationError,
+  VerificationError,
+} from './errors'
 export type { ExecutorConfig } from './executor'
 export { executeScenario } from './executor'
 export type {
@@ -315,6 +329,11 @@ export {
 
 export * from './trace'
 
+// `knowledge`, `governance`, and `trace` remain re-exported at root because
+// they're load-bearing for the capture-integrity story documented in the
+// README. Every other module is reachable only through its subpath
+// (`/rl`, `/pipelines`, `/meta-eval`, `/prm`, `/builder-eval`, `/traces`).
+
 // ── 0.3 producers ────────────────────────────────────────────────────
 
 export { BudgetBreachError, BudgetGuard } from './budget-guard'
@@ -357,9 +376,7 @@ export { computeToolUseMetrics } from './tool-use-metrics'
 export type { Trajectory, TrajectoryStep } from './trajectory'
 export { buildTrajectory } from './trajectory'
 
-// ── 0.3 canned pipelines (views over the trace corpus) ───────────────
-
-export * from './pipelines'
+// ── 0.3 canned pipelines (views over the trace corpus) — subpath: /pipelines ─
 
 // ── 0.3 auxiliary statistical + decision modules ─────────────────────
 
@@ -490,9 +507,7 @@ export {
 export type { ImageData, VisualDiffOptions, VisualDiffResult } from './visual-diff'
 export { pixelDeltaRatio, visualDiff } from './visual-diff'
 
-// ── builder-of-builders eval ─────────────────────────────────────────
-
-export * from './builder-eval'
+// ── builder-of-builders eval — subpath: /builder-eval ───────────────────
 
 // ── 0.6 Tier 1 — meta-eval correlation, PRM, bisector ────────────────
 
@@ -502,8 +517,7 @@ export {
   commitBisect,
   promptBisect,
 } from './bisector'
-export * from './meta-eval'
-export * from './prm'
+// meta-eval and prm are reachable through their subpaths: /meta-eval, /prm
 
 // ── 0.6 Tier 2 — counterfactual + cross-trace diff + pre-registration ─
 
@@ -919,7 +933,9 @@ export type {
   SteeringChange,
 } from './researcher'
 export { CallbackResearcher, NoopResearcher } from './researcher'
-export * from './rl'
+// RL primitives — adapters, rewards, preferences, OPE, PRM, contamination,
+// tournaments, adversarial, compute curves, auto-research — live on the
+// dedicated subpath: @tangle-network/agent-eval/rl
 export type {
   RunJudgeMetadata,
   RunOutcome,
@@ -977,5 +993,4 @@ export {
   summaryTable,
 } from './summary-report'
 
-// Ax RLM trace analyst.
-export * from './trace-analyst'
+// Ax RLM trace analyst — subpath: /traces (re-exported alongside trace store).

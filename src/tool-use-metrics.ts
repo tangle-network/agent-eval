@@ -78,7 +78,7 @@ export async function computeToolUseMetrics(
   let retriesFollowed = 0
   for (const [, arr] of groupBy(sortedTools, (t) => t.toolName)) {
     for (let i = 0; i < arr.length; i++) {
-      if (arr[i].status !== 'error') continue
+      if (arr[i]!.status !== 'error') continue
       retryOpportunities += 1
       if (arr[i + 1]) retriesFollowed += 1
     }

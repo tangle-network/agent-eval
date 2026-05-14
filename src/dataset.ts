@@ -70,13 +70,14 @@ export interface SliceOptions {
   includeHoldout?: boolean
 }
 
+import { ValidationError } from './errors'
+
 /** Locked holdouts — throws on mutate. Callers that need a mutable dataset fork it. */
-export class HoldoutLockedError extends Error {
+export class HoldoutLockedError extends ValidationError {
   constructor(datasetName: string) {
     super(
       `Dataset "${datasetName}" is holdout-locked; mutations are not permitted. Fork with .clone() if you need to mutate.`,
     )
-    this.name = 'HoldoutLockedError'
   }
 }
 
@@ -235,7 +236,7 @@ function seededShuffle<T>(items: T[], seed: number): T[] {
   for (let i = out.length - 1; i > 0; i--) {
     state = (state * 1103515245 + 12345) >>> 0
     const j = state % (i + 1)
-    ;[out[i], out[j]] = [out[j], out[i]]
+    ;[out[i], out[j]] = [out[j]!, out[i]!]
   }
   return out
 }

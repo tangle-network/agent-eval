@@ -148,16 +148,21 @@ function reduce(
   if (kind === 'max') return Math.max(...values)
   // 'latest': pick the outcome captured last, then lookup its metric
   const latest = [...outcomes].sort((a, b) => b.capturedAt - a.capturedAt)[0]
-  const v = latest?.metrics[Object.keys(latest.metrics)[0]]
+  if (!latest) return null
+  const latestKey = Object.keys(latest.metrics)[0]
+  const v = latestKey !== undefined ? latest.metrics[latestKey] : undefined
   // For 'latest' we already have `values` aligned; use the last-captured one
   const paired = outcomes
-    .map((o) => ({
-      at: o.capturedAt,
-      v: values.find((x) => o.metrics[Object.keys(o.metrics)[0]] === x),
-    }))
+    .map((o) => {
+      const k = Object.keys(o.metrics)[0]
+      return {
+        at: o.capturedAt,
+        v: k !== undefined ? values.find((x) => o.metrics[k] === x) : undefined,
+      }
+    })
     .filter((p) => p.v !== undefined)
   if (paired.length === 0) return v ?? null
-  return paired.sort((a, b) => b.at - a.at)[0].v ?? null
+  return paired.sort((a, b) => b.at - a.at)[0]?.v ?? null
 }
 
 function pearsonR(a: number[], b: number[]): number {
@@ -168,8 +173,8 @@ function pearsonR(a: number[], b: number[]): number {
     dA = 0,
     dB = 0
   for (let i = 0; i < a.length; i++) {
-    const da = a[i] - mA,
-      db = b[i] - mB
+    const da = a[i]! - mA,
+      db = b[i]! - mB
     num += da * db
     dA += da * da
     dB += db * db
@@ -183,9 +188,9 @@ function ranks(xs: number[]): number[] {
   const r = new Array<number>(xs.length)
   for (let i = 0; i < indexed.length; i++) {
     let j = i
-    while (j + 1 < indexed.length && indexed[j + 1].v === indexed[i].v) j++
+    while (j + 1 < indexed.length && indexed[j + 1]!.v === indexed[i]!.v) j++
     const avg = (i + j + 2) / 2
-    for (let k = i; k <= j; k++) r[indexed[k].i] = avg
+    for (let k = i; k <= j; k++) r[indexed[k]!.i] = avg
     i = j
   }
   return r
@@ -204,8 +209,8 @@ function bootstrapPearsonCi(
     const ry: number[] = new Array(n)
     for (let i = 0; i < n; i++) {
       const idx = Math.floor(Math.random() * n)
-      rx[i] = xs[idx]
-      ry[i] = ys[idx]
+      rx[i] = xs[idx]!
+      ry[i] = ys[idx]!
     }
     const r = pearsonR(rx, ry)
     if (Number.isFinite(r)) rs.push(r)
@@ -213,8 +218,8 @@ function bootstrapPearsonCi(
   rs.sort((a, b) => a - b)
   if (rs.length === 0) return { lower: NaN, upper: NaN }
   return {
-    lower: rs[Math.floor(0.025 * rs.length)],
-    upper: rs[Math.min(rs.length - 1, Math.floor(0.975 * rs.length))],
+    lower: rs[Math.floor(0.025 * rs.length)]!,
+    upper: rs[Math.min(rs.length - 1, Math.floor(0.975 * rs.length))]!,
   }
 }
 

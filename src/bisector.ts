@@ -108,7 +108,7 @@ export async function commitBisect(options: {
       const gi = commits.indexOf(g)
       const bi = commits.indexOf(b)
       if (bi - gi <= 1) return null
-      return commits[Math.floor((gi + bi) / 2)]
+      return commits[Math.floor((gi + bi) / 2)] ?? null
     },
   })
 }
@@ -146,7 +146,7 @@ export async function promptBisect(options: {
   const badMask = '1'.repeat(n)
 
   function paragraphsFor(mask: string): string[] {
-    return mask.split('').map((c, i) => (c === '1' ? badParas[i] : goodParas[i]))
+    return mask.split('').map((c, i) => (c === '1' ? badParas[i]! : goodParas[i]!))
   }
 
   const result = await bisect<string>({
@@ -166,7 +166,7 @@ export async function promptBisect(options: {
           // Flip the first half of differing positions from good → bad.
           const flip = differing.slice(0, Math.ceil(differing.length / 2))
           const chars = g.split('')
-          for (const f of flip) chars[f] = b[f]
+          for (const f of flip) chars[f] = b[f]!
           return chars.join('')
         }
       }

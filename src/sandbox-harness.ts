@@ -12,6 +12,7 @@
  * Cloudflare sandbox product, etc.). The harness doesn't care which.
  */
 
+import { ConfigError } from './errors'
 import type { TraceEmitter } from './trace/emitter'
 import type { SandboxSpan } from './trace/schema'
 
@@ -220,7 +221,7 @@ export class DockerSandboxDriver implements SandboxDriver {
     command: string,
     config: HarnessConfig,
   ): Promise<SandboxResult> {
-    if (!config.image) throw new Error('DockerSandboxDriver requires config.image')
+    if (!config.image) throw new ConfigError('DockerSandboxDriver requires config.image')
     const sub = new SubprocessSandboxDriver()
     const envArgs = Object.entries(config.env ?? {})
       .map(([k, v]) => `-e ${shellQuote(k)}=${shellQuote(v)}`)

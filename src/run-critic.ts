@@ -1,3 +1,4 @@
+import { NotFoundError } from './errors'
 import { aggregateRunScore, clamp01, type RunScore, type RunScoreWeights } from './run-score'
 import type { Artifact, BudgetLedgerEntry, Run, Span, TraceEvent, TraceStore } from './trace'
 
@@ -34,7 +35,7 @@ export class RunCritic {
 
   async score(store: TraceStore, runId: string): Promise<RunScore> {
     const run = await store.getRun(runId)
-    if (!run) throw new Error(`run ${runId} not found`)
+    if (!run) throw new NotFoundError(`run ${runId} not found`)
     const [spans, events, artifacts, budget] = await Promise.all([
       store.spans({ runId }),
       store.events({ runId }),

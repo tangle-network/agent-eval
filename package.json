@@ -64,6 +64,36 @@
       "import": "./dist/benchmarks/index.js",
       "default": "./dist/benchmarks/index.js"
     },
+    "./pipelines": {
+      "types": "./dist/pipelines/index.d.ts",
+      "import": "./dist/pipelines/index.js",
+      "default": "./dist/pipelines/index.js"
+    },
+    "./meta-eval": {
+      "types": "./dist/meta-eval/index.d.ts",
+      "import": "./dist/meta-eval/index.js",
+      "default": "./dist/meta-eval/index.js"
+    },
+    "./prm": {
+      "types": "./dist/prm/index.d.ts",
+      "import": "./dist/prm/index.js",
+      "default": "./dist/prm/index.js"
+    },
+    "./builder-eval": {
+      "types": "./dist/builder-eval/index.d.ts",
+      "import": "./dist/builder-eval/index.js",
+      "default": "./dist/builder-eval/index.js"
+    },
+    "./governance": {
+      "types": "./dist/governance/index.d.ts",
+      "import": "./dist/governance/index.js",
+      "default": "./dist/governance/index.js"
+    },
+    "./knowledge": {
+      "types": "./dist/knowledge/index.d.ts",
+      "import": "./dist/knowledge/index.js",
+      "default": "./dist/knowledge/index.js"
+    },
     "./openapi.json": {
       "default": "./dist/openapi.json"
     }

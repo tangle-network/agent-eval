@@ -14,6 +14,7 @@
  * each LLM span, emits JudgeVerdict spans back into the store.
  */
 
+import { NotFoundError } from './errors'
 import { TraceEmitter } from './trace/emitter'
 import { aggregateLlm, llmSpans } from './trace/query'
 import type { LlmSpan, Span } from './trace/schema'
@@ -54,7 +55,7 @@ export async function toLangfuseEnvelope(
   runId: string,
 ): Promise<LangfuseEnvelope> {
   const run = await store.getRun(runId)
-  if (!run) throw new Error(`run ${runId} not found`)
+  if (!run) throw new NotFoundError(`run ${runId} not found`)
   const llm = await llmSpans(store, runId)
   const allSpans = await store.spans({ runId })
   const judges = allSpans.filter((s): s is Extract<Span, { kind: 'judge' }> => s.kind === 'judge')
@@ -177,7 +178,7 @@ export async function replayTraceThroughJudge(
   },
 ): Promise<JudgeReplayResult[]> {
   const run = await store.getRun(runId)
-  if (!run) throw new Error(`run ${runId} not found`)
+  if (!run) throw new NotFoundError(`run ${runId} not found`)
   const llms = await llmSpans(store, runId)
   const emitter = new TraceEmitter(store, { runId })
   const results: JudgeReplayResult[] = []

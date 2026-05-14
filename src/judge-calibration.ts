@@ -155,8 +155,8 @@ function pearsonR(a: number[], b: number[]): number {
     dA = 0,
     dB = 0
   for (let i = 0; i < a.length; i++) {
-    const da = a[i] - mA
-    const db = b[i] - mB
+    const da = a[i]! - mA
+    const db = b[i]! - mB
     num += da * db
     dA += da * da
     dB += db * db
@@ -176,9 +176,10 @@ function weightedKappa(a: number[], b: number[]): number {
   const rowMarg = new Array(K).fill(0)
   const colMarg = new Array(K).fill(0)
   for (let i = 0; i < a.length; i++) {
-    const ai = a[i] - min
-    const bi = b[i] - min
-    observed[ai][bi]++
+    const ai = a[i]! - min
+    const bi = b[i]! - min
+    const row = observed[ai]!
+    row[bi] = (row[bi] ?? 0) + 1
     rowMarg[ai]++
     colMarg[bi]++
   }
@@ -188,7 +189,7 @@ function weightedKappa(a: number[], b: number[]): number {
     for (let j = 0; j < K; j++) {
       const w = (i - j) ** 2 / (K - 1) ** 2
       const expected = (rowMarg[i] * colMarg[j]) / a.length
-      num += w * observed[i][j]
+      num += w * observed[i]![j]!
       den += w * expected
     }
   }

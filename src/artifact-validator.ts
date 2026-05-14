@@ -81,17 +81,17 @@ export function composeValidators(
     async validate(artifact, ctx) {
       const results = await Promise.all(validators.map((v) => v.validate(artifact, ctx)))
       const pass = results.every((r) => r.pass)
-      const score = results.reduce((acc, r, i) => acc + r.score * weights[i], 0) / totalWeight
+      const score = results.reduce((acc, r, i) => acc + r.score * weights[i]!, 0) / totalWeight
       return {
         pass,
         score,
         issues: results.flatMap((r, i) =>
           r.issues.map((issue) => ({
             ...issue,
-            locus: issue.locus ? `${validators[i].name}:${issue.locus}` : validators[i].name,
+            locus: issue.locus ? `${validators[i]!.name}:${issue.locus}` : validators[i]!.name,
           })),
         ),
-        evidence: Object.fromEntries(results.map((r, i) => [validators[i].name, r.evidence])),
+        evidence: Object.fromEntries(results.map((r, i) => [validators[i]!.name, r.evidence])),
       }
     },
   }

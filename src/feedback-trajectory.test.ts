@@ -60,7 +60,7 @@ describe('feedback trajectories', () => {
     const row = feedbackTrajectoryToOptimizerRow(trajectory)
 
     expect(trajectory.id).toMatch(/^ft_control_/)
-    expect(trajectory.attempts[0].id).toBe(`${trajectory.id}_step_0`)
+    expect(trajectory.attempts[0]!.id).toBe(`${trajectory.id}_step_0`)
     expect(trajectory.outcome?.metadata?.stoppedBy).toBe('stop-policy')
     expect(row).toMatchObject({
       scenarioId: 'scenario-1',
@@ -92,7 +92,7 @@ describe('feedback trajectories', () => {
     const entries = summarizePreferenceMemory([updated])
 
     expect(updated.labels).toHaveLength(0)
-    expect(updated.attempts[0].feedback).toEqual([label])
+    expect(updated.attempts[0]!.feedback).toEqual([label])
     expect(entries).toHaveLength(1)
     expect(renderPreferenceMemoryMarkdown(entries)).toContain('make the rollout steps concrete')
   })
@@ -113,7 +113,7 @@ describe('feedback trajectories', () => {
     const parsed = parseFeedbackTrajectoriesJsonl(jsonl)
 
     expect(parsed).toEqual([trajectory])
-    expect(parsed[0].split).toBe(trajectory.split)
+    expect(parsed[0]!.split).toBe(trajectory.split)
   })
 
   it('persists trajectories and skips corrupt JSONL records without losing valid data', async () => {
@@ -174,7 +174,7 @@ describe('feedback trajectories', () => {
       },
     })
     expect(fail.pass).toBe(false)
-    expect(fail.labels[0].reason).toBe('browser assertion failed')
+    expect(fail.labels[0]!.reason).toBe('browser assertion failed')
     expect(fail.metadata?.replayError).toBe(true)
   })
 })

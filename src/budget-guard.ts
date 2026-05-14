@@ -8,17 +8,17 @@
  * budget state from the trace corpus — no separate accounting.
  */
 
+import { AgentEvalError } from './errors'
 import type { TraceEmitter } from './trace/emitter'
 import type { BudgetSpec } from './trace/schema'
 
-export class BudgetBreachError extends Error {
+export class BudgetBreachError extends AgentEvalError {
   constructor(
     public dimension: keyof BudgetSpec,
     public limit: number,
     public attempted: number,
   ) {
-    super(`budget breach on ${dimension}: attempted ${attempted} vs limit ${limit}`)
-    this.name = 'BudgetBreachError'
+    super('verification', `budget breach on ${dimension}: attempted ${attempted} vs limit ${limit}`)
   }
 }
 

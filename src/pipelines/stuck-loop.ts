@@ -57,11 +57,11 @@ export async function stuckLoopView(
     for (const [key, { spans, argHash: h }] of byKey) {
       if (spans.length < minOccurrences) continue
       const sorted = [...spans].sort((a, b) => a.startedAt - b.startedAt)
-      const first = sorted[0].startedAt
-      const last = sorted[sorted.length - 1].startedAt
+      const first = sorted[0]!.startedAt
+      const last = sorted[sorted.length - 1]!.startedAt
       findings.push({
         runId,
-        toolName: key.split('|')[0],
+        toolName: key.split('|')[0]!,
         argHash: h,
         occurrences: sorted.length,
         spanIds: sorted.map((s) => s.spanId),

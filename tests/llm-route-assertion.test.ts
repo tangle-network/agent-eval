@@ -54,12 +54,13 @@ describe('assertLlmRoute', () => {
     )).not.toThrow()
   })
 
-  it('exposes a structured error code for programmatic handling', () => {
+  it('exposes a structured reason for programmatic handling', () => {
     try {
       assertLlmRoute({}, { requireExplicitBaseUrl: true })
     } catch (err) {
       expect(err).toBeInstanceOf(LlmRouteAssertionError)
-      expect((err as LlmRouteAssertionError).code).toBe('no_explicit_base_url')
+      expect((err as LlmRouteAssertionError).reason).toBe('no_explicit_base_url')
+      expect((err as LlmRouteAssertionError).code).toBe('capture_integrity')
     }
   })
 })

@@ -75,7 +75,7 @@ export class PrmGrader {
     const steps: GradedStep[] = []
     let ungraded = 0
     for (let i = 0; i < trajectory.steps.length; i++) {
-      const step = trajectory.steps[i]
+      const step = trajectory.steps[i]!
       const ctx: StepContext = {
         trajectory,
         step,

@@ -362,7 +362,7 @@ export const DEFAULT_RULES: FailureRule[] = [
           return {
             failureClass: 'tool_recovery_failure',
             reason: `${errs.length} consecutive errors on tool "${name}"`,
-            triggerSpanId: errs[errs.length - 1].spanId,
+            triggerSpanId: errs[errs.length - 1]!.spanId,
           }
         }
       }
