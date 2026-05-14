@@ -1,7 +1,7 @@
 {
   "name": "@tangle-network/agent-eval",
-  "version": "0.23.1",
-  "description": "Trace-first evaluation infrastructure for agent systems: traces, harnesses, verifier pipelines, judges, datasets, gates, optimization, and reporting.",
+  "version": "0.24.0",
+  "description": "Substrate for self-improving agents: traces, verifiable rewards, preferences, GEPA / reflective mutation, auto-research, replay, sequential anytime-valid stats, and release gates.",
   "homepage": "https://github.com/tangle-network/agent-eval#readme",
   "repository": {
     "type": "git",
@@ -64,6 +64,36 @@
       "import": "./dist/benchmarks/index.js",
       "default": "./dist/benchmarks/index.js"
     },
+    "./pipelines": {
+      "types": "./dist/pipelines/index.d.ts",
+      "import": "./dist/pipelines/index.js",
+      "default": "./dist/pipelines/index.js"
+    },
+    "./meta-eval": {
+      "types": "./dist/meta-eval/index.d.ts",
+      "import": "./dist/meta-eval/index.js",
+      "default": "./dist/meta-eval/index.js"
+    },
+    "./prm": {
+      "types": "./dist/prm/index.d.ts",
+      "import": "./dist/prm/index.js",
+      "default": "./dist/prm/index.js"
+    },
+    "./builder-eval": {
+      "types": "./dist/builder-eval/index.d.ts",
+      "import": "./dist/builder-eval/index.js",
+      "default": "./dist/builder-eval/index.js"
+    },
+    "./governance": {
+      "types": "./dist/governance/index.d.ts",
+      "import": "./dist/governance/index.js",
+      "default": "./dist/governance/index.js"
+    },
+    "./knowledge": {
+      "types": "./dist/knowledge/index.d.ts",
+      "import": "./dist/knowledge/index.js",
+      "default": "./dist/knowledge/index.js"
+    },
     "./openapi.json": {
       "default": "./dist/openapi.json"
     }
@@ -86,6 +116,8 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit",
+    "lint": "biome check src",
+    "format": "biome format --write src",
     "openapi": "node dist/cli.js openapi --out dist/openapi.json"
   },
   "dependencies": {
@@ -97,6 +129,7 @@
     "zod": "^4.3.6"
   },
   "devDependencies": {
+    "@biomejs/biome": "^2.4.15",
     "@types/node": "^25.6.0",
     "openapi3-ts": "^4.5.0",
     "tsup": "^8.0.0",

@@ -1,37 +1,43 @@
 import { describe, expect, it } from 'vitest'
 
 import {
-  buildTraceInsightPrompt,
   buildTraceInsightContext,
+  buildTraceInsightPrompt,
   defaultTraceInsightPanel,
   describeTraceInsightScope,
   domainEvidencePattern,
   inferDomainKeywords,
   planTraceInsightQuestions,
   scoreTraceInsightReadiness,
-  tokenizeDomainWords,
   type TraceInsightSuite,
+  tokenizeDomainWords,
 } from './insights'
 
 describe('trace insight planning', () => {
   const suite: TraceInsightSuite = {
     name: 'Acme Checkout',
     collectionId: 'acme-checkout',
-    tasks: [{
-      id: 'checkout',
-      name: 'Hosted Checkout',
-      prompt: 'Use the Acme payment API to create a hosted checkout session.',
-      difficulty: 'hard',
-      tags: ['checkout', 'payment'],
-      outcome: 'error',
-      score: 0.4,
-      gaps: ['shot 2 still missing SDK call'],
-    }],
+    tasks: [
+      {
+        id: 'checkout',
+        name: 'Hosted Checkout',
+        prompt: 'Use the Acme payment API to create a hosted checkout session.',
+        difficulty: 'hard',
+        tags: ['checkout', 'payment'],
+        outcome: 'error',
+        score: 0.4,
+        gaps: ['shot 2 still missing SDK call'],
+      },
+    ],
   }
 
   it('infers reusable domain terms without benchmark-specific assumptions', () => {
-    expect(tokenizeDomainWords('Build the Acme Checkout workflow with API docs for a hard task')).toEqual(['acme', 'checkout', 'api', 'docs'])
-    expect(inferDomainKeywords(suite)).toEqual(expect.arrayContaining(['acme', 'checkout', 'payment']))
+    expect(
+      tokenizeDomainWords('Build the Acme Checkout workflow with API docs for a hard task'),
+    ).toEqual(['acme', 'checkout', 'api', 'docs'])
+    expect(inferDomainKeywords(suite)).toEqual(
+      expect.arrayContaining(['acme', 'checkout', 'payment']),
+    )
     expect(inferDomainKeywords(suite).length).toBeLessThanOrEqual(18)
     expect(describeTraceInsightScope(suite)).toBe('1 implementation task across checkout, payment.')
   })
@@ -50,13 +56,15 @@ describe('trace insight planning', () => {
       suite,
       findings: [{ kind: 'missing-domain-integration', taskIds: ['checkout'] }],
     })
-    expect(questions.map((question) => question.id)).toEqual(expect.arrayContaining([
-      'execution-path',
-      'research-grounding',
-      'domain-proof',
-      'reviewer-lift',
-      'optimization-targets',
-    ]))
+    expect(questions.map((question) => question.id)).toEqual(
+      expect.arrayContaining([
+        'execution-path',
+        'research-grounding',
+        'domain-proof',
+        'reviewer-lift',
+        'optimization-targets',
+      ]),
+    )
     expect(defaultTraceInsightPanel().map((role) => role.id)).toEqual([
       'trace-forensics',
       'root-cause',
@@ -96,12 +104,14 @@ describe('trace insight planning', () => {
     ])
     expect(readiness.gates.every((gate) => gate.passed)).toBe(true)
 
-    const weak = scoreTraceInsightReadiness(buildTraceInsightContext({
-      suite: {
-        name: 'Untitled',
-        tasks: [{ id: 't1', name: 'Task', outcome: 'error' }],
-      },
-    }))
+    const weak = scoreTraceInsightReadiness(
+      buildTraceInsightContext({
+        suite: {
+          name: 'Untitled',
+          tasks: [{ id: 't1', name: 'Task', outcome: 'error' }],
+        },
+      }),
+    )
     expect(weak.grade).toBe('raw-analysis')
     expect(weak.gates.filter((gate) => !gate.passed).map((gate) => gate.id)).toEqual([
       'failure-coverage',

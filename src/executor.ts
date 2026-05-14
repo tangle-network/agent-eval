@@ -1,9 +1,13 @@
 import type { TCloud } from '@tangle-network/tcloud'
-import type {
-  Scenario, TurnResult, CollectedArtifacts,
-  ScenarioResult, JudgeScore, JudgeFn,
-} from './types'
 import { normalizeScores, weightedMean } from './statistics'
+import type {
+  CollectedArtifacts,
+  JudgeFn,
+  JudgeScore,
+  Scenario,
+  ScenarioResult,
+  TurnResult,
+} from './types'
 
 interface ChatMessage {
   role: 'system' | 'user' | 'assistant'
@@ -22,7 +26,10 @@ export interface ExecutorConfig {
   /** Block delimiter pattern (default: :::type\n...\n:::) */
   blockPattern?: RegExp
   /** Custom artifact checker for domain-specific checks */
-  artifactChecker?: (check: Scenario['artifactChecks'][0], artifacts: CollectedArtifacts) => { passed: boolean; detail: string } | null
+  artifactChecker?: (
+    check: Scenario['artifactChecks'][0],
+    artifacts: CollectedArtifacts,
+  ) => { passed: boolean; detail: string } | null
 }
 
 /**
@@ -38,14 +45,11 @@ export async function executeScenario(
   const startTime = Date.now()
   const model = config.model ?? 'gpt-4o'
 
-  const systemPrompt = [
-    config.systemPrompt,
-    scenario.systemPromptAppend ?? '',
-  ].filter(Boolean).join('\n\n')
+  const systemPrompt = [config.systemPrompt, scenario.systemPromptAppend ?? '']
+    .filter(Boolean)
+    .join('\n\n')
 
-  const messages: ChatMessage[] = [
-    { role: 'system', content: systemPrompt },
-  ]
+  const messages: ChatMessage[] = [{ role: 'system', content: systemPrompt }]
 
   const turns: TurnResult[] = []
   const allCodeBlocks: { language: string; code: string }[] = []
@@ -55,7 +59,7 @@ export async function executeScenario(
   const blockRe = config.blockPattern ?? /:::(\w+)\s*\n([\s\S]*?)\n\s*:::/g
 
   for (let i = 0; i < scenario.turns.length; i++) {
-    const turn = scenario.turns[i]
+    const turn = scenario.turns[i]!
     const turnStart = Date.now()
 
     messages.push({ role: 'user', content: turn.user })
@@ -67,8 +71,9 @@ export async function executeScenario(
       maxTokens: 3000,
     })
 
-    const content = (resp as { choices?: { message?: { content?: string } }[] })
-      .choices?.[0]?.message?.content ?? ''
+    const content =
+      (resp as { choices?: { message?: { content?: string } }[] }).choices?.[0]?.message?.content ??
+      ''
 
     messages.push({ role: 'assistant', content })
 
@@ -76,7 +81,7 @@ export async function executeScenario(
     const codeRe = /```(\w+)?\n([\s\S]*?)```/g
     let codeMatch
     while ((codeMatch = codeRe.exec(content)) !== null) {
-      allCodeBlocks.push({ language: codeMatch[1] ?? 'text', code: codeMatch[2] })
+      allCodeBlocks.push({ language: codeMatch[1] ?? 'text', code: codeMatch[2] ?? '' })
     }
 
     // Extract structured blocks
@@ -85,12 +90,13 @@ export async function executeScenario(
     const blockReLocal = new RegExp(blockRe.source, blockRe.flags)
     while ((blockMatch = blockReLocal.exec(content)) !== null) {
       const fields: Record<string, string> = {}
-      for (const line of blockMatch[2].split('\n')) {
+      for (const line of (blockMatch[2] ?? '').split('\n')) {
         const idx = line.indexOf(':')
         if (idx > 0) fields[line.slice(0, idx).trim()] = line.slice(idx + 1).trim()
       }
-      allBlocks.push({ type: blockMatch[1], fields })
-      turnBlocks.push({ type: blockMatch[1], title: fields.title ?? '' })
+      const blockType = blockMatch[1] ?? ''
+      allBlocks.push({ type: blockType, fields })
+      turnBlocks.push({ type: blockType, title: fields.title ?? '' })
     }
 
     // Detect tool calls via configurable patterns
@@ -134,7 +140,7 @@ export async function executeScenario(
 
     switch (check.type) {
       case 'block_extracted': {
-        const count = allBlocks.filter(b => b.type === check.target).length
+        const count = allBlocks.filter((b) => b.type === check.target).length
         return {
           check,
           passed: count >= (check.minCount ?? 1),
@@ -142,13 +148,17 @@ export async function executeScenario(
         }
       }
       case 'code_valid': {
-        const hasCode = allCodeBlocks.some(b =>
-          b.language === check.target || b.code.includes(check.target)
+        const hasCode = allCodeBlocks.some(
+          (b) => b.language === check.target || b.code.includes(check.target),
         )
         return { check, passed: hasCode, detail: hasCode ? 'Code block found' : 'No matching code' }
       }
       default:
-        return { check, passed: false, detail: `Check type "${check.type}" requires live environment` }
+        return {
+          check,
+          passed: false,
+          detail: `Check type "${check.type}" requires live environment`,
+        }
     }
   })
 
@@ -163,29 +173,35 @@ export async function executeScenario(
         if (attempt > 0) {
           const wait = attempt * 10_000
           console.log(`    judge retry ${attempt}/2 (waiting ${wait / 1000}s)`)
-          await new Promise(r => setTimeout(r, wait))
+          await new Promise((r) => setTimeout(r, wait))
         }
         const scores = await judge(tc, judgeInput)
         judgeResults.push(scores)
-        await new Promise(r => setTimeout(r, 3000))
+        await new Promise((r) => setTimeout(r, 3000))
         break
       } catch (err) {
         lastErr = err instanceof Error ? err.message : String(err)
         if (attempt === 2) {
-          judgeResults.push([{
-            judgeName: 'unknown',
-            dimension: 'error',
-            score: 0,
-            reasoning: `Judge failed after 3 attempts: ${lastErr.slice(0, 200)}`,
-          }])
+          judgeResults.push([
+            {
+              judgeName: 'unknown',
+              dimension: 'error',
+              score: 0,
+              reasoning: `Judge failed after 3 attempts: ${lastErr.slice(0, 200)}`,
+            },
+          ])
         }
       }
     }
   }
 
   const allScores = judgeResults.flat()
-  const errorScores = allScores.filter(s => s.dimension === 'parse_error' || s.dimension === 'error')
-  const validScores = allScores.filter(s => s.dimension !== 'parse_error' && s.dimension !== 'error')
+  const errorScores = allScores.filter(
+    (s) => s.dimension === 'parse_error' || s.dimension === 'error',
+  )
+  const validScores = allScores.filter(
+    (s) => s.dimension !== 'parse_error' && s.dimension !== 'error',
+  )
   const normalized = normalizeScores(validScores)
 
   // Build weight map from scenario rubric dimensions

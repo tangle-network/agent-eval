@@ -226,7 +226,9 @@ function rowToExperiment(row: ExperimentRow): Experiment {
     id: row.id,
     name: row.name,
     createdAt: row.created_at,
-    ...(row.metadata_json ? { metadata: JSON.parse(row.metadata_json) as Record<string, unknown> } : {}),
+    ...(row.metadata_json
+      ? { metadata: JSON.parse(row.metadata_json) as Record<string, unknown> }
+      : {}),
   }
 }
 

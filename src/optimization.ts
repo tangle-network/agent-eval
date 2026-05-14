@@ -1,4 +1,3 @@
-export { runEvalCampaign } from './eval-campaign'
 export type {
   CampaignFactoryParams,
   CampaignIntegrityPolicy,
@@ -11,91 +10,7 @@ export type {
   EvalCampaignResult,
   FailedRun,
 } from './eval-campaign'
-
-export {
-  defaultMultiShotObjectives,
-  runMultiShotOptimization,
-  trialTraceFromMultiShotTrial,
-} from './multi-shot-optimization'
-export type {
-  ActionableSideInfo,
-  AsiSeverity,
-  MultiShotGateConfig,
-  MultiShotGateResult,
-  MultiShotMutateAdapter,
-  MultiShotOptimizationConfig,
-  MultiShotOptimizationResult,
-  MultiShotRun,
-  MultiShotRunInput,
-  MultiShotRunner,
-  MultiShotScore,
-  MultiShotScorer,
-  MultiShotSplit,
-  MultiShotTrace,
-  MultiShotTrialResult,
-  MultiShotVariant,
-} from './multi-shot-optimization'
-
-export {
-  runPromptEvolution,
-  InMemoryTrialCache,
-} from './prompt-evolution'
-export type {
-  EvolvableVariant,
-  GenerationReport,
-  MutateAdapter,
-  PromptEvolutionConfig,
-  PromptEvolutionEvent,
-  PromptEvolutionResult,
-  ScenarioAggregate,
-  ScoreAdapter,
-  TrialCache,
-  TrialResult,
-  VariantAggregate,
-} from './prompt-evolution'
-
-export {
-  buildReflectionPrompt,
-  DEFAULT_MUTATION_PRIMITIVES,
-  parseReflectionResponse,
-} from './reflective-mutation'
-export type {
-  ReflectionContext,
-  ReflectionProposal,
-  TrialTrace,
-} from './reflective-mutation'
-
-export {
-  CallbackResearcher,
-  NoopResearcher,
-} from './researcher'
-export type {
-  CallbackResearcherOptions,
-  ExperimentPlan,
-  ExperimentResult,
-  FailureMode,
-  Researcher,
-  SteeringChange,
-} from './researcher'
-
-export {
-  FileSystemFeedbackTrajectoryStore,
-  InMemoryFeedbackTrajectoryStore,
-  assignFeedbackSplit,
-  controlRunToFeedbackTrajectory,
-  createFeedbackTrajectory,
-  feedbackTrajectoriesToDatasetScenarios,
-  feedbackTrajectoriesToOptimizerRows,
-  feedbackTrajectoryToDatasetScenario,
-  feedbackTrajectoryToOptimizerRow,
-  parseFeedbackTrajectoriesJsonl,
-  replayFeedbackTrajectories,
-  replayFeedbackTrajectory,
-  renderPreferenceMemoryMarkdown,
-  serializeFeedbackTrajectoriesJsonl,
-  summarizePreferenceMemory,
-  withAssignedFeedbackSplit,
-} from './feedback-trajectory'
+export { runEvalCampaign } from './eval-campaign'
 export type {
   FeedbackArtifactType,
   FeedbackAttempt,
@@ -115,3 +30,83 @@ export type {
   PreferenceMemoryEntry,
   ProposedSideEffect,
 } from './feedback-trajectory'
+export {
+  assignFeedbackSplit,
+  controlRunToFeedbackTrajectory,
+  createFeedbackTrajectory,
+  FileSystemFeedbackTrajectoryStore,
+  feedbackTrajectoriesToDatasetScenarios,
+  feedbackTrajectoriesToOptimizerRows,
+  feedbackTrajectoryToDatasetScenario,
+  feedbackTrajectoryToOptimizerRow,
+  InMemoryFeedbackTrajectoryStore,
+  parseFeedbackTrajectoriesJsonl,
+  renderPreferenceMemoryMarkdown,
+  replayFeedbackTrajectories,
+  replayFeedbackTrajectory,
+  serializeFeedbackTrajectoriesJsonl,
+  summarizePreferenceMemory,
+  withAssignedFeedbackSplit,
+} from './feedback-trajectory'
+export type {
+  ActionableSideInfo,
+  AsiSeverity,
+  MultiShotGateConfig,
+  MultiShotGateResult,
+  MultiShotMutateAdapter,
+  MultiShotOptimizationConfig,
+  MultiShotOptimizationResult,
+  MultiShotRun,
+  MultiShotRunInput,
+  MultiShotRunner,
+  MultiShotScore,
+  MultiShotScorer,
+  MultiShotSplit,
+  MultiShotTrace,
+  MultiShotTrialResult,
+  MultiShotVariant,
+} from './multi-shot-optimization'
+export {
+  defaultMultiShotObjectives,
+  runMultiShotOptimization,
+  trialTraceFromMultiShotTrial,
+} from './multi-shot-optimization'
+export type {
+  EvolvableVariant,
+  GenerationReport,
+  MutateAdapter,
+  PromptEvolutionConfig,
+  PromptEvolutionEvent,
+  PromptEvolutionResult,
+  ScenarioAggregate,
+  ScoreAdapter,
+  TrialCache,
+  TrialResult,
+  VariantAggregate,
+} from './prompt-evolution'
+export {
+  InMemoryTrialCache,
+  runPromptEvolution,
+} from './prompt-evolution'
+export type {
+  ReflectionContext,
+  ReflectionProposal,
+  TrialTrace,
+} from './reflective-mutation'
+export {
+  buildReflectionPrompt,
+  DEFAULT_MUTATION_PRIMITIVES,
+  parseReflectionResponse,
+} from './reflective-mutation'
+export type {
+  CallbackResearcherOptions,
+  ExperimentPlan,
+  ExperimentResult,
+  FailureMode,
+  Researcher,
+  SteeringChange,
+} from './researcher'
+export {
+  CallbackResearcher,
+  NoopResearcher,
+} from './researcher'

@@ -34,7 +34,10 @@ export const DEFAULT_REDACTION_RULES: RedactionRule[] = [
   { id: 'aws-access-key', pattern: /\bAKIA[0-9A-Z]{16}\b/g },
   { id: 'bearer', pattern: /\bBearer\s+[A-Za-z0-9._~+/=-]{10,}/gi },
   { id: 'sk-key', pattern: /\bsk-[A-Za-z0-9_-]{10,}\b/g },
-  { id: 'private-key-block', pattern: /-----BEGIN (?:RSA |EC |OPENSSH |DSA )?PRIVATE KEY-----[\s\S]*?-----END[^-]*-----/g },
+  {
+    id: 'private-key-block',
+    pattern: /-----BEGIN (?:RSA |EC |OPENSSH |DSA )?PRIVATE KEY-----[\s\S]*?-----END[^-]*-----/g,
+  },
 ]
 
 export const REDACTION_VERSION = '1.0.0'

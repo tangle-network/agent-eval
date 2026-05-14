@@ -8,14 +8,25 @@ import type { CompletionCriterion, DriverState } from './types'
  */
 export class ConvergenceTracker {
   private criteria: CompletionCriterion[]
-  private history: { turn: number; completionPercent: number; criteriaStatus: Record<string, boolean | number> }[] = []
+  private history: {
+    turn: number
+    completionPercent: number
+    criteriaStatus: Record<string, boolean | number>
+  }[] = []
 
   constructor(criteria: CompletionCriterion[]) {
     this.criteria = criteria
   }
 
   /** Evaluate criteria against current state, record result */
-  record(turn: number, state: DriverState): { completionPercent: number; complete: boolean; criteriaStatus: Record<string, boolean | number> } {
+  record(
+    turn: number,
+    state: DriverState,
+  ): {
+    completionPercent: number
+    complete: boolean
+    criteriaStatus: Record<string, boolean | number>
+  } {
     const criteriaStatus: Record<string, boolean | number> = {}
     let totalCredit = 0
 
@@ -31,9 +42,8 @@ export class ConvergenceTracker {
       }
     }
 
-    const completionPercent = this.criteria.length > 0
-      ? (totalCredit / this.criteria.length) * 100
-      : 100
+    const completionPercent =
+      this.criteria.length > 0 ? (totalCredit / this.criteria.length) * 100 : 100
 
     this.history.push({ turn, completionPercent, criteriaStatus })
 
@@ -46,7 +56,7 @@ export class ConvergenceTracker {
 
   /** Get convergence curve */
   getCurve(): number[] {
-    return this.history.map(h => h.completionPercent)
+    return this.history.map((h) => h.completionPercent)
   }
 
   /** Get full history with per-criterion status */
@@ -56,7 +66,7 @@ export class ConvergenceTracker {
 
   /** Find the turn where completion first reached 100% (or null) */
   getTurnToCompletion(): number | null {
-    const entry = this.history.find(h => h.completionPercent === 100)
+    const entry = this.history.find((h) => h.completionPercent === 100)
     return entry?.turn ?? null
   }
 }

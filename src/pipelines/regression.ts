@@ -7,10 +7,10 @@
  * release=A and release=B, did any metric regress?"
  */
 
-import { compareToBaseline, type BaselineOptions, type BaselineReport } from '../baseline'
-import type { RunFilter, TraceStore } from '../trace/store'
-import type { Run } from '../trace/schema'
+import { type BaselineOptions, type BaselineReport, compareToBaseline } from '../baseline'
 import { aggregateLlm, llmSpans, runFailureClass } from '../trace/query'
+import type { Run } from '../trace/schema'
+import type { RunFilter, TraceStore } from '../trace/store'
 
 export interface RegressionSpec {
   metric: string

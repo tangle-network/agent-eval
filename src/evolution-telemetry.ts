@@ -231,7 +231,10 @@ export class LineageRecorder<P = unknown> {
     })
   }
 
-  async upsertVariant(variant: EvolvableVariant<P>, opts: { omitPayload?: boolean } = {}): Promise<void> {
+  async upsertVariant(
+    variant: EvolvableVariant<P>,
+    opts: { omitPayload?: boolean } = {},
+  ): Promise<void> {
     await this.upsert({
       id: variant.id,
       parentId: variant.parentId ?? null,
@@ -347,7 +350,7 @@ export class CostLedger {
           }
           const v = loaded[k]
           if (typeof v === 'number' && Number.isFinite(v)) {
-            (this.totals as unknown as Record<string, number>)[k] = v
+            ;(this.totals as unknown as Record<string, number>)[k] = v
           }
         }
       } catch {
@@ -358,7 +361,9 @@ export class CostLedger {
     }
   }
 
-  private genBucket(generation: number | undefined): Omit<CostLedgerGeneration, 'generation'> | null {
+  private genBucket(
+    generation: number | undefined,
+  ): Omit<CostLedgerGeneration, 'generation'> | null {
     if (generation === undefined) return null
     const key = String(generation)
     if (!this.totals.byGeneration[key]) {

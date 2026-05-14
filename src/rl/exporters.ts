@@ -191,10 +191,7 @@ export interface SftExportRow {
  * pass `include` to filter (e.g., keep only `score >= 0.8` for
  * rejection-sampling SFT).
  */
-export async function toSftRows(
-  runs: RunRecord[],
-  lookups: SftLookups,
-): Promise<SftExportRow[]> {
+export async function toSftRows(runs: RunRecord[], lookups: SftLookups): Promise<SftExportRow[]> {
   const include = lookups.include ?? (() => true)
   const rows: SftExportRow[] = []
   for (const r of runs) {
@@ -269,7 +266,9 @@ export async function toPrmRows(
       prefixStepText.push(await Promise.resolve(lookups.stepTextOf(t.prefixRunId, spanId)))
     }
     const chosenStep = await Promise.resolve(lookups.stepTextOf(t.prefixRunId, t.chosenSpanId))
-    const rejectedStep = await Promise.resolve(lookups.stepTextOf(t.rejectedRunId, t.rejectedSpanId))
+    const rejectedStep = await Promise.resolve(
+      lookups.stepTextOf(t.rejectedRunId, t.rejectedSpanId),
+    )
     rows.push({
       prompt,
       prefixSpanIds,

@@ -68,7 +68,9 @@ export interface HypothesisResult {
    *  magnitude ≥ minEffect AND p < alpha. */
   confirmed: boolean
   /** Enumerated reasons the hypothesis was rejected (each a machine-tag). */
-  rejectionReasons: Array<'wrong_direction' | 'effect_too_small' | 'not_significant' | 'undersampled'>
+  rejectionReasons: Array<
+    'wrong_direction' | 'effect_too_small' | 'not_significant' | 'undersampled'
+  >
   notes?: string
 }
 
@@ -162,8 +164,7 @@ export async function evaluateHypothesis(
     throw new Error('evaluateHypothesis: manifest content hash mismatch (tampered)')
   }
   const reasons: HypothesisResult['rejectionReasons'] = []
-  const directionOk =
-    manifest.direction === 'increase' ? observed.effect > 0 : observed.effect < 0
+  const directionOk = manifest.direction === 'increase' ? observed.effect > 0 : observed.effect < 0
   if (!directionOk) reasons.push('wrong_direction')
   if (Math.abs(observed.effect) < manifest.minEffect) reasons.push('effect_too_small')
   if (observed.pValue >= manifest.alpha) reasons.push('not_significant')

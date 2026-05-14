@@ -31,12 +31,12 @@ import type { LayerResult, VerificationReport } from '../multi-layer-verifier'
 import type { RunRecord } from '../run-record'
 
 export type VerifiableRewardSource =
-  | 'compile'      // typecheck / build / lint passed
-  | 'test'         // unit / integration test pass-rate
-  | 'schema'       // structured output validates
-  | 'sandbox'      // sandbox exec exit code
-  | 'judge'        // LLM judge — probabilistic, included for completeness
-  | 'composite'    // weighted blend across multiple of the above
+  | 'compile' // typecheck / build / lint passed
+  | 'test' // unit / integration test pass-rate
+  | 'schema' // structured output validates
+  | 'sandbox' // sandbox exec exit code
+  | 'judge' // LLM judge — probabilistic, included for completeness
+  | 'composite' // weighted blend across multiple of the above
 
 export interface VerifiableReward {
   /** Scalar in [0, 1]. The RL training signal. */
@@ -108,7 +108,13 @@ const DEFAULT_DETERMINISTIC_LAYERS = new Set([
 const DEFAULT_SOURCE_FOR = (name: string): VerifiableRewardSource => {
   const lower = name.toLowerCase()
   if (lower.includes('test')) return 'test'
-  if (lower.includes('compile') || lower.includes('build') || lower.includes('typecheck') || lower.includes('lint')) return 'compile'
+  if (
+    lower.includes('compile') ||
+    lower.includes('build') ||
+    lower.includes('typecheck') ||
+    lower.includes('lint')
+  )
+    return 'compile'
   if (lower.includes('schema')) return 'schema'
   if (lower.includes('sandbox')) return 'sandbox'
   if (lower.includes('judge') || lower.includes('semantic')) return 'judge'
@@ -132,8 +138,8 @@ export function extractVerifiableReward(
   const fallbackToJudge = opts.fallbackToJudge ?? true
   const judgeFloor = opts.judgeConfidenceFloor ?? 0.7
 
-  const deterministic = report.layers.filter((l) =>
-    deterministicSet.has(l.layer) && typeof l.score === 'number' && Number.isFinite(l.score),
+  const deterministic = report.layers.filter(
+    (l) => deterministicSet.has(l.layer) && typeof l.score === 'number' && Number.isFinite(l.score),
   )
 
   if (deterministic.length === 1) {
@@ -171,9 +177,11 @@ export function extractVerifiableReward(
 
   if (!fallbackToJudge) return null
 
-  const judge = report.layers.find((l) =>
-    typeof l.score === 'number' && Number.isFinite(l.score) && sourceFor(l.layer) === 'judge',
-  ) ?? report.layers.find((l) => typeof l.score === 'number' && Number.isFinite(l.score))
+  const judge =
+    report.layers.find(
+      (l) =>
+        typeof l.score === 'number' && Number.isFinite(l.score) && sourceFor(l.layer) === 'judge',
+    ) ?? report.layers.find((l) => typeof l.score === 'number' && Number.isFinite(l.score))
 
   if (!judge) return null
 
@@ -213,7 +221,12 @@ export function extractVerifiableRewardsFromRecords(
     // Recover per-layer scores from outcome.raw['layer.<name>']
     const layerScores: Array<{ name: string; score: number }> = []
     for (const [k, v] of Object.entries(run.outcome.raw)) {
-      if (k.startsWith('layer.') && !k.includes('.', 6) && typeof v === 'number' && Number.isFinite(v)) {
+      if (
+        k.startsWith('layer.') &&
+        !k.includes('.', 6) &&
+        typeof v === 'number' &&
+        Number.isFinite(v)
+      ) {
         layerScores.push({ name: k.slice('layer.'.length), score: v })
       }
     }
@@ -234,7 +247,9 @@ export function extractVerifiableRewardsFromRecords(
     }
     if (det.length > 1) {
       const value = det.reduce((s, l) => s + l.score, 0) / det.length
-      const breakdown: Record<string, number> = Object.fromEntries(det.map((l) => [l.name, l.score]))
+      const breakdown: Record<string, number> = Object.fromEntries(
+        det.map((l) => [l.name, l.score]),
+      )
       return {
         runId: run.runId,
         reward: {

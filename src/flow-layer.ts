@@ -185,7 +185,11 @@ export function flowLayer<Env extends FlowLayerEnv = FlowLayerEnv>(
           }
         }
       } finally {
-        try { await runner.close() } catch { /* best effort */ }
+        try {
+          await runner.close()
+        } catch {
+          /* best effort */
+        }
       }
 
       const totalSteps = spec.steps.length

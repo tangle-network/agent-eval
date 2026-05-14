@@ -9,8 +9,8 @@
 
 import type { Run } from '../trace/schema'
 import type { TraceStore } from '../trace/store'
-import type { OutcomeStore, DeploymentOutcome } from './outcome-store'
 import type { EvalMetricSpec } from './correlation-study'
+import type { DeploymentOutcome, OutcomeStore } from './outcome-store'
 
 export interface CalibrationBin {
   lower: number
@@ -52,7 +52,9 @@ export async function calibrationCurve(
   const outcomes = await outcomeStore.list()
   const byRun = new Map<string, DeploymentOutcome[]>()
   for (const o of outcomes) {
-    const arr = byRun.get(o.runId) ?? []; arr.push(o); byRun.set(o.runId, arr)
+    const arr = byRun.get(o.runId) ?? []
+    arr.push(o)
+    byRun.set(o.runId, arr)
   }
 
   const extract = evalMetric.extract ?? defaultExtract(evalMetric.id)
@@ -62,7 +64,7 @@ export async function calibrationCurve(
     if (!os?.length) continue
     const x = await extract(run, traceStore)
     if (x === null || !Number.isFinite(x)) continue
-    const latest = [...os].sort((a, b) => b.capturedAt - a.capturedAt)[0]
+    const latest = [...os].sort((a, b) => b.capturedAt - a.capturedAt)[0]!
     const y = latest.metrics[outcomeMetric]
     if (typeof y !== 'number' || !Number.isFinite(y)) continue
     pairs.push({ x, y })
@@ -103,7 +105,11 @@ export async function calibrationCurve(
   return { evalMetric: evalMetric.id, outcomeMetric, n: pairs.length, bins, ece, maxGap }
 }
 
-function toBin(chunk: Array<{ x: number; y: number }>, lower?: number, upper?: number): CalibrationBin {
+function toBin(
+  chunk: Array<{ x: number; y: number }>,
+  lower?: number,
+  upper?: number,
+): CalibrationBin {
   const xs = chunk.map((c) => c.x)
   const ys = chunk.map((c) => c.y)
   const evalMean = mean(xs)
@@ -118,8 +124,11 @@ function toBin(chunk: Array<{ x: number; y: number }>, lower?: number, upper?: n
   }
 }
 
-function mean(xs: number[]): number { return xs.reduce((a, b) => a + b, 0) / xs.length }
+function mean(xs: number[]): number {
+  return xs.reduce((a, b) => a + b, 0) / xs.length
+}
 
 function defaultExtract(metric: string): (run: Run, store: TraceStore) => Promise<number | null> {
-  return async (run) => run.outcome?.score ?? (metric === 'pass' ? (run.outcome?.pass === true ? 1 : 0) : null)
+  return async (run) =>
+    run.outcome?.score ?? (metric === 'pass' ? (run.outcome?.pass === true ? 1 : 0) : null)
 }

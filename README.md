@@ -1,32 +1,39 @@
 # @tangle-network/agent-eval
 
-Evaluation infrastructure for agent products.
-
-Use it to wrap the real workflow your users run, record what happened, verify
-the result, turn feedback into replay data, compare variants, and ship only
-when the evidence improves.
+**Substrate for self-improving agents.** Trace what runs, verify the result,
+turn outcomes into preferences and rewards, mutate prompts and policies under
+anytime-valid evidence, and ship only when the improvement is decisive.
 
 ```txt
-product task
-  -> observe state
-  -> validate with deterministic gates first
-  -> act through the real product adapter
-  -> trace + feedback trajectory
-  -> replay / optimize / release gate
+real product task
+  -> observe / act (your runtime)
+  -> trace + verifier pipeline (capture integrity)
+  -> RunRecord (canonical eval artifact)
+       -> judge calibration · paired stats · sequential α
+       -> preferences · verifiable rewards · process rewards
+       -> GEPA / reflective mutation · auto-research · active curriculum
+       -> release gate · replay · contamination probe · tournament rating
+  -> next iteration
 ```
 
-`agent-eval` does not own product state, credentials, UI, storage, model
+`agent-eval` does **not** own product state, credentials, UI, storage, model
 routing, browser drivers, sandbox policy, or deployment. Products own those.
-This package owns eval contracts, loop mechanics, traces, statistics,
-optimization inputs, and release evidence.
+This package owns the loop that closes evaluation → preference → mutation →
+redeploy, with capture integrity and statistically rigorous evidence at every
+step.
+
+It ships as a TypeScript library (npm) with a generated Python client (PyPI),
+both speaking the same wire protocol. MIT, self-hostable, no SaaS dependency.
 
 ## Install
 
 ```sh
 pnpm add @tangle-network/agent-eval
+# or, from Python:
+pip install agent-eval-rpc
 ```
 
-## Quick Start
+## Quick Start — the control loop
 
 ```ts
 import {
@@ -78,68 +85,102 @@ const result = await runAgentControlLoop({
 await product.storeEvalResult(task.id, result)
 ```
 
-That loop should be the same shape in production, replay, benchmark, and
-optimization. Swap dependencies behind `observe()` and `act()`, not the eval
-contract itself.
+Same loop shape in production, replay, benchmark, and optimization. Swap the
+dependencies behind `observe()` and `act()`, never the eval contract.
+
+## Self-improvement loop
+
+Eval doesn't end at "pass/fail." Outcomes become training signal, mutation
+proposals, and curriculum updates — all from the same `RunRecord` produced by
+the control loop.
+
+```ts
+import { runEvalCampaign } from '@tangle-network/agent-eval'
+import {
+  extractPreferences,
+  extractVerifiableReward,
+  filterDeterministicallyRewarded,
+  offPolicyEstimateAll,
+  analyzeOptimizationResult,
+} from '@tangle-network/agent-eval/rl'
+
+// 1. Run a matrix of variants × scenarios with capture integrity by construction.
+const campaign = await runEvalCampaign({ variants, scenarios, run })
+
+// 2. Convert outcomes into RL signal.
+const rewards = extractVerifiableReward(campaign.runs)          // compile/test/schema
+const prefs   = extractPreferences(campaign.runs)               // (chosen, rejected) triples
+const clean   = filterDeterministicallyRewarded(rewards)        // judge-noise free
+
+// 3. Estimate a candidate policy's value without re-running.
+const ope = offPolicyEstimateAll(campaign.runs, candidatePolicy)  // IPS + SNIPS + DR
+
+// 4. Or close the loop end-to-end: score → reflect → mutate → re-run.
+const next = await analyzeOptimizationResult(campaign, { researcher })
+```
+
+| Step | Primitive | Subpath |
+| --- | --- | --- |
+| Eval matrix with integrity | `runEvalCampaign` | `/` |
+| Deterministic re-judge / audit | `ReplayCache`, `createReplayFetch` | `/` |
+| Anytime-valid α across rolling looks | `pairedEvalueSequence` | `/reporting` |
+| Judge quality vs gold | `calibrateJudge` (κ, Pearson, MAE, bias probes) | `/` |
+| (chosen, rejected) for DPO/KTO/PPO | `extractPreferences` | `/rl` |
+| Verifiable reward signal | `extractVerifiableReward` | `/rl` |
+| Step-level / PRM training data | `extractStepRewards`, `prmTrainingPairs` | `/rl` |
+| Estimate policy value off-policy | `offPolicyEstimateAll` (IPS + SNIPS + DR) | `/rl` |
+| GEPA / reflective prompt mutation | `buildReflectionPrompt`, `parseReflectionResponse`, Ax-GEPA `SteeringOptimizer` | `/` `/optimization` |
+| Auto-research (read runs → propose) | `analyzeOptimizationResult`, `PredictiveValidityResearcher` | `/rl` |
+| Active curriculum (variance / Thompson) | `allocateCurriculum` | `/rl` |
+| Tournament ratings (Bradley-Terry + Elo) | `fitBradleyTerry`, `applyEloUpdate` | `/rl` |
+| Adversarial scenario search | `adversarialScenarioSearch` | `/rl` |
+| Contamination probe (held-out perturb) | `runContaminationProbe` | `/rl` |
+| Reward hacking signatures | `detectRewardHacking` | `/rl` |
+| Compute curves (best-of-N, self-consist, Pareto) | `runComputeCurve`, `bestOfN`, `selfConsistency`, `paretoFrontier` | `/rl` |
+| Knowledge gap separated from reasoning gap | `scoreKnowledgeReadiness` | `/` |
+| Release gate (paired evidence + holdouts) | `evaluateReleaseConfidence`, `HeldOutGate` | `/reporting` |
+| Launch report (decision-grade) | `renderReleaseReport`, `researchReport` | `/reporting` |
 
 ## Import Paths
 
-The root export remains available, but new code should prefer focused subpaths:
-
-```ts
-import { runAgentControlLoop } from '@tangle-network/agent-eval/control'
-import { runMultiShotOptimization } from '@tangle-network/agent-eval/optimization'
-import { TraceEmitter } from '@tangle-network/agent-eval/traces'
-import { renderReleaseReport } from '@tangle-network/agent-eval/reporting'
-```
-
 | Subpath | Use for |
 | --- | --- |
-| `@tangle-network/agent-eval/control` | `observe -> validate -> decide -> act`, action policy, propose/review loops |
+| `@tangle-network/agent-eval/control` | `observe → validate → decide → act`, action policy, propose/review loops |
 | `@tangle-network/agent-eval/traces` | trace stores, emitters, TraceAnalyst, replay |
-| `@tangle-network/agent-eval/optimization` | feedback trajectories, multi-shot optimization, prompt evolution, EvalCampaign |
-| `@tangle-network/agent-eval/reporting` | release confidence, paired stats, sequential e-values, report/table/chart specs, predictive validity |
-| `@tangle-network/agent-eval/rl` | RL bridge: adapters, verifiable rewards, preferences, OPE, PRM, contamination, tournaments, adversarial, compute curves |
-| `@tangle-network/agent-eval/wire` | HTTP/RPC judge server and schemas |
+| `@tangle-network/agent-eval/optimization` | feedback trajectories, multi-shot, prompt evolution, GEPA, EvalCampaign |
+| `@tangle-network/agent-eval/reporting` | release confidence, paired stats, sequential e-values, launch reports |
+| `@tangle-network/agent-eval/rl` | adapters, verifiable rewards, preferences, OPE, PRM, contamination, tournaments, adversarial, compute curves, auto-research |
+| `@tangle-network/agent-eval/wire` | HTTP/RPC server + schemas (same protocol the Python client speaks) |
 | `@tangle-network/agent-eval/benchmarks` | benchmark adapter contracts and reference wrappers |
 
-## Core Pieces
+The root export remains available for convenience; new code should prefer
+focused subpaths. Anything under `/rl` should be imported from `/rl` — root
+re-export is retained only for backward compatibility and will be narrowed in
+0.25.
 
-| Need | Use |
+## API stability
+
+Public exports are tagged with JSDoc stability markers so consumers can see
+status at the call site (IDE hover, language server, declaration files).
+
+| Tag | Meaning |
 | --- | --- |
-| Keep an agent working until objective state passes | `runAgentControlLoop` |
-| Turn user/reviewer feedback into replay data | `FeedbackTrajectory` |
-| Compare prompt/tool/retrieval policies over full trajectories | `runMultiShotOptimization` |
-| Gate releases with paired evidence and holdouts | `evaluateReleaseConfidence`, `HeldOutGate` |
-| Explain regressions across trace corpora | `TraceAnalyst` / `analyzeTraces` |
-| Report a launch decision | `renderReleaseReport`, `researchReport`, `summaryTable`, `paretoChart`, `gainHistogram` |
-| Capture every provider HTTP request / response for forensics | `RawProviderSink`, `LlmClientOptions.rawSink` |
-| Fail loud if an eval would silently use the wrong route | `assertLlmRoute` |
-| Assert at run-end that the artifact is complete | `assertRunCaptured`, `throwIfRunIncomplete` |
-| Auto-execute the trace analyst on every run | `traceAnalystOnRunComplete` + `TraceEmitterOptions.onRunComplete` |
-| Run a matrix of variants × scenarios × seeds with capture integrity by construction | `runEvalCampaign` |
-| Re-judge / determinism-audit a past campaign for free | `ReplayCache`, `createReplayFetch` |
-| Ship-when-decisive with anytime-valid α across rolling looks | `pairedEvalueSequence`, `evaluateInterimReleaseConfidence` |
-| Tell load-bearing rubrics from decorative ones using deployment outcomes | `rubricPredictiveValidity` |
-| Bridge legacy optimization output to canonical `RunRecord[]` | `trialsToRunRecords`, `verificationReportToRunRecord` |
-| Extract a clean reward signal for RL training (compile/test/schema vs judge) | `extractVerifiableReward`, `filterDeterministicallyRewarded` |
-| Produce DPO / PPO / KTO `(chosen, rejected)` triples | `extractPreferences` |
-| Estimate a new policy's value on old trajectories without re-running | `offPolicyEstimateAll` (IPS + SNIPS + DR) |
-| Step-level credit assignment / PRM training data | `extractStepRewards`, `prmTrainingPairs` |
-| Detect benchmark contamination via held-out perturbations | `runContaminationProbe` |
-| Pairwise tournament ratings for many-candidate sweeps | `fitBradleyTerry`, `applyEloUpdate` |
-| Active search for inputs the policy fails on | `adversarialScenarioSearch` |
-| Characterise a candidate across compute budgets | `runComputeCurve`, `bestOfN`, `selfConsistency`, `paretoFrontier` |
-| Model missing context separately from bad reasoning | `KnowledgeRequirement`, `KnowledgeBundle` |
+| `@stable` | API frozen at this major. Breaking changes require a major bump. |
+| `@experimental` | Interface may evolve before becoming `@stable`. Pin the patch version if you depend on it. |
+| `@internal` | Not part of the public contract. Use the documented subpath instead. |
 
-### Capture integrity (0.21+)
+The `/rl` subpath is the most active surface. See
+[`src/rl/index.ts`](./src/rl/index.ts) for the current stable/experimental
+breakdown.
+
+## Capture integrity (0.21+)
 
 Launch-grade benchmark runs need four things that are easy to forget in glue
 code: (1) raw HTTP capture alongside the structured spans so a reviewer can
 verify which route answered, (2) a preflight assertion that the configured
 client points at the intended provider, (3) a run-end assertion that the
 expected events were actually written, and (4) auto-execution of the trace
-analyst as part of the run lifecycle. The wiring fits in a few lines:
+analyst as part of the run lifecycle.
 
 ```ts
 import {
@@ -168,28 +209,33 @@ Directives, rationale, and shipped-bug context are in
 
 ## Examples
 
-Runnable examples live in
-[`examples/`](https://github.com/tangle-network/agent-eval/tree/main/examples).
+Each example has its own README with what it demonstrates, expected output,
+and runtime. See [`examples/`](./examples/).
 
-- [`examples/multi-shot-optimization`](https://github.com/tangle-network/agent-eval/tree/main/examples/multi-shot-optimization):
+- [`examples/multi-shot-optimization`](./examples/multi-shot-optimization/README.md):
   optimize full trajectories with held-out promotion.
-- [`examples/same-sandbox-harness`](https://github.com/tangle-network/agent-eval/tree/main/examples/same-sandbox-harness):
+- [`examples/same-sandbox-harness`](./examples/same-sandbox-harness/README.md):
   run setup/build/test and evidence checks in one workspace.
-- [`examples/benchmarks`](https://github.com/tangle-network/agent-eval/tree/main/examples/benchmarks):
+- [`examples/benchmarks`](./examples/benchmarks/README.md):
   benchmark adapter shape and reference wrappers.
+- [`examples/auto-research-with-agent-builder`](./examples/auto-research-with-agent-builder/README.md):
+  closed loop — score, reflect, mutate, re-score, repeat.
+- [`examples/fine-tune-with-prime-rl`](./examples/fine-tune-with-prime-rl/README.md):
+  RunRecord → preferences → trainer (prime-rl) → next campaign.
 
 ## Docs
 
 Read in this order:
 
-1. [Product Eval Adoption](./docs/product-eval-adoption.md)
-2. [Control Runtime](./docs/control-runtime.md)
-3. [Feedback Trajectories](./docs/feedback-trajectories.md)
-4. [Multi-Shot Optimization](./docs/multi-shot-optimization.md)
-5. [Trace Analysis](./docs/trace-analysis.md)
-6. [Knowledge Readiness](./docs/knowledge-readiness.md)
-7. [Integration Launch Gates](./docs/integration-launch-gates.md)
-8. [Wire Protocol](./docs/wire-protocol.md)
+1. [Concepts](./docs/concepts.md) — mental model, 5 min
+2. [Product Eval Adoption](./docs/product-eval-adoption.md)
+3. [Control Runtime](./docs/control-runtime.md)
+4. [Feedback Trajectories](./docs/feedback-trajectories.md)
+5. [Multi-Shot Optimization](./docs/multi-shot-optimization.md)
+6. [Trace Analysis](./docs/trace-analysis.md)
+7. [Knowledge Readiness](./docs/knowledge-readiness.md)
+8. [Integration Launch Gates](./docs/integration-launch-gates.md)
+9. [Wire Protocol](./docs/wire-protocol.md) — required for non-TypeScript consumers
 
 ## CLI / Wire Protocol
 
@@ -198,12 +244,21 @@ npm i -g @tangle-network/agent-eval
 agent-eval serve --port 5005
 ```
 
-The Python client lives in `clients/python`:
+Python:
 
 ```sh
-cd clients/python
-pip install -e .
+pip install agent-eval-rpc
 ```
+
+```py
+from agent_eval_rpc import Client
+client = Client()  # auto-detects HTTP server, falls back to subprocess
+score = await client.judge(content=output, rubric_name="anti-slop")
+```
+
+TypeScript is the source of truth. Python is a thin transport client over the
+generated OpenAPI schema. Schema drift is enforced impossible at release time
+(version-locked CI).
 
 ## Development
 
@@ -211,15 +266,22 @@ pip install -e .
 pnpm install
 pnpm typecheck
 pnpm test
-pnpm build
-pnpm openapi
+pnpm lint        # biome
+pnpm build       # tsup + openapi.json
 ```
 
 ## Related Packages
 
-- `@tangle-network/agent-runtime`: production session/runtime layer.
-- `@tangle-network/agent-knowledge`: source-grounded knowledge bases and readiness.
-- `@tangle-network/agent-integrations`: connection, grant, capability, and integration invocation contracts.
+- [`@tangle-network/agent-runtime`](https://www.npmjs.com/package/@tangle-network/agent-runtime):
+  production session/runtime layer.
+- [`@tangle-network/agent-knowledge`](https://www.npmjs.com/package/@tangle-network/agent-knowledge):
+  source-grounded knowledge bases and readiness.
+- [`@tangle-network/agent-integrations`](https://www.npmjs.com/package/@tangle-network/agent-integrations):
+  connection, grant, capability, and integration invocation contracts.
+
+Together: `agent-runtime` is where the agent runs; `agent-knowledge` is what
+it knows; `agent-integrations` is what it can do; `agent-eval` is how it gets
+better.
 
 ## License
 

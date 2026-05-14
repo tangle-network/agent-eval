@@ -1,9 +1,9 @@
-import { describe, it, expect, vi } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import {
-  MultiLayerVerifier,
   gradeSemanticStatus,
   type Layer,
   type LayerResult,
+  MultiLayerVerifier,
 } from './multi-layer-verifier'
 
 function passLayer(name: string, score = 1, extras: Partial<Layer> = {}): Layer {
@@ -36,9 +36,9 @@ function failLayer(name: string, score = 0, extras: Partial<Layer> = {}): Layer 
 
 describe('MultiLayerVerifier — construction', () => {
   it('rejects duplicate layer names', () => {
-    expect(
-      () => new MultiLayerVerifier([passLayer('install'), passLayer('install')]),
-    ).toThrow(/duplicate/)
+    expect(() => new MultiLayerVerifier([passLayer('install'), passLayer('install')])).toThrow(
+      /duplicate/,
+    )
   })
 
   it('rejects unknown dependsOn', () => {

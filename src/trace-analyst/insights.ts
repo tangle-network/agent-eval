@@ -130,7 +130,10 @@ export function domainEvidencePattern(keywords: string[]): RegExp {
 }
 
 export function describeTraceInsightScope(suite: TraceInsightSuite): string {
-  const taskLabel = suite.tasks.length === 1 ? '1 implementation task' : `${suite.tasks.length} implementation tasks`
+  const taskLabel =
+    suite.tasks.length === 1
+      ? '1 implementation task'
+      : `${suite.tasks.length} implementation tasks`
   const tags = new Map<string, number>()
   for (const task of suite.tasks) {
     for (const tag of task.tags ?? []) tags.set(tag, (tags.get(tag) ?? 0) + 1)
@@ -140,13 +143,19 @@ export function describeTraceInsightScope(suite: TraceInsightSuite): string {
     .slice(0, 8)
     .map(([tag]) => tag)
   if (topTags.length > 0) return `${taskLabel} across ${topTags.join(', ')}.`
-  const difficulties = [...new Set(suite.tasks.map((task) => task.difficulty).filter((value): value is string => Boolean(value)))].join(', ')
+  const difficulties = [
+    ...new Set(
+      suite.tasks.map((task) => task.difficulty).filter((value): value is string => Boolean(value)),
+    ),
+  ].join(', ')
   return `${taskLabel} across ${difficulties || 'the selected benchmark scope'}.`
 }
 
 export function planTraceInsightQuestions(input: TraceInsightPromptInput): TraceInsightQuestion[] {
   const hasFailures = input.suite.tasks.some((task) => task.outcome && task.outcome !== 'satisfied')
-  const hasMultipleShots = input.suite.tasks.some((task) => (task.gaps ?? []).some((gap) => /shot|review|retry|continue/i.test(gap)))
+  const hasMultipleShots = input.suite.tasks.some((task) =>
+    (task.gaps ?? []).some((gap) => /shot|review|retry|continue/i.test(gap)),
+  )
   const questions: TraceInsightQuestion[] = [
     {
       id: 'execution-path',
@@ -155,22 +164,26 @@ export function planTraceInsightQuestions(input: TraceInsightPromptInput): Trace
     },
     {
       id: 'research-grounding',
-      question: 'Did the worker inspect docs, source, examples, or package references before committing to an implementation path?',
+      question:
+        'Did the worker inspect docs, source, examples, or package references before committing to an implementation path?',
       why: 'Identifies whether failures came from weak retrieval, weak examples, or premature coding.',
     },
     {
       id: 'domain-proof',
-      question: 'Which tasks produced executable domain proof versus UI copy, placeholders, or inferred behavior?',
+      question:
+        'Which tasks produced executable domain proof versus UI copy, placeholders, or inferred behavior?',
       why: 'Keeps product-quality claims tied to concrete evidence.',
     },
     {
       id: 'root-cause',
-      question: 'For each major failure cluster, is the likely root cause prompt/scaffold, docs/examples, SDK/API ergonomics, evaluator, runtime, or model behavior?',
+      question:
+        'For each major failure cluster, is the likely root cause prompt/scaffold, docs/examples, SDK/API ergonomics, evaluator, runtime, or model behavior?',
       why: 'Turns trace observations into actionable ownership.',
     },
     {
       id: 'evidence-quality',
-      question: 'Which external-facing claims are directly supported by trace ids, span ids, verifier findings, reviewer notes, or generated code?',
+      question:
+        'Which external-facing claims are directly supported by trace ids, span ids, verifier findings, reviewer notes, or generated code?',
       why: 'Prevents unsupported customer-report conclusions.',
     },
   ]
@@ -184,7 +197,8 @@ export function planTraceInsightQuestions(input: TraceInsightPromptInput): Trace
   if (hasFailures) {
     questions.push({
       id: 'optimization-targets',
-      question: 'Which prompt, evaluator, scaffold, or workflow changes should feed the next GEPA/autoresearch optimization run?',
+      question:
+        'Which prompt, evaluator, scaffold, or workflow changes should feed the next GEPA/autoresearch optimization run?',
       why: 'Connects benchmark evidence to the optimization loop.',
     })
   }
@@ -205,7 +219,9 @@ export function buildTraceInsightContext(input: TraceInsightPromptInput): TraceI
 }
 
 export function scoreTraceInsightReadiness(context: TraceInsightContext): TraceInsightReadiness {
-  const failedTasks = context.suite.tasks.filter((task) => task.outcome && task.outcome !== 'satisfied')
+  const failedTasks = context.suite.tasks.filter(
+    (task) => task.outcome && task.outcome !== 'satisfied',
+  )
   const findingTaskIds = new Set(context.findings.flatMap((finding) => finding.taskIds))
   const failedTasksWithFindings = failedTasks.filter((task) => findingTaskIds.has(task.id))
   const tasksWithGaps = context.suite.tasks.filter((task) => (task.gaps ?? []).length > 0)
@@ -215,9 +231,10 @@ export function scoreTraceInsightReadiness(context: TraceInsightContext): TraceI
       label: 'Domain context inferred',
       passed: context.keywords.length > 0,
       severity: 'high',
-      detail: context.keywords.length > 0
-        ? `${context.keywords.length} domain terms inferred: ${context.keywords.slice(0, 8).join(', ')}`
-        : 'No domain terms were inferred from suite, tasks, prompts, tags, or gaps.',
+      detail:
+        context.keywords.length > 0
+          ? `${context.keywords.length} domain terms inferred: ${context.keywords.slice(0, 8).join(', ')}`
+          : 'No domain terms were inferred from suite, tasks, prompts, tags, or gaps.',
     },
     {
       id: 'panel-coverage',
@@ -229,11 +246,13 @@ export function scoreTraceInsightReadiness(context: TraceInsightContext): TraceI
     {
       id: 'failure-coverage',
       label: 'Failures mapped to findings',
-      passed: failedTasks.length === 0 || failedTasksWithFindings.length / failedTasks.length >= 0.5,
+      passed:
+        failedTasks.length === 0 || failedTasksWithFindings.length / failedTasks.length >= 0.5,
       severity: 'critical',
-      detail: failedTasks.length === 0
-        ? 'No failed tasks in suite.'
-        : `${failedTasksWithFindings.length}/${failedTasks.length} failed tasks appear in finding clusters.`,
+      detail:
+        failedTasks.length === 0
+          ? 'No failed tasks in suite.'
+          : `${failedTasksWithFindings.length}/${failedTasks.length} failed tasks appear in finding clusters.`,
     },
     {
       id: 'gap-evidence',
@@ -263,22 +282,26 @@ export function defaultTraceInsightPanel(): TraceInsightPanelRole[] {
     {
       id: 'trace-forensics',
       name: 'Trace Forensics',
-      responsibility: 'Reconstruct what the worker did in order, including research, edits, reviewer interventions, verifier feedback, and stop reason.',
+      responsibility:
+        'Reconstruct what the worker did in order, including research, edits, reviewer interventions, verifier feedback, and stop reason.',
     },
     {
       id: 'root-cause',
       name: 'Root Cause',
-      responsibility: 'Map failures to prompt/scaffold, docs/examples, SDK/API/product ergonomics, evaluator, runtime, or model behavior.',
+      responsibility:
+        'Map failures to prompt/scaffold, docs/examples, SDK/API/product ergonomics, evaluator, runtime, or model behavior.',
     },
     {
       id: 'optimization',
       name: 'Optimization',
-      responsibility: 'Identify prompt, reviewer, evaluator, scaffold, and GEPA/autoresearch changes that should be tested next.',
+      responsibility:
+        'Identify prompt, reviewer, evaluator, scaffold, and GEPA/autoresearch changes that should be tested next.',
     },
     {
       id: 'external-evidence',
       name: 'External Evidence',
-      responsibility: 'Separate customer-safe claims from internal harness findings and reject conclusions without task, trace, span, code, reviewer, or verifier evidence.',
+      responsibility:
+        'Separate customer-safe claims from internal harness findings and reject conclusions without task, trace, span, code, reviewer, or verifier evidence.',
     },
   ]
 }
@@ -316,28 +339,32 @@ Budget:
 - Return the final report as soon as the taxonomy and examples are supported.
 
 Run summary:
-${JSON.stringify({
-  suite: input.suite.name,
-  scope: context.scope,
-  inferredKeywords: context.keywords,
-  agent: context.agent,
-  totals: context.totals,
-  findings: context.findings.map((finding) => ({
-    kind: finding.kind,
-    severity: finding.severity,
-    taskCount: finding.taskIds.length,
-    proposedFixClass: finding.proposedFixClass,
-  })),
-  failures: input.suite.tasks
-    .filter((task) => task.outcome && task.outcome !== 'satisfied')
-    .map((task) => ({
-      task: task.id,
-      difficulty: task.difficulty,
-      outcome: task.outcome,
-      score: task.score,
-      gaps: task.gaps ?? [],
+${JSON.stringify(
+  {
+    suite: input.suite.name,
+    scope: context.scope,
+    inferredKeywords: context.keywords,
+    agent: context.agent,
+    totals: context.totals,
+    findings: context.findings.map((finding) => ({
+      kind: finding.kind,
+      severity: finding.severity,
+      taskCount: finding.taskIds.length,
+      proposedFixClass: finding.proposedFixClass,
     })),
-}, null, 2)}
+    failures: input.suite.tasks
+      .filter((task) => task.outcome && task.outcome !== 'satisfied')
+      .map((task) => ({
+        task: task.id,
+        difficulty: task.difficulty,
+        outcome: task.outcome,
+        score: task.score,
+        gaps: task.gaps ?? [],
+      })),
+  },
+  null,
+  2,
+)}
 
 Use the trace tools. Do not invent facts. Cite task ids. Separate customer-facing claims from internal harness/model findings.`
 }

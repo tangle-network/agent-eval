@@ -1,121 +1,51 @@
 // ── Core types ───────────────────────────────────────────────────────
-export type {
-  Scenario,
-  Turn,
-  ArtifactCheck,
-  JudgeConfig,
-  JudgeRubric,
-  RubricDimension,
-  ScenarioResult,
-  TurnResult,
-  ArtifactResult,
-  JudgeScore,
-  CollectedArtifacts,
-  BenchmarkReport,
-  RouteMap,
-  ProductClientConfig,
-  ScenarioFile,
-  CompletionCriterion,
-  FeedbackPattern,
-  PersonaConfig,
-  DriverState,
-  TurnMetrics,
-  DriverResult,
-  BenchmarkRunnerConfig,
-  JudgeInput,
-  JudgeFn,
-  TestResult,
-  CheckResult,
-  EvalResult,
-} from './types'
 
+export type { ActionExecutionPolicy, ActionPolicyDecision } from './action-policy'
+export { evaluateActionPolicy } from './action-policy'
+export { BenchmarkRunner } from './benchmark'
 // ── Client / driver / judges / executor / benchmark / registry / reporter ─
 export { ProductClient, runE2EWorkflow } from './client'
-export { runLiveProof } from './live-proof'
 export type {
-  LiveProofArtifact,
-  LiveProofConfig,
-  LiveProofContext,
-  LiveProofResult,
-} from './live-proof'
-export {
-  createDomainExpertJudge,
-  codeExecutionJudge,
-  coherenceJudge,
-  adversarialJudge,
-  createCustomJudge,
-  defaultJudges,
-} from './judges'
-export { executeScenario } from './executor'
-export type { ExecutorConfig } from './executor'
-export { BenchmarkRunner } from './benchmark'
-export { MetricsCollector, TokenCounter, estimateTokens, estimateCost, MODEL_PRICING } from './metrics'
-export { ScenarioRegistry } from './registry'
-export { AgentDriver } from './driver'
-export type { AgentDriverConfig } from './driver'
-export { formatBenchmarkReport, formatDriverReport, printDriverSummary } from './reporter'
-export {
-  runAgentControlLoop,
-  objectiveEval,
-  subjectiveEval,
-  allCriticalPassed,
-  stopOnNoProgress,
-  stopOnRepeatedAction,
-} from './control-runtime'
-export type {
-  ControlActionOutcome,
   ControlActionFailureMode,
+  ControlActionOutcome,
   ControlBudget,
   ControlContext,
   ControlDecision,
   ControlEvalResult,
   ControlRunResult,
-  ControlRuntimeError,
   ControlRuntimeConfig,
+  ControlRuntimeError,
   ControlSeverity,
   ControlStep,
   ControlStopPolicies,
   StopDecision,
 } from './control-runtime'
 export {
-  controlRunToRunRecord,
-  scoreFromEvals,
-} from './run-evidence'
-export type {
-  ControlRunToRunRecordOptions,
-  RunEvidenceMetadata,
-} from './run-evidence'
-export * from './knowledge'
+  allCriticalPassed,
+  objectiveEval,
+  runAgentControlLoop,
+  stopOnNoProgress,
+  stopOnRepeatedAction,
+  subjectiveEval,
+} from './control-runtime'
+export type { AgentDriverConfig } from './driver'
+export { AgentDriver } from './driver'
+export type { AgentEvalErrorCode } from './errors'
+// Error taxonomy — every error this package throws as part of its public
+// contract extends AgentEvalError. Pattern-match by `instanceof` or by the
+// stable string `code` on the base.
 export {
-  integrationAsi,
-  integrationGateEvals,
-  integrationInvokeFailedPayload,
-  integrationManifestResolvedPayload,
-  integrationManifestValidatedPayload,
-} from './integration-gates'
-export type {
-  IntegrationGateSurface,
-  IntegrationInvokeFailureInput,
-  IntegrationManifestGateInput,
-} from './integration-gates'
-export {
-  FileSystemFeedbackTrajectoryStore,
-  InMemoryFeedbackTrajectoryStore,
-  assignFeedbackSplit,
-  controlRunToFeedbackTrajectory,
-  createFeedbackTrajectory,
-  feedbackTrajectoriesToDatasetScenarios,
-  feedbackTrajectoriesToOptimizerRows,
-  feedbackTrajectoryToDatasetScenario,
-  feedbackTrajectoryToOptimizerRow,
-  parseFeedbackTrajectoriesJsonl,
-  replayFeedbackTrajectories,
-  replayFeedbackTrajectory,
-  renderPreferenceMemoryMarkdown,
-  serializeFeedbackTrajectoriesJsonl,
-  summarizePreferenceMemory,
-  withAssignedFeedbackSplit,
-} from './feedback-trajectory'
+  AgentEvalError,
+  CaptureIntegrityError,
+  ConfigError,
+  JudgeError,
+  NotFoundError,
+  ReplayError,
+  ValidationError,
+  VerificationError,
+} from './errors'
+export type { ExecutorConfig } from './executor'
+export { executeScenario } from './executor'
 export type {
   FeedbackArtifactType,
   FeedbackAttempt,
@@ -135,39 +65,115 @@ export type {
   PreferenceMemoryEntry,
   ProposedSideEffect,
 } from './feedback-trajectory'
-export { evaluateActionPolicy } from './action-policy'
-export type { ActionExecutionPolicy, ActionPolicyDecision } from './action-policy'
-
+export {
+  assignFeedbackSplit,
+  controlRunToFeedbackTrajectory,
+  createFeedbackTrajectory,
+  FileSystemFeedbackTrajectoryStore,
+  feedbackTrajectoriesToDatasetScenarios,
+  feedbackTrajectoriesToOptimizerRows,
+  feedbackTrajectoryToDatasetScenario,
+  feedbackTrajectoryToOptimizerRow,
+  InMemoryFeedbackTrajectoryStore,
+  parseFeedbackTrajectoriesJsonl,
+  renderPreferenceMemoryMarkdown,
+  replayFeedbackTrajectories,
+  replayFeedbackTrajectory,
+  serializeFeedbackTrajectoriesJsonl,
+  summarizePreferenceMemory,
+  withAssignedFeedbackSplit,
+} from './feedback-trajectory'
+export type {
+  IntegrationGateSurface,
+  IntegrationInvokeFailureInput,
+  IntegrationManifestGateInput,
+} from './integration-gates'
+export {
+  integrationAsi,
+  integrationGateEvals,
+  integrationInvokeFailedPayload,
+  integrationManifestResolvedPayload,
+  integrationManifestValidatedPayload,
+} from './integration-gates'
+export {
+  adversarialJudge,
+  codeExecutionJudge,
+  coherenceJudge,
+  createCustomJudge,
+  createDomainExpertJudge,
+  defaultJudges,
+} from './judges'
+export * from './knowledge'
+export type {
+  LiveProofArtifact,
+  LiveProofConfig,
+  LiveProofContext,
+  LiveProofResult,
+} from './live-proof'
+export { runLiveProof } from './live-proof'
+export {
+  estimateCost,
+  estimateTokens,
+  MetricsCollector,
+  MODEL_PRICING,
+  TokenCounter,
+} from './metrics'
+export { ScenarioRegistry } from './registry'
+export { formatBenchmarkReport, formatDriverReport, printDriverSummary } from './reporter'
+export type {
+  ControlRunToRunRecordOptions,
+  RunEvidenceMetadata,
+} from './run-evidence'
+export {
+  controlRunToRunRecord,
+  scoreFromEvals,
+} from './run-evidence'
 // ── Statistics ───────────────────────────────────────────────────────
 export {
-  normalizeScores,
-  weightedMean,
+  cohensD,
   confidenceInterval,
   interRaterReliability,
   mannWhitneyU,
+  normalizeScores,
   pairedTTest,
-  wilcoxonSignedRank,
-  cohensD,
   partialCredit,
+  weightedMean,
+  wilcoxonSignedRank,
 } from './statistics'
+export type {
+  ArtifactCheck,
+  ArtifactResult,
+  BenchmarkReport,
+  BenchmarkRunnerConfig,
+  CheckResult,
+  CollectedArtifacts,
+  CompletionCriterion,
+  DriverResult,
+  DriverState,
+  EvalResult,
+  FeedbackPattern,
+  JudgeConfig,
+  JudgeFn,
+  JudgeInput,
+  JudgeRubric,
+  JudgeScore,
+  PersonaConfig,
+  ProductClientConfig,
+  RouteMap,
+  RubricDimension,
+  Scenario,
+  ScenarioFile,
+  ScenarioResult,
+  TestResult,
+  Turn,
+  TurnMetrics,
+  TurnResult,
+} from './types'
 
 // ── 0.2 primitives ───────────────────────────────────────────────────
 
-export { ConvergenceTracker } from './convergence'
-
-export { PromptRegistry, hashContent } from './prompt-registry'
-export type { PromptHandle } from './prompt-registry'
-
-export { createAntiSlopJudge, analyzeAntiSlop } from './anti-slop'
 export type { AntiSlopConfig, AntiSlopIssue, AntiSlopReport, SlopCategory } from './anti-slop'
-
-export {
-  composeValidators,
-  regexMatch,
-  jsonHasKeys,
-  byteLengthRange,
-  containsAll,
-} from './artifact-validator'
+export { analyzeAntiSlop, createAntiSlopJudge } from './anti-slop'
 export type {
   Artifact as ArtifactCheckArtifact,
   ArtifactValidator,
@@ -175,53 +181,48 @@ export type {
   ValidationIssue,
   ValidationResult,
 } from './artifact-validator'
-
 export {
-  InMemoryWorkspaceInspector,
-  fileExists,
-  fileContains,
-  rowCount,
-  rowWhere,
-  runAssertions,
-} from './workspace-inspector'
+  byteLengthRange,
+  composeValidators,
+  containsAll,
+  jsonHasKeys,
+  regexMatch,
+} from './artifact-validator'
+export { ConvergenceTracker } from './convergence'
 export type {
-  WorkspaceInspector,
-  WorkspaceSnapshot,
-  WorkspaceAssertion,
-  WorkspaceAssertionResult,
-  InspectorContext,
-} from './workspace-inspector'
+  DualAgentBenchConfig,
+  DualAgentReport,
+  DualAgentRound,
+  DualAgentScenario,
+  DualAgentScenarioResult,
+} from './dual-agent-bench'
+export { DualAgentBench } from './dual-agent-bench'
+export type {
+  HostedJudgeConfig,
+  HostedJudgeDimension,
+  HostedJudgeRequest,
+  HostedJudgeResponse,
+  HostedRunCriticConfig,
+  HostedRunScoreRequest,
+  HostedRunScoreResponse,
+} from './eval-api'
+export type {
+  Experiment,
+  ExperimentStore,
+  Run as ExperimentRun,
+  RunConfig,
+  RunDiff,
+} from './experiment-tracker'
 
 export { ExperimentTracker, InMemoryExperimentStore } from './experiment-tracker'
-export type { Experiment, ExperimentStore, Run as ExperimentRun, RunConfig, RunDiff } from './experiment-tracker'
-export { FileSystemExperimentStore } from './experiment-tracker-fs'
-export type { FileSystemExperimentStoreOptions } from './experiment-tracker-fs'
-export { D1ExperimentStore } from './experiment-tracker-d1'
-export type { D1ExperimentStoreOptions, D1Like, D1PreparedStatementLike } from './experiment-tracker-d1'
-
-export { mergeSteeringBundle, renderSteeringText } from './steering'
-export type { SteeringBundle, SteeringDelta, SteeringRolePrompt } from './steering'
-export { aggregateRunScore, clamp01, DEFAULT_RUN_SCORE_WEIGHTS } from './run-score'
-export type { RunScore, RunScoreWeights } from './run-score'
-export { RunCritic } from './run-critic'
-export type { RunTrace, RunCriticOptions } from './run-critic'
-export { distillPlaybook, renderPlaybookMarkdown } from './playbook'
-export type { Playbook, PlaybookEntry } from './playbook'
-export { PairwiseSteeringOptimizer, AxGepaSteeringOptimizer } from './steering-optimizer'
 export type {
-  SteeringOptimizerBackend,
-  SteeringOptimizationRow,
-  SteeringOptimizationSelector,
-  SteeringOptimizationResult,
-  SteeringOptimizerConfig,
-  AxSteeringOptimizerConfig,
-} from './steering-optimizer'
-export {
-  DEFAULT_HARNESS_OBJECTIVES,
-  runHarnessExperiment,
-  selectHarnessVariant,
-  summarizeHarnessResults,
-} from './harness-optimizer'
+  D1ExperimentStoreOptions,
+  D1Like,
+  D1PreparedStatementLike,
+} from './experiment-tracker-d1'
+export { D1ExperimentStore } from './experiment-tracker-d1'
+export type { FileSystemExperimentStoreOptions } from './experiment-tracker-fs'
+export { FileSystemExperimentStore } from './experiment-tracker-fs'
 export type {
   HarnessAdapter,
   HarnessExperimentConfig,
@@ -237,64 +238,51 @@ export type {
   WorkflowTopology,
 } from './harness-optimizer'
 export {
-  JudgeRunner,
-  runJudgeFleet,
-  compilerJudge,
-  testJudge,
-  linterJudge,
-  securityJudge,
-} from './judge-runner'
+  DEFAULT_HARNESS_OBJECTIVES,
+  runHarnessExperiment,
+  selectHarnessVariant,
+  summarizeHarnessResults,
+} from './harness-optimizer'
 export type {
-  SandboxJudgeKind,
-  SandboxJudgeSpec,
-  SandboxJudgeResult,
   JudgeFleetOptions,
+  SandboxJudgeKind,
+  SandboxJudgeResult,
+  SandboxJudgeSpec,
 } from './judge-runner'
-export type {
-  HostedJudgeConfig,
-  HostedJudgeDimension,
-  HostedJudgeRequest,
-  HostedJudgeResponse,
-  HostedRunCriticConfig,
-  HostedRunScoreRequest,
-  HostedRunScoreResponse,
-} from './eval-api'
-
-export { DualAgentBench } from './dual-agent-bench'
-export type {
-  DualAgentBenchConfig,
-  DualAgentScenario,
-  DualAgentScenarioResult,
-  DualAgentReport,
-  DualAgentRound,
-} from './dual-agent-bench'
-
 export {
-  runProposeReview,
-  inMemoryReviewStore,
-  jsonlReviewStore,
-  createLlmReviewer,
-} from './propose-review'
-export {
-  controlFailureClassFromVerification,
-  runProposeReviewAsControlLoop,
-} from './propose-review-control'
+  compilerJudge,
+  JudgeRunner,
+  linterJudge,
+  runJudgeFleet,
+  securityJudge,
+  testJudge,
+} from './judge-runner'
+export type { Playbook, PlaybookEntry } from './playbook'
+export { distillPlaybook, renderPlaybookMarkdown } from './playbook'
+export type { PromptHandle } from './prompt-registry'
+export { hashContent, PromptRegistry } from './prompt-registry'
 export type {
-  Verification,
-  Review,
-  ReviewMemoryEntry,
-  ReviewMemoryStore,
-  ProposeInput,
-  ProposeOutput,
-  ReviewInput,
-  ProposeFn,
-  VerifyFn,
-  ReviewFn,
-  ProposeReviewConfig,
-  ProposeReviewShot,
-  ProposeReviewReport,
   LlmJsonCall,
   LlmReviewerConfig,
+  ProposeFn,
+  ProposeInput,
+  ProposeOutput,
+  ProposeReviewConfig,
+  ProposeReviewReport,
+  ProposeReviewShot,
+  Review,
+  ReviewFn,
+  ReviewInput,
+  ReviewMemoryEntry,
+  ReviewMemoryStore,
+  Verification,
+  VerifyFn,
+} from './propose-review'
+export {
+  createLlmReviewer,
+  inMemoryReviewStore,
+  jsonlReviewStore,
+  runProposeReview,
 } from './propose-review'
 export type {
   ProposeReviewControlAction,
@@ -302,103 +290,213 @@ export type {
   ProposeReviewControlResult,
   ProposeReviewControlState,
 } from './propose-review-control'
+export {
+  controlFailureClassFromVerification,
+  runProposeReviewAsControlLoop,
+} from './propose-review-control'
+export type { RunCriticOptions, RunTrace } from './run-critic'
+export { RunCritic } from './run-critic'
+export type { RunScore, RunScoreWeights } from './run-score'
+export { aggregateRunScore, clamp01, DEFAULT_RUN_SCORE_WEIGHTS } from './run-score'
+export type { SteeringBundle, SteeringDelta, SteeringRolePrompt } from './steering'
+export { mergeSteeringBundle, renderSteeringText } from './steering'
+export type {
+  AxSteeringOptimizerConfig,
+  SteeringOptimizationResult,
+  SteeringOptimizationRow,
+  SteeringOptimizationSelector,
+  SteeringOptimizerBackend,
+  SteeringOptimizerConfig,
+} from './steering-optimizer'
+export { AxGepaSteeringOptimizer, PairwiseSteeringOptimizer } from './steering-optimizer'
+export type {
+  InspectorContext,
+  WorkspaceAssertion,
+  WorkspaceAssertionResult,
+  WorkspaceInspector,
+  WorkspaceSnapshot,
+} from './workspace-inspector'
+export {
+  fileContains,
+  fileExists,
+  InMemoryWorkspaceInspector,
+  rowCount,
+  rowWhere,
+  runAssertions,
+} from './workspace-inspector'
 
 // ── 0.3 trace-first chassis ──────────────────────────────────────────
 
 export * from './trace'
 
+// `knowledge`, `governance`, and `trace` remain re-exported at root because
+// they're load-bearing for the capture-integrity story documented in the
+// README. Every other module is reachable only through its subpath
+// (`/rl`, `/pipelines`, `/meta-eval`, `/prm`, `/builder-eval`, `/traces`).
+
 // ── 0.3 producers ────────────────────────────────────────────────────
 
-export { SandboxHarness, SubprocessSandboxDriver, DockerSandboxDriver, composeParsers, vitestTestParser, pytestTestParser, jestTestParser } from './sandbox-harness'
-export type { HarnessConfig, SandboxDriver, SandboxResult, SandboxHarnessResult, SubprocessSandboxDriverOptions, TestOutputParser } from './sandbox-harness'
-
+export { BudgetBreachError, BudgetGuard } from './budget-guard'
+export type {
+  FailureClass,
+  FailureClassification,
+  FailureContext,
+  FailureRule,
+} from './failure-taxonomy'
+export {
+  classifyFailure,
+  DEFAULT_RULES as DEFAULT_FAILURE_RULES,
+  FAILURE_CLASSES,
+} from './failure-taxonomy'
+export type {
+  HarnessConfig,
+  SandboxDriver,
+  SandboxHarnessResult,
+  SandboxResult,
+  SubprocessSandboxDriverOptions,
+  TestOutputParser,
+} from './sandbox-harness'
+export {
+  composeParsers,
+  DockerSandboxDriver,
+  jestTestParser,
+  pytestTestParser,
+  SandboxHarness,
+  SubprocessSandboxDriver,
+  vitestTestParser,
+} from './sandbox-harness'
+export type {
+  TestGradedRunOptions,
+  TestGradedRunResult,
+  TestGradedScenario,
+} from './test-graded-scenario'
 export { runTestGradedScenario } from './test-graded-scenario'
-export type { TestGradedScenario, TestGradedRunOptions, TestGradedRunResult } from './test-graded-scenario'
-
-export { BudgetGuard, BudgetBreachError } from './budget-guard'
-
-export { classifyFailure, DEFAULT_RULES as DEFAULT_FAILURE_RULES, FAILURE_CLASSES } from './failure-taxonomy'
-export type { FailureClass, FailureClassification, FailureRule, FailureContext } from './failure-taxonomy'
-
-export { buildTrajectory } from './trajectory'
-export type { Trajectory, TrajectoryStep } from './trajectory'
-
+export type { ToolStats, ToolUseMetrics, ToolUseOptions } from './tool-use-metrics'
 export { computeToolUseMetrics } from './tool-use-metrics'
-export type { ToolUseMetrics, ToolStats, ToolUseOptions } from './tool-use-metrics'
+export type { Trajectory, TrajectoryStep } from './trajectory'
+export { buildTrajectory } from './trajectory'
 
-// ── 0.3 canned pipelines (views over the trace corpus) ───────────────
-
-export * from './pipelines'
+// ── 0.3 canned pipelines (views over the trace corpus) — subpath: /pipelines ─
 
 // ── 0.3 auxiliary statistical + decision modules ─────────────────────
 
-export { checkSlos, DEFAULT_AGENT_SLOS } from './slo'
-export type { Slo, SloCheckResult, SloReport, SloSeverity, SloComparator } from './slo'
-
-export { compareToBaseline, iqr, welchsTTest } from './baseline'
 export type { BaselineOptions, BaselineReport, MetricSamples, MetricVerdict } from './baseline'
-
-export {
-  evaluateOracles,
-  textInSnapshot,
-  urlContains,
-  jsonShape,
-  regexMatches,
-  notBlocked,
-} from './oracle'
-export type { Oracle, OracleObservation, OracleReport, OracleResult } from './oracle'
-
+export { compareToBaseline, iqr, welchsTTest } from './baseline'
+export type { CostEntry, CostSummary, ScenarioCost, TokenSpec } from './cost-tracker'
 export { CostTracker } from './cost-tracker'
-export type { CostEntry, ScenarioCost, CostSummary, TokenSpec } from './cost-tracker'
-
-export { dominates, paretoFrontier } from './pareto'
-export type { Direction, Objective, ParetoResult } from './pareto'
-
+export type { MuffledFinder, MuffledFinding, ScanOptions } from './muffled-gate-scanner'
 export {
-  scanForMuffledGates,
-  formatFindings,
   DEFAULT_FINDERS,
-  UNIVERSAL_FINDERS,
+  findAutoMatchNoExpectation,
+  findConstructorCwdDropped,
   findFallbackToPass,
   findLiteralTruePass,
-  findConstructorCwdDropped,
-  findAutoMatchNoExpectation,
   findSkipCountsAsPass,
+  formatFindings,
+  scanForMuffledGates,
+  UNIVERSAL_FINDERS,
 } from './muffled-gate-scanner'
-export type { MuffledFinding, MuffledFinder, ScanOptions } from './muffled-gate-scanner'
-
-export { analyzeSeries } from './series-convergence'
-export type { SeriesConvergenceOptions, SeriesConvergenceResult } from './series-convergence'
-
+export type { Oracle, OracleObservation, OracleReport, OracleResult } from './oracle'
 export {
-  scoreContinuity,
-  keyPreserved,
+  evaluateOracles,
+  jsonShape,
+  notBlocked,
+  regexMatches,
+  textInSnapshot,
+  urlContains,
+} from './oracle'
+export type { Direction, Objective, ParetoResult } from './pareto'
+export { dominates, paretoFrontier } from './pareto'
+export type { SeriesConvergenceOptions, SeriesConvergenceResult } from './series-convergence'
+export { analyzeSeries } from './series-convergence'
+export type { Slo, SloCheckResult, SloComparator, SloReport, SloSeverity } from './slo'
+export { checkSlos, DEFAULT_AGENT_SLOS } from './slo'
+export type {
+  ContinuityCheck,
+  ContinuityCheckResult,
+  ContinuityReport,
+  ContinuitySnapshotPair,
+} from './state-continuity'
+export {
   collectionPreserved,
+  keyPreserved,
+  scoreContinuity,
   statusAdvanced,
 } from './state-continuity'
-export type { ContinuityCheck, ContinuityCheckResult, ContinuityReport, ContinuitySnapshotPair } from './state-continuity'
 
 // ── 0.4 trust surface ────────────────────────────────────────────────
 
-export { Dataset, HoldoutLockedError, hashScenarios } from './dataset'
+export type { BehaviorAssertion, CallExpectation, Expectation, MatcherResult } from './behavior-dsl'
+export { expectAgent, runExpectations } from './behavior-dsl'
+export type { ContractMetric, ContractReport, ThresholdContract } from './ci-gate'
+export { evaluateContract, renderMarkdownReport } from './ci-gate'
+export type { CanaryLeak } from './contamination-guard'
+export {
+  canaryLeakView,
+  checkBehavioralCanary,
+  checkCanaries,
+  HoldoutAuditor,
+  runBehavioralCanaries,
+} from './contamination-guard'
 export type {
-  DatasetScenario,
-  DatasetProvenance,
-  DatasetManifest,
-  DatasetSplit,
   DatasetDifficulty,
+  DatasetManifest,
+  DatasetProvenance,
+  DatasetScenario,
+  DatasetSplit,
   SliceOptions,
 } from './dataset'
+export { Dataset, HoldoutLockedError, hashScenarios } from './dataset'
+export type {
+  CalibrationResult,
+  CandidateScore,
+  GoldenItem,
+  PositionalBiasResult,
+  SelfPreferenceResult,
+  VerbosityBiasResult,
+} from './judge-calibration'
 
 export {
-  checkCanaries,
-  checkBehavioralCanary,
-  runBehavioralCanaries,
-  canaryLeakView,
-  HoldoutAuditor,
-} from './contamination-guard'
-export type { CanaryLeak } from './contamination-guard'
-
+  calibrateJudge,
+  positionalBias,
+  selfPreference,
+  verbosityBias,
+} from './judge-calibration'
+export type {
+  JudgeReplayResult,
+  LangfuseEnvelope,
+  LangfuseGeneration,
+  LangfuseScore,
+} from './observability'
+export {
+  replayTraceThroughJudge,
+  toLangfuseEnvelope,
+  toPrometheusText,
+} from './observability'
+export type {
+  Mutator,
+  ParaphraseRobustnessScenarioInput,
+  ParaphraseRobustnessScenarioResult,
+  RobustnessResult,
+} from './paraphrase'
+export {
+  DEFAULT_MUTATORS,
+  lowercaseMutator,
+  paraphraseRobustness,
+  paraphraseRobustnessScenarios,
+  politenessPrefixMutator,
+  sentenceReorderMutator,
+  typoMutator,
+  whitespaceCollapseMutator,
+} from './paraphrase'
+export { benjaminiHochberg, bonferroni, requiredSampleSize } from './power-analysis'
+export type {
+  RedTeamCase,
+  RedTeamCategory,
+  RedTeamFinding,
+  RedTeamPayload,
+  RedTeamReport,
+} from './red-team'
 export {
   DEFAULT_RED_TEAM_CORPUS,
   redTeamDataset,
@@ -406,140 +504,77 @@ export {
   scoreRedTeamOutput,
   toolNamesForRun,
 } from './red-team'
-export type {
-  RedTeamCategory,
-  RedTeamPayload,
-  RedTeamCase,
-  RedTeamFinding,
-  RedTeamReport,
-} from './red-team'
+export type { ImageData, VisualDiffOptions, VisualDiffResult } from './visual-diff'
+export { pixelDeltaRatio, visualDiff } from './visual-diff'
 
-export { requiredSampleSize, bonferroni, benjaminiHochberg } from './power-analysis'
-
-export { expectAgent, runExpectations } from './behavior-dsl'
-export type { MatcherResult, Expectation, BehaviorAssertion, CallExpectation } from './behavior-dsl'
-
-export {
-  calibrateJudge,
-  positionalBias,
-  verbosityBias,
-  selfPreference,
-} from './judge-calibration'
-export type {
-  GoldenItem,
-  CandidateScore,
-  CalibrationResult,
-  PositionalBiasResult,
-  VerbosityBiasResult,
-  SelfPreferenceResult,
-} from './judge-calibration'
-
-export { evaluateContract, renderMarkdownReport } from './ci-gate'
-export type { ContractMetric, ThresholdContract, ContractReport } from './ci-gate'
-
-export {
-  toLangfuseEnvelope,
-  toPrometheusText,
-  replayTraceThroughJudge,
-} from './observability'
-export type { LangfuseGeneration, LangfuseScore, LangfuseEnvelope, JudgeReplayResult } from './observability'
-
-export {
-  paraphraseRobustness,
-  paraphraseRobustnessScenarios,
-  DEFAULT_MUTATORS,
-  lowercaseMutator,
-  sentenceReorderMutator,
-  typoMutator,
-  politenessPrefixMutator,
-  whitespaceCollapseMutator,
-} from './paraphrase'
-export type {
-  Mutator,
-  RobustnessResult,
-  ParaphraseRobustnessScenarioInput,
-  ParaphraseRobustnessScenarioResult,
-} from './paraphrase'
-
-export { visualDiff, pixelDeltaRatio } from './visual-diff'
-export type { ImageData, VisualDiffResult, VisualDiffOptions } from './visual-diff'
-
-// ── builder-of-builders eval ─────────────────────────────────────────
-
-export * from './builder-eval'
+// ── builder-of-builders eval — subpath: /builder-eval ───────────────────
 
 // ── 0.6 Tier 1 — meta-eval correlation, PRM, bisector ────────────────
 
-export * from './meta-eval'
-export * from './prm'
+export type { BisectOptions, BisectResult, BisectStep } from './bisector'
 export {
   bisect,
   commitBisect,
   promptBisect,
 } from './bisector'
-export type { BisectOptions, BisectResult, BisectStep } from './bisector'
+// meta-eval and prm are reachable through their subpaths: /meta-eval, /prm
 
 // ── 0.6 Tier 2 — counterfactual + cross-trace diff + pre-registration ─
 
-export { runCounterfactual, attributeCounterfactuals } from './counterfactual'
 export type {
-  CounterfactualMutation,
   CounterfactualContext,
+  CounterfactualMutation,
   CounterfactualResult,
   CounterfactualRunner,
 } from './counterfactual'
-
-export { crossTraceDiff } from './cross-trace-diff'
+export { attributeCounterfactuals, runCounterfactual } from './counterfactual'
 export type {
   AlignmentOp,
-  StepAttribution,
   CrossTraceDiff,
   CrossTraceDiffOptions,
+  StepAttribution,
 } from './cross-trace-diff'
-
-export {
-  signManifest,
-  verifyManifest,
-  evaluateHypothesis,
-  hashJson,
-  canonicalize,
-} from './pre-registration'
+export { crossTraceDiff } from './cross-trace-diff'
 export type {
   HypothesisManifest,
+  HypothesisResult,
   SignedManifest,
   SignedManifestAlgo,
-  HypothesisResult,
+} from './pre-registration'
+export {
+  canonicalize,
+  evaluateHypothesis,
+  hashJson,
+  signManifest,
+  verifyManifest,
 } from './pre-registration'
 
 // ── 0.6 Tier 3 — self-play + causal + active learning + RM export ────
 
-export { runSelfPlay } from './self-play'
-export type {
-  CandidateScenario,
-  ScoredTarget,
-  EvolutionRound,
-  SelfPlayOptions,
-  SelfPlayProposer,
-  SelfPlayScorer,
-} from './self-play'
-
-export { causalAttribution } from './causal-attribution'
-export type {
-  FactorialCell,
-  FactorContribution,
-  InteractionContribution,
-  CausalAttributionReport,
-} from './causal-attribution'
-
+export type { ActiveLearningOptions, SynthesisReason, SynthesisTarget } from './active-learning'
 export { proposeSynthesisTargets } from './active-learning'
-export type { SynthesisTarget, SynthesisReason, ActiveLearningOptions } from './active-learning'
-
+export type {
+  CausalAttributionReport,
+  FactorContribution,
+  FactorialCell,
+  InteractionContribution,
+} from './causal-attribution'
+export { causalAttribution } from './causal-attribution'
+export type { ExportedRewardModel, InferenceScorer } from './reward-model-export'
 export {
   exportRewardModel,
   loadScorerFromGrader,
   replayScorerOverCorpus,
 } from './reward-model-export'
-export type { ExportedRewardModel, InferenceScorer } from './reward-model-export'
+export type {
+  CandidateScenario,
+  EvolutionRound,
+  ScoredTarget,
+  SelfPlayOptions,
+  SelfPlayProposer,
+  SelfPlayScorer,
+} from './self-play'
+export { runSelfPlay } from './self-play'
 
 // ── 0.6 governance templates ─────────────────────────────────────────
 
@@ -547,292 +582,167 @@ export * from './governance'
 
 // ── 0.8 extraction: LLM client, multi-layer verifier, semantic concept judge, error-count ─
 
-export {
-  callLlm,
-  callLlmJson,
-  probeLlm,
-  stripFencedJson,
-  LlmCallError,
-  LlmClient,
-  assertLlmRoute,
-  LlmRouteAssertionError,
-} from './llm-client'
-export type {
-  LlmMessage,
-  LlmCallRequest,
-  LlmCallResult,
-  LlmUsage,
-  LlmClientOptions,
-  LlmRouteRequirements,
-} from './llm-client'
-
-export {
-  MultiLayerVerifier,
-  gradeSemanticStatus,
-} from './multi-layer-verifier'
-
-export { localCommandRunner } from './command-runner'
 export type {
   CommandRunner,
+  DirEntry,
   RunCommandInput,
   RunCommandResult,
-  DirEntry,
 } from './command-runner'
-
-export { multiToolchainLayer, mergeLayerResults } from './multi-toolchain-layer'
-export type {
-  AdapterRun,
-  MergeOptions,
-  MultiToolchainLayerConfig,
-} from './multi-toolchain-layer'
-
-export { buildReviewerPrompt, createDefaultReviewer } from './reviewer'
-export type {
-  ReviewerMemoryEntry,
-  ReviewerVerificationSummary,
-  ReviewerPromptInput,
-  ReviewerOutput,
-  ReviewerSoftFailDefaults,
-  CreateDefaultReviewerOptions,
-} from './reviewer'
-export type {
-  Layer,
-  LayerResult,
-  LayerStatus,
-  Severity,
-  Finding,
-  VerifyContext,
-  VerifyOptions,
-  VerificationReport,
-} from './multi-layer-verifier'
-
-export {
-  runSemanticConceptJudge,
-  createSemanticConceptJudge,
-  SEMANTIC_CONCEPT_JUDGE_VERSION,
-  DEFAULT_COMPLEXITY_WEIGHTS,
-} from './semantic-concept-judge'
-
-export {
-  runIntentMatchJudge,
-  createIntentMatchJudge,
-  INTENT_MATCH_JUDGE_VERSION,
-} from './intent-match-judge'
-export type {
-  IntentMatchInput,
-  IntentMatchResult,
-  IntentMatchOptions,
-} from './intent-match-judge'
-
-export { flowLayer } from './flow-layer'
-export type {
-  FlowAction,
-  FlowStep,
-  FlowSpec,
-  FlowRunner,
-  FlowRunnerStepResult,
-  FlowLayerEnv,
-  FlowLayerFactoryInput,
-} from './flow-layer'
-
-export { deployGateLayer, viteDeployRunner, wranglerDeployRunner } from './deploy-gate-layer'
+export { localCommandRunner } from './command-runner'
 export type {
   DeployFamily,
-  DeployRunResult,
-  DeployRunner,
   DeployGateLayerInput,
+  DeployRunner,
+  DeployRunResult,
   ViteDeployRunnerInput,
   WranglerDeployRunnerInput,
 } from './deploy-gate-layer'
-
-export {
-  runKeywordCoverageJudge,
-  runKeywordCoverageJudgeUrl,
-  htmlContainsElement,
-  extractAssetUrls,
-} from './keyword-coverage-judge'
-export type {
-  KeywordConceptSpec,
-  KeywordCoverageFinding,
-  KeywordCoverageResult,
-  KeywordCoverageOptions,
-} from './keyword-coverage-judge'
-export type {
-  ConceptSpec,
-  ConceptFinding,
-  ConceptComplexity,
-  ConceptWeightStrategy,
-  SemanticConceptJudgeInput,
-  SemanticConceptJudgeResult,
-  SemanticConceptJudgeOptions,
-} from './semantic-concept-judge'
-
-export {
-  extractErrorCount,
-  ERROR_COUNT_PATTERNS,
-} from './error-count-extractor'
+export { deployGateLayer, viteDeployRunner, wranglerDeployRunner } from './deploy-gate-layer'
 export type {
   ErrorCountPattern,
   ExtractOptions,
   ExtractResult,
 } from './error-count-extractor'
-
+export {
+  ERROR_COUNT_PATTERNS,
+  extractErrorCount,
+} from './error-count-extractor'
+export type {
+  FlowAction,
+  FlowLayerEnv,
+  FlowLayerFactoryInput,
+  FlowRunner,
+  FlowRunnerStepResult,
+  FlowSpec,
+  FlowStep,
+} from './flow-layer'
+export { flowLayer } from './flow-layer'
+export type {
+  IntentMatchInput,
+  IntentMatchOptions,
+  IntentMatchResult,
+} from './intent-match-judge'
+export {
+  createIntentMatchJudge,
+  INTENT_MATCH_JUDGE_VERSION,
+  runIntentMatchJudge,
+} from './intent-match-judge'
+export type {
+  KeywordConceptSpec,
+  KeywordCoverageFinding,
+  KeywordCoverageOptions,
+  KeywordCoverageResult,
+} from './keyword-coverage-judge'
+export {
+  extractAssetUrls,
+  htmlContainsElement,
+  runKeywordCoverageJudge,
+  runKeywordCoverageJudgeUrl,
+} from './keyword-coverage-judge'
+export type {
+  LlmCallRequest,
+  LlmCallResult,
+  LlmClientOptions,
+  LlmMessage,
+  LlmRouteRequirements,
+  LlmUsage,
+} from './llm-client'
+export {
+  assertLlmRoute,
+  callLlm,
+  callLlmJson,
+  LlmCallError,
+  LlmClient,
+  LlmRouteAssertionError,
+  probeLlm,
+  stripFencedJson,
+} from './llm-client'
+export type {
+  Finding,
+  Layer,
+  LayerResult,
+  LayerStatus,
+  Severity,
+  VerificationReport,
+  VerifyContext,
+  VerifyOptions,
+} from './multi-layer-verifier'
+export {
+  gradeSemanticStatus,
+  MultiLayerVerifier,
+} from './multi-layer-verifier'
+export type {
+  AdapterRun,
+  MergeOptions,
+  MultiToolchainLayerConfig,
+} from './multi-toolchain-layer'
+export { mergeLayerResults, multiToolchainLayer } from './multi-toolchain-layer'
 // ── 0.11.x: reference replay (from main) ─────────────────────────────
 export {
-  runReferenceReplay,
-  decideReferenceReplayRunPromotion,
-  inMemoryReferenceReplayStore,
-  jsonlReferenceReplayStore,
-  scoreReferenceReplay,
   compareReferenceReplay,
   decideReferenceReplayPromotion,
+  decideReferenceReplayRunPromotion,
   defaultReferenceReplayMatcher,
+  inMemoryReferenceReplayStore,
+  jsonlReferenceReplayStore,
+  runReferenceReplay,
+  scoreReferenceReplay,
 } from './reference-replay'
+export type {
+  CreateDefaultReviewerOptions,
+  ReviewerMemoryEntry,
+  ReviewerOutput,
+  ReviewerPromptInput,
+  ReviewerSoftFailDefaults,
+  ReviewerVerificationSummary,
+} from './reviewer'
+export { buildReviewerPrompt, createDefaultReviewer } from './reviewer'
+export type {
+  ConceptComplexity,
+  ConceptFinding,
+  ConceptSpec,
+  ConceptWeightStrategy,
+  SemanticConceptJudgeInput,
+  SemanticConceptJudgeOptions,
+  SemanticConceptJudgeResult,
+} from './semantic-concept-judge'
+export {
+  createSemanticConceptJudge,
+  DEFAULT_COMPLEXITY_WEIGHTS,
+  runSemanticConceptJudge,
+  SEMANTIC_CONCEPT_JUDGE_VERSION,
+} from './semantic-concept-judge'
 
 // ── 0.15 paper-grade primitives ──────────────────────────────────────
 
-export {
-  pairedBootstrap,
-  pairedWilcoxon,
-  bhAdjust,
-} from './paired-stats'
-export type {
-  PairedBootstrapResult,
-  PairedBootstrapOptions,
-} from './paired-stats'
-
-export {
-  validateRunRecord,
-  isRunRecord,
-  parseRunRecordSafe,
-  roundTripRunRecord,
-  RunRecordValidationError,
-} from './run-record'
-export type {
-  RunRecord,
-  RunOutcome,
-  RunTokenUsage,
-  RunJudgeMetadata,
-  RunSplitTag,
-} from './run-record'
-
-export { HeldOutGate } from './held-out-gate'
-export type {
-  HeldOutGateConfig,
-  HeldOutGateRejectionCode,
-  GateDecision,
-  GateEvidence,
-} from './held-out-gate'
-
-export { CallbackResearcher, NoopResearcher } from './researcher'
-export type {
-  CallbackResearcherOptions,
-  Researcher,
-  FailureMode,
-  SteeringChange,
-  ExperimentPlan,
-  ExperimentResult,
-} from './researcher'
-
-export {
-  summaryTable,
-  paretoChart,
-  gainHistogram,
-  researchReport,
-  RESEARCH_REPORT_HARD_PAIR_FLOOR,
-} from './summary-report'
-export type {
-  SummaryTable,
-  SummaryTableRow,
-  SummaryTableOptions,
-  ParetoFigureSpec,
-  ParetoPoint,
-  GainDistributionFigureSpec,
-  GainDistributionBin,
-  GainDistributionOptions,
-  ResearchReport,
-  ResearchReportOptions,
-  ResearchReportCandidate,
-  ResearchReportDecision,
-  ResearchReportMethodology,
-  ResearchReportRecommendation,
-} from './summary-report'
-
-export { runCanaries } from './canary'
-export type {
-  CanaryReport,
-  CanaryAlert,
-  CanaryKind,
-  CanarySeverity,
-  CanaryOptions,
-} from './canary'
-
-export {
-  deterministicSplit as benchmarkDeterministicSplit,
-  BENCHMARK_SPLIT_SEED,
-} from './benchmarks/types'
+export * as benchmarks from './benchmarks/index'
 export type {
   BenchmarkAdapter,
   BenchmarkDatasetItem,
   BenchmarkEvaluation,
 } from './benchmarks/types'
-export * as benchmarks from './benchmarks/index'
-export type {
-  ReferenceReplayAggregate,
-  ReferenceReplayAdapter,
-  ReferenceReplayAdapterFn,
-  ReferenceReplayAdapterLike,
-  ReferenceReplayCase,
-  ReferenceReplayCaseRun,
-  ReferenceReplayCandidate,
-  ReferenceReplayExecutionScenario,
-  ReferenceReplayItem,
-  ReferenceReplayMatch,
-  ReferenceReplayMatcher,
-  ReferenceReplayPromotionDecision,
-  ReferenceReplayPromotionPolicy,
-  ReferenceReplayRun,
-  ReferenceReplayRunContext,
-  ReferenceReplayRunOptions,
-  ReferenceReplayRunStore,
-  ReferenceReplayScenario,
-  ReferenceReplayScenarioScore,
-  ReferenceReplayScore,
-  ReferenceReplayScoreOptions,
-  ReferenceReplaySplit,
-  ReferenceReplaySplitComparison,
-  ReferenceReplayMatchStrategy,
-  ReferenceMatchResult,
-} from './reference-replay'
-
 export {
-  referenceReplayRunsToSteeringRows,
-  referenceReplayScenarioToRunScore,
-} from './reference-replay-steering'
+  BENCHMARK_SPLIT_SEED,
+  deterministicSplit as benchmarkDeterministicSplit,
+} from './benchmarks/types'
 export type {
-  ReferenceReplaySteeringRowsOptions,
-} from './reference-replay-steering'
-
-// ── 0.12.0: prompt evolution + golden matcher + orthogonality + promotion-gate ──
-export {
-  runPromptEvolution,
-  InMemoryTrialCache,
-} from './prompt-evolution'
+  CanaryAlert,
+  CanaryKind,
+  CanaryOptions,
+  CanaryReport,
+  CanarySeverity,
+} from './canary'
+export { runCanaries } from './canary'
 export type {
-  EvolvableVariant,
-  TrialResult as PromptTrialResult,
-  ScenarioAggregate,
-  VariantAggregate,
-  ScoreAdapter,
-  MutateAdapter,
-  PromptEvolutionConfig,
-  PromptEvolutionEvent,
-  GenerationReport,
-  PromptEvolutionResult,
-  TrialCache,
-} from './prompt-evolution'
-
-export { runEvalCampaign } from './eval-campaign'
+  CodeMutationOutcome,
+  CodeMutationRunner,
+  CreateSandboxCodeMutatorOpts,
+} from './code-mutator'
+export { createSandboxCodeMutator } from './code-mutator'
+export type { CompositePolicy, CreateCompositeMutatorOpts } from './composite-mutator'
+export { createCompositeMutator } from './composite-mutator'
+// ── 0.14.0: concurrency + persistence + telemetry primitives for evolution loops ──
+export { Mutex } from './concurrency'
 export type {
   CampaignFactoryParams,
   CampaignIntegrityPolicy,
@@ -845,39 +755,43 @@ export type {
   EvalCampaignResult,
   FailedRun,
 } from './eval-campaign'
-
-export * from './rl'
-
-export {
-  ReplayCache,
-  ReplayCacheMissError,
-  createReplayFetch,
-  iterateRawCalls,
-} from './replay'
+export { runEvalCampaign } from './eval-campaign'
 export type {
-  ReplayCacheEntry,
-  ReplayCacheStats,
-  ReplayFetchOptions,
-} from './replay'
-
+  CostLedgerGeneration,
+  CostLedgerSnapshot,
+  LineageKind,
+  LineageKindResolver,
+  LineageNode,
+  MutationAttempt,
+  MutationChannel,
+  TrialAttempt,
+} from './evolution-telemetry'
 export {
-  evaluateInterimReleaseConfidence,
-  pairedEvalueSequence,
-} from './sequential'
+  CostLedger,
+  LineageRecorder,
+  MutationTelemetry,
+  TrialTelemetry,
+} from './evolution-telemetry'
 export type {
-  InterimReleaseConfidence,
-  InterimReleaseConfidenceInput,
-  PairedEvalueOptions,
-  PairedEvalueSequence,
-  PairedEvalueStep,
-  SequentialDecision,
-} from './sequential'
-
+  GoldenSeverity,
+  GoldenSpec,
+  MatchResult,
+} from './golden-matcher'
 export {
-  defaultMultiShotObjectives,
-  runMultiShotOptimization,
-  trialTraceFromMultiShotTrial,
-} from './multi-shot-optimization'
+  DEFAULT_SEVERITY_WEIGHTS,
+  matchGoldens,
+  precision as goldenPrecision,
+  weightedRecall,
+} from './golden-matcher'
+export type {
+  GateDecision,
+  GateEvidence,
+  HeldOutGateConfig,
+  HeldOutGateRejectionCode,
+} from './held-out-gate'
+export { HeldOutGate } from './held-out-gate'
+export { JsonlTrialCache } from './jsonl-trial-cache'
+export { LockedJsonlAppender, resetLockedAppendersForTesting } from './locked-jsonl-appender'
 export type {
   ActionableSideInfo,
   AsiSeverity,
@@ -896,13 +810,91 @@ export type {
   MultiShotTrialResult,
   MultiShotVariant,
 } from './multi-shot-optimization'
-
 export {
-  assertReleaseConfidence,
-  evaluateReleaseConfidence,
-  releaseTraceEvidenceFromMultiShotTrials,
-} from './release-confidence'
-export { renderReleaseReport } from './release-report'
+  defaultMultiShotObjectives,
+  runMultiShotOptimization,
+  trialTraceFromMultiShotTrial,
+} from './multi-shot-optimization'
+export type { OrthogonalityInput, OrthogonalityResult } from './orthogonality'
+export { passOrthogonality } from './orthogonality'
+export type {
+  PairedBootstrapOptions,
+  PairedBootstrapResult,
+} from './paired-stats'
+export {
+  bhAdjust,
+  pairedBootstrap,
+  pairedWilcoxon,
+} from './paired-stats'
+// Pareto extensions (paretoFrontier + dominates already exported above)
+export { crowdingDistance, paretoFrontierWithCrowding, scalarScore } from './pareto'
+export type {
+  BootstrapOptions,
+  BootstrapResult,
+  JudgeReplayGateArgs,
+  Verdict,
+} from './promotion-gate'
+export { bootstrapCi, judgeReplayGate } from './promotion-gate'
+export type {
+  EvolvableVariant,
+  GenerationReport,
+  MutateAdapter,
+  PromptEvolutionConfig,
+  PromptEvolutionEvent,
+  PromptEvolutionResult,
+  ScenarioAggregate,
+  ScoreAdapter,
+  TrialCache,
+  TrialResult as PromptTrialResult,
+  VariantAggregate,
+} from './prompt-evolution'
+// ── 0.12.0: prompt evolution + golden matcher + orthogonality + promotion-gate ──
+export {
+  InMemoryTrialCache,
+  runPromptEvolution,
+} from './prompt-evolution'
+export type {
+  ReferenceMatchResult,
+  ReferenceReplayAdapter,
+  ReferenceReplayAdapterFn,
+  ReferenceReplayAdapterLike,
+  ReferenceReplayAggregate,
+  ReferenceReplayCandidate,
+  ReferenceReplayCase,
+  ReferenceReplayCaseRun,
+  ReferenceReplayExecutionScenario,
+  ReferenceReplayItem,
+  ReferenceReplayMatch,
+  ReferenceReplayMatcher,
+  ReferenceReplayMatchStrategy,
+  ReferenceReplayPromotionDecision,
+  ReferenceReplayPromotionPolicy,
+  ReferenceReplayRun,
+  ReferenceReplayRunContext,
+  ReferenceReplayRunOptions,
+  ReferenceReplayRunStore,
+  ReferenceReplayScenario,
+  ReferenceReplayScenarioScore,
+  ReferenceReplayScore,
+  ReferenceReplayScoreOptions,
+  ReferenceReplaySplit,
+  ReferenceReplaySplitComparison,
+} from './reference-replay'
+export type { ReferenceReplaySteeringRowsOptions } from './reference-replay-steering'
+export {
+  referenceReplayRunsToSteeringRows,
+  referenceReplayScenarioToRunScore,
+} from './reference-replay-steering'
+export type {
+  ReflectionContext,
+  ReflectionProposal,
+  TrialTrace,
+} from './reflective-mutation'
+export {
+  buildReflectionPrompt,
+  DEFAULT_MUTATION_PRIMITIVES,
+  parseReflectionResponse,
+} from './reflective-mutation'
 export type {
   ReleaseConfidenceAxis,
   ReleaseConfidenceAxisName,
@@ -914,81 +906,91 @@ export type {
   ReleaseConfidenceThresholds,
   ReleaseTraceEvidence,
 } from './release-confidence'
-export type { RenderReleaseReportOptions } from './release-report'
-
-// ── 0.14.0: concurrency + persistence + telemetry primitives for evolution loops ──
-export { Mutex } from './concurrency'
-
-export { JsonlTrialCache } from './jsonl-trial-cache'
-
-export { LockedJsonlAppender, resetLockedAppendersForTesting } from './locked-jsonl-appender'
-
 export {
-  MutationTelemetry,
-  TrialTelemetry,
-  LineageRecorder,
-  CostLedger,
-} from './evolution-telemetry'
+  assertReleaseConfidence,
+  evaluateReleaseConfidence,
+  releaseTraceEvidenceFromMultiShotTrials,
+} from './release-confidence'
+export type { RenderReleaseReportOptions } from './release-report'
+export { renderReleaseReport } from './release-report'
 export type {
-  MutationAttempt,
-  MutationChannel,
-  TrialAttempt,
-  LineageNode,
-  LineageKind,
-  LineageKindResolver,
-  CostLedgerSnapshot,
-  CostLedgerGeneration,
-} from './evolution-telemetry'
-
-export { createCompositeMutator } from './composite-mutator'
-export type { CompositePolicy, CreateCompositeMutatorOpts } from './composite-mutator'
-
-export { createSandboxPool } from './sandbox-pool'
+  ReplayCacheEntry,
+  ReplayCacheStats,
+  ReplayFetchOptions,
+} from './replay'
+export {
+  createReplayFetch,
+  iterateRawCalls,
+  ReplayCache,
+  ReplayCacheMissError,
+} from './replay'
 export type {
+  CallbackResearcherOptions,
+  ExperimentPlan,
+  ExperimentResult,
+  FailureMode,
+  Researcher,
+  SteeringChange,
+} from './researcher'
+export { CallbackResearcher, NoopResearcher } from './researcher'
+// RL primitives — adapters, rewards, preferences, OPE, PRM, contamination,
+// tournaments, adversarial, compute curves, auto-research — live on the
+// dedicated subpath: @tangle-network/agent-eval/rl
+export type {
+  RunJudgeMetadata,
+  RunOutcome,
+  RunRecord,
+  RunSplitTag,
+  RunTokenUsage,
+} from './run-record'
+export {
+  isRunRecord,
+  parseRunRecordSafe,
+  RunRecordValidationError,
+  roundTripRunRecord,
+  validateRunRecord,
+} from './run-record'
+export type {
+  CreateSandboxPoolOpts,
+  PoolSlot,
   SandboxPool,
   SlotFactory,
-  PoolSlot,
-  CreateSandboxPoolOpts,
 } from './sandbox-pool'
-
-export { createSandboxCodeMutator } from './code-mutator'
+export { createSandboxPool } from './sandbox-pool'
 export type {
-  CodeMutationOutcome,
-  CodeMutationRunner,
-  CreateSandboxCodeMutatorOpts,
-} from './code-mutator'
-
+  InterimReleaseConfidence,
+  InterimReleaseConfidenceInput,
+  PairedEvalueOptions,
+  PairedEvalueSequence,
+  PairedEvalueStep,
+  SequentialDecision,
+} from './sequential'
 export {
-  matchGoldens,
-  weightedRecall,
-  precision as goldenPrecision,
-  DEFAULT_SEVERITY_WEIGHTS,
-} from './golden-matcher'
+  evaluateInterimReleaseConfidence,
+  pairedEvalueSequence,
+} from './sequential'
 export type {
-  GoldenSpec,
-  GoldenSeverity,
-  MatchResult,
-} from './golden-matcher'
-
-export { passOrthogonality } from './orthogonality'
-export type { OrthogonalityInput, OrthogonalityResult } from './orthogonality'
-
-export { bootstrapCi, judgeReplayGate } from './promotion-gate'
-export type { Verdict, BootstrapResult, BootstrapOptions, JudgeReplayGateArgs } from './promotion-gate'
-
+  GainDistributionBin,
+  GainDistributionFigureSpec,
+  GainDistributionOptions,
+  ParetoFigureSpec,
+  ParetoPoint,
+  ResearchReport,
+  ResearchReportCandidate,
+  ResearchReportDecision,
+  ResearchReportMethodology,
+  ResearchReportOptions,
+  ResearchReportRecommendation,
+  SummaryTable,
+  SummaryTableOptions,
+  SummaryTableRow,
+} from './summary-report'
 export {
-  buildReflectionPrompt,
-  parseReflectionResponse,
-  DEFAULT_MUTATION_PRIMITIVES,
-} from './reflective-mutation'
-export type {
-  TrialTrace,
-  ReflectionContext,
-  ReflectionProposal,
-} from './reflective-mutation'
+  gainHistogram,
+  paretoChart,
+  RESEARCH_REPORT_HARD_PAIR_FLOOR,
+  researchReport,
+  summaryTable,
+} from './summary-report'
 
-// Pareto extensions (paretoFrontier + dominates already exported above)
-export { scalarScore, crowdingDistance, paretoFrontierWithCrowding } from './pareto'
-
-// Ax RLM trace analyst.
-export * from './trace-analyst'
+// Ax RLM trace analyst — subpath: /traces (re-exported alongside trace store).

@@ -17,7 +17,7 @@
  */
 
 import { spawnSync } from 'node:child_process'
-import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs'
+import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs'
 import { join } from 'node:path'
 
 // ─── Types ──────────────────────────────────────────────────────────────
@@ -95,8 +95,11 @@ export const localCommandRunner: CommandRunner = {
       input: input.stdin,
     })
     const durationMs = Date.now() - start
-    const timedOut =
-      !!(res.error && 'code' in res.error && (res.error as NodeJS.ErrnoException).code === 'ETIMEDOUT')
+    const timedOut = !!(
+      res.error &&
+      'code' in res.error &&
+      (res.error as NodeJS.ErrnoException).code === 'ETIMEDOUT'
+    )
     return {
       status: res.status ?? null,
       stdout: (res.stdout ?? '').toString(),

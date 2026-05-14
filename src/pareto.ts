@@ -54,9 +54,7 @@ export function paretoFrontier<T>(candidates: T[], objectives: Objective<T>[]): 
   if (objectives.length === 0) {
     throw new Error('paretoFrontier: at least 1 objective required')
   }
-  const valid = candidates.filter((c) =>
-    objectives.every((o) => Number.isFinite(o.value(c))),
-  )
+  const valid = candidates.filter((c) => objectives.every((o) => Number.isFinite(o.value(c))))
   const frontier: T[] = []
   const dominated: T[] = []
   for (const c of valid) {

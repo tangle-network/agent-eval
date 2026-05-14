@@ -10,9 +10,9 @@
 
 import type { LlmSpan, Span } from '../trace/schema'
 import { isLlmSpan, isToolSpan } from '../trace/schema'
-import type { PrmGradedTrace } from './rubric'
 import type { TraceStore } from '../trace/store'
 import { buildTrajectory } from '../trajectory'
+import type { PrmGradedTrace } from './rubric'
 
 export interface PrmTrainingSample {
   runId: string
@@ -50,7 +50,9 @@ export async function exportTrainingData(
         rubricId: gs.rubricId,
         score: gs.score,
         context: {
-          priorTurns: priorSpans.map(spanToTurn).filter((t): t is { role: string; content: string } => t !== null),
+          priorTurns: priorSpans
+            .map(spanToTurn)
+            .filter((t): t is { role: string; content: string } => t !== null),
           step: { kind: node.span.kind, text: spanToText(node.span) },
         },
         rationale: gs.rationale,
@@ -63,7 +65,7 @@ export async function exportTrainingData(
 
 /** NDJSON serialization — write to file or stream directly to a trainer. */
 export function toNdjson(samples: PrmTrainingSample[]): string {
-  return samples.map((s) => JSON.stringify(s)).join('\n') + '\n'
+  return `${samples.map((s) => JSON.stringify(s)).join('\n')}\n`
 }
 
 function spanToTurn(span: Span): { role: string; content: string } | null {
@@ -82,12 +84,17 @@ function spanToTurn(span: Span): { role: string; content: string } | null {
 
 function spanToText(span: Span): string {
   if (isLlmSpan(span)) return (span as LlmSpan).output ?? ''
-  if (isToolSpan(span)) return `${span.toolName}(${safeStringify(span.args)}) → ${safeStringify(span.result)}`
+  if (isToolSpan(span))
+    return `${span.toolName}(${safeStringify(span.args)}) → ${safeStringify(span.result)}`
   return span.name
 }
 
 function safeStringify(v: unknown): string {
   if (v === null || v === undefined) return ''
   if (typeof v === 'string') return v
-  try { return JSON.stringify(v) } catch { return String(v) }
+  try {
+    return JSON.stringify(v)
+  } catch {
+    return String(v)
+  }
 }

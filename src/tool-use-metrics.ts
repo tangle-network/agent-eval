@@ -7,9 +7,9 @@
  * retry rate, duplicate-call rate) that are useful on their own.
  */
 
+import { argHash, groupBy, toolSpans } from './trace/query'
 import type { Span } from './trace/schema'
 import type { TraceStore } from './trace/store'
-import { argHash, groupBy, toolSpans } from './trace/query'
 
 export interface ToolUseMetrics {
   runId: string
@@ -56,10 +56,16 @@ export async function computeToolUseMetrics(
   for (const t of sortedTools) {
     const stat = (byTool[t.toolName] ??= { calls: 0, errors: 0, avgLatencyMs: 0, duplicates: 0 })
     stat.calls += 1
-    if (t.status === 'error') { stat.errors += 1; totalErrors += 1 }
+    if (t.status === 'error') {
+      stat.errors += 1
+      totalErrors += 1
+    }
     if (typeof t.latencyMs === 'number') stat.avgLatencyMs += t.latencyMs
     const sig = `${t.toolName}|${argHash(t.args)}`
-    if (seenSignatures.has(sig)) { stat.duplicates += 1; totalDuplicates += 1 }
+    if (seenSignatures.has(sig)) {
+      stat.duplicates += 1
+      totalDuplicates += 1
+    }
     seenSignatures.add(sig)
   }
 
@@ -72,7 +78,7 @@ export async function computeToolUseMetrics(
   let retriesFollowed = 0
   for (const [, arr] of groupBy(sortedTools, (t) => t.toolName)) {
     for (let i = 0; i < arr.length; i++) {
-      if (arr[i].status !== 'error') continue
+      if (arr[i]!.status !== 'error') continue
       retryOpportunities += 1
       if (arr[i + 1]) retriesFollowed += 1
     }
@@ -83,7 +89,8 @@ export async function computeToolUseMetrics(
   if (options.selectionLabels) {
     const labeled = sortedTools.filter((t) => t.spanId in options.selectionLabels!)
     if (labeled.length > 0) {
-      selectionAccuracy = labeled.filter((t) => options.selectionLabels![t.spanId]).length / labeled.length
+      selectionAccuracy =
+        labeled.filter((t) => options.selectionLabels![t.spanId]).length / labeled.length
     }
   }
 

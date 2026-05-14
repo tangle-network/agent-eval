@@ -1,12 +1,12 @@
-import { InMemoryTraceStore } from './trace/store'
-import { TraceEmitter } from './trace/emitter'
 import {
-  SandboxHarness,
-  SubprocessSandboxDriver,
   type HarnessConfig,
   type SandboxDriver,
+  SandboxHarness,
   type SandboxHarnessResult,
+  SubprocessSandboxDriver,
 } from './sandbox-harness'
+import { TraceEmitter } from './trace/emitter'
+import { InMemoryTraceStore } from './trace/store'
 
 export type SandboxJudgeKind = 'compiler' | 'test' | 'linter' | 'security'
 
@@ -59,7 +59,10 @@ export class JudgeRunner {
   }
 }
 
-export async function runJudgeFleet(specs: SandboxJudgeSpec[], options: JudgeFleetOptions = {}): Promise<SandboxJudgeResult[]> {
+export async function runJudgeFleet(
+  specs: SandboxJudgeSpec[],
+  options: JudgeFleetOptions = {},
+): Promise<SandboxJudgeResult[]> {
   const runner = new JudgeRunner(options.driver)
   if (options.parallel === false) {
     const results: SandboxJudgeResult[] = []
@@ -87,6 +90,7 @@ export function securityJudge(id: string, config: HarnessConfig): SandboxJudgeSp
 
 function renderJudgeSummary(kind: SandboxJudgeKind, detail: SandboxHarnessResult): string {
   if (!detail.passed) return `${kind} judge failed`
-  if (detail.test?.testsTotal) return `${kind} judge passed ${detail.test.testsPassed}/${detail.test.testsTotal} tests`
+  if (detail.test?.testsTotal)
+    return `${kind} judge passed ${detail.test.testsPassed}/${detail.test.testsTotal} tests`
   return `${kind} judge passed`
 }

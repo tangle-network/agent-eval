@@ -224,11 +224,19 @@ export function evaluateInterimReleaseConfidence(
   })
 
   const promote = candidates.find((c) => c.decision === 'promote_now')
-  if (promote) return { candidates, recommendation: { decision: 'promote_now', candidateId: promote.candidateId } }
+  if (promote)
+    return {
+      candidates,
+      recommendation: { decision: 'promote_now', candidateId: promote.candidateId },
+    }
   const live = candidates.find((c) => c.decision === 'continue')
   if (live) return { candidates, recommendation: { decision: 'continue', candidateId: null } }
   const equiv = candidates.find((c) => c.decision === 'equivalent')
-  if (equiv) return { candidates, recommendation: { decision: 'equivalent', candidateId: equiv.candidateId } }
+  if (equiv)
+    return {
+      candidates,
+      recommendation: { decision: 'equivalent', candidateId: equiv.candidateId },
+    }
   return { candidates, recommendation: { decision: 'reject_now', candidateId: null } }
 }
 

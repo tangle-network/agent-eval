@@ -6,10 +6,10 @@
  * error message, a proposed mitigation hint (rule → action table).
  */
 
-import { classifyFailure, type FailureRule, DEFAULT_RULES } from '../failure-taxonomy'
+import { classifyFailure, DEFAULT_RULES, type FailureRule } from '../failure-taxonomy'
+import { argHash, toolSpans } from '../trace/query'
 import type { FailureClass, Span } from '../trace/schema'
 import type { TraceStore } from '../trace/store'
-import { argHash, toolSpans } from '../trace/query'
 
 export interface FailureCluster {
   failureClass: FailureClass

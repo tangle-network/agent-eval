@@ -99,7 +99,10 @@ export function createAntiSlopJudge(config: AntiSlopConfig = {}): JudgeFn {
         dimension: 'anti_slop',
         score: report.score,
         reasoning: report.issues.length
-          ? report.issues.slice(0, 5).map((i) => `${i.category}: ${i.detail}`).join('; ')
+          ? report.issues
+              .slice(0, 5)
+              .map((i) => `${i.category}: ${i.detail}`)
+              .join('; ')
           : 'No slop patterns detected.',
         evidence: report.issues[0]?.example,
       },
@@ -128,7 +131,9 @@ export interface AntiSlopReport {
  */
 export function analyzeAntiSlop(
   outputs: string[],
-  config: Omit<Required<AntiSlopConfig>, 'domain'> & { penaltyWeights: Record<SlopCategory, number> },
+  config: Omit<Required<AntiSlopConfig>, 'domain'> & {
+    penaltyWeights: Record<SlopCategory, number>
+  },
 ): AntiSlopReport {
   const issues: AntiSlopIssue[] = []
   const counts: Record<SlopCategory, number> = {
@@ -168,7 +173,9 @@ export function analyzeAntiSlop(
     }
 
     for (const re of config.hedgingPatterns) {
-      const matches = output.match(new RegExp(re, re.flags.includes('g') ? re.flags : re.flags + 'g'))
+      const matches = output.match(
+        new RegExp(re, re.flags.includes('g') ? re.flags : `${re.flags}g`),
+      )
       if (matches) {
         counts.hedging += matches.length
         issues.push({
@@ -180,7 +187,9 @@ export function analyzeAntiSlop(
     }
 
     for (const re of config.apologyPatterns) {
-      const matches = output.match(new RegExp(re, re.flags.includes('g') ? re.flags : re.flags + 'g'))
+      const matches = output.match(
+        new RegExp(re, re.flags.includes('g') ? re.flags : `${re.flags}g`),
+      )
       if (matches) {
         counts.apology += matches.length
         issues.push({
@@ -215,10 +224,16 @@ export function analyzeAntiSlop(
     // Length
     if (output.length < config.minLength) {
       counts.length += 1
-      issues.push({ category: 'length', detail: `too short (${output.length} < ${config.minLength})` })
+      issues.push({
+        category: 'length',
+        detail: `too short (${output.length} < ${config.minLength})`,
+      })
     } else if (output.length > config.maxLength) {
       counts.length += 1
-      issues.push({ category: 'length', detail: `too long (${output.length} > ${config.maxLength})` })
+      issues.push({
+        category: 'length',
+        detail: `too long (${output.length} > ${config.maxLength})`,
+      })
     }
   }
 

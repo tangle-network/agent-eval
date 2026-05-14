@@ -1,5 +1,5 @@
-import type { DatasetScenario, DatasetSplit } from './dataset'
 import type { ControlEvalResult, ControlRunResult, ControlStep } from './control-runtime'
+import type { DatasetScenario, DatasetSplit } from './dataset'
 
 export type FeedbackArtifactType =
   | 'text'
@@ -140,7 +140,11 @@ export interface FeedbackReplayResult {
 }
 
 export interface FeedbackReplayAdapter {
-  replay(trajectory: FeedbackTrajectory): Promise<Omit<FeedbackReplayResult, 'trajectoryId'>> | Omit<FeedbackReplayResult, 'trajectoryId'>
+  replay(
+    trajectory: FeedbackTrajectory,
+  ):
+    | Promise<Omit<FeedbackReplayResult, 'trajectoryId'>>
+    | Omit<FeedbackReplayResult, 'trajectoryId'>
 }
 
 const DEFAULT_SPLIT_POLICY: Required<FeedbackSplitPolicy> = {
@@ -170,7 +174,8 @@ export class InMemoryFeedbackTrajectoryStore implements FeedbackTrajectoryStore 
 
   async appendAttempt(id: string, attempt: FeedbackAttempt): Promise<FeedbackTrajectory> {
     const trajectory = this.trajectories.get(id)
-    if (!trajectory) throw new Error(`FeedbackTrajectoryStore.appendAttempt: unknown trajectory "${id}"`)
+    if (!trajectory)
+      throw new Error(`FeedbackTrajectoryStore.appendAttempt: unknown trajectory "${id}"`)
     const next = cloneTrajectory({
       ...trajectory,
       attempts: [...trajectory.attempts, attempt],
@@ -180,13 +185,20 @@ export class InMemoryFeedbackTrajectoryStore implements FeedbackTrajectoryStore 
     return cloneTrajectory(next)
   }
 
-  async appendLabel(id: string, label: FeedbackLabel, attemptId?: string): Promise<FeedbackTrajectory> {
+  async appendLabel(
+    id: string,
+    label: FeedbackLabel,
+    attemptId?: string,
+  ): Promise<FeedbackTrajectory> {
     const trajectory = this.trajectories.get(id)
-    if (!trajectory) throw new Error(`FeedbackTrajectoryStore.appendLabel: unknown trajectory "${id}"`)
+    if (!trajectory)
+      throw new Error(`FeedbackTrajectoryStore.appendLabel: unknown trajectory "${id}"`)
     const attempts = attemptId
-      ? trajectory.attempts.map((attempt) => attempt.id === attemptId
-        ? { ...attempt, feedback: [...(attempt.feedback ?? []), label] }
-        : attempt)
+      ? trajectory.attempts.map((attempt) =>
+          attempt.id === attemptId
+            ? { ...attempt, feedback: [...(attempt.feedback ?? []), label] }
+            : attempt,
+        )
       : trajectory.attempts
     const next = cloneTrajectory({
       ...trajectory,
@@ -231,7 +243,11 @@ export class FileSystemFeedbackTrajectoryStore implements FeedbackTrajectoryStor
     return next
   }
 
-  async appendLabel(id: string, label: FeedbackLabel, attemptId?: string): Promise<FeedbackTrajectory> {
+  async appendLabel(
+    id: string,
+    label: FeedbackLabel,
+    attemptId?: string,
+  ): Promise<FeedbackTrajectory> {
     await this.load()
     const next = await this.memory.appendLabel(id, label, attemptId)
     await this.append({ op: 'appendLabel', id, label, attemptId })
@@ -242,7 +258,11 @@ export class FileSystemFeedbackTrajectoryStore implements FeedbackTrajectoryStor
     const { appendFile, mkdir } = await import('node:fs/promises')
     const { join } = await import('node:path')
     await mkdir(this.dir, { recursive: true })
-    await appendFile(join(this.dir, 'feedback-trajectories.ndjson'), JSON.stringify(record) + '\n', 'utf8')
+    await appendFile(
+      join(this.dir, 'feedback-trajectories.ndjson'),
+      `${JSON.stringify(record)}\n`,
+      'utf8',
+    )
   }
 
   private async load(): Promise<void> {
@@ -260,8 +280,10 @@ export class FileSystemFeedbackTrajectoryStore implements FeedbackTrajectoryStor
             | { op: 'appendAttempt'; id: string; attempt: FeedbackAttempt }
             | { op: 'appendLabel'; id: string; label: FeedbackLabel; attemptId?: string }
           if (record.op === 'save') await this.memory.save(record.trajectory)
-          if (record.op === 'appendAttempt') await this.memory.appendAttempt(record.id, record.attempt)
-          if (record.op === 'appendLabel') await this.memory.appendLabel(record.id, record.label, record.attemptId)
+          if (record.op === 'appendAttempt')
+            await this.memory.appendAttempt(record.id, record.attempt)
+          if (record.op === 'appendLabel')
+            await this.memory.appendLabel(record.id, record.label, record.attemptId)
         } catch {
           /* corrupt records are skipped so one bad line does not discard the corpus */
         }
@@ -287,7 +309,9 @@ export function createFeedbackTrajectory(input: {
   metadata?: Record<string, unknown>
 }): FeedbackTrajectory {
   const createdAt = input.createdAt ?? new Date().toISOString()
-  const id = input.id ?? `ft_${stableHash(`${input.projectId ?? ''}|${input.scenarioId ?? ''}|${input.task.intent}|${createdAt}`).toString(16)}`
+  const id =
+    input.id ??
+    `ft_${stableHash(`${input.projectId ?? ''}|${input.scenarioId ?? ''}|${input.task.intent}|${createdAt}`).toString(16)}`
   return {
     id,
     projectId: input.projectId,
@@ -310,7 +334,10 @@ export function assignFeedbackSplit(
   const split = { ...DEFAULT_SPLIT_POLICY, ...policy }
   const total = split.trainPct + split.devPct + split.testPct + split.holdoutPct
   if (total <= 0) throw new Error('assignFeedbackSplit: split percentages must sum above zero')
-  const bucket = stableHash(`${trajectory.projectId ?? ''}|${trajectory.scenarioId ?? ''}|${trajectory.id}|${trajectory.task.intent}`) % total
+  const bucket =
+    stableHash(
+      `${trajectory.projectId ?? ''}|${trajectory.scenarioId ?? ''}|${trajectory.id}|${trajectory.task.intent}`,
+    ) % total
   if (bucket < split.trainPct) return 'train'
   if (bucket < split.trainPct + split.devPct) return 'dev'
   if (bucket < split.trainPct + split.devPct + split.testPct) return 'test'
@@ -327,7 +354,9 @@ export function withAssignedFeedbackSplit(
   }
 }
 
-export function feedbackTrajectoryToDatasetScenario(trajectory: FeedbackTrajectory): DatasetScenario {
+export function feedbackTrajectoryToDatasetScenario(
+  trajectory: FeedbackTrajectory,
+): DatasetScenario {
   const withSplit = withAssignedFeedbackSplit(trajectory)
   return {
     id: withSplit.scenarioId ?? withSplit.id,
@@ -347,7 +376,9 @@ export function feedbackTrajectoriesToDatasetScenarios(
   return trajectories.map(feedbackTrajectoryToDatasetScenario)
 }
 
-export function feedbackTrajectoryToOptimizerRow(trajectory: FeedbackTrajectory): FeedbackOptimizerRow {
+export function feedbackTrajectoryToOptimizerRow(
+  trajectory: FeedbackTrajectory,
+): FeedbackOptimizerRow {
   const labels = allLabels(trajectory)
   return {
     scenarioId: trajectory.scenarioId ?? trajectory.id,
@@ -387,14 +418,16 @@ export async function replayFeedbackTrajectory(
     return {
       trajectoryId: trajectory.id,
       pass: false,
-      labels: [{
-        source: 'system',
-        kind: 'reject',
-        value: false,
-        reason: message,
-        severity: 'error',
-        createdAt,
-      }],
+      labels: [
+        {
+          source: 'system',
+          kind: 'reject',
+          value: false,
+          reason: message,
+          severity: 'error',
+          createdAt,
+        },
+      ],
       outcome: {
         success: false,
         score: 0,
@@ -444,9 +477,7 @@ export function summarizePreferenceMemory(
     const existing = byInstruction.get(key)
     if (!existing || entry.weight > existing.weight) byInstruction.set(key, entry)
   }
-  return [...byInstruction.values()]
-    .sort((a, b) => b.weight - a.weight)
-    .slice(0, maxEntries)
+  return [...byInstruction.values()].sort((a, b) => b.weight - a.weight).slice(0, maxEntries)
 }
 
 export function renderPreferenceMemoryMarkdown(entries: PreferenceMemoryEntry[]): string {
@@ -457,15 +488,15 @@ export function renderPreferenceMemoryMarkdown(entries: PreferenceMemoryEntry[])
     lines.push(`  Source: ${entry.sourceTrajectoryId}`)
     lines.push('')
   }
-  return lines.join('\n').trim() + '\n'
+  return `${lines.join('\n').trim()}\n`
 }
 
 export function serializeFeedbackTrajectoriesJsonl(trajectories: FeedbackTrajectory[]): string {
-  return trajectories
+  return `${trajectories
     .slice()
     .sort((a, b) => a.id.localeCompare(b.id))
     .map((trajectory) => JSON.stringify(canonicalize(trajectory)))
-    .join('\n') + '\n'
+    .join('\n')}\n`
 }
 
 export function parseFeedbackTrajectoriesJsonl(jsonl: string): FeedbackTrajectory[] {
@@ -484,12 +515,15 @@ export function controlRunToFeedbackTrajectory<TState, TAction, TActionResult>(
     scenarioId?: string
     artifactType?: FeedbackArtifactType
     artifactFromStep?: (step: ControlStep<TState, TAction, TActionResult>) => unknown
-    proposedActionFromStep?: (step: ControlStep<TState, TAction, TActionResult>) => ProposedSideEffect | undefined
+    proposedActionFromStep?: (
+      step: ControlStep<TState, TAction, TActionResult>,
+    ) => ProposedSideEffect | undefined
     createdAt?: string
   } = {},
 ): FeedbackTrajectory {
   const createdAt = options.createdAt ?? new Date().toISOString()
-  const trajectoryId = run.runId ?? `ft_control_${stableHash(`${run.intent}|${createdAt}`).toString(16)}`
+  const trajectoryId =
+    run.runId ?? `ft_control_${stableHash(`${run.intent}|${createdAt}`).toString(16)}`
   return createFeedbackTrajectory({
     id: trajectoryId,
     projectId: options.projectId,
@@ -540,7 +574,8 @@ function allLabels(trajectory: FeedbackTrajectory): FeedbackLabel[] {
   ]
   const seen = new Set<string>()
   return labels.filter((label) => {
-    const key = label.id ?? `${label.source}|${label.kind}|${label.createdAt}|${JSON.stringify(label.value)}`
+    const key =
+      label.id ?? `${label.source}|${label.kind}|${label.createdAt}|${JSON.stringify(label.value)}`
     if (seen.has(key)) return false
     seen.add(key)
     return true
@@ -549,28 +584,50 @@ function allLabels(trajectory: FeedbackTrajectory): FeedbackLabel[] {
 
 function scoreFromLabels(labels: FeedbackLabel[]): number | undefined {
   if (!labels.length) return undefined
-  const scored = labels.map((label) => {
-    if (label.kind === 'approve' || label.kind === 'select') return 1
-    if (label.kind === 'reject' || label.kind === 'policy_block') return 0
-    if (label.kind === 'rate' && typeof label.value === 'number') return Math.max(0, Math.min(1, label.value))
-    return undefined
-  }).filter((value): value is number => typeof value === 'number')
+  const scored = labels
+    .map((label) => {
+      if (label.kind === 'approve' || label.kind === 'select') return 1
+      if (label.kind === 'reject' || label.kind === 'policy_block') return 0
+      if (label.kind === 'rate' && typeof label.value === 'number')
+        return Math.max(0, Math.min(1, label.value))
+      return undefined
+    })
+    .filter((value): value is number => typeof value === 'number')
   if (!scored.length) return undefined
   return Math.round((scored.reduce((sum, value) => sum + value, 0) / scored.length) * 1000) / 1000
 }
 
-function instructionFromLabel(trajectory: FeedbackTrajectory, label: FeedbackLabel): string | undefined {
-  if (label.kind === 'reject' && label.reason) return `Avoid outputs like "${compact(trajectory.task.intent, 80)}" when: ${label.reason}`
-  if (label.kind === 'revision_request' && label.reason) return `Revise similar work by applying: ${label.reason}`
-  if (label.kind === 'select' && label.reason) return `Prefer selected options for "${compact(trajectory.task.intent, 80)}" because: ${label.reason}`
-  if (label.kind === 'approve' && label.reason) return `Repeat the pattern approved for "${compact(trajectory.task.intent, 80)}": ${label.reason}`
+function instructionFromLabel(
+  trajectory: FeedbackTrajectory,
+  label: FeedbackLabel,
+): string | undefined {
+  if (label.kind === 'reject' && label.reason)
+    return `Avoid outputs like "${compact(trajectory.task.intent, 80)}" when: ${label.reason}`
+  if (label.kind === 'revision_request' && label.reason)
+    return `Revise similar work by applying: ${label.reason}`
+  if (label.kind === 'select' && label.reason)
+    return `Prefer selected options for "${compact(trajectory.task.intent, 80)}" because: ${label.reason}`
+  if (label.kind === 'approve' && label.reason)
+    return `Repeat the pattern approved for "${compact(trajectory.task.intent, 80)}": ${label.reason}`
   if (label.kind === 'comment' && label.reason) return label.reason
   return undefined
 }
 
 function weightForLabel(label: FeedbackLabel): number {
-  const severity = label.severity === 'critical' ? 4 : label.severity === 'error' ? 3 : label.severity === 'warning' ? 2 : 1
-  const source = label.source === 'user' ? 3 : label.source === 'metric' || label.source === 'environment' ? 2 : 1
+  const severity =
+    label.severity === 'critical'
+      ? 4
+      : label.severity === 'error'
+        ? 3
+        : label.severity === 'warning'
+          ? 2
+          : 1
+  const source =
+    label.source === 'user'
+      ? 3
+      : label.source === 'metric' || label.source === 'environment'
+        ? 2
+        : 1
   return severity * source
 }
 

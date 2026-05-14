@@ -1,8 +1,8 @@
 import type { TCloud } from '@tangle-network/tcloud'
-import type { PersonaConfig, DriverResult, DriverState, TurnMetrics } from './types'
-import { ProductClient } from './client'
-import { MetricsCollector } from './metrics'
+import type { ProductClient } from './client'
 import { ConvergenceTracker } from './convergence'
+import { MetricsCollector } from './metrics'
+import type { DriverResult, DriverState, PersonaConfig, TurnMetrics } from './types'
 
 export interface AgentDriverConfig {
   client: ProductClient
@@ -77,7 +77,7 @@ export class AgentDriver {
       )
 
       // Wait for post-processor
-      await new Promise(r => setTimeout(r, 2000))
+      await new Promise((r) => setTimeout(r, 2000))
 
       // Handle pending approvals
       await this.handleApprovals(persona, workspaceId, state)
@@ -103,7 +103,9 @@ export class AgentDriver {
       const criteriaStr = Object.entries(conv.criteriaStatus)
         .map(([k, v]) => `${k}:${v ? '+' : '-'}`)
         .join(' ')
-      console.log(`  [turn ${turn}] ${conv.completionPercent.toFixed(0)}% — ${criteriaStr} (${(latency / 1000).toFixed(1)}s)`)
+      console.log(
+        `  [turn ${turn}] ${conv.completionPercent.toFixed(0)}% — ${criteriaStr} (${(latency / 1000).toFixed(1)}s)`,
+      )
 
       if (conv.complete) {
         completed = true
@@ -134,19 +136,22 @@ export class AgentDriver {
     state: DriverState,
     history: { role: string; content: string }[],
   ): Promise<string> {
-    const lastResponse = history.length > 0
-      ? history[history.length - 1].content.slice(0, 2000)
-      : '(no conversation yet — this is the first message)'
+    const lastResponse =
+      history.length > 0
+        ? history[history.length - 1]!.content.slice(0, 2000)
+        : '(no conversation yet — this is the first message)'
 
-    const recentHistory = history.slice(-6).map(h =>
-      `${h.role}: ${h.content.slice(0, 500)}`
-    ).join('\n\n')
+    const recentHistory = history
+      .slice(-6)
+      .map((h) => `${h.role}: ${h.content.slice(0, 500)}`)
+      .join('\n\n')
 
     const resp = await this.tc.chat({
       model: this.driverModel,
-      messages: [{
-        role: 'system',
-        content: `You are playing the role of a ${persona.role} testing an AI agent.
+      messages: [
+        {
+          role: 'system',
+          content: `You are playing the role of a ${persona.role} testing an AI agent.
 Your goal: ${persona.goal}
 
 ${this.productContext ? `Product context:\n${this.productContext}\n` : ''}
@@ -166,19 +171,22 @@ Decide what to do next:
 5. If this is the first message — start with a clear, actionable request
 
 Output ONLY your next message to the agent. Be specific. Be realistic.
-Don't be patient — a real ${persona.role} wouldn't accept vague answers.`
-      }, {
-        role: 'user',
-        content: recentHistory
-          ? `Recent conversation:\n${recentHistory}\n\nThe agent just said:\n${lastResponse}`
-          : 'No conversation yet. Send your opening message.',
-      }],
+Don't be patient — a real ${persona.role} wouldn't accept vague answers.`,
+        },
+        {
+          role: 'user',
+          content: recentHistory
+            ? `Recent conversation:\n${recentHistory}\n\nThe agent just said:\n${lastResponse}`
+            : 'No conversation yet. Send your opening message.',
+        },
+      ],
       temperature: 0.5,
       maxTokens: 500,
     })
 
-    const content = (resp as { choices?: { message?: { content?: string } }[] })
-      .choices?.[0]?.message?.content ?? ''
+    const content =
+      (resp as { choices?: { message?: { content?: string } }[] }).choices?.[0]?.message?.content ??
+      ''
 
     return content.trim()
   }
@@ -190,11 +198,11 @@ Don't be patient — a real ${persona.role} wouldn't accept vague answers.`
     _state: DriverState,
   ): Promise<void> {
     const approvals = await this.client.getApprovals(workspaceId)
-    const pending = approvals.filter(a => a.status === 'pending')
+    const pending = approvals.filter((a) => a.status === 'pending')
 
     for (const action of pending) {
       // Check if any feedback pattern triggers a rejection
-      const rejection = persona.feedbackPatterns?.find(fp => {
+      const rejection = persona.feedbackPatterns?.find((fp) => {
         const title = action.title.toLowerCase()
         return title.includes(fp.trigger.toLowerCase())
       })
@@ -211,11 +219,11 @@ Don't be patient — a real ${persona.role} wouldn't accept vague answers.`
 
   /** Describe which completion criteria are met */
   private describeCompletion(persona: PersonaConfig, state: DriverState): string {
-    const results = persona.completionCriteria.map(c => {
+    const results = persona.completionCriteria.map((c) => {
       const met = c.check(state)
       return `${c.name}: ${met ? 'MET' : 'NOT MET'}`
     })
-    const metCount = results.filter(r => r.includes('MET') && !r.includes('NOT')).length
+    const metCount = results.filter((r) => r.includes('MET') && !r.includes('NOT')).length
     return `${metCount}/${persona.completionCriteria.length} — ${results.join(', ')}`
   }
 }

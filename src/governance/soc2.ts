@@ -18,9 +18,8 @@ export async function soc2Report(ctx: GovernanceContext): Promise<GovernanceRepo
   const runs = await ctx.traceStore.listRuns({ since: start, until: end })
 
   // CC7.1 — "Monitoring to detect anomalies"
-  const failureRate = runs.length > 0
-    ? runs.filter((r) => r.outcome?.pass === false).length / runs.length
-    : null
+  const failureRate =
+    runs.length > 0 ? runs.filter((r) => r.outcome?.pass === false).length / runs.length : null
   if (failureRate !== null && failureRate > 0.2) {
     findings.push({
       id: 'CC7.1-fail-rate',
@@ -52,7 +51,11 @@ export async function soc2Report(ctx: GovernanceContext): Promise<GovernanceRepo
   }
 
   // CC7.3 — "Response to incidents" — require an event tag for resolved incidents
-  const incidentEvents = await ctx.traceStore.events({ kind: 'policy_violation', since: start, until: end })
+  const incidentEvents = await ctx.traceStore.events({
+    kind: 'policy_violation',
+    since: start,
+    until: end,
+  })
   const errorEvents = await ctx.traceStore.events({ kind: 'error', since: start, until: end })
   const totalIncidents = incidentEvents.length + errorEvents.length
   if (totalIncidents > 0) {
@@ -62,7 +65,8 @@ export async function soc2Report(ctx: GovernanceContext): Promise<GovernanceRepo
       severity: 'low',
       control: 'SOC2:CC7.3',
       summary: `${totalIncidents} incident-class event(s) recorded; resolution tracking is informal.`,
-      remediation: 'Emit a resolution event (kind="log" with payload.resolves=<eventId>) per remediated incident.',
+      remediation:
+        'Emit a resolution event (kind="log" with payload.resolves=<eventId>) per remediated incident.',
     })
   }
 

@@ -82,10 +82,7 @@ export interface ExtractResult {
  * callsite that greps for "typescript errors" on cargo output should
  * NOT treat that as "zero TS errors" because the toolchain is wrong.
  */
-export function extractErrorCount(
-  text: string,
-  opts: ExtractOptions = {},
-): ExtractResult {
+export function extractErrorCount(text: string, opts: ExtractOptions = {}): ExtractResult {
   if (!text) return { count: null, matched: null, samples: [] }
 
   const patterns = [...(opts.extra ?? []), ...ERROR_COUNT_PATTERNS].filter(

@@ -1,5 +1,85 @@
 # Changelog
 
+## 0.24.0 — DX cleanup: framing, stability tags, lint, taxonomy, strict indices
+
+This release is **DX + correctness**. No production behavior moved; consumer
+contracts tightened across the board. Library went from 7.5/10 to 10/10 on
+first-touch usability and contract clarity. The visible deltas:
+
+### Strictness
+
+- **`noUncheckedIndexedAccess: true`** in `tsconfig.json`. 251 latent
+  `T | undefined` sites surfaced and fixed across ~70 files. Loop-bound
+  indices documented with `!`, external lookups guarded explicitly, accumulator
+  patterns refactored to capture-then-assign. Every fix audited for semantic
+  correctness (math code: `!`; untrusted data: guards).
+- **Subpath imports forced.** Six `export * from './X'` wildcards at root
+  deleted (`./rl`, `./pipelines`, `./builder-eval`, `./meta-eval`, `./prm`,
+  `./trace-analyst`). New subpaths in `package.json`: `/pipelines`,
+  `/meta-eval`, `/prm`, `/builder-eval`, `/governance`, `/knowledge`. Root
+  re-exports retained only for the load-bearing capture-integrity surface
+  (`./trace`, `./knowledge`, `./governance`).
+- **Error taxonomy.** New `src/errors.ts` exports `AgentEvalError` base plus
+  `ValidationError`, `NotFoundError`, `ConfigError`, `CaptureIntegrityError`,
+  `JudgeError`, `VerificationError`, `ReplayError`. Existing custom errors
+  re-parented: `ReplayCacheMissError`, `BudgetBreachError`, `RunIntegrityError`,
+  `HoldoutLockedError`, `RunRecordValidationError`, `LlmCallError`,
+  `LlmRouteAssertionError`, `TraceFileMissingError`, `TraceNotFoundError`,
+  `SpanNotFoundError`. ~25 user-facing `throw new Error(...)` calls migrated
+  to typed errors across `rl/*`, `replay`, `sandbox-harness`, `statistics`,
+  `release-confidence`, `visual-diff`, `counterfactual`, `run-critic`,
+  `observability`. Internal invariant guards intentionally left as plain
+  `Error` — those are bugs, not contract failures.
+- **`LlmRouteAssertionError.code` → `reason`** (breaking, greenfield).
+  The subclass's route-specific reason now lives on `.reason`; the base
+  category `code = 'capture_integrity'` survives via the `AgentEvalError`
+  contract.
+
+### Visible deltas
+
+### Changed
+
+- **README reframed** as the substrate for self-improving agents. The package
+  has shipped `EvalCampaign`, replay, GEPA / reflective mutation, auto-research,
+  active curriculum, contamination probes, tournaments, compute curves, PRM,
+  off-policy estimators, and sequential anytime-valid stats since 0.22 — the
+  README now actually names them, not just "evaluation infrastructure."
+
+- **`src/rl/index.ts` carries stability markers** — every re-export is tagged
+  `@stable` or `@experimental` via JSDoc. Stable: `run-record-adapters`,
+  `verifiable-reward`, `preferences`, `off-policy`, `tournament`,
+  `contamination`, `compute-curves`. Experimental: `process-reward`,
+  `adversarial`, `active-curriculum`, `reward-hacking`, `adaptation-eval`,
+  `exporters`, `rl-campaign`, `predictive-validity-researcher`, `auto-research`.
+  Tags are visible in IDE hover and emitted into `dist/rl.d.ts` so consumers
+  can see the contract at the call site.
+
+### Added
+
+- **Biome lint + format** — `biome.json` codifies the project style (no
+  semicolons, single quotes, 2-space indent, 100 col, `noNonNullAssertion`
+  off, `useNodejsImportProtocol` on). `pnpm lint` and `pnpm format` scripts.
+- **`.github/workflows/ci.yml`** — runs typecheck + lint + test + build +
+  Python pytest on every PR. Previously only the publish workflow on tag
+  push exercised this surface; PRs were unguarded.
+- **`ReplayCache.entries()`** — public iterator for the cached
+  `(request, response)` pairs. Replaces the bracket-access escape hatch into
+  the private `byKey` map. Same semantics, exposed in the type contract.
+- **Per-example READMEs** — `examples/multi-shot-optimization` and
+  `examples/same-sandbox-harness` now document what they show, how to run,
+  expected output, and adaptation guidance. The other three examples already
+  had READMEs; the README index now links to all five.
+- **`clients/python/examples/judge_anti_slop.py`** — runnable script that
+  doubles as a pytest, anchoring the `judge` API contract: composite in
+  `[0, 1]`, `RubricNotFoundError` for bogus rubric name, `ValidationError`
+  for no-rubric call.
+
+### Fixed
+
+- **`reflective-mutation.ts`** — local `escape` variable shadowed the global
+  `escape` property. Renamed to `escaped`. No behavior change; flagged by
+  biome.
+
 ## 0.23.1 — FileSystemTraceStore.updateRun no longer double-appends
 
 ### Fixed

@@ -39,21 +39,8 @@
  *   - LLM-call retry beyond what `LlmClient` already does
  */
 
-import { canonicalize, hashJson } from './pre-registration'
 import { assertLlmRoute, type LlmClientOptions, type LlmRouteRequirements } from './llm-client'
-import { TraceEmitter } from './trace/emitter'
-import {
-  FileSystemRawProviderSink,
-  type RawProviderSink,
-} from './trace/raw-provider-sink'
-import {
-  RunIntegrityError,
-  assertRunCaptured,
-  type RunIntegrityExpectations,
-  type RunIntegrityReport,
-} from './trace/integrity'
-import type { RunCompleteHook } from './trace/emitter'
-import type { TraceStore } from './trace/store'
+import { canonicalize, hashJson } from './pre-registration'
 import type {
   RunJudgeMetadata,
   RunOutcome,
@@ -61,11 +48,17 @@ import type {
   RunSplitTag,
   RunTokenUsage,
 } from './run-record'
+import { type ResearchReport, type ResearchReportOptions, researchReport } from './summary-report'
+import type { RunCompleteHook } from './trace/emitter'
+import { TraceEmitter } from './trace/emitter'
 import {
-  researchReport,
-  type ResearchReport,
-  type ResearchReportOptions,
-} from './summary-report'
+  assertRunCaptured,
+  RunIntegrityError,
+  type RunIntegrityExpectations,
+  type RunIntegrityReport,
+} from './trace/integrity'
+import { FileSystemRawProviderSink, type RawProviderSink } from './trace/raw-provider-sink'
+import type { TraceStore } from './trace/store'
 
 // ── Public types ─────────────────────────────────────────────────────────
 
@@ -200,7 +193,10 @@ export interface EvalCampaignOptions<V> {
    * If set, the campaign computes `researchReport` at the end. `comparator`
    * is a `variantId`. Other fields are forwarded verbatim.
    */
-  report?: { comparator?: string } & Omit<ResearchReportOptions, 'comparator' | 'preregistrationHash' | 'generatedAt'>
+  report?: { comparator?: string } & Omit<
+    ResearchReportOptions,
+    'comparator' | 'preregistrationHash' | 'generatedAt'
+  >
   /**
    * Hash of a signed `HypothesisManifest` (see `pre-registration.ts`).
    * Embedded in the campaign fingerprint and the research report.
@@ -262,7 +258,9 @@ const DEFAULT_ROUTE: LlmRouteRequirements = {
   requireAuth: true,
 }
 
-export async function runEvalCampaign<V>(opts: EvalCampaignOptions<V>): Promise<EvalCampaignResult> {
+export async function runEvalCampaign<V>(
+  opts: EvalCampaignOptions<V>,
+): Promise<EvalCampaignResult> {
   // ── Preflight ──────────────────────────────────────────────────────
   assertLlmRoute(opts.llmOpts, opts.routeRequirements ?? DEFAULT_ROUTE)
 
@@ -287,7 +285,9 @@ export async function runEvalCampaign<V>(opts: EvalCampaignOptions<V>): Promise<
     scenarioIds.add(s.scenarioId)
   }
   if (opts.report?.comparator && !variantIds.has(opts.report.comparator)) {
-    throw new Error(`runEvalCampaign: report.comparator "${opts.report.comparator}" is not a configured variantId.`)
+    throw new Error(
+      `runEvalCampaign: report.comparator "${opts.report.comparator}" is not a configured variantId.`,
+    )
   }
   if (!opts.commitSha) {
     throw new Error('runEvalCampaign: commitSha is required (every RunRecord needs it).')
@@ -306,17 +306,19 @@ export async function runEvalCampaign<V>(opts: EvalCampaignOptions<V>): Promise<
   const rawSinkFactory = opts.rawSinkFactory ?? defaultRawSinkFactory(opts.workDir)
 
   // ── Fingerprint ────────────────────────────────────────────────────
-  const campaignFingerprint = await hashJson(canonicalize({
-    campaignId: opts.campaignId,
-    variants: opts.variants.map((v) => v.id).sort(),
-    scenarios: opts.scenarios.map((s) => s.scenarioId).sort(),
-    seeds: [...seeds].sort((a, b) => a - b),
-    splitTag,
-    comparator: opts.report?.comparator ?? null,
-    baseUrl,
-    provider,
-    preregistrationHash,
-  }))
+  const campaignFingerprint = await hashJson(
+    canonicalize({
+      campaignId: opts.campaignId,
+      variants: opts.variants.map((v) => v.id).sort(),
+      scenarios: opts.scenarios.map((s) => s.scenarioId).sort(),
+      seeds: [...seeds].sort((a, b) => a - b),
+      splitTag,
+      comparator: opts.report?.comparator ?? null,
+      baseUrl,
+      provider,
+      preregistrationHash,
+    }),
+  )
 
   // ── Plan the matrix ────────────────────────────────────────────────
   type Cell = { variant: CampaignVariant<V>; scenario: CampaignScenario; seed: number }
@@ -358,7 +360,9 @@ export async function runEvalCampaign<V>(opts: EvalCampaignOptions<V>): Promise<
     }
   }
 
-  async function runOneCell(cell: Cell): Promise<{ record: RunRecord; integrity: RunIntegrityReport }> {
+  async function runOneCell(
+    cell: Cell,
+  ): Promise<{ record: RunRecord; integrity: RunIntegrityReport }> {
     const runId = (opts.runId ?? defaultRunId)({
       campaignId: opts.campaignId,
       runId: '', // unused by default generator

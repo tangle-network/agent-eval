@@ -5,8 +5,8 @@
  * underbudgeted? Which variants trigger the most breaches?
  */
 
-import type { TraceStore } from '../trace/store'
 import type { BudgetSpec } from '../trace/schema'
+import type { TraceStore } from '../trace/store'
 
 export interface BudgetBreachFinding {
   runId: string
@@ -32,7 +32,10 @@ export async function budgetBreachView(
   store: TraceStore,
   options: { scenarioId?: string; variantId?: string } = {},
 ): Promise<BudgetBreachReport> {
-  const runs = await store.listRuns({ scenarioId: options.scenarioId, variantId: options.variantId })
+  const runs = await store.listRuns({
+    scenarioId: options.scenarioId,
+    variantId: options.variantId,
+  })
   const findings: BudgetBreachFinding[] = []
   const byDimension: Record<string, number> = {}
   const byScenario: Record<string, number> = {}

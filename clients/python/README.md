@@ -22,7 +22,9 @@ print(result.wins)              # ["specific-component", "earned-detail", ...]
 print(result.rationale)         # "The post names a real architectural detail..."
 ```
 
-That's the entire surface for content judging.
+That's the entire surface for content judging. A self-contained runnable
+example with pytest invariants lives at
+[`examples/judge_anti_slop.py`](./examples/judge_anti_slop.py).
 
 ## Install
 

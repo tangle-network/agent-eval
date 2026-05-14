@@ -19,7 +19,11 @@ describe('evaluateActionPolicy', () => {
 
   it('blocks actions that exceed cost or evidence policy', () => {
     const decision = evaluateActionPolicy(
-      { type: 'coding.run-large-mutation', costUsd: 12, metadata: { expectedOutcome: 'improve tests' } },
+      {
+        type: 'coding.run-large-mutation',
+        costUsd: 12,
+        metadata: { expectedOutcome: 'improve tests' },
+      },
       { maxActionCostUsd: 5, expectedOutcomeRequired: true, killCriteriaRequired: true },
       { createdAt: '2026-01-01T00:00:00.000Z' },
     )

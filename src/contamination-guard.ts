@@ -16,8 +16,8 @@
  */
 
 import type { DatasetScenario } from './dataset'
-import type { TraceStore } from './trace/store'
 import { llmSpans } from './trace/query'
+import type { TraceStore } from './trace/store'
 
 export interface CanaryLeak {
   scenarioId: string
@@ -139,7 +139,12 @@ export async function canaryLeakView(
     const output = span.output ?? ''
     for (const s of targets) {
       if (s.canary && output.includes(s.canary)) {
-        leaks.push({ scenarioId: s.id, canary: s.canary, runId: span.runId, evidence: excerpt(output, s.canary) })
+        leaks.push({
+          scenarioId: s.id,
+          canary: s.canary,
+          runId: span.runId,
+          evidence: excerpt(output, s.canary),
+        })
       }
     }
   }
@@ -157,7 +162,9 @@ export class HoldoutAuditor {
   /** Retrieve a holdout scenario for a declared purpose. Non-'evaluation' throws. */
   get(scenarioId: string, purpose: 'evaluation' | 'debugging'): DatasetScenario {
     if (purpose !== 'evaluation' && purpose !== 'debugging') {
-      throw new Error(`HoldoutAuditor.get: purpose must be 'evaluation' or 'debugging', got ${purpose}`)
+      throw new Error(
+        `HoldoutAuditor.get: purpose must be 'evaluation' or 'debugging', got ${purpose}`,
+      )
     }
     const s = this.scenarios.find((x) => x.id === scenarioId)
     if (!s) throw new Error(`holdout scenario "${scenarioId}" not found`)

@@ -1,6 +1,6 @@
 import type { ReleaseConfidenceScorecard } from './release-confidence'
-import { summaryTable } from './summary-report'
 import type { RunRecord } from './run-record'
+import { summaryTable } from './summary-report'
 
 export interface RenderReleaseReportOptions {
   title?: string
@@ -70,10 +70,12 @@ export function renderReleaseReport(
   if (options.runs && options.runs.length > 0) {
     lines.push('## Run Summary')
     lines.push('')
-    lines.push(summaryTable([...options.runs], {
-      comparator: options.comparator ?? scorecard.baselineId ?? undefined,
-      split: 'holdout',
-    }).markdown)
+    lines.push(
+      summaryTable([...options.runs], {
+        comparator: options.comparator ?? scorecard.baselineId ?? undefined,
+        split: 'holdout',
+      }).markdown,
+    )
     lines.push('')
   }
 
@@ -92,7 +94,7 @@ export function renderReleaseReport(
     lines.push('')
   }
 
-  return lines.join('\n').trimEnd() + '\n'
+  return `${lines.join('\n').trimEnd()}\n`
 }
 
 function defaultNextActions(scorecard: ReleaseConfidenceScorecard): string[] {

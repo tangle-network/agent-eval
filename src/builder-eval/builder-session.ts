@@ -16,13 +16,13 @@
  * trace data via `resume(store, projectId)`.
  */
 
+import type { HarnessConfig, SandboxDriver, SandboxHarnessResult } from '../sandbox-harness'
+import { SandboxHarness } from '../sandbox-harness'
+import type { TestGradedRunResult, TestGradedScenario } from '../test-graded-scenario'
+import { runTestGradedScenario } from '../test-graded-scenario'
+import { TraceEmitter } from '../trace/emitter'
 import type { Run } from '../trace/schema'
 import type { TraceStore } from '../trace/store'
-import { TraceEmitter } from '../trace/emitter'
-import type { TestGradedScenario, TestGradedRunResult } from '../test-graded-scenario'
-import { runTestGradedScenario } from '../test-graded-scenario'
-import type { SandboxDriver, HarnessConfig, SandboxHarnessResult } from '../sandbox-harness'
-import { SandboxHarness } from '../sandbox-harness'
 
 export interface BuilderSessionInit {
   projectId: string
@@ -112,7 +112,8 @@ export class BuilderSession {
    */
   async runAppScenario(options: RunAppScenarioOptions): Promise<TestGradedRunResult> {
     const parentRunId = this.lastBuildRunId ?? this.builderRunId
-    if (!parentRunId) throw new Error('BuilderSession.runAppScenario: call startChat() + ship() first')
+    if (!parentRunId)
+      throw new Error('BuilderSession.runAppScenario: call startChat() + ship() first')
     const { scenario, driver } = options
     const result = await runTestGradedScenario(scenario, this.store, {
       driver: driver ?? this.defaultDriver,
@@ -131,7 +132,8 @@ export class BuilderSession {
   /** Record an end-of-chat meta score (judge verdict on whether the builder
    *  served the user's intent). Accepts a numeric score + optional rationale. */
   async recordMetaScore(score: number, rationale?: string): Promise<void> {
-    if (!this.builderRunId) throw new Error('BuilderSession.recordMetaScore: call startChat() first')
+    if (!this.builderRunId)
+      throw new Error('BuilderSession.recordMetaScore: call startChat() first')
     await this.builderEmitter.recordJudge({
       judgeId: 'builder-meta',
       targetSpanId: this.builderRunId, // attach to the builder run itself
@@ -144,7 +146,11 @@ export class BuilderSession {
 
   /** Close the builder Run with a final outcome. */
   async endChat(outcome: { pass: boolean; score?: number; notes?: string }): Promise<void> {
-    await this.builderEmitter.endRun({ pass: outcome.pass, score: outcome.score, notes: outcome.notes })
+    await this.builderEmitter.endRun({
+      pass: outcome.pass,
+      score: outcome.score,
+      notes: outcome.notes,
+    })
   }
 
   /**
@@ -156,7 +162,10 @@ export class BuilderSession {
    */
   async startAppRuntime(scenarioId: string): Promise<TraceEmitter> {
     const parentRunId = this.lastBuildRunId ?? this.builderRunId
-    if (!parentRunId) throw new Error('BuilderSession.startAppRuntime: call startChat() + (optionally) ship() first')
+    if (!parentRunId)
+      throw new Error(
+        'BuilderSession.startAppRuntime: call startChat() + (optionally) ship() first',
+      )
     const emitter = new TraceEmitter(this.store)
     await emitter.startRun({
       scenarioId,
@@ -179,7 +188,8 @@ export class BuilderSession {
     scenarioId?: string
     notes?: string
   }): Promise<string> {
-    if (!this.builderRunId) throw new Error('BuilderSession.recordShipMarker: call startChat() first')
+    if (!this.builderRunId)
+      throw new Error('BuilderSession.recordShipMarker: call startChat() first')
     const emitter = new TraceEmitter(this.store)
     await emitter.startRun({
       scenarioId: args.scenarioId ?? `${this.projectId}/ship`,
@@ -198,8 +208,12 @@ export class BuilderSession {
     return emitter.runId
   }
 
-  get lastBuildRunIdValue(): string | undefined { return this.lastBuildRunId }
-  get builderRunIdValue(): string | undefined { return this.builderRunId }
+  get lastBuildRunIdValue(): string | undefined {
+    return this.lastBuildRunId
+  }
+  get builderRunIdValue(): string | undefined {
+    return this.builderRunId
+  }
 }
 
 /**
@@ -218,9 +232,15 @@ export async function resumeBuilderSession(
   lastAppRuntimeRuns: Run[]
 }> {
   const runs = await store.listRuns({ projectId })
-  const chatRuns = runs.filter((r) => r.layer === 'builder').sort((a, b) => b.startedAt - a.startedAt)
-  const buildRuns = runs.filter((r) => r.layer === 'app-build').sort((a, b) => b.startedAt - a.startedAt)
-  const appRuntimeRuns = runs.filter((r) => r.layer === 'app-runtime').sort((a, b) => b.startedAt - a.startedAt)
+  const chatRuns = runs
+    .filter((r) => r.layer === 'builder')
+    .sort((a, b) => b.startedAt - a.startedAt)
+  const buildRuns = runs
+    .filter((r) => r.layer === 'app-build')
+    .sort((a, b) => b.startedAt - a.startedAt)
+  const appRuntimeRuns = runs
+    .filter((r) => r.layer === 'app-runtime')
+    .sort((a, b) => b.startedAt - a.startedAt)
   return {
     projectId,
     chatRuns,

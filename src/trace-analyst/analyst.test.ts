@@ -188,9 +188,11 @@ describe('analyzeTraces', () => {
     )
 
     expect(axMock.agentCalls).toHaveLength(1)
-    expect(axMock.agentCalls[0].signature).toBe('question:string -> answer:string, findings:string[]')
-    expect(axMock.agentCalls[0].options.mode).toBe('advanced')
-    expect(axMock.agentCalls[0].options.functions).toMatchObject({
+    expect(axMock.agentCalls[0]!.signature).toBe(
+      'question:string -> answer:string, findings:string[]',
+    )
+    expect(axMock.agentCalls[0]!.options.mode).toBe('advanced')
+    expect(axMock.agentCalls[0]!.options.functions).toMatchObject({
       local: expect.arrayContaining([
         expect.objectContaining({ namespace: 'traces', name: 'getDatasetOverview' }),
         expect.objectContaining({ namespace: 'traces', name: 'searchSpan' }),
@@ -223,28 +225,28 @@ describe('analyzeTraces', () => {
     const store = minimalStore()
 
     try {
-      await expect(analyzeTraces(
-        { question: 'What broke?' },
-        {
-          source: store,
-          ai: { provider: 'test' },
-          progressLogPath,
-          onTurn: (turn) => {
-            turns.push(turn)
+      await expect(
+        analyzeTraces(
+          { question: 'What broke?' },
+          {
+            source: store,
+            ai: { provider: 'test' },
+            progressLogPath,
+            onTurn: (turn) => {
+              turns.push(turn)
+            },
           },
-        },
-      )).rejects.toThrow('provider unavailable')
+        ),
+      ).rejects.toThrow('provider unavailable')
 
       const lines = readFileSync(progressLogPath, 'utf8').trim().split('\n')
       expect(lines).toHaveLength(1)
-      expect(JSON.parse(lines[0])).toMatchObject({
+      expect(JSON.parse(lines[0]!)).toMatchObject({
         turn: 1,
         output: 'overview loaded',
         isError: false,
       })
-      expect(turns).toEqual([
-        expect.objectContaining({ turn: 1, output: 'overview loaded' }),
-      ])
+      expect(turns).toEqual([expect.objectContaining({ turn: 1, output: 'overview loaded' })])
     } finally {
       rmSync(tmpDir, { recursive: true, force: true })
     }

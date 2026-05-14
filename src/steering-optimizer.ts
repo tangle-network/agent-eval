@@ -39,17 +39,17 @@ export interface AxSteeringOptimizerConfig extends SteeringOptimizerConfig {
   minRows?: number
 }
 
-interface AxServiceFactory {
-  (config: { name: 'openai' | 'anthropic'; apiKey: string; config: { model: string } }): unknown
-}
+type AxServiceFactory = (config: {
+  name: 'openai' | 'anthropic'
+  apiKey: string
+  config: { model: string }
+}) => unknown
 
 interface AxSelectorProgram {
   applyOptimization(compiled: unknown): void
 }
 
-interface AxFactory {
-  (signature: string, options: { description: string }): AxSelectorProgram
-}
+type AxFactory = (signature: string, options: { description: string }) => AxSelectorProgram
 
 interface AxGepaCompileResult {
   optimizedProgram?: unknown
@@ -91,7 +91,10 @@ interface ScenarioWinner {
 }
 
 export class PairwiseSteeringOptimizer {
-  optimize(rows: SteeringOptimizationRow[], config: SteeringOptimizerConfig = {}): SteeringOptimizationResult {
+  optimize(
+    rows: SteeringOptimizationRow[],
+    config: SteeringOptimizerConfig = {},
+  ): SteeringOptimizationResult {
     const ranked = rankRows(rows, config.weights)
     if (!ranked.length) throw new Error('no steering optimization rows')
     return {
@@ -122,7 +125,7 @@ export class AxGepaSteeringOptimizer {
 
     let axLib: AxModule
     try {
-      axLib = await import('@ax-llm/ax') as AxModule
+      axLib = (await import('@ax-llm/ax')) as AxModule
     } catch {
       return {
         ...fallback,
@@ -151,7 +154,12 @@ export class AxGepaSteeringOptimizer {
 
     const optimizer = new AxGEPA({
       studentAI: createAxService(ai, this.config.provider, this.config.apiKey, this.config.model),
-      teacherAI: createAxService(ai, this.config.provider, this.config.apiKey, this.config.teacherModel ?? this.config.model),
+      teacherAI: createAxService(
+        ai,
+        this.config.provider,
+        this.config.apiKey,
+        this.config.teacherModel ?? this.config.model,
+      ),
       numTrials: 8,
       minibatch: true,
       minibatchSize: 4,
@@ -162,7 +170,7 @@ export class AxGepaSteeringOptimizer {
     const compiled = await optimizer.compile(
       selector,
       train,
-      ({ prediction, example }) => prediction?.variantId === example?.variantId ? 1 : 0,
+      ({ prediction, example }) => (prediction?.variantId === example?.variantId ? 1 : 0),
       {
         validationExamples: validation,
         maxMetricCalls: 64,
@@ -202,7 +210,10 @@ function rankRows(rows: SteeringOptimizationRow[], weights?: Partial<RunScoreWei
     .sort((a, b) => b.mean - a.mean)
 }
 
-function collapseScenarioWinners(rows: SteeringOptimizationRow[], weights?: Partial<RunScoreWeights>) {
+function collapseScenarioWinners(
+  rows: SteeringOptimizationRow[],
+  weights?: Partial<RunScoreWeights>,
+) {
   const byScenario = new Map<string, SteeringOptimizationRow[]>()
   for (const row of rows) {
     const bucket = byScenario.get(row.scenarioId) ?? []
@@ -222,7 +233,12 @@ function collapseScenarioWinners(rows: SteeringOptimizationRow[], weights?: Part
   })
 }
 
-function createAxService(aiFactory: AxServiceFactory, provider: 'openai' | 'anthropic', apiKey: string, model: string) {
+function createAxService(
+  aiFactory: AxServiceFactory,
+  provider: 'openai' | 'anthropic',
+  apiKey: string,
+  model: string,
+) {
   return aiFactory({
     name: provider,
     apiKey,

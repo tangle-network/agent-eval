@@ -1,5 +1,5 @@
-import { describe, it, expect } from 'vitest'
-import { runSemanticConceptJudge, createSemanticConceptJudge } from './semantic-concept-judge'
+import { describe, expect, it } from 'vitest'
+import { createSemanticConceptJudge, runSemanticConceptJudge } from './semantic-concept-judge'
 
 function mockFetch(bodies: Array<object | { status: number; body: string }>) {
   let call = 0
@@ -7,7 +7,9 @@ function mockFetch(bodies: Array<object | { status: number; body: string }>) {
     const spec = bodies[Math.min(call, bodies.length - 1)]!
     call++
     if ('status' in spec && 'body' in spec) {
-      return new Response((spec as { body: string }).body, { status: (spec as { status: number }).status })
+      return new Response((spec as { body: string }).body, {
+        status: (spec as { status: number }).status,
+      })
     }
     return new Response(
       JSON.stringify({
@@ -71,7 +73,13 @@ describe('semantic-concept-judge', () => {
         summary: 'out-of-range model response',
         concepts: [
           { concept: 'mint button', present: true, score: 42, evidence: 'e', severity: 'info' },
-          { concept: 'supply counter', present: false, score: -5, evidence: 'e', severity: 'major' },
+          {
+            concept: 'supply counter',
+            present: false,
+            score: -5,
+            evidence: 'e',
+            severity: 'major',
+          },
         ],
       },
     ])
@@ -84,9 +92,7 @@ describe('semantic-concept-judge', () => {
     const fetch = mockFetch([
       {
         summary: 's',
-        concepts: [
-          { concept: 'x', present: true, score: 5, evidence: 'e', severity: 'nonsense' },
-        ],
+        concepts: [{ concept: 'x', present: true, score: 5, evidence: 'e', severity: 'nonsense' }],
       },
     ])
     const r = await runSemanticConceptJudge(
@@ -129,7 +135,13 @@ describe('semantic-concept-judge', () => {
           // Render concept: high score
           { concept: 'mint button', present: true, score: 10, evidence: 'e', severity: 'info' },
           // Integrate concept: low score
-          { concept: 'wallet connect', present: false, score: 0, evidence: 'e', severity: 'critical' },
+          {
+            concept: 'wallet connect',
+            present: false,
+            score: 0,
+            evidence: 'e',
+            severity: 'critical',
+          },
         ],
       },
     ])
@@ -153,7 +165,13 @@ describe('semantic-concept-judge', () => {
         summary: 's',
         concepts: [
           { concept: 'mint button', present: true, score: 10, evidence: 'e', severity: 'info' },
-          { concept: 'wallet connect', present: false, score: 0, evidence: 'e', severity: 'critical' },
+          {
+            concept: 'wallet connect',
+            present: false,
+            score: 0,
+            evidence: 'e',
+            severity: 'critical',
+          },
         ],
       },
     ])
@@ -199,11 +217,21 @@ describe('semantic-concept-judge', () => {
     const fetch = mockFetch([
       {
         summary: 's',
-        concepts: [{ concept: 'mint button', present: true, score: 8, evidence: 'e', severity: 'info' }],
+        concepts: [
+          { concept: 'mint button', present: true, score: 8, evidence: 'e', severity: 'info' },
+        ],
       },
       {
         summary: 's',
-        concepts: [{ concept: 'supply counter', present: false, score: 0, evidence: 'e', severity: 'critical' }],
+        concepts: [
+          {
+            concept: 'supply counter',
+            present: false,
+            score: 0,
+            evidence: 'e',
+            severity: 'critical',
+          },
+        ],
       },
     ])
     const judge = createSemanticConceptJudge({ llm: { fetch }, model: 'x' })

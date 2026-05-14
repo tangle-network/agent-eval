@@ -171,10 +171,13 @@ const SEMANTIC_SCHEMA = {
 
 function truncate(body: string, cap: number, label: string): string {
   if (body.length <= cap) return body
-  return body.slice(0, cap) + `\n… [truncated ${body.length - cap} chars of ${label}]`
+  return `${body.slice(0, cap)}\n… [truncated ${body.length - cap} chars of ${label}]`
 }
 
-function buildPrompt(input: SemanticConceptJudgeInput, opts: Required<SemanticConceptJudgeOptions>): string {
+function buildPrompt(
+  input: SemanticConceptJudgeInput,
+  opts: Required<SemanticConceptJudgeOptions>,
+): string {
   const sourceBlob = input.sourceFiles
     .filter((f) => f.content.length <= opts.maxPerFileChars)
     .map((f) => `--- FILE: ${f.path} ---\n${f.content}`)
@@ -196,7 +199,10 @@ ${input.userRequest}
 
 ${input.artifactLabel ? `ARTIFACT METADATA:\n  name: ${input.artifactLabel}\n  description: ${input.artifactDescription ?? ''}\n\n` : ''}EXPECTED CONCEPTS (each must be graded independently):
 ${input.expectedConcepts
-  .map((c, i) => `  ${i + 1}. "${c.name}"${c.keywords?.length ? ` — hints: [${c.keywords.slice(0, 6).join(' | ')}]` : ''}`)
+  .map(
+    (c, i) =>
+      `  ${i + 1}. "${c.name}"${c.keywords?.length ? ` — hints: [${c.keywords.slice(0, 6).join(' | ')}]` : ''}`,
+  )
   .join('\n')}
 
 ${html ? `SERVED HTML (what the preview returns when hit):\n${truncate(html, opts.maxHtmlChars, 'HTML')}\n\n` : ''}SOURCE FILES (the agent's workdir):
@@ -321,9 +327,10 @@ export async function runSemanticConceptJudge(
       weightSum += w
       weightedScoreSum += w * f.score
     }
-    const scoreAvg = weightSum > 0
-      ? weightedScoreSum / weightSum
-      : findings.reduce((a, f) => a + f.score, 0) / Math.max(1, findings.length)
+    const scoreAvg =
+      weightSum > 0
+        ? weightedScoreSum / weightSum
+        : findings.reduce((a, f) => a + f.score, 0) / Math.max(1, findings.length)
 
     return {
       kind: 'semantic-concept',

@@ -9,10 +9,10 @@
  * the framework is a moat — no other agent-eval tool publishes one.
  */
 
+import { aggregateLlm, llmSpans } from '../trace/query'
 import type { Run } from '../trace/schema'
 import type { TraceStore } from '../trace/store'
-import { aggregateLlm, llmSpans } from '../trace/query'
-import type { OutcomeStore, DeploymentOutcome, OutcomeFilter } from './outcome-store'
+import type { DeploymentOutcome, OutcomeFilter, OutcomeStore } from './outcome-store'
 
 export interface EvalMetricSpec {
   id: string
@@ -84,9 +84,15 @@ export async function correlationStudy(
   let skipped = 0
   for (const run of runs) {
     const os = outcomesByRun.get(run.runId)
-    if (!os || os.length === 0) { skipped++; continue }
+    if (!os || os.length === 0) {
+      skipped++
+      continue
+    }
     const eligible = os.filter((o) => o.capturedAt - run.startedAt <= maxLag)
-    if (eligible.length === 0) { skipped++; continue }
+    if (eligible.length === 0) {
+      skipped++
+      continue
+    }
 
     for (const em of evalMetrics) {
       const extract = em.extract ?? defaultExtract(em.id)
@@ -115,9 +121,16 @@ export async function correlationStudy(
       const spearman = pearsonR(ranks(p.xs), ranks(p.ys))
       const pearsonCi95 = bootstrapPearsonCi(p.xs, p.ys, options.bootstrapIterations ?? 500)
       const verdict: CorrelationResult['verdict'] =
-        Math.abs(pearson) >= 0.7 ? 'strong' :
-        Math.abs(pearson) >= 0.4 ? 'moderate' : 'weak'
-      return { evalMetric: p.evalMetric, outcomeMetric: p.outcomeMetric, n: p.xs.length, pearson, spearman, pearsonCi95, verdict }
+        Math.abs(pearson) >= 0.7 ? 'strong' : Math.abs(pearson) >= 0.4 ? 'moderate' : 'weak'
+      return {
+        evalMetric: p.evalMetric,
+        outcomeMetric: p.outcomeMetric,
+        n: p.xs.length,
+        pearson,
+        spearman,
+        pearsonCi95,
+        verdict,
+      }
     })
 
   return { pairs: results, joinedSamples: joined, skippedRuns: skipped }
@@ -125,29 +138,46 @@ export async function correlationStudy(
 
 // ── Helpers ──────────────────────────────────────────────────────────
 
-function reduce(values: number[], kind: 'latest' | 'mean' | 'max', outcomes: DeploymentOutcome[]): number | null {
+function reduce(
+  values: number[],
+  kind: 'latest' | 'mean' | 'max',
+  outcomes: DeploymentOutcome[],
+): number | null {
   if (values.length === 0) return null
   if (kind === 'mean') return values.reduce((a, b) => a + b, 0) / values.length
   if (kind === 'max') return Math.max(...values)
   // 'latest': pick the outcome captured last, then lookup its metric
   const latest = [...outcomes].sort((a, b) => b.capturedAt - a.capturedAt)[0]
-  const v = latest?.metrics[Object.keys(latest.metrics)[0]]
+  if (!latest) return null
+  const latestKey = Object.keys(latest.metrics)[0]
+  const v = latestKey !== undefined ? latest.metrics[latestKey] : undefined
   // For 'latest' we already have `values` aligned; use the last-captured one
   const paired = outcomes
-    .map((o) => ({ at: o.capturedAt, v: values.find((x) => o.metrics[Object.keys(o.metrics)[0]] === x) }))
+    .map((o) => {
+      const k = Object.keys(o.metrics)[0]
+      return {
+        at: o.capturedAt,
+        v: k !== undefined ? values.find((x) => o.metrics[k] === x) : undefined,
+      }
+    })
     .filter((p) => p.v !== undefined)
   if (paired.length === 0) return v ?? null
-  return paired.sort((a, b) => b.at - a.at)[0].v ?? null
+  return paired.sort((a, b) => b.at - a.at)[0]?.v ?? null
 }
 
 function pearsonR(a: number[], b: number[]): number {
   if (a.length !== b.length || a.length < 2) return NaN
   const mA = a.reduce((s, v) => s + v, 0) / a.length
   const mB = b.reduce((s, v) => s + v, 0) / b.length
-  let num = 0, dA = 0, dB = 0
+  let num = 0,
+    dA = 0,
+    dB = 0
   for (let i = 0; i < a.length; i++) {
-    const da = a[i] - mA, db = b[i] - mB
-    num += da * db; dA += da * da; dB += db * db
+    const da = a[i]! - mA,
+      db = b[i]! - mB
+    num += da * db
+    dA += da * da
+    dB += db * db
   }
   if (dA === 0 || dB === 0) return dA === 0 && dB === 0 ? 1 : 0
   return num / Math.sqrt(dA * dB)
@@ -158,15 +188,19 @@ function ranks(xs: number[]): number[] {
   const r = new Array<number>(xs.length)
   for (let i = 0; i < indexed.length; i++) {
     let j = i
-    while (j + 1 < indexed.length && indexed[j + 1].v === indexed[i].v) j++
+    while (j + 1 < indexed.length && indexed[j + 1]!.v === indexed[i]!.v) j++
     const avg = (i + j + 2) / 2
-    for (let k = i; k <= j; k++) r[indexed[k].i] = avg
+    for (let k = i; k <= j; k++) r[indexed[k]!.i] = avg
     i = j
   }
   return r
 }
 
-function bootstrapPearsonCi(xs: number[], ys: number[], iterations: number): { lower: number; upper: number } {
+function bootstrapPearsonCi(
+  xs: number[],
+  ys: number[],
+  iterations: number,
+): { lower: number; upper: number } {
   const n = xs.length
   if (n < 3) return { lower: NaN, upper: NaN }
   const rs: number[] = []
@@ -175,14 +209,18 @@ function bootstrapPearsonCi(xs: number[], ys: number[], iterations: number): { l
     const ry: number[] = new Array(n)
     for (let i = 0; i < n; i++) {
       const idx = Math.floor(Math.random() * n)
-      rx[i] = xs[idx]; ry[i] = ys[idx]
+      rx[i] = xs[idx]!
+      ry[i] = ys[idx]!
     }
     const r = pearsonR(rx, ry)
     if (Number.isFinite(r)) rs.push(r)
   }
   rs.sort((a, b) => a - b)
   if (rs.length === 0) return { lower: NaN, upper: NaN }
-  return { lower: rs[Math.floor(0.025 * rs.length)], upper: rs[Math.min(rs.length - 1, Math.floor(0.975 * rs.length))] }
+  return {
+    lower: rs[Math.floor(0.025 * rs.length)]!,
+    upper: rs[Math.min(rs.length - 1, Math.floor(0.975 * rs.length))]!,
+  }
 }
 
 function defaultExtract(metric: string): (run: Run, store: TraceStore) => Promise<number | null> {

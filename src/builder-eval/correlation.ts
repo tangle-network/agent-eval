@@ -35,9 +35,21 @@ export interface CorrelationReport {
 export function correlateLayers(reports: ThreeLayerProjectReport[]): CorrelationReport {
   const completeProjects = reports.filter((r) => r.complete).length
   return {
-    metaVsBuild: pairwise(reports, (r) => r.metaScore, (r) => r.buildScore),
-    metaVsRuntime: pairwise(reports, (r) => r.metaScore, (r) => r.runtimeScore),
-    buildVsRuntime: pairwise(reports, (r) => r.buildScore, (r) => r.runtimeScore),
+    metaVsBuild: pairwise(
+      reports,
+      (r) => r.metaScore,
+      (r) => r.buildScore,
+    ),
+    metaVsRuntime: pairwise(
+      reports,
+      (r) => r.metaScore,
+      (r) => r.runtimeScore,
+    ),
+    buildVsRuntime: pairwise(
+      reports,
+      (r) => r.buildScore,
+      (r) => r.runtimeScore,
+    ),
     completeProjects,
   }
 }
@@ -68,10 +80,12 @@ function pairwise(
 function pearsonR(a: number[], b: number[]): number {
   const mA = a.reduce((s, v) => s + v, 0) / a.length
   const mB = b.reduce((s, v) => s + v, 0) / b.length
-  let num = 0, dA = 0, dB = 0
+  let num = 0,
+    dA = 0,
+    dB = 0
   for (let i = 0; i < a.length; i++) {
-    const da = a[i] - mA
-    const db = b[i] - mB
+    const da = a[i]! - mA
+    const db = b[i]! - mB
     num += da * db
     dA += da * da
     dB += db * db
@@ -90,9 +104,9 @@ function ranks(xs: number[]): number[] {
   for (let i = 0; i < indexed.length; i++) {
     // Average rank for ties
     let j = i
-    while (j + 1 < indexed.length && indexed[j + 1].v === indexed[i].v) j++
+    while (j + 1 < indexed.length && indexed[j + 1]!.v === indexed[i]!.v) j++
     const avg = (i + j + 2) / 2
-    for (let k = i; k <= j; k++) r[indexed[k].i] = avg
+    for (let k = i; k <= j; k++) r[indexed[k]!.i] = avg
     i = j
   }
   return r

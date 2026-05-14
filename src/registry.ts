@@ -28,9 +28,7 @@ export class ScenarioRegistry {
 
   /** Get scenarios filtered by category */
   byCategory(category: string): Scenario[] {
-    const fromFiles = this.scenarioFiles
-      .filter(sf => sf.category === category)
-      .map(toScenario)
+    const fromFiles = this.scenarioFiles.filter((sf) => sf.category === category).map(toScenario)
     return fromFiles
   }
 
@@ -45,12 +43,12 @@ export class ScenarioRegistry {
 
   /** Get scenarios filtered by persona */
   byPersona(persona: string): Scenario[] {
-    return this.scenarios.filter(s => s.persona === persona)
+    return this.scenarios.filter((s) => s.persona === persona)
   }
 
   /** Get a single scenario by ID */
   byId(id: string): Scenario | undefined {
-    return this.scenarios.find(s => s.id === id)
+    return this.scenarios.find((s) => s.id === id)
   }
 
   /** Count total scenarios */

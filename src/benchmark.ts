@@ -1,6 +1,6 @@
 import type { TCloud } from '@tangle-network/tcloud'
-import type { Scenario, ScenarioResult, BenchmarkReport, BenchmarkRunnerConfig } from './types'
 import { executeScenario } from './executor'
+import type { BenchmarkReport, BenchmarkRunnerConfig, Scenario, ScenarioResult } from './types'
 
 /**
  * BenchmarkRunner — orchestrates scenarios, executor, judges, and scoring.
@@ -32,7 +32,7 @@ export class BenchmarkRunner {
     const results: ScenarioResult[] = []
 
     for (let i = 0; i < toRun.length; i++) {
-      const scenario = toRun[i]
+      const scenario = toRun[i]!
       console.log(`[${i + 1}/${toRun.length}] ${scenario.id} (${scenario.persona})`)
       console.log(`  thesis: ${scenario.thesis}`)
       console.log(`  turns: ${scenario.turns.length}`)
@@ -50,7 +50,9 @@ export class BenchmarkRunner {
         const toolIcon = turn.containsToolCall ? '[tool]' : ''
         const blockCount = turn.blocksExtracted.length
         const blockIcon = blockCount > 0 ? `[blocks:${blockCount}]` : ''
-        console.log(`  turn ${turn.turnIndex + 1}: ${(turn.durationMs / 1000).toFixed(1)}s ${codeIcon} ${toolIcon} ${blockIcon} (${turn.agentResponse.length} chars)`)
+        console.log(
+          `  turn ${turn.turnIndex + 1}: ${(turn.durationMs / 1000).toFixed(1)}s ${codeIcon} ${toolIcon} ${blockIcon} (${turn.agentResponse.length} chars)`,
+        )
       }
 
       // Print artifact results
@@ -63,16 +65,19 @@ export class BenchmarkRunner {
       console.log(`  judges:`)
       const byJudge: Record<string, { scores: number[]; dimensions: string[] }> = {}
       for (const js of result.judgeScores) {
-        if (!byJudge[js.judgeName]) byJudge[js.judgeName] = { scores: [], dimensions: [] }
-        byJudge[js.judgeName].scores.push(js.score)
-        byJudge[js.judgeName].dimensions.push(`${js.dimension}=${js.score}`)
+        const entry = byJudge[js.judgeName] ?? { scores: [], dimensions: [] }
+        entry.scores.push(js.score)
+        entry.dimensions.push(`${js.dimension}=${js.score}`)
+        byJudge[js.judgeName] = entry
       }
       for (const [name, data] of Object.entries(byJudge)) {
         const avg = (data.scores.reduce((a, b) => a + b, 0) / data.scores.length).toFixed(1)
         console.log(`    ${name.padEnd(16)} avg=${avg}  [${data.dimensions.join(', ')}]`)
       }
 
-      console.log(`  OVERALL: ${result.overallScore.toFixed(1)}/10 (${(result.totalDurationMs / 1000).toFixed(0)}s)`)
+      console.log(
+        `  OVERALL: ${result.overallScore.toFixed(1)}/10 (${(result.totalDurationMs / 1000).toFixed(0)}s)`,
+      )
       console.log()
     }
 
@@ -81,14 +86,16 @@ export class BenchmarkRunner {
     const byDimension: Record<string, { avg: number; scores: number[] }> = {}
 
     for (const r of results) {
-      if (!byPersona[r.persona]) byPersona[r.persona] = { avg: 0, passed: 0, total: 0 }
-      byPersona[r.persona].total++
-      byPersona[r.persona].avg += r.overallScore
-      if (r.overallScore >= passThreshold) byPersona[r.persona].passed++
+      const personaEntry = byPersona[r.persona] ?? { avg: 0, passed: 0, total: 0 }
+      personaEntry.total++
+      personaEntry.avg += r.overallScore
+      if (r.overallScore >= passThreshold) personaEntry.passed++
+      byPersona[r.persona] = personaEntry
 
       for (const js of r.judgeScores) {
-        if (!byDimension[js.dimension]) byDimension[js.dimension] = { avg: 0, scores: [] }
-        byDimension[js.dimension].scores.push(js.score)
+        const dimEntry = byDimension[js.dimension] ?? { avg: 0, scores: [] }
+        dimEntry.scores.push(js.score)
+        byDimension[js.dimension] = dimEntry
       }
     }
 
@@ -100,32 +107,44 @@ export class BenchmarkRunner {
     }
 
     const sorted = [...results].sort((a, b) => a.overallScore - b.overallScore)
-    const weakest = sorted.slice(0, 3).map(r => ({
+    const weakest = sorted.slice(0, 3).map((r) => ({
       scenario: r.scenarioId,
       score: r.overallScore,
-      reason: r.judgeScores.filter(s => s.score < passThreshold).map(s => `${s.dimension}=${s.score}`).join(', ') || 'close to threshold',
+      reason:
+        r.judgeScores
+          .filter((s) => s.score < passThreshold)
+          .map((s) => `${s.dimension}=${s.score}`)
+          .join(', ') || 'close to threshold',
     }))
-    const strongest = sorted.slice(-3).reverse().map(r => ({
-      scenario: r.scenarioId,
-      score: r.overallScore,
-      reason: r.judgeScores.filter(s => s.score >= 9).map(s => `${s.dimension}=${s.score}`).join(', ') || 'consistently strong',
-    }))
+    const strongest = sorted
+      .slice(-3)
+      .reverse()
+      .map((r) => ({
+        scenario: r.scenarioId,
+        score: r.overallScore,
+        reason:
+          r.judgeScores
+            .filter((s) => s.score >= 9)
+            .map((s) => `${s.dimension}=${s.score}`)
+            .join(', ') || 'consistently strong',
+      }))
 
     // Print final summary
     console.log('='.repeat(70))
     console.log(' RESULTS')
     console.log('='.repeat(70))
 
-    const overallAvg = results.length > 0
-      ? results.reduce((s, r) => s + r.overallScore, 0) / results.length
-      : 0
+    const overallAvg =
+      results.length > 0 ? results.reduce((s, r) => s + r.overallScore, 0) / results.length : 0
 
     console.log(`Overall: ${overallAvg.toFixed(1)}/10`)
     console.log()
 
     console.log('By persona:')
     for (const [name, data] of Object.entries(byPersona)) {
-      console.log(`  ${name.padEnd(20)} ${data.avg.toFixed(1)}/10  (${data.passed}/${data.total} passed)`)
+      console.log(
+        `  ${name.padEnd(20)} ${data.avg.toFixed(1)}/10  (${data.passed}/${data.total} passed)`,
+      )
     }
     console.log()
 
@@ -134,7 +153,9 @@ export class BenchmarkRunner {
     for (const [name, data] of dimEntries) {
       const min = Math.min(...data.scores)
       const max = Math.max(...data.scores)
-      console.log(`  ${name.padEnd(24)} avg=${data.avg.toFixed(1)}  range=[${min}-${max}]  n=${data.scores.length}`)
+      console.log(
+        `  ${name.padEnd(24)} avg=${data.avg.toFixed(1)}  range=[${min}-${max}]  n=${data.scores.length}`,
+      )
     }
     console.log()
 

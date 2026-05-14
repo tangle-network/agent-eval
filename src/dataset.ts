@@ -70,11 +70,14 @@ export interface SliceOptions {
   includeHoldout?: boolean
 }
 
+import { ValidationError } from './errors'
+
 /** Locked holdouts — throws on mutate. Callers that need a mutable dataset fork it. */
-export class HoldoutLockedError extends Error {
+export class HoldoutLockedError extends ValidationError {
   constructor(datasetName: string) {
-    super(`Dataset "${datasetName}" is holdout-locked; mutations are not permitted. Fork with .clone() if you need to mutate.`)
-    this.name = 'HoldoutLockedError'
+    super(
+      `Dataset "${datasetName}" is holdout-locked; mutations are not permitted. Fork with .clone() if you need to mutate.`,
+    )
   }
 }
 
@@ -101,7 +104,9 @@ export class Dataset {
     return this.scenarios
   }
 
-  get size(): number { return this.scenarios.length }
+  get size(): number {
+    return this.scenarios.length
+  }
 
   /**
    * Deterministic sliced subset. Seed is REQUIRED when `limit` is set so
@@ -155,7 +160,9 @@ export class Dataset {
     })
   }
 
-  lock(): void { this.locked = true }
+  lock(): void {
+    this.locked = true
+  }
 
   add(scenario: DatasetScenario): void {
     if (this.locked) throw new HoldoutLockedError(this.name)
@@ -177,14 +184,17 @@ export class Dataset {
    * Write to disk for contamination-verifiable archives.
    */
   toJsonl(): string {
-    return this.scenarios
+    return `${this.scenarios
       .slice()
       .sort((a, b) => a.id.localeCompare(b.id))
       .map((s) => JSON.stringify(canonicalize(s)))
-      .join('\n') + '\n'
+      .join('\n')}\n`
   }
 
-  static fromJsonl(jsonl: string, manifest: Omit<DatasetManifest, 'contentHash' | 'scenarioCount' | 'splitCounts'>): Dataset {
+  static fromJsonl(
+    jsonl: string,
+    manifest: Omit<DatasetManifest, 'contentHash' | 'scenarioCount' | 'splitCounts'>,
+  ): Dataset {
     const scenarios: DatasetScenario[] = []
     for (const line of jsonl.split('\n')) {
       const trimmed = line.trim()
@@ -226,7 +236,7 @@ function seededShuffle<T>(items: T[], seed: number): T[] {
   for (let i = out.length - 1; i > 0; i--) {
     state = (state * 1103515245 + 12345) >>> 0
     const j = state % (i + 1)
-    ;[out[i], out[j]] = [out[j], out[i]]
+    ;[out[i], out[j]] = [out[j]!, out[i]!]
   }
   return out
 }

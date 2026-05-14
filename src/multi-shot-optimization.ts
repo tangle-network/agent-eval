@@ -14,20 +14,20 @@
  * and optional paired holdout gating via `HeldOutGate`.
  */
 
-import { HeldOutGate, type GateDecision, type HeldOutGateConfig } from './held-out-gate'
+import { type GateDecision, HeldOutGate, type HeldOutGateConfig } from './held-out-gate'
+import type { Objective } from './pareto'
 import {
-  runPromptEvolution,
+  type EvolvableVariant,
   type PromptEvolutionEvent,
   type PromptEvolutionResult,
-  type EvolvableVariant,
+  runPromptEvolution,
   type ScoreAdapter,
   type TrialCache,
   type TrialResult,
   type VariantAggregate,
 } from './prompt-evolution'
-import { type Objective } from './pareto'
-import { type RunRecord, validateRunRecord, type RunSplitTag } from './run-record'
-import { type TrialTrace } from './reflective-mutation'
+import type { TrialTrace } from './reflective-mutation'
+import { type RunRecord, type RunSplitTag, validateRunRecord } from './run-record'
 
 export type MultiShotSplit = 'search' | 'dev' | 'holdout'
 
@@ -100,7 +100,9 @@ export interface MultiShotScore {
 }
 
 export interface MultiShotScorer<P = unknown> {
-  score(input: MultiShotRunInput<P> & { run: MultiShotRun }): Promise<MultiShotScore> | MultiShotScore
+  score(
+    input: MultiShotRunInput<P> & { run: MultiShotRun },
+  ): Promise<MultiShotScore> | MultiShotScore
 }
 
 export interface MultiShotTrialResult extends TrialResult {
@@ -199,11 +201,12 @@ export async function runMultiShotOptimization<P>(
     scoreConcurrency: config.scoreConcurrency ?? 1,
     scoreAdapter,
     mutateAdapter: {
-      mutate: (args) => config.mutateAdapter.mutate({
-        ...args,
-        topTrials: args.topTrials as MultiShotTrialResult[],
-        bottomTrials: args.bottomTrials as MultiShotTrialResult[],
-      }),
+      mutate: (args) =>
+        config.mutateAdapter.mutate({
+          ...args,
+          topTrials: args.topTrials as MultiShotTrialResult[],
+          bottomTrials: args.bottomTrials as MultiShotTrialResult[],
+        }),
     },
     objectives: config.objectives ?? defaultMultiShotObjectives(),
     scalarWeights: config.scalarWeights,
@@ -272,8 +275,12 @@ async function evaluateMultiShotGate<P>(
       const seed = seedFor(config, scenarioId, rep)
       const baseTrial = await scoreOne(config, baseline, scenarioId, rep, 'search')
       const candTrial = await scoreOne(config, candidate, scenarioId, rep, 'search')
-      baselineRuns.push(toValidatedRecord(config, baseline, scenarioId, rep, 'search', seed, baseTrial))
-      candidateRuns.push(toValidatedRecord(config, candidate, scenarioId, rep, 'search', seed, candTrial))
+      baselineRuns.push(
+        toValidatedRecord(config, baseline, scenarioId, rep, 'search', seed, baseTrial),
+      )
+      candidateRuns.push(
+        toValidatedRecord(config, candidate, scenarioId, rep, 'search', seed, candTrial),
+      )
     }
   }
 
@@ -282,8 +289,12 @@ async function evaluateMultiShotGate<P>(
       const seed = seedFor(config, scenarioId, rep)
       const baseTrial = await scoreOne(config, baseline, scenarioId, rep, 'holdout')
       const candTrial = await scoreOne(config, candidate, scenarioId, rep, 'holdout')
-      baselineRuns.push(toValidatedRecord(config, baseline, scenarioId, rep, 'holdout', seed, baseTrial))
-      candidateRuns.push(toValidatedRecord(config, candidate, scenarioId, rep, 'holdout', seed, candTrial))
+      baselineRuns.push(
+        toValidatedRecord(config, baseline, scenarioId, rep, 'holdout', seed, baseTrial),
+      )
+      candidateRuns.push(
+        toValidatedRecord(config, candidate, scenarioId, rep, 'holdout', seed, candTrial),
+      )
     }
   }
 
@@ -336,11 +347,13 @@ async function scoreOne<P>(
       error: err instanceof Error ? err.message : String(err),
       split,
       seed,
-      asi: [{
-        severity: 'critical',
-        message: err instanceof Error ? err.message : String(err),
-        responsibleSurface: config.target,
-      }],
+      asi: [
+        {
+          severity: 'critical',
+          message: err instanceof Error ? err.message : String(err),
+          responsibleSurface: config.target,
+        },
+      ],
       emitted: '',
     }
   }
@@ -371,11 +384,15 @@ function validateConfig<P>(config: MultiShotOptimizationConfig<P>): void {
   requirePositiveInteger(config.reps, 'reps')
   requirePositiveInteger(config.generations, 'generations')
   requirePositiveInteger(config.populationSize, 'populationSize')
-  if (config.scoreConcurrency !== undefined) requirePositiveInteger(config.scoreConcurrency, 'scoreConcurrency')
+  if (config.scoreConcurrency !== undefined)
+    requirePositiveInteger(config.scoreConcurrency, 'scoreConcurrency')
   if (config.populationSize < config.seedVariants.length) {
     throw new Error('runMultiShotOptimization: populationSize must be >= seedVariants.length')
   }
-  assertUnique(config.seedVariants.map((v) => v.id), 'seedVariants.id')
+  assertUnique(
+    config.seedVariants.map((v) => v.id),
+    'seedVariants.id',
+  )
   assertUnique(config.searchScenarioIds, 'searchScenarioIds')
 
   if (config.gate) {
@@ -384,11 +401,14 @@ function validateConfig<P>(config: MultiShotOptimizationConfig<P>): void {
     }
     if (config.gate.reps !== undefined) requirePositiveInteger(config.gate.reps, 'gate.reps')
     assertUnique(config.gate.holdoutScenarioIds, 'gate.holdoutScenarioIds')
-    if (config.gate.searchScenarioIds) assertUnique(config.gate.searchScenarioIds, 'gate.searchScenarioIds')
+    if (config.gate.searchScenarioIds)
+      assertUnique(config.gate.searchScenarioIds, 'gate.searchScenarioIds')
     const searchIds = new Set(config.searchScenarioIds)
     for (const id of config.gate.holdoutScenarioIds) {
       if (searchIds.has(id)) {
-        throw new Error(`runMultiShotOptimization: holdout scenario "${id}" also appears in searchScenarioIds`)
+        throw new Error(
+          `runMultiShotOptimization: holdout scenario "${id}" also appears in searchScenarioIds`,
+        )
       }
     }
     const baselineId = config.seedVariants[0]!.id
@@ -409,7 +429,8 @@ function requirePositiveInteger(value: number, name: string): void {
 function assertUnique(values: string[], name: string): void {
   const seen = new Set<string>()
   for (const value of values) {
-    if (!value.trim()) throw new Error(`runMultiShotOptimization: ${name} must not contain empty values`)
+    if (!value.trim())
+      throw new Error(`runMultiShotOptimization: ${name} must not contain empty values`)
     if (seen.has(value)) throw new Error(`runMultiShotOptimization: duplicate ${name} "${value}"`)
     seen.add(value)
   }
@@ -424,7 +445,11 @@ function aggregateFor<P>(evolution: PromptEvolutionResult<P>, variantId: string)
   return aggregate
 }
 
-function seedFor<P>(config: MultiShotOptimizationConfig<P>, scenarioId: string, rep: number): number {
+function seedFor<P>(
+  config: MultiShotOptimizationConfig<P>,
+  scenarioId: string,
+  rep: number,
+): number {
   const base = config.seedBase ?? 0
   return (base + stableHash(`${scenarioId}\x1f${rep}`)) % Number.MAX_SAFE_INTEGER
 }
@@ -465,14 +490,24 @@ function asiMetrics(asi: ActionableSideInfo[]): Record<string, number> {
 }
 
 function normalizeSeverity(severity: AsiSeverity | undefined): AsiSeverity {
-  if (severity === 'info' || severity === 'warning' || severity === 'error' || severity === 'critical') {
+  if (
+    severity === 'info' ||
+    severity === 'warning' ||
+    severity === 'error' ||
+    severity === 'critical'
+  ) {
     return severity
   }
   return 'error'
 }
 
 function metricKeySegment(raw: string): string {
-  return raw.trim().replace(/[^a-zA-Z0-9._-]+/g, '_').slice(0, 80) || 'unknown'
+  return (
+    raw
+      .trim()
+      .replace(/[^a-zA-Z0-9._-]+/g, '_')
+      .slice(0, 80) || 'unknown'
+  )
 }
 
 function traceExcerpt(trace: MultiShotTrace | undefined): string | undefined {
@@ -482,7 +517,10 @@ function traceExcerpt(trace: MultiShotTrace | undefined): string | undefined {
   if (trace.turns) {
     try {
       const clipped = trace.turns.slice(0, 20)
-      const suffix = trace.turns.length > clipped.length ? ` ... ${trace.turns.length - clipped.length} more turn(s)` : ''
+      const suffix =
+        trace.turns.length > clipped.length
+          ? ` ... ${trace.turns.length - clipped.length} more turn(s)`
+          : ''
       return `${JSON.stringify(clipped).slice(0, 2000)}${suffix}`
     } catch {
       return '[unserializable trace turns]'

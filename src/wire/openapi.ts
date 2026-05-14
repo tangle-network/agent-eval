@@ -9,7 +9,7 @@
  * `dist/openapi.json`. CI uses that file to regenerate the Python
  * client and gate the dual-publish workflow.
  */
-import { OpenApiGeneratorV31, OpenAPIRegistry } from '@asteasolutions/zod-to-openapi'
+import { OpenAPIRegistry, OpenApiGeneratorV31 } from '@asteasolutions/zod-to-openapi'
 import type { OpenAPIObject } from 'openapi3-ts/oas31'
 
 import {

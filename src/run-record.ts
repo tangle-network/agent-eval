@@ -141,13 +141,14 @@ const MANDATORY_TOP_LEVEL = [
   'splitTag',
 ] as const
 
+import { ValidationError } from './errors'
+
 const SPLIT_TAGS: ReadonlyArray<RunSplitTag> = ['search', 'dev', 'holdout']
 
-export class RunRecordValidationError extends Error {
+export class RunRecordValidationError extends ValidationError {
   readonly path: string
   constructor(message: string, path = '') {
     super(path ? `${message} (at ${path})` : message)
-    this.name = 'RunRecordValidationError'
     this.path = path
   }
 }
@@ -210,7 +211,10 @@ export function validateRunRecord(input: unknown): RunRecord {
     expectString(jmRec.promptVersion, 'judgeMetadata.promptVersion')
     expectFiniteNumber(jmRec.confidence, 'judgeMetadata.confidence')
     if (typeof jmRec.fallback !== 'boolean') {
-      throw new RunRecordValidationError('judgeMetadata.fallback must be boolean', 'judgeMetadata.fallback')
+      throw new RunRecordValidationError(
+        'judgeMetadata.fallback must be boolean',
+        'judgeMetadata.fallback',
+      )
     }
   }
 
@@ -220,8 +224,10 @@ export function validateRunRecord(input: unknown): RunRecord {
     throw new RunRecordValidationError('outcome must be an object', 'outcome')
   }
   const outRec = out as Record<string, unknown>
-  if (outRec.searchScore !== undefined) expectFiniteNumber(outRec.searchScore, 'outcome.searchScore')
-  if (outRec.holdoutScore !== undefined) expectFiniteNumber(outRec.holdoutScore, 'outcome.holdoutScore')
+  if (outRec.searchScore !== undefined)
+    expectFiniteNumber(outRec.searchScore, 'outcome.searchScore')
+  if (outRec.holdoutScore !== undefined)
+    expectFiniteNumber(outRec.holdoutScore, 'outcome.holdoutScore')
   if (outRec.searchScore === undefined && outRec.holdoutScore === undefined) {
     throw new RunRecordValidationError(
       'outcome must define searchScore or holdoutScore (or both)',
@@ -263,9 +269,7 @@ export function isRunRecord(input: unknown): input is RunRecord {
 /** Non-throwing validator — returns a discriminated union. */
 export function parseRunRecordSafe(
   input: unknown,
-):
-  | { ok: true; value: RunRecord }
-  | { ok: false; error: RunRecordValidationError } {
+): { ok: true; value: RunRecord } | { ok: false; error: RunRecordValidationError } {
   try {
     return { ok: true, value: validateRunRecord(input) }
   } catch (e) {

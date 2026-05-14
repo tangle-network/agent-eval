@@ -90,7 +90,7 @@ export class FileSystemExperimentStore implements ExperimentStore {
     } catch {
       /* file doesn't exist yet */
     }
-    await fs.appendFile(active, JSON.stringify(record) + '\n', 'utf8')
+    await fs.appendFile(active, `${JSON.stringify(record)}\n`, 'utf8')
   }
 
   private async load(): Promise<InMemoryExperimentStore> {
@@ -103,9 +103,7 @@ export class FileSystemExperimentStore implements ExperimentStore {
       // Sort so older rollover files load first; the active *.ndjson wins on
       // duplicate ids because saves replay in insertion order and the in-memory
       // store is last-write-wins.
-      const sorted = entries
-        .filter((f) => f.endsWith('.ndjson'))
-        .sort((a, b) => a.localeCompare(b))
+      const sorted = entries.filter((f) => f.endsWith('.ndjson')).sort((a, b) => a.localeCompare(b))
       for (const file of sorted) {
         const full = path.join(this.dir, file)
         const content = await fs.readFile(full, 'utf8')

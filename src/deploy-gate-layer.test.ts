@@ -1,10 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 
-import {
-  deployGateLayer,
-  viteDeployRunner,
-  type DeployRunner,
-} from './deploy-gate-layer'
+import { type DeployRunner, deployGateLayer, viteDeployRunner } from './deploy-gate-layer'
 import { MultiLayerVerifier } from './multi-layer-verifier'
 
 function makeRunner(out: { ok: boolean; artifactValid: boolean; output?: string }): DeployRunner {

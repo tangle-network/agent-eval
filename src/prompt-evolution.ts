@@ -21,7 +21,7 @@
  * mutation primitives, persisting to disk. Those are the consumer's call.
  */
 
-import { paretoFrontierWithCrowding, scalarScore, type Objective } from './pareto'
+import { type Objective, paretoFrontierWithCrowding, scalarScore } from './pareto'
 
 export interface EvolvableVariant<P = unknown> {
   /** Stable id for the variant — surfaces in reports and trial results. */
@@ -133,15 +133,32 @@ export interface TrialCache {
 
 export class InMemoryTrialCache implements TrialCache {
   private store = new Map<string, TrialResult>()
-  get(key: string): TrialResult | undefined { return this.store.get(key) }
-  set(key: string, value: TrialResult): void { this.store.set(key, value) }
-  size(): number { return this.store.size }
-  clear(): void { this.store.clear() }
+  get(key: string): TrialResult | undefined {
+    return this.store.get(key)
+  }
+  set(key: string, value: TrialResult): void {
+    this.store.set(key, value)
+  }
+  size(): number {
+    return this.store.size
+  }
+  clear(): void {
+    this.store.clear()
+  }
 }
 
 export type PromptEvolutionEvent =
   | { type: 'generation-start'; generation: number; populationSize: number }
-  | { type: 'trial-complete'; generation: number; variantId: string; scenarioId: string; rep: number; ok: boolean; score: number; cached: boolean }
+  | {
+      type: 'trial-complete'
+      generation: number
+      variantId: string
+      scenarioId: string
+      rep: number
+      ok: boolean
+      score: number
+      cached: boolean
+    }
   | { type: 'generation-complete'; report: GenerationReport<unknown> }
   | { type: 'converged'; generation: number; reason: string }
 
@@ -213,9 +230,14 @@ export async function runPromptEvolution<P>(
     // Convergence: no Pareto-or-scalar improvement vs previous generation.
     if (config.earlyStopOnNoImprovement !== false && generations.length >= 2) {
       const prev = generations[generations.length - 2]!
-      const noChange = prev.winnerId === winnerId && samePopulation(prev.paretoFrontIds, [...frontIds])
+      const noChange =
+        prev.winnerId === winnerId && samePopulation(prev.paretoFrontIds, [...frontIds])
       if (noChange) {
-        config.onProgress?.({ type: 'converged', generation, reason: 'no improvement vs previous generation' })
+        config.onProgress?.({
+          type: 'converged',
+          generation,
+          reason: 'no improvement vs previous generation',
+        })
         break
       }
     }
@@ -230,7 +252,11 @@ export async function runPromptEvolution<P>(
     target: config.target,
     generations,
     bestVariant,
-    bestAggregate: bestAggregate ?? aggregateTrials(population, config.scenarioIds, []).find((a) => a.variantId === bestVariant.id)!,
+    bestAggregate:
+      bestAggregate ??
+      aggregateTrials(population, config.scenarioIds, []).find(
+        (a) => a.variantId === bestVariant.id,
+      )!,
   }
 }
 
@@ -279,7 +305,10 @@ async function scorePopulation<P>(
   return runWithConcurrency(jobs, config.scoreConcurrency)
 }
 
-async function runWithConcurrency<T>(jobs: Array<() => Promise<T>>, concurrency: number): Promise<T[]> {
+async function runWithConcurrency<T>(
+  jobs: Array<() => Promise<T>>,
+  concurrency: number,
+): Promise<T[]> {
   const results: T[] = new Array(jobs.length)
   const limit = Math.max(1, concurrency)
   let next = 0
@@ -366,8 +395,9 @@ async function nextPopulation<P>(
   const survivors = current.filter((v) => survivorIds.has(v.id))
 
   // Pick the best survivor (by scalar) as the mutation parent.
-  const ranked = scalarScore(aggregates, config.objectives, { weights: config.scalarWeights })
-    .sort((a, b) => b.score - a.score)
+  const ranked = scalarScore(aggregates, config.objectives, { weights: config.scalarWeights }).sort(
+    (a, b) => b.score - a.score,
+  )
   const parentId = ranked[0]?.candidate.variantId ?? current[0]!.id
   const parent = current.find((v) => v.id === parentId) ?? current[0]!
   const parentAggregate = aggregates.find((a) => a.variantId === parent.id) ?? aggregates[0]!
@@ -385,17 +415,25 @@ async function nextPopulation<P>(
       childCount,
       generation: nextGeneration,
     })
-    children = children.slice(0, childCount).map((c) => ({ ...c, generation: nextGeneration, parentId: parent.id }))
+    children = children
+      .slice(0, childCount)
+      .map((c) => ({ ...c, generation: nextGeneration, parentId: parent.id }))
   }
   return [...survivors, ...children]
 }
 
 function topKTrialsByScore(trials: TrialResult[], variantId: string, k: number): TrialResult[] {
-  return trials.filter((t) => t.variantId === variantId && t.ok).sort((a, b) => b.score - a.score).slice(0, k)
+  return trials
+    .filter((t) => t.variantId === variantId && t.ok)
+    .sort((a, b) => b.score - a.score)
+    .slice(0, k)
 }
 
 function bottomKTrialsByScore(trials: TrialResult[], variantId: string, k: number): TrialResult[] {
-  return trials.filter((t) => t.variantId === variantId && t.ok).sort((a, b) => a.score - b.score).slice(0, k)
+  return trials
+    .filter((t) => t.variantId === variantId && t.ok)
+    .sort((a, b) => a.score - b.score)
+    .slice(0, k)
 }
 
 function samePopulation(a: string[], b: string[]): boolean {

@@ -3,6 +3,9 @@ dist/
 .env
 *.tsbuildinfo
 
+# Claude Code runtime artifacts (not part of repo state)
+.claude/scheduled_tasks.lock
+
 # Python clients (venvs + bytecode caches should never enter git)
 .venv/
 **/__pycache__/

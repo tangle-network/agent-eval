@@ -138,7 +138,10 @@ export function mergeLayerResults(
       weightedScoreSum += result.score
       weightCount += 1
     }
-    durationMs = mergeDuration === 'sum' ? durationMs + result.durationMs : Math.max(durationMs, result.durationMs)
+    durationMs =
+      mergeDuration === 'sum'
+        ? durationMs + result.durationMs
+        : Math.max(durationMs, result.durationMs)
     reasonParts.push(`${adapter}: ${result.status}`)
     for (const f of result.findings) {
       findings.push({

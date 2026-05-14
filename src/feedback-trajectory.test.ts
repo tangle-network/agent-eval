@@ -3,23 +3,22 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 import { describe, expect, it } from 'vitest'
-
+import type { ControlRunResult } from './control-runtime'
 import {
-  FileSystemFeedbackTrajectoryStore,
-  InMemoryFeedbackTrajectoryStore,
   controlRunToFeedbackTrajectory,
   createFeedbackTrajectory,
+  type FeedbackAttempt,
+  type FeedbackLabel,
+  FileSystemFeedbackTrajectoryStore,
   feedbackTrajectoryToOptimizerRow,
+  InMemoryFeedbackTrajectoryStore,
   parseFeedbackTrajectoriesJsonl,
-  replayFeedbackTrajectory,
   renderPreferenceMemoryMarkdown,
+  replayFeedbackTrajectory,
   serializeFeedbackTrajectoriesJsonl,
   summarizePreferenceMemory,
   withAssignedFeedbackSplit,
-  type FeedbackAttempt,
-  type FeedbackLabel,
 } from './feedback-trajectory'
-import type { ControlRunResult } from './control-runtime'
 
 describe('feedback trajectories', () => {
   it('turns control runs into stable feedback trajectories for optimization', () => {
@@ -36,7 +35,9 @@ describe('feedback trajectories', () => {
           beforeState: { count: 0 },
           afterState: { count: 1 },
           evalsBefore: [],
-          evalsAfter: [{ id: 'count-positive', passed: true, severity: 'critical', objective: true }],
+          evalsAfter: [
+            { id: 'count-positive', passed: true, severity: 'critical', objective: true },
+          ],
           actionOutcome: { ok: true, result: { count: 1 }, durationMs: 5 },
           startedAt: '2026-01-01T00:00:00.000Z',
           endedAt: '2026-01-01T00:00:00.005Z',
@@ -59,7 +60,7 @@ describe('feedback trajectories', () => {
     const row = feedbackTrajectoryToOptimizerRow(trajectory)
 
     expect(trajectory.id).toMatch(/^ft_control_/)
-    expect(trajectory.attempts[0].id).toBe(`${trajectory.id}_step_0`)
+    expect(trajectory.attempts[0]!.id).toBe(`${trajectory.id}_step_0`)
     expect(trajectory.outcome?.metadata?.stoppedBy).toBe('stop-policy')
     expect(row).toMatchObject({
       scenarioId: 'scenario-1',
@@ -91,26 +92,28 @@ describe('feedback trajectories', () => {
     const entries = summarizePreferenceMemory([updated])
 
     expect(updated.labels).toHaveLength(0)
-    expect(updated.attempts[0].feedback).toEqual([label])
+    expect(updated.attempts[0]!.feedback).toEqual([label])
     expect(entries).toHaveLength(1)
     expect(renderPreferenceMemoryMarkdown(entries)).toContain('make the rollout steps concrete')
   })
 
   it('round-trips deterministic JSONL and assigns stable dataset splits', () => {
-    const trajectory = withAssignedFeedbackSplit(createFeedbackTrajectory({
-      id: 'feedback-2',
-      projectId: 'project-2',
-      scenarioId: 'scenario-2',
-      task: { intent: 'fix checkout' },
-      createdAt: '2026-01-01T00:00:00.000Z',
-      tags: { product: 'checkout' },
-    }))
+    const trajectory = withAssignedFeedbackSplit(
+      createFeedbackTrajectory({
+        id: 'feedback-2',
+        projectId: 'project-2',
+        scenarioId: 'scenario-2',
+        task: { intent: 'fix checkout' },
+        createdAt: '2026-01-01T00:00:00.000Z',
+        tags: { product: 'checkout' },
+      }),
+    )
 
     const jsonl = serializeFeedbackTrajectoriesJsonl([trajectory])
     const parsed = parseFeedbackTrajectoriesJsonl(jsonl)
 
     expect(parsed).toEqual([trajectory])
-    expect(parsed[0].split).toBe(trajectory.split)
+    expect(parsed[0]!.split).toBe(trajectory.split)
   })
 
   it('persists trajectories and skips corrupt JSONL records without losing valid data', async () => {
@@ -122,12 +125,16 @@ describe('feedback trajectories', () => {
         task: { intent: 'ship docs' },
         createdAt: '2026-01-01T00:00:00.000Z',
       })
-      await writeFile(file, [
-        JSON.stringify({ op: 'save', trajectory: saved }),
-        '{bad json',
-        JSON.stringify({ op: 'appendAttempt', id: 'feedback-3', attempt: attempt('attempt-3') }),
-        '',
-      ].join('\n'), 'utf8')
+      await writeFile(
+        file,
+        [
+          JSON.stringify({ op: 'save', trajectory: saved }),
+          '{bad json',
+          JSON.stringify({ op: 'appendAttempt', id: 'feedback-3', attempt: attempt('attempt-3') }),
+          '',
+        ].join('\n'),
+        'utf8',
+      )
 
       const store = new FileSystemFeedbackTrajectoryStore({ dir })
       const loaded = await store.get('feedback-3')
@@ -149,12 +156,14 @@ describe('feedback trajectories', () => {
       replay: () => ({
         pass: true,
         score: 0.9,
-        labels: [{
-          source: 'environment',
-          kind: 'approve',
-          value: true,
-          createdAt: '2026-01-01T00:01:00.000Z',
-        }],
+        labels: [
+          {
+            source: 'environment',
+            kind: 'approve',
+            value: true,
+            createdAt: '2026-01-01T00:01:00.000Z',
+          },
+        ],
       }),
     })
     expect(pass).toMatchObject({ trajectoryId: 'feedback-4', pass: true, score: 0.9 })
@@ -165,7 +174,7 @@ describe('feedback trajectories', () => {
       },
     })
     expect(fail.pass).toBe(false)
-    expect(fail.labels[0].reason).toBe('browser assertion failed')
+    expect(fail.labels[0]!.reason).toBe('browser assertion failed')
     expect(fail.metadata?.replayError).toBe(true)
   })
 })

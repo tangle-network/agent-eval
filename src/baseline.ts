@@ -135,7 +135,7 @@ export function iqr(xs: number[]): number {
     const idx = p * (sorted.length - 1)
     const lo = Math.floor(idx)
     const hi = Math.ceil(idx)
-    return sorted[lo] + (sorted[hi] - sorted[lo]) * (idx - lo)
+    return sorted[lo]! + (sorted[hi]! - sorted[lo]!) * (idx - lo)
   }
   return q(0.75) - q(0.25)
 }
@@ -208,14 +208,14 @@ function incompleteBeta(x: number, a: number, b: number): number {
 
 function lnGamma(z: number): number {
   const coefs = [
-    0.99999999999980993, 676.5203681218851, -1259.1392167224028,
-    771.32342877765313, -176.61502916214059, 12.507343278686905,
-    -0.13857109526572012, 9.9843695780195716e-6, 1.5056327351493116e-7,
+    0.99999999999980993, 676.5203681218851, -1259.1392167224028, 771.32342877765313,
+    -176.61502916214059, 12.507343278686905, -0.13857109526572012, 9.9843695780195716e-6,
+    1.5056327351493116e-7,
   ]
   if (z < 0.5) return Math.log(Math.PI / Math.sin(Math.PI * z)) - lnGamma(1 - z)
   z -= 1
-  let x = coefs[0]
-  for (let i = 1; i < 9; i++) x += coefs[i] / (z + i)
+  let x = coefs[0]!
+  for (let i = 1; i < 9; i++) x += coefs[i]! / (z + i)
   const t = z + 7.5
   return 0.5 * Math.log(2 * Math.PI) + (z + 0.5) * Math.log(t) - t + Math.log(x)
 }
@@ -230,6 +230,6 @@ function normalCdf(x: number): number {
   const sign = x < 0 ? -1 : 1
   const absX = Math.abs(x)
   const t = 1 / (1 + p * absX)
-  const y = 1 - ((((a5 * t + a4) * t + a3) * t + a2) * t + a1) * t * Math.exp(-absX * absX / 2)
+  const y = 1 - ((((a5 * t + a4) * t + a3) * t + a2) * t + a1) * t * Math.exp((-absX * absX) / 2)
   return 0.5 * (1 + sign * y)
 }

@@ -12,11 +12,11 @@
  *     as a reference baseline + deterministic fallback.
  */
 
-import type { PrmGrader, PrmGradedTrace } from './prm/rubric'
+import type { PrmGradedTrace, PrmGrader } from './prm/rubric'
+import { exportTrainingData, type PrmTrainingSample, toNdjson } from './prm/training-export'
+import type { TraceStore } from './trace/store'
 import type { Trajectory } from './trajectory'
 import { buildTrajectory } from './trajectory'
-import { exportTrainingData, toNdjson, type PrmTrainingSample } from './prm/training-export'
-import type { TraceStore } from './trace/store'
 
 export interface ExportedRewardModel {
   /** Version of the export format. Bump when payload shape changes. */
@@ -43,9 +43,7 @@ export async function exportRewardModel(
   const samples = await exportTrainingData(store, graded)
   const rubrics = [...new Set(samples.map((s) => s.rubricId))]
   const meanReward =
-    samples.length > 0
-      ? samples.reduce((a, s) => a + s.score, 0) / samples.length
-      : 0
+    samples.length > 0 ? samples.reduce((a, s) => a + s.score, 0) / samples.length : 0
   return {
     version: '1.0',
     metadata: {
@@ -96,7 +94,10 @@ export async function replayScorerOverCorpus(
 ): Promise<Array<{ runId: string; score: number; outcomeScore: number | null }>> {
   return Promise.all(
     runIds.map(async (runId) => {
-      const [trajectory, run] = await Promise.all([buildTrajectory(store, runId), store.getRun(runId)])
+      const [trajectory, run] = await Promise.all([
+        buildTrajectory(store, runId),
+        store.getRun(runId),
+      ])
       return {
         runId,
         score: await scorer.score(trajectory, store),
@@ -107,4 +108,4 @@ export async function replayScorerOverCorpus(
 }
 
 // Re-export for ergonomics
-export type { PrmTrainingSample, PrmGradedTrace }
+export type { PrmGradedTrace, PrmTrainingSample }

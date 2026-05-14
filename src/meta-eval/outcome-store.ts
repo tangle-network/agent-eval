@@ -85,8 +85,10 @@ export class FileSystemOutcomeStore implements OutcomeStore {
       if (stat.size >= this.maxBytes) {
         await fs.rename(active, path.join(this.dir, `outcomes.${Date.now()}.ndjson`))
       }
-    } catch { /* first write */ }
-    await fs.appendFile(active, JSON.stringify(outcome) + '\n', 'utf8')
+    } catch {
+      /* first write */
+    }
+    await fs.appendFile(active, `${JSON.stringify(outcome)}\n`, 'utf8')
     if (this.memo) await this.memo.append(outcome)
   }
 
@@ -105,7 +107,9 @@ export class FileSystemOutcomeStore implements OutcomeStore {
           await memo.append(JSON.parse(line))
         }
       }
-    } catch { /* empty */ }
+    } catch {
+      /* empty */
+    }
     this.memo = memo
     this.loaded = true
     return memo

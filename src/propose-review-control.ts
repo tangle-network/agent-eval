@@ -1,8 +1,8 @@
 import {
-  objectiveEval,
-  runAgentControlLoop,
   type ControlRunResult,
   type ControlRuntimeConfig,
+  objectiveEval,
+  runAgentControlLoop,
 } from './control-runtime'
 import {
   inMemoryReviewStore,
@@ -73,17 +73,20 @@ const DEFAULT_FALLBACK_INSTRUCTION =
 
 export async function runProposeReviewAsControlLoop<State, Summary = unknown>(
   config: ProposeReviewControlConfig<State, Summary>,
-): Promise<ControlRunResult<
-  ProposeReviewControlState<State, Summary>,
-  ProposeReviewControlAction,
-  ProposeReviewControlResult<State, Summary>
->> {
+): Promise<
+  ControlRunResult<
+    ProposeReviewControlState<State, Summary>,
+    ProposeReviewControlAction,
+    ProposeReviewControlResult<State, Summary>
+  >
+> {
   const maxShots = config.maxShots ?? 10
   const confidenceFloor = config.confidenceFloor ?? 0.3
   const confidenceFloorWindow = config.confidenceFloorWindow ?? 2
   const memory = config.memory ?? inMemoryReviewStore()
   const fallbackInstruction = config.fallbackInstruction ?? DEFAULT_FALLBACK_INSTRUCTION
-  const failureClassFromVerification = config.failureClassFromVerification ?? controlFailureClassFromVerification
+  const failureClassFromVerification =
+    config.failureClassFromVerification ?? controlFailureClassFromVerification
   let lowConfidenceStreak = 0
 
   let current: ProposeReviewControlState<State, Summary> = {
@@ -118,7 +121,12 @@ export async function runProposeReviewAsControlLoop<State, Summary = unknown>(
     ],
     shouldStop: ({ state }) => {
       if (state.verification.pass) {
-        return { stop: true, pass: true, reason: 'verification passed', score: state.verification.score }
+        return {
+          stop: true,
+          pass: true,
+          reason: 'verification passed',
+          score: state.verification.score,
+        }
       }
       if (state.completed) {
         return {
@@ -129,7 +137,12 @@ export async function runProposeReviewAsControlLoop<State, Summary = unknown>(
           failureClass: failureClassFromVerification(state.verification),
         }
       }
-      return { stop: false, pass: false, reason: 'verification still failing', score: state.verification.score }
+      return {
+        stop: false,
+        pass: false,
+        reason: 'verification still failing',
+        score: state.verification.score,
+      }
     },
     decide: ({ state }) => ({
       type: 'continue',
@@ -167,7 +180,8 @@ export async function runProposeReviewAsControlLoop<State, Summary = unknown>(
           reviewAvailable = true
           shouldContinue = review.shouldContinue
           lowConfidenceStreak = review.confidence <= confidenceFloor ? lowConfidenceStreak + 1 : 0
-          if (confidenceFloorWindow > 0 && lowConfidenceStreak >= confidenceFloorWindow) shouldContinue = false
+          if (confidenceFloorWindow > 0 && lowConfidenceStreak >= confidenceFloorWindow)
+            shouldContinue = false
         } catch (err) {
           reviewError = err instanceof Error ? err.message : String(err)
           review = current.priorReview ?? {
@@ -231,7 +245,9 @@ export async function runProposeReviewAsControlLoop<State, Summary = unknown>(
   })
 }
 
-export function controlFailureClassFromVerification(verification: Verification): FailureClass | undefined {
+export function controlFailureClassFromVerification(
+  verification: Verification,
+): FailureClass | undefined {
   if (verification.pass) return undefined
   return verification.failingLayers?.length ? 'instruction_following' : 'unknown'
 }

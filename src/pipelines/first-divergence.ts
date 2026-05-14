@@ -7,8 +7,8 @@
  * specific step rather than an aggregate mean delta.
  */
 
-import { buildTrajectory, type Trajectory, type TrajectoryStep } from '../trajectory'
 import type { TraceStore } from '../trace/store'
+import { buildTrajectory, type Trajectory, type TrajectoryStep } from '../trajectory'
 
 export interface DivergenceReport {
   runA: string
@@ -36,14 +36,16 @@ export async function firstDivergenceView(
   const eq = options.stepEquals ?? defaultStepEquals
   const minLen = Math.min(a.steps.length, b.steps.length)
   for (let i = 0; i < minLen; i++) {
-    if (!eq(a.steps[i], b.steps[i])) {
+    const aStep = a.steps[i]!
+    const bStep = b.steps[i]!
+    if (!eq(aStep, bStep)) {
       return {
         runA,
         runB,
         firstDivergenceIndex: i,
-        aStep: a.steps[i],
-        bStep: b.steps[i],
-        reason: describeDifference(a.steps[i], b.steps[i]),
+        aStep,
+        bStep,
+        reason: describeDifference(aStep, bStep),
         commonPrefixLen: i,
       }
     }
@@ -67,7 +69,8 @@ function defaultStepEquals(a: TrajectoryStep, b: TrajectoryStep): boolean {
   if (a.span.kind !== b.span.kind) return false
   if (a.span.kind === 'tool' && b.span.kind === 'tool') return a.span.toolName === b.span.toolName
   if (a.span.kind === 'llm' && b.span.kind === 'llm') return a.span.model === b.span.model
-  if (a.span.kind === 'judge' && b.span.kind === 'judge') return a.span.dimension === b.span.dimension
+  if (a.span.kind === 'judge' && b.span.kind === 'judge')
+    return a.span.dimension === b.span.dimension
   return a.span.name === b.span.name
 }
 

@@ -1,12 +1,9 @@
-import type {
-  ControlEvalResult,
-  ControlRunResult,
-} from './control-runtime'
+import type { ControlEvalResult, ControlRunResult } from './control-runtime'
 import {
-  validateRunRecord,
   type RunRecord,
   type RunSplitTag,
   type RunTokenUsage,
+  validateRunRecord,
 } from './run-record'
 import type { FailureClass } from './trace/schema'
 
@@ -39,17 +36,28 @@ export interface ControlRunToRunRecordOptions extends RunEvidenceMetadata {
  * experimental cell metadata because prompt/config hashes, split assignment,
  * model snapshot, and commit SHA are product/harness concerns.
  */
-export function controlRunToRunRecord<TState, TAction, TActionResult, TEval extends ControlEvalResult = ControlEvalResult>(
+export function controlRunToRunRecord<
+  TState,
+  TAction,
+  TActionResult,
+  TEval extends ControlEvalResult = ControlEvalResult,
+>(
   run: ControlRunResult<TState, TAction, TActionResult, TEval>,
   options: ControlRunToRunRecordOptions,
 ): RunRecord {
-  const score = clampScore(options.score ?? run.score ?? scoreFromEvals(run.finalEvals) ?? (run.pass ? 1 : 0))
-  const outcome = options.splitTag === 'holdout'
-    ? { holdoutScore: score, raw: normalizeRawMetrics(options.raw, run, score) }
-    : { searchScore: score, raw: normalizeRawMetrics(options.raw, run, score) }
+  const score = clampScore(
+    options.score ?? run.score ?? scoreFromEvals(run.finalEvals) ?? (run.pass ? 1 : 0),
+  )
+  const outcome =
+    options.splitTag === 'holdout'
+      ? { holdoutScore: score, raw: normalizeRawMetrics(options.raw, run, score) }
+      : { searchScore: score, raw: normalizeRawMetrics(options.raw, run, score) }
 
   return validateRunRecord({
-    runId: options.runId ?? run.runId ?? `control:${options.experimentId}:${options.candidateId}:${options.seed}:${options.splitTag}`,
+    runId:
+      options.runId ??
+      run.runId ??
+      `control:${options.experimentId}:${options.candidateId}:${options.seed}:${options.splitTag}`,
     experimentId: options.experimentId,
     candidateId: options.candidateId,
     seed: options.seed,

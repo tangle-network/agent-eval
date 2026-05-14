@@ -47,7 +47,8 @@ export async function nistAiRmfReport(ctx: GovernanceContext): Promise<Governanc
           control: 'NIST-AI-RMF:GOVERN-1.3',
           summary: `Dataset "${manifest.name}" has weak or missing content hash.`,
           evidence: `contentHash="${manifest.contentHash}"`,
-          remediation: 'Call dataset.manifest() to compute SHA-256; commit the manifest alongside releases.',
+          remediation:
+            'Call dataset.manifest() to compute SHA-256; commit the manifest alongside releases.',
         })
       }
     }
@@ -60,7 +61,8 @@ export async function nistAiRmfReport(ctx: GovernanceContext): Promise<Governanc
       severity: 'high',
       control: 'NIST-AI-RMF:MEASURE-2.6',
       summary: 'No red-team evaluation attached to the report period.',
-      remediation: 'Run redTeamDataset() against the system and attach the RedTeamReport to context.redTeam.',
+      remediation:
+        'Run redTeamDataset() against the system and attach the RedTeamReport to context.redTeam.',
     })
   } else if (ctx.redTeam.overallPassRate < 0.8) {
     findings.push({
@@ -74,7 +76,10 @@ export async function nistAiRmfReport(ctx: GovernanceContext): Promise<Governanc
   }
 
   // MEASURE 2.1 — "Test results against defined metrics"
-  const runs = await ctx.traceStore.listRuns({ since: Date.parse(ctx.periodStart), until: Date.parse(ctx.periodEnd) })
+  const runs = await ctx.traceStore.listRuns({
+    since: Date.parse(ctx.periodStart),
+    until: Date.parse(ctx.periodEnd),
+  })
   if (runs.length === 0) {
     findings.push({
       id: 'M-2.1',
@@ -92,7 +97,8 @@ export async function nistAiRmfReport(ctx: GovernanceContext): Promise<Governanc
       severity: 'medium',
       control: 'NIST-AI-RMF:MEASURE-2.11',
       summary: 'No judge-vs-human calibration recorded.',
-      remediation: 'Build a human golden set; run calibrateJudge() before trusting LLM judge scores.',
+      remediation:
+        'Build a human golden set; run calibrateJudge() before trusting LLM judge scores.',
     })
   } else {
     const weak = ctx.judgeCalibration.filter((c) => Number.isFinite(c.pearson) && c.pearson < 0.6)
@@ -117,7 +123,10 @@ export async function nistAiRmfReport(ctx: GovernanceContext): Promise<Governanc
       remediation: 'Attach an OutcomeStore and ingest production outcome metrics.',
     })
   } else {
-    const outcomes = await ctx.outcomeStore.list({ since: Date.parse(ctx.periodStart), until: Date.parse(ctx.periodEnd) })
+    const outcomes = await ctx.outcomeStore.list({
+      since: Date.parse(ctx.periodStart),
+      until: Date.parse(ctx.periodEnd),
+    })
     if (outcomes.length === 0) {
       findings.push({
         id: 'MN-1.1-empty',
@@ -138,8 +147,11 @@ export async function nistAiRmfReport(ctx: GovernanceContext): Promise<Governanc
 
   const payload = {
     controlsEvaluated: [
-      'GOVERN-1.1', 'GOVERN-1.3',
-      'MEASURE-2.1', 'MEASURE-2.6', 'MEASURE-2.11',
+      'GOVERN-1.1',
+      'GOVERN-1.3',
+      'MEASURE-2.1',
+      'MEASURE-2.6',
+      'MEASURE-2.11',
       'MANAGE-1.1',
     ],
     runCount: runs.length,

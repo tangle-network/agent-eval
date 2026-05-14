@@ -84,7 +84,13 @@ export class CostTracker {
    */
   recordVerdict(
     verdict: {
-      usage?: { inputTokens: number; outputTokens: number; model: string; cachedTokens?: number; reasoningTokens?: number }
+      usage?: {
+        inputTokens: number
+        outputTokens: number
+        model: string
+        cachedTokens?: number
+        reasoningTokens?: number
+      }
       verdict?: 'pass' | 'fail' | 'borderline' | string
     },
     scenarioId: string,

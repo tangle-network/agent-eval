@@ -66,7 +66,11 @@ function defaultRender(item: unknown): string {
   return String(item ?? '')
 }
 
-function bagOfWords<T>(items: T[], render: (item: T) => string, minLen: number): Map<string, number> {
+function bagOfWords<T>(
+  items: T[],
+  render: (item: T) => string,
+  minLen: number,
+): Map<string, number> {
   const bag = new Map<string, number>()
   for (const item of items) {
     const text = render(item).toLowerCase()

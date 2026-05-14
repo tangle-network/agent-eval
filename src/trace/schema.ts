@@ -85,14 +85,7 @@ export interface Run {
 
 // ── Spans (hierarchical work units) ──────────────────────────────────
 
-export type SpanKind =
-  | 'agent'
-  | 'llm'
-  | 'tool'
-  | 'retrieval'
-  | 'judge'
-  | 'sandbox'
-  | 'custom'
+export type SpanKind = 'agent' | 'llm' | 'tool' | 'retrieval' | 'judge' | 'sandbox' | 'custom'
 
 export type SpanStatus = 'ok' | 'error'
 
@@ -306,8 +299,18 @@ export const FAILURE_CLASSES: readonly FailureClass[] = [
 
 // ── Helpers ──────────────────────────────────────────────────────────
 
-export function isLlmSpan(s: Span): s is LlmSpan { return s.kind === 'llm' }
-export function isToolSpan(s: Span): s is ToolSpan { return s.kind === 'tool' }
-export function isRetrievalSpan(s: Span): s is RetrievalSpan { return s.kind === 'retrieval' }
-export function isJudgeSpan(s: Span): s is JudgeSpan { return s.kind === 'judge' }
-export function isSandboxSpan(s: Span): s is SandboxSpan { return s.kind === 'sandbox' }
+export function isLlmSpan(s: Span): s is LlmSpan {
+  return s.kind === 'llm'
+}
+export function isToolSpan(s: Span): s is ToolSpan {
+  return s.kind === 'tool'
+}
+export function isRetrievalSpan(s: Span): s is RetrievalSpan {
+  return s.kind === 'retrieval'
+}
+export function isJudgeSpan(s: Span): s is JudgeSpan {
+  return s.kind === 'judge'
+}
+export function isSandboxSpan(s: Span): s is SandboxSpan {
+  return s.kind === 'sandbox'
+}

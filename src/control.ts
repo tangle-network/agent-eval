@@ -1,11 +1,8 @@
-export {
-  allCriticalPassed,
-  objectiveEval,
-  runAgentControlLoop,
-  stopOnNoProgress,
-  stopOnRepeatedAction,
-  subjectiveEval,
-} from './control-runtime'
+export type {
+  ActionExecutionPolicy,
+  ActionPolicyDecision,
+} from './action-policy'
+export { evaluateActionPolicy } from './action-policy'
 export type {
   ControlActionFailureMode,
   ControlActionOutcome,
@@ -21,33 +18,31 @@ export type {
   ControlStopPolicies,
   StopDecision,
 } from './control-runtime'
-
 export {
-  controlRunToRunRecord,
-  scoreFromEvals,
-} from './run-evidence'
-export type {
-  ControlRunToRunRecordOptions,
-  RunEvidenceMetadata,
-} from './run-evidence'
-
-export {
-  runProposeReview,
-} from './propose-review'
+  allCriticalPassed,
+  objectiveEval,
+  runAgentControlLoop,
+  stopOnNoProgress,
+  stopOnRepeatedAction,
+  subjectiveEval,
+} from './control-runtime'
 export type {
   ProposeReviewConfig,
   ProposeReviewReport,
 } from './propose-review'
-export { runProposeReviewAsControlLoop } from './propose-review-control'
+export { runProposeReview } from './propose-review'
 export type {
   ProposeReviewControlAction,
   ProposeReviewControlConfig,
   ProposeReviewControlResult,
   ProposeReviewControlState,
 } from './propose-review-control'
-
-export { evaluateActionPolicy } from './action-policy'
+export { runProposeReviewAsControlLoop } from './propose-review-control'
 export type {
-  ActionExecutionPolicy,
-  ActionPolicyDecision,
-} from './action-policy'
+  ControlRunToRunRecordOptions,
+  RunEvidenceMetadata,
+} from './run-evidence'
+export {
+  controlRunToRunRecord,
+  scoreFromEvals,
+} from './run-evidence'

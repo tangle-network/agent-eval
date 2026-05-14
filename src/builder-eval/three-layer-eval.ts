@@ -22,9 +22,9 @@
  * project shape".
  */
 
+import { judgeSpans } from '../trace/query'
 import type { Run } from '../trace/schema'
 import type { TraceStore } from '../trace/store'
-import { judgeSpans } from '../trace/query'
 
 export type ProjectKind = 'full' | 'scaffold-only'
 
@@ -55,7 +55,10 @@ export interface ThreeLayerProjectReport {
   complete: boolean
 }
 
-export async function scoreProject(store: TraceStore, projectId: string): Promise<ThreeLayerProjectReport> {
+export async function scoreProject(
+  store: TraceStore,
+  projectId: string,
+): Promise<ThreeLayerProjectReport> {
   const allRuns = await store.listRuns({ projectId })
   const builder = latestByLayer(allRuns, 'builder')
   const build = latestByLayer(allRuns, 'app-build')
@@ -63,15 +66,21 @@ export async function scoreProject(store: TraceStore, projectId: string): Promis
 
   const metaScore = builder ? await extractMetaScore(store, builder.runId) : null
   const buildScore = build?.outcome?.score ?? null
-  const runtimeScores = runtime.map((r) => r.outcome?.score).filter((s): s is number => typeof s === 'number')
-  const runtimeScore = runtimeScores.length > 0 ? runtimeScores.reduce((a, b) => a + b, 0) / runtimeScores.length : null
+  const runtimeScores = runtime
+    .map((r) => r.outcome?.score)
+    .filter((s): s is number => typeof s === 'number')
+  const runtimeScore =
+    runtimeScores.length > 0
+      ? runtimeScores.reduce((a, b) => a + b, 0) / runtimeScores.length
+      : null
   const runtimePassed = runtime.filter((r) => r.outcome?.pass === true).length
   const runtimePassRate = runtime.length > 0 ? runtimePassed / runtime.length : null
 
   const kind: ProjectKind = runtime.length === 0 ? 'scaffold-only' : 'full'
-  const complete = kind === 'scaffold-only'
-    ? metaScore !== null && buildScore !== null
-    : metaScore !== null && buildScore !== null && runtimeScore !== null
+  const complete =
+    kind === 'scaffold-only'
+      ? metaScore !== null && buildScore !== null
+      : metaScore !== null && buildScore !== null && runtimeScore !== null
 
   return {
     projectId,
@@ -101,7 +110,9 @@ function latestByLayer(runs: Run[], layer: Run['layer']): Run | undefined {
 
 async function extractMetaScore(store: TraceStore, builderRunId: string): Promise<number | null> {
   const js = await judgeSpans(store, builderRunId)
-  const meta = js.find((s) => s.judgeId === 'builder-meta' && s.dimension === 'user_intent_satisfaction')
+  const meta = js.find(
+    (s) => s.judgeId === 'builder-meta' && s.dimension === 'user_intent_satisfaction',
+  )
   if (!meta) return null
   // Normalize score to 0..1. Accept 0-1 natively; 0-10 scale is also common.
   if (meta.score >= 0 && meta.score <= 1) return meta.score

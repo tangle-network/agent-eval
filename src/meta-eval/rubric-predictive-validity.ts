@@ -138,7 +138,10 @@ export async function rubricPredictiveValidity(
   let skipped = 0
   for (const run of input.runs) {
     const os = outcomesByRun.get(run.runId)
-    if (!os || os.length === 0) { skipped++; continue }
+    if (!os || os.length === 0) {
+      skipped++
+      continue
+    }
     let joinedThisRun = false
     for (const r of rubrics) {
       const x = run.outcome.raw[r]
@@ -166,12 +169,19 @@ export async function rubricPredictiveValidity(
     const spearman = pearsonR(rankWithTies(b.xs), rankWithTies(b.ys))
     const ci = bootstrapCi(b.xs, b.ys, resamples, rng)
     const verdict: RubricOutcomePair['verdict'] =
-      Math.abs(spearman) >= 0.7 ? 'load_bearing'
-      : Math.abs(spearman) >= 0.4 ? 'informative'
-      : 'decorative'
+      Math.abs(spearman) >= 0.7
+        ? 'load_bearing'
+        : Math.abs(spearman) >= 0.4
+          ? 'informative'
+          : 'decorative'
     pairs.push({
-      rubric: b.rubric, outcome: b.outcome, n: b.xs.length,
-      pearson, spearman, ci95: ci, verdict,
+      rubric: b.rubric,
+      outcome: b.outcome,
+      n: b.xs.length,
+      pearson,
+      spearman,
+      ci95: ci,
+      verdict,
     })
   }
 
@@ -222,11 +232,15 @@ function pearsonR(a: number[], b: number[]): number {
   if (a.length !== b.length || a.length < 2) return Number.NaN
   const ma = a.reduce((s, v) => s + v, 0) / a.length
   const mb = b.reduce((s, v) => s + v, 0) / b.length
-  let num = 0, da = 0, db = 0
+  let num = 0,
+    da = 0,
+    db = 0
   for (let i = 0; i < a.length; i++) {
     const xa = a[i]! - ma
     const xb = b[i]! - mb
-    num += xa * xb; da += xa * xa; db += xb * xb
+    num += xa * xb
+    da += xa * xa
+    db += xb * xb
   }
   if (da === 0 || db === 0) return da === 0 && db === 0 ? 1 : 0
   return num / Math.sqrt(da * db)
@@ -277,7 +291,7 @@ function makeRng(seed?: number): () => number {
   if (seed === undefined) return Math.random
   let s = seed >>> 0
   return () => {
-    s = (s + 0x6D2B79F5) >>> 0
+    s = (s + 0x6d2b79f5) >>> 0
     let t = s
     t = Math.imul(t ^ (t >>> 15), t | 1)
     t ^= t + Math.imul(t ^ (t >>> 7), t | 61)

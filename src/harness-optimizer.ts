@@ -1,6 +1,6 @@
-import { paretoFrontier, type Objective, type ParetoResult } from './pareto'
-import { aggregateRunScore, type RunScore, type RunScoreWeights } from './run-score'
+import { type Objective, type ParetoResult, paretoFrontier } from './pareto'
 import { RunCritic, type RunTrace } from './run-critic'
+import { aggregateRunScore, type RunScore, type RunScoreWeights } from './run-score'
 import type { SteeringBundle } from './steering'
 
 export type HarnessIntervention =
@@ -104,7 +104,9 @@ export const DEFAULT_HARNESS_OBJECTIVES: Array<Objective<HarnessVariantReport>> 
   { name: 'wall', direction: 'minimize', value: (r) => r.wallSecondsMean },
 ]
 
-export async function runHarnessExperiment(config: HarnessExperimentConfig): Promise<HarnessExperimentResult> {
+export async function runHarnessExperiment(
+  config: HarnessExperimentConfig,
+): Promise<HarnessExperimentResult> {
   const jobs = buildJobs(config)
   const critic = new RunCritic({ weights: config.weights })
   const score = config.score ?? ((trace: RunTrace) => critic.scoreTrace(trace))
@@ -161,8 +163,10 @@ export function summarizeHarnessResults(results: HarnessRunResult[]): HarnessVar
 }
 
 function buildJobs(config: HarnessExperimentConfig): HarnessRunRequest[] {
-  if (config.variants.length === 0) throw new Error('runHarnessExperiment: at least one variant required')
-  if (config.scenarios.length === 0) throw new Error('runHarnessExperiment: at least one scenario required')
+  if (config.variants.length === 0)
+    throw new Error('runHarnessExperiment: at least one variant required')
+  if (config.scenarios.length === 0)
+    throw new Error('runHarnessExperiment: at least one scenario required')
   const trials = Math.max(1, Math.floor(config.trialsPerScenario ?? 1))
   const jobs: HarnessRunRequest[] = []
   for (const variant of config.variants) {
@@ -183,14 +187,16 @@ async function mapLimit<T, R>(
   const results: R[] = new Array(items.length)
   let next = 0
   const workerCount = Math.max(1, Math.min(Math.floor(limit), items.length))
-  await Promise.all(Array.from({ length: workerCount }, async () => {
-    while (next < items.length) {
-      const index = next++
-      const item = items[index]
-      if (item === undefined) continue
-      results[index] = await fn(item)
-    }
-  }))
+  await Promise.all(
+    Array.from({ length: workerCount }, async () => {
+      while (next < items.length) {
+        const index = next++
+        const item = items[index]
+        if (item === undefined) continue
+        results[index] = await fn(item)
+      }
+    }),
+  )
   return results
 }
 

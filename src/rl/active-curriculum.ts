@@ -96,8 +96,10 @@ export function varianceBasedCurriculum(
     const samples = grouped.get(k) ?? []
     const n = samples.length
     const mean = n === 0 ? 0.5 : samples.reduce((s, v) => s + v, 0) / n
-    const variance = n < 2 ? variancePrior :
-      samples.reduce((s, v) => s + (v - mean) ** 2, 0) / (n - 1) + variancePrior
+    const variance =
+      n < 2
+        ? variancePrior
+        : samples.reduce((s, v) => s + (v - mean) ** 2, 0) / (n - 1) + variancePrior
     // Neyman optimal allocation: weight ∝ √variance; add √(1/n) to break
     // ties toward under-sampled cells.
     const weight = Math.sqrt(variance) + 1 / Math.sqrt(Math.max(1, n))
@@ -186,7 +188,7 @@ export function thompsonCurriculum(
     // Use Gaussian-shaped kernel with σ tuned to posterior std.
     const variance = (a * b) / ((a + b) ** 2 * (a + b + 1))
     const sigma = Math.max(0.05, Math.sqrt(variance))
-    const weight = Math.exp(-(((distance) / sigma) ** 2))
+    const weight = Math.exp(-((distance / sigma) ** 2))
     return {
       variantId: c.variantId,
       scenarioId: c.scenarioId,
@@ -194,7 +196,8 @@ export function thompsonCurriculum(
       sampled,
       sigma,
       weight,
-      a, b,
+      a,
+      b,
     }
   })
 
@@ -240,7 +243,7 @@ function makeRng(seed?: number): () => number {
   if (seed === undefined) return Math.random
   let s = seed >>> 0
   return () => {
-    s = (s + 0x6D2B79F5) >>> 0
+    s = (s + 0x6d2b79f5) >>> 0
     let t = s
     t = Math.imul(t ^ (t >>> 15), t | 1)
     t ^= t + Math.imul(t ^ (t >>> 7), t | 61)

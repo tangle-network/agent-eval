@@ -9,16 +9,11 @@
  * The server has no internal state besides the handler imports — restart
  * costs nothing. Run via `agent-eval serve --port 5005`.
  */
-import { serve, type ServerType } from '@hono/node-server'
+import { type ServerType, serve } from '@hono/node-server'
 import { Hono } from 'hono'
 import { cors } from 'hono/cors'
 
-import {
-  handleJudge,
-  handleListRubrics,
-  handleVersion,
-  WireError,
-} from './handlers'
+import { handleJudge, handleListRubrics, handleVersion, WireError } from './handlers'
 import { buildOpenApi } from './openapi'
 import { JudgeRequestSchema } from './schemas'
 
@@ -38,10 +33,7 @@ export function createApp() {
     }
     // Unexpected — log and return generic 500 without leaking internals.
     console.error('[agent-eval] unhandled error:', err)
-    return c.json(
-      { error: { code: 'internal_error', message: 'Internal server error.' } },
-      500,
-    )
+    return c.json({ error: { code: 'internal_error', message: 'Internal server error.' } }, 500)
   })
 
   // ── Health ──

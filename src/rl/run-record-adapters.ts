@@ -17,8 +17,8 @@
  * — the caller is responsible for snapshot-pinning.
  */
 
-import type { TrialResult, VariantAggregate } from '../prompt-evolution'
 import type { LayerResult, VerificationReport } from '../multi-layer-verifier'
+import type { TrialResult, VariantAggregate } from '../prompt-evolution'
 import type { RunRecord, RunSplitTag } from '../run-record'
 
 export interface AdapterContext {
@@ -60,7 +60,7 @@ export function trialToRunRecord(
   const runId = opts.runId ?? defaultRunId(ctx, trial)
   const experimentId = opts.experimentIdPerTrial?.(trial) ?? ctx.experimentId
   const costRecorded = typeof trial.cost === 'number' && Number.isFinite(trial.cost)
-  const costUsd = costRecorded ? (trial.cost as number) : ctx.defaultCostUsd ?? 0
+  const costUsd = costRecorded ? (trial.cost as number) : (ctx.defaultCostUsd ?? 0)
 
   // Carry every numeric metric through; synthesize a cost-unknown flag when
   // the trial omitted cost so downstream tooling can distinguish honest
@@ -88,17 +88,18 @@ export function trialToRunRecord(
     costUsd,
     tokenUsage: { input: 0, output: 0 },
     outcome,
-    failureMode: trial.ok ? undefined : (trial.error ? 'optimizer_trial_error' : 'optimizer_trial_failed'),
+    failureMode: trial.ok
+      ? undefined
+      : trial.error
+        ? 'optimizer_trial_error'
+        : 'optimizer_trial_failed',
     splitTag,
     scenarioId: trial.scenarioId,
   }
 }
 
 /** Convenience: convert an array of `TrialResult` in one go. */
-export function trialsToRunRecords(
-  trials: TrialResult[],
-  ctx: AdapterContext,
-): RunRecord[] {
+export function trialsToRunRecords(trials: TrialResult[], ctx: AdapterContext): RunRecord[] {
   return trials.map((t) => trialToRunRecord(t, ctx))
 }
 

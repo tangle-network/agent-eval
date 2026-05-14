@@ -59,7 +59,12 @@ export function urlContains(fragment: string): Oracle {
     check(obs) {
       const url = obs.url ?? ''
       const pass = url.toLowerCase().includes(fragment.toLowerCase())
-      return { id, pass, detail: pass ? `url ok (${url})` : `url "${url}" missing "${fragment}"`, evidence: url }
+      return {
+        id,
+        pass,
+        detail: pass ? `url ok (${url})` : `url "${url}" missing "${fragment}"`,
+        evidence: url,
+      }
     },
   }
 }
@@ -82,7 +87,11 @@ export function jsonShape(expected: Record<string, unknown>): Oracle {
             return { id, pass: false, detail: `key "${k}" failed regex ${v}` }
           }
         } else if (actual !== v) {
-          return { id, pass: false, detail: `key "${k}" = ${JSON.stringify(actual)}, expected ${JSON.stringify(v)}` }
+          return {
+            id,
+            pass: false,
+            detail: `key "${k}" = ${JSON.stringify(actual)}, expected ${JSON.stringify(v)}`,
+          }
         }
       }
       return { id, pass: true, detail: 'all keys match' }
@@ -130,7 +139,12 @@ export function notBlocked(): Oracle {
       const hay = obs.text ?? ''
       for (const { name, re } of markers) {
         if (re.test(hay)) {
-          return { id, pass: false, detail: `blocked by ${name}`, evidence: (hay.match(re) ?? [])[0] }
+          return {
+            id,
+            pass: false,
+            detail: `blocked by ${name}`,
+            evidence: (hay.match(re) ?? [])[0],
+          }
         }
       }
       return { id, pass: true, detail: 'no anti-bot block detected' }

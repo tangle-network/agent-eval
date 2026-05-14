@@ -14,25 +14,23 @@
  *     from '@tangle-network/agent-eval/telemetry/file'
  */
 
-export { TELEMETRY_SCHEMA_VERSION } from './schema'
+export {
+  type EmitArgs,
+  SECRET_FLAGS,
+  sanitiseArgv,
+  TelemetryClient,
+} from './client'
 export type {
   TelemetryEnvelope,
   TelemetryKind,
-  TelemetrySource,
   TelemetryModel,
+  TelemetrySource,
 } from './schema'
-
+export { TELEMETRY_SCHEMA_VERSION } from './schema'
 export {
-  type TelemetrySink,
-  HttpTelemetrySink,
   FanoutTelemetrySink,
-  NullTelemetrySink,
+  HttpTelemetrySink,
   InMemoryTelemetrySink,
+  NullTelemetrySink,
+  type TelemetrySink,
 } from './sink-fetch'
-
-export {
-  TelemetryClient,
-  SECRET_FLAGS,
-  sanitiseArgv,
-  type EmitArgs,
-} from './client'

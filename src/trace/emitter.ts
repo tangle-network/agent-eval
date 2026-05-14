@@ -83,9 +83,13 @@ export class TraceEmitter {
     this.hookErrors = options.hookErrors ?? 'swallow'
   }
 
-  get runId(): string { return this._runId }
+  get runId(): string {
+    return this._runId
+  }
 
-  get traceStore(): TraceStore { return this.store }
+  get traceStore(): TraceStore {
+    return this.store
+  }
 
   /** Append a hook after construction (e.g. attach the trace analyst). */
   addRunCompleteHook(hook: RunCompleteHook): void {
@@ -107,11 +111,7 @@ export class TraceEmitter {
   async startRun(
     run: Omit<Run, 'runId' | 'scenarioId' | 'startedAt' | 'status'> & { scenarioId?: string },
   ): Promise<Run> {
-    const scenarioId =
-      run.scenarioId ??
-      run.layer ??
-      run.tags?.['kind'] ??
-      'runtime'
+    const scenarioId = run.scenarioId ?? run.layer ?? run.tags?.kind ?? 'runtime'
     const full: Run = {
       ...run,
       scenarioId,
@@ -136,7 +136,13 @@ export class TraceEmitter {
       status: 'aborted',
       outcome,
     })
-    await this.runHooks({ runId: this._runId, emitter: this, store: this.store, outcome, status: 'aborted' })
+    await this.runHooks({
+      runId: this._runId,
+      emitter: this,
+      store: this.store,
+      outcome,
+      status: 'aborted',
+    })
   }
 
   private async runHooks(ctx: RunCompleteHookContext): Promise<void> {
@@ -165,12 +171,14 @@ export class TraceEmitter {
 
   // ── Generic span ───────────────────────────────────────────────────
 
-  async span<S extends Span = Span>(init: {
-    kind: SpanKind
-    name: string
-    parentSpanId?: string
-    attributes?: Record<string, unknown>
-  } & Partial<Omit<S, 'spanId' | 'runId' | 'startedAt' | 'kind' | 'name'>>): Promise<SpanHandle<S>> {
+  async span<S extends Span = Span>(
+    init: {
+      kind: SpanKind
+      name: string
+      parentSpanId?: string
+      attributes?: Record<string, unknown>
+    } & Partial<Omit<S, 'spanId' | 'runId' | 'startedAt' | 'kind' | 'name'>>,
+  ): Promise<SpanHandle<S>> {
     const spanId = this.id()
     const parent = init.parentSpanId ?? this.stack[this.stack.length - 1]
     const span = {
@@ -190,7 +198,11 @@ export class TraceEmitter {
       span,
       end: async (patch?: Partial<S>) => {
         const endedAt = this.now()
-        await this.store.updateSpan(span.spanId, { endedAt, status: 'ok', ...patch } as Partial<Span>)
+        await this.store.updateSpan(span.spanId, {
+          endedAt,
+          status: 'ok',
+          ...patch,
+        } as Partial<Span>)
         this.pop(span.spanId)
       },
       fail: async (error: string | Error, patch?: Partial<S>) => {
@@ -214,19 +226,27 @@ export class TraceEmitter {
 
   // ── Typed span conveniences ────────────────────────────────────────
 
-  llm(init: Omit<LlmSpan, 'spanId' | 'runId' | 'kind' | 'startedAt'>): Promise<SpanHandle<LlmSpan>> {
+  llm(
+    init: Omit<LlmSpan, 'spanId' | 'runId' | 'kind' | 'startedAt'>,
+  ): Promise<SpanHandle<LlmSpan>> {
     return this.span<LlmSpan>({ kind: 'llm', ...init })
   }
 
-  tool(init: Omit<ToolSpan, 'spanId' | 'runId' | 'kind' | 'startedAt'>): Promise<SpanHandle<ToolSpan>> {
+  tool(
+    init: Omit<ToolSpan, 'spanId' | 'runId' | 'kind' | 'startedAt'>,
+  ): Promise<SpanHandle<ToolSpan>> {
     return this.span<ToolSpan>({ kind: 'tool', ...init })
   }
 
-  retrieval(init: Omit<RetrievalSpan, 'spanId' | 'runId' | 'kind' | 'startedAt'>): Promise<SpanHandle<RetrievalSpan>> {
+  retrieval(
+    init: Omit<RetrievalSpan, 'spanId' | 'runId' | 'kind' | 'startedAt'>,
+  ): Promise<SpanHandle<RetrievalSpan>> {
     return this.span<RetrievalSpan>({ kind: 'retrieval', ...init })
   }
 
-  async recordJudge(verdict: Omit<JudgeSpan, 'spanId' | 'runId' | 'kind' | 'startedAt' | 'endedAt'>): Promise<JudgeSpan> {
+  async recordJudge(
+    verdict: Omit<JudgeSpan, 'spanId' | 'runId' | 'kind' | 'startedAt' | 'endedAt'>,
+  ): Promise<JudgeSpan> {
     const spanId = this.id()
     const now = this.now()
     const full: JudgeSpan = {
@@ -242,13 +262,19 @@ export class TraceEmitter {
     return full
   }
 
-  sandbox(init: Omit<SandboxSpan, 'spanId' | 'runId' | 'kind' | 'startedAt'>): Promise<SpanHandle<SandboxSpan>> {
+  sandbox(
+    init: Omit<SandboxSpan, 'spanId' | 'runId' | 'kind' | 'startedAt'>,
+  ): Promise<SpanHandle<SandboxSpan>> {
     return this.span<SandboxSpan>({ kind: 'sandbox', ...init })
   }
 
   // ── Events ─────────────────────────────────────────────────────────
 
-  async emit(event: { kind: EventKind; spanId?: string; payload?: Record<string, unknown> }): Promise<TraceEvent> {
+  async emit(event: {
+    kind: EventKind
+    spanId?: string
+    payload?: Record<string, unknown>
+  }): Promise<TraceEvent> {
     const full: TraceEvent = {
       eventId: this.id(),
       runId: this._runId,
@@ -263,7 +289,9 @@ export class TraceEmitter {
 
   // ── Budget ledger ──────────────────────────────────────────────────
 
-  async recordBudget(entry: Omit<BudgetLedgerEntry, 'runId' | 'timestamp'> & { timestamp?: number }): Promise<BudgetLedgerEntry> {
+  async recordBudget(
+    entry: Omit<BudgetLedgerEntry, 'runId' | 'timestamp'> & { timestamp?: number },
+  ): Promise<BudgetLedgerEntry> {
     const full: BudgetLedgerEntry = {
       runId: this._runId,
       timestamp: entry.timestamp ?? this.now(),
@@ -328,7 +356,12 @@ export function llmSpanFromProvider(args: {
   model: string
   messages: Message[]
   output: string
-  usage?: { inputTokens?: number; outputTokens?: number; cachedTokens?: number; reasoningTokens?: number }
+  usage?: {
+    inputTokens?: number
+    outputTokens?: number
+    cachedTokens?: number
+    reasoningTokens?: number
+  }
   costUsd?: number
   finishReason?: string
 }): Omit<LlmSpan, 'spanId' | 'runId' | 'kind' | 'startedAt'> {

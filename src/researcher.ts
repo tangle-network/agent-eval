@@ -159,7 +159,10 @@ export class NoopResearcher implements Researcher {
     throw new Error(`${this.hint} (proposeChange not implemented)`)
   }
 
-  async applyChange(_changes: SteeringChange[], _baseline: ExperimentPlan): Promise<ExperimentPlan> {
+  async applyChange(
+    _changes: SteeringChange[],
+    _baseline: ExperimentPlan,
+  ): Promise<ExperimentPlan> {
     throw new Error(`${this.hint} (applyChange not implemented)`)
   }
 

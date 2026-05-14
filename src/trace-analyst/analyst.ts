@@ -1,20 +1,12 @@
-import {
-  AxJSRuntime,
-  agent,
-  type AxActorTurn,
-  type AxAIService,
-  type AxFunction,
-} from '@ax-llm/ax'
-
-import { TraceFileMissingError } from './store-otlp'
+import { type AxActorTurn, type AxAIService, type AxFunction, AxJSRuntime, agent } from '@ax-llm/ax'
 import {
   TRACE_ANALYST_ACTOR_DESCRIPTION,
   TRACE_ANALYST_ACTOR_DESCRIPTION_VERSION,
   TRACE_ANALYST_SUBAGENT_DESCRIPTION,
 } from './prompts'
-import { buildTraceAnalystTools } from './tools'
 import type { TraceAnalysisStore } from './store'
-import { OtlpFileTraceStore } from './store-otlp'
+import { OtlpFileTraceStore, TraceFileMissingError } from './store-otlp'
+import { buildTraceAnalystTools } from './tools'
 
 export interface AnalyzeTracesInput {
   /** The user-facing question. Domain framing belongs here, not in the
@@ -197,8 +189,7 @@ export async function analyzeTraces(
       },
       responderOptions: {
         ...(options.model ? { model: options.model } : {}),
-        description:
-          options.subagentDescription ?? TRACE_ANALYST_SUBAGENT_DESCRIPTION,
+        description: options.subagentDescription ?? TRACE_ANALYST_SUBAGENT_DESCRIPTION,
         showThoughts: false,
       },
       actorTurnCallback,
@@ -228,8 +219,11 @@ export async function analyzeTraces(
   }
 }
 
-function normalizeRoleArrays(value: unknown): { actor: Record<string, unknown>[]; responder: Record<string, unknown>[] } {
-  const record = value && typeof value === 'object' ? value as Record<string, unknown> : {}
+function normalizeRoleArrays(value: unknown): {
+  actor: Record<string, unknown>[]
+  responder: Record<string, unknown>[]
+} {
+  const record = value && typeof value === 'object' ? (value as Record<string, unknown>) : {}
   return {
     actor: normalizeRecordArray(record.actor),
     responder: normalizeRecordArray(record.responder),
@@ -238,9 +232,7 @@ function normalizeRoleArrays(value: unknown): { actor: Record<string, unknown>[]
 
 function normalizeRecordArray(value: unknown): Record<string, unknown>[] {
   if (!Array.isArray(value)) return []
-  return value.map((item) => (
-    item && typeof item === 'object'
-      ? { ...(item as Record<string, unknown>) }
-      : { value: item }
-  ))
+  return value.map((item) =>
+    item && typeof item === 'object' ? { ...(item as Record<string, unknown>) } : { value: item },
+  )
 }

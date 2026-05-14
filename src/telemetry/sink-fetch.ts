@@ -71,5 +71,7 @@ export class InMemoryTelemetrySink implements TelemetrySink {
   emit(envelope: TelemetryEnvelope): void {
     this.envelopes.push(envelope)
   }
-  clear(): void { this.envelopes.length = 0 }
+  clear(): void {
+    this.envelopes.length = 0
+  }
 }

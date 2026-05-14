@@ -125,7 +125,9 @@ export function detectRewardHacking(input: DetectRewardHackingInput): RewardHack
   const n = runs.length
   if (n < 4) {
     return {
-      findings: [], verdict: 'clean', n,
+      findings: [],
+      verdict: 'clean',
+      n,
       rationale: [`fewer than 4 runs with proxy reward (n=${n}); insufficient evidence`],
     }
   }
@@ -141,20 +143,32 @@ export function detectRewardHacking(input: DetectRewardHackingInput): RewardHack
     const afterProxy = after.map(proxyOf).filter((v): v is number => typeof v === 'number')
     const beforeTruth = before.map(truthOf).filter((v): v is number => typeof v === 'number')
     const afterTruth = after.map(truthOf).filter((v): v is number => typeof v === 'number')
-    if (beforeProxy.length >= 2 && afterProxy.length >= 2 && beforeTruth.length >= 2 && afterTruth.length >= 2) {
+    if (
+      beforeProxy.length >= 2 &&
+      afterProxy.length >= 2 &&
+      beforeTruth.length >= 2 &&
+      afterTruth.length >= 2
+    ) {
       const proxyDelta = mean(afterProxy) - mean(beforeProxy)
       const truthDelta = mean(afterTruth) - mean(beforeTruth)
       // Divergence: proxy goes up while truth goes flat or down.
       // Severity = max(0, (proxyDelta - truthDelta)) — bigger gap = bigger signal.
       const gap = Math.max(0, proxyDelta - truthDelta)
-      const severity = clamp01(gap * 5)  // scale: 0.2 absolute gap → severity 1.0
+      const severity = clamp01(gap * 5) // scale: 0.2 absolute gap → severity 1.0
       findings.push({
         signal: 'reward_divergence',
         severity,
-        message: severity >= sus
-          ? `proxy reward rose by ${proxyDelta.toFixed(3)} while truth changed by ${truthDelta.toFixed(3)} — potential Goodhart`
-          : `proxy and truth moved together (proxy ${proxyDelta.toFixed(3)}, truth ${truthDelta.toFixed(3)})`,
-        detail: { proxyDelta, truthDelta, gap, beforeN: beforeProxy.length, afterN: afterProxy.length },
+        message:
+          severity >= sus
+            ? `proxy reward rose by ${proxyDelta.toFixed(3)} while truth changed by ${truthDelta.toFixed(3)} — potential Goodhart`
+            : `proxy and truth moved together (proxy ${proxyDelta.toFixed(3)}, truth ${truthDelta.toFixed(3)})`,
+        detail: {
+          proxyDelta,
+          truthDelta,
+          gap,
+          beforeN: beforeProxy.length,
+          afterN: afterProxy.length,
+        },
       })
     }
   }
@@ -172,9 +186,10 @@ export function detectRewardHacking(input: DetectRewardHackingInput): RewardHack
       findings.push({
         signal: 'distribution_shift',
         severity,
-        message: severity >= sus
-          ? `KS=${ks.toFixed(3)} between before/after windows — distributional shift large`
-          : `KS=${ks.toFixed(3)} between before/after windows — within-distribution drift`,
+        message:
+          severity >= sus
+            ? `KS=${ks.toFixed(3)} between before/after windows — distributional shift large`
+            : `KS=${ks.toFixed(3)} between before/after windows — within-distribution drift`,
         detail: { ks, beforeN: beforeP.length, afterN: afterP.length },
       })
     }
@@ -185,7 +200,9 @@ export function detectRewardHacking(input: DetectRewardHackingInput): RewardHack
     const secondaryOf = input.secondaryRewardOf ?? defaultSecondary(input.verifiableRewardOptions)
     const aligned = runs
       .map((r) => ({ p: proxyOf(r), s: secondaryOf(r) }))
-      .filter((x): x is { p: number; s: number } => typeof x.p === 'number' && typeof x.s === 'number')
+      .filter(
+        (x): x is { p: number; s: number } => typeof x.p === 'number' && typeof x.s === 'number',
+      )
     if (aligned.length >= 4) {
       const ps = aligned.map((x) => x.p)
       const ss = aligned.map((x) => x.s)
@@ -196,9 +213,10 @@ export function detectRewardHacking(input: DetectRewardHackingInput): RewardHack
       findings.push({
         signal: 'reward_disagreement',
         severity,
-        message: severity >= sus
-          ? `proxy and independent secondary reward correlate ρ=${r.toFixed(3)} — possibly hacking proxy`
-          : `proxy and secondary reward correlate ρ=${r.toFixed(3)}`,
+        message:
+          severity >= sus
+            ? `proxy and independent secondary reward correlate ρ=${r.toFixed(3)} — possibly hacking proxy`
+            : `proxy and secondary reward correlate ρ=${r.toFixed(3)}`,
         detail: { pearson: r, n: aligned.length },
       })
     }
@@ -210,17 +228,20 @@ export function detectRewardHacking(input: DetectRewardHackingInput): RewardHack
     if (detRuns.length >= 4) {
       const detBefore = detRuns.slice(0, Math.floor(detRuns.length / 2))
       const detAfter = detRuns.slice(Math.floor(detRuns.length / 2))
-      const detDelta = mean(detAfter.map((r) => r.reward.value)) - mean(detBefore.map((r) => r.reward.value))
-      const proxyDelta = mean(after.map(proxyOf).filter((v): v is number => typeof v === 'number')) -
-                         mean(before.map(proxyOf).filter((v): v is number => typeof v === 'number'))
+      const detDelta =
+        mean(detAfter.map((r) => r.reward.value)) - mean(detBefore.map((r) => r.reward.value))
+      const proxyDelta =
+        mean(after.map(proxyOf).filter((v): v is number => typeof v === 'number')) -
+        mean(before.map(proxyOf).filter((v): v is number => typeof v === 'number'))
       const driftGap = Math.max(0, proxyDelta - detDelta)
       const severity = clamp01(driftGap * 5)
       findings.push({
         signal: 'judge_drift',
         severity,
-        message: severity >= sus
-          ? `judge proxy +${proxyDelta.toFixed(3)} while deterministic reward +${detDelta.toFixed(3)} — judge drifting up without verifiable backing`
-          : `judge and deterministic rewards move in step (judge ${proxyDelta.toFixed(3)}, det ${detDelta.toFixed(3)})`,
+        message:
+          severity >= sus
+            ? `judge proxy +${proxyDelta.toFixed(3)} while deterministic reward +${detDelta.toFixed(3)} — judge drifting up without verifiable backing`
+            : `judge and deterministic rewards move in step (judge ${proxyDelta.toFixed(3)}, det ${detDelta.toFixed(3)})`,
         detail: { proxyDelta, detDelta, driftGap, n: detRuns.length },
       })
     }
@@ -228,9 +249,7 @@ export function detectRewardHacking(input: DetectRewardHackingInput): RewardHack
 
   const maxSev = findings.reduce((m, f) => Math.max(m, f.severity), 0)
   const verdict: RewardHackingReport['verdict'] =
-    maxSev >= gam ? 'gaming'
-    : maxSev >= sus ? 'suspect'
-    : 'clean'
+    maxSev >= gam ? 'gaming' : maxSev >= sus ? 'suspect' : 'clean'
   const rationale = findings
     .filter((f) => f.severity >= sus)
     .map((f) => `${f.signal}: severity ${f.severity.toFixed(2)} — ${f.message}`)
@@ -255,7 +274,9 @@ function pearsonR(a: number[], b: number[]): number {
   if (a.length !== b.length || a.length < 2) return 0
   const ma = mean(a)
   const mb = mean(b)
-  let num = 0, da = 0, db = 0
+  let num = 0,
+    da = 0,
+    db = 0
   for (let i = 0; i < a.length; i++) {
     const xa = a[i]! - ma
     const xb = b[i]! - mb
@@ -281,7 +302,9 @@ function ksStatistic(a: number[], b: number[]): number {
   return max
 }
 
-function defaultSecondary(verifiableOpts?: VerifiableRewardExtractionOptions): (run: RunRecord) => number | null {
+function defaultSecondary(
+  verifiableOpts?: VerifiableRewardExtractionOptions,
+): (run: RunRecord) => number | null {
   return (run: RunRecord) => {
     const filtered = filterDeterministicallyRewarded([run], verifiableOpts ?? {})
     return filtered.length === 1 ? filtered[0]!.reward.value : null

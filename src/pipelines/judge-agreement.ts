@@ -8,9 +8,9 @@
  *     providing a `humanGoldenJudgeId`).
  */
 
+import { interRaterReliability } from '../statistics'
 import type { JudgeSpan } from '../trace/schema'
 import type { TraceStore } from '../trace/store'
-import { interRaterReliability } from '../statistics'
 
 export interface JudgePair {
   judgeA: string
@@ -53,27 +53,35 @@ export async function judgeAgreementView(store: TraceStore): Promise<JudgeAgreem
     const judgesHere = [...byJudge.keys()]
     for (let i = 0; i < judgesHere.length; i++) {
       for (let j = i + 1; j < judgesHere.length; j++) {
-        const a = byJudge.get(judgesHere[i])!
-        const b = byJudge.get(judgesHere[j])!
+        const judgeI = judgesHere[i]!
+        const judgeJ = judgesHere[j]!
+        const a = byJudge.get(judgeI)!
+        const b = byJudge.get(judgeJ)!
         const common: Array<[number, number]> = []
         for (const [target, scoreA] of a) {
           const scoreB = b.get(target)
           if (scoreB !== undefined) common.push([scoreA, scoreB])
         }
         if (common.length < 2) continue
-        const judgeScores = common.map(([scoreA, scoreB]) => [
-          { judgeName: judgesHere[i], dimension: dim, score: scoreA, reasoning: '' },
-          { judgeName: judgesHere[j], dimension: dim, score: scoreB, reasoning: '' },
-        ] as const)
+        const judgeScores = common.map(
+          ([scoreA, scoreB]) =>
+            [
+              { judgeName: judgeI, dimension: dim, score: scoreA, reasoning: '' },
+              { judgeName: judgeJ, dimension: dim, score: scoreB, reasoning: '' },
+            ] as const,
+        )
         const k = interRaterReliability(
-          judgeScores[0].map((_, k2) => judgeScores.map((pair) => pair[k2]))
+          judgeScores[0]!.map((_, k2) => judgeScores.map((pair) => pair[k2]!)),
         )
         pairs.push({
-          judgeA: judgesHere[i],
-          judgeB: judgesHere[j],
+          judgeA: judgeI,
+          judgeB: judgeJ,
           dimension: dim,
           commonItems: common.length,
-          pearson: pearson(common.map((c) => c[0]), common.map((c) => c[1])),
+          pearson: pearson(
+            common.map((c) => c[0]),
+            common.map((c) => c[1]),
+          ),
           krippendorff: k,
         })
       }
@@ -91,10 +99,12 @@ function pearson(a: number[], b: number[]): number {
   if (a.length !== b.length || a.length < 2) return NaN
   const mA = a.reduce((s, v) => s + v, 0) / a.length
   const mB = b.reduce((s, v) => s + v, 0) / b.length
-  let num = 0, denA = 0, denB = 0
+  let num = 0,
+    denA = 0,
+    denB = 0
   for (let i = 0; i < a.length; i++) {
-    const dA = a[i] - mA
-    const dB = b[i] - mB
+    const dA = a[i]! - mA
+    const dB = b[i]! - mB
     num += dA * dB
     denA += dA * dA
     denB += dB * dB

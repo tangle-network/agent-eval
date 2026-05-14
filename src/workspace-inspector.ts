@@ -45,9 +45,7 @@ export class InMemoryWorkspaceInspector implements WorkspaceInspector {
   }
 
   async snapshot(context: InspectorContext): Promise<WorkspaceSnapshot> {
-    return (
-      this.snapshots.get(context.scopeId) ?? { files: {}, rows: {}, kv: {} }
-    )
+    return this.snapshots.get(context.scopeId) ?? { files: {}, rows: {}, kv: {} }
   }
 }
 
@@ -91,7 +89,11 @@ export function fileContains(path: string, needle: string): WorkspaceAssertion {
         return { pass: false, score: 0, detail: `File ${path} missing` }
       }
       const pass = content.includes(needle)
-      return { pass, score: pass ? 1 : 0, detail: pass ? undefined : `File ${path} missing substring "${needle}"` }
+      return {
+        pass,
+        score: pass ? 1 : 0,
+        detail: pass ? undefined : `File ${path} missing substring "${needle}"`,
+      }
     },
   }
 }
@@ -104,11 +106,7 @@ export function rowCount(table: string, min: number, max?: number): WorkspaceAss
       const count = rows.length
       const upper = max ?? Infinity
       const pass = count >= min && count <= upper
-      const score = pass
-        ? 1
-        : count < min
-          ? Math.max(0, count / min)
-          : Math.max(0, upper / count)
+      const score = pass ? 1 : count < min ? Math.max(0, count / min) : Math.max(0, upper / count)
       return {
         pass,
         score,
@@ -135,7 +133,9 @@ export function rowWhere<T extends Record<string, unknown>>(
       return {
         pass,
         score: pass ? 1 : Math.max(0, matching / min),
-        detail: pass ? undefined : `Table ${table} has ${matching} matching rows, expected ≥ ${min}`,
+        detail: pass
+          ? undefined
+          : `Table ${table} has ${matching} matching rows, expected ≥ ${min}`,
       }
     },
   }

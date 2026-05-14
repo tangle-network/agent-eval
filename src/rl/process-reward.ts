@@ -92,7 +92,10 @@ export async function extractStepRewards(
     for (const s of opts.scorers) {
       if (!s.appliesTo.includes(span.kind)) continue
       const r = await s.score(span)
-      if (r) { scored = r; break }
+      if (r) {
+        scored = r
+        break
+      }
     }
     if (!scored) continue
     out.push({

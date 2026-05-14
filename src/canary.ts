@@ -30,10 +30,7 @@
 
 import type { RunRecord } from './run-record'
 
-export type CanaryKind =
-  | 'silent_judge_fallback'
-  | 'judge_calibration_drift'
-  | 'distribution_shift'
+export type CanaryKind = 'silent_judge_fallback' | 'judge_calibration_drift' | 'distribution_shift'
 
 export type CanarySeverity = 'info' | 'warn' | 'error'
 
@@ -113,9 +110,7 @@ export function runCanaries(runs: RunRecord[], opts: CanaryOptions = {}): Canary
   const alerts: CanaryAlert[] = [
     ...detectSilentFallback(runs, opts.silentFallback ?? {}),
     ...detectCalibrationDrift(runs, opts.calibrationDrift ?? {}),
-    ...(opts.distributionShift
-      ? detectDistributionShift(runs, opts.distributionShift)
-      : []),
+    ...(opts.distributionShift ? detectDistributionShift(runs, opts.distributionShift) : []),
   ]
   const counts: Record<CanaryKind, number> = {
     silent_judge_fallback: 0,
@@ -151,8 +146,7 @@ function detectSilentFallback(
       streakValues = []
       continue
     }
-    const isFallback =
-      meta.fallback === true || Math.abs(meta.confidence - constant) <= eps
+    const isFallback = meta.fallback === true || Math.abs(meta.confidence - constant) <= eps
     if (isFallback) {
       streak += 1
       if (streak === 1) streakStartRunId = run.runId
@@ -216,7 +210,8 @@ function detectCalibrationDrift(
   //   c(α) * sqrt((n1 + n2) / (n1 * n2))
   // c(0.05) ≈ 1.36, c(0.01) ≈ 1.63
   const c = alpha <= 0.01 ? 1.63 : alpha <= 0.05 ? 1.36 : alpha <= 0.1 ? 1.22 : 1.0
-  const critical = c * Math.sqrt((recent.length + historical.length) / (recent.length * historical.length))
+  const critical =
+    c * Math.sqrt((recent.length + historical.length) / (recent.length * historical.length))
 
   if (ks.d > critical) {
     return [
@@ -312,7 +307,7 @@ function detectDistributionShift(
     const expected = (histCounts[b]! / historical.length) * recent.length
     if (expected < 1) continue // skip cells with too-thin expected — chi-sq breaks down
     const obs = recentCounts[b]!
-    chi += ((obs - expected) ** 2) / expected
+    chi += (obs - expected) ** 2 / expected
     df += 1
   }
   df = Math.max(1, df - 1)
@@ -374,7 +369,9 @@ function chiSquareCritical(df: number, alpha: number): number {
     return df * term ** 3
   }
   // Linear interpolation between table entries we have.
-  const keys = Object.keys(TABLE).map((k) => Number(k)).sort((a, b) => a - b)
+  const keys = Object.keys(TABLE)
+    .map((k) => Number(k))
+    .sort((a, b) => a - b)
   for (let i = 1; i < keys.length; i++) {
     const lo = keys[i - 1]!
     const hi = keys[i]!

@@ -12,8 +12,9 @@
  * Cloudflare sandbox product, etc.). The harness doesn't care which.
  */
 
-import type { SandboxSpan } from './trace/schema'
+import { ConfigError } from './errors'
 import type { TraceEmitter } from './trace/emitter'
+import type { SandboxSpan } from './trace/schema'
 
 export interface HarnessConfig {
   /** Setup command (e.g. "pnpm install"). Non-zero exit fails the run. */
@@ -36,7 +37,11 @@ export interface HarnessConfig {
 
 export interface TestOutputParser {
   id: string
-  parse(stdout: string, stderr: string, exitCode: number): { testsTotal: number; testsPassed: number } | undefined
+  parse(
+    stdout: string,
+    stderr: string,
+    exitCode: number,
+  ): { testsTotal: number; testsPassed: number } | undefined
 }
 
 export interface SandboxResult {
@@ -51,7 +56,11 @@ export interface SandboxResult {
 
 export interface SandboxDriver {
   id: string
-  exec(phase: SandboxResult['phase'], command: string, config: HarnessConfig): Promise<SandboxResult>
+  exec(
+    phase: SandboxResult['phase'],
+    command: string,
+    config: HarnessConfig,
+  ): Promise<SandboxResult>
 }
 
 // ── Parsers ──────────────────────────────────────────────────────────
@@ -141,7 +150,11 @@ export class SubprocessSandboxDriver implements SandboxDriver {
     this.defaultEnv = options.env
   }
 
-  async exec(phase: SandboxResult['phase'], command: string, config: HarnessConfig): Promise<SandboxResult> {
+  async exec(
+    phase: SandboxResult['phase'],
+    command: string,
+    config: HarnessConfig,
+  ): Promise<SandboxResult> {
     const { spawn } = await import('node:child_process')
     const start = Date.now()
     // Per-call config wins; fall back to constructor defaults. Historically
@@ -160,13 +173,27 @@ export class SubprocessSandboxDriver implements SandboxDriver {
       })
       let stdout = ''
       let stderr = ''
-      child.stdout?.on('data', (d) => { stdout += String(d) })
-      child.stderr?.on('data', (d) => { stderr += String(d) })
-      const timeout = setTimeout(() => { try { child.kill('SIGKILL') } catch {} }, config.timeoutMs ?? 10 * 60_000)
+      child.stdout?.on('data', (d) => {
+        stdout += String(d)
+      })
+      child.stderr?.on('data', (d) => {
+        stderr += String(d)
+      })
+      const timeout = setTimeout(
+        () => {
+          try {
+            child.kill('SIGKILL')
+          } catch {}
+        },
+        config.timeoutMs ?? 10 * 60_000,
+      )
       child.on('close', (code) => {
         clearTimeout(timeout)
         const wallMs = Date.now() - start
-        const parsed = phase === 'test' && config.testParser ? config.testParser.parse(stdout, stderr, code ?? 1) : undefined
+        const parsed =
+          phase === 'test' && config.testParser
+            ? config.testParser.parse(stdout, stderr, code ?? 1)
+            : undefined
         resolve({
           phase,
           exitCode: code ?? 1,
@@ -189,8 +216,12 @@ export class SubprocessSandboxDriver implements SandboxDriver {
 export class DockerSandboxDriver implements SandboxDriver {
   id = 'docker'
 
-  async exec(phase: SandboxResult['phase'], command: string, config: HarnessConfig): Promise<SandboxResult> {
-    if (!config.image) throw new Error('DockerSandboxDriver requires config.image')
+  async exec(
+    phase: SandboxResult['phase'],
+    command: string,
+    config: HarnessConfig,
+  ): Promise<SandboxResult> {
+    if (!config.image) throw new ConfigError('DockerSandboxDriver requires config.image')
     const sub = new SubprocessSandboxDriver()
     const envArgs = Object.entries(config.env ?? {})
       .map(([k, v]) => `-e ${shellQuote(k)}=${shellQuote(v)}`)
@@ -201,7 +232,7 @@ export class DockerSandboxDriver implements SandboxDriver {
 }
 
 function shellQuote(v: string): string {
-  if (/^[A-Za-z0-9_\-\/\.@:=]+$/.test(v)) return v
+  if (/^[A-Za-z0-9_\-/.@:=]+$/.test(v)) return v
   return `'${v.replace(/'/g, `'\\''`)}'`
 }
 
@@ -227,7 +258,9 @@ export class SandboxHarness {
     const handle = await emitter.sandbox({
       name: `sandbox(${this.driver.id})`,
       image: config.image,
-      command: [config.setupCommand, config.runCommand, config.testCommand].filter(Boolean).join(' && '),
+      command: [config.setupCommand, config.runCommand, config.testCommand]
+        .filter(Boolean)
+        .join(' && '),
     })
     const result: SandboxHarnessResult = { passed: false, totalWallMs: 0, score: 0 }
     try {

@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 
-import { flowLayer, type FlowRunner, type FlowSpec } from './flow-layer'
+import { type FlowRunner, type FlowSpec, flowLayer } from './flow-layer'
 import { MultiLayerVerifier } from './multi-layer-verifier'
 
 function makeRunner(opens: boolean, stepOks: boolean[]): FlowRunner {

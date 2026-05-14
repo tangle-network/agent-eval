@@ -74,7 +74,8 @@ export type ReferenceReplayAdapterFn<Input = unknown> = (
 ) => Promise<ReferenceReplayCandidate[]>
 
 export type ReferenceReplayAdapterLike<Input = unknown> =
-  ReferenceReplayAdapter<Input> | ReferenceReplayAdapterFn<Input>
+  | ReferenceReplayAdapter<Input>
+  | ReferenceReplayAdapterFn<Input>
 
 export interface ReferenceReplayMatch {
   scenarioId: string
@@ -260,7 +261,7 @@ export async function runReferenceReplay<Input = unknown>(
       matchStrategy: options.matchStrategy,
       includeHoldout: true,
     }
-    const scenarioScore = scoreReferenceReplay([scenario], scoreOptions).scenarios[0]
+    const scenarioScore = scoreReferenceReplay([scenario], scoreOptions).scenarios[0]!
     caseRuns.push({
       caseId: replayCase.id,
       split,
@@ -287,13 +288,16 @@ export async function runReferenceReplay<Input = unknown>(
     completedAt,
     durationMs: Math.max(0, completedAt - startedAt),
     cases: caseRuns,
-    score: scoreReferenceReplay(caseRuns.map((caseRun) => ({
-      id: caseRun.caseId,
-      split: caseRun.split,
-      references: caseRun.references,
-      candidates: caseRun.candidates,
-      ...(caseRun.metadata !== undefined ? { metadata: caseRun.metadata } : {}),
-    })), scoreOptions),
+    score: scoreReferenceReplay(
+      caseRuns.map((caseRun) => ({
+        id: caseRun.caseId,
+        split: caseRun.split,
+        references: caseRun.references,
+        candidates: caseRun.candidates,
+        ...(caseRun.metadata !== undefined ? { metadata: caseRun.metadata } : {}),
+      })),
+      scoreOptions,
+    ),
     ...(options.variantId !== undefined ? { variantId: options.variantId } : {}),
     ...(options.metadata !== undefined ? { metadata: options.metadata } : {}),
   }
@@ -340,13 +344,15 @@ function getJsonlStoreLock(path: string): Mutex {
   return m
 }
 
-export function jsonlReferenceReplayStore<Input = unknown>(path: string): ReferenceReplayRunStore<Input> {
+export function jsonlReferenceReplayStore<Input = unknown>(
+  path: string,
+): ReferenceReplayRunStore<Input> {
   const lock = getJsonlStoreLock(path)
   return {
     async save(run) {
       await lock.runExclusive(() => {
         mkdirSync(dirname(path), { recursive: true })
-        appendFileSync(path, JSON.stringify(run) + '\n')
+        appendFileSync(path, `${JSON.stringify(run)}\n`)
       })
     },
     async list() {
@@ -386,8 +392,8 @@ export function compareReferenceReplay(
   candidate: ReferenceReplayScore,
 ): ReferenceReplaySplitComparison[] {
   const splits = new Set<ReferenceReplaySplit>([
-    ...Object.keys(baseline.bySplit) as ReferenceReplaySplit[],
-    ...Object.keys(candidate.bySplit) as ReferenceReplaySplit[],
+    ...(Object.keys(baseline.bySplit) as ReferenceReplaySplit[]),
+    ...(Object.keys(candidate.bySplit) as ReferenceReplaySplit[]),
   ])
   return [...splits].sort(bySplitOrder).map((split) => {
     const before = baseline.bySplit[split] ?? emptyAggregate()
@@ -414,7 +420,9 @@ export function decideReferenceReplayPromotion(
   const maxRegression = policy.maxRegression ?? 0
   const requireHoldout = policy.requireHoldoutNonRegression ?? true
   const comparisons = compareReferenceReplay(baseline, candidate)
-  const missingRequiredSplits = requiredSplits.filter((split) => !hasSplit(baseline, split) || !hasSplit(candidate, split))
+  const missingRequiredSplits = requiredSplits.filter(
+    (split) => !hasSplit(baseline, split) || !hasSplit(candidate, split),
+  )
   const compared = comparisons.filter((item) => requiredSplits.includes(item.split))
   const regressions = comparisons.filter((item) => item.f1Delta < -maxRegression)
   const aggregateDelta = candidate.aggregate.f1 - baseline.aggregate.f1
@@ -486,12 +494,18 @@ export function defaultReferenceReplayMatcher(
   const referenceText = `${reference.title} ${reference.description ?? ''}`
   const candidateText = `${candidate.title} ${candidate.description ?? ''}`
   const textScore = tokenJaccard(referenceText, candidateText)
-  const severityScore = reference.severity && candidate.severity
-    ? normalize(reference.severity) === normalize(candidate.severity) ? 0.1 : -0.05
-    : 0
+  const severityScore =
+    reference.severity && candidate.severity
+      ? normalize(reference.severity) === normalize(candidate.severity)
+        ? 0.1
+        : -0.05
+      : 0
   const tagScore = tagOverlap(reference.tags, candidate.tags) * 0.15
   const score = clamp01(textScore * 0.85 + tagScore + severityScore)
-  return { score, reason: `token=${textScore.toFixed(2)} tags=${tagScore.toFixed(2)} severity=${severityScore.toFixed(2)}` }
+  return {
+    score,
+    reason: `token=${textScore.toFixed(2)} tags=${tagScore.toFixed(2)} severity=${severityScore.toFixed(2)}`,
+  }
 }
 
 function scoreScenario(
@@ -514,7 +528,12 @@ function scoreScenarioReferenceOrder(
   const matches: ReferenceReplayMatch[] = []
 
   for (const reference of scenario.references) {
-    let best: { candidate: ReferenceReplayCandidate; index: number; score: number; reason: string } | null = null
+    let best: {
+      candidate: ReferenceReplayCandidate
+      index: number
+      score: number
+      reason: string
+    } | null = null
     for (const item of candidatesLeft) {
       const result = scorePair(scenario, matcher, reference, item.candidate)
       if (!best || result.score > best.score) {
@@ -578,17 +597,19 @@ function scoreScenarioGlobalGreedy(
     }
   }
 
-  pairs.sort((a, b) =>
-    b.score - a.score ||
-    a.referenceIndex - b.referenceIndex ||
-    a.candidateIndex - b.candidateIndex
+  pairs.sort(
+    (a, b) =>
+      b.score - a.score ||
+      a.referenceIndex - b.referenceIndex ||
+      a.candidateIndex - b.candidateIndex,
   )
 
   const selectedByReference = new Map<number, ReferenceCandidatePair>()
   const selectedCandidates = new Set<number>()
   for (const pair of pairs) {
     if (pair.score < threshold) break
-    if (selectedByReference.has(pair.referenceIndex) || selectedCandidates.has(pair.candidateIndex)) continue
+    if (selectedByReference.has(pair.referenceIndex) || selectedCandidates.has(pair.candidateIndex))
+      continue
     selectedByReference.set(pair.referenceIndex, pair)
     selectedCandidates.add(pair.candidateIndex)
   }
@@ -631,7 +652,9 @@ function scorePair(
 ): { score: number; reason: string } {
   const result = matcher(reference, candidate, scenario)
   if (!Number.isFinite(result.score)) {
-    throw new Error(`reference replay matcher returned non-finite score for ${scenario.id}:${reference.id}:${candidate.id}`)
+    throw new Error(
+      `reference replay matcher returned non-finite score for ${scenario.id}:${reference.id}:${candidate.id}`,
+    )
   }
   return { score: clamp01(result.score), reason: result.reason ?? '' }
 }
@@ -643,7 +666,9 @@ function buildScenarioScore(
 ): ReferenceReplayScenarioScore {
   const matched = matches.filter((match) => match.matched).length
   const total = scenario.references.length
-  const matchedWeight = matches.filter((match) => match.matched).reduce((sum, match) => sum + match.weight, 0)
+  const matchedWeight = matches
+    .filter((match) => match.matched)
+    .reduce((sum, match) => sum + match.weight, 0)
   const totalWeight = matches.reduce((sum, match) => sum + match.weight, 0)
   const precision = ratio(matched, matched + falsePositives)
   const recall = ratio(matched, total)
@@ -713,7 +738,7 @@ function hasSplit(score: ReferenceReplayScore, split: ReferenceReplaySplit): boo
 }
 
 function f1(precision: number, recall: number): number {
-  return precision + recall === 0 ? 0 : 2 * precision * recall / (precision + recall)
+  return precision + recall === 0 ? 0 : (2 * precision * recall) / (precision + recall)
 }
 
 function ratio(numerator: number, denominator: number): number {
@@ -749,7 +774,10 @@ function tokens(text: string): string[] {
 }
 
 function normalize(text: string): string {
-  return text.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim()
+  return text
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim()
 }
 
 function clamp01(value: number): number {
@@ -778,9 +806,7 @@ function runAdapter<Input>(
   scenario: ReferenceReplayExecutionScenario<Input>,
   context: ReferenceReplayRunContext,
 ): Promise<ReferenceReplayCandidate[]> {
-  return typeof adapter === 'function'
-    ? adapter(scenario, context)
-    : adapter.run(scenario, context)
+  return typeof adapter === 'function' ? adapter(scenario, context) : adapter.run(scenario, context)
 }
 
 function throwIfAborted(signal: AbortSignal | undefined): void {

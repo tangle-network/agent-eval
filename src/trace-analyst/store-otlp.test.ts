@@ -10,13 +10,8 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 import { describe, expect, it } from 'vitest'
-
-import {
-  OtlpFileTraceStore,
-  TraceFileMissingError,
-  TraceNotFoundError,
-} from './store-otlp'
 import { compileSearchRegex } from './store'
+import { OtlpFileTraceStore, TraceFileMissingError, TraceNotFoundError } from './store-otlp'
 
 const TINY_FIXTURE = new URL('../../tests/fixtures/trace-analyst/tiny-trace.jsonl', import.meta.url)
   .pathname
@@ -83,12 +78,12 @@ describe('OtlpFileTraceStore', () => {
     expect(spans.length).toBe(4)
     expect(spans.map((s) => s.span_id)).toEqual(['s001', 's002', 's003', 's004'])
     // Bug class: forgetting to project openinference.span.kind into kind.
-    expect(spans[0].kind).toBe('AGENT')
-    expect(spans[1].kind).toBe('LLM')
-    expect(spans[2].kind).toBe('TOOL')
-    expect(spans[3].status).toBe('ERROR')
-    expect(spans[3].status_message).toBe('MaxTurnsExceeded')
-    expect(spans[1].model_name).toBe('claude-sonnet-4-5-noext')
+    expect(spans[0]!.kind).toBe('AGENT')
+    expect(spans[1]!.kind).toBe('LLM')
+    expect(spans[2]!.kind).toBe('TOOL')
+    expect(spans[3]!.status).toBe('ERROR')
+    expect(spans[3]!.status_message).toBe('MaxTurnsExceeded')
+    expect(spans[1]!.model_name).toBe('claude-sonnet-4-5-noext')
   })
 
   it('viewTrace switches to oversized summary when payload exceeds the per-call ceiling', async () => {
@@ -120,13 +115,19 @@ describe('OtlpFileTraceStore', () => {
           end_time: '2026-04-24T18:00:01.000000000Z',
           status: { code: 'STATUS_CODE_OK' },
           resource: { attributes: { 'service.name': 'svc' } },
-          attributes: { 'openinference.span.kind': 'TOOL', 'tool.name': 'noisy', 'input.value': huge },
+          attributes: {
+            'openinference.span.kind': 'TOOL',
+            'tool.name': 'noisy',
+            'input.value': huge,
+          },
         })}\n`,
         'utf8',
       )
       const store = new OtlpFileTraceStore({ path, perAttributeViewBudget: 100 })
       const result = await store.viewTrace({ trace_id: 'big' })
-      const inputValue = result.spans?.[0].attributes['input.value']
+      const span = result.spans?.[0]
+      if (!span) throw new Error('expected at least one span')
+      const inputValue = span.attributes['input.value']
       expect(typeof inputValue).toBe('string')
       expect(inputValue as string).toMatch(/\[trace-analyst truncated: original 20000 bytes\]/)
       // Pre-cap value should not bleed through entirely.
@@ -161,8 +162,8 @@ describe('OtlpFileTraceStore', () => {
       regex_pattern: 'STATUS_CODE_ERROR',
     })
     expect(result.hits.length).toBe(1)
-    expect(result.hits[0].span_id).toBe('s004')
-    expect(result.hits[0].matched_text).toBe('STATUS_CODE_ERROR')
+    expect(result.hits[0]!.span_id).toBe('s004')
+    expect(result.hits[0]!.matched_text).toBe('STATUS_CODE_ERROR')
     expect(result.total_matches).toBe(1)
     expect(result.has_more).toBe(false)
   })
@@ -205,15 +206,15 @@ describe('OtlpFileTraceStore', () => {
       regex_pattern: 'MaxTurnsExceeded',
     })
     expect(result.hits.length).toBe(1)
-    expect(result.hits[0].matched_text).toBe('MaxTurnsExceeded')
+    expect(result.hits[0]!.matched_text).toBe('MaxTurnsExceeded')
   })
 
   it('throws TraceNotFoundError for unknown trace_ids — bug class: returning empty payload masks "you fabricated this"', async () => {
     const store = new OtlpFileTraceStore({ path: TINY_FIXTURE })
     await expect(store.viewTrace({ trace_id: 'tFAKE' })).rejects.toBeInstanceOf(TraceNotFoundError)
-    await expect(
-      store.viewSpans({ trace_id: 'tFAKE', span_ids: ['x'] }),
-    ).rejects.toBeInstanceOf(TraceNotFoundError)
+    await expect(store.viewSpans({ trace_id: 'tFAKE', span_ids: ['x'] })).rejects.toBeInstanceOf(
+      TraceNotFoundError,
+    )
     await expect(
       store.searchTrace({ trace_id: 'tFAKE', regex_pattern: 'x' }),
     ).rejects.toBeInstanceOf(TraceNotFoundError)
@@ -250,6 +251,6 @@ describe('OtlpFileTraceStore', () => {
       limit: 50,
     })
     expect(r.total).toBe(1)
-    expect(r.traces[0].trace_id).toBe('t000000000001')
+    expect(r.traces[0]!.trace_id).toBe('t000000000001')
   })
 })

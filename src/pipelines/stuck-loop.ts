@@ -34,7 +34,10 @@ export interface StuckLoopOptions {
   runId?: string
 }
 
-export async function stuckLoopView(store: TraceStore, options: StuckLoopOptions = {}): Promise<StuckLoopReport> {
+export async function stuckLoopView(
+  store: TraceStore,
+  options: StuckLoopOptions = {},
+): Promise<StuckLoopReport> {
   const minOccurrences = options.minOccurrences ?? 3
   const runs = options.runId
     ? [{ runId: options.runId }]
@@ -54,11 +57,11 @@ export async function stuckLoopView(store: TraceStore, options: StuckLoopOptions
     for (const [key, { spans, argHash: h }] of byKey) {
       if (spans.length < minOccurrences) continue
       const sorted = [...spans].sort((a, b) => a.startedAt - b.startedAt)
-      const first = sorted[0].startedAt
-      const last = sorted[sorted.length - 1].startedAt
+      const first = sorted[0]!.startedAt
+      const last = sorted[sorted.length - 1]!.startedAt
       findings.push({
         runId,
-        toolName: key.split('|')[0],
+        toolName: key.split('|')[0]!,
         argHash: h,
         occurrences: sorted.length,
         spanIds: sorted.map((s) => s.spanId),

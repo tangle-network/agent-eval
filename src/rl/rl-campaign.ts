@@ -26,45 +26,39 @@
  */
 
 import {
-  runEvalCampaign,
   type EvalCampaignOptions,
   type EvalCampaignResult,
+  runEvalCampaign,
 } from '../eval-campaign'
-import {
-  evaluateInterimReleaseConfidence,
-  type InterimReleaseConfidence,
-} from '../sequential'
-import {
-  extractVerifiableRewardsFromRecords,
-  type VerifiableReward,
-  type VerifiableRewardExtractionOptions,
-} from './verifiable-reward'
-import {
-  extractPreferences,
-  type ExtractPreferencesOptions,
-  type PreferenceExtractionReport,
-} from './preferences'
-import {
-  detectRewardHacking,
-  type RewardHackingReport,
-} from './reward-hacking'
-import {
-  rubricPredictiveValidity,
-  type RubricPredictiveValidityReport,
-} from '../meta-eval/rubric-predictive-validity'
 import type { OutcomeStore } from '../meta-eval/outcome-store'
 import {
-  toDpoRows,
-  toGrpoRows,
-  toSftRows,
+  type RubricPredictiveValidityReport,
+  rubricPredictiveValidity,
+} from '../meta-eval/rubric-predictive-validity'
+import type { RunRecord } from '../run-record'
+import { evaluateInterimReleaseConfidence, type InterimReleaseConfidence } from '../sequential'
+import {
   type DpoExportRow,
   type DpoLookups,
   type GrpoExportRow,
   type GrpoLookups,
   type SftExportRow,
   type SftLookups,
+  toDpoRows,
+  toGrpoRows,
+  toSftRows,
 } from './exporters'
-import type { RunRecord } from '../run-record'
+import {
+  type ExtractPreferencesOptions,
+  extractPreferences,
+  type PreferenceExtractionReport,
+} from './preferences'
+import { detectRewardHacking, type RewardHackingReport } from './reward-hacking'
+import {
+  extractVerifiableRewardsFromRecords,
+  type VerifiableReward,
+  type VerifiableRewardExtractionOptions,
+} from './verifiable-reward'
 
 export interface RunRLCampaignOptions<V> extends EvalCampaignOptions<V> {
   /** Preference-extraction options. Default uses paired-by-scenario-and-seed with min-margin 0.05. */
@@ -113,7 +107,9 @@ export interface RLCampaignResult<V> {
   unusedVariant?: V
 }
 
-export async function runRLCampaign<V>(opts: RunRLCampaignOptions<V>): Promise<RLCampaignResult<V>> {
+export async function runRLCampaign<V>(
+  opts: RunRLCampaignOptions<V>,
+): Promise<RLCampaignResult<V>> {
   // ── 1. Run the matrix ──────────────────────────────────────────────
   const campaign = await runEvalCampaign(opts)
 
@@ -174,7 +170,13 @@ export async function runRLCampaign<V>(opts: RunRLCampaignOptions<V>): Promise<R
     trainerRows.sft = await toSftRows(campaign.runs, opts.trainerExport.sft)
   }
 
-  const summary = buildSummary({ campaign, preferences, interimConfidence, rewardHacking, predictiveValidity })
+  const summary = buildSummary({
+    campaign,
+    preferences,
+    interimConfidence,
+    rewardHacking,
+    predictiveValidity,
+  })
 
   return {
     campaign,
@@ -233,13 +235,21 @@ function buildSummary(args: {
     `preferences: ${args.preferences.pairs.length} (${args.preferences.strategy}, ${args.preferences.pairsBelowMargin} below margin)`,
   ]
   if (args.interimConfidence) {
-    lines.push(`sequential verdict: ${args.interimConfidence.recommendation.decision}` +
-      (args.interimConfidence.recommendation.candidateId ? ` ${args.interimConfidence.recommendation.candidateId}` : ''))
+    lines.push(
+      `sequential verdict: ${args.interimConfidence.recommendation.decision}` +
+        (args.interimConfidence.recommendation.candidateId
+          ? ` ${args.interimConfidence.recommendation.candidateId}`
+          : ''),
+    )
   }
-  lines.push(`reward-hacking: ${args.rewardHacking.verdict} (${args.rewardHacking.findings.length} signals checked)`)
+  lines.push(
+    `reward-hacking: ${args.rewardHacking.verdict} (${args.rewardHacking.findings.length} signals checked)`,
+  )
   if (args.predictiveValidity) {
     const top = args.predictiveValidity.ranked[0]
-    lines.push(`top-rubric: ${top?.rubric ?? 'none'} ρ=${(top?.spearman ?? 0).toFixed(2)} (${top?.verdict ?? 'no data'})`)
+    lines.push(
+      `top-rubric: ${top?.rubric ?? 'none'} ρ=${(top?.spearman ?? 0).toFixed(2)} (${top?.verdict ?? 'no data'})`,
+    )
   }
   return lines.join(' | ')
 }

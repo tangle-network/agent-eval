@@ -58,7 +58,7 @@ export const sentenceReorderMutator: Mutator = (p, seed) => {
   for (let i = shuffled.length - 1; i > 0; i--) {
     s = (s * 1103515245 + 12345) >>> 0
     const j = s % (i + 1)
-    ;[shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]]
+    ;[shuffled[i], shuffled[j]] = [shuffled[j]!, shuffled[i]!]
   }
   return shuffled.join(' ')
 }
@@ -73,8 +73,8 @@ export const typoMutator: Mutator = (p, seed) => {
     for (let attempt = 0; attempt < 20; attempt++) {
       s = (s * 1103515245 + 12345) >>> 0
       const idx = s % (chars.length - 1)
-      const a = chars[idx]
-      const b = chars[idx + 1]
+      const a = chars[idx]!
+      const b = chars[idx + 1]!
       if (a !== b && /[A-Za-z]/.test(a) && /[A-Za-z]/.test(b)) {
         chars[idx] = b
         chars[idx + 1] = a

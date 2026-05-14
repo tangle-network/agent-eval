@@ -86,7 +86,10 @@ export function fitBradleyTerry(
   const smoothing = opts.smoothing ?? 0.1
 
   const candidates = new Set<string>()
-  for (const o of outcomes) { candidates.add(o.winner); candidates.add(o.loser) }
+  for (const o of outcomes) {
+    candidates.add(o.winner)
+    candidates.add(o.loser)
+  }
   const ids = [...candidates].sort()
   const idx = new Map(ids.map((id, i) => [id, i]))
   const n = ids.length
@@ -94,7 +97,9 @@ export function fitBradleyTerry(
   if (n === 1) {
     return {
       ratings: [{ candidateId: ids[0]!, strength: 1, logStrength: 0, n: 0, wins: 0 }],
-      iterations: 0, finalDelta: 0, converged: true,
+      iterations: 0,
+      finalDelta: 0,
+      converged: true,
     }
   }
 
@@ -200,7 +205,7 @@ export function applyEloUpdate(
   const rW = ratings.get(outcome.winner) ?? defaultRating
   const rL = ratings.get(outcome.loser) ?? defaultRating
 
-  const expectedW = 1 / (1 + Math.pow(10, (rL - rW) / 400))
+  const expectedW = 1 / (1 + 10 ** ((rL - rW) / 400))
   const scoreW = outcome.draw ? 0.5 : 1
   const scoreL = outcome.draw ? 0.5 : 0
   const w = outcome.weight ?? 1
@@ -234,7 +239,9 @@ export interface BuildPairwiseFromCampaignInput {
   drawMargin?: number
 }
 
-export function buildPairwiseFromCampaign(input: BuildPairwiseFromCampaignInput): PairwiseOutcome[] {
+export function buildPairwiseFromCampaign(
+  input: BuildPairwiseFromCampaignInput,
+): PairwiseOutcome[] {
   const drawMargin = input.drawMargin ?? 0
   const byKey = new Map<string, Array<{ candidateId: string; score: number }>>()
   for (const r of input.runs) {

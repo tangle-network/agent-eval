@@ -27,7 +27,7 @@
  * finders, letting consumers opt a legitimate fallback out explicitly.
  */
 
-import { readFileSync, existsSync, readdirSync, statSync } from 'node:fs'
+import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs'
 import { join } from 'node:path'
 
 export interface MuffledFinding {
@@ -87,7 +87,12 @@ export const findFallbackToPass: MuffledFinder = (file, text) => {
     const code = codeOf(line)
     if (!code.trim()) continue
     if (/\|\| true/.test(code) && /(testCommand|setupCommand|cmd|command)/.test(code)) {
-      out.push({ file, line: i + 1, lineText: line.trim(), pattern: 'fallback-to-pass (|| true in command string)' })
+      out.push({
+        file,
+        line: i + 1,
+        lineText: line.trim(),
+        pattern: 'fallback-to-pass (|| true in command string)',
+      })
     }
   }
   return out
@@ -106,7 +111,12 @@ export const findLiteralTruePass: MuffledFinder = (file, text) => {
     const code = codeOf(line)
     if (!code.trim()) continue
     if (/testCommand\s*:\s*['"]true['"]/.test(code)) {
-      out.push({ file, line: i + 1, lineText: line.trim(), pattern: 'literal-true-pass (testCommand: "true")' })
+      out.push({
+        file,
+        line: i + 1,
+        lineText: line.trim(),
+        pattern: 'literal-true-pass (testCommand: "true")',
+      })
     }
   }
   return out
@@ -131,7 +141,8 @@ export const findConstructorCwdDropped: MuffledFinder = (file, text) => {
         file,
         line: i + 1,
         lineText: line.trim(),
-        pattern: 'construct-vs-call cwd dropped (driver.exec reads config.cwd, not constructor.cwd)',
+        pattern:
+          'construct-vs-call cwd dropped (driver.exec reads config.cwd, not constructor.cwd)',
       })
     }
   }
@@ -199,9 +210,7 @@ export const DEFAULT_FINDERS: MuffledFinder[] = [
 ]
 
 /** Finders that should run on EVERY file with the target import, not just SCAN_FILES. */
-export const UNIVERSAL_FINDERS: MuffledFinder[] = [
-  findConstructorCwdDropped,
-]
+export const UNIVERSAL_FINDERS: MuffledFinder[] = [findConstructorCwdDropped]
 
 /**
  * Walk `roots` under `repoRoot` and return file paths (relative to repoRoot)
@@ -221,14 +230,29 @@ function autoDeriveImporters(
       const sub = join(rel, entry)
       const subAbs = join(repoRoot, sub)
       let st
-      try { st = statSync(subAbs) } catch { continue }
+      try {
+        st = statSync(subAbs)
+      } catch {
+        continue
+      }
       if (st.isDirectory()) {
-        if (entry === 'node_modules' || entry === 'dist' || entry === 'dist-tests' || entry.startsWith('.')) continue
+        if (
+          entry === 'node_modules' ||
+          entry === 'dist' ||
+          entry === 'dist-tests' ||
+          entry.startsWith('.')
+        )
+          continue
         walk(sub)
       } else if (st.isFile() && extensions.test(entry)) {
-        if (entry.endsWith('.test.ts') || entry.endsWith('.test.mjs') || entry.endsWith('.test.js')) continue
+        if (entry.endsWith('.test.ts') || entry.endsWith('.test.mjs') || entry.endsWith('.test.js'))
+          continue
         let text: string
-        try { text = readFileSync(subAbs, 'utf8') } catch { continue }
+        try {
+          text = readFileSync(subAbs, 'utf8')
+        } catch {
+          continue
+        }
         if (text.includes(importsContain)) matches.push(sub)
       }
     }

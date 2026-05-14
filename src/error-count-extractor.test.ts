@@ -1,5 +1,5 @@
-import { describe, it, expect } from 'vitest'
-import { extractErrorCount, ERROR_COUNT_PATTERNS } from './error-count-extractor'
+import { describe, expect, it } from 'vitest'
+import { ERROR_COUNT_PATTERNS, extractErrorCount } from './error-count-extractor'
 
 describe('extractErrorCount — toolchains', () => {
   it('typescript-tsc: counts each tsc diagnostic line', () => {

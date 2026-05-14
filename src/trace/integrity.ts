@@ -19,8 +19,9 @@
  * `throwIfRunIncomplete` is the convenient strict mode.
  */
 
-import type { TraceStore } from './store'
+import { CaptureIntegrityError } from '../errors'
 import type { RawProviderSink } from './raw-provider-sink'
+import type { TraceStore } from './store'
 
 export interface RunIntegrityExpectations {
   /** Minimum LLM span count. Default 0 (no requirement). */
@@ -78,12 +79,11 @@ export interface RunIntegrityReport {
   issues: RunIntegrityIssue[]
 }
 
-export class RunIntegrityError extends Error {
+export class RunIntegrityError extends CaptureIntegrityError {
   constructor(public readonly report: RunIntegrityReport) {
     super(
       `Run ${report.runId} failed integrity check: ${report.issues.map((i) => i.code).join(', ')}`,
     )
-    this.name = 'RunIntegrityError'
   }
 }
 

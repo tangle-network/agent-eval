@@ -43,7 +43,7 @@ export function renderPlaybookMarkdown(playbook: Playbook): string {
     if (entry.sourceRunId) lines.push(`  Source run: ${entry.sourceRunId}`)
     lines.push('')
   }
-  return lines.join('\n').trim() + '\n'
+  return `${lines.join('\n').trim()}\n`
 }
 
 function normalizeInstruction(value: string): string {
@@ -52,5 +52,5 @@ function normalizeInstruction(value: string): string {
 
 function canonicalInstruction(value: string): string {
   const normalized = value.trim().replace(/\s+/g, ' ')
-  return normalized.length === 0 ? normalized : normalized[0].toUpperCase() + normalized.slice(1)
+  return normalized.length === 0 ? normalized : normalized[0]!.toUpperCase() + normalized.slice(1)
 }

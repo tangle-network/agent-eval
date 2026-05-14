@@ -1,4 +1,4 @@
-import { objectiveEval, type ControlEvalResult } from '../control-runtime'
+import { type ControlEvalResult, objectiveEval } from '../control-runtime'
 import type { TraceEmitter } from '../trace/emitter'
 import type {
   DataAcquisitionPlan,
@@ -22,7 +22,9 @@ export interface ScoreKnowledgeReadinessOptions {
   now?: Date
 }
 
-export function scoreKnowledgeReadiness(options: ScoreKnowledgeReadinessOptions): KnowledgeReadinessReport {
+export function scoreKnowledgeReadiness(
+  options: ScoreKnowledgeReadinessOptions,
+): KnowledgeReadinessReport {
   const now = options.now ?? new Date()
   const requirements = options.requirements.map(normalizeRequirement)
   const missing = requirements.filter((requirement) => isRequirementMissing(requirement, now))
@@ -32,7 +34,10 @@ export function scoreKnowledgeReadiness(options: ScoreKnowledgeReadinessOptions)
   const bundle: KnowledgeBundle = {
     taskId: options.taskId,
     requirements,
-    evidenceIds: unique([...(options.evidenceIds ?? []), ...requirements.flatMap((r) => r.evidenceIds)]),
+    evidenceIds: unique([
+      ...(options.evidenceIds ?? []),
+      ...requirements.flatMap((r) => r.evidenceIds),
+    ]),
     claimIds: unique(options.claimIds ?? []),
     wikiPageIds: unique(options.wikiPageIds ?? []),
     userAnswers: options.userAnswers ?? {},
@@ -41,16 +46,18 @@ export function scoreKnowledgeReadiness(options: ScoreKnowledgeReadinessOptions)
     metadata: options.metadata,
   }
   const recommendedAction = chooseRecommendedAction(blockingMissingRequirements, nonBlockingGaps)
-  const severity = blockingMissingRequirements.length > 0
-    ? 'critical'
-    : nonBlockingGaps.some((gap) => gap.importance === 'high')
-      ? 'warning'
-      : 'info'
-  const reason = blockingMissingRequirements.length > 0
-    ? `${blockingMissingRequirements.length} blocking knowledge requirement(s) are missing.`
-    : nonBlockingGaps.length > 0
-      ? `${nonBlockingGaps.length} non-blocking knowledge gap(s) remain.`
-      : 'All declared knowledge requirements are ready.'
+  const severity =
+    blockingMissingRequirements.length > 0
+      ? 'critical'
+      : nonBlockingGaps.some((gap) => gap.importance === 'high')
+        ? 'warning'
+        : 'info'
+  const reason =
+    blockingMissingRequirements.length > 0
+      ? `${blockingMissingRequirements.length} blocking knowledge requirement(s) are missing.`
+      : nonBlockingGaps.length > 0
+        ? `${nonBlockingGaps.length} non-blocking knowledge gap(s) remain.`
+        : 'All declared knowledge requirements are ready.'
 
   return {
     taskId: options.taskId,
@@ -69,12 +76,15 @@ export function blockingKnowledgeEval(
   options: { id?: string; minimumScore?: number; emitter?: TraceEmitter } = {},
 ): ControlEvalResult {
   const minimumScore = options.minimumScore ?? 0.7
-  const passed = report.blockingMissingRequirements.length === 0 && report.readinessScore >= minimumScore
+  const passed =
+    report.blockingMissingRequirements.length === 0 && report.readinessScore >= minimumScore
   if (options.emitter) {
-    void options.emitter.emit({
-      kind: 'custom',
-      payload: knowledgeReadinessTracePayload(report, { passed, minimumScore }),
-    }).catch(() => undefined)
+    void options.emitter
+      .emit({
+        kind: 'custom',
+        payload: knowledgeReadinessTracePayload(report, { passed, minimumScore }),
+      })
+      .catch(() => undefined)
   }
   return objectiveEval({
     id: options.id ?? 'knowledge-ready',
@@ -119,7 +129,9 @@ export function userQuestionsForKnowledgeGaps(gaps: KnowledgeRequirement[]): Use
     }))
 }
 
-export function acquisitionPlansForKnowledgeGaps(gaps: KnowledgeRequirement[]): DataAcquisitionPlan[] {
+export function acquisitionPlansForKnowledgeGaps(
+  gaps: KnowledgeRequirement[],
+): DataAcquisitionPlan[] {
   const byMode = new Map<string, KnowledgeRequirement[]>()
   for (const gap of gaps) {
     const mode = planMode(gap.acquisitionMode)
@@ -156,8 +168,8 @@ function weightedReadinessAt(requirements: KnowledgeRequirement[], now: Date): n
     const score = isExpired(requirement, now)
       ? 0
       : requirement.confidenceNeeded <= 0
-      ? 1
-      : Math.min(1, requirement.currentConfidence / requirement.confidenceNeeded)
+        ? 1
+        : Math.min(1, requirement.currentConfidence / requirement.confidenceNeeded)
     weightSum += weight
     scoreSum += weight * score
   }
@@ -176,9 +188,11 @@ function isExpired(requirement: KnowledgeRequirement, now: Date): boolean {
 }
 
 function isBlockingGap(requirement: KnowledgeRequirement): boolean {
-  return requirement.importance === 'blocking'
-    || requirement.fallbackPolicy === 'block'
-    || requirement.sensitivity === 'secret'
+  return (
+    requirement.importance === 'blocking' ||
+    requirement.fallbackPolicy === 'block' ||
+    requirement.sensitivity === 'secret'
+  )
 }
 
 function chooseRecommendedAction(
@@ -187,9 +201,15 @@ function chooseRecommendedAction(
 ): KnowledgeRecommendedAction {
   const gaps = blocking.length > 0 ? blocking : nonBlocking
   if (gaps.length === 0) return 'run_agent'
-  if (gaps.some((gap) => gap.acquisitionMode === 'ask_user' || gap.fallbackPolicy === 'ask')) return 'ask_user'
+  if (gaps.some((gap) => gap.acquisitionMode === 'ask_user' || gap.fallbackPolicy === 'ask'))
+    return 'ask_user'
   if (gaps.some((gap) => gap.acquisitionMode === 'query_connector')) return 'query_connectors'
-  if (gaps.some((gap) => gap.acquisitionMode === 'inspect_repo' || gap.acquisitionMode === 'run_command')) return 'inspect_repo'
+  if (
+    gaps.some(
+      (gap) => gap.acquisitionMode === 'inspect_repo' || gap.acquisitionMode === 'run_command',
+    )
+  )
+    return 'inspect_repo'
   if (gaps.some((gap) => gap.acquisitionMode === 'search_web')) return 'collect_web_data'
   if (gaps.some((gap) => gap.acquisitionMode === 'not_available')) return 'abort_or_rescope'
   if (nonBlocking.some((gap) => gap.importance === 'high')) return 'build_domain_wiki'
@@ -201,7 +221,10 @@ function planMode(mode: KnowledgeAcquisitionMode): DataAcquisitionPlan['mode'] |
   return mode
 }
 
-function descriptionForPlan(mode: DataAcquisitionPlan['mode'], requirements: KnowledgeRequirement[]): string {
+function descriptionForPlan(
+  mode: DataAcquisitionPlan['mode'],
+  requirements: KnowledgeRequirement[],
+): string {
   const labels = requirements.map((r) => r.description).join('; ')
   if (mode === 'ask_user') return `Ask the user for: ${labels}`
   if (mode === 'search_web') return `Search web or documentation sources for: ${labels}`
@@ -213,8 +236,10 @@ function descriptionForPlan(mode: DataAcquisitionPlan['mode'], requirements: Kno
 
 function impactFor(requirement: KnowledgeRequirement): string {
   if (requirement.fallbackPolicy === 'block') return 'The agent should not run until this is known.'
-  if (requirement.fallbackPolicy === 'continue_with_caveat') return 'The agent may continue, but must disclose uncertainty.'
-  if (requirement.fallbackPolicy === 'use_default') return 'The agent will use the configured default if skipped.'
+  if (requirement.fallbackPolicy === 'continue_with_caveat')
+    return 'The agent may continue, but must disclose uncertainty.'
+  if (requirement.fallbackPolicy === 'use_default')
+    return 'The agent will use the configured default if skipped.'
   return 'The agent should ask before continuing.'
 }
 

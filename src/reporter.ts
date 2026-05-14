@@ -35,8 +35,7 @@ export function formatBenchmarkReport(report: BenchmarkReport): string {
   lines.push(``)
   lines.push(`| Dimension | Avg | Range | N |`)
   lines.push(`|-----------|-----|-------|---|`)
-  const dimEntries = Object.entries(report.summary.byDimension)
-    .sort((a, b) => a[1].avg - b[1].avg)
+  const dimEntries = Object.entries(report.summary.byDimension).sort((a, b) => a[1].avg - b[1].avg)
   for (const [name, data] of dimEntries) {
     const min = Math.min(...data.scores)
     const max = Math.max(...data.scores)
@@ -80,7 +79,9 @@ export function formatDriverReport(results: DriverResult[]): string {
     lines.push(`- **Completed:** ${r.completed ? 'Yes' : 'No'}`)
     lines.push(`- **Turns to completion:** ${r.turnsToCompletion ?? 'N/A'}`)
     lines.push(`- **Total turns:** ${r.totalTurns}`)
-    lines.push(`- **Final state:** ${r.finalState.tasks} tasks, ${r.finalState.events} events, ${r.finalState.vaultFiles.length} vault files`)
+    lines.push(
+      `- **Final state:** ${r.finalState.tasks} tasks, ${r.finalState.events} events, ${r.finalState.vaultFiles.length} vault files`,
+    )
     lines.push(``)
 
     // Convergence curve (ASCII)
@@ -88,7 +89,7 @@ export function formatDriverReport(results: DriverResult[]): string {
     lines.push(``)
     lines.push('```')
     for (let i = 0; i < r.convergenceCurve.length; i++) {
-      const pct = r.convergenceCurve[i]
+      const pct = r.convergenceCurve[i]!
       const bar = '#'.repeat(Math.round(pct / 2))
       lines.push(`  turn ${String(i + 1).padStart(2)}: ${bar} ${pct.toFixed(0)}%`)
     }
@@ -102,7 +103,9 @@ export function formatDriverReport(results: DriverResult[]): string {
       lines.push(`| Turn | Tasks | Events | Vault | Latency | Completion |`)
       lines.push(`|------|-------|--------|-------|---------|------------|`)
       for (const m of r.metrics) {
-        lines.push(`| ${m.turn} | ${m.tasks} | ${m.events} | ${m.vaultFiles} | ${(m.responseLatencyMs / 1000).toFixed(1)}s | ${m.completionPercent.toFixed(0)}% |`)
+        lines.push(
+          `| ${m.turn} | ${m.tasks} | ${m.events} | ${m.vaultFiles} | ${(m.responseLatencyMs / 1000).toFixed(1)}s | ${m.completionPercent.toFixed(0)}% |`,
+        )
       }
       lines.push(``)
     }
@@ -120,10 +123,12 @@ export function printDriverSummary(results: DriverResult[]): void {
   for (const r of results) {
     const status = r.completed ? 'COMPLETE' : 'INCOMPLETE'
     const turns = r.turnsToCompletion ?? r.totalTurns
-    console.log(`  ${r.personaId.padEnd(20)} ${status.padEnd(12)} turns=${turns}  tasks=${r.finalState.tasks}  events=${r.finalState.events}  vault=${r.finalState.vaultFiles.length}`)
+    console.log(
+      `  ${r.personaId.padEnd(20)} ${status.padEnd(12)} turns=${turns}  tasks=${r.finalState.tasks}  events=${r.finalState.events}  vault=${r.finalState.vaultFiles.length}`,
+    )
   }
 
   console.log()
-  const completedCount = results.filter(r => r.completed).length
+  const completedCount = results.filter((r) => r.completed).length
   console.log(`${completedCount}/${results.length} personas completed`)
 }

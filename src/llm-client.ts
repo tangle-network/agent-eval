@@ -20,10 +20,11 @@
  * that need free-form text use `callLlm` and parse output themselves.
  */
 
+import { AgentEvalError, CaptureIntegrityError } from './errors'
 import {
   defaultProviderRedactor,
-  providerFromBaseUrl,
   type ProviderRedactor,
+  providerFromBaseUrl,
   type RawProviderEvent,
   type RawProviderSink,
 } from './trace/raw-provider-sink'
@@ -82,15 +83,14 @@ export interface LlmCallResult {
   raw: Record<string, unknown>
 }
 
-export class LlmCallError extends Error {
+export class LlmCallError extends AgentEvalError {
   constructor(
     message: string,
     public readonly status: number,
     public readonly body: string,
     public readonly model: string,
   ) {
-    super(message)
-    this.name = 'LlmCallError'
+    super('judge', message)
   }
 }
 
@@ -159,7 +159,7 @@ function parseRetryAfter(headers: Headers): number | null {
 
 function backoffMs(attempt: number): number {
   // 500ms, 1s, 2s, 4s, ...
-  return Math.min(500 * Math.pow(2, attempt), 16_000)
+  return Math.min(500 * 2 ** attempt, 16_000)
 }
 
 function buildHeaders(opts: LlmClientOptions): Record<string, string> {
@@ -210,7 +210,7 @@ function buildBody(req: LlmCallRequest, forceJsonObject: boolean): Record<string
 }
 
 function usesMaxCompletionTokens(model: string): boolean {
-  return /^gpt-5(?:[.\-]|$)/i.test(model)
+  return /^gpt-5(?:[.-]|$)/i.test(model)
 }
 
 async function sleep(ms: number): Promise<void> {
@@ -239,7 +239,9 @@ export function extractJsonPayload(raw: string): string {
     // Continue with balanced extraction below.
   }
 
-  const starts = [...stripped.matchAll(/[\[{]/g)].map((match) => match.index).filter((index) => index != null)
+  const starts = [...stripped.matchAll(/[[{]/g)]
+    .map((match) => match.index)
+    .filter((index) => index != null)
   for (const start of starts) {
     const candidate = extractBalancedJson(stripped, start)
     if (!candidate) continue
@@ -442,8 +444,7 @@ export async function callLlm(
           completionTokens: Number(usageRaw.completion_tokens ?? 0),
           totalTokens: Number(usageRaw.total_tokens ?? 0),
           cachedPromptTokens:
-            usageRaw.prompt_tokens_details &&
-            typeof usageRaw.prompt_tokens_details === 'object'
+            usageRaw.prompt_tokens_details && typeof usageRaw.prompt_tokens_details === 'object'
               ? Number(
                   (usageRaw.prompt_tokens_details as Record<string, unknown>).cached_tokens ?? 0,
                 )
@@ -555,19 +556,20 @@ function parseJsonSafely<T>(content: string, model: string): T {
 
 // ─── Route assertion ────────────────────────────────────────────────────
 
-export class LlmRouteAssertionError extends Error {
+export type LlmRouteAssertionReason =
+  | 'no_explicit_base_url'
+  | 'base_url_blocked'
+  | 'base_url_not_allowed'
+  | 'no_auth'
+  | 'wrong_provider'
+
+export class LlmRouteAssertionError extends CaptureIntegrityError {
   constructor(
     message: string,
-    public readonly code:
-      | 'no_explicit_base_url'
-      | 'base_url_blocked'
-      | 'base_url_not_allowed'
-      | 'no_auth'
-      | 'wrong_provider',
+    public readonly reason: LlmRouteAssertionReason,
     public readonly baseUrl: string,
   ) {
     super(message)
-    this.name = 'LlmRouteAssertionError'
   }
 }
 

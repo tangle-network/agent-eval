@@ -92,7 +92,9 @@ export async function commitBisect(options: {
   const goodIdx = commits.indexOf(options.good)
   const badIdx = commits.indexOf(options.bad)
   if (goodIdx < 0 || badIdx < 0) {
-    throw new Error(`commitBisect: good or bad SHA not in commit list (good=${options.good}, bad=${options.bad})`)
+    throw new Error(
+      `commitBisect: good or bad SHA not in commit list (good=${options.good}, bad=${options.bad})`,
+    )
   }
   if (goodIdx >= badIdx) {
     throw new Error('commitBisect: good must precede bad in the commit list')
@@ -106,7 +108,7 @@ export async function commitBisect(options: {
       const gi = commits.indexOf(g)
       const bi = commits.indexOf(b)
       if (bi - gi <= 1) return null
-      return commits[Math.floor((gi + bi) / 2)]
+      return commits[Math.floor((gi + bi) / 2)] ?? null
     },
   })
 }
@@ -130,7 +132,9 @@ export async function promptBisect(options: {
   const goodParas = split(options.good)
   const badParas = split(options.bad)
   if (goodParas.length !== badParas.length) {
-    throw new Error(`promptBisect: paragraph count mismatch (${goodParas.length} vs ${badParas.length})`)
+    throw new Error(
+      `promptBisect: paragraph count mismatch (${goodParas.length} vs ${badParas.length})`,
+    )
   }
   if (goodParas.length < 2) {
     throw new Error('promptBisect: need at least 2 paragraphs to bisect')
@@ -142,7 +146,7 @@ export async function promptBisect(options: {
   const badMask = '1'.repeat(n)
 
   function paragraphsFor(mask: string): string[] {
-    return mask.split('').map((c, i) => (c === '1' ? badParas[i] : goodParas[i]))
+    return mask.split('').map((c, i) => (c === '1' ? badParas[i]! : goodParas[i]!))
   }
 
   const result = await bisect<string>({
@@ -162,7 +166,7 @@ export async function promptBisect(options: {
           // Flip the first half of differing positions from good → bad.
           const flip = differing.slice(0, Math.ceil(differing.length / 2))
           const chars = g.split('')
-          for (const f of flip) chars[f] = b[f]
+          for (const f of flip) chars[f] = b[f]!
           return chars.join('')
         }
       }
