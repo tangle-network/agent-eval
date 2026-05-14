@@ -268,7 +268,25 @@ export class FileSystemTraceStore implements TraceStore {
               await store.updateRun(record.runId, record)
             }
           } else if (base === 'spans') {
-            await store.appendSpan(record)
+            // `updateSpan` appends an `_update: true` patch row instead of
+            // rewriting the original span. On reload we must collapse those
+            // patches into the prior span — otherwise a fresh
+            // FileSystemTraceStore reading the same dir reports duplicate
+            // spans (one full, one fragment with no runId/kind/name), which
+            // breaks any downstream consumer that re-opens the store
+            // cross-process (e.g. the canonical eval's OTLP converter).
+            if (record?._update) {
+              try {
+                await store.updateSpan(record.spanId, record)
+              } catch {
+                // Patch row arrived before the original — should not happen
+                // with locked append order, but fall through to append so we
+                // don't lose data.
+                await store.appendSpan(record)
+              }
+            } else {
+              await store.appendSpan(record)
+            }
           } else if (base === 'events') {
             await store.appendEvent(record)
           } else if (base === 'artifacts') {

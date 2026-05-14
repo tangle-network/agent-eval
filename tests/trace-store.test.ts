@@ -139,6 +139,37 @@ describe('FileSystemTraceStore', () => {
     expect(spans).toHaveLength(1)
     expect(spans[0].endedAt).toBe(2)
   })
+
+  it('cross-process reload merges _update span patches into the original span — regression: a fresh FileSystemTraceStore opened on a written dir reported each span twice (the original row + the patch fragment with no runId/kind/name), which broke OTLP conversion downstream (canonical eval analyst saw 0 spans)', async () => {
+    const dir = await makeDir()
+
+    // First process: write run, append a full LLM span, then patch it via updateSpan.
+    const writer = new FileSystemTraceStore({ dir })
+    await writer.appendRun(makeRun('r1'))
+    await writer.appendSpan({
+      runId: 'r1',
+      spanId: 's1',
+      kind: 'llm',
+      model: 'claude',
+      messages: [{ role: 'user', content: 'hi' }],
+      name: 'turn-1',
+      startedAt: 1,
+    })
+    await writer.updateSpan('s1', { endedAt: 5, status: 'ok', output: 'merged-output' } as Partial<Span>)
+
+    // Second process: fresh store reads the dir from scratch (forces load()).
+    const reader = new FileSystemTraceStore({ dir })
+    const spans = await reader.spans({ runId: 'r1' })
+    expect(spans).toHaveLength(1)
+    const [s] = spans
+    expect(s.spanId).toBe('s1')
+    expect(s.runId).toBe('r1')           // must survive the merge (patch row has no runId)
+    expect(s.kind).toBe('llm')           // must survive the merge (patch row has no kind)
+    expect(s.name).toBe('turn-1')        // must survive the merge (patch row has no name)
+    expect(s.endedAt).toBe(5)            // applied from patch
+    expect(s.status).toBe('ok')          // applied from patch
+    expect((s as { output?: string }).output).toBe('merged-output')
+  })
 })
 
 describe('TraceEmitter', () => {
