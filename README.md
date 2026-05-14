@@ -88,6 +88,75 @@ await product.storeEvalResult(task.id, result)
 Same loop shape in production, replay, benchmark, and optimization. Swap the
 dependencies behind `observe()` and `act()`, never the eval contract.
 
+## Production loop — close the eval → prod → eval cycle (0.25.0)
+
+Static prompts decay. Yesterday's FTC rule flips today; yesterday's tool quirk
+becomes today's incident. The production agents that win are the ones that
+**continuously re-train against live failure modes**.
+
+`runProductionLoop` is the orchestration layer that wires the existing eval
+substrate into a self-improvement cron:
+
+```ts
+import {
+  runProductionLoop,
+  httpGithubClient,
+  FileSystemFeedbackTrajectoryStore,
+} from '@tangle-network/agent-eval'
+import { FileSystemTraceStore } from '@tangle-network/agent-eval/traces'
+
+const result = await runProductionLoop({
+  runId: `weekly-${new Date().toISOString().slice(0, 10)}`,
+  target: 'tax-agent',
+
+  // 1. Where production traces + feedback land. Wire the HTTP ingestion
+  //    endpoints (POST /v1/traces/ingest, POST /v1/feedback) from your
+  //    runtime; the same store reads them here.
+  traceStore: new FileSystemTraceStore({ dir: 'data/prod-traces' }),
+  feedbackStore: new FileSystemFeedbackTrajectoryStore({ dir: 'data/prod-feedback' }),
+
+  // 2. Cluster threshold: act on failure groups ≥ 20 runs or ≥ 5% of corpus.
+  cluster: { minClusterSize: 20, minSeverityRatio: 0.05, maxClustersPerCycle: 1 },
+
+  // 3. Evolve: seed = current prompt, gate against holdout scenarios.
+  evolve: {
+    baselinePrompt: currentSystemPrompt,
+    holdoutScenarios: productionShapeScenarios,
+    runner,                            // your agent driver
+    scorer,                            // calibrated judge or rubric
+    mutator,                           // GEPA-style or addendum-style mutator
+    gate: {
+      baselineKey: 'baseline',
+      minProductiveRuns: 5,
+      pairedDeltaThreshold: 0.03,      // require Nσ improvement on holdout
+      overfitGapThreshold: 0.10,
+    },
+  },
+
+  // 4. Ship: when the gate passes, open a PR with the new prompt.
+  ship: {
+    client: httpGithubClient({ token: process.env.GITHUB_TOKEN! }),
+    repo: { owner: 'tangle-network', name: 'tax-agent' },
+    branchPrefix: 'eval/auto-improve',
+    promptFilePath: 'prompts/tax-agent-system.txt',
+    reviewers: ['drew'],
+  },
+
+  cron: { cadence: 'weekly' },         // surface-only; consumer schedules
+})
+
+console.log(result.decision)            // 'pr_opened' | 'gate_failed' | 'no_actionable_failures' | ...
+console.log(result.pullRequest?.prUrl)  // populated when a PR was opened
+```
+
+The primitive runs **one cycle**. Schedule it with `workflow_dispatch` + cron in
+GitHub Actions. It is **idempotent + replayable**: same `runId` → same plan.
+Gate failures are fail-closed — a candidate that beats baseline on search but
+overfits on holdout never lands.
+
+Full runnable demo (synthetic traces, no credentials) in
+[`examples/production-loop`](./examples/production-loop/README.md).
+
 ## Self-improvement loop
 
 Eval doesn't end at "pass/fail." Outcomes become training signal, mutation
@@ -222,6 +291,8 @@ and runtime. See [`examples/`](./examples/).
   closed loop — score, reflect, mutate, re-score, repeat.
 - [`examples/fine-tune-with-prime-rl`](./examples/fine-tune-with-prime-rl/README.md):
   RunRecord → preferences → trainer (prime-rl) → next campaign.
+- [`examples/production-loop`](./examples/production-loop/README.md):
+  ingest prod traces + feedback, cluster failures, evolve, gate, open a PR.
 
 ## Docs
 

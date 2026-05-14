@@ -2,6 +2,28 @@
 
 export type { ActionExecutionPolicy, ActionPolicyDecision } from './action-policy'
 export { evaluateActionPolicy } from './action-policy'
+// ── 0.25.0 production loop primitive ─────────────────────────────────
+// Closes the eval → prod → eval cycle: ingest production traces,
+// cluster failures, run evolve on the offending cluster, gate the
+// candidate, open a PR with the improved prompt.
+/**
+ * @experimental — added in 0.25.0. Surface may evolve as the production
+ * agents wire it in. Pin the patch version if you depend on it.
+ */
+export type {
+  AutoPrClient,
+  FileChange,
+  GhCliClientOptions,
+  HttpGithubClientOptions,
+  ProposeAutomatedPullRequestInput,
+  ProposeAutomatedPullRequestResult,
+  RepoRef,
+} from './auto-pr'
+export {
+  ghCliClient,
+  httpGithubClient,
+  proposeAutomatedPullRequest,
+} from './auto-pr'
 export { BenchmarkRunner } from './benchmark'
 // ── Client / driver / judges / executor / benchmark / registry / reporter ─
 export { ProductClient, runE2EWorkflow } from './client'
@@ -118,6 +140,20 @@ export {
   MODEL_PRICING,
   TokenCounter,
 } from './metrics'
+/**
+ * @experimental — added in 0.25.0.
+ */
+export type {
+  FailureClusterConfig,
+  ProductionEvolveConfig,
+  ProductionLoopCronConfig,
+  ProductionLoopDecision,
+  ProductionLoopRenderContext,
+  ProductionLoopResult,
+  ProductionShipConfig,
+  RunProductionLoopOptions,
+} from './production-loop'
+export { runProductionLoop } from './production-loop'
 export { ScenarioRegistry } from './registry'
 export { formatBenchmarkReport, formatDriverReport, printDriverSummary } from './reporter'
 export type {
