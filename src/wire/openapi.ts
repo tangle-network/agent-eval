@@ -14,10 +14,14 @@ import type { OpenAPIObject } from 'openapi3-ts/oas31'
 
 import {
   ErrorResponseSchema,
+  FeedbackIngestResponseSchema,
+  FeedbackTrajectorySchema,
   HealthResponseSchema,
   JudgeRequestSchema,
   JudgeResultSchema,
   ListRubricsResponseSchema,
+  TracesIngestRequestSchema,
+  TracesIngestResponseSchema,
   VersionResponseSchema,
   WIRE_VERSION,
 } from './schemas'
@@ -32,6 +36,10 @@ export function buildOpenApi(packageVersion: string): OpenAPIObject {
   registry.register('VersionResponse', VersionResponseSchema)
   registry.register('HealthResponse', HealthResponseSchema)
   registry.register('ErrorResponse', ErrorResponseSchema)
+  registry.register('TracesIngestRequest', TracesIngestRequestSchema)
+  registry.register('TracesIngestResponse', TracesIngestResponseSchema)
+  registry.register('FeedbackTrajectory', FeedbackTrajectorySchema)
+  registry.register('FeedbackIngestResponse', FeedbackIngestResponseSchema)
 
   // Routes
   registry.registerPath({
@@ -102,6 +110,73 @@ export function buildOpenApi(packageVersion: string): OpenAPIObject {
       200: {
         description: 'OK',
         content: { 'application/json': { schema: HealthResponseSchema } },
+      },
+    },
+  })
+
+  registry.registerPath({
+    method: 'post',
+    path: '/v1/traces/ingest',
+    summary: 'Ingest a batch of production TraceEvents',
+    description:
+      'Append a batch of TraceEvents to the configured TraceStore. Accepts application/json ({events:[...]}) or application/x-ndjson (one event per line). Returns counts of accepted + rejected events.',
+    request: {
+      body: {
+        content: {
+          'application/json': { schema: TracesIngestRequestSchema },
+          'application/x-ndjson': { schema: TracesIngestRequestSchema },
+        },
+      },
+    },
+    responses: {
+      200: {
+        description: 'Ingestion summary',
+        content: { 'application/json': { schema: TracesIngestResponseSchema } },
+      },
+      400: {
+        description: 'Validation error',
+        content: { 'application/json': { schema: ErrorResponseSchema } },
+      },
+      401: {
+        description: 'Unauthorized (when bearer auth is configured)',
+        content: { 'application/json': { schema: ErrorResponseSchema } },
+      },
+      503: {
+        description: 'No trace store configured',
+        content: { 'application/json': { schema: ErrorResponseSchema } },
+      },
+    },
+  })
+
+  registry.registerPath({
+    method: 'post',
+    path: '/v1/feedback',
+    summary: 'Ingest a FeedbackTrajectory from production',
+    description:
+      'Persist a single FeedbackTrajectory. Idempotent on trajectory.id — re-posting replaces the prior record. Used by production runtimes to forward user 👍/👎/edits into the eval substrate.',
+    request: {
+      body: {
+        content: {
+          'application/json': { schema: FeedbackTrajectorySchema },
+        },
+      },
+    },
+    responses: {
+      200: {
+        description: 'Persisted',
+        content: { 'application/json': { schema: FeedbackIngestResponseSchema } },
+      },
+      400: {
+        description: 'Validation error',
+        content: { 'application/json': { schema: ErrorResponseSchema } },
+      },
+      401: {
+        description: 'Unauthorized (when bearer auth is configured)',
+        content: { 'application/json': { schema: ErrorResponseSchema } },
+      },
+      503: {
+        description: 'No feedback store configured',
+        content: { 'application/json': { schema: ErrorResponseSchema } },
       },
     },
   })

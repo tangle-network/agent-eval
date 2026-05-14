@@ -1,5 +1,70 @@
 # Changelog
 
+## 0.25.0 — ProductionLoop primitive: close the eval → prod → eval cycle
+
+This release ships the **orchestration layer** that turns the existing
+eval substrate into a continuously-improving production system. Static
+prompts decay; today's regulation flips tomorrow. The pieces to close
+the loop were already in the package (`runMultiShotOptimization`,
+`failureClusterView`, `evaluateReleaseConfidence`, `extractPreferences`,
+`FeedbackTrajectoryStore`, `TraceStore`); this release adds the one
+clean primitive that wires them together end-to-end.
+
+### Added
+
+- **`runProductionLoop({ ... })`** (`src/production-loop.ts`,
+  `@experimental`) — one call = one cycle. Ingests production traces
+  and feedback, clusters failures, runs evolve against the worst
+  cluster, gates with `HeldOutGate` + `evaluateReleaseConfidence`
+  (fail-closed), and — when wired with an `AutoPrClient` — opens a PR
+  with the improved prompt. Idempotent + replayable: same `runId`
+  yields the same plan. Cron / GitHub Actions are the consumer's job;
+  the primitive doesn't own scheduling.
+
+- **`proposeAutomatedPullRequest(client, input)`** + two transports
+  (`src/auto-pr.ts`, `@experimental`):
+    - `httpGithubClient({ token, ... })` — direct REST against
+      `api.github.com`, no extra deps. Idempotent on branch name:
+      existing open PRs are returned, not duplicated.
+    - `ghCliClient({ ... })` — shells out to `gh` for environments
+      where developer auth state is already configured.
+  Both validate inputs (no `..` paths, no whitespace branches, no
+  duplicate file changes) and surface `ValidationError` / `ConfigError`
+  from the typed taxonomy.
+
+- **`POST /v1/feedback` + `POST /v1/traces/ingest`** wire endpoints
+  (`src/wire/`). Both Zod-validated, both append to the configured
+  store (`FeedbackTrajectoryStore` / `TraceStore`). 503 when no store
+  is wired (fail loud, not silent). Traces ingest accepts both
+  `application/json` (`{events:[...]}`) and `application/x-ndjson` for
+  streaming production runtimes. Schemas (`TraceEvent`,
+  `FeedbackTrajectory`, `TracesIngestRequest/Response`,
+  `FeedbackIngestResponse`) added to `openapi.json` for cross-language
+  clients.
+
+- **Optional bearer-token auth** on the wire server, configured via
+  `createApp({ auth: { bearer: '...' } })` or as a verifier function
+  for rotating tokens. `/healthz` and `/v1/version` remain unprotected
+  (regression: never lock monitoring out of the runtime).
+
+- **`examples/production-loop/`** — synthetic end-to-end demo wiring
+  the loop against in-memory trace + feedback stores and a fake
+  auto-PR client. Shows the failure-cluster trigger, the evolve round,
+  the gate verdict, and the PR-shaped output without requiring
+  credentials or a live model.
+
+### Changed
+
+- **Wire server** (`createApp(opts)`) now accepts optional
+  `IngestionStores` (`{ traceStore?, feedbackStore? }`) and `auth`.
+  Existing zero-arg callers continue to work — judge / rubrics /
+  version / healthz are unchanged.
+
+### Status tags
+
+- Every new export is `@experimental` initially. Pin the patch version
+  if you depend on it. All other 0.24.0 stability tags are preserved.
+
 ## 0.24.0 — DX cleanup: framing, stability tags, lint, taxonomy, strict indices
 
 This release is **DX + correctness**. No production behavior moved; consumer

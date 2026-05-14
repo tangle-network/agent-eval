@@ -9,16 +9,23 @@
  *   - Throws `WireError` for caller-fixable errors (404, 400, 422).
  *   - Lets unexpected errors bubble — the transport maps them to 500.
  */
+import type { FeedbackTrajectoryStore } from '../feedback-trajectory'
 import { callLlmJson } from '../llm-client'
+import type { TraceEvent as InternalTraceEvent } from '../trace/schema'
+import type { TraceStore } from '../trace/store'
 import { getBuiltinRubric, listBuiltinRubrics } from './rubrics'
 import {
+  type FeedbackIngestResponse,
   hashRubric,
   type JudgeRequest,
   type JudgeResult,
   type ListRubricsResponse,
   type Rubric,
+  type TracesIngestRequest,
+  type TracesIngestResponse,
   type VersionResponse,
   WIRE_VERSION,
+  type FeedbackTrajectory as WireFeedbackTrajectory,
 } from './schemas'
 
 /** Caller-fixable error. The transport renders this to 4xx + ErrorResponse. */
@@ -260,6 +267,82 @@ export function handleVersion(): VersionResponse {
     package: '@tangle-network/agent-eval',
     version: readPackageVersion(),
     wireVersion: WIRE_VERSION,
-    apiSurface: ['judge', 'listRubrics', 'version'],
+    apiSurface: ['judge', 'listRubrics', 'version', 'feedback.ingest', 'traces.ingest'],
   }
+}
+
+// ── Ingestion handlers (0.25.0) ─────────────────────────────────────
+
+/**
+ * Pluggable stores the wire layer routes ingestion writes into. Both
+ * are optional — when omitted, the corresponding endpoint returns 503.
+ *
+ * Production deployments wire a `FileSystemTraceStore` and
+ * `FileSystemFeedbackTrajectoryStore` here. Tests substitute in-memory
+ * stores.
+ */
+export interface IngestionStores {
+  traceStore?: TraceStore
+  feedbackStore?: FeedbackTrajectoryStore
+}
+
+/**
+ * `POST /v1/traces/ingest` — accept a batch of `TraceEvent`s from the
+ * production runtime. Best-effort: each event is appended independently;
+ * one bad event does not poison the batch.
+ *
+ * Idempotency: the underlying store is append-only; consumers retrying
+ * the same payload will get duplicate events. Consumers should
+ * de-duplicate by `eventId` downstream — production traces frequently
+ * land via at-least-once buses (Kafka, SQS) where dedup is unavoidable.
+ */
+export async function handleTracesIngest(
+  req: TracesIngestRequest,
+  stores: IngestionStores,
+): Promise<TracesIngestResponse> {
+  if (!stores.traceStore) {
+    throw new WireError(
+      'service_unavailable',
+      'No trace store configured on this server. Pass `traceStore` to `createApp`.',
+      503,
+    )
+  }
+  const errors: Array<{ eventId: string; message: string }> = []
+  let accepted = 0
+  for (const event of req.events) {
+    try {
+      // The wire `TraceEvent` is structurally identical to the internal one.
+      await stores.traceStore.appendEvent(event as InternalTraceEvent)
+      accepted++
+    } catch (err) {
+      errors.push({
+        eventId: event.eventId,
+        message: err instanceof Error ? err.message : String(err),
+      })
+    }
+  }
+  return { accepted, rejected: errors.length, errors }
+}
+
+/**
+ * `POST /v1/feedback` — accept a single `FeedbackTrajectory` from the
+ * production runtime. Idempotent on `id`: re-posting the same trajectory
+ * replaces the prior record.
+ */
+export async function handleFeedbackIngest(
+  req: WireFeedbackTrajectory,
+  stores: IngestionStores,
+): Promise<FeedbackIngestResponse> {
+  if (!stores.feedbackStore) {
+    throw new WireError(
+      'service_unavailable',
+      'No feedback store configured on this server. Pass `feedbackStore` to `createApp`.',
+      503,
+    )
+  }
+  // The wire `FeedbackTrajectory` aligns 1:1 with the internal type;
+  // cast through `unknown` since the wire schema is a Zod-inferred
+  // structural type with optional fields the internal store consumes.
+  await stores.feedbackStore.save(req as unknown as Parameters<FeedbackTrajectoryStore['save']>[0])
+  return { id: req.id, persisted: true }
 }

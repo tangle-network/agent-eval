@@ -181,6 +181,171 @@ export const HealthResponseSchema = z
   })
   .openapi('HealthResponse')
 
+// ── Ingestion: production traces + user feedback (0.25.0) ───────────
+
+/**
+ * Minimal `TraceEvent` shape that the production runtime emits.
+ * Matches `trace/schema.ts` `TraceEvent` but is duplicated here as a
+ * wire schema so non-TypeScript clients can validate without depending
+ * on internal types.
+ */
+export const TraceEventSchema = z
+  .object({
+    eventId: z.string().min(1).describe('Stable id for the event. Use ULID or UUID.'),
+    runId: z.string().min(1).describe('Run this event belongs to.'),
+    spanId: z.string().optional().describe('Span that emitted the event, if any.'),
+    kind: z
+      .enum([
+        'log',
+        'error',
+        'budget_decrement',
+        'budget_breach',
+        'state_mutation',
+        'policy_violation',
+        'redaction_applied',
+        'custom',
+      ])
+      .describe('Coarse event category — matches the TraceSchema v1 EventKind enum.'),
+    timestamp: z
+      .number()
+      .int()
+      .nonnegative()
+      .describe('Unix millis. Must be monotonically non-decreasing within a span.'),
+    payload: z
+      .record(z.string(), z.unknown())
+      .describe('Free-form payload — the runtime owns the shape.'),
+  })
+  .openapi('TraceEvent')
+
+export const TracesIngestRequestSchema = z
+  .object({
+    events: z
+      .array(TraceEventSchema)
+      .min(1)
+      .max(10_000)
+      .describe('Batch of events. Max 10k per call — bigger streams should be chunked.'),
+  })
+  .openapi('TracesIngestRequest')
+
+export const TracesIngestResponseSchema = z
+  .object({
+    accepted: z.number().int().nonnegative().describe('Number of events persisted.'),
+    rejected: z
+      .number()
+      .int()
+      .nonnegative()
+      .describe('Number of events the store refused — see `errors[]` for reasons.'),
+    errors: z
+      .array(
+        z.object({
+          eventId: z.string().describe('Event id this error applies to.'),
+          message: z.string().describe('Why the event was rejected.'),
+        }),
+      )
+      .default([]),
+  })
+  .openapi('TracesIngestResponse')
+
+export const FeedbackLabelSchema = z
+  .object({
+    id: z.string().optional(),
+    source: z.enum(['user', 'judge', 'environment', 'metric', 'policy', 'system']),
+    kind: z.enum([
+      'approve',
+      'reject',
+      'select',
+      'edit',
+      'rank',
+      'rate',
+      'comment',
+      'metric_outcome',
+      'policy_block',
+      'revision_request',
+    ]),
+    value: z.unknown(),
+    reason: z.string().optional(),
+    severity: z.enum(['info', 'warning', 'error', 'critical']).optional(),
+    createdAt: z.string().describe('ISO-8601 UTC.'),
+    metadata: z.record(z.string(), z.unknown()).optional(),
+  })
+  .openapi('FeedbackLabel')
+
+export const FeedbackAttemptSchema = z
+  .object({
+    id: z.string().min(1),
+    stepIndex: z.number().int().nonnegative(),
+    artifactType: z.enum([
+      'text',
+      'code',
+      'plan',
+      'research',
+      'action',
+      'ui',
+      'decision',
+      'data',
+      'other',
+    ]),
+    artifact: z.unknown(),
+    options: z.array(z.unknown()).optional(),
+    proposedAction: z
+      .object({
+        type: z.string(),
+        risk: z.enum(['low', 'medium', 'high']).optional(),
+        costUsd: z.number().optional(),
+        externalSideEffect: z.boolean().optional(),
+        requiresApproval: z.boolean().optional(),
+        metadata: z.record(z.string(), z.unknown()).optional(),
+      })
+      .optional(),
+    feedback: z.array(FeedbackLabelSchema).optional(),
+    createdAt: z.string(),
+    metadata: z.record(z.string(), z.unknown()).optional(),
+  })
+  .openapi('FeedbackAttempt')
+
+export const FeedbackTrajectorySchema = z
+  .object({
+    id: z.string().min(1).describe('Stable id; idempotency key for the trajectory.'),
+    projectId: z.string().optional(),
+    scenarioId: z.string().optional(),
+    task: z.object({
+      intent: z.string().min(1),
+      context: z.unknown().optional(),
+    }),
+    attempts: z.array(FeedbackAttemptSchema).default([]),
+    labels: z.array(FeedbackLabelSchema).default([]),
+    outcome: z
+      .object({
+        success: z.boolean().optional(),
+        score: z.number().optional(),
+        metrics: z.record(z.string(), z.number()).optional(),
+        costUsd: z.number().optional(),
+        detail: z.string().optional(),
+        observedAt: z.string().optional(),
+        metadata: z.record(z.string(), z.unknown()).optional(),
+      })
+      .optional(),
+    split: z.enum(['train', 'dev', 'test', 'holdout']).optional(),
+    tags: z.record(z.string(), z.string()).optional(),
+    createdAt: z.string().describe('ISO-8601 UTC.'),
+    updatedAt: z.string().optional(),
+    metadata: z.record(z.string(), z.unknown()).optional(),
+  })
+  .openapi('FeedbackTrajectory')
+
+export const FeedbackIngestResponseSchema = z
+  .object({
+    id: z.string().describe('Trajectory id that was persisted.'),
+    persisted: z.boolean().describe('True when the trajectory was saved (idempotent on id).'),
+  })
+  .openapi('FeedbackIngestResponse')
+
+export type TraceEvent = z.infer<typeof TraceEventSchema>
+export type TracesIngestRequest = z.infer<typeof TracesIngestRequestSchema>
+export type TracesIngestResponse = z.infer<typeof TracesIngestResponseSchema>
+export type FeedbackTrajectory = z.infer<typeof FeedbackTrajectorySchema>
+export type FeedbackIngestResponse = z.infer<typeof FeedbackIngestResponseSchema>
+
 // ── Errors ──────────────────────────────────────────────────────────
 
 export const ErrorResponseSchema = z
