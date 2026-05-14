@@ -25,9 +25,7 @@ describe('wranglerDeployRunner', () => {
   })
 
   it('returns fail when build exits non-zero (dry-run skipped)', async () => {
-    const exec = vi
-      .fn()
-      .mockResolvedValueOnce({ stdout: '', stderr: 'TS2304', exitCode: 1 })
+    const exec = vi.fn().mockResolvedValueOnce({ stdout: '', stderr: 'TS2304', exitCode: 1 })
     const exists = vi.fn(async () => true)
     const r = await wranglerDeployRunner({ workdir: '/tmp/x', exec, exists }).run()
     expect(r.ok).toBe(false)

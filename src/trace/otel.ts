@@ -22,7 +22,10 @@ export interface OtlpSpan {
   kind: number
   startTimeUnixNano: string
   endTimeUnixNano: string
-  attributes: Array<{ key: string; value: { stringValue?: string; intValue?: string; doubleValue?: number; boolValue?: boolean } }>
+  attributes: Array<{
+    key: string
+    value: { stringValue?: string; intValue?: string; doubleValue?: number; boolValue?: boolean }
+  }>
   events?: Array<{ timeUnixNano: string; name: string; attributes?: OtlpSpan['attributes'] }>
   status?: { code: number; message?: string }
 }
@@ -54,7 +57,9 @@ export async function exportRunAsOtlp(
     eventsBySpan.set(e.spanId, arr)
   }
   const traceId = runToTraceId(run)
-  const otlpSpans: OtlpSpan[] = spans.map((s) => spanToOtlp(s, traceId, eventsBySpan.get(s.spanId) ?? []))
+  const otlpSpans: OtlpSpan[] = spans.map((s) =>
+    spanToOtlp(s, traceId, eventsBySpan.get(s.spanId) ?? []),
+  )
   return {
     resourceSpans: [
       {
@@ -131,7 +136,9 @@ function flattenSpanAttributes(span: Span): Record<string, string | number | boo
   return base
 }
 
-function flattenPayload(payload: Record<string, unknown>): Record<string, string | number | boolean> {
+function flattenPayload(
+  payload: Record<string, unknown>,
+): Record<string, string | number | boolean> {
   const out: Record<string, string | number | boolean> = {}
   for (const [k, v] of Object.entries(payload)) {
     if (typeof v === 'string' || typeof v === 'number' || typeof v === 'boolean') out[k] = v

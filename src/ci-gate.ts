@@ -15,10 +15,10 @@
 
 import type { BaselineReport } from './baseline'
 import { compareToBaseline, type MetricSamples } from './baseline'
-import type { RunFilter, TraceStore } from './trace/store'
-import type { Run } from './trace/schema'
+import { checkSlos, type Slo, type SloReport } from './slo'
 import { aggregateLlm, llmSpans, runFailureClass } from './trace/query'
-import { checkSlos, type SloReport, type Slo } from './slo'
+import type { Run } from './trace/schema'
+import type { RunFilter, TraceStore } from './trace/store'
 
 export interface ContractMetric {
   /** Metric id matching either a predefined key or a custom extractor. */
@@ -46,7 +46,10 @@ export interface ContractReport {
   pass: boolean
 }
 
-export async function evaluateContract(store: TraceStore, contract: ThresholdContract): Promise<ContractReport> {
+export async function evaluateContract(
+  store: TraceStore,
+  contract: ThresholdContract,
+): Promise<ContractReport> {
   const baselineRuns = await store.listRuns(contract.baseline)
   const candidateRuns = await store.listRuns(contract.candidate)
   if (candidateRuns.length === 0) {
@@ -67,9 +70,10 @@ export async function evaluateContract(store: TraceStore, contract: ThresholdCon
     samples.push({ metric: m.metric, higherIsBetter: m.higherIsBetter, baseline, candidate })
   }
 
-  const baselineReport = samples.length >= 1
-    ? compareToBaseline(samples)
-    : { metrics: [], hasRegression: false, hasUnstable: samples.length === 0 }
+  const baselineReport =
+    samples.length >= 1
+      ? compareToBaseline(samples)
+      : { metrics: [], hasRegression: false, hasUnstable: samples.length === 0 }
 
   // SLO evaluation against candidate-side aggregate metrics
   let sloReport: SloReport | undefined
@@ -85,7 +89,9 @@ export async function evaluateContract(store: TraceStore, contract: ThresholdCon
     if (metric.verdict === 'regressed') {
       const magnitude = Math.abs(metric.delta)
       if (decl.maxRegression === undefined || magnitude > decl.maxRegression) {
-        breaches.push(`metric "${metric.metric}" regressed by ${metric.delta.toFixed(4)} (d=${metric.cohensD.toFixed(2)}, p=${metric.welchP.toExponential(2)})`)
+        breaches.push(
+          `metric "${metric.metric}" regressed by ${metric.delta.toFixed(4)} (d=${metric.cohensD.toFixed(2)}, p=${metric.welchP.toExponential(2)})`,
+        )
       }
     }
   }
@@ -133,7 +139,10 @@ export function renderMarkdownReport(reports: ContractReport[]): string {
 }
 
 /** Aggregate per-run metrics into the single record expected by `checkSlos`. */
-async function aggregateRunMetrics(runs: Run[], store: TraceStore): Promise<Record<string, number>> {
+async function aggregateRunMetrics(
+  runs: Run[],
+  store: TraceStore,
+): Promise<Record<string, number>> {
   if (runs.length === 0) return {}
   const durations: number[] = []
   const scores: number[] = []

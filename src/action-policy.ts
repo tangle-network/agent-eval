@@ -46,15 +46,23 @@ export function evaluateActionPolicy(
     requiresApproval = true
     reasons.push('external side effect requires approval')
   }
-  if (policy.requireApprovalAboveCostUsd !== undefined && (action.costUsd ?? 0) > policy.requireApprovalAboveCostUsd) {
+  if (
+    policy.requireApprovalAboveCostUsd !== undefined &&
+    (action.costUsd ?? 0) > policy.requireApprovalAboveCostUsd
+  ) {
     requiresApproval = true
-    reasons.push(`cost ${action.costUsd} exceeds approval threshold ${policy.requireApprovalAboveCostUsd}`)
+    reasons.push(
+      `cost ${action.costUsd} exceeds approval threshold ${policy.requireApprovalAboveCostUsd}`,
+    )
   }
   if (policy.maxActionCostUsd !== undefined && (action.costUsd ?? 0) > policy.maxActionCostUsd) {
     blocked = true
     reasons.push(`cost ${action.costUsd} exceeds max action cost ${policy.maxActionCostUsd}`)
   }
-  if (policy.remainingBudgetUsd !== undefined && (action.costUsd ?? 0) > policy.remainingBudgetUsd) {
+  if (
+    policy.remainingBudgetUsd !== undefined &&
+    (action.costUsd ?? 0) > policy.remainingBudgetUsd
+  ) {
     blocked = true
     reasons.push(`cost ${action.costUsd} exceeds remaining budget ${policy.remainingBudgetUsd}`)
   }
@@ -67,22 +75,25 @@ export function evaluateActionPolicy(
     reasons.push('kill criteria are required')
   }
   if (policy.autoApproveTypes?.includes(action.type) && requiresApproval) {
-    reasons.push(`action type "${action.type}" is auto-approved only when no approval policy applies`)
+    reasons.push(
+      `action type "${action.type}" is auto-approved only when no approval policy applies`,
+    )
   }
 
   if (!reasons.length) reasons.push(requiresApproval ? 'approval required' : 'action allowed')
 
-  const label = blocked || requiresApproval
-    ? {
-        source: 'policy' as const,
-        kind: blocked ? 'policy_block' as const : 'comment' as const,
-        value: { actionType: action.type, blocked, requiresApproval },
-        reason: reasons.join('; '),
-        severity: blocked ? 'critical' as const : 'warning' as const,
-        createdAt: options.createdAt ?? new Date().toISOString(),
-        metadata: { action, policy },
-      }
-    : undefined
+  const label =
+    blocked || requiresApproval
+      ? {
+          source: 'policy' as const,
+          kind: blocked ? ('policy_block' as const) : ('comment' as const),
+          value: { actionType: action.type, blocked, requiresApproval },
+          reason: reasons.join('; '),
+          severity: blocked ? ('critical' as const) : ('warning' as const),
+          createdAt: options.createdAt ?? new Date().toISOString(),
+          metadata: { action, policy },
+        }
+      : undefined
 
   return {
     allowed: !blocked,

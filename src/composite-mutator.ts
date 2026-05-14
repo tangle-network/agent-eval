@@ -17,8 +17,8 @@
  */
 
 import type {
-  MutateAdapter,
   EvolvableVariant,
+  MutateAdapter,
   TrialResult,
   VariantAggregate,
 } from './prompt-evolution'
@@ -55,21 +55,30 @@ export function createCompositeMutator<P>(opts: CreateCompositeMutatorOpts<P>): 
   const plateauThreshold = opts.plateauThreshold ?? 0.02
   const plateauPatience = opts.plateauPatience ?? 2
 
-  function pickMode(args: MutateArgs<P>): { mode: 'primary' | 'secondary' | 'split'; reason: string } {
+  function pickMode(args: MutateArgs<P>): {
+    mode: 'primary' | 'secondary' | 'split'
+    reason: string
+  } {
     recentScores.push(args.parentAggregate.meanScore)
     switch (opts.policy) {
       case 'primary-only':
         return { mode: 'primary', reason: 'policy=primary-only' }
       case 'secondary-only':
-        if (!opts.secondary) return { mode: 'primary', reason: 'secondary-only requested but no secondary mutator wired' }
+        if (!opts.secondary)
+          return {
+            mode: 'primary',
+            reason: 'secondary-only requested but no secondary mutator wired',
+          }
         return { mode: 'secondary', reason: 'policy=secondary-only' }
       case 'alternate':
-        if (!opts.secondary) return { mode: 'primary', reason: 'alternate requested but no secondary mutator wired' }
+        if (!opts.secondary)
+          return { mode: 'primary', reason: 'alternate requested but no secondary mutator wired' }
         return args.generation % 2 === 1
           ? { mode: 'secondary', reason: `alternate: gen${args.generation} odd → secondary` }
           : { mode: 'primary', reason: `alternate: gen${args.generation} even → primary` }
       case 'plateau': {
-        if (!opts.secondary) return { mode: 'primary', reason: 'plateau requested but no secondary mutator wired' }
+        if (!opts.secondary)
+          return { mode: 'primary', reason: 'plateau requested but no secondary mutator wired' }
         if (recentScores.length <= plateauPatience) {
           return { mode: 'primary', reason: 'plateau: warming up with primary mutations' }
         }

@@ -1,36 +1,25 @@
 /** Ax RLM trace analyst over bounded OTLP-JSONL trace stores. */
 
-export { analyzeTraces } from './analyst'
 export type {
   AnalyzeTracesInput,
   AnalyzeTracesOptions,
   AnalyzeTracesResult,
   AnalyzeTracesTurnSnapshot,
 } from './analyst'
-
-export {
-  OtlpFileTraceStore,
-  TraceFileMissingError,
-  TraceNotFoundError,
-  SpanNotFoundError,
-  type OtlpFileTraceStoreOptions,
-} from './store-otlp'
-
-export type { TraceAnalysisStore } from './store'
-export {
-  buildTraceAnalystTools,
-  traceAnalystFunctionGroup,
-} from './tools'
-
-export { traceAnalystOnRunComplete } from './hook'
+export { analyzeTraces } from './analyst'
 export type { TraceAnalystHookOptions } from './hook'
-
-export {
-  TRACE_ANALYST_ACTOR_DESCRIPTION,
-  TRACE_ANALYST_ACTOR_DESCRIPTION_VERSION,
-  TRACE_ANALYST_SUBAGENT_DESCRIPTION,
-} from './prompts'
-
+export { traceAnalystOnRunComplete } from './hook'
+export type {
+  TraceInsightContext,
+  TraceInsightFinding,
+  TraceInsightPanelRole,
+  TraceInsightPromptInput,
+  TraceInsightQualityGate,
+  TraceInsightQuestion,
+  TraceInsightReadiness,
+  TraceInsightSuite,
+  TraceInsightTask,
+} from './insights'
 export {
   buildTraceInsightContext,
   buildTraceInsightPrompt,
@@ -42,17 +31,23 @@ export {
   scoreTraceInsightReadiness,
   tokenizeDomainWords,
 } from './insights'
-export type {
-  TraceInsightContext,
-  TraceInsightFinding,
-  TraceInsightQualityGate,
-  TraceInsightReadiness,
-  TraceInsightPanelRole,
-  TraceInsightPromptInput,
-  TraceInsightQuestion,
-  TraceInsightSuite,
-  TraceInsightTask,
-} from './insights'
+export {
+  TRACE_ANALYST_ACTOR_DESCRIPTION,
+  TRACE_ANALYST_ACTOR_DESCRIPTION_VERSION,
+  TRACE_ANALYST_SUBAGENT_DESCRIPTION,
+} from './prompts'
+export type { TraceAnalysisStore } from './store'
+export {
+  OtlpFileTraceStore,
+  type OtlpFileTraceStoreOptions,
+  SpanNotFoundError,
+  TraceFileMissingError,
+  TraceNotFoundError,
+} from './store-otlp'
+export {
+  buildTraceAnalystTools,
+  traceAnalystFunctionGroup,
+} from './tools'
 
 export type {
   DatasetOverview,

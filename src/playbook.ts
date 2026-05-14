@@ -43,7 +43,7 @@ export function renderPlaybookMarkdown(playbook: Playbook): string {
     if (entry.sourceRunId) lines.push(`  Source run: ${entry.sourceRunId}`)
     lines.push('')
   }
-  return lines.join('\n').trim() + '\n'
+  return `${lines.join('\n').trim()}\n`
 }
 
 function normalizeInstruction(value: string): string {

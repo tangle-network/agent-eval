@@ -10,13 +10,8 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 import { describe, expect, it } from 'vitest'
-
-import {
-  OtlpFileTraceStore,
-  TraceFileMissingError,
-  TraceNotFoundError,
-} from './store-otlp'
 import { compileSearchRegex } from './store'
+import { OtlpFileTraceStore, TraceFileMissingError, TraceNotFoundError } from './store-otlp'
 
 const TINY_FIXTURE = new URL('../../tests/fixtures/trace-analyst/tiny-trace.jsonl', import.meta.url)
   .pathname
@@ -120,7 +115,11 @@ describe('OtlpFileTraceStore', () => {
           end_time: '2026-04-24T18:00:01.000000000Z',
           status: { code: 'STATUS_CODE_OK' },
           resource: { attributes: { 'service.name': 'svc' } },
-          attributes: { 'openinference.span.kind': 'TOOL', 'tool.name': 'noisy', 'input.value': huge },
+          attributes: {
+            'openinference.span.kind': 'TOOL',
+            'tool.name': 'noisy',
+            'input.value': huge,
+          },
         })}\n`,
         'utf8',
       )
@@ -211,9 +210,9 @@ describe('OtlpFileTraceStore', () => {
   it('throws TraceNotFoundError for unknown trace_ids — bug class: returning empty payload masks "you fabricated this"', async () => {
     const store = new OtlpFileTraceStore({ path: TINY_FIXTURE })
     await expect(store.viewTrace({ trace_id: 'tFAKE' })).rejects.toBeInstanceOf(TraceNotFoundError)
-    await expect(
-      store.viewSpans({ trace_id: 'tFAKE', span_ids: ['x'] }),
-    ).rejects.toBeInstanceOf(TraceNotFoundError)
+    await expect(store.viewSpans({ trace_id: 'tFAKE', span_ids: ['x'] })).rejects.toBeInstanceOf(
+      TraceNotFoundError,
+    )
     await expect(
       store.searchTrace({ trace_id: 'tFAKE', regex_pattern: 'x' }),
     ).rejects.toBeInstanceOf(TraceNotFoundError)

@@ -10,34 +10,27 @@
  * "always picks the popular route" failure modes.
  */
 
-import type {
-  BenchmarkAdapter,
-  BenchmarkDatasetItem,
-  BenchmarkEvaluation,
-} from '../types'
-import { deterministicSplit } from '../types'
 import type { RunSplitTag } from '../../run-record'
+import type { BenchmarkAdapter, BenchmarkDatasetItem, BenchmarkEvaluation } from '../types'
+import { deterministicSplit } from '../types'
 import { ROUTING_DATASET, type RoutingItem } from './dataset'
 
 export type { RoutingItem }
 export type RoutingPayload = RoutingItem
 export type RoutingDatasetItem = BenchmarkDatasetItem<RoutingPayload>
 
-class RoutingAdapter
-  implements BenchmarkAdapter<RoutingDatasetItem, RoutingPayload>
-{
+class RoutingAdapter implements BenchmarkAdapter<RoutingDatasetItem, RoutingPayload> {
   async loadDataset(split: RunSplitTag): Promise<RoutingDatasetItem[]> {
-    return ROUTING_DATASET
-      .map((item) => ({ id: item.id, payload: item }))
-      .filter((it) => assignSplitImpl(it.id) === split)
+    return ROUTING_DATASET.map((item) => ({ id: item.id, payload: item })).filter(
+      (it) => assignSplitImpl(it.id) === split,
+    )
   }
 
-  async evaluate(
-    item: RoutingDatasetItem,
-    response: string,
-  ): Promise<BenchmarkEvaluation> {
+  async evaluate(item: RoutingDatasetItem, response: string): Promise<BenchmarkEvaluation> {
     const tokens = extractRouteTokens(response)
-    const correct = new Set<string>([item.payload.route, ...item.payload.synonyms].map((s) => s.toLowerCase()))
+    const correct = new Set<string>(
+      [item.payload.route, ...item.payload.synonyms].map((s) => s.toLowerCase()),
+    )
     const hardNeg = new Set<string>(item.payload.hardNegatives.map((s) => s.toLowerCase()))
     const firstMatch = tokens.find((t) => correct.has(t.toLowerCase())) ?? null
     const firstHardNeg = tokens.find((t) => hardNeg.has(t.toLowerCase())) ?? null
@@ -79,4 +72,4 @@ const adapter = new RoutingAdapter()
 export const loadDataset = adapter.loadDataset.bind(adapter)
 export const evaluate = adapter.evaluate.bind(adapter)
 export const assignSplit = adapter.assignSplit.bind(adapter)
-export { RoutingAdapter, ROUTING_DATASET }
+export { ROUTING_DATASET, RoutingAdapter }

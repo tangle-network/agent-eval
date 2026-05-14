@@ -36,12 +36,11 @@
  * turn evaluable by it.
  */
 
-import { appendFileSync, existsSync, mkdirSync, readFileSync } from 'fs'
-import { dirname } from 'path'
-
+import { appendFileSync, existsSync, mkdirSync, readFileSync } from 'node:fs'
+import { dirname } from 'node:path'
+import { type SpanHandle, TraceEmitter } from './trace/emitter'
 import type { FailureClass } from './trace/schema'
 import type { TraceStore } from './trace/store'
-import { TraceEmitter, type SpanHandle } from './trace/emitter'
 
 // ── Types ────────────────────────────────────────────────────────────
 
@@ -93,13 +92,15 @@ export interface ReviewInput<State, Summary = unknown> {
   memory: ReviewMemoryEntry[]
 }
 
-export type ProposeFn<State, Summary = unknown> =
-  (input: ProposeInput<State>) => Promise<ProposeOutput<State, Summary>>
+export type ProposeFn<State, Summary = unknown> = (
+  input: ProposeInput<State>,
+) => Promise<ProposeOutput<State, Summary>>
 
 export type VerifyFn<State> = (state: State) => Promise<Verification>
 
-export type ReviewFn<State, Summary = unknown> =
-  (input: ReviewInput<State, Summary>) => Promise<Review>
+export type ReviewFn<State, Summary = unknown> = (
+  input: ReviewInput<State, Summary>,
+) => Promise<Review>
 
 export interface ReviewMemoryStore {
   load(): Promise<ReviewMemoryEntry[]>
@@ -193,7 +194,7 @@ export function jsonlReviewStore(path: string): ReviewMemoryStore {
     },
     async append(entry) {
       mkdirSync(dirname(path), { recursive: true })
-      appendFileSync(path, JSON.stringify(entry) + '\n')
+      appendFileSync(path, `${JSON.stringify(entry)}\n`)
     },
   }
 }
@@ -213,9 +214,7 @@ export async function runProposeReview<State, Summary = unknown>(
   const memory = config.memory ?? inMemoryReviewStore()
   const fallbackInstruction = config.fallbackInstruction ?? DEFAULT_FALLBACK_INSTRUCTION
 
-  const emitter = config.store
-    ? new TraceEmitter(config.store)
-    : null
+  const emitter = config.store ? new TraceEmitter(config.store) : null
   if (emitter) {
     await emitter.startRun({
       scenarioId: config.scenarioId ?? 'propose-review',
@@ -231,7 +230,10 @@ export async function runProposeReview<State, Summary = unknown>(
 
   const abort = new AbortController()
   const wallStart = Date.now()
-  const wallTimer = setTimeout(() => abort.abort(new Error('propose-review wall timeout')), maxWallMs)
+  const wallTimer = setTimeout(
+    () => abort.abort(new Error('propose-review wall timeout')),
+    maxWallMs,
+  )
 
   const shots: ProposeReviewShot<State, Summary>[] = []
   let state = config.initialState
@@ -249,9 +251,7 @@ export async function runProposeReview<State, Summary = unknown>(
       }
 
       const shotStart = Date.now()
-      const shotHandle = emitter
-        ? await emitter.span({ kind: 'tool', name: `shot-${shot}` })
-        : null
+      const shotHandle = emitter ? await emitter.span({ kind: 'tool', name: `shot-${shot}` }) : null
 
       // 1. Propose.
       let proposeOut: ProposeOutput<State, Summary>
@@ -317,9 +317,10 @@ export async function runProposeReview<State, Summary = unknown>(
         } catch (err) {
           reviewAvailable = false
           reviewError = err instanceof Error ? err.message : String(err)
-          const lastInstruction = memorySnapshot.length > 0
-            ? memorySnapshot[memorySnapshot.length - 1]!.nextShotInstruction
-            : fallbackInstruction
+          const lastInstruction =
+            memorySnapshot.length > 0
+              ? memorySnapshot[memorySnapshot.length - 1]!.nextShotInstruction
+              : fallbackInstruction
           review = {
             observations: '(reviewer unavailable — using last-known instruction)',
             diagnosis: reviewError,
@@ -414,9 +415,7 @@ export async function runProposeReview<State, Summary = unknown>(
 
 // ── Reviewer helper (LLM-backed) ─────────────────────────────────────
 
-export interface LlmJsonCall {
-  (req: { system: string; user: string }): Promise<unknown>
-}
+export type LlmJsonCall = (req: { system: string; user: string }) => Promise<unknown>
 
 export interface LlmReviewerConfig<State, Summary = unknown> {
   callJson: LlmJsonCall
@@ -435,27 +434,31 @@ export function createLlmReviewer<State, Summary = unknown>(
   cfg: LlmReviewerConfig<State, Summary>,
 ): ReviewFn<State, Summary> {
   const renderState = cfg.renderState ?? ((s: State) => safeJson(s))
-  const renderTraceSummary = cfg.renderTraceSummary ?? ((s: Summary | undefined) =>
-    s === undefined ? '(none)' : safeJson(s))
+  const renderTraceSummary =
+    cfg.renderTraceSummary ??
+    ((s: Summary | undefined) => (s === undefined ? '(none)' : safeJson(s)))
   const system = cfg.systemPromptAddendum
     ? `${REVIEWER_SYSTEM_PROMPT}\n\n${cfg.systemPromptAddendum}`
     : REVIEWER_SYSTEM_PROMPT
 
   return async (input) => {
-    const memoryBlock = input.memory.length === 0
-      ? '(no prior shots — this is shot 1)'
-      : input.memory
-          .map((m) => [
-            `shot ${m.shot} — verification.pass=${m.verification.pass}` +
-              (typeof m.verification.score === 'number'
-                ? ` score=${m.verification.score.toFixed(2)}`
-                : '') +
-              ` confidence=${m.confidence.toFixed(2)} failing=[${(m.verification.failingLayers ?? []).join(',')}]`,
-            `  observations: ${m.observations.slice(0, 400)}`,
-            `  diagnosis: ${m.diagnosis.slice(0, 400)}`,
-            `  instruction given: ${m.nextShotInstruction.slice(0, 400)}`,
-          ].join('\n'))
-          .join('\n\n')
+    const memoryBlock =
+      input.memory.length === 0
+        ? '(no prior shots — this is shot 1)'
+        : input.memory
+            .map((m) =>
+              [
+                `shot ${m.shot} — verification.pass=${m.verification.pass}` +
+                  (typeof m.verification.score === 'number'
+                    ? ` score=${m.verification.score.toFixed(2)}`
+                    : '') +
+                  ` confidence=${m.confidence.toFixed(2)} failing=[${(m.verification.failingLayers ?? []).join(',')}]`,
+                `  observations: ${m.observations.slice(0, 400)}`,
+                `  diagnosis: ${m.diagnosis.slice(0, 400)}`,
+                `  instruction given: ${m.nextShotInstruction.slice(0, 400)}`,
+              ].join('\n'),
+            )
+            .join('\n\n')
 
     const user = [
       `=== GOAL ===`,
@@ -500,7 +503,8 @@ function coerceReview(raw: Partial<Review> | null | undefined): Review {
   }
   const observations = typeof raw.observations === 'string' ? raw.observations : ''
   const diagnosis = typeof raw.diagnosis === 'string' ? raw.diagnosis : ''
-  const nextShotInstruction = typeof raw.nextShotInstruction === 'string' ? raw.nextShotInstruction : ''
+  const nextShotInstruction =
+    typeof raw.nextShotInstruction === 'string' ? raw.nextShotInstruction : ''
   if (!observations || !diagnosis || !nextShotInstruction) {
     throw new Error('reviewer missing required string fields')
   }
@@ -521,7 +525,8 @@ function coerceReview(raw: Partial<Review> | null | undefined): Review {
 }
 
 function summarizeVerification(v: Verification): string {
-  const header = `pass=${v.pass}` +
+  const header =
+    `pass=${v.pass}` +
     (typeof v.score === 'number' ? ` score=${v.score.toFixed(3)}` : '') +
     (v.failingLayers && v.failingLayers.length > 0
       ? ` failing=[${v.failingLayers.join(', ')}]`

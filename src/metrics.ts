@@ -1,5 +1,5 @@
-import type { TurnMetrics, DriverState } from './types'
 import type { ProductClient } from './client'
+import type { DriverState, TurnMetrics } from './types'
 
 /** Per-1K token pricing for common models */
 export const MODEL_PRICING: Record<string, { input: number; output: number }> = {
@@ -17,11 +17,7 @@ export function estimateTokens(text: string): number {
 }
 
 /** Calculate cost in USD from token counts and model */
-export function estimateCost(
-  inputTokens: number,
-  outputTokens: number,
-  model: string,
-): number {
+export function estimateCost(inputTokens: number, outputTokens: number, model: string): number {
   const pricing = MODEL_PRICING[model]
   if (!pricing) return 0
   return (inputTokens / 1000) * pricing.input + (outputTokens / 1000) * pricing.output
@@ -50,16 +46,25 @@ export class TokenCounter {
   }
 
   /** Estimate and record from raw text */
-  recordFromText(inputText: string, outputText: string): { inputTokens: number; outputTokens: number; cost: number } {
+  recordFromText(
+    inputText: string,
+    outputText: string,
+  ): { inputTokens: number; outputTokens: number; cost: number } {
     const inputTokens = estimateTokens(inputText)
     const outputTokens = estimateTokens(outputText)
     const cost = this.record(inputTokens, outputTokens)
     return { inputTokens, outputTokens, cost }
   }
 
-  getTotalInput(): number { return this.totalInput }
-  getTotalOutput(): number { return this.totalOutput }
-  getTotalCost(): number { return this.totalCost }
+  getTotalInput(): number {
+    return this.totalInput
+  }
+  getTotalOutput(): number {
+    return this.totalOutput
+  }
+  getTotalCost(): number {
+    return this.totalCost
+  }
 }
 
 /**
@@ -108,9 +113,8 @@ export class MetricsCollector {
       outputTokens,
       estimatedCostUsd,
       totalCostUsd: estimatedCostUsd,
-      completionPercent: completionCriteriaTotal > 0
-        ? (completionCriteriaMet / completionCriteriaTotal) * 100
-        : 0,
+      completionPercent:
+        completionCriteriaTotal > 0 ? (completionCriteriaMet / completionCriteriaTotal) * 100 : 0,
     }
 
     this.metrics.push(m)
@@ -130,9 +134,9 @@ export class MetricsCollector {
       tasks: tasks.length,
       events: events.length,
       proposals: {
-        pending: approvals.filter(a => a.status === 'pending').length,
-        approved: approvals.filter(a => a.status === 'approved').length,
-        rejected: approvals.filter(a => a.status === 'rejected').length,
+        pending: approvals.filter((a) => a.status === 'pending').length,
+        approved: approvals.filter((a) => a.status === 'approved').length,
+        rejected: approvals.filter((a) => a.status === 'rejected').length,
       },
       vaultFiles,
       codeBlocks: 0,
@@ -147,6 +151,6 @@ export class MetricsCollector {
 
   /** Get convergence curve (completion% over turns) */
   getConvergenceCurve(): number[] {
-    return this.metrics.map(m => m.completionPercent)
+    return this.metrics.map((m) => m.completionPercent)
   }
 }

@@ -91,7 +91,8 @@ const REDACTED_HEADER_NAMES = new Set([
   'proxy-authorization',
 ])
 
-const REDACTED_BODY_KEY = /^(api[_-]?key|bearer|password|secret|token|access[_-]?token|refresh[_-]?token)$/i
+const REDACTED_BODY_KEY =
+  /^(api[_-]?key|bearer|password|secret|token|access[_-]?token|refresh[_-]?token)$/i
 
 /**
  * Default redactor — strips well-known auth headers and any body field whose
@@ -124,13 +125,10 @@ function redactHeaders(
   return out
 }
 
-function redactBody(
-  value: unknown,
-  pathStr: string,
-  redactedFields: string[],
-): unknown {
+function redactBody(value: unknown, pathStr: string, redactedFields: string[]): unknown {
   if (value == null) return value
-  if (Array.isArray(value)) return value.map((v, i) => redactBody(v, `${pathStr}[${i}]`, redactedFields))
+  if (Array.isArray(value))
+    return value.map((v, i) => redactBody(v, `${pathStr}[${i}]`, redactedFields))
   if (typeof value === 'object') {
     const out: Record<string, unknown> = {}
     for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
@@ -164,26 +162,33 @@ export class InMemoryRawProviderSink implements RawProviderSink {
   }
 
   async list(filter: RawProviderSinkFilter = {}): Promise<RawProviderEvent[]> {
-    return this.events.filter((e) =>
-      (filter.runId === undefined || e.runId === filter.runId) &&
-      (filter.spanId === undefined || e.spanId === filter.spanId) &&
-      (filter.direction === undefined || e.direction === filter.direction) &&
-      (filter.attemptIndex === undefined || e.attemptIndex === filter.attemptIndex),
+    return this.events.filter(
+      (e) =>
+        (filter.runId === undefined || e.runId === filter.runId) &&
+        (filter.spanId === undefined || e.spanId === filter.spanId) &&
+        (filter.direction === undefined || e.direction === filter.direction) &&
+        (filter.attemptIndex === undefined || e.attemptIndex === filter.attemptIndex),
     )
   }
 
-  size(): number { return this.events.length }
+  size(): number {
+    return this.events.length
+  }
 }
 
 export class NoopRawProviderSink implements RawProviderSink {
-  async record(): Promise<void> { /* no-op */ }
+  async record(): Promise<void> {
+    /* no-op */
+  }
   /**
    * Returns an empty array. Implemented so `assertRunCaptured` does not
    * trip the `no_raw_sink` issue when a caller explicitly opts out of
    * capture by passing this sink — opt-out is a deliberate choice, not a
    * misconfiguration.
    */
-  async list(): Promise<RawProviderEvent[]> { return [] }
+  async list(): Promise<RawProviderEvent[]> {
+    return []
+  }
 }
 
 // ── Filesystem (NDJSON) ──────────────────────────────────────────────────
@@ -229,7 +234,7 @@ export class FileSystemRawProviderSink implements RawProviderSink {
   async record(event: RawProviderEvent): Promise<void> {
     await this.ensureInit()
     const redacted = this.redactor({ ...event, redactedFields: event.redactedFields ?? [] })
-    const line = JSON.stringify(redacted) + '\n'
+    const line = `${JSON.stringify(redacted)}\n`
     if (this.bytesWritten + line.length > this.rollAtBytes && this.bytesWritten > 0) {
       this.rollIndex += 1
       this.bytesWritten = 0
@@ -242,9 +247,8 @@ export class FileSystemRawProviderSink implements RawProviderSink {
     await this.ensureInit()
     const out: RawProviderEvent[] = []
     for (let i = 0; i <= this.rollIndex; i++) {
-      const file = i === 0
-        ? path.join(this.dir, this.fileName)
-        : path.join(this.dir, `${this.fileName}.${i}`)
+      const file =
+        i === 0 ? path.join(this.dir, this.fileName) : path.join(this.dir, `${this.fileName}.${i}`)
       let body: string
       try {
         body = await fs.readFile(file, 'utf8')
@@ -258,7 +262,8 @@ export class FileSystemRawProviderSink implements RawProviderSink {
         if (filter.runId !== undefined && event.runId !== filter.runId) continue
         if (filter.spanId !== undefined && event.spanId !== filter.spanId) continue
         if (filter.direction !== undefined && event.direction !== filter.direction) continue
-        if (filter.attemptIndex !== undefined && event.attemptIndex !== filter.attemptIndex) continue
+        if (filter.attemptIndex !== undefined && event.attemptIndex !== filter.attemptIndex)
+          continue
         out.push(event)
       }
     }

@@ -12,10 +12,10 @@
  */
 
 import type { DatasetManifest } from '../dataset'
-import type { TraceStore } from '../trace/store'
+import type { CalibrationResult } from '../judge-calibration'
 import type { OutcomeStore } from '../meta-eval/outcome-store'
 import type { RedTeamReport } from '../red-team'
-import type { CalibrationResult } from '../judge-calibration'
+import type { TraceStore } from '../trace/store'
 
 export interface GovernanceContext {
   /** Legal / org identity for the report. */
@@ -50,7 +50,10 @@ export interface GovernanceFinding {
 export interface GovernanceReport {
   framework: 'NIST-AI-RMF' | 'SOC2' | 'EU-AI-ACT'
   version: string
-  context: Pick<GovernanceContext, 'organization' | 'systemName' | 'periodStart' | 'periodEnd' | 'owner'>
+  context: Pick<
+    GovernanceContext,
+    'organization' | 'systemName' | 'periodStart' | 'periodEnd' | 'owner'
+  >
   summary: {
     findings: number
     byeverity: Record<GovernanceFinding['severity'], number>
@@ -64,20 +67,28 @@ export interface GovernanceReport {
 
 export function renderMarkdown(report: GovernanceReport): string {
   const sevEmoji: Record<GovernanceFinding['severity'], string> = {
-    info: 'ℹ︎', low: '·', medium: '!', high: '!!', critical: '‼',
+    info: 'ℹ︎',
+    low: '·',
+    medium: '!',
+    high: '!!',
+    critical: '‼',
   }
   const lines: string[] = []
   lines.push(`# ${report.framework} report — ${report.context.systemName}`)
   lines.push('')
   lines.push(`- Organization: **${report.context.organization}**`)
   lines.push(`- Period: ${report.context.periodStart} → ${report.context.periodEnd}`)
-  lines.push(`- Owner: ${report.context.owner.role} ${report.context.owner.name} <${report.context.owner.email}>`)
+  lines.push(
+    `- Owner: ${report.context.owner.role} ${report.context.owner.name} <${report.context.owner.email}>`,
+  )
   lines.push(`- Generated: ${report.generatedAt}`)
   lines.push('')
   lines.push(`## Summary — ${report.summary.overall}`)
   lines.push('')
   lines.push(`${report.summary.findings} finding(s).`)
-  for (const [sev, n] of Object.entries(report.summary.byeverity) as Array<[GovernanceFinding['severity'], number]>) {
+  for (const [sev, n] of Object.entries(report.summary.byeverity) as Array<
+    [GovernanceFinding['severity'], number]
+  >) {
     if (n > 0) lines.push(`- ${sevEmoji[sev]} ${sev}: ${n}`)
   }
   lines.push('')
@@ -87,8 +98,14 @@ export function renderMarkdown(report: GovernanceReport): string {
     lines.push(`### ${sevEmoji[f.severity]} ${f.id} — ${f.control}`)
     lines.push('')
     lines.push(f.summary)
-    if (f.evidence) { lines.push(''); lines.push('**Evidence:** ' + f.evidence) }
-    if (f.remediation) { lines.push(''); lines.push('**Remediation:** ' + f.remediation) }
+    if (f.evidence) {
+      lines.push('')
+      lines.push(`**Evidence:** ${f.evidence}`)
+    }
+    if (f.remediation) {
+      lines.push('')
+      lines.push(`**Remediation:** ${f.remediation}`)
+    }
     lines.push('')
   }
   return lines.join('\n')
@@ -96,12 +113,18 @@ export function renderMarkdown(report: GovernanceReport): string {
 
 export function summarize(findings: GovernanceFinding[]): GovernanceReport['summary'] {
   const byeverity: GovernanceReport['summary']['byeverity'] = {
-    info: 0, low: 0, medium: 0, high: 0, critical: 0,
+    info: 0,
+    low: 0,
+    medium: 0,
+    high: 0,
+    critical: 0,
   }
   for (const f of findings) byeverity[f.severity]++
   const overall: GovernanceReport['summary']['overall'] =
-    byeverity.critical + byeverity.high > 0 ? 'non-compliant'
-    : byeverity.medium + byeverity.low > 0 ? 'compliant-with-findings'
-    : 'compliant'
+    byeverity.critical + byeverity.high > 0
+      ? 'non-compliant'
+      : byeverity.medium + byeverity.low > 0
+        ? 'compliant-with-findings'
+        : 'compliant'
   return { findings: findings.length, byeverity, overall }
 }

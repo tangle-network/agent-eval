@@ -1,8 +1,12 @@
-import { describe, it, expect } from 'vitest'
-import { mergeLayerResults, multiToolchainLayer } from './multi-toolchain-layer'
+import { describe, expect, it } from 'vitest'
 import type { LayerResult } from './multi-layer-verifier'
+import { mergeLayerResults, multiToolchainLayer } from './multi-toolchain-layer'
 
-function mkResult(status: LayerResult['status'], score?: number, findings: LayerResult['findings'] = []): LayerResult {
+function mkResult(
+  status: LayerResult['status'],
+  score?: number,
+  findings: LayerResult['findings'] = [],
+): LayerResult {
   return {
     layer: 'install',
     status,
@@ -85,8 +89,12 @@ describe('mergeLayerResults', () => {
       },
     ])
     expect(r.findings).toHaveLength(2)
-    expect(r.findings.find((f) => f.message === 'tsc 4 errors')?.detail).toMatchObject({ adapter: 'pnpm' })
-    expect(r.findings.find((f) => f.message === 'forge ok')?.detail).toMatchObject({ adapter: 'forge' })
+    expect(r.findings.find((f) => f.message === 'tsc 4 errors')?.detail).toMatchObject({
+      adapter: 'pnpm',
+    })
+    expect(r.findings.find((f) => f.message === 'forge ok')?.detail).toMatchObject({
+      adapter: 'forge',
+    })
   })
 
   it('reason concatenates adapter:status; durationMs is max-of-parts', () => {
@@ -133,7 +141,9 @@ describe('multiToolchainLayer', () => {
     })
     const r = await layer.run({ env: null, prior: {}, signal: new AbortController().signal })
     expect(r.status).toBe('error') // worst-of (pass + error)
-    const cursed = r.findings.find((f) => f.detail && (f.detail as Record<string, unknown>).adapter === 'cursed')
+    const cursed = r.findings.find(
+      (f) => f.detail && (f.detail as Record<string, unknown>).adapter === 'cursed',
+    )
     expect(cursed?.message).toBe('boom')
   })
 

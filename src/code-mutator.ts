@@ -24,18 +24,14 @@
  * agent prompt, running the agent, capturing the diff.
  */
 
+import type { CostLedger, LineageRecorder, MutationTelemetry } from './evolution-telemetry'
 import type {
-  MutateAdapter,
   EvolvableVariant,
+  MutateAdapter,
   TrialResult,
   VariantAggregate,
 } from './prompt-evolution'
-import type { SandboxPool, PoolSlot } from './sandbox-pool'
-import type {
-  CostLedger,
-  LineageRecorder,
-  MutationTelemetry,
-} from './evolution-telemetry'
+import type { PoolSlot, SandboxPool } from './sandbox-pool'
 
 /**
  * Result of one coding-agent invocation. The runner produces 1..N of
@@ -91,18 +87,29 @@ export interface CreateSandboxCodeMutatorOpts<T, P> {
   /** Override id generation. Default: `${parent.id}.g${generation}.code.${i}`. */
   childIdFor?(parent: EvolvableVariant<P>, generation: number, index: number): string
   /** Default label for the variant (visible in reports). */
-  labelFor?(outcome: CodeMutationOutcome, parent: EvolvableVariant<P>, generation: number, index: number): string
+  labelFor?(
+    outcome: CodeMutationOutcome,
+    parent: EvolvableVariant<P>,
+    generation: number,
+    index: number,
+  ): string
 }
 
 export function createSandboxCodeMutator<T, P>(
   opts: CreateSandboxCodeMutatorOpts<T, P>,
 ): MutateAdapter<P> {
-  const childIdFor = opts.childIdFor
-    ?? ((parent: EvolvableVariant<P>, generation: number, index: number) =>
-        `${parent.id}.g${generation}.code.${index}`)
-  const labelFor = opts.labelFor
-    ?? ((outcome: CodeMutationOutcome, parent: EvolvableVariant<P>, _generation: number, index: number) =>
-        outcome.description?.slice(0, 80) ?? `${parent.label} → code.${index}`)
+  const childIdFor =
+    opts.childIdFor ??
+    ((parent: EvolvableVariant<P>, generation: number, index: number) =>
+      `${parent.id}.g${generation}.code.${index}`)
+  const labelFor =
+    opts.labelFor ??
+    ((
+      outcome: CodeMutationOutcome,
+      parent: EvolvableVariant<P>,
+      _generation: number,
+      index: number,
+    ) => outcome.description?.slice(0, 80) ?? `${parent.label} → code.${index}`)
 
   return {
     async mutate(args) {
@@ -127,12 +134,14 @@ export function createSandboxCodeMutator<T, P>(
         } catch (err) {
           // Runner threw — record a single failure attempt so the
           // generation log still has provenance.
-          return [{
-            ok: false,
-            failureReason: 'runner_error',
-            description: err instanceof Error ? err.message : String(err),
-            latencyMs: Date.now() - startedAt,
-          }] satisfies CodeMutationOutcome[]
+          return [
+            {
+              ok: false,
+              failureReason: 'runner_error',
+              description: err instanceof Error ? err.message : String(err),
+              latencyMs: Date.now() - startedAt,
+            },
+          ] satisfies CodeMutationOutcome[]
         }
       })
 

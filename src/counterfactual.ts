@@ -12,9 +12,9 @@
  * pipelines see them natively.
  */
 
+import { TraceEmitter } from './trace/emitter'
 import type { LlmSpan, Span, ToolSpan } from './trace/schema'
 import type { TraceStore } from './trace/store'
-import { TraceEmitter } from './trace/emitter'
 import { buildTrajectory, type Trajectory, type TrajectoryStep } from './trajectory'
 
 export type CounterfactualMutation =
@@ -22,7 +22,12 @@ export type CounterfactualMutation =
   | { kind: 'swap-tool-result'; at: number; newResult: unknown }
   | { kind: 'truncate-after'; at: number }
   | { kind: 'inject-system-message'; at: number; content: string }
-  | { kind: 'custom'; at: number; describe: string; apply: (step: TrajectoryStep) => TrajectoryStep }
+  | {
+      kind: 'custom'
+      at: number
+      describe: string
+      apply: (step: TrajectoryStep) => TrajectoryStep
+    }
 
 export interface CounterfactualContext {
   originalRunId: string
@@ -68,7 +73,9 @@ export async function runCounterfactual(
   if (!originalRun) throw new Error(`counterfactual: run ${originalRunId} not found`)
   const trajectory = await buildTrajectory(store, originalRunId)
   if (mutation.at < 0 || mutation.at >= trajectory.steps.length) {
-    throw new Error(`counterfactual: mutation.at=${mutation.at} out of range [0, ${trajectory.steps.length})`)
+    throw new Error(
+      `counterfactual: mutation.at=${mutation.at} out of range [0, ${trajectory.steps.length})`,
+    )
   }
   const targetStep = trajectory.steps[mutation.at]
   const mutatedStep = applyMutation(targetStep, mutation)
@@ -76,7 +83,9 @@ export async function runCounterfactual(
   const cfEmitter = new TraceEmitter(store)
   await cfEmitter.startRun({
     scenarioId: originalRun.scenarioId,
-    variantId: originalRun.variantId ? `${originalRun.variantId}+cf:${mutation.kind}@${mutation.at}` : `cf:${mutation.kind}@${mutation.at}`,
+    variantId: originalRun.variantId
+      ? `${originalRun.variantId}+cf:${mutation.kind}@${mutation.at}`
+      : `cf:${mutation.kind}@${mutation.at}`,
     projectId: originalRun.projectId,
     parentRunId: originalRunId,
     layer: 'meta',
@@ -144,15 +153,29 @@ export function attributeCounterfactuals(results: CounterfactualResult[]): Array
 }> {
   const grouped = new Map<string, CounterfactualResult[]>()
   for (const r of results) {
-    const arr = grouped.get(r.mutation.kind) ?? []; arr.push(r); grouped.set(r.mutation.kind, arr)
+    const arr = grouped.get(r.mutation.kind) ?? []
+    arr.push(r)
+    grouped.set(r.mutation.kind, arr)
   }
-  const out: Array<{ mutationKind: CounterfactualMutation['kind']; n: number; meanAbsDelta: number; meanSignedDelta: number }> = []
+  const out: Array<{
+    mutationKind: CounterfactualMutation['kind']
+    n: number
+    meanAbsDelta: number
+    meanSignedDelta: number
+  }> = []
   for (const [kind, items] of grouped) {
-    const deltas = items.map((i) => i.delta.deltaScore).filter((d): d is number => typeof d === 'number')
+    const deltas = items
+      .map((i) => i.delta.deltaScore)
+      .filter((d): d is number => typeof d === 'number')
     if (deltas.length === 0) continue
     const meanAbs = deltas.reduce((a, b) => a + Math.abs(b), 0) / deltas.length
     const meanSigned = deltas.reduce((a, b) => a + b, 0) / deltas.length
-    out.push({ mutationKind: kind as CounterfactualMutation['kind'], n: deltas.length, meanAbsDelta: meanAbs, meanSignedDelta: meanSigned })
+    out.push({
+      mutationKind: kind as CounterfactualMutation['kind'],
+      n: deltas.length,
+      meanAbsDelta: meanAbs,
+      meanSignedDelta: meanSigned,
+    })
   }
   return out.sort((a, b) => b.meanAbsDelta - a.meanAbsDelta)
 }

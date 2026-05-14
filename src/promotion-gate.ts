@@ -76,7 +76,11 @@ export function bootstrapCi(
   const candidateMean = mean(candidate)
   const delta = candidateMean - baselineMean
 
-  if (baseline.length + candidate.length < minTotal || baseline.length === 0 || candidate.length === 0) {
+  if (
+    baseline.length + candidate.length < minTotal ||
+    baseline.length === 0 ||
+    candidate.length === 0
+  ) {
     return {
       baselineMean,
       candidateMean,

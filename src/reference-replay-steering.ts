@@ -1,11 +1,18 @@
+import type {
+  ReferenceReplayCaseRun,
+  ReferenceReplayRun,
+  ReferenceReplayScenarioScore,
+} from './reference-replay'
 import type { RunScore } from './run-score'
 import type { SteeringBundle } from './steering'
 import type { SteeringOptimizationRow } from './steering-optimizer'
-import type { ReferenceReplayCaseRun, ReferenceReplayRun, ReferenceReplayScenarioScore } from './reference-replay'
 
 export interface ReferenceReplaySteeringRowsOptions<Input = unknown> {
   bundleForRun?: (run: ReferenceReplayRun<Input>) => SteeringBundle
-  scoreForCase?: (caseRun: ReferenceReplayCaseRun<Input>, run: ReferenceReplayRun<Input>) => RunScore
+  scoreForCase?: (
+    caseRun: ReferenceReplayCaseRun<Input>,
+    run: ReferenceReplayRun<Input>,
+  ) => RunScore
 }
 
 export function referenceReplayRunsToSteeringRows<Input = unknown>(
@@ -25,7 +32,9 @@ export function referenceReplayRunsToSteeringRows<Input = unknown>(
         variantId,
         scenarioId: caseRun.caseId,
         bundle,
-        score: options.scoreForCase?.(caseRun, run) ?? referenceReplayScenarioToRunScore(caseRun.score, caseRun.durationMs),
+        score:
+          options.scoreForCase?.(caseRun, run) ??
+          referenceReplayScenarioToRunScore(caseRun.score, caseRun.durationMs),
         metadata: {
           runId: run.id,
           split: caseRun.split,

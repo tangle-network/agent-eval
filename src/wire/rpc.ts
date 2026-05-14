@@ -83,17 +83,17 @@ export async function runRpcOnce(method?: string): Promise<number> {
     req = method ? { method: method as RpcRequest['method'], params: body } : (body as RpcRequest)
   } catch (err) {
     process.stdout.write(
-      JSON.stringify({
+      `${JSON.stringify({
         error: {
           code: 'parse_error',
           message: `stdin was not valid JSON: ${err instanceof Error ? err.message : String(err)}`,
         },
-      }) + '\n',
+      })}\n`,
     )
     return 1
   }
   const out = await dispatchRpc(req)
-  process.stdout.write(JSON.stringify(out) + '\n')
+  process.stdout.write(`${JSON.stringify(out)}\n`)
   return 'error' in out ? 1 : 0
 }
 
@@ -109,18 +109,18 @@ export async function runRpcBatch(method?: string): Promise<number> {
       req = method ? { method: method as RpcRequest['method'], params: body } : (body as RpcRequest)
     } catch (err) {
       process.stdout.write(
-        JSON.stringify({
+        `${JSON.stringify({
           error: {
             code: 'parse_error',
             message: `line was not valid JSON: ${err instanceof Error ? err.message : String(err)}`,
           },
-        }) + '\n',
+        })}\n`,
       )
       exitCode = 1
       continue
     }
     const out = await dispatchRpc(req)
-    process.stdout.write(JSON.stringify(out) + '\n')
+    process.stdout.write(`${JSON.stringify(out)}\n`)
     if ('error' in out) exitCode = 1
   }
   return exitCode

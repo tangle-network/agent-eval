@@ -14,10 +14,10 @@
  * each LLM span, emits JudgeVerdict spans back into the store.
  */
 
-import type { LlmSpan, Span } from './trace/schema'
-import type { TraceStore } from './trace/store'
 import { TraceEmitter } from './trace/emitter'
 import { aggregateLlm, llmSpans } from './trace/query'
+import type { LlmSpan, Span } from './trace/schema'
+import type { TraceStore } from './trace/store'
 
 // ── Langfuse adapter ─────────────────────────────────────────────────
 
@@ -49,7 +49,10 @@ export interface LangfuseEnvelope {
   scores: LangfuseScore[]
 }
 
-export async function toLangfuseEnvelope(store: TraceStore, runId: string): Promise<LangfuseEnvelope> {
+export async function toLangfuseEnvelope(
+  store: TraceStore,
+  runId: string,
+): Promise<LangfuseEnvelope> {
   const run = await store.getRun(runId)
   if (!run) throw new Error(`run ${runId} not found`)
   const llm = await llmSpans(store, runId)
@@ -142,7 +145,7 @@ export async function toPrometheusText(store: TraceStore): Promise<string> {
   for (const [name, n] of Object.entries(toolErrors)) {
     lines.push(`agent_eval_tool_errors_total{tool="${escapeLabel(name)}"} ${n}`)
   }
-  return lines.join('\n') + '\n'
+  return `${lines.join('\n')}\n`
 }
 
 function escapeLabel(v: string): string {
@@ -189,7 +192,13 @@ export async function replayTraceThroughJudge(
       evidence,
       name: `${judge.id}/${judge.dimension}`,
     })
-    results.push({ spanId: verdict.spanId, targetSpanId: span.spanId, dimension: judge.dimension, score, rationale })
+    results.push({
+      spanId: verdict.spanId,
+      targetSpanId: span.spanId,
+      dimension: judge.dimension,
+      score,
+      rationale,
+    })
   }
   return results
 }

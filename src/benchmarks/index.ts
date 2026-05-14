@@ -18,11 +18,10 @@
  * entry — every team will configure them differently.
  */
 
+export * as routing from './routing/index'
 export type {
   BenchmarkAdapter,
   BenchmarkDatasetItem,
   BenchmarkEvaluation,
 } from './types'
-export { deterministicSplit, BENCHMARK_SPLIT_SEED } from './types'
-
-export * as routing from './routing/index'
+export { BENCHMARK_SPLIT_SEED, deterministicSplit } from './types'

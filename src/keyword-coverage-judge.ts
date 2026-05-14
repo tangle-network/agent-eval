@@ -148,7 +148,7 @@ export function runKeywordCoverageJudge(
       totalAssembledBytes: 0,
     }
   }
-  const haystack = (html + '\n' + assets.join('\n')).toLowerCase()
+  const haystack = `${html}\n${assets.join('\n')}`.toLowerCase()
   const findings: KeywordCoverageFinding[] = expectedConcepts.map((concept) => {
     const matchedKeywords: string[] = []
     for (const kw of concept.keywords) {

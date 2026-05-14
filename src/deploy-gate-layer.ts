@@ -167,7 +167,10 @@ export interface ViteDeployRunnerInput {
    * Function to run a shell command in `workdir`. Same shape as
    * agent-eval's CommandRunner.run for compositional reuse.
    */
-  exec: (cmd: string, opts?: { cwd?: string; timeoutMs?: number }) => Promise<{ stdout: string; stderr: string; exitCode: number }>
+  exec: (
+    cmd: string,
+    opts?: { cwd?: string; timeoutMs?: number },
+  ) => Promise<{ stdout: string; stderr: string; exitCode: number }>
   /**
    * Function to test whether a path exists in the workdir. Inject
    * `(p) => existsSync(join(workdir, p))` for host runs.
@@ -221,7 +224,10 @@ export function viteDeployRunner(input: ViteDeployRunnerInput): DeployRunner {
 
 export interface WranglerDeployRunnerInput {
   workdir: string
-  exec: (cmd: string, opts?: { cwd?: string; timeoutMs?: number }) => Promise<{ stdout: string; stderr: string; exitCode: number }>
+  exec: (
+    cmd: string,
+    opts?: { cwd?: string; timeoutMs?: number },
+  ) => Promise<{ stdout: string; stderr: string; exitCode: number }>
   exists: (relativePath: string) => boolean | Promise<boolean>
   /** Build command. Default `npm run build`. */
   buildCommand?: string

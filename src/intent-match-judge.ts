@@ -83,7 +83,7 @@ const INTENT_SCHEMA = {
 
 function truncate(body: string, cap: number, label: string): string {
   if (body.length <= cap) return body
-  return body.slice(0, cap) + `\n… [truncated ${body.length - cap} chars of ${label}]`
+  return `${body.slice(0, cap)}\n… [truncated ${body.length - cap} chars of ${label}]`
 }
 
 function buildPrompt(input: IntentMatchInput, opts: Required<IntentMatchOptions>): string {

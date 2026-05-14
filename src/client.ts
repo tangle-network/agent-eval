@@ -1,4 +1,4 @@
-import type { ProductClientConfig, RouteMap, TestResult, CheckResult } from './types'
+import type { CheckResult, ProductClientConfig, RouteMap, TestResult } from './types'
 
 /**
  * ProductClient — configurable HTTP client for exercising any agent's APIs.
@@ -31,7 +31,7 @@ export class ProductClient {
   async login(email: string, password: string): Promise<void> {
     const res = await fetch(`${this.baseUrl}${this.route('login')}`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Origin': this.baseUrl },
+      headers: { 'Content-Type': 'application/json', Origin: this.baseUrl },
       body: JSON.stringify({ email, password }),
       redirect: 'manual',
     })
@@ -39,7 +39,7 @@ export class ProductClient {
     if (setCookie) {
       this.cookies = setCookie.split(';')[0]
     }
-    const body = await res.json() as Record<string, unknown>
+    const body = (await res.json()) as Record<string, unknown>
     if (!body.user) throw new Error(`Login failed: ${JSON.stringify(body)}`)
   }
 
@@ -67,8 +67,8 @@ export class ProductClient {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Origin': this.baseUrl,
-        'Cookie': this.cookies,
+        Origin: this.baseUrl,
+        Cookie: this.cookies,
       },
       body: JSON.stringify({ workspaceId, threadId, content }),
     })
@@ -95,7 +95,9 @@ export class ProductClient {
           if (event.type === 'message.part.updated' && event.data?.delta) {
             text += event.data.delta
           }
-        } catch { /* skip non-JSON lines */ }
+        } catch {
+          /* skip non-JSON lines */
+        }
       }
     }
 
@@ -114,7 +116,9 @@ export class ProductClient {
     return { text, blocks }
   }
 
-  async getTasks(workspaceId: string): Promise<{ id: string; title: string; status: string; priority: string }[]> {
+  async getTasks(
+    workspaceId: string,
+  ): Promise<{ id: string; title: string; status: string; priority: string }[]> {
     const res = await this.get(`${this.route('tasks')}?workspaceId=${workspaceId}`)
     return (res.tasks ?? []) as { id: string; title: string; status: string; priority: string }[]
   }
@@ -124,7 +128,9 @@ export class ProductClient {
     return (res.events ?? []) as { id: string; title: string; type: string }[]
   }
 
-  async getApprovals(workspaceId: string): Promise<{ id: string; title: string; status: string; type: string }[]> {
+  async getApprovals(
+    workspaceId: string,
+  ): Promise<{ id: string; title: string; status: string; type: string }[]> {
     const res = await this.get(`${this.route('approvals')}?workspaceId=${workspaceId}`)
     return (res.actions ?? []) as { id: string; title: string; status: string; type: string }[]
   }
@@ -151,7 +157,9 @@ export class ProductClient {
     await this.patch(this.route('approvals'), { workspaceId, id, status: 'rejected', reason })
   }
 
-  async getGenerations(workspaceId: string): Promise<{ id: string; type: string; prompt: string }[]> {
+  async getGenerations(
+    workspaceId: string,
+  ): Promise<{ id: string; type: string; prompt: string }[]> {
     const res = await this.get(`${this.route('generations')}?workspaceId=${workspaceId}`)
     return (res.generations ?? []) as { id: string; type: string; prompt: string }[]
   }
@@ -159,7 +167,7 @@ export class ProductClient {
   /** Generic GET for custom routes */
   async get(path: string): Promise<Record<string, unknown>> {
     const res = await fetch(`${this.baseUrl}${path}`, {
-      headers: { 'Cookie': this.cookies },
+      headers: { Cookie: this.cookies },
     })
     return res.json() as Promise<Record<string, unknown>>
   }
@@ -170,8 +178,8 @@ export class ProductClient {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Origin': this.baseUrl,
-        'Cookie': this.cookies,
+        Origin: this.baseUrl,
+        Cookie: this.cookies,
       },
       body: JSON.stringify(body),
     })
@@ -184,8 +192,8 @@ export class ProductClient {
       method: 'PATCH',
       headers: {
         'Content-Type': 'application/json',
-        'Origin': this.baseUrl,
-        'Cookie': this.cookies,
+        Origin: this.baseUrl,
+        Cookie: this.cookies,
       },
       body: JSON.stringify(body),
     })
@@ -221,9 +229,9 @@ export async function runE2EWorkflow(
 
   return {
     name,
-    passed: checks.every(c => c.passed),
+    passed: checks.every((c) => c.passed),
     duration: Date.now() - start,
-    detail: `${checks.filter(c => c.passed).length}/${checks.length} checks passed`,
+    detail: `${checks.filter((c) => c.passed).length}/${checks.length} checks passed`,
     checks,
   }
 }

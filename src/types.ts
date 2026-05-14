@@ -21,7 +21,14 @@ export interface Turn {
 // ── Artifact Verification ──
 
 export interface ArtifactCheck {
-  type: 'vault_file_exists' | 'vault_file_contains' | 'block_extracted' | 'code_valid' | 'generation_produced' | 'tool_created' | string
+  type:
+    | 'vault_file_exists'
+    | 'vault_file_contains'
+    | 'block_extracted'
+    | 'code_valid'
+    | 'generation_produced'
+    | 'tool_created'
+    | string
   target: string
   contains?: string
   minCount?: number
@@ -239,6 +246,7 @@ export type JudgeFn = (tc: TCloud, input: JudgeInput) => Promise<JudgeScore[]>
 
 // Re-export TCloud type for convenience
 import type { TCloud } from '@tangle-network/tcloud'
+
 export type { TCloud }
 
 // ── E2E Test Types ──

@@ -1,12 +1,16 @@
-import type { ReleaseConfidenceScorecard, ReleaseConfidenceThresholds, ReleaseTraceEvidence } from './release-confidence'
-import { evaluateReleaseConfidence } from './release-confidence'
-import type { CheckResult, TestResult } from './types'
 import {
   createFeedbackTrajectory,
   type FeedbackLabel,
   type FeedbackTrajectory,
   type FeedbackTrajectoryStore,
 } from './feedback-trajectory'
+import type {
+  ReleaseConfidenceScorecard,
+  ReleaseConfidenceThresholds,
+  ReleaseTraceEvidence,
+} from './release-confidence'
+import { evaluateReleaseConfidence } from './release-confidence'
+import type { CheckResult, TestResult } from './types'
 
 export interface LiveProofArtifact {
   kind: string
@@ -28,7 +32,11 @@ export interface LiveProofContext {
   addCheck(check: CheckResult): void
   addArtifact(artifact: LiveProofArtifact): void
   addLabel(label: Omit<FeedbackLabel, 'createdAt'> & { createdAt?: string }): void
-  addTurn(turn: { role: 'user' | 'assistant' | 'system' | 'tool'; content: string; at?: string }): void
+  addTurn(turn: {
+    role: 'user' | 'assistant' | 'system' | 'tool'
+    content: string
+    at?: string
+  }): void
 }
 
 export interface LiveProofConfig {
@@ -36,7 +44,9 @@ export interface LiveProofConfig {
   scenarioId: string
   task: string
   drive(context: LiveProofContext): Promise<void> | void
-  validate?(context: LiveProofContext): Promise<CheckResult[] | void> | CheckResult[] | void
+  validate?(
+    context: LiveProofContext,
+  ): Promise<CheckResult[] | undefined> | CheckResult[] | undefined
   requiredArtifacts?: string[]
   minPassRate?: number
   trajectoryStore?: FeedbackTrajectoryStore
@@ -77,7 +87,8 @@ export async function runLiveProof(config: LiveProofConfig): Promise<LiveProofRe
     transcript,
     addCheck: (check) => checks.push(check),
     addArtifact: (artifact) => artifacts.push(artifact),
-    addLabel: (label) => labels.push({ ...label, createdAt: label.createdAt ?? new Date().toISOString() }),
+    addLabel: (label) =>
+      labels.push({ ...label, createdAt: label.createdAt ?? new Date().toISOString() }),
     addTurn: (turn) => transcript.push({ ...turn, at: turn.at ?? new Date().toISOString() }),
   }
 
@@ -103,7 +114,8 @@ export async function runLiveProof(config: LiveProofConfig): Promise<LiveProofRe
     })
   }
 
-  const passRate = checks.length === 0 ? 0 : checks.filter((check) => check.passed).length / checks.length
+  const passRate =
+    checks.length === 0 ? 0 : checks.filter((check) => check.passed).length / checks.length
   if (config.minPassRate !== undefined) {
     checks.push({
       name: 'min_pass_rate',
@@ -122,7 +134,8 @@ export async function runLiveProof(config: LiveProofConfig): Promise<LiveProofRe
     labels,
     outcome: {
       success: passed,
-      score: checks.length === 0 ? 0 : checks.filter((check) => check.passed).length / checks.length,
+      score:
+        checks.length === 0 ? 0 : checks.filter((check) => check.passed).length / checks.length,
       detail: `${checks.filter((check) => check.passed).length}/${checks.length} checks passed`,
       observedAt: new Date().toISOString(),
       metadata: {
@@ -136,18 +149,18 @@ export async function runLiveProof(config: LiveProofConfig): Promise<LiveProofRe
 
   const releaseConfidence = config.releaseConfidence
     ? evaluateReleaseConfidence({
-      ...config.releaseConfidence,
-      traces: [liveProofToReleaseTrace(config, trajectory, duration)],
-      thresholds: {
-        requireCorpus: false,
-        requireHoldout: false,
-        minScenarioCount: 0,
-        minSearchRuns: 0,
-        minHoldoutRuns: 0,
-        requireAsiForFailures: false,
-        ...(config.releaseConfidence.thresholds ?? {}),
-      },
-    })
+        ...config.releaseConfidence,
+        traces: [liveProofToReleaseTrace(config, trajectory, duration)],
+        thresholds: {
+          requireCorpus: false,
+          requireHoldout: false,
+          minScenarioCount: 0,
+          minSearchRuns: 0,
+          minHoldoutRuns: 0,
+          requireAsiForFailures: false,
+          ...(config.releaseConfidence.thresholds ?? {}),
+        },
+      })
     : undefined
 
   return {
@@ -174,7 +187,8 @@ function liveProofToReleaseTrace(
   return {
     scenarioId: config.scenarioId,
     candidateId: config.releaseConfidence?.candidateId,
-    split: trajectory.split === 'holdout' ? 'holdout' : trajectory.split === 'dev' ? 'dev' : 'search',
+    split:
+      trajectory.split === 'holdout' ? 'holdout' : trajectory.split === 'dev' ? 'dev' : 'search',
     score: trajectory.outcome?.score,
     ok: trajectory.outcome?.success,
     turnCount: Array.isArray(trajectory.outcome?.metadata?.transcript)

@@ -28,8 +28,8 @@
  * autoreject.
  */
 
-import { wilcoxonSignedRank } from '../statistics'
 import { benjaminiHochberg } from '../power-analysis'
+import { wilcoxonSignedRank } from '../statistics'
 
 export type ScenarioPerturbationKind =
   | 'rename_variables'
@@ -110,11 +110,12 @@ export async function runContaminationProbe<S>(
   if (!input.perturbed && !input.perturbation) {
     throw new Error('runContaminationProbe: must supply either `perturbed` or `perturbation`.')
   }
-  const perturbed: S[] = input.perturbed ?? await Promise.all(
-    input.originals.map((s) => input.perturbation!.apply(s)),
-  )
+  const perturbed: S[] =
+    input.perturbed ?? (await Promise.all(input.originals.map((s) => input.perturbation!.apply(s))))
   if (perturbed.length !== input.originals.length) {
-    throw new Error(`runContaminationProbe: perturbed length ${perturbed.length} ≠ originals ${input.originals.length}`)
+    throw new Error(
+      `runContaminationProbe: perturbed length ${perturbed.length} ≠ originals ${input.originals.length}`,
+    )
   }
 
   // Score both halves.
@@ -191,7 +192,7 @@ export async function runContaminationProbe<S>(
  */
 export function renameVariables<S extends { prompt: string }>(
   identifiers: string[],
-  rename: (name: string, idx: number) => string = (n, i) => `${n}_${(i % 26 + 10).toString(36)}`,
+  rename: (name: string, idx: number) => string = (n, i) => `${n}_${((i % 26) + 10).toString(36)}`,
 ): ScenarioPerturbation<S> {
   return {
     kind: 'rename_variables',
@@ -218,7 +219,7 @@ export function shuffleOrder<S extends { prompt: string }>(
 ): ScenarioPerturbation<S> {
   let s = seed >>> 0
   const rng = (): number => {
-    s = (s + 0x6D2B79F5) >>> 0
+    s = (s + 0x6d2b79f5) >>> 0
     let t = s
     t = Math.imul(t ^ (t >>> 15), t | 1)
     t ^= t + Math.imul(t ^ (t >>> 7), t | 61)
@@ -245,9 +246,8 @@ export function injectIrrelevantClause<S extends { prompt: string }>(
   return {
     kind: 'inject_irrelevant_clause',
     apply(scenario) {
-      const prompt = position === 'prefix'
-        ? `${clause} ${scenario.prompt}`
-        : `${scenario.prompt} ${clause}`
+      const prompt =
+        position === 'prefix' ? `${clause} ${scenario.prompt}` : `${scenario.prompt} ${clause}`
       return { ...scenario, prompt }
     },
   }

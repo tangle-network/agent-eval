@@ -92,7 +92,9 @@ export async function commitBisect(options: {
   const goodIdx = commits.indexOf(options.good)
   const badIdx = commits.indexOf(options.bad)
   if (goodIdx < 0 || badIdx < 0) {
-    throw new Error(`commitBisect: good or bad SHA not in commit list (good=${options.good}, bad=${options.bad})`)
+    throw new Error(
+      `commitBisect: good or bad SHA not in commit list (good=${options.good}, bad=${options.bad})`,
+    )
   }
   if (goodIdx >= badIdx) {
     throw new Error('commitBisect: good must precede bad in the commit list')
@@ -130,7 +132,9 @@ export async function promptBisect(options: {
   const goodParas = split(options.good)
   const badParas = split(options.bad)
   if (goodParas.length !== badParas.length) {
-    throw new Error(`promptBisect: paragraph count mismatch (${goodParas.length} vs ${badParas.length})`)
+    throw new Error(
+      `promptBisect: paragraph count mismatch (${goodParas.length} vs ${badParas.length})`,
+    )
   }
   if (goodParas.length < 2) {
     throw new Error('promptBisect: need at least 2 paragraphs to bisect')

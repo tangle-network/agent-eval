@@ -106,8 +106,12 @@ export async function adversarialScenarioSearch<S>(
     const score = await opts.scoreFn(s)
     scoreCalls++
     scenarios.push({
-      id, generation: 0, parentId: null, scenario: s,
-      score, mutationStrategy: null,
+      id,
+      generation: 0,
+      parentId: null,
+      scenario: s,
+      score,
+      mutationStrategy: null,
     })
   }
 
@@ -129,8 +133,12 @@ export async function adversarialScenarioSearch<S>(
           const cscore = await opts.scoreFn(child)
           scoreCalls++
           scenarios.push({
-            id: cid, generation: g, parentId: parent.id,
-            scenario: child, score: cscore, mutationStrategy: mutation.id,
+            id: cid,
+            generation: g,
+            parentId: parent.id,
+            scenario: child,
+            score: cscore,
+            mutationStrategy: mutation.id,
           })
         }
       }
@@ -159,7 +167,7 @@ export async function adversarialScenarioSearch<S>(
 function mulberry32(seed: number): () => number {
   let s = seed >>> 0
   return () => {
-    s = (s + 0x6D2B79F5) >>> 0
+    s = (s + 0x6d2b79f5) >>> 0
     let t = s
     t = Math.imul(t ^ (t >>> 15), t | 1)
     t ^= t + Math.imul(t ^ (t >>> 7), t | 61)

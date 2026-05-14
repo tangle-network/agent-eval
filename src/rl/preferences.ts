@@ -167,7 +167,10 @@ export function extractPreferences(
 
     for (const [key, members] of groups.entries()) {
       cellsInspected++
-      if (members.length < 2) { cellsSingleton++; continue }
+      if (members.length < 2) {
+        cellsSingleton++
+        continue
+      }
       for (let i = 0; i < members.length; i++) {
         for (let j = i + 1; j < members.length; j++) {
           const a = members[i]!
@@ -181,7 +184,10 @@ export function extractPreferences(
     }
   } else if (strategy === 'paired-by-scenario') {
     // Group by scenarioId → average per (variantId, scenarioId) across seeds.
-    const byScenarioVariant = new Map<string, Map<string, { run: RunRecord; sum: number; n: number }>>()
+    const byScenarioVariant = new Map<
+      string,
+      Map<string, { run: RunRecord; sum: number; n: number }>
+    >()
     for (const e of scoredEntries) {
       const sid = scenarioOf(e.run)
       let perScenario = byScenarioVariant.get(sid)
@@ -190,8 +196,10 @@ export function extractPreferences(
         byScenarioVariant.set(sid, perScenario)
       }
       const cur = perScenario.get(e.run.candidateId)
-      if (cur) { cur.sum += e.score; cur.n++ }
-      else perScenario.set(e.run.candidateId, { run: e.run, sum: e.score, n: 1 })
+      if (cur) {
+        cur.sum += e.score
+        cur.n++
+      } else perScenario.set(e.run.candidateId, { run: e.run, sum: e.score, n: 1 })
     }
     for (const [sid, perVariant] of byScenarioVariant.entries()) {
       cellsInspected++
@@ -200,7 +208,10 @@ export function extractPreferences(
         score: agg.sum / agg.n,
         variantId: vid,
       }))
-      if (arr.length < 2) { cellsSingleton++; continue }
+      if (arr.length < 2) {
+        cellsSingleton++
+        continue
+      }
       for (let i = 0; i < arr.length; i++) {
         for (let j = i + 1; j < arr.length; j++) {
           const result = makePair(arr[i]!, arr[j]!, sid, minMargin)
@@ -220,11 +231,17 @@ export function extractPreferences(
     }
     for (const [sid, arr] of byScenario.entries()) {
       cellsInspected++
-      if (arr.length < 2) { cellsSingleton++; continue }
+      if (arr.length < 2) {
+        cellsSingleton++
+        continue
+      }
       const sorted = [...arr].sort((a, b) => a.score - b.score)
       const top = sorted[sorted.length - 1]!
       const bot = sorted[0]!
-      if (top.run.candidateId === bot.run.candidateId) { cellsSingleton++; continue }
+      if (top.run.candidateId === bot.run.candidateId) {
+        cellsSingleton++
+        continue
+      }
       const result = makePair(bot, top, sid, minMargin)
       if (result.kind === 'admit') pairs.push(result.pair)
       else pairsBelowMargin++

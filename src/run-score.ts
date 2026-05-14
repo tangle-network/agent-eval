@@ -41,10 +41,7 @@ export const DEFAULT_RUN_SCORE_WEIGHTS: RunScoreWeights = {
   wallSeconds: -0.1,
 }
 
-export function aggregateRunScore(
-  score: RunScore,
-  weights: Partial<RunScoreWeights> = {},
-): number {
+export function aggregateRunScore(score: RunScore, weights: Partial<RunScoreWeights> = {}): number {
   const w = { ...DEFAULT_RUN_SCORE_WEIGHTS, ...weights }
   return (
     w.success * clamp01(score.success) +

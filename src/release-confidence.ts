@@ -153,7 +153,9 @@ export function releaseTraceEvidenceFromMultiShotTrials(
   }))
 }
 
-export function evaluateReleaseConfidence(input: ReleaseConfidenceInput): ReleaseConfidenceScorecard {
+export function evaluateReleaseConfidence(
+  input: ReleaseConfidenceInput,
+): ReleaseConfidenceScorecard {
   const thresholds = { ...DEFAULT_THRESHOLDS, ...input.thresholds }
   const candidateId = input.candidateId ?? null
   const runs = filterCandidate(input.runs ?? [], candidateId, input.baselineId)
@@ -179,10 +181,18 @@ export function evaluateReleaseConfidence(input: ReleaseConfidenceInput): Releas
     searchMeanScore,
     holdoutMeanScore,
     overfitGap: safeDiff(searchMeanScore, holdoutMeanScore),
-    meanCostUsd: mean([...runs.map((r) => r.costUsd), ...traces.map((t) => t.costUsd).filter(isFiniteNumber)]),
-    p95WallMs: percentile([...runs.map((r) => r.wallMs), ...traces.map((t) => t.durationMs).filter(isFiniteNumber)], 0.95),
+    meanCostUsd: mean([
+      ...runs.map((r) => r.costUsd),
+      ...traces.map((t) => t.costUsd).filter(isFiniteNumber),
+    ]),
+    p95WallMs: percentile(
+      [...runs.map((r) => r.wallMs), ...traces.map((t) => t.durationMs).filter(isFiniteNumber)],
+      0.95,
+    ),
     failedRows: failedRows(runs, traces, thresholds.failureScoreThreshold).length,
-    failuresWithAsi: failedRows(runs, traces, thresholds.failureScoreThreshold).filter((row) => row.hasAsi).length,
+    failuresWithAsi: failedRows(runs, traces, thresholds.failureScoreThreshold).filter(
+      (row) => row.hasAsi,
+    ).length,
     singleShotTraces: traces.filter((t) => t.turnCount === 1).length,
     multiShotTraces: traces.filter((t) => (t.turnCount ?? 0) > 1).length,
     splitCounts,
@@ -199,9 +209,11 @@ export function evaluateReleaseConfidence(input: ReleaseConfidenceInput): Releas
   checkEfficiency(thresholds, metrics, issues)
 
   const axes = buildAxes(metrics, thresholds, input.gateDecision ?? null, issues)
-  const status = issues.some((i) => i.severity === 'critical') ? 'fail'
-    : issues.length > 0 ? 'warn'
-    : 'pass'
+  const status = issues.some((i) => i.severity === 'critical')
+    ? 'fail'
+    : issues.length > 0
+      ? 'warn'
+      : 'pass'
 
   return {
     target: input.target,
@@ -241,8 +253,10 @@ function filterTraceCandidate(
   candidateId: string | null,
   baselineId?: string,
 ): ReleaseTraceEvidence[] {
-  if (candidateId) return traces.filter((t) => t.candidateId === undefined || t.candidateId === candidateId)
-  if (baselineId) return traces.filter((t) => t.candidateId === undefined || t.candidateId !== baselineId)
+  if (candidateId)
+    return traces.filter((t) => t.candidateId === undefined || t.candidateId === candidateId)
+  if (baselineId)
+    return traces.filter((t) => t.candidateId === undefined || t.candidateId !== baselineId)
   return [...traces]
 }
 
@@ -253,13 +267,28 @@ function checkCorpus(
   issues: ReleaseConfidenceIssue[],
 ): void {
   if (thresholds.requireCorpus && !input.dataset && (input.scenarios?.length ?? 0) === 0) {
-    issues.push({ axis: 'corpus', severity: 'critical', code: 'missing_corpus', detail: 'No Dataset manifest or scenarios supplied.' })
+    issues.push({
+      axis: 'corpus',
+      severity: 'critical',
+      code: 'missing_corpus',
+      detail: 'No Dataset manifest or scenarios supplied.',
+    })
   }
   if (metrics.scenarioCount < thresholds.minScenarioCount) {
-    issues.push({ axis: 'corpus', severity: 'critical', code: 'few_scenarios', detail: `${metrics.scenarioCount} scenario(s) < min ${thresholds.minScenarioCount}.` })
+    issues.push({
+      axis: 'corpus',
+      severity: 'critical',
+      code: 'few_scenarios',
+      detail: `${metrics.scenarioCount} scenario(s) < min ${thresholds.minScenarioCount}.`,
+    })
   }
   if (thresholds.requireHoldout && metrics.splitCounts.holdout === 0) {
-    issues.push({ axis: 'corpus', severity: 'critical', code: 'missing_holdout_split', detail: 'Corpus has no holdout scenarios.' })
+    issues.push({
+      axis: 'corpus',
+      severity: 'critical',
+      code: 'missing_holdout_split',
+      detail: 'Corpus has no holdout scenarios.',
+    })
   }
 }
 
@@ -269,13 +298,28 @@ function checkQuality(
   issues: ReleaseConfidenceIssue[],
 ): void {
   if (metrics.searchRuns < thresholds.minSearchRuns) {
-    issues.push({ axis: 'quality', severity: 'critical', code: 'few_search_runs', detail: `${metrics.searchRuns} search run(s) < min ${thresholds.minSearchRuns}.` })
+    issues.push({
+      axis: 'quality',
+      severity: 'critical',
+      code: 'few_search_runs',
+      detail: `${metrics.searchRuns} search run(s) < min ${thresholds.minSearchRuns}.`,
+    })
   }
   if (metrics.passRate < thresholds.minPassRate) {
-    issues.push({ axis: 'quality', severity: 'critical', code: 'low_pass_rate', detail: `passRate ${fmt(metrics.passRate)} < ${fmt(thresholds.minPassRate)}.` })
+    issues.push({
+      axis: 'quality',
+      severity: 'critical',
+      code: 'low_pass_rate',
+      detail: `passRate ${fmt(metrics.passRate)} < ${fmt(thresholds.minPassRate)}.`,
+    })
   }
   if (metrics.meanScore < thresholds.minMeanScore) {
-    issues.push({ axis: 'quality', severity: 'critical', code: 'low_mean_score', detail: `meanScore ${fmt(metrics.meanScore)} < ${fmt(thresholds.minMeanScore)}.` })
+    issues.push({
+      axis: 'quality',
+      severity: 'critical',
+      code: 'low_mean_score',
+      detail: `meanScore ${fmt(metrics.meanScore)} < ${fmt(thresholds.minMeanScore)}.`,
+    })
   }
 }
 
@@ -286,13 +330,28 @@ function checkGeneralization(
   issues: ReleaseConfidenceIssue[],
 ): void {
   if (thresholds.requireHoldout && metrics.holdoutRuns < thresholds.minHoldoutRuns) {
-    issues.push({ axis: 'generalization', severity: 'critical', code: 'few_holdout_runs', detail: `${metrics.holdoutRuns} holdout run(s) < min ${thresholds.minHoldoutRuns}.` })
+    issues.push({
+      axis: 'generalization',
+      severity: 'critical',
+      code: 'few_holdout_runs',
+      detail: `${metrics.holdoutRuns} holdout run(s) < min ${thresholds.minHoldoutRuns}.`,
+    })
   }
   if (Number.isFinite(metrics.overfitGap) && metrics.overfitGap > thresholds.maxOverfitGap) {
-    issues.push({ axis: 'generalization', severity: 'critical', code: 'overfit_gap', detail: `search-holdout gap ${fmt(metrics.overfitGap)} > ${fmt(thresholds.maxOverfitGap)}.` })
+    issues.push({
+      axis: 'generalization',
+      severity: 'critical',
+      code: 'overfit_gap',
+      detail: `search-holdout gap ${fmt(metrics.overfitGap)} > ${fmt(thresholds.maxOverfitGap)}.`,
+    })
   }
   if (gateDecision && !gateDecision.promote) {
-    issues.push({ axis: 'generalization', severity: 'critical', code: `gate_${gateDecision.rejectionCode ?? 'reject'}`, detail: gateDecision.reason })
+    issues.push({
+      axis: 'generalization',
+      severity: 'critical',
+      code: `gate_${gateDecision.rejectionCode ?? 'reject'}`,
+      detail: gateDecision.reason,
+    })
   }
 }
 
@@ -318,10 +377,20 @@ function checkEfficiency(
   issues: ReleaseConfidenceIssue[],
 ): void {
   if (metrics.meanCostUsd > thresholds.maxMeanCostUsd) {
-    issues.push({ axis: 'efficiency', severity: 'critical', code: 'cost_budget', detail: `meanCostUsd ${fmt(metrics.meanCostUsd)} > ${fmt(thresholds.maxMeanCostUsd)}.` })
+    issues.push({
+      axis: 'efficiency',
+      severity: 'critical',
+      code: 'cost_budget',
+      detail: `meanCostUsd ${fmt(metrics.meanCostUsd)} > ${fmt(thresholds.maxMeanCostUsd)}.`,
+    })
   }
   if (metrics.p95WallMs > thresholds.maxP95WallMs) {
-    issues.push({ axis: 'efficiency', severity: 'critical', code: 'latency_budget', detail: `p95WallMs ${fmt(metrics.p95WallMs)} > ${fmt(thresholds.maxP95WallMs)}.` })
+    issues.push({
+      axis: 'efficiency',
+      severity: 'critical',
+      code: 'latency_budget',
+      detail: `p95WallMs ${fmt(metrics.p95WallMs)} > ${fmt(thresholds.maxP95WallMs)}.`,
+    })
   }
 }
 
@@ -332,11 +401,38 @@ function buildAxes(
   issues: ReleaseConfidenceIssue[],
 ): ReleaseConfidenceAxis[] {
   return [
-    axis('corpus', issues, bounded(metrics.scenarioCount / Math.max(1, thresholds.minScenarioCount)), `${metrics.scenarioCount} scenarios; holdout=${metrics.splitCounts.holdout}`),
-    axis('quality', issues, Math.min(metrics.passRate, metrics.meanScore), `passRate=${fmt(metrics.passRate)} meanScore=${fmt(metrics.meanScore)}`),
-    axis('generalization', issues, gateDecision && !gateDecision.promote ? 0 : gapScore(metrics.overfitGap, thresholds.maxOverfitGap), `holdoutRuns=${metrics.holdoutRuns} overfitGap=${fmt(metrics.overfitGap)}`),
-    axis('diagnostics', issues, metrics.failedRows === 0 ? 1 : metrics.failuresWithAsi / metrics.failedRows, `failuresWithAsi=${metrics.failuresWithAsi}/${metrics.failedRows}`),
-    axis('efficiency', issues, efficiencyScore(metrics, thresholds), `meanCostUsd=${fmt(metrics.meanCostUsd)} p95WallMs=${fmt(metrics.p95WallMs)}`),
+    axis(
+      'corpus',
+      issues,
+      bounded(metrics.scenarioCount / Math.max(1, thresholds.minScenarioCount)),
+      `${metrics.scenarioCount} scenarios; holdout=${metrics.splitCounts.holdout}`,
+    ),
+    axis(
+      'quality',
+      issues,
+      Math.min(metrics.passRate, metrics.meanScore),
+      `passRate=${fmt(metrics.passRate)} meanScore=${fmt(metrics.meanScore)}`,
+    ),
+    axis(
+      'generalization',
+      issues,
+      gateDecision && !gateDecision.promote
+        ? 0
+        : gapScore(metrics.overfitGap, thresholds.maxOverfitGap),
+      `holdoutRuns=${metrics.holdoutRuns} overfitGap=${fmt(metrics.overfitGap)}`,
+    ),
+    axis(
+      'diagnostics',
+      issues,
+      metrics.failedRows === 0 ? 1 : metrics.failuresWithAsi / metrics.failedRows,
+      `failuresWithAsi=${metrics.failuresWithAsi}/${metrics.failedRows}`,
+    ),
+    axis(
+      'efficiency',
+      issues,
+      efficiencyScore(metrics, thresholds),
+      `meanCostUsd=${fmt(metrics.meanCostUsd)} p95WallMs=${fmt(metrics.p95WallMs)}`,
+    ),
   ]
 }
 
@@ -347,9 +443,11 @@ function axis(
   detail: string,
 ): ReleaseConfidenceAxis {
   const own = issues.filter((i) => i.axis === name)
-  const status = own.some((i) => i.severity === 'critical') ? 'fail'
-    : own.length > 0 ? 'warn'
-    : 'pass'
+  const status = own.some((i) => i.severity === 'critical')
+    ? 'fail'
+    : own.length > 0
+      ? 'warn'
+      : 'pass'
   return { name, status, score: bounded(score), detail }
 }
 
@@ -382,7 +480,11 @@ function countFailureModes(
     }
   }
   for (const trace of traces) {
-    if (trace.failureMode || trace.ok === false || (trace.score !== undefined && trace.score < threshold)) {
+    if (
+      trace.failureMode ||
+      trace.ok === false ||
+      (trace.score !== undefined && trace.score < threshold)
+    ) {
       const mode = trace.failureMode ?? (trace.ok === false ? 'not_ok' : 'low_score')
       out[mode] = (out[mode] ?? 0) + 1
     }
@@ -415,7 +517,11 @@ function failedRows(
     }
   }
   for (const trace of traces) {
-    if (trace.failureMode || trace.ok === false || (trace.score !== undefined && trace.score < threshold)) {
+    if (
+      trace.failureMode ||
+      trace.ok === false ||
+      (trace.score !== undefined && trace.score < threshold)
+    ) {
       out.push({ hasAsi: (trace.asi?.length ?? 0) > 0 })
     }
   }
@@ -432,7 +538,9 @@ function passRate(
       const score = run.outcome.holdoutScore ?? run.outcome.searchScore
       return !run.failureMode && score !== undefined && score >= threshold
     }),
-    ...traces.map((trace) => trace.ok !== false && (trace.score === undefined || trace.score >= threshold)),
+    ...traces.map(
+      (trace) => trace.ok !== false && (trace.score === undefined || trace.score >= threshold),
+    ),
   ]
   if (outcomes.length === 0) return 0
   return outcomes.filter(Boolean).length / outcomes.length
@@ -441,7 +549,7 @@ function passRate(
 function scoresFor(runs: readonly RunRecord[], split: RunSplitTag): number[] {
   return runs
     .filter((run) => run.splitTag === split)
-    .map((run) => split === 'holdout' ? run.outcome.holdoutScore : run.outcome.searchScore)
+    .map((run) => (split === 'holdout' ? run.outcome.holdoutScore : run.outcome.searchScore))
     .filter(isFiniteNumber)
 }
 
@@ -475,12 +583,14 @@ function efficiencyScore(
   metrics: ReleaseConfidenceMetrics,
   thresholds: Required<ReleaseConfidenceThresholds>,
 ): number {
-  const cost = Number.isFinite(thresholds.maxMeanCostUsd) && Number.isFinite(metrics.meanCostUsd)
-    ? bounded(thresholds.maxMeanCostUsd / Math.max(metrics.meanCostUsd, 1e-12))
-    : 1
-  const latency = Number.isFinite(thresholds.maxP95WallMs) && Number.isFinite(metrics.p95WallMs)
-    ? bounded(thresholds.maxP95WallMs / Math.max(metrics.p95WallMs, 1e-12))
-    : 1
+  const cost =
+    Number.isFinite(thresholds.maxMeanCostUsd) && Number.isFinite(metrics.meanCostUsd)
+      ? bounded(thresholds.maxMeanCostUsd / Math.max(metrics.meanCostUsd, 1e-12))
+      : 1
+  const latency =
+    Number.isFinite(thresholds.maxP95WallMs) && Number.isFinite(metrics.p95WallMs)
+      ? bounded(thresholds.maxP95WallMs / Math.max(metrics.p95WallMs, 1e-12))
+      : 1
   return Math.min(cost, latency)
 }
 

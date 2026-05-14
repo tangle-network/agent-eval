@@ -19,8 +19,8 @@
  * the brief forbids that. New file, new exports, no surface change.
  */
 
-import { wilcoxonSignedRank } from './statistics'
 import { benjaminiHochberg } from './power-analysis'
+import { wilcoxonSignedRank } from './statistics'
 
 export interface PairedBootstrapResult {
   /** Number of paired observations (after dropping unequal lengths is rejected). */
@@ -65,9 +65,7 @@ export function pairedBootstrap(
   opts: PairedBootstrapOptions = {},
 ): PairedBootstrapResult {
   if (before.length !== after.length) {
-    throw new Error(
-      `pairedBootstrap: unequal sample sizes (${before.length} vs ${after.length})`,
-    )
+    throw new Error(`pairedBootstrap: unequal sample sizes (${before.length} vs ${after.length})`)
   }
   const confidence = opts.confidence ?? 0.95
   const resamples = opts.resamples ?? 2000
@@ -137,7 +135,10 @@ export function pairedWilcoxon(before: number[], after: number[]): { w: number; 
  * promotion sweep. Returns BH-adjusted q-values and significance at
  * the requested FDR (default 0.05).
  */
-export function bhAdjust(pValues: number[], fdr = 0.05): { qValues: number[]; significant: boolean[] } {
+export function bhAdjust(
+  pValues: number[],
+  fdr = 0.05,
+): { qValues: number[]; significant: boolean[] } {
   return benjaminiHochberg(pValues, fdr)
 }
 
@@ -157,7 +158,7 @@ function medianInPlace(xs: number[]): number {
  */
 function makeRng(seed: number | undefined): () => number {
   if (seed === undefined) return Math.random
-  let s = (seed | 0) || 0x9e3779b9
+  let s = seed | 0 || 0x9e3779b9
   return () => {
     s = (s + 0x6d2b79f5) | 0
     let t = s

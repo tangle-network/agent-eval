@@ -83,15 +83,20 @@ export class ProjectRegistry {
     return ordered.map((run) => ({
       run,
       layerBucket:
-        run.layer === 'builder' ? 'chat' :
-        run.layer === 'app-build' ? 'build' :
-        run.layer === 'app-runtime' ? 'runtime' : 'other',
+        run.layer === 'builder'
+          ? 'chat'
+          : run.layer === 'app-build'
+            ? 'build'
+            : run.layer === 'app-runtime'
+              ? 'runtime'
+              : 'other',
     }))
   }
 
   async projectChats(projectId: string): Promise<ChatSummary[]> {
-    const builderRuns = (await this.store.listRuns({ projectId, layer: 'builder' }))
-      .sort((a, b) => b.startedAt - a.startedAt)
+    const builderRuns = (await this.store.listRuns({ projectId, layer: 'builder' })).sort(
+      (a, b) => b.startedAt - a.startedAt,
+    )
     const childrenFor = async (runId: string) => this.store.listRuns({ parentRunId: runId })
     const out: ChatSummary[] = []
     for (const run of builderRuns) {

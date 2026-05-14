@@ -17,9 +17,9 @@
  */
 
 import type { Dataset, DatasetScenario } from './dataset'
+import { classifyFailure } from './failure-taxonomy'
 import type { Run } from './trace/schema'
 import type { TraceStore } from './trace/store'
-import { classifyFailure } from './failure-taxonomy'
 
 export type SynthesisReason =
   | 'high-variance'
@@ -100,7 +100,9 @@ export async function proposeSynthesisTargets(
   // 3. High-variance scenarios (same scenario scored inconsistently)
   for (const s of scenarios) {
     const sRuns = runs.filter((r) => r.scenarioId === s.id)
-    const scores = sRuns.map((r) => r.outcome?.score).filter((x): x is number => typeof x === 'number')
+    const scores = sRuns
+      .map((r) => r.outcome?.score)
+      .filter((x): x is number => typeof x === 'number')
     if (scores.length < 3) continue
     const mean = scores.reduce((a, b) => a + b, 0) / scores.length
     const variance = scores.reduce((a, b) => a + (b - mean) ** 2, 0) / scores.length
@@ -123,7 +125,9 @@ export async function proposeSynthesisTargets(
     const events = await traceStore.events({ runId: run.runId })
     const { failureClass } = classifyFailure({ run, spans, events })
     if (failureClass === 'success' || failureClass === 'unknown') continue
-    const arr = failureByClass.get(failureClass) ?? []; arr.push(run); failureByClass.set(failureClass, arr)
+    const arr = failureByClass.get(failureClass) ?? []
+    arr.push(run)
+    failureByClass.set(failureClass, arr)
   }
   for (const [cls, runs] of failureByClass) {
     if (runs.length < 3) continue
@@ -138,9 +142,7 @@ export async function proposeSynthesisTargets(
     })
   }
 
-  return targets
-    .sort((a, b) => b.priority - a.priority)
-    .slice(0, topK)
+  return targets.sort((a, b) => b.priority - a.priority).slice(0, topK)
 }
 
 function quantile(xs: number[], p: number): number {

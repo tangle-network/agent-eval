@@ -1,5 +1,12 @@
-import { describe, it, expect, vi } from 'vitest'
-import { callLlm, callLlmJson, stripFencedJson, extractJsonPayload, LlmCallError, LlmClient } from './llm-client'
+import { describe, expect, it, vi } from 'vitest'
+import {
+  callLlm,
+  callLlmJson,
+  extractJsonPayload,
+  LlmCallError,
+  LlmClient,
+  stripFencedJson,
+} from './llm-client'
 
 function mockFetch(handlers: Array<(url: string, init: RequestInit) => Promise<Response>>) {
   let call = 0
@@ -17,7 +24,11 @@ function mkOkResponse(body: object): Response {
   })
 }
 
-function mkErrResponse(status: number, body: string, headers: Record<string, string> = {}): Response {
+function mkErrResponse(
+  status: number,
+  body: string,
+  headers: Record<string, string> = {},
+): Response {
   return new Response(body, { status, headers })
 }
 
@@ -43,7 +54,9 @@ describe('llm-client — stripFencedJson', () => {
 
 describe('llm-client — extractJsonPayload', () => {
   it('extracts a balanced JSON object after prose', () => {
-    expect(extractJsonPayload('Reviewing artifact. {"ok": true, "items": [1, 2]}')).toBe('{"ok": true, "items": [1, 2]}')
+    expect(extractJsonPayload('Reviewing artifact. {"ok": true, "items": [1, 2]}')).toBe(
+      '{"ok": true, "items": [1, 2]}',
+    )
   })
 
   it('skips prose braces before the real payload', () => {
@@ -51,7 +64,9 @@ describe('llm-client — extractJsonPayload', () => {
   })
 
   it('preserves braces inside strings', () => {
-    expect(extractJsonPayload('prefix {"text": "{literal}", "ok": true} suffix')).toBe('{"text": "{literal}", "ok": true}')
+    expect(extractJsonPayload('prefix {"text": "{literal}", "ok": true} suffix')).toBe(
+      '{"text": "{literal}", "ok": true}',
+    )
   })
 })
 
@@ -77,10 +92,16 @@ describe('llm-client — callLlm happy path', () => {
   })
 
   it('posts to `${baseUrl}/chat/completions` with Bearer header', async () => {
-    const fetch = vi.fn(async () => mkOkResponse({ choices: [{ message: { content: '' } }], usage: {} }))
+    const fetch = vi.fn(async () =>
+      mkOkResponse({ choices: [{ message: { content: '' } }], usage: {} }),
+    )
     await callLlm(
       { model: 'm', messages: [{ role: 'user', content: 'x' }] },
-      { fetch: fetch as unknown as typeof globalThis.fetch, baseUrl: 'https://r.example/v1', apiKey: 'sk-abc' },
+      {
+        fetch: fetch as unknown as typeof globalThis.fetch,
+        baseUrl: 'https://r.example/v1',
+        apiKey: 'sk-abc',
+      },
     )
     expect(fetch).toHaveBeenCalledOnce()
     const call0 = (fetch.mock.calls[0] ?? []) as unknown as [string, RequestInit]
@@ -91,10 +112,16 @@ describe('llm-client — callLlm happy path', () => {
   })
 
   it('uses max_completion_tokens for GPT-5 chat-completions models', async () => {
-    const fetch = vi.fn(async () => mkOkResponse({ choices: [{ message: { content: '' } }], usage: {} }))
+    const fetch = vi.fn(async () =>
+      mkOkResponse({ choices: [{ message: { content: '' } }], usage: {} }),
+    )
     await callLlm(
       { model: 'gpt-5.4-mini', messages: [{ role: 'user', content: 'x' }], maxTokens: 64 },
-      { fetch: fetch as unknown as typeof globalThis.fetch, baseUrl: 'https://api.openai.com/v1', apiKey: 'sk-abc' },
+      {
+        fetch: fetch as unknown as typeof globalThis.fetch,
+        baseUrl: 'https://api.openai.com/v1',
+        apiKey: 'sk-abc',
+      },
     )
 
     const call = (fetch.mock.calls[0] ?? []) as unknown as [string, RequestInit]
@@ -104,10 +131,16 @@ describe('llm-client — callLlm happy path', () => {
   })
 
   it('keeps max_tokens for other OpenAI-compatible chat models', async () => {
-    const fetch = vi.fn(async () => mkOkResponse({ choices: [{ message: { content: '' } }], usage: {} }))
+    const fetch = vi.fn(async () =>
+      mkOkResponse({ choices: [{ message: { content: '' } }], usage: {} }),
+    )
     await callLlm(
       { model: 'gpt-4o-mini', messages: [{ role: 'user', content: 'x' }], maxTokens: 64 },
-      { fetch: fetch as unknown as typeof globalThis.fetch, baseUrl: 'https://api.openai.com/v1', apiKey: 'sk-abc' },
+      {
+        fetch: fetch as unknown as typeof globalThis.fetch,
+        baseUrl: 'https://api.openai.com/v1',
+        apiKey: 'sk-abc',
+      },
     )
 
     const call = (fetch.mock.calls[0] ?? []) as unknown as [string, RequestInit]
@@ -199,10 +232,7 @@ describe('llm-client — retry semantics', () => {
       }
       return mkOkResponse({ choices: [{ message: { content: 'recovered' } }], usage: {} })
     }) as unknown as typeof globalThis.fetch
-    const r = await callLlm(
-      { model: 'm', messages: [] },
-      { fetch, maxRetries: 3 },
-    )
+    const r = await callLlm({ model: 'm', messages: [] }, { fetch, maxRetries: 3 })
     expect(r.content).toBe('recovered')
   })
 })
@@ -264,13 +294,11 @@ describe('llm-client — callLlmJson + schema degrade', () => {
 
   it('throws typed error on unparseable JSON content', async () => {
     const fetch = mockFetch([
-      async () => mkOkResponse({ choices: [{ message: { content: 'not json at all' } }], usage: {} }),
+      async () =>
+        mkOkResponse({ choices: [{ message: { content: 'not json at all' } }], usage: {} }),
     ])
     await expect(
-      callLlmJson(
-        { model: 'm', messages: [{ role: 'user', content: 'x' }] },
-        { fetch },
-      ),
+      callLlmJson({ model: 'm', messages: [{ role: 'user', content: 'x' }] }, { fetch }),
     ).rejects.toThrow(/non-JSON/)
   })
 
@@ -342,11 +370,9 @@ describe('llm-client — LlmClient wrapper', () => {
       mkOkResponse({ choices: [{ message: { content: 'x' } }], usage: {} }),
     ) as unknown as typeof globalThis.fetch
     const client = new LlmClient({ fetch, apiKey: 'default' })
-    await client.call(
-      { model: 'm', messages: [] },
-      { apiKey: 'override' },
-    )
-    const call = ((fetch as unknown as ReturnType<typeof vi.fn>).mock.calls[0] ?? []) as unknown as [string, RequestInit]
+    await client.call({ model: 'm', messages: [] }, { apiKey: 'override' })
+    const call = ((fetch as unknown as ReturnType<typeof vi.fn>).mock.calls[0] ??
+      []) as unknown as [string, RequestInit]
     const headers = call[1].headers as Record<string, string>
     expect(headers.Authorization).toBe('Bearer override')
   })

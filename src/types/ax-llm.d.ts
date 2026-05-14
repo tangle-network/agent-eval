@@ -47,7 +47,9 @@ declare module '@ax-llm/ax' {
     json(description?: string): AxFieldType
   }
 
-  export interface FunctionBuilder<TArgs extends Record<string, unknown> = Record<string, unknown>> {
+  export interface FunctionBuilder<
+    TArgs extends Record<string, unknown> = Record<string, unknown>,
+  > {
     description(text: string): FunctionBuilder<TArgs>
     namespace(name: string): FunctionBuilder<TArgs>
     arg<K extends string>(name: K, type: AxFieldType): FunctionBuilder<TArgs & Record<K, unknown>>

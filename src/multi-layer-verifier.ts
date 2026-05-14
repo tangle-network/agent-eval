@@ -205,7 +205,10 @@ export class MultiLayerVerifier<Env = unknown> {
         const mergedSignal = mergeSignals(controller.signal, perLayerController.signal)
         const layerTimer =
           layer.capMs != null
-            ? setTimeout(() => perLayerController.abort(new Error(`layer ${layer.name} cap`)), layer.capMs)
+            ? setTimeout(
+                () => perLayerController.abort(new Error(`layer ${layer.name} cap`)),
+                layer.capMs,
+              )
             : null
 
         const layerStart = Date.now()

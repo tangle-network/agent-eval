@@ -67,18 +67,65 @@ function check(slo: Slo, actual: number | undefined): SloCheckResult {
   if (slo.comparator === 'lte') {
     const passed = actual <= slo.threshold
     const margin = slo.threshold === 0 ? (actual === 0 ? Infinity : 0) : slo.threshold / actual
-    return { slo, actual, passed, margin, detail: `${actual} ≤ ${slo.threshold}: ${passed ? 'ok' : 'breach'}` }
+    return {
+      slo,
+      actual,
+      passed,
+      margin,
+      detail: `${actual} ≤ ${slo.threshold}: ${passed ? 'ok' : 'breach'}`,
+    }
   }
   const passed = actual >= slo.threshold
   const margin = actual === 0 ? 0 : actual / slo.threshold
-  return { slo, actual, passed, margin, detail: `${actual} ≥ ${slo.threshold}: ${passed ? 'ok' : 'breach'}` }
+  return {
+    slo,
+    actual,
+    passed,
+    margin,
+    detail: `${actual} ≥ ${slo.threshold}: ${passed ? 'ok' : 'breach'}`,
+  }
 }
 
 /** Reference SLO set for agent-style evals. Tune per-product by cloning + overriding. */
 export const DEFAULT_AGENT_SLOS: Slo[] = [
-  { id: 'provision_ms', description: 'Sandbox/session provision under 60s', metric: 'provisionMs', comparator: 'lte', threshold: 60_000, severity: 'critical' },
-  { id: 'first_token_ms', description: 'First token under 15s', metric: 'firstTokenMs', comparator: 'lte', threshold: 15_000, severity: 'critical' },
-  { id: 'pass_rate', description: 'Scenario pass rate ≥ 90%', metric: 'passRate', comparator: 'gte', threshold: 0.9, severity: 'critical' },
-  { id: 'cost_usd', description: 'Per-scenario cost under $0.05', metric: 'costUsd', comparator: 'lte', threshold: 0.05, severity: 'warning' },
-  { id: 'overall_score', description: 'Overall score ≥ 0.7', metric: 'overallScore', comparator: 'gte', threshold: 0.7, severity: 'critical' },
+  {
+    id: 'provision_ms',
+    description: 'Sandbox/session provision under 60s',
+    metric: 'provisionMs',
+    comparator: 'lte',
+    threshold: 60_000,
+    severity: 'critical',
+  },
+  {
+    id: 'first_token_ms',
+    description: 'First token under 15s',
+    metric: 'firstTokenMs',
+    comparator: 'lte',
+    threshold: 15_000,
+    severity: 'critical',
+  },
+  {
+    id: 'pass_rate',
+    description: 'Scenario pass rate ≥ 90%',
+    metric: 'passRate',
+    comparator: 'gte',
+    threshold: 0.9,
+    severity: 'critical',
+  },
+  {
+    id: 'cost_usd',
+    description: 'Per-scenario cost under $0.05',
+    metric: 'costUsd',
+    comparator: 'lte',
+    threshold: 0.05,
+    severity: 'warning',
+  },
+  {
+    id: 'overall_score',
+    description: 'Overall score ≥ 0.7',
+    metric: 'overallScore',
+    comparator: 'gte',
+    threshold: 0.7,
+    severity: 'critical',
+  },
 ]

@@ -157,7 +157,9 @@ export interface SelfConsistencyResult<O> {
  * Self-consistency / majority-vote test-time scaling. For tasks with a
  * small categorical answer space (math problems, multiple choice).
  */
-export async function selfConsistency<O>(opts: SelfConsistencyOptions<O>): Promise<SelfConsistencyResult<O>> {
+export async function selfConsistency<O>(
+  opts: SelfConsistencyOptions<O>,
+): Promise<SelfConsistencyResult<O>> {
   if (opts.n <= 0) throw new Error('selfConsistency: n must be > 0')
   const rollouts: O[] = []
   const histogram: Record<string, number> = {}
@@ -170,7 +172,10 @@ export async function selfConsistency<O>(opts: SelfConsistencyOptions<O>): Promi
   let answer = ''
   let max = -1
   for (const [k, v] of Object.entries(histogram)) {
-    if (v > max) { max = v; answer = k }
+    if (v > max) {
+      max = v
+      answer = k
+    }
   }
   const representative = rollouts.find((r) => opts.answerKey(r) === answer) ?? rollouts[0]!
   return {
@@ -198,11 +203,9 @@ export interface ParetoPointInput {
 export function paretoFrontier(points: ParetoPointInput[]): ParetoPointInput[] {
   const onFrontier: ParetoPointInput[] = []
   for (const p of points) {
-    const dominated = points.some((q) =>
-      q !== p &&
-      q.cost <= p.cost &&
-      q.score >= p.score &&
-      (q.cost < p.cost || q.score > p.score),
+    const dominated = points.some(
+      (q) =>
+        q !== p && q.cost <= p.cost && q.score >= p.score && (q.cost < p.cost || q.score > p.score),
     )
     if (!dominated) onFrontier.push(p)
   }

@@ -12,9 +12,9 @@
  * credit per turn.
  */
 
-import type { Span, JudgeSpan } from '../trace/schema'
-import type { TraceStore } from '../trace/store'
 import { TraceEmitter } from '../trace/emitter'
+import type { JudgeSpan, Span } from '../trace/schema'
+import type { TraceStore } from '../trace/store'
 import { buildTrajectory, type Trajectory, type TrajectoryStep } from '../trajectory'
 
 export interface StepContext {
@@ -34,7 +34,9 @@ export interface StepRubric {
   weight?: number
   /** Returns score in 0..1 + optional rationale/evidence. Return `null` to
    *  skip grading (rubric doesn't apply to this step). */
-  grade: (ctx: StepContext) => Promise<{ score: number; rationale?: string; evidence?: string } | null>
+  grade: (
+    ctx: StepContext,
+  ) => Promise<{ score: number; rationale?: string; evidence?: string } | null>
 }
 
 export interface GradedStep {
@@ -110,8 +112,8 @@ export class PrmGrader {
     }
 
     const totalWeight = steps.reduce((a, s) => a + s.weight, 0)
-    const aggregateScore = totalWeight === 0 ? 0
-      : steps.reduce((a, s) => a + s.score * s.weight, 0) / totalWeight
+    const aggregateScore =
+      totalWeight === 0 ? 0 : steps.reduce((a, s) => a + s.score * s.weight, 0) / totalWeight
 
     return { runId, steps, aggregateScore, gradedCount: steps.length, ungradedCount: ungraded }
   }

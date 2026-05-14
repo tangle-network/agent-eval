@@ -70,7 +70,9 @@ export function buildReflectionPrompt(ctx: ReflectionContext): string {
 
   sections.push(`# Mutation target: ${ctx.target}`)
   sections.push('')
-  sections.push(`You are tuning the prompt component named \`${ctx.target}\`. The current variant is shown below; you have ${ctx.topTrials.length} top trials and ${ctx.bottomTrials.length} bottom trials as evidence. Propose ${ctx.childCount} mutation${ctx.childCount === 1 ? '' : 's'} that fix specific weaknesses visible in the bottom trials. Avoid blank rephrasings.`)
+  sections.push(
+    `You are tuning the prompt component named \`${ctx.target}\`. The current variant is shown below; you have ${ctx.topTrials.length} top trials and ${ctx.bottomTrials.length} bottom trials as evidence. Propose ${ctx.childCount} mutation${ctx.childCount === 1 ? '' : 's'} that fix specific weaknesses visible in the bottom trials. Avoid blank rephrasings.`,
+  )
   sections.push('')
 
   sections.push('## Current variant')
@@ -83,7 +85,9 @@ export function buildReflectionPrompt(ctx: ReflectionContext): string {
     sections.push('## Failures (bottom trials) — what went wrong')
     sections.push('')
     for (const trial of ctx.bottomTrials) {
-      sections.push(`### Trial \`${trial.id}\` — score ${trial.score.toFixed(2)}${trial.inputName ? ` (${trial.inputName})` : ''}`)
+      sections.push(
+        `### Trial \`${trial.id}\` — score ${trial.score.toFixed(2)}${trial.inputName ? ` (${trial.inputName})` : ''}`,
+      )
       const missed = (trial.expectations ?? []).filter((e) => !e.matched)
       if (missed.length > 0) {
         sections.push('')
@@ -107,7 +111,9 @@ export function buildReflectionPrompt(ctx: ReflectionContext): string {
     sections.push('## Successes (top trials) — what to preserve')
     sections.push('')
     for (const trial of ctx.topTrials) {
-      sections.push(`- \`${trial.id}\`: score ${trial.score.toFixed(2)}${trial.inputName ? ` (${trial.inputName})` : ''}`)
+      sections.push(
+        `- \`${trial.id}\`: score ${trial.score.toFixed(2)}${trial.inputName ? ` (${trial.inputName})` : ''}`,
+      )
     }
     sections.push('')
   }
@@ -121,19 +127,21 @@ export function buildReflectionPrompt(ctx: ReflectionContext): string {
   sections.push('')
   sections.push('Respond with a JSON object — no prose, no markdown fences:')
   sections.push('```json')
-  sections.push(JSON.stringify(
-    {
-      proposals: [
-        {
-          label: '<short label, ≤ 40 chars>',
-          rationale: '<which failure this targets and which primitive you used>',
-          payload: '<full payload of the new variant — same shape as the current variant>',
-        },
-      ],
-    },
-    null,
-    2,
-  ))
+  sections.push(
+    JSON.stringify(
+      {
+        proposals: [
+          {
+            label: '<short label, ≤ 40 chars>',
+            rationale: '<which failure this targets and which primitive you used>',
+            payload: '<full payload of the new variant — same shape as the current variant>',
+          },
+        ],
+      },
+      null,
+      2,
+    ),
+  )
   sections.push('```')
 
   return sections.join('\n')
@@ -141,7 +149,7 @@ export function buildReflectionPrompt(ctx: ReflectionContext): string {
 
 function truncate(s: string, max: number): string {
   if (s.length <= max) return s
-  return s.slice(0, max) + '… [truncated]'
+  return `${s.slice(0, max)}… [truncated]`
 }
 
 function quote(s: string): string {
@@ -172,18 +180,27 @@ export interface ReflectionProposal {
 function autoCloseTruncatedJson(raw: string): string | null {
   const stack: Array<'{' | '['> = []
   let inString = false
-  let escape = false
+  let escaped = false
   for (const c of raw) {
-    if (escape) {
-      escape = false
+    if (escaped) {
+      escaped = false
       continue
     }
     if (inString) {
-      if (c === '\\') { escape = true; continue }
-      if (c === '"') { inString = false; continue }
+      if (c === '\\') {
+        escaped = true
+        continue
+      }
+      if (c === '"') {
+        inString = false
+        continue
+      }
       continue
     }
-    if (c === '"') { inString = true; continue }
+    if (c === '"') {
+      inString = true
+      continue
+    }
     if (c === '{' || c === '[') stack.push(c)
     else if (c === '}') {
       if (stack.pop() !== '{') return null
@@ -217,11 +234,15 @@ export function parseReflectionResponse(raw: string, maxProposals?: number): Ref
   const tryObjectFirst = objectStart >= 0 && (arrayStart < 0 || objectStart < arrayStart)
   const candidates: string[] = []
   if (tryObjectFirst) {
-    if (objectStart >= 0 && objectEnd > objectStart) candidates.push(text.slice(objectStart, objectEnd + 1))
-    if (arrayStart >= 0 && arrayEnd > arrayStart) candidates.push(text.slice(arrayStart, arrayEnd + 1))
+    if (objectStart >= 0 && objectEnd > objectStart)
+      candidates.push(text.slice(objectStart, objectEnd + 1))
+    if (arrayStart >= 0 && arrayEnd > arrayStart)
+      candidates.push(text.slice(arrayStart, arrayEnd + 1))
   } else {
-    if (arrayStart >= 0 && arrayEnd > arrayStart) candidates.push(text.slice(arrayStart, arrayEnd + 1))
-    if (objectStart >= 0 && objectEnd > objectStart) candidates.push(text.slice(objectStart, objectEnd + 1))
+    if (arrayStart >= 0 && arrayEnd > arrayStart)
+      candidates.push(text.slice(arrayStart, arrayEnd + 1))
+    if (objectStart >= 0 && objectEnd > objectStart)
+      candidates.push(text.slice(objectStart, objectEnd + 1))
   }
   for (const slice of candidates) {
     try {

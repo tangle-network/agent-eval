@@ -151,9 +151,21 @@ export class ExperimentTracker {
       const aScore = byScenarioA.get(id)
       const bScore = byScenarioB.get(id)
       if (aScore === undefined) {
-        scenarios.push({ scenarioId: id, before: null, after: bScore!, delta: null, status: 'added' })
+        scenarios.push({
+          scenarioId: id,
+          before: null,
+          after: bScore!,
+          delta: null,
+          status: 'added',
+        })
       } else if (bScore === undefined) {
-        scenarios.push({ scenarioId: id, before: aScore, after: null, delta: null, status: 'removed' })
+        scenarios.push({
+          scenarioId: id,
+          before: aScore,
+          after: null,
+          delta: null,
+          status: 'removed',
+        })
       } else {
         scenarios.push({
           scenarioId: id,
@@ -187,7 +199,9 @@ export class ExperimentTracker {
   }
 
   /** Timeline of aggregate scores for an experiment. */
-  async timeline(experimentId: string): Promise<Array<{ runId: string; startedAt: string; overall: number | null }>> {
+  async timeline(
+    experimentId: string,
+  ): Promise<Array<{ runId: string; startedAt: string; overall: number | null }>> {
     const runs = await this.store.listRuns(experimentId)
     return runs
       .slice()
@@ -217,5 +231,7 @@ export interface RunDiff {
 function rand(bytes: number): string {
   const arr = new Uint8Array(bytes)
   crypto.getRandomValues(arr)
-  return Array.from(arr).map((b) => b.toString(16).padStart(2, '0')).join('')
+  return Array.from(arr)
+    .map((b) => b.toString(16).padStart(2, '0'))
+    .join('')
 }

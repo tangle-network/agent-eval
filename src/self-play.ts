@@ -69,7 +69,8 @@ export async function runSelfPlay(
   targets: string[],
   options: SelfPlayOptions = {},
 ): Promise<{ rounds: EvolutionRound[]; dataset: Dataset }> {
-  if (targets.length < 2) throw new Error('runSelfPlay: at least 2 targets required (need a difference to measure)')
+  if (targets.length < 2)
+    throw new Error('runSelfPlay: at least 2 targets required (need a difference to measure)')
   const minSpread = options.minSpread ?? 0.1
   const floor = options.minAbsoluteFloor ?? 0.1
   const maxSurvivors = options.maxSurvivors ?? 50
@@ -95,11 +96,17 @@ export async function runSelfPlay(
       const maxScore = Math.max(...values)
       scored.push({ candidate, scores, spread })
       if (maxScore < floor) {
-        rejected.push({ candidate, reason: `every target below floor (max=${maxScore.toFixed(3)} < ${floor})` })
+        rejected.push({
+          candidate,
+          reason: `every target below floor (max=${maxScore.toFixed(3)} < ${floor})`,
+        })
         continue
       }
       if (spread < minSpread) {
-        rejected.push({ candidate, reason: `spread below threshold (${spread.toFixed(3)} < ${minSpread})` })
+        rejected.push({
+          candidate,
+          reason: `spread below threshold (${spread.toFixed(3)} < ${minSpread})`,
+        })
         continue
       }
       surviving.push(candidate)

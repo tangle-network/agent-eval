@@ -19,8 +19,8 @@
  * `throwIfRunIncomplete` is the convenient strict mode.
  */
 
-import type { TraceStore } from './store'
 import type { RawProviderSink } from './raw-provider-sink'
+import type { TraceStore } from './store'
 
 export interface RunIntegrityExpectations {
   /** Minimum LLM span count. Default 0 (no requirement). */

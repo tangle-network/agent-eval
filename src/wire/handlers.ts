@@ -13,12 +13,12 @@ import { callLlmJson } from '../llm-client'
 import { getBuiltinRubric, listBuiltinRubrics } from './rubrics'
 import {
   hashRubric,
-  WIRE_VERSION,
   type JudgeRequest,
   type JudgeResult,
   type ListRubricsResponse,
   type Rubric,
   type VersionResponse,
+  WIRE_VERSION,
 } from './schemas'
 
 /** Caller-fixable error. The transport renders this to 4xx + ErrorResponse. */
@@ -91,8 +91,18 @@ function validateJudgeOutput(value: unknown, rubric: Rubric): JudgeOutput {
   const dimensionRecord = rawDimensions as Record<string, unknown>
   for (const dim of rubric.dimensions) {
     const score = dimensionRecord[dim.id]
-    if (typeof score !== 'number' || !Number.isFinite(score) || score < dim.min || score > dim.max) {
-      throw new WireError('judge_error', `Judge returned invalid score for dimension "${dim.id}".`, 500, value)
+    if (
+      typeof score !== 'number' ||
+      !Number.isFinite(score) ||
+      score < dim.min ||
+      score > dim.max
+    ) {
+      throw new WireError(
+        'judge_error',
+        `Judge returned invalid score for dimension "${dim.id}".`,
+        500,
+        value,
+      )
     }
     dimensions[dim.id] = score
   }
@@ -121,7 +131,12 @@ function validateIdArray(
   const out: string[] = []
   for (const item of raw) {
     if (typeof item !== 'string' || !allowed.has(item)) {
-      throw new WireError('judge_error', `Judge returned unknown ${field} id "${String(item)}".`, 500, original)
+      throw new WireError(
+        'judge_error',
+        `Judge returned unknown ${field} id "${String(item)}".`,
+        500,
+        original,
+      )
     }
     out.push(item)
   }

@@ -189,7 +189,9 @@ export const ErrorResponseSchema = z
       .object({
         code: z
           .string()
-          .describe('Machine-readable code: "validation_error", "rubric_not_found", "judge_error".'),
+          .describe(
+            'Machine-readable code: "validation_error", "rubric_not_found", "judge_error".',
+          ),
         message: z.string().describe('Human-readable message.'),
         details: z.unknown().optional().describe('Optional structured detail.'),
       })

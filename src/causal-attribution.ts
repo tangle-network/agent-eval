@@ -53,9 +53,16 @@ export function causalAttribution(cells: FactorialCell[]): CausalAttributionRepo
 
   const allScores = cells.map((c) => c.score)
   const grandMean = allScores.reduce((a, b) => a + b, 0) / allScores.length
-  const totalVariance = allScores.reduce((acc, s) => acc + (s - grandMean) ** 2, 0) / allScores.length
+  const totalVariance =
+    allScores.reduce((acc, s) => acc + (s - grandMean) ** 2, 0) / allScores.length
   if (totalVariance === 0) {
-    return { totalVariance: 0, mainEffects: factors.map((f) => ({ factor: f, shareOfVariance: 0, range: 0 })), interactions: [], residualShare: 1, sharesSum: 1 }
+    return {
+      totalVariance: 0,
+      mainEffects: factors.map((f) => ({ factor: f, shareOfVariance: 0, range: 0 })),
+      interactions: [],
+      residualShare: 1,
+      sharesSum: 1,
+    }
   }
 
   // Main effects: variance of cell-mean-by-level, averaged across other factors.
@@ -82,7 +89,8 @@ export function causalAttribution(cells: FactorialCell[]): CausalAttributionRepo
       for (const arr of byPair.values()) {
         pairMeans.push(arr.reduce((a, c) => a + c.score, 0) / arr.length)
       }
-      const pairVariance = pairMeans.reduce((acc, m) => acc + (m - grandMean) ** 2, 0) / pairMeans.length
+      const pairVariance =
+        pairMeans.reduce((acc, m) => acc + (m - grandMean) ** 2, 0) / pairMeans.length
       const mainI = mainEffects[i].shareOfVariance * totalVariance
       const mainJ = mainEffects[j].shareOfVariance * totalVariance
       const interactionVariance = Math.max(0, pairVariance - mainI - mainJ)
@@ -104,7 +112,9 @@ function groupBy<T>(items: T[], key: (t: T) => string): Map<string, T[]> {
   const m = new Map<string, T[]>()
   for (const item of items) {
     const k = key(item)
-    const arr = m.get(k) ?? []; arr.push(item); m.set(k, arr)
+    const arr = m.get(k) ?? []
+    arr.push(item)
+    m.set(k, arr)
   }
   return m
 }

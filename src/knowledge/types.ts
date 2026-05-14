@@ -99,7 +99,9 @@ export interface UserQuestion {
 export interface DataAcquisitionPlan {
   id: string
   requirementIds: string[]
-  mode: Exclude<KnowledgeAcquisitionMode, 'not_available' | 'infer_low_confidence'> | 'build_domain_wiki'
+  mode:
+    | Exclude<KnowledgeAcquisitionMode, 'not_available' | 'infer_low_confidence'>
+    | 'build_domain_wiki'
   description: string
   priority: KnowledgeImportance
   expectedEvidenceIds?: string[]

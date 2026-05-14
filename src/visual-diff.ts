@@ -30,9 +30,15 @@ export interface VisualDiffOptions {
   tolerance?: number
 }
 
-export function visualDiff(a: ImageData, b: ImageData, options: VisualDiffOptions = {}): VisualDiffResult {
+export function visualDiff(
+  a: ImageData,
+  b: ImageData,
+  options: VisualDiffOptions = {},
+): VisualDiffResult {
   if (a.width !== b.width || a.height !== b.height) {
-    throw new Error(`visualDiff: image dims differ (${a.width}x${a.height} vs ${b.width}x${b.height})`)
+    throw new Error(
+      `visualDiff: image dims differ (${a.width}x${a.height} vs ${b.width}x${b.height})`,
+    )
   }
   if (a.data.length !== b.data.length) {
     throw new Error('visualDiff: image data length mismatch')
@@ -56,6 +62,12 @@ export function visualDiff(a: ImageData, b: ImageData, options: VisualDiffOption
 }
 
 /** Convenience: diffs two byte-identical-dim RGBA arrays, returns just the ratio. */
-export function pixelDeltaRatio(a: Uint8Array, b: Uint8Array, width: number, height: number, tolerance = 8): number {
+export function pixelDeltaRatio(
+  a: Uint8Array,
+  b: Uint8Array,
+  width: number,
+  height: number,
+  tolerance = 8,
+): number {
   return visualDiff({ width, height, data: a }, { width, height, data: b }, { tolerance }).diffRatio
 }

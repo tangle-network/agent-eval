@@ -34,7 +34,10 @@ export interface StuckLoopOptions {
   runId?: string
 }
 
-export async function stuckLoopView(store: TraceStore, options: StuckLoopOptions = {}): Promise<StuckLoopReport> {
+export async function stuckLoopView(
+  store: TraceStore,
+  options: StuckLoopOptions = {},
+): Promise<StuckLoopReport> {
   const minOccurrences = options.minOccurrences ?? 3
   const runs = options.runId
     ? [{ runId: options.runId }]

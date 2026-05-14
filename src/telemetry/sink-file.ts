@@ -24,7 +24,10 @@ export class FileTelemetrySink implements TelemetrySink {
     if (!stream) {
       const dir = path.join(this.baseDir, repo)
       fs.mkdirSync(dir, { recursive: true })
-      stream = fs.createWriteStream(path.join(dir, `${date}.jsonl`), { flags: 'a', encoding: 'utf-8' })
+      stream = fs.createWriteStream(path.join(dir, `${date}.jsonl`), {
+        flags: 'a',
+        encoding: 'utf-8',
+      })
       this.streams.set(key, stream)
     }
     stream.write(`${JSON.stringify(envelope)}\n`)

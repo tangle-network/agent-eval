@@ -26,12 +26,7 @@
  * zero or more tool calls. The runner orchestrates the loop.
  */
 
-import type {
-  FailureClass,
-  LlmSpan,
-  ToolSpan,
-  TraceStore,
-} from './trace'
+import type { FailureClass, LlmSpan, ToolSpan, TraceStore } from './trace'
 import { TraceEmitter } from './trace'
 
 // ── Types ────────────────────────────────────────────────────────────
@@ -113,7 +108,13 @@ export interface AgenticJourneyConfig {
 export interface JourneyTurn {
   turnIndex: number
   assistantMessage: string
-  toolCalls: Array<{ name: string; args: Record<string, unknown>; result: unknown; ok: boolean; error?: string }>
+  toolCalls: Array<{
+    name: string
+    args: Record<string, unknown>
+    result: unknown
+    ok: boolean
+    error?: string
+  }>
   criteriaPassed: number
   criteriaTotal: number
 }
@@ -189,7 +190,9 @@ export async function runAgenticJourney(
       `GOAL:\n${config.goal}`,
       `COMPLETION CRITERIA:\n${config.completionCriteria.map((c) => `- ${c.id}: ${c.description}`).join('\n')}`,
       config.systemPromptAddendum ?? '',
-    ].filter(Boolean).join('\n\n'),
+    ]
+      .filter(Boolean)
+      .join('\n\n'),
   }
 
   const messages: JourneyChatMessage[] = [systemMessage]
@@ -199,7 +202,10 @@ export async function runAgenticJourney(
 
   try {
     for (let turn = 0; turn < maxTurns; turn++) {
-      if (abort.signal.aborted) { failureClass = 'timeout'; break }
+      if (abort.signal.aborted) {
+        failureClass = 'timeout'
+        break
+      }
 
       // One LLM turn.
       const llmHandle = await emitter.llm({
@@ -214,7 +220,11 @@ export async function runAgenticJourney(
       try {
         resp = await config.chat({
           messages,
-          tools: config.tools.map(({ name, description, parameters }) => ({ name, description, parameters })),
+          tools: config.tools.map(({ name, description, parameters }) => ({
+            name,
+            description,
+            parameters,
+          })),
           abortSignal: abort.signal,
         })
       } catch (err) {
@@ -252,7 +262,8 @@ export async function runAgenticJourney(
         // then abort if it still won't act.
         messages.push({
           role: 'user',
-          content: 'You did not call a tool. Call a tool to progress, or respond "DONE" only if the goal is fully met.',
+          content:
+            'You did not call a tool. Call a tool to progress, or respond "DONE" only if the goal is fully met.',
         })
         turns.push({
           turnIndex: turn,
@@ -273,8 +284,18 @@ export async function runAgenticJourney(
       for (const call of toolCalls) {
         const tool = config.tools.find((t) => t.name === call.name)
         if (!tool) {
-          messages.push({ role: 'tool', toolCallId: call.id, content: JSON.stringify({ error: `unknown tool: ${call.name}` }) })
-          toolCallRecords.push({ name: call.name, args: call.args, result: null, ok: false, error: 'unknown tool' })
+          messages.push({
+            role: 'tool',
+            toolCallId: call.id,
+            content: JSON.stringify({ error: `unknown tool: ${call.name}` }),
+          })
+          toolCallRecords.push({
+            name: call.name,
+            args: call.args,
+            result: null,
+            ok: false,
+            error: 'unknown tool',
+          })
           continue
         }
         const toolHandle = await emitter.tool({

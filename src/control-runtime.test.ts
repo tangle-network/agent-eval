@@ -1,10 +1,10 @@
 import { describe, expect, it } from 'vitest'
 import {
+  type ControlDecision,
+  type ControlEvalResult,
   InMemoryTraceStore,
   objectiveEval,
   runAgentControlLoop,
-  type ControlDecision,
-  type ControlEvalResult,
 } from './index'
 
 interface TestState {
@@ -12,9 +12,7 @@ interface TestState {
   artifact?: string
 }
 
-type TestAction =
-  | { type: 'increment' }
-  | { type: 'write_artifact'; value: string }
+type TestAction = { type: 'increment' } | { type: 'write_artifact'; value: string }
 
 describe('runAgentControlLoop', () => {
   it('runs worker actions until objective validators pass', async () => {
@@ -64,9 +62,10 @@ describe('runAgentControlLoop', () => {
           severity: 'critical',
         }),
       ],
-      decide: ({ history }) => history.length > 0
-        ? { type: 'stop', pass: false, reason: 'worker did not change state' }
-        : { type: 'continue', action: { type: 'write_artifact', value: 'x' } },
+      decide: ({ history }) =>
+        history.length > 0
+          ? { type: 'stop', pass: false, reason: 'worker did not change state' }
+          : { type: 'continue', action: { type: 'write_artifact', value: 'x' } },
       act: () => ({ count: 0 }),
     })
 
@@ -121,12 +120,14 @@ describe('runAgentControlLoop', () => {
       ],
       decide: ({ history }) => ({
         type: 'continue',
-        action: history.length === 0
-          ? { type: 'write_artifact', value: 'throw' }
-          : { type: 'write_artifact', value: 'done' },
+        action:
+          history.length === 0
+            ? { type: 'write_artifact', value: 'throw' }
+            : { type: 'write_artifact', value: 'done' },
       }),
       act: (action) => {
-        if (action.type === 'write_artifact' && action.value === 'throw') throw new Error('synthetic failure')
+        if (action.type === 'write_artifact' && action.value === 'throw')
+          throw new Error('synthetic failure')
         if (action.type === 'write_artifact') state.artifact = action.value
         return { ...state }
       },
@@ -163,9 +164,7 @@ describe('runAgentControlLoop', () => {
     expect(result.reason).toBe('worker failed')
     expect(result.steps).toHaveLength(1)
     expect(result.steps[0].actionOutcome?.ok).toBe(false)
-    expect(result.runtimeErrors).toEqual([
-      { phase: 'act', stepIndex: 0, message: 'worker failed' },
-    ])
+    expect(result.runtimeErrors).toEqual([{ phase: 'act', stepIndex: 0, message: 'worker failed' }])
   })
 
   it('enforces cost budgets with a caller-provided cost extractor', async () => {
@@ -218,7 +217,11 @@ describe('runAgentControlLoop', () => {
     ).rejects.toThrow(message)
   })
 
-  it.each([Number.NaN, Number.POSITIVE_INFINITY, -0.01])('omits invalid action cost %s', async (costUsd) => {
+  it.each([
+    Number.NaN,
+    Number.POSITIVE_INFINITY,
+    -0.01,
+  ])('omits invalid action cost %s', async (costUsd) => {
     const state: TestState = { count: 0 }
     const result = await runAgentControlLoop<TestState, TestAction, TestState>({
       intent: 'ignore invalid cost',

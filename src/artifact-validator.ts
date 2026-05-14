@@ -81,8 +81,7 @@ export function composeValidators(
     async validate(artifact, ctx) {
       const results = await Promise.all(validators.map((v) => v.validate(artifact, ctx)))
       const pass = results.every((r) => r.pass)
-      const score =
-        results.reduce((acc, r, i) => acc + r.score * weights[i], 0) / totalWeight
+      const score = results.reduce((acc, r, i) => acc + r.score * weights[i], 0) / totalWeight
       return {
         pass,
         score,
@@ -133,7 +132,12 @@ export function jsonHasKeys(name: string, requiredPaths: string[]): ArtifactVali
         return {
           pass: false,
           score: 0,
-          issues: [{ severity: 'error', message: `Invalid JSON: ${err instanceof Error ? err.message : err}` }],
+          issues: [
+            {
+              severity: 'error',
+              message: `Invalid JSON: ${err instanceof Error ? err.message : err}`,
+            },
+          ],
         }
       }
       const missing: string[] = []
@@ -144,7 +148,11 @@ export function jsonHasKeys(name: string, requiredPaths: string[]): ArtifactVali
       return {
         pass,
         score: 1 - missing.length / Math.max(1, requiredPaths.length),
-        issues: missing.map((p) => ({ severity: 'error' as const, message: `Missing path: ${p}`, locus: p })),
+        issues: missing.map((p) => ({
+          severity: 'error' as const,
+          message: `Missing path: ${p}`,
+          locus: p,
+        })),
       }
     },
   }
@@ -155,13 +163,10 @@ export function byteLengthRange(name: string, min: number, max: number): Artifac
   return {
     name,
     async validate(artifact) {
-      const size = artifact.bytes?.byteLength ?? new TextEncoder().encode(artifact.content ?? '').byteLength
+      const size =
+        artifact.bytes?.byteLength ?? new TextEncoder().encode(artifact.content ?? '').byteLength
       const pass = size >= min && size <= max
-      const score = pass
-        ? 1
-        : size < min
-          ? Math.max(0, size / min)
-          : Math.max(0, max / size)
+      const score = pass ? 1 : size < min ? Math.max(0, size / min) : Math.max(0, max / size)
       return {
         pass,
         score,
@@ -183,7 +188,7 @@ export function containsAll(
   return {
     name,
     async validate(artifact) {
-      const body = cs ? artifact.content ?? '' : (artifact.content ?? '').toLowerCase()
+      const body = cs ? (artifact.content ?? '') : (artifact.content ?? '').toLowerCase()
       const missing: string[] = []
       for (const needle of required) {
         const probe = cs ? needle : needle.toLowerCase()
@@ -193,7 +198,10 @@ export function containsAll(
       return {
         pass,
         score: 1 - missing.length / Math.max(1, required.length),
-        issues: missing.map((m) => ({ severity: 'error' as const, message: `Missing substring: ${m}` })),
+        issues: missing.map((m) => ({
+          severity: 'error' as const,
+          message: `Missing substring: ${m}`,
+        })),
       }
     },
   }

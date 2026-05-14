@@ -23,6 +23,12 @@
  * `runRLCampaign` for the full auto-research story.
  */
 
+import type { GateDecision } from '../held-out-gate'
+import type { OutcomeStore } from '../meta-eval/outcome-store'
+import {
+  type RubricPredictiveValidityReport,
+  rubricPredictiveValidity,
+} from '../meta-eval/rubric-predictive-validity'
 import type {
   ExperimentPlan,
   ExperimentResult,
@@ -30,13 +36,7 @@ import type {
   Researcher,
   SteeringChange,
 } from '../researcher'
-import type { GateDecision } from '../held-out-gate'
 import type { RunRecord } from '../run-record'
-import type { OutcomeStore } from '../meta-eval/outcome-store'
-import {
-  rubricPredictiveValidity,
-  type RubricPredictiveValidityReport,
-} from '../meta-eval/rubric-predictive-validity'
 
 export interface PredictiveValidityResearcherOptions {
   outcomes: OutcomeStore
@@ -88,10 +88,11 @@ export class PredictiveValidityResearcher implements Researcher {
     }
 
     for (const [candidateId, group] of grouped.entries()) {
-      const meanScore = group.reduce((s, r) => {
-        const x = r.outcome.holdoutScore ?? r.outcome.searchScore ?? 0
-        return s + x
-      }, 0) / group.length
+      const meanScore =
+        group.reduce((s, r) => {
+          const x = r.outcome.holdoutScore ?? r.outcome.searchScore ?? 0
+          return s + x
+        }, 0) / group.length
       failures.push({
         code: `low-score-${candidateId}`,
         description: `${candidateId} scored < ${threshold} on ${group.length} run(s) (mean ${meanScore.toFixed(3)})`,
@@ -110,11 +111,14 @@ export class PredictiveValidityResearcher implements Researcher {
     // Without a prior report, return a single "collect more outcome data"
     // change — the researcher refuses to reweight rubrics from zero evidence.
     if (this.lastReport === null) {
-      return [{
-        kind: 'threshold',
-        payload: { directive: 'researcher.collect-more-outcomes' },
-        rationale: 'predictive-validity researcher has no prior report; cannot recommend rubric reweighting until at least one report exists',
-      }]
+      return [
+        {
+          kind: 'threshold',
+          payload: { directive: 'researcher.collect-more-outcomes' },
+          rationale:
+            'predictive-validity researcher has no prior report; cannot recommend rubric reweighting until at least one report exists',
+        },
+      ]
     }
 
     const decorativeThreshold = this.opts.decorativeThreshold ?? 0.4
@@ -125,7 +129,12 @@ export class PredictiveValidityResearcher implements Researcher {
       if (Math.abs(ranking.spearman) >= decorativeThreshold) continue
       changes.push({
         kind: 'reviewer_prompt',
-        payload: { rubric: ranking.rubric, action: 'down-weight', spearman: ranking.spearman, bestOutcome: ranking.bestOutcome },
+        payload: {
+          rubric: ranking.rubric,
+          action: 'down-weight',
+          spearman: ranking.spearman,
+          bestOutcome: ranking.bestOutcome,
+        },
         rationale: `predictive-validity Spearman=${ranking.spearman.toFixed(3)} vs ${ranking.bestOutcome} (decorative); recommend down-weighting`,
         expectedDelta: -Math.max(0, 0.05 - Math.abs(ranking.spearman)),
       })
@@ -134,7 +143,12 @@ export class PredictiveValidityResearcher implements Researcher {
       if (ranking.verdict !== 'load_bearing') continue
       changes.push({
         kind: 'reviewer_prompt',
-        payload: { rubric: ranking.rubric, action: 'up-weight', spearman: ranking.spearman, bestOutcome: ranking.bestOutcome },
+        payload: {
+          rubric: ranking.rubric,
+          action: 'up-weight',
+          spearman: ranking.spearman,
+          bestOutcome: ranking.bestOutcome,
+        },
         rationale: `predictive-validity Spearman=${ranking.spearman.toFixed(3)} vs ${ranking.bestOutcome} (load-bearing); recommend up-weighting`,
         expectedDelta: Math.max(0, Math.abs(ranking.spearman) - 0.5) * 0.1,
       })
@@ -170,7 +184,8 @@ export class PredictiveValidityResearcher implements Researcher {
         overfitGap: 0,
         baselineOverfitGap: 0,
       },
-      reason: 'predictive-validity researcher does not execute plans; the caller is expected to run the sweep and call rubricPredictiveValidity directly with the resulting RunRecord[].',
+      reason:
+        'predictive-validity researcher does not execute plans; the caller is expected to run the sweep and call rubricPredictiveValidity directly with the resulting RunRecord[].',
       rejectionCode: 'few_runs',
     }
     return {

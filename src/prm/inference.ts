@@ -7,8 +7,8 @@
  * — supply a TraceStore + PrmGrader + N run IDs → get ranking + winner.
  */
 
-import type { PrmGrader, PrmGradedTrace } from './rubric'
 import type { TraceStore } from '../trace/store'
+import type { PrmGradedTrace, PrmGrader } from './rubric'
 
 export interface BestOfNResult {
   winner: PrmGradedTrace

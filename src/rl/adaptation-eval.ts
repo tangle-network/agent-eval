@@ -87,7 +87,7 @@ export async function runAdaptationCurve<S extends { scenarioId?: string }>(
     let totalAttempts = 0
     for (const scenario of opts.scenarios) {
       const sid = scenario.scenarioId ?? `scenario-${opts.scenarios.indexOf(scenario)}`
-      let scores: number[] = []
+      const scores: number[] = []
       let passes = 0
       for (let r = 0; r < reps; r++) {
         const score = await opts.runner.run({ scenario, k, rep: r })
@@ -101,8 +101,10 @@ export async function runAdaptationCurve<S extends { scenarioId?: string }>(
       perScenario.push({ scenarioId: sid, meanScore: meanS, passes, total: scores.length })
     }
     const meanScore = allScores.reduce((s, v) => s + v, 0) / Math.max(1, allScores.length)
-    const variance = allScores.length < 2 ? 0
-      : allScores.reduce((s, v) => s + (v - meanScore) ** 2, 0) / (allScores.length - 1)
+    const variance =
+      allScores.length < 2
+        ? 0
+        : allScores.reduce((s, v) => s + (v - meanScore) ** 2, 0) / (allScores.length - 1)
     points.push({
       k,
       meanScore,
@@ -130,7 +132,14 @@ export async function runAdaptationCurve<S extends { scenarioId?: string }>(
 }
 
 export interface CompareCurvesResult {
-  perK: Array<{ k: number; deltaMean: number; aLow: number; aHigh: number; bLow: number; bHigh: number }>
+  perK: Array<{
+    k: number
+    deltaMean: number
+    aLow: number
+    aHigh: number
+    bLow: number
+    bHigh: number
+  }>
   areaDelta: number
   firstPassKDelta: number | null
   /** Verdict: 'a_better' | 'b_better' | 'similar'. */
@@ -164,15 +173,17 @@ export function compareAdaptationCurves(
     perK.push({
       k: ap.k,
       deltaMean: ap.meanScore - bp.meanScore,
-      aLow: aCi.low, aHigh: aCi.high,
-      bLow: bCi.low, bHigh: bCi.high,
+      aLow: aCi.low,
+      aHigh: aCi.high,
+      bLow: bCi.low,
+      bHigh: bCi.high,
     })
   }
 
   const areaDelta = a.adaptationArea - b.adaptationArea
   const firstPassKDelta =
     a.firstPassK !== null && b.firstPassK !== null
-      ? b.firstPassK - a.firstPassK   // smaller k for a means a adapts faster (positive delta)
+      ? b.firstPassK - a.firstPassK // smaller k for a means a adapts faster (positive delta)
       : null
 
   // Composite verdict: positive area delta + most per-k deltas in same
@@ -184,7 +195,8 @@ export function compareAdaptationCurves(
   else if (meanDelta < 0 && areaDelta < 0) verdict = 'b_better'
   else verdict = 'similar'
 
-  const rationale = `mean per-k delta=${meanDelta.toFixed(3)}, area delta=${areaDelta.toFixed(3)}` +
+  const rationale =
+    `mean per-k delta=${meanDelta.toFixed(3)}, area delta=${areaDelta.toFixed(3)}` +
     (firstPassKDelta !== null ? `, first-pass-k delta=${firstPassKDelta}` : '')
 
   return { perK, areaDelta, firstPassKDelta, verdict, rationale }
@@ -201,7 +213,7 @@ function makeRng(seed?: number): () => number {
   if (seed === undefined) return Math.random
   let s = seed >>> 0
   return () => {
-    s = (s + 0x6D2B79F5) >>> 0
+    s = (s + 0x6d2b79f5) >>> 0
     let t = s
     t = Math.imul(t ^ (t >>> 15), t | 1)
     t ^= t + Math.imul(t ^ (t >>> 7), t | 61)
@@ -225,7 +237,7 @@ function bootstrapMeanCi(
   samples.sort((a, b) => a - b)
   const alpha = 1 - confidence
   return {
-    low: samples[Math.floor(alpha / 2 * resamples)]!,
+    low: samples[Math.floor((alpha / 2) * resamples)]!,
     high: samples[Math.min(resamples - 1, Math.ceil((1 - alpha / 2) * resamples) - 1)]!,
   }
 }

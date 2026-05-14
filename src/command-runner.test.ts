@@ -1,7 +1,7 @@
-import { describe, it, expect } from 'vitest'
-import { mkdtempSync, rmSync, writeFileSync, mkdirSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { describe, expect, it } from 'vitest'
 import { localCommandRunner } from './command-runner'
 
 describe('localCommandRunner', () => {

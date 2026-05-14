@@ -1,20 +1,17 @@
-import { describe, it, expect } from 'vitest'
+import { describe, expect, it } from 'vitest'
 import {
+  extractAssetUrls,
+  htmlContainsElement,
   runKeywordCoverageJudge,
   runKeywordCoverageJudgeUrl,
-  htmlContainsElement,
-  extractAssetUrls,
 } from './keyword-coverage-judge'
 
 describe('keyword-coverage — runKeywordCoverageJudge (content)', () => {
   it('counts concept as found when any keyword is in haystack', () => {
-    const r = runKeywordCoverageJudge(
-      '<h1>Mint Now</h1><p>0.05 ETH</p>',
-      [
-        { name: 'mint button', keywords: ['mint now', 'mint 1'] },
-        { name: 'price', keywords: ['ETH', 'price'] },
-      ],
-    )
+    const r = runKeywordCoverageJudge('<h1>Mint Now</h1><p>0.05 ETH</p>', [
+      { name: 'mint button', keywords: ['mint now', 'mint 1'] },
+      { name: 'price', keywords: ['ETH', 'price'] },
+    ])
     expect(r.score).toBe(1)
     expect(r.presentCount).toBe(2)
     expect(r.findings[0]!.matchedKeywords).toEqual(['mint now'])
@@ -29,10 +26,9 @@ describe('keyword-coverage — runKeywordCoverageJudge (content)', () => {
   })
 
   it('requiredElement gate: blocks found when selector missing', () => {
-    const r = runKeywordCoverageJudge(
-      '<p>price 0.05 ETH</p>',
-      [{ name: 'price', keywords: ['price'], requiredElement: 'input[type="number"]' }],
-    )
+    const r = runKeywordCoverageJudge('<p>price 0.05 ETH</p>', [
+      { name: 'price', keywords: ['price'], requiredElement: 'input[type="number"]' },
+    ])
     expect(r.findings[0]!.matchedKeywords).toEqual(['price'])
     expect(r.findings[0]!.requiredElementPresent).toBe(false)
     expect(r.findings[0]!.found).toBe(false)
@@ -40,10 +36,9 @@ describe('keyword-coverage — runKeywordCoverageJudge (content)', () => {
   })
 
   it('requiredElement gate: passes when both keyword + element match', () => {
-    const r = runKeywordCoverageJudge(
-      '<form><input type="number" name="price"/></form>',
-      [{ name: 'price', keywords: ['price'], requiredElement: 'input[type="number"]' }],
-    )
+    const r = runKeywordCoverageJudge('<form><input type="number" name="price"/></form>', [
+      { name: 'price', keywords: ['price'], requiredElement: 'input[type="number"]' },
+    ])
     expect(r.findings[0]!.found).toBe(true)
     expect(r.findings[0]!.requiredElementPresent).toBe(true)
   })
@@ -127,10 +122,9 @@ describe('keyword-coverage — runKeywordCoverageJudgeUrl', () => {
   it('fetches HTML + assets and scores', async () => {
     const fetch: typeof globalThis.fetch = (async (input: string) => {
       if (input.endsWith('/index.html')) {
-        return new Response(
-          '<link rel="stylesheet" href="/a.css"/><h1>Mint Now</h1>',
-          { status: 200 },
-        )
+        return new Response('<link rel="stylesheet" href="/a.css"/><h1>Mint Now</h1>', {
+          status: 200,
+        })
       }
       if (input.endsWith('/a.css')) {
         return new Response('.btn { color: red } /* mint button */', { status: 200 })

@@ -23,13 +23,13 @@
  * Canvas renderer to draw the actual figure.
  */
 
-import { confidenceInterval, cohensD, wilcoxonSignedRank } from './statistics'
-import { benjaminiHochberg, pairedMde } from './power-analysis'
-import { pairedBootstrap } from './paired-stats'
-import { canonicalize, hashJson } from './pre-registration'
 import type { GateDecision } from './held-out-gate'
+import { pairedBootstrap } from './paired-stats'
 import type { FailureClusterReport } from './pipelines/failure-cluster'
+import { benjaminiHochberg, pairedMde } from './power-analysis'
+import { canonicalize, hashJson } from './pre-registration'
 import type { RunRecord } from './run-record'
+import { cohensD, confidenceInterval, wilcoxonSignedRank } from './statistics'
 
 // ── summaryTable ───────────────────────────────────────────────────────
 
@@ -178,7 +178,7 @@ function renderSummaryTableMarkdown(
   const cmpLabel = comparator ? ` (vs ${comparator})` : ''
   lines.push(`Summary Table — ${split} split${cmpLabel}`)
   lines.push('')
-  lines.push('| Candidate | N | Mean | 95% CI | q (BH) | Cohen\'s d |')
+  lines.push("| Candidate | N | Mean | 95% CI | q (BH) | Cohen's d |")
   lines.push('|---|---:|---:|---|---:|---:|')
   for (const r of rows) {
     const ci = `[${fmt(r.ciLow)}, ${fmt(r.ciHigh)}]`
@@ -611,12 +611,13 @@ function pairedPosterior(
   // mean delta. Same RNG family as `pairedBootstrap` but kept local so we can
   // examine the full sample distribution rather than just quantiles.
   const meanSamples = bootstrapMeanSamples(deltas, 2000, opts.seed)
-  const prGreaterThanZero = meanSamples.length === 0
-    ? 0
-    : meanSamples.filter((s) => s > 0).length / meanSamples.length
-  const prInRope = opts.rope === null || meanSamples.length === 0
-    ? null
-    : meanSamples.filter((s) => s >= opts.rope!.low && s <= opts.rope!.high).length / meanSamples.length
+  const prGreaterThanZero =
+    meanSamples.length === 0 ? 0 : meanSamples.filter((s) => s > 0).length / meanSamples.length
+  const prInRope =
+    opts.rope === null || meanSamples.length === 0
+      ? null
+      : meanSamples.filter((s) => s >= opts.rope!.low && s <= opts.rope!.high).length /
+        meanSamples.length
 
   const dStandardised = pairedMde({ nPaired: n, alpha: opts.mdeAlpha, power: opts.mdePower })
   const mde = sdDelta === 0 ? 0 : dStandardised * sdDelta
@@ -651,7 +652,7 @@ function seedRng(seed?: number): () => number {
   if (seed === undefined) return Math.random
   let s = seed >>> 0
   return () => {
-    s = (s + 0x6D2B79F5) >>> 0
+    s = (s + 0x6d2b79f5) >>> 0
     let t = s
     t = Math.imul(t ^ (t >>> 15), t | 1)
     t ^= t + Math.imul(t ^ (t >>> 7), t | 61)
@@ -685,7 +686,10 @@ function stdev(xs: number[], mean: number): number {
  * Async because the fingerprint uses Web Crypto via `hashJson`; deterministic
  * for any fixed `runs`, `seed`, and ROPE.
  */
-export async function researchReport(runs: RunRecord[], opts: ResearchReportOptions = {}): Promise<ResearchReport> {
+export async function researchReport(
+  runs: RunRecord[],
+  opts: ResearchReportOptions = {},
+): Promise<ResearchReport> {
   const split = opts.split ?? 'holdout'
   const comparator = opts.comparator ?? null
   const confidence = opts.confidence ?? 0.95
@@ -699,7 +703,9 @@ export async function researchReport(runs: RunRecord[], opts: ResearchReportOpti
   const preregistrationHash = opts.preregistrationHash ?? null
 
   if (rope && !(Number.isFinite(rope.low) && Number.isFinite(rope.high) && rope.low <= rope.high)) {
-    throw new Error(`researchReport: rope must satisfy low ≤ high with finite bounds, got ${JSON.stringify(rope)}`)
+    throw new Error(
+      `researchReport: rope must satisfy low ≤ high with finite bounds, got ${JSON.stringify(rope)}`,
+    )
   }
 
   const summary = summaryTable(runs, {
@@ -709,14 +715,16 @@ export async function researchReport(runs: RunRecord[], opts: ResearchReportOpti
     fdr,
   })
   const pareto = paretoChart(runs, { split, gateDecisions: opts.gateDecisions })
-  const candidateIds = opts.candidateIds
-    ?? summary.rows.map((r) => r.candidateId).filter((id) => id !== comparator)
+  const candidateIds =
+    opts.candidateIds ?? summary.rows.map((r) => r.candidateId).filter((id) => id !== comparator)
   const gains = comparator
-    ? candidateIds.map((id) => gainHistogram(runs, id, comparator, {
-      split,
-      confidence,
-      seed: opts.seed,
-    }))
+    ? candidateIds.map((id) =>
+        gainHistogram(runs, id, comparator, {
+          split,
+          confidence,
+          seed: opts.seed,
+        }),
+      )
     : []
 
   const gainByCandidate = new Map(gains.map((g) => [g.candidateId, g]))
@@ -724,14 +732,17 @@ export async function researchReport(runs: RunRecord[], opts: ResearchReportOpti
   const posteriorByCandidate = new Map<string, ReturnType<typeof pairedPosterior>>()
   if (comparator) {
     for (const id of candidateIds) {
-      posteriorByCandidate.set(id, pairedPosterior(runs, id, comparator, {
-        split,
-        confidence,
-        seed: opts.seed,
-        rope,
-        mdePower,
-        mdeAlpha,
-      }))
+      posteriorByCandidate.set(
+        id,
+        pairedPosterior(runs, id, comparator, {
+          split,
+          confidence,
+          seed: opts.seed,
+          rope,
+          mdePower,
+          mdeAlpha,
+        }),
+      )
     }
   }
 
@@ -758,9 +769,9 @@ export async function researchReport(runs: RunRecord[], opts: ResearchReportOpti
         cohensD: row.cohensD,
         meanDeltaVsComparator: posterior ? posterior.meanDelta : null,
         pairedN: posterior?.n ?? gain?.n ?? 0,
-        medianGain: posterior ? posterior.medianDelta : (gain ? gain.median : null),
+        medianGain: posterior ? posterior.medianDelta : gain ? gain.median : null,
         meanGain: posterior ? posterior.meanDelta : null,
-        gainCi: posterior ? posterior.ci : (gain ? gain.ci : null),
+        gainCi: posterior ? posterior.ci : gain ? gain.ci : null,
         prGreaterThanZero: posterior ? posterior.prGreaterThanZero : null,
         prInRope: posterior ? posterior.prInRope : null,
         mde: posterior ? posterior.mde : null,
@@ -789,16 +800,27 @@ export async function researchReport(runs: RunRecord[], opts: ResearchReportOpti
     failureClusters: opts.failureClusters,
     preregistrationHash,
   })
-  const methodology = buildMethodology({ split, comparator, fdr, minPairs, rope, confidence, mdePower, mdeAlpha })
-
-  const runFingerprint = await hashJson(canonicalize({
-    triples: runs
-      .filter((r) => r.splitTag === split)
-      .map((r) => ({ runId: r.runId, candidateId: r.candidateId, splitTag: r.splitTag }))
-      .sort((a, b) => a.runId.localeCompare(b.runId)),
-    comparator,
+  const methodology = buildMethodology({
     split,
-  }))
+    comparator,
+    fdr,
+    minPairs,
+    rope,
+    confidence,
+    mdePower,
+    mdeAlpha,
+  })
+
+  const runFingerprint = await hashJson(
+    canonicalize({
+      triples: runs
+        .filter((r) => r.splitTag === split)
+        .map((r) => ({ runId: r.runId, candidateId: r.candidateId, splitTag: r.splitTag }))
+        .sort((a, b) => a.runId.localeCompare(b.runId)),
+      comparator,
+      split,
+    }),
+  )
 
   const markdown = renderResearchMarkdown({
     title,
@@ -856,13 +878,15 @@ function buildMethodology(ctx: {
     `Decisions are pre-specified at fdr=${ctx.fdr}, minPairs=${ctx.minPairs}, confidence=${ctx.confidence}; deviating from these post-hoc invalidates the false-discovery control.`,
   ]
   if (ctx.rope) {
-    assumptions.push(`The Region of Practical Equivalence ${formatRope(ctx.rope)} is supplied by the domain owner; equivalent verdicts are only meaningful if that range is treated as the standing definition of "no material difference."`)
+    assumptions.push(
+      `The Region of Practical Equivalence ${formatRope(ctx.rope)} is supplied by the domain owner; equivalent verdicts are only meaningful if that range is treated as the standing definition of "no material difference."`,
+    )
   }
   if (ctx.comparator === null) {
     assumptions.push('No comparator was configured; this run is descriptive, not causal.')
   }
   const methods: string[] = [
-    'Marginal scores summarised with BH-FDR-adjusted Wilcoxon signed-rank q-values and Cohen\'s d via summaryTable.',
+    "Marginal scores summarised with BH-FDR-adjusted Wilcoxon signed-rank q-values and Cohen's d via summaryTable.",
     'Paired evidence summarised with bootstrap CI on the median delta and Bayesian-bootstrap-style Pr(Δ>0) and Pr(Δ∈ROPE) on the mean delta.',
     `Minimum detectable effect reported per candidate at α=${ctx.mdeAlpha} (two-sided), power=${ctx.mdePower}, standardised by the observed paired-delta SD.`,
     'Pareto frontier flagged as a separate axis (cost vs quality); a candidate can be on-frontier without winning the paired test.',
@@ -911,7 +935,8 @@ function classifyCandidate(
   if (!ctx.comparator) {
     return {
       decision: ctx.point?.onFrontier ? 'hold' : 'needs_more_data',
-      reason: 'No comparator configured; report ranks candidates but cannot anchor a promotion call.',
+      reason:
+        'No comparator configured; report ranks candidates but cannot anchor a promotion call.',
     }
   }
   // Held-out gate is authoritative against — promote requires statistical
@@ -936,7 +961,10 @@ function classifyCandidate(
   const gainPositive = ci.low > 0
   const gainNegative = ci.high < 0
   if (gainNegative) {
-    return { decision: 'reject', reason: `Paired-delta CI [${fmt(ci.low)}, ${fmt(ci.high)}] lies entirely below zero.` }
+    return {
+      decision: 'reject',
+      reason: `Paired-delta CI [${fmt(ci.low)}, ${fmt(ci.high)}] lies entirely below zero.`,
+    }
   }
   if (ctx.posterior.n < ctx.minPairs) {
     return {
@@ -987,10 +1015,11 @@ function buildRecommendation(
   if (chosen) {
     rationale.push(`${chosen.candidateId}: ${chosen.decisionReason}`)
     if (chosen.gainCi) {
-      const probSummary = chosen.prGreaterThanZero !== null
-        ? `, Pr(Δ>0)=${fmt(chosen.prGreaterThanZero)}`
-        : ''
-      rationale.push(`Median paired gain CI: [${fmt(chosen.gainCi.low)}, ${fmt(chosen.gainCi.high)}]${probSummary}.`)
+      const probSummary =
+        chosen.prGreaterThanZero !== null ? `, Pr(Δ>0)=${fmt(chosen.prGreaterThanZero)}` : ''
+      rationale.push(
+        `Median paired gain CI: [${fmt(chosen.gainCi.low)}, ${fmt(chosen.gainCi.high)}]${probSummary}.`,
+      )
     }
     if (chosen.mde !== null && Number.isFinite(chosen.mde)) {
       rationale.push(`MDE at current paired N=${chosen.pairedN}: ${fmt(chosen.mde)} score units.`)
@@ -1001,22 +1030,36 @@ function buildRecommendation(
     nextActions.push('Re-run with a stable comparator candidate for paired inference.')
   }
   if (!ctx.preregistrationHash) {
-    risks.push('No preregistration hash supplied; readers cannot verify the analysis was specified before data inspection.')
-    nextActions.push('Sign a HypothesisManifest before the next sweep and pass `preregistrationHash` so the report cites it.')
+    risks.push(
+      'No preregistration hash supplied; readers cannot verify the analysis was specified before data inspection.',
+    )
+    nextActions.push(
+      'Sign a HypothesisManifest before the next sweep and pass `preregistrationHash` so the report cites it.',
+    )
   }
   if (ctx.rope === null && nonComparator.length > 0) {
-    risks.push('No ROPE configured; the report cannot distinguish "equivalent" from "inconclusive".')
-    nextActions.push('Define a domain-specific Region of Practical Equivalence and pass it to lock in the equivalence threshold.')
+    risks.push(
+      'No ROPE configured; the report cannot distinguish "equivalent" from "inconclusive".',
+    )
+    nextActions.push(
+      'Define a domain-specific Region of Practical Equivalence and pass it to lock in the equivalence threshold.',
+    )
   }
   const inconclusive = nonComparator.filter((c) => c.decision === 'needs_more_data')
   if (inconclusive.length > 0) {
     const worst = inconclusive.reduce((a, b) => (b.pairedN < a.pairedN ? b : a))
-    risks.push(`${inconclusive.length} candidate(s) below soft floor (${ctx.minPairs} pairs); thinnest is ${worst.candidateId} with ${worst.pairedN}.`)
-    nextActions.push(`Collect at least ${ctx.minPairs - worst.pairedN} more matched holdout runs for ${worst.candidateId}.`)
+    risks.push(
+      `${inconclusive.length} candidate(s) below soft floor (${ctx.minPairs} pairs); thinnest is ${worst.candidateId} with ${worst.pairedN}.`,
+    )
+    nextActions.push(
+      `Collect at least ${ctx.minPairs - worst.pairedN} more matched holdout runs for ${worst.candidateId}.`,
+    )
   }
   const rejected = nonComparator.filter((c) => c.decision === 'reject')
   if (rejected.length > 0) {
-    risks.push(`${rejected.length} candidate(s) failed the paired test or held-out gate; do not ship those variants.`)
+    risks.push(
+      `${rejected.length} candidate(s) failed the paired test or held-out gate; do not ship those variants.`,
+    )
   }
   if (ctx.failureClusters && ctx.failureClusters.clusters.length > 0) {
     const top = ctx.failureClusters.clusters[0]!
@@ -1028,9 +1071,13 @@ function buildRecommendation(
   } else if (decision === 'hold') {
     nextActions.push('Keep current production candidate while expanding holdout evidence.')
   } else if (decision === 'equivalent') {
-    nextActions.push('Either keep the comparator (no quality regression) or promote on cost/latency grounds — equivalence does not justify either; the choice is a product decision, not a stats one.')
+    nextActions.push(
+      'Either keep the comparator (no quality regression) or promote on cost/latency grounds — equivalence does not justify either; the choice is a product decision, not a stats one.',
+    )
   } else if (decision === 'reject') {
-    nextActions.push('Do not promote this sweep; inspect failures and generate a revised candidate.')
+    nextActions.push(
+      'Do not promote this sweep; inspect failures and generate a revised candidate.',
+    )
   }
 
   return {
@@ -1054,22 +1101,32 @@ function buildExecutiveSummary(
 ): string[] {
   const lines: string[] = []
   const nonComparator = candidates.filter((c) => c.candidateId !== ctx.comparator)
-  lines.push(`Evaluated ${nonComparator.length} candidate(s) on the ${ctx.split} split${ctx.comparator ? ` against ${ctx.comparator}` : ''}.`)
-  lines.push(`Recommendation: ${recommendation.decision}${recommendation.candidateId ? ` ${recommendation.candidateId}` : ''}.`)
+  lines.push(
+    `Evaluated ${nonComparator.length} candidate(s) on the ${ctx.split} split${ctx.comparator ? ` against ${ctx.comparator}` : ''}.`,
+  )
+  lines.push(
+    `Recommendation: ${recommendation.decision}${recommendation.candidateId ? ` ${recommendation.candidateId}` : ''}.`,
+  )
   const promoted = nonComparator.filter((c) => c.decision === 'promote').length
   const held = nonComparator.filter((c) => c.decision === 'hold').length
   const equivalent = nonComparator.filter((c) => c.decision === 'equivalent').length
   const rejected = nonComparator.filter((c) => c.decision === 'reject').length
   const more = nonComparator.filter((c) => c.decision === 'needs_more_data').length
-  lines.push(`Decision mix: ${promoted} promote, ${equivalent} equivalent, ${held} hold, ${rejected} reject, ${more} need more data.`)
+  lines.push(
+    `Decision mix: ${promoted} promote, ${equivalent} equivalent, ${held} hold, ${rejected} reject, ${more} need more data.`,
+  )
   const frontier = nonComparator.filter((c) => c.onParetoFrontier).map((c) => c.candidateId)
   if (frontier.length > 0) lines.push(`Pareto-frontier candidates: ${frontier.join(', ')}.`)
   if (ctx.failureClusters) {
-    lines.push(`Failure clustering found ${ctx.failureClusters.totalFailures}/${ctx.failureClusters.totalRuns} failed runs across ${ctx.failureClusters.clusters.length} reportable cluster(s).`)
+    lines.push(
+      `Failure clustering found ${ctx.failureClusters.totalFailures}/${ctx.failureClusters.totalRuns} failed runs across ${ctx.failureClusters.clusters.length} reportable cluster(s).`,
+    )
   }
-  lines.push(ctx.preregistrationHash
-    ? `Preregistered analysis: ${ctx.preregistrationHash.slice(0, 12)}…`
-    : 'Analysis is post-hoc — no preregistration hash supplied.')
+  lines.push(
+    ctx.preregistrationHash
+      ? `Preregistered analysis: ${ctx.preregistrationHash.slice(0, 12)}…`
+      : 'Analysis is post-hoc — no preregistration hash supplied.',
+  )
   return lines
 }
 
@@ -1098,7 +1155,9 @@ function renderResearchMarkdown(report: {
   lines.push(`**Comparator:** ${report.comparator ?? 'not configured'}`)
   lines.push(`**ROPE:** ${report.rope ? formatRope(report.rope) : 'not configured'}`)
   lines.push(`**Run fingerprint:** \`${report.runFingerprint}\``)
-  lines.push(`**Preregistration:** ${report.preregistrationHash ? `\`${report.preregistrationHash}\`` : 'none'}`)
+  lines.push(
+    `**Preregistration:** ${report.preregistrationHash ? `\`${report.preregistrationHash}\`` : 'none'}`,
+  )
   lines.push('')
   lines.push('## Executive Summary')
   lines.push('')
@@ -1115,7 +1174,9 @@ function renderResearchMarkdown(report: {
   lines.push('')
   lines.push('### Risks')
   lines.push('')
-  for (const item of report.recommendation.risks.length ? report.recommendation.risks : ['No material report-level risks detected.']) {
+  for (const item of report.recommendation.risks.length
+    ? report.recommendation.risks
+    : ['No material report-level risks detected.']) {
     lines.push(`- ${item}`)
   }
   lines.push('')
@@ -1125,7 +1186,9 @@ function renderResearchMarkdown(report: {
   lines.push('')
   lines.push('## Candidate Decision Table')
   lines.push('')
-  lines.push('| Candidate | Decision | Mean | Δ̄ | Pr(Δ>0) | q | d | Paired N | Median Gain CI | MDE | Pareto | Gate |')
+  lines.push(
+    '| Candidate | Decision | Mean | Δ̄ | Pr(Δ>0) | q | d | Paired N | Median Gain CI | MDE | Pareto | Gate |',
+  )
   lines.push('|---|---|---:|---:|---:|---:|---:|---:|---|---:|---|---|')
   for (const c of report.candidates) {
     const delta = c.meanDeltaVsComparator === null ? '-' : signed(c.meanDeltaVsComparator)
@@ -1134,7 +1197,9 @@ function renderResearchMarkdown(report: {
     const d = Number.isFinite(c.cohensD) ? c.cohensD.toFixed(3) : '-'
     const gain = c.gainCi ? `[${fmt(c.gainCi.low)}, ${fmt(c.gainCi.high)}]` : '-'
     const mde = c.mde === null || !Number.isFinite(c.mde) ? '-' : fmt(c.mde)
-    lines.push(`| ${c.candidateId} | ${c.decision} | ${fmt(c.mean)} | ${delta} | ${prGt} | ${q} | ${d} | ${c.pairedN} | ${gain} | ${mde} | ${c.onParetoFrontier ? 'yes' : 'no'} | ${c.gate ?? '-'} |`)
+    lines.push(
+      `| ${c.candidateId} | ${c.decision} | ${fmt(c.mean)} | ${delta} | ${prGt} | ${q} | ${d} | ${c.pairedN} | ${gain} | ${mde} | ${c.onParetoFrontier ? 'yes' : 'no'} | ${c.gate ?? '-'} |`,
+    )
   }
   lines.push('')
   lines.push('## Statistical Summary')
@@ -1165,7 +1230,9 @@ function renderResearchMarkdown(report: {
   lines.push('')
   lines.push('## Chart Specs')
   lines.push('')
-  lines.push('The report carries JSON chart specs for Pareto cost/quality and paired gain histograms.')
+  lines.push(
+    'The report carries JSON chart specs for Pareto cost/quality and paired gain histograms.',
+  )
   lines.push('')
   lines.push('```json')
   lines.push(JSON.stringify({ pareto: report.pareto, gains: report.gains }, null, 2))
@@ -1177,7 +1244,9 @@ function renderResearchMarkdown(report: {
     lines.push('| Failure Class | Runs | Scenarios | Tool | Example |')
     lines.push('|---|---:|---:|---|---|')
     for (const c of report.failureClusters.clusters.slice(0, 10)) {
-      lines.push(`| ${c.failureClass} | ${c.runCount} | ${c.scenarioIds.length} | ${c.toolName ?? '-'} | ${escapePipes(c.exampleError ?? c.exampleRunId)} |`)
+      lines.push(
+        `| ${c.failureClass} | ${c.runCount} | ${c.scenarioIds.length} | ${c.toolName ?? '-'} | ${escapePipes(c.exampleError ?? c.exampleRunId)} |`,
+      )
     }
   }
   return lines.join('\n')
@@ -1272,11 +1341,18 @@ function markdownToHtml(markdown: string): string {
 function renderMarkdownTable(lines: string[]): string {
   const rows = lines
     .filter((line) => !/^\|[-:\s|]+\|$/.test(line))
-    .map((line) => line.slice(1, -1).split('|').map((cell) => inlineMarkdown(cell.trim())))
+    .map((line) =>
+      line
+        .slice(1, -1)
+        .split('|')
+        .map((cell) => inlineMarkdown(cell.trim())),
+    )
   if (rows.length === 0) return ''
   const [head, ...body] = rows
   const th = head!.map((cell) => `<th>${cell}</th>`).join('')
-  const trs = body.map((row) => `<tr>${row.map((cell) => `<td>${cell}</td>`).join('')}</tr>`).join('\n')
+  const trs = body
+    .map((row) => `<tr>${row.map((cell) => `<td>${cell}</td>`).join('')}</tr>`)
+    .join('\n')
   return `<table><thead><tr>${th}</tr></thead><tbody>${trs}</tbody></table>`
 }
 

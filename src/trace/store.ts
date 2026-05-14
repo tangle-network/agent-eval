@@ -202,7 +202,7 @@ export class FileSystemTraceStore implements TraceStore {
     await this.ensureDir()
     const fs = await import('node:fs/promises')
     const path = await import('node:path')
-    let active = path.join(this.dir, `${name}.ndjson`)
+    const active = path.join(this.dir, `${name}.ndjson`)
     try {
       const stat = await fs.stat(active)
       if (stat.size >= this.maxBytes) {
@@ -212,7 +212,7 @@ export class FileSystemTraceStore implements TraceStore {
     } catch {
       /* file doesn't exist yet */
     }
-    await fs.appendFile(active, JSON.stringify(record) + '\n', 'utf8')
+    await fs.appendFile(active, `${JSON.stringify(record)}\n`, 'utf8')
     // Mirror genuinely-new rows into the lazy index. Update rows (marked
     // with `_update: true` by updateRun/updateSpan) are applied by those
     // methods directly via the index's update* APIs — re-inserting them
@@ -227,11 +227,21 @@ export class FileSystemTraceStore implements TraceStore {
   private async insertInto(name: string, record: unknown): Promise<void> {
     if (!this.index) return
     switch (name) {
-      case 'runs': await this.index.appendRun(record as Run); break
-      case 'spans': await this.index.appendSpan(record as Span); break
-      case 'events': await this.index.appendEvent(record as TraceEvent); break
-      case 'artifacts': await this.index.appendArtifact(record as Artifact); break
-      case 'budget': await this.index.appendBudgetEntry(record as BudgetLedgerEntry); break
+      case 'runs':
+        await this.index.appendRun(record as Run)
+        break
+      case 'spans':
+        await this.index.appendSpan(record as Span)
+        break
+      case 'events':
+        await this.index.appendEvent(record as TraceEvent)
+        break
+      case 'artifacts':
+        await this.index.appendArtifact(record as Artifact)
+        break
+      case 'budget':
+        await this.index.appendBudgetEntry(record as BudgetLedgerEntry)
+        break
     }
   }
 
@@ -252,7 +262,11 @@ export class FileSystemTraceStore implements TraceStore {
           const record = JSON.parse(line)
           if (base === 'runs') {
             // Allow re-loading without duplicate error
-            try { await store.appendRun(record) } catch { await store.updateRun(record.runId, record) }
+            try {
+              await store.appendRun(record)
+            } catch {
+              await store.updateRun(record.runId, record)
+            }
           } else if (base === 'spans') {
             await store.appendSpan(record)
           } else if (base === 'events') {
@@ -272,26 +286,48 @@ export class FileSystemTraceStore implements TraceStore {
     return store
   }
 
-  async appendRun(run: Run): Promise<void> { await this.append('runs', run) }
+  async appendRun(run: Run): Promise<void> {
+    await this.append('runs', run)
+  }
   async updateRun(runId: string, patch: Partial<Run>): Promise<void> {
     // NDJSON is append-only; record updates as new rows with the same runId —
     // readers collapse by last-write-wins on load.
     await this.append('runs', { runId, ...patch, _update: true })
     if (this.index) await this.index.updateRun(runId, patch)
   }
-  async appendSpan(span: Span): Promise<void> { await this.append('spans', span) }
+  async appendSpan(span: Span): Promise<void> {
+    await this.append('spans', span)
+  }
   async updateSpan(spanId: string, patch: Partial<Span>): Promise<void> {
     await this.append('spans', { spanId, ...patch, _update: true })
     if (this.index) await this.index.updateSpan(spanId, patch)
   }
-  async appendEvent(event: TraceEvent): Promise<void> { await this.append('events', event) }
-  async appendArtifact(artifact: Artifact): Promise<void> { await this.append('artifacts', artifact) }
-  async appendBudgetEntry(entry: BudgetLedgerEntry): Promise<void> { await this.append('budget', entry) }
+  async appendEvent(event: TraceEvent): Promise<void> {
+    await this.append('events', event)
+  }
+  async appendArtifact(artifact: Artifact): Promise<void> {
+    await this.append('artifacts', artifact)
+  }
+  async appendBudgetEntry(entry: BudgetLedgerEntry): Promise<void> {
+    await this.append('budget', entry)
+  }
 
-  async getRun(runId: string): Promise<Run | undefined> { return (await this.load()).getRun(runId) }
-  async listRuns(filter?: RunFilter): Promise<Run[]> { return (await this.load()).listRuns(filter) }
-  async spans(filter?: SpanFilter): Promise<Span[]> { return (await this.load()).spans(filter) }
-  async events(filter?: EventFilter): Promise<TraceEvent[]> { return (await this.load()).events(filter) }
-  async budget(runId: string): Promise<BudgetLedgerEntry[]> { return (await this.load()).budget(runId) }
-  async artifacts(runId: string): Promise<Artifact[]> { return (await this.load()).artifacts(runId) }
+  async getRun(runId: string): Promise<Run | undefined> {
+    return (await this.load()).getRun(runId)
+  }
+  async listRuns(filter?: RunFilter): Promise<Run[]> {
+    return (await this.load()).listRuns(filter)
+  }
+  async spans(filter?: SpanFilter): Promise<Span[]> {
+    return (await this.load()).spans(filter)
+  }
+  async events(filter?: EventFilter): Promise<TraceEvent[]> {
+    return (await this.load()).events(filter)
+  }
+  async budget(runId: string): Promise<BudgetLedgerEntry[]> {
+    return (await this.load()).budget(runId)
+  }
+  async artifacts(runId: string): Promise<Artifact[]> {
+    return (await this.load()).artifacts(runId)
+  }
 }

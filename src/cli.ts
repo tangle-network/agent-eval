@@ -12,9 +12,8 @@
  * stdin payload must be a full {method, params} envelope.
  */
 import { writeFileSync } from 'node:fs'
-
-import { buildOpenApi } from './wire/openapi'
 import { handleVersion } from './wire/handlers'
+import { buildOpenApi } from './wire/openapi'
 import { runRpcBatch, runRpcOnce } from './wire/rpc'
 import { startServer } from './wire/server'
 
@@ -96,20 +95,20 @@ async function main(): Promise<number> {
     case 'openapi': {
       const out = flags.out ?? 'openapi.json'
       const spec = buildOpenApi(handleVersion().version)
-      writeFileSync(out, JSON.stringify(spec, null, 2) + '\n', 'utf-8')
+      writeFileSync(out, `${JSON.stringify(spec, null, 2)}\n`, 'utf-8')
       // eslint-disable-next-line no-console
       console.log(`[agent-eval] wrote OpenAPI 3.1 spec to ${out}`)
       return 0
     }
     case 'version': {
-      process.stdout.write(JSON.stringify(handleVersion(), null, 2) + '\n')
+      process.stdout.write(`${JSON.stringify(handleVersion(), null, 2)}\n`)
       return 0
     }
     case 'help':
     case '--help':
     case '-h':
     case '':
-      process.stdout.write(HELP + '\n')
+      process.stdout.write(`${HELP}\n`)
       return 0
     default:
       process.stderr.write(`unknown command: ${command}\n${HELP}\n`)

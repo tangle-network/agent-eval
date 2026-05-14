@@ -8,9 +8,9 @@
  * For the conceptual overview, see `docs/wire-protocol.md`.
  */
 
-export * from './schemas'
 export * from './handlers'
-export { BUILTIN_RUBRICS, getBuiltinRubric, listBuiltinRubrics } from './rubrics'
 export { buildOpenApi } from './openapi'
-export { createApp, startServer, type ServeOptions } from './server'
-export { dispatchRpc, runRpcOnce, runRpcBatch } from './rpc'
+export { dispatchRpc, runRpcBatch, runRpcOnce } from './rpc'
+export { BUILTIN_RUBRICS, getBuiltinRubric, listBuiltinRubrics } from './rubrics'
+export * from './schemas'
+export { createApp, type ServeOptions, startServer } from './server'

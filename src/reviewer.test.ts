@@ -1,13 +1,25 @@
-import { describe, it, expect, vi } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { buildReviewerPrompt, createDefaultReviewer } from './reviewer'
 
 const BASE_INPUT = {
   shot: 2,
   userRequest: 'build an NFT mint page with supply counter, mint button',
   traceSummary: 'tool calls: {Write: 3, Edit: 2}, errors: none',
-  verification: { blendedScore: 0.5, allPass: false, failCount: 2, failingLayers: ['typecheck', 'semantic'] },
+  verification: {
+    blendedScore: 0.5,
+    allPass: false,
+    failCount: 2,
+    failingLayers: ['typecheck', 'semantic'],
+  },
   memory: [
-    { shot: 1, confidence: 0.85, shouldContinue: true, observations: 'worker wrote App.tsx', diagnosis: 'wagmi imports wrong', nextShotInstruction: 'fix imports' },
+    {
+      shot: 1,
+      confidence: 0.85,
+      shouldContinue: true,
+      observations: 'worker wrote App.tsx',
+      diagnosis: 'wagmi imports wrong',
+      nextShotInstruction: 'fix imports',
+    },
   ],
 }
 
@@ -52,7 +64,10 @@ describe('buildReviewerPrompt', () => {
   })
 
   it('trailingContext renders at the end when provided', () => {
-    const { user } = buildReviewerPrompt({ ...BASE_INPUT, trailingContext: 'leaf_id: nft-mint-page' })
+    const { user } = buildReviewerPrompt({
+      ...BASE_INPUT,
+      trailingContext: 'leaf_id: nft-mint-page',
+    })
     expect(user).toMatch(/TRAILING CONTEXT[\s\S]+leaf_id: nft-mint-page/)
   })
 })
@@ -63,7 +78,9 @@ describe('createDefaultReviewer', () => {
     return (async () => {
       const r = responses[Math.min(i++, responses.length - 1)]!
       if ('status' in r && 'body' in r) {
-        return new Response((r as { body: string }).body, { status: (r as { status: number }).status })
+        return new Response((r as { body: string }).body, {
+          status: (r as { status: number }).status,
+        })
       }
       return new Response(
         JSON.stringify({
@@ -82,7 +99,8 @@ describe('createDefaultReviewer', () => {
       {
         observations: 'worker wrote 3 files via Edit, no errors logged, build failed on typecheck.',
         diagnosis: 'wagmi v2 API misuse — useAccount from wrong import path, ts will not compile.',
-        nextShotInstruction: 'FIX THESE: 1) change `import { useAccount } from "wagmi/core"` to `from "wagmi"` in src/App.tsx',
+        nextShotInstruction:
+          'FIX THESE: 1) change `import { useAccount } from "wagmi/core"` to `from "wagmi"` in src/App.tsx',
         shouldContinue: true,
         confidence: 0.85,
       },
@@ -99,7 +117,13 @@ describe('createDefaultReviewer', () => {
 
   it('clamps confidence to [0, 1]', async () => {
     const fetch = mockFetch([
-      { observations: 'x'.repeat(30), diagnosis: 'y'.repeat(30), nextShotInstruction: 'z'.repeat(50), shouldContinue: false, confidence: 1.5 },
+      {
+        observations: 'x'.repeat(30),
+        diagnosis: 'y'.repeat(30),
+        nextShotInstruction: 'z'.repeat(50),
+        shouldContinue: false,
+        confidence: 1.5,
+      },
     ])
     const r = await createDefaultReviewer({ model: 'm', llm: { fetch } })(BASE_INPUT)
     expect(r.confidence).toBe(1)
@@ -130,14 +154,28 @@ describe('createDefaultReviewer', () => {
   })
 
   it('custom promptBuilder is used instead of default', async () => {
-    const fetch = vi.fn(async () =>
-      new Response(
-        JSON.stringify({
-          choices: [{ message: { content: '{"observations":"' + 'o'.repeat(25) + '","diagnosis":"' + 'd'.repeat(25) + '","nextShotInstruction":"' + 'i'.repeat(50) + '","shouldContinue":false,"confidence":0.5}' } }],
-          usage: {},
-        }),
-        { status: 200 },
-      ),
+    const fetch = vi.fn(
+      async () =>
+        new Response(
+          JSON.stringify({
+            choices: [
+              {
+                message: {
+                  content:
+                    '{"observations":"' +
+                    'o'.repeat(25) +
+                    '","diagnosis":"' +
+                    'd'.repeat(25) +
+                    '","nextShotInstruction":"' +
+                    'i'.repeat(50) +
+                    '","shouldContinue":false,"confidence":0.5}',
+                },
+              },
+            ],
+            usage: {},
+          }),
+          { status: 200 },
+        ),
     ) as unknown as typeof globalThis.fetch
     const custom = vi.fn((_: unknown) => ({ system: 'CUSTOM-SYS', user: 'CUSTOM-USER' }))
     const reviewer = createDefaultReviewer({
@@ -147,7 +185,10 @@ describe('createDefaultReviewer', () => {
     })
     await reviewer(BASE_INPUT)
     expect(custom).toHaveBeenCalledOnce()
-    const call = (fetch as unknown as ReturnType<typeof vi.fn>).mock.calls[0]! as unknown as [string, RequestInit]
+    const call = (fetch as unknown as ReturnType<typeof vi.fn>).mock.calls[0]! as unknown as [
+      string,
+      RequestInit,
+    ]
     const body = JSON.parse(call[1].body as string)
     expect(body.messages[0].content).toBe('CUSTOM-SYS')
     expect(body.messages[1].content).toBe('CUSTOM-USER')

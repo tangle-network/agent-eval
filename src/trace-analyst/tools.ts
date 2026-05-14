@@ -18,8 +18,8 @@
  * the next turn instead of looping.
  */
 
-import { f, fn } from '@ax-llm/ax'
 import type { AxFunction } from '@ax-llm/ax'
+import { f, fn } from '@ax-llm/ax'
 
 import type { TraceAnalysisStore } from './store'
 import type { TraceAnalystFilters } from './types'
@@ -96,7 +96,9 @@ export function buildTraceAnalystTools(opts: BuildTraceAnalystToolsOpts): AxFunc
     .namespace(NAMESPACE)
     .arg('trace_id', f.string('Real trace id from a prior overview/query'))
     .returns(f.json('ViewTraceResult'))
-    .handler(async ({ trace_id }) => store.viewTrace({ trace_id: assertString(trace_id, 'trace_id') }))
+    .handler(async ({ trace_id }) =>
+      store.viewTrace({ trace_id: assertString(trace_id, 'trace_id') }),
+    )
     .build()
 
   const viewSpans = fn('viewSpans')

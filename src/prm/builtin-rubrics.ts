@@ -9,7 +9,9 @@ import type { LlmSpan, ToolSpan } from '../trace/schema'
 import type { StepRubric } from './rubric'
 
 /** Penalize very short or very long assistant outputs. */
-export function outputLengthRubric(args: { minChars?: number; maxChars?: number; weight?: number } = {}): StepRubric {
+export function outputLengthRubric(
+  args: { minChars?: number; maxChars?: number; weight?: number } = {},
+): StepRubric {
   const min = args.minChars ?? 20
   const max = args.maxChars ?? 8000
   return {
@@ -20,8 +22,13 @@ export function outputLengthRubric(args: { minChars?: number; maxChars?: number;
       const llm = step.span as LlmSpan
       const len = (llm.output ?? '').length
       if (len === 0) return { score: 0, rationale: 'empty output' }
-      if (len < min) return { score: Math.max(0, len / min), rationale: `below min (${len} < ${min})` }
-      if (len > max) return { score: Math.max(0, 1 - (len - max) / max), rationale: `above max (${len} > ${max})` }
+      if (len < min)
+        return { score: Math.max(0, len / min), rationale: `below min (${len} < ${min})` }
+      if (len > max)
+        return {
+          score: Math.max(0, 1 - (len - max) / max),
+          rationale: `above max (${len} > ${max})`,
+        }
       return { score: 1, rationale: `${len} chars in bounds` }
     },
   }
@@ -35,7 +42,8 @@ export function toolSuccessRubric(args: { weight?: number } = {}): StepRubric {
     weight: args.weight ?? 1,
     async grade({ step }) {
       const tool = step.span as ToolSpan
-      if (tool.status === 'error') return { score: 0, rationale: `error: ${tool.error ?? 'unknown'}` }
+      if (tool.status === 'error')
+        return { score: 0, rationale: `error: ${tool.error ?? 'unknown'}` }
       const r = tool.result
       if (r === null || r === undefined) return { score: 0.3, rationale: 'empty result' }
       const asText = typeof r === 'string' ? r : JSON.stringify(r)
@@ -57,10 +65,15 @@ export function toolNonRedundantRubric(args: { weight?: number } = {}): StepRubr
       const priorMatches = prior.filter((p) => {
         if (p.span.kind !== 'tool') return false
         const pt = p.span as ToolSpan
-        return pt.toolName === tool.toolName && stableStringify(pt.args) === stableStringify(tool.args)
+        return (
+          pt.toolName === tool.toolName && stableStringify(pt.args) === stableStringify(tool.args)
+        )
       })
       if (priorMatches.length === 0) return { score: 1, rationale: 'novel call' }
-      return { score: Math.max(0, 1 - priorMatches.length * 0.5), rationale: `${priorMatches.length} duplicate(s)` }
+      return {
+        score: Math.max(0, 1 - priorMatches.length * 0.5),
+        rationale: `${priorMatches.length} duplicate(s)`,
+      }
     },
   }
 }

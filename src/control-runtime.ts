@@ -10,7 +10,7 @@
  * are all just actions chosen by the control policy.
  */
 
-import { TraceEmitter, type SpanHandle } from './trace/emitter'
+import { type SpanHandle, TraceEmitter } from './trace/emitter'
 import type { FailureClass } from './trace/schema'
 import type { TraceStore } from './trace/store'
 
@@ -61,7 +61,12 @@ export interface ControlStopPolicies<TState, TAction> {
   actionFingerprint?: (action: TAction) => string
 }
 
-export interface ControlContext<TState, TAction, TActionResult, TEval extends ControlEvalResult = ControlEvalResult> {
+export interface ControlContext<
+  TState,
+  TAction,
+  TActionResult,
+  TEval extends ControlEvalResult = ControlEvalResult,
+> {
   intent: string
   state: TState
   evals: TEval[]
@@ -77,16 +82,16 @@ export interface ControlContext<TState, TAction, TActionResult, TEval extends Co
 
 export type ControlDecision<TAction> =
   | {
-    type: 'continue'
-    action: TAction
-    reason?: string
-  }
+      type: 'continue'
+      action: TAction
+      reason?: string
+    }
   | {
-    type: 'stop'
-    reason: string
-    pass?: boolean
-    score?: number
-  }
+      type: 'stop'
+      reason: string
+      pass?: boolean
+      score?: number
+    }
 
 export interface StopDecision {
   stop: boolean
@@ -110,7 +115,12 @@ export interface ControlRuntimeError {
   message: string
 }
 
-export interface ControlStep<TState, TAction, TActionResult, TEval extends ControlEvalResult = ControlEvalResult> {
+export interface ControlStep<
+  TState,
+  TAction,
+  TActionResult,
+  TEval extends ControlEvalResult = ControlEvalResult,
+> {
   index: number
   decision: ControlDecision<TAction>
   beforeState: TState
@@ -122,7 +132,12 @@ export interface ControlStep<TState, TAction, TActionResult, TEval extends Contr
   endedAt: string
 }
 
-export interface ControlRunResult<TState, TAction, TActionResult, TEval extends ControlEvalResult = ControlEvalResult> {
+export interface ControlRunResult<
+  TState,
+  TAction,
+  TActionResult,
+  TEval extends ControlEvalResult = ControlEvalResult,
+> {
   intent: string
   pass: boolean
   completed: boolean
@@ -139,7 +154,12 @@ export interface ControlRunResult<TState, TAction, TActionResult, TEval extends 
   stoppedBy: 'policy' | 'stop-policy' | 'budget' | 'abort' | 'runtime-error'
 }
 
-export interface ControlRuntimeConfig<TState, TAction, TActionResult, TEval extends ControlEvalResult = ControlEvalResult> {
+export interface ControlRuntimeConfig<
+  TState,
+  TAction,
+  TActionResult,
+  TEval extends ControlEvalResult = ControlEvalResult,
+> {
   intent: string
   budget?: Partial<ControlBudget>
   signal?: AbortSignal
@@ -172,13 +192,20 @@ export interface ControlRuntimeConfig<TState, TAction, TActionResult, TEval exte
   }) => Promise<TEval[]> | TEval[]
 
   /** Choose the next control action. Can call a worker, ask user, run critic, inspect state, or stop. */
-  decide: (ctx: ControlContext<TState, TAction, TActionResult, TEval>) => Promise<ControlDecision<TAction>> | ControlDecision<TAction>
+  decide: (
+    ctx: ControlContext<TState, TAction, TActionResult, TEval>,
+  ) => Promise<ControlDecision<TAction>> | ControlDecision<TAction>
 
   /** Execute the action selected by the policy. */
-  act: (action: TAction, ctx: ControlContext<TState, TAction, TActionResult, TEval>) => Promise<TActionResult> | TActionResult
+  act: (
+    action: TAction,
+    ctx: ControlContext<TState, TAction, TActionResult, TEval>,
+  ) => Promise<TActionResult> | TActionResult
 
   /** Final stopping policy. Called before decide and after each action. */
-  shouldStop?: (ctx: ControlContext<TState, TAction, TActionResult, TEval>) => Promise<StopDecision> | StopDecision
+  shouldStop?: (
+    ctx: ControlContext<TState, TAction, TActionResult, TEval>,
+  ) => Promise<StopDecision> | StopDecision
 
   /** Optional hook for tracing or live progress updates. */
   onStep?: (step: ControlStep<TState, TAction, TActionResult, TEval>) => Promise<void> | void
@@ -198,7 +225,12 @@ const DEFAULT_BUDGET: ControlBudget = {
   maxWallMs: 5 * 60 * 1000,
 }
 
-export async function runAgentControlLoop<TState, TAction, TActionResult, TEval extends ControlEvalResult = ControlEvalResult>(
+export async function runAgentControlLoop<
+  TState,
+  TAction,
+  TActionResult,
+  TEval extends ControlEvalResult = ControlEvalResult,
+>(
   config: ControlRuntimeConfig<TState, TAction, TActionResult, TEval>,
 ): Promise<ControlRunResult<TState, TAction, TActionResult, TEval>> {
   const budget = normalizeBudget(config.budget)
@@ -212,7 +244,10 @@ export async function runAgentControlLoop<TState, TAction, TActionResult, TEval 
 
   const started = Date.now()
   const wallTimer = budget.maxWallMs
-    ? setTimeout(() => controller.abort(new Error('control runtime wall timeout')), budget.maxWallMs)
+    ? setTimeout(
+        () => controller.abort(new Error('control runtime wall timeout')),
+        budget.maxWallMs,
+      )
     : undefined
   const history: ControlStep<TState, TAction, TActionResult, TEval>[] = []
   const emitter = config.store ? new TraceEmitter(config.store) : undefined
@@ -225,17 +260,19 @@ export async function runAgentControlLoop<TState, TAction, TActionResult, TEval 
 
   try {
     if (emitter) {
-      await runTrace(runtimeErrors, 0, () => emitter.startRun({
-        scenarioId: config.scenarioId ?? 'agent-control-loop',
-        projectId: config.projectId,
-        variantId: config.variantId,
-        layer: 'meta',
-        tags: {
-          intent: config.intent.slice(0, 120),
-          maxSteps: String(budget.maxSteps),
-          ...(budget.maxCostUsd !== undefined ? { maxCostUsd: String(budget.maxCostUsd) } : {}),
-        },
-      }))
+      await runTrace(runtimeErrors, 0, () =>
+        emitter.startRun({
+          scenarioId: config.scenarioId ?? 'agent-control-loop',
+          projectId: config.projectId,
+          variantId: config.variantId,
+          layer: 'meta',
+          tags: {
+            intent: config.intent.slice(0, 120),
+            maxSteps: String(budget.maxSteps),
+            ...(budget.maxCostUsd !== undefined ? { maxCostUsd: String(budget.maxCostUsd) } : {}),
+          },
+        }),
+      )
     }
 
     let state: TState
@@ -262,7 +299,12 @@ export async function runAgentControlLoop<TState, TAction, TActionResult, TEval 
       })
     }
     try {
-      evals = await config.validate({ intent: config.intent, state, history, abortSignal: controller.signal })
+      evals = await config.validate({
+        intent: config.intent,
+        state,
+        history,
+        abortSignal: controller.signal,
+      })
       await recordEvalSpans(emitter, evals, 'initial', runtimeErrors, 0)
     } catch (err) {
       const error = runtimeError('validate', 0, err)
@@ -325,7 +367,18 @@ export async function runAgentControlLoop<TState, TAction, TActionResult, TEval 
         })
       }
 
-      const ctx = makeContext(config.intent, state, evals, history, budget, stepIndex, started, spentCostUsd, controller.signal, emitter)
+      const ctx = makeContext(
+        config.intent,
+        state,
+        evals,
+        history,
+        budget,
+        stepIndex,
+        started,
+        spentCostUsd,
+        controller.signal,
+        emitter,
+      )
       let stop: StopDecision
       try {
         stop = config.shouldStop ? await config.shouldStop(ctx) : defaultStopDecision(evals)
@@ -409,9 +462,13 @@ export async function runAgentControlLoop<TState, TAction, TActionResult, TEval 
       }
 
       const actionFingerprint = fingerprintAction(decision.action, config.stopPolicies)
-      repeatedActionStreak = actionFingerprint === lastActionFingerprint ? repeatedActionStreak + 1 : 1
+      repeatedActionStreak =
+        actionFingerprint === lastActionFingerprint ? repeatedActionStreak + 1 : 1
       lastActionFingerprint = actionFingerprint
-      const repeatedActionStop = repeatedActionStopDecision(config.stopPolicies, repeatedActionStreak)
+      const repeatedActionStop = repeatedActionStopDecision(
+        config.stopPolicies,
+        repeatedActionStreak,
+      )
       if (repeatedActionStop.stop) {
         return finish(emitter, {
           intent: config.intent,
@@ -436,15 +493,17 @@ export async function runAgentControlLoop<TState, TAction, TActionResult, TEval 
       const scoreBefore = averageScore(evals)
       const actionStarted = Date.now()
       const stepHandle = emitter
-        ? await runTrace(runtimeErrors, stepIndex, () => emitter.tool({
-            name: `control-step-${stepIndex}`,
-            toolName: 'agent-control-action',
-            args: decision.action,
-            attributes: {
-              decision: decision.reason ?? 'continue',
-              repeatedActionStreak,
-            },
-          }))
+        ? await runTrace(runtimeErrors, stepIndex, () =>
+            emitter.tool({
+              name: `control-step-${stepIndex}`,
+              toolName: 'agent-control-action',
+              args: decision.action,
+              attributes: {
+                decision: decision.reason ?? 'continue',
+                repeatedActionStreak,
+              },
+            }),
+          )
         : undefined
       let actionOutcome: ControlActionOutcome<TActionResult>
       try {
@@ -459,7 +518,14 @@ export async function runAgentControlLoop<TState, TAction, TActionResult, TEval 
         const costUsd = normalizeActionCostUsd(rawCostUsd, runtimeErrors, stepIndex)
         if (costUsd !== undefined && Number.isFinite(costUsd) && costUsd > 0) {
           spentCostUsd += costUsd
-          await recordCostBudget(emitter, budget, spentCostUsd, stepHandle, runtimeErrors, stepIndex)
+          await recordCostBudget(
+            emitter,
+            budget,
+            spentCostUsd,
+            stepHandle,
+            runtimeErrors,
+            stepIndex,
+          )
         }
         actionOutcome = {
           ok: true,
@@ -475,7 +541,9 @@ export async function runAgentControlLoop<TState, TAction, TActionResult, TEval 
           durationMs: Date.now() - actionStarted,
         }
         if (actionFailure === 'stop') {
-          await runTrace(runtimeErrors, stepIndex, () => stepHandle?.fail(actionOutcome.error ?? 'action failed'))
+          await runTrace(runtimeErrors, stepIndex, () =>
+            stepHandle?.fail(actionOutcome.error ?? 'action failed'),
+          )
           const step: ControlStep<TState, TAction, TActionResult, TEval> = {
             index: stepIndex,
             decision,
@@ -524,7 +592,9 @@ export async function runAgentControlLoop<TState, TAction, TActionResult, TEval 
           endedAt: new Date().toISOString(),
         }
         history.push(step)
-        await runTrace(runtimeErrors, stepIndex, () => stepHandle?.fail(runtimeErrors[runtimeErrors.length - 1].message))
+        await runTrace(runtimeErrors, stepIndex, () =>
+          stepHandle?.fail(runtimeErrors[runtimeErrors.length - 1].message),
+        )
         await runOnStep(config.onStep, step, runtimeErrors)
         return finish(emitter, {
           intent: config.intent,
@@ -544,8 +614,20 @@ export async function runAgentControlLoop<TState, TAction, TActionResult, TEval 
         })
       }
       try {
-        evals = await config.validate({ intent: config.intent, state, history, abortSignal: controller.signal })
-        await recordEvalSpans(emitter, evals, `step-${stepIndex}`, runtimeErrors, stepIndex, stepHandle?.span.spanId)
+        evals = await config.validate({
+          intent: config.intent,
+          state,
+          history,
+          abortSignal: controller.signal,
+        })
+        await recordEvalSpans(
+          emitter,
+          evals,
+          `step-${stepIndex}`,
+          runtimeErrors,
+          stepIndex,
+          stepHandle?.span.spanId,
+        )
       } catch (err) {
         runtimeErrors.push(runtimeError('validate', stepIndex, err))
         const step: ControlStep<TState, TAction, TActionResult, TEval> = {
@@ -560,7 +642,9 @@ export async function runAgentControlLoop<TState, TAction, TActionResult, TEval 
           endedAt: new Date().toISOString(),
         }
         history.push(step)
-        await runTrace(runtimeErrors, stepIndex, () => stepHandle?.fail(runtimeErrors[runtimeErrors.length - 1].message))
+        await runTrace(runtimeErrors, stepIndex, () =>
+          stepHandle?.fail(runtimeErrors[runtimeErrors.length - 1].message),
+        )
         await runOnStep(config.onStep, step, runtimeErrors)
         return finish(emitter, {
           intent: config.intent,
@@ -605,22 +689,26 @@ export async function runAgentControlLoop<TState, TAction, TActionResult, TEval 
       }
       history.push(step)
       if (actionOutcome.ok) {
-        await runTrace(runtimeErrors, stepIndex, () => stepHandle?.end({
-          attributes: {
-            actionCostUsd: actionOutcome.costUsd ?? null,
-            spentCostUsd,
-            scoreBefore: scoreBefore ?? null,
-            scoreAfter: scoreAfter ?? null,
-            noProgressStreak,
-          },
-        }))
+        await runTrace(runtimeErrors, stepIndex, () =>
+          stepHandle?.end({
+            attributes: {
+              actionCostUsd: actionOutcome.costUsd ?? null,
+              spentCostUsd,
+              scoreBefore: scoreBefore ?? null,
+              scoreAfter: scoreAfter ?? null,
+              noProgressStreak,
+            },
+          }),
+        )
       } else {
-        await runTrace(runtimeErrors, stepIndex, () => stepHandle?.fail(actionOutcome.error ?? 'action failed', {
-          attributes: {
-            spentCostUsd,
-            noProgressStreak,
-          },
-        }))
+        await runTrace(runtimeErrors, stepIndex, () =>
+          stepHandle?.fail(actionOutcome.error ?? 'action failed', {
+            attributes: {
+              spentCostUsd,
+              noProgressStreak,
+            },
+          }),
+        )
       }
       await runOnStep(config.onStep, step, runtimeErrors)
 
@@ -663,10 +751,23 @@ export async function runAgentControlLoop<TState, TAction, TActionResult, TEval 
         })
       }
 
-      const postStepCtx = makeContext(config.intent, state, evals, history, budget, stepIndex + 1, started, spentCostUsd, controller.signal, emitter)
+      const postStepCtx = makeContext(
+        config.intent,
+        state,
+        evals,
+        history,
+        budget,
+        stepIndex + 1,
+        started,
+        spentCostUsd,
+        controller.signal,
+        emitter,
+      )
       let postStepStop: StopDecision
       try {
-        postStepStop = config.shouldStop ? await config.shouldStop(postStepCtx) : defaultStopDecision(evals)
+        postStepStop = config.shouldStop
+          ? await config.shouldStop(postStepCtx)
+          : defaultStopDecision(evals)
       } catch (err) {
         runtimeErrors.push(runtimeError('stop-policy', stepIndex + 1, err))
         return finish(emitter, {
@@ -744,11 +845,17 @@ export async function runAgentControlLoop<TState, TAction, TActionResult, TEval 
   }
 }
 
-export function stopOnNoProgress<TState, TAction>(maxNoProgressSteps: number, options: Omit<ControlStopPolicies<TState, TAction>, 'maxNoProgressSteps'> = {}): ControlStopPolicies<TState, TAction> {
+export function stopOnNoProgress<TState, TAction>(
+  maxNoProgressSteps: number,
+  options: Omit<ControlStopPolicies<TState, TAction>, 'maxNoProgressSteps'> = {},
+): ControlStopPolicies<TState, TAction> {
   return { ...options, maxNoProgressSteps }
 }
 
-export function stopOnRepeatedAction<TState, TAction>(maxRepeatedActions: number, options: Omit<ControlStopPolicies<TState, TAction>, 'maxRepeatedActions'> = {}): ControlStopPolicies<TState, TAction> {
+export function stopOnRepeatedAction<TState, TAction>(
+  maxRepeatedActions: number,
+  options: Omit<ControlStopPolicies<TState, TAction>, 'maxRepeatedActions'> = {},
+): ControlStopPolicies<TState, TAction> {
   return { ...options, maxRepeatedActions }
 }
 
@@ -763,18 +870,32 @@ export function subjectiveEval(input: Omit<ControlEvalResult, 'objective'>): Con
 function normalizeBudget(input: Partial<ControlBudget> | undefined): ControlBudget {
   const raw = { ...DEFAULT_BUDGET, ...input } as Record<string, unknown>
   if (!Number.isInteger(raw.maxSteps) || (raw.maxSteps as number) < 1) {
-    throw new RangeError(`ControlRuntime budget.maxSteps must be an integer >= 1, got ${String(raw.maxSteps)}`)
+    throw new RangeError(
+      `ControlRuntime budget.maxSteps must be an integer >= 1, got ${String(raw.maxSteps)}`,
+    )
   }
   const budget: ControlBudget = { maxSteps: raw.maxSteps as number }
   if (raw.maxWallMs !== undefined) {
-    if (typeof raw.maxWallMs !== 'number' || !Number.isFinite(raw.maxWallMs) || raw.maxWallMs <= 0) {
-      throw new RangeError(`ControlRuntime budget.maxWallMs must be a positive finite number, got ${String(raw.maxWallMs)}`)
+    if (
+      typeof raw.maxWallMs !== 'number' ||
+      !Number.isFinite(raw.maxWallMs) ||
+      raw.maxWallMs <= 0
+    ) {
+      throw new RangeError(
+        `ControlRuntime budget.maxWallMs must be a positive finite number, got ${String(raw.maxWallMs)}`,
+      )
     }
     budget.maxWallMs = raw.maxWallMs
   }
   if (raw.maxCostUsd !== undefined) {
-    if (typeof raw.maxCostUsd !== 'number' || !Number.isFinite(raw.maxCostUsd) || raw.maxCostUsd < 0) {
-      throw new RangeError(`ControlRuntime budget.maxCostUsd must be a nonnegative finite number, got ${String(raw.maxCostUsd)}`)
+    if (
+      typeof raw.maxCostUsd !== 'number' ||
+      !Number.isFinite(raw.maxCostUsd) ||
+      raw.maxCostUsd < 0
+    ) {
+      throw new RangeError(
+        `ControlRuntime budget.maxCostUsd must be a nonnegative finite number, got ${String(raw.maxCostUsd)}`,
+      )
     }
     budget.maxCostUsd = raw.maxCostUsd
   }
@@ -788,14 +909,18 @@ function normalizeActionCostUsd(
 ): number | undefined {
   if (costUsd === undefined) return undefined
   if (!Number.isFinite(costUsd) || costUsd < 0) {
-    runtimeErrors.push(runtimeError('act', stepIndex, new Error(`invalid action costUsd: ${String(costUsd)}`)))
+    runtimeErrors.push(
+      runtimeError('act', stepIndex, new Error(`invalid action costUsd: ${String(costUsd)}`)),
+    )
     return undefined
   }
   return costUsd
 }
 
 export function allCriticalPassed(evals: ControlEvalResult[]): boolean {
-  return evals.every((result) => result.passed || (result.severity !== 'critical' && result.severity !== 'error'))
+  return evals.every(
+    (result) => result.passed || (result.severity !== 'critical' && result.severity !== 'error'),
+  )
 }
 
 function makeContext<TState, TAction, TActionResult, TEval extends ControlEvalResult>(
@@ -819,7 +944,8 @@ function makeContext<TState, TAction, TActionResult, TEval extends ControlEvalRe
     stepIndex,
     wallMs: Date.now() - started,
     spentCostUsd,
-    remainingCostUsd: budget.maxCostUsd === undefined ? undefined : Math.max(0, budget.maxCostUsd - spentCostUsd),
+    remainingCostUsd:
+      budget.maxCostUsd === undefined ? undefined : Math.max(0, budget.maxCostUsd - spentCostUsd),
     abortSignal,
     emitter,
   }
@@ -830,16 +956,26 @@ function defaultStopDecision(evals: ControlEvalResult[]): StopDecision {
   const pass = allCriticalPassed(evals)
   return pass
     ? { stop: true, pass: true, reason: 'all critical evals passed', score: averageScore(evals) }
-    : { stop: false, pass: false, reason: 'critical evals still failing', score: averageScore(evals) }
+    : {
+        stop: false,
+        pass: false,
+        reason: 'critical evals still failing',
+        score: averageScore(evals),
+      }
 }
 
 function averageScore(evals: ControlEvalResult[]): number | undefined {
-  const scored = evals.map((result) => result.score).filter((score): score is number => typeof score === 'number')
+  const scored = evals
+    .map((result) => result.score)
+    .filter((score): score is number => typeof score === 'number')
   if (!scored.length) return undefined
   return Math.round((scored.reduce((sum, score) => sum + score, 0) / scored.length) * 1000) / 1000
 }
 
-function budgetStopDecision(budget: ControlBudget, spentCostUsd: number): { stop: boolean; reason: string } {
+function budgetStopDecision(
+  budget: ControlBudget,
+  spentCostUsd: number,
+): { stop: boolean; reason: string } {
   if (budget.maxCostUsd !== undefined && spentCostUsd >= budget.maxCostUsd) {
     return {
       stop: true,
@@ -859,14 +995,16 @@ async function recordCostBudget(
 ): Promise<void> {
   if (!emitter || budget.maxCostUsd === undefined) return
   const maxCostUsd = budget.maxCostUsd
-  await runTrace(runtimeErrors, stepIndex, () => emitter.recordBudget({
-    dimension: 'usd',
-    limit: maxCostUsd,
-    consumed: spentCostUsd,
-    remaining: Math.max(0, maxCostUsd - spentCostUsd),
-    breached: spentCostUsd >= maxCostUsd,
-    spanId: handle?.span.spanId,
-  }))
+  await runTrace(runtimeErrors, stepIndex, () =>
+    emitter.recordBudget({
+      dimension: 'usd',
+      limit: maxCostUsd,
+      consumed: spentCostUsd,
+      remaining: Math.max(0, maxCostUsd - spentCostUsd),
+      breached: spentCostUsd >= maxCostUsd,
+      spanId: handle?.span.spanId,
+    }),
+  )
 }
 
 async function recordEvalSpans(
@@ -879,21 +1017,23 @@ async function recordEvalSpans(
 ): Promise<void> {
   if (!emitter) return
   for (const result of evals) {
-    await runTrace(runtimeErrors, stepIndex, () => emitter.recordJudge({
-      judgeId: result.objective ? 'objective-validator' : 'subjective-judge',
-      targetSpanId: targetSpanId ?? emitter.runId,
-      name: `control-eval/${result.id}`,
-      dimension: result.id,
-      score: typeof result.score === 'number' ? result.score : result.passed ? 1 : 0,
-      rationale: result.detail,
-      evidence: result.evidence,
-      attributes: {
-        phase,
-        passed: result.passed,
-        severity: result.severity,
-        objective: result.objective,
-      },
-    }))
+    await runTrace(runtimeErrors, stepIndex, () =>
+      emitter.recordJudge({
+        judgeId: result.objective ? 'objective-validator' : 'subjective-judge',
+        targetSpanId: targetSpanId ?? emitter.runId,
+        name: `control-eval/${result.id}`,
+        dimension: result.id,
+        score: typeof result.score === 'number' ? result.score : result.passed ? 1 : 0,
+        rationale: result.detail,
+        evidence: result.evidence,
+        attributes: {
+          phase,
+          passed: result.passed,
+          severity: result.severity,
+          objective: result.objective,
+        },
+      }),
+    )
   }
 }
 
@@ -935,8 +1075,8 @@ function noProgressStopDecision<TState, TAction>(args: {
   if (!max || max <= 0) return { stop: false, reason: '', streak: 0 }
   const minScoreDelta = args.policies?.minScoreDelta ?? 0.001
   const scoreDelta = Math.abs((args.scoreAfter ?? 0) - (args.scoreBefore ?? 0))
-  const stateUnchanged = args.lastStateFingerprint !== undefined
-    && args.lastStateFingerprint === args.stateFingerprint
+  const stateUnchanged =
+    args.lastStateFingerprint !== undefined && args.lastStateFingerprint === args.stateFingerprint
   const scoreFlat = scoreDelta < minScoreDelta
   const streak = stateUnchanged && scoreFlat ? args.currentStreak + 1 : 0
   return streak >= max
@@ -999,7 +1139,11 @@ function abortReason(signal: AbortSignal): string {
   return reason ? String(reason) : 'aborted'
 }
 
-function runtimeError(phase: ControlRuntimeError['phase'], stepIndex: number, err: unknown): ControlRuntimeError {
+function runtimeError(
+  phase: ControlRuntimeError['phase'],
+  stepIndex: number,
+  err: unknown,
+): ControlRuntimeError {
   const message = err instanceof Error ? err.message : String(err)
   return { phase, stepIndex, message }
 }
@@ -1008,11 +1152,13 @@ async function finish<TState, TAction, TActionResult, TEval extends ControlEvalR
   emitter: TraceEmitter | undefined,
   result: ControlRunResult<TState, TAction, TActionResult, TEval>,
 ): Promise<ControlRunResult<TState, TAction, TActionResult, TEval>> {
-  await runTrace(result.runtimeErrors, result.steps.length, () => emitter?.endRun({
-    pass: result.pass,
-    score: result.score ?? averageScore(result.finalEvals),
-    failureClass: result.failureClass,
-    notes: result.reason,
-  }))
+  await runTrace(result.runtimeErrors, result.steps.length, () =>
+    emitter?.endRun({
+      pass: result.pass,
+      score: result.score ?? averageScore(result.finalEvals),
+      failureClass: result.failureClass,
+      notes: result.reason,
+    }),
+  )
   return result
 }

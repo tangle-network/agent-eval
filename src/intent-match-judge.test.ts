@@ -8,7 +8,9 @@ function mockFetch(bodies: Array<object | { status: number; body: string }>) {
     const spec = bodies[Math.min(call, bodies.length - 1)]!
     call++
     if ('status' in spec && 'body' in spec) {
-      return new Response((spec as { body: string }).body, { status: (spec as { status: number }).status })
+      return new Response((spec as { body: string }).body, {
+        status: (spec as { status: number }).status,
+      })
     }
     return new Response(
       JSON.stringify({

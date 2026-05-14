@@ -10,7 +10,7 @@
  * outcome) otherwise.
  */
 
-import type { Span, JudgeSpan } from './trace/schema'
+import type { JudgeSpan, Span } from './trace/schema'
 import { isJudgeSpan } from './trace/schema'
 import type { TraceStore } from './trace/store'
 import { buildTrajectory, type TrajectoryStep } from './trajectory'
@@ -67,13 +67,16 @@ export async function crossTraceDiff(
   const prmByTargetA = indexPrmByTarget(judgesA)
   const prmByTargetB = indexPrmByTarget(judgesB)
 
-  const attributions: StepAttribution[] = alignment.map((ao) => attributeStep(ao, prmByTargetA, prmByTargetB))
+  const attributions: StepAttribution[] = alignment.map((ao) =>
+    attributeStep(ao, prmByTargetA, prmByTargetB),
+  )
   const prmDeltaSum = attributions.reduce((acc, at) => acc + (at.prmDelta ?? 0), 0)
 
   const [runRecA, runRecB] = await Promise.all([store.getRun(runA), store.getRun(runB)])
-  const totalScoreDelta = runRecA?.outcome?.score !== undefined && runRecB?.outcome?.score !== undefined
-    ? runRecB.outcome.score - runRecA.outcome.score
-    : null
+  const totalScoreDelta =
+    runRecA?.outcome?.score !== undefined && runRecB?.outcome?.score !== undefined
+      ? runRecB.outcome.score - runRecA.outcome.score
+      : null
 
   return { runA, runB, alignment, attributions, totalScoreDelta, prmDeltaSum }
 }
@@ -98,20 +101,28 @@ function align(
   let j = b.length
   while (i > 0 || j > 0) {
     if (i > 0 && j > 0 && eq(a[i - 1], b[j - 1])) {
-      ops.push({ op: 'match', a: a[i - 1], b: b[j - 1] }); i--; j--
+      ops.push({ op: 'match', a: a[i - 1], b: b[j - 1] })
+      i--
+      j--
     } else if (i > 0 && j > 0 && dp[i - 1][j] === dp[i][j - 1]) {
       // Tie → call it a replace when same kind, else delete+insert.
       if (a[i - 1].span.kind === b[j - 1].span.kind) {
-        ops.push({ op: 'replace', a: a[i - 1], b: b[j - 1] }); i--; j--
+        ops.push({ op: 'replace', a: a[i - 1], b: b[j - 1] })
+        i--
+        j--
       } else if (dp[i - 1][j] >= dp[i][j - 1]) {
-        ops.push({ op: 'delete', a: a[i - 1] }); i--
+        ops.push({ op: 'delete', a: a[i - 1] })
+        i--
       } else {
-        ops.push({ op: 'insert', b: b[j - 1] }); j--
+        ops.push({ op: 'insert', b: b[j - 1] })
+        j--
       }
     } else if (i > 0 && (j === 0 || dp[i - 1][j] >= dp[i][j - 1])) {
-      ops.push({ op: 'delete', a: a[i - 1] }); i--
+      ops.push({ op: 'delete', a: a[i - 1] })
+      i--
     } else {
-      ops.push({ op: 'insert', b: b[j - 1] }); j--
+      ops.push({ op: 'insert', b: b[j - 1] })
+      j--
     }
   }
   return ops.reverse()
@@ -144,19 +155,26 @@ function spanTokens(s: Span): number | null {
   return (s.inputTokens ?? 0) + (s.outputTokens ?? 0)
 }
 
-function attributeStep(op: AlignmentOp, prmA: Map<string, number>, prmB: Map<string, number>): StepAttribution {
+function attributeStep(
+  op: AlignmentOp,
+  prmA: Map<string, number>,
+  prmB: Map<string, number>,
+): StepAttribution {
   if (op.op === 'match') {
     const pa = prmA.get(op.a.span.spanId)
     const pb = prmB.get(op.b.span.spanId)
     const prmDelta = pa !== undefined && pb !== undefined ? pb - pa : null
-    const la = spanLatency(op.a.span); const lb = spanLatency(op.b.span)
-    const ta = spanTokens(op.a.span); const tb = spanTokens(op.b.span)
+    const la = spanLatency(op.a.span)
+    const lb = spanLatency(op.b.span)
+    const ta = spanTokens(op.a.span)
+    const tb = spanTokens(op.b.span)
     return {
       op,
       prmDelta,
       latencyDeltaMs: la !== null && lb !== null ? lb - la : null,
       tokenDelta: ta !== null && tb !== null ? tb - ta : null,
-      note: prmDelta === null ? 'matched step, no PRM coverage' : 'matched step, PRM delta recorded',
+      note:
+        prmDelta === null ? 'matched step, no PRM coverage' : 'matched step, PRM delta recorded',
     }
   }
   if (op.op === 'replace') {

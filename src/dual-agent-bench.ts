@@ -59,10 +59,7 @@ export interface DualAgentBenchConfig {
     proposal: string
   }) => Promise<{ critique: string; convergenceScore: number }>
   /** Optional per-round hook for progress + tracing. */
-  onRoundComplete?: (info: {
-    scenarioId: string
-    round: DualAgentRound
-  }) => void
+  onRoundComplete?: (info: { scenarioId: string; round: DualAgentRound }) => void
 }
 
 export interface DualAgentReport {
@@ -150,7 +147,8 @@ export class DualAgentBench {
     const convergedResults = results.filter((r) => r.converged)
     const convergenceRate = results.length ? convergedResults.length / results.length : 0
     const avgRoundsToConverge = convergedResults.length
-      ? convergedResults.reduce((acc, r) => acc + (r.roundsToConverge ?? 0), 0) / convergedResults.length
+      ? convergedResults.reduce((acc, r) => acc + (r.roundsToConverge ?? 0), 0) /
+        convergedResults.length
       : null
     const avgFinalScore = results.length
       ? results.reduce((acc, r) => acc + r.finalScore, 0) / results.length

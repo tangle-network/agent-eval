@@ -68,7 +68,8 @@ export async function euAiActReport(
         id: 'EU-ART-9',
         severity: 'high',
         control: 'EU-AI-ACT:Article-9',
-        summary: 'High-risk system lacks documented adversarial-testing evidence (Art. 9 risk mgmt).',
+        summary:
+          'High-risk system lacks documented adversarial-testing evidence (Art. 9 risk mgmt).',
         remediation: 'Run redTeamDataset() + attach the report.',
       })
     }
@@ -102,7 +103,8 @@ export async function euAiActReport(
         id: 'EU-ART-13',
         severity: 'info',
         control: 'EU-AI-ACT:Article-13',
-        summary: 'Chatbot/synthetic-media transparency obligations apply; verify user-facing disclosures.',
+        summary:
+          'Chatbot/synthetic-media transparency obligations apply; verify user-facing disclosures.',
       })
     }
     // Article 14 — human oversight
@@ -140,9 +142,12 @@ export async function euAiActReport(
   const payload = {
     riskClass,
     signals,
-    articlesReviewed: riskClass === 'high'
-      ? ['5', '9', '10', '11', '13', '14', '15']
-      : riskClass === 'limited' ? ['52'] : ['none'],
+    articlesReviewed:
+      riskClass === 'high'
+        ? ['5', '9', '10', '11', '13', '14', '15']
+        : riskClass === 'limited'
+          ? ['52']
+          : ['none'],
   }
 
   return {

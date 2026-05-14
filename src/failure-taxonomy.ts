@@ -30,7 +30,12 @@ export interface FailureClassification {
 /** Ordered rules — first match wins. */
 export interface FailureRule {
   id: string
-  match: (ctx: FailureContext) => { failureClass: FailureClass; reason: string; triggerSpanId?: string; triggerEventId?: string } | null
+  match: (ctx: FailureContext) => {
+    failureClass: FailureClass
+    reason: string
+    triggerSpanId?: string
+    triggerEventId?: string
+  } | null
 }
 
 export const DEFAULT_RULES: FailureRule[] = [
@@ -39,14 +44,20 @@ export const DEFAULT_RULES: FailureRule[] = [
     id: 'explicit-outcome',
     match: ({ run }) => {
       const fc = run.outcome?.failureClass
-      if (fc && fc !== 'unknown') return { failureClass: fc, reason: 'outcome.failureClass set explicitly' }
+      if (fc && fc !== 'unknown')
+        return { failureClass: fc, reason: 'outcome.failureClass set explicitly' }
       return null
     },
   },
   {
     id: 'knowledge-readiness-blocked',
     match: ({ events }) => {
-      const event = events.find((e) => e.kind === 'custom' && e.payload.kind === 'readiness_scored' && e.payload.passed === false)
+      const event = events.find(
+        (e) =>
+          e.kind === 'custom' &&
+          e.payload.kind === 'readiness_scored' &&
+          e.payload.passed === false,
+      )
       return event
         ? {
             failureClass: 'knowledge_readiness_blocked',
@@ -59,12 +70,12 @@ export const DEFAULT_RULES: FailureRule[] = [
   {
     id: 'bad-integration-manifest',
     match: ({ events }) => {
-      const event = events.find((e) =>
-        e.kind === 'custom'
-        && (
-          (e.payload.kind === 'integration_manifest_validated' && e.payload.valid === false) ||
-          (e.payload.kind === 'integration_invoke_failed' && e.payload.code === 'manifest_invalid')
-        )
+      const event = events.find(
+        (e) =>
+          e.kind === 'custom' &&
+          ((e.payload.kind === 'integration_manifest_validated' && e.payload.valid === false) ||
+            (e.payload.kind === 'integration_invoke_failed' &&
+              e.payload.code === 'manifest_invalid')),
       )
       return event
         ? {
@@ -78,10 +89,11 @@ export const DEFAULT_RULES: FailureRule[] = [
   {
     id: 'missing-integration-connection',
     match: ({ events }) => {
-      const event = events.find((e) =>
-        e.kind === 'custom'
-        && e.payload.kind === 'integration_manifest_resolved'
-        && hasResolutionStatus(e.payload, 'missing_connection')
+      const event = events.find(
+        (e) =>
+          e.kind === 'custom' &&
+          e.payload.kind === 'integration_manifest_resolved' &&
+          hasResolutionStatus(e.payload, 'missing_connection'),
       )
       return event
         ? {
@@ -95,12 +107,11 @@ export const DEFAULT_RULES: FailureRule[] = [
   {
     id: 'missing-integration-scope',
     match: ({ events }) => {
-      const event = events.find((e) =>
-        e.kind === 'custom'
-        && (
-          (e.payload.kind === 'integration_manifest_resolved' && hasMissingScopes(e.payload)) ||
-          (e.payload.kind === 'integration_invoke_failed' && e.payload.code === 'scope_denied')
-        )
+      const event = events.find(
+        (e) =>
+          e.kind === 'custom' &&
+          ((e.payload.kind === 'integration_manifest_resolved' && hasMissingScopes(e.payload)) ||
+            (e.payload.kind === 'integration_invoke_failed' && e.payload.code === 'scope_denied')),
       )
       return event
         ? {
@@ -114,13 +125,13 @@ export const DEFAULT_RULES: FailureRule[] = [
   {
     id: 'integration-approval-required',
     match: ({ events }) => {
-      const event = events.find((e) =>
-        e.kind === 'custom'
-        && (
-          (e.payload.kind === 'integration_invoke' && e.payload.status === 'approval_required') ||
-          (e.payload.kind === 'integration_invoke_failed' && e.payload.code === 'approval_required') ||
-          e.payload.kind === 'integration_approval_required'
-        )
+      const event = events.find(
+        (e) =>
+          e.kind === 'custom' &&
+          ((e.payload.kind === 'integration_invoke' && e.payload.status === 'approval_required') ||
+            (e.payload.kind === 'integration_invoke_failed' &&
+              e.payload.code === 'approval_required') ||
+            e.payload.kind === 'integration_approval_required'),
       )
       return event
         ? {
@@ -134,10 +145,14 @@ export const DEFAULT_RULES: FailureRule[] = [
   {
     id: 'integration-auth-expired',
     match: ({ events }) => {
-      const event = events.find((e) =>
-        e.kind === 'custom'
-        && e.payload.kind === 'integration_invoke_failed'
-        && (e.payload.code === 'auth_expired' || e.payload.code === 'connection_not_active' || e.payload.code === 'capability_expired' || e.payload.status === 'expired')
+      const event = events.find(
+        (e) =>
+          e.kind === 'custom' &&
+          e.payload.kind === 'integration_invoke_failed' &&
+          (e.payload.code === 'auth_expired' ||
+            e.payload.code === 'connection_not_active' ||
+            e.payload.code === 'capability_expired' ||
+            e.payload.status === 'expired'),
       )
       return event
         ? {
@@ -151,10 +166,13 @@ export const DEFAULT_RULES: FailureRule[] = [
   {
     id: 'unsafe-integration-write-denied',
     match: ({ events }) => {
-      const event = events.find((e) =>
-        e.kind === 'custom'
-        && e.payload.kind === 'integration_invoke_failed'
-        && (e.payload.code === 'unsafe_write_denied' || e.payload.code === 'policy_denied' || e.payload.code === 'action_denied')
+      const event = events.find(
+        (e) =>
+          e.kind === 'custom' &&
+          e.payload.kind === 'integration_invoke_failed' &&
+          (e.payload.code === 'unsafe_write_denied' ||
+            e.payload.code === 'policy_denied' ||
+            e.payload.code === 'action_denied'),
       )
       return event
         ? {
@@ -168,20 +186,21 @@ export const DEFAULT_RULES: FailureRule[] = [
   {
     id: 'integration-provider-failure',
     match: ({ events }) => {
-      const event = events.find((e) =>
-        e.kind === 'custom'
-        && e.payload.kind === 'integration_invoke_failed'
-        && ![
-          'scope_denied',
-          'approval_required',
-          'auth_expired',
-          'connection_not_active',
-          'capability_expired',
-          'unsafe_write_denied',
-          'policy_denied',
-          'action_denied',
-          'manifest_invalid',
-        ].includes(String(e.payload.code))
+      const event = events.find(
+        (e) =>
+          e.kind === 'custom' &&
+          e.payload.kind === 'integration_invoke_failed' &&
+          ![
+            'scope_denied',
+            'approval_required',
+            'auth_expired',
+            'connection_not_active',
+            'capability_expired',
+            'unsafe_write_denied',
+            'policy_denied',
+            'action_denied',
+            'manifest_invalid',
+          ].includes(String(e.payload.code)),
       )
       return event
         ? {
@@ -195,7 +214,12 @@ export const DEFAULT_RULES: FailureRule[] = [
   {
     id: 'missing-credentials',
     match: ({ events }) => {
-      const event = events.find((e) => e.kind === 'custom' && e.payload.kind === 'knowledge_gap' && e.payload.category === 'credential_or_secret')
+      const event = events.find(
+        (e) =>
+          e.kind === 'custom' &&
+          e.payload.kind === 'knowledge_gap' &&
+          e.payload.category === 'credential_or_secret',
+      )
       return event
         ? {
             failureClass: 'missing_credentials',
@@ -209,7 +233,10 @@ export const DEFAULT_RULES: FailureRule[] = [
     id: 'bad-retrieval',
     match: ({ run, spans }) => {
       if (run.outcome?.pass !== false) return null
-      const retrieval = spans.find((s) => s.kind === 'retrieval' && (s.hits.length === 0 || s.hits.every((hit) => hit.score <= 0)))
+      const retrieval = spans.find(
+        (s) =>
+          s.kind === 'retrieval' && (s.hits.length === 0 || s.hits.every((hit) => hit.score <= 0)),
+      )
       return retrieval
         ? {
             failureClass: 'bad_retrieval',
@@ -222,7 +249,12 @@ export const DEFAULT_RULES: FailureRule[] = [
   {
     id: 'insufficient-evidence',
     match: ({ events }) => {
-      const event = events.find((e) => e.kind === 'custom' && e.payload.kind === 'knowledge_gap' && e.payload.reason === 'insufficient_evidence')
+      const event = events.find(
+        (e) =>
+          e.kind === 'custom' &&
+          e.payload.kind === 'knowledge_gap' &&
+          e.payload.reason === 'insufficient_evidence',
+      )
       return event
         ? {
             failureClass: 'insufficient_evidence',
@@ -235,7 +267,12 @@ export const DEFAULT_RULES: FailureRule[] = [
   {
     id: 'contradictory-evidence',
     match: ({ events }) => {
-      const event = events.find((e) => e.kind === 'custom' && e.payload.kind === 'knowledge_gap' && e.payload.reason === 'contradictory_evidence')
+      const event = events.find(
+        (e) =>
+          e.kind === 'custom' &&
+          e.payload.kind === 'knowledge_gap' &&
+          e.payload.reason === 'contradictory_evidence',
+      )
       return event
         ? {
             failureClass: 'contradictory_evidence',
@@ -264,16 +301,28 @@ export const DEFAULT_RULES: FailureRule[] = [
     id: 'policy-violation',
     match: ({ events }) => {
       const e = events.find((x) => x.kind === 'policy_violation')
-      return e ? { failureClass: 'policy_violation', reason: 'policy_violation event emitted', triggerEventId: e.eventId } : null
+      return e
+        ? {
+            failureClass: 'policy_violation',
+            reason: 'policy_violation event emitted',
+            triggerEventId: e.eventId,
+          }
+        : null
     },
   },
   // Sandbox non-zero exit code
   {
     id: 'sandbox-failure',
     match: ({ spans }) => {
-      const s = spans.find((x) => x.kind === 'sandbox' && typeof x.exitCode === 'number' && x.exitCode !== 0)
+      const s = spans.find(
+        (x) => x.kind === 'sandbox' && typeof x.exitCode === 'number' && x.exitCode !== 0,
+      )
       if (!s) return null
-      return { failureClass: 'sandbox_failure', reason: `sandbox exited ${(s as Extract<Span, { kind: 'sandbox' }>).exitCode}`, triggerSpanId: s.spanId }
+      return {
+        failureClass: 'sandbox_failure',
+        reason: `sandbox exited ${(s as Extract<Span, { kind: 'sandbox' }>).exitCode}`,
+        triggerSpanId: s.spanId,
+      }
     },
   },
   // Timeout: run aborted by external signal
@@ -281,7 +330,13 @@ export const DEFAULT_RULES: FailureRule[] = [
     id: 'timeout',
     match: ({ run, events }) => {
       if (run.status !== 'aborted') return null
-      const hasTimeout = events.some((e) => e.kind === 'error' && String(e.payload.reason ?? '').toLowerCase().includes('timeout'))
+      const hasTimeout = events.some(
+        (e) =>
+          e.kind === 'error' &&
+          String(e.payload.reason ?? '')
+            .toLowerCase()
+            .includes('timeout'),
+      )
       const note = (run.outcome?.notes ?? '').toLowerCase()
       if (hasTimeout || note.includes('timeout') || note.includes('deadline')) {
         return { failureClass: 'timeout', reason: 'timeout signal observed' }
@@ -319,10 +374,18 @@ export const DEFAULT_RULES: FailureRule[] = [
     id: 'tool-selection-error',
     match: ({ run, spans }) => {
       if (run.outcome?.pass !== false) return null
-      const hasToolsAvailable = spans.some((s) => s.kind === 'agent' && (s.attributes?.toolsAvailable as number | undefined) !== undefined && (s.attributes?.toolsAvailable as number) > 0)
+      const hasToolsAvailable = spans.some(
+        (s) =>
+          s.kind === 'agent' &&
+          (s.attributes?.toolsAvailable as number | undefined) !== undefined &&
+          (s.attributes?.toolsAvailable as number) > 0,
+      )
       const tools = spans.filter((s) => s.kind === 'tool')
       if (hasToolsAvailable && tools.length === 0) {
-        return { failureClass: 'tool_selection_error', reason: 'tools were available but none were called' }
+        return {
+          failureClass: 'tool_selection_error',
+          reason: 'tools were available but none were called',
+        }
       }
       return null
     },
@@ -331,43 +394,63 @@ export const DEFAULT_RULES: FailureRule[] = [
   {
     id: 'format-drift',
     match: ({ spans }) => {
-      const judge = spans.find((s) => s.kind === 'judge' && (s as Extract<Span, { kind: 'judge' }>).dimension === 'format' && (s as Extract<Span, { kind: 'judge' }>).score < 0.5)
+      const judge = spans.find(
+        (s) =>
+          s.kind === 'judge' &&
+          (s as Extract<Span, { kind: 'judge' }>).dimension === 'format' &&
+          (s as Extract<Span, { kind: 'judge' }>).score < 0.5,
+      )
       return judge
-        ? { failureClass: 'format_drift', reason: 'format judge scored below 0.5', triggerSpanId: judge.spanId }
+        ? {
+            failureClass: 'format_drift',
+            reason: 'format judge scored below 0.5',
+            triggerSpanId: judge.spanId,
+          }
         : null
     },
   },
 ]
 
 function hasResolutionStatus(payload: Record<string, unknown>, status: string): boolean {
-  if (status === 'missing_connection' && stringArray(payload.missingConnections).length > 0) return true
+  if (status === 'missing_connection' && stringArray(payload.missingConnections).length > 0)
+    return true
   return resolutionItems(payload).some((item) => item.status === status)
 }
 
 function hasMissingScopes(payload: Record<string, unknown>): boolean {
   if (stringArray(payload.missingScopes).length > 0) return true
-  return resolutionItems(payload).some((item) =>
-    Array.isArray(item.missingScopes) && item.missingScopes.length > 0
+  return resolutionItems(payload).some(
+    (item) => Array.isArray(item.missingScopes) && item.missingScopes.length > 0,
   )
 }
 
 function resolutionItems(payload: Record<string, unknown>): Array<Record<string, unknown>> {
-  return [...records(payload.missing), ...records(payload.optionalMissing), ...records(payload.ready)]
+  return [
+    ...records(payload.missing),
+    ...records(payload.optionalMissing),
+    ...records(payload.ready),
+  ]
 }
 
 function records(value: unknown): Array<Record<string, unknown>> {
   if (!Array.isArray(value)) return []
-  return value.filter((item): item is Record<string, unknown> =>
-    Boolean(item) && typeof item === 'object' && !Array.isArray(item)
+  return value.filter(
+    (item): item is Record<string, unknown> =>
+      Boolean(item) && typeof item === 'object' && !Array.isArray(item),
   )
 }
 
 function stringArray(value: unknown): string[] {
-  return Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : []
+  return Array.isArray(value)
+    ? value.filter((item): item is string => typeof item === 'string')
+    : []
 }
 
 /** Classify the failure mode of a run using an ordered rule list. */
-export function classifyFailure(ctx: FailureContext, rules: FailureRule[] = DEFAULT_RULES): FailureClassification {
+export function classifyFailure(
+  ctx: FailureContext,
+  rules: FailureRule[] = DEFAULT_RULES,
+): FailureClassification {
   if (ctx.run.outcome?.pass !== false && ctx.run.status === 'completed') {
     return { failureClass: 'success', reason: 'run completed with pass=true (or no explicit fail)' }
   }

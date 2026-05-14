@@ -13,9 +13,9 @@
 
 import type { HarnessConfig, SandboxDriver, SandboxHarnessResult } from './sandbox-harness'
 import { SandboxHarness } from './sandbox-harness'
-import type { TraceStore } from './trace/store'
 import { TraceEmitter } from './trace/emitter'
 import type { FailureClass, Run } from './trace/schema'
+import type { TraceStore } from './trace/store'
 
 export interface TestGradedScenario {
   id: string
@@ -78,11 +78,19 @@ export async function runTestGradedScenario(
     failureClass,
     notes: pass ? undefined : reasonForFailure(result),
   })
-  return { runId: emitter.runId, scenario, harness: result, pass, score: result.score, failureClass }
+  return {
+    runId: emitter.runId,
+    scenario,
+    harness: result,
+    pass,
+    score: result.score,
+    failureClass,
+  }
 }
 
 function reasonForFailure(result: SandboxHarnessResult): string {
-  if (result.setup && result.setup.exitCode !== 0) return `setup failed: exit ${result.setup.exitCode}`
+  if (result.setup && result.setup.exitCode !== 0)
+    return `setup failed: exit ${result.setup.exitCode}`
   if (result.run && result.run.exitCode !== 0) return `run failed: exit ${result.run.exitCode}`
   if (result.test) {
     if (result.test.testsTotal !== undefined) {

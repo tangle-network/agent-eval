@@ -142,11 +142,16 @@ export function precision<T>(
   let matched = 0
   for (const cand of candidates) {
     const haystack = extract(cand).toLowerCase()
-    const matchedAny = goldens.some((g) =>
-      g.any.some((phrase) => phrase.length > 0 && haystack.includes(phrase.toLowerCase())) ||
-      (g.anyRegex ?? []).some((pat) => {
-        try { return new RegExp(pat, 'i').test(haystack) } catch { return false }
-      }),
+    const matchedAny = goldens.some(
+      (g) =>
+        g.any.some((phrase) => phrase.length > 0 && haystack.includes(phrase.toLowerCase())) ||
+        (g.anyRegex ?? []).some((pat) => {
+          try {
+            return new RegExp(pat, 'i').test(haystack)
+          } catch {
+            return false
+          }
+        }),
     )
     if (matchedAny) matched++
   }

@@ -130,7 +130,9 @@ function summarizeMemory(memory: ReviewerMemoryEntry[]): string {
       const header = `shot ${m.shot} — confidence=${(m.confidence ?? 0).toFixed(2)} shouldContinue=${m.shouldContinue ?? '?'}`
       const obs = m.observations ? `  observations: ${m.observations.slice(0, 400)}` : ''
       const diag = m.diagnosis ? `  diagnosis: ${m.diagnosis.slice(0, 400)}` : ''
-      const instr = m.nextShotInstruction ? `  instruction given: ${m.nextShotInstruction.slice(0, 400)}` : ''
+      const instr = m.nextShotInstruction
+        ? `  instruction given: ${m.nextShotInstruction.slice(0, 400)}`
+        : ''
       return [header, obs, diag, instr].filter(Boolean).join('\n')
     })
     .join('\n\n')
@@ -144,7 +146,7 @@ function summarizeMemory(memory: ReviewerMemoryEntry[]): string {
 export function buildReviewerPrompt(input: ReviewerPromptInput): { system: string; user: string } {
   const system =
     'You are a senior-engineer-grade reviewer directing an agent through a multi-shot build. ' +
-    'Your job is NOT to grade; your job IS to direct the worker\'s next shot using the trace, ' +
+    "Your job is NOT to grade; your job IS to direct the worker's next shot using the trace, " +
     'verification result, prior memory, and user request. Return STRICT JSON. No prose outside the JSON.'
 
   const failingLayersBlock =

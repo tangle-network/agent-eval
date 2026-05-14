@@ -13,9 +13,9 @@
  * expectations into a report instead of throwing on first failure.
  */
 
+import { llmSpans, toolSpans } from './trace/query'
 import type { BudgetLedgerEntry, Span, ToolSpan } from './trace/schema'
 import type { TraceStore } from './trace/store'
-import { llmSpans, toolSpans } from './trace/query'
 
 export interface MatcherResult {
   ok: boolean
@@ -30,7 +30,10 @@ export interface Expectation {
 }
 
 export class BehaviorAssertion {
-  constructor(private store: TraceStore, private runId: string) {}
+  constructor(
+    private store: TraceStore,
+    private runId: string,
+  ) {}
 
   toCall(toolName: string): CallExpectation {
     return new CallExpectation(this.store, this.runId, toolName)
@@ -45,7 +48,11 @@ export class BehaviorAssertion {
         const hit = markers.some((re) => re.test(output))
         return hit
           ? { ok: true, detail: 'refusal marker detected' }
-          : { ok: false, detail: 'no refusal marker in agent output', evidence: output.slice(0, 200) }
+          : {
+              ok: false,
+              detail: 'no refusal marker in agent output',
+              evidence: output.slice(0, 200),
+            }
       },
     }
   }
@@ -64,7 +71,9 @@ export class BehaviorAssertion {
     }
   }
 
-  toRespectBudget(dimension: keyof BudgetLedgerEntry['dimension'] | 'tokens' | 'wallMs' | 'calls' | 'usd'): Expectation {
+  toRespectBudget(
+    dimension: keyof BudgetLedgerEntry['dimension'] | 'tokens' | 'wallMs' | 'calls' | 'usd',
+  ): Expectation {
     return {
       label: `agent(${this.runId}).toRespectBudget(${String(dimension)})`,
       check: async () => {
@@ -77,7 +86,11 @@ export class BehaviorAssertion {
     }
   }
 
-  toCompleteWithin(limits: { wallMs?: number; toolCalls?: number; llmTurns?: number }): Expectation {
+  toCompleteWithin(limits: {
+    wallMs?: number
+    toolCalls?: number
+    llmTurns?: number
+  }): Expectation {
     return {
       label: `agent(${this.runId}).toCompleteWithin(${JSON.stringify(limits)})`,
       check: async () => {
@@ -87,9 +100,12 @@ export class BehaviorAssertion {
         const tool = (await toolSpans(this.store, this.runId)).length
         const llm = (await llmSpans(this.store, this.runId)).length
         const violations: string[] = []
-        if (limits.wallMs !== undefined && wallMs > limits.wallMs) violations.push(`wallMs ${wallMs} > ${limits.wallMs}`)
-        if (limits.toolCalls !== undefined && tool > limits.toolCalls) violations.push(`toolCalls ${tool} > ${limits.toolCalls}`)
-        if (limits.llmTurns !== undefined && llm > limits.llmTurns) violations.push(`llmTurns ${llm} > ${limits.llmTurns}`)
+        if (limits.wallMs !== undefined && wallMs > limits.wallMs)
+          violations.push(`wallMs ${wallMs} > ${limits.wallMs}`)
+        if (limits.toolCalls !== undefined && tool > limits.toolCalls)
+          violations.push(`toolCalls ${tool} > ${limits.toolCalls}`)
+        if (limits.llmTurns !== undefined && llm > limits.llmTurns)
+          violations.push(`llmTurns ${llm} > ${limits.llmTurns}`)
         return violations.length === 0
           ? { ok: true, detail: `within limits (${wallMs}ms, ${tool} tools, ${llm} turns)` }
           : { ok: false, detail: violations.join('; ') }
@@ -104,7 +120,11 @@ export class BehaviorAssertion {
         const calls = await toolSpans(this.store, this.runId, toolName)
         return calls.length === 0
           ? { ok: true, detail: `tool "${toolName}" not invoked` }
-          : { ok: false, detail: `tool "${toolName}" called ${calls.length}x`, evidence: calls[0].spanId }
+          : {
+              ok: false,
+              detail: `tool "${toolName}" called ${calls.length}x`,
+              evidence: calls[0].spanId,
+            }
       },
     }
   }
@@ -115,7 +135,11 @@ export class CallExpectation implements Expectation {
   private minCount = 1
   private maxCount = Infinity
 
-  constructor(private store: TraceStore, private runId: string, private toolName: string) {}
+  constructor(
+    private store: TraceStore,
+    private runId: string,
+    private toolName: string,
+  ) {}
 
   get label(): string {
     return `agent(${this.runId}).toCall(${this.toolName})`
@@ -146,8 +170,16 @@ export class CallExpectation implements Expectation {
     const calls = await toolSpans(this.store, this.runId, this.toolName)
     const matching = calls.filter((c) => this.argMatchers.every((fn) => fn(c.args)))
     const count = matching.length
-    if (count < this.minCount) return { ok: false, detail: `expected ≥ ${this.minCount} matching "${this.toolName}" calls, got ${count}` }
-    if (count > this.maxCount) return { ok: false, detail: `expected ≤ ${this.maxCount} matching "${this.toolName}" calls, got ${count}` }
+    if (count < this.minCount)
+      return {
+        ok: false,
+        detail: `expected ≥ ${this.minCount} matching "${this.toolName}" calls, got ${count}`,
+      }
+    if (count > this.maxCount)
+      return {
+        ok: false,
+        detail: `expected ≤ ${this.maxCount} matching "${this.toolName}" calls, got ${count}`,
+      }
     return { ok: true, detail: `${count} matching "${this.toolName}" call(s)` }
   }
 }
@@ -163,7 +195,9 @@ export async function runExpectations(expectations: Expectation[]): Promise<{
   passCount: number
   failCount: number
 }> {
-  const results = await Promise.all(expectations.map(async (e) => ({ label: e.label, result: await e.check() })))
+  const results = await Promise.all(
+    expectations.map(async (e) => ({ label: e.label, result: await e.check() })),
+  )
   const passCount = results.filter((r) => r.result.ok).length
   return {
     results,

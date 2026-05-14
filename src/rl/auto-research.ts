@@ -34,44 +34,35 @@
  * own `ScoreAdapter` — that's a per-consumer integration point.
  */
 
+import type { OutcomeStore } from '../meta-eval/outcome-store'
 import {
-  evaluateInterimReleaseConfidence,
-  type InterimReleaseConfidence,
-} from '../sequential'
-import type { PromptEvolutionResult, TrialResult } from '../prompt-evolution'
+  type RubricPredictiveValidityReport,
+  rubricPredictiveValidity,
+} from '../meta-eval/rubric-predictive-validity'
 import type { MultiShotOptimizationResult } from '../multi-shot-optimization'
+import type { PromptEvolutionResult, TrialResult } from '../prompt-evolution'
+import type { RunRecord } from '../run-record'
+import { evaluateInterimReleaseConfidence, type InterimReleaseConfidence } from '../sequential'
 import {
-  trialsToRunRecords,
-  type AdapterContext,
-} from './run-record-adapters'
+  type DpoExportRow,
+  type DpoLookups,
+  type GrpoExportRow,
+  type GrpoLookups,
+  toDpoRows,
+  toGrpoRows,
+} from './exporters'
+import {
+  type ExtractPreferencesOptions,
+  extractPreferences,
+  type PreferenceExtractionReport,
+} from './preferences'
+import { detectRewardHacking, type RewardHackingReport } from './reward-hacking'
+import { type AdapterContext, trialsToRunRecords } from './run-record-adapters'
 import {
   extractVerifiableRewardsFromRecords,
   type VerifiableReward,
   type VerifiableRewardExtractionOptions,
 } from './verifiable-reward'
-import {
-  extractPreferences,
-  type ExtractPreferencesOptions,
-  type PreferenceExtractionReport,
-} from './preferences'
-import {
-  detectRewardHacking,
-  type RewardHackingReport,
-} from './reward-hacking'
-import {
-  rubricPredictiveValidity,
-  type RubricPredictiveValidityReport,
-} from '../meta-eval/rubric-predictive-validity'
-import type { OutcomeStore } from '../meta-eval/outcome-store'
-import type { RunRecord } from '../run-record'
-import {
-  toDpoRows,
-  toGrpoRows,
-  type DpoExportRow,
-  type DpoLookups,
-  type GrpoExportRow,
-  type GrpoLookups,
-} from './exporters'
 
 export interface AnalyzeOptimizationResultOptions {
   /**
@@ -176,7 +167,13 @@ export async function analyzeOptimizationResult(
     trainerRows.grpo = await toGrpoRows(runs, opts.trainerExport.grpo)
   }
 
-  const summary = buildSummary({ runs, preferences, interimConfidence, rewardHacking, predictiveValidity })
+  const summary = buildSummary({
+    runs,
+    preferences,
+    interimConfidence,
+    rewardHacking,
+    predictiveValidity,
+  })
 
   return {
     runs,
@@ -192,9 +189,7 @@ export async function analyzeOptimizationResult(
 
 // ── Helpers ──────────────────────────────────────────────────────────────
 
-function extractTrials(
-  result: PromptEvolutionResult | MultiShotOptimizationResult,
-): TrialResult[] {
+function extractTrials(result: PromptEvolutionResult | MultiShotOptimizationResult): TrialResult[] {
   // PromptEvolutionResult shape: { generations: GenerationReport[]; ... }
   // MultiShotOptimizationResult shape: { evolution: PromptEvolutionResult; ... }
   if ('evolution' in result) {
@@ -251,8 +246,12 @@ function buildSummary(args: {
     `reward-hacking verdict: ${args.rewardHacking.verdict}`,
   ]
   if (args.interimConfidence) {
-    lines.push(`sequential: ${args.interimConfidence.recommendation.decision}` +
-      (args.interimConfidence.recommendation.candidateId ? ` ${args.interimConfidence.recommendation.candidateId}` : ''))
+    lines.push(
+      `sequential: ${args.interimConfidence.recommendation.decision}` +
+        (args.interimConfidence.recommendation.candidateId
+          ? ` ${args.interimConfidence.recommendation.candidateId}`
+          : ''),
+    )
   }
   if (args.predictiveValidity?.ranked[0]) {
     const top = args.predictiveValidity.ranked[0]

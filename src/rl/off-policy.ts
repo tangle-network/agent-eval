@@ -151,7 +151,9 @@ export function selfNormalizedImportanceWeighting(
   let maxW = 0
   for (const t of trajectories) {
     if (t.behaviorProb <= 0) {
-      throw new Error(`selfNormalizedImportanceWeighting: behaviorProb must be > 0 (runId=${t.runId})`)
+      throw new Error(
+        `selfNormalizedImportanceWeighting: behaviorProb must be > 0 (runId=${t.runId})`,
+      )
     }
     const w = Math.min(cap, t.targetProb / t.behaviorProb)
     weights.push(w)
@@ -211,7 +213,10 @@ export function doublyRobust(
     }
     const w = Math.min(cap, t.targetProb / t.behaviorProb)
     const r = clamp(t.reward, clip.low, clip.high)
-    const q = typeof t.qHat === 'number' && Number.isFinite(t.qHat) ? clamp(t.qHat, clip.low, clip.high) : null
+    const q =
+      typeof t.qHat === 'number' && Number.isFinite(t.qHat)
+        ? clamp(t.qHat, clip.low, clip.high)
+        : null
     if (q === null) {
       contributions.push(w * r) // fallback: IPS for this entry
     } else {

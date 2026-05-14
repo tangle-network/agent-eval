@@ -22,8 +22,8 @@
 
 import {
   defaultProviderRedactor,
-  providerFromBaseUrl,
   type ProviderRedactor,
+  providerFromBaseUrl,
   type RawProviderEvent,
   type RawProviderSink,
 } from './trace/raw-provider-sink'
@@ -159,7 +159,7 @@ function parseRetryAfter(headers: Headers): number | null {
 
 function backoffMs(attempt: number): number {
   // 500ms, 1s, 2s, 4s, ...
-  return Math.min(500 * Math.pow(2, attempt), 16_000)
+  return Math.min(500 * 2 ** attempt, 16_000)
 }
 
 function buildHeaders(opts: LlmClientOptions): Record<string, string> {
@@ -210,7 +210,7 @@ function buildBody(req: LlmCallRequest, forceJsonObject: boolean): Record<string
 }
 
 function usesMaxCompletionTokens(model: string): boolean {
-  return /^gpt-5(?:[.\-]|$)/i.test(model)
+  return /^gpt-5(?:[.-]|$)/i.test(model)
 }
 
 async function sleep(ms: number): Promise<void> {
@@ -239,7 +239,9 @@ export function extractJsonPayload(raw: string): string {
     // Continue with balanced extraction below.
   }
 
-  const starts = [...stripped.matchAll(/[\[{]/g)].map((match) => match.index).filter((index) => index != null)
+  const starts = [...stripped.matchAll(/[[{]/g)]
+    .map((match) => match.index)
+    .filter((index) => index != null)
   for (const start of starts) {
     const candidate = extractBalancedJson(stripped, start)
     if (!candidate) continue
@@ -442,8 +444,7 @@ export async function callLlm(
           completionTokens: Number(usageRaw.completion_tokens ?? 0),
           totalTokens: Number(usageRaw.total_tokens ?? 0),
           cachedPromptTokens:
-            usageRaw.prompt_tokens_details &&
-            typeof usageRaw.prompt_tokens_details === 'object'
+            usageRaw.prompt_tokens_details && typeof usageRaw.prompt_tokens_details === 'object'
               ? Number(
                   (usageRaw.prompt_tokens_details as Record<string, unknown>).cached_tokens ?? 0,
                 )

@@ -59,7 +59,9 @@ export function scoreContinuity<T>(
 }
 
 /** Common check: a required key in a record exists and equals the prior value. */
-export function keyPreserved<T extends Record<string, unknown>>(key: keyof T & string): ContinuityCheck<T> {
+export function keyPreserved<T extends Record<string, unknown>>(
+  key: keyof T & string,
+): ContinuityCheck<T> {
   return {
     id: `preserved(${key})`,
     description: `"${key}" unchanged from before to after`,

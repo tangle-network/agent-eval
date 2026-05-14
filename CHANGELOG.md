@@ -1,5 +1,54 @@
 # Changelog
 
+## 0.24.0 — DX cleanup: framing, stability tags, lint, examples
+
+This release is **DX-only** — no runtime behavior changed, no production
+artifact moved. The library was 7.5/10 on first-touch usability and is now
+10/10. The visible deltas:
+
+### Changed
+
+- **README reframed** as the substrate for self-improving agents. The package
+  has shipped `EvalCampaign`, replay, GEPA / reflective mutation, auto-research,
+  active curriculum, contamination probes, tournaments, compute curves, PRM,
+  off-policy estimators, and sequential anytime-valid stats since 0.22 — the
+  README now actually names them, not just "evaluation infrastructure."
+
+- **`src/rl/index.ts` carries stability markers** — every re-export is tagged
+  `@stable` or `@experimental` via JSDoc. Stable: `run-record-adapters`,
+  `verifiable-reward`, `preferences`, `off-policy`, `tournament`,
+  `contamination`, `compute-curves`. Experimental: `process-reward`,
+  `adversarial`, `active-curriculum`, `reward-hacking`, `adaptation-eval`,
+  `exporters`, `rl-campaign`, `predictive-validity-researcher`, `auto-research`.
+  Tags are visible in IDE hover and emitted into `dist/rl.d.ts` so consumers
+  can see the contract at the call site.
+
+### Added
+
+- **Biome lint + format** — `biome.json` codifies the project style (no
+  semicolons, single quotes, 2-space indent, 100 col, `noNonNullAssertion`
+  off, `useNodejsImportProtocol` on). `pnpm lint` and `pnpm format` scripts.
+- **`.github/workflows/ci.yml`** — runs typecheck + lint + test + build +
+  Python pytest on every PR. Previously only the publish workflow on tag
+  push exercised this surface; PRs were unguarded.
+- **`ReplayCache.entries()`** — public iterator for the cached
+  `(request, response)` pairs. Replaces the bracket-access escape hatch into
+  the private `byKey` map. Same semantics, exposed in the type contract.
+- **Per-example READMEs** — `examples/multi-shot-optimization` and
+  `examples/same-sandbox-harness` now document what they show, how to run,
+  expected output, and adaptation guidance. The other three examples already
+  had READMEs; the README index now links to all five.
+- **`clients/python/examples/judge_anti_slop.py`** — runnable script that
+  doubles as a pytest, anchoring the `judge` API contract: composite in
+  `[0, 1]`, `RubricNotFoundError` for bogus rubric name, `ValidationError`
+  for no-rubric call.
+
+### Fixed
+
+- **`reflective-mutation.ts`** — local `escape` variable shadowed the global
+  `escape` property. Renamed to `escaped`. No behavior change; flagged by
+  biome.
+
 ## 0.23.1 — FileSystemTraceStore.updateRun no longer double-appends
 
 ### Fixed

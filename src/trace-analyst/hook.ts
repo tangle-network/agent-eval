@@ -17,8 +17,8 @@
  * the `gateOn` callback.
  */
 
-import { analyzeTraces, type AnalyzeTracesOptions, type AnalyzeTracesResult } from './analyst'
 import type { RunCompleteHook, RunCompleteHookContext } from '../trace/emitter'
+import { type AnalyzeTracesOptions, type AnalyzeTracesResult, analyzeTraces } from './analyst'
 
 export interface TraceAnalystHookOptions {
   /**
@@ -52,7 +52,8 @@ export interface TraceAnalystHookOptions {
   gateOn?: (result: AnalyzeTracesResult, ctx: RunCompleteHookContext) => boolean
 }
 
-const DEFAULT_QUESTION = 'Summarise what happened in this run. Surface any failure modes, surprising findings, or evidence that the run\'s verdict is wrong.'
+const DEFAULT_QUESTION =
+  "Summarise what happened in this run. Surface any failure modes, surprising findings, or evidence that the run's verdict is wrong."
 
 export function traceAnalystOnRunComplete(opts: TraceAnalystHookOptions): RunCompleteHook {
   return async (ctx: RunCompleteHookContext) => {
@@ -70,10 +71,10 @@ export function traceAnalystOnRunComplete(opts: TraceAnalystHookOptions): RunCom
       })
       return
     }
-    const result = await analyzeTraces(
-      { question: opts.question ?? DEFAULT_QUESTION },
-      { ...opts.analyze, source } as AnalyzeTracesOptions,
-    )
+    const result = await analyzeTraces({ question: opts.question ?? DEFAULT_QUESTION }, {
+      ...opts.analyze,
+      source,
+    } as AnalyzeTracesOptions)
     if (opts.save) await opts.save(result, ctx)
     if (opts.gateOn && !opts.gateOn(result, ctx)) {
       await ctx.store.appendEvent({

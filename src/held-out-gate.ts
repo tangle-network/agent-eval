@@ -32,13 +32,10 @@
  *     specific promotion path (still useful for replay-style evals).
  */
 
-import type { RunRecord } from './run-record'
 import { pairedBootstrap, pairedWilcoxon } from './paired-stats'
+import type { RunRecord } from './run-record'
 
-export type HeldOutGateRejectionCode =
-  | 'few_runs'
-  | 'negative_delta'
-  | 'overfit_gap'
+export type HeldOutGateRejectionCode = 'few_runs' | 'negative_delta' | 'overfit_gap'
 
 export interface HeldOutGateConfig {
   /** Minimum number of paired (candidate, baseline) holdout observations

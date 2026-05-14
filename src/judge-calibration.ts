@@ -37,7 +37,10 @@ export interface CalibrationResult {
   worstItems: Array<{ itemId: string; judge: number; human: number; delta: number }>
 }
 
-export function calibrateJudge(golden: GoldenItem[], candidate: CandidateScore[]): CalibrationResult {
+export function calibrateJudge(
+  golden: GoldenItem[],
+  candidate: CandidateScore[],
+): CalibrationResult {
   const map = new Map<string, { h: number; j: number }>()
   for (const g of golden) map.set(g.itemId, { h: g.humanScore, j: NaN })
   for (const c of candidate) {
@@ -98,10 +101,18 @@ export interface VerbosityBiasResult {
   n: number
 }
 
-export function verbosityBias(samples: Array<{ outputLen: number; score: number }>): VerbosityBiasResult {
+export function verbosityBias(
+  samples: Array<{ outputLen: number; score: number }>,
+): VerbosityBiasResult {
   const n = samples.length
   if (n < 3) return { pearson: NaN, n }
-  return { pearson: pearsonR(samples.map((s) => s.outputLen), samples.map((s) => s.score)), n }
+  return {
+    pearson: pearsonR(
+      samples.map((s) => s.outputLen),
+      samples.map((s) => s.score),
+    ),
+    n,
+  }
 }
 
 export interface SelfPreferenceResult {
@@ -117,13 +128,21 @@ export interface SelfPreferenceResult {
  * model X (in-family) and model Y (out-of-family). Non-zero delta
  * indicates self-preference.
  */
-export function selfPreference(samples: Array<{ score: number; inFamily: boolean }>): SelfPreferenceResult {
+export function selfPreference(
+  samples: Array<{ score: number; inFamily: boolean }>,
+): SelfPreferenceResult {
   const inF = samples.filter((s) => s.inFamily).map((s) => s.score)
   const outF = samples.filter((s) => !s.inFamily).map((s) => s.score)
-  if (inF.length === 0 || outF.length === 0) return { inFamilyMean: 0, outOfFamilyMean: 0, deltaMean: 0, n: 0 }
+  if (inF.length === 0 || outF.length === 0)
+    return { inFamilyMean: 0, outOfFamilyMean: 0, deltaMean: 0, n: 0 }
   const inMean = inF.reduce((a, b) => a + b, 0) / inF.length
   const outMean = outF.reduce((a, b) => a + b, 0) / outF.length
-  return { inFamilyMean: inMean, outOfFamilyMean: outMean, deltaMean: inMean - outMean, n: samples.length }
+  return {
+    inFamilyMean: inMean,
+    outOfFamilyMean: outMean,
+    deltaMean: inMean - outMean,
+    n: samples.length,
+  }
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────
@@ -132,7 +151,9 @@ function pearsonR(a: number[], b: number[]): number {
   if (a.length !== b.length || a.length < 2) return NaN
   const mA = a.reduce((s, v) => s + v, 0) / a.length
   const mB = b.reduce((s, v) => s + v, 0) / b.length
-  let num = 0, dA = 0, dB = 0
+  let num = 0,
+    dA = 0,
+    dB = 0
   for (let i = 0; i < a.length; i++) {
     const da = a[i] - mA
     const db = b[i] - mB
@@ -165,7 +186,7 @@ function weightedKappa(a: number[], b: number[]): number {
   let den = 0
   for (let i = 0; i < K; i++) {
     for (let j = 0; j < K; j++) {
-      const w = Math.pow(i - j, 2) / Math.pow(K - 1, 2)
+      const w = (i - j) ** 2 / (K - 1) ** 2
       const expected = (rowMarg[i] * colMarg[j]) / a.length
       num += w * observed[i][j]
       den += w * expected

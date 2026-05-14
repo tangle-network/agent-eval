@@ -26,10 +26,10 @@
  */
 
 import { readFile, stat } from 'node:fs/promises'
-
+import { compileSearchRegex, type TraceAnalysisStore, truncateForBudget } from './store'
 import {
-  DEFAULT_TRACE_ANALYST_BUDGETS,
   type DatasetOverview,
+  DEFAULT_TRACE_ANALYST_BUDGETS,
   type QueryTracesPage,
   type SearchSpanResult,
   type SearchTraceResult,
@@ -43,11 +43,6 @@ import {
   type ViewTraceOversized,
   type ViewTraceResult,
 } from './types'
-import {
-  compileSearchRegex,
-  truncateForBudget,
-  type TraceAnalysisStore,
-} from './store'
 
 interface SpanIndexEntry {
   span_id: string
@@ -306,7 +301,14 @@ export class OtlpFileTraceStore implements TraceAnalysisStore {
     let capped = false
     for (const s of trace.spans) {
       const remaining = max_matches - hits.length
-      const localHits = await this.scanSpanForMatches(buf, trace.trace_id, s, re, this.perMatchTextBudget, remaining)
+      const localHits = await this.scanSpanForMatches(
+        buf,
+        trace.trace_id,
+        s,
+        re,
+        this.perMatchTextBudget,
+        remaining,
+      )
       total += localHits.total
       for (const h of localHits.records) {
         if (hits.length >= max_matches) break
@@ -345,7 +347,14 @@ export class OtlpFileTraceStore implements TraceAnalysisStore {
     }
     const re = compileSearchRegex(opts.regex_pattern)
     const buf = await this.buffer()
-    const localHits = await this.scanSpanForMatches(buf, trace.trace_id, span, re, this.perMatchTextBudget, max_matches)
+    const localHits = await this.scanSpanForMatches(
+      buf,
+      trace.trace_id,
+      span,
+      re,
+      this.perMatchTextBudget,
+      max_matches,
+    )
     return {
       trace_id: trace.trace_id,
       span_id: span.span_id,
@@ -471,11 +480,11 @@ export class OtlpFileTraceStore implements TraceAnalysisStore {
     let totalRawBytes = 0
     for (const t of byTrace.values()) {
       totalRawBytes += t.raw_jsonl_bytes
-      t.spans.sort((a, b) => a.start_time.localeCompare(b.start_time) || a.line_byte_offset - b.line_byte_offset)
-      t.duration_ms = Math.max(
-        0,
-        new Date(t.end_time).getTime() - new Date(t.start_time).getTime(),
+      t.spans.sort(
+        (a, b) =>
+          a.start_time.localeCompare(b.start_time) || a.line_byte_offset - b.line_byte_offset,
       )
+      t.duration_ms = Math.max(0, new Date(t.end_time).getTime() - new Date(t.start_time).getTime())
     }
     const sortedTraceIds = [...byTrace.keys()].sort()
 
@@ -519,10 +528,7 @@ export class OtlpFileTraceStore implements TraceAnalysisStore {
     for (const t of indexedFiltered) {
       let matched = false
       for (const s of t.spans) {
-        const slice = buf.subarray(
-          s.line_byte_offset,
-          s.line_byte_offset + s.line_byte_length,
-        )
+        const slice = buf.subarray(s.line_byte_offset, s.line_byte_offset + s.line_byte_length)
         // Buffer.toString allocates; tolerate it because regex_pattern
         // is opt-in. Future optimisation: byte-level fast-path for
         // ASCII-only patterns.
@@ -727,10 +733,7 @@ function readOtlpSpan(raw: Record<string, unknown>): ProjectedSpanShape | null {
   const span_id = stringField(raw, 'span_id') ?? stringField(raw, 'spanId')
   if (!trace_id || !span_id) return null
 
-  const parent_id =
-    stringField(raw, 'parent_span_id') ??
-    stringField(raw, 'parentSpanId') ??
-    null
+  const parent_id = stringField(raw, 'parent_span_id') ?? stringField(raw, 'parentSpanId') ?? null
   const name = stringField(raw, 'name') ?? 'unknown'
   const start_time = stringField(raw, 'start_time') ?? stringField(raw, 'startTime') ?? ''
   const end_time = stringField(raw, 'end_time') ?? stringField(raw, 'endTime') ?? start_time
@@ -742,21 +745,12 @@ function readOtlpSpan(raw: Record<string, unknown>): ProjectedSpanShape | null {
   // attributes already via extractAttributes. Same for the inference.*
   // and openinference.* keys.
   const service_name =
-    asString(attrs['service.name']) ??
-    asString(attrs['resource.attributes.service.name']) ??
-    null
+    asString(attrs['service.name']) ?? asString(attrs['resource.attributes.service.name']) ?? null
   const agent_name =
-    asString(attrs['agent.name']) ??
-    asString(attrs['inference.agent.name']) ??
-    null
+    asString(attrs['agent.name']) ?? asString(attrs['inference.agent.name']) ?? null
   const model_name =
-    asString(attrs['llm.model_name']) ??
-    asString(attrs['inference.llm.model_name']) ??
-    null
-  const tool_name =
-    asString(attrs['tool.name']) ??
-    asString(attrs['inference.tool.name']) ??
-    null
+    asString(attrs['llm.model_name']) ?? asString(attrs['inference.llm.model_name']) ?? null
+  const tool_name = asString(attrs['tool.name']) ?? asString(attrs['inference.tool.name']) ?? null
 
   const kind = inferKind(attrs)
 
@@ -807,8 +801,7 @@ function readStatus(raw: Record<string, unknown>): {
 
 function inferKind(attrs: Record<string, unknown>): TraceAnalystSpanKind {
   const opik =
-    asString(attrs['openinference.span.kind']) ??
-    asString(attrs['inference.observation_kind'])
+    asString(attrs['openinference.span.kind']) ?? asString(attrs['inference.observation_kind'])
   if (opik) {
     const upper = opik.toUpperCase()
     if (

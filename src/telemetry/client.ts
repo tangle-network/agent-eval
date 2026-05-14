@@ -67,7 +67,7 @@ function makeEnvelopeId(): string {
     return crypto.randomUUID()
   }
   // Last-resort fallback. Lower entropy but never throws.
-  return 'env-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 10)
+  return `env-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`
 }
 
 export const SECRET_FLAGS = new Set(['--api-key', '--bearer', '--token', '--password'])
