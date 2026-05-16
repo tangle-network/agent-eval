@@ -194,6 +194,7 @@ const next = await analyzeOptimizationResult(campaign, { researcher })
 | Deterministic re-judge / audit | `ReplayCache`, `createReplayFetch` | `/` |
 | Anytime-valid α across rolling looks | `pairedEvalueSequence` | `/reporting` |
 | Judge quality vs gold | `calibrateJudge` (κ, Pearson, MAE, bias probes) | `/` |
+| Continuous inter-rater agreement | `calibrateJudgeContinuous`, `continuousAgreement` (κ_w, ICC(2,1), bootstrap CIs) | `/` |
 | (chosen, rejected) for DPO/KTO/PPO | `extractPreferences` | `/rl` |
 | Verifiable reward signal | `extractVerifiableReward` | `/rl` |
 | Step-level / PRM training data | `extractStepRewards`, `prmTrainingPairs` | `/rl` |

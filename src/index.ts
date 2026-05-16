@@ -486,6 +486,9 @@ export { Dataset, HoldoutLockedError, hashScenarios } from './dataset'
 export type {
   CalibrationResult,
   CandidateScore,
+  ContinuousAgreement,
+  ContinuousAgreementOptions,
+  ContinuousCalibrationResult,
   GoldenItem,
   PositionalBiasResult,
   SelfPreferenceResult,
@@ -494,6 +497,8 @@ export type {
 
 export {
   calibrateJudge,
+  calibrateJudgeContinuous,
+  continuousAgreement,
   positionalBias,
   selfPreference,
   verbosityBias,
