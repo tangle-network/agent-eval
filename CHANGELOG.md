@@ -1,5 +1,48 @@
 # Changelog
 
+## 0.26.0 — Continuous-value inter-rater agreement (ICC + weighted κ)
+
+The original `calibrateJudge` rounded scores to ints before computing
+Cohen's κ. For fine-grained judges that's lossy — 0.78 vs 0.81 both
+round to "1" and the integer κ pretends they agreed perfectly when they
+actually disagree by 3 percentage points. This release ships principled
+continuous-value agreement metrics so calibration findings become
+quantitative for [0,1]-valued judges.
+
+### Added
+
+- **`continuousAgreement(scores, opts?)`** (`src/judge-calibration.ts`) —
+  inter-rater agreement on continuous scores. Returns:
+    - `weightedKappa` — Cohen's κ_w with quadratic (or linear) weights on
+      raw scores, no quantisation.
+    - `icc` — ICC(2,1), two-way random effects, absolute agreement,
+      single rater (Shrout & Fleiss 1979). The principled reliability
+      coefficient when judges are a random sample of the judge population.
+    - `pearson` / `spearman` — averaged over rater pairs when N ≥ 2 raters.
+    - `ci.icc` / `ci.weightedKappa` — bootstrap percentile 95% CIs
+      (default `n=1000`, seeded for reproducibility).
+  Accepts `scores: number[][]` shaped `[n_items][n_raters]`. Rows with
+  non-finite entries are dropped, not coerced.
+
+- **`calibrateJudgeContinuous(golden, candidate, opts?)`** — drop-in
+  superset of `calibrateJudge`. Preserves every legacy field
+  (`n`, `pearson`, `kappa`, `mae`, `worstItems`) and adds
+  `weightedKappaContinuous`, `icc`, `spearman`, and `ci`. Use this when
+  the judge produces fine-grained [0,1] scores; keep `calibrateJudge`
+  for the original integer-quantised report.
+
+### Why two κ flavours
+
+ICC(2,1) catches systematic bias that Pearson misses. If judge B scores
+2× judge A, Pearson stays ≈ 1 (linear association is perfect) while ICC
+plummets (absolute agreement is poor). The new tests assert this exact
+failure mode so the regression can't sneak back in.
+
+### Unchanged
+
+- `calibrateJudge` keeps its original integer-rounded κ semantics for
+  backwards compatibility. Nothing else moves.
+
 ## 0.25.0 — ProductionLoop primitive: close the eval → prod → eval cycle
 
 This release ships the **orchestration layer** that turns the existing

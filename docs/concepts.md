@@ -127,6 +127,17 @@ Two rules that will save you bugs:
 
 2. **Pair LLM judges with build outcomes.** An LLM judge will rate non-compiling code as "looks right" (0.8). Always short-circuit on `buildOutcome.passed === false` before any LLM judging.
 
+## Judge calibration
+
+Two questions to answer before trusting any LLM judge:
+
+1. **Does it agree with humans?** `calibrateJudge(golden, candidate)` reports Pearson, MAE, integer-rounded κ, and worst-N miscalibrations vs a human golden set.
+2. **Does it agree with itself / other judges?** `continuousAgreement(scores)` and `calibrateJudgeContinuous(golden, candidate)` report κ_w + ICC(2,1) + Pearson + Spearman with bootstrap 95% CIs on the raw [0,1] scores.
+
+Why two κ flavours: the original `calibrateJudge` rounds scores to ints before computing κ. For fine-grained judges that loses information — 0.78 vs 0.81 both round to "1" and look perfectly agreed. Use `calibrateJudgeContinuous` (or `continuousAgreement` for N≥2 raters) when scores are continuous. ICC(2,1) catches systematic bias that Pearson misses: if judge B scores 2× judge A, Pearson stays ≈ 1 while ICC drops — that's the signal.
+
+Bias probes (`positionalBias`, `verbosityBias`, `selfPreference`) cover the orthogonal failure modes: position-dependent scoring, length-correlated scoring, and judge-prefers-its-own-family.
+
 ## Trace Model
 
 Every operation emits structured spans into a `TraceStore`. A run is a tree:
