@@ -1,5 +1,35 @@
 # Changelog
 
+## 0.27.0 — 2026-05-17
+
+### Substrate reliability — eliminate silent-zero judge corruption
+
+Today's tax + gtm evals shipped composites where the judge LLM silently
+aborted (verbose new prompts streamed past the 60s default timeout) and
+the per-trial score collapsed to `0`. The composite formula then weighted
+that zero into the mean, producing a "−27pp tax regression" that was
+actually a measurement-instrument failure, not a prompt regression.
+
+This release adds three substrate primitives so consumers can stop
+silent-zeroing their own data:
+
+- **`withJudgeRetry(judgeFn, policy)`** — wraps any judge call with retry
+  on transient failures (Abort, Timeout, fetch failed, 429/502/503/504),
+  optional fallback-model rotation, and a typed outcome (`succeeded`,
+  `attempts`, `value`, `error`). Refuses to default to a silent zero.
+- **`aggregateTrialsByMode(trials, { mode })`** — `'exclude-failed'` mode
+  drops trials with `judgeSucceeded === false` from the mean so a failed
+  judge doesn't corrupt the composite. `'strict-fail'` mode refuses the
+  aggregate when any judge failed. `'zero-fill'` preserves legacy.
+- **`discoverPersonas(dir, opts)`** — replaces every consumer's hardcoded
+  `TRAINING_PERSONA_FILES` constant. New personas on disk are picked up
+  automatically; consumers can filter via include/exclude patterns.
+
+Additive to `TrialResult`: `judgeSucceeded?`, `judgeAttempts?`, `judgeError?`
+fields. Existing adapters that don't set these continue to work
+unchanged via `'zero-fill'` mode (default for back-compat).
+
+
 ## 0.26.0 — Continuous-value inter-rater agreement (ICC + weighted κ)
 
 The original `calibrateJudge` rounded scores to ints before computing

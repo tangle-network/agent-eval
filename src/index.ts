@@ -1033,5 +1033,20 @@ export {
   researchReport,
   summaryTable,
 } from './summary-report'
+export type {
+  JudgeRetryPolicy,
+  JudgeRetryOutcome,
+} from './judge-retry'
+export { withJudgeRetry } from './judge-retry'
+export type {
+  DiscoverPersonasOptions,
+  DiscoveredPersona,
+} from './discover-personas'
+export { discoverPersonas } from './discover-personas'
+export type {
+  AggregatorMode,
+  TrialAggregate,
+} from './trial-aggregator'
+export { aggregateTrialsByMode } from './trial-aggregator'
 
 // Ax RLM trace analyst — subpath: /traces (re-exported alongside trace store).
