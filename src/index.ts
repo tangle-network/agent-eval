@@ -164,10 +164,18 @@ export {
   controlRunToRunRecord,
   scoreFromEvals,
 } from './run-evidence'
+export type {
+  CorpusAgreementOptions,
+  CorpusAgreementPerDimension,
+  CorpusAgreementReport,
+  CorpusScoreRecord,
+} from './statistics'
 // ── Statistics ───────────────────────────────────────────────────────
 export {
   cohensD,
   confidenceInterval,
+  corpusInterRaterAgreement,
+  corpusInterRaterAgreementFromJudgeScores,
   interRaterReliability,
   mannWhitneyU,
   normalizeScores,

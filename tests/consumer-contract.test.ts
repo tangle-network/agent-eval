@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import * as agentEval from '../src/index'
 import * as builderEval from '../src/builder-eval/index'
+import * as agentEval from '../src/index'
 import * as rl from '../src/rl/index'
 
 /**
@@ -61,6 +61,8 @@ const ROOT_RUNTIME_SYMBOLS = [
   'estimateTokens',
   'iqr',
   'pairedEvalueSequence',
+  'corpusInterRaterAgreement',
+  'corpusInterRaterAgreementFromJudgeScores',
   // Preference memory rendering
   'renderPreferenceMemoryMarkdown',
   'summarizePreferenceMemory',
@@ -86,17 +88,16 @@ describe('public-surface contract for consumers', () => {
   })
 
   it('exports the rl subpath surface consumers depend on', () => {
-    const missing = RL_SYMBOLS.filter(
-      (name) => (rl as Record<string, unknown>)[name] === undefined,
-    )
+    const missing = RL_SYMBOLS.filter((name) => (rl as Record<string, unknown>)[name] === undefined)
     expect(missing, `missing rl subpath exports: ${missing.join(', ')}`).toEqual([])
   })
 
   it('exposes a builder-eval subpath used by agent-builder', () => {
     expect(builderEval, 'builder-eval subpath must resolve').toBeDefined()
-    expect(Object.keys(builderEval).length, 'builder-eval must export at least one symbol').toBeGreaterThan(
-      0,
-    )
+    expect(
+      Object.keys(builderEval).length,
+      'builder-eval must export at least one symbol',
+    ).toBeGreaterThan(0)
   })
 
   it('every error class constructor is a function (consumers can `instanceof` them)', () => {
