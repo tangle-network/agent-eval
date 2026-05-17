@@ -1,5 +1,28 @@
 # Changelog
 
+## 0.27.1 — 2026-05-17
+
+### Signal-honesty sweep — substrate
+
+- **`sandbox-harness.ts`** — the timeout-driven `SIGKILL` previously sat
+  inside an empty `} catch {}`. A failed kill would vanish from logs.
+  It now surfaces via `console.warn` with full error context while
+  preserving teardown semantics (the timer already fired; the subprocess
+  is being terminated).
+- **`control-runtime.ts`** — documented the `ControlRunResult.runId:
+  string | null` contract at the type declaration. The 21 sites that
+  coerce `emitter?.runId` to `null` (one per terminal return path) are
+  typed-contract conversions, not silent fallbacks: `null` means "the
+  run executed without a `TraceEmitter` wired and no run record was
+  persisted." Type-level docs end the recurring "is this a bug?" review.
+- **`.gitignore`** — added `data/` (local dev session storage).
+- **`tests/consumer-contract.test.ts`** — pins the runtime symbols that
+  the five product-agent consumers (tax/creative/legal/gtm/agent-builder)
+  import from `@tangle-network/agent-eval`. The full set of types is
+  validated at compile time via the namespace import; runtime classes
+  and functions are exhaustively asserted. Any removal/rename of a
+  load-bearing export now fails this test before shipping.
+
 ## 0.27.0 — 2026-05-17
 
 ### Substrate reliability — eliminate silent-zero judge corruption
