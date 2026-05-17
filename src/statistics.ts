@@ -1,5 +1,9 @@
 import { ValidationError } from './errors'
-import { type ContinuousAgreement, type ContinuousAgreementOptions, continuousAgreement } from './judge-calibration'
+import {
+  type ContinuousAgreement,
+  type ContinuousAgreementOptions,
+  continuousAgreement,
+} from './judge-calibration'
 import type { JudgeScore } from './types'
 
 /** Dimensions where lower raw score = better outcome (inverted semantics) */
@@ -450,7 +454,8 @@ export function corpusInterRaterAgreement(
     if (Number.isFinite(agreement.weightedKappa)) kappas.push(agreement.weightedKappa)
   }
 
-  const mean = (xs: number[]) => (xs.length === 0 ? Number.NaN : xs.reduce((a, b) => a + b, 0) / xs.length)
+  const mean = (xs: number[]) =>
+    xs.length === 0 ? Number.NaN : xs.reduce((a, b) => a + b, 0) / xs.length
   return {
     perDimension,
     overallIcc: mean(iccs),

@@ -1,16 +1,16 @@
-import { describe, it, expect } from 'vitest'
+import { describe, expect, it } from 'vitest'
 import {
-  normalizeScores,
-  weightedMean,
-  confidenceInterval,
-  partialCredit,
-  mannWhitneyU,
-  pairedTTest,
-  wilcoxonSignedRank,
+  type CorpusScoreRecord,
   cohensD,
+  confidenceInterval,
   corpusInterRaterAgreement,
   corpusInterRaterAgreementFromJudgeScores,
-  type CorpusScoreRecord,
+  mannWhitneyU,
+  normalizeScores,
+  pairedTTest,
+  partialCredit,
+  weightedMean,
+  wilcoxonSignedRank,
 } from '../src/statistics'
 import type { JudgeScore } from '../src/types'
 
@@ -28,8 +28,8 @@ describe('normalizeScores', () => {
     ]
     const normalized = normalizeScores(scores)
     expect(normalized).toHaveLength(4)
-    expect(normalized.find(s => s.dimension === 'hallucination')!.score).toBe(8)
-    expect(normalized.find(s => s.dimension === 'domain_accuracy')!.score).toBe(6)
+    expect(normalized.find((s) => s.dimension === 'hallucination')!.score).toBe(8)
+    expect(normalized.find((s) => s.dimension === 'domain_accuracy')!.score).toBe(6)
   })
 
   it('handles empty input', () => {
@@ -39,18 +39,16 @@ describe('normalizeScores', () => {
 
 describe('weightedMean', () => {
   it('computes simple average with no weights', () => {
-    expect(weightedMean([
-      { score: 4 },
-      { score: 6 },
-      { score: 8 },
-    ])).toBeCloseTo(6)
+    expect(weightedMean([{ score: 4 }, { score: 6 }, { score: 8 }])).toBeCloseTo(6)
   })
 
   it('computes weighted average', () => {
-    expect(weightedMean([
-      { score: 10, weight: 3 },
-      { score: 0, weight: 1 },
-    ])).toBeCloseTo(7.5)
+    expect(
+      weightedMean([
+        { score: 10, weight: 3 },
+        { score: 0, weight: 1 },
+      ]),
+    ).toBeCloseTo(7.5)
   })
 
   it('returns 0 for empty input', () => {
