@@ -148,6 +148,7 @@ export interface ControlRunResult<
   finalEvals: TEval[]
   wallMs: number
   spentCostUsd: number
+  /** null when the run executed without a TraceEmitter wired (no run record was persisted). */
   runId: string | null
   failureClass?: FailureClass
   runtimeErrors: ControlRuntimeError[]

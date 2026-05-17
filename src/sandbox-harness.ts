@@ -180,7 +180,9 @@ export class SubprocessSandboxDriver implements SandboxDriver {
         () => {
           try {
             child.kill('SIGKILL')
-          } catch {}
+          } catch (err) {
+            console.warn('[sandbox-harness] SIGKILL on timeout failed:', err)
+          }
         },
         config.timeoutMs ?? 10 * 60_000,
       )
