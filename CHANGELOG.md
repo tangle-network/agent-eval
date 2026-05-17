@@ -10,11 +10,14 @@
   preserving teardown semantics (the timer already fired; the subprocess
   is being terminated).
 - **`control-runtime.ts`** — documented the `ControlRunResult.runId:
-  string | null` contract at the type declaration. The 21 sites that
+  string | null` contract at the type declaration. The 18 sites that
   coerce `emitter?.runId` to `null` (one per terminal return path) are
   typed-contract conversions, not silent fallbacks: `null` means "the
   run executed without a `TraceEmitter` wired and no run record was
   persisted." Type-level docs end the recurring "is this a bug?" review.
+  (Three sibling `?? null` coercions on the same returns —
+  `actionCostUsd`, `scoreBefore`, `scoreAfter` — are likewise typed-optional
+  span attributes documented at their declaration sites.)
 - **`.gitignore`** — added `data/` (local dev session storage).
 - **`tests/consumer-contract.test.ts`** — pins the runtime symbols that
   the five product-agent consumers (tax/creative/legal/gtm/agent-builder)
