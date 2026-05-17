@@ -1,5 +1,51 @@
 # Changelog
 
+## 0.27.2 — 2026-05-17
+
+### Corpus-wide inter-rater agreement primitive
+
+`interRaterReliability(JudgeScore[][])` measures Krippendorff α *within
+a single item* — multiple judges rate the same scenario, how much do
+their scores cluster? That answers "is this one judgement contested?"
+It does not answer "is this judge panel reliable across the whole
+evaluation corpus?" — the question the five product consumers actually
+need before trusting a multi-judge composite over 100+ scenarios.
+
+This release ships the corpus-wide companion. It does not touch the
+existing primitive: the within-item α and the corpus-wide ICC are
+different formulas with different domains of validity.
+
+### Added
+
+- **`corpusInterRaterAgreement(records, opts?)`** (`src/statistics.ts`) —
+  takes a flat list of `{itemId, judgeName, dimension, score}` records.
+  For each dimension, pivots to the [n_items × n_judges] matrix of items
+  every judge rated and delegates to `continuousAgreement` (ICC(2,1) +
+  κ_w + Pearson + Spearman + bootstrap CIs from 0.26.0). An overall
+  pooled mean across dimensions gives one "is the panel reliable on
+  this corpus?" number.
+- **`corpusInterRaterAgreementFromJudgeScores(itemsScores, opts?)`** —
+  adapter for consumers that already hold per-item `JudgeScore[]`
+  arrays (e.g. `ScenarioResult.judgeScores`) and want to skip manual
+  flattening.
+- New exported types: `CorpusScoreRecord`, `CorpusAgreementOptions`,
+  `CorpusAgreementPerDimension`, `CorpusAgreementReport`.
+
+### Fail-loud contract
+
+Per `CLAUDE.md` "no silent fallbacks": the primitive throws
+`ValidationError` on empty input, fewer than 2 judges, fewer than 2
+items rated by every judge on a given dimension, a judge with zero
+items on a dimension (would silently shrink the matrix and corrupt the
+overall metric), duplicate `(itemId, judge, dimension)` records, or any
+non-finite score. There is no quiet-NaN path.
+
+### Consumer contract
+
+`tests/consumer-contract.test.ts` pins both new exports. The 0.27.0
+surface is preserved — no rename, no signature change on the existing
+`interRaterReliability`.
+
 ## 0.27.1 — 2026-05-17
 
 ### Signal-honesty sweep — substrate

@@ -168,6 +168,8 @@ export {
 export {
   cohensD,
   confidenceInterval,
+  corpusInterRaterAgreement,
+  corpusInterRaterAgreementFromJudgeScores,
   interRaterReliability,
   mannWhitneyU,
   normalizeScores,
@@ -175,6 +177,12 @@ export {
   partialCredit,
   weightedMean,
   wilcoxonSignedRank,
+} from './statistics'
+export type {
+  CorpusAgreementOptions,
+  CorpusAgreementPerDimension,
+  CorpusAgreementReport,
+  CorpusScoreRecord,
 } from './statistics'
 export type {
   ArtifactCheck,

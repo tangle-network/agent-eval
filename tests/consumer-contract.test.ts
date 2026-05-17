@@ -61,6 +61,8 @@ const ROOT_RUNTIME_SYMBOLS = [
   'estimateTokens',
   'iqr',
   'pairedEvalueSequence',
+  'corpusInterRaterAgreement',
+  'corpusInterRaterAgreementFromJudgeScores',
   // Preference memory rendering
   'renderPreferenceMemoryMarkdown',
   'summarizePreferenceMemory',
