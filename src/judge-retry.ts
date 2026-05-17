@@ -1,42 +1,16 @@
 /**
- * Judge-retry wrapper.
+ * Wrap a single judge LLM call with retry, optional fallback-model
+ * rotation, exponential backoff, and a typed `JudgeRetryOutcome`. Callers
+ * MUST inspect `succeeded` before using `value`; on failure the library
+ * returns `value: null` rather than substituting a default, so a judge
+ * abort cannot silently corrupt a downstream composite.
  *
- * Today's failure mode: a judge LLM call aborts mid-stream (connection
- * dropped, model timed out, schema rejected) → consumer's try/catch swallows
- * the error and returns `score: 0`. The eval composite then weights that
- * zero into the mean, silently corrupting the score. Today's tax/gtm evals
- * had `judge=0` across every trial — the prompt rewrites couldn't be
- * evaluated honestly because the measurement instrument was broken.
- *
- * `withJudgeRetry` is the substrate fix. It wraps a single judge invocation
- * with:
- *
- *   1. N retry attempts on transient failures (abort, timeout, network).
- *   2. Optional fallback-model rotation — try the next model in the list
- *      if the primary keeps aborting (a verbose new prompt may stream-abort
- *      on claude-code/sonnet but succeed on kimi-code/k2p6).
- *   3. Exponential backoff between attempts.
- *   4. A typed outcome `{ succeeded, attempts, value, error }` that callers
- *      MUST decide what to do with. No silent zero.
- *
- * The reporting contract: callers ship `TrialResult.judgeSucceeded = succeeded`
- * and `TrialResult.judgeAttempts = attempts`. `aggregateTrials({mode: 'exclude-failed'})`
- * then skips failed-judge trials when computing composites.
- *
- * The library does NOT decide what score to record on failure — that's the
- * caller's product choice. Today's product agents (legal/gtm/tax/creative)
- * should set `score: NaN` + `judgeSucceeded: false` + `error: ...` so the
- * aggregator's exclude-failed mode drops the trial. Defaulting to 0 is what
- * caused today's data corruption.
+ * Reporting contract: callers ship `TrialResult.judgeSucceeded = succeeded`
+ * and `TrialResult.judgeAttempts = attempts` so `aggregateTrialsByMode`
+ * with `mode: 'exclude-failed'` drops the trial.
  */
 
-/**
- * Retry policy for judge LLM calls.
- *
- * Defaults are tuned for the verbose post-2yr-rewrite prompts that exceed
- * the 60s `callLlm` default and abort on streaming. Pick a different timeout
- * for cheap-and-quick judges (e.g., 30s) or longer for thinking models.
- */
+/** Retry policy for judge LLM calls. */
 export interface JudgeRetryPolicy {
   /** Max attempts per model. Default 3 (one initial + two retries). */
   maxAttempts?: number

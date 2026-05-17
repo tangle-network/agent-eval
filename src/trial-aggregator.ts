@@ -1,29 +1,17 @@
 /**
- * Trial-aggregator modes.
+ * Aggregate trials with explicit handling of judge failure. Three modes:
  *
- * The prompt-evolution loop's internal `aggregateTrials` defaulted to
- * including every non-`error` trial in the mean — which corrupted the mean
- * when a trial had `score: 0` because the judge silently aborted (the
- * caller's try/catch swallowed the abort and returned zero). Today's
- * tax/gtm evals show this: every trial scored judge=0 because the judge
- * aborted, and the composite then reflected `structural * 0.3 + slop * 0.1`
- * instead of the intended `judge * 0.6 + structural * 0.3 + slop * 0.1`.
+ *   - `strict-fail` — any `judgeSucceeded === false` trial fails the whole
+ *     aggregate. Use for production gates: one corrupt trial halts the gate.
  *
- * `aggregateTrialsByMode` is the substrate fix. Consumers can choose:
+ *   - `exclude-failed` — drop `judgeSucceeded === false` trials from the
+ *     mean; report `excludedFailedTrials` separately. Default for new code.
  *
- *   - `strict-fail` — any trial with `judgeSucceeded === false` fails the
- *     whole aggregate. Right for production-gate runs where one corrupted
- *     trial means "we don't know if the prompt is good, halt the gate."
+ *   - `zero-fill` — failed trials count as `score: 0` in the mean. Available
+ *     only for adapters that don't yet set `judgeSucceeded`.
  *
- *   - `exclude-failed` — drop trials with `judgeSucceeded === false` from
- *     the mean; report `failedTrials` separately. Right for research /
- *     comparison runs where you want to use the signal that DID land.
- *     Default for new code.
- *
- *   - `zero-fill` — legacy behavior: failed trials count as score=0 in
- *     the mean. Default ONLY for backwards-compat with adapters that
- *     don't yet set `judgeSucceeded`. Migrate off this — it's the source
- *     of today's data corruption.
+ * Hard-errored trials (`t.error` set) are always excluded — those are
+ * infrastructure failures, not eval signal.
  */
 
 import type { TrialResult } from './prompt-evolution'
@@ -72,23 +60,14 @@ function meanMetrics(rows: Array<Record<string, number>>): Record<string, number
   return out
 }
 
-/**
- * Aggregate trials with explicit failed-judge handling. Returns counts for
- * counted + excluded so callers can surface "the score is based on 7 of 10
- * trials; 3 judges failed" instead of silently weighting zero.
- */
 export function aggregateTrialsByMode(
   trials: TrialResult[],
   opts: { mode: AggregatorMode },
 ): TrialAggregate {
-  // Filter out hard-errored trials (agent crash) regardless of mode — those
-  // are not eval signal, they're infrastructure failure.
+  // Hard-errored trials are excluded in every mode — infrastructure failure, not eval signal.
   const gradedTrials = trials.filter((t) => !t.error)
 
-  // Partition by judge success. `undefined` (consumer didn't report) is
-  // treated as `true` for back-compat with adapters that don't yet wire
-  // `judgeSucceeded`. The migration path is: add `judgeSucceeded` to your
-  // adapter, then switch to `exclude-failed` mode.
+  // `judgeSucceeded === undefined` counts as success (adapter hasn't wired the field yet).
   const judgeOk = gradedTrials.filter((t) => t.judgeSucceeded !== false)
   const judgeFailed = gradedTrials.filter((t) => t.judgeSucceeded === false)
 
