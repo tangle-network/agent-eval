@@ -54,11 +54,9 @@ export class JsonlTrialCache implements TrialCache {
 
   set(key: string, value: TrialResult): void {
     // Update the in-memory map synchronously so subsequent get() calls
-    // see the new value immediately. Persist asynchronously through the
-    // shared appender — cache loss on a hard kill in the gap between
-    // map.set and disk write means at most one redundant trial run on
-    // resume, which is the same behaviour the old appendFileSync had on
-    // partial-line tear.
+    // see the value immediately. Persist asynchronously through the
+    // shared appender — a hard kill in the gap between map.set and disk
+    // write costs at most one redundant trial run on resume.
     this.map.set(key, value)
     const line: CacheLine = { key, result: value, writtenAt: Date.now() }
     void this.appender.append(line)

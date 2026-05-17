@@ -181,7 +181,7 @@ export const HealthResponseSchema = z
   })
   .openapi('HealthResponse')
 
-// ── Ingestion: production traces + user feedback (0.25.0) ───────────
+// ── Ingestion: production traces + user feedback ────────────────────
 
 /**
  * Minimal `TraceEvent` shape that the production runtime emits.

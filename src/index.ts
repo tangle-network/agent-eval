@@ -2,13 +2,13 @@
 
 export type { ActionExecutionPolicy, ActionPolicyDecision } from './action-policy'
 export { evaluateActionPolicy } from './action-policy'
-// ── 0.25.0 production loop primitive ─────────────────────────────────
+// ── Production loop primitive ────────────────────────────────────────
 // Closes the eval → prod → eval cycle: ingest production traces,
 // cluster failures, run evolve on the offending cluster, gate the
 // candidate, open a PR with the improved prompt.
 /**
- * @experimental — added in 0.25.0. Surface may evolve as the production
- * agents wire it in. Pin the patch version if you depend on it.
+ * @experimental — surface may evolve as production agents wire it in.
+ * Pin the patch version if you depend on it.
  */
 export type {
   AutoPrClient,
@@ -141,7 +141,7 @@ export {
   TokenCounter,
 } from './metrics'
 /**
- * @experimental — added in 0.25.0.
+ * @experimental
  */
 export type {
   FailureClusterConfig,
@@ -206,7 +206,7 @@ export type {
   TurnResult,
 } from './types'
 
-// ── 0.2 primitives ───────────────────────────────────────────────────
+// ── Core primitives ──────────────────────────────────────────────────
 
 export type { AntiSlopConfig, AntiSlopIssue, AntiSlopReport, SlopCategory } from './anti-slop'
 export { analyzeAntiSlop, createAntiSlopJudge } from './anti-slop'
@@ -361,7 +361,7 @@ export {
   runAssertions,
 } from './workspace-inspector'
 
-// ── 0.3 trace-first chassis ──────────────────────────────────────────
+// ── Trace-first chassis ──────────────────────────────────────────────
 
 export * from './trace'
 
@@ -370,7 +370,7 @@ export * from './trace'
 // README. Every other module is reachable only through its subpath
 // (`/rl`, `/pipelines`, `/meta-eval`, `/prm`, `/builder-eval`, `/traces`).
 
-// ── 0.3 producers ────────────────────────────────────────────────────
+// ── Producers ────────────────────────────────────────────────────────
 
 export { BudgetBreachError, BudgetGuard } from './budget-guard'
 export type {
@@ -412,9 +412,9 @@ export { computeToolUseMetrics } from './tool-use-metrics'
 export type { Trajectory, TrajectoryStep } from './trajectory'
 export { buildTrajectory } from './trajectory'
 
-// ── 0.3 canned pipelines (views over the trace corpus) — subpath: /pipelines ─
+// ── Canned pipelines (views over the trace corpus) — subpath: /pipelines ─
 
-// ── 0.3 auxiliary statistical + decision modules ─────────────────────
+// ── Auxiliary statistical + decision modules ─────────────────────────
 
 export type { BaselineOptions, BaselineReport, MetricSamples, MetricVerdict } from './baseline'
 export { compareToBaseline, iqr, welchsTTest } from './baseline'
@@ -460,7 +460,7 @@ export {
   statusAdvanced,
 } from './state-continuity'
 
-// ── 0.4 trust surface ────────────────────────────────────────────────
+// ── Trust surface ────────────────────────────────────────────────────
 
 export type { BehaviorAssertion, CallExpectation, Expectation, MatcherResult } from './behavior-dsl'
 export { expectAgent, runExpectations } from './behavior-dsl'
@@ -550,7 +550,7 @@ export { pixelDeltaRatio, visualDiff } from './visual-diff'
 
 // ── builder-of-builders eval — subpath: /builder-eval ───────────────────
 
-// ── 0.6 Tier 1 — meta-eval correlation, PRM, bisector ────────────────
+// ── Tier 1 — meta-eval correlation, PRM, bisector ────────────────────
 
 export type { BisectOptions, BisectResult, BisectStep } from './bisector'
 export {
@@ -560,7 +560,7 @@ export {
 } from './bisector'
 // meta-eval and prm are reachable through their subpaths: /meta-eval, /prm
 
-// ── 0.6 Tier 2 — counterfactual + cross-trace diff + pre-registration ─
+// ── Tier 2 — counterfactual + cross-trace diff + pre-registration ────
 
 export type {
   CounterfactualContext,
@@ -590,7 +590,7 @@ export {
   verifyManifest,
 } from './pre-registration'
 
-// ── 0.6 Tier 3 — self-play + causal + active learning + RM export ────
+// ── Tier 3 — self-play + causal + active learning + RM export ───────
 
 export type { ActiveLearningOptions, SynthesisReason, SynthesisTarget } from './active-learning'
 export { proposeSynthesisTargets } from './active-learning'
@@ -617,11 +617,11 @@ export type {
 } from './self-play'
 export { runSelfPlay } from './self-play'
 
-// ── 0.6 governance templates ─────────────────────────────────────────
+// ── Governance templates ─────────────────────────────────────────────
 
 export * from './governance'
 
-// ── 0.8 extraction: LLM client, multi-layer verifier, semantic concept judge, error-count ─
+// ── LLM client, multi-layer verifier, semantic concept judge, error-count ─
 
 export type {
   CommandRunner,
@@ -718,7 +718,7 @@ export type {
   MultiToolchainLayerConfig,
 } from './multi-toolchain-layer'
 export { mergeLayerResults, multiToolchainLayer } from './multi-toolchain-layer'
-// ── 0.11.x: reference replay (from main) ─────────────────────────────
+// ── Reference replay ─────────────────────────────────────────────────
 export {
   compareReferenceReplay,
   decideReferenceReplayPromotion,
@@ -754,7 +754,7 @@ export {
   SEMANTIC_CONCEPT_JUDGE_VERSION,
 } from './semantic-concept-judge'
 
-// ── 0.15 paper-grade primitives ──────────────────────────────────────
+// ── Paper-grade primitives ───────────────────────────────────────────
 
 export * as benchmarks from './benchmarks/index'
 export type {
@@ -782,7 +782,7 @@ export type {
 export { createSandboxCodeMutator } from './code-mutator'
 export type { CompositePolicy, CreateCompositeMutatorOpts } from './composite-mutator'
 export { createCompositeMutator } from './composite-mutator'
-// ── 0.14.0: concurrency + persistence + telemetry primitives for evolution loops ──
+// ── Concurrency + persistence + telemetry primitives for evolution loops ──
 export { Mutex } from './concurrency'
 export type {
   DiscoveredPersona,
@@ -899,7 +899,7 @@ export type {
   TrialResult as PromptTrialResult,
   VariantAggregate,
 } from './prompt-evolution'
-// ── 0.12.0: prompt evolution + golden matcher + orthogonality + promotion-gate ──
+// ── Prompt evolution + golden matcher + orthogonality + promotion-gate ──
 export {
   InMemoryTrialCache,
   runPromptEvolution,

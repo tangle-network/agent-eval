@@ -11,9 +11,8 @@
  *                  Δ improvement (auto-detect when prompt evolution has
  *                  hit a structural ceiling).
  *
- * Naming is generic: the original audit-bench version called the channels
- * "prompt" and "code" — those are the canonical use cases, but the
- * primitive doesn't care what each mutator actually does.
+ * Naming is generic — the canonical use cases are "prompt" and "code"
+ * channels, but the primitive doesn't care what each mutator actually does.
  */
 
 import type {

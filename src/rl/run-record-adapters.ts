@@ -1,15 +1,10 @@
 /**
- * Adapters: convert legacy optimization outputs into the canonical
- * `RunRecord[]` artifact that 0.22+ primitives consume.
+ * Adapters: convert `TrialResult[]` (from `runMultiShotOptimization`,
+ * `runPromptEvolution`) into the canonical `RunRecord[]` artifact that
+ * `replayCache`, `pairedEvalueSequence`, and `rubricPredictiveValidity`
+ * consume.
  *
- * The 0.22 release standardized the campaign artifact: every cell of an
- * eval matrix produces one `RunRecord`. The pre-0.22 optimization
- * primitives (`runMultiShotOptimization`, `runPromptEvolution`) produce
- * `TrialResult[]` with a different shape. This file bridges the two so
- * the new primitives (`replayCache`, `pairedEvalueSequence`,
- * `rubricPredictiveValidity`) compose cleanly with the existing RL stack.
- *
- * The adapters are thin and explicit — every mandatory `RunRecord` field
+ * Adapters are thin and explicit — every mandatory `RunRecord` field
  * comes from a caller-supplied context (`commitSha`, `model`,
  * `promptHash`, `configHash`) plus the trial's runtime data. Defaults
  * exist for fields the trial doesn't carry (`tokenUsage`, `costUsd`),

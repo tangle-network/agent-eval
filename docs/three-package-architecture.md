@@ -132,7 +132,7 @@ agent-runtime brings the *how to run it once* (task lifecycle, control
 loop). agent-eval brings the *measurement and improvement* (campaign,
 report, RL bridge).
 
-## Cross-package contracts (current state, 0.23+)
+## Cross-package contracts
 
 | From → To | Type | What it carries |
 |---|---|---|
@@ -143,37 +143,25 @@ report, RL bridge).
 | agent-runtime → agent-eval | `RunRecord`, `TraceStore`, `ControlRunResult`, `ControlStep` | (re-exported types; agent-runtime adapters projects into these) |
 | agent-eval ↘ neither package | (no upstream imports) | |
 
-## What's missing for the contracts to be S-tier
-
-These are honest gaps, surfaced after the 0.23 audit:
+## Known gaps in the contracts
 
 1. **Shared `Scenario` interface.** Each package has its own scenario
    shape. agent-eval will promote a minimal `Scenario` to shared use when
    the second consumer needs it.
-2. **`agent-knowledge` is pinned at `agent-eval@^0.20.0`.** It misses
-   capture-integrity (0.21), the campaign artifact (0.22), and the RL
-   bridge (0.23). On its next `pnpm install` the caret will pick up
-   minors — but `RunRecord`'s `scenarioId` field (added in 0.23) won't be
-   populated by agent-knowledge's existing run records. A planned bump +
-   adapter pass closes this.
-3. **`agent-runtime` is pinned at `agent-eval@^0.20.0`.** Same picture —
-   misses capture-integrity, campaign, RL bridge. Specifically the
-   `RawProviderSink` integration would let every agent-runtime task auto-
-   capture its provider HTTP envelope without wiring it per-consumer.
-4. **No first-class trace-analyst hook in agent-runtime.** agent-runtime's
-   `runAgentTask` can emit traces but doesn't auto-execute the trace
-   analyst on completion the way `runEvalCampaign` does. A `onRunComplete`
-   hook on agent-runtime would close this — and the implementation is
-   one method change.
-
-These are tracked as follow-up bumps after agent-eval 0.23 ships.
+2. **agent-knowledge and agent-runtime pin older agent-eval minors.**
+   Until both bump to current, `RunRecord`'s `scenarioId` field won't be
+   populated by their existing run records and `RawProviderSink`
+   integration is per-consumer rather than automatic.
+3. **No first-class trace-analyst hook in agent-runtime.** agent-runtime's
+   `runAgentTask` emits traces but doesn't auto-execute the trace analyst
+   on completion the way `runEvalCampaign` does. A `onRunComplete` hook
+   on agent-runtime would close this.
 
 ## Versioning policy
 
 Each package versions independently. The minor-version axis carries
-breaking changes; agent-eval's minor versions are tied to the major
-methodological shifts (0.21 = capture integrity; 0.22 = campaign + RL
-bridge experimental; 0.23 = RL bridge primitives, examples).
+breaking changes; agent-eval's minor versions are tied to major
+methodological shifts.
 
 When agent-eval ships a minor, agent-knowledge and agent-runtime get a
 follow-up PR to consume the new surface. The follow-up is tracked as a

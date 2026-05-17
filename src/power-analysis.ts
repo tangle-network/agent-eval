@@ -8,9 +8,9 @@
  *      `bonferroni(pValues, alpha)` correct for multiple pairwise tests
  *      so pairwise variant comparisons stay statistically honest.
  *
- * Fixes the correctness bug in 0.2's pairwise optimizer which applied
- * alpha directly across n*(n-1)/2 pairwise tests without correction —
- * dramatically inflating false-positive rate when variants ≥ 3.
+ * Applying alpha directly across n*(n-1)/2 pairwise tests without
+ * correction inflates the false-positive rate when variants ≥ 3 — the
+ * BH and Bonferroni helpers prevent that.
  */
 
 /**

@@ -25,8 +25,7 @@
  * primitive is idempotent + replayable: re-running with the same
  * `runId` will produce the same plan.
  *
- * @experimental — added in 0.25.0. Surface may evolve as the 5 product
- * agents wire it in.
+ * @experimental — surface may evolve as product agents wire it in.
  */
 
 import type { AutoPrClient, ProposeAutomatedPullRequestResult, RepoRef } from './auto-pr'

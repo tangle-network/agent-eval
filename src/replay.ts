@@ -2,11 +2,10 @@
  * Replay-from-raw-events — turn every captured campaign run into a
  * re-runnable artifact.
  *
- * The premise: 0.21 made `RawProviderSink` capture every provider HTTP
- * envelope. 0.22's `runEvalCampaign` makes capture the default. Together
- * they mean every past run is a complete fingerprint of what happened on
- * the wire — and that fingerprint is enough to replay the run without
- * burning new LLM cost.
+ * `RawProviderSink` captures every provider HTTP envelope; `runEvalCampaign`
+ * makes that capture the default. Together they make every past run a
+ * complete fingerprint of what happened on the wire — enough to replay
+ * the run without burning new LLM cost.
  *
  * Three use cases this primitive enables:
  *

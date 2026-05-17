@@ -25,7 +25,7 @@ import type { Severity } from './multi-layer-verifier'
 // ─── Types ──────────────────────────────────────────────────────────────
 
 /**
- * Implementation complexity class for weighted scoring (added 0.11).
+ * Implementation complexity class for weighted scoring.
  *
  * - `render` (default): the concept is a UI surface that displays static
  *   data — render a list, show a counter, lay out a button. Single-file
@@ -97,11 +97,10 @@ export interface SemanticConceptJudgeResult {
 }
 
 /**
- * Score-aggregation strategy. Default `mean` (legacy behavior — 0.10
- * and earlier always averaged 0-10 scores). `complexity` applies the
- * default weight table (render=1, integrate=2, compute=2.5) unless a
- * concept has an explicit `weight`. `explicit` honors only `weight`
- * (defaulting to 1 for unspecified).
+ * Score-aggregation strategy. `mean` averages 0-10 scores uniformly.
+ * `complexity` applies the default weight table (render=1, integrate=2,
+ * compute=2.5) unless a concept has an explicit `weight`. `explicit`
+ * honors only `weight` (defaulting to 1 for unspecified).
  */
 export type ConceptWeightStrategy = 'mean' | 'complexity' | 'explicit'
 
@@ -125,9 +124,9 @@ export interface SemanticConceptJudgeOptions {
   /** LlmClient config (baseUrl, apiKey, authHeader, …). */
   llm?: LlmClientOptions
   /**
-   * Score aggregation strategy. Default `mean` for backward compatibility
-   * with 0.10 and earlier callers. Cross-vertical comparisons should use
-   * `complexity` to neutralize the integrate-vs-render asymmetry.
+   * Score aggregation strategy. Default `mean` — uniform average across
+   * concepts. Cross-vertical comparisons should use `complexity` to
+   * neutralize the integrate-vs-render asymmetry.
    */
   weightConcepts?: ConceptWeightStrategy
   /** Override the default complexity → weight table. */
@@ -268,9 +267,9 @@ export async function runSemanticConceptJudge(
   }
 
   // Build a name → weight map for aggregation. Mean strategy keeps every
-  // weight at 1 (preserves 0.10 behavior). Complexity strategy reads the
-  // table and lets explicit `weight` override. Explicit strategy uses
-  // ONLY the spec's `weight` (defaulting to 1).
+  // weight at 1 (uniform average). Complexity strategy reads the table
+  // and lets an explicit `weight` override. Explicit strategy uses ONLY
+  // the spec's `weight` (defaulting to 1).
   const weightForConcept = (spec: ConceptSpec): number => {
     if (opts.weightConcepts === 'mean') return 1
     if (spec.weight != null) return spec.weight

@@ -2,16 +2,15 @@
  * EvalCampaign — opinionated matrix runner that wires the four
  * capture-integrity directives by construction.
  *
- * Every consumer that ran a launch-grade benchmark before 0.22 reinvented
- * the same shape: matrix runner → for each (variant, scenario, seed) →
- * start a TraceEmitter → call LLMs → end the run → maybe analyze.
- * The bug class blueprint-agent reported (raw events not captured, route
- * silently wrong, integrity not asserted, analyst never ran) lives at the
- * integration boundary — not the agent-eval API surface. The four
- * directives in `SKILL.md § Capture integrity` are mitigations.
+ * The canonical benchmark shape — matrix runner → for each
+ * (variant, scenario, seed) → start a TraceEmitter → call LLMs → end the
+ * run → analyze — has a bug class at the integration boundary: raw
+ * events not captured, route silently wrong, integrity not asserted,
+ * analyst never run. The directives in `SKILL.md § Capture integrity`
+ * are the mitigations.
  *
- * `EvalCampaign` is the structural fix. Consumers don't wire the integrity
- * surface anymore; the campaign owns it. Specifically, the campaign:
+ * `EvalCampaign` is the structural fix — consumers don't wire the
+ * integrity surface themselves; the campaign owns it. Specifically:
  *
  *   - calls `assertLlmRoute` once at preflight before any work runs
  *   - constructs a per-run `TraceStore` and `RawProviderSink` via factories

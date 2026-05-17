@@ -21,8 +21,7 @@ export interface FailureCluster {
    * Source dimension when the trigger was a judge span (e.g. `'format'`,
    * `'safety'`, `'correctness'`). Lets cross-template aggregators
    * group failures by the dimension that fired without overloading
-   * `argPrefix`. Optional — legacy clusters without this field
-   * deserialize cleanly.
+   * `argPrefix`. Optional — clusters without this field deserialize cleanly.
    */
   dimension?: string
   runCount: number

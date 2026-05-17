@@ -54,10 +54,10 @@ export interface TrialResult {
   error?: string
   /**
    * Whether the judge LLM call(s) that produced this trial's score actually
-   * completed. `undefined` means "consumer didn't report" (back-compat with
-   * existing adapters); `false` means the judge aborted/failed and the score
-   * is synthetic (typically 0 or partial). `aggregateTrials({mode: 'exclude-failed'})`
-   * skips these trials so a silent-zero judge can't pollute the composite.
+   * completed. `undefined` means "consumer didn't report"; `false` means
+   * the judge aborted/failed and the score is synthetic (typically 0 or
+   * partial). `aggregateTrials({mode: 'exclude-failed'})` skips these
+   * trials so a silent-zero judge can't pollute the composite.
    */
   judgeSucceeded?: boolean
   /** Number of judge attempts (informational, populated by `withJudgeRetry`). */
