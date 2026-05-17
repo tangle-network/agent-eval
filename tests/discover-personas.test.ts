@@ -1,8 +1,7 @@
-import { describe, it, expect, beforeAll, afterAll } from 'vitest'
-import { promises as fs } from 'node:fs'
-import { mkdtempSync, writeFileSync, mkdirSync } from 'node:fs'
+import { promises as fs, mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { discoverPersonas } from '../src/discover-personas'
 
 let dir: string

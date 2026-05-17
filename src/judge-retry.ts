@@ -131,7 +131,8 @@ export async function withJudgeRetry<T>(
   const timeoutMs = policy.timeoutMs ?? DEFAULT_TIMEOUT_MS
   const backoff = policy.backoffMs ?? DEFAULT_BACKOFF
   const isRetryable = policy.isRetryable ?? defaultIsRetryable
-  const models = policy.models && policy.models.length > 0 ? policy.models : [undefined as unknown as string]
+  const models =
+    policy.models && policy.models.length > 0 ? policy.models : [undefined as unknown as string]
 
   let totalAttempts = 0
   const attemptErrors: JudgeRetryOutcome<T>['attemptErrors'] = []
@@ -156,7 +157,11 @@ export async function withJudgeRetry<T>(
         clearTimeout(timer)
         const errObj = err instanceof Error ? err : new Error(String(err))
         lastError = errObj
-        attemptErrors.push({ attempt: totalAttempts, model: model ?? '(default)', error: errObj.message })
+        attemptErrors.push({
+          attempt: totalAttempts,
+          model: model ?? '(default)',
+          error: errObj.message,
+        })
         if (!isRetryable(errObj)) {
           // Non-retriable (e.g., JSON parse, schema rejection): break out of
           // attempts on this model AND skip the fallback rotation — a

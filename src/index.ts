@@ -785,6 +785,11 @@ export { createCompositeMutator } from './composite-mutator'
 // ── 0.14.0: concurrency + persistence + telemetry primitives for evolution loops ──
 export { Mutex } from './concurrency'
 export type {
+  DiscoveredPersona,
+  DiscoverPersonasOptions,
+} from './discover-personas'
+export { discoverPersonas } from './discover-personas'
+export type {
   CampaignFactoryParams,
   CampaignIntegrityPolicy,
   CampaignRunContext,
@@ -832,6 +837,11 @@ export type {
 } from './held-out-gate'
 export { HeldOutGate } from './held-out-gate'
 export { JsonlTrialCache } from './jsonl-trial-cache'
+export type {
+  JudgeRetryOutcome,
+  JudgeRetryPolicy,
+} from './judge-retry'
+export { withJudgeRetry } from './judge-retry'
 export { LockedJsonlAppender, resetLockedAppendersForTesting } from './locked-jsonl-appender'
 export type {
   ActionableSideInfo,
@@ -1033,16 +1043,6 @@ export {
   researchReport,
   summaryTable,
 } from './summary-report'
-export type {
-  JudgeRetryPolicy,
-  JudgeRetryOutcome,
-} from './judge-retry'
-export { withJudgeRetry } from './judge-retry'
-export type {
-  DiscoverPersonasOptions,
-  DiscoveredPersona,
-} from './discover-personas'
-export { discoverPersonas } from './discover-personas'
 export type {
   AggregatorMode,
   TrialAggregate,

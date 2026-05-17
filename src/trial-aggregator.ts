@@ -114,7 +114,8 @@ export function aggregateTrialsByMode(
     meanScore: meanOf(counted.map((t) => t.score)),
     meanCost: meanOf(counted.map((t) => t.cost ?? 0)),
     meanDurationMs: meanOf(counted.map((t) => t.durationMs ?? 0)),
-    okRate: gradedTrials.length === 0 ? 0 : gradedTrials.filter((t) => t.ok).length / gradedTrials.length,
+    okRate:
+      gradedTrials.length === 0 ? 0 : gradedTrials.filter((t) => t.ok).length / gradedTrials.length,
     countedTrials: counted.length,
     excludedFailedTrials: judgeFailed.length,
     totalTrials: trials.length,

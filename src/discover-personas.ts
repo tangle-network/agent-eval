@@ -15,7 +15,7 @@
  */
 
 import { promises as fs } from 'node:fs'
-import { join, basename, extname } from 'node:path'
+import { basename, extname, join } from 'node:path'
 
 export interface DiscoverPersonasOptions {
   /**
@@ -87,7 +87,8 @@ export async function discoverPersonas(
         continue
       }
       if (!pattern.test(entry.name)) continue
-      if (exclude.has(entry.name) || exclude.has(basename(entry.name, extname(entry.name)))) continue
+      if (exclude.has(entry.name) || exclude.has(basename(entry.name, extname(entry.name))))
+        continue
       if (include && include.length > 0) {
         const id = basename(entry.name, extname(entry.name))
         const matched = include.some((needle) => entry.name.includes(needle) || id.includes(needle))

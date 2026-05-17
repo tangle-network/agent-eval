@@ -1,6 +1,6 @@
-import { describe, it, expect } from 'vitest'
-import { aggregateTrialsByMode } from '../src/trial-aggregator'
+import { describe, expect, it } from 'vitest'
 import type { TrialResult } from '../src/prompt-evolution'
+import { aggregateTrialsByMode } from '../src/trial-aggregator'
 
 function trial(over: Partial<TrialResult>): TrialResult {
   return {
@@ -109,8 +109,8 @@ describe('aggregateTrialsByMode — replaces silent-zero composite corruption', 
     ]
     const zf = aggregateTrialsByMode(trials, { mode: 'zero-fill' })
     const ef = aggregateTrialsByMode(trials, { mode: 'exclude-failed' })
-    expect(zf.meanScore).toBeCloseTo(0.26, 2)   // corrupted — looks like regression
-    expect(ef.meanScore).toBeCloseTo(0.78, 2)   // honest — 1 trial of signal, but real
-    expect(ef.excludedFailedTrials).toBe(2)     // explicit about what we did NOT count
+    expect(zf.meanScore).toBeCloseTo(0.26, 2) // corrupted — looks like regression
+    expect(ef.meanScore).toBeCloseTo(0.78, 2) // honest — 1 trial of signal, but real
+    expect(ef.excludedFailedTrials).toBe(2) // explicit about what we did NOT count
   })
 })

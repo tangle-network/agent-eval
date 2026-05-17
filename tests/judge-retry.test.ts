@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest'
+import { describe, expect, it } from 'vitest'
 import { withJudgeRetry } from '../src/judge-retry'
 
 describe('withJudgeRetry — substrate guard against silent-zero judge corruption', () => {
