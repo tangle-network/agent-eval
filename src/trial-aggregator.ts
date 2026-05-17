@@ -21,11 +21,11 @@ export type AggregatorMode = 'strict-fail' | 'exclude-failed' | 'zero-fill'
 export interface TrialAggregate {
   /** Mean score over the trials counted by the chosen mode. */
   meanScore: number
-  /** Mean cost (legacy, kept for compatibility). */
+  /** Mean cost across counted trials. */
   meanCost: number
-  /** Mean wall time (legacy). */
+  /** Mean wall time across counted trials. */
   meanDurationMs: number
-  /** ok-rate (legacy). */
+  /** Fraction of counted trials with `ok === true`. */
   okRate: number
   /** Trials counted in the mean (mode-dependent). */
   countedTrials: number

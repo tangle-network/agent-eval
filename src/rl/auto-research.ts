@@ -1,16 +1,14 @@
 /**
- * `analyzeOptimizationResult` — unifies the pre-0.22 auto-research stack
+ * `analyzeOptimizationResult` — unifies the auto-research stack
  * (`runPromptEvolution`, `runMultiShotOptimization`, reflective-mutation,
- * Ax/AxRLM trace analyst) with the 0.23 RL bridge in a single call.
+ * Ax/AxRLM trace analyst) with the RL bridge in a single call.
  *
- * What this fixes: until 0.23 the optimization stack and the RL bridge
- * lived in parallel namespaces. The optimization primitives produced
- * `TrialResult[]`; the RL bridge consumed `RunRecord[]`. Trace-analyst
- * was decoupled from both. `analyzeOptimizationResult` does the wiring
- * once so consumers don't have to:
+ * The optimization primitives produce `TrialResult[]`; the RL bridge
+ * consumes `RunRecord[]`. Trace-analyst is independent of both. This
+ * function does the wiring once so consumers don't have to:
  *
- *    Optimization (existing primitives)           RL bridge (0.23)
- *    ──────────────────────────────────           ────────────────
+ *    Optimization (existing primitives)           RL bridge
+ *    ──────────────────────────────────           ────────
  *    runPromptEvolution → TrialResult[]    →
  *    runMultiShotOptimization → MSTrial[]  → analyzeOptimizationResult →
  *    reflective-mutation → mutations.jsonl →                             ↓
@@ -21,10 +19,10 @@
  *    ↓                                                                   │
  *    TraceAnalyst.analyze(progressLog)         ←─────────────────────────┘
  *
- * The output of this function is the canonical RL artifact set:
- * `RunRecord[]` (so every other 0.22+ primitive composes), preference
- * triples, verifiable reward signals, reward-hacking diagnosis,
- * sequential interim verdict, and (when wired) trace-analyst summary.
+ * The output is the canonical RL artifact set: `RunRecord[]` (so every
+ * other RL primitive composes), preference triples, verifiable reward
+ * signals, reward-hacking diagnosis, sequential interim verdict, and
+ * (when wired) trace-analyst summary.
  *
  * What this primitive does NOT do: it does not modify the optimization
  * primitives' internals. They keep producing `TrialResult` and emitting

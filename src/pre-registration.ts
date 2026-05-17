@@ -36,12 +36,9 @@ export interface HypothesisManifest {
  * Identifier for the hashing scheme used to produce `contentHash`.
  *
  * `'sha256-content'` — sha256 hex over the canonicalized manifest with
- * the `contentHash` and `algo` fields stripped. This is what
- * `signManifest` produces today.
- *
- * Held as a string union so future schemes can be added without
- * breaking parsers; legacy SignedManifest values written before this
- * field existed will deserialize cleanly because the field is optional.
+ * the `contentHash` and `algo` fields stripped. Held as a string union
+ * so future schemes can be added without breaking parsers; SignedManifest
+ * values without `algo` deserialize cleanly because the field is optional.
  */
 export type SignedManifestAlgo = 'sha256-content'
 
@@ -51,10 +48,10 @@ export interface SignedManifest extends HypothesisManifest {
   /**
    * Algorithm string describing how `contentHash` was produced.
    *
-   * Optional on the type so legacy serialized manifests (pre-`algo`)
-   * still parse, but ALWAYS populated by {@link signManifest}.
-   * Consumers that want to enforce a known algorithm should reject
-   * manifests where this field is missing or unrecognized.
+   * Optional on the type so serialized manifests without it still parse,
+   * but ALWAYS populated by {@link signManifest}. Consumers that want to
+   * enforce a known algorithm should reject manifests where this field
+   * is missing or unrecognized.
    */
   algo?: SignedManifestAlgo
 }
@@ -105,10 +102,9 @@ export function canonicalize(v: unknown): unknown {
  *   - encoder choice (UTF-8 via TextEncoder, fixed)
  *   - runtime (uses the Web Crypto subtle digest, present in Node ≥18 and browsers)
  *
- * Naming note: `hashJson` rather than `hashContent` because `hashContent` is
- * already taken in `prompt-registry.ts` for the truncated 12-char prompt-id
- * helper, which has different semantics (string input, short return). Both
- * coexist; `hashJson` is the right name when you mean "canonicalize then hash."
+ * Named `hashJson` to disambiguate from `prompt-registry.ts`'s `hashContent`,
+ * which takes a string input and returns a truncated 12-char prompt id.
+ * Use `hashJson` when you mean "canonicalize then hash."
  *
  * @example
  *   const hash = await hashJson({ id: '1', kind: 'spec' })
@@ -129,9 +125,8 @@ export async function hashJson<T>(obj: T): Promise<string> {
  * The hash covers the canonicalized manifest with the `contentHash`
  * and `algo` fields stripped; this lets verifiers re-sign the rest and
  * compare. Returned manifest always carries `algo: 'sha256-content'`
- * so downstream consumers can identify the scheme; legacy serialized
- * manifests without `algo` still verify because it is stripped before
- * hashing on both sides.
+ * so downstream consumers can identify the scheme; manifests without
+ * `algo` still verify because it is stripped before hashing on both sides.
  */
 export async function signManifest(m: HypothesisManifest): Promise<SignedManifest> {
   const hash = await hashJson(m)
@@ -141,9 +136,8 @@ export async function signManifest(m: HypothesisManifest): Promise<SignedManifes
 /**
  * Verify that a signed manifest has not been tampered with.
  *
- * Strips `contentHash` and `algo` before re-signing so legacy manifests
- * (written before `algo` was emitted) verify identically to current
- * ones.
+ * Strips `contentHash` and `algo` before re-signing so manifests without
+ * `algo` verify identically to ones that carry it.
  */
 export async function verifyManifest(m: SignedManifest): Promise<boolean> {
   const { contentHash, algo: _algo, ...rest } = m

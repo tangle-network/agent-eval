@@ -13,9 +13,8 @@
  *   - artifact dir contains an entry point (index.html for static SPAs,
  *     equivalent per framework family)
  *
- * Shipped in 0.11 with the canonical `vite` runner. Future generations
- * add wrangler-deploy --dry-run, next-build, etc — each as another
- * runner factory.
+ * Ships with a canonical `vite` runner. Additional runners
+ * (wrangler-deploy --dry-run, next-build, etc.) plug in as factories.
  */
 
 import type { Layer, LayerResult } from './multi-layer-verifier'

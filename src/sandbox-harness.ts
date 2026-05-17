@@ -157,12 +157,9 @@ export class SubprocessSandboxDriver implements SandboxDriver {
   ): Promise<SandboxResult> {
     const { spawn } = await import('node:child_process')
     const start = Date.now()
-    // Per-call config wins; fall back to constructor defaults. Historically
-    // `config.cwd` was the only path, which silently dropped the constructor
-    // arg when callers passed `new SubprocessSandboxDriver({ cwd })` — the
-    // subprocess then inherited Node's cwd and e.g. ran `tsc --noEmit`
-    // against the wrong repo. Honoring the constructor `cwd` restores the
-    // invariant implied by the constructor shape.
+    // Per-call config wins; fall back to constructor defaults. Honoring
+    // the constructor `cwd` keeps the subprocess from inheriting Node's
+    // cwd when only the constructor arg is supplied.
     const effectiveCwd = config.cwd ?? this.defaultCwd
     const effectiveEnv = { ...process.env, ...(this.defaultEnv ?? {}), ...(config.env ?? {}) }
     return await new Promise<SandboxResult>((resolve) => {

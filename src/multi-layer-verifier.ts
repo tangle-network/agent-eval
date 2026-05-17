@@ -57,7 +57,7 @@ export interface LayerResult {
    * diagnostic name; null = "diagnostic not applicable / not measured."
    * Renderers that know the keys can display them; ones that don't,
    * ignore. Free-form on purpose — consumers type the value shape in
-   * their own namespace. Added in 0.10.
+   * their own namespace.
    */
   diagnostics?: Record<string, number | null>
   /** Any rich per-layer detail — rendered as-is by consumers that know the layer. */

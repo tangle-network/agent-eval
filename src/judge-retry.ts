@@ -94,8 +94,8 @@ function sleep(ms: number): Promise<void> {
  * to their underlying fetch/SDK call so the abort actually fires.
  *
  * Returns a typed outcome — callers MUST inspect `succeeded` before using
- * `value`. The library refuses to default to a silent zero score because that
- * is exactly what caused today's eval data corruption.
+ * `value`. The library refuses to default to a silent zero score because a
+ * synthetic zero is indistinguishable from a real low score downstream.
  */
 export async function withJudgeRetry<T>(
   judgeFn: (model: string, signal: AbortSignal) => Promise<T>,

@@ -152,10 +152,9 @@ export function extractPreferences(
   let cellsInspected = 0
 
   if (strategy === 'paired-by-scenario-and-seed') {
-    // Group by (scenarioId, seed). Canonical key is `run.scenarioId` (added
-    // in 0.23) — populated automatically by `runEvalCampaign` and the
-    // adapters. Falls back to `outcome.raw.scenario_id` then `experimentId`
-    // for legacy RunRecord arrays produced before 0.23.
+    // Group by (scenarioId, seed). Canonical key is `run.scenarioId`,
+    // populated by `runEvalCampaign` and the adapters; falls back to
+    // `outcome.raw.scenario_id` then `experimentId` when absent.
     const groups = new Map<string, Array<{ run: RunRecord; score: number }>>()
     for (const e of scoredEntries) {
       const sid = scenarioOf(e.run)
@@ -319,11 +318,9 @@ function makePair(
 
 /**
  * Canonical scenario key for a RunRecord. Three-tier fallback:
- *   1. `run.scenarioId` (added in 0.23; populated by `runEvalCampaign` and
- *      every adapter)
- *   2. `run.outcome.raw.scenario_id` (legacy convention; may be string or
- *      numeric)
- *   3. `run.experimentId` (worst-case bucket)
+ *   1. `run.scenarioId` — populated by `runEvalCampaign` and every adapter
+ *   2. `run.outcome.raw.scenario_id` — string or numeric, when present
+ *   3. `run.experimentId` — worst-case bucket
  */
 function scenarioOf(run: RunRecord): string {
   if (typeof run.scenarioId === 'string' && run.scenarioId.length > 0) return run.scenarioId

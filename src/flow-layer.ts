@@ -14,10 +14,8 @@
  *   - test: in-memory mock that returns canned step outcomes
  *   - future: Playwright, Puppeteer, custom scrapers
  *
- * Shipped in 0.11 alongside {@link runIntentMatchJudge} — together they
- * close the "the agent shipped the wrong app and we didn't catch it"
- * blind spot. Intent-match catches "wrong app entirely"; flow catches
- * "right app but the buttons don't work."
+ * Paired with {@link runIntentMatchJudge}: intent-match catches "wrong
+ * app entirely"; flow-layer catches "right app but the buttons don't work."
  */
 
 import type { Layer, LayerResult, Severity } from './multi-layer-verifier'

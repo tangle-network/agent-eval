@@ -114,8 +114,8 @@ risks list and the executive summary. Treat them as descriptive only.
   and unpaired tests throw away the variance reduction. Use the paired test
   by default.
 - **Sequential / always-valid inference (e-values, alpha-spending).**
-  **Shipped in 0.22.** `pairedEvalueSequence` and
-  `evaluateInterimReleaseConfidence` provide time-uniform inference using
+  `pairedEvalueSequence` and `evaluateInterimReleaseConfidence` provide
+  time-uniform inference using
   the predictable plug-in betting martingale (Waudby-Smith & Ramdas 2024)
   paired with the empirical Bernstein confidence sequence (Howard et al.
   2021). For *rolling* analyses (interim looks at a campaign that's still
@@ -130,8 +130,8 @@ risks list and the executive summary. Treat them as descriptive only.
 - **Calibration / coverage simulation on the bootstrap CI.** Future work; we
   rely on the asymptotic guarantee plus the hard pair floor to keep coverage
   reasonable.
-- **Outcome-anchored calibration.** **Shipped in 0.22.**
-  `rubricPredictiveValidity` joins `RunRecord`s to a `DeploymentOutcomeStore`
+- **Outcome-anchored calibration.** `rubricPredictiveValidity` joins
+  `RunRecord`s to a `DeploymentOutcomeStore`
   and reports per-rubric Spearman against deployment outcomes (revenue,
   retention, CSAT, …). Combined with the static methodology in this
   document, the loop is: pre-register → measure with `researchReport` →

@@ -2,11 +2,7 @@
  * `PredictiveValidityResearcher` — concrete `Researcher` implementation
  * that drives selection from outcome-anchored predictive validity.
  *
- * `Researcher` was a placeholder interface plus `NoopResearcher` until
- * 0.23. The 0.23 panel critique called this out: shipping the interface
- * without a default implementation that drives the loop is incomplete.
- *
- * This researcher answers each method:
+ * Each method:
  *
  *   - `inspectFailures(runs)` — synthesizes failure modes from the
  *     bottom-quartile of `RunRecord`s on the configured proxy reward.

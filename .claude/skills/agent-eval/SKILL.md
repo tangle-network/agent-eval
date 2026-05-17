@@ -52,15 +52,15 @@ If a term below isn't in this table or in `docs/concepts.md`, that's a bug — f
 | Re-run / re-judge / determinism-audit a past campaign for free | `ReplayCache` + `createReplayFetch` (§Replay & sequential evaluation) |
 | Ship the moment evidence is decisive, with anytime-valid α control across rolling looks | `pairedEvalueSequence`, `evaluateInterimReleaseConfidence` (§Replay & sequential evaluation) |
 | Tell load-bearing rubrics from decorative ones using deployment outcomes | `rubricPredictiveValidity` (§Outcome calibration) |
-| Bridge legacy optimization output to canonical `RunRecord[]` | `trialToRunRecord`, `verificationReportToRunRecord` (§RL bridge — 0.23+) |
-| Extract a clean reward signal for RL training (compile / test / schema vs judge) | `extractVerifiableReward`, `filterDeterministicallyRewarded` (§RL bridge — 0.23+) |
-| Produce DPO / PPO / KTO `(chosen, rejected)` triples from `RunRecord[]` | `extractPreferences` (§RL bridge — 0.23+) |
-| Estimate the value of a new policy on old trajectories without re-running | `inverseProbabilityWeighting`, `selfNormalizedImportanceWeighting`, `doublyRobust`, `offPolicyEstimateAll` (§RL bridge — 0.23+) |
-| Step-level credit assignment / PRM training data | `extractStepRewards`, `prmTrainingPairs` (§RL bridge — 0.23+) |
-| Detect benchmark contamination via held-out perturbations | `runContaminationProbe`, stock perturbations (§RL bridge — 0.23+) |
-| Pairwise tournament ratings for many-candidate sweeps | `fitBradleyTerry`, `applyEloUpdate`, `buildPairwiseFromCampaign` (§RL bridge — 0.23+) |
-| Active search for inputs the policy fails on | `adversarialScenarioSearch` (§RL bridge — 0.23+) |
-| Characterize a candidate across compute budgets (`bestOfN`, self-consistency, curves) | `runComputeCurve`, `bestOfN`, `selfConsistency`, `paretoFrontier` (§RL bridge — 0.23+) |
+| Bridge legacy optimization output to canonical `RunRecord[]` | `trialToRunRecord`, `verificationReportToRunRecord` (§RL bridge) |
+| Extract a clean reward signal for RL training (compile / test / schema vs judge) | `extractVerifiableReward`, `filterDeterministicallyRewarded` (§RL bridge) |
+| Produce DPO / PPO / KTO `(chosen, rejected)` triples from `RunRecord[]` | `extractPreferences` (§RL bridge) |
+| Estimate the value of a new policy on old trajectories without re-running | `inverseProbabilityWeighting`, `selfNormalizedImportanceWeighting`, `doublyRobust`, `offPolicyEstimateAll` (§RL bridge) |
+| Step-level credit assignment / PRM training data | `extractStepRewards`, `prmTrainingPairs` (§RL bridge) |
+| Detect benchmark contamination via held-out perturbations | `runContaminationProbe`, stock perturbations (§RL bridge) |
+| Pairwise tournament ratings for many-candidate sweeps | `fitBradleyTerry`, `applyEloUpdate`, `buildPairwiseFromCampaign` (§RL bridge) |
+| Active search for inputs the policy fails on | `adversarialScenarioSearch` (§RL bridge) |
+| Characterize a candidate across compute budgets (`bestOfN`, self-consistency, curves) | `runComputeCurve`, `bestOfN`, `selfConsistency`, `paretoFrontier` (§RL bridge) |
 | Capture every provider HTTP request/response for forensics | `RawProviderSink` + `LlmClientOptions.rawSink` (§Capture integrity Directive 1) |
 | Fail loud if the eval would silently use the wrong route | `assertLlmRoute` (§Capture integrity Directive 2) |
 | Assert at run-end that the artifact is complete | `assertRunCaptured` + `throwIfRunIncomplete` (§Capture integrity Directive 3) |
@@ -326,7 +326,7 @@ Fail closed; use `// muffle-ok: <reason>` for the rare exception.
 
 ---
 
-## RL bridge — from eval to policy training (0.23+)
+## RL bridge — from eval to policy training
 
 Imported from `@tangle-network/agent-eval/rl` (or the root barrel). Eight modules; each one converts a piece of agent-eval output into a shape an RL pipeline can consume, or implements a canonical RL eval methodology that the rest of the package didn't cover.
 
@@ -349,7 +349,7 @@ import {
 
 ### When you actually use each one
 
-- **You ran an existing `runPromptEvolution` or `runMultiShotOptimization` sweep** — wrap with `trialsToRunRecords(trials, ctx)` so the output composes with `replayCache`, `pairedEvalueSequence`, `rubricPredictiveValidity`, and the rest of the 0.22 surface. Single line, zero behavior change.
+- **You ran an existing `runPromptEvolution` or `runMultiShotOptimization` sweep** — wrap with `trialsToRunRecords(trials, ctx)` so the output composes with `replayCache`, `pairedEvalueSequence`, `rubricPredictiveValidity`, and the rest of the RunRecord surface. Single line, zero behavior change.
 - **You're training a policy with TRL / DPO / PPO / GRPO** — use `extractVerifiableReward` to separate deterministic rewards (compile/test/schema/sandbox) from probabilistic ones (judge), then `extractPreferences` to produce the `(chosen, rejected)` triples in the shape your trainer expects.
 - **You changed a policy and want to evaluate it on yesterday's trajectories without re-running** — use `offPolicyEstimateAll` with token log-prob propensity scores. Run all three estimators (IPS, SNIPS, DR); agreement across estimators is much stronger than any single number.
 - **You want step-level credit assignment for long-horizon agents** — `extractStepRewards` over the trace spans of completed runs, `prmTrainingPairs` to produce the training data for a PRM, then plug into your favourite trainer (we don't ship gradient descent).
@@ -367,7 +367,7 @@ import {
 
 ---
 
-## Replay & sequential evaluation (0.22+)
+## Replay & sequential evaluation
 
 Once `runEvalCampaign` standardises the output (every run is a `RunRecord` plus a SHA-256-keyed raw-event log) two compounding capabilities open up:
 
@@ -409,7 +409,7 @@ Methodology: predictable plug-in betting martingale (Waudby-Smith & Ramdas 2024)
 
 ---
 
-## Outcome calibration — does the rubric actually predict deployment? (0.22+)
+## Outcome calibration — does the rubric actually predict deployment?
 
 Without this loop every rubric is faith-based. `rubricPredictiveValidity` joins canonical `RunRecord`s to a `DeploymentOutcomeStore` (matched on `runId`), computes Pearson + Spearman + bootstrap CI per (rubric, outcome) pair, and ranks rubrics by `|spearman|` against the outcomes that actually matter (revenue, retention, CSAT, churn, support-tickets, …).
 
@@ -440,7 +440,7 @@ Wire this on a quarterly cadence. When a previously-load-bearing rubric drifts t
 
 ---
 
-## EvalCampaign — preferred starting point for new evals (0.22+)
+## EvalCampaign — preferred starting point for new evals
 
 The four capture-integrity directives below are the operational discipline. **`runEvalCampaign` is what wires them by construction.** New consumers should reach for the campaign primitive first; the directives become "things the framework owns," not "things you might forget."
 
@@ -505,7 +505,7 @@ The four directives below remain the source of truth for *why* the campaign does
 
 ## Capture integrity (REQUIRED for launch-grade adoption)
 
-A run that *appears* successful but lost its forensic evidence is worse than a failed run — a launch reviewer can't distinguish "we measured a real win" from "we measured nothing on the wrong route." The four directives below are the operational discipline that turns the analytical primitives into a launch-grade artifact. **Skip one and the consumer's run is descriptive, not anchoring** — the same failure mode that prompted the 0.21.0 release.
+A run that *appears* successful but lost its forensic evidence is worse than a failed run — a launch reviewer can't distinguish "we measured a real win" from "we measured nothing on the wrong route." The four directives below are the operational discipline that turns the analytical primitives into a launch-grade artifact. **Skip one and the consumer's run is descriptive, not anchoring.**
 
 If you're wrapping agent-eval in a matrix runner, propose-review loop, or `BuilderSession`-driven sweep, you wire all four. Trace evidence + paired stats + held-out gate is the analytical surface; capture + route guard + integrity assertion + auto-orchestration is what makes that surface trustworthy.
 
@@ -540,8 +540,6 @@ assertLlmRoute(llmOpts, {
 **Why**: with `baseUrl` undefined, `callLlm` falls back to `DEFAULT_BASE_URL`. An eval sweep that quietly targets the public/free-tier route produces launch-decision-grade artifacts on the wrong provider — the report scores something the operator never intended to ship. Pure function, no I/O — call from constructors, CI gates, preflight validators.
 
 `LlmRouteAssertionError.code` is structured (`no_explicit_base_url` | `base_url_blocked` | `base_url_not_allowed` | `no_auth` | `wrong_provider`) for programmatic recovery.
-
-**Shipped incident**: same `blueprint-agent` matrix run silently used the public router; 0.21 ships this so the next consumer fails closed at preflight.
 
 ### Directive 3 — assert the run captured before declaring done
 
@@ -625,9 +623,9 @@ If you're skipping any of the four for a reason that isn't "this is a unit test,
 
 11. **`Researcher` is an interface, not an implementation.** Real brains live downstream. Keeping this stub-only is what keeps the contract stable.
 
-12. **`researchReport` is async (0.21+).** Web Crypto is used for the run fingerprint; `await` it. The only caller you might miss is a synchronous test helper.
+12. **`researchReport` is async.** Web Crypto is used for the run fingerprint; `await` it. The only caller you might miss is a synchronous test helper.
 
-13. **`researchReport.minPairs` defaults to 20 (0.21+).** The pre-0.21 default was 6; that was the soft floor of a rigorous report and got bumped because the previous default invited promotion calls on under-powered evidence. The hard floor (`RESEARCH_REPORT_HARD_PAIR_FLOOR`) is 6 and overrides any caller setting below it.
+13. **`researchReport.minPairs` defaults to 20.** Anything below the hard floor `RESEARCH_REPORT_HARD_PAIR_FLOOR` (6) is rejected — promotion calls on under-powered evidence are caller error, not soft warnings.
 
 14. **`RawProviderSink` redaction is allowlist-of-strip, not allowlist-of-keep.** The default redactor strips well-known auth headers and credential-shaped body fields, but a custom header your proxy uses won't be auto-stripped. If a non-standard auth scheme is in play (`X-Org-Token`, etc.), pass a `redactor` that extends `defaultProviderRedactor`. The cost of a leaked token in NDJSON is high.
 

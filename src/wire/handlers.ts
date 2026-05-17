@@ -271,7 +271,7 @@ export function handleVersion(): VersionResponse {
   }
 }
 
-// ── Ingestion handlers (0.25.0) ─────────────────────────────────────
+// ── Ingestion handlers ───────────────────────────────────────────────
 
 /**
  * Pluggable stores the wire layer routes ingestion writes into. Both

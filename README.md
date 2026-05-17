@@ -88,7 +88,7 @@ await product.storeEvalResult(task.id, result)
 Same loop shape in production, replay, benchmark, and optimization. Swap the
 dependencies behind `observe()` and `act()`, never the eval contract.
 
-## Production loop — close the eval → prod → eval cycle (0.25.0)
+## Production loop — close the eval → prod → eval cycle
 
 Static prompts decay. Yesterday's FTC rule flips today; yesterday's tool quirk
 becomes today's incident. The production agents that win are the ones that
@@ -224,9 +224,8 @@ const next = await analyzeOptimizationResult(campaign, { researcher })
 | `@tangle-network/agent-eval/benchmarks` | benchmark adapter contracts and reference wrappers |
 
 The root export remains available for convenience; new code should prefer
-focused subpaths. Anything under `/rl` should be imported from `/rl` — root
-re-export is retained only for backward compatibility and will be narrowed in
-0.25.
+focused subpaths. Anything under `/rl`, `/pipelines`, `/meta-eval`, `/prm`,
+or `/builder-eval` is only reachable via its subpath.
 
 ## API stability
 
@@ -243,7 +242,7 @@ The `/rl` subpath is the most active surface. See
 [`src/rl/index.ts`](./src/rl/index.ts) for the current stable/experimental
 breakdown.
 
-## Capture integrity (0.21+)
+## Capture integrity
 
 Launch-grade benchmark runs need four things that are easy to forget in glue
 code: (1) raw HTTP capture alongside the structured spans so a reviewer can

@@ -216,9 +216,8 @@ export class FileSystemTraceStore implements TraceStore {
     // Mirror genuinely-new rows into the lazy index. Update rows (marked
     // with `_update: true` by updateRun/updateSpan) are applied by those
     // methods directly via the index's update* APIs — re-inserting them
-    // here would trigger a duplicate-id error after the first read has
-    // populated the index. Regression: 0.23.0 endRun on the second
-    // variant against a shared store threw "run X already exists".
+    // here triggers a duplicate-id error once the first read populates
+    // the index.
     if (this.index && !(record as { _update?: boolean })?._update) {
       void this.insertInto(name, record)
     }
@@ -270,11 +269,11 @@ export class FileSystemTraceStore implements TraceStore {
           } else if (base === 'spans') {
             // `updateSpan` appends an `_update: true` patch row instead of
             // rewriting the original span. On reload we must collapse those
-            // patches into the prior span — otherwise a fresh
+            // patches onto the original span — otherwise a fresh
             // FileSystemTraceStore reading the same dir reports duplicate
             // spans (one full, one fragment with no runId/kind/name), which
             // breaks any downstream consumer that re-opens the store
-            // cross-process (e.g. the canonical eval's OTLP converter).
+            // cross-process (e.g. the OTLP converter).
             if (record?._update) {
               try {
                 await store.updateSpan(record.spanId, record)

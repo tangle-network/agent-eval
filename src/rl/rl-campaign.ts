@@ -1,12 +1,8 @@
 /**
- * `runRLCampaign` — the missing top-level orchestrator.
+ * `runRLCampaign` — top-level orchestrator that runs the matrix and
+ * produces every RL-ready artifact in one call.
  *
- * `runEvalCampaign` runs the matrix and produces `RunRecord[]`. The 0.23
- * RL primitives consume that artifact in different ways. Until 0.24 they
- * had to be wired together by hand at every consumer; that defeats the
- * cohesion the package is supposed to provide.
- *
- * `runRLCampaign` wires:
+ * Wires:
  *   1. `runEvalCampaign` for the matrix run (capture, integrity, hooks)
  *   2. `extractVerifiableReward` over each run, separating deterministic
  *      from probabilistic reward sources for the trainer
@@ -20,9 +16,6 @@
  * stage's output is in there. The consumer's downstream fits in a single
  * line: pass `result.preferences` to their DPO trainer, `result.grpoRows`
  * to GRPO, `result.runs` plus `result.rewardSignals` to a custom RL loop.
- *
- * This is what the 0.23 panel critique called the "missing top-level
- * primitive." Now shipped.
  */
 
 import {

@@ -1,9 +1,9 @@
 /**
  * Always-valid sequential evaluation.
  *
- * `researchReport` (0.21+) assumes a single pre-specified analysis. Real
+ * `researchReport` assumes a single pre-specified analysis. Real
  * consumers run campaigns weekly / nightly / per-PR; each new run silently
- * inflates the false-discovery rate, because the BH-FDR guarantee was for
+ * inflates the false-discovery rate, because the BH-FDR guarantee is for
  * the *first* look, not the 47th. Without time-uniform inference,
  * launch-decision teams either (a) don't peek, which forfeits the cost
  * advantage of stop-when-decisive, or (b) peek and pretend they didn't,

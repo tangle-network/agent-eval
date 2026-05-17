@@ -127,9 +127,8 @@ export interface LineageNode {
 
 /**
  * `kindOf` decides whether a variant is a seed (no parent), code mutation,
- * or prompt mutation. Default looks at `variant.payload.codeMutation` —
- * that field is part of the audit-bench convention but cheap enough to
- * accept any payload that mirrors it. Override by passing your own.
+ * or prompt mutation. Default looks at `variant.payload.codeMutation` and
+ * accepts any payload that exposes that field; override by passing your own.
  */
 export type LineageKindResolver<P> = (variant: EvolvableVariant<P>) => LineageKind
 
@@ -190,18 +189,16 @@ export class LineageRecorder<P = unknown> {
       }
     }
 
-    // Back-compat: if the file at `path` is a JSON ARRAY (from the old
-    // snapshot-on-every-upsert format), load it as the seed snapshot
-    // and convert. The next upsert will start the new event log.
+    // If the file at `path` is a JSON ARRAY snapshot rather than a
+    // newline-delimited event log, load it as the seed snapshot and
+    // convert. The next upsert rewrites the file as an event log;
+    // construction stays I/O-free on the happy path.
     if (existsSync(path) && this.nodes.size === 0) {
       try {
         const raw = readFileSync(path, 'utf-8').trim()
         if (raw.startsWith('[')) {
           const parsed = JSON.parse(raw) as LineageNode[]
           for (const n of parsed) this.nodes.set(n.id, n)
-          // Truncate the legacy array file by writing a snapshot and
-          // resetting the log on first upsert. Defer the rewrite — we
-          // don't want construction to do disk I/O on the happy path.
         }
       } catch {
         // ignore.
@@ -214,13 +211,12 @@ export class LineageRecorder<P = unknown> {
       const prev = this.nodes.get(node.id)
       this.nodes.set(node.id, { ...prev, ...node })
       // Append to event log. Snapshot is rewritten only on compact().
-      // Fall back to a fresh log file if it currently holds a legacy
-      // JSON array (see back-compat note above).
+      // If the file holds a JSON array snapshot (see constructor), reset
+      // it to an empty file so the appended line starts a fresh event log.
       try {
         if (existsSync(this.path)) {
           const head = readFileSync(this.path, { encoding: 'utf-8', flag: 'r' }).slice(0, 1)
           if (head === '[') {
-            // Legacy array file — replace with event log starting fresh.
             writeFileSync(this.path, '')
           }
         }

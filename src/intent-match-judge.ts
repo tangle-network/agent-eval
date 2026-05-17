@@ -21,10 +21,6 @@
  *
  * Soft-fails on LLM/JSON error (`available: false`) so callers can
  * treat failure as "judge skipped."
- *
- * Added in 0.11 to replace the lying `completenessScore: 1` field that
- * VerticalBench shipped pre-Gen-48 — that field was keyword-driven and
- * fired true on builds with zero spec concepts implemented.
  */
 
 import { callLlmJson, type LlmClientOptions } from './llm-client'
