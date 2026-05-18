@@ -14,3 +14,10 @@ dist/
 
 # Local dev session storage
 data/
+
+# Test + run ephemerals
+.runs/
+.calibrate/
+coverage/
+*.junit.xml
+*.log
