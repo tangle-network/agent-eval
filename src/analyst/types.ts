@@ -16,11 +16,10 @@
  */
 
 import { createHash } from 'node:crypto'
-
-import type { ChatClient } from './chat-client'
 import type { RunRecord } from '../run-record'
-import type { JudgeInput } from '../types'
 import type { TraceAnalysisStore } from '../trace-analyst/store'
+import type { JudgeInput } from '../types'
+import type { ChatClient } from './chat-client'
 
 /**
  * Unified envelope every analyst emits. Schema-versioned so renderers

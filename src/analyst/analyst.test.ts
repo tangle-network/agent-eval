@@ -3,18 +3,17 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-
-import { AnalystRegistry, type AnalystHooks } from './registry'
-import { FindingsStore, defaultIsMaterial, diffFindings } from './findings-store'
+import { resetLockedAppendersForTesting } from '../locked-jsonl-appender'
+import { createChatClient } from './chat-client'
+import { defaultIsMaterial, diffFindings, FindingsStore } from './findings-store'
+import { type AnalystHooks, AnalystRegistry } from './registry'
 import {
-  computeFindingId,
-  makeFinding,
   type Analyst,
   type AnalystFinding,
   type AnalystRunInputs,
+  computeFindingId,
+  makeFinding,
 } from './types'
-import { createChatClient } from './chat-client'
-import { resetLockedAppendersForTesting } from '../locked-jsonl-appender'
 
 let tmp: string
 
@@ -41,8 +40,18 @@ describe('computeFindingId', () => {
   })
 
   it('honors id_basis override so cosmetic claim drift does not change the id', () => {
-    const a = computeFindingId({ analyst_id: 'x', area: 'a', claim: 'cost was $1.23', id_basis: 'cost-finding' })
-    const b = computeFindingId({ analyst_id: 'x', area: 'a', claim: 'cost was $4.56', id_basis: 'cost-finding' })
+    const a = computeFindingId({
+      analyst_id: 'x',
+      area: 'a',
+      claim: 'cost was $1.23',
+      id_basis: 'cost-finding',
+    })
+    const b = computeFindingId({
+      analyst_id: 'x',
+      area: 'a',
+      claim: 'cost was $4.56',
+      id_basis: 'cost-finding',
+    })
     expect(a).toBe(b)
   })
 })
@@ -62,9 +71,7 @@ describe('AnalystRegistry', () => {
     }
     reg.register(ok)
     expect(() => reg.register(ok)).toThrow(/duplicate/)
-    expect(() =>
-      reg.register({ ...ok, id: 'b', version: '' } as Analyst),
-    ).toThrow(/version/)
+    expect(() => reg.register({ ...ok, id: 'b', version: '' } as Analyst)).toThrow(/version/)
   })
 
   it('routes inputKind correctly and skips analysts with missing input', async () => {
@@ -78,7 +85,16 @@ describe('AnalystRegistry', () => {
       version: '1',
       async analyze(input) {
         saw = input
-        return [makeFinding({ analyst_id: 'needs-trace-store', area: 'x', claim: 'ok', severity: 'info', confidence: 1, evidence_refs: [] })]
+        return [
+          makeFinding({
+            analyst_id: 'needs-trace-store',
+            area: 'x',
+            claim: 'ok',
+            severity: 'info',
+            confidence: 1,
+            evidence_refs: [],
+          }),
+        ]
       },
     })
     reg.register({
@@ -207,7 +223,14 @@ describe('AnalystRegistry', () => {
 })
 
 describe('FindingsStore + diffFindings', () => {
-  function f(over: Partial<AnalystFinding> & { claim: string; area?: string; subject?: string; analyst_id?: string }) {
+  function f(
+    over: Partial<AnalystFinding> & {
+      claim: string
+      area?: string
+      subject?: string
+      analyst_id?: string
+    },
+  ) {
     return makeFinding({
       analyst_id: over.analyst_id ?? 'a',
       area: over.area ?? 'x',
@@ -229,7 +252,11 @@ describe('FindingsStore + diffFindings', () => {
   })
 
   it('diffs by stable id — appeared / disappeared / persisted / changed', () => {
-    const prev = [f({ claim: 'still here' }), f({ claim: 'gone', subject: 's1' }), f({ claim: 'changed', subject: 's2', severity: 'medium' })].map((x) => ({ ...x, run_id: 'r0' }))
+    const prev = [
+      f({ claim: 'still here' }),
+      f({ claim: 'gone', subject: 's1' }),
+      f({ claim: 'changed', subject: 's2', severity: 'medium' }),
+    ].map((x) => ({ ...x, run_id: 'r0' }))
     const curr = [
       f({ claim: 'still here' }),
       f({ claim: 'new finding', subject: 'snew' }),
@@ -254,7 +281,11 @@ describe('createChatClient mock transport', () => {
       defaultModel: 'fake-model',
       handler: async (req) => {
         seen.push({ model: req.model })
-        return { text: 'ok', model: req.model ?? '', usage: { promptTokens: 0, completionTokens: 0 } } as never
+        return {
+          text: 'ok',
+          model: req.model ?? '',
+          usage: { promptTokens: 0, completionTokens: 0 },
+        } as never
       },
     })
     await client.chat({ messages: [{ role: 'user', content: 'hi' }] })
@@ -312,7 +343,8 @@ describe('AnalystHooks', () => {
     const calls: string[] = []
     const hooks: AnalystHooks = {
       onBeforeAnalyze: ({ analyst }) => void calls.push(`before:${analyst.id}`),
-      onAfterAnalyze: ({ analyst, summary }) => void calls.push(`after:${analyst.id}:${summary.status}`),
+      onAfterAnalyze: ({ analyst, summary }) =>
+        void calls.push(`after:${analyst.id}:${summary.status}`),
       onComplete: ({ result }) => void calls.push(`complete:${result.findings.length}`),
     }
     const reg = new AnalystRegistry({ hooks })
@@ -320,13 +352,7 @@ describe('AnalystHooks', () => {
     reg.register(ok('b'))
     const r = { id: 'r' } as unknown as AnalystRunInputs['runRecord']
     await reg.run('run-1', { runRecord: r })
-    expect(calls).toEqual([
-      'before:a',
-      'after:a:ok',
-      'before:b',
-      'after:b:ok',
-      'complete:2',
-    ])
+    expect(calls).toEqual(['before:a', 'after:a:ok', 'before:b', 'after:b:ok', 'complete:2'])
   })
 
   it('onError can convert a thrown analyst into findings', async () => {
@@ -358,7 +384,8 @@ describe('AnalystHooks', () => {
   it('onAfter runs for skipped analysts too', async () => {
     const summaries: string[] = []
     const hooks: AnalystHooks = {
-      onAfterAnalyze: ({ summary }) => void summaries.push(`${summary.analyst_id}:${summary.status}`),
+      onAfterAnalyze: ({ summary }) =>
+        void summaries.push(`${summary.analyst_id}:${summary.status}`),
     }
     const reg = new AnalystRegistry({ hooks })
     reg.register({
@@ -472,8 +499,7 @@ describe('ChatClient signal racing', () => {
     const client = createChatClient({
       transport: 'mock',
       defaultModel: 'fake',
-      handler: () =>
-        new Promise((resolve) => setTimeout(() => resolve({} as never), 100)),
+      handler: () => new Promise((resolve) => setTimeout(() => resolve({} as never), 100)),
     })
     const p = client.chat(
       { messages: [{ role: 'user', content: 'hi' }] },

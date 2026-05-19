@@ -17,7 +17,7 @@
  */
 
 import { randomUUID } from 'node:crypto'
-
+import type { ChatClient } from './chat-client'
 import type {
   Analyst,
   AnalystContext,
@@ -26,7 +26,6 @@ import type {
   AnalystRunResult,
   AnalystRunSummary,
 } from './types'
-import type { ChatClient } from './chat-client'
 
 // ── Hook + policy surfaces ─────────────────────────────────────────
 
@@ -121,7 +120,12 @@ export class AnalystRegistry {
     this.analysts.set(analyst.id, analyst)
   }
 
-  list(): ReadonlyArray<{ id: string; description: string; version: string; cost: Analyst['cost'] }> {
+  list(): ReadonlyArray<{
+    id: string
+    description: string
+    version: string
+    cost: Analyst['cost']
+  }> {
     return Array.from(this.analysts.values()).map((a) => ({
       id: a.id,
       description: a.description,
@@ -274,9 +278,7 @@ export class AnalystRegistry {
           ? { kind: 'present', value: inputs.artifactDir }
           : { kind: 'missing' }
       case 'run-record':
-        return inputs.runRecord
-          ? { kind: 'present', value: inputs.runRecord }
-          : { kind: 'missing' }
+        return inputs.runRecord ? { kind: 'present', value: inputs.runRecord } : { kind: 'missing' }
       case 'judge-input':
         return inputs.judgeInput
           ? { kind: 'present', value: inputs.judgeInput }

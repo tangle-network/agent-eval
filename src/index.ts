@@ -1,5 +1,45 @@
 // ── Core types ───────────────────────────────────────────────────────
 
+export type { ActionExecutionPolicy, ActionPolicyDecision } from './action-policy'
+export { evaluateActionPolicy } from './action-policy'
+export type {
+  JudgeAdapterOpts,
+  RunCriticAdapterOpts,
+  SemanticConceptJudgeAdapterOpts,
+  TraceAnalystAdapterOpts,
+  VerifierAdapterOpts,
+} from './analyst/adapters'
+export {
+  createJudgeAdapter,
+  createRunCriticAdapter,
+  createSemanticConceptJudgeAdapter,
+  createTraceAnalystAdapter,
+  createVerifierAdapter,
+  liftSeverity,
+} from './analyst/adapters'
+export type {
+  ChatCallOpts,
+  ChatClient,
+  ChatRequest,
+  ChatResponse,
+  ChatTransport,
+  CliBridgeTransportOpts,
+  CreateChatClientOpts,
+  DirectProviderTransportOpts,
+  MockTransportOpts,
+  RouterTransportOpts,
+  SandboxSdkTransportOpts,
+} from './analyst/chat-client'
+export { createChatClient } from './analyst/chat-client'
+export type { DiffPolicy, FindingsDiff, PersistedFinding } from './analyst/findings-store'
+export { defaultIsMaterial, diffFindings, FindingsStore } from './analyst/findings-store'
+export type {
+  AnalystHooks,
+  AnalystRegistryOptions,
+  BudgetPolicy,
+  RegistryRunOpts,
+} from './analyst/registry'
+export { AnalystRegistry } from './analyst/registry'
 // ── Analyst registry ─────────────────────────────────────────────────
 // Generic contract + registry over agent-eval's existing analyzers
 // (analyzeTraces, MultiLayerVerifier, RunCritic, SemanticConceptJudge,
@@ -18,47 +58,6 @@ export type {
   EvidenceRef,
 } from './analyst/types'
 export { computeFindingId, makeFinding } from './analyst/types'
-export { AnalystRegistry } from './analyst/registry'
-export type {
-  AnalystHooks,
-  AnalystRegistryOptions,
-  BudgetPolicy,
-  RegistryRunOpts,
-} from './analyst/registry'
-export type {
-  ChatCallOpts,
-  ChatClient,
-  ChatRequest,
-  ChatResponse,
-  ChatTransport,
-  CliBridgeTransportOpts,
-  CreateChatClientOpts,
-  DirectProviderTransportOpts,
-  MockTransportOpts,
-  RouterTransportOpts,
-  SandboxSdkTransportOpts,
-} from './analyst/chat-client'
-export { createChatClient } from './analyst/chat-client'
-export type { DiffPolicy, FindingsDiff, PersistedFinding } from './analyst/findings-store'
-export { FindingsStore, defaultIsMaterial, diffFindings } from './analyst/findings-store'
-export {
-  createJudgeAdapter,
-  createRunCriticAdapter,
-  createSemanticConceptJudgeAdapter,
-  createTraceAnalystAdapter,
-  createVerifierAdapter,
-  liftSeverity,
-} from './analyst/adapters'
-export type {
-  JudgeAdapterOpts,
-  RunCriticAdapterOpts,
-  SemanticConceptJudgeAdapterOpts,
-  TraceAnalystAdapterOpts,
-  VerifierAdapterOpts,
-} from './analyst/adapters'
-
-export type { ActionExecutionPolicy, ActionPolicyDecision } from './action-policy'
-export { evaluateActionPolicy } from './action-policy'
 // ── Production loop primitive ────────────────────────────────────────
 // Closes the eval → prod → eval cycle: ingest production traces,
 // cluster failures, run evolve on the offending cluster, gate the

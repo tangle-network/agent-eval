@@ -18,7 +18,7 @@
  * the diff is the cross-run signal the regression dashboard renders.
  */
 
-import { readFileSync, existsSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 
 import { LockedJsonlAppender } from '../locked-jsonl-appender'
 import type { AnalystFinding } from './types'

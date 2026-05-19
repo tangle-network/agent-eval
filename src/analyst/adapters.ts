@@ -18,20 +18,24 @@
  */
 
 import type { AxAIService } from '@ax-llm/ax'
-
-import { analyzeTraces, type AnalyzeTracesOptions } from '../trace-analyst/analyst'
-import type { MultiLayerVerifier, Finding as LayerFinding, Severity as LayerSeverity, VerifyOptions } from '../multi-layer-verifier'
+import type {
+  Finding as LayerFinding,
+  Severity as LayerSeverity,
+  MultiLayerVerifier,
+  VerifyOptions,
+} from '../multi-layer-verifier'
 import { RunCritic, type RunTrace } from '../run-critic'
 import {
   runSemanticConceptJudge,
+  SEMANTIC_CONCEPT_JUDGE_VERSION,
   type SemanticConceptJudgeInput,
   type SemanticConceptJudgeOptions,
-  SEMANTIC_CONCEPT_JUDGE_VERSION,
 } from '../semantic-concept-judge'
-import type { JudgeFn, JudgeInput, JudgeScore, TCloud } from '../types'
+import { type AnalyzeTracesOptions, analyzeTraces } from '../trace-analyst/analyst'
 import type { TraceAnalysisStore } from '../trace-analyst/store'
-import { makeFinding } from './types'
+import type { JudgeFn, JudgeInput, JudgeScore, TCloud } from '../types'
 import type { Analyst, AnalystFinding, AnalystSeverity } from './types'
+import { makeFinding } from './types'
 
 const ADAPTER_REV = '1'
 
@@ -64,12 +68,15 @@ export interface TraceAnalystAdapterOpts {
   extra?: Omit<AnalyzeTracesOptions, 'source' | 'ai' | 'model'>
 }
 
-export function createTraceAnalystAdapter(opts: TraceAnalystAdapterOpts): Analyst<TraceAnalysisStore> {
+export function createTraceAnalystAdapter(
+  opts: TraceAnalystAdapterOpts,
+): Analyst<TraceAnalysisStore> {
   const id = opts.id ?? 'trace-analyst'
   const area = opts.area ?? 'agent-reasoning'
   return {
     id,
-    description: 'Runs the agent-eval trace analyst over an OTLP trace store and lifts its bulleted findings.',
+    description:
+      'Runs the agent-eval trace analyst over an OTLP trace store and lifts its bulleted findings.',
     inputKind: 'trace-store',
     cost: { kind: 'llm', models: opts.model ? [opts.model] : undefined },
     version: `trace-analyst-${ADAPTER_REV}`,
@@ -96,12 +103,15 @@ export function createTraceAnalystAdapter(opts: TraceAnalystAdapterOpts): Analys
               severity: 'info',
               confidence: 0.5,
               evidence_refs: [],
-              metadata: { actor_prompt_version: result.actorPromptVersion, turns: result.turnCount },
+              metadata: {
+                actor_prompt_version: result.actorPromptVersion,
+                turns: result.turnCount,
+              },
             }),
           )
           continue
         }
-        result.findings.forEach((claim, i) =>
+        result.findings.forEach((claim, i) => {
           out.push(
             makeFinding({
               analyst_id: id,
@@ -114,8 +124,8 @@ export function createTraceAnalystAdapter(opts: TraceAnalystAdapterOpts): Analys
               evidence_refs: [],
               metadata: { question, turns: result.turnCount, finding_index: i },
             }),
-          ),
-        )
+          )
+        })
       }
       return out
     },
@@ -140,7 +150,8 @@ export function createVerifierAdapter<Env>(opts: VerifierAdapterOpts<Env>): Anal
   const area = opts.area ?? 'verification'
   return {
     id,
-    description: 'Runs a MultiLayerVerifier and lifts each layer\'s findings into the analyst envelope.',
+    description:
+      "Runs a MultiLayerVerifier and lifts each layer's findings into the analyst envelope.",
     inputKind: 'custom',
     cost: { kind: 'deterministic' },
     version: `verifier-${ADAPTER_REV}`,
@@ -160,7 +171,8 @@ export function createVerifierAdapter<Env>(opts: VerifierAdapterOpts<Env>): Anal
               area,
               subject: layer.layer,
               claim: `layer "${layer.layer}" ${layer.status}: ${layer.reason ?? 'no reason given'}`,
-              severity: layer.status === 'error' ? 'high' : layer.status === 'timeout' ? 'medium' : 'high',
+              severity:
+                layer.status === 'error' ? 'high' : layer.status === 'timeout' ? 'medium' : 'high',
               confidence: 1,
               evidence_refs: [],
               metadata: {
@@ -196,7 +208,9 @@ function liftLayerFinding(
     claim: f.message,
     severity: liftSeverity(f.severity),
     confidence: 0.85,
-    evidence_refs: f.evidence ? [{ kind: 'artifact', uri: 'inline:evidence', excerpt: f.evidence }] : [],
+    evidence_refs: f.evidence
+      ? [{ kind: 'artifact', uri: 'inline:evidence', excerpt: f.evidence }]
+      : [],
     metadata: f.detail,
   })
 }
@@ -218,7 +232,8 @@ export function createRunCriticAdapter(opts: RunCriticAdapterOpts = {}): Analyst
   const threshold = opts.threshold ?? 0.5
   return {
     id,
-    description: 'Scores a single run across success / grounding / drift / tool-quality and surfaces below-threshold dimensions.',
+    description:
+      'Scores a single run across success / grounding / drift / tool-quality and surfaces below-threshold dimensions.',
     inputKind: 'custom',
     cost: { kind: 'deterministic' },
     version: `run-critic-${ADAPTER_REV}`,
@@ -293,13 +308,16 @@ export function createJudgeAdapter(opts: JudgeAdapterOpts): Analyst<JudgeInput> 
   const threshold = opts.threshold ?? 6
   return {
     id,
-    description: 'Wraps an agent-eval JudgeFn into an analyst; below-threshold dimensions surface as findings.',
+    description:
+      'Wraps an agent-eval JudgeFn into an analyst; below-threshold dimensions surface as findings.',
     inputKind: 'judge-input',
     cost: opts.cost ?? { kind: 'llm' },
     version: `judge-${ADAPTER_REV}`,
     async analyze(input) {
       const scores = await opts.judge(opts.tcloud, input)
-      return scores.filter((s) => normalize10(s.score) < threshold).map((s) => liftJudgeScore(id, area, s))
+      return scores
+        .filter((s) => normalize10(s.score) < threshold)
+        .map((s) => liftJudgeScore(id, area, s))
     },
   }
 }
@@ -311,7 +329,8 @@ function normalize10(s: number): number {
 
 function liftJudgeScore(analyst_id: string, area: string, s: JudgeScore): AnalystFinding {
   const score10 = normalize10(s.score)
-  const severity: AnalystSeverity = score10 < 3 ? 'critical' : score10 < 5 ? 'high' : score10 < 7 ? 'medium' : 'low'
+  const severity: AnalystSeverity =
+    score10 < 3 ? 'critical' : score10 < 5 ? 'high' : score10 < 7 ? 'medium' : 'low'
   return makeFinding({
     analyst_id,
     area,
@@ -320,7 +339,9 @@ function liftJudgeScore(analyst_id: string, area: string, s: JudgeScore): Analys
     rationale: s.reasoning,
     severity,
     confidence: 0.8,
-    evidence_refs: s.evidence ? [{ kind: 'artifact', uri: 'inline:evidence', excerpt: s.evidence }] : [],
+    evidence_refs: s.evidence
+      ? [{ kind: 'artifact', uri: 'inline:evidence', excerpt: s.evidence }]
+      : [],
     metadata: { judge_name: s.judgeName, dimension: s.dimension, score_10: score10 },
   })
 }
@@ -340,7 +361,8 @@ export function createSemanticConceptJudgeAdapter(
   const area = opts.area ?? 'concept-coverage'
   return {
     id,
-    description: 'Runs the semantic-concept judge and surfaces missing / weak concepts as findings.',
+    description:
+      'Runs the semantic-concept judge and surfaces missing / weak concepts as findings.',
     inputKind: 'custom',
     cost: { kind: 'llm', models: opts.options?.model ? [opts.options.model] : undefined },
     version: `${SEMANTIC_CONCEPT_JUDGE_VERSION}-adapter-${ADAPTER_REV}`,
@@ -370,7 +392,9 @@ export function createSemanticConceptJudgeAdapter(
             analyst_id: id,
             area,
             subject: f.concept,
-            claim: f.present ? `concept "${f.concept}" is weak (${f.score}/10)` : `concept "${f.concept}" is missing`,
+            claim: f.present
+              ? `concept "${f.concept}" is weak (${f.score}/10)`
+              : `concept "${f.concept}" is missing`,
             rationale: f.evidence,
             severity: liftSeverity(f.severity),
             confidence: 0.85,

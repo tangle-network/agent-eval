@@ -19,7 +19,12 @@
  * cancellation, and unified telemetry for free.
  */
 
-import { LlmClient, type LlmCallRequest, type LlmCallResult, type LlmClientOptions } from '../llm-client'
+import {
+  type LlmCallRequest,
+  type LlmCallResult,
+  LlmClient,
+  type LlmClientOptions,
+} from '../llm-client'
 
 /**
  * Unified chat interface. Mirrors LlmCallRequest/Result so the OpenAI-
@@ -36,11 +41,11 @@ export interface ChatClient {
 }
 
 export type ChatTransport =
-  | 'router'          // router.tangle.tools — production paid models
-  | 'sandbox-sdk'     // box.streamPrompt() — chat completion via sandbox SDK
-  | 'cli-bridge'      // local cli-bridge for dev / local-only runs
+  | 'router' // router.tangle.tools — production paid models
+  | 'sandbox-sdk' // box.streamPrompt() — chat completion via sandbox SDK
+  | 'cli-bridge' // local cli-bridge for dev / local-only runs
   | 'direct-provider' // direct OpenAI / Anthropic / etc. — bypass router
-  | 'mock'            // test-time injection
+  | 'mock' // test-time injection
 
 export interface ChatRequest extends Omit<LlmCallRequest, 'model'> {
   /** Optional — falls back to ChatClient.defaultModel. */
@@ -116,36 +121,43 @@ export interface MockTransportOpts extends BaseTransportOpts {
 export function createChatClient(opts: CreateChatClientOpts): ChatClient {
   switch (opts.transport) {
     case 'router':
-      return wrapLlmClient(opts.transport, opts.defaultModel,
+      return wrapLlmClient(
+        opts.transport,
+        opts.defaultModel,
         new LlmClient({
           baseUrl: opts.baseUrl ?? 'https://router.tangle.tools/v1',
           apiKey: opts.apiKey,
-        } as LlmClientOptions))
+        } as LlmClientOptions),
+      )
     case 'cli-bridge':
-      return wrapLlmClient(opts.transport, opts.defaultModel,
+      return wrapLlmClient(
+        opts.transport,
+        opts.defaultModel,
         new LlmClient({
           baseUrl: opts.baseUrl ?? 'http://127.0.0.1:3344/v1',
           apiKey: opts.bearer ?? '',
-        } as LlmClientOptions))
+        } as LlmClientOptions),
+      )
     case 'direct-provider':
-      return wrapLlmClient(opts.transport, opts.defaultModel,
+      return wrapLlmClient(
+        opts.transport,
+        opts.defaultModel,
         new LlmClient({
           baseUrl: opts.baseUrl,
           apiKey: opts.apiKey,
-        } as LlmClientOptions))
+        } as LlmClientOptions),
+      )
     case 'sandbox-sdk':
       return {
         transport: 'sandbox-sdk',
         defaultModel: opts.defaultModel,
-        chat: async (req, callOpts) =>
-          opts.chat(resolveModel(req, opts.defaultModel), callOpts),
+        chat: async (req, callOpts) => opts.chat(resolveModel(req, opts.defaultModel), callOpts),
       }
     case 'mock':
       return {
         transport: 'mock',
         defaultModel: opts.defaultModel,
-        chat: async (req, callOpts) =>
-          opts.handler(resolveModel(req, opts.defaultModel), callOpts),
+        chat: async (req, callOpts) => opts.handler(resolveModel(req, opts.defaultModel), callOpts),
       }
   }
 }
