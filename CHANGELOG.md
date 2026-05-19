@@ -1,5 +1,92 @@
 # Changelog
 
+## 0.29.0 — 2026-05-19
+
+### Analyst kinds + cross-run findings context
+
+Builds on 0.28.0's analyst registry. Ships four trace-analyst **kinds**
+that emit graded findings through native Ax structured output (no more
+flat-defaulted bullet lists) and a cross-run findings context the
+registry can inject into prompts so each kind sees what the prior run
+already surfaced.
+
+### Added
+
+- **`createTraceAnalystKind(spec, opts)`** (`src/analyst/kind-factory.ts`) —
+  turns a `TraceAnalystKindSpec` into a registry-ready
+  `Analyst<TraceAnalysisStore>`. Ax signature is
+  `'question:string -> findings:json[]'`; the Zod boundary in
+  `finding-signature.ts` rejects malformed rows instead of lifting them
+  with default severity. Supports `versionSuffix` for optimizer-fitted
+  prompts (MIPRO / GEPA / Bootstrap) and a per-row `postProcess` hook.
+- **`RawAnalystFinding`** Zod schema + **`RAW_FINDING_SCHEMA_PROMPT`**
+  string embedded into kind actor prompts so the model and the parser
+  share one source of truth.
+- **`TraceToolGroupName`** + **`buildTraceToolsForGroup`**
+  (`src/analyst/tool-groups.ts`) — five named tool subsets
+  (`all | discovery | discoveryAndRead | discoveryAndSearch | targeted`);
+  unknown group names throw.
+- **Four shipping kinds** (`src/analyst/kinds/`):
+  - `FAILURE_MODE_KIND_SPEC` — clusters dataset failures into distinct
+    modes (maxDepth 3, parallel 4, all tools).
+  - `KNOWLEDGE_GAP_KIND_SPEC` — attributes missing/stale knowledge to
+    `agent-knowledge:wiki:*`, `websearch:outdated:*`, `tool-doc:*`,
+    `system-prompt:*`, `memory:*` (maxDepth 2, discoveryAndSearch).
+  - `KNOWLEDGE_POISONING_KIND_SPEC` — dual-verify analyst for
+    confident-but-wrong actions (maxDepth 2, all tools).
+  - `IMPROVEMENT_KIND_SPEC` — converts upstream failure / gap /
+    poisoning findings into concrete locus-named edits with leverage
+    grades (maxDepth 3, all tools).
+- **`DEFAULT_TRACE_ANALYST_KINDS`** — the four specs in canonical run
+  order (failure-mode → gap → poisoning → improvement).
+- **`priorFindings` on `AnalystContext`** — registry injects findings
+  from a prior `AnalystRunResult` into every analyst's context, so an
+  improvement-kind run can see the failure-mode findings the previous
+  pass surfaced. Kinds reference prior findings via
+  `evidence_uri: "finding://<id>"`.
+
+### Deprecated
+
+- `createTraceAnalystAdapter` (`src/analyst/adapters.ts`) — the legacy
+  bullet-list lifter. Kept for one minor while consumers migrate to
+  `createTraceAnalystKind`.
+
+## 0.28.0 — 2026-05-19
+
+### Analyst registry + findings envelope
+
+A generic, model-agnostic orchestration layer over the existing
+analyzers (`analyzeTraces`, `MultiLayerVerifier`, `RunCritic`,
+`SemanticConceptJudge`, `JudgeFn`). One contract, one runner, one
+persistence path. Reusable by VB operator bench, leaderboard submission
+pipeline, and orchestrator on-completion reports with the same code.
+
+### Added
+
+- **`Analyst<TInput>`** contract + **`AnalystFinding`** envelope with
+  sha-stable `finding_id` (`src/analyst/types.ts`).
+- **`AnalystRegistry`** (`src/analyst/registry.ts`) — register/list/run
+  with input routing by `inputKind`, per-analyst isolation, equal-split
+  budget by default, per-analyst telemetry.
+- **`AnalystHooks`** — `onBeforeAnalyze | onAfterAnalyze | onError |
+  onComplete`. Generic seam for telemetry, cost ingestion, rotation,
+  error → finding conversion.
+- **`BudgetPolicy`** — `{ totalUsd, weights, allocate }`. Default
+  equal-split; weighted split or custom `allocate(args)` for precision.
+- **`ChatClient`** abstraction (`src/analyst/chat-client.ts`) over
+  `router | sandbox-sdk | cli-bridge | direct-provider | mock` so
+  analyst code is transport-agnostic; `wrapLlmClient` races the call
+  against `ChatCallOpts.signal`.
+- **`FindingsStore`** + **`diffFindings(prev, cur, { isMaterial })`**
+  (`src/analyst/findings-store.ts`) — locked JSONL persistence + cross-run
+  diff (appeared / disappeared / persisted / changed) with a pluggable
+  materiality predicate (`defaultIsMaterial` exported for layering).
+- Five **adapter** factories (`src/analyst/adapters.ts`) that lift
+  existing primitives into the contract without re-implementing them:
+  `createTraceAnalystAdapter`, `createVerifierAdapter`,
+  `createRunCriticAdapter`, `createJudgeAdapter`,
+  `createSemanticConceptJudgeAdapter`.
+
 ## 0.27.2 — 2026-05-17
 
 ### Corpus-wide inter-rater agreement primitive
