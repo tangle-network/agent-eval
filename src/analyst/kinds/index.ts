@@ -10,15 +10,15 @@
  */
 
 export { FAILURE_MODE_KIND_SPEC } from './failure-mode'
+export { IMPROVEMENT_KIND_SPEC } from './improvement'
 export { KNOWLEDGE_GAP_KIND_SPEC } from './knowledge-gap'
 export { KNOWLEDGE_POISONING_KIND_SPEC } from './knowledge-poisoning'
-export { IMPROVEMENT_KIND_SPEC } from './improvement'
 
 import type { TraceAnalystKindSpec } from '../kind-factory'
 import { FAILURE_MODE_KIND_SPEC } from './failure-mode'
+import { IMPROVEMENT_KIND_SPEC } from './improvement'
 import { KNOWLEDGE_GAP_KIND_SPEC } from './knowledge-gap'
 import { KNOWLEDGE_POISONING_KIND_SPEC } from './knowledge-poisoning'
-import { IMPROVEMENT_KIND_SPEC } from './improvement'
 
 /**
  * The default kind suite. Order is the run order operators should

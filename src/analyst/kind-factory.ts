@@ -25,14 +25,17 @@
  * because the right metric is kind-specific.
  */
 
-import { agent, AxJSRuntime } from '@ax-llm/ax'
 import type { AxAIService, AxFunction } from '@ax-llm/ax'
-
-import type { Analyst, AnalystContext, AnalystCost, AnalystFinding } from './types'
-import { makeFinding } from './types'
-import { parseRawFinding, RAW_FINDING_SCHEMA_PROMPT, type RawAnalystFinding } from './finding-signature'
+import { AxJSRuntime, agent } from '@ax-llm/ax'
 import type { TraceAnalysisStore } from '../trace-analyst/store'
 import { TraceFileMissingError } from '../trace-analyst/store-otlp'
+import {
+  parseRawFinding,
+  RAW_FINDING_SCHEMA_PROMPT,
+  type RawAnalystFinding,
+} from './finding-signature'
+import type { Analyst, AnalystContext, AnalystCost, AnalystFinding } from './types'
+import { makeFinding } from './types'
 
 /**
  * Per-kind specification. The factory turns this into a regular

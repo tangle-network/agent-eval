@@ -1,9 +1,8 @@
 import { describe, expect, it, vi } from 'vitest'
-
-import { computeFindingId } from '../types'
 import { parseRawFinding, RawAnalystFindingSchema } from '../finding-signature'
 import { createTraceAnalystKind, type TraceAnalystKindSpec } from '../kind-factory'
 import { buildTraceToolsForGroup } from '../tool-groups'
+import { computeFindingId } from '../types'
 import {
   DEFAULT_TRACE_ANALYST_KINDS,
   FAILURE_MODE_KIND_SPEC,
@@ -118,9 +117,7 @@ describe('default kind suite shape', () => {
   })
 
   it('improvement kind has the deepest recursion budget (it competes candidate fixes)', () => {
-    const max = Math.max(
-      ...DEFAULT_TRACE_ANALYST_KINDS.map((k) => k.recursion?.maxDepth ?? 0),
-    )
+    const max = Math.max(...DEFAULT_TRACE_ANALYST_KINDS.map((k) => k.recursion?.maxDepth ?? 0))
     expect(IMPROVEMENT_KIND_SPEC.recursion?.maxDepth).toBe(max)
   })
 
@@ -144,7 +141,11 @@ describe('default kind suite shape', () => {
 describe('tool-groups filter the analyst tool surface narrowly', () => {
   it('discovery group exposes only overview/query/count', () => {
     const tools = buildTraceToolsForGroup('discovery', stubStore())
-    expect(tools.map((t) => (t as { name: string }).name).sort()).toEqual(['countTraces', 'getDatasetOverview', 'queryTraces'])
+    expect(tools.map((t) => (t as { name: string }).name).sort()).toEqual([
+      'countTraces',
+      'getDatasetOverview',
+      'queryTraces',
+    ])
   })
 
   it("'all' group is the full set", () => {
@@ -152,7 +153,9 @@ describe('tool-groups filter the analyst tool surface narrowly', () => {
   })
 
   it("'targeted' group drops viewTrace + searchTrace (kept for surgical follow-ups only)", () => {
-    const names = buildTraceToolsForGroup('targeted', stubStore()).map((t) => (t as { name: string }).name)
+    const names = buildTraceToolsForGroup('targeted', stubStore()).map(
+      (t) => (t as { name: string }).name,
+    )
     expect(names).toContain('viewSpans')
     expect(names).toContain('searchSpan')
     expect(names).not.toContain('viewTrace')
@@ -160,7 +163,9 @@ describe('tool-groups filter the analyst tool surface narrowly', () => {
   })
 
   it('unknown group name throws (silent-all would defeat cost control)', () => {
-    expect(() => buildTraceToolsForGroup('weird' as never, stubStore())).toThrow(/unknown trace tool group/)
+    expect(() => buildTraceToolsForGroup('weird' as never, stubStore())).toThrow(
+      /unknown trace tool group/,
+    )
   })
 })
 
@@ -192,7 +197,10 @@ describe('createTraceAnalystKind wires the spec into the Analyst contract', () =
       buildTools: () => [],
       cost: { kind: 'llm' },
     }
-    const analyst = createTraceAnalystKind(spec, { ai: stubAi(), versionSuffix: 'mipro-2026-05-18' })
+    const analyst = createTraceAnalystKind(spec, {
+      ai: stubAi(),
+      versionSuffix: 'mipro-2026-05-18',
+    })
     expect(analyst.version).toBe('1.0.0+mipro-2026-05-18')
   })
 

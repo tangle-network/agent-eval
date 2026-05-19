@@ -63,7 +63,11 @@ export function parseRawFinding(
   const result = RawAnalystFindingSchema.safeParse(row)
   if (!result.success) {
     log?.('finding rejected: schema failure', {
-      issues: result.error.issues.map((i) => ({ path: i.path.join('.'), code: i.code, message: i.message })),
+      issues: result.error.issues.map((i) => ({
+        path: i.path.join('.'),
+        code: i.code,
+        message: i.message,
+      })),
     })
     return null
   }

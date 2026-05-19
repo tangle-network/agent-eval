@@ -11,9 +11,8 @@
  */
 
 import type { AxFunction } from '@ax-llm/ax'
-
-import { buildTraceAnalystTools } from '../trace-analyst/tools'
 import type { TraceAnalysisStore } from '../trace-analyst/store'
+import { buildTraceAnalystTools } from '../trace-analyst/tools'
 
 /** Named tool sets. Kinds pass `tools: TRACE_TOOL_GROUPS.failureForensics` etc. */
 export type TraceToolGroupName =
@@ -31,7 +30,13 @@ export type TraceToolGroupName =
 const TOOL_NAMES_BY_GROUP: Record<TraceToolGroupName, ReadonlySet<string>> = {
   all: new Set(),
   discovery: new Set(['getDatasetOverview', 'queryTraces', 'countTraces']),
-  discoveryAndRead: new Set(['getDatasetOverview', 'queryTraces', 'countTraces', 'viewTrace', 'viewSpans']),
+  discoveryAndRead: new Set([
+    'getDatasetOverview',
+    'queryTraces',
+    'countTraces',
+    'viewTrace',
+    'viewSpans',
+  ]),
   discoveryAndSearch: new Set([
     'getDatasetOverview',
     'queryTraces',
