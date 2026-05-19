@@ -33,6 +33,28 @@ export type {
 export { createChatClient } from './analyst/chat-client'
 export type { DiffPolicy, FindingsDiff, PersistedFinding } from './analyst/findings-store'
 export { defaultIsMaterial, diffFindings, FindingsStore } from './analyst/findings-store'
+export type { RawAnalystFinding } from './analyst/finding-signature'
+export {
+  ANALYST_SEVERITIES,
+  parseRawFinding,
+  RawAnalystFindingSchema,
+  RAW_FINDING_SCHEMA_PROMPT,
+} from './analyst/finding-signature'
+export type {
+  CreateTraceAnalystKindOpts,
+  TraceAnalystGolden,
+  TraceAnalystKindSpec,
+} from './analyst/kind-factory'
+export { createTraceAnalystKind } from './analyst/kind-factory'
+export {
+  DEFAULT_TRACE_ANALYST_KINDS,
+  FAILURE_MODE_KIND_SPEC,
+  IMPROVEMENT_KIND_SPEC,
+  KNOWLEDGE_GAP_KIND_SPEC,
+  KNOWLEDGE_POISONING_KIND_SPEC,
+} from './analyst/kinds'
+export type { TraceToolGroupName } from './analyst/tool-groups'
+export { buildTraceToolsForGroup } from './analyst/tool-groups'
 export type {
   AnalystHooks,
   AnalystRegistryOptions,

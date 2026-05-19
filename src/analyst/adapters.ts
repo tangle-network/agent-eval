@@ -68,6 +68,14 @@ export interface TraceAnalystAdapterOpts {
   extra?: Omit<AnalyzeTracesOptions, 'source' | 'ai' | 'model'>
 }
 
+/**
+ * @deprecated Prefer `createTraceAnalystKind` + one of the failure /
+ * improvement kinds from `./kinds`. This adapter wraps the legacy
+ * `analyzeTraces` flow whose output is `findings:string[]` — every
+ * bullet gets flat-defaulted severity `medium` / confidence `0.6`,
+ * which loses the per-finding grading kinds provide via Ax structured
+ * output + Zod validation. Kept for one minor while consumers migrate.
+ */
 export function createTraceAnalystAdapter(
   opts: TraceAnalystAdapterOpts,
 ): Analyst<TraceAnalysisStore> {
