@@ -134,6 +134,16 @@ export interface AnalystContext {
    * analyst code.
    */
   chat?: ChatClient
+  /**
+   * Findings from a prior run the operator wants the analyst to see as
+   * retrieval context. Kinds that take advantage of cross-run memory
+   * (failure-mode "I saw this cluster last run", knowledge-gap "the wiki
+   * page I asked for is still missing") render these into the actor's
+   * working set. Filtering is the operator's job: pass the slice that
+   * matches the analyst's id, or pass everything and let the kind
+   * filter. Empty / absent means no cross-run context.
+   */
+  priorFindings?: ReadonlyArray<AnalystFinding>
   /** Free-form runtime tags (env, host, op). Findings can echo these into metadata. */
   tags?: Record<string, string>
   /** Logger callback — analysts SHOULD prefer this over console.* for testability. */

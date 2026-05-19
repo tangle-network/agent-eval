@@ -493,6 +493,83 @@ describe('diffFindings policy', () => {
   })
 })
 
+describe('RegistryRunOpts.priorFindings forwarding', () => {
+  function makeRecordingAnalyst(id: string): Analyst & {
+    seen: Array<ReadonlyArray<AnalystFinding> | undefined>
+  } {
+    const seen: Array<ReadonlyArray<AnalystFinding> | undefined> = []
+    return {
+      id,
+      description: `recording ${id}`,
+      inputKind: 'custom',
+      cost: { kind: 'deterministic' },
+      version: '1.0.0',
+      seen,
+      async analyze(_input: unknown, ctx: import('./types').AnalystContext) {
+        seen.push(ctx.priorFindings)
+        return []
+      },
+    } as never
+  }
+
+  function p(id: string, analystId = 'a'): AnalystFinding {
+    return makeFinding({
+      analyst_id: analystId,
+      area: 'x',
+      claim: id,
+      severity: 'low',
+      confidence: 0.5,
+      evidence_refs: [],
+    })
+  }
+
+  const inputs: AnalystRunInputs = { custom: { a: 1, b: 2 } }
+
+  it('array form: each analyst sees only its own prior findings', async () => {
+    const r = new AnalystRegistry()
+    const a = makeRecordingAnalyst('a')
+    const b = makeRecordingAnalyst('b')
+    r.register(a)
+    r.register(b)
+    const prior = [p('one', 'a'), p('two', 'a'), p('three', 'b')]
+    await r.run('run-1', inputs, { priorFindings: prior })
+    expect(a.seen[0]?.map((f) => f.claim)).toEqual(['one', 'two'])
+    expect(b.seen[0]?.map((f) => f.claim)).toEqual(['three'])
+  })
+
+  it('array form: analyst with no matching prior gets undefined (not empty array)', async () => {
+    const r = new AnalystRegistry()
+    const a = makeRecordingAnalyst('a')
+    r.register(a)
+    await r.run('run-1', inputs, { priorFindings: [p('other', 'b')] })
+    expect(a.seen[0]).toBeUndefined()
+  })
+
+  it('record form: wildcard "*" findings reach every analyst', async () => {
+    const r = new AnalystRegistry()
+    const a = makeRecordingAnalyst('a')
+    const b = makeRecordingAnalyst('b')
+    r.register(a)
+    r.register(b)
+    await r.run('run-1', inputs, {
+      priorFindings: {
+        a: [p('a-only', 'a')],
+        '*': [p('everyone', 'failure-mode')],
+      },
+    })
+    expect(a.seen[0]?.map((f) => f.claim)).toEqual(['a-only', 'everyone'])
+    expect(b.seen[0]?.map((f) => f.claim)).toEqual(['everyone'])
+  })
+
+  it('no priorFindings option: ctx.priorFindings is undefined', async () => {
+    const r = new AnalystRegistry()
+    const a = makeRecordingAnalyst('a')
+    r.register(a)
+    await r.run('run-1', inputs)
+    expect(a.seen[0]).toBeUndefined()
+  })
+})
+
 describe('ChatClient signal racing', () => {
   it('mock transport rejects on abort even if handler is slow', async () => {
     const controller = new AbortController()

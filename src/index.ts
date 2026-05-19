@@ -31,21 +31,21 @@ export type {
   SandboxSdkTransportOpts,
 } from './analyst/chat-client'
 export { createChatClient } from './analyst/chat-client'
-export type { DiffPolicy, FindingsDiff, PersistedFinding } from './analyst/findings-store'
-export { defaultIsMaterial, diffFindings, FindingsStore } from './analyst/findings-store'
 export type { RawAnalystFinding } from './analyst/finding-signature'
 export {
   ANALYST_SEVERITIES,
   parseRawFinding,
-  RawAnalystFindingSchema,
   RAW_FINDING_SCHEMA_PROMPT,
+  RawAnalystFindingSchema,
 } from './analyst/finding-signature'
+export type { DiffPolicy, FindingsDiff, PersistedFinding } from './analyst/findings-store'
+export { defaultIsMaterial, diffFindings, FindingsStore } from './analyst/findings-store'
 export type {
   CreateTraceAnalystKindOpts,
   TraceAnalystGolden,
   TraceAnalystKindSpec,
 } from './analyst/kind-factory'
-export { createTraceAnalystKind } from './analyst/kind-factory'
+export { createTraceAnalystKind, renderPriorFindings } from './analyst/kind-factory'
 export {
   DEFAULT_TRACE_ANALYST_KINDS,
   FAILURE_MODE_KIND_SPEC,
@@ -53,8 +53,6 @@ export {
   KNOWLEDGE_GAP_KIND_SPEC,
   KNOWLEDGE_POISONING_KIND_SPEC,
 } from './analyst/kinds'
-export type { TraceToolGroupName } from './analyst/tool-groups'
-export { buildTraceToolsForGroup } from './analyst/tool-groups'
 export type {
   AnalystHooks,
   AnalystRegistryOptions,
@@ -62,6 +60,8 @@ export type {
   RegistryRunOpts,
 } from './analyst/registry'
 export { AnalystRegistry } from './analyst/registry'
+export type { TraceToolGroupName } from './analyst/tool-groups'
+export { buildTraceToolsForGroup } from './analyst/tool-groups'
 // ── Analyst registry ─────────────────────────────────────────────────
 // Generic contract + registry over agent-eval's existing analyzers
 // (analyzeTraces, MultiLayerVerifier, RunCritic, SemanticConceptJudge,
