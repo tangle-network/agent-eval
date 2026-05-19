@@ -19,7 +19,12 @@ export type {
 } from './analyst/types'
 export { computeFindingId, makeFinding } from './analyst/types'
 export { AnalystRegistry } from './analyst/registry'
-export type { AnalystRegistryOptions, RegistryRunOpts } from './analyst/registry'
+export type {
+  AnalystHooks,
+  AnalystRegistryOptions,
+  BudgetPolicy,
+  RegistryRunOpts,
+} from './analyst/registry'
 export type {
   ChatCallOpts,
   ChatClient,
@@ -34,8 +39,8 @@ export type {
   SandboxSdkTransportOpts,
 } from './analyst/chat-client'
 export { createChatClient } from './analyst/chat-client'
-export type { FindingsDiff, PersistedFinding } from './analyst/findings-store'
-export { FindingsStore, diffFindings } from './analyst/findings-store'
+export type { DiffPolicy, FindingsDiff, PersistedFinding } from './analyst/findings-store'
+export { FindingsStore, defaultIsMaterial, diffFindings } from './analyst/findings-store'
 export {
   createJudgeAdapter,
   createRunCriticAdapter,

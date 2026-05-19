@@ -17,7 +17,7 @@
 
 import { createHash } from 'node:crypto'
 
-import type { LlmClient } from '../llm-client'
+import type { ChatClient } from './chat-client'
 import type { RunRecord } from '../run-record'
 import type { JudgeInput } from '../types'
 import type { TraceAnalysisStore } from '../trace-analyst/store'
@@ -129,11 +129,12 @@ export interface AnalystContext {
   /** Per-analyst USD budget. Analysts MAY check before issuing LLM calls. */
   budgetUsd?: number
   /**
-   * Shared chat client. Analysts that call an LLM use this — it gives
-   * the operator one place to swap transport (sandbox-sdk vs router vs
-   * mock) without touching analyst code.
+   * Shared chat client. Analysts that call an LLM go through this so
+   * the operator picks transport (sandbox-sdk | router | cli-bridge |
+   * direct-provider | mock) at the registry boundary without touching
+   * analyst code.
    */
-  chat?: LlmClient
+  chat?: ChatClient
   /** Free-form runtime tags (env, host, op). Findings can echo these into metadata. */
   tags?: Record<string, string>
   /** Logger callback — analysts SHOULD prefer this over console.* for testability. */

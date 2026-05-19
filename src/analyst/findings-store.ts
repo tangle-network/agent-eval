@@ -77,29 +77,47 @@ export interface FindingsDiff {
   appeared: PersistedFinding[]
   /** Finding ids in `previous` that aren't in `current`. */
   disappeared: PersistedFinding[]
-  /** Same finding id present in both runs and unchanged in identity-defining fields. */
+  /** Same finding id present in both runs and unchanged per the materiality test. */
   persisted: PersistedFinding[]
   /**
    * Same finding id in both runs but at least one non-identity field
-   * shifted (severity, rationale, evidence count, confidence > 0.05
-   * delta). The pair is reported as [previous, current].
+   * shifted per `DiffPolicy.isMaterial`. Reported as [previous, current].
    */
   changed: Array<{ previous: PersistedFinding; current: PersistedFinding }>
+}
+
+export interface DiffPolicy {
+  /**
+   * Predicate that decides whether two findings (same finding_id) count
+   * as a material change. Defaults to {@link defaultIsMaterial}: severity
+   * shift, confidence Δ > 0.05, or evidence count change. Compliance /
+   * perf consumers MAY supply a stricter predicate (e.g. rationale text
+   * diff, metric Δ thresholds).
+   */
+  isMaterial?: (previous: AnalystFinding, current: AnalystFinding) => boolean
+}
+
+/**
+ * Default materiality test. Deliberately narrow so LLM-reword churn
+ * doesn't flood the diff. Stricter tests are opt-in via DiffPolicy.
+ */
+export function defaultIsMaterial(a: AnalystFinding, b: AnalystFinding): boolean {
+  if (a.severity !== b.severity) return true
+  if (Math.abs((a.confidence ?? 0) - (b.confidence ?? 0)) > 0.05) return true
+  if (a.evidence_refs.length !== b.evidence_refs.length) return true
+  return false
 }
 
 /**
  * Diff two findings sets by stable finding_id. Callers typically load
  * the two run-id slices from the same store and pass them in.
- *
- * "Changed" is intentionally narrow: severity bump, confidence jump,
- * evidence change. We don't diff rationale text because LLM analysts
- * legitimately reword the same finding run-to-run and we don't want
- * that to be noise.
  */
 export function diffFindings(
   previous: PersistedFinding[],
   current: PersistedFinding[],
+  policy: DiffPolicy = {},
 ): FindingsDiff {
+  const isMaterial = policy.isMaterial ?? defaultIsMaterial
   const prevById = new Map(previous.map((f) => [f.finding_id, f]))
   const curById = new Map(current.map((f) => [f.finding_id, f]))
 
@@ -114,7 +132,7 @@ export function diffFindings(
       appeared.push(cur)
       continue
     }
-    if (hasMaterialChange(prev, cur)) {
+    if (isMaterial(prev, cur)) {
       changed.push({ previous: prev, current: cur })
     } else {
       persisted.push(cur)
@@ -124,11 +142,4 @@ export function diffFindings(
     if (!curById.has(id)) disappeared.push(prev)
   }
   return { appeared, disappeared, persisted, changed }
-}
-
-function hasMaterialChange(a: AnalystFinding, b: AnalystFinding): boolean {
-  if (a.severity !== b.severity) return true
-  if (Math.abs((a.confidence ?? 0) - (b.confidence ?? 0)) > 0.05) return true
-  if (a.evidence_refs.length !== b.evidence_refs.length) return true
-  return false
 }

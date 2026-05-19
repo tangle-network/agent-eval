@@ -10,10 +10,10 @@
  *   3. Isolation — one analyst's exception MUST NOT stop other analysts.
  *      Failed analysts produce zero findings + a 'failed' summary row.
  *
- * Budget enforcement is per-analyst (operator caps the analyst-declared
- * `est_usd_per_run` if it exceeds the total budget remaining). Cost
- * accounting flows from the ChatClient's response — analysts that don't
- * use the LLM cost zero.
+ * Cross-cutting concerns (telemetry, error → finding conversion, cost
+ * ingestion, storage rotation) live in `AnalystHooks`. Budget shaping
+ * (equal split vs weighted vs custom) lives in `BudgetPolicy`. Both
+ * have sensible defaults; consumers override only what they need.
  */
 
 import { randomUUID } from 'node:crypto'
@@ -28,13 +28,63 @@ import type {
 } from './types'
 import type { ChatClient } from './chat-client'
 
+// ── Hook + policy surfaces ─────────────────────────────────────────
+
+export interface AnalystHooks {
+  /** Before analyze() — last chance to mutate ctx (e.g. inject tags, override budget). */
+  onBeforeAnalyze?(args: {
+    analyst: Analyst
+    ctx: AnalystContext
+    runId: string
+  }): void | Promise<void>
+  /** After every analyst (ok | failed | skipped). Use for telemetry, ingestion, rotation. */
+  onAfterAnalyze?(args: {
+    analyst: Analyst
+    summary: AnalystRunSummary
+    findings: AnalystFinding[]
+    runId: string
+  }): void | Promise<void>
+  /**
+   * On analyst exception. Hook MAY return findings to convert the
+   * error into structured findings; the summary still reports 'failed'.
+   * Return void to keep the default empty-findings behavior.
+   */
+  onError?(args: {
+    analyst: Analyst
+    error: Error
+    runId: string
+  }): AnalystFinding[] | void | Promise<AnalystFinding[] | void>
+  /** Once after registry.run() completes. Use for final aggregation, persistence. */
+  onComplete?(args: { result: AnalystRunResult }): void | Promise<void>
+}
+
+export interface BudgetPolicy {
+  /** Overall USD cap across the registry.run(). */
+  totalUsd?: number
+  /** Per-analyst weight for the default allocator. Missing ids get weight 1. */
+  weights?: Record<string, number>
+  /**
+   * Custom allocator — receives the analyst, remaining/total budget, and
+   * the count of analysts that will run. Returns the per-analyst budget
+   * (or undefined to leave it uncapped). Overrides weights when set.
+   */
+  allocate?: (args: {
+    analyst: Analyst
+    totalUsd: number | undefined
+    remainingUsd: number | undefined
+    runningCount: number
+  }) => number | undefined
+}
+
 export interface AnalystRegistryOptions {
   /** Shared chat client passed to every LLM analyst via AnalystContext. */
   chat?: ChatClient
   /** Logger callback. Defaults to a no-op. */
   log?: (msg: string, fields?: Record<string, unknown>) => void
-  /** Default per-analyst budget when caller doesn't specify. */
-  defaultBudgetUsd?: number
+  /** Hooks invoked around analyze() — observability + customization seam. */
+  hooks?: AnalystHooks
+  /** Default budget when run() doesn't override. */
+  defaultBudget?: BudgetPolicy
 }
 
 export interface RegistryRunOpts {
@@ -42,11 +92,11 @@ export interface RegistryRunOpts {
   only?: string[]
   /** Skip these analysts even if registered. Useful for cheap iteration. */
   skip?: string[]
-  /** Overall USD budget across all analysts. Each gets up to `budgetUsd / N`. */
-  budgetUsd?: number
-  /** Wall-clock cap. Analysts SHOULD honor deadlineMs from context. */
+  /** Budget policy — totalUsd + optional weights/allocator. Falls back to options.defaultBudget. */
+  budget?: BudgetPolicy
+  /** Wall-clock cap. Analysts SHOULD honor `ctx.deadlineMs`. */
   timeoutMs?: number
-  /** Abort signal. The registry forwards it to every analyst's context. */
+  /** Abort signal — forwarded into every analyst's context. */
   signal?: AbortSignal
   /** Tags echoed into AnalystContext.tags — useful for tracking environment/version in findings. */
   tags?: Record<string, string>
@@ -87,86 +137,104 @@ export class AnalystRegistry {
   ): Promise<AnalystRunResult> {
     const correlationId = `ar_${randomUUID().slice(0, 12)}`
     const log = this.options.log ?? (() => {})
+    const hooks = this.options.hooks ?? {}
     const startedAt = new Date().toISOString()
     const started = Date.now()
     const deadlineMs = runOpts.timeoutMs ? started + runOpts.timeoutMs : undefined
 
     const selected = this.selectAnalysts(runOpts)
-    const perAnalystBudget = this.computePerAnalystBudget(selected.length, runOpts.budgetUsd)
+    const budget = runOpts.budget ?? this.options.defaultBudget
 
     const summaries: AnalystRunSummary[] = []
     const allFindings: AnalystFinding[] = []
     let totalCost = 0
+    let remainingUsd = budget?.totalUsd
 
     for (const analyst of selected) {
       const t0 = Date.now()
       const input = this.routeInput(analyst, inputs)
       if (input.kind === 'missing') {
-        summaries.push({
+        const summary: AnalystRunSummary = {
           analyst_id: analyst.id,
           status: 'skipped',
           reason: `missing input of kind '${analyst.inputKind}'`,
           findings_count: 0,
           latency_ms: 0,
           cost_usd: 0,
-        })
+        }
+        summaries.push(summary)
         log(`[analyst] skip ${analyst.id} — missing input`, { runId, kind: analyst.inputKind })
+        await hooks.onAfterAnalyze?.({ analyst, summary, findings: [], runId })
         continue
       }
+
+      const perBudget = allocateBudget(budget, {
+        analyst,
+        remainingUsd,
+        runningCount: selected.length,
+      })
 
       const ctx: AnalystContext = {
         runId,
         correlationId,
         deadlineMs,
-        budgetUsd: perAnalystBudget,
-        chat: this.options.chat as AnalystContext['chat'],
+        budgetUsd: perBudget,
+        chat: this.options.chat,
         tags: runOpts.tags,
         log: (msg, fields) => log(`[${analyst.id}] ${msg}`, { runId, correlationId, ...fields }),
         signal: runOpts.signal,
       }
 
+      await hooks.onBeforeAnalyze?.({ analyst, ctx, runId })
+
       try {
         const findings = await (analyst as Analyst<unknown>).analyze(input.value, ctx)
         const latency = Date.now() - t0
-        // Cost is best-effort: deterministic analysts cost 0; LLM
-        // analysts that surface usage via metadata get attributed.
         const cost = sumFindingCost(findings)
         totalCost += cost
+        if (typeof remainingUsd === 'number') remainingUsd = Math.max(0, remainingUsd - cost)
         allFindings.push(...findings)
-        summaries.push({
+        const summary: AnalystRunSummary = {
           analyst_id: analyst.id,
           status: 'ok',
           findings_count: findings.length,
           latency_ms: latency,
           cost_usd: cost,
-        })
+        }
+        summaries.push(summary)
         log(`[analyst] ok ${analyst.id}`, {
           runId,
           findings: findings.length,
           latency_ms: latency,
           cost_usd: cost,
         })
+        await hooks.onAfterAnalyze?.({ analyst, summary, findings, runId })
       } catch (err) {
         const latency = Date.now() - t0
         const e = err instanceof Error ? err : new Error(String(err))
-        summaries.push({
+        // Hook gets first chance to convert the error into findings.
+        const hookFindings = (await hooks.onError?.({ analyst, error: e, runId })) ?? []
+        if (hookFindings.length) allFindings.push(...hookFindings)
+        const summary: AnalystRunSummary = {
           analyst_id: analyst.id,
           status: 'failed',
-          findings_count: 0,
+          findings_count: hookFindings.length,
           latency_ms: latency,
           cost_usd: 0,
           error: { class: e.constructor.name, message: e.message },
-        })
+        }
+        summaries.push(summary)
         log(`[analyst] FAIL ${analyst.id}`, {
           runId,
           error_class: e.constructor.name,
           error: e.message,
         })
+        await hooks.onAfterAnalyze?.({ analyst, summary, findings: hookFindings, runId })
         // Continue — isolation invariant.
       }
     }
 
-    return {
+    const result: AnalystRunResult = {
       run_id: runId,
       correlation_id: correlationId,
       started_at: startedAt,
@@ -175,6 +243,8 @@ export class AnalystRegistry {
       per_analyst: summaries,
       total_cost_usd: totalCost,
     }
+    await hooks.onComplete?.({ result })
+    return result
   }
 
   private selectAnalysts(opts: RegistryRunOpts): Analyst[] {
@@ -188,14 +258,6 @@ export class AnalystRegistry {
       candidates = candidates.filter((a) => !skip.has(a.id))
     }
     return candidates
-  }
-
-  private computePerAnalystBudget(count: number, budgetUsd?: number): number | undefined {
-    const total = budgetUsd ?? this.options.defaultBudgetUsd
-    if (total == null || count === 0) return undefined
-    // Equal split. Operators wanting weighted budgets call analysts in
-    // separate registry.run() invocations.
-    return total / count
   }
 
   private routeInput(
@@ -228,11 +290,42 @@ export class AnalystRegistry {
 }
 
 /**
+ * Default budget allocator: prefer the custom `allocate` callback if
+ * provided; else weighted split when weights are set; else equal split
+ * across `runningCount`. Returns undefined when no totalUsd is known.
+ */
+function allocateBudget(
+  policy: BudgetPolicy | undefined,
+  args: { analyst: Analyst; remainingUsd: number | undefined; runningCount: number },
+): number | undefined {
+  if (!policy) return undefined
+  if (policy.allocate) {
+    return policy.allocate({
+      analyst: args.analyst,
+      totalUsd: policy.totalUsd,
+      remainingUsd: args.remainingUsd,
+      runningCount: args.runningCount,
+    })
+  }
+  if (policy.totalUsd == null) return undefined
+  if (policy.weights) {
+    // Weighted split: caller-supplied weights, default 1 for missing ids.
+    // We can only normalize against the analysts in this run, but the
+    // registry doesn't know all ids at allocator-time without passing
+    // them. We approximate by treating `runningCount` as the count of
+    // weight=1 analysts when the weight map omits ids. The exact split
+    // is left to consumers that need precision via `allocate`.
+    const w = policy.weights[args.analyst.id] ?? 1
+    const totalWeight = Math.max(1, args.runningCount) // see note above
+    return (policy.totalUsd * w) / totalWeight
+  }
+  return policy.totalUsd / Math.max(1, args.runningCount)
+}
+
+/**
  * Findings may carry their cost in `metadata.cost_usd` when the analyst
  * tracks it (the LLM-driven adapters do this — they sum chat-client
- * responses). Deterministic findings have no cost field. We sum the
- * unique-by-finding total because the same finding from multiple
- * sub-calls should still be one cost line.
+ * responses). Deterministic findings have no cost field.
  */
 function sumFindingCost(findings: AnalystFinding[]): number {
   let sum = 0
