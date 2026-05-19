@@ -1,5 +1,57 @@
 // ── Core types ───────────────────────────────────────────────────────
 
+// ── Analyst registry ─────────────────────────────────────────────────
+// Generic contract + registry over agent-eval's existing analyzers
+// (analyzeTraces, MultiLayerVerifier, RunCritic, SemanticConceptJudge,
+// JudgeFn). One envelope, one runner, model-agnostic, transport-agnostic.
+export type {
+  Analyst,
+  AnalystContext,
+  AnalystCost,
+  AnalystFinding,
+  AnalystInputKind,
+  AnalystRequirements,
+  AnalystRunInputs,
+  AnalystRunResult,
+  AnalystRunSummary,
+  AnalystSeverity,
+  EvidenceRef,
+} from './analyst/types'
+export { computeFindingId, makeFinding } from './analyst/types'
+export { AnalystRegistry } from './analyst/registry'
+export type { AnalystRegistryOptions, RegistryRunOpts } from './analyst/registry'
+export type {
+  ChatCallOpts,
+  ChatClient,
+  ChatRequest,
+  ChatResponse,
+  ChatTransport,
+  CliBridgeTransportOpts,
+  CreateChatClientOpts,
+  DirectProviderTransportOpts,
+  MockTransportOpts,
+  RouterTransportOpts,
+  SandboxSdkTransportOpts,
+} from './analyst/chat-client'
+export { createChatClient } from './analyst/chat-client'
+export type { FindingsDiff, PersistedFinding } from './analyst/findings-store'
+export { FindingsStore, diffFindings } from './analyst/findings-store'
+export {
+  createJudgeAdapter,
+  createRunCriticAdapter,
+  createSemanticConceptJudgeAdapter,
+  createTraceAnalystAdapter,
+  createVerifierAdapter,
+  liftSeverity,
+} from './analyst/adapters'
+export type {
+  JudgeAdapterOpts,
+  RunCriticAdapterOpts,
+  SemanticConceptJudgeAdapterOpts,
+  TraceAnalystAdapterOpts,
+  VerifierAdapterOpts,
+} from './analyst/adapters'
+
 export type { ActionExecutionPolicy, ActionPolicyDecision } from './action-policy'
 export { evaluateActionPolicy } from './action-policy'
 // ── Production loop primitive ────────────────────────────────────────
