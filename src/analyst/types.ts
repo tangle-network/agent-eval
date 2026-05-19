@@ -257,3 +257,47 @@ export interface AnalystRunResult {
   /** Total LLM cost in USD across all analysts in this registry.run(). */
   total_cost_usd: number
 }
+
+// ── Streaming event envelope ────────────────────────────────────────
+
+/**
+ * Events emitted by `AnalystRegistry.runStream(...)` in real time as
+ * the registry executes. UIs subscribe via `for await (const ev of
+ * registry.runStream(...))`; `registry.run(...)` is a thin collector
+ * over the same stream, so the two surfaces share their invariants.
+ *
+ * Per-finding events are intentionally omitted — analyzers are batch
+ * operations (an Ax actor returns the full `findings:json[]` at the
+ * end of the responder), so streaming inside one analyst would only
+ * emit partial JSON consumers can't render. The kind-completion event
+ * is the right granularity; subscribers wanting per-finding rendering
+ * iterate `event.findings` themselves.
+ */
+export type AnalystRunEvent =
+  | {
+      type: 'run-started'
+      run_id: string
+      correlation_id: string
+      started_at: string
+      /** The ordered list of analyst ids the registry will run. */
+      analyst_ids: ReadonlyArray<string>
+    }
+  | {
+      type: 'analyst-skipped'
+      summary: AnalystRunSummary
+    }
+  | {
+      type: 'analyst-started'
+      analyst_id: string
+      started_at: string
+    }
+  | {
+      type: 'analyst-completed'
+      /** `summary.status` is `'ok'` for clean completion or `'failed'` for thrown analysts. */
+      summary: AnalystRunSummary
+      findings: ReadonlyArray<AnalystFinding>
+    }
+  | {
+      type: 'run-completed'
+      result: AnalystRunResult
+    }
