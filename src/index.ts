@@ -2,6 +2,84 @@
 
 export type { ActionExecutionPolicy, ActionPolicyDecision } from './action-policy'
 export { evaluateActionPolicy } from './action-policy'
+export type {
+  JudgeAdapterOpts,
+  RunCriticAdapterOpts,
+  SemanticConceptJudgeAdapterOpts,
+  TraceAnalystAdapterOpts,
+  VerifierAdapterOpts,
+} from './analyst/adapters'
+export {
+  createJudgeAdapter,
+  createRunCriticAdapter,
+  createSemanticConceptJudgeAdapter,
+  createTraceAnalystAdapter,
+  createVerifierAdapter,
+  liftSeverity,
+} from './analyst/adapters'
+export type {
+  ChatCallOpts,
+  ChatClient,
+  ChatRequest,
+  ChatResponse,
+  ChatTransport,
+  CliBridgeTransportOpts,
+  CreateChatClientOpts,
+  DirectProviderTransportOpts,
+  MockTransportOpts,
+  RouterTransportOpts,
+  SandboxSdkTransportOpts,
+} from './analyst/chat-client'
+export { createChatClient } from './analyst/chat-client'
+export type { DiffPolicy, FindingsDiff, PersistedFinding } from './analyst/findings-store'
+export { defaultIsMaterial, diffFindings, FindingsStore } from './analyst/findings-store'
+export type { RawAnalystFinding } from './analyst/finding-signature'
+export {
+  ANALYST_SEVERITIES,
+  parseRawFinding,
+  RawAnalystFindingSchema,
+  RAW_FINDING_SCHEMA_PROMPT,
+} from './analyst/finding-signature'
+export type {
+  CreateTraceAnalystKindOpts,
+  TraceAnalystGolden,
+  TraceAnalystKindSpec,
+} from './analyst/kind-factory'
+export { createTraceAnalystKind } from './analyst/kind-factory'
+export {
+  DEFAULT_TRACE_ANALYST_KINDS,
+  FAILURE_MODE_KIND_SPEC,
+  IMPROVEMENT_KIND_SPEC,
+  KNOWLEDGE_GAP_KIND_SPEC,
+  KNOWLEDGE_POISONING_KIND_SPEC,
+} from './analyst/kinds'
+export type { TraceToolGroupName } from './analyst/tool-groups'
+export { buildTraceToolsForGroup } from './analyst/tool-groups'
+export type {
+  AnalystHooks,
+  AnalystRegistryOptions,
+  BudgetPolicy,
+  RegistryRunOpts,
+} from './analyst/registry'
+export { AnalystRegistry } from './analyst/registry'
+// ── Analyst registry ─────────────────────────────────────────────────
+// Generic contract + registry over agent-eval's existing analyzers
+// (analyzeTraces, MultiLayerVerifier, RunCritic, SemanticConceptJudge,
+// JudgeFn). One envelope, one runner, model-agnostic, transport-agnostic.
+export type {
+  Analyst,
+  AnalystContext,
+  AnalystCost,
+  AnalystFinding,
+  AnalystInputKind,
+  AnalystRequirements,
+  AnalystRunInputs,
+  AnalystRunResult,
+  AnalystRunSummary,
+  AnalystSeverity,
+  EvidenceRef,
+} from './analyst/types'
+export { computeFindingId, makeFinding } from './analyst/types'
 // ── Production loop primitive ────────────────────────────────────────
 // Closes the eval → prod → eval cycle: ingest production traces,
 // cluster failures, run evolve on the offending cluster, gate the
