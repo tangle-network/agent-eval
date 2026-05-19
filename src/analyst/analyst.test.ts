@@ -376,9 +376,9 @@ describe('AnalystHooks', () => {
     // 1 from converted error + 1 from ok analyst
     expect(result.findings).toHaveLength(2)
     const byId = Object.fromEntries(result.per_analyst.map((s) => [s.analyst_id, s]))
-    expect(byId['a']?.status).toBe('failed')
-    expect(byId['a']?.findings_count).toBe(1) // surfaced from hook
-    expect(byId['b']?.status).toBe('ok')
+    expect(byId.a?.status).toBe('failed')
+    expect(byId.a?.findings_count).toBe(1) // surfaced from hook
+    expect(byId.b?.status).toBe('ok')
   })
 
   it('onAfter runs for skipped analysts too', async () => {
@@ -490,6 +490,167 @@ describe('diffFindings policy', () => {
       isMaterial: (a, b) => defaultIsMaterial(a, b) || a.rationale !== b.rationale,
     })
     expect(d.changed).toHaveLength(1)
+  })
+})
+
+describe('AnalystRegistry.runStream', () => {
+  function makeOkAnalyst(id: string, findings: AnalystFinding[]): Analyst {
+    return {
+      id,
+      description: `ok ${id}`,
+      inputKind: 'custom',
+      cost: { kind: 'deterministic' },
+      version: '1.0.0',
+      analyze: async () => findings,
+    } as never
+  }
+
+  function makeFailingAnalyst(id: string, error: Error): Analyst {
+    return {
+      id,
+      description: `failing ${id}`,
+      inputKind: 'custom',
+      cost: { kind: 'deterministic' },
+      version: '1.0.0',
+      analyze: async () => {
+        throw error
+      },
+    } as never
+  }
+
+  function makeMissingInputAnalyst(id: string): Analyst {
+    return {
+      id,
+      description: `needs trace-store ${id}`,
+      inputKind: 'trace-store',
+      cost: { kind: 'deterministic' },
+      version: '1.0.0',
+      analyze: async () => [],
+    } as never
+  }
+
+  function mkFinding(id: string, analystId: string): AnalystFinding {
+    return makeFinding({
+      analyst_id: analystId,
+      area: analystId,
+      claim: id,
+      severity: 'low',
+      confidence: 0.5,
+      evidence_refs: [],
+    })
+  }
+
+  const inputs: AnalystRunInputs = {
+    custom: { a: 1, b: 2, c: 3, boom: 1, after: 1, 'needs-trace': 1 },
+  }
+
+  it('emits run-started → analyst-started → analyst-completed → run-completed for a clean run', async () => {
+    const r = new AnalystRegistry()
+    r.register(makeOkAnalyst('a', [mkFinding('f1', 'a'), mkFinding('f2', 'a')]))
+    r.register(makeOkAnalyst('b', [mkFinding('g1', 'b')]))
+
+    const events: import('./types').AnalystRunEvent[] = []
+    for await (const ev of r.runStream('run-1', inputs)) events.push(ev)
+
+    expect(events.map((e) => e.type)).toEqual([
+      'run-started',
+      'analyst-started',
+      'analyst-completed',
+      'analyst-started',
+      'analyst-completed',
+      'run-completed',
+    ])
+
+    const runStarted = events[0]
+    if (runStarted?.type !== 'run-started') throw new Error('order invariant')
+    expect(runStarted.analyst_ids).toEqual(['a', 'b'])
+    expect(runStarted.run_id).toBe('run-1')
+
+    const completedA = events[2]
+    if (completedA?.type !== 'analyst-completed') throw new Error('order invariant')
+    expect(completedA.summary.analyst_id).toBe('a')
+    expect(completedA.summary.status).toBe('ok')
+    expect(completedA.findings).toHaveLength(2)
+
+    const runCompleted = events[5]
+    if (runCompleted?.type !== 'run-completed') throw new Error('order invariant')
+    expect(runCompleted.result.findings).toHaveLength(3)
+    expect(runCompleted.result.per_analyst.map((s) => s.analyst_id)).toEqual(['a', 'b'])
+  })
+
+  it('emits analyst-skipped instead of analyst-started when input is missing', async () => {
+    const r = new AnalystRegistry()
+    r.register(makeMissingInputAnalyst('needs-trace'))
+
+    const events: import('./types').AnalystRunEvent[] = []
+    for await (const ev of r.runStream('run-1', inputs)) events.push(ev)
+
+    expect(events.map((e) => e.type)).toEqual(['run-started', 'analyst-skipped', 'run-completed'])
+    const skipped = events[1]
+    if (skipped?.type !== 'analyst-skipped') throw new Error('order invariant')
+    expect(skipped.summary.status).toBe('skipped')
+    expect(skipped.summary.reason).toMatch(/missing input/)
+  })
+
+  it('emits analyst-completed with status=failed when the analyst throws; siblings still run', async () => {
+    const r = new AnalystRegistry()
+    r.register(makeFailingAnalyst('boom', new TypeError('synthetic')))
+    r.register(makeOkAnalyst('after', [mkFinding('f1', 'after')]))
+
+    const events: import('./types').AnalystRunEvent[] = []
+    for await (const ev of r.runStream('run-1', inputs)) events.push(ev)
+
+    const failedEv = events.find(
+      (e) => e.type === 'analyst-completed' && e.summary.analyst_id === 'boom',
+    )
+    if (!failedEv || failedEv.type !== 'analyst-completed') throw new Error('expected failed event')
+    expect(failedEv.summary.status).toBe('failed')
+    expect(failedEv.summary.error?.class).toBe('TypeError')
+
+    const afterEv = events.find(
+      (e) => e.type === 'analyst-completed' && e.summary.analyst_id === 'after',
+    )
+    if (!afterEv || afterEv.type !== 'analyst-completed') throw new Error('expected after event')
+    expect(afterEv.summary.status).toBe('ok')
+  })
+
+  it('run() returns the same envelope as the run-completed event from runStream()', async () => {
+    const r = new AnalystRegistry()
+    r.register(makeOkAnalyst('a', [mkFinding('f1', 'a')]))
+
+    const result = await r.run('run-1', inputs)
+
+    const r2 = new AnalystRegistry()
+    r2.register(makeOkAnalyst('a', [mkFinding('f1', 'a')]))
+    let streamResult: import('./types').AnalystRunResult | undefined
+    for await (const ev of r2.runStream('run-1', inputs)) {
+      if (ev.type === 'run-completed') streamResult = ev.result
+    }
+
+    expect(result.findings.map((f) => f.finding_id)).toEqual(
+      streamResult?.findings.map((f) => f.finding_id),
+    )
+    expect(result.per_analyst).toEqual(streamResult?.per_analyst)
+  })
+
+  it('honours backpressure: slow consumer between events preserves ordering', async () => {
+    const r = new AnalystRegistry()
+    r.register(makeOkAnalyst('a', [mkFinding('f1', 'a')]))
+    r.register(makeOkAnalyst('b', [mkFinding('g1', 'b')]))
+
+    const events: import('./types').AnalystRunEvent[] = []
+    for await (const ev of r.runStream('run-1', inputs)) {
+      events.push(ev)
+      await new Promise((r) => setTimeout(r, 1))
+    }
+    expect(events.map((e) => e.type)).toEqual([
+      'run-started',
+      'analyst-started',
+      'analyst-completed',
+      'analyst-started',
+      'analyst-completed',
+      'run-completed',
+    ])
   })
 })
 

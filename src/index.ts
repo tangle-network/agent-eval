@@ -73,6 +73,7 @@ export type {
   AnalystFinding,
   AnalystInputKind,
   AnalystRequirements,
+  AnalystRunEvent,
   AnalystRunInputs,
   AnalystRunResult,
   AnalystRunSummary,

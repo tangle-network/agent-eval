@@ -22,6 +22,7 @@ import type {
   Analyst,
   AnalystContext,
   AnalystFinding,
+  AnalystRunEvent,
   AnalystRunInputs,
   AnalystRunResult,
   AnalystRunSummary,
@@ -148,6 +149,30 @@ export class AnalystRegistry {
     inputs: AnalystRunInputs,
     runOpts: RegistryRunOpts = {},
   ): Promise<AnalystRunResult> {
+    // Thin collector over `runStream`. Both surfaces share the same
+    // loop body so they cannot drift on isolation / hook order / cost.
+    for await (const ev of this.runStream(runId, inputs, runOpts)) {
+      if (ev.type === 'run-completed') return ev.result
+    }
+    throw new Error('AnalystRegistry.run: stream completed without run-completed event')
+  }
+
+  /**
+   * Streaming counterpart to `run()`. Emits `AnalystRunEvent` values
+   * in real time — `run-started`, then per-analyst `skipped` /
+   * `started` / `completed`, then a terminal `run-completed` whose
+   * payload is the full `AnalystRunResult`. UIs use this to render
+   * progress; persistence consumers use `run()` and read the result.
+   *
+   * Hooks (`onBeforeAnalyze` / `onAfterAnalyze` / `onError` /
+   * `onComplete`) fire as before — streaming is additive, not a hook
+   * replacement.
+   */
+  async *runStream(
+    runId: string,
+    inputs: AnalystRunInputs,
+    runOpts: RegistryRunOpts = {},
+  ): AsyncGenerator<AnalystRunEvent, void, void> {
     const correlationId = `ar_${randomUUID().slice(0, 12)}`
     const log = this.options.log ?? (() => {})
     const hooks = this.options.hooks ?? {}
@@ -157,6 +182,14 @@ export class AnalystRegistry {
 
     const selected = this.selectAnalysts(runOpts)
     const budget = runOpts.budget ?? this.options.defaultBudget
+
+    yield {
+      type: 'run-started',
+      run_id: runId,
+      correlation_id: correlationId,
+      started_at: startedAt,
+      analyst_ids: selected.map((a) => a.id),
+    }
 
     const summaries: AnalystRunSummary[] = []
     const allFindings: AnalystFinding[] = []
@@ -178,6 +211,7 @@ export class AnalystRegistry {
         summaries.push(summary)
         log(`[analyst] skip ${analyst.id} — missing input`, { runId, kind: analyst.inputKind })
         await hooks.onAfterAnalyze?.({ analyst, summary, findings: [], runId })
+        yield { type: 'analyst-skipped', summary }
         continue
       }
 
@@ -200,6 +234,11 @@ export class AnalystRegistry {
       }
 
       await hooks.onBeforeAnalyze?.({ analyst, ctx, runId })
+      yield {
+        type: 'analyst-started',
+        analyst_id: analyst.id,
+        started_at: new Date(t0).toISOString(),
+      }
 
       try {
         const findings = await (analyst as Analyst<unknown>).analyze(input.value, ctx)
@@ -223,6 +262,7 @@ export class AnalystRegistry {
           cost_usd: cost,
         })
         await hooks.onAfterAnalyze?.({ analyst, summary, findings, runId })
+        yield { type: 'analyst-completed', summary, findings }
       } catch (err) {
         const latency = Date.now() - t0
         const e = err instanceof Error ? err : new Error(String(err))
@@ -244,6 +284,7 @@ export class AnalystRegistry {
           error: e.message,
         })
         await hooks.onAfterAnalyze?.({ analyst, summary, findings: hookFindings, runId })
+        yield { type: 'analyst-completed', summary, findings: hookFindings }
         // Continue — isolation invariant.
       }
     }
@@ -258,7 +299,7 @@ export class AnalystRegistry {
       total_cost_usd: totalCost,
     }
     await hooks.onComplete?.({ result })
-    return result
+    yield { type: 'run-completed', result }
   }
 
   private selectAnalysts(opts: RegistryRunOpts): Analyst[] {
