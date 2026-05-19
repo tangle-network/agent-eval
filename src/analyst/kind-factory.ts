@@ -113,9 +113,11 @@ export function createTraceAnalystKind(
       const tools = spec.buildTools(store)
       const maxDepth = spec.recursion?.maxDepth ?? 0
       const maxParallel = spec.recursion?.maxParallelSubagents ?? 2
+      const priorContext = renderPriorFindings(ctx.priorFindings)
 
       const actorDescription =
         spec.actorDescription.trim() +
+        priorContext +
         '\n\n' +
         RAW_FINDING_SCHEMA_PROMPT +
         '\n\nReturn the array in the `findings` output field. Use `final(...)` ' +
@@ -227,4 +229,47 @@ function evidenceKindFromUri(uri: string): 'span' | 'artifact' | 'metric' | 'eve
   if (uri.startsWith('event://')) return 'event'
   if (uri.startsWith('finding://')) return 'finding'
   return 'artifact'
+}
+
+/**
+ * Render a compact prior-findings block the actor reads alongside its
+ * brief. Each row is one line so the actor can scan dozens cheaply.
+ * The kind's prompt instructs the actor to (a) check whether a new
+ * cluster matches a prior `finding_id` (carry the id forward via
+ * `id_basis` to keep diffs stable) and (b) raise severity / confidence
+ * when a prior finding has reappeared without remediation.
+ *
+ * Returns the empty string when there are no prior findings — most
+ * runs are "first-of-its-kind" and the prompt stays unchanged.
+ *
+ * Exported for tests + for consumers that build their own actor
+ * prompts (e.g. specialized analysts living outside the default kinds).
+ */
+export function renderPriorFindings(prior: AnalystContext['priorFindings']): string {
+  if (!prior || prior.length === 0) return ''
+  const MAX_ROWS = 40 // keep the block under ~2KB; older history is summarized externally
+  const rows = prior.slice(0, MAX_ROWS).map((f) => {
+    const subject = f.subject ? ` [${f.subject}]` : ''
+    return `  - id=${f.finding_id} ${f.severity}${subject} ${truncateForContext(f.claim, 160)}`
+  })
+  const overflow =
+    prior.length > MAX_ROWS
+      ? `\n  ... +${prior.length - MAX_ROWS} more prior findings (older history truncated)`
+      : ''
+  return [
+    '',
+    '',
+    'PRIOR FINDINGS (from a previous run on related data):',
+    'When the work you do now matches a row below, REUSE the `finding_id` (pass it as `id_basis`) so the cross-run diff stays stable.',
+    'A finding that reappears with no remediation evidence SHOULD raise its `confidence` and may justify a higher `severity`.',
+    ...rows,
+    overflow,
+  ]
+    .filter(Boolean)
+    .join('\n')
+}
+
+function truncateForContext(s: string, max: number): string {
+  if (s.length <= max) return s
+  return `${s.slice(0, max - 1).trimEnd()}…`
 }

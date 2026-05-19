@@ -45,7 +45,7 @@ export type {
   TraceAnalystGolden,
   TraceAnalystKindSpec,
 } from './analyst/kind-factory'
-export { createTraceAnalystKind } from './analyst/kind-factory'
+export { createTraceAnalystKind, renderPriorFindings } from './analyst/kind-factory'
 export {
   DEFAULT_TRACE_ANALYST_KINDS,
   FAILURE_MODE_KIND_SPEC,

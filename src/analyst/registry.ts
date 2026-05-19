@@ -99,6 +99,15 @@ export interface RegistryRunOpts {
   signal?: AbortSignal
   /** Tags echoed into AnalystContext.tags — useful for tracking environment/version in findings. */
   tags?: Record<string, string>
+  /**
+   * Prior-run findings made available as retrieval context to every
+   * analyst via `ctx.priorFindings`. The registry forwards the slice
+   * whose `analyst_id` matches each registered analyst so a kind sees
+   * only its own history. Pass `{ '*': findings }` to broadcast to
+   * every analyst (useful for cross-kind chaining where the improvement
+   * analyst consumes upstream failure findings).
+   */
+  priorFindings?: ReadonlyArray<AnalystFinding> | Record<string, ReadonlyArray<AnalystFinding>>
 }
 
 export class AnalystRegistry {
@@ -187,6 +196,7 @@ export class AnalystRegistry {
         tags: runOpts.tags,
         log: (msg, fields) => log(`[${analyst.id}] ${msg}`, { runId, correlationId, ...fields }),
         signal: runOpts.signal,
+        priorFindings: selectPriorFindings(runOpts.priorFindings, analyst.id),
       }
 
       await hooks.onBeforeAnalyze?.({ analyst, ctx, runId })
@@ -336,4 +346,32 @@ function sumFindingCost(findings: AnalystFinding[]): number {
     if (typeof c === 'number' && Number.isFinite(c)) sum += c
   }
   return sum
+}
+
+/**
+ * Resolve the `priorFindings` slice an analyst sees.
+ *
+ *   - Array form  → the analyst sees only findings whose `analyst_id`
+ *                   matches its own id, so a kind never reads
+ *                   another kind's history by accident.
+ *   - Record form → the analyst gets the entry keyed by its id, with
+ *                   the `'*'` wildcard appended (in that order). Use
+ *                   the wildcard for cross-kind chaining, e.g. when
+ *                   `improvement` should see all upstream failure /
+ *                   gap / poisoning findings.
+ */
+function selectPriorFindings(
+  source: RegistryRunOpts['priorFindings'],
+  analystId: string,
+): ReadonlyArray<AnalystFinding> | undefined {
+  if (!source) return undefined
+  if (Array.isArray(source)) {
+    const own = source.filter((f) => f.analyst_id === analystId)
+    return own.length > 0 ? own : undefined
+  }
+  const record = source as Record<string, ReadonlyArray<AnalystFinding>>
+  const own = record[analystId] ?? []
+  const wildcard = record['*'] ?? []
+  const merged = [...own, ...wildcard]
+  return merged.length > 0 ? merged : undefined
 }

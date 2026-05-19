@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { parseRawFinding, RawAnalystFindingSchema } from '../finding-signature'
 import { createTraceAnalystKind, type TraceAnalystKindSpec } from '../kind-factory'
 import { buildTraceToolsForGroup } from '../tool-groups'
-import { computeFindingId } from '../types'
+import { computeFindingId, makeFinding } from '../types'
 import {
   DEFAULT_TRACE_ANALYST_KINDS,
   FAILURE_MODE_KIND_SPEC,
@@ -202,6 +202,65 @@ describe('createTraceAnalystKind wires the spec into the Analyst contract', () =
       versionSuffix: 'mipro-2026-05-18',
     })
     expect(analyst.version).toBe('1.0.0+mipro-2026-05-18')
+  })
+
+  describe('renderPriorFindings (cross-run retrieval context)', () => {
+    it('returns empty string when there are no prior findings', async () => {
+      const { renderPriorFindings } = await import('../kind-factory')
+      expect(renderPriorFindings(undefined)).toBe('')
+      expect(renderPriorFindings([])).toBe('')
+    })
+
+    it('emits one compact line per prior finding with the stable finding_id', async () => {
+      const { renderPriorFindings } = await import('../kind-factory')
+      const prior = [
+        makeFinding({
+          analyst_id: 'failure-mode',
+          area: 'failure-mode',
+          subject: 'tool:foo',
+          claim: 'tool foo loops on identical args',
+          severity: 'high',
+          confidence: 0.9,
+          evidence_refs: [],
+        }),
+        makeFinding({
+          analyst_id: 'failure-mode',
+          area: 'failure-mode',
+          subject: 'auth',
+          claim: 'auth revoked mid-run',
+          severity: 'critical',
+          confidence: 0.95,
+          evidence_refs: [],
+        }),
+      ]
+      const out = renderPriorFindings(prior)
+      expect(out).toMatch(/PRIOR FINDINGS/)
+      expect(out).toMatch(/REUSE the `finding_id`/)
+      const first = prior[0]
+      const second = prior[1]
+      if (!first || !second) throw new Error('test setup invariant')
+      expect(out).toContain(`id=${first.finding_id}`)
+      expect(out).toContain(`id=${second.finding_id}`)
+      expect(out).toContain('[tool:foo]')
+      expect(out).toContain('[auth]')
+    })
+
+    it('truncates over 40 prior findings + reports the overflow count', async () => {
+      const { renderPriorFindings } = await import('../kind-factory')
+      const many = Array.from({ length: 60 }, (_, i) =>
+        makeFinding({
+          analyst_id: 'failure-mode',
+          area: 'failure-mode',
+          subject: `mode-${i}`,
+          claim: `finding ${i}`,
+          severity: 'medium',
+          confidence: 0.7,
+          evidence_refs: [],
+        }),
+      )
+      const out = renderPriorFindings(many)
+      expect(out).toContain('+20 more prior findings')
+    })
   })
 
   it('finding_id is stable across runs for the same kind + area + claim + subject', () => {
