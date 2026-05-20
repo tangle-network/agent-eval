@@ -21,6 +21,7 @@ export type AgentEvalErrorCode =
   | 'judge'
   | 'verification'
   | 'replay'
+  | 'backend_integrity'
 
 export class AgentEvalError extends Error {
   /** Stable string code. Survives minification; safe to switch on. */

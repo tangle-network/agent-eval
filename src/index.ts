@@ -159,6 +159,16 @@ export {
 } from './errors'
 export type { ExecutorConfig } from './executor'
 export { executeScenario } from './executor'
+// ── Backend-integrity guard ───────────────────────────────────────────
+// Distinguish "agent failed" from "eval ran blind against a stub or
+// unconfigured backend." Required after every canonical eval so a 0/N
+// pass-rate never silently masks a misconfigured runtime.
+export type { BackendIntegrityReport } from './integrity/backend-integrity'
+export {
+  assertRealBackend,
+  BackendIntegrityError,
+  summarizeBackendIntegrity,
+} from './integrity/backend-integrity'
 export type {
   FeedbackArtifactType,
   FeedbackAttempt,
