@@ -108,16 +108,21 @@ export function parseFindingSubject(raw: string | null | undefined): FindingSubj
   if (trimmed.length === 0) return null
 
   // agent-knowledge:wiki:<slug>[#<heading>]
-  const wiki = trimmed.match(/^agent-knowledge:wiki:([a-z0-9][a-z0-9-]*)(?:#([a-z0-9][a-z0-9-]*))?$/)
-  if (wiki) return { kind: 'knowledge.wiki', slug: wiki[1]!, ...(wiki[2] ? { heading: wiki[2] } : {}) }
+  const wiki = trimmed.match(
+    /^agent-knowledge:wiki:([a-z0-9][a-z0-9-]*)(?:#([a-z0-9][a-z0-9-]*))?$/,
+  )
+  if (wiki)
+    return { kind: 'knowledge.wiki', slug: wiki[1]!, ...(wiki[2] ? { heading: wiki[2] } : {}) }
 
   // agent-knowledge:claim:<topic>
   const claim = trimmed.match(/^agent-knowledge:claim:(.+)$/)
-  if (claim && claim[1]!.trim().length > 0) return { kind: 'knowledge.claim', topic: claim[1]!.trim() }
+  if (claim && claim[1]!.trim().length > 0)
+    return { kind: 'knowledge.claim', topic: claim[1]!.trim() }
 
   // agent-knowledge:raw:<source-id>
   const raw_ = trimmed.match(/^agent-knowledge:raw:(.+)$/)
-  if (raw_ && raw_[1]!.trim().length > 0) return { kind: 'knowledge.raw', sourceId: raw_[1]!.trim() }
+  if (raw_ && raw_[1]!.trim().length > 0)
+    return { kind: 'knowledge.raw', sourceId: raw_[1]!.trim() }
 
   // agent-knowledge:stale:<slug>
   const stale = trimmed.match(/^agent-knowledge:stale:([a-z0-9][a-z0-9-]*)$/)
@@ -312,6 +317,8 @@ export const KIND_EXPECTED_SUBJECTS: Record<string, ReadonlyArray<FindingSubject
  * parse — emitting a malformed subject is a contract violation, not a
  * soft signal.
  */
-export const FindingSubjectStringSchema = z.string().refine((s) => parseFindingSubject(s) !== null, {
-  message: 'subject does not match the finding-subject grammar',
-})
+export const FindingSubjectStringSchema = z
+  .string()
+  .refine((s) => parseFindingSubject(s) !== null, {
+    message: 'subject does not match the finding-subject grammar',
+  })
