@@ -41,6 +41,7 @@
 import { assertLlmRoute, type LlmClientOptions, type LlmRouteRequirements } from './llm-client'
 import { canonicalize, hashJson } from './pre-registration'
 import type {
+  JudgeScoresRecord,
   RunJudgeMetadata,
   RunOutcome,
   RunRecord,
@@ -120,6 +121,12 @@ export interface CampaignRunOutcome {
   failureMode?: string
   /** Optional judge metadata when a judge was used. */
   judgeMetadata?: RunJudgeMetadata
+  /**
+   * Optional per-judge / per-dim breakdown for ensemble-judged runs.
+   * Propagated to `outcome.judgeScores` on the resulting `RunRecord`.
+   * Single-judge or scalar-only runs leave this unset.
+   */
+  judgeScores?: JudgeScoresRecord
 }
 
 export type CampaignRunner<V> = (ctx: CampaignRunContext<V>) => Promise<CampaignRunOutcome>
@@ -457,6 +464,7 @@ export async function runEvalCampaign<V>(
     }
     if (splitTag === 'holdout') recordOutcome.holdoutScore = outcome.score
     else recordOutcome.searchScore = outcome.score
+    if (outcome.judgeScores !== undefined) recordOutcome.judgeScores = outcome.judgeScores
 
     const record: RunRecord = {
       runId,

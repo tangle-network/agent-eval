@@ -1,5 +1,62 @@
 # Changelog
 
+## 0.31.0 — 2026-05-20
+
+### `JudgeScoresRecord` on `RunRecord.outcome` — substrate-blessed ensemble shape
+
+Multi-judge consumers (forge-chat in agent-builder, and four sibling
+product agents on the same trajectory) compute per-judge per-dimension
+scores per cell, then collapse to a single composite for the gate. The
+substrate's `RunOutcome` only had a slot for the composite plus a free
+`raw: Record<string, number>` bag. Consumers were either dropping the
+breakdown on the floor or smuggling it through stringly-typed `raw`
+keys like `judge_kimi_helpfulness` — neither survives a corpus-IRR run
+(0.27.2's `corpusInterRaterAgreement` expects structured per-judge
+per-dim records, not parsed strings).
+
+This release ships the typed slot so every product agent speaks the
+same shape, and the inter-rater primitives consume it without a
+per-consumer adapter.
+
+### Added
+
+- **`JudgeScoresRecord`** (`src/run-record.ts`) — `perJudge[judgeId][dim]`
+  is the canonical store; `perDimMean` and `composite` are precomputed
+  projections so reporters and IRR primitives don't repeat the
+  aggregation; `failedJudges?: string[]` records dead-judge ids
+  explicitly (no inferring partial-failure from missing keys);
+  `notes?: string` carries panel prose.
+- **`RunOutcome.judgeScores?: JudgeScoresRecord`** — optional. Single-
+  judge or scalar-only runs leave it unset; ensemble runs populate it.
+- **`CampaignRunOutcome.judgeScores?: JudgeScoresRecord`** — runners
+  return it on the per-cell outcome; `runEvalCampaign` threads it onto
+  the resulting `RunRecord.outcome.judgeScores` without coercion.
+
+### Validator extended
+
+`validateRunRecord` validates `outcome.judgeScores` when present.
+Every `perJudge[judge][dim]` and every `perDimMean[dim]` and the
+`composite` must be finite numbers — the NaN-as-silent-zero bug class
+banned by `CLAUDE.md` cannot pass the boundary. `failedJudges` must be
+an array of non-empty strings; `notes` must be a string. Round-trip
+tested in `tests/run-record.test.ts`.
+
+### Fail-loud contract
+
+A judge that throws lands in `failedJudges` by id, not a silent zero
+in `perJudge`. The composite is computed over surviving judges only;
+the partial-failure signal is preserved through to the gate.
+`tests/eval-campaign.test.ts` covers the four shapes (full, partial,
+missing, with notes) plus an explicit fail-loud case where one judge
+throws and the run record carries `failedJudges: ['glm-5.1@...']`.
+
+### Consumer contract
+
+`tests/consumer-contract.test.ts` pins `JudgeScoresRecord` as a
+type-level export at the root entry. The 0.30.0 surface is preserved —
+the new field is additive on `RunOutcome` and the new type is a new
+export, so existing consumers stay green.
+
 ## 0.29.0 — 2026-05-19
 
 ### Analyst kinds + cross-run findings context

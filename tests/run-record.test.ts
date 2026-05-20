@@ -170,3 +170,87 @@ describe('validateRunRecord — mandatory field enforcement', () => {
     expect(isRunRecord({ runId: 'x' })).toBe(false)
   })
 })
+
+describe('validateRunRecord — judgeScores', () => {
+  const fullJudgeScores = {
+    perJudge: {
+      'kimi-k2.6@2026-04-01': { helpfulness: 0.8, clarity: 0.75 },
+      'glm-5.1@2026-04-02': { helpfulness: 0.85, clarity: 0.7 },
+    },
+    perDimMean: { helpfulness: 0.825, clarity: 0.725 },
+    composite: 0.775,
+  }
+
+  it('accepts a fully-populated judgeScores block', () => {
+    const r = makeRecord({
+      outcome: { holdoutScore: 0.775, raw: {}, judgeScores: fullJudgeScores },
+    })
+    expect(() => validateRunRecord(r)).not.toThrow()
+  })
+
+  it('round-trips judgeScores through JSON', () => {
+    const r = makeRecord({
+      outcome: { holdoutScore: 0.775, raw: {}, judgeScores: fullJudgeScores },
+    })
+    const out = roundTripRunRecord(r)
+    expect(out.outcome.judgeScores).toEqual(fullJudgeScores)
+  })
+
+  it('accepts judgeScores with failedJudges and notes', () => {
+    const r = makeRecord({
+      outcome: {
+        holdoutScore: 0.5,
+        raw: {},
+        judgeScores: {
+          ...fullJudgeScores,
+          failedJudges: ['dead-judge@2026-01-01'],
+          notes: 'panel split on clarity',
+        },
+      },
+    })
+    expect(() => validateRunRecord(r)).not.toThrow()
+  })
+
+  it('throws on non-finite per-judge score (NaN as silent zero is the bug class we ban)', () => {
+    const r = makeRecord({
+      outcome: {
+        holdoutScore: 0.5,
+        raw: {},
+        judgeScores: {
+          perJudge: { 'k@2026-01-01': { helpfulness: Number.NaN } },
+          perDimMean: { helpfulness: 0.5 },
+          composite: 0.5,
+        },
+      },
+    })
+    expect(() => validateRunRecord(r)).toThrow(/finite/)
+  })
+
+  it('throws when composite is missing', () => {
+    const r = makeRecord({
+      outcome: {
+        holdoutScore: 0.5,
+        raw: {},
+        judgeScores: {
+          perJudge: { 'k@2026-01-01': { helpfulness: 0.5 } },
+          perDimMean: { helpfulness: 0.5 },
+        } as unknown as import('../src/run-record').JudgeScoresRecord,
+      },
+    })
+    expect(() => validateRunRecord(r)).toThrow(/composite/)
+  })
+
+  it('throws when failedJudges contains a non-string', () => {
+    const r = makeRecord({
+      outcome: {
+        holdoutScore: 0.5,
+        raw: {},
+        judgeScores: {
+          ...fullJudgeScores,
+          failedJudges: [42 as unknown as string],
+        },
+      },
+    })
+    expect(() => validateRunRecord(r)).toThrow(/failedJudges/)
+  })
+})

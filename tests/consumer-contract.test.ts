@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import * as builderEval from '../src/builder-eval/index'
 import * as agentEval from '../src/index'
 import * as rl from '../src/rl/index'
+import type { JudgeScoresRecord, RunOutcome } from '../src/index'
 
 /**
  * Public-surface contract for `@tangle-network/agent-eval`.
@@ -108,5 +109,24 @@ describe('public-surface contract for consumers', () => {
       expect(proto, `${name}.prototype must exist`).toBeDefined()
       expect(proto instanceof Error, `${name} must extend Error`).toBe(true)
     }
+  })
+
+  it('exposes JudgeScoresRecord as the canonical ensemble shape on RunOutcome', () => {
+    // Type-level pin: a `JudgeScoresRecord` is assignable to
+    // `RunOutcome.judgeScores`. If the interface gets renamed or the
+    // field gets dropped from `RunOutcome`, this stops compiling — the
+    // contract that protects forge-chat / multi-judge consumers.
+    const judgeScores: JudgeScoresRecord = {
+      perJudge: { 'kimi-k2.6': { helpfulness: 0.8, clarity: 0.7 } },
+      perDimMean: { helpfulness: 0.8, clarity: 0.7 },
+      composite: 0.75,
+    }
+    const outcome: RunOutcome = {
+      holdoutScore: 0.75,
+      raw: {},
+      judgeScores,
+    }
+    expect(outcome.judgeScores).toBe(judgeScores)
+    expect(outcome.judgeScores?.composite).toBe(0.75)
   })
 })
