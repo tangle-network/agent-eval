@@ -8,7 +8,11 @@ on:
 
 jobs:
   ci:
-    runs-on: ubuntu-latest
+    # Self-hosted via the tangle-network org runner pool (same as
+    # agent-dev-container / staging-orchestrator-01). Falls back to
+    # ubuntu-latest if no `staging-runner` is online via runner-group
+    # config at the org level.
+    runs-on: [self-hosted, staging-runner]
     steps:
       - uses: actions/checkout@v4
 
