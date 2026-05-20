@@ -1,5 +1,27 @@
 # Changelog
 
+## 0.31.1 — 2026-05-20
+
+### Republish of 0.31.0 — dist drift fix
+
+The `v0.31.0` tag's npm tarball shipped a stale `dist/` — `JudgeScoresRecord`
+was missing from `dist/index.d.ts` and the `recordOutcome.judgeScores`
+propagation never made it into `dist/index.js`, even though the source on
+the tagged commit had both. Consumers that bumped to `^0.31.0` got a
+typecheck failure on `RunOutcome.judgeScores` (since the type wasn't
+re-exported) and a silent drop on the wire (since the campaign runner
+didn't carry the field through).
+
+Cause: a build artifact picked up by the publish workflow predated the
+source merge. The retag forces a clean `pnpm build` and republish; this
+patch carries no source change beyond the version bump.
+
+Verified after this tag: `dist/index.d.ts` contains `JudgeScoresRecord`,
+`dist/index.js` propagates `outcome.judgeScores` end-to-end via
+`recordOutcome.judgeScores`, and a downstream `pnpm install
+@tangle-network/agent-eval@0.31.1` types-clean against the shape
+documented in 0.31.0.
+
 ## 0.31.0 — 2026-05-20
 
 ### `JudgeScoresRecord` on `RunRecord.outcome` — substrate-blessed ensemble shape
