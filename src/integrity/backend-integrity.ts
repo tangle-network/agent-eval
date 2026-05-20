@@ -22,8 +22,8 @@
  *                often the 429-cascade or auth-half-failed case)
  */
 
-import type { RunRecord } from '../run-record'
 import { AgentEvalError } from '../errors'
+import type { RunRecord } from '../run-record'
 
 export interface BackendIntegrityReport {
   /** Total records inspected. */
@@ -73,7 +73,9 @@ function isUncostedRecord(rec: RunRecord): boolean {
  * function — no I/O, no logging. The caller decides what to do with the
  * verdict (print warning, throw, gate CI, etc.).
  */
-export function summarizeBackendIntegrity(records: ReadonlyArray<RunRecord>): BackendIntegrityReport {
+export function summarizeBackendIntegrity(
+  records: ReadonlyArray<RunRecord>,
+): BackendIntegrityReport {
   const totalRecords = records.length
   let stubRecords = 0
   let realRecords = 0
