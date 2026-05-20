@@ -45,7 +45,6 @@ export type {
 export {
   FINDING_SUBJECT_GRAMMAR_PROMPT,
   FINDING_SUBJECT_KINDS,
-  FindingSubjectStringSchema,
   KIND_EXPECTED_SUBJECTS,
   parseFindingSubject,
   renderFindingSubject,

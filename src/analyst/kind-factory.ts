@@ -34,7 +34,11 @@ import {
   RAW_FINDING_SCHEMA_PROMPT,
   type RawAnalystFinding,
 } from './finding-signature'
-import { KIND_EXPECTED_SUBJECTS, parseFindingSubject } from './finding-subject'
+import {
+  FINDING_SUBJECT_GRAMMAR_PROMPT,
+  KIND_EXPECTED_SUBJECTS,
+  parseFindingSubject,
+} from './finding-subject'
 import type { Analyst, AnalystContext, AnalystCost, AnalystFinding } from './types'
 import { makeFinding } from './types'
 
@@ -119,6 +123,8 @@ export function createTraceAnalystKind(
       const actorDescription =
         spec.actorDescription.trim() +
         priorContext +
+        '\n\n' +
+        FINDING_SUBJECT_GRAMMAR_PROMPT +
         '\n\n' +
         RAW_FINDING_SCHEMA_PROMPT +
         '\n\nReturn the array in the `findings` output field. Use `final(...)` ' +
