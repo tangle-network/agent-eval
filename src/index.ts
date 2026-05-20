@@ -208,6 +208,16 @@ export {
   integrationManifestResolvedPayload,
   integrationManifestValidatedPayload,
 } from './integration-gates'
+// ── Backend-integrity guard ───────────────────────────────────────────
+// Distinguish "agent failed" from "eval ran blind against a stub or
+// unconfigured backend." Required after every canonical eval so a 0/N
+// pass-rate never silently masks a misconfigured runtime.
+export type { BackendIntegrityReport } from './integrity/backend-integrity'
+export {
+  assertRealBackend,
+  BackendIntegrityError,
+  summarizeBackendIntegrity,
+} from './integrity/backend-integrity'
 export {
   adversarialJudge,
   codeExecutionJudge,
