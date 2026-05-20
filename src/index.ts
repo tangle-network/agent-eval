@@ -275,6 +275,11 @@ export {
   weightedMean,
   wilcoxonSignedRank,
 } from './statistics'
+// ── Trace analyst surface (Ax RLM over OTLP-JSONL) ───────────────────
+// Direct re-export of the trace-analyst submodule so consumers don't have
+// to reach into subpaths. Used by agent canonical evals via the
+// `autoresearch` block (analyzeTraces + OtlpFileTraceStore).
+export * from './trace-analyst'
 export type {
   ArtifactCheck,
   ArtifactResult,
