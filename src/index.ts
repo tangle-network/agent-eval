@@ -38,6 +38,18 @@ export {
   RAW_FINDING_SCHEMA_PROMPT,
   RawAnalystFindingSchema,
 } from './analyst/finding-signature'
+export type {
+  FindingSubject,
+  FindingSubjectKind,
+} from './analyst/finding-subject'
+export {
+  FINDING_SUBJECT_GRAMMAR_PROMPT,
+  FINDING_SUBJECT_KINDS,
+  FindingSubjectStringSchema,
+  KIND_EXPECTED_SUBJECTS,
+  parseFindingSubject,
+  renderFindingSubject,
+} from './analyst/finding-subject'
 export type { DiffPolicy, FindingsDiff, PersistedFinding } from './analyst/findings-store'
 export { defaultIsMaterial, diffFindings, FindingsStore } from './analyst/findings-store'
 export type {

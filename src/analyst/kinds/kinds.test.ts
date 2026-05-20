@@ -16,7 +16,7 @@ describe('RawAnalystFindingSchema', () => {
     const parsed = RawAnalystFindingSchema.safeParse({
       severity: 'high',
       claim: 'agent looped on tool foo',
-      subject: 'tool:foo',
+      subject: 'tool-doc:foo',
       evidence_uri: 'span://abc/def',
       evidence_excerpt: 'foo() called 11 times with same args',
       confidence: 0.9,
@@ -217,7 +217,7 @@ describe('createTraceAnalystKind wires the spec into the Analyst contract', () =
         makeFinding({
           analyst_id: 'failure-mode',
           area: 'failure-mode',
-          subject: 'tool:foo',
+          subject: 'tool-doc:foo',
           claim: 'tool foo loops on identical args',
           severity: 'high',
           confidence: 0.9,
@@ -241,7 +241,7 @@ describe('createTraceAnalystKind wires the spec into the Analyst contract', () =
       if (!first || !second) throw new Error('test setup invariant')
       expect(out).toContain(`id=${first.finding_id}`)
       expect(out).toContain(`id=${second.finding_id}`)
-      expect(out).toContain('[tool:foo]')
+      expect(out).toContain('[tool-doc:foo]')
       expect(out).toContain('[auth]')
     })
 
@@ -267,13 +267,13 @@ describe('createTraceAnalystKind wires the spec into the Analyst contract', () =
     const a = computeFindingId({
       analyst_id: 'failure-mode',
       area: 'failure-mode',
-      subject: 'tool:foo',
+      subject: 'tool-doc:foo',
       claim: 'tool foo loops on identical args',
     })
     const b = computeFindingId({
       analyst_id: 'failure-mode',
       area: 'failure-mode',
-      subject: 'tool:foo',
+      subject: 'tool-doc:foo',
       claim: 'tool foo loops on identical args.',
     })
     expect(a).toBe(b)

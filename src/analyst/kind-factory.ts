@@ -34,6 +34,7 @@ import {
   RAW_FINDING_SCHEMA_PROMPT,
   type RawAnalystFinding,
 } from './finding-signature'
+import { KIND_EXPECTED_SUBJECTS, parseFindingSubject } from './finding-subject'
 import type { Analyst, AnalystContext, AnalystCost, AnalystFinding } from './types'
 import { makeFinding } from './types'
 
@@ -172,11 +173,39 @@ export function createTraceAnalystKind(
 
       const result = await ax.forward(opts.ai, { question: deriveQuestion(ctx, spec) })
 
+      const expectedSubjects = KIND_EXPECTED_SUBJECTS[spec.id]
       const out: AnalystFinding[] = []
       const rawRows = Array.isArray(result.findings) ? result.findings : []
+      let rejectedWrongKind = 0
       for (const row of rawRows) {
         const parsed = parseRawFinding(row, ctx.log)
         if (!parsed) continue
+        // Subject-grammar check: if the kind has a declared expects-set
+        // (every shipped kind does), the finding's subject MUST parse to
+        // one of the declared variants. A wrong-kind subject is a
+        // contract violation — the actor's prompt drifted from the
+        // grammar — and we count it for prompt-audit visibility.
+        if (expectedSubjects && parsed.subject !== undefined) {
+          const parsedSubject = parseFindingSubject(parsed.subject)
+          if (parsedSubject === null) {
+            ctx.log?.('finding rejected: subject failed to parse', {
+              kind: spec.id,
+              subject: parsed.subject,
+            })
+            rejectedWrongKind += 1
+            continue
+          }
+          if (!expectedSubjects.includes(parsedSubject.kind)) {
+            ctx.log?.('finding rejected: subject variant not allowed for this kind', {
+              kind: spec.id,
+              subject_kind: parsedSubject.kind,
+              subject: parsed.subject,
+              allowed: expectedSubjects,
+            })
+            rejectedWrongKind += 1
+            continue
+          }
+        }
         const postProcessed = spec.postProcess?.(parsed, ctx) ?? parsed
         if (!postProcessed) continue
         out.push(toAnalystFinding(spec, postProcessed))
@@ -185,6 +214,7 @@ export function createTraceAnalystKind(
       ctx.log?.(`analyst.kind ${spec.id} done`, {
         emitted: rawRows.length,
         accepted: out.length,
+        rejected_wrong_subject: rejectedWrongKind,
       })
       return out
     },

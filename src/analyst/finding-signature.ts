@@ -16,6 +16,7 @@
  */
 
 import { z } from 'zod'
+import { parseFindingSubject } from './finding-subject'
 
 export const ANALYST_SEVERITIES = ['critical', 'high', 'medium', 'low', 'info'] as const
 
@@ -23,7 +24,24 @@ export const RawAnalystFindingSchema = z
   .object({
     severity: z.enum(ANALYST_SEVERITIES),
     claim: z.string().min(1).max(2000),
-    subject: z.string().max(400).optional(),
+    /**
+     * Subject locus the finding is about. Validated at parse time
+     * against the documented grammar (`finding-subject.ts`). Findings
+     * with a malformed subject are rejected — they would have been
+     * silently skipped by every downstream adapter, so failing loud at
+     * parse time turns a hidden no-op into a kind-prompt audit signal.
+     *
+     * Optional because purely descriptive findings (no actionable
+     * locus) are legitimate; they just don't route through the
+     * KnowledgeAdapter / ImprovementAdapter.
+     */
+    subject: z
+      .string()
+      .max(400)
+      .refine((s) => parseFindingSubject(s) !== null, {
+        message: 'subject does not match the finding-subject grammar',
+      })
+      .optional(),
     evidence_uri: z.string().min(1).max(2000),
     evidence_excerpt: z.string().max(2000).optional(),
     confidence: z.number().min(0).max(1),
