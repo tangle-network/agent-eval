@@ -44,6 +44,42 @@ export interface RunJudgeMetadata {
   fallback: boolean
 }
 
+/**
+ * Per-judge / per-dimension breakdown for runs scored by an ensemble of
+ * judges over a multi-dimensional rubric.
+ *
+ * The collapsed `outcome.searchScore` / `holdoutScore` carries the
+ * composite the gate uses. The full breakdown belongs here so consumers
+ * can answer "which judge disagreed?", "which dimension dragged the
+ * composite down?", and "did half the panel fail?" without re-running.
+ *
+ * `perJudge[judgeId][dim]` is the canonical source; `perDimMean` and
+ * `composite` are convenience projections — derivable but precomputed so
+ * downstream IRR primitives (`interRaterReliability`,
+ * `corpusInterRaterAgreement`) and reporters don't pay the same
+ * aggregation twice.
+ *
+ * Fail-loud discipline: judges that errored out land in `failedJudges`
+ * by id. A missing key in `perJudge` is ambiguous (silent zero vs not
+ * run); the explicit list makes a partial-failure recorded as such.
+ */
+export interface JudgeScoresRecord {
+  /** Per-judge per-dimension scores. `{ "kimi-k2.6": { helpfulness: 0.8, clarity: 0.7 }, ... }`. */
+  perJudge: Record<string, Record<string, number>>
+  /** Per-dim mean across judges. Convenience — derivable from `perJudge`. */
+  perDimMean: Record<string, number>
+  /** Composite mean across all dims and judges. Mirrors the score
+   *  the gate sees on `outcome.searchScore` / `holdoutScore`. */
+  composite: number
+  /** Judges that errored or returned an unparseable verdict. Recorded
+   *  by id (e.g. `['glm-5.1']`) so a partial-failure case is explicit,
+   *  not inferred from missing keys in `perJudge`. */
+  failedJudges?: string[]
+  /** Free-form notes the judges emitted (joined across judges or
+   *  first-judge only — consumer's choice). */
+  notes?: string
+}
+
 export interface RunOutcome {
   /** Score on the search/optimization split. Optional because a
    *  holdout-only evaluation only fills `holdoutScore`. */
@@ -55,6 +91,12 @@ export interface RunOutcome {
    *  pass/fail counters, latency stats, etc. Numeric only — keeps
    *  reporters honest. */
   raw: Record<string, number>
+  /** Per-judge / per-dim breakdown. Consumers writing ensemble
+   *  judgements populate this; substrate primitives like
+   *  `interRaterReliability` and `corpusInterRaterAgreement` accept
+   *  these records as input. Optional — single-judge or scalar-only
+   *  runs leave it unset. */
+  judgeScores?: JudgeScoresRecord
 }
 
 /**
@@ -242,6 +284,11 @@ export function validateRunRecord(input: unknown): RunRecord {
     expectFiniteNumber(v, `outcome.raw.${k}`)
   }
 
+  // Per-judge / per-dim breakdown, optional.
+  if (outRec.judgeScores !== undefined) {
+    validateJudgeScores(outRec.judgeScores, 'outcome.judgeScores')
+  }
+
   // Failure mode optional.
   if (obj.failureMode !== undefined) expectString(obj.failureMode, 'failureMode')
 
@@ -295,6 +342,61 @@ function expectString(value: unknown, path: string): void {
 function expectFiniteNumber(value: unknown, path: string): void {
   if (typeof value !== 'number' || !Number.isFinite(value)) {
     throw new RunRecordValidationError(`expected finite number`, path)
+  }
+}
+
+function validateJudgeScores(value: unknown, path: string): void {
+  if (value === null || typeof value !== 'object') {
+    throw new RunRecordValidationError('judgeScores must be an object', path)
+  }
+  const rec = value as Record<string, unknown>
+
+  const perJudge = rec.perJudge
+  if (perJudge === null || typeof perJudge !== 'object') {
+    throw new RunRecordValidationError('perJudge must be an object', `${path}.perJudge`)
+  }
+  for (const [judgeId, dims] of Object.entries(perJudge as Record<string, unknown>)) {
+    if (dims === null || typeof dims !== 'object') {
+      throw new RunRecordValidationError(
+        'per-judge entry must be an object of dimension scores',
+        `${path}.perJudge.${judgeId}`,
+      )
+    }
+    for (const [dim, score] of Object.entries(dims as Record<string, unknown>)) {
+      expectFiniteNumber(score, `${path}.perJudge.${judgeId}.${dim}`)
+    }
+  }
+
+  const perDimMean = rec.perDimMean
+  if (perDimMean === null || typeof perDimMean !== 'object') {
+    throw new RunRecordValidationError('perDimMean must be an object', `${path}.perDimMean`)
+  }
+  for (const [dim, mean] of Object.entries(perDimMean as Record<string, unknown>)) {
+    expectFiniteNumber(mean, `${path}.perDimMean.${dim}`)
+  }
+
+  expectFiniteNumber(rec.composite, `${path}.composite`)
+
+  if (rec.failedJudges !== undefined) {
+    if (!Array.isArray(rec.failedJudges)) {
+      throw new RunRecordValidationError(
+        'failedJudges must be an array of strings',
+        `${path}.failedJudges`,
+      )
+    }
+    for (let i = 0; i < rec.failedJudges.length; i++) {
+      const id = rec.failedJudges[i]
+      if (typeof id !== 'string' || id.length === 0) {
+        throw new RunRecordValidationError(
+          'failedJudges entry must be a non-empty string',
+          `${path}.failedJudges[${i}]`,
+        )
+      }
+    }
+  }
+
+  if (rec.notes !== undefined && typeof rec.notes !== 'string') {
+    throw new RunRecordValidationError('notes must be a string', `${path}.notes`)
   }
 }
 

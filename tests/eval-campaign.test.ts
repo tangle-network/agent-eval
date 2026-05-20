@@ -286,6 +286,164 @@ describe('runEvalCampaign — failure handling', () => {
   })
 })
 
+describe('runEvalCampaign — judgeScores propagation', () => {
+  // Forge-chat / multi-judge consumers produce per-judge per-dim scores
+  // alongside the composite. The campaign must thread them onto
+  // `RunRecord.outcome.judgeScores` without coercion, and the record
+  // must survive a JSON round-trip (records.jsonl is what consumers
+  // ultimately persist).
+
+  function judgeScoresRunner(
+    judgeScores: import('../src/run-record').JudgeScoresRecord | undefined,
+  ): CampaignRunner<VariantPayload> {
+    return async (ctx) => {
+      const base = await defaultRunner(ctx)
+      if (judgeScores === undefined) return base
+      return { ...base, judgeScores }
+    }
+  }
+
+  it('full shape: lands all per-judge/per-dim/composite fields on the record + JSON round-trip', async () => {
+    const judgeScores = {
+      perJudge: {
+        'kimi-k2.6@2026-04-01': { helpfulness: 0.8, clarity: 0.75, on_topic: 0.9 },
+        'glm-5.1@2026-04-02': { helpfulness: 0.85, clarity: 0.7, on_topic: 0.95 },
+      },
+      perDimMean: { helpfulness: 0.825, clarity: 0.725, on_topic: 0.925 },
+      composite: 0.825,
+    }
+    const result = await runEvalCampaign(
+      baseOpts({
+        variants: [{ id: 'v1', payload: { prompt: 'p' } }],
+        scenarios: [{ scenarioId: 's1' }],
+        seeds: [0],
+        runner: judgeScoresRunner(judgeScores),
+      }),
+    )
+    expect(result.runs).toHaveLength(1)
+    const rec = result.runs[0]
+    expect(rec?.outcome.judgeScores).toEqual(judgeScores)
+    // JSON round-trip — this is the shape that lands in records.jsonl.
+    const roundTripped = JSON.parse(JSON.stringify(rec))
+    expect(roundTripped.outcome.judgeScores).toEqual(judgeScores)
+  })
+
+  it('partial shape (failedJudges populated): one judge errored, recorded explicitly', async () => {
+    // Fail-loud: a panel with one dead judge is recorded as such — not
+    // inferred from a missing key in perJudge. The composite + perDimMean
+    // are computed over the surviving judges only.
+    const judgeScores = {
+      perJudge: {
+        'kimi-k2.6@2026-04-01': { helpfulness: 0.8, clarity: 0.75 },
+      },
+      perDimMean: { helpfulness: 0.8, clarity: 0.75 },
+      composite: 0.775,
+      failedJudges: ['glm-5.1@2026-04-02'],
+    }
+    const result = await runEvalCampaign(
+      baseOpts({
+        variants: [{ id: 'v1', payload: { prompt: 'p' } }],
+        scenarios: [{ scenarioId: 's1' }],
+        seeds: [0],
+        runner: judgeScoresRunner(judgeScores),
+      }),
+    )
+    const rec = result.runs[0]
+    expect(rec?.outcome.judgeScores?.failedJudges).toEqual(['glm-5.1@2026-04-02'])
+    expect(Object.keys(rec?.outcome.judgeScores?.perJudge ?? {})).toEqual(['kimi-k2.6@2026-04-01'])
+  })
+
+  it('missing shape (no ensemble): legacy / single-judge runs leave outcome.judgeScores undefined', async () => {
+    const result = await runEvalCampaign(
+      baseOpts({
+        variants: [{ id: 'v1', payload: { prompt: 'p' } }],
+        scenarios: [{ scenarioId: 's1' }],
+        seeds: [0],
+        runner: judgeScoresRunner(undefined),
+      }),
+    )
+    const rec = result.runs[0]
+    expect(rec?.outcome.judgeScores).toBeUndefined()
+  })
+
+  it('with notes: judge prose survives the campaign-to-record conversion', async () => {
+    const judgeScores = {
+      perJudge: {
+        'kimi-k2.6@2026-04-01': { helpfulness: 0.6, clarity: 0.55 },
+        'glm-5.1@2026-04-02': { helpfulness: 0.65, clarity: 0.5 },
+      },
+      perDimMean: { helpfulness: 0.625, clarity: 0.525 },
+      composite: 0.575,
+      notes: 'panel flagged tone drift mid-response',
+    }
+    const result = await runEvalCampaign(
+      baseOpts({
+        variants: [{ id: 'v1', payload: { prompt: 'p' } }],
+        scenarios: [{ scenarioId: 's1' }],
+        seeds: [0],
+        runner: judgeScoresRunner(judgeScores),
+      }),
+    )
+    const rec = result.runs[0]
+    expect(rec?.outcome.judgeScores?.notes).toBe('panel flagged tone drift mid-response')
+  })
+
+  it('fail-loud: a judge throwing during scoring lands in failedJudges, not swallowed', async () => {
+    // Consumer pattern: the runner runs the panel, catches per-judge
+    // throws, and records the dead judge in `failedJudges`. The
+    // composite is computed over survivors. The substrate's job is to
+    // preserve that signal — never to silently zero it.
+    const ensembleRunner: CampaignRunner<VariantPayload> = async (ctx) => {
+      const base = await defaultRunner(ctx)
+      const judges = ['kimi-k2.6@2026-04-01', 'glm-5.1@2026-04-02'] as const
+      const perJudge: Record<string, Record<string, number>> = {}
+      const failed: string[] = []
+      for (const judgeId of judges) {
+        try {
+          if (judgeId === 'glm-5.1@2026-04-02') throw new Error('upstream 503')
+          perJudge[judgeId] = { helpfulness: 0.7, clarity: 0.65 }
+        } catch {
+          failed.push(judgeId)
+        }
+      }
+      // perDimMean over surviving judges only. No silent zero.
+      const dims = ['helpfulness', 'clarity'] as const
+      const perDimMean: Record<string, number> = {}
+      for (const d of dims) {
+        const vals = Object.values(perJudge)
+          .map((d2) => d2[d])
+          .filter((v): v is number => typeof v === 'number')
+        perDimMean[d] = vals.reduce((a, b) => a + b, 0) / vals.length
+      }
+      const composite =
+        Object.values(perDimMean).reduce((a, b) => a + b, 0) / Object.values(perDimMean).length
+      return {
+        ...base,
+        judgeScores: {
+          perJudge,
+          perDimMean,
+          composite,
+          failedJudges: failed,
+        },
+      }
+    }
+    const result = await runEvalCampaign(
+      baseOpts({
+        variants: [{ id: 'v1', payload: { prompt: 'p' } }],
+        scenarios: [{ scenarioId: 's1' }],
+        seeds: [0],
+        runner: ensembleRunner,
+      }),
+    )
+    const rec = result.runs[0]
+    expect(rec?.outcome.judgeScores?.failedJudges).toEqual(['glm-5.1@2026-04-02'])
+    expect(rec?.outcome.judgeScores?.perJudge['glm-5.1@2026-04-02']).toBeUndefined()
+    expect(rec?.outcome.judgeScores?.perJudge['kimi-k2.6@2026-04-01']).toBeDefined()
+    // Composite is the mean over survivor dim-means — not silently zero.
+    expect(rec?.outcome.judgeScores?.composite).toBeGreaterThan(0)
+  })
+})
+
 describe('runEvalCampaign — concurrency', () => {
   it('runs cells in parallel up to the configured worker count', async () => {
     const inFlight = { count: 0, max: 0 }

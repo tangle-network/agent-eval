@@ -1102,6 +1102,7 @@ export { CallbackResearcher, NoopResearcher } from './researcher'
 // tournaments, adversarial, compute curves, auto-research — live on the
 // dedicated subpath: @tangle-network/agent-eval/rl
 export type {
+  JudgeScoresRecord,
   RunJudgeMetadata,
   RunOutcome,
   RunRecord,
