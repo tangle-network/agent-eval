@@ -355,13 +355,6 @@ export {
   parseCorrectnessResponse,
   verifyCompletion,
 } from './completion-verifier'
-export type {
-  ArtifactEventLike,
-  ProposalEventLike,
-  RuntimeEventLike,
-  ToolCallEventLike,
-} from './produced-state'
-export { extractProducedState } from './produced-state'
 export { ConvergenceTracker } from './convergence'
 export type {
   DualAgentBenchConfig,
@@ -387,7 +380,6 @@ export type {
   RunConfig,
   RunDiff,
 } from './experiment-tracker'
-
 export { ExperimentTracker, InMemoryExperimentStore } from './experiment-tracker'
 export type {
   D1ExperimentStoreOptions,
@@ -433,6 +425,13 @@ export {
 } from './judge-runner'
 export type { Playbook, PlaybookEntry } from './playbook'
 export { distillPlaybook, renderPlaybookMarkdown } from './playbook'
+export type {
+  ArtifactEventLike,
+  ProposalEventLike,
+  RuntimeEventLike,
+  ToolCallEventLike,
+} from './produced-state'
+export { extractProducedState } from './produced-state'
 export type { PromptHandle } from './prompt-registry'
 export { hashContent, PromptRegistry } from './prompt-registry'
 export type {

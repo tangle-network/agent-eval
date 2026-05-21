@@ -13,10 +13,10 @@ import type { Artifact } from './artifact-validator'
 import {
   type CompletionRequirement,
   type CorrectnessChecker,
-  type ProducedState,
-  type TaskGold,
   createLlmCorrectnessChecker,
+  type ProducedState,
   parseCorrectnessResponse,
+  type TaskGold,
   verifyCompletion,
 } from './completion-verifier'
 
@@ -170,7 +170,9 @@ describe('verifyCompletion — satisfiedBy routing', () => {
 
   it("satisfiedBy 'artifact' ignores an otherwise-matching proposal", async () => {
     const v = await verifyCompletion(
-      gold([{ reqId: 'dispute', title: 'Working Capital Dispute Notice', satisfiedBy: 'artifact' }]),
+      gold([
+        { reqId: 'dispute', title: 'Working Capital Dispute Notice', satisfiedBy: 'artifact' },
+      ]),
       {
         ...emptyState(),
         proposals: [{ id: 'p1', title: 'Working Capital Dispute Notice', status: 'approved' }],
@@ -190,7 +192,9 @@ describe('parseCorrectnessResponse', () => {
   })
 
   it('parses JSON embedded in prose / fences', () => {
-    const r = parseCorrectnessResponse('Here is my verdict:\n```json\n{"correct": false, "reason": "stub"}\n```')
+    const r = parseCorrectnessResponse(
+      'Here is my verdict:\n```json\n{"correct": false, "reason": "stub"}\n```',
+    )
     expect(r.correct).toBe(false)
   })
 

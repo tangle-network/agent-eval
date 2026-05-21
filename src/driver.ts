@@ -2,13 +2,7 @@ import type { TCloud } from '@tangle-network/tcloud'
 import type { ProductClient } from './client'
 import { ConvergenceTracker } from './convergence'
 import { MetricsCollector } from './metrics'
-import type {
-  DriverResult,
-  DriverState,
-  PersonaConfig,
-  PersonaRigor,
-  TurnMetrics,
-} from './types'
+import type { DriverResult, DriverState, PersonaConfig, PersonaRigor, TurnMetrics } from './types'
 
 export interface AgentDriverConfig {
   client: ProductClient
@@ -219,7 +213,6 @@ export class AgentDriver {
       }
     }
   }
-
 }
 
 /** Describe which nominal completion criteria are met, for the driver prompt. */
@@ -253,7 +246,9 @@ export function buildDriverSystemPrompt(
     persona.pressurePoints && persona.pressurePoints.length > 0
       ? `\nA competent ${persona.role} here MUST get the agent to address each of:\n${persona.pressurePoints
           .map((p) => `  - ${p}`)
-          .join('\n')}\nDo NOT hand these to the agent. Probe whether it surfaces them itself. If it misses one, press on exactly that gap until it delivers or demonstrably fails.\n`
+          .join(
+            '\n',
+          )}\nDo NOT hand these to the agent. Probe whether it surfaces them itself. If it misses one, press on exactly that gap until it delivers or demonstrably fails.\n`
       : ''
 
   const curveballs =

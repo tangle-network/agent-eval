@@ -97,7 +97,18 @@ export type CorrectnessChecker = (
 ) => Promise<{ correct: boolean; reason: string }>
 
 const STOPWORDS = new Set([
-  'the', 'a', 'an', 'of', 'for', 'and', 'or', 'to', 'in', 'on', 'with', 'by',
+  'the',
+  'a',
+  'an',
+  'of',
+  'for',
+  'and',
+  'or',
+  'to',
+  'in',
+  'on',
+  'with',
+  'by',
 ])
 
 const MATCH_THRESHOLD = 0.5
@@ -218,7 +229,9 @@ export async function verifyCompletion(
   checkCorrectness: CorrectnessChecker,
 ): Promise<CompletionVerdict> {
   if (gold.requirements.length === 0) {
-    throw new Error(`verifyCompletion: task '${gold.taskId}' has no requirements — malformed gold spec`)
+    throw new Error(
+      `verifyCompletion: task '${gold.taskId}' has no requirements — malformed gold spec`,
+    )
   }
 
   // Collect every above-threshold (requirement, produced-item) candidate, then
@@ -271,7 +284,14 @@ export async function verifyCompletion(
 
     const structurallyPresent = match !== undefined
     const satisfied = structurallyPresent && correct !== false
-    requirements.push({ reqId: req.reqId, title: req.title, structurallyPresent, correct, satisfied, evidence })
+    requirements.push({
+      reqId: req.reqId,
+      title: req.title,
+      structurallyPresent,
+      correct,
+      satisfied,
+      evidence,
+    })
   }
 
   const satisfiedCount = requirements.filter((r) => r.satisfied).length

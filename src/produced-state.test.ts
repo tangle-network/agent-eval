@@ -108,7 +108,12 @@ describe('extractProducedState', () => {
         mimeType: 'text/markdown',
         content: 'body',
       },
-      { type: 'proposal_created', proposalId: 'p1', title: 'File dispute notice', status: 'approved' },
+      {
+        type: 'proposal_created',
+        proposalId: 'p1',
+        title: 'File dispute notice',
+        status: 'approved',
+      },
       { type: 'final' },
     ])
     expect(state.toolCalls).toEqual(['search_vault', 'write_document'])
