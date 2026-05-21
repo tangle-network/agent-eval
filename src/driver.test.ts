@@ -5,9 +5,10 @@
  * would inflate every downstream agent score with no real improvement.
  */
 
+import type { TCloud } from '@tangle-network/tcloud'
 import { describe, expect, it } from 'vitest'
 
-import { buildDriverSystemPrompt } from './driver'
+import { buildDriverSystemPrompt, decideNextUserTurn } from './driver'
 import type { DriverState, PersonaConfig } from './types'
 
 const STATE: DriverState = {
@@ -142,5 +143,70 @@ describe('buildDriverSystemPrompt — context embedding', () => {
     expect(p).toContain('Tangle legal workspace product')
     expect(p).toContain('0/1')
     expect(p).toContain('dispute-notice-drafted: NOT MET')
+  })
+})
+
+describe('decideNextUserTurn', () => {
+  interface CapturedRequest {
+    model: string
+    system: string
+    user: string
+  }
+
+  function mockTc(reply: string): { tc: TCloud; captured: CapturedRequest[] } {
+    const captured: CapturedRequest[] = []
+    const tc = {
+      chat: async (req: { model: string; messages: { role: string; content: string }[] }) => {
+        captured.push({
+          model: req.model,
+          system: req.messages.find((m) => m.role === 'system')?.content ?? '',
+          user: req.messages.find((m) => m.role === 'user')?.content ?? '',
+        })
+        return { choices: [{ message: { content: reply } }] }
+      },
+    } as unknown as TCloud
+    return { tc, captured }
+  }
+
+  it('drives the adversarial system prompt and returns the next turn', async () => {
+    const { tc, captured } = mockTc('  What is your authority for that?  ')
+    const turn = await decideNextUserTurn(tc, {
+      persona: persona({ rigor: 'relentless' }),
+      state: STATE,
+      history: [
+        { role: 'user', content: 'draft the dispute notice' },
+        { role: 'assistant', content: 'It depends on several factors.' },
+      ],
+    })
+    expect(turn).toBe('What is your authority for that?')
+    expect(captured[0]!.system).toMatch(/interrogate every claim/i)
+    expect(captured[0]!.user).toContain('It depends on several factors.')
+  })
+
+  it('opens with a first-message prompt when there is no history', async () => {
+    const { tc, captured } = mockTc('We are buying Acme for $120M.')
+    await decideNextUserTurn(tc, { persona: persona(), state: STATE, history: [] })
+    expect(captured[0]!.user).toMatch(/no conversation yet/i)
+  })
+
+  it('passes the DONE sign-off sentinel through verbatim', async () => {
+    const { tc } = mockTc('DONE')
+    const turn = await decideNextUserTurn(tc, {
+      persona: persona(),
+      state: STATE,
+      history: [{ role: 'assistant', content: 'Here is the finished, defensible notice.' }],
+    })
+    expect(turn).toBe('DONE')
+  })
+
+  it('honors the configured driver model', async () => {
+    const { tc, captured } = mockTc('next')
+    await decideNextUserTurn(tc, {
+      persona: persona(),
+      state: STATE,
+      history: [],
+      model: 'gpt-5.4',
+    })
+    expect(captured[0]!.model).toBe('gpt-5.4')
   })
 })
