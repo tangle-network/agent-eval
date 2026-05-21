@@ -24,12 +24,17 @@
  */
 
 import type { GateDecision } from './held-out-gate'
-import { pairedBootstrap } from './paired-stats'
 import type { FailureClusterReport } from './pipelines/failure-cluster'
-import { benjaminiHochberg, pairedMde } from './power-analysis'
 import { canonicalize, hashJson } from './pre-registration'
 import type { RunRecord } from './run-record'
-import { cohensD, confidenceInterval, wilcoxonSignedRank } from './statistics'
+import {
+  benjaminiHochberg,
+  cohensD,
+  confidenceInterval,
+  pairedBootstrap,
+  pairedMde,
+  wilcoxonSignedRank,
+} from './statistics'
 
 // ── summaryTable ───────────────────────────────────────────────────────
 

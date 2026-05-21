@@ -270,9 +270,13 @@ export type {
   CorpusAgreementPerDimension,
   CorpusAgreementReport,
   CorpusScoreRecord,
+  PairedBootstrapOptions,
+  PairedBootstrapResult,
 } from './statistics'
 // ── Statistics ───────────────────────────────────────────────────────
 export {
+  benjaminiHochberg,
+  bonferroni,
   cohensD,
   confidenceInterval,
   corpusInterRaterAgreement,
@@ -280,8 +284,11 @@ export {
   interRaterReliability,
   mannWhitneyU,
   normalizeScores,
+  pairedBootstrap,
+  pairedMde,
   pairedTTest,
   partialCredit,
+  requiredSampleSize,
   weightedMean,
   wilcoxonSignedRank,
 } from './statistics'
@@ -667,7 +674,6 @@ export {
   typoMutator,
   whitespaceCollapseMutator,
 } from './paraphrase'
-export { benjaminiHochberg, bonferroni, requiredSampleSize } from './power-analysis'
 export type {
   RedTeamCase,
   RedTeamCategory,
@@ -1005,15 +1011,6 @@ export {
 } from './multi-shot-optimization'
 export type { OrthogonalityInput, OrthogonalityResult } from './orthogonality'
 export { passOrthogonality } from './orthogonality'
-export type {
-  PairedBootstrapOptions,
-  PairedBootstrapResult,
-} from './paired-stats'
-export {
-  bhAdjust,
-  pairedBootstrap,
-  pairedWilcoxon,
-} from './paired-stats'
 // Pareto extensions (paretoFrontier + dominates already exported above)
 export { crowdingDistance, paretoFrontierWithCrowding, scalarScore } from './pareto'
 export type {

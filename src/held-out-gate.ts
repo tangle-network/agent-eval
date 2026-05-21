@@ -26,14 +26,14 @@
  * verdict without re-running.
  *
  * See also:
- *   - `src/paired-stats.ts` for `pairedBootstrap` + `pairedWilcoxon`
+ *   - `src/statistics.ts` for `pairedBootstrap` + `wilcoxonSignedRank`
  *   - `src/run-record.ts` for the input row schema
  *   - `src/reference-replay.ts` for the older, reference-replay-
  *     specific promotion path (still useful for replay-style evals).
  */
 
-import { pairedBootstrap, pairedWilcoxon } from './paired-stats'
 import type { RunRecord } from './run-record'
+import { pairedBootstrap, wilcoxonSignedRank } from './statistics'
 
 export type HeldOutGateRejectionCode = 'few_runs' | 'negative_delta' | 'overfit_gap'
 
@@ -183,7 +183,7 @@ export class HeldOutGate {
       statistic: 'median',
       seed: this.seed,
     })
-    const wilcoxon = pairedWilcoxon(beforeHoldout, afterHoldout)
+    const wilcoxon = wilcoxonSignedRank(beforeHoldout, afterHoldout)
 
     const evidence: GateEvidence = {
       productiveRuns,

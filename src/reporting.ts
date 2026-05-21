@@ -6,15 +6,6 @@ export type {
 } from './meta-eval/rubric-predictive-validity'
 export { rubricPredictiveValidity } from './meta-eval/rubric-predictive-validity'
 export type {
-  PairedBootstrapOptions,
-  PairedBootstrapResult,
-} from './paired-stats'
-export {
-  bhAdjust,
-  pairedBootstrap,
-  pairedWilcoxon,
-} from './paired-stats'
-export type {
   BootstrapOptions,
   BootstrapResult,
   JudgeReplayGateArgs,
@@ -50,11 +41,19 @@ export type {
   PairedEvalueStep,
   SequentialDecision,
 } from './sequential'
-
 export {
   evaluateInterimReleaseConfidence,
   pairedEvalueSequence,
 } from './sequential'
+export type {
+  PairedBootstrapOptions,
+  PairedBootstrapResult,
+} from './statistics'
+export {
+  benjaminiHochberg,
+  pairedBootstrap,
+  wilcoxonSignedRank,
+} from './statistics'
 export type {
   GainDistributionBin,
   GainDistributionFigureSpec,

@@ -29,8 +29,7 @@
  */
 
 import { ValidationError } from '../errors'
-import { benjaminiHochberg } from '../power-analysis'
-import { wilcoxonSignedRank } from '../statistics'
+import { benjaminiHochberg, wilcoxonSignedRank } from '../statistics'
 
 export type ScenarioPerturbationKind =
   | 'rename_variables'
