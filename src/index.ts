@@ -355,6 +355,13 @@ export {
   parseCorrectnessResponse,
   verifyCompletion,
 } from './completion-verifier'
+export type {
+  ArtifactEventLike,
+  ProposalEventLike,
+  RuntimeEventLike,
+  ToolCallEventLike,
+} from './produced-state'
+export { extractProducedState } from './produced-state'
 export { ConvergenceTracker } from './convergence'
 export type {
   DualAgentBenchConfig,
