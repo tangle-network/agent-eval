@@ -173,6 +173,16 @@ export interface FeedbackPattern {
   response: string
 }
 
+/**
+ * How hard the simulated user pushes back. The driver LLM scales its tone
+ * and follow-up aggression to this:
+ *   cooperative — forgiving early adopter; accepts reasonable answers.
+ *   demanding   — experienced professional; rejects vague or hedged answers.
+ *   relentless  — senior partner reviewing for a client who will litigate;
+ *                 interrogates every claim, accepts nothing undefended.
+ */
+export type PersonaRigor = 'cooperative' | 'demanding' | 'relentless'
+
 export interface PersonaConfig {
   id: string
   role: string
@@ -181,6 +191,28 @@ export interface PersonaConfig {
   feedbackPatterns?: FeedbackPattern[]
   maxTurns: number
   driverModel?: string
+  /** How adversarial the simulated user is. Defaults to 'demanding'. */
+  rigor?: PersonaRigor
+  /**
+   * Domain expertise the simulated user holds — quoted into the driver
+   * prompt so it challenges the agent with authority instead of vague
+   * dissatisfaction. e.g. "a 15-year M&A partner who knows GAAP
+   * working-capital mechanics cold".
+   */
+  expertise?: string
+  /**
+   * Substantive issues a senior professional in this role would
+   * interrogate — traps the scenario hides, claims that must be defended.
+   * The driver probes these without revealing them verbatim; the agent
+   * must surface them on its own.
+   */
+  pressurePoints?: string[]
+  /**
+   * Curveballs the driver may inject once the agent is coasting — changed
+   * facts, a hostile counterparty position, a new constraint. Forces the
+   * agent to re-derive rather than recite.
+   */
+  curveballs?: string[]
 }
 
 export interface DriverState {
@@ -213,8 +245,16 @@ export interface TurnMetrics {
 
 export interface DriverResult {
   personaId: string
+  /** True when the simulated user professionally signed off (driver said DONE). */
   completed: boolean
+  /** Turn at which the simulated user signed off, or null if it never did. */
   turnsToCompletion: number | null
+  /**
+   * Turn at which nominal completionCriteria were first all met, or null.
+   * Distinct from turnsToCompletion: criteria can be met while the
+   * simulated professional is still unsatisfied with the work's rigor.
+   */
+  criteriaMetAtTurn: number | null
   totalTurns: number
   metrics: TurnMetrics[]
   finalState: DriverState

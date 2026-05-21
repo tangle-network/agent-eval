@@ -142,7 +142,7 @@ export {
   subjectiveEval,
 } from './control-runtime'
 export type { AgentDriverConfig } from './driver'
-export { AgentDriver } from './driver'
+export { AgentDriver, buildDriverSystemPrompt } from './driver'
 export type { AgentEvalErrorCode } from './errors'
 // Error taxonomy — every error this package throws as part of its public
 // contract extends AgentEvalError. Pattern-match by `instanceof` or by the
@@ -308,6 +308,7 @@ export type {
   JudgeRubric,
   JudgeScore,
   PersonaConfig,
+  PersonaRigor,
   ProductClientConfig,
   RouteMap,
   RubricDimension,
@@ -338,6 +339,22 @@ export {
   jsonHasKeys,
   regexMatch,
 } from './artifact-validator'
+export type {
+  CompletionRequirement,
+  CompletionVerdict,
+  CorrectnessChecker,
+  LlmCorrectnessCheckerOpts,
+  ProducedProposal,
+  ProducedState,
+  RequirementCheck,
+  SatisfiedBy,
+  TaskGold,
+} from './completion-verifier'
+export {
+  createLlmCorrectnessChecker,
+  parseCorrectnessResponse,
+  verifyCompletion,
+} from './completion-verifier'
 export { ConvergenceTracker } from './convergence'
 export type {
   DualAgentBenchConfig,
@@ -363,7 +380,6 @@ export type {
   RunConfig,
   RunDiff,
 } from './experiment-tracker'
-
 export { ExperimentTracker, InMemoryExperimentStore } from './experiment-tracker'
 export type {
   D1ExperimentStoreOptions,
@@ -409,6 +425,13 @@ export {
 } from './judge-runner'
 export type { Playbook, PlaybookEntry } from './playbook'
 export { distillPlaybook, renderPlaybookMarkdown } from './playbook'
+export type {
+  ArtifactEventLike,
+  ProposalEventLike,
+  RuntimeEventLike,
+  ToolCallEventLike,
+} from './produced-state'
+export { extractProducedState } from './produced-state'
 export type { PromptHandle } from './prompt-registry'
 export { hashContent, PromptRegistry } from './prompt-registry'
 export type {

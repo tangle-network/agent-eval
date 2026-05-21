@@ -2,13 +2,26 @@ import type { TCloud } from '@tangle-network/tcloud'
 import type { ProductClient } from './client'
 import { ConvergenceTracker } from './convergence'
 import { MetricsCollector } from './metrics'
-import type { DriverResult, DriverState, PersonaConfig, TurnMetrics } from './types'
+import type { DriverResult, DriverState, PersonaConfig, PersonaRigor, TurnMetrics } from './types'
 
 export interface AgentDriverConfig {
   client: ProductClient
   driverModel?: string
   /** System prompt context for the driver LLM to understand the product */
   productContext?: string
+}
+
+/**
+ * Per-rigor stance the driver LLM adopts. Scales how hard the simulated
+ * user interrogates the agent — see `PersonaConfig.rigor`.
+ */
+const RIGOR_STANCE: Record<PersonaRigor, string> = {
+  cooperative:
+    'Your stance: a pragmatic early adopter. You accept reasonable answers and only push back on clear gaps or outright errors.',
+  demanding:
+    'Your stance: an experienced professional with no time to waste. You do not accept vague, hedged, or generic answers — you expect specifics, and you say so plainly when you do not get them.',
+  relentless:
+    'Your stance: a senior partner reviewing this work for a client who will litigate if it is wrong. You interrogate every claim. You accept nothing undefended. You find the single weakest point in every answer and attack it. Courteous, never satisfied.',
 }
 
 /**
@@ -52,6 +65,7 @@ export class AgentDriver {
 
     let completed = false
     let turnsToCompletion: number | null = null
+    let criteriaMetAtTurn: number | null = null
 
     for (let turn = 1; turn <= persona.maxTurns; turn++) {
       // Get current product state
@@ -63,6 +77,7 @@ export class AgentDriver {
       if (userMessage === 'DONE') {
         completed = true
         turnsToCompletion = turn - 1
+        console.log(`  SIGNED OFF by simulated ${persona.role} after turn ${turn - 1}`)
         break
       }
 
@@ -107,11 +122,12 @@ export class AgentDriver {
         `  [turn ${turn}] ${conv.completionPercent.toFixed(0)}% — ${criteriaStr} (${(latency / 1000).toFixed(1)}s)`,
       )
 
-      if (conv.complete) {
-        completed = true
-        turnsToCompletion = turn
-        console.log(`  COMPLETE at turn ${turn}`)
-        break
+      // Nominal criteria met is recorded, not a stop condition. The
+      // simulated professional keeps pressure-testing until genuinely
+      // satisfied — a criteria-met-but-sloppy answer must still be defended.
+      if (conv.complete && criteriaMetAtTurn === null) {
+        criteriaMetAtTurn = turn
+        console.log(`  criteria met at turn ${turn} — driver continues pressure-testing`)
       }
     }
 
@@ -121,6 +137,7 @@ export class AgentDriver {
       personaId: persona.id,
       completed,
       turnsToCompletion,
+      criteriaMetAtTurn,
       totalTurns: turnMetrics.length,
       metrics: turnMetrics,
       finalState,
@@ -151,37 +168,17 @@ export class AgentDriver {
       messages: [
         {
           role: 'system',
-          content: `You are playing the role of a ${persona.role} testing an AI agent.
-Your goal: ${persona.goal}
-
-${this.productContext ? `Product context:\n${this.productContext}\n` : ''}
-Current state:
-- Tasks: ${state.tasks}
-- Events: ${state.events}
-- Proposals: pending=${state.proposals.pending}, approved=${state.proposals.approved}, rejected=${state.proposals.rejected}
-- Vault files: ${state.vaultFiles.length} (${state.vaultFiles.slice(0, 10).join(', ')}${state.vaultFiles.length > 10 ? '...' : ''})
-
-Completion criteria met: ${this.describeCompletion(persona, state)}
-
-Decide what to do next:
-1. If completion is 100% — respond with exactly "DONE"
-2. If a proposal is pending — approve or reject it (with reason)
-3. If the agent is on track — push for the next deliverable
-4. If the agent is off track — give specific corrective feedback
-5. If this is the first message — start with a clear, actionable request
-
-Output ONLY your next message to the agent. Be specific. Be realistic.
-Don't be patient — a real ${persona.role} wouldn't accept vague answers.`,
+          content: buildDriverSystemPrompt(persona, state, this.productContext),
         },
         {
           role: 'user',
           content: recentHistory
-            ? `Recent conversation:\n${recentHistory}\n\nThe agent just said:\n${lastResponse}`
-            : 'No conversation yet. Send your opening message.',
+            ? `Recent conversation:\n${recentHistory}\n\nThe agent's latest response:\n${lastResponse}`
+            : 'No conversation yet. Send your opening message — in character, phrased as this person actually would.',
         },
       ],
       temperature: 0.5,
-      maxTokens: 500,
+      maxTokens: 700,
     })
 
     const content =
@@ -216,14 +213,71 @@ Don't be patient — a real ${persona.role} wouldn't accept vague answers.`,
       }
     }
   }
+}
 
-  /** Describe which completion criteria are met */
-  private describeCompletion(persona: PersonaConfig, state: DriverState): string {
-    const results = persona.completionCriteria.map((c) => {
-      const met = c.check(state)
-      return `${c.name}: ${met ? 'MET' : 'NOT MET'}`
-    })
-    const metCount = results.filter((r) => r.includes('MET') && !r.includes('NOT')).length
-    return `${metCount}/${persona.completionCriteria.length} — ${results.join(', ')}`
-  }
+/** Describe which nominal completion criteria are met, for the driver prompt. */
+function describeCompletion(persona: PersonaConfig, state: DriverState): string {
+  const results = persona.completionCriteria.map((c) => {
+    const met = c.check(state)
+    return `${c.name}: ${met ? 'MET' : 'NOT MET'}`
+  })
+  const metCount = results.filter((r) => r.includes('MET') && !r.includes('NOT')).length
+  return `${metCount}/${persona.completionCriteria.length} — ${results.join(', ')}`
+}
+
+/**
+ * Build the driver LLM's system prompt. The simulated user is an
+ * adversarial senior professional: it judges the agent's last response by a
+ * professional standard, refuses vague answers, challenges undefended
+ * claims, probes the persona's pressure points without revealing them, and
+ * signs off (DONE) only when a real practitioner would act on the work
+ * unmodified. Pure function of persona, product state, and product context
+ * — exported so harness authors can inspect and regression-test it.
+ */
+export function buildDriverSystemPrompt(
+  persona: PersonaConfig,
+  state: DriverState,
+  productContext = '',
+): string {
+  const rigor: PersonaRigor = persona.rigor ?? 'demanding'
+  const expertise = persona.expertise ? ` You are ${persona.expertise}.` : ''
+
+  const pressure =
+    persona.pressurePoints && persona.pressurePoints.length > 0
+      ? `\nA competent ${persona.role} here MUST get the agent to address each of:\n${persona.pressurePoints
+          .map((p) => `  - ${p}`)
+          .join(
+            '\n',
+          )}\nDo NOT hand these to the agent. Probe whether it surfaces them itself. If it misses one, press on exactly that gap until it delivers or demonstrably fails.\n`
+      : ''
+
+  const curveballs =
+    persona.curveballs && persona.curveballs.length > 0
+      ? `\nOnce the agent is coasting on easy answers, introduce ONE of these as a genuine new development — never as a quiz:\n${persona.curveballs
+          .map((c) => `  - ${c}`)
+          .join('\n')}\n`
+      : ''
+
+  return `You are role-playing a real ${persona.role} putting an AI agent through its paces.${expertise}
+Your objective: ${persona.goal}
+You are deciding whether this agent's work is good enough to stake your professional reputation on. Assume it is not — until it proves otherwise.
+
+${RIGOR_STANCE[rigor]}
+${productContext ? `Product context:\n${productContext}\n` : ''}Current workspace state:
+- Tasks: ${state.tasks} | Events: ${state.events}
+- Proposals: pending=${state.proposals.pending}, approved=${state.proposals.approved}, rejected=${state.proposals.rejected}
+- Vault files (${state.vaultFiles.length}): ${state.vaultFiles.slice(0, 10).join(', ')}${state.vaultFiles.length > 10 ? ' …' : ''}
+- Nominal task criteria: ${describeCompletion(persona, state)}
+${pressure}${curveballs}
+How to choose your next message:
+1. Silently judge the agent's last response the way a ${persona.role} would. Is every claim defended with a specific authority, figure, or mechanism? Or is it vague, hedged, or generic?
+2. If it is vague or hand-waved — do NOT move on. Name the gap and demand the specific authority / figure / mechanism. "It depends" is not an answer; force the decision.
+3. If it makes a claim you can challenge — challenge it. Make the agent defend or correct it.
+4. If it missed something a ${persona.role} would catch — press on exactly that, without naming it for the agent.
+5. If it is genuinely solid — escalate: go a layer deeper, or introduce a curveball.
+6. First message — state your situation as you really would: realistic, specific, with the messy detail, but do not coach the agent.
+
+Sign-off: respond with exactly "DONE" only when a ${persona.role} would act on this work without redoing it. Nominal task completion is NOT sign-off — sloppy-but-complete still fails. If the agent never gets there, keep pushing; never sign off on weak work.
+
+Output ONLY your next message to the agent — in character, first person, no meta-commentary, no stage directions.`
 }
