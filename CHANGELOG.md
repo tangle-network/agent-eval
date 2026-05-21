@@ -1,5 +1,35 @@
 # Changelog
 
+## 0.33.0 — 2026-05-21
+
+### Release — `decideNextUserTurn` in the published tarball
+
+`0.32.0` shipped the completion oracle (`verifyCompletion`,
+`extractProducedState`) but `decideNextUserTurn` — the standalone reactive
+adversarial turn generator — merged after the `0.32.0` tag and never made it
+into a published tarball. Consumers wiring an in-process eval loop against the
+driver could import the symbol from source but not from npm.
+
+This release publishes `main` as-is: `decideNextUserTurn`,
+`DecideNextUserTurnOpts`, the completion verifier, and produced-state
+extraction are all in `dist/`. No source changes — a republish that closes the
+tag/npm drift.
+
+## 0.32.0 — 2026-05-20
+
+### Completion oracle + produced-state pathway
+
+- `verifyCompletion(gold, state, checkCorrectness)` — the task-completion
+  oracle. Two-stage per requirement: structural match against produced state,
+  then an injected correctness check. `completionRate` / `fullyComplete` gate
+  quality scoring — a fluent transcript that never produces the deliverable
+  scores zero.
+- `extractProducedState(events)` — normalizes a run's `RuntimeStreamEvent[]`
+  into `ProducedState` { artifacts, proposals, toolCalls }.
+- `createLlmCorrectnessChecker(tc)` — production `CorrectnessChecker`.
+- `decideNextUserTurn(tc, opts)` — standalone reactive adversarial turn
+  generator extracted from `AgentDriver`, for in-process eval loops.
+
 ## 0.31.1 — 2026-05-20
 
 ### Republish of 0.31.0 — dist drift fix
