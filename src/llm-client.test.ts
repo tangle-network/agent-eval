@@ -3,6 +3,7 @@ import {
   callLlm,
   callLlmJson,
   extractJsonPayload,
+  isTransientLlmError,
   LlmCallError,
   LlmClient,
   stripFencedJson,
@@ -234,6 +235,70 @@ describe('llm-client — retry semantics', () => {
     }) as unknown as typeof globalThis.fetch
     const r = await callLlm({ model: 'm', messages: [] }, { fetch, maxRetries: 3 })
     expect(r.content).toBe('recovered')
+  })
+
+  it('retries an HTTP/2 transport fault instead of crashing', async () => {
+    // Regression: undici raises `terminated` / NGHTTP2_INTERNAL_ERROR for an
+    // HTTP/2 connection that drops mid-response. The old classifier only
+    // matched `fetch failed|ECONNRESET|ETIMEDOUT|EAI_AGAIN`, so this escaped
+    // the retry loop and surfaced as an uncaught rejection.
+    let call = 0
+    const fetch: typeof globalThis.fetch = (async (_url: string) => {
+      call++
+      if (call === 1) {
+        const cause = new Error('NGHTTP2_INTERNAL_ERROR')
+        throw new TypeError('terminated', { cause })
+      }
+      return mkOkResponse({ choices: [{ message: { content: 'recovered' } }], usage: {} })
+    }) as unknown as typeof globalThis.fetch
+    const r = await callLlm({ model: 'm', messages: [] }, { fetch, maxRetries: 3 })
+    expect(r.content).toBe('recovered')
+    expect(call).toBe(2)
+  })
+})
+
+describe('llm-client — isTransientLlmError classification', () => {
+  it('classifies HTTP/2 + undici transport faults as transient', () => {
+    expect(isTransientLlmError(new Error('terminated'))).toBe(true)
+    expect(isTransientLlmError(new Error('NGHTTP2_INTERNAL_ERROR'))).toBe(true)
+    expect(isTransientLlmError(new Error('other side closed'))).toBe(true)
+    expect(isTransientLlmError(new Error('socket hang up'))).toBe(true)
+    const coded = Object.assign(new Error('connection lost'), { code: 'UND_ERR_SOCKET' })
+    expect(isTransientLlmError(coded)).toBe(true)
+  })
+
+  it('follows the undici cause chain to the real socket fault', () => {
+    const wrapped = new TypeError('fetch failed', {
+      cause: new Error('terminated', { cause: new Error('NGHTTP2_INTERNAL_ERROR') }),
+    })
+    expect(isTransientLlmError(wrapped)).toBe(true)
+  })
+
+  it('classifies network + abort faults as transient', () => {
+    expect(isTransientLlmError(new Error('ECONNRESET'))).toBe(true)
+    const abort = new Error('aborted')
+    abort.name = 'AbortError'
+    expect(isTransientLlmError(abort)).toBe(true)
+  })
+
+  it('treats LlmCallError as transient only on retriable status', () => {
+    expect(isTransientLlmError(new LlmCallError('rate limited', 429, '', 'm'))).toBe(true)
+    expect(isTransientLlmError(new LlmCallError('bad gateway', 503, '', 'm'))).toBe(true)
+    expect(isTransientLlmError(new LlmCallError('bad request', 400, '', 'm'))).toBe(false)
+    expect(isTransientLlmError(new LlmCallError('unauthorized', 401, '', 'm'))).toBe(false)
+  })
+
+  it('does NOT retry deterministic failures', () => {
+    expect(isTransientLlmError(new SyntaxError('Unexpected token < in JSON'))).toBe(false)
+    expect(isTransientLlmError(new Error('response_format json_schema not supported'))).toBe(false)
+    expect(isTransientLlmError('not an error')).toBe(false)
+    expect(isTransientLlmError(undefined)).toBe(false)
+  })
+
+  it('terminates on a self-referential cause chain', () => {
+    const err = new Error('boom') as Error & { cause?: unknown }
+    err.cause = err
+    expect(isTransientLlmError(err)).toBe(false)
   })
 })
 

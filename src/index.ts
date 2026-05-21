@@ -827,8 +827,10 @@ export type {
 } from './llm-client'
 export {
   assertLlmRoute,
+  backoffMs,
   callLlm,
   callLlmJson,
+  isTransientLlmError,
   LlmCallError,
   LlmClient,
   LlmRouteAssertionError,

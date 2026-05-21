@@ -10,6 +10,8 @@
  * with `mode: 'exclude-failed'` drops the trial.
  */
 
+import { backoffMs, isTransientLlmError } from './llm-client'
+
 /** Retry policy for judge LLM calls. */
 export interface JudgeRetryPolicy {
   /** Max attempts per model. Default 3 (one initial + two retries). */
@@ -28,10 +30,11 @@ export interface JudgeRetryPolicy {
   /** Exponential backoff function, default `attempt → min(500 * 2^attempt, 16_000)`. */
   backoffMs?: (attempt: number) => number
   /**
-   * Predicate deciding whether an error should trigger a retry. Default
-   * retries on: AbortError, TimeoutError, `fetch failed`, `ECONNRESET`,
-   * `[This operation was aborted]`, and any LlmCallError with status in
-   * {429, 502, 503, 504}. JSON-parse errors are NOT retriable (the model
+   * Predicate deciding whether an error should trigger a retry. Defaults to
+   * `isTransientLlmError` — the package-wide classifier shared with
+   * `callLlm` — which retries aborts/timeouts, network faults, HTTP/2
+   * transport faults, and any `LlmCallError` with status in {429,502,503,504}.
+   * JSON-parse and schema-rejection errors are NOT retriable (the model
    * needs prompt adjustment, not another shot).
    */
   isRetryable?: (err: unknown) => boolean
@@ -55,32 +58,6 @@ export interface JudgeRetryOutcome<T> {
 
 const DEFAULT_MAX_ATTEMPTS = 3
 const DEFAULT_TIMEOUT_MS = 90_000
-const DEFAULT_BACKOFF = (attempt: number) => Math.min(500 * 2 ** attempt, 16_000)
-
-const ABORT_PATTERNS = [
-  /AbortError/i,
-  /TimeoutError/i,
-  /fetch failed/i,
-  /ECONNRESET/i,
-  /ETIMEDOUT/i,
-  /EAI_AGAIN/i,
-  /this operation was aborted/i,
-  /stream.*ended.*unexpectedly/i,
-  /socket hang up/i,
-]
-
-const RETRYABLE_HTTP_STATUS = new Set([429, 502, 503, 504])
-
-function defaultIsRetryable(err: unknown): boolean {
-  if (err instanceof Error) {
-    if (ABORT_PATTERNS.some((p) => p.test(err.message) || p.test(err.name))) return true
-    // LlmCallError exposes `status` as a numeric property; check without
-    // hard-importing to avoid a circular dep.
-    const status = (err as unknown as { status?: number }).status
-    if (typeof status === 'number' && RETRYABLE_HTTP_STATUS.has(status)) return true
-  }
-  return false
-}
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms))
@@ -103,8 +80,8 @@ export async function withJudgeRetry<T>(
 ): Promise<JudgeRetryOutcome<T>> {
   const maxAttempts = policy.maxAttempts ?? DEFAULT_MAX_ATTEMPTS
   const timeoutMs = policy.timeoutMs ?? DEFAULT_TIMEOUT_MS
-  const backoff = policy.backoffMs ?? DEFAULT_BACKOFF
-  const isRetryable = policy.isRetryable ?? defaultIsRetryable
+  const backoff = policy.backoffMs ?? backoffMs
+  const isRetryable = policy.isRetryable ?? isTransientLlmError
   const models =
     policy.models && policy.models.length > 0 ? policy.models : [undefined as unknown as string]
 
