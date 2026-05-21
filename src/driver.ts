@@ -153,39 +153,13 @@ export class AgentDriver {
     state: DriverState,
     history: { role: string; content: string }[],
   ): Promise<string> {
-    const lastResponse =
-      history.length > 0
-        ? history[history.length - 1]!.content.slice(0, 2000)
-        : '(no conversation yet — this is the first message)'
-
-    const recentHistory = history
-      .slice(-6)
-      .map((h) => `${h.role}: ${h.content.slice(0, 500)}`)
-      .join('\n\n')
-
-    const resp = await this.tc.chat({
+    return decideNextUserTurn(this.tc, {
+      persona,
+      state,
+      history,
+      productContext: this.productContext,
       model: this.driverModel,
-      messages: [
-        {
-          role: 'system',
-          content: buildDriverSystemPrompt(persona, state, this.productContext),
-        },
-        {
-          role: 'user',
-          content: recentHistory
-            ? `Recent conversation:\n${recentHistory}\n\nThe agent's latest response:\n${lastResponse}`
-            : 'No conversation yet. Send your opening message — in character, phrased as this person actually would.',
-        },
-      ],
-      temperature: 0.5,
-      maxTokens: 700,
     })
-
-    const content =
-      (resp as { choices?: { message?: { content?: string } }[] }).choices?.[0]?.message?.content ??
-      ''
-
-    return content.trim()
   }
 
   /** Handle pending approvals based on persona feedback patterns */
@@ -280,4 +254,60 @@ How to choose your next message:
 Sign-off: respond with exactly "DONE" only when a ${persona.role} would act on this work without redoing it. Nominal task completion is NOT sign-off — sloppy-but-complete still fails. If the agent never gets there, keep pushing; never sign off on weak work.
 
 Output ONLY your next message to the agent — in character, first person, no meta-commentary, no stage directions.`
+}
+
+export interface DecideNextUserTurnOpts {
+  persona: PersonaConfig
+  state: DriverState
+  /** Conversation so far — alternating user/assistant messages, oldest first. */
+  history: { role: string; content: string }[]
+  /** Optional product context woven into the driver prompt. */
+  productContext?: string
+  /** Driver LLM model. Defaults to claude-sonnet-4-6. */
+  model?: string
+}
+
+/**
+ * Decide the simulated user's next turn — the reactive, adversarial
+ * turn-generation core of `AgentDriver`, exposed standalone so an in-process
+ * eval harness can drive multi-shot conversations without the `ProductClient`
+ * workspace machinery. Returns the next user message, or the literal "DONE"
+ * when the simulated professional would sign off.
+ */
+export async function decideNextUserTurn(
+  tc: TCloud,
+  opts: DecideNextUserTurnOpts,
+): Promise<string> {
+  const { persona, state, history, productContext = '', model = 'claude-sonnet-4-6' } = opts
+
+  const lastResponse =
+    history.length > 0
+      ? history[history.length - 1]!.content.slice(0, 2000)
+      : '(no conversation yet — this is the first message)'
+
+  const recentHistory = history
+    .slice(-6)
+    .map((h) => `${h.role}: ${h.content.slice(0, 500)}`)
+    .join('\n\n')
+
+  const resp = await tc.chat({
+    model,
+    messages: [
+      { role: 'system', content: buildDriverSystemPrompt(persona, state, productContext) },
+      {
+        role: 'user',
+        content: recentHistory
+          ? `Recent conversation:\n${recentHistory}\n\nThe agent's latest response:\n${lastResponse}`
+          : 'No conversation yet. Send your opening message — in character, phrased as this person actually would.',
+      },
+    ],
+    temperature: 0.5,
+    maxTokens: 700,
+  })
+
+  const content =
+    (resp as { choices?: { message?: { content?: string } }[] }).choices?.[0]?.message?.content ??
+    ''
+
+  return content.trim()
 }
