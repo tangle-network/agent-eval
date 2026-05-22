@@ -1,5 +1,38 @@
 # Changelog
 
+## 0.34.0 — 2026-05-23
+
+### Eval evolution-tracking — first-class `AgentProfile` + per-cell scorecard
+
+The headline shift: a feature PR's eval can now answer the question a single
+run cannot — *did this change regress persona P on profile F, even while the
+aggregate improved?*
+
+- **`AgentProfile` + `agentProfileHash`** — the harness's unit of variation.
+  Model lives inside the profile (skill/tool order doesn't matter; the `id`
+  label is excluded from identity), so "same model, different skills" is two
+  profiles. (#78)
+- **Append-only JSONL scorecard** keyed `(scenarioId, profileHash)` —
+  `recordRuns` / `recordRunsToScorecard` / `loadScorecard`. Idempotent
+  appends on `eventId` so concurrent campaign runs cannot clobber. (#78)
+- **`diffScorecard`** — per-cell verdict (`improved` / `regressed` / `flat` /
+  `new`) using Cohen's d + Welch's t-test; the keystone CI guard is
+  `diff.cells.filter(c => c.verdict === 'regressed')`. `formatScorecardDiff`
+  renders the PR-facing report. (#78)
+- **Agent profile cells** — `src/agent-profile-cell.ts` extends the profile
+  contract into `RunRecord` rows and `runEvalCampaign` so every campaign row
+  is keyed by `(profile, scenario, seed)` end-to-end. (#79)
+- **Stats consolidation** — `pairedBootstrap`, power analysis, and the
+  paired/Welch primitives now all live in `src/statistics.ts`. (#73)
+- **LLM retry classifier unified** across `llm-client` and `judge-retry`
+  via `isTransientLlmError`. (#74)
+- **`pr-review-benchmark` source committed** — the module was exported from
+  `index.ts` since the run-record refactor but the source files were never
+  committed; CI on `main` has been red on #78/#79/#81 as a result. (#83)
+- **Examples**: `scorecard/`, `held-out-gate/`, `user-simulation-driver/`. (#81)
+
+No breaking changes — additive across the board.
+
 ## 0.33.0 — 2026-05-21
 
 ### Release — `decideNextUserTurn` in the published tarball
