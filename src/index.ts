@@ -3,6 +3,27 @@
 export type { ActionExecutionPolicy, ActionPolicyDecision } from './action-policy'
 export { evaluateActionPolicy } from './action-policy'
 export type {
+  AgentProfileCell,
+  AgentProfileCellInput,
+  AgentProfileCellSchemaVersion,
+  AgentProfileDimensionValue,
+  AgentProfileHarness,
+  AgentProfileJson,
+  AgentProfileSource,
+  AgentProfileSourceInput,
+} from './agent-profile-cell'
+export {
+  AgentProfileCellValidationError,
+  agentProfileCellHashMaterial,
+  agentProfileCellKey,
+  assertRunAgentProfileCell,
+  buildAgentProfileCell,
+  groupRunsByAgentProfileCell,
+  requireAgentProfileCell,
+  validateAgentProfileCell,
+  verifyAgentProfileCell,
+} from './agent-profile-cell'
+export type {
   JudgeAdapterOpts,
   RunCriticAdapterOpts,
   SemanticConceptJudgeAdapterOpts,

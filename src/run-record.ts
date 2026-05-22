@@ -23,6 +23,10 @@
  * dependency. Round-trip tested in `tests/run-record.test.ts`.
  */
 
+import type { AgentProfileCell } from './agent-profile-cell'
+import { validateAgentProfileCell } from './agent-profile-cell'
+import { ValidationError } from './errors'
+
 /** Search/dev/holdout split tag. 'search' is the paper-grade alias for the
  *  combined train+test pool that the optimizer is allowed to read. */
 export type RunSplitTag = 'search' | 'dev' | 'holdout'
@@ -163,6 +167,14 @@ export interface RunRecord {
    * or `experimentId`.
    */
   scenarioId?: string
+  /**
+   * Canonical identity for the agent profile cell that produced this row:
+   * profile artifact hash plus optional harness/model/prompt/reporting
+   * dimensions. Use `agentProfile.cellId` to group persona sweeps and
+   * longitudinal reports by the complete source profile, not by a loose
+   * candidate label or opaque config hash.
+   */
+  agentProfile?: AgentProfileCell
 }
 
 // ── Validation ───────────────────────────────────────────────────────
@@ -182,8 +194,6 @@ const MANDATORY_TOP_LEVEL = [
   'outcome',
   'splitTag',
 ] as const
-
-import { ValidationError } from './errors'
 
 const SPLIT_TAGS: ReadonlyArray<RunSplitTag> = ['search', 'dev', 'holdout']
 
@@ -291,6 +301,30 @@ export function validateRunRecord(input: unknown): RunRecord {
 
   // Failure mode optional.
   if (obj.failureMode !== undefined) expectString(obj.failureMode, 'failureMode')
+
+  if (obj.agentProfile !== undefined) {
+    try {
+      const profile = validateAgentProfileCell(obj.agentProfile)
+      if (profile.model !== undefined && profile.model !== obj.model) {
+        throw new RunRecordValidationError(
+          `agentProfile.model "${profile.model}" does not match model "${obj.model}"`,
+          'agentProfile.model',
+        )
+      }
+      if (profile.promptHash !== undefined && profile.promptHash !== obj.promptHash) {
+        throw new RunRecordValidationError(
+          `agentProfile.promptHash "${profile.promptHash}" does not match promptHash "${obj.promptHash}"`,
+          'agentProfile.promptHash',
+        )
+      }
+    } catch (error) {
+      if (error instanceof RunRecordValidationError) throw error
+      if (error instanceof Error) {
+        throw new RunRecordValidationError(error.message, 'agentProfile')
+      }
+      throw error
+    }
+  }
 
   // Split tag.
   if (typeof obj.splitTag !== 'string' || !SPLIT_TAGS.includes(obj.splitTag as RunSplitTag)) {
