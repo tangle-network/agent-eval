@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.33.1 — 2026-05-22
+
+### Release — agent profile cells
+
+Publishes `AgentProfileCell` and helpers for persona eval runs:
+`buildAgentProfileCell`, `validateAgentProfileCell`,
+`verifyAgentProfileCell`, `assertRunAgentProfileCell`,
+`groupRunsByAgentProfileCell`, and `agentProfileCellKey`.
+
+Consumers can now fingerprint their canonical runtime profile, attach the
+result to `RunRecord.agentProfile`, and track regressions by
+persona × profile cell over time.
+
 ## 0.33.0 — 2026-05-21
 
 ### Release — `decideNextUserTurn` in the published tarball
