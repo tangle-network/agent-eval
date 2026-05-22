@@ -38,6 +38,12 @@
  *   - LLM-call retry beyond what `LlmClient` already does
  */
 
+import {
+  type AgentProfileCell,
+  type AgentProfileCellInput,
+  buildAgentProfileCell,
+  verifyAgentProfileCell,
+} from './agent-profile-cell'
 import { assertLlmRoute, type LlmClientOptions, type LlmRouteRequirements } from './llm-client'
 import { canonicalize, hashJson } from './pre-registration'
 import type {
@@ -48,6 +54,7 @@ import type {
   RunSplitTag,
   RunTokenUsage,
 } from './run-record'
+import { validateRunRecord } from './run-record'
 import { type ResearchReport, type ResearchReportOptions, researchReport } from './summary-report'
 import type { RunCompleteHook } from './trace/emitter'
 import { TraceEmitter } from './trace/emitter'
@@ -127,6 +134,12 @@ export interface CampaignRunOutcome {
    * Single-judge or scalar-only runs leave this unset.
    */
   judgeScores?: JudgeScoresRecord
+  /**
+   * Agent profile cell observed by the runner. When supplied, it overrides
+   * `EvalCampaignOptions.agentProfile` for this run and must match the
+   * outcome's `model` and `promptHash`.
+   */
+  agentProfile?: AgentProfileCell | AgentProfileCellInput
 }
 
 export type CampaignRunner<V> = (ctx: CampaignRunContext<V>) => Promise<CampaignRunOutcome>
@@ -216,6 +229,24 @@ export interface EvalCampaignOptions<V> {
   now?: () => number
   /** Override the runId generator. Tests pin this. */
   runId?: (params: CampaignFactoryParams) => string
+  /**
+   * Agent profile cell for campaign runs. Static profiles can pass an object;
+   * routers or variant-specific harnesses can pass a factory. The campaign
+   * stamps the built cell onto every `RunRecord` and rejects profile/model or
+   * profile/prompt contradictions.
+   */
+  agentProfile?:
+    | AgentProfileCell
+    | AgentProfileCellInput
+    | ((
+        params: CampaignFactoryParams & {
+          variant: V
+          scenarioTags: Record<string, string>
+        },
+      ) =>
+        | AgentProfileCell
+        | AgentProfileCellInput
+        | Promise<AgentProfileCell | AgentProfileCellInput>)
 }
 
 export interface CampaignFactoryParams {
@@ -484,7 +515,25 @@ export async function runEvalCampaign<V>(
       splitTag,
       scenarioId: cell.scenario.scenarioId,
     }
-    return { record, integrity: integrityReport }
+    const profileSource =
+      outcome.agentProfile ??
+      (typeof opts.agentProfile === 'function'
+        ? await opts.agentProfile({
+            campaignId: opts.campaignId,
+            runId,
+            variantId: cell.variant.id,
+            scenarioId: cell.scenario.scenarioId,
+            seed: cell.seed,
+            variant: cell.variant.payload,
+            scenarioTags: cell.scenario.tags ?? {},
+          })
+        : opts.agentProfile)
+    if (profileSource !== undefined) {
+      const agentProfile = await resolveAgentProfileCell(profileSource)
+      assertAgentProfileMatchesRun(agentProfile, outcome.model, outcome.promptHash)
+      record.agentProfile = agentProfile
+    }
+    return { record: validateRunRecord(record), integrity: integrityReport }
   }
 
   const workers = Array.from({ length: Math.min(concurrency, cells.length) }, () => worker())
@@ -540,6 +589,41 @@ function defaultRawSinkFactory(workDir: string | undefined) {
     return new FileSystemRawProviderSink({
       dir: `${workDir}/raw-events/${params.runId}`,
     })
+  }
+}
+
+async function resolveAgentProfileCell(
+  input: AgentProfileCell | AgentProfileCellInput,
+): Promise<AgentProfileCell> {
+  if (isAgentProfileCell(input)) {
+    if (!(await verifyAgentProfileCell(input))) {
+      throw new Error(`runEvalCampaign: agentProfile.cellId does not match its content`)
+    }
+    return input
+  }
+  return buildAgentProfileCell(input)
+}
+
+function isAgentProfileCell(
+  input: AgentProfileCell | AgentProfileCellInput,
+): input is AgentProfileCell {
+  return 'schemaVersion' in input && 'cellId' in input
+}
+
+function assertAgentProfileMatchesRun(
+  profile: AgentProfileCell,
+  model: string,
+  promptHash: string,
+): void {
+  if (profile.model !== undefined && profile.model !== model) {
+    throw new Error(
+      `runEvalCampaign: agentProfile.model "${profile.model}" does not match outcome.model "${model}"`,
+    )
+  }
+  if (profile.promptHash !== undefined && profile.promptHash !== promptHash) {
+    throw new Error(
+      `runEvalCampaign: agentProfile.promptHash "${profile.promptHash}" does not match outcome.promptHash "${promptHash}"`,
+    )
   }
 }
 

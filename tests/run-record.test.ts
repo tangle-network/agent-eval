@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { buildAgentProfileCell } from '../src/agent-profile-cell'
 import {
   validateRunRecord,
   isRunRecord,
@@ -52,6 +53,19 @@ describe('validateRunRecord — happy path', () => {
     const r = makeRecord()
     const out = roundTripRunRecord(r)
     expect(out).toEqual(r)
+  })
+
+  it('accepts an agentProfile cell that matches model and promptHash', async () => {
+    const agentProfile = await buildAgentProfileCell({
+      profileId: 'gtm-founder-v1',
+      sourceProfile: { kind: 'sandbox-agent-profile', profile: { name: 'gtm-agent' } },
+      harness: { id: 'gtm-agent-eval', version: '0.3.0' },
+      model: 'claude-sonnet-4-6@2025-04-15',
+      promptHash: 'a'.repeat(64),
+    })
+    const r = makeRecord({ agentProfile })
+    expect(validateRunRecord(r).agentProfile?.cellId).toBe(agentProfile.cellId)
+    expect(roundTripRunRecord(r).agentProfile).toEqual(agentProfile)
   })
 
   it('isRunRecord returns true for a valid record', () => {
@@ -152,6 +166,22 @@ describe('validateRunRecord — mandatory field enforcement', () => {
       },
     })
     expect(() => validateRunRecord(r)).toThrow(/fallback must be boolean/)
+  })
+
+  it('rejects an agentProfile cell that contradicts the executed model or prompt', async () => {
+    const agentProfile = await buildAgentProfileCell({
+      profileId: 'gtm-founder-v1',
+      sourceProfile: { kind: 'sandbox-agent-profile', profile: { name: 'gtm-agent' } },
+      harness: { id: 'gtm-agent-eval', version: '0.3.0' },
+      model: 'claude-sonnet-4-6@2025-04-15',
+      promptHash: 'a'.repeat(64),
+    })
+    expect(() =>
+      validateRunRecord(makeRecord({ model: 'gpt-4o-2024-11-20', agentProfile })),
+    ).toThrow(/does not match model/)
+    expect(() =>
+      validateRunRecord(makeRecord({ promptHash: 'b'.repeat(64), agentProfile })),
+    ).toThrow(/does not match promptHash/)
   })
 
   it('parseRunRecordSafe returns ok=false on validation error', () => {

@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { buildAgentProfileCell } from '../src/agent-profile-cell'
 import { runEvalCampaign } from '../src/eval-campaign'
 import { InMemoryTraceStore } from '../src/trace/store'
 import {
@@ -109,6 +110,39 @@ describe('runEvalCampaign — happy path', () => {
     expect(result.report?.recommendation.decision).toMatch(/promote|hold|equivalent|reject|needs_more_data/)
     // Fingerprint of the run set is in the report independent of the campaign fingerprint.
     expect(result.report?.runFingerprint).toMatch(/^[0-9a-f]{64}$/)
+  })
+
+  it('stamps every run with a canonical agent profile cell', async () => {
+    const result = await runEvalCampaign(baseOpts({
+      agentProfile: ({ variantId }) => ({
+        profileId: `gtm-${variantId}`,
+        sourceProfile: {
+          kind: 'sandbox-agent-profile',
+          profile: { name: 'gtm-agent', variantId, permissions: { bash: 'ask' } },
+        },
+        harness: { id: 'gtm-agent-eval', version: '0.3.0' },
+        model: 'test-model@2026-05-08',
+        promptHash: 'p'.repeat(64),
+      }),
+    }))
+
+    expect(new Set(result.runs.map((r) => r.agentProfile?.cellId)).size).toBe(2)
+    expect(result.runs.every((r) => r.agentProfile?.model === r.model)).toBe(true)
+    expect(result.runs.every((r) => r.agentProfile?.promptHash === r.promptHash)).toBe(true)
+  })
+
+  it('rejects a prebuilt agent profile cell when it contradicts the observed run', async () => {
+    const agentProfile = await buildAgentProfileCell({
+      profileId: 'gtm-bad-cell',
+      sourceProfile: { kind: 'sandbox-agent-profile', profile: { name: 'gtm-agent' } },
+      harness: { id: 'gtm-agent-eval', version: '0.3.0' },
+      model: 'different-model@2026-05-08',
+      promptHash: 'p'.repeat(64),
+    })
+
+    await expect(runEvalCampaign(baseOpts({ agentProfile }))).rejects.toThrow(
+      /does not match outcome.model/,
+    )
   })
 
   it('embeds preregistration hash in the report when supplied', async () => {

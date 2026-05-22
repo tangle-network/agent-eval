@@ -630,7 +630,13 @@ describe('AnalystRegistry.runStream', () => {
     expect(result.findings.map((f) => f.finding_id)).toEqual(
       streamResult?.findings.map((f) => f.finding_id),
     )
-    expect(result.per_analyst).toEqual(streamResult?.per_analyst)
+    expect(result.per_analyst.map(({ latency_ms: _latencyMs, ...summary }) => summary)).toEqual(
+      streamResult?.per_analyst.map(({ latency_ms: _latencyMs, ...summary }) => summary),
+    )
+    expect(result.per_analyst.every((summary) => Number.isFinite(summary.latency_ms))).toBe(true)
+    expect(streamResult?.per_analyst.every((summary) => Number.isFinite(summary.latency_ms))).toBe(
+      true,
+    )
   })
 
   it('honours backpressure: slow consumer between events preserves ordering', async () => {

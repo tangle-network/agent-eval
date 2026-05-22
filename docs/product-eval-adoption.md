@@ -115,6 +115,24 @@ const record = controlRunToRunRecord(controlResult, {
 })
 ```
 
+When a run evaluates an agent persona/profile, stamp the full profile cell on
+the record:
+
+```ts
+const agentProfile = await buildAgentProfileCell({
+  profileId: 'gtm-founder-v1',
+  sourceProfile: { kind: 'sandbox-agent-profile', profile: gtmAgentProfile },
+  harness: { id: 'gtm-agent-eval', version: '0.3.0' },
+  model: 'gpt-4o-2024-11-20',
+  promptHash,
+  dimensions: { personaSuite: 'business-owner' },
+})
+```
+
+Use `agentProfile.cellId` as the longitudinal grouping key for persona sweeps.
+It changes when the hashed source profile, harness, model, prompt hash, or
+explicit reporting dimensions change.
+
 ## Datasets And Holdouts
 
 Use four splits:
