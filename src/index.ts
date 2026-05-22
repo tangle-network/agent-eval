@@ -241,6 +241,26 @@ export {
   MODEL_PRICING,
   TokenCounter,
 } from './metrics'
+export type {
+  PrReviewAuditCase,
+  PrReviewBenchmarkSummary,
+  PrReviewComment,
+  PrReviewMatchedFinding,
+  PrReviewOutcome,
+  PrReviewReferenceFinding,
+  PrReviewScore,
+  PrReviewScoreWeights,
+  PrReviewSeverity,
+  PrReviewSource,
+} from './pr-review-benchmark'
+export {
+  aggregatePrReviewScore,
+  commentsForSource,
+  DEFAULT_PR_REVIEW_SCORE_WEIGHTS,
+  scorePrReviewComments,
+  scorePrReviewSource,
+  summarizePrReviewBenchmark,
+} from './pr-review-benchmark'
 /**
  * @experimental
  */
@@ -553,6 +573,8 @@ export { buildTrajectory } from './trajectory'
 
 // ── Auxiliary statistical + decision modules ─────────────────────────
 
+export type { AgentProfile } from './agent-profile'
+export { agentProfileHash } from './agent-profile'
 export type { BaselineOptions, BaselineReport, MetricSamples, MetricVerdict } from './baseline'
 export { compareToBaseline, iqr, welchsTTest } from './baseline'
 export type { CostEntry, CostSummary, ScenarioCost, TokenSpec } from './cost-tracker'
@@ -580,6 +602,26 @@ export {
 } from './oracle'
 export type { Direction, Objective, ParetoResult } from './pareto'
 export { dominates, paretoFrontier } from './pareto'
+// ── Eval scorecard — (persona × profile) score timeline ──────────────
+export type {
+  CellVerdict,
+  DiffScorecardOptions,
+  RecordRunsOptions,
+  Scorecard,
+  ScorecardCell,
+  ScorecardCellDiff,
+  ScorecardDiff,
+  ScorecardEntry,
+  ScorecardLogLine,
+} from './scorecard'
+export {
+  appendScorecard,
+  diffScorecard,
+  formatScorecardDiff,
+  loadScorecard,
+  recordRuns,
+  recordRunsToScorecard,
+} from './scorecard'
 export type { SeriesConvergenceOptions, SeriesConvergenceResult } from './series-convergence'
 export { analyzeSeries } from './series-convergence'
 export type { Slo, SloCheckResult, SloComparator, SloReport, SloSeverity } from './slo'
