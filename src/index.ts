@@ -19,6 +19,7 @@ export {
   assertRunAgentProfileCell,
   buildAgentProfileCell,
   groupRunsByAgentProfileCell,
+  isAgentProfileCell,
   requireAgentProfileCell,
   validateAgentProfileCell,
   verifyAgentProfileCell,

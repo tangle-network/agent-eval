@@ -6,6 +6,7 @@ import {
   assertRunAgentProfileCell,
   buildAgentProfileCell,
   groupRunsByAgentProfileCell,
+  isAgentProfileCell,
   requireAgentProfileCell,
   validateAgentProfileCell,
   verifyAgentProfileCell,
@@ -124,5 +125,15 @@ describe('agent profile cells', () => {
     await expect(
       assertRunAgentProfileCell({ ...record, model: 'gpt-4o-2024-11-20' }),
     ).rejects.toThrow(/does not match model/)
+  })
+
+  it('type-guards agent profile cells vs inputs', async () => {
+    const cell = await buildAgentProfileCell(INPUT)
+    expect(isAgentProfileCell(cell)).toBe(true)
+    expect(isAgentProfileCell(INPUT)).toBe(false)
+    expect(isAgentProfileCell(null)).toBe(false)
+    expect(isAgentProfileCell('string')).toBe(false)
+    expect(isAgentProfileCell({})).toBe(false)
+    expect(isAgentProfileCell({ schemaVersion: 'agent-profile-cell/v1' })).toBe(false)
   })
 })

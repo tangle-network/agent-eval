@@ -42,6 +42,7 @@ import {
   type AgentProfileCell,
   type AgentProfileCellInput,
   buildAgentProfileCell,
+  isAgentProfileCell,
   verifyAgentProfileCell,
 } from './agent-profile-cell'
 import { assertLlmRoute, type LlmClientOptions, type LlmRouteRequirements } from './llm-client'
@@ -602,12 +603,6 @@ async function resolveAgentProfileCell(
     return input
   }
   return buildAgentProfileCell(input)
-}
-
-function isAgentProfileCell(
-  input: AgentProfileCell | AgentProfileCellInput,
-): input is AgentProfileCell {
-  return 'schemaVersion' in input && 'cellId' in input
 }
 
 function assertAgentProfileMatchesRun(

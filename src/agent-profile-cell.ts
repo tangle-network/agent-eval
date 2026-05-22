@@ -89,6 +89,23 @@ export async function verifyAgentProfileCell(cell: AgentProfileCell): Promise<bo
   )
 }
 
+export function isAgentProfileCell(input: unknown): input is AgentProfileCell {
+  if (input === null || typeof input !== 'object') return false
+  const maybe = input as Record<string, unknown>
+  return (
+    maybe.schemaVersion === 'agent-profile-cell/v1' &&
+    typeof maybe.cellId === 'string' &&
+    CELL_ID.test(maybe.cellId) &&
+    typeof maybe.profileId === 'string' &&
+    maybe.profileId.length > 0 &&
+    typeof maybe.sourceProfile === 'object' &&
+    maybe.sourceProfile !== null &&
+    !Array.isArray(maybe.sourceProfile) &&
+    typeof (maybe.sourceProfile as Record<string, unknown>).kind === 'string' &&
+    typeof (maybe.sourceProfile as Record<string, unknown>).hash === 'string'
+  )
+}
+
 export function validateAgentProfileCell(input: unknown): AgentProfileCell {
   if (input === null || typeof input !== 'object') {
     throw new AgentProfileCellValidationError('expected object')
