@@ -357,3 +357,108 @@ function requireSha256Hex(value: unknown, path: string): string {
   }
   return value
 }
+
+// ── Consumer helpers ─────────────────────────────────────────────────
+//
+// Two pieces of boilerplate every product consuming `buildAgentProfileCell`
+// has been duplicating (gtm-agent #137, blueprint-agent #1756/#1757):
+//
+//   1. A `JSON.parse(JSON.stringify(value))` helper that canonicalizes an
+//      arbitrary sandbox-SDK `AgentProfile` into the recursive
+//      `AgentProfileJson` shape, with a fail-loud error when the profile
+//      is not JSON-serializable.
+//
+//   2. The magic string `'sandbox-agent-profile'` for `sourceProfile.kind`.
+//
+// Both belong here so the cross-product cell join (same canonical profile
+// hashes to the same `sourceProfile.hash` across products) is enforced by
+// the type system, not by every consumer remembering to do it right.
+// See blueprint-agent issue tangle-network/agent-eval#82.
+
+/** Canonical `sourceProfile.kind` values. Two products fingerprinting the
+ *  same canonical profile MUST use the same kind for their cells to share
+ *  `sourceProfile.hash`. Extend rather than create new strings — adding a
+ *  new kind is a deliberate cross-product schema change. */
+export const AGENT_PROFILE_KINDS = {
+  /** A profile declared via `defineAgentProfile(...)` from
+   *  `@tangle-network/sandbox`. The default kind for sandbox-hosted
+   *  products (gtm-agent, blueprint-agent, sandbox, evals). */
+  SANDBOX_AGENT_PROFILE: 'sandbox-agent-profile',
+} as const
+
+export type AgentProfileKind = (typeof AGENT_PROFILE_KINDS)[keyof typeof AGENT_PROFILE_KINDS]
+
+/** Canonicalize an arbitrary value into `AgentProfileJson` by JSON
+ *  round-trip. Throws when the value contains anything not representable
+ *  as JSON (functions, BigInt, cycles) — non-portable profiles fail loud
+ *  rather than silently dropping fields. */
+export function toAgentProfileJson(value: unknown): AgentProfileJson {
+  let serialized: string | undefined
+  try {
+    serialized = JSON.stringify(value)
+  } catch (err) {
+    throw new AgentProfileCellValidationError(
+      `agent profile must be JSON-serializable: ${err instanceof Error ? err.message : String(err)}`,
+      'sourceProfile.profile',
+    )
+  }
+  if (serialized === undefined) {
+    throw new AgentProfileCellValidationError(
+      'agent profile must be JSON-serializable (got undefined after JSON.stringify)',
+      'sourceProfile.profile',
+    )
+  }
+  return JSON.parse(serialized) as AgentProfileJson
+}
+
+/** Minimal shape required of any sandbox-SDK `AgentProfile` — anything
+ *  with a non-empty `name` and `version` plus JSON-serializable contents.
+ *  Compatible with `defineAgentProfile(...)` output from
+ *  `@tangle-network/sandbox`; products that have not yet declared a real
+ *  profile can pass a `{ name, version, ...metadata }` stub. */
+export interface SandboxAgentProfileLike {
+  name: string
+  version: string
+  [key: string]: unknown
+}
+
+/** Higher-level helper that hard-codes the canonical
+ *  `sandbox-agent-profile` kind plus the JSON canonicalization. Equivalent
+ *  to calling `buildAgentProfileCell` with `profileId = \`${name}@${version}\``
+ *  and `sourceProfile = { kind: SANDBOX_AGENT_PROFILE, profile: <round-tripped> }`.
+ *
+ *  Use this from any product consuming a sandbox-SDK `AgentProfile`; the
+ *  manual `buildAgentProfileCell` call is reserved for advanced cases
+ *  (custom kinds, pre-computed source hashes, alternate profileId
+ *  conventions). */
+export async function buildSandboxAgentProfileCell(
+  profile: SandboxAgentProfileLike,
+  input: Omit<AgentProfileCellInput, 'profileId' | 'sourceProfile'>,
+): Promise<AgentProfileCell> {
+  if (!profile || typeof profile !== 'object') {
+    throw new AgentProfileCellValidationError(
+      'sandbox AgentProfile must be an object',
+      'profile',
+    )
+  }
+  if (typeof profile.name !== 'string' || profile.name.length === 0) {
+    throw new AgentProfileCellValidationError(
+      'sandbox AgentProfile must have a non-empty `name`',
+      'profile.name',
+    )
+  }
+  if (typeof profile.version !== 'string' || profile.version.length === 0) {
+    throw new AgentProfileCellValidationError(
+      'sandbox AgentProfile must have a non-empty `version`',
+      'profile.version',
+    )
+  }
+  return buildAgentProfileCell({
+    ...input,
+    profileId: `${profile.name}@${profile.version}`,
+    sourceProfile: {
+      kind: AGENT_PROFILE_KINDS.SANDBOX_AGENT_PROFILE,
+      profile: toAgentProfileJson(profile),
+    },
+  })
+}

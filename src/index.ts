@@ -9,17 +9,22 @@ export type {
   AgentProfileDimensionValue,
   AgentProfileHarness,
   AgentProfileJson,
+  AgentProfileKind,
   AgentProfileSource,
   AgentProfileSourceInput,
+  SandboxAgentProfileLike,
 } from './agent-profile-cell'
 export {
+  AGENT_PROFILE_KINDS,
   AgentProfileCellValidationError,
   agentProfileCellHashMaterial,
   agentProfileCellKey,
   assertRunAgentProfileCell,
   buildAgentProfileCell,
+  buildSandboxAgentProfileCell,
   groupRunsByAgentProfileCell,
   requireAgentProfileCell,
+  toAgentProfileJson,
   validateAgentProfileCell,
   verifyAgentProfileCell,
 } from './agent-profile-cell'
