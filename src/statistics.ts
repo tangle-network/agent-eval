@@ -578,3 +578,248 @@ function normalCdf(x: number): number {
 
   return 0.5 * (1 + sign * y)
 }
+
+// ── Power analysis + multiple-comparison correction ──────────────────
+
+/**
+ * Required N per arm for a two-sample comparison at target effect size,
+ * alpha, and power. Normal-approximation formula:
+ *   n = 2 * ( (z_{1-α/2} + z_{1-β}) / d )^2
+ * where d is Cohen's d. Returns Infinity for effect ≤ 0.
+ */
+export function requiredSampleSize(opts: {
+  effect: number
+  alpha?: number
+  power?: number
+  twoSided?: boolean
+}): number {
+  const effect = opts.effect
+  if (!Number.isFinite(effect) || effect <= 0) return Infinity
+  const alpha = opts.alpha ?? 0.05
+  const power = opts.power ?? 0.8
+  const twoSided = opts.twoSided ?? true
+  const zAlpha = zQuantile(twoSided ? 1 - alpha / 2 : 1 - alpha)
+  const zBeta = zQuantile(power)
+  const n = 2 * ((zAlpha + zBeta) / effect) ** 2
+  return Math.ceil(n)
+}
+
+/**
+ * Minimum detectable paired effect (standardised units) for a target paired
+ * sample size: d_min = (z_{1-α/2} + z_β) / sqrt(n_paired). Multiply by
+ * sd(deltas) for score units; treat as a lower bound — Wilcoxon and bootstrap
+ * have asymptotic relative efficiency below 1 vs the t-test on heavy tails.
+ */
+export function pairedMde(opts: {
+  nPaired: number
+  alpha?: number
+  power?: number
+  twoSided?: boolean
+}): number {
+  if (!Number.isFinite(opts.nPaired) || opts.nPaired <= 0) return Infinity
+  const alpha = opts.alpha ?? 0.05
+  const power = opts.power ?? 0.8
+  const twoSided = opts.twoSided ?? true
+  const zAlpha = zQuantile(twoSided ? 1 - alpha / 2 : 1 - alpha)
+  const zBeta = zQuantile(power)
+  return (zAlpha + zBeta) / Math.sqrt(opts.nPaired)
+}
+
+/** Bonferroni adjustment: multiply every p-value by the test count, clamp at 1. */
+export function bonferroni(
+  pValues: number[],
+  alpha = 0.05,
+): { adjusted: number[]; significant: boolean[] } {
+  const k = pValues.length
+  const adjusted = pValues.map((p) => Math.min(1, p * k))
+  const significant = adjusted.map((p) => p < alpha)
+  return { adjusted, significant }
+}
+
+/**
+ * Benjamini–Hochberg false discovery rate. Returns adjusted q-values and
+ * significance at the target FDR; handles ties and preserves q monotonicity.
+ */
+export function benjaminiHochberg(
+  pValues: number[],
+  fdr = 0.05,
+): { qValues: number[]; significant: boolean[] } {
+  const n = pValues.length
+  if (n === 0) return { qValues: [], significant: [] }
+  const indexed = pValues.map((p, i) => ({ p, i })).sort((a, b) => a.p - b.p)
+  const q = new Array<number>(n)
+  let minRight = 1
+  for (let k = n - 1; k >= 0; k--) {
+    const rank = k + 1
+    const entry = indexed[k]!
+    const raw = (entry.p * n) / rank
+    const bounded = Math.min(minRight, raw)
+    minRight = bounded
+    q[entry.i] = Math.min(1, bounded)
+  }
+  const significant = q.map((v) => v < fdr)
+  return { qValues: q, significant }
+}
+
+// ── Paired bootstrap (promotion-gate effect size) ────────────────────
+
+export interface PairedBootstrapResult {
+  /** Number of paired observations. */
+  n: number
+  /** Median of paired deltas (after − before). */
+  median: number
+  /** Mean of paired deltas. */
+  mean: number
+  /** Lower bound of the bootstrap CI on the chosen statistic. */
+  low: number
+  /** Upper bound of the bootstrap CI on the chosen statistic. */
+  high: number
+  /** Confidence level used (e.g. 0.95). */
+  confidence: number
+  /** Number of bootstrap resamples used. */
+  resamples: number
+}
+
+export interface PairedBootstrapOptions {
+  /** Confidence level. Default 0.95. */
+  confidence?: number
+  /** Bootstrap resample count. Default 2000. */
+  resamples?: number
+  /** Statistic to bootstrap. Default 'median'. */
+  statistic?: 'median' | 'mean'
+  /** Deterministic seed. If omitted, uses Math.random(). */
+  seed?: number
+}
+
+/**
+ * Paired bootstrap on (after − before) deltas. Returns a CI on the chosen
+ * statistic (median by default); pairs are resampled with replacement. The
+ * lower bound is what the promotion gate checks — `low > threshold` means the
+ * gain is real at the confidence level. Throws on unequal sample sizes.
+ */
+export function pairedBootstrap(
+  before: number[],
+  after: number[],
+  opts: PairedBootstrapOptions = {},
+): PairedBootstrapResult {
+  if (before.length !== after.length) {
+    throw new Error(`pairedBootstrap: unequal sample sizes (${before.length} vs ${after.length})`)
+  }
+  const confidence = opts.confidence ?? 0.95
+  const resamples = opts.resamples ?? 2000
+  const statistic = opts.statistic ?? 'median'
+  if (confidence <= 0 || confidence >= 1) {
+    throw new Error(`pairedBootstrap: confidence must be in (0,1), got ${confidence}`)
+  }
+
+  const n = before.length
+  const deltas = before.map((b, i) => after[i]! - b)
+  if (n === 0) {
+    return { n: 0, median: 0, mean: 0, low: 0, high: 0, confidence, resamples }
+  }
+  if (n === 1) {
+    const d = deltas[0]!
+    return { n: 1, median: d, mean: d, low: d, high: d, confidence, resamples }
+  }
+
+  const rng = makeRng(opts.seed)
+  const samples = new Array<number>(resamples)
+  for (let b = 0; b < resamples; b++) {
+    if (statistic === 'mean') {
+      let sum = 0
+      for (let k = 0; k < n; k++) {
+        sum += deltas[Math.floor(rng() * n)]!
+      }
+      samples[b] = sum / n
+    } else {
+      const acc = new Array<number>(n)
+      for (let k = 0; k < n; k++) {
+        acc[k] = deltas[Math.floor(rng() * n)]!
+      }
+      samples[b] = medianInPlace(acc)
+    }
+  }
+  samples.sort((a, b) => a - b)
+
+  const alpha = 1 - confidence
+  const lowIdx = Math.floor((alpha / 2) * resamples)
+  const highIdx = Math.min(resamples - 1, Math.ceil((1 - alpha / 2) * resamples) - 1)
+
+  return {
+    n,
+    median: medianInPlace([...deltas]),
+    mean: deltas.reduce((s, x) => s + x, 0) / n,
+    low: samples[lowIdx]!,
+    high: samples[Math.max(highIdx, lowIdx)]!,
+    confidence,
+    resamples,
+  }
+}
+
+// ── private stats helpers ────────────────────────────────────────────
+
+/** Standard-normal inverse CDF (Acklam approximation). */
+function zQuantile(p: number): number {
+  if (p <= 0 || p >= 1) {
+    if (p === 0) return -Infinity
+    if (p === 1) return Infinity
+    return NaN
+  }
+  const a = [
+    -3.969683028665376e1, 2.209460984245205e2, -2.759285104469687e2, 1.38357751867269e2,
+    -3.066479806614716e1, 2.506628277459239,
+  ]
+  const b = [
+    -5.447609879822406e1, 1.615858368580409e2, -1.556989798598866e2, 6.680131188771972e1,
+    -1.328068155288572e1,
+  ]
+  const c = [
+    -7.784894002430293e-3, -3.223964580411365e-1, -2.400758277161838, -2.549732539343734,
+    4.374664141464968, 2.938163982698783,
+  ]
+  const d = [7.784695709041462e-3, 3.224671290700398e-1, 2.445134137142996, 3.754408661907416]
+  const pLow = 0.02425
+  const pHigh = 1 - pLow
+  let q: number
+  let r: number
+  if (p < pLow) {
+    q = Math.sqrt(-2 * Math.log(p))
+    return (
+      (((((c[0]! * q + c[1]!) * q + c[2]!) * q + c[3]!) * q + c[4]!) * q + c[5]!) /
+      ((((d[0]! * q + d[1]!) * q + d[2]!) * q + d[3]!) * q + 1)
+    )
+  }
+  if (p <= pHigh) {
+    q = p - 0.5
+    r = q * q
+    return (
+      ((((((a[0]! * r + a[1]!) * r + a[2]!) * r + a[3]!) * r + a[4]!) * r + a[5]!) * q) /
+      (((((b[0]! * r + b[1]!) * r + b[2]!) * r + b[3]!) * r + b[4]!) * r + 1)
+    )
+  }
+  q = Math.sqrt(-2 * Math.log(1 - p))
+  return (
+    -(((((c[0]! * q + c[1]!) * q + c[2]!) * q + c[3]!) * q + c[4]!) * q + c[5]!) /
+    ((((d[0]! * q + d[1]!) * q + d[2]!) * q + d[3]!) * q + 1)
+  )
+}
+
+function medianInPlace(xs: number[]): number {
+  if (xs.length === 0) return 0
+  xs.sort((a, b) => a - b)
+  const mid = Math.floor(xs.length / 2)
+  return xs.length % 2 === 0 ? (xs[mid - 1]! + xs[mid]!) / 2 : xs[mid]!
+}
+
+/** Tiny seedable PRNG (mulberry32) — deterministic bootstrap resampling, not cryptographic. */
+function makeRng(seed: number | undefined): () => number {
+  if (seed === undefined) return Math.random
+  let s = seed | 0 || 0x9e3779b9
+  return () => {
+    s = (s + 0x6d2b79f5) | 0
+    let t = s
+    t = Math.imul(t ^ (t >>> 15), t | 1)
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61)
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296
+  }
+}

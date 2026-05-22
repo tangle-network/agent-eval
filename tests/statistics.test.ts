@@ -1,14 +1,19 @@
 import { describe, expect, it } from 'vitest'
 import {
   type CorpusScoreRecord,
+  benjaminiHochberg,
+  bonferroni,
   cohensD,
   confidenceInterval,
   corpusInterRaterAgreement,
   corpusInterRaterAgreementFromJudgeScores,
   mannWhitneyU,
   normalizeScores,
+  pairedBootstrap,
+  pairedMde,
   pairedTTest,
   partialCredit,
+  requiredSampleSize,
   weightedMean,
   wilcoxonSignedRank,
 } from '../src/statistics'
@@ -383,5 +388,146 @@ describe('corpusInterRaterAgreement', () => {
         { bootstrap: 0 },
       ),
     ).toThrow(/duplicate itemId 's1'/)
+  })
+})
+
+describe('requiredSampleSize', () => {
+  it('returns Infinity on non-positive effect', () => {
+    expect(requiredSampleSize({ effect: 0 })).toBe(Infinity)
+    expect(requiredSampleSize({ effect: -0.2 })).toBe(Infinity)
+  })
+
+  it("gives the expected N for Cohen's d=0.5 at 80% power, alpha=0.05, two-sided", () => {
+    const n = requiredSampleSize({ effect: 0.5 })
+    // Classical answer: ~63 per arm. Allow ±3 for approximation.
+    expect(n).toBeGreaterThanOrEqual(60)
+    expect(n).toBeLessThanOrEqual(66)
+  })
+
+  it('larger effect → smaller N', () => {
+    const small = requiredSampleSize({ effect: 0.2 })
+    const large = requiredSampleSize({ effect: 0.8 })
+    expect(large).toBeLessThan(small)
+  })
+})
+
+describe('pairedMde', () => {
+  it('returns Infinity on non-positive sample size', () => {
+    expect(pairedMde({ nPaired: 0 })).toBe(Infinity)
+    expect(pairedMde({ nPaired: -5 })).toBe(Infinity)
+  })
+
+  it('shrinks as paired N grows', () => {
+    const small = pairedMde({ nPaired: 16 })
+    const large = pairedMde({ nPaired: 100 })
+    expect(large).toBeLessThan(small)
+    expect(large).toBeGreaterThan(0)
+  })
+})
+
+describe('bonferroni', () => {
+  it('multiplies each p by K and clamps at 1', () => {
+    const { adjusted, significant } = bonferroni([0.01, 0.04, 0.05], 0.05)
+    expect(adjusted[0]).toBeCloseTo(0.03)
+    expect(adjusted[1]).toBeCloseTo(0.12)
+    expect(adjusted[2]).toBeCloseTo(0.15)
+    expect(significant).toEqual([true, false, false])
+  })
+})
+
+describe('benjaminiHochberg — regression: uncorrected pairwise inflates false positives', () => {
+  it('handles empty input', () => {
+    const r = benjaminiHochberg([])
+    expect(r.qValues).toEqual([])
+    expect(r.significant).toEqual([])
+  })
+
+  it('gives non-significant q when all are noise-level', () => {
+    const { significant } = benjaminiHochberg([0.4, 0.5, 0.6, 0.7, 0.8], 0.05)
+    expect(significant.every((s) => !s)).toBe(true)
+  })
+
+  it('flags the strongest p and clears the weakest', () => {
+    const { significant } = benjaminiHochberg([0.001, 0.01, 0.04, 0.5], 0.05)
+    expect(significant[0]).toBe(true)
+    expect(significant[3]).toBe(false)
+  })
+
+  it('preserves monotonicity — q_i ≤ q_{i+1} by rank', () => {
+    const ps = [0.001, 0.01, 0.02, 0.05, 0.2]
+    const { qValues } = benjaminiHochberg(ps, 0.05)
+    const sortedQ = ps.map((_, i) => qValues[i]).sort((a, b) => a - b)
+    for (let i = 1; i < sortedQ.length; i++) {
+      expect(sortedQ[i]).toBeGreaterThanOrEqual(sortedQ[i - 1])
+    }
+  })
+
+  it('is less conservative than Bonferroni on mixed inputs', () => {
+    const ps = [0.001, 0.008, 0.04, 0.2, 0.6]
+    const bh = benjaminiHochberg(ps, 0.1).significant.filter((x) => x).length
+    const bf = bonferroni(ps, 0.1).significant.filter((x) => x).length
+    expect(bh).toBeGreaterThanOrEqual(bf)
+  })
+})
+
+describe('pairedBootstrap', () => {
+  it('throws on unequal sample sizes — silent truncation hides bugs', () => {
+    expect(() => pairedBootstrap([1, 2], [3])).toThrow(/unequal/)
+  })
+
+  it('returns the singleton on n=1', () => {
+    const r = pairedBootstrap([0.5], [0.7], { seed: 42 })
+    expect(r.n).toBe(1)
+    expect(r.median).toBeCloseTo(0.2, 6)
+    expect(r.low).toBeCloseTo(0.2, 6)
+    expect(r.high).toBeCloseTo(0.2, 6)
+  })
+
+  it('returns zero on empty input rather than NaN', () => {
+    const r = pairedBootstrap([], [])
+    expect(r.n).toBe(0)
+    expect(r.median).toBe(0)
+    expect(r.low).toBe(0)
+    expect(r.high).toBe(0)
+  })
+
+  it('produces a positive lower bound when after >> before', () => {
+    const before = [0.1, 0.2, 0.15, 0.25, 0.18, 0.22, 0.19, 0.21]
+    const after = before.map((b) => b + 0.3)
+    const r = pairedBootstrap(before, after, { seed: 42, resamples: 1000 })
+    expect(r.median).toBeCloseTo(0.3, 4)
+    expect(r.low).toBeGreaterThan(0)
+    expect(r.high).toBeGreaterThan(r.low)
+  })
+
+  it('CI straddles zero when there is no real shift', () => {
+    const before = [0.5, 0.4, 0.6, 0.55, 0.45, 0.5, 0.6, 0.4]
+    const after = [0.5, 0.4, 0.6, 0.55, 0.45, 0.5, 0.6, 0.4]
+    const r = pairedBootstrap(before, after, { seed: 42, resamples: 1000 })
+    expect(r.median).toBe(0)
+    expect(r.low).toBeLessThanOrEqual(0)
+    expect(r.high).toBeGreaterThanOrEqual(0)
+  })
+
+  it('is deterministic given a seed', () => {
+    const before = [0.3, 0.4, 0.5, 0.6, 0.4, 0.5]
+    const after = [0.5, 0.5, 0.6, 0.7, 0.5, 0.55]
+    const a = pairedBootstrap(before, after, { seed: 1234, resamples: 500 })
+    const b = pairedBootstrap(before, after, { seed: 1234, resamples: 500 })
+    expect(a.low).toBe(b.low)
+    expect(a.high).toBe(b.high)
+  })
+
+  it('rejects out-of-range confidence', () => {
+    expect(() => pairedBootstrap([1], [2], { confidence: 0 })).toThrow()
+    expect(() => pairedBootstrap([1], [2], { confidence: 1 })).toThrow()
+  })
+
+  it('mean statistic agrees with arithmetic mean of deltas in expectation', () => {
+    const before = [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8]
+    const after = before.map((b) => b + 0.25)
+    const r = pairedBootstrap(before, after, { seed: 7, resamples: 2000, statistic: 'mean' })
+    expect(r.mean).toBeCloseTo(0.25, 4)
+    expect(r.low).toBeGreaterThan(0)
   })
 })
