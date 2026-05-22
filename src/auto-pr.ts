@@ -394,7 +394,12 @@ export function ghCliClient(opts: GhCliClientOptions = {}): AutoPrClient {
       await run('git', ['reset', '--hard', `origin/${baseBranch}`])
 
       // Branch (idempotent: delete if exists, then re-create from base).
-      await exec('git', ['branch', '-D', input.branchName], { cwd })
+      const deleteBranch = await exec('git', ['branch', '-D', input.branchName], { cwd })
+      if (deleteBranch.exitCode !== 0 && !deleteBranch.stderr.includes(`error: branch '${input.branchName}' not found`)) {
+        throw new ConfigError(
+          `proposeAutomatedPullRequest: git branch -D failed (${deleteBranch.exitCode}): ${deleteBranch.stderr.trim() || deleteBranch.stdout.trim()}`
+        )
+      }
       await run('git', ['checkout', '-b', input.branchName])
 
       // Write file changes.
