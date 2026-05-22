@@ -135,14 +135,60 @@ const DEFAULT_MAX_RETRIES = 3
 
 const RETRYABLE_STATUS = new Set([429, 502, 503, 504])
 
-function isRetryableError(err: unknown): boolean {
+/**
+ * Transient transport/network error signatures, matched against an error's
+ * name, message, and `code`. Covers fetch/undici network failures, aborts
+ * and timeouts, and — critically — HTTP/2 transport faults a keep-alive
+ * connection raises mid-response: `terminated`, `NGHTTP2_INTERNAL_ERROR`,
+ * `UND_ERR_*`, `other side closed`. Those last ones carry no clean HTTP
+ * status; unrecognised, they escape the retry loop and surface as an
+ * uncaught rejection.
+ */
+const TRANSIENT_ERROR_PATTERNS: readonly RegExp[] = [
+  /AbortError/i,
+  /TimeoutError/i,
+  /this operation was aborted/i,
+  /fetch failed/i,
+  /ECONNRESET/i,
+  /ETIMEDOUT/i,
+  /EAI_AGAIN/i,
+  /socket hang up/i,
+  /stream.*ended.*unexpectedly/i,
+  /terminated/i,
+  /other side closed/i,
+  /NGHTTP2/i,
+  /UND_ERR/i,
+]
+
+/**
+ * True when an error is a transient transport/network fault worth retrying,
+ * as opposed to a deterministic failure (4xx schema reject, JSON parse) that
+ * a retry cannot fix. Inspects `LlmCallError.status`, then the error's
+ * name/message/code, then recurses into `error.cause` — undici nests the
+ * real socket fault one or more levels under `.cause`.
+ *
+ * This is THE retry classifier for the package: `callLlm` and
+ * `withJudgeRetry` both route through it, so a connection-class error is
+ * treated identically whether it surfaces in the HTTP client or a
+ * TCloud-backed judge.
+ */
+export function isTransientLlmError(err: unknown): boolean {
+  return classifyTransient(err, 0)
+}
+
+function classifyTransient(err: unknown, depth: number): boolean {
   if (err instanceof LlmCallError) return RETRYABLE_STATUS.has(err.status)
-  if (err instanceof Error) {
-    return (
-      err.name === 'AbortError' ||
-      err.name === 'TimeoutError' ||
-      /fetch failed|ECONNRESET|ETIMEDOUT|EAI_AGAIN/i.test(err.message)
-    )
+  if (!(err instanceof Error)) return false
+  // Foreign errors (e.g. a TCloud judge SDK error) can carry a numeric HTTP
+  // status without being an LlmCallError — a retryable status is decisive.
+  const status = (err as { status?: unknown }).status
+  if (typeof status === 'number' && RETRYABLE_STATUS.has(status)) return true
+  const code = (err as { code?: unknown }).code
+  const haystack = `${err.name}\n${err.message}\n${typeof code === 'string' ? code : ''}`
+  if (TRANSIENT_ERROR_PATTERNS.some((p) => p.test(haystack))) return true
+  const cause = (err as { cause?: unknown }).cause
+  if (depth < 4 && cause instanceof Error && cause !== err) {
+    return classifyTransient(cause, depth + 1)
   }
   return false
 }
@@ -157,8 +203,8 @@ function parseRetryAfter(headers: Headers): number | null {
   return null
 }
 
-function backoffMs(attempt: number): number {
-  // 500ms, 1s, 2s, 4s, ...
+/** Exponential backoff: 500ms, 1s, 2s, 4s, ... capped at 16s. Attempt is 0-indexed. */
+export function backoffMs(attempt: number): number {
   return Math.min(500 * 2 ** attempt, 16_000)
 }
 
@@ -478,7 +524,7 @@ export async function callLlm(
           redactedFields: [],
         })
       }
-      if (attempt < maxRetries - 1 && isRetryableError(err)) {
+      if (attempt < maxRetries - 1 && isTransientLlmError(err)) {
         await sleep(backoffMs(attempt))
         continue
       }
