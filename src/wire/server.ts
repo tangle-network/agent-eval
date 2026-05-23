@@ -201,3 +201,50 @@ export function startServer(opts: ServeOptions = {}): ServerType {
     console.log(`[agent-eval] serving on http://${address}:${actualPort}`)
   })
 }
+
+export interface StartedServer {
+  server: ServerType
+  /** The OS-assigned port. When opts.port was 0, this is the actual port the
+   *  kernel bound — callers that need to dial back (smoke tests, sidecars
+   *  registering with a parent) read this rather than guessing a free port. */
+  port: number
+  /** Resolved host the server bound to (defaults to 127.0.0.1). */
+  host: string
+  /** Close the server. Resolves once active connections have drained. */
+  close(): Promise<void>
+}
+
+/**
+ * Promise-returning variant of `startServer` that resolves once the server is
+ * listening and surfaces the resolved bound port. Use this from smoke tests
+ * (`startServerAsync({ port: 0 })`) and any caller that needs to dial back.
+ */
+export function startServerAsync(opts: ServeOptions = {}): Promise<StartedServer> {
+  const app = createApp(opts)
+  const port = opts.port ?? 5005
+  const host = opts.host ?? '127.0.0.1'
+  return new Promise((resolve, reject) => {
+    let settled = false
+    let server: ServerType | undefined
+    server = serve({ fetch: app.fetch, port, hostname: host }, ({ address, port: actualPort }) => {
+      if (settled) return
+      settled = true
+      // eslint-disable-next-line no-console
+      console.log(`[agent-eval] serving on http://${address}:${actualPort}`)
+      resolve({
+        server: server!,
+        port: actualPort,
+        host: address,
+        close: () =>
+          new Promise<void>((res, rej) => {
+            server!.close((err) => (err ? rej(err) : res()))
+          }),
+      })
+    })
+    server.on('error', (err) => {
+      if (settled) return
+      settled = true
+      reject(err)
+    })
+  })
+}
