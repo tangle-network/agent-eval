@@ -7,7 +7,7 @@
  */
 import { describe, expect, it } from 'vitest'
 
-import { createApp } from '../../src/wire/server'
+import { createApp, startServerAsync } from '../../src/wire/server'
 
 const app = createApp()
 
@@ -95,5 +95,33 @@ describe('POST /v1/judge', () => {
     expect([404, 400]).toContain(r.status)
     const err = r.body as { error: { code: string } }
     expect(['rubric_not_found', 'validation_error']).toContain(err.error.code)
+  })
+})
+
+describe('startServerAsync', () => {
+  it('resolves with the actual bound port when opts.port=0', async () => {
+    const started = await startServerAsync({ port: 0 })
+    try {
+      expect(started.port).toBeGreaterThan(0)
+      expect(started.port).toBeLessThan(65536)
+      expect(started.host).toBe('127.0.0.1')
+
+      const res = await fetch(`http://127.0.0.1:${started.port}/healthz`)
+      expect(res.status).toBe(200)
+      const body = (await res.json()) as { status: string }
+      expect(body.status).toBe('ok')
+    } finally {
+      await started.close()
+    }
+  })
+
+  it('two concurrent servers on port 0 receive distinct ports', async () => {
+    const [a, b] = await Promise.all([startServerAsync({ port: 0 }), startServerAsync({ port: 0 })])
+    try {
+      expect(a.port).not.toBe(b.port)
+    } finally {
+      await a.close()
+      await b.close()
+    }
   })
 })
