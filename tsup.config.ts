@@ -18,6 +18,7 @@ export default defineConfig({
     'builder-eval/index': 'src/builder-eval/index.ts',
     'governance/index': 'src/governance/index.ts',
     'knowledge/index': 'src/knowledge/index.ts',
+    'matrix/index': 'src/matrix/index.ts',
     cli: 'src/cli.ts',
   },
   format: ['esm'],

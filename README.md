@@ -222,6 +222,7 @@ const next = await analyzeOptimizationResult(campaign, { researcher })
 | `@tangle-network/agent-eval/rl` | adapters, verifiable rewards, preferences, OPE, PRM, contamination, tournaments, adversarial, compute curves, auto-research |
 | `@tangle-network/agent-eval/wire` | HTTP/RPC server + schemas (same protocol the Python client speaks) |
 | `@tangle-network/agent-eval/benchmarks` | benchmark adapter contracts and reference wrappers |
+| `@tangle-network/agent-eval/matrix` | N-axis cartesian runner over substrate types — see [`src/matrix/`](./src/matrix/) |
 
 The root export remains available for convenience; new code should prefer
 focused subpaths. Anything under `/rl`, `/pipelines`, `/meta-eval`, `/prm`,
@@ -293,6 +294,39 @@ and runtime. See [`examples/`](./examples/).
   RunRecord → preferences → trainer (prime-rl) → next campaign.
 - [`examples/production-loop`](./examples/production-loop/README.md):
   ingest prod traces + feedback, cluster failures, evolve, gate, open a PR.
+
+## Matrix
+
+`@tangle-network/agent-eval/matrix` is an N-axis cartesian runner over the
+substrate types you already use — `AgentProfile` from
+`@tangle-network/sandbox`, `Driver` / `Validator` from
+`@tangle-network/agent-runtime`, rubric records, anything. It does not wrap
+substrate types; the caller passes them in axis values, the runner iterates
+the cartesian, and the aggregator returns per-axis pass / score / cost /
+duration summaries.
+
+```ts
+import { runAgentMatrix } from '@tangle-network/agent-eval/matrix'
+
+const result = await runAgentMatrix({
+  axes: [
+    { name: 'scenario', values: scenarios.map((s) => ({ id: s.id, value: s })) },
+    { name: 'profile',  values: profiles.map((p)  => ({ id: p.name, value: p })) },
+    { name: 'thinking', values: [
+      { id: 'low', value: 'low' }, { id: 'high', value: 'high' },
+    ] },
+  ],
+  reps: 3,
+  maxConcurrency: 4,
+  costCeiling: 5.0,
+  filter: (cell) => !(cell.axes.scenario.value.hard === 5 && cell.axes.thinking.id === 'low'),
+  runCell: async (cell) => runScenario(cell.axes.scenario.value, cell.axes.profile.value),
+})
+
+console.log(result.byAxis.profile)  // per-profile passRate / meanScore / p90 / cost
+```
+
+See [`src/matrix/`](./src/matrix/) for the full surface.
 
 ## Docs
 
