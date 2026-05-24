@@ -1254,4 +1254,15 @@ export type {
 } from './trial-aggregator'
 export { aggregateTrialsByMode } from './trial-aggregator'
 
+// ── OTEL pipeline + traced wrappers ──────────────────────���───────────
+
+export { withOtelPipeline, isOtelConfigured } from './otel-pipeline'
+export type { OtelPipelineHandle, OtelPipelineOptions } from './otel-pipeline'
+export { traceJudge, traceJudgeEnsemble } from './traced-judges'
+export type { TracedJudgeOptions } from './traced-judges'
+export { tracedAnalyzeTraces } from './traced-analyst'
+export type { TracedAnalystOptions } from './traced-analyst'
+export { traceMutator } from './traced-mutator'
+export type { TracedMutatorOptions } from './traced-mutator'
+
 // Ax RLM trace analyst — subpath: /traces (re-exported alongside trace store).
