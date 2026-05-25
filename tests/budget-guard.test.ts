@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { InMemoryTraceStore, TraceEmitter } from '../src/trace'
 import { BudgetBreachError, BudgetGuard } from '../src/budget-guard'
+import { InMemoryTraceStore, TraceEmitter } from '../src/trace'
 
 describe('BudgetGuard', () => {
   it('records ledger entries on charge', async () => {
@@ -44,7 +44,7 @@ describe('BudgetGuard', () => {
     const guard = new BudgetGuard(e, { tokens: 100 }) // no usd limit
     await guard.charge({ usd: 10 })
     // No ledger entry when no limit declared
-    expect((await store.budget(e.runId))).toHaveLength(0)
+    expect(await store.budget(e.runId)).toHaveLength(0)
     expect(guard.state.usd).toBe(10)
   })
 

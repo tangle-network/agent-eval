@@ -71,10 +71,7 @@ describe('runCanaries — silent_judge_fallback', () => {
   })
 
   it('respects custom constant + threshold', () => {
-    const runs: RunRecord[] = [
-      rec(0, { confidence: 0.5 }),
-      rec(1, { confidence: 0.5 }),
-    ]
+    const runs: RunRecord[] = [rec(0, { confidence: 0.5 }), rec(1, { confidence: 0.5 })]
     const r = runCanaries(runs, {
       silentFallback: { constant: 0.5, consecutiveThreshold: 2 },
     })
@@ -82,11 +79,7 @@ describe('runCanaries — silent_judge_fallback', () => {
   })
 
   it('skips runs without judgeMetadata', () => {
-    const runs: RunRecord[] = [
-      rec(0, null),
-      rec(1, null),
-      rec(2, null),
-    ]
+    const runs: RunRecord[] = [rec(0, null), rec(1, null), rec(2, null)]
     const r = runCanaries(runs)
     expect(r.counts.silent_judge_fallback).toBe(0)
   })
@@ -105,7 +98,10 @@ describe('runCanaries — judge_calibration_drift', () => {
       calibrationDrift: { historyWindow: 50, recentWindow: 20, ksAlpha: 0.05, minRecent: 10 },
     })
     expect(r.counts.judge_calibration_drift).toBe(1)
-    const evidence = r.alerts.find((a) => a.kind === 'judge_calibration_drift')!.evidence as Record<string, number>
+    const evidence = r.alerts.find((a) => a.kind === 'judge_calibration_drift')!.evidence as Record<
+      string,
+      number
+    >
     expect(evidence.recentMean).toBeLessThan(evidence.historyMean!)
   })
 

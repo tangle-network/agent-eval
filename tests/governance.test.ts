@@ -1,20 +1,18 @@
 import { describe, expect, it } from 'vitest'
-import { InMemoryTraceStore, TraceEmitter } from '../src/trace'
-import { InMemoryOutcomeStore } from '../src/meta-eval'
 import { Dataset } from '../src/dataset'
-import { redTeamReport } from '../src/red-team'
 import {
   classifyEuAiRisk,
   euAiActReport,
+  type GovernanceContext,
   nistAiRmfReport,
   renderMarkdown,
   soc2Report,
-  type GovernanceContext,
 } from '../src/governance'
+import { InMemoryOutcomeStore } from '../src/meta-eval'
+import { redTeamReport } from '../src/red-team'
+import { InMemoryTraceStore, TraceEmitter } from '../src/trace'
 
-async function makeContext(
-  partial: Partial<GovernanceContext> = {},
-): Promise<GovernanceContext> {
+async function makeContext(partial: Partial<GovernanceContext> = {}): Promise<GovernanceContext> {
   const traceStore = partial.traceStore ?? new InMemoryTraceStore()
   const dataset = new Dataset({
     name: 'default',
@@ -117,7 +115,9 @@ describe('EU AI Act', () => {
   it('unacceptable risk produces critical Article-5 finding', async () => {
     const ctx = await makeContext()
     const report = await euAiActReport(ctx, { socialScoring: true })
-    expect(report.findings.some((f) => f.control === 'EU-AI-ACT:Article-5' && f.severity === 'critical')).toBe(true)
+    expect(
+      report.findings.some((f) => f.control === 'EU-AI-ACT:Article-5' && f.severity === 'critical'),
+    ).toBe(true)
     expect(report.summary.overall).toBe('non-compliant')
   })
 })

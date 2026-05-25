@@ -15,11 +15,7 @@
  */
 import { describe, expect, it, vi } from 'vitest'
 
-import {
-  ghCliClient,
-  httpGithubClient,
-  proposeAutomatedPullRequest,
-} from '../src/auto-pr'
+import { ghCliClient, httpGithubClient, proposeAutomatedPullRequest } from '../src/auto-pr'
 import { ValidationError } from '../src/errors'
 
 function jsonResponse(body: unknown, status = 200): Response {
@@ -92,9 +88,12 @@ describe('proposeAutomatedPullRequest validation', () => {
 
   it('passes through to client.proposeChange on valid input', async () => {
     const client = {
-      proposeChange: vi
-        .fn()
-        .mockResolvedValue({ prUrl: 'u', branchName: fixture.branchName, headSha: 's', dryRun: false }),
+      proposeChange: vi.fn().mockResolvedValue({
+        prUrl: 'u',
+        branchName: fixture.branchName,
+        headSha: 's',
+        dryRun: false,
+      }),
     }
     const result = await proposeAutomatedPullRequest(client, fixture)
     expect(result.prUrl).toBe('u')
@@ -255,7 +254,10 @@ describe('httpGithubClient', () => {
       token: 'tok',
       fetchImpl: () =>
         Promise.resolve(
-          new Response('rate limit exceeded', { status: 403, headers: { 'content-type': 'text/plain' } }),
+          new Response('rate limit exceeded', {
+            status: 403,
+            headers: { 'content-type': 'text/plain' },
+          }),
         ),
     })
 

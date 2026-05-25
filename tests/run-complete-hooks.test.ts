@@ -1,6 +1,6 @@
-import { describe, it, expect } from 'vitest'
+import { describe, expect, it } from 'vitest'
+import { type RunCompleteHook, TraceEmitter } from '../src/trace/emitter'
 import { InMemoryTraceStore } from '../src/trace/store'
-import { TraceEmitter, type RunCompleteHook } from '../src/trace/emitter'
 
 describe('TraceEmitter onRunComplete hooks', () => {
   it('fires hooks in order after endRun, with run context', async () => {
@@ -20,7 +20,11 @@ describe('TraceEmitter onRunComplete hooks', () => {
     const store = new InMemoryTraceStore()
     const seen: string[] = []
     const emitter = new TraceEmitter(store, {
-      onRunComplete: [(ctx) => { seen.push(ctx.status) }],
+      onRunComplete: [
+        (ctx) => {
+          seen.push(ctx.status)
+        },
+      ],
     })
     await emitter.startRun({ scenarioId: 'x' })
     await emitter.abortRun('user cancelled')
@@ -30,18 +34,31 @@ describe('TraceEmitter onRunComplete hooks', () => {
   it('swallows hook errors by default and writes a log event', async () => {
     const store = new InMemoryTraceStore()
     const emitter = new TraceEmitter(store, {
-      onRunComplete: [() => { throw new Error('boom') }],
+      onRunComplete: [
+        () => {
+          throw new Error('boom')
+        },
+      ],
     })
     await emitter.startRun({ scenarioId: 'x' })
     await expect(emitter.endRun({ pass: true })).resolves.toBeUndefined()
     const events = await store.events({ runId: emitter.runId })
-    expect(events.some((e) => e.kind === 'log' && (e.payload as { source?: string }).source === 'run_complete_hook')).toBe(true)
+    expect(
+      events.some(
+        (e) =>
+          e.kind === 'log' && (e.payload as { source?: string }).source === 'run_complete_hook',
+      ),
+    ).toBe(true)
   })
 
   it('propagates hook errors when hookErrors=throw', async () => {
     const store = new InMemoryTraceStore()
     const emitter = new TraceEmitter(store, {
-      onRunComplete: [() => { throw new Error('boom') }],
+      onRunComplete: [
+        () => {
+          throw new Error('boom')
+        },
+      ],
       hookErrors: 'throw',
     })
     await emitter.startRun({ scenarioId: 'x' })
@@ -52,7 +69,9 @@ describe('TraceEmitter onRunComplete hooks', () => {
     const store = new InMemoryTraceStore()
     const seen: string[] = []
     const emitter = new TraceEmitter(store)
-    emitter.addRunCompleteHook(() => { seen.push('hi') })
+    emitter.addRunCompleteHook(() => {
+      seen.push('hi')
+    })
     await emitter.startRun({ scenarioId: 'x' })
     await emitter.endRun({ pass: true })
     expect(seen).toEqual(['hi'])

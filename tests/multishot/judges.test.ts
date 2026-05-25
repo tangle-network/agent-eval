@@ -1,5 +1,10 @@
 import { describe, expect, it, vi } from 'vitest'
-import { renderDimensions, renderJsonFooter, runJudge, type JudgeConfig } from '../../src/multishot/index'
+import {
+  type JudgeConfig,
+  renderDimensions,
+  renderJsonFooter,
+  runJudge,
+} from '../../src/multishot/index'
 
 const DIMS = [
   { key: 'quality', description: 'overall quality 0-10' },
@@ -35,7 +40,11 @@ describe('runJudge', () => {
       {
         body: {
           choices: [
-            { message: { content: '{"quality":8,"specificity":6,"notes":"good but vague at the end"}' } },
+            {
+              message: {
+                content: '{"quality":8,"specificity":6,"notes":"good but vague at the end"}',
+              },
+            },
           ],
         },
       },

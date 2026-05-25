@@ -53,7 +53,7 @@ export interface AnalystHooks {
     analyst: Analyst
     error: Error
     runId: string
-  }): AnalystFinding[] | void | Promise<AnalystFinding[] | void>
+  }): AnalystFinding[] | undefined | Promise<AnalystFinding[] | undefined>
   /** Once after registry.run() completes. Use for final aggregation, persistence. */
   onComplete?(args: { result: AnalystRunResult }): void | Promise<void>
 }

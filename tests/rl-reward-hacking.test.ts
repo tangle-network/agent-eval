@@ -13,9 +13,15 @@ function rec(args: {
   for (const [k, v] of Object.entries(args.layerScores ?? {})) raw[`layer.${k}`] = v
   return {
     runId: args.runId,
-    experimentId: 'e', candidateId: 'c', seed: 0,
-    model: 'm@1', promptHash: 'p'.repeat(64), configHash: 'c'.repeat(64),
-    commitSha: 'abcd', wallMs: 1, costUsd: 0,
+    experimentId: 'e',
+    candidateId: 'c',
+    seed: 0,
+    model: 'm@1',
+    promptHash: 'p'.repeat(64),
+    configHash: 'c'.repeat(64),
+    commitSha: 'abcd',
+    wallMs: 1,
+    costUsd: 0,
     tokenUsage: { input: 0, output: 0 },
     outcome: { holdoutScore: args.proxy, raw },
     splitTag: 'holdout',
@@ -57,18 +63,22 @@ describe('detectRewardHacking', () => {
   it('flags judge_drift when judge proxy rises while deterministic reward stagnates', () => {
     const runs: RunRecord[] = []
     for (let i = 0; i < 30; i++) {
-      runs.push(rec({
-        runId: `early-${i}`,
-        proxy: 0.4,
-        layerScores: { test: 0.5 },
-      }))
+      runs.push(
+        rec({
+          runId: `early-${i}`,
+          proxy: 0.4,
+          layerScores: { test: 0.5 },
+        }),
+      )
     }
     for (let i = 0; i < 30; i++) {
-      runs.push(rec({
-        runId: `late-${i}`,
-        proxy: 0.9,
-        layerScores: { test: 0.5 },
-      }))
+      runs.push(
+        rec({
+          runId: `late-${i}`,
+          proxy: 0.9,
+          layerScores: { test: 0.5 },
+        }),
+      )
     }
     const out = detectRewardHacking({ runs })
     const drift = out.findings.find((f) => f.signal === 'judge_drift')!
@@ -78,11 +88,13 @@ describe('detectRewardHacking', () => {
   it('flags reward_disagreement when proxy and secondary correlate poorly', () => {
     const runs: RunRecord[] = []
     for (let i = 0; i < 30; i++) {
-      runs.push(rec({
-        runId: `r-${i}`,
-        proxy: i / 30,
-        layerScores: { test: 1 - (i / 30) },  // anti-correlated
-      }))
+      runs.push(
+        rec({
+          runId: `r-${i}`,
+          proxy: i / 30,
+          layerScores: { test: 1 - i / 30 }, // anti-correlated
+        }),
+      )
     }
     const out = detectRewardHacking({ runs })
     const dis = out.findings.find((f) => f.signal === 'reward_disagreement')!
@@ -92,20 +104,24 @@ describe('detectRewardHacking', () => {
   it('emits all four signal types when truth + secondary are both supplied', () => {
     const runs: RunRecord[] = []
     for (let i = 0; i < 30; i++) {
-      runs.push(rec({
-        runId: `early-${i}`,
-        proxy: 0.4,
-        truth: 0.5,
-        layerScores: { test: 0.5 },
-      }))
+      runs.push(
+        rec({
+          runId: `early-${i}`,
+          proxy: 0.4,
+          truth: 0.5,
+          layerScores: { test: 0.5 },
+        }),
+      )
     }
     for (let i = 0; i < 30; i++) {
-      runs.push(rec({
-        runId: `late-${i}`,
-        proxy: 0.85,
-        truth: 0.5,
-        layerScores: { test: 0.5 },
-      }))
+      runs.push(
+        rec({
+          runId: `late-${i}`,
+          proxy: 0.85,
+          truth: 0.5,
+          layerScores: { test: 0.5 },
+        }),
+      )
     }
     const out = detectRewardHacking({
       runs,

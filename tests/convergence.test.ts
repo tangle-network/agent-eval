@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest'
+import { describe, expect, it } from 'vitest'
 import { ConvergenceTracker } from '../src/convergence'
 import type { DriverState } from '../src/types'
 
@@ -31,9 +31,7 @@ describe('ConvergenceTracker', () => {
   })
 
   it('produces convergence curve', () => {
-    const tracker = new ConvergenceTracker([
-      { name: 'tasks', check: (s) => s.tasks >= 2 },
-    ])
+    const tracker = new ConvergenceTracker([{ name: 'tasks', check: (s) => s.tasks >= 2 }])
 
     tracker.record(1, { ...emptyState, tasks: 0 })
     tracker.record(2, { ...emptyState, tasks: 1 })
@@ -43,9 +41,7 @@ describe('ConvergenceTracker', () => {
   })
 
   it('finds turn to completion', () => {
-    const tracker = new ConvergenceTracker([
-      { name: 'done', check: (s) => s.tasks >= 1 },
-    ])
+    const tracker = new ConvergenceTracker([{ name: 'done', check: (s) => s.tasks >= 1 }])
 
     tracker.record(1, emptyState)
     tracker.record(2, emptyState)
@@ -55,9 +51,7 @@ describe('ConvergenceTracker', () => {
   })
 
   it('returns null when never completed', () => {
-    const tracker = new ConvergenceTracker([
-      { name: 'impossible', check: () => false },
-    ])
+    const tracker = new ConvergenceTracker([{ name: 'impossible', check: () => false }])
 
     tracker.record(1, emptyState)
     expect(tracker.getTurnToCompletion()).toBeNull()

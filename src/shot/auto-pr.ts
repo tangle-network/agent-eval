@@ -1,7 +1,7 @@
 /**
  * @experimental
  *
- * `openAutoPr` — thin shell-out helper for the `runProductionLoop` preset's
+ * `openAutoPr` — thin shell-out helper for the `runImprovementLoop` preset's
  * `autoOnPromote: 'pr'` mode. Substitutes for the per-product PR-opening
  * code consumers duplicated 4 times. The PR body includes the campaign's
  * manifest hash, gate verdict, and scorecard summary so reviewers can see
@@ -14,13 +14,13 @@
 
 import { execSync } from 'node:child_process'
 import { writeFileSync } from 'node:fs'
-import { join } from 'node:path'
 import { tmpdir } from 'node:os'
-import type { CampaignResult, GateResult, Scenario } from './types'
+import { join } from 'node:path'
+import type { GateResult, Scenario, ShotResult } from './types'
 
 export interface OpenAutoPrOptions<TArtifact, TScenario extends Scenario> {
-  /** Campaign result to attach to the PR. */
-  result: CampaignResult<TArtifact, TScenario>
+  /** Shot result to attach to the PR. */
+  result: ShotResult<TArtifact, TScenario>
   /** Gate verdict explaining the promotion. Substrate refuses to open a PR
    *  when `gate.decision !== 'ship'` — fails loud. */
   gate: GateResult
@@ -61,7 +61,8 @@ export function openAutoPr<TArtifact, TScenario extends Scenario>(
 
   const dryRun = options.dryRun ?? !process.env.GH_AUTO_PR_TOKEN
   const branch = options.branch ?? `auto/${options.result.manifestHash.slice(0, 12)}`
-  const title = options.title ?? `auto: campaign ${options.result.manifestHash.slice(0, 8)} promoted by gate`
+  const title =
+    options.title ?? `auto: campaign ${options.result.manifestHash.slice(0, 8)} promoted by gate`
 
   const body = renderPrBody(options.result, options.gate, options.promotedDiff)
   const bodyPath = join(tmpdir(), `auto-pr-body-${Date.now()}.md`)
@@ -77,11 +78,16 @@ export function openAutoPr<TArtifact, TScenario extends Scenario>(
 
   const ghExec = options.ghExec ?? defaultGhExec
   const result = ghExec([
-    'pr', 'create',
-    '--repo', `${options.ghOwner}/${options.ghRepo}`,
-    '--head', branch,
-    '--title', title,
-    '--body-file', bodyPath,
+    'pr',
+    'create',
+    '--repo',
+    `${options.ghOwner}/${options.ghRepo}`,
+    '--head',
+    branch,
+    '--title',
+    title,
+    '--body-file',
+    bodyPath,
   ])
   if (result.status !== 0) {
     return {
@@ -95,17 +101,19 @@ export function openAutoPr<TArtifact, TScenario extends Scenario>(
 }
 
 function renderPrBody<TArtifact, TScenario extends Scenario>(
-  result: CampaignResult<TArtifact, TScenario>,
+  result: ShotResult<TArtifact, TScenario>,
   gate: GateResult,
   diff: string,
 ): string {
   const lines: string[] = []
-  lines.push(`## Automated promotion by \`runProductionLoop\``)
+  lines.push(`## Automated promotion by \`runImprovementLoop\``)
   lines.push('')
   lines.push(`**Manifest**: \`${result.manifestHash}\``)
   lines.push(`**Seed**: ${result.seed}`)
   lines.push(`**Duration**: ${Math.round(result.durationMs / 1000)}s`)
-  lines.push(`**Cells**: executed ${result.aggregates.cellsExecuted}, cached ${result.aggregates.cellsCached}, skipped ${result.aggregates.cellsSkipped}, failed ${result.aggregates.cellsFailed}`)
+  lines.push(
+    `**Cells**: executed ${result.aggregates.cellsExecuted}, cached ${result.aggregates.cellsCached}, skipped ${result.aggregates.cellsSkipped}, failed ${result.aggregates.cellsFailed}`,
+  )
   lines.push(`**Total spend**: $${result.aggregates.totalCostUsd.toFixed(2)}`)
   lines.push('')
   lines.push(`### Gate verdict: \`${gate.decision}\``)
@@ -118,7 +126,10 @@ function renderPrBody<TArtifact, TScenario extends Scenario>(
   lines.push('| gate | passed | detail |')
   lines.push('|---|---|---|')
   for (const c of gate.contributingGates) {
-    const detail = typeof c.detail === 'object' ? JSON.stringify(c.detail).slice(0, 80) : String(c.detail).slice(0, 80)
+    const detail =
+      typeof c.detail === 'object'
+        ? JSON.stringify(c.detail).slice(0, 80)
+        : String(c.detail).slice(0, 80)
     lines.push(`| ${c.name} | ${c.passed ? '✓' : '✗'} | ${detail} |`)
   }
   lines.push('')
@@ -133,7 +144,9 @@ function renderPrBody<TArtifact, TScenario extends Scenario>(
   lines.push('| judge | mean | ci95 | n |')
   lines.push('|---|---|---|---|')
   for (const [name, agg] of Object.entries(result.aggregates.byJudge)) {
-    lines.push(`| ${name} | ${agg.mean.toFixed(3)} | [${agg.ci95[0].toFixed(3)}, ${agg.ci95[1].toFixed(3)}] | ${agg.n} |`)
+    lines.push(
+      `| ${name} | ${agg.mean.toFixed(3)} | [${agg.ci95[0].toFixed(3)}, ${agg.ci95[1].toFixed(3)}] | ${agg.n} |`,
+    )
   }
   return lines.join('\n')
 }

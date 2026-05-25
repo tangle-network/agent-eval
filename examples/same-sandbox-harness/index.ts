@@ -24,12 +24,15 @@ export async function runSameSandboxExample(workdir: string) {
     layer: 'app-build',
   })
 
-  const result = await harness.run({
-    setupCommand: 'pnpm install --frozen-lockfile',
-    runCommand: 'pnpm build',
-    testCommand: 'pnpm test',
-    timeoutMs: 180_000,
-  }, emitter)
+  const result = await harness.run(
+    {
+      setupCommand: 'pnpm install --frozen-lockfile',
+      runCommand: 'pnpm build',
+      testCommand: 'pnpm test',
+      timeoutMs: 180_000,
+    },
+    emitter,
+  )
 
   const summary = [
     `passed=${result.passed}`,

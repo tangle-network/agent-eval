@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest'
+import { describe, expect, it } from 'vitest'
 import { analyzeAntiSlop, createAntiSlopJudge } from '../src/anti-slop'
 
 function cfg(overrides: Record<string, unknown> = {}) {
@@ -10,7 +10,14 @@ function cfg(overrides: Record<string, unknown> = {}) {
     repetitionThreshold: 0.15,
     minLength: 20,
     maxLength: 8000,
-    penaltyWeights: { banned_phrase: 1, banned_opening: 1, hedging: 0.5, apology: 0.5, repetition: 0.75, length: 0.5 },
+    penaltyWeights: {
+      banned_phrase: 1,
+      banned_opening: 1,
+      hedging: 0.5,
+      apology: 0.5,
+      repetition: 0.75,
+      length: 0.5,
+    },
     ...overrides,
   }
 }
@@ -50,7 +57,9 @@ describe('analyzeAntiSlop', () => {
 
   it('hedging patterns are detected — regression: silent hedges teach agents that wishy-washy is OK', () => {
     const r = analyzeAntiSlop(
-      ['I could be wrong, but I think maybe this is true. Perhaps you could also try another thing.'],
+      [
+        'I could be wrong, but I think maybe this is true. Perhaps you could also try another thing.',
+      ],
       cfg({ hedgingPatterns: [/i could be wrong/i, /i think maybe/i, /perhaps you could/i] }),
     )
     expect(r.counts.hedging).toBeGreaterThanOrEqual(3)
@@ -101,7 +110,15 @@ describe('createAntiSlopJudge', () => {
     const scores = await judge({} as never, {
       scenario: { id: 's1' } as never,
       turns: [
-        { turnIndex: 0, userMessage: 'go', agentResponse: 'Clean reply — plenty of content here.', durationMs: 0, blocksExtracted: [], containsCode: false, containsToolCall: false },
+        {
+          turnIndex: 0,
+          userMessage: 'go',
+          agentResponse: 'Clean reply — plenty of content here.',
+          durationMs: 0,
+          blocksExtracted: [],
+          containsCode: false,
+          containsToolCall: false,
+        },
       ],
       artifacts: { vaultFiles: [], blocksExtracted: [], codeBlocks: [], toolCalls: [] },
     })

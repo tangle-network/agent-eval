@@ -16,7 +16,7 @@ vi.mock('../../src/llm-client', () => ({
   })),
 }))
 
-import { handleJudge, WireError } from '../../src/wire/handlers'
+import { handleJudge, type WireError } from '../../src/wire/handlers'
 import type { Rubric } from '../../src/wire/schemas'
 
 const rubric: Rubric = {
@@ -51,7 +51,9 @@ describe('handleJudge output validation', () => {
       rationale: 'nope',
     }
 
-    await expect(handleJudge({ rubric, content: 'hello' })).rejects.toMatchObject<Partial<WireError>>({
+    await expect(handleJudge({ rubric, content: 'hello' })).rejects.toMatchObject<
+      Partial<WireError>
+    >({
       code: 'judge_error',
       status: 500,
     })

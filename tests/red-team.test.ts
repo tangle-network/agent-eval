@@ -1,11 +1,11 @@
 import { describe, expect, it } from 'vitest'
 import {
   DEFAULT_RED_TEAM_CORPUS,
+  type RedTeamCase,
   redTeamDataset,
   redTeamReport,
   scoreRedTeamOutput,
   toolNamesForRun,
-  type RedTeamCase,
 } from '../src/red-team'
 import { InMemoryTraceStore, TraceEmitter } from '../src/trace'
 

@@ -19,16 +19,18 @@
  */
 
 import {
-  runEvalCampaign,
-  type CampaignRunner,
-  analyzeOptimizationResult,
-  trialsToRunRecords,
   type AdapterContext,
+  analyzeOptimizationResult,
+  type CampaignRunner,
+  runEvalCampaign,
 } from '../../src'
-import { InMemoryTraceStore } from '../../src/trace/store'
+import type {
+  GenerationReport,
+  PromptEvolutionResult,
+  TrialResult,
+} from '../../src/prompt-evolution'
 import { InMemoryRawProviderSink } from '../../src/trace/raw-provider-sink'
-import type { TrialResult } from '../../src/prompt-evolution'
-import type { GenerationReport, PromptEvolutionResult } from '../../src/prompt-evolution'
+import { InMemoryTraceStore } from '../../src/trace/store'
 
 // ── 1. Domain types ──────────────────────────────────────────────────────
 
@@ -78,7 +80,9 @@ async function syntheticForgeRunner(
 
 // ── 3. Build the campaign runner that wraps the forge runner ─────────────
 
-function makeCampaignRunner(forgeRunner: typeof syntheticForgeRunner): CampaignRunner<ForgeVariant> {
+function makeCampaignRunner(
+  forgeRunner: typeof syntheticForgeRunner,
+): CampaignRunner<ForgeVariant> {
   return async (ctx) => {
     await ctx.emitter.startRun({ scenarioId: ctx.scenarioId, layer: 'app-runtime' })
     const handle = await ctx.emitter.llm({
@@ -90,10 +94,15 @@ function makeCampaignRunner(forgeRunner: typeof syntheticForgeRunner): CampaignR
     // Drop a synthetic raw event so capture integrity is satisfied.
     await ctx.rawSink.record({
       eventId: `evt-${ctx.runId}`,
-      runId: ctx.runId, spanId: handle.span.spanId,
-      provider: 'tangle-router', model: 'claude-sonnet-4-6@2025-04-15',
-      endpoint: '/chat/completions', baseUrl: ctx.llmOpts.baseUrl ?? '',
-      attemptIndex: 0, direction: 'request', timestamp: 1_000,
+      runId: ctx.runId,
+      spanId: handle.span.spanId,
+      provider: 'tangle-router',
+      model: 'claude-sonnet-4-6@2025-04-15',
+      endpoint: '/chat/completions',
+      baseUrl: ctx.llmOpts.baseUrl ?? '',
+      attemptIndex: 0,
+      direction: 'request',
+      timestamp: 1_000,
       redactedFields: [],
     })
     await handle.end()
@@ -142,7 +151,7 @@ async function runAutoResearchLoop(opts: {
   const adapterCtx: AdapterContext = {
     experimentId: 'auto-research-demo',
     model: 'claude-sonnet-4-6@2025-04-15',
-    commitSha: 'demo-' + Date.now().toString(16),
+    commitSha: `demo-${Date.now().toString(16)}`,
     promptHash: 'p'.repeat(64),
     configHash: 'c'.repeat(64),
   }
@@ -239,7 +248,7 @@ async function runAutoResearchLoop(opts: {
 
 function proposeNextVariants(
   champion: ForgeVariant,
-  prior: ForgeVariant[],
+  _prior: ForgeVariant[],
   generation: number,
 ): ForgeVariant[] {
   // Deterministic "mutator" for the demo. In production:
@@ -262,7 +271,7 @@ function proposeNextVariants(
     {
       variantId: `cand-gen${generation}-aggressive`,
       personaId: champion.personaId,
-      systemPrompt: champion.systemPrompt + ' When in doubt, ask the user a clarifying question rather than guessing.',
+      systemPrompt: `${champion.systemPrompt} When in doubt, ask the user a clarifying question rather than guessing.`,
     },
   ]
 }
@@ -291,7 +300,8 @@ async function main(): Promise<void> {
       {
         variantId: 'cand-init',
         personaId: 'brand',
-        systemPrompt: 'You are an agent builder. Carefully analyze the user request, plan the agent, and produce a working configuration.',
+        systemPrompt:
+          'You are an agent builder. Carefully analyze the user request, plan the agent, and produce a working configuration.',
       },
     ],
     scenarios: ['brand-marketer-1', 'brand-marketer-2', 'brand-marketer-3', 'dev-1', 'dev-2'],
@@ -301,15 +311,19 @@ async function main(): Promise<void> {
 
   console.log('Iteration report:\n')
   for (const r of reports) {
-    console.log(`  iter ${r.iteration} | best=${r.bestVariantId} | score=${r.bestScore.toFixed(3)} | ` +
-      `prefs=${r.preferencePairs} | hacking=${r.rewardHackingVerdict} | seq=${r.sequentialDecision}`)
+    console.log(
+      `  iter ${r.iteration} | best=${r.bestVariantId} | score=${r.bestScore.toFixed(3)} | ` +
+        `prefs=${r.preferencePairs} | hacking=${r.rewardHackingVerdict} | seq=${r.sequentialDecision}`,
+    )
     console.log(`    ${r.rationale}\n`)
   }
   const first = reports[0]!
   const last = reports[reports.length - 1]!
-  console.log(`Score progression: ${first.bestScore.toFixed(3)} → ${last.bestScore.toFixed(3)} ` +
-    `(Δ ${(last.bestScore - first.bestScore).toFixed(3)} over ${reports.length} iterations)`)
+  console.log(
+    `Score progression: ${first.bestScore.toFixed(3)} → ${last.bestScore.toFixed(3)} ` +
+      `(Δ ${(last.bestScore - first.bestScore).toFixed(3)} over ${reports.length} iterations)`,
+  )
 }
 
+export type { BuildScore, ForgeVariant, IterationReport }
 export { runAutoResearchLoop, syntheticForgeRunner }
-export type { ForgeVariant, BuildScore, IterationReport }

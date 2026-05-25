@@ -1,11 +1,11 @@
-import { describe, it, expect } from 'vitest'
+import { describe, expect, it } from 'vitest'
 import {
-  regexMatch,
-  jsonHasKeys,
-  byteLengthRange,
-  containsAll,
-  composeValidators,
   type Artifact,
+  byteLengthRange,
+  composeValidators,
+  containsAll,
+  jsonHasKeys,
+  regexMatch,
 } from '../src/artifact-validator'
 
 const ctx = { scenarioId: 's1' }
@@ -29,7 +29,10 @@ describe('regexMatch', () => {
 describe('jsonHasKeys', () => {
   it('passes when all paths present', async () => {
     const v = jsonHasKeys('schema', ['user.name', 'user.email', 'total'])
-    const r = await v.validate({ kind: 'json', content: JSON.stringify({ user: { name: 'A', email: 'a@b' }, total: 10 }) }, ctx)
+    const r = await v.validate(
+      { kind: 'json', content: JSON.stringify({ user: { name: 'A', email: 'a@b' }, total: 10 }) },
+      ctx,
+    )
     expect(r.pass).toBe(true)
     expect(r.score).toBe(1)
   })
@@ -39,10 +42,7 @@ describe('jsonHasKeys', () => {
     const r = await v.validate({ kind: 'json', content: JSON.stringify({ a: 1, b: 2 }) }, ctx)
     expect(r.pass).toBe(false)
     expect(r.score).toBe(0.5)
-    expect(r.issues.map((i) => i.message)).toEqual([
-      'Missing path: c',
-      'Missing path: d',
-    ])
+    expect(r.issues.map((i) => i.message)).toEqual(['Missing path: c', 'Missing path: d'])
   })
 
   it('rejects malformed JSON — regression: crash instead of fail would kill the whole suite', async () => {
@@ -55,7 +55,10 @@ describe('jsonHasKeys', () => {
 
   it('supports array-index paths', async () => {
     const v = jsonHasKeys('schema', ['items.0.id'])
-    const r = await v.validate({ kind: 'json', content: JSON.stringify({ items: [{ id: 'a' }] }) }, ctx)
+    const r = await v.validate(
+      { kind: 'json', content: JSON.stringify({ items: [{ id: 'a' }] }) },
+      ctx,
+    )
     expect(r.pass).toBe(true)
   })
 })
@@ -83,7 +86,10 @@ describe('byteLengthRange', () => {
 describe('containsAll', () => {
   it('case-insensitive by default', async () => {
     const v = containsAll('keywords', ['Privacy', 'termination'])
-    const r = await v.validate({ kind: 'text', content: 'privacy and termination clauses apply.' }, ctx)
+    const r = await v.validate(
+      { kind: 'text', content: 'privacy and termination clauses apply.' },
+      ctx,
+    )
     expect(r.pass).toBe(true)
   })
   it('case-sensitive opt-in', async () => {
@@ -117,10 +123,7 @@ describe('composeValidators', () => {
   })
 
   it('fails when any validator fails; issues are namespaced by validator', async () => {
-    const composed = composeValidators([
-      regexMatch('needsX', /X/),
-      regexMatch('needsY', /Y/),
-    ])
+    const composed = composeValidators([regexMatch('needsX', /X/), regexMatch('needsY', /Y/)])
     const r = await composed.validate({ kind: 'text', content: 'only has X' }, ctx)
     expect(r.pass).toBe(false)
     expect(r.issues.some((i) => i.locus?.startsWith('needsY'))).toBe(true)

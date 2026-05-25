@@ -1,8 +1,13 @@
-import { describe, it, expect } from 'vitest'
-import { InMemoryTraceStore } from '../src/trace/store'
+import { describe, expect, it } from 'vitest'
+import type {
+  EvolvableVariant,
+  MutateAdapter,
+  TrialResult,
+  VariantAggregate,
+} from '../src/prompt-evolution'
 import { TraceEmitter } from '../src/trace/emitter'
+import { InMemoryTraceStore } from '../src/trace/store'
 import { traceMutator } from '../src/traced-mutator'
-import type { MutateAdapter, EvolvableVariant, VariantAggregate, TrialResult } from '../src/prompt-evolution'
 
 function makeEmitter() {
   const store = new InMemoryTraceStore()

@@ -1,10 +1,10 @@
 import { describe, expect, it } from 'vitest'
-import { InMemoryTraceStore } from '../src/trace/store'
-import type { Run } from '../src/trace/schema'
+import { distillPlaybook, renderPlaybookMarkdown } from '../src/playbook'
 import { RunCritic } from '../src/run-critic'
 import { aggregateRunScore } from '../src/run-score'
 import { mergeSteeringBundle, renderSteeringText } from '../src/steering'
-import { distillPlaybook, renderPlaybookMarkdown } from '../src/playbook'
+import type { Run } from '../src/trace/schema'
+import { InMemoryTraceStore } from '../src/trace/store'
 
 describe('steering helpers', () => {
   it('merges steering bundle overrides without dropping existing reviewer prompts', () => {
@@ -106,16 +106,18 @@ describe('RunCritic', () => {
         endedAt: 60_000,
         status: 'failed',
       },
-      spans: [{
-        spanId: 'llm-2',
-        runId: 'run-2',
-        kind: 'llm',
-        name: 'coder',
-        startedAt: 1,
-        model: 'kimi',
-        messages: [],
-        output: 'Title: article\nURL: https://example.com\nSummary: news dump',
-      }],
+      spans: [
+        {
+          spanId: 'llm-2',
+          runId: 'run-2',
+          kind: 'llm',
+          name: 'coder',
+          startedAt: 1,
+          model: 'kimi',
+          messages: [],
+          output: 'Title: article\nURL: https://example.com\nSummary: news dump',
+        },
+      ],
       events: [],
       artifacts: [],
       budget: [],

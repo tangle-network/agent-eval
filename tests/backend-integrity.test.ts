@@ -64,10 +64,7 @@ describe('backend-integrity', () => {
     })
 
     it('flags output-tokens-without-cost as uncosted', () => {
-      const r = summarizeBackendIntegrity([
-        makeRecord(500, 1000, 0),
-        makeRecord(500, 1000, 0),
-      ])
+      const r = summarizeBackendIntegrity([makeRecord(500, 1000, 0), makeRecord(500, 1000, 0)])
       expect(r.verdict).toBe('real')
       expect(r.uncostedRecords).toBe(2)
       expect(r.diagnosis).toContain('cost ledger is mis-wired')
@@ -103,19 +100,15 @@ describe('backend-integrity', () => {
     })
 
     it('allows mixed by default', () => {
-      const r = assertRealBackend([
-        makeRecord(500, 1000, 0.01),
-        makeRecord(0, 0, 0),
-      ])
+      const r = assertRealBackend([makeRecord(500, 1000, 0.01), makeRecord(0, 0, 0)])
       expect(r.verdict).toBe('mixed')
     })
 
     it('rejects mixed when allowMixed=false', () => {
       expect(() =>
-        assertRealBackend(
-          [makeRecord(500, 1000, 0.01), makeRecord(0, 0, 0)],
-          { allowMixed: false },
-        ),
+        assertRealBackend([makeRecord(500, 1000, 0.01), makeRecord(0, 0, 0)], {
+          allowMixed: false,
+        }),
       ).toThrow(BackendIntegrityError)
     })
 

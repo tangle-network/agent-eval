@@ -34,7 +34,10 @@ describe('calibrateJudge', () => {
   })
 
   it('skips items without a judge score — regression: NaN would contaminate pearson', () => {
-    const golden = [{ itemId: 'a', humanScore: 5 }, { itemId: 'b', humanScore: 6 }]
+    const golden = [
+      { itemId: 'a', humanScore: 5 },
+      { itemId: 'b', humanScore: 6 },
+    ]
     const cand = [{ itemId: 'a', score: 5 }]
     const r = calibrateJudge(golden, cand)
     expect(r.n).toBe(1)
@@ -43,7 +46,7 @@ describe('calibrateJudge', () => {
 })
 
 describe('positionalBias', () => {
-  it('returns zero when A/B positions don\'t move the score', () => {
+  it("returns zero when A/B positions don't move the score", () => {
     const r = positionalBias([
       { itemId: 'x', score: 7, positionOfAInput: 'first' },
       { itemId: 'x', score: 7, positionOfAInput: 'second' },
@@ -228,7 +231,7 @@ describe('continuousAgreement', () => {
     const rows: number[][] = []
     for (let i = 0; i < 30; i++) {
       const a = 0.55 + 0.4 * (i / 29)
-      const b = a + ((i % 2 === 0 ? 1 : -1) * 0.03)
+      const b = a + (i % 2 === 0 ? 1 : -1) * 0.03
       rows.push([a, b])
     }
     const r = continuousAgreement(rows, { bootstrap: 0 })

@@ -1,19 +1,23 @@
 import { describe, expect, it } from 'vitest'
-import { InMemoryTraceStore, TraceEmitter } from '../src/trace'
-import type { SandboxDriver, SandboxResult, HarnessConfig } from '../src/sandbox-harness'
 import {
   BuilderSession,
-  ProjectRegistry,
   correlateLayers,
+  ProjectRegistry,
   resumeBuilderSession,
   scoreAllProjects,
   scoreProject,
 } from '../src/builder-eval'
+import type { HarnessConfig, SandboxDriver, SandboxResult } from '../src/sandbox-harness'
+import { InMemoryTraceStore } from '../src/trace'
 
 class FakeDriver implements SandboxDriver {
   id = 'fake'
   result: Partial<Record<SandboxResult['phase'], SandboxResult>> = {}
-  async exec(phase: SandboxResult['phase'], _cmd: string, _cfg: HarnessConfig): Promise<SandboxResult> {
+  async exec(
+    phase: SandboxResult['phase'],
+    _cmd: string,
+    _cfg: HarnessConfig,
+  ): Promise<SandboxResult> {
     return this.result[phase] ?? { phase, exitCode: 0, stdout: '', stderr: '', wallMs: 1 }
   }
 }
@@ -40,7 +44,11 @@ async function completeProject(
   const session = new BuilderSession(store, { projectId }, driver)
   await session.startChat()
   // Simulate a builder edit span
-  const edit = await session.emitter.span({ kind: 'custom', name: 'edit', attributes: { file: 'app.ts' } })
+  const edit = await session.emitter.span({
+    kind: 'custom',
+    name: 'edit',
+    attributes: { file: 'app.ts' },
+  })
   await edit.end()
   await session.recordMetaScore(metaScore, 'simulated')
   await session.ship({ harness: { testCommand: 'pnpm test' } })
@@ -49,8 +57,13 @@ async function completeProject(
     const runtimeDriver = new FakeDriver()
     runtimeDriver.result = {
       test: {
-        phase: 'test', exitCode: runtimeScore >= 0.5 ? 0 : 1, stdout: '', stderr: '', wallMs: 5,
-        testsTotal: 10, testsPassed: Math.round(runtimeScore * 10),
+        phase: 'test',
+        exitCode: runtimeScore >= 0.5 ? 0 : 1,
+        stdout: '',
+        stderr: '',
+        wallMs: 5,
+        testsTotal: 10,
+        testsPassed: Math.round(runtimeScore * 10),
       },
     }
     await session.runAppScenario({
@@ -58,14 +71,27 @@ async function completeProject(
       driver: runtimeDriver,
     })
   }
-  await session.endChat({ pass: buildPassed && runtimeScore >= 0.5, score: (metaScore + runtimeScore) / 2 })
+  await session.endChat({
+    pass: buildPassed && runtimeScore >= 0.5,
+    score: (metaScore + runtimeScore) / 2,
+  })
 }
 
 describe('BuilderSession', () => {
   it('emits builder → app-build → app-runtime runs with proper parent chain', async () => {
     const store = new InMemoryTraceStore()
     const driver = new FakeDriver()
-    driver.result = { test: { phase: 'test', exitCode: 0, stdout: '', stderr: '', wallMs: 1, testsTotal: 4, testsPassed: 4 } }
+    driver.result = {
+      test: {
+        phase: 'test',
+        exitCode: 0,
+        stdout: '',
+        stderr: '',
+        wallMs: 1,
+        testsTotal: 4,
+        testsPassed: 4,
+      },
+    }
     const session = new BuilderSession(store, { projectId: 'proj-1', chatId: 'chat-1' }, driver)
     await session.startChat()
     const { runId: buildRunId } = await session.ship({ harness: { testCommand: 'pnpm test' } })
@@ -86,10 +112,12 @@ describe('BuilderSession', () => {
   })
 
   it('ship() before startChat() throws — regression: silent mis-parenting was the whole failure mode', async () => {
-    const session = new BuilderSession(new InMemoryTraceStore(), { projectId: 'p' }, new FakeDriver())
-    await expect(
-      session.ship({ harness: { testCommand: 'noop' } }),
-    ).rejects.toThrow(/startChat/)
+    const session = new BuilderSession(
+      new InMemoryTraceStore(),
+      { projectId: 'p' },
+      new FakeDriver(),
+    )
+    await expect(session.ship({ harness: { testCommand: 'noop' } })).rejects.toThrow(/startChat/)
   })
 })
 
@@ -116,7 +144,11 @@ async function scaffoldOnlyProject(
   }
   const session = new BuilderSession(store, { projectId }, driver)
   await session.startChat()
-  const edit = await session.emitter.span({ kind: 'custom', name: 'edit', attributes: { file: 'app.ts' } })
+  const edit = await session.emitter.span({
+    kind: 'custom',
+    name: 'edit',
+    attributes: { file: 'app.ts' },
+  })
   await edit.end()
   await session.recordMetaScore(metaScore, 'simulated')
   await session.ship({ harness: { testCommand: 'pnpm test' } })
@@ -159,7 +191,17 @@ describe('scoreProject + correlateLayers', () => {
     // buildPassed but meta omitted — simulate a ship that never went
     // through a meta-judge pass.
     const driver = new FakeDriver()
-    driver.result = { test: { phase: 'test', exitCode: 0, stdout: '', stderr: '', wallMs: 5, testsTotal: 10, testsPassed: 10 } }
+    driver.result = {
+      test: {
+        phase: 'test',
+        exitCode: 0,
+        stdout: '',
+        stderr: '',
+        wallMs: 5,
+        testsTotal: 10,
+        testsPassed: 10,
+      },
+    }
     const session = new BuilderSession(store, { projectId: 'proj-nometa' }, driver)
     await session.startChat()
     await session.ship({ harness: { testCommand: 'pnpm test' } })
@@ -175,7 +217,11 @@ describe('scoreProject + correlateLayers', () => {
     const store = new InMemoryTraceStore()
     // Correlated pairs: higher meta → higher runtime
     const pairs = [
-      [0.2, 0.3], [0.4, 0.4], [0.6, 0.7], [0.8, 0.85], [0.9, 0.95],
+      [0.2, 0.3],
+      [0.4, 0.4],
+      [0.6, 0.7],
+      [0.8, 0.85],
+      [0.9, 0.95],
     ] as const
     for (let i = 0; i < pairs.length; i++) {
       await completeProject(store, `proj-${i}`, pairs[i][0], true, pairs[i][1])

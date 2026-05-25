@@ -9,9 +9,9 @@
 import { mkdirSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import type { AgentProfile } from '@tangle-network/sandbox'
-import { runAgentMatrix } from '../matrix'
 import type { MatrixResult } from '../matrix'
-import { runJudge, type JudgeConfig, type JudgeScore } from './judges'
+import { runAgentMatrix } from '../matrix'
+import { type JudgeConfig, type JudgeScore, runJudge } from './judges'
 import { runMultishot } from './multishot'
 import type {
   MultishotArtifact,
@@ -48,8 +48,14 @@ export interface MultishotJudges<TPersona extends MultishotPersona> {
 export interface CellCompositeScore {
   composite: number
   conversation: JudgeScore
-  codeReview?: { perArtifact: Array<JudgeScore & { turn: number; type: string }>; composite: number }
-  contentQuality?: { perArtifact: Array<JudgeScore & { turn: number; type: string }>; composite: number }
+  codeReview?: {
+    perArtifact: Array<JudgeScore & { turn: number; type: string }>
+    composite: number
+  }
+  contentQuality?: {
+    perArtifact: Array<JudgeScore & { turn: number; type: string }>
+    composite: number
+  }
 }
 
 export interface RunMultishotMatrixOptions<TPersona extends MultishotPersona> {
@@ -137,23 +143,47 @@ export async function runMultishotMatrix<TPersona extends MultishotPersona>(
       const [conversation, codeReviews, contentReviews] = await Promise.all([
         runJudge(opts.judges.conversation, { transcript: sim.transcript, persona }),
         opts.judges.codeReview
-          ? Promise.all(codeArtifacts.map((artifact) => runJudge(opts.judges.codeReview!, { artifact, persona }).then((s) => ({ ...s, turn: artifact.turn, type: artifact.type }))))
+          ? Promise.all(
+              codeArtifacts.map((artifact) =>
+                runJudge(opts.judges.codeReview!, { artifact, persona }).then((s) => ({
+                  ...s,
+                  turn: artifact.turn,
+                  type: artifact.type,
+                })),
+              ),
+            )
           : Promise.resolve([] as Array<JudgeScore & { turn: number; type: string }>),
         opts.judges.contentQuality
-          ? Promise.all(contentArtifacts.map((artifact) => runJudge(opts.judges.contentQuality!, { artifact, persona }).then((s) => ({ ...s, turn: artifact.turn, type: artifact.type }))))
+          ? Promise.all(
+              contentArtifacts.map((artifact) =>
+                runJudge(opts.judges.contentQuality!, { artifact, persona }).then((s) => ({
+                  ...s,
+                  turn: artifact.turn,
+                  type: artifact.type,
+                })),
+              ),
+            )
           : Promise.resolve([] as Array<JudgeScore & { turn: number; type: string }>),
       ])
 
-      const codeComposite = codeReviews.length === 0 ? 0 : codeReviews.reduce((s, r) => s + r.composite, 0) / codeReviews.length
-      const contentComposite = contentReviews.length === 0 ? 0 : contentReviews.reduce((s, r) => s + r.composite, 0) / contentReviews.length
+      const codeComposite =
+        codeReviews.length === 0
+          ? 0
+          : codeReviews.reduce((s, r) => s + r.composite, 0) / codeReviews.length
+      const contentComposite =
+        contentReviews.length === 0
+          ? 0
+          : contentReviews.reduce((s, r) => s + r.composite, 0) / contentReviews.length
 
       // Composite = mean of (conversation, code, content) — empty judges count 0.
       const judgeCount = 1 + (opts.judges.codeReview ? 1 : 0) + (opts.judges.contentQuality ? 1 : 0)
       const composite = (conversation.composite + codeComposite + contentComposite) / judgeCount
 
       const cellScore: CellCompositeScore = { composite, conversation }
-      if (opts.judges.codeReview) cellScore.codeReview = { perArtifact: codeReviews, composite: codeComposite }
-      if (opts.judges.contentQuality) cellScore.contentQuality = { perArtifact: contentReviews, composite: contentComposite }
+      if (opts.judges.codeReview)
+        cellScore.codeReview = { perArtifact: codeReviews, composite: codeComposite }
+      if (opts.judges.contentQuality)
+        cellScore.contentQuality = { perArtifact: contentReviews, composite: contentComposite }
 
       const cellDir = join(opts.runDir, profileId, personaId, `rep-${cell.rep}`)
       mkdirSync(cellDir, { recursive: true })
@@ -166,7 +196,11 @@ export async function runMultishotMatrix<TPersona extends MultishotPersona>(
       if (opts.judges.contentQuality) notes.push(`content=${contentComposite.toFixed(1)}`)
 
       return {
-        output: { turns: sim.transcript.length, toolCalls: sim.toolCalls, artifactCount: sim.artifacts.length },
+        output: {
+          turns: sim.transcript.length,
+          toolCalls: sim.toolCalls,
+          artifactCount: sim.artifacts.length,
+        },
         verdict: { valid: composite >= 5, score: composite, notes: notes.join(' ') },
         costUsd: sim.costUsd,
         durationMs: sim.durationMs,
@@ -197,13 +231,19 @@ export async function runMultishotMatrix<TPersona extends MultishotPersona>(
     ``,
     '| profile | pass | mean | cost |',
     '|---|---|---|---|',
-    ...Object.entries(matrix.byAxis.profile ?? {}).map(([id, s]) => `| ${id} | ${(s.passRate * 100).toFixed(0)}% | ${s.meanScore.toFixed(2)} | $${s.totalCostUsd.toFixed(2)} |`),
+    ...Object.entries(matrix.byAxis.profile ?? {}).map(
+      ([id, s]) =>
+        `| ${id} | ${(s.passRate * 100).toFixed(0)}% | ${s.meanScore.toFixed(2)} | $${s.totalCostUsd.toFixed(2)} |`,
+    ),
     ``,
     `## By persona`,
     ``,
     '| persona | pass | mean | cost |',
     '|---|---|---|---|',
-    ...Object.entries(matrix.byAxis.persona ?? {}).map(([id, s]) => `| ${id} | ${(s.passRate * 100).toFixed(0)}% | ${s.meanScore.toFixed(2)} | $${s.totalCostUsd.toFixed(2)} |`),
+    ...Object.entries(matrix.byAxis.persona ?? {}).map(
+      ([id, s]) =>
+        `| ${id} | ${(s.passRate * 100).toFixed(0)}% | ${s.meanScore.toFixed(2)} | $${s.totalCostUsd.toFixed(2)} |`,
+    ),
     ``,
   ]
   writeFileSync(join(opts.runDir, 'summary.md'), md.join('\n'))

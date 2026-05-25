@@ -3,7 +3,11 @@ import { evaluateReleaseConfidence } from '../src/release-confidence'
 import { renderReleaseReport } from '../src/release-report'
 import type { RunRecord } from '../src/run-record'
 
-function rec(candidateId: string, score: number, splitTag: 'search' | 'holdout' = 'holdout'): RunRecord {
+function rec(
+  candidateId: string,
+  score: number,
+  splitTag: 'search' | 'holdout' = 'holdout',
+): RunRecord {
   return {
     runId: `${candidateId}-${splitTag}`,
     experimentId: 'exp-1',
@@ -16,9 +20,10 @@ function rec(candidateId: string, score: number, splitTag: 'search' | 'holdout' 
     wallMs: 1000,
     costUsd: 0.01,
     tokenUsage: { input: 10, output: 10 },
-    outcome: splitTag === 'holdout'
-      ? { holdoutScore: score, raw: { score } }
-      : { searchScore: score, raw: { score } },
+    outcome:
+      splitTag === 'holdout'
+        ? { holdoutScore: score, raw: { score } }
+        : { searchScore: score, raw: { score } },
     splitTag,
   }
 }

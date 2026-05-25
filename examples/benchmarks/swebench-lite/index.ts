@@ -21,8 +21,8 @@
  * clearly-marked setup error. This adapter never silently scores zero.
  */
 
-import { existsSync, readFileSync } from 'node:fs'
 import { spawn } from 'node:child_process'
+import { existsSync, readFileSync } from 'node:fs'
 
 import type {
   BenchmarkAdapter,
@@ -43,9 +43,7 @@ export interface SweBenchLitePayload {
 
 export type SweBenchLiteItem = BenchmarkDatasetItem<SweBenchLitePayload>
 
-class SweBenchLiteAdapter
-  implements BenchmarkAdapter<SweBenchLiteItem, SweBenchLitePayload>
-{
+class SweBenchLiteAdapter implements BenchmarkAdapter<SweBenchLiteItem, SweBenchLitePayload> {
   async loadDataset(split: RunSplitTag): Promise<SweBenchLiteItem[]> {
     const path = process.env.AGENT_EVAL_SWEBENCH_PATH
     if (!path) {
@@ -201,7 +199,11 @@ function parsePositiveInt(raw: string | undefined, fallback: number): number {
   return Number.isInteger(parsed) && parsed > 0 ? parsed : fallback
 }
 
-function runGrader(cmd: string, stdin: string, timeoutMs: number): Promise<{ stdout: string; stderr: string }> {
+function runGrader(
+  cmd: string,
+  stdin: string,
+  timeoutMs: number,
+): Promise<{ stdout: string; stderr: string }> {
   return new Promise((resolve, reject) => {
     let parts: string[]
     try {

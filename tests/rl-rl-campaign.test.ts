@@ -1,10 +1,12 @@
 import { describe, expect, it } from 'vitest'
-import { runRLCampaign } from '../src/rl/rl-campaign'
-import { InMemoryTraceStore } from '../src/trace/store'
-import { InMemoryRawProviderSink } from '../src/trace/raw-provider-sink'
 import type { CampaignRunner } from '../src/eval-campaign'
+import { runRLCampaign } from '../src/rl/rl-campaign'
+import { InMemoryRawProviderSink } from '../src/trace/raw-provider-sink'
+import { InMemoryTraceStore } from '../src/trace/store'
 
-interface VariantPayload { prompt: string }
+interface VariantPayload {
+  prompt: string
+}
 
 const defaultRunner: CampaignRunner<VariantPayload> = async (ctx) => {
   await ctx.emitter.startRun({ scenarioId: ctx.scenarioId, layer: 'app-runtime' })

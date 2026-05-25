@@ -1,6 +1,4 @@
 import { describe, expect, it } from 'vitest'
-import { InMemoryTraceStore, TraceEmitter } from '../src/trace'
-import type { ToolSpan } from '../src/trace'
 import {
   budgetBreachView,
   failureClusterView,
@@ -10,12 +8,23 @@ import {
   stuckLoopView,
   toolWasteView,
 } from '../src/pipelines'
+import type { ToolSpan } from '../src/trace'
+import { InMemoryTraceStore, TraceEmitter } from '../src/trace'
 
-async function runWithTools(store: InMemoryTraceStore, scenarioId: string, toolNames: string[], args: unknown[] = []): Promise<string> {
+async function runWithTools(
+  store: InMemoryTraceStore,
+  scenarioId: string,
+  toolNames: string[],
+  args: unknown[] = [],
+): Promise<string> {
   const e = new TraceEmitter(store)
   await e.startRun({ scenarioId })
   for (let i = 0; i < toolNames.length; i++) {
-    const h = await e.tool({ name: toolNames[i], toolName: toolNames[i], args: args[i] ?? { q: toolNames[i] } })
+    const h = await e.tool({
+      name: toolNames[i],
+      toolName: toolNames[i],
+      args: args[i] ?? { q: toolNames[i] },
+    })
     await h.end({ latencyMs: 10, result: `result-${i}` } as Partial<ToolSpan>)
   }
   await e.endRun({ pass: true })
@@ -25,12 +34,12 @@ async function runWithTools(store: InMemoryTraceStore, scenarioId: string, toolN
 describe('stuckLoopView', () => {
   it('flags ≥3 repeated identical calls — regression: silent loops burn budget and confuse users', async () => {
     const store = new InMemoryTraceStore()
-    await runWithTools(store, 'loopy', ['search', 'search', 'search', 'search'], [
-      { q: 'x' },
-      { q: 'x' },
-      { q: 'x' },
-      { q: 'x' },
-    ])
+    await runWithTools(
+      store,
+      'loopy',
+      ['search', 'search', 'search', 'search'],
+      [{ q: 'x' }, { q: 'x' }, { q: 'x' }, { q: 'x' }],
+    )
     const report = await stuckLoopView(store)
     expect(report.findings).toHaveLength(1)
     expect(report.findings[0].occurrences).toBe(4)
@@ -65,7 +74,13 @@ describe('budgetBreachView', () => {
     const store = new InMemoryTraceStore()
     const e = new TraceEmitter(store)
     await e.startRun({ scenarioId: 'over' })
-    await e.recordBudget({ dimension: 'tokens', limit: 10, consumed: 20, remaining: -10, breached: true })
+    await e.recordBudget({
+      dimension: 'tokens',
+      limit: 10,
+      consumed: 20,
+      remaining: -10,
+      breached: true,
+    })
     await e.endRun({ pass: false })
     const report = await budgetBreachView(store)
     expect(report.findings).toHaveLength(1)
@@ -135,9 +150,24 @@ describe('judgeAgreementView', () => {
     await target.end()
     const target2 = await e.span({ kind: 'llm', name: 'call', model: 'claude', messages: [] })
     await target2.end()
-    for (const [judge, scores] of [['claude-judge', [0.8, 0.9]], ['gpt-judge', [0.85, 0.88]]] as const) {
-      await e.recordJudge({ judgeId: judge, targetSpanId: target.span.spanId, dimension: 'quality', score: scores[0], name: `${judge}-q` })
-      await e.recordJudge({ judgeId: judge, targetSpanId: target2.span.spanId, dimension: 'quality', score: scores[1], name: `${judge}-q` })
+    for (const [judge, scores] of [
+      ['claude-judge', [0.8, 0.9]],
+      ['gpt-judge', [0.85, 0.88]],
+    ] as const) {
+      await e.recordJudge({
+        judgeId: judge,
+        targetSpanId: target.span.spanId,
+        dimension: 'quality',
+        score: scores[0],
+        name: `${judge}-q`,
+      })
+      await e.recordJudge({
+        judgeId: judge,
+        targetSpanId: target2.span.spanId,
+        dimension: 'quality',
+        score: scores[1],
+        name: `${judge}-q`,
+      })
     }
     const report = await judgeAgreementView(store)
     expect(report.pairs).toHaveLength(1)
@@ -183,11 +213,10 @@ describe('regressionView', () => {
       await e.startRun({ scenarioId: 's', variantId: 'candidate' })
       await e.endRun({ pass: true, score: 0.6 + (i % 2) * 0.01 })
     }
-    const report = await regressionView(
-      store,
-      [{ metric: 'score', higherIsBetter: true }],
-      { baseline: { variantId: 'baseline' }, candidate: { variantId: 'candidate' } },
-    )
+    const report = await regressionView(store, [{ metric: 'score', higherIsBetter: true }], {
+      baseline: { variantId: 'baseline' },
+      candidate: { variantId: 'candidate' },
+    })
     expect(report.hasRegression).toBe(true)
     expect(report.metrics[0].verdict).toBe('regressed')
   })

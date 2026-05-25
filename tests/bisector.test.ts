@@ -53,7 +53,12 @@ describe('commitBisect', () => {
 
   it('rejects good ≥ bad', async () => {
     await expect(
-      commitBisect({ commits: ['a', 'b', 'c'], good: 'c', bad: 'a', runEval: async () => ({ score: 1, pass: true }) }),
+      commitBisect({
+        commits: ['a', 'b', 'c'],
+        good: 'c',
+        bad: 'a',
+        runEval: async () => ({ score: 1, pass: true }),
+      }),
     ).rejects.toThrow(/precede/)
   })
 })

@@ -1,12 +1,12 @@
 import { describe, expect, it } from 'vitest'
 import { buildAgentProfileCell } from '../src/agent-profile-cell'
 import {
-  validateRunRecord,
   isRunRecord,
   parseRunRecordSafe,
-  roundTripRunRecord,
-  RunRecordValidationError,
   type RunRecord,
+  RunRecordValidationError,
+  roundTripRunRecord,
+  validateRunRecord,
 } from '../src/run-record'
 
 function makeRecord(overrides: Partial<RunRecord> = {}): RunRecord {
@@ -108,21 +108,15 @@ describe('validateRunRecord — mandatory field enforcement', () => {
   })
 
   it('throws on bare model alias without snapshot', () => {
-    expect(() => validateRunRecord(makeRecord({ model: 'claude-sonnet-4' }))).toThrow(
-      /snapshot/i,
-    )
+    expect(() => validateRunRecord(makeRecord({ model: 'claude-sonnet-4' }))).toThrow(/snapshot/i)
   })
 
   it('accepts OpenAI-style date suffix (gpt-4o-2024-11-20)', () => {
-    expect(() =>
-      validateRunRecord(makeRecord({ model: 'gpt-4o-2024-11-20' })),
-    ).not.toThrow()
+    expect(() => validateRunRecord(makeRecord({ model: 'gpt-4o-2024-11-20' }))).not.toThrow()
   })
 
   it('accepts compact YYYYMMDD suffix (claude-x-20250415)', () => {
-    expect(() =>
-      validateRunRecord(makeRecord({ model: 'claude-x-20250415' })),
-    ).not.toThrow()
+    expect(() => validateRunRecord(makeRecord({ model: 'claude-x-20250415' }))).not.toThrow()
   })
 
   it('throws on non-numeric raw entry', () => {
@@ -137,12 +131,10 @@ describe('validateRunRecord — mandatory field enforcement', () => {
   })
 
   it('throws on non-finite numeric (NaN, Infinity)', () => {
-    expect(() => validateRunRecord(makeRecord({ wallMs: Number.NaN }))).toThrow(
+    expect(() => validateRunRecord(makeRecord({ wallMs: Number.NaN }))).toThrow(/finite/)
+    expect(() => validateRunRecord(makeRecord({ wallMs: Number.POSITIVE_INFINITY }))).toThrow(
       /finite/,
     )
-    expect(() =>
-      validateRunRecord(makeRecord({ wallMs: Number.POSITIVE_INFINITY })),
-    ).toThrow(/finite/)
   })
 
   it('rejects unknown splitTag', () => {

@@ -60,8 +60,8 @@ describe('runAgentMatrix — cartesian + scheduling', () => {
       reps: 3,
       // Reject (hard scenario × low thinking) — 1 of 4 combinations is pruned.
       filter: (cell) => {
-        const sc = cell.axes['scenario']?.value as { hard: number }
-        const th = cell.axes['thinking']?.value as string
+        const sc = cell.axes.scenario?.value as { hard: number }
+        const th = cell.axes.thinking?.value as string
         return !(sc.hard === 5 && th === 'low')
       },
       runCell: async () => ok(0.6),
@@ -153,7 +153,7 @@ describe('runAgentMatrix — cartesian + scheduling', () => {
     const result = await runAgentMatrix({
       axes: [sc] as MatrixAxis<unknown>[],
       runCell: async (cell) => {
-        if ((cell.axes['scenario']?.value as number) === 2) {
+        if ((cell.axes.scenario?.value as number) === 2) {
           throw new TypeError('boom')
         }
         return ok(0.9)
@@ -161,13 +161,13 @@ describe('runAgentMatrix — cartesian + scheduling', () => {
     })
 
     expect(result.summary.runsExecuted).toBe(3)
-    const errored = result.cells.find((c) => c.cell.axes['scenario']?.id === 's2')
+    const errored = result.cells.find((c) => c.cell.axes.scenario?.id === 's2')
     expect(errored?.runs[0]?.error?.kind).toBe('TypeError')
     expect(errored?.runs[0]?.error?.message).toBe('boom')
     expect(errored?.runs[0]?.verdict.score).toBe(0)
     expect(errored?.runs[0]?.verdict.valid).toBe(false)
     // Other cells unaffected.
-    const ok1 = result.cells.find((c) => c.cell.axes['scenario']?.id === 's1')
+    const ok1 = result.cells.find((c) => c.cell.axes.scenario?.id === 's1')
     expect(ok1?.runs[0]?.verdict.score).toBe(0.9)
   })
 
@@ -259,8 +259,8 @@ describe('runAgentMatrix — cartesian + scheduling', () => {
     })
 
     expect(Object.keys(result.byAxis)).toEqual(['profile'])
-    expect(result.byAxis['profile']).toBeDefined()
-    expect(result.byAxis['scenario']).toBeUndefined()
+    expect(result.byAxis.profile).toBeDefined()
+    expect(result.byAxis.scenario).toBeUndefined()
   })
 
   it('aggregateBy default: every axis in axes is aggregated', async () => {
@@ -300,13 +300,13 @@ describe('runAgentMatrix — MatrixCell shape', () => {
       },
     })
 
-    expect(captured?.axes['scenario']?.id).toBe('s1')
-    expect(captured?.axes['scenario']?.value).toEqual({ hard: 3 })
-    expect(captured?.axes['profile']?.id).toBe('p1')
-    expect(captured?.axes['profile']?.value).toEqual({ kind: 'claude-code' })
+    expect(captured?.axes.scenario?.id).toBe('s1')
+    expect(captured?.axes.scenario?.value).toEqual({ hard: 3 })
+    expect(captured?.axes.profile?.id).toBe('p1')
+    expect(captured?.axes.profile?.value).toEqual({ kind: 'claude-code' })
 
     // Verify byAxis keying matches the value id.
-    expect(result.byAxis['scenario']?.['s1']).toBeDefined()
-    expect(result.byAxis['profile']?.['p1']).toBeDefined()
+    expect(result.byAxis.scenario?.s1).toBeDefined()
+    expect(result.byAxis.profile?.p1).toBeDefined()
   })
 })

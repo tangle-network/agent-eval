@@ -12,13 +12,29 @@ describe('buildTrajectory', () => {
     const outer = await e.span({ kind: 'agent', name: 'plan' })
     const llm = await e.span({ kind: 'llm', name: 'first-call', model: 'm', messages: [] })
     await llm.end()
-    const tool = await e.span({ kind: 'tool', name: 'search', toolName: 'search', args: { q: 'x' } })
+    const tool = await e.span({
+      kind: 'tool',
+      name: 'search',
+      toolName: 'search',
+      args: { q: 'x' },
+    })
     await tool.end()
     await outer.end()
-    const judge = await e.recordJudge({ judgeId: 'j', targetSpanId: llm.span.spanId, dimension: 'quality', score: 0.9, name: 'quality-judge' })
+    const judge = await e.recordJudge({
+      judgeId: 'j',
+      targetSpanId: llm.span.spanId,
+      dimension: 'quality',
+      score: 0.9,
+      name: 'quality-judge',
+    })
 
     const traj = await buildTrajectory(store, e.runId)
-    expect(traj.steps.map((s) => s.span.name)).toEqual(['plan', 'first-call', 'search', 'quality-judge'])
+    expect(traj.steps.map((s) => s.span.name)).toEqual([
+      'plan',
+      'first-call',
+      'search',
+      'quality-judge',
+    ])
     expect(traj.steps[0].depth).toBe(0)
     expect(traj.steps[1].depth).toBe(1)
     expect(traj.steps[2].depth).toBe(1)
@@ -29,7 +45,7 @@ describe('buildTrajectory', () => {
     expect(judge.judgeId).toBe('j')
   })
 
-  it('returns empty trajectory for unknown run — regression: undefined spans shouldn\'t throw', async () => {
+  it("returns empty trajectory for unknown run — regression: undefined spans shouldn't throw", async () => {
     const store = new InMemoryTraceStore()
     const traj = await buildTrajectory(store, 'missing')
     expect(traj.steps).toHaveLength(0)

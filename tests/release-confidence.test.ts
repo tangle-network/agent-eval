@@ -1,11 +1,11 @@
 import { describe, expect, it } from 'vitest'
 import {
   assertReleaseConfidence,
-  evaluateReleaseConfidence,
-  releaseTraceEvidenceFromMultiShotTrials,
   type DatasetManifest,
+  evaluateReleaseConfidence,
   type MultiShotTrialResult,
   type RunRecord,
+  releaseTraceEvidenceFromMultiShotTrials,
 } from '../src/index'
 
 const manifest: DatasetManifest = {
@@ -43,13 +43,15 @@ describe('evaluateReleaseConfidence', () => {
 
     expect(scorecard.status).toBe('fail')
     expect(scorecard.promote).toBe(false)
-    expect(scorecard.issues.map((i) => i.code)).toEqual(expect.arrayContaining([
-      'missing_corpus',
-      'few_scenarios',
-      'missing_holdout_split',
-      'few_search_runs',
-      'few_holdout_runs',
-    ]))
+    expect(scorecard.issues.map((i) => i.code)).toEqual(
+      expect.arrayContaining([
+        'missing_corpus',
+        'few_scenarios',
+        'missing_holdout_split',
+        'few_search_runs',
+        'few_holdout_runs',
+      ]),
+    )
   })
 
   it('passes a release with search, holdout, diagnostics, and budget evidence', () => {
@@ -66,8 +68,22 @@ describe('evaluateReleaseConfidence', () => {
       dataset: manifest,
       runs,
       traces: [
-        { scenarioId: 'one-shot', candidateId: 'candidate', split: 'search', score: 0.9, ok: true, turnCount: 1 },
-        { scenarioId: 'multi-shot', candidateId: 'candidate', split: 'holdout', score: 0.86, ok: true, turnCount: 4 },
+        {
+          scenarioId: 'one-shot',
+          candidateId: 'candidate',
+          split: 'search',
+          score: 0.9,
+          ok: true,
+          turnCount: 1,
+        },
+        {
+          scenarioId: 'multi-shot',
+          candidateId: 'candidate',
+          split: 'holdout',
+          score: 0.86,
+          ok: true,
+          turnCount: 4,
+        },
       ],
       thresholds: {
         minScenarioCount: 6,
@@ -120,7 +136,13 @@ describe('evaluateReleaseConfidence', () => {
         durationMs: 500,
         metrics: {},
         trace: { scenarioId: 'tax-hard', turns: [{ role: 'user' }, { role: 'assistant' }] },
-        asi: [{ message: 'Missed filing-state constraint.', responsibleSurface: 'tax-rubric', severity: 'error' }],
+        asi: [
+          {
+            message: 'Missed filing-state constraint.',
+            responsibleSurface: 'tax-rubric',
+            severity: 'error',
+          },
+        ],
       },
     ]
 
@@ -151,8 +173,18 @@ describe('evaluateReleaseConfidence', () => {
       target: 'agent-builder',
       dataset: manifest,
       runs: [
-        rec({ splitTag: 'search', wallMs: 5_000, costUsd: 0.2, outcome: { searchScore: 0.99, raw: { score: 0.99 } } }),
-        rec({ splitTag: 'holdout', wallMs: 4_000, costUsd: 0.2, outcome: { holdoutScore: 0.7, raw: { score: 0.7 } } }),
+        rec({
+          splitTag: 'search',
+          wallMs: 5_000,
+          costUsd: 0.2,
+          outcome: { searchScore: 0.99, raw: { score: 0.99 } },
+        }),
+        rec({
+          splitTag: 'holdout',
+          wallMs: 4_000,
+          costUsd: 0.2,
+          outcome: { holdoutScore: 0.7, raw: { score: 0.7 } },
+        }),
       ],
       thresholds: {
         minSearchRuns: 1,
@@ -165,11 +197,9 @@ describe('evaluateReleaseConfidence', () => {
       },
     })
 
-    expect(scorecard.issues.map((i) => i.code)).toEqual(expect.arrayContaining([
-      'overfit_gap',
-      'cost_budget',
-      'latency_budget',
-    ]))
+    expect(scorecard.issues.map((i) => i.code)).toEqual(
+      expect.arrayContaining(['overfit_gap', 'cost_budget', 'latency_budget']),
+    )
   })
 
   it('throws with the scorecard summary in assert mode', () => {

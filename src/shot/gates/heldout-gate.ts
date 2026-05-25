@@ -30,7 +30,9 @@ export function heldOutGate<TArtifact, TScenario extends Scenario>(
         reasons: passed
           ? [`held-out delta ${delta.toFixed(3)} ≥ ${deltaThreshold}`]
           : [`held-out delta ${delta.toFixed(3)} < ${deltaThreshold}`],
-        contributingGates: [{ name: 'heldOutGate', passed, detail: { baseline, candidate, delta, deltaThreshold } }],
+        contributingGates: [
+          { name: 'heldOutGate', passed, detail: { baseline, candidate, delta, deltaThreshold } },
+        ],
         delta,
       }
     },

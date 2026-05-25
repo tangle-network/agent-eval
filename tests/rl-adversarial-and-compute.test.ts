@@ -1,13 +1,11 @@
 import { describe, expect, it } from 'vitest'
 import { adversarialScenarioSearch } from '../src/rl/adversarial'
-import {
-  bestOfN,
-  paretoFrontier,
-  runComputeCurve,
-  selfConsistency,
-} from '../src/rl/compute-curves'
+import { bestOfN, paretoFrontier, runComputeCurve, selfConsistency } from '../src/rl/compute-curves'
 
-interface Scen { id: string; difficulty: number }
+interface Scen {
+  id: string
+  difficulty: number
+}
 
 describe('adversarialScenarioSearch', () => {
   it('discovers failures by mutating seeds', async () => {
@@ -18,12 +16,17 @@ describe('adversarialScenarioSearch', () => {
     const out = await adversarialScenarioSearch<Scen>({
       seeds,
       mutateScenarioId: (s) => s.id,
-      mutations: [{
-        id: 'increase-difficulty',
-        mutate: (parent, rng) => [
-          { id: `${parent.id}-mut-${rng().toFixed(3)}`, difficulty: Math.min(1, parent.difficulty + 0.5) },
-        ],
-      }],
+      mutations: [
+        {
+          id: 'increase-difficulty',
+          mutate: (parent, rng) => [
+            {
+              id: `${parent.id}-mut-${rng().toFixed(3)}`,
+              difficulty: Math.min(1, parent.difficulty + 0.5),
+            },
+          ],
+        },
+      ],
       scoreFn: async (s) => 1 - s.difficulty,
       failureThreshold: 0.5,
       rounds: 2,
@@ -42,9 +45,12 @@ describe('adversarialScenarioSearch', () => {
     const out = await adversarialScenarioSearch<Scen>({
       seeds: [{ id: 's', difficulty: 0.1 }],
       mutateScenarioId: (s) => s.id,
-      mutations: [{
-        id: 'm', mutate: (p, rng) => [{ id: `${p.id}/${rng().toFixed(3)}`, difficulty: 0.6 }],
-      }],
+      mutations: [
+        {
+          id: 'm',
+          mutate: (p, rng) => [{ id: `${p.id}/${rng().toFixed(3)}`, difficulty: 0.6 }],
+        },
+      ],
       scoreFn: async (s) => 1 - s.difficulty,
       rounds: 10,
       childrenPerParent: 5,
@@ -58,12 +64,17 @@ describe('adversarialScenarioSearch', () => {
     await adversarialScenarioSearch<Scen>({
       seeds: [{ id: 's', difficulty: 0.5 }],
       mutateScenarioId: (s) => s.id,
-      mutations: [{
-        id: 'collide',
-        // Always returns the same id — should be deduplicated after the first call.
-        mutate: () => [{ id: 's', difficulty: 0.5 }],
-      }],
-      scoreFn: async () => { calls++; return 0.5 },
+      mutations: [
+        {
+          id: 'collide',
+          // Always returns the same id — should be deduplicated after the first call.
+          mutate: () => [{ id: 's', difficulty: 0.5 }],
+        },
+      ],
+      scoreFn: async () => {
+        calls++
+        return 0.5
+      },
       rounds: 5,
       childrenPerParent: 5,
     })

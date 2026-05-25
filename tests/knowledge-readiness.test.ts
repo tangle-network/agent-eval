@@ -1,13 +1,13 @@
 import { describe, expect, it } from 'vitest'
+import { classifyFailure } from '../src/failure-taxonomy'
 import {
   acquisitionPlansForKnowledgeGaps,
   blockingKnowledgeEval,
+  type KnowledgeRequirement,
   knowledgeReadinessTracePayload,
   scoreKnowledgeReadiness,
   userQuestionsForKnowledgeGaps,
-  type KnowledgeRequirement,
 } from '../src/knowledge'
-import { classifyFailure } from '../src/failure-taxonomy'
 import type { Run, Span, TraceEvent } from '../src/trace/schema'
 
 function req(overrides: Partial<KnowledgeRequirement> = {}): KnowledgeRequirement {
@@ -102,7 +102,9 @@ describe('knowledge readiness', () => {
     })
 
     expect(report.readinessScore).toBe(0)
-    expect(report.blockingMissingRequirements.map((requirement) => requirement.id)).toEqual(['irs-publication-current'])
+    expect(report.blockingMissingRequirements.map((requirement) => requirement.id)).toEqual([
+      'irs-publication-current',
+    ])
     expect(blockingKnowledgeEval(report).passed).toBe(false)
   })
 
@@ -122,7 +124,9 @@ describe('knowledge readiness', () => {
     })
 
     expect(report.readinessScore).toBe(0)
-    expect(report.blockingMissingRequirements.map((requirement) => requirement.id)).toEqual(['malformed-freshness'])
+    expect(report.blockingMissingRequirements.map((requirement) => requirement.id)).toEqual([
+      'malformed-freshness',
+    ])
   })
 
   it.each([
@@ -170,7 +174,9 @@ describe('knowledge readiness', () => {
       ],
     })
 
-    expect(report.blockingMissingRequirements.map((gap) => gap.id)).toEqual(['blocking-repo-context'])
+    expect(report.blockingMissingRequirements.map((gap) => gap.id)).toEqual([
+      'blocking-repo-context',
+    ])
     expect(report.recommendedAction).toBe('inspect_repo')
   })
 })
@@ -185,28 +191,36 @@ describe('knowledge failure taxonomy', () => {
   }
 
   it('classifies readiness-blocked runs before generic failures', () => {
-    const events: TraceEvent[] = [{
-      eventId: 'evt-1',
-      runId: 'run-1',
-      kind: 'custom',
-      timestamp: 1,
-      payload: { kind: 'readiness_scored', passed: false },
-    }]
+    const events: TraceEvent[] = [
+      {
+        eventId: 'evt-1',
+        runId: 'run-1',
+        kind: 'custom',
+        timestamp: 1,
+        payload: { kind: 'readiness_scored', passed: false },
+      },
+    ]
 
-    expect(classifyFailure({ run: failedRun, spans: [], events }).failureClass).toBe('knowledge_readiness_blocked')
+    expect(classifyFailure({ run: failedRun, spans: [], events }).failureClass).toBe(
+      'knowledge_readiness_blocked',
+    )
   })
 
   it('classifies empty retrieval on failed runs as bad_retrieval', () => {
-    const spans: Span[] = [{
-      spanId: 'span-1',
-      runId: 'run-1',
-      kind: 'retrieval',
-      name: 'kb.search',
-      startedAt: 1,
-      query: 'build command',
-      hits: [],
-    }]
+    const spans: Span[] = [
+      {
+        spanId: 'span-1',
+        runId: 'run-1',
+        kind: 'retrieval',
+        name: 'kb.search',
+        startedAt: 1,
+        query: 'build command',
+        hits: [],
+      },
+    ]
 
-    expect(classifyFailure({ run: failedRun, spans, events: [] }).failureClass).toBe('bad_retrieval')
+    expect(classifyFailure({ run: failedRun, spans, events: [] }).failureClass).toBe(
+      'bad_retrieval',
+    )
   })
 })

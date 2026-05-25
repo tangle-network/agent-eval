@@ -1,9 +1,8 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { createOtelExporter } from '../src/trace/otel-export'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import { isOtelConfigured, withOtelPipeline } from '../src/otel-pipeline'
 import { createOtelTracingStore, otelRunCompleteHook } from '../src/trace/otel-bridge'
-import { withOtelPipeline, isOtelConfigured } from '../src/otel-pipeline'
+import { createOtelExporter } from '../src/trace/otel-export'
 import { InMemoryTraceStore } from '../src/trace/store'
-import { TraceEmitter } from '../src/trace/emitter'
 
 describe('OTEL export', () => {
   const originalEnv = process.env.OTEL_EXPORTER_OTLP_ENDPOINT
@@ -74,7 +73,7 @@ describe('OTEL export', () => {
     })
 
     // Wait for async flush triggered by batch size
-    await new Promise(r => setTimeout(r, 50))
+    await new Promise((r) => setTimeout(r, 50))
 
     expect(mockFetch).toHaveBeenCalledWith(
       'http://localhost:4318/v1/traces',
@@ -144,7 +143,7 @@ describe('OTEL export', () => {
       endedAt: 1100,
     })
 
-    await new Promise(r => setTimeout(r, 50))
+    await new Promise((r) => setTimeout(r, 50))
     await exporter.shutdown()
     vi.unstubAllGlobals()
   })

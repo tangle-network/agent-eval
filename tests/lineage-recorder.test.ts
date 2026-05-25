@@ -1,9 +1,9 @@
-import { describe, it, expect } from 'vitest'
-import { mkdtempSync, rmSync, readFileSync } from 'fs'
-import { tmpdir } from 'os'
-import { join } from 'path'
-import { LineageRecorder } from '../src/index'
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { describe, expect, it } from 'vitest'
 import type { EvolvableVariant } from '../src/index'
+import { LineageRecorder } from '../src/index'
 
 interface PersonaPayload {
   persona: string
@@ -40,7 +40,9 @@ describe('LineageRecorder', () => {
       // Round-trip through disk: a fresh recorder reads the same payloads.
       const lineage2 = new LineageRecorder<PersonaPayload>(path)
       const reloaded = lineage2.snapshot().find((n) => n.id === 'v0.g1.r0')
-      expect((reloaded?.payload as PersonaPayload | undefined)?.persona).toBe('evolved persona text')
+      expect((reloaded?.payload as PersonaPayload | undefined)?.persona).toBe(
+        'evolved persona text',
+      )
     } finally {
       rmSync(dir, { recursive: true, force: true })
     }
@@ -51,10 +53,9 @@ describe('LineageRecorder', () => {
     try {
       const path = join(dir, 'lineage.jsonl')
       const lineage = new LineageRecorder<PersonaPayload>(path)
-      await lineage.upsertVariant(
-        makeVariant('v0', null, 0, 'a'.repeat(10_000)),
-        { omitPayload: true },
-      )
+      await lineage.upsertVariant(makeVariant('v0', null, 0, 'a'.repeat(10_000)), {
+        omitPayload: true,
+      })
       const onDisk = readFileSync(path, 'utf-8')
       expect(onDisk).not.toContain('aaaa')
       const nodes = lineage.snapshot()

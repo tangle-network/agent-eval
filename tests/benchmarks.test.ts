@@ -1,15 +1,12 @@
-import { describe, expect, it, beforeAll, afterAll } from 'vitest'
-import { mkdtempSync, writeFileSync, rmSync, chmodSync } from 'node:fs'
+import { chmodSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 
 import * as gsm8k from '../examples/benchmarks/gsm8k/index'
-import * as routing from '../src/benchmarks/routing/index'
 import * as swebenchLite from '../examples/benchmarks/swebench-lite/index'
-import {
-  deterministicSplit,
-  BENCHMARK_SPLIT_SEED,
-} from '../src/benchmarks/types'
+import * as routing from '../src/benchmarks/routing/index'
+import { BENCHMARK_SPLIT_SEED, deterministicSplit } from '../src/benchmarks/types'
 
 describe('deterministicSplit', () => {
   it('always returns one of search|dev|holdout', () => {
@@ -42,8 +39,10 @@ describe('deterministicSplit', () => {
     const b = deterministicSplit('item-x', 'different-seed-v2')
     // Not guaranteed to differ on a single item, but at least the
     // seed param is read.
-    const allSame = Array.from({ length: 100 }, (_, i) =>
-      deterministicSplit(`item-${i}`) === deterministicSplit(`item-${i}`, 'different-seed-v2'),
+    const allSame = Array.from(
+      { length: 100 },
+      (_, i) =>
+        deterministicSplit(`item-${i}`) === deterministicSplit(`item-${i}`, 'different-seed-v2'),
     ).every(Boolean)
     expect(allSame).toBe(false)
     expect(BENCHMARK_SPLIT_SEED).toBe('agent-eval-v1')
@@ -94,7 +93,9 @@ describe('routing benchmark', () => {
   })
 
   it('extracts route tokens from prose', () => {
-    const tokens = routing.extractRouteTokens('I think we should call fs.write here, not chat.reply.')
+    const tokens = routing.extractRouteTokens(
+      'I think we should call fs.write here, not chat.reply.',
+    )
     expect(tokens).toContain('fs.write')
     expect(tokens).toContain('chat.reply')
   })
@@ -126,9 +127,7 @@ describe('gsm8k benchmark', () => {
   it('throws when AGENT_EVAL_GSM8K_PATH is unset', async () => {
     const prev = process.env.AGENT_EVAL_GSM8K_PATH
     delete process.env.AGENT_EVAL_GSM8K_PATH
-    await expect(gsm8k.loadDataset('search')).rejects.toThrow(
-      /AGENT_EVAL_GSM8K_PATH/,
-    )
+    await expect(gsm8k.loadDataset('search')).rejects.toThrow(/AGENT_EVAL_GSM8K_PATH/)
     if (prev) process.env.AGENT_EVAL_GSM8K_PATH = prev
   })
 
@@ -169,9 +168,7 @@ describe('swebench-lite benchmark (external grader)', () => {
   it('throws when AGENT_EVAL_SWEBENCH_PATH is unset', async () => {
     const prev = process.env.AGENT_EVAL_SWEBENCH_PATH
     delete process.env.AGENT_EVAL_SWEBENCH_PATH
-    await expect(swebenchLite.loadDataset('search')).rejects.toThrow(
-      /AGENT_EVAL_SWEBENCH_PATH/,
-    )
+    await expect(swebenchLite.loadDataset('search')).rejects.toThrow(/AGENT_EVAL_SWEBENCH_PATH/)
     if (prev) process.env.AGENT_EVAL_SWEBENCH_PATH = prev
   })
 
@@ -204,12 +201,9 @@ describe('swebench-lite benchmark (external grader)', () => {
   })
 
   it('parses quoted grader commands', () => {
-    expect(swebenchLite.parseSweBenchGraderCommand('"node binary" ./grader.js --flag "two words"')).toEqual([
-      'node binary',
-      './grader.js',
-      '--flag',
-      'two words',
-    ])
+    expect(
+      swebenchLite.parseSweBenchGraderCommand('"node binary" ./grader.js --flag "two words"'),
+    ).toEqual(['node binary', './grader.js', '--flag', 'two words'])
     expect(() => swebenchLite.parseSweBenchGraderCommand('"unterminated')).toThrow(/unterminated/)
   })
 
@@ -222,11 +216,11 @@ describe('swebench-lite benchmark (external grader)', () => {
         "let input = '';",
         "process.stdin.on('data', (chunk) => input += chunk);",
         "process.stdin.on('end', () => {",
-        "  const payload = JSON.parse(input);",
-        "  process.stdout.write(JSON.stringify({",
+        '  const payload = JSON.parse(input);',
+        '  process.stdout.write(JSON.stringify({',
         "    passed: payload.instance_id === 'inst1' && payload.patch.includes('fix'),",
-        "    fail_to_pass_passed: true,",
-        "    pass_to_pass_passed: true,",
+        '    fail_to_pass_passed: true,',
+        '    pass_to_pass_passed: true,',
         "    log: 'ok'",
         '  }));',
         '});',

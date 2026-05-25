@@ -1,8 +1,8 @@
 import {
-  runMultiShotOptimization,
-  trialTraceFromMultiShotTrial,
   type MultiShotVariant,
   type RunRecord,
+  runMultiShotOptimization,
+  trialTraceFromMultiShotTrial,
 } from '@tangle-network/agent-eval'
 
 type Payload = {
@@ -36,7 +36,10 @@ const result = await runMultiShotOptimization<Payload>({
           scenarioId,
           turns: [
             { role: 'user', content: `Run ${scenarioId}` },
-            { role: 'assistant', content: `${variant.payload.instruction} quality=${variant.payload.quality}` },
+            {
+              role: 'assistant',
+              content: `${variant.payload.instruction} quality=${variant.payload.quality}`,
+            },
           ],
           output: `quality=${variant.payload.quality}`,
         },
@@ -50,22 +53,27 @@ const result = await runMultiShotOptimization<Payload>({
       return {
         score: variant.payload.quality,
         ok: true,
-        asi: variant.payload.quality >= 0.8
-          ? []
-          : [{
-              expectationId: 'complete-task',
-              message: 'The agent did not fully complete the task.',
-              severity: 'error',
-              responsibleSurface: 'system-prompt',
-              suggestion: 'Make completion criteria explicit before final response.',
-            }],
+        asi:
+          variant.payload.quality >= 0.8
+            ? []
+            : [
+                {
+                  expectationId: 'complete-task',
+                  message: 'The agent did not fully complete the task.',
+                  severity: 'error',
+                  responsibleSurface: 'system-prompt',
+                  suggestion: 'Make completion criteria explicit before final response.',
+                },
+              ],
       }
     },
   },
   mutateAdapter: {
     async mutate({ parent, bottomTrials, childCount, generation }) {
       const traces = bottomTrials.map((trial) => trialTraceFromMultiShotTrial(trial))
-      const rationale = traces.flatMap((trace) => (trace.expectations ?? []).map((e) => e.phrase)).join('\n')
+      const rationale = traces
+        .flatMap((trace) => (trace.expectations ?? []).map((e) => e.phrase))
+        .join('\n')
       return Array.from({ length: childCount }, (_, i) => ({
         id: `${parent.id}.g${generation}.${i}`,
         label: 'completion-focused',

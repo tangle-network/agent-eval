@@ -10,7 +10,9 @@ import { InMemoryTraceStore, TraceEmitter } from '../src/trace'
 
 describe('checkCanaries', () => {
   it('returns leaks when canary appears in output — regression: memorized holdouts must fire', () => {
-    const leaks = checkCanaries('sure here goes XYZ-CANARY-9f3e', [{ id: 's1', payload: {}, canary: 'XYZ-CANARY-9f3e' }])
+    const leaks = checkCanaries('sure here goes XYZ-CANARY-9f3e', [
+      { id: 's1', payload: {}, canary: 'XYZ-CANARY-9f3e' },
+    ])
     expect(leaks).toHaveLength(1)
     expect(leaks[0].scenarioId).toBe('s1')
   })
@@ -26,7 +28,13 @@ describe('canaryLeakView', () => {
     const store = new InMemoryTraceStore()
     const e = new TraceEmitter(store)
     await e.startRun({ scenarioId: 's1' })
-    const h = await e.span({ kind: 'llm', name: 'gen', model: 'm', messages: [], output: 'begin CANARY-ABCDE end' })
+    const h = await e.span({
+      kind: 'llm',
+      name: 'gen',
+      model: 'm',
+      messages: [],
+      output: 'begin CANARY-ABCDE end',
+    })
     await h.end()
     await e.endRun({ pass: true })
     const leaks = await canaryLeakView(store, [{ id: 's1', payload: {}, canary: 'CANARY-ABCDE' }])
@@ -99,9 +107,21 @@ describe('checkBehavioralCanary', () => {
 describe('runBehavioralCanaries', () => {
   it('aggregates leaks across (scenario, output) pairs and propagates runId', () => {
     const cases = [
-      { scenario: { id: 'a', payload: {}, forbiddenPattern: 'bad' }, output: 'totally bad', runId: 'r1' },
-      { scenario: { id: 'b', payload: {}, forbiddenPattern: 'bad' }, output: 'all good', runId: 'r2' },
-      { scenario: { id: 'c', payload: {}, forbiddenPattern: 'oof' }, output: 'oof oof', runId: 'r3' },
+      {
+        scenario: { id: 'a', payload: {}, forbiddenPattern: 'bad' },
+        output: 'totally bad',
+        runId: 'r1',
+      },
+      {
+        scenario: { id: 'b', payload: {}, forbiddenPattern: 'bad' },
+        output: 'all good',
+        runId: 'r2',
+      },
+      {
+        scenario: { id: 'c', payload: {}, forbiddenPattern: 'oof' },
+        output: 'oof oof',
+        runId: 'r3',
+      },
     ]
     const leaks = runBehavioralCanaries(cases)
     expect(leaks.map((l) => l.scenarioId).sort()).toEqual(['a', 'c'])
@@ -112,7 +132,9 @@ describe('runBehavioralCanaries', () => {
 describe('HoldoutAuditor', () => {
   it('rejects bogus purpose — regression: accidental reads into training pipelines must fail loudly', () => {
     const audit = new HoldoutAuditor([{ id: 'a', payload: {} }])
-    expect(() => (audit as unknown as { get: (a: string, b: string) => unknown }).get('a', 'training')).toThrow(/purpose/)
+    expect(() =>
+      (audit as unknown as { get: (a: string, b: string) => unknown }).get('a', 'training'),
+    ).toThrow(/purpose/)
   })
 
   it('logs accesses with purpose', () => {

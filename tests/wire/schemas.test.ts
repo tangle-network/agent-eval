@@ -27,9 +27,7 @@ describe('RubricDimensionSchema', () => {
   })
 
   it('rejects negative weight (regression: negative weights flip score sign)', () => {
-    expect(() =>
-      RubricDimensionSchema.parse({ id: 'x', description: 'y', weight: -1 }),
-    ).toThrow()
+    expect(() => RubricDimensionSchema.parse({ id: 'x', description: 'y', weight: -1 })).toThrow()
   })
 })
 
@@ -116,14 +114,18 @@ describe('hashRubric', () => {
   })
 
   it('changes when nested rubric scoring fields change', () => {
-    expect(hashRubric(r)).not.toEqual(hashRubric({
-      ...r,
-      dimensions: [{ ...r.dimensions[0], weight: 2 }],
-    }))
-    expect(hashRubric(r)).not.toEqual(hashRubric({
-      ...r,
-      dimensions: [{ ...r.dimensions[0], min: -1 }],
-    }))
+    expect(hashRubric(r)).not.toEqual(
+      hashRubric({
+        ...r,
+        dimensions: [{ ...r.dimensions[0], weight: 2 }],
+      }),
+    )
+    expect(hashRubric(r)).not.toEqual(
+      hashRubric({
+        ...r,
+        dimensions: [{ ...r.dimensions[0], min: -1 }],
+      }),
+    )
     expect(hashRubric({ ...r, failureModes: [{ id: 'a', description: 'A' }] })).not.toEqual(
       hashRubric({ ...r, failureModes: [{ id: 'b', description: 'A' }] }),
     )

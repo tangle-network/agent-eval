@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest'
+import { describe, expect, it } from 'vitest'
 import { DualAgentBench } from '../src/dual-agent-bench'
 
 describe('DualAgentBench', () => {
@@ -89,9 +89,13 @@ describe('DualAgentBench', () => {
       convergenceThreshold: 2,
       propose: async () => 'p',
       critique: async () => ({ critique: 'c', convergenceScore: 0 }),
-      onRoundComplete: ({ scenarioId, round }) => events.push({ scenarioId, round: round.roundIndex }),
+      onRoundComplete: ({ scenarioId, round }) =>
+        events.push({ scenarioId, round: round.roundIndex }),
     })
-    expect(events).toEqual([{ scenarioId: 's1', round: 0 }, { scenarioId: 's1', round: 1 }])
+    expect(events).toEqual([
+      { scenarioId: 's1', round: 0 },
+      { scenarioId: 's1', round: 1 },
+    ])
   })
 
   it('aggregate.convergenceRate is the fraction that converged', async () => {

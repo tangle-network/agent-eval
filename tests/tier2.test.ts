@@ -1,23 +1,20 @@
 import { describe, expect, it } from 'vitest'
 import {
-  InMemoryTraceStore,
-  TraceEmitter,
-} from '../src/trace'
-import type { ToolSpan } from '../src/trace'
-import {
   attributeCounterfactuals,
-  runCounterfactual,
   type CounterfactualRunner,
+  runCounterfactual,
 } from '../src/counterfactual'
 import { crossTraceDiff } from '../src/cross-trace-diff'
 import {
   canonicalize,
   evaluateHypothesis,
+  type HypothesisManifest,
   hashJson,
   signManifest,
   verifyManifest,
-  type HypothesisManifest,
 } from '../src/pre-registration'
+import type { ToolSpan } from '../src/trace'
+import { InMemoryTraceStore, TraceEmitter } from '../src/trace'
 
 async function seed(
   store: InMemoryTraceStore,
@@ -28,10 +25,21 @@ async function seed(
   await e.startRun({ scenarioId: 's' })
   for (const s of shape) {
     if (s.kind === 'llm') {
-      const h = await e.span({ kind: 'llm', name: s.name, model: s.model ?? 'm', messages: [], output: 'x' })
+      const h = await e.span({
+        kind: 'llm',
+        name: s.name,
+        model: s.model ?? 'm',
+        messages: [],
+        output: 'x',
+      })
       await h.end()
     } else {
-      const h = await e.span({ kind: 'tool', name: s.name, toolName: s.toolName ?? s.name, args: {} })
+      const h = await e.span({
+        kind: 'tool',
+        name: s.name,
+        toolName: s.toolName ?? s.name,
+        args: {},
+      })
       await h.end({ result: 'ok' } as Partial<ToolSpan>)
     }
   }
@@ -48,13 +56,20 @@ describe('runCounterfactual', () => {
     ])
     const runner: CounterfactualRunner = {
       async executeFrom(_ctx, emitter) {
-        const h = await emitter.span({ kind: 'llm', name: 'plan-cf', model: 'claude-opus', messages: [], output: 'better' })
+        const h = await emitter.span({
+          kind: 'llm',
+          name: 'plan-cf',
+          model: 'claude-opus',
+          messages: [],
+          output: 'better',
+        })
         await h.end()
         await emitter.endRun({ pass: true, score: 0.82 })
       },
     }
     const result = await runCounterfactual(
-      store, originalId,
+      store,
+      originalId,
       { kind: 'swap-model', at: 0, newModel: 'claude-opus' },
       runner,
     )
@@ -69,17 +84,39 @@ describe('runCounterfactual', () => {
     const store = new InMemoryTraceStore()
     const originalId = await seed(store, 0.5, [{ kind: 'llm', name: 'one' }])
     await expect(
-      runCounterfactual(store, originalId, { kind: 'swap-model', at: 5, newModel: 'x' }, {
-        async executeFrom(_c, e) { await e.endRun({ pass: true }) },
-      }),
+      runCounterfactual(
+        store,
+        originalId,
+        { kind: 'swap-model', at: 5, newModel: 'x' },
+        {
+          async executeFrom(_c, e) {
+            await e.endRun({ pass: true })
+          },
+        },
+      ),
     ).rejects.toThrow(/out of range/)
   })
 
   it('attributeCounterfactuals ranks mutations by mean absolute delta', () => {
     const rows = [
-      { counterfactualRunId: 'a', originalRunId: 'o', mutation: { kind: 'swap-model', at: 0, newModel: 'x' } as const, delta: { originalOutcomeScore: 0.5, counterfactualOutcomeScore: 0.8, deltaScore: 0.3 } },
-      { counterfactualRunId: 'b', originalRunId: 'o', mutation: { kind: 'swap-tool-result', at: 1, newResult: 'x' } as const, delta: { originalOutcomeScore: 0.5, counterfactualOutcomeScore: 0.52, deltaScore: 0.02 } },
-      { counterfactualRunId: 'c', originalRunId: 'o', mutation: { kind: 'swap-model', at: 2, newModel: 'y' } as const, delta: { originalOutcomeScore: 0.5, counterfactualOutcomeScore: 0.7, deltaScore: 0.2 } },
+      {
+        counterfactualRunId: 'a',
+        originalRunId: 'o',
+        mutation: { kind: 'swap-model', at: 0, newModel: 'x' } as const,
+        delta: { originalOutcomeScore: 0.5, counterfactualOutcomeScore: 0.8, deltaScore: 0.3 },
+      },
+      {
+        counterfactualRunId: 'b',
+        originalRunId: 'o',
+        mutation: { kind: 'swap-tool-result', at: 1, newResult: 'x' } as const,
+        delta: { originalOutcomeScore: 0.5, counterfactualOutcomeScore: 0.52, deltaScore: 0.02 },
+      },
+      {
+        counterfactualRunId: 'c',
+        originalRunId: 'o',
+        mutation: { kind: 'swap-model', at: 2, newModel: 'y' } as const,
+        delta: { originalOutcomeScore: 0.5, counterfactualOutcomeScore: 0.7, deltaScore: 0.2 },
+      },
     ]
     const rank = attributeCounterfactuals(rows)
     expect(rank[0].mutationKind).toBe('swap-model')
@@ -96,7 +133,7 @@ describe('crossTraceDiff', () => {
       { kind: 'tool', name: 'search' },
     ])
     const b = await seed(store, 0.8, [
-      { kind: 'llm', name: 'plan', model: 'gpt' },   // model swap
+      { kind: 'llm', name: 'plan', model: 'gpt' }, // model swap
       { kind: 'tool', name: 'search' },
     ])
     const diff = await crossTraceDiff(store, a, b)

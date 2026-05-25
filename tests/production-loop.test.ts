@@ -83,9 +83,10 @@ function makeScorer(): MultiShotScorer<Payload> {
 function makeImprovementMutator(): MultiShotMutateAdapter<Payload> {
   return {
     mutate: async ({ parent, childCount, generation }) => {
-      const longer = `${parent.payload.systemPrompt} `
-        + 'Always cite the source statute by section number. '
-        + 'Refuse to answer if the FTC rule cited is not in the active corpus. '
+      const longer =
+        `${parent.payload.systemPrompt} ` +
+        'Always cite the source statute by section number. ' +
+        'Refuse to answer if the FTC rule cited is not in the active corpus. '
       return Array.from({ length: childCount }, (_, i) => ({
         id: `${parent.id}-improved-${generation}-${i}`,
         label: 'improved',

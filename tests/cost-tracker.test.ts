@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest'
+import { describe, expect, it } from 'vitest'
 import { CostTracker } from '../src/cost-tracker'
 
 describe('CostTracker.recordVerdict', () => {
@@ -32,7 +32,10 @@ describe('CostTracker.recordVerdict', () => {
   it('verdict !== "pass" → markOutcome(false)', () => {
     const t = new CostTracker()
     t.recordVerdict(
-      { usage: { inputTokens: 100, outputTokens: 50, model: 'gpt-4o-mini' }, verdict: 'borderline' },
+      {
+        usage: { inputTokens: 100, outputTokens: 50, model: 'gpt-4o-mini' },
+        verdict: 'borderline',
+      },
       'scn-border',
     )
     expect(t.summary().completedCount).toBe(0)

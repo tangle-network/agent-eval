@@ -1,5 +1,5 @@
-import { describe, expect, it, vi } from 'vitest'
 import type { AgentProfile } from '@tangle-network/sandbox'
+import { describe, expect, it, vi } from 'vitest'
 import {
   MultishotDriverEmptyError,
   type MultishotPersona,
@@ -24,12 +24,24 @@ const SHAPE: MultishotShape<TestPersona> = {
 
 const PERSONA: TestPersona = { id: 'alice', name: 'Alice' }
 
-function makeFetchStub(responses: Array<{ content?: string; toolCalls?: Array<{ name: string; args: Record<string, unknown> }> }>) {
+function makeFetchStub(
+  responses: Array<{
+    content?: string
+    toolCalls?: Array<{ name: string; args: Record<string, unknown> }>
+  }>,
+) {
   let i = 0
   return vi.fn(async (_url: string, _init?: RequestInit) => {
     const r = responses[i++]
     if (!r) throw new Error(`fetch stub exhausted at call ${i}`)
-    const message: { content: string | null; tool_calls?: Array<{ id: string; type: 'function'; function: { name: string; arguments: string } }> } = {
+    const message: {
+      content: string | null
+      tool_calls?: Array<{
+        id: string
+        type: 'function'
+        function: { name: string; arguments: string }
+      }>
+    } = {
       content: r.content ?? null,
     }
     if (r.toolCalls?.length) {
@@ -42,7 +54,10 @@ function makeFetchStub(responses: Array<{ content?: string; toolCalls?: Array<{ 
     return {
       ok: true,
       status: 200,
-      json: async () => ({ choices: [{ message }], usage: { prompt_tokens: 10, completion_tokens: 20 } }),
+      json: async () => ({
+        choices: [{ message }],
+        usage: { prompt_tokens: 10, completion_tokens: 20 },
+      }),
       text: async () => 'ok',
     } as Response
   })
@@ -112,7 +127,12 @@ describe('runMultishot', () => {
     ]) as unknown as typeof fetch
     process.env.TANGLE_API_KEY = 'test-key'
 
-    const result = await runMultishot({ profile: PROFILE, persona: PERSONA, shape: SHAPE, maxTurns: 2 })
+    const result = await runMultishot({
+      profile: PROFILE,
+      persona: PERSONA,
+      shape: SHAPE,
+      maxTurns: 2,
+    })
     const driverTurns = result.transcript.filter((m) => m.role === 'user').slice(1) // skip opener
     expect(driverTurns[0].content).toBe('driver retry succeeded')
 
@@ -124,7 +144,13 @@ describe('runMultishot', () => {
     const ctl = new AbortController()
     ctl.abort()
     await expect(
-      runMultishot({ profile: PROFILE, persona: PERSONA, shape: SHAPE, maxTurns: 2, signal: ctl.signal }),
+      runMultishot({
+        profile: PROFILE,
+        persona: PERSONA,
+        shape: SHAPE,
+        maxTurns: 2,
+        signal: ctl.signal,
+      }),
     ).rejects.toThrow(/aborted/)
   })
 
@@ -144,7 +170,16 @@ describe('runMultishot', () => {
       persona: PERSONA,
       shape: SHAPE,
       maxTurns: 1,
-      tools: [{ type: 'function', function: { name: 'my_custom_tool', description: 'test', parameters: { type: 'object', properties: {} } } }],
+      tools: [
+        {
+          type: 'function',
+          function: {
+            name: 'my_custom_tool',
+            description: 'test',
+            parameters: { type: 'object', properties: {} },
+          },
+        },
+      ],
       toolExecutors: { my_custom_tool: customExecutor },
       artifactTypeFor: (name) => (name === 'my_custom_tool' ? 'custom' : undefined),
     })

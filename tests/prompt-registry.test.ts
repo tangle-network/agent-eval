@@ -1,5 +1,5 @@
-import { describe, it, expect } from 'vitest'
-import { PromptRegistry, hashContent } from '../src/prompt-registry'
+import { describe, expect, it } from 'vitest'
+import { hashContent, PromptRegistry } from '../src/prompt-registry'
 
 describe('PromptRegistry', () => {
   it('registers + retrieves by id+version', async () => {

@@ -1,19 +1,17 @@
-import { describe, it, expect } from 'vitest'
-import { InMemoryTraceStore } from '../src/trace/store'
+import { describe, expect, it } from 'vitest'
 import { TraceEmitter } from '../src/trace/emitter'
-import {
-  assertRunCaptured,
-  throwIfRunIncomplete,
-  RunIntegrityError,
-} from '../src/trace/integrity'
+import { assertRunCaptured, RunIntegrityError, throwIfRunIncomplete } from '../src/trace/integrity'
 import { InMemoryRawProviderSink } from '../src/trace/raw-provider-sink'
+import { InMemoryTraceStore } from '../src/trace/store'
 
-async function setupRun(opts: {
-  llmSpans?: number
-  judgeSpans?: number
-  toolSpans?: number
-  outcomePass?: boolean | null
-} = {}) {
+async function setupRun(
+  opts: {
+    llmSpans?: number
+    judgeSpans?: number
+    toolSpans?: number
+    outcomePass?: boolean | null
+  } = {},
+) {
   const store = new InMemoryTraceStore()
   const emitter = new TraceEmitter(store)
   await emitter.startRun({ scenarioId: 'unit', layer: 'app-runtime' })
@@ -56,7 +54,10 @@ describe('assertRunCaptured', () => {
     const { store, runId } = await setupRun({ llmSpans: 0, judgeSpans: 0 })
     const report = await assertRunCaptured(store, runId, { llmSpansMin: 1, judgeSpansMin: 2 })
     expect(report.ok).toBe(false)
-    expect(report.issues.map((i) => i.code).sort()).toEqual(['missing_judge_spans', 'missing_llm_spans'])
+    expect(report.issues.map((i) => i.code).sort()).toEqual([
+      'missing_judge_spans',
+      'missing_llm_spans',
+    ])
   })
 
   it('flags missing raw events when sink is empty', async () => {

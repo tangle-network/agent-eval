@@ -41,6 +41,7 @@ export function weightedMean(scores: { score: number; weight?: number }[]): numb
 export function confidenceInterval(
   scores: number[],
   confidence = 0.95,
+  opts: { seed?: number; resamples?: number } = {},
 ): { mean: number; lower: number; upper: number } {
   if (scores.length === 0) return { mean: 0, lower: 0, upper: 0 }
   if (scores.length === 1) return { mean: scores[0]!, lower: scores[0]!, upper: scores[0]! }
@@ -48,13 +49,14 @@ export function confidenceInterval(
   const n = scores.length
   const mean = scores.reduce((a, b) => a + b, 0) / n
 
-  const B = 1000
+  const B = opts.resamples ?? 1000
+  const rng = makeRng(opts.seed)
   const bootstrapMeans: number[] = []
 
   for (let i = 0; i < B; i++) {
     let sum = 0
     for (let j = 0; j < n; j++) {
-      sum += scores[Math.floor(Math.random() * n)]!
+      sum += scores[Math.floor(rng() * n)]!
     }
     bootstrapMeans.push(sum / n)
   }

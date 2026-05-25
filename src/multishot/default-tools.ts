@@ -41,7 +41,10 @@ export const DEFAULT_DELEGATE_RESEARCH_TOOL: MultishotToolDefinition = {
       type: 'object',
       properties: {
         question: { type: 'string', description: 'Specific question to research' },
-        scope: { type: 'string', description: 'Optional scope: time window, geography, jurisdiction, segment' },
+        scope: {
+          type: 'string',
+          description: 'Optional scope: time window, geography, jurisdiction, segment',
+        },
       },
       required: ['question'],
     },
@@ -58,14 +61,19 @@ export const DEFAULT_DELEGATE_CODE_TOOL: MultishotToolDefinition = {
       type: 'object',
       properties: {
         goal: { type: 'string', description: 'What the code must accomplish' },
-        language: { type: 'string', description: 'Optional language preference (default: TypeScript)' },
+        language: {
+          type: 'string',
+          description: 'Optional language preference (default: TypeScript)',
+        },
       },
       required: ['goal'],
     },
   },
 }
 
-export function createResearchExecutor(config: DefaultResearcherConfig = {}): MultishotToolExecutor {
+export function createResearchExecutor(
+  config: DefaultResearcherConfig = {},
+): MultishotToolExecutor {
   const systemPrompt = config.systemPrompt ?? GENERIC_RESEARCHER_SYSTEM
   const model = config.model ?? DEFAULT_RESEARCHER_MODEL
   return async (args, ctx) => {
@@ -130,7 +138,8 @@ export function defaultDelegationTools(config: DefaultToolsConfig = {}): Default
       delegate_research: createResearchExecutor(config.research),
       delegate_code: createCodeExecutor(config.code),
     },
-    artifactTypeFor: (name) => (name === 'delegate_research' ? 'research' : name === 'delegate_code' ? 'code' : undefined),
+    artifactTypeFor: (name) =>
+      name === 'delegate_research' ? 'research' : name === 'delegate_code' ? 'code' : undefined,
   }
 }
 

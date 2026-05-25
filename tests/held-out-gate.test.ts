@@ -198,10 +198,24 @@ describe('HeldOutGate — promotion path', () => {
     const candidate: RunRecord[] = []
     const baseline: RunRecord[] = []
     for (let i = 0; i < 5; i++) {
-      candidate.push(record({ candidateId: 'cand', seed: i, splitTag: 'holdout', outcome: { holdoutScore: 0.7, raw: {} } }))
+      candidate.push(
+        record({
+          candidateId: 'cand',
+          seed: i,
+          splitTag: 'holdout',
+          outcome: { holdoutScore: 0.7, raw: {} },
+        }),
+      )
     }
     for (let i = 0; i < 2; i++) {
-      baseline.push(record({ candidateId: 'baseline', seed: i, splitTag: 'holdout', outcome: { holdoutScore: 0.5, raw: {} } }))
+      baseline.push(
+        record({
+          candidateId: 'baseline',
+          seed: i,
+          splitTag: 'holdout',
+          outcome: { holdoutScore: 0.5, raw: {} },
+        }),
+      )
     }
     const d = g.evaluate(candidate, baseline)
     expect(d.evidence.productiveRuns).toBe(2)

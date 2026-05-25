@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest'
 import {
+  type MultiShotTrialResult,
+  type MultiShotVariant,
   runMultiShotOptimization,
   trialTraceFromMultiShotTrial,
-  type MultiShotVariant,
-  type MultiShotTrialResult,
 } from '../src/index'
 import type { RunRecord, RunSplitTag } from '../src/run-record'
 
@@ -81,21 +81,27 @@ describe('runMultiShotOptimization', () => {
         score: ({ variant }) => ({
           score: variant.payload.quality,
           ok: true,
-          asi: variant.payload.quality >= 0.8
-            ? []
-            : [{
-                expectationId: 'complete-task',
-                message: 'Task was incomplete across the conversation.',
-                severity: 'error',
-                responsibleSurface: 'system',
-                suggestion: 'Require the agent to finish all requested steps before reporting success.',
-              }],
+          asi:
+            variant.payload.quality >= 0.8
+              ? []
+              : [
+                  {
+                    expectationId: 'complete-task',
+                    message: 'Task was incomplete across the conversation.',
+                    severity: 'error',
+                    responsibleSurface: 'system',
+                    suggestion:
+                      'Require the agent to finish all requested steps before reporting success.',
+                  },
+                ],
         }),
       },
       mutateAdapter: {
         mutate: async ({ parent, bottomTrials, childCount, generation }) => {
           const trace = trialTraceFromMultiShotTrial(bottomTrials[0]!)
-          sawReflectionTrace = trace.expectations.some((e) => e.id === 'complete-task' && !e.matched)
+          sawReflectionTrace = trace.expectations.some(
+            (e) => e.id === 'complete-task' && !e.matched,
+          )
           return Array.from({ length: childCount }, (_, i) => ({
             id: `${parent.id}-fixed-${i}`,
             label: 'fixed',
@@ -147,12 +153,13 @@ describe('runMultiShotOptimization', () => {
         }),
       },
       mutateAdapter: {
-        mutate: async ({ parent, childCount, generation }) => Array.from({ length: childCount }, (_, i) => ({
-          id: `${parent.id}-candidate-${i}`,
-          label: 'candidate',
-          generation,
-          payload: { quality: 0.9 },
-        })),
+        mutate: async ({ parent, childCount, generation }) =>
+          Array.from({ length: childCount }, (_, i) => ({
+            id: `${parent.id}-candidate-${i}`,
+            label: 'candidate',
+            generation,
+            payload: { quality: 0.9 },
+          })),
       },
       scalarWeights: { score: 1, cost: 0 },
       earlyStopOnNoImprovement: false,
@@ -167,15 +174,16 @@ describe('runMultiShotOptimization', () => {
           overfitGapThreshold: 1,
           seed: 11,
         },
-        toRunRecord: ({ variant, scenarioId, rep, split, seed, trial }) => runRecord({
-          runId: 'ms-gate',
-          variant,
-          scenarioId,
-          rep,
-          split,
-          seed,
-          trial,
-        }),
+        toRunRecord: ({ variant, scenarioId, rep, split, seed, trial }) =>
+          runRecord({
+            runId: 'ms-gate',
+            variant,
+            scenarioId,
+            rep,
+            split,
+            seed,
+            trial,
+          }),
       },
     })
 
@@ -203,17 +211,21 @@ describe('runMultiShotOptimization', () => {
       },
       scorer: {
         score: ({ variant, scenarioId }) => ({
-          score: scenarioId.startsWith('holdout') && variant.id !== 'baseline' ? 0.2 : variant.payload.quality,
+          score:
+            scenarioId.startsWith('holdout') && variant.id !== 'baseline'
+              ? 0.2
+              : variant.payload.quality,
           ok: true,
         }),
       },
       mutateAdapter: {
-        mutate: async ({ parent, childCount, generation }) => Array.from({ length: childCount }, (_, i) => ({
-          id: `${parent.id}-overfit-${i}`,
-          label: 'overfit',
-          generation,
-          payload: { quality: 0.9 },
-        })),
+        mutate: async ({ parent, childCount, generation }) =>
+          Array.from({ length: childCount }, (_, i) => ({
+            id: `${parent.id}-overfit-${i}`,
+            label: 'overfit',
+            generation,
+            payload: { quality: 0.9 },
+          })),
       },
       scalarWeights: { score: 1, cost: 0 },
       earlyStopOnNoImprovement: false,
@@ -226,15 +238,16 @@ describe('runMultiShotOptimization', () => {
           overfitGapThreshold: 1,
           seed: 13,
         },
-        toRunRecord: ({ variant, scenarioId, rep, split, seed, trial }) => runRecord({
-          runId: 'ms-reject',
-          variant,
-          scenarioId,
-          rep,
-          split,
-          seed,
-          trial,
-        }),
+        toRunRecord: ({ variant, scenarioId, rep, split, seed, trial }) =>
+          runRecord({
+            runId: 'ms-reject',
+            variant,
+            scenarioId,
+            rep,
+            split,
+            seed,
+            trial,
+          }),
       },
     })
 
@@ -277,17 +290,19 @@ describe('runMultiShotOptimization', () => {
   })
 
   it('rejects ambiguous release configurations before running trials', async () => {
-    await expect(runMultiShotOptimization<Payload>({
-      runId: 'bad-config',
-      target: 'agent',
-      seedVariants: [variant('baseline', 0.5), variant('baseline', 0.6)],
-      searchScenarioIds: ['s1'],
-      reps: 1,
-      generations: 1,
-      populationSize: 2,
-      runner: { run: ({ scenarioId }) => ({ trace: { scenarioId } }) },
-      scorer: { score: () => ({ score: 1 }) },
-      mutateAdapter: { mutate: async () => [] },
-    })).rejects.toThrow(/duplicate seedVariants.id/)
+    await expect(
+      runMultiShotOptimization<Payload>({
+        runId: 'bad-config',
+        target: 'agent',
+        seedVariants: [variant('baseline', 0.5), variant('baseline', 0.6)],
+        searchScenarioIds: ['s1'],
+        reps: 1,
+        generations: 1,
+        populationSize: 2,
+        runner: { run: ({ scenarioId }) => ({ trace: { scenarioId } }) },
+        scorer: { score: () => ({ score: 1 }) },
+        mutateAdapter: { mutate: async () => [] },
+      }),
+    ).rejects.toThrow(/duplicate seedVariants.id/)
   })
 })

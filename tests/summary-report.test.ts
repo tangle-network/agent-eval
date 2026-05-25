@@ -1,12 +1,7 @@
 import { describe, expect, it } from 'vitest'
-import {
-  summaryTable,
-  paretoChart,
-  gainHistogram,
-  researchReport,
-} from '../src/summary-report'
-import type { RunRecord } from '../src/run-record'
 import type { GateDecision } from '../src/promotion-gate'
+import type { RunRecord } from '../src/run-record'
+import { gainHistogram, paretoChart, researchReport, summaryTable } from '../src/summary-report'
 
 function rec(
   candidateId: string,
@@ -29,9 +24,7 @@ function rec(
     costUsd,
     tokenUsage: { input: 100, output: 100 },
     outcome:
-      splitTag === 'holdout'
-        ? { holdoutScore: score, raw: {} }
-        : { searchScore: score, raw: {} },
+      splitTag === 'holdout' ? { holdoutScore: score, raw: {} } : { searchScore: score, raw: {} },
     splitTag,
   }
 }
@@ -51,7 +44,7 @@ describe('summaryTable', () => {
     expect(t.markdown).toContain('| B |')
   })
 
-  it('computes BH-adjusted q-values and Cohen\'s d versus comparator', () => {
+  it("computes BH-adjusted q-values and Cohen's d versus comparator", () => {
     const runs: RunRecord[] = []
     // baseline: ~0.5; cand: ~0.7 — strong, paired
     for (let i = 0; i < 8; i++) {
@@ -148,7 +141,7 @@ describe('researchReport', () => {
     const runs: RunRecord[] = []
     for (let i = 0; i < 24; i++) {
       runs.push(rec('baseline', i, 'holdout', 0.55 + i * 0.001, 0.08, `coding-task-${i}`))
-      runs.push(rec('tool_repair_v2', i, 'holdout', 0.72 + i * 0.001, 0.10, `coding-task-${i}`))
+      runs.push(rec('tool_repair_v2', i, 'holdout', 0.72 + i * 0.001, 0.1, `coding-task-${i}`))
       runs.push(rec('cheap_fast', i, 'holdout', 0.58 + i * 0.001, 0.02, `coding-task-${i}`))
     }
 
@@ -201,7 +194,9 @@ describe('researchReport', () => {
     expect(c.pairedN).toBe(8)
     expect(c.mde).not.toBeNull()
     expect(c.decisionReason).toContain('minimum detectable effect')
-    expect(report.recommendation.nextActions.some((a) => /collect at least \d+ more matched/i.test(a))).toBe(true)
+    expect(
+      report.recommendation.nextActions.some((a) => /collect at least \d+ more matched/i.test(a)),
+    ).toBe(true)
   })
 
   it('hard-floors below 6 pairs regardless of minPairs', async () => {
@@ -217,7 +212,9 @@ describe('researchReport', () => {
       seed: 1,
     })
     expect(report.recommendation.decision).toBe('needs_more_data')
-    expect(report.candidates.find((c) => c.candidateId === 'candidate')?.decisionReason).toContain('hard floor')
+    expect(report.candidates.find((c) => c.candidateId === 'candidate')?.decisionReason).toContain(
+      'hard floor',
+    )
   })
 
   it('returns equivalent when paired-delta CI is fully inside ROPE', async () => {
@@ -243,7 +240,7 @@ describe('researchReport', () => {
     const runs: RunRecord[] = []
     for (let i = 0; i < 24; i++) {
       runs.push(rec('baseline', i, 'holdout', 0.5 + i * 0.001, 0.08, `task-${i}`))
-      runs.push(rec('candidate', i, 'holdout', 0.7 + i * 0.001, 0.10, `task-${i}`))
+      runs.push(rec('candidate', i, 'holdout', 0.7 + i * 0.001, 0.1, `task-${i}`))
     }
     const decision: GateDecision = {
       promote: false,
@@ -279,8 +276,18 @@ describe('researchReport', () => {
       runs.push(rec('baseline', i, 'holdout', 0.5, 0.05, `task-${i}`))
       runs.push(rec('candidate', i, 'holdout', 0.7, 0.05, `task-${i}`))
     }
-    const a = await researchReport(runs, { comparator: 'baseline', generatedAt: 'fixed', seed: 1, preregistrationHash: 'abc123' })
-    const b = await researchReport(runs.slice().reverse(), { comparator: 'baseline', generatedAt: 'fixed', seed: 1, preregistrationHash: 'abc123' })
+    const a = await researchReport(runs, {
+      comparator: 'baseline',
+      generatedAt: 'fixed',
+      seed: 1,
+      preregistrationHash: 'abc123',
+    })
+    const b = await researchReport(runs.slice().reverse(), {
+      comparator: 'baseline',
+      generatedAt: 'fixed',
+      seed: 1,
+      preregistrationHash: 'abc123',
+    })
     expect(a.runFingerprint).toBe(b.runFingerprint)
     expect(a.preregistrationHash).toBe('abc123')
     expect(a.markdown).toContain('abc123')
@@ -300,14 +307,16 @@ describe('researchReport', () => {
       failureClusters: {
         totalFailures: 4,
         totalRuns: 48,
-        clusters: [{
-          failureClass: 'tool_recovery_failure',
-          toolName: 'shell',
-          runCount: 4,
-          scenarioIds: ['task-1', 'task-2'],
-          exampleRunId: 'candidate-1-holdout',
-          exampleError: 'patch failed',
-        }],
+        clusters: [
+          {
+            failureClass: 'tool_recovery_failure',
+            toolName: 'shell',
+            runCount: 4,
+            scenarioIds: ['task-1', 'task-2'],
+            exampleRunId: 'candidate-1-holdout',
+            exampleError: 'patch failed',
+          },
+        ],
       },
       seed: 1,
     })

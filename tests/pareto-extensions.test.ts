@@ -1,11 +1,11 @@
-import { describe, it, expect } from 'vitest'
-import {
-  paretoFrontier,
-  scalarScore,
-  crowdingDistance,
-  paretoFrontierWithCrowding,
-} from '../src/pareto'
+import { describe, expect, it } from 'vitest'
 import type { Objective } from '../src/pareto'
+import {
+  crowdingDistance,
+  paretoFrontier,
+  paretoFrontierWithCrowding,
+  scalarScore,
+} from '../src/pareto'
 
 interface Candidate {
   id: string

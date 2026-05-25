@@ -1,13 +1,20 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import * as fs from 'node:fs'
 import * as os from 'node:os'
 import * as path from 'node:path'
-import { ExperimentTracker, FileSystemExperimentStore } from '../src/index'
+import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import type { BenchmarkReport } from '../src/index'
+import { ExperimentTracker, FileSystemExperimentStore } from '../src/index'
 
 function fakeReport(overall: number): BenchmarkReport {
   return {
-    summary: { overallAvg: overall, totalScenarios: 1, passRate: overall, totalCost: 0, totalLatencyMs: 0, totalTokens: 0 },
+    summary: {
+      overallAvg: overall,
+      totalScenarios: 1,
+      passRate: overall,
+      totalCost: 0,
+      totalLatencyMs: 0,
+      totalTokens: 0,
+    },
     results: [
       {
         scenarioId: 's1',
@@ -121,15 +128,16 @@ describe('FileSystemExperimentStore', () => {
     await tracker.startRun({ experimentId: a.id })
     await tracker.startRun({ experimentId: b.id })
 
-    expect((await store.listRuns(a.id))).toHaveLength(2)
-    expect((await store.listRuns(b.id))).toHaveLength(1)
+    expect(await store.listRuns(a.id)).toHaveLength(2)
+    expect(await store.listRuns(b.id)).toHaveLength(1)
   })
 
   it('skips truncated tail lines from a crash', async () => {
     fs.mkdirSync(dir, { recursive: true })
     fs.writeFileSync(
       path.join(dir, 'experiments.ndjson'),
-      JSON.stringify({ id: 'e1', name: 'good', createdAt: '2026-01-01T00:00:00Z' }) + '\n' +
+      JSON.stringify({ id: 'e1', name: 'good', createdAt: '2026-01-01T00:00:00Z' }) +
+        '\n' +
         '{"id":"e2","name":"part', // truncated, no closing brace, no newline
       'utf8',
     )

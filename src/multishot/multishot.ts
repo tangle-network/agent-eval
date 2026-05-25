@@ -15,8 +15,8 @@ import {
   routerCompletion,
 } from './router'
 import {
-  MultishotDriverEmptyError,
   type MultishotArtifact,
+  MultishotDriverEmptyError,
   type MultishotMessage,
   type MultishotPersona,
   type MultishotResult,
@@ -54,9 +54,14 @@ export async function runMultishot<TPersona extends MultishotPersona>(
   const agentModel = opts.agentModel ?? 'openai/gpt-5.4'
   const driverModel = opts.driverModel ?? 'openai/gpt-4o-mini'
 
-  const bundle = opts.tools && opts.toolExecutors
-    ? { tools: opts.tools, executors: opts.toolExecutors, artifactTypeFor: opts.artifactTypeFor ?? (() => undefined) }
-    : defaultDelegationTools()
+  const bundle =
+    opts.tools && opts.toolExecutors
+      ? {
+          tools: opts.tools,
+          executors: opts.toolExecutors,
+          artifactTypeFor: opts.artifactTypeFor ?? (() => undefined),
+        }
+      : defaultDelegationTools()
   const tools = opts.tools ?? bundle.tools
   const executors = opts.toolExecutors ?? bundle.executors
   const artifactTypeFor = opts.artifactTypeFor ?? bundle.artifactTypeFor
@@ -128,7 +133,12 @@ export async function runMultishot<TPersona extends MultishotPersona>(
           totalCostUsd += r.costUsd
           const artifactType = artifactTypeFor(tc.name)
           if (artifactType) {
-            artifacts.push({ type: artifactType, turn, invocation: { name: tc.name, args: tc.args }, content: toolResult })
+            artifacts.push({
+              type: artifactType,
+              turn,
+              invocation: { name: tc.name, args: tc.args },
+              content: toolResult,
+            })
           }
         }
       } catch (err) {

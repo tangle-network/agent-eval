@@ -1,12 +1,12 @@
 /**
  * @experimental
  *
- * Pass A substrate types — `runCampaign` is the one primitive every
+ * Pass A substrate types — `runShot` is the one primitive every
  * eval flow composes from. Three contracts in this file:
  *
  *   - `Scenario`            input set
  *   - `DispatchFn`          how to run one scenario → artifact
- *   - `CampaignResult`      defined output schema (the contract downstream tools depend on)
+ *   - `ShotResult`      defined output schema (the contract downstream tools depend on)
  *
  * Three more lifted from earlier substrate work (re-exported):
  *
@@ -35,9 +35,9 @@ export interface DispatchContext {
   generation?: number
   seed: number
   signal: AbortSignal
-  trace: CampaignTraceWriter
-  artifacts: CampaignArtifactWriter
-  cost: CampaignCostMeter
+  trace: ShotTraceWriter
+  artifacts: ShotArtifactWriter
+  cost: ShotCostMeter
   /** Populated when this run is part of a multi-cycle improvement loop. */
   cycleId?: string
   /** Populated when the substrate resumed from a prior cache hit. */
@@ -64,11 +64,7 @@ export interface SessionScript<TScenario, TArtifact> {
   affectsKnowledge?: boolean
   /** Optional per-session persona evolution — called after the session
    *  resolves. Returns the persona shape used by the NEXT session. */
-  evolveAfterSession?: (
-    artifact: TArtifact,
-    sessionIndex: number,
-    scenario: TScenario,
-  ) => TScenario
+  evolveAfterSession?: (artifact: TArtifact, sessionIndex: number, scenario: TScenario) => TScenario
 }
 
 // ── Judges (re-export 0.38 shape) ─────────────────────────────────────
@@ -130,12 +126,7 @@ export interface OptimizerConfig {
 // ── Gates ─────────────────────────────────────────────────────────────
 
 /** @experimental Five-valued verdict taxonomy (MOSS-paper alignment). */
-export type GateDecision =
-  | 'ship'
-  | 'hold'
-  | 'need_more_work'
-  | 'model_ceiling'
-  | 'arch_ceiling'
+export type GateDecision = 'ship' | 'hold' | 'need_more_work' | 'model_ceiling' | 'arch_ceiling'
 
 export interface GateContext<TArtifact, TScenario extends Scenario> {
   candidateArtifacts: Map<string, TArtifact>
@@ -163,7 +154,7 @@ export interface Gate<TArtifact = unknown, TScenario extends Scenario = Scenario
 
 /** @experimental Scoped trace writer handed to each dispatch — every span
  *  auto-tagged with the cellId so traces filter cleanly. */
-export interface CampaignTraceWriter {
+export interface ShotTraceWriter {
   span(name: string, attributes?: Record<string, unknown>): TraceSpan
   flush(): Promise<void>
 }
@@ -175,7 +166,7 @@ export interface TraceSpan {
 
 /** @experimental Scoped artifact writer — `write(path, content)` lands under
  *  `<runDir>/<cellId>/<path>`. */
-export interface CampaignArtifactWriter {
+export interface ShotArtifactWriter {
   write(path: string, content: string | Uint8Array): Promise<string>
   writeJson(path: string, value: unknown): Promise<string>
 }
@@ -183,7 +174,7 @@ export interface CampaignArtifactWriter {
 /** @experimental Cell-scoped cost meter. Substrate auto-tracks LLM costs
  *  via the cost-ledger backend hooks; consumers can record additional
  *  spend (sandbox time, tool costs) via `observe`. */
-export interface CampaignCostMeter {
+export interface ShotCostMeter {
   observe(amountUsd: number, source: string): void
   current(): number
 }
@@ -200,11 +191,7 @@ export type LabeledScenarioSource =
   | 'red-team'
   | 'synthetic'
 
-export type RedactionStatus =
-  | 'raw'
-  | 'redacted-pii'
-  | 'redacted-secrets'
-  | 'fully-redacted'
+export type RedactionStatus = 'raw' | 'redacted-pii' | 'redacted-secrets' | 'fully-redacted'
 
 /** @experimental Required-provenance write. The store rejects writes that
  *  lack provenance — a default-on flywheel without provenance is the
@@ -252,9 +239,9 @@ export interface LabeledScenarioStore {
   size(): Promise<{ train: number; test: number; bySource: Record<string, number> }>
 }
 
-// ── The CampaignResult schema (the downstream-tools contract) ─────────
+// ── The ShotResult schema (the downstream-tools contract) ─────────
 
-export interface CampaignCellResult<TArtifact> {
+export interface ShotCellResult<TArtifact> {
   cellId: string
   scenarioId: string
   rep: number
@@ -287,7 +274,7 @@ export interface GenerationRecord {
   promoted: string[]
 }
 
-export interface CampaignAggregates {
+export interface ShotAggregates {
   byJudge: Record<string, JudgeAggregate>
   byScenario: Record<string, ScenarioAggregate>
   totalCostUsd: number
@@ -297,15 +284,15 @@ export interface CampaignAggregates {
   cellsFailed: number
 }
 
-export interface CampaignResult<TArtifact = unknown, TScenario extends Scenario = Scenario> {
+export interface ShotResult<TArtifact = unknown, TScenario extends Scenario = Scenario> {
   /** sha256(scenarios, judges, dispatch source ref, optimizer config, seed). Stable identity for reruns. */
   manifestHash: string
   seed: number
   startedAt: string
   endedAt: string
   durationMs: number
-  cells: Array<CampaignCellResult<TArtifact>>
-  aggregates: CampaignAggregates
+  cells: Array<ShotCellResult<TArtifact>>
+  aggregates: ShotAggregates
   optimization?: {
     generations: GenerationRecord[]
     winnerSurfaceHash?: string
@@ -317,6 +304,6 @@ export interface CampaignResult<TArtifact = unknown, TScenario extends Scenario 
   /** Substrate strips the input scenarios to id+kind for the result manifest;
    *  consumers needing full payload look it up via the original input. The
    *  type parameter `TScenario` is propagated for downstream consumers that
-   *  want narrowed types when extending `CampaignResult`. */
+   *  want narrowed types when extending `ShotResult`. */
   scenarios: Array<Pick<TScenario, 'id' | 'kind'>>
 }

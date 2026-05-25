@@ -1,12 +1,11 @@
 import { describe, expect, it } from 'vitest'
-import {
-  compareAdaptationCurves,
-  firstPassK,
-  runAdaptationCurve,
-} from '../src/rl/adaptation-eval'
 import type { AdaptationRunner } from '../src/rl/adaptation-eval'
+import { compareAdaptationCurves, firstPassK, runAdaptationCurve } from '../src/rl/adaptation-eval'
 
-interface Scen { scenarioId: string; difficulty: number }
+interface Scen {
+  scenarioId: string
+  difficulty: number
+}
 
 const stockScenarios: Scen[] = [
   { scenarioId: 's-easy', difficulty: 0.2 },
@@ -18,7 +17,7 @@ function makeRunner(slope: number): AdaptationRunner<Scen> {
   // Saturating curve: score = (1 - difficulty) * slope-saturated-fn(k)
   return {
     run: async ({ scenario, k }) => {
-      const efficiency = 1 - Math.exp(-k * slope / 4)
+      const efficiency = 1 - Math.exp((-k * slope) / 4)
       return Math.min(1, (1 - scenario.difficulty) * (0.4 + 0.6 * efficiency))
     },
   }
@@ -89,23 +88,53 @@ describe('runAdaptationCurve', () => {
 
 describe('compareAdaptationCurves', () => {
   it('flags a_better when curve A dominates', async () => {
-    const fast = await runAdaptationCurve({ scenarios: stockScenarios, ks: [0, 4, 16], reps: 1, runner: makeRunner(2) })
-    const slow = await runAdaptationCurve({ scenarios: stockScenarios, ks: [0, 4, 16], reps: 1, runner: makeRunner(0.3) })
+    const fast = await runAdaptationCurve({
+      scenarios: stockScenarios,
+      ks: [0, 4, 16],
+      reps: 1,
+      runner: makeRunner(2),
+    })
+    const slow = await runAdaptationCurve({
+      scenarios: stockScenarios,
+      ks: [0, 4, 16],
+      reps: 1,
+      runner: makeRunner(0.3),
+    })
     const out = compareAdaptationCurves(fast, slow, { seed: 1 })
     expect(out.verdict).toBe('a_better')
     expect(out.areaDelta).toBeGreaterThan(0)
   })
 
   it('flags similar when curves overlap', async () => {
-    const a = await runAdaptationCurve({ scenarios: stockScenarios, ks: [0, 4, 16], reps: 1, runner: makeRunner(1) })
-    const b = await runAdaptationCurve({ scenarios: stockScenarios, ks: [0, 4, 16], reps: 1, runner: makeRunner(1) })
+    const a = await runAdaptationCurve({
+      scenarios: stockScenarios,
+      ks: [0, 4, 16],
+      reps: 1,
+      runner: makeRunner(1),
+    })
+    const b = await runAdaptationCurve({
+      scenarios: stockScenarios,
+      ks: [0, 4, 16],
+      reps: 1,
+      runner: makeRunner(1),
+    })
     const out = compareAdaptationCurves(a, b, { seed: 1 })
     expect(out.verdict).toBe('similar')
   })
 
   it('returns one perK entry per matched k', async () => {
-    const a = await runAdaptationCurve({ scenarios: stockScenarios, ks: [0, 1, 2], reps: 1, runner: makeRunner(1) })
-    const b = await runAdaptationCurve({ scenarios: stockScenarios, ks: [0, 1, 2], reps: 1, runner: makeRunner(1) })
+    const a = await runAdaptationCurve({
+      scenarios: stockScenarios,
+      ks: [0, 1, 2],
+      reps: 1,
+      runner: makeRunner(1),
+    })
+    const b = await runAdaptationCurve({
+      scenarios: stockScenarios,
+      ks: [0, 1, 2],
+      reps: 1,
+      runner: makeRunner(1),
+    })
     const out = compareAdaptationCurves(a, b, { seed: 1 })
     expect(out.perK).toHaveLength(3)
   })

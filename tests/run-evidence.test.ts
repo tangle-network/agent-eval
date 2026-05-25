@@ -1,11 +1,10 @@
 import { describe, expect, it } from 'vitest'
-import {
-  controlRunToRunRecord,
-  scoreFromEvals,
-} from '../src/run-evidence'
 import type { ControlRunResult } from '../src/control-runtime'
+import { controlRunToRunRecord, scoreFromEvals } from '../src/run-evidence'
 
-function controlRun(overrides: Partial<ControlRunResult<unknown, unknown, unknown>> = {}): ControlRunResult<unknown, unknown, unknown> {
+function controlRun(
+  overrides: Partial<ControlRunResult<unknown, unknown, unknown>> = {},
+): ControlRunResult<unknown, unknown, unknown> {
   return {
     intent: 'build the workflow',
     pass: true,
@@ -51,54 +50,60 @@ describe('run evidence bridges', () => {
   })
 
   it('uses eval scores when the control run has no explicit score', () => {
-    const record = controlRunToRunRecord(controlRun({
-      score: undefined,
-      finalEvals: [
-        { id: 'build', passed: true, score: 1 },
-        { id: 'ux', passed: true, score: 0.5 },
-      ],
-    }), {
-      experimentId: 'exp-1',
-      candidateId: 'candidate-a',
-      seed: 8,
-      model: 'gpt-4o-2024-11-20',
-      promptHash: 'prompt-hash',
-      configHash: 'config-hash',
-      commitSha: 'abc123',
-      splitTag: 'search',
-      tokenUsage: { input: 100, output: 30 },
-    })
+    const record = controlRunToRunRecord(
+      controlRun({
+        score: undefined,
+        finalEvals: [
+          { id: 'build', passed: true, score: 1 },
+          { id: 'ux', passed: true, score: 0.5 },
+        ],
+      }),
+      {
+        experimentId: 'exp-1',
+        candidateId: 'candidate-a',
+        seed: 8,
+        model: 'gpt-4o-2024-11-20',
+        promptHash: 'prompt-hash',
+        configHash: 'config-hash',
+        commitSha: 'abc123',
+        splitTag: 'search',
+        tokenUsage: { input: 100, output: 30 },
+      },
+    )
 
     expect(record.outcome.searchScore).toBe(0.75)
     expect(scoreFromEvals([])).toBeUndefined()
   })
 
   it('does not let raw metrics override canonical run evidence fields', () => {
-    const record = controlRunToRunRecord(controlRun({
-      pass: true,
-      completed: true,
-      score: 0.7,
-      steps: [{ state: {}, action: 'x', result: 'y', evals: [] }],
-      runtimeErrors: [],
-    }), {
-      experimentId: 'exp-1',
-      candidateId: 'candidate-a',
-      seed: 9,
-      model: 'gpt-4o-2024-11-20',
-      promptHash: 'prompt-hash',
-      configHash: 'config-hash',
-      commitSha: 'abc123',
-      splitTag: 'holdout',
-      tokenUsage: { input: 100, output: 30 },
-      raw: {
-        score: 0,
-        pass: 0,
-        completed: 0,
-        steps: 99,
-        runtimeErrors: 99,
-        deterministicChecks: 1,
+    const record = controlRunToRunRecord(
+      controlRun({
+        pass: true,
+        completed: true,
+        score: 0.7,
+        steps: [{ state: {}, action: 'x', result: 'y', evals: [] }],
+        runtimeErrors: [],
+      }),
+      {
+        experimentId: 'exp-1',
+        candidateId: 'candidate-a',
+        seed: 9,
+        model: 'gpt-4o-2024-11-20',
+        promptHash: 'prompt-hash',
+        configHash: 'config-hash',
+        commitSha: 'abc123',
+        splitTag: 'holdout',
+        tokenUsage: { input: 100, output: 30 },
+        raw: {
+          score: 0,
+          pass: 0,
+          completed: 0,
+          steps: 99,
+          runtimeErrors: 99,
+          deterministicChecks: 1,
+        },
       },
-    })
+    )
 
     expect(record.outcome.raw).toMatchObject({
       score: 0.7,

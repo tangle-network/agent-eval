@@ -1,22 +1,27 @@
 /**
  * @experimental
  *
- * `runProductionLoop` — the full self-improvement preset. Runs the
+ * `runImprovementLoop` — the full closed-loop improvement preset. Runs the
  * optimization loop (population × generations) then evaluates the winner
  * against a baseline via the gate, then optionally opens a PR.
  *
+ * Distinguished from `runLoop` in `@tangle-network/agent-runtime`, which is
+ * the tactical driver↔worker conversation loop for a single session.
+ * `runImprovementLoop` is the strategic closed feedback loop across many
+ * campaigns over time.
+ *
  * Hard-refuses unsafe configurations:
- *   - `tracing: 'off'` when `autoOnPromote !== 'none'` (unauditable)
+ *   - `tracing: 'off'` when any mutator is wired (loop is unauditable)
  *   - `autoOnPromote: 'config'` — DEFERRED to Pass B; v0.40 only ships
  *     `'pr'` and `'none'`.
  */
 
 import { openAutoPr } from '../auto-pr'
-import { runOptimization } from './run-optimization'
+import type { Gate, Scenario, ShotResult } from '../types'
 import type { RunOptimizationOptions, RunOptimizationResult } from './run-optimization'
-import type { CampaignResult, Gate, Scenario } from '../types'
+import { runOptimization } from './run-optimization'
 
-export interface RunProductionLoopOptions<TScenario extends Scenario, TArtifact>
+export interface RunImprovementLoopOptions<TScenario extends Scenario, TArtifact>
   extends RunOptimizationOptions<TScenario, TArtifact> {
   /** Holdout scenarios kept OUT of the training optimization pool — used
    *  ONLY to score baseline vs winner for the gate. */
@@ -39,53 +44,64 @@ export interface RunProductionLoopOptions<TScenario extends Scenario, TArtifact>
   renderPromotedDiff?: (winnerSurface: string, baselineSurface: string) => string
 }
 
-export interface RunProductionLoopResult<TArtifact, TScenario extends Scenario>
+export interface RunImprovementLoopResult<TArtifact, TScenario extends Scenario>
   extends RunOptimizationResult<TArtifact, TScenario> {
-  baselineOnHoldout: CampaignResult<TArtifact, TScenario>
-  winnerOnHoldout: CampaignResult<TArtifact, TScenario>
+  baselineOnHoldout: ShotResult<TArtifact, TScenario>
+  winnerOnHoldout: ShotResult<TArtifact, TScenario>
   gateResult: Awaited<ReturnType<Gate<TArtifact, TScenario>['decide']>>
   prResult?: ReturnType<typeof openAutoPr>
 }
 
-export async function runProductionLoop<TScenario extends Scenario, TArtifact>(
-  opts: RunProductionLoopOptions<TScenario, TArtifact>,
-): Promise<RunProductionLoopResult<TArtifact, TScenario>> {
+export async function runImprovementLoop<TScenario extends Scenario, TArtifact>(
+  opts: RunImprovementLoopOptions<TScenario, TArtifact>,
+): Promise<RunImprovementLoopResult<TArtifact, TScenario>> {
   // ── Safety pre-flight ─────────────────────────────────────────────
   // biome-ignore lint/suspicious/noExplicitAny: Pass A reserved field for Pass B Shape B
   if ((opts as any).autoOnPromote === 'config') {
-    throw new Error('runProductionLoop: autoOnPromote=\'config\' is deferred to Pass B (requires shadow deploy + rollback + ensemble judges). Use \'pr\' or \'none\' in v0.40.')
+    throw new Error(
+      "runImprovementLoop: autoOnPromote='config' is deferred to Pass B (requires shadow deploy + rollback + ensemble judges). Use 'pr' or 'none' in v0.40.",
+    )
   }
-  if (opts.tracing === 'off' && opts.autoOnPromote !== 'none') {
-    throw new Error('runProductionLoop: tracing=\'off\' is forbidden when autoOnPromote != \'none\'. A self-promoting loop without traces is unauditable by construction.')
+  // Tighter than Phase 2: refuse tracing=off whenever a mutator is wired,
+  // not just when autoOnPromote != 'none'. An optimizer without traces
+  // cannot produce attribution-grade findings, even if no PR opens.
+  if (opts.tracing === 'off' && opts.mutator) {
+    throw new Error(
+      "runImprovementLoop: tracing='off' is forbidden when a mutator is wired. The improvement loop without traces is unattributable; findings cannot be cited back to spans.",
+    )
   }
   if (opts.autoOnPromote === 'pr' && (!opts.ghOwner || !opts.ghRepo)) {
-    throw new Error('runProductionLoop: autoOnPromote=\'pr\' requires ghOwner + ghRepo.')
+    throw new Error("runImprovementLoop: autoOnPromote='pr' requires ghOwner + ghRepo.")
   }
 
   // ── (1) optimization loop produces a winner ────────────────────────
   const optimization = await runOptimization(opts)
 
   // ── (2) baseline + winner re-scored on the holdout set ─────────────
-  const { runCampaign } = await import('../run-campaign')
+  const { runShot } = await import('../run-shot')
 
-  const baselineOnHoldout = await runCampaign<TScenario, TArtifact>({
+  const baselineOnHoldout = await runShot<TScenario, TArtifact>({
     ...opts,
     scenarios: opts.holdoutScenarios,
     dispatch: (scenario, ctx) => opts.dispatchWithSurface(opts.baselineSurface, scenario, ctx),
     runDir: `${opts.runDir}/holdout-baseline`,
   })
 
-  const winnerOnHoldout = await runCampaign<TScenario, TArtifact>({
+  const winnerOnHoldout = await runShot<TScenario, TArtifact>({
     ...opts,
     scenarios: opts.holdoutScenarios,
-    dispatch: (scenario, ctx) => opts.dispatchWithSurface(optimization.winnerSurface, scenario, ctx),
+    dispatch: (scenario, ctx) =>
+      opts.dispatchWithSurface(optimization.winnerSurface, scenario, ctx),
     runDir: `${opts.runDir}/holdout-winner`,
   })
 
   // ── (3) gate verdict ───────────────────────────────────────────────
   const candidateArtifacts = new Map<string, TArtifact>()
   const baselineArtifacts = new Map<string, TArtifact>()
-  const judgeScores = new Map<string, Record<string, { composite: number; dimensions: Record<string, number>; notes: string }>>()
+  const judgeScores = new Map<
+    string,
+    Record<string, { composite: number; dimensions: Record<string, number>; notes: string }>
+  >()
   for (const cell of winnerOnHoldout.cells) {
     candidateArtifacts.set(cell.cellId, cell.artifact)
     judgeScores.set(cell.cellId, cell.judgeScores)

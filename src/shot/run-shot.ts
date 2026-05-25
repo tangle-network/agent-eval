@@ -1,26 +1,21 @@
 /**
  * @experimental
  *
- * `runCampaign` — Pass A substrate primitive. ONE function that orchestrates
+ * `runShot` — Pass A substrate primitive. ONE function that orchestrates
  * scenarios → dispatch → artifacts → judges → aggregates, with full
  * reproducibility (seed + manifest hash), cell-level resumability, bootstrap
  * CIs, and the `LabeledScenarioStore` capture flywheel.
  *
  * Improvement loops (optimizer / gate / autoOnPromote) ride on top of this
- * primitive but live in `presets/run-production-loop.ts`. This file keeps
+ * primitive but live in `presets/run-improvement-loop.ts`. This file keeps
  * the core orchestrator minimal — Phase 1 of the Pass A track.
  */
 
 import { createHash } from 'node:crypto'
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
+import { confidenceInterval } from '../statistics'
 import type {
-  CampaignAggregates,
-  CampaignArtifactWriter,
-  CampaignCellResult,
-  CampaignCostMeter,
-  CampaignResult,
-  CampaignTraceWriter,
   DispatchContext,
   DispatchFn,
   JudgeAggregate,
@@ -29,10 +24,16 @@ import type {
   LabeledScenarioStore,
   Scenario,
   ScenarioAggregate,
+  ShotAggregates,
+  ShotArtifactWriter,
+  ShotCellResult,
+  ShotCostMeter,
+  ShotResult,
+  ShotTraceWriter,
   TraceSpan,
 } from './types'
 
-export interface RunCampaignOptions<TScenario extends Scenario, TArtifact> {
+export interface RunShotOptions<TScenario extends Scenario, TArtifact> {
   scenarios: TScenario[]
   dispatch: DispatchFn<TScenario, TArtifact>
   judges?: JudgeConfig<TArtifact, TScenario>[]
@@ -63,12 +64,12 @@ export interface RunCampaignOptions<TScenario extends Scenario, TArtifact> {
   /** Test seam — override the wall clock for deterministic tests. */
   now?: () => Date
   /** Test seam — override per-cell trace writer factory. */
-  buildTraceWriter?: (cellId: string, dir: string) => CampaignTraceWriter
+  buildTraceWriter?: (cellId: string, dir: string) => ShotTraceWriter
 }
 
-export async function runCampaign<TScenario extends Scenario, TArtifact>(
-  opts: RunCampaignOptions<TScenario, TArtifact>,
-): Promise<CampaignResult<TArtifact, TScenario>> {
+export async function runShot<TScenario extends Scenario, TArtifact>(
+  opts: RunShotOptions<TScenario, TArtifact>,
+): Promise<ShotResult<TArtifact, TScenario>> {
   const seed = opts.seed ?? 42
   const reps = opts.reps ?? 1
   const resumable = opts.resumable ?? true
@@ -87,7 +88,7 @@ export async function runCampaign<TScenario extends Scenario, TArtifact>(
   })
 
   const startedAt = now()
-  const cells: CampaignCellResult<TArtifact>[] = []
+  const cells: ShotCellResult<TArtifact>[] = []
   const artifactsByPath: Record<string, string> = {}
 
   // Build the cell schedule (scenario × rep).
@@ -111,53 +112,61 @@ export async function runCampaign<TScenario extends Scenario, TArtifact>(
   const cellsRef = cells
 
   for (let i = 0; i < maxConcurrency; i++) {
-    workers.push((async () => {
-      while (true) {
-        const myIdx = nextIdx++
-        if (myIdx >= schedule.length) return
-        const slot = schedule[myIdx]!
-        if (costCeilingReached) {
-          cellsRef.push(skippedCell(slot, 'cost_ceiling_reached'))
-          continue
-        }
-        const result = await executeCell({
-          slot,
-          opts,
-          manifestHash,
-          resumable,
-          now,
-          buildTraceWriter: opts.buildTraceWriter ?? defaultBuildTraceWriter,
-          signal: abortController.signal,
-        })
-        cellsRef.push(result.cell)
-        totalCostUsd += result.cell.costUsd
-        Object.assign(artifactsByPath, result.artifactsByPath)
-        if (opts.costCeiling !== undefined && totalCostUsd >= opts.costCeiling) {
-          costCeilingReached = true
-        }
-        // Capture into LabeledScenarioStore unless explicitly disabled.
-        if (opts.labeledStore && opts.labeledStore !== 'off' && !result.cell.error) {
-          await captureToStore({
-            store: opts.labeledStore,
-            cell: result.cell,
-            scenario: slot.scenario,
+    workers.push(
+      (async () => {
+        while (true) {
+          const myIdx = nextIdx++
+          if (myIdx >= schedule.length) return
+          const slot = schedule[myIdx]!
+          if (costCeilingReached) {
+            cellsRef.push(skippedCell(slot, 'cost_ceiling_reached'))
+            continue
+          }
+          const result = await executeCell({
+            slot,
             opts,
+            manifestHash,
+            resumable,
             now,
-          }).catch((err) => {
-            // Capture failures are non-fatal — log but don't crash the campaign.
-            // (Trace would normally land here.)
-            console.warn(`[runCampaign] capture failed for ${result.cell.cellId}: ${err instanceof Error ? err.message : String(err)}`)
+            buildTraceWriter: opts.buildTraceWriter ?? defaultBuildTraceWriter,
+            signal: abortController.signal,
           })
+          cellsRef.push(result.cell)
+          totalCostUsd += result.cell.costUsd
+          Object.assign(artifactsByPath, result.artifactsByPath)
+          if (opts.costCeiling !== undefined && totalCostUsd >= opts.costCeiling) {
+            costCeilingReached = true
+          }
+          // Capture into LabeledScenarioStore unless explicitly disabled.
+          if (opts.labeledStore && opts.labeledStore !== 'off' && !result.cell.error) {
+            await captureToStore({
+              store: opts.labeledStore,
+              cell: result.cell,
+              scenario: slot.scenario,
+              opts,
+              now,
+            }).catch((err) => {
+              // Capture failures are non-fatal — log but don't crash the campaign.
+              // (Trace would normally land here.)
+              console.warn(
+                `[runShot] capture failed for ${result.cell.cellId}: ${err instanceof Error ? err.message : String(err)}`,
+              )
+            })
+          }
         }
-      }
-    })())
+      })(),
+    )
   }
   await Promise.all(workers)
 
   const endedAt = now()
   cellsRef.sort((a, b) => a.cellId.localeCompare(b.cellId))
 
-  const aggregates = computeAggregates(cellsRef, judges as unknown as JudgeConfig<TArtifact>[])
+  const aggregates = computeAggregates(
+    cellsRef,
+    judges as unknown as JudgeConfig<TArtifact>[],
+    seed,
+  )
 
   return {
     manifestHash,
@@ -177,17 +186,17 @@ export async function runCampaign<TScenario extends Scenario, TArtifact>(
 
 interface ExecuteCellArgs<TScenario extends Scenario, TArtifact> {
   slot: { scenario: TScenario; rep: number; cellId: string; cellSeed: number }
-  opts: RunCampaignOptions<TScenario, TArtifact>
+  opts: RunShotOptions<TScenario, TArtifact>
   manifestHash: string
   resumable: boolean
   now: () => Date
-  buildTraceWriter: (cellId: string, dir: string) => CampaignTraceWriter
+  buildTraceWriter: (cellId: string, dir: string) => ShotTraceWriter
   signal: AbortSignal
 }
 
 async function executeCell<TScenario extends Scenario, TArtifact>(
   args: ExecuteCellArgs<TScenario, TArtifact>,
-): Promise<{ cell: CampaignCellResult<TArtifact>; artifactsByPath: Record<string, string> }> {
+): Promise<{ cell: ShotCellResult<TArtifact>; artifactsByPath: Record<string, string> }> {
   const cellDir = join(args.opts.runDir, args.slot.cellId.replace(/[^a-zA-Z0-9_-]/g, '_'))
   if (!existsSync(cellDir)) mkdirSync(cellDir, { recursive: true })
 
@@ -195,7 +204,7 @@ async function executeCell<TScenario extends Scenario, TArtifact>(
   const cachePath = join(cellDir, 'cached-result.json')
   if (args.resumable && existsSync(cachePath)) {
     try {
-      const cached = JSON.parse(readFileSync(cachePath, 'utf8')) as CampaignCellResult<TArtifact>
+      const cached = JSON.parse(readFileSync(cachePath, 'utf8')) as ShotCellResult<TArtifact>
       if (cached.cellId === args.slot.cellId) {
         return { cell: { ...cached, cached: true }, artifactsByPath: {} }
       }
@@ -207,7 +216,7 @@ async function executeCell<TScenario extends Scenario, TArtifact>(
   const startMs = Date.now()
   const trace = args.buildTraceWriter(args.slot.cellId, cellDir)
   const artifactsByPath: Record<string, string> = {}
-  const artifacts: CampaignArtifactWriter = {
+  const artifacts: ShotArtifactWriter = {
     async write(path, content) {
       const fullPath = join(cellDir, path)
       const dir = join(fullPath, '..')
@@ -221,12 +230,14 @@ async function executeCell<TScenario extends Scenario, TArtifact>(
     },
   }
   let costSoFar = 0
-  const cost: CampaignCostMeter = {
+  const cost: ShotCostMeter = {
     observe(amount, source) {
       costSoFar += amount
       trace.span(`cost.${source}`, { amountUsd: amount }).end()
     },
-    current() { return costSoFar },
+    current() {
+      return costSoFar
+    },
   }
 
   const ctx: DispatchContext = {
@@ -256,14 +267,18 @@ async function executeCell<TScenario extends Scenario, TArtifact>(
         const score = await runJudgeCell(judge, { artifact, scenario: args.slot.scenario })
         judgeScores[judge.name] = score
       } catch (err) {
-        judgeScores[judge.name] = { dimensions: {}, composite: 0, notes: `judge failed: ${err instanceof Error ? err.message : String(err)}` }
+        judgeScores[judge.name] = {
+          dimensions: {},
+          composite: 0,
+          notes: `judge failed: ${err instanceof Error ? err.message : String(err)}`,
+        }
       }
     }
   }
 
   await trace.flush()
 
-  const cell: CampaignCellResult<TArtifact> = {
+  const cell: ShotCellResult<TArtifact> = {
     cellId: args.slot.cellId,
     scenarioId: args.slot.scenario.id,
     rep: args.slot.rep,
@@ -292,7 +307,7 @@ async function runJudgeCell<TArtifact, TScenario extends Scenario>(
   return { dimensions: {}, composite: 0, notes: 'phase-1-stub' }
 }
 
-function defaultBuildTraceWriter(cellId: string, dir: string): CampaignTraceWriter {
+function defaultBuildTraceWriter(cellId: string, dir: string): ShotTraceWriter {
   const spans: Array<Record<string, unknown>> = []
   return {
     span(name, attributes) {
@@ -304,7 +319,9 @@ function defaultBuildTraceWriter(cellId: string, dir: string): CampaignTraceWrit
           if (endAttrs) Object.assign(record, endAttrs)
           spans.push(record)
         },
-        setAttribute(key, value) { record[key] = value },
+        setAttribute(key, value) {
+          record[key] = value
+        },
       }
       return finish
     },
@@ -318,7 +335,7 @@ function defaultBuildTraceWriter(cellId: string, dir: string): CampaignTraceWrit
 function skippedCell<TScenario extends Scenario, TArtifact>(
   slot: { scenario: TScenario; rep: number; cellId: string; cellSeed: number },
   reason: string,
-): CampaignCellResult<TArtifact> {
+): ShotCellResult<TArtifact> {
   return {
     cellId: slot.cellId,
     scenarioId: slot.scenario.id,
@@ -335,13 +352,15 @@ function skippedCell<TScenario extends Scenario, TArtifact>(
 
 interface CaptureArgs<TScenario extends Scenario, TArtifact> {
   store: LabeledScenarioStore
-  cell: CampaignCellResult<TArtifact>
+  cell: ShotCellResult<TArtifact>
   scenario: TScenario
-  opts: RunCampaignOptions<TScenario, TArtifact>
+  opts: RunShotOptions<TScenario, TArtifact>
   now: () => Date
 }
 
-async function captureToStore<TScenario extends Scenario, TArtifact>(args: CaptureArgs<TScenario, TArtifact>): Promise<void> {
+async function captureToStore<TScenario extends Scenario, TArtifact>(
+  args: CaptureArgs<TScenario, TArtifact>,
+): Promise<void> {
   await args.store.observe({
     scenario: args.scenario,
     artifact: args.cell.artifact,
@@ -373,9 +392,10 @@ function computeManifestHash(input: {
 }
 
 function computeAggregates<TArtifact>(
-  cells: CampaignCellResult<TArtifact>[],
+  cells: ShotCellResult<TArtifact>[],
   judges: JudgeConfig<TArtifact>[],
-): CampaignAggregates {
+  seed: number,
+): ShotAggregates {
   const byJudge: Record<string, JudgeAggregate> = {}
   for (const judge of judges) {
     const scores: number[] = []
@@ -383,7 +403,7 @@ function computeAggregates<TArtifact>(
       const s = cell.judgeScores[judge.name]
       if (s !== undefined) scores.push(s.composite)
     }
-    byJudge[judge.name] = aggregate(scores)
+    byJudge[judge.name] = aggregate(scores, seed)
   }
   const byScenario: Record<string, ScenarioAggregate> = {}
   const scenarioGroups = new Map<string, number[]>()
@@ -396,7 +416,7 @@ function computeAggregates<TArtifact>(
     scenarioGroups.set(cell.scenarioId, arr)
   }
   for (const [scenarioId, samples] of scenarioGroups) {
-    const ag = aggregate(samples)
+    const ag = aggregate(samples, seed)
     byScenario[scenarioId] = { meanComposite: ag.mean, ci95: ag.ci95, n: ag.n }
   }
   return {
@@ -410,13 +430,15 @@ function computeAggregates<TArtifact>(
   }
 }
 
-function aggregate(samples: number[]): JudgeAggregate {
+// Percentile bootstrap CI95 via seeded resampling. Deterministic for a given
+// seed — same campaign re-run produces identical CI bands. Falls back to
+// degenerate intervals at n<=1 (the bootstrap is undefined there).
+function aggregate(samples: number[], seed: number): JudgeAggregate {
   const n = samples.length
   if (n === 0) return { mean: 0, stdev: 0, ci95: [0, 0], n: 0 }
   const mean = samples.reduce((a, b) => a + b, 0) / n
   const variance = samples.reduce((a, b) => a + (b - mean) ** 2, 0) / Math.max(1, n - 1)
   const stdev = Math.sqrt(variance)
-  // Normal approximation CI95 (~1.96 * sem). Bootstrap upgrade lands in Phase 2.
-  const sem = stdev / Math.max(1, Math.sqrt(n))
-  return { mean, stdev, ci95: [mean - 1.96 * sem, mean + 1.96 * sem], n }
+  const ci = confidenceInterval(samples, 0.95, { seed, resamples: 1000 })
+  return { mean, stdev, ci95: [ci.lower, ci.upper], n }
 }

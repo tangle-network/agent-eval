@@ -1,24 +1,30 @@
 import { describe, expect, it } from 'vitest'
-import { InMemoryTraceStore, TraceEmitter } from '../src/trace'
 import {
-  PrmGrader,
   exportTrainingData,
   isPrmVerdict,
   nonRefusalRubric,
   outputLengthRubric,
+  PrmGrader,
   prmBestOfN,
   prmEnsembleBestOfN,
+  type StepRubric,
   toNdjson,
   toolNonRedundantRubric,
   toolSuccessRubric,
-  type StepRubric,
 } from '../src/prm'
 import type { ToolSpan } from '../src/trace'
+import { InMemoryTraceStore, TraceEmitter } from '../src/trace'
 
 async function seedTrajectory(store: InMemoryTraceStore, output: string): Promise<string> {
   const e = new TraceEmitter(store)
   await e.startRun({ scenarioId: 's' })
-  const llm = await e.span({ kind: 'llm', name: 'gen', model: 'm', messages: [{ role: 'user', content: 'hi' }], output })
+  const llm = await e.span({
+    kind: 'llm',
+    name: 'gen',
+    model: 'm',
+    messages: [{ role: 'user', content: 'hi' }],
+    output,
+  })
   await llm.end()
   const tool = await e.span({ kind: 'tool', name: 'search', toolName: 'search', args: { q: 'x' } })
   await tool.end({ result: 'result text here' } as Partial<ToolSpan>)
@@ -29,7 +35,10 @@ async function seedTrajectory(store: InMemoryTraceStore, output: string): Promis
 describe('PrmGrader', () => {
   it('grades per-span, emits JudgeVerdict span, aggregates via weighted mean', async () => {
     const store = new InMemoryTraceStore()
-    const runId = await seedTrajectory(store, 'This is a normal-length response that should score well.')
+    const runId = await seedTrajectory(
+      store,
+      'This is a normal-length response that should score well.',
+    )
     const grader = new PrmGrader([outputLengthRubric(), toolSuccessRubric()])
     const graded = await grader.grade(store, runId)
     expect(graded.gradedCount).toBe(2)
@@ -78,7 +87,9 @@ describe('PrmGrader', () => {
     const rubric: StepRubric = {
       id: 'custom',
       kinds: ['llm'],
-      async grade() { return null },
+      async grade() {
+        return null
+      },
     }
     const graded = await new PrmGrader([rubric]).grade(store, runId)
     expect(graded.gradedCount).toBe(0)
@@ -89,8 +100,14 @@ describe('PrmGrader', () => {
 describe('training export', () => {
   it('emits NDJSON with step context', async () => {
     const store = new InMemoryTraceStore()
-    const runId = await seedTrajectory(store, 'normal response that is long enough for the length rubric to score well')
-    const graded = await new PrmGrader([outputLengthRubric(), toolSuccessRubric()]).grade(store, runId)
+    const runId = await seedTrajectory(
+      store,
+      'normal response that is long enough for the length rubric to score well',
+    )
+    const graded = await new PrmGrader([outputLengthRubric(), toolSuccessRubric()]).grade(
+      store,
+      runId,
+    )
     const samples = await exportTrainingData(store, [graded])
     expect(samples.length).toBeGreaterThan(0)
     expect(samples[0].context.step.text.length).toBeGreaterThan(0)
@@ -102,7 +119,10 @@ describe('training export', () => {
 describe('prmBestOfN', () => {
   it('picks the highest-scoring candidate trajectory', async () => {
     const store = new InMemoryTraceStore()
-    const good = await seedTrajectory(store, 'This is the better, longer response that the PRM will reward.')
+    const good = await seedTrajectory(
+      store,
+      'This is the better, longer response that the PRM will reward.',
+    )
     const bad = await seedTrajectory(store, 'ok')
     const grader = new PrmGrader([outputLengthRubric()])
     const result = await prmBestOfN(store, grader, [good, bad])
@@ -113,7 +133,10 @@ describe('prmBestOfN', () => {
 
   it('ensemble via Borda count robust to score-scale differences', async () => {
     const store = new InMemoryTraceStore()
-    const a = await seedTrajectory(store, 'great response of reasonable length for scoring purposes here now')
+    const a = await seedTrajectory(
+      store,
+      'great response of reasonable length for scoring purposes here now',
+    )
     const b = await seedTrajectory(store, '')
     const g1 = new PrmGrader([outputLengthRubric()])
     const g2 = new PrmGrader([toolSuccessRubric()])

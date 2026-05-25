@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { InMemoryTraceStore, TraceEmitter } from '../src/trace'
 import { replayTraceThroughJudge, toLangfuseEnvelope, toPrometheusText } from '../src/observability'
+import { InMemoryTraceStore, TraceEmitter } from '../src/trace'
 
 describe('toLangfuseEnvelope', () => {
   it('maps llm + judge spans to generations + scores', async () => {
@@ -18,7 +18,13 @@ describe('toLangfuseEnvelope', () => {
       costUsd: 0.001,
     })
     await llm.end()
-    await e.recordJudge({ judgeId: 'j', targetSpanId: llm.span.spanId, dimension: 'quality', score: 0.9, name: 'q' })
+    await e.recordJudge({
+      judgeId: 'j',
+      targetSpanId: llm.span.spanId,
+      dimension: 'quality',
+      score: 0.9,
+      name: 'q',
+    })
     await e.endRun({ pass: true })
     const env = await toLangfuseEnvelope(store, e.runId)
     expect(env.generations).toHaveLength(1)
@@ -29,7 +35,9 @@ describe('toLangfuseEnvelope', () => {
   })
 
   it('throws when run is missing — regression: silent no-op would produce empty envelope', async () => {
-    await expect(toLangfuseEnvelope(new InMemoryTraceStore(), 'missing')).rejects.toThrow(/not found/)
+    await expect(toLangfuseEnvelope(new InMemoryTraceStore(), 'missing')).rejects.toThrow(
+      /not found/,
+    )
   })
 })
 
@@ -41,7 +49,15 @@ describe('toPrometheusText', () => {
       await e.startRun({ scenarioId: 's' })
       const h = await e.tool({ name: 'search', toolName: 'search', args: {} })
       await h.end()
-      const llm = await e.span({ kind: 'llm', name: 'g', model: 'm', messages: [], inputTokens: 100, outputTokens: 50, costUsd: 0.01 })
+      const llm = await e.span({
+        kind: 'llm',
+        name: 'g',
+        model: 'm',
+        messages: [],
+        inputTokens: 100,
+        outputTokens: 50,
+        costUsd: 0.01,
+      })
       await llm.end()
       await e.endRun({ pass: i < 2 })
     }
@@ -59,7 +75,13 @@ describe('replayTraceThroughJudge', () => {
     const store = new InMemoryTraceStore()
     const e = new TraceEmitter(store)
     await e.startRun({ scenarioId: 's' })
-    const llm = await e.span({ kind: 'llm', name: 'g', model: 'm', messages: [], output: 'the answer is 42' })
+    const llm = await e.span({
+      kind: 'llm',
+      name: 'g',
+      model: 'm',
+      messages: [],
+      output: 'the answer is 42',
+    })
     await llm.end()
     await e.endRun({ pass: true })
     const results = await replayTraceThroughJudge(store, e.runId, {
@@ -69,7 +91,7 @@ describe('replayTraceThroughJudge', () => {
     })
     expect(results).toHaveLength(1)
     expect(results[0].score).toBe(1)
-    const judgeSpans = (await store.spans({ runId: e.runId, kind: 'judge' }))
+    const judgeSpans = await store.spans({ runId: e.runId, kind: 'judge' })
     expect(judgeSpans).toHaveLength(1)
   })
 })

@@ -1,9 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import {
-  applyEloUpdate,
-  buildPairwiseFromCampaign,
-  fitBradleyTerry,
-} from '../src/rl/tournament'
+import { applyEloUpdate, buildPairwiseFromCampaign, fitBradleyTerry } from '../src/rl/tournament'
 
 describe('Bradley-Terry MLE', () => {
   it('recovers the dominance order on a transitive set', () => {
@@ -33,12 +29,8 @@ describe('Bradley-Terry MLE', () => {
   })
 
   it('respects pairwise weights so wider score gaps move ratings further', () => {
-    const fitTight = fitBradleyTerry([
-      { winner: 'a', loser: 'b', weight: 0.1 },
-    ], { smoothing: 0.5 })
-    const fitWide = fitBradleyTerry([
-      { winner: 'a', loser: 'b', weight: 10 },
-    ], { smoothing: 0.5 })
+    const fitTight = fitBradleyTerry([{ winner: 'a', loser: 'b', weight: 0.1 }], { smoothing: 0.5 })
+    const fitWide = fitBradleyTerry([{ winner: 'a', loser: 'b', weight: 10 }], { smoothing: 0.5 })
     // Bigger weight = bigger strength gap.
     const tightRatio = fitTight.ratings[0]!.strength / fitTight.ratings[1]!.strength
     const wideRatio = fitWide.ratings[0]!.strength / fitWide.ratings[1]!.strength
@@ -66,15 +58,24 @@ describe('Elo updates', () => {
   })
 
   it('upset: weaker player beating stronger player gives bigger movement', () => {
-    const ratings1 = new Map([['weak', 1200], ['strong', 1800]])
-    const ratings2 = new Map([['weak', 1200], ['strong', 1800]])
+    const ratings1 = new Map([
+      ['weak', 1200],
+      ['strong', 1800],
+    ])
+    const ratings2 = new Map([
+      ['weak', 1200],
+      ['strong', 1800],
+    ])
     const expected = applyEloUpdate(ratings2, { winner: 'strong', loser: 'weak' })
     const upset = applyEloUpdate(ratings1, { winner: 'weak', loser: 'strong' })
     expect(upset.winnerDelta).toBeGreaterThan(Math.abs(expected.winnerDelta))
   })
 
   it('draws mid-shift the ratings toward equality', () => {
-    const ratings = new Map([['a', 1600], ['b', 1400]])
+    const ratings = new Map([
+      ['a', 1600],
+      ['b', 1400],
+    ])
     applyEloUpdate(ratings, { winner: 'a', loser: 'b', draw: true })
     expect(ratings.get('a')!).toBeLessThan(1600)
     expect(ratings.get('b')!).toBeGreaterThan(1400)

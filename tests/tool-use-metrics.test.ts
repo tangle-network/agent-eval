@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { InMemoryTraceStore, TraceEmitter } from '../src/trace'
 import { computeToolUseMetrics } from '../src/tool-use-metrics'
+import { InMemoryTraceStore, TraceEmitter } from '../src/trace'
 
 describe('computeToolUseMetrics', () => {
   it('returns zeroed shape when no tool calls present', async () => {

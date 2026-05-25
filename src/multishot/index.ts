@@ -1,54 +1,52 @@
 // Multishot substrate — re-exports for `@tangle-network/agent-eval/multishot`.
 
 export {
-  defaultDelegationTools,
-  createResearchExecutor,
   createCodeExecutor,
-  DEFAULT_DELEGATE_RESEARCH_TOOL,
-  DEFAULT_DELEGATE_CODE_TOOL,
-  DEFAULT_RESEARCHER_MODEL,
+  createResearchExecutor,
   DEFAULT_CODER_MODEL,
-  type DefaultResearcherConfig,
+  DEFAULT_DELEGATE_CODE_TOOL,
+  DEFAULT_DELEGATE_RESEARCH_TOOL,
+  DEFAULT_RESEARCHER_MODEL,
   type DefaultCoderConfig,
-  type DefaultToolsConfig,
+  type DefaultResearcherConfig,
   type DefaultToolsBundle,
+  type DefaultToolsConfig,
+  defaultDelegationTools,
 } from './default-tools'
 
 export {
-  runJudge,
-  renderDimensions,
-  renderJsonFooter,
   DEFAULT_JUDGE_MODEL,
   type JudgeConfig,
   type JudgeDimension,
   type JudgeScore,
+  renderDimensions,
+  renderJsonFooter,
+  runJudge,
 } from './judges'
-
-export { runMultishot, type RunMultishotOptions } from './multishot'
-
 export {
-  runMultishotMatrix,
-  type RunMultishotMatrixOptions,
-  type RunMultishotMatrixResult,
-  type MultishotJudges,
-  type ConversationJudgeInput,
   type ArtifactJudgeInput,
   type CellCompositeScore,
+  type ConversationJudgeInput,
+  type MultishotJudges,
+  type RunMultishotMatrixOptions,
+  type RunMultishotMatrixResult,
+  runMultishotMatrix,
 } from './matrix'
+export { type RunMultishotOptions, runMultishot } from './multishot'
 
 export {
   defaultRouterBaseUrl,
   estimateRouterCost,
-  requireRouterApiKey,
-  routerCompletion,
   type RouterCompletionRequest,
   type RouterCompletionResponse,
   type RouterToolCall,
+  requireRouterApiKey,
+  routerCompletion,
 } from './router'
 
 export {
-  MultishotDriverEmptyError,
   type MultishotArtifact,
+  MultishotDriverEmptyError,
   type MultishotMessage,
   type MultishotPersona,
   type MultishotResult,

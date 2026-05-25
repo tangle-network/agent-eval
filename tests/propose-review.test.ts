@@ -1,16 +1,16 @@
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
-import { mkdtempSync, readFileSync, rmSync } from 'fs'
-import { tmpdir } from 'os'
-import { join } from 'path'
 
 import {
-  runProposeReview,
+  createLlmReviewer,
   inMemoryReviewStore,
   jsonlReviewStore,
-  createLlmReviewer,
   type Review,
   type ReviewFn,
   type ReviewMemoryEntry,
+  runProposeReview,
   type Verification,
 } from '../src/propose-review'
 
@@ -34,7 +34,11 @@ const tempFiles: string[] = []
 afterEach(() => {
   while (tempFiles.length > 0) {
     const path = tempFiles.pop()!
-    try { rmSync(path, { recursive: true, force: true }) } catch { /* ignore */ }
+    try {
+      rmSync(path, { recursive: true, force: true })
+    } catch {
+      /* ignore */
+    }
   }
 })
 
@@ -45,7 +49,7 @@ function tempJsonlPath(): string {
 }
 
 describe('runProposeReview', () => {
-  it('short-circuits reviewer when verification passes — regression: running the reviewer LLM after a pass wastes money and invents diagnoses that don\'t exist', async () => {
+  it("short-circuits reviewer when verification passes — regression: running the reviewer LLM after a pass wastes money and invents diagnoses that don't exist", async () => {
     let reviewCalls = 0
     const report = await runProposeReview<{ v: number }>({
       goal: 'reach v=1',
@@ -142,7 +146,8 @@ describe('runProposeReview', () => {
       verify: async () => ({ pass: false, score: 0 }),
       review: async () => ({
         observations: 'worker is thrashing on the same edit — no progress',
-        diagnosis: 'the required dependency is not installed and the worker has no tool to install it',
+        diagnosis:
+          'the required dependency is not installed and the worker has no tool to install it',
         nextShotInstruction: 'stop — unachievable with current toolbox',
         shouldContinue: false,
         confidence: 0.9,
@@ -184,7 +189,10 @@ describe('runProposeReview', () => {
       memory: store,
     })
     expect(seenMemorySizes).toEqual([0])
-    const persisted = readFileSync(memoryPath, 'utf8').trim().split('\n').map((l) => JSON.parse(l) as ReviewMemoryEntry)
+    const persisted = readFileSync(memoryPath, 'utf8')
+      .trim()
+      .split('\n')
+      .map((l) => JSON.parse(l) as ReviewMemoryEntry)
     expect(persisted).toHaveLength(2)
     expect(persisted[0]!.shot).toBe(1)
     expect(persisted[1]!.shot).toBe(2)
@@ -239,16 +247,18 @@ describe('createLlmReviewer', () => {
       },
     })
     const verification: Verification = { pass: false, score: 0.5, failingLayers: ['schema'] }
-    const memory: ReviewMemoryEntry[] = [{
-      shot: 1,
-      timestamp: 0,
-      observations: 'old obs',
-      diagnosis: 'old diag',
-      nextShotInstruction: 'old instruction',
-      shouldContinue: true,
-      confidence: 0.5,
-      verification: { pass: false, score: 0.3, failingLayers: ['schema'] },
-    }]
+    const memory: ReviewMemoryEntry[] = [
+      {
+        shot: 1,
+        timestamp: 0,
+        observations: 'old obs',
+        diagnosis: 'old diag',
+        nextShotInstruction: 'old instruction',
+        shouldContinue: true,
+        confidence: 0.5,
+        verification: { pass: false, score: 0.3, failingLayers: ['schema'] },
+      },
+    ]
     const review = await reviewer({
       shot: 2,
       goal: 'build the thing',
@@ -270,14 +280,16 @@ describe('createLlmReviewer', () => {
     const reviewer = createLlmReviewer<{ x: number }>({
       callJson: async () => ({ observations: 'hi' }),
     })
-    await expect(reviewer({
-      shot: 1,
-      goal: 'g',
-      state: { x: 0 },
-      verification: { pass: false },
-      traceSummary: undefined,
-      memory: [],
-    })).rejects.toThrow(/missing required string fields/)
+    await expect(
+      reviewer({
+        shot: 1,
+        goal: 'g',
+        state: { x: 0 },
+        verification: { pass: false },
+        traceSummary: undefined,
+        memory: [],
+      }),
+    ).rejects.toThrow(/missing required string fields/)
   })
 })
 
@@ -286,7 +298,13 @@ describe('dogfooding — a propose-review harness is itself evaluable by propose
     type InnerGoal = { target: number }
     type OuterState = { completedInner: boolean; shotsUsed: number; lastTarget: number }
 
-    const innerPropose = async ({ state, priorReview }: { state: { v: number }; priorReview: Review | null }) => {
+    const innerPropose = async ({
+      state,
+      priorReview,
+    }: {
+      state: { v: number }
+      priorReview: Review | null
+    }) => {
       const step = priorReview?.nextShotInstruction.includes('big') ? 5 : 1
       return { state: { v: state.v + step } }
     }
@@ -296,11 +314,11 @@ describe('dogfooding — a propose-review harness is itself evaluable by propose
       return runProposeReview<{ v: number }>({
         goal: `reach v=${target}`,
         initialState: { v: 0 },
-        propose: async (input) => innerPropose({ state: input.state, priorReview: input.priorReview }),
+        propose: async (input) =>
+          innerPropose({ state: input.state, priorReview: input.priorReview }),
         verify: async (s) => ({ pass: s.v >= target, score: Math.min(1, s.v / target) }),
-        review: async ({ state }) => state.v === 0
-          ? failingReview('keep going', 0.9)
-          : failingReview('keep going', 0.9),
+        review: async ({ state }) =>
+          state.v === 0 ? failingReview('keep going', 0.9) : failingReview('keep going', 0.9),
         memory,
         maxShots: shotCap,
       })

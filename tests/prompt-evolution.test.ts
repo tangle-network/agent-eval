@@ -1,15 +1,12 @@
-import { describe, it, expect } from 'vitest'
-import {
-  runPromptEvolution,
-  InMemoryTrialCache,
-} from '../src/index'
+import { describe, expect, it } from 'vitest'
 import type {
   EvolvableVariant,
-  ScoreAdapter,
   MutateAdapter,
   PromptTrialResult,
+  ScoreAdapter,
   VariantAggregate,
 } from '../src/index'
+import { InMemoryTrialCache, runPromptEvolution } from '../src/index'
 import type { Objective } from '../src/pareto'
 
 interface Payload {
@@ -91,7 +88,9 @@ describe('runPromptEvolution', () => {
     // Mutator that returns no children — survivors carry forward unchanged so
     // a cache-equipped run should reuse trials across generations.
     const mutator: MutateAdapter<Payload> = {
-      async mutate() { return [] },
+      async mutate() {
+        return []
+      },
     }
     const cache = new InMemoryTrialCache()
 
@@ -122,7 +121,11 @@ describe('runPromptEvolution', () => {
         return { variantId: variant.id, scenarioId, rep, ok: true, score: 0.5, cost: 1 }
       },
     }
-    const mutator: MutateAdapter<Payload> = { async mutate() { return [] } }
+    const mutator: MutateAdapter<Payload> = {
+      async mutate() {
+        return []
+      },
+    }
     await runPromptEvolution<Payload>({
       runId: 'r3',
       target: 't',
@@ -154,7 +157,11 @@ describe('runPromptEvolution', () => {
         return { variantId: variant.id, scenarioId, rep, ok: true, score: 0.5, cost: 1 }
       },
     }
-    const mutator: MutateAdapter<Payload> = { async mutate() { return [] } }
+    const mutator: MutateAdapter<Payload> = {
+      async mutate() {
+        return []
+      },
+    }
     await runPromptEvolution<Payload>({
       runId: 'rc',
       target: 't',
@@ -182,14 +189,18 @@ describe('runPromptEvolution', () => {
           variantId: variant.id,
           scenarioId,
           rep,
-          ok: false,           // failed quality_bar
-          score: 0.6,          // but the score is real
+          ok: false, // failed quality_bar
+          score: 0.6, // but the score is real
           cost: 1,
           durationMs: 1,
         }
       },
     }
-    const mutator: MutateAdapter<Payload> = { async mutate() { return [] } }
+    const mutator: MutateAdapter<Payload> = {
+      async mutate() {
+        return []
+      },
+    }
     const result = await runPromptEvolution<Payload>({
       runId: 'graded-but-failed',
       target: 't',
@@ -216,14 +227,22 @@ describe('runPromptEvolution', () => {
         // First trial errors, second scores 0.8 and passes.
         if (n === 1) {
           return {
-            variantId: variant.id, scenarioId, rep,
-            ok: false, score: 0, error: 'agent crashed',
+            variantId: variant.id,
+            scenarioId,
+            rep,
+            ok: false,
+            score: 0,
+            error: 'agent crashed',
           }
         }
         return { variantId: variant.id, scenarioId, rep, ok: true, score: 0.8 }
       },
     }
-    const mutator: MutateAdapter<Payload> = { async mutate() { return [] } }
+    const mutator: MutateAdapter<Payload> = {
+      async mutate() {
+        return []
+      },
+    }
     const result = await runPromptEvolution<Payload>({
       runId: 'mixed',
       target: 't',
@@ -248,7 +267,11 @@ describe('runPromptEvolution', () => {
         return { variantId: variant.id, scenarioId, rep, ok: true, score: 0.5, cost: 1 }
       },
     }
-    const mutator: MutateAdapter<Payload> = { async mutate() { return [] } }
+    const mutator: MutateAdapter<Payload> = {
+      async mutate() {
+        return []
+      },
+    }
     const events: string[] = []
     const result = await runPromptEvolution<Payload>({
       runId: 'rs',
