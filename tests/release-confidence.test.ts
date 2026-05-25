@@ -3,9 +3,8 @@ import {
   assertReleaseConfidence,
   type DatasetManifest,
   evaluateReleaseConfidence,
-  type MultiShotTrialResult,
+  type ReleaseTraceEvidence,
   type RunRecord,
-  releaseTraceEvidenceFromMultiShotTrials,
 } from '../src/index'
 
 const manifest: DatasetManifest = {
@@ -122,20 +121,17 @@ describe('evaluateReleaseConfidence', () => {
     expect(scorecard.issues.map((i) => i.code)).toContain('missing_failure_asi')
   })
 
-  it('accepts ASI projected from multi-shot trials and counts responsible surfaces', () => {
-    const trials: MultiShotTrialResult[] = [
+  it('accepts ASI trace evidence and counts responsible surfaces', () => {
+    const traces: ReleaseTraceEvidence[] = [
       {
-        variantId: 'candidate',
         scenarioId: 'tax-hard',
-        rep: 0,
+        candidateId: 'candidate',
         split: 'holdout',
-        seed: 10,
-        ok: false,
         score: 0.2,
-        cost: 0.01,
+        ok: false,
+        turnCount: 2,
+        costUsd: 0.01,
         durationMs: 500,
-        metrics: {},
-        trace: { scenarioId: 'tax-hard', turns: [{ role: 'user' }, { role: 'assistant' }] },
         asi: [
           {
             message: 'Missed filing-state constraint.',
@@ -154,7 +150,7 @@ describe('evaluateReleaseConfidence', () => {
         rec({ splitTag: 'search', outcome: { searchScore: 0.9, raw: { score: 0.9 } } }),
         rec({ splitTag: 'holdout', outcome: { holdoutScore: 0.8, raw: { score: 0.8 } } }),
       ],
-      traces: releaseTraceEvidenceFromMultiShotTrials(trials),
+      traces,
       thresholds: {
         minSearchRuns: 1,
         minHoldoutRuns: 1,

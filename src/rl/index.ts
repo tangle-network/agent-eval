@@ -63,7 +63,6 @@ export * from './adaptation-eval'
 /** @experimental Active scenario search for inputs the policy fails on. */
 export * from './adversarial'
 /** @experimental Unified entry point bridging optimization output to RL signal + mutation proposals. */
-export * from './auto-research'
 /** @experimental Training-data exporters (HuggingFace datasets, JSONL, parquet). */
 export * from './exporters'
 /** @experimental Researcher that re-weights rubrics by deployment outcome correlation. */

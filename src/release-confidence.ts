@@ -15,8 +15,28 @@
 import type { DatasetManifest, DatasetScenario, DatasetSplit } from './dataset'
 import { VerificationError } from './errors'
 import type { GateDecision } from './held-out-gate'
-import type { ActionableSideInfo, MultiShotTrialResult } from './multi-shot-optimization'
 import type { RunRecord, RunSplitTag } from './run-record'
+
+/** Severity of an actionable finding attached to a run/trace. */
+export type AsiSeverity = 'info' | 'warning' | 'error' | 'critical'
+
+/** Actionable side-info — a diagnosed finding the loop can act on. */
+export interface ActionableSideInfo {
+  /** Stable expectation/check id when available. */
+  expectationId?: string
+  /** Human-readable diagnosis of what happened. */
+  message: string
+  severity?: AsiSeverity
+  /** Concrete trace excerpt, file path, tool call, screenshot id, etc. */
+  evidence?: string
+  /** Prompt/tool/context surface likely responsible. */
+  responsibleSurface?: string
+  /** Suggested fix in natural language. */
+  suggestion?: string
+  /** Whether this expectation was satisfied. Defaults to false for ASI rows. */
+  matched?: boolean
+  metadata?: Record<string, unknown>
+}
 
 export type ReleaseConfidenceStatus = 'pass' | 'warn' | 'fail'
 export type ReleaseConfidenceAxisName =
@@ -134,24 +154,6 @@ const DEFAULT_THRESHOLDS: Required<ReleaseConfidenceThresholds> = {
   maxP95WallMs: Number.POSITIVE_INFINITY,
   requireAsiForFailures: true,
   failureScoreThreshold: 0.5,
-}
-
-export function releaseTraceEvidenceFromMultiShotTrials(
-  trials: readonly MultiShotTrialResult[],
-): ReleaseTraceEvidence[] {
-  return trials.map((trial) => ({
-    scenarioId: trial.scenarioId,
-    candidateId: trial.variantId,
-    split: trial.split === 'holdout' ? 'holdout' : trial.split === 'dev' ? 'dev' : 'search',
-    score: trial.score,
-    ok: trial.ok,
-    turnCount: Array.isArray(trial.trace?.turns) ? trial.trace.turns.length : undefined,
-    costUsd: trial.cost,
-    durationMs: trial.durationMs,
-    failureMode: trial.error ? 'runtime_error' : undefined,
-    asi: trial.asi,
-    metadata: trial.metadata,
-  }))
 }
 
 export function evaluateReleaseConfidence(

@@ -4,7 +4,6 @@ export default defineConfig({
   entry: {
     index: 'src/index.ts',
     control: 'src/control.ts',
-    optimization: 'src/optimization.ts',
     reporting: 'src/reporting.ts',
     rl: 'src/rl/index.ts',
     traces: 'src/traces.ts',

@@ -1,19 +1,19 @@
 /**
- * Adapters: convert `TrialResult[]` (from `runMultiShotOptimization`,
- * `runPromptEvolution`) into the canonical `RunRecord[]` artifact that
- * `replayCache`, `pairedEvalueSequence`, and `rubricPredictiveValidity`
- * consume.
+ * Adapters: convert measurement outputs into the canonical `RunRecord[]`
+ * artifact that `replayCache`, `pairedEvalueSequence`, and
+ * `rubricPredictiveValidity` consume. Two sources:
+ *   - `campaignToRunRecords` — the campaign substrate's per-cell results
+ *     (the modern path: `runCampaign` / `runImprovementLoop` → records).
+ *   - `verificationReportToRunRecord` — a `MultiLayerVerifier` report.
  *
- * Adapters are thin and explicit — every mandatory `RunRecord` field
- * comes from a caller-supplied context (`commitSha`, `model`,
- * `promptHash`, `configHash`) plus the trial's runtime data. Defaults
- * exist for fields the trial doesn't carry (`tokenUsage`, `costUsd`),
- * but the validator still rejects records with bare-alias model strings
- * — the caller is responsible for snapshot-pinning.
+ * Adapters are thin and explicit — every mandatory `RunRecord` field comes
+ * from a caller-supplied context (`commitSha`, `model`, `promptHash`,
+ * `configHash`) plus the cell's runtime data. The validator still rejects
+ * bare-alias model strings — the caller snapshot-pins.
  */
 
+import type { CampaignResult } from '../campaign'
 import type { LayerResult, VerificationReport } from '../multi-layer-verifier'
-import type { TrialResult, VariantAggregate } from '../prompt-evolution'
 import type { RunRecord, RunSplitTag } from '../run-record'
 
 export interface AdapterContext {
@@ -24,90 +24,68 @@ export interface AdapterContext {
   /** Git SHA the harness was run from. */
   commitSha: string
   /** Hash of the effective prompt sent to the model. */
-  promptHash: string | ((t: TrialResult) => string)
+  promptHash: string
   /** Hash of the effective config (model, temperature, tools, judges, splits). */
-  configHash: string | ((t: TrialResult) => string)
-  /** Default split tag. Default `'search'` — optimization sweeps run on the search split. */
+  configHash: string
+  /** Default split tag. Default `'search'`. */
   splitTag?: RunSplitTag
-  /** Default cost in USD when the trial doesn't record one. Default `0`. */
+  /** Default cost in USD when the source doesn't record one. Default `0`. */
   defaultCostUsd?: number
 }
 
 /**
- * Convert one `TrialResult` (from `runPromptEvolution` or
- * `runMultiShotOptimization`) into a canonical `RunRecord`.
- *
- * The conversion is **not lossy** — every `TrialResult.metrics` field is
- * carried through to `outcome.raw`, plus a synthetic
- * `raw.cost_unknown = 1` flag when the trial omits cost (so downstream
- * filters can distinguish "free" from "untracked"). This preserves the
- * paper-grade contract: a record without a cost number is unbounded by
- * definition, but we don't drop the record.
+ * Convert a `CampaignResult` into canonical `RunRecord[]` — one record per
+ * scored cell. The cell's mean judge composite becomes the split score; every
+ * judge dimension is carried through to `outcome.raw`. A cell that errored
+ * becomes a record with `failureMode: 'cell_error'` (kept, not dropped — an
+ * unscored cell is signal). `candidateId` identifies the measured surface
+ * (defaults to the campaign manifest hash).
  */
-export function trialToRunRecord(
-  trial: TrialResult,
-  ctx: AdapterContext,
-  opts: { runId?: string; experimentIdPerTrial?: (t: TrialResult) => string } = {},
-): RunRecord {
+export function campaignToRunRecords(
+  campaign: CampaignResult,
+  ctx: AdapterContext & { candidateId?: string },
+): RunRecord[] {
   const splitTag = ctx.splitTag ?? 'search'
-  const promptHash = typeof ctx.promptHash === 'function' ? ctx.promptHash(trial) : ctx.promptHash
-  const configHash = typeof ctx.configHash === 'function' ? ctx.configHash(trial) : ctx.configHash
-  const runId = opts.runId ?? defaultRunId(ctx, trial)
-  const experimentId = opts.experimentIdPerTrial?.(trial) ?? ctx.experimentId
-  const costRecorded = typeof trial.cost === 'number' && Number.isFinite(trial.cost)
-  const costUsd = costRecorded ? (trial.cost as number) : (ctx.defaultCostUsd ?? 0)
-
-  // Carry every numeric metric through; synthesize a cost-unknown flag when
-  // the trial omitted cost so downstream tooling can distinguish honest
-  // zero ("free") from missing.
-  const raw: Record<string, number> = { ...(trial.metrics ?? {}) }
-  if (!costRecorded) raw.cost_unknown = 1
-  if (typeof trial.durationMs === 'number') raw.duration_ms = trial.durationMs
-  raw.rep = trial.rep
-
-  const score = Number.isFinite(trial.score) ? trial.score : 0
-  const outcome: RunRecord['outcome'] = { raw }
-  if (splitTag === 'holdout') outcome.holdoutScore = score
-  else outcome.searchScore = score
-
-  return {
-    runId,
-    experimentId,
-    candidateId: trial.variantId,
-    seed: trial.rep,
-    model: ctx.model,
-    promptHash,
-    configHash,
-    commitSha: ctx.commitSha,
-    wallMs: trial.durationMs ?? 0,
-    costUsd,
-    tokenUsage: { input: 0, output: 0 },
-    outcome,
-    failureMode: trial.ok
-      ? undefined
-      : trial.error
-        ? 'optimizer_trial_error'
-        : 'optimizer_trial_failed',
-    splitTag,
-    scenarioId: trial.scenarioId,
-  }
-}
-
-/** Convenience: convert an array of `TrialResult` in one go. */
-export function trialsToRunRecords(trials: TrialResult[], ctx: AdapterContext): RunRecord[] {
-  return trials.map((t) => trialToRunRecord(t, ctx))
+  const candidateId = ctx.candidateId ?? campaign.manifestHash
+  return campaign.cells.map((cell) => {
+    const composites = Object.values(cell.judgeScores).map((s) => s.composite)
+    const score =
+      composites.length > 0 ? composites.reduce((a, b) => a + b, 0) / composites.length : 0
+    const raw: Record<string, number> = { rep: cell.rep, duration_ms: cell.durationMs }
+    for (const judge of Object.values(cell.judgeScores)) {
+      for (const [dim, value] of Object.entries(judge.dimensions)) {
+        if (Number.isFinite(value)) raw[`dim.${dim}`] = value
+      }
+    }
+    if (typeof cell.generation === 'number') raw.generation = cell.generation
+    const outcome: RunRecord['outcome'] = { raw }
+    if (splitTag === 'holdout') outcome.holdoutScore = score
+    else outcome.searchScore = score
+    return {
+      runId: cell.cellId,
+      experimentId: ctx.experimentId,
+      candidateId,
+      seed: cell.seed,
+      model: ctx.model,
+      promptHash: ctx.promptHash,
+      configHash: ctx.configHash,
+      commitSha: ctx.commitSha,
+      wallMs: cell.durationMs,
+      costUsd: Number.isFinite(cell.costUsd) ? cell.costUsd : (ctx.defaultCostUsd ?? 0),
+      tokenUsage: { input: 0, output: 0 },
+      outcome,
+      failureMode: cell.error ? 'cell_error' : undefined,
+      splitTag,
+      scenarioId: cell.scenarioId,
+    }
+  })
 }
 
 /**
  * Convert a `MultiLayerVerifier` `VerificationReport` into a `RunRecord`.
- *
- * The verifier produces per-layer results; we synthesize one canonical
- * record where:
- *   - `outcome.searchScore` (or `holdoutScore`) is `report.blendedScore`
- *   - `outcome.raw` carries every layer's score keyed `layer.<name>`
- *     plus a `layer_<name>_pass` 1/0 indicator
- *   - `failureMode` is taken from the first failing layer's `reason`
- *   - `wallMs` is `report.durationMs`
+ * `outcome.searchScore` (or `holdoutScore`) is `report.blendedScore`;
+ * `outcome.raw` carries every layer's score + a pass indicator; `failureMode`
+ * is the first failing layer's reason.
  */
 export function verificationReportToRunRecord(
   report: VerificationReport,
@@ -116,8 +94,6 @@ export function verificationReportToRunRecord(
 ): RunRecord {
   const splitTag = ctx.splitTag ?? 'search'
   const runId = opts.runId ?? `run-${ctx.candidateId}-${ctx.experimentId}-${report.startedAt}`
-  const promptHash = typeof ctx.promptHash === 'function' ? 'p'.repeat(64) : ctx.promptHash
-  const configHash = typeof ctx.configHash === 'function' ? 'c'.repeat(64) : ctx.configHash
 
   const raw: Record<string, number> = {
     pass_count: report.passCount,
@@ -148,8 +124,8 @@ export function verificationReportToRunRecord(
     candidateId: ctx.candidateId,
     seed: 0,
     model: ctx.model,
-    promptHash,
-    configHash,
+    promptHash: ctx.promptHash,
+    configHash: ctx.configHash,
     commitSha: ctx.commitSha,
     wallMs: report.durationMs,
     costUsd: ctx.defaultCostUsd ?? 0,
@@ -159,56 +135,6 @@ export function verificationReportToRunRecord(
     splitTag,
     scenarioId: ctx.scenarioId,
   }
-}
-
-/**
- * Convert a `VariantAggregate` (per-variant rollup from `prompt-evolution`)
- * into a synthetic `RunRecord` representing the aggregate. Useful when the
- * downstream consumer wants per-variant entries for a `researchReport`
- * rather than per-(variant, scenario, rep) trial entries.
- */
-export function variantAggregateToRunRecord(
-  agg: VariantAggregate,
-  ctx: AdapterContext,
-  opts: { runId?: string } = {},
-): RunRecord {
-  const splitTag = ctx.splitTag ?? 'search'
-  const runId = opts.runId ?? `agg-${agg.variantId}-${ctx.experimentId}`
-  const promptHash = typeof ctx.promptHash === 'function' ? 'p'.repeat(64) : ctx.promptHash
-  const configHash = typeof ctx.configHash === 'function' ? 'c'.repeat(64) : ctx.configHash
-
-  const raw: Record<string, number> = {
-    ...agg.metrics,
-    ok_rate: agg.okRate,
-    duration_ms: agg.meanDurationMs,
-    n_scenarios: agg.scenarios.length,
-  }
-
-  const outcome: RunRecord['outcome'] = { raw }
-  if (splitTag === 'holdout') outcome.holdoutScore = agg.meanScore
-  else outcome.searchScore = agg.meanScore
-
-  return {
-    runId,
-    experimentId: ctx.experimentId,
-    candidateId: agg.variantId,
-    seed: 0,
-    model: ctx.model,
-    promptHash,
-    configHash,
-    commitSha: ctx.commitSha,
-    wallMs: agg.meanDurationMs,
-    costUsd: agg.meanCost,
-    tokenUsage: { input: 0, output: 0 },
-    outcome,
-    splitTag,
-  }
-}
-
-// ── Helpers ──────────────────────────────────────────────────────────────
-
-function defaultRunId(ctx: AdapterContext, t: TrialResult): string {
-  return `run-${ctx.experimentId}-${t.variantId}-${t.scenarioId}-${t.rep}`
 }
 
 function failureModeFromLayer(layer: LayerResult): string {
