@@ -11,6 +11,7 @@ import {
   FsLabeledScenarioStore,
   type Gate,
   heldOutGate,
+  type JudgeConfig,
   type MutableSurface,
   type Mutator,
   openAutoPr,
@@ -382,6 +383,51 @@ describe('runOptimization', () => {
     expect(result.generations[0]!.surfaces).toHaveLength(2)
     expect(result.winnerSurfaceHash).toMatch(/^[a-f0-9]{16}$/)
     expect(result.baselineCampaign.cells).toHaveLength(2)
+  })
+
+  it('records per-candidate dimensional + per-scenario scores (reflective-driver evidence)', async () => {
+    // The reflective driver needs to see WHICH dimensions a candidate is weak
+    // on and WHICH scenarios it best/worst handled — not just one composite.
+    const judge: JudgeConfig<FakeArtifact, FakeScenario> = {
+      name: 'dim-judge',
+      dimensions: [
+        { key: 'clarity', description: 'c' },
+        { key: 'safety', description: 's' },
+      ],
+      score: ({ scenario }) => ({
+        composite: scenario.id === 'a' ? 0.8 : 0.4,
+        dimensions: { clarity: scenario.id === 'a' ? 0.9 : 0.3, safety: 0.5 },
+        notes: '',
+      }),
+    }
+    const noopMutator: Mutator = {
+      kind: 'noop',
+      async mutate({ currentSurface, populationSize }) {
+        return new Array(populationSize).fill(0).map((_, i) => `${currentSurface}+${i}`)
+      },
+    }
+    const result = await runOptimization({
+      scenarios: SCENARIOS,
+      baselineSurface: 'base',
+      dispatchWithSurface: async (surface: string, s: FakeScenario) => ({
+        text: `${surface}::${s.id}`,
+      }),
+      judges: [judge],
+      driver: evolutionaryDriver({ mutator: noopMutator }),
+      populationSize: 2,
+      maxGenerations: 1,
+      runDir,
+    })
+
+    const cand = result.generations[0]!.record.candidates[0]!
+    expect(Object.keys(cand.dimensions).sort()).toEqual(['clarity', 'safety'])
+    expect(cand.dimensions.safety).toBeCloseTo(0.5, 5)
+    // clarity mean across scenarios a(0.9) + b(0.3) = 0.6
+    expect(cand.dimensions.clarity).toBeCloseTo(0.6, 5)
+    expect(cand.scenarios.map((x) => x.scenarioId).sort()).toEqual(['a', 'b'])
+    const sa = cand.scenarios.find((x) => x.scenarioId === 'a')!
+    const sb = cand.scenarios.find((x) => x.scenarioId === 'b')!
+    expect(sa.composite).toBeGreaterThan(sb.composite)
   })
 
   it('drives via ANY ImprovementDriver, not just a mutator (analyst-style)', async () => {
