@@ -7,9 +7,9 @@ import {
   FsLabeledScenarioStore,
   type JudgeConfig,
   LabeledScenarioStoreError,
-  runShot,
+  runCampaign,
   type Scenario,
-} from '../../src/shot/index'
+} from '../../src/campaign/index'
 
 interface FakeScenario extends Scenario {
   id: string
@@ -35,16 +35,16 @@ const SCENARIOS: FakeScenario[] = [
 let runDir: string
 
 beforeEach(() => {
-  runDir = mkdtempSync(join(tmpdir(), 'run-shot-'))
+  runDir = mkdtempSync(join(tmpdir(), 'run-campaign-'))
 })
 
 afterEach(() => {
   rmSync(runDir, { recursive: true, force: true })
 })
 
-describe('runShot — core primitive', () => {
-  it('runs every (scenario × rep) cell and returns a ShotResult', async () => {
-    const result = await runShot({
+describe('runCampaign — core primitive', () => {
+  it('runs every (scenario × rep) cell and returns a CampaignResult', async () => {
+    const result = await runCampaign({
       scenarios: SCENARIOS,
       dispatch: DISPATCH,
       reps: 2,
@@ -63,22 +63,22 @@ describe('runShot — core primitive', () => {
   })
 
   it('produces a stable manifestHash for identical inputs', async () => {
-    const r1 = await runShot({ scenarios: SCENARIOS, dispatch: DISPATCH, runDir })
-    const r2 = await runShot({
+    const r1 = await runCampaign({ scenarios: SCENARIOS, dispatch: DISPATCH, runDir })
+    const r2 = await runCampaign({
       scenarios: SCENARIOS,
       dispatch: DISPATCH,
-      runDir: mkdtempSync(join(tmpdir(), 'run-shot-')),
+      runDir: mkdtempSync(join(tmpdir(), 'run-campaign-')),
     })
     expect(r1.manifestHash).toBe(r2.manifestHash)
   })
 
   it('changes manifestHash when seed changes', async () => {
-    const r1 = await runShot({ scenarios: SCENARIOS, dispatch: DISPATCH, seed: 42, runDir })
-    const r2 = await runShot({
+    const r1 = await runCampaign({ scenarios: SCENARIOS, dispatch: DISPATCH, seed: 42, runDir })
+    const r2 = await runCampaign({
       scenarios: SCENARIOS,
       dispatch: DISPATCH,
       seed: 1337,
-      runDir: mkdtempSync(join(tmpdir(), 'run-shot-')),
+      runDir: mkdtempSync(join(tmpdir(), 'run-campaign-')),
     })
     expect(r1.manifestHash).not.toBe(r2.manifestHash)
   })
@@ -89,7 +89,7 @@ describe('runShot — core primitive', () => {
       seenSeeds.push(ctx.seed)
       return { text: '', intent: s.intent }
     }
-    await runShot({ scenarios: SCENARIOS, dispatch, seed: 100, reps: 2, runDir })
+    await runCampaign({ scenarios: SCENARIOS, dispatch, seed: 100, reps: 2, runDir })
     expect(seenSeeds.sort()).toEqual([100, 101, 102, 103])
   })
 
@@ -99,11 +99,11 @@ describe('runShot — core primitive', () => {
       dispatchCount += 1
       return { text: `${s.id}-${ctx.rep}`, intent: s.intent }
     }
-    await runShot({ scenarios: SCENARIOS, dispatch: counting, runDir })
+    await runCampaign({ scenarios: SCENARIOS, dispatch: counting, runDir })
     expect(dispatchCount).toBe(2)
 
     // Second run with same runDir + scenarios should hit cache.
-    const r2 = await runShot({ scenarios: SCENARIOS, dispatch: counting, runDir })
+    const r2 = await runCampaign({ scenarios: SCENARIOS, dispatch: counting, runDir })
     expect(dispatchCount).toBe(2) // no new dispatches
     expect(r2.cells.every((c) => c.cached)).toBe(true)
     expect(r2.aggregates.cellsCached).toBe(2)
@@ -114,7 +114,7 @@ describe('runShot — core primitive', () => {
       if (s.id === 'a') throw new Error('boom')
       return { text: 'ok', intent: s.intent }
     }
-    const result = await runShot({ scenarios: SCENARIOS, dispatch: flaky, runDir })
+    const result = await runCampaign({ scenarios: SCENARIOS, dispatch: flaky, runDir })
     expect(result.cells).toHaveLength(2)
     expect(result.aggregates.cellsFailed).toBe(1)
     expect(result.cells.find((c) => c.scenarioId === 'a')?.error).toContain('boom')
@@ -126,7 +126,7 @@ describe('runShot — core primitive', () => {
       ctx.cost.observe(10, 'expensive')
       return { text: '', intent: s.intent }
     }
-    const result = await runShot({
+    const result = await runCampaign({
       scenarios: [
         { id: 'a', kind: 'chat', intent: 'x' },
         { id: 'b', kind: 'chat', intent: 'y' },
@@ -149,7 +149,7 @@ describe('runShot — core primitive', () => {
       buildPrompt: () => '',
       appliesTo: (s) => s.id === 'a',
     }
-    const result = await runShot({
+    const result = await runCampaign({
       scenarios: SCENARIOS,
       dispatch: DISPATCH,
       judges: [judge],
@@ -162,7 +162,7 @@ describe('runShot — core primitive', () => {
   })
 
   it('writes spans.jsonl per cell', async () => {
-    await runShot({ scenarios: SCENARIOS.slice(0, 1), dispatch: DISPATCH, runDir })
+    await runCampaign({ scenarios: SCENARIOS.slice(0, 1), dispatch: DISPATCH, runDir })
     const cellDirs = readdirSync(runDir).filter((d) => d.startsWith('a_'))
     expect(cellDirs.length).toBeGreaterThan(0)
   })
@@ -322,7 +322,7 @@ describe('FsLabeledScenarioStore', () => {
   })
 })
 
-describe('runShot + LabeledScenarioStore integration', () => {
+describe('runCampaign + LabeledScenarioStore integration', () => {
   let storeDir: string
   let store: FsLabeledScenarioStore
 
@@ -337,7 +337,7 @@ describe('runShot + LabeledScenarioStore integration', () => {
 
   it('captures completed cells into the store by default', async () => {
     const spy = vi.spyOn(store, 'observe')
-    await runShot({
+    await runCampaign({
       scenarios: SCENARIOS,
       dispatch: DISPATCH,
       labeledStore: store,
@@ -350,7 +350,7 @@ describe('runShot + LabeledScenarioStore integration', () => {
 
   it('does not capture when labeledStore = "off"', async () => {
     const spy = vi.spyOn(store, 'observe')
-    await runShot({
+    await runCampaign({
       scenarios: SCENARIOS,
       dispatch: DISPATCH,
       labeledStore: 'off',
@@ -364,7 +364,7 @@ describe('runShot + LabeledScenarioStore integration', () => {
     const flaky: DispatchFn<FakeScenario, FakeArtifact> = async () => {
       throw new Error('boom')
     }
-    await runShot({
+    await runCampaign({
       scenarios: SCENARIOS,
       dispatch: flaky,
       labeledStore: store,

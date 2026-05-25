@@ -1,36 +1,45 @@
 /**
  * @experimental
  *
- * `runOptimization` — population-based prompt-evolution loop. Runs N
- * generations: mutator produces K candidate surfaces per generation, each
- * candidate runs a campaign, top-scoring promote to next generation.
+ * `runOptimization` — the improvement loop body. Runs N generations: the
+ * `ImprovementDriver` proposes K candidate surfaces per generation, each
+ * candidate runs a campaign (the measurement), top-scoring promote to the
+ * next generation. Driver-agnostic — the same loop runs an evolutionary
+ * population mutator (`evolutionaryDriver`) or a reflective analyst
+ * (`analystDriver`); they differ only in how `propose()` picks candidates.
  *
- * Phase 2 implementation: SCAFFOLD that wraps `runShot` for each
- * generation. The full reflective-mutation / AxGEPA mutator wiring lands
- * when consumer migrations need it (gtm/legal/tax already have working
- * `run-prompt-evolution.ts` flows — those become inputs to the mutator
- * adapter in Phase 4 day 1-2 diff work).
+ * This is `runLoop`'s shape (plan → measure → decide) specialized to surface
+ * improvement: `driver.propose` = plan, `runCampaign` = the measurement (which
+ * runs the worker behind `dispatch`), the mean-composite ranking = the
+ * validator, `driver.decide` = the stop check.
  *
- * For Phase 2 testing: a consumer-provided `dispatch` that swaps the
- * surface into its profile + runs scenarios. Optimizer rotates the surface
- * via the mutator + collects per-generation scorecards.
+ * The gated-promotion shell (`runImprovementLoop`) wraps this with a holdout
+ * re-score + release gate + optional PR.
  */
 
 import { createHash } from 'node:crypto'
-import { type RunShotOptions, runShot } from '../run-shot'
-import type { GenerationRecord, MutableSurface, Mutator, Scenario, ShotResult } from '../types'
+import { type RunCampaignOptions, runCampaign } from '../run-campaign'
+import type {
+  CampaignResult,
+  GenerationRecord,
+  ImprovementDriver,
+  MutableSurface,
+  Scenario,
+} from '../types'
 
 export interface RunOptimizationOptions<TScenario extends Scenario, TArtifact>
-  extends Omit<RunShotOptions<TScenario, TArtifact>, 'dispatch'> {
+  extends Omit<RunCampaignOptions<TScenario, TArtifact>, 'dispatch'> {
   /** Initial mutable surface (typically system prompt or addendum). */
   baselineSurface: MutableSurface
   /** Dispatcher that takes the CURRENT surface + scenario → artifact. */
   dispatchWithSurface: (
     surface: MutableSurface,
     scenario: TScenario,
-    ctx: Parameters<RunShotOptions<TScenario, TArtifact>['dispatch']>[1],
+    ctx: Parameters<RunCampaignOptions<TScenario, TArtifact>['dispatch']>[1],
   ) => Promise<TArtifact>
-  mutator: Mutator
+  /** The improvement strategy. Wrap a population `Mutator` via
+   *  `evolutionaryDriver({ mutator })`, or pass a reflective `analystDriver`. */
+  driver: ImprovementDriver
   populationSize: number
   maxGenerations: number
   /** How many top-scoring candidates carry to the next generation. Default 2. */
@@ -43,12 +52,12 @@ export interface RunOptimizationResult<TArtifact, TScenario extends Scenario> {
     surfaces: Array<{
       surfaceHash: string
       surface: MutableSurface
-      campaign: ShotResult<TArtifact, TScenario>
+      campaign: CampaignResult<TArtifact, TScenario>
     }>
   }>
   winnerSurface: MutableSurface
   winnerSurfaceHash: string
-  baselineShot: ShotResult<TArtifact, TScenario>
+  baselineCampaign: CampaignResult<TArtifact, TScenario>
 }
 
 export async function runOptimization<TScenario extends Scenario, TArtifact>(
@@ -57,24 +66,31 @@ export async function runOptimization<TScenario extends Scenario, TArtifact>(
   const promoteTopK = opts.promoteTopK ?? 2
 
   // Baseline run
-  const baselineShot = await runShot<TScenario, TArtifact>({
+  const baselineCampaign = await runCampaign<TScenario, TArtifact>({
     ...opts,
     dispatch: (scenario, ctx) => opts.dispatchWithSurface(opts.baselineSurface, scenario, ctx),
     runDir: `${opts.runDir}/baseline`,
   })
 
   const generations: RunOptimizationResult<TArtifact, TScenario>['generations'] = []
+  const history: GenerationRecord[] = []
   let currentSurfaces: MutableSurface[] = [opts.baselineSurface]
   let winnerSurface = opts.baselineSurface
   let winnerSurfaceHash = surfaceHash(opts.baselineSurface)
-  let winnerComposite = meanComposite(baselineShot)
+  let winnerComposite = meanComposite(baselineCampaign)
 
   for (let gen = 0; gen < opts.maxGenerations; gen++) {
-    // Mutate: produce N candidates from the current top surfaces.
-    const candidates = await opts.mutator.mutate({
-      findings: [],
+    // Decide: the driver may stop early based on accumulated history.
+    if (opts.driver.decide?.({ history }).stop) break
+
+    // Plan: the driver proposes N candidates from the current best surface,
+    // the accumulated generation history, and any external findings.
+    const candidates = await opts.driver.propose({
       currentSurface: currentSurfaces[0] ?? opts.baselineSurface,
+      history,
+      findings: [],
       populationSize: opts.populationSize,
+      generation: gen,
       signal: new AbortController().signal,
     })
 
@@ -82,13 +98,13 @@ export async function runOptimization<TScenario extends Scenario, TArtifact>(
     const surfaceResults: Array<{
       surfaceHash: string
       surface: MutableSurface
-      campaign: ShotResult<TArtifact, TScenario>
+      campaign: CampaignResult<TArtifact, TScenario>
       composite: number
     }> = []
     for (let i = 0; i < candidates.length; i++) {
       const surface = candidates[i] as MutableSurface
       const hash = surfaceHash(surface)
-      const campaign = await runShot<TScenario, TArtifact>({
+      const campaign = await runCampaign<TScenario, TArtifact>({
         ...opts,
         dispatch: (scenario, ctx) => opts.dispatchWithSurface(surface, scenario, ctx),
         runDir: `${opts.runDir}/gen-${gen}/candidate-${i}`,
@@ -108,16 +124,18 @@ export async function runOptimization<TScenario extends Scenario, TArtifact>(
       winnerComposite = top.composite
     }
 
+    const record: GenerationRecord = {
+      generationIndex: gen,
+      candidates: surfaceResults.map((s) => ({
+        surfaceHash: s.surfaceHash,
+        composite: s.composite,
+        ci95: [s.composite, s.composite] as [number, number],
+      })),
+      promoted: promoted.map((p) => p.surfaceHash),
+    }
+    history.push(record)
     generations.push({
-      record: {
-        generationIndex: gen,
-        candidates: surfaceResults.map((s) => ({
-          surfaceHash: s.surfaceHash,
-          composite: s.composite,
-          ci95: [s.composite, s.composite] as [number, number],
-        })),
-        promoted: promoted.map((p) => p.surfaceHash),
-      },
+      record,
       surfaces: surfaceResults.map((s) => ({
         surfaceHash: s.surfaceHash,
         surface: s.surface,
@@ -130,16 +148,26 @@ export async function runOptimization<TScenario extends Scenario, TArtifact>(
     generations,
     winnerSurface,
     winnerSurfaceHash,
-    baselineShot,
+    baselineCampaign,
   }
 }
 
 export function surfaceHash(surface: MutableSurface): string {
-  return createHash('sha256').update(surface).digest('hex').slice(0, 16)
+  // Prompt/tool surfaces (string) hash by content; code surfaces hash by the
+  // worktree + base ref pair (the content lives in git, not in the string).
+  const material =
+    typeof surface === 'string'
+      ? surface
+      : JSON.stringify({
+          kind: surface.kind,
+          worktreeRef: surface.worktreeRef,
+          baseRef: surface.baseRef ?? null,
+        })
+  return createHash('sha256').update(material).digest('hex').slice(0, 16)
 }
 
 function meanComposite<TArtifact, TScenario extends Scenario>(
-  campaign: ShotResult<TArtifact, TScenario>,
+  campaign: CampaignResult<TArtifact, TScenario>,
 ): number {
   const composites: number[] = []
   for (const cell of campaign.cells) {

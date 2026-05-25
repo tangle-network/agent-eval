@@ -1,23 +1,33 @@
 /**
  * @experimental
  *
- * `runImprovementLoop` — the full closed-loop improvement preset. Runs the
- * optimization loop (population × generations) then evaluates the winner
- * against a baseline via the gate, then optionally opens a PR.
+ * `runImprovementLoop` — the gated-promotion shell around the improvement
+ * loop body (`runOptimization`). Drives candidate surfaces via the
+ * `ImprovementDriver`, re-scores the winner against the baseline on a
+ * holdout set, runs the release gate, and optionally opens a PR.
  *
- * Distinguished from `runLoop` in `@tangle-network/agent-runtime`, which is
- * the tactical driver↔worker conversation loop for a single session.
- * `runImprovementLoop` is the strategic closed feedback loop across many
- * campaigns over time.
+ * Role vocabulary (see docs/design/loop-taxonomy.md):
+ *   - DRIVER     = the `ImprovementDriver` (evolutionary GEPA mutator OR
+ *                  reflective analyst). Proposes candidate SURFACES — the
+ *                  worker's system prompt / tool config — NOT conversation
+ *                  turns.
+ *   - MEASUREMENT= `runCampaign`. Scores one surface by running the worker
+ *                  (via `dispatch`) over scenarios and judging the output.
+ *   - WORKER     = the agent harness in the sandbox, invoked behind the
+ *                  topology-opaque `dispatch` seam — never referenced here.
+ *
+ * Distinct from `runLoop` in `@tangle-network/agent-runtime`, which is the
+ * INNER conversation loop (driver↔workers in a sandbox). `runImprovementLoop`
+ * is the OUTER loop: it improves the surface that those workers run.
  *
  * Hard-refuses unsafe configurations:
- *   - `tracing: 'off'` when any mutator is wired (loop is unauditable)
+ *   - `tracing: 'off'` when a driver is wired (improvement is unattributable)
  *   - `autoOnPromote: 'config'` — DEFERRED to Pass B; v0.40 only ships
  *     `'pr'` and `'none'`.
  */
 
 import { openAutoPr } from '../auto-pr'
-import type { Gate, Scenario, ShotResult } from '../types'
+import type { CampaignResult, Gate, MutableSurface, Scenario } from '../types'
 import type { RunOptimizationOptions, RunOptimizationResult } from './run-optimization'
 import { runOptimization } from './run-optimization'
 
@@ -41,13 +51,13 @@ export interface RunImprovementLoopOptions<TScenario extends Scenario, TArtifact
   ghRepo?: string
   /** Optional render override — substrate writes a diff-shaped surface; pass
    *  a function to format the promoted surface differently. */
-  renderPromotedDiff?: (winnerSurface: string, baselineSurface: string) => string
+  renderPromotedDiff?: (winnerSurface: MutableSurface, baselineSurface: MutableSurface) => string
 }
 
 export interface RunImprovementLoopResult<TArtifact, TScenario extends Scenario>
   extends RunOptimizationResult<TArtifact, TScenario> {
-  baselineOnHoldout: ShotResult<TArtifact, TScenario>
-  winnerOnHoldout: ShotResult<TArtifact, TScenario>
+  baselineOnHoldout: CampaignResult<TArtifact, TScenario>
+  winnerOnHoldout: CampaignResult<TArtifact, TScenario>
   gateResult: Awaited<ReturnType<Gate<TArtifact, TScenario>['decide']>>
   prResult?: ReturnType<typeof openAutoPr>
 }
@@ -62,12 +72,13 @@ export async function runImprovementLoop<TScenario extends Scenario, TArtifact>(
       "runImprovementLoop: autoOnPromote='config' is deferred to Pass B (requires shadow deploy + rollback + ensemble judges). Use 'pr' or 'none' in v0.40.",
     )
   }
-  // Tighter than Phase 2: refuse tracing=off whenever a mutator is wired,
-  // not just when autoOnPromote != 'none'. An optimizer without traces
-  // cannot produce attribution-grade findings, even if no PR opens.
-  if (opts.tracing === 'off' && opts.mutator) {
+  // Refuse tracing=off whenever a driver is wired. An improvement loop
+  // without traces is unattributable — its candidate surfaces cannot be
+  // cited back to the spans that motivated them, and the dataset flywheel
+  // (LabeledScenarioStore) that GEPA optimizes against goes unfed.
+  if (opts.tracing === 'off' && opts.driver) {
     throw new Error(
-      "runImprovementLoop: tracing='off' is forbidden when a mutator is wired. The improvement loop without traces is unattributable; findings cannot be cited back to spans.",
+      "runImprovementLoop: tracing='off' is forbidden when a driver is wired. The improvement loop without traces is unattributable; candidate surfaces cannot be cited back to spans and the optimization dataset goes unfed.",
     )
   }
   if (opts.autoOnPromote === 'pr' && (!opts.ghOwner || !opts.ghRepo)) {
@@ -78,16 +89,16 @@ export async function runImprovementLoop<TScenario extends Scenario, TArtifact>(
   const optimization = await runOptimization(opts)
 
   // ── (2) baseline + winner re-scored on the holdout set ─────────────
-  const { runShot } = await import('../run-shot')
+  const { runCampaign } = await import('../run-campaign')
 
-  const baselineOnHoldout = await runShot<TScenario, TArtifact>({
+  const baselineOnHoldout = await runCampaign<TScenario, TArtifact>({
     ...opts,
     scenarios: opts.holdoutScenarios,
     dispatch: (scenario, ctx) => opts.dispatchWithSurface(opts.baselineSurface, scenario, ctx),
     runDir: `${opts.runDir}/holdout-baseline`,
   })
 
-  const winnerOnHoldout = await runShot<TScenario, TArtifact>({
+  const winnerOnHoldout = await runCampaign<TScenario, TArtifact>({
     ...opts,
     scenarios: opts.holdoutScenarios,
     dispatch: (scenario, ctx) =>
@@ -147,13 +158,20 @@ export async function runImprovementLoop<TScenario extends Scenario, TArtifact>(
   }
 }
 
-function defaultRenderDiff(winnerSurface: string, baselineSurface: string): string {
+function defaultRenderDiff(winnerSurface: MutableSurface, baselineSurface: MutableSurface): string {
+  // Code surfaces aren't text-diffable here — the diff lives in git. Render
+  // the worktree/base refs + summary so the PR body points at the change.
+  if (typeof winnerSurface !== 'string' || typeof baselineSurface !== 'string') {
+    const fmt = (s: MutableSurface): string =>
+      typeof s === 'string'
+        ? '(prompt surface)'
+        : `worktree=${s.worktreeRef}${s.baseRef ? ` base=${s.baseRef}` : ''}${s.summary ? `\n${s.summary}` : ''}`
+    return `--- baseline\n${fmt(baselineSurface)}\n+++ winner\n${fmt(winnerSurface)}`
+  }
   const lines: string[] = []
   lines.push('--- baseline')
   lines.push('+++ winner')
-  const baseLines = baselineSurface.split('\n')
-  const winLines = winnerSurface.split('\n')
-  for (const l of baseLines) lines.push(`- ${l}`)
-  for (const l of winLines) lines.push(`+ ${l}`)
+  for (const l of baselineSurface.split('\n')) lines.push(`- ${l}`)
+  for (const l of winnerSurface.split('\n')) lines.push(`+ ${l}`)
   return lines.join('\n')
 }
