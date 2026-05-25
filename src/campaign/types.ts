@@ -140,8 +140,8 @@ export interface Mutator<TFindings = unknown> {
 /** @experimental Everything a driver's `propose()` may read to plan the next
  *  batch of candidates. The first six fields are always present; the rest are
  *  optional context the loop supplies when available, so cheap drivers
- *  (`evolutionaryDriver`) can ignore them while a code-tier `autoresearchDriver`
- *  consumes the research report + dataset to drive a sandbox runLoop.
+ *  (`evolutionaryDriver`) can ignore them while a code-tier agentic generator
+ *  consumes the research report + dataset to drive a coding harness.
  *  See `docs/design/self-improvement-engine.md`. */
 export interface ProposeContext<TFindings = unknown> {
   currentSurface: MutableSurface
@@ -158,9 +158,9 @@ export interface ProposeContext<TFindings = unknown> {
   /** Handle to all captured data — the driver samples traces / artifacts /
    *  rewards here to ground its proposals. */
   dataset?: LabeledScenarioStore
-  /** DEPTH: max runLoop iterations the generating agent may take per candidate
-   *  (autoresearchDriver). 1 = single-shot; >1 = it may iterate on its own
-   *  change before handing it back to be measured. */
+  /** DEPTH: max iterations the agentic generator may take per candidate.
+   *  1 = single-shot; >1 = it may iterate on its own change before handing it
+   *  back to be measured. */
   maxImprovementShots?: number
 }
 
@@ -169,11 +169,11 @@ export interface ProposeContext<TFindings = unknown> {
  *  been tried + scored, and any external findings, propose the next batch of
  *  candidate surfaces to measure. Optionally decide to stop early.
  *
- *  The evolutionary mutator (`evolutionaryDriver`) and a reflective analyst
- *  (`analystDriver`, consumer-wired from `@tangle-network/agent-runtime`'s
- *  `runAnalystLoop`) are two drivers of the SAME loop — not two loops. The
- *  loop body (`runOptimization`) and the gated promotion shell
- *  (`runImprovementLoop`) are driver-agnostic. */
+ *  The evolutionary mutator (`evolutionaryDriver`, here) and agent-runtime's
+ *  `improvementDriver` (with reflective / agentic generators) both conform —
+ *  drivers of the SAME loop, not separate loops. The loop body
+ *  (`runOptimization`) and the gated promotion shell (`runImprovementLoop`)
+ *  are driver-agnostic. */
 export interface ImprovementDriver<TFindings = unknown> {
   kind: string
   /** Plan: propose N candidate surfaces for the next generation. */

@@ -147,42 +147,47 @@ interface ImprovementDriver<TFindings = unknown> {
 }
 ```
 
-| Driver | Strategy | How it proposes | Where it lives |
+| Implementation | Strategy | How it proposes | Where it lives |
 |---|---|---|---|
-| `evolutionaryDriver` | Evolutionary (GEPA / AxGEPA) | Mutates the current best surface into N candidates, blind to history beyond the current best. Optimizes against the dataset's rewards. | **agent-eval** (pure: dataset → surface, no sandbox) |
-| `analystDriver` *(planned)* | Reflective | Reads trace findings + generation history, reasons about *why* candidates failed, proposes targeted edits. | **agent-runtime** (runs sandboxes to do research) — implements agent-eval's `ImprovementDriver` |
+| `evolutionaryDriver` | Evolutionary (GEPA / AxGEPA) | Standalone `ImprovementDriver`. Mutates the current best surface into N candidates, blind to history beyond the current best. Optimizes against the dataset's rewards. | **agent-eval** (pure: dataset → surface, no sandbox) |
+| `improvementDriver` + `reflectiveGenerator` | Reflective | One driver, cheap generator: drafts patches from the report and applies them into a worktree (shots=1, no sandbox). | **agent-runtime** — implements agent-eval's `ImprovementDriver` |
+| `improvementDriver` + `agenticGenerator` | Agentic | Same driver, full generator: runs a coding harness in the worktree (≤ `maxImprovementShots`) to edit in place. | **agent-runtime** |
 
 This resolves the prior duplication where `runImprovementLoop` (evolutionary,
 agent-eval) and `runAnalystLoop` (reflective, agent-runtime) were two parallel
-loops doing "propose change → measure → gate → PR". There is **one loop**;
-the analyst becomes a driver of it. The dependency direction permits this
-cleanly: agent-eval is the leaf and owns the `ImprovementDriver` contract;
-agent-runtime imports agent-eval and implements the contract.
+loops doing "propose change → measure → gate → PR". There is **one loop** and
+**one driver** (`improvementDriver`); the reflective and agentic paths are
+pluggable *generators* of it (the same operation at two settings of a cost
+dial), not separate drivers. The dependency direction permits this cleanly:
+agent-eval is the leaf and owns the `ImprovementDriver` contract; agent-runtime
+imports agent-eval and implements it.
 
 ## What "the surface" is — improvement tiers
 
-`MutableSurface` is the thing a driver changes. It has tiers, least → most
-invasive. Today `MutableSurface = string` models tiers 1–2; tiers 3–4 are the
-open design question below.
+`MutableSurface` is the thing the driver changes. It has tiers, least → most
+invasive. `MutableSurface = string | CodeSurface` spans all of them: `string`
+for tiers 1–2, `CodeSurface{ worktreeRef }` for tier 4.
 
-| Tier | Surface | Driver that changes it | Blast radius |
+| Tier | Surface | Generator that changes it | Blast radius |
 |---|---|---|---|
-| 1 | System prompt / prompt-signature addendum | `evolutionaryDriver` (GEPA), `analystDriver` | prompt only |
-| 2 | Tool config / tool signatures | `analystDriver` | which tools, their schemas |
+| 1 | System prompt / prompt-signature addendum | `evolutionaryDriver` (GEPA), `reflectiveGenerator` | prompt only |
+| 2 | Tool config / tool signatures | `reflectiveGenerator` | which tools, their schemas |
 | 3 | Knowledge (wiki / knowledge graph) | agent-knowledge's knowledge adapter | what the agent *knows* |
-| 4 | Code / scaffolding | autoresearch (reads codebase + traces) → worktree / PR | the implementation itself |
+| 4 | Code / scaffolding | `agenticGenerator` (coding harness reads codebase + report) → worktree / PR | the implementation itself |
 
-The key distinction Drew drew:
+The cost/capability distinction:
 
-- **Analyst** updates the *signatures* — the prompt and tool surface (tiers
-  1–2). Cheap, reversible, measured directly against the dataset.
-- **Autoresearch** updates the *code* (tier 4). It reads the repository plus
-  the trace findings, opens a worktree, and proposes implementation changes —
-  measured by re-running the inner loop against the changed code.
+- **`reflectiveGenerator`** updates the *signatures* — prompt + tool surface
+  (tiers 1–2). Cheap (drafts patches, no sandbox), reversible, measured
+  directly against the dataset.
+- **`agenticGenerator`** updates the *code* (tier 4). A coding harness reads
+  the repository + the report, edits in a worktree, iterates up to
+  `maxImprovementShots` — measured by re-running the inner loop against the
+  changed code.
 
-Both are `ImprovementDriver`s in the abstract (propose a change → measure →
-gate → PR). They differ only in *what* they edit and *how invasive* it is. And
-both consume the **same dataset** the flywheel builds.
+Both are generators of the one `improvementDriver` (propose → measure → gate →
+PR). They differ only in *what* they edit and *how invasive* it is — and both
+consume the **same dataset** the flywheel builds.
 
 ## Resolved design decisions
 
@@ -196,14 +201,13 @@ both consume the **same dataset** the flywheel builds.
    `dispatchWithSurface` is responsible for checking out a code surface's
    worktree before running the worker.
 
-2. **`runAnalystLoop` (agent-runtime): analyst becomes a driver; knowledge
-   stays separate.** Extract an `analystDriver` (implements agent-eval's
-   `ImprovementDriver`) for the surface-proposal part, and feed it into
-   `runImprovementLoop`'s gate + PR machinery. `runAnalystLoop`'s other
+2. **`runAnalystLoop` (agent-runtime): the analyst is a GENERATOR, knowledge
+   stays separate.** Shipped in agent-runtime 0.25.0 as `improvementDriver` +
+   `reflectiveGenerator` (drafts patches from the report) / `agenticGenerator`
+   (coding harness in the worktree) — one driver, pluggable generators, fed
+   into `runImprovementLoop`'s gate + PR machinery. `runAnalystLoop`'s other
    responsibilities — the findings ledger and knowledge-graph updates, which
-   are *not* surface optimization — stay where they are. **Phase 3
-   (agent-runtime); the `ImprovementDriver` contract it implements is already
-   shipped in agent-eval 0.40.1.**
+   are *not* surface optimization — stay where they are.
 
 3. **`runLoop` + `runMultishot` converge into one parameterized
    `runConversationLoop`** with a pluggable backend (`sandbox | router`). The
@@ -229,5 +233,9 @@ both consume the **same dataset** the flywheel builds.
   + optional PR. agent-eval.
 - **runAnalystLoop** — reflective autoresearch: findings + knowledge updates +
   improvement proposals. agent-runtime.
-- **ImprovementDriver** — the pluggable strategy that proposes surfaces;
-  `evolutionaryDriver` and (planned) `analystDriver` conform.
+- **ImprovementDriver** — the contract a surface-proposer implements.
+  `evolutionaryDriver` (agent-eval) is one; agent-runtime's `improvementDriver`
+  is another, with pluggable `reflectiveGenerator` / `agenticGenerator`.
+- **CandidateGenerator** — the byte-producing seam inside `improvementDriver`;
+  `reflectiveGenerator` (cheap, no sandbox) and `agenticGenerator` (coding
+  harness in the worktree) are the two cost settings. agent-runtime.
