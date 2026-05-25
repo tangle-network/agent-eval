@@ -7,11 +7,11 @@
  * into N candidates, measure, select. No generation memory beyond the current
  * surface; the loop body handles ranking + promotion.
  *
- * The reflective alternative — `analystDriver` — is consumer-wired from
- * `@tangle-network/agent-runtime`'s `runAnalystLoop`: it reasons over the
- * full generation history + trace findings to propose targeted edits rather
- * than blind mutations. Both conform to `ImprovementDriver`; the improvement
- * loop is identical regardless of which drives it.
+ * The reflective alternative is agent-runtime's `improvementDriver` with a
+ * `reflectiveGenerator` / `agenticGenerator`: it reasons over the report +
+ * trace findings to propose targeted edits rather than blind mutations. Both
+ * conform to `ImprovementDriver`; the improvement loop is identical regardless
+ * of which drives it.
  */
 
 import type { ImprovementDriver, Mutator } from '../types'

@@ -57,17 +57,27 @@ run that produces traces, and the analysts that turn traces into a report.
 ## `propose()` — the plan step, recursively agentic
 
 `propose()` does NOT run the worker and does NOT measure. It returns N
-candidate surfaces to measure next. *How* it produces them is per-driver and
-spans a cost spectrum:
+candidate surfaces to measure next.
 
-| Driver | `propose()` mechanism | Sandbox? | Output |
+There is ONE driver, not several. agent-runtime ships a single
+`improvementDriver` that implements this contract and owns the candidate
+lifecycle (worktree create → generate → finalize/discard, × `populationSize`);
+it delegates the only thing that varies — *how* a candidate change is produced
+— to a pluggable `CandidateGenerator`. The generators span a cost spectrum:
+
+| Generator | mechanism | sandbox? | output |
 |---|---|---|---|
-| `evolutionaryDriver` | mutate current surface text into N variants | no | `string[]` |
-| `analystDriver` (reflective) | LLM reads the report → drafts edits | LLM call | `string[]` / `CodeSurface[]` |
-| `autoresearchDriver` (code-tier) | **full sandbox runLoop** (≤ `maxImprovementShots`) reads report+traces+codebase → commits in one worktree | **yes** | `CodeSurface[]` |
+| `evolutionaryDriver` (agent-eval) | mutate current surface text into N variants | no | `string[]` |
+| `reflectiveGenerator` (agent-runtime) | LLM drafts patches from the report → applies them | LLM call | `CodeSurface` |
+| `agenticGenerator` (agent-runtime) | a real coding harness in the worktree (≤ `maxImprovementShots`) reads report+codebase → edits in place | **yes** | `CodeSurface` |
 
-The recursion: generating *one* candidate (autoresearch `propose`) is itself a
-driver↔worker-in-a-sandbox loop, nested inside the *measurement* of that
+`evolutionaryDriver` is a standalone `ImprovementDriver` (pure, agent-eval).
+The reflective + agentic paths are two *generators* of the one
+`improvementDriver` — the same operation at two settings of the cost dial, not
+two separate drivers.
+
+The recursion: generating *one* candidate (the agentic generator) is itself a
+harness-agent editing a worktree, nested inside the *measurement* of that
 candidate (Phase 4), nested inside the improvement loop. "A loop whose step
 contains a loop."
 
@@ -90,8 +100,7 @@ So:
 | **VCS-pluggable worktree adapter** | agent-eval | pure git/FS, no sandbox; produces `CodeSurface` |
 | `runOptimization` / `runImprovementLoop` | agent-eval | driver-agnostic loop body + gated shell |
 | `defaultProductionGate` | agent-eval | measurement-side safety |
-| **`autoresearchDriver`** (sandbox-spawning `propose`) | agent-runtime | needs the sandbox SDK + `runLoop` |
-| `analystDriver` (wraps the improvement adapter) | agent-runtime | depends on `runAnalystLoop` machinery |
+| **`improvementDriver`** + `reflectiveGenerator` / `agenticGenerator` | agent-runtime | needs the coding-harness runner + worktree on a real FS |
 | trace analysts / `runAnalystLoop` (Phase 2) | agent-runtime | runs agents to analyze |
 
 ## The worktree adapter (VCS-pluggable)
@@ -119,12 +128,13 @@ becomes the PR branch.
 
 ## Build sequence
 
-1. **agent-eval 0.40.2**: widen `propose()` input (additive optional
-   `report` / `traces` / `dataset` / `maxImprovementShots`); add the
-   VCS-pluggable worktree adapter with a git impl; multi-sink trace fan-out
-   helper.
-2. **agent-runtime 0.25.0**: `analystDriver` (wraps the improvement adapter,
-   fed the Phase-2 report); `autoresearchDriver` (sandbox runLoop `propose`);
-   default-on multi-sink tracing in `handleChatTurn`.
+1. **agent-eval 0.40.2** ✅: widen `propose()` input (additive optional
+   `report` / `dataset` / `maxImprovementShots`); VCS-pluggable worktree
+   adapter with a git impl.
+2. **agent-runtime 0.25.0** ✅: `improvementDriver` (the one driver) +
+   `reflectiveGenerator` (shots=1, no sandbox) + `agenticGenerator` (coding
+   harness in the worktree, ≤ `maxImprovementShots`), all fed the Phase-2
+   report. Default tracing was descoped — the flywheel's production capture is
+   already served by agent-runtime's OTEL export + `runCampaign`'s labeledStore.
 3. Wire one consumer end-to-end (Phase 4 of the broader rollout), prove it,
    then fan out.

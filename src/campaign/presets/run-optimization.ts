@@ -5,8 +5,9 @@
  * `ImprovementDriver` proposes K candidate surfaces per generation, each
  * candidate runs a campaign (the measurement), top-scoring promote to the
  * next generation. Driver-agnostic — the same loop runs an evolutionary
- * population mutator (`evolutionaryDriver`) or a reflective analyst
- * (`analystDriver`); they differ only in how `propose()` picks candidates.
+ * population mutator (`evolutionaryDriver`) or agent-runtime's
+ * `improvementDriver` (reflective / agentic generators); they differ only in
+ * how `propose()` picks candidates.
  *
  * This is `runLoop`'s shape (plan → measure → decide) specialized to surface
  * improvement: `driver.propose` = plan, `runCampaign` = the measurement (which
@@ -38,14 +39,15 @@ export interface RunOptimizationOptions<TScenario extends Scenario, TArtifact>
     ctx: Parameters<RunCampaignOptions<TScenario, TArtifact>['dispatch']>[1],
   ) => Promise<TArtifact>
   /** The improvement strategy. Wrap a population `Mutator` via
-   *  `evolutionaryDriver({ mutator })`, or pass a reflective `analystDriver`. */
+   *  `evolutionaryDriver({ mutator })`, or pass agent-runtime's
+   *  `improvementDriver` (reflective / agentic generators). */
   driver: ImprovementDriver
   populationSize: number
   maxGenerations: number
   /** How many top-scoring candidates carry to the next generation. Default 2. */
   promoteTopK?: number
-  /** DEPTH knob forwarded to the driver's `propose()` — max runLoop iterations
-   *  the generating agent may take per candidate (autoresearchDriver). */
+  /** DEPTH knob forwarded to the driver's `propose()` — max iterations the
+   *  agentic generator may take per candidate. */
   maxImprovementShots?: number
   /** Phase-2 research report forwarded to `propose()` (analyst findings +
    *  diff). Opaque here; the driver types it. */
