@@ -50,6 +50,7 @@ export type {
   CampaignCostMeter,
   CampaignResult,
   CampaignTraceWriter,
+  CodeSurface,
   DispatchContext,
   DispatchFn,
   Gate,

@@ -98,10 +98,30 @@ export interface JudgeScore {
 
 // ── Optimization (population + generations + mutator) ─────────────────
 
-/** @experimental The mutable surface that an optimizer mutates. Typically a
- *  system-prompt addendum, but could be a tools array, a profile field, any
- *  string-shaped feature. */
-export type MutableSurface = string
+/** @experimental A tier-4 code surface — a candidate change to the agent's
+ *  IMPLEMENTATION, not its prompt. Produced by autoresearch (reads codebase +
+ *  trace findings → opens a worktree). Measured by checking out `worktreeRef`
+ *  and running the worker against the changed code. See the improvement-tier
+ *  table in `docs/design/loop-taxonomy.md`. */
+export interface CodeSurface {
+  kind: 'code'
+  /** Worktree path or git ref holding the candidate code change. The
+   *  consumer's `dispatchWithSurface` checks this out before running. */
+  worktreeRef: string
+  /** Base ref the change is measured against. Default: the repo's main. */
+  baseRef?: string
+  /** Human summary of what changed — rendered into the auto-PR body. */
+  summary?: string
+}
+
+/** @experimental The mutable surface a driver proposes. Tiers (see
+ *  `docs/design/loop-taxonomy.md`):
+ *   - `string`      — tiers 1-2: system-prompt addendum / serialized tool
+ *                     config. Cheap, reversible, text-diffable.
+ *   - `CodeSurface` — tier 4: an implementation change behind a worktree ref.
+ *  Tier 3 (knowledge) is owned by agent-knowledge and rides its own adapter,
+ *  not this type. */
+export type MutableSurface = string | CodeSurface
 
 /** @experimental Stateless surface mutation — given findings + current
  *  surface, return N candidate surfaces. Pure transform, no generation

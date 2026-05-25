@@ -3,18 +3,21 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
+  type CodeSurface,
   composeGate,
   type DispatchFn,
   defaultProductionGate,
   evolutionaryDriver,
   type Gate,
   heldOutGate,
+  type MutableSurface,
   type Mutator,
   openAutoPr,
   runEval,
   runImprovementLoop,
   runOptimization,
   type Scenario,
+  surfaceHash,
 } from '../../src/campaign/index'
 
 interface FakeScenario extends Scenario {
@@ -430,5 +433,71 @@ describe('runOptimization', () => {
     // decide() stops the loop after gen 0 records → only 1 generation runs.
     expect(proposeCount).toBe(1)
     expect(result.generations).toHaveLength(1)
+  })
+})
+
+// ── MutableSurface tiers (string + CodeSurface) ────────────────────
+
+describe('MutableSurface widening', () => {
+  it('surfaceHash is content-stable for string surfaces', () => {
+    expect(surfaceHash('hello')).toBe(surfaceHash('hello'))
+    expect(surfaceHash('hello')).not.toBe(surfaceHash('world'))
+  })
+
+  it('surfaceHash distinguishes code surfaces by worktree + base ref', () => {
+    const a: CodeSurface = { kind: 'code', worktreeRef: '/wt/a', baseRef: 'main' }
+    const b: CodeSurface = { kind: 'code', worktreeRef: '/wt/b', baseRef: 'main' }
+    const aAgain: CodeSurface = {
+      kind: 'code',
+      worktreeRef: '/wt/a',
+      baseRef: 'main',
+      summary: 'ignored in hash',
+    }
+    expect(surfaceHash(a)).toBe(surfaceHash(aAgain)) // summary not part of identity
+    expect(surfaceHash(a)).not.toBe(surfaceHash(b))
+    expect(surfaceHash(a)).toMatch(/^[a-f0-9]{16}$/)
+  })
+
+  it('drives an improvement loop over CodeSurface candidates (tier 4)', async () => {
+    // A driver that proposes code surfaces (worktree refs), not prompts.
+    // The dispatch checks out the worktree conceptually and runs the worker.
+    const codeDriver = {
+      kind: 'autoresearch:test',
+      async propose({
+        generation,
+        populationSize,
+      }: {
+        generation: number
+        populationSize: number
+      }) {
+        return new Array(populationSize).fill(0).map(
+          (_, i): MutableSurface => ({
+            kind: 'code',
+            worktreeRef: `/wt/gen${generation}-cand${i}`,
+            baseRef: 'main',
+            summary: `candidate ${i}`,
+          }),
+        )
+      },
+    }
+    const dispatchWithSurface = async (surface: MutableSurface, s: FakeScenario) => {
+      const ref = typeof surface === 'string' ? surface : surface.worktreeRef
+      return { text: `${ref}::${s.id}` }
+    }
+
+    const result = await runOptimization({
+      scenarios: SCENARIOS,
+      baselineSurface: { kind: 'code', worktreeRef: '/wt/main', baseRef: 'main' },
+      dispatchWithSurface,
+      driver: codeDriver,
+      populationSize: 2,
+      maxGenerations: 2,
+      runDir,
+    })
+
+    expect(result.generations).toHaveLength(2)
+    expect(result.winnerSurfaceHash).toMatch(/^[a-f0-9]{16}$/)
+    // The winner surface is a CodeSurface, not a string.
+    expect(typeof result.winnerSurface).toBe('object')
   })
 })

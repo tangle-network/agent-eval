@@ -19,7 +19,7 @@ export default defineConfig({
     'governance/index': 'src/governance/index.ts',
     'knowledge/index': 'src/knowledge/index.ts',
     'matrix/index': 'src/matrix/index.ts',
-    'multicampaign/index': 'src/multicampaign/index.ts',
+    'multishot/index': 'src/multishot/index.ts',
     'campaign/index': 'src/campaign/index.ts',
     cli: 'src/cli.ts',
   },

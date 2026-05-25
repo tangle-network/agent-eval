@@ -27,7 +27,7 @@
  */
 
 import { openAutoPr } from '../auto-pr'
-import type { CampaignResult, Gate, Scenario } from '../types'
+import type { CampaignResult, Gate, MutableSurface, Scenario } from '../types'
 import type { RunOptimizationOptions, RunOptimizationResult } from './run-optimization'
 import { runOptimization } from './run-optimization'
 
@@ -51,7 +51,7 @@ export interface RunImprovementLoopOptions<TScenario extends Scenario, TArtifact
   ghRepo?: string
   /** Optional render override — substrate writes a diff-shaped surface; pass
    *  a function to format the promoted surface differently. */
-  renderPromotedDiff?: (winnerSurface: string, baselineSurface: string) => string
+  renderPromotedDiff?: (winnerSurface: MutableSurface, baselineSurface: MutableSurface) => string
 }
 
 export interface RunImprovementLoopResult<TArtifact, TScenario extends Scenario>
@@ -158,13 +158,20 @@ export async function runImprovementLoop<TScenario extends Scenario, TArtifact>(
   }
 }
 
-function defaultRenderDiff(winnerSurface: string, baselineSurface: string): string {
+function defaultRenderDiff(winnerSurface: MutableSurface, baselineSurface: MutableSurface): string {
+  // Code surfaces aren't text-diffable here — the diff lives in git. Render
+  // the worktree/base refs + summary so the PR body points at the change.
+  if (typeof winnerSurface !== 'string' || typeof baselineSurface !== 'string') {
+    const fmt = (s: MutableSurface): string =>
+      typeof s === 'string'
+        ? '(prompt surface)'
+        : `worktree=${s.worktreeRef}${s.baseRef ? ` base=${s.baseRef}` : ''}${s.summary ? `\n${s.summary}` : ''}`
+    return `--- baseline\n${fmt(baselineSurface)}\n+++ winner\n${fmt(winnerSurface)}`
+  }
   const lines: string[] = []
   lines.push('--- baseline')
   lines.push('+++ winner')
-  const baseLines = baselineSurface.split('\n')
-  const winLines = winnerSurface.split('\n')
-  for (const l of baseLines) lines.push(`- ${l}`)
-  for (const l of winLines) lines.push(`+ ${l}`)
+  for (const l of baselineSurface.split('\n')) lines.push(`- ${l}`)
+  for (const l of winnerSurface.split('\n')) lines.push(`+ ${l}`)
   return lines.join('\n')
 }
