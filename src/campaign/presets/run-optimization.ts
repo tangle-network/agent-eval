@@ -44,6 +44,12 @@ export interface RunOptimizationOptions<TScenario extends Scenario, TArtifact>
   maxGenerations: number
   /** How many top-scoring candidates carry to the next generation. Default 2. */
   promoteTopK?: number
+  /** DEPTH knob forwarded to the driver's `propose()` — max runLoop iterations
+   *  the generating agent may take per candidate (autoresearchDriver). */
+  maxImprovementShots?: number
+  /** Phase-2 research report forwarded to `propose()` (analyst findings +
+   *  diff). Opaque here; the driver types it. */
+  report?: unknown
 }
 
 export interface RunOptimizationResult<TArtifact, TScenario extends Scenario> {
@@ -92,6 +98,9 @@ export async function runOptimization<TScenario extends Scenario, TArtifact>(
       populationSize: opts.populationSize,
       generation: gen,
       signal: new AbortController().signal,
+      report: opts.report,
+      dataset: opts.labeledStore && opts.labeledStore !== 'off' ? opts.labeledStore : undefined,
+      maxImprovementShots: opts.maxImprovementShots,
     })
 
     // Run each candidate as its own campaign.

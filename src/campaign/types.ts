@@ -137,6 +137,33 @@ export interface Mutator<TFindings = unknown> {
   }): Promise<MutableSurface[]>
 }
 
+/** @experimental Everything a driver's `propose()` may read to plan the next
+ *  batch of candidates. The first six fields are always present; the rest are
+ *  optional context the loop supplies when available, so cheap drivers
+ *  (`evolutionaryDriver`) can ignore them while a code-tier `autoresearchDriver`
+ *  consumes the research report + dataset to drive a sandbox runLoop.
+ *  See `docs/design/self-improvement-engine.md`. */
+export interface ProposeContext<TFindings = unknown> {
+  currentSurface: MutableSurface
+  history: GenerationRecord[]
+  findings: TFindings[]
+  /** BREADTH: how many candidate surfaces to return this generation. */
+  populationSize: number
+  generation: number
+  signal: AbortSignal
+  /** The Phase-2 research report (analyst findings + diff), produced AFTER the
+   *  trace analysts run. Opaque to the substrate — the driver that consumes it
+   *  types it. See the phase diagram in self-improvement-engine.md. */
+  report?: unknown
+  /** Handle to all captured data — the driver samples traces / artifacts /
+   *  rewards here to ground its proposals. */
+  dataset?: LabeledScenarioStore
+  /** DEPTH: max runLoop iterations the generating agent may take per candidate
+   *  (autoresearchDriver). 1 = single-shot; >1 = it may iterate on its own
+   *  change before handing it back to be measured. */
+  maxImprovementShots?: number
+}
+
 /** @experimental A surface-improvement strategy — the DRIVER of the
  *  improvement loop. Given the current best surface, the history of what's
  *  been tried + scored, and any external findings, propose the next batch of
@@ -150,14 +177,7 @@ export interface Mutator<TFindings = unknown> {
 export interface ImprovementDriver<TFindings = unknown> {
   kind: string
   /** Plan: propose N candidate surfaces for the next generation. */
-  propose(args: {
-    currentSurface: MutableSurface
-    history: GenerationRecord[]
-    findings: TFindings[]
-    populationSize: number
-    generation: number
-    signal: AbortSignal
-  }): Promise<MutableSurface[]>
+  propose(ctx: ProposeContext<TFindings>): Promise<MutableSurface[]>
   /** Decide: stop early when the driver judges the search converged or
    *  exhausted. Default (omitted) runs all `maxGenerations`. */
   decide?(args: { history: GenerationRecord[] }): { stop: boolean; reason?: string }
