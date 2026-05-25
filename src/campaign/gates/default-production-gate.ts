@@ -55,9 +55,11 @@ export function defaultProductionGate<TArtifact, TScenario extends Scenario>(
       const contributing: Array<{ name: string; passed: boolean; detail: unknown }> = []
 
       // ── (1) heldout composite delta ─────────────────────────────────
+      // Baseline scores come from their OWN map; sharing `judgeScores` would
+      // compare the candidate against itself (delta 0).
       const baselineComposite = meanComposite(
         ctx.baselineArtifacts,
-        ctx.judgeScores,
+        ctx.baselineJudgeScores ?? ctx.judgeScores,
         options.holdoutScenarios,
       )
       const candidateComposite = meanComposite(

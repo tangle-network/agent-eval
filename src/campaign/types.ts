@@ -204,7 +204,13 @@ export type GateDecision = 'ship' | 'hold' | 'need_more_work' | 'model_ceiling' 
 export interface GateContext<TArtifact, TScenario extends Scenario> {
   candidateArtifacts: Map<string, TArtifact>
   baselineArtifacts?: Map<string, TArtifact>
+  /** Candidate (winner) judge scores, keyed by cellId. */
   judgeScores: Map<string, Record<string, JudgeScore>>
+  /** Baseline judge scores, keyed by cellId. SEPARATE from `judgeScores` —
+   *  baseline + candidate share cellIds (same scenarios), so a single map
+   *  cannot represent both. A gate computing a holdout delta MUST read
+   *  candidate from `judgeScores` and baseline from here. */
+  baselineJudgeScores?: Map<string, Record<string, JudgeScore>>
   scenarios: TScenario[]
   cost: { candidate: number; baseline: number }
   signal: AbortSignal
