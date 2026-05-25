@@ -71,9 +71,19 @@ export type {
   MutableSurface,
   Mutator,
   OptimizerConfig,
+  ProposeContext,
   RedactionStatus,
   Scenario,
   ScenarioAggregate,
   SessionScript,
   TraceSpan,
 } from './types'
+// ── Worktree adapter (VCS-pluggable; code-tier surfaces) ─────────────
+export {
+  type GitWorktreeAdapterOptions,
+  gitWorktreeAdapter,
+  resolveWorktreePath,
+  type Worktree,
+  type WorktreeAdapter,
+  WorktreeAdapterError,
+} from './worktree'

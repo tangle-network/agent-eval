@@ -8,6 +8,7 @@ import {
   type DispatchFn,
   defaultProductionGate,
   evolutionaryDriver,
+  FsLabeledScenarioStore,
   type Gate,
   heldOutGate,
   type MutableSurface,
@@ -433,6 +434,55 @@ describe('runOptimization', () => {
     // decide() stops the loop after gen 0 records → only 1 generation runs.
     expect(proposeCount).toBe(1)
     expect(result.generations).toHaveLength(1)
+  })
+
+  it('forwards the widened ProposeContext (dataset, report, maxImprovementShots)', async () => {
+    // Proves the loop hands a code-tier driver the data it needs to ground
+    // proposals: the dataset handle, the Phase-2 report, and the depth knob.
+    const seen: Array<{
+      hasDataset: boolean
+      report: unknown
+      maxImprovementShots: number | undefined
+    }> = []
+    const contextSnoopDriver = {
+      kind: 'snoop',
+      async propose(ctx: {
+        currentSurface: MutableSurface
+        populationSize: number
+        report?: unknown
+        dataset?: unknown
+        maxImprovementShots?: number
+      }) {
+        seen.push({
+          hasDataset: ctx.dataset !== undefined,
+          report: ctx.report,
+          maxImprovementShots: ctx.maxImprovementShots,
+        })
+        return new Array(ctx.populationSize).fill(ctx.currentSurface)
+      },
+    }
+
+    const store = new FsLabeledScenarioStore({ root: join(runDir, 'store') })
+    await runOptimization({
+      scenarios: SCENARIOS,
+      baselineSurface: 'base',
+      dispatchWithSurface: async (surface: string, s: FakeScenario) => ({
+        text: `${surface}::${s.id}`,
+      }),
+      driver: contextSnoopDriver,
+      populationSize: 1,
+      maxGenerations: 1,
+      labeledStore: store,
+      captureSource: 'eval-run',
+      report: { findings: ['rubric too lax'], diff: { regressions: 0 } },
+      maxImprovementShots: 5,
+      runDir,
+    })
+
+    expect(seen).toHaveLength(1)
+    expect(seen[0]!.hasDataset).toBe(true)
+    expect(seen[0]!.report).toEqual({ findings: ['rubric too lax'], diff: { regressions: 0 } })
+    expect(seen[0]!.maxImprovementShots).toBe(5)
   })
 })
 
