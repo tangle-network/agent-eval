@@ -39,9 +39,6 @@ const ROOT_RUNTIME_SYMBOLS = [
   'callLlmJson',
   'withJudgeRetry',
   'createLlmReviewer',
-  // Multi-shot optimization (runtime entry; the runner/scorer/adapter types
-  // consumers also import are validated by the compile-time namespace import.)
-  'runMultiShotOptimization',
   // Verifier / review / campaign
   'MultiLayerVerifier',
   'runProposeReview',
@@ -50,7 +47,6 @@ const ROOT_RUNTIME_SYMBOLS = [
   'runCanaries',
   // Substrate primitives
   'discoverPersonas',
-  'aggregateTrialsByMode',
   'scoreKnowledgeReadiness',
   // Muffled-gate scanner
   'scanForMuffledGates',
@@ -69,7 +65,7 @@ const ROOT_RUNTIME_SYMBOLS = [
   'summarizePreferenceMemory',
 ] as const
 
-const RL_SYMBOLS = ['analyzeOptimizationResult'] as const
+const RL_SYMBOLS = ['campaignToRunRecords', 'verificationReportToRunRecord'] as const
 
 describe('public-surface contract for consumers', () => {
   it('exports every load-bearing runtime symbol from the root entry', () => {

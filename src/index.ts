@@ -222,18 +222,6 @@ export {
   summarizePreferenceMemory,
   withAssignedFeedbackSplit,
 } from './feedback-trajectory'
-export type {
-  IntegrationGateSurface,
-  IntegrationInvokeFailureInput,
-  IntegrationManifestGateInput,
-} from './integration-gates'
-export {
-  integrationAsi,
-  integrationGateEvals,
-  integrationInvokeFailedPayload,
-  integrationManifestResolvedPayload,
-  integrationManifestValidatedPayload,
-} from './integration-gates'
 // ── Backend-integrity guard ───────────────────────────────────────────
 // Distinguish "agent failed" from "eval ran blind against a stub or
 // unconfigured backend." Required after every canonical eval so a 0/N
@@ -290,17 +278,6 @@ export {
 /**
  * @experimental
  */
-export type {
-  FailureClusterConfig,
-  ProductionEvolveConfig,
-  ProductionLoopCronConfig,
-  ProductionLoopDecision,
-  ProductionLoopRenderContext,
-  ProductionLoopResult,
-  ProductionShipConfig,
-  RunProductionLoopOptions,
-} from './production-loop'
-export { runProductionLoop } from './production-loop'
 export { ScenarioRegistry } from './registry'
 export { formatBenchmarkReport, formatDriverReport, printDriverSummary } from './reporter'
 export type {
@@ -987,14 +964,6 @@ export type {
   CanarySeverity,
 } from './canary'
 export { runCanaries } from './canary'
-export type {
-  CodeMutationOutcome,
-  CodeMutationRunner,
-  CreateSandboxCodeMutatorOpts,
-} from './code-mutator'
-export { createSandboxCodeMutator } from './code-mutator'
-export type { CompositePolicy, CreateCompositeMutatorOpts } from './composite-mutator'
-export { createCompositeMutator } from './composite-mutator'
 // ── Concurrency + persistence + telemetry primitives for evolution loops ──
 export { Mutex } from './concurrency'
 export type {
@@ -1016,22 +985,6 @@ export type {
 } from './eval-campaign'
 export { runEvalCampaign } from './eval-campaign'
 export type {
-  CostLedgerGeneration,
-  CostLedgerSnapshot,
-  LineageKind,
-  LineageKindResolver,
-  LineageNode,
-  MutationAttempt,
-  MutationChannel,
-  TrialAttempt,
-} from './evolution-telemetry'
-export {
-  CostLedger,
-  LineageRecorder,
-  MutationTelemetry,
-  TrialTelemetry,
-} from './evolution-telemetry'
-export type {
   GoldenSeverity,
   GoldenSpec,
   MatchResult,
@@ -1049,36 +1002,12 @@ export type {
   HeldOutGateRejectionCode,
 } from './held-out-gate'
 export { HeldOutGate } from './held-out-gate'
-export { JsonlTrialCache } from './jsonl-trial-cache'
 export type {
   JudgeRetryOutcome,
   JudgeRetryPolicy,
 } from './judge-retry'
 export { withJudgeRetry } from './judge-retry'
 export { LockedJsonlAppender, resetLockedAppendersForTesting } from './locked-jsonl-appender'
-export type {
-  ActionableSideInfo,
-  AsiSeverity,
-  MultiShotGateConfig,
-  MultiShotGateResult,
-  MultiShotMutateAdapter,
-  MultiShotOptimizationConfig,
-  MultiShotOptimizationResult,
-  MultiShotRun,
-  MultiShotRunInput,
-  MultiShotRunner,
-  MultiShotScore,
-  MultiShotScorer,
-  MultiShotSplit,
-  MultiShotTrace,
-  MultiShotTrialResult,
-  MultiShotVariant,
-} from './multi-shot-optimization'
-export {
-  defaultMultiShotObjectives,
-  runMultiShotOptimization,
-  trialTraceFromMultiShotTrial,
-} from './multi-shot-optimization'
 export type { OrthogonalityInput, OrthogonalityResult } from './orthogonality'
 export { passOrthogonality } from './orthogonality'
 // Pareto extensions (paretoFrontier + dominates already exported above)
@@ -1090,24 +1019,7 @@ export type {
   Verdict,
 } from './promotion-gate'
 export { bootstrapCi, judgeReplayGate } from './promotion-gate'
-export type {
-  EvolvableVariant,
-  GenerationReport,
-  MutateAdapter,
-  PromptEvolutionConfig,
-  PromptEvolutionEvent,
-  PromptEvolutionResult,
-  ScenarioAggregate,
-  ScoreAdapter,
-  TrialCache,
-  TrialResult as PromptTrialResult,
-  VariantAggregate,
-} from './prompt-evolution'
 // ── Prompt evolution + golden matcher + orthogonality + promotion-gate ──
-export {
-  InMemoryTrialCache,
-  runPromptEvolution,
-} from './prompt-evolution'
 export type {
   ReferenceMatchResult,
   ReferenceReplayAdapter,
@@ -1151,6 +1063,8 @@ export {
   parseReflectionResponse,
 } from './reflective-mutation'
 export type {
+  ActionableSideInfo,
+  AsiSeverity,
   ReleaseConfidenceAxis,
   ReleaseConfidenceAxisName,
   ReleaseConfidenceInput,
@@ -1161,11 +1075,7 @@ export type {
   ReleaseConfidenceThresholds,
   ReleaseTraceEvidence,
 } from './release-confidence'
-export {
-  assertReleaseConfidence,
-  evaluateReleaseConfidence,
-  releaseTraceEvidenceFromMultiShotTrials,
-} from './release-confidence'
+export { assertReleaseConfidence, evaluateReleaseConfidence } from './release-confidence'
 export type { RenderReleaseReportOptions } from './release-report'
 export { renderReleaseReport } from './release-report'
 export type {
@@ -1248,11 +1158,6 @@ export {
   researchReport,
   summaryTable,
 } from './summary-report'
-export type {
-  AggregatorMode,
-  TrialAggregate,
-} from './trial-aggregator'
-export { aggregateTrialsByMode } from './trial-aggregator'
 
 // ── OTEL pipeline + traced wrappers ──────────────────────���───────────
 
@@ -1262,7 +1167,5 @@ export type { TracedAnalystOptions } from './traced-analyst'
 export { tracedAnalyzeTraces } from './traced-analyst'
 export type { TracedJudgeOptions } from './traced-judges'
 export { traceJudge, traceJudgeEnsemble } from './traced-judges'
-export type { TracedMutatorOptions } from './traced-mutator'
-export { traceMutator } from './traced-mutator'
 
 // Ax RLM trace analyst — subpath: /traces (re-exported alongside trace store).

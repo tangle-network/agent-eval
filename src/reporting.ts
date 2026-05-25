@@ -26,11 +26,7 @@ export type {
   ReleaseConfidenceThresholds,
   ReleaseTraceEvidence,
 } from './release-confidence'
-export {
-  assertReleaseConfidence,
-  evaluateReleaseConfidence,
-  releaseTraceEvidenceFromMultiShotTrials,
-} from './release-confidence'
+export { assertReleaseConfidence, evaluateReleaseConfidence } from './release-confidence'
 export type { RenderReleaseReportOptions } from './release-report'
 export { renderReleaseReport } from './release-report'
 export type {

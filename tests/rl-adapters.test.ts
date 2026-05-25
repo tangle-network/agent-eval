@@ -1,12 +1,7 @@
 import { describe, expect, it } from 'vitest'
+import type { CampaignResult } from '../src/campaign'
 import type { VerificationReport } from '../src/multi-layer-verifier'
-import type { TrialResult, VariantAggregate } from '../src/prompt-evolution'
-import {
-  trialsToRunRecords,
-  trialToRunRecord,
-  variantAggregateToRunRecord,
-  verificationReportToRunRecord,
-} from '../src/rl/run-record-adapters'
+import { campaignToRunRecords, verificationReportToRunRecord } from '../src/rl/run-record-adapters'
 
 const ctx = {
   experimentId: 'exp-1',
@@ -16,66 +11,69 @@ const ctx = {
   configHash: 'c'.repeat(64),
 }
 
-const trial: TrialResult = {
-  variantId: 'v1',
-  scenarioId: 's1',
-  rep: 0,
-  ok: true,
-  score: 0.7,
-  cost: 0.01,
-  durationMs: 1_000,
-  metrics: { tool_recovery: 0.9 },
-}
+describe('campaignToRunRecords', () => {
+  // The adapter only reads cells + manifestHash; a partial campaign is enough.
+  const campaign = {
+    manifestHash: 'abc123',
+    cells: [
+      {
+        cellId: 'cell-s1-r0',
+        scenarioId: 's1',
+        rep: 0,
+        generation: 0,
+        artifact: { text: 'a' },
+        judgeScores: {
+          j1: { composite: 0.8, dimensions: { clarity: 0.9 }, notes: '' },
+          j2: { composite: 0.6, dimensions: { safety: 0.5 }, notes: '' },
+        },
+        costUsd: 0.01,
+        durationMs: 1_000,
+        seed: 7,
+        cached: false,
+      },
+      {
+        cellId: 'cell-s2-r0',
+        scenarioId: 's2',
+        rep: 0,
+        artifact: { text: 'b' },
+        judgeScores: {},
+        costUsd: 0,
+        durationMs: 50,
+        seed: 8,
+        cached: false,
+        error: 'judge threw',
+      },
+    ],
+  } as unknown as CampaignResult
 
-describe('trialToRunRecord', () => {
-  it('produces a paper-grade RunRecord shape from a TrialResult', () => {
-    const rec = trialToRunRecord(trial, ctx)
-    expect(rec.runId).toMatch(/^run-/)
-    expect(rec.experimentId).toBe('exp-1')
-    expect(rec.candidateId).toBe('v1')
-    expect(rec.seed).toBe(0)
-    expect(rec.commitSha).toBe('cafebabe')
-    expect(rec.outcome.searchScore).toBe(0.7)
-    expect(rec.outcome.holdoutScore).toBeUndefined()
-    expect(rec.outcome.raw.tool_recovery).toBe(0.9)
-    expect(rec.outcome.raw.duration_ms).toBe(1_000)
-    expect(rec.outcome.raw.cost_unknown).toBeUndefined()
-    expect(rec.failureMode).toBeUndefined()
-  })
-
-  it('flags cost_unknown when the trial does not record a cost', () => {
-    const rec = trialToRunRecord({ ...trial, cost: undefined }, ctx)
-    expect(rec.outcome.raw.cost_unknown).toBe(1)
-    expect(rec.costUsd).toBe(0)
-  })
-
-  it('routes scores into holdoutScore when splitTag=holdout', () => {
-    const rec = trialToRunRecord(trial, { ...ctx, splitTag: 'holdout' })
-    expect(rec.outcome.holdoutScore).toBe(0.7)
-    expect(rec.outcome.searchScore).toBeUndefined()
-    expect(rec.splitTag).toBe('holdout')
-  })
-
-  it('marks failed trials with a failureMode', () => {
-    const rec = trialToRunRecord({ ...trial, ok: false, error: 'sandbox crashed' }, ctx)
-    expect(rec.failureMode).toBe('optimizer_trial_error')
-  })
-
-  it('accepts callable hash extractors for per-trial hashes', () => {
-    const rec = trialToRunRecord(trial, {
-      ...ctx,
-      promptHash: (_t) => 'a'.repeat(64),
-      configHash: (_t) => 'b'.repeat(64),
-    })
-    expect(rec.promptHash).toBe('a'.repeat(64))
-    expect(rec.configHash).toBe('b'.repeat(64))
-  })
-
-  it('trialsToRunRecords maps an array', () => {
-    const recs = trialsToRunRecords([trial, { ...trial, rep: 1, score: 0.8 }], ctx)
+  it('produces one RunRecord per cell with mean-composite scores + dimensions', () => {
+    const recs = campaignToRunRecords(campaign, ctx)
     expect(recs).toHaveLength(2)
-    expect(recs[1]?.seed).toBe(1)
-    expect(recs[1]?.outcome.searchScore).toBe(0.8)
+    const first = recs[0]!
+    expect(first.runId).toBe('cell-s1-r0')
+    expect(first.scenarioId).toBe('s1')
+    expect(first.candidateId).toBe('abc123') // defaults to manifestHash
+    expect(first.seed).toBe(7)
+    // mean of judge composites 0.8 + 0.6 = 0.7
+    expect(first.outcome.searchScore).toBeCloseTo(0.7, 5)
+    expect(first.outcome.raw['dim.clarity']).toBe(0.9)
+    expect(first.outcome.raw['dim.safety']).toBe(0.5)
+    expect(first.outcome.raw.generation).toBe(0)
+    expect(first.failureMode).toBeUndefined()
+  })
+
+  it('routes scores to holdoutScore + marks errored cells', () => {
+    const recs = campaignToRunRecords(campaign, {
+      ...ctx,
+      splitTag: 'holdout',
+      candidateId: 'cand-x',
+    })
+    expect(recs[0]!.candidateId).toBe('cand-x')
+    expect(recs[0]!.outcome.holdoutScore).toBeCloseTo(0.7, 5)
+    expect(recs[0]!.outcome.searchScore).toBeUndefined()
+    // errored cell: zero score, failureMode set, still emitted (not dropped)
+    expect(recs[1]!.outcome.holdoutScore).toBe(0)
+    expect(recs[1]!.failureMode).toBe('cell_error')
   })
 })
 
@@ -123,24 +121,5 @@ describe('verificationReportToRunRecord', () => {
     expect(rec.outcome.raw['layer.typecheck.errors']).toBe(0)
     expect(rec.outcome.raw['layer.typecheck.warnings']).toBe(2)
     expect(rec.failureMode).toBe('layer_test_fail')
-  })
-})
-
-describe('variantAggregateToRunRecord', () => {
-  it('produces an aggregate-level RunRecord with raw metrics carried through', () => {
-    const agg: VariantAggregate = {
-      variantId: 'v1',
-      meanScore: 0.72,
-      meanCost: 0.012,
-      meanDurationMs: 1_100,
-      okRate: 0.95,
-      scenarios: [],
-      metrics: { tool_recovery: 0.88, judge_intent: 0.7 },
-    }
-    const rec = variantAggregateToRunRecord(agg, ctx)
-    expect(rec.runId).toBe('agg-v1-exp-1')
-    expect(rec.outcome.searchScore).toBe(0.72)
-    expect(rec.outcome.raw.tool_recovery).toBe(0.88)
-    expect(rec.outcome.raw.ok_rate).toBe(0.95)
   })
 })
