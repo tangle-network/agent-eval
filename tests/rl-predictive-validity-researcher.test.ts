@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
-import { PredictiveValidityResearcher } from '../src/rl/predictive-validity-researcher'
 import { InMemoryOutcomeStore } from '../src/meta-eval/outcome-store'
 import type { ExperimentPlan } from '../src/researcher'
+import { PredictiveValidityResearcher } from '../src/rl/predictive-validity-researcher'
 import type { RunRecord } from '../src/run-record'
 
 function rec(args: {
@@ -13,9 +13,15 @@ function rec(args: {
 }): RunRecord {
   return {
     runId: args.runId,
-    experimentId: 'e', candidateId: args.candidateId, seed: 0,
-    model: 'm@1', promptHash: 'p'.repeat(64), configHash: 'c'.repeat(64),
-    commitSha: 'abcd', wallMs: 1, costUsd: 0,
+    experimentId: 'e',
+    candidateId: args.candidateId,
+    seed: 0,
+    model: 'm@1',
+    promptHash: 'p'.repeat(64),
+    configHash: 'c'.repeat(64),
+    commitSha: 'abcd',
+    wallMs: 1,
+    costUsd: 0,
     tokenUsage: { input: 0, output: 0 },
     outcome: { holdoutScore: args.score, raw: args.rubrics ?? {} },
     splitTag: 'holdout',
@@ -42,9 +48,7 @@ describe('PredictiveValidityResearcher', () => {
   it('proposes "collect-more-outcomes" until the first runValidityCheck has been done', async () => {
     const outcomes = new InMemoryOutcomeStore()
     const researcher = new PredictiveValidityResearcher({ outcomes, outcomeMetrics: ['x'] })
-    const failures = [
-      { code: 'f', description: 'd', evidence: { runIds: ['r'], samples: 1 } },
-    ]
+    const failures = [{ code: 'f', description: 'd', evidence: { runIds: ['r'], samples: 1 } }]
     const changes = await researcher.proposeChange(failures)
     expect(changes).toHaveLength(1)
     expect(changes[0]?.kind).toBe('threshold')
@@ -55,11 +59,15 @@ describe('PredictiveValidityResearcher', () => {
     const outcomes = new InMemoryOutcomeStore()
     const runs: RunRecord[] = []
     for (let i = 0; i < 12; i++) {
-      runs.push(rec({
-        runId: `r-${i}`, candidateId: 'A', scenarioId: `s-${i}`,
-        score: i / 12,
-        rubrics: { load_bearing: i / 12, decorative: ((i * 7) % 5) / 5 },
-      }))
+      runs.push(
+        rec({
+          runId: `r-${i}`,
+          candidateId: 'A',
+          scenarioId: `s-${i}`,
+          score: i / 12,
+          rubrics: { load_bearing: i / 12, decorative: ((i * 7) % 5) / 5 },
+        }),
+      )
       await outcomes.append({
         runId: `r-${i}`,
         capturedAt: Date.now(),
@@ -93,9 +101,10 @@ describe('PredictiveValidityResearcher', () => {
       evaluationBudgetUsd: 10,
       splits: { search: ['s1'], holdout: ['s2'] },
     }
-    const proposed = await researcher.applyChange([
-      { kind: 'reviewer_prompt', payload: {}, rationale: 'add' },
-    ], baseline)
+    const proposed = await researcher.applyChange(
+      [{ kind: 'reviewer_prompt', payload: {}, rationale: 'add' }],
+      baseline,
+    )
     expect(proposed.changes).toHaveLength(2)
     expect(proposed.changes[0]?.kind).toBe('budget')
     expect(proposed.changes[1]?.kind).toBe('reviewer_prompt')
@@ -105,8 +114,11 @@ describe('PredictiveValidityResearcher', () => {
     const outcomes = new InMemoryOutcomeStore()
     const researcher = new PredictiveValidityResearcher({ outcomes, outcomeMetrics: ['x'] })
     const plan: ExperimentPlan = {
-      baselineCandidateId: 'A', proposedCandidateId: 'B', changes: [],
-      evaluationBudgetUsd: 0, splits: { search: [], holdout: [] },
+      baselineCandidateId: 'A',
+      proposedCandidateId: 'B',
+      changes: [],
+      evaluationBudgetUsd: 0,
+      splits: { search: [], holdout: [] },
     }
     const result = await researcher.evaluateChange(plan)
     expect(result.gateDecision.promote).toBe(false)
@@ -118,17 +130,24 @@ describe('PredictiveValidityResearcher', () => {
     const outcomes = new InMemoryOutcomeStore()
     const runs: RunRecord[] = Array.from({ length: 12 }, (_, i) =>
       rec({
-        runId: `r-${i}`, candidateId: 'A', scenarioId: `s-${i}`,
-        score: 0.5, rubrics: { rA: i / 12 },
+        runId: `r-${i}`,
+        candidateId: 'A',
+        scenarioId: `s-${i}`,
+        score: 0.5,
+        rubrics: { rA: i / 12 },
       }),
     )
     for (let i = 0; i < 12; i++) {
       await outcomes.append({
-        runId: `r-${i}`, capturedAt: Date.now(), metrics: { y: i },
+        runId: `r-${i}`,
+        capturedAt: Date.now(),
+        metrics: { y: i },
       })
     }
     const researcher = new PredictiveValidityResearcher({
-      outcomes, outcomeMetrics: ['y'], rubrics: ['rA'],
+      outcomes,
+      outcomeMetrics: ['y'],
+      rubrics: ['rA'],
     })
     expect(researcher.getLastReport()).toBeNull()
     await researcher.runValidityCheck(runs)

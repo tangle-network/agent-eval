@@ -5,7 +5,7 @@
  * etc as the resource type.
  */
 
-import { describe, it, expect, vi } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { createSandboxPool, type SlotFactory } from '../src/sandbox-pool'
 
 interface TestResource {
@@ -114,10 +114,7 @@ describe('createSandboxPool', () => {
     const { factory, resources } = counterFactory()
     const pool = createSandboxPool({ size: 2, factory })
 
-    await Promise.all([
-      pool.withSlot(async () => {}),
-      pool.withSlot(async () => {}),
-    ])
+    await Promise.all([pool.withSlot(async () => {}), pool.withSlot(async () => {})])
     expect(resources.filter((r) => !r.destroyed).length).toBe(2)
 
     await pool.drain()

@@ -1,20 +1,33 @@
 import { describe, expect, it } from 'vitest'
-import { InMemoryTraceStore, TraceEmitter } from '../src/trace'
-import type { ToolSpan } from '../src/trace'
-import { runSelfPlay, type CandidateScenario, type SelfPlayProposer, type SelfPlayScorer } from '../src/self-play'
-import { causalAttribution, type FactorialCell } from '../src/causal-attribution'
 import { proposeSynthesisTargets } from '../src/active-learning'
+import { causalAttribution, type FactorialCell } from '../src/causal-attribution'
 import { Dataset } from '../src/dataset'
 import { outputLengthRubric, PrmGrader } from '../src/prm'
-import { exportRewardModel, loadScorerFromGrader, replayScorerOverCorpus } from '../src/reward-model-export'
+import {
+  exportRewardModel,
+  loadScorerFromGrader,
+  replayScorerOverCorpus,
+} from '../src/reward-model-export'
+import {
+  type CandidateScenario,
+  runSelfPlay,
+  type SelfPlayProposer,
+  type SelfPlayScorer,
+} from '../src/self-play'
+import { InMemoryTraceStore, TraceEmitter } from '../src/trace'
 
 // ── self-play ────────────────────────────────────────────────────────
 
 describe('runSelfPlay', () => {
   it('promotes candidates whose scores spread across targets', async () => {
-    const candidates: CandidateScenario[] = Array.from({ length: 5 }, (_, i) => ({ id: `c${i}`, payload: i }))
+    const candidates: CandidateScenario[] = Array.from({ length: 5 }, (_, i) => ({
+      id: `c${i}`,
+      payload: i,
+    }))
     const proposer: SelfPlayProposer = {
-      async propose() { return candidates },
+      async propose() {
+        return candidates
+      },
     }
     const scorer: SelfPlayScorer = {
       async scoreCandidate(candidate, targets) {
@@ -34,18 +47,42 @@ describe('runSelfPlay', () => {
 
   it('rejects degenerate break-all scenarios (below floor) — regression: noise/gibberish must not flood the corpus', async () => {
     const candidates: CandidateScenario[] = [{ id: 'break-all', payload: null }]
-    const proposer: SelfPlayProposer = { async propose() { return candidates } }
-    const scorer: SelfPlayScorer = {
-      async scoreCandidate() { return [{ targetId: 'a', score: 0.01 }, { targetId: 'b', score: 0.0 }] },
+    const proposer: SelfPlayProposer = {
+      async propose() {
+        return candidates
+      },
     }
-    const { rounds, dataset } = await runSelfPlay(proposer, scorer, ['a', 'b'], { minSpread: 0.001, minAbsoluteFloor: 0.1 })
+    const scorer: SelfPlayScorer = {
+      async scoreCandidate() {
+        return [
+          { targetId: 'a', score: 0.01 },
+          { targetId: 'b', score: 0.0 },
+        ]
+      },
+    }
+    const { rounds, dataset } = await runSelfPlay(proposer, scorer, ['a', 'b'], {
+      minSpread: 0.001,
+      minAbsoluteFloor: 0.1,
+    })
     expect(rounds[0].rejected[0].reason).toMatch(/floor/)
     expect(dataset.size).toBe(0)
   })
 
   it('requires ≥2 targets', async () => {
     await expect(
-      runSelfPlay({ async propose() { return [] } }, { async scoreCandidate() { return [] } }, ['a']),
+      runSelfPlay(
+        {
+          async propose() {
+            return []
+          },
+        },
+        {
+          async scoreCandidate() {
+            return []
+          },
+        },
+        ['a'],
+      ),
     ).rejects.toThrow(/at least 2/)
   })
 })

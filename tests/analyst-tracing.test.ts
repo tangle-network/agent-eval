@@ -1,6 +1,6 @@
-import { describe, it, expect, vi } from 'vitest'
-import { InMemoryTraceStore } from '../src/trace/store'
+import { describe, expect, it } from 'vitest'
 import { TraceEmitter } from '../src/trace/emitter'
+import { InMemoryTraceStore } from '../src/trace/store'
 import { tracedAnalyzeTraces } from '../src/traced-analyst'
 
 function makeEmitter() {
@@ -35,11 +35,7 @@ describe('analyst tracing', () => {
     // The analyzeTraces call will fail (no real AI + file doesn't exist),
     // but the span wrapping should still fire.
     try {
-      await tracedAnalyzeTraces(
-        { question: 'what failed?' },
-        fakeOptions,
-        { emitter },
-      )
+      await tracedAnalyzeTraces({ question: 'what failed?' }, fakeOptions, { emitter })
     } catch {
       // Expected — file doesn't exist
     }
@@ -47,7 +43,7 @@ describe('analyst tracing', () => {
     const spans = await store.spans({ runId: 'analyst-run' })
     expect(spans.length).toBeGreaterThanOrEqual(1)
 
-    const parentSpan = spans.find(s => s.name === 'analyst:analyze-traces')
+    const parentSpan = spans.find((s) => s.name === 'analyst:analyze-traces')
     expect(parentSpan).toBeDefined()
     expect(parentSpan!.attributes).toMatchObject({
       'analyst.question_length': 12,
@@ -61,7 +57,8 @@ describe('analyst tracing', () => {
     const { store, emitter } = makeEmitter()
     await emitter.startRun({ scenarioId: 'test', layer: 'meta', projectId: 'test' })
 
-    const longQuestion = 'What are the most common failure modes in the trace data and which tools are most problematic?'
+    const longQuestion =
+      'What are the most common failure modes in the trace data and which tools are most problematic?'
     try {
       await tracedAnalyzeTraces(
         { question: longQuestion },
@@ -73,7 +70,7 @@ describe('analyst tracing', () => {
     }
 
     const spans = await store.spans({ runId: 'analyst-run' })
-    const parentSpan = spans.find(s => s.name === 'analyst:analyze-traces')
+    const parentSpan = spans.find((s) => s.name === 'analyst:analyze-traces')
     expect(parentSpan!.attributes).toMatchObject({
       'analyst.question_length': longQuestion.length,
     })
@@ -90,7 +87,9 @@ describe('analyst tracing', () => {
         {
           source: '/nonexistent.jsonl',
           ai: {} as any,
-          onTurn: (turn) => { turnsSeen.push(turn.turn) },
+          onTurn: (turn) => {
+            turnsSeen.push(turn.turn)
+          },
         },
         { emitter },
       )
@@ -100,7 +99,7 @@ describe('analyst tracing', () => {
 
     // The parent span should exist regardless of error
     const spans = await store.spans({ runId: 'analyst-run' })
-    const parentSpan = spans.find(s => s.name === 'analyst:analyze-traces')
+    const parentSpan = spans.find((s) => s.name === 'analyst:analyze-traces')
     expect(parentSpan).toBeDefined()
     // Turn spans only appear if analyzeTraces ran far enough to invoke onTurn.
     // With no real AI, we just verify the parent span attributes are correct.

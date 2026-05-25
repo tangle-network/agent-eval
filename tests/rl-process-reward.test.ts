@@ -1,12 +1,12 @@
 import { describe, expect, it } from 'vitest'
+import type { StepScorer } from '../src/rl/process-reward'
 import {
   extractStepRewards,
   prmTrainingPairs,
   runwiseStepRewardSummary,
 } from '../src/rl/process-reward'
-import type { StepScorer } from '../src/rl/process-reward'
-import { InMemoryTraceStore } from '../src/trace/store'
 import { TraceEmitter } from '../src/trace/emitter'
+import { InMemoryTraceStore } from '../src/trace/store'
 
 async function emitTraj(rewards: number[], runId?: string) {
   const store = new InMemoryTraceStore()
@@ -60,9 +60,33 @@ describe('extractStepRewards', () => {
 describe('runwiseStepRewardSummary', () => {
   it('aggregates step rewards into a run-level diagnostic', () => {
     const out = runwiseStepRewardSummary([
-      { spanId: 'a', runId: 'r', stepIndex: 0, kind: 'tool', name: 'a', reward: 0.9, determinism: 'deterministic' },
-      { spanId: 'b', runId: 'r', stepIndex: 1, kind: 'tool', name: 'b', reward: 0.4, determinism: 'deterministic' },
-      { spanId: 'c', runId: 'r', stepIndex: 2, kind: 'tool', name: 'c', reward: 0.3, determinism: 'deterministic' },
+      {
+        spanId: 'a',
+        runId: 'r',
+        stepIndex: 0,
+        kind: 'tool',
+        name: 'a',
+        reward: 0.9,
+        determinism: 'deterministic',
+      },
+      {
+        spanId: 'b',
+        runId: 'r',
+        stepIndex: 1,
+        kind: 'tool',
+        name: 'b',
+        reward: 0.4,
+        determinism: 'deterministic',
+      },
+      {
+        spanId: 'c',
+        runId: 'r',
+        stepIndex: 2,
+        kind: 'tool',
+        name: 'c',
+        reward: 0.3,
+        determinism: 'deterministic',
+      },
     ])
     expect(out.runId).toBe('r')
     expect(out.totalSteps).toBe(3)
@@ -81,17 +105,57 @@ describe('runwiseStepRewardSummary', () => {
 
 describe('prmTrainingPairs', () => {
   it('pairs runs that share a prefix and diverge at a step with sufficient margin', () => {
-    const stepRewards = new Map<string, Array<{
-      spanId: string; runId: string; stepIndex: number; kind: 'tool';
-      name: string; reward: number; determinism: 'deterministic'
-    }>>()
+    const stepRewards = new Map<
+      string,
+      Array<{
+        spanId: string
+        runId: string
+        stepIndex: number
+        kind: 'tool'
+        name: string
+        reward: number
+        determinism: 'deterministic'
+      }>
+    >()
     stepRewards.set('runA', [
-      { spanId: 'a-0', runId: 'runA', stepIndex: 0, kind: 'tool', name: 'plan', reward: 0.7, determinism: 'deterministic' },
-      { spanId: 'a-1', runId: 'runA', stepIndex: 1, kind: 'tool', name: 'edit', reward: 0.9, determinism: 'deterministic' },
+      {
+        spanId: 'a-0',
+        runId: 'runA',
+        stepIndex: 0,
+        kind: 'tool',
+        name: 'plan',
+        reward: 0.7,
+        determinism: 'deterministic',
+      },
+      {
+        spanId: 'a-1',
+        runId: 'runA',
+        stepIndex: 1,
+        kind: 'tool',
+        name: 'edit',
+        reward: 0.9,
+        determinism: 'deterministic',
+      },
     ])
     stepRewards.set('runB', [
-      { spanId: 'b-0', runId: 'runB', stepIndex: 0, kind: 'tool', name: 'plan', reward: 0.7, determinism: 'deterministic' },
-      { spanId: 'b-1', runId: 'runB', stepIndex: 1, kind: 'tool', name: 'edit', reward: 0.3, determinism: 'deterministic' },
+      {
+        spanId: 'b-0',
+        runId: 'runB',
+        stepIndex: 0,
+        kind: 'tool',
+        name: 'plan',
+        reward: 0.7,
+        determinism: 'deterministic',
+      },
+      {
+        spanId: 'b-1',
+        runId: 'runB',
+        stepIndex: 1,
+        kind: 'tool',
+        name: 'edit',
+        reward: 0.3,
+        determinism: 'deterministic',
+      },
     ])
     const triples = prmTrainingPairs(stepRewards, { minMargin: 0.2, minPrefixLength: 1 })
     expect(triples).toHaveLength(1)
@@ -101,15 +165,39 @@ describe('prmTrainingPairs', () => {
   })
 
   it('drops pairs below minMargin', () => {
-    const stepRewards = new Map<string, Array<{
-      spanId: string; runId: string; stepIndex: number; kind: 'tool';
-      name: string; reward: number; determinism: 'deterministic'
-    }>>()
+    const stepRewards = new Map<
+      string,
+      Array<{
+        spanId: string
+        runId: string
+        stepIndex: number
+        kind: 'tool'
+        name: string
+        reward: number
+        determinism: 'deterministic'
+      }>
+    >()
     stepRewards.set('a', [
-      { spanId: 'a-0', runId: 'a', stepIndex: 0, kind: 'tool', name: 'x', reward: 0.55, determinism: 'deterministic' },
+      {
+        spanId: 'a-0',
+        runId: 'a',
+        stepIndex: 0,
+        kind: 'tool',
+        name: 'x',
+        reward: 0.55,
+        determinism: 'deterministic',
+      },
     ])
     stepRewards.set('b', [
-      { spanId: 'b-0', runId: 'b', stepIndex: 0, kind: 'tool', name: 'x', reward: 0.5, determinism: 'deterministic' },
+      {
+        spanId: 'b-0',
+        runId: 'b',
+        stepIndex: 0,
+        kind: 'tool',
+        name: 'x',
+        reward: 0.5,
+        determinism: 'deterministic',
+      },
     ])
     const triples = prmTrainingPairs(stepRewards, { minMargin: 0.2, minPrefixLength: 0 })
     expect(triples).toHaveLength(0)

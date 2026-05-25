@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { RunCritic } from '../src/run-critic'
 import type { RunTrace } from '../src/run-critic'
+import { RunCritic } from '../src/run-critic'
 
 describe('RunCritic', () => {
   it('scores final gate pass and reviewer blockers from judge spans', () => {
@@ -48,7 +48,9 @@ function trace(): RunTrace {
       },
     ],
     events: [],
-    artifacts: [{ artifactId: 'a', runId: 'r1', contentType: 'text/plain', sizeBytes: 1, hash: 'h' }],
+    artifacts: [
+      { artifactId: 'a', runId: 'r1', contentType: 'text/plain', sizeBytes: 1, hash: 'h' },
+    ],
     budget: [],
   }
 }

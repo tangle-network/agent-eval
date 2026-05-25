@@ -1,13 +1,18 @@
 import { describe, expect, it } from 'vitest'
+import type { OffPolicyTrajectory } from '../src/rl/off-policy'
 import {
   doublyRobust,
   inverseProbabilityWeighting,
   offPolicyEstimateAll,
   selfNormalizedImportanceWeighting,
 } from '../src/rl/off-policy'
-import type { OffPolicyTrajectory } from '../src/rl/off-policy'
 
-function traj(behavior: number, target: number, reward: number, qHat?: number): OffPolicyTrajectory {
+function traj(
+  behavior: number,
+  target: number,
+  reward: number,
+  qHat?: number,
+): OffPolicyTrajectory {
   return {
     runId: `t-${Math.random()}`,
     behaviorProb: behavior,
@@ -100,7 +105,10 @@ describe('Doubly-robust', () => {
     // Synthetic: reward = bernoulli with p depending on context; qHat = true p.
     const trajectories: OffPolicyTrajectory[] = []
     let s = 1
-    const rng = () => { s = (s * 1664525 + 1013904223) % 0x100000000; return s / 0x100000000 }
+    const rng = () => {
+      s = (s * 1664525 + 1013904223) % 0x100000000
+      return s / 0x100000000
+    }
     for (let i = 0; i < 200; i++) {
       const p = rng()
       const reward = rng() < p ? 1 : 0

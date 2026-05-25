@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { analyzeOptimizationResult } from '../src/rl/auto-research'
 import type { GenerationReport, PromptEvolutionResult, TrialResult } from '../src/prompt-evolution'
+import { analyzeOptimizationResult } from '../src/rl/auto-research'
 
 function syntheticEvolution(): PromptEvolutionResult {
   const trials: TrialResult[] = []
@@ -24,8 +24,26 @@ function syntheticEvolution(): PromptEvolutionResult {
     }
   }
   const generations: GenerationReport[] = [
-    { runId: 'gen-0', generation: 0, populationSize: 2, trials: trials.slice(0, 20), aggregates: [] as never[], pareto: { rank0: [] as never[], all: [] as never[] }, bestVariantId: 'cand', bestScore: 0.71 },
-    { runId: 'gen-1', generation: 1, populationSize: 2, trials: trials.slice(20), aggregates: [] as never[], pareto: { rank0: [] as never[], all: [] as never[] }, bestVariantId: 'cand', bestScore: 0.72 },
+    {
+      runId: 'gen-0',
+      generation: 0,
+      populationSize: 2,
+      trials: trials.slice(0, 20),
+      aggregates: [] as never[],
+      pareto: { rank0: [] as never[], all: [] as never[] },
+      bestVariantId: 'cand',
+      bestScore: 0.71,
+    },
+    {
+      runId: 'gen-1',
+      generation: 1,
+      populationSize: 2,
+      trials: trials.slice(20),
+      aggregates: [] as never[],
+      pareto: { rank0: [] as never[], all: [] as never[] },
+      bestVariantId: 'cand',
+      bestScore: 0.72,
+    },
   ]
   return {
     runId: 'rl-test',
@@ -96,7 +114,9 @@ describe('analyzeOptimizationResult', () => {
   })
 
   it('handles MultiShotOptimizationResult shape via the embedded `evolution` field', async () => {
-    const wrapper = { evolution: syntheticEvolution() } as Parameters<typeof analyzeOptimizationResult>[0]['result']
+    const wrapper = { evolution: syntheticEvolution() } as Parameters<
+      typeof analyzeOptimizationResult
+    >[0]['result']
     const out = await analyzeOptimizationResult({
       result: wrapper,
       ctx: {

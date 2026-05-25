@@ -29,13 +29,13 @@ describe('aggregation — AxisSummary math', () => {
     const result = await runAgentMatrix({
       axes: [sc] as MatrixAxis<unknown>[],
       runCell: async (cell) => {
-        const idx = (cell.axes['scenario']?.value as number) - 1
+        const idx = (cell.axes.scenario?.value as number) - 1
         const s = scores[idx] as number
         return mk(s, s >= 0.5)
       },
     })
 
-    expect(Object.keys(result.byAxis['scenario'] ?? {})).toHaveLength(5)
+    expect(Object.keys(result.byAxis.scenario ?? {})).toHaveLength(5)
     // Aggregating across the whole run via overall summary:
     expect(result.summary.overallMeanScore).toBeCloseTo((0.1 + 0.4 + 0.6 + 0.8 + 1.0) / 5)
     expect(result.summary.overallPassRate).toBeCloseTo(3 / 5)
@@ -53,7 +53,7 @@ describe('aggregation — AxisSummary math', () => {
       },
     })
 
-    const bucket = result.byAxis['scenario']?.['s1']
+    const bucket = result.byAxis.scenario?.s1
     expect(bucket).toBeDefined()
     expect(bucket?.cells).toBe(4)
     expect(bucket?.passRate).toBeCloseTo(0.5)
@@ -71,18 +71,18 @@ describe('aggregation — AxisSummary math', () => {
     const result = await runAgentMatrix({
       axes: [sc] as MatrixAxis<unknown>[],
       runCell: async (cell) => {
-        if ((cell.axes['scenario']?.value as number) === 2) throw new Error('explode')
+        if ((cell.axes.scenario?.value as number) === 2) throw new Error('explode')
         return mk(1, true)
       },
     })
 
-    const bucket2 = result.byAxis['scenario']?.['s2']
+    const bucket2 = result.byAxis.scenario?.s2
     expect(bucket2?.cells).toBe(1)
     expect(bucket2?.meanScore).toBe(0)
     expect(bucket2?.passRate).toBe(0)
     // Sanity: erroring did not corrupt the other bucket.
-    expect(result.byAxis['scenario']?.['s1']?.meanScore).toBe(1)
-    expect(result.byAxis['scenario']?.['s1']?.passRate).toBe(1)
+    expect(result.byAxis.scenario?.s1?.meanScore).toBe(1)
+    expect(result.byAxis.scenario?.s1?.passRate).toBe(1)
   })
 
   it('byAxis omits axes not listed in aggregateBy', async () => {
@@ -95,8 +95,8 @@ describe('aggregation — AxisSummary math', () => {
       runCell: async () => mk(0.9, true),
     })
 
-    expect(result.byAxis['a']).toBeDefined()
-    expect(result.byAxis['b']).toBeUndefined()
+    expect(result.byAxis.a).toBeDefined()
+    expect(result.byAxis.b).toBeUndefined()
   })
 
   it('label override drives the AxisSummary.axisValue label', async () => {
@@ -111,8 +111,8 @@ describe('aggregation — AxisSummary math', () => {
       runCell: async () => mk(0.7, true),
     })
 
-    expect(result.byAxis['profile']?.['p1']?.axisValue).toBe('claude-code')
-    expect(result.byAxis['profile']?.['p2']?.axisValue).toBe('codex')
+    expect(result.byAxis.profile?.p1?.axisValue).toBe('claude-code')
+    expect(result.byAxis.profile?.p2?.axisValue).toBe('codex')
   })
 
   it('custom value types (e.g. Driver-like objects) aggregate by id, not value', async () => {
@@ -128,13 +128,13 @@ describe('aggregation — AxisSummary math', () => {
     const result = await runAgentMatrix({
       axes: [drivers] as MatrixAxis<unknown>[],
       runCell: async (cell) => {
-        const dv = cell.axes['driver']?.value as { name: string }
+        const dv = cell.axes.driver?.value as { name: string }
         expect(typeof dv.name).toBe('string')
         return mk(0.8, true)
       },
     })
 
-    expect(Object.keys(result.byAxis['driver'] ?? {}).sort()).toEqual(['fanout', 'refine'])
-    expect(result.byAxis['driver']?.['refine']?.meanScore).toBe(0.8)
+    expect(Object.keys(result.byAxis.driver ?? {}).sort()).toEqual(['fanout', 'refine'])
+    expect(result.byAxis.driver?.refine?.meanScore).toBe(0.8)
   })
 })

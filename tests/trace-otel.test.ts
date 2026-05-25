@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { InMemoryTraceStore, TraceEmitter, exportRunAsOtlp } from '../src/trace'
+import { exportRunAsOtlp, InMemoryTraceStore, TraceEmitter } from '../src/trace'
 
 describe('OTLP export', () => {
   it('maps a run + spans into OTLP resource spans — regression: missing fields break Jaeger render', async () => {
@@ -7,7 +7,12 @@ describe('OTLP export', () => {
     const emitter = new TraceEmitter(store)
     await emitter.startRun({ scenarioId: 'scn-1', variantId: 'v1', codeSha: 'abc123' })
     const root = await emitter.span({ kind: 'agent', name: 'root' })
-    const tool = await emitter.span({ kind: 'tool', name: 'search', toolName: 'search', args: { q: 'x' } })
+    const tool = await emitter.span({
+      kind: 'tool',
+      name: 'search',
+      toolName: 'search',
+      args: { q: 'x' },
+    })
     await tool.end({ latencyMs: 42 } as Partial<import('../src/trace').ToolSpan>)
     await root.end()
     await emitter.endRun({ pass: true, score: 0.8 })
@@ -29,7 +34,9 @@ describe('OTLP export', () => {
     const emitter = new TraceEmitter(store)
     await emitter.startRun({ scenarioId: 's' })
     await expect(
-      emitter.within({ kind: 'custom', name: 'crash' }, async () => { throw new Error('boom') }),
+      emitter.within({ kind: 'custom', name: 'crash' }, async () => {
+        throw new Error('boom')
+      }),
     ).rejects.toThrow()
     const otlp = await exportRunAsOtlp(store, emitter.runId)
     const span = otlp.resourceSpans[0].scopeSpans[0].spans[0]

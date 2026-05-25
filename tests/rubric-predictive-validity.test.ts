@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { rubricPredictiveValidity } from '../src/meta-eval/rubric-predictive-validity'
 import { InMemoryOutcomeStore } from '../src/meta-eval/outcome-store'
+import { rubricPredictiveValidity } from '../src/meta-eval/rubric-predictive-validity'
 import type { RunRecord } from '../src/run-record'
 
 function rec(runId: string, rubrics: Record<string, number>, score = 0.5): RunRecord {
@@ -69,7 +69,7 @@ describe('rubricPredictiveValidity', () => {
       await outcomes.append({
         runId: r.runId,
         capturedAt: Date.now(),
-        metrics: { csat: r.outcome.raw['score_x']! * 5 },
+        metrics: { csat: r.outcome.raw.score_x! * 5 },
       })
     }
     const report = await rubricPredictiveValidity({
@@ -103,11 +103,7 @@ describe('rubricPredictiveValidity', () => {
   })
 
   it('skips runs with no joined outcome', async () => {
-    const runs = [
-      rec('a', { x: 0.1 }),
-      rec('b', { x: 0.2 }),
-      rec('c', { x: 0.3 }),
-    ]
+    const runs = [rec('a', { x: 0.1 }), rec('b', { x: 0.2 }), rec('c', { x: 0.3 })]
     const outcomes = new InMemoryOutcomeStore()
     await outcomes.append({ runId: 'a', capturedAt: Date.now(), metrics: { y: 1 } })
     // b and c have no outcome rows.

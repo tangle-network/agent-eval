@@ -1,8 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import {
-  InMemoryFeedbackTrajectoryStore,
-  runLiveProof,
-} from '../src/index'
+import { InMemoryFeedbackTrajectoryStore, runLiveProof } from '../src/index'
 
 describe('runLiveProof', () => {
   it('records live artifacts, feedback, transcript, and release confidence evidence', async () => {
@@ -23,12 +20,20 @@ describe('runLiveProof', () => {
       },
       drive: (ctx) => {
         ctx.addTurn({ role: 'user', content: 'I uploaded W-2s and bank statements.' })
-        ctx.addTurn({ role: 'assistant', content: 'I will inspect documents, compute forms, and generate PDFs.' })
+        ctx.addTurn({
+          role: 'assistant',
+          content: 'I will inspect documents, compute forms, and generate PDFs.',
+        })
         ctx.addArtifact({ kind: 'workspace', id: 'ws_1' })
         ctx.addArtifact({ kind: 'uploaded_document', path: '/documents/w2.pdf' })
         ctx.addArtifact({ kind: 'generated_pdf', path: '/output/1040.pdf' })
         ctx.addLabel({ source: 'environment', kind: 'approve', value: true })
-        ctx.addCheck({ name: 'pdf_field_readback', passed: true, expected: 'readable generated PDF', actual: 'readable' })
+        ctx.addCheck({
+          name: 'pdf_field_readback',
+          passed: true,
+          expected: 'readable generated PDF',
+          actual: 'readable',
+        })
       },
     })
 
@@ -51,7 +56,9 @@ describe('runLiveProof', () => {
     })
 
     expect(result.passed).toBe(false)
-    expect(result.checks.find((check) => check.name === 'artifact:fetched_artifact')?.passed).toBe(false)
+    expect(result.checks.find((check) => check.name === 'artifact:fetched_artifact')?.passed).toBe(
+      false,
+    )
   })
 
   it('preserves runtime failures as structured check results', async () => {
@@ -65,10 +72,12 @@ describe('runLiveProof', () => {
     })
 
     expect(result.passed).toBe(false)
-    expect(result.checks).toContainEqual(expect.objectContaining({
-      name: 'live_proof_runtime',
-      passed: false,
-      actual: 'sandbox unavailable',
-    }))
+    expect(result.checks).toContainEqual(
+      expect.objectContaining({
+        name: 'live_proof_runtime',
+        passed: false,
+        actual: 'sandbox unavailable',
+      }),
+    )
   })
 })

@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import {
-  type CorpusScoreRecord,
   benjaminiHochberg,
   bonferroni,
+  type CorpusScoreRecord,
   cohensD,
   confidenceInterval,
   corpusInterRaterAgreement,

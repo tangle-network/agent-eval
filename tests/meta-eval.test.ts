@@ -1,13 +1,18 @@
 import { describe, expect, it } from 'vitest'
 import {
-  InMemoryOutcomeStore,
-  correlationStudy,
   calibrationCurve,
+  correlationStudy,
   type DeploymentOutcome,
+  InMemoryOutcomeStore,
 } from '../src/meta-eval'
 import { InMemoryTraceStore, TraceEmitter } from '../src/trace'
 
-async function seedRun(store: InMemoryTraceStore, score: number, outcomeStore: InMemoryOutcomeStore, retention: number): Promise<string> {
+async function seedRun(
+  store: InMemoryTraceStore,
+  score: number,
+  outcomeStore: InMemoryOutcomeStore,
+  retention: number,
+): Promise<string> {
   const e = new TraceEmitter(store)
   await e.startRun({ scenarioId: 's' })
   await e.endRun({ pass: true, score })
@@ -29,8 +34,20 @@ describe('InMemoryOutcomeStore', () => {
 
   it('list filters by label + source', async () => {
     const s = new InMemoryOutcomeStore()
-    await s.append({ runId: 'a', capturedAt: 1, metrics: { r: 1 }, labels: { cohort: 'beta' }, source: 'prod' })
-    await s.append({ runId: 'b', capturedAt: 2, metrics: { r: 0 }, labels: { cohort: 'alpha' }, source: 'prod' })
+    await s.append({
+      runId: 'a',
+      capturedAt: 1,
+      metrics: { r: 1 },
+      labels: { cohort: 'beta' },
+      source: 'prod',
+    })
+    await s.append({
+      runId: 'b',
+      capturedAt: 2,
+      metrics: { r: 0 },
+      labels: { cohort: 'alpha' },
+      source: 'prod',
+    })
     await s.append({ runId: 'c', capturedAt: 3, metrics: { r: 1 }, source: 'eval' })
     expect(await s.list({ label: { key: 'cohort', value: 'beta' } })).toHaveLength(1)
     expect(await s.list({ source: 'eval' })).toHaveLength(1)
@@ -47,11 +64,7 @@ describe('correlationStudy', () => {
       const retention = 0.3 + i * 0.04 + (i % 3) * 0.01
       await seedRun(trace, score, out, retention)
     }
-    const report = await correlationStudy(
-      trace, out,
-      [{ id: 'score' }],
-      ['retention_7d'],
-    )
+    const report = await correlationStudy(trace, out, [{ id: 'score' }], ['retention_7d'])
     expect(report.joinedSamples).toBe(15)
     expect(report.pairs).toHaveLength(1)
     expect(report.pairs[0].pearson).toBeGreaterThan(0.85)

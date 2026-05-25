@@ -1,14 +1,14 @@
-import { describe, it, expect, beforeEach } from 'vitest'
+import { beforeEach, describe, expect, it } from 'vitest'
+import type { TelemetryEnvelope, TelemetrySink, TelemetrySource } from '../src/telemetry/index'
 import {
-  TelemetryClient,
-  HttpTelemetrySink,
   FanoutTelemetrySink,
-  NullTelemetrySink,
+  HttpTelemetrySink,
   InMemoryTelemetrySink,
+  NullTelemetrySink,
   sanitiseArgv,
   TELEMETRY_SCHEMA_VERSION,
+  TelemetryClient,
 } from '../src/telemetry/index'
-import type { TelemetrySink, TelemetryEnvelope, TelemetrySource } from '../src/telemetry/index'
 
 const defaultSource: TelemetrySource = {
   repo: 'agent-eval-tests',
@@ -20,7 +20,9 @@ const defaultSource: TelemetrySource = {
 describe('TelemetryClient', () => {
   let captured: InMemoryTelemetrySink
 
-  beforeEach(() => { captured = new InMemoryTelemetrySink() })
+  beforeEach(() => {
+    captured = new InMemoryTelemetrySink()
+  })
 
   it('emits a fully-shaped envelope', () => {
     const client = new TelemetryClient(captured, defaultSource)
@@ -56,16 +58,26 @@ describe('TelemetryClient', () => {
   })
 
   it('never throws when sink throws', () => {
-    const blowing: TelemetrySink = { emit() { throw new Error('disk full') } }
+    const blowing: TelemetrySink = {
+      emit() {
+        throw new Error('disk full')
+      },
+    }
     const client = new TelemetryClient(blowing, defaultSource)
-    expect(() => client.emit({ kind: 'agent-run', runId: 'r', ok: true, durationMs: 0 })).not.toThrow()
+    expect(() =>
+      client.emit({ kind: 'agent-run', runId: 'r', ok: true, durationMs: 0 }),
+    ).not.toThrow()
   })
 })
 
 describe('FanoutTelemetrySink', () => {
   it('continues fanout when one sink throws', () => {
     const good = new InMemoryTelemetrySink()
-    const bad: TelemetrySink = { emit() { throw new Error('boom') } }
+    const bad: TelemetrySink = {
+      emit() {
+        throw new Error('boom')
+      },
+    }
     const fan = new FanoutTelemetrySink([bad, good])
     const client = new TelemetryClient(fan, defaultSource)
     client.emit({ kind: 'agent-run', runId: 'r', ok: true, durationMs: 0 })
@@ -74,8 +86,18 @@ describe('FanoutTelemetrySink', () => {
 
   it('forwards close() to all child sinks', async () => {
     let closed = 0
-    const a: TelemetrySink = { emit() {}, close() { closed++ } }
-    const b: TelemetrySink = { emit() {}, close: async () => { closed++ } }
+    const a: TelemetrySink = {
+      emit() {},
+      close() {
+        closed++
+      },
+    }
+    const b: TelemetrySink = {
+      emit() {},
+      close: async () => {
+        closed++
+      },
+    }
     await new FanoutTelemetrySink([a, b]).close?.()
     expect(closed).toBe(2)
   })
@@ -85,7 +107,9 @@ describe('NullTelemetrySink', () => {
   it('drops envelopes silently', () => {
     const sink = new NullTelemetrySink()
     const client = new TelemetryClient(sink, defaultSource)
-    expect(() => client.emit({ kind: 'agent-run', runId: 'r', ok: true, durationMs: 0 })).not.toThrow()
+    expect(() =>
+      client.emit({ kind: 'agent-run', runId: 'r', ok: true, durationMs: 0 }),
+    ).not.toThrow()
   })
 })
 
@@ -114,11 +138,15 @@ describe('HttpTelemetrySink', () => {
 
   it('swallows fetch errors (best-effort)', async () => {
     const origFetch = globalThis.fetch
-    globalThis.fetch = (async () => { throw new Error('unreachable') }) as typeof fetch
+    globalThis.fetch = (async () => {
+      throw new Error('unreachable')
+    }) as typeof fetch
     try {
       const sink = new HttpTelemetrySink('https://collector.test/v1')
       const client = new TelemetryClient(sink, defaultSource)
-      expect(() => client.emit({ kind: 'agent-run', runId: 'r', ok: true, durationMs: 0 })).not.toThrow()
+      expect(() =>
+        client.emit({ kind: 'agent-run', runId: 'r', ok: true, durationMs: 0 }),
+      ).not.toThrow()
       await sink.close()
     } finally {
       globalThis.fetch = origFetch
@@ -129,13 +157,22 @@ describe('HttpTelemetrySink', () => {
 describe('sanitiseArgv', () => {
   it('redacts secret-bearing flags', () => {
     expect(sanitiseArgv(['run', '--api-key', 'sk', '--url', 'http://x', '--token=abc'])).toEqual([
-      'run', '--api-key', '<redacted>', '--url', 'http://x', '--token=<redacted>',
+      'run',
+      '--api-key',
+      '<redacted>',
+      '--url',
+      'http://x',
+      '--token=<redacted>',
     ])
   })
 
   it('passes through clean argv unchanged', () => {
     expect(sanitiseArgv(['run', '--goal', 'hello', '--max-turns', '10'])).toEqual([
-      'run', '--goal', 'hello', '--max-turns', '10',
+      'run',
+      '--goal',
+      'hello',
+      '--max-turns',
+      '10',
     ])
   })
 })

@@ -1,11 +1,11 @@
-import { describe, it, expect } from 'vitest'
 import { promises as fs } from 'node:fs'
 import * as os from 'node:os'
 import * as path from 'node:path'
+import { describe, expect, it } from 'vitest'
 import {
-  InMemoryRawProviderSink,
-  FileSystemRawProviderSink,
   defaultProviderRedactor,
+  FileSystemRawProviderSink,
+  InMemoryRawProviderSink,
   providerFromBaseUrl,
   type RawProviderEvent,
 } from '../src/trace/raw-provider-sink'
@@ -29,35 +29,41 @@ function event(overrides: Partial<RawProviderEvent> = {}): RawProviderEvent {
 
 describe('defaultProviderRedactor', () => {
   it('strips well-known auth headers and credential body fields', () => {
-    const result = defaultProviderRedactor(event({
-      requestHeaders: {
-        'Content-Type': 'application/json',
-        Authorization: 'Bearer secret-token',
-        'X-Api-Key': 'k123',
-        Cookie: 'session=abc',
-      },
-      requestBody: {
-        model: 'gpt-4',
-        apiKey: 'should-be-stripped',
-        nested: { token: 'also-stripped', other: 'kept' },
-      },
-    }))
+    const result = defaultProviderRedactor(
+      event({
+        requestHeaders: {
+          'Content-Type': 'application/json',
+          Authorization: 'Bearer secret-token',
+          'X-Api-Key': 'k123',
+          Cookie: 'session=abc',
+        },
+        requestBody: {
+          model: 'gpt-4',
+          apiKey: 'should-be-stripped',
+          nested: { token: 'also-stripped', other: 'kept' },
+        },
+      }),
+    )
     expect(result.requestHeaders).toEqual({ 'Content-Type': 'application/json' })
     expect(result.requestBody).toEqual({
       model: 'gpt-4',
       nested: { other: 'kept' },
     })
-    expect(result.redactedFields).toEqual(expect.arrayContaining([
-      'requestHeaders.Authorization',
-      'requestHeaders.X-Api-Key',
-      'requestHeaders.Cookie',
-      'requestBody.apiKey',
-      'requestBody.nested.token',
-    ]))
+    expect(result.redactedFields).toEqual(
+      expect.arrayContaining([
+        'requestHeaders.Authorization',
+        'requestHeaders.X-Api-Key',
+        'requestHeaders.Cookie',
+        'requestBody.apiKey',
+        'requestBody.nested.token',
+      ]),
+    )
   })
 
   it('passes plain bodies through unchanged', () => {
-    const result = defaultProviderRedactor(event({ requestBody: { model: 'x', messages: [{ role: 'user', content: 'hi' }] } }))
+    const result = defaultProviderRedactor(
+      event({ requestBody: { model: 'x', messages: [{ role: 'user', content: 'hi' }] } }),
+    )
     expect(result.requestBody).toEqual({ model: 'x', messages: [{ role: 'user', content: 'hi' }] })
     expect(result.redactedFields).toEqual([])
   })

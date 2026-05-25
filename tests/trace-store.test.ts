@@ -1,13 +1,9 @@
-import { afterEach, describe, expect, it } from 'vitest'
 import * as fs from 'node:fs/promises'
-import * as path from 'node:path'
 import * as os from 'node:os'
-import {
-  FileSystemTraceStore,
-  InMemoryTraceStore,
-  TraceEmitter,
-} from '../src/trace'
+import * as path from 'node:path'
+import { afterEach, describe, expect, it } from 'vitest'
 import type { Run, Span } from '../src/trace'
+import { FileSystemTraceStore, InMemoryTraceStore, TraceEmitter } from '../src/trace'
 
 function makeRun(id: string, overrides: Partial<Run> = {}): Run {
   return {
@@ -46,9 +42,33 @@ describe('InMemoryTraceStore', () => {
     const store = new InMemoryTraceStore()
     await store.appendRun(makeRun('r1'))
     const spans: Span[] = [
-      { spanId: 's1', runId: 'r1', kind: 'tool', toolName: 'search', args: {}, name: 'search', startedAt: 0 },
-      { spanId: 's2', runId: 'r1', kind: 'tool', toolName: 'write_file', args: {}, name: 'write_file', startedAt: 0 },
-      { spanId: 's3', runId: 'r1', kind: 'llm', model: 'claude', messages: [], name: 'llm', startedAt: 0 },
+      {
+        spanId: 's1',
+        runId: 'r1',
+        kind: 'tool',
+        toolName: 'search',
+        args: {},
+        name: 'search',
+        startedAt: 0,
+      },
+      {
+        spanId: 's2',
+        runId: 'r1',
+        kind: 'tool',
+        toolName: 'write_file',
+        args: {},
+        name: 'write_file',
+        startedAt: 0,
+      },
+      {
+        spanId: 's3',
+        runId: 'r1',
+        kind: 'llm',
+        model: 'claude',
+        messages: [],
+        name: 'llm',
+        startedAt: 0,
+      },
     ]
     for (const s of spans) await store.appendSpan(s)
     expect(await store.spans({ runId: 'r1', kind: 'tool' })).toHaveLength(2)
@@ -59,7 +79,15 @@ describe('InMemoryTraceStore', () => {
   it('spans filter by toolName rejects non-tool spans — regression: non-tool kinds would leak through', async () => {
     const store = new InMemoryTraceStore()
     await store.appendRun(makeRun('r1'))
-    await store.appendSpan({ runId: 'r1', spanId: 's1', kind: 'llm', model: 'm', messages: [], name: 'llm', startedAt: 0 })
+    await store.appendSpan({
+      runId: 'r1',
+      spanId: 's1',
+      kind: 'llm',
+      model: 'm',
+      messages: [],
+      name: 'llm',
+      startedAt: 0,
+    })
     expect(await store.spans({ runId: 'r1', toolName: 'search' })).toHaveLength(0)
   })
 })
@@ -81,7 +109,15 @@ describe('FileSystemTraceStore', () => {
     const dir = await makeDir()
     const store = new FileSystemTraceStore({ dir })
     await store.appendRun(makeRun('r1', { tags: { persona: 'senior-dev' } }))
-    await store.appendSpan({ runId: 'r1', spanId: 's1', kind: 'llm', model: 'claude', messages: [], name: 'call', startedAt: 1 })
+    await store.appendSpan({
+      runId: 'r1',
+      spanId: 's1',
+      kind: 'llm',
+      model: 'claude',
+      messages: [],
+      name: 'call',
+      startedAt: 1,
+    })
 
     const fresh = new FileSystemTraceStore({ dir })
     expect((await fresh.getRun('r1'))?.scenarioId).toBe('scenario-a')
@@ -131,7 +167,15 @@ describe('FileSystemTraceStore', () => {
     const dir = await makeDir()
     const store = new FileSystemTraceStore({ dir })
     await store.appendRun(makeRun('r1'))
-    await store.appendSpan({ runId: 'r1', spanId: 's1', kind: 'llm', model: 'm', messages: [], name: 'call', startedAt: 1 })
+    await store.appendSpan({
+      runId: 'r1',
+      spanId: 's1',
+      kind: 'llm',
+      model: 'm',
+      messages: [],
+      name: 'call',
+      startedAt: 1,
+    })
     // Force the index to load.
     expect(await store.spans({ runId: 'r1' })).toHaveLength(1)
     await expect(store.updateSpan('s1', { endedAt: 2, status: 'ok' })).resolves.not.toThrow()
@@ -155,7 +199,11 @@ describe('FileSystemTraceStore', () => {
       name: 'turn-1',
       startedAt: 1,
     })
-    await writer.updateSpan('s1', { endedAt: 5, status: 'ok', output: 'merged-output' } as Partial<Span>)
+    await writer.updateSpan('s1', {
+      endedAt: 5,
+      status: 'ok',
+      output: 'merged-output',
+    } as Partial<Span>)
 
     // Second process: fresh store reads the dir from scratch (forces load()).
     const reader = new FileSystemTraceStore({ dir })
@@ -163,11 +211,11 @@ describe('FileSystemTraceStore', () => {
     expect(spans).toHaveLength(1)
     const [s] = spans
     expect(s.spanId).toBe('s1')
-    expect(s.runId).toBe('r1')           // must survive the merge (patch row has no runId)
-    expect(s.kind).toBe('llm')           // must survive the merge (patch row has no kind)
-    expect(s.name).toBe('turn-1')        // must survive the merge (patch row has no name)
-    expect(s.endedAt).toBe(5)            // applied from patch
-    expect(s.status).toBe('ok')          // applied from patch
+    expect(s.runId).toBe('r1') // must survive the merge (patch row has no runId)
+    expect(s.kind).toBe('llm') // must survive the merge (patch row has no kind)
+    expect(s.name).toBe('turn-1') // must survive the merge (patch row has no name)
+    expect(s.endedAt).toBe(5) // applied from patch
+    expect(s.status).toBe('ok') // applied from patch
     expect((s as { output?: string }).output).toBe('merged-output')
   })
 })
@@ -193,7 +241,9 @@ describe('TraceEmitter', () => {
     const emitter = new TraceEmitter(store)
     await emitter.startRun({ scenarioId: 's' })
     await expect(
-      emitter.within({ kind: 'custom', name: 'boom' }, async () => { throw new Error('kaboom') }),
+      emitter.within({ kind: 'custom', name: 'boom' }, async () => {
+        throw new Error('kaboom')
+      }),
     ).rejects.toThrow(/kaboom/)
     const failed = (await store.spans()).find((s) => s.name === 'boom')
     expect(failed?.status).toBe('error')
@@ -204,7 +254,13 @@ describe('TraceEmitter', () => {
     const store = new InMemoryTraceStore()
     const emitter = new TraceEmitter(store)
     await emitter.startRun({ scenarioId: 's' })
-    await emitter.recordBudget({ dimension: 'tokens', limit: 100, consumed: 101, remaining: -1, breached: true })
+    await emitter.recordBudget({
+      dimension: 'tokens',
+      limit: 100,
+      consumed: 101,
+      remaining: -1,
+      breached: true,
+    })
     const events = await store.events({ kind: 'budget_breach' })
     expect(events).toHaveLength(1)
     expect(events[0].payload.dimension).toBe('tokens')

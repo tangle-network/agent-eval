@@ -17,7 +17,12 @@ import { InMemoryFeedbackTrajectoryStore } from '../src/feedback-trajectory'
 import { InMemoryTraceStore } from '../src/trace/store'
 import { createApp } from '../src/wire/server'
 
-async function postJson(app: ReturnType<typeof createApp>, path: string, body: unknown, headers?: Record<string, string>) {
+async function postJson(
+  app: ReturnType<typeof createApp>,
+  path: string,
+  body: unknown,
+  headers?: Record<string, string>,
+) {
   const res = await app.fetch(
     new Request(`http://localhost${path}`, {
       method: 'POST',

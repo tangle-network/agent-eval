@@ -1,19 +1,18 @@
 import { describe, expect, it } from 'vitest'
 import { buildAgentProfileCell } from '../src/agent-profile-cell'
-import { runEvalCampaign } from '../src/eval-campaign'
-import { InMemoryTraceStore } from '../src/trace/store'
-import {
-  InMemoryRawProviderSink,
-  NoopRawProviderSink,
-} from '../src/trace/raw-provider-sink'
 import type { CampaignRunner, EvalCampaignOptions } from '../src/eval-campaign'
+import { runEvalCampaign } from '../src/eval-campaign'
 import { LlmRouteAssertionError } from '../src/llm-client'
+import { InMemoryRawProviderSink, NoopRawProviderSink } from '../src/trace/raw-provider-sink'
+import { InMemoryTraceStore } from '../src/trace/store'
 
 interface VariantPayload {
   prompt: string
 }
 
-function baseOpts(overrides: Partial<EvalCampaignOptions<VariantPayload>> = {}): EvalCampaignOptions<VariantPayload> {
+function baseOpts(
+  overrides: Partial<EvalCampaignOptions<VariantPayload>> = {},
+): EvalCampaignOptions<VariantPayload> {
   const sinks = new Map<string, InMemoryRawProviderSink>()
   const stores = new Map<string, InMemoryTraceStore>()
   return {
@@ -22,10 +21,7 @@ function baseOpts(overrides: Partial<EvalCampaignOptions<VariantPayload>> = {}):
       { id: 'baseline', payload: { prompt: 'be terse' } },
       { id: 'cand', payload: { prompt: 'be terse but kind' } },
     ],
-    scenarios: [
-      { scenarioId: 's1' },
-      { scenarioId: 's2' },
-    ],
+    scenarios: [{ scenarioId: 's1' }, { scenarioId: 's2' }],
     seeds: [0, 1],
     commitSha: 'cafebabe',
     llmOpts: { baseUrl: 'https://api.test.local/v1', apiKey: 'sk-test' },
@@ -101,30 +97,36 @@ describe('runEvalCampaign — happy path', () => {
   })
 
   it('produces a researchReport when comparator is supplied', async () => {
-    const result = await runEvalCampaign(baseOpts({
-      seeds: [0, 1, 2, 3, 4, 5, 6, 7],
-      report: { comparator: 'baseline', seed: 1 },
-    }))
+    const result = await runEvalCampaign(
+      baseOpts({
+        seeds: [0, 1, 2, 3, 4, 5, 6, 7],
+        report: { comparator: 'baseline', seed: 1 },
+      }),
+    )
     expect(result.report).toBeDefined()
     expect(result.report?.kind).toBe('agent-eval-research-report')
-    expect(result.report?.recommendation.decision).toMatch(/promote|hold|equivalent|reject|needs_more_data/)
+    expect(result.report?.recommendation.decision).toMatch(
+      /promote|hold|equivalent|reject|needs_more_data/,
+    )
     // Fingerprint of the run set is in the report independent of the campaign fingerprint.
     expect(result.report?.runFingerprint).toMatch(/^[0-9a-f]{64}$/)
   })
 
   it('stamps every run with a canonical agent profile cell', async () => {
-    const result = await runEvalCampaign(baseOpts({
-      agentProfile: ({ variantId }) => ({
-        profileId: `gtm-${variantId}`,
-        sourceProfile: {
-          kind: 'sandbox-agent-profile',
-          profile: { name: 'gtm-agent', variantId, permissions: { bash: 'ask' } },
-        },
-        harness: { id: 'gtm-agent-eval', version: '0.3.0' },
-        model: 'test-model@2026-05-08',
-        promptHash: 'p'.repeat(64),
+    const result = await runEvalCampaign(
+      baseOpts({
+        agentProfile: ({ variantId }) => ({
+          profileId: `gtm-${variantId}`,
+          sourceProfile: {
+            kind: 'sandbox-agent-profile',
+            profile: { name: 'gtm-agent', variantId, permissions: { bash: 'ask' } },
+          },
+          harness: { id: 'gtm-agent-eval', version: '0.3.0' },
+          model: 'test-model@2026-05-08',
+          promptHash: 'p'.repeat(64),
+        }),
       }),
-    }))
+    )
 
     expect(new Set(result.runs.map((r) => r.agentProfile?.cellId)).size).toBe(2)
     expect(result.runs.every((r) => r.agentProfile?.model === r.model)).toBe(true)
@@ -146,79 +148,102 @@ describe('runEvalCampaign — happy path', () => {
   })
 
   it('embeds preregistration hash in the report when supplied', async () => {
-    const result = await runEvalCampaign(baseOpts({
-      preregistrationHash: 'preregabc',
-      report: { comparator: 'baseline' },
-    }))
+    const result = await runEvalCampaign(
+      baseOpts({
+        preregistrationHash: 'preregabc',
+        report: { comparator: 'baseline' },
+      }),
+    )
     expect(result.preregistrationHash).toBe('preregabc')
     expect(result.report?.preregistrationHash).toBe('preregabc')
   })
 
   it('campaign fingerprint is stable across permutations of variants/scenarios/seeds', async () => {
     const a = await runEvalCampaign(baseOpts())
-    const b = await runEvalCampaign(baseOpts({
-      variants: [
-        { id: 'cand', payload: { prompt: 'be terse but kind' } },
-        { id: 'baseline', payload: { prompt: 'be terse' } },
-      ],
-      scenarios: [
-        { scenarioId: 's2' },
-        { scenarioId: 's1' },
-      ],
-      seeds: [1, 0],
-    }))
+    const b = await runEvalCampaign(
+      baseOpts({
+        variants: [
+          { id: 'cand', payload: { prompt: 'be terse but kind' } },
+          { id: 'baseline', payload: { prompt: 'be terse' } },
+        ],
+        scenarios: [{ scenarioId: 's2' }, { scenarioId: 's1' }],
+        seeds: [1, 0],
+      }),
+    )
     expect(a.campaignFingerprint).toBe(b.campaignFingerprint)
   })
 })
 
 describe('runEvalCampaign — preflight', () => {
   it('throws LlmRouteAssertionError when baseUrl is missing under the default policy', async () => {
-    await expect(runEvalCampaign(baseOpts({
-      llmOpts: { apiKey: 'sk-test' }, // no baseUrl
-    }))).rejects.toBeInstanceOf(LlmRouteAssertionError)
+    await expect(
+      runEvalCampaign(
+        baseOpts({
+          llmOpts: { apiKey: 'sk-test' }, // no baseUrl
+        }),
+      ),
+    ).rejects.toBeInstanceOf(LlmRouteAssertionError)
   })
 
   it('throws on duplicate variant ids', async () => {
-    await expect(runEvalCampaign(baseOpts({
-      variants: [
-        { id: 'a', payload: { prompt: 'x' } },
-        { id: 'a', payload: { prompt: 'y' } },
-      ],
-    }))).rejects.toThrow(/duplicate variant id "a"/)
+    await expect(
+      runEvalCampaign(
+        baseOpts({
+          variants: [
+            { id: 'a', payload: { prompt: 'x' } },
+            { id: 'a', payload: { prompt: 'y' } },
+          ],
+        }),
+      ),
+    ).rejects.toThrow(/duplicate variant id "a"/)
   })
 
   it('throws on duplicate scenarioIds', async () => {
-    await expect(runEvalCampaign(baseOpts({
-      scenarios: [{ scenarioId: 's1' }, { scenarioId: 's1' }],
-    }))).rejects.toThrow(/duplicate scenarioId "s1"/)
+    await expect(
+      runEvalCampaign(
+        baseOpts({
+          scenarios: [{ scenarioId: 's1' }, { scenarioId: 's1' }],
+        }),
+      ),
+    ).rejects.toThrow(/duplicate scenarioId "s1"/)
   })
 
   it('throws when the report comparator is not a configured variant', async () => {
-    await expect(runEvalCampaign(baseOpts({
-      report: { comparator: 'no-such-variant' },
-    }))).rejects.toThrow(/comparator "no-such-variant" is not a configured variantId/)
+    await expect(
+      runEvalCampaign(
+        baseOpts({
+          report: { comparator: 'no-such-variant' },
+        }),
+      ),
+    ).rejects.toThrow(/comparator "no-such-variant" is not a configured variantId/)
   })
 
   it('throws when commitSha is missing', async () => {
-    await expect(runEvalCampaign(baseOpts({ commitSha: '' }))).rejects.toThrow(/commitSha is required/)
+    await expect(runEvalCampaign(baseOpts({ commitSha: '' }))).rejects.toThrow(
+      /commitSha is required/,
+    )
   })
 
   it('errors without rawSinkFactory or workDir (forensic capture is non-negotiable)', async () => {
     const opts = baseOpts({})
     delete (opts as { rawSinkFactory?: unknown }).rawSinkFactory
-    await expect(runEvalCampaign(opts)).rejects.toThrow(/rawSinkFactory not supplied and workDir not set/)
+    await expect(runEvalCampaign(opts)).rejects.toThrow(
+      /rawSinkFactory not supplied and workDir not set/,
+    )
   })
 
   it('opt-out of capture via NoopRawProviderSink + integrity override is allowed', async () => {
-    const result = await runEvalCampaign(baseOpts({
-      rawSinkFactory: () => new NoopRawProviderSink(),
-      integrity: {
-        llmSpansMin: 0,
-        rawProviderEventsMin: 0,
-        requireRawCoverageOfLlmSpans: false,
-        requireOutcome: false,
-      },
-    }))
+    const result = await runEvalCampaign(
+      baseOpts({
+        rawSinkFactory: () => new NoopRawProviderSink(),
+        integrity: {
+          llmSpansMin: 0,
+          rawProviderEventsMin: 0,
+          requireRawCoverageOfLlmSpans: false,
+          requireOutcome: false,
+        },
+      }),
+    )
     expect(result.failedRuns).toEqual([])
     expect(result.runs).toHaveLength(8)
   })
@@ -257,12 +282,14 @@ describe('runEvalCampaign — failure handling', () => {
         configHash: 'c'.repeat(64),
       }
     }
-    const result = await runEvalCampaign(baseOpts({
-      seeds: [0],
-      scenarios: [{ scenarioId: 's1' }],
-      variants: [{ id: 'baseline', payload: { prompt: 'x' } }],
-      runner: noCaptureRunner,
-    }))
+    const result = await runEvalCampaign(
+      baseOpts({
+        seeds: [0],
+        scenarios: [{ scenarioId: 's1' }],
+        variants: [{ id: 'baseline', payload: { prompt: 'x' } }],
+        runner: noCaptureRunner,
+      }),
+    )
     expect(result.runs).toEqual([])
     expect(result.failedRuns).toHaveLength(1)
     expect(result.failedRuns[0]?.reason).toBe('integrity_failed')
@@ -283,13 +310,17 @@ describe('runEvalCampaign — failure handling', () => {
         configHash: 'c'.repeat(64),
       }
     }
-    await expect(runEvalCampaign(baseOpts({
-      seeds: [0],
-      scenarios: [{ scenarioId: 's1' }],
-      variants: [{ id: 'baseline', payload: { prompt: 'x' } }],
-      runner: noCaptureRunner,
-      onIntegrityFailure: 'throw',
-    }))).rejects.toThrow(/integrity check/)
+    await expect(
+      runEvalCampaign(
+        baseOpts({
+          seeds: [0],
+          scenarios: [{ scenarioId: 's1' }],
+          variants: [{ id: 'baseline', payload: { prompt: 'x' } }],
+          runner: noCaptureRunner,
+          onIntegrityFailure: 'throw',
+        }),
+      ),
+    ).rejects.toThrow(/integrity check/)
   })
 
   it('log policy admits the run with the integrity report flagged', async () => {
@@ -306,13 +337,15 @@ describe('runEvalCampaign — failure handling', () => {
         configHash: 'c'.repeat(64),
       }
     }
-    const result = await runEvalCampaign(baseOpts({
-      seeds: [0],
-      scenarios: [{ scenarioId: 's1' }],
-      variants: [{ id: 'baseline', payload: { prompt: 'x' } }],
-      runner: noCaptureRunner,
-      onIntegrityFailure: 'log',
-    }))
+    const result = await runEvalCampaign(
+      baseOpts({
+        seeds: [0],
+        scenarios: [{ scenarioId: 's1' }],
+        variants: [{ id: 'baseline', payload: { prompt: 'x' } }],
+        runner: noCaptureRunner,
+        onIntegrityFailure: 'log',
+      }),
+    )
     expect(result.runs).toHaveLength(1)
     expect(result.failedRuns).toEqual([])
     expect(result.integrityReports).toHaveLength(1)

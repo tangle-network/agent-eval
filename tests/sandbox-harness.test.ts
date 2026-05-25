@@ -1,22 +1,26 @@
 import { describe, expect, it } from 'vitest'
-import { InMemoryTraceStore, TraceEmitter } from '../src/trace'
 import {
   composeParsers,
+  type HarnessConfig,
   jestTestParser,
   pytestTestParser,
+  type SandboxDriver,
   SandboxHarness,
+  type SandboxResult,
   SubprocessSandboxDriver,
   vitestTestParser,
-  type HarnessConfig,
-  type SandboxDriver,
-  type SandboxResult,
 } from '../src/sandbox-harness'
 import { runTestGradedScenario } from '../src/test-graded-scenario'
+import { InMemoryTraceStore, TraceEmitter } from '../src/trace'
 
 class FakeDriver implements SandboxDriver {
   id = 'fake'
   results: Record<string, SandboxResult> = {}
-  async exec(phase: SandboxResult['phase'], _cmd: string, _cfg: HarnessConfig): Promise<SandboxResult> {
+  async exec(
+    phase: SandboxResult['phase'],
+    _cmd: string,
+    _cfg: HarnessConfig,
+  ): Promise<SandboxResult> {
     return this.results[phase] ?? { phase, exitCode: 0, stdout: '', stderr: '', wallMs: 1 }
   }
 }
@@ -37,16 +41,17 @@ describe('pytestTestParser', () => {
 
 describe('jestTestParser', () => {
   it('parses "Tests: 3 failed, 7 passed, 10 total"', () => {
-    expect(jestTestParser.parse('Tests:       3 failed, 7 passed, 10 total', '', 1))
-      .toEqual({ testsTotal: 10, testsPassed: 7 })
+    expect(jestTestParser.parse('Tests:       3 failed, 7 passed, 10 total', '', 1)).toEqual({
+      testsTotal: 10,
+      testsPassed: 7,
+    })
   })
 })
 
 describe('composeParsers — regression: silent misparse lets test-failing runs pass', () => {
   it('tries parsers in order', () => {
     const p = composeParsers(vitestTestParser, pytestTestParser)
-    expect(p.parse('collected 5 items\n5 passed', '', 0))
-      .toEqual({ testsTotal: 5, testsPassed: 5 })
+    expect(p.parse('collected 5 items\n5 passed', '', 0)).toEqual({ testsTotal: 5, testsPassed: 5 })
   })
 })
 
@@ -58,7 +63,15 @@ describe('SandboxHarness with FakeDriver', () => {
     const driver = new FakeDriver()
     driver.results = {
       setup: { phase: 'setup', exitCode: 0, stdout: '', stderr: '', wallMs: 10 },
-      test: { phase: 'test', exitCode: 0, stdout: '', stderr: '', wallMs: 50, testsTotal: 10, testsPassed: 8 },
+      test: {
+        phase: 'test',
+        exitCode: 0,
+        stdout: '',
+        stderr: '',
+        wallMs: 50,
+        testsTotal: 10,
+        testsPassed: 8,
+      },
     }
     const harness = new SandboxHarness(driver)
     const result = await harness.run({ setupCommand: 'noop', testCommand: 'noop' }, e)
@@ -74,7 +87,9 @@ describe('SandboxHarness with FakeDriver', () => {
     const e = new TraceEmitter(store)
     await e.startRun({ scenarioId: 's' })
     const driver = new FakeDriver()
-    driver.results = { setup: { phase: 'setup', exitCode: 2, stdout: '', stderr: 'err', wallMs: 5 } }
+    driver.results = {
+      setup: { phase: 'setup', exitCode: 2, stdout: '', stderr: 'err', wallMs: 5 },
+    }
     const harness = new SandboxHarness(driver)
     const result = await harness.run({ setupCommand: 'noop', testCommand: 'noop' }, e)
     expect(result.passed).toBe(false)
@@ -88,7 +103,15 @@ describe('runTestGradedScenario', () => {
     const store = new InMemoryTraceStore()
     const driver = new FakeDriver()
     driver.results = {
-      test: { phase: 'test', exitCode: 0, stdout: '', stderr: '', wallMs: 5, testsTotal: 4, testsPassed: 4 },
+      test: {
+        phase: 'test',
+        exitCode: 0,
+        stdout: '',
+        stderr: '',
+        wallMs: 5,
+        testsTotal: 4,
+        testsPassed: 4,
+      },
     }
     const result = await runTestGradedScenario(
       { id: 'scn-1', harness: { testCommand: 'pnpm test' }, passThreshold: 1 },
@@ -107,7 +130,15 @@ describe('runTestGradedScenario', () => {
     const store = new InMemoryTraceStore()
     const driver = new FakeDriver()
     driver.results = {
-      test: { phase: 'test', exitCode: 1, stdout: '', stderr: '', wallMs: 5, testsTotal: 4, testsPassed: 2 },
+      test: {
+        phase: 'test',
+        exitCode: 1,
+        stdout: '',
+        stderr: '',
+        wallMs: 5,
+        testsTotal: 4,
+        testsPassed: 2,
+      },
     }
     const result = await runTestGradedScenario(
       { id: 'scn-2', harness: { testCommand: 'pnpm test' } },
@@ -173,17 +204,18 @@ describe('SubprocessSandboxDriver', () => {
     // vs GNU-on-Linux inconsistent (BSD prints only the first hit, exits 0
     // and hides subsequent vars), so the naive form passes on CI and fails
     // on Darwin.
-    const result = await driver.exec(
-      'run',
-      'env | grep -E "^AGENT_EVAL_" | sort',
-      { env: { AGENT_EVAL_SHARED: 'call', AGENT_EVAL_PER_CALL: 'from-call' } },
-    )
+    const result = await driver.exec('run', 'env | grep -E "^AGENT_EVAL_" | sort', {
+      env: { AGENT_EVAL_SHARED: 'call', AGENT_EVAL_PER_CALL: 'from-call' },
+    })
     expect(result.exitCode).toBe(0)
     const vars = Object.fromEntries(
-      result.stdout.trim().split('\n').map((l) => {
-        const eq = l.indexOf('=')
-        return [l.slice(0, eq), l.slice(eq + 1)]
-      }),
+      result.stdout
+        .trim()
+        .split('\n')
+        .map((l) => {
+          const eq = l.indexOf('=')
+          return [l.slice(0, eq), l.slice(eq + 1)]
+        }),
     )
     expect(vars.AGENT_EVAL_DEFAULT).toBe('from-ctor')
     expect(vars.AGENT_EVAL_SHARED).toBe('call') // per-call wins on collision

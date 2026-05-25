@@ -18,22 +18,37 @@ const baseTriple: PreferenceTriple = {
   scenarioId: 's1',
   chosenRunId: 'run-A',
   rejectedRunId: 'run-B',
-  chosenVariantId: 'A', rejectedVariantId: 'B',
+  chosenVariantId: 'A',
+  rejectedVariantId: 'B',
   marginScore: 0.2,
   scores: { chosen: 0.8, rejected: 0.6 },
   meta: {
-    chosenPromptHash: 'p-A', rejectedPromptHash: 'p-B',
-    chosenConfigHash: 'c-A', rejectedConfigHash: 'c-B',
-    chosenModel: 'm', rejectedModel: 'm',
+    chosenPromptHash: 'p-A',
+    rejectedPromptHash: 'p-B',
+    chosenConfigHash: 'c-A',
+    rejectedConfigHash: 'c-B',
+    chosenModel: 'm',
+    rejectedModel: 'm',
   },
 }
 
-function rec(args: { runId: string; scenarioId: string; score: number; candidateId?: string }): RunRecord {
+function rec(args: {
+  runId: string
+  scenarioId: string
+  score: number
+  candidateId?: string
+}): RunRecord {
   return {
     runId: args.runId,
-    experimentId: 'e', candidateId: args.candidateId ?? 'A', seed: 0,
-    model: 'm@1', promptHash: 'p'.repeat(64), configHash: 'c'.repeat(64),
-    commitSha: 'abcd', wallMs: 1, costUsd: 0,
+    experimentId: 'e',
+    candidateId: args.candidateId ?? 'A',
+    seed: 0,
+    model: 'm@1',
+    promptHash: 'p'.repeat(64),
+    configHash: 'c'.repeat(64),
+    commitSha: 'abcd',
+    wallMs: 1,
+    costUsd: 0,
     tokenUsage: { input: 0, output: 0 },
     outcome: { holdoutScore: args.score, raw: {} },
     splitTag: 'holdout',
@@ -60,7 +75,9 @@ describe('toDpoRows', () => {
       { prompt: 'p', chosen: 'c', rejected: 'r' },
       { prompt: 'p2', chosen: 'c2', rejected: 'r2' },
     ])
-    expect(jsonl).toBe('{"prompt":"p","chosen":"c","rejected":"r"}\n{"prompt":"p2","chosen":"c2","rejected":"r2"}\n')
+    expect(jsonl).toBe(
+      '{"prompt":"p","chosen":"c","rejected":"r"}\n{"prompt":"p2","chosen":"c2","rejected":"r2"}\n',
+    )
   })
 
   it('handles async lookups (Promise-returning callbacks)', async () => {
@@ -120,7 +137,7 @@ describe('toSftRows', () => {
   it('include callback filters runs (rejection-sampling SFT)', async () => {
     const runs = [
       rec({ runId: 'good', scenarioId: 's', score: 0.95 }),
-      rec({ runId: 'bad', scenarioId: 's', score: 0.20 }),
+      rec({ runId: 'bad', scenarioId: 's', score: 0.2 }),
     ]
     const rows = await toSftRows(runs, {
       promptOf: () => 'p',
@@ -144,38 +161,43 @@ describe('toSftRows', () => {
 
 describe('toPrmRows', () => {
   it('produces PRM training rows with prefix + chosen/rejected', async () => {
-    const triples: PrmTrainingTriple[] = [{
-      prefixRunId: 'prefix-run',
-      prefixStepIndex: 1,
-      chosenSpanId: 'chosen-step',
-      chosenReward: 0.9,
-      rejectedSpanId: 'rejected-step',
-      rejectedReward: 0.3,
-      rejectedRunId: 'other-run',
-      marginScore: 0.6,
-    }]
+    const triples: PrmTrainingTriple[] = [
+      {
+        prefixRunId: 'prefix-run',
+        prefixStepIndex: 1,
+        chosenSpanId: 'chosen-step',
+        chosenReward: 0.9,
+        rejectedSpanId: 'rejected-step',
+        rejectedReward: 0.3,
+        rejectedRunId: 'other-run',
+        marginScore: 0.6,
+      },
+    ]
     const rows = await toPrmRows(triples, {
       promptOf: (id) => `p:${id}`,
       stepTextOf: (rid, sid) => `step:${rid}/${sid}`,
       prefixOf: () => ['span-0', 'span-1'],
     })
     expect(rows[0]?.prompt).toBe('p:prefix-run')
-    expect(rows[0]?.prefixStepText).toEqual([
-      'step:prefix-run/span-0',
-      'step:prefix-run/span-1',
-    ])
+    expect(rows[0]?.prefixStepText).toEqual(['step:prefix-run/span-0', 'step:prefix-run/span-1'])
     expect(rows[0]?.chosenStep).toBe('step:prefix-run/chosen-step')
     expect(rows[0]?.rejectedStep).toBe('step:other-run/rejected-step')
     expect(rows[0]?.marginScore).toBe(0.6)
   })
 
   it('omits prefix steps when prefixOf is not supplied', async () => {
-    const triples: PrmTrainingTriple[] = [{
-      prefixRunId: 'r', prefixStepIndex: 0,
-      chosenSpanId: 'c', chosenReward: 1,
-      rejectedSpanId: 'rj', rejectedReward: 0,
-      rejectedRunId: 'r', marginScore: 1,
-    }]
+    const triples: PrmTrainingTriple[] = [
+      {
+        prefixRunId: 'r',
+        prefixStepIndex: 0,
+        chosenSpanId: 'c',
+        chosenReward: 1,
+        rejectedSpanId: 'rj',
+        rejectedReward: 0,
+        rejectedRunId: 'r',
+        marginScore: 1,
+      },
+    ]
     const rows = await toPrmRows(triples, {
       promptOf: () => 'p',
       stepTextOf: () => 's',
@@ -187,16 +209,27 @@ describe('toPrmRows', () => {
 
 describe('stepRewardsToJsonl + JSONL helpers', () => {
   it('serializes step rewards as JSONL', () => {
-    const stepRewards: StepReward[] = [{
-      spanId: 'sp', runId: 'r', stepIndex: 0,
-      kind: 'tool', name: 'compile', reward: 0.8,
-      determinism: 'deterministic', weight: 1,
-    }]
+    const stepRewards: StepReward[] = [
+      {
+        spanId: 'sp',
+        runId: 'r',
+        stepIndex: 0,
+        kind: 'tool',
+        name: 'compile',
+        reward: 0.8,
+        determinism: 'deterministic',
+        weight: 1,
+      },
+    ]
     const jsonl = stepRewardsToJsonl(stepRewards)
     expect(jsonl.trim().split('\n')).toHaveLength(1)
     const parsed = JSON.parse(jsonl.trim())
     expect(parsed).toMatchObject({
-      spanId: 'sp', runId: 'r', stepIndex: 0, reward: 0.8, determinism: 'deterministic',
+      spanId: 'sp',
+      runId: 'r',
+      stepIndex: 0,
+      reward: 0.8,
+      determinism: 'deterministic',
     })
   })
 

@@ -1,8 +1,8 @@
-import { describe, it, expect } from 'vitest'
+import { describe, expect, it } from 'vitest'
 import {
-  InMemoryWorkspaceInspector,
-  fileExists,
   fileContains,
+  fileExists,
+  InMemoryWorkspaceInspector,
   rowCount,
   rowWhere,
   runAssertions,
@@ -74,15 +74,17 @@ describe('rowCount', () => {
 
 describe('rowWhere', () => {
   it('passes when predicate matches enough rows', () => {
-    const r = rowWhere<{ status: string }>('deals', (row) => row.status === 'closed', { min: 2 }).check(
+    const r = rowWhere<{ status: string }>('deals', (row) => row.status === 'closed', {
+      min: 2,
+    }).check(
       snap({ rows: { deals: [{ status: 'open' }, { status: 'closed' }, { status: 'closed' }] } }),
     )
     expect(r.pass).toBe(true)
   })
   it('partial credit when min not met', () => {
-    const r = rowWhere<{ status: string }>('deals', (row) => row.status === 'closed', { min: 3 }).check(
-      snap({ rows: { deals: [{ status: 'closed' }] } }),
-    )
+    const r = rowWhere<{ status: string }>('deals', (row) => row.status === 'closed', {
+      min: 3,
+    }).check(snap({ rows: { deals: [{ status: 'closed' }] } }))
     expect(r.pass).toBe(false)
     expect(r.score).toBeCloseTo(1 / 3, 2)
   })
@@ -90,16 +92,16 @@ describe('rowWhere', () => {
 
 describe('runAssertions', () => {
   it('aggregates pass as AND and score as mean', () => {
-    const result = runAssertions(snap({ files: { 'a.md': 'content' }, rows: { deals: [{}, {}, {}] } }), [
-      fileExists('a.md'),
-      rowCount('deals', 1, 10),
-    ])
+    const result = runAssertions(
+      snap({ files: { 'a.md': 'content' }, rows: { deals: [{}, {}, {}] } }),
+      [fileExists('a.md'), rowCount('deals', 1, 10)],
+    )
     expect(result.pass).toBe(true)
     expect(result.score).toBe(1)
     expect(result.results).toHaveLength(2)
   })
 
-  it('aggregate pass is AND across assertions — regression: one fail doesn\'t sink the aggregate pass', () => {
+  it("aggregate pass is AND across assertions — regression: one fail doesn't sink the aggregate pass", () => {
     const result = runAssertions(snap({ files: { 'a.md': 'content' } }), [
       fileExists('a.md'),
       fileExists('missing.md'),

@@ -36,16 +36,24 @@ describe('extractPreferences — paired-by-scenario-and-seed', () => {
     for (const seed of [0, 1]) {
       for (const v of ['a', 'b', 'c']) {
         const score = v === 'a' ? 0.5 : v === 'b' ? 0.7 : 0.6
-        runs.push(rec({
-          runId: `${v}-${seed}`,
-          candidateId: v, scenarioId: 's1', seed, score,
-        }))
+        runs.push(
+          rec({
+            runId: `${v}-${seed}`,
+            candidateId: v,
+            scenarioId: 's1',
+            seed,
+            score,
+          }),
+        )
       }
     }
     // Hijack scenario_id back into raw via outcome.raw — emulate consumer behavior
     for (const r of runs) r.outcome.raw.scenario_id = 1
 
-    const report = extractPreferences(runs, { strategy: 'paired-by-scenario-and-seed', minMargin: 0.05 })
+    const report = extractPreferences(runs, {
+      strategy: 'paired-by-scenario-and-seed',
+      minMargin: 0.05,
+    })
     // 3 candidates × 2 seeds × C(3,2)=3 pairs per cell = 6 pairs total
     expect(report.pairs.length).toBe(6)
     expect(report.pairs.every((p) => p.marginScore >= 0.05)).toBe(true)
@@ -59,7 +67,10 @@ describe('extractPreferences — paired-by-scenario-and-seed', () => {
     ]
     runs[0]!.outcome.raw.scenario_id = 1
     runs[1]!.outcome.raw.scenario_id = 1
-    const report = extractPreferences(runs, { strategy: 'paired-by-scenario-and-seed', minMargin: 0.1 })
+    const report = extractPreferences(runs, {
+      strategy: 'paired-by-scenario-and-seed',
+      minMargin: 0.1,
+    })
     expect(report.pairs).toHaveLength(0)
     expect(report.pairsBelowMargin).toBe(1)
   })
@@ -77,10 +88,15 @@ describe('extractPreferences — top-vs-bottom', () => {
   it('forms one pair per scenario from the highest- and lowest-scoring runs', () => {
     const runs: RunRecord[] = []
     for (const v of ['a', 'b', 'c']) {
-      runs.push(rec({
-        runId: `${v}-0`, candidateId: v, scenarioId: 's', seed: 0,
-        score: v === 'a' ? 0.3 : v === 'b' ? 0.6 : 0.8,
-      }))
+      runs.push(
+        rec({
+          runId: `${v}-0`,
+          candidateId: v,
+          scenarioId: 's',
+          seed: 0,
+          score: v === 'a' ? 0.3 : v === 'b' ? 0.6 : 0.8,
+        }),
+      )
     }
     const report = extractPreferences(runs, { strategy: 'top-vs-bottom', minMargin: 0.05 })
     expect(report.pairs).toHaveLength(1)
@@ -99,7 +115,7 @@ describe('extractPreferences — paired-by-scenario', () => {
     ]
     const report = extractPreferences(runs, { strategy: 'paired-by-scenario', minMargin: 0.05 })
     expect(report.pairs).toHaveLength(1)
-    expect(report.pairs[0]?.marginScore).toBeCloseTo(0.3, 2)  // (0.85 - 0.55) = 0.3
+    expect(report.pairs[0]?.marginScore).toBeCloseTo(0.3, 2) // (0.85 - 0.55) = 0.3
     expect(report.pairs[0]?.chosenVariantId).toBe('b')
   })
 })

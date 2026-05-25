@@ -1,8 +1,8 @@
-import { describe, it, expect } from 'vitest'
+import { describe, expect, it } from 'vitest'
 import {
   buildReflectionPrompt,
-  parseReflectionResponse,
   DEFAULT_MUTATION_PRIMITIVES,
+  parseReflectionResponse,
 } from '../src/index'
 
 describe('buildReflectionPrompt', () => {
@@ -90,7 +90,11 @@ describe('parseReflectionResponse', () => {
   it('parses a clean JSON response', () => {
     const raw = JSON.stringify({
       proposals: [
-        { label: 'tighter', rationale: 'fixes primary action gap', payload: { instructions: 'must show primary' } },
+        {
+          label: 'tighter',
+          rationale: 'fixes primary action gap',
+          payload: { instructions: 'must show primary' },
+        },
       ],
     })
     const out = parseReflectionResponse(raw)
@@ -100,14 +104,17 @@ describe('parseReflectionResponse', () => {
   })
 
   it('strips markdown fences', () => {
-    const raw = '```json\n' + JSON.stringify({ proposals: [{ payload: { x: 1 } }] }) + '\n```'
+    const raw = `\`\`\`json\n${JSON.stringify({ proposals: [{ payload: { x: 1 } }] })}\n\`\`\``
     const out = parseReflectionResponse(raw)
     expect(out).toHaveLength(1)
     expect(out[0]!.label).toBe('mutation') // default label when missing
   })
 
   it('tolerates surrounding prose', () => {
-    const raw = 'sure, here is the JSON:\n```\n' + JSON.stringify({ proposals: [{ payload: { x: 1 } }] }) + '\n```\nlmk if you want more'
+    const raw =
+      'sure, here is the JSON:\n```\n' +
+      JSON.stringify({ proposals: [{ payload: { x: 1 } }] }) +
+      '\n```\nlmk if you want more'
     const out = parseReflectionResponse(raw)
     expect(out).toHaveLength(1)
   })
@@ -119,11 +126,7 @@ describe('parseReflectionResponse', () => {
 
   it('respects maxProposals', () => {
     const raw = JSON.stringify({
-      proposals: [
-        { payload: { x: 1 } },
-        { payload: { x: 2 } },
-        { payload: { x: 3 } },
-      ],
+      proposals: [{ payload: { x: 1 } }, { payload: { x: 2 } }, { payload: { x: 3 } }],
     })
     expect(parseReflectionResponse(raw, 2)).toHaveLength(2)
   })
@@ -140,7 +143,7 @@ describe('parseReflectionResponse', () => {
     // doesn't return zero children and stall the optimizer.
     const raw = JSON.stringify([
       { label: 'tighten', rationale: 'add concrete', payload: { persona: 'A' } },
-      { label: 'add example', rationale: 'cover gap',  payload: { persona: 'B' } },
+      { label: 'add example', rationale: 'cover gap', payload: { persona: 'B' } },
     ])
     const out = parseReflectionResponse(raw, 5)
     expect(out).toHaveLength(2)

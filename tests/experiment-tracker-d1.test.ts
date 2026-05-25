@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { D1ExperimentStore, ExperimentTracker } from '../src/index'
 import type { BenchmarkReport, D1Like, D1PreparedStatementLike } from '../src/index'
+import { D1ExperimentStore, ExperimentTracker } from '../src/index'
 
 /**
  * Tiny in-memory D1 fake. Implements only the methods D1ExperimentStore
@@ -70,8 +70,28 @@ function makeFakeD1(): D1Like & { tables: Map<string, Map<string, Record<string,
             const [id, name, created_at, metadata_json] = args
             t.set(String(id), { id, name, created_at, metadata_json })
           } else if (tname.endsWith('runs')) {
-            const [id, experiment_id, name, status, started_at, completed_at, config_json, report_json, error] = args
-            t.set(String(id), { id, experiment_id, name, status, started_at, completed_at, config_json, report_json, error })
+            const [
+              id,
+              experiment_id,
+              name,
+              status,
+              started_at,
+              completed_at,
+              config_json,
+              report_json,
+              error,
+            ] = args
+            t.set(String(id), {
+              id,
+              experiment_id,
+              name,
+              status,
+              started_at,
+              completed_at,
+              config_json,
+              report_json,
+              error,
+            })
           }
         }
         return {}
@@ -92,7 +112,14 @@ function makeFakeD1(): D1Like & { tables: Map<string, Map<string, Record<string,
 
 function fakeReport(overall: number): BenchmarkReport {
   return {
-    summary: { overallAvg: overall, totalScenarios: 1, passRate: overall, totalCost: 0, totalLatencyMs: 0, totalTokens: 0 },
+    summary: {
+      overallAvg: overall,
+      totalScenarios: 1,
+      passRate: overall,
+      totalCost: 0,
+      totalLatencyMs: 0,
+      totalTokens: 0,
+    },
     results: [
       {
         scenarioId: 's1',
@@ -116,7 +143,11 @@ describe('D1ExperimentStore', () => {
     const store = new D1ExperimentStore({ db })
     const tracker = new ExperimentTracker(store)
     const exp = await tracker.startExperiment('e1', { tag: 'a' })
-    const run = await tracker.startRun({ experimentId: exp.id, model: 'gpt-5.4', metadata: { rep: 1 } })
+    const run = await tracker.startRun({
+      experimentId: exp.id,
+      model: 'gpt-5.4',
+      metadata: { rep: 1 },
+    })
     await tracker.completeRun(run.id, fakeReport(8.2))
 
     expect((await store.getExperiment(exp.id))?.metadata).toEqual({ tag: 'a' })

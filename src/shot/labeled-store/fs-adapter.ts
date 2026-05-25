@@ -78,7 +78,7 @@ export class FsLabeledScenarioStore implements LabeledScenarioStore {
     this.assertRateLimit(write)
     const record = this.toRecord(write)
     const path = this.pathForSource(write.source)
-    const line = JSON.stringify(record) + '\n'
+    const line = `${JSON.stringify(record)}\n`
     // Append atomically. For high-throughput a writev-friendly buffered
     // implementation lands in the Turso adapter; FS adapter is for tests +
     // local dev + small workloads.

@@ -37,14 +37,8 @@ export {
   runOptimization,
   surfaceHash,
 } from './presets/run-optimization'
-export { type RunCampaignOptions, runCampaign } from './run-campaign'
+export { type RunShotOptions, runShot } from './run-shot'
 export type {
-  CampaignAggregates,
-  CampaignArtifactWriter,
-  CampaignCellResult,
-  CampaignCostMeter,
-  CampaignResult,
-  CampaignTraceWriter,
   DispatchContext,
   DispatchFn,
   Gate,
@@ -68,5 +62,11 @@ export type {
   Scenario,
   ScenarioAggregate,
   SessionScript,
+  ShotAggregates,
+  ShotArtifactWriter,
+  ShotCellResult,
+  ShotCostMeter,
+  ShotResult,
+  ShotTraceWriter,
   TraceSpan,
 } from './types'

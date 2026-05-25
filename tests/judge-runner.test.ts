@@ -1,10 +1,14 @@
 import { describe, expect, it } from 'vitest'
-import { JudgeRunner, runJudgeFleet, compilerJudge, testJudge } from '../src/judge-runner'
+import { compilerJudge, JudgeRunner, runJudgeFleet, testJudge } from '../src/judge-runner'
 import type { HarnessConfig, SandboxDriver, SandboxResult } from '../src/sandbox-harness'
 
 class FakeDriver implements SandboxDriver {
   id = 'fake'
-  async exec(phase: SandboxResult['phase'], _command: string, _config: HarnessConfig): Promise<SandboxResult> {
+  async exec(
+    phase: SandboxResult['phase'],
+    _command: string,
+    _config: HarnessConfig,
+  ): Promise<SandboxResult> {
     return {
       phase,
       exitCode: 0,
@@ -26,10 +30,13 @@ describe('judge runner', () => {
   })
 
   it('runs a judge fleet in parallel by default', async () => {
-    const results = await runJudgeFleet([
-      compilerJudge('compile', { runCommand: 'pnpm build' }),
-      testJudge('tests', { testCommand: 'pnpm test' }),
-    ], { driver: new FakeDriver() })
+    const results = await runJudgeFleet(
+      [
+        compilerJudge('compile', { runCommand: 'pnpm build' }),
+        testJudge('tests', { testCommand: 'pnpm test' }),
+      ],
+      { driver: new FakeDriver() },
+    )
     expect(results).toHaveLength(2)
     expect(results.every((result) => result.passed)).toBe(true)
   })

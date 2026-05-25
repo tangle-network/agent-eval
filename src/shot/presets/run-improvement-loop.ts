@@ -17,7 +17,7 @@
  */
 
 import { openAutoPr } from '../auto-pr'
-import type { CampaignResult, Gate, Scenario } from '../types'
+import type { Gate, Scenario, ShotResult } from '../types'
 import type { RunOptimizationOptions, RunOptimizationResult } from './run-optimization'
 import { runOptimization } from './run-optimization'
 
@@ -46,8 +46,8 @@ export interface RunImprovementLoopOptions<TScenario extends Scenario, TArtifact
 
 export interface RunImprovementLoopResult<TArtifact, TScenario extends Scenario>
   extends RunOptimizationResult<TArtifact, TScenario> {
-  baselineOnHoldout: CampaignResult<TArtifact, TScenario>
-  winnerOnHoldout: CampaignResult<TArtifact, TScenario>
+  baselineOnHoldout: ShotResult<TArtifact, TScenario>
+  winnerOnHoldout: ShotResult<TArtifact, TScenario>
   gateResult: Awaited<ReturnType<Gate<TArtifact, TScenario>['decide']>>
   prResult?: ReturnType<typeof openAutoPr>
 }
@@ -78,16 +78,16 @@ export async function runImprovementLoop<TScenario extends Scenario, TArtifact>(
   const optimization = await runOptimization(opts)
 
   // ── (2) baseline + winner re-scored on the holdout set ─────────────
-  const { runCampaign } = await import('../run-campaign')
+  const { runShot } = await import('../run-shot')
 
-  const baselineOnHoldout = await runCampaign<TScenario, TArtifact>({
+  const baselineOnHoldout = await runShot<TScenario, TArtifact>({
     ...opts,
     scenarios: opts.holdoutScenarios,
     dispatch: (scenario, ctx) => opts.dispatchWithSurface(opts.baselineSurface, scenario, ctx),
     runDir: `${opts.runDir}/holdout-baseline`,
   })
 
-  const winnerOnHoldout = await runCampaign<TScenario, TArtifact>({
+  const winnerOnHoldout = await runShot<TScenario, TArtifact>({
     ...opts,
     scenarios: opts.holdoutScenarios,
     dispatch: (scenario, ctx) =>

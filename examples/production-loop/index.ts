@@ -142,10 +142,7 @@ async function main(): Promise<void> {
     scenario('schedule-c-self-employed', 'freelancer'),
     scenario('w2-multistate', 'remote-worker'),
   ]
-  const searchScenarios = [
-    scenario('basic-w2', 'salaried'),
-    scenario('joint-return', 'married'),
-  ]
+  const searchScenarios = [scenario('basic-w2', 'salaried'), scenario('joint-return', 'married')]
 
   const result = await runProductionLoop<TaxAgentPayload>({
     runId: `prod-loop-demo-${Date.now()}`,
@@ -247,20 +244,26 @@ async function main(): Promise<void> {
   console.log(`observed feedback: ${result.observedFeedbackCount}`)
   console.log(`clusters seen  : ${result.clusters.length}`)
   if (result.actedOnCluster) {
-    console.log(`acted-on       : class=${result.actedOnCluster.failureClass} `
-      + `runs=${result.actedOnCluster.runCount} `
-      + `scenarios=${result.actedOnCluster.scenarioIds.length}`)
+    console.log(
+      `acted-on       : class=${result.actedOnCluster.failureClass} ` +
+        `runs=${result.actedOnCluster.runCount} ` +
+        `scenarios=${result.actedOnCluster.scenarioIds.length}`,
+    )
   }
   if (result.gate) {
-    console.log(`gate           : promote=${result.gate.promote} `
-      + `medianΔ=${result.gate.evidence.medianPairedDelta.toFixed(3)} `
-      + `CI=[${result.gate.evidence.pairedCI.low.toFixed(3)}, `
-      + `${result.gate.evidence.pairedCI.high.toFixed(3)}]`)
+    console.log(
+      `gate           : promote=${result.gate.promote} ` +
+        `medianΔ=${result.gate.evidence.medianPairedDelta.toFixed(3)} ` +
+        `CI=[${result.gate.evidence.pairedCI.low.toFixed(3)}, ` +
+        `${result.gate.evidence.pairedCI.high.toFixed(3)}]`,
+    )
   }
   if (result.release) {
-    console.log(`release status : ${result.release.status} `
-      + `(passRate=${result.release.metrics.passRate.toFixed(3)} `
-      + `meanScore=${result.release.metrics.meanScore.toFixed(3)})`)
+    console.log(
+      `release status : ${result.release.status} ` +
+        `(passRate=${result.release.metrics.passRate.toFixed(3)} ` +
+        `meanScore=${result.release.metrics.meanScore.toFixed(3)})`,
+    )
   }
   if (result.pullRequest) {
     console.log('───────────────────────────────────────────────────────────────')

@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import {
   CallbackResearcher,
-  NoopResearcher,
   type ExperimentPlan,
+  NoopResearcher,
   type Researcher,
 } from '../src/researcher'
 
@@ -11,12 +11,12 @@ describe('NoopResearcher', () => {
     const r = new NoopResearcher()
     await expect(r.inspectFailures([])).rejects.toThrow(/inspectFailures not implemented/)
     await expect(r.proposeChange([])).rejects.toThrow(/proposeChange not implemented/)
-    await expect(
-      r.applyChange([], {} as unknown as ExperimentPlan),
-    ).rejects.toThrow(/applyChange not implemented/)
-    await expect(
-      r.evaluateChange({} as unknown as ExperimentPlan),
-    ).rejects.toThrow(/evaluateChange not implemented/)
+    await expect(r.applyChange([], {} as unknown as ExperimentPlan)).rejects.toThrow(
+      /applyChange not implemented/,
+    )
+    await expect(r.evaluateChange({} as unknown as ExperimentPlan)).rejects.toThrow(
+      /evaluateChange not implemented/,
+    )
   })
 
   it('honours a custom hint message', async () => {
@@ -35,16 +35,20 @@ describe('CallbackResearcher', () => {
       splits: { search: ['s1'], holdout: ['h1'] },
     }
     const researcher = new CallbackResearcher({
-      inspectFailures: async () => [{
-        code: 'missing-proof',
-        description: 'Missing executable proof',
-        evidence: { runIds: ['r1'], samples: 1 },
-      }],
-      proposeChange: async (failures) => [{
-        kind: 'threshold',
-        payload: { minProofCount: failures.length },
-        rationale: 'Require executable proof.',
-      }],
+      inspectFailures: async () => [
+        {
+          code: 'missing-proof',
+          description: 'Missing executable proof',
+          evidence: { runIds: ['r1'], samples: 1 },
+        },
+      ],
+      proposeChange: async (failures) => [
+        {
+          kind: 'threshold',
+          payload: { minProofCount: failures.length },
+          rationale: 'Require executable proof.',
+        },
+      ],
       applyChange: async (changes, plan) => ({
         ...plan,
         changes,
@@ -90,9 +94,15 @@ describe('Researcher interface — structural conformance', () => {
     // Compilation = test. If any method signature shifts in the
     // public type, this stops compiling.
     class Impl implements Researcher {
-      async inspectFailures() { return [] }
-      async proposeChange() { return [] }
-      async applyChange(_changes: unknown[], baseline: ExperimentPlan) { return baseline }
+      async inspectFailures() {
+        return []
+      }
+      async proposeChange() {
+        return []
+      }
+      async applyChange(_changes: unknown[], baseline: ExperimentPlan) {
+        return baseline
+      }
       async evaluateChange(plan: ExperimentPlan) {
         return {
           plan,

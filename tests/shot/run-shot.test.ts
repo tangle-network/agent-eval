@@ -3,13 +3,13 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
-  FsLabeledScenarioStore,
-  LabeledScenarioStoreError,
   type DispatchFn,
+  FsLabeledScenarioStore,
   type JudgeConfig,
+  LabeledScenarioStoreError,
+  runShot,
   type Scenario,
-  runCampaign,
-} from '../../src/campaign/index'
+} from '../../src/shot/index'
 
 interface FakeScenario extends Scenario {
   id: string
@@ -35,16 +35,16 @@ const SCENARIOS: FakeScenario[] = [
 let runDir: string
 
 beforeEach(() => {
-  runDir = mkdtempSync(join(tmpdir(), 'run-campaign-'))
+  runDir = mkdtempSync(join(tmpdir(), 'run-shot-'))
 })
 
 afterEach(() => {
   rmSync(runDir, { recursive: true, force: true })
 })
 
-describe('runCampaign — core primitive', () => {
-  it('runs every (scenario × rep) cell and returns a CampaignResult', async () => {
-    const result = await runCampaign({
+describe('runShot — core primitive', () => {
+  it('runs every (scenario × rep) cell and returns a ShotResult', async () => {
+    const result = await runShot({
       scenarios: SCENARIOS,
       dispatch: DISPATCH,
       reps: 2,
@@ -63,22 +63,22 @@ describe('runCampaign — core primitive', () => {
   })
 
   it('produces a stable manifestHash for identical inputs', async () => {
-    const r1 = await runCampaign({ scenarios: SCENARIOS, dispatch: DISPATCH, runDir })
-    const r2 = await runCampaign({
+    const r1 = await runShot({ scenarios: SCENARIOS, dispatch: DISPATCH, runDir })
+    const r2 = await runShot({
       scenarios: SCENARIOS,
       dispatch: DISPATCH,
-      runDir: mkdtempSync(join(tmpdir(), 'run-campaign-')),
+      runDir: mkdtempSync(join(tmpdir(), 'run-shot-')),
     })
     expect(r1.manifestHash).toBe(r2.manifestHash)
   })
 
   it('changes manifestHash when seed changes', async () => {
-    const r1 = await runCampaign({ scenarios: SCENARIOS, dispatch: DISPATCH, seed: 42, runDir })
-    const r2 = await runCampaign({
+    const r1 = await runShot({ scenarios: SCENARIOS, dispatch: DISPATCH, seed: 42, runDir })
+    const r2 = await runShot({
       scenarios: SCENARIOS,
       dispatch: DISPATCH,
       seed: 1337,
-      runDir: mkdtempSync(join(tmpdir(), 'run-campaign-')),
+      runDir: mkdtempSync(join(tmpdir(), 'run-shot-')),
     })
     expect(r1.manifestHash).not.toBe(r2.manifestHash)
   })
@@ -89,7 +89,7 @@ describe('runCampaign — core primitive', () => {
       seenSeeds.push(ctx.seed)
       return { text: '', intent: s.intent }
     }
-    await runCampaign({ scenarios: SCENARIOS, dispatch, seed: 100, reps: 2, runDir })
+    await runShot({ scenarios: SCENARIOS, dispatch, seed: 100, reps: 2, runDir })
     expect(seenSeeds.sort()).toEqual([100, 101, 102, 103])
   })
 
@@ -99,11 +99,11 @@ describe('runCampaign — core primitive', () => {
       dispatchCount += 1
       return { text: `${s.id}-${ctx.rep}`, intent: s.intent }
     }
-    await runCampaign({ scenarios: SCENARIOS, dispatch: counting, runDir })
+    await runShot({ scenarios: SCENARIOS, dispatch: counting, runDir })
     expect(dispatchCount).toBe(2)
 
     // Second run with same runDir + scenarios should hit cache.
-    const r2 = await runCampaign({ scenarios: SCENARIOS, dispatch: counting, runDir })
+    const r2 = await runShot({ scenarios: SCENARIOS, dispatch: counting, runDir })
     expect(dispatchCount).toBe(2) // no new dispatches
     expect(r2.cells.every((c) => c.cached)).toBe(true)
     expect(r2.aggregates.cellsCached).toBe(2)
@@ -114,7 +114,7 @@ describe('runCampaign — core primitive', () => {
       if (s.id === 'a') throw new Error('boom')
       return { text: 'ok', intent: s.intent }
     }
-    const result = await runCampaign({ scenarios: SCENARIOS, dispatch: flaky, runDir })
+    const result = await runShot({ scenarios: SCENARIOS, dispatch: flaky, runDir })
     expect(result.cells).toHaveLength(2)
     expect(result.aggregates.cellsFailed).toBe(1)
     expect(result.cells.find((c) => c.scenarioId === 'a')?.error).toContain('boom')
@@ -126,7 +126,7 @@ describe('runCampaign — core primitive', () => {
       ctx.cost.observe(10, 'expensive')
       return { text: '', intent: s.intent }
     }
-    const result = await runCampaign({
+    const result = await runShot({
       scenarios: [
         { id: 'a', kind: 'chat', intent: 'x' },
         { id: 'b', kind: 'chat', intent: 'y' },
@@ -149,7 +149,7 @@ describe('runCampaign — core primitive', () => {
       buildPrompt: () => '',
       appliesTo: (s) => s.id === 'a',
     }
-    const result = await runCampaign({
+    const result = await runShot({
       scenarios: SCENARIOS,
       dispatch: DISPATCH,
       judges: [judge],
@@ -162,7 +162,7 @@ describe('runCampaign — core primitive', () => {
   })
 
   it('writes spans.jsonl per cell', async () => {
-    await runCampaign({ scenarios: SCENARIOS.slice(0, 1), dispatch: DISPATCH, runDir })
+    await runShot({ scenarios: SCENARIOS.slice(0, 1), dispatch: DISPATCH, runDir })
     const cellDirs = readdirSync(runDir).filter((d) => d.startsWith('a_'))
     expect(cellDirs.length).toBeGreaterThan(0)
   })
@@ -192,15 +192,15 @@ describe('FsLabeledScenarioStore', () => {
   })
 
   it('rejects sample() without explicit split', async () => {
-    await expect(
-      store.sample({ count: 10 } as never),
-    ).rejects.toMatchObject({ code: 'split_required' })
+    await expect(store.sample({ count: 10 } as never)).rejects.toMatchObject({
+      code: 'split_required',
+    })
   })
 
   it('rejects sample() without capturedBefore', async () => {
-    await expect(
-      store.sample({ count: 10, split: 'train' } as never),
-    ).rejects.toMatchObject({ code: 'capturedBefore_required' })
+    await expect(store.sample({ count: 10, split: 'train' } as never)).rejects.toMatchObject({
+      code: 'capturedBefore_required',
+    })
   })
 
   it('excludes production-trace from train sample by default', async () => {
@@ -261,10 +261,18 @@ describe('FsLabeledScenarioStore', () => {
       redactionStatus: 'raw',
     })
 
-    const train = await store.sample({ count: 10, split: 'train', capturedBefore: '2026-03-01T00:00:00.000Z' })
+    const train = await store.sample({
+      count: 10,
+      split: 'train',
+      capturedBefore: '2026-03-01T00:00:00.000Z',
+    })
     expect(train.map((r) => r.scenario.id)).toEqual(['before'])
 
-    const test = await store.sample({ count: 10, split: 'test', capturedBefore: '2026-03-01T00:00:00.000Z' })
+    const test = await store.sample({
+      count: 10,
+      split: 'test',
+      capturedBefore: '2026-03-01T00:00:00.000Z',
+    })
     expect(test.map((r) => r.scenario.id)).toEqual(['after'])
   })
 
@@ -285,7 +293,9 @@ describe('FsLabeledScenarioStore', () => {
     })
     await tinyStore.observe(write('a'))
     await tinyStore.observe(write('b'))
-    await expect(tinyStore.observe(write('c'))).rejects.toMatchObject({ code: 'rate_limit_exceeded' })
+    await expect(tinyStore.observe(write('c'))).rejects.toMatchObject({
+      code: 'rate_limit_exceeded',
+    })
   })
 
   it('rate limit window resets after 60s', async () => {
@@ -312,7 +322,7 @@ describe('FsLabeledScenarioStore', () => {
   })
 })
 
-describe('runCampaign + LabeledScenarioStore integration', () => {
+describe('runShot + LabeledScenarioStore integration', () => {
   let storeDir: string
   let store: FsLabeledScenarioStore
 
@@ -327,7 +337,7 @@ describe('runCampaign + LabeledScenarioStore integration', () => {
 
   it('captures completed cells into the store by default', async () => {
     const spy = vi.spyOn(store, 'observe')
-    await runCampaign({
+    await runShot({
       scenarios: SCENARIOS,
       dispatch: DISPATCH,
       labeledStore: store,
@@ -340,7 +350,7 @@ describe('runCampaign + LabeledScenarioStore integration', () => {
 
   it('does not capture when labeledStore = "off"', async () => {
     const spy = vi.spyOn(store, 'observe')
-    await runCampaign({
+    await runShot({
       scenarios: SCENARIOS,
       dispatch: DISPATCH,
       labeledStore: 'off',
@@ -354,7 +364,7 @@ describe('runCampaign + LabeledScenarioStore integration', () => {
     const flaky: DispatchFn<FakeScenario, FakeArtifact> = async () => {
       throw new Error('boom')
     }
-    await runCampaign({
+    await runShot({
       scenarios: SCENARIOS,
       dispatch: flaky,
       labeledStore: store,

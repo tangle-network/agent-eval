@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { AxGepaSteeringOptimizer, PairwiseSteeringOptimizer } from '../src/steering-optimizer'
 import type { SteeringOptimizationRow } from '../src/steering-optimizer'
+import { AxGepaSteeringOptimizer, PairwiseSteeringOptimizer } from '../src/steering-optimizer'
 
 describe('steering optimizer', () => {
   it('ranks variants by aggregate score', () => {

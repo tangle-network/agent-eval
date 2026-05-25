@@ -4,19 +4,15 @@
  * failure capture, child id generation.
  */
 
-import { describe, it, expect, vi } from 'vitest'
-import { mkdtempSync, rmSync, readFileSync, existsSync } from 'node:fs'
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { describe, expect, it } from 'vitest'
 import { createSandboxCodeMutator } from '../src/code-mutator'
-import { createSandboxPool } from '../src/sandbox-pool'
-import {
-  CostLedger,
-  LineageRecorder,
-  MutationTelemetry,
-} from '../src/evolution-telemetry'
+import { CostLedger, LineageRecorder, MutationTelemetry } from '../src/evolution-telemetry'
 import { resetLockedAppendersForTesting } from '../src/locked-jsonl-appender'
 import type { EvolvableVariant, VariantAggregate } from '../src/prompt-evolution'
+import { createSandboxPool } from '../src/sandbox-pool'
 
 interface DummyResource {
   id: string
@@ -58,7 +54,9 @@ describe('createSandboxCodeMutator', () => {
     const pool = createSandboxPool<DummyResource>({
       size: 1,
       factory: {
-        async create(id) { return { id } },
+        async create(id) {
+          return { id }
+        },
         async destroy() {},
       },
     })
@@ -108,7 +106,9 @@ describe('createSandboxCodeMutator', () => {
       const pool = createSandboxPool<DummyResource>({
         size: 1,
         factory: {
-          async create(id) { return { id } },
+          async create(id) {
+            return { id }
+          },
           async destroy() {},
         },
       })
@@ -159,7 +159,9 @@ describe('createSandboxCodeMutator', () => {
       const pool = createSandboxPool<DummyResource>({
         size: 1,
         factory: {
-          async create(id) { return { id } },
+          async create(id) {
+            return { id }
+          },
           async destroy() {},
         },
       })
@@ -204,7 +206,9 @@ describe('createSandboxCodeMutator', () => {
       const pool = createSandboxPool<DummyResource>({
         size: 1,
         factory: {
-          async create(id) { return { id } },
+          async create(id) {
+            return { id }
+          },
           async destroy() {},
         },
       })
@@ -214,9 +218,7 @@ describe('createSandboxCodeMutator', () => {
 
       const mutator = createSandboxCodeMutator<DummyResource, DummyPayload>({
         pool,
-        runner: async () => [
-          { ok: true, description: 'change', latencyMs: 10, costUsd: 0.05 },
-        ],
+        runner: async () => [{ ok: true, description: 'change', latencyMs: 10, costUsd: 0.05 }],
         toVariantPayload: () => ({ text: 'mutated' }),
         lineage,
         costLedger,
@@ -254,7 +256,9 @@ describe('createSandboxCodeMutator', () => {
     const pool = createSandboxPool<DummyResource>({
       size: 1,
       factory: {
-        async create(id) { return { id } },
+        async create(id) {
+          return { id }
+        },
         async destroy() {},
       },
     })

@@ -1,11 +1,11 @@
-import { describe, it, expect } from 'vitest'
+import { describe, expect, it } from 'vitest'
+import type { GoldenSpec } from '../src/index'
 import {
+  DEFAULT_SEVERITY_WEIGHTS,
+  goldenPrecision,
   matchGoldens,
   weightedRecall,
-  goldenPrecision,
-  DEFAULT_SEVERITY_WEIGHTS,
 } from '../src/index'
-import type { GoldenSpec } from '../src/index'
 
 const goldens: GoldenSpec[] = [
   { id: 'a', severity: 'critical', any: ['primary action', 'no clear primary'], hint: '' },
@@ -22,7 +22,9 @@ describe('matchGoldens', () => {
   })
 
   it('default extract concatenates string fields', () => {
-    const r = matchGoldens(goldens, [{ description: 'buttons compete', location: 'equal weight grid' }])
+    const r = matchGoldens(goldens, [
+      { description: 'buttons compete', location: 'equal weight grid' },
+    ])
     expect(r.matches).toEqual([false, true, false])
   })
 
@@ -32,7 +34,9 @@ describe('matchGoldens', () => {
   })
 
   it('handles regex via anyRegex', () => {
-    const re: GoldenSpec[] = [{ id: 'r', severity: 'major', any: [], anyRegex: ['no\\s+primary'], hint: '' }]
+    const re: GoldenSpec[] = [
+      { id: 'r', severity: 'major', any: [], anyRegex: ['no\\s+primary'], hint: '' },
+    ]
     const r = matchGoldens(re, ['there is no    primary CTA'])
     expect(r.matches).toEqual([true])
   })
@@ -51,8 +55,12 @@ describe('matchGoldens', () => {
 describe('weightedRecall', () => {
   it('weights critical 3x, major 2x, minor 1x', () => {
     // total weight = 3 + 2 + 1 = 6
-    expect(weightedRecall(goldens, { matches: [true, false, false], hits: 1, total: 3 })).toBeCloseTo(3 / 6)
-    expect(weightedRecall(goldens, { matches: [false, true, false], hits: 1, total: 3 })).toBeCloseTo(2 / 6)
+    expect(
+      weightedRecall(goldens, { matches: [true, false, false], hits: 1, total: 3 }),
+    ).toBeCloseTo(3 / 6)
+    expect(
+      weightedRecall(goldens, { matches: [false, true, false], hits: 1, total: 3 }),
+    ).toBeCloseTo(2 / 6)
     expect(weightedRecall(goldens, { matches: [true, true, true], hits: 3, total: 3 })).toBe(1)
     expect(weightedRecall(goldens, { matches: [false, false, false], hits: 0, total: 3 })).toBe(0)
   })
@@ -64,7 +72,9 @@ describe('weightedRecall', () => {
   it('respects custom weights', () => {
     const custom = { ...DEFAULT_SEVERITY_WEIGHTS, critical: 10 }
     // weight = 10 + 2 + 1 = 13; hit critical only → 10/13
-    expect(weightedRecall(goldens, { matches: [true, false, false], hits: 1, total: 3 }, custom)).toBeCloseTo(10 / 13)
+    expect(
+      weightedRecall(goldens, { matches: [true, false, false], hits: 1, total: 3 }, custom),
+    ).toBeCloseTo(10 / 13)
   })
 })
 
@@ -83,7 +93,9 @@ describe('goldenPrecision', () => {
   })
 
   it('honours regex goldens for precision too', () => {
-    const re: GoldenSpec[] = [{ id: 'r', severity: 'major', any: [], anyRegex: ['p[a-z]+y action'], hint: '' }]
+    const re: GoldenSpec[] = [
+      { id: 'r', severity: 'major', any: [], anyRegex: ['p[a-z]+y action'], hint: '' },
+    ]
     expect(goldenPrecision(re, ['primary action found', 'noise'])).toBeCloseTo(1 / 2)
   })
 })

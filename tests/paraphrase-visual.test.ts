@@ -32,7 +32,11 @@ describe('paraphrase mutators', () => {
 
 describe('paraphraseRobustness', () => {
   it('returns robustness≈1 when scorer is invariant across mutators', async () => {
-    const r = await paraphraseRobustness('Do The Thing Right Now', DEFAULT_MUTATORS, async () => 0.7)
+    const r = await paraphraseRobustness(
+      'Do The Thing Right Now',
+      DEFAULT_MUTATORS,
+      async () => 0.7,
+    )
     expect(r.robustness).toBeCloseTo(1, 6)
     expect(r.variantScores).toHaveLength(DEFAULT_MUTATORS.length)
   })
@@ -71,8 +75,8 @@ describe('paraphraseRobustnessScenarios', () => {
     expect(r.perScenario).toHaveLength(2)
     for (const p of r.perScenario) {
       expect(p.originalScore).toBe(0.5)
-      expect(p.deltas['shout']).toBeCloseTo(0.5, 6)
-      expect(p.deltas['noop']).toBeCloseTo(0, 6)
+      expect(p.deltas.shout).toBeCloseTo(0.5, 6)
+      expect(p.deltas.noop).toBeCloseTo(0, 6)
       // half the paraphrased runs scored 1, half 0.5 → mean 0.75
       expect(p.paraphrasedMean).toBeCloseTo(0.75, 6)
     }
@@ -83,7 +87,7 @@ describe('paraphraseRobustnessScenarios', () => {
   it('clips to 0 when originals are all 0', async () => {
     const r = await paraphraseRobustnessScenarios({
       scenarios: [{ id: 's', userTurns: ['x'] }],
-      mutators: [{ name: 'm', mutator: (t) => t + '!' }],
+      mutators: [{ name: 'm', mutator: (t) => `${t}!` }],
       runScenario: async () => ({ score: 0 }),
     })
     expect(r.score).toBe(0)
@@ -93,7 +97,10 @@ describe('paraphraseRobustnessScenarios', () => {
     let calls = 0
     await paraphraseRobustnessScenarios({
       scenarios: [{ id: 's', userTurns: ['x'] }],
-      mutators: [{ name: 'a', mutator: (t) => t }, { name: 'b', mutator: (t) => t }],
+      mutators: [
+        { name: 'a', mutator: (t) => t },
+        { name: 'b', mutator: (t) => t },
+      ],
       reps: 3,
       runScenario: async () => {
         calls++
@@ -109,7 +116,10 @@ describe('visualDiff', () => {
   const makeImg = (w: number, h: number, fill: [number, number, number, number]): Uint8Array => {
     const data = new Uint8Array(w * h * 4)
     for (let i = 0; i < data.length; i += 4) {
-      data[i] = fill[0]; data[i + 1] = fill[1]; data[i + 2] = fill[2]; data[i + 3] = fill[3]
+      data[i] = fill[0]
+      data[i + 1] = fill[1]
+      data[i + 2] = fill[2]
+      data[i + 3] = fill[3]
     }
     return data
   }
@@ -139,7 +149,9 @@ describe('visualDiff', () => {
   it('throws on dim mismatch — regression: silent resize would mask regressions', () => {
     const a = new Uint8Array(4)
     const b = new Uint8Array(4)
-    expect(() => visualDiff({ width: 1, height: 1, data: a }, { width: 2, height: 2, data: b })).toThrow(/dims differ/)
+    expect(() =>
+      visualDiff({ width: 1, height: 1, data: a }, { width: 2, height: 2, data: b }),
+    ).toThrow(/dims differ/)
   })
 
   it('pixelDeltaRatio shortcut', () => {

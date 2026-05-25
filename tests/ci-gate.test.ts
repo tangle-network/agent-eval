@@ -3,7 +3,11 @@ import { evaluateContract, renderMarkdownReport } from '../src/ci-gate'
 import { DEFAULT_AGENT_SLOS } from '../src/slo'
 import { InMemoryTraceStore, TraceEmitter } from '../src/trace'
 
-async function seedRuns(store: InMemoryTraceStore, variantId: string, scores: number[]): Promise<void> {
+async function seedRuns(
+  store: InMemoryTraceStore,
+  variantId: string,
+  scores: number[],
+): Promise<void> {
   for (const s of scores) {
     const e = new TraceEmitter(store)
     await e.startRun({ scenarioId: 'scn', variantId })

@@ -1,15 +1,14 @@
-import { describe, it, expect } from 'vitest'
-import { mkdtempSync, writeFileSync, mkdirSync, rmSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { describe, expect, it } from 'vitest'
 import {
-  scanForMuffledGates,
-  formatFindings,
   DEFAULT_FINDERS,
-  UNIVERSAL_FINDERS,
-  findFallbackToPass,
   findConstructorCwdDropped,
-  findSkipCountsAsPass,
+  findFallbackToPass,
+  formatFindings,
+  scanForMuffledGates,
+  UNIVERSAL_FINDERS,
 } from '../src/muffled-gate-scanner'
 
 /**
@@ -153,7 +152,12 @@ describe('muffled-gate-scanner', () => {
 
   it('formatFindings returns assert.fail-ready message with file:line + pattern + line body', () => {
     const msg = formatFindings([
-      { file: 'src/a.ts', line: 42, lineText: "testCommand: 'foo || true',", pattern: 'fallback-to-pass' },
+      {
+        file: 'src/a.ts',
+        line: 42,
+        lineText: "testCommand: 'foo || true',",
+        pattern: 'fallback-to-pass',
+      },
     ])
     expect(msg).toMatch(/src\/a\.ts:42/)
     expect(msg).toMatch(/fallback-to-pass/)

@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import * as builderEval from '../src/builder-eval/index'
+import type { JudgeScoresRecord, RunOutcome } from '../src/index'
 import * as agentEval from '../src/index'
 import * as rl from '../src/rl/index'
-import type { JudgeScoresRecord, RunOutcome } from '../src/index'
 
 /**
  * Public-surface contract for `@tangle-network/agent-eval`.

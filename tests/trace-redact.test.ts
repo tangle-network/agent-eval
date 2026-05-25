@@ -3,7 +3,8 @@ import { DEFAULT_REDACTION_RULES, redactString, redactValue } from '../src/trace
 
 describe('redactString', () => {
   it('redacts email, ssn, credit card, bearer — regression: missing these leaks PII into traces', () => {
-    const input = 'Contact me at jane.doe@example.com, SSN 123-45-6789, card 4111 1111 1111 1111, Bearer eyJhbGciOi123456.abcdefg'
+    const input =
+      'Contact me at jane.doe@example.com, SSN 123-45-6789, card 4111 1111 1111 1111, Bearer eyJhbGciOi123456.abcdefg'
     const { output, report } = redactString(input)
     expect(output).not.toContain('jane.doe@example.com')
     expect(output).not.toContain('123-45-6789')
@@ -21,7 +22,9 @@ describe('redactString', () => {
   })
 
   it('accepts custom rules', () => {
-    const { output } = redactString('API_KEY=sk-tan-abcd', [{ id: 'tangle-key', pattern: /sk-tan-[A-Za-z0-9]+/g }])
+    const { output } = redactString('API_KEY=sk-tan-abcd', [
+      { id: 'tangle-key', pattern: /sk-tan-[A-Za-z0-9]+/g },
+    ])
     expect(output).toContain('[redacted:tangle-key]')
   })
 })
@@ -45,7 +48,9 @@ describe('redactValue', () => {
   })
 
   it('DEFAULT_REDACTION_RULES catches AWS + private key markers', () => {
-    const { output } = redactString('aws AKIAIOSFODNN7EXAMPLE leaked\n-----BEGIN PRIVATE KEY-----\nMIIE\n-----END PRIVATE KEY-----')
+    const { output } = redactString(
+      'aws AKIAIOSFODNN7EXAMPLE leaked\n-----BEGIN PRIVATE KEY-----\nMIIE\n-----END PRIVATE KEY-----',
+    )
     expect(output).toContain('[redacted:aws-access-key]')
     expect(output).toContain('[redacted:private-key-block]')
     expect(DEFAULT_REDACTION_RULES.find((r) => r.id === 'ssn')).toBeDefined()

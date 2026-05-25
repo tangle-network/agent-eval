@@ -1,13 +1,23 @@
-import { describe, it, expect } from 'vitest'
-import { coherenceJudge } from '../src/judges'
 import type { TCloud } from '@tangle-network/tcloud'
+import { describe, expect, it } from 'vitest'
+import { coherenceJudge } from '../src/judges'
 
 const noopTc = {
   chat: async () => ({ choices: [{ message: { content: '[]' } }] }),
 } as unknown as TCloud
 
-const baseScenario = { thesis: 'test', persona: 'p', firstMessage: 'hi', turns: [], expectedOutcome: '' }
-const turn = (userMessage: string, agentResponse: string) => ({ userMessage, agentResponse, latencyMs: 0 })
+const baseScenario = {
+  thesis: 'test',
+  persona: 'p',
+  firstMessage: 'hi',
+  turns: [],
+  expectedOutcome: '',
+}
+const turn = (userMessage: string, agentResponse: string) => ({
+  userMessage,
+  agentResponse,
+  latencyMs: 0,
+})
 
 describe('coherenceJudge', () => {
   it('emits no judge scores for single-turn scenarios (regression)', async () => {

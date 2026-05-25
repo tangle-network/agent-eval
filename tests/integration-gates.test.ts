@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { classifyFailure } from '../src/failure-taxonomy'
 import {
   integrationAsi,
   integrationGateEvals,
@@ -6,7 +7,6 @@ import {
   integrationManifestResolvedPayload,
   integrationManifestValidatedPayload,
 } from '../src/integration-gates'
-import { classifyFailure } from '../src/failure-taxonomy'
 import type { Run, TraceEvent } from '../src/trace/schema'
 
 const failedRun: Run = {
@@ -72,7 +72,9 @@ describe('integration gate helpers', () => {
       }),
     }
 
-    expect(classifyFailure({ run: failedRun, spans: [], events: [event] }).failureClass).toBe('missing_integration_connection')
+    expect(classifyFailure({ run: failedRun, spans: [], events: [event] }).failureClass).toBe(
+      'missing_integration_connection',
+    )
   })
 
   it('emits manifest payloads that classify missing scopes', () => {
@@ -89,7 +91,9 @@ describe('integration gate helpers', () => {
       }),
     }
 
-    expect(classifyFailure({ run: failedRun, spans: [], events: [event] }).failureClass).toBe('missing_integration_scope')
+    expect(classifyFailure({ run: failedRun, spans: [], events: [event] }).failureClass).toBe(
+      'missing_integration_scope',
+    )
   })
 
   it.each([
@@ -113,16 +117,20 @@ describe('integration gate helpers', () => {
       }),
     }
 
-    expect(classifyFailure({ run: failedRun, spans: [], events: [event] }).failureClass).toBe(failureClass)
+    expect(classifyFailure({ run: failedRun, spans: [], events: [event] }).failureClass).toBe(
+      failureClass,
+    )
   })
 
   it('maps blocked gates into actionable side information', () => {
-    expect(integrationAsi({
-      connectorId: 'github',
-      actionId: 'issues.create',
-      valid: true,
-      approvalRequired: true,
-    })).toMatchObject({
+    expect(
+      integrationAsi({
+        connectorId: 'github',
+        actionId: 'issues.create',
+        valid: true,
+        approvalRequired: true,
+      }),
+    ).toMatchObject({
       responsibleSurface: 'integration-approval',
       severity: 'error',
     })

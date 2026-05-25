@@ -1,12 +1,12 @@
 import { describe, expect, it } from 'vitest'
+import type { VerificationReport } from '../src/multi-layer-verifier'
+import type { TrialResult, VariantAggregate } from '../src/prompt-evolution'
 import {
-  trialToRunRecord,
   trialsToRunRecords,
+  trialToRunRecord,
   variantAggregateToRunRecord,
   verificationReportToRunRecord,
 } from '../src/rl/run-record-adapters'
-import type { TrialResult, VariantAggregate } from '../src/prompt-evolution'
-import type { VerificationReport } from '../src/multi-layer-verifier'
 
 const ctx = {
   experimentId: 'exp-1',
@@ -64,8 +64,8 @@ describe('trialToRunRecord', () => {
   it('accepts callable hash extractors for per-trial hashes', () => {
     const rec = trialToRunRecord(trial, {
       ...ctx,
-      promptHash: (t) => 'a'.repeat(64),
-      configHash: (t) => 'b'.repeat(64),
+      promptHash: (_t) => 'a'.repeat(64),
+      configHash: (_t) => 'b'.repeat(64),
     })
     expect(rec.promptHash).toBe('a'.repeat(64))
     expect(rec.configHash).toBe('b'.repeat(64))
@@ -83,10 +83,27 @@ describe('verificationReportToRunRecord', () => {
   const report: VerificationReport = {
     layers: [
       { layer: 'install', status: 'pass', score: 1, durationMs: 100, findings: [] },
-      { layer: 'typecheck', status: 'pass', score: 1, durationMs: 200, findings: [], diagnostics: { errors: 0, warnings: 2 } },
-      { layer: 'test', status: 'fail', score: 0.6, durationMs: 500, findings: [{ severity: 'major', message: 'one test failing' }], reason: '7 of 10 tests passed' },
+      {
+        layer: 'typecheck',
+        status: 'pass',
+        score: 1,
+        durationMs: 200,
+        findings: [],
+        diagnostics: { errors: 0, warnings: 2 },
+      },
+      {
+        layer: 'test',
+        status: 'fail',
+        score: 0.6,
+        durationMs: 500,
+        findings: [{ severity: 'major', message: 'one test failing' }],
+        reason: '7 of 10 tests passed',
+      },
     ],
-    passCount: 2, failCount: 1, skippedCount: 0, errorCount: 0,
+    passCount: 2,
+    failCount: 1,
+    skippedCount: 0,
+    errorCount: 0,
     allPass: false,
     blendedScore: 0.83,
     durationMs: 800,
@@ -101,8 +118,8 @@ describe('verificationReportToRunRecord', () => {
     expect(rec.outcome.raw['layer.install']).toBe(1)
     expect(rec.outcome.raw['layer.typecheck']).toBe(1)
     expect(rec.outcome.raw['layer.test']).toBe(0.6)
-    expect(rec.outcome.raw['layer_test_pass']).toBe(0)
-    expect(rec.outcome.raw['layer_install_pass']).toBe(1)
+    expect(rec.outcome.raw.layer_test_pass).toBe(0)
+    expect(rec.outcome.raw.layer_install_pass).toBe(1)
     expect(rec.outcome.raw['layer.typecheck.errors']).toBe(0)
     expect(rec.outcome.raw['layer.typecheck.warnings']).toBe(2)
     expect(rec.failureMode).toBe('layer_test_fail')

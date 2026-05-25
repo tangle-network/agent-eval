@@ -1,13 +1,13 @@
 import { describe, expect, it } from 'vitest'
 import {
+  type HarnessAdapter,
+  type HarnessRunRequest,
   runHarnessExperiment,
   selectHarnessVariant,
   summarizeHarnessResults,
-  type HarnessAdapter,
-  type HarnessRunRequest,
 } from '../src/harness-optimizer'
-import type { RunScore } from '../src/run-score'
 import type { RunTrace } from '../src/run-critic'
+import type { RunScore } from '../src/run-score'
 
 describe('harness optimizer', () => {
   it('runs the full variant x scenario x trial matrix and promotes the best topology', async () => {
@@ -23,7 +23,10 @@ describe('harness optimizer', () => {
       adapter,
       variants: [
         { id: 'linear', topology: { id: 'linear', interventions: ['continue', 'verify'] } },
-        { id: 'adaptive', topology: { id: 'adaptive', interventions: ['audit', 'repair', 'final_gate'] } },
+        {
+          id: 'adaptive',
+          topology: { id: 'adaptive', interventions: ['audit', 'repair', 'final_gate'] },
+        },
       ],
       scenarios: [
         { id: 'privacy', task: 'remove local PII' },
@@ -48,7 +51,10 @@ describe('harness optimizer', () => {
 
     const selection = selectHarnessVariant(reports.flatMap((r) => r.runs))
     expect(selection.winner.variant.id).toBe('accurate')
-    expect(selection.frontier.frontier.map((r) => r.variant.id).sort()).toEqual(['accurate', 'cheap'])
+    expect(selection.frontier.frontier.map((r) => r.variant.id).sort()).toEqual([
+      'accurate',
+      'cheap',
+    ])
     expect(selection.frontier.dominated.map((r) => r.variant.id)).toEqual(['weak'])
   })
 })
@@ -66,12 +72,42 @@ function traceFor(request: HarnessRunRequest): RunTrace {
       outcome: { pass: strong, score: strong ? 0.95 : 0.55 },
     },
     spans: [
-      { runId: 'r', spanId: 'tool', kind: 'tool', name: 'apply_patch', toolName: 'apply_patch', args: {}, startedAt: 1, status: 'ok' },
-      { runId: 'r', spanId: 'test', kind: 'sandbox', name: 'pnpm test', command: 'pnpm test', testsTotal: 10, testsPassed: strong ? 10 : 6, startedAt: 2 },
+      {
+        runId: 'r',
+        spanId: 'tool',
+        kind: 'tool',
+        name: 'apply_patch',
+        toolName: 'apply_patch',
+        args: {},
+        startedAt: 1,
+        status: 'ok',
+      },
+      {
+        runId: 'r',
+        spanId: 'test',
+        kind: 'sandbox',
+        name: 'pnpm test',
+        command: 'pnpm test',
+        testsTotal: 10,
+        testsPassed: strong ? 10 : 6,
+        startedAt: 2,
+      },
     ],
     events: [],
-    artifacts: [{ artifactId: 'patch', runId: 'r', contentType: 'text/x-diff', sizeBytes: 10, hash: 'abc' }],
-    budget: [{ runId: 'r', dimension: 'usd', limit: 1, consumed: strong ? 0.2 : 0.1, remaining: 0.8, timestamp: 3, breached: false }],
+    artifacts: [
+      { artifactId: 'patch', runId: 'r', contentType: 'text/x-diff', sizeBytes: 10, hash: 'abc' },
+    ],
+    budget: [
+      {
+        runId: 'r',
+        dimension: 'usd',
+        limit: 1,
+        consumed: strong ? 0.2 : 0.1,
+        remaining: 0.8,
+        timestamp: 3,
+        breached: false,
+      },
+    ],
   }
 }
 
@@ -94,7 +130,13 @@ function run(id: string, success: number, progress: number, costUsd: number, wal
     scenario: { id: 's', task: 'task' },
     trialIndex: 0,
     trace: {
-      run: { runId: id, scenarioId: 's', startedAt: 0, status: 'completed', outcome: { pass: success > 0.5, score: progress } },
+      run: {
+        runId: id,
+        scenarioId: 's',
+        startedAt: 0,
+        status: 'completed',
+        outcome: { pass: success > 0.5, score: progress },
+      },
       spans: [],
       events: [],
       artifacts: [],

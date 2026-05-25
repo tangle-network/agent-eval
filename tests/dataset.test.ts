@@ -62,7 +62,10 @@ describe('Dataset', () => {
   })
 
   it('manifest content hash is stable for same scenarios', async () => {
-    const sc = [{ id: 'b', payload: { q: 1 } }, { id: 'a', payload: { q: 2 } }]
+    const sc = [
+      { id: 'b', payload: { q: 1 } },
+      { id: 'a', payload: { q: 2 } },
+    ]
     const a = await hashScenarios(sc)
     const b = await hashScenarios(sc.slice().reverse())
     expect(a).toBe(b) // order-independent via sort
@@ -72,7 +75,10 @@ describe('Dataset', () => {
     const d = new Dataset({
       name: 'x',
       provenance: baseProvenance(),
-      scenarios: [{ id: 'b', payload: 1 }, { id: 'a', payload: 2 }],
+      scenarios: [
+        { id: 'b', payload: 1 },
+        { id: 'a', payload: 2 },
+      ],
     })
     const jsonl = d.toJsonl()
     const d2 = Dataset.fromJsonl(jsonl, { name: 'x', provenance: baseProvenance() })
@@ -80,7 +86,11 @@ describe('Dataset', () => {
   })
 
   it('rejects duplicate id on add', () => {
-    const d = new Dataset({ name: 'x', provenance: baseProvenance(), scenarios: [{ id: 'a', payload: {} }] })
+    const d = new Dataset({
+      name: 'x',
+      provenance: baseProvenance(),
+      scenarios: [{ id: 'a', payload: {} }],
+    })
     expect(() => d.add({ id: 'a', payload: {} })).toThrow(/duplicate/)
   })
 })

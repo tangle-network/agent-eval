@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from 'vitest'
+import { beforeEach, describe, expect, it } from 'vitest'
 import { ExperimentTracker, InMemoryExperimentStore } from '../src/experiment-tracker'
 import type { BenchmarkReport } from '../src/types'
 
@@ -9,8 +9,28 @@ function report(overrides: Partial<BenchmarkReport> = {}): BenchmarkReport {
     promptVersion: 'v1',
     scenarioCount: 2,
     results: [
-      { scenarioId: 's1', persona: 'p', turns: [], artifactResults: [], judgeScores: [], judgeErrors: 0, overallScore: 0.8, totalDurationMs: 100, artifacts: { vaultFiles: [], blocksExtracted: [], codeBlocks: [], toolCalls: [] } },
-      { scenarioId: 's2', persona: 'p', turns: [], artifactResults: [], judgeScores: [], judgeErrors: 0, overallScore: 0.6, totalDurationMs: 200, artifacts: { vaultFiles: [], blocksExtracted: [], codeBlocks: [], toolCalls: [] } },
+      {
+        scenarioId: 's1',
+        persona: 'p',
+        turns: [],
+        artifactResults: [],
+        judgeScores: [],
+        judgeErrors: 0,
+        overallScore: 0.8,
+        totalDurationMs: 100,
+        artifacts: { vaultFiles: [], blocksExtracted: [], codeBlocks: [], toolCalls: [] },
+      },
+      {
+        scenarioId: 's2',
+        persona: 'p',
+        turns: [],
+        artifactResults: [],
+        judgeScores: [],
+        judgeErrors: 0,
+        overallScore: 0.6,
+        totalDurationMs: 200,
+        artifacts: { vaultFiles: [], blocksExtracted: [], codeBlocks: [], toolCalls: [] },
+      },
     ],
     summary: { overallAvg: 0.7, byPersona: {}, byDimension: {}, weakest: [], strongest: [] },
     ...overrides,
@@ -57,27 +77,85 @@ describe('ExperimentTracker — lifecycle', () => {
 describe('ExperimentTracker — diff', () => {
   let tracker: ExperimentTracker
 
-  beforeEach(() => { tracker = new ExperimentTracker(new InMemoryExperimentStore()) })
+  beforeEach(() => {
+    tracker = new ExperimentTracker(new InMemoryExperimentStore())
+  })
 
   it('scenario delta: improved/regressed/added/removed, aggregate delta, config changes', async () => {
     const exp = await tracker.startExperiment('prompt-tuning')
-    const a = await tracker.startRun({ experimentId: exp.id, name: 'v1', promptVersion: 'v1', model: 'sonnet' })
-    await tracker.completeRun(a.id, report({
-      results: [
-        { scenarioId: 's1', persona: 'p', turns: [], artifactResults: [], judgeScores: [], judgeErrors: 0, overallScore: 0.8, totalDurationMs: 0, artifacts: { vaultFiles: [], blocksExtracted: [], codeBlocks: [], toolCalls: [] } },
-        { scenarioId: 's_dropped', persona: 'p', turns: [], artifactResults: [], judgeScores: [], judgeErrors: 0, overallScore: 0.7, totalDurationMs: 0, artifacts: { vaultFiles: [], blocksExtracted: [], codeBlocks: [], toolCalls: [] } },
-      ],
-      summary: { overallAvg: 0.75, byPersona: {}, byDimension: {}, weakest: [], strongest: [] },
-    }))
+    const a = await tracker.startRun({
+      experimentId: exp.id,
+      name: 'v1',
+      promptVersion: 'v1',
+      model: 'sonnet',
+    })
+    await tracker.completeRun(
+      a.id,
+      report({
+        results: [
+          {
+            scenarioId: 's1',
+            persona: 'p',
+            turns: [],
+            artifactResults: [],
+            judgeScores: [],
+            judgeErrors: 0,
+            overallScore: 0.8,
+            totalDurationMs: 0,
+            artifacts: { vaultFiles: [], blocksExtracted: [], codeBlocks: [], toolCalls: [] },
+          },
+          {
+            scenarioId: 's_dropped',
+            persona: 'p',
+            turns: [],
+            artifactResults: [],
+            judgeScores: [],
+            judgeErrors: 0,
+            overallScore: 0.7,
+            totalDurationMs: 0,
+            artifacts: { vaultFiles: [], blocksExtracted: [], codeBlocks: [], toolCalls: [] },
+          },
+        ],
+        summary: { overallAvg: 0.75, byPersona: {}, byDimension: {}, weakest: [], strongest: [] },
+      }),
+    )
 
-    const b = await tracker.startRun({ experimentId: exp.id, name: 'v2', promptVersion: 'v2', model: 'opus' })
-    await tracker.completeRun(b.id, report({
-      results: [
-        { scenarioId: 's1', persona: 'p', turns: [], artifactResults: [], judgeScores: [], judgeErrors: 0, overallScore: 0.9, totalDurationMs: 0, artifacts: { vaultFiles: [], blocksExtracted: [], codeBlocks: [], toolCalls: [] } },
-        { scenarioId: 's_new', persona: 'p', turns: [], artifactResults: [], judgeScores: [], judgeErrors: 0, overallScore: 0.85, totalDurationMs: 0, artifacts: { vaultFiles: [], blocksExtracted: [], codeBlocks: [], toolCalls: [] } },
-      ],
-      summary: { overallAvg: 0.875, byPersona: {}, byDimension: {}, weakest: [], strongest: [] },
-    }))
+    const b = await tracker.startRun({
+      experimentId: exp.id,
+      name: 'v2',
+      promptVersion: 'v2',
+      model: 'opus',
+    })
+    await tracker.completeRun(
+      b.id,
+      report({
+        results: [
+          {
+            scenarioId: 's1',
+            persona: 'p',
+            turns: [],
+            artifactResults: [],
+            judgeScores: [],
+            judgeErrors: 0,
+            overallScore: 0.9,
+            totalDurationMs: 0,
+            artifacts: { vaultFiles: [], blocksExtracted: [], codeBlocks: [], toolCalls: [] },
+          },
+          {
+            scenarioId: 's_new',
+            persona: 'p',
+            turns: [],
+            artifactResults: [],
+            judgeScores: [],
+            judgeErrors: 0,
+            overallScore: 0.85,
+            totalDurationMs: 0,
+            artifacts: { vaultFiles: [], blocksExtracted: [], codeBlocks: [], toolCalls: [] },
+          },
+        ],
+        summary: { overallAvg: 0.875, byPersona: {}, byDimension: {}, weakest: [], strongest: [] },
+      }),
+    )
 
     const diff = await tracker.diff(a.id, b.id)
     expect(diff.aggregateDelta).toBeCloseTo(0.125, 3)
@@ -96,9 +174,19 @@ describe('ExperimentTracker — diff', () => {
   it('timeline returns runs chronologically', async () => {
     const exp = await tracker.startExperiment('timeline')
     const a = await tracker.startRun({ experimentId: exp.id })
-    await tracker.completeRun(a.id, report({ summary: { overallAvg: 0.6, byPersona: {}, byDimension: {}, weakest: [], strongest: [] } }))
+    await tracker.completeRun(
+      a.id,
+      report({
+        summary: { overallAvg: 0.6, byPersona: {}, byDimension: {}, weakest: [], strongest: [] },
+      }),
+    )
     const b = await tracker.startRun({ experimentId: exp.id })
-    await tracker.completeRun(b.id, report({ summary: { overallAvg: 0.8, byPersona: {}, byDimension: {}, weakest: [], strongest: [] } }))
+    await tracker.completeRun(
+      b.id,
+      report({
+        summary: { overallAvg: 0.8, byPersona: {}, byDimension: {}, weakest: [], strongest: [] },
+      }),
+    )
     const timeline = await tracker.timeline(exp.id)
     expect(timeline.map((t) => t.overall)).toEqual([0.6, 0.8])
   })

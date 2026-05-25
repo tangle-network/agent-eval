@@ -5,7 +5,7 @@
  * generations: mutator produces K candidate surfaces per generation, each
  * candidate runs a campaign, top-scoring promote to next generation.
  *
- * Phase 2 implementation: SCAFFOLD that wraps `runCampaign` for each
+ * Phase 2 implementation: SCAFFOLD that wraps `runShot` for each
  * generation. The full reflective-mutation / AxGEPA mutator wiring lands
  * when consumer migrations need it (gtm/legal/tax already have working
  * `run-prompt-evolution.ts` flows — those become inputs to the mutator
@@ -17,18 +17,18 @@
  */
 
 import { createHash } from 'node:crypto'
-import { type RunCampaignOptions, runCampaign } from '../run-campaign'
-import type { CampaignResult, GenerationRecord, MutableSurface, Mutator, Scenario } from '../types'
+import { type RunShotOptions, runShot } from '../run-shot'
+import type { GenerationRecord, MutableSurface, Mutator, Scenario, ShotResult } from '../types'
 
 export interface RunOptimizationOptions<TScenario extends Scenario, TArtifact>
-  extends Omit<RunCampaignOptions<TScenario, TArtifact>, 'dispatch'> {
+  extends Omit<RunShotOptions<TScenario, TArtifact>, 'dispatch'> {
   /** Initial mutable surface (typically system prompt or addendum). */
   baselineSurface: MutableSurface
   /** Dispatcher that takes the CURRENT surface + scenario → artifact. */
   dispatchWithSurface: (
     surface: MutableSurface,
     scenario: TScenario,
-    ctx: Parameters<RunCampaignOptions<TScenario, TArtifact>['dispatch']>[1],
+    ctx: Parameters<RunShotOptions<TScenario, TArtifact>['dispatch']>[1],
   ) => Promise<TArtifact>
   mutator: Mutator
   populationSize: number
@@ -43,12 +43,12 @@ export interface RunOptimizationResult<TArtifact, TScenario extends Scenario> {
     surfaces: Array<{
       surfaceHash: string
       surface: MutableSurface
-      campaign: CampaignResult<TArtifact, TScenario>
+      campaign: ShotResult<TArtifact, TScenario>
     }>
   }>
   winnerSurface: MutableSurface
   winnerSurfaceHash: string
-  baselineCampaign: CampaignResult<TArtifact, TScenario>
+  baselineShot: ShotResult<TArtifact, TScenario>
 }
 
 export async function runOptimization<TScenario extends Scenario, TArtifact>(
@@ -57,7 +57,7 @@ export async function runOptimization<TScenario extends Scenario, TArtifact>(
   const promoteTopK = opts.promoteTopK ?? 2
 
   // Baseline run
-  const baselineCampaign = await runCampaign<TScenario, TArtifact>({
+  const baselineShot = await runShot<TScenario, TArtifact>({
     ...opts,
     dispatch: (scenario, ctx) => opts.dispatchWithSurface(opts.baselineSurface, scenario, ctx),
     runDir: `${opts.runDir}/baseline`,
@@ -67,7 +67,7 @@ export async function runOptimization<TScenario extends Scenario, TArtifact>(
   let currentSurfaces: MutableSurface[] = [opts.baselineSurface]
   let winnerSurface = opts.baselineSurface
   let winnerSurfaceHash = surfaceHash(opts.baselineSurface)
-  let winnerComposite = meanComposite(baselineCampaign)
+  let winnerComposite = meanComposite(baselineShot)
 
   for (let gen = 0; gen < opts.maxGenerations; gen++) {
     // Mutate: produce N candidates from the current top surfaces.
@@ -82,13 +82,13 @@ export async function runOptimization<TScenario extends Scenario, TArtifact>(
     const surfaceResults: Array<{
       surfaceHash: string
       surface: MutableSurface
-      campaign: CampaignResult<TArtifact, TScenario>
+      campaign: ShotResult<TArtifact, TScenario>
       composite: number
     }> = []
     for (let i = 0; i < candidates.length; i++) {
       const surface = candidates[i] as MutableSurface
       const hash = surfaceHash(surface)
-      const campaign = await runCampaign<TScenario, TArtifact>({
+      const campaign = await runShot<TScenario, TArtifact>({
         ...opts,
         dispatch: (scenario, ctx) => opts.dispatchWithSurface(surface, scenario, ctx),
         runDir: `${opts.runDir}/gen-${gen}/candidate-${i}`,
@@ -130,7 +130,7 @@ export async function runOptimization<TScenario extends Scenario, TArtifact>(
     generations,
     winnerSurface,
     winnerSurfaceHash,
-    baselineCampaign,
+    baselineShot,
   }
 }
 
@@ -139,7 +139,7 @@ export function surfaceHash(surface: MutableSurface): string {
 }
 
 function meanComposite<TArtifact, TScenario extends Scenario>(
-  campaign: CampaignResult<TArtifact, TScenario>,
+  campaign: ShotResult<TArtifact, TScenario>,
 ): number {
   const composites: number[] = []
   for (const cell of campaign.cells) {

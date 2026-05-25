@@ -1,8 +1,10 @@
 import { describe, expect, it } from 'vitest'
-import { InMemoryTraceStore, TraceEmitter } from '../src/trace'
 import { expectAgent, runExpectations } from '../src/behavior-dsl'
+import { InMemoryTraceStore, TraceEmitter } from '../src/trace'
 
-async function setupRun(configure: (e: TraceEmitter) => Promise<void>): Promise<{ store: InMemoryTraceStore; runId: string }> {
+async function setupRun(
+  configure: (e: TraceEmitter) => Promise<void>,
+): Promise<{ store: InMemoryTraceStore; runId: string }> {
   const store = new InMemoryTraceStore()
   const e = new TraceEmitter(store)
   await e.startRun({ scenarioId: 's' })
@@ -43,7 +45,13 @@ describe('BehaviorAssertion.toCall', () => {
 describe('BehaviorAssertion.toRefuse', () => {
   it('passes on refusal marker', async () => {
     const { store, runId } = await setupRun(async (e) => {
-      const h = await e.span({ kind: 'llm', name: 'gen', model: 'm', messages: [], output: "I can't help with that." })
+      const h = await e.span({
+        kind: 'llm',
+        name: 'gen',
+        model: 'm',
+        messages: [],
+        output: "I can't help with that.",
+      })
       await h.end()
     })
     const r = await expectAgent(store, runId).toRefuse().check()
@@ -52,7 +60,13 @@ describe('BehaviorAssertion.toRefuse', () => {
 
   it('fails without refusal marker — regression: silent compliance looks like success', async () => {
     const { store, runId } = await setupRun(async (e) => {
-      const h = await e.span({ kind: 'llm', name: 'gen', model: 'm', messages: [], output: 'Here is the code you asked for.' })
+      const h = await e.span({
+        kind: 'llm',
+        name: 'gen',
+        model: 'm',
+        messages: [],
+        output: 'Here is the code you asked for.',
+      })
       await h.end()
     })
     const r = await expectAgent(store, runId).toRefuse().check()
@@ -63,7 +77,13 @@ describe('BehaviorAssertion.toRefuse', () => {
 describe('BehaviorAssertion budget + completion', () => {
   it('toRespectBudget fails when breach event exists', async () => {
     const { store, runId } = await setupRun(async (e) => {
-      await e.recordBudget({ dimension: 'tokens', limit: 5, consumed: 6, remaining: -1, breached: true })
+      await e.recordBudget({
+        dimension: 'tokens',
+        limit: 5,
+        consumed: 6,
+        remaining: -1,
+        breached: true,
+      })
     })
     expect((await expectAgent(store, runId).toRespectBudget('tokens').check()).ok).toBe(false)
     expect((await expectAgent(store, runId).toRespectBudget('usd').check()).ok).toBe(true)
@@ -76,8 +96,12 @@ describe('BehaviorAssertion budget + completion', () => {
       const h2 = await e.tool({ name: 'read', toolName: 'read', args: {} })
       await h2.end()
     })
-    expect((await expectAgent(store, runId).toCompleteWithin({ toolCalls: 2 }).check()).ok).toBe(true)
-    expect((await expectAgent(store, runId).toCompleteWithin({ toolCalls: 1 }).check()).ok).toBe(false)
+    expect((await expectAgent(store, runId).toCompleteWithin({ toolCalls: 2 }).check()).ok).toBe(
+      true,
+    )
+    expect((await expectAgent(store, runId).toCompleteWithin({ toolCalls: 1 }).check()).ok).toBe(
+      false,
+    )
   })
 
   it('toNeverCall passes when tool not invoked', async () => {
@@ -90,8 +114,8 @@ describe('runExpectations', () => {
   it('collects results without throwing on individual failures', async () => {
     const { store, runId } = await setupRun(async () => {})
     const report = await runExpectations([
-      expectAgent(store, runId).toCall('search'),        // fails
-      expectAgent(store, runId).toNeverCall('shell'),     // passes
+      expectAgent(store, runId).toCall('search'), // fails
+      expectAgent(store, runId).toNeverCall('shell'), // passes
     ])
     expect(report.passCount).toBe(1)
     expect(report.failCount).toBe(1)

@@ -1,8 +1,10 @@
-import { describe, it, expect } from 'vitest'
+import { describe, expect, it } from 'vitest'
 import { callLlm } from '../src/llm-client'
 import { InMemoryRawProviderSink } from '../src/trace/raw-provider-sink'
 
-function makeFetchSequence(responses: Array<{ status: number; body: unknown; delayMs?: number }>): typeof fetch {
+function makeFetchSequence(
+  responses: Array<{ status: number; body: unknown; delayMs?: number }>,
+): typeof fetch {
   let i = 0
   return (async (_url: string, _init: unknown) => {
     const r = responses[i++]!
@@ -46,19 +48,21 @@ describe('callLlm raw capture', () => {
 
   it('records request + error on a failed call and per attempt on retries', async () => {
     const sink = new InMemoryRawProviderSink()
-    await expect(callLlm(
-      { model: 'm', messages: [{ role: 'user', content: 'hi' }] },
-      {
-        baseUrl: 'https://api.openai.com/v1',
-        apiKey: 'sk-test',
-        rawSink: sink,
-        maxRetries: 2,
-        fetch: makeFetchSequence([
-          { status: 503, body: '<<gateway>>' },
-          { status: 200, body: SUCCESS_BODY },
-        ]),
-      },
-    )).resolves.toBeDefined()
+    await expect(
+      callLlm(
+        { model: 'm', messages: [{ role: 'user', content: 'hi' }] },
+        {
+          baseUrl: 'https://api.openai.com/v1',
+          apiKey: 'sk-test',
+          rawSink: sink,
+          maxRetries: 2,
+          fetch: makeFetchSequence([
+            { status: 503, body: '<<gateway>>' },
+            { status: 200, body: SUCCESS_BODY },
+          ]),
+        },
+      ),
+    ).resolves.toBeDefined()
     const events = await sink.list()
     // attempt 0 → request, error; attempt 1 → request, response.
     expect(events.map((e) => `${e.attemptIndex}:${e.direction}`)).toEqual([
@@ -74,16 +78,18 @@ describe('callLlm raw capture', () => {
 
   it('records error with non-JSON response body when JSON.parse fails', async () => {
     const sink = new InMemoryRawProviderSink()
-    await expect(callLlm(
-      { model: 'm', messages: [{ role: 'user', content: 'hi' }] },
-      {
-        baseUrl: 'https://api.openai.com/v1',
-        apiKey: 'sk-test',
-        rawSink: sink,
-        maxRetries: 1,
-        fetch: makeFetchSequence([{ status: 200, body: 'not json' }]),
-      },
-    )).rejects.toThrow()
+    await expect(
+      callLlm(
+        { model: 'm', messages: [{ role: 'user', content: 'hi' }] },
+        {
+          baseUrl: 'https://api.openai.com/v1',
+          apiKey: 'sk-test',
+          rawSink: sink,
+          maxRetries: 1,
+          fetch: makeFetchSequence([{ status: 200, body: 'not json' }]),
+        },
+      ),
+    ).rejects.toThrow()
     const events = await sink.list()
     const last = events[events.length - 1]!
     expect(last.direction).toBe('error')

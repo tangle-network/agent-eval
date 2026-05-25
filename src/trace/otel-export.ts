@@ -118,7 +118,7 @@ export function createOtelExporter(config?: OtelExportConfig): OtelExporter | un
         },
       ],
     }
-    const url = endpoint.replace(/\/+$/, '') + '/v1/traces'
+    const url = `${endpoint.replace(/\/+$/, '')}/v1/traces`
     try {
       await fetch(url, {
         method: 'POST',

@@ -1,6 +1,6 @@
-import { describe, it, expect } from 'vitest'
-import { InMemoryTraceStore } from '../src/trace/store'
+import { describe, expect, it } from 'vitest'
 import { TraceEmitter } from '../src/trace/emitter'
+import { InMemoryTraceStore } from '../src/trace/store'
 import { traceJudge, traceJudgeEnsemble } from '../src/traced-judges'
 import type { JudgeFn, JudgeScore } from '../src/types'
 
@@ -60,15 +60,9 @@ describe('judge tracing', () => {
     const judge1 = makeMockJudge([
       { judgeName: 'j1', dimension: 'd1', score: 9, reasoning: 'great' },
     ])
-    const judge2 = makeMockJudge([
-      { judgeName: 'j2', dimension: 'd2', score: 6, reasoning: 'mid' },
-    ])
+    const judge2 = makeMockJudge([{ judgeName: 'j2', dimension: 'd2', score: 6, reasoning: 'mid' }])
 
-    const ensemble = traceJudgeEnsemble(
-      [judge1, judge2],
-      ['judge_1', 'judge_2'],
-      { emitter },
-    )
+    const ensemble = traceJudgeEnsemble([judge1, judge2], ['judge_1', 'judge_2'], { emitter })
 
     const input = {
       scenario: { id: 's1', persona: 'dev', label: 'test', thesis: 'test goal' } as any,
@@ -85,13 +79,13 @@ describe('judge tracing', () => {
     // 1 ensemble parent + 2 child judge spans = 3
     expect(spans.length).toBe(3)
 
-    const ensembleSpan = spans.find(s => s.name === 'judge:ensemble')
+    const ensembleSpan = spans.find((s) => s.name === 'judge:ensemble')
     expect(ensembleSpan).toBeDefined()
     expect(ensembleSpan!.kind).toBe('custom')
 
-    const childSpans = spans.filter(s => s.parentSpanId === ensembleSpan!.spanId)
+    const childSpans = spans.filter((s) => s.parentSpanId === ensembleSpan!.spanId)
     expect(childSpans.length).toBe(2)
-    expect(childSpans.map(s => s.name).sort()).toEqual(['judge:judge_1', 'judge:judge_2'])
+    expect(childSpans.map((s) => s.name).sort()).toEqual(['judge:judge_1', 'judge:judge_2'])
   })
 
   it('multi-judge all traced — each gets unique span', async () => {
@@ -99,9 +93,7 @@ describe('judge tracing', () => {
     await emitter.startRun({ scenarioId: 'test', layer: 'meta', projectId: 'test' })
 
     const judges = Array.from({ length: 4 }, (_, i) =>
-      makeMockJudge([
-        { judgeName: `j${i}`, dimension: `d${i}`, score: 5 + i, reasoning: `r${i}` },
-      ]),
+      makeMockJudge([{ judgeName: `j${i}`, dimension: `d${i}`, score: 5 + i, reasoning: `r${i}` }]),
     )
     const names = judges.map((_, i) => `judge_${i}`)
 
@@ -116,10 +108,10 @@ describe('judge tracing', () => {
     const spans = await store.spans({ runId: 'test-run' })
     // 1 ensemble + 4 child spans
     expect(spans.length).toBe(5)
-    const judgeSpans = spans.filter(s => s.name.startsWith('judge:judge_'))
+    const judgeSpans = spans.filter((s) => s.name.startsWith('judge:judge_'))
     expect(judgeSpans.length).toBe(4)
     // Each has a unique spanId
-    const ids = new Set(judgeSpans.map(s => s.spanId))
+    const ids = new Set(judgeSpans.map((s) => s.spanId))
     expect(ids.size).toBe(4)
   })
 

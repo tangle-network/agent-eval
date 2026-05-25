@@ -1,10 +1,10 @@
 import { describe, expect, it } from 'vitest'
+import type { CellObservation } from '../src/rl/active-curriculum'
 import {
   observationsFromRunRecords,
   thompsonCurriculum,
   varianceBasedCurriculum,
 } from '../src/rl/active-curriculum'
-import type { CellObservation } from '../src/rl/active-curriculum'
 import type { RunRecord } from '../src/run-record'
 
 describe('varianceBasedCurriculum', () => {
@@ -17,13 +17,16 @@ describe('varianceBasedCurriculum', () => {
       { variantId: 'a', scenarioId: 's1', score: 0.8 },
       // Low-variance cell: stable around 0.5
       { variantId: 'a', scenarioId: 's2', score: 0.49 },
-      { variantId: 'a', scenarioId: 's2', score: 0.50 },
+      { variantId: 'a', scenarioId: 's2', score: 0.5 },
       { variantId: 'a', scenarioId: 's2', score: 0.51 },
-      { variantId: 'a', scenarioId: 's2', score: 0.50 },
+      { variantId: 'a', scenarioId: 's2', score: 0.5 },
     ]
     const allocation = varianceBasedCurriculum(
       obs,
-      [{ variantId: 'a', scenarioId: 's1' }, { variantId: 'a', scenarioId: 's2' }],
+      [
+        { variantId: 'a', scenarioId: 's1' },
+        { variantId: 'a', scenarioId: 's2' },
+      ],
       { budget: 100, floorPerCell: 1 },
     )
     const high = allocation.find((a) => a.scenarioId === 's1')!
@@ -48,7 +51,10 @@ describe('varianceBasedCurriculum', () => {
     ]
     const allocation = varianceBasedCurriculum(
       obs,
-      [{ variantId: 'a', scenarioId: 'old' }, { variantId: 'a', scenarioId: 'new' }],
+      [
+        { variantId: 'a', scenarioId: 'old' },
+        { variantId: 'a', scenarioId: 'new' },
+      ],
       { budget: 50, floorPerCell: 1 },
     )
     const newCell = allocation.find((a) => a.scenarioId === 'new')!
@@ -63,12 +69,32 @@ describe('thompsonCurriculum', () => {
   it('concentrates budget on cells whose posterior straddles the decision threshold', () => {
     const obs: CellObservation[] = [
       // Borderline cell — half pass, half fail near threshold
-      ...Array.from({ length: 4 }, () => ({ variantId: 'a', scenarioId: 'borderline', score: 0.55, pass: true })),
-      ...Array.from({ length: 4 }, () => ({ variantId: 'a', scenarioId: 'borderline', score: 0.45, pass: false })),
+      ...Array.from({ length: 4 }, () => ({
+        variantId: 'a',
+        scenarioId: 'borderline',
+        score: 0.55,
+        pass: true,
+      })),
+      ...Array.from({ length: 4 }, () => ({
+        variantId: 'a',
+        scenarioId: 'borderline',
+        score: 0.45,
+        pass: false,
+      })),
       // Clearly-passing cell
-      ...Array.from({ length: 8 }, () => ({ variantId: 'a', scenarioId: 'easy', score: 0.95, pass: true })),
+      ...Array.from({ length: 8 }, () => ({
+        variantId: 'a',
+        scenarioId: 'easy',
+        score: 0.95,
+        pass: true,
+      })),
       // Clearly-failing cell
-      ...Array.from({ length: 8 }, () => ({ variantId: 'a', scenarioId: 'hard', score: 0.10, pass: false })),
+      ...Array.from({ length: 8 }, () => ({
+        variantId: 'a',
+        scenarioId: 'hard',
+        score: 0.1,
+        pass: false,
+      })),
     ]
     const allocation = thompsonCurriculum(
       obs,
@@ -102,9 +128,15 @@ describe('observationsFromRunRecords', () => {
   function rec(scenarioId: string, score: number): RunRecord {
     return {
       runId: `r-${scenarioId}-${score}`,
-      experimentId: 'e', candidateId: 'a', seed: 0,
-      model: 'm@1', promptHash: 'p'.repeat(64), configHash: 'c'.repeat(64),
-      commitSha: 'abcd', wallMs: 1, costUsd: 0,
+      experimentId: 'e',
+      candidateId: 'a',
+      seed: 0,
+      model: 'm@1',
+      promptHash: 'p'.repeat(64),
+      configHash: 'c'.repeat(64),
+      commitSha: 'abcd',
+      wallMs: 1,
+      costUsd: 0,
       tokenUsage: { input: 0, output: 0 },
       outcome: { holdoutScore: score, raw: {} },
       splitTag: 'holdout',
@@ -113,10 +145,7 @@ describe('observationsFromRunRecords', () => {
   }
 
   it('extracts (variant, scenario, score) tuples and tags pass/fail', () => {
-    const obs = observationsFromRunRecords([
-      rec('s1', 0.7),
-      rec('s2', 0.3),
-    ])
+    const obs = observationsFromRunRecords([rec('s1', 0.7), rec('s2', 0.3)])
     expect(obs).toHaveLength(2)
     expect(obs.find((o) => o.scenarioId === 's1')?.pass).toBe(true)
     expect(obs.find((o) => o.scenarioId === 's2')?.pass).toBe(false)

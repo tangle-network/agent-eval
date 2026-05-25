@@ -1,15 +1,12 @@
 import { describe, expect, it } from 'vitest'
-import {
-  evaluateInterimReleaseConfidence,
-  pairedEvalueSequence,
-} from '../src/sequential'
+import { evaluateInterimReleaseConfidence, pairedEvalueSequence } from '../src/sequential'
 
 function deltasUnderNull(n: number, seed = 1, c = 0.1): number[] {
   // Mean-zero noise inside [-c, c]. Used to verify type-I error control.
   let s = seed >>> 0
   const out: number[] = []
   for (let i = 0; i < n; i++) {
-    s = (s + 0x6D2B79F5) >>> 0
+    s = (s + 0x6d2b79f5) >>> 0
     let t = s
     t = Math.imul(t ^ (t >>> 15), t | 1)
     t ^= t + Math.imul(t ^ (t >>> 7), t | 61)
@@ -127,9 +124,7 @@ describe('evaluateInterimReleaseConfidence', () => {
 
   it('reports per-candidate metadata so callers can render an interim dashboard', () => {
     const out = evaluateInterimReleaseConfidence({
-      deltaSeries: [
-        { candidateId: 'cand', deltas: deltasWithEffect(20, 0.03) },
-      ],
+      deltaSeries: [{ candidateId: 'cand', deltas: deltasWithEffect(20, 0.03) }],
     })
     expect(out.candidates).toHaveLength(1)
     const c = out.candidates[0]!

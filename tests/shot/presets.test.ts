@@ -8,14 +8,13 @@ import {
   defaultProductionGate,
   type Gate,
   heldOutGate,
-  type JudgeConfig,
   type Mutator,
   openAutoPr,
   runEval,
   runImprovementLoop,
   runOptimization,
   type Scenario,
-} from '../../src/campaign/index'
+} from '../../src/shot/index'
 
 interface FakeScenario extends Scenario {
   id: string
@@ -52,7 +51,7 @@ afterEach(() => {
 // ── runEval ────────────────────────────────────────────────────────
 
 describe('runEval preset', () => {
-  it('is a thin pass-through to runCampaign', async () => {
+  it('is a thin pass-through to runShot', async () => {
     const result = await runEval({ scenarios: SCENARIOS, dispatch: noopDispatch, runDir })
     expect(result.cells).toHaveLength(2)
     expect(result.manifestHash).toMatch(/^[a-f0-9]{64}$/)
@@ -364,6 +363,6 @@ describe('runOptimization', () => {
     expect(result.generations).toHaveLength(2)
     expect(result.generations[0]!.surfaces).toHaveLength(2)
     expect(result.winnerSurfaceHash).toMatch(/^[a-f0-9]{16}$/)
-    expect(result.baselineCampaign.cells).toHaveLength(2)
+    expect(result.baselineShot.cells).toHaveLength(2)
   })
 })

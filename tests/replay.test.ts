@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest'
 import {
-  ReplayCache,
-  ReplayCacheMissError,
   createReplayFetch,
   iterateRawCalls,
+  ReplayCache,
+  ReplayCacheMissError,
 } from '../src/replay'
 import { InMemoryRawProviderSink, type RawProviderEvent } from '../src/trace/raw-provider-sink'
 
@@ -40,7 +40,9 @@ const RESPONSE_BODY = {
 async function populate(): Promise<InMemoryRawProviderSink> {
   const sink = new InMemoryRawProviderSink()
   await sink.record(evt({ direction: 'request', requestBody: REQUEST_BODY }))
-  await sink.record(evt({ direction: 'response', spanId: 's-1', responseBody: RESPONSE_BODY, statusCode: 200 }))
+  await sink.record(
+    evt({ direction: 'response', spanId: 's-1', responseBody: RESPONSE_BODY, statusCode: 200 }),
+  )
   return sink
 }
 
@@ -94,7 +96,7 @@ describe('createReplayFetch', () => {
       body: JSON.stringify(REQUEST_BODY),
     })
     expect(res.status).toBe(200)
-    const body = await res.json() as { model: string }
+    const body = (await res.json()) as { model: string }
     expect(body.model).toBe('m@1')
     expect(hits).toEqual(['m@1'])
   })
@@ -102,10 +104,15 @@ describe('createReplayFetch', () => {
   it('throws ReplayCacheMissError on miss by default', async () => {
     const cache = await ReplayCache.fromSink(await populate())
     const fetchShim = createReplayFetch(cache)
-    await expect(fetchShim('https://api.test/v1/chat/completions', {
-      method: 'POST',
-      body: JSON.stringify({ ...REQUEST_BODY, messages: [{ role: 'user', content: 'something else' }] }),
-    })).rejects.toBeInstanceOf(ReplayCacheMissError)
+    await expect(
+      fetchShim('https://api.test/v1/chat/completions', {
+        method: 'POST',
+        body: JSON.stringify({
+          ...REQUEST_BODY,
+          messages: [{ role: 'user', content: 'something else' }],
+        }),
+      }),
+    ).rejects.toBeInstanceOf(ReplayCacheMissError)
   })
 
   it('falls back to provided fetch when onMiss=fallback', async () => {
@@ -121,7 +128,7 @@ describe('createReplayFetch', () => {
       body: JSON.stringify({ ...REQUEST_BODY, messages: [{ role: 'user', content: 'fresh' }] }),
     })
     expect(fallbackCalls).toBe(1)
-    expect((await res.json() as { source: string }).source).toBe('fallback')
+    expect(((await res.json()) as { source: string }).source).toBe('fallback')
   })
 
   it('returns synthetic 599 when onMiss=fail-closed', async () => {
@@ -132,7 +139,7 @@ describe('createReplayFetch', () => {
       body: JSON.stringify({ ...REQUEST_BODY, messages: [{ role: 'user', content: 'fresh' }] }),
     })
     expect(res.status).toBe(599)
-    const body = await res.json() as { error: string }
+    const body = (await res.json()) as { error: string }
     expect(body.error).toBe('replay_cache_miss')
   })
 

@@ -209,21 +209,21 @@ describe('buildSandboxAgentProfileCell', () => {
   })
 
   it('rejects profiles missing `name` or `version`', async () => {
-    await expect(
-      buildSandboxAgentProfileCell({ name: '', version: '0.1.0' }, {}),
-    ).rejects.toThrow(/non-empty `name`/)
-    await expect(
-      buildSandboxAgentProfileCell({ name: 'x', version: '' }, {}),
-    ).rejects.toThrow(/non-empty `version`/)
+    await expect(buildSandboxAgentProfileCell({ name: '', version: '0.1.0' }, {})).rejects.toThrow(
+      /non-empty `name`/,
+    )
+    await expect(buildSandboxAgentProfileCell({ name: 'x', version: '' }, {})).rejects.toThrow(
+      /non-empty `version`/,
+    )
   })
 
   it('rejects non-object input', async () => {
-    await expect(
-      buildSandboxAgentProfileCell(null as never, {}),
-    ).rejects.toThrow(/must be an object/)
-    await expect(
-      buildSandboxAgentProfileCell('a profile' as never, {}),
-    ).rejects.toThrow(/must be an object/)
+    await expect(buildSandboxAgentProfileCell(null as never, {})).rejects.toThrow(
+      /must be an object/,
+    )
+    await expect(buildSandboxAgentProfileCell('a profile' as never, {})).rejects.toThrow(
+      /must be an object/,
+    )
   })
 
   it('passes through harness, model, promptHash, dimensions verbatim', async () => {
@@ -243,10 +243,14 @@ describe('buildSandboxAgentProfileCell', () => {
     // Property test for the cross-product cell join — the entire reason
     // this helper exists. Two products MUST hash identically.
     const a = await buildSandboxAgentProfileCell(profile, {
-      model: 'm', promptHash: 'a'.repeat(64), dimensions: { backend: 'x' },
+      model: 'm',
+      promptHash: 'a'.repeat(64),
+      dimensions: { backend: 'x' },
     })
     const b = await buildSandboxAgentProfileCell(profile, {
-      model: 'm2', promptHash: 'b'.repeat(64), dimensions: { backend: 'y' },
+      model: 'm2',
+      promptHash: 'b'.repeat(64),
+      dimensions: { backend: 'y' },
     })
     expect(a.sourceProfile.hash).toBe(b.sourceProfile.hash)
     expect(a.cellId).not.toBe(b.cellId)
