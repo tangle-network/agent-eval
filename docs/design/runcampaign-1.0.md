@@ -1,361 +1,244 @@
-# Substrate v1.0 — pulling existing primitives together + closing 3 real gaps
+# Substrate v1.0 — one primitive, rich options, no preset proliferation
 
-Status: **draft v2** — Drew + Claude, 2026-05-25
+Status: **draft v4** — Drew + Claude, 2026-05-25
 Owner: agent-eval substrate
-Approach: inventory what we have, measure duplication, propose minimal closing — **not new architecture**.
+Approach: collapse the wrappers, ship one primitive with flexible options. No new named presets. Tracing on by default.
 
 ## TL;DR
 
-The substrate already ships every primitive a self-improving agent product needs. Across 4 consumer products (gtm / legal / tax / creative) there are **9,456 lines of duplicated wiring** that call those primitives — each product reinvented `run-prompt-evolution.ts` (~1900 LOC), `run-optimization-campaign.ts` (~300 LOC), and `run-production-loop.ts` (~500 LOC) with subtle drift.
+We've built every primitive a self-improving agent product needs. Across 4 product repos there are ~10,500 LOC of duplicated wrappers calling those primitives. Each wrapper is a slight curry of the same underlying flow.
 
-v1.0 is not new code. v1.0 is **collapsing the wrappers** + **closing four narrow gaps** that products will hit immediately when they consume the consolidated surface.
-
-Four thin presets + one store, each over existing primitives:
-
-1. **`runPromptEvolutionCampaign`** — collapses 7129 LOC of `run-prompt-evolution.ts` to ~150 LOC of substrate preset + ~50 LOC of per-product config. Wraps `runMultiShotOptimization` (the GEPA implementation we already ship). Pluggable `Mutator` lets `AxGEPA` from `@ax-llm/ax` slot in as an alternate.
-2. **`runProductionLoopCampaign`** + `openAutoPr` helper — collapses 1122 LOC of `run-production-loop.ts` to ~150 LOC. Runs in TWO modes: **CI cron** (opens PR for promoted candidate) OR **embedded in production runtime** (live worker continuously self-optimizes from real traces). Same primitive, two deployment shapes.
-3. **`runMultiKindCampaign`** — first-class support for agent-builder's 6-kind dispatcher. agent-builder's `canonical-campaign.ts` (1098 LOC) → ~150 LOC consumer.
-4. **`runUserJourneyCampaign`** — NEW preset for multi-SESSION simulation. A persona returns over many sessions with shared knowledge state; substrate sequences N `runMultishot` calls with state carried between them. Models "user uses the product for a month across many chats / button clicks."
-5. **`LabeledScenarioStore`** — the auto-dataset that ALL of the above consume by default. Every trace from production OR from eval feeds into a continuously-updated labeled-scenario corpus. The next campaign run pulls from it. Closes the "datasets build themselves over time" requirement.
-
-Total consumer LOC saved across 4 products: **~9,000**. Total substrate LOC added: **~600** (the multi-session + labeled-store additions to the previous ~400-LOC estimate).
-
-The substrate stays in `@tangle-network/agent-eval`. No new packages. No new contracts beyond what 0.38 already ships (`Scenario` / `DispatchFn` / `JudgeConfig`). The 6-contract architecture I drafted earlier was over-reach.
-
----
-
-## Part 1 — What we already have (the actual inventory)
-
-### `@tangle-network/agent-runtime`
-
-| Primitive | Status | Use |
-|---|---|---|
-| `runAgentTask` / `runAgentTaskStream` | ✓ shipped | Single task lifecycle |
-| `runLoop` + `Refine` / `FanoutVote` drivers | ✓ shipped 0.19 | **Horizontal iteration primitive** — product / eval / improvement layers all reuse it |
-| `handleChatTurn` | ✓ shipped | Production chat-turn lifecycle |
-| `coderProfile` / `researcherProfile` | ✓ shipped | Profile presets with output + validator wired |
-| Backends (`createOpenAICompatibleBackend`, `createSandboxPromptBackend`) | ✓ shipped 0.22 (tools + fail-loud) | |
-| `runAnalystLoop` | ✓ shipped via `/analyst-loop` | Trace analyst → findings |
-| MCP server + 5 delegation tools | ✓ shipped | Stdio MCP for in-sandbox delegation |
-| Executors: sibling / fleet / **in-process (Phase 2.8)** | ✓ shipped 0.24 | All three dispatch modes covered |
-| `runLocalHarness` + worktrees | ✓ shipped 0.24 | Local child_process delegations |
-| `TraceEmitter` + OTEL exporter | ✓ shipped 0.23 | Distributed tracing |
-| `RuntimeRunHandle` + cost ledger | ✓ shipped | Production-run persistence |
-| `defineAgent` | ✓ shipped | Declarative per-vertical manifest |
-
-### `@tangle-network/agent-eval` (0.38.0)
-
-| Primitive | Status | Use |
-|---|---|---|
-| `runEvalCampaign` | ✓ shipped | Scenarios through a dispatcher, per-cell artifacts |
-| `runAgentMatrix` | ✓ shipped 0.36 | N-axis cartesian over scenarios × axes × reps |
-| `runMultishot` / `runMultishotMatrix` / `runMultishotCampaign` | ✓ shipped 0.38 | Driver-agent multi-turn substrate |
-| `runJudge` | ✓ shipped 0.38 | Generic dimensional scorer with pluggable `JudgeConfig` |
-| `runProductionLoop` | ✓ shipped | Analyst + mutator + gate cycle |
-| `runMultiShotOptimization` | ✓ shipped | GEPA-style population search + reflective mutation |
-| `evaluateReleaseConfidence` / `HeldOutGate` | ✓ shipped | Promotion gates |
-| `AnalystRegistry` | ✓ shipped | Pluggable analysts |
-| `FileSystemTraceStore` / `RawProviderSink` | ✓ shipped | Capture infra |
-| OTEL pipeline export | ✓ shipped 0.37 | Spans for judges, analysts, mutators |
-
-### `@tangle-network/agent-knowledge` (1.4.0)
-
-| Primitive | Status |
-|---|---|
-| `researcherProfile`, `searchKnowledge`, `proposeFromFindings`, `applyKnowledgeWriteBlocks` | ✓ shipped |
-| Auto-research-runner (lifted from agent-builder) | ✓ shipped |
-
-### `@tangle-network/sandbox` (0.2.1)
-
-| Primitive | Status |
-|---|---|
-| `AgentProfile`, `Sandbox`, `streamPrompt`, `SandboxFleet`, `exportTraceBundle` | ✓ shipped |
-
-### Adoption skills
-
-| Skill | Status |
-|---|---|
-| `agent-stack-adoption` (10 phases, 1394 lines) | ✓ shipped — the agentic-adoption runbook |
-| `agent-eval-adoption` | ✓ shipped — substrate-primitives onboarding |
-| `agent-integrations-adoption` | ✓ shipped — OAuth / integrations layer |
-
-**Nothing in this inventory needs to be built or refactored for v1.0.** Every primitive is in place. The lift cycle isn't a substrate-design problem; it's a consumer-wiring duplication problem.
-
----
-
-## Part 2 — Where consumers duplicate
-
-Hard numbers from `wc -l` across `gtm-agent / legal-agent / tax-agent / creative-agent`:
-
-```
-=== run-prompt-evolution.ts (per-product wrappers around runMultiShotOptimization) ===
-gtm-agent       1436 LOC
-legal-agent     1882 LOC
-tax-agent       1890 LOC
-creative-agent  1921 LOC
-                ─────
-                7129 LOC of near-identical wrapper code
-
-=== run-optimization-campaign.ts (per-product wrappers around runEvalCampaign + judges) ===
-gtm-agent        170 LOC
-legal-agent      230 LOC
-tax-agent        711 LOC
-creative-agent    94 LOC
-                ─────
-                1205 LOC
-
-=== run-production-loop.ts (per-product wrappers around analyst + mutator + gate + auto-PR) ===
-legal-agent      352 LOC
-tax-agent        770 LOC
-                ─────
-                1122 LOC (only 2 products have shipped this so far — drift is already real)
-
-=== agent-builder canonical-campaign.ts (multi-kind dispatcher, hand-rolled) ===
-agent-builder   1098 LOC
-                ─────
-                1098 LOC
-
-TOTAL duplication: 10,554 LOC
-```
-
-What ALL of these wrappers do, in concrete:
-
-1. Load persona JSON / YAML files from a per-product convention
-2. Build a `JudgeConfig` array with per-domain dimensions + system prompts
-3. Build a `Mutator` (typically reflective-addendum)
-4. Build a `Gate` (typically held-out + cost ceiling)
-5. Call `runEvalCampaign` or `runMultiShotOptimization` or `runProductionLoop`
-6. For evolution: iterate generations, log scorecards, persist artifacts to `eval/.runs/<id>/`
-7. For production-loop: compare candidate vs baseline, decide ship/hold
-8. **If ship: shell out to `gh pr create` with the diff** — this part is ad-hoc per product
-9. Print a markdown summary
-
-Items 1-5 are **per-product config**. Items 6-9 are **substrate-shaped wiring** done by hand 4 times.
-
----
-
-## Part 3 — Three substrate additions that close the gap
-
-Each is a thin preset over existing primitives. No new contracts beyond what 0.38 already ships (`Scenario`, `JudgeConfig`, `DispatchFn`, the implicit Analyst / Mutator / Gate shapes already used by `runProductionLoop`).
-
-### Addition 1: `runPromptEvolutionCampaign` (~150 LOC)
+v1.0 ships **one function** in agent-eval:
 
 ```ts
-runPromptEvolutionCampaign({
-  // Domain config (per-product, ~50 LOC):
-  baselineProfile: AgentProfile
-  personas: Persona[]
-  judges: JudgeConfig[]
-  mutator?: Mutator                       // default: reflective-addendum
-  gate?: Gate                              // default: held-out + delta-threshold
-  // Substrate-level:
-  populationSize?: number                  // default 8
-  maxGenerations?: number                  // default 5
+runCampaign({
+  scenarios,                    // ANY scenario shape — personas, kinds, tasks, journeys
+  dispatch,                     // ONE function: scenario+ctx → artifact
+  sessions?,                    // multi-session sequencer (state-carrying between sessions)
+  judges?,                      // pluggable JudgeConfig[]
+  optimizer?,                   // mutator + population + generations → turns it into prompt evolution
+  gate?,                        // promotion gate (held-out / cost / composed)
+  autoOnPromote?,               // 'pr' (CI cron) | 'config' (live production) | 'none'
+  trace?,                       // defaults to FileSystemTraceStore; opts out only
+  costCeiling?,
+  runDir,
+})
+```
+
+Every existing wrapper — prompt evolution, production loop, matrix, multi-kind dispatch, multi-session journey — is a CONFIGURATION of `runCampaign`. No separate `runPromptEvolutionCampaign`, `runMultiKindCampaign`, `runUserJourneyCampaign` names. The semantics of those flows is in the options, not the name.
+
+**Net change after v1.0:**
+- Consumer code: **~10,500 → ~830 LOC** across 5 products (-9,670)
+- Substrate add: **~400 LOC** (the `runCampaign` core + `LabeledScenarioStore` + tracing default + `openAutoPr` + `writeProductionConfig`)
+- 0 new packages
+- 0 new contracts beyond what 0.38 ships (`Scenario` / `DispatchFn` / `JudgeConfig`)
+- 0 new adoption skills
+- 0 new acronyms or ML primitives
+
+---
+
+## Package boundary (the line we draw)
+
+Per Drew's framing — agent-runtime owns the **loops that autonomously run processes**, agent-eval owns the **primitives those loops invoke**, agent-knowledge owns **knowledge state**:
+
+| Package | Owns |
+|---|---|
+| `@tangle-network/agent-eval` | **Eval primitives.** `runCampaign`, `runJudge`, `Mutator`, `Gate`, `TraceStore`, `LabeledScenarioStore`, `AnalystRegistry`, scorecards. |
+| `@tangle-network/agent-runtime` | **Autonomous execution loops + the kernel.** `runLoop` (iteration), `runAnalystLoop` (trace→findings), `runProductionLoop` (scheduler around `runCampaign`), `auto-research-runner` (the autoresearch hook), `handleChatTurn`, MCP server + executors, OTEL exporter, cost ledger. |
+| `@tangle-network/agent-knowledge` | **Knowledge state.** `searchKnowledge`, `proposeFromFindings`, `applyKnowledgeWriteBlocks`, `researcherProfile`. |
+| `@tangle-network/sandbox` | Substrate types: `AgentProfile`, `Sandbox`, `streamPrompt`, `SandboxFleet`, `exportTraceBundle`. |
+
+`runCampaign` is the primitive. The autonomous loops (`runProductionLoop`, `runAnalystLoop`, `auto-research-runner`) call it. A loop is just a scheduler — fire `runCampaign` on a cadence, observe results, decide next action.
+
+`runLoop` (in agent-runtime) is the per-task iteration kernel — reused by ANY layer that wants N parallel attempts (product code giving a user 3 drafts, eval dispatchers running FanoutVote, mutator-driven re-runs).
+
+---
+
+## The one function
+
+```ts
+runCampaign<TScenario extends Scenario, TArtifact>(opts: {
+  // ── Input ──────────────────────────────────────────────────────────
+  scenarios: TScenario[]
+  dispatch: (scenario: TScenario, ctx: DispatchContext) => Promise<TArtifact>
+  /** When present, scenarios are run as sequences. Each `SessionScript` invokes dispatch
+   *  with state carried from the prior session's artifact. Persona can `evolveAfterSession`
+   *  to mutate between sessions (frustrated user after session 1 acts more frustrated in
+   *  session 2). Models multi-month user simulation. */
+  sessions?: SessionScript<TScenario, TArtifact>[]
+
+  // ── Scoring ────────────────────────────────────────────────────────
+  judges?: JudgeConfig<TArtifact, TScenario>[]    // empty allowed — eval without judging
+
+  // ── Improvement (turns this into a production loop) ────────────────
+  /** When present, runs N generations: mutator produces N candidate surfaces, each gets
+   *  scored, top-K promoted. Replaces all `run-prompt-evolution.ts` wrappers. */
+  optimizer?: {
+    mutator: Mutator                               // reflective, gepa via runMultiShotOptimization, AxGEPA, custom
+    populationSize: number
+    maxGenerations: number
+    surfaceExtractor: (profile: AgentProfile) => MutableSurface  // what's being optimized
+  }
+  /** When present, decides ship/hold/need-more-work/model-ceiling/arch-ceiling.
+   *  Composed via `composeGate(heldOut, costBudget, manualReview)`. */
+  gate?: Gate<TArtifact>
+  /** What happens when gate decides 'ship':
+   *  - 'pr': openAutoPr opens a PR with the new profile (CI cron mode)
+   *  - 'config': writeProductionConfig updates a live config row (embedded runtime mode)
+   *  - 'none': just report — caller decides */
+  autoOnPromote?: 'pr' | 'config' | 'none'
+
+  // ── Data accumulation (default on) ─────────────────────────────────
+  /** Where labeled scenarios accumulate. Every artifact + score lands here, available
+   *  as default `scenarios` source for the next runCampaign invocation. FS adapter
+   *  for local, Turso for multi-tenant. Off only via `labeledStore: 'off'`. */
+  labeledStore?: LabeledScenarioStore | 'off'
+
+  // ── Tracing (default ON) ───────────────────────────────────────────
+  /** FileSystemTraceStore at `.production-data/traces/` by default. OTEL exporter
+   *  auto-attached when `OTEL_EXPORTER_OTLP_ENDPOINT` env is set. Off only via
+   *  `tracing: 'off'`. */
+  tracing?: TraceStore | 'off'
+
+  // ── Knobs ──────────────────────────────────────────────────────────
   costCeiling?: number
+  maxConcurrency?: number
+  reps?: number
   runDir: string
-}) → EvolutionResult
+}): Promise<CampaignResult<TArtifact, TScenario>>
 ```
 
-Wraps `runMultiShotOptimization` with the conventional persona-loading + scorecard-emission + per-generation artifact persistence + reporter markdown. Consumer code drops from ~1900 LOC to ~50 LOC.
+That's the entire substrate surface. Every existing wrapper across products is a partial application of these options.
 
-### Addition 2: `runProductionLoopCampaign` + `openAutoPr` helper (~100 LOC + ~50 LOC)
+### Examples mapping to the duplicated wrappers
 
 ```ts
-runProductionLoopCampaign({
-  // Domain config:
-  productionComposer: () => AgentProfile   // re-import composeProductionAgentProfile
-  personas: Persona[]
-  judges: JudgeConfig[]
-  // Loop config:
-  analyst?: Analyst                        // default: AnalystRegistry-wired reflective
-  mutator?: Mutator
-  gate?: Gate                               // default: HeldOutGate + cost gate
-  // Auto-PR:
-  autoPr?: AutoPrConfig | false            // default: open PR if GH_AUTO_PR_TOKEN set
-  runDir: string
-}) → ProductionLoopResult
+// gtm's eval:multishot (today's run-prompt-evolution.ts: 1436 LOC)
+// After v1.0: ~40 LOC
+runCampaign({
+  scenarios: cartesian(profiles, personas),
+  dispatch: multishotDispatch(/* uses runMultishot under the hood */),
+  judges: [gtmConvo, gtmCodeReview, gtmContentQuality],
+  runDir,
+})
+
+// legal's eval:production-loop (today: 352 LOC)
+// After v1.0: ~50 LOC
+runCampaign({
+  scenarios: labeledStore.sample({ count: 30, split: 'train' }),
+  dispatch: chatDispatch(productionProfile),
+  judges: [legalConvo, legalCitation],
+  optimizer: { mutator: reflectiveMutator, populationSize: 8, maxGenerations: 5, surfaceExtractor: p => p.prompt!.systemPrompt },
+  gate: composeGate(heldOutGate({ holdoutScenarios }), costBudgetGate(50)),
+  autoOnPromote: 'pr',
+  runDir,
+})
+
+// agent-builder's canonical-campaign.ts (today: 1098 LOC across 6 scenario kinds)
+// After v1.0: ~120 LOC
+runCampaign({
+  scenarios: agentBuilderScenarios,          // tagged union of 6 kinds
+  dispatch: (s, ctx) => kindDispatchers[s.kind](s, ctx),  // route by kind
+  judges: judgesByKind,
+  runDir,
+})
+
+// tax's multi-month user simulation (new capability)
+// 30 sessions of one persona over a month, state-carrying
+runCampaign({
+  scenarios: [johnDoeTaxClient],
+  dispatch: multishotDispatch(taxProfile),
+  sessions: [
+    { id: 'intake', intent: 'Initial 1040 questions', affectsKnowledge: true },
+    { id: 'follow-up-1', intent: 'Returned after gathering W-2s' },
+    // ... 28 more sessions
+  ],
+  judges: [taxConvo, taxRiskDisclosure],
+  runDir,
+})
+
+// Production runtime embedded self-optimization (Shape B)
+// Runs in a Cloudflare Worker, mutates the live agent config on promote
+runCampaign({
+  scenarios: labeledStore.sample({ count: 20, split: 'train' }),
+  dispatch: chatDispatch(productionProfile),
+  optimizer: { mutator: gepaMutator, populationSize: 4, maxGenerations: 3 },
+  gate: composeGate(heldOutGate, conservativeCostGate(5)),
+  autoOnPromote: 'config',   // writes to config row instead of opening PR
+  costCeiling: 5,
+  runDir: '/tmp/live-runs/' + Date.now(),
+})
 ```
 
-Wraps `runProductionLoop` + adds the `openAutoPr` helper (centralizes the `gh pr create` shell-out + PR body templating). Consumer code drops from ~500 LOC to ~30 LOC.
-
-### Addition 3: `runMultiKindCampaign` (~150 LOC)
-
-```ts
-runMultiKindCampaign({
-  scenarios: TaggedScenario[]               // discriminated union by .kind
-  dispatchers: Record<string, DispatchFn>   // one per kind
-  judges?: JudgeConfig[]                    // optional per-kind via .appliesTo (already in 0.38)
-  runDir: string
-}) → CampaignResult
-```
-
-Wraps `runEvalCampaign` with the kind-routing dispatcher pattern. Subsumes agent-builder's `canonical-campaign.ts` (1098 LOC → ~150 LOC consumer wiring). Other products get multi-kind capability for free if they ever need it.
-
-### Addition 4: `runUserJourneyCampaign` (~100 LOC) — multi-session simulation
-
-The product-shape every consumer actually wants: **simulate a real user across a month of sessions.** Not one chat, not even one multi-turn chat — many sessions over time, each starting from the state the previous one left behind (workspace knowledge accumulated, prior outputs visible, integrations connected).
-
-```ts
-runUserJourneyCampaign({
-  // Persona + product:
-  persona: JourneyPersona              // includes optional state-evolution callback
-  profile: AgentProfile                // product agent being tested
-  sessions: SessionScript[]            // ordered list of session intents
-  // Optional carrying-state between sessions:
-  initialKnowledge?: KnowledgeSeed
-  sessionGap?: 'realtime' | { simulatedHoursBetween: number }   // affects "context staleness"
-  // Standard eval surface:
-  judges: JudgeConfig[]
-  costCeiling?: number
-  runDir: string
-}) → JourneyResult                     // per-session artifacts + cumulative scorecard
-
-interface JourneyPersona extends Persona {
-  /** Called after each session — persona can update its own goals / mood / data based on what the product did last session. */
-  evolveAfterSession?: (lastSessionArtifact: unknown, sessionIndex: number) => JourneyPersona
-}
-
-interface SessionScript {
-  id: string
-  intent: string                       // "come back to check on the campaign I set up last week"
-  maxTurns?: number
-  affectsKnowledge?: boolean           // when true, knowledge accumulated this session persists to next
-}
-```
-
-Mechanically: a thin sequencer over `runMultishot`. Carries shared state (workspace knowledge, prior artifacts, integration grants) between sessions. The persona itself can mutate between sessions (a user who couldn't find a feature in session 1 should be MORE frustrated in session 2 — `evolveAfterSession` handles it).
-
-Subsumes the "multi-month simulation" requirement: 30 sessions × the same persona = month-of-usage. The substrate doesn't model real time; it models session-ordering + state-carrying.
-
-### Addition 5: `LabeledScenarioStore` (~80 LOC) — the autobuild dataset
-
-Every trace from `runProductionLoopCampaign` (production runtime OR CI cron) AND every artifact from any other campaign feeds here, labeled by the judges that scored them. The next campaign run pulls scenarios from this store as the default source.
-
-```ts
-interface LabeledScenarioStore {
-  // Capture phase — substrate-internal:
-  observeTrace(args: { trace; artifact; judgeScores; persona; productSurface }): Promise<void>
-  // Read phase — used as the default scenarios source for the next campaign:
-  sample(args: { count: number; filter?: ScenarioFilter; split: 'train' | 'test' }): Promise<LabeledScenario[]>
-  // Maintenance:
-  size(): Promise<{ train: number; test: number }>
-  /** Deduplicate by canonical hash of (persona, intent, productSurface). */
-  dedupe(): Promise<{ removed: number }>
-}
-```
-
-Backed by SQLite (local CI) or Turso (multi-tenant production). Substrate ships a `FileSystemLabeledScenarioStore` for local + a thin Turso adapter for remote.
-
-**The compounding effect:** consumer adopts the substrate → every production interaction labels a scenario → next CI campaign pulls those scenarios → mutator proposes a candidate → gate decides → promoted profile ships → MORE production interactions, MORE scenarios, BETTER mutator candidates. The flywheel needs nothing from the consumer beyond the initial `handleChatTurn` hookup (already there).
+Same function. Five wildly different use cases. The use case lives in the OPTIONS, not in a naming taxonomy.
 
 ---
 
-## Part 3.5 — The substrate-IS-the-product-surface positioning
+## What lights up when consumers adopt
 
-Drew's framing: "Same substrate that the products will ideally use themselves to gather this data. Eval AND production surface."
+Drop-in `runCampaign` + `handleChatTurn` (already in every product). Substrate auto-wires:
 
-This isn't a code change — it's a deployment statement. `runProductionLoopCampaign` is designed to run in **two shapes**:
+1. **Tracing ON by default** — every chat turn captured to `FileSystemTraceStore`, OTEL-exported if env is set
+2. **`LabeledScenarioStore` populated by every artifact** — production + eval both feed it
+3. **Next `runCampaign` invocation** (CI cron OR live worker) pulls from the labeled store automatically
+4. **Mutator** (reflective via `runMultiShotOptimization`, or `AxGEPA`, or custom) generates candidates
+5. **Gate** decides ship/hold/needs-more-work
+6. **`autoOnPromote`** opens PR (Shape A) or updates live config (Shape B)
+7. The flywheel: more interactions → more labeled scenarios → better candidates → better profile → MORE interactions
 
-```
-SHAPE A — CI cron (default consumer wiring):
-  .github/workflows/production-loop.yml fires weekly
-    → runProductionLoopCampaign reads from LabeledScenarioStore
-    → analyst + mutator + gate
-    → openAutoPr opens a PR with promoted profile
-    → human reviews + merges
+**Substrate IS the product surface.** Same primitive runs in CI as a cron OR in the production worker as a background scheduler. Same store sources both.
 
-SHAPE B — embedded in production runtime:
-  Cloudflare Worker or Node server boots with the substrate imported
-    → background scheduler kicks runProductionLoopCampaign on user-traffic cadence
-    → uses the SAME LabeledScenarioStore (now a Turso table the worker also writes to)
-    → on promote: writes new addendum to a config row the chat handler reads next request
-    → no PR, no human, the agent updates itself live (gated + costCeiling-bounded)
-```
+---
 
-Both shapes share: the same `runProductionLoopCampaign` call, the same store, the same gates, the same judges. The only difference is WHAT THE GATE DOES WITH A PROMOTED CANDIDATE — open a PR (Shape A) or write to a config row (Shape B).
-
-Substrate work to make Shape B robust:
-
-- Ensure `runProductionLoopCampaign` doesn't assume Node CLI process env (Workers-compatible)
-- `LabeledScenarioStore` has a Turso adapter (substrate ships it; consumer wires the Turso instance)
-- The `openAutoPr` helper has a sibling `writeProductionConfig` helper that mutates a config row instead of opening a PR
-
-Estimated extra LOC for Shape B compatibility: ~50 in substrate. Most of `runProductionLoopCampaign` is already runtime-pure.
-
-## Part 4 — What the migration actually looks like
-
-### Per-product diff (estimated)
+## Migration
 
 | Product | Before | After | Δ |
 |---|---|---|---|
-| gtm-agent | 1606 LOC of wrappers | ~150 LOC | **−1456** |
-| legal-agent | 2464 LOC | ~180 LOC | **−2284** |
-| tax-agent | 3371 LOC | ~200 LOC | **−3171** |
-| creative-agent | 2015 LOC | ~150 LOC | **−1865** |
-| agent-builder | 1098 LOC `canonical-campaign.ts` | ~150 LOC | **−948** |
-| **Total** | **10,554 LOC** | **~830 LOC** | **−9,724** |
+| gtm-agent | 1606 LOC wrappers | ~150 LOC | **-1456** |
+| legal-agent | 2464 LOC | ~180 LOC | **-2284** |
+| tax-agent | 3371 LOC | ~200 LOC | **-3171** |
+| creative-agent | 2015 LOC | ~150 LOC | **-1865** |
+| agent-builder | 1098 LOC | ~150 LOC | **-948** |
+| **Total** | **10,554** | **~830** | **-9,724** |
 
-Substrate additions (`runPromptEvolutionCampaign` + `runProductionLoopCampaign` + `runMultiKindCampaign` + `openAutoPr`): **~400 LOC**.
+Substrate addition: ~400 LOC (the `runCampaign` core + helpers).
 
-**Net codebase reduction across the org: ~9,300 LOC.** Same capability. One source of truth.
+**Risk: per-product wrapper drift.** Across the 4 `run-prompt-evolution.ts` (~1900 LOC each), differences are mostly format/persona-shape, but bug fixes drifted. Migration plan must DIFF the 4 versions, identify unique fixes, fold them into the substrate before deleting. ~1 day.
 
-### Ship plan (2 weeks honest with the multi-session + dataset additions)
+### Ship plan (2 weeks honest)
 
-| Day | Substrate side | Consumer side |
+| Day | Substrate | Consumer |
 |---|---|---|
-| 1-2 | `runPromptEvolutionCampaign` + `runProductionLoopCampaign` + `openAutoPr` + `writeProductionConfig` (Shape B) | — |
-| 3 | `runMultiKindCampaign` | — |
-| 4-5 | `runUserJourneyCampaign` (multi-session sequencer) + `LabeledScenarioStore` (FS adapter) | — |
-| 6 | Turso adapter for `LabeledScenarioStore` + Worker-compat smoke for `runProductionLoopCampaign` Shape B | — |
-| 7 | Tests + docs. Publish 0.39.0. | — |
-| 8 | — | gtm migration (smoke `pnpm eval:optimize`) |
-| 9 | — | legal + tax migrations in parallel |
-| 10 | — | creative + agent-builder migrations |
-| 11-12 | — | Live smokes across all 5; close PRs |
-
-After landing: the lift cycle gets a permanent home. Adding a 6th product = 50 LOC of config, not 2000 LOC of copied wrappers. AND every product gets multi-session simulation + auto-dataset-accumulation + Shape-B-runtime-self-optimization by default. The substrate IS the product surface.
+| 1-2 | `runCampaign` core in agent-eval. Tracing-on-by-default. `LabeledScenarioStore` (FS adapter). | — |
+| 3 | `LabeledScenarioStore` Turso adapter. `openAutoPr` + `writeProductionConfig` helpers. | — |
+| 4 | `runProductionLoop` scheduler in agent-runtime (Shape A + B). Pluggable mutator (reflective, AxGEPA wrapper). | — |
+| 5 | Tests + docs. Publish `agent-eval@0.39.0` + `agent-runtime@0.25.0`. | — |
+| 6 | DIFF the 4 product `run-prompt-evolution.ts` files. Fold unique fixes into substrate. | — |
+| 7-8 | — | gtm + legal migrations |
+| 9-10 | — | tax + creative migrations |
+| 11 | — | agent-builder migration (multi-kind dispatch validation) |
+| 12 | — | Live smokes across 5; close PRs. v1.0 frozen. |
 
 ---
 
-## Part 5 — What is NOT in scope for v1.0
+## What is NOT in v1.0
 
-| Future capability | Why deferred |
-|---|---|
-| `Scheduler` (cost/priority-aware cell ordering) | The substrate's existing `costCeiling` soft-abort is sufficient at our scale. Revisit when one consumer has >5 simultaneous campaigns. |
-| `CycleStore` (cross-campaign findings) | The `LabeledScenarioStore` is the minimum needed; richer cross-campaign analysis can come later. |
-| `PromotionPipeline` (dev → staging → prod) | Per-env promotion is done via per-env CI workflows today. Substrate doesn't need to model the env tree. |
-| New contracts beyond `Scenario` / `DispatchFn` / `JudgeConfig` | We have what we need. |
-| New packages | None. Everything stays in `agent-eval` / `agent-runtime` / `agent-knowledge` / `sandbox`. |
-| New adoption skills | None. `agent-stack-adoption` + `agent-eval-adoption` cover what we need. They'll update naturally as the presets land. |
-| JEPA / new ML primitives | Not in scope. GEPA via `runMultiShotOptimization` + `AxGEPA` via `@ax-llm/ax` Mutator is sufficient. |
-| Text-only YAML config surface | Nice-to-have; v1.0 ships TypeScript-first config with optional YAML loader as a follow-up. |
+- No new packages
+- No new contracts beyond `Scenario` / `DispatchFn` / `JudgeConfig` (0.38)
+- No new adoption skills — existing skills update naturally
+- No ML primitive invention (GEPA via `runMultiShotOptimization` + `AxGEPA` via `@ax-llm/ax` Mutator covers prompt optimization; analyst loop covers trace→findings)
+- No YAML-first surface (TypeScript-first; YAML loader is a follow-up)
+- No `Scheduler` / `CycleStore` / `PromotionPipeline` contracts (deferred — current `costCeiling` + `LabeledScenarioStore` + CI workflows cover today)
+- No real-time / streaming evals (batch-oriented; streaming when a consumer needs it)
+- No PR-opening-as-substrate-policy (the `openAutoPr` helper is a thin shell-out; products can override)
 
 ---
 
-## Part 6 — Open questions
+## Open sign-off
 
-1. **Is the ~9,300 LOC reduction the right framing?** The number is from `wc -l`; some of that is comments + boilerplate that DOESN'T duplicate. Real net might be 6,000-8,000 LOC. Order-of-magnitude is correct either way.
+- (a) Is **one function with rich options** the right cut? Or are 2-3 named presets clearer to consumers?
+- (b) Package boundary: agent-runtime owns the LOOPS (`runProductionLoop` scheduler, `runAnalystLoop`, `auto-research-runner`), agent-eval owns the PRIMITIVE (`runCampaign`). Is this split clean?
+- (c) Is tracing-on-by-default the right default, or is opt-in safer?
+- (d) Is 2-week ship + migration plan realistic given the wrapper-diff work in day 6?
 
-2. **Should the auto-PR helper land in agent-runtime or agent-eval?** PR-opening isn't an eval concern but the workflow lives downstream of `runProductionLoopCampaign`. **Recommendation: agent-eval/control.** Same package as the gates that decide to open it.
-
-3. **Should we deprecate `runMultiShotOptimization` direct calls?** No — leave as the low-level primitive. The new preset is the conventional path; advanced users can drop down.
-
-4. **Order of consumer migration?** **Recommendation: gtm first** (most current with substrate, simplest persona shape) → legal + tax in parallel (YAML personas, multi-state complexity) → creative + agent-builder. Each migration is a separate PR; the substrate preset PR ships first.
-
----
-
-## Sign-off
-
-This doc replaces the earlier 6-contract draft. The substrate doesn't need new contracts. It needs the three thin presets above. After v1.0:
-
-- Substrate is stable (`runCampaign` + 3 contracts + 3 presets — but those are presets already shipping in 0.38 plus the 3 new ones)
-- Consumer code is thin and uniform
-- The lift cycle stops because new variants land as additional preset configs, not new substrate primitives
-
-**One implementation track. 1.5 weeks. No new packages. No new skills. No new abstractions invented for the sake of it.**
-
-Drew sign-off:
-- (a) Is the ~9,300 LOC consumer-reduction + 5 substrate additions (4 presets + 1 store) the right framing?
-- (b) Multi-session simulation (`runUserJourneyCampaign`) the right primitive shape, or should we model time even more explicitly (real-time gaps, simulated calendar)?
-- (c) Substrate-as-product Shape A + Shape B duality the right framing, or should production-runtime-self-optimization be a separate primitive?
-- (d) 2-week ship sizing realistic, or do we discover unknowns in Shape B Worker compat or Turso `LabeledScenarioStore` adapter?
+When you sign off, this becomes the v1.0 implementation track. After v1.0 lands, the substrate stops being a maintenance burden — adding a 6th product is 50 LOC of config, not 2000 LOC of wrapper.
