@@ -76,18 +76,24 @@ export interface JudgeDimension {
   description: string
 }
 
-/** @experimental Pluggable dimensional scorer. Consumers register one per
- *  scoring concern. `appliesTo` lets a judge run only on scenarios that match
- *  (e.g., legal_citation judge only on legal scenarios). */
+/** @experimental Pluggable dimensional scorer. `score` is the contract:
+ *  given an artifact + scenario, return a `JudgeScore`. This is deliberately a
+ *  function, not a fixed LLM-prompt shape — real consumers judge with
+ *  ensembles, deterministic checks, or a single LLM call, and the substrate
+ *  must not constrain that. The `llmJudge()` helper builds a `score` that does
+ *  one LLM call for the common case. `appliesTo` lets a judge run only on
+ *  scenarios that match (e.g. a legal-citation judge only on legal scenarios). */
 export interface JudgeConfig<TArtifact, TScenario extends Scenario = Scenario> {
   name: string
-  model?: string
   dimensions: JudgeDimension[]
-  systemPrompt: string
-  buildPrompt: (input: { artifact: TArtifact; scenario: TScenario }) => string
+  /** Score one artifact. Throw on failure — a thrown judge is recorded as a
+   *  failed cell, never silently folded into a zero. */
+  score(input: {
+    artifact: TArtifact
+    scenario: TScenario
+    signal: AbortSignal
+  }): JudgeScore | Promise<JudgeScore>
   appliesTo?: (scenario: TScenario) => boolean
-  apiKey?: string
-  baseUrl?: string
 }
 
 export interface JudgeScore {
