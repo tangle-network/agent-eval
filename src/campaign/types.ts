@@ -1,12 +1,12 @@
 /**
  * @experimental
  *
- * Pass A substrate types — `runShot` is the one primitive every
+ * Pass A substrate types — `runCampaign` is the one primitive every
  * eval flow composes from. Three contracts in this file:
  *
  *   - `Scenario`            input set
  *   - `DispatchFn`          how to run one scenario → artifact
- *   - `ShotResult`      defined output schema (the contract downstream tools depend on)
+ *   - `CampaignResult`      defined output schema (the contract downstream tools depend on)
  *
  * Three more lifted from earlier substrate work (re-exported):
  *
@@ -35,9 +35,9 @@ export interface DispatchContext {
   generation?: number
   seed: number
   signal: AbortSignal
-  trace: ShotTraceWriter
-  artifacts: ShotArtifactWriter
-  cost: ShotCostMeter
+  trace: CampaignTraceWriter
+  artifacts: CampaignArtifactWriter
+  cost: CampaignCostMeter
   /** Populated when this run is part of a multi-cycle improvement loop. */
   cycleId?: string
   /** Populated when the substrate resumed from a prior cache hit. */
@@ -103,9 +103,10 @@ export interface JudgeScore {
  *  string-shaped feature. */
 export type MutableSurface = string
 
-/** @experimental Mutator contract — given findings + current surface, return
- *  N candidate surfaces. Reflective-mutation, `runMultiShotOptimization`,
- *  `AxGEPA` all conform. */
+/** @experimental Stateless surface mutation — given findings + current
+ *  surface, return N candidate surfaces. Pure transform, no generation
+ *  awareness. Reflective-mutation, `runMultiShotOptimization`, `AxGEPA`
+ *  conform. Wrapped by `evolutionaryDriver` to become an `ImprovementDriver`. */
 export interface Mutator<TFindings = unknown> {
   kind: string
   mutate(args: {
@@ -116,8 +117,34 @@ export interface Mutator<TFindings = unknown> {
   }): Promise<MutableSurface[]>
 }
 
+/** @experimental A surface-improvement strategy — the DRIVER of the
+ *  improvement loop. Given the current best surface, the history of what's
+ *  been tried + scored, and any external findings, propose the next batch of
+ *  candidate surfaces to measure. Optionally decide to stop early.
+ *
+ *  The evolutionary mutator (`evolutionaryDriver`) and a reflective analyst
+ *  (`analystDriver`, consumer-wired from `@tangle-network/agent-runtime`'s
+ *  `runAnalystLoop`) are two drivers of the SAME loop — not two loops. The
+ *  loop body (`runOptimization`) and the gated promotion shell
+ *  (`runImprovementLoop`) are driver-agnostic. */
+export interface ImprovementDriver<TFindings = unknown> {
+  kind: string
+  /** Plan: propose N candidate surfaces for the next generation. */
+  propose(args: {
+    currentSurface: MutableSurface
+    history: GenerationRecord[]
+    findings: TFindings[]
+    populationSize: number
+    generation: number
+    signal: AbortSignal
+  }): Promise<MutableSurface[]>
+  /** Decide: stop early when the driver judges the search converged or
+   *  exhausted. Default (omitted) runs all `maxGenerations`. */
+  decide?(args: { history: GenerationRecord[] }): { stop: boolean; reason?: string }
+}
+
 export interface OptimizerConfig {
-  mutator: Mutator
+  driver: ImprovementDriver
   populationSize: number
   maxGenerations: number
   surfaceExtractor: (profile: unknown) => MutableSurface
@@ -154,7 +181,7 @@ export interface Gate<TArtifact = unknown, TScenario extends Scenario = Scenario
 
 /** @experimental Scoped trace writer handed to each dispatch — every span
  *  auto-tagged with the cellId so traces filter cleanly. */
-export interface ShotTraceWriter {
+export interface CampaignTraceWriter {
   span(name: string, attributes?: Record<string, unknown>): TraceSpan
   flush(): Promise<void>
 }
@@ -166,7 +193,7 @@ export interface TraceSpan {
 
 /** @experimental Scoped artifact writer — `write(path, content)` lands under
  *  `<runDir>/<cellId>/<path>`. */
-export interface ShotArtifactWriter {
+export interface CampaignArtifactWriter {
   write(path: string, content: string | Uint8Array): Promise<string>
   writeJson(path: string, value: unknown): Promise<string>
 }
@@ -174,7 +201,7 @@ export interface ShotArtifactWriter {
 /** @experimental Cell-scoped cost meter. Substrate auto-tracks LLM costs
  *  via the cost-ledger backend hooks; consumers can record additional
  *  spend (sandbox time, tool costs) via `observe`. */
-export interface ShotCostMeter {
+export interface CampaignCostMeter {
   observe(amountUsd: number, source: string): void
   current(): number
 }
@@ -239,9 +266,9 @@ export interface LabeledScenarioStore {
   size(): Promise<{ train: number; test: number; bySource: Record<string, number> }>
 }
 
-// ── The ShotResult schema (the downstream-tools contract) ─────────
+// ── The CampaignResult schema (the downstream-tools contract) ─────────
 
-export interface ShotCellResult<TArtifact> {
+export interface CampaignCellResult<TArtifact> {
   cellId: string
   scenarioId: string
   rep: number
@@ -274,7 +301,7 @@ export interface GenerationRecord {
   promoted: string[]
 }
 
-export interface ShotAggregates {
+export interface CampaignAggregates {
   byJudge: Record<string, JudgeAggregate>
   byScenario: Record<string, ScenarioAggregate>
   totalCostUsd: number
@@ -284,15 +311,15 @@ export interface ShotAggregates {
   cellsFailed: number
 }
 
-export interface ShotResult<TArtifact = unknown, TScenario extends Scenario = Scenario> {
+export interface CampaignResult<TArtifact = unknown, TScenario extends Scenario = Scenario> {
   /** sha256(scenarios, judges, dispatch source ref, optimizer config, seed). Stable identity for reruns. */
   manifestHash: string
   seed: number
   startedAt: string
   endedAt: string
   durationMs: number
-  cells: Array<ShotCellResult<TArtifact>>
-  aggregates: ShotAggregates
+  cells: Array<CampaignCellResult<TArtifact>>
+  aggregates: CampaignAggregates
   optimization?: {
     generations: GenerationRecord[]
     winnerSurfaceHash?: string
@@ -304,6 +331,6 @@ export interface ShotResult<TArtifact = unknown, TScenario extends Scenario = Sc
   /** Substrate strips the input scenarios to id+kind for the result manifest;
    *  consumers needing full payload look it up via the original input. The
    *  type parameter `TScenario` is propagated for downstream consumers that
-   *  want narrowed types when extending `ShotResult`. */
+   *  want narrowed types when extending `CampaignResult`. */
   scenarios: Array<Pick<TScenario, 'id' | 'kind'>>
 }

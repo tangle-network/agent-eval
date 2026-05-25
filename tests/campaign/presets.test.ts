@@ -6,6 +6,7 @@ import {
   composeGate,
   type DispatchFn,
   defaultProductionGate,
+  evolutionaryDriver,
   type Gate,
   heldOutGate,
   type Mutator,
@@ -14,7 +15,7 @@ import {
   runImprovementLoop,
   runOptimization,
   type Scenario,
-} from '../../src/shot/index'
+} from '../../src/campaign/index'
 
 interface FakeScenario extends Scenario {
   id: string
@@ -51,7 +52,7 @@ afterEach(() => {
 // ── runEval ────────────────────────────────────────────────────────
 
 describe('runEval preset', () => {
-  it('is a thin pass-through to runShot', async () => {
+  it('is a thin pass-through to runCampaign', async () => {
     const result = await runEval({ scenarios: SCENARIOS, dispatch: noopDispatch, runDir })
     expect(result.cells).toHaveLength(2)
     expect(result.manifestHash).toMatch(/^[a-f0-9]{64}$/)
@@ -295,7 +296,7 @@ describe('runImprovementLoop — safety pre-flight', () => {
     holdoutScenarios: HOLDOUT,
     baselineSurface: 'You are helpful.',
     dispatchWithSurface: async (_s: string, sc: FakeScenario) => ({ text: sc.id }),
-    mutator: noopMutator,
+    driver: evolutionaryDriver({ mutator: noopMutator }),
     populationSize: 1,
     maxGenerations: 1,
     gate: heldOutGate({ scenarios: HOLDOUT, deltaThreshold: -10 }),
@@ -354,7 +355,7 @@ describe('runOptimization', () => {
       scenarios: SCENARIOS,
       baselineSurface: 'base',
       dispatchWithSurface,
-      mutator: noopMutator,
+      driver: evolutionaryDriver({ mutator: noopMutator }),
       populationSize: 2,
       maxGenerations: 2,
       runDir,
@@ -363,6 +364,71 @@ describe('runOptimization', () => {
     expect(result.generations).toHaveLength(2)
     expect(result.generations[0]!.surfaces).toHaveLength(2)
     expect(result.winnerSurfaceHash).toMatch(/^[a-f0-9]{16}$/)
-    expect(result.baselineShot.cells).toHaveLength(2)
+    expect(result.baselineCampaign.cells).toHaveLength(2)
+  })
+
+  it('drives via ANY ImprovementDriver, not just a mutator (analyst-style)', async () => {
+    // A reflective driver that reasons over history instead of mutating —
+    // proves the loop is driver-agnostic. This is the shape an analystDriver
+    // (consumer-wired from runAnalystLoop) conforms to.
+    const proposeCalls: number[] = []
+    const reflectiveDriver = {
+      kind: 'reflective:test',
+      async propose({ currentSurface, history, generation, populationSize }) {
+        proposeCalls.push(generation)
+        // Reads history: append the prior best composite as a "finding".
+        const priorBest = history.at(-1)?.candidates[0]?.composite ?? 0
+        return new Array(populationSize)
+          .fill(0)
+          .map((_, i) => `${currentSurface} [gen${generation} prior=${priorBest} v${i}]`)
+      },
+    }
+
+    const result = await runOptimization({
+      scenarios: SCENARIOS,
+      baselineSurface: 'base',
+      dispatchWithSurface: async (surface: string, s: FakeScenario) => ({
+        text: `${surface}::${s.id}`,
+      }),
+      driver: reflectiveDriver,
+      populationSize: 2,
+      maxGenerations: 3,
+      runDir,
+    })
+
+    expect(proposeCalls).toEqual([0, 1, 2])
+    expect(result.generations).toHaveLength(3)
+    expect(result.winnerSurfaceHash).toMatch(/^[a-f0-9]{16}$/)
+  })
+
+  it('honors driver.decide() early-stop', async () => {
+    let proposeCount = 0
+    const stopAfterOneDriver = {
+      kind: 'stop-after-one',
+      async propose({ currentSurface, populationSize }) {
+        proposeCount += 1
+        return new Array(populationSize).fill(currentSurface)
+      },
+      decide({ history }: { history: unknown[] }) {
+        // Stop once one generation has been recorded.
+        return { stop: history.length >= 1, reason: 'converged' }
+      },
+    }
+
+    const result = await runOptimization({
+      scenarios: SCENARIOS,
+      baselineSurface: 'base',
+      dispatchWithSurface: async (surface: string, s: FakeScenario) => ({
+        text: `${surface}::${s.id}`,
+      }),
+      driver: stopAfterOneDriver,
+      populationSize: 1,
+      maxGenerations: 10,
+      runDir,
+    })
+
+    // decide() stops the loop after gen 0 records → only 1 generation runs.
+    expect(proposeCount).toBe(1)
+    expect(result.generations).toHaveLength(1)
   })
 })

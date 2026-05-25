@@ -1,9 +1,12 @@
 /**
  * @experimental
  *
- * `@tangle-network/agent-eval/campaign` — Pass A substrate primitive.
+ * `@tangle-network/agent-eval/campaign` — measurement + improvement loop.
  *
- * See `docs/design/pass-a-substrate-0.40.md` for the design.
+ * `runCampaign` is the measurement primitive (a surface scored over scenarios);
+ * `runImprovementLoop` is the driver-agnostic improvement loop on top of it.
+ * See `docs/design/loop-taxonomy.md` for the role vocabulary (driver / worker
+ * / measurement) and the dataset flywheel.
  */
 
 // ── Auto-PR ──────────────────────────────────────────────────────────
@@ -12,6 +15,8 @@ export {
   type OpenAutoPrResult,
   openAutoPr,
 } from './auto-pr'
+// ── Improvement drivers ──────────────────────────────────────────────
+export { type EvolutionaryDriverOptions, evolutionaryDriver } from './drivers/evolutionary'
 // ── Gates ────────────────────────────────────────────────────────────
 export { composeGate } from './gates/compose'
 export {
@@ -37,8 +42,14 @@ export {
   runOptimization,
   surfaceHash,
 } from './presets/run-optimization'
-export { type RunShotOptions, runShot } from './run-shot'
+export { type RunCampaignOptions, runCampaign } from './run-campaign'
 export type {
+  CampaignAggregates,
+  CampaignArtifactWriter,
+  CampaignCellResult,
+  CampaignCostMeter,
+  CampaignResult,
+  CampaignTraceWriter,
   DispatchContext,
   DispatchFn,
   Gate,
@@ -46,6 +57,7 @@ export type {
   GateDecision,
   GateResult,
   GenerationRecord,
+  ImprovementDriver,
   JudgeAggregate,
   JudgeConfig,
   JudgeDimension,
@@ -62,11 +74,5 @@ export type {
   Scenario,
   ScenarioAggregate,
   SessionScript,
-  ShotAggregates,
-  ShotArtifactWriter,
-  ShotCellResult,
-  ShotCostMeter,
-  ShotResult,
-  ShotTraceWriter,
   TraceSpan,
 } from './types'

@@ -16,11 +16,11 @@ import { execSync } from 'node:child_process'
 import { writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import type { GateResult, Scenario, ShotResult } from './types'
+import type { CampaignResult, GateResult, Scenario } from './types'
 
 export interface OpenAutoPrOptions<TArtifact, TScenario extends Scenario> {
-  /** Shot result to attach to the PR. */
-  result: ShotResult<TArtifact, TScenario>
+  /** Campaign result to attach to the PR. */
+  result: CampaignResult<TArtifact, TScenario>
   /** Gate verdict explaining the promotion. Substrate refuses to open a PR
    *  when `gate.decision !== 'ship'` — fails loud. */
   gate: GateResult
@@ -101,7 +101,7 @@ export function openAutoPr<TArtifact, TScenario extends Scenario>(
 }
 
 function renderPrBody<TArtifact, TScenario extends Scenario>(
-  result: ShotResult<TArtifact, TScenario>,
+  result: CampaignResult<TArtifact, TScenario>,
   gate: GateResult,
   diff: string,
 ): string {
