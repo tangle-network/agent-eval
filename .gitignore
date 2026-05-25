@@ -21,3 +21,4 @@ data/
 coverage/
 *.junit.xml
 *.log
+*.tgz

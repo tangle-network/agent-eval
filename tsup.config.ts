@@ -19,6 +19,7 @@ export default defineConfig({
     'governance/index': 'src/governance/index.ts',
     'knowledge/index': 'src/knowledge/index.ts',
     'matrix/index': 'src/matrix/index.ts',
+    'multishot/index': 'src/multishot/index.ts',
     cli: 'src/cli.ts',
   },
   format: ['esm'],
