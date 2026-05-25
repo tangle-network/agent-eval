@@ -107,26 +107,31 @@ export async function runImprovementLoop<TScenario extends Scenario, TArtifact>(
   })
 
   // ── (3) gate verdict ───────────────────────────────────────────────
-  const candidateArtifacts = new Map<string, TArtifact>()
-  const baselineArtifacts = new Map<string, TArtifact>()
-  const judgeScores = new Map<
+  // Candidate + baseline share cellIds (same holdout scenarios), so their
+  // judge scores MUST stay in separate maps — merging them collapses the
+  // holdout delta to zero and the gate can never ship a real improvement.
+  type ScoreMap = Map<
     string,
     Record<string, { composite: number; dimensions: Record<string, number>; notes: string }>
-  >()
+  >
+  const candidateArtifacts = new Map<string, TArtifact>()
+  const baselineArtifacts = new Map<string, TArtifact>()
+  const judgeScores: ScoreMap = new Map()
+  const baselineJudgeScores: ScoreMap = new Map()
   for (const cell of winnerOnHoldout.cells) {
     candidateArtifacts.set(cell.cellId, cell.artifact)
     judgeScores.set(cell.cellId, cell.judgeScores)
   }
   for (const cell of baselineOnHoldout.cells) {
     baselineArtifacts.set(cell.cellId, cell.artifact)
-    const prior = judgeScores.get(cell.cellId) ?? {}
-    judgeScores.set(cell.cellId, { ...prior, ...cell.judgeScores })
+    baselineJudgeScores.set(cell.cellId, cell.judgeScores)
   }
 
   const gateResult = await opts.gate.decide({
     candidateArtifacts,
     baselineArtifacts,
     judgeScores,
+    baselineJudgeScores,
     scenarios: opts.holdoutScenarios,
     cost: {
       candidate: winnerOnHoldout.aggregates.totalCostUsd,

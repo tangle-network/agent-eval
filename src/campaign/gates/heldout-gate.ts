@@ -21,8 +21,10 @@ export function heldOutGate<TArtifact, TScenario extends Scenario>(
     name: 'heldOutGate',
     async decide(ctx: GateContext<TArtifact, TScenario>): Promise<GateResult> {
       const scenarioIds = new Set(options.scenarios.map((s) => s.id))
-      const baseline = meanForScenarios(ctx.baselineArtifacts, ctx.judgeScores, scenarioIds)
-      const candidate = meanForScenarios(ctx.candidateArtifacts, ctx.judgeScores, scenarioIds)
+      // Baseline scores live in their OWN map — falling back to `judgeScores`
+      // would compare the candidate against itself (delta 0).
+      const baseline = meanForScenarios(ctx.baselineJudgeScores ?? ctx.judgeScores, scenarioIds)
+      const candidate = meanForScenarios(ctx.judgeScores, scenarioIds)
       const delta = candidate - baseline
       const passed = delta >= deltaThreshold
       return {
@@ -39,12 +41,10 @@ export function heldOutGate<TArtifact, TScenario extends Scenario>(
   }
 }
 
-function meanForScenarios<TArtifact>(
-  artifacts: Map<string, TArtifact> | undefined,
+function meanForScenarios(
   judgeScoresByCell: Map<string, Record<string, { composite: number }>>,
   scenarioIds: Set<string>,
 ): number {
-  if (!artifacts || artifacts.size === 0) return 0
   const composites: number[] = []
   for (const [cellId, scores] of judgeScoresByCell) {
     const scenarioId = cellId.split(':')[0] ?? ''

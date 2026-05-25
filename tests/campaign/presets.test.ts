@@ -101,35 +101,48 @@ describe('composeGate', () => {
 // ── heldOutGate ────────────────────────────────────────────────────
 
 describe('heldOutGate', () => {
-  it('ships when candidate beats baseline by >= deltaThreshold', async () => {
+  type Scores = Map<
+    string,
+    Record<string, { composite: number; dimensions: Record<string, number>; notes: string }>
+  >
+  const mk = (h1: number, h2: number): Scores =>
+    new Map([
+      ['h1:0', { judge: { composite: h1, dimensions: {}, notes: '' } }],
+      ['h2:0', { judge: { composite: h2, dimensions: {}, notes: '' } }],
+    ])
+  const artifacts = new Map([
+    ['h1:0', null],
+    ['h2:0', null],
+  ])
+
+  it('ships when candidate beats baseline by >= deltaThreshold (separate score maps)', async () => {
     const gate = heldOutGate({ scenarios: HOLDOUT, deltaThreshold: 0.5 })
-    const baseline = new Map([
-      ['h1:0', null],
-      ['h2:0', null],
-    ])
-    const candidate = new Map([
-      ['h1:0', null],
-      ['h2:0', null],
-    ])
-    const judgeScores = new Map<
-      string,
-      Record<string, { composite: number; dimensions: Record<string, number>; notes: string }>
-    >([
-      ['h1:0', { judge: { composite: 9, dimensions: {}, notes: '' } }],
-      ['h2:0', { judge: { composite: 8, dimensions: {}, notes: '' } }],
-    ])
     const result = await gate.decide({
-      candidateArtifacts: candidate as never,
-      baselineArtifacts: baseline as never,
-      judgeScores,
+      candidateArtifacts: artifacts as never,
+      baselineArtifacts: artifacts as never,
+      judgeScores: mk(9, 8), // candidate mean 8.5
+      baselineJudgeScores: mk(5, 4), // baseline mean 4.5 → delta 4.0
       scenarios: HOLDOUT,
       cost: { candidate: 0, baseline: 0 },
       signal: new AbortController().signal,
     })
-    // candidate composite is 8.5; baseline (no judge score map for baseline distinct from candidate) ~ 8.5 → delta 0
-    // adjust expectation: holdout gate compares against the SAME judgeScores map by cellId
-    expect(['ship', 'hold']).toContain(result.decision)
-    expect(result.delta).toBeDefined()
+    expect(result.delta).toBeCloseTo(4.0)
+    expect(result.decision).toBe('ship')
+  })
+
+  it('holds when the candidate does not beat baseline', async () => {
+    const gate = heldOutGate({ scenarios: HOLDOUT, deltaThreshold: 0.5 })
+    const result = await gate.decide({
+      candidateArtifacts: artifacts as never,
+      baselineArtifacts: artifacts as never,
+      judgeScores: mk(6, 6), // candidate 6
+      baselineJudgeScores: mk(6, 6), // baseline 6 → delta 0 < 0.5
+      scenarios: HOLDOUT,
+      cost: { candidate: 0, baseline: 0 },
+      signal: new AbortController().signal,
+    })
+    expect(result.delta).toBeCloseTo(0)
+    expect(result.decision).toBe('hold')
   })
 })
 
