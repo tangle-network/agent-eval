@@ -349,8 +349,23 @@ export interface ScenarioAggregate {
 
 export interface GenerationRecord {
   generationIndex: number
-  candidates: Array<{ surfaceHash: string; composite: number; ci95: [number, number] }>
+  candidates: GenerationCandidate[]
   promoted: string[]
+}
+
+/** One scored candidate surface in a generation. `dimensions` + `scenarios`
+ *  let a reflective `ImprovementDriver` ground its next proposal on WHICH
+ *  dimensions the candidate is weakest on and WHICH scenarios it best/worst
+ *  handled — the evidence a blind `Mutator` cannot see. */
+export interface GenerationCandidate {
+  surfaceHash: string
+  composite: number
+  ci95: [number, number]
+  /** Mean score per judge dimension across all cells (scenarios × reps ×
+   *  judges that reported the dimension). */
+  dimensions: Record<string, number>
+  /** Per-scenario composite (mean over reps + judges). */
+  scenarios: Array<{ scenarioId: string; composite: number }>
 }
 
 export interface CampaignAggregates {

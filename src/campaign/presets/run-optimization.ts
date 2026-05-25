@@ -137,11 +137,16 @@ export async function runOptimization<TScenario extends Scenario, TArtifact>(
 
     const record: GenerationRecord = {
       generationIndex: gen,
-      candidates: surfaceResults.map((s) => ({
-        surfaceHash: s.surfaceHash,
-        composite: s.composite,
-        ci95: [s.composite, s.composite] as [number, number],
-      })),
+      candidates: surfaceResults.map((s) => {
+        const breakdown = candidateBreakdown(s.campaign)
+        return {
+          surfaceHash: s.surfaceHash,
+          composite: s.composite,
+          ci95: [s.composite, s.composite] as [number, number],
+          dimensions: breakdown.dimensions,
+          scenarios: breakdown.scenarios,
+        }
+      }),
       promoted: promoted.map((p) => p.surfaceHash),
     }
     history.push(record)
@@ -188,4 +193,41 @@ function meanComposite<TArtifact, TScenario extends Scenario>(
     }
   }
   return composites.length === 0 ? 0 : composites.reduce((a, b) => a + b, 0) / composites.length
+}
+
+/** Per-candidate evidence a reflective driver grounds its next proposal on:
+ *  mean score per judge dimension + per-scenario composite. */
+function candidateBreakdown<TArtifact, TScenario extends Scenario>(
+  campaign: CampaignResult<TArtifact, TScenario>,
+): {
+  dimensions: Record<string, number>
+  scenarios: Array<{ scenarioId: string; composite: number }>
+} {
+  const dimSums: Record<string, number> = {}
+  const dimCounts: Record<string, number> = {}
+  const byScenario = new Map<string, number[]>()
+  for (const cell of campaign.cells) {
+    const judgeScores = Object.values(cell.judgeScores)
+    if (judgeScores.length === 0) continue
+    const cellComposite = judgeScores.reduce((a, s) => a + s.composite, 0) / judgeScores.length
+    const arr = byScenario.get(cell.scenarioId) ?? []
+    arr.push(cellComposite)
+    byScenario.set(cell.scenarioId, arr)
+    for (const score of judgeScores) {
+      for (const [key, value] of Object.entries(score.dimensions)) {
+        dimSums[key] = (dimSums[key] ?? 0) + value
+        dimCounts[key] = (dimCounts[key] ?? 0) + 1
+      }
+    }
+  }
+  const dimensions: Record<string, number> = {}
+  for (const key of Object.keys(dimSums)) {
+    const count = dimCounts[key] ?? 0
+    dimensions[key] = count > 0 ? (dimSums[key] ?? 0) / count : 0
+  }
+  const scenarios = [...byScenario.entries()].map(([scenarioId, comps]) => ({
+    scenarioId,
+    composite: comps.reduce((a, b) => a + b, 0) / comps.length,
+  }))
+  return { dimensions, scenarios }
 }
