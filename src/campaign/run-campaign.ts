@@ -261,20 +261,22 @@ async function executeCell<TScenario extends Scenario, TArtifact>(
     errorMessage = err instanceof Error ? err.message : String(err)
   }
 
-  // Run judges (only if we have an artifact).
+  // Run judges (only if we have an artifact). A judge that throws invalidates
+  // the cell — recorded as `error`, NOT folded into a fake composite:0 (a fake
+  // zero is indistinguishable from a real zero and poisons every aggregate).
   const judgeScores: Record<string, JudgeScore> = {}
   if (artifact !== undefined) {
     for (const judge of args.opts.judges ?? []) {
       if (judge.appliesTo && !judge.appliesTo(args.slot.scenario)) continue
       try {
-        const score = await runJudgeCell(judge, { artifact, scenario: args.slot.scenario })
-        judgeScores[judge.name] = score
+        judgeScores[judge.name] = await runJudgeCell(judge, {
+          artifact,
+          scenario: args.slot.scenario,
+          signal: args.signal,
+        })
       } catch (err) {
-        judgeScores[judge.name] = {
-          dimensions: {},
-          composite: 0,
-          notes: `judge failed: ${err instanceof Error ? err.message : String(err)}`,
-        }
+        errorMessage = `judge '${judge.name}' failed: ${err instanceof Error ? err.message : String(err)}`
+        break
       }
     }
   }
@@ -302,12 +304,10 @@ async function executeCell<TScenario extends Scenario, TArtifact>(
 }
 
 async function runJudgeCell<TArtifact, TScenario extends Scenario>(
-  _judge: JudgeConfig<TArtifact, TScenario>,
-  _input: { artifact: TArtifact; scenario: TScenario },
+  judge: JudgeConfig<TArtifact, TScenario>,
+  input: { artifact: TArtifact; scenario: TScenario; signal: AbortSignal },
 ): Promise<JudgeScore> {
-  // Phase 1 stub — wires to the existing 0.38 runJudge in Phase 2.
-  // Returns a zero-score for now; consumer wiring + preset uses this.
-  return { dimensions: {}, composite: 0, notes: 'phase-1-stub' }
+  return judge.score(input)
 }
 
 function defaultBuildTraceWriter(cellId: string, dir: string): CampaignTraceWriter {

@@ -141,12 +141,42 @@ describe('runCampaign — core primitive', () => {
     expect(result.aggregates.cellsSkipped).toBeGreaterThanOrEqual(1)
   })
 
+  it('actually invokes judge.score and records the real composite', async () => {
+    // Regression guard: runCampaign MUST call judge.score — not a stub. The
+    // composite must reflect the artifact (here: text length / 10).
+    const judge: JudgeConfig<FakeArtifact, FakeScenario> = {
+      name: 'len',
+      dimensions: [{ key: 'len' }],
+      score: ({ artifact }) => ({
+        dimensions: { len: artifact.text.length },
+        composite: artifact.text.length / 10,
+        notes: `scored ${artifact.text.length} chars`,
+      }),
+    }
+    const result = await runCampaign({
+      scenarios: SCENARIOS.slice(0, 1),
+      dispatch: DISPATCH,
+      judges: [judge],
+      runDir,
+    })
+    const cell = result.cells[0]!
+    const score = cell.judgeScores.len!
+    // The score is derived from the REAL artifact — not 0, not 'phase-1-stub'.
+    expect(score.composite).toBeCloseTo(cell.artifact.text.length / 10)
+    expect(score.composite).toBeGreaterThan(0)
+    expect(score.notes).toMatch(/scored \d+ chars/)
+    expect(result.aggregates.byJudge.len!.mean).toBeCloseTo(score.composite)
+  })
+
   it('runs judges scoped via appliesTo', async () => {
     const judge: JudgeConfig<FakeArtifact, FakeScenario> = {
       name: 'len',
-      dimensions: [{ key: 'len', description: 'text length' }],
-      systemPrompt: '',
-      buildPrompt: () => '',
+      dimensions: [{ key: 'len' }],
+      score: ({ artifact }) => ({
+        dimensions: { len: artifact.text.length },
+        composite: 1,
+        notes: '',
+      }),
       appliesTo: (s) => s.id === 'a',
     }
     const result = await runCampaign({
@@ -159,6 +189,27 @@ describe('runCampaign — core primitive', () => {
     const bCell = result.cells.find((c) => c.scenarioId === 'b')!
     expect(Object.keys(aCell.judgeScores)).toContain('len')
     expect(Object.keys(bCell.judgeScores)).not.toContain('len')
+  })
+
+  it('a thrown judge invalidates the cell (no fake composite:0)', async () => {
+    const judge: JudgeConfig<FakeArtifact, FakeScenario> = {
+      name: 'boom',
+      dimensions: [{ key: 'x' }],
+      score: () => {
+        throw new Error('judge exploded')
+      },
+    }
+    const result = await runCampaign({
+      scenarios: SCENARIOS.slice(0, 1),
+      dispatch: DISPATCH,
+      judges: [judge],
+      runDir,
+    })
+    const cell = result.cells[0]!
+    expect(cell.error).toMatch(/judge 'boom' failed: judge exploded/)
+    // No fabricated composite:0 recorded for the failed judge.
+    expect(cell.judgeScores.boom).toBeUndefined()
+    expect(result.aggregates.cellsFailed).toBe(1)
   })
 
   it('writes spans.jsonl per cell', async () => {
