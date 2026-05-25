@@ -184,30 +184,34 @@ Both are `ImprovementDriver`s in the abstract (propose a change → measure →
 gate → PR). They differ only in *what* they edit and *how invasive* it is. And
 both consume the **same dataset** the flywheel builds.
 
-## Open design questions (not yet decided)
+## Resolved design decisions
 
-1. **Should `MutableSurface` widen past `string` to model tiers 3–4?** A code
-   edit is not a single string — it's a set of repo changes / a worktree ref.
-   Two options:
-   - widen `MutableSurface = string | { kind: 'code'; worktreeRef: string; … }`
-     so the one loop spans all tiers, **or**
-   - keep `MutableSurface = string` for tiers 1–2 and let tier-4 autoresearch
-     be a distinct "produce a worktree, gate measures the changed code" path
-     that shares the gate + dataset but not the surface type.
-   Leaning toward the second (keep the prompt-surface loop pure; model code
-   improvement as a sibling that reuses the gate + flywheel) — but undecided.
+1. **`MutableSurface` widens to span all tiers.** `MutableSurface = string |
+   CodeSurface`. The `string` form is tiers 1–2 (prompt / serialized tool
+   config); `CodeSurface = { kind: 'code'; worktreeRef; baseRef?; summary? }`
+   is tier 4 (an implementation change behind a worktree ref). One loop spans
+   prompt *and* code improvement. `surfaceHash` hashes a string by content and
+   a code surface by its `(worktreeRef, baseRef)` identity (the content lives
+   in git). **Shipped in agent-eval 0.40.1.** The consumer's
+   `dispatchWithSurface` is responsible for checking out a code surface's
+   worktree before running the worker.
 
-2. **Does `runAnalystLoop` (agent-runtime) get refactored to construct an
-   `analystDriver` + call `runImprovementLoop`, or stay as the autoresearch
-   entry point that *emits findings* an `analystDriver` consumes?** The first
-   collapses the loops fully; the second keeps the analyst's knowledge-update
-   responsibilities (which aren't surface optimization) where they are.
+2. **`runAnalystLoop` (agent-runtime): analyst becomes a driver; knowledge
+   stays separate.** Extract an `analystDriver` (implements agent-eval's
+   `ImprovementDriver`) for the surface-proposal part, and feed it into
+   `runImprovementLoop`'s gate + PR machinery. `runAnalystLoop`'s other
+   responsibilities — the findings ledger and knowledge-graph updates, which
+   are *not* surface optimization — stay where they are. **Phase 3
+   (agent-runtime); the `ImprovementDriver` contract it implements is already
+   shipped in agent-eval 0.40.1.**
 
-3. **Cross-repo naming.** `runLoop` (agent-runtime, inner execution) and
-   `runMultishot` (agent-eval, inner conversation simulation) are the same
-   *shape* with different backends (sandbox vs router). Whether they should
-   converge into one parameterized primitive, or stay as two clearly-scoped
-   entry points, is unresolved.
+3. **`runLoop` + `runMultishot` converge into one parameterized
+   `runConversationLoop`** with a pluggable backend (`sandbox | router`). The
+   two are the same shape (driver ↔ workers, iterate) differing only in
+   backend and intent; unify them. **Phase 3+ (cross-repo); needs its own
+   design pass — introduces a backend abstraction and couples the two repos'
+   inner loops, so it lands after the `ImprovementDriver` model is proven in
+   product use.**
 
 ## Vocabulary quick reference
 

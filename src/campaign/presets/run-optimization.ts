@@ -153,7 +153,17 @@ export async function runOptimization<TScenario extends Scenario, TArtifact>(
 }
 
 export function surfaceHash(surface: MutableSurface): string {
-  return createHash('sha256').update(surface).digest('hex').slice(0, 16)
+  // Prompt/tool surfaces (string) hash by content; code surfaces hash by the
+  // worktree + base ref pair (the content lives in git, not in the string).
+  const material =
+    typeof surface === 'string'
+      ? surface
+      : JSON.stringify({
+          kind: surface.kind,
+          worktreeRef: surface.worktreeRef,
+          baseRef: surface.baseRef ?? null,
+        })
+  return createHash('sha256').update(material).digest('hex').slice(0, 16)
 }
 
 function meanComposite<TArtifact, TScenario extends Scenario>(
