@@ -56,6 +56,10 @@ export interface RunCampaignOptions<TScenario extends Scenario, TArtifact> {
   maxConcurrency?: number
   /** Required: where artifacts + traces land. */
   runDir: string
+  /** Tracing posture. Default is the substrate's `FileSystemTraceStore` rooted
+   *  at `<runDir>/traces/`. `'off'` disables capture entirely — substrate
+   *  refuses this when the caller wires `autoOnPromote !== 'none'`. */
+  tracing?: 'on' | 'off'
   /** Test seam — override the wall clock for deterministic tests. */
   now?: () => Date
   /** Test seam — override per-cell trace writer factory. */

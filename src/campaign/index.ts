@@ -44,3 +44,29 @@ export {
   LabeledScenarioStoreError,
   type FsLabeledScenarioStoreOptions,
 } from './labeled-store/fs-adapter'
+
+// ── Gates ────────────────────────────────────────────────────────────
+export { composeGate } from './gates/compose'
+export { defaultProductionGate, type DefaultProductionGateOptions } from './gates/default-production-gate'
+export { heldOutGate, type HeldOutGateOptions } from './gates/heldout-gate'
+
+// ── Auto-PR ──────────────────────────────────────────────────────────
+export {
+  openAutoPr,
+  type OpenAutoPrOptions,
+  type OpenAutoPrResult,
+} from './auto-pr'
+
+// ── Presets (the documented public surface) ──────────────────────────
+export { runEval, type RunEvalOptions } from './presets/run-eval'
+export {
+  runOptimization,
+  surfaceHash,
+  type RunOptimizationOptions,
+  type RunOptimizationResult,
+} from './presets/run-optimization'
+export {
+  runProductionLoop,
+  type RunProductionLoopOptions,
+  type RunProductionLoopResult,
+} from './presets/run-production-loop'
