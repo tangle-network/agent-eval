@@ -1,0 +1,322 @@
+/**
+ * @experimental
+ *
+ * Pass A substrate types — `runCampaign` is the one primitive every
+ * eval flow composes from. Three contracts in this file:
+ *
+ *   - `Scenario`            input set
+ *   - `DispatchFn`          how to run one scenario → artifact
+ *   - `CampaignResult`      defined output schema (the contract downstream tools depend on)
+ *
+ * Three more lifted from earlier substrate work (re-exported):
+ *
+ *   - `JudgeConfig`         pluggable dimensional scorer (0.38)
+ *   - `Mutator`             optimization-loop surface mutator
+ *   - `Gate`                promotion gate (`HeldOutGate` and friends adapt to this)
+ *
+ * No new architecture vs 0.38 — Pass A formalizes the shapes so consumers
+ * can build dashboards / CI gates / regression diffs against a stable schema.
+ */
+
+/** @experimental Stable identifier + kind tag for any scenario. Consumers
+ *  extend with their per-domain payload (persona, task, requirement, ...). */
+export interface Scenario {
+  id: string
+  kind: string
+  tags?: string[]
+}
+
+/** @experimental Context handed to every dispatch invocation. Scoped — every
+ *  trace/span carries the cellId, every artifact write lands under the cell's
+ *  artifact root, the cost meter accumulates per cell. */
+export interface DispatchContext {
+  cellId: string
+  rep: number
+  generation?: number
+  seed: number
+  signal: AbortSignal
+  trace: CampaignTraceWriter
+  artifacts: CampaignArtifactWriter
+  cost: CampaignCostMeter
+  /** Populated when this run is part of a multi-cycle improvement loop. */
+  cycleId?: string
+  /** Populated when the substrate resumed from a prior cache hit. */
+  resumedFrom?: string
+}
+
+/** @experimental One function: scenario + ctx → artifact. Dispatcher chooses
+ *  whether to call `runMultishot`, `runLoop`, raw `streamPrompt`, anything. */
+export type DispatchFn<TScenario extends Scenario, TArtifact> = (
+  scenario: TScenario,
+  ctx: DispatchContext,
+) => Promise<TArtifact>
+
+// ── Sessions ──────────────────────────────────────────────────────────
+
+/** @experimental One session within a multi-session journey. Dispatch is
+ *  invoked once per session in order; state from prior session's artifact
+ *  is exposed via `ctx.priorSessionArtifact`. */
+export interface SessionScript<TScenario, TArtifact> {
+  id: string
+  intent: string
+  maxTurns?: number
+  /** When true, knowledge accumulated this session persists to next. */
+  affectsKnowledge?: boolean
+  /** Optional per-session persona evolution — called after the session
+   *  resolves. Returns the persona shape used by the NEXT session. */
+  evolveAfterSession?: (
+    artifact: TArtifact,
+    sessionIndex: number,
+    scenario: TScenario,
+  ) => TScenario
+}
+
+// ── Judges (re-export 0.38 shape) ─────────────────────────────────────
+
+export interface JudgeDimension {
+  /** JSON field name + score key. */
+  key: string
+  /** Description shown in the judge's user prompt. */
+  description: string
+}
+
+/** @experimental Pluggable dimensional scorer. Consumers register one per
+ *  scoring concern. `appliesTo` lets a judge run only on scenarios that match
+ *  (e.g., legal_citation judge only on legal scenarios). */
+export interface JudgeConfig<TArtifact, TScenario extends Scenario = Scenario> {
+  name: string
+  model?: string
+  dimensions: JudgeDimension[]
+  systemPrompt: string
+  buildPrompt: (input: { artifact: TArtifact; scenario: TScenario }) => string
+  appliesTo?: (scenario: TScenario) => boolean
+  apiKey?: string
+  baseUrl?: string
+}
+
+export interface JudgeScore {
+  dimensions: Record<string, number>
+  composite: number
+  notes: string
+}
+
+// ── Optimization (population + generations + mutator) ─────────────────
+
+/** @experimental The mutable surface that an optimizer mutates. Typically a
+ *  system-prompt addendum, but could be a tools array, a profile field, any
+ *  string-shaped feature. */
+export type MutableSurface = string
+
+/** @experimental Mutator contract — given findings + current surface, return
+ *  N candidate surfaces. Reflective-mutation, `runMultiShotOptimization`,
+ *  `AxGEPA` all conform. */
+export interface Mutator<TFindings = unknown> {
+  kind: string
+  mutate(args: {
+    findings: TFindings[]
+    currentSurface: MutableSurface
+    populationSize: number
+    signal: AbortSignal
+  }): Promise<MutableSurface[]>
+}
+
+export interface OptimizerConfig {
+  mutator: Mutator
+  populationSize: number
+  maxGenerations: number
+  surfaceExtractor: (profile: unknown) => MutableSurface
+}
+
+// ── Gates ─────────────────────────────────────────────────────────────
+
+/** @experimental Five-valued verdict taxonomy (MOSS-paper alignment). */
+export type GateDecision =
+  | 'ship'
+  | 'hold'
+  | 'need_more_work'
+  | 'model_ceiling'
+  | 'arch_ceiling'
+
+export interface GateContext<TArtifact, TScenario extends Scenario> {
+  candidateArtifacts: Map<string, TArtifact>
+  baselineArtifacts?: Map<string, TArtifact>
+  judgeScores: Map<string, Record<string, JudgeScore>>
+  scenarios: TScenario[]
+  cost: { candidate: number; baseline: number }
+  signal: AbortSignal
+}
+
+export interface GateResult {
+  decision: GateDecision
+  reasons: string[]
+  contributingGates: Array<{ name: string; passed: boolean; detail: unknown }>
+  delta?: number
+}
+
+/** @experimental Composable promotion gate. */
+export interface Gate<TArtifact = unknown, TScenario extends Scenario = Scenario> {
+  name: string
+  decide(ctx: GateContext<TArtifact, TScenario>): Promise<GateResult>
+}
+
+// ── Tracing / artifacts / cost ────────────────────────────────────────
+
+/** @experimental Scoped trace writer handed to each dispatch — every span
+ *  auto-tagged with the cellId so traces filter cleanly. */
+export interface CampaignTraceWriter {
+  span(name: string, attributes?: Record<string, unknown>): TraceSpan
+  flush(): Promise<void>
+}
+
+export interface TraceSpan {
+  end(attributes?: Record<string, unknown>): void
+  setAttribute(key: string, value: unknown): void
+}
+
+/** @experimental Scoped artifact writer — `write(path, content)` lands under
+ *  `<runDir>/<cellId>/<path>`. */
+export interface CampaignArtifactWriter {
+  write(path: string, content: string | Uint8Array): Promise<string>
+  writeJson(path: string, value: unknown): Promise<string>
+}
+
+/** @experimental Cell-scoped cost meter. Substrate auto-tracks LLM costs
+ *  via the cost-ledger backend hooks; consumers can record additional
+ *  spend (sandbox time, tool costs) via `observe`. */
+export interface CampaignCostMeter {
+  observe(amountUsd: number, source: string): void
+  current(): number
+}
+
+// ── LabeledScenarioStore ──────────────────────────────────────────────
+
+/** @experimental Source tag — required on every store write. Used by the
+ *  default training-source filter (production-trace samples NOT used as
+ *  training scenarios unless explicitly opted in). */
+export type LabeledScenarioSource =
+  | 'production-trace'
+  | 'eval-run'
+  | 'manual'
+  | 'red-team'
+  | 'synthetic'
+
+export type RedactionStatus =
+  | 'raw'
+  | 'redacted-pii'
+  | 'redacted-secrets'
+  | 'fully-redacted'
+
+/** @experimental Required-provenance write. The store rejects writes that
+ *  lack provenance — a default-on flywheel without provenance is the
+ *  data-poisoning vector flagged in the alignment review. */
+export interface LabeledScenarioWrite<TScenario extends Scenario = Scenario, TArtifact = unknown> {
+  scenario: TScenario
+  artifact: TArtifact
+  judgeScores: Record<string, JudgeScore>
+  source: LabeledScenarioSource
+  sourceVersionHash: string
+  capturedAt: string
+  redactionStatus: RedactionStatus
+  /** Optional per-source rate-limit bucket key (e.g., the tenant id). */
+  rateLimitBucket?: string
+}
+
+export interface LabeledScenarioRecord<TScenario extends Scenario = Scenario, TArtifact = unknown>
+  extends LabeledScenarioWrite<TScenario, TArtifact> {
+  /** Stable hash of (scenario.id, source, capturedAt, sourceVersionHash). */
+  recordHash: string
+  /** Substrate-assigned split — train if captured before the campaign's
+   *  `temporalCutoff`, test if after. Explicit override allowed via filter. */
+  split: 'train' | 'test'
+}
+
+export interface LabeledScenarioSampleArgs {
+  count: number
+  /** REQUIRED — substrate refuses to sample without an explicit split. */
+  split: 'train' | 'test'
+  /** REQUIRED — only records captured before this timestamp are returned.
+   *  Enforces temporal split discipline (test scenarios captured AFTER train
+   *  cannot enter the training pool). */
+  capturedBefore: string
+  filter?: {
+    kind?: string
+    source?: LabeledScenarioSource | LabeledScenarioSource[]
+    minComposite?: number
+    maxComposite?: number
+  }
+}
+
+export interface LabeledScenarioStore {
+  observe(write: LabeledScenarioWrite): Promise<void>
+  sample(args: LabeledScenarioSampleArgs): Promise<LabeledScenarioRecord[]>
+  size(): Promise<{ train: number; test: number; bySource: Record<string, number> }>
+}
+
+// ── The CampaignResult schema (the downstream-tools contract) ─────────
+
+export interface CampaignCellResult<TArtifact> {
+  cellId: string
+  scenarioId: string
+  rep: number
+  generation?: number
+  artifact: TArtifact
+  judgeScores: Record<string, JudgeScore>
+  costUsd: number
+  durationMs: number
+  seed: number
+  cached: boolean
+  error?: string
+}
+
+export interface JudgeAggregate {
+  mean: number
+  stdev: number
+  ci95: [number, number]
+  n: number
+}
+
+export interface ScenarioAggregate {
+  meanComposite: number
+  ci95: [number, number]
+  n: number
+}
+
+export interface GenerationRecord {
+  generationIndex: number
+  candidates: Array<{ surfaceHash: string; composite: number; ci95: [number, number] }>
+  promoted: string[]
+}
+
+export interface CampaignAggregates {
+  byJudge: Record<string, JudgeAggregate>
+  byScenario: Record<string, ScenarioAggregate>
+  totalCostUsd: number
+  cellsExecuted: number
+  cellsSkipped: number
+  cellsCached: number
+  cellsFailed: number
+}
+
+export interface CampaignResult<TArtifact = unknown, TScenario extends Scenario = Scenario> {
+  /** sha256(scenarios, judges, dispatch source ref, optimizer config, seed). Stable identity for reruns. */
+  manifestHash: string
+  seed: number
+  startedAt: string
+  endedAt: string
+  durationMs: number
+  cells: Array<CampaignCellResult<TArtifact>>
+  aggregates: CampaignAggregates
+  optimization?: {
+    generations: GenerationRecord[]
+    winnerSurfaceHash?: string
+  }
+  gate?: GateResult
+  prUrl?: string
+  runDir: string
+  artifactsByPath: Record<string, string>
+  /** Substrate strips the input scenarios to id+kind for the result manifest;
+   *  consumers needing full payload look it up via the original input. The
+   *  type parameter `TScenario` is propagated for downstream consumers that
+   *  want narrowed types when extending `CampaignResult`. */
+  scenarios: Array<Pick<TScenario, 'id' | 'kind'>>
+}

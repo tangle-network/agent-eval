@@ -104,6 +104,11 @@
       "import": "./dist/multishot/index.js",
       "default": "./dist/multishot/index.js"
     },
+    "./campaign": {
+      "types": "./dist/campaign/index.d.ts",
+      "import": "./dist/campaign/index.js",
+      "default": "./dist/campaign/index.js"
+    },
     "./openapi.json": {
       "default": "./dist/openapi.json"
     }
