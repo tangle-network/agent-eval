@@ -436,10 +436,7 @@ export async function buildSandboxAgentProfileCell(
   input: Omit<AgentProfileCellInput, 'profileId' | 'sourceProfile'>,
 ): Promise<AgentProfileCell> {
   if (!profile || typeof profile !== 'object') {
-    throw new AgentProfileCellValidationError(
-      'sandbox AgentProfile must be an object',
-      'profile',
-    )
+    throw new AgentProfileCellValidationError('sandbox AgentProfile must be an object', 'profile')
   }
   if (typeof profile.name !== 'string' || profile.name.length === 0) {
     throw new AgentProfileCellValidationError(

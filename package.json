@@ -1,6 +1,6 @@
 {
   "name": "@tangle-network/agent-eval",
-  "version": "0.40.0",
+  "version": "0.40.1",
   "description": "Substrate for self-improving agents: traces, verifiable rewards, preferences, GEPA / reflective mutation, auto-research, replay, sequential anytime-valid stats, and release gates.",
   "homepage": "https://github.com/tangle-network/agent-eval#readme",
   "repository": {
@@ -127,7 +127,8 @@
   "scripts": {
     "build": "tsup && pnpm openapi",
     "dev": "tsup --watch",
-    "prepare": "pnpm build",
+    "prepare": "husky",
+    "prepublishOnly": "pnpm build",
     "test": "vitest run",
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit",
@@ -148,14 +149,20 @@
     "@tangle-network/sandbox": "^0.2.1"
   },
   "peerDependenciesMeta": {
-    "@tangle-network/agent-runtime": { "optional": true },
-    "@tangle-network/sandbox": { "optional": true }
+    "@tangle-network/agent-runtime": {
+      "optional": true
+    },
+    "@tangle-network/sandbox": {
+      "optional": true
+    }
   },
   "devDependencies": {
     "@biomejs/biome": "^2.4.15",
     "@tangle-network/agent-runtime": "^0.21.0",
     "@tangle-network/sandbox": "^0.2.1",
     "@types/node": "^25.6.0",
+    "husky": "^9.1.7",
+    "lint-staged": "^17.0.5",
     "openapi3-ts": "^4.5.0",
     "tsup": "^8.0.0",
     "typescript": "^5.7.0",
@@ -163,7 +170,10 @@
   },
   "pnpm": {
     "minimumReleaseAge": 4320,
-    "minimumReleaseAgeExclude": ["@tangle-network/sandbox", "@tangle-network/agent-runtime"],
+    "minimumReleaseAgeExclude": [
+      "@tangle-network/sandbox",
+      "@tangle-network/agent-runtime"
+    ],
     "overrides": {
       "postcss@<8.5.10": "^8.5.10",
       "ws@>=8.0.0 <8.20.1": "^8.20.1"
@@ -171,6 +181,14 @@
   },
   "engines": {
     "node": ">=20"
+  },
+  "lint-staged": {
+    "src/**/*.{ts,tsx}": [
+      "biome check --write --no-errors-on-unmatched"
+    ],
+    "tests/**/*.{ts,tsx}": [
+      "biome check --write --no-errors-on-unmatched"
+    ]
   },
   "license": "MIT",
   "packageManager": "pnpm@10.22.0"

@@ -64,11 +64,7 @@ export interface SessionScript<TScenario, TArtifact> {
   affectsKnowledge?: boolean
   /** Optional per-session persona evolution — called after the session
    *  resolves. Returns the persona shape used by the NEXT session. */
-  evolveAfterSession?: (
-    artifact: TArtifact,
-    sessionIndex: number,
-    scenario: TScenario,
-  ) => TScenario
+  evolveAfterSession?: (artifact: TArtifact, sessionIndex: number, scenario: TScenario) => TScenario
 }
 
 // ── Judges (re-export 0.38 shape) ─────────────────────────────────────
@@ -130,12 +126,7 @@ export interface OptimizerConfig {
 // ── Gates ─────────────────────────────────────────────────────────────
 
 /** @experimental Five-valued verdict taxonomy (MOSS-paper alignment). */
-export type GateDecision =
-  | 'ship'
-  | 'hold'
-  | 'need_more_work'
-  | 'model_ceiling'
-  | 'arch_ceiling'
+export type GateDecision = 'ship' | 'hold' | 'need_more_work' | 'model_ceiling' | 'arch_ceiling'
 
 export interface GateContext<TArtifact, TScenario extends Scenario> {
   candidateArtifacts: Map<string, TArtifact>
@@ -200,11 +191,7 @@ export type LabeledScenarioSource =
   | 'red-team'
   | 'synthetic'
 
-export type RedactionStatus =
-  | 'raw'
-  | 'redacted-pii'
-  | 'redacted-secrets'
-  | 'fully-redacted'
+export type RedactionStatus = 'raw' | 'redacted-pii' | 'redacted-secrets' | 'fully-redacted'
 
 /** @experimental Required-provenance write. The store rejects writes that
  *  lack provenance — a default-on flywheel without provenance is the

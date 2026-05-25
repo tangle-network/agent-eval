@@ -8,7 +8,7 @@
  * The 80% case for consumers who want a scorecard, not an improvement loop.
  */
 
-import { runCampaign, type RunCampaignOptions } from '../run-campaign'
+import { type RunCampaignOptions, runCampaign } from '../run-campaign'
 import type { CampaignResult, Scenario } from '../types'
 
 export interface RunEvalOptions<TScenario extends Scenario, TArtifact>

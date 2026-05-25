@@ -11,9 +11,9 @@
  */
 
 import type { RunCompleteHook } from './emitter'
-import type { OtelExporter, ExportableSpan } from './otel-export'
-import type { TraceStore } from './store'
+import type { ExportableSpan, OtelExporter } from './otel-export'
 import type { LlmSpan, Span } from './schema'
+import type { TraceStore } from './store'
 
 /**
  * Create a RunCompleteHook that exports all spans from the completed run
@@ -61,7 +61,7 @@ export function createOtelTracingStore(
       await inner.updateSpan(spanId, patch)
       if (patch.endedAt) {
         const spans = await inner.spans({ runId: traceId })
-        const found = spans.find(s => s.spanId === spanId)
+        const found = spans.find((s) => s.spanId === spanId)
         if (found) {
           exporter.exportSpan(storeSpanToExportable(found, traceId))
         }

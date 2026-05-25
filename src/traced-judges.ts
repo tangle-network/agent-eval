@@ -21,15 +21,8 @@ export interface TracedJudgeOptions {
 /**
  * Wrap a single JudgeFn so its LLM call emits a traced span.
  */
-export function traceJudge(
-  judge: JudgeFn,
-  judgeName: string,
-  opts: TracedJudgeOptions,
-): JudgeFn {
-  return async (
-    tc: TCloud,
-    input: JudgeInput,
-  ): Promise<JudgeScore[]> => {
+export function traceJudge(judge: JudgeFn, judgeName: string, opts: TracedJudgeOptions): JudgeFn {
+  return async (tc: TCloud, input: JudgeInput): Promise<JudgeScore[]> => {
     const span = await opts.emitter.span({
       kind: 'llm',
       name: `judge:${judgeName}`,
@@ -41,9 +34,8 @@ export function traceJudge(
     })
     try {
       const scores = await judge(tc, input)
-      const composite = scores.length > 0
-        ? scores.reduce((sum, s) => sum + s.score, 0) / scores.length
-        : 0
+      const composite =
+        scores.length > 0 ? scores.reduce((sum, s) => sum + s.score, 0) / scores.length : 0
       await span.end({
         attributes: {
           'judge.name': judgeName,
@@ -92,9 +84,8 @@ export function traceJudgeEnsemble(
         const scores = await tracedFn(tc, input)
         allScores.push(...scores)
       }
-      const composite = allScores.length > 0
-        ? allScores.reduce((sum, s) => sum + s.score, 0) / allScores.length
-        : 0
+      const composite =
+        allScores.length > 0 ? allScores.reduce((sum, s) => sum + s.score, 0) / allScores.length : 0
       await ensembleSpan.end({
         attributes: {
           'judge.ensemble_size': judges.length,

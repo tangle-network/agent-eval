@@ -49,7 +49,10 @@ export interface FsLabeledScenarioStoreOptions {
 }
 
 export class LabeledScenarioStoreError extends Error {
-  constructor(public readonly code: string, message: string) {
+  constructor(
+    public readonly code: string,
+    message: string,
+  ) {
     super(message)
     this.name = 'LabeledScenarioStoreError'
   }
@@ -84,10 +87,16 @@ export class FsLabeledScenarioStore implements LabeledScenarioStore {
 
   async sample(args: LabeledScenarioSampleArgs): Promise<LabeledScenarioRecord[]> {
     if (!args.split) {
-      throw new LabeledScenarioStoreError('split_required', 'sample() requires an explicit `split` (train | test) — substrate refuses ambiguous reads')
+      throw new LabeledScenarioStoreError(
+        'split_required',
+        'sample() requires an explicit `split` (train | test) — substrate refuses ambiguous reads',
+      )
     }
     if (!args.capturedBefore) {
-      throw new LabeledScenarioStoreError('capturedBefore_required', 'sample() requires an explicit `capturedBefore` timestamp for temporal-split discipline')
+      throw new LabeledScenarioStoreError(
+        'capturedBefore_required',
+        'sample() requires an explicit `capturedBefore` timestamp for temporal-split discipline',
+      )
     }
 
     const all: LabeledScenarioRecord[] = []
@@ -143,19 +152,34 @@ export class FsLabeledScenarioStore implements LabeledScenarioStore {
 
   private assertProvenance(write: LabeledScenarioWrite): void {
     if (!write.source) {
-      throw new LabeledScenarioStoreError('missing_source', 'LabeledScenarioWrite requires `source`')
+      throw new LabeledScenarioStoreError(
+        'missing_source',
+        'LabeledScenarioWrite requires `source`',
+      )
     }
     if (!write.sourceVersionHash || write.sourceVersionHash.length === 0) {
-      throw new LabeledScenarioStoreError('missing_source_version', 'LabeledScenarioWrite requires `sourceVersionHash` (git sha or substrate version)')
+      throw new LabeledScenarioStoreError(
+        'missing_source_version',
+        'LabeledScenarioWrite requires `sourceVersionHash` (git sha or substrate version)',
+      )
     }
     if (!write.capturedAt) {
-      throw new LabeledScenarioStoreError('missing_captured_at', 'LabeledScenarioWrite requires `capturedAt` ISO timestamp')
+      throw new LabeledScenarioStoreError(
+        'missing_captured_at',
+        'LabeledScenarioWrite requires `capturedAt` ISO timestamp',
+      )
     }
     if (!write.redactionStatus) {
-      throw new LabeledScenarioStoreError('missing_redaction_status', 'LabeledScenarioWrite requires explicit `redactionStatus` — raw / redacted-pii / redacted-secrets / fully-redacted')
+      throw new LabeledScenarioStoreError(
+        'missing_redaction_status',
+        'LabeledScenarioWrite requires explicit `redactionStatus` — raw / redacted-pii / redacted-secrets / fully-redacted',
+      )
     }
     if (!ALL_SOURCES.includes(write.source)) {
-      throw new LabeledScenarioStoreError('unknown_source', `LabeledScenarioWrite.source must be one of: ${ALL_SOURCES.join(', ')}`)
+      throw new LabeledScenarioStoreError(
+        'unknown_source',
+        `LabeledScenarioWrite.source must be one of: ${ALL_SOURCES.join(', ')}`,
+      )
     }
   }
 
@@ -180,7 +204,12 @@ export class FsLabeledScenarioStore implements LabeledScenarioStore {
 
   private toRecord(write: LabeledScenarioWrite): LabeledScenarioRecord {
     const recordHash = sha256(
-      JSON.stringify({ id: write.scenario.id, src: write.source, at: write.capturedAt, ver: write.sourceVersionHash }),
+      JSON.stringify({
+        id: write.scenario.id,
+        src: write.source,
+        at: write.capturedAt,
+        ver: write.sourceVersionHash,
+      }),
     )
     // FS adapter assigns split at sample-time, but we cache a hint here
     // based on capturedAt vs the world's "now" — sampler overrides this.
@@ -213,7 +242,11 @@ function sourceFilterContains(
   return filter === needle
 }
 
-function matchesFilter(record: LabeledScenarioRecord, args: LabeledScenarioSampleArgs, source: string): boolean {
+function matchesFilter(
+  record: LabeledScenarioRecord,
+  args: LabeledScenarioSampleArgs,
+  source: string,
+): boolean {
   // Temporal cutoff — train must be capturedAt < capturedBefore.
   if (args.split === 'train' && record.capturedAt >= args.capturedBefore) return false
   if (args.split === 'test' && record.capturedAt < args.capturedBefore) return false
@@ -246,4 +279,3 @@ function appendLine(path: string, line: string): void {
     writeFileSync(path, line)
   }
 }
-

@@ -34,18 +34,25 @@ export function composeGate<TArtifact = unknown, TScenario extends Scenario = Sc
       //   - any 'hold' → 'hold'
       //   - else 'need_more_work'
       const decisions = results.map((r) => r.res.decision)
-      const overall: GateDecision =
-        decisions.every((d) => d === 'ship') ? 'ship'
-          : decisions.includes('arch_ceiling') ? 'arch_ceiling'
-          : decisions.includes('model_ceiling') ? 'model_ceiling'
-          : decisions.includes('hold') ? 'hold'
-          : 'need_more_work'
+      const overall: GateDecision = decisions.every((d) => d === 'ship')
+        ? 'ship'
+        : decisions.includes('arch_ceiling')
+          ? 'arch_ceiling'
+          : decisions.includes('model_ceiling')
+            ? 'model_ceiling'
+            : decisions.includes('hold')
+              ? 'hold'
+              : 'need_more_work'
 
-      const contributing = results.flatMap((r) => r.res.contributingGates.length > 0
-        ? r.res.contributingGates
-        : [{ name: r.gate.name, passed: r.res.decision === 'ship', detail: r.res }])
+      const contributing = results.flatMap((r) =>
+        r.res.contributingGates.length > 0
+          ? r.res.contributingGates
+          : [{ name: r.gate.name, passed: r.res.decision === 'ship', detail: r.res }],
+      )
 
-      const reasons = results.flatMap((r) => r.res.reasons.map((reason) => `[${r.gate.name}] ${reason}`))
+      const reasons = results.flatMap((r) =>
+        r.res.reasons.map((reason) => `[${r.gate.name}] ${reason}`),
+      )
 
       return {
         decision: overall,

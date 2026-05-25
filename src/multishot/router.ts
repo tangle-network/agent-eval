@@ -26,7 +26,9 @@ export interface RouterCompletionResponse {
   usage?: { prompt_tokens?: number; completion_tokens?: number }
 }
 
-export async function routerCompletion(req: RouterCompletionRequest): Promise<RouterCompletionResponse> {
+export async function routerCompletion(
+  req: RouterCompletionRequest,
+): Promise<RouterCompletionResponse> {
   const body: Record<string, unknown> = {
     model: req.model,
     messages: req.messages,
@@ -79,7 +81,10 @@ export function estimateRouterCost(
 }
 
 export function defaultRouterBaseUrl(): string {
-  return (process.env.TANGLE_ROUTER_BASE_URL ?? 'https://router.tangle.tools/v1').replace(/\/+$/, '')
+  return (process.env.TANGLE_ROUTER_BASE_URL ?? 'https://router.tangle.tools/v1').replace(
+    /\/+$/,
+    '',
+  )
 }
 
 export function requireRouterApiKey(): string {

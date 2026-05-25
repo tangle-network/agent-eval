@@ -6,7 +6,7 @@
  * Used by: runEvalCampaign, runProductionLoop, runAgentMatrix.
  */
 
-import { createOtelExporter, type OtelExporter, type OtelExportConfig } from './trace/otel-export'
+import { createOtelExporter, type OtelExportConfig, type OtelExporter } from './trace/otel-export'
 
 export interface OtelPipelineHandle {
   /** The active exporter, or undefined if no endpoint is configured. */

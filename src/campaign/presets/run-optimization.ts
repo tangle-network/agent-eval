@@ -17,14 +17,8 @@
  */
 
 import { createHash } from 'node:crypto'
-import { runCampaign, type RunCampaignOptions } from '../run-campaign'
-import type {
-  CampaignResult,
-  GenerationRecord,
-  MutableSurface,
-  Mutator,
-  Scenario,
-} from '../types'
+import { type RunCampaignOptions, runCampaign } from '../run-campaign'
+import type { CampaignResult, GenerationRecord, MutableSurface, Mutator, Scenario } from '../types'
 
 export interface RunOptimizationOptions<TScenario extends Scenario, TArtifact>
   extends Omit<RunCampaignOptions<TScenario, TArtifact>, 'dispatch'> {
@@ -46,7 +40,11 @@ export interface RunOptimizationOptions<TScenario extends Scenario, TArtifact>
 export interface RunOptimizationResult<TArtifact, TScenario extends Scenario> {
   generations: Array<{
     record: GenerationRecord
-    surfaces: Array<{ surfaceHash: string; surface: MutableSurface; campaign: CampaignResult<TArtifact, TScenario> }>
+    surfaces: Array<{
+      surfaceHash: string
+      surface: MutableSurface
+      campaign: CampaignResult<TArtifact, TScenario>
+    }>
   }>
   winnerSurface: MutableSurface
   winnerSurfaceHash: string
@@ -81,7 +79,12 @@ export async function runOptimization<TScenario extends Scenario, TArtifact>(
     })
 
     // Run each candidate as its own campaign.
-    const surfaceResults: Array<{ surfaceHash: string; surface: MutableSurface; campaign: CampaignResult<TArtifact, TScenario>; composite: number }> = []
+    const surfaceResults: Array<{
+      surfaceHash: string
+      surface: MutableSurface
+      campaign: CampaignResult<TArtifact, TScenario>
+      composite: number
+    }> = []
     for (let i = 0; i < candidates.length; i++) {
       const surface = candidates[i] as MutableSurface
       const hash = surfaceHash(surface)
@@ -115,7 +118,11 @@ export async function runOptimization<TScenario extends Scenario, TArtifact>(
         })),
         promoted: promoted.map((p) => p.surfaceHash),
       },
-      surfaces: surfaceResults.map((s) => ({ surfaceHash: s.surfaceHash, surface: s.surface, campaign: s.campaign })),
+      surfaces: surfaceResults.map((s) => ({
+        surfaceHash: s.surfaceHash,
+        surface: s.surface,
+        campaign: s.campaign,
+      })),
     })
   }
 
@@ -131,7 +138,9 @@ export function surfaceHash(surface: MutableSurface): string {
   return createHash('sha256').update(surface).digest('hex').slice(0, 16)
 }
 
-function meanComposite<TArtifact, TScenario extends Scenario>(campaign: CampaignResult<TArtifact, TScenario>): number {
+function meanComposite<TArtifact, TScenario extends Scenario>(
+  campaign: CampaignResult<TArtifact, TScenario>,
+): number {
   const composites: number[] = []
   for (const cell of campaign.cells) {
     const cellComposites = Object.values(cell.judgeScores).map((s) => s.composite)

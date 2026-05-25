@@ -11,8 +11,13 @@
  *   - Duration + cost if available
  */
 
+import type {
+  EvolvableVariant,
+  MutateAdapter,
+  TrialResult,
+  VariantAggregate,
+} from './prompt-evolution'
 import type { TraceEmitter } from './trace/emitter'
-import type { MutateAdapter, EvolvableVariant, TrialResult, VariantAggregate } from './prompt-evolution'
 
 export interface TracedMutatorOptions {
   /** TraceEmitter for span emission. */

@@ -7,7 +7,7 @@
  * OTLP/JSON serializer (~120 LOC) using the existing otel.ts helpers.
  */
 
-import { type OtlpExport, type OtlpSpan, OTEL_AGENT_EVAL_SCOPE } from './otel'
+import { OTEL_AGENT_EVAL_SCOPE, type OtlpExport, type OtlpSpan } from './otel'
 
 export interface OtelExportConfig {
   /** OTLP endpoint. Reads OTEL_EXPORTER_OTLP_ENDPOINT env by default. */
@@ -56,7 +56,8 @@ export interface ExportableSpan {
  */
 export function createOtelExporter(config?: OtelExportConfig): OtelExporter | undefined {
   const resolvedEndpoint =
-    config?.endpoint ?? (typeof process !== 'undefined' ? process.env.OTEL_EXPORTER_OTLP_ENDPOINT : undefined)
+    config?.endpoint ??
+    (typeof process !== 'undefined' ? process.env.OTEL_EXPORTER_OTLP_ENDPOINT : undefined)
   if (!resolvedEndpoint) return undefined
   const endpoint: string = resolvedEndpoint
 

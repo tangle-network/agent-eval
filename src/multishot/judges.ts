@@ -46,7 +46,10 @@ export interface JudgeScore {
 
 const ZERO_SCORE: JudgeScore = { dimensions: {}, composite: 0, notes: 'parse failed' }
 
-export async function runJudge<TInput>(judge: JudgeConfig<TInput>, input: TInput): Promise<JudgeScore> {
+export async function runJudge<TInput>(
+  judge: JudgeConfig<TInput>,
+  input: TInput,
+): Promise<JudgeScore> {
   const apiKey = judge.apiKey ?? requireRouterApiKey()
   const baseUrl = judge.baseUrl ?? defaultRouterBaseUrl()
   const model = judge.model ?? process.env.JUDGE_MODEL ?? DEFAULT_JUDGE_MODEL
@@ -66,12 +69,18 @@ export async function runJudge<TInput>(judge: JudgeConfig<TInput>, input: TInput
     })
     raw = (message.content ?? '').trim()
   } catch (err) {
-    return { ...ZERO_SCORE, notes: `judge ${judge.name} call failed: ${err instanceof Error ? err.message : String(err)}` }
+    return {
+      ...ZERO_SCORE,
+      notes: `judge ${judge.name} call failed: ${err instanceof Error ? err.message : String(err)}`,
+    }
   }
 
   let parsed: Record<string, unknown> | null = null
   try {
-    const cleaned = raw.replace(/^```json\s*/i, '').replace(/```\s*$/, '').trim()
+    const cleaned = raw
+      .replace(/^```json\s*/i, '')
+      .replace(/```\s*$/, '')
+      .trim()
     parsed = JSON.parse(cleaned) as Record<string, unknown>
   } catch {
     return { ...ZERO_SCORE, notes: `judge ${judge.name} returned non-JSON: ${raw.slice(0, 200)}` }
