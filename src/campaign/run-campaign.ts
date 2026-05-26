@@ -12,9 +12,9 @@
  */
 
 import { createHash } from 'node:crypto'
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { confidenceInterval } from '../statistics'
+import { type CampaignStorage, fsCampaignStorage } from './storage'
 import type {
   CampaignAggregates,
   CampaignArtifactWriter,
@@ -65,6 +65,12 @@ export interface RunCampaignOptions<TScenario extends Scenario, TArtifact> {
   now?: () => Date
   /** Test seam — override per-cell trace writer factory. */
   buildTraceWriter?: (cellId: string, dir: string) => CampaignTraceWriter
+  /** Storage backend for run/cell dirs, the resumability cache, artifacts,
+   *  and trace spans. Default: the Node filesystem (`fsCampaignStorage`).
+   *  Pass `inMemoryCampaignStorage()` to run in a filesystem-less runtime
+   *  (Cloudflare Workers, Deno, edge) — the `CampaignResult` is still
+   *  produced; artifacts/traces just aren't persisted to disk. */
+  storage?: CampaignStorage
 }
 
 export async function runCampaign<TScenario extends Scenario, TArtifact>(
@@ -76,8 +82,9 @@ export async function runCampaign<TScenario extends Scenario, TArtifact>(
   const maxConcurrency = opts.maxConcurrency ?? 2
   const now = opts.now ?? (() => new Date())
   const judges = opts.judges ?? []
+  const storage = opts.storage ?? fsCampaignStorage()
 
-  if (!existsSync(opts.runDir)) mkdirSync(opts.runDir, { recursive: true })
+  storage.ensureDir(opts.runDir)
 
   const manifestHash = computeManifestHash({
     scenarios: opts.scenarios,
@@ -131,7 +138,8 @@ export async function runCampaign<TScenario extends Scenario, TArtifact>(
             manifestHash,
             resumable,
             now,
-            buildTraceWriter: opts.buildTraceWriter ?? defaultBuildTraceWriter,
+            storage,
+            buildTraceWriter: opts.buildTraceWriter ?? defaultBuildTraceWriter(storage),
             signal: abortController.signal,
           })
           cellsRef.push(result.cell)
@@ -193,6 +201,7 @@ interface ExecuteCellArgs<TScenario extends Scenario, TArtifact> {
   manifestHash: string
   resumable: boolean
   now: () => Date
+  storage: CampaignStorage
   buildTraceWriter: (cellId: string, dir: string) => CampaignTraceWriter
   signal: AbortSignal
 }
@@ -200,19 +209,23 @@ interface ExecuteCellArgs<TScenario extends Scenario, TArtifact> {
 async function executeCell<TScenario extends Scenario, TArtifact>(
   args: ExecuteCellArgs<TScenario, TArtifact>,
 ): Promise<{ cell: CampaignCellResult<TArtifact>; artifactsByPath: Record<string, string> }> {
+  const storage = args.storage
   const cellDir = join(args.opts.runDir, args.slot.cellId.replace(/[^a-zA-Z0-9_-]/g, '_'))
-  if (!existsSync(cellDir)) mkdirSync(cellDir, { recursive: true })
+  storage.ensureDir(cellDir)
 
   // Resumability: cache key = (manifestHash, scenarioId, rep)
   const cachePath = join(cellDir, 'cached-result.json')
-  if (args.resumable && existsSync(cachePath)) {
-    try {
-      const cached = JSON.parse(readFileSync(cachePath, 'utf8')) as CampaignCellResult<TArtifact>
-      if (cached.cellId === args.slot.cellId) {
-        return { cell: { ...cached, cached: true }, artifactsByPath: {} }
+  if (args.resumable) {
+    const raw = storage.read(cachePath)
+    if (raw !== undefined) {
+      try {
+        const cached = JSON.parse(raw) as CampaignCellResult<TArtifact>
+        if (cached.cellId === args.slot.cellId) {
+          return { cell: { ...cached, cached: true }, artifactsByPath: {} }
+        }
+      } catch {
+        // Corrupt cache — fall through to re-run.
       }
-    } catch {
-      // Corrupt cache — fall through to re-run.
     }
   }
 
@@ -222,9 +235,8 @@ async function executeCell<TScenario extends Scenario, TArtifact>(
   const artifacts: CampaignArtifactWriter = {
     async write(path, content) {
       const fullPath = join(cellDir, path)
-      const dir = join(fullPath, '..')
-      if (!existsSync(dir)) mkdirSync(dir, { recursive: true })
-      writeFileSync(fullPath, content as Uint8Array)
+      storage.ensureDir(join(fullPath, '..'))
+      storage.write(fullPath, content)
       artifactsByPath[`${args.slot.cellId}/${path}`] = fullPath
       return fullPath
     },
@@ -297,7 +309,7 @@ async function executeCell<TScenario extends Scenario, TArtifact>(
   }
 
   if (!errorMessage && args.resumable) {
-    writeFileSync(cachePath, JSON.stringify(cell))
+    storage.write(cachePath, JSON.stringify(cell))
   }
 
   return { cell, artifactsByPath }
@@ -310,28 +322,31 @@ async function runJudgeCell<TArtifact, TScenario extends Scenario>(
   return judge.score(input)
 }
 
-function defaultBuildTraceWriter(cellId: string, dir: string): CampaignTraceWriter {
-  const spans: Array<Record<string, unknown>> = []
-  return {
-    span(name, attributes) {
-      const startMs = Date.now()
-      const record: Record<string, unknown> = { name, cellId, startMs, ...(attributes ?? {}) }
-      const finish: TraceSpan = {
-        end(endAttrs) {
-          record.durationMs = Date.now() - startMs
-          if (endAttrs) Object.assign(record, endAttrs)
-          spans.push(record)
-        },
-        setAttribute(key, value) {
-          record[key] = value
-        },
-      }
-      return finish
-    },
-    async flush() {
-      const path = join(dir, 'spans.jsonl')
-      writeFileSync(path, spans.map((s) => JSON.stringify(s)).join('\n'))
-    },
+function defaultBuildTraceWriter(
+  storage: CampaignStorage,
+): (cellId: string, dir: string) => CampaignTraceWriter {
+  return (cellId, dir) => {
+    const spans: Array<Record<string, unknown>> = []
+    return {
+      span(name, attributes) {
+        const startMs = Date.now()
+        const record: Record<string, unknown> = { name, cellId, startMs, ...(attributes ?? {}) }
+        const finish: TraceSpan = {
+          end(endAttrs) {
+            record.durationMs = Date.now() - startMs
+            if (endAttrs) Object.assign(record, endAttrs)
+            spans.push(record)
+          },
+          setAttribute(key, value) {
+            record[key] = value
+          },
+        }
+        return finish
+      },
+      async flush() {
+        storage.write(join(dir, 'spans.jsonl'), spans.map((s) => JSON.stringify(s)).join('\n'))
+      },
+    }
   }
 }
 

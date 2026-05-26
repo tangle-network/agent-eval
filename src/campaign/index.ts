@@ -44,6 +44,7 @@ export {
   surfaceHash,
 } from './presets/run-optimization'
 export { type RunCampaignOptions, runCampaign } from './run-campaign'
+export { type CampaignStorage, fsCampaignStorage, inMemoryCampaignStorage } from './storage'
 export type {
   CampaignAggregates,
   CampaignArtifactWriter,
