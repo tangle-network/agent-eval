@@ -1,10 +1,11 @@
-import { mkdtempSync, readdirSync, rmSync } from 'node:fs'
+import { existsSync, mkdtempSync, readdirSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   type DispatchFn,
   FsLabeledScenarioStore,
+  inMemoryCampaignStorage,
   type JudgeConfig,
   LabeledScenarioStoreError,
   runCampaign,
@@ -424,5 +425,58 @@ describe('runCampaign + LabeledScenarioStore integration', () => {
       runDir,
     })
     expect(spy).not.toHaveBeenCalled()
+  })
+})
+
+describe('runCampaign — in-memory storage (filesystem-less runtimes)', () => {
+  it('produces a full CampaignResult without touching the filesystem', async () => {
+    // A runDir path that does NOT exist on disk — the in-memory adapter
+    // must never create it (proves no FS writes leak through).
+    const ghostDir = join(
+      tmpdir(),
+      `run-campaign-ghost-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+    )
+    expect(existsSync(ghostDir)).toBe(false)
+
+    const judge: JudgeConfig<FakeArtifact, FakeScenario> = {
+      name: 'len',
+      dimensions: [{ key: 'len', description: 'text length' }],
+      score: ({ artifact }) => ({
+        composite: artifact.text.length / 100,
+        dimensions: { len: artifact.text.length },
+        notes: '',
+      }),
+    }
+
+    const result = await runCampaign({
+      scenarios: SCENARIOS,
+      dispatch: DISPATCH,
+      judges: [judge],
+      reps: 2,
+      runDir: ghostDir,
+      storage: inMemoryCampaignStorage(),
+    })
+
+    // Result is fully populated...
+    expect(result.cells).toHaveLength(4)
+    expect(result.aggregates.cellsExecuted).toBe(4)
+    expect(result.aggregates.cellsFailed).toBe(0)
+    expect(result.aggregates.byJudge.len?.n).toBe(4)
+    expect(result.cells.every((c) => c.judgeScores.len !== undefined)).toBe(true)
+    // ...but NOTHING was written to disk.
+    expect(existsSync(ghostDir)).toBe(false)
+  })
+
+  it('caches cells across re-runs within the same in-memory storage instance', async () => {
+    const storage = inMemoryCampaignStorage()
+    const ghostDir = join(tmpdir(), `run-campaign-ghost-cache-${Date.now()}`)
+    const opts = { scenarios: SCENARIOS, dispatch: DISPATCH, reps: 1, runDir: ghostDir, storage }
+
+    const first = await runCampaign(opts)
+    expect(first.aggregates.cellsCached).toBe(0)
+    // Re-run with the SAME storage → cells resolve from the in-memory cache.
+    const second = await runCampaign(opts)
+    expect(second.aggregates.cellsCached).toBe(2)
+    expect(existsSync(ghostDir)).toBe(false)
   })
 })
