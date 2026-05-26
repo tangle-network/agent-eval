@@ -1,6 +1,6 @@
 {
   "name": "@tangle-network/agent-eval",
-  "version": "0.44.1",
+  "version": "0.45.0",
   "description": "Substrate for self-improving agents: traces, verifiable rewards, preferences, GEPA / reflective mutation, auto-research, replay, sequential anytime-valid stats, and release gates.",
   "homepage": "https://github.com/tangle-network/agent-eval#readme",
   "repository": {
@@ -113,6 +113,11 @@
       "types": "./dist/adapters/langchain.d.ts",
       "import": "./dist/adapters/langchain.js",
       "default": "./dist/adapters/langchain.js"
+    },
+    "./adapters/http": {
+      "types": "./dist/adapters/http.d.ts",
+      "import": "./dist/adapters/http.js",
+      "default": "./dist/adapters/http.js"
     },
     "./openapi.json": {
       "default": "./dist/openapi.json"

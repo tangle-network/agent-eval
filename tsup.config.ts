@@ -22,6 +22,7 @@ export default defineConfig({
     'campaign/index': 'src/campaign/index.ts',
     'contract/index': 'src/contract/index.ts',
     'adapters/langchain': 'src/adapters/langchain.ts',
+    'adapters/http': 'src/adapters/http.ts',
     cli: 'src/cli.ts',
   },
   format: ['esm'],

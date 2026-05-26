@@ -71,6 +71,22 @@ export interface RunCampaignOptions<TScenario extends Scenario, TArtifact> {
    *  (Cloudflare Workers, Deno, edge) — the `CampaignResult` is still
    *  produced; artifacts/traces just aren't persisted to disk. */
   storage?: CampaignStorage
+  /**
+   * Optional per-cell placement strategy. Returns an opaque string the
+   * substrate forwards as `ctx.placement` to the Dispatch — placement-aware
+   * Dispatches (e.g. `httpDispatch` from `/adapters/http`) use it to route
+   * each cell to the right worker, region, or sandbox. When unset, every
+   * cell receives `ctx.placement = undefined` and behaves identically to
+   * the in-process case.
+   *
+   * @example
+   *   cellPlacement: ({ scenario }) => scenario.tags?.includes('eu') ? 'eu-west' : 'us-east'
+   */
+  cellPlacement?: (input: {
+    scenario: TScenario
+    rep: number
+    generation?: number
+  }) => string | undefined
 }
 
 export async function runCampaign<TScenario extends Scenario, TArtifact>(
@@ -255,6 +271,11 @@ async function executeCell<TScenario extends Scenario, TArtifact>(
     },
   }
 
+  const placement = args.opts.cellPlacement?.({
+    scenario: args.slot.scenario,
+    rep: args.slot.rep,
+  })
+
   const ctx: DispatchContext = {
     cellId: args.slot.cellId,
     rep: args.slot.rep,
@@ -263,6 +284,7 @@ async function executeCell<TScenario extends Scenario, TArtifact>(
     trace,
     artifacts,
     cost,
+    placement,
   }
 
   let artifact: TArtifact | undefined
