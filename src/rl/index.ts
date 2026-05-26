@@ -73,3 +73,20 @@ export * from './process-reward'
 export * from './reward-hacking'
 /** @experimental Closed-loop campaign runner: eval → preferences → mutate → re-eval. */
 export * from './rl-campaign'
+
+// ── Deployment-outcome store (predictive-validity calibration) ──────
+// Promoted to public so external consumers don't have to inline the
+// `InMemoryOutcomeStore` + `DeploymentOutcome` shapes that
+// `predictive-validity-researcher` already consumes. Closes the gap
+// physim's `validate-rubrics.ts` was working around by re-implementing.
+
+/** @stable In-memory + filesystem stores for deployment outcomes;
+ *  consumed by `predictive-validity-researcher` to calibrate the gate
+ *  against observed downstream metrics, not just held-out judge scores. */
+export {
+  type DeploymentOutcome,
+  FileSystemOutcomeStore,
+  type FileSystemOutcomeStoreOptions,
+  InMemoryOutcomeStore,
+  type OutcomeStore,
+} from '../meta-eval/outcome-store'
