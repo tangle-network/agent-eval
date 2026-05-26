@@ -20,6 +20,7 @@ export default defineConfig({
     'matrix/index': 'src/matrix/index.ts',
     'multishot/index': 'src/multishot/index.ts',
     'campaign/index': 'src/campaign/index.ts',
+    'contract/index': 'src/contract/index.ts',
     cli: 'src/cli.ts',
   },
   format: ['esm'],
