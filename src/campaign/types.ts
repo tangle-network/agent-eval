@@ -42,6 +42,14 @@ export interface DispatchContext {
   cycleId?: string
   /** Populated when the substrate resumed from a prior cache hit. */
   resumedFrom?: string
+  /**
+   * Opaque placement key supplied by `RunCampaignOptions.cellPlacement`.
+   * The substrate forwards it through unchanged; placement-aware Dispatch
+   * implementations (e.g. `httpDispatch` from `/adapters/http`) read it to
+   * route the cell to the right worker / region / sandbox. `undefined`
+   * when no placement strategy is configured.
+   */
+  placement?: string
 }
 
 /** @experimental One function: scenario + ctx → artifact. Dispatcher chooses
