@@ -151,3 +151,14 @@ export {
   InMemoryOutcomeStore,
   type OutcomeStore,
 } from '../meta-eval/outcome-store'
+
+// ── One-shot helper (LAND-tier happy path) ───────────────────────────
+
+export {
+  type SelfImproveBudget,
+  type SelfImproveLlm,
+  type SelfImproveOptions,
+  type SelfImproveProgressEvent,
+  type SelfImproveResult,
+  selfImprove,
+} from './self-improve'
