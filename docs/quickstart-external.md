@@ -13,12 +13,51 @@ Tangle sandbox, no Tangle account, and no hosted infrastructure.
 ## Install
 
 ```sh
-npm i @tangle-network/agent-eval@^0.44.0
+npm i @tangle-network/agent-eval@^0.46.0
 ```
 
-The package's `@tangle-network/sandbox` peer is `optional` (as of
-0.44.0). Foreign consumers can install agent-eval and run the full LAND
-tier without our sandbox or its dependencies.
+The package's `@tangle-network/sandbox` peer is `optional`. Foreign
+consumers install agent-eval and run the full LAND tier without our
+sandbox or its dependencies.
+
+## The one-shot happy path
+
+If you don't want to learn the substrate, the entire LAND tier reduces
+to one function call:
+
+```ts
+import { selfImprove } from '@tangle-network/agent-eval/contract'
+
+const result = await selfImprove({
+  agent: (surface, scenario, ctx) =>
+    runYourAgent({ systemPrompt: surface as string, scenario, signal: ctx.signal }),
+  scenarios,
+  judge,
+  baselineSurface: 'You are a senior copywriter…',
+  budget: { dollars: 10, generations: 3 },
+})
+
+console.log(`lift: ${result.lift.toFixed(3)} (${result.gateDecision})`)
+if (result.gateDecision === 'ship') {
+  // result.winner.surface is the optimized prompt
+}
+```
+
+That's the LAND happy path. Smart defaults pick: in-memory storage,
+`gepaDriver` with copywriting-flavored mutation primitives,
+`defaultProductionGate` with `deltaThreshold: 0.05`, 25% deterministic
+train/holdout split.
+
+Every escape hatch the substrate exposes is reachable from
+`selfImprove` — custom `driver`, custom `gate`, distributed-driver
+`cellPlacement`, `onProgress` streaming callback, `autoOnPromote: 'pr'`
+to open a GitHub PR with the winner. See the type signatures in
+[`src/contract/self-improve.ts`](../src/contract/self-improve.ts) for
+the full surface.
+
+The sections below are the lower-level path — useful when you want
+fine-grained control over each piece. Read those next if `selfImprove`
+isn't enough.
 
 ## Five types, four functions
 

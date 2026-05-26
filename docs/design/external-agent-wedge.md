@@ -32,11 +32,11 @@ So adoption is *graduated*, and the builder picks the depth: (1) **trace-analysi
 
 | Tier | What they do | What they get | Billing |
 |---|---|---|---|
-| **LAND** (exists today) | `npm i @tangle-network/agent-eval`, wrap their agent behind one `dispatch` seam, bring a judge | Full self-improvement loop + **local** trace/eval artifacts. Any infra, no sandbox. | Free (lib) |
+| **LAND** (exists today) | `npm i @tangle-network/agent-eval`, wrap their agent behind one `dispatch` seam, bring a judge | Full self-improvement loop + **local** trace/eval artifacts. Any infra, no sandbox. | Free (lib) — **with optional Tangle Router as a $0-friction inference upsell.** When a builder points `OPENAI_BASE_URL` at `router.tangle.tools/v1`, every campaign call (agent + judge + reflective mutation) routes through us; we earn the routing margin. Same code, opt-in monetization vector that ships today. |
 | **EXPAND** (the build) | Route trace/eval/labeled-scenario data to our orchestrator | Hosted dashboards, cross-run intelligence, the capture flywheel as a service | **Metered** — composes with existing sandbox Stripe + cost-ledger |
 | **PLATFORM** (the carrot) | Move execution into our sandbox (agent-dev-container) | Substrate + orchestrator data/intelligence pre-wired, batteries included | Sandbox usage |
 
-The free lib casts the widest possible net at near-zero cost (it's already published). Value capture is EXPAND: hosting their data/intelligence = a billable surface on the dimensions we already meter (ingested/retained volume, eval-campaign compute, loop runs, seats). "We don't host observability unless they route to us" is the *business model*, not a gap.
+The free lib casts the widest possible net at near-zero cost (it's already published). LAND is **not actually zero-revenue** — pointing the loop at Tangle Router is a one-line config change with no other code differences, so we monetize inference for any LAND-tier adopter who opts in. The wedge ladder is therefore four steps: no-revenue install → router routing margin (LAND with router) → metered data hosting (EXPAND) → sandbox usage (PLATFORM). Each step a one-line config change, never a rewrite. Value capture concentrates at EXPAND (hosting their data/intelligence is the biggest billable surface), but LAND-with-router is the immediate upsell available from day one.
 
 ## Plan & gates — land-first, validate, then build
 
