@@ -20,6 +20,14 @@ If we sell "observability," we are a worse Langfuse/Braintrust/Arize and it's a 
 
 **The pitch:** "Plug us in. Your agent runs a closed self-improvement loop against your own use case, gated so it never ships a regression — and you get the eval + trace observability for free as it does."
 
+### Backend-agnostic by design — the sandbox is swappable, not required
+
+The whole stack already runs **without our sandbox**, at two granularities:
+- **`agent-eval`** (the self-improvement engine) touches the sandbox only as a *type* — the LAND tier needs no sandbox.
+- **`agent-runtime`** is runtime-decoupled too: every sandbox import is `import type`, and the sandbox backend takes an *injected* instance. Its `Backend` seam already ships `createOpenAICompatibleBackend` (pure LLM) and `createIterableBackend` (bring-your-own) next to `createSandboxPromptBackend`. A builder runs the full runtime + self-improvement loop on **their own execution backend**, no Tangle sandbox installed.
+
+So adoption is *graduated*, and the builder picks the depth: (1) **trace-analysis only** over their existing runtime; (2) the **full self-improvement loop** on their own backend; (3) **our sandbox as a swap-in backend** for the batteries. Our sandbox becomes the best *option*, never the cost of entry. The only work to make this explicit: mark the `@tangle-network/sandbox` peer `optional` in agent-runtime + document the `Backend` interface as the swap seam (Phase A).
+
 ## The surface — three tiers (land → expand → platform)
 
 | Tier | What they do | What they get | Billing |
@@ -34,7 +42,7 @@ The free lib casts the widest possible net at near-zero cost (it's already publi
 
 The non-negotiable discipline: **do not build the hosted/billing tier before the free LAND is validated on a foreign agent.** Reality on someone else's real agent is cheaper than our imagination.
 
-- **Phase A — unblock (ungated, now):** upgrade agent-dev-container to the latest substrate; export `OutcomeStore`/`DeploymentOutcome` from `/rl`. Pure wins, correct regardless of the wedge.
+- **Phase A — unblock (ungated, now):** upgrade agent-dev-container to the latest substrate; export `OutcomeStore`/`DeploymentOutcome` from `/rl`; mark agent-runtime's `@tangle-network/sandbox` peer `optional` + document the `Backend` swap seam (make sandbox-free adoption explicitly supported). Pure wins, correct regardless of the wedge.
 - **Phase B — design-partner LAND validation (forcing function):** wrap the founder's agent behind `dispatch`, author a marketing-quality judge, run one real campaign + `gepaDriver` loop. Instrument integration friction, judge cold-start, and actual quality lift.
 - **GATE — go/no-go + pricing:** decided from Phase B evidence, not theory.
 - **Phase C — LAND ergonomics:** external 15-minute quickstart + a stable `dispatch`/judge/scenario contract + ≥1 reference framework adapter.
@@ -51,6 +59,7 @@ The non-negotiable discipline: **do not build the hosted/billing tier before the
 **Knowns (high confidence)**
 - The substrate is a portable lib; it wraps our 6 agents behind `dispatch`/judge/gate in production.
 - It's runtime-agnostic (FS + in-memory storage, Node + edge) and emits OTLP traces.
+- **agent-runtime is already sandbox-decoupled at runtime** — sandbox is type-only + dependency-injected; the `Backend` seam (`createOpenAICompatibleBackend` / `createIterableBackend` / `createSandboxPromptBackend`) makes the sandbox one swappable option. Only the peer-dep label needs to change.
 - The orchestrator/observability/billing platform lives in `@tangle-network/monorepo`.
 
 **Known-unknowns (Phase B answers these)**
