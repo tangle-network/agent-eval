@@ -21,6 +21,7 @@ export default defineConfig({
     'multishot/index': 'src/multishot/index.ts',
     'campaign/index': 'src/campaign/index.ts',
     'contract/index': 'src/contract/index.ts',
+    'adapters/langchain': 'src/adapters/langchain.ts',
     cli: 'src/cli.ts',
   },
   format: ['esm'],
