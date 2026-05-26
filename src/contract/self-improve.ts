@@ -37,6 +37,8 @@ import type {
   MutableSurface,
   Scenario,
 } from '../campaign/types'
+import { createHostedClient, type HostedTenant } from '../hosted/client'
+import type { EvalRunCellScore, EvalRunEvent, EvalRunGenerationSnapshot } from '../hosted/types'
 
 export interface SelfImproveBudget {
   /** Hard $ ceiling across all cells in baseline + every generation. Cells
@@ -149,6 +151,25 @@ export interface SelfImproveOptions<TScenario extends Scenario, TArtifact> {
   autoOnPromote?: 'pr' | 'none'
   ghOwner?: string
   ghRepo?: string
+
+  /**
+   * Opt-in: ship eval-run events to a hosted orchestrator (ours, your
+   * self-hosted one, or any compatible implementation of the
+   * `docs/hosted-ingest-spec.md` wire format). When set, the substrate
+   * POSTs the final `EvalRunEvent` to `${endpoint}/v1/ingest/eval-runs`
+   * after the loop completes. Failures are logged but do not fail the
+   * loop — local result is always returned.
+   *
+   * For our orchestrator: `{ endpoint: 'https://orchestrator.tangle.tools/v1', apiKey, tenantId }`.
+   *
+   * For your self-hosted: any URL serving the wire format. See
+   * `examples/hosted-ingest-server/` for the reference receiver.
+   */
+  hostedTenant?: HostedTenant
+
+  /** Free-form labels attached to the hosted event (env, branch, model id,
+   *  etc.). Ignored when `hostedTenant` is unset. */
+  hostedLabels?: Record<string, string>
 }
 
 export interface SelfImproveResult<TScenario extends Scenario, TArtifact> {
@@ -357,7 +378,7 @@ export async function selfImprove<TScenario extends Scenario, TArtifact>(
       0,
     )
 
-  return {
+  const summary: SelfImproveResult<TScenario, TArtifact> = {
     baseline,
     winner: {
       ...winnerStats,
@@ -370,4 +391,119 @@ export async function selfImprove<TScenario extends Scenario, TArtifact>(
     totalCostUsd: totalCost,
     raw: result,
   }
+
+  // Opt-in hosted ingest. Failures logged but never fail the loop — the
+  // local result is always returned. This matches the wedge-doc invariant
+  // that LAND-tier never blocks on EXPAND-tier infra.
+  if (opts.hostedTenant) {
+    try {
+      await shipEvalRunToHosted(opts.hostedTenant, opts, summary, result, runDir)
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      // eslint-disable-next-line no-console -- intentional: hosted-ingest is best-effort
+      console.warn(`[agent-eval] hosted ingest failed (continuing): ${msg}`)
+    }
+  }
+
+  return summary
+}
+
+async function shipEvalRunToHosted<TScenario extends Scenario, TArtifact>(
+  tenant: HostedTenant,
+  opts: SelfImproveOptions<TScenario, TArtifact>,
+  summary: SelfImproveResult<TScenario, TArtifact>,
+  raw: RunImprovementLoopResult<TArtifact, TScenario>,
+  runDir: string,
+): Promise<void> {
+  const client = createHostedClient(tenant)
+
+  function snapshotFromCampaign(
+    index: number,
+    surface: MutableSurface | undefined,
+    campaign: RunImprovementLoopResult<TArtifact, TScenario>['baselineCampaign'],
+    durationMs: number,
+  ): EvalRunGenerationSnapshot {
+    const cells: EvalRunCellScore[] = campaign.cells.map((cell) => {
+      const judgeScores = Object.values(cell.judgeScores)
+      const composite =
+        judgeScores.length === 0
+          ? 0
+          : judgeScores.reduce((s, j) => s + j.composite, 0) / judgeScores.length
+      return {
+        scenarioId: cell.scenarioId,
+        rep: cell.rep,
+        compositeMean: composite,
+        dimensions: Object.fromEntries(
+          Object.entries(cell.judgeScores).map(([name, score]) => [name, score.dimensions]),
+        ),
+        errorMessage: cell.error ?? undefined,
+      }
+    })
+    const compositeMean =
+      cells.length === 0 ? 0 : cells.reduce((s, c) => s + c.compositeMean, 0) / cells.length
+    return {
+      index,
+      surfaceHash:
+        typeof surface === 'string'
+          ? hashString(surface)
+          : hashString(JSON.stringify(surface ?? '')),
+      surface,
+      cells,
+      compositeMean,
+      costUsd: campaign.aggregates.totalCostUsd,
+      durationMs,
+    }
+  }
+
+  const generations: EvalRunGenerationSnapshot[] = []
+  // Baseline as generation 0.
+  generations.push(snapshotFromCampaign(0, opts.baselineSurface, raw.baselineCampaign, 0))
+  // Improvement generations as 1..N. Substrate stores per-surface campaigns
+  // per generation — we summarize the WINNING surface per generation here.
+  for (const gen of raw.generations) {
+    const winner = gen.surfaces.reduce(
+      (best, s) =>
+        s.campaign.aggregates.cellsExecuted > 0 &&
+        (best === undefined || averageComposite(s.campaign) > averageComposite(best.campaign))
+          ? s
+          : best,
+      gen.surfaces[0],
+    )
+    if (!winner) continue
+    generations.push(
+      snapshotFromCampaign(gen.record.generationIndex + 1, winner.surface, winner.campaign, 0),
+    )
+  }
+
+  const event: EvalRunEvent = {
+    runId: `${runDir}#${Date.now()}`,
+    runDir,
+    timestamp: new Date().toISOString(),
+    status: 'finished',
+    labels: opts.hostedLabels ?? {},
+    baseline: generations[0],
+    generations,
+    gateDecision: summary.gateDecision,
+    holdoutLift: summary.lift,
+    totalCostUsd: summary.totalCostUsd,
+    totalDurationMs: summary.durationMs,
+  }
+
+  await client.ingestEvalRun(event)
+}
+
+function averageComposite(
+  campaign: RunImprovementLoopResult<unknown, Scenario>['baselineCampaign'],
+): number {
+  const aggs = Object.values(campaign.aggregates.byScenario)
+  return aggs.length === 0 ? 0 : aggs.reduce((s, a) => s + a.meanComposite, 0) / aggs.length
+}
+
+function hashString(s: string): string {
+  let h = 2166136261 >>> 0
+  for (let i = 0; i < s.length; i++) {
+    h ^= s.charCodeAt(i)
+    h = Math.imul(h, 16777619) >>> 0
+  }
+  return h.toString(16).padStart(8, '0')
 }
