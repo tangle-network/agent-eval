@@ -24,6 +24,11 @@
  */
 
 import type { GateDecision, MutableSurface } from '../campaign/types'
+import type { InsightReport } from '../contract/insight-report'
+
+// re-export so wire-format consumers can import the optional payload type
+// from `@tangle-network/agent-eval/hosted` without reaching into /contract.
+export type { InsightReport } from '../contract/insight-report'
 
 export const HOSTED_WIRE_VERSION = '2026-05-26.v1' as const
 export type HostedWireVersion = typeof HOSTED_WIRE_VERSION
@@ -115,6 +120,13 @@ export interface EvalRunEvent {
   totalDurationMs: number
   /** Error message if status === 'errored'. */
   errorMessage?: string
+  /** Rigor packet emitted alongside the run — distributional summary,
+   *  paired-bootstrap lift CI, judge stats, inter-rater agreement,
+   *  contamination check, failure clusters (when an analyst is wired),
+   *  outcome correlation (when downstream signal is supplied), and the
+   *  recommendations the dashboard surfaces verbatim. Additive; older
+   *  clients that don't know about this field continue to work. */
+  insightReport?: InsightReport
 }
 
 // ── Trace span event ────────────────────────────────────────────────
