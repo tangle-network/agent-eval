@@ -48,6 +48,11 @@ export interface InsightReport {
   costQuality: {
     cost: ScalarDistribution
     pareto: ParetoFigureSpec
+    /** Set when the cost/quality view is degraded because the input data
+     *  doesn't fully support it — e.g. all `costUsd` were zero, or only a
+     *  single candidate appears (so the Pareto is a single point). The
+     *  named fields name the degraded sub-view, free-text the reason. */
+    degraded?: { cost?: string; pareto?: string }
   }
 
   /** Per-judge calibration + bias detection. Populated for every judge name
@@ -104,6 +109,11 @@ export interface ScalarDistribution {
   max: number
   /** Histogram bins using `agent-eval`'s `gainHistogram` primitive. */
   histogram: GainDistributionBin[]
+  /** Worst-N runs by score, ascending. Populated for the composite
+   *  distribution so the report names the runs a customer should
+   *  inspect first. Undefined when the distribution was computed from a
+   *  raw value list with no run identity (e.g. cost). */
+  tailRuns?: Array<{ runId: string; score: number }>
 }
 
 export interface JudgeInsight {

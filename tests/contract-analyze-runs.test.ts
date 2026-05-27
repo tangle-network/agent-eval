@@ -327,6 +327,82 @@ describe('analyzeRuns — recommendations are always actionable', () => {
     }
   })
 
+  it('emits a critical "investigate" with worstN runIds when composite mean is below 0.3', async () => {
+    // Real-world shape from dogfooding legal-agent canonical (mean=0.002, n=36).
+    const runs = Array.from({ length: 30 }, (_, i) =>
+      makeRun({ id: `broken-${i}`, candidate: 'c', composite: i < 25 ? 0 : 0.02 }),
+    )
+    const report = await analyzeRuns({ runs })
+    expect(report.composite.mean).toBeLessThan(0.3)
+    expect(report.composite.tailRuns).toBeDefined()
+    expect(report.composite.tailRuns!.length).toBe(5)
+    expect(report.composite.tailRuns![0]!.score).toBe(0)
+    const critical = report.recommendations.find(
+      (r) => r.priority === 'critical' && r.kind === 'investigate',
+    )
+    expect(critical).toBeDefined()
+    expect(critical!.detail).toContain('broken-')
+  })
+
+  it('emits a high-priority "investigate" when composite mean is between 0.3 and 0.5', async () => {
+    const runs = Array.from({ length: 20 }, (_, i) =>
+      makeRun({ id: `mid-${i}`, candidate: 'c', composite: 0.35 + (i % 3) * 0.02 }),
+    )
+    const report = await analyzeRuns({ runs })
+    expect(report.composite.mean).toBeGreaterThanOrEqual(0.3)
+    expect(report.composite.mean).toBeLessThan(0.5)
+    const high = report.recommendations.find(
+      (r) => r.priority === 'high' && r.kind === 'investigate',
+    )
+    expect(high).toBeDefined()
+  })
+
+  it('flags missing-judges when records carry no outcome.judgeScores', async () => {
+    const runs: RunRecord[] = Array.from({ length: 8 }, (_, i) => ({
+      runId: `nj-${i}`,
+      experimentId: 'exp',
+      candidateId: 'c',
+      seed: i,
+      model: 'm@v',
+      promptHash: 'sha256:p',
+      configHash: 'sha256:c',
+      commitSha: 'abc',
+      wallMs: 100,
+      costUsd: 0.01,
+      tokenUsage: { input: 100, output: 50 },
+      outcome: { holdoutScore: 0.7, raw: {} },
+      splitTag: 'holdout',
+    }))
+    const report = await analyzeRuns({ runs })
+    expect(Object.keys(report.judges).length).toBe(0)
+    const flag = report.recommendations.find(
+      (r) => r.kind === 'expand-corpus' && r.title.includes('No judge'),
+    )
+    expect(flag).toBeDefined()
+  })
+
+  it('marks costQuality.degraded when all costUsd are zero', async () => {
+    const runs: RunRecord[] = Array.from({ length: 5 }, (_, i) => ({
+      runId: `z-${i}`,
+      experimentId: 'exp',
+      candidateId: 'c',
+      seed: i,
+      model: 'm@v',
+      promptHash: 'sha256:p',
+      configHash: 'sha256:c',
+      commitSha: 'abc',
+      wallMs: 100,
+      costUsd: 0,
+      tokenUsage: { input: 100, output: 50 },
+      outcome: { holdoutScore: 0.6, raw: {} },
+      splitTag: 'holdout',
+    }))
+    const report = await analyzeRuns({ runs })
+    expect(report.costQuality.degraded).toBeDefined()
+    expect(report.costQuality.degraded!.cost).toMatch(/no costUsd/)
+    expect(report.costQuality.degraded!.pareto).toMatch(/single candidate/)
+  })
+
   it('report is JSON-serialisable end-to-end (hosted wire format compatible)', async () => {
     const runs = [
       makeRun({ id: 'r-1', candidate: 'c', composite: 0.8 }),

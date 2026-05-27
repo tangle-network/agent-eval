@@ -83,16 +83,34 @@ export async function analyzeRuns(opts: AnalyzeRunsOptions): Promise<InsightRepo
   const threshold = opts.decisionThreshold ?? 0.02
   const split = resolveSplit(runs, opts.split ?? 'auto')
 
+  const compositeWithIds = runs
+    .map((r) => ({ runId: r.runId, score: compositeOf(r, split) }))
+    .filter((p) => Number.isFinite(p.score))
   const composite = distributionOf(
-    runs.map((r) => compositeOf(r, split)).filter(Number.isFinite) as number[],
+    compositeWithIds.map((p) => p.score),
     bins,
+    compositeWithIds,
   )
 
   const perDimension = computePerDimension(runs, bins)
 
+  const costs = runs.map((r) => r.costUsd).filter(Number.isFinite)
+  const costDist = distributionOf(costs, bins)
+  const pareto = paretoChart(runs, { split })
+  const degraded: { cost?: string; pareto?: string } = {}
+  if (costs.length === 0 || costs.every((c) => c === 0)) {
+    degraded.cost = 'no costUsd values recorded — cost axis carries no signal'
+  }
+  if (pareto.points.length < 2) {
+    degraded.pareto =
+      pareto.points.length === 0
+        ? 'no candidates — Pareto unavailable'
+        : 'single candidate — Pareto is a single point, not a frontier'
+  }
   const costQuality = {
-    cost: distributionOf(runs.map((r) => r.costUsd).filter(Number.isFinite), bins),
-    pareto: paretoChart(runs, { split }),
+    cost: costDist,
+    pareto,
+    ...(degraded.cost || degraded.pareto ? { degraded } : {}),
   }
 
   const judges = computeJudgeInsights(runs)
@@ -165,7 +183,11 @@ function compositeOf(run: RunRecord, split: 'search' | 'holdout'): number {
 
 // ── Distribution helpers ────────────────────────────────────────────
 
-function distributionOf(values: number[], bins: number): ScalarDistribution {
+function distributionOf(
+  values: number[],
+  bins: number,
+  withIds?: Array<{ runId: string; score: number }>,
+): ScalarDistribution {
   if (values.length === 0) {
     return {
       n: 0,
@@ -183,6 +205,9 @@ function distributionOf(values: number[], bins: number): ScalarDistribution {
   const mean = sorted.reduce((s, v) => s + v, 0) / n
   const variance = sorted.reduce((s, v) => s + (v - mean) ** 2, 0) / n
   const stddev = Math.sqrt(variance)
+  const tailRuns = withIds
+    ? [...withIds].sort((a, b) => a.score - b.score).slice(0, Math.min(5, withIds.length))
+    : undefined
   return {
     n,
     mean,
@@ -192,6 +217,7 @@ function distributionOf(values: number[], bins: number): ScalarDistribution {
     min: sorted[0]!,
     max: sorted[n - 1]!,
     histogram: histogram(sorted, bins),
+    ...(tailRuns ? { tailRuns } : {}),
   }
 }
 
@@ -660,6 +686,59 @@ interface RecommendationContext {
 
 function buildRecommendations(ctx: RecommendationContext): Recommendation[] {
   const out: Recommendation[] = []
+
+  // Composite-distribution branch. Fires when the overall quality signal is
+  // poor regardless of lift / contamination / clusters — the customer needs
+  // to know they have a problem AND which specific runs to inspect.
+  if (ctx.composite.n > 0) {
+    if (ctx.composite.mean < 0.3) {
+      const tail = ctx.composite.tailRuns ?? []
+      const names = tail
+        .slice(0, 5)
+        .map((t) => `${t.runId}=${t.score.toFixed(3)}`)
+        .join(', ')
+      out.push({
+        priority: 'critical',
+        kind: 'investigate',
+        title: `Composite mean ${ctx.composite.mean.toFixed(3)} is below the 0.3 floor — the agent is broken on this corpus`,
+        detail:
+          tail.length > 0
+            ? `Worst ${tail.length} run${tail.length === 1 ? '' : 's'} to inspect first: ${names}. Histogram p50=${ctx.composite.p50.toFixed(3)}, p95=${ctx.composite.p95.toFixed(3)}.`
+            : `Histogram p50=${ctx.composite.p50.toFixed(3)}, p95=${ctx.composite.p95.toFixed(3)}.`,
+        evidencePath: 'composite.tailRuns',
+      })
+    } else if (ctx.composite.mean < 0.5) {
+      const tail = ctx.composite.tailRuns ?? []
+      const names = tail
+        .slice(0, 3)
+        .map((t) => `${t.runId}=${t.score.toFixed(3)}`)
+        .join(', ')
+      out.push({
+        priority: 'high',
+        kind: 'investigate',
+        title: `Composite mean ${ctx.composite.mean.toFixed(3)} is below 0.5 — investigate the lower tail before claiming the agent is healthy`,
+        detail:
+          tail.length > 0
+            ? `Worst ${tail.length} run${tail.length === 1 ? '' : 's'}: ${names}. Histogram p50=${ctx.composite.p50.toFixed(3)}, p95=${ctx.composite.p95.toFixed(3)}.`
+            : `Histogram p50=${ctx.composite.p50.toFixed(3)}, p95=${ctx.composite.p95.toFixed(3)}.`,
+        evidencePath: 'composite.tailRuns',
+      })
+    }
+  }
+
+  // Missing-judges branch. The report can't surface per-dimension or
+  // calibration signal when `outcome.judgeScores` is empty across the
+  // corpus. Tell the customer how to enrich.
+  if (Object.keys(ctx.judges).length === 0 && ctx.composite.n > 0) {
+    out.push({
+      priority: 'medium',
+      kind: 'expand-corpus',
+      title: 'No judge scores recorded — per-dimension + calibration insights unavailable',
+      detail:
+        'Records have no `outcome.judgeScores`. To unlock perDimension, judges, and calibration, attach a Judge run during your eval pass and populate `outcome.judgeScores.perJudge[judgeName][dimension] = score`. See `docs/insight-report.md` for the expected shape.',
+      evidencePath: 'judges',
+    })
+  }
 
   if (ctx.lift) {
     const decisive = ctx.lift.ci95[0] > ctx.threshold
