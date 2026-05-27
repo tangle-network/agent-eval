@@ -18,6 +18,12 @@ export {
 // ── Improvement drivers ──────────────────────────────────────────────
 export { type EvolutionaryDriverOptions, evolutionaryDriver } from './drivers/evolutionary'
 export { type GepaDriverOptions, gepaDriver } from './drivers/gepa'
+export {
+  countSentenceEdits,
+  extractH2Sections,
+  type SkillOptDriverOptions,
+  skillOptDriver,
+} from './drivers/skillopt'
 // ── Gates ────────────────────────────────────────────────────────────
 export { composeGate } from './gates/compose'
 export {

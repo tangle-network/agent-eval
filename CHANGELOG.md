@@ -4,6 +4,26 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ---
 
+## [0.51.0] — 2026-05-27 — skillOptDriver (SkillOpt methodology as a substrate driver)
+
+### Added
+
+- **`skillOptDriver`** in `/campaign`. A section-aware, bounded-edit `ImprovementDriver` for structured natural-language procedures (SKILL.md files, runbooks, sectioned system prompts, judge rubrics with dimensions). Implements the SkillOpt methodology (Microsoft, 2026): treat the skill document as a trainable optimization target, train the procedure not the weights, constrain each generation to ≤N targeted edits to prevent useful-rule overwrites.
+  - **Edit-budget enforcement** — candidates that exceed `editBudget * 2` sentence-level diffs vs baseline are rejected at parse time. SkillOpt's "edit budget functions as a textual learning rate."
+  - **Section preservation** — H2 headings (or an explicit `preserveSections` allowlist) MUST appear unchanged in every candidate. Candidates that delete or rename sections are rejected.
+  - **Surface-typed** — throws on non-string surfaces; agent-runtime's `improvementDriver` handles code-tier.
+- `extractH2Sections(text)` + `countSentenceEdits(a, b)` exported as named helpers for consumers writing custom drivers with similar invariants.
+
+### Scope (honest)
+
+This is **batch SkillOpt** — one LLM call per generation produces all N candidates with the budget enforced as a prompt instruction + post-parse rejection. **Per-edit iteration** (propose 1 edit → validate → accept-or-reject → propose next) is a future 0.52.0 enhancement that needs a new `IncrementalImprovementDriver` interface; the substrate's current batch `ImprovementDriver` can run SkillOpt-style behavior with `populationSize=1` + `maxGenerations=N`, but a single driver invocation can't iterate per-edit yet. Tracked.
+
+### Notes
+
+Selectable alongside `gepaDriver` and `evolutionaryDriver`. Use when the surface IS a structured doc; use `gepaDriver` when the surface is unstructured prose.
+
+---
+
 ## [0.50.2] — 2026-05-27 — actionability fixes from real-data dogfood
 
 ### Added
