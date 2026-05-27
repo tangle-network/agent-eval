@@ -48,12 +48,20 @@ interface StoredSpan {
   receivedAt: number
 }
 
+interface IdempotencyEntry {
+  response: IngestResponse
+  expiresAt: number
+}
+
 export interface ReferenceReceiverStores {
   runs: StoredRun[]
   traces: StoredSpan[]
-  /** key = `${tenantId}#${idempotencyKey}` */
-  idempotency: Map<string, IngestResponse>
+  /** key = `${tenantId}#${idempotencyKey}` — entries expire after 24h per
+   *  the wire spec. Prune-on-read keeps the map bounded without a timer. */
+  idempotency: Map<string, IdempotencyEntry>
 }
+
+const IDEMPOTENCY_TTL_MS = 24 * 60 * 60 * 1000
 
 export interface ReferenceReceiverHandle {
   app: Hono
@@ -115,8 +123,13 @@ export function createReferenceReceiverApp(opts: {
 
     const idempotencyKey = c.req.header('idempotency-key')
     const cacheKey = idempotencyKey ? `${auth.id}#${idempotencyKey}` : null
-    if (cacheKey && stores.idempotency.has(cacheKey)) {
-      return c.json(stores.idempotency.get(cacheKey)!)
+    if (cacheKey) {
+      const entry = stores.idempotency.get(cacheKey)
+      if (entry) {
+        if (entry.expiresAt > Date.now()) return c.json(entry.response)
+        // Expired — prune-on-read.
+        stores.idempotency.delete(cacheKey)
+      }
     }
 
     const body = (await c.req.json().catch(() => null)) as IngestEvalRunsRequest | null
@@ -149,7 +162,12 @@ export function createReferenceReceiverApp(opts: {
     }
 
     const response: IngestResponse = { accepted: body.events.length - rejected.length, rejected }
-    if (cacheKey) stores.idempotency.set(cacheKey, response)
+    if (cacheKey) {
+      stores.idempotency.set(cacheKey, {
+        response,
+        expiresAt: Date.now() + IDEMPOTENCY_TTL_MS,
+      })
+    }
     return c.json(response)
   })
 
@@ -238,14 +256,19 @@ const DEFAULT_TENANTS: TenantConfig[] = [
 ]
 
 const isEntryPoint = (() => {
-  // Only auto-start when invoked directly (not when imported by the test).
-  // We use `process.argv[1]` rather than `import.meta.url` to avoid Node's
-  // file:// URL vs path mismatch across platforms.
+  // Auto-start when REFERENCE_RECEIVER_START=1 (preferred) or when invoked
+  // directly via the file path. The env var is the primary signal so tests
+  // and unusual invocation styles (different cwd, packed dist, etc.) get a
+  // single deterministic way to opt in.
+  if (process.env.REFERENCE_RECEIVER_START === '1') return true
+  if (process.env.REFERENCE_RECEIVER_START === '0') return false
   const entry = process.argv[1] ?? ''
-  return entry.endsWith('hosted-ingest-server/server.ts') ||
+  return (
+    entry.endsWith('hosted-ingest-server/server.ts') ||
     entry.endsWith('hosted-ingest-server/server.js') ||
     entry.endsWith('hosted-ingest-server\\server.ts') ||
     entry.endsWith('hosted-ingest-server\\server.js')
+  )
 })()
 
 if (isEntryPoint) {

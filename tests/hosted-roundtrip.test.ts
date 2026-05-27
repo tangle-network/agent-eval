@@ -10,43 +10,11 @@
  * its deployed URL with the same body.
  */
 
-import type { AddressInfo } from 'node:net'
-import { serve } from '@hono/node-server'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import {
-  createReferenceReceiverApp,
-  type ReferenceReceiverStores,
-  type TenantConfig,
-} from '../examples/hosted-ingest-server/server'
+import type { TenantConfig } from '../examples/hosted-ingest-server/server'
 import { createHostedClient } from '../src/hosted/client'
 import { type EvalRunEvent, HOSTED_WIRE_VERSION, type TraceSpanEvent } from '../src/hosted/types'
-
-interface Receiver {
-  baseUrl: string
-  stores: ReferenceReceiverStores
-  stop: () => Promise<void>
-}
-
-async function startReceiver(tenants: TenantConfig[]): Promise<Receiver> {
-  const { app, stores } = createReferenceReceiverApp({ tenants })
-  // Bind to port 0 — kernel picks an unused port; we read it off the
-  // returned handle so concurrent tests don't fight over the same socket.
-  const handle = serve({ fetch: app.fetch, port: 0 })
-  const addr = handle.address() as AddressInfo
-  const baseUrl = `http://127.0.0.1:${addr.port}`
-  return {
-    baseUrl,
-    stores,
-    stop: () =>
-      new Promise<void>((resolve) => {
-        if (typeof (handle as { close?: (cb?: () => void) => void }).close === 'function') {
-          ;(handle as { close: (cb: () => void) => void }).close(() => resolve())
-        } else {
-          resolve()
-        }
-      }),
-  }
-}
+import { type BoundReceiver, startReceiver } from './_fixtures/hosted-receiver'
 
 const TENANT_A: TenantConfig = { id: 'acme', key: 'a-key' }
 const TENANT_B: TenantConfig = { id: 'globex', key: 'b-key' }
@@ -114,7 +82,7 @@ function makeTraceSpan(traceId: string, spanId: string, runId: string): TraceSpa
 }
 
 describe('hosted-tier E2E roundtrip — wire spec contract', () => {
-  let receiver: Receiver
+  let receiver: BoundReceiver
 
   beforeEach(async () => {
     receiver = await startReceiver([TENANT_A, TENANT_B])

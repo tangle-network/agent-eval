@@ -26,6 +26,67 @@ function cell(
   return { scenarioId, rep, compositeMean: composite, dimensions: dims }
 }
 
+describe('keyForCell collision safety', () => {
+  it('matches cells when scenarioId contains :: characters', () => {
+    // JSON-tuple keying — `scenarioId` may contain any character; the
+    // composite key is unambiguous regardless of delimiter choice.
+    const before = gen({
+      index: 0,
+      surfaceHash: 'h0',
+      cells: [cell('a::b', 0, 0.5), cell('a', 0, 0.7)],
+    })
+    const after = gen({
+      index: 1,
+      surfaceHash: 'h1',
+      cells: [cell('a::b', 0, 0.6), cell('a', 0, 0.8)],
+    })
+    const diff = diffGenerations(before, after)
+    expect(diff.matched).toHaveLength(2)
+    const ab = diff.matched.find((m) => m.scenarioId === 'a::b')
+    const a = diff.matched.find((m) => m.scenarioId === 'a')
+    expect(ab?.compositeDelta).toBeCloseTo(0.1, 10)
+    expect(a?.compositeDelta).toBeCloseTo(0.1, 10)
+  })
+})
+
+describe('NaN / Infinity coercion in dimension deltas', () => {
+  it('coerces NaN dimension values to null deltas', () => {
+    const before = gen({
+      index: 0,
+      surfaceHash: 'h0',
+      cells: [cell('s1', 0, 0.5, { llm: { accuracy: Number.NaN } })],
+    })
+    const after = gen({
+      index: 1,
+      surfaceHash: 'h1',
+      cells: [cell('s1', 0, 0.7, { llm: { accuracy: 0.7 } })],
+    })
+    const diff = diffGenerations(before, after)
+    const dim = diff.matched[0]?.dimensions.llm?.accuracy
+    expect(dim?.before).toBeNull()
+    expect(dim?.after).toBe(0.7)
+    expect(dim?.delta).toBeNull()
+  })
+
+  it('coerces Infinity dimension values to null deltas', () => {
+    const before = gen({
+      index: 0,
+      surfaceHash: 'h0',
+      cells: [cell('s1', 0, 0.5, { llm: { x: Number.POSITIVE_INFINITY } })],
+    })
+    const after = gen({
+      index: 1,
+      surfaceHash: 'h1',
+      cells: [cell('s1', 0, 0.6, { llm: { x: Number.NEGATIVE_INFINITY } })],
+    })
+    const diff = diffGenerations(before, after)
+    const dim = diff.matched[0]?.dimensions.llm?.x
+    expect(dim?.before).toBeNull()
+    expect(dim?.after).toBeNull()
+    expect(dim?.delta).toBeNull()
+  })
+})
+
 describe('diffGenerations', () => {
   it('matches cells on (scenarioId, rep) and computes composite delta', () => {
     const before = gen({
