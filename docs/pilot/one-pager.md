@@ -43,6 +43,26 @@ Full integration walkthroughs:
 - **Tangle stack** → [`integration-tangle-stack.md`](./integration-tangle-stack.md)
 - **Everything else** → [`integration-foreign-stack.md`](./integration-foreign-stack.md)
 
+## Zero-setup demo first — 30 seconds
+
+Before any integration, run the demo against synthetic data so you see the output shape live:
+
+```sh
+npx @tangle-network/intelligence demo
+```
+
+No install, no key, no data. Synthetic agent runs through synthetic scenarios; the CLI prints a real `InsightReport` with composite distribution + Pareto + prior-period delta + ranked recommendations. Same output shape you'll get on your real data once we integrate.
+
+When you're ready to integrate, the same CLI scaffolds your repo:
+
+```sh
+npx @tangle-network/intelligence init           # creates eval/scenarios.json + judges.ts + pnpm scripts + .runs/
+npx @tangle-network/intelligence report          # renders InsightReport from your latest traces
+npx @tangle-network/intelligence improve --max-usd 25    # runs selfImprove with cost ceiling, opens auto-PR on green gate
+```
+
+Hosted equivalent: **[staging-intelligence.tangle.tools](https://staging-intelligence.tangle.tools)** — open in your browser, ingest your traces, see the dashboard render the same packet your CLI produces.
+
 ## How you integrate (Tangle stack — 4 steps)
 
 ```ts

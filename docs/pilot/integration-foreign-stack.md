@@ -1,6 +1,14 @@
-# Integration — agent-eval on any stack (OpenRouter, OpenAI, Anthropic, LangChain, LlamaIndex, custom)
+# Integration — Tangle Intelligence on any stack (OpenRouter, OpenAI, Anthropic, LangChain, LlamaIndex, custom)
 
 Companion to `integration-tangle-stack.md`. This doc is the path for customers NOT on `@tangle-network/sandbox` + tcloud — you bring your own agent, your own LLM provider, your own trace format. We meet you where you are.
+
+## Zero-setup demo first
+
+```sh
+npx @tangle-network/intelligence demo
+```
+
+Synthetic agent + scenarios + selfImprove end-to-end with zero setup. Prints the `InsightReport` shape — same output you'll get against your real data. Hosted equivalent: **[staging-intelligence.tangle.tools](https://staging-intelligence.tangle.tools)**.
 
 ## Decision tree — pick your starting point
 
