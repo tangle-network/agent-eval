@@ -10,9 +10,9 @@
  * imported at the boundary by JSDoc only; the matrix never wraps them.
  */
 
-import type { DefaultVerdict } from '@tangle-network/agent-runtime/loops'
+import type { DefaultVerdict } from '../verdict'
 
-export type { DefaultVerdict }
+export type { DefaultVerdict } from '../verdict'
 
 /** One axis = one dimension to iterate. `V` is the value type — pass any
  *  substrate type (AgentProfile, Driver, Validator, rubric record). */

@@ -34,6 +34,16 @@ from .errors import (
     TransportError,
     ValidationError,
 )
+from .hosted import (
+    HOSTED_WIRE_VERSION,
+    EvalRunCellScore,
+    EvalRunEvent,
+    EvalRunGenerationSnapshot,
+    HostedClient,
+    IngestResponse,
+    TraceSpanEventOuter,
+    make_trace_span,
+)
 from .models import (
     FailureMode,
     JudgeRequest,
@@ -48,7 +58,7 @@ from .models import (
 try:
     __version__ = version("agent-eval-rpc")
 except PackageNotFoundError:
-    __version__ = "0.42.0"
+    __version__ = "0.48.0"
 
 __all__ = [
     "Client",
@@ -64,4 +74,13 @@ __all__ = [
     "RubricInfo",
     "ListRubricsResponse",
     "VersionResponse",
+    # Hosted-tier ingest (mirrors @tangle-network/agent-eval/hosted)
+    "HostedClient",
+    "HOSTED_WIRE_VERSION",
+    "EvalRunEvent",
+    "EvalRunGenerationSnapshot",
+    "EvalRunCellScore",
+    "TraceSpanEventOuter",
+    "IngestResponse",
+    "make_trace_span",
 ]

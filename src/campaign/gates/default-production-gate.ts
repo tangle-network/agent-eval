@@ -12,13 +12,13 @@
  * extra domain-specific gates they need (`composeGate(defaultProductionGate(...), customGate)`).
  */
 
-import type { RunRecord } from '@tangle-network/agent-runtime'
 import type { CanaryReport } from '../../canary'
 import { runCanaries } from '../../canary'
 import type { RedTeamCase } from '../../red-team'
 import { scoreRedTeamOutput } from '../../red-team'
 import type { RewardHackingReport } from '../../rl/reward-hacking'
 import { detectRewardHacking } from '../../rl/reward-hacking'
+import type { RunRecord } from '../../run-record'
 import type { Gate, GateContext, GateResult, Scenario } from '../types'
 
 export interface DefaultProductionGateOptions {

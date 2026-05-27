@@ -649,6 +649,12 @@ export {
   statusAdvanced,
 } from './state-continuity'
 
+// ── Verdict ──────────────────────────────────────────────────────────
+// Validator-output primitive. Substrate-level type; agent-runtime's
+// Validator<Output, Verdict> defaults to this. See src/verdict.ts.
+
+export type { DefaultVerdict } from './verdict'
+
 // ── Trust surface ────────────────────────────────────────────────────
 
 export type { BehaviorAssertion, CallExpectation, Expectation, MatcherResult } from './behavior-dsl'

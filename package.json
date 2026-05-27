@@ -1,6 +1,6 @@
 {
   "name": "@tangle-network/agent-eval",
-  "version": "0.47.0",
+  "version": "0.48.0",
   "description": "Substrate for self-improving agents: traces, verifiable rewards, preferences, GEPA / reflective mutation, auto-research, replay, sequential anytime-valid stats, and release gates.",
   "homepage": "https://github.com/tangle-network/agent-eval#readme",
   "repository": {
@@ -119,6 +119,11 @@
       "import": "./dist/adapters/http.js",
       "default": "./dist/adapters/http.js"
     },
+    "./adapters/traceai": {
+      "types": "./dist/adapters/traceai.d.ts",
+      "import": "./dist/adapters/traceai.js",
+      "default": "./dist/adapters/traceai.js"
+    },
     "./hosted": {
       "types": "./dist/hosted/index.d.ts",
       "import": "./dist/hosted/index.js",
@@ -160,20 +165,15 @@
     "zod": "^4.3.6"
   },
   "peerDependencies": {
-    "@tangle-network/agent-runtime": ">=0.21.0 <0.26.0",
     "@tangle-network/sandbox": ">=0.2.1 <0.4.0"
   },
   "peerDependenciesMeta": {
-    "@tangle-network/agent-runtime": {
-      "optional": true
-    },
     "@tangle-network/sandbox": {
       "optional": true
     }
   },
   "devDependencies": {
     "@biomejs/biome": "^2.4.15",
-    "@tangle-network/agent-runtime": ">=0.21.0 <0.26.0",
     "@tangle-network/sandbox": "0.3.0",
     "@types/node": "^25.6.0",
     "husky": "^9.1.7",
@@ -186,8 +186,7 @@
   "pnpm": {
     "minimumReleaseAge": 4320,
     "minimumReleaseAgeExclude": [
-      "@tangle-network/sandbox",
-      "@tangle-network/agent-runtime"
+      "@tangle-network/sandbox"
     ],
     "overrides": {
       "postcss@<8.5.10": "^8.5.10",
