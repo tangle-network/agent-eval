@@ -26,6 +26,60 @@ That's the entire surface for content judging. A self-contained runnable
 example with pytest invariants lives at
 [`examples/judge_anti_slop.py`](./examples/judge_anti_slop.py).
 
+## Hosted-tier ingest (since 0.48.0)
+
+Ship eval-run events + OTel-shape trace spans to any orchestrator that
+speaks the wire format frozen at `HOSTED_WIRE_VERSION = '2026-05-26.v1'`.
+Same contract as the TypeScript client at `src/hosted/client.ts`; same
+reference receiver at `examples/hosted-ingest-server/`.
+
+```python
+from agent_eval_rpc import (
+    HostedClient, EvalRunEvent, EvalRunGenerationSnapshot,
+    EvalRunCellScore, make_trace_span,
+)
+
+with HostedClient(
+    endpoint="http://localhost:8080",
+    api_key="dev-token",
+    tenant_id="acme",
+) as client:
+    res = client.ingest_eval_run(EvalRunEvent(
+        runId="run-py-1",
+        runDir="/runs/run-py-1",
+        timestamp="2026-05-27T00:00:00Z",
+        status="finished",
+        labels={"env": "test"},
+        baseline=EvalRunGenerationSnapshot(
+            index=0, surfaceHash="h-base",
+            cells=[EvalRunCellScore(scenarioId="s1", rep=0, compositeMean=0.5,
+                                     dimensions={"llm": {"accuracy": 0.5}})],
+            compositeMean=0.5, costUsd=0.1, durationMs=1000,
+        ),
+        generations=[],
+        gateDecision="hold",
+        totalCostUsd=0.1, totalDurationMs=1000,
+    ))
+    assert res.accepted == 1
+
+    spans = [make_trace_span(
+        trace_id="t", span_id="s-0", name="dispatch",
+        start_time_unix_nano=1_700_000_000_000_000_000,
+        end_time_unix_nano=1_700_000_001_000_000_000,
+        attributes={"step": 0},
+        tangle_run_id="run-py-1", tangle_scenario_id="s1", tangle_generation=0,
+    )]
+    client.ingest_traces(spans)
+```
+
+Bearer auth, per-tenant idempotency, capped exponential backoff on
+5xx/408/429. The `tangle.*` pivot keys are first-class on `make_trace_span`
+so the dashboard can stitch traces back to their owning run.
+
+End-to-end tests at `tests/test_hosted.py` spawn the TypeScript reference
+receiver and prove binary compat across languages; if either side drifts,
+both test suites fail.
+
 ## Install
 
 ```sh

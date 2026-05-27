@@ -23,6 +23,7 @@ export default defineConfig({
     'contract/index': 'src/contract/index.ts',
     'adapters/langchain': 'src/adapters/langchain.ts',
     'adapters/http': 'src/adapters/http.ts',
+    'adapters/traceai': 'src/adapters/traceai.ts',
     'hosted/index': 'src/hosted/index.ts',
     cli: 'src/cli.ts',
   },

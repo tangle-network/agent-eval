@@ -15,6 +15,24 @@ Update the doc closest to the change. Don't duplicate content across docs; cross
 - tsup (bundling), vitest (tests)
 - `@tangle-network/tcloud` for LLM calls (judges, driver)
 
+## Repo layering — this package is the substrate
+
+```
+agent-knowledge ─┐
+                 ├──► agent-eval  (this repo — the bottom)
+agent-runtime ───┘
+```
+
+**Rule: agent-eval has zero upward dependencies on agent-runtime or agent-knowledge.** Both consumer packages depend on agent-eval; the reverse is forbidden. This applies to runtime deps, devDeps, and peerDeps. Type-only `import type` from a consumer package is the smell that hides the inversion — reject it in review.
+
+If a type that "feels like" it belongs in a consumer is actually a substrate primitive (validator verdict, run record, scenario, judge score), move it INTO agent-eval. Examples that already moved this direction:
+- `DefaultVerdict` lives in `src/verdict.ts` here. agent-runtime's `Validator<Output, Verdict = DefaultVerdict>` defaults to it.
+- `RunRecord` lives in `src/run-record.ts` here. Every consumer imports it from agent-eval.
+
+If a type is genuinely runtime-shaped (`ValidationCtx` with iteration + signal + traceEmitter; `AgentRunSpec` with sandbox profile) it stays in agent-runtime. The test: "does this concept make sense WITHOUT a running agent loop?" If yes, it's substrate. If no, it's runtime.
+
+When in doubt, lean substrate. Subtracting a consumer dep is always cheaper than adding one.
+
 ## Commands
 
 ```bash

@@ -35,6 +35,21 @@ it*. Unified at the trace level, you see both as one timeline per cell.
 - Compose: register TraceAI's instrumentations on the global tracer
   provider, then either point both at your OTLP collector or at
   TraceAI's hosted backend if you want their UI.
+- **Or use the bridge: `@tangle-network/agent-eval/adapters/traceai`.**
+  Forwards finished OTel spans (`ReadableSpan` shape) directly into the
+  hosted-tier ingest, lifting `tangle.runId` / `tangle.scenarioId` /
+  `tangle.cellId` / `tangle.generation` to first-class wire fields so
+  the dashboard pivots correctly. Zero dependency on `@opentelemetry/*`
+  at the substrate; consumers pass spans from their own OTel SDK.
+  ```ts
+  import { createHostedClient } from '@tangle-network/agent-eval/hosted'
+  import { createTraceAiBridge } from '@tangle-network/agent-eval/adapters/traceai'
+
+  const client = createHostedClient({ endpoint, apiKey, tenantId })
+  const bridge = createTraceAiBridge({ client, defaultRunId: substrateRunId })
+  processor.onEnd = (span) => { void bridge.ingest([span]) }
+  // ...or call `bridge.ingest(batch)` from a SpanProcessor.onShutdown.
+  ```
 
 ### Langfuse SDK
 
