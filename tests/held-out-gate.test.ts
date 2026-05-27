@@ -28,7 +28,10 @@ function makePair(
   holdoutCandidate: number,
   searchBaseline: number,
   holdoutBaseline: number,
+  costOverride?: { candidate?: number; baseline?: number },
 ): { candidate: RunRecord[]; baseline: RunRecord[] } {
+  const cCost = costOverride?.candidate
+  const bCost = costOverride?.baseline
   return {
     candidate: [
       record({
@@ -36,12 +39,14 @@ function makePair(
         seed,
         splitTag: 'search',
         outcome: { searchScore: searchCandidate, raw: {} },
+        ...(cCost !== undefined ? { costUsd: cCost } : {}),
       }),
       record({
         candidateId,
         seed,
         splitTag: 'holdout',
         outcome: { holdoutScore: holdoutCandidate, raw: {} },
+        ...(cCost !== undefined ? { costUsd: cCost } : {}),
       }),
     ],
     baseline: [
@@ -50,12 +55,14 @@ function makePair(
         seed,
         splitTag: 'search',
         outcome: { searchScore: searchBaseline, raw: {} },
+        ...(bCost !== undefined ? { costUsd: bCost } : {}),
       }),
       record({
         candidateId: 'baseline',
         seed,
         splitTag: 'holdout',
         outcome: { holdoutScore: holdoutBaseline, raw: {} },
+        ...(bCost !== undefined ? { costUsd: bCost } : {}),
       }),
     ],
   }
@@ -206,5 +213,80 @@ describe('HeldOutGate — promotion path', () => {
     const d = g.evaluate(candidate, baseline)
     expect(d.evidence.productiveRuns).toBe(2)
     expect(d.rejectionCode).toBe('few_runs')
+  })
+})
+
+describe('HeldOutGate — cost ceiling', () => {
+  it('rejects with cost_ceiling when candidate clears quality but blows the budget', () => {
+    const g = new HeldOutGate({
+      baselineKey: 'baseline',
+      minProductiveRuns: 3,
+      seed: 1,
+      costPerTaskCeiling: 0.02,
+    })
+    // Candidate is strictly better on quality but costs 4x baseline.
+    const pairs = joinPairs(
+      makePair('cand', 0, 0.7, 0.7, 0.5, 0.5, { candidate: 0.08, baseline: 0.02 }),
+      makePair('cand', 1, 0.72, 0.72, 0.5, 0.5, { candidate: 0.08, baseline: 0.02 }),
+      makePair('cand', 2, 0.71, 0.71, 0.5, 0.5, { candidate: 0.08, baseline: 0.02 }),
+      makePair('cand', 3, 0.73, 0.73, 0.5, 0.5, { candidate: 0.08, baseline: 0.02 }),
+      makePair('cand', 4, 0.74, 0.74, 0.5, 0.5, { candidate: 0.08, baseline: 0.02 }),
+    )
+    const d = g.evaluate(pairs.candidate, pairs.baseline)
+    expect(d.promote).toBe(false)
+    expect(d.rejectionCode).toBe('cost_ceiling')
+    expect(d.evidence.medianCandidateCost).toBeCloseTo(0.08, 6)
+    expect(d.evidence.medianBaselineCost).toBeCloseTo(0.02, 6)
+    expect(d.reason).toMatch(/cost_ceiling/)
+  })
+
+  it('promotes when candidate clears quality AND fits the cost ceiling', () => {
+    const g = new HeldOutGate({
+      baselineKey: 'baseline',
+      minProductiveRuns: 3,
+      seed: 1,
+      costPerTaskCeiling: 0.05,
+    })
+    const pairs = joinPairs(
+      makePair('cand', 0, 0.7, 0.7, 0.5, 0.5, { candidate: 0.03, baseline: 0.02 }),
+      makePair('cand', 1, 0.72, 0.72, 0.5, 0.5, { candidate: 0.03, baseline: 0.02 }),
+      makePair('cand', 2, 0.71, 0.71, 0.5, 0.5, { candidate: 0.03, baseline: 0.02 }),
+      makePair('cand', 3, 0.73, 0.73, 0.5, 0.5, { candidate: 0.03, baseline: 0.02 }),
+      makePair('cand', 4, 0.74, 0.74, 0.5, 0.5, { candidate: 0.03, baseline: 0.02 }),
+    )
+    const d = g.evaluate(pairs.candidate, pairs.baseline)
+    expect(d.promote).toBe(true)
+    expect(d.rejectionCode).toBeNull()
+    expect(d.evidence.medianCandidateCost).toBeCloseTo(0.03, 6)
+  })
+
+  it('records cost in evidence regardless of whether costPerTaskCeiling is set', () => {
+    const g = new HeldOutGate({ baselineKey: 'baseline', minProductiveRuns: 3, seed: 1 })
+    const pairs = joinPairs(
+      makePair('cand', 0, 0.7, 0.7, 0.5, 0.5, { candidate: 0.05, baseline: 0.01 }),
+      makePair('cand', 1, 0.72, 0.72, 0.5, 0.5, { candidate: 0.05, baseline: 0.01 }),
+      makePair('cand', 2, 0.71, 0.71, 0.5, 0.5, { candidate: 0.05, baseline: 0.01 }),
+    )
+    const d = g.evaluate(pairs.candidate, pairs.baseline)
+    // No ceiling configured → promote-or-reject depends only on quality;
+    // cost is informational and surfaces unconditionally.
+    expect(d.evidence.medianCandidateCost).toBeCloseTo(0.05, 6)
+    expect(d.evidence.medianBaselineCost).toBeCloseTo(0.01, 6)
+  })
+
+  it('throws on non-positive costPerTaskCeiling', () => {
+    expect(
+      () => new HeldOutGate({ baselineKey: 'baseline', costPerTaskCeiling: 0 }),
+    ).toThrow(/costPerTaskCeiling/)
+    expect(
+      () => new HeldOutGate({ baselineKey: 'baseline', costPerTaskCeiling: -1 }),
+    ).toThrow(/costPerTaskCeiling/)
+    expect(
+      () =>
+        new HeldOutGate({
+          baselineKey: 'baseline',
+          costPerTaskCeiling: Number.POSITIVE_INFINITY,
+        }),
+    ).toThrow(/costPerTaskCeiling/)
   })
 })

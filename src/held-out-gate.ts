@@ -35,7 +35,11 @@
 import type { RunRecord } from './run-record'
 import { pairedBootstrap, wilcoxonSignedRank } from './statistics'
 
-export type HeldOutGateRejectionCode = 'few_runs' | 'negative_delta' | 'overfit_gap'
+export type HeldOutGateRejectionCode =
+  | 'few_runs'
+  | 'negative_delta'
+  | 'overfit_gap'
+  | 'cost_ceiling'
 
 export interface HeldOutGateConfig {
   /** Minimum number of paired (candidate, baseline) holdout observations
@@ -58,6 +62,19 @@ export interface HeldOutGateConfig {
   /** Optional deterministic seed for the bootstrap. Default undefined
    *  (Math.random). */
   seed?: number
+  /**
+   * Hard ceiling on the candidate's median per-task USD cost. When the
+   * candidate clears the quality gates (paired-delta + overfit-gap) but
+   * its median cost exceeds this number, the gate rejects with
+   * `cost_ceiling`. Default `undefined` = no cost ceiling, behaving
+   * exactly like the pre-cost gate.
+   *
+   * This exists because "we ship the better prompt" is only an honest
+   * pitch when the better prompt also fits a customer-stated budget.
+   * Cost is read from `RunRecord.costUsd` (already mandatory on every
+   * run) so no new schema is required.
+   */
+  costPerTaskCeiling?: number
 }
 
 export interface GateEvidence {
@@ -77,6 +94,14 @@ export interface GateEvidence {
   overfitGap: number
   /** Baseline (search − holdout) gap. */
   baselineOverfitGap: number
+  /** Median per-task USD cost across the candidate's runs. Recorded
+   *  even when no `costPerTaskCeiling` is configured so downstream
+   *  dashboards (intelligence.tangle.tools) can render \$/task per
+   *  generation regardless of gating policy. */
+  medianCandidateCost: number
+  /** Median per-task USD cost across the baseline runs, for
+   *  symmetric reporting. */
+  medianBaselineCost: number
 }
 
 export interface GateDecision {
@@ -107,6 +132,7 @@ export class HeldOutGate {
   private readonly confidence: number
   private readonly resamples: number
   private readonly seed?: number
+  private readonly costPerTaskCeiling?: number
 
   constructor(config: HeldOutGateConfig) {
     if (!config.baselineKey) {
@@ -119,6 +145,13 @@ export class HeldOutGate {
     this.confidence = config.confidence ?? 0.95
     this.resamples = config.bootstrapResamples ?? 2000
     this.seed = config.seed
+    if (
+      config.costPerTaskCeiling !== undefined &&
+      !(Number.isFinite(config.costPerTaskCeiling) && config.costPerTaskCeiling > 0)
+    ) {
+      throw new Error('HeldOutGate: costPerTaskCeiling must be a positive finite number')
+    }
+    this.costPerTaskCeiling = config.costPerTaskCeiling
   }
 
   /** Decide whether `candidate` should replace `baseline`. Pairing
@@ -155,6 +188,11 @@ export class HeldOutGate {
     const overfitGap = safeDiff(candidateSearchMean, candidateHoldoutMean)
     const baselineOverfitGap = safeDiff(baselineSearchMean, baselineHoldoutMean)
 
+    // Cost summary — surfaced in evidence regardless of gating policy
+    // so downstream dashboards always know what the candidate cost.
+    const medianCandidateCost = medianFinite(candidate.map((r) => r.costUsd))
+    const medianBaselineCost = medianFinite(baseline.map((r) => r.costUsd))
+
     // Few-runs gate.
     if (productiveRuns < this.minProductiveRuns) {
       return {
@@ -170,6 +208,8 @@ export class HeldOutGate {
           holdoutScore: candidateHoldoutMean,
           overfitGap,
           baselineOverfitGap,
+          medianCandidateCost,
+          medianBaselineCost,
         },
         reason: `few_runs: ${productiveRuns} paired holdout observation(s) < min ${this.minProductiveRuns}`,
         rejectionCode: 'few_runs',
@@ -194,6 +234,8 @@ export class HeldOutGate {
       holdoutScore: candidateHoldoutMean,
       overfitGap,
       baselineOverfitGap,
+      medianCandidateCost,
+      medianBaselineCost,
     }
 
     // Negative-delta gate (CI lower bound must clear the threshold).
@@ -229,6 +271,29 @@ export class HeldOutGate {
       }
     }
 
+    // Cost-ceiling gate. Runs after quality gates so a cost-driven
+    // rejection always carries a "you cleared quality but blew budget"
+    // story rather than masking a quality failure. NaN cost is treated
+    // as "unknown" and does NOT trip the ceiling — the data is just
+    // missing, and the operator's stated ceiling is for known cost,
+    // not for absent telemetry.
+    if (
+      this.costPerTaskCeiling !== undefined &&
+      Number.isFinite(medianCandidateCost) &&
+      medianCandidateCost > this.costPerTaskCeiling
+    ) {
+      return {
+        promote: false,
+        candidateId,
+        baselineId,
+        evidence,
+        reason:
+          `cost_ceiling: candidate median cost $${fmt(medianCandidateCost)} ` +
+          `exceeds ceiling $${fmt(this.costPerTaskCeiling)} (baseline $${fmt(medianBaselineCost)})`,
+        rejectionCode: 'cost_ceiling',
+      }
+    }
+
     return {
       promote: true,
       candidateId,
@@ -237,7 +302,8 @@ export class HeldOutGate {
       reason:
         `promote: paired holdout median Δ=${fmt(ci.median)} ` +
         `CI=[${fmt(ci.low)}, ${fmt(ci.high)}] over ${productiveRuns} pairs; ` +
-        `overfit gap candidate=${fmt(overfitGap)} vs baseline=${fmt(baselineOverfitGap)}`,
+        `overfit gap candidate=${fmt(overfitGap)} vs baseline=${fmt(baselineOverfitGap)}; ` +
+        `median cost candidate=$${fmt(medianCandidateCost)} vs baseline=$${fmt(medianBaselineCost)}`,
       rejectionCode: null,
     }
   }
@@ -297,6 +363,13 @@ function medianDelta(before: number[], after: number[]): number {
   if (ds.length === 0) return 0
   const mid = Math.floor(ds.length / 2)
   return ds.length % 2 === 0 ? (ds[mid - 1]! + ds[mid]!) / 2 : ds[mid]!
+}
+
+function medianFinite(xs: number[]): number {
+  const ys = xs.filter((x) => Number.isFinite(x)).sort((x, y) => x - y)
+  if (ys.length === 0) return Number.NaN
+  const mid = Math.floor(ys.length / 2)
+  return ys.length % 2 === 0 ? (ys[mid - 1]! + ys[mid]!) / 2 : ys[mid]!
 }
 
 function fmt(x: number): string {

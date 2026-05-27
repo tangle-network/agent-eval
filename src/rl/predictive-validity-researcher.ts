@@ -179,6 +179,8 @@ export class PredictiveValidityResearcher implements Researcher {
         holdoutScore: 0,
         overfitGap: 0,
         baselineOverfitGap: 0,
+        medianCandidateCost: Number.NaN,
+        medianBaselineCost: Number.NaN,
       },
       reason:
         'predictive-validity researcher does not execute plans; the caller is expected to run the sweep and call rubricPredictiveValidity directly with the resulting RunRecord[].',
