@@ -40,9 +40,17 @@ If any of those don't apply, the one-pager still works as a positioning piece. T
 
 ## What this kit doesn't yet do
 
-- No live demo video (planned — task #114 records one)
-- No screenshot dashboard (gated on Gate 2 task #109 — ADC intelligence frontend renders InsightReport)
-- No published case study with named numbers (Gate 3 task #112 — happens after first pilot completes 4+ cycles)
+- No `npx @tangle-network/intelligence demo` command shipped yet (queued #115 — extend existing `tangle-intel` CLI in ADC with customer-zero-touch subcommands `init` / `demo` / `report` / `improve`)
+- No `staging-intelligence.tangle.tools` live yet (queued #116 — matches existing `staging-{product}.tangle.tools` precedent like sandbox)
+- No live demo video (queued #117 — recorded against legal-agent canonical real data)
+- No screenshot dashboard (gated on Gate 2 task #109 — ADC intelligence frontend renders canonical InsightReport)
+- No published case study with named numbers (Gate 3 task #112 — after first pilot completes 4+ cycles)
+
+## Architectural decisions baked into this kit
+
+- **Customer-facing CLI is `@tangle-network/intelligence`** (binary `tangle-intel`), NOT `agent-eval`. `agent-eval` is the substrate package; `intelligence` is the customer product that wraps it. The CLI already exists at `services/intelligence/src/cli/` in agent-dev-container — we extend it with `init` / `demo` / `report` / `improve` subcommands per task #115.
+- **Hosted URL is `staging-intelligence.tangle.tools`** matching `staging-sandbox.tangle.tools` precedent. Production becomes `intelligence.tangle.tools` once Gate 2/3 close.
+- **`agent-eval` mentioned only when customer wants direct programmatic access** (not the default path). 90%+ of customers stay at the CLI + hosted dashboard layer.
 
 For the FIRST pilot conversation, the JSON sample is the dashboard substitute. After Gate 2 lands we replace it with live screenshots.
 

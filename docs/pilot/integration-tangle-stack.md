@@ -1,6 +1,14 @@
-# Integration — agent-eval on the Tangle stack (sandbox + tcloud)
+# Integration — Tangle Intelligence on the Tangle stack (sandbox + tcloud)
 
 Step-by-step. This is what we run with you on the onboarding call.
+
+## Zero-setup demo first (30 seconds, no install)
+
+```sh
+npx @tangle-network/intelligence demo
+```
+
+End-to-end loop against synthetic data — agent + judge + scenarios + selfImprove. Prints the `InsightReport` shape you'll get on your real data. Useful to confirm the output is what you want before any integration. Hosted equivalent: open **[staging-intelligence.tangle.tools](https://staging-intelligence.tangle.tools)**.
 
 ## Prerequisites you already have
 
@@ -11,11 +19,19 @@ Step-by-step. This is what we run with you on the onboarding call.
 
 ## Install
 
+The CLI scaffolds and runs everything; you only add the substrate package if your code calls primitives directly:
+
 ```sh
+# CLI (zero-install via npx, or add to your repo as a dev-dep)
+npx @tangle-network/intelligence init
+
+# Optional — only if your code imports analyzeRuns / selfImprove directly
 pnpm add @tangle-network/agent-eval
 # or for Python customers:
 pip install agent-eval-rpc
 ```
+
+`@tangle-network/intelligence` is the customer-facing CLI + hosted product (binary `tangle-intel`). `@tangle-network/agent-eval` is the substrate it wraps — install only if you want to script directly against the primitives.
 
 ## Step 1 — Ingest your trace stream
 
