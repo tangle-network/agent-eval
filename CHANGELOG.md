@@ -4,7 +4,37 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ---
 
-## [0.51.0] — 2026-05-27 — skillOptDriver (SkillOpt methodology as a substrate driver)
+## [0.52.0] — 2026-05-27 — honest drivers + profile-versioning architecture
+
+### Honest correction
+
+After cloning and reading the actual SkillOpt source (microsoft/SkillOpt) and the GEPA paper (Agrawal et al., arXiv:2507.19457), 0.51.0's `skillOptDriver` was **not** SkillOpt — it was `gepaDriver` + 2 post-parse rejection rules. 0.52.0 closes that integrity gap. Greenfield in-place collapse; no V2.
+
+### Changed (breaking)
+
+- **`skillOptDriver` removed.** Its only substantive behavior (section preservation + sentence-edit-count cap) moves into `gepaDriver` as opt-in `constraints`. The `skillOptDriver` name is reserved for when we ship the real 6-stage patch-mode pipeline (tracked as task #100, blocked on profile-versioning).
+- **`gepaDriver` gains `constraints?: { preserveSections?, maxSentenceEdits? }`**. When `preserveSections: []`, the driver auto-detects current H2 headings and rejects candidates that drop or rename them. When `maxSentenceEdits: N`, candidates whose sentence-level edit count vs the parent exceeds `N * 2` are rejected. Both inspired by SkillOpt's edit-budget-as-textual-learning-rate principle.
+- **`gepaDriver` docstring updated** to be honest about Pareto: today the driver implements GEPA's *reflection* primitive but not the Pareto frontier or combine-complementary-lessons step. Tracked as task #101.
+
+### Added
+
+- **`docs/specs/driver-honest-spec.md`** — primary-source comparison vs GEPA and SkillOpt. Quotes the actual source. Names 13 deviations between 0.51.0's `skillOptDriver` and the real SkillOpt pipeline.
+- **`docs/specs/hermes-self-improvement-audit.md`** — corrected audit after cloning NousResearch/hermes-agent. Hermes has two loops, not one: the 7-day curator (housekeeping) AND a per-turn `background_review` fork that uses **user corrective feedback as a first-class skill-update signal** ("stop doing X", "you always do Y"). Signal source we don't capture today.
+- **`docs/specs/profile-versioning.md`** — architecture for the offline/online drift problem. Symmetric-fork framing (both writers are peers, neither is the authority). `AgentProfileVersion` content-hashing, `ProfileDiff` patch/replace types, 4-way `DriftGateDecision` (ship-substrate / ship-harness / merge / inconclusive), opt-in `driftPolicy` (ignore / reject-on-drift / benchmark-branches), four conflict-resolution cases including semantic-duplication detection. Phase 0 forcing-function experiment specified.
+
+### Where we beat the prior art (now named explicitly)
+
+Our `defaultProductionGate` uses paired bootstrap CI + Cohen's d + MDE + p-value. **SkillOpt's gate is a literal `cand_hard > current_score`** (verified at `skillopt/evaluation/gate.py:38`). **Hermes has no gate** — the forked review agent decides. We are statistically stricter than both.
+
+### Notes
+
+`gepaDriver({ constraints })` covers every use case the deleted `skillOptDriver` covered. The single `skillOptDriver` test file was removed; 13 new tests under `tests/gepa-driver-constraints.test.ts` cover the absorbed behavior + the unconstrained baseline behavior. Full suite 1444 / 1444 green.
+
+---
+
+## [0.51.0] — 2026-05-27 — skillOptDriver (SkillOpt methodology as a substrate driver) — SUPERSEDED BY 0.52.0
+
+⚠️ 0.51.0 named a driver `skillOptDriver` after Microsoft's SkillOpt methodology but did not implement it (it was `gepaDriver` + 2 post-parse rules). The honest replacement landed in 0.52.0; this entry is preserved for changelog continuity.
 
 ### Added
 
