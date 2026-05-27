@@ -5,6 +5,35 @@
 **Tracking:** task #98.
 **Date:** 2026-05-27.
 
+## Architecture in one diagram — symmetric fork
+
+Neither writer is privileged. Both branches are first-class. When they reconverge, the substrate's job is to BENCHMARK the branches and propose what to keep — not to be the authority.
+
+```
+            AgentProfile lineage
+              ╱           ╲
+             ╱             ╲
+       harness branch   substrate branch
+        (per-turn writes)   (selfImprove diff)
+             ╲             ╱
+              ╲           ╱
+             DIVERGENCE EVENT
+                     │
+                     ▼
+            benchmark both branches
+            against the same held-out
+                     │
+            ┌────────┼────────┐
+            ▼        ▼        ▼
+       ship-harness ship-substrate merge
+                     │
+                     ▼
+              inconclusive → expand
+              corpus / human review
+```
+
+The substrate becomes a peer, not an owner. The gate verdict names *which* branch won, not just "ship."
+
 ## What we are fixing
 
 Two writers, same state, no coordination:
@@ -76,9 +105,9 @@ export interface RunRecord {
 
 `commitSha`, `promptHash`, `configHash` become *inputs* to `hashProfile()`, not separate fields.
 
-### `selfImprove()` returns a diff, not a winner
+### `selfImprove()` returns a diff, and the gate becomes 4-way
 
-Replace the current return shape. Greenfield, no V2:
+Replace the current return shape. Greenfield, in place:
 
 ```typescript
 // src/contract/self-improve.ts — IN-PLACE replacement
@@ -91,13 +120,64 @@ export interface SelfImproveResult {
   winningHash: string
   /** Statistical evidence — paired bootstrap CI vs baseline. */
   lift: LiftInsight
-  /** Substrate verdict — relative to baseline only. */
-  gateDecision: 'ship' | 'hold' | 'inspect'
+  /** Substrate verdict — see DriftGateDecision below. */
+  gateDecision: DriftGateDecision
   insight: InsightReport
 }
+
+export type DriftGateDecision =
+  | { kind: 'ship-substrate'; reason: string; vs?: 'baseline' | 'harness-live' }
+  | { kind: 'ship-harness'; reason: string }
+  | { kind: 'merge'; mergedDiff: ProfileDiff; reason: string }
+  | { kind: 'inconclusive'; reason: string }
 ```
 
-The substrate is now explicit: *"this diff is statistically valid against `baselineHash`. Whether to apply it to your live state is your call."*
+When the substrate runs WITHOUT `driftPolicy: benchmark-branches`, only `ship-substrate` / `inconclusive` (or the equivalent `hold` framing) are possible. When `benchmark-branches` is on, all four kinds may surface.
+
+The substrate is now explicit: *"this diff is statistically valid against `baselineHash`. Whether to apply it to your live state is your call — and we'll tell you what we found when we compared branches."*
+
+### The opt-in drift policy
+
+```typescript
+selfImprove({
+  // ... existing
+  driftPolicy?:
+    | { kind: 'ignore' }                                   // default — assume single-writer
+    | { kind: 'reject-on-drift' }                          // cheap safety mode
+    | { kind: 'benchmark-branches'; benchmarkBudget: { generations, populationSize } }
+})
+```
+
+- **`ignore`** is the default. Same as today. Zero overhead for consumers whose sandbox harness doesn't self-modify.
+- **`reject-on-drift`** is the cheap safety mode. Substrate notices `currentHash != baselineHash` at apply time and refuses to ship. Tells the consumer "your profile drifted; re-run selfImprove against current state."
+- **`benchmark-branches`** is the full thing — only used when the harness DOES self-modify (Hermes per-turn, Claude Code with skill creation, Codex with user-prompted skill edits, agent-builder RL bridge, any future autonomous improvement loop). Costs an extra mini-campaign. Returns the 4-way `DriftGateDecision`.
+
+### Generalises past Hermes
+
+Any in-sandbox profile mutation appends to the same profile log, regardless of trigger:
+
+- Hermes-style autonomous (per-turn `background_review` fork)
+- Claude/Codex user-prompted ("hey, create a skill for X")
+- agent-runtime's runLoop self-modifying its prompt addendum
+- RL-style policy parameter updates
+- Manual user edits via `skill_manage` commands
+
+The substrate doesn't care WHY the harness wrote. It just sees: live profile is at hash X, my baseline was Y. Same merge protocol applies.
+
+### Conflict resolution — the four cases
+
+For the `benchmark-branches` policy, the substrate handles four cases:
+
+1. **No conflict.** Edits target different surfaces (substrate edited `systemPrompt`, harness wrote a new `skill/X.md`). Auto-merge into a combined candidate, benchmark merged vs each branch.
+
+2. **Orthogonal edits to the same surface.** Both touched `systemPrompt` but different H2 sections (subsumed by `GepaDriverConstraints.preserveSections`). Auto-merge by union of edits, benchmark.
+
+3. **Semantic duplication.** Substrate proposed a new skill `summarize-pr`; harness already created `pr-summarizer` (similar purpose, different file). Substrate runs a similarity-detection step: embed both, threshold cosine similarity, surface as a "duplicate-likely" finding. Resolution: head-to-head benchmark with both → keep the winner → archive the loser.
+
+4. **Direct same-region conflict.** Both edited the same paragraph. Three resolution paths the substrate offers:
+   - **Head-to-head**: run both branches, pick the winner.
+   - **LLM-mediated merge**: prompt an LLM with both candidate edits + the held-out failure trials, ask for a synthesis that addresses both. Benchmark the synthesis.
+   - **Human review**: surface the diff with `requires-resolution: true` and stop.
 
 ### Sandbox-side merge protocol
 
