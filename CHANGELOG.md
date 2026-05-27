@@ -4,6 +4,25 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ---
 
+## [0.50.2] — 2026-05-27 — actionability fixes from real-data dogfood
+
+### Added
+
+- **`ScalarDistribution.tailRuns?: Array<{runId, score}>`** — populated for the composite distribution. The report now names the 5 worst runs a customer should inspect first, instead of telling them to "investigate the lower tail" anonymously.
+- **`InsightReport.costQuality.degraded?: {cost?, pareto?}`** — explicit per-axis degradation reasons when `costUsd` is all zero (cost axis carries no signal) or only a single candidate appears (Pareto collapses to a single point). Replaces the prior silent emission of meaningless single-point Pareto figures.
+- **Composite-distribution recommendations.** When `composite.mean < 0.3`, the report emits a `critical/investigate` recommendation with the worst-5 runIds enumerated in the detail. Between 0.3 and 0.5, a `high/investigate` recommendation with the worst-3. Closes the gap where `recommendations: []` was being emitted for completely broken corpora.
+- **Missing-judges flag.** When `judges` is empty across the corpus, the report emits a `medium/expand-corpus` recommendation pointing at `outcome.judgeScores.perJudge` enrichment. Before, the customer had no signal that per-dimension / calibration was unavailable because of input shape, not substrate failure.
+
+### Fixed
+
+- `analyzeRuns()` on the legal-agent canonical run (n=36, mean composite = 0.002) now emits actionable recommendations naming specific failing scenarios; previously it returned `recommendations: []` for a fully-broken agent.
+
+### Notes
+
+The four behavior changes are additive — fields are optional, no existing field shape changed. Dogfood-driven: surfaced by running `analyzeRuns()` against three real consumer datasets (legal-agent, agent-builder, gtm-agent golden run) and observing where the report was silent when it should have been loud.
+
+---
+
 ## [0.50.1] — 2026-05-27 — docs + examples
 
 ### Added
