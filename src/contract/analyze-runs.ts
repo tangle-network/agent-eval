@@ -34,7 +34,9 @@ import type {
   InterRaterInsight,
   JudgeInsight,
   LiftInsight,
+  MetricDelta,
   OutcomeCorrelationInsight,
+  PriorPeriodComparison,
   Recommendation,
   ScalarDistribution,
 } from './insight-report'
@@ -75,6 +77,18 @@ export interface AnalyzeRunsOptions {
    *  about. Used by the recommendations engine to call ship vs hold.
    *  Default 0.02. */
   decisionThreshold?: number
+  /** Optional prior-period runs. When set, the report includes
+   *  `priorPeriodComparison` with per-metric Welch-CI deltas and
+   *  recommendations fire on statistically significant regressions.
+   *  The two windows do NOT have to share scenarios — the comparison
+   *  is two-sample unpaired (the substrate's `lift` field uses paired
+   *  bootstrap on shared (experimentId, seed) tuples; this is the
+   *  shape for "this week vs last week" rather than "candidate vs
+   *  baseline within a campaign"). */
+  baselineRuns?: RunRecord[]
+  /** Human-readable label for the baseline window, e.g. "vs prior 7
+   *  days", "vs v3.1 release". Surfaces in recommendations + UI. */
+  baselineLabel?: string
 }
 
 export async function analyzeRuns(opts: AnalyzeRunsOptions): Promise<InsightReport> {
@@ -133,6 +147,10 @@ export async function analyzeRuns(opts: AnalyzeRunsOptions): Promise<InsightRepo
 
   const release = buildReleaseScorecard(composite, lift, contamination)
 
+  const priorPeriodComparison = opts.baselineRuns
+    ? computePriorPeriodComparison(runs, opts.baselineRuns, split, opts.baselineLabel)
+    : undefined
+
   const recommendations = buildRecommendations({
     composite,
     judges,
@@ -141,6 +159,7 @@ export async function analyzeRuns(opts: AnalyzeRunsOptions): Promise<InsightRepo
     failureClusters,
     contamination,
     outcomeCorrelation,
+    priorPeriodComparison,
     threshold,
   })
 
@@ -156,8 +175,180 @@ export async function analyzeRuns(opts: AnalyzeRunsOptions): Promise<InsightRepo
     contamination,
     outcomeCorrelation,
     release,
+    ...(priorPeriodComparison ? { priorPeriodComparison } : {}),
     recommendations,
   }
+}
+
+// ── Prior-period comparison ─────────────────────────────────────────
+
+/** Direction of the metric — does "higher current" mean better or worse?
+ *  Composite + judge dimensions: higher is better. Cost + duration: lower
+ *  is better. The recommendations engine flips the sign before judging
+ *  regressed vs improved. */
+type MetricDirection = 'higher-is-better' | 'lower-is-better'
+
+function computePriorPeriodComparison(
+  current: RunRecord[],
+  baseline: RunRecord[],
+  split: 'search' | 'holdout',
+  windowLabel: string | undefined,
+): PriorPeriodComparison | undefined {
+  if (current.length === 0 || baseline.length === 0) return undefined
+
+  const metrics: Record<string, MetricDelta> = {}
+  const directions: Record<string, MetricDirection> = {}
+
+  const compositeCurrent = current
+    .map((r) => compositeOf(r, split))
+    .filter(Number.isFinite) as number[]
+  const compositeBaseline = baseline
+    .map((r) => compositeOf(r, split))
+    .filter(Number.isFinite) as number[]
+  if (compositeCurrent.length > 0 && compositeBaseline.length > 0) {
+    metrics.composite = welchCompare(compositeBaseline, compositeCurrent)
+    directions.composite = 'higher-is-better'
+  }
+
+  const costCurrent = current.map((r) => r.costUsd).filter(Number.isFinite)
+  const costBaseline = baseline.map((r) => r.costUsd).filter(Number.isFinite)
+  if (costCurrent.length > 0 && costBaseline.length > 0) {
+    metrics.cost = welchCompare(costBaseline, costCurrent)
+    directions.cost = 'lower-is-better'
+  }
+
+  const durCurrent = current.map((r) => r.wallMs).filter(Number.isFinite)
+  const durBaseline = baseline.map((r) => r.wallMs).filter(Number.isFinite)
+  if (durCurrent.length > 0 && durBaseline.length > 0) {
+    metrics.duration = welchCompare(durBaseline, durCurrent)
+    directions.duration = 'lower-is-better'
+  }
+
+  const tokCurrent = current
+    .map((r) => (r.tokenUsage.input ?? 0) + (r.tokenUsage.output ?? 0))
+    .filter(Number.isFinite)
+  const tokBaseline = baseline
+    .map((r) => (r.tokenUsage.input ?? 0) + (r.tokenUsage.output ?? 0))
+    .filter(Number.isFinite)
+  if (tokCurrent.length > 0 && tokBaseline.length > 0) {
+    metrics.tokenUsage = welchCompare(tokBaseline, tokCurrent)
+    directions.tokenUsage = 'lower-is-better'
+  }
+
+  // Per-dimension judge comparisons — only for dimensions present in BOTH
+  // windows. We use perDimMean since per-judge nesting is finicky for
+  // two-sample comparisons across different judge configurations.
+  const dimsCurrent = collectPerDimension(current)
+  const dimsBaseline = collectPerDimension(baseline)
+  for (const dim of Object.keys(dimsCurrent)) {
+    const b = dimsBaseline[dim]
+    const c = dimsCurrent[dim]
+    if (!b || b.length === 0 || !c || c.length === 0) continue
+    metrics[`dim.${dim}`] = welchCompare(b, c)
+    directions[`dim.${dim}`] = 'higher-is-better'
+  }
+
+  const regressedMetrics: string[] = []
+  const improvedMetrics: string[] = []
+  for (const [name, delta] of Object.entries(metrics)) {
+    if (!delta.significant) continue
+    const dir = directions[name] ?? 'higher-is-better'
+    const better = dir === 'higher-is-better' ? delta.delta > 0 : delta.delta < 0
+    if (better) improvedMetrics.push(name)
+    else regressedMetrics.push(name)
+  }
+
+  return {
+    baselineN: baseline.length,
+    currentN: current.length,
+    ...(windowLabel ? { windowLabel } : {}),
+    metrics,
+    regressedMetrics,
+    improvedMetrics,
+  }
+}
+
+/** Collect per-dimension values across runs (from outcome.judgeScores.perDimMean). */
+function collectPerDimension(runs: RunRecord[]): Record<string, number[]> {
+  const out: Record<string, number[]> = {}
+  for (const r of runs) {
+    const perDim = r.outcome.judgeScores?.perDimMean
+    if (!perDim) continue
+    for (const [dim, value] of Object.entries(perDim)) {
+      if (!Number.isFinite(value)) continue
+      if (!out[dim]) out[dim] = []
+      out[dim].push(value as number)
+    }
+  }
+  return out
+}
+
+/** Two-sample Welch comparison: unequal-variance t-test + CI on the delta
+ *  + Cohen's d (pooled stddev). Significance = p < 0.05 AND |d| >= 0.2. */
+function welchCompare(baseline: number[], current: number[]): MetricDelta {
+  const baselineMean = mean(baseline)
+  const currentMean = mean(current)
+  const baselineVar = sampleVariance(baseline, baselineMean)
+  const currentVar = sampleVariance(current, currentMean)
+  const baselineN = baseline.length
+  const currentN = current.length
+  const delta = currentMean - baselineMean
+
+  // Welch standard error
+  const se = Math.sqrt(baselineVar / baselineN + currentVar / currentN)
+  // For 95% CI we use z=1.96 (large-n approximation). Customers running
+  // analyzeRuns will typically have n >= 30; the t-correction is
+  // negligible vs the practical noise floor.
+  const halfWidth = 1.96 * (se > 0 ? se : 0)
+  const ci95: [number, number] = [delta - halfWidth, delta + halfWidth]
+
+  // p-value via normal approximation to the t-statistic.
+  const t = se > 0 ? delta / se : 0
+  const pValue = se > 0 ? 2 * (1 - standardNormalCdf(Math.abs(t))) : 1
+
+  // Cohen's d — pooled stddev.
+  const pooledStddev = Math.sqrt(
+    ((baselineN - 1) * baselineVar + (currentN - 1) * currentVar) /
+      Math.max(1, baselineN + currentN - 2),
+  )
+  const cohensD = pooledStddev > 0 ? delta / pooledStddev : 0
+
+  // Significance: BOTH p < 0.05 AND |d| >= 0.2 (small-effect threshold).
+  const significant = pValue < 0.05 && Math.abs(cohensD) >= 0.2
+
+  return {
+    current: currentMean,
+    baseline: baselineMean,
+    delta,
+    ci95,
+    pValue,
+    cohensD,
+    baselineN,
+    currentN,
+    significant,
+  }
+}
+
+function sampleVariance(xs: number[], xsMean: number): number {
+  if (xs.length < 2) return 0
+  let s = 0
+  for (const x of xs) s += (x - xsMean) ** 2
+  return s / (xs.length - 1)
+}
+
+/** Abramowitz & Stegun approximation to Φ(z). Maximum error ~7.5e-8. */
+function standardNormalCdf(z: number): number {
+  const a1 = 0.254829592
+  const a2 = -0.284496736
+  const a3 = 1.421413741
+  const a4 = -1.453152027
+  const a5 = 1.061405429
+  const p = 0.3275911
+  const sign = z < 0 ? -1 : 1
+  const x = Math.abs(z) / Math.SQRT2
+  const t = 1 / (1 + p * x)
+  const y = 1 - ((((a5 * t + a4) * t + a3) * t + a2) * t + a1) * t * Math.exp(-x * x)
+  return 0.5 * (1 + sign * y)
 }
 
 // ── Composite + split selection ─────────────────────────────────────
@@ -681,11 +872,41 @@ interface RecommendationContext {
   failureClusters?: FailureClusterInsight
   contamination?: InsightReport['contamination']
   outcomeCorrelation?: OutcomeCorrelationInsight
+  priorPeriodComparison?: PriorPeriodComparison
   threshold: number
 }
 
 function buildRecommendations(ctx: RecommendationContext): Recommendation[] {
   const out: Recommendation[] = []
+
+  // Prior-period regressions — highest customer-impact signal when present.
+  // "Did my last change help?" with a falsifiable answer.
+  if (ctx.priorPeriodComparison) {
+    const ppc = ctx.priorPeriodComparison
+    const label = ppc.windowLabel ?? 'baseline period'
+    for (const name of ppc.regressedMetrics) {
+      const d = ppc.metrics[name]
+      if (!d) continue
+      out.push({
+        priority: 'critical',
+        kind: 'investigate',
+        title: `${name} regressed from ${d.baseline.toFixed(3)} → ${d.current.toFixed(3)} vs ${label}`,
+        detail: `Welch CI95 = [${d.ci95[0].toFixed(3)}, ${d.ci95[1].toFixed(3)}], p=${d.pValue.toFixed(4)}, Cohen's d=${d.cohensD.toFixed(2)} (n_current=${d.currentN}, n_baseline=${d.baselineN}). The regression is statistically significant at p<0.05 with at-least-small effect size.`,
+        evidencePath: `priorPeriodComparison.metrics.${name}`,
+      })
+    }
+    for (const name of ppc.improvedMetrics) {
+      const d = ppc.metrics[name]
+      if (!d) continue
+      out.push({
+        priority: 'low',
+        kind: 'ship',
+        title: `${name} improved from ${d.baseline.toFixed(3)} → ${d.current.toFixed(3)} vs ${label}`,
+        detail: `Welch CI95 = [${d.ci95[0].toFixed(3)}, ${d.ci95[1].toFixed(3)}], p=${d.pValue.toFixed(4)}, Cohen's d=${d.cohensD.toFixed(2)} (n_current=${d.currentN}, n_baseline=${d.baselineN}). Statistically significant improvement worth flagging.`,
+        evidencePath: `priorPeriodComparison.metrics.${name}`,
+      })
+    }
+  }
 
   // Composite-distribution branch. Fires when the overall quality signal is
   // poor regardless of lift / contamination / clusters — the customer needs
