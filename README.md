@@ -1,31 +1,265 @@
-# @tangle-network/agent-eval
+# `@tangle-network/agent-eval`
 
-**Substrate for self-improving agents.** Trace what runs, verify the result,
-turn outcomes into preferences and rewards, mutate prompts and policies under
-anytime-valid evidence, and ship only when the improvement is decisive.
+**Ship better agent prompts with statistical confidence.** One function call returns a decision packet: lift CI, judge calibration, contamination check, failure clusters, cost-quality Pareto, and a ranked action list. Same shape whether you've got a closed improvement loop or just production logs.
 
-```txt
-real product task
-  -> observe / act (your runtime)
-  -> trace + verifier pipeline (capture integrity)
-  -> RunRecord (canonical eval artifact)
-       -> judge calibration · paired stats · sequential α
-       -> preferences · verifiable rewards · process rewards
-       -> GEPA / reflective mutation · auto-research · active curriculum
-       -> release gate · replay · contamination probe · tournament rating
-  -> next iteration
+[![npm](https://img.shields.io/npm/v/@tangle-network/agent-eval.svg)](https://www.npmjs.com/package/@tangle-network/agent-eval)
+[![pypi](https://img.shields.io/pypi/v/agent-eval-rpc.svg)](https://pypi.org/project/agent-eval-rpc/)
+[![tests](https://github.com/tangle-network/agent-eval/actions/workflows/ci.yml/badge.svg)](https://github.com/tangle-network/agent-eval/actions/workflows/ci.yml)
+[![license: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](./LICENSE)
+
+> TypeScript first-class, Python (`agent-eval-rpc`) speaks the same wire protocol, hosted-tier-friendly, MIT, self-hostable, no SaaS dependency.
+
+---
+
+## Table of contents
+
+- [What you get back](#what-you-get-back-the-decision-packet)
+- [Quick start](#quick-start)
+  - [Closed loop — `selfImprove()`](#closed-loop--selfimprove)
+  - [Observed runs — `analyzeRuns()`](#observed-runs--analyzeruns)
+  - [Existing data — intake adapters](#existing-data--intake-adapters)
+- [How it compares](#how-it-compares)
+- [Customer journeys](#customer-journeys)
+- [Subpath entry points](#subpath-entry-points)
+- [Concepts + design](#concepts--design)
+- [Hosted tier](#hosted-tier)
+- [Install + run](#install--run)
+- [Stability + versioning](#stability--versioning)
+- [License](#license)
+
+---
+
+## What you get back: the decision packet
+
+Whether you call `selfImprove()` (closed loop) or `analyzeRuns()` (observed runs), the report has the same shape. Here's a real one, abridged:
+
+```jsonc
+{
+  "n": 80,                                            // runs analyzed
+  "composite": {                                       // distributional summary
+    "mean": 0.62, "p50": 0.65, "p95": 0.88, "stddev": 0.17,
+    "histogram": [/* 12 bins */]
+  },
+  "lift": {                                            // paired bootstrap
+    "baselineMean": 0.58, "candidateMean": 0.65,
+    "delta": 0.07,
+    "ci95": [0.04, 0.10],                              // 95% CI on the delta
+    "pValue": 0.0008,                                  // paired-t
+    "cohensD": 0.41,
+    "n": 40,
+    "mde": 0.06,                                       // min detectable effect at 80% power
+    "requiredN": 38                                    // n needed to detect observed delta
+  },
+  "judges": {                                          // per-judge calibration
+    "domain-expert": { "n": 80, "meanScore": 0.64 },
+    "helpfulness-llm": { "n": 80, "meanScore": 0.61 }
+  },
+  "interRater": {                                      // multi-rater agreement
+    "raters": 3, "jointlyRated": 80, "kappa": 0.71,
+    "disagreementCases": [/* top 20 ranked by spread */]
+  },
+  "costQuality": {                                     // cost-vs-quality
+    "cost": { "mean": 0.024, "p95": 0.041, /* ... */ },
+    "pareto": { /* ParetoFigureSpec the dashboard renders */ }
+  },
+  "failureClusters": {                                 // when an AnalystRegistry is wired
+    "totalFailures": 11,
+    "clusters": [
+      { "name": "off-topic-drift",  "share": 0.45, "exemplars": ["run-12", "run-19"] },
+      { "name": "over-confidence",  "share": 0.27, "exemplars": ["run-3"] },
+      { "name": "format-mismatch",  "share": 0.18, "exemplars": ["run-41"] }
+    ]
+  },
+  "contamination": { "leaks": 0, "holdoutAuditPassed": true },
+  "outcomeCorrelation": {                              // when downstream metric supplied
+    "metric": "engagement_rate", "n": 80,
+    "pearson": 0.72, "spearman": 0.69,
+    "rewardModel": { "intercept": 0.04, "slope": 1.93, "r2": 0.52 }
+  },
+  "release": {
+    "status": "pass",
+    "axes": [
+      { "name": "quality-lift",          "status": "pass" },
+      { "name": "contamination",         "status": "pass" },
+      { "name": "composite-distribution","status": "pass" }
+    ]
+  },
+  "recommendations": [
+    { "priority": "critical", "kind": "ship",
+      "title": "Ship — lift 0.070 (95% CI 0.040..0.100)",
+      "detail": "Holdout lift exceeds threshold 0.02 with 95% bootstrap confidence (n=40, p=0.0008, d=0.41)." },
+    { "priority": "high", "kind": "investigate",
+      "title": "Top failure cluster: off-topic-drift (45% of failures)",
+      "detail": "11 runs failed. Drill into exemplars run-12 / run-19 to identify the pattern." }
+  ]
+}
 ```
 
-`agent-eval` does **not** own product state, credentials, UI, storage, model
-routing, browser drivers, sandbox policy, or deployment. Products own those.
-This package owns the loop that closes evaluation → preference → mutation →
-redeploy, with capture integrity and statistically rigorous evidence at every
-step.
+The `recommendations` array is the human-readable layer; everything above it is the evidence. Read the recs, act on them, the numbers are the proof.
 
-It ships as a TypeScript library (npm) with a generated Python client (PyPI),
-both speaking the same wire protocol. MIT, self-hostable, no SaaS dependency.
+---
 
-## Install
+## Quick start
+
+### Closed loop — `selfImprove()`
+
+You have scenarios, a dispatch, judges, and want the loop to propose better prompts + tell you which to ship.
+
+```ts
+import { selfImprove } from '@tangle-network/agent-eval/contract'
+
+const result = await selfImprove({
+  scenarios,                                // your scenario corpus
+  dispatch: async ({ scenario }) =>          // your agent — anything that returns an artifact
+    await myAgent.run(scenario),
+  judges: [myJudge],                         // any JudgeConfig — LLM, rule, ensemble
+  baselineSurface: { systemPrompt: currentPrompt },
+})
+
+result.gateDecision         // 'ship' | 'hold' | 'need_more_work' | ...
+result.lift                 // raw delta on holdout
+result.insight              // the full decision packet above
+```
+
+### Observed runs — `analyzeRuns()`
+
+You don't have a closed loop yet — you have observed runs (production traces, an approve/reject corpus, a CSV gold set). Same report shape, no agent invocation.
+
+```ts
+import { analyzeRuns } from '@tangle-network/agent-eval/contract'
+
+const report = await analyzeRuns({
+  runs,                                     // RunRecord[]
+  outcomeSignal: {                          // optional — closes the loop on real outcomes
+    metric: 'engagement_rate',
+    valueByRunId: enrichedFromProd,
+  },
+  canaryScenarios,                          // optional — contamination probe
+  analyst: myAnalystRegistry,               // optional — AI-powered failure clustering
+})
+
+report.recommendations    // ranked actions
+report.failureClusters    // grouped failure modes
+report.outcomeCorrelation // judge↔outcome correlation + linear reward model
+```
+
+### Existing data — intake adapters
+
+You have data already. Don't reshape it — pipe it through an adapter.
+
+```ts
+import {
+  fromFeedbackTable,
+  fromOtelSpans,
+  analyzeRuns,
+} from '@tangle-network/agent-eval/contract'
+
+// Multi-rater approve/reject (Obsidian tags, Sheets, CSV, Postgres).
+const { runs, raterScores } = fromFeedbackTable({
+  ratings: parseYourFeedbackTable(),         // Array<{ runId, rater, rating }>
+})
+await analyzeRuns({ runs, raterScores })
+
+// Production OTel traces — group by tangle.runId or traceId.
+const runs2 = fromOtelSpans({ spans: yourOtelStream })
+await analyzeRuns({ runs: runs2 })
+```
+
+Both intake adapters preserve every signal in the source — multi-rater scores stay rater-keyed so the report can compute inter-rater agreement and surface the disagreement triage list.
+
+---
+
+## How it compares
+
+| | LangSmith | Braintrust | Phoenix | **agent-eval** |
+|---|:---:|:---:|:---:|:---:|
+| Closed-loop self-improvement | ✱ human-in-loop | ✱ experiment-driven | — | ✓ autonomous + gated |
+| Statistical lift CI (paired bootstrap) | — | partial | — | ✓ |
+| Judge calibration + bias detection | — | — | — | ✓ |
+| Inter-rater agreement + disagreement triage | — | — | — | ✓ |
+| Contamination / canary check | — | — | — | ✓ |
+| AI-driven failure clustering | partial | — | partial | ✓ |
+| Cost-quality Pareto | — | — | — | ✓ |
+| Multi-language clients (TS + Python) | TS only | TS only | TS + Py | ✓ TS + Py |
+| Self-hostable / no-SaaS option | — | — | OSS | ✓ MIT, OSS |
+| Substrate vs SaaS shape | SaaS | SaaS | OSS server | **library** |
+| Hosted tier (optional) | required | required | optional | optional |
+
+Position: agent-eval is the **substrate** (one library, decision-grade output) the others are SaaS *around* the substrate. If you want a closed loop that ships your prompt under statistical confidence, you call agent-eval. If you want a dashboard rendered from your data, you pipe agent-eval into the hosted tier or your own renderer.
+
+---
+
+## Customer journeys
+
+Three runnable examples — each is self-contained, each shows the actual output.
+
+| Journey | Example | Who it's for |
+|---|---|---|
+| **Closed loop** — improve a prompt under statistical confidence | [`examples/selfimprove-quickstart/`](./examples/selfimprove-quickstart/) | Teams with scenarios + judges + agent in hand |
+| **Multi-rater feedback corpus** — turn Obsidian/Sheets/CSV ratings into actionable insights | [`examples/customer-feedback-loop/`](./examples/customer-feedback-loop/) | Teams reviewing AI outputs by hand who want to compress that taste into per-member LLM judges + close the loop |
+| **Production OTel traces** — analyze logs you already have, no closed loop required | [`examples/customer-otel-traces/`](./examples/customer-otel-traces/) | Teams running agents in prod with observability, no eval discipline yet |
+
+Each example: `README.md` + a single `index.ts` runnable via `pnpm tsx`. Prints the resulting `InsightReport` to stdout.
+
+---
+
+## Subpath entry points
+
+| Subpath | What it gives you |
+|---|---|
+| `@tangle-network/agent-eval/contract` | **The headline surface.** `selfImprove`, `analyzeRuns`, `runImprovementLoop`, `runCampaign`, `runEval`, `diffRuns`, intake adapters (`fromFeedbackTable`, `fromOtelSpans`), drivers (`gepaDriver`, `evolutionaryDriver`), gates (`defaultProductionGate`, `heldOutGate`, `composeGate`), storage. **New code starts here.** |
+| `@tangle-network/agent-eval/hosted` | Hosted-tier wire-format types + `createHostedClient` to ship eval-run events + trace spans to any orchestrator speaking the spec |
+| `@tangle-network/agent-eval/adapters/otel` | `createOtelBridge` — forwards OpenTelemetry-shape spans into the hosted-tier ingest |
+| `@tangle-network/agent-eval/adapters/langchain` | LangChain runnable → `Dispatch` adapter |
+| `@tangle-network/agent-eval/adapters/http` | `httpDispatch` + `runDispatchServer` for distributed campaigns across machines |
+| `@tangle-network/agent-eval/campaign` | Lower-level campaign primitives (storage, drivers, types) |
+| `@tangle-network/agent-eval/multishot` | N-shot persona × shot matrix runner |
+| `@tangle-network/agent-eval/control` | Agent control loop primitives (`runAgentControlLoop`, action policy, propose/review) |
+| `@tangle-network/agent-eval/traces` | Trace stores, emitters, OTLP-JSONL replay |
+| `@tangle-network/agent-eval/reporting` | Release confidence, paired stats, sequential e-values, launch reports |
+| `@tangle-network/agent-eval/rl` | RL bridge — verifiable rewards, preferences, OPE, PRM, tournaments, contamination, compute curves, auto-research |
+| `@tangle-network/agent-eval/matrix` | N-axis cartesian over substrate types |
+| `@tangle-network/agent-eval/wire` | HTTP/RPC server + Zod schemas (same protocol the Python client speaks) |
+| `@tangle-network/agent-eval/benchmarks` | Benchmark adapter contracts and reference wrappers |
+
+The root export remains available for backward compatibility; new code should prefer focused subpaths. Anything under `/rl`, `/pipelines`, `/meta-eval`, `/prm`, or `/builder-eval` is **only** reachable via its subpath.
+
+---
+
+## Concepts + design
+
+- [`docs/concepts.md`](./docs/concepts.md) — five types, three top-level functions, the layering rule, the wire protocol contract
+- [`docs/insight-report.md`](./docs/insight-report.md) — annotated walkthrough of every section of the decision packet
+- [`docs/customer-journeys.md`](./docs/customer-journeys.md) — three end-to-end journeys with code + expected output
+- [`docs/adapters-observability.md`](./docs/adapters-observability.md) — composing agent-eval with LangSmith, Langfuse, Phoenix, OpenLLMetry, TraceAI
+- [`docs/wire-protocol.md`](./docs/wire-protocol.md) — the HTTP/RPC contract Python (and any future language) speaks
+- [`docs/hosted-ingest-spec.md`](./docs/hosted-ingest-spec.md) — the hosted-tier wire format, frozen at `2026-05-26.v1`
+- [`docs/design/`](./docs/design/) — RFCs + architectural notes
+
+The `.claude/skills/agent-eval/SKILL.md` skill ships embedded directives so LLM agents writing integration code don't reintroduce historical bug classes.
+
+---
+
+## Hosted tier
+
+Wire your loop to a hosted orchestrator (ours, or your own implementation of the spec) with one config:
+
+```ts
+await selfImprove({
+  scenarios, dispatch, judges, baselineSurface,
+  hostedTenant: {
+    endpoint: 'https://intelligence.tangle.tools',
+    apiKey: process.env.TANGLE_API_KEY!,
+    tenantId: 'your-tenant',
+  },
+})
+```
+
+The substrate runs the loop in your process. Only the eval-run events + (optional) trace spans go to the orchestrator. Your scenarios, your judges, your raw data — never sent. Spec at [`docs/hosted-ingest-spec.md`](./docs/hosted-ingest-spec.md); reference receiver at [`examples/hosted-ingest-server/`](./examples/hosted-ingest-server/).
+
+---
+
+## Install + run
 
 ```sh
 pnpm add @tangle-network/agent-eval
@@ -33,368 +267,38 @@ pnpm add @tangle-network/agent-eval
 pip install agent-eval-rpc
 ```
 
-## Quick Start — the control loop
+Run an example:
 
-```ts
-import {
-  objectiveEval,
-  runAgentControlLoop,
-} from '@tangle-network/agent-eval/control'
-
-const result = await runAgentControlLoop({
-  intent: task.prompt,
-  budget: { maxSteps: 8, maxWallMs: 180_000, maxCostUsd: 2 },
-
-  observe() {
-    return product.readState(task.id)
-  },
-
-  validate({ state }) {
-    return [
-      objectiveEval({
-        id: 'build-passes',
-        passed: state.build.exitCode === 0,
-        severity: 'critical',
-        metadata: state.build,
-      }),
-      objectiveEval({
-        id: 'preview-serves',
-        passed: state.preview.httpStatus === 200,
-        severity: 'critical',
-      }),
-    ]
-  },
-
-  decide({ evals }) {
-    const failed = evals.filter((e) => !e.passed)
-    if (failed.length === 0) {
-      return { type: 'stop', pass: true, reason: 'all gates passed' }
-    }
-    return {
-      type: 'continue',
-      action: { type: 'repair', failed: failed.map((e) => e.id) },
-      reason: 'repair failed gates',
-    }
-  },
-
-  act(action) {
-    return product.runAgentStep(task.id, action)
-  },
-})
-
-await product.storeEvalResult(task.id, result)
+```sh
+pnpm tsx examples/selfimprove-quickstart/index.ts
+pnpm tsx examples/customer-feedback-loop/index.ts
+pnpm tsx examples/customer-otel-traces/index.ts
 ```
 
-Same loop shape in production, replay, benchmark, and optimization. Swap the
-dependencies behind `observe()` and `act()`, never the eval contract.
+Run the test suite:
 
-## Production loop — close the eval → prod → eval cycle
-
-Static prompts decay. Yesterday's FTC rule flips today; yesterday's tool quirk
-becomes today's incident. The production agents that win are the ones that
-**continuously re-train against live failure modes**.
-
-`runProductionLoop` is the orchestration layer that wires the existing eval
-substrate into a self-improvement cron:
-
-```ts
-import {
-  runProductionLoop,
-  httpGithubClient,
-  FileSystemFeedbackTrajectoryStore,
-} from '@tangle-network/agent-eval'
-import { FileSystemTraceStore } from '@tangle-network/agent-eval/traces'
-
-const result = await runProductionLoop({
-  runId: `weekly-${new Date().toISOString().slice(0, 10)}`,
-  target: 'tax-agent',
-
-  // 1. Where production traces + feedback land. Wire the HTTP ingestion
-  //    endpoints (POST /v1/traces/ingest, POST /v1/feedback) from your
-  //    runtime; the same store reads them here.
-  traceStore: new FileSystemTraceStore({ dir: 'data/prod-traces' }),
-  feedbackStore: new FileSystemFeedbackTrajectoryStore({ dir: 'data/prod-feedback' }),
-
-  // 2. Cluster threshold: act on failure groups ≥ 20 runs or ≥ 5% of corpus.
-  cluster: { minClusterSize: 20, minSeverityRatio: 0.05, maxClustersPerCycle: 1 },
-
-  // 3. Evolve: seed = current prompt, gate against holdout scenarios.
-  evolve: {
-    baselinePrompt: currentSystemPrompt,
-    holdoutScenarios: productionShapeScenarios,
-    runner,                            // your agent driver
-    scorer,                            // calibrated judge or rubric
-    mutator,                           // GEPA-style or addendum-style mutator
-    gate: {
-      baselineKey: 'baseline',
-      minProductiveRuns: 5,
-      pairedDeltaThreshold: 0.03,      // require Nσ improvement on holdout
-      overfitGapThreshold: 0.10,
-    },
-  },
-
-  // 4. Ship: when the gate passes, open a PR with the new prompt.
-  ship: {
-    client: httpGithubClient({ token: process.env.GITHUB_TOKEN! }),
-    repo: { owner: 'tangle-network', name: 'tax-agent' },
-    branchPrefix: 'eval/auto-improve',
-    promptFilePath: 'prompts/tax-agent-system.txt',
-    reviewers: ['drew'],
-  },
-
-  cron: { cadence: 'weekly' },         // surface-only; consumer schedules
-})
-
-console.log(result.decision)            // 'pr_opened' | 'gate_failed' | 'no_actionable_failures' | ...
-console.log(result.pullRequest?.prUrl)  // populated when a PR was opened
+```sh
+pnpm install
+pnpm build
+pnpm test
 ```
 
-The primitive runs **one cycle**. Schedule it with `workflow_dispatch` + cron in
-GitHub Actions. It is **idempotent + replayable**: same `runId` → same plan.
-Gate failures are fail-closed — a candidate that beats baseline on search but
-overfits on holdout never lands.
+---
 
-Full runnable demo (synthetic traces, no credentials) in
-[`examples/production-loop`](./examples/production-loop/README.md).
+## Stability + versioning
 
-## Self-improvement loop
-
-Eval doesn't end at "pass/fail." Outcomes become training signal, mutation
-proposals, and curriculum updates — all from the same `RunRecord` produced by
-the control loop.
-
-```ts
-import { runEvalCampaign } from '@tangle-network/agent-eval'
-import {
-  extractPreferences,
-  extractVerifiableReward,
-  filterDeterministicallyRewarded,
-  offPolicyEstimateAll,
-  analyzeOptimizationResult,
-} from '@tangle-network/agent-eval/rl'
-
-// 1. Run a matrix of variants × scenarios with capture integrity by construction.
-const campaign = await runEvalCampaign({ variants, scenarios, run })
-
-// 2. Convert outcomes into RL signal.
-const rewards = extractVerifiableReward(campaign.runs)          // compile/test/schema
-const prefs   = extractPreferences(campaign.runs)               // (chosen, rejected) triples
-const clean   = filterDeterministicallyRewarded(rewards)        // judge-noise free
-
-// 3. Estimate a candidate policy's value without re-running.
-const ope = offPolicyEstimateAll(campaign.runs, candidatePolicy)  // IPS + SNIPS + DR
-
-// 4. Or close the loop end-to-end: score → reflect → mutate → re-run.
-const next = await analyzeOptimizationResult(campaign, { researcher })
-```
-
-| Step | Primitive | Subpath |
-| --- | --- | --- |
-| Eval matrix with integrity | `runEvalCampaign` | `/` |
-| Deterministic re-judge / audit | `ReplayCache`, `createReplayFetch` | `/` |
-| Anytime-valid α across rolling looks | `pairedEvalueSequence` | `/reporting` |
-| Judge quality vs gold | `calibrateJudge` (κ, Pearson, MAE, bias probes) | `/` |
-| Continuous inter-rater agreement | `calibrateJudgeContinuous`, `continuousAgreement` (κ_w, ICC(2,1), bootstrap CIs) | `/` |
-| (chosen, rejected) for DPO/KTO/PPO | `extractPreferences` | `/rl` |
-| Verifiable reward signal | `extractVerifiableReward` | `/rl` |
-| Step-level / PRM training data | `extractStepRewards`, `prmTrainingPairs` | `/rl` |
-| Estimate policy value off-policy | `offPolicyEstimateAll` (IPS + SNIPS + DR) | `/rl` |
-| GEPA / reflective prompt mutation | `buildReflectionPrompt`, `parseReflectionResponse`, Ax-GEPA `SteeringOptimizer` | `/` `/optimization` |
-| Auto-research (read runs → propose) | `analyzeOptimizationResult`, `PredictiveValidityResearcher` | `/rl` |
-| Active curriculum (variance / Thompson) | `allocateCurriculum` | `/rl` |
-| Tournament ratings (Bradley-Terry + Elo) | `fitBradleyTerry`, `applyEloUpdate` | `/rl` |
-| Adversarial scenario search | `adversarialScenarioSearch` | `/rl` |
-| Contamination probe (held-out perturb) | `runContaminationProbe` | `/rl` |
-| Reward hacking signatures | `detectRewardHacking` | `/rl` |
-| Compute curves (best-of-N, self-consist, Pareto) | `runComputeCurve`, `bestOfN`, `selfConsistency`, `paretoFrontier` | `/rl` |
-| Knowledge gap separated from reasoning gap | `scoreKnowledgeReadiness` | `/` |
-| Release gate (paired evidence + holdouts) | `evaluateReleaseConfidence`, `HeldOutGate` | `/reporting` |
-| Launch report (decision-grade) | `renderReleaseReport`, `researchReport` | `/reporting` |
-
-## Import Paths
-
-| Subpath | Use for |
-| --- | --- |
-| `@tangle-network/agent-eval/contract` | **LAND-tier surface** — `selfImprove`, `runCampaign`, `runImprovementLoop`, `runEval`, `Dispatch`, `Mutator`, `Gate`, `defaultProductionGate`, `gepaDriver`, `diffRuns`, storage backends. New code starts here. |
-| `@tangle-network/agent-eval/hosted` | **EXPAND-tier surface** — `createHostedClient`, wire-format types, `HOSTED_WIRE_VERSION`. Ships eval-run events + trace spans to any orchestrator that speaks the spec. |
-| `@tangle-network/agent-eval/adapters/otel` | OTel→hosted bridge — `createOtelBridge` forwards OTel-shape spans (TraceAI, OpenLLMetry, OTel SDK) into the hosted-tier ingest. |
-| `@tangle-network/agent-eval/adapters/langchain` | LangChain executor adapter — wrap a LangChain runnable as a `Dispatch`. |
-| `@tangle-network/agent-eval/adapters/http` | Distributed driver — `httpDispatch` + `runDispatchServer` for cross-machine campaigns. |
-| `@tangle-network/agent-eval/campaign` | Lower-level campaign primitives — `runCampaign`, driver implementations, storage. |
-| `@tangle-network/agent-eval/multishot` | Multi-shot optimization primitives. |
-| `@tangle-network/agent-eval/control` | `observe → validate → decide → act`, action policy, propose/review loops |
-| `@tangle-network/agent-eval/traces` | trace stores, emitters, TraceAnalyst, replay |
-| `@tangle-network/agent-eval/optimization` | feedback trajectories, multi-shot, prompt evolution, GEPA, EvalCampaign |
-| `@tangle-network/agent-eval/reporting` | release confidence, paired stats, sequential e-values, launch reports |
-| `@tangle-network/agent-eval/rl` | adapters, verifiable rewards, preferences, OPE, PRM, contamination, tournaments, adversarial, compute curves, auto-research |
-| `@tangle-network/agent-eval/wire` | HTTP/RPC server + schemas (same protocol the Python client speaks) |
-| `@tangle-network/agent-eval/benchmarks` | benchmark adapter contracts and reference wrappers |
-| `@tangle-network/agent-eval/matrix` | N-axis cartesian runner over substrate types — see [`src/matrix/`](./src/matrix/) |
-
-The root export remains available for convenience; new code should prefer
-focused subpaths. Anything under `/rl`, `/pipelines`, `/meta-eval`, `/prm`,
-or `/builder-eval` is only reachable via its subpath.
-
-## API stability
-
-Public exports are tagged with JSDoc stability markers so consumers can see
-status at the call site (IDE hover, language server, declaration files).
+Public exports carry JSDoc stability markers visible in IDE hover + `.d.ts`:
 
 | Tag | Meaning |
-| --- | --- |
+|---|---|
 | `@stable` | API frozen at this major. Breaking changes require a major bump. |
 | `@experimental` | Interface may evolve before becoming `@stable`. Pin the patch version if you depend on it. |
 | `@internal` | Not part of the public contract. Use the documented subpath instead. |
 
-The `/rl` subpath is the most active surface. See
-[`src/rl/index.ts`](./src/rl/index.ts) for the current stable/experimental
-breakdown.
+[`CHANGELOG.md`](./CHANGELOG.md) tracks every release with what's new / additive / breaking.
 
-## Capture integrity
-
-Launch-grade benchmark runs need four things that are easy to forget in glue
-code: (1) raw HTTP capture alongside the structured spans so a reviewer can
-verify which route answered, (2) a preflight assertion that the configured
-client points at the intended provider, (3) a run-end assertion that the
-expected events were actually written, and (4) auto-execution of the trace
-analyst as part of the run lifecycle.
-
-```ts
-import {
-  TraceEmitter, FileSystemRawProviderSink, callLlm, assertLlmRoute,
-  assertRunCaptured, throwIfRunIncomplete,
-} from '@tangle-network/agent-eval'
-import { traceAnalystOnRunComplete } from '@tangle-network/agent-eval/traces'
-
-const sink = new FileSystemRawProviderSink({ dir: `${workDir}/raw-events` })
-assertLlmRoute(llmOpts, { requireExplicitBaseUrl: true, allowedBaseUrls, requireAuth: true })
-
-const emitter = new TraceEmitter(store, {
-  onRunComplete: [traceAnalystOnRunComplete({ analyze: analystOpts, save })],
-})
-await emitter.startRun(/* ... */)
-// LLM calls flow through callLlm with `{ rawSink: sink, traceContext: { runId, spanId } }`.
-await emitter.endRun({ pass, score })
-
-throwIfRunIncomplete(await assertRunCaptured(store, emitter.runId, {
-  llmSpansMin: 1, rawSink: sink, requireRawCoverageOfLlmSpans: true, requireOutcome: true,
-}))
-```
-
-Directives, rationale, and shipped-bug context are in
-[`SKILL.md` § Capture integrity](./.claude/skills/agent-eval/SKILL.md#capture-integrity-required-for-launch-grade-adoption).
-
-## Examples
-
-Each example has its own README with what it demonstrates, expected output,
-and runtime. See [`examples/`](./examples/).
-
-- [`examples/multi-shot-optimization`](./examples/multi-shot-optimization/README.md):
-  optimize full trajectories with held-out promotion.
-- [`examples/same-sandbox-harness`](./examples/same-sandbox-harness/README.md):
-  run setup/build/test and evidence checks in one workspace.
-- [`examples/benchmarks`](./examples/benchmarks/README.md):
-  benchmark adapter shape and reference wrappers.
-- [`examples/auto-research-with-agent-builder`](./examples/auto-research-with-agent-builder/README.md):
-  closed loop — score, reflect, mutate, re-score, repeat.
-- [`examples/fine-tune-with-prime-rl`](./examples/fine-tune-with-prime-rl/README.md):
-  RunRecord → preferences → trainer (prime-rl) → next campaign.
-- [`examples/production-loop`](./examples/production-loop/README.md):
-  ingest prod traces + feedback, cluster failures, evolve, gate, open a PR.
-
-## Matrix
-
-`@tangle-network/agent-eval/matrix` is an N-axis cartesian runner over the
-substrate types you already use — `AgentProfile` from
-`@tangle-network/sandbox`, `Driver` / `Validator` from
-`@tangle-network/agent-runtime`, rubric records, anything. It does not wrap
-substrate types; the caller passes them in axis values, the runner iterates
-the cartesian, and the aggregator returns per-axis pass / score / cost /
-duration summaries.
-
-```ts
-import { runAgentMatrix } from '@tangle-network/agent-eval/matrix'
-
-const result = await runAgentMatrix({
-  axes: [
-    { name: 'scenario', values: scenarios.map((s) => ({ id: s.id, value: s })) },
-    { name: 'profile',  values: profiles.map((p)  => ({ id: p.name, value: p })) },
-    { name: 'thinking', values: [
-      { id: 'low', value: 'low' }, { id: 'high', value: 'high' },
-    ] },
-  ],
-  reps: 3,
-  maxConcurrency: 4,
-  costCeiling: 5.0,
-  filter: (cell) => !(cell.axes.scenario.value.hard === 5 && cell.axes.thinking.id === 'low'),
-  runCell: async (cell) => runScenario(cell.axes.scenario.value, cell.axes.profile.value),
-})
-
-console.log(result.byAxis.profile)  // per-profile passRate / meanScore / p90 / cost
-```
-
-See [`src/matrix/`](./src/matrix/) for the full surface.
-
-## Docs
-
-Read in this order:
-
-1. [Concepts](./docs/concepts.md) — mental model, 5 min
-2. [Product Eval Adoption](./docs/product-eval-adoption.md)
-3. [Control Runtime](./docs/control-runtime.md)
-4. [Feedback Trajectories](./docs/feedback-trajectories.md)
-5. [Multi-Shot Optimization](./docs/multi-shot-optimization.md)
-6. [Trace Analysis](./docs/trace-analysis.md)
-7. [Knowledge Readiness](./docs/knowledge-readiness.md)
-8. [Integration Launch Gates](./docs/integration-launch-gates.md)
-9. [Wire Protocol](./docs/wire-protocol.md) — required for non-TypeScript consumers
-
-## CLI / Wire Protocol
-
-```sh
-npm i -g @tangle-network/agent-eval
-agent-eval serve --port 5005
-```
-
-Python:
-
-```sh
-pip install agent-eval-rpc
-```
-
-```py
-from agent_eval_rpc import Client
-client = Client()  # auto-detects HTTP server, falls back to subprocess
-score = await client.judge(content=output, rubric_name="anti-slop")
-```
-
-TypeScript is the source of truth. Python is a thin transport client over the
-generated OpenAPI schema. Schema drift is enforced impossible at release time
-(version-locked CI).
-
-## Development
-
-```sh
-pnpm install
-pnpm typecheck
-pnpm test
-pnpm lint        # biome
-pnpm build       # tsup + openapi.json
-```
-
-## Related Packages
-
-- [`@tangle-network/agent-runtime`](https://www.npmjs.com/package/@tangle-network/agent-runtime):
-  production session/runtime layer.
-- [`@tangle-network/agent-knowledge`](https://www.npmjs.com/package/@tangle-network/agent-knowledge):
-  source-grounded knowledge bases and readiness.
-- [`@tangle-network/agent-integrations`](https://www.npmjs.com/package/@tangle-network/agent-integrations):
-  connection, grant, capability, and integration invocation contracts.
-
-Together: `agent-runtime` is where the agent runs; `agent-knowledge` is what
-it knows; `agent-integrations` is what it can do; `agent-eval` is how it gets
-better.
+---
 
 ## License
 
-MIT
+MIT. See [`LICENSE`](./LICENSE).

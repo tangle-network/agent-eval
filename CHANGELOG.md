@@ -1,5 +1,140 @@
 # Changelog
 
+All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-rpc` (Python). The format roughly follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions are locked across the npm + PyPI packages.
+
+---
+
+## [0.50.1] — 2026-05-27 — docs + examples
+
+### Added
+
+- `README.md` rewritten as a top-tier OSS landing page: table of contents, decision-packet output sample (annotated JSON), comparison matrix vs LangSmith / Braintrust / Phoenix, three customer journey cards.
+- `examples/selfimprove-quickstart/` — minimal closed-loop example with annotated stdout.
+- `examples/customer-feedback-loop/` — Customer A journey: multi-rater approve/reject corpus → `fromFeedbackTable` → `analyzeRuns`.
+- `examples/customer-otel-traces/` — Customer B journey: OTel spans → `fromOtelSpans` → `analyzeRuns`.
+- `docs/insight-report.md` — annotated walkthrough of every section of the decision packet.
+- `docs/customer-journeys.md` — three end-to-end journeys with code + expected output.
+
+### Changed
+
+- `docs/concepts.md` — updated mental model for the three top-level entries (`selfImprove`, `analyzeRuns`, intake adapters) and the layering rule.
+
+### Notes
+
+Docs-only patch. No code changes, no behavior changes, no API surface changes vs 0.50.0.
+
+---
+
+## [0.50.0] — 2026-05-27 — the decision packet
+
+### Added
+
+- **`analyzeRuns({ runs, ... }): InsightReport`** in `/contract`. Composes the substrate's statistical / calibration / clustering / Pareto primitives into one rigor packet. Sections populate based on what the input supports: distributional summary always, lift when baseline+candidate are present, judges when run records carry `judgeScores`, inter-rater agreement when `raterScores` are supplied, failure clusters when an `AnalystRegistry` is wired, contamination when canaries are passed, outcome correlation when a downstream signal is supplied.
+- **`InsightReport`** canonical decision-packet shape; reused by `selfImprove()` and emitted on the hosted wire as `EvalRunEvent.insightReport?`.
+- **Intake adapters** in `/contract`:
+  - `fromFeedbackTable({ ratings })` — multi-rater corpus → `RunRecord[] + raterScores`.
+  - `fromOtelSpans({ spans })` — OpenTelemetry spans → `RunRecord[]`, grouped by `tangle.runId` or `traceId`.
+- **`SelfImproveResult.insight: InsightReport`** — `selfImprove()` now returns the full decision packet alongside the existing ship/hold verdict.
+
+### Changed
+
+- `selfImprove()` internally calls `analyzeRuns()` on baseline + winner cells; consumers reading `.lift` continue to work unchanged, while `.insight.lift` now carries CI95 + p-value + Cohen's d + MDE + required-n.
+
+### Test coverage
+
+1427 / 1427 passing; 11 new integration tests covering lift detection paths, outcome correlation + linear reward model, canary contamination, multi-rater journey end-to-end, OTel journey end-to-end, recommendations shape, JSON-serialisability.
+
+---
+
+## [0.49.0] — 2026-05-27 — audit-fix sweep
+
+### Added
+
+- `src/adapters/otel.ts` — generic OTel→hosted bridge (`createOtelBridge` / `OtelBridge` / `OtelBridgeOptions`). Stringifies array-valued attributes instead of dropping them.
+- `src/contract/diff.ts` — `keyForCell` uses `JSON.stringify([scenarioId, rep])` (no separator collisions); `Number.isFinite` coercion on dimension deltas (no NaN propagating to dashboards).
+- `examples/hosted-ingest-server/server.ts` — `REFERENCE_RECEIVER_START=1|0` env var as the primary start signal; idempotency cache prunes on read with the wire-spec 24h TTL.
+
+### Changed
+
+- Python `TraceSpanEventOuter` exposes `tangle.*` pivots via field aliases (`tangle_run_id`, etc.) and round-trips through `model_dump(by_alias=True)`.
+- Python `_WireModel` emits a `UserWarning` when an extra field is the snake_case shadow of a declared camelCase field (cross-language drift guard).
+
+### Removed
+
+- `src/adapters/traceai.ts` — replaced by `src/adapters/otel.ts`. No back-compat shim.
+
+---
+
+## [0.48.0] — 2026-05-27 — substrate↔runtime layering fix + diffRuns + Python hosted parity
+
+### Added
+
+- `src/verdict.ts` — `DefaultVerdict` substrate primitive (moved DOWN from agent-runtime).
+- `src/contract/diff.ts` — `diffRuns` / `diffGenerations` / `diffRunBaselineToWinner` for v3-vs-v4 dashboard rendering, CI reporting, and any consumer comparing improvement-loop output.
+- `src/adapters/traceai.ts` — OTel→hosted bridge (renamed to `otel.ts` in 0.49.0).
+- `tests/hosted-roundtrip.test.ts` — proves wire-format binary compat between client and reference receiver.
+- Python `HostedClient` (`clients/python/src/agent_eval_rpc/hosted.py`) — TS↔Python wire-format parity with bearer auth, idempotency, and exponential backoff on 5xx/408/429.
+- `CLAUDE.md` repo-layering rule: agent-eval is the substrate; agent-runtime + agent-knowledge depend on it; the reverse is forbidden.
+
+### Changed
+
+- `src/campaign/gates/default-production-gate.ts` — `RunRecord` import from local `../../run-record` (was reaching up into agent-runtime).
+- `src/matrix/types.ts` — `DefaultVerdict` import from `../verdict` (was reaching up into agent-runtime).
+
+### Removed
+
+- `@tangle-network/agent-runtime` from `peerDependencies`, `devDependencies`, and `pnpm.minimumReleaseAgeExclude` (no upward deps from substrate).
+
+---
+
+## [0.47.0] — 2026-05-26 — Phase D hosted-tier substrate
+
+### Added
+
+- `src/hosted/` — wire-format types frozen at `HOSTED_WIRE_VERSION = '2026-05-26.v1'`, `createHostedClient` with bearer auth + idempotency + bounded retries.
+- `examples/hosted-ingest-server/` — reference receiver implementing the spec.
+- `docs/hosted-ingest-spec.md` — semver-locked wire spec.
+- `selfImprove({ hostedTenant })` — opt-in hosted ingest; failures logged, never fail the loop.
+
+---
+
+## [0.46.0] — `selfImprove()` LAND-tier helper
+
+`selfImprove({ scenarios, dispatch, judges, baselineSurface })` shipped in `/contract` as the one-shot wrapper around `runImprovementLoop`.
+
+---
+
+## [0.45.0] — distributed campaigns
+
+`/adapters/http` with `httpDispatch` + `runDispatchServer`; `cellPlacement` on `RunCampaignOptions` for cross-region fan-out.
+
+---
+
+## [0.44.0] — `/adapters/langchain`
+
+LangChain runnable → `Dispatch` adapter.
+
+---
+
+## [0.43.0] — edge-friendly storage
+
+`inMemoryCampaignStorage()` for Cloudflare Workers / edge / test environments.
+
+---
+
+## [0.42.0] — GEPA driver + legacy deletion
+
+### Added
+
+- `gepaDriver` reflective LLM mutation driver.
+- `campaignToRunRecords` adapter.
+
+### Removed
+
+- `runMultiShotOptimization` (top-level trajectory-optimizer) — replaced by `runImprovementLoop` + `gepaDriver` composition. The `/multishot` subpath (N-shot persona matrix) is unrelated and remains.
+
+---
+
 ## 0.34.0 — 2026-05-23
 
 ### Eval evolution-tracking — first-class `AgentProfile` + per-cell scorecard
