@@ -137,10 +137,12 @@ describe('analyzeRuns — outcome correlation + reward model', () => {
     const runs = Array.from({ length: 30 }, (_, i) =>
       makeRun({ id: `r-${i}`, candidate: 'c', composite: 0.3 + i * 0.02 }),
     )
-    // Engagement perfectly tracks composite with slope 2 + small noise.
+    // Engagement perfectly tracks composite with slope 2 + deterministic noise.
     const valueByRunId: Record<string, number> = {}
-    for (const r of runs) {
-      valueByRunId[r.runId] = 2 * r.outcome.holdoutScore! + (Math.random() - 0.5) * 0.02
+    for (let i = 0; i < runs.length; i++) {
+      const r = runs[i]!
+      const noise = ((i * 7) % 11) / 1000 - 0.005 // deterministic ±0.005
+      valueByRunId[r.runId] = 2 * r.outcome.holdoutScore! + noise
     }
     const report = await analyzeRuns({
       runs,
@@ -155,14 +157,19 @@ describe('analyzeRuns — outcome correlation + reward model', () => {
     const runs = Array.from({ length: 30 }, (_, i) =>
       makeRun({ id: `r-${i}`, candidate: 'c', composite: 0.3 + i * 0.02 }),
     )
-    // Engagement is random — judge taste decoupled from outcome.
+    // Engagement deterministically decoupled from composite — the values
+    // alternate high/low independent of composite, producing |Spearman| < 0.3
+    // every run. Random sampling would flake.
     const valueByRunId: Record<string, number> = {}
-    for (const r of runs) valueByRunId[r.runId] = Math.random()
+    for (let i = 0; i < runs.length; i++) {
+      valueByRunId[runs[i]!.runId] = i % 2 === 0 ? 0.2 : 0.8
+    }
     const report = await analyzeRuns({
       runs,
       outcomeSignal: { metric: 'engagement_rate', valueByRunId },
     })
     expect(report.outcomeCorrelation).toBeDefined()
+    expect(Math.abs(report.outcomeCorrelation!.spearman)).toBeLessThan(0.3)
     expect(report.recommendations.some((r) => r.kind === 'recalibrate')).toBe(true)
   })
 })
