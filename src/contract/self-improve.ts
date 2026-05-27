@@ -30,6 +30,7 @@ import {
 } from '../campaign/presets/run-improvement-loop'
 import { type CampaignStorage, inMemoryCampaignStorage } from '../campaign/storage'
 import type {
+  CampaignCellResult,
   DispatchContext,
   Gate,
   ImprovementDriver,
@@ -39,6 +40,9 @@ import type {
 } from '../campaign/types'
 import { createHostedClient, type HostedTenant } from '../hosted/client'
 import type { EvalRunCellScore, EvalRunEvent, EvalRunGenerationSnapshot } from '../hosted/types'
+import type { JudgeScoresRecord, RunRecord } from '../run-record'
+import { analyzeRuns } from './analyze-runs'
+import type { InsightReport } from './insight-report'
 
 export interface SelfImproveBudget {
   /** Hard $ ceiling across all cells in baseline + every generation. Cells
@@ -196,6 +200,13 @@ export interface SelfImproveResult<TScenario extends Scenario, TArtifact> {
   durationMs: number
   /** Total cost across baseline + every generation. */
   totalCostUsd: number
+  /**
+   * Rigor packet: distributional summary, paired-bootstrap lift CI,
+   * judge stats, contamination check, recommendations. Wired through
+   * `analyzeRuns()` on the baseline + winner cells of the campaign.
+   * Hosted-tier dashboards render this as the v3-vs-v4 decision view.
+   */
+  insight: InsightReport
   /**
    * Raw substrate result for advanced inspection — full per-generation
    * candidates, full campaign artifacts, all judge scores. Useful for
@@ -378,6 +389,19 @@ export async function selfImprove<TScenario extends Scenario, TArtifact>(
       0,
     )
 
+  // Rigor packet: feed baseline + winner cells through analyzeRuns().
+  // The two candidates (`baseline` / `winner`) give the lift section a
+  // clean paired comparison; per-judge / per-dimension / cost-quality
+  // sections populate from the cells' judgeScores.
+  const insight = await analyzeRuns({
+    runs: [
+      ...cellsToRunRecords(result.baselineCampaign.cells, 'baseline', runDir),
+      ...cellsToRunRecords(result.winnerOnHoldout.cells, 'winner', runDir),
+    ],
+    baselineCandidateId: 'baseline',
+    candidateCandidateId: 'winner',
+  })
+
   const summary: SelfImproveResult<TScenario, TArtifact> = {
     baseline,
     winner: {
@@ -389,6 +413,7 @@ export async function selfImprove<TScenario extends Scenario, TArtifact>(
     generationsExplored: result.generations.length,
     durationMs: Date.now() - startedAt,
     totalCostUsd: totalCost,
+    insight,
     raw: result,
   }
 
@@ -487,6 +512,7 @@ async function shipEvalRunToHosted<TScenario extends Scenario, TArtifact>(
     holdoutLift: summary.lift,
     totalCostUsd: summary.totalCostUsd,
     totalDurationMs: summary.durationMs,
+    insightReport: summary.insight,
   }
 
   await client.ingestEvalRun(event)
@@ -506,4 +532,73 @@ function hashString(s: string): string {
     h = Math.imul(h, 16777619) >>> 0
   }
   return h.toString(16).padStart(8, '0')
+}
+
+/**
+ * Adapt campaign cells into the `RunRecord` shape `analyzeRuns()` consumes.
+ * Each cell becomes one run; `candidateId` is the caller-supplied label so
+ * baseline + winner pair cleanly on `(experimentId, seed)`.
+ */
+function cellsToRunRecords<TArtifact>(
+  cells: ReadonlyArray<CampaignCellResult<TArtifact>>,
+  candidateId: 'baseline' | 'winner',
+  runId: string,
+): RunRecord[] {
+  return cells.map((cell) => {
+    const perJudge: Record<string, Record<string, number>> = {}
+    const perDimMeanAccum: Record<string, { sum: number; n: number }> = {}
+    let compositeSum = 0
+    let compositeCount = 0
+    for (const [judgeId, score] of Object.entries(cell.judgeScores)) {
+      perJudge[judgeId] = { ...score.dimensions }
+      for (const [dim, value] of Object.entries(score.dimensions)) {
+        if (!Number.isFinite(value)) continue
+        const accum = perDimMeanAccum[dim] ?? { sum: 0, n: 0 }
+        accum.sum += value
+        accum.n += 1
+        perDimMeanAccum[dim] = accum
+      }
+      if (Number.isFinite(score.composite)) {
+        compositeSum += score.composite
+        compositeCount += 1
+      }
+    }
+    const perDimMean: Record<string, number> = {}
+    for (const [dim, { sum, n }] of Object.entries(perDimMeanAccum)) {
+      perDimMean[dim] = n === 0 ? 0 : sum / n
+    }
+    const composite = compositeCount === 0 ? 0 : compositeSum / compositeCount
+    const judgeScores: JudgeScoresRecord = {
+      perJudge,
+      perDimMean,
+      composite,
+    }
+    return {
+      runId: `${runId}::${candidateId}::${cell.cellId}`,
+      experimentId: runId,
+      candidateId,
+      // Pair on (scenarioId, rep) — analyzeRuns pairs on (experimentId, seed).
+      // Synthesize a stable seed for that pairing.
+      seed:
+        cell.rep * 1_000_000 +
+        hashString(cell.scenarioId)
+          .slice(0, 6)
+          .split('')
+          .reduce((a, c) => (a * 31 + c.charCodeAt(0)) >>> 0, 0),
+      model: 'campaign-cell',
+      promptHash: 'sha256:cell',
+      configHash: 'sha256:cell',
+      commitSha: 'cell',
+      wallMs: cell.durationMs,
+      costUsd: cell.costUsd,
+      tokenUsage: { input: 0, output: 0 },
+      outcome: {
+        holdoutScore: composite,
+        raw: {},
+        judgeScores,
+      },
+      splitTag: 'holdout',
+      ...(cell.error ? { failureMode: cell.error } : {}),
+    } satisfies RunRecord
+  })
 }

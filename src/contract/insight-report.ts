@@ -1,0 +1,227 @@
+/**
+ * # InsightReport — the rigorous decision packet for any set of agent runs.
+ *
+ * Returned by `analyzeRuns()` and embedded in `SelfImproveResult.insight` +
+ * the hosted-tier `EvalRunEvent.insightReport`. One shape across two surfaces:
+ *
+ *   - **Customer who has a closed loop** (`selfImprove`): the report ships
+ *     with the loop output. Their dashboard renders ship/hold + lift CI +
+ *     calibration + cluster + Pareto in one packet.
+ *   - **Customer who has observed runs but no loop** (`analyzeRuns` directly):
+ *     same packet from a `RunRecord[]` they already have — production traces,
+ *     approve/reject corpus, CSV gold set.
+ *
+ * Every field is optional except the distributional summary — fields are
+ * populated when the input data supports them:
+ *
+ *   - `lift` requires both baseline and candidate splits to be present.
+ *   - `interRater` requires multi-rater feedback (≥2 raters per run).
+ *   - `judges` populates per-judge stats only when the run records carry
+ *     `outcome.judgeScores`.
+ *   - `failureClusters` requires the optional `analystRegistry` to be wired.
+ *   - `contamination` requires canary scenarios to be passed in.
+ *   - `outcomeCorrelation` requires a downstream outcome signal.
+ *   - `sequential` requires the run set to be ordered (treats them as a
+ *     stream and emits an anytime-valid interim decision).
+ *
+ * Consumers read the `recommendations` array first — that's the
+ * actionable layer, ranked by priority. The numeric sections back it up.
+ */
+
+import type { GainDistributionBin, ParetoFigureSpec } from '../summary-report'
+import type { ContinuousAgreement } from './insight-types-fwd'
+
+// ── Top-level report ────────────────────────────────────────────────
+
+export interface InsightReport {
+  /** Number of runs analyzed. */
+  n: number
+
+  /** Composite-score distribution across all runs. Always present. */
+  composite: ScalarDistribution
+
+  /** Per-dimension distributions for every dimension that appeared in any
+   *  run's judge scores. Empty when no judge scores were recorded. */
+  perDimension: Record<string, ScalarDistribution>
+
+  /** Cost/quality distribution and Pareto frontier. */
+  costQuality: {
+    cost: ScalarDistribution
+    pareto: ParetoFigureSpec
+  }
+
+  /** Per-judge calibration + bias detection. Populated for every judge name
+   *  that appears in `outcome.judgeScores`. Bias fields require either a
+   *  gold reference or multi-rater data. */
+  judges: Record<string, JudgeInsight>
+
+  /** Inter-rater agreement when multiple judges scored the same runs.
+   *  Includes pairwise kappa and the specific run ids where raters
+   *  disagree — the cases worth a human meeting. */
+  interRater?: InterRaterInsight
+
+  /** Pairwise lift (baseline → candidate) with bootstrap CI. Present when
+   *  `RunRecord.splitTag` includes both `holdout` and search/dev splits,
+   *  or when caller passes an explicit baseline/candidate split. */
+  lift?: LiftInsight
+
+  /** Failure clusters with exemplars. Populated when an AnalystRegistry
+   *  is wired in `analyzeRuns({ analyst })`. */
+  failureClusters?: FailureClusterInsight
+
+  /** Canary leak count + holdout audit status. Populated when canary
+   *  scenarios are passed in. */
+  contamination?: ContaminationInsight
+
+  /** Correlation between judge composite and a downstream outcome the
+   *  caller supplies (engagement, revenue, downstream pass rate, etc.).
+   *  When present, the optional reward model is the model that maps
+   *  judge scores → predicted outcome. */
+  outcomeCorrelation?: OutcomeCorrelationInsight
+
+  /** Aggregate release-readiness summary. A consumer needing the full
+   *  substrate `ReleaseConfidenceScorecard` (SLO-axis evaluation,
+   *  ActionableSideInfo bag) calls `evaluateReleaseConfidence()` directly;
+   *  this summary captures the analyzeRuns-derived axes. */
+  release: ReleaseSummary
+
+  /** Top-N actionable recommendations, ranked by priority. The packet's
+   *  human-readable layer; the numeric sections are the evidence. */
+  recommendations: Recommendation[]
+}
+
+// ── Building blocks ─────────────────────────────────────────────────
+
+/** Distributional summary of a scalar-valued metric. */
+export interface ScalarDistribution {
+  /** Sample count after dropping non-finite values. */
+  n: number
+  mean: number
+  p50: number
+  p95: number
+  stddev: number
+  min: number
+  max: number
+  /** Histogram bins using `agent-eval`'s `gainHistogram` primitive. */
+  histogram: GainDistributionBin[]
+}
+
+export interface JudgeInsight {
+  /** Number of times this judge scored a run. */
+  n: number
+  /** Mean composite over this judge's runs. */
+  meanScore: number
+  /** Calibration against a gold reference, when provided. Cohen's κ for
+   *  binary thresholding + continuous agreement metrics. */
+  calibration?: ContinuousAgreement
+  /** Positional bias — when the judge sees options in different orders,
+   *  do its preferences track the content or the position? */
+  positionalBias?: number
+  /** Self-preference — when the judge sees its own model's output vs a
+   *  competitor, does it over-pick its own? */
+  selfPreference?: number
+  /** Verbosity bias — does the judge reward longer outputs regardless of
+   *  quality? */
+  verbosityBias?: number
+}
+
+export interface InterRaterInsight {
+  /** Number of raters whose scores were aggregated. */
+  raters: number
+  /** Number of runs every rater scored. */
+  jointlyRated: number
+  /** Cohen's κ averaged across rater pairs. */
+  kappa: number
+  /** Pairwise κ per rater pair (key = `"raterA::raterB"`). */
+  perPair: Record<string, number>
+  /** Run ids where raters disagree the most — the high-value triage list. */
+  disagreementCases: Array<{
+    runId: string
+    ratings: Array<{ rater: string; score: number }>
+    range: number
+  }>
+}
+
+export interface LiftInsight {
+  baselineMean: number
+  candidateMean: number
+  /** Candidate − baseline. */
+  delta: number
+  /** Lower / upper bound of bootstrap CI on the delta. */
+  ci95: [number, number]
+  /** Paired-t-test p-value. */
+  pValue: number
+  /** Number of paired observations. */
+  n: number
+  /** Cohen's d for the delta. */
+  cohensD: number
+  /** Minimum detectable effect at current n, 80% power. */
+  mde: number
+  /** Sample size needed to detect the observed delta at 80% power. */
+  requiredN: number
+}
+
+export interface FailureClusterInsight {
+  /** All clusters identified by the registry, ranked by share descending. */
+  clusters: Array<{
+    id: string
+    name: string
+    /** Fraction of failed runs in this cluster, 0..1. */
+    share: number
+    /** Exemplar `runId`s (≤ 5) the consumer can drill into. */
+    exemplars: string[]
+    /** Short LLM-generated suggested fix when the registry supports it. */
+    suggestedFix?: string
+  }>
+  totalFailures: number
+}
+
+export interface ContaminationInsight {
+  /** Canary phrases that leaked into outputs. */
+  leaks: number
+  /** Holdout audit verdict — did any holdout-tagged run end up in the
+   *  search/dev pool, or vice versa? */
+  holdoutAuditPassed: boolean
+  details?: Array<{ runId: string; canary: string; matched: string }>
+}
+
+export interface OutcomeCorrelationInsight {
+  /** What outcome the consumer is correlating against (e.g.
+   *  `'engagement_rate'`, `'approval_rate'`, `'downstream_pass'`). */
+  metric: string
+  /** Number of (run, outcome) pairs used. */
+  n: number
+  /** Pearson correlation between composite score and outcome. */
+  pearson: number
+  /** Spearman rank correlation — robust to monotonic non-linearity. */
+  spearman: number
+  /** When present, the simple linear reward model fit to the data. */
+  rewardModel?: {
+    intercept: number
+    slope: number
+    r2: number
+  }
+}
+
+export interface ReleaseSummary {
+  /** Overall verdict across axes — fail if any axis fails, else warn if any
+   *  warns, else pass. */
+  status: 'pass' | 'warn' | 'fail'
+  axes: Array<{
+    name: 'quality-lift' | 'contamination' | 'composite-distribution'
+    status: 'pass' | 'warn' | 'fail'
+    detail: string
+  }>
+  /** Free-form issues surfaced beyond the standard axes. Empty by default;
+   *  consumers can post-process to populate. */
+  issues: string[]
+}
+
+export interface Recommendation {
+  priority: 'critical' | 'high' | 'medium' | 'low'
+  kind: 'ship' | 'hold' | 'investigate' | 'fix' | 'recalibrate' | 'expand-corpus'
+  title: string
+  detail: string
+  /** Optional pointer back into the report for the evidence. */
+  evidencePath?: string
+}

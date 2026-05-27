@@ -162,3 +162,38 @@ export {
   type SelfImproveResult,
   selfImprove,
 } from './self-improve'
+
+// ── Analysis: turn observed runs into an actionable decision packet ──
+// The rigor layer — paired bootstrap lift, judge stats, inter-rater
+// agreement, contamination, failure clustering, outcome correlation,
+// recommendations. `selfImprove()` consumers (closed loop) and
+// `analyzeRuns()` direct callers (observed runs, no loop) get the same
+// `InsightReport` shape.
+
+export type { AnalyzeRunsOptions } from './analyze-runs'
+export { analyzeRuns } from './analyze-runs'
+export type {
+  FailureClusterInsight,
+  InsightReport,
+  InterRaterInsight,
+  JudgeInsight,
+  LiftInsight,
+  OutcomeCorrelationInsight,
+  Recommendation,
+  ReleaseSummary,
+  ScalarDistribution,
+} from './insight-report'
+
+// ── Intake: external data sources → RunRecord[] for analyzeRuns() ────
+// Adapters that meet customers where their data already lives. Pipe the
+// output straight into `analyzeRuns({ runs })`.
+
+export {
+  type FeedbackTableMeta,
+  type FeedbackTableRow,
+  type FromFeedbackTableOptions,
+  type FromFeedbackTableResult,
+  type FromOtelSpansOptions,
+  fromFeedbackTable,
+  fromOtelSpans,
+} from './intake'
