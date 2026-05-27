@@ -1,0 +1,172 @@
+{
+  "n": 36,
+  "composite": {
+    "n": 36,
+    "mean": 0.823,
+    "p50": 0.85,
+    "p95": 0.96,
+    "stddev": 0.114,
+    "min": 0.41,
+    "max": 0.98,
+    "tailRuns": [
+      { "runId": "scenario::checkout-bug", "score": 0.41 },
+      { "runId": "scenario::refund-policy-edge", "score": 0.48 },
+      { "runId": "scenario::multi-tenant-isolation", "score": 0.52 },
+      { "runId": "scenario::stale-cache-invalidation", "score": 0.55 },
+      { "runId": "scenario::partial-payment", "score": 0.61 }
+    ],
+    "histogram": [
+      { "lo": 0.40, "hi": 0.46, "count": 1 },
+      { "lo": 0.46, "hi": 0.51, "count": 1 },
+      { "lo": 0.51, "hi": 0.57, "count": 1 },
+      { "lo": 0.57, "hi": 0.62, "count": 1 },
+      { "lo": 0.62, "hi": 0.68, "count": 2 },
+      { "lo": 0.68, "hi": 0.74, "count": 2 },
+      { "lo": 0.74, "hi": 0.80, "count": 4 },
+      { "lo": 0.80, "hi": 0.85, "count": 9 },
+      { "lo": 0.85, "hi": 0.91, "count": 8 },
+      { "lo": 0.91, "hi": 0.96, "count": 6 },
+      { "lo": 0.96, "hi": 1.0, "count": 1 }
+    ]
+  },
+  "perDimension": {
+    "intent-recognition": {
+      "n": 36, "mean": 0.89, "p50": 0.92, "p95": 0.98, "stddev": 0.08
+    },
+    "compliance-flagging": {
+      "n": 36, "mean": 0.71, "p50": 0.75, "p95": 0.92, "stddev": 0.18
+    },
+    "tone": {
+      "n": 36, "mean": 0.94, "p50": 0.95, "p95": 0.99, "stddev": 0.04
+    }
+  },
+  "costQuality": {
+    "cost": {
+      "n": 36, "mean": 0.087, "p50": 0.082, "p95": 0.124, "stddev": 0.021
+    },
+    "pareto": {
+      "kind": "pareto-cost-quality",
+      "split": "holdout",
+      "axes": { "x": "costUsd", "y": "score" },
+      "points": [
+        { "candidateId": "baseline-v3.1", "cost": 0.087, "quality": 0.823, "n": 36, "onFrontier": true }
+      ]
+    }
+  },
+  "judges": {
+    "claude-sonnet-4.6": {
+      "n": 36,
+      "meanScore": 0.831,
+      "calibration": null
+    }
+  },
+  "lift": null,
+  "failureClusters": {
+    "totalFailures": 4,
+    "clusters": [
+      {
+        "id": "cluster_refund_compliance",
+        "name": "refund-policy missed compliance flag",
+        "share": 0.75,
+        "exemplars": [
+          "scenario::refund-policy-edge",
+          "scenario::partial-payment",
+          "scenario::cross-border-refund"
+        ],
+        "suggestedFix": "Add explicit step to the addendum: when refund amount > $100 OR cross-border, surface compliance flag before responding."
+      }
+    ]
+  },
+  "priorPeriodComparison": {
+    "baselineN": 34,
+    "currentN": 36,
+    "windowLabel": "vs prior 7 days",
+    "metrics": {
+      "composite": {
+        "current": 0.823,
+        "baseline": 0.731,
+        "delta": 0.092,
+        "ci95": [0.041, 0.143],
+        "pValue": 0.0008,
+        "cohensD": 0.84,
+        "baselineN": 34,
+        "currentN": 36,
+        "significant": true
+      },
+      "cost": {
+        "current": 0.087,
+        "baseline": 0.082,
+        "delta": 0.005,
+        "ci95": [-0.003, 0.013],
+        "pValue": 0.21,
+        "cohensD": 0.23,
+        "baselineN": 34,
+        "currentN": 36,
+        "significant": false
+      },
+      "duration": {
+        "current": 4820,
+        "baseline": 5340,
+        "delta": -520,
+        "ci95": [-840, -200],
+        "pValue": 0.002,
+        "cohensD": -0.71,
+        "baselineN": 34,
+        "currentN": 36,
+        "significant": true
+      },
+      "dim.compliance-flagging": {
+        "current": 0.71,
+        "baseline": 0.58,
+        "delta": 0.13,
+        "ci95": [0.06, 0.20],
+        "pValue": 0.0004,
+        "cohensD": 0.79,
+        "baselineN": 34,
+        "currentN": 36,
+        "significant": true
+      }
+    },
+    "improvedMetrics": ["composite", "duration", "dim.compliance-flagging"],
+    "regressedMetrics": []
+  },
+  "release": {
+    "status": "pass",
+    "axes": [
+      { "name": "quality-lift", "status": "pass", "detail": "no candidate/baseline pair within campaign; relying on priorPeriodComparison" },
+      { "name": "contamination", "status": "pass", "detail": "no canaries supplied" },
+      { "name": "composite-distribution", "status": "pass", "detail": "mean=0.823, p50=0.85, p95=0.96 over n=36" }
+    ],
+    "issues": []
+  },
+  "recommendations": [
+    {
+      "priority": "low",
+      "kind": "ship",
+      "title": "composite improved from 0.731 → 0.823 vs prior 7 days",
+      "detail": "Welch CI95=[0.041, 0.143], p=0.0008, Cohen's d=0.84 (n_current=36, n_baseline=34). Statistically significant improvement worth flagging.",
+      "evidencePath": "priorPeriodComparison.metrics.composite"
+    },
+    {
+      "priority": "low",
+      "kind": "ship",
+      "title": "compliance-flagging dimension improved from 0.58 → 0.71",
+      "detail": "Welch CI95=[0.06, 0.20], p=0.0004, Cohen's d=0.79. The fix from last week's PR is statistically validated.",
+      "evidencePath": "priorPeriodComparison.metrics.dim.compliance-flagging"
+    },
+    {
+      "priority": "high",
+      "kind": "investigate",
+      "title": "Top failure cluster: refund-policy missed compliance flag (75% of failures)",
+      "detail": "3 of 4 failed runs cluster here. Suggested fix: add explicit step to addendum for refund > $100 OR cross-border → surface compliance flag.",
+      "evidencePath": "failureClusters.clusters[0]"
+    },
+    {
+      "priority": "low",
+      "kind": "ship",
+      "title": "duration improved from 5340ms → 4820ms vs prior 7 days",
+      "detail": "Welch CI95=[-840, -200]ms, p=0.002, Cohen's d=-0.71. Agent is meaningfully faster — worth keeping the optimization that drove this.",
+      "evidencePath": "priorPeriodComparison.metrics.duration"
+    }
+  ]
+}
