@@ -26,7 +26,7 @@ That's the entire surface for content judging. A self-contained runnable
 example with pytest invariants lives at
 [`examples/judge_anti_slop.py`](./examples/judge_anti_slop.py).
 
-## Hosted-tier ingest (since 0.48.0)
+## Hosted-tier ingest
 
 Ship eval-run events + OTel-shape trace spans to any orchestrator that
 speaks the wire format frozen at `HOSTED_WIRE_VERSION = '2026-05-26.v1'`.

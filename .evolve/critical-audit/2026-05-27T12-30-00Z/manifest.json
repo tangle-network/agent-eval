@@ -1,0 +1,9 @@
+{
+  "scope": "merged PR diff origin/main~1..origin/main",
+  "base": "0999b60",
+  "head": "41452be",
+  "project_type": "typescript-node+python",
+  "flags": [],
+  "score": "7.5/10",
+  "findings_count_by_severity": { "CRITICAL": 0, "HIGH": 0, "MEDIUM": 6, "LOW": 5 }
+}

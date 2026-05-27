@@ -101,7 +101,10 @@ export interface EvalRunDiff {
 // ── Implementation ───────────────────────────────────────────────────
 
 function keyForCell(cell: EvalRunCellScore): string {
-  return `${cell.scenarioId}::${cell.rep}`
+  // JSON-tuple key — `scenarioId` may legitimately contain `::` or any other
+  // delimiter, so we use JSON.stringify on a 2-tuple to get an unambiguous,
+  // collision-free composite key.
+  return JSON.stringify([cell.scenarioId, cell.rep])
 }
 
 /** Build the per-dimension delta map for a matched cell. Each judge name +
@@ -118,8 +121,14 @@ function diffDimensions(
     const dims = new Set<string>([...Object.keys(beforeDims), ...Object.keys(afterDims)])
     const judgeOut: Record<string, EvalDimensionDelta> = {}
     for (const dim of dims) {
-      const b = beforeDims[dim] ?? null
-      const a = afterDims[dim] ?? null
+      // Coerce non-finite values (NaN, ±Infinity) to null so the diff never
+      // surfaces NaN/Infinity to the dashboard. A NaN score is a substrate
+      // bug from upstream; the diff treats it as "no value" rather than
+      // propagating the corruption.
+      const rawBefore = beforeDims[dim]
+      const rawAfter = afterDims[dim]
+      const b = typeof rawBefore === 'number' && Number.isFinite(rawBefore) ? rawBefore : null
+      const a = typeof rawAfter === 'number' && Number.isFinite(rawAfter) ? rawAfter : null
       judgeOut[dim] = {
         before: b,
         after: a,

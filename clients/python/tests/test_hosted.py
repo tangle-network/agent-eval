@@ -239,3 +239,61 @@ def test_idempotency(receiver):
         first = client.ingest_eval_run(_make_run_event("idem-py"), idempotency_key="key-py")
         second = client.ingest_eval_run(_make_run_event("idem-py"), idempotency_key="key-py")
         assert first.accepted == second.accepted == 1
+
+
+def test_snake_case_typo_warns():
+    """Cross-language drift guard: passing run_id (snake_case) emits a warning.
+
+    The TS server expects ``runId`` on the wire; Python ``extra='allow'``
+    would silently send ``run_id`` and the server would reject it. The
+    warning gives users a same-process signal instead of a server error.
+    """
+    import warnings as _w
+
+    with _w.catch_warnings(record=True) as caught:
+        _w.simplefilter("always")
+        EvalRunEvent(
+            runId="r1",
+            runDir="/r1",
+            timestamp="2026-05-27T00:00:00Z",
+            status="finished",
+            run_id="r1-typo",  # snake_case shadow of runId — should warn
+        )
+    user_warnings = [w for w in caught if issubclass(w.category, UserWarning)]
+    assert len(user_warnings) == 1
+    msg = str(user_warnings[0].message)
+    assert "run_id" in msg
+    assert "runId" in msg
+
+
+def test_trace_span_outer_round_trips_tangle_fields():
+    """TraceSpanEventOuter exposes tangle.* pivots via field aliases.
+
+    Pydantic forbids dotted attribute names, so the pivots are declared as
+    ``tangle_run_id`` / ``tangle_scenario_id`` / etc. with the dotted alias,
+    and round-trip cleanly via ``model_dump(by_alias=True)``.
+    """
+    from agent_eval_rpc import TraceSpanEventOuter
+
+    span = TraceSpanEventOuter(
+        traceId="t",
+        spanId="s",
+        name="dispatch",
+        startTimeUnixNano=0,
+        endTimeUnixNano=1,
+        attributes={},
+        tangle_run_id="run-1",
+        tangle_scenario_id="s1",
+        tangle_generation=2,
+        tangle_cell_id="cell-3",
+    )
+    dumped = span.model_dump(by_alias=True, exclude_none=True)
+    assert dumped["tangle.runId"] == "run-1"
+    assert dumped["tangle.scenarioId"] == "s1"
+    assert dumped["tangle.generation"] == 2
+    assert dumped["tangle.cellId"] == "cell-3"
+
+    # Validate the dump round-trips back through the model.
+    restored = TraceSpanEventOuter.model_validate(dumped)
+    assert restored.tangle_run_id == "run-1"
+    assert restored.tangle_scenario_id == "s1"

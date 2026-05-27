@@ -1,26 +1,23 @@
 /**
- * TraceAI/OTel bridge — unit + E2E.
+ * OTel→hosted bridge — unit + E2E.
  *
  * Verifies the OTel-shape → wire-format conversion and the end-to-end path
  * from a synthetic OTel-style span batch into the reference receiver.
  */
 
-import type { AddressInfo } from 'node:net'
-import { serve } from '@hono/node-server'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import type { TenantConfig } from '../examples/hosted-ingest-server/server'
 import {
-  createReferenceReceiverApp,
-  type TenantConfig,
-} from '../examples/hosted-ingest-server/server'
-import {
-  createTraceAiBridge,
+  createOtelBridge,
   hrTimeToUnixNano,
   OTEL_STATUS_ERROR,
   OTEL_STATUS_OK,
   OTEL_STATUS_UNSET,
+  type OtelAttributeValue,
   type OtelLikeSpan,
-} from '../src/adapters/traceai'
+} from '../src/adapters/otel'
 import { createHostedClient } from '../src/hosted/client'
+import { startReceiver } from './_fixtures/hosted-receiver'
 
 function makeSpan(overrides: Partial<OtelLikeSpan> = {}): OtelLikeSpan {
   const base: OtelLikeSpan = {
@@ -41,7 +38,7 @@ describe('hrTimeToUnixNano', () => {
   })
 })
 
-describe('createTraceAiBridge — spanToEvent conversion', () => {
+describe('createOtelBridge — spanToEvent conversion', () => {
   const fakeClient = {
     tenant: { endpoint: '', apiKey: '', tenantId: '' },
     wireVersion: '2026-05-26.v1' as const,
@@ -51,7 +48,7 @@ describe('createTraceAiBridge — spanToEvent conversion', () => {
   }
 
   it('preserves traceId, spanId, name, and time fields', () => {
-    const bridge = createTraceAiBridge({ client: fakeClient })
+    const bridge = createOtelBridge({ client: fakeClient })
     const e = bridge.spanToEvent(
       makeSpan({
         spanContext: () => ({ traceId: 'abc', spanId: 'def' }),
@@ -68,7 +65,7 @@ describe('createTraceAiBridge — spanToEvent conversion', () => {
   })
 
   it('maps OTel status codes to wire-format strings', () => {
-    const bridge = createTraceAiBridge({ client: fakeClient })
+    const bridge = createOtelBridge({ client: fakeClient })
     expect(bridge.spanToEvent(makeSpan({ status: { code: OTEL_STATUS_OK } })).status?.code).toBe(
       'OK',
     )
@@ -81,7 +78,7 @@ describe('createTraceAiBridge — spanToEvent conversion', () => {
   })
 
   it('drops undefined/null attribute values; keeps string/number/boolean', () => {
-    const bridge = createTraceAiBridge({ client: fakeClient })
+    const bridge = createOtelBridge({ client: fakeClient })
     const e = bridge.spanToEvent(
       makeSpan({
         attributes: {
@@ -97,7 +94,7 @@ describe('createTraceAiBridge — spanToEvent conversion', () => {
   })
 
   it('promotes tangle.* attributes to first-class wire fields', () => {
-    const bridge = createTraceAiBridge({ client: fakeClient })
+    const bridge = createOtelBridge({ client: fakeClient })
     const e = bridge.spanToEvent(
       makeSpan({
         attributes: {
@@ -117,20 +114,20 @@ describe('createTraceAiBridge — spanToEvent conversion', () => {
   })
 
   it('applies defaultRunId when the span lacks tangle.runId', () => {
-    const bridge = createTraceAiBridge({ client: fakeClient, defaultRunId: 'fallback-run' })
+    const bridge = createOtelBridge({ client: fakeClient, defaultRunId: 'fallback-run' })
     const e = bridge.spanToEvent(makeSpan({ attributes: { 'http.method': 'GET' } }))
     expect(e['tangle.runId']).toBe('fallback-run')
     expect(e.attributes['tangle.runId']).toBe('fallback-run')
   })
 
   it('does NOT clobber an explicit tangle.runId with defaultRunId', () => {
-    const bridge = createTraceAiBridge({ client: fakeClient, defaultRunId: 'fallback' })
+    const bridge = createOtelBridge({ client: fakeClient, defaultRunId: 'fallback' })
     const e = bridge.spanToEvent(makeSpan({ attributes: { 'tangle.runId': 'explicit' } }))
     expect(e['tangle.runId']).toBe('explicit')
   })
 
   it('resolves parentSpanId from either parentSpanId or parentSpanContext()', () => {
-    const bridge = createTraceAiBridge({ client: fakeClient })
+    const bridge = createOtelBridge({ client: fakeClient })
     const fromField = bridge.spanToEvent(makeSpan({ parentSpanId: 'p-1' }))
     expect(fromField.parentSpanId).toBe('p-1')
     const fromCtx = bridge.spanToEvent(makeSpan({ parentSpanContext: () => ({ spanId: 'p-2' }) }))
@@ -140,7 +137,7 @@ describe('createTraceAiBridge — spanToEvent conversion', () => {
   })
 
   it('forwards span events including their attributes + times', () => {
-    const bridge = createTraceAiBridge({ client: fakeClient })
+    const bridge = createOtelBridge({ client: fakeClient })
     const e = bridge.spanToEvent(
       makeSpan({
         events: [
@@ -159,11 +156,27 @@ describe('createTraceAiBridge — spanToEvent conversion', () => {
   })
 
   it('omits attributes on event nodes when none survive cleaning', () => {
-    const bridge = createTraceAiBridge({ client: fakeClient })
+    const bridge = createOtelBridge({ client: fakeClient })
     const e = bridge.spanToEvent(
       makeSpan({ events: [{ name: 'tick', time: [1, 0], attributes: { drop: null } }] }),
     )
     expect(e.events?.[0]?.attributes).toBeUndefined()
+  })
+
+  it('serialises array-valued attributes as JSON strings', () => {
+    const bridge = createOtelBridge({ client: fakeClient })
+    const e = bridge.spanToEvent(
+      makeSpan({
+        attributes: {
+          'tool.names': ['search', 'read'],
+          numbers: [1, 2, 3],
+          bools: [true, false],
+        } as Record<string, OtelAttributeValue>,
+      }),
+    )
+    expect(e.attributes['tool.names']).toBe('["search","read"]')
+    expect(e.attributes.numbers).toBe('[1,2,3]')
+    expect(e.attributes.bools).toBe('[true,false]')
   })
 })
 
@@ -171,21 +184,14 @@ describe('createTraceAiBridge — spanToEvent conversion', () => {
 
 const TENANT: TenantConfig = { id: 'acme', key: 'k' }
 
-describe('TraceAI bridge — E2E against reference receiver', () => {
+describe('OTel bridge — E2E against reference receiver', () => {
   let stop: () => Promise<void>
   let baseUrl: string
 
   beforeEach(async () => {
-    const { app } = createReferenceReceiverApp({ tenants: [TENANT] })
-    const handle = serve({ fetch: app.fetch, port: 0 })
-    const addr = handle.address() as AddressInfo
-    baseUrl = `http://127.0.0.1:${addr.port}`
-    stop = () =>
-      new Promise<void>((resolve) => {
-        if (typeof (handle as { close?: (cb?: () => void) => void }).close === 'function') {
-          ;(handle as { close: (cb: () => void) => void }).close(() => resolve())
-        } else resolve()
-      })
+    const r = await startReceiver([TENANT])
+    baseUrl = r.baseUrl
+    stop = r.stop
   })
 
   afterEach(async () => {
@@ -198,7 +204,7 @@ describe('TraceAI bridge — E2E against reference receiver', () => {
       apiKey: TENANT.key,
       tenantId: TENANT.id,
     })
-    const bridge = createTraceAiBridge({ client, defaultRunId: 'run-otel-1', batchSize: 5 })
+    const bridge = createOtelBridge({ client, defaultRunId: 'run-otel-1', batchSize: 5 })
     const spans: OtelLikeSpan[] = Array.from({ length: 12 }, (_, i) => ({
       spanContext: () => ({ traceId: 't-otel', spanId: `s-${i}` }),
       name: `step-${i}`,
@@ -231,7 +237,7 @@ describe('TraceAI bridge — E2E against reference receiver', () => {
       retries: 0,
     })
     const errors: unknown[] = []
-    const bridge = createTraceAiBridge({
+    const bridge = createOtelBridge({
       client,
       defaultRunId: 'r',
       onError: (err) => {

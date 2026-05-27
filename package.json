@@ -1,6 +1,6 @@
 {
   "name": "@tangle-network/agent-eval",
-  "version": "0.48.0",
+  "version": "0.49.0",
   "description": "Substrate for self-improving agents: traces, verifiable rewards, preferences, GEPA / reflective mutation, auto-research, replay, sequential anytime-valid stats, and release gates.",
   "homepage": "https://github.com/tangle-network/agent-eval#readme",
   "repository": {
@@ -119,10 +119,10 @@
       "import": "./dist/adapters/http.js",
       "default": "./dist/adapters/http.js"
     },
-    "./adapters/traceai": {
-      "types": "./dist/adapters/traceai.d.ts",
-      "import": "./dist/adapters/traceai.js",
-      "default": "./dist/adapters/traceai.js"
+    "./adapters/otel": {
+      "types": "./dist/adapters/otel.d.ts",
+      "import": "./dist/adapters/otel.js",
+      "default": "./dist/adapters/otel.js"
     },
     "./hosted": {
       "types": "./dist/hosted/index.d.ts",

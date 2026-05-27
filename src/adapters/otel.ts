@@ -1,37 +1,33 @@
 /**
- * # `@tangle-network/agent-eval/adapters/traceai` — OTel→hosted bridge.
+ * # `@tangle-network/agent-eval/adapters/otel` — OTel→hosted bridge.
  *
- * Forwards OpenTelemetry-shaped spans (from `future-agi/traceai`, from the
- * OTel SDK directly, or from any library that emits OTel `ReadableSpan`s)
- * into the hosted-tier ingest endpoint via `createHostedClient`.
- *
- * **Why this exists:** future-agi ships the strongest OTel-native
- * instrumentation library in the TypeScript-agent ecosystem. Partners using
- * traceai for tracing should be able to plug it into Tangle Intelligence
- * with one config line — not rebuild OTel emission from scratch. Adapter
- * shape applies equally to any OTel SpanProcessor pipeline.
+ * Forwards OpenTelemetry-shaped spans into the hosted-tier ingest endpoint
+ * via `createHostedClient`. Works with anything that emits OTel
+ * `ReadableSpan`s — `@opentelemetry/sdk-trace-base` directly, OpenLLMetry,
+ * Phoenix's OTel exporter, TraceAI from future-agi, any OTel collector
+ * pipeline.
  *
  * **Pattern:**
  *
  *   ```ts
  *   import { createHostedClient } from '@tangle-network/agent-eval/hosted'
- *   import { createTraceAiBridge } from '@tangle-network/agent-eval/adapters/traceai'
+ *   import { createOtelBridge } from '@tangle-network/agent-eval/adapters/otel'
  *
  *   const client = createHostedClient({ endpoint, apiKey, tenantId })
- *   const bridge = createTraceAiBridge({ client, defaultRunId: substrateRunId })
+ *   const bridge = createOtelBridge({ client, defaultRunId: substrateRunId })
  *
  *   // Wherever your OTel SpanProcessor hands you a finished span:
- *   processor.onEnd = (span) => bridge.ingest([span])
+ *   processor.onEnd = (span) => { void bridge.ingest([span]) }
  *   // …or in a SpanProcessor.onShutdown / batch flush:
  *   await bridge.ingest(batchedSpans)
  *   ```
  *
  * No `@opentelemetry/*` dependency is declared here — the adapter accepts
  * a structurally-typed `OtelLikeSpan`. This keeps the substrate dep graph
- * lean while remaining compatible with OTel SDK `ReadableSpan` instances
- * and with traceai's emitted spans. If a consumer's span shape differs
- * (e.g. `parentSpanId` as a top-level field rather than via
- * `parentSpanContext()`), the adapter accepts both forms.
+ * lean while remaining compatible with any OTel SDK that produces
+ * `ReadableSpan`-shaped instances. If a consumer's span shape exposes
+ * `parentSpanId` as a top-level field rather than via `parentSpanContext()`,
+ * the adapter accepts both forms.
  */
 
 import type { HostedClient } from '../hosted/client'
@@ -51,18 +47,24 @@ export const OTEL_STATUS_UNSET = 0
 export const OTEL_STATUS_OK = 1
 export const OTEL_STATUS_ERROR = 2
 
-export type OtelAttributeValue = string | number | boolean | null | undefined
+export type OtelAttributeValue =
+  | string
+  | number
+  | boolean
+  | null
+  | undefined
+  | Array<string>
+  | Array<number>
+  | Array<boolean>
 
 /**
  * Structural surface compatible with `@opentelemetry/sdk-trace-base`'s
- * `ReadableSpan`. Consumers pass instances they get from their OTel SDK
- * (or from `future-agi/traceai`, which produces spans of this shape).
+ * `ReadableSpan`. Consumers pass instances they get from their OTel SDK.
  */
 export interface OtelLikeSpan {
   spanContext: () => { traceId: string; spanId: string; traceFlags?: number }
-  /** Set on the span itself by some SDKs (legacy / OTLP-shape). Some SDKs
-   *  expose the parent via `parentSpanContext()` instead — the adapter
-   *  checks both. */
+  /** Set on the span itself by some SDKs (OTLP-shape). Other SDKs expose
+   *  the parent via `parentSpanContext()` instead — the adapter checks both. */
   parentSpanId?: string
   parentSpanContext?: () => { spanId: string } | undefined
   name: string
@@ -91,7 +93,20 @@ function statusCodeName(code: number | undefined): 'OK' | 'ERROR' | 'UNSET' {
   return 'UNSET'
 }
 
-/** Drop null/undefined attribute values; keep string/number/boolean. */
+/**
+ * Normalise OTel attributes to the scalar shape the wire format accepts.
+ *
+ *   - null / undefined → dropped (no representation in the wire format)
+ *   - string / number / boolean → passed through
+ *   - Array<scalar> → JSON-stringified (the wire format is scalar-only;
+ *     dropping arrays would silently lose information, so we serialise
+ *     them deterministically)
+ *
+ * OTel SDK / TraceAI emit array attributes routinely (e.g. `tool.names`,
+ * `http.request.header.set-cookie`). Stringification keeps the data flowing
+ * through to the dashboard; consumers parse with `JSON.parse` if they need
+ * the structured form back.
+ */
 function cleanAttributes(
   attrs: Record<string, OtelAttributeValue> | undefined,
 ): Record<string, string | number | boolean> {
@@ -101,6 +116,10 @@ function cleanAttributes(
     if (v === null || v === undefined) continue
     if (typeof v === 'string' || typeof v === 'number' || typeof v === 'boolean') {
       out[k] = v
+      continue
+    }
+    if (Array.isArray(v)) {
+      out[k] = JSON.stringify(v)
     }
   }
   return out
@@ -130,7 +149,7 @@ function resolveParentSpanId(span: OtelLikeSpan): string | undefined {
 
 // ── Bridge ───────────────────────────────────────────────────────────
 
-export interface TraceAiBridgeOptions {
+export interface OtelBridgeOptions {
   /** Hosted client to forward spans to. */
   client: HostedClient
   /** When set, spans missing a `tangle.runId` attribute receive this value
@@ -146,7 +165,7 @@ export interface TraceAiBridgeOptions {
   onError?: (err: unknown, batch: TraceSpanEvent[]) => void | Promise<void>
 }
 
-export interface TraceAiBridge {
+export interface OtelBridge {
   /** Convert + ingest a batch of OTel-shape spans. */
   ingest(spans: OtelLikeSpan[]): Promise<void>
   /** Convert one OTel span to the wire-format event. Useful for tests or
@@ -154,12 +173,12 @@ export interface TraceAiBridge {
   spanToEvent(span: OtelLikeSpan): TraceSpanEvent
 }
 
-export function createTraceAiBridge(opts: TraceAiBridgeOptions): TraceAiBridge {
+export function createOtelBridge(opts: OtelBridgeOptions): OtelBridge {
   const batchSize = opts.batchSize ?? 200
   const onError =
     opts.onError ??
     ((err) => {
-      console.warn('[traceai-bridge] ingest batch failed:', err)
+      console.warn('[otel-bridge] ingest batch failed:', err)
     })
 
   function convert(span: OtelLikeSpan): TraceSpanEvent {

@@ -215,6 +215,13 @@ const next = await analyzeOptimizationResult(campaign, { researcher })
 
 | Subpath | Use for |
 | --- | --- |
+| `@tangle-network/agent-eval/contract` | **LAND-tier surface** — `selfImprove`, `runCampaign`, `runImprovementLoop`, `runEval`, `Dispatch`, `Mutator`, `Gate`, `defaultProductionGate`, `gepaDriver`, `diffRuns`, storage backends. New code starts here. |
+| `@tangle-network/agent-eval/hosted` | **EXPAND-tier surface** — `createHostedClient`, wire-format types, `HOSTED_WIRE_VERSION`. Ships eval-run events + trace spans to any orchestrator that speaks the spec. |
+| `@tangle-network/agent-eval/adapters/otel` | OTel→hosted bridge — `createOtelBridge` forwards OTel-shape spans (TraceAI, OpenLLMetry, OTel SDK) into the hosted-tier ingest. |
+| `@tangle-network/agent-eval/adapters/langchain` | LangChain executor adapter — wrap a LangChain runnable as a `Dispatch`. |
+| `@tangle-network/agent-eval/adapters/http` | Distributed driver — `httpDispatch` + `runDispatchServer` for cross-machine campaigns. |
+| `@tangle-network/agent-eval/campaign` | Lower-level campaign primitives — `runCampaign`, driver implementations, storage. |
+| `@tangle-network/agent-eval/multishot` | Multi-shot optimization primitives. |
 | `@tangle-network/agent-eval/control` | `observe → validate → decide → act`, action policy, propose/review loops |
 | `@tangle-network/agent-eval/traces` | trace stores, emitters, TraceAnalyst, replay |
 | `@tangle-network/agent-eval/optimization` | feedback trajectories, multi-shot, prompt evolution, GEPA, EvalCampaign |
