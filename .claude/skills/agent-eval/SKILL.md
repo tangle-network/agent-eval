@@ -1,13 +1,75 @@
 ---
 name: agent-eval
-description: Trace-first evaluation framework for code-generator + LLM-in-the-loop systems. Sandbox harness + build gates, BuilderSession, three-layer scoring, meta-judge with compile short-circuit, LLM client with graceful degrade, multi-layer verification pipeline, semantic-concept judge, multi-toolchain layer merge. Directives below encode shipped-bug lessons — read before writing integration code.
+description: Trace-first evaluation framework for code-generator + LLM-in-the-loop systems AND the canonical product-agent adoption guide. Sandbox harness + build gates, BuilderSession, three-layer scoring, meta-judge with compile short-circuit, LLM client with graceful degrade, multi-layer verification pipeline, semantic-concept judge, multi-toolchain layer merge, canonical consumer file layout (eval/scenarios.json + judges + agent-profile + three pnpm scripts), driver-choice decision tree, surface menu. Directives below encode shipped-bug lessons + cross-link the substrate's full surface menu — read before writing integration code OR before wiring a product agent.
 ---
 
-# agent-eval — usage directives
+# agent-eval — usage directives + product-agent adoption
 
-**You're an agent writing integration code? Read this whole file.** Each rule below was paid for in a shipped bug; skip one and the bug class reappears.
+**You're an agent writing integration code?** Read this whole file. Each rule below was paid for in a shipped bug; skip one and the bug class reappears.
 
-**You're a human onboarding?** Read [`docs/concepts.md`](../../../docs/concepts.md) first — 5-minute mental model — then come back. The rest of this file is dense by design (it's a footgun bible, not a tutorial).
+**You're wiring a NEW product agent onto the substrate?** Skip ahead to §Consumer adoption (canonical product-agent layout) — but read §Surfaces & how to navigate first so you know what else exists.
+
+**You're a human onboarding?** Read [`docs/concepts.md`](../../../docs/concepts.md) first — 5-minute mental model — then come back. The rest of this file is dense by design (it's a footgun bible AND an adoption guide; not a tutorial).
+
+## Surfaces & how to navigate — the fanout
+
+The substrate exposes many surfaces. Pick where to go based on what you're doing:
+
+### Mental model & onboarding
+- [`docs/concepts.md`](../../../docs/concepts.md) — 5-minute mental model, **READ FIRST if human**
+- [`README.md`](../../../README.md) — entry points + decision-packet sample + competitor matrix
+- [`docs/customer-journeys.md`](../../../docs/customer-journeys.md) — three end-to-end product paths
+
+### The decision packet (no LLM cost, pure analysis)
+- [`src/contract/analyze-runs.ts`](../../../src/contract/analyze-runs.ts) — `analyzeRuns()` implementation
+- [`src/contract/insight-report.ts`](../../../src/contract/insight-report.ts) — canonical `InsightReport` types
+- [`docs/insight-report.md`](../../../docs/insight-report.md) — annotated walkthrough of every section
+- [`src/contract/intake/feedback-table.ts`](../../../src/contract/intake/feedback-table.ts) — `fromFeedbackTable()` multi-rater intake
+- [`src/contract/intake/otel-spans.ts`](../../../src/contract/intake/otel-spans.ts) — `fromOtelSpans()` OTel intake
+
+### The closed loop (LLM cost, opt-in)
+- [`src/contract/self-improve.ts`](../../../src/contract/self-improve.ts) — `selfImprove()` LAND-tier helper
+- [`src/campaign/drivers/gepa.ts`](../../../src/campaign/drivers/gepa.ts) — reflective LLM driver (default)
+- [`src/campaign/drivers/evolutionary.ts`](../../../src/campaign/drivers/evolutionary.ts) — cheap deterministic mutator wrapper
+- [`src/campaign/gates/default-production-gate.ts`](../../../src/campaign/gates/default-production-gate.ts) — promote/hold/inspect gate
+- §Consumer adoption below — canonical product-agent layout for wiring all of the above
+
+### Wire protocol & cross-language
+- [`docs/wire-protocol.md`](../../../docs/wire-protocol.md) — canonical hosted wire format
+- [`docs/hosted-ingest-spec.md`](../../../docs/hosted-ingest-spec.md) — reference receiver spec
+- [`clients/python/README.md`](../../../clients/python/README.md) — `agent-eval-rpc` Python client
+- [`src/hosted/types.ts`](../../../src/hosted/types.ts) — `EvalRunEvent` + `HOSTED_WIRE_VERSION`
+
+### Runnable examples (clone + `pnpm tsx`)
+- [`examples/selfimprove-quickstart/`](../../../examples/selfimprove-quickstart/) — closed loop with synthetic driver (offline)
+- [`examples/customer-feedback-loop/`](../../../examples/customer-feedback-loop/) — multi-rater corpus → `InsightReport`
+- [`examples/customer-otel-traces/`](../../../examples/customer-otel-traces/) — OTel spans → `InsightReport`
+- [`examples/foreign-agent-quickstart/`](../../../examples/foreign-agent-quickstart/) — wire a non-Tangle agent
+- [`examples/hosted-ingest-server/`](../../../examples/hosted-ingest-server/) — reference HTTP receiver
+- [`examples/multi-shot-optimization/`](../../../examples/multi-shot-optimization/) — population search
+- [`examples/distributed-driver/`](../../../examples/distributed-driver/) — split work across cells
+- [`examples/held-out-gate/`](../../../examples/held-out-gate/) — gate semantics + paired-delta + overfit-gap
+- [`examples/scorecard/`](../../../examples/scorecard/) — release-timeline scorecard (orthogonal to `InsightReport`)
+- [`examples/same-sandbox-harness/`](../../../examples/same-sandbox-harness/) — share sandbox across cells
+- [`examples/fine-tune-with-prime-rl/`](../../../examples/fine-tune-with-prime-rl/) — eval → RL training data
+- [`examples/marketing-agent-canonical/`](../../../examples/marketing-agent-canonical/) — end-to-end product-agent reference
+- [`examples/production-loop/`](../../../examples/production-loop/) — CI cron pattern with auto-PR-promote on ship
+
+### Architecture & design docs
+- [`docs/three-package-architecture.md`](../../../docs/three-package-architecture.md) — substrate / runtime / knowledge layering
+- [`docs/design/product-self-improvement-loop.md`](../../../docs/design/product-self-improvement-loop.md) — the canonical loop pattern
+- [`docs/design/self-improvement-engine.md`](../../../docs/design/self-improvement-engine.md) — phase diagram
+- [`docs/design/loop-taxonomy.md`](../../../docs/design/loop-taxonomy.md) — driver categorization (evolutionary / gepa / agentic)
+
+### Observability & adapters
+- [`src/adapters/otel.ts`](../../../src/adapters/otel.ts) — OTel bridge
+- [`src/adapters/langchain.ts`](../../../src/adapters/langchain.ts) — LangChain adapter
+- [`src/adapters/http.ts`](../../../src/adapters/http.ts) — distributed-driver dispatcher
+- [`docs/adapters-observability.md`](../../../docs/adapters-observability.md) — adapter inventory + usage
+
+### RL bridge (eval → training)
+- [`src/rl/`](../../../src/rl/) — preferences, reward extraction, off-policy estimation
+- [`docs/feedback-trajectories.md`](../../../docs/feedback-trajectories.md) — preference-trajectory extraction
 
 ## Vocabulary you need before reading the rules
 
@@ -66,6 +128,11 @@ If a term below isn't in this table or in `docs/concepts.md`, that's a bug — f
 | Assert at run-end that the artifact is complete | `assertRunCaptured` + `throwIfRunIncomplete` (§Capture integrity Directive 3) |
 | Auto-execute the trace analyst on every run | `traceAnalystOnRunComplete` + `TraceEmitterOptions.onRunComplete` (§Capture integrity Directive 4) |
 | Stable hook for an external research-driver agent | `Researcher` (interface) + `NoopResearcher` (placeholder) |
+| Wire a NEW product agent onto the substrate (eval/ layout, three pnpm scripts, drivers, surface choice) | §Consumer adoption (canonical product-agent layout) |
+| Render the decision packet from a `RunRecord[]` you already have | `analyzeRuns({ runs })` → `InsightReport` |
+| Run a closed-loop improvement cycle one-shot (LAND-tier) | `selfImprove({ scenarios, agent, judge, baselineSurface, driver, budget })` |
+| Choose between `gepaDriver` vs `evolutionaryDriver` vs a custom driver | §Driver choice — decision tree |
+| Decide which string to optimize (system prompt vs addendum vs judge) | §Surface menu — what string to pick |
 
 Extend, don't fork — see §"Extend, don't duplicate."
 
@@ -744,15 +811,217 @@ for the future generation that ships them:
 
 ---
 
+## Consumer adoption — canonical product-agent layout
+
+You are wiring a product agent (gtm, creative, legal, tax, agent-builder, physim, or new) onto `@tangle-network/agent-eval`. The substrate has matured (0.50.2+). There is **one canonical file layout, one record shape, one set of entry points**. Use it.
+
+This section is for people writing **product code that consumes the substrate** — different audience from the §Production-rigor primitives above (which is for substrate-internal authoring + API-correctness). Both audiences should know each other's section exists.
+
+### The one canonical layout
+
+```
+<product-repo>/
+  eval/
+    scenarios.json              ← THE canonical scenario list (DatasetScenario[])
+    judges.ts                   ← judge ensemble + composite weights
+    agent-profile.ts            ← the agent under test (defineAgent / AgentProfile)
+    scripts/
+      run-campaign.ts           ← pnpm eval — runs scenarios, writes records.jsonl
+      insight-report.ts         ← pnpm eval:report — analyzeRuns() + InsightReport
+      self-improve.ts           ← pnpm self-improve — selfImprove() closed loop
+    .runs/
+      <campaign-id>/
+        records.jsonl           ← RunRecord[] — the ONLY canonical record shape
+        scores.json
+        traces.jsonl            ← optional per-span trace dump
+```
+
+**Non-negotiable:**
+
+1. **File name is `scenarios.json`** (or `scenarios.ts` if scenarios need code). NEVER `personas.json`, `tasks.json`, `cases.json`. The substrate's `runCampaign` reads `DatasetScenario[]`; renaming creates discovery friction for every new agent author.
+2. **Record shape is `RunRecord`** (substrate-native). NEVER a custom golden shape (`{personaId, score, pass, grader, judges, notes}`). Custom shapes break `analyzeRuns()`, the hosted wire format, every downstream adapter. If a consumer needs richer fields, put them in `RunRecord.outcome.raw` (escape hatch) — never restructure the envelope.
+3. **`eval/.runs/<campaign-id>/`** is the canonical location. NOT `tests/eval/.runs/`, NOT `data/traces/`, NOT scattered. One predictable path every tool finds.
+4. **Three pnpm scripts** are the entire consumer-facing API:
+   - `pnpm eval` — fire the campaign (write records.jsonl)
+   - `pnpm eval:report` — render the decision packet (no LLM cost)
+   - `pnpm self-improve` — run the closed loop (LLM cost, opt-in)
+
+### The three scripts — copy-paste-ready
+
+#### `eval/scripts/insight-report.ts`
+
+```typescript
+/**
+ * Loads the most recent records.jsonl under eval/.runs/ and renders the
+ * agent-eval InsightReport via analyzeRuns(). Run with: pnpm eval:report
+ */
+import { readFileSync, readdirSync, statSync } from 'node:fs'
+import { join } from 'node:path'
+import { analyzeRuns } from '@tangle-network/agent-eval/contract'
+import type { RunRecord } from '@tangle-network/agent-eval'
+
+const RUNS_DIR = 'eval/.runs'
+
+interface LatestHit { path: string; mtime: number }
+
+function findLatestRecordsFile(): string | null {
+  // State-holder pattern so closure mutation of `latest` survives TS2339
+  // narrowing under strict mode.
+  const state: { latest: LatestHit | null } = { latest: null }
+  function walk(dir: string) {
+    let entries: string[]
+    try { entries = readdirSync(dir) } catch { return }
+    for (const e of entries) {
+      const p = join(dir, e)
+      let s
+      try { s = statSync(p) } catch { continue }
+      if (s.isDirectory()) walk(p)
+      else if (e === 'records.jsonl' && (!state.latest || s.mtimeMs > state.latest.mtime)) {
+        state.latest = { path: p, mtime: s.mtimeMs }
+      }
+    }
+  }
+  walk(RUNS_DIR)
+  return state.latest?.path ?? null
+}
+
+async function main() {
+  const path = findLatestRecordsFile()
+  if (!path) { console.error(`No records.jsonl found under ${RUNS_DIR}/`); process.exit(1) }
+  const runs: RunRecord[] = readFileSync(path, 'utf8')
+    .split('\n').filter((l) => l.trim()).map((l) => JSON.parse(l) as RunRecord)
+  console.log(`Loaded ${runs.length} runs from ${path}\n`)
+  const report = await analyzeRuns({ runs })
+  console.log(JSON.stringify(report, null, 2))
+}
+
+main().catch((e) => { console.error(e); process.exit(1) })
+```
+
+Package.json: `"eval:report": "tsx eval/scripts/insight-report.ts"`.
+
+#### `eval/scripts/self-improve.ts`
+
+```typescript
+/**
+ * Closed-loop self-improvement. Costs LLM tokens — opt-in only.
+ * Run with: pnpm self-improve (or pnpm self-improve --dry to typecheck only)
+ */
+import { selfImprove, gepaDriver } from '@tangle-network/agent-eval/contract'
+import { scenarios } from '../scenarios'
+import { judges } from '../judges'
+import { agent, baselineSurface } from '../agent-profile'
+
+async function main() {
+  if (process.argv.includes('--dry')) {
+    console.log('Dry-run: wiring is type-correct. Pass without --dry to actually run.')
+    return
+  }
+  const result = await selfImprove({
+    scenarios, agent, judge: judges[0]!, baselineSurface,
+    driver: gepaDriver(),
+    budget: { generations: 1, populationSize: 2, holdoutFraction: 0.3 },
+  })
+  console.log(`Gate decision:  ${result.gateDecision}`)
+  console.log(`Lift:           ${result.lift.toFixed(3)}`)
+  console.log(`Total cost USD: $${result.totalCostUsd.toFixed(2)}`)
+  for (const r of result.insight.recommendations) {
+    console.log(`  [${r.priority}] ${r.title}`)
+  }
+}
+
+main().catch((e) => { console.error(e); process.exit(1) })
+```
+
+Package.json: `"self-improve": "tsx eval/scripts/self-improve.ts"`.
+
+### What `selfImprove()` actually mutates — be precise
+
+`MutableSurface = string | CodeSurface`. In every current consumer, **one string** (a system-prompt addendum). The loop does NOT mutate:
+
+| Thing | Mutated by `selfImprove`? |
+|---|---|
+| The `baselineSurface` string the consumer designates | **Yes** — only this |
+| User messages in scenarios | No — scenarios are fixed corpus |
+| Scenario list | No |
+| Judge prompt / rubric | No by default — pass-through config |
+| Reviewer / driver's own reflection prompt | No by default |
+| Model / temperature / tools | No — runtime constants |
+
+**The substrate IS surface-agnostic** — you can point a driver at a judge prompt, a reviewer prompt, or even a driver's own reflection prompt, IF you wire (a) that string as the `surface` and (b) a meta-judge that scores the output of running through the new prompt. Nobody does this today; it's a recursive capability waiting for a use case.
+
+### Driver choice — decision tree
+
+```
+Do you have ≥5 well-defined transformations to test (e.g. directive enum)?
+├── YES → `evolutionaryDriver({ mutator })` with a hand-tuned Mutator
+│         • $0 mutation cost (deterministic transform per candidate)
+│         • Predictable, CI-cron-friendly
+│         • Use for repeated runs against the same prompt family
+│
+└── NO → does your domain need scoring evidence the driver can't reason about
+         (e.g. voice-match, ground-truth rubrics, multi-agent transcripts)?
+         ├── YES → custom `ImprovementDriver` that consumes the report
+         │         + dataset + findings the way your domain needs
+         │
+         └── NO → `gepaDriver()` (the default)
+                  • Reflective LLM mutation reading per-scenario scores +
+                    weakest dimensions
+                  • $$ per candidate (LLM call to propose), but discovery
+                    breadth wins when the search space is fuzzy
+                  • Surface-agnostic: works on any string
+```
+
+**Recipe by tier:**
+
+- **Prompt-tier (string surface)** — start with `gepaDriver()`. Escalate to a custom `Mutator` + `evolutionaryDriver` only when you have a known directive enum that beats LLM-discovery.
+- **Code-tier (`CodeSurface`)** — use agent-runtime's `improvementDriver` with a `reflectiveGenerator` or `agenticGenerator`. The substrate's drivers don't reason about code diffs.
+- **Knowledge-tier** — out of scope here; agent-knowledge owns this.
+
+### Surface menu — what string to pick
+
+When wiring `baselineSurface`, ask: what's the ONE string whose change has the highest measurable effect on the agent's behavior?
+
+Common answers, ranked:
+
+1. **System-prompt addendum** — a markdown file or constant the production prompt appends. Highest impact per character. **Default; all current consumers do this.**
+2. **Full system prompt** — replace the whole thing. More powerful but higher regression risk. Use only when (a) the prompt has structural issues, (b) you have a robust gate.
+3. **One specific specialist's prompt** — when only one agent role drives the failing dimension.
+4. **Judge / reviewer prompt** — recursive; requires a meta-judge. Powerful but operationally complex. Defer until pass-1 prompt evolution converges.
+5. **Tool description / function spec** — when failures are tool-selection mistakes.
+
+The recommendation: **pick option 1** for the first selfImprove cycle. Only escalate to 2–5 when option 1 plateaus across 3+ generations.
+
+### Drift you will encounter — fix in place, don't perpetuate
+
+| Drift symptom | Why it exists | Canonical fix |
+|---|---|---|
+| `personas.json` instead of `scenarios.json` | Product UI is persona-driven; team named the eval file to match. | Rename to `scenarios.json`. `DatasetScenario` IS the persona shape. |
+| Custom golden record shape (`{personaId, score, pass, grader, ...}`) | Predates `RunRecord` canonical. | Rewrite the writer to emit `RunRecord` (push custom fields into `outcome.raw`). |
+| Records under `tests/eval/.runs/` instead of `eval/.runs/` | Pre-substrate placement, kept by inertia. | Move to `eval/.runs/`. The "tests" prefix lies about what's there. |
+| Scenarios scattered across multiple files | Organic growth. | Consolidate into single `eval/scenarios.json`. Re-export during migration; delete scattered files in follow-up. |
+| Bespoke `metrics.ts` computing mean / variance / IQR | Predates `analyzeRuns()`. | Delete; replace with `pnpm eval:report`. |
+| Bespoke `scorecard-integration.ts` | Wraps `recordRunsToScorecard` + `diffScorecard` — LEGITIMATE substrate primitives, distinct from `analyzeRuns()`. | KEEP. Scorecard timeline is orthogonal to insight packet. |
+
+### Verification checklist
+
+Every product agent should pass:
+
+1. `pnpm eval` — writes a `records.jsonl` whose first line `JSON.parse`s to a `RunRecord` (has `runId`, `outcome.{searchScore | holdoutScore}`, `experimentId`, `costUsd`, `tokenUsage`).
+2. `pnpm eval:report` — loads that records.jsonl, prints a JSON `InsightReport` with `composite`, `recommendations`, `costQuality`, `judges`. If `recommendations: []` on a corpus where composite is poor, the substrate has a bug — file it.
+3. `pnpm self-improve --dry` — typechecks the wiring without LLM calls. `pnpm self-improve` without `--dry` runs the live loop with real cost.
+
+If any fails, the consumer is not canonically adopted yet.
+
 ## Status of this doc
 
-**Sole source of truth for agent-eval usage directives.**
+**Sole source of truth for agent-eval usage directives AND product-agent adoption.**
 
 - `README.md` points here.
 - `CLAUDE.md` points here.
 - Inline JSDoc uses `see .claude/skills/agent-eval/SKILL.md §<section>`.
 
 If you update the API and this file goes out of sync, the API change is
-incomplete. Same rule for the footguns and rules — they were written
-from shipped incidents. Extending the list is welcome; silently
-deleting an entry is not.
+incomplete. Same rule for the footguns, rules, and consumer-adoption
+patterns — they were written from shipped incidents and shipped product
+agents. Extending the list is welcome; silently deleting an entry is not.
