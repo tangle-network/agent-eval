@@ -4,6 +4,29 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ---
 
+## [0.53.0] — 2026-05-27 — prior-period comparison ("did my last change help?")
+
+### Added
+
+- **`analyzeRuns({ runs, baselineRuns?, baselineLabel? })`** — when `baselineRuns` is provided, `InsightReport` gains a `priorPeriodComparison` block. Two-sample Welch comparison (unpaired — the two windows do NOT need to share scenarios) on: composite score, cost, duration, token usage, and every judge dimension present in both windows.
+- **`PriorPeriodComparison` + `MetricDelta` types** — per-metric `current`, `baseline`, `delta`, Welch 95% CI, p-value, Cohen's d, `baselineN`/`currentN`, and `significant` boolean (p < 0.05 AND |d| ≥ 0.2 — conjunction prevents large-effect-but-noisy and significant-but-tiny from triggering).
+- **`regressedMetrics` + `improvedMetrics` lists** — direction-aware (cost/duration are lower-is-better; composite/dimensions are higher-is-better). Drives the recommendations engine.
+- **New recommendations** — `critical/investigate` fires per regressed metric with the full statistical detail in the rationale (`Welch CI95 = [..], p=.., Cohen's d=..`). `low/ship` fires per improved metric so consumers see what to celebrate without noise.
+
+### Why this matters
+
+"Did my last change help?" is the conversion question for every observability prospect. LangSmith / Braintrust / Phoenix ship scorecards without paired-CI deltas. Hermes has no comparison at all. Our `priorPeriodComparison` answers the question with a falsifiable, statistically-rigorous delta. The block lands in the existing `InsightReport` so every consumer of `analyzeRuns` picks it up automatically.
+
+### Architectural context
+
+Part of the self-improvement-protocol design (`docs/design/self-improvement-protocol.md`). This is 0.53.0 of the roadmap that ends at 1.0.0 (profile-versioning + composite driver) and 1.1.0 (empirical-proof publication).
+
+### Notes
+
+Pure additive surface. `priorPeriodComparison?` is optional; existing consumers untouched. 10 new tests under `tests/prior-period-comparison.test.ts` cover: no-comparison-when-omitted, significant improvement, significant regression, direction-awareness for cost/duration, noise rejection, per-dimension comparison, empty windows, CI bracket-the-truth, both recommendation types. Full suite 1454/1454 green.
+
+---
+
 ## [0.52.0] — 2026-05-27 — honest drivers + profile-versioning architecture
 
 ### Honest correction

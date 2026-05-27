@@ -90,6 +90,13 @@ export interface InsightReport {
    *  this summary captures the analyzeRuns-derived axes. */
   release: ReleaseSummary
 
+  /** Delta vs a prior period when `baselineRuns` is passed. Per-metric
+   *  current vs baseline with Welch CI + Cohen's d + significance flag.
+   *  Answers "did my last change help?" — the customer-conversion question.
+   *  Surfaced metrics: composite, cost, duration, tokenUsage, plus any
+   *  per-dimension judge metric present in both windows. */
+  priorPeriodComparison?: PriorPeriodComparison
+
   /** Top-N actionable recommendations, ranked by priority. The packet's
    *  human-readable layer; the numeric sections are the evidence. */
   recommendations: Recommendation[]
@@ -225,6 +232,48 @@ export interface ReleaseSummary {
   /** Free-form issues surfaced beyond the standard axes. Empty by default;
    *  consumers can post-process to populate. */
   issues: string[]
+}
+
+export interface MetricDelta {
+  /** Current-period mean. */
+  current: number
+  /** Baseline-period mean. */
+  baseline: number
+  /** current - baseline. Positive means improved (or, for cost/duration,
+   *  the consumer-side interpretation: "higher current" — semantic
+   *  direction depends on the metric). */
+  delta: number
+  /** Welch 95% confidence interval on the delta. Two-sample, unpaired —
+   *  the baseline and current run sets may have different scenarios. */
+  ci95: [number, number]
+  /** Welch t-test p-value (two-sided). */
+  pValue: number
+  /** Cohen's d (pooled stddev). Effect size, signed. */
+  cohensD: number
+  /** Sample sizes. */
+  baselineN: number
+  currentN: number
+  /** True when p < 0.05 AND |d| >= 0.2 (small-effect threshold). The
+   *  conjunction prevents large-effect-but-noisy and significant-but-
+   *  tiny from triggering recommendations. */
+  significant: boolean
+}
+
+export interface PriorPeriodComparison {
+  /** Sample counts. */
+  baselineN: number
+  currentN: number
+  /** Optional human-readable label — "vs prior 7 days", "vs v3 release". */
+  windowLabel?: string
+  /** Every metric we could compare. Keys: 'composite', 'cost', 'duration',
+   *  'tokenUsage' for always-present ones; per-dimension keys when both
+   *  windows have judge scores on the same dimension. */
+  metrics: Record<string, MetricDelta>
+  /** Metric names where current is significantly WORSE than baseline.
+   *  Direction-aware: for cost/duration, higher current = worse. */
+  regressedMetrics: string[]
+  /** Metric names where current is significantly BETTER than baseline. */
+  improvedMetrics: string[]
 }
 
 export interface Recommendation {
