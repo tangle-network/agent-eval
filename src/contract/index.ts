@@ -189,6 +189,14 @@ export type {
 // output straight into `analyzeRuns({ runs })`.
 
 export {
+  type AgentTraceContributor,
+  type AgentTraceContributorType,
+  type AgentTraceConversation,
+  type AgentTraceFile,
+  type AgentTraceIndex,
+  type AgentTraceRange,
+  type AgentTraceRecord,
+  type AuthoringProvenance,
   type FeedbackTableMeta,
   type FeedbackTableRow,
   type FromFeedbackTableOptions,
@@ -196,4 +204,7 @@ export {
   type FromOtelSpansOptions,
   fromFeedbackTable,
   fromOtelSpans,
+  type PartitionByAuthoringModelResult,
+  parseAgentTrace,
+  partitionRunsByAuthoringModel,
 } from './intake'

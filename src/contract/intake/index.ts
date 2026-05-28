@@ -14,11 +14,23 @@
  */
 
 export {
+  type AgentTraceContributor,
+  type AgentTraceContributorType,
+  type AgentTraceConversation,
+  type AgentTraceFile,
+  type AgentTraceIndex,
+  type AgentTraceRange,
+  type AgentTraceRecord,
+  type AuthoringProvenance,
+  type PartitionByAuthoringModelResult,
+  parseAgentTrace,
+  partitionRunsByAuthoringModel,
+} from './agent-trace'
+export {
   type FeedbackTableMeta,
   type FeedbackTableRow,
   type FromFeedbackTableOptions,
   type FromFeedbackTableResult,
   fromFeedbackTable,
 } from './feedback-table'
-
 export { type FromOtelSpansOptions, fromOtelSpans } from './otel-spans'
