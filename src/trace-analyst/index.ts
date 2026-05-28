@@ -32,6 +32,11 @@ export {
   tokenizeDomainWords,
 } from './insights'
 export {
+  type FlattenOtlpOptions,
+  flattenOtlpExportToNdjson,
+  type OtlpFlatLine,
+} from './otlp-flatten'
+export {
   TRACE_ANALYST_ACTOR_DESCRIPTION,
   TRACE_ANALYST_ACTOR_DESCRIPTION_VERSION,
   TRACE_ANALYST_SUBAGENT_DESCRIPTION,

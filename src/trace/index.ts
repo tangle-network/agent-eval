@@ -1,3 +1,4 @@
+export * from './capture-fetch'
 export * from './emitter'
 export * from './integrity'
 export * from './otel'
