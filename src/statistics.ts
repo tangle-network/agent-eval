@@ -272,6 +272,99 @@ export function cohensD(a: number[], b: number[]): number {
   return (meanB - meanA) / pooled
 }
 
+export type CliffsMagnitude = 'negligible' | 'small' | 'medium' | 'large'
+
+/**
+ * Cliff's delta — a non-parametric effect size for two independent samples.
+ * `δ = (#(after > before) − #(after < before)) / (n_before · n_after)`,
+ * ranging [-1, 1]. Positive ⇒ `after` tends to exceed `before` (improvement).
+ *
+ * Distribution-free counterpart to Cohen's d: no normality assumption, robust
+ * to the bounded/skewed score distributions judges produce. Pairs with
+ * `pairedBootstrap` / `wilcoxonSignedRank` for the non-parametric reporting
+ * path. Returns 0 when either sample is empty.
+ */
+export function cliffsDelta(before: number[], after: number[]): number {
+  const n = before.length * after.length
+  if (n === 0) return 0
+  let dominance = 0
+  for (const a of after) {
+    for (const b of before) {
+      if (a > b) dominance += 1
+      else if (a < b) dominance -= 1
+    }
+  }
+  return dominance / n
+}
+
+/**
+ * Map a Cliff's delta to a qualitative magnitude using the standard
+ * Romano et al. thresholds (|δ|): <0.147 negligible, <0.33 small,
+ * <0.474 medium, else large.
+ */
+export function interpretCliffs(delta: number): CliffsMagnitude {
+  const d = Math.abs(delta)
+  if (d < 0.147) return 'negligible'
+  if (d < 0.33) return 'small'
+  if (d < 0.474) return 'medium'
+  return 'large'
+}
+
+export interface WeightedCompositeInput {
+  /** Per-dimension scores (typically 0..1). */
+  dims: Record<string, number>
+  /** Weight per dimension. Every weighted dimension MUST be present in
+   *  `dims` — a weight for an absent dimension is a config error and throws,
+   *  because silently dropping it would renormalise the composite onto a
+   *  different denominator than intended. */
+  weights: Record<string, number>
+  /** Optional pass threshold; when set, the result reports `pass`. */
+  threshold?: number
+}
+
+export interface WeightedCompositeResult {
+  composite: number
+  pass?: boolean
+}
+
+/**
+ * Weighted composite over judge dimensions: `Σ(score_d · w_d) / Σ(w_d)` across
+ * the weighted dimensions. The canonical replacement for the per-consumer
+ * hand-rolled composite math (tax/legal/creative/gtm each ship a copy).
+ *
+ * Fail-loud: throws if a weighted dimension is missing from `dims`, if any
+ * weight is negative, or if the weights sum to 0 — none of which can produce
+ * a meaningful composite.
+ */
+export function weightedComposite(input: WeightedCompositeInput): WeightedCompositeResult {
+  const entries = Object.entries(input.weights)
+  if (entries.length === 0) {
+    throw new Error('weightedComposite: `weights` is empty — nothing to combine')
+  }
+  let weightedSum = 0
+  let weightTotal = 0
+  for (const [dim, weight] of entries) {
+    if (weight < 0) {
+      throw new Error(`weightedComposite: weight for '${dim}' is negative (${weight})`)
+    }
+    if (!(dim in input.dims)) {
+      throw new Error(
+        `weightedComposite: weighted dimension '${dim}' is absent from \`dims\` — ` +
+          'refusing to renormalise onto a different denominator',
+      )
+    }
+    weightedSum += input.dims[dim]! * weight
+    weightTotal += weight
+  }
+  if (weightTotal === 0) {
+    throw new Error('weightedComposite: weights sum to 0 — composite is undefined')
+  }
+  const composite = weightedSum / weightTotal
+  return input.threshold === undefined
+    ? { composite }
+    : { composite, pass: composite >= input.threshold }
+}
+
 // ── Corpus-wide inter-rater agreement ──────────────────────────────
 //
 // The legacy `interRaterReliability(judgeScores)` computes a within-item

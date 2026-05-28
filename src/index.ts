@@ -233,6 +233,23 @@ export {
   summarizeBackendIntegrity,
 } from './integrity/backend-integrity'
 export {
+  type AssertSingleBackendOptions,
+  assertSingleBackend,
+  type BackendDescriptor,
+  type SingleBackendDivergence,
+  SingleBackendError,
+  type SingleBackendField,
+  type SingleBackendReport,
+} from './integrity/single-backend'
+// ── Judge families (cross-family enforcement) ────────────────────────
+export {
+  type AssertCrossFamilyOptions,
+  assertCrossFamily,
+  CrossFamilyError,
+  type JudgeFamily,
+  judgeFamily,
+} from './judge-families'
+export {
   adversarialJudge,
   codeExecutionJudge,
   coherenceJudge,
@@ -289,21 +306,26 @@ export {
   scoreFromEvals,
 } from './run-evidence'
 export type {
+  CliffsMagnitude,
   CorpusAgreementOptions,
   CorpusAgreementPerDimension,
   CorpusAgreementReport,
   CorpusScoreRecord,
   PairedBootstrapOptions,
   PairedBootstrapResult,
+  WeightedCompositeInput,
+  WeightedCompositeResult,
 } from './statistics'
 // ── Statistics ───────────────────────────────────────────────────────
 export {
   benjaminiHochberg,
   bonferroni,
+  cliffsDelta,
   cohensD,
   confidenceInterval,
   corpusInterRaterAgreement,
   corpusInterRaterAgreementFromJudgeScores,
+  interpretCliffs,
   interRaterReliability,
   mannWhitneyU,
   normalizeScores,
@@ -312,6 +334,7 @@ export {
   pairedTTest,
   partialCredit,
   requiredSampleSize,
+  weightedComposite,
   weightedMean,
   wilcoxonSignedRank,
 } from './statistics'
