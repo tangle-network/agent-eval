@@ -82,4 +82,24 @@ describe('empirical proof — analyzeRuns on a real agent corpus (agent-builder 
     expect(rec!.priority).toBe('high') // 28% share ≥ 0.25
     expect(rec!.title).toContain('forge_build_unsatisfied')
   })
+
+  it('keys on the canonical failureClass once a producer migrates to it', async () => {
+    // Forward-compat: when a record carries the canonical cross-agent
+    // `failureClass`, the tally + recommendation key on THAT (the shared
+    // vocabulary), not the free-form `failureMode` detail. This is what
+    // makes fleet-wide aggregation work across agents with different
+    // domain vocabularies.
+    const runs = loadRealCorpus().map((r) =>
+      r.failureMode === 'forge_build_unsatisfied'
+        ? { ...r, failureClass: 'tool_recovery_failure' as const }
+        : r,
+    )
+    const report = await analyzeRuns({ runs })
+
+    const top = report.failureModes![0]!
+    expect(top.mode).toBe('tool_recovery_failure') // canonical class, not the detail
+    expect(top.count).toBe(9)
+    const rec = report.recommendations.find((r) => r.evidencePath === 'failureModes')
+    expect(rec!.title).toContain('tool_recovery_failure')
+  })
 })

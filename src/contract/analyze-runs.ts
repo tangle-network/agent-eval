@@ -185,13 +185,16 @@ export async function analyzeRuns(opts: AnalyzeRunsOptions): Promise<InsightRepo
   }
 }
 
-/** Model-free failure-mode tally from `RunRecord.failureMode`. Returns
- *  undefined when no run carries a tag — so a clean corpus shows nothing
- *  rather than an empty section. */
+/** Model-free failure tally. Keys on the canonical cross-agent
+ *  `failureClass` when present, falling back to the free-form `failureMode`
+ *  for un-migrated producers — so the cross-fleet vocabulary is used the
+ *  moment a producer adopts it, without breaking legacy corpora. Returns
+ *  undefined when no run carries either tag. */
 function computeFailureModes(runs: RunRecord[]): FailureModeTally[] | undefined {
   const counts = new Map<string, number>()
   for (const r of runs) {
-    if (r.failureMode) counts.set(r.failureMode, (counts.get(r.failureMode) ?? 0) + 1)
+    const key = r.failureClass ?? r.failureMode
+    if (key) counts.set(key, (counts.get(key) ?? 0) + 1)
   }
   if (counts.size === 0) return undefined
   const n = runs.length

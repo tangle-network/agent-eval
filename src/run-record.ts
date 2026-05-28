@@ -26,6 +26,7 @@
 import type { AgentProfileCell } from './agent-profile-cell'
 import { validateAgentProfileCell } from './agent-profile-cell'
 import { ValidationError } from './errors'
+import type { FailureClass } from './trace/schema'
 
 /** Search/dev/holdout split tag. 'search' is the paper-grade alias for the
  *  combined train+test pool that the optimizer is allowed to read. */
@@ -152,9 +153,16 @@ export interface RunRecord {
   judgeMetadata?: RunJudgeMetadata
   /** Per-split scores + raw bag. */
   outcome: RunOutcome
-  /** Categorical failure tag, when the run failed and the harness
-   *  classified it. Free-form string; standard tags live in
-   *  `failure-taxonomy.ts`. */
+  /** Canonical, cross-agent failure class drawn from the shared
+   *  `FAILURE_CLASSES` taxonomy. This is the aggregation key that makes
+   *  "which failure dominates across the whole fleet" answerable in ONE
+   *  vocabulary — every agent classifies against the same enum. Producers
+   *  set it via the substrate classifier; leave unset only when the failure
+   *  genuinely can't be classified. */
+  failureClass?: FailureClass
+  /** Free-form domain-specific failure detail, scoped UNDER `failureClass`
+   *  (e.g. failureClass='tool_recovery_failure', failureMode='forge_build_unsatisfied').
+   *  The within-agent drill-down; `failureClass` is the cross-agent key. */
   failureMode?: string
   /** Which split this run was drawn from. */
   splitTag: RunSplitTag
