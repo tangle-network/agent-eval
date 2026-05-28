@@ -267,6 +267,26 @@ describe('runEvalCampaign — failure handling', () => {
     expect(calls.count).toBe(8)
   })
 
+  it('propagates the outcome failureClass + failureMode onto the RunRecord', async () => {
+    // A runner that classifies its failure with the canonical cross-agent
+    // key (failureClass) plus a domain detail (failureMode). The projection
+    // must carry BOTH onto the RunRecord so the substrate aggregates campaign
+    // failures in the same vocabulary as runtime-produced records.
+    const classifiedRunner: CampaignRunner<VariantPayload> = async (ctx) => {
+      const base = await defaultRunner(ctx)
+      return {
+        ...base,
+        failureClass: 'instruction_following' as const,
+        failureMode: 'forge_build_unsatisfied',
+      }
+    }
+    const result = await runEvalCampaign(baseOpts({ runner: classifiedRunner }))
+    expect(result.runs.length).toBeGreaterThan(0)
+    const r = result.runs[0]!
+    expect(r.failureClass).toBe('instruction_following')
+    expect(r.failureMode).toBe('forge_build_unsatisfied')
+  })
+
   it('mark_failed (default) collects integrity-failed runs into failedRuns', async () => {
     const noCaptureRunner: CampaignRunner<VariantPayload> = async (ctx) => {
       // Runs without recording any LLM span — fails default integrity (llmSpansMin=1).

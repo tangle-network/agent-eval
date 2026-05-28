@@ -65,6 +65,7 @@ import {
   type RunIntegrityReport,
 } from './trace/integrity'
 import { FileSystemRawProviderSink, type RawProviderSink } from './trace/raw-provider-sink'
+import type { FailureClass } from './trace/schema'
 import type { TraceStore } from './trace/store'
 
 // ── Public types ─────────────────────────────────────────────────────────
@@ -124,7 +125,11 @@ export interface CampaignRunOutcome {
   configHash: string
   /** Optional extra numeric metrics to land in `outcome.raw`. */
   raw?: Record<string, number>
-  /** Optional failure-taxonomy tag if the run failed. */
+  /** Canonical cross-agent failure class from the shared `FAILURE_CLASSES`
+   *  taxonomy. Propagated to `RunRecord.failureClass` so campaign runs
+   *  aggregate failures in the same vocabulary as every other producer. */
+  failureClass?: FailureClass
+  /** Optional free-form failure detail, scoped under `failureClass`. */
   failureMode?: string
   /** Optional judge metadata when a judge was used. */
   judgeMetadata?: RunJudgeMetadata
@@ -511,6 +516,7 @@ export async function runEvalCampaign<V>(
       tokenUsage: outcome.tokenUsage,
       judgeMetadata: outcome.judgeMetadata,
       outcome: recordOutcome,
+      ...(outcome.failureClass ? { failureClass: outcome.failureClass } : {}),
       failureMode: outcome.failureMode,
       splitTag,
       scenarioId: cell.scenario.scenarioId,
