@@ -30,6 +30,7 @@ import { type ParetoFigureSpec, paretoChart } from '../summary-report'
 
 import type {
   FailureClusterInsight,
+  FailureModeTally,
   InsightReport,
   InterRaterInsight,
   JudgeInsight,
@@ -137,6 +138,8 @@ export async function analyzeRuns(opts: AnalyzeRunsOptions): Promise<InsightRepo
     ? await computeFailureClusters(runs, opts.analyst, split)
     : undefined
 
+  const failureModes = computeFailureModes(runs)
+
   const contamination = opts.canaryScenarios
     ? computeContamination(runs, opts.canaryScenarios)
     : undefined
@@ -157,6 +160,7 @@ export async function analyzeRuns(opts: AnalyzeRunsOptions): Promise<InsightRepo
     interRater,
     lift,
     failureClusters,
+    failureModes,
     contamination,
     outcomeCorrelation,
     priorPeriodComparison,
@@ -175,9 +179,25 @@ export async function analyzeRuns(opts: AnalyzeRunsOptions): Promise<InsightRepo
     contamination,
     outcomeCorrelation,
     release,
+    ...(failureModes ? { failureModes } : {}),
     ...(priorPeriodComparison ? { priorPeriodComparison } : {}),
     recommendations,
   }
+}
+
+/** Model-free failure-mode tally from `RunRecord.failureMode`. Returns
+ *  undefined when no run carries a tag — so a clean corpus shows nothing
+ *  rather than an empty section. */
+function computeFailureModes(runs: RunRecord[]): FailureModeTally[] | undefined {
+  const counts = new Map<string, number>()
+  for (const r of runs) {
+    if (r.failureMode) counts.set(r.failureMode, (counts.get(r.failureMode) ?? 0) + 1)
+  }
+  if (counts.size === 0) return undefined
+  const n = runs.length
+  return [...counts.entries()]
+    .map(([mode, count]) => ({ mode, count, share: n > 0 ? count / n : 0 }))
+    .sort((a, b) => b.count - a.count || a.mode.localeCompare(b.mode))
 }
 
 // ── Prior-period comparison ─────────────────────────────────────────
@@ -870,6 +890,7 @@ interface RecommendationContext {
   interRater?: InterRaterInsight
   lift?: LiftInsight
   failureClusters?: FailureClusterInsight
+  failureModes?: FailureModeTally[]
   contamination?: InsightReport['contamination']
   outcomeCorrelation?: OutcomeCorrelationInsight
   priorPeriodComparison?: PriorPeriodComparison
@@ -943,6 +964,24 @@ function buildRecommendations(ctx: RecommendationContext): Recommendation[] {
             ? `Worst ${tail.length} run${tail.length === 1 ? '' : 's'}: ${names}. Histogram p50=${ctx.composite.p50.toFixed(3)}, p95=${ctx.composite.p95.toFixed(3)}.`
             : `Histogram p50=${ctx.composite.p50.toFixed(3)}, p95=${ctx.composite.p95.toFixed(3)}.`,
         evidencePath: 'composite.tailRuns',
+      })
+    }
+  }
+
+  // Dominant-failure-mode branch (model-free). A healthy-looking mean can
+  // hide a bimodal corpus — many perfect runs + a cluster of total failures
+  // sharing one named cause. Fires off the structured `failureMode` tags the
+  // harness already recorded, so a single batch with no analyst/baseline
+  // still gets a "go fix this" pointer.
+  if (ctx.failureModes && ctx.failureModes.length > 0) {
+    const top = ctx.failureModes[0]!
+    if (top.count >= 3 && top.share >= 0.15) {
+      out.push({
+        priority: top.share >= 0.25 ? 'high' : 'medium',
+        kind: 'investigate',
+        title: `'${top.mode}' is the dominant failure mode — ${top.count} runs (${(top.share * 100).toFixed(0)}% of the corpus)`,
+        detail: `The mean composite can look acceptable while one named failure dominates the lower tail. ${top.count} of ${ctx.composite.n} runs failed with '${top.mode}'${ctx.failureModes.length > 1 ? ` (next: '${ctx.failureModes[1]!.mode}' ×${ctx.failureModes[1]!.count})` : ''}. Fix this cause first.`,
+        evidencePath: 'failureModes',
       })
     }
   }

@@ -97,6 +97,12 @@ export interface InsightReport {
    *  per-dimension judge metric present in both windows. */
   priorPeriodComparison?: PriorPeriodComparison
 
+  /** Model-free failure-mode breakdown from `RunRecord.failureMode`, ranked
+   *  by count descending. Present when any run carries a `failureMode`.
+   *  Complements `failureClusters` (LLM-semantic) with the structured tags
+   *  the harness already recorded — actionable with no analyst wired. */
+  failureModes?: FailureModeTally[]
+
   /** Top-N actionable recommendations, ranked by priority. The packet's
    *  human-readable layer; the numeric sections are the evidence. */
   recommendations: Recommendation[]
@@ -191,6 +197,20 @@ export interface FailureClusterInsight {
     suggestedFix?: string
   }>
   totalFailures: number
+}
+
+/** Model-free failure breakdown over the structured `RunRecord.failureMode`
+ *  enum. Unlike `failureClusters` (semantic, requires an LLM analyst), this
+ *  is computed directly from the tags the harness already recorded — so a
+ *  customer ingesting one batch with no judge/analyst still learns which
+ *  named failure dominates. */
+export interface FailureModeTally {
+  /** The `failureMode` tag. */
+  mode: string
+  /** Number of runs carrying this tag. */
+  count: number
+  /** Share of the whole corpus, 0..1. */
+  share: number
 }
 
 export interface ContaminationInsight {
