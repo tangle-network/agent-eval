@@ -36,7 +36,9 @@ import type {
   LabeledScenarioSource,
   LabeledScenarioStore,
   LabeledScenarioWrite,
+  LabelTrust,
 } from '../types'
+import { labelTrustRank } from '../types'
 
 export interface FsLabeledScenarioStoreOptions {
   /** Root directory for JSONL files. Created if missing. */
@@ -131,8 +133,18 @@ export class FsLabeledScenarioStore implements LabeledScenarioStore {
     return all.slice(0, args.count)
   }
 
-  async size(): Promise<{ train: number; test: number; bySource: Record<string, number> }> {
+  async size(): Promise<{
+    train: number
+    test: number
+    bySource: Record<string, number>
+    byTrust: Record<LabelTrust, number>
+  }> {
     const bySource: Record<string, number> = {}
+    const byTrust: Record<LabelTrust, number> = {
+      unverified: 0,
+      'verified-signal': 0,
+      'human-rated': 0,
+    }
     let total = 0
     for (const source of ALL_SOURCES) {
       const path = this.pathForSource(source)
@@ -140,14 +152,23 @@ export class FsLabeledScenarioStore implements LabeledScenarioStore {
         bySource[source] = 0
         continue
       }
-      const count = readFileSync(path, 'utf8').split('\n').filter(Boolean).length
-      bySource[source] = count
-      total += count
+      const lines = readFileSync(path, 'utf8').split('\n').filter(Boolean)
+      bySource[source] = lines.length
+      total += lines.length
+      for (const line of lines) {
+        let trust: LabelTrust = 'unverified'
+        try {
+          trust = (JSON.parse(line) as LabeledScenarioRecord).labelTrust ?? 'unverified'
+        } catch {
+          // A malformed line counts as unverified — never silently gold.
+        }
+        byTrust[trust] += 1
+      }
     }
     // FS adapter doesn't track split assignments per-record (split is
     // computed at sample-time based on `capturedBefore`). For size(), we
     // report `train`+`test` as the same total — split is a sampling concept.
-    return { train: total, test: total, bySource }
+    return { train: total, test: total, bySource, byTrust }
   }
 
   private assertProvenance(write: LabeledScenarioWrite): void {
@@ -263,6 +284,9 @@ function matchesFilter(
     const max = composites.length === 0 ? 0 : Math.max(...composites)
     if (f.minComposite !== undefined && max < f.minComposite) return false
     if (f.maxComposite !== undefined && max > f.maxComposite) return false
+  }
+  if (f.minTrust !== undefined && labelTrustRank(record.labelTrust) < labelTrustRank(f.minTrust)) {
+    return false
   }
   return true
 }

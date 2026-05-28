@@ -372,6 +372,72 @@ describe('FsLabeledScenarioStore', () => {
     nowMs += 61_000
     await tinyStore.observe(write('c')) // new window
   })
+
+  it('gold gate: minTrust admits only records at or above the requested tier', async () => {
+    const obs = (id: string, labelTrust?: 'verified-signal' | 'human-rated') =>
+      store.observe({
+        scenario: { id, kind: 'chat' },
+        artifact: {},
+        judgeScores: {},
+        source: 'eval-run',
+        sourceVersionHash: 'v1',
+        capturedAt: '2026-06-01T00:00:00.000Z',
+        redactionStatus: 'raw',
+        ...(labelTrust ? { labelTrust } : {}),
+      })
+    await obs('weak') // absent labelTrust ⇒ unverified
+    await obs('signal', 'verified-signal')
+    await obs('human', 'human-rated')
+
+    const cutoff = '2026-01-01T00:00:00.000Z'
+    // Gold gate at verified-signal admits both verified-signal and human-rated,
+    // never the unverified heuristic — the data-poisoning guard.
+    const gold = await store.sample({
+      count: 10,
+      split: 'test',
+      capturedBefore: cutoff,
+      filter: { minTrust: 'verified-signal' },
+    })
+    expect(gold.map((r) => r.scenario.id).sort()).toEqual(['human', 'signal'])
+
+    // Strictest tier admits only human-rated.
+    const strict = await store.sample({
+      count: 10,
+      split: 'test',
+      capturedBefore: cutoff,
+      filter: { minTrust: 'human-rated' },
+    })
+    expect(strict.map((r) => r.scenario.id)).toEqual(['human'])
+
+    // No trust gate ⇒ corpus-level read returns everything.
+    const corpus = await store.sample({ count: 10, split: 'test', capturedBefore: cutoff })
+    expect(corpus).toHaveLength(3)
+  })
+
+  it('size() reports byTrust; absent labelTrust counts as unverified', async () => {
+    const obs = (id: string, labelTrust?: 'verified-signal' | 'human-rated') =>
+      store.observe({
+        scenario: { id, kind: 'chat' },
+        artifact: {},
+        judgeScores: {},
+        source: 'eval-run',
+        sourceVersionHash: 'v1',
+        capturedAt: '2026-06-01T00:00:00.000Z',
+        redactionStatus: 'raw',
+        ...(labelTrust ? { labelTrust } : {}),
+      })
+    await obs('w1')
+    await obs('w2')
+    await obs('s1', 'verified-signal')
+    await obs('h1', 'human-rated')
+
+    const size = await store.size()
+    expect(size.byTrust).toEqual({
+      unverified: 2,
+      'verified-signal': 1,
+      'human-rated': 1,
+    })
+  })
 })
 
 describe('runCampaign + LabeledScenarioStore integration', () => {

@@ -77,6 +77,7 @@ export type {
   LabeledScenarioSource,
   LabeledScenarioStore,
   LabeledScenarioWrite,
+  LabelTrust,
   MutableSurface,
   Mutator,
   OptimizerConfig,
@@ -87,6 +88,7 @@ export type {
   SessionScript,
   TraceSpan,
 } from './types'
+export { labelTrustRank } from './types'
 // ── Worktree adapter (VCS-pluggable; code-tier surfaces) ─────────────
 export {
   type GitWorktreeAdapterOptions,

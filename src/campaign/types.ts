@@ -280,6 +280,33 @@ export type LabeledScenarioSource =
 
 export type RedactionStatus = 'raw' | 'redacted-pii' | 'redacted-secrets' | 'fully-redacted'
 
+/** How much a label can be trusted to evaluate against — the gold-admission
+ *  gate. Strictly ordered: a record qualifies for a `minTrust` filter when its
+ *  trust rank is >= the requested rank.
+ *
+ *   - `unverified`      — label is a heuristic (e.g. raw outcome success/fail).
+ *                          Fine as corpus; MUST NOT enter a gold set that lift
+ *                          numbers are computed against.
+ *   - `verified-signal` — an external signal confirmed the outcome (PR merged,
+ *                          tests green, user did not retry, downstream check).
+ *   - `human-rated`     — a human explicitly rated or corrected the artifact.
+ *
+ *  Absent on a write ⇒ treated as `unverified` (fail-closed: a writer must
+ *  explicitly assert trust to make a record gold-eligible — it never happens
+ *  by accident). */
+export type LabelTrust = 'unverified' | 'verified-signal' | 'human-rated'
+
+const LABEL_TRUST_RANK: Record<LabelTrust, number> = {
+  unverified: 0,
+  'verified-signal': 1,
+  'human-rated': 2,
+}
+
+/** Ordinal rank for a label-trust tier; absent ⇒ `unverified` (rank 0). */
+export function labelTrustRank(trust: LabelTrust | undefined): number {
+  return LABEL_TRUST_RANK[trust ?? 'unverified']
+}
+
 /** @experimental Required-provenance write. The store rejects writes that
  *  lack provenance — a default-on flywheel without provenance is the
  *  data-poisoning vector flagged in the alignment review. */
@@ -291,6 +318,11 @@ export interface LabeledScenarioWrite<TScenario extends Scenario = Scenario, TAr
   sourceVersionHash: string
   capturedAt: string
   redactionStatus: RedactionStatus
+  /** Gold-admission trust tier. Absent ⇒ `unverified` (fail-closed): the
+   *  record is corpus, never gold. A writer must explicitly assert
+   *  `verified-signal` or `human-rated` to make it eligible for a gold
+   *  sample. See {@link LabelTrust}. */
+  labelTrust?: LabelTrust
   /** Optional per-source rate-limit bucket key (e.g., the tenant id). */
   rateLimitBucket?: string
 }
@@ -317,13 +349,25 @@ export interface LabeledScenarioSampleArgs {
     source?: LabeledScenarioSource | LabeledScenarioSource[]
     minComposite?: number
     maxComposite?: number
+    /** Gold gate: only records whose trust rank is >= this tier are
+     *  returned. `sample({ split: 'test', minTrust: 'verified-signal' })` is
+     *  the canonical "give me the gold set" call. Absent ⇒ no trust gate
+     *  (corpus-level read). */
+    minTrust?: LabelTrust
   }
 }
 
 export interface LabeledScenarioStore {
   observe(write: LabeledScenarioWrite): Promise<void>
   sample(args: LabeledScenarioSampleArgs): Promise<LabeledScenarioRecord[]>
-  size(): Promise<{ train: number; test: number; bySource: Record<string, number> }>
+  size(): Promise<{
+    train: number
+    test: number
+    bySource: Record<string, number>
+    /** Count by trust tier — tells the flywheel how much gold it has
+     *  accumulated vs. raw corpus. */
+    byTrust: Record<LabelTrust, number>
+  }>
 }
 
 // ── The CampaignResult schema (the downstream-tools contract) ─────────
