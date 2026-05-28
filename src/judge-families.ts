@@ -20,6 +20,8 @@ export type JudgeFamily =
   | 'qwen'
   | 'cohere'
   | 'amazon'
+  | 'moonshot'
+  | 'zhipu'
   | 'unknown'
 
 /** Explicit `provider/...` prefix → family (models.dev / OpenRouter style). */
@@ -40,6 +42,15 @@ const PROVIDER_PREFIX: Record<string, JudgeFamily> = {
   cohere: 'cohere',
   amazon: 'amazon',
   bedrock: 'amazon',
+  moonshot: 'moonshot',
+  moonshotai: 'moonshot',
+  kimi: 'moonshot',
+  'kimi-code': 'moonshot',
+  zhipu: 'zhipu',
+  zhipuai: 'zhipu',
+  zai: 'zhipu',
+  'z-ai': 'zhipu',
+  glm: 'zhipu',
 }
 
 /** Fallback model-name patterns when there's no recognised provider prefix. */
@@ -54,6 +65,8 @@ const NAME_PATTERNS: Array<[RegExp, JudgeFamily]> = [
   [/qwen/i, 'qwen'],
   [/command-?(r|a)?/i, 'cohere'],
   [/\b(nova|titan)\b/i, 'amazon'],
+  [/\bkimi\b|moonshot/i, 'moonshot'],
+  [/\bglm\b|zhipu|\bz-?ai\b/i, 'zhipu'],
 ]
 
 /**

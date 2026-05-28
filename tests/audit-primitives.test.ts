@@ -66,6 +66,20 @@ describe('judgeFamily + assertCrossFamily', () => {
     expect(judgeFamily('meta-llama/llama-3.3-70b')).toBe('meta')
     expect(judgeFamily('some-internal-model')).toBe('unknown')
   })
+  it('classifies Tangle cli-bridge model ids (moonshot + zhipu) instead of unknown', () => {
+    expect(judgeFamily('kimi/k2')).toBe('moonshot')
+    expect(judgeFamily('kimi-code/k2-0905')).toBe('moonshot')
+    expect(judgeFamily('moonshotai/kimi-k2')).toBe('moonshot')
+    expect(judgeFamily('opencode/kimi-k2')).toBe('moonshot')
+    expect(judgeFamily('zai/glm-4.6')).toBe('zhipu')
+    expect(judgeFamily('z-ai/glm-4.6')).toBe('zhipu')
+    expect(judgeFamily('glm-4.6')).toBe('zhipu')
+    expect(judgeFamily('zhipu/glm-4-plus')).toBe('zhipu')
+    expect(judgeFamily('claude-code/sonnet')).toBe('anthropic')
+  })
+  it('counts kimi vs glm as two distinct families (no false single-family collapse)', () => {
+    expect(assertCrossFamily(['kimi/k2', 'zai/glm-4.6'])).toEqual(['moonshot', 'zhipu'])
+  })
   it('passes a genuinely cross-family ensemble', () => {
     expect(assertCrossFamily(['anthropic/claude-opus-4-5', 'openai/gpt-4o'])).toEqual([
       'anthropic',
