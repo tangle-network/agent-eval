@@ -82,6 +82,30 @@ export interface TraceAnalystFilters {
   regex_pattern?: string
 }
 
+/** One distinct error signature across the dataset — the deterministic unit of
+ *  failure coverage. Signatures normalize volatile tokens (digits, hex/uuids,
+ *  paths, durations) out of the span `status_message` so semantically identical
+ *  failures collapse into one cluster. An analyst that accounts for every
+ *  cluster has, by construction, covered every distinct failure mode. */
+export interface ErrorCluster {
+  /** Normalized status_message — the cluster key. */
+  signature: string
+  /** A verbatim, un-normalized exemplar message (for exact-string citation). */
+  status_message_sample: string
+  /** The span name that most often carries this signature, if any. */
+  span_name: string | null
+  /** The tool that most often carries this signature, if any. */
+  tool_name: string | null
+  trace_count: number
+  span_count: number
+  /** trace_count / total error traces in the matched set (0..1). */
+  prevalence: number
+  /** Real trace ids carrying this signature (capped), passable to view/search. */
+  exemplar_trace_ids: string[]
+  /** Real span ids carrying this signature (capped). */
+  exemplar_span_ids: string[]
+}
+
 export interface DatasetOverview {
   total_traces: number
   raw_jsonl_bytes: number
@@ -92,6 +116,11 @@ export interface DatasetOverview {
   /** Up to 20 real trace ids the agent may pass to view/search tools. */
   sample_trace_ids: string[]
   errors: { trace_count: number; span_count: number }
+  /** The COMPLETE deterministic error-signature population, sorted by
+   *  trace_count desc. This is the failure-coverage checklist: an analysis is
+   *  complete only when every cluster here is accounted for. Empty when the
+   *  matched set has no error spans. */
+  error_clusters: ErrorCluster[]
   time_range: { earliest: string; latest: string } | null
 }
 
