@@ -35,8 +35,8 @@ importers:
         specifier: ^2.4.15
         version: 2.4.15
       '@tangle-network/sandbox':
-        specifier: 0.3.0
-        version: 0.3.0(viem@2.48.8(typescript@5.9.3)(zod@4.3.6))
+        specifier: 0.4.0
+        version: 0.4.0(viem@2.48.8(typescript@5.9.3)(zod@4.3.6))
       '@types/node':
         specifier: ^25.6.0
         version: 25.6.0
@@ -473,11 +473,6 @@ packages:
   '@scure/bip39@2.2.0':
     resolution: {integrity: sha512-T/Bj/YvYMNkIPq6EENO6/rcs2e7qTNuyoUXf0KBFDmp0ZDu0H2X4Lq6yC3i0c8PcWkov5EbW+yQZZbdMmk154A==}
 
-  '@tangle-network/agent-integrations@0.29.0':
-    resolution: {integrity: sha512-Avn4oBDTRP5v/3o1xq++uu/9+Rhl2hscIggeFPBGjtVYwhvbsSZL9pRrF3LfjqL9rjx9AocZOdsZC6MXrxKnkg==}
-    engines: {node: '>=20'}
-    hasBin: true
-
   '@tangle-network/sandbox@0.1.2':
     resolution: {integrity: sha512-6TPH9QgCgou9Bhc1kzLNL4/PRiT1mjId6NONY5Le/KT2kh77cXH8KN3TTY/cU+/eW+WM5FYJOy32FWl2HShXbw==}
     peerDependencies:
@@ -486,12 +481,12 @@ packages:
       viem:
         optional: true
 
-  '@tangle-network/sandbox@0.3.0':
-    resolution: {integrity: sha512-KfgvKhsUaOpkJe3AD19w7s4hdQekBlXQGoNx0xS4u6vuQk5YnFzBgv+EQeHCkkgETpYOWS2AN+6u/JhSyWStMw==}
+  '@tangle-network/sandbox@0.4.0':
+    resolution: {integrity: sha512-OwlPc4avdKEiJmRDWkyHbay5VDci6/Iyb/SQMiQi8II2dWItt2wT8gxVf50JOK6IAR/y77fbkNngeWw0ohc/0g==}
     peerDependencies:
       '@mastra/core': '*'
-      '@modelcontextprotocol/sdk': '*'
-      ai: '*'
+      '@modelcontextprotocol/sdk': ^1.29.0
+      ai: ^6.0.175
       openai: ^6.36.0
       viem: ^2.0.0
     peerDependenciesMeta:
@@ -1362,15 +1357,11 @@ snapshots:
       '@noble/hashes': 2.2.0
       '@scure/base': 2.2.0
 
-  '@tangle-network/agent-integrations@0.29.0': {}
-
   '@tangle-network/sandbox@0.1.2(viem@2.48.8(typescript@5.9.3)(zod@4.3.6))':
     optionalDependencies:
       viem: 2.48.8(typescript@5.9.3)(zod@4.3.6)
 
-  '@tangle-network/sandbox@0.3.0(viem@2.48.8(typescript@5.9.3)(zod@4.3.6))':
-    dependencies:
-      '@tangle-network/agent-integrations': 0.29.0
+  '@tangle-network/sandbox@0.4.0(viem@2.48.8(typescript@5.9.3)(zod@4.3.6))':
     optionalDependencies:
       viem: 2.48.8(typescript@5.9.3)(zod@4.3.6)
 
