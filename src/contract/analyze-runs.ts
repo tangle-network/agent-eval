@@ -24,6 +24,7 @@ import type { AnalystRegistry } from '../analyst/registry'
 import type { AnalystFinding } from '../analyst/types'
 import { checkCanaries } from '../contamination-guard'
 import type { DatasetScenario } from '../dataset'
+import { summarizeBackendIntegrity } from '../integrity/backend-integrity'
 import type { RunRecord } from '../run-record'
 import { cohensD, pairedBootstrap, pairedMde, pairedTTest, requiredSampleSize } from '../statistics'
 import { type ParetoFigureSpec, paretoChart } from '../summary-report'
@@ -114,7 +115,7 @@ export async function analyzeRuns(opts: AnalyzeRunsOptions): Promise<InsightRepo
   const pareto = paretoChart(runs, { split })
   const degraded: { cost?: string; pareto?: string } = {}
   if (costs.length === 0 || costs.every((c) => c === 0)) {
-    degraded.cost = 'no costUsd values recorded — cost axis carries no signal'
+    degraded.cost = diagnoseZeroCost(runs)
   }
   if (pareto.points.length < 2) {
     degraded.pareto =
@@ -190,6 +191,29 @@ export async function analyzeRuns(opts: AnalyzeRunsOptions): Promise<InsightRepo
  *  for un-migrated producers — so the cross-fleet vocabulary is used the
  *  moment a producer adopts it, without breaking legacy corpora. Returns
  *  undefined when no run carries either tag. */
+/** Explain a zero-valued cost axis by its root cause, not just "no signal".
+ *  Two distinct causes blank the axis and need opposite fixes:
+ *    - stub-mode (tokenUsage 0/0): the backend never reported real LLM
+ *      activity, so cost is unknowable — the fix is upstream (capture usage).
+ *    - uncosted (output>0 but costUsd 0): tokens flowed but the model id was
+ *      unpriced — the fix is pricing (isModelPriced / resolveModelPricing).
+ *  Reuses the backend-integrity summary so the diagnosis stays in lockstep
+ *  with the stub/uncosted detectors that gate canonical runs. */
+function diagnoseZeroCost(runs: RunRecord[]): string {
+  const integrity = summarizeBackendIntegrity(runs)
+  const { totalRecords, stubRecords, uncostedRecords } = integrity
+  if (totalRecords > 0 && stubRecords === totalRecords) {
+    return `no costUsd values recorded — all ${totalRecords} records are stub-mode (zero token usage). The backend never reported real LLM activity, so cost cannot be computed; verify the backend actually ran before trusting this corpus.`
+  }
+  if (uncostedRecords > 0) {
+    return `no costUsd values recorded — ${uncostedRecords}/${totalRecords} records have token usage but $0 cost (unpriced model). Check isModelPriced(model) for the run's model id and add it to FAMILY_PRICING.`
+  }
+  if (stubRecords > 0) {
+    return `no costUsd values recorded — ${stubRecords}/${totalRecords} records are stub-mode (zero token usage); the remainder reported neither tokens nor cost. Cost axis carries no signal.`
+  }
+  return 'no costUsd values recorded — cost axis carries no signal'
+}
+
 function computeFailureModes(runs: RunRecord[]): FailureModeTally[] | undefined {
   const counts = new Map<string, number>()
   for (const r of runs) {

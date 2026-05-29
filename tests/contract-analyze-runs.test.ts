@@ -399,8 +399,37 @@ describe('analyzeRuns — recommendations are always actionable', () => {
     }))
     const report = await analyzeRuns({ runs })
     expect(report.costQuality.degraded).toBeDefined()
+    // tokens present (100/50) but cost 0 → uncosted (unpriced model), not stub.
     expect(report.costQuality.degraded!.cost).toMatch(/no costUsd/)
+    expect(report.costQuality.degraded!.cost).toMatch(/unpriced model/)
+    expect(report.costQuality.degraded!.cost).toMatch(/5\/5 records have token usage/)
     expect(report.costQuality.degraded!.pareto).toMatch(/single candidate/)
+  })
+
+  it('zero-cost diagnosis distinguishes stub-mode (no tokens) from uncosted (unpriced model)', async () => {
+    // Regression: a blank cost axis has two opposite root causes. Stub-mode
+    // (tokenUsage 0/0) means the backend never ran — fix is upstream. Uncosted
+    // (tokens but $0) means the model id was unpriced — fix is FAMILY_PRICING.
+    // A generic "no signal" note sends the reader to the wrong layer.
+    const stubRuns: RunRecord[] = Array.from({ length: 4 }, (_, i) => ({
+      runId: `s-${i}`,
+      experimentId: 'exp',
+      candidateId: 'c',
+      seed: i,
+      model: 'claude-code/sonnet@deploy-dev',
+      promptHash: 'sha256:p',
+      configHash: 'sha256:c',
+      commitSha: 'abc',
+      wallMs: 100,
+      costUsd: 0,
+      tokenUsage: { input: 0, output: 0 },
+      outcome: { holdoutScore: 0.6, raw: {} },
+      splitTag: 'holdout',
+    }))
+    const stubReport = await analyzeRuns({ runs: stubRuns })
+    expect(stubReport.costQuality.degraded!.cost).toMatch(/all 4 records are stub-mode/)
+    expect(stubReport.costQuality.degraded!.cost).toMatch(/backend never reported/)
+    expect(stubReport.costQuality.degraded!.cost).not.toMatch(/unpriced model/)
   })
 
   it('report is JSON-serialisable end-to-end (hosted wire format compatible)', async () => {
