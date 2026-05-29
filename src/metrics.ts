@@ -1,8 +1,13 @@
 import type { ProductClient } from './client'
 import type { DriverState, TurnMetrics } from './types'
 
-/** Per-1K token pricing for common models */
-export const MODEL_PRICING: Record<string, { input: number; output: number }> = {
+interface TokenPrice {
+  input: number
+  output: number
+}
+
+/** Per-1K token pricing for exact model ids. */
+export const MODEL_PRICING: Record<string, TokenPrice> = {
   'gpt-4o': { input: 0.0025, output: 0.01 },
   'gpt-4o-mini': { input: 0.00015, output: 0.0006 },
   'gpt-4-turbo': { input: 0.01, output: 0.03 },
@@ -11,15 +16,77 @@ export const MODEL_PRICING: Record<string, { input: number; output: number }> = 
   'claude-3-haiku-20240307': { input: 0.00025, output: 0.00125 },
 }
 
+/** Family-level pricing fallbacks (per-1K), matched against a normalized id
+ *  after exact lookup misses. Ordered — first match wins. Covers the model
+ *  ids actually used through the Tangle router + cli-bridge harnesses
+ *  (`claude-code/sonnet`, `opencode/zai-coding-plan/glm-5.1`,
+ *  `kimi-code/kimi-k2.6`, `deepseek-v4-pro`, `anthropic/claude-sonnet-4-6`, …),
+ *  none of which appear in the exact table above — without this they priced
+ *  to a silent $0, blanking every cost/Pareto axis downstream. */
+const FAMILY_PRICING: Array<[RegExp, TokenPrice]> = [
+  [/claude.*opus/, { input: 0.015, output: 0.075 }],
+  [/claude.*haiku/, { input: 0.0008, output: 0.004 }],
+  [/claude.*sonnet|claude-code|claude-sonnet/, { input: 0.003, output: 0.015 }],
+  [/gpt-4o-mini/, { input: 0.00015, output: 0.0006 }],
+  [/gpt-5|gpt-4\.1|o[134]\b/, { input: 0.00125, output: 0.01 }],
+  [/gpt-4o|gpt-4/, { input: 0.0025, output: 0.01 }],
+  [/deepseek/, { input: 0.0003, output: 0.0011 }],
+  [/glm|zhipu|zai/, { input: 0.0006, output: 0.0022 }],
+  [/kimi|moonshot/, { input: 0.0006, output: 0.0025 }],
+  [/qwen/, { input: 0.0004, output: 0.0012 }],
+  [/gemini.*flash/, { input: 0.0001, output: 0.0004 }],
+  [/gemini/, { input: 0.00125, output: 0.005 }],
+  [/llama/, { input: 0.0002, output: 0.0006 }],
+]
+
+/** Normalize a model id for pricing: drop a `@snapshot` suffix, lowercase,
+ *  and keep the final harness/provider-prefixed segment so family regexes
+ *  match (`opencode/zai-coding-plan/glm-5.1` → `glm-5.1`). */
+function normalizeModelId(model: string): string {
+  return (model.split('@')[0] ?? model).trim().toLowerCase()
+}
+
+/** Resolve pricing for a model id: exact table, then family fallback.
+ *  Returns null when the id matches nothing (caller decides — never a
+ *  silent-zero masquerading as a real $0 cost). */
+export function resolveModelPricing(model: string): TokenPrice | null {
+  if (MODEL_PRICING[model]) return MODEL_PRICING[model]
+  const id = normalizeModelId(model)
+  if (MODEL_PRICING[id]) return MODEL_PRICING[id]
+  for (const [pattern, price] of FAMILY_PRICING) {
+    if (pattern.test(id)) return price
+  }
+  return null
+}
+
+/** True when `model` has known pricing (exact or family). Lets cost-aware
+ *  callers distinguish a real $0 from an unpriced model. */
+export function isModelPriced(model: string): boolean {
+  return resolveModelPricing(model) !== null
+}
+
+const warnedUnpricedModels = new Set<string>()
+
 /** Estimate token count from string length (chars / 4 approximation) */
 export function estimateTokens(text: string): number {
   return Math.ceil(text.length / 4)
 }
 
-/** Calculate cost in USD from token counts and model */
+/** Calculate cost in USD from token counts and model. Unknown models warn
+ *  once (not a silent zero) and return 0 so callers that ignore pricing keep
+ *  working; cost-sensitive callers should gate on {@link isModelPriced}. */
 export function estimateCost(inputTokens: number, outputTokens: number, model: string): number {
-  const pricing = MODEL_PRICING[model]
-  if (!pricing) return 0
+  const pricing = resolveModelPricing(model)
+  if (!pricing) {
+    if (!warnedUnpricedModels.has(model)) {
+      warnedUnpricedModels.add(model)
+      console.warn(
+        `estimateCost: no pricing for model "${model}" — returning 0; add it to ` +
+          'MODEL_PRICING/FAMILY_PRICING (cost/Pareto axes will be blank until then)',
+      )
+    }
+    return 0
+  }
   return (inputTokens / 1000) * pricing.input + (outputTokens / 1000) * pricing.output
 }
 

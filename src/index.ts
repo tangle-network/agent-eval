@@ -268,8 +268,10 @@ export { runLiveProof } from './live-proof'
 export {
   estimateCost,
   estimateTokens,
+  isModelPriced,
   MetricsCollector,
   MODEL_PRICING,
+  resolveModelPricing,
   TokenCounter,
 } from './metrics'
 export type {
