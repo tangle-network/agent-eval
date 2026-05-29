@@ -135,6 +135,7 @@ describe('analyzeTraces', () => {
       tool_names: ['publish_finding'],
       sample_trace_ids: ['t000000000001'],
       errors: { trace_count: 1, span_count: 1 },
+      error_clusters: [],
       time_range: null,
     }
     const store: TraceAnalysisStore = {
@@ -263,6 +264,7 @@ function minimalStore(): TraceAnalysisStore {
     tool_names: ['publish_finding'],
     sample_trace_ids: ['t000000000001'],
     errors: { trace_count: 1, span_count: 1 },
+    error_clusters: [],
     time_range: null,
   }
   return {

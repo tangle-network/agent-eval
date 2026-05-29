@@ -254,3 +254,59 @@ describe('OtlpFileTraceStore', () => {
     expect(r.traces[0]!.trace_id).toBe('t000000000001')
   })
 })
+
+describe('OtlpFileTraceStore — error_clusters (deterministic failure coverage)', () => {
+  const errSpan = (trace: string, span: string, message: string, name = 'op') =>
+    JSON.stringify({
+      trace_id: trace,
+      span_id: span,
+      parent_span_id: '',
+      name,
+      kind: 'SPAN_KIND_INTERNAL',
+      start_time: '2026-05-29T00:00:00Z',
+      end_time: '2026-05-29T00:00:01Z',
+      status: { code: 'STATUS_CODE_ERROR', message },
+      resource: {},
+      attributes: {},
+    })
+
+  it('collapses volatile tokens so identical failures form ONE cluster, and ranks by trace_count', async () => {
+    const tmp = await mkdtemp(join(tmpdir(), 'trace-clusters-'))
+    const path = join(tmp, 'trace.jsonl')
+    try {
+      // 3 traces hit the same admission-timeout signature (different durations + ids);
+      // 1 trace hits a distinct OOM signature. Expect 2 clusters, timeout ranked first.
+      await writeFile(
+        path,
+        [
+          errSpan('t1', 's1', 'cli-bridge admission timed out after 30000ms (req a1b2c3d4e5f6)'),
+          errSpan('t2', 's2', 'cli-bridge admission timed out after 45000ms (req 0011223344ff)'),
+          errSpan('t3', 's3', 'cli-bridge admission timed out after 30000ms (req deadbeefcafe)'),
+          errSpan('t4', 's4', 'container killed: out of memory'),
+        ].join('\n'),
+      )
+      const store = new OtlpFileTraceStore({ path })
+      const overview = await store.getOverview()
+
+      expect(overview.error_clusters).toHaveLength(2)
+      const top = overview.error_clusters[0]!
+      const second = overview.error_clusters[1]!
+      expect(top.trace_count).toBe(3)
+      expect(top.signature).toContain('admission timed out')
+      expect(top.signature).not.toContain('30000') // normalized away
+      expect(top.prevalence).toBeCloseTo(3 / 4)
+      expect(top.exemplar_trace_ids).toEqual(expect.arrayContaining(['t1', 't2', 't3']))
+      expect(top.status_message_sample).toContain('30000ms') // verbatim exemplar retained
+      expect(second.trace_count).toBe(1)
+      expect(second.signature).toContain('out of memory')
+    } finally {
+      await rm(tmp, { recursive: true, force: true })
+    }
+  })
+
+  it('is empty when there are no error spans', async () => {
+    const store = new OtlpFileTraceStore({ path: TINY_FIXTURE })
+    const overview = await store.getOverview()
+    expect(Array.isArray(overview.error_clusters)).toBe(true)
+  })
+})
