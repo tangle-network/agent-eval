@@ -39,6 +39,7 @@ export {
 // ── Presets (the documented public surface) ──────────────────────────
 export { type RunEvalOptions, runEval } from './presets/run-eval'
 export {
+  defaultRenderDiff,
   type RunImprovementLoopOptions,
   type RunImprovementLoopResult,
   runImprovementLoop,
@@ -49,6 +50,21 @@ export {
   runOptimization,
   surfaceHash,
 } from './presets/run-optimization'
+// ── Loop provenance (durable record + OTLP spans) ────────────────────
+export {
+  type BuildLoopProvenanceArgs,
+  buildLoopProvenanceRecord,
+  type EmitLoopProvenanceArgs,
+  type EmitLoopProvenanceResult,
+  emitLoopProvenance,
+  type LoopProvenanceBackend,
+  type LoopProvenanceCandidate,
+  type LoopProvenanceRecord,
+  loopProvenanceSpans,
+  provenanceRecordPath,
+  provenanceSpansPath,
+  surfaceContentHash,
+} from './provenance'
 export { type RunCampaignOptions, runCampaign } from './run-campaign'
 export { type CampaignStorage, fsCampaignStorage, inMemoryCampaignStorage } from './storage'
 export type {
@@ -82,13 +98,14 @@ export type {
   Mutator,
   OptimizerConfig,
   ProposeContext,
+  ProposedCandidate,
   RedactionStatus,
   Scenario,
   ScenarioAggregate,
   SessionScript,
   TraceSpan,
 } from './types'
-export { labelTrustRank } from './types'
+export { isProposedCandidate, labelTrustRank } from './types'
 // ── Worktree adapter (VCS-pluggable; code-tier surfaces) ─────────────
 export {
   type GitWorktreeAdapterOptions,

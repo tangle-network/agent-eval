@@ -62,7 +62,12 @@ describe('gepaDriver', () => {
 
     const out = await driver.propose(ctxWith(history, 2))
 
-    expect(out).toEqual(['NEW A', 'NEW B'])
+    // Candidates carry the driver's label + rationale (the "why"), not just
+    // the payload — the regression: gepa.ts dropping proposal.label/rationale.
+    expect(out).toEqual([
+      { surface: 'NEW A', label: 'c0', rationale: 'r' },
+      { surface: 'NEW B', label: 'c1', rationale: 'r' },
+    ])
     // Evidence grounding: worst scenario + weakest dimension surfaced to the LLM.
     expect(capture.userPrompt).toContain('bad')
     expect(capture.userPrompt).toContain('safety')
@@ -81,7 +86,7 @@ describe('gepaDriver', () => {
       target: 'system-directive',
     })
     const out = await driver.propose(ctxWith([], 3))
-    expect(out).toEqual(['KEEP'])
+    expect(out).toEqual([{ surface: 'KEEP', label: 'c1', rationale: 'r' }])
   })
 
   it('generation 0 (no history) reflects on the surface alone', async () => {
@@ -92,7 +97,7 @@ describe('gepaDriver', () => {
       target: 'system-directive',
     })
     const out = await driver.propose(ctxWith([], 1))
-    expect(out).toEqual(['G0'])
+    expect(out).toEqual([{ surface: 'G0', label: 'c0', rationale: 'r' }])
     expect(capture.userPrompt).not.toContain('weakest dimensions')
   })
 })

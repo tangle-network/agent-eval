@@ -20,12 +20,14 @@
 
 import { createHash } from 'node:crypto'
 import { type RunCampaignOptions, runCampaign } from '../run-campaign'
-import type {
-  CampaignResult,
-  GenerationRecord,
-  ImprovementDriver,
-  MutableSurface,
-  Scenario,
+import {
+  type CampaignResult,
+  type GenerationRecord,
+  type ImprovementDriver,
+  isProposedCandidate,
+  type MutableSurface,
+  type ProposedCandidate,
+  type Scenario,
 } from '../types'
 
 export interface RunOptimizationOptions<TScenario extends Scenario, TArtifact>
@@ -65,6 +67,14 @@ export interface RunOptimizationResult<TArtifact, TScenario extends Scenario> {
   }>
   winnerSurface: MutableSurface
   winnerSurfaceHash: string
+  /** Driver label for the promoted surface. Present when the winning
+   *  candidate came from a `ProposedCandidate` (a reflective driver);
+   *  absent when the winner is the baseline or a bare-surface mutator. */
+  winnerLabel?: string
+  /** Driver rationale for the promoted surface — the "because Z" that
+   *  motivated the winning change. Survives to `SelfImproveResult` and the
+   *  emitted provenance record. Absent when the winner is the baseline. */
+  winnerRationale?: string
   baselineCampaign: CampaignResult<TArtifact, TScenario>
 }
 
@@ -86,6 +96,8 @@ export async function runOptimization<TScenario extends Scenario, TArtifact>(
   let winnerSurface = opts.baselineSurface
   let winnerSurfaceHash = surfaceHash(opts.baselineSurface)
   let winnerComposite = meanComposite(baselineCampaign)
+  let winnerLabel: string | undefined
+  let winnerRationale: string | undefined
 
   for (let gen = 0; gen < opts.maxGenerations; gen++) {
     // Decide: the driver may stop early based on accumulated history.
@@ -93,7 +105,7 @@ export async function runOptimization<TScenario extends Scenario, TArtifact>(
 
     // Plan: the driver proposes N candidates from the current best surface,
     // the accumulated generation history, and any external findings.
-    const candidates = await opts.driver.propose({
+    const proposed = await opts.driver.propose({
       currentSurface: currentSurfaces[0] ?? opts.baselineSurface,
       history,
       findings: [],
@@ -105,15 +117,24 @@ export async function runOptimization<TScenario extends Scenario, TArtifact>(
       maxImprovementShots: opts.maxImprovementShots,
     })
 
+    // Normalize: a driver may return bare surfaces (blind mutators) or
+    // `ProposedCandidate`s carrying {label, rationale}. Keep the rationale so
+    // each candidate stays attributable through to the result + provenance.
+    const candidates: ProposedCandidate[] = proposed.map((p) =>
+      isProposedCandidate(p) ? p : { surface: p, label: '', rationale: '' },
+    )
+
     // Run each candidate as its own campaign.
     const surfaceResults: Array<{
       surfaceHash: string
       surface: MutableSurface
+      label: string
+      rationale: string
       campaign: CampaignResult<TArtifact, TScenario>
       composite: number
     }> = []
     for (let i = 0; i < candidates.length; i++) {
-      const surface = candidates[i] as MutableSurface
+      const { surface, label, rationale } = candidates[i]!
       const hash = surfaceHash(surface)
       const campaign = await runCampaign<TScenario, TArtifact>({
         ...opts,
@@ -121,7 +142,7 @@ export async function runOptimization<TScenario extends Scenario, TArtifact>(
         runDir: `${opts.runDir}/gen-${gen}/candidate-${i}`,
       })
       const composite = meanComposite(campaign)
-      surfaceResults.push({ surfaceHash: hash, surface, campaign, composite })
+      surfaceResults.push({ surfaceHash: hash, surface, label, rationale, campaign, composite })
     }
 
     // Rank, promote top-K.
@@ -133,19 +154,24 @@ export async function runOptimization<TScenario extends Scenario, TArtifact>(
       winnerSurface = top.surface
       winnerSurfaceHash = top.surfaceHash
       winnerComposite = top.composite
+      winnerLabel = top.label || undefined
+      winnerRationale = top.rationale || undefined
     }
 
     const record: GenerationRecord = {
       generationIndex: gen,
       candidates: surfaceResults.map((s) => {
         const breakdown = candidateBreakdown(s.campaign)
-        return {
+        const candidate: GenerationRecord['candidates'][number] = {
           surfaceHash: s.surfaceHash,
           composite: s.composite,
           ci95: [s.composite, s.composite] as [number, number],
           dimensions: breakdown.dimensions,
           scenarios: breakdown.scenarios,
         }
+        if (s.label) candidate.label = s.label
+        if (s.rationale) candidate.rationale = s.rationale
+        return candidate
       }),
       promoted: promoted.map((p) => p.surfaceHash),
     }
@@ -164,6 +190,8 @@ export async function runOptimization<TScenario extends Scenario, TArtifact>(
     generations,
     winnerSurface,
     winnerSurfaceHash,
+    winnerLabel,
+    winnerRationale,
     baselineCampaign,
   }
 }

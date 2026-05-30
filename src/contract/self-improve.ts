@@ -22,13 +22,23 @@
  * `driver`. Same function.
  */
 
+import { createHash } from 'node:crypto'
 import { gepaDriver } from '../campaign/drivers/gepa'
 import { defaultProductionGate } from '../campaign/gates/default-production-gate'
 import {
   type RunImprovementLoopResult,
   runImprovementLoop,
 } from '../campaign/presets/run-improvement-loop'
-import { type CampaignStorage, inMemoryCampaignStorage } from '../campaign/storage'
+import {
+  emitLoopProvenance,
+  type LoopProvenanceRecord,
+  surfaceContentHash,
+} from '../campaign/provenance'
+import {
+  type CampaignStorage,
+  fsCampaignStorage,
+  inMemoryCampaignStorage,
+} from '../campaign/storage'
 import type {
   CampaignCellResult,
   DispatchContext,
@@ -127,13 +137,33 @@ export interface SelfImproveOptions<TScenario extends Scenario, TArtifact> {
    *  your own `driver`. */
   llm?: SelfImproveLlm
 
-  /** Storage backend. Default `inMemoryCampaignStorage()` — nothing
-   *  persists past the call. Pass `fsCampaignStorage()` to write to disk. */
+  /** Storage backend. Default is DURABLE: when a real (non-`mem://`) `runDir`
+   *  is available, the substrate defaults to `fsCampaignStorage()` so the
+   *  provenance record + OTel spans survive the call. Pass
+   *  `inMemoryCampaignStorage()` explicitly to opt OUT (tests, edge runtimes).
+   *  Default when `runDir` is `mem://...` (or unset): in-memory. */
   storage?: CampaignStorage
 
   /** Run directory (logical for in-memory storage, real path for fs).
-   *  Default `mem://selfImprove-<timestamp>`. */
+   *  Default `mem://selfImprove-<timestamp>` (in-memory, non-durable). Pass a
+   *  real path to persist the provenance record + spans. */
   runDir?: string
+
+  /**
+   * Worker call records for backend provenance. The agent is opaque to the
+   * substrate (it returns an artifact, not token usage), so to capture an
+   * `assertRealBackend`-grade verdict + worker call count + model in the
+   * provenance record, the agent reports its per-call `RunRecord`s here.
+   * Called once after the loop; return the records the agent accumulated.
+   * When unset, backend provenance is derived from campaign cells (cost only;
+   * verdict will read `stub` without token usage — the honest signal that no
+   * token channel was wired).
+   */
+  collectWorkerRecords?: () => RunRecord[]
+
+  /** Fires once the durable provenance record + OTel spans are emitted.
+   *  Receives the structured record for inline assertions / custom routing. */
+  onProvenance?: (record: LoopProvenanceRecord) => void
 
   /** Distributed-driver seam — same as `RunCampaignOptions.cellPlacement`.
    *  Returns an opaque placement key the substrate forwards to your agent
@@ -187,10 +217,24 @@ export interface SelfImproveResult<TScenario extends Scenario, TArtifact> {
     compositeMean: number
     perScenario: Record<string, number>
     surface: MutableSurface
+    /** Driver label for the promoted change. Absent ⇒ winner == baseline or
+     *  a bare-surface mutator. */
+    label?: string
+    /** Driver rationale — the "because Z" that motivated the promoted change.
+     *  Threaded from the driver's `ProposedCandidate` through the loop.
+     *  Absent ⇒ winner == baseline. */
+    rationale?: string
   }
   /** `winner.compositeMean - baselineOnHoldout.compositeMean`. Positive
    *  means the gate observed improvement. */
   lift: number
+  /** The explicit baseline→winner unified diff. Always present (empty string
+   *  when winner == baseline). */
+  diff: string
+  /** Durable, queryable provenance record: candidate→cell→gate→promote chain +
+   *  rationale + diff + backend provenance. The artifact the hosted ingest
+   *  path stores; the +lift RECOMPUTES from `record.heldOutLift`. */
+  provenance: LoopProvenanceRecord
   /** `defaultProductionGate.decide()` result. */
   gateDecision: 'ship' | 'hold' | 'need_more_work' | 'model_ceiling' | 'arch_ceiling'
   /** Number of generations actually explored (may be less than the
@@ -338,8 +382,13 @@ export async function selfImprove<TScenario extends Scenario, TArtifact>(
       deltaThreshold: 0.05,
     })
 
-  const storage = opts.storage ?? inMemoryCampaignStorage()
+  // Durable by default: a real (non-`mem://`) runDir means the caller wants
+  // persistence, so default to fs storage — the provenance record + spans
+  // survive the call. A `mem://` runDir (or none) stays in-memory. An explicit
+  // `storage` always wins (the opt-out path for tests / edge runtimes).
   const runDir = opts.runDir ?? `mem://selfImprove-${startedAt}`
+  const isMemRunDir = runDir.startsWith('mem://')
+  const storage = opts.storage ?? (isMemRunDir ? inMemoryCampaignStorage() : fsCampaignStorage())
 
   if (opts.onProgress) {
     opts.onProgress({ kind: 'baseline.started', scenarios: opts.scenarios.length })
@@ -395,23 +444,59 @@ export async function selfImprove<TScenario extends Scenario, TArtifact>(
   // sections populate from the cells' judgeScores.
   const insight = await analyzeRuns({
     runs: [
-      ...cellsToRunRecords(result.baselineCampaign.cells, 'baseline', runDir),
-      ...cellsToRunRecords(result.winnerOnHoldout.cells, 'winner', runDir),
+      ...cellsToRunRecords(result.baselineCampaign.cells, 'baseline', runDir, opts.baselineSurface),
+      ...cellsToRunRecords(result.winnerOnHoldout.cells, 'winner', runDir, result.winnerSurface),
     ],
     baselineCandidateId: 'baseline',
     candidateCandidateId: 'winner',
   })
+
+  // ── Durable provenance: candidate→cell→gate→promote chain + rationale +
+  // diff + backend provenance. Always emitted; the +lift recomputes from it.
+  const durationMs = Date.now() - startedAt
+  const workerRecords =
+    opts.collectWorkerRecords?.() ??
+    cellsToRunRecords(result.winnerOnHoldout.cells, 'winner', runDir, result.winnerSurface)
+  const { record: provenance } = await emitLoopProvenance<TArtifact, TScenario>({
+    runId: `${runDir}#${startedAt}`,
+    runDir,
+    timestamp: new Date(startedAt).toISOString(),
+    baselineSurface: opts.baselineSurface,
+    winnerSurface: result.winnerSurface,
+    winnerLabel: result.winnerLabel,
+    winnerRationale: result.winnerRationale,
+    diff: result.promotedDiff,
+    generations: result.generations.map((g) => ({
+      generationIndex: g.record.generationIndex,
+      candidates: g.record.candidates,
+      promoted: g.record.promoted,
+      surfaces: g.surfaces.map((s) => ({ surfaceHash: s.surfaceHash, surface: s.surface })),
+    })),
+    gate: result.gateResult,
+    baselineOnHoldout: result.baselineOnHoldout,
+    winnerOnHoldout: result.winnerOnHoldout,
+    workerRecords,
+    totalCostUsd: totalCost,
+    totalDurationMs: durationMs,
+    storage,
+    hostedClient: opts.hostedTenant ? createHostedClient(opts.hostedTenant) : undefined,
+  })
+  if (opts.onProvenance) opts.onProvenance(provenance)
 
   const summary: SelfImproveResult<TScenario, TArtifact> = {
     baseline,
     winner: {
       ...winnerStats,
       surface: result.winnerSurface,
+      ...(result.winnerLabel ? { label: result.winnerLabel } : {}),
+      ...(result.winnerRationale ? { rationale: result.winnerRationale } : {}),
     },
     lift: winnerStats.compositeMean - baseline.compositeMean,
+    diff: result.promotedDiff,
+    provenance,
     gateDecision: result.gateResult.decision,
     generationsExplored: result.generations.length,
-    durationMs: Date.now() - startedAt,
+    durationMs,
     totalCostUsd: totalCost,
     insight,
     raw: result,
@@ -538,12 +623,21 @@ function hashString(s: string): string {
  * Adapt campaign cells into the `RunRecord` shape `analyzeRuns()` consumes.
  * Each cell becomes one run; `candidateId` is the caller-supplied label so
  * baseline + winner pair cleanly on `(experimentId, seed)`.
+ *
+ * `promptHash` is the REAL sha256 content hash of the surface this cell ran
+ * (baseline vs winner are byte-distinguishable + byte-identical-verifiable);
+ * `configHash` is the sha256 of the candidate label so the two candidates'
+ * config rows differ. Both were previously the literal `'sha256:cell'`, which
+ * made baseline and winner indistinguishable in every downstream record.
  */
 function cellsToRunRecords<TArtifact>(
   cells: ReadonlyArray<CampaignCellResult<TArtifact>>,
   candidateId: 'baseline' | 'winner',
   runId: string,
+  surface: MutableSurface,
 ): RunRecord[] {
+  const promptHash = surfaceContentHash(surface)
+  const configHash = `sha256:${createHash('sha256').update(candidateId).digest('hex')}`
   return cells.map((cell) => {
     const perJudge: Record<string, Record<string, number>> = {}
     const perDimMeanAccum: Record<string, { sum: number; n: number }> = {}
@@ -586,8 +680,8 @@ function cellsToRunRecords<TArtifact>(
           .split('')
           .reduce((a, c) => (a * 31 + c.charCodeAt(0)) >>> 0, 0),
       model: 'campaign-cell',
-      promptHash: 'sha256:cell',
-      configHash: 'sha256:cell',
+      promptHash,
+      configHash,
       commitSha: 'cell',
       wallMs: cell.durationMs,
       costUsd: cell.costUsd,

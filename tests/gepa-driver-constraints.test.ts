@@ -108,7 +108,7 @@ describe('gepaDriver constraints — preserveSections', () => {
       constraints: { preserveSections: [], maxSentenceEdits: 10 }, // empty array = auto-detect from baseline
     })
     const out = await driver.propose(makeCtx(BASELINE, 1))
-    expect(out).toContain(good.trim())
+    expect(out.map((c) => c.surface)).toContain(good.trim())
   })
 
   it('rejects candidates that drop a preserved H2', async () => {
@@ -151,7 +151,7 @@ describe('gepaDriver constraints — maxSentenceEdits', () => {
       constraints: { maxSentenceEdits: 2 }, // cap = 2*2 = 4 sentence diffs
     })
     const out = await driver.propose(makeCtx(BASELINE, 1))
-    expect(out).toContain(small.trim())
+    expect(out.map((c) => c.surface)).toContain(small.trim())
   })
 
   it('rejects candidates that exceed the edit budget', async () => {
@@ -188,7 +188,7 @@ describe('gepaDriver — unconstrained behavior unchanged', () => {
       target: 'structured doc',
     })
     const out = await driver.propose(makeCtx(BASELINE, 1))
-    expect(out).toContain(rewrite.trim())
+    expect(out.map((c) => c.surface)).toContain(rewrite.trim())
   })
 
   it('still drops baseline-identical proposals', async () => {

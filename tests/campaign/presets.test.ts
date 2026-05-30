@@ -3,16 +3,20 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
+  buildLoopProvenanceRecord,
   type CodeSurface,
   composeGate,
   type DispatchFn,
   defaultProductionGate,
+  emitLoopProvenance,
   evolutionaryDriver,
   FsLabeledScenarioStore,
   type Gate,
   gepaDriver,
   heldOutGate,
+  inMemoryCampaignStorage,
   type JudgeConfig,
+  loopProvenanceSpans,
   type MutableSurface,
   type Mutator,
   openAutoPr,
@@ -20,8 +24,10 @@ import {
   runImprovementLoop,
   runOptimization,
   type Scenario,
+  surfaceContentHash,
   surfaceHash,
 } from '../../src/campaign/index'
+import type { RunRecord } from '../../src/run-record'
 
 interface FakeScenario extends Scenario {
   id: string
@@ -280,6 +286,257 @@ describe('gepaDriver → runImprovementLoop → defaultProductionGate (full wiri
     }
     return xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : 0
   }
+})
+
+// ── Loop provenance: the full auditable candidate→gate→promote chain ─
+
+describe('loop provenance emission (transaction-extraction shape, offline)', () => {
+  // This is the deterministic, offline twin of examples/substrate-lift-proof:
+  // a weak baseline ('Extract the transaction info.') scores 0, gepaDriver's
+  // reflected candidate carries the schema marker and scores 1, the holdout
+  // re-score sees the +1 lift, defaultProductionGate ships. It then asserts
+  // the FULL provenance chain the audit + ADC require is emitted + durable:
+  //   1. the winner carries its rationale ("because Z" survives),
+  //   2. real content-hashes distinguish baseline from winner (byte-verifiable),
+  //   3. the explicit baseline→candidate diff is present,
+  //   4. the structured provenance record + OTel spans are emitted,
+  //   5. backend provenance (verdict + worker call count + model) is captured,
+  //   6. the held-out lift RECOMPUTES from the emitted record (not the live return).
+  // The regression each guards: gepa.ts dropping label+rationale; the
+  // 'sha256:cell' stub hashes; the diff being PR-only; cost-only spans; the
+  // provenance record being non-durable.
+  const SCHEMA_MARKER = 'OUTPUT_STRICT_SCHEMA'
+  const RATIONALE = 'baseline omits the field schema; pin keys + ISO date'
+  const LABEL = 'pin-strict-schema'
+
+  const judge: JudgeConfig<FakeArtifact, FakeScenario> = {
+    name: 'has-schema',
+    dimensions: [{ key: 'schema', description: 'surface enforces strict schema' }],
+    score: ({ artifact }) => {
+      const ok = artifact.text.includes(SCHEMA_MARKER) ? 1 : 0
+      return { dimensions: { schema: ok }, composite: ok, notes: '' }
+    },
+  }
+
+  function driverFetch(): typeof fetch {
+    return (async () => {
+      const proposals = [{ label: LABEL, rationale: RATIONALE, payload: `BASE ${SCHEMA_MARKER}` }]
+      const content = JSON.stringify({ proposals })
+      return new Response(
+        JSON.stringify({ choices: [{ message: { content } }], usage: { total_tokens: 10 } }),
+        { status: 200, headers: { 'content-type': 'application/json' } },
+      )
+    }) as unknown as typeof fetch
+  }
+
+  // Real-shaped worker records (nonzero tokens) so the backend verdict reads
+  // 'real' — the honest provenance an actual router run would carry.
+  function workerRecords(): RunRecord[] {
+    return [
+      {
+        runId: 'wr-1',
+        experimentId: 'prov-test',
+        candidateId: 'winner',
+        seed: 7,
+        model: 'anthropic/claude-haiku-4-5@2025-01-01',
+        promptHash: 'sha256:x',
+        configHash: 'sha256:y',
+        commitSha: 'local',
+        wallMs: 10,
+        costUsd: 0.001,
+        tokenUsage: { input: 120, output: 40 },
+        outcome: { holdoutScore: 1, raw: {} },
+        splitTag: 'holdout',
+      },
+    ]
+  }
+
+  it('emits the full chain + the +lift recomputes from the emitted record', async () => {
+    const driver = gepaDriver({
+      llm: { apiKey: 'k', baseUrl: 'https://router.test/v1', fetch: driverFetch() },
+      model: 'test-model',
+      target: 'enforce a strict output schema',
+    })
+
+    const result = await runImprovementLoop<FakeScenario, FakeArtifact>({
+      scenarios: SCENARIOS,
+      holdoutScenarios: HOLDOUT,
+      baselineSurface: 'BASE',
+      dispatchWithSurface: async (surface) => ({ text: String(surface) }),
+      judges: [judge],
+      driver,
+      populationSize: 1,
+      maxGenerations: 1,
+      promoteTopK: 1,
+      gate: defaultProductionGate<FakeArtifact, FakeScenario>({
+        holdoutScenarios: HOLDOUT,
+        deltaThreshold: 0.5,
+      }),
+      autoOnPromote: 'none',
+      runDir,
+      seed: 7,
+    })
+
+    // (1) The rationale survived gepa.ts → GenerationCandidate → result.winner*.
+    expect(result.winnerRationale).toBe(RATIONALE)
+    expect(result.winnerLabel).toBe(LABEL)
+    const winnerCandidate = result.generations[0]!.record.candidates[0]!
+    expect(winnerCandidate.rationale).toBe(RATIONALE)
+    expect(winnerCandidate.label).toBe(LABEL)
+
+    // (3) The diff is present UNCONDITIONALLY (autoOnPromote === 'none').
+    expect(result.promotedDiff).toContain(SCHEMA_MARKER)
+    expect(result.promotedDiff).toContain('--- baseline')
+
+    // Emit the durable record + spans through in-memory storage.
+    const storage = inMemoryCampaignStorage()
+    const liveDelta = 1 // winner 1 - baseline 0 on holdout
+    const { record, spans, recordPath, spansPath } = await emitLoopProvenance<
+      FakeArtifact,
+      FakeScenario
+    >({
+      runId: 'prov-test#1',
+      runDir,
+      timestamp: '2026-05-30T00:00:00.000Z',
+      baselineSurface: 'BASE',
+      winnerSurface: result.winnerSurface,
+      winnerLabel: result.winnerLabel,
+      winnerRationale: result.winnerRationale,
+      diff: result.promotedDiff,
+      generations: result.generations.map((g) => ({
+        generationIndex: g.record.generationIndex,
+        candidates: g.record.candidates,
+        promoted: g.record.promoted,
+        surfaces: g.surfaces.map((s) => ({ surfaceHash: s.surfaceHash, surface: s.surface })),
+      })),
+      gate: result.gateResult,
+      baselineOnHoldout: result.baselineOnHoldout,
+      winnerOnHoldout: result.winnerOnHoldout,
+      workerRecords: workerRecords(),
+      totalCostUsd: 0.001,
+      totalDurationMs: 1234,
+      storage,
+    })
+
+    // (1) rationale in the record.
+    expect(record.winnerRationale).toBe(RATIONALE)
+    expect(record.candidates.some((c) => c.rationale === RATIONALE && c.label === LABEL)).toBe(true)
+
+    // (2) real content hashes distinguish baseline from winner + verify bytes.
+    expect(record.baselineContentHash).toBe(surfaceContentHash('BASE'))
+    expect(record.winnerContentHash).toBe(surfaceContentHash(result.winnerSurface))
+    expect(record.baselineContentHash).not.toBe(record.winnerContentHash)
+    expect(record.baselineContentHash).toMatch(/^sha256:[a-f0-9]{64}$/)
+
+    // (3) diff carried on the record.
+    expect(record.diff).toContain(SCHEMA_MARKER)
+
+    // (4) the structured record + OTel spans are DURABLE (written to storage).
+    expect(storage.read(recordPath)).toBeDefined()
+    expect(JSON.parse(storage.read(recordPath)!).schema).toBe('tangle.loop-provenance.v1')
+    const spanLines = storage.read(spansPath)!.split('\n')
+    expect(spanLines.length).toBe(spans.length)
+    // Spans pivot on the OTLP-ingestable tangle.* attributes the otel adapter reads.
+    const root = spans.find((s) => s.name === 'improvement-loop')!
+    expect(root['tangle.runId']).toBe('prov-test#1')
+    const candidateSpan = spans.find((s) => s.name.startsWith('candidate-'))!
+    expect(candidateSpan.attributes['tangle.candidateRationale']).toBe(RATIONALE)
+    expect(candidateSpan.attributes['tangle.candidateLabel']).toBe(LABEL)
+    expect(candidateSpan['tangle.generation']).toBe(0)
+    const gateSpan = spans.find((s) => s.name === 'gate-decision')!
+    expect(gateSpan.attributes['tangle.gateDecision']).toBe('ship')
+
+    // (5) backend provenance captured (verdict + worker call count + model).
+    expect(record.backend.verdict).toBe('real')
+    expect(record.backend.workerCallCount).toBe(1)
+    expect(record.backend.models).toEqual(['anthropic/claude-haiku-4-5@2025-01-01'])
+    expect(record.backend.totalOutputTokens).toBe(40)
+
+    // (6) the +lift RECOMPUTES from the emitted record — re-parse the durable
+    // JSON and re-derive winnerHoldout - baselineHoldout, never reading the
+    // in-memory return. This is the audit's "re-derivable from cells" check.
+    const reparsed = JSON.parse(storage.read(recordPath)!) as typeof record
+    const recomputed = reparsed.winnerHoldoutComposite - reparsed.baselineHoldoutComposite
+    expect(recomputed).toBeCloseTo(liveDelta, 9)
+    expect(reparsed.heldOutLift).toBeCloseTo(liveDelta, 9)
+    expect(reparsed.gate.delta).toBeCloseTo(liveDelta, 9)
+  })
+
+  it('buildLoopProvenanceRecord falls back to a stub verdict when no token channel is wired', () => {
+    // The honest fallback: derive backend provenance from cost-only cells (no
+    // token usage) → verdict reads 'stub', the explicit signal that no worker
+    // token channel reached the record. NOT a silent 'real'.
+    const record = buildLoopProvenanceRecord<FakeArtifact, FakeScenario>({
+      runId: 'r',
+      runDir,
+      timestamp: '2026-05-30T00:00:00.000Z',
+      baselineSurface: 'BASE',
+      winnerSurface: 'BASE',
+      diff: '',
+      generations: [],
+      gate: { decision: 'hold', reasons: [], contributingGates: [] },
+      baselineOnHoldout: { cells: [] } as never,
+      winnerOnHoldout: { cells: [] } as never,
+      workerRecords: [
+        {
+          runId: 'c',
+          experimentId: 'e',
+          candidateId: 'winner',
+          seed: 1,
+          model: 'campaign-cell',
+          promptHash: 'sha256:p',
+          configHash: 'sha256:c',
+          commitSha: 'cell',
+          wallMs: 1,
+          costUsd: 0,
+          tokenUsage: { input: 0, output: 0 },
+          outcome: { holdoutScore: 0, raw: {} },
+          splitTag: 'holdout',
+        },
+      ],
+      totalCostUsd: 0,
+      totalDurationMs: 1,
+    })
+    expect(record.backend.verdict).toBe('stub')
+    // winner == baseline ⇒ identical content hashes (the no-op-loop signature).
+    expect(record.baselineContentHash).toBe(record.winnerContentHash)
+  })
+
+  it('loopProvenanceSpans builds a parent-linked tree (root → gen → candidate, root → gate)', () => {
+    const record = buildLoopProvenanceRecord<FakeArtifact, FakeScenario>({
+      runId: 'tree',
+      runDir,
+      timestamp: '2026-05-30T00:00:00.000Z',
+      baselineSurface: 'BASE',
+      winnerSurface: 'BASE NEW',
+      winnerRationale: 'r',
+      diff: '--- baseline\n+++ winner',
+      generations: [
+        {
+          generationIndex: 0,
+          candidates: [{ surfaceHash: 'abc', composite: 1, label: 'l', rationale: 'r' }],
+          promoted: ['abc'],
+          surfaces: [{ surfaceHash: 'abc', surface: 'BASE NEW' }],
+        },
+      ],
+      gate: { decision: 'ship', reasons: ['ok'], delta: 1, contributingGates: [] },
+      baselineOnHoldout: { cells: [] } as never,
+      winnerOnHoldout: { cells: [] } as never,
+      workerRecords: [],
+      totalCostUsd: 0,
+      totalDurationMs: 1,
+    })
+    const spans = loopProvenanceSpans(record)
+    const root = spans.find((s) => s.name === 'improvement-loop')!
+    const gen = spans.find((s) => s.name === 'generation-0')!
+    const cand = spans.find((s) => s.name === 'candidate-abc')!
+    const gate = spans.find((s) => s.name === 'gate-decision')!
+    expect(gen.parentSpanId).toBe(root.spanId)
+    expect(cand.parentSpanId).toBe(gen.spanId)
+    expect(gate.parentSpanId).toBe(root.spanId)
+    // All share one trace.
+    expect(new Set(spans.map((s) => s.traceId)).size).toBe(1)
+  })
 })
 
 // ── openAutoPr ─────────────────────────────────────────────────────

@@ -38,7 +38,7 @@ import {
   parseReflectionResponse,
   type TrialTrace,
 } from '../../reflective-mutation'
-import type { ImprovementDriver, MutableSurface, ProposeContext } from '../types'
+import type { ImprovementDriver, ProposeContext, ProposedCandidate } from '../types'
 
 const REFLECTION_SYSTEM =
   'You are an expert prompt engineer. Output ONLY a JSON object of shape ' +
@@ -83,7 +83,7 @@ export function gepaDriver(opts: GepaDriverOptions): ImprovementDriver {
   const evidenceK = opts.evidenceK ?? 3
   return {
     kind: 'gepa',
-    async propose(ctx: ProposeContext): Promise<MutableSurface[]> {
+    async propose(ctx: ProposeContext): Promise<ProposedCandidate[]> {
       const parent =
         typeof ctx.currentSurface === 'string'
           ? ctx.currentSurface
@@ -114,7 +114,8 @@ export function gepaDriver(opts: GepaDriverOptions): ImprovementDriver {
       )
 
       const proposals = parseReflectionResponse(result.content, ctx.populationSize)
-      const out: MutableSurface[] = []
+      const out: ProposedCandidate[] = []
+      const seen = new Set<string>()
       const constraints = opts.constraints
       const preserveSections =
         constraints?.preserveSections !== undefined
@@ -125,10 +126,13 @@ export function gepaDriver(opts: GepaDriverOptions): ImprovementDriver {
       const maxEdits = constraints?.maxSentenceEdits
       for (const proposal of proposals) {
         const text = typeof proposal.payload === 'string' ? proposal.payload.trim() : ''
-        if (!text || text === parent || out.includes(text)) continue
+        if (!text || text === parent || seen.has(text)) continue
         if (preserveSections && !validatePreservedSections(text, preserveSections)) continue
         if (maxEdits !== undefined && countSentenceEdits(parent, text) > maxEdits * 2) continue
-        out.push(text)
+        seen.add(text)
+        // Thread label + rationale through so the candidate stays attributable:
+        // the loop records WHY this rewrite was proposed, not just the payload.
+        out.push({ surface: text, label: proposal.label, rationale: proposal.rationale })
       }
       return out
     },

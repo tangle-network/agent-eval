@@ -137,6 +137,36 @@ export interface CodeSurface {
  *  not this type. */
 export type MutableSurface = string | CodeSurface
 
+/** @experimental A driver proposal carrying the surface AND the WHY behind
+ *  it. Reflective drivers (`gepaDriver`) parse a `{label, rationale, payload}`
+ *  from the model; without this wrapper the loop keeps only `payload` and the
+ *  rationale that motivated the change is lost — the candidate becomes
+ *  unattributable. `propose()` may return either bare `MutableSurface`s (cheap
+ *  blind mutators) or these (reflective drivers); the loop normalizes both. */
+export interface ProposedCandidate {
+  surface: MutableSurface
+  /** Short human label for the change (≤ 40 chars typical). */
+  label: string
+  /** Why this change was proposed — which failure it targets, which
+   *  primitive it used. Survives to `GenerationCandidate.rationale` and the
+   *  emitted provenance record. */
+  rationale: string
+}
+
+/** @experimental Type guard: a proposal carrying its rationale vs a bare
+ *  surface. The loop branches on this to populate `GenerationCandidate`. */
+export function isProposedCandidate(
+  value: MutableSurface | ProposedCandidate,
+): value is ProposedCandidate {
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    'surface' in value &&
+    'label' in value &&
+    'rationale' in value
+  )
+}
+
 /** @experimental Stateless surface mutation — given findings + current
  *  surface, return N candidate surfaces. Pure transform, no generation
  *  awareness. Reflective-mutation, `runMultiShotOptimization`, `AxGEPA`
@@ -148,7 +178,7 @@ export interface Mutator<TFindings = unknown> {
     currentSurface: MutableSurface
     populationSize: number
     signal: AbortSignal
-  }): Promise<MutableSurface[]>
+  }): Promise<Array<MutableSurface | ProposedCandidate>>
 }
 
 /** @experimental Everything a driver's `propose()` may read to plan the next
@@ -190,8 +220,11 @@ export interface ProposeContext<TFindings = unknown> {
  *  are driver-agnostic. */
 export interface ImprovementDriver<TFindings = unknown> {
   kind: string
-  /** Plan: propose N candidate surfaces for the next generation. */
-  propose(ctx: ProposeContext<TFindings>): Promise<MutableSurface[]>
+  /** Plan: propose N candidate surfaces for the next generation. A driver
+   *  may return bare `MutableSurface`s or `ProposedCandidate`s that carry the
+   *  `{label, rationale}` motivating the change — the loop threads the
+   *  rationale into `GenerationCandidate` and the emitted provenance. */
+  propose(ctx: ProposeContext<TFindings>): Promise<Array<MutableSurface | ProposedCandidate>>
   /** Decide: stop early when the driver judges the search converged or
    *  exhausted. Default (omitted) runs all `maxGenerations`. */
   decide?(args: { history: GenerationRecord[] }): { stop: boolean; reason?: string }
@@ -418,6 +451,13 @@ export interface GenerationCandidate {
   dimensions: Record<string, number>
   /** Per-scenario composite (mean over reps + judges). */
   scenarios: Array<{ scenarioId: string; composite: number }>
+  /** Driver-supplied short label for the change. Present when the driver
+   *  returned a `ProposedCandidate`; absent for bare-surface mutators. */
+  label?: string
+  /** Driver-supplied rationale — WHY this candidate was proposed. The
+   *  "because rationale Z" the audit requires to survive to the result.
+   *  Present when the driver returned a `ProposedCandidate`. */
+  rationale?: string
 }
 
 export interface CampaignAggregates {

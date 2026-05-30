@@ -34,6 +34,8 @@ import { mkdirSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import {
   defaultProductionGate,
+  emitLoopProvenance,
+  fsCampaignStorage,
   gepaDriver,
   type JudgeConfig,
   type JudgeScore,
@@ -362,6 +364,33 @@ async function main() {
   const integrity = summarizeBackendIntegrity(records)
   assertRealBackend(records, { allowMixed: false })
 
+  // ── Provenance: emit the durable record + OTel spans, then re-derive the
+  // held-out lift FROM the emitted record (not the in-memory return) so the
+  // proof shows the full chain is auditable, not just observed live. ───────
+  const { record: provenance, spans } = await emitLoopProvenance({
+    runId: `substrate-lift-proof#${startedAt}`,
+    runDir: runRoot,
+    timestamp: new Date(startedAt).toISOString(),
+    baselineSurface: BASELINE_SURFACE,
+    winnerSurface: result.winnerSurface,
+    winnerLabel: result.winnerLabel,
+    winnerRationale: result.winnerRationale,
+    diff: result.promotedDiff,
+    generations: result.generations.map((g) => ({
+      generationIndex: g.record.generationIndex,
+      candidates: g.record.candidates,
+      promoted: g.record.promoted,
+      surfaces: g.surfaces.map((s) => ({ surfaceHash: s.surfaceHash, surface: s.surface })),
+    })),
+    gate: result.gateResult,
+    baselineOnHoldout: result.baselineOnHoldout,
+    winnerOnHoldout: result.winnerOnHoldout,
+    workerRecords: records,
+    totalCostUsd: records.reduce((a, r) => a + r.costUsd, 0),
+    totalDurationMs: Date.now() - startedAt,
+    storage: fsCampaignStorage(),
+  })
+
   // ── Honest numbers ─────────────────────────────────────────────────────
   const baselineHeldOut = meanComposite(result.baselineOnHoldout)
   const candidateHeldOut = meanComposite(result.winnerOnHoldout)
@@ -413,6 +442,24 @@ async function main() {
     llmCalls: records.length,
     elapsedSec,
     honestVerdict,
+    // ── Provenance audit (the durable, re-derivable chain) ───────────────
+    provenance: {
+      recordPath: join(runRoot, 'loop-provenance.json'),
+      spansEmitted: spans.length,
+      winnerRationale: provenance.winnerRationale ?? null,
+      winnerLabel: provenance.winnerLabel ?? null,
+      diffPresent: provenance.diff.length > 0,
+      baselineContentHash: provenance.baselineContentHash,
+      winnerContentHash: provenance.winnerContentHash,
+      hashesDistinguishBaselineFromWinner:
+        provenance.baselineContentHash !== provenance.winnerContentHash,
+      backend: provenance.backend,
+      // The +lift RE-DERIVED from the emitted record — not the in-memory return.
+      heldOutLiftFromRecord: round(provenance.heldOutLift),
+      recomputeMatchesLiveDelta: Math.abs(provenance.heldOutLift - delta) < 1e-9,
+      candidatesWithRationale: provenance.candidates.filter((c) => c.rationale).length,
+      candidateCount: provenance.candidates.length,
+    },
   }
 
   const artifactPath = join(runRoot, 'lift-proof.json')
@@ -434,6 +481,17 @@ async function main() {
   console.log(`  cost                 : $${round6(totalCostUsd)}`)
   console.log(`  elapsed              : ${elapsedSec}s`)
   console.log(`  HONEST VERDICT       : ${honestVerdict}`)
+  console.log('── PROVENANCE ──────────────────────────────────────────')
+  console.log(`  spans emitted        : ${spans.length}`)
+  console.log(`  winner rationale     : ${provenance.winnerRationale ?? '(none)'}`)
+  console.log(
+    `  content hashes       : baseline=${provenance.baselineContentHash.slice(0, 22)}… winner=${provenance.winnerContentHash.slice(0, 22)}…`,
+  )
+  console.log(`  diff present         : ${provenance.diff.length > 0}`)
+  console.log(`  backend (from record): ${provenance.backend.verdict} (${provenance.backend.workerCallCount} calls)`)
+  console.log(
+    `  lift RE-DERIVED      : ${round(provenance.heldOutLift)} (matches live: ${Math.abs(provenance.heldOutLift - delta) < 1e-9})`,
+  )
   console.log()
   console.log(`  winner surface:\n${indent(winnerSurface)}`)
   console.log()

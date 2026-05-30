@@ -50,6 +50,28 @@ keys, bare-number amount, ISO `YYYY-MM-DD` date, fixed category taxonomy —
 precisely the failure classes the baseline exhibited. The lift is per-scenario
 monotone (no held-out scenario regressed).
 
+## Provenance (the auditable chain)
+
+After the gate decides, the run calls `emitLoopProvenance` and writes two
+durable artifacts under the run dir:
+
+- `loop-provenance.json` — the structured `LoopProvenanceRecord`: every
+  candidate with its `{surfaceHash, label, rationale}`, the gate
+  decision + reasons + delta, the explicit baseline→winner diff, real
+  content hashes (`sha256:…`) that distinguish baseline from winner, and
+  backend provenance (`assertRealBackend` verdict + worker call count +
+  model). The held-out lift **recomputes** from this record
+  (`winnerHoldoutComposite − baselineHoldoutComposite`) — the `provenance`
+  block of `lift-proof.json` asserts the recompute matches the live delta.
+- `loop-provenance-spans.jsonl` — the same chain as OTLP-ingestable
+  `TraceSpanEvent`s (root → generation → candidate → gate), pivoted on
+  `tangle.runId` / `tangle.generation` / `tangle.surfaceHash`. Pass a
+  `hostedClient` to `emitLoopProvenance` to ship them to
+  `/v1/ingest/traces`.
+
 The wiring is also covered deterministically (offline, no network) in
 `tests/campaign/presets.test.ts` — `gepaDriver → runImprovementLoop →
-defaultProductionGate` both ships a real gain and holds a no-op.
+defaultProductionGate` ships a real gain, holds a no-op, AND asserts the full
+provenance chain is emitted + durable (rationale survives, hashes distinguish,
+diff present, spans + record written, backend verdict captured, +lift
+recomputes from the emitted record).

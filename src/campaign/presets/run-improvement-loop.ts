@@ -29,7 +29,7 @@
 import { openAutoPr } from '../auto-pr'
 import type { CampaignResult, Gate, MutableSurface, Scenario } from '../types'
 import type { RunOptimizationOptions, RunOptimizationResult } from './run-optimization'
-import { runOptimization } from './run-optimization'
+import { runOptimization, surfaceHash } from './run-optimization'
 
 export interface RunImprovementLoopOptions<TScenario extends Scenario, TArtifact>
   extends RunOptimizationOptions<TScenario, TArtifact> {
@@ -59,6 +59,11 @@ export interface RunImprovementLoopResult<TArtifact, TScenario extends Scenario>
   baselineOnHoldout: CampaignResult<TArtifact, TScenario>
   winnerOnHoldout: CampaignResult<TArtifact, TScenario>
   gateResult: Awaited<ReturnType<Gate<TArtifact, TScenario>['decide']>>
+  /** Unified baseline→winner surface diff. Computed UNCONDITIONALLY (not only
+   *  when `autoOnPromote === 'pr'`) so the diff that the gate decided on is
+   *  always present on the result + in the emitted provenance record. Empty
+   *  string when winner == baseline (no change to diff). */
+  promotedDiff: string
   prResult?: ReturnType<typeof openAutoPr>
 }
 
@@ -140,11 +145,18 @@ export async function runImprovementLoop<TScenario extends Scenario, TArtifact>(
     signal: new AbortController().signal,
   })
 
-  // ── (4) auto-PR when gate ships ────────────────────────────────────
+  // ── (4) baseline→winner diff (always) + auto-PR when gate ships ────
+  // The diff is computed UNCONDITIONALLY — it's the human-auditable record of
+  // what the loop actually changed, needed for the provenance artifact whether
+  // or not a PR is opened. winner == baseline ⇒ empty diff (nothing changed).
+  const render = opts.renderPromotedDiff ?? defaultRenderDiff
+  const promotedDiff =
+    optimization.winnerSurfaceHash === surfaceHash(opts.baselineSurface)
+      ? ''
+      : render(optimization.winnerSurface, opts.baselineSurface)
+
   let prResult: ReturnType<typeof openAutoPr> | undefined
   if (opts.autoOnPromote === 'pr' && gateResult.decision === 'ship') {
-    const render = opts.renderPromotedDiff ?? defaultRenderDiff
-    const promotedDiff = render(optimization.winnerSurface, opts.baselineSurface)
     prResult = openAutoPr({
       result: winnerOnHoldout,
       gate: gateResult,
@@ -159,11 +171,15 @@ export async function runImprovementLoop<TScenario extends Scenario, TArtifact>(
     baselineOnHoldout,
     winnerOnHoldout,
     gateResult,
+    promotedDiff,
     prResult,
   }
 }
 
-function defaultRenderDiff(winnerSurface: MutableSurface, baselineSurface: MutableSurface): string {
+export function defaultRenderDiff(
+  winnerSurface: MutableSurface,
+  baselineSurface: MutableSurface,
+): string {
   // Code surfaces aren't text-diffable here — the diff lives in git. Render
   // the worktree/base refs + summary so the PR body points at the change.
   if (typeof winnerSurface !== 'string' || typeof baselineSurface !== 'string') {
