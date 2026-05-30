@@ -19,13 +19,16 @@
  */
 
 import { createHash } from 'node:crypto'
+import { type Objective, paretoFrontier } from '../../pareto'
 import { type RunCampaignOptions, runCampaign } from '../run-campaign'
+import { campaignBreakdown, campaignMeanComposite } from '../score-utils'
 import {
   type CampaignResult,
   type GenerationRecord,
   type ImprovementDriver,
   isProposedCandidate,
   type MutableSurface,
+  type ParetoParent,
   type ProposedCandidate,
   type Scenario,
 } from '../types'
@@ -76,6 +79,12 @@ export interface RunOptimizationResult<TArtifact, TScenario extends Scenario> {
    *  emitted provenance record. Absent when the winner is the baseline. */
   winnerRationale?: string
   baselineCampaign: CampaignResult<TArtifact, TScenario>
+  /** The GEPA Pareto frontier across every scored surface (baseline + all
+   *  generations) by per-scenario objective vector — the non-dominated set.
+   *  Each generation's `propose()` received the frontier-so-far as
+   *  `ctx.paretoParents`; this is the final frontier. A surface here that is
+   *  NOT the winner is uniquely best on some scenario the winner loses on. */
+  paretoFrontier: ParetoParent[]
 }
 
 export async function runOptimization<TScenario extends Scenario, TArtifact>(
@@ -95,16 +104,26 @@ export async function runOptimization<TScenario extends Scenario, TArtifact>(
   let currentSurfaces: MutableSurface[] = [opts.baselineSurface]
   let winnerSurface = opts.baselineSurface
   let winnerSurfaceHash = surfaceHash(opts.baselineSurface)
-  let winnerComposite = meanComposite(baselineCampaign)
+  let winnerComposite = campaignMeanComposite(baselineCampaign)
   let winnerLabel: string | undefined
   let winnerRationale: string | undefined
+
+  // GEPA frontier accumulator — every scored surface as an objective vector
+  // (per-scenario composite). The baseline seeds it as generation -1; each
+  // candidate is added after its campaign. The non-dominated set of this list
+  // is recomputed before every `propose()` and handed to the driver.
+  const scored: ParetoParent[] = [
+    toParetoParent(opts.baselineSurface, winnerSurfaceHash, baselineCampaign, -1),
+  ]
 
   for (let gen = 0; gen < opts.maxGenerations; gen++) {
     // Decide: the driver may stop early based on accumulated history.
     if (opts.driver.decide?.({ history }).stop) break
 
     // Plan: the driver proposes N candidates from the current best surface,
-    // the accumulated generation history, and any external findings.
+    // the accumulated generation history, the Pareto frontier so far, and any
+    // external findings.
+    const paretoParents = computeParetoFrontier(scored)
     const proposed = await opts.driver.propose({
       currentSurface: currentSurfaces[0] ?? opts.baselineSurface,
       history,
@@ -115,6 +134,7 @@ export async function runOptimization<TScenario extends Scenario, TArtifact>(
       report: opts.report,
       dataset: opts.labeledStore && opts.labeledStore !== 'off' ? opts.labeledStore : undefined,
       maxImprovementShots: opts.maxImprovementShots,
+      paretoParents,
     })
 
     // Normalize: a driver may return bare surfaces (blind mutators) or
@@ -141,8 +161,13 @@ export async function runOptimization<TScenario extends Scenario, TArtifact>(
         dispatch: (scenario, ctx) => opts.dispatchWithSurface(surface, scenario, ctx),
         runDir: `${opts.runDir}/gen-${gen}/candidate-${i}`,
       })
-      const composite = meanComposite(campaign)
+      const composite = campaignMeanComposite(campaign)
       surfaceResults.push({ surfaceHash: hash, surface, label, rationale, campaign, composite })
+      // Add to the GEPA frontier accumulator — the NEXT generation's
+      // `propose()` sees this candidate's per-scenario objective vector.
+      scored.push(
+        toParetoParent(surface, hash, campaign, gen, label || undefined, rationale || undefined),
+      )
     }
 
     // Rank, promote top-K.
@@ -161,7 +186,7 @@ export async function runOptimization<TScenario extends Scenario, TArtifact>(
     const record: GenerationRecord = {
       generationIndex: gen,
       candidates: surfaceResults.map((s) => {
-        const breakdown = candidateBreakdown(s.campaign)
+        const breakdown = campaignBreakdown(s.campaign)
         const candidate: GenerationRecord['candidates'][number] = {
           surfaceHash: s.surfaceHash,
           composite: s.composite,
@@ -193,7 +218,67 @@ export async function runOptimization<TScenario extends Scenario, TArtifact>(
     winnerLabel,
     winnerRationale,
     baselineCampaign,
+    paretoFrontier: computeParetoFrontier(scored),
   }
+}
+
+/** Build a `ParetoParent` from a scored campaign — objective vector =
+ *  per-scenario composite, scalar = mean composite. */
+function toParetoParent<TArtifact, TScenario extends Scenario>(
+  surface: MutableSurface,
+  hash: string,
+  campaign: CampaignResult<TArtifact, TScenario>,
+  generation: number,
+  label?: string,
+  rationale?: string,
+): ParetoParent {
+  const objectives: Record<string, number> = {}
+  for (const { scenarioId, composite } of campaignBreakdown(campaign).scenarios) {
+    objectives[scenarioId] = composite
+  }
+  const parent: ParetoParent = {
+    surface,
+    surfaceHash: hash,
+    objectives,
+    composite: campaignMeanComposite(campaign),
+    generation,
+  }
+  if (label) parent.label = label
+  if (rationale) parent.rationale = rationale
+  return parent
+}
+
+/** The non-dominated set over the per-scenario objective vectors. Every
+ *  scenario seen across the scored set becomes a `maximize` objective; a
+ *  surface missing a scenario (a failed cell) is ranked worst on that axis via
+ *  a FINITE floor (the lowest real score seen there) — never a non-finite
+ *  value, because the canonical `paretoFrontier` excludes any candidate with a
+ *  non-finite objective, which would silently drop the whole frontier if one
+ *  scenario errored across every candidate. Delegates dominance to the
+ *  package-canonical `paretoFrontier` — ONE implementation of the relation. */
+function computeParetoFrontier(scored: ParetoParent[]): ParetoParent[] {
+  if (scored.length <= 1) return [...scored]
+  const ids = new Set<string>()
+  for (const p of scored) for (const id of Object.keys(p.objectives)) ids.add(id)
+  if (ids.size === 0) return [...scored]
+  const floor: Record<string, number> = {}
+  for (const id of ids) {
+    let min = Number.POSITIVE_INFINITY
+    for (const p of scored) {
+      const v = p.objectives[id]
+      if (typeof v === 'number' && Number.isFinite(v) && v < min) min = v
+    }
+    floor[id] = Number.isFinite(min) ? min : 0
+  }
+  const objectives: Objective<ParetoParent>[] = [...ids].map((id) => ({
+    name: id,
+    direction: 'maximize',
+    value: (p) => {
+      const v = p.objectives[id]
+      return typeof v === 'number' && Number.isFinite(v) ? v : (floor[id] ?? 0)
+    },
+  }))
+  return paretoFrontier(scored, objectives).frontier
 }
 
 export function surfaceHash(surface: MutableSurface): string {
@@ -208,54 +293,4 @@ export function surfaceHash(surface: MutableSurface): string {
           baseRef: surface.baseRef ?? null,
         })
   return createHash('sha256').update(material).digest('hex').slice(0, 16)
-}
-
-function meanComposite<TArtifact, TScenario extends Scenario>(
-  campaign: CampaignResult<TArtifact, TScenario>,
-): number {
-  const composites: number[] = []
-  for (const cell of campaign.cells) {
-    const cellComposites = Object.values(cell.judgeScores).map((s) => s.composite)
-    if (cellComposites.length > 0) {
-      composites.push(cellComposites.reduce((a, b) => a + b, 0) / cellComposites.length)
-    }
-  }
-  return composites.length === 0 ? 0 : composites.reduce((a, b) => a + b, 0) / composites.length
-}
-
-/** Per-candidate evidence a reflective driver grounds its next proposal on:
- *  mean score per judge dimension + per-scenario composite. */
-function candidateBreakdown<TArtifact, TScenario extends Scenario>(
-  campaign: CampaignResult<TArtifact, TScenario>,
-): {
-  dimensions: Record<string, number>
-  scenarios: Array<{ scenarioId: string; composite: number }>
-} {
-  const dimSums: Record<string, number> = {}
-  const dimCounts: Record<string, number> = {}
-  const byScenario = new Map<string, number[]>()
-  for (const cell of campaign.cells) {
-    const judgeScores = Object.values(cell.judgeScores)
-    if (judgeScores.length === 0) continue
-    const cellComposite = judgeScores.reduce((a, s) => a + s.composite, 0) / judgeScores.length
-    const arr = byScenario.get(cell.scenarioId) ?? []
-    arr.push(cellComposite)
-    byScenario.set(cell.scenarioId, arr)
-    for (const score of judgeScores) {
-      for (const [key, value] of Object.entries(score.dimensions)) {
-        dimSums[key] = (dimSums[key] ?? 0) + value
-        dimCounts[key] = (dimCounts[key] ?? 0) + 1
-      }
-    }
-  }
-  const dimensions: Record<string, number> = {}
-  for (const key of Object.keys(dimSums)) {
-    const count = dimCounts[key] ?? 0
-    dimensions[key] = count > 0 ? (dimSums[key] ?? 0) / count : 0
-  }
-  const scenarios = [...byScenario.entries()].map(([scenarioId, comps]) => ({
-    scenarioId,
-    composite: comps.reduce((a, b) => a + b, 0) / comps.length,
-  }))
-  return { dimensions, scenarios }
 }

@@ -4,6 +4,23 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ---
 
+## [0.63.0] — 2026-05-30 — the full optimizer drivers: GEPA Pareto + SkillOpt + a head-to-head lift benchmark
+
+Closes the optimizer-completeness gap (#101/#100). `gepaDriver` was reflection-only; the SOTA SkillOpt technique was roadmapped but unbuilt; and there was no head-to-head benchmark, so optimizer quality was measurement-invisible — a simplified driver could ship unnoticed. This release ships both drivers in full and the forcing function that keeps them honest.
+
+### Added
+
+- **GEPA Pareto frontier + combine-complementary-lessons (#101).** `runOptimization` now accumulates every scored surface as a per-scenario objective vector and recomputes the non-dominated set before each generation, handing it to the driver as `ctx.paretoParents` (new `ParetoParent` type). A surface uniquely best on one hard scenario survives even when its mean composite is lower. `gepaDriver` spends one population slot merging the frontier parents' complementary strengths (toggle via `combineParents`, default on; fires only when the frontier has >1 member). `RunOptimizationResult.paretoFrontier` exposes the final frontier. Dominance is computed by the package-canonical `paretoFrontier` (`src/pareto.ts`) — the parallel `src/campaign/pareto.ts` fork has been deleted (one dominance implementation).
+- **SkillOpt patch-mode driver + `runSkillOpt` preset (#100)** (Microsoft, arXiv:2605.23904). `skillOptDriver` proposes BOUNDED add/delete/replace patches to one skill document (`applySkillPatch`, `SkillPatch`); `runSkillOpt` is the held-out-gated epoch hill-climb: reflect on TRAIN weaknesses → propose ≤ `editBudget` ops → score on the held-out split → ACCEPT only on STRICT held-out improvement, else buffer the rejected edit; with edit-budget annealing (the "textual learning rate") and a slow-update meta note. The held-out composite is monotonically non-decreasing by construction — a regression can never ship. Proposals reflect on train evidence only (no held-out leakage).
+- **`compareDrivers` head-to-head lift benchmark (the forcing function).** Runs N optimizer entries on ONE corpus, scores the baseline + every promoted surface UNIFORMLY on the same held-out scenarios, and reports per-driver lift + paired-bootstrap CI + pairwise "which driver wins" CIs, ranked (cost breaks a lift tie). Ships `gepaReflectionEntry` / `gepaParetoEntry` / `skillOptEntry` to wire the real optimizers. Optimizer quality is now a number with a confidence interval — a driver regression turns a build red instead of going invisible.
+- **`campaignMeanComposite` / `campaignBreakdown`** (`score-utils`) — the one definition of "composite of a campaign" + per-scenario/dimension breakdown, now shared by `runOptimization`, `runSkillOpt`, and `compareDrivers` (extracted from `runOptimization`'s private copies).
+
+### Changed
+
+- `gepaDriver`'s docstring + new `combineParents`/`combineMaxParents` options reflect the now-complete GEPA mapping (reflection + Pareto + combine).
+
+---
+
 ## [0.62.0] — 2026-05-30 — eval↔runtime boundary hardening (honest cost meter + per-cell stub guard)
 
 From the agent-eval ↔ agent-runtime boundary critique. Builds on `runProfileMatrix` (0.61.0).

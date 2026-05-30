@@ -6,13 +6,17 @@
  * scores + weakest dimensions, asks an LLM to propose targeted rewrites of
  * the current surface, and returns them as the next population.
  *
- * Honest scope vs the GEPA paper (Agrawal et al., arXiv:2507.19457):
- * this driver implements the *reflection* primitive — it does NOT implement
- * GEPA's Pareto frontier of candidates, multi-objective non-dominated
- * tracking, or the combine-complementary-lessons step. We use "best by
- * composite" as the parent each generation; the paper retains a Pareto set
- * and combines lessons across non-dominated candidates. Tracked as #101 in
- * the substrate roadmap. See `docs/specs/driver-honest-spec.md`.
+ * Maps onto the GEPA paper (Agrawal et al., arXiv:2507.19457):
+ *   - *Reflection*: each generation reflects on the best parent's weakest
+ *     dimensions + per-scenario top/bottom scores to propose targeted rewrites.
+ *   - *Pareto frontier*: `runOptimization` maintains the non-dominated set of
+ *     surfaces across generations (per-scenario objective vectors) and supplies
+ *     it as `ctx.paretoParents`. A surface uniquely best on one hard scenario
+ *     survives even when its mean composite is lower.
+ *   - *Combine complementary lessons*: when the frontier has >1 member, the
+ *     first population slot is a merge of those parents' strengths (one LLM
+ *     call citing each parent's winning scenarios). Toggle via `combineParents`.
+ * Dominance is computed by the package-canonical `paretoFrontier` (`pareto.ts`).
  *
  * Optional `constraints` move structured-doc guards into the driver
  * (preserve H2 section headings, cap sentence-level edits) — useful when
@@ -44,6 +48,16 @@ const REFLECTION_SYSTEM =
   'You are an expert prompt engineer. Output ONLY a JSON object of shape ' +
   '{"proposals":[{"label":string,"rationale":string,"payload":string}]} where ' +
   'each `payload` is the FULL improved surface text. No prose outside the JSON.'
+
+const COMBINE_SYSTEM =
+  'You are an expert prompt engineer performing a GEPA "combine complementary ' +
+  'lessons" merge. You are given several non-dominated versions of one surface; ' +
+  'each is uniquely best on different scenarios. Produce ONE new version that ' +
+  'keeps what makes each version strong on its winning scenarios and resolves ' +
+  'conflicts in favor of the more general rule. Output ONLY a JSON object of ' +
+  'shape {"proposals":[{"label":string,"rationale":string,"payload":string}]} ' +
+  'with exactly one proposal whose `payload` is the FULL merged surface text. ' +
+  'No prose outside the JSON.'
 
 export interface GepaDriverConstraints {
   /** H2 section headings that MUST appear unchanged in every candidate.
@@ -77,10 +91,25 @@ export interface GepaDriverOptions {
   /** Structured-doc constraints. Candidates violating any are rejected
    *  post-parse and dropped from the returned population. */
   constraints?: GepaDriverConstraints
+  /** GEPA combine-complementary-lessons: when the loop supplies a Pareto
+   *  frontier of >1 non-dominated parents (`ctx.paretoParents`), spend one
+   *  slot of the population on a merge of their strengths. Default `true` —
+   *  this is the GEPA-faithful behavior; the merge only fires once the
+   *  frontier has more than one member (generation ≥ 1). Set `false` for
+   *  pure single-parent reflection. */
+  combineParents?: boolean
+  /** Cap on how many frontier parents feed one combine prompt (highest
+   *  composite first), to bound prompt size. Default 4. */
+  combineMaxParents?: number
 }
 
 export function gepaDriver(opts: GepaDriverOptions): ImprovementDriver {
   const evidenceK = opts.evidenceK ?? 3
+  const combineParents = opts.combineParents ?? true
+  const combineMaxParents = opts.combineMaxParents ?? 4
+  if (combineParents && combineMaxParents < 1) {
+    throw new Error('gepaDriver: combineMaxParents must be >= 1 when combineParents is enabled')
+  }
   return {
     kind: 'gepa',
     async propose(ctx: ProposeContext): Promise<ProposedCandidate[]> {
@@ -88,34 +117,9 @@ export function gepaDriver(opts: GepaDriverOptions): ImprovementDriver {
         typeof ctx.currentSurface === 'string'
           ? ctx.currentSurface
           : JSON.stringify(ctx.currentSurface)
-      const { top, bottom, target } = buildEvidence(ctx, evidenceK, opts.target)
 
-      const userPrompt = buildReflectionPrompt({
-        target,
-        parentPayload: parent,
-        topTrials: top,
-        bottomTrials: bottom,
-        childCount: ctx.populationSize,
-        mutationPrimitives: opts.mutationPrimitives,
-      })
-
-      const result = await callLlm(
-        {
-          model: opts.model,
-          messages: [
-            { role: 'system', content: REFLECTION_SYSTEM },
-            { role: 'user', content: userPrompt },
-          ],
-          jsonMode: true,
-          temperature: opts.temperature ?? 0.7,
-          maxTokens: opts.maxTokens ?? 6000,
-        },
-        opts.llm,
-      )
-
-      const proposals = parseReflectionResponse(result.content, ctx.populationSize)
-      const out: ProposedCandidate[] = []
-      const seen = new Set<string>()
+      // Shared accept path: constraint checks + dedup, used by BOTH the
+      // combine merge and the reflection fill so the population is consistent.
       const constraints = opts.constraints
       const preserveSections =
         constraints?.preserveSections !== undefined
@@ -124,19 +128,133 @@ export function gepaDriver(opts: GepaDriverOptions): ImprovementDriver {
             : constraints.preserveSections
           : null
       const maxEdits = constraints?.maxSentenceEdits
-      for (const proposal of proposals) {
-        const text = typeof proposal.payload === 'string' ? proposal.payload.trim() : ''
-        if (!text || text === parent || seen.has(text)) continue
-        if (preserveSections && !validatePreservedSections(text, preserveSections)) continue
-        if (maxEdits !== undefined && countSentenceEdits(parent, text) > maxEdits * 2) continue
+      const out: ProposedCandidate[] = []
+      const seen = new Set<string>()
+      const accept = (payload: unknown, label: string, rationale: string): void => {
+        const text = typeof payload === 'string' ? payload.trim() : ''
+        if (!text || text === parent || seen.has(text)) return
+        if (preserveSections && !validatePreservedSections(text, preserveSections)) return
+        if (maxEdits !== undefined && countSentenceEdits(parent, text) > maxEdits * 2) return
         seen.add(text)
         // Thread label + rationale through so the candidate stays attributable:
         // the loop records WHY this rewrite was proposed, not just the payload.
-        out.push({ surface: text, label: proposal.label, rationale: proposal.rationale })
+        out.push({ surface: text, label, rationale })
       }
-      return out
+
+      // ── (1) GEPA combine-complementary-lessons ──────────────────────────
+      // When the loop supplies >1 non-dominated parents, spend the first slot
+      // merging their strengths. Only string surfaces merge (the driver is
+      // prompt-tier); the merge prompt cites each parent's winning scenarios.
+      const stringParents = (combineParents ? (ctx.paretoParents ?? []) : [])
+        .filter((p): p is typeof p & { surface: string } => typeof p.surface === 'string')
+        .sort((a, b) => b.composite - a.composite)
+        .slice(0, combineMaxParents)
+      if (stringParents.length > 1) {
+        const combinePrompt = buildCombinePrompt({
+          target: opts.target,
+          parents: stringParents,
+          evidenceK,
+        })
+        const combineResult = await callLlm(
+          {
+            model: opts.model,
+            messages: [
+              { role: 'system', content: COMBINE_SYSTEM },
+              { role: 'user', content: combinePrompt },
+            ],
+            jsonMode: true,
+            temperature: opts.temperature ?? 0.7,
+            maxTokens: opts.maxTokens ?? 6000,
+          },
+          opts.llm,
+        )
+        const merged = parseReflectionResponse(combineResult.content, 1)[0]
+        if (merged) {
+          accept(
+            merged.payload,
+            merged.label || 'pareto-combine',
+            merged.rationale ||
+              `combined ${stringParents.length} non-dominated parents (gen ${stringParents
+                .map((p) => p.generation)
+                .join(',')})`,
+          )
+        }
+      }
+
+      // ── (2) Reflection fill for the remaining population budget ──────────
+      const reflectCount = Math.max(0, ctx.populationSize - out.length)
+      if (reflectCount > 0) {
+        const { top, bottom, target } = buildEvidence(ctx, evidenceK, opts.target)
+        const userPrompt = buildReflectionPrompt({
+          target,
+          parentPayload: parent,
+          topTrials: top,
+          bottomTrials: bottom,
+          childCount: reflectCount,
+          mutationPrimitives: opts.mutationPrimitives,
+        })
+        const result = await callLlm(
+          {
+            model: opts.model,
+            messages: [
+              { role: 'system', content: REFLECTION_SYSTEM },
+              { role: 'user', content: userPrompt },
+            ],
+            jsonMode: true,
+            temperature: opts.temperature ?? 0.7,
+            maxTokens: opts.maxTokens ?? 6000,
+          },
+          opts.llm,
+        )
+        for (const proposal of parseReflectionResponse(result.content, reflectCount)) {
+          accept(proposal.payload, proposal.label, proposal.rationale)
+        }
+      }
+
+      return out.slice(0, ctx.populationSize)
     },
   }
+}
+
+/** Build the GEPA combine prompt: each non-dominated parent's full surface +
+ *  the scenarios it scores highest on, so the model can merge complementary
+ *  strengths rather than blend blindly. */
+function buildCombinePrompt(args: {
+  target: string
+  parents: Array<{ surface: string; objectives: Record<string, number>; composite: number }>
+  evidenceK: number
+}): string {
+  const lines: string[] = [
+    `You are merging ${args.parents.length} versions of: ${args.target}.`,
+    '',
+    'Each version is on the Pareto frontier — none dominates the others; each',
+    'wins on different scenarios. Combine their complementary strengths into',
+    'ONE version. Below, each version lists the scenarios it scores highest on.',
+    '',
+  ]
+  args.parents.forEach((p, i) => {
+    const tag = String.fromCharCode(65 + i) // A, B, C...
+    const best = Object.entries(p.objectives)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, args.evidenceK)
+      .map(([id, score]) => `${id} (${score.toFixed(2)})`)
+    lines.push(
+      `### Version ${tag} (mean ${p.composite.toFixed(2)}; strongest on: ${
+        best.join(', ') || 'n/a'
+      })`,
+      '```',
+      p.surface,
+      '```',
+      '',
+    )
+  })
+  lines.push(
+    'Return ONE merged version that would score well on the union of every',
+    "version's winning scenarios. Keep each version's specific winning rule;",
+    'where two rules conflict, prefer the more general one and note the choice',
+    'in your rationale.',
+  )
+  return lines.join('\n')
 }
 
 /** Extract H2 headings (`## Foo`) from a markdown surface. Exported for

@@ -169,6 +169,29 @@ export function isProposedCandidate(
   )
 }
 
+/** @experimental A non-dominated parent on the GEPA Pareto frontier — a
+ *  surface that, across the per-scenario objective vectors, no other tried
+ *  surface beats on every scenario. A candidate worse on the mean composite
+ *  but uniquely best on one hard scenario is non-dominated and survives here;
+ *  the composite-best ranking would discard the lesson it carries. The loop
+ *  computes the frontier across ALL generations and hands it to the driver so
+ *  a reflective driver can combine complementary lessons (GEPA, Agrawal et
+ *  al., arXiv:2507.19457). See `pareto.ts` (`paretoFrontier`). */
+export interface ParetoParent {
+  surface: MutableSurface
+  surfaceHash: string
+  /** The objective vector: per-scenario composite (higher is better). The
+   *  axes the frontier is computed over. */
+  objectives: Record<string, number>
+  /** Mean composite across the objective scenarios — the scalar summary used
+   *  for ordering + display, NOT for dominance. */
+  composite: number
+  /** Generation that produced this surface (`-1` for the baseline). */
+  generation: number
+  label?: string
+  rationale?: string
+}
+
 /** @experimental Stateless surface mutation — given findings + current
  *  surface, return N candidate surfaces. Pure transform, no generation
  *  awareness. Reflective-mutation, `runMultiShotOptimization`, `AxGEPA`
@@ -208,6 +231,13 @@ export interface ProposeContext<TFindings = unknown> {
    *  1 = single-shot; >1 = it may iterate on its own change before handing it
    *  back to be measured. */
   maxImprovementShots?: number
+  /** GEPA Pareto frontier across ALL generations so far — the non-dominated
+   *  surfaces by per-scenario objective vector. Empty/absent on generation 0
+   *  (only the baseline is scored). A reflective driver combines the
+   *  complementary lessons of these parents (each excels on different
+   *  scenarios) into a merged candidate. Drivers doing pure single-parent
+   *  reflection may ignore it. See {@link ParetoParent}. */
+  paretoParents?: ParetoParent[]
 }
 
 /** @experimental A surface-improvement strategy — the DRIVER of the
