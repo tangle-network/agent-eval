@@ -234,6 +234,46 @@ describe('gepaDriver → runImprovementLoop → defaultProductionGate (full wiri
     expect(String(result.winnerSurface)).not.toBe('BASE')
   })
 
+  it('fails loud when the holdout produces no scorable cells (every holdout dispatch errors)', async () => {
+    // Regression: when every holdout dispatch (or judge) errors, the gate read
+    // both means as 0, computed delta 0, and silently "held" on garbage —
+    // indistinguishable from a real no-lift result, and it masked an upstream
+    // crash (e.g. a scorer that threw on a malformed persona). The loop must
+    // REFUSE and surface the underlying failure instead of emitting a verdict
+    // over an empty holdout.
+    const driver = gepaDriver({
+      llm: { apiKey: 'k', baseUrl: 'https://router.test/v1', fetch: driverFetch() },
+      model: 'test-model',
+      target: 'enforce a strict output schema',
+    })
+    const holdoutIds = new Set(HOLDOUT.map((s) => s.id))
+    await expect(
+      runImprovementLoop<FakeScenario, FakeArtifact>({
+        scenarios: SCENARIOS,
+        holdoutScenarios: HOLDOUT,
+        baselineSurface: 'BASE',
+        // Train dispatches succeed (optimization runs to a winner); holdout
+        // dispatches all throw → every holdout cell errors.
+        dispatchWithSurface: async (surface, scenario) => {
+          if (holdoutIds.has(scenario.id)) throw new Error('holdout backend exploded')
+          return { text: String(surface) }
+        },
+        judges: [judge],
+        driver,
+        populationSize: 1,
+        maxGenerations: 1,
+        promoteTopK: 1,
+        gate: defaultProductionGate<FakeArtifact, FakeScenario>({
+          holdoutScenarios: HOLDOUT,
+          deltaThreshold: 0.5,
+        }),
+        autoOnPromote: 'none',
+        runDir: mkdtempSync(join(tmpdir(), 'holdout-fail-loud-')),
+        seed: 7,
+      }),
+    ).rejects.toThrow(/holdout produced no scorable cells/)
+  })
+
   it('holds when the driver proposes no improvement (winner == baseline)', async () => {
     // Driver returns only the parent surface → deduped to empty → winner stays
     // baseline → holdout delta 0 → gate holds. Guards the "nothing to ship" path.

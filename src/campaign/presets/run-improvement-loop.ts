@@ -31,6 +31,12 @@ import type { CampaignResult, Gate, MutableSurface, Scenario } from '../types'
 import type { RunOptimizationOptions, RunOptimizationResult } from './run-optimization'
 import { runOptimization, surfaceHash } from './run-optimization'
 
+/** Default per-cell dispatch deadline (10 min). Generous enough that only a
+ *  true hang trips it; a single agent turn that legitimately needs longer can
+ *  raise `dispatchTimeoutMs`. Without it, one stalled dispatch hangs the loop
+ *  (and the CI job above it) forever with no diagnostic. */
+const DEFAULT_DISPATCH_TIMEOUT_MS = 600_000
+
 export interface RunImprovementLoopOptions<TScenario extends Scenario, TArtifact>
   extends RunOptimizationOptions<TScenario, TArtifact> {
   /** Holdout scenarios kept OUT of the training optimization pool — used
@@ -90,14 +96,23 @@ export async function runImprovementLoop<TScenario extends Scenario, TArtifact>(
     throw new Error("runImprovementLoop: autoOnPromote='pr' requires ghOwner + ghRepo.")
   }
 
+  // Per-cell dispatch deadline applied to EVERY campaign in the loop
+  // (optimization + both holdout passes). A single non-settling dispatch — a
+  // stalled model request, an exhausted runtime resource, a stream that never
+  // closes — must fail its cell loud, not hang the whole loop (and the CI job)
+  // indefinitely. Caller-overridable; default is generous so only true hangs
+  // trip it.
+  const dispatchTimeoutMs = opts.dispatchTimeoutMs ?? DEFAULT_DISPATCH_TIMEOUT_MS
+
   // ── (1) optimization loop produces a winner ────────────────────────
-  const optimization = await runOptimization(opts)
+  const optimization = await runOptimization({ ...opts, dispatchTimeoutMs })
 
   // ── (2) baseline + winner re-scored on the holdout set ─────────────
   const { runCampaign } = await import('../run-campaign')
 
   const baselineOnHoldout = await runCampaign<TScenario, TArtifact>({
     ...opts,
+    dispatchTimeoutMs,
     scenarios: opts.holdoutScenarios,
     dispatch: (scenario, ctx) => opts.dispatchWithSurface(opts.baselineSurface, scenario, ctx),
     runDir: `${opts.runDir}/holdout-baseline`,
@@ -105,11 +120,32 @@ export async function runImprovementLoop<TScenario extends Scenario, TArtifact>(
 
   const winnerOnHoldout = await runCampaign<TScenario, TArtifact>({
     ...opts,
+    dispatchTimeoutMs,
     scenarios: opts.holdoutScenarios,
     dispatch: (scenario, ctx) =>
       opts.dispatchWithSurface(optimization.winnerSurface, scenario, ctx),
     runDir: `${opts.runDir}/holdout-winner`,
   })
+
+  // Fail loud if the holdout produced nothing to score. Every holdout dispatch
+  // or judge errored ⇒ the gate would read both means as 0, compute delta 0,
+  // and silently "hold" on garbage — indistinguishable from a real no-lift
+  // result. Refuse: surface the underlying failure instead.
+  const scorable = (r: CampaignResult<TArtifact, TScenario>) =>
+    r.cells.filter((c) => !c.error && c.artifact != null)
+  const baseScorable = scorable(baselineOnHoldout)
+  const winnerScorable = scorable(winnerOnHoldout)
+  if (baseScorable.length === 0 || winnerScorable.length === 0) {
+    const firstErr = (r: CampaignResult<TArtifact, TScenario>) =>
+      r.cells.find((c) => c.error)?.error ?? 'unknown'
+    throw new Error(
+      `runImprovementLoop: holdout produced no scorable cells ` +
+        `(baseline ${baseScorable.length}/${baselineOnHoldout.cells.length}, ` +
+        `winner ${winnerScorable.length}/${winnerOnHoldout.cells.length}) — every holdout ` +
+        `dispatch or judge failed. Refusing to emit a gate decision over an empty holdout. ` +
+        `First baseline error: "${firstErr(baselineOnHoldout)}"; first winner error: "${firstErr(winnerOnHoldout)}".`,
+    )
+  }
 
   // ── (3) gate verdict ───────────────────────────────────────────────
   // Candidate + baseline share cellIds (same holdout scenarios), so their

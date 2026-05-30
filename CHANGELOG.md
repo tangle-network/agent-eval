@@ -4,6 +4,18 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ---
 
+## [0.66.0] — 2026-05-30 — the improvement loop can no longer hang silently or ingest to the wrong URL
+
+### Fixed
+
+- **`runCampaign` per-cell dispatch deadline (`dispatchTimeoutMs`).** A dispatch that neither resolves nor rejects — a stalled model request, an exhausted runtime resource, a stream that never closes — used to hang the cell, and with it the lane, the campaign, `runImprovementLoop`, and the CI job above them, **forever, with no diagnostic**. The cell now races its dispatch against the deadline; on timeout it aborts the cell's `ctx.signal` and records a LOUD error (`dispatch exceeded <N>ms`) while the campaign proceeds. `undefined`/`0` = unbounded (legacy).
+- **`runImprovementLoop` fails loud on an empty holdout.** When every holdout dispatch or judge errored, the gate read both means as 0, computed delta 0, and silently **"held" on garbage** — indistinguishable from a real no-lift result, masking upstream crashes (e.g. a consumer scorer that threw on a malformed scenario). The loop now throws a diagnostic error naming the first underlying failure instead of emitting a verdict over zero scorable cells. It also applies a default per-cell deadline (`DEFAULT_DISPATCH_TIMEOUT_MS`, 10 min, overridable) to every campaign it runs.
+- **Hosted ingest URL normalization.** The client appends the versioned `/v1/ingest/...` path itself, but callers (and the client's own prior doc) routinely pass the versioned base `https://host/v1` — producing `/v1/v1/ingest/...` → **404, silently dropping every event**. `post()` now strips a trailing `/v1` (and slashes) from the endpoint so both `https://host` and `https://host/v1` resolve correctly; the doc now shows the bare host.
+
+### Why it matters
+
+These three were a single failure chain in production: a consumer's judge threw on a subset of scenarios → the holdout produced no scorable cells → the loop hung instead of failing loud → no decision, no provenance — and even when it did complete, the activated ingest env (`…/v1`) 404'd. The loop now either completes with real data or fails loud, and its provenance lands.
+
 ## [0.65.0] — 2026-05-30 — `emitLoopProvenance` ships the eval-run event too (full dashboard visibility)
 
 ### Fixed

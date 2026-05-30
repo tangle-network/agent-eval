@@ -119,6 +119,24 @@ describe('hosted-tier E2E roundtrip — wire spec contract', () => {
     expect(body.runs[0]?.status).toBe('finished')
   })
 
+  it('normalizes a versioned endpoint so ingest is not double-prefixed to /v1/v1 (404)', async () => {
+    // Regression: the client appends the versioned path (`/v1/ingest/...`)
+    // itself, but callers (and the client's own prior doc) routinely pass the
+    // versioned base `https://host/v1` — producing `/v1/v1/ingest/...` → 404,
+    // silently dropping every event. Both endpoint shapes must hit the route.
+    for (const endpoint of [`${receiver.baseUrl}/v1`, `${receiver.baseUrl}/v1/`]) {
+      const client = createHostedClient({
+        endpoint,
+        apiKey: TENANT_A.key,
+        tenantId: TENANT_A.id,
+        retries: 0,
+      })
+      const res = await client.ingestEvalRun(makeRunEvent(`normalized-${endpoint.length}`))
+      expect(res.accepted).toBe(1)
+      expect(res.rejected).toEqual([])
+    }
+  })
+
   it('preserves full event payload on /v1/runs/:runId read', async () => {
     const client = createHostedClient({
       endpoint: receiver.baseUrl,
