@@ -18,6 +18,8 @@
  * can build dashboards / CI gates / regression diffs against a stable schema.
  */
 
+import type { RunTokenUsage } from '../run-record'
+
 /** @experimental Stable identifier + kind tag for any scenario. Consumers
  *  extend with their per-domain payload (persona, task, requirement, ...). */
 export interface Scenario {
@@ -291,18 +293,19 @@ export interface CampaignArtifactWriter {
   writeJson(path: string, value: unknown): Promise<string>
 }
 
-/** Token usage accumulated for a cell. Structurally mirrors `RunTokenUsage`
- *  (run-record.ts) so a cell maps cleanly onto a `RunRecord` for the
- *  backend-integrity guard without coupling the campaign module to it. */
-export interface CampaignTokenUsage {
-  input: number
-  output: number
-  cached?: number
-}
+/** Token usage accumulated for a cell. Aliased to the canonical `RunTokenUsage`
+ *  (run-record.ts, same package) so a cell maps onto a `RunRecord` for the
+ *  backend-integrity guard with ONE source of truth — a field added to
+ *  `RunTokenUsage` is a compile error here, not a silent drift. */
+export type CampaignTokenUsage = RunTokenUsage
 
-/** @experimental Cell-scoped cost meter. Substrate auto-tracks LLM costs
- *  via the cost-ledger backend hooks; consumers can record additional
- *  spend (sandbox time, tool costs) via `observe`. */
+/** @experimental Cell-scoped cost meter. NOTHING is captured automatically —
+ *  the substrate does not intercept the LLM call, so it cannot see cost or
+ *  tokens unless the dispatch reports them. Every LLM cost MUST be reported via
+ *  `observe` and every token count via `observeTokens`; a dispatch that reports
+ *  neither yields a `{cost:0, tokens:0}` cell, which the backend-integrity
+ *  guard (`assertRealBackend`) correctly reads as a stub. Also use `observe`
+ *  for non-LLM spend (sandbox time, tool costs). */
 export interface CampaignCostMeter {
   observe(amountUsd: number, source: string): void
   /** Record LLM token usage for this cell; accumulates across calls. A cell
