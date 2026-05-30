@@ -1258,3 +1258,63 @@ describe('emitLoopProvenance — hosted ingest (eval-run + traces)', () => {
     expect(traceBatches[0]!.length).toBeGreaterThan(0)
   })
 })
+
+describe('runImprovementLoop — no-op guard (empty-diff false-ship killer)', () => {
+  // Regression for the observed production false positive: the gepaDriver's
+  // candidate did NOT beat the training baseline, so the winner stayed the
+  // baseline (empty diff) — yet the loop re-scored baseline-vs-itself on the
+  // holdout, read model noise as a +4 "lift", and SHIPPED. A winner identical
+  // to the baseline has nothing to promote and must HOLD, regardless of how
+  // permissive the delta threshold is.
+  const STRONG = 'STRONG_BASELINE_SURFACE'
+  const prefersBaseline: JudgeConfig<FakeArtifact, FakeScenario> = {
+    name: 'prefers-baseline',
+    dimensions: [{ key: 'q', description: 'baseline is the strong surface' }],
+    score: ({ artifact }) => {
+      const ok = artifact.text.includes(STRONG) ? 1 : 0
+      return { dimensions: { q: ok }, composite: ok, notes: '' }
+    },
+  }
+  // Driver proposes a STRICTLY WEAKER candidate (no marker → scores 0 < baseline 1).
+  const weakerProposalFetch = (async () => {
+    const content = JSON.stringify({
+      proposals: [{ label: 'weaker', rationale: 'r', payload: 'WEAKER_CANDIDATE' }],
+    })
+    return new Response(
+      JSON.stringify({ choices: [{ message: { content } }], usage: { total_tokens: 5 } }),
+      { status: 200, headers: { 'content-type': 'application/json' } },
+    )
+  }) as unknown as typeof fetch
+
+  it('HOLDS when no candidate beats the baseline, even with a near-zero delta threshold', async () => {
+    const result = await runImprovementLoop<FakeScenario, FakeArtifact>({
+      scenarios: SCENARIOS,
+      holdoutScenarios: HOLDOUT,
+      baselineSurface: STRONG,
+      dispatchWithSurface: async (surface) => ({ text: String(surface) }),
+      judges: [prefersBaseline],
+      driver: gepaDriver({
+        llm: { apiKey: 'k', baseUrl: 'https://router.test/v1', fetch: weakerProposalFetch },
+        model: 'm',
+        target: 't',
+      }),
+      populationSize: 1,
+      maxGenerations: 1,
+      promoteTopK: 1,
+      // deltaThreshold so low it would ship ANY positive noise delta — the
+      // no-op guard must fire FIRST and override it.
+      gate: defaultProductionGate<FakeArtifact, FakeScenario>({
+        holdoutScenarios: HOLDOUT,
+        deltaThreshold: 0.0001,
+      }),
+      autoOnPromote: 'none',
+      runDir: mkdtempSync(join(tmpdir(), 'noop-guard-')),
+      seed: 7,
+    })
+    expect(result.gateResult.decision).toBe('hold')
+    expect(result.gateResult.reasons.join(' ')).toMatch(/winner == baseline/)
+    expect(result.promotedDiff).toBe('')
+    // The winner surface is byte-identical to the baseline.
+    expect(String(result.winnerSurface)).toBe(STRONG)
+  })
+})

@@ -107,6 +107,13 @@ export async function runImprovementLoop<TScenario extends Scenario, TArtifact>(
   // ── (1) optimization loop produces a winner ────────────────────────
   const optimization = await runOptimization({ ...opts, dispatchTimeoutMs })
 
+  // No candidate beat the training baseline ⇒ the "winner" IS the baseline
+  // (empty diff). Re-scoring the baseline against ITSELF on the holdout and
+  // gating the resulting model noise as "lift" is a false positive — it
+  // promotes nothing and reports run-to-run variance as an improvement. Detect
+  // it up front: skip the redundant winner-holdout pass and force a `hold`.
+  const winnerIsBaseline = optimization.winnerSurfaceHash === surfaceHash(opts.baselineSurface)
+
   // ── (2) baseline + winner re-scored on the holdout set ─────────────
   const { runCampaign } = await import('../run-campaign')
 
@@ -118,14 +125,19 @@ export async function runImprovementLoop<TScenario extends Scenario, TArtifact>(
     runDir: `${opts.runDir}/holdout-baseline`,
   })
 
-  const winnerOnHoldout = await runCampaign<TScenario, TArtifact>({
-    ...opts,
-    dispatchTimeoutMs,
-    scenarios: opts.holdoutScenarios,
-    dispatch: (scenario, ctx) =>
-      opts.dispatchWithSurface(optimization.winnerSurface, scenario, ctx),
-    runDir: `${opts.runDir}/holdout-winner`,
-  })
+  // When the winner == baseline, scoring it again would just be a second noisy
+  // sample of the same surface. Reuse the baseline holdout — the gate is forced
+  // to `hold` below regardless, and we save a full campaign.
+  const winnerOnHoldout = winnerIsBaseline
+    ? baselineOnHoldout
+    : await runCampaign<TScenario, TArtifact>({
+        ...opts,
+        dispatchTimeoutMs,
+        scenarios: opts.holdoutScenarios,
+        dispatch: (scenario, ctx) =>
+          opts.dispatchWithSurface(optimization.winnerSurface, scenario, ctx),
+        runDir: `${opts.runDir}/holdout-winner`,
+      })
 
   // Fail loud if the holdout produced nothing to score. Every holdout dispatch
   // or judge errored ⇒ the gate would read both means as 0, compute delta 0,
@@ -168,18 +180,33 @@ export async function runImprovementLoop<TScenario extends Scenario, TArtifact>(
     baselineJudgeScores.set(cell.cellId, cell.judgeScores)
   }
 
-  const gateResult = await opts.gate.decide({
-    candidateArtifacts,
-    baselineArtifacts,
-    judgeScores,
-    baselineJudgeScores,
-    scenarios: opts.holdoutScenarios,
-    cost: {
-      candidate: winnerOnHoldout.aggregates.totalCostUsd,
-      baseline: baselineOnHoldout.aggregates.totalCostUsd,
-    },
-    signal: new AbortController().signal,
-  })
+  // No-op guard: a winner identical to the baseline has nothing to promote, so
+  // it never reaches the gate — otherwise the gate scores baseline-vs-itself,
+  // sees model noise as a delta, and can "ship" an empty diff (the observed
+  // false positive: a +4 held-out "lift" with `diff: ''`). Force `hold`.
+  const gateResult = winnerIsBaseline
+    ? {
+        decision: 'hold' as const,
+        reasons: [
+          'no candidate beat the training baseline — winner == baseline (empty diff); nothing to promote',
+        ],
+        contributingGates: [
+          { name: 'no-op-guard', passed: false, detail: { winnerIsBaseline: true } },
+        ],
+        delta: 0,
+      }
+    : await opts.gate.decide({
+        candidateArtifacts,
+        baselineArtifacts,
+        judgeScores,
+        baselineJudgeScores,
+        scenarios: opts.holdoutScenarios,
+        cost: {
+          candidate: winnerOnHoldout.aggregates.totalCostUsd,
+          baseline: baselineOnHoldout.aggregates.totalCostUsd,
+        },
+        signal: new AbortController().signal,
+      })
 
   // ── (4) baseline→winner diff (always) + auto-PR when gate ships ────
   // The diff is computed UNCONDITIONALLY — it's the human-auditable record of
