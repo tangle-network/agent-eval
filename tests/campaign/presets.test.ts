@@ -44,9 +44,13 @@ const SCENARIOS: FakeScenario[] = [
   { id: 'b', kind: 'chat', intent: 'B' },
 ]
 
+// >=3 holdout scenarios so the rigorous gate's paired-bootstrap has the
+// minProductiveRuns (3) it needs to ever clear zero — a real lift on only 2
+// holdout cells is correctly held as too-few-runs.
 const HOLDOUT: FakeScenario[] = [
   { id: 'h1', kind: 'chat', intent: 'H1' },
   { id: 'h2', kind: 'chat', intent: 'H2' },
+  { id: 'h3', kind: 'chat', intent: 'H3' },
 ]
 
 const noopDispatch: DispatchFn<FakeScenario, FakeArtifact> = async (s) => ({
@@ -663,19 +667,34 @@ describe('defaultProductionGate', () => {
     const candidate = new Map<string, FakeArtifact>([
       ['h1:0', { text: 'normal' }],
       ['h2:0', { text: 'normal' }],
+      ['h3:0', { text: 'normal' }],
     ])
-    const baseline = new Map<string, FakeArtifact>()
-    const judgeScores = new Map<
-      string,
-      Record<string, { composite: number; dimensions: Record<string, number>; notes: string }>
-    >([
-      ['h1:0', { judge: { composite: 8, dimensions: {}, notes: '' } }],
-      ['h2:0', { judge: { composite: 9, dimensions: {}, notes: '' } }],
+    const baseline = new Map<string, FakeArtifact>([
+      ['h1:0', { text: 'normal' }],
+      ['h2:0', { text: 'normal' }],
+      ['h3:0', { text: 'normal' }],
+    ])
+    const mk = (entries: Array<[string, number]>) =>
+      new Map<
+        string,
+        Record<string, { composite: number; dimensions: Record<string, number>; notes: string }>
+      >(entries.map(([c, v]) => [c, { judge: { composite: v, dimensions: {}, notes: '' } }]))
+    // A real, uniform +3 lift on 3 holdout cells ⇒ CI.low > 0 ⇒ ship.
+    const judgeScores = mk([
+      ['h1:0', 8],
+      ['h2:0', 9],
+      ['h3:0', 7],
+    ])
+    const baselineJudgeScores = mk([
+      ['h1:0', 5],
+      ['h2:0', 6],
+      ['h3:0', 4],
     ])
     const result = await gate.decide({
       candidateArtifacts: candidate,
       baselineArtifacts: baseline,
       judgeScores,
+      baselineJudgeScores,
       scenarios: HOLDOUT,
       cost: { candidate: 1, baseline: 1 },
       signal: new AbortController().signal,

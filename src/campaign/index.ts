@@ -42,6 +42,16 @@ export {
 } from './gates/default-production-gate'
 export { type HeldOutGateOptions, heldOutGate } from './gates/heldout-gate'
 export {
+  type DimensionRegression,
+  detectScale,
+  dimensionRegressions,
+  type HeldoutSignificance,
+  type HeldoutSignificanceOptions,
+  heldoutSignificance,
+  type PairedHoldout,
+  pairHoldout,
+} from './gates/statistical-heldout'
+export {
   FsLabeledScenarioStore,
   type FsLabeledScenarioStoreOptions,
   LabeledScenarioStoreError,
