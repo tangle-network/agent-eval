@@ -4,6 +4,27 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ---
 
+## [0.61.0] — 2026-05-30 — `runProfileMatrix` (profile × scenario × persona matrix with integrity by construction)
+
+### Added
+
+- **`runProfileMatrix({ profiles, scenarios, dispatch, judges, reps, integrity, personaOf })`** (`@tangle-network/agent-eval/campaign`) — the keystone that lets a consumer express a multi-profile × scenario/persona eval as **one** call instead of a hand-rolled `eval:*` script. Fans `profiles` (axis 3) over the scenario/persona corpus (axis 1), runs `runCampaign` per profile (reusing its seeds / reps / bootstrap CIs / resumability / `LabeledScenarioStore` capture flywheel), maps every cell to a validated `RunRecord` carrying real `tokenUsage`, and runs **`assertRealBackend` by construction** (`integrity: 'assert' | 'warn' | 'off'`, default `assert`). Returns `{ records, byProfile, byScenario, byPersona, integrity, campaigns }`.
+- **`ProfileMatrixError`** — thrown at preflight (before any LLM spend) when a profile's model lacks a snapshot version or the profile/scenario lists are empty.
+
+### Fixed / closed gap
+
+- **Token usage is now captured by `runCampaign`** — `CampaignCostMeter` gains `observeTokens(usage)` + `tokens()`, and `CampaignCellResult` gains `tokenUsage`. Previously a campaign cell carried `costUsd` but no token counts, so `assertRealBackend`/`summarizeBackendIntegrity` (which key on `tokenUsage`) could not run on a `CampaignResult`. This closes the integrity gap for **every** campaign consumer, not just `runProfileMatrix`.
+
+### Why this matters
+
+A fleet eval-surface audit found every consumer hand-rolls the same matrix→dispatch→`RunRecord`→integrity bridge as a bespoke script, because no primitive produced integrity-checkable `RunRecord`s from a profile matrix. `runProfileMatrix` is that bridge, once — so the adoption skills can mandate "one matrix harness, axes as flags" with a real primitive behind it. Consumers wrap their runtime (e.g. agent-runtime `runLoop` + `reportLoopUsage`) in `dispatch`; the integrity guard then sees real LLM activity.
+
+### Notes
+
+Pure additive surface (the `CampaignCostMeter` additions are new optional methods). 7 new tests under `tests/campaign/run-profile-matrix.test.ts` — the keystone being the **stub→throws** regression (a zero-token dispatch fails the matrix loudly instead of reporting a clean 0/N leaderboard). Full suite 1527/1527 green.
+
+---
+
 ## [0.53.0] — 2026-05-27 — prior-period comparison ("did my last change help?")
 
 ### Added
