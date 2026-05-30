@@ -24,6 +24,16 @@ export {
   type GepaDriverOptions,
   gepaDriver,
 } from './drivers/gepa'
+export {
+  type ProposePatchesArgs,
+  parseSkillPatchResponse,
+  type RejectedEdit,
+  type SkillOptDriver,
+  type SkillOptDriverOptions,
+  type SkillOptEvidence,
+  SkillPatchParseError,
+  skillOptDriver,
+} from './drivers/skill-opt'
 // ── Gates ────────────────────────────────────────────────────────────
 export { composeGate } from './gates/compose'
 export {
@@ -37,6 +47,18 @@ export {
   LabeledScenarioStoreError,
 } from './labeled-store/fs-adapter'
 // ── Presets (the documented public surface) ──────────────────────────
+export {
+  type CompareDriversOptions,
+  compareDrivers,
+  type DriverComparison,
+  type DriverEntry,
+  type DriverPairwise,
+  type DriverScore,
+  gepaParetoEntry,
+  gepaReflectionEntry,
+  type OptimizerEntryConfig,
+  skillOptEntry,
+} from './presets/compare-drivers'
 export { type RunEvalOptions, runEval } from './presets/run-eval'
 export {
   defaultRenderDiff,
@@ -59,6 +81,13 @@ export {
   runProfileMatrix,
   type ScenarioRollup,
 } from './presets/run-profile-matrix'
+export {
+  type AcceptedEdit,
+  type RunSkillOptOptions,
+  type RunSkillOptResult,
+  runSkillOpt,
+  type SkillOptEpochRecord,
+} from './presets/run-skill-opt'
 // ── Loop provenance (durable record + OTLP spans) ────────────────────
 export {
   type BuildLoopProvenanceArgs,
@@ -75,6 +104,15 @@ export {
   surfaceContentHash,
 } from './provenance'
 export { type RunCampaignOptions, runCampaign } from './run-campaign'
+export { type CampaignBreakdown, campaignBreakdown, campaignMeanComposite } from './score-utils'
+export {
+  type ApplySkillPatchResult,
+  applySkillPatch,
+  patchEditCount,
+  type SkillPatch,
+  type SkillPatchOp,
+  type SkillPatchRejection,
+} from './skill-patch'
 export { type CampaignStorage, fsCampaignStorage, inMemoryCampaignStorage } from './storage'
 export type {
   CampaignAggregates,
@@ -107,6 +145,7 @@ export type {
   MutableSurface,
   Mutator,
   OptimizerConfig,
+  ParetoParent,
   ProposeContext,
   ProposedCandidate,
   RedactionStatus,

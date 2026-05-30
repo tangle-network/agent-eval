@@ -937,6 +937,128 @@ describe('runOptimization', () => {
   })
 })
 
+// ── runOptimization — GEPA Pareto frontier threading (#101) ────────
+
+describe('runOptimization — GEPA Pareto frontier', () => {
+  // The regression: a candidate worse on the MEAN composite but uniquely best
+  // on ONE scenario must survive in the non-dominated set handed to the next
+  // generation (`ctx.paretoParents`) and in `result.paretoFrontier`. A
+  // composite-only `sort().slice(topK)` would discard the lesson it carries —
+  // exactly the GEPA frontier's reason to exist. Scores by (surface, scenario):
+  //   base: balanced (a 0.5, b 0.5)
+  //   X:    wins 'a' (0.9), loses 'b' (0.1)  → composite 0.5, uniquely best on 'a'
+  //   Y:    moderate 'a' (0.6), wins 'b' (0.8) → composite 0.7, dominates base
+  // Frontier = {X, Y}; base is dominated by Y; X (composite-worse) survives.
+  const SCORES: Record<string, Record<string, number>> = {
+    base: { a: 0.5, b: 0.5 },
+    X: { a: 0.9, b: 0.1 },
+    Y: { a: 0.6, b: 0.8 },
+  }
+  const lookupJudge: JudgeConfig<FakeArtifact, FakeScenario> = {
+    name: 'lookup',
+    dimensions: [{ key: 'q', description: 'quality' }],
+    score: ({ artifact, scenario }) => {
+      const v = SCORES[artifact.text]?.[scenario.id] ?? 0
+      return { dimensions: { q: v }, composite: v, notes: '' }
+    },
+  }
+
+  it('threads the non-dominated set; composite-worse-but-uniquely-best survives', async () => {
+    const seenParents: Array<Array<{ hash: string; composite: number }>> = []
+    const probeDriver = {
+      kind: 'pareto-probe',
+      async propose(ctx: {
+        generation: number
+        populationSize: number
+        currentSurface: MutableSurface
+        paretoParents?: Array<{ surfaceHash: string; composite: number }>
+      }): Promise<MutableSurface[]> {
+        seenParents.push(
+          (ctx.paretoParents ?? []).map((p) => ({ hash: p.surfaceHash, composite: p.composite })),
+        )
+        // Gen 0 proposes the two candidates; later generations add nothing.
+        return ctx.generation === 0 ? ['X', 'Y'] : []
+      },
+    }
+
+    const result = await runOptimization<FakeScenario, FakeArtifact>({
+      scenarios: SCENARIOS,
+      baselineSurface: 'base',
+      dispatchWithSurface: async (surface) => ({ text: String(surface) }),
+      judges: [lookupJudge],
+      driver: probeDriver,
+      populationSize: 2,
+      maxGenerations: 2,
+      runDir,
+    })
+
+    const hX = surfaceHash('X')
+    const hY = surfaceHash('Y')
+    const hBase = surfaceHash('base')
+
+    // Gen 0 sees only the baseline frontier (trivially {base}).
+    expect(seenParents[0]!.map((p) => p.hash)).toEqual([hBase])
+    // Gen 1 sees the frontier {X, Y} — baseline is dominated by Y and gone.
+    const gen1 = new Set(seenParents[1]!.map((p) => p.hash))
+    expect(gen1).toEqual(new Set([hX, hY]))
+    expect(gen1.has(hBase)).toBe(false)
+
+    // The final frontier keeps BOTH: Y (the composite winner, 0.7) AND X
+    // (composite-worse 0.5, but uniquely best on 'a'). That's the whole point.
+    const frontierHashes = new Set(result.paretoFrontier.map((p) => p.surfaceHash))
+    expect(frontierHashes).toEqual(new Set([hX, hY]))
+    const xParent = result.paretoFrontier.find((p) => p.surfaceHash === hX)!
+    const yParent = result.paretoFrontier.find((p) => p.surfaceHash === hY)!
+    expect(xParent.composite).toBeCloseTo(0.5, 5)
+    expect(yParent.composite).toBeCloseTo(0.7, 5)
+    expect(xParent.objectives).toEqual({ a: 0.9, b: 0.1 })
+    // Winner by composite is Y — yet X (worse composite) is still on the frontier.
+    expect(result.winnerSurfaceHash).toBe(hY)
+    expect(frontierHashes.has(hX)).toBe(true)
+  })
+
+  it('keeps a candidate missing a scenario score via the finite floor (not dropped)', async () => {
+    // The judge is "unavailable" for (X, scenario b) → X's campaign cell b errors
+    // → X.objectives omits 'b'. computeParetoFrontier must rank X worst on 'b'
+    // via a FINITE floor, NOT -Infinity (which the canonical paretoFrontier would
+    // exclude entirely, silently dropping X). Regression guard for that floor.
+    const floorJudge: JudgeConfig<FakeArtifact, FakeScenario> = {
+      name: 'floor-lookup',
+      dimensions: [{ key: 'q', description: 'quality' }],
+      score: ({ artifact, scenario }) => {
+        if (artifact.text === 'X' && scenario.id === 'b') {
+          throw new Error('judge unavailable for X on scenario b')
+        }
+        const v = SCORES[artifact.text]?.[scenario.id] ?? 0
+        return { dimensions: { q: v }, composite: v, notes: '' }
+      },
+    }
+    const result = await runOptimization<FakeScenario, FakeArtifact>({
+      scenarios: SCENARIOS,
+      baselineSurface: 'base',
+      dispatchWithSurface: async (surface) => ({ text: String(surface) }),
+      judges: [floorJudge],
+      driver: {
+        kind: 'pareto-probe',
+        async propose(ctx: { generation: number }): Promise<MutableSurface[]> {
+          return ctx.generation === 0 ? ['X', 'Y'] : []
+        },
+      },
+      populationSize: 2,
+      maxGenerations: 1,
+      runDir,
+    })
+
+    const xParent = result.paretoFrontier.find((p) => p.surfaceHash === surfaceHash('X'))
+    // X scored only scenario 'a' (b errored) — but it is STILL on the frontier
+    // (uniquely best on 'a'), not silently dropped for the missing axis.
+    expect(xParent).toBeDefined()
+    expect(Object.keys(xParent!.objectives)).toEqual(['a'])
+    expect(xParent!.objectives.a).toBeCloseTo(0.9, 5)
+    expect(result.paretoFrontier.some((p) => p.surfaceHash === surfaceHash('Y'))).toBe(true)
+  })
+})
+
 // ── MutableSurface tiers (string + CodeSurface) ────────────────────
 
 describe('MutableSurface widening', () => {
