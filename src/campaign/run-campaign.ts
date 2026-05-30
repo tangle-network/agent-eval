@@ -21,6 +21,7 @@ import type {
   CampaignCellResult,
   CampaignCostMeter,
   CampaignResult,
+  CampaignTokenUsage,
   CampaignTraceWriter,
   DispatchContext,
   DispatchFn,
@@ -261,13 +262,22 @@ async function executeCell<TScenario extends Scenario, TArtifact>(
     },
   }
   let costSoFar = 0
+  const tokensSoFar: CampaignTokenUsage = { input: 0, output: 0 }
   const cost: CampaignCostMeter = {
     observe(amount, source) {
       costSoFar += amount
       trace.span(`cost.${source}`, { amountUsd: amount }).end()
     },
+    observeTokens(usage) {
+      tokensSoFar.input += usage.input
+      tokensSoFar.output += usage.output
+      if (usage.cached) tokensSoFar.cached = (tokensSoFar.cached ?? 0) + usage.cached
+    },
     current() {
       return costSoFar
+    },
+    tokens() {
+      return { ...tokensSoFar }
     },
   }
 
@@ -324,6 +334,7 @@ async function executeCell<TScenario extends Scenario, TArtifact>(
     artifact: (artifact ?? null) as TArtifact,
     judgeScores,
     costUsd: costSoFar,
+    tokenUsage: { ...tokensSoFar },
     durationMs: Date.now() - startMs,
     seed: args.slot.cellSeed,
     cached: false,
@@ -383,6 +394,7 @@ function skippedCell<TScenario extends Scenario, TArtifact>(
     artifact: null as unknown as TArtifact,
     judgeScores: {},
     costUsd: 0,
+    tokenUsage: { input: 0, output: 0 },
     durationMs: 0,
     seed: slot.cellSeed,
     cached: false,

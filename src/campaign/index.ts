@@ -50,6 +50,15 @@ export {
   runOptimization,
   surfaceHash,
 } from './presets/run-optimization'
+export {
+  type ProfileDispatchFn,
+  ProfileMatrixError,
+  type ProfileSummary,
+  type RunProfileMatrixOptions,
+  type RunProfileMatrixResult,
+  runProfileMatrix,
+  type ScenarioRollup,
+} from './presets/run-profile-matrix'
 // ── Loop provenance (durable record + OTLP spans) ────────────────────
 export {
   type BuildLoopProvenanceArgs,
@@ -73,6 +82,7 @@ export type {
   CampaignCellResult,
   CampaignCostMeter,
   CampaignResult,
+  CampaignTokenUsage,
   CampaignTraceWriter,
   CodeSurface,
   DispatchContext,

@@ -291,12 +291,29 @@ export interface CampaignArtifactWriter {
   writeJson(path: string, value: unknown): Promise<string>
 }
 
+/** Token usage accumulated for a cell. Structurally mirrors `RunTokenUsage`
+ *  (run-record.ts) so a cell maps cleanly onto a `RunRecord` for the
+ *  backend-integrity guard without coupling the campaign module to it. */
+export interface CampaignTokenUsage {
+  input: number
+  output: number
+  cached?: number
+}
+
 /** @experimental Cell-scoped cost meter. Substrate auto-tracks LLM costs
  *  via the cost-ledger backend hooks; consumers can record additional
  *  spend (sandbox time, tool costs) via `observe`. */
 export interface CampaignCostMeter {
   observe(amountUsd: number, source: string): void
+  /** Record LLM token usage for this cell; accumulates across calls. A cell
+   *  has `costUsd` but no token counts unless the dispatch reports them here —
+   *  and the backend-integrity guard (`assertRealBackend`) keys on
+   *  `tokenUsage`, so a cell that never reports tokens reads as a stub. Any
+   *  dispatch that calls an LLM MUST report its usage. */
+  observeTokens(usage: CampaignTokenUsage): void
   current(): number
+  /** Accumulated token usage for this cell (zeros if never observed). */
+  tokens(): CampaignTokenUsage
 }
 
 // ── LabeledScenarioStore ──────────────────────────────────────────────
@@ -413,6 +430,10 @@ export interface CampaignCellResult<TArtifact> {
   artifact: TArtifact
   judgeScores: Record<string, JudgeScore>
   costUsd: number
+  /** LLM token usage the dispatch reported via `ctx.cost.observeTokens`.
+   *  `{ input: 0, output: 0 }` when the dispatch reported none — which the
+   *  backend-integrity guard reads as a stub. */
+  tokenUsage: CampaignTokenUsage
   durationMs: number
   seed: number
   cached: boolean
