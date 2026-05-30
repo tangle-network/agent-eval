@@ -4,6 +4,14 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ---
 
+## [0.64.0] — 2026-05-30 — `hostedClientFromEnv()` — one-call ingest wiring for the fleet
+
+### Added
+
+- **`hostedClientFromEnv(overrides?)`** (`/hosted`) — the canonical, fail-soft way to wire a product's eval-run + trace provenance to the Intelligence dashboard. Reads `TANGLE_INGEST_URL` → `TANGLE_ORCHESTRATOR_URL` (endpoint), `TANGLE_INGEST_API_KEY` → `TANGLE_API_KEY` (key), `TANGLE_TENANT_ID` (tenant); returns a `HostedClient` or **`undefined`** when any is missing — so a product wires the ship call unconditionally (`emitLoopProvenance({ hostedClient })` / `selfImprove({ hostedTenant })`) and it stays a no-op until the env is set. Strips a trailing slash; `overrides` (e.g. a fixed per-product `tenantId` label) win over env. Replaces the per-product `resolveHostedClient()` copies with one substrate helper.
+
+---
+
 ## [0.63.0] — 2026-05-30 — the full optimizer drivers: GEPA Pareto + SkillOpt + a head-to-head lift benchmark
 
 Closes the optimizer-completeness gap (#101/#100). `gepaDriver` was reflection-only; the SOTA SkillOpt technique was roadmapped but unbuilt; and there was no head-to-head benchmark, so optimizer quality was measurement-invisible — a simplified driver could ship unnoticed. This release ships both drivers in full and the forcing function that keeps them honest.
