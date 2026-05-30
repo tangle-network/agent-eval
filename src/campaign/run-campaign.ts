@@ -57,6 +57,16 @@ export interface RunCampaignOptions<TScenario extends Scenario, TArtifact> {
   costCeiling?: number
   /** Max concurrent cells. Default 2. */
   maxConcurrency?: number
+  /**
+   * Per-cell dispatch deadline in ms. A `dispatch` that neither resolves nor
+   * rejects within this window is a hang (a stalled model request, an
+   * exhausted runtime resource, a backend that never closes its stream). When
+   * set, the cell's `ctx.signal` is aborted and the cell is recorded as a LOUD
+   * error (`dispatch exceeded <N>ms`) so the campaign proceeds and the failure
+   * is visible — instead of one wedged cell silently hanging the whole run (and
+   * every loop/CI job above it) forever. `undefined`/`0` = unbounded (legacy).
+   */
+  dispatchTimeoutMs?: number
   /** Required: where artifacts + traces land. */
   runDir: string
   /** Tracing posture. Default is the substrate's `FileSystemTraceStore` rooted
@@ -170,6 +180,7 @@ export async function runCampaign<TScenario extends Scenario, TArtifact>(
             storage,
             buildTraceWriter: opts.buildTraceWriter ?? defaultBuildTraceWriter(storage),
             signal: abortController.signal,
+            dispatchTimeoutMs: opts.dispatchTimeoutMs,
           })
           cellsRef.push(result.cell)
           enforceCellUsage(result.cell, opts.expectUsage ?? 'warn')
@@ -234,6 +245,7 @@ interface ExecuteCellArgs<TScenario extends Scenario, TArtifact> {
   storage: CampaignStorage
   buildTraceWriter: (cellId: string, dir: string) => CampaignTraceWriter
   signal: AbortSignal
+  dispatchTimeoutMs?: number
 }
 
 async function executeCell<TScenario extends Scenario, TArtifact>(
@@ -299,11 +311,20 @@ async function executeCell<TScenario extends Scenario, TArtifact>(
     rep: args.slot.rep,
   })
 
+  // Per-cell abort signal, chained to the campaign signal. The dispatch sees
+  // THIS signal so a timeout (below) can abort just this cell's in-flight work
+  // without tearing down sibling cells — and a signal-honoring dispatch
+  // releases its open request instead of leaking it past the deadline.
+  const cellAbort = new AbortController()
+  const onCampaignAbort = () => cellAbort.abort((args.signal as { reason?: unknown }).reason)
+  if (args.signal.aborted) cellAbort.abort((args.signal as { reason?: unknown }).reason)
+  else args.signal.addEventListener('abort', onCampaignAbort, { once: true })
+
   const ctx: DispatchContext = {
     cellId: args.slot.cellId,
     rep: args.slot.rep,
     seed: args.slot.cellSeed,
-    signal: args.signal,
+    signal: cellAbort.signal,
     trace,
     artifacts,
     cost,
@@ -312,10 +333,38 @@ async function executeCell<TScenario extends Scenario, TArtifact>(
 
   let artifact: TArtifact | undefined
   let errorMessage: string | undefined
+  const timeoutMs = args.dispatchTimeoutMs
+  let timeoutTimer: ReturnType<typeof setTimeout> | undefined
   try {
-    artifact = await args.opts.dispatch(args.slot.scenario, ctx)
+    const dispatched = args.opts.dispatch(args.slot.scenario, ctx)
+    if (timeoutMs !== undefined && timeoutMs > 0) {
+      // A dispatch that never settles (stalled model request, exhausted runtime
+      // resource, a stream that never closes) must NOT hang the cell — and with
+      // it the lane, the campaign, the loop, the CI job — forever. Race it
+      // against the deadline; on timeout, abort the cell and fail it LOUD.
+      artifact = await Promise.race([
+        dispatched,
+        new Promise<never>((_, reject) => {
+          timeoutTimer = setTimeout(() => {
+            cellAbort.abort(new Error('dispatch timeout'))
+            reject(
+              new Error(
+                `dispatch exceeded ${timeoutMs}ms for cell '${args.slot.cellId}' — aborted and failed loud (no silent hang)`,
+              ),
+            )
+          }, timeoutMs)
+          if (typeof (timeoutTimer as { unref?: () => void }).unref === 'function')
+            (timeoutTimer as { unref: () => void }).unref()
+        }),
+      ])
+    } else {
+      artifact = await dispatched
+    }
   } catch (err) {
     errorMessage = err instanceof Error ? err.message : String(err)
+  } finally {
+    if (timeoutTimer) clearTimeout(timeoutTimer)
+    args.signal.removeEventListener('abort', onCampaignAbort)
   }
 
   // Run judges (only if we have an artifact). A judge that throws invalidates

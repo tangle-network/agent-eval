@@ -617,3 +617,63 @@ describe('runCampaign — expectUsage stub guard', () => {
     expect(result.cells[0]!.tokenUsage).toEqual({ input: 0, output: 0 })
   })
 })
+
+describe('runCampaign — dispatchTimeoutMs (the no-silent-hang guard)', () => {
+  // Regression: a dispatch that never settles (a stalled model request, an
+  // exhausted runtime resource, a stream that never closes) used to hang the
+  // cell — and with it the lane, the campaign, the improvement loop, and the
+  // CI job above them — forever, with zero diagnostic. The per-cell deadline
+  // must convert that into a LOUD error cell while the campaign proceeds.
+  it('fails a non-settling dispatch loud as an error cell instead of hanging', async () => {
+    const neverSettles: DispatchFn<FakeScenario, FakeArtifact> = () =>
+      new Promise<FakeArtifact>(() => {})
+    const result = await runCampaign<FakeScenario, FakeArtifact>({
+      scenarios: [{ id: 'hang', kind: 'chat', intent: 'never returns' }],
+      dispatch: neverSettles,
+      judges: [],
+      runDir: mkdtempSync(join(tmpdir(), 'run-campaign-timeout-')),
+      dispatchTimeoutMs: 50,
+      storage: inMemoryCampaignStorage(),
+      expectUsage: 'off',
+    })
+    expect(result.cells).toHaveLength(1)
+    expect(result.cells[0]!.error).toMatch(/dispatch exceeded 50ms/)
+    expect(result.cells[0]!.artifact).toBeNull()
+  }, 5_000)
+
+  it("aborts the cell's signal on timeout so a signal-honoring dispatch releases its work", async () => {
+    let sawAbort = false
+    const honorsSignal: DispatchFn<FakeScenario, FakeArtifact> = (_scenario, ctx) =>
+      new Promise<FakeArtifact>((_resolve, reject) => {
+        ctx.signal.addEventListener('abort', () => {
+          sawAbort = true
+          reject(new Error('aborted by signal'))
+        })
+      })
+    const result = await runCampaign<FakeScenario, FakeArtifact>({
+      scenarios: [{ id: 'abortme', kind: 'chat', intent: 'waits for abort' }],
+      dispatch: honorsSignal,
+      judges: [],
+      runDir: mkdtempSync(join(tmpdir(), 'run-campaign-abort-')),
+      dispatchTimeoutMs: 40,
+      storage: inMemoryCampaignStorage(),
+      expectUsage: 'off',
+    })
+    expect(sawAbort).toBe(true)
+    expect(result.cells[0]!.error).toBeTruthy()
+  }, 5_000)
+
+  it('leaves a fast dispatch untouched (timeout never trips on healthy work)', async () => {
+    const result = await runCampaign<FakeScenario, FakeArtifact>({
+      scenarios: SCENARIOS.slice(0, 1),
+      dispatch: DISPATCH,
+      judges: [],
+      runDir: mkdtempSync(join(tmpdir(), 'run-campaign-fast-')),
+      dispatchTimeoutMs: 10_000,
+      storage: inMemoryCampaignStorage(),
+      expectUsage: 'off',
+    })
+    expect(result.cells[0]!.error).toBeUndefined()
+    expect(result.cells[0]!.artifact).not.toBeNull()
+  }, 5_000)
+})

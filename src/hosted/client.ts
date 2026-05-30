@@ -6,8 +6,10 @@
  * speaks the wire format in `./types.ts`.
  *
  * Three modes:
- *   - **Ours:** point at `https://orchestrator.tangle.tools/v1`. We
- *     handle ingest + storage + dashboard.
+ *   - **Ours:** point at `https://orchestrator.tangle.tools` (the host root —
+ *     the client appends the versioned `/v1/ingest/...` path itself; a trailing
+ *     `/v1` on the endpoint is tolerated and normalized away). We handle ingest
+ *     + storage + dashboard.
  *   - **Self-hosted:** point at whatever URL runs the reference receiver
  *     from `examples/hosted-ingest-server/`.
  *   - **Off (default):** when `hostedTenant` is unset, nothing is sent.
@@ -69,7 +71,13 @@ async function post<TReq, TRes>(
   const timeoutMs = tenant.timeoutMs ?? 30_000
   const maxRetries = tenant.retries ?? 2
   const f: typeof fetch = tenant.fetchImpl ?? ((...args) => fetch(...args))
-  const url = `${tenant.endpoint.replace(/\/$/, '')}${path}`
+  // `path` already carries the `/v1` version prefix (e.g. `/v1/ingest/eval-runs`).
+  // Strip a trailing slash AND a trailing `/v1` from the endpoint so a base of
+  // either `https://host` or `https://host/v1` resolves to the same correct URL
+  // — callers routinely pass the versioned base and would otherwise hit
+  // `/v1/v1/ingest/...` (404).
+  const base = tenant.endpoint.replace(/\/+$/, '').replace(/\/v1$/, '')
+  const url = `${base}${path}`
 
   let lastError: unknown
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
