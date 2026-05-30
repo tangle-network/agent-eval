@@ -8,7 +8,7 @@
 
 import { mkdirSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
-import type { AgentProfile } from '@tangle-network/sandbox'
+import type { AgentProfile as SandboxAgentProfile } from '@tangle-network/sandbox'
 import type { MatrixResult } from '../matrix'
 import { runAgentMatrix } from '../matrix'
 import { type JudgeConfig, type JudgeScore, runJudge } from './judges'
@@ -60,7 +60,7 @@ export interface CellCompositeScore {
 
 export interface RunMultishotMatrixOptions<TPersona extends MultishotPersona> {
   /** AgentProfile axis (matrix primary). */
-  profiles: Array<{ id: string; value: AgentProfile }>
+  profiles: Array<{ id: string; value: SandboxAgentProfile }>
   /** Persona axis. */
   personas: TPersona[]
   /** Persona-shaping callbacks. */
@@ -118,7 +118,7 @@ export async function runMultishotMatrix<TPersona extends MultishotPersona>(
     maxConcurrency: opts.maxConcurrency ?? 2,
     costCeiling: opts.costCeiling,
     async runCell(cell) {
-      const profile = cell.axes.profile?.value as AgentProfile
+      const profile = cell.axes.profile?.value as SandboxAgentProfile
       const persona = cell.axes.persona?.value as TPersona
       const profileId = String(cell.axes.profile?.id ?? 'unknown')
       const personaId = String(cell.axes.persona?.id ?? 'unknown')
