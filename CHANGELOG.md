@@ -4,6 +4,12 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ---
 
+## [0.65.0] — 2026-05-30 — `emitLoopProvenance` ships the eval-run event too (full dashboard visibility)
+
+### Fixed
+
+- **`emitLoopProvenance({ hostedClient })` now ships BOTH the eval-run event AND the trace spans** to the hosted collector. It previously shipped only `ingestTraces(spans)` — so a wired product's run never appeared in the Intelligence dashboard's run list (which keys on `/v1/ingest/eval-runs`); only the trace drill-down received data. It now builds an `EvalRunEvent` (baseline + winner held-out snapshots, gate decision, held-out lift, cost, duration) from the loop args + record and POSTs it alongside the spans. Both legs stay best-effort (an offline collector is logged, never thrown; the durable on-disk artifact remains the source of truth). With this, a product wiring ingest via `hostedClientFromEnv()` (0.64.0) gets the full run — list + drill-down — from one `hostedClient` pass.
+
 ## [0.64.0] — 2026-05-30 — `hostedClientFromEnv()` — one-call ingest wiring for the fleet
 
 ### Added
