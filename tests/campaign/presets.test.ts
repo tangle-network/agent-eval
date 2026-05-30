@@ -44,9 +44,13 @@ const SCENARIOS: FakeScenario[] = [
   { id: 'b', kind: 'chat', intent: 'B' },
 ]
 
+// >=3 holdout scenarios so the rigorous gate's paired-bootstrap has the
+// minProductiveRuns (3) it needs to ever clear zero — a real lift on only 2
+// holdout cells is correctly held as too-few-runs.
 const HOLDOUT: FakeScenario[] = [
   { id: 'h1', kind: 'chat', intent: 'H1' },
   { id: 'h2', kind: 'chat', intent: 'H2' },
+  { id: 'h3', kind: 'chat', intent: 'H3' },
 ]
 
 const noopDispatch: DispatchFn<FakeScenario, FakeArtifact> = async (s) => ({
@@ -663,19 +667,34 @@ describe('defaultProductionGate', () => {
     const candidate = new Map<string, FakeArtifact>([
       ['h1:0', { text: 'normal' }],
       ['h2:0', { text: 'normal' }],
+      ['h3:0', { text: 'normal' }],
     ])
-    const baseline = new Map<string, FakeArtifact>()
-    const judgeScores = new Map<
-      string,
-      Record<string, { composite: number; dimensions: Record<string, number>; notes: string }>
-    >([
-      ['h1:0', { judge: { composite: 8, dimensions: {}, notes: '' } }],
-      ['h2:0', { judge: { composite: 9, dimensions: {}, notes: '' } }],
+    const baseline = new Map<string, FakeArtifact>([
+      ['h1:0', { text: 'normal' }],
+      ['h2:0', { text: 'normal' }],
+      ['h3:0', { text: 'normal' }],
+    ])
+    const mk = (entries: Array<[string, number]>) =>
+      new Map<
+        string,
+        Record<string, { composite: number; dimensions: Record<string, number>; notes: string }>
+      >(entries.map(([c, v]) => [c, { judge: { composite: v, dimensions: {}, notes: '' } }]))
+    // A real, uniform +3 lift on 3 holdout cells ⇒ CI.low > 0 ⇒ ship.
+    const judgeScores = mk([
+      ['h1:0', 8],
+      ['h2:0', 9],
+      ['h3:0', 7],
+    ])
+    const baselineJudgeScores = mk([
+      ['h1:0', 5],
+      ['h2:0', 6],
+      ['h3:0', 4],
     ])
     const result = await gate.decide({
       candidateArtifacts: candidate,
       baselineArtifacts: baseline,
       judgeScores,
+      baselineJudgeScores,
       scenarios: HOLDOUT,
       cost: { candidate: 1, baseline: 1 },
       signal: new AbortController().signal,
@@ -1256,5 +1275,65 @@ describe('emitLoopProvenance — hosted ingest (eval-run + traces)', () => {
     // Trace spans shipped too (the per-candidate drill-down).
     expect(traceBatches).toHaveLength(1)
     expect(traceBatches[0]!.length).toBeGreaterThan(0)
+  })
+})
+
+describe('runImprovementLoop — no-op guard (empty-diff false-ship killer)', () => {
+  // Regression for the observed production false positive: the gepaDriver's
+  // candidate did NOT beat the training baseline, so the winner stayed the
+  // baseline (empty diff) — yet the loop re-scored baseline-vs-itself on the
+  // holdout, read model noise as a +4 "lift", and SHIPPED. A winner identical
+  // to the baseline has nothing to promote and must HOLD, regardless of how
+  // permissive the delta threshold is.
+  const STRONG = 'STRONG_BASELINE_SURFACE'
+  const prefersBaseline: JudgeConfig<FakeArtifact, FakeScenario> = {
+    name: 'prefers-baseline',
+    dimensions: [{ key: 'q', description: 'baseline is the strong surface' }],
+    score: ({ artifact }) => {
+      const ok = artifact.text.includes(STRONG) ? 1 : 0
+      return { dimensions: { q: ok }, composite: ok, notes: '' }
+    },
+  }
+  // Driver proposes a STRICTLY WEAKER candidate (no marker → scores 0 < baseline 1).
+  const weakerProposalFetch = (async () => {
+    const content = JSON.stringify({
+      proposals: [{ label: 'weaker', rationale: 'r', payload: 'WEAKER_CANDIDATE' }],
+    })
+    return new Response(
+      JSON.stringify({ choices: [{ message: { content } }], usage: { total_tokens: 5 } }),
+      { status: 200, headers: { 'content-type': 'application/json' } },
+    )
+  }) as unknown as typeof fetch
+
+  it('HOLDS when no candidate beats the baseline, even with a near-zero delta threshold', async () => {
+    const result = await runImprovementLoop<FakeScenario, FakeArtifact>({
+      scenarios: SCENARIOS,
+      holdoutScenarios: HOLDOUT,
+      baselineSurface: STRONG,
+      dispatchWithSurface: async (surface) => ({ text: String(surface) }),
+      judges: [prefersBaseline],
+      driver: gepaDriver({
+        llm: { apiKey: 'k', baseUrl: 'https://router.test/v1', fetch: weakerProposalFetch },
+        model: 'm',
+        target: 't',
+      }),
+      populationSize: 1,
+      maxGenerations: 1,
+      promoteTopK: 1,
+      // deltaThreshold so low it would ship ANY positive noise delta — the
+      // no-op guard must fire FIRST and override it.
+      gate: defaultProductionGate<FakeArtifact, FakeScenario>({
+        holdoutScenarios: HOLDOUT,
+        deltaThreshold: 0.0001,
+      }),
+      autoOnPromote: 'none',
+      runDir: mkdtempSync(join(tmpdir(), 'noop-guard-')),
+      seed: 7,
+    })
+    expect(result.gateResult.decision).toBe('hold')
+    expect(result.gateResult.reasons.join(' ')).toMatch(/winner == baseline/)
+    expect(result.promotedDiff).toBe('')
+    // The winner surface is byte-identical to the baseline.
+    expect(String(result.winnerSurface)).toBe(STRONG)
   })
 })

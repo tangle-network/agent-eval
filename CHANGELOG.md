@@ -4,6 +4,19 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ---
 
+## [0.67.0] — 2026-05-30 — the promotion gate is statistically trustworthy (no more shipping noise)
+
+An adversarial review of a real "ship +4.0 lift" decision found it was a **triple false positive**: the driver's candidate lost on train, so the winner was the baseline (empty diff); the loop re-scored the baseline against ITSELF on the holdout and read run-to-run model noise (91 vs 95) as a "+4 lift"; and a point-estimate gate (`delta >= 0.03` on a 0-100 scale, `reps:1`) shipped it — while the reward-hacking gate was blind to a −30 regression on a safety dimension hiding under the +4 net. The promotion gate could not tell a real improvement from noise or from a Goodhart trade.
+
+### Fixed / Added
+
+- **No-op guard** (`runImprovementLoop`) — when the winner is byte-identical to the baseline (no candidate beat the training baseline, empty diff), the loop now forces `hold` and skips the meaningless baseline-vs-itself holdout pass, instead of shipping the noise delta.
+- **Statistical held-out gate** — `defaultProductionGate`'s held-out check is now a **paired bootstrap CI**, not a point estimate. It pairs candidate vs baseline holdout cells by **full `cellId` (`scenario:rep`)** — never averaging reps away — and ships only when the CI lower bound clears `deltaThreshold` (default 0 ⇒ confidently positive). Below `minProductiveRuns` (default 3) paired observations it HOLDS with `few_runs` rather than reading a degenerate interval. (New module `src/campaign/gates/statistical-heldout.ts`; reuses `pairedBootstrap` from `src/statistics.ts`.)
+- **Per-dimension regression guard (anti-Goodhart)** — `criticalDimensions` + `regressionTolerance` on `DefaultProductionGateOptions`. The gate HOLDS if any guarded dimension's paired-delta CI lower bound falls below −tolerance, even when the net composite rose. Tolerance auto-scales (0.05 on [0,1], 5 on 0-100) so a default expressed for one scale isn't a silent no-op on the other.
+- **Exports** `pairHoldout`, `heldoutSignificance`, `dimensionRegressions`, `detectScale` from `/campaign`.
+
+This collapses the duplicated gate tech-debt (a rigorous `src/held-out-gate.ts` existed but the loop wired the weak adapter) onto the shared `pairedBootstrap` statistics. 12 new regression tests, including the exact noisy-same-mean false positive and the composite-up/dimension-down Goodhart trade. Full suite (1624) green. The remaining path to a *proven* self-improvement (headroom corpus + Goodhart-resistant measurement, driver effectiveness, inter-cycle compounding) is tracked separately.
+
 ## [0.66.0] — 2026-05-30 — the improvement loop can no longer hang silently or ingest to the wrong URL
 
 ### Fixed
