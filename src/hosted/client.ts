@@ -134,3 +134,40 @@ export function createHostedClient(tenant: HostedTenant): HostedClient {
     },
   }
 }
+
+/**
+ * Build a `HostedClient` from environment, or `undefined` when ingest is not
+ * configured — the canonical, fail-soft wiring every product uses so eval-run +
+ * trace provenance lands in the Intelligence dashboard with ONE call:
+ *
+ *   const hosted = hostedClientFromEnv()
+ *   // ...run the loop...
+ *   await emitLoopProvenance({ ..., hostedClient: hosted })  // no-op if undefined
+ *
+ * Returns `undefined` (NOT an error) when any of endpoint / apiKey / tenantId is
+ * missing — so a product wires the ship call unconditionally and it stays a
+ * no-op until the env is set. Env precedence:
+ *   - endpoint:  `TANGLE_INGEST_URL` → `TANGLE_ORCHESTRATOR_URL`
+ *   - apiKey:    `TANGLE_INGEST_API_KEY` → `TANGLE_API_KEY`
+ *   - tenantId:  `TANGLE_TENANT_ID`
+ * A trailing slash on the endpoint is stripped. Pass `overrides` to supply any
+ * field directly (e.g. a fixed `tenantId` per product) — overrides win over env.
+ */
+export function hostedClientFromEnv(
+  overrides: Partial<HostedTenant> & { env?: Record<string, string | undefined> } = {},
+): HostedClient | undefined {
+  const env = overrides.env ?? process.env
+  const endpoint = (
+    overrides.endpoint ??
+    env.TANGLE_INGEST_URL ??
+    env.TANGLE_ORCHESTRATOR_URL
+  )?.trim()
+  const apiKey = (overrides.apiKey ?? env.TANGLE_INGEST_API_KEY ?? env.TANGLE_API_KEY)?.trim()
+  const tenantId = (overrides.tenantId ?? env.TANGLE_TENANT_ID)?.trim()
+  if (!endpoint || !apiKey || !tenantId) return undefined
+  const tenant: HostedTenant = { endpoint: endpoint.replace(/\/+$/, ''), apiKey, tenantId }
+  if (overrides.fetchImpl) tenant.fetchImpl = overrides.fetchImpl
+  if (overrides.timeoutMs !== undefined) tenant.timeoutMs = overrides.timeoutMs
+  if (overrides.retries !== undefined) tenant.retries = overrides.retries
+  return createHostedClient(tenant)
+}

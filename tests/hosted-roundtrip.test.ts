@@ -12,7 +12,7 @@
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import type { TenantConfig } from '../examples/hosted-ingest-server/server'
-import { createHostedClient } from '../src/hosted/client'
+import { createHostedClient, hostedClientFromEnv } from '../src/hosted/client'
 import { type EvalRunEvent, HOSTED_WIRE_VERSION, type TraceSpanEvent } from '../src/hosted/types'
 import { type BoundReceiver, startReceiver } from './_fixtures/hosted-receiver'
 
@@ -261,5 +261,84 @@ describe('hosted-tier E2E roundtrip — wire spec contract', () => {
     expect(res.status).toBe(400)
     const body = (await res.json()) as { error: string }
     expect(body.error).toMatch(/wire version/i)
+  })
+})
+
+describe('hostedClientFromEnv', () => {
+  const base = {
+    TANGLE_INGEST_URL: undefined,
+    TANGLE_ORCHESTRATOR_URL: undefined,
+    TANGLE_INGEST_API_KEY: undefined,
+    TANGLE_API_KEY: undefined,
+    TANGLE_TENANT_ID: undefined,
+  } as Record<string, string | undefined>
+
+  it('returns undefined when ingest is not configured (fail-soft no-op)', () => {
+    expect(hostedClientFromEnv({ env: { ...base } })).toBeUndefined()
+    // partial config is still undefined — all three are required
+    expect(
+      hostedClientFromEnv({ env: { ...base, TANGLE_INGEST_URL: 'https://x/v1' } }),
+    ).toBeUndefined()
+    expect(
+      hostedClientFromEnv({
+        env: { ...base, TANGLE_INGEST_URL: 'https://x/v1', TANGLE_API_KEY: 'k' },
+      }),
+    ).toBeUndefined()
+  })
+
+  it('builds a client when endpoint + key + tenant are present, stripping a trailing slash', () => {
+    const c = hostedClientFromEnv({
+      env: {
+        ...base,
+        TANGLE_INGEST_URL: 'https://intelligence.tangle.tools/v1/',
+        TANGLE_API_KEY: 'router-key',
+        TANGLE_TENANT_ID: 'gtm-agent',
+      },
+    })
+    expect(c).toBeDefined()
+    expect(c!.tenant.endpoint).toBe('https://intelligence.tangle.tools/v1')
+    expect(c!.tenant.apiKey).toBe('router-key')
+    expect(c!.tenant.tenantId).toBe('gtm-agent')
+  })
+
+  it('honors env precedence: INGEST_URL over ORCHESTRATOR_URL, INGEST_API_KEY over API_KEY', () => {
+    const c = hostedClientFromEnv({
+      env: {
+        ...base,
+        TANGLE_INGEST_URL: 'https://ingest/v1',
+        TANGLE_ORCHESTRATOR_URL: 'https://orchestrator/v1',
+        TANGLE_INGEST_API_KEY: 'ingest-key',
+        TANGLE_API_KEY: 'router-key',
+        TANGLE_TENANT_ID: 't',
+      },
+    })!
+    expect(c.tenant.endpoint).toBe('https://ingest/v1')
+    expect(c.tenant.apiKey).toBe('ingest-key')
+  })
+
+  it('falls back to ORCHESTRATOR_URL + API_KEY when the INGEST_* vars are absent', () => {
+    const c = hostedClientFromEnv({
+      env: {
+        ...base,
+        TANGLE_ORCHESTRATOR_URL: 'https://orchestrator/v1',
+        TANGLE_API_KEY: 'router-key',
+        TANGLE_TENANT_ID: 't',
+      },
+    })!
+    expect(c.tenant.endpoint).toBe('https://orchestrator/v1')
+    expect(c.tenant.apiKey).toBe('router-key')
+  })
+
+  it('overrides win over env (e.g. a fixed per-product tenant label)', () => {
+    const c = hostedClientFromEnv({
+      tenantId: 'legal-agent',
+      env: {
+        ...base,
+        TANGLE_INGEST_URL: 'https://x/v1',
+        TANGLE_API_KEY: 'k',
+        TANGLE_TENANT_ID: 'ignored',
+      },
+    })!
+    expect(c.tenant.tenantId).toBe('legal-agent')
   })
 })

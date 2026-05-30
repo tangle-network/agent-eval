@@ -13,6 +13,7 @@ export {
   createHostedClient,
   type HostedClient,
   type HostedTenant,
+  hostedClientFromEnv,
 } from './client'
 export {
   type EvalRunCellScore,
