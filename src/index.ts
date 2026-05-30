@@ -92,6 +92,17 @@ export {
   KNOWLEDGE_POISONING_KIND_SPEC,
 } from './analyst/kinds'
 export type {
+  SkillUsageRecord,
+  SkillUsageReport,
+  SkillUsageScanConfig,
+} from './analyst/kinds/skill-usage'
+export {
+  buildSkillUsageReport,
+  emitSkillUsageFindings,
+  SKILL_USAGE_ANALYST,
+  SkillUsageAnalyst,
+} from './analyst/kinds/skill-usage'
+export type {
   AnalystHooks,
   AnalystRegistryOptions,
   BudgetPolicy,
