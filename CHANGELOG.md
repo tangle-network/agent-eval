@@ -31,6 +31,23 @@ Pure additive/doc surface (`expectUsage` defaults to non-breaking `'warn'`). Ful
 
 ---
 
+## [0.61.0] — 2026-05-30 — `runProfileMatrix` (profile × scenario × persona matrix with integrity by construction)
+
+### Added
+
+- **`runProfileMatrix({ profiles, scenarios, dispatch, judges, reps, integrity, personaOf })`** (`@tangle-network/agent-eval/campaign`) — the keystone that lets a consumer express a multi-profile × scenario/persona eval as **one** call instead of a hand-rolled `eval:*` script. Fans `profiles` over the scenario/persona corpus, runs `runCampaign` per profile, maps every cell to a validated `RunRecord` carrying real `tokenUsage`, and runs **`assertRealBackend` by construction**. Returns `{ records, byProfile, byScenario, byPersona, integrity, campaigns }`.
+- **`ProfileMatrixError`** — thrown at preflight (before any LLM spend) when a profile's model lacks a snapshot version or the lists are empty.
+
+### Fixed / closed gap
+
+- **Token usage captured by `runCampaign`** — `CampaignCostMeter` gains `observeTokens()`/`tokens()` and `CampaignCellResult` gains `tokenUsage`, so the integrity guards can run on a `CampaignResult` (they key on `tokenUsage`). Closes the gap for **every** campaign consumer.
+
+### Notes
+
+7 new tests; the keystone is the **stub→throws** regression. Full suite 1527/1527 green at release.
+
+---
+
 ## [0.53.0] — 2026-05-27 — prior-period comparison ("did my last change help?")
 
 ### Added
