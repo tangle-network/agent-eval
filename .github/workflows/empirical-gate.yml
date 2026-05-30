@@ -1,0 +1,77 @@
+name: Empirical Lift (scheduled)
+
+# The LIVE companion to the deterministic mechanism gate in ci.yml. ci.yml
+# proves the optimizer harness RANKS correctly (compare-drivers/skill-opt/presets
+# unit tests, every PR, no LLM). This job proves the optimizers move a REAL
+# held-out number on a real backend and records which driver wins — a periodic,
+# durable artifact, NOT a per-PR gate (live LLM runs are nondeterministic +
+# cost money; gating PRs on them would make CI flaky and expensive).
+#
+# Permissive: never blocks a deploy. Neutral-skips when no LLM key secret is
+# provisioned (forks, pre-secret), so it is never a spurious red.
+
+on:
+  schedule:
+    # Weekly, Monday 06:17 UTC (off the top-of-hour to avoid the scheduler herd).
+    - cron: '17 6 * * 1'
+  workflow_dispatch:
+    inputs:
+      population:
+        description: 'GEPA population per generation'
+        default: '2'
+      generations:
+        description: 'GEPA generations'
+        default: '2'
+      epochs:
+        description: 'SkillOpt epochs'
+        default: '3'
+
+jobs:
+  empirical-lift:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - name: Install JS deps
+        run: pnpm install --frozen-lockfile
+
+      # Fail-safe guard: skip (neutral, not red) when no LLM key is configured.
+      - name: Check for an LLM key
+        id: guard
+        env:
+          KEY: ${{ secrets.LLM_API_KEY != '' && secrets.LLM_API_KEY || secrets.TANGLE_API_KEY }}
+        run: |
+          if [ -n "$KEY" ]; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::notice::No LLM_API_KEY / TANGLE_API_KEY secret set — skipping the live empirical run. The deterministic mechanism gate (compare-drivers/skill-opt/presets) still runs in ci.yml on every PR."
+            echo "run=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Run compareDrivers (gepa-reflection vs gepa-pareto vs skill-opt)
+        if: steps.guard.outputs.run == 'true'
+        env:
+          # Defaults to the Tangle router; override the base/model via repo vars
+          # to benchmark on any OpenAI-compatible endpoint.
+          LLM_API_KEY: ${{ secrets.LLM_API_KEY != '' && secrets.LLM_API_KEY || secrets.TANGLE_API_KEY }}
+          LLM_BASE_URL: ${{ vars.LLM_BASE_URL }}
+          LLM_MODEL: ${{ vars.LLM_MODEL }}
+          PRICE_IN_PER_M: ${{ vars.PRICE_IN_PER_M }}
+          PRICE_OUT_PER_M: ${{ vars.PRICE_OUT_PER_M }}
+          POPULATION: ${{ github.event.inputs.population || '2' }}
+          GENERATIONS: ${{ github.event.inputs.generations || '2' }}
+          EPOCHS: ${{ github.event.inputs.epochs || '3' }}
+        run: pnpm tsx examples/compare-drivers-canonical/index.ts
+
+      - name: Upload lift artifact
+        if: steps.guard.outputs.run == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: empirical-lift-${{ github.run_number }}
+          path: .evolve/compare-drivers-canonical/**/lift-drivers.json
+          if-no-files-found: warn
