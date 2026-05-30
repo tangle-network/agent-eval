@@ -30,7 +30,12 @@
 import { createHash } from 'node:crypto'
 import { join } from 'node:path'
 import type { HostedClient } from '../hosted/client'
-import type { TraceSpanEvent } from '../hosted/types'
+import type {
+  EvalRunCellScore,
+  EvalRunEvent,
+  EvalRunGenerationSnapshot,
+  TraceSpanEvent,
+} from '../hosted/types'
 import { summarizeBackendIntegrity } from '../integrity/backend-integrity'
 import type { RunRecord } from '../run-record'
 import type { CampaignStorage } from './storage'
@@ -398,6 +403,75 @@ export interface EmitLoopProvenanceArgs<TArtifact, TScenario extends Scenario>
   hostedClient?: HostedClient
 }
 
+/** Snapshot a held-out campaign into the hosted `EvalRunGenerationSnapshot`
+ *  shape — per-cell composite + per-judge dimensions, aggregate mean, cost,
+ *  duration. The dashboard renders these as the baseline → winner comparison. */
+function snapshotFromHoldout<TArtifact, TScenario extends Scenario>(
+  index: number,
+  surfaceHash: string,
+  surface: MutableSurface,
+  campaign: CampaignResult<TArtifact, TScenario>,
+): EvalRunGenerationSnapshot {
+  const cells: EvalRunCellScore[] = campaign.cells.map((cell) => {
+    const judgeScores = Object.values(cell.judgeScores)
+    const composite =
+      judgeScores.length === 0
+        ? 0
+        : judgeScores.reduce((s, j) => s + j.composite, 0) / judgeScores.length
+    const score: EvalRunCellScore = {
+      scenarioId: cell.scenarioId,
+      rep: cell.rep,
+      compositeMean: composite,
+      dimensions: Object.fromEntries(
+        Object.entries(cell.judgeScores).map(([name, s]) => [name, s.dimensions]),
+      ),
+    }
+    if (cell.error) score.errorMessage = cell.error
+    return score
+  })
+  const compositeMean =
+    cells.length === 0 ? 0 : cells.reduce((s, c) => s + c.compositeMean, 0) / cells.length
+  return {
+    index,
+    surfaceHash,
+    surface,
+    cells,
+    compositeMean,
+    costUsd: campaign.aggregates.totalCostUsd,
+    durationMs: campaign.durationMs,
+  }
+}
+
+/** Build the hosted `EvalRunEvent` from the loop args + record — baseline +
+ *  winner snapshots, gate decision, held-out lift, cost, duration. Shipped to
+ *  `/v1/ingest/eval-runs` so the run appears in the dashboard's run list (the
+ *  trace spans, shipped separately, back the per-candidate drill-down). */
+function buildEvalRunEvent<TArtifact, TScenario extends Scenario>(
+  args: EmitLoopProvenanceArgs<TArtifact, TScenario>,
+  record: LoopProvenanceRecord,
+): EvalRunEvent {
+  return {
+    runId: args.runId,
+    runDir: args.runDir,
+    timestamp: args.timestamp,
+    status: 'finished',
+    labels: {},
+    baseline: snapshotFromHoldout(
+      0,
+      record.baselineContentHash,
+      args.baselineSurface,
+      args.baselineOnHoldout,
+    ),
+    generations: [
+      snapshotFromHoldout(1, record.winnerContentHash, args.winnerSurface, args.winnerOnHoldout),
+    ],
+    gateDecision: args.gate.decision,
+    holdoutLift: record.heldOutLift,
+    totalCostUsd: args.totalCostUsd,
+    totalDurationMs: args.totalDurationMs,
+  }
+}
+
 /**
  * Build the provenance record + OTel spans and persist them durably under the
  * run dir (and ship spans to a hosted collector when one is wired). Returns
@@ -421,6 +495,17 @@ export async function emitLoopProvenance<TArtifact, TScenario extends Scenario>(
   args.storage.write(spansPath, spans.map((s) => JSON.stringify(s)).join('\n'))
 
   if (args.hostedClient) {
+    // Ship BOTH streams so the run is fully visible in the dashboard: the
+    // eval-run event (→ run list + baseline/winner/gate/lift) AND the trace
+    // spans (→ per-candidate drill-down). Best-effort: an offline collector is
+    // logged, never thrown — the durable artifact above is the source of truth.
+    try {
+      await args.hostedClient.ingestEvalRun(buildEvalRunEvent(args, record))
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      // eslint-disable-next-line no-console -- intentional: hosted ingest is best-effort
+      console.warn(`[agent-eval] hosted eval-run ingest failed (continuing): ${msg}`)
+    }
     try {
       await args.hostedClient.ingestTraces(spans)
     } catch (err) {

@@ -1124,3 +1124,97 @@ describe('MutableSurface widening', () => {
     expect(typeof result.winnerSurface).toBe('object')
   })
 })
+
+// ── emitLoopProvenance ships BOTH eval-run + traces to a hosted client ──────
+
+describe('emitLoopProvenance — hosted ingest (eval-run + traces)', () => {
+  function mkHoldout(composite: number) {
+    return {
+      cells: [
+        {
+          cellId: 'h1:0',
+          scenarioId: 'h1',
+          rep: 0,
+          artifact: {},
+          judgeScores: { j: { composite, dimensions: { q: composite }, notes: '' } },
+          costUsd: 0.01,
+          tokenUsage: { input: 10, output: 5 },
+          durationMs: 5,
+          seed: 1,
+          cached: false,
+        },
+      ],
+      aggregates: { totalCostUsd: 0.01 },
+      durationMs: 5,
+    } as never
+  }
+
+  it('ships an eval-run event (run list) AND trace spans (drill-down)', async () => {
+    const evalRuns: unknown[] = []
+    const traceBatches: unknown[][] = []
+    const mockClient = {
+      tenant: { endpoint: 'https://x/v1', apiKey: 'k', tenantId: 't' },
+      wireVersion: '2026-05-26.v1' as const,
+      async ingestEvalRun(event: unknown) {
+        evalRuns.push(event)
+        return { accepted: 1, rejected: [] }
+      },
+      async ingestEvalRuns(events: unknown[]) {
+        evalRuns.push(...events)
+        return { accepted: events.length, rejected: [] }
+      },
+      async ingestTraces(spans: unknown[]) {
+        traceBatches.push(spans)
+        return { accepted: spans.length, rejected: [] }
+      },
+    }
+
+    const { record } = await emitLoopProvenance<FakeArtifact, FakeScenario>({
+      runId: 'hosted-ship#1',
+      runDir,
+      timestamp: '2026-05-30T00:00:00.000Z',
+      baselineSurface: 'BASE',
+      winnerSurface: 'BASE BETTER',
+      winnerLabel: 'fix',
+      winnerRationale: 'because',
+      diff: '--- baseline\n+++ winner',
+      generations: [
+        {
+          generationIndex: 0,
+          candidates: [{ surfaceHash: 'h', composite: 1, label: 'fix', rationale: 'because' }],
+          promoted: ['h'],
+          surfaces: [{ surfaceHash: 'h', surface: 'BASE BETTER' }],
+        },
+      ],
+      gate: { decision: 'ship', reasons: ['ok'], delta: 0.5, contributingGates: [] },
+      baselineOnHoldout: mkHoldout(0.5),
+      winnerOnHoldout: mkHoldout(1.0),
+      workerRecords: [],
+      totalCostUsd: 0.02,
+      totalDurationMs: 10,
+      storage: inMemoryCampaignStorage(),
+      hostedClient: mockClient,
+    })
+
+    // Eval-run event shipped, with the run-list-shaping fields populated.
+    expect(evalRuns).toHaveLength(1)
+    const ev = evalRuns[0] as {
+      runId: string
+      status: string
+      gateDecision: string
+      holdoutLift: number
+      baseline: { compositeMean: number }
+      generations: Array<{ compositeMean: number }>
+    }
+    expect(ev.runId).toBe('hosted-ship#1')
+    expect(ev.status).toBe('finished')
+    expect(ev.gateDecision).toBe('ship')
+    expect(ev.baseline.compositeMean).toBeCloseTo(0.5, 5)
+    expect(ev.generations[0]!.compositeMean).toBeCloseTo(1.0, 5)
+    expect(ev.holdoutLift).toBeCloseTo(0.5, 5) // matches the record
+    expect(ev.holdoutLift).toBeCloseTo(record.heldOutLift, 9)
+    // Trace spans shipped too (the per-candidate drill-down).
+    expect(traceBatches).toHaveLength(1)
+    expect(traceBatches[0]!.length).toBeGreaterThan(0)
+  })
+})
