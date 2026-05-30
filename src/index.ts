@@ -1210,4 +1210,37 @@ export { tracedAnalyzeTraces } from './traced-analyst'
 export type { TracedJudgeOptions } from './traced-judges'
 export { traceJudge, traceJudgeEnsemble } from './traced-judges'
 
+// ── Teacher→student GEPA distillation ────────────────────────────────
+// Distill a cheap single-shot analyst's prompt toward an expensive workflow's
+// gold verdicts. Composes runImprovementLoop + gepaDriver + the gate.
+
+export type {
+  AgreementResult,
+  BuildAgreementJudgeOptions,
+  CompareLabels,
+  FieldAgreementSpec,
+} from './campaign/distillation/agreement-judge'
+export { buildAgreementJudge, fieldAgreement } from './campaign/distillation/agreement-judge'
+export type {
+  GoldScenario,
+  GoldSplit,
+  SplitGoldOptions,
+} from './campaign/distillation/gold-scenarios'
+export {
+  loadGoldScenarios,
+  parseGoldJsonl,
+  splitGold,
+} from './campaign/distillation/gold-scenarios'
+export type {
+  ParseStudentLabel,
+  RenderStudentPrompt,
+  RunDistillationOptions,
+  RunDistillationResult,
+} from './campaign/distillation/run-distillation'
+export {
+  defaultParseStudentLabel,
+  defaultRenderStudentPrompt,
+  runDistillation,
+} from './campaign/distillation/run-distillation'
+
 // Ax RLM trace analyst — subpath: /traces (re-exported alongside trace store).
