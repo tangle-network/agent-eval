@@ -12,6 +12,7 @@ import {
   runCampaign,
   type Scenario,
 } from '../../src/campaign/index'
+import { BackendIntegrityError } from '../../src/integrity/backend-integrity'
 
 interface FakeScenario extends Scenario {
   id: string
@@ -567,5 +568,52 @@ describe('runCampaign — in-memory storage (filesystem-less runtimes)', () => {
     const second = await runCampaign(opts)
     expect(second.aggregates.cellsCached).toBe(2)
     expect(existsSync(ghostDir)).toBe(false)
+  })
+})
+
+describe('runCampaign — expectUsage stub guard', () => {
+  // A dispatch that produces an artifact but never reports usage via ctx.cost —
+  // the exact stub the fleet's products fell into.
+  const STUB_DISPATCH: DispatchFn<FakeScenario, FakeArtifact> = async (scenario) => ({
+    text: `stub-${scenario.id}`,
+    intent: scenario.intent,
+  })
+
+  it('throws BackendIntegrityError on a zero-usage cell when expectUsage=assert', async () => {
+    await expect(
+      runCampaign({
+        scenarios: SCENARIOS.slice(0, 1),
+        dispatch: STUB_DISPATCH,
+        expectUsage: 'assert',
+        runDir: mkdtempSync(join(tmpdir(), 'run-campaign-')),
+      }),
+    ).rejects.toBeInstanceOf(BackendIntegrityError)
+  })
+
+  it('does NOT throw when the dispatch reports usage (real cell)', async () => {
+    const real: DispatchFn<FakeScenario, FakeArtifact> = async (scenario, ctx) => {
+      ctx.cost.observe(0.002, 'llm')
+      ctx.cost.observeTokens({ input: 80, output: 20 })
+      return { text: scenario.id, intent: scenario.intent }
+    }
+    const result = await runCampaign({
+      scenarios: SCENARIOS.slice(0, 1),
+      dispatch: real,
+      expectUsage: 'assert',
+      runDir: mkdtempSync(join(tmpdir(), 'run-campaign-')),
+    })
+    expect(result.cells[0]!.tokenUsage).toEqual({ input: 80, output: 20 })
+    expect(result.cells[0]!.error).toBeUndefined()
+  })
+
+  it('expectUsage=off lets a stub cell through (replay/offline)', async () => {
+    const result = await runCampaign({
+      scenarios: SCENARIOS.slice(0, 1),
+      dispatch: STUB_DISPATCH,
+      expectUsage: 'off',
+      runDir: mkdtempSync(join(tmpdir(), 'run-campaign-')),
+    })
+    expect(result.cells).toHaveLength(1)
+    expect(result.cells[0]!.tokenUsage).toEqual({ input: 0, output: 0 })
   })
 })

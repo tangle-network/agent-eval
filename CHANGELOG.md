@@ -4,6 +4,50 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ---
 
+## [0.62.0] — 2026-05-30 — eval↔runtime boundary hardening (honest cost meter + per-cell stub guard)
+
+From the agent-eval ↔ agent-runtime boundary critique. Builds on `runProfileMatrix` (0.61.0).
+
+### Fixed
+
+- **`CampaignCostMeter` docstring no longer lies.** It claimed "Substrate auto-tracks LLM costs via the cost-ledger backend hooks" — false (the meter mutates only on explicit `observe`/`observeTokens`), and it contradicted `observeTokens`' own doc. That doc was the root cause of consumers skipping `observeTokens`, getting `{0,0}` stub cells, and building `RunRecord`s on a side-channel. The doc now states plainly: nothing is captured automatically; the dispatch MUST report.
+
+### Added
+
+- **`runCampaign({ expectUsage })`** — per-cell stub guard, the early/fine-grained sibling of batch `assertRealBackend`. A cell that produced an artifact but reported `costUsd === 0` AND zero tokens is a stub. Modes: `'warn'` (default, non-breaking), `'assert'` (throw `BackendIntegrityError` on the first stub cell), `'off'` (replay/offline). Errored/skipped cells and deterministic judge-only runs are not flagged.
+
+### Changed
+
+- **`CampaignTokenUsage` is now `type CampaignTokenUsage = RunTokenUsage`** (one source of truth; a field added to `RunTokenUsage` is a compile error here, not silent drift across the three hand-synced copies the audit found).
+- **multishot aliases sandbox's `AgentProfile` → `SandboxAgentProfile`** so it no longer collides with the eval-harness `AgentProfile` the root exports.
+
+### Boundary
+
+- **`tests/boundary-integrity.test.ts`** — mechanically enforces the zero-upward-dependency rule (agent-eval must never import agent-runtime/agent-knowledge). The CLAUDE.md rule was prose-only; it is now a red build.
+
+### Notes
+
+Pure additive/doc surface (`expectUsage` defaults to non-breaking `'warn'`). Full suite 1538/1538 green. Consumes-side: agent-runtime `loopDispatch` (0.32.0) turns the whole seam into one un-mis-wireable call.
+
+---
+
+## [0.61.0] — 2026-05-30 — `runProfileMatrix` (profile × scenario × persona matrix with integrity by construction)
+
+### Added
+
+- **`runProfileMatrix({ profiles, scenarios, dispatch, judges, reps, integrity, personaOf })`** (`@tangle-network/agent-eval/campaign`) — the keystone that lets a consumer express a multi-profile × scenario/persona eval as **one** call instead of a hand-rolled `eval:*` script. Fans `profiles` over the scenario/persona corpus, runs `runCampaign` per profile, maps every cell to a validated `RunRecord` carrying real `tokenUsage`, and runs **`assertRealBackend` by construction**. Returns `{ records, byProfile, byScenario, byPersona, integrity, campaigns }`.
+- **`ProfileMatrixError`** — thrown at preflight (before any LLM spend) when a profile's model lacks a snapshot version or the lists are empty.
+
+### Fixed / closed gap
+
+- **Token usage captured by `runCampaign`** — `CampaignCostMeter` gains `observeTokens()`/`tokens()` and `CampaignCellResult` gains `tokenUsage`, so the integrity guards can run on a `CampaignResult` (they key on `tokenUsage`). Closes the gap for **every** campaign consumer.
+
+### Notes
+
+7 new tests; the keystone is the **stub→throws** regression. Full suite 1527/1527 green at release.
+
+---
+
 ## [0.53.0] — 2026-05-27 — prior-period comparison ("did my last change help?")
 
 ### Added

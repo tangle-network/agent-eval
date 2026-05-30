@@ -6,7 +6,7 @@
 // Tool calls execute inline via the configured executors and feed back
 // into the agent's message log so the agent integrates the result.
 
-import type { AgentProfile } from '@tangle-network/sandbox'
+import type { AgentProfile as SandboxAgentProfile } from '@tangle-network/sandbox'
 import { defaultDelegationTools } from './default-tools'
 import {
   defaultRouterBaseUrl,
@@ -26,7 +26,7 @@ import {
 } from './types'
 
 export interface RunMultishotOptions<TPersona extends MultishotPersona> {
-  profile: AgentProfile
+  profile: SandboxAgentProfile
   persona: TPersona
   shape: MultishotShape<TPersona>
   /** Tool definitions advertised to the agent. Defaults to delegate_research + delegate_code. */

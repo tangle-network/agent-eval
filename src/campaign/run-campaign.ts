@@ -13,6 +13,7 @@
 
 import { createHash } from 'node:crypto'
 import { join } from 'node:path'
+import { BackendIntegrityError, type BackendIntegrityReport } from '../integrity/backend-integrity'
 import { confidenceInterval } from '../statistics'
 import { type CampaignStorage, fsCampaignStorage } from './storage'
 import type {
@@ -62,6 +63,17 @@ export interface RunCampaignOptions<TScenario extends Scenario, TArtifact> {
    *  at `<runDir>/traces/`. `'off'` disables capture entirely — substrate
    *  refuses this when the caller wires `autoOnPromote !== 'none'`. */
   tracing?: 'on' | 'off'
+  /**
+   * Per-cell usage expectation — the early, fine-grained sibling of the
+   * batch `assertRealBackend` guard. A cell that produced an artifact (no
+   * error) but reported `costUsd === 0` AND zero tokens is a stub: the
+   * dispatch never reported LLM activity via `ctx.cost`. Modes:
+   *   - `'warn'` (default) — log the offending cell loudly, keep going.
+   *   - `'assert'` — throw `BackendIntegrityError` on the first such cell
+   *     (fail-fast; recommended for CI campaigns expecting real LLM calls).
+   *   - `'off'` — no check (replay / deterministic-only / offline analysis).
+   */
+  expectUsage?: 'assert' | 'warn' | 'off'
   /** Test seam — override the wall clock for deterministic tests. */
   now?: () => Date
   /** Test seam — override per-cell trace writer factory. */
@@ -160,6 +172,7 @@ export async function runCampaign<TScenario extends Scenario, TArtifact>(
             signal: abortController.signal,
           })
           cellsRef.push(result.cell)
+          enforceCellUsage(result.cell, opts.expectUsage ?? 'warn')
           totalCostUsd += result.cell.costUsd
           Object.assign(artifactsByPath, result.artifactsByPath)
           if (opts.costCeiling !== undefined && totalCostUsd >= opts.costCeiling) {
@@ -346,6 +359,40 @@ async function executeCell<TScenario extends Scenario, TArtifact>(
   }
 
   return { cell, artifactsByPath }
+}
+
+/**
+ * Per-cell stub guard. A cell that produced an artifact (no error) but reported
+ * `costUsd === 0` AND zero tokens means the dispatch never called `ctx.cost` —
+ * i.e. it ran against a stub or silently dropped its usage. `'warn'` logs it,
+ * `'assert'` throws (fail-fast), `'off'` skips. An errored/skipped cell or a
+ * deterministic judge-only run that genuinely made no LLM call is not flagged.
+ */
+function enforceCellUsage<TArtifact>(
+  cell: CampaignCellResult<TArtifact>,
+  mode: 'assert' | 'warn' | 'off',
+): void {
+  if (mode === 'off' || cell.error) return
+  if (cell.artifact === null || cell.artifact === undefined) return
+  const zeroTokens = cell.tokenUsage.input === 0 && cell.tokenUsage.output === 0
+  if (cell.costUsd !== 0 || !zeroTokens) return
+  const msg = `cell '${cell.cellId}' produced an artifact but reported zero cost and zero tokens — the dispatch never reported LLM usage via ctx.cost.observe/observeTokens (a stub cell)`
+  if (mode === 'assert') {
+    const report: BackendIntegrityReport = {
+      totalRecords: 1,
+      stubRecords: 1,
+      realRecords: 0,
+      uncostedRecords: 0,
+      totalInputTokens: 0,
+      totalOutputTokens: 0,
+      totalCostUsd: 0,
+      verdict: 'stub',
+      diagnosis: msg,
+    }
+    throw new BackendIntegrityError(`expectUsage: ${msg}`, report)
+  }
+  // eslint-disable-next-line no-console
+  console.warn(`[runCampaign] expectUsage: ${msg}`)
 }
 
 async function runJudgeCell<TArtifact, TScenario extends Scenario>(
