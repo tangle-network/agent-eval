@@ -1243,4 +1243,9 @@ export {
   runDistillation,
 } from './campaign/distillation/run-distillation'
 
+// Structured agent profile — namespaced (`profile.renderProfile`,
+// `profile.AgentProfile`) to avoid clashing with the benchmark-cell
+// `AgentProfile` exported above from `./agent-profile`.
+export * as profile from './profile/index'
+
 // Ax RLM trace analyst — subpath: /traces (re-exported alongside trace store).

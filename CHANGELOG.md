@@ -4,6 +4,21 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ---
 
+## [0.68.0] — 2026-05-30 — structured AgentProfile (the self-improvement surface stops being an opaque blob)
+
+The optimizable surface was an opaque string addendum, so the loop could only mutate (and the dashboard only diff) an unstructured blob — you couldn't see *what kind* of improvement a candidate made. This adds a **sectioned `AgentProfile`** primitive (mirrored on Harvey LAB's system-prompt structure) so the surface has named, separately-addressable zones the loop targets one at a time.
+
+### Added
+
+- **`profile` namespace** (`import { profile } from '@tangle-network/agent-eval'`):
+  - `AgentProfile { role, environment, toolConventions, skills: ProfileSkill[], domain: AgentProfileSection[] }` — the structured surface. `environment` is a first-class section (the sandbox contract: workspace root, read-only documents, output dir, skills dir), matching how an agentic harness actually addresses its sandbox.
+  - `renderProfile(p)` emits the system prompt in fixed order: role → `## Environment` → `## Tool conventions` → `## Skills` → `## Domain guidance`.
+  - `baselineProfile` / `prodProfile(baseline, shipped)` — baseline = empty domain + stock skills; prod = baseline + gate-certified domain sections.
+  - `applyDomainPatch(p, sectionId, body)` — **section-scoped** edit so the improvement loop optimizes ONE evolvable section, not the whole blob; `profileToSurface(p)` bridges to the existing string `MutableSurface`.
+- Namespaced as `profile.*` to avoid clashing with the benchmark-cell `AgentProfile` already exported from `./agent-profile`.
+
+Additive — does not touch `runImprovementLoop` or the string surface. 15 tests (zone order; only evolvable sections change hash under `applyDomainPatch`; baseline vs prod differ only in domain/skills; Environment present + non-empty). Full suite (1639) green. First consumers: the TaxCalcBench + Harvey LAB benchmark adapters (tax-agent / legal-agent) that score our agent's profile against public leaderboards.
+
 ## [0.67.0] — 2026-05-30 — the promotion gate is statistically trustworthy (no more shipping noise)
 
 An adversarial review of a real "ship +4.0 lift" decision found it was a **triple false positive**: the driver's candidate lost on train, so the winner was the baseline (empty diff); the loop re-scored the baseline against ITSELF on the holdout and read run-to-run model noise (91 vs 95) as a "+4 lift"; and a point-estimate gate (`delta >= 0.03` on a 0-100 scale, `reps:1`) shipped it — while the reward-hacking gate was blind to a −30 regression on a safety dimension hiding under the +4 net. The promotion gate could not tell a real improvement from noise or from a Goodhart trade.
