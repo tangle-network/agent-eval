@@ -10,6 +10,7 @@ import {
   evolutionaryDriver,
   FsLabeledScenarioStore,
   type Gate,
+  gepaDriver,
   heldOutGate,
   type JudgeConfig,
   type MutableSurface,
@@ -145,6 +146,140 @@ describe('heldOutGate', () => {
     expect(result.delta).toBeCloseTo(0)
     expect(result.decision).toBe('hold')
   })
+})
+
+// ── gepaDriver end-to-end through runImprovementLoop + defaultProductionGate ─
+
+describe('gepaDriver → runImprovementLoop → defaultProductionGate (full wiring)', () => {
+  // The honesty gap (#101/#106): gepaDriver was only unit-tested in isolation
+  // with a fake fetch returning canned payloads — never driven through the
+  // whole loop to a measured held-out lift + a real gate promotion. This test
+  // closes the WIRING half of that gap deterministically (the live-router
+  // half lives in examples/substrate-lift-proof): a weak baseline scores 0,
+  // gepaDriver's reflected candidate scores 1, the holdout re-score sees the
+  // delta, and defaultProductionGate promotes. The regression it catches: any
+  // refactor that collapses the candidate/baseline holdout maps (delta→0) or
+  // drops the driver's proposal before the gate (winner == baseline).
+
+  // The worker scores 1 iff the surface carries the schema directive the
+  // driver is supposed to introduce; the weak baseline lacks it → scores 0.
+  const SCHEMA_MARKER = 'OUTPUT_STRICT_SCHEMA'
+  const judge: JudgeConfig<FakeArtifact, FakeScenario> = {
+    name: 'has-schema',
+    dimensions: [{ key: 'schema', description: 'surface enforces strict schema' }],
+    score: ({ artifact }) => {
+      const ok = artifact.text.includes(SCHEMA_MARKER) ? 1 : 0
+      return { dimensions: { schema: ok }, composite: ok, notes: '' }
+    },
+  }
+
+  // Fake router for the driver's reflection: returns one candidate surface
+  // that contains the marker. This is the LLM's job in the live proof —
+  // here it is stubbed so the wiring is deterministic + offline.
+  function driverFetch(): typeof fetch {
+    return (async () => {
+      const proposals = [
+        { label: 'fix', rationale: 'add schema directive', payload: `BASE ${SCHEMA_MARKER}` },
+      ]
+      const content = JSON.stringify({ proposals })
+      return new Response(
+        JSON.stringify({ choices: [{ message: { content } }], usage: { total_tokens: 10 } }),
+        { status: 200, headers: { 'content-type': 'application/json' } },
+      )
+    }) as unknown as typeof fetch
+  }
+
+  it('promotes a real driver-proposed lift on the held-out split', async () => {
+    const driver = gepaDriver({
+      llm: { apiKey: 'k', baseUrl: 'https://router.test/v1', fetch: driverFetch() },
+      model: 'test-model',
+      target: 'enforce a strict output schema',
+    })
+
+    const result = await runImprovementLoop<FakeScenario, FakeArtifact>({
+      scenarios: SCENARIOS,
+      holdoutScenarios: HOLDOUT,
+      baselineSurface: 'BASE',
+      // The worker echoes the surface it was given — the judge keys on the marker.
+      dispatchWithSurface: async (surface) => ({ text: String(surface) }),
+      judges: [judge],
+      driver,
+      populationSize: 1,
+      maxGenerations: 1,
+      promoteTopK: 1,
+      gate: defaultProductionGate<FakeArtifact, FakeScenario>({
+        holdoutScenarios: HOLDOUT,
+        deltaThreshold: 0.5,
+      }),
+      autoOnPromote: 'none',
+      runDir,
+      seed: 7,
+    })
+
+    // Baseline (no marker) scores 0 on holdout; the winner (marker) scores 1.
+    const baselineMean = mean(result.baselineOnHoldout)
+    const winnerMean = mean(result.winnerOnHoldout)
+    expect(baselineMean).toBe(0)
+    expect(winnerMean).toBe(1)
+    expect(result.gateResult.delta).toBeCloseTo(1)
+    expect(result.gateResult.decision).toBe('ship')
+    // The promoted surface is the driver's proposal, NOT the baseline.
+    expect(String(result.winnerSurface)).toContain(SCHEMA_MARKER)
+    expect(String(result.winnerSurface)).not.toBe('BASE')
+  })
+
+  it('holds when the driver proposes no improvement (winner == baseline)', async () => {
+    // Driver returns only the parent surface → deduped to empty → winner stays
+    // baseline → holdout delta 0 → gate holds. Guards the "nothing to ship" path.
+    const noopFetch = (async () => {
+      const content = JSON.stringify({
+        proposals: [{ label: 'x', rationale: 'r', payload: 'BASE' }],
+      })
+      return new Response(
+        JSON.stringify({ choices: [{ message: { content } }], usage: { total_tokens: 1 } }),
+        { status: 200, headers: { 'content-type': 'application/json' } },
+      )
+    }) as unknown as typeof fetch
+
+    const result = await runImprovementLoop<FakeScenario, FakeArtifact>({
+      scenarios: SCENARIOS,
+      holdoutScenarios: HOLDOUT,
+      baselineSurface: 'BASE',
+      dispatchWithSurface: async (surface) => ({ text: String(surface) }),
+      judges: [judge],
+      driver: gepaDriver({
+        llm: { apiKey: 'k', baseUrl: 'https://router.test/v1', fetch: noopFetch },
+        model: 'test-model',
+        target: 'enforce a strict output schema',
+      }),
+      populationSize: 1,
+      maxGenerations: 1,
+      gate: defaultProductionGate<FakeArtifact, FakeScenario>({
+        holdoutScenarios: HOLDOUT,
+        deltaThreshold: 0.5,
+      }),
+      autoOnPromote: 'none',
+      runDir,
+      seed: 7,
+    })
+
+    expect(mean(result.winnerOnHoldout)).toBe(0)
+    expect(result.gateResult.delta).toBeCloseTo(0)
+    expect(result.gateResult.decision).toBe('hold')
+    expect(String(result.winnerSurface)).toBe('BASE')
+  })
+
+  function mean(campaign: {
+    cells: Array<{ judgeScores: Record<string, { composite: number }>; error?: string }>
+  }): number {
+    const xs: number[] = []
+    for (const cell of campaign.cells) {
+      if (cell.error) continue
+      const cs = Object.values(cell.judgeScores).map((s) => s.composite)
+      if (cs.length) xs.push(cs.reduce((a, b) => a + b, 0) / cs.length)
+    }
+    return xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : 0
+  }
 })
 
 // ── openAutoPr ─────────────────────────────────────────────────────

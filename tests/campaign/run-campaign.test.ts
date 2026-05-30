@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   type DispatchFn,
   FsLabeledScenarioStore,
+  fsCampaignStorage,
   inMemoryCampaignStorage,
   type JudgeConfig,
   LabeledScenarioStoreError,
@@ -41,6 +42,28 @@ beforeEach(() => {
 
 afterEach(() => {
   rmSync(runDir, { recursive: true, force: true })
+})
+
+describe('fsCampaignStorage — default Node FS adapter', () => {
+  // Regression: fsCampaignStorage() used a bare `require('node:fs')`, which is
+  // a ReferenceError under native ESM (`"type":"module"`, the shape this
+  // package publishes) — every campaign that took the default storage threw
+  // before running a single cell. Constructing it + doing real FS I/O guards
+  // that the adapter builds and reads/writes without hitting `require`.
+  it('constructs and performs real read/write/exists without a bare require', () => {
+    const storage = fsCampaignStorage()
+    const dir = mkdtempSync(join(tmpdir(), 'fs-storage-'))
+    try {
+      const file = join(dir, 'nested', 'x.txt')
+      storage.ensureDir(join(file, '..'))
+      expect(storage.read(file)).toBeUndefined()
+      storage.write(file, 'hello')
+      expect(storage.exists(file)).toBe(true)
+      expect(storage.read(file)).toBe('hello')
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
 })
 
 describe('runCampaign — core primitive', () => {

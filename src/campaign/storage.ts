@@ -1,3 +1,5 @@
+import { createRequire } from 'node:module'
+
 /**
  * @experimental
  *
@@ -28,10 +30,16 @@ export interface CampaignStorage {
 
 /** Node-filesystem storage — the default. Lazily requires `node:fs` so the
  *  module imports cleanly in non-Node runtimes (where the caller passes
- *  `inMemoryCampaignStorage` instead and never constructs this). */
+ *  `inMemoryCampaignStorage` instead and never constructs this).
+ *
+ *  `createRequire(import.meta.url)` is the ESM-native lazy require — a bare
+ *  `require` is a ReferenceError under `"type": "module"`, which is exactly
+ *  the shape this package publishes. */
 export function fsCampaignStorage(): CampaignStorage {
-  const { existsSync, mkdirSync, readFileSync, writeFileSync } =
-    require('node:fs') as typeof import('node:fs')
+  const nodeRequire = createRequire(import.meta.url)
+  const { existsSync, mkdirSync, readFileSync, writeFileSync } = nodeRequire(
+    'node:fs',
+  ) as typeof import('node:fs')
   return {
     ensureDir(dir) {
       if (!existsSync(dir)) mkdirSync(dir, { recursive: true })
