@@ -2,10 +2,15 @@ import { describe, expect, it } from 'vitest'
 import {
   type AgentProfileSection,
   applyDomainPatch,
+  BASELINE_ROLES,
   baselineProfile,
+  baselineProfileFromRole,
+  engineerRole,
+  generalistRole,
   prodProfile,
   profileToSurface,
   renderProfile,
+  researcherRole,
   sectionHash,
 } from '../src/profile/index'
 
@@ -152,5 +157,58 @@ describe('baseline vs prod', () => {
     })
     const shipped = prodProfile(withSkill, [])
     expect(shipped.skills).toEqual(withSkill.skills)
+  })
+})
+
+describe('profile baselines — strong generic roles (engineer/researcher/generalist)', () => {
+  it('exposes three distinct, verification-first, domain-agnostic roles', () => {
+    // distinct
+    expect(new Set([engineerRole, researcherRole, generalistRole]).size).toBe(3)
+    // verification-first: each role commits to verifying before "done"
+    for (const r of [engineerRole, researcherRole, generalistRole]) {
+      expect(r.toLowerCase()).toMatch(/verif|ground|check/)
+    }
+    // engineer = fix the root cause, never weaken the check (the coderProfile doctrine)
+    expect(engineerRole.toLowerCase()).toMatch(
+      /root cause|never weaken|hide the error|fake success/,
+    )
+    // researcher = never fabricate a source/citation
+    expect(researcherRole.toLowerCase()).toMatch(/fabricat|cite|source/)
+    // domain-agnostic: no product-domain words leak into the generic baselines
+    for (const r of [engineerRole, researcherRole, generalistRole]) {
+      expect(r.toLowerCase()).not.toMatch(/\b(m&a|tax return|1040|jurisdiction|retainer)\b/)
+    }
+    expect(Object.keys(BASELINE_ROLES).sort()).toEqual(['engineer', 'generalist', 'researcher'])
+  })
+
+  it('baselineProfileFromRole builds a domain-empty profile carrying the chosen role', () => {
+    const p = baselineProfileFromRole('engineer')
+    expect(p.role).toBe(engineerRole)
+    expect(p.domain).toEqual([]) // domain stays empty — product layers it via prodProfile
+    expect(renderProfile(p)).toContain('## Environment') // env scaffolding present
+    // the role text is the top zone
+    expect(renderProfile(p).startsWith(engineerRole.trim())).toBe(true)
+  })
+
+  it('a product composes baseline role + its OWN domain (domain not in the substrate)', () => {
+    const base = baselineProfileFromRole('generalist')
+    const prod = prodProfile(base, [
+      {
+        id: 'legal-citation',
+        title: 'Citation Protocol',
+        body: 'Cite the controlling authority.',
+        evolvable: true,
+      },
+    ])
+    // baseline role carried through unchanged; domain added on top
+    expect(prod.role).toBe(generalistRole)
+    expect(prod.domain.map((s) => s.id)).toEqual(['legal-citation'])
+    // and the loop can still patch that product-supplied domain section
+    const patched = applyDomainPatch(
+      prod,
+      'legal-citation',
+      'Cite controlling authority WITH pincite.',
+    )
+    expect(patched.domain[0]!.body).toMatch(/pincite/)
   })
 })
