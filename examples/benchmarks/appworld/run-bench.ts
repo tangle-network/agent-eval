@@ -50,16 +50,18 @@ const APPWORLD_DIR = process.env.APPWORLD_DIR ?? '/tmp/halo-repo/demo/appworld'
 const PYTHON = process.env.BENCH_PYTHON ?? `${APPWORLD_DIR}/.venv/bin/python`
 const HERE = dirname(fileURLToPath(import.meta.url))
 const WORKER = join(HERE, 'repl_agent.py')
-const MODEL = process.env.BENCH_MODEL ?? 'gpt-5-mini' // the AGENT model (worker)
+const MODEL = process.env.BENCH_MODEL ?? 'gpt-5' // the AGENT model (worker) — a strong model
 const REFLECT_MODEL = process.env.BENCH_REFLECT_MODEL ?? 'deepseek-v4-pro' // drivers' propose model
 const BASE_URL = process.env.OPENAI_BASE_URL ?? 'https://router.tangle.tools/v1'
 const API_KEY = process.env.OPENAI_API_KEY ?? ''
-const TRAIN_N = Number(process.env.TRAIN_N ?? 4)
-const HOLDOUT_N = Number(process.env.HOLDOUT_N ?? 6)
-const MAX_GEN = Number(process.env.MAX_GEN ?? 2)
+const TRAIN_N = Number(process.env.TRAIN_N ?? 3)
+const HOLDOUT_N = Number(process.env.HOLDOUT_N ?? 5)
+const MAX_GEN = Number(process.env.MAX_GEN ?? 1)
 const POP = Number(process.env.POP ?? 2)
-const MAX_STEPS = Number(process.env.MAX_STEPS ?? 25)
-const CALL_TIMEOUT = Number(process.env.CALL_TIMEOUT ?? 90)
+const REPS = Number(process.env.REPS ?? 5) // shots per holdout cell → bootstrap CIs over reps×scenarios
+const MAX_STEPS = Number(process.env.MAX_STEPS ?? 0) // 0 = no cap (maxTurns=0)
+const MAX_WALL = Number(process.env.MAX_WALL ?? 900) // per-episode wall-clock safety net (s)
+const CALL_TIMEOUT = Number(process.env.CALL_TIMEOUT ?? 120)
 const MAX_TOKENS = Number(process.env.MAX_TOKENS ?? 6000)
 const OUT_DIR = process.env.OUT_DIR ?? join(tmpdir(), 'appworld-bench')
 const SEED = Number(process.env.SEED ?? 42)
@@ -125,7 +127,9 @@ async function dispatchWithSurface(
       '--experiment-name',
       experiment,
       '--max-steps',
-      String(MAX_STEPS),
+      String(MAX_STEPS), // 0 = no cap (maxTurns=0): run until complete_task
+      '--max-wall-seconds',
+      String(MAX_WALL),
       '--call-timeout',
       String(CALL_TIMEOUT),
       '--max-tokens',
@@ -347,6 +351,7 @@ async function main(): Promise<void> {
     judges: [appworldJudge],
     runDir: join(OUT_DIR, 'compare'),
     seed: SEED,
+    reps: REPS, // 5 shots per holdout cell — the CI is over reps×scenarios, not a single point
     expectUsage: 'assert', // NO STUBS — a zero-token cell fails loud, never silently scored 0
   })
 

@@ -47,6 +47,12 @@ PRICE_PER_M: dict[str, dict[str, float]] = {
     "gpt-4o-2024-05-13": {"input": 5.0, "output": 15.0},
     "deepseek-v4-pro": {"input": 0.27, "output": 1.10},
     "gpt-5-mini": {"input": 0.25, "output": 2.0},
+    "gpt-5": {"input": 1.25, "output": 10.0},
+    "gpt-5-2025-08-07": {"input": 1.25, "output": 10.0},
+    "gpt-5-codex": {"input": 1.25, "output": 10.0},
+    "moonshotai/kimi-k2": {"input": 0.60, "output": 2.50},
+    "moonshotai/kimi-k2-0905": {"input": 0.60, "output": 2.50},
+    "moonshotai/kimi-k2-thinking": {"input": 0.60, "output": 2.50},
 }
 
 SYSTEM_PROMPT = """You are a coding agent solving a task for a user by writing Python.
@@ -179,6 +185,7 @@ def run_task(
     max_tokens: int,
     out_dir: str,
     system_prompt: str | None = None,
+    max_wall_seconds: float = 900.0,
 ) -> dict[str, Any]:
     # The agent instruction prompt is the OPTIMIZABLE SURFACE: compareDrivers /
     # gepaDriver / haloDriver / memoryCurationDriver mutate it and pass the
@@ -228,7 +235,17 @@ def run_task(
             },
         ]
 
-        for step in range(1, max_steps + 1):
+        # max_steps <= 0 means NO step cap (run until the agent calls
+        # complete_task); the only safety net is the wall-clock budget, so a
+        # non-terminating agent can't run forever. This is `maxTurns=0`.
+        step = 0
+        while True:
+            step += 1
+            if max_steps > 0 and step > max_steps:
+                break
+            if max_wall_seconds > 0 and (time.time_ns() - run_start_ns) / 1e9 > max_wall_seconds:
+                last_error = f"wall_clock_exceeded after {max_wall_seconds}s ({step - 1} steps)"
+                break
             # ── LLM span: ask the model for the next code block ──
             llm_start = time.time_ns()
             try:
@@ -439,7 +456,19 @@ def main() -> None:
     ap.add_argument("--task-id", default=None)  # required for a run; not for --print-baseline-prompt
     ap.add_argument("--model", default="gpt-4o-mini-2024-07-18")
     ap.add_argument("--experiment-name", default="repl_agent_smoke")
-    ap.add_argument("--max-steps", type=int, default=25)
+    ap.add_argument(
+        "--max-steps",
+        type=int,
+        default=0,
+        help="Hard step cap; 0 (default) = NO cap, run until the agent calls complete_task "
+        "(maxTurns=0). The wall-clock budget is the only safety net.",
+    )
+    ap.add_argument(
+        "--max-wall-seconds",
+        type=float,
+        default=900.0,
+        help="Per-episode wall-clock safety net so an agent that never completes can't hang forever.",
+    )
     ap.add_argument("--call-timeout", type=float, default=60.0)
     ap.add_argument(
         "--rate-limit-budget",
@@ -491,6 +520,7 @@ def main() -> None:
         max_tokens=args.max_tokens,
         out_dir=args.out_dir,
         system_prompt=system_prompt,
+        max_wall_seconds=args.max_wall_seconds,
     )
     # Compact verdict line for the benchmark dispatcher to parse.
     print(
