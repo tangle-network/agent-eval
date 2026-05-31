@@ -24,7 +24,8 @@
 import { execFile } from 'node:child_process'
 import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { promisify } from 'node:util'
 import {
   compareDrivers,
@@ -47,7 +48,8 @@ const execFileAsync = promisify(execFile)
 // ── Config (env-overridable so the overnight run can be tuned) ───────────────
 const APPWORLD_DIR = process.env.APPWORLD_DIR ?? '/tmp/halo-repo/demo/appworld'
 const PYTHON = process.env.BENCH_PYTHON ?? `${APPWORLD_DIR}/.venv/bin/python`
-const WORKER = join(__dirname, 'repl_agent.py')
+const HERE = dirname(fileURLToPath(import.meta.url))
+const WORKER = join(HERE, 'repl_agent.py')
 const MODEL = process.env.BENCH_MODEL ?? 'gpt-5-mini' // the AGENT model (worker)
 const REFLECT_MODEL = process.env.BENCH_REFLECT_MODEL ?? 'deepseek-v4-pro' // drivers' propose model
 const BASE_URL = process.env.OPENAI_BASE_URL ?? 'https://router.tangle.tools/v1'
@@ -323,8 +325,15 @@ async function main(): Promise<void> {
     maxGenerations: MAX_GEN,
   }
 
-  const drivers: DriverEntry[] = [gepaReflectionEntry(cfg), gepaParetoEntry(cfg), memoryEntry(cfg)]
+  let drivers: DriverEntry[] = [gepaReflectionEntry(cfg), gepaParetoEntry(cfg), memoryEntry(cfg)]
   if (WITH_HALO) drivers.push(haloEntry(cfg))
+  // BENCH_DRIVERS=gepa-reflection,memory-curation selects a subset (smoke / recovery).
+  const only = (process.env.BENCH_DRIVERS ?? '')
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean)
+  if (only.length > 0) drivers = drivers.filter((d) => only.includes(d.name))
+  if (drivers.length === 0) throw new Error(`BENCH_DRIVERS matched no drivers: ${only.join(',')}`)
 
   console.log(
     `[bench] model=${MODEL} reflect=${REFLECT_MODEL} train=${TRAIN_N} holdout=${HOLDOUT_N} gen=${MAX_GEN} pop=${POP} drivers=${drivers.map((d) => d.name).join(',')}`,
