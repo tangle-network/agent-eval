@@ -135,6 +135,13 @@ export interface RunProfileMatrixOptions<TScenario extends Scenario, TArtifact> 
    *  Default true — catches bad model snapshots and non-finite judge dims at
    *  the boundary instead of letting them poison downstream analysis. */
   validate?: boolean
+  /** Corpus-by-default: derive the trajectory text (`prompt` + `completion`)
+   *  for each cell from its artifact + scenario. When set, every produced
+   *  record carries `prompt`/`completion` (a `CorpusRecord`) so the run's
+   *  graded trajectories can be appended to the durable RL corpus with no
+   *  side-channel — `appendToCorpus(result.records, path)`. Fail-soft: a
+   *  throwing or undefined-returning extractor just omits the text. */
+  corpusText?: (artifact: TArtifact, scenario: TScenario) => { prompt: string; completion: string } | undefined
 }
 
 export interface ProfileSummary {
@@ -190,7 +197,7 @@ function cellComposite(cell: CampaignCellResult<unknown>): number {
   return composites.length === 0 ? 0 : mean(composites)
 }
 
-interface BuildRecordArgs<TArtifact> {
+interface BuildRecordArgs<TScenario extends Scenario, TArtifact> {
   cell: CampaignCellResult<TArtifact>
   profile: AgentProfile
   profileHash: string
@@ -199,9 +206,13 @@ interface BuildRecordArgs<TArtifact> {
   splitTag: RunSplitTag
   commitSha: string
   matrixId: string
+  scenario?: TScenario
+  corpusText?: (artifact: TArtifact, scenario: TScenario) => { prompt: string; completion: string } | undefined
 }
 
-function buildRunRecord<TArtifact>(args: BuildRecordArgs<TArtifact>): RunRecord {
+function buildRunRecord<TScenario extends Scenario, TArtifact>(
+  args: BuildRecordArgs<TScenario, TArtifact>,
+): RunRecord {
   const { cell, profile, profileHash, configHash, experimentId, splitTag, commitSha, matrixId } =
     args
   const composite = cellComposite(cell)
@@ -249,7 +260,7 @@ function buildRunRecord<TArtifact>(args: BuildRecordArgs<TArtifact>): RunRecord 
     }
   }
 
-  return {
+  const record: RunRecord & { prompt?: string; completion?: string } = {
     runId: `${matrixId}:${profile.id}:${cell.cellId}`,
     experimentId,
     candidateId: profile.id,
@@ -266,6 +277,22 @@ function buildRunRecord<TArtifact>(args: BuildRecordArgs<TArtifact>): RunRecord 
     scenarioId: cell.scenarioId,
     ...(cell.error ? { failureMode: cell.error } : {}),
   }
+
+  // Corpus-by-default: stamp the trajectory text onto the record (CorpusRecord
+  // shape — the validator ignores the extra keys) so the run is dataset-able
+  // with no side-channel. Fail-soft: a bad extractor never fails the run.
+  if (args.corpusText && args.scenario) {
+    try {
+      const text = args.corpusText(cell.artifact, args.scenario)
+      if (text && typeof text.prompt === 'string' && typeof text.completion === 'string') {
+        record.prompt = text.prompt
+        record.completion = text.completion
+      }
+    } catch {
+      // extractor threw — omit trajectory text, keep the graded record.
+    }
+  }
+  return record
 }
 
 export async function runProfileMatrix<TScenario extends Scenario, TArtifact>(
@@ -283,6 +310,8 @@ export async function runProfileMatrix<TScenario extends Scenario, TArtifact>(
     opts.experimentId ??
     `pm_${sha({ profileIds, scenarios: opts.scenarios.map((s) => s.id) }).slice(0, 16)}`
   const matrixId = `mtx_${sha({ experimentId, profileIds, seed, splitTag }).slice(0, 16)}`
+  // Scenario lookup for the corpus-text extractor (records carry trajectory text).
+  const scenarioById = new Map(opts.scenarios.map((s) => [s.id, s]))
 
   // Preflight: every profile must hash (non-empty model) AND its model must
   // carry a snapshot version, BEFORE any LLM spend. A probe record run through
@@ -360,6 +389,8 @@ export async function runProfileMatrix<TScenario extends Scenario, TArtifact>(
         splitTag,
         commitSha: opts.commitSha,
         matrixId,
+        scenario: scenarioById.get(cell.scenarioId),
+        corpusText: opts.corpusText,
       })
       if (validate) validateRunRecord(record)
       profileRecords.push(record)

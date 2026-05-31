@@ -107,6 +107,36 @@ describe('runProfileMatrix', () => {
     expect(raw.composite).toBe(composite)
   })
 
+  it('corpus-by-default: stamps prompt/completion onto records via corpusText (no side-channel)', async () => {
+    const result = await runProfileMatrix({
+      ...baseOpts(),
+      dispatch: realDispatch,
+      corpusText: (artifact, scenario) => ({
+        prompt: `solve ${scenario.id}`,
+        completion: artifact.text,
+      }),
+    })
+    for (const rec of result.records as Array<(typeof result.records)[number] & { prompt?: string; completion?: string }>) {
+      expect(rec.prompt).toMatch(/^solve s[123]$/)
+      expect(rec.completion).toMatch(/^(baseline|tuned):s[123]$/) // the dispatch's artifact text
+    }
+    // These records ARE CorpusRecords → appendToCorpus(result.records) works directly.
+  })
+
+  it('corpus-by-default is fail-soft: a throwing extractor omits text, keeps the record', async () => {
+    const result = await runProfileMatrix({
+      ...baseOpts(),
+      dispatch: realDispatch,
+      corpusText: () => {
+        throw new Error('boom')
+      },
+    })
+    expect(result.records).toHaveLength(12)
+    const rec = result.records[0]! as { prompt?: string; completion?: string }
+    expect(rec.prompt).toBeUndefined()
+    expect(rec.completion).toBeUndefined()
+  })
+
   it('omits computed ratios when cost is zero — no non-finite raw values', async () => {
     const freeDispatch: ProfileDispatchFn<FakeScenario, FakeArtifact> = async (
       profile,
