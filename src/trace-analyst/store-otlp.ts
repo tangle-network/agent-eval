@@ -27,6 +27,7 @@
 
 import { readFile, stat } from 'node:fs/promises'
 import { NotFoundError } from '../errors'
+import { extractOtlpAttributes, projectOtlpFlatLine } from './otlp-span'
 import { compileSearchRegex, type TraceAnalysisStore, truncateForBudget } from './store'
 import {
   type DatasetOverview,
@@ -429,7 +430,7 @@ export class OtlpFileTraceStore implements TraceAnalysisStore {
         continue
       }
       if (!parsed || typeof parsed !== 'object') continue
-      const span = readOtlpSpan(parsed as Record<string, unknown>)
+      const span = projectOtlpFlatLine(parsed as Record<string, unknown>)
       if (!span) continue
 
       let entry = byTrace.get(span.trace_id)
@@ -584,7 +585,7 @@ export class OtlpFileTraceStore implements TraceAnalysisStore {
     } catch {
       // Should not happen — index pre-validated.
     }
-    const attrs = extractAttributes(raw)
+    const attrs = extractOtlpAttributes(raw)
     const projected: Record<string, unknown> = {}
     for (const [k, v] of Object.entries(attrs)) {
       if (typeof v === 'string') {
@@ -716,149 +717,9 @@ export class SpanNotFoundError extends NotFoundError {
 }
 
 // ─── OTLP shape readers ──────────────────────────────────────────────
-
-interface ProjectedSpanShape {
-  trace_id: string
-  span_id: string
-  parent_span_id: string | null
-  name: string
-  kind: TraceAnalystSpanKind
-  start_time: string
-  end_time: string
-  duration_ms: number
-  status: TraceAnalystSpanStatus
-  status_message: string | undefined
-  service_name: string | null
-  agent_name: string | null
-  model_name: string | null
-  tool_name: string | null
-}
-
-function readOtlpSpan(raw: Record<string, unknown>): ProjectedSpanShape | null {
-  const trace_id = stringField(raw, 'trace_id') ?? stringField(raw, 'traceId')
-  const span_id = stringField(raw, 'span_id') ?? stringField(raw, 'spanId')
-  if (!trace_id || !span_id) return null
-
-  const parent_id = stringField(raw, 'parent_span_id') ?? stringField(raw, 'parentSpanId') ?? null
-  const name = stringField(raw, 'name') ?? 'unknown'
-  const start_time = stringField(raw, 'start_time') ?? stringField(raw, 'startTime') ?? ''
-  const end_time = stringField(raw, 'end_time') ?? stringField(raw, 'endTime') ?? start_time
-
-  const status = readStatus(raw)
-  const attrs = extractAttributes(raw)
-
-  // Service name lives under resource.attributes; we projected it into
-  // attributes already via extractAttributes. Same for the inference.*
-  // and openinference.* keys.
-  const service_name =
-    asString(attrs['service.name']) ?? asString(attrs['resource.attributes.service.name']) ?? null
-  const agent_name =
-    asString(attrs['agent.name']) ?? asString(attrs['inference.agent.name']) ?? null
-  const model_name =
-    asString(attrs['llm.model_name']) ?? asString(attrs['inference.llm.model_name']) ?? null
-  const tool_name = asString(attrs['tool.name']) ?? asString(attrs['inference.tool.name']) ?? null
-
-  const kind = inferKind(attrs)
-
-  let duration_ms = 0
-  if (start_time && end_time) {
-    const a = Date.parse(start_time)
-    const b = Date.parse(end_time)
-    if (!Number.isNaN(a) && !Number.isNaN(b)) duration_ms = Math.max(0, b - a)
-  }
-
-  return {
-    trace_id,
-    span_id,
-    parent_span_id: parent_id && parent_id.length > 0 ? parent_id : null,
-    name,
-    kind,
-    start_time,
-    end_time,
-    duration_ms,
-    status: status.code,
-    status_message: status.message,
-    service_name,
-    agent_name,
-    model_name,
-    tool_name,
-  }
-}
-
-function readStatus(raw: Record<string, unknown>): {
-  code: TraceAnalystSpanStatus
-  message: string | undefined
-} {
-  const status = raw.status
-  if (status && typeof status === 'object' && !Array.isArray(status)) {
-    const codeRaw = (status as Record<string, unknown>).code
-    const code: TraceAnalystSpanStatus =
-      codeRaw === 'STATUS_CODE_OK' || codeRaw === 'OK'
-        ? 'OK'
-        : codeRaw === 'STATUS_CODE_ERROR' || codeRaw === 'ERROR'
-          ? 'ERROR'
-          : 'UNSET'
-    const messageRaw = (status as Record<string, unknown>).message
-    const message = typeof messageRaw === 'string' && messageRaw.length > 0 ? messageRaw : undefined
-    return { code, message }
-  }
-  return { code: 'UNSET', message: undefined }
-}
-
-function inferKind(attrs: Record<string, unknown>): TraceAnalystSpanKind {
-  const opik =
-    asString(attrs['openinference.span.kind']) ?? asString(attrs['inference.observation_kind'])
-  if (opik) {
-    const upper = opik.toUpperCase()
-    if (
-      upper === 'AGENT' ||
-      upper === 'LLM' ||
-      upper === 'TOOL' ||
-      upper === 'CHAIN' ||
-      upper === 'GUARDRAIL' ||
-      upper === 'SPAN'
-    ) {
-      return upper as TraceAnalystSpanKind
-    }
-  }
-  return 'UNKNOWN'
-}
-
-/**
- * Flatten OTLP `attributes` + `resource.attributes` into a single
- * dotted-key map. Preserves nested objects/arrays as-is — projection
- * to byte-budgeted form happens later.
- */
-function extractAttributes(raw: Record<string, unknown>): Record<string, unknown> {
-  const out: Record<string, unknown> = {}
-  // Resource attributes nest under raw.resource.attributes
-  const resource = raw.resource
-  if (resource && typeof resource === 'object' && !Array.isArray(resource)) {
-    const ra = (resource as Record<string, unknown>).attributes
-    if (ra && typeof ra === 'object' && !Array.isArray(ra)) {
-      for (const [k, v] of Object.entries(ra as Record<string, unknown>)) {
-        out[k] = v
-      }
-    }
-  }
-  // Span attributes override resource attributes when keys overlap.
-  const spanAttrs = raw.attributes
-  if (spanAttrs && typeof spanAttrs === 'object' && !Array.isArray(spanAttrs)) {
-    for (const [k, v] of Object.entries(spanAttrs as Record<string, unknown>)) {
-      out[k] = v
-    }
-  }
-  return out
-}
-
-function stringField(raw: Record<string, unknown>, key: string): string | undefined {
-  const v = raw[key]
-  return typeof v === 'string' ? v : undefined
-}
-
-function asString(v: unknown): string | null {
-  return typeof v === 'string' && v.length > 0 ? v : null
-}
+//
+// The per-line projection lives in `./otlp-span` so the index here and
+// `otlpToRunRecords` read the same vocabulary off the same parser.
 
 function isPresent<T>(v: T | undefined): v is T {
   return v !== undefined
