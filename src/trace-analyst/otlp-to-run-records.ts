@@ -425,7 +425,9 @@ function topVote(votes: Map<string, number>): string | null {
   let best: string | null = null
   let bestN = 0
   for (const [k, n] of votes) {
-    if (n > bestN) {
+    // Strict > keeps the higher count; lexicographic tie-break makes the winner
+    // independent of Map insertion order (reproducible across producers).
+    if (n > bestN || (n === bestN && best !== null && k < best)) {
       best = k
       bestN = n
     }
