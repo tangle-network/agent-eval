@@ -9,6 +9,15 @@
  * / measurement) and the dataset flywheel.
  */
 
+// ── Meta-loop: optimize the analyst's OWN prompt as a surface ─────────
+export {
+  type AnalystArtifact,
+  type AnalystScenario,
+  type BuildAnalystSurfaceDispatchOptions,
+  buildAnalystSurfaceDispatch,
+  type FailureModeRecallJudgeOptions,
+  failureModeRecallJudge,
+} from './analyst-surface'
 // ── Auto-PR ──────────────────────────────────────────────────────────
 export {
   type OpenAutoPrOptions,

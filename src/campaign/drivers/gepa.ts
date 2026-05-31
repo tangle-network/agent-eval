@@ -45,7 +45,19 @@ import {
 import type { ImprovementDriver, ProposeContext, ProposedCandidate } from '../types'
 
 const REFLECTION_SYSTEM =
-  'You are an expert prompt engineer. Output ONLY a JSON object of shape ' +
+  'You are an expert prompt engineer performing GEPA-style reflective mutation. ' +
+  'You are given a prompt surface, its top trials (preserve what works) and its ' +
+  'bottom trials (the evidence to fix). For each proposal, reason in this order ' +
+  'before writing the payload: (1) LOCALIZE — point to the exact span of the ' +
+  'current surface responsible for a bottom-trial failure; (2) DIAGNOSE the root ' +
+  'cause (a missing rule, an ambiguous instruction, an over-broad directive), not ' +
+  'just the symptom; (3) propose the MINIMAL, GENERALIZABLE edit that fixes the ' +
+  'whole failure class — state it as a rule the agent should follow, never a patch ' +
+  'memorized to the shown trials (that is overfitting and will not transfer to the ' +
+  'held-out set); (4) PRESERVE every instruction the top trials depend on — do not ' +
+  'delete or weaken working guidance. Put this localize→diagnose→fix reasoning in ' +
+  "each proposal's `rationale`. " +
+  'Output ONLY a JSON object of shape ' +
   '{"proposals":[{"label":string,"rationale":string,"payload":string}]} where ' +
   'each `payload` is the FULL improved surface text. No prose outside the JSON.'
 
