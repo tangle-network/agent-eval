@@ -232,7 +232,8 @@ function buildRunRecord<TScenario extends Scenario, TArtifact>(
     perJudge[judgeName] = { ...js.dimensions }
     for (const [dim, value] of Object.entries(js.dimensions)) {
       raw[`${judgeName}.${dim}`] = value
-      ;(dimAccum[dim] ??= []).push(value)
+      dimAccum[dim] ??= []
+      dimAccum[dim]!.push(value)
     }
     if (js.notes) notes.push(`${judgeName}: ${js.notes}`)
   }

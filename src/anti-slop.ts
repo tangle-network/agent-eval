@@ -151,8 +151,8 @@ export function analyzeAntiSlop(
 
     for (const phrase of config.bannedPhrases) {
       const needle = phrase.toLowerCase()
-      let idx = 0
-      while ((idx = lower.indexOf(needle, idx)) !== -1) {
+      let idx = lower.indexOf(needle, 0)
+      while (idx !== -1) {
         counts.banned_phrase += 1
         if (issues.length < 20) {
           issues.push({
@@ -161,7 +161,7 @@ export function analyzeAntiSlop(
             example: snippet(output, idx, phrase.length),
           })
         }
-        idx += needle.length
+        idx = lower.indexOf(needle, idx + needle.length)
       }
     }
 

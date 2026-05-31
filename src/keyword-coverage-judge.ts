@@ -111,14 +111,15 @@ export function extractAssetUrls(html: string, baseUrl: string): string[] {
   const linkRe = /<link\b[^>]*\bhref\s*=\s*["']([^"']+)["'][^>]*>/gi
   const scriptRe = /<script\b[^>]*\bsrc\s*=\s*["']([^"']+)["'][^>]*>/gi
   for (const re of [linkRe, scriptRe]) {
-    let match: RegExpExecArray | null
-    while ((match = re.exec(html)) !== null) {
+    let match: RegExpExecArray | null = re.exec(html)
+    while (match !== null) {
       const raw = match[1]!
       try {
         urls.add(new URL(raw, baseUrl).toString())
       } catch {
         // unresolvable refs (e.g. data: URLs) — skip
       }
+      match = re.exec(html)
     }
   }
   return Array.from(urls)

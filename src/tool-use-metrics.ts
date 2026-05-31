@@ -54,7 +54,8 @@ export async function computeToolUseMetrics(
 
   // duplicate detection + per-tool aggregation
   for (const t of sortedTools) {
-    const stat = (byTool[t.toolName] ??= { calls: 0, errors: 0, avgLatencyMs: 0, duplicates: 0 })
+    byTool[t.toolName] ??= { calls: 0, errors: 0, avgLatencyMs: 0, duplicates: 0 }
+    const stat = byTool[t.toolName]!
     stat.calls += 1
     if (t.status === 'error') {
       stat.errors += 1

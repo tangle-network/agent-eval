@@ -661,8 +661,8 @@ export class OtlpFileTraceStore implements TraceAnalysisStore {
     const globalRe = new RegExp(re.source, re.flags.includes('g') ? re.flags : `${re.flags}g`)
     let total = 0
     let hasMore = false
-    let m: RegExpExecArray | null
-    while ((m = globalRe.exec(slice)) !== null) {
+    let m: RegExpExecArray | null = globalRe.exec(slice)
+    while (m !== null) {
       total += 1
       if (m.index === globalRe.lastIndex) globalRe.lastIndex += 1 // zero-width guard
       if (records.length >= recordCap) {
@@ -685,6 +685,7 @@ export class OtlpFileTraceStore implements TraceAnalysisStore {
         context_after: truncateForBudget(after, textBudget),
         match_offset: m.index,
       })
+      m = globalRe.exec(slice)
     }
     return { records, total, hasMore }
   }

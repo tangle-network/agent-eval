@@ -53,7 +53,7 @@ export function campaignBreakdown<TArtifact, TScenario extends Scenario>(
     // evidence the reflective driver grounds on. Generalizable by contract;
     // the judge must not put case-specific ground truth here.
     for (const s of judgeScores) {
-      if (s.notes && s.notes.trim()) {
+      if (s.notes?.trim()) {
         const set = notesByScenario.get(cell.scenarioId) ?? new Set<string>()
         set.add(s.notes.trim())
         notesByScenario.set(cell.scenarioId, set)

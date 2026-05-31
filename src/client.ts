@@ -103,14 +103,15 @@ export class ProductClient {
 
     // Extract :::blocks from text
     const blockRe = /:::(\w+)\s*\n([\s\S]*?)\n\s*:::/g
-    let match
-    while ((match = blockRe.exec(text)) !== null) {
+    let match: RegExpExecArray | null = blockRe.exec(text)
+    while (match !== null) {
       const fields: Record<string, string> = {}
       for (const line of match[2]!.split('\n')) {
         const idx = line.indexOf(':')
         if (idx > 0) fields[line.slice(0, idx).trim()] = line.slice(idx + 1).trim()
       }
       blocks.push({ type: match[1]!, title: fields.title ?? '' })
+      match = blockRe.exec(text)
     }
 
     return { text, blocks }

@@ -229,7 +229,7 @@ function autoDeriveImporters(
     for (const entry of readdirSync(abs)) {
       const sub = join(rel, entry)
       const subAbs = join(repoRoot, sub)
-      let st
+      let st: ReturnType<typeof statSync>
       try {
         st = statSync(subAbs)
       } catch {

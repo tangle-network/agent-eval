@@ -77,8 +77,7 @@ export async function runImprovementLoop<TScenario extends Scenario, TArtifact>(
   opts: RunImprovementLoopOptions<TScenario, TArtifact>,
 ): Promise<RunImprovementLoopResult<TArtifact, TScenario>> {
   // ── Safety pre-flight ─────────────────────────────────────────────
-  // biome-ignore lint/suspicious/noExplicitAny: Pass A reserved field for Pass B Shape B
-  if ((opts as any).autoOnPromote === 'config') {
+  if ((opts as { autoOnPromote?: string }).autoOnPromote === 'config') {
     throw new Error(
       "runImprovementLoop: autoOnPromote='config' is deferred to Pass B (requires shadow deploy + rollback + ensemble judges). Use 'pr' or 'none' in v0.40.",
     )

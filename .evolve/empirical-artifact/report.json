@@ -1,0 +1,751 @@
+[
+  {
+    "name": "legal-agent",
+    "n": 40,
+    "candidates": [
+      "runtime-3a76103",
+      "runtime-ec178e1",
+      "runtime-c373af0",
+      "runtime-addcdf4"
+    ],
+    "report": {
+      "n": 40,
+      "composite": {
+        "n": 40,
+        "mean": 0.0017534259034683486,
+        "p50": 0,
+        "p95": 0.0074285512167515545,
+        "stddev": 0.0027287155656891145,
+        "min": 0,
+        "max": 0.008928571428571428,
+        "histogram": [
+          {
+            "lo": 0,
+            "hi": 0.000744047619047619,
+            "count": 27
+          },
+          {
+            "lo": 0.000744047619047619,
+            "hi": 0.001488095238095238,
+            "count": 0
+          },
+          {
+            "lo": 0.001488095238095238,
+            "hi": 0.002232142857142857,
+            "count": 0
+          },
+          {
+            "lo": 0.002232142857142857,
+            "hi": 0.002976190476190476,
+            "count": 0
+          },
+          {
+            "lo": 0.002976190476190476,
+            "hi": 0.003720238095238095,
+            "count": 2
+          },
+          {
+            "lo": 0.003720238095238095,
+            "hi": 0.004464285714285714,
+            "count": 3
+          },
+          {
+            "lo": 0.004464285714285714,
+            "hi": 0.005208333333333333,
+            "count": 3
+          },
+          {
+            "lo": 0.005208333333333333,
+            "hi": 0.005952380952380952,
+            "count": 0
+          },
+          {
+            "lo": 0.005952380952380952,
+            "hi": 0.006696428571428571,
+            "count": 2
+          },
+          {
+            "lo": 0.006696428571428571,
+            "hi": 0.00744047619047619,
+            "count": 1
+          },
+          {
+            "lo": 0.00744047619047619,
+            "hi": 0.008184523809523808,
+            "count": 1
+          },
+          {
+            "lo": 0.008184523809523808,
+            "hi": 0.008928571428571428,
+            "count": 1
+          }
+        ],
+        "tailRuns": [
+          {
+            "runId": "legal-canonical-2026-05-16T20-52-59Z-3a76103::saas-reseller-mfn-trap",
+            "score": 0
+          },
+          {
+            "runId": "legal-canonical-2026-05-20T13-34-01Z-ec178e1::restaurant-formation",
+            "score": 0
+          },
+          {
+            "runId": "legal-canonical-2026-05-20T13-34-01Z-ec178e1::crypto-exchange-licensing",
+            "score": 0
+          },
+          {
+            "runId": "legal-canonical-2026-05-20T13-34-01Z-ec178e1::nuclear-startup-nrc",
+            "score": 0
+          },
+          {
+            "runId": "legal-canonical-2026-05-20T13-34-01Z-ec178e1::cannabis-dispensary",
+            "score": 0
+          }
+        ]
+      },
+      "perDimension": {
+        "citation_hygiene": {
+          "n": 3,
+          "mean": 0,
+          "p50": 0,
+          "p95": 0,
+          "stddev": 0,
+          "min": 0,
+          "max": 0,
+          "histogram": [
+            {
+              "lo": 0,
+              "hi": 0,
+              "count": 3
+            }
+          ]
+        },
+        "audit_defendability": {
+          "n": 3,
+          "mean": 0,
+          "p50": 0,
+          "p95": 0,
+          "stddev": 0,
+          "min": 0,
+          "max": 0,
+          "histogram": [
+            {
+              "lo": 0,
+              "hi": 0,
+              "count": 3
+            }
+          ]
+        },
+        "risk_tier_calibration": {
+          "n": 3,
+          "mean": 0,
+          "p50": 0,
+          "p95": 0,
+          "stddev": 0,
+          "min": 0,
+          "max": 0,
+          "histogram": [
+            {
+              "lo": 0,
+              "hi": 0,
+              "count": 3
+            }
+          ]
+        },
+        "multi_jurisdictional_awareness": {
+          "n": 3,
+          "mean": 0,
+          "p50": 0,
+          "p95": 0,
+          "stddev": 0,
+          "min": 0,
+          "max": 0,
+          "histogram": [
+            {
+              "lo": 0,
+              "hi": 0,
+              "count": 3
+            }
+          ]
+        },
+        "client_psychology": {
+          "n": 3,
+          "mean": 0,
+          "p50": 0,
+          "p95": 0,
+          "stddev": 0,
+          "min": 0,
+          "max": 0,
+          "histogram": [
+            {
+              "lo": 0,
+              "hi": 0,
+              "count": 3
+            }
+          ]
+        },
+        "jurisdictional_accuracy": {
+          "n": 3,
+          "mean": 0,
+          "p50": 0,
+          "p95": 0,
+          "stddev": 0,
+          "min": 0,
+          "max": 0,
+          "histogram": [
+            {
+              "lo": 0,
+              "hi": 0,
+              "count": 3
+            }
+          ]
+        },
+        "retainer_scope_adherence": {
+          "n": 3,
+          "mean": 0,
+          "p50": 0,
+          "p95": 0,
+          "stddev": 0,
+          "min": 0,
+          "max": 0,
+          "histogram": [
+            {
+              "lo": 0,
+              "hi": 0,
+              "count": 3
+            }
+          ]
+        }
+      },
+      "costQuality": {
+        "cost": {
+          "n": 40,
+          "mean": 0,
+          "p50": 0,
+          "p95": 0,
+          "stddev": 0,
+          "min": 0,
+          "max": 0,
+          "histogram": [
+            {
+              "lo": 0,
+              "hi": 0,
+              "count": 40
+            }
+          ]
+        },
+        "pareto": {
+          "kind": "pareto-cost-quality",
+          "split": "holdout",
+          "axes": {
+            "x": "costUsd",
+            "y": "score"
+          },
+          "points": [
+            {
+              "candidateId": "runtime-3a76103",
+              "cost": 0,
+              "quality": 0,
+              "n": 1,
+              "onFrontier": false
+            },
+            {
+              "candidateId": "runtime-ec178e1",
+              "cost": 0,
+              "quality": 0.00194825100385372,
+              "n": 36,
+              "onFrontier": true
+            },
+            {
+              "candidateId": "runtime-c373af0",
+              "cost": 0,
+              "quality": 0,
+              "n": 2,
+              "onFrontier": false
+            },
+            {
+              "candidateId": "runtime-addcdf4",
+              "cost": 0,
+              "quality": 0,
+              "n": 1,
+              "onFrontier": false
+            }
+          ]
+        },
+        "degraded": {
+          "cost": "no costUsd values recorded — cost axis carries no signal"
+        }
+      },
+      "judges": {
+        "legal-rubric@canonical": {
+          "n": 3,
+          "meanScore": 0
+        }
+      },
+      "lift": {
+        "baselineMean": 0,
+        "candidateMean": 0,
+        "delta": 0,
+        "ci95": [
+          0,
+          0
+        ],
+        "pValue": 1,
+        "n": 1,
+        "cohensD": 0,
+        "mde": 2.8015852188468138,
+        "requiredN": 15697759476922
+      },
+      "release": {
+        "status": "fail",
+        "axes": [
+          {
+            "name": "quality-lift",
+            "status": "fail",
+            "detail": "delta=0.000, CI95=[0.000, 0.000], n=1"
+          },
+          {
+            "name": "contamination",
+            "status": "pass",
+            "detail": "no canaries supplied"
+          },
+          {
+            "name": "composite-distribution",
+            "status": "fail",
+            "detail": "mean=0.002, p50=0.000, p95=0.007 over n=40"
+          }
+        ],
+        "issues": []
+      },
+      "recommendations": [
+        {
+          "priority": "critical",
+          "kind": "investigate",
+          "title": "Composite mean 0.002 is below the 0.3 floor — the agent is broken on this corpus",
+          "detail": "Worst 5 runs to inspect first: legal-canonical-2026-05-16T20-52-59Z-3a76103::saas-reseller-mfn-trap=0.000, legal-canonical-2026-05-20T13-34-01Z-ec178e1::restaurant-formation=0.000, legal-canonical-2026-05-20T13-34-01Z-ec178e1::crypto-exchange-licensing=0.000, legal-canonical-2026-05-20T13-34-01Z-ec178e1::nuclear-startup-nrc=0.000, legal-canonical-2026-05-20T13-34-01Z-ec178e1::cannabis-dispensary=0.000. Histogram p50=0.000, p95=0.007.",
+          "evidencePath": "composite.tailRuns"
+        },
+        {
+          "priority": "critical",
+          "kind": "hold",
+          "title": "Hold — lift CI lower bound 0.000 is at or below threshold 0.02",
+          "detail": "Bootstrap CI provides no statistical evidence the candidate is better. Consider tightening the mutation or expanding the holdout.",
+          "evidencePath": "lift"
+        }
+      ]
+    }
+  },
+  {
+    "name": "agent-builder",
+    "n": 32,
+    "candidates": [
+      "canonical"
+    ],
+    "report": {
+      "n": 32,
+      "composite": {
+        "n": 32,
+        "mean": 0.6081597222222223,
+        "p50": 0.9027777777777777,
+        "p95": 1,
+        "stddev": 0.44266349854669734,
+        "min": 0,
+        "max": 1,
+        "histogram": [
+          {
+            "lo": 0,
+            "hi": 0.08333333333333333,
+            "count": 10
+          },
+          {
+            "lo": 0.08333333333333333,
+            "hi": 0.16666666666666666,
+            "count": 0
+          },
+          {
+            "lo": 0.16666666666666666,
+            "hi": 0.25,
+            "count": 0
+          },
+          {
+            "lo": 0.25,
+            "hi": 0.3333333333333333,
+            "count": 0
+          },
+          {
+            "lo": 0.3333333333333333,
+            "hi": 0.41666666666666663,
+            "count": 2
+          },
+          {
+            "lo": 0.41666666666666663,
+            "hi": 0.49999999999999994,
+            "count": 0
+          },
+          {
+            "lo": 0.5,
+            "hi": 0.5833333333333334,
+            "count": 0
+          },
+          {
+            "lo": 0.5833333333333333,
+            "hi": 0.6666666666666666,
+            "count": 1
+          },
+          {
+            "lo": 0.6666666666666666,
+            "hi": 0.75,
+            "count": 1
+          },
+          {
+            "lo": 0.75,
+            "hi": 0.8333333333333334,
+            "count": 0
+          },
+          {
+            "lo": 0.8333333333333333,
+            "hi": 0.9166666666666666,
+            "count": 3
+          },
+          {
+            "lo": 0.9166666666666666,
+            "hi": 1,
+            "count": 15
+          }
+        ],
+        "tailRuns": [
+          {
+            "runId": "run-6e398a5d4b842b70",
+            "score": 0
+          },
+          {
+            "runId": "run-72ae7908b3de1955",
+            "score": 0
+          },
+          {
+            "runId": "run-277d3dfc3fca2a4d",
+            "score": 0
+          },
+          {
+            "runId": "run-095a3d55951aa87e",
+            "score": 0
+          },
+          {
+            "runId": "run-2c57013774253b8c",
+            "score": 0
+          }
+        ]
+      },
+      "perDimension": {
+        "helpfulness": {
+          "n": 4,
+          "mean": 0.8791666666666665,
+          "p50": 0.8666666666666667,
+          "p95": 0.9258333333333332,
+          "stddev": 0.034105636549468514,
+          "min": 0.85,
+          "max": 0.9333333333333332,
+          "histogram": [
+            {
+              "lo": 0.85,
+              "hi": 0.8569444444444444,
+              "count": 2
+            },
+            {
+              "lo": 0.8569444444444444,
+              "hi": 0.8638888888888888,
+              "count": 0
+            },
+            {
+              "lo": 0.8638888888888888,
+              "hi": 0.8708333333333332,
+              "count": 0
+            },
+            {
+              "lo": 0.8708333333333333,
+              "hi": 0.8777777777777778,
+              "count": 0
+            },
+            {
+              "lo": 0.8777777777777778,
+              "hi": 0.8847222222222222,
+              "count": 1
+            },
+            {
+              "lo": 0.8847222222222222,
+              "hi": 0.8916666666666666,
+              "count": 0
+            },
+            {
+              "lo": 0.8916666666666666,
+              "hi": 0.898611111111111,
+              "count": 0
+            },
+            {
+              "lo": 0.898611111111111,
+              "hi": 0.9055555555555554,
+              "count": 0
+            },
+            {
+              "lo": 0.9055555555555554,
+              "hi": 0.9124999999999999,
+              "count": 0
+            },
+            {
+              "lo": 0.9124999999999999,
+              "hi": 0.9194444444444443,
+              "count": 0
+            },
+            {
+              "lo": 0.9194444444444444,
+              "hi": 0.9263888888888888,
+              "count": 0
+            },
+            {
+              "lo": 0.9263888888888888,
+              "hi": 0.9333333333333332,
+              "count": 1
+            }
+          ]
+        },
+        "clarity": {
+          "n": 4,
+          "mean": 0.8541666666666665,
+          "p50": 0.8833333333333333,
+          "p95": 0.9475,
+          "stddev": 0.09956502621123765,
+          "min": 0.7,
+          "max": 0.95,
+          "histogram": [
+            {
+              "lo": 0.7,
+              "hi": 0.7208333333333333,
+              "count": 1
+            },
+            {
+              "lo": 0.7208333333333333,
+              "hi": 0.7416666666666667,
+              "count": 0
+            },
+            {
+              "lo": 0.7416666666666666,
+              "hi": 0.7625,
+              "count": 0
+            },
+            {
+              "lo": 0.7625,
+              "hi": 0.7833333333333333,
+              "count": 0
+            },
+            {
+              "lo": 0.7833333333333333,
+              "hi": 0.8041666666666667,
+              "count": 0
+            },
+            {
+              "lo": 0.8041666666666666,
+              "hi": 0.825,
+              "count": 0
+            },
+            {
+              "lo": 0.825,
+              "hi": 0.8458333333333333,
+              "count": 1
+            },
+            {
+              "lo": 0.8458333333333332,
+              "hi": 0.8666666666666666,
+              "count": 0
+            },
+            {
+              "lo": 0.8666666666666666,
+              "hi": 0.8875,
+              "count": 0
+            },
+            {
+              "lo": 0.8875,
+              "hi": 0.9083333333333333,
+              "count": 0
+            },
+            {
+              "lo": 0.9083333333333332,
+              "hi": 0.9291666666666666,
+              "count": 0
+            },
+            {
+              "lo": 0.9291666666666666,
+              "hi": 0.95,
+              "count": 2
+            }
+          ]
+        },
+        "on_topic": {
+          "n": 4,
+          "mean": 0.9625,
+          "p50": 0.975,
+          "p95": 1,
+          "stddev": 0.041457809879442496,
+          "min": 0.9,
+          "max": 1,
+          "histogram": [
+            {
+              "lo": 0.9,
+              "hi": 0.9083333333333333,
+              "count": 1
+            },
+            {
+              "lo": 0.9083333333333333,
+              "hi": 0.9166666666666666,
+              "count": 0
+            },
+            {
+              "lo": 0.9166666666666667,
+              "hi": 0.925,
+              "count": 0
+            },
+            {
+              "lo": 0.925,
+              "hi": 0.9333333333333333,
+              "count": 0
+            },
+            {
+              "lo": 0.9333333333333333,
+              "hi": 0.9416666666666667,
+              "count": 0
+            },
+            {
+              "lo": 0.9416666666666667,
+              "hi": 0.95,
+              "count": 1
+            },
+            {
+              "lo": 0.95,
+              "hi": 0.9583333333333333,
+              "count": 0
+            },
+            {
+              "lo": 0.9583333333333334,
+              "hi": 0.9666666666666667,
+              "count": 0
+            },
+            {
+              "lo": 0.9666666666666667,
+              "hi": 0.975,
+              "count": 0
+            },
+            {
+              "lo": 0.975,
+              "hi": 0.9833333333333333,
+              "count": 0
+            },
+            {
+              "lo": 0.9833333333333334,
+              "hi": 0.9916666666666667,
+              "count": 0
+            },
+            {
+              "lo": 0.9916666666666667,
+              "hi": 1,
+              "count": 2
+            }
+          ]
+        }
+      },
+      "costQuality": {
+        "cost": {
+          "n": 32,
+          "mean": 0,
+          "p50": 0,
+          "p95": 0,
+          "stddev": 0,
+          "min": 0,
+          "max": 0,
+          "histogram": [
+            {
+              "lo": 0,
+              "hi": 0,
+              "count": 32
+            }
+          ]
+        },
+        "pareto": {
+          "kind": "pareto-cost-quality",
+          "split": "holdout",
+          "axes": {
+            "x": "costUsd",
+            "y": "score"
+          },
+          "points": [
+            {
+              "candidateId": "canonical",
+              "cost": 0,
+              "quality": 0.6081597222222221,
+              "n": 32,
+              "onFrontier": true
+            }
+          ]
+        },
+        "degraded": {
+          "cost": "no costUsd values recorded — cost axis carries no signal",
+          "pareto": "single candidate — Pareto is a single point, not a frontier"
+        }
+      },
+      "judges": {
+        "claude-code/sonnet": {
+          "n": 4,
+          "meanScore": 0.875
+        },
+        "opencode/zai-coding-plan/glm-5.1": {
+          "n": 2,
+          "meanScore": 0.9249999999999999
+        },
+        "kimi-code/kimi-k2.6": {
+          "n": 2,
+          "meanScore": 0.9833333333333334
+        }
+      },
+      "release": {
+        "status": "pass",
+        "axes": [
+          {
+            "name": "quality-lift",
+            "status": "pass",
+            "detail": "no baseline/candidate pair available"
+          },
+          {
+            "name": "contamination",
+            "status": "pass",
+            "detail": "no canaries supplied"
+          },
+          {
+            "name": "composite-distribution",
+            "status": "pass",
+            "detail": "mean=0.608, p50=0.903, p95=1.000 over n=32"
+          }
+        ],
+        "issues": []
+      },
+      "failureModes": [
+        {
+          "mode": "forge_build_unsatisfied",
+          "count": 9,
+          "share": 0.28125
+        },
+        {
+          "mode": "forge_chat_no_text",
+          "count": 4,
+          "share": 0.125
+        }
+      ],
+      "recommendations": [
+        {
+          "priority": "high",
+          "kind": "investigate",
+          "title": "'forge_build_unsatisfied' is the dominant failure mode — 9 runs (28% of the corpus)",
+          "detail": "The mean composite can look acceptable while one named failure dominates the lower tail. 9 of 32 runs failed with 'forge_build_unsatisfied' (next: 'forge_chat_no_text' ×4). Fix this cause first.",
+          "evidencePath": "failureModes"
+        }
+      ]
+    }
+  }
+]

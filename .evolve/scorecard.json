@@ -1,0 +1,18 @@
+{
+  "updatedAt": "2026-05-30T23:00:00Z",
+  "goal": "self-improvement loop produces real, gate-certified, multi-dimensional improvements on legal",
+  "flows": [
+    {"flow": "gate-trustworthiness (substrate)", "score": 1.0, "target": 1.0, "status": "PROVEN",
+     "note": "0.67.0 no-op + bootstrap-CI + anti-Goodhart; correctly HELD real regressing candidates live (no false ship). 12 unit tests + 1 live run."},
+    {"flow": "legal composite (train: restaurant, delaware)", "score": 0.96, "target": null, "status": "at-ceiling",
+     "note": "96-100/100 — no headroom for the driver to beat; saturated metric"},
+    {"flow": "legal dim: requirement_completeness", "score": 1.0, "status": "ceiling"},
+    {"flow": "legal dim: jurisdiction_accuracy", "score": 0.83, "status": "minor-headroom", "note": "delaware 83 (consistent) — the only real train gap"},
+    {"flow": "legal dim: deadline_correctness", "score": 0.75, "status": "noisy", "note": "75-100 across reps; headroom is on holdout personas not train"},
+    {"flow": "legal dim: fee_accuracy", "score": 1.0, "status": "ceiling-on-train", "note": "100 on train; 50 on nuclear-startup-nrc (holdout) — headroom lives off-train"},
+    {"flow": "legal dim: hallucination_free", "score": 1.0, "status": "ceiling", "note": "guarded as criticalDimension — gepaDriver candidates regressed it to 85, gate held"},
+    {"flow": "self-improvement PROOF (driver finds + ships a real compounding lift)", "score": 0.0, "target": 1.0, "status": "BLOCKED",
+     "note": "conjunct 1 (headroom) + 2 (driver finds candidate) fail on the saturated legal rubric; needs a headroom corpus — architectural"}
+  ],
+  "productValueClaim": "the gate is proven to never ship noise/Goodhart (the trust foundation); a CERTIFIED lift requires a headroom corpus the driver can move"
+}
