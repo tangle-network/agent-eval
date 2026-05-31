@@ -1,0 +1,93 @@
+{
+  "schema": "tangle.loop-provenance.v1",
+  "runId": "substrate-lift-proof#1780140410832",
+  "runDir": "/home/drew/code/agent-eval/.evolve/substrate-lift-proof/1780140410832",
+  "timestamp": "2026-05-30T11:26:50.832Z",
+  "baselineContentHash": "sha256:a13e4e593b685d966219bbc3f1f81a2a07ce96b22ada9f1161826e55a4ef272b",
+  "winnerContentHash": "sha256:a46e9985818560398dab409b928dd24bb2b4b43ca83ca39802f27f74e3afae7a",
+  "diff": "--- baseline\n+++ winner\n- Extract the transaction info from the message as JSON.\n+ Extract transaction info into JSON with exactly these keys: merchant (string), amount (bare number, no currency symbol), date (ISO YYYY-MM-DD format), category (one of: groceries, dining, transport, utilities, entertainment). Return only valid JSON.",
+  "candidates": [
+    {
+      "generation": 0,
+      "surfaceHash": "a46e998581856039",
+      "contentHash": "sha256:a46e9985818560398dab409b928dd24bb2b4b43ca83ca39802f27f74e3afae7a",
+      "composite": 1,
+      "promoted": true,
+      "label": "Strict JSON schema with exact keys",
+      "rationale": "Current prompt lacks specificity on required keys and structure. Targets missing key specification primitive to prevent hallucinated fields and ensure merchant, amount, date, category are always present."
+    },
+    {
+      "generation": 0,
+      "surfaceHash": "a1a27af238a0623c",
+      "contentHash": "sha256:a1a27af238a0623cfd4508f6d80169014836066c224c37340f9632141a9fdcbf",
+      "composite": 1,
+      "promoted": false,
+      "label": "Format constraints and taxonomy enforcement",
+      "rationale": "Current prompt has no format validation or category constraints. Targets amount format pinning, ISO date pinning, and category taxonomy constraint primitives to eliminate formatting errors and invalid category values."
+    },
+    {
+      "generation": 1,
+      "surfaceHash": "d3f448a5afa935a4",
+      "contentHash": "sha256:d3f448a5afa935a4d82eba1eb1f50dec5949725662f2aba837f7bd71c87df4b7",
+      "composite": 1,
+      "promoted": true,
+      "label": "Strict JSON schema with required fields",
+      "rationale": "Failures s8, s7, s6 show extraction breakdown; add explicit required fields list and strict schema validation to force merchant, amount, date, category presence"
+    },
+    {
+      "generation": 1,
+      "surfaceHash": "4f1cca0597f08712",
+      "contentHash": "sha256:4f1cca0597f08712833b6e8bba575c24b119c6801423a3b6397995d865168de1",
+      "composite": 1,
+      "promoted": false,
+      "label": "Explicit extraction rules with fallback handling",
+      "rationale": "Merchant, amount, date weaknesses (all 1.00) suggest parsing ambiguity; add priority rules for merchant identification and strict numeric/date parsing with clear error guidance"
+    }
+  ],
+  "gate": {
+    "decision": "ship",
+    "reasons": [
+      "all gates passed"
+    ],
+    "delta": 0.33333333333333337,
+    "contributingGates": [
+      {
+        "name": "heldout-delta",
+        "passed": true
+      },
+      {
+        "name": "budget",
+        "passed": true
+      },
+      {
+        "name": "red-team",
+        "passed": true
+      },
+      {
+        "name": "reward-hacking",
+        "passed": true
+      },
+      {
+        "name": "canary",
+        "passed": true
+      }
+    ]
+  },
+  "baselineHoldoutComposite": 0.6666666666666666,
+  "winnerHoldoutComposite": 1,
+  "heldOutLift": 0.33333333333333337,
+  "backend": {
+    "verdict": "real",
+    "workerCallCount": 52,
+    "models": [
+      "anthropic/claude-haiku-4-5"
+    ],
+    "totalInputTokens": 4475,
+    "totalOutputTokens": 2930,
+    "totalCostUsd": 0.019124999999999993
+  },
+  "totalCostUsd": 0.019124999999999993,
+  "totalDurationMs": 31661,
+  "winnerLabel": "Strict JSON schema with exact keys",
+  "winnerRationale": "Current prompt lacks specificity on required keys and structure. Targets missing key specification primitive to prevent hallucinated fields and ensure merchant, amount, date, category are always present."
+}

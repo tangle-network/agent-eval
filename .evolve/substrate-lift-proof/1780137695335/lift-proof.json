@@ -1,0 +1,75 @@
+{
+  "task": "structured-field-extraction (deterministic exact-match judge)",
+  "backend": {
+    "model": "anthropic/claude-haiku-4-5",
+    "baseUrl": "https://router.tangle.tools/v1",
+    "verdict": "real"
+  },
+  "integrity": {
+    "verdict": "real",
+    "realRecords": 52,
+    "stubRecords": 0,
+    "totalInputTokens": 4979,
+    "totalOutputTokens": 2950,
+    "diagnosis": "52 records with real LLM activity (in=4979, out=2950 tokens, $0.0197)."
+  },
+  "dataset": {
+    "search": 8,
+    "holdout": 6
+  },
+  "baselineSurface": "Extract the transaction info from the message as JSON.",
+  "winnerSurface": "Extract transaction information and output as JSON with exactly these keys: merchant, amount, date, category. Rules: amount must be a bare decimal number with no currency symbol; date must be ISO YYYY-MM-DD format; category must be one of: groceries, dining, transport, utilities, entertainment.",
+  "whatGepaRewrote": "Extract transaction information and output as JSON with exactly these keys: merchant, amount, date, category. Rules: amount must be a bare decimal number with no currency symbol; date must be ISO YYYY-MM-DD format; category must be one of: groceries, dining, transport, utilities, entertainment.",
+  "baselineHeldOutComposite": 0.667,
+  "candidateHeldOutComposite": 0.958,
+  "pairedDelta": 0.292,
+  "gateDecision": "ship",
+  "gateDelta": 0.292,
+  "gateReasons": [
+    "all gates passed"
+  ],
+  "contributingGates": [
+    {
+      "name": "heldout-delta",
+      "passed": true
+    },
+    {
+      "name": "budget",
+      "passed": true
+    },
+    {
+      "name": "red-team",
+      "passed": true
+    },
+    {
+      "name": "reward-hacking",
+      "passed": true
+    },
+    {
+      "name": "canary",
+      "passed": true
+    }
+  ],
+  "perHoldoutScenario": {
+    "baseline": {
+      "h1": 1,
+      "h2": 0.75,
+      "h3": 0.5,
+      "h4": 0.5,
+      "h5": 0.5,
+      "h6": 0.75
+    },
+    "candidate": {
+      "h1": 1,
+      "h2": 1,
+      "h3": 1,
+      "h4": 1,
+      "h5": 0.75,
+      "h6": 1
+    }
+  },
+  "totalCostUsd": 0.019729,
+  "llmCalls": 52,
+  "elapsedSec": 21,
+  "honestVerdict": "lift-proven"
+}

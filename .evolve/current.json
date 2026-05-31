@@ -1,0 +1,27 @@
+{
+  "mode": "evolve",
+  "goal": "Tax agent prod-readiness: maximize TaxCalcBench by_line scored THROUGH the unified matrix (runProfileMatrix multi-shot), with the RL corpus as free exhaust",
+  "status": "substrate MERGED to main (agent-runtime#90 + agent-eval#150); UNPUBLISHED (publish=tag-push+lockstep bump)",
+  "round": 3,
+  "generation": 0,
+  "metricClaims": {
+    "by_line": "Fraction of Form 1040 lines matching ground truth (objective XPath, ungameable). If it rises, the agent emits more correct line values \u2192 fewer wrong numbers the user must catch \u2192 directly the product's core value (a correct return). Not a proxy.",
+    "tool_call_rate": "Whether the agent invokes its calculators/toolkit. Product-mode standalone proved tools lift by_line 0.316\u21920.684; a prod-faithful eval must elicit + measure tool use.",
+    "cost_usd": "Per-return cost via real token capture. Prod-readiness gate + dataset provenance both require honest cost; currently 0 (extractLlmCallEvent seam)."
+  },
+  "baseline": {
+    "case": "mfj-multiple-w2-schedule-c-qbi-income",
+    "single_shot_bare": 0.316,
+    "single_shot_product_mode_tools": 0.684,
+    "matrix_multishot_n2_temp0": 0.316,
+    "note": "Matrix pipeline WORKS (proven live) but not yet realizing the tool-use lift; 2 shots were identical (temp 0) so best-of-N is degenerate."
+  },
+  "architecture": "ONE pipeline: runProfileMatrix(profiles, scenarios=cases, dispatch=loopDispatch(runLoop multi-shot driver\u2194worker), judges=[taxcalc XPath], reps) \u2192 RunRecords \u2192 corpus (free dataset) \u2192 gate. Every product plugs agent-as-dispatch + scorer-as-judge. Un-fragmented.",
+  "updatedAt": "2026-05-31",
+  "shipped": [
+    "agent-runtime#90: done-event cost seam (integrity:assert unblocked, cost dim real)",
+    "agent-eval#150: multi-dim raw (cost/tokens/latency/efficiency every run, RAW-only)",
+    "agent-eval#150 (extended): corpus-by-default via corpusText \u2014 records ARE CorpusRecords, no side-channel",
+    "MERGED #90 + #150 to main (reversible); publish pending \u2014 needs version bump + v* tag + npm/PyPI lockstep"
+  ]
+}

@@ -266,7 +266,7 @@ export async function runDispatchServer<TScenario extends Scenario, TArtifact>(
         return
       }
       if (expectedAuth) {
-        const got = req.headers['authorization']
+        const got = req.headers.authorization
         if (got !== expectedAuth) {
           res.statusCode = 401
           res.end('unauthorized')

@@ -1,0 +1,75 @@
+{
+  "task": "structured-field-extraction (deterministic exact-match judge)",
+  "backend": {
+    "model": "anthropic/claude-haiku-4-5",
+    "baseUrl": "https://router.tangle.tools/v1",
+    "verdict": "real"
+  },
+  "integrity": {
+    "verdict": "real",
+    "realRecords": 52,
+    "stubRecords": 0,
+    "totalInputTokens": 6101,
+    "totalOutputTokens": 2910,
+    "diagnosis": "52 records with real LLM activity (in=6101, out=2910 tokens). 52 (100%) have output tokens but costUsd=0 — cost ledger is mis-wired (no input-token propagation from the runtime stream into RunRecord)."
+  },
+  "dataset": {
+    "search": 8,
+    "holdout": 6
+  },
+  "baselineSurface": "Extract the transaction info from the message as JSON.",
+  "winnerSurface": "Extract the transaction info from the message as JSON.",
+  "whatGepaRewrote": "(no candidate beat baseline on search — winner = baseline)",
+  "baselineHeldOutComposite": 0,
+  "candidateHeldOutComposite": 0,
+  "pairedDelta": 0,
+  "gateDecision": "hold",
+  "gateDelta": 0,
+  "gateReasons": [
+    "heldout delta 0.000 < threshold 0.1"
+  ],
+  "contributingGates": [
+    {
+      "name": "heldout-delta",
+      "passed": false
+    },
+    {
+      "name": "budget",
+      "passed": true
+    },
+    {
+      "name": "red-team",
+      "passed": true
+    },
+    {
+      "name": "reward-hacking",
+      "passed": true
+    },
+    {
+      "name": "canary",
+      "passed": true
+    }
+  ],
+  "perHoldoutScenario": {
+    "baseline": {
+      "h1": 0,
+      "h2": 0,
+      "h3": 0,
+      "h4": 0,
+      "h5": 0,
+      "h6": 0
+    },
+    "candidate": {
+      "h1": 0,
+      "h2": 0,
+      "h3": 0,
+      "h4": 0,
+      "h5": 0,
+      "h6": 0
+    }
+  },
+  "totalCostUsd": 0,
+  "llmCalls": 52,
+  "elapsedSec": 29,
+  "honestVerdict": "no-lift-but-real"
+}

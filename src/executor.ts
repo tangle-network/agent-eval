@@ -79,16 +79,17 @@ export async function executeScenario(
 
     // Extract code blocks
     const codeRe = /```(\w+)?\n([\s\S]*?)```/g
-    let codeMatch
-    while ((codeMatch = codeRe.exec(content)) !== null) {
+    let codeMatch: RegExpExecArray | null = codeRe.exec(content)
+    while (codeMatch !== null) {
       allCodeBlocks.push({ language: codeMatch[1] ?? 'text', code: codeMatch[2] ?? '' })
+      codeMatch = codeRe.exec(content)
     }
 
     // Extract structured blocks
     const turnBlocks: { type: string; title: string }[] = []
-    let blockMatch
     const blockReLocal = new RegExp(blockRe.source, blockRe.flags)
-    while ((blockMatch = blockReLocal.exec(content)) !== null) {
+    let blockMatch: RegExpExecArray | null = blockReLocal.exec(content)
+    while (blockMatch !== null) {
       const fields: Record<string, string> = {}
       for (const line of (blockMatch[2] ?? '').split('\n')) {
         const idx = line.indexOf(':')
@@ -97,6 +98,7 @@ export async function executeScenario(
       const blockType = blockMatch[1] ?? ''
       allBlocks.push({ type: blockType, fields })
       turnBlocks.push({ type: blockType, title: fields.title ?? '' })
+      blockMatch = blockReLocal.exec(content)
     }
 
     // Detect tool calls via configurable patterns
@@ -104,10 +106,11 @@ export async function executeScenario(
     if (config.toolCallPatterns) {
       for (const pattern of config.toolCallPatterns) {
         const re = new RegExp(pattern.source, pattern.flags)
-        let toolMatch
-        while ((toolMatch = re.exec(content)) !== null) {
+        let toolMatch: RegExpExecArray | null = re.exec(content)
+        while (toolMatch !== null) {
           allToolCalls.push(toolMatch[0])
           hasToolCall = true
+          toolMatch = re.exec(content)
         }
       }
     }

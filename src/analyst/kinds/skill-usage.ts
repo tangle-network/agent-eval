@@ -19,7 +19,7 @@
  * once at the registry boundary and the rule logic stays unit-testable.
  */
 
-import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs'
+import { type Dirent, existsSync, readdirSync, readFileSync, statSync } from 'node:fs'
 import { join } from 'node:path'
 import type { Analyst, AnalystContext, AnalystFinding, AnalystSeverity } from '../types'
 import { computeFindingId } from '../types'
@@ -102,7 +102,7 @@ function walkJsonl(dir: string, cap: number): string[] {
   const stack = [dir]
   while (stack.length) {
     const cur = stack.pop()!
-    let entries
+    let entries: Dirent[]
     try {
       entries = readdirSync(cur, { withFileTypes: true })
     } catch {

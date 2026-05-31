@@ -92,7 +92,7 @@ describe('llm-client — callLlm happy path', () => {
     expect(r.model).toBe('gpt-test')
   })
 
-  it('posts to `${baseUrl}/chat/completions` with Bearer header', async () => {
+  it('posts to <baseUrl>/chat/completions with Bearer header', async () => {
     const fetch = vi.fn(async () =>
       mkOkResponse({ choices: [{ message: { content: '' } }], usage: {} }),
     )

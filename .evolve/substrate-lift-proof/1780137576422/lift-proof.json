@@ -1,0 +1,75 @@
+{
+  "task": "structured-field-extraction (deterministic exact-match judge)",
+  "backend": {
+    "model": "anthropic/claude-haiku-4-5",
+    "baseUrl": "https://router.tangle.tools/v1",
+    "verdict": "real"
+  },
+  "integrity": {
+    "verdict": "real",
+    "realRecords": 52,
+    "stubRecords": 0,
+    "totalInputTokens": 5757,
+    "totalOutputTokens": 2945,
+    "diagnosis": "52 records with real LLM activity (in=5757, out=2945 tokens). 52 (100%) have output tokens but costUsd=0 — cost ledger is mis-wired (no input-token propagation from the runtime stream into RunRecord)."
+  },
+  "dataset": {
+    "search": 8,
+    "holdout": 6
+  },
+  "baselineSurface": "Extract the transaction info from the message as JSON.",
+  "winnerSurface": "Extract the transaction info from the message and return a JSON object with these exact keys:\n- merchant (string)\n- amount (bare number, no currency symbol)\n- date (ISO YYYY-MM-DD format)\n- category (one of: groceries, dining, transport, utilities, entertainment)\n\nReturn only valid JSON matching this structure.",
+  "whatGepaRewrote": "Extract the transaction info from the message and return a JSON object with these exact keys:\n- merchant (string)\n- amount (bare number, no currency symbol)\n- date (ISO YYYY-MM-DD format)\n- category (one of: groceries, dining, transport, utilities, entertainment)\n\nReturn only valid JSON matching this structure.",
+  "baselineHeldOutComposite": 0.667,
+  "candidateHeldOutComposite": 1,
+  "pairedDelta": 0.333,
+  "gateDecision": "ship",
+  "gateDelta": 0.333,
+  "gateReasons": [
+    "all gates passed"
+  ],
+  "contributingGates": [
+    {
+      "name": "heldout-delta",
+      "passed": true
+    },
+    {
+      "name": "budget",
+      "passed": true
+    },
+    {
+      "name": "red-team",
+      "passed": true
+    },
+    {
+      "name": "reward-hacking",
+      "passed": true
+    },
+    {
+      "name": "canary",
+      "passed": true
+    }
+  ],
+  "perHoldoutScenario": {
+    "baseline": {
+      "h1": 1,
+      "h2": 0.75,
+      "h3": 0.5,
+      "h4": 0.5,
+      "h5": 0.5,
+      "h6": 0.75
+    },
+    "candidate": {
+      "h1": 1,
+      "h2": 1,
+      "h3": 1,
+      "h4": 1,
+      "h5": 1,
+      "h6": 1
+    }
+  },
+  "totalCostUsd": 0,
+  "llmCalls": 52,
+  "elapsedSec": 32,
+  "honestVerdict": "lift-proven"
+}
