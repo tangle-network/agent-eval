@@ -90,6 +90,44 @@ describe('runProfileMatrix', () => {
     )
   })
 
+  it('projects cost/efficiency guardrail dimensions into outcome.raw (multi-dim capture)', async () => {
+    const result = await runProfileMatrix({ ...baseOpts(), dispatch: realDispatch })
+    const rec = result.records[0]!
+    const raw = rec.outcome.raw
+    // Base guardrails come straight from the cell's reported cost/tokens/latency.
+    expect(raw.cost_usd).toBe(0.001)
+    expect(raw.tokens_input).toBe(120)
+    expect(raw.tokens_output).toBe(40)
+    expect(raw.latency_ms).toBeGreaterThanOrEqual(0)
+    // Computed ratio, guarded against divide-by-zero.
+    expect(raw.tokens_per_dollar).toBeCloseTo((120 + 40) / 0.001, 5)
+    const composite = rec.outcome.searchScore!
+    expect(raw.cost_per_quality).toBeCloseTo(0.001 / composite, 5)
+    // The composite stays the JUDGE objective — guardrails are RAW-ONLY, never folded in.
+    expect(raw.composite).toBe(composite)
+  })
+
+  it('omits computed ratios when cost is zero — no non-finite raw values', async () => {
+    const freeDispatch: ProfileDispatchFn<FakeScenario, FakeArtifact> = async (
+      profile,
+      scenario,
+      ctx,
+    ) => {
+      ctx.cost.observe(0, 'llm')
+      ctx.cost.observeTokens({ input: 50, output: 10 })
+      return { text: `${profile.id}:${scenario.id}` }
+    }
+    const result = await runProfileMatrix({
+      ...baseOpts(),
+      dispatch: freeDispatch,
+      integrity: 'off',
+    })
+    const raw = result.records[0]!.outcome.raw
+    expect(raw.cost_usd).toBe(0)
+    expect('tokens_per_dollar' in raw).toBe(false) // guarded: cost === 0
+    for (const v of Object.values(raw)) expect(Number.isFinite(v)).toBe(true)
+  })
+
   it('runs assertRealBackend BY CONSTRUCTION — verdict real, every record costed', async () => {
     const result = await runProfileMatrix({ ...baseOpts(), dispatch: realDispatch })
     expect(result.integrity.verdict).toBe('real')

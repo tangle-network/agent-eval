@@ -222,6 +222,22 @@ function buildRunRecord<TArtifact>(args: BuildRecordArgs<TArtifact>): RunRecord 
   const perDimMean: Record<string, number> = {}
   for (const [dim, values] of Object.entries(dimAccum)) perDimMean[dim] = mean(values)
 
+  // Cost / efficiency guardrail dimensions — RAW-ONLY. The composite stays the
+  // judge objective (anti-Goodhart); these are tracked + dashboarded + carried
+  // into the dataset, never optimized. Makes every run multi-dimensional by
+  // construction (the cost/tokens/latency the cell already reports). Computed
+  // ratios are guarded so a zero-cost stub or zero-quality cell never writes a
+  // non-finite value into the raw bag.
+  raw.cost_usd = cell.costUsd
+  raw.tokens_input = cell.tokenUsage.input
+  raw.tokens_output = cell.tokenUsage.output
+  if (typeof cell.tokenUsage.cached === 'number') raw.tokens_cached = cell.tokenUsage.cached
+  raw.latency_ms = cell.durationMs
+  if (cell.costUsd > 0) {
+    raw.tokens_per_dollar = (cell.tokenUsage.input + cell.tokenUsage.output) / cell.costUsd
+  }
+  if (composite > 0.01) raw.cost_per_quality = cell.costUsd / composite
+
   const outcome: RunOutcome =
     splitTag === 'holdout' ? { holdoutScore: composite, raw } : { searchScore: composite, raw }
   if (Object.keys(perJudge).length > 0) {
