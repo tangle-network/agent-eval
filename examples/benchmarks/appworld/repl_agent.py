@@ -177,7 +177,12 @@ def run_task(
     rate_limit_budget: float,
     max_tokens: int,
     out_dir: str,
+    system_prompt: str | None = None,
 ) -> dict[str, Any]:
+    # The agent instruction prompt is the OPTIMIZABLE SURFACE: compareDrivers /
+    # gepaDriver / haloDriver / memoryCurationDriver mutate it and pass the
+    # candidate here. Default = the baseline SYSTEM_PROMPT (the baseline arm).
+    active_system_prompt = system_prompt if system_prompt is not None else SYSTEM_PROMPT
     base_url = os.environ.get("OPENAI_BASE_URL")
     api_key = os.environ.get("OPENAI_API_KEY")
     if not base_url or not api_key:
@@ -211,7 +216,7 @@ def run_task(
 
     with AppWorld(task_id=task_id, experiment_name=experiment_name) as world:
         messages: list[dict[str, str]] = [
-            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "system", "content": active_system_prompt},
             {
                 "role": "user",
                 "content": FIRST_USER_TEMPLATE.format(
@@ -430,7 +435,7 @@ def run_task(
 
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument("--task-id", required=True)
+    ap.add_argument("--task-id", default=None)  # required for a run; not for --print-baseline-prompt
     ap.add_argument("--model", default="gpt-4o-mini-2024-07-18")
     ap.add_argument("--experiment-name", default="repl_agent_smoke")
     ap.add_argument("--max-steps", type=int, default=25)
@@ -448,7 +453,32 @@ def main() -> None:
         help="Per-call completion-token cap. Raise for reasoning models (e.g. 6000 for gpt-5-mini).",
     )
     ap.add_argument("--out-dir", default="/tmp/appworld-run")
+    ap.add_argument(
+        "--system-prompt-file",
+        default=None,
+        help="Path to the agent instruction prompt (the OPTIMIZABLE SURFACE). "
+        "Omit to use the baseline SYSTEM_PROMPT (the baseline arm).",
+    )
+    ap.add_argument(
+        "--print-baseline-prompt",
+        action="store_true",
+        help="Print the baseline SYSTEM_PROMPT verbatim and exit (the bench reads it as baselineSurface).",
+    )
     args = ap.parse_args()
+
+    if args.print_baseline_prompt:
+        sys.stdout.write(SYSTEM_PROMPT)
+        return
+
+    if not args.task_id:
+        ap.error("--task-id is required (unless --print-baseline-prompt)")
+
+    system_prompt = None
+    if args.system_prompt_file:
+        with open(args.system_prompt_file, encoding="utf-8") as fh:
+            system_prompt = fh.read()
+        if not system_prompt.strip():
+            raise RuntimeError(f"--system-prompt-file {args.system_prompt_file} is empty")
 
     result = run_task(
         task_id=args.task_id,
@@ -459,6 +489,7 @@ def main() -> None:
         rate_limit_budget=args.rate_limit_budget,
         max_tokens=args.max_tokens,
         out_dir=args.out_dir,
+        system_prompt=system_prompt,
     )
     # Compact verdict line for the benchmark dispatcher to parse.
     print(
