@@ -22,6 +22,15 @@
  */
 
 import { surfaceContentHash } from '../campaign/provenance'
+import { BASELINE_ROLES, type BaselineRoleKey } from './baselines'
+
+export {
+  BASELINE_ROLES,
+  type BaselineRoleKey,
+  engineerRole,
+  generalistRole,
+  researcherRole,
+} from './baselines'
 
 /** A named, addressable region of the system prompt. `evolvable` marks whether
  *  the self-improvement loop is allowed to patch its body; fixed scaffolding
@@ -142,6 +151,20 @@ export function baselineProfile(args: {
     skills: args.skills ?? STOCK_SKILLS,
     domain: [],
   }
+}
+
+/**
+ * Baseline from one of the strong generic roles (`'engineer' | 'researcher' |
+ * 'generalist'`) — the common case: pick a role foundation, optionally override
+ * the environment to describe THIS product's sandbox, then layer domain via
+ * `prodProfile`. Domain guidance stays in the product repo; this only supplies
+ * the generically-useful role + stock scaffolding.
+ */
+export function baselineProfileFromRole(
+  role: BaselineRoleKey,
+  args: { environment?: string; toolConventions?: string; skills?: ProfileSkill[] } = {},
+): AgentProfile {
+  return baselineProfile({ role: BASELINE_ROLES[role], ...args })
 }
 
 /** The production profile: the baseline scaffolding plus the domain sections

@@ -4,6 +4,19 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ---
 
+## [0.69.0] — 2026-05-30 — strong generic baseline roles (engineer / researcher / generalist)
+
+The structured profile (0.68.0) had a hollow top zone — `baselineProfile` took an arbitrary `role` string. Products are file-producing, tool-using agents living in a sandbox, but nothing gave them a strong operator foundation. This adds three generically-useful, verification-first baseline roles distilled from agent-runtime's `coderProfile` doctrine.
+
+### Added (`profile.*`)
+
+- **`engineerRole`** — a senior principal / 10x-IC sandbox operator: produce the real artifact then verify it; smallest correct change; **run the checks and fix the root cause — never weaken a test or hide an error**; inspect external-boundary outcomes; "done" = produced AND verified.
+- **`researcherRole`** — read the real sources, cite every material claim, mark inference vs. verified, never fabricate a source/quote/number.
+- **`generalistRole`** — strong default: do over describe, ground claims, verify before done, ask only on genuinely user-owned choices.
+- `BASELINE_ROLES` (keyed `engineer|researcher|generalist`) + `baselineProfileFromRole(role, overrides?)` — pick a foundation, override the environment to describe THIS product's sandbox, then layer domain via `prodProfile`.
+
+**Layering discipline:** these are domain-AGNOSTIC and verification-first. Domain strength (legal M&A persona, tax-calc rigor) stays in the **product repo** and composes on top via `domain[]`; it is lifted into the substrate only once ≥2 products genuinely reuse it. 3 new tests assert the roles are distinct, verification-first, and carry no product-domain words. Full suite (1642) green.
+
 ## [0.68.0] — 2026-05-30 — structured AgentProfile (the self-improvement surface stops being an opaque blob)
 
 The optimizable surface was an opaque string addendum, so the loop could only mutate (and the dashboard only diff) an unstructured blob — you couldn't see *what kind* of improvement a candidate made. This adds a **sectioned `AgentProfile`** primitive (mirrored on Harvey LAB's system-prompt structure) so the surface has named, separately-addressable zones the loop targets one at a time.
