@@ -56,7 +56,7 @@ const REFLECTION_SYSTEM =
   'memorized to the shown trials (that is overfitting and will not transfer to the ' +
   'held-out set); (4) PRESERVE every instruction the top trials depend on — do not ' +
   'delete or weaken working guidance. Put this localize→diagnose→fix reasoning in ' +
-  'each proposal\'s `rationale`. ' +
+  "each proposal's `rationale`. " +
   'Output ONLY a JSON object of shape ' +
   '{"proposals":[{"label":string,"rationale":string,"payload":string}]} where ' +
   'each `payload` is the FULL improved surface text. No prose outside the JSON.'

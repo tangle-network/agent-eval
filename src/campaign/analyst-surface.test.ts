@@ -20,9 +20,15 @@ const scenario: AnalystScenario = {
   source: '/tmp/does-not-matter.jsonl', // stubbed analyze never reads it
   question: 'Why did the agent fail this task?',
   expectedFailureModes: [
-    { id: 'missing-prereq-fetch', cues: ['did not fetch', 'skipped the lookup', 'missing prerequisite'] },
+    {
+      id: 'missing-prereq-fetch',
+      cues: ['did not fetch', 'skipped the lookup', 'missing prerequisite'],
+    },
     { id: 'wrong-tool', cues: ['wrong tool', 'called spotify instead of', 'incorrect api'] },
-    { id: 'premature-complete', cues: ['completed early', 'premature', 'called complete_task too soon'] },
+    {
+      id: 'premature-complete',
+      cues: ['completed early', 'premature', 'called complete_task too soon'],
+    },
   ],
   forbiddenCues: ['network timeout', 'rate limit'], // did NOT occur in this corpus
 }
@@ -55,9 +61,9 @@ describe('buildAnalystSurfaceDispatch — runs the analyst with the surface as a
 
   it('fails loud if handed a code-tier surface (analyst prompt is prompt-tier)', async () => {
     const dispatch = buildAnalystSurfaceDispatch({ analystOptions: { ai: {} as never } })
-    await expect(
-      dispatch({ kind: 'code', worktreeRef: 'wt/abc' }, scenario, ctx),
-    ).rejects.toThrow(/prompt-tier/)
+    await expect(dispatch({ kind: 'code', worktreeRef: 'wt/abc' }, scenario, ctx)).rejects.toThrow(
+      /prompt-tier/,
+    )
   })
 })
 
@@ -66,7 +72,11 @@ describe('failureModeRecallJudge — deterministic ground-truth scoring', () => 
 
   it('rewards an analyst that surfaces more of the real failure modes', async () => {
     const weak = await judge.score({
-      artifact: { answer: '', findings: ['the agent did not fetch the prereq'], actorPromptVersion: 'v' },
+      artifact: {
+        answer: '',
+        findings: ['the agent did not fetch the prereq'],
+        actorPromptVersion: 'v',
+      },
       scenario,
       signal: ctx.signal,
     })

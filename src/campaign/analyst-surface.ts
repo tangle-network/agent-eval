@@ -39,12 +39,12 @@
  *   })
  */
 
-import { analyzeTraces } from '../trace-analyst/analyst'
 import type {
   AnalyzeTracesInput,
   AnalyzeTracesOptions,
   AnalyzeTracesResult,
 } from '../trace-analyst/analyst'
+import { analyzeTraces } from '../trace-analyst/analyst'
 import type { DispatchContext, JudgeConfig, MutableSurface, Scenario } from './types'
 
 /**
@@ -158,7 +158,8 @@ export function failureModeRecallJudge(
       { key: 'recall', description: 'fraction of ground-truth failure modes the analyst surfaced' },
       {
         key: 'precision',
-        description: '1 − share of findings that named a failure/tool/error absent from this corpus',
+        description:
+          '1 − share of findings that named a failure/tool/error absent from this corpus',
       },
     ],
     appliesTo: (s) => s.kind === 'analyst-surface',
