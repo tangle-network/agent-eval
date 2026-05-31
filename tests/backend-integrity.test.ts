@@ -63,11 +63,14 @@ describe('backend-integrity', () => {
       expect(r.diagnosis).toContain('2/3 records (67%) have zero')
     })
 
-    it('flags output-tokens-without-cost as uncosted', () => {
+    it('flags output-tokens-without-cost as uncosted, naming both roots', () => {
       const r = summarizeBackendIntegrity([makeRecord(500, 1000, 0), makeRecord(500, 1000, 0)])
       expect(r.verdict).toBe('real')
       expect(r.uncostedRecords).toBe(2)
-      expect(r.diagnosis).toContain('cost ledger is mis-wired')
+      // Two distinct roots, not one: mis-wired ledger OR unpriced-at-source model.
+      expect(r.diagnosis).toContain('cost ledger mis-wired')
+      expect(r.diagnosis).toContain('unpriced at the source')
+      expect(r.diagnosis).toContain('estimateCost')
     })
 
     it('handles empty input', () => {

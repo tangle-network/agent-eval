@@ -96,6 +96,8 @@ describe('runProfileMatrix', () => {
     const raw = rec.outcome.raw
     // Base guardrails come straight from the cell's reported cost/tokens/latency.
     expect(raw.cost_usd).toBe(0.001)
+    // Source-billed cost is authoritative — the estimate never overrides it.
+    expect(raw.cost_estimated).toBe(0)
     expect(raw.tokens_input).toBe(120)
     expect(raw.tokens_output).toBe(40)
     expect(raw.latency_ms).toBeGreaterThanOrEqual(0)
@@ -116,7 +118,9 @@ describe('runProfileMatrix', () => {
         completion: artifact.text,
       }),
     })
-    for (const rec of result.records as Array<(typeof result.records)[number] & { prompt?: string; completion?: string }>) {
+    for (const rec of result.records as Array<
+      (typeof result.records)[number] & { prompt?: string; completion?: string }
+    >) {
       expect(rec.prompt).toMatch(/^solve s[123]$/)
       expect(rec.completion).toMatch(/^(baseline|tuned):s[123]$/) // the dispatch's artifact text
     }
@@ -153,9 +157,60 @@ describe('runProfileMatrix', () => {
       integrity: 'off',
     })
     const raw = result.records[0]!.outcome.raw
+    // 'test-model' matches no pricing table entry — an unpriced model stays $0
+    // (no fabrication), and the estimate flag is off.
     expect(raw.cost_usd).toBe(0)
+    expect(raw.cost_estimated).toBe(0)
     expect('tokens_per_dollar' in raw).toBe(false) // guarded: cost === 0
     for (const v of Object.values(raw)) expect(Number.isFinite(v)).toBe(true)
+  })
+
+  it('prices tokens when the source reports $0 but the model IS priced (unpriced-at-source root)', async () => {
+    // Regression (tax-agent live run): the sandbox returned totalCostUsd=0 for
+    // deepseek-v4-pro despite real tokens (in=160, out=2086). The cost axis must
+    // not read that as a free run — it prices the measured tokens against the
+    // substrate table and flags the estimate so it is never mistaken for billed.
+    const pricedProfile: AgentProfile = {
+      id: 'deepseek',
+      model: 'deepseek-v4-pro@2025-01-01',
+      promptVersion: 'v1',
+    }
+    const sourceZeroCost: ProfileDispatchFn<FakeScenario, FakeArtifact> = async (
+      profile,
+      scenario,
+      ctx,
+    ) => {
+      ctx.cost.observe(0, 'llm') // provider/sandbox can't rate this model → $0
+      ctx.cost.observeTokens({ input: 160, output: 2086 }) // but real tokens flowed
+      return { text: `${profile.id}:${scenario.id}` }
+    }
+    const result = await runProfileMatrix({
+      ...baseOpts(),
+      profiles: [pricedProfile],
+      dispatch: sourceZeroCost,
+    })
+    const rec = result.records[0]!
+    const raw = rec.outcome.raw
+    // deepseek family rate: in 0.0003/1k, out 0.0011/1k.
+    const expected = (160 / 1000) * 0.0003 + (2086 / 1000) * 0.0011
+    expect(raw.cost_usd).toBeCloseTo(expected, 8)
+    expect(rec.costUsd).toBeCloseTo(expected, 8) // canonical field → totalCostUsd populates
+    expect(raw.cost_estimated).toBe(1) // labeled: an estimate, not a billed number
+    expect(raw.tokens_per_dollar).toBeGreaterThan(0) // ratio now finite + populated
+    // Integrity: real activity AND no longer uncosted (the cost axis is filled).
+    expect(result.integrity.verdict).toBe('real')
+    expect(result.integrity.uncostedRecords).toBe(0)
+    expect(result.byProfile.deepseek!.totalCostUsd).toBeCloseTo(expected * result.records.length, 6)
+    // Every cost surface agrees — the embedded campaign aggregate is reconciled
+    // to the priced total, not runCampaign's raw ctx.cost ledger ($0).
+    expect(result.campaigns.deepseek!.aggregates.totalCostUsd).toBeCloseTo(
+      expected * result.records.length,
+      6,
+    )
+    expect(result.byProfile.deepseek!.integrity.totalCostUsd).toBeCloseTo(
+      expected * result.records.length,
+      6,
+    )
   })
 
   it('runs assertRealBackend BY CONSTRUCTION — verdict real, every record costed', async () => {
