@@ -147,8 +147,10 @@ function buildDiagnosis(r: Omit<BackendIntegrityReport, 'diagnosis'>): string {
     const pct = ((r.uncostedRecords / r.totalRecords) * 100).toFixed(0)
     return [
       `${r.totalRecords} records with real LLM activity (in=${r.totalInputTokens}, out=${r.totalOutputTokens} tokens).`,
-      `${r.uncostedRecords} (${pct}%) have output tokens but costUsd=0 — cost ledger is mis-wired (no input-token`,
-      'propagation from the runtime stream into RunRecord).',
+      `${r.uncostedRecords} (${pct}%) have output tokens but costUsd=0. Two distinct roots:`,
+      '(a) cost ledger mis-wired — no usage propagation from the runtime stream into RunRecord; or',
+      '(b) the model is unpriced at the source (sandbox/router returned $0 despite real tokens).',
+      'For (b), price the measured tokens against the substrate table (estimateCost) instead of leaving $0.',
     ].join(' ')
   }
   return `${r.totalRecords} records with real LLM activity (in=${r.totalInputTokens}, out=${r.totalOutputTokens} tokens, $${r.totalCostUsd.toFixed(4)}).`

@@ -43,6 +43,7 @@ import {
   type BackendIntegrityReport,
   summarizeBackendIntegrity,
 } from '../../integrity/backend-integrity'
+import { estimateCost, isModelPriced } from '../../metrics'
 import {
   type RunOutcome,
   type RunRecord,
@@ -246,15 +247,30 @@ function buildRunRecord<TScenario extends Scenario, TArtifact>(
   // construction (the cost/tokens/latency the cell already reports). Computed
   // ratios are guarded so a zero-cost stub or zero-quality cell never writes a
   // non-finite value into the raw bag.
-  raw.cost_usd = cell.costUsd
+  //
+  // Cost precedence: source-billed > token-estimated > none. A dispatch path
+  // whose provider reports real spend (cell.costUsd > 0) is authoritative. When
+  // it reports $0 but tokens actually flowed, the model is unpriced AT THE
+  // SOURCE (the sandbox/router can't rate it) — not a free run. We price the
+  // measured tokens against the substrate table (real rate × real tokens) and
+  // mark cost_estimated=1 so the estimate is never read as a billed number. A
+  // model the table also can't rate stays $0 (no fabrication).
+  let costUsd = cell.costUsd
+  let costEstimated = false
+  if (costUsd === 0 && cell.tokenUsage.output > 0 && isModelPriced(profile.model)) {
+    costUsd = estimateCost(cell.tokenUsage.input, cell.tokenUsage.output, profile.model)
+    costEstimated = costUsd > 0
+  }
+  raw.cost_usd = costUsd
+  raw.cost_estimated = costEstimated ? 1 : 0
   raw.tokens_input = cell.tokenUsage.input
   raw.tokens_output = cell.tokenUsage.output
   if (typeof cell.tokenUsage.cached === 'number') raw.tokens_cached = cell.tokenUsage.cached
   raw.latency_ms = cell.durationMs
-  if (cell.costUsd > 0) {
-    raw.tokens_per_dollar = (cell.tokenUsage.input + cell.tokenUsage.output) / cell.costUsd
+  if (costUsd > 0) {
+    raw.tokens_per_dollar = (cell.tokenUsage.input + cell.tokenUsage.output) / costUsd
   }
-  if (composite > 0.01) raw.cost_per_quality = cell.costUsd / composite
+  if (composite > 0.01) raw.cost_per_quality = costUsd / composite
 
   const outcome: RunOutcome =
     splitTag === 'holdout' ? { holdoutScore: composite, raw } : { searchScore: composite, raw }
@@ -277,7 +293,7 @@ function buildRunRecord<TScenario extends Scenario, TArtifact>(
     configHash,
     commitSha,
     wallMs: cell.durationMs,
-    costUsd: cell.costUsd,
+    costUsd,
     tokenUsage: cell.tokenUsage,
     outcome,
     splitTag,
@@ -383,7 +399,6 @@ export async function runProfileMatrix<TScenario extends Scenario, TArtifact>(
       now: opts.now,
       runDir: join(opts.runDir, sanitize(profile.id)),
     })
-    campaigns[profile.id] = campaign
 
     const profileRecords: RunRecord[] = []
     for (const cell of campaign.cells) {
@@ -404,13 +419,25 @@ export async function runProfileMatrix<TScenario extends Scenario, TArtifact>(
       records.push(record)
     }
 
+    // Effective cost = billed-or-priced. buildRunRecord prices the measured
+    // tokens when the source reports $0 for a model it can't rate (and leaves
+    // billed cost untouched otherwise), so the RunRecords are the model-aware
+    // authority. Surface that same total on campaigns[id] — runCampaign's own
+    // ledger only sees ctx.cost ($0 for an unpriced-at-source model), which
+    // would otherwise disagree with byProfile + integrity for the same run.
+    const pricedTotalCostUsd = profileRecords.reduce((a, r) => a + r.costUsd, 0)
+    campaigns[profile.id] = {
+      ...campaign,
+      aggregates: { ...campaign.aggregates, totalCostUsd: pricedTotalCostUsd },
+    }
+
     byProfile[profile.id] = {
       profileId: profile.id,
       profileHash,
       model: profile.model,
       records: profileRecords.length,
       meanComposite: mean(profileRecords.map(compositeOf)),
-      totalCostUsd: profileRecords.reduce((a, r) => a + r.costUsd, 0),
+      totalCostUsd: pricedTotalCostUsd,
       integrity: summarizeBackendIntegrity(profileRecords),
     }
   }

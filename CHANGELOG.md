@@ -4,6 +4,30 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ---
 
+## [0.72.0] — 2026-05-31 — cost axis prices unpriced-at-source models (every run carries a real, labeled cost)
+
+A live tax-agent full-loop run (real sandbox, `deepseek-v4-pro`, real tokens) exposed the second root of the cost-ledger split: the sandbox reported `totalCostUsd: 0` despite `17537` input / `622` output tokens — not a stub, not a mis-wired ledger, but a model the **source** can't rate. The cost / Pareto / `tokens_per_dollar` axes blanked even though the substrate's pricing table prices `deepseek` correctly; the table was simply never consulted on the matrix cost projection. A $0 cost on a run that burned real tokens reads as "free," which is the more misleading state.
+
+### Fixed
+
+- **`runProfileMatrix` prices measured tokens when the source reports $0.** Cost precedence is now explicit: **source-billed > token-estimated > none**. When `cell.costUsd === 0` and real output tokens flowed and the model is priced (`isModelPriced`), `buildRunRecord` sets the cost from `estimateCost(in, out, model)` (real published rate × real tokens) and stamps `raw.cost_estimated = 1`. A billed cost is never overridden; a model the table also can't rate stays $0 (no fabrication). The estimate flows into `record.costUsd`, so `byProfile.totalCostUsd`, `integrity.totalCostUsd`, and `tokens_per_dollar` / `cost_per_quality` all populate.
+- **Every cost surface in the matrix result agrees.** The embedded `campaigns[id].aggregates.totalCostUsd` is reconciled to the priced total instead of runCampaign's raw `ctx.cost` ledger (which only sees the source's $0). No more two-`totalCostUsd`-that-disagree in one result.
+- **Honest integrity diagnosis.** `summarizeBackendIntegrity`'s uncosted-records message now names **both** roots — mis-wired ledger OR unpriced-at-source model — and points at `estimateCost` for the latter, instead of asserting the ledger is broken.
+
+Live proof: the same tax case that recorded `$0` now records **`$0.0059453`** (`17537 × 0.0003/1k + 622 × 0.0011/1k`, exact), `cost_estimated: 1`, `uncostedRecords: 0`, verdict `real`. Generalizes to every consumer of `runProfileMatrix`. New regression tests: priced-when-source-zero, billed-takes-precedence, truly-unpriced-stays-$0, campaign-aggregate-reconciled. Full suite (1663) green.
+
+## [0.71.0] — 2026-05-31 — corpus-by-default + multi-dimensional capture (datasets as eval exhaust)
+
+Every matrix run now emits a multi-dimensional, dataset-able record with no side-channel — the groundwork for "datasets gathered for free by running evals."
+
+### Added
+
+- **Multi-dim guardrail projection in `buildRunRecord`.** Each `RunRecord.outcome.raw` carries `cost_usd`, `tokens_input` / `tokens_output` (+ `tokens_cached` when present), `latency_ms`, and the guarded ratios `tokens_per_dollar` / `cost_per_quality`. RAW-ONLY — the composite stays the judge objective (anti-Goodhart); these are tracked + dashboarded + carried into datasets, never optimized.
+- **Corpus-by-default via `corpusText`.** An optional `corpusText(artifact, scenario) => {prompt, completion}` stamps the trajectory text onto each record (the `CorpusRecord` shape), so a run is dataset-able with no side-channel. Fail-soft: a throwing extractor omits the text and keeps the graded record.
+- **`appendToCorpus` / `readCorpus` / `buildDatasetFromCorpus`** (`src/rl/corpus.ts`) — append-only JSONL corpus (deduped by `runId`), with score/split filtering into a train/holdout dataset.
+
+`buildRunRecord` is generic over `<TScenario, TArtifact>`; a `scenarioById` map threads each scenario into the projection.
+
 ## [0.70.0] — 2026-05-31 — error-grounded reflection (the driver targets real failures, not blind rewrites)
 
 Adversarial verification on TWO domains (legal + tax, two worker models) found the same root cause: the gepaDriver's candidates **regressed** the baseline, so the gate correctly held — but nothing improved. The driver was reflecting on per-scenario *scores* only; the judge's `notes` (the "why it failed") were computed but **dropped** before the reflection. So it proposed generic rewrites a capable model already knows, which distract rather than help.
