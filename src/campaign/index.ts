@@ -24,6 +24,7 @@ export {
   type GepaDriverOptions,
   gepaDriver,
 } from './drivers/gepa'
+export { type HaloDriverOptions, haloDriver } from './drivers/halo'
 export {
   type ProposePatchesArgs,
   parseSkillPatchResponse,
