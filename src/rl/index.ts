@@ -62,6 +62,8 @@ export * from './active-curriculum'
 export * from './adaptation-eval'
 /** @experimental Active scenario search for inputs the policy fails on. */
 export * from './adversarial'
+/** @stable Publishable/sellable dataset bundle: format exporters + provenance + a Datasheet-for-Datasets card. */
+export * from './dataset'
 /** @experimental Unified entry point bridging optimization output to RL signal + mutation proposals. */
 /** @experimental Training-data exporters (HuggingFace datasets, JSONL, parquet). */
 export * from './exporters'
