@@ -1,11 +1,11 @@
 /**
  * @experimental
  *
- * `haloDriver` — wraps the REAL halo-engine (Sam Hogan's "Hierarchical Agent
- * Loop Optimizer", `pip install halo-engine`, repo context-labs/halo) as an
- * agent-eval `ImprovementDriver`, so HALO competes head-to-head with
- * `gepaDriver` inside `compareDrivers` on identical traces / scenarios /
- * held-out scoring.
+ * `haloDriver` — wraps the REAL halo-engine (Inference.net's HALO,
+ * "Hierarchical Agent Loop Optimizer"; `pip install halo-engine`; repo
+ * github.com/context-labs/halo; hosted at inference.net) as an agent-eval
+ * `ImprovementDriver`, so HALO competes head-to-head with `gepaDriver` inside
+ * `compareDrivers` on identical traces / scenarios / held-out scoring.
  *
  * It PRESERVES halo's actual working usage — `propose()` shells out to the
  * published CLI (`halo <traces.jsonl> -p <prompt> -m <model> --base-url
@@ -59,11 +59,23 @@ export interface HaloDriverOptions {
   fetchImpl?: LlmClientOptions['fetch']
 }
 
-const DEFAULT_ANALYSIS_PROMPT =
-  'Diagnose the failures in these agent execution traces — hallucinated tool calls, redundant tool arguments, refusal loops, and semantic-correctness errors — and suggest concrete, generalizable fixes to the agent instructions.'
+const DEFAULT_ANALYSIS_PROMPT = `Analyze this OTLP trace dataset of an agent attempting a task, and produce an evidence-grounded diagnosis the agent's instruction prompt can be edited from.
 
-const APPLY_SYSTEM =
-  'You apply a trace-analysis report to an agent instruction prompt. Output ONLY the full revised prompt — no preamble, no commentary, no code fences. Make the minimal edits that address the report findings; preserve everything else verbatim.'
+Work bottom-up from the spans:
+1. First call get_dataset_overview, then triage the failed/low-quality traces (STATUS_CODE_ERROR, refusal loops, MaxTurnsExceeded, empty/incorrect final answers).
+2. For each recurring failure, name the MECHANISM with a cited trace/span: hallucinated or non-existent tool calls; redundant/repeated tool arguments; wrong tool selection; missing a prerequisite fetch before acting; refusal or apology loops; premature termination; semantically-wrong output that passed structurally.
+3. Cluster mechanisms into a small ranked failure taxonomy (most-frequent / highest-impact first), each with a frequency and one concrete example (trace_id + the offending text).
+4. For each cluster, propose ONE concrete, GENERALIZABLE instruction edit that would prevent the whole cluster — not a fix overfit to a single trace. State the rule the agent should follow, not the specific case.
+
+Output the ranked taxonomy and the proposed instruction edits. Cite a trace/span for every claim; never invent ids.`
+
+const APPLY_SYSTEM = `You apply a trace-analysis report to an agent's instruction prompt. The report names ranked failure clusters and proposes generalizable rules. Your job: fold those rules into the prompt as durable, generalizable guidance.
+
+Output ONLY the full revised prompt — no preamble, no commentary, no code fences.
+- Add or sharpen the minimal set of rules that address the report's clusters, ordered by the report's impact ranking.
+- Write rules as general principles ("always fetch the resource before mutating it"), never as case-specific patches overfit to one trace.
+- Preserve everything else verbatim; do not delete working guidance or restructure unrelated sections.
+- If the report's findings are vacuous or already covered, return the prompt unchanged.`
 
 /** Wrap the real halo-engine CLI as an ImprovementDriver (prompt-tier). */
 export function haloDriver(opts: HaloDriverOptions): ImprovementDriver {
