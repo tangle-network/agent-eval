@@ -43,16 +43,16 @@ export {
   firstNumberAttr,
   firstStringAttr,
   inferOtlpKind,
-  projectOtlpFlatLine,
   type ProjectedOtlpSpan,
+  projectOtlpFlatLine,
   readOtlpStatus,
   stringField,
 } from './otlp-span'
 export {
-  otlpToRunRecords,
   type OtlpToRunRecordsOptions,
-  otlpToTraceRunRecords,
   type OtlpTraceRunRecord,
+  otlpToRunRecords,
+  otlpToTraceRunRecords,
   type TraceAggregate,
 } from './otlp-to-run-records'
 export {

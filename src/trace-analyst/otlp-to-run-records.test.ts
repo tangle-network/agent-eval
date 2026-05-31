@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { type RunRecord, isRunRecord, validateRunRecord } from '../run-record'
+import { isRunRecord, type RunRecord, validateRunRecord } from '../run-record'
 import { otlpToRunRecords, otlpToTraceRunRecords } from './otlp-to-run-records'
 
 /** Destructure the two-record result with a present-assertion so the strict
@@ -129,7 +129,10 @@ const FIXTURE = [
     name: 'function.list_files',
     start_time: '2026-04-23T06:00:02.500000000Z',
     end_time: '2026-04-23T06:00:03.000000000Z',
-    status: { code: 'STATUS_CODE_ERROR', message: 'Error running tool (non-fatal): No such file or directory' },
+    status: {
+      code: 'STATUS_CODE_ERROR',
+      message: 'Error running tool (non-fatal): No such file or directory',
+    },
     attributes: {
       'openinference.span.kind': 'TOOL',
       'tool.name': 'apis.file_system.list_files',
@@ -210,9 +213,7 @@ describe('otlpToRunRecords', () => {
     expect(clean.outcome.holdoutScore).toBe(1)
     expect(clean.outcome.raw.error_span_count).toBe(0)
     // Error trace: failureMode carries the real status message; score 0.
-    expect(error.failureMode).toBe(
-      'Error running tool (non-fatal): No such file or directory',
-    )
+    expect(error.failureMode).toBe('Error running tool (non-fatal): No such file or directory')
     expect(error.outcome.holdoutScore).toBe(0)
     expect(error.outcome.raw.error_span_count).toBe(1)
   })

@@ -42,8 +42,8 @@ import {
 import {
   firstNumberAttr,
   firstStringAttr,
-  projectOtlpFlatLine,
   type ProjectedOtlpSpan,
+  projectOtlpFlatLine,
 } from './otlp-span'
 
 /** Candidate attribute keys for LLM input (prompt) tokens, both dialects. */
@@ -164,10 +164,7 @@ export interface TraceAggregate {
  * `RunRecord[]` (one per trace). Use {@link otlpToTraceRunRecords} when you
  * also want the verbatim prompt/completion text alongside each record.
  */
-export function otlpToRunRecords(
-  otlpJsonl: string,
-  opts: OtlpToRunRecordsOptions,
-): RunRecord[] {
+export function otlpToRunRecords(otlpJsonl: string, opts: OtlpToRunRecordsOptions): RunRecord[] {
   return otlpToTraceRunRecords(otlpJsonl, opts).map((r) => r.record)
 }
 
@@ -215,9 +212,7 @@ export function otlpToTraceRunRecords(
     if (costUnpriced) raw.cost_unpriced = 1
 
     const outcome =
-      splitTag === 'holdout'
-        ? { holdoutScore: score, raw }
-        : { searchScore: score, raw }
+      splitTag === 'holdout' ? { holdoutScore: score, raw } : { searchScore: score, raw }
 
     const { promptText, completionText } = extractPromptCompletion(spans)
     const judgeMetadata = opts.judgeMetadataForTrace?.(traceId)
@@ -333,10 +328,7 @@ function aggregateTrace(
 
   // Dominant model across LLM spans; falls back to any model attribute on a
   // non-LLM span, then the supplied fallback snapshot.
-  const model =
-    topVote(modelVotes) ??
-    firstModelAttr(ordered) ??
-    fallbackModel
+  const model = topVote(modelVotes) ?? firstModelAttr(ordered) ?? fallbackModel
 
   let wallMs = 0
   if (earliest && latest) {
@@ -363,11 +355,7 @@ function aggregateTrace(
   }
 }
 
-function resolveScore(
-  opts: OtlpToRunRecordsOptions,
-  traceId: string,
-  agg: TraceAggregate,
-): number {
+function resolveScore(opts: OtlpToRunRecordsOptions, traceId: string, agg: TraceAggregate): number {
   const supplied = opts.scoreForTrace?.(traceId, agg)
   if (supplied !== undefined) {
     if (!Number.isFinite(supplied)) {
