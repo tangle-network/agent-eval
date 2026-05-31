@@ -310,9 +310,12 @@ function buildEvidence(
   if (!best) return { top: [], bottom: [], target: baseTarget }
 
   const byScore = [...best.scenarios].sort((a, b) => b.composite - a.composite)
-  const toTrace = (s: { scenarioId: string; composite: number }): TrialTrace => ({
+  const toTrace = (s: { scenarioId: string; composite: number; notes?: string }): TrialTrace => ({
     id: s.scenarioId,
     score: s.composite,
+    // The judge's "why it scored low" — grounds the reflection on real failure
+    // patterns instead of blind rephrasing. Generalizable by the judge contract.
+    ...(s.notes ? { failureNote: s.notes } : {}),
   })
   const top = byScore.slice(0, evidenceK).map(toTrace)
   const bottom = byScore.slice(-evidenceK).reverse().map(toTrace)

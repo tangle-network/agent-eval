@@ -503,8 +503,13 @@ export interface GenerationCandidate {
   /** Mean score per judge dimension across all cells (scenarios × reps ×
    *  judges that reported the dimension). */
   dimensions: Record<string, number>
-  /** Per-scenario composite (mean over reps + judges). */
-  scenarios: Array<{ scenarioId: string; composite: number }>
+  /** Per-scenario composite (mean over reps + judges), plus the judge's
+   *  free-form `notes` for that scenario — the "why it scored low" evidence a
+   *  reflective driver grounds its next edit on. Keep `notes` GENERALIZABLE
+   *  (which checks/lines/dimensions failed and how), NOT case-specific ground
+   *  truth: leaking expected answers into the prompt is memorization, and the
+   *  held-out gate would reject it anyway. */
+  scenarios: Array<{ scenarioId: string; composite: number; notes?: string }>
   /** Driver-supplied short label for the change. Present when the driver
    *  returned a `ProposedCandidate`; absent for bare-surface mutators. */
   label?: string
