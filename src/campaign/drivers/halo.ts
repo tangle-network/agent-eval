@@ -26,8 +26,8 @@ import { mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { promisify } from 'node:util'
-import { callLlm } from '../../llm-client'
 import type { LlmClientOptions } from '../../llm-client'
+import { callLlm } from '../../llm-client'
 import type { ImprovementDriver, ProposeContext, ProposedCandidate } from '../types'
 
 const execFileAsync = promisify(execFile)
@@ -85,12 +85,16 @@ export function haloDriver(opts: HaloDriverOptions): ImprovementDriver {
     kind: 'halo',
     async propose(ctx: ProposeContext): Promise<ProposedCandidate[]> {
       const parent =
-        typeof ctx.currentSurface === 'string' ? ctx.currentSurface : JSON.stringify(ctx.currentSurface)
+        typeof ctx.currentSurface === 'string'
+          ? ctx.currentSurface
+          : JSON.stringify(ctx.currentSurface)
 
       // (1) Materialize the OTLP traces this generation produced.
       const traces = (await opts.resolveTraces(ctx)) ?? ''
       if (!traces.trim()) {
-        throw new Error('haloDriver: resolveTraces returned no OTLP traces — the halo engine has nothing to analyze')
+        throw new Error(
+          'haloDriver: resolveTraces returned no OTLP traces — the halo engine has nothing to analyze',
+        )
       }
       const dir = mkdtempSync(join(tmpdir(), 'halo-driver-'))
       const tracePath = join(dir, 'traces.jsonl')
