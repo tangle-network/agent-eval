@@ -2,7 +2,7 @@ import { chmodSync, mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { type ProposeContext, type ProposedCandidate, isProposedCandidate } from '../types'
+import { isProposedCandidate, type ProposeContext, type ProposedCandidate } from '../types'
 import { haloDriver } from './halo'
 
 function asCandidate(v: unknown): ProposedCandidate {
@@ -45,8 +45,11 @@ describe('haloDriver — wraps the real halo-engine CLI as an ImprovementDriver'
     const driver = haloDriver({
       baseUrl: 'https://router.example/v1',
       apiKey: 'sk-test',
-      haloBin: fakeHalo('FINDING: api_predictor under-fetched the spotify APIs; widen the whitelist.'),
-      resolveTraces: () => '{"name":"agent.Assistant","trace_id":"t1"}\n{"name":"function.spotify__login"}',
+      haloBin: fakeHalo(
+        'FINDING: api_predictor under-fetched the spotify APIs; widen the whitelist.',
+      ),
+      resolveTraces: () =>
+        '{"name":"agent.Assistant","trace_id":"t1"}\n{"name":"function.spotify__login"}',
       fetchImpl: stubFetch('IMPROVED PROMPT: always fetch spotify APIs before planning.'),
     })
     const out = await driver.propose(ctx('BASE PROMPT: do the task.'))
