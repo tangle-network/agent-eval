@@ -4,6 +4,17 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ---
 
+## [0.70.0] — 2026-05-31 — error-grounded reflection (the driver targets real failures, not blind rewrites)
+
+Adversarial verification on TWO domains (legal + tax, two worker models) found the same root cause: the gepaDriver's candidates **regressed** the baseline, so the gate correctly held — but nothing improved. The driver was reflecting on per-scenario *scores* only; the judge's `notes` (the "why it failed") were computed but **dropped** before the reflection. So it proposed generic rewrites a capable model already knows, which distract rather than help.
+
+### Fixed
+
+- **Judge `notes` now reach the reflective driver.** `campaignBreakdown` collects each scenario's judge `notes` (deduped) into `scenarios[].notes`; `GenerationCandidate.scenarios` + `CampaignBreakdown.scenarios` carry it; `gepaDriver`'s `buildEvidence` surfaces it as `TrialTrace.failureNote`; `buildReflectionPrompt` renders a **"Why it scored low"** block per bottom trial. The optimizer now grounds its next edit on the actual failure pattern.
+- **Anti-overfit by contract + by construction.** The `notes` are documented as GENERALIZABLE failure patterns (which checks/lines/dimensions failed, and how) — NOT case-specific ground truth; leaking expected answers would be memorization. And the held-out gate is the structural backstop: a candidate that overfits train cannot clear the paired-bootstrap CI on cases the driver never saw.
+
+Generic — any agent benefits by having its judge emit informative `notes`. 3 new tests (notes surfaced + deduped + rendered into the reflection); full suite (1645) green.
+
 ## [0.69.0] — 2026-05-30 — strong generic baseline roles (engineer / researcher / generalist)
 
 The structured profile (0.68.0) had a hollow top zone — `baselineProfile` took an arbitrary `role` string. Products are file-producing, tool-using agents living in a sandbox, but nothing gave them a strong operator foundation. This adds three generically-useful, verification-first baseline roles distilled from agent-runtime's `coderProfile` doctrine.

@@ -31,6 +31,11 @@ export interface TrialTrace {
   expectations?: Array<{ id: string; phrase: string; matched: boolean }>
   /** Free-form text — what the agent actually emitted (e.g., findings, plan). */
   emitted?: string
+  /** The judge's free-form note on WHY this trial scored low — the failure
+   *  evidence the reflection targets. Should be a generalizable pattern (which
+   *  checks/lines/dimensions failed, and how), never case-specific ground
+   *  truth (that would teach memorization, not capability). */
+  failureNote?: string
   /** Optional structured metrics (recall, precision, cost, latency). */
   metrics?: Record<string, number>
 }
@@ -88,6 +93,10 @@ export function buildReflectionPrompt(ctx: ReflectionContext): string {
       sections.push(
         `### Trial \`${trial.id}\` — score ${trial.score.toFixed(2)}${trial.inputName ? ` (${trial.inputName})` : ''}`,
       )
+      if (trial.failureNote) {
+        sections.push('')
+        sections.push(`**Why it scored low:** ${truncate(trial.failureNote, 600)}`)
+      }
       const missed = (trial.expectations ?? []).filter((e) => !e.matched)
       if (missed.length > 0) {
         sections.push('')
