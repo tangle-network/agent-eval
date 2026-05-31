@@ -141,7 +141,10 @@ export interface RunProfileMatrixOptions<TScenario extends Scenario, TArtifact> 
    *  graded trajectories can be appended to the durable RL corpus with no
    *  side-channel — `appendToCorpus(result.records, path)`. Fail-soft: a
    *  throwing or undefined-returning extractor just omits the text. */
-  corpusText?: (artifact: TArtifact, scenario: TScenario) => { prompt: string; completion: string } | undefined
+  corpusText?: (
+    artifact: TArtifact,
+    scenario: TScenario,
+  ) => { prompt: string; completion: string } | undefined
 }
 
 export interface ProfileSummary {
@@ -207,7 +210,10 @@ interface BuildRecordArgs<TScenario extends Scenario, TArtifact> {
   commitSha: string
   matrixId: string
   scenario?: TScenario
-  corpusText?: (artifact: TArtifact, scenario: TScenario) => { prompt: string; completion: string } | undefined
+  corpusText?: (
+    artifact: TArtifact,
+    scenario: TScenario,
+  ) => { prompt: string; completion: string } | undefined
 }
 
 function buildRunRecord<TScenario extends Scenario, TArtifact>(
