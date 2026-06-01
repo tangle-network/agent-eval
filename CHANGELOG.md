@@ -4,6 +4,17 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ---
 
+## [0.72.1] — 2026-06-01 — workflow execution summaries for dynamic drivers
+
+### Added
+
+- **`summarizeWorkflowExecution` in `/workflow`.** Builds the canonical rich projection from a workflow trace: event-kind counts, phase order, agent and loop delegate summaries, verifier/analyst/reviewer checkpoint outputs, cost, tokens, and failure status.
+- **Checkpoint output extraction.** Verifier, analyst, and reviewer traces preserve the returned output through `trace.checkpointOutput`, with `trace.output` accepted for compatibility.
+
+### Fixed
+
+- **npm/PyPI version lock.** The Python RPC package version is bumped back into lockstep with the npm package so the publish workflow can release both artifacts from one tag.
+
 ## [0.72.0] — 2026-05-31 — cost axis prices unpriced-at-source models (every run carries a real, labeled cost)
 
 A live tax-agent full-loop run (real sandbox, `deepseek-v4-pro`, real tokens) exposed the second root of the cost-ledger split: the sandbox reported `totalCostUsd: 0` despite `17537` input / `622` output tokens — not a stub, not a mis-wired ledger, but a model the **source** can't rate. The cost / Pareto / `tokens_per_dollar` axes blanked even though the substrate's pricing table prices `deepseek` correctly; the table was simply never consulted on the matrix cost projection. A $0 cost on a run that burned real tokens reads as "free," which is the more misleading state.
