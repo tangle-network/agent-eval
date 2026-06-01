@@ -111,13 +111,20 @@ mkdirSync(OUT_DIR, { recursive: true })
 // leaves zero lift headroom for the bake-off; difficulty 3 lands at tgc≈0 /
 // sgc≈0.9 (composite ~0.45) — the movable regime where a better prompt can win.
 const BENCH_DIFFICULTY = process.env.BENCH_DIFFICULTY // '1' | '2' | '3' | undefined
+// Which AppWorld split to draw train+holdout from. Default 'dev' (small). For a
+// difficulty-3 proof use 'train' (18 d3 tasks) — 'dev' has only 3 d3 tasks.
+const BENCH_SPLIT = process.env.BENCH_SPLIT ?? 'dev'
 
-/** AppWorld dev task ids — load deterministically, take train+holdout disjoint. */
+/** AppWorld task ids — load deterministically from BENCH_SPLIT, take
+ *  train+holdout as disjoint slices. */
 async function loadTaskIds(): Promise<string[]> {
   const arg = BENCH_DIFFICULTY ? `, difficulty=${Number(BENCH_DIFFICULTY)}` : ''
   const { stdout } = await execFileAsync(
     PYTHON,
-    ['-c', `from appworld import load_task_ids; print("\\n".join(load_task_ids("dev"${arg})))`],
+    [
+      '-c',
+      `from appworld import load_task_ids; print("\\n".join(load_task_ids("${BENCH_SPLIT}"${arg})))`,
+    ],
     { cwd: APPWORLD_DIR, env: process.env, maxBuffer: 8 * 1024 * 1024 },
   )
   return stdout
