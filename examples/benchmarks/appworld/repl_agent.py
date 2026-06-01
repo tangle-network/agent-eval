@@ -357,11 +357,17 @@ def run_task(
                 completed = True
                 break
 
-    run_end_ns = time.time_ns()
-
-    # ── evaluate: TGC (task success) + SGC (per-test pass fraction) ──
-    with AppWorld(task_id=task_id, experiment_name=experiment_name) as world:
+        # ── evaluate IN THE SAME CONTEXT the agent acted in ──
+        # Evaluating in a FRESH AppWorld(...) context resets the world, so the
+        # evaluator never sees the agent's API calls / submitted answer — every
+        # task then pins at tgc=0 / sgc=0.5 regardless of agent quality (a frozen
+        # metric the optimizer can't move). Evaluate before the solve context
+        # exits so world.evaluate() reads the real final state.
         tracker = world.evaluate(suppress_errors=True)
+    # Read the wall clock AFTER the AppWorld context exits — inside it, AppWorld
+    # runs a simulated/frozen task clock, which made run_end_ns < run_start_ns
+    # (negative wall_ms). The tracker object survives the context for to_dict().
+    run_end_ns = time.time_ns()
     eval_dict = tracker.to_dict()
     tgc = 1.0 if eval_dict.get("success") else 0.0
     num_tests = int(eval_dict.get("num_tests") or 0)
