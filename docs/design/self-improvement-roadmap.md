@@ -67,7 +67,7 @@ Root cause (probe-verified): our Ax-RLM **fuses** reasoning + JS-sandbox + a str
 
 ### A2. More drivers *(fast wins; days each)*
 
-- [ ] **A2.1 — ACE driver** (`src/campaign/drivers/ace.ts`): delta-structured append-mostly playbook (not `memory.ts` dedup); introduces the `playbook` `MutableSurface` kind (mutate/diff/apply). Forcing function: `compareDrivers` on AppWorld through the router on an **open model**, target ACE's 59.4% (DeepSeek-V3.1 = GPT-4.1 CUGA). *Gate:* CI'd vs gepa/memory on a 20-task slice. ~1wk.
+- [x] **A2.1 — ACE driver** SHIPPED (PR #161, `src/campaign/drivers/ace.ts`): delta-structured append-mostly playbook — appends provenance-tagged `- [gN] <lesson>` deltas, preserves existing verbatim (anti context-collapse, arXiv:2510.04618), idempotent on recurring findings, FIFO-evicts oldest on overflow (never merges), deterministic, fail-loud. Reuses the shared finding→text helpers (`_findings-text.ts`; memory.ts refactored onto them). 7 deterministic tests. *Remaining (live, same plateau as A1.1):* the `compareDrivers`-on-AppWorld CI'd head-to-head vs gepa/memory — needs the AppWorld env + an open model. Deferred the formal `playbook` MutableSurface kind (string surface suffices for the append-only mechanism).
 - [ ] **A2.2 — `majorityVoteReward`** (`rl/verifiable-reward.ts`): TTRL consensus pseudo-labels over best-of-N fanout, **verifiable subset only** (tax by-line, AppWorld — out of scope for rubric domains), through `heldoutSignificance` + the reward-hacking guard. ~2–3d.
 
 ### A3. Execution-Environment seam *(the keystone; ~3–4 wks, staged, highest blast radius)*
