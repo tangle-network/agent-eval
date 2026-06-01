@@ -186,6 +186,8 @@ def run_task(
     out_dir: str,
     system_prompt: str | None = None,
     max_wall_seconds: float = 900.0,
+    temperature: float = 0.0,
+    seed: int = 100,
 ) -> dict[str, Any]:
     # The agent instruction prompt is the OPTIMIZABLE SURFACE: compareDrivers /
     # gepaDriver / haloDriver / memoryCurationDriver mutate it and pass the
@@ -254,8 +256,8 @@ def run_task(
                     rate_limit_budget=rate_limit_budget,
                     model=model,
                     messages=messages,
-                    temperature=0,
-                    seed=100,
+                    temperature=temperature,
+                    seed=seed,
                     max_tokens=max_tokens,
                 )
             except Exception as exc:  # fail loud: a stall/transport error is a real failure
@@ -469,6 +471,20 @@ def main() -> None:
         default=900.0,
         help="Per-episode wall-clock safety net so an agent that never completes can't hang forever.",
     )
+    ap.add_argument(
+        "--temperature",
+        type=float,
+        default=0.0,
+        help="Sampling temperature. >0 makes reps genuinely independent (the bench passes 0.7); "
+        "0 is deterministic and lets the router cache identical reps (collapses multi-shot).",
+    )
+    ap.add_argument(
+        "--seed",
+        type=int,
+        default=100,
+        help="Sampling seed. The bench passes a UNIQUE seed per shot so the router can't return "
+        "a cached completion for an identical prompt — each shot is a real independent sample.",
+    )
     ap.add_argument("--call-timeout", type=float, default=60.0)
     ap.add_argument(
         "--rate-limit-budget",
@@ -521,6 +537,8 @@ def main() -> None:
         out_dir=args.out_dir,
         system_prompt=system_prompt,
         max_wall_seconds=args.max_wall_seconds,
+        temperature=args.temperature,
+        seed=args.seed,
     )
     # Compact verdict line for the benchmark dispatcher to parse.
     print(

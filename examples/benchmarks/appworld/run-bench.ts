@@ -61,6 +61,7 @@ const POP = Number(process.env.POP ?? 2)
 const REPS = Number(process.env.REPS ?? 5) // shots per holdout cell → bootstrap CIs over reps×scenarios
 const MAX_STEPS = Number(process.env.MAX_STEPS ?? 0) // 0 = no cap (maxTurns=0)
 const MAX_WALL = Number(process.env.MAX_WALL ?? 900) // per-episode wall-clock safety net (s)
+const TEMPERATURE = Number(process.env.TEMPERATURE ?? 0.7) // >0 → independent shots (vs cached reps)
 const CALL_TIMEOUT = Number(process.env.CALL_TIMEOUT ?? 120)
 const MAX_TOKENS = Number(process.env.MAX_TOKENS ?? 6000)
 const OUT_DIR = process.env.OUT_DIR ?? join(tmpdir(), 'appworld-bench')
@@ -130,6 +131,13 @@ async function dispatchWithSurface(
       String(MAX_STEPS), // 0 = no cap (maxTurns=0): run until complete_task
       '--max-wall-seconds',
       String(MAX_WALL),
+      // Genuine independent shots: temperature>0 + a UNIQUE seed per dispatch so
+      // the router can't return a cached completion for an identical prompt
+      // (temp=0 + same seed collapses the 5 reps into 1 via cache).
+      '--temperature',
+      String(TEMPERATURE),
+      '--seed',
+      String(SEED + n),
       '--call-timeout',
       String(CALL_TIMEOUT),
       '--max-tokens',
