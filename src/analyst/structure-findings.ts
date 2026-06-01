@@ -52,7 +52,18 @@ function buildRows(raw: unknown, analystId: string, area: string): AnalystFindin
   const rows = coerceToFindingRows(raw)
   const out: AnalystFinding[] = []
   for (const row of rows) {
-    const parsed: RawAnalystFinding | null = parseRawFinding(row)
+    // Recovery findings are extracted from PROSE — the report itself is the
+    // evidence. A weak model often returns a sound claim + severity but omits
+    // `evidence_uri`; default it to the report rather than dropping the row
+    // (the strict evidence_uri requirement is a recovery yield-killer).
+    const normalized =
+      row &&
+      typeof row === 'object' &&
+      !Array.isArray(row) &&
+      !(row as Record<string, unknown>).evidence_uri
+        ? { ...(row as Record<string, unknown>), evidence_uri: 'report://summary' }
+        : row
+    const parsed: RawAnalystFinding | null = parseRawFinding(normalized)
     if (!parsed) continue
     out.push(
       makeFinding({

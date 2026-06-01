@@ -65,4 +65,26 @@ describe('structureFindings — free-form report → structured findings (any mo
     expect(res.outcome).toBe('ok')
     expect(res.findings).toHaveLength(0)
   })
+
+  it('recovery yield: keeps a sound prose finding that omits evidence_uri (defaults to report://summary)', async () => {
+    // Weak models routinely return a valid claim + severity but no span
+    // citation. The strict evidence_uri requirement used to drop the whole row
+    // (0 yield); the report itself is the evidence, so it is now retained.
+    const noEvidence =
+      '[{"severity":"high","claim":"agent never verified its writes","confidence":0.9}]'
+    const res = await structureFindings({
+      report: REPORT,
+      analystId: 'failure-mode',
+      area: 'failure-mode',
+      model: 'any',
+      baseUrl: 'https://x/v1',
+      apiKey: 'k',
+      fetchImpl: stubFetch(noEvidence),
+    })
+    expect(res.outcome).toBe('ok')
+    expect(res.findings).toHaveLength(1)
+    expect(res.findings[0]!.evidence_refs[0]!.uri).toBe('report://summary')
+    expect(res.findings[0]!.evidence_refs[0]!.kind).toBe('artifact')
+    expect(res.findings[0]!.claim).toContain('never verified')
+  })
 })
