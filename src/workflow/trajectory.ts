@@ -46,6 +46,9 @@ export function workflowTraceToFeedbackTrajectory(
         workflow_phases: summary.phaseCount,
         workflow_agent_calls: summary.agentCalls,
         workflow_loop_calls: summary.loopCalls,
+        workflow_verifier_calls: summary.verifierCalls,
+        workflow_analyst_calls: summary.analystCalls,
+        workflow_reviewer_calls: summary.reviewerCalls,
         workflow_tokens_input: summary.tokenUsage.input,
         workflow_tokens_output: summary.tokenUsage.output,
       },
@@ -68,12 +71,13 @@ export function workflowTraceToFeedbackTrajectory(
 function workflowEventsToAttempts(events: readonly WorkflowTraceEvent[]): FeedbackAttempt[] {
   const attempts: FeedbackAttempt[] = []
   for (const event of events) {
-    if (event.kind !== 'workflow.agent.ended' && event.kind !== 'workflow.loop.ended') continue
+    const artifactType = artifactTypeForWorkflowEvent(event.kind)
+    if (!artifactType) continue
     const stepIndex = attempts.length
     attempts.push({
       id: `${event.runId}:${stepIndex}`,
       stepIndex,
-      artifactType: event.kind === 'workflow.agent.ended' ? 'action' : 'decision',
+      artifactType,
       artifact: event.payload.trace ?? event.payload,
       createdAt: iso(event.timestamp),
       metadata: {
@@ -86,6 +90,23 @@ function workflowEventsToAttempts(events: readonly WorkflowTraceEvent[]): Feedba
     })
   }
   return attempts
+}
+
+function artifactTypeForWorkflowEvent(
+  kind: WorkflowTraceEvent['kind'],
+): FeedbackAttempt['artifactType'] | null {
+  switch (kind) {
+    case 'workflow.agent.ended':
+      return 'action'
+    case 'workflow.analyst.ended':
+      return 'data'
+    case 'workflow.loop.ended':
+    case 'workflow.verifier.ended':
+    case 'workflow.reviewer.ended':
+      return 'decision'
+    default:
+      return null
+  }
 }
 
 function iso(timestamp: number | undefined): string {

@@ -17,6 +17,12 @@ export type WorkflowTraceEventKind =
   | 'workflow.agent.ended'
   | 'workflow.loop.started'
   | 'workflow.loop.ended'
+  | 'workflow.verifier.started'
+  | 'workflow.verifier.ended'
+  | 'workflow.analyst.started'
+  | 'workflow.analyst.ended'
+  | 'workflow.reviewer.started'
+  | 'workflow.reviewer.ended'
   | 'workflow.failed'
   | 'workflow.ended'
 
@@ -54,6 +60,9 @@ export interface WorkflowTraceSummary {
   phaseCount: number
   agentCalls: number
   loopCalls: number
+  verifierCalls: number
+  analystCalls: number
+  reviewerCalls: number
   eventCount: number
   failed: boolean
   failureMessage?: string
