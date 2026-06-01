@@ -20,6 +20,7 @@ import {
   type MutableSurface,
   type Mutator,
   openAutoPr,
+  type ProposeContext,
   runEval,
   runImprovementLoop,
   runOptimization,
@@ -1335,5 +1336,81 @@ describe('runImprovementLoop — no-op guard (empty-diff false-ship killer)', ()
     expect(result.promotedDiff).toBe('')
     // The winner surface is byte-identical to the baseline.
     expect(String(result.winnerSurface)).toBe(STRONG)
+  })
+})
+
+// ── runOptimization: analyzeGeneration loop closure (EYES→HANDS) ──────
+describe('runOptimization — analyzeGeneration feeds findings forward', () => {
+  const passJudge: JudgeConfig<FakeArtifact, FakeScenario> = {
+    name: 'noop',
+    dimensions: [{ key: 'ok', description: 'always 1 — isolates the findings wire' }],
+    score: () => ({ dimensions: { ok: 1 }, composite: 1, notes: '' }),
+  }
+
+  it("re-diagnoses each generation and feeds the fresh findings into the NEXT generation's propose()", async () => {
+    const seen: unknown[][] = []
+    // A recorder driver: captures ctx.findings each generation, returns a
+    // distinct candidate so the loop advances.
+    const driver = {
+      kind: 'recorder',
+      async propose(ctx: ProposeContext) {
+        seen.push(ctx.findings)
+        return [{ surface: `S-gen${ctx.generation}`, label: `g${ctx.generation}`, rationale: 'r' }]
+      },
+    }
+    const analyzed: number[] = []
+    await runOptimization<FakeScenario, FakeArtifact>({
+      scenarios: SCENARIOS,
+      baselineSurface: 'BASE',
+      dispatchWithSurface: async (surface) => ({ text: String(surface) }),
+      judges: [passJudge],
+      driver,
+      populationSize: 1,
+      maxGenerations: 3,
+      promoteTopK: 1,
+      runDir,
+      seed: 1,
+      findings: [{ claim: 'seed' }],
+      analyzeGeneration: async ({ generation, candidates }) => {
+        // The producer sees this generation's scored candidates (real wire:
+        // it would read their traces). Return a finding keyed by generation.
+        expect(candidates.length).toBe(1)
+        analyzed.push(generation)
+        return [{ claim: `gen-${generation} finding` }]
+      },
+    })
+
+    expect(seen).toHaveLength(3)
+    // Gen 0 sees the static seed; gen 1 sees gen-0's produced finding; gen 2 gen-1's.
+    expect(seen[0]).toEqual([{ claim: 'seed' }])
+    expect(seen[1]).toEqual([{ claim: 'gen-0 finding' }])
+    expect(seen[2]).toEqual([{ claim: 'gen-1 finding' }])
+    // Producer runs after gens 0 and 1, NOT the last (gen 2 has no next propose()).
+    expect(analyzed).toEqual([0, 1])
+  })
+
+  it('without analyzeGeneration, findings stay the static seed every generation', async () => {
+    const seen: unknown[][] = []
+    const driver = {
+      kind: 'recorder',
+      async propose(ctx: ProposeContext) {
+        seen.push(ctx.findings)
+        return [{ surface: `S-gen${ctx.generation}`, label: `g${ctx.generation}`, rationale: 'r' }]
+      },
+    }
+    await runOptimization<FakeScenario, FakeArtifact>({
+      scenarios: SCENARIOS,
+      baselineSurface: 'BASE',
+      dispatchWithSurface: async (surface) => ({ text: String(surface) }),
+      judges: [passJudge],
+      driver,
+      populationSize: 1,
+      maxGenerations: 2,
+      promoteTopK: 1,
+      runDir,
+      seed: 1,
+      findings: [{ claim: 'seed' }],
+    })
+    expect(seen).toEqual([[{ claim: 'seed' }], [{ claim: 'seed' }]])
   })
 })

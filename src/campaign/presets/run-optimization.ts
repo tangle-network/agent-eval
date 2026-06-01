@@ -63,6 +63,24 @@ export interface RunOptimizationOptions<TScenario extends Scenario, TArtifact>
    *  `memoryCurationDriver`, `traceAnalystDriver`) consume them. Opaque here;
    *  the driver types its `TFindings`. Empty when no producer is wired. */
   findings?: unknown[]
+  /** Per-generation findings producer — the EYES→HANDS loop closure. After each
+   *  generation's candidates are scored, this is called with that generation's
+   *  results; whatever it returns REPLACES `ctx.findings` for the NEXT
+   *  generation's `propose()`, so the diagnosis is refreshed each round instead
+   *  of being a static one-shot. Generic by design: the substrate does not
+   *  import an analyst — the consumer plugs its trace-analyst registry / HALO
+   *  here (reading the per-candidate `runDir` traces). When absent, findings
+   *  stay the static `opts.findings`. */
+  analyzeGeneration?: (input: {
+    generation: number
+    runDir: string
+    candidates: Array<{
+      surfaceHash: string
+      campaign: CampaignResult<TArtifact, TScenario>
+      composite: number
+    }>
+    history: GenerationRecord[]
+  }) => Promise<unknown[]>
 }
 
 export interface RunOptimizationResult<TArtifact, TScenario extends Scenario> {
@@ -107,6 +125,9 @@ export async function runOptimization<TScenario extends Scenario, TArtifact>(
 
   const generations: RunOptimizationResult<TArtifact, TScenario>['generations'] = []
   const history: GenerationRecord[] = []
+  // Refreshed each generation by `analyzeGeneration` (the EYES→HANDS loop
+  // closure); seeded with the static caller-supplied findings.
+  let currentFindings: unknown[] = opts.findings ?? []
   let currentSurfaces: MutableSurface[] = [opts.baselineSurface]
   let winnerSurface = opts.baselineSurface
   let winnerSurfaceHash = surfaceHash(opts.baselineSurface)
@@ -133,7 +154,7 @@ export async function runOptimization<TScenario extends Scenario, TArtifact>(
     const proposed = await opts.driver.propose({
       currentSurface: currentSurfaces[0] ?? opts.baselineSurface,
       history,
-      findings: opts.findings ?? [],
+      findings: currentFindings,
       populationSize: opts.populationSize,
       generation: gen,
       signal: new AbortController().signal,
@@ -215,6 +236,23 @@ export async function runOptimization<TScenario extends Scenario, TArtifact>(
         campaign: s.campaign,
       })),
     })
+
+    // EYES→HANDS: re-diagnose this generation's results and feed fresh findings
+    // to the next generation's propose(). On the last generation there is no
+    // next propose(), so skip the (potentially expensive) producer call.
+    if (opts.analyzeGeneration && gen < opts.maxGenerations - 1) {
+      const fresh = await opts.analyzeGeneration({
+        generation: gen,
+        runDir: `${opts.runDir}/gen-${gen}`,
+        candidates: surfaceResults.map((s) => ({
+          surfaceHash: s.surfaceHash,
+          campaign: s.campaign,
+          composite: s.composite,
+        })),
+        history,
+      })
+      if (Array.isArray(fresh)) currentFindings = fresh
+    }
   }
 
   return {
