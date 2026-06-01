@@ -54,6 +54,19 @@ export {
 } from './gates/default-production-gate'
 export { type HeldOutGateOptions, heldOutGate } from './gates/heldout-gate'
 export {
+  type AxisEvidence,
+  type AxisVerdict,
+  type BuildEvidenceVectorOptions,
+  buildEvidenceVector,
+  type EvidenceVector,
+  type ObjectiveSource,
+  type ParetoSignificanceGateOptions,
+  type PromotionObjective,
+  type PromotionPolicy,
+  paretoPolicy,
+  paretoSignificanceGate,
+} from './gates/promotion-policy'
+export {
   type DimensionRegression,
   detectScale,
   dimensionRegressions,
