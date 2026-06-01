@@ -1,4 +1,5 @@
 import { ValidationError } from '../errors'
+import { validateWorkflowTraceEventKind, validateWorkflowTraceEventPayload } from './event-schema'
 import type {
   WorkflowTraceEnvelope,
   WorkflowTraceEvent,
@@ -10,13 +11,13 @@ const TRACE_VERSION: WorkflowTraceVersion = 'workflow-trace-v1'
 
 export function validateWorkflowTraceEvent(input: unknown): WorkflowTraceEvent {
   const obj = expectRecord(input, 'event')
-  const kind = expectString(obj.kind, 'event.kind')
-  if (!kind.startsWith('workflow.')) {
-    throw new ValidationError(`workflow trace event kind must start with "workflow.", got ${kind}`)
-  }
+  const kind = validateWorkflowTraceEventKind(expectString(obj.kind, 'event.kind'))
   const runId = expectString(obj.runId, 'event.runId')
   const timestamp = expectFinite(obj.timestamp, 'event.timestamp')
-  const payload = expectRecord(obj.payload, 'event.payload')
+  const payload = validateWorkflowTraceEventPayload(
+    kind,
+    expectRecord(obj.payload, 'event.payload'),
+  )
   return { kind, runId, timestamp, payload }
 }
 
@@ -35,6 +36,7 @@ export function validateWorkflowTraceEnvelope(input: unknown): WorkflowTraceEnve
       throw new ValidationError(`workflow trace event runId ${event.runId} does not match ${runId}`)
     }
   }
+  validateWorkflowTraceLifecycle(events)
   return {
     traceVersion: TRACE_VERSION,
     runId,
@@ -42,6 +44,30 @@ export function validateWorkflowTraceEnvelope(input: unknown): WorkflowTraceEnve
     events,
     ...(obj.artifacts !== undefined ? { artifacts: validateArtifacts(obj.artifacts) } : {}),
     ...(obj.metadata !== undefined ? { metadata: expectRecord(obj.metadata, 'metadata') } : {}),
+  }
+}
+
+function validateWorkflowTraceLifecycle(events: readonly WorkflowTraceEvent[]): void {
+  const first = events[0]
+  if (first?.kind !== 'workflow.started') {
+    throw new ValidationError('workflow trace first event must be workflow.started')
+  }
+  for (let index = 1; index < events.length; index += 1) {
+    if (events[index]!.timestamp < events[index - 1]!.timestamp) {
+      throw new ValidationError(`workflow trace timestamps must be nondecreasing at event ${index}`)
+    }
+  }
+  const terminalEvents = events.filter(
+    (event) => event.kind === 'workflow.ended' || event.kind === 'workflow.failed',
+  )
+  if (terminalEvents.length !== 1) {
+    throw new ValidationError(
+      `workflow trace must include exactly one terminal event, got ${terminalEvents.length}`,
+    )
+  }
+  const last = events.at(-1)
+  if (last?.kind !== terminalEvents[0]?.kind) {
+    throw new ValidationError('workflow trace terminal event must be last')
   }
 }
 

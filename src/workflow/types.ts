@@ -30,7 +30,7 @@ export type WorkflowTraceEventKind =
   | 'workflow.ended'
 
 export interface WorkflowTraceEvent {
-  kind: WorkflowTraceEventKind | (string & {})
+  kind: WorkflowTraceEventKind
   runId: string
   timestamp: number
   payload: Record<string, unknown>
