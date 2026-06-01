@@ -25,6 +25,7 @@ export {
   openAutoPr,
 } from './auto-pr'
 // ── Improvement drivers ──────────────────────────────────────────────
+export { type AceDriverOptions, aceDriver } from './drivers/ace'
 export { type EvolutionaryDriverOptions, evolutionaryDriver } from './drivers/evolutionary'
 export {
   countSentenceEdits,
