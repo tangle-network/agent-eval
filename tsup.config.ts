@@ -20,6 +20,7 @@ export default defineConfig({
     'matrix/index': 'src/matrix/index.ts',
     'multishot/index': 'src/multishot/index.ts',
     'campaign/index': 'src/campaign/index.ts',
+    'workflow/index': 'src/workflow/index.ts',
     'contract/index': 'src/contract/index.ts',
     'adapters/langchain': 'src/adapters/langchain.ts',
     'adapters/http': 'src/adapters/http.ts',
