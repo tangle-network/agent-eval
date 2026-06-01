@@ -1,3 +1,8 @@
+export {
+  validateWorkflowTraceEventKind,
+  validateWorkflowTraceEventPayload,
+  WORKFLOW_TRACE_EVENT_KINDS,
+} from './event-schema'
 export type {
   BuildWorkflowAnalystFeedbackPackOptions,
   WorkflowAnalystFeedbackPack,

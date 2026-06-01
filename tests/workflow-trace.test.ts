@@ -31,7 +31,16 @@ const envelope: WorkflowTraceEnvelope = {
     maxParallelBranches: 2,
   },
   events: [
-    { kind: 'workflow.started', runId: 'wf-1', timestamp: 1000, payload: { depth: 0 } },
+    {
+      kind: 'workflow.started',
+      runId: 'wf-1',
+      timestamp: 1000,
+      payload: {
+        meta: { name: 'driver-authored', description: 'Runtime-generated workflow' },
+        depth: 0,
+        caps: { maxFanout: 2, maxDepth: 1 },
+      },
+    },
     { kind: 'workflow.phase', runId: 'wf-1', timestamp: 1010, payload: { title: 'Plan' } },
     {
       kind: 'workflow.branch.started',
@@ -47,6 +56,7 @@ const envelope: WorkflowTraceEnvelope = {
         index: 0,
         label: 'planner',
         phase: 'Plan',
+        durationMs: 180,
         costUsd: 0.01,
         tokenUsage: { input: 10, output: 20 },
         trace: { text: 'plan' },
@@ -65,6 +75,7 @@ const envelope: WorkflowTraceEnvelope = {
       payload: {
         index: 0,
         label: 'implement',
+        durationMs: 250,
         costUsd: 0.02,
         tokenUsage: { input: 30, output: 40 },
         trace: { winner: 1 },
@@ -77,6 +88,9 @@ const envelope: WorkflowTraceEnvelope = {
       payload: {
         index: 0,
         label: 'acceptance',
+        durationMs: 20,
+        costUsd: 0,
+        tokenUsage: { input: 0, output: 0 },
         trace: { checkpointOutput: { allPass: true } },
       },
     },
@@ -87,6 +101,9 @@ const envelope: WorkflowTraceEnvelope = {
       payload: {
         index: 0,
         label: 'trace-analyst',
+        durationMs: 10,
+        costUsd: 0,
+        tokenUsage: { input: 0, output: 0 },
         trace: { output: { findings: [] } },
       },
     },
@@ -97,6 +114,9 @@ const envelope: WorkflowTraceEnvelope = {
       payload: {
         index: 0,
         label: 'next-shot',
+        durationMs: 10,
+        costUsd: 0,
+        tokenUsage: { input: 0, output: 0 },
         trace: { shouldContinue: false },
       },
     },
@@ -182,7 +202,16 @@ describe('workflow trace substrate', () => {
       traceVersion: 'workflow-trace-v1',
       runId: 'wf-failed-branch',
       events: [
-        { kind: 'workflow.started', runId: 'wf-failed-branch', timestamp: 1, payload: {} },
+        {
+          kind: 'workflow.started',
+          runId: 'wf-failed-branch',
+          timestamp: 1,
+          payload: {
+            meta: { name: 'failed-branch', description: 'Failed branch trace' },
+            depth: 0,
+            caps: { maxFanout: 1, maxDepth: 1 },
+          },
+        },
         {
           kind: 'workflow.branch.started',
           runId: 'wf-failed-branch',
@@ -354,7 +383,16 @@ describe('workflow trace substrate', () => {
 
   it('wraps emitted runtime events from failed workflows without needing a WorkflowResult', () => {
     const failed = workflowEventsToTraceEnvelope([
-      { kind: 'workflow.started', runId: 'wf-failed', timestamp: 1000, payload: {} },
+      {
+        kind: 'workflow.started',
+        runId: 'wf-failed',
+        timestamp: 1000,
+        payload: {
+          meta: { name: 'failed-workflow', description: 'Failed workflow trace' },
+          depth: 0,
+          caps: { maxFanout: 1, maxDepth: 1 },
+        },
+      },
       {
         kind: 'workflow.failed',
         runId: 'wf-failed',
@@ -378,10 +416,62 @@ describe('workflow trace substrate', () => {
         ...envelope,
         events: [
           ...envelope.events,
-          { kind: 'workflow.log', runId: 'other', timestamp: 1700, payload: {} },
+          {
+            kind: 'workflow.log',
+            runId: 'other',
+            timestamp: 1700,
+            payload: { message: 'other run' },
+          },
         ],
       }),
     ).toThrow(/does not match/)
+  })
+
+  it('rejects non-canonical workflow event kinds', () => {
+    expect(() =>
+      validateWorkflowTraceEnvelope({
+        ...envelope,
+        events: envelope.events.map((event, index) =>
+          index === 3 ? { ...event, kind: 'workflow.agent.done' } : event,
+        ),
+      }),
+    ).toThrow(/unknown workflow trace event kind/)
+  })
+
+  it('rejects malformed typed workflow event payloads', () => {
+    expect(() =>
+      validateWorkflowTraceEnvelope({
+        ...envelope,
+        events: envelope.events.map((event, index) =>
+          index === 3
+            ? {
+                ...event,
+                payload: {
+                  ...event.payload,
+                  costUsd: -1,
+                },
+              }
+            : event,
+        ),
+      }),
+    ).toThrow(/workflow\.agent\.ended\.payload\.costUsd/)
+  })
+
+  it('rejects workflow events emitted after terminal completion', () => {
+    expect(() =>
+      validateWorkflowTraceEnvelope({
+        ...envelope,
+        events: [
+          ...envelope.events,
+          {
+            kind: 'workflow.log',
+            runId: 'wf-1',
+            timestamp: 1700,
+            payload: { message: 'late log' },
+          },
+        ],
+      }),
+    ).toThrow(/terminal event must be last/)
   })
 
   it('rejects empty emitted runtime event buffers', () => {
@@ -396,9 +486,13 @@ describe('workflow trace substrate', () => {
         {
           kind: 'workflow.agent.ended',
           runId: 'wf-1',
-          timestamp: 1300,
+          timestamp: 1190,
           payload: {
+            index: 1,
             label: 'implementation',
+            durationMs: 90,
+            costUsd: 0,
+            tokenUsage: { input: 0, output: 0 },
             toolUsage: {
               byTool: {
                 read: { calls: 2, errors: 1 },
@@ -522,7 +616,11 @@ describe('workflow trace substrate', () => {
           runId: 'wf-1',
           timestamp: 1200,
           payload: {
+            index: 1,
             label: 'implementation',
+            durationMs: 90,
+            costUsd: 0,
+            tokenUsage: { input: 0, output: 0 },
             apiKey: 'sk-test-secret-value',
             toolArgs: { prompt: 'Use Bearer abcdefghijklmnop', count: 2 },
             filePath: 'src/App.tsx',
@@ -570,7 +668,11 @@ describe('workflow trace substrate', () => {
           runId: 'wf-1',
           timestamp: 1200,
           payload: {
+            index: 1,
             label: 'implementation',
+            durationMs: 90,
+            costUsd: 0,
+            tokenUsage: { input: 0, output: 0 },
             apiKey: 'sk-test-secret-value',
             toolCalls: [
               {
