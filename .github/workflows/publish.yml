@@ -38,6 +38,9 @@ jobs:
       - name: Build JS and emit OpenAPI spec
         run: pnpm build
 
+      - name: Verify packed package exports
+        run: pnpm run verify:package
+
       - name: Verify version lock between npm and PyPI packages
         run: |
           NPM_VERSION=$(node -p "require('./package.json').version")

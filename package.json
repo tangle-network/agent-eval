@@ -159,7 +159,8 @@
     "typecheck": "tsc --noEmit",
     "lint": "biome check src",
     "format": "biome format --write src",
-    "openapi": "node dist/cli.js openapi --out dist/openapi.json"
+    "openapi": "node dist/cli.js openapi --out dist/openapi.json",
+    "verify:package": "node scripts/verify-package-exports.mjs"
   },
   "dependencies": {
     "@asteasolutions/zod-to-openapi": "^8.5.0",

@@ -38,6 +38,9 @@ jobs:
       - name: Build and emit OpenAPI
         run: pnpm build
 
+      - name: Verify packed package exports
+        run: pnpm run verify:package
+
       - name: Install Python client
         working-directory: clients/python
         run: pip install -e ".[dev]"
