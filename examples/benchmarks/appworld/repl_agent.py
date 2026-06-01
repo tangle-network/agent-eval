@@ -46,6 +46,8 @@ PRICE_PER_M: dict[str, dict[str, float]] = {
     "gpt-4o-mini-2024-07-18": {"input": 0.15, "output": 0.60},
     "gpt-4o-2024-05-13": {"input": 5.0, "output": 15.0},
     "deepseek-v4-pro": {"input": 0.27, "output": 1.10},
+    "deepseek-chat": {"input": 0.27, "output": 1.10},
+    "deepseek-reasoner": {"input": 0.55, "output": 2.19},
     "gpt-5-mini": {"input": 0.25, "output": 2.0},
     "gpt-5": {"input": 1.25, "output": 10.0},
     "gpt-5-2025-08-07": {"input": 1.25, "output": 10.0},
@@ -131,16 +133,23 @@ def otlp_line(
     """Build one line in the OtlpFlatLine shape from src/trace-analyst/
     otlp-flatten.ts (trace_id/span_id/parent_span_id/name/kind/start_time/
     end_time/status/resource/attributes). store-otlp.ts indexes these directly."""
+    # Roots use "" (not null) for parent_span_id and carry an instrumentation
+    # `scope`: both are standard OTLP fields that the halo-engine SpanRecord
+    # schema requires (parent_span_id: str, scope required). Our own
+    # OtlpFileTraceStore normalizes "" → null (otlp-span.ts), so emitting the
+    # halo-complete shape keeps ONE corpus both analysis engines read.
     line: dict[str, Any] = {
         "trace_id": trace_id,
         "span_id": span_id,
-        "parent_span_id": parent_span_id,
+        "parent_span_id": parent_span_id or "",
+        "trace_state": "",
         "name": name,
         "kind": kind,
         "start_time": _ns_to_iso(start_ns),
         "end_time": _ns_to_iso(end_ns),
         "status": {"code": status_code},
         "resource": {"attributes": resource_attrs},
+        "scope": {"name": "appworld-repl-agent", "version": "1.0.0"},
         "attributes": attrs,
     }
     if status_message is not None:

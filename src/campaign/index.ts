@@ -45,6 +45,7 @@ export {
   SkillPatchParseError,
   skillOptDriver,
 } from './drivers/skill-opt'
+export { type TraceAnalystDriverOptions, traceAnalystDriver } from './drivers/trace-analyst'
 // ── Gates ────────────────────────────────────────────────────────────
 export { composeGate } from './gates/compose'
 export {

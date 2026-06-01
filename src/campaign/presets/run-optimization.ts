@@ -57,6 +57,12 @@ export interface RunOptimizationOptions<TScenario extends Scenario, TArtifact>
   /** Phase-2 research report forwarded to `propose()` (analyst findings +
    *  diff). Opaque here; the driver types it. */
   report?: unknown
+  /** Structured findings forwarded to `propose()` as `ctx.findings`. A
+   *  findings producer (trace-analyst registry, HALO) emits these from the
+   *  generation's traces; findings-grounded drivers (`improvementDriver`,
+   *  `memoryCurationDriver`, `traceAnalystDriver`) consume them. Opaque here;
+   *  the driver types its `TFindings`. Empty when no producer is wired. */
+  findings?: unknown[]
 }
 
 export interface RunOptimizationResult<TArtifact, TScenario extends Scenario> {
@@ -127,7 +133,7 @@ export async function runOptimization<TScenario extends Scenario, TArtifact>(
     const proposed = await opts.driver.propose({
       currentSurface: currentSurfaces[0] ?? opts.baselineSurface,
       history,
-      findings: [],
+      findings: opts.findings ?? [],
       populationSize: opts.populationSize,
       generation: gen,
       signal: new AbortController().signal,
