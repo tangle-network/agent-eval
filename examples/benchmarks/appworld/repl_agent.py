@@ -46,6 +46,7 @@ PRICE_PER_M: dict[str, dict[str, float]] = {
     "gpt-4o-mini-2024-07-18": {"input": 0.15, "output": 0.60},
     "gpt-4o-2024-05-13": {"input": 5.0, "output": 15.0},
     "deepseek-v4-pro": {"input": 0.27, "output": 1.10},
+    "deepseek-v4-flash": {"input": 0.07, "output": 0.30},
     "deepseek-chat": {"input": 0.27, "output": 1.10},
     "deepseek-reasoner": {"input": 0.55, "output": 2.19},
     "gpt-5-mini": {"input": 0.25, "output": 2.0},
