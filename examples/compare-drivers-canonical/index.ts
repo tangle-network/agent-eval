@@ -18,7 +18,7 @@
  *
  * Run (DeepSeek example):
  *   LLM_BASE_URL=https://api.deepseek.com/v1 LLM_API_KEY=$DEEPSEEK_API_KEY \
- *   LLM_MODEL=deepseek-chat PRICE_IN_PER_M=0.27 PRICE_OUT_PER_M=1.10 \
+ *   LLM_MODEL=deepseek-v4-pro PRICE_IN_PER_M=0.27 PRICE_OUT_PER_M=1.10 \
  *   pnpm tsx examples/compare-drivers-canonical/index.ts
  *
  * Run (Tangle router):
@@ -41,11 +41,11 @@ import {
   type Artifact,
   BASELINE_SURFACE,
   DRIVER_TARGET,
-  extractionJudge,
   type ExtractScenario,
+  extractionJudge,
   HOLDOUT,
-  makeExtractionWorker,
   MUTATION_PRIMITIVES,
+  makeExtractionWorker,
   SEARCH,
 } from '../_shared/extraction-task'
 
@@ -99,9 +99,13 @@ async function main() {
   mkdirSync(runRoot, { recursive: true })
   const startedAt = Date.now()
 
-  console.log('compareDrivers canonical — gepa-reflection vs gepa-pareto vs skill-opt, real backend')
+  console.log(
+    'compareDrivers canonical — gepa-reflection vs gepa-pareto vs skill-opt, real backend',
+  )
   console.log(`  model=${MODEL}  base=${BASE_URL}`)
-  console.log(`  search=${SEARCH.length}  holdout=${HOLDOUT.length}  pop=${POPULATION} gens=${GENERATIONS} epochs=${EPOCHS}`)
+  console.log(
+    `  search=${SEARCH.length}  holdout=${HOLDOUT.length}  pop=${POPULATION} gens=${GENERATIONS} epochs=${EPOCHS}`,
+  )
   console.log()
 
   // Shared corpus + transport for all three optimizer entries.
@@ -174,7 +178,8 @@ async function main() {
       lift: round(s.lift),
       liftCi: { low: round(s.liftCi.low), high: round(s.liftCi.high) },
       costUsd: round6(s.costUsd),
-      winnerSurface: typeof s.winnerSurface === 'string' ? s.winnerSurface : JSON.stringify(s.winnerSurface),
+      winnerSurface:
+        typeof s.winnerSurface === 'string' ? s.winnerSurface : JSON.stringify(s.winnerSurface),
     })),
     best: {
       name: best.name,
@@ -211,7 +216,9 @@ async function main() {
   }
   console.log('── PAIRWISE (best vs others) ───────────────────────────────')
   for (const p of artifact.pairwise) {
-    console.log(`  ${p.a} − ${p.b}: Δ=${p.deltaMean} CI[${p.ci.low}, ${p.ci.high}] → favored: ${p.favored}`)
+    console.log(
+      `  ${p.a} − ${p.b}: Δ=${p.deltaMean} CI[${p.ci.low}, ${p.ci.high}] → favored: ${p.favored}`,
+    )
   }
   console.log('── INTEGRITY ───────────────────────────────────────────────')
   console.log(
@@ -219,7 +226,9 @@ async function main() {
   )
   console.log(`  total cost           : $${round6(totalCostUsd)}`)
   console.log(`  elapsed              : ${elapsedSec}s`)
-  console.log(`  BEST DRIVER          : ${best.name} (lift=${round(best.lift)}, CI.low=${round(best.liftCi.low)})`)
+  console.log(
+    `  BEST DRIVER          : ${best.name} (lift=${round(best.lift)}, CI.low=${round(best.liftCi.low)})`,
+  )
   console.log(`  HONEST VERDICT       : ${honestVerdict}`)
   console.log(`  artifact: ${artifactPath}`)
 }
