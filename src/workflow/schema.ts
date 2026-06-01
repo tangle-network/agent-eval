@@ -62,6 +62,8 @@ export function summarizeWorkflowTrace(
     costUsd: finiteOr(endedPayload.costUsd, 0),
     tokenUsage,
     phaseCount: envelope.events.filter((e) => e.kind === 'workflow.phase').length,
+    branchCount: envelope.events.filter((e) => e.kind === 'workflow.branch.ended').length,
+    failedBranchCount: envelope.events.filter((e) => e.kind === 'workflow.branch.failed').length,
     agentCalls: finiteOr(
       endedPayload.agentCalls,
       envelope.events.filter((e) => e.kind === 'workflow.agent.ended').length,

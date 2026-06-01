@@ -13,6 +13,9 @@ export type WorkflowTraceEventKind =
   | 'workflow.parallel.ended'
   | 'workflow.pipeline.started'
   | 'workflow.pipeline.ended'
+  | 'workflow.branch.started'
+  | 'workflow.branch.ended'
+  | 'workflow.branch.failed'
   | 'workflow.agent.started'
   | 'workflow.agent.ended'
   | 'workflow.loop.started'
@@ -65,6 +68,8 @@ export interface WorkflowTraceSummary {
   costUsd: number
   tokenUsage: RunTokenUsage
   phaseCount: number
+  branchCount: number
+  failedBranchCount: number
   agentCalls: number
   loopCalls: number
   verifierCalls: number

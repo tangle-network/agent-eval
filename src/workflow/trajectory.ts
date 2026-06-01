@@ -44,6 +44,8 @@ export function workflowTraceToFeedbackTrajectory(
       metrics: {
         workflow_events: summary.eventCount,
         workflow_phases: summary.phaseCount,
+        workflow_branches: summary.branchCount,
+        workflow_branch_failures: summary.failedBranchCount,
         workflow_agent_calls: summary.agentCalls,
         workflow_loop_calls: summary.loopCalls,
         workflow_verifier_calls: summary.verifierCalls,
