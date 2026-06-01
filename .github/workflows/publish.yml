@@ -117,10 +117,10 @@ jobs:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
   publish-pypi:
-    # PyPI publish is independent of npm — both gate on `verify` so a version
-    # mismatch blocks both, but a re-run after a successful npm publish must
-    # still be able to push the matching PyPI artifact.
-    needs: verify
+    # PyPI must not publish a version npm failed to publish. The npm job is
+    # idempotent and succeeds when the version is already on the registry, so
+    # reruns can still repair a missing PyPI artifact without creating skew.
+    needs: [verify, publish-npm]
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     permissions:
