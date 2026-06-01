@@ -41,6 +41,15 @@ export {
   buildWorkflowPartnerReport,
   renderWorkflowPartnerReport,
 } from './partner-report'
+export type {
+  DecideWorkflowDriverPromotionOptions,
+  WorkflowDriverPromotionDecision,
+  WorkflowDriverPromotionDecisionVersion,
+  WorkflowDriverPromotionEvidence,
+  WorkflowDriverPromotionPair,
+  WorkflowDriverPromotionRejectionCode,
+} from './promotion-gate'
+export { decideWorkflowDriverPromotion } from './promotion-gate'
 export {
   type WorkflowTraceRunRecordOptions,
   workflowTraceToRunRecord,

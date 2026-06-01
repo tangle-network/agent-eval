@@ -2,10 +2,12 @@ import { describe, expect, it } from 'vitest'
 import { makeFinding } from '../src/analyst/types'
 import type { VerificationReport } from '../src/multi-layer-verifier'
 import type { FailureClusterReport } from '../src/pipelines'
+import type { RunRecord } from '../src/run-record'
 import {
   buildWorkflowAnalystFeedbackPack,
   buildWorkflowPartnerReport,
   buildWorkflowTraceIntelligenceEnvelope,
+  decideWorkflowDriverPromotion,
   renderWorkflowFeedbackPack,
   renderWorkflowPartnerReport,
   sanitizeWorkflowTraceEnvelope,
@@ -111,6 +113,34 @@ const projection = {
   commitSha: 'cafebabe',
   splitTag: 'search' as const,
   scenarioId: 'scenario-1',
+}
+
+function workflowRunRecord(args: {
+  candidateId: string
+  scenarioId?: string
+  seed: number
+  score: number
+  costUsd?: number
+}): RunRecord {
+  return {
+    runId: `${args.candidateId}-${args.scenarioId ?? 'missing'}-${args.seed}`,
+    experimentId: 'workflow-driver-promotion',
+    candidateId: args.candidateId,
+    seed: args.seed,
+    model: 'claude-sonnet-4-6@2025-04-15',
+    promptHash: 'p'.repeat(64),
+    configHash: 'c'.repeat(64),
+    commitSha: 'cafebabe',
+    wallMs: 1000,
+    costUsd: args.costUsd ?? 0.01,
+    tokenUsage: { input: 10, output: 5 },
+    outcome: {
+      holdoutScore: args.score,
+      raw: { workflow_driver_score: args.score },
+    },
+    splitTag: 'holdout',
+    ...(args.scenarioId ? { scenarioId: args.scenarioId } : {}),
+  }
 }
 
 describe('workflow trace substrate', () => {
@@ -586,5 +616,106 @@ describe('workflow trace substrate', () => {
     expect(report.exportBundle.trajectory.attempts).toHaveLength(5)
     expect(report.exportBundle.runRecord?.outcome.searchScore).toBe(0.82)
     expect(renderWorkflowPartnerReport(report)).toContain('Docs/API gaps')
+  })
+
+  it('gates workflow-driver promotion against reviewer-loop baseline on paired heldout scenarios', () => {
+    const records = ['auction', 'dex', 'payroll'].flatMap((scenarioId) => [
+      workflowRunRecord({
+        candidateId: 'reviewer-loop-v1',
+        scenarioId,
+        seed: 7,
+        score: 0.6,
+      }),
+      workflowRunRecord({
+        candidateId: 'workflow-driver-v1',
+        scenarioId,
+        seed: 7,
+        score: 0.82,
+      }),
+    ])
+    records.push(
+      workflowRunRecord({
+        candidateId: 'reviewer-loop-v1',
+        scenarioId: 'out-of-scope',
+        seed: 7,
+        score: 1,
+      }),
+      workflowRunRecord({
+        candidateId: 'workflow-driver-v1',
+        scenarioId: 'out-of-scope',
+        seed: 7,
+        score: 0,
+      }),
+    )
+
+    const decision = decideWorkflowDriverPromotion({
+      records,
+      expectedScenarioIds: ['auction', 'dex', 'payroll'],
+      minPairedHoldoutRuns: 3,
+      resamples: 200,
+      seed: 1,
+      generatedAt: '2026-06-01T00:00:04.000Z',
+    })
+
+    expect(decision.schemaVersion).toBe('workflow-driver-promotion-v1')
+    expect(decision.promote).toBe(true)
+    expect(decision.rejectionCode).toBeNull()
+    expect(decision.baselineStrategyId).toBe('reviewer-loop-v1')
+    expect(decision.candidateStrategyId).toBe('workflow-driver-v1')
+    expect(decision.evidence.pairedRuns).toBe(3)
+    expect(decision.evidence.pairedScenarioIds).toEqual(['auction', 'dex', 'payroll'])
+    expect(decision.evidence.lift).toBeCloseTo(0.22, 6)
+    expect(decision.evidence.liftCi.low).toBeGreaterThan(0)
+    expect(decision.evidence.pairs.map((pair) => pair.key)).toEqual([
+      'auction::7',
+      'dex::7',
+      'payroll::7',
+    ])
+  })
+
+  it('fails closed when a workflow promotion gate is missing a heldout scenario pair', () => {
+    const decision = decideWorkflowDriverPromotion({
+      records: [
+        workflowRunRecord({
+          candidateId: 'reviewer-loop-v1',
+          scenarioId: 'auction',
+          seed: 1,
+          score: 0.7,
+        }),
+        workflowRunRecord({
+          candidateId: 'workflow-driver-v1',
+          scenarioId: 'auction',
+          seed: 1,
+          score: 0.9,
+        }),
+        workflowRunRecord({
+          candidateId: 'reviewer-loop-v1',
+          scenarioId: 'dex',
+          seed: 1,
+          score: 0.7,
+        }),
+      ],
+      expectedScenarioIds: ['auction', 'dex'],
+      minPairedHoldoutRuns: 2,
+      resamples: 50,
+      seed: 2,
+    })
+
+    expect(decision.promote).toBe(false)
+    expect(decision.rejectionCode).toBe('missing_holdout_pairs')
+    expect(decision.evidence.missingScenarioIds).toEqual(['dex'])
+    expect(decision.reason).toContain('no paired baseline/candidate holdout record')
+  })
+
+  it('rejects workflow promotion records without scenarioId instead of pairing by seed only', () => {
+    expect(() =>
+      decideWorkflowDriverPromotion({
+        records: [
+          workflowRunRecord({ candidateId: 'reviewer-loop-v1', seed: 1, score: 0.7 }),
+          workflowRunRecord({ candidateId: 'workflow-driver-v1', seed: 1, score: 0.9 }),
+        ],
+        minPairedHoldoutRuns: 1,
+      }),
+    ).toThrow(/missing scenarioId/)
   })
 })
