@@ -30,6 +30,7 @@ import argparse
 import json
 import os
 import re
+import sys
 import time
 import uuid
 from typing import Any
@@ -46,6 +47,15 @@ PRICE_PER_M: dict[str, dict[str, float]] = {
     "gpt-4o-2024-05-13": {"input": 5.0, "output": 15.0},
     "deepseek-v4-pro": {"input": 0.27, "output": 1.10},
     "gpt-5-mini": {"input": 0.25, "output": 2.0},
+    "gpt-5": {"input": 1.25, "output": 10.0},
+    "gpt-5-2025-08-07": {"input": 1.25, "output": 10.0},
+    "gpt-5-codex": {"input": 1.25, "output": 10.0},
+    "gpt-5.1": {"input": 1.25, "output": 10.0},
+    "gpt-5.1-2025-11-13": {"input": 1.25, "output": 10.0},
+    "gpt-5-pro": {"input": 15.0, "output": 120.0},
+    "moonshotai/kimi-k2": {"input": 0.60, "output": 2.50},
+    "moonshotai/kimi-k2-0905": {"input": 0.60, "output": 2.50},
+    "moonshotai/kimi-k2-thinking": {"input": 0.60, "output": 2.50},
 }
 
 SYSTEM_PROMPT = """You are a coding agent solving a task for a user by writing Python.
@@ -177,7 +187,15 @@ def run_task(
     rate_limit_budget: float,
     max_tokens: int,
     out_dir: str,
+    system_prompt: str | None = None,
+    max_wall_seconds: float = 900.0,
+    temperature: float = 0.0,
+    seed: int = 100,
 ) -> dict[str, Any]:
+    # The agent instruction prompt is the OPTIMIZABLE SURFACE: compareDrivers /
+    # gepaDriver / haloDriver / memoryCurationDriver mutate it and pass the
+    # candidate here. Default = the baseline SYSTEM_PROMPT (the baseline arm).
+    active_system_prompt = system_prompt if system_prompt is not None else SYSTEM_PROMPT
     base_url = os.environ.get("OPENAI_BASE_URL")
     api_key = os.environ.get("OPENAI_API_KEY")
     if not base_url or not api_key:
@@ -211,7 +229,7 @@ def run_task(
 
     with AppWorld(task_id=task_id, experiment_name=experiment_name) as world:
         messages: list[dict[str, str]] = [
-            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "system", "content": active_system_prompt},
             {
                 "role": "user",
                 "content": FIRST_USER_TEMPLATE.format(
@@ -222,7 +240,17 @@ def run_task(
             },
         ]
 
-        for step in range(1, max_steps + 1):
+        # max_steps <= 0 means NO step cap (run until the agent calls
+        # complete_task); the only safety net is the wall-clock budget, so a
+        # non-terminating agent can't run forever. This is `maxTurns=0`.
+        step = 0
+        while True:
+            step += 1
+            if max_steps > 0 and step > max_steps:
+                break
+            if max_wall_seconds > 0 and (time.time_ns() - run_start_ns) / 1e9 > max_wall_seconds:
+                last_error = f"wall_clock_exceeded after {max_wall_seconds}s ({step - 1} steps)"
+                break
             # ── LLM span: ask the model for the next code block ──
             llm_start = time.time_ns()
             try:
@@ -231,8 +259,8 @@ def run_task(
                     rate_limit_budget=rate_limit_budget,
                     model=model,
                     messages=messages,
-                    temperature=0,
-                    seed=100,
+                    temperature=temperature,
+                    seed=seed,
                     max_tokens=max_tokens,
                 )
             except Exception as exc:  # fail loud: a stall/transport error is a real failure
@@ -329,11 +357,17 @@ def run_task(
                 completed = True
                 break
 
-    run_end_ns = time.time_ns()
-
-    # ── evaluate: TGC (task success) + SGC (per-test pass fraction) ──
-    with AppWorld(task_id=task_id, experiment_name=experiment_name) as world:
+        # ── evaluate IN THE SAME CONTEXT the agent acted in ──
+        # Evaluating in a FRESH AppWorld(...) context resets the world, so the
+        # evaluator never sees the agent's API calls / submitted answer — every
+        # task then pins at tgc=0 / sgc=0.5 regardless of agent quality (a frozen
+        # metric the optimizer can't move). Evaluate before the solve context
+        # exits so world.evaluate() reads the real final state.
         tracker = world.evaluate(suppress_errors=True)
+    # Read the wall clock AFTER the AppWorld context exits — inside it, AppWorld
+    # runs a simulated/frozen task clock, which made run_end_ns < run_start_ns
+    # (negative wall_ms). The tracker object survives the context for to_dict().
+    run_end_ns = time.time_ns()
     eval_dict = tracker.to_dict()
     tgc = 1.0 if eval_dict.get("success") else 0.0
     num_tests = int(eval_dict.get("num_tests") or 0)
@@ -430,10 +464,36 @@ def run_task(
 
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument("--task-id", required=True)
+    ap.add_argument("--task-id", default=None)  # required for a run; not for --print-baseline-prompt
     ap.add_argument("--model", default="gpt-4o-mini-2024-07-18")
     ap.add_argument("--experiment-name", default="repl_agent_smoke")
-    ap.add_argument("--max-steps", type=int, default=25)
+    ap.add_argument(
+        "--max-steps",
+        type=int,
+        default=0,
+        help="Hard step cap; 0 (default) = NO cap, run until the agent calls complete_task "
+        "(maxTurns=0). The wall-clock budget is the only safety net.",
+    )
+    ap.add_argument(
+        "--max-wall-seconds",
+        type=float,
+        default=900.0,
+        help="Per-episode wall-clock safety net so an agent that never completes can't hang forever.",
+    )
+    ap.add_argument(
+        "--temperature",
+        type=float,
+        default=0.0,
+        help="Sampling temperature. >0 makes reps genuinely independent (the bench passes 0.7); "
+        "0 is deterministic and lets the router cache identical reps (collapses multi-shot).",
+    )
+    ap.add_argument(
+        "--seed",
+        type=int,
+        default=100,
+        help="Sampling seed. The bench passes a UNIQUE seed per shot so the router can't return "
+        "a cached completion for an identical prompt — each shot is a real independent sample.",
+    )
     ap.add_argument("--call-timeout", type=float, default=60.0)
     ap.add_argument(
         "--rate-limit-budget",
@@ -448,7 +508,32 @@ def main() -> None:
         help="Per-call completion-token cap. Raise for reasoning models (e.g. 6000 for gpt-5-mini).",
     )
     ap.add_argument("--out-dir", default="/tmp/appworld-run")
+    ap.add_argument(
+        "--system-prompt-file",
+        default=None,
+        help="Path to the agent instruction prompt (the OPTIMIZABLE SURFACE). "
+        "Omit to use the baseline SYSTEM_PROMPT (the baseline arm).",
+    )
+    ap.add_argument(
+        "--print-baseline-prompt",
+        action="store_true",
+        help="Print the baseline SYSTEM_PROMPT verbatim and exit (the bench reads it as baselineSurface).",
+    )
     args = ap.parse_args()
+
+    if args.print_baseline_prompt:
+        sys.stdout.write(SYSTEM_PROMPT)
+        return
+
+    if not args.task_id:
+        ap.error("--task-id is required (unless --print-baseline-prompt)")
+
+    system_prompt = None
+    if args.system_prompt_file:
+        with open(args.system_prompt_file, encoding="utf-8") as fh:
+            system_prompt = fh.read()
+        if not system_prompt.strip():
+            raise RuntimeError(f"--system-prompt-file {args.system_prompt_file} is empty")
 
     result = run_task(
         task_id=args.task_id,
@@ -459,6 +544,10 @@ def main() -> None:
         rate_limit_budget=args.rate_limit_budget,
         max_tokens=args.max_tokens,
         out_dir=args.out_dir,
+        system_prompt=system_prompt,
+        max_wall_seconds=args.max_wall_seconds,
+        temperature=args.temperature,
+        seed=args.seed,
     )
     # Compact verdict line for the benchmark dispatcher to parse.
     print(

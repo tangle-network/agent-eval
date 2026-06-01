@@ -34,6 +34,7 @@ export {
   gepaDriver,
 } from './drivers/gepa'
 export { type HaloDriverOptions, haloDriver } from './drivers/halo'
+export { type MemoryCurationDriverOptions, memoryCurationDriver } from './drivers/memory'
 export {
   type ProposePatchesArgs,
   parseSkillPatchResponse,
