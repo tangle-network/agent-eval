@@ -400,16 +400,24 @@ async function main(): Promise<void> {
     .slice(TRAIN_N, TRAIN_N + HOLDOUT_N)
     .map((taskId) => ({ id: taskId, kind: 'appworld', taskId }))
 
-  // Baseline surface = the worker's baseline SYSTEM_PROMPT.
-  const { stdout: baselineSurface } = await execFileAsync(
-    PYTHON,
-    [WORKER, '--print-baseline-prompt'],
-    {
+  // Baseline surface = the worker's baseline SYSTEM_PROMPT — OR a deliberately
+  // WEAK prompt from BENCH_BASELINE_PROMPT_FILE. The weak-start lift experiment:
+  // a naive prompt omits the operational scaffolding (REPL-state model, API
+  // discovery, result inspection, completion protocol), so the worker fails for
+  // PROMPT reasons (not capability); the optimizer must recover that scaffolding.
+  // This is the regime where prompt-opt lift is real — fixing a bad prompt, not
+  // polishing the already-competent default.
+  let baselineSurface: string
+  if (process.env.BENCH_BASELINE_PROMPT_FILE) {
+    baselineSurface = readFileSync(process.env.BENCH_BASELINE_PROMPT_FILE, 'utf8')
+  } else {
+    const { stdout } = await execFileAsync(PYTHON, [WORKER, '--print-baseline-prompt'], {
       cwd: APPWORLD_DIR,
       env: process.env,
       maxBuffer: 8 * 1024 * 1024,
-    },
-  )
+    })
+    baselineSurface = stdout
+  }
 
   // Wrap dispatch to record train-cell trace paths for the halo driver.
   const trainIds = new Set(trainScenarios.map((s) => s.taskId))
