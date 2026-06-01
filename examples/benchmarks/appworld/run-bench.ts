@@ -62,6 +62,7 @@ const REPS = Number(process.env.REPS ?? 5) // shots per holdout cell → bootstr
 const MAX_STEPS = Number(process.env.MAX_STEPS ?? 0) // 0 = no cap (maxTurns=0)
 const MAX_WALL = Number(process.env.MAX_WALL ?? 900) // per-episode wall-clock safety net (s)
 const TEMPERATURE = Number(process.env.TEMPERATURE ?? 0.7) // >0 → independent shots (vs cached reps)
+const MAXCONC = Number(process.env.MAXCONC ?? 3) // holdout-scoring concurrency (router absorbs 429s)
 const CALL_TIMEOUT = Number(process.env.CALL_TIMEOUT ?? 120)
 const MAX_TOKENS = Number(process.env.MAX_TOKENS ?? 6000)
 const OUT_DIR = process.env.OUT_DIR ?? join(tmpdir(), 'appworld-bench')
@@ -360,6 +361,7 @@ async function main(): Promise<void> {
     runDir: join(OUT_DIR, 'compare'),
     seed: SEED,
     reps: REPS, // 5 shots per holdout cell — the CI is over reps×scenarios, not a single point
+    maxConcurrency: MAXCONC, // parallelize the holdout-scoring fan-out (the bulk of the run)
     expectUsage: 'assert', // NO STUBS — a zero-token cell fails loud, never silently scored 0
   })
 
