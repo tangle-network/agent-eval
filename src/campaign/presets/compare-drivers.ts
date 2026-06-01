@@ -29,7 +29,7 @@ import type {
   MutableSurface,
   Scenario,
 } from '../types'
-import { runImprovementLoop } from './run-improvement-loop'
+import { type RunImprovementLoopOptions, runImprovementLoop } from './run-improvement-loop'
 import { runSkillOpt } from './run-skill-opt'
 
 /** What an optimizer produced: the surface it promoted + what it cost to get
@@ -252,6 +252,17 @@ export interface OptimizerEntryConfig<TScenario extends Scenario, TArtifact> {
   /** SkillOpt epochs. Default 6. */
   maxEpochs?: number
   mutationPrimitives?: string[]
+  /** Static findings seed forwarded to each GEPA driver's `propose()` as
+   *  `ctx.findings` (the EYES→HANDS wire). Forwarded by `gepaReflectionEntry` /
+   *  `gepaParetoEntry`; `skillOptEntry` runs findings-BLIND (see its doc). */
+  findings?: unknown[]
+  /** Per-generation findings producer (EYES→HANDS loop closure): after each
+   *  generation scores, this re-diagnoses and REPLACES `ctx.findings` for the
+   *  next generation's `propose()`. Reuses the `runOptimization` field type so
+   *  it cannot drift. GEPA entries only. */
+  analyzeGeneration?: RunImprovementLoopOptions<TScenario, TArtifact>['analyzeGeneration']
+  /** Phase-2 research report forwarded to `propose()` as `ctx.report`. */
+  report?: unknown
 }
 
 /** GEPA, reflection-only (single-parent, no Pareto combine). */
@@ -302,6 +313,12 @@ function gepaEntry<TScenario extends Scenario, TArtifact>(
         autoOnPromote: 'none',
         runDir: `${config.runDir}/${slug(name)}-loop`,
         ...(config.seed !== undefined ? { seed: config.seed } : {}),
+        // EYES→HANDS: flow findings to the driver's propose(). These reach
+        // runOptimization unchanged (runImprovementLoop extends RunOptimizationOptions
+        // and forwards {...opts}); ctx.findings/report/analyzeGeneration are consumed there.
+        ...(config.findings !== undefined ? { findings: config.findings } : {}),
+        ...(config.analyzeGeneration ? { analyzeGeneration: config.analyzeGeneration } : {}),
+        ...(config.report !== undefined ? { report: config.report } : {}),
       })
       const costUsd =
         result.baselineCampaign.aggregates.totalCostUsd +
@@ -315,7 +332,12 @@ function gepaEntry<TScenario extends Scenario, TArtifact>(
   }
 }
 
-/** SkillOpt patch-mode hill-climb. */
+/** SkillOpt patch-mode hill-climb. Runs findings-BLIND: `runSkillOpt` owns its
+ *  own epoch acceptance/budget loop and does not thread `analyzeGeneration`, so
+ *  `config.findings` is intentionally NOT forwarded here. In a findings-fed
+ *  comparison this entry is the blind control — do not read its result as
+ *  findings-fed. (Threading findings into the SkillOpt epoch loop is a separate
+ *  refactor, deferred not faked.) */
 export function skillOptEntry<TScenario extends Scenario, TArtifact>(
   config: OptimizerEntryConfig<TScenario, TArtifact>,
   name = 'skill-opt',
