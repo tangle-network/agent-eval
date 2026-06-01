@@ -166,6 +166,7 @@ export function renderWorkflowFeedbackPack(
   const lines = [
     `Workflow feedback pack for ${pack.runId}`,
     `status=${pack.summary.failed ? 'failed' : 'completed'} durationMs=${pack.summary.durationMs} costUsd=${pack.summary.costUsd.toFixed(6)} tokens=${pack.summary.tokenUsage.input}/${pack.summary.tokenUsage.output} events=${pack.summary.eventCount}`,
+    renderDelegateFailureCounts(pack.summary),
     pack.verifier
       ? `verifier=${pack.verifier.allPass ? 'pass' : 'fail'} blendedScore=${pack.verifier.blendedScore.toFixed(3)} failedLayers=${pack.verifier.failedLayers.join(',') || 'none'}`
       : undefined,
@@ -190,6 +191,19 @@ export function renderWorkflowFeedbackPack(
   if (maxChars === undefined || rendered.length <= maxChars) return rendered
   if (maxChars <= 1) return rendered.slice(0, Math.max(0, maxChars))
   return `${rendered.slice(0, maxChars - 1)}…`
+}
+
+function renderDelegateFailureCounts(summary: WorkflowTraceSummary): string | undefined {
+  const entries: Array<[string, number]> = [
+    ['agent', summary.agentFailures],
+    ['loop', summary.loopFailures],
+    ['verifier', summary.verifierFailures],
+    ['analyst', summary.analystFailures],
+    ['reviewer', summary.reviewerFailures],
+  ]
+  const failures = entries.filter((entry) => entry[1] > 0)
+  if (failures.length === 0) return undefined
+  return `delegateFailures=${failures.map(([kind, count]) => `${kind}:${count}`).join(',')}`
 }
 
 function summarizeVerifier(

@@ -13,6 +13,15 @@ export interface WorkflowDelegateTraceSummary {
   trace: unknown
 }
 
+export interface WorkflowDelegateFailureSummary {
+  index: number | null
+  label: string | null
+  phase: string | null
+  durationMs: number | null
+  message: string | null
+  code: string | null
+}
+
 export interface WorkflowCheckpointTraceSummary extends WorkflowDelegateTraceSummary {
   output: unknown
 }
@@ -27,6 +36,11 @@ export interface WorkflowExecutionSummary extends WorkflowTraceSummary {
   verifierOutputs: WorkflowCheckpointTraceSummary[]
   analystOutputs: WorkflowCheckpointTraceSummary[]
   reviewerOutputs: WorkflowCheckpointTraceSummary[]
+  agentFailureDetails: WorkflowDelegateFailureSummary[]
+  loopFailureDetails: WorkflowDelegateFailureSummary[]
+  verifierFailureDetails: WorkflowDelegateFailureSummary[]
+  analystFailureDetails: WorkflowDelegateFailureSummary[]
+  reviewerFailureDetails: WorkflowDelegateFailureSummary[]
 }
 
 export interface SummarizeWorkflowExecutionOptions {
@@ -50,6 +64,20 @@ export function summarizeWorkflowExecution(
     verifierOutputs: workflowCheckpointTraceSummaries(envelope.events, 'workflow.verifier.ended'),
     analystOutputs: workflowCheckpointTraceSummaries(envelope.events, 'workflow.analyst.ended'),
     reviewerOutputs: workflowCheckpointTraceSummaries(envelope.events, 'workflow.reviewer.ended'),
+    agentFailureDetails: workflowDelegateFailureSummaries(envelope.events, 'workflow.agent.failed'),
+    loopFailureDetails: workflowDelegateFailureSummaries(envelope.events, 'workflow.loop.failed'),
+    verifierFailureDetails: workflowDelegateFailureSummaries(
+      envelope.events,
+      'workflow.verifier.failed',
+    ),
+    analystFailureDetails: workflowDelegateFailureSummaries(
+      envelope.events,
+      'workflow.analyst.failed',
+    ),
+    reviewerFailureDetails: workflowDelegateFailureSummaries(
+      envelope.events,
+      'workflow.reviewer.failed',
+    ),
   }
 }
 
@@ -99,6 +127,22 @@ function workflowCheckpointTraceSummaries(
     ...summary,
     output: checkpointOutput(summary.trace),
   }))
+}
+
+function workflowDelegateFailureSummaries(
+  events: readonly WorkflowTraceEvent[],
+  failedKind: WorkflowTraceEvent['kind'],
+): WorkflowDelegateFailureSummary[] {
+  return events
+    .filter((event) => event.kind === failedKind)
+    .map((event) => ({
+      index: numberField(event.payload, 'index'),
+      label: stringField(event.payload, 'label'),
+      phase: stringField(event.payload, 'phase'),
+      durationMs: numberField(event.payload, 'durationMs'),
+      message: stringField(event.payload, 'message'),
+      code: stringField(event.payload, 'code'),
+    }))
 }
 
 function checkpointOutput(trace: unknown): unknown {

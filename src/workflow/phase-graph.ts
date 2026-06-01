@@ -15,6 +15,11 @@ export interface WorkflowPhaseGraphNode {
   verifierCalls: number
   analystCalls: number
   reviewerCalls: number
+  agentFailures: number
+  loopFailures: number
+  verifierFailures: number
+  analystFailures: number
+  reviewerFailures: number
   costUsd: number
   tokenUsage: RunTokenUsage
 }
@@ -85,6 +90,11 @@ function phaseNode(
     verifierCalls: 0,
     analystCalls: 0,
     reviewerCalls: 0,
+    agentFailures: 0,
+    loopFailures: 0,
+    verifierFailures: 0,
+    analystFailures: 0,
+    reviewerFailures: 0,
     costUsd: 0,
     tokenUsage: { input: 0, output: 0 },
   }
@@ -107,17 +117,37 @@ function observePhaseEvent(node: MutableWorkflowPhaseGraphNode, event: WorkflowT
     case 'workflow.agent.ended':
       node.agentCalls += 1
       break
+    case 'workflow.agent.failed':
+      node.agentCalls += 1
+      node.agentFailures += 1
+      break
     case 'workflow.loop.ended':
       node.loopCalls += 1
+      break
+    case 'workflow.loop.failed':
+      node.loopCalls += 1
+      node.loopFailures += 1
       break
     case 'workflow.verifier.ended':
       node.verifierCalls += 1
       break
+    case 'workflow.verifier.failed':
+      node.verifierCalls += 1
+      node.verifierFailures += 1
+      break
     case 'workflow.analyst.ended':
       node.analystCalls += 1
       break
+    case 'workflow.analyst.failed':
+      node.analystCalls += 1
+      node.analystFailures += 1
+      break
     case 'workflow.reviewer.ended':
       node.reviewerCalls += 1
+      break
+    case 'workflow.reviewer.failed':
+      node.reviewerCalls += 1
+      node.reviewerFailures += 1
       break
   }
 
@@ -205,6 +235,11 @@ function readonlyPhaseNode(node: MutableWorkflowPhaseGraphNode): WorkflowPhaseGr
     verifierCalls: node.verifierCalls,
     analystCalls: node.analystCalls,
     reviewerCalls: node.reviewerCalls,
+    agentFailures: node.agentFailures,
+    loopFailures: node.loopFailures,
+    verifierFailures: node.verifierFailures,
+    analystFailures: node.analystFailures,
+    reviewerFailures: node.reviewerFailures,
     costUsd: node.costUsd,
     tokenUsage: node.tokenUsage,
   }

@@ -92,20 +92,41 @@ export function summarizeWorkflowTrace(
     failedBranchCount: envelope.events.filter((e) => e.kind === 'workflow.branch.failed').length,
     agentCalls: finiteOr(
       endedPayload.agentCalls,
-      envelope.events.filter((e) => e.kind === 'workflow.agent.ended').length,
+      countEvents(envelope.events, 'workflow.agent.ended', 'workflow.agent.failed'),
     ),
     loopCalls: finiteOr(
       endedPayload.loopCalls,
-      envelope.events.filter((e) => e.kind === 'workflow.loop.ended').length,
+      countEvents(envelope.events, 'workflow.loop.ended', 'workflow.loop.failed'),
     ),
-    verifierCalls: envelope.events.filter((e) => e.kind === 'workflow.verifier.ended').length,
-    analystCalls: envelope.events.filter((e) => e.kind === 'workflow.analyst.ended').length,
-    reviewerCalls: envelope.events.filter((e) => e.kind === 'workflow.reviewer.ended').length,
+    verifierCalls: countEvents(
+      envelope.events,
+      'workflow.verifier.ended',
+      'workflow.verifier.failed',
+    ),
+    analystCalls: countEvents(envelope.events, 'workflow.analyst.ended', 'workflow.analyst.failed'),
+    reviewerCalls: countEvents(
+      envelope.events,
+      'workflow.reviewer.ended',
+      'workflow.reviewer.failed',
+    ),
+    agentFailures: countEvents(envelope.events, 'workflow.agent.failed'),
+    loopFailures: countEvents(envelope.events, 'workflow.loop.failed'),
+    verifierFailures: countEvents(envelope.events, 'workflow.verifier.failed'),
+    analystFailures: countEvents(envelope.events, 'workflow.analyst.failed'),
+    reviewerFailures: countEvents(envelope.events, 'workflow.reviewer.failed'),
     eventCount: envelope.events.length,
     failed: failed !== undefined,
     failureMessage:
       typeof failed?.payload.message === 'string' ? failed.payload.message : undefined,
   }
+}
+
+function countEvents(
+  events: readonly WorkflowTraceEvent[],
+  ...kinds: readonly WorkflowTraceEvent['kind'][]
+): number {
+  const allowed = new Set(kinds)
+  return events.filter((event) => allowed.has(event.kind)).length
 }
 
 function validateArtifacts(value: unknown): WorkflowTraceEnvelope['artifacts'] {
