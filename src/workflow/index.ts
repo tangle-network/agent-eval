@@ -16,10 +16,26 @@ export {
   buildWorkflowAnalystFeedbackPack,
   renderWorkflowFeedbackPack,
 } from './feedback-pack'
+export type {
+  BuildWorkflowPartnerReportOptions,
+  WorkflowPartnerFinding,
+  WorkflowPartnerReport,
+  WorkflowPartnerReportVersion,
+} from './partner-report'
+export {
+  buildWorkflowPartnerReport,
+  renderWorkflowPartnerReport,
+} from './partner-report'
 export {
   type WorkflowTraceRunRecordOptions,
   workflowTraceToRunRecord,
 } from './run-record'
+export type {
+  SanitizedWorkflowTraceEnvelopeResult,
+  SanitizeWorkflowTraceEnvelopeOptions,
+  WorkflowTraceSanitizationReport,
+} from './sanitize'
+export { sanitizeWorkflowTraceEnvelope } from './sanitize'
 export {
   summarizeWorkflowTrace,
   validateWorkflowTraceEnvelope,

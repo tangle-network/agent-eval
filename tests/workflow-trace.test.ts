@@ -4,7 +4,10 @@ import type { VerificationReport } from '../src/multi-layer-verifier'
 import type { FailureClusterReport } from '../src/pipelines'
 import {
   buildWorkflowAnalystFeedbackPack,
+  buildWorkflowPartnerReport,
   renderWorkflowFeedbackPack,
+  renderWorkflowPartnerReport,
+  sanitizeWorkflowTraceEnvelope,
   summarizeWorkflowTrace,
   validateWorkflowTraceEnvelope,
   type WorkflowTraceEnvelope,
@@ -47,6 +50,33 @@ const envelope: WorkflowTraceEnvelope = {
       },
     },
     {
+      kind: 'workflow.verifier.ended',
+      runId: 'wf-1',
+      timestamp: 1550,
+      payload: {
+        label: 'acceptance',
+        trace: { allPass: true },
+      },
+    },
+    {
+      kind: 'workflow.analyst.ended',
+      runId: 'wf-1',
+      timestamp: 1560,
+      payload: {
+        label: 'trace-analyst',
+        trace: { findings: [] },
+      },
+    },
+    {
+      kind: 'workflow.reviewer.ended',
+      runId: 'wf-1',
+      timestamp: 1570,
+      payload: {
+        label: 'next-shot',
+        trace: { shouldContinue: false },
+      },
+    },
+    {
       kind: 'workflow.ended',
       runId: 'wf-1',
       timestamp: 1600,
@@ -86,6 +116,9 @@ describe('workflow trace substrate', () => {
       phaseCount: 1,
       agentCalls: 1,
       loopCalls: 1,
+      verifierCalls: 1,
+      analystCalls: 1,
+      reviewerCalls: 1,
       failed: false,
     })
   })
@@ -97,6 +130,9 @@ describe('workflow trace substrate', () => {
     expect(record.outcome.searchScore).toBe(0.82)
     expect(record.outcome.raw.workflow_agent_calls).toBe(1)
     expect(record.outcome.raw.workflow_loop_calls).toBe(1)
+    expect(record.outcome.raw.workflow_verifier_calls).toBe(1)
+    expect(record.outcome.raw.workflow_analyst_calls).toBe(1)
+    expect(record.outcome.raw.workflow_reviewer_calls).toBe(1)
     expect(record.tokenUsage).toEqual({ input: 40, output: 60 })
   })
 
@@ -109,9 +145,16 @@ describe('workflow trace substrate', () => {
       tags: { driver: 'workflow-driver-v1' },
     })
     expect(trajectory.id).toBe('wf-1')
-    expect(trajectory.attempts).toHaveLength(2)
-    expect(trajectory.attempts.map((a) => a.artifactType)).toEqual(['action', 'decision'])
+    expect(trajectory.attempts).toHaveLength(5)
+    expect(trajectory.attempts.map((a) => a.artifactType)).toEqual([
+      'action',
+      'decision',
+      'decision',
+      'data',
+      'decision',
+    ])
     expect(trajectory.outcome?.metrics?.workflow_tokens_output).toBe(60)
+    expect(trajectory.outcome?.metrics?.workflow_analyst_calls).toBe(1)
     expect(trajectory.tags?.driver).toBe('workflow-driver-v1')
   })
 
@@ -249,5 +292,83 @@ describe('workflow trace substrate', () => {
 
     expect(renderWorkflowFeedbackPack(pack)).toContain('Workflow feedback pack for wf-1')
     expect(renderWorkflowFeedbackPack(pack, { maxChars: 12 })).toHaveLength(12)
+  })
+
+  it('sanitizes workflow traces for intelligence export without losing clustering evidence', () => {
+    const sensitiveEnvelope: WorkflowTraceEnvelope = {
+      ...envelope,
+      events: [
+        ...envelope.events.slice(0, 2),
+        {
+          kind: 'workflow.agent.ended',
+          runId: 'wf-1',
+          timestamp: 1200,
+          payload: {
+            label: 'implementation',
+            apiKey: 'sk-test-secret-value',
+            toolArgs: { prompt: 'Use Bearer abcdefghijklmnop', count: 2 },
+            filePath: 'src/App.tsx',
+            content: 'const apiKey = "sk-another-secret-value"',
+          },
+        },
+        ...envelope.events.slice(3),
+      ],
+      artifacts: [
+        {
+          kind: 'source-file',
+          uri: 'artifact://src/App.tsx',
+          metadata: {
+            path: 'src/App.tsx',
+            contents: 'export const secret = "sk-file-secret-value"',
+          },
+        },
+      ],
+    }
+
+    const sanitized = sanitizeWorkflowTraceEnvelope(sensitiveEnvelope, { hashSalt: 'test' })
+
+    const agentPayload = sanitized.envelope.events[2]?.payload as Record<string, unknown>
+    expect(agentPayload.apiKey).toBe('[redacted:apiKey]')
+    expect(agentPayload.toolArgs).toMatchObject({ redacted: true, shape: { type: 'object' } })
+    expect(agentPayload.content).toMatchObject({ redacted: true, shape: { type: 'string' } })
+    expect(JSON.stringify(sanitized.envelope)).not.toContain('sk-test-secret-value')
+    expect(JSON.stringify(sanitized.envelope)).not.toContain('sk-file-secret-value')
+    expect(sanitized.report.hashedArgs).toBe(1)
+    expect(sanitized.report.droppedArtifactContents).toBe(2)
+    expect(sanitized.report.droppedPayloadKeys.apiKey).toBe(1)
+  })
+
+  it('builds a partner-facing workflow report with sanitized trace, RL trajectory, and PR-ready findings', () => {
+    const docsFinding = makeFinding({
+      analyst_id: 'knowledge-gap',
+      severity: 'high',
+      area: 'api-docs',
+      claim: 'The generated app guessed an SDK method that is missing from the partner docs',
+      confidence: 0.88,
+      evidence_refs: [{ kind: 'event', uri: 'workflow://wf-1/analyst' }],
+      recommended_action: 'Open a docs PR adding the SDK method and a runnable example',
+      validation_plan: 'Regenerate the workflow against the updated docs',
+    })
+
+    const report = buildWorkflowPartnerReport({
+      envelope,
+      analystFindings: [docsFinding],
+      generatedAt: '2026-06-01T00:00:02.000Z',
+      trajectory: {
+        projectId: 'blueprint-agent',
+        scenarioId: 'scenario-1',
+        task: 'Build the app',
+        score: 0.82,
+        tags: { driver: 'workflow-driver-v1' },
+      },
+      runRecord: { ...projection, score: 0.82 },
+    })
+
+    expect(report.schemaVersion).toBe('workflow-partner-report-v1')
+    expect(report.docsApiGaps[0]?.claim).toContain('partner docs')
+    expect(report.prReadyFindings[0]?.recommendedAction).toContain('docs PR')
+    expect(report.exportBundle.trajectory.attempts).toHaveLength(5)
+    expect(report.exportBundle.runRecord?.outcome.searchScore).toBe(0.82)
+    expect(renderWorkflowPartnerReport(report)).toContain('Docs/API gaps')
   })
 })
