@@ -14,14 +14,19 @@ const WORKFLOW_EVENT_KINDS = [
   'workflow.branch.failed',
   'workflow.agent.started',
   'workflow.agent.ended',
+  'workflow.agent.failed',
   'workflow.loop.started',
   'workflow.loop.ended',
+  'workflow.loop.failed',
   'workflow.verifier.started',
   'workflow.verifier.ended',
+  'workflow.verifier.failed',
   'workflow.analyst.started',
   'workflow.analyst.ended',
+  'workflow.analyst.failed',
   'workflow.reviewer.started',
   'workflow.reviewer.ended',
+  'workflow.reviewer.failed',
   'workflow.failed',
   'workflow.ended',
 ] as const satisfies readonly WorkflowTraceEventKind[]
@@ -97,6 +102,9 @@ export function validateWorkflowTraceEventPayload(
     case 'workflow.agent.ended':
       validateDelegateEndedPayload(kind, payload)
       return payload
+    case 'workflow.agent.failed':
+      validateDelegateFailedPayload(kind, payload)
+      return payload
     case 'workflow.loop.started':
     case 'workflow.verifier.started':
     case 'workflow.analyst.started':
@@ -109,6 +117,12 @@ export function validateWorkflowTraceEventPayload(
     case 'workflow.analyst.ended':
     case 'workflow.reviewer.ended':
       validateDelegateEndedPayload(kind, payload)
+      return payload
+    case 'workflow.loop.failed':
+    case 'workflow.verifier.failed':
+    case 'workflow.analyst.failed':
+    case 'workflow.reviewer.failed':
+      validateDelegateFailedPayload(kind, payload)
       return payload
     case 'workflow.failed':
       requireString(payload.message, `${kind}.payload.message`)
@@ -161,6 +175,16 @@ function validateDelegateEndedPayload(
   requireNonNegativeNumber(payload.durationMs, `${kind}.payload.durationMs`)
   requireNonNegativeNumber(payload.costUsd, `${kind}.payload.costUsd`)
   validateTokenUsage(payload.tokenUsage, `${kind}.payload.tokenUsage`)
+}
+
+function validateDelegateFailedPayload(
+  kind: WorkflowTraceEventKind,
+  payload: Record<string, unknown>,
+): void {
+  validateIndexedPayload(kind, payload)
+  requireNonNegativeNumber(payload.durationMs, `${kind}.payload.durationMs`)
+  requireString(payload.message, `${kind}.payload.message`)
+  optionalString(payload.code, `${kind}.payload.code`)
 }
 
 function validateTokenUsage(value: unknown, path: string): void {

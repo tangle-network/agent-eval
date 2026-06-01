@@ -31,6 +31,11 @@ export function workflowTraceToRunRecord(
     workflow_verifier_calls: summary.verifierCalls,
     workflow_analyst_calls: summary.analystCalls,
     workflow_reviewer_calls: summary.reviewerCalls,
+    workflow_agent_failures: summary.agentFailures,
+    workflow_loop_failures: summary.loopFailures,
+    workflow_verifier_failures: summary.verifierFailures,
+    workflow_analyst_failures: summary.analystFailures,
+    workflow_reviewer_failures: summary.reviewerFailures,
   }
   const outcome =
     options.splitTag === 'holdout' ? { holdoutScore: score, raw } : { searchScore: score, raw }

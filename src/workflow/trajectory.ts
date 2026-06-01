@@ -51,6 +51,11 @@ export function workflowTraceToFeedbackTrajectory(
         workflow_verifier_calls: summary.verifierCalls,
         workflow_analyst_calls: summary.analystCalls,
         workflow_reviewer_calls: summary.reviewerCalls,
+        workflow_agent_failures: summary.agentFailures,
+        workflow_loop_failures: summary.loopFailures,
+        workflow_verifier_failures: summary.verifierFailures,
+        workflow_analyst_failures: summary.analystFailures,
+        workflow_reviewer_failures: summary.reviewerFailures,
         workflow_tokens_input: summary.tokenUsage.input,
         workflow_tokens_output: summary.tokenUsage.output,
       },
@@ -88,6 +93,9 @@ function workflowEventsToAttempts(events: readonly WorkflowTraceEvent[]): Feedba
         phase: event.payload.phase,
         costUsd: event.payload.costUsd,
         tokenUsage: event.payload.tokenUsage,
+        ...(event.kind.endsWith('.failed')
+          ? { failed: true, message: event.payload.message, code: event.payload.code }
+          : {}),
       },
     })
   }
@@ -99,12 +107,17 @@ function artifactTypeForWorkflowEvent(
 ): FeedbackAttempt['artifactType'] | null {
   switch (kind) {
     case 'workflow.agent.ended':
+    case 'workflow.agent.failed':
       return 'action'
     case 'workflow.analyst.ended':
+    case 'workflow.analyst.failed':
       return 'data'
     case 'workflow.loop.ended':
     case 'workflow.verifier.ended':
     case 'workflow.reviewer.ended':
+    case 'workflow.loop.failed':
+    case 'workflow.verifier.failed':
+    case 'workflow.reviewer.failed':
       return 'decision'
     default:
       return null

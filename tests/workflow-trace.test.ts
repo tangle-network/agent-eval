@@ -264,6 +264,124 @@ describe('workflow trace substrate', () => {
     expect(record.outcome.raw.workflow_branch_failures).toBe(1)
   })
 
+  it('projects failed delegate events as first-class workflow evidence', () => {
+    const failedDelegateEnvelope: WorkflowTraceEnvelope = {
+      traceVersion: 'workflow-trace-v1',
+      runId: 'wf-failed-agent',
+      events: [
+        {
+          kind: 'workflow.started',
+          runId: 'wf-failed-agent',
+          timestamp: 1,
+          payload: {
+            meta: { name: 'failed-agent', description: 'Failed delegate trace' },
+            depth: 0,
+            caps: { maxFanout: 1, maxDepth: 1 },
+          },
+        },
+        {
+          kind: 'workflow.phase',
+          runId: 'wf-failed-agent',
+          timestamp: 2,
+          payload: { title: 'Build' },
+        },
+        {
+          kind: 'workflow.agent.started',
+          runId: 'wf-failed-agent',
+          timestamp: 3,
+          payload: {
+            index: 0,
+            label: 'implementation',
+            promptChars: 64,
+            phase: 'Build',
+          },
+        },
+        {
+          kind: 'workflow.agent.failed',
+          runId: 'wf-failed-agent',
+          timestamp: 13,
+          payload: {
+            index: 0,
+            label: 'implementation',
+            durationMs: 10,
+            message: 'sandbox worker crashed',
+            code: 'SandboxExit',
+            phase: 'Build',
+          },
+        },
+        {
+          kind: 'workflow.failed',
+          runId: 'wf-failed-agent',
+          timestamp: 14,
+          payload: { message: 'sandbox worker crashed', code: 'SandboxExit', phase: 'Build' },
+        },
+      ],
+    }
+
+    expect(validateWorkflowTraceEnvelope(failedDelegateEnvelope).events[3]?.kind).toBe(
+      'workflow.agent.failed',
+    )
+    const summary = summarizeWorkflowTrace(failedDelegateEnvelope)
+    expect(summary).toMatchObject({
+      agentCalls: 1,
+      agentFailures: 1,
+      loopFailures: 0,
+      verifierFailures: 0,
+      analystFailures: 0,
+      reviewerFailures: 0,
+      failed: true,
+      failureMessage: 'sandbox worker crashed',
+    })
+
+    const executionSummary = summarizeWorkflowExecution(failedDelegateEnvelope)
+    expect(executionSummary.agentFailureDetails[0]).toMatchObject({
+      index: 0,
+      label: 'implementation',
+      phase: 'Build',
+      durationMs: 10,
+      message: 'sandbox worker crashed',
+      code: 'SandboxExit',
+    })
+    expect(executionSummary.phaseGraph.nodes[0]).toMatchObject({
+      title: 'Build',
+      agentCalls: 1,
+      agentFailures: 1,
+    })
+
+    const trajectory = workflowTraceToFeedbackTrajectory(failedDelegateEnvelope, {
+      projectId: 'blueprint-agent',
+      scenarioId: 'scenario-1',
+      task: 'Build the app',
+    })
+    expect(trajectory.attempts).toHaveLength(1)
+    expect(trajectory.attempts[0]).toMatchObject({
+      artifactType: 'action',
+      artifact: {
+        index: 0,
+        label: 'implementation',
+        message: 'sandbox worker crashed',
+      },
+      metadata: {
+        eventKind: 'workflow.agent.failed',
+        failed: true,
+        message: 'sandbox worker crashed',
+        code: 'SandboxExit',
+      },
+    })
+    expect(trajectory.outcome?.metrics?.workflow_agent_failures).toBe(1)
+
+    const record = workflowTraceToRunRecord(failedDelegateEnvelope, projection)
+    expect(record.outcome.searchScore).toBe(0)
+    expect(record.outcome.raw.workflow_agent_calls).toBe(1)
+    expect(record.outcome.raw.workflow_agent_failures).toBe(1)
+
+    const pack = buildWorkflowAnalystFeedbackPack({
+      envelope: failedDelegateEnvelope,
+      generatedAt: '2026-06-01T00:00:02.000Z',
+    })
+    expect(pack.driverContextLines).toContain('delegateFailures=agent:1')
+  })
+
   it('builds rich execution summaries from runtime workflow events', () => {
     const summary = summarizeWorkflowExecution(envelope, { source: 'export const meta = {}' })
 
