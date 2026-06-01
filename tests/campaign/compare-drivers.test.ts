@@ -282,4 +282,65 @@ describe('compareDrivers — built-in entries, real loops, faked LLM only', () =
     // Pairwise CIs computed (best vs the other two).
     expect(result.pairwise).toHaveLength(2)
   })
+
+  it("forwards config.findings through the GEPA entry → the finding reaches propose()'s reflection prompt (EYES→HANDS)", async () => {
+    // The wiring this guards: OptimizerEntryConfig.findings → gepaEntry →
+    // runImprovementLoop → runOptimization → ctx.findings → gepaDriver.propose →
+    // reflection prompt. Capture the user prompt and assert the diagnosis landed.
+    const baseline = '# Skill\n- base rule'
+    const prompts: string[] = []
+    const capturingFetch = (async (_url: string, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body ?? '{}'))
+      prompts.push(body.messages?.find((m: { role: string }) => m.role === 'user')?.content ?? '')
+      const content = JSON.stringify({
+        proposals: [{ label: 'r', rationale: 'r', payload: `${baseline}\n${M1}\n${M2}` }],
+      })
+      return new Response(
+        JSON.stringify({ choices: [{ message: { content } }], usage: { total_tokens: 5 } }),
+        { status: 200, headers: { 'content-type': 'application/json' } },
+      )
+    }) as unknown as typeof fetch
+
+    const config: OptimizerEntryConfig<S, A> = {
+      baselineSurface: baseline,
+      trainScenarios: [
+        { id: 't1', kind: 'q' },
+        { id: 't2', kind: 'q' },
+      ],
+      holdoutScenarios: HOLDOUT,
+      dispatchWithSurface: async (surface) => ({ text: String(surface) }),
+      judges: [markerJudge],
+      llm: { apiKey: 'k', baseUrl: 'https://router.test/v1', fetch: capturingFetch },
+      model: 'test-model',
+      target: 'a skill document',
+      runDir: join(runDir, 'findings-corpus'),
+      seed: 7,
+      populationSize: 1,
+      maxGenerations: 1,
+      findings: [
+        {
+          severity: 'high',
+          area: 'markers',
+          claim: 'the surface omits MARKER_TWO on every holdout scenario',
+          recommended_action: 'append MARKER_TWO to the skill document',
+        },
+      ],
+    }
+
+    await compareDrivers<S, A>({
+      drivers: [gepaReflectionEntry(config)],
+      baselineSurface: baseline,
+      holdoutScenarios: HOLDOUT,
+      dispatchWithSurface: config.dispatchWithSurface,
+      judges: [markerJudge],
+      runDir: join(runDir, 'findings-compare'),
+      seed: 7,
+      expectUsage: 'off',
+    })
+
+    const joined = prompts.join('\n---\n')
+    expect(joined).toContain('Diagnosed findings') // the renderAnalystEvidence block
+    expect(joined).toContain('omits MARKER_TWO') // the claim
+    expect(joined).toContain('append MARKER_TWO to the skill document') // recommended_action
+  })
 })
