@@ -46,6 +46,15 @@ export {
   workflowTraceToRunRecord,
 } from './run-record'
 export type {
+  WorkflowRuntimeResultLike,
+  WorkflowRuntimeResultToTraceEnvelopeOptions,
+  WorkflowTraceEnvelopeFromEventsOptions,
+} from './runtime-adapter'
+export {
+  workflowEventsToTraceEnvelope,
+  workflowRuntimeResultToTraceEnvelope,
+} from './runtime-adapter'
+export type {
   SanitizedWorkflowTraceEnvelopeResult,
   SanitizeWorkflowTraceEnvelopeOptions,
   WorkflowTraceSanitizationReport,
