@@ -41,6 +41,13 @@ export {
   validateWorkflowTraceEnvelope,
   validateWorkflowTraceEvent,
 } from './schema'
+export type {
+  SummarizeWorkflowExecutionOptions,
+  WorkflowCheckpointTraceSummary,
+  WorkflowDelegateTraceSummary,
+  WorkflowExecutionSummary,
+} from './summary'
+export { summarizeWorkflowExecution } from './summary'
 export {
   type WorkflowTraceTrajectoryOptions,
   workflowTraceToFeedbackTrajectory,

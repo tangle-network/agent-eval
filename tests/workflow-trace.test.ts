@@ -8,6 +8,7 @@ import {
   renderWorkflowFeedbackPack,
   renderWorkflowPartnerReport,
   sanitizeWorkflowTraceEnvelope,
+  summarizeWorkflowExecution,
   summarizeWorkflowTrace,
   validateWorkflowTraceEnvelope,
   type WorkflowTraceEnvelope,
@@ -31,6 +32,7 @@ const envelope: WorkflowTraceEnvelope = {
       runId: 'wf-1',
       timestamp: 1200,
       payload: {
+        index: 0,
         label: 'planner',
         phase: 'Plan',
         costUsd: 0.01,
@@ -43,6 +45,7 @@ const envelope: WorkflowTraceEnvelope = {
       runId: 'wf-1',
       timestamp: 1500,
       payload: {
+        index: 0,
         label: 'implement',
         costUsd: 0.02,
         tokenUsage: { input: 30, output: 40 },
@@ -54,8 +57,9 @@ const envelope: WorkflowTraceEnvelope = {
       runId: 'wf-1',
       timestamp: 1550,
       payload: {
+        index: 0,
         label: 'acceptance',
-        trace: { allPass: true },
+        trace: { checkpointOutput: { allPass: true } },
       },
     },
     {
@@ -63,8 +67,9 @@ const envelope: WorkflowTraceEnvelope = {
       runId: 'wf-1',
       timestamp: 1560,
       payload: {
+        index: 0,
         label: 'trace-analyst',
-        trace: { findings: [] },
+        trace: { output: { findings: [] } },
       },
     },
     {
@@ -72,6 +77,7 @@ const envelope: WorkflowTraceEnvelope = {
       runId: 'wf-1',
       timestamp: 1570,
       payload: {
+        index: 0,
         label: 'next-shot',
         trace: { shouldContinue: false },
       },
@@ -121,6 +127,36 @@ describe('workflow trace substrate', () => {
       reviewerCalls: 1,
       failed: false,
     })
+  })
+
+  it('builds rich execution summaries from runtime workflow events', () => {
+    const summary = summarizeWorkflowExecution(envelope, { source: 'export const meta = {}' })
+
+    expect(summary.source).toBe('export const meta = {}')
+    expect(summary.eventKinds).toMatchObject({
+      'workflow.started': 1,
+      'workflow.phase': 1,
+      'workflow.agent.ended': 1,
+      'workflow.verifier.ended': 1,
+      'workflow.ended': 1,
+    })
+    expect(summary.phases).toEqual(['Plan'])
+    expect(summary.agentRuns[0]).toMatchObject({
+      index: 0,
+      label: 'planner',
+      phase: 'Plan',
+      costUsd: 0.01,
+      tokenUsage: { input: 10, output: 20 },
+      trace: { text: 'plan' },
+    })
+    expect(summary.loopRuns[0]).toMatchObject({
+      index: 0,
+      label: 'implement',
+      costUsd: 0.02,
+    })
+    expect(summary.verifierOutputs[0]?.output).toEqual({ allPass: true })
+    expect(summary.analystOutputs[0]?.output).toEqual({ findings: [] })
+    expect(summary.reviewerOutputs[0]?.output).toEqual({ shouldContinue: false })
   })
 
   it('projects workflow traces into canonical RunRecords', () => {
