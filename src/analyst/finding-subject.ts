@@ -170,8 +170,10 @@ export function parseFindingSubject(raw: string | null | undefined): FindingSubj
   const prs = trimmed.match(/^prior-run-summary:(.+)$/)
   if (prs && prs[1]!.trim().length > 0) return { kind: 'prior-run-summary', topic: prs[1]!.trim() }
 
-  // cluster (no prefix — failure-mode emits short labels)
-  if (/^[a-z0-9][a-z0-9-]*$/.test(trimmed) && trimmed.length <= 80) {
+  // cluster (no prefix — a free-form evidence label, never a routed locus, so
+  // it admits dotted/underscored identifiers like `appworld.task.530b157_1`.
+  // ':' stays excluded so it cannot collide with the prefixed grammars above.)
+  if (/^[a-z0-9][a-z0-9._-]*$/.test(trimmed) && trimmed.length <= 80) {
     return { kind: 'cluster', label: trimmed }
   }
 

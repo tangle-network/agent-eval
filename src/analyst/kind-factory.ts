@@ -222,13 +222,13 @@ export function createTraceAnalystKind(
 }
 
 function deriveQuestion(ctx: AnalystContext, spec: TraceAnalystKindSpec): string {
-  // Kinds can be steered with a per-run focusing tag without recompiling
-  // the actor description. Operators set `tags.focus = "leaf-X"` and the
-  // kind's brief is concatenated with that focus for the actor prompt's
-  // user message. Falls back to the spec id when no tag is present.
+  // The actor's user message must orient it at the task, not echo the kind id.
+  // A bare id like "failure-mode" gives the actor nothing to act on, so it
+  // spends turns inspecting the input instead of reading traces. Operators can
+  // still steer with `tags.focus = "leaf-X"`, appended to the task directive.
   const focus = ctx.tags?.focus?.trim()
-  if (focus) return `${spec.id}: ${focus}`
-  return spec.id
+  const task = `Analyze this trace dataset with the available tools and report ${spec.area} findings. ${spec.description}`
+  return focus ? `${task} Focus: ${focus}.` : task
 }
 
 function toAnalystFinding(spec: TraceAnalystKindSpec, raw: RawAnalystFinding): AnalystFinding {

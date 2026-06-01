@@ -17,6 +17,7 @@
 
 import { z } from 'zod'
 import { parseFindingSubject } from './finding-subject'
+import { coerceJson } from './parse-tolerant'
 
 export const ANALYST_SEVERITIES = ['critical', 'high', 'medium', 'low', 'info'] as const
 
@@ -79,15 +80,22 @@ export function parseRawFinding(
   log?: (msg: string, fields?: Record<string, unknown>) => void,
 ): RawAnalystFinding | null {
   const result = RawAnalystFindingSchema.safeParse(row)
-  if (!result.success) {
-    log?.('finding rejected: schema failure', {
-      issues: result.error.issues.map((i) => ({
-        path: i.path.join('.'),
-        code: i.code,
-        message: i.message,
-      })),
-    })
-    return null
+  if (result.success) return result.data
+  // A schema-correct finding in an unusable wrapper (a JSON string, a fenced
+  // block) should be repaired, not dropped. Coerce the shape and retry ONCE.
+  if (typeof row === 'string') {
+    const coerced = coerceJson(row)
+    if (coerced !== undefined) {
+      const retry = RawAnalystFindingSchema.safeParse(coerced)
+      if (retry.success) return retry.data
+    }
   }
-  return result.data
+  log?.('finding rejected: schema failure', {
+    issues: result.error.issues.map((i) => ({
+      path: i.path.join('.'),
+      code: i.code,
+      message: i.message,
+    })),
+  })
+  return null
 }

@@ -1,0 +1,107 @@
+/**
+ * `structureFindings` — the deferred structuring pass (DSPy TwoStepAdapter /
+ * HALO `synthesize_traces` analog). The agentic actor reasons FREE-FORM and
+ * emits a prose `report` (which any model does reliably); this separate, cheap
+ * call's ONLY job is to turn that report into `AnalystFinding[]`. Decoupling
+ * reasoning from structuring is what makes the SEMANTIC findings model-agnostic
+ * — the reasoning model never has to satisfy a strict typed-array contract
+ * while it diagnoses.
+ *
+ * Forgiving: the response runs through `coerceToFindingRows` (de-fence, lift
+ * single→array) before Zod, and on a zero-finding extraction from a substantive
+ * report it reasks ONCE with the schema restated. Returns a typed outcome so a
+ * legitimate "nothing to report" is distinguishable from a failed extraction
+ * (no silent empty).
+ */
+
+import { callLlm, type LlmClientOptions } from '../llm-client'
+import { parseRawFinding, type RawAnalystFinding } from './finding-signature'
+import { coerceToFindingRows } from './parse-tolerant'
+import { type AnalystFinding, makeFinding } from './types'
+
+export interface StructureFindingsOptions {
+  /** The actor's free-form diagnosis prose. */
+  report: string
+  analystId: string
+  /** Coarse classification stamped on every extracted finding. */
+  area: string
+  model: string
+  baseUrl: string
+  apiKey?: string
+  /** Max reask attempts after a zero/invalid extraction. Default 1. */
+  maxReasks?: number
+  /** Test seam: inject a fetch (no network in unit tests). */
+  fetchImpl?: LlmClientOptions['fetch']
+}
+
+export interface StructureFindingsResult {
+  findings: AnalystFinding[]
+  outcome: 'ok' | 'extraction_failed'
+}
+
+const SYSTEM = [
+  'You convert a free-form trace-analysis report into a STRICT JSON array of findings.',
+  'Output ONLY the JSON array — no prose, no code fences.',
+  'Each element: {"severity":"critical|high|medium|low|info","claim":string,"evidence_uri":string,',
+  '"subject"?:string,"rationale"?:string,"recommended_action"?:string,"confidence":number(0..1)}.',
+  'evidence_uri cites the trace element the report referenced (e.g. "span://<trace>/<span>") or "report://summary".',
+  'If the report asserts NO problems, output exactly [].',
+].join(' ')
+
+function buildRows(raw: unknown, analystId: string, area: string): AnalystFinding[] {
+  const rows = coerceToFindingRows(raw)
+  const out: AnalystFinding[] = []
+  for (const row of rows) {
+    const parsed: RawAnalystFinding | null = parseRawFinding(row)
+    if (!parsed) continue
+    out.push(
+      makeFinding({
+        analyst_id: analystId,
+        area,
+        subject: parsed.subject,
+        claim: parsed.claim,
+        rationale: parsed.rationale,
+        severity: parsed.severity,
+        confidence: parsed.confidence,
+        evidence_refs: [
+          {
+            kind: parsed.evidence_uri.startsWith('span://') ? 'span' : 'artifact',
+            uri: parsed.evidence_uri,
+            excerpt: parsed.evidence_excerpt,
+          },
+        ],
+        recommended_action: parsed.recommended_action,
+      }),
+    )
+  }
+  return out
+}
+
+export async function structureFindings(
+  opts: StructureFindingsOptions,
+): Promise<StructureFindingsResult> {
+  const maxReasks = opts.maxReasks ?? 1
+  const llm = { baseUrl: opts.baseUrl, apiKey: opts.apiKey, fetch: opts.fetchImpl }
+  let user = `TRACE-ANALYSIS REPORT:\n${opts.report}\n\nReturn the findings JSON array.`
+
+  for (let attempt = 0; attempt <= maxReasks; attempt++) {
+    const res = await callLlm(
+      {
+        model: opts.model,
+        messages: [
+          { role: 'system', content: SYSTEM },
+          { role: 'user', content: user },
+        ],
+      },
+      llm,
+    )
+    const text = res.content.trim()
+    const findings = buildRows(text, opts.analystId, opts.area)
+    if (findings.length > 0) return { findings, outcome: 'ok' }
+    // A report that asserts nothing is a legitimate empty — only reask when the
+    // report is substantive (the extraction, not the diagnosis, likely failed).
+    if (opts.report.trim().length < 200) return { findings: [], outcome: 'ok' }
+    user = `${user}\n\nThat produced no valid findings. The report DOES describe issues — re-extract them as the strict JSON array described in the system prompt. Output ONLY the array.`
+  }
+  return { findings: [], outcome: 'extraction_failed' }
+}

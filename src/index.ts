@@ -43,6 +43,7 @@ export {
   createVerifierAdapter,
   liftSeverity,
 } from './analyst/adapters'
+export { behavioralAnalyst, deriveEfficiencyFindings } from './analyst/behavioral-analyst'
 export type {
   ChatCallOpts,
   ChatClient,
@@ -57,6 +58,10 @@ export type {
   SandboxSdkTransportOpts,
 } from './analyst/chat-client'
 export { createChatClient } from './analyst/chat-client'
+export {
+  buildDefaultAnalystRegistry,
+  type DefaultAnalystRegistryOptions,
+} from './analyst/default-registry'
 export type { RawAnalystFinding } from './analyst/finding-signature'
 export {
   ANALYST_SEVERITIES,
@@ -102,6 +107,7 @@ export {
   SKILL_USAGE_ANALYST,
   SkillUsageAnalyst,
 } from './analyst/kinds/skill-usage'
+export { coerceJson, coerceToFindingRows, stripCodeFences } from './analyst/parse-tolerant'
 export type {
   AnalystHooks,
   AnalystRegistryOptions,
@@ -109,6 +115,11 @@ export type {
   RegistryRunOpts,
 } from './analyst/registry'
 export { AnalystRegistry } from './analyst/registry'
+export {
+  type StructureFindingsOptions,
+  type StructureFindingsResult,
+  structureFindings,
+} from './analyst/structure-findings'
 export type { TraceToolGroupName } from './analyst/tool-groups'
 export { buildTraceToolsForGroup } from './analyst/tool-groups'
 // ── Analyst registry ─────────────────────────────────────────────────
@@ -356,6 +367,12 @@ export {
 // to reach into subpaths. Used by agent canonical evals via the
 // `autoresearch` block (analyzeTraces + OtlpFileTraceStore).
 export * from './trace-analyst'
+export type {
+  BehavioralMetrics,
+  SuboptimalCode,
+  SuboptimalSignal,
+} from './trace-analyst/behavioral-metrics'
+export { computeTraceMetrics } from './trace-analyst/behavioral-metrics'
 export type {
   ArtifactCheck,
   ArtifactResult,
