@@ -98,6 +98,40 @@ jobs:
           cache: pnpm
           registry-url: https://registry.npmjs.org
 
+      - name: Verify npm publish credentials
+        run: |
+          set -euo pipefail
+          NAME=$(node -p "require('./package.json').name")
+          SCOPE="${NAME%%/*}"
+          if [ -z "${NODE_AUTH_TOKEN:-}" ]; then
+            echo "::error::NPM_TOKEN is not configured. Configure an npm automation token with publish access to $NAME before tagging a release."
+            exit 1
+          fi
+          if ! npm whoami --registry=https://registry.npmjs.org >/tmp/npm-whoami.txt; then
+            echo "::error::NPM_TOKEN is not accepted by registry.npmjs.org. The previous symptom was npm publish returning 404 for $NAME."
+            exit 1
+          fi
+          echo "npm publisher: $(cat /tmp/npm-whoami.txt)"
+          if ! npm access ls-packages "$SCOPE" --json --registry=https://registry.npmjs.org >/tmp/npm-access.json; then
+            echo "::error::NPM_TOKEN cannot read package access for $SCOPE. It will not be able to publish $NAME."
+            exit 1
+          fi
+          node - "$NAME" /tmp/npm-access.json <<'NODE'
+          const [name, accessFile] = process.argv.slice(2)
+          const fs = require('node:fs')
+          const access = JSON.parse(fs.readFileSync(accessFile, 'utf8'))
+          if (!Object.prototype.hasOwnProperty.call(access, name)) {
+            console.error(`::error::NPM_TOKEN can read the scope but ${name} is missing from npm access output.`)
+            process.exit(1)
+          }
+          if (access[name] !== 'read-write') {
+            console.error(`::error::NPM_TOKEN has ${access[name]} access for ${name}; release publish requires read-write access.`)
+            process.exit(1)
+          }
+          NODE
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
       - run: pnpm install --frozen-lockfile
       - run: pnpm build
 
@@ -108,10 +142,10 @@ jobs:
         run: |
           NAME=$(node -p "require('./package.json').name")
           VERSION=$(node -p "require('./package.json').version")
-          if npm view "$NAME@$VERSION" version >/dev/null 2>&1; then
+          if npm view "$NAME@$VERSION" version --registry=https://registry.npmjs.org >/dev/null 2>&1; then
             echo "$NAME@$VERSION already on registry; skipping publish"
           else
-            pnpm publish --no-git-checks --access public
+            pnpm publish --no-git-checks --access public --registry=https://registry.npmjs.org
           fi
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

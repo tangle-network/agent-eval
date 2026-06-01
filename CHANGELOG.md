@@ -4,6 +4,21 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ---
 
+## [0.72.3] — 2026-06-01 — workflow trace hardening and driver backtests
+
+### Added
+
+- **Canonical workflow branch events in `/workflow`.** Runtime traces now project branch start/end/failure counts into workflow summaries, RunRecords, and feedback trajectories so fanout topology failures are measurable instead of hidden in raw trace blobs.
+- **`workflowPhaseGraph` in `/workflow`.** Builds phase nodes and branch edges from workflow trace events with per-phase calls, branch failures, cost, and token counters. Product adopters can consume this instead of maintaining local graph mirrors.
+- **Stricter workflow event schema validation.** Workflow traces now reject unknown event kinds, malformed typed payloads, non-monotonic timestamps, missing `workflow.started`, multiple terminal events, and events after terminal completion.
+- **Driver comparison substrate proof.** `compareDrivers` now carries analyst findings through the canonical campaign path and includes GSM8K/AppWorld driver backtest examples.
+
+### Fixed
+
+- **Publish skew guard.** PyPI publishing depends on successful npm publishing, and the npm publish job now checks registry authentication and `@tangle-network` package access before building or attempting a publish.
+
+---
+
 ## [0.72.2] — 2026-06-01 — workflow driver promotion gates
 
 ### Added
