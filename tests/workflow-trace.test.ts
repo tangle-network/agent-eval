@@ -14,6 +14,8 @@ import {
   validateWorkflowTraceEnvelope,
   validateWorkflowTraceIntelligenceEnvelope,
   type WorkflowTraceEnvelope,
+  workflowEventsToTraceEnvelope,
+  workflowRuntimeResultToTraceEnvelope,
   workflowTraceToFeedbackTrajectory,
   workflowTraceToRunRecord,
 } from '../src/workflow'
@@ -196,6 +198,49 @@ describe('workflow trace substrate', () => {
     expect(trajectory.tags?.driver).toBe('workflow-driver-v1')
   })
 
+  it('wraps agent-runtime WorkflowResult objects into eval trace envelopes', () => {
+    const runtimeResult = {
+      runId: envelope.runId,
+      meta: { name: 'driver-authored', description: 'Runtime-generated workflow' },
+      output: { files: ['src/App.tsx'] },
+      events: envelope.events,
+    }
+
+    const wrapped = workflowRuntimeResultToTraceEnvelope(runtimeResult, {
+      topology: envelope.topology,
+      metadata: { productId: 'blueprint-agent' },
+    })
+    const record = workflowTraceToRunRecord(wrapped, projection)
+
+    expect(wrapped.traceVersion).toBe('workflow-trace-v1')
+    expect(wrapped.metadata).toMatchObject({
+      productId: 'blueprint-agent',
+      runtimeResult: { meta: runtimeResult.meta },
+    })
+    expect(JSON.stringify(wrapped.metadata)).not.toContain('src/App.tsx')
+    expect(record.outcome.searchScore).toBe(1)
+  })
+
+  it('wraps emitted runtime events from failed workflows without needing a WorkflowResult', () => {
+    const failed = workflowEventsToTraceEnvelope([
+      { kind: 'workflow.started', runId: 'wf-failed', timestamp: 1000, payload: {} },
+      {
+        kind: 'workflow.failed',
+        runId: 'wf-failed',
+        timestamp: 1100,
+        payload: { message: 'worker exhausted its budget' },
+      },
+    ])
+
+    expect(summarizeWorkflowTrace(failed)).toMatchObject({
+      runId: 'wf-failed',
+      durationMs: 100,
+      failed: true,
+      failureMessage: 'worker exhausted its budget',
+    })
+    expect(workflowTraceToRunRecord(failed, projection).failureMode).toBe('workflow_failed')
+  })
+
   it('rejects events from mixed run ids', () => {
     expect(() =>
       validateWorkflowTraceEnvelope({
@@ -206,6 +251,10 @@ describe('workflow trace substrate', () => {
         ],
       }),
     ).toThrow(/does not match/)
+  })
+
+  it('rejects empty emitted runtime event buffers', () => {
+    expect(() => workflowEventsToTraceEnvelope([])).toThrow(/non-empty array/)
   })
 
   it('builds a bounded analyst feedback pack for the next workflow driver shot', () => {
