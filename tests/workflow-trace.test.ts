@@ -34,6 +34,12 @@ const envelope: WorkflowTraceEnvelope = {
     { kind: 'workflow.started', runId: 'wf-1', timestamp: 1000, payload: { depth: 0 } },
     { kind: 'workflow.phase', runId: 'wf-1', timestamp: 1010, payload: { title: 'Plan' } },
     {
+      kind: 'workflow.branch.started',
+      runId: 'wf-1',
+      timestamp: 1020,
+      payload: { operation: 'parallel', branchIndex: 0, phase: 'Plan' },
+    },
+    {
       kind: 'workflow.agent.ended',
       runId: 'wf-1',
       timestamp: 1200,
@@ -45,6 +51,12 @@ const envelope: WorkflowTraceEnvelope = {
         tokenUsage: { input: 10, output: 20 },
         trace: { text: 'plan' },
       },
+    },
+    {
+      kind: 'workflow.branch.ended',
+      runId: 'wf-1',
+      timestamp: 1210,
+      payload: { operation: 'parallel', branchIndex: 0, durationMs: 190, phase: 'Plan' },
     },
     {
       kind: 'workflow.loop.ended',
@@ -154,6 +166,8 @@ describe('workflow trace substrate', () => {
       costUsd: 0.03,
       tokenUsage: { input: 40, output: 60 },
       phaseCount: 1,
+      branchCount: 1,
+      failedBranchCount: 0,
       agentCalls: 1,
       loopCalls: 1,
       verifierCalls: 1,
@@ -163,6 +177,49 @@ describe('workflow trace substrate', () => {
     })
   })
 
+  it('summarizes failed workflow branches as first-class trace evidence', () => {
+    const failedEnvelope: WorkflowTraceEnvelope = {
+      traceVersion: 'workflow-trace-v1',
+      runId: 'wf-failed-branch',
+      events: [
+        { kind: 'workflow.started', runId: 'wf-failed-branch', timestamp: 1, payload: {} },
+        {
+          kind: 'workflow.branch.started',
+          runId: 'wf-failed-branch',
+          timestamp: 2,
+          payload: { operation: 'parallel', branchIndex: 0, phase: 'Build' },
+        },
+        {
+          kind: 'workflow.branch.failed',
+          runId: 'wf-failed-branch',
+          timestamp: 3,
+          payload: {
+            operation: 'parallel',
+            branchIndex: 0,
+            phase: 'Build',
+            durationMs: 1,
+            message: 'worker failed',
+          },
+        },
+        {
+          kind: 'workflow.failed',
+          runId: 'wf-failed-branch',
+          timestamp: 4,
+          payload: { message: 'worker failed', phase: 'Build' },
+        },
+      ],
+    }
+
+    const summary = summarizeWorkflowTrace(failedEnvelope)
+    expect(summary.branchCount).toBe(0)
+    expect(summary.failedBranchCount).toBe(1)
+    expect(summary.failed).toBe(true)
+
+    const record = workflowTraceToRunRecord(failedEnvelope, projection)
+    expect(record.outcome.searchScore).toBe(0)
+    expect(record.outcome.raw.workflow_branch_failures).toBe(1)
+  })
+
   it('builds rich execution summaries from runtime workflow events', () => {
     const summary = summarizeWorkflowExecution(envelope, { source: 'export const meta = {}' })
 
@@ -170,6 +227,8 @@ describe('workflow trace substrate', () => {
     expect(summary.eventKinds).toMatchObject({
       'workflow.started': 1,
       'workflow.phase': 1,
+      'workflow.branch.started': 1,
+      'workflow.branch.ended': 1,
       'workflow.agent.ended': 1,
       'workflow.verifier.ended': 1,
       'workflow.ended': 1,
@@ -199,6 +258,8 @@ describe('workflow trace substrate', () => {
     expect(record.candidateId).toBe('workflow-driver-v1')
     expect(record.outcome.searchScore).toBe(0.82)
     expect(record.outcome.raw.workflow_agent_calls).toBe(1)
+    expect(record.outcome.raw.workflow_branches).toBe(1)
+    expect(record.outcome.raw.workflow_branch_failures).toBe(0)
     expect(record.outcome.raw.workflow_loop_calls).toBe(1)
     expect(record.outcome.raw.workflow_verifier_calls).toBe(1)
     expect(record.outcome.raw.workflow_analyst_calls).toBe(1)
@@ -224,6 +285,8 @@ describe('workflow trace substrate', () => {
       'decision',
     ])
     expect(trajectory.outcome?.metrics?.workflow_tokens_output).toBe(60)
+    expect(trajectory.outcome?.metrics?.workflow_branches).toBe(1)
+    expect(trajectory.outcome?.metrics?.workflow_branch_failures).toBe(0)
     expect(trajectory.outcome?.metrics?.workflow_analyst_calls).toBe(1)
     expect(trajectory.tags?.driver).toBe('workflow-driver-v1')
   })
