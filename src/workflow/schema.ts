@@ -70,6 +70,9 @@ export function summarizeWorkflowTrace(
       endedPayload.loopCalls,
       envelope.events.filter((e) => e.kind === 'workflow.loop.ended').length,
     ),
+    verifierCalls: envelope.events.filter((e) => e.kind === 'workflow.verifier.ended').length,
+    analystCalls: envelope.events.filter((e) => e.kind === 'workflow.analyst.ended').length,
+    reviewerCalls: envelope.events.filter((e) => e.kind === 'workflow.reviewer.ended').length,
     eventCount: envelope.events.length,
     failed: failed !== undefined,
     failureMessage:
