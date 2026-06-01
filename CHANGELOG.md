@@ -4,6 +4,19 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ---
 
+## [0.72.2] — 2026-06-01 — workflow driver promotion gates
+
+### Added
+
+- **`decideWorkflowDriverPromotion` in `/workflow`.** Compares a dynamic workflow driver against the reviewer-loop baseline using paired heldout `RunRecord`s keyed by `scenarioId::seed`, then fails closed on missing pairs, too few pairs, insufficient lift, or candidate cost ceilings.
+- **Explicit workflow comparison axis.** `expectedScenarioIds` defines the promotion gate's comparison set so unrelated scenarios cannot skew the lift or confidence interval.
+
+### Fixed
+
+- **No seed-only workflow pairing.** Promotion records without `scenarioId` are rejected instead of being paired by seed alone.
+
+---
+
 ## [0.72.1] — 2026-06-01 — workflow execution summaries for dynamic drivers
 
 ### Added
