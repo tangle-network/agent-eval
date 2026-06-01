@@ -28,7 +28,8 @@
  */
 
 import { callLlm, type LlmClientOptions } from '../../llm-client'
-import type { ImprovementDriver, MutableSurface, ProposeContext, ProposedCandidate } from '../types'
+import type { ImprovementDriver, ProposeContext, ProposedCandidate } from '../types'
+import { findingToLesson, normKey, surfaceToText } from './_findings-text'
 
 const BLOCK_START = '<!-- BEGIN curated-memory (auto-managed by memoryCurationDriver) -->'
 const BLOCK_END = '<!-- END curated-memory -->'
@@ -57,33 +58,6 @@ const DISTILL_SYSTEM =
   'Output ONLY a JSON array of strings, each one imperative lesson the agent should follow ' +
   '(e.g. "Always fetch a resource before mutating it"). No prose outside the JSON. ' +
   'Deduplicate; keep the most actionable and general; drop case-specific noise.'
-
-function surfaceToText(surface: MutableSurface): string {
-  if (typeof surface === 'string') return surface
-  throw new Error(
-    `memoryCurationDriver: surface must be a string prompt, got a ${surface.kind}-tier surface (${surface.worktreeRef}) — memory curation is prompt-tier`,
-  )
-}
-
-/** A finding can be a raw string or a structured analyst finding. */
-function findingToLesson(f: unknown): string | null {
-  if (typeof f === 'string') return f.trim() || null
-  if (f && typeof f === 'object') {
-    const o = f as Record<string, unknown>
-    const cand = o.recommended_action ?? o.claim ?? o.lesson ?? o.text ?? o.message
-    if (typeof cand === 'string' && cand.trim()) return cand.trim()
-  }
-  return null
-}
-
-/** Normalize for dedup: lowercase, collapse whitespace, strip trailing punctuation. */
-function normKey(s: string): string {
-  return s
-    .toLowerCase()
-    .replace(/\s+/g, ' ')
-    .replace(/[.;:!?\s]+$/, '')
-    .trim()
-}
 
 /** Pull the lessons already curated into the parent surface's memory block. */
 function extractExistingLessons(text: string): string[] {

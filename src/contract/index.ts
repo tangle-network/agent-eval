@@ -27,8 +27,13 @@
  * 4. **`Mutator`** — proposes a next surface for the optimization loop.
  *    Use `gepaDriver` (reflective LLM mutation) or `evolutionaryDriver`,
  *    or write your own.
- * 5. **`Gate`** — promotion guard. Returns `'ship'` / `'hold'` / others
- *    for each candidate; the loop only ships what passes.
+ * 5. **`Gate`** — promotion guard. Returns `'ship'` / `'hold'` /
+ *    `'need_more_work'` / others for each candidate; the loop only ships
+ *    what passes. `defaultProductionGate` is the composite default;
+ *    `paretoSignificanceGate` decides over the multi-objective evidence
+ *    vector (per-axis significance + Pareto dominance, no scalar collapse)
+ *    and is itself factored as a pluggable `PromotionPolicy` over a
+ *    `buildEvidenceVector` bus so competing strategies share one evidence set.
  *
  * ## The four functions you'll call
  *
@@ -133,6 +138,19 @@ export {
   defaultProductionGate,
 } from '../campaign/gates/default-production-gate'
 export { type HeldOutGateOptions, heldOutGate } from '../campaign/gates/heldout-gate'
+export {
+  type AxisEvidence,
+  type AxisVerdict,
+  type BuildEvidenceVectorOptions,
+  buildEvidenceVector,
+  type EvidenceVector,
+  type ObjectiveSource,
+  type ParetoSignificanceGateOptions,
+  type PromotionObjective,
+  type PromotionPolicy,
+  paretoPolicy,
+  paretoSignificanceGate,
+} from '../campaign/gates/promotion-policy'
 
 // ── Storage backends ─────────────────────────────────────────────────
 

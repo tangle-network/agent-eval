@@ -147,6 +147,40 @@ describe('skillOptDriver', () => {
     expect(capture.user).toContain('at most 2') // the edit budget
   })
 
+  it('EYES→HANDS: propose() feeds ctx.findings + ctx.report into the patch prompt', async () => {
+    // The dead-wire regression: findings/report were plumbed onto ProposeContext
+    // but skill-opt never read them. A patch must now be able to target the
+    // analyst's diagnosed root cause, not just the weak-scenario evidence.
+    const capture: { user?: string } = {}
+    const driver = skillOptDriver({
+      llm: { apiKey: 'k', baseUrl: 'https://router.test/v1', fetch: patchFetch(capture, []) },
+      model: 'm',
+      target: 'citation policy',
+    })
+    const ctx: ProposeContext = {
+      currentSurface: DOC,
+      history: [],
+      findings: [
+        {
+          severity: 'high',
+          area: 'grounding',
+          claim: 'answers cite no source when the retrieval set is empty',
+          recommended_action: 'state "no source found" instead of fabricating one',
+        },
+      ],
+      report: 'Hallucinated citations appeared in 3 of 7 empty-retrieval cases.',
+      populationSize: 1,
+      generation: 0,
+      signal: new AbortController().signal,
+    }
+    await driver.propose(ctx)
+    expect(capture.user).toContain('Diagnosed findings')
+    expect(capture.user).toContain('cite no source when the retrieval set is empty')
+    expect(capture.user).toContain('no source found') // recommended_action
+    expect(capture.user).toContain('Research report')
+    expect(capture.user).toContain('3 of 7 empty-retrieval')
+  })
+
   it('propose (generic ImprovementDriver) applies patches to the surface', async () => {
     const patches: SkillPatch[] = [
       {

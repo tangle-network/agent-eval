@@ -176,6 +176,30 @@ describe('parseFindingSubject — cluster labels (failure-mode)', () => {
   it('rejects an overly long label', () => {
     expect(parseFindingSubject('a'.repeat(81))).toBeNull()
   })
+
+  it('admits dotted/underscored identifier labels (e.g. a task id)', () => {
+    // A real finding the analyst emitted whose natural subject was a task id.
+    // The cluster grammar previously rejected '.'/'_', dropping the whole row.
+    expect(parseFindingSubject('appworld.task.530b157_1')).toEqual({
+      kind: 'cluster',
+      label: 'appworld.task.530b157_1',
+    })
+    expect(parseFindingSubject('llm.step.5')).toEqual({ kind: 'cluster', label: 'llm.step.5' })
+  })
+
+  it('does NOT admit ":" into cluster — prefixed grammars still win', () => {
+    // ':' stays out of the cluster charset so prefixed subjects route to their
+    // own variant rather than collapsing into a cluster label.
+    expect(parseFindingSubject('memory:user-prefs')).toEqual({ kind: 'memory', key: 'user-prefs' })
+    expect(parseFindingSubject('system-prompt:tone')).toEqual({
+      kind: 'system-prompt',
+      section: 'tone',
+    })
+    expect(parseFindingSubject('scaffolding:retry-policy')).toEqual({
+      kind: 'scaffolding',
+      concern: 'retry-policy',
+    })
+  })
 })
 
 describe('parseFindingSubject — boundary cases', () => {

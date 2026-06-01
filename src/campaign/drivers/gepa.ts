@@ -40,6 +40,7 @@ import { callLlm, type LlmClientOptions } from '../../llm-client'
 import {
   buildReflectionPrompt,
   parseReflectionResponse,
+  renderAnalystEvidence,
   type TrialTrace,
 } from '../../reflective-mutation'
 import type { ImprovementDriver, ProposeContext, ProposedCandidate } from '../types'
@@ -205,12 +206,16 @@ export function gepaDriver(opts: GepaDriverOptions): ImprovementDriver {
           childCount: reflectCount,
           mutationPrimitives: opts.mutationPrimitives,
         })
+        // EYES→HANDS: append the analyst's diagnosis (ctx.findings / ctx.report)
+        // so reflection targets named root causes, not just low-scoring trials.
+        const analyst = renderAnalystEvidence(ctx.findings, ctx.report)
+        const finalPrompt = analyst ? `${userPrompt}\n\n${analyst}` : userPrompt
         const result = await callLlm(
           {
             model: opts.model,
             messages: [
               { role: 'system', content: REFLECTION_SYSTEM },
-              { role: 'user', content: userPrompt },
+              { role: 'user', content: finalPrompt },
             ],
             jsonMode: true,
             temperature: opts.temperature ?? 0.7,

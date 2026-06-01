@@ -35,6 +35,7 @@ import {
   type RawAnalystFinding,
 } from './finding-signature'
 import { KIND_EXPECTED_SUBJECTS, parseFindingSubject } from './finding-subject'
+import { structureFindings } from './structure-findings'
 import type { Analyst, AnalystContext, AnalystCost, AnalystFinding } from './types'
 import { makeFinding } from './types'
 
@@ -89,6 +90,14 @@ export interface CreateTraceAnalystKindOpts {
   model?: string
   /** Override the spec's `version` (e.g. when an optimizer has fitted a new prompt). */
   versionSuffix?: string
+  /**
+   * Optional two-phase recovery: when the agentic harvest is empty but the
+   * actor produced a substantive free-form `report`, extract findings from that
+   * prose via a tolerant chat-completions pass (`structureFindings`) — no
+   * strict-emission contract, so it works on weak models. Omit to leave the
+   * actor's harvest as-is (the report is still surfaced fail-loud either way).
+   */
+  recovery?: { baseUrl: string; apiKey?: string; model?: string; fetchImpl?: typeof fetch }
 }
 
 /**
@@ -121,11 +130,14 @@ export function createTraceAnalystKind(
         priorContext +
         '\n\n' +
         RAW_FINDING_SCHEMA_PROMPT +
-        '\n\nReturn the array in the `findings` output field. Use `final(...)` ' +
-        'with the structured `{ findings }` payload when you are done.'
+        '\n\nFirst write `report`: a concise free-form prose diagnosis of what ' +
+        'the traces show — what succeeded, what was suboptimal or failed — with ' +
+        'concrete trace ids and numbers. THEN return the structured `findings` ' +
+        'array (it MAY be empty when there is nothing to report). Use `final(...)` ' +
+        'with the `{ report, findings }` payload when you are done.'
 
-      const ax = agent<{ question: string }, { findings: unknown[] }>(
-        'question:string -> findings:json[]',
+      const ax = agent<{ question: string }, { report: string; findings: unknown[] }>(
+        'question:string -> report:string, findings:json[]',
         {
           agentIdentity: {
             name: spec.id,
@@ -157,7 +169,7 @@ export function createTraceAnalystKind(
           responderOptions: {
             description:
               spec.responderDescription ??
-              'Format the structured `findings` array exactly as the actor produced it. Do not add, drop, or summarize entries.',
+              "Pass through the actor's `report` prose verbatim, and format the `findings` array exactly as the actor produced it. Do not add, drop, or summarize entries.",
             ...(opts.model ? { model: opts.model } : {}),
             showThoughts: false,
           },
@@ -216,19 +228,62 @@ export function createTraceAnalystKind(
         accepted: out.length,
         rejected_wrong_subject: rejectedWrongKind,
       })
+
+      // Two-phase recovery / fail-loud. The actor reasons free-form (the
+      // `report`); a weak model often produces a sound diagnosis but fails the
+      // strict findings emission (or the rows get rejected). If the harvest is
+      // empty but the report is substantive, recover findings from the prose
+      // via the tolerant structuring pass (opt-in), and — either way — surface
+      // the report as a visible info finding so an empty harvest is never a
+      // silent zero. A genuinely empty diagnosis (short/no report) stays empty.
+      const report = typeof result.report === 'string' ? result.report : ''
+      if (out.length === 0 && report.trim().length >= 200) {
+        if (opts.recovery) {
+          const recovered = await structureFindings({
+            report,
+            analystId: spec.id,
+            area: spec.area,
+            model: opts.recovery.model ?? opts.model ?? '',
+            baseUrl: opts.recovery.baseUrl,
+            apiKey: opts.recovery.apiKey,
+            fetchImpl: opts.recovery.fetchImpl,
+          })
+          out.push(...recovered.findings)
+          ctx.log?.(`analyst.kind ${spec.id} recovery`, {
+            outcome: recovered.outcome,
+            recovered: recovered.findings.length,
+          })
+        }
+        if (out.length === 0) {
+          out.push(
+            makeFinding({
+              analyst_id: spec.id,
+              area: spec.area,
+              claim: 'Analyst produced a diagnosis but no structured findings — see report.',
+              rationale: report.slice(0, 1500),
+              severity: 'info',
+              confidence: 0.3,
+              evidence_refs: [
+                { kind: 'artifact', uri: 'report://summary', excerpt: report.slice(0, 2000) },
+              ],
+              metadata: { outcome: 'extraction_failed' },
+            }),
+          )
+        }
+      }
       return out
     },
   }
 }
 
 function deriveQuestion(ctx: AnalystContext, spec: TraceAnalystKindSpec): string {
-  // Kinds can be steered with a per-run focusing tag without recompiling
-  // the actor description. Operators set `tags.focus = "leaf-X"` and the
-  // kind's brief is concatenated with that focus for the actor prompt's
-  // user message. Falls back to the spec id when no tag is present.
+  // The actor's user message must orient it at the task, not echo the kind id.
+  // A bare id like "failure-mode" gives the actor nothing to act on, so it
+  // spends turns inspecting the input instead of reading traces. Operators can
+  // still steer with `tags.focus = "leaf-X"`, appended to the task directive.
   const focus = ctx.tags?.focus?.trim()
-  if (focus) return `${spec.id}: ${focus}`
-  return spec.id
+  const task = `Analyze this trace dataset with the available tools and report ${spec.area} findings. ${spec.description}`
+  return focus ? `${task} Focus: ${focus}.` : task
 }
 
 function toAnalystFinding(spec: TraceAnalystKindSpec, raw: RawAnalystFinding): AnalystFinding {

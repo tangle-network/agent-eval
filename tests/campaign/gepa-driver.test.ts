@@ -244,4 +244,50 @@ describe('gepaDriver — combine complementary lessons', () => {
     expect(capture.combineCalls).toBe(1)
     expect(capture.reflectCalls).toBe(0) // no budget left for reflection
   })
+
+  it('EYES→HANDS: feeds ctx.findings + ctx.report into the reflection prompt', async () => {
+    // The dead-wire regression: findings/report were plumbed onto ProposeContext
+    // but the driver never read them, so the analyst loop never steered the
+    // mutation. The reflection prompt must now carry the diagnosed root cause.
+    const capture: { userPrompt?: string } = {}
+    const driver = gepaDriver({
+      llm: { apiKey: 'k', baseUrl: 'https://router.test/v1', fetch: fakeFetch(capture, ['NEW']) },
+      model: 'test-model',
+      target: 'system-directive',
+    })
+    const out = await driver.propose({
+      currentSurface: 'PARENT SURFACE',
+      history: [],
+      findings: [
+        {
+          severity: 'high',
+          area: 'verification',
+          claim: 'agent never re-checks its writes before finishing',
+          recommended_action: 'add an explicit self-verification step before final()',
+        },
+      ],
+      report: 'Token usage grew 671→8776 with no context compression.',
+      populationSize: 1,
+      generation: 0,
+      signal: new AbortController().signal,
+    })
+    expect(out).toEqual([{ surface: 'NEW', label: 'c0', rationale: 'r' }])
+    expect(capture.userPrompt).toContain('Diagnosed findings')
+    expect(capture.userPrompt).toContain('never re-checks its writes')
+    expect(capture.userPrompt).toContain('self-verification step') // recommended_action
+    expect(capture.userPrompt).toContain('Research report')
+    expect(capture.userPrompt).toContain('671→8776')
+  })
+
+  it('no findings/report → no analyst block (clean prompt, no empty headers)', async () => {
+    const capture: { userPrompt?: string } = {}
+    const driver = gepaDriver({
+      llm: { apiKey: 'k', baseUrl: 'https://router.test/v1', fetch: fakeFetch(capture, ['NEW']) },
+      model: 'test-model',
+      target: 'system-directive',
+    })
+    await driver.propose(ctxWith([], 1))
+    expect(capture.userPrompt).not.toContain('Diagnosed findings')
+    expect(capture.userPrompt).not.toContain('Research report')
+  })
 })

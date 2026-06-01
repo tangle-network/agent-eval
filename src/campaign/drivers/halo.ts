@@ -1,11 +1,11 @@
 /**
  * @experimental
  *
- * `haloDriver` — wraps the REAL halo-engine (Sam Hogan's "Hierarchical Agent
- * Loop Optimizer", `pip install halo-engine`, repo context-labs/halo) as an
- * agent-eval `ImprovementDriver`, so HALO competes head-to-head with
- * `gepaDriver` inside `compareDrivers` on identical traces / scenarios /
- * held-out scoring.
+ * `haloDriver` — wraps the REAL halo-engine (Inference.net's hierarchical
+ * agentic trace analyzer, `pip install halo-engine`, repo context-labs/halo)
+ * as an agent-eval `ImprovementDriver`, so HALO competes head-to-head with
+ * `gepaDriver` — and with our own `traceAnalystDriver` — inside
+ * `compareDrivers` on identical traces / scenarios / held-out scoring.
  *
  * It PRESERVES halo's actual working usage — `propose()` shells out to the
  * published CLI (`halo <traces.jsonl> -p <prompt> -m <model> --base-url
@@ -89,15 +89,15 @@ export function haloDriver(opts: HaloDriverOptions): ImprovementDriver {
       writeFileSync(tracePath, traces.endsWith('\n') ? traces : `${traces}\n`)
 
       // (2) Run the REAL halo-engine on the traces (its published CLI).
+      // The published halo-engine reads the base URL + key from the env
+      // (OPENAI_BASE_URL / OPENAI_API_KEY, set below) — it has no --base-url /
+      // --api-key flags. Pass only the flags the CLI actually exposes.
       const args = [
         tracePath,
         '-p',
         opts.analysisPrompt ?? DEFAULT_ANALYSIS_PROMPT,
         '-m',
         model,
-        '--base-url',
-        opts.baseUrl,
-        ...(opts.apiKey ? ['--api-key', opts.apiKey] : []),
         ...(opts.maxDepth !== undefined ? ['--max-depth', String(opts.maxDepth)] : []),
         ...(opts.maxTurns !== undefined ? ['--max-turns', String(opts.maxTurns)] : []),
       ]

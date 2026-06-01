@@ -25,6 +25,7 @@ export {
   openAutoPr,
 } from './auto-pr'
 // ── Improvement drivers ──────────────────────────────────────────────
+export { type AceDriverOptions, aceDriver } from './drivers/ace'
 export { type EvolutionaryDriverOptions, evolutionaryDriver } from './drivers/evolutionary'
 export {
   countSentenceEdits,
@@ -45,6 +46,7 @@ export {
   SkillPatchParseError,
   skillOptDriver,
 } from './drivers/skill-opt'
+export { type TraceAnalystDriverOptions, traceAnalystDriver } from './drivers/trace-analyst'
 // ── Gates ────────────────────────────────────────────────────────────
 export { composeGate } from './gates/compose'
 export {
@@ -52,6 +54,19 @@ export {
   defaultProductionGate,
 } from './gates/default-production-gate'
 export { type HeldOutGateOptions, heldOutGate } from './gates/heldout-gate'
+export {
+  type AxisEvidence,
+  type AxisVerdict,
+  type BuildEvidenceVectorOptions,
+  buildEvidenceVector,
+  type EvidenceVector,
+  type ObjectiveSource,
+  type ParetoSignificanceGateOptions,
+  type PromotionObjective,
+  type PromotionPolicy,
+  paretoPolicy,
+  paretoSignificanceGate,
+} from './gates/promotion-policy'
 export {
   type DimensionRegression,
   detectScale,

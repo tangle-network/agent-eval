@@ -28,6 +28,11 @@ import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { promisify } from 'node:util'
 import {
+  DEFAULT_TRACE_ANALYST_KINDS,
+  FAILURE_MODE_KIND_SPEC,
+  IMPROVEMENT_KIND_SPEC,
+} from '../../../src'
+import {
   compareDrivers,
   type DispatchContext,
   type DriverEntry,
@@ -41,6 +46,7 @@ import {
   type OptimizerEntryConfig,
   runImprovementLoop,
   type Scenario,
+  traceAnalystDriver,
 } from '../../../src/campaign'
 
 const execFileAsync = promisify(execFile)
@@ -69,6 +75,19 @@ const OUT_DIR = process.env.OUT_DIR ?? join(tmpdir(), 'appworld-bench')
 const SEED = Number(process.env.SEED ?? 42)
 // HALO is opt-in (needs the halo-engine CLI + spends extra); off by default.
 const WITH_HALO = process.env.WITH_HALO === '1'
+// The halo binary. Default 'halo' (Responses API → OpenAI/router). For chat-
+// completions backends (DeepSeek), point at examples/.../halo-chat.sh and set
+// HALO_VENV_PY to the halo-engine venv python.
+const HALO_BIN = process.env.HALO_BIN ?? 'halo'
+const HALO_MAX_DEPTH = Number(process.env.HALO_MAX_DEPTH ?? 0) // 0 = no subagents (cheaper, faster)
+const HALO_MAX_TURNS = Number(process.env.HALO_MAX_TURNS ?? 20)
+// Our trace-analyst is the symmetric opponent to HALO. Opt-in (it spends extra
+// on the agentic analyst reads); turn BOTH on for the head-to-head.
+const WITH_ANALYST = process.env.WITH_ANALYST === '1'
+// Which analyst kinds the trace-analyst driver runs. Default = failure-mode +
+// improvement (the two that map to HALO's diagnose+fix, keeping turns/cost
+// comparable). Set BENCH_ANALYST_KINDS=all for the full shipped suite.
+const ANALYST_KINDS = process.env.BENCH_ANALYST_KINDS ?? 'focused'
 
 interface AppWorldScenario extends Scenario {
   kind: 'appworld'
@@ -87,11 +106,18 @@ interface AppWorldArtifact {
 if (!API_KEY) throw new Error('OPENAI_API_KEY must be set (point at the Tangle router)')
 mkdirSync(OUT_DIR, { recursive: true })
 
+// BENCH_DIFFICULTY filters AppWorld tasks by difficulty (1=easy … 3=hard).
+// A capable worker (deepseek-chat) CEILINGS at tgc=1.0 on difficulty 1–2, which
+// leaves zero lift headroom for the bake-off; difficulty 3 lands at tgc≈0 /
+// sgc≈0.9 (composite ~0.45) — the movable regime where a better prompt can win.
+const BENCH_DIFFICULTY = process.env.BENCH_DIFFICULTY // '1' | '2' | '3' | undefined
+
 /** AppWorld dev task ids — load deterministically, take train+holdout disjoint. */
 async function loadTaskIds(): Promise<string[]> {
+  const arg = BENCH_DIFFICULTY ? `, difficulty=${Number(BENCH_DIFFICULTY)}` : ''
   const { stdout } = await execFileAsync(
     PYTHON,
-    ['-c', 'from appworld import load_task_ids; print("\\n".join(load_task_ids("dev")))'],
+    ['-c', `from appworld import load_task_ids; print("\\n".join(load_task_ids("dev"${arg})))`],
     { cwd: APPWORLD_DIR, env: process.env, maxBuffer: 8 * 1024 * 1024 },
   )
   return stdout
@@ -169,7 +195,16 @@ async function dispatchWithSurface(
   const outTok = result.token_usage?.output ?? result.tokenUsage?.output ?? 0
   // Feed the cost meter so integrity:'assert' is satisfied (no silent stub).
   ctx.cost.observeTokens({ input: inTok, output: outTok })
-  if (result.cost_usd) ctx.cost.observe(result.cost_usd, 'appworld-worker')
+  // The worker emits NaN cost for an UNPRICED model (price() returns NaN by
+  // design — no fabricated zero). Swallowing it here would silently drop the
+  // cell under integrity:'assert' with a misleading "cell errored". Fail loud
+  // with the actionable cause instead.
+  if (Number.isNaN(result.cost_usd)) {
+    throw new Error(
+      `appworld bench: worker returned NaN cost for model "${MODEL}" — it is unpriced. Add it to PRICE_PER_M in repl_agent.py so the lift comparison has a real cost axis.`,
+    )
+  }
+  if (result.cost_usd > 0) ctx.cost.observe(result.cost_usd, 'appworld-worker')
   void stdout
   return {
     tgc: result.tgc,
@@ -251,18 +286,14 @@ function haloEntry(config: OptimizerEntryConfig<AppWorldScenario, AppWorldArtifa
           baseUrl: BASE_URL,
           apiKey: API_KEY,
           model: REFLECT_MODEL,
-          // Concatenate the training traces the worker just emitted for halo to analyze.
-          resolveTraces: () => {
-            const lines: string[] = []
-            for (const f of latestTracePaths) {
-              try {
-                lines.push(readFileSync(f, 'utf8').trim())
-              } catch {
-                /* a dropped cell has no traces; skip */
-              }
-            }
-            return lines.filter(Boolean).join('\n')
-          },
+          // HALO_BIN points at the chat-completions launcher (halo-chat.sh) for
+          // OpenAI-compatible chat backends like DeepSeek; defaults to the raw
+          // 'halo' CLI (Responses API) for OpenAI/router.
+          haloBin: HALO_BIN,
+          maxDepth: HALO_MAX_DEPTH,
+          maxTurns: HALO_MAX_TURNS,
+          // SAME corpus the trace-analyst reads — see resolveTrainTraces.
+          resolveTraces: () => resolveTrainTraces(),
         }),
         populationSize: 1,
         maxGenerations: config.maxGenerations ?? MAX_GEN,
@@ -272,6 +303,68 @@ function haloEntry(config: OptimizerEntryConfig<AppWorldScenario, AppWorldArtifa
         }),
         autoOnPromote: 'none',
         runDir: `${config.runDir}/halo-loop`,
+        seed: config.seed ?? SEED,
+      })
+      const costUsd =
+        result.baselineCampaign.aggregates.totalCostUsd +
+        result.generations.reduce(
+          (s, g) => s + g.surfaces.reduce((a, sf) => a + sf.campaign.aggregates.totalCostUsd, 0),
+          0,
+        )
+      return { winnerSurface: result.winnerSurface, costUsd, durationMs: Date.now() - started }
+    },
+  }
+}
+
+// Concatenate the training traces the worker just emitted — the SAME corpus
+// fed to BOTH the halo CLI and our trace-analyst, so a lift delta isolates the
+// analysis engine, not the input.
+function resolveTrainTraces(): string {
+  const lines: string[] = []
+  for (const f of latestTracePaths) {
+    try {
+      lines.push(readFileSync(f, 'utf8').trim())
+    } catch {
+      /* a dropped cell has no traces; skip */
+    }
+  }
+  return lines.filter(Boolean).join('\n')
+}
+
+// Our trace-analyst engine as the symmetric opponent to HALO: identical loop,
+// gate, traces, and apply-step — only the findings producer differs.
+function traceAnalystEntry(
+  config: OptimizerEntryConfig<AppWorldScenario, AppWorldArtifact>,
+): DriverEntry {
+  const kinds =
+    ANALYST_KINDS === 'all'
+      ? DEFAULT_TRACE_ANALYST_KINDS
+      : [FAILURE_MODE_KIND_SPEC, IMPROVEMENT_KIND_SPEC]
+  return {
+    name: 'trace-analyst',
+    async optimize() {
+      const started = Date.now()
+      const result = await runImprovementLoop<AppWorldScenario, AppWorldArtifact>({
+        scenarios: config.trainScenarios,
+        holdoutScenarios: config.holdoutScenarios,
+        baselineSurface: config.baselineSurface,
+        dispatchWithSurface: config.dispatchWithSurface,
+        judges: config.judges,
+        driver: traceAnalystDriver({
+          baseUrl: BASE_URL,
+          apiKey: API_KEY,
+          model: REFLECT_MODEL,
+          kinds,
+          resolveTraces: () => resolveTrainTraces(),
+        }),
+        populationSize: 1,
+        maxGenerations: config.maxGenerations ?? MAX_GEN,
+        gate: defaultProductionGate<AppWorldArtifact, AppWorldScenario>({
+          holdoutScenarios: config.holdoutScenarios,
+          deltaThreshold: 0,
+        }),
+        autoOnPromote: 'none',
+        runDir: `${config.runDir}/trace-analyst-loop`,
         seed: config.seed ?? SEED,
       })
       const costUsd =
@@ -340,6 +433,7 @@ async function main(): Promise<void> {
 
   let drivers: DriverEntry[] = [gepaReflectionEntry(cfg), gepaParetoEntry(cfg), memoryEntry(cfg)]
   if (WITH_HALO) drivers.push(haloEntry(cfg))
+  if (WITH_ANALYST) drivers.push(traceAnalystEntry(cfg))
   // BENCH_DRIVERS=gepa-reflection,memory-curation selects a subset (smoke / recovery).
   const only = (process.env.BENCH_DRIVERS ?? '')
     .split(',')

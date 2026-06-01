@@ -104,6 +104,11 @@
       "import": "./dist/campaign/index.js",
       "default": "./dist/campaign/index.js"
     },
+    "./workflow": {
+      "types": "./dist/workflow/index.d.ts",
+      "import": "./dist/workflow/index.js",
+      "default": "./dist/workflow/index.js"
+    },
     "./contract": {
       "types": "./dist/contract/index.d.ts",
       "import": "./dist/contract/index.js",
