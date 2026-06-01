@@ -17,6 +17,21 @@ export {
   renderWorkflowFeedbackPack,
 } from './feedback-pack'
 export type {
+  BuildWorkflowTraceIntelligenceEnvelopeOptions,
+  WorkflowTraceArtifactEvidence,
+  WorkflowTraceCompactEvidence,
+  WorkflowTraceExportGrant,
+  WorkflowTraceExportGrantScope,
+  WorkflowTraceExportGrantSubject,
+  WorkflowTraceHashEvidence,
+  WorkflowTraceIntelligenceEnvelope,
+  WorkflowTraceIntelligenceEnvelopeVersion,
+} from './intelligence-export'
+export {
+  buildWorkflowTraceIntelligenceEnvelope,
+  validateWorkflowTraceIntelligenceEnvelope,
+} from './intelligence-export'
+export type {
   BuildWorkflowPartnerReportOptions,
   WorkflowPartnerFinding,
   WorkflowPartnerReport,
@@ -58,6 +73,7 @@ export type {
   WorkflowTraceEnvelope,
   WorkflowTraceEvent,
   WorkflowTraceEventKind,
+  WorkflowTraceExportLinks,
   WorkflowTraceProjectionMetadata,
   WorkflowTraceSummary,
   WorkflowTraceVersion,
