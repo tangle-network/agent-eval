@@ -42,6 +42,12 @@ export {
   renderWorkflowPartnerReport,
 } from './partner-report'
 export type {
+  WorkflowPhaseGraph,
+  WorkflowPhaseGraphBranch,
+  WorkflowPhaseGraphNode,
+} from './phase-graph'
+export { workflowPhaseGraph } from './phase-graph'
+export type {
   DecideWorkflowDriverPromotionOptions,
   WorkflowDriverPromotionDecision,
   WorkflowDriverPromotionDecisionVersion,
