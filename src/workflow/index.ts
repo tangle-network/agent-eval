@@ -1,3 +1,21 @@
+export type {
+  BuildWorkflowAnalystFeedbackPackOptions,
+  WorkflowAnalystFeedbackPack,
+  WorkflowAnalystFindingSummary,
+  WorkflowFailureClusterInput,
+  WorkflowFailureClusterSummary,
+  WorkflowFeedbackPackLimits,
+  WorkflowFeedbackPackVersion,
+  WorkflowFeedbackSeverity,
+  WorkflowToolUsageSummary,
+  WorkflowVerifierFindingSummary,
+  WorkflowVerifierLayerSummary,
+  WorkflowVerifierSummary,
+} from './feedback-pack'
+export {
+  buildWorkflowAnalystFeedbackPack,
+  renderWorkflowFeedbackPack,
+} from './feedback-pack'
 export {
   type WorkflowTraceRunRecordOptions,
   workflowTraceToRunRecord,

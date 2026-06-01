@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest'
+import { makeFinding } from '../src/analyst/types'
+import type { VerificationReport } from '../src/multi-layer-verifier'
+import type { FailureClusterReport } from '../src/pipelines'
 import {
+  buildWorkflowAnalystFeedbackPack,
+  renderWorkflowFeedbackPack,
   summarizeWorkflowTrace,
   validateWorkflowTraceEnvelope,
   type WorkflowTraceEnvelope,
@@ -120,5 +125,129 @@ describe('workflow trace substrate', () => {
         ],
       }),
     ).toThrow(/does not match/)
+  })
+
+  it('builds a bounded analyst feedback pack for the next workflow driver shot', () => {
+    const feedbackEnvelope: WorkflowTraceEnvelope = {
+      ...envelope,
+      events: [
+        ...envelope.events.slice(0, 3),
+        {
+          kind: 'workflow.agent.ended',
+          runId: 'wf-1',
+          timestamp: 1300,
+          payload: {
+            label: 'implementation',
+            toolUsage: {
+              byTool: {
+                read: { calls: 2, errors: 1 },
+              },
+            },
+            toolCalls: [
+              { toolName: 'write', status: 'ok' },
+              { toolName: 'test', error: 'vitest failed' },
+            ],
+          },
+        },
+        ...envelope.events.slice(3),
+      ],
+    }
+    const verifier: VerificationReport = {
+      layers: [
+        {
+          layer: 'typecheck',
+          status: 'fail',
+          score: 0.2,
+          durationMs: 1200,
+          findings: [
+            {
+              severity: 'major',
+              message: 'Type error in Auction.ts',
+              evidence: 'Auction.ts:12',
+            },
+          ],
+          reason: 'tsc failed',
+          diagnostics: { errors: 1 },
+        },
+      ],
+      passCount: 0,
+      failCount: 1,
+      skippedCount: 0,
+      errorCount: 0,
+      allPass: false,
+      blendedScore: 0.2,
+      durationMs: 1200,
+      startedAt: '2026-06-01T00:00:00.000Z',
+      finishedAt: '2026-06-01T00:00:01.200Z',
+    }
+    const failureClusters: FailureClusterReport = {
+      totalRuns: 3,
+      totalFailures: 2,
+      clusters: [
+        {
+          failureClass: 'tool_recovery_failure',
+          toolName: 'test',
+          argPrefix: 'abc123',
+          runCount: 2,
+          scenarioIds: ['scenario-1'],
+          exampleRunId: 'wf-1',
+          exampleError: 'vitest failed',
+        },
+      ],
+    }
+    const finding = makeFinding({
+      analyst_id: 'failure-mode',
+      severity: 'high',
+      area: 'verification',
+      claim: 'The implementation loop keeps proceeding after typecheck failure',
+      confidence: 0.9,
+      evidence_refs: [{ kind: 'event', uri: 'workflow://wf-1/typecheck' }],
+      recommended_action: 'Stop the next workflow at typecheck until Auction.ts is fixed',
+      validation_plan: 'Run pnpm typecheck before fanout review',
+    })
+
+    const pack = buildWorkflowAnalystFeedbackPack({
+      envelope: feedbackEnvelope,
+      verifier,
+      failureClusters,
+      analystFindings: [finding],
+      generatedAt: '2026-06-01T00:00:02.000Z',
+    })
+
+    expect(pack.schemaVersion).toBe('workflow-feedback-pack-v1')
+    expect(pack.summary.agentCalls).toBe(1)
+    expect(pack.verifier?.failedLayers).toEqual(['typecheck'])
+    expect(pack.verifier?.layers[0]?.findings[0]?.severity).toBe('high')
+    expect(pack.toolUsage).toEqual({
+      totalCalls: 4,
+      erroredCalls: 2,
+      byTool: {
+        read: { calls: 2, errors: 1 },
+        write: { calls: 1, errors: 0 },
+        test: { calls: 1, errors: 1 },
+      },
+    })
+    expect(pack.failureClusters[0]).toMatchObject({
+      id: 'tool_recovery_failure|test|abc123|',
+      share: 1,
+      runCount: 2,
+      source: 'failure-cluster-view',
+    })
+    expect(pack.findings[0]?.findingId).toBe(finding.finding_id)
+    expect(pack.recommendations).toContain('Fix verifier layer "typecheck": tsc failed')
+    expect(pack.recommendations).toContain(
+      'Stop the next workflow at typecheck until Auction.ts is fixed',
+    )
+    expect(pack.driverContextLines.join('\n')).toContain('verifier=fail')
+  })
+
+  it('renders feedback packs into a capped driver context block', () => {
+    const pack = buildWorkflowAnalystFeedbackPack({
+      envelope,
+      generatedAt: '2026-06-01T00:00:02.000Z',
+    })
+
+    expect(renderWorkflowFeedbackPack(pack)).toContain('Workflow feedback pack for wf-1')
+    expect(renderWorkflowFeedbackPack(pack, { maxChars: 12 })).toHaveLength(12)
   })
 })
