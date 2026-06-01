@@ -142,13 +142,18 @@ export function buildEvidenceVector<TArtifact, TScenario extends Scenario>(
     const floorTolerance =
       obj.floorTolerance ?? 0.05 * detectScale([...paired.before, ...paired.after])
     const gainThreshold = obj.gainThreshold ?? 0
+    // Floor check precedes the gain check: a credible regression must never be
+    // masked as "improved". With the defaults (gainThreshold 0, positive floor)
+    // the regions are disjoint and order is moot, but a consumer who sets a
+    // negative gainThreshold ("accept small dips") could otherwise have a real
+    // floor breach classified as a gain — anti-Goodhart wins the tie.
     const verdict: AxisVerdict =
       n < minProductiveRuns
         ? 'few_runs'
-        : bootstrap.low > gainThreshold
-          ? 'improved'
-          : bootstrap.low < -floorTolerance
-            ? 'regressed'
+        : bootstrap.low < -floorTolerance
+          ? 'regressed'
+          : bootstrap.low > gainThreshold
+            ? 'improved'
             : 'flat'
     axes.push({
       name: obj.name,

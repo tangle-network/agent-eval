@@ -152,6 +152,25 @@ describe('paretoSignificanceGate — multi-objective promotion over the evidence
     expect((axis.detail as { verdict: string }).verdict).toBe('regressed')
   })
 
+  it('a credible regression is never masked as "improved" by a permissive negative gainThreshold (floor wins the tie)', async () => {
+    // Anti-Goodhart: a consumer who sets gainThreshold below −floorTolerance
+    // ("accept dips down to −0.4") must NOT have a genuine −0.3 regression
+    // classified as a gain. The floor check precedes the gain check.
+    const ctx = ctxFrom(
+      cells(
+        () => ({ composite: 0.5 }),
+        () => ({ composite: 0.8 }), // candidate 0.5 vs baseline 0.8 ⇒ −0.3 delta
+      ),
+    )
+    const gate = paretoSignificanceGate({
+      objectives: [{ ...QUALITY, gainThreshold: -0.4, floorTolerance: 0.05 }],
+    })
+    const res = await gate.decide(ctx)
+    expect(res.decision).toBe('hold')
+    const axis = res.contributingGates.find((g) => g.name === 'objective:quality')!
+    expect((axis.detail as { verdict: string }).verdict).toBe('regressed')
+  })
+
   it('need_more_work (NOT hold) when an axis lacks the evidence to claim significance', async () => {
     // Only 2 paired runs — below minProductiveRuns. "Gather more" is a distinct
     // action from "reject"; folding it into hold abandons a real-but-underpowered
