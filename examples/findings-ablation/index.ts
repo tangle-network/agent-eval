@@ -20,6 +20,16 @@
  * Deterministic exact-match judge (no LLM-judge variance) so the only moving part
  * is the optimizer. `assertRealBackend` aborts on a stub run.
  *
+ * CAVEAT (measured 2026-06-01, deepseek-chat): a STRONG model saturates this
+ * corpus — control reached holdout 1.0 and 0 findings fired, so the result is
+ * "no-measurable-lift" by CEILING, not by the wire being inert. This task only
+ * exercises per-scenario failures, which gepa's own bottom-trial evidence
+ * already covers. To actually measure the wire's value, use a corpus with
+ * CROSS-CUTTING failure patterns a per-trial view misses (behavioral/trace
+ * findings — e.g. the AppWorld analyst loop), or a weaker model that does not
+ * ceiling. The wire's MECHANISM is proven by the gepa/skill-opt unit tests; its
+ * VALUE is task-dependent.
+ *
  * Run (DeepSeek, rate-limit-free):
  *   LLM_BASE_URL=https://api.deepseek.com/v1 LLM_API_KEY=$DEEPSEEK_API_KEY \
  *   LLM_MODEL=deepseek-chat PRICE_IN_PER_M=0.27 PRICE_OUT_PER_M=1.10 \
