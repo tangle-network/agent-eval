@@ -19,6 +19,7 @@
  */
 
 import { callLlm, type LlmClientOptions } from '../../llm-client'
+import { renderAnalystEvidence } from '../../reflective-mutation'
 import { applySkillPatch, type SkillPatch, type SkillPatchOp } from '../skill-patch'
 import type { ImprovementDriver, ProposeContext, ProposedCandidate } from '../types'
 
@@ -58,6 +59,11 @@ export interface ProposePatchesArgs {
   rejectedBuffer: RejectedEdit[]
   /** Slow-update meta guidance accumulated across epochs. */
   metaNote?: string
+  /** Analyst findings + research report rendered as a prompt block (the
+   *  EYES→HANDS wire) so a patch targets a NAMED diagnosed root cause. Built by
+   *  the driver from `ctx.findings`/`ctx.report`; the patch-native `runSkillOpt`
+   *  path may also supply it. */
+  findingsNote?: string
   /** How many candidate patches to propose. */
   count: number
   signal: AbortSignal
@@ -95,6 +101,7 @@ export function skillOptDriver(opts: SkillOptDriverOptions): SkillOptDriver {
       editBudget: args.editBudget,
       rejectedBuffer: args.rejectedBuffer,
       metaNote: args.metaNote,
+      findingsNote: args.findingsNote,
       count: args.count,
     })
     const result = await callLlm(
@@ -128,6 +135,7 @@ export function skillOptDriver(opts: SkillOptDriverOptions): SkillOptDriver {
         evidence: evidenceFromHistory(ctx, evidenceK),
         editBudget: defaultBudget,
         rejectedBuffer: [],
+        findingsNote: renderAnalystEvidence(ctx.findings, ctx.report) ?? undefined,
         count: ctx.populationSize,
         signal: ctx.signal,
       })
@@ -168,6 +176,7 @@ function buildPatchPrompt(args: {
   editBudget: number
   rejectedBuffer: RejectedEdit[]
   metaNote?: string
+  findingsNote?: string
   count: number
 }): string {
   const lines: string[] = [
@@ -203,6 +212,9 @@ function buildPatchPrompt(args: {
       'Already tried and REJECTED (do not repeat or restate these edits):',
       ...args.rejectedBuffer.map((e) => `- ${e.label}: ${e.rationale} — ${e.reason}`),
     )
+  }
+  if (args.findingsNote) {
+    lines.push('', args.findingsNote)
   }
   if (args.metaNote) {
     lines.push('', `Strategy note from prior epochs: ${args.metaNote}`)

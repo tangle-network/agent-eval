@@ -156,6 +156,54 @@ export function buildReflectionPrompt(ctx: ReflectionContext): string {
   return sections.join('\n')
 }
 
+/** Render analyst findings + the Phase-2 research report into a prompt evidence
+ *  block — the EYES→HANDS wire. A findings producer (the trace-analyst registry,
+ *  HALO) diagnoses the generation's traces; this surfaces that diagnosis to the
+ *  proposer so a mutation targets a NAMED root cause instead of blindly
+ *  rephrasing. Duck-types the finding shape (claim / severity / area /
+ *  recommended_action) so any findings producer's rows render. Returns null when
+ *  there is nothing to add, so callers append nothing. */
+export function renderAnalystEvidence(findings: unknown[], report?: unknown): string | null {
+  const sections: string[] = []
+  const rows = Array.isArray(findings) ? findings : []
+  if (rows.length > 0) {
+    // Highest severity first — the proposer should spend its budget on the
+    // worst diagnosed problems; unknown severities sort last. Cap the block so
+    // a noisy analyst can't blow the prompt budget.
+    const order: Record<string, number> = { critical: 0, high: 1, medium: 2, low: 3, info: 4 }
+    const ranked = rows
+      .map((f) => (f && typeof f === 'object' ? (f as Record<string, unknown>) : {}))
+      .sort((a, b) => (order[String(a.severity)] ?? 9) - (order[String(b.severity)] ?? 9))
+      .slice(0, 12)
+    sections.push('## Diagnosed findings (act on these root causes)')
+    sections.push('')
+    for (const f of ranked) {
+      const sev = typeof f.severity === 'string' ? f.severity : 'info'
+      const area = typeof f.area === 'string' ? ` [${f.area}]` : ''
+      const claim = typeof f.claim === 'string' ? f.claim : JSON.stringify(f)
+      sections.push(`- **${sev}**${area} ${truncate(claim, 300)}`)
+      if (typeof f.recommended_action === 'string' && f.recommended_action.trim()) {
+        sections.push(`  - fix: ${truncate(f.recommended_action, 200)}`)
+      }
+    }
+    sections.push('')
+  }
+  const reportText =
+    typeof report === 'string'
+      ? report
+      : report && typeof report === 'object'
+        ? JSON.stringify(report)
+        : ''
+  if (reportText.trim()) {
+    sections.push('## Research report')
+    sections.push('')
+    sections.push(truncate(reportText.trim(), 1500))
+    sections.push('')
+  }
+  if (sections.length === 0) return null
+  return sections.join('\n')
+}
+
 function truncate(s: string, max: number): string {
   if (s.length <= max) return s
   return `${s.slice(0, max)}… [truncated]`
