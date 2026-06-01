@@ -1,5 +1,6 @@
 import type { AnalystSeverity, EvidenceRef } from '../analyst/types'
-import type { RunRecord } from '../run-record'
+import { ValidationError } from '../errors'
+import { type RunRecord, validateRunRecord } from '../run-record'
 import {
   type BuildWorkflowAnalystFeedbackPackOptions,
   buildWorkflowAnalystFeedbackPack,
@@ -10,6 +11,7 @@ import {
   type SanitizeWorkflowTraceEnvelopeOptions,
   sanitizeWorkflowTraceEnvelope,
 } from './sanitize'
+import { summarizeWorkflowTrace, validateWorkflowTraceEnvelope } from './schema'
 import {
   type WorkflowTraceTrajectoryOptions,
   workflowTraceToFeedbackTrajectory,
@@ -69,7 +71,10 @@ export function buildWorkflowPartnerReport(
   })
   const trajectory = workflowTraceToFeedbackTrajectory(sanitized.envelope, options.trajectory)
   const runRecord = options.runRecord
-    ? workflowTraceToRunRecord(sanitized.envelope, options.runRecord)
+    ? workflowTraceToRunRecord(sanitized.envelope, {
+        ...options.runRecord,
+        runId: sanitized.envelope.runId,
+      })
     : undefined
   const analystFindings: WorkflowPartnerFinding[] = feedbackPack.findings.map((finding) => ({
     source: 'analyst' as const,
@@ -145,6 +150,51 @@ export function buildWorkflowPartnerReport(
   }
 }
 
+export function validateWorkflowPartnerReport(input: unknown): WorkflowPartnerReport {
+  const obj = expectRecord(input, 'workflow partner report')
+  if (obj.schemaVersion !== REPORT_VERSION) {
+    throw new ValidationError(`workflow partner report schemaVersion must be ${REPORT_VERSION}`)
+  }
+
+  const runId = expectString(obj.runId, 'runId')
+  const generatedAt = expectString(obj.generatedAt, 'generatedAt')
+  const exportBundle = validateExportBundle(obj.exportBundle, runId)
+  const expectedSummary = summarizeWorkflowTrace(exportBundle.traceEnvelope)
+  assertJsonEqual(expectRecord(obj.summary, 'summary'), expectedSummary, 'summary')
+  assertJsonEqual(
+    exportBundle.feedbackPack.summary,
+    expectedSummary,
+    'exportBundle.feedbackPack.summary',
+  )
+
+  const traceArtifacts = validateOptionalArtifacts(obj.traceArtifacts, 'traceArtifacts')
+  assertJsonEqual(
+    traceArtifacts ?? [],
+    exportBundle.traceEnvelope.artifacts ?? [],
+    'traceArtifacts',
+  )
+
+  return {
+    schemaVersion: REPORT_VERSION,
+    runId,
+    generatedAt,
+    summary: expectedSummary,
+    docsApiGaps: expectArray(obj.docsApiGaps, 'docsApiGaps') as WorkflowPartnerFinding[],
+    prReadyFindings: expectArray(
+      obj.prReadyFindings,
+      'prReadyFindings',
+    ) as WorkflowPartnerFinding[],
+    failureClusters: expectArray(
+      obj.failureClusters,
+      'failureClusters',
+    ) as WorkflowPartnerReport['failureClusters'],
+    recommendations: expectStringArray(obj.recommendations, 'recommendations'),
+    traceArtifacts,
+    ...(obj.links !== undefined ? { links: validateLinks(obj.links) } : {}),
+    exportBundle,
+  }
+}
+
 export function renderWorkflowPartnerReport(
   report: WorkflowPartnerReport,
   options: { maxFindings?: number } = {},
@@ -172,6 +222,146 @@ export function renderWorkflowPartnerReport(
     ...report.recommendations.slice(0, maxFindings).map((recommendation) => `- ${recommendation}`),
   ].filter((line): line is string => Boolean(line))
   return lines.join('\n')
+}
+
+function validateExportBundle(
+  value: unknown,
+  runId: string,
+): WorkflowPartnerReport['exportBundle'] {
+  const obj = expectRecord(value, 'exportBundle')
+  const traceEnvelope = validateWorkflowTraceEnvelope(obj.traceEnvelope)
+  if (traceEnvelope.runId !== runId) {
+    throw new ValidationError('exportBundle.traceEnvelope.runId must match report runId')
+  }
+
+  const feedbackPack = expectRecord(obj.feedbackPack, 'exportBundle.feedbackPack')
+  if (feedbackPack.schemaVersion !== 'workflow-feedback-pack-v1') {
+    throw new ValidationError(
+      'exportBundle.feedbackPack.schemaVersion must be workflow-feedback-pack-v1',
+    )
+  }
+  if (feedbackPack.runId !== runId) {
+    throw new ValidationError('exportBundle.feedbackPack.runId must match report runId')
+  }
+  expectRecord(feedbackPack.toolUsage, 'exportBundle.feedbackPack.toolUsage')
+  expectArray(feedbackPack.failureClusters, 'exportBundle.feedbackPack.failureClusters')
+  expectArray(feedbackPack.findings, 'exportBundle.feedbackPack.findings')
+  expectStringArray(feedbackPack.recommendations, 'exportBundle.feedbackPack.recommendations')
+  expectStringArray(feedbackPack.driverContextLines, 'exportBundle.feedbackPack.driverContextLines')
+
+  const trajectory = expectRecord(obj.trajectory, 'exportBundle.trajectory')
+  if (trajectory.id !== runId) {
+    throw new ValidationError('exportBundle.trajectory.id must match report runId')
+  }
+  expectArray(trajectory.attempts, 'exportBundle.trajectory.attempts')
+  expectArray(trajectory.labels, 'exportBundle.trajectory.labels')
+
+  const runRecord =
+    obj.runRecord === undefined
+      ? undefined
+      : validateWorkflowRunRecord(obj.runRecord, traceEnvelope)
+  expectRecord(obj.sanitization, 'exportBundle.sanitization')
+
+  return {
+    traceEnvelope,
+    sanitization: obj.sanitization as WorkflowPartnerReport['exportBundle']['sanitization'],
+    feedbackPack: obj.feedbackPack as WorkflowPartnerReport['exportBundle']['feedbackPack'],
+    trajectory: obj.trajectory as WorkflowPartnerReport['exportBundle']['trajectory'],
+    ...(runRecord ? { runRecord } : {}),
+  }
+}
+
+function validateWorkflowRunRecord(value: unknown, envelope: WorkflowTraceEnvelope): RunRecord {
+  const record = validateRunRecord(value)
+  const summary = summarizeWorkflowTrace(envelope)
+  if (record.runId !== envelope.runId) {
+    throw new ValidationError('exportBundle.runRecord.runId must match trace envelope runId')
+  }
+  if (record.outcome.raw.workflow_events !== summary.eventCount) {
+    throw new ValidationError('exportBundle.runRecord outcome does not match trace event count')
+  }
+  return record
+}
+
+function validateLinks(value: unknown): WorkflowTraceExportLinks {
+  const obj = expectRecord(value, 'links')
+  return {
+    ...(obj.traceArtifactUri !== undefined
+      ? { traceArtifactUri: expectString(obj.traceArtifactUri, 'links.traceArtifactUri') }
+      : {}),
+    ...(obj.exportBundleUri !== undefined
+      ? { exportBundleUri: expectString(obj.exportBundleUri, 'links.exportBundleUri') }
+      : {}),
+    ...(obj.partnerReportUri !== undefined
+      ? { partnerReportUri: expectString(obj.partnerReportUri, 'links.partnerReportUri') }
+      : {}),
+    ...(obj.intelligenceRunUri !== undefined
+      ? { intelligenceRunUri: expectString(obj.intelligenceRunUri, 'links.intelligenceRunUri') }
+      : {}),
+  }
+}
+
+function validateOptionalArtifacts(
+  value: unknown,
+  path: string,
+): WorkflowTraceEnvelope['artifacts'] {
+  if (value === undefined) return undefined
+  return expectArray(value, path).map((item, index) => {
+    const itemPath = `${path}[${index}]`
+    const obj = expectRecord(item, itemPath)
+    return {
+      kind: expectString(obj.kind, `${itemPath}.kind`),
+      uri: expectString(obj.uri, `${itemPath}.uri`),
+      ...(obj.contentType !== undefined
+        ? { contentType: expectString(obj.contentType, `${itemPath}.contentType`) }
+        : {}),
+      ...(obj.sha256 !== undefined
+        ? { sha256: expectString(obj.sha256, `${itemPath}.sha256`) }
+        : {}),
+      ...(obj.metadata !== undefined
+        ? { metadata: expectRecord(obj.metadata, `${itemPath}.metadata`) }
+        : {}),
+    }
+  })
+}
+
+function expectRecord(value: unknown, path: string): Record<string, unknown> {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new ValidationError(`${path}: expected object`)
+  }
+  return value as Record<string, unknown>
+}
+
+function expectArray(value: unknown, path: string): unknown[] {
+  if (!Array.isArray(value)) throw new ValidationError(`${path}: expected array`)
+  return value
+}
+
+function expectString(value: unknown, path: string): string {
+  if (typeof value !== 'string' || value.length === 0) {
+    throw new ValidationError(`${path}: expected non-empty string`)
+  }
+  return value
+}
+
+function expectStringArray(value: unknown, path: string): string[] {
+  return expectArray(value, path).map((item, index) => expectString(item, `${path}[${index}]`))
+}
+
+function assertJsonEqual(actual: unknown, expected: unknown, path: string): void {
+  if (JSON.stringify(stableJson(actual)) !== JSON.stringify(stableJson(expected))) {
+    throw new ValidationError(`${path} does not match trace envelope`)
+  }
+}
+
+function stableJson(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(stableJson)
+  if (!value || typeof value !== 'object') return value
+  return Object.fromEntries(
+    Object.entries(value as Record<string, unknown>)
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([key, child]) => [key, stableJson(child)]),
+  )
 }
 
 function isDocsApiGap(finding: WorkflowPartnerFinding): boolean {

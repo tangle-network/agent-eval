@@ -58,7 +58,7 @@ function outputTokensOf(s: TraceAnalystSpan): number | null {
   return num(s.attributes['llm.output_tokens']) ?? num(s.attributes['llm.usage.output_tokens'])
 }
 function stepOf(s: TraceAnalystSpan): number | null {
-  return num(s.attributes['step'])
+  return num(s.attributes.step)
 }
 function toolNameOf(s: TraceAnalystSpan): string | null {
   if (s.tool_name) return s.tool_name
