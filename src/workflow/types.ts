@@ -41,6 +41,13 @@ export interface WorkflowTraceArtifact {
   metadata?: Record<string, unknown>
 }
 
+export interface WorkflowTraceExportLinks {
+  traceArtifactUri?: string
+  exportBundleUri?: string
+  partnerReportUri?: string
+  intelligenceRunUri?: string
+}
+
 export interface WorkflowTraceEnvelope {
   traceVersion: WorkflowTraceVersion
   runId: string

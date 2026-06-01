@@ -5,12 +5,14 @@ import type { FailureClusterReport } from '../src/pipelines'
 import {
   buildWorkflowAnalystFeedbackPack,
   buildWorkflowPartnerReport,
+  buildWorkflowTraceIntelligenceEnvelope,
   renderWorkflowFeedbackPack,
   renderWorkflowPartnerReport,
   sanitizeWorkflowTraceEnvelope,
   summarizeWorkflowExecution,
   summarizeWorkflowTrace,
   validateWorkflowTraceEnvelope,
+  validateWorkflowTraceIntelligenceEnvelope,
   type WorkflowTraceEnvelope,
   workflowTraceToFeedbackTrajectory,
   workflowTraceToRunRecord,
@@ -374,6 +376,128 @@ describe('workflow trace substrate', () => {
     expect(sanitized.report.droppedPayloadKeys.apiKey).toBe(1)
   })
 
+  it('builds a grant-gated intelligence export envelope from the sanitized workflow trace', () => {
+    const sensitiveEnvelope: WorkflowTraceEnvelope = {
+      ...envelope,
+      metadata: {
+        requestId: 'req-1',
+        authorization: 'Bearer metadata-secret-token',
+      },
+      events: [
+        ...envelope.events.slice(0, 2),
+        {
+          kind: 'workflow.agent.ended',
+          runId: 'wf-1',
+          timestamp: 1200,
+          payload: {
+            label: 'implementation',
+            apiKey: 'sk-test-secret-value',
+            toolCalls: [
+              {
+                toolName: 'write_file',
+                toolArgs: { path: 'src/App.tsx', content: 'const key = "sk-tool-secret-value"' },
+                status: 'ok',
+              },
+            ],
+            filePath: 'src/App.tsx',
+            content: 'const apiKey = "sk-file-secret-value"',
+          },
+        },
+        ...envelope.events.slice(3),
+      ],
+      artifacts: [
+        {
+          kind: 'source-file',
+          uri: 'artifact://src/App.tsx',
+          sha256: 'a'.repeat(64),
+          metadata: {
+            path: 'src/App.tsx',
+            contents: 'export const secret = "sk-artifact-secret-value"',
+          },
+        },
+      ],
+    }
+
+    expect(() =>
+      buildWorkflowTraceIntelligenceEnvelope({
+        envelope: sensitiveEnvelope,
+        productId: 'blueprint-agent',
+        grants: [],
+      }),
+    ).toThrow(/requires at least one opt-in grant/)
+
+    const exported = buildWorkflowTraceIntelligenceEnvelope({
+      envelope: sensitiveEnvelope,
+      productId: 'blueprint-agent',
+      partnerId: 'partner-acme',
+      generatedAt: '2026-06-01T00:00:03.000Z',
+      grants: [
+        {
+          grantId: 'grant-product-export',
+          subject: 'product',
+          subjectId: 'blueprint-agent',
+          scopes: ['workflow-trace:export'],
+          grantedAt: '2026-06-01T00:00:00.000Z',
+        },
+      ],
+      sanitize: { hashSalt: 'intelligence-test' },
+      links: {
+        traceArtifactUri: 'artifact://wf-1/trace.json',
+        exportBundleUri: 'artifact://wf-1/export-bundle.json',
+        partnerReportUri: 'artifact://wf-1/partner-report.md',
+      },
+      metadata: {
+        route: 'vb.workflow-driver-v1',
+        cookie: 'session=secret',
+      },
+    })
+
+    expect(validateWorkflowTraceIntelligenceEnvelope(exported).schemaVersion).toBe(
+      'workflow-trace-intelligence-envelope-v1',
+    )
+    expect(exported.destination).toBe('intelligence.tangle.tools')
+    expect(exported.grantIds).toEqual(['grant-product-export'])
+    expect(exported.summary.agentRuns[0]?.label).toBe('implementation')
+    expect(exported.compactEvidence.toolNames).toEqual(['write_file'])
+    expect(exported.compactEvidence.artifacts[0]).toMatchObject({
+      kind: 'source-file',
+      uri: 'artifact://src/App.tsx',
+      sha256: 'a'.repeat(64),
+    })
+    expect(exported.compactEvidence.redactedHashes).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          path: 'events[2].payload.toolCalls[0].toolArgs',
+          shape: { type: 'object', keys: ['content', 'path'] },
+        }),
+        expect.objectContaining({
+          path: 'events[2].payload.content',
+          shape: { type: 'string' },
+        }),
+        expect.objectContaining({
+          path: 'artifacts[0].metadata.contents',
+          shape: { type: 'string' },
+        }),
+      ]),
+    )
+    expect(exported.links?.exportBundleUri).toBe('artifact://wf-1/export-bundle.json')
+    const serialized = JSON.stringify(exported)
+    expect(serialized).not.toContain('sk-test-secret-value')
+    expect(serialized).not.toContain('sk-tool-secret-value')
+    expect(serialized).not.toContain('sk-file-secret-value')
+    expect(serialized).not.toContain('sk-artifact-secret-value')
+    expect(serialized).not.toContain('metadata-secret-token')
+    expect(serialized).not.toContain('session=secret')
+    expect(exported.sanitization.hashedArgs).toBe(1)
+    expect(exported.sanitization.droppedArtifactContents).toBeGreaterThanOrEqual(2)
+
+    const tampered = structuredClone(exported)
+    tampered.compactEvidence.toolNames = []
+    expect(() => validateWorkflowTraceIntelligenceEnvelope(tampered)).toThrow(
+      /compactEvidence.toolNames/,
+    )
+  })
+
   it('builds a partner-facing workflow report with sanitized trace, RL trajectory, and PR-ready findings', () => {
     const docsFinding = makeFinding({
       analyst_id: 'knowledge-gap',
@@ -398,11 +522,18 @@ describe('workflow trace substrate', () => {
         tags: { driver: 'workflow-driver-v1' },
       },
       runRecord: { ...projection, score: 0.82 },
+      links: {
+        traceArtifactUri: 'artifact://wf-1/trace.json',
+        exportBundleUri: 'artifact://wf-1/export-bundle.json',
+        partnerReportUri: 'artifact://wf-1/partner-report.md',
+      },
     })
 
     expect(report.schemaVersion).toBe('workflow-partner-report-v1')
     expect(report.docsApiGaps[0]?.claim).toContain('partner docs')
     expect(report.prReadyFindings[0]?.recommendedAction).toContain('docs PR')
+    expect(report.links?.traceArtifactUri).toBe('artifact://wf-1/trace.json')
+    expect(report.links?.exportBundleUri).toBe('artifact://wf-1/export-bundle.json')
     expect(report.exportBundle.trajectory.attempts).toHaveLength(5)
     expect(report.exportBundle.runRecord?.outcome.searchScore).toBe(0.82)
     expect(renderWorkflowPartnerReport(report)).toContain('Docs/API gaps')

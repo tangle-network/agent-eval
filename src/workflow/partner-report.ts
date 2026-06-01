@@ -14,7 +14,7 @@ import {
   type WorkflowTraceTrajectoryOptions,
   workflowTraceToFeedbackTrajectory,
 } from './trajectory'
-import type { WorkflowTraceEnvelope, WorkflowTraceSummary } from './types'
+import type { WorkflowTraceEnvelope, WorkflowTraceExportLinks, WorkflowTraceSummary } from './types'
 
 export type WorkflowPartnerReportVersion = 'workflow-partner-report-v1'
 
@@ -38,6 +38,7 @@ export interface WorkflowPartnerReport {
   failureClusters: ReturnType<typeof buildWorkflowAnalystFeedbackPack>['failureClusters']
   recommendations: string[]
   traceArtifacts: WorkflowTraceEnvelope['artifacts']
+  links?: WorkflowTraceExportLinks
   exportBundle: {
     traceEnvelope: WorkflowTraceEnvelope
     sanitization: SanitizedWorkflowTraceEnvelopeResult['report']
@@ -53,6 +54,7 @@ export interface BuildWorkflowPartnerReportOptions
   sanitize?: SanitizeWorkflowTraceEnvelopeOptions
   trajectory: WorkflowTraceTrajectoryOptions
   runRecord?: WorkflowTraceRunRecordOptions
+  links?: WorkflowTraceExportLinks
 }
 
 const REPORT_VERSION: WorkflowPartnerReportVersion = 'workflow-partner-report-v1'
@@ -132,6 +134,7 @@ export function buildWorkflowPartnerReport(
     failureClusters: feedbackPack.failureClusters,
     recommendations: feedbackPack.recommendations,
     traceArtifacts: sanitized.envelope.artifacts,
+    ...(options.links ? { links: options.links } : {}),
     exportBundle: {
       traceEnvelope: sanitized.envelope,
       sanitization: sanitized.report,
