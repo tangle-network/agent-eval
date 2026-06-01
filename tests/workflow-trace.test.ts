@@ -215,6 +215,21 @@ describe('workflow trace substrate', () => {
     expect(summary.failedBranchCount).toBe(1)
     expect(summary.failed).toBe(true)
 
+    const executionSummary = summarizeWorkflowExecution(failedEnvelope)
+    expect(executionSummary.phaseGraph.nodes[0]).toMatchObject({
+      title: 'Build',
+      eventCount: 3,
+      failedBranchCount: 1,
+    })
+    expect(executionSummary.phaseGraph.branches[0]).toMatchObject({
+      operation: 'parallel',
+      branchIndex: 0,
+      phase: 'Build',
+      status: 'failed',
+      durationMs: 1,
+      message: 'worker failed',
+    })
+
     const record = workflowTraceToRunRecord(failedEnvelope, projection)
     expect(record.outcome.searchScore).toBe(0)
     expect(record.outcome.raw.workflow_branch_failures).toBe(1)
@@ -234,6 +249,29 @@ describe('workflow trace substrate', () => {
       'workflow.ended': 1,
     })
     expect(summary.phases).toEqual(['Plan'])
+    expect(summary.phaseGraph.nodes[0]).toMatchObject({
+      id: 'phase-0',
+      title: 'Plan',
+      startedAt: 1010,
+      endedAt: 1210,
+      eventCount: 4,
+      branchCount: 1,
+      failedBranchCount: 0,
+      agentCalls: 1,
+      loopCalls: 0,
+      costUsd: 0.01,
+      tokenUsage: { input: 10, output: 20 },
+    })
+    expect(summary.phaseGraph.branches[0]).toMatchObject({
+      id: 'branch-0',
+      operation: 'parallel',
+      branchIndex: 0,
+      phase: 'Plan',
+      status: 'ended',
+      startedAt: 1020,
+      endedAt: 1210,
+      durationMs: 190,
+    })
     expect(summary.agentRuns[0]).toMatchObject({
       index: 0,
       label: 'planner',

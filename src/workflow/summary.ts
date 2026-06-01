@@ -1,5 +1,7 @@
 import type { RunTokenUsage } from '../run-record'
+import { type WorkflowPhaseGraph, workflowPhaseGraph } from './phase-graph'
 import { summarizeWorkflowTrace, validateWorkflowTraceEnvelope } from './schema'
+import { numberField, objectRecord, stringField, tokenUsageField } from './trace-event-fields'
 import type { WorkflowTraceEnvelope, WorkflowTraceEvent, WorkflowTraceSummary } from './types'
 
 export interface WorkflowDelegateTraceSummary {
@@ -19,6 +21,7 @@ export interface WorkflowExecutionSummary extends WorkflowTraceSummary {
   source?: string
   eventKinds: Record<string, number>
   phases: string[]
+  phaseGraph: WorkflowPhaseGraph
   agentRuns: WorkflowDelegateTraceSummary[]
   loopRuns: WorkflowDelegateTraceSummary[]
   verifierOutputs: WorkflowCheckpointTraceSummary[]
@@ -41,6 +44,7 @@ export function summarizeWorkflowExecution(
     ...(options.source !== undefined ? { source: options.source } : {}),
     eventKinds: workflowEventKinds(envelope.events),
     phases: workflowPhaseTitles(envelope.events),
+    phaseGraph: workflowPhaseGraph(envelope.events),
     agentRuns: workflowDelegateTraceSummaries(envelope.events, 'workflow.agent.ended'),
     loopRuns: workflowDelegateTraceSummaries(envelope.events, 'workflow.loop.ended'),
     verifierOutputs: workflowCheckpointTraceSummaries(envelope.events, 'workflow.verifier.ended'),
@@ -104,34 +108,4 @@ function checkpointOutput(trace: unknown): unknown {
   }
   if (record && Object.hasOwn(record, 'output')) return record.output
   return trace
-}
-
-function objectRecord(value: unknown): Record<string, unknown> | null {
-  return value && typeof value === 'object' && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
-    : null
-}
-
-function stringField(record: Record<string, unknown>, key: string): string | null {
-  const value = record[key]
-  return typeof value === 'string' ? value : null
-}
-
-function numberField(record: Record<string, unknown>, key: string): number | null {
-  const value = record[key]
-  return typeof value === 'number' && Number.isFinite(value) ? value : null
-}
-
-function tokenUsageField(value: unknown): RunTokenUsage | null {
-  const record = objectRecord(value)
-  if (!record) return null
-  const input = numberField(record, 'input')
-  const output = numberField(record, 'output')
-  if (input === null || output === null) return null
-  const cached = numberField(record, 'cached')
-  return {
-    input,
-    output,
-    ...(cached !== null ? { cached } : {}),
-  }
 }
