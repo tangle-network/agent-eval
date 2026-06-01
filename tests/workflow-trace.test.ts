@@ -15,6 +15,7 @@ import {
   summarizeWorkflowTrace,
   validateWorkflowTraceEnvelope,
   validateWorkflowTraceIntelligenceEnvelope,
+  validateWorkflowPartnerReport,
   type WorkflowTraceEnvelope,
   workflowEventsToTraceEnvelope,
   workflowRuntimeResultToTraceEnvelope,
@@ -921,7 +922,7 @@ describe('workflow trace substrate', () => {
         score: 0.82,
         tags: { driver: 'workflow-driver-v1' },
       },
-      runRecord: { ...projection, score: 0.82 },
+      runRecord: { ...projection, runId: 'caller-override', score: 0.82 },
       links: {
         traceArtifactUri: 'artifact://wf-1/trace.json',
         exportBundleUri: 'artifact://wf-1/export-bundle.json',
@@ -935,8 +936,14 @@ describe('workflow trace substrate', () => {
     expect(report.links?.traceArtifactUri).toBe('artifact://wf-1/trace.json')
     expect(report.links?.exportBundleUri).toBe('artifact://wf-1/export-bundle.json')
     expect(report.exportBundle.trajectory.attempts).toHaveLength(5)
+    expect(report.exportBundle.runRecord?.runId).toBe('wf-1')
     expect(report.exportBundle.runRecord?.outcome.searchScore).toBe(0.82)
+    expect(validateWorkflowPartnerReport(report).runId).toBe('wf-1')
     expect(renderWorkflowPartnerReport(report)).toContain('Docs/API gaps')
+
+    const tampered = structuredClone(report)
+    tampered.summary.eventCount = 999
+    expect(() => validateWorkflowPartnerReport(tampered)).toThrow(/summary/)
   })
 
   it('gates workflow-driver promotion against reviewer-loop baseline on paired heldout scenarios', () => {

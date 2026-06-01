@@ -45,6 +45,7 @@ export type {
 export {
   buildWorkflowPartnerReport,
   renderWorkflowPartnerReport,
+  validateWorkflowPartnerReport,
 } from './partner-report'
 export type {
   WorkflowPhaseGraph,
