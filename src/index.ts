@@ -28,28 +28,24 @@ export {
   validateAgentProfileCell,
   verifyAgentProfileCell,
 } from './agent-profile-cell'
-// ── Analyst (registry + findings) ─────────────────────────────────────
-// Consumer-facing happy path only: build a registry (or take the default
-// kinds), pass it to analyzeRuns/selfImprove, read AnalystFinding[], persist
-// with FindingsStore. The internal machinery — chat-client transports,
-// finding-signature/subject parsers, tolerant JSON coercion, tool groups,
-// prose recovery, judge/verifier adapters — moved to the `/analyst` subpath
-// (`@tangle-network/agent-eval/analyst`) to keep this surface legible.
-export {
-  AnalystRegistry,
-  type AnalystHooks,
-  type AnalystRegistryOptions,
-  type BudgetPolicy,
-  type RegistryRunOpts,
-} from './analyst/registry'
 export {
   buildDefaultAnalystRegistry,
   type DefaultAnalystRegistryOptions,
 } from './analyst/default-registry'
+export type { RawAnalystFinding } from './analyst/finding-signature'
+export type { FindingSubject, FindingSubjectKind } from './analyst/finding-subject'
 export {
+  type DiffPolicy,
+  defaultIsMaterial,
+  diffFindings,
+  type FindingsDiff,
+  FindingsStore,
+  type PersistedFinding,
+} from './analyst/findings-store'
+export {
+  type CreateTraceAnalystKindOpts,
   createTraceAnalystKind,
   renderPriorFindings,
-  type CreateTraceAnalystKindOpts,
   type TraceAnalystGolden,
   type TraceAnalystKindSpec,
 } from './analyst/kind-factory'
@@ -61,19 +57,21 @@ export {
   KNOWLEDGE_POISONING_KIND_SPEC,
 } from './analyst/kinds'
 export { SKILL_USAGE_ANALYST, SkillUsageAnalyst } from './analyst/kinds/skill-usage'
+// ── Analyst (registry + findings) ─────────────────────────────────────
+// Consumer-facing happy path only: build a registry (or take the default
+// kinds), pass it to analyzeRuns/selfImprove, read AnalystFinding[], persist
+// with FindingsStore. The internal machinery — chat-client transports,
+// finding-signature/subject parsers, tolerant JSON coercion, tool groups,
+// prose recovery, judge/verifier adapters — moved to the `/analyst` subpath
+// (`@tangle-network/agent-eval/analyst`) to keep this surface legible.
 export {
-  defaultIsMaterial,
-  diffFindings,
-  FindingsStore,
-  type DiffPolicy,
-  type FindingsDiff,
-  type PersistedFinding,
-} from './analyst/findings-store'
-export type { FindingSubject, FindingSubjectKind } from './analyst/finding-subject'
-export type { RawAnalystFinding } from './analyst/finding-signature'
+  type AnalystHooks,
+  AnalystRegistry,
+  type AnalystRegistryOptions,
+  type BudgetPolicy,
+  type RegistryRunOpts,
+} from './analyst/registry'
 export {
-  computeFindingId,
-  makeFinding,
   type Analyst,
   type AnalystContext,
   type AnalystCost,
@@ -85,7 +83,9 @@ export {
   type AnalystRunResult,
   type AnalystRunSummary,
   type AnalystSeverity,
+  computeFindingId,
   type EvidenceRef,
+  makeFinding,
 } from './analyst/types'
 // ── Production loop primitive ────────────────────────────────────────
 // Closes the eval → prod → eval cycle: ingest production traces,
