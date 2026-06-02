@@ -22,6 +22,7 @@ export default defineConfig({
     'multishot/index': 'src/multishot/index.ts',
     'campaign/index': 'src/campaign/index.ts',
     'storyboard/index': 'src/storyboard/index.ts',
+    'authenticity/index': 'src/authenticity/index.ts',
     'workflow/index': 'src/workflow/index.ts',
     'contract/index': 'src/contract/index.ts',
     'adapters/langchain': 'src/adapters/langchain.ts',

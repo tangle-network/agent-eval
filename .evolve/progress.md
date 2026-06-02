@@ -1,25 +1,27 @@
-# Evolve — tax agent prod-readiness via the unified matrix
+# Progress
 
-## Where we are (2026-05-31)
-The eval is UNIFIED + LIVE: tax agent as a `runLoop` multi-shot cell inside
-`runProfileMatrix`, scored by the upstream TaxReturnEvaluator. PR #137
-(drewstone-authored, tangletools-approved). Proven: 2 real shots, judge scored
-0.316 by_line, standard RunRecord + byScenario rollup.
+## Gen 6 — Empirical proof: CLOSED (honest negative + proven mechanism)
 
-## Baseline (real, this session, hard QBI case)
-| config | by_line | tools |
-|---|---|---|
-| single-shot bare model | 0.316 | 0 |
-| single-shot product-mode (standalone) | 0.684 | 3 |
-| matrix multi-shot (n=2, temp 0) | 0.316 | ? (identical shots) |
+### Shipped + verified (branch pursue/empirical-proof, ~7 commits, suite green)
+- Full-stack wiring: findings -> competing drivers through compareDrivers (+ deterministic prompt-capture test). The loop's missing connection, closed.
+- GSM8K substrate-proof harness + dataset; AppWorld BENCH_SPLIT knob; v4-flash pricing.
 
-## Diagnosis — ROI-ranked gaps (matrix 0.316 → target ≥0.684)
-1. **Shot diversity (cheap, high ROI):** n=2 shots were IDENTICAL (temp 0) → best-of-N degenerate. Set sampling temperature (~0.7) in loopDispatch sampling_args → diverse shots → fanout picks best. Expect lift toward the product ceiling.
-2. **Tool-use realization (high ROI):** standalone product-mode hit 0.684 with 3 tool calls; the matrix run scored 0.316 — confirm tool_calls>0 in the matrix path (same productPrompt + bash:allow). If tools aren't firing in-matrix, fix the profile/prompt wiring.
-3. **Cost/token forwarding (correctness):** `extractLlmCallEvent` (agent-runtime) doesn't parse the sandbox 0.4.0 `done` event → integrity 'warn', cost=0. Fix in agent-runtime so the matrix records real cost/tokens (needed for the corpus + the integrity gate). Generic — belongs in loopDispatch's cost path.
+### The empirical result (live, real backends, ~$3.50)
+Ran the lift bench across 5 configs hunting a measurable held-out lift:
+| config | baseline | lift | why |
+|---|---|---|---|
+| extraction | 0.625->1.0 | n/a (0 findings) | model ceilings |
+| GSM8K v4-pro / v4-flash | 1.0 | — | model ceilings |
+| AppWorld easy | ~0.89 | — | near-ceiling |
+| AppWorld d2 (v4-flash) | ~0.91 | — | near-ceiling |
+| AppWorld d3 (v4-pro, scaled gen2/pop2/n8) | 0.885 | **0.0% CI[-11.7,11.7]** | competent baseline + capability-bound residual |
 
-## Next experiment (designed, not yet run)
-matrix.ts on the hard QBI case: --shots 3, sampling temperature 0.7, confirm tool_calls>0, 3 reps. Success: median by_line ≥ 0.60 (toward the 0.684 ceiling) with tool_calls>0, d>0.5 vs the 0.316 temp-0 baseline. Held-out: the other Schedule-C cases. ~3 sandboxed runs/cell → budget + greenlight before spending.
+**MECHANISM proven:** the loop runs end-to-end on a real public benchmark (AppWorld, objective TGC/SGC), drivers compete, the gate correctly HOLDS baseline when no candidate beats it, integrity=real. **LIFT not achieved:** capable models ceiling easy tasks; on AppWorld d3 the baseline prompt is already competent and the residual failures are capability-bound, not prompt-bound. memory-curation HURT (-4.7%, context bloat).
 
-## Guardrails
-tax-agent is heavily concurrent (6+ worktrees) — isolated-worktree only, never the shared main checkout. See [[reference_pr_authorship_convention]].
+### The honest conclusion
+Prompt-optimization lift needs THREE things at once: a weak/fixable baseline prompt + a model capable of benefiting + a task with headroom. Each available config violated one. The substrate is correct; a positive number requires CONSTRUCTING that triple, not finding it.
+
+## Next (awaiting go-ahead — NOT auto-run, per the no-third-scale commitment)
+The one config most likely to show real lift: a DELIBERATELY-WEAK AppWorld baseline prompt (strip the competent repl_agent instructions to a bare "solve the task") on difficulty 1-2 where v4-flash is NOT ceilinged — the standard GEPA/DSPy "optimize a weak starting prompt" setup. This directly targets the root cause (baseline too good) and is principled, not rigged.
+
+Next: /pursue weak-baseline AppWorld lift config (explicit go-ahead) OR merge the verified substrate (pursue/empirical-proof) + close the ticket on the proven mechanism.

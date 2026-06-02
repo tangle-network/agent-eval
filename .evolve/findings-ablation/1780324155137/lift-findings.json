@@ -1,0 +1,58 @@
+{
+  "task": "structured-field-extraction (deterministic exact-match judge)",
+  "hypothesis": "feeding the analyst diagnosis (ctx.findings) to gepa propose() raises held-out lift vs findings-blind",
+  "backend": {
+    "model": "deepseek-chat",
+    "baseUrl": "https://api.deepseek.com/v1",
+    "verdict": "real"
+  },
+  "integrity": {
+    "verdict": "real",
+    "realRecords": 130,
+    "stubRecords": 0,
+    "totalInputTokens": 13421,
+    "totalOutputTokens": 5324
+  },
+  "dataset": {
+    "search": 8,
+    "holdout": 6
+  },
+  "findingsProducedDuringTreatment": 0,
+  "holdout": {
+    "baselineMean": 0.625,
+    "controlMean": 1,
+    "treatmentMean": 1,
+    "controlPerScenario": [
+      1,
+      1,
+      1,
+      1,
+      1,
+      1
+    ],
+    "treatmentPerScenario": [
+      1,
+      1,
+      1,
+      1,
+      1,
+      1
+    ]
+  },
+  "liftFindingsFedVsBlind": {
+    "deltaMean": 0,
+    "deltaMedian": 0,
+    "ci95": {
+      "low": 0,
+      "high": 0
+    },
+    "n": 6
+  },
+  "controlWinnerSurface": "Extract the transaction info from the message as a JSON object with exactly these keys: merchant (string), amount (bare decimal number, no currency symbol), date (ISO YYYY-MM-DD format), category (one of: groceries, dining, transport, utilities, entertainment).",
+  "treatmentWinnerSurface": "Extract the transaction info from the message as JSON with keys: merchant (string), amount (bare decimal number, no currency symbol), date (ISO YYYY-MM-DD), category (one of: groceries, dining, transport, utilities, entertainment).",
+  "totalCostUsd": 0.009,
+  "llmCalls": 130,
+  "elapsedSec": 131,
+  "verdict": "no-measurable-lift (CI straddles zero)",
+  "publishedAt": "2026-06-01T14:29:15.137Z"
+}
