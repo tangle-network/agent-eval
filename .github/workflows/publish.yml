@@ -172,6 +172,11 @@ jobs:
         if: env.IS_OIDC == 'true'
         run: |
           npm install -g npm@latest
+          # actions/setup-node's registry-url writes an .npmrc with
+          # `_authToken=${NODE_AUTH_TOKEN}`; on the OIDC path that token is empty,
+          # so npm sends an empty credential and 404s on PUT instead of running
+          # the id-token exchange. Remove it so trusted publishing engages.
+          rm -f "$NPM_CONFIG_USERCONFIG" ~/.npmrc
           NAME=$(node -p "require('./package.json').name")
           VERSION=$(node -p "require('./package.json').version")
           if npm view "$NAME@$VERSION" version --registry=https://registry.npmjs.org >/dev/null 2>&1; then
