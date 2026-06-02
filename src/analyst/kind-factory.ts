@@ -164,7 +164,7 @@ export function createTraceAnalystKind(
             description: actorDescription,
             ...(opts.model ? { model: opts.model } : {}),
             showThoughts: false,
-            thinkingTokenBudget: 'none' as unknown as number,
+            thinkingTokenBudget: 'none',
           },
           responderOptions: {
             description:
