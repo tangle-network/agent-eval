@@ -19,6 +19,11 @@
       "import": "./dist/index.js",
       "default": "./dist/index.js"
     },
+    "./analyst": {
+      "types": "./dist/analyst/index.d.ts",
+      "import": "./dist/analyst/index.js",
+      "default": "./dist/analyst/index.js"
+    },
     "./control": {
       "types": "./dist/control.d.ts",
       "import": "./dist/control.js",
