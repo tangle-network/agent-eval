@@ -158,6 +158,7 @@ export function createTraceAnalystKind(
           maxRuntimeChars: spec.maxRuntimeChars ?? 6000,
           maxBatchedLlmQueryConcurrency: maxParallel,
           promptLevel: 'detailed',
+          // Trace analysis depends on exact prior tool results and runtime variables.
           contextPolicy: { preset: 'full', budget: 'balanced' },
           functions: { local: tools },
           actorOptions: {
