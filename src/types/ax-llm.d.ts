@@ -1,4 +1,7 @@
-// Minimal ambient types for the @ax-llm/ax surface used by agent-eval.
+// Deliberate minimal facade over @ax-llm/ax: agent-eval declares only the
+// slice of the (very large) upstream surface it consumes, insulating the
+// substrate from churn in unrelated parts of the package. Shapes here mirror
+// real exported types — keep them structurally compatible when bumping Ax.
 declare module '@ax-llm/ax' {
   export function ai(config: Record<string, unknown>): AxAIService
   export function ax<
@@ -121,6 +124,8 @@ declare module '@ax-llm/ax' {
     bubbleErrors?: ReadonlyArray<abstract new (...args: never) => Error>
   }
 
+  // Mirrors upstream `AxAgentTurnCallbackArgs` (the actorTurnCallback payload).
+  // Local alias kept for the fields the trace-analyst reads.
   export interface AxActorTurn {
     turn: number
     actionLogEntryCount: number
