@@ -23,6 +23,8 @@ import type { Span } from '../trace/schema'
 /** What the agent meaningfully did — the compressed vocabulary. */
 export type SemanticKind =
   | 'understood_task'
+  | 'user_message'
+  | 'agent_reply'
   | 'reasoned'
   | 'ran_command'
   | 'read_file'
@@ -298,7 +300,9 @@ function classify(span: Span): Classified {
 }
 
 const KIND_VERB: Record<SemanticKind, string> = {
-  understood_task: 'Received the task',
+  understood_task: 'Understood the task',
+  user_message: 'User said',
+  agent_reply: 'Agent replied',
   reasoned: 'Reasoned',
   ran_command: 'Ran a command',
   read_file: 'Read files',
@@ -313,11 +317,68 @@ const KIND_VERB: Record<SemanticKind, string> = {
   completed: 'Finished',
 }
 
+/** Kinds that must never collapse into a neighbour — each is its own beat:
+ *  a failure, and every conversation turn (so the dialogue reads in full). */
+const STANDALONE_KINDS = new Set<SemanticKind>([
+  'observed_failure',
+  'understood_task',
+  'user_message',
+  'agent_reply',
+])
+
+/** Lift the conversation turns out of an LLM span. The user/assistant text
+ *  lives in `LlmSpan.messages` (role:'user'|'assistant') and the new reply in
+ *  `output`; the full history repeats across spans, so `seen` dedupes turns to
+ *  the first time each is said. The first user turn becomes `understood_task`
+ *  (the premise), later user turns `user_message`, assistant text `agent_reply`. */
+function conversationEvents(
+  span: Span,
+  seen: Set<string>,
+  state: { sawUser: boolean },
+): SemanticEvent[] {
+  if (span.kind !== 'llm') return []
+  const out: SemanticEvent[] = []
+  const emit = (kind: SemanticKind, text: string, importance: 1 | 2 | 3 | 4 | 5) => {
+    const t = text.trim()
+    if (!t) return
+    const who = kind === 'agent_reply' ? 'a' : 'u'
+    const key = `${who}\n${t}`
+    if (seen.has(key)) return
+    seen.add(key)
+    const speaker = kind === 'understood_task' ? 'Task' : kind === 'user_message' ? 'User' : 'Agent'
+    out.push({
+      kind,
+      title: `${speaker}: ${truncate(t, 64)}`,
+      summary: truncate(t, 280),
+      visual: { type: 'prose', text: truncate(t, 1200) },
+      evidenceSpanIds: [span.spanId],
+      importance,
+      startTs: span.startedAt,
+      endTs: span.endedAt ?? span.startedAt,
+    })
+  }
+  for (const m of span.messages ?? []) {
+    const content = str(m.content)
+    if (!content) continue
+    if (m.role === 'user') {
+      emit(state.sawUser ? 'user_message' : 'understood_task', content, state.sawUser ? 4 : 5)
+      state.sawUser = true
+    } else if (m.role === 'assistant') {
+      emit('agent_reply', content, 3)
+    }
+  }
+  const reply = str(span.output)
+  if (reply) emit('agent_reply', reply, 3)
+  return out
+}
+
 /**
- * Reduce a span tree into the meaningful moments a viewer cares about. Each
- * span is classified + has its modality visual extracted; adjacent same-kind
- * moments collapse (the compression step), carrying the latest visual so the
- * scene shows the most recent state. A failure always stands alone.
+ * Reduce a span tree into the meaningful moments a viewer cares about. The
+ * conversation (user asks, agent replies) is lifted from LLM spans first so the
+ * dialogue is first-class; the remaining work spans are classified + have their
+ * modality visual extracted. Adjacent same-kind work moments collapse (the
+ * compression step), carrying the latest visual; failures and conversation
+ * turns never collapse.
  */
 export function reduceToSemanticEvents(
   spans: readonly Span[],
@@ -325,9 +386,18 @@ export function reduceToSemanticEvents(
 ): SemanticEvent[] {
   const collapse = opts.collapseAdjacent ?? true
   const ordered = [...spans].sort((a, b) => a.startedAt - b.startedAt)
-  const raw: SemanticEvent[] = ordered.map((s) => {
+  const seen = new Set<string>()
+  const convState = { sawUser: false }
+  const raw: SemanticEvent[] = []
+  for (const s of ordered) {
+    const conv = conversationEvents(s, seen, convState)
+    if (conv.length > 0) {
+      // this LLM span IS dialogue — surface the turns, not a generic "reasoned"
+      raw.push(...conv)
+      continue
+    }
     const c = classify(s)
-    return {
+    raw.push({
       kind: c.kind,
       title: c.label,
       summary: `${KIND_VERB[c.kind]} — ${c.label}`,
@@ -336,14 +406,14 @@ export function reduceToSemanticEvents(
       importance: c.importance,
       startTs: s.startedAt,
       endTs: s.endedAt ?? s.startedAt,
-    }
-  })
+    })
+  }
   if (!collapse) return raw
 
   const merged: SemanticEvent[] = []
   for (const ev of raw) {
     const prev = merged[merged.length - 1]
-    if (prev && prev.kind === ev.kind && ev.kind !== 'observed_failure') {
+    if (prev && prev.kind === ev.kind && !STANDALONE_KINDS.has(ev.kind)) {
       prev.evidenceSpanIds.push(...ev.evidenceSpanIds)
       prev.endTs = Math.max(prev.endTs, ev.endTs)
       if (ev.visual.type !== 'none') prev.visual = ev.visual // keep the latest state
@@ -361,6 +431,8 @@ export function reduceToSemanticEvents(
 
 export type SceneType =
   | 'title_card'
+  | 'prompt'
+  | 'reply'
   | 'reasoning'
   | 'terminal'
   | 'file'
@@ -399,6 +471,8 @@ export interface CompileOptions {
 
 const KIND_TO_SCENE: Record<SemanticKind, SceneType> = {
   understood_task: 'title_card',
+  user_message: 'prompt',
+  agent_reply: 'reply',
   reasoned: 'reasoning',
   ran_command: 'terminal',
   read_file: 'file',
@@ -433,7 +507,11 @@ export function compileStoryboard(
   const title = opts.title ?? 'Agent run'
   const maxScenes = opts.maxScenes ?? 16
 
-  const indexed = events.map((ev, i) => ({ ev, i }))
+  // The first user turn is the premise — it frames the title card rather than
+  // being shown twice, so it's excluded from the action selection below.
+  const taskEvent = events.find((e) => e.kind === 'understood_task')
+
+  const indexed = events.filter((ev) => ev.kind !== 'understood_task').map((ev, i) => ({ ev, i }))
   const mustKeep = indexed.filter(({ ev }) => ev.importance >= 4)
   const rest = indexed
     .filter(({ ev }) => ev.importance < 4)
@@ -461,10 +539,10 @@ export function compileStoryboard(
     {
       sceneType: 'title_card',
       title,
-      narration: 'The agent receives its task.',
-      visual: { type: 'none' },
+      narration: taskEvent ? taskEvent.summary : 'The agent receives its task.',
+      visual: taskEvent ? taskEvent.visual : { type: 'none' },
       durationMs: 3000,
-      evidenceSpanIds: [],
+      evidenceSpanIds: taskEvent ? taskEvent.evidenceSpanIds : [],
     },
     ...actionScenes,
     {
@@ -483,6 +561,8 @@ export function compileStoryboard(
 
 const SCENE_ICON: Record<SceneType, string> = {
   title_card: '🎬',
+  prompt: '💬',
+  reply: '🤖',
   reasoning: '🧠',
   terminal: '⌨️',
   file: '📄',
@@ -670,6 +750,7 @@ export function renderStoryboardHtml(storyboard: Storyboard, opts: HtmlRenderOpt
   .type-error { --accent: #ef4444; } .type-diff { --accent: #22c55e; } .type-terminal { --accent: #eab308; }
   .type-browser { --accent: #06b6d4; } .type-computer { --accent: #14b8a6; } .type-api { --accent: #79c0ff; }
   .type-summary { --accent: #a855f7; } .type-title_card { --accent: #3b82f6; }
+  .type-prompt { --accent: #f59e0b; } .type-reply { --accent: #10b981; }
   .scene-enter { animation: pop .45s cubic-bezier(.2,.7,.3,1.2); }
   @keyframes pop { from { opacity: 0; transform: translateY(10px) scale(.985); } to { opacity: 1; transform: none; } }
   .bar { height: 4px; background: #1e2a3a; border-radius: 4px; margin-top: 14px; overflow: hidden; }
