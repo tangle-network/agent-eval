@@ -28,67 +28,28 @@ export {
   validateAgentProfileCell,
   verifyAgentProfileCell,
 } from './agent-profile-cell'
-export type {
-  JudgeAdapterOpts,
-  RunCriticAdapterOpts,
-  SemanticConceptJudgeAdapterOpts,
-  TraceAnalystAdapterOpts,
-  VerifierAdapterOpts,
-} from './analyst/adapters'
-export {
-  createJudgeAdapter,
-  createRunCriticAdapter,
-  createSemanticConceptJudgeAdapter,
-  createTraceAnalystAdapter,
-  createVerifierAdapter,
-  liftSeverity,
-} from './analyst/adapters'
-export { behavioralAnalyst, deriveEfficiencyFindings } from './analyst/behavioral-analyst'
-export type {
-  ChatCallOpts,
-  ChatClient,
-  ChatRequest,
-  ChatResponse,
-  ChatTransport,
-  CliBridgeTransportOpts,
-  CreateChatClientOpts,
-  DirectProviderTransportOpts,
-  MockTransportOpts,
-  RouterTransportOpts,
-  SandboxSdkTransportOpts,
-} from './analyst/chat-client'
-export { createChatClient } from './analyst/chat-client'
+export { type CreateAnalystAiConfig, createAnalystAi } from './analyst/ax-service'
 export {
   buildDefaultAnalystRegistry,
   type DefaultAnalystRegistryOptions,
 } from './analyst/default-registry'
 export type { RawAnalystFinding } from './analyst/finding-signature'
+export type { FindingSubject, FindingSubjectKind } from './analyst/finding-subject'
 export {
-  ANALYST_SEVERITIES,
-  parseRawFinding,
-  RAW_FINDING_SCHEMA_PROMPT,
-  RawAnalystFindingSchema,
-} from './analyst/finding-signature'
-export type {
-  FindingSubject,
-  FindingSubjectKind,
-} from './analyst/finding-subject'
+  type DiffPolicy,
+  defaultIsMaterial,
+  diffFindings,
+  type FindingsDiff,
+  FindingsStore,
+  type PersistedFinding,
+} from './analyst/findings-store'
 export {
-  FINDING_SUBJECT_GRAMMAR_PROMPT,
-  FINDING_SUBJECT_KINDS,
-  FindingSubjectStringSchema,
-  KIND_EXPECTED_SUBJECTS,
-  parseFindingSubject,
-  renderFindingSubject,
-} from './analyst/finding-subject'
-export type { DiffPolicy, FindingsDiff, PersistedFinding } from './analyst/findings-store'
-export { defaultIsMaterial, diffFindings, FindingsStore } from './analyst/findings-store'
-export type {
-  CreateTraceAnalystKindOpts,
-  TraceAnalystGolden,
-  TraceAnalystKindSpec,
+  type CreateTraceAnalystKindOpts,
+  createTraceAnalystKind,
+  renderPriorFindings,
+  type TraceAnalystGolden,
+  type TraceAnalystKindSpec,
 } from './analyst/kind-factory'
-export { createTraceAnalystKind, renderPriorFindings } from './analyst/kind-factory'
 export {
   DEFAULT_TRACE_ANALYST_KINDS,
   FAILURE_MODE_KIND_SPEC,
@@ -96,51 +57,37 @@ export {
   KNOWLEDGE_GAP_KIND_SPEC,
   KNOWLEDGE_POISONING_KIND_SPEC,
 } from './analyst/kinds'
-export type {
-  SkillUsageRecord,
-  SkillUsageReport,
-  SkillUsageScanConfig,
-} from './analyst/kinds/skill-usage'
+export { SKILL_USAGE_ANALYST, SkillUsageAnalyst } from './analyst/kinds/skill-usage'
+// ── Analyst (registry + findings) ─────────────────────────────────────
+// Consumer-facing happy path only: build a registry (or take the default
+// kinds), pass it to analyzeRuns/selfImprove, read AnalystFinding[], persist
+// with FindingsStore. The internal machinery — chat-client transports,
+// finding-signature/subject parsers, tolerant JSON coercion, tool groups,
+// prose recovery, judge/verifier adapters — moved to the `/analyst` subpath
+// (`@tangle-network/agent-eval/analyst`) to keep this surface legible.
 export {
-  buildSkillUsageReport,
-  emitSkillUsageFindings,
-  SKILL_USAGE_ANALYST,
-  SkillUsageAnalyst,
-} from './analyst/kinds/skill-usage'
-export { coerceJson, coerceToFindingRows, stripCodeFences } from './analyst/parse-tolerant'
-export type {
-  AnalystHooks,
-  AnalystRegistryOptions,
-  BudgetPolicy,
-  RegistryRunOpts,
+  type AnalystHooks,
+  AnalystRegistry,
+  type AnalystRegistryOptions,
+  type BudgetPolicy,
+  type RegistryRunOpts,
 } from './analyst/registry'
-export { AnalystRegistry } from './analyst/registry'
 export {
-  type StructureFindingsOptions,
-  type StructureFindingsResult,
-  structureFindings,
-} from './analyst/structure-findings'
-export type { TraceToolGroupName } from './analyst/tool-groups'
-export { buildTraceToolsForGroup } from './analyst/tool-groups'
-// ── Analyst registry ─────────────────────────────────────────────────
-// Generic contract + registry over agent-eval's existing analyzers
-// (analyzeTraces, MultiLayerVerifier, RunCritic, SemanticConceptJudge,
-// JudgeFn). One envelope, one runner, model-agnostic, transport-agnostic.
-export type {
-  Analyst,
-  AnalystContext,
-  AnalystCost,
-  AnalystFinding,
-  AnalystInputKind,
-  AnalystRequirements,
-  AnalystRunEvent,
-  AnalystRunInputs,
-  AnalystRunResult,
-  AnalystRunSummary,
-  AnalystSeverity,
-  EvidenceRef,
+  type Analyst,
+  type AnalystContext,
+  type AnalystCost,
+  type AnalystFinding,
+  type AnalystInputKind,
+  type AnalystRequirements,
+  type AnalystRunEvent,
+  type AnalystRunInputs,
+  type AnalystRunResult,
+  type AnalystRunSummary,
+  type AnalystSeverity,
+  computeFindingId,
+  type EvidenceRef,
+  makeFinding,
 } from './analyst/types'
-export { computeFindingId, makeFinding } from './analyst/types'
 // ── Production loop primitive ────────────────────────────────────────
 // Closes the eval → prod → eval cycle: ingest production traces,
 // cluster failures, run evolve on the offending cluster, gate the
