@@ -201,6 +201,82 @@ describe('modality visuals', () => {
     expect(html).not.toContain('</script><')
   })
 
+  it('lifts the conversation (user asks / agent replies) out of llm spans, deduped', () => {
+    // The history repeats across llm spans — the first user turn appears in
+    // both s1 and s2's messages; it must surface exactly once (as the task).
+    const convSpans: Span[] = [
+      {
+        spanId: 'c1',
+        runId: 'r',
+        kind: 'llm',
+        name: 'turn1',
+        model: 'claude',
+        messages: [{ role: 'user', content: 'Fix the failing checkout test' }],
+        output: 'Looking into it now.',
+        startedAt: 1000,
+        endedAt: 1100,
+        status: 'ok',
+      } as Span,
+      tool('w1', 1200, 'apply_patch', { args: { path: 'a.ts', diff: '+fix' } }),
+      {
+        spanId: 'c2',
+        runId: 'r',
+        kind: 'llm',
+        name: 'turn2',
+        model: 'claude',
+        messages: [
+          { role: 'user', content: 'Fix the failing checkout test' }, // repeat
+          { role: 'assistant', content: 'Looking into it now.' }, // repeat
+          { role: 'user', content: 'Also add a regression test' }, // new follow-up
+        ],
+        output: 'Done — added the test and it passes.',
+        startedAt: 1300,
+        endedAt: 1400,
+        status: 'ok',
+      } as Span,
+    ]
+    const evs = reduceToSemanticEvents(convSpans)
+    expect(evs.map((e) => e.kind)).toEqual([
+      'understood_task', // first user turn
+      'agent_reply', // "Looking into it now."
+      'edited_code', // the work span between turns
+      'user_message', // the follow-up (not re-emitting the repeated first turn/reply)
+      'agent_reply', // "Done — added the test…"
+    ])
+    expect(evs[0]!.summary).toBe('Fix the failing checkout test')
+    expect(evs[0]!.visual).toEqual({ type: 'prose', text: 'Fix the failing checkout test' })
+    expect(evs[3]!.summary).toBe('Also add a regression test')
+    // the repeated user turn + repeated reply are deduped to one occurrence each
+    expect(evs.filter((e) => e.summary === 'Fix the failing checkout test')).toHaveLength(1)
+    expect(evs.filter((e) => e.summary === 'Looking into it now.')).toHaveLength(1)
+  })
+
+  it('folds the first user turn into the title card, not a duplicate scene', () => {
+    const sb = compileStoryboard(
+      reduceToSemanticEvents([
+        {
+          spanId: 'c1',
+          runId: 'r',
+          kind: 'llm',
+          name: 't',
+          model: 'm',
+          messages: [{ role: 'user', content: 'Summarize this contract' }],
+          output: 'Here is the summary.',
+          startedAt: 1,
+          endedAt: 2,
+          status: 'ok',
+        } as Span,
+      ]),
+      { title: 'Legal run' },
+    )
+    expect(sb.scenes[0]!.sceneType).toBe('title_card')
+    expect(sb.scenes[0]!.narration).toBe('Summarize this contract')
+    expect(sb.scenes[0]!.visual).toEqual({ type: 'prose', text: 'Summarize this contract' })
+    // understood_task is the title — never also an action scene
+    expect(sb.scenes.filter((s) => s.title.startsWith('Task:'))).toHaveLength(0)
+    expect(sb.scenes.some((s) => s.sceneType === 'reply')).toBe(true)
+  })
+
   it('markdown fences code/terminal and tags network/screenshot modalities', () => {
     const md = renderStoryboardMarkdown(compileStoryboard(evs, { title: 'Modalities' }))
     expect(md).toContain('```diff')
