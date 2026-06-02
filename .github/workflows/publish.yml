@@ -163,17 +163,21 @@ jobs:
       # registry (e.g. after a manual publish) skips rather than fails, so the
       # downstream PyPI step still runs.
 
-      # OIDC path (dispatch, auth_mode=oidc): tokenless. pnpm 10.22 exchanges the
-      # id-token for a publish credential and emits provenance. No secret.
+      # OIDC path (dispatch, auth_mode=oidc): tokenless. The id-token→publish-
+      # credential exchange is an npm CLI feature (>= 11.5.1); Node 22 bundles
+      # npm 10 and pnpm only signs provenance (the PUT then 404s on auth), so we
+      # upgrade npm and publish with it. agent-eval has no `workspace:` deps, so
+      # `npm publish` is safe here (no workspace-protocol leak).
       - name: Publish to npm (OIDC trusted publishing)
         if: env.IS_OIDC == 'true'
         run: |
+          npm install -g npm@latest
           NAME=$(node -p "require('./package.json').name")
           VERSION=$(node -p "require('./package.json').version")
           if npm view "$NAME@$VERSION" version --registry=https://registry.npmjs.org >/dev/null 2>&1; then
             echo "$NAME@$VERSION already on registry; skipping publish"
           else
-            pnpm publish --no-git-checks --access public --provenance --registry=https://registry.npmjs.org
+            npm publish --provenance --access public --registry=https://registry.npmjs.org
           fi
 
       # Token path (tag push, or dispatch auth_mode=token): the NPM_TOKEN secret.
