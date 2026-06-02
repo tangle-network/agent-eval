@@ -14,7 +14,7 @@ describe('steering optimizer', () => {
       provider: 'openai',
       apiKey: 'sk-test',
       model: 'gpt-5.4-mini',
-      minRows: 10,
+      minScenarioWinners: 10,
     }).optimize(rows())
     expect(result.backend).toBe('ax-gepa')
     expect(result.skipped).toBe(true)
@@ -56,6 +56,8 @@ function row(variantId: string, scenarioId: string, rank: number): SteeringOptim
       toolUseQuality: 0.9,
       patchQuality: 0.9,
       testReality: 0.9,
+      finalGate: rank >= 5 ? 1 : 0,
+      reviewerBlockers: 0,
       costUsd: 0.1,
       wallSeconds: 1,
     },
