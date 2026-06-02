@@ -4,7 +4,17 @@
 // real exported types — keep them structurally compatible when bumping Ax.
 declare module '@ax-llm/ax' {
   export function ai(config: Record<string, unknown>): AxAIService
-  export function ax(signature: string, options?: Record<string, unknown>): unknown
+  export function ax(signature: string, options?: Record<string, unknown>): AxOptimizable
+  /** Program handle returned by `ax()`; GEPA-optimized state is applied back
+   *  via `applyOptimization`. */
+  export interface AxOptimizable {
+    applyOptimization(compiled: unknown): void
+  }
+  /** Subset of upstream `AxParetoResult` the steering optimizer reads. */
+  export interface AxGepaCompileResult {
+    optimizedProgram?: unknown
+    bestScore?: number
+  }
   export class AxGEPA {
     constructor(options?: Record<string, unknown>)
     compile(
@@ -12,7 +22,7 @@ declare module '@ax-llm/ax' {
       train: unknown,
       metricFn: unknown,
       options?: Record<string, unknown>,
-    ): Promise<unknown>
+    ): Promise<AxGepaCompileResult>
   }
 
   // ─── trace-analyst surface ─────────────────────────────────────────

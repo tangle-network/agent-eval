@@ -39,49 +39,10 @@ export interface AxSteeringOptimizerConfig extends SteeringOptimizerConfig {
   minRows?: number
 }
 
-type AxServiceFactory = (config: {
-  name: 'openai' | 'anthropic'
-  apiKey: string
-  config: { model: string }
-}) => unknown
-
-interface AxSelectorProgram {
-  applyOptimization(compiled: unknown): void
-}
-
-type AxFactory = (signature: string, options: { description: string }) => AxSelectorProgram
-
-interface AxGepaCompileResult {
-  optimizedProgram?: unknown
-  bestScore?: number
-}
-
-interface AxGepaInstance {
-  compile(
-    selector: AxSelectorProgram,
-    train: ScenarioWinner[],
-    metric: (input: { prediction?: { variantId?: string }; example?: ScenarioWinner }) => number,
-    options: { validationExamples: ScenarioWinner[]; maxMetricCalls: number },
-  ): Promise<AxGepaCompileResult>
-}
-
-interface AxGepaConstructor {
-  new (config: {
-    studentAI: unknown
-    teacherAI: unknown
-    numTrials: number
-    minibatch: boolean
-    minibatchSize: number
-    earlyStoppingTrials: number
-    sampleCount: number
-  }): AxGepaInstance
-}
-
-interface AxModule {
-  ai: AxServiceFactory
-  ax: AxFactory
-  AxGEPA: AxGepaConstructor
-}
+// The slice of @ax-llm/ax the GEPA selector path consumes is declared in the
+// shared facade (src/types/ax-llm.d.ts); reference the module type directly
+// rather than re-declaring a second local shadow.
+type AxModule = typeof import('@ax-llm/ax')
 
 interface ScenarioWinner {
   task: string
@@ -125,7 +86,7 @@ export class AxGepaSteeringOptimizer {
 
     let axLib: AxModule
     try {
-      axLib = (await import('@ax-llm/ax')) as AxModule
+      axLib = await import('@ax-llm/ax')
     } catch {
       return {
         ...fallback,
@@ -170,7 +131,13 @@ export class AxGepaSteeringOptimizer {
     const compiled = await optimizer.compile(
       selector,
       train,
-      ({ prediction, example }) => (prediction?.variantId === example?.variantId ? 1 : 0),
+      ({
+        prediction,
+        example,
+      }: {
+        prediction?: { variantId?: string }
+        example?: ScenarioWinner
+      }) => (prediction?.variantId === example?.variantId ? 1 : 0),
       {
         validationExamples: validation,
         maxMetricCalls: 64,
@@ -234,7 +201,7 @@ function collapseScenarioWinners(
 }
 
 function createAxService(
-  aiFactory: AxServiceFactory,
+  aiFactory: AxModule['ai'],
   provider: 'openai' | 'anthropic',
   apiKey: string,
   model: string,
