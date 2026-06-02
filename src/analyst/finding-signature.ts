@@ -61,8 +61,8 @@ export type RawAnalystFinding = z.infer<typeof RawAnalystFindingSchema>
 export const RAW_FINDING_SCHEMA_PROMPT = `Each finding MUST be a JSON object with these fields:
   - severity: one of "critical" | "high" | "medium" | "low" | "info"
   - claim: one-sentence statement (max 2000 chars)
-  - subject?: the leaf id, agent id, span id, tool name, or noun phrase the finding is about
-  - evidence_uri: "span://<trace_id>/<span_id>" for trace evidence, "artifact://<relative-path>" for files, "metric://<name>" for named scalars — ALWAYS cite a real id surfaced by the tools
+  - subject?: the routing locus this finding is about. It MUST be one of the exact subject forms listed in this kind's instructions above (e.g. \`system-prompt:<section>\`, \`agent-knowledge:wiki:<slug>\`, \`tool-doc:<tool>\`). A free phrase, a bare noun, or any form not in that list is REJECTED at parse time and the finding is discarded — omit subject entirely rather than guess a form.
+  - evidence_uri: REQUIRED, never blank. Exactly one of "span://<trace_id>/<span_id>" (trace evidence), "artifact://<relative-path>" (files), "metric://<name>" (named scalars) — ALWAYS cite a real id surfaced by the tools. If you have no citable id, do not emit the finding.
   - evidence_excerpt?: short quote (<=2000 chars) from the cited span/artifact
   - confidence: number 0..1 — 0.9+ when backed by exact quotes, 0.6-0.8 for inferred patterns, <0.5 for speculative
   - rationale?: one or two sentences explaining the reasoning

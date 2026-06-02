@@ -154,7 +154,11 @@ export async function analyzeTraces(
   const maxRuntimeChars = options.maxRuntimeChars ?? 6000
 
   const analyst = agent<{ question: string }, { answer: string; findings: string[] }>(
-    'question:string -> answer:string, findings:string[]',
+    // `reasoning!` is an internal (Ax `!`) scratchpad field: generated first to
+    // force reason-before-conclude, stripped from the returned output — so the
+    // consumed shape stays { answer, findings }. Brings the trace-analyst to the
+    // same prose-first CoT ordering the kind-factory gets from its `report` field.
+    'question:string -> reasoning!:string, answer:string, findings:string[]',
     {
       agentIdentity: {
         name: 'TraceAnalyst',

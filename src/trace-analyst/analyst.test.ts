@@ -190,7 +190,7 @@ describe('analyzeTraces', () => {
 
     expect(axMock.agentCalls).toHaveLength(1)
     expect(axMock.agentCalls[0]!.signature).toBe(
-      'question:string -> answer:string, findings:string[]',
+      'question:string -> reasoning!:string, answer:string, findings:string[]',
     )
     expect(axMock.agentCalls[0]!.options.mode).toBe('advanced')
     expect(axMock.agentCalls[0]!.options.functions).toMatchObject({
