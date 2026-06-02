@@ -1,15 +1,36 @@
 // Minimal ambient types for the @ax-llm/ax surface used by agent-eval.
 declare module '@ax-llm/ax' {
   export function ai(config: Record<string, unknown>): AxAIService
-  export function ax(signature: string, options?: Record<string, unknown>): unknown
+  export function ax<
+    IN extends Record<string, unknown> = Record<string, unknown>,
+    OUT extends Record<string, unknown> = Record<string, unknown>,
+  >(signature: string, options?: Record<string, unknown>): AxGenProgram<IN, OUT>
+
+  /** Generative program produced by `ax(signature)`. After GEPA training,
+   *  `applyOptimization` mutates the program in place; `forward` then runs
+   *  the optimized classifier against a live AI service. */
+  export interface AxGenProgram<
+    IN extends Record<string, unknown> = Record<string, unknown>,
+    OUT extends Record<string, unknown> = Record<string, unknown>,
+  > {
+    forward(ai: AxAIService, values: IN, options?: Record<string, unknown>): Promise<OUT>
+    applyOptimization(optimizedProgram: unknown): void
+    getOptimized?(): unknown
+  }
+
+  export interface AxGepaCompileResult {
+    optimizedProgram?: unknown
+    bestScore?: number
+  }
+
   export class AxGEPA {
     constructor(options?: Record<string, unknown>)
     compile(
-      program: unknown,
+      program: AxGenProgram,
       train: unknown,
       metricFn: unknown,
       options?: Record<string, unknown>,
-    ): Promise<unknown>
+    ): Promise<AxGepaCompileResult>
   }
 
   // ─── trace-analyst surface ─────────────────────────────────────────

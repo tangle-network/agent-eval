@@ -1,3 +1,4 @@
+import { type AxAIService, AxGEPA, ai, ax } from '@ax-llm/ax'
 import { aggregateRunScore, type RunScore, type RunScoreWeights } from './run-score'
 import type { SteeringBundle } from './steering'
 
@@ -24,6 +25,14 @@ export interface SteeringOptimizationResult {
   rationale: string
   rankings: Array<{ variantId: string; mean: number; runs: number }>
   selector?: SteeringOptimizationSelector
+  /** Runnable handle on the trained classifier. Present only when the
+   *  ax-gepa backend completed training; calls the optimized selector
+   *  program via ax's `forward`. */
+  selectVariant?: (row: {
+    task: string
+    split: string
+    seedPreview: string
+  }) => Promise<{ variantId: string; rationale: string }>
   skipped?: boolean
 }
 
@@ -36,51 +45,7 @@ export interface AxSteeringOptimizerConfig extends SteeringOptimizerConfig {
   apiKey: string
   model: string
   teacherModel?: string
-  minRows?: number
-}
-
-type AxServiceFactory = (config: {
-  name: 'openai' | 'anthropic'
-  apiKey: string
-  config: { model: string }
-}) => unknown
-
-interface AxSelectorProgram {
-  applyOptimization(compiled: unknown): void
-}
-
-type AxFactory = (signature: string, options: { description: string }) => AxSelectorProgram
-
-interface AxGepaCompileResult {
-  optimizedProgram?: unknown
-  bestScore?: number
-}
-
-interface AxGepaInstance {
-  compile(
-    selector: AxSelectorProgram,
-    train: ScenarioWinner[],
-    metric: (input: { prediction?: { variantId?: string }; example?: ScenarioWinner }) => number,
-    options: { validationExamples: ScenarioWinner[]; maxMetricCalls: number },
-  ): Promise<AxGepaCompileResult>
-}
-
-interface AxGepaConstructor {
-  new (config: {
-    studentAI: unknown
-    teacherAI: unknown
-    numTrials: number
-    minibatch: boolean
-    minibatchSize: number
-    earlyStoppingTrials: number
-    sampleCount: number
-  }): AxGepaInstance
-}
-
-interface AxModule {
-  ai: AxServiceFactory
-  ax: AxFactory
-  AxGEPA: AxGepaConstructor
+  minScenarioWinners?: number
 }
 
 interface ScenarioWinner {
@@ -111,38 +76,29 @@ export class AxGepaSteeringOptimizer {
 
   async optimize(rows: SteeringOptimizationRow[]): Promise<SteeringOptimizationResult> {
     const fallback = new PairwiseSteeringOptimizer().optimize(rows, this.config)
-    const minRows = this.config.minRows ?? 6
+    const minScenarioWinners = this.config.minScenarioWinners ?? 6
     const variantIds = [...new Set(rows.map((row) => row.variantId))]
     const byScenario = collapseScenarioWinners(rows, this.config.weights)
-    if (variantIds.length < 2 || byScenario.length < minRows) {
+    if (variantIds.length < 2 || byScenario.length < minScenarioWinners) {
       return {
         ...fallback,
         backend: 'ax-gepa',
         skipped: true,
-        rationale: `AxGEPA skipped: need >=2 variants and >=${minRows} scenario winners, got ${variantIds.length} variant(s) and ${byScenario.length} scenario winner(s).`,
+        rationale: `AxGEPA skipped: need >=2 variants and >=${minScenarioWinners} scenario winners, got ${variantIds.length} variant(s) and ${byScenario.length} scenario winner(s).`,
       }
     }
 
-    let axLib: AxModule
-    try {
-      axLib = (await import('@ax-llm/ax')) as AxModule
-    } catch {
-      return {
-        ...fallback,
-        backend: 'ax-gepa',
-        skipped: true,
-        rationale: 'AxGEPA unavailable: install @ax-llm/ax to enable selector optimization.',
-      }
-    }
-
-    const { ai, ax, AxGEPA } = axLib
     const signature = `task:string, split:string, seedPreview:string -> variantId:class "${variantIds.join(', ')}", rationale:string`
-    const selector = ax(signature, {
+    const selector = ax<
+      { task: string; split: string; seedPreview: string },
+      { variantId: string; rationale?: string }
+    >(signature, {
       description: 'Choose the best steering bundle variant for an autopilot task.',
     })
-    const splitIndex = Math.max(1, Math.floor(byScenario.length * 0.8))
-    const train = byScenario.slice(0, splitIndex)
-    const validation = byScenario.slice(splitIndex)
+    const shuffled = seededShuffle(byScenario, signature)
+    const splitIndex = Math.max(1, Math.floor(shuffled.length * 0.8))
+    const train = shuffled.slice(0, splitIndex)
+    const validation = shuffled.slice(splitIndex)
     if (!validation.length) {
       return {
         ...fallback,
@@ -152,10 +108,10 @@ export class AxGepaSteeringOptimizer {
       }
     }
 
+    const studentAI = createAxService(this.config.provider, this.config.apiKey, this.config.model)
     const optimizer = new AxGEPA({
-      studentAI: createAxService(ai, this.config.provider, this.config.apiKey, this.config.model),
+      studentAI,
       teacherAI: createAxService(
-        ai,
         this.config.provider,
         this.config.apiKey,
         this.config.teacherModel ?? this.config.model,
@@ -170,7 +126,8 @@ export class AxGepaSteeringOptimizer {
     const compiled = await optimizer.compile(
       selector,
       train,
-      ({ prediction, example }) => (prediction?.variantId === example?.variantId ? 1 : 0),
+      (input: { prediction?: { variantId?: string }; example?: ScenarioWinner }) =>
+        input.prediction?.variantId === input.example?.variantId ? 1 : 0,
       {
         validationExamples: validation,
         maxMetricCalls: 64,
@@ -178,6 +135,17 @@ export class AxGepaSteeringOptimizer {
     )
     if (compiled.optimizedProgram !== undefined) {
       selector.applyOptimization(compiled.optimizedProgram)
+    }
+
+    // After applyOptimization the `selector` program carries the trained
+    // weights; the closure runs it through ax's `forward` so the caller can
+    // classify unseen tasks rather than only read a description string.
+    const selectVariant = async (row: { task: string; split: string; seedPreview: string }) => {
+      const prediction = await selector.forward(studentAI, row)
+      return {
+        variantId: String(prediction.variantId),
+        rationale: String(prediction.rationale ?? ''),
+      }
     }
 
     return {
@@ -190,6 +158,7 @@ export class AxGepaSteeringOptimizer {
         labels: variantIds,
         rationale: compiled.bestScore !== undefined ? `bestScore=${compiled.bestScore}` : undefined,
       },
+      selectVariant,
     }
   }
 }
@@ -234,14 +203,45 @@ function collapseScenarioWinners(
 }
 
 function createAxService(
-  aiFactory: AxServiceFactory,
   provider: 'openai' | 'anthropic',
   apiKey: string,
   model: string,
-) {
-  return aiFactory({
+): AxAIService {
+  return ai({
     name: provider,
     apiKey,
     config: { model },
   })
+}
+
+// Deterministic Fisher-Yates driven by a seeded mulberry32 PRNG. Seeding from
+// a stable value (the signature) keeps train/validation splits reproducible
+// across runs while removing positional skew when rows arrive grouped.
+function seededShuffle<T>(items: readonly T[], seed: string): T[] {
+  const rng = mulberry32(hashString(seed))
+  const out = [...items]
+  for (let i = out.length - 1; i > 0; i--) {
+    const j = Math.floor(rng() * (i + 1))
+    ;[out[i], out[j]] = [out[j]!, out[i]!]
+  }
+  return out
+}
+
+function hashString(value: string): number {
+  let h = 2166136261
+  for (let i = 0; i < value.length; i++) {
+    h ^= value.charCodeAt(i)
+    h = Math.imul(h, 16777619)
+  }
+  return h >>> 0
+}
+
+function mulberry32(seed: number): () => number {
+  let a = seed >>> 0
+  return () => {
+    a = (a + 0x6d2b79f5) | 0
+    let t = Math.imul(a ^ (a >>> 15), 1 | a)
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296
+  }
 }

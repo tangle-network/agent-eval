@@ -51,6 +51,10 @@ export function renderSteeringText(bundle: SteeringBundle): string {
     a.localeCompare(b),
   )
   for (const [name, prompt] of reviewers) lines.push(`reviewer:${name}:${prompt}`)
+  const roles = Object.entries(bundle.rolePrompts ?? {}).sort(([a], [b]) => a.localeCompare(b))
+  for (const [name, role] of roles) {
+    lines.push(`role:${name}:system:${role.system ?? ''}:append:${role.append ?? ''}`)
+  }
   const skills = [...(bundle.skills ?? [])].sort()
   if (skills.length) lines.push(`skills:${skills.join(',')}`)
   return lines.join('\n')
