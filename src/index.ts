@@ -28,6 +28,7 @@ export {
   validateAgentProfileCell,
   verifyAgentProfileCell,
 } from './agent-profile-cell'
+export { type CreateAnalystAiConfig, createAnalystAi } from './analyst/ax-service'
 export {
   buildDefaultAnalystRegistry,
   type DefaultAnalystRegistryOptions,

@@ -21,6 +21,7 @@ export {
   createVerifierAdapter,
   liftSeverity,
 } from './adapters'
+export { type CreateAnalystAiConfig, createAnalystAi } from './ax-service'
 export { behavioralAnalyst, deriveEfficiencyFindings } from './behavioral-analyst'
 export type {
   ChatCallOpts,
