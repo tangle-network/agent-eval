@@ -24,7 +24,6 @@ export {
   type OpenAutoPrResult,
   openAutoPr,
 } from './auto-pr'
-// ── Improvement drivers ──────────────────────────────────────────────
 export { type AceDriverOptions, aceDriver } from './drivers/ace'
 export { type EvolutionaryDriverOptions, evolutionaryDriver } from './drivers/evolutionary'
 export {
@@ -34,6 +33,20 @@ export {
   type GepaDriverOptions,
   gepaDriver,
 } from './drivers/gepa'
+// ── Improvement drivers ──────────────────────────────────────────────
+// New here? `selectDriver({ goal })` + the DRIVER_GUIDE table tell you which
+// driver to pick and why.
+export {
+  DRIVER_GUIDE,
+  type DriverGoal,
+  type DriverGuideEntry,
+  type DriverName,
+  type DriverRecommendation,
+  type DriverStrategy,
+  type DriverSurface,
+  type SelectDriverCriteria,
+  selectDriver,
+} from './drivers/guide'
 export { type HaloDriverOptions, haloDriver } from './drivers/halo'
 export { type MemoryCurationDriverOptions, memoryCurationDriver } from './drivers/memory'
 export {
