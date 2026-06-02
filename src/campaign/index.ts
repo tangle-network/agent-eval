@@ -108,6 +108,17 @@ export {
   type OptimizerEntryConfig,
   skillOptEntry,
 } from './presets/compare-drivers'
+export {
+  makePlaybackDispatch,
+  type PlaybackContext,
+  type PlaybackDriver,
+  type PlaybackStep,
+  type ScoreboardRow,
+  scoreUserStory,
+  type UserStory,
+  type UserStoryVerdict,
+  userStoryScoreboard,
+} from './presets/playback'
 export { type RunEvalOptions, runEval } from './presets/run-eval'
 export {
   defaultRenderDiff,
