@@ -133,3 +133,118 @@ export function userStoryScoreboard(verdicts: readonly UserStoryVerdict[]): Scor
   }
   return rows
 }
+
+/** Launch-readiness headline counts rolled up from the per-requirement rows. */
+export interface ScoreboardSummary {
+  /** Distinct user stories on the board. */
+  stories: number
+  /** Stories whose every requirement passed. */
+  storiesFullyComplete: number
+  /** Total (story, requirement) rows. */
+  requirements: number
+  /** Rows with status PASS. */
+  passed: number
+  /** Rows with status FAIL. */
+  failed: number
+  /** passed / requirements; 0 when there are no rows. */
+  passRate: number
+}
+
+/** Roll the per-requirement rows up into the launch headline counts. */
+export function scoreboardSummary(rows: readonly ScoreboardRow[]): ScoreboardSummary {
+  const byStory = new Map<string, { total: number; passed: number }>()
+  let passed = 0
+  for (const r of rows) {
+    const s = byStory.get(r.storyId) ?? { total: 0, passed: 0 }
+    s.total++
+    if (r.status === 'PASS') {
+      s.passed++
+      passed++
+    }
+    byStory.set(r.storyId, s)
+  }
+  let storiesFullyComplete = 0
+  for (const s of byStory.values()) if (s.total > 0 && s.passed === s.total) storiesFullyComplete++
+  return {
+    stories: byStory.size,
+    storiesFullyComplete,
+    requirements: rows.length,
+    passed,
+    failed: rows.length - passed,
+    passRate: rows.length === 0 ? 0 : passed / rows.length,
+  }
+}
+
+export interface ScoreboardRenderOptions {
+  /** Document H1. Defaults to a generic playback title. */
+  title?: string
+  /** Key/value run metadata rendered under the headline (runId, backend, model, date). */
+  meta?: Record<string, string>
+  /** Max chars of joined evidence shown per row. Default 160. */
+  maxEvidenceChars?: number
+}
+
+function escapeCell(s: string): string {
+  return s.replace(/\|/g, '\\|').replace(/\r?\n/g, ' ')
+}
+
+function truncate(s: string, max: number): string {
+  return s.length <= max ? s : `${s.slice(0, Math.max(0, max - 1))}…`
+}
+
+/**
+ * Render the scoreboard as a launch-readiness Markdown document — the literal
+ * "tick off every user story" artifact: a headline roll-up, the open tickets
+ * (FAIL rows) up top as the launch blockers, then a per-story table of
+ * requirement → PASS/FAIL with the evidence behind each verdict. Pure: same
+ * rows in, same bytes out (no clock/random), so it is safe to snapshot.
+ */
+export function renderScoreboardMarkdown(
+  rows: readonly ScoreboardRow[],
+  opts: ScoreboardRenderOptions = {},
+): string {
+  const maxEv = opts.maxEvidenceChars ?? 160
+  const sum = scoreboardSummary(rows)
+  const pct = (n: number) => `${Math.round(n * 100)}%`
+  const ev = (e: string[]) => escapeCell(truncate(e.join('; '), maxEv)) || '—'
+  const out: string[] = [`# ${opts.title ?? 'Product-flow playback scoreboard'}`, '']
+  if (opts.meta) {
+    for (const [k, v] of Object.entries(opts.meta)) out.push(`- **${k}:** ${v}`)
+    out.push('')
+  }
+  out.push(
+    `**${sum.storiesFullyComplete}/${sum.stories}** user stories fully shipped · ` +
+      `**${sum.passed}/${sum.requirements}** requirements passing (${pct(sum.passRate)}) · ` +
+      `**${sum.failed}** open`,
+    '',
+  )
+  const fails = rows.filter((r) => r.status === 'FAIL')
+  if (fails.length > 0) {
+    out.push('## Open tickets', '', '| Story | Requirement | Evidence |', '| --- | --- | --- |')
+    for (const r of fails) {
+      out.push(`| ${escapeCell(r.storyTitle)} | ${escapeCell(r.reqTitle)} | ${ev(r.evidence)} |`)
+    }
+    out.push('')
+  } else {
+    out.push('_All requirements passing — no open tickets._', '')
+  }
+  out.push('## Per-story tick-off', '')
+  for (const storyId of [...new Set(rows.map((r) => r.storyId))]) {
+    const storyRows = rows.filter((r) => r.storyId === storyId)
+    const passed = storyRows.filter((r) => r.status === 'PASS').length
+    const mark = passed === storyRows.length ? '✅' : '⚠️'
+    out.push(
+      `### ${escapeCell(storyRows[0]!.storyTitle)} — ${passed}/${storyRows.length} ${mark}`,
+      '',
+      '| Requirement | Status | Evidence |',
+      '| --- | --- | --- |',
+    )
+    for (const r of storyRows) {
+      out.push(
+        `| ${escapeCell(r.reqTitle)} | ${r.status === 'PASS' ? '✅ PASS' : '❌ FAIL'} | ${ev(r.evidence)} |`,
+      )
+    }
+    out.push('')
+  }
+  return out.join('\n')
+}
