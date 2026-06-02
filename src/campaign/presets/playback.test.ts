@@ -8,8 +8,12 @@ import {
   makePlaybackDispatch,
   type PlaybackContext,
   type PlaybackDriver,
+  renderScoreboardMarkdown,
+  type ScoreboardRow,
+  scoreboardSummary,
   scoreUserStory,
   type UserStory,
+  type UserStoryVerdict,
   userStoryScoreboard,
 } from './playback'
 
@@ -99,5 +103,121 @@ describe('scoreUserStory + userStoryScoreboard', () => {
     const produced = await makePlaybackDispatch(fakeDriver)(profile, STORY, ctx)
     const board = userStoryScoreboard([await scoreUserStory(STORY, produced, passingChecker)])
     for (const row of board) expect(Array.isArray(row.evidence)).toBe(true)
+  })
+})
+
+// Two stories: s1 fully passes (2/2), s2 fails its only requirement. A pipe in
+// s2's requirement title exercises markdown-cell escaping.
+const ROWS: ScoreboardRow[] = [
+  {
+    storyId: 's1',
+    storyTitle: 'Form a Delaware C-Corp',
+    reqId: 'r1',
+    reqTitle: 'certificate of incorporation',
+    status: 'PASS',
+    evidence: ["artifact 'formation/cert.md' matched (token recall 1.00)"],
+  },
+  {
+    storyId: 's1',
+    storyTitle: 'Form a Delaware C-Corp',
+    reqId: 'r2',
+    reqTitle: 'corporate bylaws',
+    status: 'PASS',
+    evidence: ['correctness: pass'],
+  },
+  {
+    storyId: 's2',
+    storyTitle: 'Redline an NDA',
+    reqId: 'r3',
+    reqTitle: 'redlined NDA | with rationale',
+    status: 'FAIL',
+    evidence: ['no produced artifact/proposal/tool-call matched this requirement'],
+  },
+]
+
+describe('scoreboardSummary', () => {
+  it('rolls per-requirement rows into the launch headline counts', () => {
+    expect(scoreboardSummary(ROWS)).toEqual({
+      stories: 2,
+      storiesFullyComplete: 1,
+      requirements: 3,
+      passed: 2,
+      failed: 1,
+      passRate: 2 / 3,
+    })
+  })
+
+  it('empty board is all-zero with passRate 0 (no divide-by-zero)', () => {
+    expect(scoreboardSummary([])).toEqual({
+      stories: 0,
+      storiesFullyComplete: 0,
+      requirements: 0,
+      passed: 0,
+      failed: 0,
+      passRate: 0,
+    })
+  })
+})
+
+describe('renderScoreboardMarkdown', () => {
+  it('headlines shipped / passing / open counts', () => {
+    const md = renderScoreboardMarkdown(ROWS)
+    expect(md).toContain('**1/2** user stories fully shipped')
+    expect(md).toContain('**2/3** requirements passing (67%)')
+    expect(md).toContain('**1** open')
+  })
+
+  it('lists FAIL rows under Open tickets before the per-story tables, escaping cell pipes', () => {
+    const md = renderScoreboardMarkdown(ROWS)
+    const openIdx = md.indexOf('## Open tickets')
+    const perStoryIdx = md.indexOf('## Per-story tick-off')
+    expect(openIdx).toBeGreaterThan(-1)
+    // the failing requirement surfaces in the open-tickets section, ahead of per-story
+    const failIdx = md.indexOf('redlined NDA')
+    expect(failIdx).toBeGreaterThan(openIdx)
+    expect(failIdx).toBeLessThan(perStoryIdx)
+    // the pipe in the requirement title is escaped so the table stays parseable
+    expect(md).toContain('redlined NDA \\| with rationale')
+  })
+
+  it('marks fully-complete stories ✅ and incomplete ⚠️ with PASS/FAIL cells', () => {
+    const md = renderScoreboardMarkdown(ROWS)
+    expect(md).toContain('### Form a Delaware C-Corp — 2/2 ✅')
+    expect(md).toContain('### Redline an NDA — 0/1 ⚠️')
+    expect(md).toContain('✅ PASS')
+    expect(md).toContain('❌ FAIL')
+  })
+
+  it('renders the title + run metadata when provided', () => {
+    const md = renderScoreboardMarkdown(ROWS, {
+      title: 'Legal launch readiness',
+      meta: { runId: 'run-1', backend: 'tcloud', model: 'openai/gpt-4o-mini' },
+    })
+    expect(md.startsWith('# Legal launch readiness')).toBe(true)
+    expect(md).toContain('- **runId:** run-1')
+    expect(md).toContain('- **model:** openai/gpt-4o-mini')
+  })
+
+  it('reports no open tickets when every requirement passes', () => {
+    const allPass: ScoreboardRow[] = ROWS.map((r) => ({ ...r, status: 'PASS' as const }))
+    const md = renderScoreboardMarkdown(allPass)
+    expect(md).toContain('_All requirements passing — no open tickets._')
+    expect(md).not.toContain('## Open tickets')
+    expect(md).toContain('**2/2** user stories fully shipped')
+  })
+
+  it('is pure — identical rows render byte-identical output', () => {
+    expect(renderScoreboardMarkdown(ROWS)).toBe(renderScoreboardMarkdown(ROWS))
+  })
+
+  it('drives the full verdict → scoreboard → markdown chain', async () => {
+    const produced = await makePlaybackDispatch(fakeDriver)(profile, STORY, ctx)
+    const verdict: UserStoryVerdict = await scoreUserStory(STORY, produced, passingChecker)
+    const md = renderScoreboardMarkdown(userStoryScoreboard([verdict]), { title: 'Tax playback' })
+    expect(md.startsWith('# Tax playback')).toBe(true)
+    // r1 (artifact) passes, r2 (proposal) fails → story is not fully shipped
+    expect(md).toContain('**0/1** user stories fully shipped')
+    expect(md).toContain('✅ PASS')
+    expect(md).toContain('❌ FAIL')
   })
 })
