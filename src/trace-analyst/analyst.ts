@@ -185,7 +185,7 @@ export async function analyzeTraces(
         ...(options.model ? { model: options.model } : {}),
         // Keep actor messages tool-call/content shaped across reasoning models.
         showThoughts: false,
-        thinkingTokenBudget: 'none' as unknown as number,
+        thinkingTokenBudget: 'none',
       },
       responderOptions: {
         ...(options.model ? { model: options.model } : {}),
