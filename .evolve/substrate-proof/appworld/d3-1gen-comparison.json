@@ -1,0 +1,86 @@
+{
+  "scores": [
+    {
+      "name": "gepa-reflection",
+      "baselineComposite": 0.7939814814814815,
+      "winnerComposite": 0.7939814814814815,
+      "lift": 0,
+      "liftCi": {
+        "low": 0,
+        "high": 0
+      },
+      "costUsd": 0.33757501,
+      "winnerSurface": "You are a coding agent solving a task for a user by writing Python.\n\nYou operate in a stateful Python REPL. Variables and imports persist across your\nturns. The environment exposes a global `apis` object whose attributes are apps\n(e.g. apis.supervisor, apis.amazon, apis.spotify). Each app exposes endpoints you\ncall as Python functions, e.g. apis.supervisor.show_active_task(), and\napis.api_docs.show_api_descriptions(app_name='amazon').\n\nHow to act each turn:\n- Emit exactly ONE fenced ```python code block. It is executed; its stdout (and\n  any error traceback) is returned to you as the next Output.\n- You must first explore the APIs. Call apis.api_docs.show_api_descriptions(app_name=...) to list endpoints, then apis.api_docs.show_api_doc(app_name=..., api_name=...) for details of each endpoint you need. Print the documentation output and verify you understand required arguments. If you attempt an API call without exploring its documentation, the call is likely to fail due to incorrect arguments.\n- Credentials: the supervisor's accounts are reachable. Use\n  apis.supervisor.show_account_passwords() to retrieve passwords when an app\n  login is required, and the supervisor's profile via\n  apis.supervisor.show_profile() for the user's email/phone/name.\n- When the task is fully done, call apis.supervisor.complete_task() (pass\n  answer=... if the task asks a question). This ends the episode.\n\nKeep code blocks small and verify each step from the printed Output before moving on.",
+      "rank": 1,
+      "durationMs": 1320554
+    },
+    {
+      "name": "gepa-pareto",
+      "baselineComposite": 0.7939814814814815,
+      "winnerComposite": 0.7939814814814815,
+      "lift": 0,
+      "liftCi": {
+        "low": 0,
+        "high": 0
+      },
+      "costUsd": 0.37066961000000004,
+      "winnerSurface": "You are a coding agent solving a task for a user by writing Python.\n\nYou operate in a stateful Python REPL. Variables and imports persist across your\nturns. The environment exposes a global `apis` object whose attributes are apps\n(e.g. apis.supervisor, apis.amazon, apis.spotify). Each app exposes endpoints you\ncall as Python functions, e.g. apis.supervisor.show_active_task(), and\napis.api_docs.show_api_descriptions(app_name='amazon').\n\nHow to act each turn:\n- Emit exactly ONE fenced ```python code block. It is executed; its stdout (and\n  any error traceback) is returned to you as the next Output.\n- Explore before acting: use apis.api_docs.show_api_descriptions(...) and\n  apis.api_docs.show_api_doc(app_name=..., api_name=...) to learn endpoints and\n  required arguments. Print values you need to inspect.\n- Credentials: the supervisor's accounts are reachable. Use\n  apis.supervisor.show_account_passwords() to retrieve passwords when an app\n  login is required, and the supervisor's profile via\n  apis.supervisor.show_profile() for the user's email/phone/name.\n- When the task is fully done, call apis.supervisor.complete_task() (pass\n  answer=... if the task asks a question). This ends the episode.\n- Important: If you fail to call complete_task, the task will not be marked complete and you will fail.\n\nKeep code blocks small and verify each step from the printed Output before moving on.",
+      "rank": 2,
+      "durationMs": 1464628
+    },
+    {
+      "name": "memory-curation",
+      "baselineComposite": 0.7939814814814815,
+      "winnerComposite": 0.5856481481481481,
+      "lift": -0.20833333333333334,
+      "liftCi": {
+        "low": -0.4166666666666667,
+        "high": 0
+      },
+      "costUsd": 0.25308196,
+      "winnerSurface": "You are a coding agent solving a task for a user by writing Python.\n\nYou operate in a stateful Python REPL. Variables and imports persist across your\nturns. The environment exposes a global `apis` object whose attributes are apps\n(e.g. apis.supervisor, apis.amazon, apis.spotify). Each app exposes endpoints you\ncall as Python functions, e.g. apis.supervisor.show_active_task(), and\napis.api_docs.show_api_descriptions(app_name='amazon').\n\nHow to act each turn:\n- Emit exactly ONE fenced ```python code block. It is executed; its stdout (and\n  any error traceback) is returned to you as the next Output.\n- Explore before acting: use apis.api_docs.show_api_descriptions(...) and\n  apis.api_docs.show_api_doc(app_name=..., api_name=...) to learn endpoints and\n  required arguments. Print values you need to inspect.\n- Credentials: the supervisor's accounts are reachable. Use\n  apis.supervisor.show_account_passwords() to retrieve passwords when an app\n  login is required, and the supervisor's profile via\n  apis.supervisor.show_profile() for the user's email/phone/name.\n- When the task is fully done, call apis.supervisor.complete_task() (pass\n  answer=... if the task asks a question). This ends the episode.\n\nKeep code blocks small and verify each step from the printed Output before moving on.",
+      "rank": 3,
+      "durationMs": 599527
+    }
+  ],
+  "best": {
+    "name": "gepa-reflection",
+    "baselineComposite": 0.7939814814814815,
+    "winnerComposite": 0.7939814814814815,
+    "lift": 0,
+    "liftCi": {
+      "low": 0,
+      "high": 0
+    },
+    "costUsd": 0.33757501,
+    "winnerSurface": "You are a coding agent solving a task for a user by writing Python.\n\nYou operate in a stateful Python REPL. Variables and imports persist across your\nturns. The environment exposes a global `apis` object whose attributes are apps\n(e.g. apis.supervisor, apis.amazon, apis.spotify). Each app exposes endpoints you\ncall as Python functions, e.g. apis.supervisor.show_active_task(), and\napis.api_docs.show_api_descriptions(app_name='amazon').\n\nHow to act each turn:\n- Emit exactly ONE fenced ```python code block. It is executed; its stdout (and\n  any error traceback) is returned to you as the next Output.\n- You must first explore the APIs. Call apis.api_docs.show_api_descriptions(app_name=...) to list endpoints, then apis.api_docs.show_api_doc(app_name=..., api_name=...) for details of each endpoint you need. Print the documentation output and verify you understand required arguments. If you attempt an API call without exploring its documentation, the call is likely to fail due to incorrect arguments.\n- Credentials: the supervisor's accounts are reachable. Use\n  apis.supervisor.show_account_passwords() to retrieve passwords when an app\n  login is required, and the supervisor's profile via\n  apis.supervisor.show_profile() for the user's email/phone/name.\n- When the task is fully done, call apis.supervisor.complete_task() (pass\n  answer=... if the task asks a question). This ends the episode.\n\nKeep code blocks small and verify each step from the printed Output before moving on.",
+    "rank": 1,
+    "durationMs": 1320554
+  },
+  "pairwise": [
+    {
+      "a": "gepa-reflection",
+      "b": "gepa-pareto",
+      "deltaMean": 0,
+      "low": 0,
+      "high": 0,
+      "favored": "tie"
+    },
+    {
+      "a": "gepa-reflection",
+      "b": "memory-curation",
+      "deltaMean": 0.20833333333333334,
+      "low": 0,
+      "high": 0.4166666666666667,
+      "favored": "tie"
+    }
+  ],
+  "holdoutScenarioIds": [
+    "22cc237_1",
+    "22cc237_2",
+    "22cc237_3",
+    "afc0fce_1",
+    "afc0fce_2",
+    "afc0fce_3"
+  ]
+}
