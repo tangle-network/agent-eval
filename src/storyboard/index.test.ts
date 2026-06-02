@@ -126,3 +126,89 @@ describe('renderers', () => {
     expect(renderStoryboardHtml(sb)).toBe(renderStoryboardHtml(sb))
   })
 })
+
+// Every modality the agent can act in must be contextualized into a viewable
+// visual — a browser/computer screenshot, a code diff, a terminal command, an
+// API request/response — not just narrated.
+const MODAL: Span[] = [
+  tool('m1', 2000, 'browser.navigate', {
+    args: { url: 'https://example.com/login' },
+    attributes: { screenshot: 'data:image/png;base64,AAAABBBB' },
+  }),
+  tool('m2', 2100, 'computer.click', { args: { action: 'click', target: 'Submit' } }),
+  tool('m3', 2200, 'apply_patch', {
+    args: { path: 'src/auth.ts', diff: '@@ -1 +1 @@\n-old\n+new' },
+  }),
+  tool('m4', 2300, 'shell.exec', { args: 'pnpm test', attributes: { output: 'PASS 12/12' } }),
+  tool('m5', 2400, 'http.request', {
+    args: { url: 'https://api.stripe.com/v1/charges', method: 'POST' },
+    attributes: { status: 200, response: '{"id":"ch_1"}' },
+  }),
+]
+
+describe('modality visuals', () => {
+  const evs = reduceToSemanticEvents(MODAL)
+  const byKind = (k: string) => evs.find((e) => e.kind === k)!
+
+  it('classifies each modality and extracts its typed visual', () => {
+    expect(evs.map((e) => e.kind)).toEqual([
+      'used_browser',
+      'used_computer',
+      'edited_code',
+      'ran_command',
+      'called_api',
+    ])
+
+    expect(byKind('used_browser').visual).toEqual({
+      type: 'browser',
+      url: 'https://example.com/login',
+      action: 'browser.navigate',
+      screenshot: 'data:image/png;base64,AAAABBBB',
+    })
+    expect(byKind('used_computer').visual).toMatchObject({
+      type: 'browser',
+      action: 'click',
+      url: 'Submit',
+    })
+    expect(byKind('edited_code').visual).toEqual({
+      type: 'diff',
+      path: 'src/auth.ts',
+      patch: '@@ -1 +1 @@\n-old\n+new',
+    })
+    expect(byKind('ran_command').visual).toEqual({
+      type: 'terminal',
+      command: 'pnpm test',
+      output: 'PASS 12/12',
+    })
+    expect(byKind('called_api').visual).toEqual({
+      type: 'api',
+      method: 'POST',
+      url: 'https://api.stripe.com/v1/charges',
+      status: 200,
+      request: expect.stringContaining('stripe.com'),
+      response: '{"id":"ch_1"}',
+    })
+  })
+
+  it('html embeds each modality payload (image src, diff text, api url)', () => {
+    const html = renderStoryboardHtml(compileStoryboard(evs, { title: 'Modalities' }))
+    // payload strings survive JSON-encoding verbatim (the markup around them is
+    // `<`-escaped so it can only render via innerHTML, never break the script tag)
+    expect(html).toContain('data:image/png;base64,AAAABBBB')
+    expect(html).toContain('https://api.stripe.com/v1/charges')
+    expect(html).toContain('+new')
+    expect(html).toContain('pnpm test')
+    expect(html).not.toContain('</script><')
+  })
+
+  it('markdown fences code/terminal and tags network/screenshot modalities', () => {
+    const md = renderStoryboardMarkdown(compileStoryboard(evs, { title: 'Modalities' }))
+    expect(md).toContain('```diff')
+    expect(md).toContain('```sh')
+    expect(md).toContain('$ pnpm test')
+    expect(md).toContain('🔌')
+    expect(md).toContain('https://api.stripe.com/v1/charges')
+    expect(md).toContain('🌐') // browser modality
+    expect(md).toContain('[screenshot]') // the captured frame is flagged
+  })
+})
