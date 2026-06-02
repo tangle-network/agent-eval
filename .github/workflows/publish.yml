@@ -5,14 +5,6 @@ on:
     tags:
       - 'v*'
   workflow_dispatch:
-    inputs:
-      auth_mode:
-        description: 'npm auth: oidc (tokenless trusted publishing — requires the npmjs Trusted Publisher config) or token (NPM_TOKEN secret fallback)'
-        type: choice
-        options:
-          - oidc
-          - token
-        default: oidc
 
 jobs:
   # Verify both packages build and pass tests, in lockstep.
@@ -93,21 +85,16 @@ jobs:
 
   publish-npm:
     needs: verify
-    # Publish on a v* tag (token path) OR a manual dispatch. A dispatch defaults
-    # to OIDC trusted publishing (tokenless) — see `auth_mode`.
+    # Publish on a v* tag OR a manual dispatch — always via OIDC trusted
+    # publishing (tokenless). The Trusted Publisher on npmjs (package Settings →
+    # Trusted Publisher → GitHub Actions: org tangle-network, repo agent-eval,
+    # workflow publish.yml) mints a short-lived credential from the id-token —
+    # no NPM_TOKEN, nothing to rotate, plus provenance attestation.
     if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      # OIDC: with a Trusted Publisher configured on npmjs (package Settings →
-      # Trusted Publisher → GitHub Actions: org tangle-network, repo agent-eval,
-      # workflow publish.yml), pnpm exchanges this token for a short-lived publish
-      # credential — no NPM_TOKEN, nothing to rotate, plus provenance attestation.
       id-token: write
-    # Resolve the auth mode once: tag push always uses the token; a dispatch uses
-    # its `auth_mode` input (default oidc). `IS_OIDC` gates the steps below.
-    env:
-      IS_OIDC: ${{ github.event_name == 'workflow_dispatch' && inputs.auth_mode == 'oidc' }}
     steps:
       - uses: actions/checkout@v4
 
@@ -117,44 +104,6 @@ jobs:
         with:
           node-version: 22
           cache: pnpm
-          registry-url: https://registry.npmjs.org
-
-      - name: Verify npm publish credentials
-        # Token path only — OIDC has no NODE_AUTH_TOKEN to verify (the registry
-        # mints the credential at publish time from the id-token).
-        if: env.IS_OIDC != 'true'
-        run: |
-          set -euo pipefail
-          NAME=$(node -p "require('./package.json').name")
-          SCOPE="${NAME%%/*}"
-          if [ -z "${NODE_AUTH_TOKEN:-}" ]; then
-            echo "::error::NPM_TOKEN is not configured. Configure an npm automation token with publish access to $NAME before tagging a release."
-            exit 1
-          fi
-          if ! npm whoami --registry=https://registry.npmjs.org >/tmp/npm-whoami.txt; then
-            echo "::error::NPM_TOKEN is not accepted by registry.npmjs.org. The previous symptom was npm publish returning 404 for $NAME."
-            exit 1
-          fi
-          echo "npm publisher: $(cat /tmp/npm-whoami.txt)"
-          if ! npm access ls-packages "$SCOPE" --json --registry=https://registry.npmjs.org >/tmp/npm-access.json; then
-            echo "::error::NPM_TOKEN cannot read package access for $SCOPE. It will not be able to publish $NAME."
-            exit 1
-          fi
-          node - "$NAME" /tmp/npm-access.json <<'NODE'
-          const [name, accessFile] = process.argv.slice(2)
-          const fs = require('node:fs')
-          const access = JSON.parse(fs.readFileSync(accessFile, 'utf8'))
-          if (!Object.prototype.hasOwnProperty.call(access, name)) {
-            console.error(`::error::NPM_TOKEN can read the scope but ${name} is missing from npm access output.`)
-            process.exit(1)
-          }
-          if (access[name] !== 'read-write') {
-            console.error(`::error::NPM_TOKEN has ${access[name]} access for ${name}; release publish requires read-write access.`)
-            process.exit(1)
-          }
-          NODE
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
       - run: pnpm install --frozen-lockfile
       - run: pnpm build
@@ -163,20 +112,15 @@ jobs:
       # registry (e.g. after a manual publish) skips rather than fails, so the
       # downstream PyPI step still runs.
 
-      # OIDC path (dispatch, auth_mode=oidc): tokenless. The id-token→publish-
-      # credential exchange is an npm CLI feature (>= 11.5.1); Node 22 bundles
-      # npm 10 and pnpm only signs provenance (the PUT then 404s on auth), so we
-      # upgrade npm and publish with it. agent-eval has no `workspace:` deps, so
-      # `npm publish` is safe here (no workspace-protocol leak).
+      # Tokenless OIDC trusted publishing. The id-token→publish-credential
+      # exchange is an npm-CLI feature (>= 11.5.1) and Node 22 bundles npm 10, so
+      # upgrade npm and publish with it (pnpm only signs provenance — the PUT
+      # then 404s on auth). agent-eval has no `workspace:` deps, so `npm publish`
+      # is safe here. Idempotent: a version already on the registry is skipped so
+      # the downstream PyPI step still runs.
       - name: Publish to npm (OIDC trusted publishing)
-        if: env.IS_OIDC == 'true'
         run: |
           npm install -g npm@latest
-          # actions/setup-node's registry-url writes an .npmrc with
-          # `_authToken=${NODE_AUTH_TOKEN}`; on the OIDC path that token is empty,
-          # so npm sends an empty credential and 404s on PUT instead of running
-          # the id-token exchange. Remove it so trusted publishing engages.
-          rm -f "$NPM_CONFIG_USERCONFIG" ~/.npmrc
           NAME=$(node -p "require('./package.json').name")
           VERSION=$(node -p "require('./package.json').version")
           if npm view "$NAME@$VERSION" version --registry=https://registry.npmjs.org >/dev/null 2>&1; then
@@ -184,20 +128,6 @@ jobs:
           else
             npm publish --provenance --access public --registry=https://registry.npmjs.org
           fi
-
-      # Token path (tag push, or dispatch auth_mode=token): the NPM_TOKEN secret.
-      - name: Publish to npm (token, skip if already published)
-        if: env.IS_OIDC != 'true'
-        run: |
-          NAME=$(node -p "require('./package.json').name")
-          VERSION=$(node -p "require('./package.json').version")
-          if npm view "$NAME@$VERSION" version --registry=https://registry.npmjs.org >/dev/null 2>&1; then
-            echo "$NAME@$VERSION already on registry; skipping publish"
-          else
-            pnpm publish --no-git-checks --access public --provenance --registry=https://registry.npmjs.org
-          fi
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
   publish-pypi:
     # PyPI must not publish a version npm failed to publish. The npm job is
