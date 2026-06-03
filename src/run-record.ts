@@ -102,6 +102,13 @@ export interface RunOutcome {
    *  these records as input. Optional — single-judge or scalar-only
    *  runs leave it unset. */
   judgeScores?: JudgeScoresRecord
+  /** Authenticity / realness verdict — did the run build the REAL thing on the
+   *  intended infra, or fake it (see `./authenticity`)? Optional: only domains
+   *  with an authenticity config populate it. Carried in the corpus so the
+   *  flywheel / off-policy learning can optimize for real completion, not gamed
+   *  pass-rate. `score` is 0-1; `gated` is the anti-Goodhart flag — a gated run
+   *  must not count as a real success regardless of `score`. */
+  realness?: { score: number; gated: boolean; reason?: string }
 }
 
 /**
@@ -300,6 +307,18 @@ export function validateRunRecord(input: unknown): RunRecord {
   }
   for (const [k, v] of Object.entries(raw as Record<string, unknown>)) {
     expectFiniteNumber(v, `outcome.raw.${k}`)
+  }
+  // Realness verdict, optional.
+  if (outRec.realness !== undefined) {
+    const r = outRec.realness
+    if (r === null || typeof r !== 'object') {
+      throw new RunRecordValidationError('outcome.realness must be an object', 'outcome.realness')
+    }
+    const rr = r as Record<string, unknown>
+    expectFiniteNumber(rr.score, 'outcome.realness.score')
+    if (typeof rr.gated !== 'boolean') {
+      throw new RunRecordValidationError('outcome.realness.gated must be a boolean', 'outcome.realness.gated')
+    }
   }
 
   // Per-judge / per-dim breakdown, optional.
