@@ -1,10 +1,9 @@
 /**
- * Automated pull request opener for the production loop.
+ * Automated pull request opener for the improvement loop.
  *
- * `runProductionLoop` produces a `promotedPrompt` string and a release
- * scorecard. To close the eval → prod → eval cycle the framework needs
- * to land that prompt as a reviewable code change. This module does
- * exactly that:
+ * When `runImprovementLoop` ships a winner (`autoOnPromote: 'pr'`) it produces
+ * a promoted surface diff. To close the eval → prod → eval cycle the framework
+ * lands that change as a reviewable code change. This module does exactly that:
  *
  *   1. Stage a branch off `baseBranch`.
  *   2. Write each `fileChange` into the worktree.

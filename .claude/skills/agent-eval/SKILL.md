@@ -46,7 +46,7 @@ The substrate exposes many surfaces. Pick where to go based on what you're doing
 - [`examples/customer-otel-traces/`](../../../examples/customer-otel-traces/) — OTel spans → `InsightReport`
 - [`examples/foreign-agent-quickstart/`](../../../examples/foreign-agent-quickstart/) — wire a non-Tangle agent
 - [`examples/hosted-ingest-server/`](../../../examples/hosted-ingest-server/) — reference HTTP receiver
-- [`examples/multi-shot-optimization/`](../../../examples/multi-shot-optimization/) — population search
+- [`examples/multi-shot-optimization/`](../../../examples/multi-shot-optimization/) — `runImprovementLoop`: surface optimization with a held-out gate
 - [`examples/distributed-driver/`](../../../examples/distributed-driver/) — split work across cells
 - [`examples/held-out-gate/`](../../../examples/held-out-gate/) — gate semantics + paired-delta + overfit-gap
 - [`examples/scorecard/`](../../../examples/scorecard/) — release-timeline scorecard (orthogonal to `InsightReport`)

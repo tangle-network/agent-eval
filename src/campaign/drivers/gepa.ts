@@ -25,9 +25,7 @@
  *
  * The driver is surface-agnostic — any string surface in any consumer opts
  * in by selecting it. Reuses the generic reflection primitive
- * (`buildReflectionPrompt` / `parseReflectionResponse`) and the router
- * client; no dependency on the legacy `runMultiShotOptimization` /
- * `prompt-evolution` orchestration.
+ * (`buildReflectionPrompt` / `parseReflectionResponse`) and the router client.
  *
  * Earns its keep where there is real per-instance signal (which the
  * dimensional + per-scenario evidence + the `LabeledScenarioStore` flywheel

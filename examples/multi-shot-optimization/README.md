@@ -1,17 +1,23 @@
 # multi-shot-optimization
 
-Optimize a full trajectory across a small variant population with a **held-out
-promotion gate**: a variant only ships if it beats baseline on a separate
+Optimize a surface (a system prompt, tool descriptions, any scaffolding that
+affects the whole run) across a small candidate population with a **held-out
+promotion gate**: a candidate ships only if it beats baseline on a separate
 holdout set, not just the search set it was selected on.
 
 ## What it shows
 
-- `runMultiShotOptimization` driving a genetic loop with custom `runner`,
-  `scorer`, and `mutateAdapter`.
-- The `gate` block separating *search* scenarios (used for selection) from
-  *holdout* scenarios (used for paired-delta promotion).
-- How to produce a canonical `RunRecord` from each trial so the gate can do
-  paired statistics on the holdout split.
+- `runImprovementLoop` — the driver-agnostic outer loop: optimize → re-score
+  baseline vs winner on the disjoint holdout → gate.
+- `evolutionaryDriver` wrapping a tiny deterministic `mutator` (the LLM-free
+  strategy). The reflective alternative is `gepaDriver`; both conform to
+  `ImprovementDriver` and the loop is identical.
+- `defaultProductionGate` separating *search* scenarios (selection) from
+  *holdout* scenarios (paired-delta promotion) — it ships only on a
+  CI-lower-bound held-out lift over `deltaThreshold`.
+
+Imports come from the `@tangle-network/agent-eval/contract` subpath — the
+curated public entry for the closed self-improvement loop.
 
 ## Run
 
@@ -20,21 +26,26 @@ pnpm install
 pnpm exec tsx examples/multi-shot-optimization/index.ts
 ```
 
-Runtime: ~1s. No LLM calls — the runner is a deterministic stub so the loop
-mechanics are visible without paying for inference.
+Runtime: ~1s. No LLM calls — the dispatch echoes the surface and the judge is a
+deterministic string check, so the loop mechanics are visible without paying for
+inference.
 
 ## Expected output
 
 ```
-{ searchBest: 'baseline.g1.0', promoted: 'baseline.g1.0', gate: 'promote' }
+{ decision: 'ship', delta: 1, winnerShipped: true, promotedDiff: '--- baseline\n+++ winner\n- Complete the user task.\n+ Complete the user task. VERIFY_EVERY_STEP' }
 ```
 
-`promoted !== searchBest` would indicate the search winner failed the holdout
-gate — the example deliberately makes them agree to illustrate a clean ship
-decision.
+The baseline (no directive) scores 0 on the holdout; the driver's candidate
+(directive appended) scores 1, so the gate ships it. You will also see
+`expectUsage` notices that each holdout cell reported zero cost — that is the
+substrate's capture-integrity guard correctly flagging the offline stub
+dispatch; a real dispatch reports usage via `ctx.cost`.
 
 ## Adapt this to your agent
 
-Replace the `runner` with your real agent invocation, the `scorer` with your
-judge or verifier, and the `mutateAdapter` with `createCompositeMutator` or a
-GEPA-flavored mutator that consumes `bottomTrials` as reflection input.
+Replace `dispatchWithSurface` with your real agent invocation (report cost via
+`ctx.cost`), the `judge` with your verifier or LLM-as-judge, and the
+`evolutionaryDriver` mutator with `gepaDriver` for reflective, trace-grounded
+proposals. Keep the holdout disjoint from the training scenarios — the gate's
+honesty depends on it.

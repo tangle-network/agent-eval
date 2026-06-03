@@ -31,7 +31,7 @@ import {
   runImprovementLoop,
   gepaDriver,
   defaultProductionGate,
-} from '@tangle-network/agent-eval'
+} from '@tangle-network/agent-eval/contract'
 
 const result = await runImprovementLoop({
   baselineSurface: currentSystemPrompt,
