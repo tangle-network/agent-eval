@@ -40,6 +40,27 @@ export {
   verifyAgentProfileCell,
 } from './agent-profile-cell'
 export { type CreateAnalystAiConfig, createAnalystAi } from './analyst/ax-service'
+// ── Analyst (registry + findings) ─────────────────────────────────────
+// Consumer-facing happy path only: build a registry (or take the default
+// kinds), pass it to analyzeRuns/selfImprove, read AnalystFinding[], persist
+// with FindingsStore, or bind a ChatClient for analyst LLM calls. Deeper
+// machinery like finding-signature/subject parsers, tolerant JSON coercion, tool
+// groups, prose recovery, and judge/verifier adapters live on the `/analyst`
+// subpath (`@tangle-network/agent-eval/analyst`) to keep this surface legible.
+export type {
+  ChatCallOpts,
+  ChatClient,
+  ChatRequest,
+  ChatResponse,
+  ChatTransport,
+  CliBridgeTransportOpts,
+  CreateChatClientOpts,
+  DirectProviderTransportOpts,
+  MockTransportOpts,
+  RouterTransportOpts,
+  SandboxSdkTransportOpts,
+} from './analyst/chat-client'
+export { createChatClient } from './analyst/chat-client'
 export {
   buildDefaultAnalystRegistry,
   type DefaultAnalystRegistryOptions,
@@ -69,13 +90,6 @@ export {
   KNOWLEDGE_POISONING_KIND_SPEC,
 } from './analyst/kinds'
 export { SKILL_USAGE_ANALYST, SkillUsageAnalyst } from './analyst/kinds/skill-usage'
-// ── Analyst (registry + findings) ─────────────────────────────────────
-// Consumer-facing happy path only: build a registry (or take the default
-// kinds), pass it to analyzeRuns/selfImprove, read AnalystFinding[], persist
-// with FindingsStore. The internal machinery — chat-client transports,
-// finding-signature/subject parsers, tolerant JSON coercion, tool groups,
-// prose recovery, judge/verifier adapters — moved to the `/analyst` subpath
-// (`@tangle-network/agent-eval/analyst`) to keep this surface legible.
 export {
   type AnalystHooks,
   AnalystRegistry,

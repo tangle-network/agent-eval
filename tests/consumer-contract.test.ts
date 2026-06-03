@@ -1,6 +1,20 @@
 import { describe, expect, it } from 'vitest'
 import * as builderEval from '../src/builder-eval/index'
-import type { JudgeScoresRecord, RunOutcome } from '../src/index'
+import type {
+  ChatCallOpts,
+  ChatClient,
+  ChatRequest,
+  ChatResponse,
+  ChatTransport,
+  CliBridgeTransportOpts,
+  CreateChatClientOpts,
+  DirectProviderTransportOpts,
+  JudgeScoresRecord,
+  MockTransportOpts,
+  RouterTransportOpts,
+  RunOutcome,
+  SandboxSdkTransportOpts,
+} from '../src/index'
 import * as agentEval from '../src/index'
 import * as rl from '../src/rl/index'
 
@@ -39,6 +53,7 @@ const ROOT_RUNTIME_SYMBOLS = [
   'callLlmJson',
   'withJudgeRetry',
   'createLlmReviewer',
+  'createChatClient',
   // Verifier / review / campaign
   'MultiLayerVerifier',
   'runProposeReview',
@@ -124,5 +139,38 @@ describe('public-surface contract for consumers', () => {
     }
     expect(outcome.judgeScores).toBe(judgeScores)
     expect(outcome.judgeScores?.composite).toBe(0.75)
+  })
+
+  it('exposes root ChatClient API types used by consumers', async () => {
+    const transport: ChatTransport = 'mock'
+    const request: ChatRequest = { messages: [{ role: 'user', content: 'ping' }] }
+    const response: ChatResponse = { content: 'pong', raw: {} }
+    const callOpts: ChatCallOpts = { correlationId: 'consumer-contract' }
+
+    const mockOpts: MockTransportOpts = {
+      transport,
+      defaultModel: 'test-model',
+      handler: async () => response,
+    }
+    const createOpts: CreateChatClientOpts = mockOpts
+    const client: ChatClient = agentEval.createChatClient(createOpts)
+
+    const routerOpts: RouterTransportOpts = { transport: 'router', apiKey: 'test' }
+    const cliBridgeOpts: CliBridgeTransportOpts = { transport: 'cli-bridge' }
+    const directProviderOpts: DirectProviderTransportOpts = {
+      transport: 'direct-provider',
+      baseUrl: 'https://example.invalid/v1',
+      apiKey: 'test',
+    }
+    const sandboxSdkOpts: SandboxSdkTransportOpts = {
+      transport: 'sandbox-sdk',
+      chat: async () => response,
+    }
+
+    expect(routerOpts.transport).toBe('router')
+    expect(cliBridgeOpts.transport).toBe('cli-bridge')
+    expect(directProviderOpts.transport).toBe('direct-provider')
+    expect(sandboxSdkOpts.transport).toBe('sandbox-sdk')
+    expect(await client.chat(request, callOpts)).toBe(response)
   })
 })
