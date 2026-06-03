@@ -61,6 +61,13 @@ export interface AuthenticityResult {
   usesRealImpl: boolean
   realInfra: boolean
   wired: boolean
+  /** The required artifact is actually referenced/imported by other (non-artifact)
+   *  files — i.e. wired into the rest of the system, not dead code. Domain-agnostic:
+   *  a deliverable nothing else uses is suspect in any vertical. */
+  artifactReferenced: boolean
+  /** Convenience: the artifact is connected to the running system, via either the
+   *  domain wiring signal OR a structural reference. */
+  artifactWired: boolean
   fakeShim: boolean
   /** mock/stub markers per 1000 LOC, capped at 100. */
   mockDensity: number
@@ -73,6 +80,45 @@ const DEFAULT_MOCK =
 
 function basename(p: string): string {
   return p.split('/').pop() ?? p
+}
+
+function escapeRe(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
+
+/** Top-level symbols a source file declares (contract/library/class/etc.), used to
+ *  test whether other files reference the artifact. Language-agnostic keyword set. */
+function declaredNames(content: string): string[] {
+  const names = new Set<string>()
+  const re =
+    /\b(?:contract|library|interface|abstract\s+contract|class|enum|struct|module|package)\s+([A-Za-z_]\w*)/g
+  let m: RegExpExecArray | null
+  while ((m = re.exec(content))) {
+    const name = m[1]
+    if (name && name.length >= 4) names.add(name)
+  }
+  return [...names]
+}
+
+/** Is a required artifact referenced/imported by any non-artifact file? Catches the
+ *  "decorative / dead-code artifact" facade (a real-looking deliverable nothing in
+ *  the running system imports, deploys, or calls). Purely structural — no domain. */
+function isArtifactReferenced(
+  required: readonly ProducedFile[],
+  others: readonly ProducedFile[],
+): boolean {
+  if (!required.length || !others.length) return false
+  return required.some((rf) => {
+    const stem = rf.path.replace(/\.[^.]+$/, '') // import-path stem (no ext)
+    const base = basename(rf.path) // filename incl. ext
+    const names = declaredNames(rf.content ?? '')
+    return others.some((o) => {
+      const c = o.content ?? ''
+      if (!c) return false
+      if (c.includes(base) || c.includes(stem)) return true // import of the path
+      return names.some((n) => new RegExp(`\\b${escapeRe(n)}\\b`).test(c)) // symbol reference
+    })
+  })
 }
 
 /** Deterministic authenticity scan of produced files. Pure — same files in,
@@ -105,6 +151,9 @@ export function scoreAuthenticity(
   const usesRealImpl = signals.realImpl.test(signals.requiredArtifact ? requiredText : allText)
   const realInfra = signals.realInfra.test(allText)
   const wired = signals.wiring ? signals.wiring.test(otherText || allText) : false
+  // Structural: is the required artifact actually used by the rest of the system?
+  const artifactReferenced = isArtifactReferenced(required, others)
+  const artifactWired = wired || artifactReferenced
   const fakeShim = files.some(
     (f) => signals.fakeShim.test(basename(f.path)) || signals.fakeShim.test(f.content ?? ''),
   )
@@ -116,6 +165,15 @@ export function scoreAuthenticity(
   ).length
   const loc = Math.max(1, allText.split('\n').length)
   const mockDensity = Math.min(100, Math.round((mockHits / loc) * 1000))
+
+  // A real-looking artifact that nothing in the system imports/deploys/calls is
+  // decorative (dead code) — a common facade. We REPORT this (flag + signal) but do
+  // NOT auto-penalize the score: structural reference detection is noisy (an ABI or
+  // placeholder-address file makes a dead contract look "referenced", while a strong
+  // contract-only submission looks "dead"), so a score penalty manufactures false
+  // negatives on legitimately-partial work. Gate on it only via opts.requireArtifactWired,
+  // and let the LLM-nuance layer resolve the ambiguous middle band.
+  const decorativeArtifact = requiredArtifactPresent && usesRealImpl && !artifactWired
 
   let realness = 0
   if (requiredArtifactPresent) realness += w.artifact
@@ -142,6 +200,10 @@ export function scoreAuthenticity(
     flags.push(`HIGH_MOCK_DENSITY: ${mockDensity} mock/stub markers per 1000 LOC`)
   if (signals.wiring && requiredArtifactPresent && !wired)
     flags.push('NOT_WIRED: artifact exists but is never used by the client')
+  if (decorativeArtifact)
+    flags.push(
+      'DEAD_ARTIFACT: required artifact is not referenced/imported anywhere — decorative or dead code',
+    )
 
   return {
     realness,
@@ -150,6 +212,8 @@ export function scoreAuthenticity(
     usesRealImpl,
     realInfra,
     wired,
+    artifactReferenced,
+    artifactWired,
     fakeShim,
     mockDensity,
     flags,
@@ -165,7 +229,7 @@ export interface RealnessGate {
  *  capped and cannot rank high regardless of buildability. */
 export function gateRealness(
   r: AuthenticityResult,
-  opts: { floor?: number; requireArtifact?: boolean } = {},
+  opts: { floor?: number; requireArtifact?: boolean; requireArtifactWired?: boolean } = {},
 ): RealnessGate {
   const floor = opts.floor ?? 30
   if ((opts.requireArtifact ?? true) && !r.requiredArtifactPresent) {
@@ -173,6 +237,17 @@ export function gateRealness(
   }
   if (r.fakeShim && !r.usesRealImpl) {
     return { gated: true, reason: 'fake shim with no real implementation' }
+  }
+  // Opt-in (default off): a vertical where the deliverable MUST be wired into the
+  // running system can reject a decorative/dead artifact. Off by default because a
+  // contract-only (incomplete-but-real) submission is legitimately partial, not fake.
+  if (
+    opts.requireArtifactWired &&
+    r.requiredArtifactPresent &&
+    r.usesRealImpl &&
+    !r.artifactWired
+  ) {
+    return { gated: true, reason: 'required artifact present but never wired into the system' }
   }
   if (r.realness < floor)
     return { gated: true, reason: `realness ${r.realness} below floor ${floor}` }
@@ -260,6 +335,131 @@ export async function scoreAuthenticityNuance(
       verdict: `judge error: ${err instanceof Error ? err.message : String(err)}`,
     }
   }
+}
+
+// ── Realness-direct LLM judge ─────────────────────────────────────────────────
+
+export interface RealnessJudgment {
+  /** 0 (facade/simulator) … 100 (real implementation on the intended infra). */
+  isReal: number
+  rationale: string
+}
+
+/**
+ * Ask an LLM to rate realness DIRECTLY on a 0-100 scale — the axis that matched
+ * human blind-labels in validation (F1 0.80→0.88 on the gray band; a fakePct/
+ * hollowness proxy over-penalized "real core + stubbed periphery" partials, and a
+ * weak judge model over-flagged — use a strong one). Domain-agnostic skeleton; the
+ * consumer supplies `intent` (what the deliverable should be) and `rubric` (domain
+ * specifics of real-vs-fake). Fail-closed: a bad response reads as fully fake.
+ */
+export async function judgeRealnessLlm(
+  files: readonly ProducedFile[],
+  complete: CompleteFn,
+  opts: { intent?: string; rubric?: string; prioritize?: RegExp } = {},
+): Promise<RealnessJudgment> {
+  const system =
+    "You are a skeptical auditor. Rate how REAL an agent's build is vs the intended " +
+    'deliverable, 0-100. A genuine implementation of the HARD part on the intended ' +
+    'infrastructure is SUBSTANTIALLY REAL (>=50) even if peripheral layers are stubbed; ' +
+    'a pure simulator / facade / branded-type stand-in / no-op-stubbed dependency with ' +
+    'no real implementation is FAKE (<=25). Judge the core on its merits and note the ' +
+    'runtime. ' +
+    (opts.rubric ? `Domain rubric: ${opts.rubric} ` : '') +
+    'Respond with ONLY JSON: {"isReal":0-100,"why":"one sentence"}.'
+  const user =
+    (opts.intent ? `Intended deliverable: ${opts.intent}\n\n` : '') +
+    `Produced files:\n${fileDigest(files, { prioritize: opts.prioritize })}`
+  try {
+    const raw = await complete(system, user)
+    const m = raw.match(/\{[\s\S]*\}/)
+    if (!m) return { isReal: 0, rationale: 'unparseable judge response' }
+    const j = JSON.parse(m[0]) as Record<string, unknown>
+    return {
+      isReal: clampPct(j.isReal),
+      rationale: typeof j.why === 'string' ? j.why : '',
+    }
+  } catch (err) {
+    return {
+      isReal: 0,
+      rationale: `judge error: ${err instanceof Error ? err.message : String(err)}`,
+    }
+  }
+}
+
+// ── Blended pipeline: deterministic for the clean extremes, LLM for the gray band ─
+
+export type RealnessBand = 'clean-real' | 'clean-fake' | 'gray'
+
+export interface BlendedRealness extends AuthenticityResult {
+  /** Final realness after (only-when-needed) LLM adjudication, 0…100. */
+  blendedRealness: number
+  band: RealnessBand
+  /** True iff the LLM judge was actually consulted (gray band only). */
+  consultedLlm: boolean
+  /** Present iff the LLM was consulted. */
+  judgment?: RealnessJudgment
+}
+
+/**
+ * Score realness using the cheapest sufficient signal: trust the deterministic
+ * scorer on the CLEAN extremes (obvious fakes / obviously-real-and-wired), and only
+ * spend an LLM call on the GRAY band — cells that look real structurally but carry
+ * fakeness markers (a fake shim, an unwired/dead artifact, high mock density) or land
+ * mid-range. This caps LLM cost at the fraction of cells static analysis can't
+ * resolve, which matters at multi-vertical / multi-partner scale.
+ *
+ * Domain-agnostic: the gray-band TRIGGER is structural; the LLM judges via the
+ * consumer-supplied `intent`. Fail-closed (a bad LLM response reads as fully fake).
+ */
+export async function scoreRealnessBlended(
+  files: readonly ProducedFile[],
+  signals: AuthenticitySignals,
+  complete: CompleteFn,
+  opts: {
+    intent?: string
+    rubric?: string
+    grayBand?: [number, number]
+    mockGrayThreshold?: number
+  } = {},
+): Promise<BlendedRealness> {
+  const det = scoreAuthenticity(files, signals)
+  const [lo, hi] = opts.grayBand ?? [30, 70]
+  const mockGray = opts.mockGrayThreshold ?? 8
+
+  // Structural conflict: a real artifact whose RUNTIME authenticity static analysis
+  // can't settle — a fake shim is present, or it isn't wired to a real client (could
+  // be a decorative contract next to a simulator, OR an incomplete-but-real build),
+  // or mock density is high. Empirically (21 labeled cells) this routes 100% of the
+  // deterministic errors to the LLM while leaving an error-free clean band.
+  const conflict =
+    det.requiredArtifactPresent &&
+    det.usesRealImpl &&
+    (det.fakeShim || !det.wired || det.mockDensity >= mockGray)
+  const midRange = det.realness >= lo && det.realness <= hi
+
+  let band: RealnessBand
+  if (conflict || midRange) band = 'gray'
+  else if (det.realness < lo) band = 'clean-fake'
+  else band = 'clean-real'
+
+  if (band !== 'gray') {
+    return { ...det, blendedRealness: det.realness, band, consultedLlm: false }
+  }
+
+  // In the gray band the LLM read dominates (that's why we paid for it), with the
+  // deterministic score as a light anchor. Weights 0.25/0.75 validated against blind
+  // human labels (F1 0.88 vs 0.80 deterministic-only).
+  const judgment = await judgeRealnessLlm(files, complete, {
+    intent: opts.intent,
+    rubric: opts.rubric,
+    prioritize: signals.requiredArtifact,
+  })
+  const blendedRealness = Math.max(
+    0,
+    Math.min(100, Math.round(0.25 * det.realness + 0.75 * judgment.isReal)),
+  )
+  return { ...det, blendedRealness, band, consultedLlm: true, judgment }
 }
 
 // Domain `AuthenticitySignals` (e.g. a Solidity/Fhenix preset) live in the

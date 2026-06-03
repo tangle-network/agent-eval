@@ -6,6 +6,7 @@ import {
   type ProducedFile,
   scoreAuthenticity,
   scoreAuthenticityNuance,
+  scoreRealnessBlended,
 } from './index'
 
 // Domain signals live in the consumer, not the substrate — the test defines its
@@ -105,6 +106,67 @@ describe('authenticity — deterministic', () => {
   })
 })
 
+describe('authenticity — dead-code / decorative artifact (general)', () => {
+  // A real-looking contract (real FHE ops) that NOTHING else imports/references,
+  // sitting next to a simulated runtime that actually serves the app.
+  const DEAD: ProducedFile[] = [
+    {
+      path: 'contracts/PerpetualDEX.sol',
+      content:
+        'pragma solidity ^0.8.25;\nimport {FHE, euint128, ebool} from "@fhenixprotocol/cofhe-contracts/FHE.sol";\ncontract PerpetualDEX {\n  function open(inEuint128 calldata s) external { euint128 x = FHE.asEuint128(s); FHE.gte(x, x); }\n}',
+    },
+    {
+      path: 'src/dexEngine.ts',
+      content:
+        '// in-browser engine — deterministic masking for demo\nexport const euint128 = "euint128"\nfunction maskEncrypt(v){ return v ^ 0x5eed }\nexport function open(v){ return maskEncrypt(v) }',
+    },
+    {
+      path: 'src/App.tsx',
+      content: 'import { open } from "./dexEngine"; export default ()=> <div/>',
+    },
+  ]
+
+  it('flags a real artifact that nothing references as DEAD_ARTIFACT + de-ranks it', () => {
+    const r = scoreAuthenticity(DEAD, SIGNALS)
+    expect(r.requiredArtifactPresent).toBe(true)
+    expect(r.usesRealImpl).toBe(true)
+    expect(r.artifactReferenced).toBe(false)
+    expect(r.artifactWired).toBe(false)
+    expect(r.flags.join(' ')).toMatch(/DEAD_ARTIFACT/)
+    // de-ranked vs an identical-but-wired artifact
+    const wiredScore = scoreAuthenticity(REAL, SIGNALS).realness
+    expect(r.realness).toBeLessThan(wiredScore)
+  })
+
+  it('does NOT gate dead code by default (could be incomplete-but-real), but does under requireArtifactWired', () => {
+    const r = scoreAuthenticity(DEAD, SIGNALS)
+    expect(gateRealness(r).gated).toBe(false)
+    expect(gateRealness(r, { requireArtifactWired: true }).gated).toBe(true)
+  })
+
+  it('a real contract referenced by name elsewhere is artifactWired (not dead)', () => {
+    const r = scoreAuthenticity(
+      [
+        REAL[0]!, // ConfidentialLending.sol declaring `contract Lending`
+        { path: 'scripts/deploy.ts', content: 'const c = await ethers.deployContract("Lending")' },
+      ],
+      SIGNALS,
+    )
+    expect(r.artifactReferenced).toBe(true)
+    expect(r.artifactWired).toBe(true)
+    expect(r.flags.join(' ')).not.toMatch(/DEAD_ARTIFACT/)
+  })
+
+  it('a contract-only submission (no client at all) is not penalized as dead code via wiring gate', () => {
+    // contract present + real impl, no other files — legitimately partial, not a facade
+    const r = scoreAuthenticity([REAL[0]!], SIGNALS)
+    expect(r.requiredArtifactPresent).toBe(true)
+    expect(r.usesRealImpl).toBe(true)
+    // default gate stays lenient (incomplete-but-real should not be called fake)
+    expect(gateRealness(r).gated).toBe(false)
+  })
+})
+
 describe('authenticity — LLM nuance', () => {
   it('parses a well-formed judge response', async () => {
     const complete = async () =>
@@ -122,5 +184,65 @@ describe('authenticity — LLM nuance', () => {
     const n = await scoreAuthenticityNuance(FAKE, async () => 'the model rambled with no json')
     expect(n.fakePct).toBe(100)
     expect(n.uniquePct).toBe(0)
+  })
+})
+
+describe('authenticity — blended pipeline (gray-band-only LLM)', () => {
+  let calls = 0
+  const spyComplete = (resp: string) => async () => {
+    calls++
+    return resp
+  }
+
+  it('does NOT call the LLM on a clean fake (deterministic suffices)', async () => {
+    calls = 0
+    const r = await scoreRealnessBlended(FAKE, SIGNALS, spyComplete('{}'))
+    expect(r.band).toBe('clean-fake')
+    expect(r.consultedLlm).toBe(false)
+    expect(calls).toBe(0)
+    expect(r.blendedRealness).toBe(r.realness)
+  })
+
+  it('does NOT call the LLM on a clean, wired, real build', async () => {
+    calls = 0
+    const r = await scoreRealnessBlended(REAL, SIGNALS, spyComplete('{}'))
+    expect(r.band).toBe('clean-real')
+    expect(r.consultedLlm).toBe(false)
+    expect(calls).toBe(0)
+  })
+
+  it('consults the LLM on the gray band (real-looking artifact + fake shim) and lets it rescue a real one', async () => {
+    // real contract + a fake-shim file present → structurally conflicted → gray
+    const conflicted: ProducedFile[] = [
+      REAL[0]!,
+      {
+        path: 'src/fhe-engine.ts',
+        content: '// in-memory FHE simulation\nexport const mockEncrypt = (v)=>v',
+      },
+    ]
+    calls = 0
+    const r = await scoreRealnessBlended(
+      conflicted,
+      SIGNALS,
+      spyComplete('{"isReal":85,"why":"real contract with FHE ops; the sim is a dev aid"}'),
+    )
+    expect(r.band).toBe('gray')
+    expect(r.consultedLlm).toBe(true)
+    expect(calls).toBe(1)
+    expect(r.judgment?.isReal).toBe(85)
+    expect(r.blendedRealness).toBeGreaterThan(60) // LLM rescued it from the shim penalty
+  })
+
+  it('gray band + fail-closed LLM response yields a low blend (no false pass)', async () => {
+    const conflicted: ProducedFile[] = [
+      REAL[0]!,
+      {
+        path: 'src/fhe-engine.ts',
+        content: '// in-memory FHE simulation\nexport const mockEncrypt = (v)=>v',
+      },
+    ]
+    const r = await scoreRealnessBlended(conflicted, SIGNALS, async () => 'no json here')
+    expect(r.band).toBe('gray')
+    expect(r.blendedRealness).toBeLessThan(40) // fakePct=100 → llmReal=0 → low blend
   })
 })
