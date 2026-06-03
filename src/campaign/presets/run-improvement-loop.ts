@@ -94,6 +94,21 @@ export async function runImprovementLoop<TScenario extends Scenario, TArtifact>(
   if (opts.autoOnPromote === 'pr' && (!opts.ghOwner || !opts.ghRepo)) {
     throw new Error("runImprovementLoop: autoOnPromote='pr' requires ghOwner + ghRepo.")
   }
+  // train ∩ holdout must be empty. runOptimization trains on `opts.scenarios`;
+  // the gate scores baseline-vs-winner ONLY on `opts.holdoutScenarios`. A shared
+  // scenario means the optimizer adapted to a gate scenario, so the lift the gate
+  // then reports is measured on data the optimization already saw — memorization
+  // read as generalization. Fail loud before any rollout, not with an inflated
+  // gate decision. (Mirrors the runSkillOpt train/holdout guard.)
+  const holdoutIds = new Set(opts.holdoutScenarios.map((s) => s.id))
+  const leaked = opts.scenarios.filter((s) => holdoutIds.has(s.id)).map((s) => s.id)
+  if (leaked.length > 0) {
+    throw new Error(
+      `runImprovementLoop: training scenarios and holdoutScenarios must be disjoint (overlap: [${leaked.join(
+        ', ',
+      )}]) — a shared scenario leaks the held-out gate axis into the optimization, inflating reported lift.`,
+    )
+  }
 
   // Per-cell dispatch deadline applied to EVERY campaign in the loop
   // (optimization + both holdout passes). A single non-settling dispatch — a

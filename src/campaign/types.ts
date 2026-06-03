@@ -238,6 +238,14 @@ export interface ProposeContext<TFindings = unknown> {
    *  scenarios) into a merged candidate. Drivers doing pure single-parent
    *  reflection may ignore it. See {@link ParetoParent}. */
   paretoParents?: ParetoParent[]
+  /** FIREWALL (non-negotiable): the held-out judge is write-only — its verdicts
+   *  score the chosen output and gate promotion, and are NEVER an input to
+   *  proposal/steering (else the optimizer games the acceptance axis = an
+   *  oracle). This `never`-typed field makes that a compile-time tripwire: a
+   *  driver that tries to thread judge verdicts into the proposal will not type.
+   *  Steering may consume TRACE-OBSERVABLE signals (what the agent did) via
+   *  `findings`/`report`; it may NOT consume the judge's held-out verdict. */
+  judgeScores?: never
 }
 
 /** @experimental A surface-improvement strategy — the DRIVER of the
