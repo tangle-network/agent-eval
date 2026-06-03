@@ -1,6 +1,12 @@
 # Multi-Shot Optimization
 
-`runMultiShotOptimization` is the public adapter for GEPA-style optimization over
+> **Renamed.** `runMultiShotOptimization` was retired. The live API is
+> `runImprovementLoop` (driver-agnostic, gated promotion) driven by `gepaDriver`,
+> with `compareDrivers` for head-to-head driver lift. See
+> [feature-guide.md](./feature-guide.md) and [concepts.md](./concepts.md). The
+> example further down predates the rename and shows the older call shape.
+
+`runImprovementLoop` is the public entry for GEPA-style optimization over
 variable-length agent conversations.
 
 Use it when the thing you want to improve is not a single model call. Typical

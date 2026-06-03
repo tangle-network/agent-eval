@@ -152,7 +152,7 @@ async function runAutoResearchLoop(opts: {
 Two cases:
 
 1. **Trajectory-shaped optimization with steering.** Use
-   `runMultiShotOptimization` directly — it already runs the inner
+   `runImprovementLoop` directly — it already runs the inner
    search-vs-holdout loop. Wrap with `analyzeOptimizationResult` after
    for the RL bridge.
 

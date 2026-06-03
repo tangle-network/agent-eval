@@ -136,7 +136,7 @@ report, RL bridge).
 
 | From → To | Type | What it carries |
 |---|---|---|
-| agent-knowledge → agent-eval | `RunRecord` | (consumed via `runMultiShotOptimization` for knowledge-base optimization) |
+| agent-knowledge → agent-eval | `RunRecord` | (consumed via `runImprovementLoop` for knowledge-base optimization) |
 | agent-knowledge → agent-eval | `KnowledgeReadinessReport`, `KnowledgeBundle`, `KnowledgeRequirement` | (re-exported from agent-eval; agent-knowledge populates) |
 | agent-knowledge → agent-eval | `ControlRuntimeConfig<KnowledgeBaseCandidate>` | (knowledge research adapter) |
 | agent-runtime → agent-eval | `runAgentControlLoop`, `scoreKnowledgeReadiness`, `blockingKnowledgeEval` | (consumed; agent-runtime calls these in its task lifecycle) |
