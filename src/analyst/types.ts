@@ -57,6 +57,15 @@ export interface AnalystFinding {
    * diff cleanly across runs.
    */
   subject?: string
+  /** FIREWALL provenance (docs/learning-flywheel.md): true iff this finding was
+   *  lifted from a JUDGE verdict (an acceptance score), not OBSERVED from the
+   *  agent's behavior. A judge-derived finding must NEVER be admitted as a
+   *  steering input — that is the held-out judge leaking into the loop. Set at
+   *  the lift site (createJudgeAdapter); checked by `assertNoJudgeVerdict`.
+   *  Provenance, not evidence presence, is the correct discriminator: an
+   *  evidence-less trace-analyst observation legitimately steers, while a judge
+   *  verdict that happens to cite an artifact must not. */
+  derived_from_judge?: boolean
   /** Analyst-private extras; renderers ignore unless they know the analyst. */
   metadata?: Record<string, unknown>
 }

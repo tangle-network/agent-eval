@@ -1,83 +1,69 @@
 import { describe, expect, it } from 'vitest'
-import { assertTraceObservable, isTraceObservable } from './steer-firewall'
+import { assertNoJudgeVerdict, isJudgeVerdict, isTraceObservable } from './steer-firewall'
 import type { AnalystFinding, EvidenceRef } from './types'
 
-// The gap-4 firewall: a realness/authenticity signal may steer the next attempt
-// ONLY when it reports observable behavior (the agent DID x — cite a span/event/
-// artifact), never a bare verdict (this output is fake / will fail). The latter
-// is the held-out judge leaking into steering, which makes the loop game realness.
-function finding(id: string, refs: EvidenceRef[]): AnalystFinding {
+// The gap-4 firewall keys on PROVENANCE, not evidence. A realness signal may
+// steer the next attempt ONLY as an observation of behavior; a finding lifted
+// from a judge VERDICT (an acceptance score) must never steer — that is the
+// held-out judge leaking into the loop, which makes the loop game realness.
+function finding(id: string, opts: { refs?: EvidenceRef[]; judge?: boolean } = {}): AnalystFinding {
   return {
     schema_version: '1.0.0',
     finding_id: id,
-    analyst_id: 'realness-detector',
+    analyst_id: opts.judge ? 'judge' : 'trace-analyst',
     produced_at: '2026-06-02T00:00:00.000Z',
     severity: 'high',
-    area: 'authenticity',
+    area: opts.judge ? 'judge' : 'agent-reasoning',
     claim: 'placeholder',
-    evidence_refs: refs,
+    evidence_refs: opts.refs ?? [],
     confidence: 0.9,
+    ...(opts.judge ? { derived_from_judge: true } : {}),
   }
 }
 
-describe('steer firewall — isTraceObservable', () => {
-  it('admits a realness finding grounded in a trace span (observed behavior)', () => {
-    const f = finding('used-stub', [
-      { kind: 'span', uri: 'span://exec/42', excerpt: 'import stub_crypto' },
-    ])
-    expect(isTraceObservable(f)).toBe(true)
+describe('steer firewall — provenance is the discriminator (the cases evidence gets backwards)', () => {
+  it('ADMITS an evidence-less trace-analyst observation (would be wrongly rejected by an evidence gate)', () => {
+    // createTraceAnalystAdapter legitimately emits findings with evidence_refs: [].
+    const obs = finding('trace-bullet', { refs: [] })
+    expect(isJudgeVerdict(obs)).toBe(false)
+    expect(() => assertNoJudgeVerdict([obs])).not.toThrow()
   })
 
-  it('admits findings grounded in an event or a produced artifact', () => {
-    expect(isTraceObservable(finding('evt', [{ kind: 'event', uri: 'event://tool-call/9' }]))).toBe(
-      true,
-    )
-    expect(
-      isTraceObservable(finding('art', [{ kind: 'artifact', uri: 'file://out/cipher.ts' }])),
-    ).toBe(true)
+  it('REJECTS a judge verdict that cites an artifact (would be wrongly admitted by an evidence gate)', () => {
+    // liftJudgeScore attaches {kind:'artifact', uri:'inline:evidence'} when the
+    // judge supplies evidence — an evidence gate would pass it; provenance does not.
+    const verdict = finding('authenticity-0.2', {
+      judge: true,
+      refs: [{ kind: 'artifact', uri: 'inline:evidence', excerpt: 'looks templated' }],
+    })
+    expect(isTraceObservable(verdict)).toBe(true) // evidence gate would ADMIT — wrong
+    expect(isJudgeVerdict(verdict)).toBe(true)
+    expect(() => assertNoJudgeVerdict([verdict])).toThrow(/judge verdict cannot be admitted/)
   })
 
-  it('rejects a bare verdict-shaped finding with no observable evidence', () => {
-    // "this output is fake" with nothing cited = the judge's verdict wearing a
-    // finding costume — the exact leak the firewall stops.
-    expect(isTraceObservable(finding('verdict-only', []))).toBe(false)
-  })
-
-  it('rejects findings grounded ONLY in a metric (could be a judge score) or a chained finding', () => {
-    expect(
-      isTraceObservable(finding('metric', [{ kind: 'metric', uri: 'metric://realness_score' }])),
-    ).toBe(false)
-    expect(isTraceObservable(finding('chain', [{ kind: 'finding', uri: 'finding://other' }]))).toBe(
-      false,
+  it('REJECTS a bare judge verdict (no evidence)', () => {
+    expect(() => assertNoJudgeVerdict([finding('bare-verdict', { judge: true })])).toThrow(
+      /held-out judge leaking/,
     )
   })
 
-  it('admits a finding with mixed evidence as long as one ref is observable', () => {
-    const f = finding('mixed', [
-      { kind: 'metric', uri: 'metric://realness_score' },
-      { kind: 'span', uri: 'span://exec/7' },
-    ])
-    expect(isTraceObservable(f)).toBe(true)
-  })
-})
-
-describe('steer firewall — assertTraceObservable', () => {
-  it('passes through when every admitted finding is trace-observable', () => {
-    const ok = [
-      finding('a', [{ kind: 'span', uri: 'span://1' }]),
-      finding('b', [{ kind: 'artifact', uri: 'file://x' }]),
-    ]
-    expect(assertTraceObservable(ok)).toBe(ok)
-  })
-
-  it('throws and names EXACTLY the verdict-leaking findings, not the grounded ones', () => {
+  it('names EXACTLY the judge-derived findings, not the observations', () => {
     const mixed = [
-      finding('grounded', [{ kind: 'span', uri: 'span://1' }]),
-      finding('leak-1', []),
-      finding('leak-2', [{ kind: 'metric', uri: 'metric://realness' }]),
+      finding('obs-1', { refs: [{ kind: 'span', uri: 'span://1' }] }),
+      finding('verdict-1', { judge: true }),
+      finding('obs-2', { refs: [] }),
+      finding('verdict-2', { judge: true, refs: [{ kind: 'artifact', uri: 'inline:evidence' }] }),
     ]
-    expect(() => assertTraceObservable(mixed, 'realnessSteer')).toThrow(/leak-1, leak-2/)
-    expect(() => assertTraceObservable(mixed, 'realnessSteer')).toThrow(/realnessSteer/)
-    expect(() => assertTraceObservable(mixed)).not.toThrow(/grounded/)
+    expect(() => assertNoJudgeVerdict(mixed, 'realnessSteer')).toThrow(/verdict-1, verdict-2/)
+    expect(() => assertNoJudgeVerdict(mixed, 'realnessSteer')).toThrow(/realnessSteer/)
+    expect(() => assertNoJudgeVerdict(mixed)).not.toThrow(/obs-1|obs-2/)
+  })
+
+  it('passes through a pure observation set unchanged', () => {
+    const ok = [
+      finding('a', { refs: [{ kind: 'span', uri: 'span://1' }] }),
+      finding('b', { refs: [] }),
+    ]
+    expect(assertNoJudgeVerdict(ok)).toBe(ok)
   })
 })
