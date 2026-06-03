@@ -144,7 +144,7 @@ describe('authenticity — dead-code / decorative artifact (general)', () => {
   it('a real contract referenced by name elsewhere is artifactWired (not dead)', () => {
     const r = scoreAuthenticity(
       [
-        REAL[0], // ConfidentialLending.sol declaring `contract Lending`
+        REAL[0]!, // ConfidentialLending.sol declaring `contract Lending`
         { path: 'scripts/deploy.ts', content: 'const c = await ethers.deployContract("Lending")' },
       ],
       SIGNALS,
@@ -156,7 +156,7 @@ describe('authenticity — dead-code / decorative artifact (general)', () => {
 
   it('a contract-only submission (no client at all) is not penalized as dead code via wiring gate', () => {
     // contract present + real impl, no other files — legitimately partial, not a facade
-    const r = scoreAuthenticity([REAL[0]], SIGNALS)
+    const r = scoreAuthenticity([REAL[0]!], SIGNALS)
     expect(r.requiredArtifactPresent).toBe(true)
     expect(r.usesRealImpl).toBe(true)
     // default gate stays lenient (incomplete-but-real should not be called fake)
@@ -211,7 +211,7 @@ describe('authenticity — blended pipeline (gray-band-only LLM)', () => {
   it('consults the LLM on the gray band (real-looking artifact + fake shim) and lets it rescue a real one', async () => {
     // real contract + a fake-shim file present → structurally conflicted → gray
     const conflicted: ProducedFile[] = [
-      REAL[0],
+      REAL[0]!,
       { path: 'src/fhe-engine.ts', content: '// in-memory FHE simulation\nexport const mockEncrypt = (v)=>v' },
     ]
     calls = 0
@@ -229,7 +229,7 @@ describe('authenticity — blended pipeline (gray-band-only LLM)', () => {
 
   it('gray band + fail-closed LLM response yields a low blend (no false pass)', async () => {
     const conflicted: ProducedFile[] = [
-      REAL[0],
+      REAL[0]!,
       { path: 'src/fhe-engine.ts', content: '// in-memory FHE simulation\nexport const mockEncrypt = (v)=>v' },
     ]
     const r = await scoreRealnessBlended(conflicted, SIGNALS, async () => 'no json here')
