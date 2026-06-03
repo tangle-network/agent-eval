@@ -53,6 +53,8 @@ describe('pairedBootstrap — promotion-gate CI core', () => {
   it('is deterministic under a fixed seed (gate verdicts must be reproducible)', () => {
     const before = [0.5, 0.55, 0.6, 0.52, 0.58, 0.5]
     const after = [0.7, 0.72, 0.8, 0.71, 0.79, 0.7]
-    expect(pairedBootstrap(before, after, { seed: 42 })).toEqual(pairedBootstrap(before, after, { seed: 42 }))
+    expect(pairedBootstrap(before, after, { seed: 42 })).toEqual(
+      pairedBootstrap(before, after, { seed: 42 }),
+    )
   })
 })
