@@ -1,129 +1,75 @@
 # Multi-Shot Optimization
 
-`runMultiShotOptimization` is the public adapter for GEPA-style optimization over
-variable-length agent conversations.
+> **Renamed.** `runMultiShotOptimization` was retired. The live API is
+> `runImprovementLoop` (driver-agnostic, gated promotion) driven by `gepaDriver`,
+> with `compareDrivers` for head-to-head driver lift. This doc was rewritten to the
+> live API; see also [feature-guide.md](./feature-guide.md) and [concepts.md](./concepts.md).
 
-Use it when the thing you want to improve is not a single model call. Typical
-targets are agent system prompts, tool descriptions, routing policies, retrieval
-plans, or app-specific scaffolding that affects an entire task trajectory.
+`runImprovementLoop` is the public entry for GEPA-style optimization over a whole
+task trajectory — the thing you improve is not a single model call but an agent
+system prompt, tool descriptions, a routing policy, or any scaffolding that affects
+the entire run. It is the OUTER loop: it improves the SURFACE the inner workers run.
 
-The primitive is intentionally small. Your app owns the domain logic:
+## The shape
 
-- `seedVariants`: prompt/config/tool-policy candidates
-- `runner`: executes one complete task trajectory for one variant
-- `scorer`: scores the trajectory and emits actionable side information
-- `mutateAdapter`: proposes new variants from top and bottom trials
+You own a few seams; the loop owns the release-critical glue (paired seeds, the
+held-out re-score, the promotion gate, provenance):
 
-`agent-eval` owns the release-critical glue:
+- **`baselineSurface`** — the current surface (a prompt string, or a `CodeSurface`).
+- **`dispatchWithSurface(surface, scenario, ctx)`** — run one task to completion
+  under a candidate surface; return the artifact the judges score.
+- **`judges`** — score the artifact (`{ composite, dimensions }`).
+- **`driver`** — proposes candidate surfaces each generation: `gepaDriver`
+  (reflective + Pareto frontier) or `evolutionaryDriver` (mutator).
+- **`gate`** — `defaultProductionGate` (held-out significance + red-team +
+  reward-hacking + canary). Ships ONLY on a CI-lower-bound held-out lift.
 
-- stable paired seeds
-- search-split prompt evolution
-- cost/score Pareto objectives
-- failed-run conversion into failed trials
-- ASI projection into reflection traces and numeric metrics
-- optional paired holdout gating through `HeldOutGate`
-- validated `RunRecord` rows for promotion evidence
-
-## Result Contract
-
-The return shape separates discovery from promotion:
-
-- `searchBestVariant`: best variant on the optimizer-visible search scenarios
-- `searchBestAggregate`: aggregate for that search winner
-- `promotedVariant`: variant callers should ship
-- `promotedAggregate`: aggregate for the promoted variant
-- `gate`: holdout decision and evidence, or `null` when no gate ran
-
-If a holdout gate is configured and rejects the search winner,
-`promotedVariant` is the baseline. Do not ship `searchBestVariant` directly
-unless you intentionally run without a holdout gate.
-
-## Actionable Side Information
-
-The scorer should return `asi` rows for concrete failure modes:
-
-```ts
-{
-  expectationId: 'used-primary-sources',
-  message: 'The final answer cited secondary summaries instead of primary sources.',
-  severity: 'error',
-  responsibleSurface: 'retrieval-policy',
-  suggestion: 'Prefer primary-source domains during source-gathering turns.',
-}
-```
-
-Standard knowledge-related responsible surfaces are:
-
-- `knowledge-requirements`
-- `data-acquisition`
-- `retrieval-policy`
-- `user-question-policy`
-
-These rows become:
-
-- reflection expectations via `trialTraceFromMultiShotTrial`
-- aggregate metrics like `asi.error` and `surface.retrieval-policy`
-- trace evidence available to downstream reports
-
-This is the main reason to use this primitive instead of reducing each run to a
-single scalar reward.
-
-## Holdout Discipline
-
-For release gates, configure `gate`. The first seed variant is the baseline and
-`gate.gate.baselineKey` must match its id.
-
-Holdout scenarios must be disjoint from `searchScenarioIds`. The adapter runs
-baseline and candidate with the same `(scenarioId, rep)` seed, validates every
-row with `validateRunRecord`, then asks `HeldOutGate` whether to promote.
-
-When `gate.searchScenarioIds` is omitted, the adapter reuses
-`searchScenarioIds` for the overfit-gap check.
-
-## Minimal Shape
+## Minimal example
 
 ```ts
 import {
-  runMultiShotOptimization,
-  trialTraceFromMultiShotTrial,
-  type MultiShotVariant,
+  runImprovementLoop,
+  gepaDriver,
+  defaultProductionGate,
 } from '@tangle-network/agent-eval'
 
-type Payload = { systemPrompt: string }
-
-const baseline: MultiShotVariant<Payload> = {
-  id: 'baseline',
-  label: 'baseline',
-  generation: 0,
-  payload: { systemPrompt: currentPrompt },
-}
-
-const result = await runMultiShotOptimization<Payload>({
-  runId: `research-agent-${Date.now()}`,
-  target: 'research-agent-system-prompt',
-  seedVariants: [baseline],
-  searchScenarioIds: searchScenarios.map((s) => s.id),
-  reps: 2,
-  generations: 4,
+const result = await runImprovementLoop({
+  baselineSurface: currentSystemPrompt,
+  scenarios: trainScenarios, // optimizer-visible
+  holdoutScenarios, // DISJOINT — only the gate sees these
+  dispatchWithSurface: async (surface, scenario) =>
+    runYourAgentToCompletion({ scenario, prompt: String(surface) }),
+  judges: [myJudge],
+  driver: gepaDriver({
+    llm: { apiKey, baseUrl },
+    model: 'gpt-5',
+    target: 'enforce a strict output schema',
+  }),
   populationSize: 4,
-  scoreConcurrency: 4,
-  runner: {
-    async run({ variant, scenarioId, seed }) {
-      return runYourAgentToCompletion({ scenarioId, seed, prompt: variant.payload.systemPrompt })
-    },
-  },
-  scorer: {
-    async score({ run }) {
-      return scoreFullTrajectory(run.trace)
-    },
-  },
-  mutateAdapter: {
-    async mutate({ parent, bottomTrials, childCount, generation }) {
-      const traces = bottomTrials.map((t) => trialTraceFromMultiShotTrial(t))
-      return proposePromptMutations({ parent, traces, childCount, generation })
-    },
-  },
+  maxGenerations: 4,
+  gate: defaultProductionGate({ holdoutScenarios, deltaThreshold: 0 }),
+  autoOnPromote: 'none', // or 'pr' (+ ghOwner/ghRepo) to open a PR on ship
+  runDir,
 })
 
-deploy(result.promotedVariant.payload)
+if (result.gateResult.decision === 'ship') {
+  deploy(result.winnerSurface) // the driver's proposal, gated on a real held-out lift
+}
 ```
+
+## Discipline (what makes it trustworthy)
+
+- **Holdout is disjoint + gated.** `holdoutScenarios` must not overlap the training
+  pool. The gate re-scores baseline vs winner on the holdout and ships only when the
+  paired-bootstrap CI lower bound clears `deltaThreshold`; a few-instance swing at
+  thin `n` is held (`few_runs`), not promoted.
+- **No-op never ships.** If no candidate beats the baseline, the winner IS the
+  baseline (empty diff) and the loop forces `hold` — it does not score
+  baseline-vs-itself and read model noise as lift.
+- **Provenance falls out.** `result.promotedDiff` + `emitLoopProvenance` give the
+  auditable candidate→gate→promote chain (rationale, content hashes, a held-out lift
+  recomputable from the emitted record).
+
+Reach for `compareDrivers` when the question is "which DRIVER wins" rather than
+"improve this surface", and see `tests/campaign/presets.test.ts` for the executable
+contract (no-op guard, fail-loud holdout, gate promotion).

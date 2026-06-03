@@ -416,7 +416,7 @@ import {
 
 ### When you actually use each one
 
-- **You ran an existing `runPromptEvolution` or `runMultiShotOptimization` sweep** — wrap with `trialsToRunRecords(trials, ctx)` so the output composes with `replayCache`, `pairedEvalueSequence`, `rubricPredictiveValidity`, and the rest of the RunRecord surface. Single line, zero behavior change.
+- **You ran an existing `runPromptEvolution` or `runImprovementLoop` sweep** — wrap with `trialsToRunRecords(trials, ctx)` so the output composes with `replayCache`, `pairedEvalueSequence`, `rubricPredictiveValidity`, and the rest of the RunRecord surface. Single line, zero behavior change.
 - **You're training a policy with TRL / DPO / PPO / GRPO** — use `extractVerifiableReward` to separate deterministic rewards (compile/test/schema/sandbox) from probabilistic ones (judge), then `extractPreferences` to produce the `(chosen, rejected)` triples in the shape your trainer expects.
 - **You changed a policy and want to evaluate it on yesterday's trajectories without re-running** — use `offPolicyEstimateAll` with token log-prob propensity scores. Run all three estimators (IPS, SNIPS, DR); agreement across estimators is much stronger than any single number.
 - **You want step-level credit assignment for long-horizon agents** — `extractStepRewards` over the trace spans of completed runs, `prmTrainingPairs` to produce the training data for a PRM, then plug into your favourite trainer (we don't ship gradient descent).
@@ -562,7 +562,7 @@ const result = await runEvalCampaign({
 - `researchReport` over the collected runs at the end with the campaign's `preregistrationHash` baked in.
 
 **When NOT to use the campaign:**
-- Trajectory-shaped GEPA optimization → `runMultiShotOptimization` (steered prompts, paired seeds, intermediate metrics).
+- Trajectory-shaped GEPA optimization → `runImprovementLoop` (steered prompts, paired seeds, intermediate metrics).
 - Prompt + code evolution with mutation, sandbox pools, lineage → `runPromptEvolution` + `createCompositeMutator`.
 - Long-running agent control loops with budgets → `runAgentControlLoop` (the campaign is for *measurement*, not the live runtime).
 

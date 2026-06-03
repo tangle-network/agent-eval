@@ -1,3 +1,14 @@
+/**
+ * @packageDocumentation
+ *
+ * Root barrel — the full symbol surface, kept wide for backward compatibility.
+ * For new code prefer the cohesive entry points over this firehose: the few
+ * top-level functions in docs/concepts.md (analyzeRuns / selfImprove / the intake
+ * adapters), and the focused subpaths (`/contract`, `/campaign`, `/analyst`,
+ * `/trace-analyst`, `/telemetry`, `/storyboard`, …). Reach for a subpath when one
+ * fits; this barrel exists so older imports keep resolving.
+ */
+
 // ── Core types ───────────────────────────────────────────────────────
 
 export type { ActionExecutionPolicy, ActionPolicyDecision } from './action-policy'

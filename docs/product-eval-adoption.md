@@ -152,7 +152,7 @@ set with a signed note.
 
 ## Optimization
 
-Use `runMultiShotOptimization()` when the system is a multi-step agent, not a
+Use `runImprovementLoop()` when the system is a multi-step agent, not a
 single prompt.
 
 Good optimization targets:
