@@ -2,8 +2,6 @@
  * Pipeline-level OTEL integration — auto-attaches an OTEL exporter when
  * OTEL_EXPORTER_OTLP_ENDPOINT is set. Pipelines call `withOtelPipeline()`
  * to get a configured exporter + shutdown handle without manual wiring.
- *
- * Used by: runEvalCampaign, runProductionLoop, runAgentMatrix.
  */
 
 import { createOtelExporter, type OtelExportConfig, type OtelExporter } from './trace/otel-export'

@@ -194,8 +194,8 @@ export interface ParetoParent {
 
 /** @experimental Stateless surface mutation — given findings + current
  *  surface, return N candidate surfaces. Pure transform, no generation
- *  awareness. Reflective-mutation, `runMultiShotOptimization`, `AxGEPA`
- *  conform. Wrapped by `evolutionaryDriver` to become an `ImprovementDriver`. */
+ *  awareness. Reflective-mutation and `AxGEPA` mutators conform. Wrapped by
+ *  `evolutionaryDriver` to become an `ImprovementDriver`. */
 export interface Mutator<TFindings = unknown> {
   kind: string
   mutate(args: {

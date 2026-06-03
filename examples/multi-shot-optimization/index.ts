@@ -1,122 +1,88 @@
+import { mkdtempSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import {
-  type MultiShotVariant,
-  type RunRecord,
-  runMultiShotOptimization,
-  trialTraceFromMultiShotTrial,
-} from '@tangle-network/agent-eval'
+  defaultProductionGate,
+  evolutionaryDriver,
+  type JudgeConfig,
+  runImprovementLoop,
+  type Scenario,
+} from '@tangle-network/agent-eval/contract'
 
-type Payload = {
-  instruction: string
-  quality: number
+type DemoArtifact = { text: string }
+
+// Training scenarios the optimizer may select against.
+const SCENARIOS: Scenario[] = [
+  { id: 'brief', kind: 'chat' },
+  { id: 'code-review', kind: 'chat' },
+]
+// Disjoint holdout — only the promotion gate scores these. A candidate ships
+// only if it beats baseline HERE, not just on the search set it was selected on.
+const HOLDOUT: Scenario[] = [
+  { id: 'holdout-brief', kind: 'chat' },
+  { id: 'holdout-code-review', kind: 'chat' },
+  { id: 'holdout-research', kind: 'chat' },
+]
+
+// The directive the optimizer is meant to introduce. The weak baseline lacks it
+// (scores 0); any surface carrying it scores 1. A real judge would call a model
+// or verifier — here it is a deterministic string check so the loop mechanics
+// are visible offline.
+const COMPLETION_MARKER = 'VERIFY_EVERY_STEP'
+
+const judge: JudgeConfig<DemoArtifact> = {
+  name: 'completion',
+  dimensions: [{ key: 'completion', description: 'surface enforces step verification' }],
+  score: ({ artifact }) => {
+    const ok = artifact.text.includes(COMPLETION_MARKER) ? 1 : 0
+    return { dimensions: { completion: ok }, composite: ok, notes: '' }
+  },
 }
 
-const baseline: MultiShotVariant<Payload> = {
-  id: 'baseline',
-  label: 'baseline',
-  generation: 0,
-  payload: {
-    instruction: 'Complete the user task.',
-    quality: 0.45,
+// Deterministic, LLM-free driver: an evolutionary mutator that appends the
+// completion directive to the current surface. The reflective alternative is
+// `gepaDriver` (LLM-backed, reasons over trace findings) — both conform to the
+// same `ImprovementDriver`, and the loop below is identical regardless.
+const driver = evolutionaryDriver({
+  mutator: {
+    kind: 'append-completion-directive',
+    async mutate({ currentSurface, populationSize }) {
+      const base = String(currentSurface)
+      const child = base.includes(COMPLETION_MARKER) ? base : `${base} ${COMPLETION_MARKER}`
+      return Array.from({ length: populationSize }, () => child)
+    },
   },
-}
+})
 
-const result = await runMultiShotOptimization<Payload>({
-  runId: 'demo-multi-shot',
-  target: 'demo-agent-system-prompt',
-  seedVariants: [baseline],
-  searchScenarioIds: ['search-brief', 'search-code-review', 'search-research'],
-  reps: 1,
-  generations: 2,
-  populationSize: 2,
-  scoreConcurrency: 2,
-  runner: {
-    async run({ variant, scenarioId }) {
-      return {
-        trace: {
-          scenarioId,
-          turns: [
-            { role: 'user', content: `Run ${scenarioId}` },
-            {
-              role: 'assistant',
-              content: `${variant.payload.instruction} quality=${variant.payload.quality}`,
-            },
-          ],
-          output: `quality=${variant.payload.quality}`,
-        },
-        costUsd: 0.01,
-        durationMs: 50,
-      }
-    },
-  },
-  scorer: {
-    async score({ variant }) {
-      return {
-        score: variant.payload.quality,
-        ok: true,
-        asi:
-          variant.payload.quality >= 0.8
-            ? []
-            : [
-                {
-                  expectationId: 'complete-task',
-                  message: 'The agent did not fully complete the task.',
-                  severity: 'error',
-                  responsibleSurface: 'system-prompt',
-                  suggestion: 'Make completion criteria explicit before final response.',
-                },
-              ],
-      }
-    },
-  },
-  mutateAdapter: {
-    async mutate({ parent, bottomTrials, childCount, generation }) {
-      const traces = bottomTrials.map((trial) => trialTraceFromMultiShotTrial(trial))
-      const rationale = traces
-        .flatMap((trace) => (trace.expectations ?? []).map((e) => e.phrase))
-        .join('\n')
-      return Array.from({ length: childCount }, (_, i) => ({
-        id: `${parent.id}.g${generation}.${i}`,
-        label: 'completion-focused',
-        generation,
-        payload: {
-          instruction: `${parent.payload.instruction} Verify every requested step before final answer.`,
-          quality: 0.9,
-        },
-        rationale,
-      }))
-    },
-  },
-  gate: {
-    holdoutScenarioIds: ['holdout-brief', 'holdout-code-review', 'holdout-research'],
-    gate: {
-      baselineKey: 'baseline',
-      minProductiveRuns: 3,
-      pairedDeltaThreshold: 0,
-      seed: 7,
-    },
-    toRunRecord: ({ variant, scenarioId, rep, split, seed, trial }): RunRecord => ({
-      runId: `demo-${variant.id}-${scenarioId}-${rep}-${split}`,
-      experimentId: scenarioId,
-      candidateId: variant.id,
-      seed,
-      model: 'demo-model@2026-01-01',
-      promptHash: 'p'.repeat(64),
-      configHash: 'c'.repeat(64),
-      commitSha: 'deadbeef',
-      wallMs: trial.durationMs ?? 0,
-      costUsd: trial.cost ?? 0,
-      tokenUsage: { input: 1, output: 1 },
-      outcome: {
-        [split === 'holdout' ? 'holdoutScore' : 'searchScore']: trial.score,
-        raw: { score: trial.score },
-      },
-      splitTag: split,
+const runDir = mkdtempSync(join(tmpdir(), 'multi-shot-'))
+try {
+  const result = await runImprovementLoop<Scenario, DemoArtifact>({
+    scenarios: SCENARIOS,
+    holdoutScenarios: HOLDOUT,
+    baselineSurface: 'Complete the user task.',
+    // The worker echoes the surface it was given; the judge keys on the marker.
+    dispatchWithSurface: async (surface) => ({ text: String(surface) }),
+    judges: [judge],
+    driver,
+    populationSize: 1,
+    maxGenerations: 1,
+    promoteTopK: 1,
+    // Ships ONLY on a CI-lower-bound held-out lift over `deltaThreshold`.
+    gate: defaultProductionGate<DemoArtifact, Scenario>({
+      holdoutScenarios: HOLDOUT,
+      deltaThreshold: 0.5,
     }),
-  },
-})
+    autoOnPromote: 'none',
+    runDir,
+    seed: 7,
+  })
 
-console.log({
-  searchBest: result.searchBestVariant.id,
-  promoted: result.promotedVariant.id,
-  gate: result.gate?.decision ?? null,
-})
+  console.log({
+    decision: result.gateResult.decision, // 'ship' — the winner beat baseline on the disjoint holdout
+    delta: result.gateResult.delta, // ~1
+    winnerShipped: String(result.winnerSurface).includes(COMPLETION_MARKER),
+    promotedDiff: result.promotedDiff,
+  })
+} finally {
+  rmSync(runDir, { recursive: true, force: true })
+}

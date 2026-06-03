@@ -27,9 +27,8 @@ The three top-level entry points map to three starting situations — same decis
 - [`benchmarks`](./benchmarks) — public-benchmark wrappers.
 
 **Drivers & optimization** — the improvement engines.
-- [`multi-shot-optimization`](./multi-shot-optimization) — best-of-N optimization.
+- [`multi-shot-optimization`](./multi-shot-optimization) — `runImprovementLoop`: surface optimization with a held-out promotion gate.
 - [`distributed-driver`](./distributed-driver) / [`user-simulation-driver`](./user-simulation-driver) — distributed + simulated-user drivers.
-- [`production-loop`](./production-loop) — the eval → prod → eval cycle.
 - [`marketing-agent-canonical`](./marketing-agent-canonical) / [`auto-research-with-agent-builder`](./auto-research-with-agent-builder) — full product-agent demos.
 
 **RL datasets** — turn graded runs into training data.
