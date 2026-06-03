@@ -91,6 +91,7 @@ export type {
   RegistryRunOpts,
 } from './registry'
 export { AnalystRegistry } from './registry'
+export { assertNoJudgeVerdict, isJudgeVerdict, isTraceObservable } from './steer-firewall'
 export {
   type StructureFindingsOptions,
   type StructureFindingsResult,
