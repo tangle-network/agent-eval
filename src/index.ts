@@ -653,6 +653,17 @@ export {
 // Validator-output primitive. Substrate-level type; agent-runtime's
 // Validator<Output, Verdict> defaults to this. See src/verdict.ts.
 
+// ── UI audit finding ─────────────────────────────────────────────────
+// Substrate primitive for UI auditor outputs. Consumers (agent-runtime's
+// ui-auditor profile, ship gates, dashboards) read findings from here.
+// See src/ui-finding.ts.
+export type {
+  UiFinding,
+  UiFindingScreenshot,
+  UiFindingSeverity,
+  UiLens,
+} from './ui-finding'
+export { UI_FINDING_SEVERITIES, UI_LENSES } from './ui-finding'
 export type { DefaultVerdict } from './verdict'
 
 // ── Trust surface ────────────────────────────────────────────────────
