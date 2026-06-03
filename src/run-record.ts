@@ -317,7 +317,10 @@ export function validateRunRecord(input: unknown): RunRecord {
     const rr = r as Record<string, unknown>
     expectFiniteNumber(rr.score, 'outcome.realness.score')
     if (typeof rr.gated !== 'boolean') {
-      throw new RunRecordValidationError('outcome.realness.gated must be a boolean', 'outcome.realness.gated')
+      throw new RunRecordValidationError(
+        'outcome.realness.gated must be a boolean',
+        'outcome.realness.gated',
+      )
     }
   }
 

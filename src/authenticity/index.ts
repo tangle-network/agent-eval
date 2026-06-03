@@ -241,7 +241,12 @@ export function gateRealness(
   // Opt-in (default off): a vertical where the deliverable MUST be wired into the
   // running system can reject a decorative/dead artifact. Off by default because a
   // contract-only (incomplete-but-real) submission is legitimately partial, not fake.
-  if (opts.requireArtifactWired && r.requiredArtifactPresent && r.usesRealImpl && !r.artifactWired) {
+  if (
+    opts.requireArtifactWired &&
+    r.requiredArtifactPresent &&
+    r.usesRealImpl &&
+    !r.artifactWired
+  ) {
     return { gated: true, reason: 'required artifact present but never wired into the system' }
   }
   if (r.realness < floor)
@@ -354,7 +359,7 @@ export async function judgeRealnessLlm(
   opts: { intent?: string; rubric?: string; prioritize?: RegExp } = {},
 ): Promise<RealnessJudgment> {
   const system =
-    'You are a skeptical auditor. Rate how REAL an agent\'s build is vs the intended ' +
+    "You are a skeptical auditor. Rate how REAL an agent's build is vs the intended " +
     'deliverable, 0-100. A genuine implementation of the HARD part on the intended ' +
     'infrastructure is SUBSTANTIALLY REAL (>=50) even if peripheral layers are stubbed; ' +
     'a pure simulator / facade / branded-type stand-in / no-op-stubbed dependency with ' +
@@ -375,7 +380,10 @@ export async function judgeRealnessLlm(
       rationale: typeof j.why === 'string' ? j.why : '',
     }
   } catch (err) {
-    return { isReal: 0, rationale: `judge error: ${err instanceof Error ? err.message : String(err)}` }
+    return {
+      isReal: 0,
+      rationale: `judge error: ${err instanceof Error ? err.message : String(err)}`,
+    }
   }
 }
 
