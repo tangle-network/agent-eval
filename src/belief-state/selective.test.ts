@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { ValidationError } from '../errors'
 import { evaluateBeliefSelectivePolicy, thresholdSelectivePolicy } from './selective'
 import type { BeliefDecisionPoint } from './types'
 
@@ -51,5 +52,10 @@ describe('belief-state selective policy evaluation', () => {
 
     expect(report.recommendation).toBe('need_more_data')
     expect(report.reasons[0]).toMatch(/need at least/)
+  })
+
+  it('rejects thresholds outside the confidence range', () => {
+    expect(() => thresholdSelectivePolicy({ confidenceThreshold: -0.1 })).toThrow(ValidationError)
+    expect(() => thresholdSelectivePolicy({ confidenceThreshold: 1.1 })).toThrow(ValidationError)
   })
 })

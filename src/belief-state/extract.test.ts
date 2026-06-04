@@ -85,4 +85,35 @@ describe('belief-state extraction', () => {
       },
     ])
   })
+
+  it('preserves malformed propensities for OPE diagnostics instead of clamping', async () => {
+    const store = new InMemoryTraceStore()
+    await store.appendRun({
+      runId: 'run-1',
+      scenarioId: 'scenario-1',
+      startedAt: 1,
+      status: 'completed',
+    })
+    await store.appendEvent({
+      eventId: 'event-1',
+      runId: 'run-1',
+      kind: 'custom',
+      timestamp: 2,
+      payload: {
+        kind: 'belief_decision',
+        decisionKind: 'continue',
+        chosenAction: 'continue',
+        behaviorProb: -0.1,
+        targetProb: 1.2,
+        outcome: { score: 1 },
+      },
+    })
+
+    const report = await extractBeliefDecisionPoints(store)
+
+    expect(report.decisions[0]).toMatchObject({
+      behaviorProb: -0.1,
+      targetProb: 1.2,
+    })
+  })
 })

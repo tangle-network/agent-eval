@@ -1,3 +1,4 @@
+import { ValidationError } from '../errors'
 import { confidenceInterval } from '../statistics'
 import type {
   BeliefDecisionPoint,
@@ -32,6 +33,11 @@ export function thresholdSelectivePolicy(options: {
   belowThresholdAction?: Exclude<BeliefPolicyAction, 'accept'>
 }): BeliefSelectivePolicy {
   const threshold = options.confidenceThreshold
+  if (!Number.isFinite(threshold) || threshold < 0 || threshold > 1) {
+    throw new ValidationError(
+      `thresholdSelectivePolicy: confidenceThreshold must be in [0, 1], got ${threshold}`,
+    )
+  }
   const belowThresholdAction = options.belowThresholdAction ?? 'verify'
   return {
     id: options.id ?? `confidence>=${threshold}`,

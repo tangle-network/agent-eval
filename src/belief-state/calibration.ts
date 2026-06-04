@@ -1,16 +1,22 @@
+import { ValidationError } from '../errors'
 import { calibrationFromPairs } from '../meta-eval/calibration'
-import type { BeliefDecisionPoint } from './types'
+import type { BeliefDecisionPoint, BeliefSelectivePolicy } from './types'
+
+export type BeliefCalibrationRegion = 'all' | 'accepted' | 'rejected'
 
 export interface BeliefCalibrationOptions {
   bins?: number
   minPairs?: number
+  policy?: BeliefSelectivePolicy
+  region?: BeliefCalibrationRegion
 }
 
 export function calibrateBeliefDecisions(
   points: BeliefDecisionPoint[],
   options: BeliefCalibrationOptions = {},
 ) {
-  const pairs = points
+  const filtered = filterCalibrationRegion(points, options)
+  const pairs = filtered
     .filter((point) => typeof point.confidence === 'number' && point.outcome)
     .map((point) => ({
       evalScore: point.confidence!,
@@ -22,6 +28,24 @@ export function calibrateBeliefDecisions(
   return calibrationFromPairs(pairs, 'belief-confidence', 'decision-outcome', {
     bins: options.bins ?? 5,
     range: { lo: 0, hi: 1 },
+  })
+}
+
+function filterCalibrationRegion(
+  points: BeliefDecisionPoint[],
+  options: BeliefCalibrationOptions,
+): BeliefDecisionPoint[] {
+  const region = options.region ?? 'all'
+  if (region === 'all') return points
+  const policy = options.policy
+  if (!policy) {
+    throw new ValidationError(
+      `calibrateBeliefDecisions: policy is required when region is "${region}"`,
+    )
+  }
+  return points.filter((point) => {
+    const accepted = policy.decide(point).action === 'accept'
+    return region === 'accepted' ? accepted : !accepted
   })
 }
 

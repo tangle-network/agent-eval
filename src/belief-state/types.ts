@@ -87,6 +87,12 @@ export interface BeliefSelectivePolicy {
   decide(point: BeliefDecisionPoint): BeliefPolicyDecision
 }
 
+export interface BeliefOpeTargetPolicy {
+  id: string
+  targetProbOf(point: BeliefDecisionPoint): number | null | undefined
+  qHatOf?(point: BeliefDecisionPoint): number | null | undefined
+}
+
 export interface BeliefUtilityOptions {
   successUtility?: number
   failureUtility?: number
@@ -117,6 +123,7 @@ export interface BeliefSelectivePolicyMetrics {
 export interface BeliefOpeSupportDiagnostics {
   supported: boolean
   n: number
+  dropped: number
   effectiveSampleSize: number
   effectiveSampleRatio: number
   maxImportanceWeight: number
@@ -124,16 +131,25 @@ export interface BeliefOpeSupportDiagnostics {
 }
 
 export interface BeliefOpeReport {
+  targetPolicyId: string
   ips: OffPolicyEstimate
   snips: OffPolicyEstimate
   dr: OffPolicyEstimate
   support: BeliefOpeSupportDiagnostics
 }
 
+export type BeliefEvaluationStatus = 'ship' | 'hold' | 'need_more_data'
+export type BeliefCalibrationStatus = 'supported' | 'unsupported'
+export type BeliefOpeStatus = 'supported' | 'unsupported' | 'not_requested'
+
 export interface BeliefPolicyEvaluationReport {
   policyId: string
   n: number
-  status: 'ship' | 'hold' | 'need_more_data'
+  status: BeliefEvaluationStatus
+  selectiveStatus: BeliefEvaluationStatus
+  calibrationStatus: BeliefCalibrationStatus
+  opeStatus: BeliefOpeStatus
+  opeTargetPolicyId?: string
   selective: BeliefSelectivePolicyMetrics
   calibration?: CalibrationReport
   ope?: BeliefOpeReport

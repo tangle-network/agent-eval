@@ -19,8 +19,8 @@ Primary tracker: `docs/research/belief-state-agent-eval-roadmap.md`.
 - [ ] OPE support diagnostics pass before any counterfactual policy claim.
 - [ ] Memory policy evaluation handles poisoning, staleness, and context bloat.
 - [ ] Surface attribution distinguishes causal evidence from correlation.
-- [ ] No public belief-state API ships before replay/calibration proof.
+- [ ] No stable belief-state API ships before replay/calibration proof.
 
 ## Next Action
 
-Build the Phase 0 decision inventory and extraction experiment against existing traces. Pick one decision kind with enough data before adding any public API.
+Build the Phase 0 decision inventory and extraction experiment against existing traces. Pick one decision kind with enough data before promoting any stable public API.

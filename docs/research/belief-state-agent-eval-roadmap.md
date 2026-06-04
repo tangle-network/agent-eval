@@ -3,7 +3,7 @@
 **Status:** Planning and tracking artifact.
 **Created:** 2026-06-04.
 **Owner:** agent-eval research track.
-**Scope:** What belongs in `@tangle-network/agent-eval`, what should stay in runtime/knowledge/graph packages, and what must be proven before belief-state APIs ship.
+**Scope:** What belongs in `@tangle-network/agent-eval`, what should stay in runtime/knowledge/graph packages, and what must be proven before stable belief-state APIs ship.
 
 ## Executive Summary
 
@@ -169,7 +169,7 @@ No runtime dependency is added to `agent-eval`. Runtime emits richer traces and 
 
 ## Minimal Future API Shape
 
-Do not add this public API until Phase 1 gates pass. The likely eventual subpath is `@tangle-network/agent-eval/belief-state`.
+Do not add this stable public API until Phase 1 gates pass. The draft dogfood surface is `@tangle-network/agent-eval/experimental/belief-state`; the likely eventual stable subpath is `@tangle-network/agent-eval/belief-state`.
 
 ```ts
 export interface BeliefEvidenceAtom {
@@ -386,7 +386,7 @@ The first code build should be small and internal:
 3. Add a calibration report using existing `meta-eval/calibration.ts` patterns.
 4. Add a holdout gate that reports honest negative if no utility lift appears.
 
-Do not add a public `belief-state` subpath until the first selective policy clears its completion criteria.
+Do not add a stable public `belief-state` subpath until the first selective policy clears its completion criteria.
 
 ## Exact Integration Map
 
@@ -399,7 +399,7 @@ The most succinct integration is an experimental `src/belief-state/` module that
 | `TraceStore` + `TraceSchema` | Good source of evidence. Runs, spans, and custom events already carry the data needed for decision extraction. | Use existing `custom`, `state_mutation`, and `policy_violation` events. Do not add event kinds until producers prove a missing field. |
 | `RunRecord` | Good analysis join row: run id, candidate, split, seed, model, hashes, cost, outcome. | Do not change it. Belief decision rows should be sidecar records keyed by `runId`, `scenarioId`, and `stepIndex`. |
 | `AnalystFinding` / evidence refs | Good optional semantic evidence layer. | Reference findings by id when present; do not require analysts for deterministic extraction. |
-| `/rl/off-policy` | Already owns IPS/SNIPS/DR estimators and support diagnostics. | Add a converter from decision rows to `OffPolicyTrajectory[]`; do not reimplement OPE math. |
+| `/rl/off-policy` | Already owns IPS/SNIPS/DR estimators and support diagnostics. | Add a converter from decision rows to `OffPolicyTrajectory[]` using an explicit named target policy; do not reimplement OPE math. |
 | `meta-eval/calibration.ts` | Good calibration shape, but store-bound today. | Add a pure `calibrationFromPairs()` helper and reuse it from both meta-eval and belief-state. |
 | `InsightReport` | Correct eventual home for summary rows. | Do not extend in the first internal slice. Add `beliefPolicies?: BeliefPolicyInsight[]` only after one policy clears holdout gates. |
 | `control-runtime.ts` | Useful producer shape for typed decisions. | Optional adapter from `ControlRunResult` to decision rows. Do not make belief-state depend on control loops only. |
@@ -412,9 +412,9 @@ The most succinct integration is an experimental `src/belief-state/` module that
 | `src/belief-state/extract.ts` | Extracts decision points from `TraceStore` runs/spans/events. | Structural parsing only. Unknown events are skipped with diagnostics. |
 | `src/belief-state/selective.ts` | Evaluates continue/verify/ask/retry/stop policies against observed outcomes. | Computes coverage, accepted-error rate, rejected-action lift, cost-adjusted utility. |
 | `src/belief-state/calibration.ts` | Computes confidence calibration for decision predictions. | Calls shared `calibrationFromPairs()` once added. |
-| `src/belief-state/ope.ts` | Converts decision rows into `OffPolicyTrajectory[]` and calls `offPolicyEstimateAll`. | Must report ESS and support mismatch; no silent value claims. |
+| `src/belief-state/ope.ts` | Converts decision rows into `OffPolicyTrajectory[]` for an explicit named target policy and calls `offPolicyEstimateAll`. | Must report ESS and support mismatch; no silent value claims. |
 | `src/belief-state/report.ts` | Orchestrates extraction + selective eval + calibration + OPE into one report. | Returns honest negative / need-more-data when unsupported. |
-| `src/belief-state/index.ts` | Internal barrel for the module. | Keep out of root barrel initially. |
+| `src/belief-state/index.ts` | Experimental barrel for the module. | Keep out of root barrel and expose only through `./experimental/belief-state` while evidence gates are open. |
 
 ### Files to Change First
 
@@ -434,15 +434,20 @@ The most succinct integration is an experimental `src/belief-state/` module that
 | `src/contract/index.ts` | `/contract` is the stable LAND-tier surface. Belief-state should not enter it until proven. |
 | `src/contract/insight-report.ts` | Do not add `beliefPolicies` until the module has one validated report shape. |
 | `src/index.ts` | Root barrel is already broad; do not add experimental research APIs there. |
-| `package.json` exports / `tsup.config.ts` | Defer public `./belief-state` subpath until Phase 1 gates pass. Internal tests can import source paths. |
+| `package.json` exports / `tsup.config.ts` | Defer stable `./belief-state` subpath until Phase 1 gates pass. Experimental dogfooding may use `./experimental/belief-state`. |
 
 ### Public Export Gate
 
-Only after Phase 1 succeeds, add:
+During the draft phase:
 
-- `tsup.config.ts`: entry `'belief-state/index': 'src/belief-state/index.ts'`.
+- `tsup.config.ts`: entry `'belief-state/index': 'src/belief-state/index.ts'` may exist to build the experimental subpath.
+- `package.json`: export `"./experimental/belief-state"` only.
+- Docs and PR bodies must call the surface experimental.
+
+Only after Phase 1 succeeds, promote to stable:
+
 - `package.json`: export `"./belief-state"` to `dist/belief-state/index.js`.
-- `docs/feature-guide.md` or a dedicated docs page: mark the subpath experimental.
+- `docs/feature-guide.md` or a dedicated docs page: document the promotion evidence and remaining caveats.
 - `src/contract/insight-report.ts`: optional `beliefPolicies?: BeliefPolicyInsight[]`, only if the report is stable enough for dashboards.
 
 Do not add to `/contract` until at least one downstream product uses it without source imports and the report shape survives a second corpus.
@@ -529,7 +534,7 @@ Promotion:
 | `src/belief-state/extract.test.ts` | extracts from custom trace events; joins run ids; skips malformed events with diagnostics; never throws on unknown payloads. |
 | `src/belief-state/selective.test.ts` | baseline vs selective utility; always-verify cost penalty; shuffled confidence negative control; honest negative. |
 | `src/belief-state/calibration.test.ts` | ECE bins; equal-width/equal-frequency behavior; too-few-pairs returns unsupported. |
-| `src/belief-state/ope.test.ts` | converts to `OffPolicyTrajectory`; missing propensity disables OPE; low ESS support mismatch; estimator agreement surfaced. |
+| `src/belief-state/ope.test.ts` | converts to `OffPolicyTrajectory`; explicit target policy required; invalid propensity disables OPE without throwing; low ESS support mismatch; estimator agreement surfaced. |
 | `src/belief-state/report.test.ts` | full report status: `ship`, `hold`, `need_more_data`; recommendation cannot ship on OPE alone. |
 | `src/meta-eval/calibration.test.ts` | existing `calibrationCurve()` still works after extracting pure helper. |
 
@@ -538,7 +543,7 @@ Promotion:
 - `pnpm typecheck`
 - `pnpm test -- src/belief-state src/meta-eval/calibration.test.ts`
 - `pnpm build`
-- `pnpm verify:package` only after adding the public `./belief-state` export.
+- `pnpm verify:package`
 
 ### One-Sprint Implementation Order
 

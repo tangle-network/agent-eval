@@ -119,7 +119,7 @@
       "import": "./dist/authenticity/index.js",
       "default": "./dist/authenticity/index.js"
     },
-    "./belief-state": {
+    "./experimental/belief-state": {
       "types": "./dist/belief-state/index.d.ts",
       "import": "./dist/belief-state/index.js",
       "default": "./dist/belief-state/index.js"

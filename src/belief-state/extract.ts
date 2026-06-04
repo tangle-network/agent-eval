@@ -117,8 +117,8 @@ function parseDecisionEvent(
       chosenAction,
       candidateActions: stringArrayField(payload, 'candidateActions'),
       confidence: finiteUnitField(payload, 'confidence'),
-      behaviorProb: finiteProbabilityField(payload, 'behaviorProb'),
-      targetProb: finiteProbabilityField(payload, 'targetProb'),
+      behaviorProb: numberField(payload, 'behaviorProb'),
+      targetProb: numberField(payload, 'targetProb'),
       qHat: finiteUnitField(payload, 'qHat'),
       costUsd: nonNegativeNumberField(payload, 'costUsd'),
       evidence,
@@ -152,11 +152,6 @@ function numberField(obj: Record<string, unknown>, key: string): number | undefi
 }
 
 function finiteUnitField(obj: Record<string, unknown>, key: string): number | undefined {
-  const value = numberField(obj, key)
-  return value === undefined ? undefined : Math.max(0, Math.min(1, value))
-}
-
-function finiteProbabilityField(obj: Record<string, unknown>, key: string): number | undefined {
   const value = numberField(obj, key)
   return value === undefined ? undefined : Math.max(0, Math.min(1, value))
 }
