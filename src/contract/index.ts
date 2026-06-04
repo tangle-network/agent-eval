@@ -202,6 +202,18 @@ export type {
   ScalarDistribution,
 } from './insight-report'
 
+// ── Run-to-run diff (compare two eval runs, or a run's baseline→winner) ──
+
+export {
+  diffGenerations,
+  diffRunBaselineToWinner,
+  diffRuns,
+  type EvalCellScoreDelta,
+  type EvalDimensionDelta,
+  type EvalGenerationDiff,
+  type EvalRunDiff,
+} from './diff'
+
 // ── Intake: external data sources → RunRecord[] for analyzeRuns() ────
 // Adapters that meet customers where their data already lives. Pipe the
 // output straight into `analyzeRuns({ runs })`.

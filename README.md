@@ -1,6 +1,8 @@
 # `@tangle-network/agent-eval`
 
-**Ship better agent prompts with statistical confidence.** One function call returns a decision packet: lift CI, judge calibration, contamination check, failure clusters, cost-quality Pareto, and a ranked action list. Same shape whether you've got a closed improvement loop or just production logs.
+**Decision-grade evals for agents.** One function call returns a decision packet — lift CI, judge calibration, contamination check, failure clusters, cost-quality Pareto, and a ranked action list — with the same shape whether you have a closed improvement loop or just production logs.
+
+It is the **substrate at the bottom of the stack**: [`@tangle-network/agent-runtime`](https://www.npmjs.com/package/@tangle-network/agent-runtime) runs agents and captures every run as a trace, then delegates scoring and the ship gate here. The dependency arrow only points up — agent-eval never imports the runtime.
 
 [![npm](https://img.shields.io/npm/v/@tangle-network/agent-eval.svg)](https://www.npmjs.com/package/@tangle-network/agent-eval)
 [![pypi](https://img.shields.io/pypi/v/agent-eval-rpc.svg)](https://pypi.org/project/agent-eval-rpc/)
@@ -207,28 +209,55 @@ Each example: `README.md` + a single `index.ts` runnable via `pnpm tsx`. Prints 
 
 | Subpath | What it gives you |
 |---|---|
-| `@tangle-network/agent-eval/contract` | **The headline surface.** `selfImprove`, `analyzeRuns`, `runImprovementLoop`, `runCampaign`, `runEval`, `diffRuns`, intake adapters (`fromFeedbackTable`, `fromOtelSpans`), drivers (`gepaDriver`, `evolutionaryDriver`), gates (`defaultProductionGate`, `heldOutGate`, `composeGate`), storage. **New code starts here.** |
-| `@tangle-network/agent-eval/hosted` | Hosted-tier wire-format types + `createHostedClient` to ship eval-run events + trace spans to any orchestrator speaking the spec |
-| `@tangle-network/agent-eval/adapters/otel` | `createOtelBridge` — forwards OpenTelemetry-shape spans into the hosted-tier ingest |
-| `@tangle-network/agent-eval/adapters/langchain` | LangChain runnable → `Dispatch` adapter |
-| `@tangle-network/agent-eval/adapters/http` | `httpDispatch` + `runDispatchServer` for distributed campaigns across machines |
-| `@tangle-network/agent-eval/campaign` | Lower-level campaign primitives (storage, drivers, types) |
-| `@tangle-network/agent-eval/multishot` | N-shot persona × shot matrix runner |
-| `@tangle-network/agent-eval/control` | Agent control loop primitives (`runAgentControlLoop`, action policy, propose/review) |
-| `@tangle-network/agent-eval/traces` | Trace stores, emitters, OTLP-JSONL replay |
-| `@tangle-network/agent-eval/reporting` | Release confidence, paired stats, sequential e-values, launch reports |
-| `@tangle-network/agent-eval/rl` | RL bridge — verifiable rewards, preferences, OPE, PRM, tournaments, contamination, compute curves, auto-research |
-| `@tangle-network/agent-eval/matrix` | N-axis cartesian over substrate types |
-| `@tangle-network/agent-eval/wire` | HTTP/RPC server + Zod schemas (same protocol the Python client speaks) |
-| `@tangle-network/agent-eval/benchmarks` | Benchmark adapter contracts and reference wrappers |
+| `…/contract` | **The headline, frozen surface — new code starts here.** `selfImprove`, `analyzeRuns`, `runEval`, `runCampaign`, `runImprovementLoop`, `diffRuns`; intake adapters (`fromFeedbackTable`, `fromOtelSpans`); drivers (`gepaDriver`, `evolutionaryDriver`); gates (`defaultProductionGate`, `heldOutGate`, `paretoSignificanceGate`, `composeGate`); the deployment-outcome store; storage; and the five core types `Scenario` / `Dispatch` / `JudgeConfig` / `Mutator` / `Gate`. |
+| `…/hosted` | `createHostedClient` / `hostedClientFromEnv` + the wire types to ship eval-run events + trace spans to a hosted orchestrator (ours or your own implementation of the spec) |
+| `…/adapters/otel` | `createOtelBridge` — forwards OpenTelemetry-shape spans into the hosted-tier ingest, no `@opentelemetry/*` dependency |
+| `…/adapters/langchain` | Wrap any LangChain `Runnable` as a `Dispatch` (or `JudgeConfig`), no `@langchain/core` peer dep |
+| `…/adapters/http` | `httpDispatch` + `runDispatchServer` — run a campaign's worker on another machine (multi-region, driver-as-a-service) |
+| `…/campaign` | **The measurement + improvement engine** (`@experimental`): `runProfileMatrix`, `compareDrivers`, every driver (`gepaDriver`, `haloDriver`, `skillOptDriver`, `aceDriver`, `memoryCurationDriver`, …), the gates, storage backends, and loop provenance. `/contract` re-exports the stable subset. |
+| `…/rl` | RL bridge from eval artifacts to training signal: verifiable rewards, preferences, OPE, PRM, tournaments, contamination, compute curves, plus the durable corpus + `buildRlDataset` / datasheet bundle |
+| `…/reporting` | Release-decision statistics: `pairedBootstrap`, `benjaminiHochberg`, anytime-valid sequential e-values, `evaluateReleaseConfidence`, and the report renderers |
+| `…/analyst` | The trace-analyst surface: `AnalystRegistry` + `buildDefaultAnalystRegistry` (run the failure-clustering panel), `FindingsStore`, and the LLM chat transports |
+| `…/traces` | Trace stores + emitters, OTLP-JSONL deterministic replay, `analyzeTraces`, and the `traceAnalystOnRunComplete` hook |
+| `…/control` | Agent control loop: `runAgentControlLoop` (observe → validate → decide → act), action policy, propose/review |
+| `…/matrix` | `runAgentMatrix` — an N-axis cartesian over caller-supplied substrate values, per-axis pass/score/cost/duration |
+| `…/multishot` | N-shot persona × shot matrix runner (`runMultishot` / `runMultishotMatrix`) |
+| `…/wire` | The cross-language HTTP/RPC server + Zod schemas (the source-of-truth protocol the Python client speaks) + the built-in rubric registry |
+| `…/benchmarks` | `BenchmarkAdapter` contract + `deterministicSplit` + the bundled `routing` reference benchmark |
 
-The root export remains available for backward compatibility; new code should prefer focused subpaths. Anything under `/rl`, `/pipelines`, `/meta-eval`, `/prm`, or `/builder-eval` is **only** reachable via its subpath.
+**Specialized surfaces** (subpath-only): `…/prm` (process-reward grading + best-of-N), `…/meta-eval` (judge calibration + the deployment-outcome store), `…/pipelines` (trace-diagnostic views: budget breach, failure cluster, stuck loop, …), `…/governance` (EU AI Act / NIST AI RMF / SOC2 reports), `…/knowledge` (knowledge-readiness gating before a run), `…/builder-eval` (code-generator three-layer eval), `…/storyboard` (trace → watchable replay), `…/authenticity` (anti-Goodhart "real or convincing BS" scorer over produced files), `…/workflow` (workflow-trace eval + partner export), `…/telemetry` (Workers-safe telemetry client).
+
+The root export remains available for backward compatibility; new code should prefer the focused subpaths above — `/contract` first.
+
+---
+
+## Composition with the stack
+
+agent-eval is the bottom of the layering: consumers depend on it, it depends on none of them.
+
+```
+agent-runtime    Runs agents (chat turns, one-shot tasks, multi-attempt loops), captures every
+                 run as a trace, and calls optimizePrompt / runImprovementLoop. Produces the
+                 RunRecords + traces agent-eval scores. Depends on agent-eval.
+
+agent-eval       selfImprove, analyzeRuns, runCampaign + drivers (gepaDriver, …), the gates
+   (this repo)   (heldOutGate, defaultProductionGate, paretoSignificanceGate), the InsightReport
+                 decision packet, the RL bridge, the wire protocol. Depends on neither consumer.
+
+agent-knowledge  proposeKnowledgeWrites / applyKnowledgeWriteBlocks. agent-eval's analyst findings
+                 feed it; the knowledge gate consumes them. Depends on agent-eval.
+
+sandbox          AgentProfile, Sandbox.create, streamPrompt. The execution surface the runtime's
+                 loops run on; agent-eval scores what comes back.
+```
+
+The rule: **agent-eval has zero upward dependencies on a consumer.** A concept that makes sense *without* a running agent loop — a verdict, a run record, a scenario, a judge score — is substrate and lives here; a runtime-shaped one (a sandbox profile, a validation context with an abort signal) lives in agent-runtime. When in doubt, lean substrate.
 
 ---
 
 ## Concepts + design
 
-- [`docs/concepts.md`](./docs/concepts.md) — five types, three top-level functions, the layering rule, the wire protocol contract
+- [`docs/concepts.md`](./docs/concepts.md) — the three top-level functions, the layering rule, and the wire-protocol contract (the five core contract types are documented in the `/contract` barrel itself)
 - [`docs/insight-report.md`](./docs/insight-report.md) — annotated walkthrough of every section of the decision packet
 - [`docs/customer-journeys.md`](./docs/customer-journeys.md) — three end-to-end journeys with code + expected output
 - [`docs/adapters-observability.md`](./docs/adapters-observability.md) — composing agent-eval with LangSmith, Langfuse, Phoenix, OpenLLMetry, TraceAI
@@ -287,7 +316,9 @@ pnpm test
 
 ## Stability + versioning
 
-Public exports carry JSDoc stability markers visible in IDE hover + `.d.ts`:
+The `/contract` surface is the **stability contract**: its barrel freezes the API — a `0.x` minor only *adds*; nothing there changes shape or disappears. Depend on `/contract` (and the documented subpaths) rather than the root barrel.
+
+In the deeper subpaths, `@stable` / `@experimental` JSDoc markers (visible in IDE hover + `.d.ts`) call out what may still move — most granularly in `/rl` (tagged per export) and `/campaign` (whole barrel `@experimental`, since `/contract` re-exports only its settled subset).
 
 | Tag | Meaning |
 |---|---|
