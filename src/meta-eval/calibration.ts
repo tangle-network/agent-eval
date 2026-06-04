@@ -41,6 +41,11 @@ export interface CalibrationOptions {
   range?: { lo: number; hi: number }
 }
 
+export interface CalibrationPair {
+  evalScore: number
+  outcome: number
+}
+
 export async function calibrationCurve(
   traceStore: TraceStore,
   outcomeStore: OutcomeStore,
@@ -71,15 +76,34 @@ export async function calibrationCurve(
   }
   if (pairs.length < 2) return null
 
+  return calibrationFromPairs(
+    pairs.map((p) => ({ evalScore: p.x, outcome: p.y })),
+    evalMetric.id,
+    outcomeMetric,
+    options,
+  )
+}
+
+export function calibrationFromPairs(
+  inputPairs: CalibrationPair[],
+  evalMetric: string,
+  outcomeMetric: string,
+  options: CalibrationOptions = {},
+): CalibrationReport | null {
+  const pairs = inputPairs.filter(
+    (pair) => Number.isFinite(pair.evalScore) && Number.isFinite(pair.outcome),
+  )
+  if (pairs.length < 2) return null
+
   const numBins = options.bins ?? 10
   const binning = options.binning ?? 'equal-width'
-  const xs = pairs.map((p) => p.x)
+  const xs = pairs.map((p) => p.evalScore)
   const lo = options.range?.lo ?? Math.min(...xs)
   const hi = options.range?.hi ?? Math.max(...xs)
 
   const bins: CalibrationBin[] = []
   if (binning === 'equal-frequency') {
-    const sorted = [...pairs].sort((a, b) => a.x - b.x)
+    const sorted = [...pairs].sort((a, b) => a.evalScore - b.evalScore)
     const perBin = Math.max(1, Math.floor(sorted.length / numBins))
     for (let i = 0; i < sorted.length; i += perBin) {
       const chunk = sorted.slice(i, i + perBin)
@@ -92,7 +116,7 @@ export async function calibrationCurve(
     for (let i = 0; i < numBins; i++) {
       const binLo = lo + i * width
       const binHi = i === numBins - 1 ? hi + 1e-9 : lo + (i + 1) * width
-      const chunk = pairs.filter((p) => p.x >= binLo && p.x < binHi)
+      const chunk = pairs.filter((p) => p.evalScore >= binLo && p.evalScore < binHi)
       if (chunk.length === 0) continue
       bins.push(toBin(chunk, binLo, binHi))
     }
@@ -102,16 +126,12 @@ export async function calibrationCurve(
   const ece = bins.reduce((a, b) => a + (b.n / total) * b.gap, 0)
   const maxGap = bins.reduce((a, b) => Math.max(a, b.gap), 0)
 
-  return { evalMetric: evalMetric.id, outcomeMetric, n: pairs.length, bins, ece, maxGap }
+  return { evalMetric, outcomeMetric, n: pairs.length, bins, ece, maxGap }
 }
 
-function toBin(
-  chunk: Array<{ x: number; y: number }>,
-  lower?: number,
-  upper?: number,
-): CalibrationBin {
-  const xs = chunk.map((c) => c.x)
-  const ys = chunk.map((c) => c.y)
+function toBin(chunk: CalibrationPair[], lower?: number, upper?: number): CalibrationBin {
+  const xs = chunk.map((c) => c.evalScore)
+  const ys = chunk.map((c) => c.outcome)
   const evalMean = mean(xs)
   const outcomeMean = mean(ys)
   return {

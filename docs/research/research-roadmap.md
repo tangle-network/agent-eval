@@ -123,6 +123,7 @@ Each is a falsifiable claim or unanswered formal question. Each maps to publisha
 - `docs/research/<thesis>/notes.md` — running research log, hypothesis, current status.
 - `docs/research/<thesis>/experiments.md` — every run + numbers + analysis.
 - `docs/research/<thesis>/paper-draft.md` — building toward arXiv submission.
+- `docs/research/belief-state-agent-eval-roadmap.md` — belief-state / adaptive-control research tracker and 24-month gate plan.
 - `.evolve/research/<thesis>/` — code + data + figures, version-controlled.
 
 **Quality bar.**
