@@ -119,6 +119,11 @@
       "import": "./dist/authenticity/index.js",
       "default": "./dist/authenticity/index.js"
     },
+    "./experimental/belief-state": {
+      "types": "./dist/belief-state/index.d.ts",
+      "import": "./dist/belief-state/index.js",
+      "default": "./dist/belief-state/index.js"
+    },
     "./workflow": {
       "types": "./dist/workflow/index.d.ts",
       "import": "./dist/workflow/index.js",
