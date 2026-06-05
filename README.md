@@ -1,199 +1,106 @@
 # `@tangle-network/agent-eval`
 
-**Decision-grade evals for agents.** One function call returns a decision packet — lift CI, judge calibration, contamination check, failure clusters, cost-quality Pareto, and a ranked action list — with the same shape whether you have a closed improvement loop or just production logs.
+Evaluate and improve AI agents from the runs they already produce.
 
-It is the **substrate at the bottom of the stack**: [`@tangle-network/agent-runtime`](https://www.npmjs.com/package/@tangle-network/agent-runtime) runs agents and captures every run as a trace, then delegates scoring and the ship gate here. The dependency arrow only points up — agent-eval never imports the runtime.
+`agent-eval` turns agent outputs, traces, judge scores, and production feedback into a decision packet: did this change help, what failed, what should ship, and what needs more data?
 
 [![npm](https://img.shields.io/npm/v/@tangle-network/agent-eval.svg)](https://www.npmjs.com/package/@tangle-network/agent-eval)
 [![pypi](https://img.shields.io/pypi/v/agent-eval-rpc.svg)](https://pypi.org/project/agent-eval-rpc/)
 [![tests](https://github.com/tangle-network/agent-eval/actions/workflows/ci.yml/badge.svg)](https://github.com/tangle-network/agent-eval/actions/workflows/ci.yml)
 [![license: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](./LICENSE)
 
-> TypeScript first-class, Python (`agent-eval-rpc`) speaks the same wire protocol, hosted-tier-friendly, MIT, self-hostable, no SaaS dependency.
+Use it when you need to:
+
+- compare a candidate agent/prompt/model against a baseline,
+- turn production traces or human feedback into eval results,
+- run a gated self-improvement loop,
+- explain failures by cluster, cost, judge disagreement, and release risk.
+
+It is a library, not a SaaS requirement. TypeScript is first-class; Python can call the same wire protocol through `agent-eval-rpc`.
 
 ---
 
-## Table of contents
+## Install
 
-- [What you get back](#what-you-get-back-the-decision-packet)
-- [Quick start](#quick-start)
-  - [Closed loop — `selfImprove()`](#closed-loop--selfimprove)
-  - [Observed runs — `analyzeRuns()`](#observed-runs--analyzeruns)
-  - [Existing data — intake adapters](#existing-data--intake-adapters)
-- [How it compares](#how-it-compares)
-- [Customer journeys](#customer-journeys)
-- [Subpath entry points](#subpath-entry-points)
-- [Concepts + design](#concepts--design)
-- [Hosted tier](#hosted-tier)
-- [Install + run](#install--run)
-- [Stability + versioning](#stability--versioning)
-- [License](#license)
-
----
-
-## What you get back: the decision packet
-
-Whether you call `selfImprove()` (closed loop) or `analyzeRuns()` (observed runs), the report has the same shape. Here's a real one, abridged:
-
-```jsonc
-{
-  "n": 80,                                            // runs analyzed
-  "composite": {                                       // distributional summary
-    "mean": 0.62, "p50": 0.65, "p95": 0.88, "stddev": 0.17,
-    "histogram": [/* 12 bins */]
-  },
-  "lift": {                                            // paired bootstrap
-    "baselineMean": 0.58, "candidateMean": 0.65,
-    "delta": 0.07,
-    "ci95": [0.04, 0.10],                              // 95% CI on the delta
-    "pValue": 0.0008,                                  // paired-t
-    "cohensD": 0.41,
-    "n": 40,
-    "mde": 0.06,                                       // min detectable effect at 80% power
-    "requiredN": 38                                    // n needed to detect observed delta
-  },
-  "judges": {                                          // per-judge calibration
-    "domain-expert": { "n": 80, "meanScore": 0.64 },
-    "helpfulness-llm": { "n": 80, "meanScore": 0.61 }
-  },
-  "interRater": {                                      // multi-rater agreement
-    "raters": 3, "jointlyRated": 80, "kappa": 0.71,
-    "disagreementCases": [/* top 20 ranked by spread */]
-  },
-  "costQuality": {                                     // cost-vs-quality
-    "cost": { "mean": 0.024, "p95": 0.041, /* ... */ },
-    "pareto": { /* ParetoFigureSpec the dashboard renders */ }
-  },
-  "failureClusters": {                                 // when an AnalystRegistry is wired
-    "totalFailures": 11,
-    "clusters": [
-      { "name": "off-topic-drift",  "share": 0.45, "exemplars": ["run-12", "run-19"] },
-      { "name": "over-confidence",  "share": 0.27, "exemplars": ["run-3"] },
-      { "name": "format-mismatch",  "share": 0.18, "exemplars": ["run-41"] }
-    ]
-  },
-  "contamination": { "leaks": 0, "holdoutAuditPassed": true },
-  "outcomeCorrelation": {                              // when downstream metric supplied
-    "metric": "engagement_rate", "n": 80,
-    "pearson": 0.72, "spearman": 0.69,
-    "rewardModel": { "intercept": 0.04, "slope": 1.93, "r2": 0.52 }
-  },
-  "release": {
-    "status": "pass",
-    "axes": [
-      { "name": "quality-lift",          "status": "pass" },
-      { "name": "contamination",         "status": "pass" },
-      { "name": "composite-distribution","status": "pass" }
-    ]
-  },
-  "recommendations": [
-    { "priority": "critical", "kind": "ship",
-      "title": "Ship — lift 0.070 (95% CI 0.040..0.100)",
-      "detail": "Holdout lift exceeds threshold 0.02 with 95% bootstrap confidence (n=40, p=0.0008, d=0.41)." },
-    { "priority": "high", "kind": "investigate",
-      "title": "Top failure cluster: off-topic-drift (45% of failures)",
-      "detail": "11 runs failed. Drill into exemplars run-12 / run-19 to identify the pattern." }
-  ]
-}
+```sh
+pnpm add @tangle-network/agent-eval
 ```
 
-The `recommendations` array is the human-readable layer; everything above it is the evidence. Read the recs, act on them, the numbers are the proof.
+Python clients can use the RPC package:
+
+```sh
+pip install agent-eval-rpc
+```
 
 ---
 
 ## Quick start
 
-### Closed loop — `selfImprove()`
+### 1. Analyze runs you already have
 
-You have scenarios, a dispatch, judges, and want the loop to propose better prompts + tell you which to ship.
-
-```ts
-import { selfImprove } from '@tangle-network/agent-eval/contract'
-
-const result = await selfImprove({
-  scenarios,                                // your scenario corpus
-  dispatch: async ({ scenario }) =>          // your agent — anything that returns an artifact
-    await myAgent.run(scenario),
-  judges: [myJudge],                         // any JudgeConfig — LLM, rule, ensemble
-  baselineSurface: { systemPrompt: currentPrompt },
-})
-
-result.gateDecision         // 'ship' | 'hold' | 'need_more_work' | ...
-result.lift                 // raw delta on holdout
-result.insight              // the full decision packet above
-```
-
-### Observed runs — `analyzeRuns()`
-
-You don't have a closed loop yet — you have observed runs (production traces, an approve/reject corpus, a CSV gold set). Same report shape, no agent invocation.
+Start here if you already have production logs, benchmark rows, human ratings, or agent run records.
 
 ```ts
 import { analyzeRuns } from '@tangle-network/agent-eval/contract'
 
 const report = await analyzeRuns({
-  runs,                                     // RunRecord[]
-  outcomeSignal: {                          // optional — closes the loop on real outcomes
-    metric: 'engagement_rate',
-    valueByRunId: enrichedFromProd,
-  },
-  canaryScenarios,                          // optional — contamination probe
-  analyst: myAnalystRegistry,               // optional — AI-powered failure clustering
+  runs, // RunRecord[]
+  baselineRuns,
 })
 
-report.recommendations    // ranked actions
-report.failureClusters    // grouped failure modes
-report.outcomeCorrelation // judge↔outcome correlation + linear reward model
+console.log(report.recommendations)
+console.log(report.lift)
+console.log(report.failureClusters)
 ```
 
-### Existing data — intake adapters
+The output includes score distributions, lift confidence intervals, failure modes, cost-quality tradeoffs, judge agreement, contamination checks, and release recommendations when the input supports them.
 
-You have data already. Don't reshape it — pipe it through an adapter.
+### 2. Run a gated improvement loop
+
+Use this when you have scenarios, a runnable agent, and judges.
 
 ```ts
-import {
-  fromFeedbackTable,
-  fromOtelSpans,
-  analyzeRuns,
-} from '@tangle-network/agent-eval/contract'
+import { selfImprove } from '@tangle-network/agent-eval/contract'
 
-// Multi-rater approve/reject (Obsidian tags, Sheets, CSV, Postgres).
-const { runs, raterScores } = fromFeedbackTable({
-  ratings: parseYourFeedbackTable(),         // Array<{ runId, rater, rating }>
+const result = await selfImprove({
+  scenarios,
+  dispatch: async ({ scenario }) => myAgent.run(scenario),
+  judges: [myJudge],
+  baselineSurface: { systemPrompt: currentPrompt },
 })
-await analyzeRuns({ runs, raterScores })
 
-// Production OTel traces — group by tangle.runId or traceId.
-const runs2 = fromOtelSpans({ spans: yourOtelStream })
-await analyzeRuns({ runs: runs2 })
+console.log(result.gateDecision)
+console.log(result.winnerSurface)
+console.log(result.insight.recommendations)
 ```
 
-Both intake adapters preserve every signal in the source — multi-rater scores stay rater-keyed so the report can compute inter-rater agreement and surface the disagreement triage list.
+`selfImprove()` evaluates candidates on held-out scenarios before recommending a winner.
+
+### 3. Adapt existing data
+
+```ts
+import { analyzeRuns, fromFeedbackTable, fromOtelSpans } from '@tangle-network/agent-eval/contract'
+
+const { runs, raterScores } = fromFeedbackTable({
+  ratings: parseYourFeedbackTable(),
+})
+
+const traceRuns = fromOtelSpans({ spans: yourOtelSpans })
+
+await analyzeRuns({ runs: [...runs, ...traceRuns], raterScores })
+```
 
 ---
 
-## How it compares
+## Core concepts
 
-| | LangSmith | Braintrust | Phoenix | **agent-eval** |
-|---|:---:|:---:|:---:|:---:|
-| Closed-loop self-improvement | ✱ human-in-loop | ✱ experiment-driven | — | ✓ autonomous + gated |
-| Statistical lift CI (paired bootstrap) | — | partial | — | ✓ |
-| Judge calibration + bias detection | — | — | — | ✓ |
-| Inter-rater agreement + disagreement triage | — | — | — | ✓ |
-| Contamination / canary check | — | — | — | ✓ |
-| AI-driven failure clustering | partial | — | partial | ✓ |
-| Cost-quality Pareto | — | — | — | ✓ |
-| Multi-language clients (TS + Python) | TS only | TS only | TS + Py | ✓ TS + Py |
-| Self-hostable / no-SaaS option | — | — | OSS | ✓ MIT, OSS |
-| Substrate vs SaaS shape | SaaS | SaaS | OSS server | **library** |
-| Hosted tier (optional) | required | required | optional | optional |
+- **RunRecord**: the durable row for one agent run: model, prompt/config hashes, split, cost, tokens, outcome.
+- **Scenario**: one task or case the agent attempts.
+- **Judge**: a scoring function, rule-based or model-based.
+- **InsightReport**: the decision packet returned by `analyzeRuns()` and embedded in `selfImprove()`.
+- **Gate**: the policy that decides `ship`, `hold`, or `need_more_data`.
 
-Position: agent-eval is the **substrate** (one library, decision-grade output) the others are SaaS *around* the substrate. If you want a closed loop that ships your prompt under statistical confidence, you call agent-eval. If you want a dashboard rendered from your data, you pipe agent-eval into the hosted tier or your own renderer.
-
----
-
-## Customer journeys
-
-Three runnable examples — each is self-contained, each shows the actual output.
+## Examples
 
 | Journey | Example | Who it's for |
 |---|---|---|
@@ -288,13 +195,7 @@ The substrate runs the loop in your process. Only the eval-run events + (optiona
 
 ---
 
-## Install + run
-
-```sh
-pnpm add @tangle-network/agent-eval
-# or, from Python:
-pip install agent-eval-rpc
-```
+## Development
 
 Run an example:
 
