@@ -7,7 +7,7 @@
   "activePursuit": ".evolve/pursuits/2026-06-04-belief-state-agent-eval.md",
   "metricClaims": {
     "phase_0_infrastructure": "implemented for local code-agent traces; synthetic tests cover Codex, Claude Code, OpenCode, Kimi Code, and Pi/PiGraph-shaped inputs.",
-    "research_packet": "BeliefDecisionResearchEvidencePacket separates corpus support, selective-policy evidence, calibration evidence, OPE support, and paper-readiness so claims cannot be silently overpromoted.",
+    "research_packet": "BeliefDecisionResearchEvidencePacket separates selective claim support from counterfactual claim support; OPE is required only for counterfactual claims.",
     "local_smoke": "33 local sessions joined to 33 RunRecords and emitted 13137 decision rows across Codex, Claude Code, Kimi Code, OpenCode, and PiGraph-shaped traces.",
     "empirical_gate": "not yet cleared; still requires split metadata, integrity checks, retrospective labels, and baseline policy rows.",
     "counterfactual_claims": "blocked when OPE support is missing; no behavior or target propensities are invented."
