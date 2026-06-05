@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   createBeliefRuntimeHookCollector,
   type RuntimeBeliefDecisionPoint,
+  type RuntimeBeliefHookEvent,
   runtimeDecisionPointToBeliefDecisionPoint,
   runtimeDecisionPointToBeliefShadowProbeInput,
 } from './runtime-hooks'
@@ -111,6 +112,81 @@ describe('belief runtime hooks bridge', () => {
     expect(collector.decisions).toEqual([])
   })
 
+  it('attaches matching lifecycle hook events as evidence without creating decisions', async () => {
+    const collector = createBeliefRuntimeHookCollector({
+      probeId: 'runtime-shadow',
+      includeEvidenceDetail: true,
+    })
+    await collector.hooks.onEvent?.(runtimeHookEvent(), {})
+    await collector.hooks.onDecisionPoint?.(runtimeDecisionPoint(), {})
+
+    expect(collector.decisions).toHaveLength(1)
+    expect(collector.events).toHaveLength(1)
+
+    const report = collector.toShadowProbeInputs()
+    expect(report.diagnostics).toEqual([])
+    expect(report.inputs).toHaveLength(1)
+    expect(report.inputs[0]?.evidence).toContainEqual({
+      id: 'run-1:agent.plan:0:after',
+      source: 'runtime_event',
+      detail: 'agent.plan:after',
+      quality: 'direct',
+    })
+    expect(report.inputs[0]?.metadata).toMatchObject({
+      lifecycleEventCount: 1,
+      lifecycleEventIds: ['run-1:agent.plan:0:after'],
+    })
+
+    collector.clear()
+    expect(collector.decisions).toEqual([])
+    expect(collector.events).toEqual([])
+  })
+
+  it('keeps unrelated lifecycle hook events out of probe evidence', () => {
+    const report = runtimeDecisionPointToBeliefShadowProbeInput(runtimeDecisionPoint(), {
+      probeId: 'runtime-shadow',
+      lifecycleEvents: [
+        runtimeHookEvent({ runId: 'other-run' }),
+        runtimeHookEvent({
+          id: 'run-1:agent.plan:1:after',
+          stepIndex: 1,
+        }),
+      ],
+    })
+
+    expect(report.diagnostics).toEqual([])
+    expect(report.input?.evidence.map((ref) => ref.id)).toEqual(['call-1', 'result-1'])
+    expect(report.input?.metadata).not.toHaveProperty('lifecycleEventCount')
+  })
+
+  it('maps lifecycle hook events to full belief evidence when observed action is supplied', () => {
+    const converted = runtimeDecisionPointToBeliefDecisionPoint(runtimeDecisionPoint(), {
+      chosenAction: 'verify',
+      lifecycleEvents: [runtimeHookEvent()],
+    })
+
+    expect(converted.diagnostics).toEqual([])
+    expect(converted.point?.evidence.at(-1)).toMatchObject({
+      source: 'event',
+      id: 'run-1:agent.plan:0:after',
+      runId: 'run-1',
+      detail: 'agent.plan:after',
+      quality: 'direct',
+      metadata: {
+        runtimeSource: 'runtime_event',
+        target: 'agent.plan',
+        phase: 'after',
+        stepIndex: 0,
+        producer: 'run-loop',
+        payloadPreview: '{"moveKind":"verify"}',
+      },
+    })
+    expect(converted.point?.metadata).toMatchObject({
+      lifecycleEventCount: 1,
+      lifecycleEventIds: ['run-1:agent.plan:0:after'],
+    })
+  })
+
   it('diagnoses unsupported runtime decision kinds unless an explicit belief kind is supplied', () => {
     const unsupported = runtimeDecisionPoint({ kind: 'driver-specific' })
     const missingOverride = runtimeDecisionPointToBeliefShadowProbeInput(unsupported, {
@@ -163,6 +239,21 @@ function runtimeDecisionPoint(
       target: 'failure-recovery',
       source: 'agent.turn',
     },
+    ...overrides,
+  }
+}
+
+function runtimeHookEvent(overrides: Partial<RuntimeBeliefHookEvent> = {}): RuntimeBeliefHookEvent {
+  return {
+    id: 'run-1:agent.plan:0:after',
+    runId: 'run-1',
+    scenarioId: 'scenario-1',
+    target: 'agent.plan',
+    phase: 'after',
+    timestamp: 1_788_538_000_000,
+    stepIndex: 0,
+    payload: { moveKind: 'verify' },
+    metadata: { producer: 'run-loop' },
     ...overrides,
   }
 }

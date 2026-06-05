@@ -28,11 +28,28 @@ export interface RuntimeBeliefDecisionPoint {
   metadata?: Record<string, unknown>
 }
 
+export interface RuntimeBeliefHookEvent {
+  id: string
+  runId: string
+  scenarioId?: string
+  target: string
+  phase: string
+  timestamp: number
+  stepIndex?: number
+  parentId?: string
+  payload?: unknown
+  metadata?: Record<string, unknown>
+}
+
 export interface RuntimeBeliefHookContext {
   signal?: AbortSignal
 }
 
 export interface RuntimeBeliefHooks {
+  onEvent?: (
+    event: RuntimeBeliefHookEvent,
+    context: RuntimeBeliefHookContext,
+  ) => void | Promise<void>
   onDecisionPoint?: (
     point: RuntimeBeliefDecisionPoint,
     context: RuntimeBeliefHookContext,
@@ -49,6 +66,8 @@ export interface RuntimeBeliefShadowProbeInputOptions {
   probeId: string
   decisionKind?: BeliefDecisionKind
   includeEvidenceDetail?: boolean
+  includeLifecycleEvidence?: boolean
+  lifecycleEvents?: RuntimeBeliefHookEvent[]
   maxContextChars?: number
 }
 
@@ -62,6 +81,8 @@ export interface RuntimeBeliefDecisionPointOptions {
   costUsd?: number
   outcome?: BeliefDecisionOutcome
   metadata?: Record<string, unknown>
+  includeLifecycleEvidence?: boolean
+  lifecycleEvents?: RuntimeBeliefHookEvent[]
 }
 
 export interface RuntimeBeliefShadowProbeInputReport {
@@ -77,6 +98,7 @@ export interface RuntimeBeliefDecisionPointReport {
 export interface BeliefRuntimeHookCollector {
   hooks: RuntimeBeliefHooks
   decisions: RuntimeBeliefDecisionPoint[]
+  events: RuntimeBeliefHookEvent[]
   toShadowProbeInputs(options?: Partial<RuntimeBeliefShadowProbeInputOptions>): {
     inputs: BeliefShadowProbeInput[]
     diagnostics: RuntimeBeliefConversionDiagnostic[]
@@ -85,6 +107,7 @@ export interface BeliefRuntimeHookCollector {
 }
 
 const DEFAULT_MAX_CONTEXT_CHARS = 12_000
+const DEFAULT_PAYLOAD_PREVIEW_CHARS = 2_000
 
 export function runtimeDecisionPointToBeliefShadowProbeInput(
   point: RuntimeBeliefDecisionPoint,
@@ -93,6 +116,8 @@ export function runtimeDecisionPointToBeliefShadowProbeInput(
   const diagnostics: RuntimeBeliefConversionDiagnostic[] = []
   const decisionKind = resolveDecisionKind(point, options.decisionKind, diagnostics)
   if (!decisionKind) return { diagnostics }
+  const lifecycleEvidence = runtimeHookEventsToEvidenceRefs(point, options)
+  const evidence = [...(point.evidence ?? []), ...lifecycleEvidence]
 
   return {
     input: {
@@ -103,14 +128,14 @@ export function runtimeDecisionPointToBeliefShadowProbeInput(
       stepIndex: point.stepIndex,
       decisionKind,
       candidateActions: uniqueStrings(point.candidateActions ?? []),
-      evidence: (point.evidence ?? []).map((ref) => ({
+      evidence: evidence.map((ref) => ({
         id: ref.id,
         source: ref.source,
         ...(options.includeEvidenceDetail && ref.detail ? { detail: ref.detail } : {}),
         ...(ref.quality ? { quality: ref.quality } : {}),
       })),
       context: trimText(point.context, options.maxContextChars),
-      metadata: point.metadata,
+      metadata: mergeMetadata(point.metadata, lifecycleMetadata(lifecycleEvidence)),
     },
     diagnostics,
   }
@@ -142,6 +167,8 @@ export function runtimeDecisionPointToBeliefDecisionPoint(
   }
 
   if (!decisionKind || !chosenAction) return { diagnostics }
+  const lifecycleEvidence = runtimeHookEventsToEvidenceRefs(point, options)
+  const evidence = [...(point.evidence ?? []), ...lifecycleEvidence]
 
   return {
     point: {
@@ -157,9 +184,12 @@ export function runtimeDecisionPointToBeliefDecisionPoint(
       targetProb: finiteNumberOrUndefined(options.targetProb),
       qHat: options.qHat === null ? null : unitProbabilityOrUndefined(options.qHat),
       costUsd: nonNegativeNumberOrUndefined(options.costUsd),
-      evidence: (point.evidence ?? []).map((ref) => runtimeEvidenceToBeliefEvidence(ref, point)),
+      evidence: evidence.map((ref) => runtimeEvidenceToBeliefEvidence(ref, point)),
       outcome: options.outcome,
-      metadata: mergeMetadata(point.metadata, options.metadata),
+      metadata: mergeMetadata(
+        mergeMetadata(point.metadata, lifecycleMetadata(lifecycleEvidence)),
+        options.metadata,
+      ),
     },
     diagnostics,
   }
@@ -169,21 +199,33 @@ export function createBeliefRuntimeHookCollector(
   defaults: RuntimeBeliefShadowProbeInputOptions,
 ): BeliefRuntimeHookCollector {
   const decisions: RuntimeBeliefDecisionPoint[] = []
+  const events: RuntimeBeliefHookEvent[] = []
 
   return {
     hooks: {
+      onEvent: (event) => {
+        events.push(snapshotRuntimeHookEvent(event))
+      },
       onDecisionPoint: (point) => {
         decisions.push(snapshotRuntimeDecisionPoint(point))
       },
     },
     decisions,
+    events,
     toShadowProbeInputs: (options = {}) => {
       const inputs: BeliefShadowProbeInput[] = []
       const diagnostics: RuntimeBeliefConversionDiagnostic[] = []
+      const includeLifecycleEvidence =
+        options.includeLifecycleEvidence ?? defaults.includeLifecycleEvidence
       for (const point of decisions) {
         const report = runtimeDecisionPointToBeliefShadowProbeInput(point, {
           ...defaults,
           ...options,
+          includeLifecycleEvidence,
+          lifecycleEvents:
+            includeLifecycleEvidence === false
+              ? undefined
+              : (options.lifecycleEvents ?? defaults.lifecycleEvents ?? events),
         })
         if (report.input) inputs.push(report.input)
         diagnostics.push(...report.diagnostics)
@@ -192,6 +234,7 @@ export function createBeliefRuntimeHookCollector(
     },
     clear: () => {
       decisions.length = 0
+      events.length = 0
     },
   }
 }
@@ -236,6 +279,75 @@ function runtimeEvidenceToBeliefEvidence(
   }
 }
 
+function runtimeHookEventsToEvidenceRefs(
+  point: RuntimeBeliefDecisionPoint,
+  options: {
+    includeLifecycleEvidence?: boolean
+    lifecycleEvents?: RuntimeBeliefHookEvent[]
+  },
+): RuntimeBeliefDecisionEvidenceRef[] {
+  if (options.includeLifecycleEvidence === false) return []
+  return (options.lifecycleEvents ?? [])
+    .filter((event) => runtimeHookEventMatchesDecision(point, event))
+    .map(runtimeHookEventToEvidenceRef)
+}
+
+function runtimeHookEventMatchesDecision(
+  point: RuntimeBeliefDecisionPoint,
+  event: RuntimeBeliefHookEvent,
+): boolean {
+  if (event.runId !== point.runId) return false
+  if (event.scenarioId && point.scenarioId && event.scenarioId !== point.scenarioId) return false
+  return event.stepIndex === undefined || event.stepIndex === point.stepIndex
+}
+
+function runtimeHookEventToEvidenceRef(
+  event: RuntimeBeliefHookEvent,
+): RuntimeBeliefDecisionEvidenceRef {
+  return {
+    source: 'runtime_event',
+    id: event.id,
+    detail: `${event.target}:${event.phase}`,
+    quality: 'direct',
+    metadata: mergeMetadata(
+      compactMetadata({
+        target: event.target,
+        phase: event.phase,
+        timestamp: event.timestamp,
+        stepIndex: event.stepIndex,
+        parentId: event.parentId,
+        payloadPreview: previewUnknown(event.payload),
+      }),
+      event.metadata,
+    ),
+  }
+}
+
+function lifecycleMetadata(
+  refs: RuntimeBeliefDecisionEvidenceRef[],
+): Record<string, unknown> | undefined {
+  if (refs.length === 0) return undefined
+  return {
+    lifecycleEventCount: refs.length,
+    lifecycleEventIds: refs.map((ref) => ref.id),
+  }
+}
+
+function snapshotRuntimeHookEvent(event: RuntimeBeliefHookEvent): RuntimeBeliefHookEvent {
+  return {
+    id: event.id,
+    runId: event.runId,
+    scenarioId: event.scenarioId,
+    target: event.target,
+    phase: event.phase,
+    timestamp: event.timestamp,
+    stepIndex: event.stepIndex,
+    parentId: event.parentId,
+    payload: snapshotUnknown(event.payload),
+    metadata: event.metadata ? { ...event.metadata } : undefined,
+  }
+}
+
 function snapshotRuntimeDecisionPoint(
   point: RuntimeBeliefDecisionPoint,
 ): RuntimeBeliefDecisionPoint {
@@ -264,6 +376,34 @@ function mergeMetadata(
 ): Record<string, unknown> | undefined {
   if (!base && !extra) return undefined
   return { ...(base ?? {}), ...(extra ?? {}) }
+}
+
+function compactMetadata(values: Record<string, unknown>): Record<string, unknown> | undefined {
+  const entries = Object.entries(values).filter(([, value]) => value !== undefined)
+  return entries.length > 0 ? Object.fromEntries(entries) : undefined
+}
+
+function previewUnknown(
+  value: unknown,
+  maxChars = DEFAULT_PAYLOAD_PREVIEW_CHARS,
+): string | undefined {
+  if (value === undefined) return undefined
+  if (typeof value === 'string') return trimText(value, maxChars)
+  try {
+    return trimText(JSON.stringify(value), maxChars)
+  } catch {
+    return trimText(String(value), maxChars)
+  }
+}
+
+function snapshotUnknown(value: unknown): unknown {
+  if (Array.isArray(value)) return [...value]
+  if (isRecord(value)) return { ...value }
+  return value
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
 function uniqueStrings(values: string[]): string[] {

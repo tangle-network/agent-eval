@@ -236,7 +236,7 @@ Status on 2026-06-05: the experimental implementation exists in `src/belief-stat
 
 Follow-up local smoke on 2026-06-05 over 50 recent Codex JSONL sessions under 20 MB produced 50 `RunRecord`s and 6,770 decision points: 5,610 tool-selection rows and 1,160 failure-recovery rows, with full outcome/confidence coverage and no propensity support. The default confidence-threshold policy did not clear the selective utility gate on failure recovery (`ci.lower = -0.1159` at threshold `0.6`), so the current result supports the extraction/evidence pipeline, not the belief-policy claim; the next empirical step is real logged confidence/propensity or retrospective labels, not more heuristic confidence tuning.
 
-Runtime hook bridge on 2026-06-05: `src/belief-state/runtime-hooks.ts` now converts `agent-runtime` decision hooks into outcome-blind shadow-probe inputs, and only converts them into full `BeliefDecisionPoint` rows when the observed action is supplied. This keeps `agent-eval` trace/analysis-only while letting the runtime emit producer-backed decision boundaries for the next experiment.
+Runtime hook bridge on 2026-06-05: `src/belief-state/runtime-hooks.ts` now converts `agent-runtime` decision hooks into outcome-blind shadow-probe inputs, attaches matching lifecycle hook events as probe evidence, and only converts them into full `BeliefDecisionPoint` rows when the observed action is supplied. This keeps `agent-eval` trace/analysis-only while letting the runtime emit producer-backed decision boundaries and context for the next experiment.
 
 Taxonomy tightening on 2026-06-05: `src/belief-state/types.ts` now exports stable decision kinds, evidence sources, evidence quality labels, evaluation criteria, and reason codes. The intent is to make future dashboards and paper artifacts aggregate by stable IDs (`calibration`, `ope-support`, `memory-health`, `surface-attribution`, `promotion`, etc.) instead of parsing prose diagnostics.
 
@@ -566,7 +566,7 @@ Promotion:
 | `src/belief-state/ope.test.ts` | converts to `OffPolicyTrajectory`; explicit target policy required; invalid propensity disables OPE without throwing; low ESS support mismatch; estimator agreement surfaced. |
 | `src/belief-state/report.test.ts` | full report status: `ship`, `hold`, `need_more_data`; recommendation cannot ship on OPE alone. |
 | `src/belief-state/code-agent-corpus.test.ts` | extracts code-agent decision corpora across Codex, Claude Code, OpenCode, Kimi Code, and Pi/PiGraph-shaped traces; inventories targets; picks failure recovery first; holds when OPE propensities are absent. |
-| `src/belief-state/runtime-hooks.test.ts` | converts runtime decision hooks to outcome-blind shadow probes; requires observed action for full belief rows; collector stays structurally compatible with runtime hooks. |
+| `src/belief-state/runtime-hooks.test.ts` | converts runtime decision hooks to outcome-blind shadow probes; attaches matching lifecycle hook events as evidence; requires observed action for full belief rows; collector stays structurally compatible with runtime hooks. |
 | `src/belief-state/types.test.ts` | guards the stable decision kinds, evidence sources/qualities, evaluation criteria, and reason-code taxonomy. |
 | `src/meta-eval/calibration.test.ts` | existing `calibrationCurve()` still works after extracting pure helper. |
 
