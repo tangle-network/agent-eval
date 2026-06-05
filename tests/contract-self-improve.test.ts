@@ -116,6 +116,7 @@ describe('selfImprove provenance emission (durable by default)', () => {
       agent,
       scenarios: SCENARIOS,
       judge,
+      expectUsage: 'off', // deterministic offline mock — no real backend to assert
       baselineSurface: 'BASE',
       driver,
       budget: { generations: 1, populationSize: 1 },
@@ -173,6 +174,7 @@ describe('selfImprove provenance emission (durable by default)', () => {
       agent,
       scenarios: SCENARIOS,
       judge,
+      expectUsage: 'off', // deterministic offline mock — no real backend to assert
       baselineSurface: 'BASE',
       driver,
       budget: { generations: 1, populationSize: 1 },
@@ -181,5 +183,42 @@ describe('selfImprove provenance emission (durable by default)', () => {
     // The provenance record is still produced in-memory + on the result.
     expect(result.provenance.schema).toBe('tangle.loop-provenance.v1')
     expect(result.provenance.runDir.startsWith('mem://')).toBe(true)
+  })
+})
+
+describe('selfImprove — forwarded loop knobs', () => {
+  const base = {
+    agent, // echoes the surface, reports no cost via ctx → cells are {0,0}
+    scenarios: SCENARIOS,
+    judge,
+    baselineSurface: 'BASE',
+    driver,
+    budget: { generations: 1, populationSize: 1 },
+  } as const
+
+  it('defaults expectUsage to "assert" — a stub (zero-cost) cell fails loud', async () => {
+    // No expectUsage → the new default 'assert'. The mock agent never reports
+    // cost, so every cell is a stub and the integrity guard must throw.
+    await expect(selfImprove<S, A>({ ...base })).rejects.toThrow()
+    // The SAME run with the offline opt-out resolves — proving the guard, not a
+    // structural failure, is what rejected.
+    const ok = await selfImprove<S, A>({ ...base, expectUsage: 'off' })
+    expect(ok.gateDecision).toBeDefined()
+  })
+
+  it('forwards analyzeGeneration — the per-generation findings producer fires', async () => {
+    let calls = 0
+    await selfImprove<S, A>({
+      ...base,
+      // analyzeGeneration runs BETWEEN generations (its findings feed the next),
+      // so it needs ≥2 generations to fire at least once.
+      budget: { generations: 2, populationSize: 1 },
+      expectUsage: 'off',
+      analyzeGeneration: async () => {
+        calls += 1
+        return []
+      },
+    })
+    expect(calls).toBeGreaterThanOrEqual(1)
   })
 })

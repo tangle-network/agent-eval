@@ -4,6 +4,19 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ---
 
+## [0.82.0] — 2026-06-05 — selfImprove forwards the full loop surface
+
+### Changed
+
+- **`selfImprove` now forwards every loop knob a product needs**, so a product agent collapses its entire hand-rolled `runImprovementLoop` + `emitLoopProvenance` harness onto one `selfImprove` call with no loss of fidelity. New pass-throughs: `budget.reps`, `budget.promoteTopK`, and options `labeledStore`, `captureSource`, `expectUsage`, `analyzeGeneration` (the per-generation findings producer / EYES→HANDS closure), and `findings`.
+- **`selfImprove` defaults `expectUsage: 'assert'`** (was effectively `'warn'`). It is the real-run path, so a stub cell (produced an artifact but reported `costUsd === 0` and zero tokens) now fails loud by default instead of scoring a clean 0. Offline/replay callers set `expectUsage: 'off'` explicitly — the honest opt-out.
+
+### Migration
+
+A deterministic offline test that drives `selfImprove` with a mock agent must now pass `expectUsage: 'off'` (no real backend to assert). Real-backend callers are unaffected — `'assert'` passes on real LLM usage by construction.
+
+---
+
 ## [0.81.0] — 2026-06-05 — eval-campaign scaffold prep primitives
 
 ### Added

@@ -29,6 +29,7 @@ import {
   type RunImprovementLoopResult,
   runImprovementLoop,
 } from '../campaign/presets/run-improvement-loop'
+import type { RunOptimizationOptions } from '../campaign/presets/run-optimization'
 import {
   emitLoopProvenance,
   type LoopProvenanceRecord,
@@ -45,6 +46,7 @@ import type {
   Gate,
   ImprovementDriver,
   JudgeConfig,
+  LabeledScenarioStore,
   MutableSurface,
   Scenario,
 } from '../campaign/types'
@@ -70,6 +72,10 @@ export interface SelfImproveBudget {
   holdoutFraction?: number
   /** Explicit held-out scenarios; overrides `holdoutFraction`. */
   holdoutScenarios?: Scenario[]
+  /** Per-scenario replicates per cell — raises bootstrap-CI tightness. Default 1. */
+  reps?: number
+  /** Top-scoring candidates carried into the next generation. Default 2. */
+  promoteTopK?: number
 }
 
 export interface SelfImproveLlm {
@@ -204,6 +210,36 @@ export interface SelfImproveOptions<TScenario extends Scenario, TArtifact> {
   /** Free-form labels attached to the hosted event (env, branch, model id,
    *  etc.). Ignored when `hostedTenant` is unset. */
   hostedLabels?: Record<string, string>
+
+  /** Capture every artifact + judge score to this store (labeled-example
+   *  corpus the driver may read for few-shot, and the dataset you ship). Pass
+   *  `'off'` to disable. Default: off. */
+  labeledStore?: LabeledScenarioStore | 'off'
+
+  /** Capture-source tag for `labeledStore`. Default `'eval-run'`. */
+  captureSource?: 'production-trace' | 'eval-run' | 'manual' | 'red-team' | 'synthetic'
+
+  /**
+   * Per-cell backend-integrity expectation — the fail-loud guard. A cell that
+   * produced an artifact but reported `costUsd === 0` AND zero tokens is a
+   * stub. Modes: `'assert'` throws on the first such cell, `'warn'` logs it,
+   * `'off'` skips the check (offline/replay). Default `'assert'` — `selfImprove`
+   * is the real-run path, so a stub fails loud rather than scoring a clean 0.
+   */
+  expectUsage?: 'assert' | 'warn' | 'off'
+
+  /**
+   * Per-generation findings producer (the EYES→HANDS closure). After each
+   * generation is scored, this is called; whatever it returns REPLACES the
+   * driver's `findings` for the next generation's `propose()`. Plug a
+   * trace-analyst registry / HALO here. When absent, findings stay
+   * `opts.findings`.
+   */
+  analyzeGeneration?: RunOptimizationOptions<TScenario, TArtifact>['analyzeGeneration']
+
+  /** Static findings forwarded to the driver's `propose()` as `ctx.findings`
+   *  (a findings-grounded driver consumes them). Default: none. */
+  findings?: unknown[]
 }
 
 export interface SelfImproveResult<TScenario extends Scenario, TArtifact> {
@@ -343,6 +379,7 @@ export async function selfImprove<TScenario extends Scenario, TArtifact>(
   const maxConcurrency = budget.maxConcurrency ?? 2
   const holdoutFraction = budget.holdoutFraction ?? 0.25
   const costCeiling = budget.dollars
+  const expectUsage = opts.expectUsage ?? 'assert'
 
   const explicitHoldout = budget.holdoutScenarios
   const { train, holdout } = explicitHoldout
@@ -402,6 +439,8 @@ export async function selfImprove<TScenario extends Scenario, TArtifact>(
     judges: [opts.judge],
     populationSize,
     maxGenerations: generations,
+    promoteTopK: budget.promoteTopK,
+    reps: budget.reps,
     holdoutScenarios: holdout,
     gate,
     autoOnPromote: opts.autoOnPromote ?? 'none',
@@ -412,6 +451,11 @@ export async function selfImprove<TScenario extends Scenario, TArtifact>(
     maxConcurrency,
     cellPlacement: opts.cellPlacement,
     costCeiling,
+    expectUsage,
+    labeledStore: opts.labeledStore,
+    captureSource: opts.captureSource,
+    analyzeGeneration: opts.analyzeGeneration,
+    findings: opts.findings,
   })
 
   const baseline = meanComposite(result.baselineOnHoldout.aggregates.byScenario)
