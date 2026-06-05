@@ -3,30 +3,17 @@ import type { TraceStore } from '../trace/store'
 import type {
   BeliefDecisionExtractionDiagnostic,
   BeliefDecisionExtractionReport,
-  BeliefDecisionKind,
   BeliefDecisionOutcome,
   BeliefDecisionPoint,
   BeliefEvidenceRef,
 } from './types'
+import { isBeliefDecisionKind } from './types'
 
 export interface ExtractBeliefDecisionPointsOptions {
   runIds?: string[]
 }
 
 const DECISION_MARKERS = new Set(['belief_decision', 'belief.decision', 'decision_point'])
-const DECISION_KINDS: ReadonlySet<string> = new Set([
-  'continue',
-  'verify',
-  'ask',
-  'retry',
-  'stop',
-  'memory-write',
-  'memory-read',
-  'tool-select',
-  'skill-select',
-  'workflow-select',
-  'surface-promote',
-])
 
 export async function extractBeliefDecisionPoints(
   store: TraceStore,
@@ -72,7 +59,7 @@ function parseDecisionEvent(
   if (!marker || !DECISION_MARKERS.has(marker)) return null
 
   const decisionKind = stringField(payload, 'decisionKind')
-  if (!decisionKind || !DECISION_KINDS.has(decisionKind)) {
+  if (!isBeliefDecisionKind(decisionKind)) {
     return {
       diagnostic: {
         runId: event.runId,
@@ -101,10 +88,17 @@ function parseDecisionEvent(
       id: event.eventId,
       runId: event.runId,
       eventId: event.eventId,
+      quality: 'direct',
     },
   ]
   if (event.spanId && context.spanExists) {
-    evidence.push({ source: 'span', id: event.spanId, runId: event.runId, spanId: event.spanId })
+    evidence.push({
+      source: 'span',
+      id: event.spanId,
+      runId: event.runId,
+      spanId: event.spanId,
+      quality: 'direct',
+    })
   }
 
   return {
@@ -113,7 +107,7 @@ function parseDecisionEvent(
       runId: event.runId,
       scenarioId: stringField(payload, 'scenarioId') ?? context.scenarioId,
       stepIndex: numberField(payload, 'stepIndex') ?? context.stepIndex,
-      kind: decisionKind as BeliefDecisionKind,
+      kind: decisionKind,
       chosenAction,
       candidateActions: stringArrayField(payload, 'candidateActions'),
       confidence: finiteUnitField(payload, 'confidence'),

@@ -236,6 +236,10 @@ Status on 2026-06-05: the experimental implementation exists in `src/belief-stat
 
 Follow-up local smoke on 2026-06-05 over 50 recent Codex JSONL sessions under 20 MB produced 50 `RunRecord`s and 6,770 decision points: 5,610 tool-selection rows and 1,160 failure-recovery rows, with full outcome/confidence coverage and no propensity support. The default confidence-threshold policy did not clear the selective utility gate on failure recovery (`ci.lower = -0.1159` at threshold `0.6`), so the current result supports the extraction/evidence pipeline, not the belief-policy claim; the next empirical step is real logged confidence/propensity or retrospective labels, not more heuristic confidence tuning.
 
+Runtime hook bridge on 2026-06-05: `src/belief-state/runtime-hooks.ts` now converts `agent-runtime` decision hooks into outcome-blind shadow-probe inputs, and only converts them into full `BeliefDecisionPoint` rows when the observed action is supplied. This keeps `agent-eval` trace/analysis-only while letting the runtime emit producer-backed decision boundaries for the next experiment.
+
+Taxonomy tightening on 2026-06-05: `src/belief-state/types.ts` now exports stable decision kinds, evidence sources, evidence quality labels, evaluation criteria, and reason codes. The intent is to make future dashboards and paper artifacts aggregate by stable IDs (`calibration`, `ope-support`, `memory-health`, `surface-attribution`, `promotion`, etc.) instead of parsing prose diagnostics.
+
 ### Q4 2026 - Phase 1: Selective Prediction and Abstention
 
 - [ ] Build abstain/verify/ask/stop evaluation over the chosen decision kind.
@@ -372,6 +376,21 @@ Do not call belief-state work "done" until these are true:
 - [ ] No runtime ownership boundary is crossed from `agent-eval`.
 - [ ] Negative results are recorded instead of hidden.
 
+Stable criterion IDs:
+
+- `capture-integrity`
+- `decision-completeness`
+- `evidence-quality`
+- `outcome-quality`
+- `calibration`
+- `accepted-region-risk`
+- `policy-value`
+- `ope-support`
+- `memory-health`
+- `surface-attribution`
+- `generalization`
+- `promotion`
+
 ## Kill Criteria
 
 Stop or pivot if any of these persist for two consecutive phases:
@@ -416,13 +435,14 @@ The most succinct integration is an experimental `src/belief-state/` module that
 
 | File | Purpose | Notes |
 |---|---|---|
-| `src/belief-state/types.ts` | Defines `BeliefDecisionPoint`, `BeliefDecisionKind`, `BeliefActionChoice`, `BeliefDecisionOutcome`, `BeliefEvidenceRef`, `BeliefPolicyEvaluationReport`, `SupportDiagnostics`. | Pure types. No runtime dependency. |
+| `src/belief-state/types.ts` | Defines `BeliefDecisionPoint`, `BeliefDecisionKind`, `BeliefDecisionOutcome`, `BeliefEvidenceRef`, `BeliefPolicyEvaluationReport`, support diagnostics, stable criteria, and reason codes. | No runtime dependency. Keep taxonomy compact and producer-backed. |
 | `src/belief-state/extract.ts` | Extracts decision points from `TraceStore` runs/spans/events. | Structural parsing only. Unknown events are skipped with diagnostics. |
 | `src/belief-state/selective.ts` | Evaluates continue/verify/ask/retry/stop policies against observed outcomes. | Computes coverage, accepted-error rate, rejected-action lift, cost-adjusted utility. |
 | `src/belief-state/calibration.ts` | Computes confidence calibration for decision predictions. | Calls shared `calibrationFromPairs()` once added. |
 | `src/belief-state/ope.ts` | Converts decision rows into `OffPolicyTrajectory[]` for an explicit named target policy and calls `offPolicyEstimateAll`. | Must report ESS and support mismatch; no silent value claims. |
 | `src/belief-state/report.ts` | Orchestrates extraction + selective eval + calibration + OPE into one report. | Returns honest negative / need-more-data when unsupported. |
 | `src/belief-state/code-agent-corpus.ts` | Converts local code-agent sessions into belief decision points, inventories targets, selects the first supported target, and runs the experimental policy report. | Supports Codex, Claude Code, OpenCode, Kimi Code, and Pi/PiGraph-shaped traces. Does not invent behavior or target propensities. |
+| `src/belief-state/runtime-hooks.ts` | Bridges structurally typed `agent-runtime` decision hooks into shadow probes or completed belief decision rows. | No runtime dependency. Pre-action hooks do not fake `chosenAction`. |
 | `src/belief-state/index.ts` | Experimental barrel for the module. | Keep out of root barrel and expose only through `./experimental/belief-state` while evidence gates are open. |
 
 ### Files to Change First
@@ -546,6 +566,8 @@ Promotion:
 | `src/belief-state/ope.test.ts` | converts to `OffPolicyTrajectory`; explicit target policy required; invalid propensity disables OPE without throwing; low ESS support mismatch; estimator agreement surfaced. |
 | `src/belief-state/report.test.ts` | full report status: `ship`, `hold`, `need_more_data`; recommendation cannot ship on OPE alone. |
 | `src/belief-state/code-agent-corpus.test.ts` | extracts code-agent decision corpora across Codex, Claude Code, OpenCode, Kimi Code, and Pi/PiGraph-shaped traces; inventories targets; picks failure recovery first; holds when OPE propensities are absent. |
+| `src/belief-state/runtime-hooks.test.ts` | converts runtime decision hooks to outcome-blind shadow probes; requires observed action for full belief rows; collector stays structurally compatible with runtime hooks. |
+| `src/belief-state/types.test.ts` | guards the stable decision kinds, evidence sources/qualities, evaluation criteria, and reason-code taxonomy. |
 | `src/meta-eval/calibration.test.ts` | existing `calibrationCurve()` still works after extracting pure helper. |
 
 ### Verification Commands

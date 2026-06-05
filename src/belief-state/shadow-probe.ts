@@ -1,4 +1,9 @@
-import type { BeliefDecisionKind, BeliefDecisionOutcome, BeliefDecisionPoint } from './types'
+import type {
+  BeliefDecisionKind,
+  BeliefDecisionOutcome,
+  BeliefDecisionPoint,
+  BeliefEvidenceQuality,
+} from './types'
 
 export interface BeliefShadowProbeInput {
   probeId: string
@@ -18,6 +23,7 @@ export interface BeliefShadowProbeEvidenceRef {
   id: string
   source: string
   detail?: string
+  quality?: BeliefEvidenceQuality
 }
 
 export interface BeliefShadowProbeResponse {
@@ -177,6 +183,7 @@ async function probePoint(
         id: ref.id,
         source: ref.source,
         ...(options.includeEvidenceDetail && ref.detail ? { detail: ref.detail } : {}),
+        ...(ref.quality ? { quality: ref.quality } : {}),
       })),
       context: trimText(await options.contextOf?.(point), options.maxContextChars),
       metadata: await options.metadataOf?.(point),
