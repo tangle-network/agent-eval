@@ -11,8 +11,9 @@
  *     (Obsidian, Sheets, CSV, Postgres).
  *   - `fromOtelSpans` — OTel `TraceSpanEvent[]` from any OTel-compatible
  *     observability stack.
- *   - `fromCodexSession` / `fromClaudeCodeSession` — local coding-agent JSONL
- *     sessions projected into process-scored `RunRecord`s.
+ *   - `fromCodexSession` / `fromClaudeCodeSession` / `fromOpenCodeSession` /
+ *     `fromKimiCodeSession` / `fromPiSession` — local coding-agent and
+ *     graph-shaped sessions projected into process-scored `RunRecord`s.
  */
 
 export {
@@ -36,6 +37,10 @@ export {
   type CodeAgentSessionSource,
   fromClaudeCodeSession,
   fromCodexSession,
+  fromKimiCodeSession,
+  fromOpenCodeSession,
+  fromPigraphSession,
+  fromPiSession,
   type ParsedCodeAgentJsonl,
   parseCodeAgentJsonl,
 } from './code-agent-session'

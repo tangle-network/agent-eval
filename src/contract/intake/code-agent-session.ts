@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto'
 import { estimateCost, isModelPriced } from '../../metrics'
 import type { RunRecord, RunSplitTag, RunTokenUsage } from '../../run-record'
 
-export type CodeAgentSessionSource = 'codex' | 'claude-code'
+export type CodeAgentSessionSource = 'codex' | 'claude-code' | 'opencode' | 'kimi-code' | 'pi'
 
 export interface ParsedCodeAgentJsonl {
   entries: unknown[]
@@ -25,9 +25,18 @@ export interface CodeAgentSessionMetrics {
   turnsAborted: number
   contextCompactions: number
   prLinks: number
+  fileSnapshots: number
+  graphNodes: number
+  graphEdges: number
+  actionCandidates: number
+  verificationReports: number
+  completionDecisions: number
+  reliabilityRows: number
+  reliabilityLift: number
   inputTokens: number
   outputTokens: number
   cachedTokens: number
+  observedCostUsd: number
   wallMs: number
   processScore: number
 }
@@ -95,6 +104,26 @@ export function fromClaudeCodeSession(
   return fromCodeAgentSession('claude-code', options)
 }
 
+export function fromOpenCodeSession(
+  options: CodeAgentSessionIntakeOptions,
+): CodeAgentSessionIntakeResult {
+  return fromCodeAgentSession('opencode', options)
+}
+
+export function fromKimiCodeSession(
+  options: CodeAgentSessionIntakeOptions,
+): CodeAgentSessionIntakeResult {
+  return fromCodeAgentSession('kimi-code', options)
+}
+
+export function fromPiSession(
+  options: CodeAgentSessionIntakeOptions,
+): CodeAgentSessionIntakeResult {
+  return fromCodeAgentSession('pi', options)
+}
+
+export const fromPigraphSession = fromPiSession
+
 function fromCodeAgentSession(
   source: CodeAgentSessionSource,
   options: CodeAgentSessionIntakeOptions,
@@ -122,7 +151,7 @@ function fromCodeAgentSession(
     }
   }
 
-  const metrics = source === 'codex' ? codexMetrics(entries) : claudeCodeMetrics(entries)
+  const metrics = metricsFor(source, entries)
   const sessionId =
     sessionIdFromEntries(source, entries) ?? fallbackSessionId(source, options.sourcePath)
   const model = withSnapshot(options.model ?? modelFromEntries(source, entries) ?? source)
@@ -131,10 +160,11 @@ function fromCodeAgentSession(
     output: metrics.outputTokens,
     ...(metrics.cachedTokens > 0 ? { cached: metrics.cachedTokens } : {}),
   }
-  const costUsd =
+  const estimatedCostUsd =
     metrics.inputTokens > 0 || metrics.outputTokens > 0
       ? estimateCost(metrics.inputTokens, metrics.outputTokens, model)
       : 0
+  const costUsd = metrics.observedCostUsd > 0 ? metrics.observedCostUsd : estimatedCostUsd
   const score = clamp01(options.score ?? metrics.processScore)
   const promptHash =
     options.promptHash ?? hashString(`prompt:${source}:${firstUserText(entries) ?? ''}`)
@@ -186,9 +216,18 @@ function fromCodeAgentSession(
         turns_aborted: metrics.turnsAborted,
         context_compactions: metrics.contextCompactions,
         pr_links: metrics.prLinks,
+        file_snapshots: metrics.fileSnapshots,
+        graph_nodes: metrics.graphNodes,
+        graph_edges: metrics.graphEdges,
+        action_candidates: metrics.actionCandidates,
+        verification_reports: metrics.verificationReports,
+        completion_decisions: metrics.completionDecisions,
+        reliability_rows: metrics.reliabilityRows,
+        reliability_lift: metrics.reliabilityLift,
         input_tokens: metrics.inputTokens,
         output_tokens: metrics.outputTokens,
         cached_tokens: metrics.cachedTokens,
+        observed_cost_usd: metrics.observedCostUsd,
         process_score: score,
         inferred_score: options.score === undefined ? 1 : 0,
         explicit_terminal_signal: explicitTerminal ? 1 : 0,
@@ -221,6 +260,24 @@ function fromCodeAgentSession(
       },
     ],
     metrics: [metrics],
+  }
+}
+
+function metricsFor(
+  source: CodeAgentSessionSource,
+  entries: Record<string, unknown>[],
+): CodeAgentSessionMetrics {
+  switch (source) {
+    case 'codex':
+      return codexMetrics(entries)
+    case 'claude-code':
+      return claudeCodeMetrics(entries)
+    case 'opencode':
+      return openCodeMetrics(entries)
+    case 'kimi-code':
+      return kimiCodeMetrics(entries)
+    case 'pi':
+      return piMetrics(entries)
   }
 }
 
@@ -314,7 +371,7 @@ function claudeCodeMetrics(entries: Record<string, unknown>[]): CodeAgentSession
     if (type === 'user') metrics.userMessages += 1
     if (type === 'assistant') metrics.assistantMessages += 1
     if (type === 'pr-link') metrics.prLinks += 1
-    if (type === 'file-history-snapshot') metrics.patchAttempts += 1
+    if (type === 'file-history-snapshot') metrics.fileSnapshots += 1
 
     const message = record(entry.message)
     if (message) addUsage(metrics, record(message.usage))
@@ -334,8 +391,177 @@ function claudeCodeMetrics(entries: Record<string, unknown>[]): CodeAgentSession
 
   if (startedAt !== undefined && completedAt !== undefined)
     metrics.wallMs = Math.max(0, completedAt - startedAt)
-  metrics.patchSuccesses = metrics.patchAttempts
   metrics.processScore = claudeProcessScore(metrics)
+  return metrics
+}
+
+function openCodeMetrics(entries: Record<string, unknown>[]): CodeAgentSessionMetrics {
+  const metrics = emptyMetrics(entries.length)
+  const messageUsage = emptyTokenTotals()
+  const partUsage = emptyTokenTotals()
+  let messageCost = 0
+  let partCost = 0
+  let startedAt: number | undefined
+  let completedAt: number | undefined
+
+  for (const entry of entries) {
+    const time = record(entry.time)
+    const created = timestampMs(time?.created)
+    const completed = timestampMs(time?.completed)
+    if (created !== undefined)
+      startedAt = startedAt === undefined ? created : Math.min(startedAt, created)
+    if (completed !== undefined)
+      completedAt = completedAt === undefined ? completed : Math.max(completedAt, completed)
+
+    const role = stringField(entry, 'role')
+    if (role === 'user') metrics.userMessages += 1
+    if (role === 'assistant') {
+      metrics.assistantMessages += 1
+      const finish = stringField(entry, 'finish')
+      if (finish === 'stop') metrics.turnsCompleted += 1
+      if (finish === 'error') metrics.turnsAborted += 1
+    }
+
+    const type = stringField(entry, 'type')
+    if (type === 'reasoning') metrics.reasoningItems += 1
+    if (type === 'tool') {
+      metrics.toolCalls += 1
+      const status = stringField(record(entry.state) ?? {}, 'status')
+      if (status === 'completed') metrics.toolOutputs += 1
+      if (status === 'error') {
+        metrics.toolOutputs += 1
+        metrics.toolErrors += 1
+      }
+    }
+    if (type === 'patch') {
+      metrics.patchAttempts += 1
+      metrics.patchSuccesses += 1
+    }
+
+    const cost = numberField(entry, 'cost')
+    if (record(entry.tokens) && role) {
+      addUsageTo(messageUsage, record(entry.tokens))
+      if (cost !== undefined) messageCost += cost
+    } else if (record(entry.tokens)) {
+      addUsageTo(partUsage, record(entry.tokens))
+      if (cost !== undefined) partCost += cost
+    }
+  }
+
+  const usage = messageUsage.input + messageUsage.output > 0 ? messageUsage : partUsage
+  metrics.inputTokens = usage.input
+  metrics.outputTokens = usage.output
+  metrics.cachedTokens = usage.cached
+  metrics.observedCostUsd = messageCost > 0 ? messageCost : partCost
+  if (metrics.wallMs === 0 && startedAt !== undefined && completedAt !== undefined)
+    metrics.wallMs = Math.max(0, completedAt - startedAt)
+  metrics.processScore = terminalProcessScore(metrics)
+  return metrics
+}
+
+function kimiCodeMetrics(entries: Record<string, unknown>[]): CodeAgentSessionMetrics {
+  const metrics = emptyMetrics(entries.length)
+  let startedAt: number | undefined
+  let completedAt: number | undefined
+
+  for (const entry of entries) {
+    const timestamp = timestampMs(entry.timestamp)
+    if (timestamp !== undefined) {
+      startedAt = startedAt === undefined ? timestamp : Math.min(startedAt, timestamp)
+      completedAt = completedAt === undefined ? timestamp : Math.max(completedAt, timestamp)
+    }
+
+    const role = stringField(entry, 'role')
+    if (role === 'user') metrics.userMessages += 1
+    if (role === 'assistant') metrics.assistantMessages += 1
+    if (role === '_usage') addUsage(metrics, entry)
+
+    const message = record(entry.message)
+    const messageType = message ? stringField(message, 'type') : undefined
+    const payload = record(message?.payload) ?? {}
+    if (messageType === 'TurnBegin') {
+      metrics.userMessages += 1
+      metrics.turnsStarted += 1
+    }
+    if (messageType === 'TurnEnd') metrics.turnsCompleted += 1
+    if (messageType === 'StepInterrupted') metrics.turnsAborted += 1
+    if (messageType === 'StepBegin') metrics.reasoningItems += 1
+    if (messageType === 'ContentPart') {
+      const payloadType = stringField(payload, 'type')
+      if (payloadType === 'think') metrics.reasoningItems += 1
+      if (payloadType === 'text') metrics.assistantMessages += 1
+    }
+    if (messageType === 'ToolCall') metrics.toolCalls += 1
+    if (messageType === 'ToolResult') {
+      metrics.toolOutputs += 1
+      if (record(payload.return_value)?.is_error === true) metrics.toolErrors += 1
+    }
+    if (messageType === 'StatusUpdate') addUsage(metrics, record(payload.token_usage))
+    if (messageType === 'Notification') {
+      const notification = record(payload.payload)
+      const exitCode = numberField(notification ?? {}, 'exit_code')
+      if (notification?.timed_out === true || (exitCode !== undefined && exitCode !== 0)) {
+        metrics.toolErrors += 1
+      }
+    }
+  }
+
+  if (startedAt !== undefined && completedAt !== undefined)
+    metrics.wallMs = Math.max(0, completedAt - startedAt)
+  metrics.processScore = terminalProcessScore(metrics)
+  return metrics
+}
+
+function piMetrics(entries: Record<string, unknown>[]): CodeAgentSessionMetrics {
+  const metrics = emptyMetrics(entries.length)
+  let bestReliabilityScore: number | undefined
+
+  for (const entry of entries) {
+    const nodes = Array.isArray(entry.nodes) ? entry.nodes : []
+    const edges = Array.isArray(entry.edges) ? entry.edges : []
+    metrics.graphNodes += nodes.length
+    metrics.graphEdges += edges.length
+
+    for (const node of nodes) {
+      const obj = record(node)
+      const ir = record(obj?.ir) ?? obj
+      const kind = stringField(ir ?? {}, 'kind')
+      if (kind === 'ActionCandidate') metrics.actionCandidates += 1
+      if (kind === 'ToolInvocation') metrics.toolCalls += 1
+      if (kind === 'ToolResult') metrics.toolOutputs += 1
+      if (kind === 'VerificationReport') metrics.verificationReports += 1
+      if (kind === 'CompletionDecision') {
+        metrics.completionDecisions += 1
+        metrics.turnsCompleted += 1
+      }
+    }
+
+    const averageReliability = numberField(entry, 'averageNodeReliability')
+    if (averageReliability !== undefined)
+      bestReliabilityScore = maxOptional(bestReliabilityScore, averageReliability)
+    const pessimisticPath = numberField(entry, 'pessimisticPathEstimate')
+    if (pessimisticPath !== undefined)
+      bestReliabilityScore = maxOptional(bestReliabilityScore, pessimisticPath)
+
+    const rows = Array.isArray(entry.rows) ? entry.rows : []
+    metrics.reliabilityRows += rows.length
+    for (const row of rows) {
+      const obj = record(row)
+      if (!obj) continue
+      const lift = numberField(obj, 'lift')
+      if (lift !== undefined) metrics.reliabilityLift = Math.max(metrics.reliabilityLift, lift)
+      const validated = numberField(obj, 'validatedSuccessEstimate')
+      if (validated !== undefined)
+        bestReliabilityScore = maxOptional(bestReliabilityScore, validated)
+    }
+  }
+
+  metrics.processScore =
+    bestReliabilityScore !== undefined
+      ? clamp01(bestReliabilityScore)
+      : metrics.completionDecisions > 0
+        ? 1
+        : 0
   return metrics
 }
 
@@ -356,9 +582,18 @@ function emptyMetrics(entries: number): CodeAgentSessionMetrics {
     turnsAborted: 0,
     contextCompactions: 0,
     prLinks: 0,
+    fileSnapshots: 0,
+    graphNodes: 0,
+    graphEdges: 0,
+    actionCandidates: 0,
+    verificationReports: 0,
+    completionDecisions: 0,
+    reliabilityRows: 0,
+    reliabilityLift: 0,
     inputTokens: 0,
     outputTokens: 0,
     cachedTokens: 0,
+    observedCostUsd: 0,
     wallMs: 0,
     processScore: 0,
   }
@@ -380,10 +615,27 @@ function claudeProcessScore(metrics: CodeAgentSessionMetrics): number {
   return penalizeErrors(base, metrics)
 }
 
+function terminalProcessScore(metrics: CodeAgentSessionMetrics): number {
+  const terminalTurns = metrics.turnsCompleted + metrics.turnsAborted
+  const base =
+    terminalTurns > 0
+      ? metrics.turnsCompleted / terminalTurns
+      : metrics.assistantMessages > 0
+        ? 0.75
+        : metrics.toolCalls > 0
+          ? 0.5
+          : 0
+  return penalizeErrors(base, metrics)
+}
+
 function penalizeErrors(base: number, metrics: CodeAgentSessionMetrics): number {
   const operations = Math.max(1, metrics.toolCalls + metrics.patchAttempts)
   const errorRate = Math.min(1, (metrics.toolErrors + metrics.patchFailures) / operations)
   return clamp01(base * (1 - 0.5 * errorRate))
+}
+
+function emptyTokenTotals(): { input: number; output: number; cached: number } {
+  return { input: 0, output: 0, cached: 0 }
 }
 
 function addUsage(
@@ -394,6 +646,16 @@ function addUsage(
   metrics.inputTokens += parsed.input
   metrics.outputTokens += parsed.output
   metrics.cachedTokens += parsed.cached
+}
+
+function addUsageTo(
+  totals: { input: number; output: number; cached: number },
+  usage: Record<string, unknown> | null | undefined,
+): void {
+  const parsed = readUsage(usage)
+  totals.input += parsed.input
+  totals.output += parsed.output
+  totals.cached += parsed.cached
 }
 
 function setCumulativeUsage(
@@ -413,20 +675,34 @@ function readUsage(usage: Record<string, unknown> | null | undefined): {
 } {
   if (!usage) return { input: 0, output: 0, cached: 0 }
   return {
-    input: numericUsage(usage, ['input_tokens', 'inputTokens', 'prompt_tokens', 'promptTokens']),
+    input: numericUsage(usage, [
+      'input',
+      'input_tokens',
+      'inputTokens',
+      'prompt_tokens',
+      'promptTokens',
+      'input_other',
+    ]),
     output: numericUsage(usage, [
+      'output',
       'output_tokens',
       'outputTokens',
       'completion_tokens',
       'completionTokens',
+      'reasoning',
+      'reasoning_tokens',
+      'reasoningTokens',
     ]),
     cached: numericUsage(usage, [
+      'cache',
       'cached_tokens',
       'cachedTokens',
       'cache_read_input_tokens',
       'cacheReadInputTokens',
       'cache_creation_input_tokens',
       'cacheCreationInputTokens',
+      'input_cache_read',
+      'input_cache_creation',
     ]),
   }
 }
@@ -465,6 +741,9 @@ function hasExplicitTerminalSignal(
   metrics: CodeAgentSessionMetrics,
 ): boolean {
   if (source === 'codex') return metrics.turnsCompleted + metrics.turnsAborted > 0
+  if (source === 'opencode' || source === 'kimi-code')
+    return metrics.turnsCompleted + metrics.turnsAborted > 0
+  if (source === 'pi') return metrics.completionDecisions > 0 || metrics.reliabilityRows > 0
   return metrics.prLinks > 0 || metrics.toolErrors > 0
 }
 
@@ -478,7 +757,13 @@ function sessionIdFromEntries(
       const id = payload ? stringField(payload, 'id') : undefined
       if (id) return id
     }
-    const sessionId = stringField(entry, 'sessionId') ?? stringField(entry, 'session_id')
+    const message = record(entry.message)
+    const payload = record(message?.payload)
+    const sessionId =
+      stringField(entry, 'sessionID') ??
+      stringField(entry, 'sessionId') ??
+      stringField(entry, 'session_id') ??
+      stringField(payload ?? {}, 'session_id')
     if (sessionId) return sessionId
   }
   return undefined
@@ -497,6 +782,17 @@ function modelFromEntries(
       providerModel =
         providerModel ?? (payload ? stringField(payload, 'model_provider') : undefined)
     }
+    const openCodeModel = stringField(entry, 'modelID')
+    if (openCodeModel) {
+      const provider = stringField(entry, 'providerID')
+      return provider ? `${provider}/${openCodeModel}` : openCodeModel
+    }
+    const modelObject = record(entry.model)
+    const nestedModel = stringField(modelObject ?? {}, 'modelID')
+    if (nestedModel) {
+      const provider = stringField(modelObject ?? {}, 'providerID')
+      return provider ? `${provider}/${nestedModel}` : nestedModel
+    }
     const message = record(entry.message)
     const model = message ? stringField(message, 'model') : undefined
     if (model) return model
@@ -506,8 +802,11 @@ function modelFromEntries(
 
 function cwdFromEntries(entries: Record<string, unknown>[]): string | undefined {
   for (const entry of entries) {
+    const path = record(entry.path)
     const cwd =
       stringField(entry, 'cwd') ??
+      stringField(path ?? {}, 'cwd') ??
+      stringField(path ?? {}, 'root') ??
       (record(entry.payload) ? stringField(record(entry.payload)!, 'cwd') : undefined)
     if (cwd) return cwd
   }
@@ -519,6 +818,15 @@ function firstUserText(entries: Record<string, unknown>[]): string | undefined {
     const payload = record(entry.payload)
     const payloadType = payload ? stringField(payload, 'type') : undefined
     if (payloadType === 'user_message') return stringField(payload!, 'message')
+
+    if (stringField(entry, 'role') === 'user') {
+      const content = entry.content
+      if (typeof content === 'string') return content
+    }
+
+    const wirePayload = record(record(entry.message)?.payload)
+    const userInput = wirePayload ? stringField(wirePayload, 'user_input') : undefined
+    if (userInput) return userInput
 
     const message = record(entry.message)
     if (message && stringField(message, 'role') === 'user') {
@@ -564,6 +872,10 @@ function hashString(value: string): string {
 
 function stableSeed(value: string): number {
   return createHash('sha256').update(value).digest().readUInt32BE(0)
+}
+
+function maxOptional(current: number | undefined, next: number): number {
+  return current === undefined ? next : Math.max(current, next)
 }
 
 function clamp01(value: number): number {

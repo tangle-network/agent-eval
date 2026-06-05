@@ -3,6 +3,9 @@ import {
   analyzeRuns,
   fromClaudeCodeSession,
   fromCodexSession,
+  fromKimiCodeSession,
+  fromOpenCodeSession,
+  fromPiSession,
   parseCodeAgentJsonl,
 } from '../src/contract'
 import { validateRunRecord } from '../src/run-record'
@@ -171,6 +174,11 @@ describe('code-agent session intake', () => {
           prRepository: 'tangle-network/agent-knowledge',
           timestamp: '2026-06-05T00:00:10.000Z',
         },
+        {
+          type: 'file-history-snapshot',
+          sessionId: 'claude-session-1',
+          timestamp: '2026-06-05T00:00:11.000Z',
+        },
       ],
       commitSha: 'def456',
     })
@@ -192,6 +200,219 @@ describe('code-agent session intake', () => {
       toolOutputs: 1,
       toolErrors: 1,
       prLinks: 1,
+      fileSnapshots: 1,
+      patchAttempts: 0,
+    })
+  })
+
+  it('projects OpenCode message and part records without double-counting token summaries', () => {
+    const { runs, diagnostics, metrics } = fromOpenCodeSession({
+      entries: [
+        {
+          id: 'msg-user',
+          sessionID: 'opencode-session-1',
+          role: 'user',
+          time: { created: 1780000000 },
+        },
+        {
+          id: 'msg-assistant',
+          sessionID: 'opencode-session-1',
+          role: 'assistant',
+          parentID: 'msg-user',
+          providerID: 'kimi',
+          modelID: 'kimi-k2-code',
+          path: { cwd: '/repo', root: '/repo' },
+          time: { created: 1780000001, completed: 1780000011 },
+          tokens: { input: 1000, output: 120, reasoning: 30, cache: 40 },
+          cost: 0.42,
+          finish: 'stop',
+        },
+        {
+          id: 'part-reasoning',
+          messageID: 'msg-assistant',
+          sessionID: 'opencode-session-1',
+          type: 'reasoning',
+        },
+        {
+          id: 'part-tool-ok',
+          messageID: 'msg-assistant',
+          sessionID: 'opencode-session-1',
+          type: 'tool',
+          tool: 'bash',
+          state: { status: 'completed' },
+        },
+        {
+          id: 'part-tool-error',
+          messageID: 'msg-assistant',
+          sessionID: 'opencode-session-1',
+          type: 'tool',
+          tool: 'edit',
+          state: { status: 'error' },
+        },
+        {
+          id: 'part-patch',
+          messageID: 'msg-assistant',
+          sessionID: 'opencode-session-1',
+          type: 'patch',
+          files: [{ path: 'src/index.ts' }],
+        },
+        {
+          id: 'part-step-finish',
+          messageID: 'msg-assistant',
+          sessionID: 'opencode-session-1',
+          type: 'step-finish',
+          tokens: { input: 9999, output: 9999, cache: 9999 },
+          cost: 9.99,
+        },
+      ],
+    })
+
+    const run = validateRunRecord(runs[0])
+    expect(run.runId).toBe('opencode:opencode-session-1')
+    expect(run.model).toBe('kimi/kimi-k2-code@observed-local')
+    expect(run.tokenUsage).toEqual({ input: 1000, output: 150, cached: 40 })
+    expect(run.costUsd).toBe(0.42)
+    expect(run.failureMode).toBe('tool_error')
+    expect(run.outcome.raw.tool_calls).toBe(2)
+    expect(run.outcome.raw.tool_outputs).toBe(2)
+    expect(run.outcome.raw.patch_successes).toBe(1)
+    expect(diagnostics[0]!.hasExplicitTerminalSignal).toBe(true)
+    expect(metrics[0]).toMatchObject({
+      userMessages: 1,
+      assistantMessages: 1,
+      reasoningItems: 1,
+      toolErrors: 1,
+      observedCostUsd: 0.42,
+    })
+  })
+
+  it('projects Kimi Code wire events and token usage into RunRecord metrics', () => {
+    const secretPrompt = 'private kimi task text'
+    const { runs, diagnostics, metrics } = fromKimiCodeSession({
+      entries: [
+        {
+          session_id: 'kimi-session-1',
+          timestamp: 1780000000,
+          message: { type: 'TurnBegin', payload: { user_input: secretPrompt } },
+        },
+        {
+          session_id: 'kimi-session-1',
+          timestamp: 1780000001,
+          message: { type: 'StepBegin', payload: { n: 1 } },
+        },
+        {
+          session_id: 'kimi-session-1',
+          timestamp: 1780000002,
+          message: { type: 'ContentPart', payload: { type: 'think', think: 'hidden' } },
+        },
+        {
+          session_id: 'kimi-session-1',
+          timestamp: 1780000003,
+          message: {
+            type: 'ToolCall',
+            payload: { type: 'function', id: 'tool-1', function: { name: 'bash' } },
+          },
+        },
+        {
+          session_id: 'kimi-session-1',
+          timestamp: 1780000004,
+          message: {
+            type: 'ToolResult',
+            payload: { tool_call_id: 'tool-1', return_value: { is_error: false } },
+          },
+        },
+        {
+          session_id: 'kimi-session-1',
+          timestamp: 1780000005,
+          message: {
+            type: 'StatusUpdate',
+            payload: {
+              token_usage: {
+                input_other: 700,
+                output: 110,
+                input_cache_read: 50,
+                input_cache_creation: 25,
+              },
+            },
+          },
+        },
+        {
+          session_id: 'kimi-session-1',
+          timestamp: 1780000010,
+          message: { type: 'TurnEnd', payload: {} },
+        },
+      ],
+      model: 'kimi-code@2026-05-01',
+    })
+
+    const run = validateRunRecord(runs[0])
+    expect(run.runId).toBe('kimi-code:kimi-session-1')
+    expect(run.model).toBe('kimi-code@2026-05-01')
+    expect(run.tokenUsage).toEqual({ input: 700, output: 110, cached: 75 })
+    expect(run.outcome.raw.turns_started).toBe(1)
+    expect(run.outcome.raw.turns_completed).toBe(1)
+    expect(run.outcome.raw.reasoning_items).toBe(2)
+    expect(JSON.stringify(run)).not.toContain(secretPrompt)
+    expect(diagnostics[0]!.hasExplicitTerminalSignal).toBe(true)
+    expect(metrics[0]).toMatchObject({
+      userMessages: 1,
+      toolCalls: 1,
+      toolOutputs: 1,
+      toolErrors: 0,
+    })
+  })
+
+  it('projects PiGraph graph and reliability artifacts into a process-scored RunRecord', () => {
+    const { runs, diagnostics, metrics } = fromPiSession({
+      entries: [
+        {
+          session_id: 'pi-session-1',
+          nodes: [
+            { id: 'goal', ir: { kind: 'GoalSpec' } },
+            { id: 'candidate', ir: { kind: 'ActionCandidate' } },
+            { id: 'tool', ir: { kind: 'ToolInvocation' } },
+            { id: 'result', ir: { kind: 'ToolResult' } },
+            { id: 'verify', ir: { kind: 'VerificationReport' } },
+            { id: 'done', ir: { kind: 'CompletionDecision' } },
+          ],
+          edges: [
+            { from: 'goal', to: 'candidate', relation: 'selects' },
+            { from: 'candidate', to: 'tool', relation: 'precedes' },
+          ],
+        },
+        {
+          session_id: 'pi-session-1',
+          averageNodeReliability: 0.82,
+          pessimisticPathEstimate: 0.71,
+        },
+        {
+          session_id: 'pi-session-1',
+          rows: [
+            { validatedSuccessEstimate: 0.87, lift: 0.12 },
+            { validatedSuccessEstimate: 0.91, lift: 0.2 },
+          ],
+        },
+      ],
+    })
+
+    const run = validateRunRecord(runs[0])
+    expect(run.runId).toBe('pi:pi-session-1')
+    expect(run.model).toBe('pi@observed-local')
+    expect(run.costUsd).toBe(0)
+    expect(run.outcome.holdoutScore).toBe(0.91)
+    expect(run.outcome.raw.graph_nodes).toBe(6)
+    expect(run.outcome.raw.graph_edges).toBe(2)
+    expect(run.outcome.raw.action_candidates).toBe(1)
+    expect(run.outcome.raw.verification_reports).toBe(1)
+    expect(run.outcome.raw.completion_decisions).toBe(1)
+    expect(run.outcome.raw.reliability_rows).toBe(2)
+    expect(run.outcome.raw.reliability_lift).toBe(0.2)
+    expect(diagnostics[0]!.hasExplicitTerminalSignal).toBe(true)
+    expect(metrics[0]).toMatchObject({
+      toolCalls: 1,
+      toolOutputs: 1,
+      completionDecisions: 1,
+      reliabilityRows: 2,
     })
   })
 
