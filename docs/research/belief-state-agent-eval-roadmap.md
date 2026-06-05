@@ -211,14 +211,14 @@ The API should report uncertainty and support problems, not hide them behind a s
 
 ### Q3 2026 - Phase 0: Tracking, Corpus, and Decision Inventory
 
-- [ ] Keep this document current as the research tracker.
-- [ ] Create a decision inventory over existing traces: continue, verify, retry, ask, stop, memory-write, memory-read, tool-select, skill-select, workflow-select, prompt-promote.
-- [ ] Define trace extraction rules for each decision kind.
+- [x] Keep this document current as the research tracker.
+- [x] Create the first decision inventory over existing code-agent traces: failure-recovery, tool-select, and graph-completion.
+- [x] Define first-pass trace extraction rules for Codex, Claude Code, OpenCode, Kimi Code, and Pi/PiGraph-shaped local traces.
 - [ ] Define the minimum event fields needed from runtime and knowledge packages.
-- [ ] Build a replay corpus from existing `RunRecord` and trace stores.
+- [x] Build the first replay-corpus adapter from existing `RunRecord` rows plus local code-agent session traces.
 - [ ] Label at least 200 decision points with outcome, cost, and whether the action was retrospectively correct.
-- [ ] Add support diagnostics: missing candidates, missing outcomes, no cost, no raw trace, no held-out split.
-- [ ] Decide which decision kind has enough data for Phase 1.
+- [x] Add first support diagnostics: missing outcomes, missing behavior/target propensities, and insufficient target support.
+- [x] Decide the first decision kind for Phase 1 dogfooding: failure recovery after failed tool/patch actions.
 
 Completion criteria:
 
@@ -228,6 +228,8 @@ Completion criteria:
 - [ ] Backend and capture integrity are checked before analysis.
 - [ ] No producerless schema fields are introduced.
 - [ ] One baseline policy is recorded for every decision kind under study.
+
+Status on 2026-06-05: the experimental implementation exists in `src/belief-state/code-agent-corpus.ts` and is covered by `src/belief-state/code-agent-corpus.test.ts`. A local smoke after build joined 33 private code-agent sessions to 33 `RunRecord`s and emitted 13,137 decision rows across Codex, Claude Code, Kimi Code, OpenCode, and PiGraph-shaped traces. This closes the infrastructure part of Phase 0, but not the empirical proof gate: the next corpus run still has to add split metadata, integrity checks, retrospective labels, and a recorded baseline per target before the work can claim Phase 0 completion.
 
 ### Q4 2026 - Phase 1: Selective Prediction and Abstention
 
@@ -414,6 +416,7 @@ The most succinct integration is an experimental `src/belief-state/` module that
 | `src/belief-state/calibration.ts` | Computes confidence calibration for decision predictions. | Calls shared `calibrationFromPairs()` once added. |
 | `src/belief-state/ope.ts` | Converts decision rows into `OffPolicyTrajectory[]` for an explicit named target policy and calls `offPolicyEstimateAll`. | Must report ESS and support mismatch; no silent value claims. |
 | `src/belief-state/report.ts` | Orchestrates extraction + selective eval + calibration + OPE into one report. | Returns honest negative / need-more-data when unsupported. |
+| `src/belief-state/code-agent-corpus.ts` | Converts local code-agent sessions into belief decision points, inventories targets, selects the first supported target, and runs the experimental policy report. | Supports Codex, Claude Code, OpenCode, Kimi Code, and Pi/PiGraph-shaped traces. Does not invent behavior or target propensities. |
 | `src/belief-state/index.ts` | Experimental barrel for the module. | Keep out of root barrel and expose only through `./experimental/belief-state` while evidence gates are open. |
 
 ### Files to Change First
@@ -536,6 +539,7 @@ Promotion:
 | `src/belief-state/calibration.test.ts` | ECE bins; equal-width/equal-frequency behavior; too-few-pairs returns unsupported. |
 | `src/belief-state/ope.test.ts` | converts to `OffPolicyTrajectory`; explicit target policy required; invalid propensity disables OPE without throwing; low ESS support mismatch; estimator agreement surfaced. |
 | `src/belief-state/report.test.ts` | full report status: `ship`, `hold`, `need_more_data`; recommendation cannot ship on OPE alone. |
+| `src/belief-state/code-agent-corpus.test.ts` | extracts code-agent decision corpora across Codex, Claude Code, OpenCode, Kimi Code, and Pi/PiGraph-shaped traces; inventories targets; picks failure recovery first; holds when OPE propensities are absent. |
 | `src/meta-eval/calibration.test.ts` | existing `calibrationCurve()` still works after extracting pure helper. |
 
 ### Verification Commands

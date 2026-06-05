@@ -1,12 +1,15 @@
 {
-  "mode": "evolve",
-  "goal": "Empirical proof of the self-improvement substrate (Gen 6)",
-  "status": "CLOSED as honest negative + proven mechanism. Full-stack wiring (findings->competing drivers) SHIPPED+tested. AppWorld d3 ran e2e on a REAL backend (mechanism proven: loop runs, drivers compete, gate correctly HOLDS), but NO significant prompt-opt lift across 5 configs — capable models ceiling easy tasks, and the competent AppWorld baseline leaves only capability-bound residual. Lift needs a DELIBERATELY-WEAK baseline config (next experiment, awaiting go-ahead).",
+  "mode": "research",
+  "goal": "Belief-state decision corpus inside agent-eval",
+  "status": "ACTIVE: Phase 0 infrastructure implemented for local code-agent traces; empirical corpus gate still requires real measurement, split metadata, integrity checks, and >=200 labeled decision points before stable API promotion.",
   "round": 0,
   "generation": 6,
-  "activePursuit": null,
+  "activePursuit": ".evolve/pursuits/2026-06-04-belief-state-agent-eval.md",
   "metricClaims": {
-    "held_out_lift_ci": "no driver cleared CI.low>0 on any of 5 configs; the substrate MECHANISM is the proven deliverable (e2e loop, competing drivers, integrity-gated gate that correctly holds). A positive lift number requires constructing the weak-baseline + capable-model + headroom triple, not a found config."
+    "phase_0_infrastructure": "implemented for local code-agent traces; synthetic tests cover Codex, Claude Code, OpenCode, Kimi Code, and Pi/PiGraph-shaped inputs.",
+    "local_smoke": "33 local sessions joined to 33 RunRecords and emitted 13137 decision rows across Codex, Claude Code, Kimi Code, OpenCode, and PiGraph-shaped traces.",
+    "empirical_gate": "not yet cleared; still requires split metadata, integrity checks, retrospective labels, and baseline policy rows.",
+    "counterfactual_claims": "blocked when OPE support is missing; no behavior or target propensities are invented."
   },
-  "updatedAt": "2026-06-01"
+  "updatedAt": "2026-06-05"
 }

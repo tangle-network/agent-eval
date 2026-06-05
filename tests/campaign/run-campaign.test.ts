@@ -68,6 +68,24 @@ describe('fsCampaignStorage — default Node FS adapter', () => {
 })
 
 describe('runCampaign — core primitive', () => {
+  it('fails closed on a missing runDir instead of writing under ./undefined', async () => {
+    const spillDir = join(process.cwd(), 'undefined')
+    rmSync(spillDir, { recursive: true, force: true })
+
+    try {
+      await expect(
+        runCampaign({
+          scenarios: SCENARIOS.slice(0, 1),
+          dispatch: DISPATCH,
+          runDir: undefined as unknown as string,
+        }),
+      ).rejects.toThrow(/runDir is required/)
+      expect(existsSync(spillDir)).toBe(false)
+    } finally {
+      rmSync(spillDir, { recursive: true, force: true })
+    }
+  })
+
   it('runs every (scenario × rep) cell and returns a CampaignResult', async () => {
     const result = await runCampaign({
       scenarios: SCENARIOS,

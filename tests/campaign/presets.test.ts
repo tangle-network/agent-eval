@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync } from 'node:fs'
+import { existsSync, mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -810,6 +810,36 @@ describe('runImprovementLoop — safety pre-flight', () => {
 // ── runOptimization end-to-end ─────────────────────────────────────
 
 describe('runOptimization', () => {
+  it('fails closed on a missing runDir before writing under ./undefined', async () => {
+    const spillDir = join(process.cwd(), 'undefined')
+    rmSync(spillDir, { recursive: true, force: true })
+    const noopMutator: Mutator = {
+      kind: 'noop',
+      async mutate({ currentSurface }) {
+        return [currentSurface]
+      },
+    }
+
+    try {
+      await expect(
+        runOptimization({
+          scenarios: SCENARIOS.slice(0, 1),
+          baselineSurface: 'base',
+          dispatchWithSurface: async (surface: string, s: FakeScenario) => ({
+            text: `${surface}::${s.id}`,
+          }),
+          driver: evolutionaryDriver({ mutator: noopMutator }),
+          populationSize: 1,
+          maxGenerations: 1,
+          runDir: undefined as unknown as string,
+        }),
+      ).rejects.toThrow(/runDir is required/)
+      expect(existsSync(spillDir)).toBe(false)
+    } finally {
+      rmSync(spillDir, { recursive: true, force: true })
+    }
+  })
+
   it('runs baseline + N generations and returns a winner', async () => {
     const noopMutator: Mutator = {
       kind: 'append-letter',
