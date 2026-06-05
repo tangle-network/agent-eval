@@ -17,6 +17,7 @@ Primary tracker: `docs/research/belief-state-agent-eval-roadmap.md`.
 - [x] Decision-point corpus extractor exists and joins local code-agent traces to `RunRecord`.
 - [x] Research evidence gate separates selective claim support from counterfactual claim support.
 - [x] Runtime decision hooks can feed outcome-blind shadow probes without making `agent-eval` depend on runtime.
+- [x] Stable experimental taxonomy exists for decision kinds, evidence quality, criteria, and reason codes.
 - [ ] Selective prediction beats baseline utility on holdout or records an honest negative.
 - [x] OPE support diagnostics hold the report when behavior/target propensities are absent.
 - [ ] Memory policy evaluation handles poisoning, staleness, and context bloat.
@@ -46,3 +47,9 @@ Runtime bridge added after the agent-runtime hook merge:
 - Pre-action runtime decision hooks convert to `BeliefShadowProbeInput` so forked probes can ask what action the agent would take without leaking the observed action.
 - Full `BeliefDecisionPoint` conversion requires an explicit `chosenAction`; the adapter diagnoses missing observed actions instead of fabricating rows.
 - Unsupported runtime decision kinds are diagnosed unless the caller supplies an explicit belief decision kind override.
+
+Taxonomy added for the long-term outcome:
+
+- `src/belief-state/types.ts` exports stable decision kinds, evidence sources, evidence quality labels, evaluation criteria, and reason codes.
+- The criteria are intentionally narrow: capture integrity, decision completeness, evidence quality, outcome quality, calibration, accepted-region risk, policy value, OPE support, memory health, surface attribution, generalization, and promotion.
+- Runtime-specific sources such as `tool_result` remain adapter metadata unless promoted to the core evidence-source set by evidence.

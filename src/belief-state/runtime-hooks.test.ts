@@ -30,7 +30,7 @@ describe('belief runtime hooks bridge', () => {
     })
     expect(report.input?.observedAction).toBeUndefined()
     expect(report.input?.evidence).toEqual([
-      { id: 'call-1', source: 'tool_call', detail: 'submit_proposal' },
+      { id: 'call-1', source: 'tool_call', detail: 'submit_proposal', quality: 'direct' },
       { id: 'result-1', source: 'tool_result', detail: 'missing owner' },
     ])
   })
@@ -81,6 +81,7 @@ describe('belief runtime hooks bridge', () => {
         id: 'call-1',
         runId: 'run-1',
         detail: 'submit_proposal',
+        quality: 'direct',
         metadata: { runtimeSource: 'tool_call' },
       },
       {
@@ -149,6 +150,7 @@ function runtimeDecisionPoint(
         source: 'tool_call',
         id: 'call-1',
         detail: 'submit_proposal',
+        quality: 'direct',
       },
       {
         source: 'tool_result',

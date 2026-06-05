@@ -3,14 +3,16 @@ import type {
   BeliefDecisionKind,
   BeliefDecisionOutcome,
   BeliefDecisionPoint,
+  BeliefEvidenceQuality,
   BeliefEvidenceRef,
-  BeliefEvidenceSource,
 } from './types'
+import { isBeliefDecisionKind, isBeliefEvidenceSource } from './types'
 
 export interface RuntimeBeliefDecisionEvidenceRef {
   source: string
   id: string
   detail?: string
+  quality?: BeliefEvidenceQuality
   metadata?: Record<string, unknown>
 }
 
@@ -82,30 +84,6 @@ export interface BeliefRuntimeHookCollector {
   clear(): void
 }
 
-const BELIEF_DECISION_KINDS: ReadonlySet<string> = new Set([
-  'continue',
-  'verify',
-  'ask',
-  'retry',
-  'stop',
-  'memory-write',
-  'memory-read',
-  'tool-select',
-  'skill-select',
-  'workflow-select',
-  'surface-promote',
-])
-
-const BELIEF_EVIDENCE_SOURCES: ReadonlySet<string> = new Set([
-  'run',
-  'span',
-  'event',
-  'finding',
-  'memory',
-  'knowledge',
-  'policy',
-])
-
 const DEFAULT_MAX_CONTEXT_CHARS = 12_000
 
 export function runtimeDecisionPointToBeliefShadowProbeInput(
@@ -129,6 +107,7 @@ export function runtimeDecisionPointToBeliefShadowProbeInput(
         id: ref.id,
         source: ref.source,
         ...(options.includeEvidenceDetail && ref.detail ? { detail: ref.detail } : {}),
+        ...(ref.quality ? { quality: ref.quality } : {}),
       })),
       context: trimText(point.context, options.maxContextChars),
       metadata: point.metadata,
@@ -223,7 +202,7 @@ function resolveDecisionKind(
   diagnostics: RuntimeBeliefConversionDiagnostic[],
 ): BeliefDecisionKind | undefined {
   const kind = override ?? point.kind
-  if (BELIEF_DECISION_KINDS.has(kind)) return kind as BeliefDecisionKind
+  if (isBeliefDecisionKind(kind)) return kind
   diagnostics.push({
     decisionId: point.id,
     severity: 'error',
@@ -236,12 +215,13 @@ function runtimeEvidenceToBeliefEvidence(
   ref: RuntimeBeliefDecisionEvidenceRef,
   point: RuntimeBeliefDecisionPoint,
 ): BeliefEvidenceRef {
-  if (BELIEF_EVIDENCE_SOURCES.has(ref.source)) {
+  if (isBeliefEvidenceSource(ref.source)) {
     return {
-      source: ref.source as BeliefEvidenceSource,
+      source: ref.source,
       id: ref.id,
       runId: point.runId,
       detail: ref.detail,
+      quality: ref.quality,
       metadata: ref.metadata,
     }
   }
@@ -251,6 +231,7 @@ function runtimeEvidenceToBeliefEvidence(
     id: ref.id,
     runId: point.runId,
     detail: ref.detail,
+    quality: ref.quality,
     metadata: mergeMetadata({ runtimeSource: ref.source }, ref.metadata),
   }
 }
@@ -270,6 +251,7 @@ function snapshotRuntimeDecisionPoint(
       source: ref.source,
       id: ref.id,
       detail: ref.detail,
+      quality: ref.quality,
       metadata: ref.metadata ? { ...ref.metadata } : undefined,
     })),
     metadata: point.metadata ? { ...point.metadata } : undefined,
