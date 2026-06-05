@@ -37,3 +37,25 @@ export function surfaceToText(surface: MutableSurface): string {
     `curator driver: surface must be a string prompt, got a ${surface.kind}-tier surface (${surface.worktreeRef}) — curation is prompt-tier`,
   )
 }
+
+// ── Delimited-block IO (the part ace + memory curators share) ──────────
+// Both manage a marker-delimited block in the surface; only the bullet
+// format + retention policy differ. One copy of the read/strip so they
+// cannot drift on how they find or remove the block.
+
+/** Body text strictly between `startMarker` and `endMarker`; '' if absent. */
+export function extractBlockBody(text: string, startMarker: string, endMarker: string): string {
+  const start = text.indexOf(startMarker)
+  const end = text.indexOf(endMarker)
+  if (start === -1 || end === -1 || end < start) return ''
+  return text.slice(start + startMarker.length, end)
+}
+
+/** Remove the delimited block (and surrounding trailing whitespace), trimmed,
+ *  so the caller can re-emit a fresh block. */
+export function stripBlock(text: string, startMarker: string, endMarker: string): string {
+  const start = text.indexOf(startMarker)
+  const end = text.indexOf(endMarker)
+  if (start === -1 || end === -1 || end < start) return text.trimEnd()
+  return (text.slice(0, start) + text.slice(end + endMarker.length)).trimEnd()
+}

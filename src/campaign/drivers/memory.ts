@@ -29,7 +29,7 @@
 
 import { callLlm, type LlmClientOptions } from '../../llm-client'
 import type { ImprovementDriver, ProposeContext, ProposedCandidate } from '../types'
-import { findingToLesson, normKey, surfaceToText } from './_findings-text'
+import { extractBlockBody, findingToLesson, normKey, stripBlock, surfaceToText } from './_findings-text'
 
 const BLOCK_START = '<!-- BEGIN curated-memory (auto-managed by memoryCurationDriver) -->'
 const BLOCK_END = '<!-- END curated-memory -->'
@@ -61,22 +61,10 @@ const DISTILL_SYSTEM =
 
 /** Pull the lessons already curated into the parent surface's memory block. */
 function extractExistingLessons(text: string): string[] {
-  const start = text.indexOf(BLOCK_START)
-  const end = text.indexOf(BLOCK_END)
-  if (start === -1 || end === -1 || end < start) return []
-  return text
-    .slice(start + BLOCK_START.length, end)
+  return extractBlockBody(text, BLOCK_START, BLOCK_END)
     .split('\n')
     .map((l) => l.replace(/^\s*-\s+/, '').trim())
     .filter((l) => l && !l.startsWith('#'))
-}
-
-/** Remove the memory block (and surrounding blank lines) so we can re-emit it. */
-function stripBlock(text: string): string {
-  const start = text.indexOf(BLOCK_START)
-  const end = text.indexOf(BLOCK_END)
-  if (start === -1 || end === -1 || end < start) return text.trimEnd()
-  return (text.slice(0, start) + text.slice(end + BLOCK_END.length)).trimEnd()
 }
 
 async function distillLessons(
@@ -154,7 +142,7 @@ export function memoryCurationDriver(opts: MemoryCurationDriverOptions = {}): Im
       const block = [BLOCK_START, heading, ...ranked.map((e) => `- ${e.text}`), BLOCK_END].join(
         '\n',
       )
-      const next = `${stripBlock(parent)}\n\n${block}\n`
+      const next = `${stripBlock(parent, BLOCK_START, BLOCK_END)}\n\n${block}\n`
       if (next === parent) return [] // no change (same lessons already curated)
 
       return [
