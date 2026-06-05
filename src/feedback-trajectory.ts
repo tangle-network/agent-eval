@@ -1,3 +1,4 @@
+import { fnv1a32 } from './hash'
 import type { ControlEvalResult, ControlRunResult, ControlStep } from './control-runtime'
 import type { DatasetScenario, DatasetSplit } from './dataset'
 
@@ -311,7 +312,7 @@ export function createFeedbackTrajectory(input: {
   const createdAt = input.createdAt ?? new Date().toISOString()
   const id =
     input.id ??
-    `ft_${stableHash(`${input.projectId ?? ''}|${input.scenarioId ?? ''}|${input.task.intent}|${createdAt}`).toString(16)}`
+    `ft_${fnv1a32(`${input.projectId ?? ''}|${input.scenarioId ?? ''}|${input.task.intent}|${createdAt}`).toString(16)}`
   return {
     id,
     projectId: input.projectId,
@@ -335,7 +336,7 @@ export function assignFeedbackSplit(
   const total = split.trainPct + split.devPct + split.testPct + split.holdoutPct
   if (total <= 0) throw new Error('assignFeedbackSplit: split percentages must sum above zero')
   const bucket =
-    stableHash(
+    fnv1a32(
       `${trajectory.projectId ?? ''}|${trajectory.scenarioId ?? ''}|${trajectory.id}|${trajectory.task.intent}`,
     ) % total
   if (bucket < split.trainPct) return 'train'
@@ -523,7 +524,7 @@ export function controlRunToFeedbackTrajectory<TState, TAction, TActionResult>(
 ): FeedbackTrajectory {
   const createdAt = options.createdAt ?? new Date().toISOString()
   const trajectoryId =
-    run.runId ?? `ft_control_${stableHash(`${run.intent}|${createdAt}`).toString(16)}`
+    run.runId ?? `ft_control_${fnv1a32(`${run.intent}|${createdAt}`).toString(16)}`
   return createFeedbackTrajectory({
     id: trajectoryId,
     projectId: options.projectId,
@@ -651,14 +652,6 @@ function compact(value: string, max: number): string {
   return normalized.length > max ? `${normalized.slice(0, max).trim()}...` : normalized
 }
 
-function stableHash(input: string): number {
-  let hash = 2166136261
-  for (let i = 0; i < input.length; i += 1) {
-    hash ^= input.charCodeAt(i)
-    hash = Math.imul(hash, 16777619)
-  }
-  return hash >>> 0
-}
 
 function canonicalize(value: unknown): unknown {
   if (value === null || typeof value !== 'object') return value

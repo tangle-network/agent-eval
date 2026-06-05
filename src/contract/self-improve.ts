@@ -1,3 +1,4 @@
+import { fnv1a32, fnv1aHex } from '../hash'
 /**
  * # `selfImprove()` — the LAND-tier one-shot.
  *
@@ -267,16 +268,7 @@ function splitTrainHoldout<TScenario extends Scenario>(
   scenarios: TScenario[],
   fraction: number,
 ): { train: TScenario[]; holdout: TScenario[] } {
-  // Stable fnv-1a-ish hash of the id for ordering.
-  function hash(s: string): number {
-    let h = 2166136261 >>> 0
-    for (let i = 0; i < s.length; i++) {
-      h ^= s.charCodeAt(i)
-      h = Math.imul(h, 16777619) >>> 0
-    }
-    return h
-  }
-  const sorted = [...scenarios].sort((a, b) => hash(a.id) - hash(b.id))
+  const sorted = [...scenarios].sort((a, b) => fnv1a32(a.id) - fnv1a32(b.id))
   const nHoldout = Math.max(1, Math.min(sorted.length - 1, Math.round(sorted.length * fraction)))
   return {
     holdout: sorted.slice(0, nHoldout),
@@ -555,8 +547,8 @@ async function shipEvalRunToHosted<TScenario extends Scenario, TArtifact>(
       index,
       surfaceHash:
         typeof surface === 'string'
-          ? hashString(surface)
-          : hashString(JSON.stringify(surface ?? '')),
+          ? fnv1aHex(surface)
+          : fnv1aHex(JSON.stringify(surface ?? '')),
       surface,
       cells,
       compositeMean,
@@ -610,14 +602,6 @@ function averageComposite(
   return aggs.length === 0 ? 0 : aggs.reduce((s, a) => s + a.meanComposite, 0) / aggs.length
 }
 
-function hashString(s: string): string {
-  let h = 2166136261 >>> 0
-  for (let i = 0; i < s.length; i++) {
-    h ^= s.charCodeAt(i)
-    h = Math.imul(h, 16777619) >>> 0
-  }
-  return h.toString(16).padStart(8, '0')
-}
 
 /**
  * Adapt campaign cells into the `RunRecord` shape `analyzeRuns()` consumes.
@@ -675,7 +659,7 @@ function cellsToRunRecords<TArtifact>(
       // Synthesize a stable seed for that pairing.
       seed:
         cell.rep * 1_000_000 +
-        hashString(cell.scenarioId)
+        fnv1aHex(cell.scenarioId)
           .slice(0, 6)
           .split('')
           .reduce((a, c) => (a * 31 + c.charCodeAt(0)) >>> 0, 0),

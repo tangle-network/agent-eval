@@ -1,3 +1,4 @@
+import { fnv1a32 } from './hash'
 import { makeRng } from './rng'
 import { type AxAIService, AxGEPA, ai, ax } from '@ax-llm/ax'
 import { aggregateRunScore, type RunScore, type RunScoreWeights } from './run-score'
@@ -219,7 +220,7 @@ function createAxService(
 // a stable value (the signature) keeps train/validation splits reproducible
 // across runs while removing positional skew when rows arrive grouped.
 function seededShuffle<T>(items: readonly T[], seed: string): T[] {
-  const rng = makeRng(hashString(seed))
+  const rng = makeRng(fnv1a32(seed))
   const out = [...items]
   for (let i = out.length - 1; i > 0; i--) {
     const j = Math.floor(rng() * (i + 1))
@@ -228,12 +229,4 @@ function seededShuffle<T>(items: readonly T[], seed: string): T[] {
   return out
 }
 
-function hashString(value: string): number {
-  let h = 2166136261
-  for (let i = 0; i < value.length; i++) {
-    h ^= value.charCodeAt(i)
-    h = Math.imul(h, 16777619)
-  }
-  return h >>> 0
-}
 
