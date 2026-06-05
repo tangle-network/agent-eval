@@ -123,6 +123,9 @@ export async function runCampaign<TScenario extends Scenario, TArtifact>(
   const judges = opts.judges ?? []
   const storage = opts.storage ?? fsCampaignStorage()
 
+  if (typeof opts.runDir !== 'string' || opts.runDir.trim().length === 0) {
+    throw new Error('runCampaign: runDir is required and must be a non-empty string')
+  }
   storage.ensureDir(opts.runDir)
 
   const manifestHash = computeManifestHash({

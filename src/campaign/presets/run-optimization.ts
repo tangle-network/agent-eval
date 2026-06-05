@@ -115,6 +115,9 @@ export async function runOptimization<TScenario extends Scenario, TArtifact>(
   opts: RunOptimizationOptions<TScenario, TArtifact>,
 ): Promise<RunOptimizationResult<TArtifact, TScenario>> {
   const promoteTopK = opts.promoteTopK ?? 2
+  if (typeof opts.runDir !== 'string' || opts.runDir.trim().length === 0) {
+    throw new Error('runOptimization: runDir is required and must be a non-empty string')
+  }
 
   // Baseline run
   const baselineCampaign = await runCampaign<TScenario, TArtifact>({

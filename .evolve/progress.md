@@ -25,3 +25,13 @@ Prompt-optimization lift needs THREE things at once: a weak/fixable baseline pro
 The one config most likely to show real lift: a DELIBERATELY-WEAK AppWorld baseline prompt (strip the competent repl_agent instructions to a bare "solve the task") on difficulty 1-2 where v4-flash is NOT ceilinged — the standard GEPA/DSPy "optimize a weak starting prompt" setup. This directly targets the root cause (baseline too good) and is principled, not rigged.
 
 Next: /pursue weak-baseline AppWorld lift config (explicit go-ahead) OR merge the verified substrate (pursue/empirical-proof) + close the ticket on the proven mechanism.
+
+## 2026-06-05 — Belief-state Phase 0 corpus substrate
+
+Implemented the first belief-state decision corpus path for local code-agent traces. The new `src/belief-state/code-agent-corpus.ts` joins Codex, Claude Code, OpenCode, Kimi Code, and Pi/PiGraph-shaped session events to `RunRecord`, emits decision points for failure recovery, tool selection, and graph completion, inventories target support, selects failure recovery first, and runs the experimental selective/calibration/OPE report.
+
+Verified synthetic coverage for the five trace families. Missing behavior/target propensities correctly force OPE `unsupported` and overall `hold`; no counterfactual policy value is claimed without support.
+
+Built package smoke on local private traces: 33 sessions joined to 33 `RunRecord`s and emitted 13,137 decision rows. Breakdown: Codex 2,172 decisions, Claude Code 10,198, Kimi Code 597, OpenCode 168, PiGraph 2. Failure recovery had support in Codex, Claude Code, Kimi Code, and OpenCode; all policy reports held because behavior/target propensities are missing.
+
+Next: run real local corpus measurement and keep the stable belief-state API gate closed until the empirical support thresholds clear.
