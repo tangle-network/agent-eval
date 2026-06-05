@@ -6,23 +6,9 @@ import {
 } from './judge-calibration'
 import type { JudgeScore } from './types'
 
-/** Dimensions where lower raw score = better outcome (inverted semantics) */
-const INVERTED_DIMENSIONS = new Set(['hallucination', 'false_confidence', 'worst_failure'])
-
-/**
- * Normalize scores so all dimensions follow "higher = better".
- * Inverted dimensions (hallucination, false_confidence, worst_failure)
- * already use inverted scoring in the prompt (10 = no hallucination),
- * but this function ensures consistency if raw scores leak through.
- */
-export function normalizeScores(scores: JudgeScore[]): JudgeScore[] {
-  return scores.map((s) => {
-    if (INVERTED_DIMENSIONS.has(s.dimension)) {
-      return s
-    }
-    return s
-  })
-}
+/** Identity: dimensions already follow "higher = better" by prompt convention
+ *  (inverted dims like hallucination are scored 10 = best at the source). */
+export const normalizeScores = (scores: JudgeScore[]): JudgeScore[] => scores
 
 /** Weighted mean — falls back to uniform weights when omitted */
 export function weightedMean(scores: { score: number; weight?: number }[]): number {

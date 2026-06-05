@@ -25,7 +25,7 @@
  */
 
 import type { ImprovementDriver, ProposeContext, ProposedCandidate } from '../types'
-import { findingToLesson, normKey, surfaceToText } from './_findings-text'
+import { extractBlockBody, findingToLesson, normKey, stripBlock, surfaceToText } from './_findings-text'
 
 const BLOCK_START = '<!-- BEGIN ace-playbook (auto-managed by aceDriver) -->'
 const BLOCK_END = '<!-- END ace-playbook -->'
@@ -48,10 +48,7 @@ interface Bullet {
 /** Parse the existing playbook block into bullets, preserving order + tags. A
  *  bullet line is `- [gN] <text>`; an untagged `- <text>` is tolerated (gen -1). */
 function parsePlaybook(surface: string): Bullet[] {
-  const start = surface.indexOf(BLOCK_START)
-  const end = surface.indexOf(BLOCK_END)
-  if (start === -1 || end === -1 || end < start) return []
-  const body = surface.slice(start + BLOCK_START.length, end)
+  const body = extractBlockBody(surface, BLOCK_START, BLOCK_END)
   const out: Bullet[] = []
   for (const raw of body.split('\n')) {
     const line = raw.trim()
@@ -62,14 +59,6 @@ function parsePlaybook(surface: string): Bullet[] {
     else out.push({ gen: -1, text: item })
   }
   return out
-}
-
-/** Strip the playbook block (and surrounding blank lines) so it can be re-emitted. */
-function stripBlock(surface: string): string {
-  const start = surface.indexOf(BLOCK_START)
-  const end = surface.indexOf(BLOCK_END)
-  if (start === -1 || end === -1 || end < start) return surface.trimEnd()
-  return (surface.slice(0, start) + surface.slice(end + BLOCK_END.length)).trimEnd()
 }
 
 export function aceDriver(opts: AceDriverOptions = {}): ImprovementDriver {
@@ -108,7 +97,7 @@ export function aceDriver(opts: AceDriverOptions = {}): ImprovementDriver {
         ...all.map((b) => `- [g${b.gen}] ${b.text}`),
         BLOCK_END,
       ].join('\n')
-      const base = stripBlock(parent)
+      const base = stripBlock(parent, BLOCK_START, BLOCK_END)
       const surface = base ? `${base}\n\n${block}` : block
 
       return [

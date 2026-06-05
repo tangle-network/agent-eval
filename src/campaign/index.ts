@@ -34,19 +34,6 @@ export {
   gepaDriver,
 } from './drivers/gepa'
 // ── Improvement drivers ──────────────────────────────────────────────
-// New here? `selectDriver({ goal })` + the DRIVER_GUIDE table tell you which
-// driver to pick and why.
-export {
-  DRIVER_GUIDE,
-  type DriverGoal,
-  type DriverGuideEntry,
-  type DriverName,
-  type DriverRecommendation,
-  type DriverStrategy,
-  type DriverSurface,
-  type SelectDriverCriteria,
-  selectDriver,
-} from './drivers/guide'
 export { type HaloDriverOptions, haloDriver } from './drivers/halo'
 export { type MemoryCurationDriverOptions, memoryCurationDriver } from './drivers/memory'
 export {
