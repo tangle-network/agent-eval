@@ -1,3 +1,4 @@
+import { makeRng } from './rng'
 /**
  * Judge calibration — measure judge quality against human gold + bias.
  *
@@ -306,7 +307,7 @@ export function continuousAgreement(
   const ciIcc: [number, number] = [NaN, NaN]
   const ciKappa: [number, number] = [NaN, NaN]
   if (bootstrap > 0) {
-    const rng = mulberry32(seed)
+    const rng = makeRng(seed)
     const iccs: number[] = []
     const kappas: number[] = []
     for (let b = 0; b < bootstrap; b++) {
@@ -537,16 +538,6 @@ function rankWithTies(xs: number[]): number[] {
 }
 
 /** Seeded PRNG — Mulberry32. Deterministic across platforms. */
-function mulberry32(seed: number): () => number {
-  let a = seed >>> 0
-  return () => {
-    a = (a + 0x6d2b79f5) >>> 0
-    let t = a
-    t = Math.imul(t ^ (t >>> 15), t | 1)
-    t ^= t + Math.imul(t ^ (t >>> 7), t | 61)
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296
-  }
-}
 
 function percentileBounds(ciLevel: number): [number, number] {
   const tail = (1 - ciLevel) / 2
