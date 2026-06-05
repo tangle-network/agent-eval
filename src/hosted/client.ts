@@ -161,9 +161,17 @@ export function createHostedClient(tenant: HostedTenant): HostedClient {
  * A trailing slash on the endpoint is stripped. Pass `overrides` to supply any
  * field directly (e.g. a fixed `tenantId` per product) — overrides win over env.
  */
-export function hostedClientFromEnv(
+/**
+ * Build a {@link HostedTenant} config from env — the input `selfImprove`'s
+ * `hostedTenant` and `emitLoopProvenance` take. Same env precedence + overrides
+ * as {@link hostedClientFromEnv}; returns `undefined` (not an error) when any of
+ * endpoint / apiKey / tenantId is missing, so a product wires
+ * `hostedTenant: hostedTenantFromEnv({ tenantId: 'my-agent' })` unconditionally
+ * and it stays off until the env is set.
+ */
+export function hostedTenantFromEnv(
   overrides: Partial<HostedTenant> & { env?: Record<string, string | undefined> } = {},
-): HostedClient | undefined {
+): HostedTenant | undefined {
   const env = overrides.env ?? process.env
   const endpoint = (
     overrides.endpoint ??
@@ -177,5 +185,12 @@ export function hostedClientFromEnv(
   if (overrides.fetchImpl) tenant.fetchImpl = overrides.fetchImpl
   if (overrides.timeoutMs !== undefined) tenant.timeoutMs = overrides.timeoutMs
   if (overrides.retries !== undefined) tenant.retries = overrides.retries
-  return createHostedClient(tenant)
+  return tenant
+}
+
+export function hostedClientFromEnv(
+  overrides: Partial<HostedTenant> & { env?: Record<string, string | undefined> } = {},
+): HostedClient | undefined {
+  const tenant = hostedTenantFromEnv(overrides)
+  return tenant ? createHostedClient(tenant) : undefined
 }
