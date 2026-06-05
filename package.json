@@ -1,6 +1,6 @@
 {
   "name": "@tangle-network/agent-eval",
-  "version": "0.79.0",
+  "version": "0.80.0",
   "description": "Decision-grade evals for agents: one call — selfImprove (closed loop) or analyzeRuns (observed runs) — returns a decision packet: lift CI, judge calibration, contamination check, failure clusters, cost-quality Pareto, ranked actions. The scoring and ship-gate substrate @tangle-network/agent-runtime delegates to; TypeScript and Python over one wire protocol.",
   "homepage": "https://github.com/tangle-network/agent-eval#readme",
   "repository": {
