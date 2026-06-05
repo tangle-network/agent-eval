@@ -182,6 +182,7 @@ release decision.
 
 ## Where to go next
 
+- **Confused by "GEPA / HALO / trace analysis / drivers everywhere"?** → [self-improvement-map.md](./self-improvement-map.md) — one loop, four roles, the seven-driver catalog (production vs bench-only), and why `gepa-refine` is the same loop on a test bench.
 - **Need the layman feature map?** → [feature-guide.md](./feature-guide.md) — what each primitive does, when to use it, integration patterns, and guardrails.
 - **Just want to score a string against a rubric?** → [wire-protocol.md](./wire-protocol.md) — HTTP/RPC interface, pluggable from any language.
 - **Need a reusable driver/worker/evaluator loop?** → [control-runtime.md](./control-runtime.md) — generic runtime plus coding, browser, computer-use, and research integration patterns.
