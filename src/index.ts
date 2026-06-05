@@ -440,6 +440,8 @@ export {
   selectHarnessVariant,
   summarizeHarnessResults,
 } from './harness-optimizer'
+export type { EnsembleAggregate, JudgeVerdict } from './judge-ensemble'
+export { aggregateJudgeVerdicts } from './judge-ensemble'
 export type {
   JudgeFleetOptions,
   SandboxJudgeKind,
