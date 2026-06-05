@@ -62,7 +62,7 @@ export interface IntentMatchOptions {
 }
 
 const DEFAULT_MODEL = 'claude-sonnet-4-6'
-const DEFAULT_TIMEOUT = 90_000
+const DEFAULT_TIMEOUT = 300_000
 const DEFAULT_MAX_SOURCE = 25_000
 const DEFAULT_MAX_PER_FILE = 12_000
 const DEFAULT_MAX_HTML = 20_000

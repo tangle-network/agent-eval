@@ -54,7 +54,7 @@ export interface LlmCallRequest {
   jsonSchema?: { name: string; schema: Record<string, unknown> }
   temperature?: number
   maxTokens?: number
-  /** Per-call timeout, default 60s. */
+  /** Per-call timeout, default 300s. */
   timeoutMs?: number
 }
 
@@ -130,8 +130,16 @@ export interface LlmClientOptions {
 // ─── Internals ──────────────────────────────────────────────────────────
 
 const DEFAULT_BASE_URL = 'https://router.tangle.tools/v1'
-const DEFAULT_TIMEOUT_MS = 60_000
-const DEFAULT_MAX_RETRIES = 3
+// Flagship / reasoning models routinely take several minutes on large prompts (a
+// reflection over many failures, a long tool transcript). A tight cap aborts a
+// legitimately-slow but healthy call — and because every retry attempt re-uses
+// the same window, such a model aborts on ALL attempts and the loop throws. The
+// default is generous enough to let those complete, bounded enough that a truly
+// hung call still fails over after retries, and tunable per deployment via
+// TANGLE_LLM_TIMEOUT_MS. Per-call `req.timeoutMs` / `opts.defaultTimeoutMs`
+// still win for callers that know their model's latency.
+const DEFAULT_TIMEOUT_MS = Number(process.env.TANGLE_LLM_TIMEOUT_MS) || 300_000
+const DEFAULT_MAX_RETRIES = Number(process.env.TANGLE_LLM_MAX_RETRIES) || 3
 
 const RETRYABLE_STATUS = new Set([429, 502, 503, 504])
 
