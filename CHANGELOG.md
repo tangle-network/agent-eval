@@ -4,6 +4,14 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ---
 
+## [0.83.0] — 2026-06-05 — hostedTenantFromEnv
+
+### Added
+
+- **`hostedTenantFromEnv` (`/hosted`).** Builds a `HostedTenant` config from env (the input `selfImprove({ hostedTenant })` and `emitLoopProvenance` take), with the same env precedence + overrides as `hostedClientFromEnv` — which now composes it. Returns `undefined` (not an error) when unconfigured, so a product wires `hostedTenant: hostedTenantFromEnv({ tenantId: 'my-agent' })` unconditionally and hosted ingest stays off until the env is set. Removes the env→tenant mapping every product would otherwise hand-roll when collapsing onto `selfImprove`.
+
+---
+
 ## [0.82.0] — 2026-06-05 — selfImprove forwards the full loop surface
 
 ### Changed
@@ -21,7 +29,7 @@ A deterministic offline test that drives `selfImprove` with a mock agent must no
 
 ### Added
 
-- **`aggregateJudgeVerdicts<D>` (root).** Generic judge-ensemble reducer: fan out N uncorrelated judges, mean each rubric dimension over the SURVIVORS, report the inter-rater disagreement spread, sum cost. Replaces the same reduction hand-rolled in legal (`aggregateEnsemble`), creative (`production-loop/judges.ts`), and tax (`judge-ensemble.ts`). Fail-loud: a failed judge (`perDimension: null`) is recorded in `failedJudges`, never folded into a zero; all-failed throws; a failed judge's cost is still summed. Composite reuses `weightedComposite`.
+- **`aggregateJudgeVerdicts<D>` (root).** Generic judge-ensemble reducer: fan out N uncorrelated judges, mean each rubric dimension over the SURVIVORS, report the inter-rater disagreement spread, sum cost. Replaces the same reduction hand-rolled across multiple product agents. Fail-loud: a failed judge (`perDimension: null`) is recorded in `failedJudges`, never folded into a zero; all-failed throws; a failed judge's cost is still summed. Composite reuses `weightedComposite`.
 - **`createTokenRecallChecker` (root).** The deterministic, no-LLM `CorrectnessChecker` — sibling of `createLlmCorrectnessChecker`. A produced item fulfils a requirement when its content is substantive and recalls ≥ `minRecall` of the requirement title's significant tokens. The default completion gate for apps/tests without an LLM judge.
 - **`ErrorCluster` (root + `/analyst`).** The failure-cluster element type is now a named export, so consumers import it instead of deriving `DatasetOverview['error_clusters'][number]`.
 
