@@ -216,6 +216,7 @@ The API should report uncertainty and support problems, not hide them behind a s
 - [x] Define first-pass trace extraction rules for Codex, Claude Code, OpenCode, Kimi Code, and Pi/PiGraph-shaped local traces.
 - [ ] Define the minimum event fields needed from runtime and knowledge packages.
 - [x] Build the first replay-corpus adapter from existing `RunRecord` rows plus local code-agent session traces.
+- [x] Add a one-call code-agent evidence corpus helper that joins session intake, decision extraction, and the research evidence gate.
 - [ ] Label at least 200 decision points with outcome, cost, and whether the action was retrospectively correct.
 - [x] Add first support diagnostics: missing outcomes, missing behavior/target propensities, and insufficient target support.
 - [x] Decide the first decision kind for Phase 1 dogfooding: failure recovery after failed tool/patch actions.
@@ -232,6 +233,8 @@ Completion criteria:
 - [ ] A generated `BeliefDecisionResearchEvidencePacket` says `supported` for the intended claim scope.
 
 Status on 2026-06-05: the experimental implementation exists in `src/belief-state/code-agent-corpus.ts` and `src/belief-state/research-evidence.ts`, with coverage in `src/belief-state/code-agent-corpus.test.ts` and `src/belief-state/research-evidence.test.ts`. A local smoke after build joined 33 private code-agent sessions to 33 `RunRecord`s and emitted 13,137 decision rows across Codex, Claude Code, Kimi Code, OpenCode, and PiGraph-shaped traces. This closes the infrastructure part of Phase 0, but not the empirical proof gate: the next corpus run still has to add split metadata, integrity checks, retrospective labels, and a recorded baseline per target before the work can claim Phase 0 completion. Missing behavior/target propensities now block counterfactual claims while still allowing selective-only claims to be evaluated.
+
+Follow-up local smoke on 2026-06-05 over 50 recent Codex JSONL sessions under 20 MB produced 50 `RunRecord`s and 6,770 decision points: 5,610 tool-selection rows and 1,160 failure-recovery rows, with full outcome/confidence coverage and no propensity support. The default confidence-threshold policy did not clear the selective utility gate on failure recovery (`ci.lower = -0.1159` at threshold `0.6`), so the current result supports the extraction/evidence pipeline, not the belief-policy claim; the next empirical step is real logged confidence/propensity or retrospective labels, not more heuristic confidence tuning.
 
 ### Q4 2026 - Phase 1: Selective Prediction and Abstention
 
