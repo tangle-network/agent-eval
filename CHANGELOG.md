@@ -4,6 +4,20 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ---
 
+## [0.81.0] — 2026-06-05 — eval-campaign scaffold prep primitives
+
+### Added
+
+- **`aggregateJudgeVerdicts<D>` (root).** Generic judge-ensemble reducer: fan out N uncorrelated judges, mean each rubric dimension over the SURVIVORS, report the inter-rater disagreement spread, sum cost. Replaces the same reduction hand-rolled in legal (`aggregateEnsemble`), creative (`production-loop/judges.ts`), and tax (`judge-ensemble.ts`). Fail-loud: a failed judge (`perDimension: null`) is recorded in `failedJudges`, never folded into a zero; all-failed throws; a failed judge's cost is still summed. Composite reuses `weightedComposite`.
+- **`createTokenRecallChecker` (root).** The deterministic, no-LLM `CorrectnessChecker` — sibling of `createLlmCorrectnessChecker`. A produced item fulfils a requirement when its content is substantive and recalls ≥ `minRecall` of the requirement title's significant tokens. The default completion gate for apps/tests without an LLM judge.
+- **`ErrorCluster` (root + `/analyst`).** The failure-cluster element type is now a named export, so consumers import it instead of deriving `DatasetOverview['error_clusters'][number]`.
+
+### Fixed
+
+- **Lint drift + non-executable pre-commit hook.** `.husky/pre-commit` was tracked `100644`, so the hook silently no-op'd and unformatted code reached `main`; marked executable and reformatted the drift.
+
+---
+
 ## [0.72.3] — 2026-06-01 — workflow trace hardening and driver backtests
 
 ### Added
