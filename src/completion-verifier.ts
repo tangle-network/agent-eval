@@ -397,18 +397,30 @@ export function createTokenRecallChecker(
   return async (requirement, content) => {
     const body = content.trim()
     if (body.length < minLen)
-      return { correct: false, reason: `content too thin (${body.length} chars) to be the deliverable` }
+      return {
+        correct: false,
+        reason: `content too thin (${body.length} chars) to be the deliverable`,
+      }
     const titleTokens = requirement.title
       .toLowerCase()
       .split(/[^a-z0-9]+/)
       .filter((t) => t.length > 2 && !TITLE_STOPWORDS.has(t))
     if (titleTokens.length === 0)
-      return { correct: true, reason: 'requirement title has no significant tokens — structural match accepted' }
+      return {
+        correct: true,
+        reason: 'requirement title has no significant tokens — structural match accepted',
+      }
     const lower = body.toLowerCase()
     const hits = titleTokens.filter((t) => lower.includes(t)).length
     const recall = hits / titleTokens.length
     return recall >= minRecall
-      ? { correct: true, reason: `content recalls ${hits}/${titleTokens.length} requirement tokens` }
-      : { correct: false, reason: `content recalls only ${hits}/${titleTokens.length} requirement tokens` }
+      ? {
+          correct: true,
+          reason: `content recalls ${hits}/${titleTokens.length} requirement tokens`,
+        }
+      : {
+          correct: false,
+          reason: `content recalls only ${hits}/${titleTokens.length} requirement tokens`,
+        }
   }
 }

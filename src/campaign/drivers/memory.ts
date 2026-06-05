@@ -29,7 +29,13 @@
 
 import { callLlm, type LlmClientOptions } from '../../llm-client'
 import type { ImprovementDriver, ProposeContext, ProposedCandidate } from '../types'
-import { extractBlockBody, findingToLesson, normKey, stripBlock, surfaceToText } from './_findings-text'
+import {
+  extractBlockBody,
+  findingToLesson,
+  normKey,
+  stripBlock,
+  surfaceToText,
+} from './_findings-text'
 
 const BLOCK_START = '<!-- BEGIN curated-memory (auto-managed by memoryCurationDriver) -->'
 const BLOCK_END = '<!-- END curated-memory -->'

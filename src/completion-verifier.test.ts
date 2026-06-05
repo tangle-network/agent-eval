@@ -242,7 +242,10 @@ describe('createTokenRecallChecker — deterministic content checker', () => {
   })
 
   it('fails substantive-but-off-topic content (low recall)', async () => {
-    const r = await check(DISPUTE_REQ, `Completely unrelated prose about something else entirely. ${LONG}`)
+    const r = await check(
+      DISPUTE_REQ,
+      `Completely unrelated prose about something else entirely. ${LONG}`,
+    )
     expect(r.correct).toBe(false)
     expect(r.reason).toMatch(/recalls only/)
   })
