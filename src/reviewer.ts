@@ -89,7 +89,7 @@ export interface ReviewerSoftFailDefaults {
 export interface CreateDefaultReviewerOptions {
   /** Model id to call. */
   model: string
-  /** Per-call timeout. Default 180s. */
+  /** Per-call timeout. Default 300s. */
   timeoutMs?: number
   /** LlmClient transport config (baseUrl, apiKey, authHeader, etc.). */
   llm?: LlmClientOptions
@@ -216,7 +216,7 @@ export function createDefaultReviewer(
     ...(options.softFailDefaults ?? {}),
   }
   const promptBuilder = options.promptBuilder ?? buildReviewerPrompt
-  const timeoutMs = options.timeoutMs ?? 180_000
+  const timeoutMs = options.timeoutMs ?? 300_000
 
   return async (input) => {
     const start = Date.now()

@@ -16,7 +16,7 @@ import { backoffMs, isTransientLlmError } from './llm-client'
 export interface JudgeRetryPolicy {
   /** Max attempts per model. Default 3 (one initial + two retries). */
   maxAttempts?: number
-  /** Per-attempt timeout in ms. Default 90_000 (1.5×agent-eval's 60s default). */
+  /** Per-attempt timeout in ms. Default 300_000. */
   timeoutMs?: number
   /**
    * Models to try, in order. The first model is the primary; subsequent
@@ -57,7 +57,7 @@ export interface JudgeRetryOutcome<T> {
 }
 
 const DEFAULT_MAX_ATTEMPTS = 3
-const DEFAULT_TIMEOUT_MS = 90_000
+const DEFAULT_TIMEOUT_MS = 300_000
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms))
