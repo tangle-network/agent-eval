@@ -66,6 +66,7 @@ export interface AnalyzeBeliefDecisionCorpusOptions {
   points: BeliefDecisionPoint[]
   targetId?: CodeAgentBeliefDecisionTargetId
   minN?: number
+  minOutcomeCoverage?: number
   minAccepted?: number
   confidenceThreshold?: number
   policy?: BeliefSelectivePolicy

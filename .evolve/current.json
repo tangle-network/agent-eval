@@ -1,12 +1,13 @@
 {
   "mode": "research",
   "goal": "Belief-state decision corpus inside agent-eval",
-  "status": "ACTIVE: Phase 0 infrastructure implemented for local code-agent traces; empirical corpus gate still requires real measurement, split metadata, integrity checks, and >=200 labeled decision points before stable API promotion.",
+  "status": "ACTIVE: Phase 0 infrastructure plus research evidence packet implemented for local code-agent traces; empirical corpus gate still requires real measurement, split metadata, integrity checks, baseline rows, and >=200 labeled decision points before stable API promotion.",
   "round": 0,
   "generation": 6,
   "activePursuit": ".evolve/pursuits/2026-06-04-belief-state-agent-eval.md",
   "metricClaims": {
     "phase_0_infrastructure": "implemented for local code-agent traces; synthetic tests cover Codex, Claude Code, OpenCode, Kimi Code, and Pi/PiGraph-shaped inputs.",
+    "research_packet": "BeliefDecisionResearchEvidencePacket separates selective claim support from counterfactual claim support; OPE is required only for counterfactual claims.",
     "local_smoke": "33 local sessions joined to 33 RunRecords and emitted 13137 decision rows across Codex, Claude Code, Kimi Code, OpenCode, and PiGraph-shaped traces.",
     "empirical_gate": "not yet cleared; still requires split metadata, integrity checks, retrospective labels, and baseline policy rows.",
     "counterfactual_claims": "blocked when OPE support is missing; no behavior or target propensities are invented."

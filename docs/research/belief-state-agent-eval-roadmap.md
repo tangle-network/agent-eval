@@ -219,6 +219,7 @@ The API should report uncertainty and support problems, not hide them behind a s
 - [ ] Label at least 200 decision points with outcome, cost, and whether the action was retrospectively correct.
 - [x] Add first support diagnostics: missing outcomes, missing behavior/target propensities, and insufficient target support.
 - [x] Decide the first decision kind for Phase 1 dogfooding: failure recovery after failed tool/patch actions.
+- [x] Add a small research evidence gate that classifies selective vs counterfactual claim support.
 
 Completion criteria:
 
@@ -228,8 +229,9 @@ Completion criteria:
 - [ ] Backend and capture integrity are checked before analysis.
 - [ ] No producerless schema fields are introduced.
 - [ ] One baseline policy is recorded for every decision kind under study.
+- [ ] A generated `BeliefDecisionResearchEvidencePacket` says `supported` for the intended claim scope.
 
-Status on 2026-06-05: the experimental implementation exists in `src/belief-state/code-agent-corpus.ts` and is covered by `src/belief-state/code-agent-corpus.test.ts`. A local smoke after build joined 33 private code-agent sessions to 33 `RunRecord`s and emitted 13,137 decision rows across Codex, Claude Code, Kimi Code, OpenCode, and PiGraph-shaped traces. This closes the infrastructure part of Phase 0, but not the empirical proof gate: the next corpus run still has to add split metadata, integrity checks, retrospective labels, and a recorded baseline per target before the work can claim Phase 0 completion.
+Status on 2026-06-05: the experimental implementation exists in `src/belief-state/code-agent-corpus.ts` and `src/belief-state/research-evidence.ts`, with coverage in `src/belief-state/code-agent-corpus.test.ts` and `src/belief-state/research-evidence.test.ts`. A local smoke after build joined 33 private code-agent sessions to 33 `RunRecord`s and emitted 13,137 decision rows across Codex, Claude Code, Kimi Code, OpenCode, and PiGraph-shaped traces. This closes the infrastructure part of Phase 0, but not the empirical proof gate: the next corpus run still has to add split metadata, integrity checks, retrospective labels, and a recorded baseline per target before the work can claim Phase 0 completion. Missing behavior/target propensities now block counterfactual claims while still allowing selective-only claims to be evaluated.
 
 ### Q4 2026 - Phase 1: Selective Prediction and Abstention
 
@@ -238,6 +240,7 @@ Status on 2026-06-05: the experimental implementation exists in `src/belief-stat
 - [ ] Compare baseline policy vs selective policy on holdout.
 - [ ] Add cost-aware utility: quality lift minus verification/ask/retry cost.
 - [ ] Add report rows into `InsightReport` or an experimental research report.
+- [ ] Export the real corpus packet into the paper artifact instead of hand-copying metrics.
 - [ ] Run negative controls: shuffled confidence, random abstention, always-verify, never-verify.
 - [ ] Pre-register thresholds before holdout.
 
