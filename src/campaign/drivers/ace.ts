@@ -25,7 +25,13 @@
  */
 
 import type { ImprovementDriver, ProposeContext, ProposedCandidate } from '../types'
-import { extractBlockBody, findingToLesson, normKey, stripBlock, surfaceToText } from './_findings-text'
+import {
+  extractBlockBody,
+  findingToLesson,
+  normKey,
+  stripBlock,
+  surfaceToText,
+} from './_findings-text'
 
 const BLOCK_START = '<!-- BEGIN ace-playbook (auto-managed by aceDriver) -->'
 const BLOCK_END = '<!-- END ace-playbook -->'

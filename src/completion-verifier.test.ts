@@ -14,6 +14,7 @@ import {
   type CompletionRequirement,
   type CorrectnessChecker,
   createLlmCorrectnessChecker,
+  createTokenRecallChecker,
   type ProducedState,
   parseCorrectnessResponse,
   type TaskGold,
@@ -221,5 +222,62 @@ describe('createLlmCorrectnessChecker', () => {
   it('fails loud on an unparseable model response', async () => {
     const check = createLlmCorrectnessChecker(mockTc('I could not decide'))
     await expect(check(DISPUTE_REQ, LONG)).rejects.toThrow(/no JSON object/)
+  })
+})
+
+describe('createTokenRecallChecker — deterministic content checker', () => {
+  const check = createTokenRecallChecker()
+
+  it('rejects content too thin to be the deliverable', async () => {
+    const r = await check(DISPUTE_REQ, 'too short')
+    expect(r.correct).toBe(false)
+    expect(r.reason).toMatch(/too thin/)
+  })
+
+  it('passes when content recalls enough requirement tokens', async () => {
+    const body = `This working capital adjustment dispute notice contests the peg. ${LONG}`
+    const r = await check(DISPUTE_REQ, body)
+    expect(r.correct).toBe(true)
+    expect(r.reason).toMatch(/recalls \d+\/\d+ requirement tokens/)
+  })
+
+  it('fails substantive-but-off-topic content (low recall)', async () => {
+    const r = await check(
+      DISPUTE_REQ,
+      `Completely unrelated prose about something else entirely. ${LONG}`,
+    )
+    expect(r.correct).toBe(false)
+    expect(r.reason).toMatch(/recalls only/)
+  })
+
+  it('accepts structurally when the title has no significant tokens', async () => {
+    const r = await check({ reqId: 'r', title: 'Review the new update' }, LONG)
+    expect(r.correct).toBe(true)
+    expect(r.reason).toMatch(/no significant tokens/)
+  })
+
+  it('respects a custom minRecall threshold', async () => {
+    const strict = createTokenRecallChecker({ minRecall: 1 })
+    // recalls 'working' + 'capital' but not 'adjustment'/'dispute'/'notice' → < 1.0
+    const r = await strict(DISPUTE_REQ, `working capital only. ${LONG}`)
+    expect(r.correct).toBe(false)
+  })
+
+  it('plugs into verifyCompletion as the checker', async () => {
+    const v = await verifyCompletion(
+      gold([DISPUTE_REQ]),
+      {
+        artifacts: [
+          artifact(
+            'vault/working-capital-dispute-notice.md',
+            `Working Capital Adjustment Dispute Notice — formal objection to the peg. ${LONG}`,
+          ),
+        ],
+        proposals: [],
+        toolCalls: [],
+      },
+      check,
+    )
+    expect(v.fullyComplete).toBe(true)
   })
 })

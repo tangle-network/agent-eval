@@ -407,6 +407,7 @@ export type {
 } from './completion-verifier'
 export {
   createLlmCorrectnessChecker,
+  createTokenRecallChecker,
   parseCorrectnessResponse,
   verifyCompletion,
 } from './completion-verifier'

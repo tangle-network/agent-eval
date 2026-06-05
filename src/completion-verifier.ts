@@ -359,3 +359,68 @@ export function createLlmCorrectnessChecker(
     return parseCorrectnessResponse(raw)
   }
 }
+
+/** Stopwords for requirement-title tokenization — drops the imperative verbs
+ *  ('review', 'update', …) common to deliverable titles so recall keys on the
+ *  substantive nouns, not the boilerplate ask. */
+const TITLE_STOPWORDS = new Set([
+  'the',
+  'a',
+  'an',
+  'and',
+  'or',
+  'for',
+  'to',
+  'of',
+  'in',
+  'on',
+  'with',
+  'review',
+  'update',
+  'new',
+  'proposed',
+])
+
+/**
+ * Deterministic `CorrectnessChecker` — the no-LLM counterpart to
+ * `createLlmCorrectnessChecker`. A produced item fulfils a requirement when its
+ * content is substantive (≥ `minContentLength` chars) AND recalls ≥ `minRecall`
+ * of the requirement title's significant tokens. No network — the default gate
+ * for apps and tests without an LLM judge. Pass to `verifyCompletion` as the
+ * checker.
+ */
+export function createTokenRecallChecker(
+  opts: { minRecall?: number; minContentLength?: number } = {},
+): CorrectnessChecker {
+  const minRecall = opts.minRecall ?? 0.5
+  const minLen = opts.minContentLength ?? 120
+  return async (requirement, content) => {
+    const body = content.trim()
+    if (body.length < minLen)
+      return {
+        correct: false,
+        reason: `content too thin (${body.length} chars) to be the deliverable`,
+      }
+    const titleTokens = requirement.title
+      .toLowerCase()
+      .split(/[^a-z0-9]+/)
+      .filter((t) => t.length > 2 && !TITLE_STOPWORDS.has(t))
+    if (titleTokens.length === 0)
+      return {
+        correct: true,
+        reason: 'requirement title has no significant tokens — structural match accepted',
+      }
+    const lower = body.toLowerCase()
+    const hits = titleTokens.filter((t) => lower.includes(t)).length
+    const recall = hits / titleTokens.length
+    return recall >= minRecall
+      ? {
+          correct: true,
+          reason: `content recalls ${hits}/${titleTokens.length} requirement tokens`,
+        }
+      : {
+          correct: false,
+          reason: `content recalls only ${hits}/${titleTokens.length} requirement tokens`,
+        }
+  }
+}

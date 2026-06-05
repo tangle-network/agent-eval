@@ -75,6 +75,7 @@ export {
 
 export type {
   DatasetOverview,
+  ErrorCluster,
   QueryTracesPage,
   SearchSpanResult,
   SearchTraceResult,
