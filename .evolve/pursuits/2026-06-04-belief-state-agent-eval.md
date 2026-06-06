@@ -18,6 +18,7 @@ Primary tracker: `docs/research/belief-state-agent-eval-roadmap.md`.
 - [x] Research evidence gate separates selective claim support from counterfactual claim support.
 - [x] Runtime decision hooks can feed outcome-blind shadow probes without making `agent-eval` depend on runtime.
 - [x] Stable experimental taxonomy exists for decision kinds, evidence quality, criteria, and reason codes.
+- [x] Runtime producer decisions can join observed labels and run split metadata into a Phase 0 evidence packet.
 - [ ] Selective prediction beats baseline utility on holdout or records an honest negative.
 - [x] OPE support diagnostics hold the report when behavior/target propensities are absent.
 - [ ] Memory policy evaluation handles poisoning, staleness, and context bloat.
@@ -26,7 +27,7 @@ Primary tracker: `docs/research/belief-state-agent-eval-roadmap.md`.
 
 ## Next Action
 
-Run the next Phase 0 measurement from producer-backed runtime decision hooks, then join observed actions/outcomes into completed `BeliefDecisionPoint` rows and emit a `BeliefDecisionResearchEvidencePacket`. The first dogfood target is failure recovery after failed tool/patch actions; promotion still requires >= 200 labeled decision points, split metadata, integrity checks, a recorded baseline policy, and a packet status of `supported` for the intended claim scope.
+Run the next real dogfood collection using producer-backed runtime decision hooks, then feed the captured decisions, lifecycle events, observed labels, and `RunRecord` split metadata through `buildRuntimeBeliefPhase0Measurement()`. The first dogfood target is failure recovery after failed tool/patch actions; promotion still requires >= 200 labeled decision points, integrity checks, a recorded baseline policy, and a packet status of `supported` for the intended claim scope.
 
 ## 2026-06-05 Implementation Status
 
@@ -47,6 +48,7 @@ Runtime bridge added after the agent-runtime hook merge:
 - Pre-action runtime decision hooks convert to `BeliefShadowProbeInput` so forked probes can ask what action the agent would take without leaking the observed action.
 - Full `BeliefDecisionPoint` conversion requires an explicit `chosenAction`; the adapter diagnoses missing observed actions instead of fabricating rows.
 - Unsupported runtime decision kinds are diagnosed unless the caller supplies an explicit belief decision kind override.
+- `src/belief-state/phase0-measurement.ts` joins runtime producer decisions, lifecycle events, observed action/outcome labels, and run split metadata into completed rows plus a `BeliefDecisionResearchEvidencePacket`; missing labels or run joins diagnose and do not fabricate rows.
 
 Taxonomy added for the long-term outcome:
 

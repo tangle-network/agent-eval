@@ -238,6 +238,8 @@ Follow-up local smoke on 2026-06-05 over 50 recent Codex JSONL sessions under 20
 
 Runtime hook bridge on 2026-06-05: `src/belief-state/runtime-hooks.ts` now converts `agent-runtime` decision hooks into outcome-blind shadow-probe inputs, attaches matching lifecycle hook events as probe evidence, and only converts them into full `BeliefDecisionPoint` rows when the observed action is supplied. This keeps `agent-eval` trace/analysis-only while letting the runtime emit producer-backed decision boundaries and context for the next experiment.
 
+Phase 0 measurement helper on 2026-06-06: `src/belief-state/phase0-measurement.ts` now joins runtime producer decisions, lifecycle evidence, observed action/outcome labels, and `RunRecord` split metadata into completed `BeliefDecisionPoint` rows plus a `BeliefDecisionResearchEvidencePacket`. This closes the local join/packet path; it does not clear the empirical gate until the corpus has >= 200 labeled producer-backed decisions with integrity checks and a recorded baseline.
+
 Taxonomy tightening on 2026-06-05: `src/belief-state/types.ts` now exports stable decision kinds, evidence sources, evidence quality labels, evaluation criteria, and reason codes. The intent is to make future dashboards and paper artifacts aggregate by stable IDs (`calibration`, `ope-support`, `memory-health`, `surface-attribution`, `promotion`, etc.) instead of parsing prose diagnostics.
 
 ### Q4 2026 - Phase 1: Selective Prediction and Abstention
@@ -567,6 +569,7 @@ Promotion:
 | `src/belief-state/report.test.ts` | full report status: `ship`, `hold`, `need_more_data`; recommendation cannot ship on OPE alone. |
 | `src/belief-state/code-agent-corpus.test.ts` | extracts code-agent decision corpora across Codex, Claude Code, OpenCode, Kimi Code, and Pi/PiGraph-shaped traces; inventories targets; picks failure recovery first; holds when OPE propensities are absent. |
 | `src/belief-state/runtime-hooks.test.ts` | converts runtime decision hooks to outcome-blind shadow probes; attaches matching lifecycle hook events as evidence; requires observed action for full belief rows; collector stays structurally compatible with runtime hooks. |
+| `src/belief-state/phase0-measurement.test.ts` | joins runtime producer decisions, lifecycle events, observed labels, and run split metadata into completed rows and a research evidence packet without fabricating missing joins or propensities. |
 | `src/belief-state/types.test.ts` | guards the stable decision kinds, evidence sources/qualities, evaluation criteria, and reason-code taxonomy. |
 | `src/meta-eval/calibration.test.ts` | existing `calibrationCurve()` still works after extracting pure helper. |
 
