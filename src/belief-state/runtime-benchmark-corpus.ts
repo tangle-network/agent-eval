@@ -1,4 +1,9 @@
-import type { RunSplitTag } from '../run-record'
+import {
+  type ProjectRuntimeTrajectoryEvidenceOptions,
+  projectRuntimeTrajectoryEvidence,
+  type RuntimeTrajectoryEvidenceProjection,
+  type RuntimeTrajectoryRecord,
+} from '../runtime-trajectory'
 import {
   type BuildRuntimeBeliefPhase0MeasurementOptions,
   buildRuntimeBeliefPhase0Measurement,
@@ -8,35 +13,10 @@ import {
 } from './phase0-measurement'
 import type { RuntimeBeliefDecisionPoint, RuntimeBeliefHookEvent } from './runtime-hooks'
 
-export interface RuntimeBenchmarkBeliefAttemptRecord {
-  round: number
-  prompt?: string
-  output?: string
-  valid?: boolean
-  score?: number
-  costUsd?: number
-  tokensIn?: number
-  tokensOut?: number
-  wallMs?: number
-  eventCount?: number
-  eventTypes?: Record<string, number>
-  traceTail?: string
-  error?: string
-}
-
-export interface RuntimeBenchmarkBeliefRecord {
-  benchmark: string
-  instanceId: string
-  condition: string
-  model?: string
-  blindResolved?: boolean
-  resolved?: boolean
-  attempts?: RuntimeBenchmarkBeliefAttemptRecord[]
-  infraError?: boolean
-  seed?: number
-  splitTag?: RunSplitTag
-  commitSha?: string
-  runtimeEvents?: unknown[]
+type RuntimeBenchmarkTrajectoryRecord = RuntimeTrajectoryRecord & {
+  benchmark?: unknown
+  condition?: unknown
+  instanceId?: unknown
 }
 
 export interface BuildRuntimeBenchmarkBeliefPhase0MeasurementOptions
@@ -44,20 +24,15 @@ export interface BuildRuntimeBenchmarkBeliefPhase0MeasurementOptions
     BuildRuntimeBeliefPhase0MeasurementOptions,
     'runs' | 'events' | 'decisions' | 'labels'
   > {
-  records: RuntimeBenchmarkBeliefRecord[]
+  records: RuntimeBenchmarkTrajectoryRecord[]
   decisions?: RuntimeBeliefDecisionPoint[]
+  defaultSplitTag?: ProjectRuntimeTrajectoryEvidenceOptions['defaultSplitTag']
   labels?: RuntimeBeliefDecisionLabel[]
-  defaultSplitTag?: RunSplitTag
 }
 
 export interface RuntimeBenchmarkBeliefPhase0Summary {
-  recordCount: number
-  recordWithRuntimeEventsCount: number
-  runtimeRunCount: number
-  lifecycleEventCount: number
   decisionCount: number
   labelCount: number
-  defaultedSplitCount: number
 }
 
 export interface RuntimeBenchmarkBeliefPhase0Measurement {
@@ -65,54 +40,22 @@ export interface RuntimeBenchmarkBeliefPhase0Measurement {
   events: RuntimeBeliefHookEvent[]
   decisions: RuntimeBeliefDecisionPoint[]
   labels: RuntimeBeliefDecisionLabel[]
+  trajectory: RuntimeTrajectoryEvidenceProjection
   measurement: RuntimeBeliefPhase0Measurement
   summary: RuntimeBenchmarkBeliefPhase0Summary
   diagnostics: string[]
 }
 
-const DEFAULT_SPLIT_TAG: RunSplitTag = 'search'
-
 export function buildRuntimeBenchmarkBeliefPhase0Measurement(
   options: BuildRuntimeBenchmarkBeliefPhase0MeasurementOptions,
 ): RuntimeBenchmarkBeliefPhase0Measurement {
   const diagnostics: string[] = []
-  const runsById = new Map<string, RuntimeBeliefPhase0RunRecord>()
-  const events: RuntimeBeliefHookEvent[] = []
-  let recordWithRuntimeEventsCount = 0
-  let defaultedSplitCount = 0
-
-  for (const record of options.records) {
-    const key = benchmarkRecordKey(record)
-    const splitTag = record.splitTag ?? options.defaultSplitTag ?? DEFAULT_SPLIT_TAG
-    if (record.splitTag === undefined) defaultedSplitCount += 1
-
-    const rawEvents = record.runtimeEvents ?? []
-    if (rawEvents.length === 0) {
-      diagnostics.push(`${key}: no runtimeEvents; no runtime run join can be extracted`)
-      continue
-    }
-    recordWithRuntimeEventsCount += 1
-
-    for (let index = 0; index < rawEvents.length; index += 1) {
-      const event = parseRuntimeHookEvent(rawEvents[index])
-      if (!event) {
-        diagnostics.push(`${key}: runtimeEvents[${index}] is not a RuntimeHookEvent`)
-        continue
-      }
-      events.push(event)
-
-      const scenarioId = event.scenarioId ?? record.instanceId
-      const prior = runsById.get(event.runId)
-      if (!prior) {
-        runsById.set(event.runId, { runId: event.runId, scenarioId, splitTag })
-        continue
-      }
-      if (prior.scenarioId !== scenarioId || prior.splitTag !== splitTag) {
-        diagnostics.push(`${key}: runId ${event.runId} has conflicting scenario/split metadata`)
-      }
-    }
-  }
-
+  const trajectory = projectRuntimeTrajectoryEvidence({
+    records: options.records,
+    defaultSplitTag: options.defaultSplitTag,
+    recordIdOf: runtimeBenchmarkRecordId,
+    scenarioIdOf: runtimeBenchmarkScenarioId,
+  })
   const decisions = options.decisions ?? []
   const labels = options.labels ?? []
   if (decisions.length === 0) {
@@ -126,68 +69,42 @@ export function buildRuntimeBenchmarkBeliefPhase0Measurement(
     )
   }
 
-  const runs = [...runsById.values()]
   const measurement = buildRuntimeBeliefPhase0Measurement({
     ...options,
-    runs,
-    events,
+    runs: trajectory.runs,
+    events: trajectory.events,
     decisions,
     labels,
   })
 
   return {
-    runs,
-    events,
+    runs: trajectory.runs,
+    events: trajectory.events,
     decisions,
     labels,
+    trajectory,
     measurement,
     summary: {
-      recordCount: options.records.length,
-      recordWithRuntimeEventsCount,
-      runtimeRunCount: runs.length,
-      lifecycleEventCount: events.length,
       decisionCount: decisions.length,
       labelCount: labels.length,
-      defaultedSplitCount,
     },
-    diagnostics: [...diagnostics, ...measurement.diagnostics],
+    diagnostics: [...trajectory.diagnostics, ...diagnostics, ...measurement.diagnostics],
   }
 }
 
-function benchmarkRecordKey(record: RuntimeBenchmarkBeliefRecord): string {
-  return `${record.benchmark}:${record.instanceId}:${record.condition}`
+function runtimeBenchmarkRecordId(record: RuntimeBenchmarkTrajectoryRecord): string | undefined {
+  const parts = [
+    nonEmptyString(record.benchmark),
+    nonEmptyString(record.instanceId),
+    nonEmptyString(record.condition),
+  ].filter((part): part is string => part !== undefined)
+  return parts.length > 0 ? parts.join(':') : undefined
 }
 
-function parseRuntimeHookEvent(input: unknown): RuntimeBeliefHookEvent | null {
-  if (!isRecord(input)) return null
-  if (typeof input.id !== 'string' || input.id.length === 0) return null
-  if (typeof input.runId !== 'string' || input.runId.length === 0) return null
-  if (typeof input.target !== 'string' || input.target.length === 0) return null
-  if (typeof input.phase !== 'string' || input.phase.length === 0) return null
-  if (typeof input.timestamp !== 'number' || !Number.isFinite(input.timestamp)) return null
-
-  return {
-    id: input.id,
-    runId: input.runId,
-    scenarioId: stringOrUndefined(input.scenarioId),
-    target: input.target,
-    phase: input.phase,
-    timestamp: input.timestamp,
-    stepIndex: finiteNumberOrUndefined(input.stepIndex),
-    parentId: stringOrUndefined(input.parentId),
-    payload: input.payload,
-    metadata: isRecord(input.metadata) ? { ...input.metadata } : undefined,
-  }
+function runtimeBenchmarkScenarioId(record: RuntimeBenchmarkTrajectoryRecord): string | undefined {
+  return nonEmptyString(record.instanceId)
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value)
-}
-
-function stringOrUndefined(value: unknown): string | undefined {
+function nonEmptyString(value: unknown): string | undefined {
   return typeof value === 'string' && value.length > 0 ? value : undefined
-}
-
-function finiteNumberOrUndefined(value: unknown): number | undefined {
-  return typeof value === 'number' && Number.isFinite(value) ? value : undefined
 }

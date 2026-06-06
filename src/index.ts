@@ -555,6 +555,18 @@ export {
   FAILURE_CLASSES,
 } from './failure-taxonomy'
 export type {
+  ProjectRuntimeTrajectoryEvidenceOptions,
+  RuntimeTrajectoryEvidenceProjection,
+  RuntimeTrajectoryEvidenceSummary,
+  RuntimeTrajectoryHookEvent,
+  RuntimeTrajectoryRecord,
+  RuntimeTrajectoryRunRecord,
+} from './runtime-trajectory'
+export {
+  parseRuntimeTrajectoryHookEvent,
+  projectRuntimeTrajectoryEvidence,
+} from './runtime-trajectory'
+export type {
   HarnessConfig,
   SandboxDriver,
   SandboxHarnessResult,

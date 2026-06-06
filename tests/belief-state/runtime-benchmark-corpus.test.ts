@@ -31,14 +31,16 @@ describe('runtime benchmark corpus belief-state projection', () => {
       { runId: 'commit0:task-1:1', scenarioId: 'task-1', splitTag: 'search' },
     ])
     expect(report.events).toHaveLength(6)
-    expect(report.summary).toMatchObject({
+    expect(report.trajectory.summary).toEqual({
       recordCount: 2,
       recordWithRuntimeEventsCount: 2,
       runtimeRunCount: 2,
       lifecycleEventCount: 6,
+      defaultedSplitCount: 2,
+    })
+    expect(report.summary).toEqual({
       decisionCount: 0,
       labelCount: 0,
-      defaultedSplitCount: 2,
     })
     expect(report.measurement.points).toEqual([])
     expect(report.measurement.summary.packetStatus).toBe('blocked')
