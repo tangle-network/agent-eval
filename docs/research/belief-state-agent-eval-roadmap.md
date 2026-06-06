@@ -569,7 +569,7 @@ Promotion:
 | `src/belief-state/report.test.ts` | full report status: `ship`, `hold`, `need_more_data`; recommendation cannot ship on OPE alone. |
 | `src/belief-state/code-agent-corpus.test.ts` | extracts code-agent decision corpora across Codex, Claude Code, OpenCode, Kimi Code, and Pi/PiGraph-shaped traces; inventories targets; picks failure recovery first; holds when OPE propensities are absent. |
 | `src/belief-state/runtime-hooks.test.ts` | converts runtime decision hooks to outcome-blind shadow probes; attaches matching lifecycle hook events as evidence; requires observed action for full belief rows; collector stays structurally compatible with runtime hooks. |
-| `src/belief-state/phase0-measurement.test.ts` | joins runtime producer decisions, lifecycle events, observed labels, and run split metadata into completed rows and a research evidence packet without fabricating missing joins or propensities. |
+| `tests/belief-state/phase0-measurement.test.ts` | joins runtime producer decisions, lifecycle events, observed labels, and run split metadata into completed rows and a research evidence packet without fabricating missing joins or propensities. |
 | `src/belief-state/types.test.ts` | guards the stable decision kinds, evidence sources/qualities, evaluation criteria, and reason-code taxonomy. |
 | `src/meta-eval/calibration.test.ts` | existing `calibrationCurve()` still works after extracting pure helper. |
 

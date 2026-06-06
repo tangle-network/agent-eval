@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest'
-import { buildRuntimeBeliefPhase0Measurement } from './phase0-measurement'
-import type { RuntimeBeliefDecisionPoint, RuntimeBeliefHookEvent } from './runtime-hooks'
+import { buildRuntimeBeliefPhase0Measurement } from '../../src/belief-state/phase0-measurement'
+import type {
+  RuntimeBeliefDecisionPoint,
+  RuntimeBeliefHookEvent,
+} from '../../src/belief-state/runtime-hooks'
 
 describe('runtime belief-state Phase 0 measurement', () => {
   it('joins runtime producer decisions, lifecycle evidence, labels, and run records into a selective packet', () => {
