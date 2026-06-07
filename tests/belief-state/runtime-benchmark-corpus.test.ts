@@ -45,11 +45,11 @@ describe('runtime benchmark corpus belief-state projection', () => {
     expect(report.measurement.points).toEqual([])
     expect(report.measurement.summary.packetStatus).toBe('blocked')
     expect(report.diagnostics).toContain(
-      'no runtime decision points supplied; benchmark lifecycle events alone cannot produce belief decision rows',
+      'no runtime decision points supplied or found on records; benchmark lifecycle events alone cannot produce belief decision rows',
     )
   })
 
-  it('feeds explicit runtime decisions and labels into the existing Phase 0 measurement', () => {
+  it('feeds record runtime decisions and labels into the existing Phase 0 measurement', () => {
     const decisions = Array.from({ length: 12 }, (_, index) => decision(index))
     const labels = decisions.map((item, index) => ({
       decisionId: item.id,
@@ -67,9 +67,9 @@ describe('runtime benchmark corpus belief-state projection', () => {
           model: 'gpt-5',
           splitTag: 'holdout',
           runtimeEvents: [...runtimeEvents('commit0:task-1:0', 'task-1', 0)],
+          runtimeDecisionPoints: decisions,
         },
       ],
-      decisions,
       labels,
       targetId: 'failure-recovery',
       minN: 12,
@@ -128,8 +128,71 @@ describe('runtime benchmark corpus belief-state projection', () => {
     expect(report.diagnostics).toEqual([
       'swe-bench:case-empty:blind@1: no runtimeEvents; no runtime run join can be extracted',
       'swe-bench:case-bad:blind@1: runtimeEvents[0] is not a RuntimeHookEvent',
-      'no runtime decision points supplied; benchmark lifecycle events alone cannot produce belief decision rows',
+      'no runtime decision points supplied or found on records; benchmark lifecycle events alone cannot produce belief decision rows',
     ])
+  })
+
+  it('sanitizes and bounds embedded runtime decisions from corpus records', () => {
+    const report = buildRuntimeBenchmarkBeliefPhase0Measurement({
+      records: [
+        {
+          benchmark: 'commit0',
+          instanceId: 'task-1',
+          condition: 'random@2',
+          model: 'gpt-5',
+          runtimeEvents: runtimeEvents('commit0:task-1:0', 'task-1', 0),
+          runtimeDecisionPoints: [
+            {
+              id: 'commit0:task-1:0:agent.turn:0:failure-recovery',
+              runId: 'commit0:task-1:0',
+              scenarioId: 'task-1',
+              stepIndex: 0,
+              kind: 'retry',
+              candidateActions: Array.from({ length: 75 }, (_, index) => `candidate-${index}`),
+              context: `Bearer abc.def.ghi ${'ctx'.repeat(10_000)}`,
+              evidence: Array.from({ length: 75 }, (_, index) => ({
+                source: 'runtime_event',
+                id: `event-${index}`,
+                detail: `token=supersecret ${'detail'.repeat(1_000)}`,
+                metadata: { authorization: 'Bearer should-not-survive' },
+              })),
+              metadata: { token: 'should-not-survive', safe: 'kept' },
+            },
+            {
+              id: 'commit0:task-1:0:agent.turn:-1:failure-recovery',
+              runId: 'commit0:task-1:0',
+              stepIndex: -1,
+              kind: 'retry',
+              candidateActions: ['retry'],
+            },
+          ],
+        },
+      ],
+      targetId: 'failure-recovery',
+      minN: 1,
+      claimScope: 'selective',
+    })
+
+    expect(report.decisions).toHaveLength(1)
+    expect(report.decisions[0]?.candidateActions).toHaveLength(50)
+    expect(report.decisions[0]?.context).toHaveLength(20_000)
+    expect(report.decisions[0]?.context?.includes('abc.def.ghi')).toBe(false)
+    expect(report.decisions[0]?.evidence).toHaveLength(50)
+    expect(report.decisions[0]?.evidence?.[0]?.detail).toHaveLength(2_000)
+    expect(report.decisions[0]?.evidence?.[0]?.detail?.includes('supersecret')).toBe(false)
+    expect(report.decisions[0]?.metadata).toMatchObject({
+      token: '[REDACTED]',
+      safe: 'kept',
+    })
+    expect(report.decisions[0]?.evidence?.[0]?.metadata?.authorization).toBe('[REDACTED]')
+    expect(report.diagnostics).toEqual(
+      expect.arrayContaining([
+        'commit0:task-1:random@2: runtimeDecisionPoints[0]: candidateActions truncated to 50',
+        'commit0:task-1:random@2: runtimeDecisionPoints[0]: evidence truncated to 50 refs',
+        'commit0:task-1:random@2: runtimeDecisionPoints[1] is not a RuntimeDecisionPoint',
+        'no decision labels supplied; observed action/outcome joins will be incomplete',
+      ]),
+    )
   })
 })
 
