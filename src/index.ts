@@ -999,6 +999,18 @@ export { runCanaries } from './canary'
 // ── Concurrency + persistence + telemetry primitives for evolution loops ──
 export { Mutex } from './concurrency'
 export type {
+  DescriptionLengthCandidate,
+  DescriptionLengthConfig,
+  DescriptionLengthDecision,
+  DescriptionLengthEvidence,
+  DescriptionLengthRejectionCode,
+} from './description-length-gate'
+export {
+  DescriptionLengthGate,
+  dataDescriptionBits,
+  modelDescriptionBits,
+} from './description-length-gate'
+export type {
   DiscoveredPersona,
   DiscoverPersonasOptions,
 } from './discover-personas'
