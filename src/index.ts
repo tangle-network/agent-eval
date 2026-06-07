@@ -226,6 +226,17 @@ export {
   BackendIntegrityError,
   summarizeBackendIntegrity,
 } from './integrity/backend-integrity'
+// Pre-hoc complement to assertRealBackend: verify the campaign's models are
+// served by the router BEFORE spending tokens, so a dead default surfaces as a
+// config error instead of a stub run.
+export {
+  assertModelsServed,
+  type ModelPreflight,
+  ModelsUnreachableError,
+  type PreflightModelsOptions,
+  type PreflightOutcome,
+  preflightModels,
+} from './integrity/preflight'
 export {
   type AssertSingleBackendOptions,
   assertSingleBackend,

@@ -7,6 +7,8 @@ Two docs, two audiences:
 
 Wire-protocol consumers (any language other than TypeScript) → [`docs/wire-protocol.md`](./docs/wire-protocol.md) and [`clients/python/README.md`](./clients/python/README.md).
 
+How fleet agents that consume this substrate are built (reachable defaults, platform-first debugging, experiment integrity) → [`docs/building-doctrine.md`](./docs/building-doctrine.md).
+
 Update the doc closest to the change. Don't duplicate content across docs; cross-link.
 
 ## Tech stack (unchanging)
