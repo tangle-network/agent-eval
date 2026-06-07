@@ -45,11 +45,11 @@ describe('runtime benchmark corpus belief-state projection', () => {
     expect(report.measurement.points).toEqual([])
     expect(report.measurement.summary.packetStatus).toBe('blocked')
     expect(report.diagnostics).toContain(
-      'no runtime decision points supplied; benchmark lifecycle events alone cannot produce belief decision rows',
+      'no runtime decision points supplied or found on records; benchmark lifecycle events alone cannot produce belief decision rows',
     )
   })
 
-  it('feeds explicit runtime decisions and labels into the existing Phase 0 measurement', () => {
+  it('feeds record runtime decisions and labels into the existing Phase 0 measurement', () => {
     const decisions = Array.from({ length: 12 }, (_, index) => decision(index))
     const labels = decisions.map((item, index) => ({
       decisionId: item.id,
@@ -67,9 +67,9 @@ describe('runtime benchmark corpus belief-state projection', () => {
           model: 'gpt-5',
           splitTag: 'holdout',
           runtimeEvents: [...runtimeEvents('commit0:task-1:0', 'task-1', 0)],
+          runtimeDecisionPoints: decisions,
         },
       ],
-      decisions,
       labels,
       targetId: 'failure-recovery',
       minN: 12,
@@ -128,7 +128,7 @@ describe('runtime benchmark corpus belief-state projection', () => {
     expect(report.diagnostics).toEqual([
       'swe-bench:case-empty:blind@1: no runtimeEvents; no runtime run join can be extracted',
       'swe-bench:case-bad:blind@1: runtimeEvents[0] is not a RuntimeHookEvent',
-      'no runtime decision points supplied; benchmark lifecycle events alone cannot produce belief decision rows',
+      'no runtime decision points supplied or found on records; benchmark lifecycle events alone cannot produce belief decision rows',
     ])
   })
 })
