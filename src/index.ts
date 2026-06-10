@@ -1326,6 +1326,12 @@ export type {
   AttestedReport,
 } from './attestation'
 export { ATTESTATION_ALGORITHM, attest, verifyAttestation } from './attestation'
+// ── Anytime-valid sequential testing (e-process core) ────────────────
+// The betting test-martingale behind the sequential gates. Gate-level
+// machinery (sequentialPairedGate, sequentialDecide) lives on the /campaign
+// subpath alongside the other gates.
+export type { EProcess, EProcessOptions, EProcessState, EProcessStep } from './statistics'
+export { eProcess, mulberry32 } from './statistics'
 // ── Trace contracts — finite-trace temporal assertions over spans ────
 // Dual-use: one serializable contract checks recorded eval traces AND the
 // OTLP-flattened production stream. Evaluators are `evaluateTraceContract` /

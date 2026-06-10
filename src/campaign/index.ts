@@ -68,6 +68,16 @@ export {
   paretoSignificanceGate,
 } from './gates/promotion-policy'
 export {
+  type SequentialDecideFn,
+  type SequentialDecideOptions,
+  type SequentialDecision,
+  type SequentialObservation,
+  type SequentialPairedGate,
+  type SequentialPairedGateOptions,
+  sequentialDecide,
+  sequentialPairedGate,
+} from './gates/sequential'
+export {
   type DimensionRegression,
   detectScale,
   dimensionRegressions,
