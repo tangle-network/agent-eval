@@ -22,6 +22,7 @@
 
 import type { TCloud } from '@tangle-network/tcloud'
 import type { Artifact } from './artifact-validator'
+import type { DefaultVerdict } from './verdict'
 
 /** What kind of produced state can satisfy a requirement structurally. */
 export type SatisfiedBy = 'artifact' | 'proposal' | 'tool-call' | 'any'
@@ -77,13 +78,45 @@ export interface RequirementCheck {
   evidence: string[]
 }
 
-export interface CompletionVerdict {
+/** Extends the substrate verdict spine: `valid` = `fullyComplete` and
+ *  `score` = `completionRate` — derived in `completionVerdict()`, the one
+ *  place those equalities hold by construction. */
+export interface CompletionVerdict extends DefaultVerdict {
   taskId: string
   requirements: RequirementCheck[]
   /** satisfied / total requirements. */
   completionRate: number
   /** Every requirement satisfied. */
   fullyComplete: boolean
+}
+
+/**
+ * Construct a `CompletionVerdict` from the per-requirement checks, deriving
+ * `completionRate` / `fullyComplete` and the spine fields (`valid` =
+ * `fullyComplete`, `score` = `completionRate`) in one place. Throws on zero
+ * requirements — a verdict over nothing is a misconfiguration, mirroring
+ * `verifyCompletion`'s gold-spec guard.
+ */
+export function completionVerdict(input: {
+  taskId: string
+  requirements: RequirementCheck[]
+}): CompletionVerdict {
+  if (input.requirements.length === 0) {
+    throw new Error(
+      `completionVerdict: task '${input.taskId}' has no requirement checks — nothing to derive a verdict from`,
+    )
+  }
+  const satisfiedCount = input.requirements.filter((r) => r.satisfied).length
+  const completionRate = satisfiedCount / input.requirements.length
+  const fullyComplete = satisfiedCount === input.requirements.length
+  return {
+    taskId: input.taskId,
+    requirements: input.requirements,
+    completionRate,
+    fullyComplete,
+    valid: fullyComplete,
+    score: completionRate,
+  }
 }
 
 /**
@@ -294,13 +327,7 @@ export async function verifyCompletion(
     })
   }
 
-  const satisfiedCount = requirements.filter((r) => r.satisfied).length
-  return {
-    taskId: gold.taskId,
-    requirements,
-    completionRate: satisfiedCount / requirements.length,
-    fullyComplete: satisfiedCount === requirements.length,
-  }
+  return completionVerdict({ taskId: gold.taskId, requirements })
 }
 
 export interface LlmCorrectnessCheckerOpts {

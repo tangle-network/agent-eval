@@ -8,6 +8,7 @@ export default defineConfig({
     reporting: 'src/reporting.ts',
     rl: 'src/rl/index.ts',
     diagnose: 'src/diagnose/index.ts',
+    fuzz: 'src/fuzz/index.ts',
     traces: 'src/traces.ts',
     'telemetry/index': 'src/telemetry/index.ts',
     'telemetry/file': 'src/telemetry/sink-file.ts',

@@ -28,6 +28,9 @@ export interface JudgeVerdict<D extends string = string> {
   rationale?: string
   /** Optional reported cost — summed across ALL verdicts (failed included). */
   costUsd?: number
+  /** Optional per-dimension reasoning/evidence. Carried through to
+   *  `EnsembleAggregate.verdicts` verbatim — never folded into the math. */
+  detail?: Partial<Record<D, { reasoning?: string; evidence?: string }>>
 }
 
 /** The aggregated ensemble result. */
@@ -46,6 +49,9 @@ export interface EnsembleAggregate<D extends string = string> {
   costUsd: number
   /** First non-empty survivor rationale, or `'llm-judge'`. */
   rationale: string
+  /** The input verdicts, verbatim — drill-down to raw scores, `detail`
+   *  reasoning/evidence, and per-verdict cost without re-running judges. */
+  verdicts: JudgeVerdict<D>[]
 }
 
 /**
@@ -78,15 +84,26 @@ export function aggregateJudgeVerdicts<D extends string>(
   let rationale = ''
   let costUsd = 0
 
+  // Same model sampled k times (best-of-N judging) gets keys 'm', 'm#2',
+  // 'm#3'… so repeat votes land as distinct perJudge/failedJudges entries
+  // instead of overwriting each other.
+  const seenCount = new Map<string, number>()
+  const keyFor = (model: string): string => {
+    const n = (seenCount.get(model) ?? 0) + 1
+    seenCount.set(model, n)
+    return n === 1 ? model : `${model}#${n}`
+  }
+
   for (const v of verdicts) {
     costUsd += v.costUsd ?? 0
+    const key = keyFor(v.model)
     if (!v.perDimension) {
-      failedJudges.push(v.model)
+      failedJudges.push(key)
       continue
     }
     const dims = {} as Record<D, number>
     for (const d of dimensionKeys) dims[d] = clamp01(Number(v.perDimension[d]))
-    perJudge[v.model] = dims
+    perJudge[key] = dims
     for (const d of dimensionKeys) dimAcc[d].push(dims[d])
     if (!rationale && typeof v.rationale === 'string' && v.rationale) rationale = v.rationale
   }
@@ -127,5 +144,6 @@ export function aggregateJudgeVerdicts<D extends string>(
     failedJudges,
     costUsd,
     rationale: rationale || 'llm-judge',
+    verdicts: [...verdicts],
   }
 }

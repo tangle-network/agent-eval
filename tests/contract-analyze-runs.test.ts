@@ -16,6 +16,8 @@
  */
 
 import { describe, expect, it } from 'vitest'
+import { AnalystRegistry } from '../src/analyst/registry'
+import { makeFinding } from '../src/analyst/types'
 import {
   analyzeRuns,
   type FeedbackTableRow,
@@ -442,5 +444,58 @@ describe('analyzeRuns — recommendations are always actionable', () => {
     expect(json.length).toBeGreaterThan(0)
     const parsed = JSON.parse(json) as InsightReport
     expect(parsed.n).toBe(2)
+  })
+})
+
+// ── analyzeRuns: failure clustering ─────────────────────────────────
+
+describe('analyzeRuns — failure clustering via the analyst registry', () => {
+  function failureRegistry(): AnalystRegistry {
+    const registry = new AnalystRegistry()
+    registry.register({
+      id: 'failure-classifier',
+      description: 'tags every failed run with a timeout finding',
+      inputKind: 'run-record',
+      cost: { kind: 'deterministic' },
+      version: '1',
+      analyze: async (input) => {
+        const run = input as RunRecord
+        return [
+          makeFinding({
+            analyst_id: 'failure-classifier',
+            severity: 'major',
+            area: 'timeout',
+            claim: `run ${run.runId} timed out`,
+            evidence_refs: [],
+            confidence: 1,
+            subject: run.runId,
+          }),
+        ]
+      },
+    })
+    return registry
+  }
+
+  it('failureClusters is NON-EMPTY for failing runs (run-record input routing regression)', async () => {
+    const runs = [
+      makeRun({ id: 'f-1', candidate: 'c', composite: 0.1 }),
+      makeRun({ id: 'f-2', candidate: 'c', composite: 0.2 }),
+      makeRun({ id: 'ok-1', candidate: 'c', composite: 0.9 }),
+    ]
+    const report = await analyzeRuns({ runs, analyst: failureRegistry() })
+    expect(report.failureClusters).toBeDefined()
+    expect(report.failureClusters!.totalFailures).toBe(2)
+    expect(report.failureClusters!.clusters.length).toBeGreaterThan(0)
+    const cluster = report.failureClusters!.clusters[0]!
+    expect(cluster.id).toBe('timeout')
+    expect(cluster.exemplars.sort()).toEqual(['f-1', 'f-2'])
+    expect(cluster.share).toBeCloseTo(1, 5)
+  })
+
+  it('failureClusters stays undefined without an analyst', async () => {
+    const report = await analyzeRuns({
+      runs: [makeRun({ id: 'f-1', candidate: 'c', composite: 0.1 })],
+    })
+    expect(report.failureClusters).toBeUndefined()
   })
 })

@@ -1,6 +1,6 @@
 {
   "name": "@tangle-network/agent-eval",
-  "version": "0.86.0",
+  "version": "0.88.0",
   "description": "Evaluate and improve AI agents from runs, traces, judges, and feedback. Compare candidates, cluster failures, measure lift, and gate releases.",
   "homepage": "https://github.com/tangle-network/agent-eval#readme",
   "repository": {
@@ -43,6 +43,11 @@
       "types": "./dist/diagnose.d.ts",
       "import": "./dist/diagnose.js",
       "default": "./dist/diagnose.js"
+    },
+    "./fuzz": {
+      "types": "./dist/fuzz.d.ts",
+      "import": "./dist/fuzz.js",
+      "default": "./dist/fuzz.js"
     },
     "./traces": {
       "types": "./dist/traces.d.ts",
