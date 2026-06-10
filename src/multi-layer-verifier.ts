@@ -22,6 +22,8 @@
  * layer inside a MultiLayerVerifier if that suits the caller.
  */
 
+import type { DefaultVerdict } from './verdict'
+
 // ─── Types ──────────────────────────────────────────────────────────────
 
 export type LayerStatus = 'pass' | 'fail' | 'skipped' | 'error' | 'timeout'
@@ -104,7 +106,10 @@ export interface VerifyOptions<Env = unknown> {
   onLayer?: (result: LayerResult) => void
 }
 
-export interface VerificationReport {
+/** Extends the substrate verdict spine: `valid` = `allPass` and `score` =
+ *  `blendedScore` — derived where the report is aggregated, so spine
+ *  consumers (drivers, gates) read this report without an adapter. */
+export interface VerificationReport extends DefaultVerdict {
   layers: LayerResult[]
   passCount: number
   failCount: number
@@ -301,14 +306,18 @@ function aggregate<Env>(
   }
 
   const finishedAtMs = Date.now()
+  const allPass = ranAnyScoredLayer && !anyScoredLayerFailed && failCount === 0 && errorCount === 0
+  const blendedScore = scoredWeightSum > 0 ? scoredWeightedTotal / scoredWeightSum : 0
   return {
     layers: results,
     passCount,
     failCount,
     skippedCount,
     errorCount,
-    allPass: ranAnyScoredLayer && !anyScoredLayerFailed && failCount === 0 && errorCount === 0,
-    blendedScore: scoredWeightSum > 0 ? scoredWeightedTotal / scoredWeightSum : 0,
+    allPass,
+    blendedScore,
+    valid: allPass,
+    score: blendedScore,
     durationMs: finishedAtMs - startedAtMs,
     startedAt,
     finishedAt: new Date(finishedAtMs).toISOString(),

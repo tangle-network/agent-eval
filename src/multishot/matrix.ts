@@ -98,6 +98,58 @@ interface CellOutput {
   artifactCount: number
 }
 
+/** Mean composite over non-failed scores. `0` when the list is empty (a
+ *  configured judge with nothing to score contributes 0, matching the cell
+ *  composite's long-standing semantics); `null` when scores exist but every
+ *  one failed — no signal, so the slot must be EXCLUDED from the cell mean
+ *  rather than dragging it to zero. */
+function meanCompositeExcludingFailed(scores: ReadonlyArray<JudgeScore>): number | null {
+  if (scores.length === 0) return 0
+  const live = scores.filter((s) => !s.failed)
+  if (live.length === 0) return null
+  return live.reduce((sum, s) => sum + s.composite, 0) / live.length
+}
+
+export interface CellCompositeInput {
+  conversation: JudgeScore
+  /** Present iff the codeReview judge is configured. */
+  codeReviews?: ReadonlyArray<JudgeScore>
+  /** Present iff the contentQuality judge is configured. */
+  contentReviews?: ReadonlyArray<JudgeScore>
+}
+
+/** Cell composite = mean over configured judge slots, excluding failed
+ *  scores: a failed conversation judge or an all-failed artifact slot carries
+ *  no signal and is dropped from the mean. `composite` is 0 only when EVERY
+ *  configured slot failed (`allJudgesFailed` distinguishes that from a real
+ *  zero). Pure — exported for deterministic testing. */
+export function computeCellComposite(input: CellCompositeInput): {
+  composite: number
+  codeComposite: number
+  contentComposite: number
+  allJudgesFailed: boolean
+} {
+  const contributions: number[] = []
+  if (!input.conversation.failed) contributions.push(input.conversation.composite)
+
+  const codeMean = input.codeReviews ? meanCompositeExcludingFailed(input.codeReviews) : undefined
+  if (typeof codeMean === 'number') contributions.push(codeMean)
+  const contentMean = input.contentReviews
+    ? meanCompositeExcludingFailed(input.contentReviews)
+    : undefined
+  if (typeof contentMean === 'number') contributions.push(contentMean)
+
+  return {
+    composite:
+      contributions.length === 0
+        ? 0
+        : contributions.reduce((s, v) => s + v, 0) / contributions.length,
+    codeComposite: codeMean ?? 0,
+    contentComposite: contentMean ?? 0,
+    allJudgesFailed: contributions.length === 0,
+  }
+}
+
 export interface RunMultishotMatrixResult {
   matrix: MatrixResult<CellOutput>
 }
@@ -166,18 +218,11 @@ export async function runMultishotMatrix<TPersona extends MultishotPersona>(
           : Promise.resolve([] as Array<JudgeScore & { turn: number; type: string }>),
       ])
 
-      const codeComposite =
-        codeReviews.length === 0
-          ? 0
-          : codeReviews.reduce((s, r) => s + r.composite, 0) / codeReviews.length
-      const contentComposite =
-        contentReviews.length === 0
-          ? 0
-          : contentReviews.reduce((s, r) => s + r.composite, 0) / contentReviews.length
-
-      // Composite = mean of (conversation, code, content) — empty judges count 0.
-      const judgeCount = 1 + (opts.judges.codeReview ? 1 : 0) + (opts.judges.contentQuality ? 1 : 0)
-      const composite = (conversation.composite + codeComposite + contentComposite) / judgeCount
+      const { composite, codeComposite, contentComposite, allJudgesFailed } = computeCellComposite({
+        conversation,
+        codeReviews: opts.judges.codeReview ? codeReviews : undefined,
+        contentReviews: opts.judges.contentQuality ? contentReviews : undefined,
+      })
 
       const cellScore: CellCompositeScore = { composite, conversation }
       if (opts.judges.codeReview)
@@ -194,6 +239,7 @@ export async function runMultishotMatrix<TPersona extends MultishotPersona>(
       const notes = [`convo=${conversation.composite.toFixed(1)}`]
       if (opts.judges.codeReview) notes.push(`code=${codeComposite.toFixed(1)}`)
       if (opts.judges.contentQuality) notes.push(`content=${contentComposite.toFixed(1)}`)
+      if (allJudgesFailed) notes.push('all-judges-failed')
 
       return {
         output: {

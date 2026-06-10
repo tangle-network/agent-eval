@@ -1,4 +1,5 @@
 import type { TCloud } from '@tangle-network/tcloud'
+import { JudgeParseError } from './judges'
 import { normalizeScores, weightedMean } from './statistics'
 import type {
   CollectedArtifacts,
@@ -165,12 +166,15 @@ export async function executeScenario(
     }
   })
 
-  // Run judges sequentially with retry
+  // Run judges sequentially with retry. A judge that fails — unparseable
+  // output (JudgeParseError, non-retryable) or errors across every attempt —
+  // is COUNTED as a failed judge, never folded into the scores as a fake
+  // zero row: a synthetic zero is indistinguishable from a real low score.
   const judgeInput = { scenario, turns, artifacts }
   const judgeResults: JudgeScore[][] = []
+  let failedJudges = 0
 
   for (const judge of config.judges) {
-    let lastErr = ''
     for (let attempt = 0; attempt < 3; attempt++) {
       try {
         if (attempt > 0) {
@@ -183,22 +187,19 @@ export async function executeScenario(
         await new Promise((r) => setTimeout(r, 3000))
         break
       } catch (err) {
-        lastErr = err instanceof Error ? err.message : String(err)
-        if (attempt === 2) {
-          judgeResults.push([
-            {
-              judgeName: 'unknown',
-              dimension: 'error',
-              score: 0,
-              reasoning: `Judge failed after 3 attempts: ${lastErr.slice(0, 200)}`,
-            },
-          ])
+        if (err instanceof JudgeParseError) {
+          // The model answered but unparseably — another identical prompt
+          // won't fix it. Record the failure and move to the next judge.
+          failedJudges++
+          break
         }
+        if (attempt === 2) failedJudges++
       }
     }
   }
 
   const allScores = judgeResults.flat()
+  // Defensive: custom JudgeFns may still emit error-shaped rows.
   const errorScores = allScores.filter(
     (s) => s.dimension === 'parse_error' || s.dimension === 'error',
   )
@@ -226,7 +227,7 @@ export async function executeScenario(
     turns,
     artifactResults,
     judgeScores: allScores,
-    judgeErrors: errorScores.length,
+    judgeErrors: errorScores.length + failedJudges,
     overallScore,
     totalDurationMs: Date.now() - startTime,
     artifacts,

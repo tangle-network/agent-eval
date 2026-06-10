@@ -106,10 +106,30 @@ export interface JudgeConfig<TArtifact, TScenario extends Scenario = Scenario> {
   appliesTo?: (scenario: TScenario) => boolean
 }
 
+/** The canonical judge verdict shape — one declaration, shared by campaign
+ *  judges and the multishot judge runner (which re-exports this type).
+ *
+ *  Scale is PRODUCER-DEFINED: campaign convention is [0,1]; the legacy
+ *  multishot runner emits 0-10. Cross-scale comparison must go through
+ *  `detectScale` (src/campaign/gates/statistical-heldout.ts, used by
+ *  promotion-policy) — never renormalize a producer's values in place, as
+ *  downstream thresholds (`composite >= 5` in multishot/matrix.ts, live-soak
+ *  `>= 7` gates) key on the producer's native scale. */
 export interface JudgeScore {
   dimensions: Record<string, number>
   composite: number
   notes: string
+  /** Set when the judge itself failed (call error, unparseable output).
+   *  `composite`/`dimensions` carry no signal — aggregators MUST exclude
+   *  failed scores from means instead of folding them into zeros. */
+  failed?: true
+  /** Ensemble extras (populated by `ensembleJudge`): max per-dimension
+   *  spread across surviving judges — the inter-rater signal. */
+  maxDisagreement?: number
+  /** Ensemble extras: judge identities whose verdict failed. */
+  failedJudges?: string[]
+  /** Ensemble extras: each surviving judge's per-dimension scores. */
+  perJudge?: Record<string, Record<string, number>>
 }
 
 // ── Optimization (population + generations + mutator) ─────────────────
