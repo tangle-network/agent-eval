@@ -77,6 +77,8 @@ export * from './process-reward'
 export * from './reward-hacking'
 /** @experimental Closed-loop campaign runner: eval → preferences → mutate → re-eval. */
 export * from './rl-campaign'
+/** @experimental Simulator fidelity: JSD per behavioral feature between simulated and production RunRecords + the easy-mode (pass-rate inflation) check. */
+export * from './sim-fidelity'
 
 // ── Deployment-outcome store (predictive-validity calibration) ──────
 // Promoted to public so external consumers don't have to inline the
