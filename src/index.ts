@@ -1320,6 +1320,12 @@ export * as profile from './profile/index'
 
 // Ax RLM trace analyst — subpath: /traces (re-exported alongside trace store).
 
+export type {
+  AttestationProvenance,
+  AttestationVerification,
+  AttestedReport,
+} from './attestation'
+export { ATTESTATION_ALGORITHM, attest, verifyAttestation } from './attestation'
 // ── Trace contracts — finite-trace temporal assertions over spans ────
 // Dual-use: one serializable contract checks recorded eval traces AND the
 // OTLP-flattened production stream. Evaluators are `evaluateTraceContract` /
@@ -1345,3 +1351,16 @@ export {
   TraceContractBuilder,
   traceContract,
 } from './trace-contracts'
+export type {
+  CachedJudge,
+  CachedJudgeOptions,
+  VerdictCacheStats,
+  VerdictCacheStore,
+} from './verdict-cache'
+export {
+  cachedJudge,
+  canonicalJson,
+  contentHash,
+  fileVerdictCache,
+  inMemoryVerdictCache,
+} from './verdict-cache'
