@@ -188,6 +188,14 @@ export {
 // `analyzeRuns()` direct callers (observed runs, no loop) get the same
 // `InsightReport` shape.
 
+// The stable analyst entry: build the canonical registry (feeds
+// `AnalyzeRunsOptions.analyst` → `failureClusters`) and read its findings.
+// The full analyst machinery stays under `@tangle-network/agent-eval/analyst`.
+export {
+  buildDefaultAnalystRegistry,
+  type DefaultAnalystRegistryOptions,
+} from '../analyst/default-registry'
+export type { AnalystFinding } from '../analyst/types'
 export type { AnalyzeRunsOptions } from './analyze-runs'
 export { analyzeRuns } from './analyze-runs'
 export type {

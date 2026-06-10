@@ -56,6 +56,17 @@ describe('MultiLayerVerifier — execution', () => {
     expect(r.failCount).toBe(0)
     expect(r.allPass).toBe(true)
     expect(r.blendedScore).toBeCloseTo(0.9, 2)
+    // Verdict spine: valid/score derive from allPass/blendedScore.
+    expect(r.valid).toBe(true)
+    expect(r.score).toBeCloseTo(0.9, 2)
+  })
+
+  it('spine fields mirror allPass/blendedScore on failure too', async () => {
+    const v = new MultiLayerVerifier([failLayer('install', 0), passLayer('build', 0.7)])
+    const r = await v.run({ env: null })
+    expect(r.allPass).toBe(false)
+    expect(r.valid).toBe(r.allPass)
+    expect(r.score).toBe(r.blendedScore)
   })
 
   it('skips downstream layers when upstream fails', async () => {

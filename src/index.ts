@@ -261,6 +261,7 @@ export {
   createCustomJudge,
   createDomainExpertJudge,
   defaultJudges,
+  JudgeParseError,
 } from './judges'
 export * from './knowledge'
 export type {
@@ -417,6 +418,7 @@ export type {
   TaskGold,
 } from './completion-verifier'
 export {
+  completionVerdict,
   createLlmCorrectnessChecker,
   createTokenRecallChecker,
   parseCorrectnessResponse,
@@ -431,6 +433,8 @@ export type {
   DualAgentScenarioResult,
 } from './dual-agent-bench'
 export { DualAgentBench } from './dual-agent-bench'
+export type { EvalToolDef, MakeEvalToolsConfig } from './eval-tools'
+export { makeEvalTools, toOpenAiTool } from './eval-tools'
 export type {
   HarnessAdapter,
   HarnessExperimentConfig,
@@ -453,6 +457,8 @@ export {
 } from './harness-optimizer'
 export type { EnsembleAggregate, JudgeVerdict } from './judge-ensemble'
 export { aggregateJudgeVerdicts } from './judge-ensemble'
+export type { EnsembleJudgeOptions } from './judge-panel'
+export { ensembleJudge } from './judge-panel'
 export type {
   JudgeFleetOptions,
   SandboxJudgeKind,
