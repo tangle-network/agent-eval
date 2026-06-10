@@ -238,3 +238,95 @@ describe('capsule rendering', () => {
     expect(html).toContain('2026-06-10T00:00:00Z')
   })
 })
+
+describe('eval-error isolation (0.89.1)', () => {
+  // evaluate throws on every 'hard' scenario — exploration must survive,
+  // record typed errors, and still produce a complete capsule for easy cells.
+  const flaky: Evaluator<Scn> = async (s) => {
+    if (s.difficulty === 'hard') throw new Error('chat backend returned 503')
+    return { valid: true, score: 0.9, scores: { correctness: 0.9 } }
+  }
+
+  it('a throwing evaluate becomes a typed eval-error, not a crash; healthy cells still complete', async () => {
+    const events: string[] = []
+    const { capsule } = await fuzzAgent({
+      ...base,
+      evaluate: flaky,
+      budget: 16,
+      onProgress: (e) => events.push(e.type),
+    })
+    expect(capsule.stats.evalErrors).toBeGreaterThan(0)
+    expect(events).toContain('eval-error')
+    // easy cells were evaluated and scored despite hard-cell failures
+    const easy = capsule.coverage.filter((c) => c.cell.coords.difficulty === 'easy')
+    expect(easy.some((c) => c.runs > 0)).toBe(true)
+    // errors never count as runs or findings
+    expect(capsule.stats.totalRuns + capsule.stats.evalErrors).toBeGreaterThan(
+      capsule.stats.totalRuns,
+    )
+    for (const f of capsule.findings) expect(f.cell.coords.difficulty).not.toBe('hard')
+  })
+
+  it('consecutive errors trip the circuit breaker: early stop with capsule-so-far', async () => {
+    const dead: Evaluator<Scn> = async () => {
+      throw new Error('ECONNREFUSED')
+    }
+    const { capsule } = await fuzzAgent({
+      ...base,
+      evaluate: dead,
+      budget: 40,
+      maxConsecutiveEvalErrors: 3,
+    })
+    expect(capsule.stats.stoppedEarly?.reason).toBe('eval-errors')
+    expect(capsule.stats.stoppedEarly?.detail).toContain('ECONNREFUSED')
+    expect(capsule.stats.totalRuns).toBe(0)
+    expect(capsule.stats.evalErrors).toBe(3)
+  })
+
+  it('successes reset the error streak — intermittent failures never trip the breaker', async () => {
+    let n = 0
+    const intermittent: Evaluator<Scn> = async () => {
+      n++
+      if (n % 2 === 0) throw new Error('chat backend returned 503')
+      return { valid: true, score: 0.9, scores: { correctness: 0.9 } }
+    }
+    const { capsule } = await fuzzAgent({
+      ...base,
+      evaluate: intermittent,
+      budget: 12,
+      maxConsecutiveEvalErrors: 3,
+    })
+    expect(capsule.stats.stoppedEarly).toBeUndefined()
+    expect(capsule.stats.evalErrors).toBeGreaterThan(0)
+    expect(capsule.stats.totalRuns).toBeGreaterThan(0)
+  })
+
+  it('a throwing GATE is captured too (gate re-evals cross the same boundary)', async () => {
+    const { capsule } = await fuzzAgent({
+      ...base,
+      budget: 12,
+      gates: {
+        isUncontaminated: async () => {
+          throw new Error('chat backend returned 502')
+        },
+      },
+    })
+    expect(capsule.stats.evalErrors).toBeGreaterThan(0)
+    expect(capsule.stats.verifiedFindings).toBe(0)
+  })
+
+  it('renderCapsuleHtml shows the eval-errors KPI and the early-stop banner', async () => {
+    const dead: Evaluator<Scn> = async () => {
+      throw new Error('ECONNREFUSED')
+    }
+    const { capsule } = await fuzzAgent({
+      ...base,
+      evaluate: dead,
+      budget: 10,
+      maxConsecutiveEvalErrors: 2,
+    })
+    const html = renderCapsuleHtml(capsule)
+    expect(html).toContain('eval errors')
+    expect(html).toContain('stopped early')
+  })
+})

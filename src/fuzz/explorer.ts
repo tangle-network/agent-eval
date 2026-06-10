@@ -66,6 +66,9 @@ export class BehaviorExplorer<S> {
   private readonly _findings: Finding<S>[] = []
   private runsUsed = 0
   private candidateFindings = 0
+  private evalErrors = 0
+  private consecutiveEvalErrors = 0
+  private stoppedEarly: { reason: 'eval-errors'; detail: string } | undefined
   private rngState: number
   /** Accumulated KNOWN dollars — unknown-cost runs never inflate it. */
   private spentKnownUsd = 0
@@ -195,7 +198,12 @@ export class BehaviorExplorer<S> {
     let runsThisStep = 0
 
     for (const alloc of allocations) {
-      if (this.runsUsed >= this.opts.budget || this.costExhausted() || this.opts.signal?.aborted)
+      if (
+        this.runsUsed >= this.opts.budget ||
+        this.costExhausted() ||
+        this.stoppedEarly !== undefined ||
+        this.opts.signal?.aborted
+      )
         break
       const cell = this.cellById.get(alloc.cellId)
       if (!cell) continue
@@ -224,48 +232,77 @@ export class BehaviorExplorer<S> {
           if (
             this.runsUsed >= this.opts.budget ||
             this.costExhausted() ||
+            this.stoppedEarly !== undefined ||
             this.opts.signal?.aborted
           )
             return
-          const ev = await this.opts.evaluate(scenario, cell)
-          this.runsUsed++
-          runsThisStep++
-          this.recordRunCost(scenario, cell, ev)
-          const interest = this.objective.interest(ev, this.objectiveContext())
-          this.log.push({ cell, ev, interest, scenarioId: this.opts.scenarioId(scenario) })
-          this.opts.onProgress?.({ type: 'evaluated', cell, scenario, evaluation: ev })
+          // evaluate/gates/minimize cross an external boundary (router, backend,
+          // judge). A throw there is an infra outcome: record it as a typed
+          // eval-error and keep exploring — one 5xx must not kill a campaign.
+          // Consecutive failures trip the circuit breaker instead, so a dead
+          // backend stops the run rather than burning the remaining budget.
+          try {
+            const ev = await this.opts.evaluate(scenario, cell)
+            this.runsUsed++
+            runsThisStep++
+            this.consecutiveEvalErrors = 0
+            this.recordRunCost(scenario, cell, ev)
+            const interest = this.objective.interest(ev, this.objectiveContext())
+            this.log.push({ cell, ev, interest, scenarioId: this.opts.scenarioId(scenario) })
+            this.opts.onProgress?.({ type: 'evaluated', cell, scenario, evaluation: ev })
 
-          const bin = this.binId(cell, ev.descriptor)
-          const cur = this.archiveByBin.get(bin)
-          if (!cur || interest > cur.interest)
-            this.archiveByBin.set(bin, { binId: bin, cell, scenario, evaluation: ev, interest })
+            const bin = this.binId(cell, ev.descriptor)
+            const cur = this.archiveByBin.get(bin)
+            if (!cur || interest > cur.interest)
+              this.archiveByBin.set(bin, { binId: bin, cell, scenario, evaluation: ev, interest })
 
-          if (interest < this.threshold) return
-          this.candidateFindings++
-          if (this.opts.gates?.isValid && !(await this.opts.gates.isValid(scenario, ev, cell)))
-            return
-          if (
-            this.opts.gates?.isUncontaminated &&
-            !(await this.opts.gates.isUncontaminated(scenario, ev, cell))
-          )
-            return
+            if (interest < this.threshold) return
+            this.candidateFindings++
+            if (this.opts.gates?.isValid && !(await this.opts.gates.isValid(scenario, ev, cell)))
+              return
+            if (
+              this.opts.gates?.isUncontaminated &&
+              !(await this.opts.gates.isUncontaminated(scenario, ev, cell))
+            )
+              return
 
-          const minimized = this.opts.minimize
-            ? await this.opts.minimize(scenario, this.opts.evaluate, cell)
-            : scenario
-          const finding: Finding<S> = {
-            id: this.opts.scenarioId(scenario),
-            cell,
-            scenario,
-            minimized,
-            text: this.opts.scenarioText?.(minimized),
-            evaluation: ev,
-            interest,
-            objective: this.objective.kind,
+            const minimized = this.opts.minimize
+              ? await this.opts.minimize(scenario, this.opts.evaluate, cell)
+              : scenario
+            const finding: Finding<S> = {
+              id: this.opts.scenarioId(scenario),
+              cell,
+              scenario,
+              minimized,
+              text: this.opts.scenarioText?.(minimized),
+              evaluation: ev,
+              interest,
+              objective: this.objective.kind,
+            }
+            this._findings.push(finding)
+            newFindings.push(finding)
+            this.opts.onProgress?.({ type: 'finding', finding })
+          } catch (err) {
+            // Internal validation errors (e.g. a fabricated costOf number) are
+            // programming mistakes, not backend outcomes — they stay loud.
+            if (err instanceof RangeError) throw err
+            this.evalErrors++
+            this.consecutiveEvalErrors++
+            const message = err instanceof Error ? err.message : String(err)
+            this.opts.onProgress?.({
+              type: 'eval-error',
+              cell,
+              scenarioId: this.opts.scenarioId(scenario),
+              message,
+            })
+            const limit = this.opts.maxConsecutiveEvalErrors ?? 5
+            if (this.consecutiveEvalErrors >= limit) {
+              this.stoppedEarly = {
+                reason: 'eval-errors',
+                detail: `${this.consecutiveEvalErrors} consecutive eval errors (last: ${message})`,
+              }
+            }
           }
-          this._findings.push(finding)
-          newFindings.push(finding)
-          this.opts.onProgress?.({ type: 'finding', finding })
         },
         this.opts.concurrency ?? 1,
         this.opts.signal,
@@ -282,10 +319,11 @@ export class BehaviorExplorer<S> {
     while (
       this.runsUsed < this.opts.budget &&
       !this.costExhausted() &&
+      this.stoppedEarly === undefined &&
       !this.opts.signal?.aborted
     ) {
       const { runs } = await this.step()
-      if (runs === 0) break
+      if (runs === 0 && this.stoppedEarly === undefined) break
     }
     return this.capsule()
   }
@@ -312,6 +350,8 @@ export class BehaviorExplorer<S> {
       cost: this.opts.costOf
         ? { costUsd: this.spentKnownUsd, costUnknownRuns: this.costUnknownRuns }
         : undefined,
+      evalErrors: this.evalErrors,
+      stoppedEarly: this.stoppedEarly,
     })
   }
 }
