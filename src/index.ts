@@ -1319,3 +1319,10 @@ export {
 export * as profile from './profile/index'
 
 // Ax RLM trace analyst — subpath: /traces (re-exported alongside trace store).
+
+// ── Anytime-valid sequential testing (e-process core) ────────────────
+// The betting test-martingale behind the sequential gates. Gate-level
+// machinery (sequentialPairedGate, sequentialDecide) lives on the /campaign
+// subpath alongside the other gates.
+export type { EProcess, EProcessOptions, EProcessState, EProcessStep } from './statistics'
+export { eProcess, mulberry32 } from './statistics'
