@@ -7,6 +7,7 @@ export default defineConfig({
     control: 'src/control.ts',
     reporting: 'src/reporting.ts',
     rl: 'src/rl/index.ts',
+    diagnose: 'src/diagnose/index.ts',
     fuzz: 'src/fuzz/index.ts',
     traces: 'src/traces.ts',
     'telemetry/index': 'src/telemetry/index.ts',

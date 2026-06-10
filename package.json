@@ -39,6 +39,11 @@
       "import": "./dist/rl.js",
       "default": "./dist/rl.js"
     },
+    "./diagnose": {
+      "types": "./dist/diagnose.d.ts",
+      "import": "./dist/diagnose.js",
+      "default": "./dist/diagnose.js"
+    },
     "./fuzz": {
       "types": "./dist/fuzz.d.ts",
       "import": "./dist/fuzz.js",

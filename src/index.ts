@@ -1320,6 +1320,12 @@ export * as profile from './profile/index'
 
 // Ax RLM trace analyst — subpath: /traces (re-exported alongside trace store).
 
+export type {
+  AttestationProvenance,
+  AttestationVerification,
+  AttestedReport,
+} from './attestation'
+export { ATTESTATION_ALGORITHM, attest, verifyAttestation } from './attestation'
 // ── Anytime-valid sequential testing (e-process core) ────────────────
 // The betting test-martingale behind the sequential gates. Gate-level
 // machinery (sequentialPairedGate, sequentialDecide) lives on the /campaign
@@ -1351,3 +1357,16 @@ export {
   TraceContractBuilder,
   traceContract,
 } from './trace-contracts'
+export type {
+  CachedJudge,
+  CachedJudgeOptions,
+  VerdictCacheStats,
+  VerdictCacheStore,
+} from './verdict-cache'
+export {
+  cachedJudge,
+  canonicalJson,
+  contentHash,
+  fileVerdictCache,
+  inMemoryVerdictCache,
+} from './verdict-cache'
