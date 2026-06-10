@@ -1326,3 +1326,28 @@ export * as profile from './profile/index'
 // subpath alongside the other gates.
 export type { EProcess, EProcessOptions, EProcessState, EProcessStep } from './statistics'
 export { eProcess, mulberry32 } from './statistics'
+// ── Trace contracts — finite-trace temporal assertions over spans ────
+// Dual-use: one serializable contract checks recorded eval traces AND the
+// OTLP-flattened production stream. Evaluators are `evaluateTraceContract` /
+// `checkTraceContracts` because ci-gate owns the root `evaluateContract` name.
+export type {
+  ContractCheckResult,
+  ContractJudgeOptions,
+  ContractRule,
+  ContractRuleKind,
+  ContractSpan,
+  ContractVerdict,
+  ContractViolation,
+  SerializedRegex,
+  SpanPredicate,
+  TextMatcher,
+  TraceContract,
+} from './trace-contracts'
+export {
+  checkTraceContracts,
+  contractJudge,
+  evaluateTraceContract,
+  matchSpan,
+  TraceContractBuilder,
+  traceContract,
+} from './trace-contracts'
