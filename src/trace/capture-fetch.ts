@@ -11,6 +11,7 @@
  * `providerFromBaseUrl` — no new redaction policy.
  */
 
+import { type ExtractedUsage, extractUsage, extractUsageFromSse } from './extract-usage'
 import {
   defaultProviderRedactor,
   type ProviderRedactor,
@@ -44,6 +45,14 @@ export interface CaptureFetchOptions {
   /** When true, a sink-write failure propagates to the caller. Default false
    *  — capture is best-effort so a sink failure never kills the LLM call. */
   failClosed?: boolean
+  /**
+   * Invoked with the token usage parsed off each successful response (JSON or
+   * SSE), keyed by the captured context. Lets a caller fold usage → cost without
+   * re-cloning the response themselves. Not called when the response carries no
+   * usage. Best-effort: a throw here is swallowed (it never kills the LLM call)
+   * unless `failClosed` is set.
+   */
+  onUsage?: (usage: ExtractedUsage, ctx: CaptureFetchContext) => void
 }
 
 const DEFAULT_BODY_CAP = 2 * 1024 * 1024
@@ -164,17 +173,33 @@ export function captureFetchToRawSink(
 
     // Read the body off a clone so the caller still consumes the original.
     let responseBody: unknown
+    let rawText: string | undefined
     const redactedFields: string[] = []
     try {
-      const raw = await response.clone().text()
-      if (raw.length > bodyCap) {
-        responseBody = raw.slice(0, bodyCap)
+      rawText = await response.clone().text()
+      if (rawText.length > bodyCap) {
+        responseBody = rawText.slice(0, bodyCap)
         redactedFields.push('body_truncated')
       } else {
-        responseBody = parseMaybeJson(raw)
+        responseBody = parseMaybeJson(rawText)
       }
     } catch {
       responseBody = undefined
+    }
+
+    if (opts.onUsage && rawText !== undefined) {
+      // Reuse the body already read for capture; no extra clone. JSON first,
+      // then SSE accumulation. A throw in the consumer's callback is swallowed
+      // (best-effort) unless failClosed is set — the LLM call must not die here.
+      try {
+        const parsedForUsage = parseMaybeJson(rawText)
+        const usage =
+          extractUsage(parsedForUsage) ??
+          (typeof parsedForUsage === 'string' ? extractUsageFromSse(rawText) : null)
+        if (usage) opts.onUsage(usage, ctx)
+      } catch (err) {
+        if (opts.failClosed) throw err
+      }
     }
 
     await record({
