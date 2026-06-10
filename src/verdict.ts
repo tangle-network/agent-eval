@@ -18,6 +18,9 @@
  * Minimal verdict shape — `valid` + `score` are required; `scores` +
  * `notes` are optional surface. Validators that need richer shapes
  * parameterise `Validator<Output, MyVerdict>` with their own type.
+ *
+ * Need structured extras? Extend DefaultVerdict with typed fields — never
+ * serialize extras into `notes`.
  */
 export interface DefaultVerdict {
   /** Whether the output meets the validator's pass criteria. */

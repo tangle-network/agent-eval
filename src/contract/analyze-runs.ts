@@ -735,10 +735,10 @@ async function computeFailureClusters(
   const clusters = new Map<string, { exemplars: string[]; share: number }>()
   for (const run of failed) {
     try {
-      const result = await analyst.run(run.runId, {
-        kind: 'run-record',
-        run,
-      } as Parameters<typeof analyst.run>[1])
+      // AnalystRunInputs routes by field name: run-record analysts read
+      // `runRecord`. Any other shape makes every analyst skip with
+      // "missing input" and the clusters come back silently empty.
+      const result = await analyst.run(run.runId, { runRecord: run })
       for (const finding of result.findings as AnalystFinding[]) {
         const key = finding.area || finding.analyst_id || 'unclassified'
         const c = clusters.get(key) ?? { exemplars: [], share: 0 }

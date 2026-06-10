@@ -7,7 +7,12 @@
 //
 // But the runJudge primitive is fully generic — any T → JudgeScore mapping.
 
+import type { JudgeScore } from '../campaign/types'
 import { defaultRouterBaseUrl, requireRouterApiKey, routerCompletion } from './router'
+
+// Canonical declaration lives in campaign/types.ts — multishot emits the same
+// shape on its legacy 0-10 scale (scale is producer-defined; see the type doc).
+export type { JudgeScore } from '../campaign/types'
 
 export const DEFAULT_JUDGE_MODEL = 'openai/gpt-4o-mini'
 
@@ -35,17 +40,6 @@ export interface JudgeConfig<TInput> {
   baseUrl?: string
 }
 
-export interface JudgeScore {
-  /** Per-dimension 0-10 score. Missing dims default to 0. */
-  dimensions: Record<string, number>
-  /** Mean across dimensions. */
-  composite: number
-  /** Free-form 1-2 sentence critique from the judge (when provided). */
-  notes: string
-}
-
-const ZERO_SCORE: JudgeScore = { dimensions: {}, composite: 0, notes: 'parse failed' }
-
 export async function runJudge<TInput>(
   judge: JudgeConfig<TInput>,
   input: TInput,
@@ -69,8 +63,12 @@ export async function runJudge<TInput>(
     })
     raw = (message.content ?? '').trim()
   } catch (err) {
+    // failed:true lets consumers reading `.composite` keep working while
+    // aggregators exclude this score from means instead of averaging a zero.
     return {
-      ...ZERO_SCORE,
+      dimensions: {},
+      composite: 0,
+      failed: true,
       notes: `judge ${judge.name} call failed: ${err instanceof Error ? err.message : String(err)}`,
     }
   }
@@ -83,7 +81,12 @@ export async function runJudge<TInput>(
       .trim()
     parsed = JSON.parse(cleaned) as Record<string, unknown>
   } catch {
-    return { ...ZERO_SCORE, notes: `judge ${judge.name} returned non-JSON: ${raw.slice(0, 200)}` }
+    return {
+      dimensions: {},
+      composite: 0,
+      failed: true,
+      notes: `judge ${judge.name} returned non-JSON: ${raw.slice(0, 200)}`,
+    }
   }
 
   const dimensions: Record<string, number> = {}

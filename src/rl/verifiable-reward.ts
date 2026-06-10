@@ -60,7 +60,17 @@ export interface VerifiableReward {
   /** The layer / judge id that produced the signal, for provenance. */
   origin: string
   /**
-   * Any per-source breakdown the consumer might want — e.g. `{ tests_passed: 7, tests_total: 10 }`.
+   * Per-source contribution to `value`, keyed by layer/judge id. Single-source
+   * rewards carry one entry (`{ [origin]: value }`); composite rewards carry
+   * every contributing layer's score — the anti-scalar-collapse surface RL
+   * consumers weight per-source instead of trusting one blended number.
+   */
+  components: Record<string, number>
+  /**
+   * @deprecated Read `components` for per-source reward values. Kept for
+   * published-API compatibility: single-source rewards carry the layer's
+   * diagnostics here (e.g. `{ tests_passed: 7 }`); composite rewards carry
+   * the same per-layer scores `components` now holds.
    */
   breakdown?: Record<string, number>
 }
@@ -144,12 +154,14 @@ export function extractVerifiableReward(
 
   if (deterministic.length === 1) {
     const layer = deterministic[0]!
+    const value = clamp01(layer.score!)
     return {
-      value: clamp01(layer.score!),
+      value,
       source: sourceFor(layer.layer),
       determinism: 'deterministic',
       confidence: 1,
       origin: layer.layer,
+      components: { [layer.layer]: value },
       breakdown: layerBreakdown(layer),
     }
   }
@@ -158,12 +170,12 @@ export function extractVerifiableReward(
     // Composite: weighted blend by `Layer.weight` if present, else equal.
     let num = 0
     let denom = 0
-    const breakdown: Record<string, number> = {}
+    const components: Record<string, number> = {}
     for (const l of deterministic) {
       const w = (l.detail?.weight as number | undefined) ?? 1
       num += w * (l.score ?? 0)
       denom += w
-      breakdown[l.layer] = l.score!
+      components[l.layer] = l.score!
     }
     return {
       value: denom === 0 ? 0 : clamp01(num / denom),
@@ -171,7 +183,8 @@ export function extractVerifiableReward(
       determinism: 'deterministic',
       confidence: 1,
       origin: deterministic.map((l) => l.layer).join('+'),
-      breakdown,
+      components,
+      breakdown: { ...components },
     }
   }
 
@@ -186,12 +199,14 @@ export function extractVerifiableReward(
   if (!judge) return null
 
   const confFromDetail = judge.detail?.confidence as number | undefined
+  const judgeValue = clamp01(judge.score!)
   return {
-    value: clamp01(judge.score!),
+    value: judgeValue,
     source: 'judge',
     determinism: 'probabilistic',
     confidence: typeof confFromDetail === 'number' ? confFromDetail : judgeFloor,
     origin: judge.layer,
+    components: { [judge.layer]: judgeValue },
     breakdown: layerBreakdown(judge),
   }
 }
@@ -234,20 +249,22 @@ export function extractVerifiableRewardsFromRecords(
 
     if (det.length === 1) {
       const layer = det[0]!
+      const value = clamp01(layer.score)
       return {
         runId: run.runId,
         reward: {
-          value: clamp01(layer.score),
+          value,
           source: sourceFor(layer.name),
           determinism: 'deterministic',
           confidence: 1,
           origin: layer.name,
+          components: { [layer.name]: value },
         },
       }
     }
     if (det.length > 1) {
       const value = det.reduce((s, l) => s + l.score, 0) / det.length
-      const breakdown: Record<string, number> = Object.fromEntries(
+      const components: Record<string, number> = Object.fromEntries(
         det.map((l) => [l.name, l.score]),
       )
       return {
@@ -258,7 +275,8 @@ export function extractVerifiableRewardsFromRecords(
           determinism: 'deterministic',
           confidence: 1,
           origin: det.map((l) => l.name).join('+'),
-          breakdown,
+          components,
+          breakdown: { ...components },
         },
       }
     }
@@ -269,14 +287,16 @@ export function extractVerifiableRewardsFromRecords(
     if (typeof primary !== 'number' || !Number.isFinite(primary)) {
       return { runId: run.runId, reward: null }
     }
+    const primaryValue = clamp01(primary)
     return {
       runId: run.runId,
       reward: {
-        value: clamp01(primary),
+        value: primaryValue,
         source: 'judge',
         determinism: 'probabilistic',
         confidence: judgeFloor,
         origin: 'run.outcome.score',
+        components: { 'run.outcome.score': primaryValue },
       },
     }
   })

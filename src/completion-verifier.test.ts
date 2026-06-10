@@ -13,10 +13,12 @@ import type { Artifact } from './artifact-validator'
 import {
   type CompletionRequirement,
   type CorrectnessChecker,
+  completionVerdict,
   createLlmCorrectnessChecker,
   createTokenRecallChecker,
   type ProducedState,
   parseCorrectnessResponse,
+  type RequirementCheck,
   type TaskGold,
   verifyCompletion,
 } from './completion-verifier'
@@ -279,5 +281,51 @@ describe('createTokenRecallChecker — deterministic content checker', () => {
       check,
     )
     expect(v.fullyComplete).toBe(true)
+  })
+})
+
+describe('completionVerdict — spine derivation', () => {
+  const check = (reqId: string, satisfied: boolean): RequirementCheck => ({
+    reqId,
+    title: reqId,
+    structurallyPresent: satisfied,
+    correct: satisfied ? true : null,
+    satisfied,
+    evidence: [],
+  })
+
+  it('derives completionRate/fullyComplete and the spine fields together', () => {
+    const v = completionVerdict({
+      taskId: 't1',
+      requirements: [check('a', true), check('b', false)],
+    })
+    expect(v.completionRate).toBeCloseTo(0.5, 5)
+    expect(v.fullyComplete).toBe(false)
+    expect(v.valid).toBe(false)
+    expect(v.score).toBeCloseTo(0.5, 5)
+  })
+
+  it('valid mirrors fullyComplete when everything is satisfied', () => {
+    const v = completionVerdict({
+      taskId: 't1',
+      requirements: [check('a', true), check('b', true)],
+    })
+    expect(v.fullyComplete).toBe(true)
+    expect(v.valid).toBe(true)
+    expect(v.score).toBe(1)
+  })
+
+  it('throws on zero requirement checks', () => {
+    expect(() => completionVerdict({ taskId: 't1', requirements: [] })).toThrow(
+      /no requirement checks/,
+    )
+  })
+
+  it('verifyCompletion verdicts carry the spine fields by construction', async () => {
+    const v = await verifyCompletion(gold([DISPUTE_REQ]), emptyState(), alwaysCorrect)
+    expect(v.valid).toBe(v.fullyComplete)
+    expect(v.score).toBe(v.completionRate)
+    expect(v.valid).toBe(false)
+    expect(v.score).toBe(0)
   })
 })

@@ -16,6 +16,7 @@
 import { llmSpans, toolSpans } from './trace/query'
 import type { BudgetLedgerEntry, Span, ToolSpan } from './trace/schema'
 import type { TraceStore } from './trace/store'
+import { evaluateTraceContract, type TraceContract } from './trace-contracts'
 
 export interface MatcherResult {
   ok: boolean
@@ -109,6 +110,26 @@ export class BehaviorAssertion {
         return violations.length === 0
           ? { ok: true, detail: `within limits (${wallMs}ms, ${tool} tools, ${llm} turns)` }
           : { ok: false, detail: violations.join('; ') }
+      },
+    }
+  }
+
+  /** Evaluate a finite-trace temporal contract (`traceContract(...)`) over
+   *  this run's span sequence. See `trace-contracts.ts` for the operators. */
+  toSatisfyContract(contract: TraceContract): Expectation {
+    return {
+      label: `agent(${this.runId}).toSatisfyContract(${contract.name})`,
+      check: async () => {
+        const spans = await this.store.spans({ runId: this.runId })
+        const verdict = evaluateTraceContract(contract, spans)
+        if (verdict.valid) {
+          return { ok: true, detail: `contract "${contract.name}": ${verdict.notes}` }
+        }
+        return {
+          ok: false,
+          detail: verdict.violations.map((v) => `${v.rule}: ${v.detail}`).join('; '),
+          evidence: verdict.violations.find((v) => v.spanId)?.spanId,
+        }
       },
     }
   }

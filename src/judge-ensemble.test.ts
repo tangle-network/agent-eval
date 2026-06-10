@@ -96,4 +96,47 @@ describe('aggregateJudgeVerdicts', () => {
     )
     expect(agg.rationale).toBe('looks right')
   })
+
+  it('suffixes model-id collisions so repeat votes are not overwritten', () => {
+    const agg = aggregateJudgeVerdicts(
+      [verdict('a', 0.2, 0.2), verdict('a', 0.4, 0.4), verdict('a', 0.6, 0.6)],
+      DIMS,
+    )
+    expect(Object.keys(agg.perJudge).sort()).toEqual(['a', 'a#2', 'a#3'])
+    expect(agg.perJudge['a#2']!.accuracy).toBeCloseTo(0.4, 5)
+    // All three votes count in the mean — not just the last one.
+    expect(agg.perDimension.accuracy).toBeCloseTo(0.4, 5)
+  })
+
+  it('suffixes collisions in failedJudges too', () => {
+    const agg = aggregateJudgeVerdicts(
+      [
+        verdict('a', 0.5, 0.5),
+        { model: 'a', perDimension: null },
+        { model: 'a', perDimension: null },
+      ],
+      DIMS,
+    )
+    expect(agg.failedJudges).toEqual(['a#2', 'a#3'])
+    expect(Object.keys(agg.perJudge)).toEqual(['a'])
+  })
+
+  it('detail is carried through verbatim and ignored by the math', () => {
+    const withDetail: JudgeVerdict<Dim> = {
+      model: 'a',
+      perDimension: { accuracy: 0.8, tone: 0.6 },
+      detail: { accuracy: { reasoning: 'cites the source', evidence: 'line 3' } },
+    }
+    const agg = aggregateJudgeVerdicts([withDetail, verdict('b', 0.6, 0.4)], DIMS)
+    expect(agg.perDimension.accuracy).toBeCloseTo(0.7, 5)
+    expect(agg.verdicts[0]!.detail).toEqual({
+      accuracy: { reasoning: 'cites the source', evidence: 'line 3' },
+    })
+  })
+
+  it('exposes the input verdicts verbatim on the aggregate', () => {
+    const inputs = [verdict('a', 0.9, 0.9), { model: 'b', perDimension: null }]
+    const agg = aggregateJudgeVerdicts(inputs, DIMS)
+    expect(agg.verdicts).toEqual(inputs)
+  })
 })
