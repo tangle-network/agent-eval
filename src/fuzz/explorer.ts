@@ -13,6 +13,7 @@
  * observations and coverage are projections of it.
  */
 
+import { ValidationError } from '../errors'
 import { varianceBasedCurriculum } from '../rl/active-curriculum'
 import { buildCapsule } from './capsule'
 import type { EvalRecord } from './cube'
@@ -23,6 +24,7 @@ import type {
   CapsuleData,
   Cell,
   CoverageCell,
+  Evaluation,
   ExploreOptions,
   Finding,
   Objective,
@@ -65,11 +67,31 @@ export class BehaviorExplorer<S> {
   private runsUsed = 0
   private candidateFindings = 0
   private rngState: number
+  /** Accumulated KNOWN dollars — unknown-cost runs never inflate it. */
+  private spentKnownUsd = 0
+  private costUnknownRuns = 0
 
   constructor(private readonly opts: ExploreOptions<S>) {
     this.cells = enumerateCells(opts.space)
     if (this.cells.length === 0)
       throw new Error('BehaviorExplorer: space has no cells — every axis needs ≥1 value')
+    if (opts.costBudgetUsd !== undefined) {
+      if (
+        typeof opts.costBudgetUsd !== 'number' ||
+        !Number.isFinite(opts.costBudgetUsd) ||
+        opts.costBudgetUsd < 0
+      ) {
+        throw new RangeError(
+          `BehaviorExplorer: costBudgetUsd must be a nonnegative finite number, got ${String(opts.costBudgetUsd)}`,
+        )
+      }
+    }
+    if (!opts.costOf && (opts.costBudgetUsd !== undefined || opts.ledger || opts.onCost)) {
+      throw new ValidationError(
+        'BehaviorExplorer: costBudgetUsd/ledger/onCost require costOf — the explorer ' +
+          'cannot know run cost without it; supply costOf or drop the cost options',
+      )
+    }
     this.cellById = new Map(this.cells.map((c) => [c.id, c]))
     this.objective = opts.objective ?? adversarialObjective(0.5)
     this.threshold = this.objective.threshold ?? 0.5
@@ -124,6 +146,37 @@ export class BehaviorExplorer<S> {
     }
   }
 
+  /** Mirrors control-runtime: stop once accumulated KNOWN cost ≥ the ceiling. */
+  private costExhausted(): boolean {
+    return this.opts.costBudgetUsd !== undefined && this.spentKnownUsd >= this.opts.costBudgetUsd
+  }
+
+  /** Fold one run's cost in: null counts as unknown (never $0); a known cost
+   *  accrues toward the budget, lands in the ledger, and fires `onCost`. */
+  private recordRunCost(scenario: S, cell: Cell, ev: Evaluation): void {
+    if (!this.opts.costOf) return
+    const cost = this.opts.costOf(scenario, cell, ev)
+    if (cost === null) {
+      this.costUnknownRuns++
+      return
+    }
+    if (typeof cost.usd !== 'number' || !Number.isFinite(cost.usd) || cost.usd < 0) {
+      throw new RangeError(
+        `BehaviorExplorer: costOf returned an invalid usd (${String(cost?.usd)}) — ` +
+          'return null when cost is unknown, never a fabricated number',
+      )
+    }
+    this.spentKnownUsd += cost.usd
+    this.opts.ledger?.record({
+      model: cost.model ?? 'unattributed',
+      channel: 'agent',
+      usage: { inputTokens: 0, outputTokens: 0 },
+      actualCostUsd: cost.usd,
+      tags: { target: this.opts.target, cell: cell.id },
+    })
+    this.opts.onCost?.({ usd: cost.usd, channel: 'agent' })
+  }
+
   /** Elites whose INPUT cell matches — what the proposer mutates/deepens from. */
   private elitesFor(cellId: string): S[] {
     const out: S[] = []
@@ -134,14 +187,16 @@ export class BehaviorExplorer<S> {
   /** One allocate → propose → evaluate → gate → archive round. */
   async step(): Promise<{ runs: number; findings: Finding<S>[] }> {
     const remaining = this.opts.budget - this.runsUsed
-    if (remaining <= 0 || this.opts.signal?.aborted) return { runs: 0, findings: [] }
+    if (remaining <= 0 || this.costExhausted() || this.opts.signal?.aborted)
+      return { runs: 0, findings: [] }
 
     const allocations = this.allocate(Math.min(this.perRoundBudget, remaining))
     const newFindings: Finding<S>[] = []
     let runsThisStep = 0
 
     for (const alloc of allocations) {
-      if (this.runsUsed >= this.opts.budget || this.opts.signal?.aborted) break
+      if (this.runsUsed >= this.opts.budget || this.costExhausted() || this.opts.signal?.aborted)
+        break
       const cell = this.cellById.get(alloc.cellId)
       if (!cell) continue
       const cap = Math.min(alloc.count, this.opts.budget - this.runsUsed)
@@ -166,10 +221,16 @@ export class BehaviorExplorer<S> {
       await pMap(
         toEval,
         async (scenario) => {
-          if (this.runsUsed >= this.opts.budget || this.opts.signal?.aborted) return
+          if (
+            this.runsUsed >= this.opts.budget ||
+            this.costExhausted() ||
+            this.opts.signal?.aborted
+          )
+            return
           const ev = await this.opts.evaluate(scenario, cell)
           this.runsUsed++
           runsThisStep++
+          this.recordRunCost(scenario, cell, ev)
           const interest = this.objective.interest(ev, this.objectiveContext())
           this.log.push({ cell, ev, interest, scenarioId: this.opts.scenarioId(scenario) })
           this.opts.onProgress?.({ type: 'evaluated', cell, scenario, evaluation: ev })
@@ -215,9 +276,14 @@ export class BehaviorExplorer<S> {
     return { runs: runsThisStep, findings: newFindings }
   }
 
-  /** Loop `step()` until budget is spent, the signal aborts, or no progress is made. */
+  /** Loop `step()` until the run or dollar budget is spent, the signal aborts,
+   *  or no progress is made. */
   async run(): Promise<CapsuleData<S>> {
-    while (this.runsUsed < this.opts.budget && !this.opts.signal?.aborted) {
+    while (
+      this.runsUsed < this.opts.budget &&
+      !this.costExhausted() &&
+      !this.opts.signal?.aborted
+    ) {
       const { runs } = await this.step()
       if (runs === 0) break
     }
@@ -243,6 +309,9 @@ export class BehaviorExplorer<S> {
       findings: this._findings,
       candidateFindings: this.candidateFindings,
       runsUsed: this.runsUsed,
+      cost: this.opts.costOf
+        ? { costUsd: this.spentKnownUsd, costUnknownRuns: this.costUnknownRuns }
+        : undefined,
     })
   }
 }

@@ -1318,6 +1318,13 @@ export {
 // `AgentProfile` exported above from `./agent-profile`.
 export * as profile from './profile/index'
 
+// ── Cost governance — model seating chart + program cost report ─────────
+
+export type { CostReport, ModelCostRollup } from './cost-report'
+export { attachCostToReport, costReport } from './cost-report'
+export type { ModelSeats, SeatName, SeatPresetName } from './model-seats'
+export { resolveSeat, SeatUnsetError, seatPresets } from './model-seats'
+
 // Ax RLM trace analyst — subpath: /traces (re-exported alongside trace store).
 
 export type {

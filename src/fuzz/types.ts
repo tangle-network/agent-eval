@@ -18,6 +18,7 @@
  * never a parallel score shape.
  */
 
+import type { CostChannel, CostLedger } from '../cost-ledger'
 import type { AdversarialMutation } from '../rl/adversarial'
 import type { DefaultVerdict } from '../verdict'
 
@@ -177,7 +178,25 @@ export interface CapsuleData<S> {
     candidateFindings: number
     verifiedFindings: number
     meanRobustness: number
+    /** Known dollars spent on this exploration's runs. Present only when cost
+     *  tracking was wired (`costOf`) — absent means "not tracked", never $0. */
+    costUsd?: number
+    /** Runs whose cost was unknown (`costOf` returned null) — counted apart,
+     *  never folded into `costUsd` as a fabricated $0. */
+    costUnknownRuns?: number
   }
+}
+
+// ── cost governance ───────────────────────────────────────────────────────────
+
+/**
+ * Known cost of one evaluated run. `model` attributes the spend in the ledger's
+ * per-model rollup; absent, the entry is labeled `unattributed` (the dollars are
+ * real either way — recorded as `actualCostUsd`, never an estimate).
+ */
+export interface RunCost {
+  usd: number
+  model?: string
 }
 
 // ── engine options + events ───────────────────────────────────────────────────
@@ -225,6 +244,30 @@ export interface ExploreOptions<S> {
   onProgress?: (event: ExploreEvent<S>) => void
   /** Deterministic seed. Default 1. */
   seed?: number
+  /**
+   * Cost of one evaluated run — consumer-supplied; the explorer cannot know
+   * token usage. Return null when the cost is unknown: the run is COUNTED in
+   * `stats.costUnknownRuns`, never folded into the total as $0. Required by
+   * every other cost option (`costBudgetUsd` / `ledger` / `onCost`).
+   */
+  costOf?: (scenario: S, cell: Cell, ev: Evaluation) => RunCost | null
+  /**
+   * Hard dollar ceiling on accumulated KNOWN cost (same semantics as the
+   * control-runtime `budget.maxCostUsd`: nonnegative finite, the session stops
+   * once spent ≥ ceiling; no new evaluation starts after that). Unknown-cost
+   * runs do not consume budget — they are reported separately, so the ceiling
+   * is honest about what it can see.
+   */
+  costBudgetUsd?: number
+  /**
+   * Sink for per-run cost entries — each known `costOf` result is recorded
+   * with channel 'agent' and `actualCostUsd` (token axes are zero: the
+   * explorer only sees dollars). Pass the program's shared `CostLedger` so
+   * `costReport` stamps fuzz spend alongside judge/analyst spend.
+   */
+  ledger?: CostLedger
+  /** Observer fired for every known-cost run recorded. */
+  onCost?: (entry: { usd: number; channel: CostChannel }) => void
 }
 
 export type { AdversarialMutation, DefaultVerdict }

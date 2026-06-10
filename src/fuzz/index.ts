@@ -38,6 +38,7 @@ export type {
   ObjectiveContext,
   ProposeContext,
   Proposer,
+  RunCost,
   SpaceAxis,
   ValidityGates,
 } from './types'

@@ -23,6 +23,9 @@ export interface BuildCapsuleInput<S> {
   findings: Finding<S>[]
   candidateFindings: number
   runsUsed: number
+  /** Known-dollar / unknown-run split — present only when cost tracking was
+   *  wired; the capsule never fabricates a $0 total. */
+  cost?: { costUsd: number; costUnknownRuns: number }
 }
 
 export function buildCapsule<S>(input: BuildCapsuleInput<S>): CapsuleData<S> {
@@ -47,6 +50,9 @@ export function buildCapsule<S>(input: BuildCapsuleInput<S>): CapsuleData<S> {
       candidateFindings: input.candidateFindings,
       verifiedFindings: input.findings.length,
       meanRobustness,
+      ...(input.cost
+        ? { costUsd: input.cost.costUsd, costUnknownRuns: input.cost.costUnknownRuns }
+        : {}),
     },
   }
 }
@@ -172,6 +178,16 @@ export function renderCapsuleHtml<S>(
         '#5ad17a',
       )
     : ''
+  // Cost KPI only when tracking was wired — an untracked run never shows $0.
+  // Unpriced runs are named in the label (amber): the total is a lower bound.
+  const cost =
+    s.costUsd !== undefined
+      ? kpi(
+          s.costUnknownRuns ? `cost · ${s.costUnknownRuns} runs unpriced` : 'cost',
+          `$${s.costUsd.toFixed(2)}`,
+          s.costUnknownRuns ? '#e5c07b' : '#e6e6e6',
+        )
+      : ''
   const stamp = opts.generatedAt ?? capsule.generatedAt ?? ''
 
   return `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
@@ -218,6 +234,7 @@ ${kpi('mean robustness', pct(s.meanRobustness), s.meanRobustness < 0.6 ? '#e58a9
 ${kpi('verified findings', String(s.verifiedFindings), s.verifiedFindings > 0 ? '#e58a96' : '#5ad17a')}
 ${kpi('cells covered', `${s.cellsCovered}/${s.cellsTotal}`)}
 ${kpi('scenarios run', String(s.totalRuns))}
+${cost}
 ${lift}
 </div>
 <h2>Coverage map</h2>
