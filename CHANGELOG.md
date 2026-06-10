@@ -4,7 +4,15 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ---
 
-## [0.86.0] — 2026-06-09 — fleet-rebuilt eval primitives
+## [0.90.0] — 2026-06-10 — infra perf-benchmark substrate (`/perf`)
+
+Domain-agnostic infra-performance benchmarking: a journeys × axes scenario matrix, record-integrity contracts over flat metric records, and a percentile ratchet. Complements the judge-panel `BenchmarkRunner` (root) — that one scores QUALITY via judges; `/perf` scores LATENCY / RELIABILITY. All additive — no existing export changed.
+
+### Added
+
+- **`JourneySpec` + `expandMatrix` + `scenarioKey` (`/perf` + root).** A journey is one measurable user path (`provision.cold`, `chat.ttft`) carrying its own data contract: `requiredFields` (must be non-null on a passing record), `minimums` (numeric floors, e.g. `event_count ≥ 1` for streaming), `phaseFields` (per-phase breakdown, reported separately), and `requiresLLM` (nightly vs per-PR scheduling). `expandMatrix` does the cartesian expansion over free-form `ScenarioAxes` (driver × region × …) with a `filter` for invalid combos; scenario keys are `journeyId|dim=value|…` with dims sorted, so the key is stable across axes-object insertion order.
+- **`checkRecordIntegrity` + `assertRecordIntegrity` (`/perf` + root).** A record claiming `pass === true` must actually carry its journey's required measurements — a "passing" run with a null `total_ms` is an integrity violation (`null-required-field` / `below-minimum`), not a pass. Failed records are exempt (an errored run legitimately has nulls); `resolveJourney` returning null skips the record. The assert variant throws listing every violation.
+- **`summarizeRecords` + `gatePerf` (`/perf` + root).** Percentile ratchet: fold flat records into per-scenario `PerfStat` (`p50` / `p90` / `n`, nearest-rank on sorted values), then gate a current `PerfBaseline` against a committed one. Null / non-numeric metric values are excluded from `n` and a zero-sample field is omitted — no fake zeros. Regressions trip when p50 OR p90 exceed `tolerancePct` (default 10) over baseline; strict improvements are reported with negative `overBy`; scenarios under `minSamples` (default 3) in current are surfaced in `missingScenarios` and never gated; baseline/current key drift lands in `missingScenarios` / `newScenarios`.
 
 One clean, canonical version of five generic patterns the fleet kept hand-rolling across 2–4 product agents each. All additive — no existing export changed.
 

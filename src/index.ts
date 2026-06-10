@@ -1333,6 +1333,30 @@ export type {
   AttestedReport,
 } from './attestation'
 export { ATTESTATION_ALGORITHM, attest, verifyAttestation } from './attestation'
+// ── Perf — infra-performance benchmarking substrate ──────────────────
+// Journeys × axes scenario matrix, record-integrity contracts, and the
+// percentile ratchet (summarize → baseline → gate). Scores LATENCY /
+// RELIABILITY over flat metric records; the judge-panel BenchmarkRunner
+// (./benchmark) scores QUALITY. Also on the `/perf` subpath.
+export type {
+  IntegrityResult,
+  IntegrityViolation,
+  JourneySpec,
+  PerfBaseline,
+  PerfGateResult,
+  PerfRegression,
+  PerfScenario,
+  PerfStat,
+  ScenarioAxes,
+} from './perf'
+export {
+  assertRecordIntegrity,
+  checkRecordIntegrity,
+  expandMatrix,
+  gatePerf,
+  scenarioKey,
+  summarizeRecords,
+} from './perf'
 // ── Anytime-valid sequential testing (e-process core) ────────────────
 // The betting test-martingale behind the sequential gates. Gate-level
 // machinery (sequentialPairedGate, sequentialDecide) lives on the /campaign
