@@ -184,6 +184,14 @@ export interface CapsuleData<S> {
     /** Runs whose cost was unknown (`costOf` returned null) — counted apart,
      *  never folded into `costUsd` as a fabricated $0. */
     costUnknownRuns?: number
+    /** Evaluations that threw (transport/backend failures). They consumed no
+     *  run budget and scored nothing — an infra axis, never folded into
+     *  robustness or reported as findings. */
+    evalErrors: number
+    /** Present when the run stopped before its budget because consecutive
+     *  eval errors tripped the circuit breaker (a dead backend must not burn
+     *  the remaining budget). The capsule-so-far is complete and honest. */
+    stoppedEarly?: { reason: 'eval-errors'; detail: string }
   }
 }
 
@@ -205,6 +213,7 @@ export type ExploreEvent<S> =
   | { type: 'cell-allocated'; cell: Cell; count: number }
   | { type: 'evaluated'; cell: Cell; scenario: S; evaluation: Evaluation }
   | { type: 'finding'; finding: Finding<S> }
+  | { type: 'eval-error'; cell: Cell; scenarioId: string; message: string }
   | { type: 'round'; runsUsed: number; budget: number }
 
 export interface ExploreOptions<S> {
@@ -238,6 +247,9 @@ export interface ExploreOptions<S> {
   minimize?: (scenario: S, evaluate: Evaluator<S>, cell: Cell) => Promise<S> | S
   /** Max concurrent `evaluate` calls. Default 1. */
   concurrency?: number
+  /** Stop the run after this many CONSECUTIVE eval errors (a dead backend must
+   *  not burn the remaining budget). Successes reset the streak. Default 5. */
+  maxConsecutiveEvalErrors?: number
   /** Cooperative cancellation. */
   signal?: AbortSignal
   /** Progress stream. */

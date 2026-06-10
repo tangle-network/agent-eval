@@ -26,6 +26,10 @@ export interface BuildCapsuleInput<S> {
   /** Known-dollar / unknown-run split — present only when cost tracking was
    *  wired; the capsule never fabricates a $0 total. */
   cost?: { costUsd: number; costUnknownRuns: number }
+  /** Evaluations that threw — infra outcomes, never folded into robustness. */
+  evalErrors: number
+  /** Set when the consecutive-error circuit breaker stopped the run early. */
+  stoppedEarly?: { reason: 'eval-errors'; detail: string }
 }
 
 export function buildCapsule<S>(input: BuildCapsuleInput<S>): CapsuleData<S> {
@@ -53,6 +57,8 @@ export function buildCapsule<S>(input: BuildCapsuleInput<S>): CapsuleData<S> {
       ...(input.cost
         ? { costUsd: input.cost.costUsd, costUnknownRuns: input.cost.costUnknownRuns }
         : {}),
+      evalErrors: input.evalErrors,
+      ...(input.stoppedEarly ? { stoppedEarly: input.stoppedEarly } : {}),
     },
   }
 }
@@ -235,8 +241,10 @@ ${kpi('verified findings', String(s.verifiedFindings), s.verifiedFindings > 0 ? 
 ${kpi('cells covered', `${s.cellsCovered}/${s.cellsTotal}`)}
 ${kpi('scenarios run', String(s.totalRuns))}
 ${cost}
+${s.evalErrors > 0 ? kpi('eval errors', String(s.evalErrors), '#e5b566') : ''}
 ${lift}
 </div>
+${s.stoppedEarly ? `<div class="sub" style="color:#e5b566">stopped early: ${esc(s.stoppedEarly.detail)} — coverage below reflects the completed portion only</div>` : ''}
 <h2>Coverage map</h2>
 ${heatmapHtml(capsule.coverage)}
 <h2>Verified findings${s.candidateFindings > s.verifiedFindings ? ` · ${s.verifiedFindings} of ${s.candidateFindings} candidates passed the validity gates` : ''}</h2>
