@@ -1,5 +1,6 @@
 export * from './capture-fetch'
 export * from './emitter'
+export * from './extract-usage'
 export * from './integrity'
 export * from './otel'
 export * from './otel-bridge'

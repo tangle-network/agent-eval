@@ -613,8 +613,49 @@ export type { AgentProfile } from './agent-profile'
 export { agentProfileHash } from './agent-profile'
 export type { BaselineOptions, BaselineReport, MetricSamples, MetricVerdict } from './baseline'
 export { compareToBaseline, iqr, welchsTTest } from './baseline'
+export type {
+  ChannelRollup,
+  CostChannel,
+  CostLedgerEntry,
+  CostLedgerSummary,
+  CostResult,
+  CostUsage,
+} from './cost-ledger'
+export { CostLedger, costForUsage, modelPriceKey } from './cost-ledger'
 export type { CostEntry, CostSummary, ScenarioCost, TokenSpec } from './cost-tracker'
 export { CostTracker } from './cost-tracker'
+export type {
+  CandidateComparison,
+  RunRecordBackend,
+  RunRecordFilter,
+} from './eval-trace-store'
+export {
+  EvalTraceStore,
+  inMemoryRunRecordBackend,
+  jsonlRunRecordBackend,
+  runScore,
+} from './eval-trace-store'
+export type {
+  CreateExperimentInput,
+  Experiment,
+  ExperimentProvenance,
+  ExperimentRep,
+  ExperimentStats,
+  ExperimentStore,
+  ExperimentTrackerOptions,
+  ExperimentVerdict,
+  ImprovementThresholds,
+  ImprovementVerdictResult,
+  ProvenanceReader,
+} from './experiment-tracker'
+export {
+  computeExperimentStats,
+  ExperimentTracker,
+  fileExperimentStore,
+  gitProvenanceReader,
+  improvementVerdict,
+  inMemoryExperimentStore,
+} from './experiment-tracker'
 export type { MuffledFinder, MuffledFinding, ScanOptions } from './muffled-gate-scanner'
 export {
   DEFAULT_FINDERS,
@@ -638,6 +679,16 @@ export {
 } from './oracle'
 export type { Direction, Objective, ParetoResult } from './pareto'
 export { dominates, paretoFrontier } from './pareto'
+export type {
+  HeldOutPartition,
+  PartitionHeldOutOptions,
+} from './partition-held-out'
+export {
+  assignHeldOutTag,
+  fnv1a32,
+  hashToUnit,
+  partitionHeldOut,
+} from './partition-held-out'
 // ── Eval scorecard — (persona × profile) score timeline ──────────────
 export type {
   CellVerdict,

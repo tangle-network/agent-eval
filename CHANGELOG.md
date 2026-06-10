@@ -4,6 +4,20 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ---
 
+## [0.86.0] — 2026-06-09 — fleet-rebuilt eval primitives
+
+One clean, canonical version of five generic patterns the fleet kept hand-rolling across 2–4 product agents each. All additive — no existing export changed.
+
+### Added
+
+- **`ExperimentTracker` + `improvementVerdict` + `computeExperimentStats` (root).** Git-provenanced experiment log with N-rep stats (`median` / `mean` / `min` / `max` / `iqr` / `stddev` / `passRate` / `n` + a `stable` flag) and a `KEEP` / `REGRESSION` / `NOISE` / `ITERATE` verdict against a parent. Provenance (`ProvenanceReader`, default `gitProvenanceReader`) and persistence (`ExperimentStore`, with `inMemoryExperimentStore` + `fileExperimentStore`) are injected, so the stats + verdict are pure and unit-testable without a repo or disk. Thresholds (`keepThreshold` / `regressionThreshold` / `iqrUnstableAbove` / `stddevUnstableAbove` / `minRepsForVerdict`) are configurable. Replaces the per-agent `tests/eval/lib/experiment-tracker.ts` copies (tax / insurance / legal).
+- **`EvalTraceStore` + `runScore` (root).** JSONL save / query / compare over the analysis-time `RunRecord` row: `query(filter)`, `getBest(scenarioId)`, and `compareRuns(a, b)` (paired on matched scenarios, best-score-per-scenario). Persistence is injected via `RunRecordBackend` (`inMemoryRunRecordBackend` / `jsonlRunRecordBackend`, which fail loud on a malformed line). Does NOT fork `FileSystemTraceStore` (the rich TraceSchema-v1 span store) — it is the analysis projection beside it. Replaces the hand-rolled `tests/eval/lib/trace-store.ts` copies.
+- **`CostLedger` + `costForUsage` + `modelPriceKey` (root).** Per-run token + USD accounting folded over the substrate's `resolveModelPricing` / `isModelPriced`, with an explicit `costUnknown` axis so a $0 from an unpriced model is never mistaken for a measured free run. Classifies spend by channel (`agent` / `judge` / `verifier` / …), surfaces `unpricedModels` + `fullyPriced`, and computes `costPerCompletedTask`. Generalizes physim's `costForUsage` / `modelPriceKey` and the tax / gtm / agent-builder copies.
+- **`extractUsage` + `extractUsageFromSse` + `extractUsageFromResponse` (`/traces` + root).** Token-usage extraction from a chat-completions response or an SSE stream — OpenAI / Anthropic / camelCase shapes, cache-read tokens, and per-chunk SSE accumulation — returning `null` (not a silent zero) when no usage is present. `captureFetchToRawSink` gains an optional `onUsage` callback that emits the parsed usage off each response (reusing the body it already reads — no extra clone), so a caller folds usage → cost without re-cloning. Replaces the insurance / legal / gtm `raw-capture.ts` copies.
+- **`partitionHeldOut` + `assignHeldOutTag` + `hashToUnit` + `fnv1a32` (root).** Deterministic FNV-1a id+seed held-out splitter. `assignHeldOutTag` stamps a single id; `partitionHeldOut` splits a whole id list into disjoint search / holdout sets and fails loud on duplicate ids, empty input, an under-floor holdout (`minHoldout` / `minSearch` significance floor), or an out-of-range `holdoutFraction`. Generalizes agent-builder's `deterministicSplit` and the frontier persona-splitter; complements the existing 3-way benchmark `deterministicSplit` in `/benchmarks`.
+
+---
+
 ## [0.83.0] — 2026-06-05 — hostedTenantFromEnv
 
 ### Added
