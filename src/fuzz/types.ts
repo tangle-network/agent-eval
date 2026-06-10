@@ -1,171 +1,230 @@
 /**
- * Coverage-guided agentic fuzzing — types.
+ * Behavior-space exploration — types.
  *
- * The eval set stops being a hand-authored fixture and becomes a living,
- * adversarially-grown population. `fuzzAgent` tiles a behavior hypercube into
- * cells, steers a search budget toward the cells whose robustness is least
- * certain, mutates scenarios to find where the agent fails, and keeps only
- * failures that are fair, reproducible, and uncontaminated. The output is a
- * `CapsuleData` artifact: a coverage map + minimized verified failures.
+ * One engine searches a space of inputs against a target, scores each run with a
+ * multi-objective verdict, keeps a quality-diversity archive, and admits only
+ * findings that pass the validity gates. Adversarial fuzzing is the headline
+ * preset (`fuzzAgent`); swapping the `Objective` re-points the same engine at
+ * novelty search, curriculum growth, or user-simulation.
  *
- * The integrity invariant: a candidate failure is marketed ONLY when it passes
- * the validity gates. A "hard" scenario that is unfair, brittle, or contaminated
- * manufactures false confidence and is worse than no eval — it never enters the
- * capsule.
+ * Two kinds of coordinates, deliberately distinct:
+ *  - INPUT axes (`space.axes`) are the stratification plan — enumerable up front,
+ *    so allocation and the coverage denominator (planned vs covered) are honest.
+ *  - MEASURED descriptors (`descriptor(scenario, ev)`) are read off the rollout —
+ *    they bin the archive by what the agent DID, and never inflate the coverage
+ *    denominator (a behavior you haven't seen yet is not a planned cell).
+ *
+ * An `Evaluation` IS a `DefaultVerdict` — same spine as judges and verifiers,
+ * never a parallel score shape.
  */
 
-import type { ExperimentTracker } from '../experiment-tracker'
-import type { AdversarialMutation, AdversarialScenario } from '../rl/adversarial'
+import type { AdversarialMutation } from '../rl/adversarial'
+import type { DefaultVerdict } from '../verdict'
 
-/** One descriptor axis of the behavior hypercube (e.g. matterType, difficulty, personaRigor). */
-export interface CubeAxis {
+// ── behavior space ───────────────────────────────────────────────────────────
+
+/** One input axis of the stratification plan (e.g. matterType, difficulty, personaRigor). */
+export interface SpaceAxis {
   name: string
   values: string[]
 }
 
-/** The behavior space to tile. Cells are the cartesian product of the axes. */
-export interface HypercubeSpec {
-  axes: CubeAxis[]
+/** The input space to stratify. Cells are the cartesian product of the axes. */
+export interface BehaviorSpace {
+  axes: SpaceAxis[]
 }
 
-/** One tile of the hypercube: a coordinate in descriptor space. */
-export interface FuzzCell {
-  /** Stable id, e.g. `matterType=nda|difficulty=hard|personaRigor=relentless`. */
+/** One input cell: a coordinate in the stratification plan. */
+export interface Cell {
+  /** Stable id, e.g. `matterType=nda|difficulty=hard`. */
   id: string
   coords: Record<string, string>
 }
 
-/** Outcome of running the agent under test against one scenario. `score` in [0,1]; lower = worse. */
-export interface FuzzRunOutcome {
-  score: number
-  passed: boolean
-  /** Surfaced output — drives failure exemplars + minimization. */
-  output?: string
-  /** RunRecord id when the target persisted a trace (lets a TraceStore-backed clusterer find it). */
-  runId?: string
-  /** Structured failure label (drives clustering), e.g. `hallucination`, `refusal`, `wrong_answer`. */
-  failureClass?: string
-}
-
-/** How to run the agent under test. The live wiring dispatches to the real loop; tests inject a fake. */
-export interface FuzzTarget<S> {
-  run: (scenario: S, cell: FuzzCell) => Promise<FuzzRunOutcome>
-}
+// ── evaluation (the canonical verdict, extended) ─────────────────────────────
 
 /**
- * The skill-backed generator: a seed corpus + mutation operators per cell. In the
- * live wiring `seedsFor`/`mutationsFor` dispatch to an agent running the generator
- * skill (which GEPA can later optimize); in tests they are pure functions.
+ * The outcome of running the target against one scenario: a `DefaultVerdict`
+ * (`valid`, headline `score` in [0,1], per-dimension `scores`, `notes`) plus the
+ * fields exploration needs. Keep `scores` populated — the coverage map surfaces
+ * WHICH dimension is weak only when evaluations carry it.
  */
-export interface ScenarioGenerator<S> {
-  /** Seed scenarios for a cell — the starting corpus the fuzzer mutates. */
-  seedsFor: (cell: FuzzCell) => S[] | Promise<S[]>
-  /** Mutation operators for a cell (semantic-preserving perturbations or skill-authored variants). */
-  mutationsFor: (cell: FuzzCell) => AdversarialMutation<S>[]
+export interface Evaluation extends DefaultVerdict {
+  /** Measured behavior coordinates (e.g. `{ outcome: 'refused' }`). Bins the archive. */
+  descriptor?: Record<string, string>
+  /** Surfaced output — drives exemplars + minimization. */
+  output?: string
+  /** RunRecord id when the target persisted a trace. */
+  runId?: string
+  /** Structured labels, e.g. failure classes (`hallucination`, `refusal`). */
+  labels?: string[]
+}
+
+/** Run the target against one scenario in a cell. */
+export type Evaluator<S> = (scenario: S, cell: Cell) => Promise<Evaluation>
+
+// ── pluggable policies (each has ≥2 real implementations or it isn't here) ────
+
+/** Context a proposer sees — prior elites + findings let a skill-backed proposer steer. */
+export interface ProposeContext<S> {
+  cell: Cell
+  seeds: S[]
+  /** Current archive elites whose input cell matches. */
+  elites: S[]
+  /** Verified findings so far (read-only) — probe new gaps, not re-found ones. */
+  findings: ReadonlyArray<Finding<S>>
+  /** How many candidates to propose. */
+  count: number
+  rng: () => number
 }
 
 /**
- * Validity gates — the moat. A candidate failure counts ONLY when it is a fair,
- * answerable task (`isValid`) AND robust to a semantic-preserving rephrase
- * (`isUncontaminated`). Both default to pass-through so the loop is testable
- * without an LLM; the live wiring supplies real gates (see `perturbationStabilityGate`).
+ * Produces candidate scenarios for a cell. A plain function — `mutationProposer`
+ * builds one from mutation operators; an agent running a generator skill IS one
+ * (`(ctx) => dispatchToSkill(ctx)`), no wrapper needed.
+ */
+export type Proposer<S> = (ctx: ProposeContext<S>) => Promise<S[]> | S[]
+
+/**
+ * What "interesting" means. `interest` in [0,1]; a candidate is notable (gate-
+ * checked, reported) when `interest >= threshold`. `adversarialObjective` (low
+ * score is interesting) and `noveltyObjective` (far from the archive) ship.
+ */
+export interface Objective {
+  kind: string
+  interest(ev: Evaluation, ctx: ObjectiveContext): number
+  /** Default 0.5. */
+  threshold?: number
+}
+
+export interface ObjectiveContext {
+  archiveScores: number[]
+  archiveDescriptors: Array<Record<string, string> | undefined>
+}
+
+/**
+ * Validity gates — the moat. A notable candidate is admitted ONLY when it is a
+ * fair, answerable task (`isValid`) AND reproduces under a meaning-preserving
+ * rephrase (`isUncontaminated`). Pass-through by default (testable without an
+ * LLM); live wiring supplies real gates.
  */
 export interface ValidityGates<S> {
-  /** Confirm the scenario is a legitimate, answerable task — not a trick. Default: valid. */
-  isValid?: (scenario: S, outcome: FuzzRunOutcome, cell: FuzzCell) => boolean | Promise<boolean>
-  /** Confirm the failure survives a meaning-preserving rephrase (not a brittle artifact). Default: pass. */
-  isUncontaminated?: (
-    scenario: S,
-    outcome: FuzzRunOutcome,
-    cell: FuzzCell,
-  ) => boolean | Promise<boolean>
+  isValid?: (scenario: S, ev: Evaluation, cell: Cell) => boolean | Promise<boolean>
+  isUncontaminated?: (scenario: S, ev: Evaluation, cell: Cell) => boolean | Promise<boolean>
 }
 
-export interface FuzzAgentOptions<S> {
-  /** Name of the agent under test — labels the capsule. */
-  target: string
-  /** The behavior hypercube to tile. */
-  cube: HypercubeSpec
-  /** Scenario generator (skill-backed). */
-  generator: ScenarioGenerator<S>
-  /** Adapter that runs the agent under test. */
-  runner: FuzzTarget<S>
-  /** Stable id for a scenario (dedup + lineage). */
-  scenarioId: (scenario: S) => string
-  /** Human-legible prompt text for a scenario — drives failure exemplars in the capsule. */
-  scenarioText?: (scenario: S) => string
-  /** Validity gates. Default pass-through; the live wiring supplies real ones. */
-  gates?: ValidityGates<S>
-  /** Score strictly below this counts as a candidate failure. Default 0.5. */
-  failureThreshold?: number
-  /** Total target runs across all cells (the fuzzing budget). */
-  budget: number
-  /** Adversarial-search rounds per cell allocation. Default 2. */
-  roundsPerCell?: number
-  /** Minimum runs every cell receives before variance steering (coverage floor). Default 2. */
-  floorPerCell?: number
-  /** Shrink a failing scenario to its minimal trigger (corpus minimization). Default: identity. */
-  minimize?: (scenario: S, runner: FuzzTarget<S>, cell: FuzzCell) => Promise<S> | S
-  /** Optional experiment lineage — records the run as a tracked experiment. */
-  tracker?: ExperimentTracker
-  /** Deterministic seed. Default 1. */
-  seed?: number
-}
+// ── findings + coverage + capsule ─────────────────────────────────────────────
 
-/** A verified, minimized failure — the only thing the capsule markets. */
-export interface VerifiedFailure<S> {
+/** A gate-verified, minimized finding — the unit the capsule reports. */
+export interface Finding<S> {
   id: string
-  cell: FuzzCell
-  /** The scenario as found. */
+  cell: Cell
   scenario: S
   /** The minimized trigger (== `scenario` when no minimizer is supplied). */
   minimized: S
   /** Legible text of the minimized trigger, when `scenarioText` is supplied. */
   text?: string
-  /** The failing score in [0,1]. */
-  score: number
-  /** `1 - score`, clamped to [0,1] — how badly it failed. */
-  severity: number
-  failureClass?: string
+  /** The full multi-objective verdict. */
+  evaluation: Evaluation
+  /** The objective's interest score that flagged it. */
+  interest: number
+  /** Which objective flagged it. */
+  objective: string
 }
 
-/** Per-cell coverage for the heat-map. */
+/** An archive elite — the most interesting scenario seen for one bin. */
+export interface ArchiveEntry<S> {
+  /** Input cell + measured descriptor coords combined, e.g. `difficulty=hard|outcome=refused`. */
+  binId: string
+  cell: Cell
+  scenario: S
+  evaluation: Evaluation
+  interest: number
+}
+
+/** Per-INPUT-cell coverage — the planned-vs-covered map. */
 export interface CoverageCell {
-  cell: FuzzCell
+  cell: Cell
   runs: number
-  meanScore: number
-  failureRate: number
-  /** Robustness in [0,1] (== meanScore): 0 red → 1 green. `null` when the cell was never run. */
+  /** Mean headline score in [0,1]; `null` when the cell was never run (honestly uncovered). */
   robustness: number | null
+  /** Fraction of runs the objective flagged as notable. */
+  findingRate: number
+  /** Mean per-dimension scores — surfaces WHICH dimension is weak. */
+  dimensions: Record<string, number>
 }
 
-/** The marketing/insight artifact every fuzz run produces. */
+/** The artifact every exploration produces. */
 export interface CapsuleData<S> {
   target: string
-  /** ISO timestamp — stamped by the caller (kept out of the pure loop for determinism). */
+  objective: string
+  /** Stamped by the caller — the engine stays clock-free and deterministic. */
   generatedAt?: string
-  /** The coverage heat-map, one entry per cell. */
   coverage: CoverageCell[]
-  /** Minimized, verified failures, sorted by descending severity. */
-  failures: VerifiedFailure<S>[]
-  /** QD archive — the most-discriminative (hardest) scenario kept per covered cell. */
-  archive: Array<{ cell: FuzzCell; scenario: AdversarialScenario<S> }>
-  /** Post-harden lift, filled by a second fuzz pass after an improvement (optional). */
+  /** Verified findings, sorted by descending interest. */
+  findings: Finding<S>[]
+  /** QD archive elites (binned by input × measured coords). */
+  archive: ArchiveEntry<S>[]
+  /** Post-harden lift, filled by a second pass after an improvement. */
   lift?: { before: number; after: number; verdict: string }
   stats: {
     totalRuns: number
+    /** Input-cell denominator — the stratification plan. */
     cellsTotal: number
     cellsCovered: number
-    candidateFailures: number
-    verifiedFailures: number
-    /** Mean robustness across covered cells, in [0,1]. */
+    /** Distinct measured-descriptor bins observed (never part of the denominator). */
+    behaviorBinsObserved: number
+    candidateFindings: number
+    verifiedFindings: number
     meanRobustness: number
   }
-  experimentId?: string
 }
 
-export interface FuzzAgentResult<S> {
-  capsule: CapsuleData<S>
+// ── engine options + events ───────────────────────────────────────────────────
+
+export type ExploreEvent<S> =
+  | { type: 'cell-allocated'; cell: Cell; count: number }
+  | { type: 'evaluated'; cell: Cell; scenario: S; evaluation: Evaluation }
+  | { type: 'finding'; finding: Finding<S> }
+  | { type: 'round'; runsUsed: number; budget: number }
+
+export interface ExploreOptions<S> {
+  /** Name of the target under exploration — labels the capsule. */
+  target: string
+  /** The input stratification plan. */
+  space: BehaviorSpace
+  /** Candidate generator. */
+  proposer: Proposer<S>
+  /** Runs the target → multi-objective `Evaluation`. */
+  evaluate: Evaluator<S>
+  /** Seed corpus per cell. */
+  seedsFor: (cell: Cell) => S[] | Promise<S[]>
+  /** Stable id for a scenario (dedup + lineage). */
+  scenarioId: (scenario: S) => string
+  /** Human-legible text — drives capsule exemplars. */
+  scenarioText?: (scenario: S) => string
+  /** Measured behavior coords appended to the archive bin. Default: input cell only. */
+  descriptor?: (scenario: S, ev: Evaluation) => Record<string, string>
+  /** What "interesting" means. Default: `adversarialObjective(0.5)`. */
+  objective?: Objective
+  /** Validity gates. Default pass-through. */
+  gates?: ValidityGates<S>
+  /** Budget steering across input cells. `variance` chases uncertainty; `uniform` is the unsteered ablation baseline. Default `variance`. */
+  allocation?: 'variance' | 'uniform'
+  /** Total target evaluations. */
+  budget: number
+  /** Minimum evaluations per input cell before steering. Default 2. */
+  floorPerCell?: number
+  /** Shrink a notable scenario to its minimal trigger. Default: identity. */
+  minimize?: (scenario: S, evaluate: Evaluator<S>, cell: Cell) => Promise<S> | S
+  /** Max concurrent `evaluate` calls. Default 1. */
+  concurrency?: number
+  /** Cooperative cancellation. */
+  signal?: AbortSignal
+  /** Progress stream. */
+  onProgress?: (event: ExploreEvent<S>) => void
+  /** Deterministic seed. Default 1. */
+  seed?: number
 }
 
-export type { AdversarialMutation, AdversarialScenario }
+export type { AdversarialMutation, DefaultVerdict }

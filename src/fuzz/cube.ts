@@ -1,59 +1,70 @@
 /**
- * The behavior hypercube — tiling + coverage projection.
+ * Input-space tiling + coverage projection.
  *
- * Cells are the cartesian product of the descriptor axes. The fuzzer keeps one
- * elite per cell (MAP-Elites) and steers its budget toward cells whose
- * robustness is least certain, so the archive ends up tiling the space rather
- * than collapsing onto a single hardest scenario.
+ * Cells are the cartesian product of the input axes — the stratification plan,
+ * enumerable up front so the planned-vs-covered denominator is honest. Coverage
+ * is projected from the evaluation log: per cell, mean headline robustness, the
+ * mean of each scored dimension (so the map shows WHICH dimension is weak), and
+ * the rate at which the active objective flagged a candidate.
  */
 
-import type { CellObservation } from '../rl/active-curriculum'
-import type { CoverageCell, FuzzCell, HypercubeSpec } from './types'
+import type { BehaviorSpace, Cell, CoverageCell, Evaluation } from './types'
 
-/** Enumerate every cell (cartesian product of the axes), in stable order. */
-export function enumerateCells(cube: HypercubeSpec): FuzzCell[] {
-  if (cube.axes.length === 0) return []
-  let cells: FuzzCell[] = [{ id: '', coords: {} }]
-  for (const axis of cube.axes) {
-    const next: FuzzCell[] = []
-    for (const partial of cells) {
-      for (const value of axis.values) {
-        next.push({ id: '', coords: { ...partial.coords, [axis.name]: value } })
-      }
+/** One recorded evaluation — the unit coverage and the capsule are built from. */
+export interface EvalRecord {
+  cell: Cell
+  ev: Evaluation
+  /** The objective's interest score for this evaluation. */
+  interest: number
+}
+
+/** Enumerate every input cell (cartesian product of the axes), in stable order. */
+export function enumerateCells(space: BehaviorSpace): Cell[] {
+  if (space.axes.length === 0) return []
+  let partials: Array<Record<string, string>> = [{}]
+  for (const axis of space.axes) {
+    const next: Array<Record<string, string>> = []
+    for (const partial of partials) {
+      for (const value of axis.values) next.push({ ...partial, [axis.name]: value })
     }
-    cells = next
+    partials = next
   }
-  // Assign stable ids from the coordinate map (axis order preserved).
-  return cells.map((c) => ({ ...c, id: cellId(cube, c.coords) }))
+  return partials.map((coords) => ({ id: cellId(space, coords), coords }))
 }
 
 /** Deterministic id for a coordinate map, e.g. `matterType=nda|difficulty=hard`. */
-export function cellId(cube: HypercubeSpec, coords: Record<string, string>): string {
-  return cube.axes.map((a) => `${a.name}=${coords[a.name]}`).join('|')
+export function cellId(space: BehaviorSpace, coords: Record<string, string>): string {
+  return space.axes.map((a) => `${a.name}=${coords[a.name]}`).join('|')
 }
 
+const mean = (xs: number[]): number =>
+  xs.length === 0 ? 0 : xs.reduce((a, b) => a + b, 0) / xs.length
+
 /**
- * Project the per-run observations into a per-cell coverage map. A cell with no
- * runs reports `robustness: null` (honestly uncovered) rather than a misleading 0.
+ * Project the evaluation log into the per-input-cell coverage map. A cell with
+ * no evaluations reports `robustness: null` (honestly uncovered), never 0.
  */
-export function buildCoverage(cells: FuzzCell[], observations: CellObservation[]): CoverageCell[] {
-  const byCell = new Map<string, number[]>()
-  const failByCell = new Map<string, number>()
-  for (const o of observations) {
-    const arr = byCell.get(o.variantId) ?? []
-    arr.push(o.score)
-    byCell.set(o.variantId, arr)
-    const failed = o.pass === false || o.score < 0.5
-    if (failed) failByCell.set(o.variantId, (failByCell.get(o.variantId) ?? 0) + 1)
+export function buildCoverage(cells: Cell[], log: EvalRecord[], threshold: number): CoverageCell[] {
+  const byCell = new Map<string, EvalRecord[]>()
+  for (const r of log) {
+    const arr = byCell.get(r.cell.id) ?? []
+    arr.push(r)
+    byCell.set(r.cell.id, arr)
   }
   return cells.map((cell) => {
-    const scores = byCell.get(cell.id) ?? []
-    const runs = scores.length
-    if (runs === 0) {
-      return { cell, runs: 0, meanScore: 0, failureRate: 0, robustness: null }
+    const recs = byCell.get(cell.id) ?? []
+    const runs = recs.length
+    if (runs === 0) return { cell, runs: 0, robustness: null, findingRate: 0, dimensions: {} }
+    const robustness = mean(recs.map((r) => r.ev.score))
+    const findingRate = recs.filter((r) => r.interest >= threshold).length / runs
+    const dims: Record<string, number[]> = {}
+    for (const r of recs) {
+      for (const [k, v] of Object.entries(r.ev.scores ?? {})) {
+        ;(dims[k] ??= []).push(v)
+      }
     }
-    const meanScore = scores.reduce((a, b) => a + b, 0) / runs
-    const failureRate = (failByCell.get(cell.id) ?? 0) / runs
-    return { cell, runs, meanScore, failureRate, robustness: meanScore }
+    const dimensions: Record<string, number> = {}
+    for (const [k, xs] of Object.entries(dims)) dimensions[k] = mean(xs)
+    return { cell, runs, robustness, findingRate, dimensions }
   })
 }

@@ -1,27 +1,26 @@
 /**
  * Validity gates — what separates a fuzzer from a slop generator.
  *
- * A candidate failure only enters the capsule if it is fair and reproducible.
- * These helpers compose the substrate's integrity primitives into the
- * `ValidityGates` shape `fuzzAgent` consumes. None of them are on by default:
- * the live wiring opts in, so the marketed failures carry their proof.
+ * A notable candidate is admitted only when it is fair and reproducible. None of
+ * these are on by default: the live wiring opts in, so reported findings carry
+ * their proof.
  */
 
-import type { FuzzRunOutcome, FuzzTarget, ValidityGates } from './types'
+import type { Cell, Evaluation, Evaluator, ValidityGates } from './types'
 
-/** Combine multiple gate sets; a candidate must pass every gate in every set. */
+/** Combine gate sets; a candidate must pass every gate in every set. */
 export function composeGates<S>(...sets: Array<ValidityGates<S> | undefined>): ValidityGates<S> {
   const present = sets.filter((s): s is ValidityGates<S> => s != null)
   return {
-    isValid: async (scenario, outcome, cell) => {
+    isValid: async (scenario, ev, cell) => {
       for (const g of present) {
-        if (g.isValid && !(await g.isValid(scenario, outcome, cell))) return false
+        if (g.isValid && !(await g.isValid(scenario, ev, cell))) return false
       }
       return true
     },
-    isUncontaminated: async (scenario, outcome, cell) => {
+    isUncontaminated: async (scenario, ev, cell) => {
       for (const g of present) {
-        if (g.isUncontaminated && !(await g.isUncontaminated(scenario, outcome, cell))) return false
+        if (g.isUncontaminated && !(await g.isUncontaminated(scenario, ev, cell))) return false
       }
       return true
     },
@@ -29,37 +28,33 @@ export function composeGates<S>(...sets: Array<ValidityGates<S> | undefined>): V
 }
 
 /**
- * Reproducibility / contamination gate. Re-run the agent on a meaning-preserving
- * rephrase of the failing scenario; keep the failure only when the rephrase ALSO
- * fails. A failure that flips to passing under a cosmetic rewrite was keyed to
- * surface form (prompt wording, ordering) rather than the task — brittle, and a
- * false signal we must not market.
- *
- * Costs one extra target run per candidate failure (failures are rare, so cheap).
+ * Reproducibility gate. Re-run the target on a meaning-preserving rephrase of the
+ * flagged scenario; keep the finding only when the rephrase ALSO scores below the
+ * threshold. A finding that flips under a cosmetic rewrite was keyed to surface
+ * form, not the task — a false signal we must not report. Costs one extra
+ * evaluation per candidate (candidates are rare, so cheap).
  */
 export function perturbationStabilityGate<S>(opts: {
-  runner: FuzzTarget<S>
-  /** Produce a semantic-preserving rephrase. Returns null to skip the check (treated as pass). */
+  evaluate: Evaluator<S>
+  /** Produce a semantic-preserving rephrase. Return null to skip (treated as pass). */
   perturb: (scenario: S) => S | null
-  /** Score strictly below this still counts as a failure. Default 0.5. */
+  /** Score strictly below this still counts as failing. Default 0.5. */
   failureThreshold?: number
 }): ValidityGates<S> {
   const threshold = opts.failureThreshold ?? 0.5
   return {
-    isUncontaminated: async (scenario, _outcome, cell) => {
+    isUncontaminated: async (scenario: S, _ev: Evaluation, cell: Cell) => {
       const rephrased = opts.perturb(scenario)
       if (rephrased == null) return true
-      const re = await opts.runner.run(rephrased, cell)
-      // Uncontaminated == the rephrase reproduces the failure.
+      const re = await opts.evaluate(rephrased, cell)
       return re.score < threshold
     },
   }
 }
 
 /**
- * Severity-floor gate. Reject borderline "failures" whose score sits in a band
- * just under the threshold — judge noise, not a real defect. Default band: a
- * failure must score at least `margin` below the threshold to count.
+ * Severity-floor gate. Reject borderline candidates whose score sits in a band
+ * just under the threshold — judge noise, not a real defect.
  */
 export function severityFloorGate<S>(opts: {
   failureThreshold?: number
@@ -68,6 +63,6 @@ export function severityFloorGate<S>(opts: {
   const threshold = opts.failureThreshold ?? 0.5
   const margin = opts.margin ?? 0.1
   return {
-    isValid: (_scenario, outcome: FuzzRunOutcome) => outcome.score <= threshold - margin,
+    isValid: (_scenario, ev: Evaluation) => ev.score <= threshold - margin,
   }
 }
