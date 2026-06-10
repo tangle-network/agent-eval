@@ -1313,3 +1313,23 @@ export {
 export * as profile from './profile/index'
 
 // Ax RLM trace analyst — subpath: /traces (re-exported alongside trace store).
+
+export type {
+  AttestationProvenance,
+  AttestationVerification,
+  AttestedReport,
+} from './attestation'
+export { ATTESTATION_ALGORITHM, attest, verifyAttestation } from './attestation'
+export type {
+  CachedJudge,
+  CachedJudgeOptions,
+  VerdictCacheStats,
+  VerdictCacheStore,
+} from './verdict-cache'
+export {
+  cachedJudge,
+  canonicalJson,
+  contentHash,
+  fileVerdictCache,
+  inMemoryVerdictCache,
+} from './verdict-cache'
