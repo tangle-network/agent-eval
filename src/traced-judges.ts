@@ -8,6 +8,7 @@
  */
 
 import type { TCloud } from '@tangle-network/tcloud'
+import { JudgeParseError } from './judges'
 import type { TraceEmitter } from './trace/emitter'
 import type { JudgeFn, JudgeInput, JudgeScore } from './types'
 
@@ -74,6 +75,7 @@ export function traceJudgeEnsemble(
     })
     try {
       const allScores: JudgeScore[] = []
+      let failedJudges = 0
       for (let i = 0; i < judges.length; i++) {
         const judge = judges[i]!
         const name = judgeNames[i] ?? `judge_${i}`
@@ -81,8 +83,17 @@ export function traceJudgeEnsemble(
           emitter: opts.emitter,
           parentSpanId: ensembleSpan.span.spanId,
         })
-        const scores = await tracedFn(tc, input)
-        allScores.push(...scores)
+        try {
+          const scores = await tracedFn(tc, input)
+          allScores.push(...scores)
+        } catch (err) {
+          // One unparseable judge must not sink the whole ensemble — its
+          // child span is already marked failed by traceJudge; record it and
+          // keep scoring with the surviving judges. Anything else (network,
+          // abort) still aborts the ensemble.
+          if (!(err instanceof JudgeParseError)) throw err
+          failedJudges++
+        }
       }
       const composite =
         allScores.length > 0 ? allScores.reduce((sum, s) => sum + s.score, 0) / allScores.length : 0
@@ -91,6 +102,7 @@ export function traceJudgeEnsemble(
           'judge.ensemble_size': judges.length,
           'judge.composite_score': composite,
           'judge.total_dimensions': allScores.length,
+          'judge.failed_judges': failedJudges,
           'eval.phase': 'judge',
         },
       } as Record<string, unknown>)

@@ -1,10 +1,36 @@
 import type { TCloud } from '@tangle-network/tcloud'
+import { JudgeError } from './errors'
 import type { JudgeFn, JudgeInput, JudgeScore } from './types'
+
+/**
+ * A judge's LLM response could not be parsed into scored dimensions.
+ * Thrown instead of fabricating a `{ dimension: 'parse_error', score: 0 }`
+ * row — a synthetic zero is indistinguishable from a real low score
+ * downstream. Carries the raw response for forensics. Callers (executor,
+ * ensemble wrappers) catch this per-judge and record a failed judge.
+ */
+export class JudgeParseError extends JudgeError {
+  /** Name of the judge whose response failed to parse. */
+  readonly judgeName: string
+  /** The raw (truncated) model response that failed to parse. */
+  readonly raw: string
+
+  constructor(judgeName: string, raw: string, options?: { cause?: unknown }) {
+    super(`judge '${judgeName}' returned an unparseable response: ${raw.slice(0, 200)}`, options)
+    this.judgeName = judgeName
+    this.raw = raw
+  }
+}
 
 /**
  * Create a domain expert judge with a configurable domain.
  *
  * The judge evaluates professional accuracy and depth.
+ *
+ * @deprecated Legacy `JudgeFn` factory tied to the fixed gpt-4o prompt shape.
+ * Build judges as campaign `JudgeConfig`s (src/campaign/types.ts) — or
+ * multi-model panels via `ensembleJudge` (src/judge-panel.ts) — which are
+ * pluggable, fail-loud, and drive the campaign/improvement-loop engines.
  */
 export function createDomainExpertJudge(domain: string): JudgeFn {
   return async (
@@ -48,6 +74,10 @@ Respond with JSON only: [{"dimension":"domain_accuracy","score":N,"reasoning":".
 
 /**
  * Code execution judge — evaluates whether code blocks are valid and runnable.
+ *
+ * @deprecated Legacy `JudgeFn` factory tied to the fixed gpt-4o prompt shape.
+ * Build judges as campaign `JudgeConfig`s (src/campaign/types.ts) — or
+ * multi-model panels via `ensembleJudge` (src/judge-panel.ts).
  */
 export const codeExecutionJudge: JudgeFn = async (tc, { scenario, artifacts }) => {
   const codeBlocks = artifacts.codeBlocks
@@ -97,6 +127,10 @@ Respond with JSON only: [{"dimension":"executability","score":N,"reasoning":"...
 
 /**
  * Coherence judge — evaluates multi-turn consistency and progression.
+ *
+ * @deprecated Legacy `JudgeFn` factory tied to the fixed gpt-4o prompt shape.
+ * Build judges as campaign `JudgeConfig`s (src/campaign/types.ts) — or
+ * multi-model panels via `ensembleJudge` (src/judge-panel.ts).
  */
 export const coherenceJudge: JudgeFn = async (tc, { scenario, turns }) => {
   if (turns.length < 2) {
@@ -141,6 +175,10 @@ Respond with JSON only: [{"dimension":"consistency","score":N,"reasoning":"..."}
 
 /**
  * Adversarial judge — red-teams agent responses.
+ *
+ * @deprecated Legacy `JudgeFn` factory tied to the fixed gpt-4o prompt shape.
+ * Build judges as campaign `JudgeConfig`s (src/campaign/types.ts) — or
+ * multi-model panels via `ensembleJudge` (src/judge-panel.ts).
  */
 export const adversarialJudge: JudgeFn = async (tc, { scenario, turns }) => {
   const conversation = turns
@@ -178,6 +216,10 @@ Respond with JSON only: [{"dimension":"hallucination","score":N,"reasoning":"...
 
 /**
  * Create a custom judge with a fully custom prompt.
+ *
+ * @deprecated Legacy `JudgeFn` factory tied to the fixed gpt-4o prompt shape.
+ * Build judges as campaign `JudgeConfig`s (src/campaign/types.ts) — or
+ * multi-model panels via `ensembleJudge` (src/judge-panel.ts).
  */
 export function createCustomJudge(
   name: string,
@@ -212,7 +254,13 @@ export function createCustomJudge(
   }
 }
 
-/** Default judge set (domain must be provided for domain expert) */
+/**
+ * Default judge set (domain must be provided for domain expert)
+ *
+ * @deprecated Legacy `JudgeFn` factory tied to the fixed gpt-4o prompt shape.
+ * Build judges as campaign `JudgeConfig`s (src/campaign/types.ts) — or
+ * multi-model panels via `ensembleJudge` (src/judge-panel.ts).
+ */
 export function defaultJudges(domain: string): JudgeFn[] {
   return [createDomainExpertJudge(domain), codeExecutionJudge, coherenceJudge, adversarialJudge]
 }
@@ -220,10 +268,10 @@ export function defaultJudges(domain: string): JudgeFn[] {
 // ── Helpers ──
 
 function parseJudgeResponse(judgeName: string, resp: unknown): JudgeScore[] {
+  const content =
+    (resp as { choices?: { message?: { content?: string } }[] }).choices?.[0]?.message?.content ??
+    ''
   try {
-    const content =
-      (resp as { choices?: { message?: { content?: string } }[] }).choices?.[0]?.message?.content ??
-      ''
     let cleaned = content.replace(/```json\n?|\n?```/g, '').trim()
     const arrayMatch = cleaned.match(/\[[\s\S]*\]/)
     if (arrayMatch) cleaned = arrayMatch[0]
@@ -241,19 +289,8 @@ function parseJudgeResponse(judgeName: string, resp: unknown): JudgeScore[] {
       evidence: p.evidence,
     }))
   } catch (err) {
-    const content =
-      (resp as { choices?: { message?: { content?: string } }[] }).choices?.[0]?.message?.content ??
-      ''
-    console.log(
-      `    [parse_error] ${judgeName}: ${(err as Error).message?.slice(0, 50)} | response: ${content.slice(0, 100)}`,
-    )
-    return [
-      {
-        judgeName,
-        dimension: 'parse_error',
-        score: 0,
-        reasoning: `Parse failed: ${(err as Error).message?.slice(0, 100)}. Raw: ${content.slice(0, 200)}`,
-      },
-    ]
+    // Throw rather than fabricate a zero-score row: a synthetic
+    // `{ dimension: 'parse_error', score: 0 }` poisons composites downstream.
+    throw new JudgeParseError(judgeName, content, { cause: err })
   }
 }

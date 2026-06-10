@@ -25,8 +25,10 @@ export {
 } from './judges'
 export {
   type ArtifactJudgeInput,
+  type CellCompositeInput,
   type CellCompositeScore,
   type ConversationJudgeInput,
+  computeCellComposite,
   type MultishotJudges,
   type RunMultishotMatrixOptions,
   type RunMultishotMatrixResult,

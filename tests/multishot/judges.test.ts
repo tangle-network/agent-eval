@@ -1,6 +1,8 @@
 import { describe, expect, it, vi } from 'vitest'
 import {
+  computeCellComposite,
   type JudgeConfig,
+  type JudgeScore as JudgeScoreShape,
   renderDimensions,
   renderJsonFooter,
   runJudge,
@@ -72,7 +74,7 @@ describe('runJudge', () => {
     global.fetch = original
   })
 
-  it('returns zero score with parse-failure note on non-JSON reply', async () => {
+  it('marks non-JSON replies as failed (additive) with parse-failure note', async () => {
     const original = global.fetch
     process.env.TANGLE_API_KEY = 'test-key'
     global.fetch = stubFetch([
@@ -82,6 +84,8 @@ describe('runJudge', () => {
     const score = await runJudge(JUDGE, { text: 'x' })
     expect(score.composite).toBe(0)
     expect(score.notes).toMatch(/non-JSON/)
+    // failed:true lets aggregators exclude this score instead of meaning a zero.
+    expect(score.failed).toBe(true)
     global.fetch = original
   })
 
@@ -116,5 +120,75 @@ describe('helpers', () => {
     expect(footer).toContain('"quality":N')
     expect(footer).toContain('"specificity":N')
     expect(footer).toContain('"notes"')
+  })
+})
+
+describe('computeCellComposite — failed-score exclusion', () => {
+  const ok = (composite: number): JudgeScoreShape => ({
+    dimensions: {},
+    composite,
+    notes: 'ok',
+  })
+  const failed = (): JudgeScoreShape => ({
+    dimensions: {},
+    composite: 0,
+    notes: 'judge call failed',
+    failed: true,
+  })
+
+  it('means over configured slots when nothing failed', () => {
+    const cell = computeCellComposite({
+      conversation: ok(8),
+      codeReviews: [ok(6), ok(4)],
+    })
+    // (8 + mean(6,4)) / 2 = 6.5
+    expect(cell.composite).toBeCloseTo(6.5, 5)
+    expect(cell.codeComposite).toBeCloseTo(5, 5)
+    expect(cell.allJudgesFailed).toBe(false)
+  })
+
+  it('excludes failed scores from a slot mean instead of zeroing it', () => {
+    const cell = computeCellComposite({
+      conversation: ok(8),
+      codeReviews: [ok(6), failed()],
+    })
+    // code slot = mean over the ONE live review, not (6+0)/2
+    expect(cell.codeComposite).toBeCloseTo(6, 5)
+    expect(cell.composite).toBeCloseTo(7, 5)
+  })
+
+  it('drops an all-failed slot from the cell mean entirely', () => {
+    const cell = computeCellComposite({
+      conversation: ok(8),
+      codeReviews: [failed(), failed()],
+    })
+    // No code signal → composite is the conversation alone, not dragged to 4.
+    expect(cell.composite).toBeCloseTo(8, 5)
+    expect(cell.allJudgesFailed).toBe(false)
+  })
+
+  it('drops a failed conversation judge from the mean', () => {
+    const cell = computeCellComposite({
+      conversation: failed(),
+      contentReviews: [ok(6)],
+    })
+    expect(cell.composite).toBeCloseTo(6, 5)
+  })
+
+  it('flags allJudgesFailed when every configured slot failed', () => {
+    const cell = computeCellComposite({
+      conversation: failed(),
+      codeReviews: [failed()],
+    })
+    expect(cell.composite).toBe(0)
+    expect(cell.allJudgesFailed).toBe(true)
+  })
+
+  it('an empty configured slot still contributes 0 (long-standing semantics)', () => {
+    const cell = computeCellComposite({
+      conversation: ok(8),
+      codeReviews: [],
+    })
+    expect(cell.composite).toBeCloseTo(4, 5)
   })
 })
