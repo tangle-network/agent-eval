@@ -100,17 +100,18 @@ console.log(JSON.stringify({
   totalRuns: s.totalRuns,
   cells: `${s.cellsCovered}/${s.cellsTotal}`,
   behaviorBinsObserved: s.behaviorBinsObserved,
-  meanRobustness: +s.meanRobustness.toFixed(3),
+  robustness: s.robustness && { mean: +s.robustness.mean.toFixed(3), median: +s.robustness.median.toFixed(3), min: +s.robustness.min.toFixed(3), max: +s.robustness.max.toFixed(3) },
+  medianLatencyMs: s.latencyMs && Math.round(s.latencyMs.median),
   candidateFindings: s.candidateFindings,
   verifiedFindings: s.verifiedFindings,
   weakestCells: capsule.coverage
-    .filter((c) => c.robustness != null)
-    .sort((a, b) => a.robustness - b.robustness)
+    .filter((c) => c.score != null)
+    .sort((a, b) => a.score.mean - b.score.mean)
     .slice(0, 4)
     .map((c) => ({
       cell: Object.values(c.cell.coords).join('·'),
-      robustness: +c.robustness.toFixed(2),
-      weakestDim: Object.entries(c.dimensions).sort((a, b) => a[1] - b[1])[0]?.[0],
+      score: { mean: +c.score.mean.toFixed(2), min: +c.score.min.toFixed(2) },
+      weakestDim: Object.entries(c.dimensions).sort((a, b) => a[1].mean - b[1].mean)[0]?.[0],
     })),
   topFinding: capsule.findings[0]
     ? {

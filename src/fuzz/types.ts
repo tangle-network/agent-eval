@@ -59,6 +59,9 @@ export interface Evaluation extends DefaultVerdict {
   runId?: string
   /** Structured labels, e.g. failure classes (`hallucination`, `refusal`). */
   labels?: string[]
+  /** Wall-clock for the evaluation, when the consumer measures it more precisely
+   *  than the engine can (e.g. excluding judge time). Engine-measured otherwise. */
+  latencyMs?: number
 }
 
 /** Run the target against one scenario in a cell. */
@@ -143,16 +146,35 @@ export interface ArchiveEntry<S> {
   interest: number
 }
 
+/** Summary of a sample — every aggregate carries its spread, never a bare mean. */
+export interface Distribution {
+  mean: number
+  median: number
+  p90: number
+  min: number
+  max: number
+  n: number
+}
+
 /** Per-INPUT-cell coverage — the planned-vs-covered map. */
 export interface CoverageCell {
   cell: Cell
   runs: number
-  /** Mean headline score in [0,1]; `null` when the cell was never run (honestly uncovered). */
-  robustness: number | null
+  /** Headline score distribution in [0,1]; `null` when the cell was never run
+   *  (honestly uncovered — never a fabricated zero). */
+  score: Distribution | null
   /** Fraction of runs the objective flagged as notable. */
   findingRate: number
-  /** Mean per-dimension scores — surfaces WHICH dimension is weak. */
-  dimensions: Record<string, number>
+  /** Per-dimension score distributions — surfaces WHICH dimension is weak and
+   *  how consistently. */
+  dimensions: Record<string, Distribution>
+  /** Evaluation wall-clock per run; engine-measured unless the evaluation
+   *  carried its own `latencyMs`. `null` when the cell was never run. */
+  latencyMs: Distribution | null
+  /** Known dollars spent in this cell — present only when cost tracking was
+   *  wired; runs with unknown cost are counted apart, never folded in as $0. */
+  costUsd?: number
+  costUnknownRuns?: number
 }
 
 /** The artifact every exploration produces. */
@@ -177,7 +199,12 @@ export interface CapsuleData<S> {
     behaviorBinsObserved: number
     candidateFindings: number
     verifiedFindings: number
-    meanRobustness: number
+    /** Distribution of per-cell mean scores across covered cells (cells weigh
+     *  equally — variance steering sends more runs to weak cells, so a
+     *  run-weighted average would bias low). `null` when nothing ran. */
+    robustness: Distribution | null
+    /** Evaluation wall-clock across all runs. `null` when nothing ran. */
+    latencyMs: Distribution | null
     /** Known dollars spent on this exploration's runs. Present only when cost
      *  tracking was wired (`costOf`) — absent means "not tracked", never $0. */
     costUsd?: number
