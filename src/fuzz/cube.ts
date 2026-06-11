@@ -3,12 +3,13 @@
  *
  * Cells are the cartesian product of the input axes — the stratification plan,
  * enumerable up front so the planned-vs-covered denominator is honest. Coverage
- * is projected from the evaluation log: per cell, mean headline robustness, the
- * mean of each scored dimension (so the map shows WHICH dimension is weak), and
- * the rate at which the active objective flagged a candidate.
+ * is projected from the evaluation log: per cell, the full DISTRIBUTION of the
+ * headline score, of each scored dimension, and of evaluation latency — a bare
+ * mean hides outliers, so every aggregate carries its spread. Per-cell cost is
+ * split known-dollars vs unknown-runs, never folded into a fabricated $0.
  */
 
-import type { BehaviorSpace, Cell, CoverageCell, Evaluation } from './types'
+import type { BehaviorSpace, Cell, CoverageCell, Distribution, Evaluation } from './types'
 
 /** One recorded evaluation — the unit coverage and the capsule are built from. */
 export interface EvalRecord {
@@ -16,6 +17,11 @@ export interface EvalRecord {
   ev: Evaluation
   /** The objective's interest score for this evaluation. */
   interest: number
+  /** Evaluation wall-clock — engine-measured unless `ev.latencyMs` overrode it. */
+  latencyMs: number
+  /** Known dollars for this run. `null` = cost tracking was wired but this
+   *  run's cost was unknowable (counted apart). Absent = not tracked at all. */
+  costUsd?: number | null
 }
 
 /** Enumerate every input cell (cartesian product of the axes), in stable order. */
@@ -37,12 +43,32 @@ export function cellId(space: BehaviorSpace, coords: Record<string, string>): st
   return space.axes.map((a) => `${a.name}=${coords[a.name]}`).join('|')
 }
 
-const mean = (xs: number[]): number =>
-  xs.length === 0 ? 0 : xs.reduce((a, b) => a + b, 0) / xs.length
+/** Nearest-rank percentile on a pre-sorted ascending sample. */
+function percentile(sorted: number[], p: number): number {
+  const idx = Math.min(sorted.length - 1, Math.max(0, Math.ceil(p * sorted.length) - 1))
+  return sorted[idx] as number
+}
+
+/** Summarize a sample. Throws on an empty sample — callers represent "no data"
+ *  as `null`, never as a zeroed distribution. */
+export function distribution(values: number[]): Distribution {
+  if (values.length === 0)
+    throw new Error('distribution: empty sample — represent missing data as null, not zeros')
+  const sorted = [...values].sort((a, b) => a - b)
+  const mean = sorted.reduce((a, b) => a + b, 0) / sorted.length
+  return {
+    mean,
+    median: percentile(sorted, 0.5),
+    p90: percentile(sorted, 0.9),
+    min: sorted[0] as number,
+    max: sorted[sorted.length - 1] as number,
+    n: sorted.length,
+  }
+}
 
 /**
  * Project the evaluation log into the per-input-cell coverage map. A cell with
- * no evaluations reports `robustness: null` (honestly uncovered), never 0.
+ * no evaluations reports `score: null` (honestly uncovered), never zeros.
  */
 export function buildCoverage(cells: Cell[], log: EvalRecord[], threshold: number): CoverageCell[] {
   const byCell = new Map<string, EvalRecord[]>()
@@ -54,17 +80,36 @@ export function buildCoverage(cells: Cell[], log: EvalRecord[], threshold: numbe
   return cells.map((cell) => {
     const recs = byCell.get(cell.id) ?? []
     const runs = recs.length
-    if (runs === 0) return { cell, runs: 0, robustness: null, findingRate: 0, dimensions: {} }
-    const robustness = mean(recs.map((r) => r.ev.score))
+    if (runs === 0)
+      return { cell, runs: 0, score: null, findingRate: 0, dimensions: {}, latencyMs: null }
+
+    const score = distribution(recs.map((r) => r.ev.score))
+    const latencyMs = distribution(recs.map((r) => r.latencyMs))
     const findingRate = recs.filter((r) => r.interest >= threshold).length / runs
-    const dims: Record<string, number[]> = {}
+
+    const dimSamples: Record<string, number[]> = {}
     for (const r of recs) {
       for (const [k, v] of Object.entries(r.ev.scores ?? {})) {
-        ;(dims[k] ??= []).push(v)
+        ;(dimSamples[k] ??= []).push(v)
       }
     }
-    const dimensions: Record<string, number> = {}
-    for (const [k, xs] of Object.entries(dims)) dimensions[k] = mean(xs)
-    return { cell, runs, robustness, findingRate, dimensions }
+    const dimensions: Record<string, Distribution> = {}
+    for (const [k, xs] of Object.entries(dimSamples)) dimensions[k] = distribution(xs)
+
+    // Cost fields appear only when tracking was wired: known dollars sum, and
+    // tracked-but-unknown runs counted apart — never folded in as $0.
+    const tracked = recs.filter((r) => r.costUsd !== undefined)
+    const known = tracked.filter((r) => r.costUsd !== null)
+    const cost =
+      tracked.length > 0
+        ? {
+            costUsd: known.reduce((a, r) => a + (r.costUsd as number), 0),
+            ...(tracked.length > known.length
+              ? { costUnknownRuns: tracked.length - known.length }
+              : {}),
+          }
+        : {}
+
+    return { cell, runs, score, findingRate, dimensions, latencyMs, ...cost }
   })
 }

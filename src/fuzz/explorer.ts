@@ -156,12 +156,14 @@ export class BehaviorExplorer<S> {
 
   /** Fold one run's cost in: null counts as unknown (never $0); a known cost
    *  accrues toward the budget, lands in the ledger, and fires `onCost`. */
-  private recordRunCost(scenario: S, cell: Cell, ev: Evaluation): void {
-    if (!this.opts.costOf) return
+  /** Returns the run's known cost, `null` when tracked-but-unknown, `undefined`
+   *  when cost tracking is not wired — the log row mirrors this exactly. */
+  private recordRunCost(scenario: S, cell: Cell, ev: Evaluation): number | null | undefined {
+    if (!this.opts.costOf) return undefined
     const cost = this.opts.costOf(scenario, cell, ev)
     if (cost === null) {
       this.costUnknownRuns++
-      return
+      return null
     }
     if (typeof cost.usd !== 'number' || !Number.isFinite(cost.usd) || cost.usd < 0) {
       throw new RangeError(
@@ -178,6 +180,7 @@ export class BehaviorExplorer<S> {
       tags: { target: this.opts.target, cell: cell.id },
     })
     this.opts.onCost?.({ usd: cost.usd, channel: 'agent' })
+    return cost.usd
   }
 
   /** Elites whose INPUT cell matches — what the proposer mutates/deepens from. */
@@ -242,13 +245,24 @@ export class BehaviorExplorer<S> {
           // Consecutive failures trip the circuit breaker instead, so a dead
           // backend stops the run rather than burning the remaining budget.
           try {
+            const startedAt = performance.now()
             const ev = await this.opts.evaluate(scenario, cell)
+            // Consumer-measured latency wins (it can exclude judge time); the
+            // engine's wall-clock is the default so latency is never missing.
+            const latencyMs = ev.latencyMs ?? performance.now() - startedAt
             this.runsUsed++
             runsThisStep++
             this.consecutiveEvalErrors = 0
-            this.recordRunCost(scenario, cell, ev)
+            const costUsd = this.recordRunCost(scenario, cell, ev)
             const interest = this.objective.interest(ev, this.objectiveContext())
-            this.log.push({ cell, ev, interest, scenarioId: this.opts.scenarioId(scenario) })
+            this.log.push({
+              cell,
+              ev,
+              interest,
+              latencyMs,
+              ...(costUsd !== undefined ? { costUsd } : {}),
+              scenarioId: this.opts.scenarioId(scenario),
+            })
             this.opts.onProgress?.({ type: 'evaluated', cell, scenario, evaluation: ev })
 
             const bin = this.binId(cell, ev.descriptor)

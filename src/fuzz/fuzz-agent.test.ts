@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { renderCapsuleHtml } from './capsule'
-import { buildCoverage, enumerateCells } from './cube'
+import { buildCoverage, distribution, enumerateCells } from './cube'
 import { BehaviorExplorer } from './explorer'
 import { fuzzAgent } from './fuzz-agent'
 import { composeGates } from './gates'
@@ -84,9 +84,9 @@ describe('enumerateCells + buildCoverage', () => {
     const [c0, c1] = cells
     if (!c0 || !c1) throw new Error('expected cells')
     const ev: Evaluation = { valid: true, score: 0.8 }
-    const cov = buildCoverage(cells, [{ cell: c0, ev, interest: 0.2 }], 0.5)
-    expect(cov.find((c) => c.cell.id === c0.id)?.robustness).toBeCloseTo(0.8)
-    expect(cov.find((c) => c.cell.id === c1.id)?.robustness).toBeNull()
+    const cov = buildCoverage(cells, [{ cell: c0, ev, interest: 0.2, latencyMs: 12 }], 0.5)
+    expect(cov.find((c) => c.cell.id === c0.id)?.score?.mean).toBeCloseTo(0.8)
+    expect(cov.find((c) => c.cell.id === c1.id)?.score).toBeNull()
   })
 })
 
@@ -98,8 +98,8 @@ describe('fuzzAgent (adversarial preset)', () => {
     expect(capsule.stats.cellsCovered).toBe(4)
 
     for (const c of capsule.coverage) {
-      if (c.cell.coords.difficulty === 'hard') expect(c.robustness ?? 1).toBeLessThan(0.5)
-      else expect(c.robustness ?? 0).toBeGreaterThanOrEqual(0.5)
+      if (c.cell.coords.difficulty === 'hard') expect(c.score?.mean ?? 1).toBeLessThan(0.5)
+      else expect(c.score?.mean ?? 0).toBeGreaterThanOrEqual(0.5)
     }
     expect(capsule.stats.verifiedFindings).toBeGreaterThan(0)
     for (const f of capsule.findings) expect(f.cell.coords.difficulty).toBe('hard')
@@ -113,6 +113,7 @@ describe('fuzzAgent (adversarial preset)', () => {
     expect(covered.length).toBeGreaterThan(0)
     for (const c of covered) {
       expect(Object.keys(c.dimensions)).toEqual(expect.arrayContaining(['correctness', 'safety']))
+      for (const d of Object.values(c.dimensions)) expect(d.n).toBeGreaterThan(0)
     }
   })
 
@@ -127,10 +128,11 @@ describe('fuzzAgent (adversarial preset)', () => {
     expect(new Set(binIds).size).toBe(binIds.length)
   })
 
-  it('is deterministic for a fixed seed', async () => {
+  it('is deterministic for a fixed seed (latency excluded — wall-clock)', async () => {
     const a = await fuzzAgent(base)
     const b = await fuzzAgent(base)
-    expect(a.capsule.stats).toEqual(b.capsule.stats)
+    const strip = ({ latencyMs, ...rest }: typeof a.capsule.stats) => rest
+    expect(strip(a.capsule.stats)).toEqual(strip(b.capsule.stats))
   })
 
   it('validity gates drop candidates (verified <= candidate) and report only gate-passers', async () => {
@@ -328,5 +330,59 @@ describe('eval-error isolation (0.89.1)', () => {
     const html = renderCapsuleHtml(capsule)
     expect(html).toContain('eval errors')
     expect(html).toContain('stopped early')
+  })
+})
+
+describe('distributions (coverage carries spread, never a bare mean)', () => {
+  it('per-cell score is a full distribution; latency is engine-measured', async () => {
+    const { capsule } = await fuzzAgent(base)
+    const covered = capsule.coverage.filter((c) => c.runs > 0)
+    for (const c of covered) {
+      const s = c.score
+      if (!s) throw new Error('covered cell missing score distribution')
+      expect(s.n).toBe(c.runs)
+      expect(s.min).toBeLessThanOrEqual(s.median)
+      expect(s.median).toBeLessThanOrEqual(s.p90)
+      expect(s.p90).toBeLessThanOrEqual(s.max)
+      expect(c.latencyMs?.n).toBe(c.runs)
+      expect(c.latencyMs?.min).toBeGreaterThanOrEqual(0)
+    }
+    expect(capsule.stats.robustness?.n).toBe(capsule.stats.cellsCovered)
+    expect(capsule.stats.latencyMs?.n).toBe(capsule.stats.totalRuns)
+  })
+
+  it('consumer-supplied latencyMs overrides engine wall-clock', async () => {
+    const timed: Evaluator<Scn> = async (s) => ({
+      valid: true,
+      score: s.difficulty === 'hard' ? 0.2 : 0.9,
+      scores: { correctness: 0.5 },
+      latencyMs: 1234,
+    })
+    const { capsule } = await fuzzAgent({ ...base, evaluate: timed, budget: 8 })
+    expect(capsule.stats.latencyMs?.median).toBe(1234)
+  })
+
+  it('per-cell cost appears only when costOf is wired, with unknown runs counted apart', async () => {
+    const { capsule: untracked } = await fuzzAgent({ ...base, budget: 8 })
+    for (const c of untracked.coverage) expect(c.costUsd).toBeUndefined()
+
+    let i = 0
+    const { capsule: tracked } = await fuzzAgent({
+      ...base,
+      budget: 8,
+      costOf: () => (i++ % 2 === 0 ? { usd: 0.01 } : null),
+    })
+    const cells = tracked.coverage.filter((c) => c.runs > 0)
+    expect(cells.some((c) => c.costUsd !== undefined)).toBe(true)
+    const totalKnown = cells.reduce((a, c) => a + (c.costUsd ?? 0), 0)
+    expect(totalKnown).toBeCloseTo(tracked.stats.costUsd ?? -1, 5)
+    const totalUnknown = cells.reduce((a, c) => a + (c.costUnknownRuns ?? 0), 0)
+    expect(totalUnknown).toBe(tracked.stats.costUnknownRuns)
+  })
+
+  it('distribution() throws on an empty sample — missing data is null, never zeros', () => {
+    expect(() => distribution([])).toThrow(/empty sample/)
+    const d = distribution([3, 1, 2])
+    expect(d).toEqual({ mean: 2, median: 2, p90: 3, min: 1, max: 3, n: 3 })
   })
 })

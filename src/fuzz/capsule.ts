@@ -9,8 +9,8 @@
  */
 
 import type { EvalRecord } from './cube'
-import { buildCoverage } from './cube'
-import type { ArchiveEntry, CapsuleData, Cell, CoverageCell, Finding } from './types'
+import { buildCoverage, distribution } from './cube'
+import type { ArchiveEntry, CapsuleData, Cell, CoverageCell, Distribution, Finding } from './types'
 
 export interface BuildCapsuleInput<S> {
   target: string
@@ -35,8 +35,11 @@ export interface BuildCapsuleInput<S> {
 export function buildCapsule<S>(input: BuildCapsuleInput<S>): CapsuleData<S> {
   const coverage = buildCoverage(input.cells, input.log, input.threshold)
   const covered = coverage.filter((c) => c.runs > 0)
-  const meanRobustness =
-    covered.length === 0 ? 0 : covered.reduce((a, c) => a + (c.robustness ?? 0), 0) / covered.length
+  // Cells weigh equally: variance steering sends more runs to weak cells, so a
+  // run-weighted average would bias the headline low.
+  const robustness =
+    covered.length === 0 ? null : distribution(covered.map((c) => (c.score as Distribution).mean))
+  const latencyMs = input.log.length === 0 ? null : distribution(input.log.map((r) => r.latencyMs))
   // Measured-descriptor bins beyond the bare input cell — observed, never planned.
   const behaviorBinsObserved = input.archive.filter((e) => e.binId !== e.cell.id).length
 
@@ -53,7 +56,8 @@ export function buildCapsule<S>(input: BuildCapsuleInput<S>): CapsuleData<S> {
       behaviorBinsObserved,
       candidateFindings: input.candidateFindings,
       verifiedFindings: input.findings.length,
-      meanRobustness,
+      robustness,
+      latencyMs,
       ...(input.cost
         ? { costUsd: input.cost.costUsd, costUnknownRuns: input.cost.costUnknownRuns }
         : {}),
@@ -99,7 +103,7 @@ function deriveAxes(coverage: CoverageCell[]): Array<{ name: string; values: str
 
 /** The weakest dimension chip for a cell, e.g. `safety 32%` — shown when scores exist. */
 function weakestDim(c: CoverageCell): string {
-  const entries = Object.entries(c.dimensions)
+  const entries = Object.entries(c.dimensions).map(([k, d]) => [k, d.mean] as [string, number])
   if (entries.length === 0) return ''
   const sorted = entries.sort((a, b) => a[1] - b[1])
   const w = sorted[0]
@@ -111,9 +115,9 @@ function heatmapHtml(coverage: CoverageCell[]): string {
   const axes = deriveAxes(coverage)
   const byId = new Map(coverage.map((c) => [c.cell.id, c]))
   const tile = (c: CoverageCell | undefined, label: string): string => {
-    const r = c?.robustness ?? null
-    const title = c
-      ? `${pct(r ?? 0)} robust · ${c.runs} runs · ${pct(c.findingRate)} flagged`
+    const r = c?.score?.mean ?? null
+    const title = c?.score
+      ? `${pct(c.score.mean)} robust (median ${pct(c.score.median)}, min ${pct(c.score.min)}) · ${c.runs} runs · ${pct(c.findingRate)} flagged${c.latencyMs ? ` · ${(c.latencyMs.median / 1000).toFixed(1)}s median` : ''}${c.costUsd !== undefined ? ` · $${c.costUsd.toFixed(2)}` : ''}`
       : 'not covered'
     return `<div class="tile" style="background:${robustnessColor(r)}" title="${esc(title)}">${label ? `<span class="tl">${esc(label)}</span>` : ''}<span class="tv">${c && r != null ? pct(r) : '—'}</span>${c ? weakestDim(c) : ''}</div>`
   }
@@ -136,7 +140,7 @@ function heatmapHtml(coverage: CoverageCell[]): string {
     return `<div class="axis-label">rows: <b>${esc(rowAxis.name)}</b> · cols: <b>${esc(colAxis.name)}</b></div><table class="heat">${head}${rows}</table>`
   }
 
-  const sorted = [...coverage].sort((a, b) => (a.robustness ?? 2) - (b.robustness ?? 2))
+  const sorted = [...coverage].sort((a, b) => (a.score?.mean ?? 2) - (b.score?.mean ?? 2))
   return `<div class="grid">${sorted.map((c) => tile(c, Object.values(c.cell.coords).join(' · '))).join('')}</div>`
 }
 
@@ -236,7 +240,9 @@ table.heat th.rh{text-align:right}
 <h1>${esc(capsule.objective)} exploration · ${esc(capsule.target)}</h1>
 <div class="sub">${s.totalRuns} scenarios across ${s.cellsCovered}/${s.cellsTotal} planned cells${s.behaviorBinsObserved > 0 ? ` · ${s.behaviorBinsObserved} measured behavior bins` : ''}${stamp ? ` · ${esc(stamp)}` : ''}</div>
 <div class="kpis">
-${kpi('mean robustness', pct(s.meanRobustness), s.meanRobustness < 0.6 ? '#e58a96' : '#5ad17a')}
+${s.robustness ? kpi('robustness', `${pct(s.robustness.mean)}`, s.robustness.mean < 0.6 ? '#e58a96' : '#5ad17a') : ''}
+${s.robustness ? kpi('cell spread', `${pct(s.robustness.min)}–${pct(s.robustness.max)}`) : ''}
+${s.latencyMs ? kpi('median latency', `${(s.latencyMs.median / 1000).toFixed(1)}s`, s.latencyMs.p90 > 4 * s.latencyMs.median ? '#e5b566' : '#e6e6e6') : ''}
 ${kpi('verified findings', String(s.verifiedFindings), s.verifiedFindings > 0 ? '#e58a96' : '#5ad17a')}
 ${kpi('cells covered', `${s.cellsCovered}/${s.cellsTotal}`)}
 ${kpi('scenarios run', String(s.totalRuns))}
