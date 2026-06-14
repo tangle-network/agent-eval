@@ -137,11 +137,17 @@ describe('verifyCompletion — satisfiedBy routing', () => {
       title: 'Working Capital Dispute Notice',
       satisfiedBy: 'proposal',
     }
+    // Identical body on both — status is the ONLY difference under test, so the
+    // pending case fails on status, not on the require-content rule.
+    const content =
+      'Working capital dispute notice: formal objection to the closing peg, with the recomputed adjustment and the contractual basis for the dispute.'
     const approved = await verifyCompletion(
       gold([req]),
       {
         ...emptyState(),
-        proposals: [{ id: 'p1', title: 'Working Capital Dispute Notice', status: 'approved' }],
+        proposals: [
+          { id: 'p1', title: 'Working Capital Dispute Notice', status: 'approved', content },
+        ],
       },
       alwaysCorrect,
     )
@@ -151,7 +157,9 @@ describe('verifyCompletion — satisfiedBy routing', () => {
       gold([req]),
       {
         ...emptyState(),
-        proposals: [{ id: 'p1', title: 'Working Capital Dispute Notice', status: 'pending' }],
+        proposals: [
+          { id: 'p1', title: 'Working Capital Dispute Notice', status: 'pending', content },
+        ],
       },
       alwaysCorrect,
     )
@@ -178,7 +186,18 @@ describe('verifyCompletion — satisfiedBy routing', () => {
       ]),
       {
         ...emptyState(),
-        proposals: [{ id: 'p1', title: 'Working Capital Dispute Notice', status: 'approved' }],
+        // A content-complete proposal that would match if routing allowed it —
+        // proves the requirement is excluded by its satisfiedBy='artifact' route,
+        // not by the content rule.
+        proposals: [
+          {
+            id: 'p1',
+            title: 'Working Capital Dispute Notice',
+            status: 'approved',
+            content:
+              'Working capital dispute notice: formal objection to the closing peg with the recomputed adjustment.',
+          },
+        ],
       },
       alwaysCorrect,
     )
@@ -260,6 +279,91 @@ describe('verifyCompletion — content-aware structural matching', () => {
       alwaysCorrect,
     )
     expect(v.requirements[0]!.structurallyPresent).toBe(true)
+  })
+})
+
+describe('verifyCompletion — anti-game: structural match is not completion', () => {
+  // The grader is two-stage by design: a content-aware STRUCTURAL match, then a
+  // SEMANTIC correctness check. The structural stage is lexical (token recall),
+  // so on its own it is polarity-blind — a negation that merely contains the
+  // requirement's tokens matches it. These fixtures pin that the SECOND stage is
+  // what makes the pair ungameable, and that the produced-state default checker
+  // must therefore be semantic, not lexical.
+
+  // An affirmative requirement: the persona WANTS the swap recommended.
+  const SWAP_REQ: CompletionRequirement = {
+    reqId: 'swap-reco',
+    title: 'Recommend the policy swap and produce the current-versus-proposed premium comparison',
+    category: 'recommendation',
+  }
+  // Content that contains every distinctive requirement token but asserts the
+  // OPPOSITE — the classic token-stuffing / negation game.
+  const NEGATION =
+    'I will NOT recommend the policy swap and will not produce the current-versus-proposed premium comparison. Proceeding would not serve the client, so I decline.'
+
+  // A semantic stand-in for createLlmCorrectnessChecker: rejects content that
+  // asserts the negation of an affirmative requirement. Polarity-aware, the
+  // property the lexical checker lacks.
+  const polarityChecker: CorrectnessChecker = async (_req, content) => {
+    const refuses = /\b(will not|won'?t|cannot|do not|does not|decline|refuse)\b/i.test(content)
+    return refuses
+      ? { correct: false, reason: 'content asserts the negation of the requirement' }
+      : { correct: true, reason: 'content fulfils the requirement' }
+  }
+
+  it('a title-only (content-less) proposal does NOT structurally match', async () => {
+    const v = await verifyCompletion(
+      gold([{ reqId: 'swap-reco', title: SWAP_REQ.title, satisfiedBy: 'proposal' }]),
+      {
+        ...emptyState(),
+        proposals: [{ id: 'p1', title: SWAP_REQ.title, status: 'approved' }],
+      },
+      alwaysCorrect, // would pass everything — proves the gate is structural, not correctness
+    )
+    const r = v.requirements[0]!
+    expect(r.structurallyPresent).toBe(false)
+    expect(r.satisfied).toBe(false)
+  })
+
+  it('a thin-body proposal (< MIN_CONTENT_CHARS) does NOT structurally match', async () => {
+    const v = await verifyCompletion(
+      gold([{ reqId: 'swap-reco', title: SWAP_REQ.title, satisfiedBy: 'proposal' }]),
+      {
+        ...emptyState(),
+        proposals: [{ id: 'p1', title: SWAP_REQ.title, status: 'approved', content: 'swap. yes.' }],
+      },
+      alwaysCorrect,
+    )
+    expect(v.requirements[0]!.structurallyPresent).toBe(false)
+  })
+
+  it('a negation that contains every requirement token is caught by the SEMANTIC checker', async () => {
+    const v = await verifyCompletion(
+      gold([SWAP_REQ]),
+      {
+        ...emptyState(),
+        proposals: [
+          { id: 'p1', title: 'Swap recommendation', status: 'approved', content: NEGATION },
+        ],
+      },
+      polarityChecker,
+    )
+    const r = v.requirements[0]!
+    // It DOES match structurally — the tokens are all there. That is expected and
+    // is exactly why the structural stage alone cannot be the gate.
+    expect(r.structurallyPresent).toBe(true)
+    // The semantic stage reads polarity and rejects it → not satisfied.
+    expect(r.correct).toBe(false)
+    expect(r.satisfied).toBe(false)
+  })
+
+  it('the lexical token-recall checker is polarity-blind on the same negation (why produced-state defaults to semantic)', async () => {
+    // The deterministic checker keys on token recall, which a negation satisfies.
+    // Run directly to pin the property — this is the documented reason a
+    // produced-state dispatch must inject a semantic checker, not this one.
+    const lexical = createTokenRecallChecker()
+    const verdict = await lexical(SWAP_REQ, NEGATION)
+    expect(verdict.correct).toBe(true) // FALSE POSITIVE — caught only by the semantic checker above
   })
 })
 

@@ -222,19 +222,29 @@ function proposalCandidates(
   for (const p of proposals) {
     // Pending or rejected work is not a completed deliverable.
     if (p.status !== 'approved') continue
-    // Match against the proposal BODY as well as its (often short) title — a
-    // refusal/flag/analysis proposal whose title is a label still satisfies a
+    // A proposal needs an assessable BODY to be a deliverable. A bare title is
+    // not completion: correctness cannot be judged on it, so a title-only match
+    // would auto-pass the oracle (structurallyPresent && correct===null →
+    // satisfied) with no verifiable content. Tool calls are the only
+    // legitimately content-less deliverable (`toolCallCandidates`).
+    const body = (p.content ?? '').trim()
+    if (body.length < MIN_CONTENT_CHARS) continue
+    // Match against the body as well as the (often short) title — a refusal /
+    // flag / analysis proposal whose title is a label still satisfies a
     // descriptively-worded requirement when its content covers it. MATCH_THRESHOLD
-    // + the requirement's distinctive tokens keep an off-topic proposal from matching.
-    const score = tokenRecall(reqText, `${p.title} ${p.content ?? ''}`)
+    // + the requirement's distinctive tokens keep an off-topic proposal out;
+    // correctness (a SEMANTIC checker, NOT this lexical pass) then judges
+    // polarity/fulfilment, so a negation that merely contains the tokens fails.
+    // Structural and correctness must use different evidence or the two-stage
+    // check collapses to one lexical gate.
+    const score = tokenRecall(reqText, `${p.title} ${body}`)
     if (score < MATCH_THRESHOLD) continue
-    const body = p.content ?? ''
     out.push({
       reqIndex,
       itemKey: `proposal:${p.id}`,
       score,
       evidence: `approved proposal '${p.title}' matched (token recall ${score.toFixed(2)})`,
-      content: body.trim().length >= MIN_CONTENT_CHARS ? body : null,
+      content: body,
     })
   }
   return out
@@ -423,9 +433,15 @@ const TITLE_STOPWORDS = new Set([
  * Deterministic `CorrectnessChecker` — the no-LLM counterpart to
  * `createLlmCorrectnessChecker`. A produced item fulfils a requirement when its
  * content is substantive (≥ `minContentLength` chars) AND recalls ≥ `minRecall`
- * of the requirement title's significant tokens. No network — the default gate
- * for apps and tests without an LLM judge. Pass to `verifyCompletion` as the
- * checker.
+ * of the requirement title's significant tokens. No network.
+ *
+ * Polarity-blind: token recall credits a negation that contains the
+ * requirement's tokens ("I will NOT produce the comparison" recalls every token
+ * of "produce the comparison"). The structural match stage is ALSO lexical, so
+ * pairing the two collapses to a single gameable gate. Use this only as an
+ * opt-in structural pre-filter or for tasks whose requirements have no polarity
+ * to invert; for produced-state grading the correctness checker MUST be semantic
+ * (`createLlmCorrectnessChecker`). See the anti-game fixtures in the test suite.
  */
 export function createTokenRecallChecker(
   opts: { minRecall?: number; minContentLength?: number } = {},
