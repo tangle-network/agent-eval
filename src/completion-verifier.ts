@@ -144,25 +144,56 @@ const STOPWORDS = new Set([
   'by',
 ])
 
+// Deliverable-FORM vocabulary — words that name the SHAPE of an output, not its
+// domain content. A correct "swap-comparison view persisted as a ui/** artifact"
+// is an OpenUI JSON whose body says nothing about "artifact" / "persisted" /
+// "view"; the discriminative tokens are the domain nouns (swap, comparison).
+// Stripped from the REQUIREMENT side of structural recall so a deliverable is
+// matched on what it IS about, not on the boilerplate describing its form. The
+// correctness checker strips the same class via TITLE_STOPWORDS. Anti-game holds:
+// the distinctive domain tokens remain, so an off-topic item still fails.
+const REQUIREMENT_FORM_STOPWORDS = new Set([
+  'generated',
+  'generate',
+  'view',
+  'render',
+  'rendered',
+  'persisted',
+  'persist',
+  'artifact',
+  'file',
+  'document',
+  'note',
+  'proposal',
+  'deliverable',
+  'output',
+  'created',
+  'create',
+  'produce',
+  'produced',
+  'flag',
+])
+
 const MATCH_THRESHOLD = 0.5
 const MIN_CONTENT_CHARS = 50
 
-function tokens(s: string): Set<string> {
+function tokens(s: string, extraStop?: Set<string>): Set<string> {
   return new Set(
     s
       .toLowerCase()
       .split(/[^a-z0-9]+/)
-      .filter((t) => t.length > 1 && !STOPWORDS.has(t)),
+      .filter((t) => t.length > 1 && !STOPWORDS.has(t) && !extraStop?.has(t)),
   )
 }
 
 /**
  * Recall of the requirement's tokens within a candidate's identifying text.
  * Recall, not Jaccard — a candidate's path/id legitimately carries extra
- * tokens the requirement does not name.
+ * tokens the requirement does not name. The requirement side drops
+ * deliverable-FORM vocabulary so recall keys on the distinctive domain tokens.
  */
 function tokenRecall(requirementText: string, candidateText: string): number {
-  const req = tokens(requirementText)
+  const req = tokens(requirementText, REQUIREMENT_FORM_STOPWORDS)
   if (req.size === 0) return 0
   const cand = tokens(candidateText)
   let hit = 0
@@ -189,7 +220,14 @@ function artifactCandidates(
   const out: Candidate[] = []
   artifacts.forEach((a, i) => {
     if ((a.content ?? '').trim().length < MIN_CONTENT_CHARS) return
-    let score = tokenRecall(reqText, `${a.path ?? ''} ${a.kind}`)
+    // Match against the artifact CONTENT too, not just its path + kind — a
+    // generated view / note whose path is generic still satisfies a requirement
+    // when its body covers it (e.g. an OpenUI comparison grounded in the on-file
+    // figures). Bounded slice keeps the recall text cheap; MATCH_THRESHOLD holds.
+    let score = tokenRecall(
+      reqText,
+      `${a.path ?? ''} ${a.kind} ${(a.content ?? '').slice(0, 4000)}`,
+    )
     if (req.category && a.kind && req.category.toLowerCase() === a.kind.toLowerCase()) {
       score = Math.max(score, 1)
     }
@@ -215,15 +253,29 @@ function proposalCandidates(
   for (const p of proposals) {
     // Pending or rejected work is not a completed deliverable.
     if (p.status !== 'approved') continue
-    const score = tokenRecall(reqText, p.title)
+    // A proposal needs an assessable BODY to be a deliverable. A bare title is
+    // not completion: correctness cannot be judged on it, so a title-only match
+    // would auto-pass the oracle (structurallyPresent && correct===null →
+    // satisfied) with no verifiable content. Tool calls are the only
+    // legitimately content-less deliverable (`toolCallCandidates`).
+    const body = (p.content ?? '').trim()
+    if (body.length < MIN_CONTENT_CHARS) continue
+    // Match against the body as well as the (often short) title — a refusal /
+    // flag / analysis proposal whose title is a label still satisfies a
+    // descriptively-worded requirement when its content covers it. MATCH_THRESHOLD
+    // + the requirement's distinctive tokens keep an off-topic proposal out;
+    // correctness (a SEMANTIC checker, NOT this lexical pass) then judges
+    // polarity/fulfilment, so a negation that merely contains the tokens fails.
+    // Structural and correctness must use different evidence or the two-stage
+    // check collapses to one lexical gate.
+    const score = tokenRecall(reqText, `${p.title} ${body}`)
     if (score < MATCH_THRESHOLD) continue
-    const body = p.content ?? ''
     out.push({
       reqIndex,
       itemKey: `proposal:${p.id}`,
       score,
       evidence: `approved proposal '${p.title}' matched (token recall ${score.toFixed(2)})`,
-      content: body.trim().length >= MIN_CONTENT_CHARS ? body : null,
+      content: body,
     })
   }
   return out
@@ -412,9 +464,15 @@ const TITLE_STOPWORDS = new Set([
  * Deterministic `CorrectnessChecker` — the no-LLM counterpart to
  * `createLlmCorrectnessChecker`. A produced item fulfils a requirement when its
  * content is substantive (≥ `minContentLength` chars) AND recalls ≥ `minRecall`
- * of the requirement title's significant tokens. No network — the default gate
- * for apps and tests without an LLM judge. Pass to `verifyCompletion` as the
- * checker.
+ * of the requirement title's significant tokens. No network.
+ *
+ * Polarity-blind: token recall credits a negation that contains the
+ * requirement's tokens ("I will NOT produce the comparison" recalls every token
+ * of "produce the comparison"). The structural match stage is ALSO lexical, so
+ * pairing the two collapses to a single gameable gate. Use this only as an
+ * opt-in structural pre-filter or for tasks whose requirements have no polarity
+ * to invert; for produced-state grading the correctness checker MUST be semantic
+ * (`createLlmCorrectnessChecker`). See the anti-game fixtures in the test suite.
  */
 export function createTokenRecallChecker(
   opts: { minRecall?: number; minContentLength?: number } = {},

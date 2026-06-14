@@ -43,6 +43,10 @@ export interface ProposalEventLike {
   proposalId: string
   title: string
   status?: 'pending' | 'approved' | 'rejected'
+  // body of the proposal (e.g. a submit_proposal `description`). When present,
+  // the completion oracle correctness-checks it like artifact content; absent,
+  // the proposal is graded presence-only.
+  content?: string
 }
 
 /**
@@ -96,7 +100,12 @@ export function extractProducedState(events: readonly RuntimeEventLike[]): Produ
       })
     } else if (ev.type === 'proposal_created') {
       const p = ev as ProposalEventLike
-      proposals.push({ id: p.proposalId, title: p.title, status: p.status ?? 'pending' })
+      proposals.push({
+        id: p.proposalId,
+        title: p.title,
+        status: p.status ?? 'pending',
+        ...(p.content !== undefined ? { content: p.content } : {}),
+      })
     }
   }
 

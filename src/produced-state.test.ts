@@ -55,6 +55,28 @@ describe('extractProducedState', () => {
     expect(state.proposals[0]!.status).toBe('pending')
   })
 
+  it('threads proposal content when present, so the oracle can correctness-check it', () => {
+    const state = extractProducedState([
+      {
+        type: 'proposal_created',
+        proposalId: 'p1',
+        title: 'B2B outreach proposal',
+        status: 'pending',
+        content: 'Reach out to ACME re: group dental gap; cite on-file census of 42.',
+      },
+    ])
+    expect(state.proposals[0]!.content).toBe(
+      'Reach out to ACME re: group dental gap; cite on-file census of 42.',
+    )
+  })
+
+  it('omits content for a proposal that carries none (graded presence-only)', () => {
+    const state = extractProducedState([
+      { type: 'proposal_created', proposalId: 'p1', title: 'Draft memo', status: 'pending' },
+    ])
+    expect(state.proposals[0]!).not.toHaveProperty('content')
+  })
+
   it('yields empty content for an artifact with none — the oracle rejects it downstream', () => {
     const state = extractProducedState([{ type: 'artifact', artifactId: 'a1', name: 'stub.md' }])
     expect(state.artifacts[0]!.content).toBe('')
