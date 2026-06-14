@@ -189,7 +189,14 @@ function artifactCandidates(
   const out: Candidate[] = []
   artifacts.forEach((a, i) => {
     if ((a.content ?? '').trim().length < MIN_CONTENT_CHARS) return
-    let score = tokenRecall(reqText, `${a.path ?? ''} ${a.kind}`)
+    // Match against the artifact CONTENT too, not just its path + kind — a
+    // generated view / note whose path is generic still satisfies a requirement
+    // when its body covers it (e.g. an OpenUI comparison grounded in the on-file
+    // figures). Bounded slice keeps the recall text cheap; MATCH_THRESHOLD holds.
+    let score = tokenRecall(
+      reqText,
+      `${a.path ?? ''} ${a.kind} ${(a.content ?? '').slice(0, 4000)}`,
+    )
     if (req.category && a.kind && req.category.toLowerCase() === a.kind.toLowerCase()) {
       score = Math.max(score, 1)
     }
@@ -215,7 +222,11 @@ function proposalCandidates(
   for (const p of proposals) {
     // Pending or rejected work is not a completed deliverable.
     if (p.status !== 'approved') continue
-    const score = tokenRecall(reqText, p.title)
+    // Match against the proposal BODY as well as its (often short) title — a
+    // refusal/flag/analysis proposal whose title is a label still satisfies a
+    // descriptively-worded requirement when its content covers it. MATCH_THRESHOLD
+    // + the requirement's distinctive tokens keep an off-topic proposal from matching.
+    const score = tokenRecall(reqText, `${p.title} ${p.content ?? ''}`)
     if (score < MATCH_THRESHOLD) continue
     const body = p.content ?? ''
     out.push({

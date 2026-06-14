@@ -186,6 +186,83 @@ describe('verifyCompletion — satisfiedBy routing', () => {
   })
 })
 
+describe('verifyCompletion — content-aware structural matching', () => {
+  // Requirements are worded as descriptive sentences; a correct proposal/artifact
+  // often carries a short label and a full body. Matching the BODY (not just the
+  // title/path) credits the real deliverable, while MATCH_THRESHOLD + the
+  // requirement's distinctive tokens keep an off-topic item from matching.
+  const REFUSAL_REQ: CompletionRequirement = {
+    reqId: 'threshold-statement',
+    title: 'Statement of N and a refusal to optimize below threshold, with a data-gathering plan',
+    category: 'refusal',
+  }
+
+  it('matches a proposal whose label title misses but whose body covers the requirement', async () => {
+    const v = await verifyCompletion(
+      gold([REFUSAL_REQ]),
+      {
+        ...emptyState(),
+        proposals: [
+          {
+            id: 'p1',
+            title: 'Hold',
+            status: 'approved',
+            content:
+              'Statement of N: only 4 leads completed the sequence. I refuse to optimize the cadence below the data threshold — N=4 is insufficient. Data-gathering plan: collect outcomes until N reaches 30 before proposing any timing changes.',
+          },
+        ],
+      },
+      alwaysCorrect,
+    )
+    expect(v.requirements[0]!.structurallyPresent).toBe(true)
+  })
+
+  it('does NOT match an off-topic proposal even with a body (anti-game)', async () => {
+    const v = await verifyCompletion(
+      gold([REFUSAL_REQ]),
+      {
+        ...emptyState(),
+        proposals: [
+          {
+            id: 'p1',
+            title: 'B2B outreach to Galil Foods',
+            status: 'approved',
+            content:
+              'Draft a free-consultation outreach email to the employer about group insurance options.',
+          },
+        ],
+      },
+      alwaysCorrect,
+    )
+    expect(v.requirements[0]!.structurallyPresent).toBe(false)
+  })
+
+  it('matches a generated artifact by its content when the path is generic', async () => {
+    const v = await verifyCompletion(
+      gold([
+        {
+          reqId: 'openui-comparison',
+          title: 'Generated swap comparison view of current versus proposed premiums',
+          category: 'generated_ui',
+        },
+      ]),
+      {
+        ...emptyState(),
+        artifacts: [
+          {
+            kind: 'json',
+            path: 'ui/view-1.json',
+            content:
+              '{"type":"table","title":"Swap comparison: current versus proposed premiums","rows":[{"current":6800},{"proposed":5900}]}',
+          },
+        ],
+      },
+      alwaysCorrect,
+    )
+    expect(v.requirements[0]!.structurallyPresent).toBe(true)
+  })
+})
+
 describe('parseCorrectnessResponse', () => {
   it('parses a bare JSON object', () => {
     expect(parseCorrectnessResponse('{"correct": true, "reason": "ok"}')).toEqual({
