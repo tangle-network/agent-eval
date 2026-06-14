@@ -144,25 +144,56 @@ const STOPWORDS = new Set([
   'by',
 ])
 
+// Deliverable-FORM vocabulary — words that name the SHAPE of an output, not its
+// domain content. A correct "swap-comparison view persisted as a ui/** artifact"
+// is an OpenUI JSON whose body says nothing about "artifact" / "persisted" /
+// "view"; the discriminative tokens are the domain nouns (swap, comparison).
+// Stripped from the REQUIREMENT side of structural recall so a deliverable is
+// matched on what it IS about, not on the boilerplate describing its form. The
+// correctness checker strips the same class via TITLE_STOPWORDS. Anti-game holds:
+// the distinctive domain tokens remain, so an off-topic item still fails.
+const REQUIREMENT_FORM_STOPWORDS = new Set([
+  'generated',
+  'generate',
+  'view',
+  'render',
+  'rendered',
+  'persisted',
+  'persist',
+  'artifact',
+  'file',
+  'document',
+  'note',
+  'proposal',
+  'deliverable',
+  'output',
+  'created',
+  'create',
+  'produce',
+  'produced',
+  'flag',
+])
+
 const MATCH_THRESHOLD = 0.5
 const MIN_CONTENT_CHARS = 50
 
-function tokens(s: string): Set<string> {
+function tokens(s: string, extraStop?: Set<string>): Set<string> {
   return new Set(
     s
       .toLowerCase()
       .split(/[^a-z0-9]+/)
-      .filter((t) => t.length > 1 && !STOPWORDS.has(t)),
+      .filter((t) => t.length > 1 && !STOPWORDS.has(t) && !extraStop?.has(t)),
   )
 }
 
 /**
  * Recall of the requirement's tokens within a candidate's identifying text.
  * Recall, not Jaccard — a candidate's path/id legitimately carries extra
- * tokens the requirement does not name.
+ * tokens the requirement does not name. The requirement side drops
+ * deliverable-FORM vocabulary so recall keys on the distinctive domain tokens.
  */
 function tokenRecall(requirementText: string, candidateText: string): number {
-  const req = tokens(requirementText)
+  const req = tokens(requirementText, REQUIREMENT_FORM_STOPWORDS)
   if (req.size === 0) return 0
   const cand = tokens(candidateText)
   let hit = 0

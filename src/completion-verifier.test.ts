@@ -256,6 +256,65 @@ describe('verifyCompletion — content-aware structural matching', () => {
     expect(v.requirements[0]!.structurallyPresent).toBe(false)
   })
 
+  it('matches a generated-UI artifact whose requirement is mostly deliverable-FORM vocabulary', async () => {
+    // The requirement names the SHAPE ("Generated ... view persisted as a ui/**
+    // artifact"); a correct OpenUI swap-comparison JSON echoes none of those form
+    // words, only the domain nouns. Stripping form vocabulary from the
+    // requirement side keys recall on swap/comparison. (Real case: scored 0.429
+    // — below threshold — before the form-stopword strip.)
+    const v = await verifyCompletion(
+      gold([
+        {
+          reqId: 'openui-comparison-artifact',
+          title: 'Generated swap-comparison view persisted as a ui/** artifact',
+          category: 'generated_ui',
+          satisfiedBy: 'artifact',
+        },
+      ]),
+      {
+        ...emptyState(),
+        artifacts: [
+          {
+            kind: 'text',
+            path: 'ui/2026-06-05/cohen-life-cover-swap-comparison.json',
+            content:
+              '{"title":"Cohen — life cover swap comparison","schema":{"type":"card","children":[{"type":"heading","text":"Cohen — life cover swap"},{"type":"table","columns":["","Current (Phoenix)","Proposed (Harel)"],"rows":[["Annual premium (₪)","6,800","5,900"]]}]}}',
+          },
+        ],
+      },
+      alwaysCorrect,
+    )
+    expect(v.requirements[0]!.structurallyPresent).toBe(true)
+  })
+
+  it('does NOT match a form-vocabulary requirement on an off-topic artifact (anti-game)', async () => {
+    // Stripping form words must not over-credit: an unrelated artifact still
+    // lacks the distinctive domain tokens (swap, comparison).
+    const v = await verifyCompletion(
+      gold([
+        {
+          reqId: 'openui-comparison-artifact',
+          title: 'Generated swap-comparison view persisted as a ui/** artifact',
+          category: 'generated_ui',
+          satisfiedBy: 'artifact',
+        },
+      ]),
+      {
+        ...emptyState(),
+        artifacts: [
+          {
+            kind: 'text',
+            path: 'ui/2026-06-05/employer-group-benefits-intake.json',
+            content:
+              '{"title":"Galil Foods — group benefits intake","schema":{"type":"form","fields":["headcount","plan tier","effective date"]}}',
+          },
+        ],
+      },
+      alwaysCorrect,
+    )
+    expect(v.requirements[0]!.structurallyPresent).toBe(false)
+  })
+
   it('matches a generated artifact by its content when the path is generic', async () => {
     const v = await verifyCompletion(
       gold([
