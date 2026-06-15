@@ -256,6 +256,65 @@ Sign-off: respond with exactly "DONE" only when a ${persona.role} would act on t
 Output ONLY your next message to the agent — in character, first person, no meta-commentary, no stage directions.`
 }
 
+export interface WorkerDriverContext {
+  /** The goal (or sub-goal) the driven worker must actually accomplish. */
+  goal: string
+  /** The worker's harness — e.g. 'claude-code' | 'codex' | 'opencode' | 'router-tools'.
+   *  Names which capability profile the driver should exploit. */
+  harness?: string
+  /** A capability + caveat brief for THIS harness (parallel tool calls, sub-agents and
+   *  their depth/concurrency limits, autonomy/runaway profile, MCP, native tool-isolation)
+   *  — sourced from the harness-compat matrix. Free text so the substrate stays decoupled
+   *  from any runtime harness type. */
+  harnessBrief?: string
+  /** What the worker has done so far — the trace/state summary the driver reasons over to
+   *  write its next instruction. Empty on the first turn. */
+  progress?: string
+  /** Optional extra context (repo, constraints, the deliverable's acceptance check). */
+  context?: string
+}
+
+/**
+ * Build the WORKER-DRIVER system prompt — the harness-aware sibling of
+ * `buildDriverSystemPrompt`. Where that one role-plays a demanding *user* of a
+ * product, this one is a meta-agent that DRIVES a capable coding *worker* to
+ * complete a goal: it writes rich, high-signal instructions that direct the
+ * worker to exploit its harness's full power (parallelize, sub-agents, run-to-
+ * completion, tools/MCP), matched to what THAT harness can actually do. The
+ * load-bearing contract: the driver never writes a thin steer — every message
+ * is the dense, specific directive a world-class engineering lead would write.
+ * Pure function; exported so harness authors can inspect and regression-test it.
+ */
+export function buildWorkerDriverSystemPrompt(ctx: WorkerDriverContext): string {
+  const harness = ctx.harness ?? 'a coding agent'
+  const brief = ctx.harnessBrief
+    ? `\nThis worker's harness (${harness}) can:\n${ctx.harnessBrief}\nDrive it to USE these — and never ask for a capability it lacks.\n`
+    : `\nThe worker runs in ${harness}. Drive it to exploit whatever its harness offers — parallel tool calls, sub-agents, run-to-completion — and never ask for a capability it lacks.\n`
+  const progress = ctx.progress
+    ? `\nWhat the worker has done so far:\n${ctx.progress}\n`
+    : '\nThe worker has not started yet — your first instruction sets the whole plan.\n'
+  const context = ctx.context ? `\nContext:\n${ctx.context}\n` : ''
+
+  return `You are a DRIVER: a meta-agent whose entire job is to drive a capable coding worker to ACHIEVE A GOAL by writing it precise, high-signal instructions. You do not do the work yourself — you direct the worker to do it, brilliantly, and you hold it to a standard it would not hold itself to.
+
+The goal: ${ctx.goal}
+${context}${brief}${progress}
+THE BAR — non-negotiable. Every instruction you write is dense, specific, and complete. You write the message a world-class engineering lead writes to a strong report: the exact next objective, the concrete sub-steps, what to do in parallel vs in sequence, what to verify and how, what "done" looks like, and the failure modes to avoid. A thin steer — "try again", "fix the issues", a single vague sentence — is a failure on YOUR part, not the worker's. Out-drive a human power-user.
+
+HOW to drive (each turn):
+1. Read what the worker actually did (its trace/state above), not what it claims. Find the real gap between here and the goal.
+2. Decide the next objective — the largest correct step the worker can take now.
+3. Decompose it: name the sub-tasks that can run IN PARALLEL (independent files/checks/searches) and tell the worker to fan them out (sub-agents / parallel tool calls where its harness allows); name what must run in SEQUENCE and why.
+4. Make it exploit the harness: drive it to run to completion under its own autonomy, spawn sub-agents for separable work, use its tools/MCP, and not stop at the first plausible stopping point.
+5. Specify verification: the exact command / test / check that proves the step landed, and tell it to run that and report the result — never accept "done" without the check.
+6. Name the traps: the specific failure modes for THIS step (editing the wrong file, a check that passes vacuously, scope creep) and forbid them.
+7. As the task gets harder, decompose MORE, not less — more parallel branches, deeper sub-agent trees, tighter verification.
+
+COMPLETION: drive toward the goal's real acceptance check. Do not declare done — the deliverable's checker does. If the worker claims it is done, drive it to PROVE it with the check; if the check fails, drive the fix.
+
+Output ONLY your next instruction to the worker — direct, detailed, actionable, in the first person as the driver. No meta-commentary, no preamble.`
+}
+
 export interface DecideNextUserTurnOpts {
   persona: PersonaConfig
   state: DriverState

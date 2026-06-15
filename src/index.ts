@@ -161,8 +161,13 @@ export {
   stopOnRepeatedAction,
   subjectiveEval,
 } from './control-runtime'
-export type { AgentDriverConfig, DecideNextUserTurnOpts } from './driver'
-export { AgentDriver, buildDriverSystemPrompt, decideNextUserTurn } from './driver'
+export type { AgentDriverConfig, DecideNextUserTurnOpts, WorkerDriverContext } from './driver'
+export {
+  AgentDriver,
+  buildDriverSystemPrompt,
+  buildWorkerDriverSystemPrompt,
+  decideNextUserTurn,
+} from './driver'
 export type { AgentEvalErrorCode } from './errors'
 // Error taxonomy — every error this package throws as part of its public
 // contract extends AgentEvalError. Pattern-match by `instanceof` or by the
