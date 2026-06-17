@@ -161,6 +161,21 @@ export {
   stopOnRepeatedAction,
   subjectiveEval,
 } from './control-runtime'
+export type {
+  DetectorEvent,
+  DetectorSeverity,
+  DetectorSignal,
+  ErrorStreakOptions,
+  NoProgressOptions,
+  RepeatedActionOptions,
+  StreamingDetector,
+} from './detectors'
+export {
+  errorStreakDetector,
+  noProgressDetector,
+  observeAll,
+  repeatedActionDetector,
+} from './detectors'
 export type { AgentDriverConfig, DecideNextUserTurnOpts, WorkerDriverContext } from './driver'
 export {
   AgentDriver,
