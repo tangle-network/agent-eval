@@ -161,8 +161,28 @@ export {
   stopOnRepeatedAction,
   subjectiveEval,
 } from './control-runtime'
-export type { AgentDriverConfig, DecideNextUserTurnOpts } from './driver'
-export { AgentDriver, buildDriverSystemPrompt, decideNextUserTurn } from './driver'
+export type {
+  DetectorEvent,
+  DetectorSeverity,
+  DetectorSignal,
+  ErrorStreakOptions,
+  NoProgressOptions,
+  RepeatedActionOptions,
+  StreamingDetector,
+} from './detectors'
+export {
+  errorStreakDetector,
+  noProgressDetector,
+  observeAll,
+  repeatedActionDetector,
+} from './detectors'
+export type { AgentDriverConfig, DecideNextUserTurnOpts, WorkerDriverContext } from './driver'
+export {
+  AgentDriver,
+  buildDriverSystemPrompt,
+  buildWorkerDriverSystemPrompt,
+  decideNextUserTurn,
+} from './driver'
 export type { AgentEvalErrorCode } from './errors'
 // Error taxonomy — every error this package throws as part of its public
 // contract extends AgentEvalError. Pattern-match by `instanceof` or by the

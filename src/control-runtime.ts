@@ -10,6 +10,7 @@
  * are all just actions chosen by the control policy.
  */
 
+import { noProgressDetector, repeatedActionDetector } from './detectors'
 import { type SpanHandle, TraceEmitter } from './trace/emitter'
 import type { FailureClass } from './trace/schema'
 import type { TraceStore } from './trace/store'
@@ -254,10 +255,15 @@ export async function runAgentControlLoop<
   const emitter = config.store ? new TraceEmitter(config.store) : undefined
   let spentCostUsd = 0
   const runtimeErrors: ControlRuntimeError[] = []
-  let lastStateFingerprint: string | undefined
-  let lastActionFingerprint: string | undefined
-  let noProgressStreak = 0
-  let repeatedActionStreak = 0
+  // The stuck-detection kernels (shared with the online detectors). Thresholds 0 = disabled; the
+  // streak is still tracked for telemetry. Both stops report `tool_recovery_failure`.
+  const repeatedDetector = repeatedActionDetector({
+    maxRepeated: config.stopPolicies?.maxRepeatedActions ?? 0,
+  })
+  const progressDetector = noProgressDetector({
+    maxNoProgress: config.stopPolicies?.maxNoProgressSteps ?? 0,
+    minScoreDelta: config.stopPolicies?.minScoreDelta ?? 0.001,
+  })
 
   try {
     if (emitter) {
@@ -326,7 +332,12 @@ export async function runAgentControlLoop<
         stoppedBy: 'runtime-error',
       })
     }
-    lastStateFingerprint = fingerprintState(state, config.stopPolicies)
+    // Prime the no-progress detector with the initial state + score so step 0 can already detect a
+    // no-op (mirrors the pre-loop fingerprint baseline). The priming observe never signals (streak 0).
+    progressDetector.observe({
+      stateFingerprint: fingerprintState(state, config.stopPolicies),
+      score: averageScore(evals),
+    })
 
     for (let stepIndex = 0; stepIndex < budget.maxSteps; stepIndex++) {
       if (controller.signal.aborted) {
@@ -463,19 +474,14 @@ export async function runAgentControlLoop<
       }
 
       const actionFingerprint = fingerprintAction(decision.action, config.stopPolicies)
-      repeatedActionStreak =
-        actionFingerprint === lastActionFingerprint ? repeatedActionStreak + 1 : 1
-      lastActionFingerprint = actionFingerprint
-      const repeatedActionStop = repeatedActionStopDecision(
-        config.stopPolicies,
-        repeatedActionStreak,
-      )
-      if (repeatedActionStop.stop) {
+      const repeatedActionSignal = repeatedDetector.observe({ actionFingerprint })
+      const repeatedActionStreak = repeatedDetector.streak
+      if (repeatedActionSignal) {
         return finish(emitter, {
           intent: config.intent,
           pass: false,
           completed: true,
-          reason: repeatedActionStop.reason,
+          reason: repeatedActionSignal.reason,
           score: averageScore(evals),
           steps: history,
           finalState: state,
@@ -666,16 +672,8 @@ export async function runAgentControlLoop<
       }
       const scoreAfter = averageScore(evals)
       const stateFingerprint = fingerprintState(state, config.stopPolicies)
-      const noProgressStop = noProgressStopDecision({
-        policies: config.stopPolicies,
-        lastStateFingerprint,
-        stateFingerprint,
-        scoreBefore,
-        scoreAfter,
-        currentStreak: noProgressStreak,
-      })
-      noProgressStreak = noProgressStop.streak
-      lastStateFingerprint = stateFingerprint
+      const noProgressSignal = progressDetector.observe({ stateFingerprint, score: scoreAfter })
+      const noProgressStreak = progressDetector.streak
 
       const step: ControlStep<TState, TAction, TActionResult, TEval> = {
         index: stepIndex,
@@ -713,12 +711,12 @@ export async function runAgentControlLoop<
       }
       await runOnStep(config.onStep, step, runtimeErrors)
 
-      if (noProgressStop.stop) {
+      if (noProgressSignal) {
         return finish(emitter, {
           intent: config.intent,
           pass: false,
           completed: true,
-          reason: noProgressStop.reason,
+          reason: noProgressSignal.reason,
           score: scoreAfter,
           steps: history,
           finalState: state,
@@ -1061,39 +1059,6 @@ async function runTrace<T>(
   } catch (err) {
     runtimeErrors.push(runtimeError('trace', stepIndex, err))
     return undefined
-  }
-}
-
-function noProgressStopDecision<TState, TAction>(args: {
-  policies: ControlStopPolicies<TState, TAction> | undefined
-  lastStateFingerprint: string | undefined
-  stateFingerprint: string
-  scoreBefore: number | undefined
-  scoreAfter: number | undefined
-  currentStreak: number
-}): { stop: boolean; reason: string; streak: number } {
-  const max = args.policies?.maxNoProgressSteps
-  if (!max || max <= 0) return { stop: false, reason: '', streak: 0 }
-  const minScoreDelta = args.policies?.minScoreDelta ?? 0.001
-  const scoreDelta = Math.abs((args.scoreAfter ?? 0) - (args.scoreBefore ?? 0))
-  const stateUnchanged =
-    args.lastStateFingerprint !== undefined && args.lastStateFingerprint === args.stateFingerprint
-  const scoreFlat = scoreDelta < minScoreDelta
-  const streak = stateUnchanged && scoreFlat ? args.currentStreak + 1 : 0
-  return streak >= max
-    ? { stop: true, reason: `stuck: no state/score progress for ${streak} step(s)`, streak }
-    : { stop: false, reason: '', streak }
-}
-
-function repeatedActionStopDecision<TState, TAction>(
-  policies: ControlStopPolicies<TState, TAction> | undefined,
-  streak: number,
-): { stop: boolean; reason: string } {
-  const max = policies?.maxRepeatedActions
-  if (!max || max <= 0 || streak < max) return { stop: false, reason: '' }
-  return {
-    stop: true,
-    reason: `stuck: repeated same action for ${streak} step(s)`,
   }
 }
 
