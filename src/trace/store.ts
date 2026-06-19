@@ -187,6 +187,14 @@ export class FileSystemTraceStore implements TraceStore {
   /** Lazy in-memory index for queries — populated on first read. */
   private index?: InMemoryTraceStore
   private loaded = false
+  /**
+   * Per-file append serialization. stat → conditional-rename → appendFile is a
+   * read-modify-write on the active file; without a lock two concurrent appends
+   * to the same `name` can both pass the size check (exceeding maxBytes) or one
+   * can append to a file the other just renamed away. Each entry chains the
+   * next append behind the prior one for that file.
+   */
+  private appendLocks = new Map<string, Promise<void>>()
 
   constructor(options: FileSystemTraceStoreOptions) {
     this.dir = options.dir
@@ -199,6 +207,26 @@ export class FileSystemTraceStore implements TraceStore {
   }
 
   private async append(name: string, record: unknown): Promise<void> {
+    // Chain this append behind any in-flight append for the same file. The tail
+    // promise never rejects (errors are isolated to each caller's `result`), so
+    // one failed append can't break the lock chain for the next one.
+    const prior = this.appendLocks.get(name) ?? Promise.resolve()
+    const result = prior.then(() => this.appendLocked(name, record))
+    const tail = result.then(
+      () => {},
+      () => {},
+    )
+    this.appendLocks.set(name, tail)
+    try {
+      await result
+    } finally {
+      // Drop the slot once this append is the current tail, so the map doesn't
+      // grow without bound across many appends to the same file.
+      if (this.appendLocks.get(name) === tail) this.appendLocks.delete(name)
+    }
+  }
+
+  private async appendLocked(name: string, record: unknown): Promise<void> {
     await this.ensureDir()
     const fs = await import('node:fs/promises')
     const path = await import('node:path')
@@ -217,9 +245,10 @@ export class FileSystemTraceStore implements TraceStore {
     // with `_update: true` by updateRun/updateSpan) are applied by those
     // methods directly via the index's update* APIs — re-inserting them
     // here triggers a duplicate-id error once the first read populates
-    // the index.
+    // the index. Await the mirror: a fire-and-forget would let an index
+    // rejection go unhandled and let disk + index diverge silently.
     if (this.index && !(record as { _update?: boolean })?._update) {
-      void this.insertInto(name, record)
+      await this.insertInto(name, record)
     }
   }
 
@@ -249,8 +278,26 @@ export class FileSystemTraceStore implements TraceStore {
     const fs = await import('node:fs/promises')
     const path = await import('node:path')
     const store = new InMemoryTraceStore()
+    let entries: string[]
     try {
-      const entries = await fs.readdir(this.dir)
+      entries = await fs.readdir(this.dir)
+    } catch {
+      // No dir yet (first run / empty corpus). Anything past this point — parse
+      // errors, missing patch bases — is real corruption and must fail loud.
+      this.index = store
+      this.loaded = true
+      return store
+    }
+    {
+      // Two-pass load. Pass 1 indexes all full (base) rows; pass 2 replays the
+      // `_update` patch rows that updateRun/updateSpan append. readdir order is
+      // not deterministic and rollover splits a stream across files, so a patch
+      // can be read before its base. Applying patches in a separate pass — after
+      // every base row is indexed — means a patch always finds its target.
+      // Doing it in one pass let a patch hit the catch and append a runId-less
+      // fragment, corrupting span/run counts cross-instance.
+      const runUpdates: Array<Record<string, unknown>> = []
+      const spanUpdates: Array<Record<string, unknown>> = []
       for (const file of entries) {
         if (!file.endsWith('.ndjson')) continue
         const full = path.join(this.dir, file)
@@ -260,7 +307,12 @@ export class FileSystemTraceStore implements TraceStore {
           if (!line.trim()) continue
           const record = JSON.parse(line)
           if (base === 'runs') {
-            // Allow re-loading without duplicate error
+            if (record?._update) {
+              runUpdates.push(record)
+              continue
+            }
+            // A duplicate full row (same dir loaded twice into one stream) is
+            // collapsed last-write-wins rather than thrown.
             try {
               await store.appendRun(record)
             } catch {
@@ -268,24 +320,17 @@ export class FileSystemTraceStore implements TraceStore {
             }
           } else if (base === 'spans') {
             // `updateSpan` appends an `_update: true` patch row instead of
-            // rewriting the original span. On reload we must collapse those
-            // patches onto the original span — otherwise a fresh
-            // FileSystemTraceStore reading the same dir reports duplicate
-            // spans (one full, one fragment with no runId/kind/name), which
-            // breaks any downstream consumer that re-opens the store
-            // cross-process (e.g. the OTLP converter).
+            // rewriting the original span. Deferred to pass 2 so it collapses
+            // onto the original span — otherwise a fresh FileSystemTraceStore
+            // reading the same dir reports duplicate spans (one full, one
+            // fragment with no runId/kind/name), which breaks any downstream
+            // consumer that re-opens the store cross-process (e.g. the OTLP
+            // converter).
             if (record?._update) {
-              try {
-                await store.updateSpan(record.spanId, record)
-              } catch {
-                // Patch row arrived before the original — should not happen
-                // with locked append order, but fall through to append so we
-                // don't lose data.
-                await store.appendSpan(record)
-              }
-            } else {
-              await store.appendSpan(record)
+              spanUpdates.push(record)
+              continue
             }
+            await store.appendSpan(record)
           } else if (base === 'events') {
             await store.appendEvent(record)
           } else if (base === 'artifacts') {
@@ -295,8 +340,16 @@ export class FileSystemTraceStore implements TraceStore {
           }
         }
       }
-    } catch {
-      /* empty dir, first run */
+      // Pass 2: every base row is now indexed. A patch whose base is genuinely
+      // absent (truncated/partial corpus) throws inside update* — we let it
+      // propagate rather than silently appending a fragment, so a corrupt
+      // corpus fails loud instead of polluting counts.
+      for (const record of runUpdates) {
+        await store.updateRun(record.runId as string, record as Partial<Run>)
+      }
+      for (const record of spanUpdates) {
+        await store.updateSpan(record.spanId as string, record as Partial<Span>)
+      }
     }
     this.index = store
     this.loaded = true

@@ -379,9 +379,23 @@ export async function runEvalCampaign<V>(
   const failedRuns: FailedRun[] = []
 
   // ── Execute (bounded-concurrency worker pool) ──────────────────────
+  // A genuine (non-CellExecutionError) error from any worker is a bug, not a
+  // run-level failure. We must NOT let `Promise.all` reject mid-flight and
+  // orphan the other workers' in-progress runs (emitters never finalized,
+  // sinks/handles leak, partial work silently discarded). Instead: capture the
+  // first genuine error, stop dispatching new cells so in-flight workers wind
+  // down, finalize every still-open run, then re-throw the aggregated error.
   let cursor = 0
+  let aborting = false
+  const genuineErrors: unknown[] = []
+  // Emitters for runs that are currently mid-flight, keyed by runId. A worker
+  // registers its emitter before invoking the runner and removes it once the
+  // run is finalized (via endRun/abortRun, success or failure). Anything left
+  // here after the pool settles is an orphan we must abort.
+  const openRuns = new Map<string, TraceEmitter>()
+
   async function worker(): Promise<void> {
-    while (true) {
+    while (!aborting) {
       const i = cursor++
       if (i >= cells.length) return
       const cell = cells[i]!
@@ -395,8 +409,12 @@ export async function runEvalCampaign<V>(
           if (err.integrity) integrityReports.push(err.integrity)
         } else {
           // Genuine bug — not a runner failure, not an integrity failure.
-          // Surface it; don't silently mask.
-          throw err
+          // Capture it and stop dispatching so peers wind down gracefully;
+          // re-thrown after the pool settles. Do not surface here — that would
+          // reject Promise.all and orphan the other workers' runs.
+          genuineErrors.push(err)
+          aborting = true
+          return
         }
       }
     }
@@ -427,6 +445,9 @@ export async function runEvalCampaign<V>(
       now: opts.now,
       onRunComplete: opts.onRunComplete,
     })
+    // Track this run as open so a genuine error elsewhere in the pool can
+    // finalize it instead of orphaning it. Removed in the finally below.
+    openRuns.set(runId, emitter)
 
     const llmOpts: LlmClientOptions = {
       ...opts.llmOpts,
@@ -449,101 +470,129 @@ export async function runEvalCampaign<V>(
       llmOpts,
     }
 
-    const wallStart = now()
-    let outcome: CampaignRunOutcome
     try {
-      outcome = await opts.runner(ctx)
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err)
-      // The runner threw mid-execution; give it a chance to have aborted.
+      const wallStart = now()
+      let outcome: CampaignRunOutcome
       try {
-        await emitter.abortRun(message)
-      } catch {
-        // Already aborted/ended; ignore.
+        outcome = await opts.runner(ctx)
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err)
+        // The runner threw mid-execution. Abort the run so the emitter
+        // finalizes. The only benign abortRun failure is "the runner never
+        // started the run" (nothing to finalize). A store-write failure (disk
+        // full, FS error) is a genuine diagnostic — surface it rather than
+        // masking it as a plain runner failure.
+        await finalizeAbort(emitter, runId, message)
+        throw new CellExecutionError({
+          runId,
+          variantId: cell.variant.id,
+          scenarioId: cell.scenario.scenarioId,
+          seed: cell.seed,
+          reason: 'runner_threw',
+          error: message,
+        })
       }
-      throw new CellExecutionError({
-        runId,
-        variantId: cell.variant.id,
-        scenarioId: cell.scenario.scenarioId,
-        seed: cell.seed,
-        reason: 'runner_threw',
-        error: message,
-      })
-    }
-    const wallMs = now() - wallStart
+      const wallMs = now() - wallStart
 
-    const integrityReport = await assertRunCaptured(store, runId, { ...integrity, rawSink })
-    if (!integrityReport.ok) {
-      switch (onIntegrityFailure) {
-        case 'throw':
-          throw new RunIntegrityError(integrityReport)
-        case 'mark_failed':
-          throw new CellExecutionError(
-            {
+      const integrityReport = await assertRunCaptured(store, runId, { ...integrity, rawSink })
+      if (!integrityReport.ok) {
+        switch (onIntegrityFailure) {
+          case 'throw':
+            throw new RunIntegrityError(integrityReport)
+          case 'mark_failed':
+            throw new CellExecutionError(
+              {
+                runId,
+                variantId: cell.variant.id,
+                scenarioId: cell.scenario.scenarioId,
+                seed: cell.seed,
+                reason: 'integrity_failed',
+                error: integrityReport.issues.map((i) => i.code).join(', '),
+              },
+              integrityReport,
+            )
+          case 'log':
+            // Caller wants the run admitted with a flagged report; fall through.
+            break
+        }
+      }
+
+      const recordOutcome: RunOutcome = {
+        raw: outcome.raw ?? {},
+      }
+      if (splitTag === 'holdout') recordOutcome.holdoutScore = outcome.score
+      else recordOutcome.searchScore = outcome.score
+      if (outcome.judgeScores !== undefined) recordOutcome.judgeScores = outcome.judgeScores
+
+      const record: RunRecord = {
+        runId,
+        experimentId: opts.campaignId,
+        candidateId: cell.variant.id,
+        seed: cell.seed,
+        model: outcome.model,
+        promptHash: outcome.promptHash,
+        configHash: outcome.configHash,
+        commitSha: opts.commitSha,
+        wallMs,
+        costUsd: outcome.costUsd,
+        tokenUsage: outcome.tokenUsage,
+        judgeMetadata: outcome.judgeMetadata,
+        outcome: recordOutcome,
+        ...(outcome.failureClass ? { failureClass: outcome.failureClass } : {}),
+        failureMode: outcome.failureMode,
+        splitTag,
+        scenarioId: cell.scenario.scenarioId,
+      }
+      const profileSource =
+        outcome.agentProfile ??
+        (typeof opts.agentProfile === 'function'
+          ? await opts.agentProfile({
+              campaignId: opts.campaignId,
               runId,
               variantId: cell.variant.id,
               scenarioId: cell.scenario.scenarioId,
               seed: cell.seed,
-              reason: 'integrity_failed',
-              error: integrityReport.issues.map((i) => i.code).join(', '),
-            },
-            integrityReport,
-          )
-        case 'log':
-          // Caller wants the run admitted with a flagged report; fall through.
-          break
+              variant: cell.variant.payload,
+              scenarioTags: cell.scenario.tags ?? {},
+            })
+          : opts.agentProfile)
+      if (profileSource !== undefined) {
+        const agentProfile = await resolveAgentProfileCell(profileSource)
+        assertAgentProfileMatchesRun(agentProfile, outcome.model, outcome.promptHash)
+        record.agentProfile = agentProfile
       }
+      return { record: validateRunRecord(record), integrity: integrityReport }
+    } finally {
+      // This run's worker has finished with it (success, run-level failure, or
+      // genuine error). It is no longer the pool's job to finalize — drop it so
+      // the post-settle sweep doesn't double-abort a finalized run.
+      openRuns.delete(runId)
     }
-
-    const recordOutcome: RunOutcome = {
-      raw: outcome.raw ?? {},
-    }
-    if (splitTag === 'holdout') recordOutcome.holdoutScore = outcome.score
-    else recordOutcome.searchScore = outcome.score
-    if (outcome.judgeScores !== undefined) recordOutcome.judgeScores = outcome.judgeScores
-
-    const record: RunRecord = {
-      runId,
-      experimentId: opts.campaignId,
-      candidateId: cell.variant.id,
-      seed: cell.seed,
-      model: outcome.model,
-      promptHash: outcome.promptHash,
-      configHash: outcome.configHash,
-      commitSha: opts.commitSha,
-      wallMs,
-      costUsd: outcome.costUsd,
-      tokenUsage: outcome.tokenUsage,
-      judgeMetadata: outcome.judgeMetadata,
-      outcome: recordOutcome,
-      ...(outcome.failureClass ? { failureClass: outcome.failureClass } : {}),
-      failureMode: outcome.failureMode,
-      splitTag,
-      scenarioId: cell.scenario.scenarioId,
-    }
-    const profileSource =
-      outcome.agentProfile ??
-      (typeof opts.agentProfile === 'function'
-        ? await opts.agentProfile({
-            campaignId: opts.campaignId,
-            runId,
-            variantId: cell.variant.id,
-            scenarioId: cell.scenario.scenarioId,
-            seed: cell.seed,
-            variant: cell.variant.payload,
-            scenarioTags: cell.scenario.tags ?? {},
-          })
-        : opts.agentProfile)
-    if (profileSource !== undefined) {
-      const agentProfile = await resolveAgentProfileCell(profileSource)
-      assertAgentProfileMatchesRun(agentProfile, outcome.model, outcome.promptHash)
-      record.agentProfile = agentProfile
-    }
-    return { record: validateRunRecord(record), integrity: integrityReport }
   }
 
   const workers = Array.from({ length: Math.min(concurrency, cells.length) }, () => worker())
-  await Promise.all(workers)
+  // allSettled (not all): a genuine error in one worker must not reject the
+  // pool mid-flight and orphan the others. Each worker captures its own
+  // genuine error into `genuineErrors` and returns; we re-throw below.
+  await Promise.allSettled(workers)
+
+  // Finalize any run still open after the pool wound down. With the
+  // stop-dispatch flag these are the runs that were mid-flight in peer workers
+  // when the first genuine error fired — abort them so their emitters finalize
+  // (hooks fire, store records a terminal status) instead of leaking.
+  for (const [runId, emitter] of openRuns) {
+    await finalizeAbort(emitter, runId, 'campaign aborted: genuine error in a sibling run')
+  }
+  openRuns.clear()
+
+  if (genuineErrors.length > 0) {
+    throw genuineErrors.length === 1
+      ? genuineErrors[0]
+      : new AggregateError(
+          genuineErrors,
+          `runEvalCampaign: ${genuineErrors.length} runs failed with genuine (non-run-level) errors`,
+        )
+  }
 
   // ── Optional research report ───────────────────────────────────────
   let report: ResearchReport | undefined
@@ -583,6 +632,32 @@ class CellExecutionError extends Error {
     this.failed = failed
     this.integrity = integrity
   }
+}
+
+/**
+ * Abort a run whose owning work threw or was orphaned by a sibling's genuine
+ * error, finalizing the emitter so hooks fire and the store records a terminal
+ * status. Safe to call unconditionally: it only aborts runs that are still
+ * `running`. Two no-op cases are intentional and benign:
+ *
+ *   - the run was never started (absent from the store) — nothing to finalize
+ *   - the run is already terminal (`completed` / `failed` / `aborted`) —
+ *     finalizing again would overwrite the real outcome (e.g. flip a passed run
+ *     to `aborted` with `{ pass: false, notes: reason }`), so we leave it alone
+ *
+ * Any OTHER failure of the store read or the abort write (disk full, FS fault,
+ * backend down) is a genuine diagnostic and propagates rather than being
+ * swallowed.
+ */
+export async function finalizeAbort(
+  emitter: TraceEmitter,
+  runId: string,
+  reason: string,
+): Promise<void> {
+  const existing = await emitter.traceStore.getRun(runId)
+  if (existing === undefined) return // run never started; nothing to abort
+  if (existing.status !== 'running') return // already finalized; never overwrite a real outcome
+  await emitter.abortRun(reason)
 }
 
 function defaultRawSinkFactory(workDir: string | undefined) {
