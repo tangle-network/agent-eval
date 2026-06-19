@@ -27,7 +27,12 @@
 
 import { readFile, stat } from 'node:fs/promises'
 import { NotFoundError } from '../errors'
-import { extractOtlpAttributes, projectOtlpFlatLine } from './otlp-span'
+import {
+  compareSpanTime,
+  extractOtlpAttributes,
+  projectOtlpFlatLine,
+  spanEpochMillis,
+} from './otlp-span'
 import { compileSearchRegex, type TraceAnalysisStore, truncateForBudget } from './store'
 import {
   type DatasetOverview,
@@ -46,24 +51,6 @@ import {
   type ViewTraceOversized,
   type ViewTraceResult,
 } from './types'
-
-/**
- * Parse a span timestamp to epoch millis, or null when empty/unparseable. The
- * OTLP readers accept BOTH ISO-8601 and epoch-millis-string dialects, so raw
- * string comparison (`<`, localeCompare) is wrong across dialects, and
- * `new Date(str)` is NaN for an epoch-millis string.
- */
-function epochOrNull(ts: string): number | null {
-  if (!ts) return null
-  if (/^\d+$/.test(ts)) return Number(ts)
-  const n = Date.parse(ts)
-  return Number.isNaN(n) ? null : n
-}
-
-/** Ordering key: unparseable timestamps sort as epoch 0 (earliest), never NaN. */
-function epochMs(ts: string): number {
-  return epochOrNull(ts) ?? 0
-}
 
 /** Lines indexed between event-loop yields. Bounded synchronous work per
  *  tick keeps the index build from starving other tasks on large files
@@ -191,8 +178,8 @@ export class OtlpFileTraceStore implements TraceAnalysisStore {
       for (const m of t.models) models.add(m)
       for (const tn of t.tools) tools.add(tn)
       rawBytes += t.raw_jsonl_bytes
-      if (!earliest || epochMs(t.start_time) < epochMs(earliest)) earliest = t.start_time
-      if (!latest || epochMs(t.end_time) > epochMs(latest)) latest = t.end_time
+      if (!earliest || compareSpanTime(t.start_time, earliest) < 0) earliest = t.start_time
+      if (!latest || compareSpanTime(t.end_time, latest) > 0) latest = t.end_time
       if (t.has_errors) {
         errorTraceCount += 1
         for (const s of t.spans) {
@@ -540,8 +527,8 @@ export class OtlpFileTraceStore implements TraceAnalysisStore {
       entry.span_count += 1
       entry.raw_jsonl_bytes += lineLength + 1 // +1 newline byte
       if (span.status === 'ERROR') entry.has_errors = true
-      if (epochMs(span.start_time) < epochMs(entry.start_time)) entry.start_time = span.start_time
-      if (epochMs(span.end_time) > epochMs(entry.end_time)) entry.end_time = span.end_time
+      if (compareSpanTime(span.start_time, entry.start_time) < 0) entry.start_time = span.start_time
+      if (compareSpanTime(span.end_time, entry.end_time) > 0) entry.end_time = span.end_time
       if (span.model_name) entry.models.add(span.model_name)
       if (span.tool_name) entry.tools.add(span.tool_name)
     }
@@ -553,12 +540,12 @@ export class OtlpFileTraceStore implements TraceAnalysisStore {
       totalRawBytes += t.raw_jsonl_bytes
       t.spans.sort(
         (a, b) =>
-          epochMs(a.start_time) - epochMs(b.start_time) || a.line_byte_offset - b.line_byte_offset,
+          compareSpanTime(a.start_time, b.start_time) || a.line_byte_offset - b.line_byte_offset,
       )
       // Duration is 0 unless BOTH bounds parse — a missing/garbage timestamp
       // yields 0, never a NaN (→ null in JSON) or a bogus epoch-from-zero span.
-      const startMs = epochOrNull(t.start_time)
-      const endMs = epochOrNull(t.end_time)
+      const startMs = spanEpochMillis(t.start_time)
+      const endMs = spanEpochMillis(t.end_time)
       t.duration_ms = startMs === null || endMs === null ? 0 : Math.max(0, endMs - startMs)
     }
     const sortedTraceIds = [...byTrace.keys()].sort()
