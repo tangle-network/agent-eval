@@ -9,6 +9,8 @@ import {
   corpusInterRaterAgreementFromJudgeScores,
   mannWhitneyU,
   mcnemar,
+  mcnemarPower,
+  mcnemarRequiredN,
   normalizeScores,
   pairedBootstrap,
   pairedMde,
@@ -703,5 +705,45 @@ describe('passAtK — unbiased coding-eval estimator', () => {
     expect(() => passAtK(5, 2, 0)).toThrow(/1 ≤ k ≤ n/)
     expect(() => passAtK(5, 2, 6)).toThrow(/1 ≤ k ≤ n/)
     expect(() => passAtK(5.5, 2, 1)).toThrow(/integers/)
+  })
+})
+
+describe('mcnemarRequiredN / mcnemarPower — paired-binary power', () => {
+  it('matches the closed-form sample size for a known config', () => {
+    // p10=0.25, p01=0.05, two-sided alpha=0.05, power=0.8 → 57 pairs (Lachin).
+    expect(mcnemarRequiredN({ p10: 0.25, p01: 0.05, power: 0.8 })).toBe(57)
+  })
+
+  it('needs more pairs for a smaller effect, fewer for a larger one', () => {
+    const big = mcnemarRequiredN({ p10: 0.4, p01: 0.05 })
+    const small = mcnemarRequiredN({ p10: 0.2, p01: 0.15 })
+    expect(small).toBeGreaterThan(big)
+  })
+
+  it('needs more pairs for higher target power', () => {
+    const p80 = mcnemarRequiredN({ p10: 0.3, p01: 0.1, power: 0.8 })
+    const p90 = mcnemarRequiredN({ p10: 0.3, p01: 0.1, power: 0.9 })
+    expect(p90).toBeGreaterThan(p80)
+  })
+
+  it('no effect (p10 === p01) ⇒ Infinity pairs', () => {
+    expect(mcnemarRequiredN({ p10: 0.1, p01: 0.1 })).toBe(Infinity)
+  })
+
+  it('power at the required N reaches the target (asymptotic, ceil ⇒ ≥)', () => {
+    const n = mcnemarRequiredN({ p10: 0.25, p01: 0.05, power: 0.8 })
+    expect(mcnemarPower({ p10: 0.25, p01: 0.05, nPairs: n })).toBeGreaterThanOrEqual(0.8)
+  })
+
+  it('power rises monotonically with n and equals alpha at no effect', () => {
+    const lo = mcnemarPower({ p10: 0.25, p01: 0.05, nPairs: 20 })
+    const hi = mcnemarPower({ p10: 0.25, p01: 0.05, nPairs: 80 })
+    expect(hi).toBeGreaterThan(lo)
+    expect(mcnemarPower({ p10: 0.1, p01: 0.1, nPairs: 500 })).toBeCloseTo(0.05, 10)
+  })
+
+  it('throws on impossible discordant probabilities', () => {
+    expect(() => mcnemarRequiredN({ p10: 0.7, p01: 0.7 })).toThrow(/p10\+p01/)
+    expect(() => mcnemarPower({ p10: -0.1, p01: 0.2, nPairs: 50 })).toThrow(/p10,p01/)
   })
 })
