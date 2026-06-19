@@ -40,10 +40,12 @@ import {
   validateRunRecord,
 } from '../run-record'
 import {
+  compareSpanTime,
   firstNumberAttr,
   firstStringAttr,
   type ProjectedOtlpSpan,
   projectOtlpFlatLine,
+  spanEpochMillis,
 } from './otlp-span'
 
 /** Candidate attribute keys for LLM input (prompt) tokens, both dialects. */
@@ -277,9 +279,10 @@ function aggregateTrace(
   spans: ProjectedOtlpSpan[],
   fallbackModel: string,
 ): TraceAggregate {
-  // Span order within a trace is by start time, then a stable tiebreak.
+  // Span order within a trace is by start time (epoch-aware across ISO/epoch
+  // dialects), then a stable tiebreak.
   const ordered = [...spans].sort(
-    (a, b) => a.start_time.localeCompare(b.start_time) || a.span_id.localeCompare(b.span_id),
+    (a, b) => compareSpanTime(a.start_time, b.start_time) || a.span_id.localeCompare(b.span_id),
   )
 
   let input = 0
@@ -296,8 +299,9 @@ function aggregateTrace(
   let latest = ordered[0]?.end_time ?? ''
 
   for (const s of ordered) {
-    if (s.start_time && (!earliest || s.start_time < earliest)) earliest = s.start_time
-    if (s.end_time && s.end_time > latest) latest = s.end_time
+    if (s.start_time && (!earliest || compareSpanTime(s.start_time, earliest) < 0))
+      earliest = s.start_time
+    if (s.end_time && (!latest || compareSpanTime(s.end_time, latest) > 0)) latest = s.end_time
 
     if (s.kind === 'LLM') {
       llmSpanCount += 1
@@ -331,11 +335,11 @@ function aggregateTrace(
   const model = topVote(modelVotes) ?? firstModelAttr(ordered) ?? fallbackModel
 
   let wallMs = 0
-  if (earliest && latest) {
-    const a = Date.parse(earliest)
-    const b = Date.parse(latest)
-    if (!Number.isNaN(a) && !Number.isNaN(b)) wallMs = Math.max(0, b - a)
-  }
+  // epoch-aware: Date.parse returns NaN for a bare epoch-millis string, which
+  // silently zeroed wallMs for traces emitted with epoch timestamps.
+  const a = spanEpochMillis(earliest)
+  const b = spanEpochMillis(latest)
+  if (a !== null && b !== null) wallMs = Math.max(0, b - a)
 
   const tokenUsage: RunTokenUsage = sawCached ? { input, output, cached } : { input, output }
 
@@ -403,7 +407,9 @@ function extractPromptCompletion(spans: ProjectedOtlpSpan[]): {
 } {
   const llm = spans
     .filter((s) => s.kind === 'LLM')
-    .sort((a, b) => a.start_time.localeCompare(b.start_time) || a.span_id.localeCompare(b.span_id))
+    .sort(
+      (a, b) => compareSpanTime(a.start_time, b.start_time) || a.span_id.localeCompare(b.span_id),
+    )
   if (llm.length === 0) return {}
   const promptText =
     firstStringAttr(llm[0]!.attributes, ['input.value', 'llm.input_messages', 'gen_ai.prompt']) ??

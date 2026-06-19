@@ -1,5 +1,23 @@
 import { describe, expect, it } from 'vitest'
-import { argHash } from './query'
+import { aggregateLlm, argHash } from './query'
+import type { LlmSpan } from './schema'
+
+function llm(extra: Partial<LlmSpan>): LlmSpan {
+  // `extra` is a Partial spread last, which widens `kind`; cast back to LlmSpan.
+  return { spanId: 's', runId: 'r', kind: 'llm', name: 'llm', startedAt: 0, ...extra } as LlmSpan
+}
+
+describe('aggregateLlm', () => {
+  it('sums reasoningTokens (was silently omitted, hiding reasoning usage)', () => {
+    const agg = aggregateLlm([
+      llm({ inputTokens: 100, outputTokens: 50, reasoningTokens: 1000 }),
+      llm({ inputTokens: 10, outputTokens: 5, reasoningTokens: 200 }),
+    ])
+    expect(agg.inputTokens).toBe(110)
+    expect(agg.outputTokens).toBe(55)
+    expect(agg.reasoningTokens).toBe(1200)
+  })
+})
 
 describe('argHash', () => {
   it('always returns a string — even for undefined / functions', () => {

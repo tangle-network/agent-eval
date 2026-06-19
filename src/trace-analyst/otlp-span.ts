@@ -216,3 +216,25 @@ export function firstStringAttr(
   }
   return null
 }
+
+/**
+ * Parse a span timestamp to epoch millis, or null when empty/unparseable. The
+ * OTLP readers accept BOTH ISO-8601 and epoch-millis-string dialects, so raw
+ * string comparison (`<`, `localeCompare`) mis-orders across dialects and
+ * `Date.parse` returns NaN for a bare epoch-millis string.
+ */
+export function spanEpochMillis(ts: string | undefined | null): number | null {
+  if (!ts) return null
+  if (/^\d+$/.test(ts)) return Number(ts)
+  const n = Date.parse(ts)
+  return Number.isNaN(n) ? null : n
+}
+
+/**
+ * Order comparator for span timestamps across mixed ISO/epoch dialects.
+ * Unparseable timestamps sort as epoch 0 (earliest), never NaN (which would
+ * make the sort non-deterministic).
+ */
+export function compareSpanTime(a: string, b: string): number {
+  return (spanEpochMillis(a) ?? 0) - (spanEpochMillis(b) ?? 0)
+}

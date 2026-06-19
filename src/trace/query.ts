@@ -77,6 +77,7 @@ export function aggregateLlm(spans: LlmSpan[]): {
   inputTokens: number
   outputTokens: number
   cachedTokens: number
+  reasoningTokens: number
   costUsd: number
 } {
   return spans.reduce(
@@ -84,9 +85,12 @@ export function aggregateLlm(spans: LlmSpan[]): {
       inputTokens: acc.inputTokens + (s.inputTokens ?? 0),
       outputTokens: acc.outputTokens + (s.outputTokens ?? 0),
       cachedTokens: acc.cachedTokens + (s.cachedTokens ?? 0),
+      // reasoningTokens is on LlmSpan but was omitted here — reasoning usage was
+      // invisible to any cost/perf analysis reading this aggregate.
+      reasoningTokens: acc.reasoningTokens + (s.reasoningTokens ?? 0),
       costUsd: acc.costUsd + (s.costUsd ?? 0),
     }),
-    { inputTokens: 0, outputTokens: 0, cachedTokens: 0, costUsd: 0 },
+    { inputTokens: 0, outputTokens: 0, cachedTokens: 0, reasoningTokens: 0, costUsd: 0 },
   )
 }
 
