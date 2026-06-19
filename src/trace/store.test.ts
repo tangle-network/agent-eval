@@ -221,4 +221,42 @@ describe('FileSystemTraceStore', () => {
     expect(runs).toHaveLength(1)
     expect(runs[0]!.status).toBe('failed')
   })
+
+  it('does not lose a row appended while an index load is in flight', async () => {
+    const seed = new FileSystemTraceStore({ dir })
+    await seed.appendRun(run('r0'))
+
+    const store = new FileSystemTraceStore({ dir })
+    // Trigger a load (don't await) — its build is now in flight — then append a
+    // NEW row concurrently. Pre-fix the append's mirror was skipped (index still
+    // undefined mid-load) and the cached index made r1 permanently invisible.
+    const readP = store.getRun('r0')
+    const appendP = store.appendRun(run('r1'))
+    await Promise.all([readP, appendP])
+
+    expect(await store.getRun('r1')).toBeDefined()
+    expect((await store.listRuns()).map((r) => r.runId).sort()).toEqual(['r0', 'r1'])
+  })
+
+  it('gives same-millisecond rollovers distinct filenames (no overwrite / data loss)', async () => {
+    const nowSpy = vi.spyOn(Date, 'now').mockReturnValue(1000)
+    try {
+      // maxBytes=1 → every append past a non-empty active rolls. Three appends
+      // → two rollovers, both "at" Date.now() === 1000.
+      const store = new FileSystemTraceStore({ dir, maxBytes: 1 })
+      await store.appendSpan(span('s1', 'r1'))
+      await store.appendSpan(span('s2', 'r1'))
+      await store.appendSpan(span('s3', 'r1'))
+
+      // Distinct stamps (1000, 1001) — a bare Date.now() would collide to one
+      // file, overwriting the first rolled file and losing its rows.
+      const rolled = readdirSync(dir).filter((f) => /^spans\.\d+\.ndjson$/.test(f))
+      expect(rolled).toHaveLength(2)
+
+      const ids = new Set((await new FileSystemTraceStore({ dir }).spans()).map((s) => s.spanId))
+      expect(ids).toEqual(new Set(['s1', 's2', 's3']))
+    } finally {
+      nowSpy.mockRestore()
+    }
+  })
 })
