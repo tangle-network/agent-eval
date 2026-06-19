@@ -5,20 +5,75 @@ import type { CheckResult, ProductClientConfig, RouteMap, TestResult } from './t
  *
  * Routes are config, not hardcoded. Each agent provides its own RouteMap.
  */
+const DEFAULT_REQUEST_TIMEOUT_MS = 30_000
+
 export class ProductClient {
   private baseUrl: string
   private routes: RouteMap
   private cookies: string = ''
+  private timeoutMs: number
 
   constructor(config: ProductClientConfig) {
     this.baseUrl = config.baseUrl.replace(/\/+$/, '')
     this.routes = config.routes
+    this.timeoutMs = config.timeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS
   }
 
   private route(name: keyof RouteMap): string {
     const path = this.routes[name]
     if (!path) throw new Error(`Route "${name}" not configured`)
     return path
+  }
+
+  /**
+   * Single HTTP boundary for every JSON request. Aborts after `timeoutMs`,
+   * checks `res.ok` BEFORE parsing, and throws `${method} ${path} failed:
+   * HTTP ${status} — ${body}` on a non-ok response so a 4xx/5xx error body
+   * can never be parsed as a success shape. Callers inspect the resolved
+   * value only after a successful return.
+   */
+  private async request(
+    method: string,
+    path: string,
+    body?: Record<string, unknown>,
+  ): Promise<Record<string, unknown>> {
+    const controller = new AbortController()
+    const timeout = setTimeout(() => controller.abort(), this.timeoutMs)
+    let res: Response
+    try {
+      res = await fetch(`${this.baseUrl}${path}`, {
+        method,
+        headers: {
+          ...(body ? { 'Content-Type': 'application/json' } : {}),
+          Origin: this.baseUrl,
+          Cookie: this.cookies,
+        },
+        ...(body ? { body: JSON.stringify(body) } : {}),
+        signal: controller.signal,
+      })
+    } finally {
+      clearTimeout(timeout)
+    }
+    if (!res.ok) {
+      const text = await res.text().catch(() => '')
+      throw new Error(`${method} ${path} failed: HTTP ${res.status} — ${text.slice(0, 500)}`)
+    }
+    return res.json() as Promise<Record<string, unknown>>
+  }
+
+  /**
+   * Read a required collection field. A missing/non-array field is a contract
+   * violation (wrong route, drift, partial body) — surface it loud instead of
+   * masking it as a healthy empty set. A genuinely empty `[]` passes through.
+   */
+  private requireArray<T>(res: Record<string, unknown>, field: string): T[] {
+    const value = res[field]
+    if (!Array.isArray(value)) {
+      throw new Error(
+        `Response missing array field "${field}" (got ${typeof value}: ${JSON.stringify(value)?.slice(0, 200)})`,
+      )
+    }
+    return value as T[]
   }
 
   async signup(name: string, email: string, password: string): Promise<{ userId: string }> {
@@ -121,19 +176,25 @@ export class ProductClient {
     workspaceId: string,
   ): Promise<{ id: string; title: string; status: string; priority: string }[]> {
     const res = await this.get(`${this.route('tasks')}?workspaceId=${workspaceId}`)
-    return (res.tasks ?? []) as { id: string; title: string; status: string; priority: string }[]
+    return this.requireArray<{ id: string; title: string; status: string; priority: string }>(
+      res,
+      'tasks',
+    )
   }
 
   async getEvents(workspaceId: string): Promise<{ id: string; title: string; type: string }[]> {
     const res = await this.get(`${this.route('events')}?workspaceId=${workspaceId}`)
-    return (res.events ?? []) as { id: string; title: string; type: string }[]
+    return this.requireArray<{ id: string; title: string; type: string }>(res, 'events')
   }
 
   async getApprovals(
     workspaceId: string,
   ): Promise<{ id: string; title: string; status: string; type: string }[]> {
     const res = await this.get(`${this.route('approvals')}?workspaceId=${workspaceId}`)
-    return (res.actions ?? []) as { id: string; title: string; status: string; type: string }[]
+    return this.requireArray<{ id: string; title: string; status: string; type: string }>(
+      res,
+      'actions',
+    )
   }
 
   async getVaultTree(workspaceId: string): Promise<string[]> {
@@ -146,7 +207,7 @@ export class ProductClient {
         if (node.children) extract(node.children)
       }
     }
-    extract((res.tree ?? []) as unknown[])
+    extract(this.requireArray<unknown>(res, 'tree'))
     return paths
   }
 
@@ -162,43 +223,22 @@ export class ProductClient {
     workspaceId: string,
   ): Promise<{ id: string; type: string; prompt: string }[]> {
     const res = await this.get(`${this.route('generations')}?workspaceId=${workspaceId}`)
-    return (res.generations ?? []) as { id: string; type: string; prompt: string }[]
+    return this.requireArray<{ id: string; type: string; prompt: string }>(res, 'generations')
   }
 
   /** Generic GET for custom routes */
   async get(path: string): Promise<Record<string, unknown>> {
-    const res = await fetch(`${this.baseUrl}${path}`, {
-      headers: { Cookie: this.cookies },
-    })
-    return res.json() as Promise<Record<string, unknown>>
+    return this.request('GET', path)
   }
 
   /** Generic POST for custom routes */
   async post(path: string, body: Record<string, unknown>): Promise<Record<string, unknown>> {
-    const res = await fetch(`${this.baseUrl}${path}`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Origin: this.baseUrl,
-        Cookie: this.cookies,
-      },
-      body: JSON.stringify(body),
-    })
-    return res.json() as Promise<Record<string, unknown>>
+    return this.request('POST', path, body)
   }
 
   /** Generic PATCH for custom routes */
   async patch(path: string, body: Record<string, unknown>): Promise<Record<string, unknown>> {
-    const res = await fetch(`${this.baseUrl}${path}`, {
-      method: 'PATCH',
-      headers: {
-        'Content-Type': 'application/json',
-        Origin: this.baseUrl,
-        Cookie: this.cookies,
-      },
-      body: JSON.stringify(body),
-    })
-    return res.json() as Promise<Record<string, unknown>>
+    return this.request('PATCH', path, body)
   }
 }
 

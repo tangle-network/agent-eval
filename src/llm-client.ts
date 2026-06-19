@@ -79,6 +79,19 @@ export interface LlmCallResult {
   model: string
   /** Wall-clock duration of the HTTP call (last attempt, if retried). */
   durationMs: number
+  /**
+   * `finish_reason` echoed from the first choice (`stop`, `length`,
+   * `content_filter`, `tool_calls`, ...). `null` when the provider omits it.
+   * Free-form callers inspect this to fail loud on truncation (`length`)
+   * instead of treating a cut-off answer as complete.
+   */
+  finishReason?: string | null
+  /**
+   * True when `content.trim()` is empty. An empty completion is a silent
+   * zero for free-form `callLlm` callers — this flag lets them fail loud
+   * rather than proceed on an empty string.
+   */
+  contentEmpty?: boolean
   /** Raw response body. */
   raw: Record<string, unknown>
 }
@@ -104,6 +117,21 @@ export interface LlmClientOptions {
   authHeader?: { name: string; value: string }
   /** Default timeout in ms. Per-call can override. */
   defaultTimeoutMs?: number
+  /**
+   * Caller-supplied abort signal — e.g. a campaign-wide cancel. Linked to
+   * each attempt's per-attempt timeout controller, so aborting it cancels
+   * the in-flight fetch. A caller abort is FATAL: it is not retried even
+   * though an AbortError otherwise matches the transient patterns.
+   */
+  signal?: AbortSignal
+  /**
+   * Cross-attempt wall-clock budget in ms, measured from the first attempt.
+   * Before launching each attempt the loop checks the remaining budget and
+   * stops retrying once it is exhausted, rather than waiting the full
+   * per-attempt timeout on every retry. Bounds total time independent of
+   * `maxRetries` × `timeoutMs`.
+   */
+  deadlineMs?: number
   /** Max retry attempts on retriable errors. Default 3 (1 initial + 2 retries). */
   maxRetries?: number
   /** Fetch implementation — defaults to global `fetch`. Override for custom transport (e.g. tests). */
@@ -271,6 +299,31 @@ async function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms))
 }
 
+/**
+ * Combine the per-attempt timeout signal with an optional caller signal into
+ * one signal the fetch listens on. Prefers the native `AbortSignal.any`; falls
+ * back to manual wiring on runtimes that predate it. The caller signal is also
+ * propagated to the timeout controller so aborting it cancels the in-flight
+ * fetch immediately.
+ */
+function linkSignals(timeoutController: AbortController, caller?: AbortSignal): AbortSignal {
+  if (!caller) return timeoutController.signal
+  if (typeof (AbortSignal as { any?: unknown }).any === 'function') {
+    return AbortSignal.any([timeoutController.signal, caller])
+  }
+  if (caller.aborted) {
+    timeoutController.abort()
+  } else {
+    caller.addEventListener('abort', () => timeoutController.abort(), { once: true })
+  }
+  return timeoutController.signal
+}
+
+/** True once the cross-attempt wall-clock budget (if any) is exhausted. */
+function deadlineExceeded(start: number, deadlineMs: number | undefined): boolean {
+  return deadlineMs != null && Date.now() - start >= deadlineMs
+}
+
 // ─── Public API ─────────────────────────────────────────────────────────
 
 /**
@@ -366,10 +419,24 @@ export async function callLlm(
   const sink = opts.rawSink
   const redactor = opts.redactor ?? defaultProviderRedactor
   const traceContext = opts.traceContext
+  const callerSignal = opts.signal
+  const deadlineMs = opts.deadlineMs
+  const deadlineStart = Date.now()
 
   let lastErr: unknown
   for (let attempt = 0; attempt < maxRetries; attempt++) {
+    // A caller cancel is fatal — never retried. Checking before each attempt
+    // means an already-aborted signal short-circuits without firing fetch.
+    if (callerSignal?.aborted) {
+      throw new DOMException('callLlm aborted by caller signal', 'AbortError')
+    }
+    // Stop retrying once the cross-attempt budget is spent rather than burning
+    // a full per-attempt timeout on each remaining retry.
+    if (attempt > 0 && deadlineExceeded(deadlineStart, deadlineMs)) {
+      throw lastErr instanceof Error ? lastErr : new Error(String(lastErr))
+    }
     const controller = new AbortController()
+    const attemptSignal = linkSignals(controller, callerSignal)
     const timeoutHandle = setTimeout(() => controller.abort(), timeoutMs)
     const started = Date.now()
     const requestBody = buildBody(req, false)
@@ -397,7 +464,7 @@ export async function callLlm(
         method: 'POST',
         headers,
         body: JSON.stringify(requestBody),
-        signal: controller.signal,
+        signal: attemptSignal,
       })
       clearTimeout(timeoutHandle)
       const responseHeaders = sink ? headersToObject(res.headers) : undefined
@@ -431,7 +498,11 @@ export async function callLlm(
           body,
           req.model,
         )
-        if (RETRYABLE_STATUS.has(res.status) && attempt < maxRetries - 1) {
+        if (
+          RETRYABLE_STATUS.has(res.status) &&
+          attempt < maxRetries - 1 &&
+          !deadlineExceeded(deadlineStart, deadlineMs)
+        ) {
           lastErr = err
           const retryAfter = parseRetryAfter(res.headers)
           await sleep(retryAfter ?? backoffMs(attempt))
@@ -487,12 +558,19 @@ export async function callLlm(
           redactedFields: [],
         })
       }
-      const choice = (json.choices as Array<{ message?: { content?: string } }> | undefined)?.[0]
+      const choice = (
+        json.choices as
+          | Array<{ message?: { content?: string }; finish_reason?: string | null }>
+          | undefined
+      )?.[0]
       const usageRaw = (json.usage as Record<string, unknown> | undefined) ?? {}
       const costFromProxy = (json._response_cost ?? json.cost_usd) as number | undefined
+      const content = choice?.message?.content ?? ''
 
       return {
-        content: choice?.message?.content ?? '',
+        content,
+        finishReason: choice?.finish_reason ?? null,
+        contentEmpty: content.trim().length === 0,
         usage: {
           promptTokens: Number(usageRaw.prompt_tokens ?? 0),
           completionTokens: Number(usageRaw.completion_tokens ?? 0),
@@ -512,6 +590,29 @@ export async function callLlm(
     } catch (err) {
       clearTimeout(timeoutHandle)
       lastErr = err
+      // A caller cancel is fatal even though an AbortError matches the
+      // transient patterns — a cancelled call must surface immediately, not
+      // be retried against the same dead intent.
+      if (callerSignal?.aborted) {
+        if (sink && !attemptErrorRecorded) {
+          await recordRaw(sink, redactor, {
+            eventId: cryptoEventId(),
+            runId: traceContext?.runId,
+            spanId: traceContext?.spanId,
+            provider,
+            model: req.model,
+            endpoint,
+            baseUrl,
+            attemptIndex: attempt,
+            direction: 'error',
+            timestamp: Date.now(),
+            durationMs: Date.now() - started,
+            errorMessage: err instanceof Error ? err.message : String(err),
+            redactedFields: [],
+          })
+        }
+        throw err
+      }
       if (sink && !attemptErrorRecorded) {
         // Record only if neither the !res.ok branch nor the JSON.parse catch
         // already produced an error event for this attempt. Covers network
@@ -532,7 +633,11 @@ export async function callLlm(
           redactedFields: [],
         })
       }
-      if (attempt < maxRetries - 1 && isTransientLlmError(err)) {
+      if (
+        attempt < maxRetries - 1 &&
+        isTransientLlmError(err) &&
+        !deadlineExceeded(deadlineStart, deadlineMs)
+      ) {
         await sleep(backoffMs(attempt))
         continue
       }
