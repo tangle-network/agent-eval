@@ -339,8 +339,11 @@ export type {
   CorpusAgreementPerDimension,
   CorpusAgreementReport,
   CorpusScoreRecord,
+  McNemarResult,
   PairedBootstrapOptions,
   PairedBootstrapResult,
+  ProportionInterval,
+  RiskDifferenceResult,
   WeightedCompositeInput,
   WeightedCompositeResult,
 } from './statistics'
@@ -356,15 +359,19 @@ export {
   interpretCliffs,
   interRaterReliability,
   mannWhitneyU,
+  mcnemar,
   normalizeScores,
   pairedBootstrap,
   pairedMde,
+  pairedRiskDifference,
   pairedTTest,
   partialCredit,
+  passAtK,
   requiredSampleSize,
   weightedComposite,
   weightedMean,
   wilcoxonSignedRank,
+  wilson,
 } from './statistics'
 // ── Trace analyst surface (Ax RLM over OTLP-JSONL) ───────────────────
 // Direct re-export of the trace-analyst submodule so consumers don't have

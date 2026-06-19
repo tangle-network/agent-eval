@@ -837,6 +837,205 @@ export function pairedBootstrap(
   }
 }
 
+// ── Binomial proportion + paired-binary + coding-eval estimators ─────
+//
+// The paired family above (pairedBootstrap/pairedTTest/wilcoxonSignedRank)
+// operates on continuous scores. Pass/fail A/B comparisons — "does treatment
+// X raise the success RATE vs control" — are binary and paired, so they need
+// their own correct estimators: McNemar for significance (only the discordant
+// pairs carry signal), the paired risk difference for effect size, Wilson for
+// a single-arm proportion CI, and pass@k for the standard k-sample coding-eval
+// metric. The normal approximation is wrong for proportions near 0/1 and for
+// the small discordant counts typical of eval runs, so these are exact /
+// Wilson-based, not Wald.
+
+/** A binomial proportion estimate with a confidence interval. */
+export interface ProportionInterval {
+  /** Point estimate successes / n (0 when n = 0). */
+  estimate: number
+  /** Lower bound, clamped to [0, 1]. */
+  lower: number
+  /** Upper bound, clamped to [0, 1]. */
+  upper: number
+}
+
+/**
+ * Wilson score interval for a binomial proportion. Correct at small n and near
+ * 0/1, where the normal (Wald) approximation produces bounds outside [0, 1] and
+ * understates coverage. Use this for any pass-rate / hit-rate / realness-rate
+ * CI — the continuous `confidenceInterval` assumes the wrong distribution for a
+ * proportion. `n = 0 ⇒ {0, 0, 0}`.
+ */
+export function wilson(successes: number, n: number, confidence = 0.95): ProportionInterval {
+  if (n <= 0) return { estimate: 0, lower: 0, upper: 0 }
+  if (successes < 0 || successes > n) {
+    throw new Error(`wilson: successes (${successes}) must be in [0, ${n}]`)
+  }
+  const z = zQuantile(1 - (1 - confidence) / 2)
+  const p = successes / n
+  const z2 = z * z
+  const denom = 1 + z2 / n
+  const center = (p + z2 / (2 * n)) / denom
+  const half = (z * Math.sqrt((p * (1 - p) + z2 / (4 * n)) / n)) / denom
+  return {
+    estimate: p,
+    lower: Math.max(0, center - half),
+    upper: Math.min(1, center + half),
+  }
+}
+
+/** Result of a McNemar paired-binary significance test. */
+export interface McNemarResult {
+  /** Total paired observations. */
+  n: number
+  /** Discordant pairs (b + c) — the only ones that carry signal. */
+  nDiscordant: number
+  /** Pairs where treatment succeeded and control failed ("newly correct"). */
+  b: number
+  /** Pairs where control succeeded and treatment failed ("newly wrong"). */
+  c: number
+  /** Continuity-corrected chi-square statistic (reference; exact p drives the call). */
+  statistic: number
+  /** Two-sided p-value. Exact (binomial sign test on discordant pairs). */
+  pValue: number
+}
+
+/**
+ * McNemar's test for paired binary outcomes — the correct significance test for
+ * "does treatment change the success rate vs control on the SAME items". Only
+ * discordant pairs (one arm right, the other wrong) carry information; concordant
+ * pairs are uninformative, so a paired t-test / two-proportion z-test on the raw
+ * rates is wrong here. The p-value is exact: under H0 the b "treatment-wins" are
+ * Binomial(b + c, 0.5), so the two-sided p is the doubled binomial tail — correct
+ * at the small discordant counts typical of eval runs (no continuity-corrected
+ * chi-square approximation needed, though it is returned as `statistic` for
+ * reference). Inputs are paired 0/1 (or boolean) arrays, control first to match
+ * the module's (before, after) convention. Throws on unequal lengths.
+ */
+export function mcnemar(
+  control: ArrayLike<number | boolean>,
+  treatment: ArrayLike<number | boolean>,
+): McNemarResult {
+  if (control.length !== treatment.length) {
+    throw new Error(`mcnemar: unequal sample sizes (${control.length} vs ${treatment.length})`)
+  }
+  const n = control.length
+  let b = 0 // treatment 1, control 0
+  let c = 0 // treatment 0, control 1
+  for (let i = 0; i < n; i++) {
+    const ctrl = control[i] ? 1 : 0
+    const treat = treatment[i] ? 1 : 0
+    if (treat === 1 && ctrl === 0) b++
+    else if (treat === 0 && ctrl === 1) c++
+  }
+  const nDiscordant = b + c
+  const statistic = nDiscordant === 0 ? 0 : (Math.abs(b - c) - 1) ** 2 / nDiscordant
+  return { n, nDiscordant, b, c, statistic, pValue: binomialSignTwoSided(b, c) }
+}
+
+/** A paired binary effect size (treatment rate − control rate) with a CI. */
+export interface RiskDifferenceResult {
+  /** Total paired observations. */
+  n: number
+  /** Discordant pairs: treatment-win count. */
+  b: number
+  /** Discordant pairs: control-win count. */
+  c: number
+  /** Paired risk difference p(treatment) − p(control) = (b − c) / n. */
+  riskDifference: number
+  /** Lower bound of the CI, clamped to [-1, 1]. */
+  lower: number
+  /** Upper bound of the CI, clamped to [-1, 1]. */
+  upper: number
+  /** Confidence level used. */
+  confidence: number
+}
+
+/**
+ * Paired risk difference (the effect-size companion to {@link mcnemar}): the
+ * change in success rate p(treatment) − p(control) on matched items, which for
+ * paired binary data equals (b − c) / n. The CI uses the paired variance from
+ * the discordant counts, not the independent-samples formula (which overstates
+ * the interval by ignoring the pairing). Inputs are paired 0/1 (or boolean)
+ * arrays, control first. Throws on unequal lengths.
+ */
+export function pairedRiskDifference(
+  control: ArrayLike<number | boolean>,
+  treatment: ArrayLike<number | boolean>,
+  confidence = 0.95,
+): RiskDifferenceResult {
+  if (control.length !== treatment.length) {
+    throw new Error(
+      `pairedRiskDifference: unequal sample sizes (${control.length} vs ${treatment.length})`,
+    )
+  }
+  const n = control.length
+  if (n === 0) return { n: 0, b: 0, c: 0, riskDifference: 0, lower: 0, upper: 0, confidence }
+  let b = 0
+  let c = 0
+  for (let i = 0; i < n; i++) {
+    const ctrl = control[i] ? 1 : 0
+    const treat = treatment[i] ? 1 : 0
+    if (treat === 1 && ctrl === 0) b++
+    else if (treat === 0 && ctrl === 1) c++
+  }
+  const rd = (b - c) / n
+  const variance = (b + c - (b - c) ** 2 / n) / (n * n)
+  const z = zQuantile(1 - (1 - confidence) / 2)
+  const half = z * Math.sqrt(Math.max(0, variance))
+  return {
+    n,
+    b,
+    c,
+    riskDifference: rd,
+    lower: Math.max(-1, rd - half),
+    upper: Math.min(1, rd + half),
+    confidence,
+  }
+}
+
+/**
+ * Unbiased pass@k for code generation (Chen et al. 2021, "Evaluating Large
+ * Language Models Trained on Code"). Given `n` independent samples for one
+ * problem of which `c` pass, the probability that at least one of a random k of
+ * them passes is 1 − C(n−c, k) / C(n, k). Estimating pass@k as "did any of the
+ * first k pass" is biased high at small n; this is the variance-reduced estimator
+ * averaged implicitly over all k-subsets. Average the per-problem values across
+ * the suite for the corpus pass@k. Computed in the numerically stable product
+ * form. Requires 1 ≤ k ≤ n and 0 ≤ c ≤ n.
+ */
+export function passAtK(n: number, c: number, k: number): number {
+  if (!Number.isInteger(n) || !Number.isInteger(c) || !Number.isInteger(k)) {
+    throw new Error(`passAtK: n, c, k must be integers (got n=${n}, c=${c}, k=${k})`)
+  }
+  if (k < 1 || k > n || c < 0 || c > n) {
+    throw new Error(`passAtK: require 1 ≤ k ≤ n and 0 ≤ c ≤ n (got n=${n}, c=${c}, k=${k})`)
+  }
+  if (n - c < k) return 1
+  let prob = 1
+  for (let i = n - c + 1; i <= n; i++) prob *= 1 - k / i
+  return 1 - prob
+}
+
+/**
+ * Two-sided exact p-value for b successes out of (b + c) Bernoulli(0.5) trials —
+ * the exact-binomial core of {@link mcnemar}. `min(1, 2·P(X ≤ min(b,c)))`. No
+ * discordant pairs ⇒ no evidence ⇒ p = 1. Summed in log space (lnGamma) so it
+ * stays exact at large discordant counts without overflow.
+ */
+function binomialSignTwoSided(b: number, c: number): number {
+  const nd = b + c
+  if (nd === 0) return 1
+  const k = Math.min(b, c)
+  const logHalfN = nd * Math.log(0.5)
+  let tail = 0
+  for (let i = 0; i <= k; i++) {
+    const logChoose = lnGamma(nd + 1) - lnGamma(i + 1) - lnGamma(nd - i + 1)
+    tail += Math.exp(logChoose + logHalfN)
+  }
+  return Math.min(1, 2 * tail)
+}
+
 // ── Anytime-valid e-process (betting test-martingale) ────────────────
 
 export interface EProcessOptions {
