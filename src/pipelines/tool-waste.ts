@@ -12,7 +12,7 @@
 
 import { computeToolUseMetrics } from '../tool-use-metrics'
 import { llmSpans, toolSpans } from '../trace/query'
-import type { ToolSpan } from '../trace/schema'
+import type { LlmSpan, ToolSpan } from '../trace/schema'
 import type { TraceStore } from '../trace/store'
 
 export interface ToolWasteFinding {
@@ -48,27 +48,34 @@ export async function toolWasteView(
       continue
     }
     const llms = await llmSpans(store, runId)
+    // Sort LLM spans once by start time, then build a suffix index of the
+    // concatenated message text. `suffixText[i]` is the haystack of every
+    // string message content in spans[i..]. Per tool we binary-search the
+    // first span started strictly after the tool, then test that one suffix
+    // — turning the per-tool O(llms × messages × content) scan into a single
+    // O(log llms) lookup over precomputed text.
+    const sortedLlm = [...llms].sort((a, b) => a.startedAt - b.startedAt)
+    const startTimes = sortedLlm.map((l) => l.startedAt)
+    const suffixText = buildSuffixText(sortedLlm)
     let wasted = 0
     for (const t of tools) {
       if (t.status === 'error') {
         wasted++
         continue
       }
-      const laterLlm = llms.filter((l) => l.startedAt > t.startedAt)
+      // First LLM span started strictly after this tool (upper-bound search).
+      const cutoff = upperBound(startTimes, t.startedAt)
       if (options.usageOracle) {
-        if (!options.usageOracle(t, { llm: laterLlm })) wasted++
+        if (!options.usageOracle(t, { llm: sortedLlm.slice(cutoff) })) wasted++
       } else {
         // Default heuristic: a tool whose result is NOT mentioned in any
-        // later LLM input message is likely wasted.
+        // later LLM input message is likely wasted. An empty/null result has
+        // no payload to propagate downstream — there is nothing to find in a
+        // later message, so it is not evidence of waste; skip it.
         const resultStr = stringify(t.result)
-        const used = laterLlm.some((l) =>
-          l.messages.some(
-            (m) =>
-              typeof m.content === 'string' &&
-              resultStr &&
-              m.content.includes(resultStr.slice(0, 120)),
-          ),
-        )
+        if (resultStr === '') continue
+        const haystack = suffixText[cutoff] ?? ''
+        const used = haystack.includes(resultStr.slice(0, 120))
         if (!used) wasted++
       }
     }
@@ -78,6 +85,35 @@ export async function toolWasteView(
     totalWasted += wasted
   }
   return { byRun, overallWasteRate: totalCalls > 0 ? totalWasted / totalCalls : 0 }
+}
+
+/**
+ * Build per-position suffix haystacks: result[i] is the concatenation of every
+ * string message content in spans[i..end]. Built back-to-front so each entry
+ * reuses the next one — O(total message text) rather than O(spans²).
+ */
+function buildSuffixText(spans: LlmSpan[]): string[] {
+  const result = new Array<string>(spans.length + 1)
+  result[spans.length] = ''
+  for (let i = spans.length - 1; i >= 0; i--) {
+    const own = spans[i]!.messages.map((m) =>
+      typeof m.content === 'string' ? m.content : '',
+    ).join('\n')
+    result[i] = `${own}\n${result[i + 1]}`
+  }
+  return result
+}
+
+/** Index of the first element strictly greater than `target` in a sorted array. */
+function upperBound(sorted: number[], target: number): number {
+  let lo = 0
+  let hi = sorted.length
+  while (lo < hi) {
+    const mid = (lo + hi) >>> 1
+    if (sorted[mid]! <= target) lo = mid + 1
+    else hi = mid
+  }
+  return lo
 }
 
 function stringify(v: unknown): string {

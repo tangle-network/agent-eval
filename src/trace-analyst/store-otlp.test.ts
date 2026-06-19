@@ -11,7 +11,12 @@ import { join } from 'node:path'
 
 import { describe, expect, it } from 'vitest'
 import { compileSearchRegex } from './store'
-import { OtlpFileTraceStore, TraceFileMissingError, TraceNotFoundError } from './store-otlp'
+import {
+  OtlpFileTraceStore,
+  TraceFileMissingError,
+  TraceFileTooLargeError,
+  TraceNotFoundError,
+} from './store-otlp'
 
 const TINY_FIXTURE = new URL('../../tests/fixtures/trace-analyst/tiny-trace.jsonl', import.meta.url)
   .pathname
@@ -177,7 +182,9 @@ describe('OtlpFileTraceStore', () => {
       max_matches: 2,
     })
     expect(result.hits.length).toBe(2)
-    expect(result.total_matches).toBeGreaterThan(result.hits.length)
+    // Capped: total_matches mirrors the hit count (no fabricated +1); the
+    // "more exist" signal lives in has_more, not in an invented total.
+    expect(result.total_matches).toBe(result.hits.length)
     expect(result.has_more).toBe(true)
   })
 
@@ -195,7 +202,8 @@ describe('OtlpFileTraceStore', () => {
     })
     expect(result.hits).toHaveLength(3)
     expect(result.has_more).toBe(true)
-    expect(result.total_matches).toBeGreaterThan(3)
+    // Capped: no fabricated total — mirrors hits, has_more carries the signal.
+    expect(result.total_matches).toBe(3)
   })
 
   it('searchSpan returns hits scoped to one span only', async () => {
@@ -308,5 +316,184 @@ describe('OtlpFileTraceStore — error_clusters (deterministic failure coverage)
     const store = new OtlpFileTraceStore({ path: TINY_FIXTURE })
     const overview = await store.getOverview()
     expect(Array.isArray(overview.error_clusters)).toBe(true)
+  })
+})
+
+describe('OtlpFileTraceStore — concurrent reads (per-call truncation counter)', () => {
+  // Each span carries a single oversized string attribute so a tiny
+  // per-attribute budget forces exactly ONE truncation per projected span.
+  const bigSpan = (trace: string, span: string) =>
+    JSON.stringify({
+      trace_id: trace,
+      span_id: span,
+      parent_span_id: '',
+      name: 'op',
+      kind: 'SPAN_KIND_INTERNAL',
+      start_time: '2026-05-29T00:00:00Z',
+      end_time: '2026-05-29T00:00:01Z',
+      status: { code: 'STATUS_CODE_OK' },
+      resource: {},
+      attributes: { 'openinference.span.kind': 'TOOL', 'input.value': 'Z'.repeat(5000) },
+    })
+
+  it('reports each call its own truncation count under interleaved reads — bug class: store-keyed delta cross-contaminates concurrent calls', async () => {
+    const tmp = await mkdtemp(join(tmpdir(), 'trace-concurrency-'))
+    const path = join(tmp, 'trace.jsonl')
+    try {
+      // Trace A: 1 span (→ 1 truncation). Trace B: 3 spans (→ 3 truncations).
+      const lines = [
+        bigSpan('tA', 'a1'),
+        bigSpan('tB', 'b1'),
+        bigSpan('tB', 'b2'),
+        bigSpan('tB', 'b3'),
+      ]
+      await writeFile(path, `${lines.join('\n')}\n`)
+      const store = new OtlpFileTraceStore({ path, perAttributeSpanBudget: 100 })
+
+      // Fire both reads on the SAME store concurrently. With the old
+      // before/after delta on a store-keyed WeakMap the awaits interleave
+      // and each call absorbs the other's increments.
+      const [a, b] = await Promise.all([
+        store.viewSpans({ trace_id: 'tA', span_ids: ['a1'] }),
+        store.viewSpans({ trace_id: 'tB', span_ids: ['b1', 'b2', 'b3'] }),
+      ])
+      expect(a.truncated_attribute_count).toBe(1)
+      expect(b.truncated_attribute_count).toBe(3)
+
+      // Repeated interleavings stay stable — no accumulation, no bleed.
+      for (let i = 0; i < 5; i += 1) {
+        const [x, y] = await Promise.all([
+          store.viewSpans({ trace_id: 'tA', span_ids: ['a1'] }),
+          store.viewSpans({ trace_id: 'tB', span_ids: ['b1', 'b2', 'b3'] }),
+        ])
+        expect(x.truncated_attribute_count).toBe(1)
+        expect(y.truncated_attribute_count).toBe(3)
+      }
+    } finally {
+      await rm(tmp, { recursive: true, force: true })
+    }
+  })
+})
+
+describe('OtlpFileTraceStore — searchTrace total_matches honesty', () => {
+  it('reports the EXACT total when uncapped — total equals hit count, has_more is false', async () => {
+    const store = new OtlpFileTraceStore({ path: TINY_FIXTURE })
+    // 'STATUS_CODE_ERROR' occurs once in t000000000001; uncapped scan.
+    const r = await store.searchTrace({
+      trace_id: 't000000000001',
+      regex_pattern: 'STATUS_CODE_ERROR',
+      max_matches: 50,
+    })
+    expect(r.total_matches).toBe(r.hits.length)
+    expect(r.total_matches).toBe(1)
+    expect(r.has_more).toBe(false)
+  })
+
+  it('does NOT fabricate total_matches when capped — bug class: total = max(total, hits+1) invents a number', async () => {
+    const store = new OtlpFileTraceStore({ path: TINY_FIXTURE })
+    // 'span_id' appears in every span line — easily exceeds the cap.
+    const r = await store.searchTrace({
+      trace_id: 't000000000001',
+      regex_pattern: 'span_id',
+      max_matches: 2,
+    })
+    expect(r.hits.length).toBe(2)
+    // Old behavior: total_matches = hits.length + 1 = 3 (a fabricated
+    // count). New behavior: mirror the hit count and lean on has_more.
+    expect(r.total_matches).toBe(2)
+    expect(r.has_more).toBe(true)
+  })
+})
+
+describe('OtlpFileTraceStore — bestAttributePathForOffset escaped quotes', () => {
+  it('resolves the real attribute_path past a \\"-escaped quote inside the value — bug class: backward scan stops at an escaped quote and returns garbage', async () => {
+    const tmp = await mkdtemp(join(tmpdir(), 'trace-escq-'))
+    const path = join(tmp, 'trace.jsonl')
+    try {
+      // output.value is itself a JSON string: its escaped inner quotes
+      // AND inner ':' derail a non-escape-aware backward scan, making it
+      // report the inner "phase" key instead of the real attribute.
+      await writeFile(
+        path,
+        `${JSON.stringify({
+          trace_id: 'tq',
+          span_id: 's1',
+          parent_span_id: '',
+          name: 'op',
+          kind: 'SPAN_KIND_INTERNAL',
+          start_time: '2026-05-29T00:00:00Z',
+          end_time: '2026-05-29T00:00:01Z',
+          status: { code: 'STATUS_CODE_OK' },
+          resource: {},
+          attributes: {
+            'openinference.span.kind': 'TOOL',
+            'output.value': '{"phase":"NEEDLE"}',
+          },
+        })}\n`,
+      )
+      const store = new OtlpFileTraceStore({ path })
+      const r = await store.searchSpan({
+        trace_id: 'tq',
+        span_id: 's1',
+        regex_pattern: 'NEEDLE',
+      })
+      expect(r.hits.length).toBe(1)
+      expect(r.hits[0]!.matched_text).toBe('NEEDLE')
+      // The match lives inside output.value; the path must name that key,
+      // not a fragment of the value or a different field.
+      expect(r.hits[0]!.attribute_path).toBe('output.value')
+    } finally {
+      await rm(tmp, { recursive: true, force: true })
+    }
+  })
+})
+
+describe('OtlpFileTraceStore — max-file-size guard (fail loud, no OOM)', () => {
+  it('throws TraceFileTooLargeError above maxFileBytes instead of reading the whole file', async () => {
+    const tmp = await mkdtemp(join(tmpdir(), 'trace-toobig-'))
+    const path = join(tmp, 'trace.jsonl')
+    try {
+      const line = JSON.stringify({
+        trace_id: 't',
+        span_id: 's',
+        parent_span_id: '',
+        name: 'op',
+        start_time: '2026-05-29T00:00:00Z',
+        end_time: '2026-05-29T00:00:01Z',
+        status: { code: 'STATUS_CODE_OK' },
+        resource: {},
+        attributes: { 'openinference.span.kind': 'TOOL' },
+      })
+      await writeFile(path, `${line}\n`)
+      // File is a few hundred bytes; set the ceiling below it.
+      const store = new OtlpFileTraceStore({ path, maxFileBytes: 10 })
+      await expect(store.ensureIndexed()).rejects.toBeInstanceOf(TraceFileTooLargeError)
+    } finally {
+      await rm(tmp, { recursive: true, force: true })
+    }
+  })
+
+  it('indexes normally when the file is within the configured ceiling', async () => {
+    const tmp = await mkdtemp(join(tmpdir(), 'trace-okbig-'))
+    const path = join(tmp, 'trace.jsonl')
+    try {
+      const line = JSON.stringify({
+        trace_id: 't',
+        span_id: 's',
+        parent_span_id: '',
+        name: 'op',
+        start_time: '2026-05-29T00:00:00Z',
+        end_time: '2026-05-29T00:00:01Z',
+        status: { code: 'STATUS_CODE_OK' },
+        resource: {},
+        attributes: { 'openinference.span.kind': 'TOOL' },
+      })
+      await writeFile(path, `${line}\n`)
+      const store = new OtlpFileTraceStore({ path, maxFileBytes: 1024 * 1024 })
+      const overview = await store.getOverview()
+      expect(overview.total_traces).toBe(1)
+    } finally {
+      await rm(tmp, { recursive: true, force: true })
+    }
   })
 })

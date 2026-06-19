@@ -105,16 +105,21 @@ export function computeTraceMetrics(spans: readonly TraceAnalystSpan[]): Behavio
   if (inputTokenTrajectory.length >= 3) {
     const first = inputTokenTrajectory[0]!
     const last = inputTokenTrajectory[inputTokenTrajectory.length - 1]!
-    const growth = first > 0 ? last / first : 0
+    // first === 0 with later growth is an unbounded ratio (0→huge context blowup);
+    // treat it as infinite so the signal fires, and report it as such instead of
+    // dividing by zero for the displayed factor.
+    const growthFromZero = first === 0 && last > 0
+    const growth = growthFromZero ? Infinity : first > 0 ? last / first : 0
     if (last > first && growth >= INPUT_GROWTH_FACTOR) {
+      const growthLabel = growthFromZero ? '0→nonzero (unbounded)' : `${growth.toFixed(1)}x`
       signals.push({
         code: 'monotonic-input-growth',
         severity: 'high',
-        detail: `LLM input tokens grew ${growth.toFixed(1)}x (${first}→${last}) across ${inputTokenTrajectory.length} calls — full history re-sent each step with no compression.`,
+        detail: `LLM input tokens grew ${growthLabel} (${first}→${last}) across ${inputTokenTrajectory.length} calls — full history re-sent each step with no compression.`,
         evidence: {
           first,
           last,
-          growth_x: Number(growth.toFixed(2)),
+          growth_x: growthFromZero ? 'unbounded' : Number(growth.toFixed(2)),
           calls: inputTokenTrajectory.length,
         },
       })
