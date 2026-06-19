@@ -186,7 +186,12 @@ export class FileSystemTraceStore implements TraceStore {
   private maxBytes: number
   /** Lazy in-memory index for queries — populated on first read. */
   private index?: InMemoryTraceStore
-  private loaded = false
+  /** Memoized index build — concurrent first reads share one build, and an
+   *  append racing an in-flight load awaits this so its row isn't lost. */
+  private indexPromise?: Promise<InMemoryTraceStore>
+  /** Strictly-increasing rollover stamp. Date.now() alone collides when two
+   *  rollovers land in the same millisecond, overwriting a rolled file. */
+  private lastRolloverStamp = 0
   /**
    * Per-file append serialization. stat → conditional-rename → appendFile is a
    * read-modify-write on the active file; without a lock two concurrent appends
@@ -207,6 +212,10 @@ export class FileSystemTraceStore implements TraceStore {
   }
 
   private async append(name: string, record: unknown): Promise<void> {
+    // If an index load is in flight, wait for it. The row must hit disk AFTER
+    // the load finished reading, so it lands in the completed index via the
+    // mirror below — never lost in the gap before `this.index` is assigned.
+    if (this.indexPromise) await this.indexPromise
     // Chain this append behind any in-flight append for the same file. The tail
     // promise never rejects (errors are isolated to each caller's `result`), so
     // one failed append can't break the lock chain for the next one.
@@ -234,7 +243,11 @@ export class FileSystemTraceStore implements TraceStore {
     try {
       const stat = await fs.stat(active)
       if (stat.size >= this.maxBytes) {
-        const rolled = path.join(this.dir, `${name}.${Date.now()}.ndjson`)
+        // Strictly-increasing, collision-free even within one millisecond — a
+        // bare Date.now() would let two same-ms rollovers overwrite each other.
+        const stamp = Math.max(Date.now(), this.lastRolloverStamp + 1)
+        this.lastRolloverStamp = stamp
+        const rolled = path.join(this.dir, `${name}.${stamp}.ndjson`)
         await fs.rename(active, rolled)
       }
     } catch {
@@ -273,8 +286,14 @@ export class FileSystemTraceStore implements TraceStore {
     }
   }
 
-  private async load(): Promise<InMemoryTraceStore> {
-    if (this.loaded && this.index) return this.index
+  private load(): Promise<InMemoryTraceStore> {
+    // Memoize: concurrent first reads share one build, and an append racing an
+    // in-flight load awaits this same promise (see append()).
+    this.indexPromise ??= this.buildIndex()
+    return this.indexPromise
+  }
+
+  private async buildIndex(): Promise<InMemoryTraceStore> {
     const fs = await import('node:fs/promises')
     const path = await import('node:path')
     const store = new InMemoryTraceStore()
@@ -285,7 +304,6 @@ export class FileSystemTraceStore implements TraceStore {
       // No dir yet (first run / empty corpus). Anything past this point — parse
       // errors, missing patch bases — is real corruption and must fail loud.
       this.index = store
-      this.loaded = true
       return store
     }
     // Replay files in write order. For one entity, rolled files
@@ -324,9 +342,22 @@ export class FileSystemTraceStore implements TraceStore {
         const full = path.join(this.dir, file)
         const content = await fs.readFile(full, 'utf8')
         const base = file.split('.')[0]
-        for (const line of content.split('\n')) {
+        const lines = content.split('\n')
+        for (let ln = 0; ln < lines.length; ln++) {
+          const line = lines[ln]!
           if (!line.trim()) continue
-          const record = JSON.parse(line)
+          let record: ReturnType<typeof JSON.parse>
+          try {
+            record = JSON.parse(line)
+          } catch (err) {
+            // Fail loud WITH context — a bare SyntaxError loses which file/line
+            // is corrupt and which valid rows surround it.
+            throw new Error(
+              `FileSystemTraceStore: corrupt NDJSON in ${file} line ${ln + 1}: ${
+                err instanceof Error ? err.message : String(err)
+              } — ${line.slice(0, 120)}`,
+            )
+          }
           if (base === 'runs') {
             if (record?._update) {
               runUpdates.push(record)
@@ -373,7 +404,6 @@ export class FileSystemTraceStore implements TraceStore {
       }
     }
     this.index = store
-    this.loaded = true
     return store
   }
 
