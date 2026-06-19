@@ -1,3 +1,4 @@
+import { cpus } from 'node:os'
 import {
   type HarnessConfig,
   type SandboxDriver,
@@ -28,6 +29,12 @@ export interface SandboxJudgeResult {
 export interface JudgeFleetOptions {
   driver?: SandboxDriver
   parallel?: boolean
+  /**
+   * Max concurrent judge subprocesses. Each spec spawns its own subprocess
+   * via the driver, so unbounded fan-out exhausts file descriptors / PIDs.
+   * Defaults to the host CPU count. Ignored when `parallel === false`.
+   */
+  concurrency?: number
 }
 
 export class JudgeRunner {
@@ -69,7 +76,18 @@ export async function runJudgeFleet(
     for (const spec of specs) results.push(await runner.run(spec))
     return results
   }
-  return await Promise.all(specs.map((spec) => runner.run(spec)))
+  const concurrency = Math.max(1, options.concurrency ?? cpus().length)
+  const results: SandboxJudgeResult[] = new Array(specs.length)
+  let cursor = 0
+  async function worker(): Promise<void> {
+    while (true) {
+      const i = cursor++
+      if (i >= specs.length) return
+      results[i] = await runner.run(specs[i]!)
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(concurrency, specs.length) }, () => worker()))
+  return results
 }
 
 export function compilerJudge(id: string, config: HarnessConfig): SandboxJudgeSpec {
