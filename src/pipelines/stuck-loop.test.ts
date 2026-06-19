@@ -1,6 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import type { Run } from '../trace/schema'
-import type { ToolSpan } from '../trace/schema'
+import type { Run, ToolSpan } from '../trace/schema'
 import { InMemoryTraceStore } from '../trace/store'
 import { stuckLoopView } from './stuck-loop'
 

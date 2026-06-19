@@ -41,7 +41,12 @@ describe('OtlpFileTraceStore timestamp handling', () => {
     // epoch-ms 1000 (1970) is earlier than the ISO 2024 timestamp; lexical
     // string compare would order them backwards.
     const path = writeOtlp('mixed.jsonl', [
-      { trace_id: 't2', span_id: 'a', start_time: '2024-01-01T00:00:00.000Z', end_time: '2024-01-01T00:00:01.000Z' },
+      {
+        trace_id: 't2',
+        span_id: 'a',
+        start_time: '2024-01-01T00:00:00.000Z',
+        end_time: '2024-01-01T00:00:01.000Z',
+      },
       { trace_id: 't2', span_id: 'b', start_time: '1000', end_time: '2000' },
     ])
     const store = new OtlpFileTraceStore({ path })
@@ -52,7 +57,12 @@ describe('OtlpFileTraceStore timestamp handling', () => {
 
   it('computes a correct positive duration for a normal ISO trace', async () => {
     const path = writeOtlp('normal.jsonl', [
-      { trace_id: 't3', span_id: 'a', start_time: '2024-01-01T00:00:00.000Z', end_time: '2024-01-01T00:00:05.000Z' },
+      {
+        trace_id: 't3',
+        span_id: 'a',
+        start_time: '2024-01-01T00:00:00.000Z',
+        end_time: '2024-01-01T00:00:05.000Z',
+      },
     ])
     const store = new OtlpFileTraceStore({ path })
     const page = await store.queryTraces({ limit: 10 })

@@ -199,7 +199,9 @@ export class AnalystRegistry {
     // Budget is split only across analysts that actually run. Analysts skipped
     // for missing input never spend, so counting them would under-budget the
     // ones that do. routeInput is pure, so the pre-count is safe.
-    const runnableCount = selected.filter((a) => this.routeInput(a, inputs).kind !== 'missing').length
+    const runnableCount = selected.filter(
+      (a) => this.routeInput(a, inputs).kind !== 'missing',
+    ).length
 
     for (const analyst of selected) {
       const t0 = Date.now()
