@@ -360,6 +360,8 @@ export {
   interRaterReliability,
   mannWhitneyU,
   mcnemar,
+  mcnemarPower,
+  mcnemarRequiredN,
   normalizeScores,
   pairedBootstrap,
   pairedMde,
