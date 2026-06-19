@@ -196,6 +196,11 @@ export class AnalystRegistry {
     let totalCost = 0
     let remainingUsd = budget?.totalUsd
 
+    // Budget is split only across analysts that actually run. Analysts skipped
+    // for missing input never spend, so counting them would under-budget the
+    // ones that do. routeInput is pure, so the pre-count is safe.
+    const runnableCount = selected.filter((a) => this.routeInput(a, inputs).kind !== 'missing').length
+
     for (const analyst of selected) {
       const t0 = Date.now()
       const input = this.routeInput(analyst, inputs)
@@ -218,7 +223,7 @@ export class AnalystRegistry {
       const perBudget = allocateBudget(budget, {
         analyst,
         remainingUsd,
-        runningCount: selected.length,
+        runningCount: runnableCount,
       })
 
       const ctx: AnalystContext = {

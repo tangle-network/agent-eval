@@ -55,12 +55,20 @@ export function argHash(args: unknown): string {
 }
 
 function stableStringify(value: unknown): string {
-  if (value === null || typeof value !== 'object') return JSON.stringify(value)
+  // Must ALWAYS return a string: JSON.stringify(undefined) — and stringify of
+  // functions/symbols — yields the JS value `undefined`, which would make
+  // argHash return a non-string and silently break the de-dup keys behind
+  // stuck-loop and failure-cluster.
+  if (value === undefined) return 'undefined'
+  if (value === null || typeof value !== 'object') return JSON.stringify(value) ?? 'undefined'
   if (Array.isArray(value)) return `[${value.map(stableStringify).join(',')}]`
-  const keys = Object.keys(value as Record<string, unknown>).sort()
-  const parts = keys.map(
-    (k) => `${JSON.stringify(k)}:${stableStringify((value as Record<string, unknown>)[k])}`,
-  )
+  // Drop undefined-valued keys to match JSON.stringify semantics, so
+  // `{a:1}` and `{a:1,b:undefined}` hash identically.
+  const obj = value as Record<string, unknown>
+  const keys = Object.keys(obj)
+    .filter((k) => obj[k] !== undefined)
+    .sort()
+  const parts = keys.map((k) => `${JSON.stringify(k)}:${stableStringify(obj[k])}`)
   return `{${parts.join(',')}}`
 }
 
