@@ -199,4 +199,26 @@ describe('FileSystemTraceStore', () => {
     expect(runs[0]!.status).toBe('completed')
     expect(runs[0]!.scenarioId).toBe('scn')
   })
+
+  it('applies patches in write order across rolled files (newest wins), not readdir order', async () => {
+    // r1 was running, completed (both in the older rolled file), then failed
+    // (in the newer file). Replaying in readdir order with the newer file first
+    // lets the OLDER 'completed' patch win and silently restore a stale status;
+    // the chronological file sort makes 'failed' (the newest write) win.
+    writeFileSync(
+      join(dir, 'runs.900.ndjson'),
+      `${JSON.stringify(run('r1', { status: 'running' }))}\n${JSON.stringify({ runId: 'r1', status: 'completed', _update: true })}\n`,
+    )
+    writeFileSync(
+      join(dir, 'runs.1000.ndjson'),
+      `${JSON.stringify({ runId: 'r1', status: 'failed', _update: true })}\n`,
+    )
+    // Adversarial: newer rolled file returned first by readdir.
+    readdirOrder = () => ['runs.1000.ndjson', 'runs.900.ndjson']
+
+    const store = new FileSystemTraceStore({ dir })
+    const runs = await store.listRuns()
+    expect(runs).toHaveLength(1)
+    expect(runs[0]!.status).toBe('failed')
+  })
 })

@@ -157,4 +157,40 @@ describe('createSandboxPool reset-failure handling', () => {
       warn.mockRestore()
     }
   })
+
+  it('does not over-mint under concurrent first checkouts (capacity reservation)', async () => {
+    let created = 0
+    const factory: SlotFactory<string> = {
+      async create(slotId) {
+        created++
+        await Promise.resolve()
+        return `res-${slotId}`
+      },
+      async reset() {},
+      async destroy() {},
+    }
+    const pool = createSandboxPool({ size: 1, factory })
+
+    // Two checkouts race before the first slot is push()ed. The mint gate reads
+    // slots.length, still 0 for both — without a reservation counter both mint
+    // and the size-1 pool provisions 2 sandboxes.
+    const aP = pool.checkout()
+    const bP = pool.checkout()
+    const a = await aP
+
+    // The second checkout must be QUEUED (pending), not a second mint. Race it
+    // against a macrotask: pre-fix it resolves immediately on its own slot.
+    const state = await Promise.race([bP.then(() => 'resolved'), flush().then(() => 'pending')])
+    expect(state).toBe('pending')
+    expect(created).toBe(1)
+    expect(pool.poolSize()).toBe(1)
+
+    // Releasing the one slot hands it to the queued waiter — still no 2nd mint.
+    a.release()
+    const b = await bP
+    expect(created).toBe(1)
+    expect(pool.poolSize()).toBe(1)
+    b.release()
+    await flush()
+  })
 })

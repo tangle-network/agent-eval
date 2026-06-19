@@ -288,6 +288,27 @@ export class FileSystemTraceStore implements TraceStore {
       this.loaded = true
       return store
     }
+    // Replay files in write order. For one entity, rolled files
+    // (`name.<ts>.ndjson`) are older than the active bare file (`name.ndjson`),
+    // and readdir order is not chronological — so without this sort a patch in
+    // an older rolled file could be applied AFTER (overwrite) a newer patch in
+    // the active file, silently restoring a stale field. Sort: per entity,
+    // rolled ascending by timestamp, then the bare active file last.
+    entries.sort((a, b) => {
+      // Group by the same entity base the loop uses (`split('.')[0]`); within an
+      // entity, real rollover files (`<base>.<ms>.ndjson`) sort by timestamp
+      // ascending and the bare active file (no numeric segment) sorts last.
+      // Non-rollover names tie (Infinity) and a stable sort preserves their
+      // readdir order.
+      const baseA = a.split('.')[0]!
+      const baseB = b.split('.')[0]!
+      if (baseA !== baseB) return baseA < baseB ? -1 : 1
+      const ta = a.match(/^[^.]+\.(\d+)\.ndjson$/)
+      const tb = b.match(/^[^.]+\.(\d+)\.ndjson$/)
+      const tsA = ta ? Number(ta[1]) : Number.POSITIVE_INFINITY
+      const tsB = tb ? Number(tb[1]) : Number.POSITIVE_INFINITY
+      return tsA - tsB
+    })
     {
       // Two-pass load. Pass 1 indexes all full (base) rows; pass 2 replays the
       // `_update` patch rows that updateRun/updateSpan append. readdir order is

@@ -82,14 +82,17 @@ export interface LlmCallResult {
   /**
    * `finish_reason` echoed from the first choice (`stop`, `length`,
    * `content_filter`, `tool_calls`, ...). `null` when the provider omits it.
-   * Free-form callers inspect this to fail loud on truncation (`length`)
-   * instead of treating a cut-off answer as complete.
+   * Exposed so a free-form `callLlm` caller CAN detect a truncated answer
+   * (`length`) instead of treating a cut-off completion as complete. Note:
+   * `callLlm` does not itself reject on it — acting on this signal is the
+   * caller's responsibility (in-repo free-form drivers do not yet enforce it).
    */
   finishReason?: string | null
   /**
-   * True when `content.trim()` is empty. An empty completion is a silent
-   * zero for free-form `callLlm` callers — this flag lets them fail loud
-   * rather than proceed on an empty string.
+   * True when `content.trim()` is empty. An empty completion is a silent zero
+   * for free-form `callLlm` callers; this flag is the signal a caller can
+   * inspect to fail loud rather than proceed on an empty string. `callLlm`
+   * surfaces it but does not throw on it.
    */
   contentEmpty?: boolean
   /** Raw response body. */

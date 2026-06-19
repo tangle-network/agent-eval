@@ -86,6 +86,12 @@ export function createSandboxPool<T>(opts: CreateSandboxPoolOpts<T>): SandboxPoo
   const waiters: Waiter[] = []
   const mutex = new Mutex()
   let nextSlotId = 0
+  // In-flight mints: a slot is decided under the mutex but only push()ed into
+  // `slots` AFTER the un-locked factory.create(). Counting reservations against
+  // capacity in the SAME critical section as the gate stops two concurrent
+  // acquires from both minting past `size` (slots.length alone is still 0 for
+  // both until the first push lands).
+  let reserving = 0
   let totalCheckouts = 0
   let busyMs = 0
   let drained = false
@@ -105,23 +111,36 @@ export function createSandboxPool<T>(opts: CreateSandboxPoolOpts<T>): SandboxPoo
         idle.busy = true
         return idle
       }
-      if (slots.length < opts.size) {
-        // Reserve a slot ID synchronously so concurrent acquireSlot
-        // calls don't all decide to mint past the cap.
+      if (slots.length + reserving < opts.size) {
+        // Reserve capacity synchronously (live slots + in-flight mints) so
+        // concurrent acquireSlot calls can't all decide to mint past the cap.
         mintId = `slot_${nextSlotId++}`
+        reserving++
         return null
       }
       return null
     })
     if (ready) return ready
     if (mintId !== undefined) {
-      const resource = await opts.factory.create(mintId)
+      let resource: T
+      try {
+        resource = await opts.factory.create(mintId)
+      } catch (err) {
+        // Release the reservation and hand the freed capacity to a waiter,
+        // otherwise a failed create leaks a capacity slot forever.
+        await mutex.runExclusive(() => {
+          reserving--
+        })
+        if (!drained) wakeWaiterToMint()
+        throw err
+      }
       const state: SlotState<T> = {
         slot: { id: mintId, resource },
         busy: true,
       }
       await mutex.runExclusive(() => {
         slots.push(state)
+        reserving--
       })
       return state
     }
