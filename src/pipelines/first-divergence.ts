@@ -54,13 +54,20 @@ export async function firstDivergenceView(
     return { runA, runB, firstDivergenceIndex: null, commonPrefixLen: minLen }
   }
   const longer: Trajectory = a.steps.length > b.steps.length ? a : b
+  const extra = longer.steps.length - minLen
+  // minLen === 0 means one trajectory is empty: divergence is the first step
+  // itself (index 0), and the absent side has no step to surface.
+  const reason =
+    minLen === 0
+      ? `one trajectory is empty; the other has ${extra} step(s) starting at index 0`
+      : `one trajectory has ${extra} more step(s) after index ${minLen - 1}`
   return {
     runA,
     runB,
     firstDivergenceIndex: minLen,
     aStep: a.steps[minLen],
     bStep: b.steps[minLen],
-    reason: `one trajectory has ${longer.steps.length - minLen} more step(s) after index ${minLen - 1}`,
+    reason,
     commonPrefixLen: minLen,
   }
 }

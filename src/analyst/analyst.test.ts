@@ -754,7 +754,15 @@ describe('ChatClient signal racing', () => {
     // documents the limit: races live in wrapLlmClient, mock passes
     // through. Either resolves (slow path) or rejects (when bound).
     // We just assert it eventually completes without hanging.
-    await Promise.race([p.catch(() => undefined), new Promise((r) => setTimeout(r, 200))])
-    expect(true).toBe(true)
+    const settled = await Promise.race([
+      p.then(
+        () => 'settled',
+        () => 'settled',
+      ),
+      new Promise<string>((r) => setTimeout(() => r('hung'), 200)),
+    ])
+    // The mock transport passes the signal through; the real contract here is
+    // only that the call SETTLES (resolves or rejects) and never hangs.
+    expect(settled).toBe('settled')
   })
 })

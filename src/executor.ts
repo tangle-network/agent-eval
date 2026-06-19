@@ -1,5 +1,7 @@
 import type { TCloud } from '@tangle-network/tcloud'
+import { CaptureIntegrityError } from './errors'
 import { JudgeParseError } from './judges'
+import { isTransientLlmError } from './llm-client'
 import { normalizeScores, weightedMean } from './statistics'
 import type {
   CollectedArtifacts,
@@ -31,6 +33,29 @@ export interface ExecutorConfig {
     check: Scenario['artifactChecks'][0],
     artifacts: CollectedArtifacts,
   ) => { passed: boolean; detail: string } | null
+  /**
+   * Sleep used between judge retries and after a judge succeeds. Defaults to
+   * real `setTimeout`. Injectable so tests exercise the retry policy without
+   * the real multi-second backoff.
+   */
+  sleep?: (ms: number) => Promise<void>
+}
+
+function describeShape(content: unknown, message: unknown): string {
+  if (message === undefined || message === null) return 'no choices[0].message'
+  return `message.content of type ${content === null ? 'null' : typeof content}`
+}
+
+function errMessage(err: unknown): string {
+  if (err instanceof Error) return `${err.name}: ${err.message}`
+  return String(err)
+}
+
+/** Per-judge failure diagnostic, recorded additively on `ScenarioResult`. */
+export interface JudgeFailure {
+  judge: string
+  attempts: number
+  reason: string
 }
 
 /**
@@ -72,9 +97,21 @@ export async function executeScenario(
       maxTokens: 3000,
     })
 
-    const content =
-      (resp as { choices?: { message?: { content?: string } }[] }).choices?.[0]?.message?.content ??
-      ''
+    const message = (resp as { choices?: { message?: { content?: unknown } }[] }).choices?.[0]
+      ?.message
+    const rawContent = message?.content
+    // A legitimately-empty turn ('' from a model that chose to say nothing) is
+    // real signal and must survive. A missing choices[0].message, or a content
+    // that is not a string, is a capture defect — the chat call hung or returned
+    // a malformed shape — and is indistinguishable from a real empty turn once
+    // collapsed to ''. Fail loud so it is never scored as a real response.
+    if (message === undefined || message === null || typeof rawContent !== 'string') {
+      throw new CaptureIntegrityError(
+        `chat response for scenario "${scenario.id}" turn ${i} is malformed: ` +
+          `expected choices[0].message.content to be a string, got ${describeShape(rawContent, message)}`,
+      )
+    }
+    const content = rawContent
 
     messages.push({ role: 'assistant', content })
 
@@ -173,28 +210,49 @@ export async function executeScenario(
   const judgeInput = { scenario, turns, artifacts }
   const judgeResults: JudgeScore[][] = []
   let failedJudges = 0
+  const judgeFailures: JudgeFailure[] = []
+  const sleep = config.sleep ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)))
 
-  for (const judge of config.judges) {
+  for (let j = 0; j < config.judges.length; j++) {
+    const judge = config.judges[j]!
+    const judgeName = judge.name || `judge[${j}]`
+    let lastError: unknown
+    let madeAttempts = 0
     for (let attempt = 0; attempt < 3; attempt++) {
+      madeAttempts = attempt + 1
       try {
         if (attempt > 0) {
           const wait = attempt * 10_000
-          console.log(`    judge retry ${attempt}/2 (waiting ${wait / 1000}s)`)
-          await new Promise((r) => setTimeout(r, wait))
+          console.log(`    ${judgeName} retry ${attempt}/2 (waiting ${wait / 1000}s)`)
+          await sleep(wait)
         }
         const scores = await judge(tc, judgeInput)
         judgeResults.push(scores)
-        await new Promise((r) => setTimeout(r, 3000))
+        await sleep(3000)
+        lastError = undefined
         break
       } catch (err) {
+        lastError = err
         if (err instanceof JudgeParseError) {
           // The model answered but unparseably — another identical prompt
           // won't fix it. Record the failure and move to the next judge.
-          failedJudges++
+          console.error(`    ${judgeName} unparseable (no retry): ${errMessage(err)}`)
           break
         }
-        if (attempt === 2) failedJudges++
+        console.error(`    ${judgeName} attempt ${attempt} failed: ${errMessage(err)}`)
+        // Deterministic errors (bad rubric, auth, 4xx) won't change on retry —
+        // only retry connection/rate-limit class faults. Stop the loop now so a
+        // permanent error is not masked by two pointless waits.
+        if (!isTransientLlmError(err)) break
       }
+    }
+    if (lastError !== undefined) {
+      failedJudges++
+      judgeFailures.push({
+        judge: judgeName,
+        attempts: madeAttempts,
+        reason: errMessage(lastError),
+      })
     }
   }
 
@@ -221,7 +279,10 @@ export async function executeScenario(
     })),
   )
 
-  return {
+  // judgeFailures is additive diagnostic context (WHY each judge errored),
+  // recorded alongside the existing judgeErrors count without widening the
+  // shared ScenarioResult contract. Absent when every judge succeeded.
+  const result: ScenarioResult & { judgeFailures?: JudgeFailure[] } = {
     scenarioId: scenario.id,
     persona: scenario.persona,
     turns,
@@ -232,4 +293,6 @@ export async function executeScenario(
     totalDurationMs: Date.now() - startTime,
     artifacts,
   }
+  if (judgeFailures.length > 0) result.judgeFailures = judgeFailures
+  return result
 }

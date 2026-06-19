@@ -547,3 +547,193 @@ describe('runEvalCampaign — concurrency', () => {
     expect(inFlight.max).toBeLessThanOrEqual(4)
   })
 })
+
+describe('runEvalCampaign — genuine-error containment (no orphaned workers)', () => {
+  // A genuine (non-CellExecutionError) bug in one cell must not reject the pool
+  // mid-flight and orphan the other in-flight workers. The campaign must wait
+  // for every sibling worker to finish (its run finalized) before re-throwing.
+  it('does not throw until every in-flight sibling run has finalized', async () => {
+    // Two cells, concurrency 2. Cell A is the genuine-error cell. Cell B parks
+    // mid-run on a barrier we control. With Promise.all (old behaviour) the
+    // campaign rejects the instant A throws, while B is still parked — orphaned.
+    // With Promise.allSettled the campaign cannot settle until B finalizes.
+    let releaseB: () => void = () => {}
+    const bParked = new Promise<void>((resolve) => {
+      releaseB = resolve
+    })
+    let bFinalized = false
+
+    const runner: CampaignRunner<VariantPayload> = async (ctx) => {
+      if (ctx.variantId === 'fail') {
+        // Genuine error in post-runner assembly: the runner finalizes its OWN
+        // run, then hands back an agent profile that contradicts the model.
+        // assertAgentProfileMatchesRun throws a plain Error (not a Cell error).
+        const base = await defaultRunner(ctx)
+        return {
+          ...base,
+          agentProfile: {
+            profileId: 'mismatch',
+            sourceProfile: { kind: 'sandbox-agent-profile', profile: { name: 'a' } },
+            harness: { id: 'h', version: '1' },
+            model: 'WRONG-MODEL@2026-05-08',
+            promptHash: 'p'.repeat(64),
+          },
+        }
+      }
+      // Cell B: start the run, park until released, then finalize itself.
+      await ctx.emitter.startRun({ scenarioId: ctx.scenarioId, layer: 'app-runtime' })
+      await bParked
+      const handle = await ctx.emitter.llm({
+        name: 'judge',
+        model: 'test-model@2026-05-08',
+        messages: [{ role: 'user', content: ctx.variant.prompt }],
+        output: 'ok',
+      })
+      await ctx.rawSink.record({
+        eventId: `evt-${ctx.runId}-0`,
+        runId: ctx.runId,
+        spanId: handle.span.spanId,
+        provider: 'test',
+        model: 'test-model@2026-05-08',
+        endpoint: '/chat/completions',
+        baseUrl: ctx.llmOpts.baseUrl ?? '',
+        attemptIndex: 0,
+        direction: 'request',
+        timestamp: 1_000,
+        redactedFields: [],
+      })
+      await handle.end()
+      await ctx.emitter.endRun({ pass: true, score: 0.6 })
+      bFinalized = true
+      return {
+        pass: true,
+        score: 0.6,
+        costUsd: 0.001,
+        tokenUsage: { input: 10, output: 5 },
+        model: 'test-model@2026-05-08',
+        promptHash: 'p'.repeat(64),
+        configHash: 'c'.repeat(64),
+      }
+    }
+
+    const stores = new Map<string, InMemoryTraceStore>()
+    const opts: EvalCampaignOptions<VariantPayload> = {
+      campaignId: 'orphan-campaign',
+      variants: [
+        { id: 'fail', payload: { prompt: 'x' } },
+        { id: 'park', payload: { prompt: 'y' } },
+      ],
+      scenarios: [{ scenarioId: 's1' }],
+      seeds: [0],
+      commitSha: 'cafebabe',
+      llmOpts: { baseUrl: 'https://api.test.local/v1', apiKey: 'sk-test' },
+      storeFactory: ({ runId }) => {
+        const s = new InMemoryTraceStore()
+        stores.set(runId, s)
+        return s
+      },
+      rawSinkFactory: () => new InMemoryRawProviderSink(),
+      concurrency: 2,
+      runner,
+    }
+
+    const campaign = runEvalCampaign(opts)
+    let settled = false
+    void campaign.then(
+      () => {
+        settled = true
+      },
+      () => {
+        settled = true
+      },
+    )
+
+    // Flush microtasks + a macrotask. Cell A has thrown its genuine error by
+    // now, but cell B is still parked. Old Promise.all would have rejected the
+    // campaign already; allSettled must keep it pending.
+    await new Promise((r) => setTimeout(r, 20))
+    expect(settled).toBe(false)
+    expect(bFinalized).toBe(false)
+
+    // Release B; only now may the campaign settle (re-throwing the genuine error).
+    releaseB()
+    await expect(campaign).rejects.toThrow(/does not match outcome.model/)
+    expect(bFinalized).toBe(true)
+
+    // B's run was finalized as a real completed run — not left dangling.
+    const bRunId = [...stores.keys()].find((id) => id.length > 0)
+    expect(bRunId).toBeDefined()
+    // Every store that recorded a run must have a terminal status (no 'running').
+    for (const store of stores.values()) {
+      const runs = await store.listRuns()
+      for (const r of runs) {
+        expect(r.status).not.toBe('running')
+      }
+    }
+  })
+})
+
+describe('runEvalCampaign — abort failure is surfaced, not swallowed', () => {
+  // When the runner throws, the campaign aborts the run to finalize the
+  // emitter. A store-write failure during that abort is a genuine diagnostic
+  // (disk full, FS fault, backend down) and MUST surface — the old
+  // `try { abortRun } catch {}` swallowed it, hiding real corruption.
+  it('re-throws a store-write failure that occurs while aborting a thrown run', async () => {
+    class AbortFailingStore extends InMemoryTraceStore {
+      override async updateRun(runId: string, patch: Partial<import('../src/trace/schema').Run>) {
+        if (patch.status === 'aborted') {
+          throw new Error('disk full: cannot persist aborted run')
+        }
+        return super.updateRun(runId, patch)
+      }
+    }
+
+    const runner: CampaignRunner<VariantPayload> = async (ctx) => {
+      await ctx.emitter.startRun({ scenarioId: ctx.scenarioId, layer: 'app-runtime' })
+      throw new Error('runner boom')
+    }
+
+    const opts: EvalCampaignOptions<VariantPayload> = {
+      campaignId: 'abort-fail-campaign',
+      variants: [{ id: 'v1', payload: { prompt: 'x' } }],
+      scenarios: [{ scenarioId: 's1' }],
+      seeds: [0],
+      commitSha: 'cafebabe',
+      llmOpts: { baseUrl: 'https://api.test.local/v1', apiKey: 'sk-test' },
+      storeFactory: () => new AbortFailingStore(),
+      rawSinkFactory: () => new InMemoryRawProviderSink(),
+      runner,
+    }
+
+    // Old behaviour: the abort error is swallowed; the cell is recorded as a
+    // plain runner_threw failure and the campaign resolves. New behaviour: the
+    // store-write failure surfaces as a genuine error.
+    await expect(runEvalCampaign(opts)).rejects.toThrow(/disk full: cannot persist aborted run/)
+  })
+
+  it('still treats a never-started run as a benign abort (nothing to finalize)', async () => {
+    // If the runner throws BEFORE startRun, there is no run to abort — that is
+    // the only benign case the narrowed catch may pass over. It must NOT throw
+    // a store error; the cell is a normal runner_threw failure.
+    const runner: CampaignRunner<VariantPayload> = async () => {
+      throw new Error('threw before startRun')
+    }
+
+    const opts: EvalCampaignOptions<VariantPayload> = {
+      campaignId: 'never-started-campaign',
+      variants: [{ id: 'v1', payload: { prompt: 'x' } }],
+      scenarios: [{ scenarioId: 's1' }],
+      seeds: [0],
+      commitSha: 'cafebabe',
+      llmOpts: { baseUrl: 'https://api.test.local/v1', apiKey: 'sk-test' },
+      storeFactory: () => new InMemoryTraceStore(),
+      rawSinkFactory: () => new InMemoryRawProviderSink(),
+      runner,
+    }
+
+    const result = await runEvalCampaign(opts)
+    expect(result.failedRuns).toHaveLength(1)
+    expect(result.failedRuns[0]?.reason).toBe('runner_threw')
+    expect(result.failedRuns[0]?.error).toBe('threw before startRun')
+  })
+})

@@ -138,6 +138,8 @@ export interface RouteMap {
 export interface ProductClientConfig {
   baseUrl: string
   routes: RouteMap
+  /** Per-request timeout in ms before the request is aborted. Default 30s. */
+  timeoutMs?: number
 }
 
 // ── Scenario Registry ──

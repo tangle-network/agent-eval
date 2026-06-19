@@ -79,11 +79,22 @@ export function createSandboxPool<T>(opts: CreateSandboxPoolOpts<T>): SandboxPoo
   if (opts.size < 1) throw new Error(`sandbox pool size must be >= 1 (got ${opts.size})`)
 
   const slots: SlotState<T>[] = []
-  const waiters: Array<(s: SlotState<T>) => void> = []
+  interface Waiter {
+    resolve: (s: SlotState<T>) => void
+    reject: (err: unknown) => void
+  }
+  const waiters: Waiter[] = []
   const mutex = new Mutex()
   let nextSlotId = 0
+  // In-flight mints: a slot is decided under the mutex but only push()ed into
+  // `slots` AFTER the un-locked factory.create(). Counting reservations against
+  // capacity in the SAME critical section as the gate stops two concurrent
+  // acquires from both minting past `size` (slots.length alone is still 0 for
+  // both until the first push lands).
+  let reserving = 0
   let totalCheckouts = 0
   let busyMs = 0
+  let drained = false
   const startedAt = Date.now()
 
   /**
@@ -100,52 +111,113 @@ export function createSandboxPool<T>(opts: CreateSandboxPoolOpts<T>): SandboxPoo
         idle.busy = true
         return idle
       }
-      if (slots.length < opts.size) {
-        // Reserve a slot ID synchronously so concurrent acquireSlot
-        // calls don't all decide to mint past the cap.
+      if (slots.length + reserving < opts.size) {
+        // Reserve capacity synchronously (live slots + in-flight mints) so
+        // concurrent acquireSlot calls can't all decide to mint past the cap.
         mintId = `slot_${nextSlotId++}`
+        reserving++
         return null
       }
       return null
     })
     if (ready) return ready
     if (mintId !== undefined) {
-      const resource = await opts.factory.create(mintId)
+      let resource: T
+      try {
+        resource = await opts.factory.create(mintId)
+      } catch (err) {
+        // Release the reservation and hand the freed capacity to a waiter,
+        // otherwise a failed create leaks a capacity slot forever.
+        await mutex.runExclusive(() => {
+          reserving--
+        })
+        if (!drained) wakeWaiterToMint()
+        throw err
+      }
       const state: SlotState<T> = {
         slot: { id: mintId, resource },
         busy: true,
       }
       await mutex.runExclusive(() => {
         slots.push(state)
+        reserving--
       })
       return state
     }
     // All slots busy + at cap: queue.
-    return new Promise<SlotState<T>>((resolve) => {
-      waiters.push((s) => {
-        s.busy = true
-        resolve(s)
-      })
+    return new Promise<SlotState<T>>((resolve, reject) => {
+      waiters.push({ resolve, reject })
     })
   }
 
+  /**
+   * Hand `state` (clean + idle) to the next queued waiter, or leave it
+   * idle if none are waiting. Caller must have already marked the slot
+   * not-busy. Runs under no lock; waiters are FIFO.
+   */
+  function handOffCleanSlot(state: SlotState<T>): void {
+    const next = waiters.shift()
+    if (next) {
+      state.busy = true
+      next.resolve(state)
+    }
+  }
+
+  /**
+   * Wake a queued waiter when a slot was destroyed (so capacity freed up
+   * but no clean slot is on hand). The waiter re-enters acquisition and
+   * mints a fresh slot. Any acquisition failure is routed to that waiter
+   * — never dropped on the floor.
+   */
+  function wakeWaiterToMint(): void {
+    const next = waiters.shift()
+    if (!next) return
+    acquireSlot().then(next.resolve, next.reject)
+  }
+
+  /**
+   * Release a checked-out slot. Reset is async; we kick it off and the
+   * slot only becomes available to the next waiter once reset lands
+   * CLEAN. If reset fails, the slot is dirty — destroy and remove it
+   * rather than recycle a corrupted workspace to the next waiter, then
+   * free the capacity so a fresh slot can be minted. The whole flow is
+   * awaited inside one IIFE whose rejection is caught, so a failed
+   * destroy can't surface as an unhandled rejection.
+   */
   function releaseSlot(state: SlotState<T>): void {
-    // Non-async release — runs synchronously inside the user's finally.
-    // Reset is async; we kick it off and let the next waiter see a
-    // freshly-reset slot once it lands.
     void (async () => {
       try {
-        if (opts.factory.reset) await opts.factory.reset(state.slot)
-      } catch (err) {
-        // A failing reset is the consumer's bug; we still release
-        // (otherwise the pool deadlocks). Surface via console.warn so
-        // it doesn't get lost.
-        console.warn(`[sandbox-pool] reset failed for slot ${state.slot.id}:`, err)
+        if (opts.factory.reset) {
+          await opts.factory.reset(state.slot)
+        }
+        state.busy = false
+        if (!drained) handOffCleanSlot(state)
+      } catch (resetErr) {
+        // Dirty slot: do NOT recycle it. Remove from the pool and tear it
+        // down, then wake a waiter to mint a clean replacement.
+        await mutex.runExclusive(() => {
+          const i = slots.indexOf(state)
+          if (i !== -1) slots.splice(i, 1)
+        })
+        try {
+          await opts.factory.destroy(state.slot)
+        } catch (destroyErr) {
+          console.warn(
+            `[sandbox-pool] destroy of dirty slot ${state.slot.id} failed after reset error:`,
+            destroyErr,
+          )
+        }
+        console.warn(
+          `[sandbox-pool] reset failed for slot ${state.slot.id} — slot destroyed, not recycled:`,
+          resetErr,
+        )
+        if (!drained) wakeWaiterToMint()
       }
-      state.busy = false
-      const next = waiters.shift()
-      if (next) next(state)
-    })()
+    })().catch((err) => {
+      // Defense in depth: nothing above should throw out here, but if it
+      // does, surface it instead of producing an unhandled rejection.
+      console.warn(`[sandbox-pool] release of slot ${state.slot.id} faulted:`, err)
+    })
   }
 
   async function checkout(): Promise<{ slot: PoolSlot<T>; release: () => void }> {
@@ -171,20 +243,20 @@ export function createSandboxPool<T>(opts: CreateSandboxPoolOpts<T>): SandboxPoo
   }
 
   async function drain(): Promise<void> {
+    drained = true
     // Snapshot under lock; destroy outside lock so a slow teardown
     // doesn't block a concurrent drain caller.
-    const snapshot = await mutex.runExclusive(() => {
+    const { snapshot, pending } = await mutex.runExclusive(() => {
       const taken = slots.splice(0, slots.length)
-      // Reject any pending waiters — pool is going away.
-      for (const w of waiters.splice(0, waiters.length)) {
-        // Best-effort rejection: the waiter is still pending; we
-        // can't reject a Promise we already resolved. Surface as a
-        // warning. In practice, drain() is called when nothing's in
-        // flight (end of run), so this is a defensive no-op.
-        void w
-      }
-      return taken
+      const queued = waiters.splice(0, waiters.length)
+      return { snapshot: taken, pending: queued }
     })
+    // Reject any pending waiters — the pool is going away, so their
+    // checkout promise can never be satisfied. Failing loud beats leaving
+    // a caller hung on an awaited checkout() forever.
+    for (const w of pending) {
+      w.reject(new Error('sandbox pool drained while a checkout was pending'))
+    }
     await Promise.allSettled(snapshot.map((s) => opts.factory.destroy(s.slot)))
   }
 

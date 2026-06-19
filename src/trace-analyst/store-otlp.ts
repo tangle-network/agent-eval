@@ -47,6 +47,34 @@ import {
   type ViewTraceResult,
 } from './types'
 
+/**
+ * Parse a span timestamp to epoch millis, or null when empty/unparseable. The
+ * OTLP readers accept BOTH ISO-8601 and epoch-millis-string dialects, so raw
+ * string comparison (`<`, localeCompare) is wrong across dialects, and
+ * `new Date(str)` is NaN for an epoch-millis string.
+ */
+function epochOrNull(ts: string): number | null {
+  if (!ts) return null
+  if (/^\d+$/.test(ts)) return Number(ts)
+  const n = Date.parse(ts)
+  return Number.isNaN(n) ? null : n
+}
+
+/** Ordering key: unparseable timestamps sort as epoch 0 (earliest), never NaN. */
+function epochMs(ts: string): number {
+  return epochOrNull(ts) ?? 0
+}
+
+/** Lines indexed between event-loop yields. Bounded synchronous work per
+ *  tick keeps the index build from starving other tasks on large files
+ *  while staying coarse enough that the yields are cheap. */
+const INDEX_YIELD_LINES = 5000
+
+/** Hand control back to the event loop without busy-waiting. */
+function yieldToEventLoop(): Promise<void> {
+  return new Promise((resolve) => setImmediate(resolve))
+}
+
 interface SpanIndexEntry {
   span_id: string
   parent_span_id: string | null
@@ -101,7 +129,18 @@ export interface OtlpFileTraceStoreOptions {
   perCallByteCeiling?: number
   /** Override the per-match text budget. */
   perMatchTextBudget?: number
+  /**
+   * Hard ceiling on the trace file size in bytes. The store reads the
+   * whole file into one Buffer and indexes it in memory, so an
+   * unbounded file OOMs the process. Above this size the store fails
+   * loud with `TraceFileTooLargeError` instead of degrading silently.
+   * Default 256 MiB.
+   */
+  maxFileBytes?: number
 }
+
+/** Default ceiling for {@link OtlpFileTraceStoreOptions.maxFileBytes}. */
+export const DEFAULT_MAX_TRACE_FILE_BYTES = 256 * 1024 * 1024
 
 export class OtlpFileTraceStore implements TraceAnalysisStore {
   private readonly path: string
@@ -109,6 +148,7 @@ export class OtlpFileTraceStore implements TraceAnalysisStore {
   private readonly perAttributeSpanBudget: number
   private readonly perCallByteCeiling: number
   private readonly perMatchTextBudget: number
+  private readonly maxFileBytes: number
   private indexPromise?: Promise<DatasetIndex>
   /** Cached UTF-8 buffer of the file. We pin it once because every
    *  read needs slice access and re-reading on each call balloons the
@@ -125,6 +165,7 @@ export class OtlpFileTraceStore implements TraceAnalysisStore {
       opts.perCallByteCeiling ?? DEFAULT_TRACE_ANALYST_BUDGETS.perCallByteCeiling
     this.perMatchTextBudget =
       opts.perMatchTextBudget ?? DEFAULT_TRACE_ANALYST_BUDGETS.perMatchTextBudget
+    this.maxFileBytes = opts.maxFileBytes ?? DEFAULT_MAX_TRACE_FILE_BYTES
   }
 
   // ─── Public API ────────────────────────────────────────────────────
@@ -150,8 +191,8 @@ export class OtlpFileTraceStore implements TraceAnalysisStore {
       for (const m of t.models) models.add(m)
       for (const tn of t.tools) tools.add(tn)
       rawBytes += t.raw_jsonl_bytes
-      if (!earliest || t.start_time < earliest) earliest = t.start_time
-      if (!latest || t.end_time > latest) latest = t.end_time
+      if (!earliest || epochMs(t.start_time) < epochMs(earliest)) earliest = t.start_time
+      if (!latest || epochMs(t.end_time) > epochMs(latest)) latest = t.end_time
       if (t.has_errors) {
         errorTraceCount += 1
         for (const s of t.spans) {
@@ -224,8 +265,9 @@ export class OtlpFileTraceStore implements TraceAnalysisStore {
     const spans: TraceAnalystSpan[] = []
     let runningBytes = 0
     let span_response_bytes_max = 0
+    const counter: TruncationCounter = { value: 0 }
     for (const s of trace.spans) {
-      const projected = await this.projectSpan(buf, trace.trace_id, s, cap)
+      const projected = this.projectSpan(buf, trace.trace_id, s, cap, counter)
       const bytes = Buffer.byteLength(JSON.stringify(projected), 'utf8')
       span_response_bytes_max = Math.max(span_response_bytes_max, bytes)
       runningBytes += bytes
@@ -267,12 +309,10 @@ export class OtlpFileTraceStore implements TraceAnalysisStore {
 
     const buf = await this.buffer()
     const spans: TraceAnalystSpan[] = []
-    let truncated = 0
+    const counter: TruncationCounter = { value: 0 }
     let runningBytes = 0
     for (const s of found) {
-      const before = truncationCounter(this)
-      const projected = await this.projectSpan(buf, trace.trace_id, s, cap)
-      truncated += before.delta()
+      const projected = this.projectSpan(buf, trace.trace_id, s, cap, counter)
       const bytes = Buffer.byteLength(JSON.stringify(projected), 'utf8')
       runningBytes += bytes
       if (runningBytes > this.perCallByteCeiling) {
@@ -286,7 +326,7 @@ export class OtlpFileTraceStore implements TraceAnalysisStore {
       trace_id: trace.trace_id,
       spans,
       missing_span_ids: missing,
-      truncated_attribute_count: truncated,
+      truncated_attribute_count: counter.value,
     }
   }
 
@@ -324,15 +364,19 @@ export class OtlpFileTraceStore implements TraceAnalysisStore {
         hits.push(h)
       }
       if (hits.length >= max_matches) {
+        // Capped: we stopped scanning, so `total` is a lower bound on the
+        // real match count — never report it as exact. has_more signals
+        // "more exist"; total_matches mirrors hits so callers don't read a
+        // fabricated number.
         capped = true
-        total = Math.max(total, hits.length + 1)
         break
       }
     }
     return {
       trace_id: trace.trace_id,
       hits,
-      total_matches: total,
+      // Uncapped: every span scanned to completion, so `total` is exact.
+      total_matches: capped ? hits.length : total,
       has_more: capped || total > hits.length,
     }
   }
@@ -383,9 +427,28 @@ export class OtlpFileTraceStore implements TraceAnalysisStore {
 
   private async buffer(): Promise<Buffer> {
     if (!this.bufferPromise) {
-      this.bufferPromise = readFile(this.path)
+      this.bufferPromise = this.readGuarded()
     }
     return this.bufferPromise
+  }
+
+  /** Stat-then-read so an oversized file fails loud BEFORE we allocate a
+   *  multi-hundred-MB Buffer and OOM the process. A missing file surfaces
+   *  as TraceFileMissingError; any other stat/read error propagates. */
+  private async readGuarded(): Promise<Buffer> {
+    let stats: Awaited<ReturnType<typeof stat>>
+    try {
+      stats = await stat(this.path)
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException)?.code === 'ENOENT') {
+        throw new TraceFileMissingError(this.path)
+      }
+      throw err
+    }
+    if (stats.size > this.maxFileBytes) {
+      throw new TraceFileTooLargeError(this.path, stats.size, this.maxFileBytes)
+    }
+    return readFile(this.path)
   }
 
   private async index(): Promise<DatasetIndex> {
@@ -396,20 +459,19 @@ export class OtlpFileTraceStore implements TraceAnalysisStore {
   }
 
   private async buildIndex(): Promise<DatasetIndex> {
-    let buf: Buffer
-    try {
-      buf = await this.buffer()
-    } catch (err) {
-      const stats = await stat(this.path).catch(() => null)
-      if (!stats) {
-        throw new TraceFileMissingError(this.path)
-      }
-      throw err
-    }
+    // readGuarded surfaces missing/oversized files as typed errors.
+    const buf = await this.buffer()
 
     const byTrace = new Map<string, TraceIndexEntry>()
     let cursor = 0
+    let sinceYield = 0
     while (cursor < buf.length) {
+      // Yield to the event loop every INDEX_YIELD_LINES lines so a huge
+      // file doesn't monopolise the thread for the whole index build.
+      if (++sinceYield >= INDEX_YIELD_LINES) {
+        sinceYield = 0
+        await yieldToEventLoop()
+      }
       const newlineIndex = buf.indexOf(0x0a, cursor) // \n
       const lineEnd = newlineIndex === -1 ? buf.length : newlineIndex
       const lineLength = lineEnd - cursor
@@ -478,8 +540,8 @@ export class OtlpFileTraceStore implements TraceAnalysisStore {
       entry.span_count += 1
       entry.raw_jsonl_bytes += lineLength + 1 // +1 newline byte
       if (span.status === 'ERROR') entry.has_errors = true
-      if (span.start_time < entry.start_time) entry.start_time = span.start_time
-      if (span.end_time > entry.end_time) entry.end_time = span.end_time
+      if (epochMs(span.start_time) < epochMs(entry.start_time)) entry.start_time = span.start_time
+      if (epochMs(span.end_time) > epochMs(entry.end_time)) entry.end_time = span.end_time
       if (span.model_name) entry.models.add(span.model_name)
       if (span.tool_name) entry.tools.add(span.tool_name)
     }
@@ -491,9 +553,13 @@ export class OtlpFileTraceStore implements TraceAnalysisStore {
       totalRawBytes += t.raw_jsonl_bytes
       t.spans.sort(
         (a, b) =>
-          a.start_time.localeCompare(b.start_time) || a.line_byte_offset - b.line_byte_offset,
+          epochMs(a.start_time) - epochMs(b.start_time) || a.line_byte_offset - b.line_byte_offset,
       )
-      t.duration_ms = Math.max(0, new Date(t.end_time).getTime() - new Date(t.start_time).getTime())
+      // Duration is 0 unless BOTH bounds parse — a missing/garbage timestamp
+      // yields 0, never a NaN (→ null in JSON) or a bogus epoch-from-zero span.
+      const startMs = epochOrNull(t.start_time)
+      const endMs = epochOrNull(t.end_time)
+      t.duration_ms = startMs === null || endMs === null ? 0 : Math.max(0, endMs - startMs)
     }
     const sortedTraceIds = [...byTrace.keys()].sort()
 
@@ -569,12 +635,13 @@ export class OtlpFileTraceStore implements TraceAnalysisStore {
 
   // ─── Span projection (lazy attribute reads) ────────────────────────
 
-  private async projectSpan(
+  private projectSpan(
     buf: Buffer,
     trace_id: string,
     s: SpanIndexEntry,
     perAttrCap: number,
-  ): Promise<TraceAnalystSpan> {
+    counter: TruncationCounter,
+  ): TraceAnalystSpan {
     const slice = buf
       .subarray(s.line_byte_offset, s.line_byte_offset + s.line_byte_length)
       .toString('utf8')
@@ -590,13 +657,13 @@ export class OtlpFileTraceStore implements TraceAnalysisStore {
     for (const [k, v] of Object.entries(attrs)) {
       if (typeof v === 'string') {
         const trunc = truncateForBudget(v, perAttrCap)
-        if (trunc !== v) trackTruncation(this)
+        if (trunc !== v) counter.value += 1
         projected[k] = trunc
       } else if (Array.isArray(v) || (v && typeof v === 'object')) {
         const json = JSON.stringify(v)
         const trunc = truncateForBudget(json, perAttrCap)
         if (trunc !== json) {
-          trackTruncation(this)
+          counter.value += 1
           projected[k] = trunc
         } else {
           projected[k] = v
@@ -699,6 +766,20 @@ export class TraceFileMissingError extends NotFoundError {
     super(`trace file not found: ${path}`)
   }
 }
+export class TraceFileTooLargeError extends Error {
+  readonly path: string
+  readonly size_bytes: number
+  readonly max_bytes: number
+  constructor(path: string, size_bytes: number, max_bytes: number) {
+    super(
+      `trace file ${path} is ${size_bytes} bytes, over the ${max_bytes}-byte limit; ` +
+        'raise OtlpFileTraceStoreOptions.maxFileBytes or pre-split the file',
+    )
+    this.path = path
+    this.size_bytes = size_bytes
+    this.max_bytes = max_bytes
+  }
+}
 export class TraceNotFoundError extends NotFoundError {
   readonly trace_id: string
   constructor(trace_id: string) {
@@ -725,55 +806,59 @@ function isPresent<T>(v: T | undefined): v is T {
   return v !== undefined
 }
 
-// Truncation counter — module-private, lets viewSpans report the
-// number of attribute fields it had to truncate without threading
-// a counter through every call.
-const truncationCounters = new WeakMap<OtlpFileTraceStore, { value: number }>()
-
-function trackTruncation(store: OtlpFileTraceStore): void {
-  let c = truncationCounters.get(store)
-  if (!c) {
-    c = { value: 0 }
-    truncationCounters.set(store, c)
-  }
-  c.value += 1
+// Per-call truncation counter. Each public read that projects spans
+// owns one of these and threads it through projectSpan; a store-keyed
+// counter would let two concurrent reads on the same store report each
+// other's truncation counts.
+interface TruncationCounter {
+  value: number
 }
 
-function truncationCounter(store: OtlpFileTraceStore): { delta(): number } {
-  const before = truncationCounters.get(store)?.value ?? 0
-  return {
-    delta() {
-      const after = truncationCounters.get(store)?.value ?? 0
-      return after - before
-    },
+/** A `"` at `idx` is a real JSON delimiter only when the run of `\`
+ *  immediately preceding it is even-length; an odd run means the quote
+ *  is escaped (`\"`) and is part of a string value, not a boundary. */
+function isUnescapedQuote(slice: string, idx: number): boolean {
+  if (slice[idx] !== '"') return false
+  let backslashes = 0
+  let b = idx - 1
+  while (b >= 0 && slice[b] === '\\') {
+    backslashes += 1
+    b -= 1
   }
+  return backslashes % 2 === 0
+}
+
+/** Scan backwards from `from` (inclusive) for the nearest UNescaped `"`.
+ *  Returns its index, or -1 when none is found. */
+function prevUnescapedQuote(slice: string, from: number): number {
+  for (let i = from; i >= 0; i -= 1) {
+    if (slice[i] === '"' && isUnescapedQuote(slice, i)) return i
+  }
+  return -1
 }
 
 /**
  * Best-effort: locate the JSON path for the substring at `offset` in
- * a single span's JSONL slice. We walk the parsed JSON structurally
- * and return the dotted path when we find a string field whose
- * serialised form contains `offset`. Returns `null` if the offset
- * doesn't fall inside a recognisable string field.
+ * a single span's JSONL slice. The slice is '...,"key":"value..."' — we
+ * walk back from `offset` to the value-opening quote, past the `:`, to
+ * the key's closing then opening quote, skipping `\"`-escaped quotes that
+ * live inside string values. Returns `null` when the offset doesn't fall
+ * inside a recognisable string field.
  */
 function bestAttributePathForOffset(slice: string, offset: number): string | null {
-  // The slice contains '"key":"value..."' — find the nearest '"'
-  // wrapping `offset` and walk back to a key. This is heuristic but
-  // bounded by the span line length, not the whole file.
-  let i = offset
-  while (i > 0 && slice[i] !== '"') i -= 1
-  if (i <= 0) return null
-  // Scan backwards for the preceding '"': pattern is "key":"value"
-  let j = i - 1
-  while (j > 0 && slice[j] !== ':') j -= 1
-  if (j <= 0) return null
-  // Find the key: walk back from `:` to the matching closing '"' then to opening '"'.
-  let k = j - 1
-  while (k > 0 && slice[k] !== '"') k -= 1
-  let l = k - 1
-  while (l > 0 && slice[l] !== '"') l -= 1
-  if (l <= 0) return null
-  return slice.slice(l + 1, k)
+  // Value-opening quote: nearest unescaped '"' at or before the offset.
+  const valueQuote = prevUnescapedQuote(slice, Math.min(offset, slice.length - 1))
+  if (valueQuote < 1) return null
+  // The ':' separating key and value sits before the value quote.
+  let j = valueQuote - 1
+  while (j >= 0 && slice[j] !== ':') j -= 1
+  if (j < 1) return null
+  // Key closing quote, then key opening quote — both unescaped.
+  const keyClose = prevUnescapedQuote(slice, j - 1)
+  if (keyClose < 1) return null
+  const keyOpen = prevUnescapedQuote(slice, keyClose - 1)
+  if (keyOpen < 0) return null
+  return slice.slice(keyOpen + 1, keyClose)
 }
 
 // ─── Error-cluster extraction ────────────────────────────────────────

@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
@@ -98,4 +98,66 @@ describe('localCommandRunner', () => {
     })
     expect(r.stdout).toBe('1')
   })
+
+  it('hasBin resolves a real binary without relying on `which`', async () => {
+    // `node` is on PATH in any environment that runs this suite. The
+    // resolution must not depend on a `which`/`command -v` subprocess
+    // (absent on Windows / minimal containers).
+    expect(await localCommandRunner.hasBin('node')).toBe(true)
+  })
+
+  it('hasBin resolves an absolute executable path directly', async () => {
+    expect(await localCommandRunner.hasBin(process.execPath)).toBe(true)
+  })
+
+  it('readFile surfaces a non-ENOENT error instead of collapsing it to null', async () => {
+    const wd = mkdtempSync(join(tmpdir(), 'cmd-runner-errno-'))
+    try {
+      // Reading a directory as a file yields EISDIR, not ENOENT. The old
+      // bare `catch { return null }` reported this real IO error as a
+      // missing file; the fix must surface (throw) it.
+      await expect(localCommandRunner.readFile(wd)).rejects.toThrow()
+    } finally {
+      rmSync(wd, { recursive: true, force: true })
+    }
+  })
+
+  it('readFile returns null only for genuinely-absent (ENOENT) files', async () => {
+    expect(
+      await localCommandRunner.readFile('/tmp/cmd-runner-definitely-absent-xyz-123'),
+    ).toBeNull()
+  })
+
+  it('readDir surfaces a non-ENOENT error instead of reporting an empty dir', async () => {
+    const wd = mkdtempSync(join(tmpdir(), 'cmd-runner-errno-dir-'))
+    const file = join(wd, 'not-a-dir.txt')
+    try {
+      writeFileSync(file, 'x')
+      // readdir on a regular file yields ENOTDIR, not ENOENT. The old
+      // bare `catch { return [] }` masked this as "empty directory."
+      await expect(localCommandRunner.readDir(file)).rejects.toThrow()
+    } finally {
+      rmSync(wd, { recursive: true, force: true })
+    }
+  })
+
+  it('readDir still returns [] for a genuinely-absent (ENOENT) directory', async () => {
+    expect(await localCommandRunner.readDir('/tmp/cmd-runner-no-such-dir-xyz-123')).toEqual([])
+  })
+
+  it.skipIf(process.platform === 'win32' || process.getuid?.() === 0)(
+    'readFile surfaces EACCES (permission) rather than masking it as absent',
+    async () => {
+      const wd = mkdtempSync(join(tmpdir(), 'cmd-runner-eacces-'))
+      const file = join(wd, 'secret.txt')
+      try {
+        writeFileSync(file, 'classified')
+        chmodSync(file, 0o000)
+        await expect(localCommandRunner.readFile(file)).rejects.toThrow()
+      } finally {
+        chmodSync(file, 0o600)
+        rmSync(wd, { recursive: true, force: true })
+      }
+    },
+  )
 })

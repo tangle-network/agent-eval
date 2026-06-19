@@ -27,6 +27,12 @@ export interface HarnessConfig {
   cwd?: string
   /** Max wall-clock per phase in ms. Default 10 minutes. */
   timeoutMs?: number
+  /**
+   * Cap on captured stdout+stderr bytes per phase. A runaway process can
+   * otherwise grow the in-memory buffer without bound. Once hit, further
+   * output is dropped and `outputTruncated` is set. Default 16 MiB.
+   */
+  maxOutputBytes?: number
   /** Image for the docker driver. */
   image?: string
   /** Extra env vars (validated; shell-escaped). */
@@ -52,6 +58,19 @@ export interface SandboxResult {
   wallMs: number
   testsTotal?: number
   testsPassed?: number
+  /**
+   * True when the process was killed because it exceeded `timeoutMs`. A
+   * SIGKILLed child can still close with exit code 0; callers MUST treat
+   * a timed-out phase as a hard failure regardless of `exitCode`, never
+   * as a pass. `undefined`/`false` means the process completed on its own.
+   */
+  killedByTimeout?: boolean
+  /**
+   * True when captured stdout/stderr hit `maxOutputBytes` and further
+   * output was dropped. The result is still returned (the process was
+   * not killed for this), but downstream parsers see truncated text.
+   */
+  outputTruncated?: boolean
 }
 
 export interface SandboxDriver {
@@ -162,51 +181,126 @@ export class SubprocessSandboxDriver implements SandboxDriver {
     // cwd when only the constructor arg is supplied.
     const effectiveCwd = config.cwd ?? this.defaultCwd
     const effectiveEnv = { ...process.env, ...(this.defaultEnv ?? {}), ...(config.env ?? {}) }
+    const maxOutputBytes = config.maxOutputBytes ?? 16 * 1024 * 1024
     return await new Promise<SandboxResult>((resolve) => {
       const child = spawn(command, {
         shell: true,
         cwd: effectiveCwd,
         env: effectiveEnv,
+        // Own process group so a timeout can SIGKILL the whole tree, not
+        // just the shell — otherwise a runaway grandchild keeps the pipes
+        // open and `close` never fires (the timeout silently does nothing).
+        detached: process.platform !== 'win32',
       })
       let stdout = ''
       let stderr = ''
-      child.stdout?.on('data', (d) => {
-        stdout += String(d)
-      })
-      child.stderr?.on('data', (d) => {
-        stderr += String(d)
-      })
-      const timeout = setTimeout(
-        () => {
-          try {
-            child.kill('SIGKILL')
-          } catch (err) {
-            console.warn('[sandbox-harness] SIGKILL on timeout failed:', err)
-          }
-        },
-        config.timeoutMs ?? 10 * 60_000,
-      )
-      child.on('close', (code) => {
+      let outputBytes = 0
+      let outputTruncated = false
+      let killedByTimeout = false
+      let settled = false
+
+      const onStdout = (d: unknown) => {
+        const chunk = capture(String(d))
+        if (chunk) stdout += chunk
+      }
+      const onStderr = (d: unknown) => {
+        const chunk = capture(String(d))
+        if (chunk) stderr += chunk
+      }
+      // Bound the in-memory buffer so a runaway process can't OOM the
+      // harness. Once the cap is hit we keep draining the streams (to let
+      // the child reach `close`) but discard the bytes.
+      function capture(s: string): string {
+        if (outputBytes >= maxOutputBytes) {
+          outputTruncated = true
+          return ''
+        }
+        const room = maxOutputBytes - outputBytes
+        if (s.length > room) {
+          outputBytes = maxOutputBytes
+          outputTruncated = true
+          return s.slice(0, room)
+        }
+        outputBytes += s.length
+        return s
+      }
+
+      child.stdout?.on('data', onStdout)
+      child.stderr?.on('data', onStderr)
+
+      const cleanup = () => {
         clearTimeout(timeout)
+        if (forceResolve) clearTimeout(forceResolve)
+        child.stdout?.off('data', onStdout)
+        child.stderr?.off('data', onStderr)
+        child.removeAllListeners('close')
+        child.removeAllListeners('error')
+      }
+
+      // Resolve exactly once. `code`/`signal` come from `close`; on the
+      // timeout path we force a non-zero exit so a SIGKILLed child that
+      // reports exit 0 can never read as a clean pass downstream.
+      const finish = (outcome: { code: number | null; runnerError?: string }) => {
+        if (settled) return
+        settled = true
+        cleanup()
         const wallMs = Date.now() - start
+        const exitCode = killedByTimeout
+          ? outcome.code && outcome.code !== 0
+            ? outcome.code
+            : 124
+          : (outcome.code ?? 1)
         const parsed =
-          phase === 'test' && config.testParser
-            ? config.testParser.parse(stdout, stderr, code ?? 1)
+          !killedByTimeout && phase === 'test' && config.testParser
+            ? config.testParser.parse(stdout, stderr, exitCode)
             : undefined
         resolve({
           phase,
-          exitCode: code ?? 1,
+          exitCode,
           stdout,
-          stderr,
+          stderr: outcome.runnerError ? stderr + outcome.runnerError : stderr,
           wallMs,
           testsTotal: parsed?.testsTotal,
           testsPassed: parsed?.testsPassed,
+          killedByTimeout: killedByTimeout || undefined,
+          outputTruncated: outputTruncated || undefined,
         })
+      }
+
+      // Kill the whole process group on win32-less platforms (we spawned
+      // detached). On a clean close this is a no-op.
+      const killTree = () => {
+        try {
+          if (process.platform !== 'win32' && typeof child.pid === 'number') {
+            process.kill(-child.pid, 'SIGKILL')
+          } else {
+            child.kill('SIGKILL')
+          }
+        } catch (err) {
+          console.warn('[sandbox-harness] SIGKILL on timeout failed:', err)
+        }
+      }
+
+      let forceResolve: ReturnType<typeof setTimeout> | undefined
+      const timeout = setTimeout(
+        () => {
+          killedByTimeout = true
+          killTree()
+          // Give `close` a brief window to fire (flushing any final output)
+          // after the group dies; if an orphaned grandchild keeps the pipes
+          // open, force-resolve so the harness can't hang on a runaway.
+          forceResolve = setTimeout(() => finish({ code: null }), 2000)
+        },
+        config.timeoutMs ?? 10 * 60_000,
+      )
+
+      child.on('close', (code) => {
+        if (forceResolve) clearTimeout(forceResolve)
+        finish({ code })
       })
       child.on('error', (err) => {
-        clearTimeout(timeout)
-        const wallMs = Date.now() - start
-        resolve({ phase, exitCode: 127, stdout, stderr: stderr + String(err), wallMs })
+        if (forceResolve) clearTimeout(forceResolve)
+        finish({ code: 127, runnerError: String(err) })
       })
     })
   }
@@ -266,8 +360,11 @@ export class SandboxHarness {
       if (config.setupCommand) {
         result.setup = await this.driver.exec('setup', config.setupCommand, config)
         result.totalWallMs += result.setup.wallMs
-        if (result.setup.exitCode !== 0) {
-          await handle.fail(`setup failed (exit ${result.setup.exitCode})`, {
+        if (result.setup.killedByTimeout || result.setup.exitCode !== 0) {
+          const reason = result.setup.killedByTimeout
+            ? `setup timed out after ${result.setup.wallMs}ms`
+            : `setup failed (exit ${result.setup.exitCode})`
+          await handle.fail(reason, {
             exitCode: result.setup.exitCode,
             wallMs: result.totalWallMs,
           } as Partial<SandboxSpan>)
@@ -277,8 +374,11 @@ export class SandboxHarness {
       if (config.runCommand) {
         result.run = await this.driver.exec('run', config.runCommand, config)
         result.totalWallMs += result.run.wallMs
-        if (result.run.exitCode !== 0) {
-          await handle.fail(`run failed (exit ${result.run.exitCode})`, {
+        if (result.run.killedByTimeout || result.run.exitCode !== 0) {
+          const reason = result.run.killedByTimeout
+            ? `run timed out after ${result.run.wallMs}ms`
+            : `run failed (exit ${result.run.exitCode})`
+          await handle.fail(reason, {
             exitCode: result.run.exitCode,
             wallMs: result.totalWallMs,
           } as Partial<SandboxSpan>)
@@ -288,7 +388,9 @@ export class SandboxHarness {
       if (config.testCommand) {
         result.test = await this.driver.exec('test', config.testCommand, config)
         result.totalWallMs += result.test.wallMs
-        const passed = result.test.exitCode === 0
+        // A timed-out test phase is a hard fail regardless of the exit code
+        // a SIGKILLed child happens to report — never let it score as a pass.
+        const passed = !result.test.killedByTimeout && result.test.exitCode === 0
         result.passed = passed
         if (result.test.testsTotal !== undefined && result.test.testsTotal > 0) {
           result.score = (result.test.testsPassed ?? 0) / result.test.testsTotal

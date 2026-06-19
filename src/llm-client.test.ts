@@ -257,6 +257,114 @@ describe('llm-client — retry semantics', () => {
   })
 })
 
+describe('llm-client — caller AbortSignal + cross-attempt deadline', () => {
+  it('an already-aborted caller signal fails loud without firing fetch', async () => {
+    const fetch = vi.fn(async () =>
+      mkOkResponse({ choices: [{ message: { content: 'x' } }], usage: {} }),
+    ) as unknown as typeof globalThis.fetch
+    const controller = new AbortController()
+    controller.abort()
+    await expect(
+      callLlm({ model: 'm', messages: [] }, { fetch, signal: controller.signal }),
+    ).rejects.toThrow(/abort/i)
+    expect(fetch as unknown as ReturnType<typeof vi.fn>).not.toHaveBeenCalled()
+  })
+
+  it('a caller abort mid-call is NOT retried — it surfaces immediately', async () => {
+    // Regression: callLlm took no external signal, so a campaign cancel could
+    // not stop an in-flight call, AND an AbortError matches the transient
+    // patterns — so a naive wiring would retry the cancelled call.
+    const controller = new AbortController()
+    let calls = 0
+    const fetch: typeof globalThis.fetch = (async (_url: string, init: RequestInit) => {
+      calls++
+      controller.abort()
+      // Mirror fetch's behavior: a request whose linked signal aborts rejects.
+      const err = new Error('The operation was aborted')
+      err.name = 'AbortError'
+      void init
+      throw err
+    }) as unknown as typeof globalThis.fetch
+
+    await expect(
+      callLlm({ model: 'm', messages: [] }, { fetch, signal: controller.signal, maxRetries: 3 }),
+    ).rejects.toThrow(/abort/i)
+    expect(calls).toBe(1)
+  })
+
+  it('a caller abort cancels the in-flight fetch via the linked signal', async () => {
+    const controller = new AbortController()
+    const fetch: typeof globalThis.fetch = ((_url: string, init: RequestInit) =>
+      new Promise((_resolve, reject) => {
+        init.signal?.addEventListener('abort', () => {
+          const err = new Error('The operation was aborted')
+          err.name = 'AbortError'
+          reject(err)
+        })
+      })) as unknown as typeof globalThis.fetch
+
+    const p = callLlm({ model: 'm', messages: [] }, { fetch, signal: controller.signal })
+    controller.abort()
+    await expect(p).rejects.toThrow(/abort/i)
+  })
+
+  it('stops retrying once the cross-attempt deadline is exhausted', async () => {
+    // Per-attempt timeout still bounds each call, but a tight wall-clock budget
+    // must cut the retry loop short rather than waiting full timeout × retries.
+    let calls = 0
+    const fetch: typeof globalThis.fetch = (async () => {
+      calls++
+      // Burn the entire deadline on the first attempt's "work".
+      await new Promise((r) => setTimeout(r, 30))
+      return mkErrResponse(503, 'still unavailable')
+    }) as unknown as typeof globalThis.fetch
+
+    await expect(
+      callLlm({ model: 'm', messages: [] }, { fetch, maxRetries: 5, deadlineMs: 10 }),
+    ).rejects.toBeInstanceOf(LlmCallError)
+    // Without the deadline this would retry up to 5 times; the budget caps it at 1.
+    expect(calls).toBe(1)
+  })
+})
+
+describe('llm-client — empty-content + finishReason signals', () => {
+  it('flags empty content and surfaces finish_reason=length (truncation)', async () => {
+    const fetch = mockFetch([
+      async () =>
+        mkOkResponse({
+          choices: [{ message: { content: '' }, finish_reason: 'length' }],
+          usage: {},
+        }),
+    ])
+    const r = await callLlm({ model: 'm', messages: [] }, { fetch })
+    expect(r.content).toBe('')
+    expect(r.contentEmpty).toBe(true)
+    expect(r.finishReason).toBe('length')
+  })
+
+  it('non-empty content reports contentEmpty=false and finish_reason=stop', async () => {
+    const fetch = mockFetch([
+      async () =>
+        mkOkResponse({
+          choices: [{ message: { content: 'real answer' }, finish_reason: 'stop' }],
+          usage: {},
+        }),
+    ])
+    const r = await callLlm({ model: 'm', messages: [] }, { fetch })
+    expect(r.contentEmpty).toBe(false)
+    expect(r.finishReason).toBe('stop')
+  })
+
+  it('whitespace-only content counts as empty; missing finish_reason is null', async () => {
+    const fetch = mockFetch([
+      async () => mkOkResponse({ choices: [{ message: { content: '   \n ' } }], usage: {} }),
+    ])
+    const r = await callLlm({ model: 'm', messages: [] }, { fetch })
+    expect(r.contentEmpty).toBe(true)
+    expect(r.finishReason).toBeNull()
+  })
+})
+
 describe('llm-client — isTransientLlmError classification', () => {
   it('classifies HTTP/2 + undici transport faults as transient', () => {
     expect(isTransientLlmError(new Error('terminated'))).toBe(true)

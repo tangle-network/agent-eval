@@ -17,8 +17,15 @@
  */
 
 import { spawnSync } from 'node:child_process'
-import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs'
-import { join } from 'node:path'
+import {
+  accessSync,
+  existsSync,
+  constants as fsConstants,
+  readdirSync,
+  readFileSync,
+  statSync,
+} from 'node:fs'
+import { delimiter, join } from 'node:path'
 
 // ─── Types ──────────────────────────────────────────────────────────────
 
@@ -110,8 +117,7 @@ export const localCommandRunner: CommandRunner = {
     }
   },
   async hasBin(name: string): Promise<boolean> {
-    const r = spawnSync('which', [name], { encoding: 'utf8', timeout: 2000 })
-    return r.status === 0 && (r.stdout ?? '').trim().length > 0
+    return resolveBinOnPath(name) !== null
   },
   async fileExists(path: string): Promise<boolean> {
     return existsSync(path)
@@ -119,16 +125,25 @@ export const localCommandRunner: CommandRunner = {
   async readFile(path: string): Promise<string | null> {
     try {
       return readFileSync(path, 'utf8')
-    } catch {
-      return null
+    } catch (err) {
+      // ENOENT is the only "legitimately absent" signal → null. Any other
+      // errno (EACCES, EISDIR, EIO, …) is a real failure that must NOT
+      // masquerade as "file not present" — surface it so callers don't
+      // treat a permission/IO error as a missing artifact.
+      if (isErrnoCode(err, 'ENOENT')) return null
+      throw err
     }
   },
   async readDir(path: string): Promise<DirEntry[]> {
     let entries: string[]
     try {
       entries = readdirSync(path)
-    } catch {
-      return []
+    } catch (err) {
+      // Same ENOENT-vs-real-error split as readFile: a missing directory
+      // is legitimately empty (→ []); EACCES/ENOTDIR/EIO must surface so
+      // an unreadable directory isn't silently reported as having no files.
+      if (isErrnoCode(err, 'ENOENT')) return []
+      throw err
     }
     const out: DirEntry[] = []
     for (const name of entries) {
@@ -140,10 +155,63 @@ export const localCommandRunner: CommandRunner = {
           isFile: st.isFile(),
           sizeBytes: st.isFile() ? st.size : null,
         })
-      } catch {
-        // skip unreadable
+      } catch (err) {
+        // An entry that vanished between readdir and stat (TOCTOU) is a
+        // benign race → skip. Any other errno surfaces.
+        if (isErrnoCode(err, 'ENOENT')) continue
+        throw err
       }
     }
     return out
   },
+}
+
+function isErrnoCode(err: unknown, code: NodeJS.ErrnoException['code']): boolean {
+  return typeof err === 'object' && err !== null && (err as NodeJS.ErrnoException).code === code
+}
+
+/**
+ * Resolve `name` to an executable absolute path using the runner's PATH,
+ * or `null` if not found. Cross-platform: does not depend on `which`
+ * (absent on Windows) or a `command -v` shell (absent on minimal
+ * containers). On Windows, candidate extensions come from PATHEXT.
+ *
+ * Throws only on a non-ENOENT/EACCES filesystem error while probing a
+ * candidate — those indicate a real IO fault, not "binary absent."
+ */
+function resolveBinOnPath(name: string): string | null {
+  // An explicit path component means PATH lookup doesn't apply: probe directly.
+  if (name.includes('/') || name.includes('\\')) {
+    return isExecutable(name) ? name : null
+  }
+  const pathEnv = process.env.PATH ?? ''
+  const dirs = pathEnv.split(delimiter).filter((d) => d.length > 0)
+  const exts =
+    process.platform === 'win32'
+      ? (process.env.PATHEXT ?? '.COM;.EXE;.BAT;.CMD').split(';').filter((e) => e.length > 0)
+      : ['']
+  for (const dir of dirs) {
+    for (const ext of exts) {
+      const candidate = join(dir, name + ext)
+      if (isExecutable(candidate)) return candidate
+    }
+  }
+  return null
+}
+
+function isExecutable(path: string): boolean {
+  try {
+    // On win32 X_OK is a no-op; presence of the file (with a PATHEXT
+    // extension) is the executability signal there.
+    accessSync(path, process.platform === 'win32' ? fsConstants.F_OK : fsConstants.X_OK)
+    return true
+  } catch (err) {
+    // Not found / not executable / not permitted → "not a usable binary
+    // here," keep scanning. A different errno (EIO, ELOOP, …) is a real
+    // fault and must surface rather than silently yield a false negative.
+    if (isErrnoCode(err, 'ENOENT') || isErrnoCode(err, 'EACCES') || isErrnoCode(err, 'ENOTDIR')) {
+      return false
+    }
+    throw err
+  }
 }

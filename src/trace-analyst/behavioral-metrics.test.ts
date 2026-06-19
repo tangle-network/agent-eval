@@ -98,6 +98,29 @@ describe('computeTraceMetrics — deterministic behavioral signals (no LLM)', ()
     expect(m.hasSelfVerification).toBe(true)
     expect(m.signals.map((s) => s.code)).not.toContain('no-self-verification')
   })
+
+  it('FIRES monotonic-input-growth on a 0→huge blowup (first call reported 0 input tokens)', () => {
+    // First LLM call reports 0 input tokens, then context explodes. Ratio is
+    // unbounded — the old `first > 0 ? last/first : 0` forced growth to 0 and
+    // silently dropped the most severe possible blowup.
+    const spans = [llmSpan(1, 0, 100), llmSpan(2, 4000, 90), llmSpan(3, 9000, 80)]
+    const sig = computeTraceMetrics(spans).signals.find((s) => s.code === 'monotonic-input-growth')
+    expect(sig).toBeDefined()
+    expect(sig!.severity).toBe('high')
+    // Displayed ratio must stay sane (no NaN/Infinity literal leaking into the message).
+    expect(sig!.detail).not.toContain('Infinity')
+    expect(sig!.detail).not.toContain('NaN')
+    expect(sig!.detail).toContain('0→9000')
+    expect(sig!.evidence.first).toBe(0)
+    expect(sig!.evidence.last).toBe(9000)
+    expect(sig!.evidence.growth_x).toBe('unbounded')
+  })
+
+  it('does NOT fire monotonic-input-growth when input stays at 0 (no blowup)', () => {
+    const spans = [llmSpan(1, 0, 100), llmSpan(2, 0, 90), llmSpan(3, 0, 80)]
+    const codes = computeTraceMetrics(spans).signals.map((s) => s.code)
+    expect(codes).not.toContain('monotonic-input-growth')
+  })
 })
 
 describe('deriveEfficiencyFindings — the 0→4, any-model flip', () => {
