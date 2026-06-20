@@ -167,9 +167,9 @@ graph adapter  -> optional provenance topology --------------------+
 
 No runtime dependency is added to `agent-eval`. Runtime emits richer traces and consumes gates. Knowledge owns memory writes. A graph adapter consumes traces and emits topology features.
 
-## Minimal Future API Shape
+## Minimal API Shape
 
-Do not add this stable public API until Phase 1 gates pass. The draft dogfood surface is `@tangle-network/agent-eval/experimental/belief-state`; the likely eventual stable subpath is `@tangle-network/agent-eval/belief-state`.
+The dogfood surface is `@tangle-network/agent-eval/belief-state`. It is a named package surface for decision-point research and selective-policy reports, not part of `/contract` and not re-exported from the root barrel. Do not call it a shipped decision engine until Phase 1 gates pass.
 
 ```ts
 export interface BeliefEvidenceAtom {
@@ -232,7 +232,7 @@ Completion criteria:
 - [ ] One baseline policy is recorded for every decision kind under study.
 - [ ] A generated `BeliefDecisionResearchEvidencePacket` says `supported` for the intended claim scope.
 
-Status on 2026-06-05: the experimental implementation exists in `src/belief-state/code-agent-corpus.ts` and `src/belief-state/research-evidence.ts`, with coverage in `src/belief-state/code-agent-corpus.test.ts` and `src/belief-state/research-evidence.test.ts`. A local smoke after build joined 33 private code-agent sessions to 33 `RunRecord`s and emitted 13,137 decision rows across Codex, Claude Code, Kimi Code, OpenCode, and PiGraph-shaped traces. This closes the infrastructure part of Phase 0, but not the empirical proof gate: the next corpus run still has to add split metadata, integrity checks, retrospective labels, and a recorded baseline per target before the work can claim Phase 0 completion. Missing behavior/target propensities now block counterfactual claims while still allowing selective-only claims to be evaluated.
+Status on 2026-06-05: the research implementation exists in `src/belief-state/code-agent-corpus.ts` and `src/belief-state/research-evidence.ts`, with coverage in `src/belief-state/code-agent-corpus.test.ts` and `src/belief-state/research-evidence.test.ts`. A local smoke after build joined 33 private code-agent sessions to 33 `RunRecord`s and emitted 13,137 decision rows across Codex, Claude Code, Kimi Code, OpenCode, and PiGraph-shaped traces. This closes the infrastructure part of Phase 0, but not the empirical proof gate: the next corpus run still has to add split metadata, integrity checks, retrospective labels, and a recorded baseline per target before the work can claim Phase 0 completion. Missing behavior/target propensities now block counterfactual claims while still allowing selective-only claims to be evaluated.
 
 Follow-up local smoke on 2026-06-05 over 50 recent Codex JSONL sessions under 20 MB produced 50 `RunRecord`s and 6,770 decision points: 5,610 tool-selection rows and 1,160 failure-recovery rows, with full outcome/confidence coverage and no propensity support. The default confidence-threshold policy did not clear the selective utility gate on failure recovery (`ci.lower = -0.1159` at threshold `0.6`), so the current result supports the extraction/evidence pipeline, not the belief-policy claim; the next empirical step is real logged confidence/propensity or retrospective labels, not more heuristic confidence tuning.
 
@@ -248,7 +248,7 @@ Taxonomy tightening on 2026-06-05: `src/belief-state/types.ts` now exports stabl
 - [ ] Compute calibration curves for confidence vs actual outcome.
 - [ ] Compare baseline policy vs selective policy on holdout.
 - [ ] Add cost-aware utility: quality lift minus verification/ask/retry cost.
-- [ ] Add report rows into `InsightReport` or an experimental research report.
+- [ ] Add report rows into `InsightReport` or a research report.
 - [ ] Export the real corpus packet into the paper artifact instead of hand-copying metrics.
 - [ ] Run negative controls: shuffled confidence, random abstention, always-verify, never-verify.
 - [ ] Pre-register thresholds before holdout.
@@ -374,7 +374,7 @@ Do not call belief-state work "done" until these are true:
 - [ ] Every memory claim has poisoning/staleness handling.
 - [ ] Every graph claim preserves topology and deterministic identity.
 - [ ] Every surface attribution claim distinguishes correlation from causal evidence.
-- [ ] Every public API is disabled or marked experimental until a replay corpus validates it.
+- [ ] Keep belief-state out of `/contract` and root until a replay corpus validates it.
 - [ ] No runtime ownership boundary is crossed from `agent-eval`.
 - [ ] Negative results are recorded instead of hidden.
 
@@ -415,11 +415,11 @@ The first code build should be small and internal:
 3. Add a calibration report using existing `meta-eval/calibration.ts` patterns.
 4. Add a holdout gate that reports honest negative if no utility lift appears.
 
-Do not add a stable public `belief-state` subpath until the first selective policy clears its completion criteria.
+Do not add belief-state to `/contract` or the root barrel until the first selective policy clears its completion criteria.
 
 ## Exact Integration Map
 
-The most succinct integration is an experimental `src/belief-state/` module that consumes existing substrate data and produces a policy-evaluation report. It should not create a second runtime model.
+The most succinct integration is a `src/belief-state/` module that consumes existing substrate data and produces a policy-evaluation report. It should not create a second runtime model.
 
 ### Existing Abstractions to Extend
 
@@ -443,9 +443,9 @@ The most succinct integration is an experimental `src/belief-state/` module that
 | `src/belief-state/calibration.ts` | Computes confidence calibration for decision predictions. | Calls shared `calibrationFromPairs()` once added. |
 | `src/belief-state/ope.ts` | Converts decision rows into `OffPolicyTrajectory[]` for an explicit named target policy and calls `offPolicyEstimateAll`. | Must report ESS and support mismatch; no silent value claims. |
 | `src/belief-state/report.ts` | Orchestrates extraction + selective eval + calibration + OPE into one report. | Returns honest negative / need-more-data when unsupported. |
-| `src/belief-state/code-agent-corpus.ts` | Converts local code-agent sessions into belief decision points, inventories targets, selects the first supported target, and runs the experimental policy report. | Supports Codex, Claude Code, OpenCode, Kimi Code, and Pi/PiGraph-shaped traces. Does not invent behavior or target propensities. |
+| `src/belief-state/code-agent-corpus.ts` | Converts local code-agent sessions into belief decision points, inventories targets, selects the first supported target, and runs the research policy report. | Supports Codex, Claude Code, OpenCode, Kimi Code, and Pi/PiGraph-shaped traces. Does not invent behavior or target propensities. |
 | `src/belief-state/runtime-hooks.ts` | Bridges structurally typed `agent-runtime` decision hooks into shadow probes or completed belief decision rows. | No runtime dependency. Pre-action hooks do not fake `chosenAction`. |
-| `src/belief-state/index.ts` | Experimental barrel for the module. | Keep out of root barrel and expose only through `./experimental/belief-state` while evidence gates are open. |
+| `src/belief-state/index.ts` | Barrel for the module. | Keep out of root and `/contract`; expose through the named `./belief-state` package export while evidence gates are open. |
 
 ### Files to Change First
 
@@ -464,20 +464,19 @@ The most succinct integration is an experimental `src/belief-state/` module that
 | `src/trace/schema.ts` | Existing `custom` events and span attributes are enough for Phase 0. Schema bumps need producer evidence. |
 | `src/contract/index.ts` | `/contract` is the stable LAND-tier surface. Belief-state should not enter it until proven. |
 | `src/contract/insight-report.ts` | Do not add `beliefPolicies` until the module has one validated report shape. |
-| `src/index.ts` | Root barrel is already broad; do not add experimental research APIs there. |
-| `package.json` exports / `tsup.config.ts` | Defer stable `./belief-state` subpath until Phase 1 gates pass. Experimental dogfooding may use `./experimental/belief-state`. |
+| `src/index.ts` | Root barrel is already broad; do not add belief-state research APIs there. |
+| `package.json` exports / `tsup.config.ts` | Keep `./belief-state` as the only package export for this surface; do not add lifecycle-label aliases. |
 
 ### Public Export Gate
 
-During the draft phase:
+During the research-capability phase:
 
-- `tsup.config.ts`: entry `'belief-state/index': 'src/belief-state/index.ts'` may exist to build the experimental subpath.
-- `package.json`: export `"./experimental/belief-state"` only.
-- Docs and PR bodies must call the surface experimental.
+- `tsup.config.ts`: entry `'belief-state/index': 'src/belief-state/index.ts'` builds the named subpath.
+- `package.json`: export `"./belief-state"` only.
+- Docs and PR bodies must say what evidence the report supports; no unsupported shipping claims.
 
-Only after Phase 1 succeeds, promote to stable:
+Only after Phase 1 succeeds, promote to `/contract` or root:
 
-- `package.json`: export `"./belief-state"` to `dist/belief-state/index.js`.
 - `docs/feature-guide.md` or a dedicated docs page: document the promotion evidence and remaining caveats.
 - `src/contract/insight-report.ts`: optional `beliefPolicies?: BeliefPolicyInsight[]`, only if the report is stable enough for dashboards.
 

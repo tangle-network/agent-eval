@@ -1,6 +1,4 @@
 /**
- * @experimental
- *
  * `runCampaign` — Pass A substrate primitive. ONE function that orchestrates
  * scenarios → dispatch → artifacts → judges → aggregates, with full
  * reproducibility (seed + manifest hash), cell-level resumability, bootstrap

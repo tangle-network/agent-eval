@@ -1,6 +1,4 @@
 /**
- * @experimental
- *
  * `@tangle-network/agent-eval/campaign` — measurement + improvement loop.
  *
  * `runCampaign` is the measurement primitive (a surface scored over scenarios);

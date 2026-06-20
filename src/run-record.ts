@@ -120,7 +120,7 @@ export interface RunOutcome {
  *     model (after any steering bundle merge).
  *   - `configHash` is the sha256 of the effective run config (model,
  *     temperature, tools, judges, splits). The pair (promptHash,
- *     configHash) uniquely identifies an experimental cell.
+ *     configHash) uniquely identifies an experiment cell.
  *
  * Model snapshot discipline:
  *   - `model` MUST encode a snapshot version. Bare aliases like

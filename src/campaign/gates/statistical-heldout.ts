@@ -1,6 +1,4 @@
 /**
- * @experimental
- *
  * Statistical held-out promotion machinery — the trustworthy core the
  * point-estimate `heldout-delta` gate lacked.
  *

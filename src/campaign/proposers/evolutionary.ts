@@ -1,6 +1,4 @@
 /**
- * @experimental
- *
  * `evolutionaryProposer` — adapts a stateless `Mutator` (population mutation:
  * GEPA / AxGEPA / reflective-mutation) into a `SurfaceProposer`. This is
  * the evolutionary strategy: each generation, mutate the current best surface

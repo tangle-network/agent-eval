@@ -1,6 +1,4 @@
 /**
- * @experimental
- *
  * Thin Gate adapter — exposes delta-threshold-on-holdout as a composable
  * `Gate`. Use when you want held-out as one of N composed gates instead of
  * the full `defaultProductionGate` stack.

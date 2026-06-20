@@ -1,6 +1,4 @@
 /**
- * @experimental
- *
  * `traceAnalystProposer` — wraps agent-eval's OWN trace-analyst engine
  * (`AnalystRegistry` over the agentic OTLP reader) as a `SurfaceProposer`.
  * It is the symmetric opponent to `haloProposer`: both run the SAME shared

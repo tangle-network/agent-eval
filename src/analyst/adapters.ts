@@ -17,7 +17,6 @@
  * same primitive instance is safe.
  */
 
-import type { AxAIService } from '@ax-llm/ax'
 import type {
   Finding as LayerFinding,
   Severity as LayerSeverity,
@@ -31,8 +30,6 @@ import {
   type SemanticConceptJudgeInput,
   type SemanticConceptJudgeOptions,
 } from '../semantic-concept-judge'
-import { type AnalyzeTracesOptions, analyzeTraces } from '../trace-analyst/analyst'
-import type { TraceAnalysisStore } from '../trace-analyst/store'
 import type { JudgeFn, JudgeInput, JudgeScore, TCloud } from '../types'
 import type { Analyst, AnalystFinding, AnalystSeverity } from './types'
 import { makeFinding } from './types'
@@ -54,93 +51,7 @@ export function liftSeverity(s: LayerSeverity): AnalystSeverity {
   }
 }
 
-// ── 1. analyzeTraces → Analyst ─────────────────────────────────────
-
-export interface TraceAnalystAdapterOpts {
-  id?: string
-  area?: string
-  /** The natural-language question(s) put to the analyst. One finding per question. */
-  questions: string[]
-  /** Caller-provided AxAI service — same one trace-analyst.ts expects. */
-  ai: AxAIService
-  model?: string
-  /** Forwarded to analyzeTraces. */
-  extra?: Omit<AnalyzeTracesOptions, 'source' | 'ai' | 'model'>
-}
-
-/**
- * @deprecated Prefer `createTraceAnalystKind` + one of the failure /
- * improvement kinds from `./kinds`. This adapter wraps the legacy
- * `analyzeTraces` flow whose output is `findings:string[]` — every
- * bullet gets flat-defaulted severity `medium` / confidence `0.6`,
- * which loses the per-finding grading kinds provide via Ax structured
- * output + Zod validation. Kept for one minor while consumers migrate.
- */
-export function createTraceAnalystAdapter(
-  opts: TraceAnalystAdapterOpts,
-): Analyst<TraceAnalysisStore> {
-  const id = opts.id ?? 'trace-analyst'
-  const area = opts.area ?? 'agent-reasoning'
-  return {
-    id,
-    description:
-      'Runs the agent-eval trace analyst over an OTLP trace store and lifts its bulleted findings.',
-    inputKind: 'trace-store',
-    cost: { kind: 'llm', models: opts.model ? [opts.model] : undefined },
-    version: `trace-analyst-${ADAPTER_REV}`,
-    async analyze(store, ctx) {
-      const out: AnalystFinding[] = []
-      for (const question of opts.questions) {
-        if (ctx.signal?.aborted) break
-        const result = await analyzeTraces(
-          { question },
-          { source: store, ai: opts.ai, model: opts.model, ...opts.extra },
-        )
-        const subject = ctx.tags?.subject ?? question.slice(0, 60)
-        // The responder produces a list of bullet strings. Each becomes
-        // one finding; the prose answer is attached as rationale on the
-        // first (so renderers that show only top-N still get context).
-        if (result.findings.length === 0) {
-          out.push(
-            makeFinding({
-              analyst_id: id,
-              area,
-              subject,
-              claim: result.answer.slice(0, 200),
-              rationale: result.answer,
-              severity: 'info',
-              confidence: 0.5,
-              evidence_refs: [],
-              metadata: {
-                actor_prompt_version: result.actorPromptVersion,
-                turns: result.turnCount,
-              },
-            }),
-          )
-          continue
-        }
-        result.findings.forEach((claim, i) => {
-          out.push(
-            makeFinding({
-              analyst_id: id,
-              area,
-              subject,
-              claim,
-              rationale: i === 0 ? result.answer : undefined,
-              severity: 'medium',
-              confidence: 0.6,
-              evidence_refs: [],
-              metadata: { question, turns: result.turnCount, finding_index: i },
-            }),
-          )
-        })
-      }
-      return out
-    },
-  }
-}
-
-// ── 2. MultiLayerVerifier → Analyst ─────────────────────────────────
+// ── 1. MultiLayerVerifier → Analyst ─────────────────────────────────
 
 export interface VerifierAdapterOpts<Env> {
   id?: string
@@ -223,7 +134,7 @@ function liftLayerFinding(
   })
 }
 
-// ── 3. RunCritic → Analyst ──────────────────────────────────────────
+// ── 2. RunCritic → Analyst ──────────────────────────────────────────
 
 export interface RunCriticAdapterOpts {
   id?: string
@@ -296,7 +207,7 @@ export function createRunCriticAdapter(opts: RunCriticAdapterOpts = {}): Analyst
   }
 }
 
-// ── 4. JudgeFn → Analyst ────────────────────────────────────────────
+// ── 3. JudgeFn → Analyst ────────────────────────────────────────────
 
 export interface JudgeAdapterOpts {
   id?: string
@@ -359,7 +270,7 @@ function liftJudgeScore(analyst_id: string, area: string, s: JudgeScore): Analys
   })
 }
 
-// ── 5. SemanticConceptJudge → Analyst ──────────────────────────────
+// ── 4. SemanticConceptJudge → Analyst ──────────────────────────────
 
 export interface SemanticConceptJudgeAdapterOpts {
   id?: string

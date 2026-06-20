@@ -1,6 +1,4 @@
 /**
- * @experimental
- *
  * Make the trace-analyst's OWN prompt a GEPA-optimizable surface.
  *
  * The analyst that drives self-improvement is itself a prompt — and a

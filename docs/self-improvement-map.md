@@ -45,8 +45,8 @@ surface; **bench-only proposers** exist solely to be raced inside
 | Proposer factory | Surface | Strategy | Role | Notes |
 |---|---|---|---|---|
 | `gepaProposer` | prompt | reflective full-surface rewrite + Pareto frontier | **production default** | consumes trace-analysis findings — see below |
-| `fapoProposer` | prompt/config/code | reviewed escalation policy over prompt → parameter → structural proposers | production, experimental | encodes FAPO's scope + reviewer + prompt-first escalation rules; structural generator is injected |
-| `parameterSweepProposer` | config | JSON config patch/sweep | production, experimental | middle FAPO level for parameter/config edits such as `retrieval.k`, `temperature`, `max_tokens` |
+| `fapoProposer` | prompt/config/code | reviewed escalation policy over prompt → parameter → structural proposers | production, benchmark | encodes FAPO's scope + reviewer + prompt-first escalation rules; structural generator is injected |
+| `parameterSweepProposer` | config | JSON config patch/sweep | production, benchmark | middle FAPO level for parameter/config edits such as `retrieval.k`, `temperature`, `max_tokens` |
 | `skillOptProposer` | skill-doc | anchored add/delete/replace patch | production | preserves earlier rules; edit budget = "textual learning rate" |
 | `aceProposer` | playbook | append-only, provenance-tagged | production | accumulate hard-won lessons, never summarize away |
 | `memoryCurationProposer` | memory | dedup + rank + graft | production | compact alternative to `ace` |

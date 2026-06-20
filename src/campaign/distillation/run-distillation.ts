@@ -1,6 +1,4 @@
 /**
- * @experimental
- *
  * `runDistillation` — the teacher→student distillation loop. COMPOSES existing
  * substrate primitives; reimplements none of them:
  *

@@ -33,6 +33,7 @@ export default defineConfig({
     'adapters/http': 'src/adapters/http.ts',
     'adapters/otel': 'src/adapters/otel.ts',
     'hosted/index': 'src/hosted/index.ts',
+    testing: 'src/testing.ts',
     cli: 'src/cli.ts',
   },
   format: ['esm'],

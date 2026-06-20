@@ -1,6 +1,4 @@
 /**
- * @experimental
- *
  * `haloProposer` — wraps the REAL halo-engine (Inference.net's hierarchical
  * agentic trace analyzer, `pip install halo-engine`, repo context-labs/halo)
  * as an agent-eval `SurfaceProposer`, so HALO competes head-to-head with

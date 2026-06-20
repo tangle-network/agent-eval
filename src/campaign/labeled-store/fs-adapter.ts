@@ -1,6 +1,4 @@
 /**
- * @experimental
- *
  * Filesystem `LabeledScenarioStore` adapter. The default capture sink for
  * traces + eval artifacts. Production deployments typically swap for a
  * Turso/SQLite adapter (same interface).

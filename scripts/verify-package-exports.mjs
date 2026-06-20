@@ -31,6 +31,12 @@ try {
     './workflow': ['import', 'types'],
     './campaign': ['import', 'types'],
     './traces': ['import', 'types'],
+    './rl': ['import', 'types'],
+    './prm': ['import', 'types'],
+    './meta-eval': ['import', 'types'],
+    './belief-state': ['import', 'types'],
+    './wire': ['import', 'types'],
+    './testing': ['import', 'types'],
     './openapi.json': ['default'],
   }
 
@@ -73,6 +79,34 @@ try {
         ]
         for (const name of expected) {
           if (!(name in workflow)) throw new Error('missing workflow export ' + name)
+        }
+      `,
+    ],
+    appDir,
+  )
+  run(
+    process.execPath,
+    [
+      '--input-type=module',
+      '--eval',
+      `
+        const rl = await import('@tangle-network/agent-eval/rl')
+        for (const name of ['campaignToRunRecords', 'extractPreferences', 'buildRlDataset', 'toSftRows', 'runRLCampaign']) {
+          if (!(name in rl)) throw new Error('missing rl export ' + name)
+        }
+        const prm = await import('@tangle-network/agent-eval/prm')
+        if (!('PrmGrader' in prm)) throw new Error('missing prm export PrmGrader')
+        const metaEval = await import('@tangle-network/agent-eval/meta-eval')
+        if (!('InMemoryOutcomeStore' in metaEval)) throw new Error('missing meta-eval export InMemoryOutcomeStore')
+        const wire = await import('@tangle-network/agent-eval/wire')
+        if (!('dispatchRpc' in wire)) throw new Error('missing wire export dispatchRpc')
+        const beliefState = await import('@tangle-network/agent-eval/belief-state')
+        if (!('analyzeBeliefPolicy' in beliefState)) {
+          throw new Error('missing belief-state export analyzeBeliefPolicy')
+        }
+        const testing = await import('@tangle-network/agent-eval/testing')
+        if (typeof testing.resetLockedAppendersForTesting !== 'function') {
+          throw new Error('missing testing reset helper')
         }
       `,
     ],

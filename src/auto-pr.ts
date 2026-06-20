@@ -20,8 +20,6 @@
  *
  * Both implement the small `AutoPrClient` interface, so tests substitute
  * a fake without spinning a process or network.
- *
- * @experimental — surface may evolve as consumers wire it into CI workflows.
  */
 
 import { ConfigError, ValidationError } from './errors'

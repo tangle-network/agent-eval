@@ -75,9 +75,10 @@
  *
  * Anything below this barrel is internal substrate that may move
  * between minors. If you find yourself reaching for an import path other
- * than `/contract`, `/rl`, `/reporting`, `/control`, or `/telemetry`,
- * you're using internals — pin a patch version and open an issue so we
- * can promote what you need.
+ * than `/contract`, `/campaign`, `/rl`, `/belief-state`, `/reporting`,
+ * `/control`, `/telemetry`, `/analyst`, `/traces`, `/testing`, or another
+ * named package export, you're using internals. Open an issue so we can
+ * promote what you need into a named subpath.
  */
 
 // ── Types: scenarios, dispatch, judges, gates, surfaces ──────────────

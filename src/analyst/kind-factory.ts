@@ -1,6 +1,5 @@
 /**
- * Analyst-kind factory — the typed, focused replacement for the
- * legacy `createTraceAnalystAdapter`.
+ * Analyst-kind factory — the typed way to define trace analysts.
  *
  * A "kind" is a specialized analyst whose actor prompt, tool subset,
  * and Ax recursion config target one failure-mode lens (failure-mode

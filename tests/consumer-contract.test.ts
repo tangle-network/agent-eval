@@ -17,6 +17,7 @@ import type {
 } from '../src/index'
 import * as agentEval from '../src/index'
 import * as rl from '../src/rl/index'
+import * as testing from '../src/testing'
 
 /**
  * Public-surface contract for `@tangle-network/agent-eval`.
@@ -81,7 +82,6 @@ const ROOT_RUNTIME_SYMBOLS = [
 ] as const
 
 const RL_SYMBOLS = ['campaignToRunRecords', 'verificationReportToRunRecord'] as const
-
 describe('public-surface contract for consumers', () => {
   it('exports every load-bearing runtime symbol from the root entry', () => {
     const missing = ROOT_RUNTIME_SYMBOLS.filter(
@@ -102,6 +102,13 @@ describe('public-surface contract for consumers', () => {
   it('exports the rl subpath surface consumers depend on', () => {
     const missing = RL_SYMBOLS.filter((name) => (rl as Record<string, unknown>)[name] === undefined)
     expect(missing, `missing rl subpath exports: ${missing.join(', ')}`).toEqual([])
+    expect(typeof (rl as Record<string, unknown>).toSftRows).toBe('function')
+    expect(typeof (rl as Record<string, unknown>).runRLCampaign).toBe('function')
+  })
+
+  it('exposes testing-only helpers only through the testing subpath', () => {
+    expect((agentEval as Record<string, unknown>).resetLockedAppendersForTesting).toBeUndefined()
+    expect(typeof testing.resetLockedAppendersForTesting).toBe('function')
   })
 
   it('exposes a builder-eval subpath used by agent-builder', () => {

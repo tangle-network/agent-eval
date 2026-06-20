@@ -1,6 +1,4 @@
 /**
- * @experimental
- *
  * `runOptimization` — the improvement loop body. Runs N generations: the
  * `SurfaceProposer` proposes K candidate surfaces per generation, each
  * candidate runs a campaign (the measurement), top-scoring promote to the

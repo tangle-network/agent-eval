@@ -1,6 +1,4 @@
 /**
- * @experimental
- *
  * N-axis cartesian matrix over substrate types — types module.
  *
  * The matrix is a runner + aggregator. It iterates the cartesian product of

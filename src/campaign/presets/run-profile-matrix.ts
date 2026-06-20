@@ -1,6 +1,4 @@
 /**
- * @experimental
- *
  * `runProfileMatrix` — the missing keystone between `runAgentMatrix` and the
  * backend-integrity guard.
  *

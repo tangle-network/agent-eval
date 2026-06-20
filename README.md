@@ -116,13 +116,13 @@ Each example: `README.md` + a single `index.ts` runnable via `pnpm tsx`. Prints 
 
 | Subpath | What it gives you |
 |---|---|
-| `…/contract` | **The headline, frozen surface — new code starts here.** `selfImprove`, `analyzeRuns`, `runEval`, `runCampaign`, `runImprovementLoop`, `diffRuns`; intake adapters (`fromFeedbackTable`, `fromOtelSpans`); proposers (`gepaDriver`, `evolutionaryDriver`; historically called drivers); gates (`defaultProductionGate`, `heldOutGate`, `paretoSignificanceGate`, `composeGate`); the deployment-outcome store; storage; and the five core types `Scenario` / `Dispatch` / `JudgeConfig` / `SurfaceProposer` / `Gate`. |
+| `…/contract` | **The headline, frozen surface — new code starts here.** `selfImprove`, `analyzeRuns`, `runEval`, `runCampaign`, `runImprovementLoop`, `diffRuns`; intake adapters (`fromFeedbackTable`, `fromOtelSpans`); proposers (`gepaProposer`, `evolutionaryProposer`); gates (`defaultProductionGate`, `heldOutGate`, `paretoSignificanceGate`, `composeGate`); the deployment-outcome store; storage; and the five core types `Scenario` / `Dispatch` / `JudgeConfig` / `SurfaceProposer` / `Gate`. |
 | `…/hosted` | `createHostedClient` / `hostedClientFromEnv` + the wire types to ship eval-run events + trace spans to a hosted orchestrator (ours or your own implementation of the spec) |
 | `…/adapters/otel` | `createOtelBridge` — forwards OpenTelemetry-shape spans into the hosted-tier ingest, no `@opentelemetry/*` dependency |
 | `…/adapters/langchain` | Wrap any LangChain `Runnable` as a `Dispatch` (or `JudgeConfig`), no `@langchain/core` peer dep |
 | `…/adapters/http` | `httpDispatch` + `runDispatchServer` — run a campaign's worker on another machine (multi-region, remote worker execution) |
-| `…/campaign` | **The measurement + improvement engine** (`@experimental`): `runProfileMatrix`, `compareProposers` (historical alias: `compareDrivers`), every surface proposer (`gepaDriver`, `fapoDriver`, `parameterSweepDriver`, `haloDriver`, `skillOptDriver`, `aceDriver`, `memoryCurationDriver`, …), the gates, storage backends, and loop provenance. `/contract` re-exports the stable subset. |
-| `…/rl` | RL bridge from eval artifacts to training signal: verifiable rewards, preferences, OPE, PRM, tournaments, contamination, compute curves, plus the durable corpus + `buildRlDataset` / datasheet bundle |
+| `…/campaign` | **The measurement + improvement engine**: `runProfileMatrix`, `compareProposers`, every surface proposer (`gepaProposer`, `fapoProposer`, `parameterSweepProposer`, `haloProposer`, `skillOptProposer`, `aceProposer`, `memoryCurationProposer`, …), the gates, storage backends, and loop provenance. `/contract` re-exports the app-facing subset. |
+| `…/rl` | Bridge from eval artifacts to training signal: verifiable rewards, preferences, OPE, tournaments, contamination, compute curves, trainer-format exporters, process rewards, plus the durable corpus + `buildRlDataset` / datasheet bundle |
 | `…/reporting` | Release-decision statistics: `pairedBootstrap`, `benjaminiHochberg`, anytime-valid sequential e-values, `evaluateReleaseConfidence`, and the report renderers |
 | `…/analyst` | The trace-analyst surface: `AnalystRegistry` + `buildDefaultAnalystRegistry` (run the failure-clustering panel), `FindingsStore`, and the LLM chat transports |
 | `…/traces` | Trace stores + emitters, OTLP-JSONL deterministic replay, `analyzeTraces`, and the `traceAnalystOnRunComplete` hook |
@@ -132,9 +132,9 @@ Each example: `README.md` + a single `index.ts` runnable via `pnpm tsx`. Prints 
 | `…/wire` | The cross-language HTTP/RPC server + Zod schemas (the source-of-truth protocol the Python client speaks) + the built-in rubric registry |
 | `…/benchmarks` | `BenchmarkAdapter` contract + `deterministicSplit` + the bundled `routing` reference benchmark |
 
-**Specialized surfaces** (subpath-only): `…/prm` (process-reward grading + best-of-N), `…/meta-eval` (judge calibration + the deployment-outcome store), `…/pipelines` (trace-diagnostic views: budget breach, failure cluster, stuck loop, …), `…/governance` (EU AI Act / NIST AI RMF / SOC2 reports), `…/knowledge` (knowledge-readiness gating before a run), `…/builder-eval` (code-generator three-layer eval), `…/storyboard` (trace → watchable replay), `…/authenticity` (anti-Goodhart "real or convincing BS" scorer over produced files), `…/workflow` (workflow-trace eval + partner export), `…/telemetry` (Workers-safe telemetry client).
+**Specialized surfaces** (subpath-only): `…/prm` (process-reward grading + best-of-N), `…/meta-eval` (judge calibration + the deployment-outcome store), `…/belief-state` (decision-point extraction + selective-policy reports), `…/pipelines` (trace-diagnostic views: budget breach, failure cluster, stuck loop, …), `…/governance` (EU AI Act / NIST AI RMF / SOC2 reports), `…/knowledge` (knowledge-readiness gating before a run), `…/builder-eval` (code-generator three-layer eval), `…/storyboard` (trace → watchable replay), `…/authenticity` (anti-Goodhart "real or convincing BS" scorer over produced files), `…/workflow` (workflow-trace eval + partner export), `…/telemetry` (Workers-safe telemetry client), `…/testing` (test-only reset helpers).
 
-The root export remains available for backward compatibility; new code should prefer the focused subpaths above — `/contract` first.
+The root export remains broad for compatibility; new code should prefer the focused subpaths above — `/contract` first.
 
 ---
 
@@ -216,17 +216,16 @@ pnpm test
 
 ---
 
-## Stability + versioning
+## Public API
 
-The `/contract` surface is the **stability contract**: its barrel freezes the API — a `0.x` minor only *adds*; nothing there changes shape or disappears. Depend on `/contract` (and the documented subpaths) rather than the root barrel.
+The `/contract` surface is the **stability contract**: its barrel freezes the API — a `0.x` minor only *adds*; nothing there changes shape or disappears. Start there for app code.
 
-In the deeper subpaths, `@stable` / `@experimental` JSDoc markers (visible in IDE hover + `.d.ts`) call out what may still move — most granularly in `/rl` (tagged per export) and `/campaign` (whole barrel `@experimental`, since `/contract` re-exports only its settled subset).
-
-| Tag | Meaning |
+| Surface | Meaning |
 |---|---|
-| `@stable` | API frozen at this major. Breaking changes require a major bump. |
-| `@experimental` | Interface may evolve before becoming `@stable`. Pin the patch version if you depend on it. |
-| `@internal` | Not part of the public contract. Use the documented subpath instead. |
+| `/contract` | Frozen app-facing API. Prefer this first. |
+| Named subpaths | Public capability areas such as `/campaign`, `/rl`, `/prm`, `/meta-eval`, `/belief-state`, `/wire`, `/reporting`, `/traces`, and `/analyst`. |
+| `/testing` | Test-only helpers. Do not import from production code. |
+| Unexported source paths | Not public API. Open an issue if you need one promoted. |
 
 [`CHANGELOG.md`](./CHANGELOG.md) tracks every release with what's new / additive / breaking.
 

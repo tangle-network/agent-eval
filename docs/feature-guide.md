@@ -149,7 +149,7 @@ Store as `FeedbackTrajectory`, then derive:
 
 | Area | Key exports | Best for | Notes |
 | --- | --- | --- | --- |
-| Judging | `createCustomJudge`, `createAntiSlopJudge`, wire rubrics | Content, voice, semantic quality | Pair with objective checks when possible. |
+| Judging | `createCustomJudge`, semantic judges, anti-slop, wire rubrics | Content, voice, semantic quality | Pair with objective checks when possible. |
 | Verification | `MultiLayerVerifier`, `JudgeRunner`, sandbox harness | Code and multi-step gates | Do not let semantic judges override failed builds. |
 | Control | `runAgentControlLoop`, `objectiveEval`, `subjectiveEval` | Long-running agent tasks | Supports budgets, cost, stop policies, trace spans. |
 | Propose/review | `runProposeReview`, `runProposeReviewAsControlLoop` | Iterative artifact repair | Good for code, docs, plans, briefs. |

@@ -10,14 +10,12 @@ export type {
   JudgeAdapterOpts,
   RunCriticAdapterOpts,
   SemanticConceptJudgeAdapterOpts,
-  TraceAnalystAdapterOpts,
   VerifierAdapterOpts,
 } from './adapters'
 export {
   createJudgeAdapter,
   createRunCriticAdapter,
   createSemanticConceptJudgeAdapter,
-  createTraceAnalystAdapter,
   createVerifierAdapter,
   liftSeverity,
 } from './adapters'

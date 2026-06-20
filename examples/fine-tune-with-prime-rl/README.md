@@ -109,8 +109,8 @@ event log and join it back to the run records by `runId`.
 ## Next steps (not in this demo)
 
 - **DPO training:** route preference triples (`extractPreferences`) through
-  `toDpoRows` to HuggingFace TRL's `DPOTrainer`. Different trainer, same data
-  pipeline.
+  `toDpoRows` from `@tangle-network/agent-eval/rl` to HuggingFace TRL's
+  `DPOTrainer`. Different trainer, same data pipeline.
 - **GRPO training:** wrap agent-eval's `MultiLayerVerifier` as a
   `verifiers.Environment` and let prime-rl's online GRPO call into it. Larger
   integration; out of scope for this example.

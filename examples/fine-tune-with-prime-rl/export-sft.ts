@@ -18,7 +18,7 @@
  * The script is intentionally small (~150 LoC). Adapt freely; the
  * load-bearing pieces are:
  *   1. Reading `RunRecord`s
- *   2. `toSftRows(...)` (already in `@tangle-network/agent-eval/rl`)
+ *   2. `toSftRows(...)` from `@tangle-network/agent-eval/rl`
  *   3. `toSftJsonl(...)` (same)
  *   4. Writing a templated TOML
  */

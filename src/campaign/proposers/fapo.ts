@@ -1,6 +1,4 @@
 /**
- * @experimental
- *
  * FAPO (Fully Autonomous Prompt Optimization) is an orchestration policy, not
  * a new prompt mutation primitive. The paper's loop evaluates an inspectable
  * workflow, attributes failures to an edit level, proposes ONE scoped change,

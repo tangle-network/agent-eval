@@ -1,6 +1,4 @@
 /**
- * @experimental
- *
  * Promotion policy over the evidence VECTOR — the substrate's answer to "never
  * collapse the multi-objective promotion decision into one scalar." A
  * `defaultProductionGate` is one opinionated composition; this module factors
