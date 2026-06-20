@@ -1,5 +1,5 @@
 /**
- * Distributed-driver reference — DRIVER side.
+ * Distributed execution reference — coordinator side.
  *
  * Runs `runEval` against a remote worker via `httpDispatch`. Worker
  * should be running in another terminal: `pnpm tsx
@@ -14,7 +14,7 @@
  *   WORKER_URL_US   http://us.example.com/dispatch
  *   WORKER_URL_EU   http://eu.example.com/dispatch
  *   WORKER_URL_AP   http://ap.example.com/dispatch
- * The driver picks the region per scenario from `tags`.
+ * The coordinator picks the region per scenario from `tags`.
  */
 
 import { httpDispatch } from '../../src/adapters/http'
@@ -67,7 +67,7 @@ const judge: JudgeConfig<MarketingArtifact, MarketingScenario> = {
 const TOKEN = process.env.WORKER_TOKEN ?? 'dev-token'
 
 // Multi-region URL resolution. When the per-region env vars are set
-// the driver fans cells across them via cellPlacement; otherwise
+// the coordinator fans cells across them via cellPlacement; otherwise
 // everything routes to WORKER_URL.
 const SINGLE_URL = process.env.WORKER_URL ?? 'http://localhost:8080/dispatch'
 const REGION_URLS: Record<string, string | undefined> = {
@@ -100,7 +100,7 @@ async function main() {
     dispatch,
     judges: [judge],
     storage: inMemoryCampaignStorage(),
-    runDir: `mem://distributed-driver-${Date.now()}`,
+    runDir: `mem://distributed-coordinator-${Date.now()}`,
     maxConcurrency: 4,
     cellPlacement: IS_MULTIREGION
       ? ({ scenario }) => {
@@ -120,6 +120,6 @@ async function main() {
 }
 
 main().catch((err) => {
-  console.error('driver failed:', err)
+  console.error('coordinator failed:', err)
   process.exit(1)
 })

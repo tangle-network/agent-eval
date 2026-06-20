@@ -14,7 +14,7 @@ const proposer = (kind: string): SurfaceProposer => ({
 })
 
 // Minimal opts that reach the disjointness guard: autoOnPromote='none' skips the
-// gh-owner check; no driver/tracing avoids the tracing guard. Downstream fields
+// gh-owner check; no proposer/tracing avoids the tracing guard. Downstream fields
 // are never read — the guard throws first — so a cast is sound here.
 function optsWith(scenarios: Scenario[], holdoutScenarios: Scenario[]) {
   return {
@@ -59,15 +59,5 @@ describe('runImprovementLoop train/holdout disjointness guard', () => {
         tracing: 'off',
       }),
     ).rejects.toThrow(/proposer is wired/)
-  })
-
-  it('rejects ambiguous driver plus proposer before running a campaign', async () => {
-    await expect(
-      runImprovementLoop({
-        ...optsWith([sc('train-1')], [sc('hold-1')]),
-        proposer: proposer('preferred'),
-        driver: proposer('legacy'),
-      }),
-    ).rejects.toThrow(/either proposer or driver/)
   })
 })

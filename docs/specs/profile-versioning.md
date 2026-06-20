@@ -170,7 +170,7 @@ For the `benchmark-branches` policy, the substrate handles four cases:
 
 1. **No conflict.** Edits target different surfaces (substrate edited `systemPrompt`, harness wrote a new `skill/X.md`). Auto-merge into a combined candidate, benchmark merged vs each branch.
 
-2. **Orthogonal edits to the same surface.** Both touched `systemPrompt` but different H2 sections (subsumed by `GepaDriverConstraints.preserveSections`). Auto-merge by union of edits, benchmark.
+2. **Orthogonal edits to the same surface.** Both touched `systemPrompt` but different H2 sections (subsumed by `GepaProposerConstraints.preserveSections`). Auto-merge by union of edits, benchmark.
 
 3. **Semantic duplication.** Substrate proposed a new skill `summarize-pr`; harness already created `pr-summarizer` (similar purpose, different file). Substrate runs a similarity-detection step: embed both, threshold cosine similarity, surface as a "duplicate-likely" finding. Resolution: head-to-head benchmark with both → keep the winner → archive the loser.
 
@@ -285,7 +285,6 @@ Total: ~3 weeks of focused work. Phase 0 in this session if Drew greenlights.
 
 - Task: #98
 - Related audit: `docs/specs/hermes-self-improvement-audit.md`
-- Related spec: `docs/specs/driver-honest-spec.md`
 - Current pre-versioning `RunRecord`: `src/run-record.ts`
 - Current pre-versioning `SelfImproveResult`: `src/contract/self-improve.ts`
 - Current gate: `src/campaign/gates/default-production-gate.ts`

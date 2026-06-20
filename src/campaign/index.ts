@@ -5,9 +5,6 @@
  *
  * `runCampaign` is the measurement primitive (a surface scored over scenarios);
  * `runImprovementLoop` is the proposer-agnostic improvement loop on top of it.
- * The historical type name is `ImprovementDriver`; new docs call that role a
- * `SurfaceProposer` to avoid confusion with sandbox/router drivers that execute
- * workers.
  */
 
 // ── Meta-loop: optimize the analyst's OWN prompt as a surface ─────────
@@ -25,47 +22,6 @@ export {
   type OpenAutoPrResult,
   openAutoPr,
 } from './auto-pr'
-export { type AceDriverOptions, aceDriver } from './drivers/ace'
-export { type EvolutionaryDriverOptions, evolutionaryDriver } from './drivers/evolutionary'
-export {
-  extractFapoAttributionSignals,
-  type FapoAttributionSignals,
-  type FapoDriverOptions,
-  type FapoFailureCluster,
-  type FapoOptimizationLevel,
-  type FapoReviewInput,
-  type FapoReviewIssue,
-  type FapoReviewResult,
-  type FapoScopeContract,
-  fapoDriver,
-  type JsonPrimitive,
-  type JsonValue,
-  type ParameterCandidate,
-  type ParameterChange,
-  type ParameterSweepDriverOptions,
-  parameterSweepDriver,
-} from './drivers/fapo'
-export {
-  countSentenceEdits,
-  extractH2Sections,
-  type GepaDriverConstraints,
-  type GepaDriverOptions,
-  gepaDriver,
-} from './drivers/gepa'
-// ── Improvement drivers ──────────────────────────────────────────────
-export { type HaloDriverOptions, haloDriver } from './drivers/halo'
-export { type MemoryCurationDriverOptions, memoryCurationDriver } from './drivers/memory'
-export {
-  type ProposePatchesArgs,
-  parseSkillPatchResponse,
-  type RejectedEdit,
-  type SkillOptDriver,
-  type SkillOptDriverOptions,
-  type SkillOptEvidence,
-  SkillPatchParseError,
-  skillOptDriver,
-} from './drivers/skill-opt'
-export { type TraceAnalystDriverOptions, traceAnalystDriver } from './drivers/trace-analyst'
 // ── Gates ────────────────────────────────────────────────────────────
 export { composeGate } from './gates/compose'
 export {
@@ -113,14 +69,8 @@ export {
 } from './labeled-store/fs-adapter'
 // ── Presets (the documented public surface) ──────────────────────────
 export {
-  type CompareDriversOptions,
   type CompareProposersOptions,
-  compareDrivers,
   compareProposers,
-  type DriverComparison,
-  type DriverEntry,
-  type DriverPairwise,
-  type DriverScore,
   type FapoEntryConfig,
   fapoEscalationEntry,
   gepaParetoEntry,
@@ -131,7 +81,7 @@ export {
   type ProposerPairwise,
   type ProposerScore,
   skillOptEntry,
-} from './presets/compare-drivers'
+} from './presets/compare-proposers'
 export {
   makePlaybackDispatch,
   type PlaybackContext,
@@ -176,6 +126,47 @@ export {
   runSkillOpt,
   type SkillOptEpochRecord,
 } from './presets/run-skill-opt'
+export { type AceProposerOptions, aceProposer } from './proposers/ace'
+export { type EvolutionaryProposerOptions, evolutionaryProposer } from './proposers/evolutionary'
+export {
+  extractFapoAttributionSignals,
+  type FapoAttributionSignals,
+  type FapoFailureCluster,
+  type FapoOptimizationLevel,
+  type FapoProposerOptions,
+  type FapoReviewInput,
+  type FapoReviewIssue,
+  type FapoReviewResult,
+  type FapoScopeContract,
+  fapoProposer,
+  type JsonPrimitive,
+  type JsonValue,
+  type ParameterCandidate,
+  type ParameterChange,
+  type ParameterSweepProposerOptions,
+  parameterSweepProposer,
+} from './proposers/fapo'
+export {
+  countSentenceEdits,
+  extractH2Sections,
+  type GepaProposerConstraints,
+  type GepaProposerOptions,
+  gepaProposer,
+} from './proposers/gepa'
+// ── Surface proposers ────────────────────────────────────────────────
+export { type HaloProposerOptions, haloProposer } from './proposers/halo'
+export { type MemoryCurationProposerOptions, memoryCurationProposer } from './proposers/memory'
+export {
+  type ProposePatchesArgs,
+  parseSkillPatchResponse,
+  type RejectedEdit,
+  type SkillOptEvidence,
+  type SkillOptProposer,
+  type SkillOptProposerOptions,
+  SkillPatchParseError,
+  skillOptProposer,
+} from './proposers/skill-opt'
+export { type TraceAnalystProposerOptions, traceAnalystProposer } from './proposers/trace-analyst'
 // ── Loop provenance (durable record + OTLP spans) ────────────────────
 export {
   type BuildLoopProvenanceArgs,
@@ -219,7 +210,6 @@ export type {
   GateResult,
   GenerationCandidate,
   GenerationRecord,
-  ImprovementDriver,
   JudgeAggregate,
   JudgeConfig,
   JudgeDimension,

@@ -38,15 +38,15 @@ import {
   defaultProductionGate,
   gepaParetoEntry,
   gepaReflectionEntry,
-  haloDriver,
+  haloProposer,
   type JudgeConfig,
   type MutableSurface,
-  memoryCurationDriver,
+  memoryCurationProposer,
   type OptimizerEntryConfig,
   type ProposerEntry,
   runImprovementLoop,
   type Scenario,
-  traceAnalystDriver,
+  traceAnalystProposer,
 } from '../../../src/campaign'
 
 const execFileAsync = promisify(execFile)
@@ -255,7 +255,7 @@ function memoryEntry(
         baselineSurface: config.baselineSurface,
         dispatchWithSurface: config.dispatchWithSurface,
         judges: config.judges,
-        proposer: memoryCurationDriver({}),
+        proposer: memoryCurationProposer({}),
         populationSize: 1,
         maxGenerations: config.maxGenerations ?? MAX_GEN,
         gate: defaultProductionGate<AppWorldArtifact, AppWorldScenario>({
@@ -291,7 +291,7 @@ function haloEntry(
         baselineSurface: config.baselineSurface,
         dispatchWithSurface: config.dispatchWithSurface,
         judges: config.judges,
-        proposer: haloDriver({
+        proposer: haloProposer({
           baseUrl: BASE_URL,
           apiKey: API_KEY,
           model: REFLECT_MODEL,
@@ -359,7 +359,7 @@ function traceAnalystEntry(
         baselineSurface: config.baselineSurface,
         dispatchWithSurface: config.dispatchWithSurface,
         judges: config.judges,
-        proposer: traceAnalystDriver({
+        proposer: traceAnalystProposer({
           baseUrl: BASE_URL,
           apiKey: API_KEY,
           model: REFLECT_MODEL,

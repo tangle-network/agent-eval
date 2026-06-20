@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { isProposedCandidate, type ProposeContext, type ProposedCandidate } from '../types'
-import { memoryCurationDriver } from './memory'
+import { memoryCurationProposer } from './memory'
 
 function asCandidate(v: unknown): ProposedCandidate {
   if (!isProposedCandidate(v as never)) throw new Error('expected a ProposedCandidate')
@@ -17,14 +17,14 @@ const ctx = (currentSurface: string, findings: unknown[]): ProposeContext =>
     signal: new AbortController().signal,
   }) as unknown as ProposeContext
 
-describe('memoryCurationDriver — curates trace findings into a surface memory block', () => {
+describe('memoryCurationProposer — curates trace findings into a surface memory block', () => {
   it('returns no candidate when nothing has been learned yet (gen 0, no findings, no prior memory)', async () => {
-    const d = memoryCurationDriver()
+    const d = memoryCurationProposer()
     expect(await d.propose(ctx('BASE PROMPT', []))).toHaveLength(0)
   })
 
   it('appends a curated memory block built from findings (strings + structured)', async () => {
-    const d = memoryCurationDriver()
+    const d = memoryCurationProposer()
     const out = await d.propose(
       ctx('BASE PROMPT.', [
         'Always fetch the resource before mutating it',
@@ -44,7 +44,7 @@ describe('memoryCurationDriver — curates trace findings into a surface memory 
   })
 
   it('is idempotent + accumulative: re-curating replaces the block and ranks recurring lessons first', async () => {
-    const d = memoryCurationDriver()
+    const d = memoryCurationProposer()
     // gen 1: one lesson
     const g1 = asCandidate((await d.propose(ctx('BASE.', ['Fetch before mutate'])))[0])
     const s1 = g1.surface as string
@@ -67,7 +67,7 @@ describe('memoryCurationDriver — curates trace findings into a surface memory 
   })
 
   it('dedups near-identical lessons (case/whitespace/trailing punctuation)', async () => {
-    const d = memoryCurationDriver()
+    const d = memoryCurationProposer()
     const c = asCandidate(
       (await d.propose(ctx('BASE.', ['Fetch before mutate.', 'fetch  before   mutate'])))[0],
     )
@@ -76,7 +76,7 @@ describe('memoryCurationDriver — curates trace findings into a surface memory 
   })
 
   it('caps the block at maxEntries (retrieval, not a dump)', async () => {
-    const d = memoryCurationDriver({ maxEntries: 2 })
+    const d = memoryCurationProposer({ maxEntries: 2 })
     const c = asCandidate(
       (await d.propose(ctx('BASE.', ['lesson a', 'lesson b', 'lesson c', 'lesson d'])))[0],
     )
@@ -85,7 +85,7 @@ describe('memoryCurationDriver — curates trace findings into a surface memory 
   })
 
   it('fails loud on a code-tier surface (memory curation is prompt-tier)', async () => {
-    const d = memoryCurationDriver()
+    const d = memoryCurationProposer()
     await expect(
       d.propose({
         currentSurface: { kind: 'code', worktreeRef: 'wt/x' },

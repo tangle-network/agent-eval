@@ -118,7 +118,7 @@ export interface SplitGoldOptions {
 }
 
 export interface GoldSplit<TInput, TLabel> {
-  /** Training scenarios — the optimization pool the driver searches over. */
+  /** Training scenarios — the optimization pool the proposer searches over. */
   train: GoldScenario<TInput, TLabel>[]
   /** Held-out scenarios — kept OUT of training; scored only at the gate. */
   test: GoldScenario<TInput, TLabel>[]

@@ -8,6 +8,14 @@
  */
 
 import { OTEL_AGENT_EVAL_SCOPE, type OtlpExport, type OtlpSpan } from './otel'
+import {
+  LLM_COST_USD,
+  LLM_INPUT_TOKENS,
+  LLM_MODEL_NAME,
+  LLM_OUTPUT_TOKENS,
+  OPENINFERENCE_SPAN_KIND,
+  traceSpanKindToOpenInferenceKind,
+} from './otlp-attributes'
 
 export interface OtelExportConfig {
   /** OTLP endpoint. Reads OTEL_EXPORTER_OTLP_ENDPOINT env by default. */
@@ -154,12 +162,12 @@ function parseHeadersFromEnv(): Record<string, string> {
 function toOtlpSpan(span: ExportableSpan): OtlpSpan {
   const endedAt = span.endedAt ?? span.startedAt
   const attrs: Record<string, string | number | boolean> = {
-    'span.kind': span.kind,
+    [OPENINFERENCE_SPAN_KIND]: traceSpanKindToOpenInferenceKind(span.kind),
   }
-  if (span.model) attrs['llm.model'] = span.model
-  if (span.inputTokens !== undefined) attrs['llm.input_tokens'] = span.inputTokens
-  if (span.outputTokens !== undefined) attrs['llm.output_tokens'] = span.outputTokens
-  if (span.costUsd !== undefined) attrs['llm.cost_usd'] = span.costUsd
+  if (span.model) attrs[LLM_MODEL_NAME] = span.model
+  if (span.inputTokens !== undefined) attrs[LLM_INPUT_TOKENS] = span.inputTokens
+  if (span.outputTokens !== undefined) attrs[LLM_OUTPUT_TOKENS] = span.outputTokens
+  if (span.costUsd !== undefined) attrs[LLM_COST_USD] = span.costUsd
   if (span.attributes) {
     for (const [k, v] of Object.entries(span.attributes)) {
       if (typeof v === 'string' || typeof v === 'number' || typeof v === 'boolean') attrs[k] = v

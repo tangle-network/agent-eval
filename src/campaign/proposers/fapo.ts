@@ -8,10 +8,10 @@
  * only when prompt-level search is exhausted and attribution supports the
  * higher-cost edit.
  *
- * This substrate driver encodes that policy while keeping the edit generators
+ * This substrate proposer encodes that policy while keeping the edit generators
  * pluggable:
- *   - prompt: usually `gepaDriver`, `skillOptDriver`, or a runtime reflective proposer
- *   - parameter: `parameterSweepDriver` or a caller-supplied config proposer
+ *   - prompt: usually `gepaProposer`, `skillOptProposer`, or a runtime reflective proposer
+ *   - parameter: `parameterSweepProposer` or a caller-supplied config proposer
  *   - structural: a caller-supplied code/worktree proposer from agent-runtime
  *
  * It deliberately does not import Claude Code, LangGraph, or Cisco's tenant
@@ -28,7 +28,6 @@
 import type {
   GenerationCandidate,
   GenerationRecord,
-  ImprovementDriver,
   MutableSurface,
   ProposeContext,
   ProposedCandidate,
@@ -83,7 +82,7 @@ export interface FapoReviewInput<TFindings = unknown> {
   reason: string
 }
 
-export interface FapoDriverOptions<TFindings = unknown> {
+export interface FapoProposerOptions<TFindings = unknown> {
   /** Level-specific candidate proposers. At least one is required. */
   proposers?: Partial<Record<FapoOptimizationLevel, SurfaceProposer<TFindings>>>
   /** Convenience aliases for `proposers.<level>`. */
@@ -127,9 +126,9 @@ interface FapoPolicyState {
 }
 
 /** Build a FAPO policy proposer from level-specific candidate generators. */
-export function fapoDriver<TFindings = unknown>(
-  opts: FapoDriverOptions<TFindings>,
-): ImprovementDriver<TFindings> {
+export function fapoProposer<TFindings = unknown>(
+  opts: FapoProposerOptions<TFindings>,
+): SurfaceProposer<TFindings> {
   const proposers = levelProposers(opts)
   const allowed = allowedLevels(opts, proposers)
   const plateauWindow = opts.plateauWindow ?? 3
@@ -138,13 +137,13 @@ export function fapoDriver<TFindings = unknown>(
   const proposalsPerCycle = opts.proposalsPerCycle ?? 1
 
   if (allowed.length === 0) {
-    throw new Error('fapoDriver: at least one allowed level must have a proposer')
+    throw new Error('fapoProposer: at least one allowed level must have a proposer')
   }
-  if (plateauWindow < 1) throw new Error('fapoDriver: plateauWindow must be >= 1')
+  if (plateauWindow < 1) throw new Error('fapoProposer: plateauWindow must be >= 1')
   if (minDistinctStrategies < 1) {
-    throw new Error('fapoDriver: minDistinctStrategies must be >= 1')
+    throw new Error('fapoProposer: minDistinctStrategies must be >= 1')
   }
-  if (proposalsPerCycle < 1) throw new Error('fapoDriver: proposalsPerCycle must be >= 1')
+  if (proposalsPerCycle < 1) throw new Error('fapoProposer: proposalsPerCycle must be >= 1')
 
   return {
     kind: 'fapo',
@@ -166,7 +165,7 @@ export function fapoDriver<TFindings = unknown>(
 
       const proposer = proposers[decision.level]
       if (!proposer) {
-        throw new Error(`fapoDriver: selected ${decision.level} but no proposer is configured`)
+        throw new Error(`fapoProposer: selected ${decision.level} but no proposer is configured`)
       }
 
       const requested = Math.min(ctx.populationSize, proposalsPerCycle)
@@ -194,7 +193,7 @@ export function fapoDriver<TFindings = unknown>(
 
       if (wrapped.length > 0 && reviewed.length === 0) {
         throw new Error(
-          `fapoDriver: reviewer blocked every ${decision.level} candidate; refusing to evaluate an unreviewed variant`,
+          `fapoProposer: reviewer blocked every ${decision.level} candidate; refusing to evaluate an unreviewed variant`,
         )
       }
       return reviewed
@@ -218,7 +217,7 @@ export function fapoDriver<TFindings = unknown>(
 }
 
 function levelProposers<TFindings>(
-  opts: FapoDriverOptions<TFindings>,
+  opts: FapoProposerOptions<TFindings>,
 ): Partial<Record<FapoOptimizationLevel, SurfaceProposer<TFindings>>> {
   return {
     ...(opts.proposers ?? {}),
@@ -229,7 +228,7 @@ function levelProposers<TFindings>(
 }
 
 function allowedLevels<TFindings>(
-  opts: FapoDriverOptions<TFindings>,
+  opts: FapoProposerOptions<TFindings>,
   proposers: Partial<Record<FapoOptimizationLevel, SurfaceProposer<TFindings>>>,
 ): FapoOptimizationLevel[] {
   const explicit = opts.scope?.allowedLevels
@@ -623,7 +622,7 @@ export interface ParameterCandidate {
   changes?: readonly ParameterChange[]
 }
 
-export interface ParameterSweepDriverOptions {
+export interface ParameterSweepProposerOptions {
   candidates: readonly ParameterCandidate[]
   /** Optional parser for non-JSON config surface strings. */
   parse?: (surface: string) => Record<string, JsonValue>
@@ -632,15 +631,17 @@ export interface ParameterSweepDriverOptions {
 }
 
 /** Config/parameter-level proposer for FAPO's middle escalation level. */
-export function parameterSweepDriver(opts: ParameterSweepDriverOptions): ImprovementDriver {
+export function parameterSweepProposer(opts: ParameterSweepProposerOptions): SurfaceProposer {
   if (opts.candidates.length === 0) {
-    throw new Error('parameterSweepDriver: candidates must not be empty')
+    throw new Error('parameterSweepProposer: candidates must not be empty')
   }
   return {
     kind: 'parameter-sweep',
     async propose(ctx: ProposeContext): Promise<ProposedCandidate[]> {
       if (typeof ctx.currentSurface !== 'string') {
-        throw new Error('parameterSweepDriver: currentSurface must be a JSON string config surface')
+        throw new Error(
+          'parameterSweepProposer: currentSurface must be a JSON string config surface',
+        )
       }
       const parse = opts.parse ?? parseJsonObject
       const stringify =
@@ -668,11 +669,11 @@ function parseJsonObject(surface: string): Record<string, JsonValue> {
     parsed = JSON.parse(surface)
   } catch (error) {
     throw new Error(
-      `parameterSweepDriver: currentSurface must be valid JSON object config (${error instanceof Error ? error.message : String(error)})`,
+      `parameterSweepProposer: currentSurface must be valid JSON object config (${error instanceof Error ? error.message : String(error)})`,
     )
   }
   if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
-    throw new Error('parameterSweepDriver: JSON surface must parse to an object')
+    throw new Error('parameterSweepProposer: JSON surface must parse to an object')
   }
   return parsed as Record<string, JsonValue>
 }
@@ -721,7 +722,7 @@ function deepMerge(target: Record<string, JsonValue>, patch: Record<string, Json
 }
 
 function setPath(target: Record<string, JsonValue>, path: string[], value: JsonValue): void {
-  if (path.length === 0) throw new Error('parameterSweepDriver: change path must not be empty')
+  if (path.length === 0) throw new Error('parameterSweepProposer: change path must not be empty')
   for (const part of path) assertSafeJsonKey(part)
   let cursor: Record<string, JsonValue> = target
   for (const part of path.slice(0, -1)) {
@@ -735,9 +736,9 @@ function setPath(target: Record<string, JsonValue>, path: string[], value: JsonV
 }
 
 function assertSafeJsonKey(key: string): void {
-  if (!key.trim()) throw new Error('parameterSweepDriver: change path contains an empty key')
+  if (!key.trim()) throw new Error('parameterSweepProposer: change path contains an empty key')
   if (UNSAFE_JSON_KEYS.has(key)) {
-    throw new Error(`parameterSweepDriver: unsafe JSON key "${key}" is not allowed`)
+    throw new Error(`parameterSweepProposer: unsafe JSON key "${key}" is not allowed`)
   }
 }
 

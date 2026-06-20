@@ -3,16 +3,14 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import {
-  compareDrivers,
   compareProposers,
-  type DriverEntry,
   fapoEscalationEntry,
   gepaParetoEntry,
   gepaReflectionEntry,
   type OptimizerEntryConfig,
   type ProposerEntry,
   skillOptEntry,
-} from '../../src/campaign/presets/compare-drivers'
+} from '../../src/campaign/presets/compare-proposers'
 import type { JudgeConfig, Scenario } from '../../src/campaign/types'
 
 interface S extends Scenario {
@@ -40,9 +38,9 @@ const judge: JudgeConfig<A, S> = {
   },
 }
 
-/** A driver entry that "promotes" a fixed surface (no LLM) — lets the
+/** A proposer entry that "promotes" a fixed surface (no LLM) — lets the
  *  benchmark harness be exercised deterministically in CI. */
-function fixedEntry(name: string, winnerSurface: string, costUsd: number): DriverEntry {
+function fixedEntry(name: string, winnerSurface: string, costUsd: number): ProposerEntry {
   return { name, optimize: async () => ({ winnerSurface, costUsd, durationMs: 1 }) }
 }
 
@@ -58,11 +56,11 @@ afterEach(() => {
   rmSync(runDir, { recursive: true, force: true })
 })
 
-describe('compareDrivers', () => {
-  it('ranks drivers by held-out lift, scores every winner uniformly, computes CIs', async () => {
-    // Baseline solves nothing. Strong driver solves all 4; weak solves 1.
-    const result = await compareDrivers<S, A>({
-      drivers: [
+describe('compareProposers', () => {
+  it('ranks proposers by held-out lift, scores every winner uniformly, computes CIs', async () => {
+    // Baseline solves nothing. Strong proposer solves all 4; weak solves 1.
+    const result = await compareProposers<S, A>({
+      proposers: [
         fixedEntry('weak', 'SOLVE_h1', 0.5),
         fixedEntry('strong', 'SOLVE_h1 SOLVE_h2 SOLVE_h3 SOLVE_h4', 2.0),
       ],
@@ -81,7 +79,7 @@ describe('compareDrivers', () => {
     expect(result.scores[0]!.rank).toBe(1)
     expect(result.scores[1]!.rank).toBe(2)
 
-    // Baseline is identical for every driver (uniform scoring).
+    // Baseline is identical for every proposer (uniform scoring).
     expect(result.scores[0]!.baselineComposite).toBe(0)
     expect(result.scores[1]!.baselineComposite).toBe(0)
 
@@ -106,9 +104,9 @@ describe('compareDrivers', () => {
     expect(result.holdoutScenarioIds).toEqual(['h1', 'h2', 'h3', 'h4'])
   })
 
-  it('reports a tie (CI straddling 0) when two drivers solve the same scenarios', async () => {
-    const result = await compareDrivers<S, A>({
-      drivers: [fixedEntry('a', 'SOLVE_h1 SOLVE_h2', 1), fixedEntry('b', 'SOLVE_h1 SOLVE_h2', 1)],
+  it('reports a tie (CI straddling 0) when two proposers solve the same scenarios', async () => {
+    const result = await compareProposers<S, A>({
+      proposers: [fixedEntry('a', 'SOLVE_h1 SOLVE_h2', 1), fixedEntry('b', 'SOLVE_h1 SOLVE_h2', 1)],
       baselineSurface: 'nothing',
       holdoutScenarios: HOLDOUT,
       dispatchWithSurface: async (surface) => ({ text: String(surface) }),
@@ -121,9 +119,9 @@ describe('compareDrivers', () => {
     expect(result.pairwise[0]!.favored).toBe('tie')
   })
 
-  it('a cheaper driver wins a lift tie (cost tie-break)', async () => {
-    const result = await compareDrivers<S, A>({
-      drivers: [
+  it('a cheaper proposer wins a lift tie (cost tie-break)', async () => {
+    const result = await compareProposers<S, A>({
+      proposers: [
         fixedEntry('expensive', 'SOLVE_h1 SOLVE_h2', 9),
         fixedEntry('cheap', 'SOLVE_h1 SOLVE_h2', 1),
       ],
@@ -140,7 +138,7 @@ describe('compareDrivers', () => {
 
   it('FAILS LOUD when a surface is missing a held-out scenario score (no fabricated 0)', async () => {
     // A judge that errors on h3 → that cell has no score → the baseline score
-    // vector omits h3. compareDrivers must refuse to fabricate a 0 for the
+    // vector omits h3. compareProposers must refuse to fabricate a 0 for the
     // missing scenario (which would corrupt the lift CI) and throw, naming h3.
     const flakeyJudge: JudgeConfig<S, A> = {
       name: 'flakey',
@@ -151,8 +149,8 @@ describe('compareDrivers', () => {
       },
     }
     await expect(
-      compareDrivers<S, A>({
-        drivers: [fixedEntry('d', 'whatever', 1)],
+      compareProposers<S, A>({
+        proposers: [fixedEntry('d', 'whatever', 1)],
         baselineSurface: 'b',
         holdoutScenarios: HOLDOUT,
         dispatchWithSurface: async (surface) => ({ text: String(surface) }),
@@ -163,17 +161,17 @@ describe('compareDrivers', () => {
     ).rejects.toThrow(/h3/)
   })
 
-  it('throws on an empty driver list', async () => {
+  it('throws on an empty proposer list', async () => {
     await expect(
-      compareDrivers<S, A>({
-        drivers: [],
+      compareProposers<S, A>({
+        proposers: [],
         baselineSurface: 'x',
         holdoutScenarios: HOLDOUT,
         dispatchWithSurface: async (surface) => ({ text: String(surface) }),
         judges: [judge],
         runDir,
       }),
-    ).rejects.toThrow(/no drivers/)
+    ).rejects.toThrow(/no proposers/)
   })
 
   it('accepts compareProposers + proposers for the clearer public vocabulary', async () => {
@@ -193,21 +191,6 @@ describe('compareDrivers', () => {
 
     expect(result.best.name).toBe('strong')
     expect(result.scores.map((s) => s.name)).toEqual(['strong', 'weak'])
-  })
-
-  it('fails loud when compareProposers receives different proposers and drivers arrays', async () => {
-    await expect(
-      compareProposers<S, A>({
-        proposers: [fixedProposer('a', 'SOLVE_h1', 1)],
-        drivers: [fixedProposer('b', 'SOLVE_h2', 1)],
-        baselineSurface: 'nothing',
-        holdoutScenarios: HOLDOUT,
-        dispatchWithSurface: async (surface) => ({ text: String(surface) }),
-        judges: [judge],
-        runDir,
-        expectUsage: 'off',
-      }),
-    ).rejects.toThrow(/either proposers or drivers/)
   })
 
   it('uses compareProposers in downstream validation errors', async () => {
@@ -236,15 +219,15 @@ describe('compareDrivers', () => {
 
 // ── End-to-end: the REAL built-in entries through the REAL loops ───────────
 //
-// Only the LLM transport is faked (a process boundary). gepaDriver +
-// runImprovementLoop, skillOptDriver + runSkillOpt, and compareDrivers all run
+// Only the LLM transport is faked (a process boundary). gepaProposer +
+// runImprovementLoop, skillOptProposer + runSkillOpt, and compareProposers all run
 // for real. The fake router improves the surface so a measured ranking falls
 // out: GEPA rewrites the surface to carry BOTH reward markers (composite 1.0);
 // SkillOpt patches in only ONE (composite 0.5). The regression this catches:
 // any break in how an entry wires its loop, returns its winner, or reports
 // cost — which the synthetic-entry tests above cannot see.
 
-describe('compareDrivers — built-in entries, real loops, faked LLM only', () => {
+describe('compareProposers — built-in entries, real loops, faked LLM only', () => {
   const M1 = 'MARKER_ONE'
   const M2 = 'MARKER_TWO'
   // Two reward markers; each holdout scenario rewards their PRESENCE equally.
@@ -313,8 +296,8 @@ describe('compareDrivers — built-in entries, real loops, faked LLM only', () =
       maxEpochs: 2,
     }
 
-    const result = await compareDrivers<S, A>({
-      drivers: [gepaReflectionEntry(config), gepaParetoEntry(config), skillOptEntry(config)],
+    const result = await compareProposers<S, A>({
+      proposers: [gepaReflectionEntry(config), gepaParetoEntry(config), skillOptEntry(config)],
       baselineSurface: baseline,
       holdoutScenarios: HOLDOUT,
       dispatchWithSurface: config.dispatchWithSurface,
@@ -349,7 +332,7 @@ describe('compareDrivers — built-in entries, real loops, faked LLM only', () =
 
   it("forwards config.findings through the GEPA entry → the finding reaches propose()'s reflection prompt (EYES→HANDS)", async () => {
     // The wiring this guards: OptimizerEntryConfig.findings → gepaEntry →
-    // runImprovementLoop → runOptimization → ctx.findings → gepaDriver.propose →
+    // runImprovementLoop → runOptimization → ctx.findings → gepaProposer.propose →
     // reflection prompt. Capture the user prompt and assert the diagnosis landed.
     const baseline = '# Skill\n- base rule'
     const prompts: string[] = []
@@ -391,8 +374,8 @@ describe('compareDrivers — built-in entries, real loops, faked LLM only', () =
       ],
     }
 
-    await compareDrivers<S, A>({
-      drivers: [gepaReflectionEntry(config)],
+    await compareProposers<S, A>({
+      proposers: [gepaReflectionEntry(config)],
       baselineSurface: baseline,
       holdoutScenarios: HOLDOUT,
       dispatchWithSurface: config.dispatchWithSurface,
@@ -447,8 +430,8 @@ describe('compareDrivers — built-in entries, real loops, faked LLM only', () =
       maxGenerations: 1,
     }
 
-    const result = await compareDrivers<S, A>({
-      drivers: [fapoEscalationEntry(config)],
+    const result = await compareProposers<S, A>({
+      proposers: [fapoEscalationEntry(config)],
       baselineSurface: baseline,
       holdoutScenarios: HOLDOUT,
       dispatchWithSurface: config.dispatchWithSurface,

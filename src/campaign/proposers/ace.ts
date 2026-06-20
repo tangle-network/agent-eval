@@ -1,8 +1,8 @@
 /**
  * @experimental
  *
- * `aceDriver` — Agentic Context Engineering: an APPEND-MOSTLY curator, the
- * deliberate contrast to `memoryCurationDriver`'s dedup-and-replace. ACE's
+ * `aceProposer` — Agentic Context Engineering: an APPEND-MOSTLY curator, the
+ * deliberate contrast to `memoryCurationProposer`'s dedup-and-replace. ACE's
  * thesis (arXiv:2510.04618) is that aggressively deduping/rewriting a context
  * causes "context collapse" — hard-won specific lessons get summarized away. So
  * the playbook GROWS by appending each generation's new lessons as provenance-
@@ -24,7 +24,7 @@
  * playbook is unchanged — nothing to propose), never a fabricated bullet.
  */
 
-import type { ImprovementDriver, ProposeContext, ProposedCandidate } from '../types'
+import type { ProposeContext, ProposedCandidate, SurfaceProposer } from '../types'
 import {
   extractBlockBody,
   findingToLesson,
@@ -33,11 +33,11 @@ import {
   surfaceToText,
 } from './_findings-text'
 
-const BLOCK_START = '<!-- BEGIN ace-playbook (auto-managed by aceDriver) -->'
+const BLOCK_START = '<!-- BEGIN ace-playbook (auto-managed by aceProposer) -->'
 const BLOCK_END = '<!-- END ace-playbook -->'
 const DEFAULT_HEADING = '## Playbook (accumulated lessons — append-only)'
 
-export interface AceDriverOptions {
+export interface AceProposerOptions {
   /** Max delta bullets retained in the playbook. On overflow the OLDEST are
    *  evicted (FIFO) — never merged. Default 50 (ACE keeps a long context). */
   maxEntries?: number
@@ -67,9 +67,9 @@ function parsePlaybook(surface: string): Bullet[] {
   return out
 }
 
-export function aceDriver(opts: AceDriverOptions = {}): ImprovementDriver {
+export function aceProposer(opts: AceProposerOptions = {}): SurfaceProposer {
   const maxEntries = opts.maxEntries ?? 50
-  if (maxEntries < 1) throw new Error('aceDriver: maxEntries must be >= 1')
+  if (maxEntries < 1) throw new Error('aceProposer: maxEntries must be >= 1')
   const heading = opts.sectionHeading ?? DEFAULT_HEADING
 
   return {

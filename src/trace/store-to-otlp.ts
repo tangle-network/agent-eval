@@ -20,6 +20,15 @@
 
 import { readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
+import {
+  LLM_COST_USD,
+  LLM_INPUT_TOKENS,
+  LLM_MODEL_NAME,
+  LLM_OUTPUT_TOKENS,
+  OPENINFERENCE_SPAN_KIND,
+  TOOL_NAME,
+  traceSpanKindToOpenInferenceKind,
+} from './otlp-attributes'
 import type { Run, Span, TraceEvent } from './schema'
 
 /** Marker `FileSystemTraceStore` stamps on partial-update NDJSON rows. */
@@ -235,7 +244,7 @@ function projectCell(args: {
         ? 'STATUS_CODE_ERROR'
         : 'STATUS_CODE_OK'
     const runAttrs: Record<string, unknown> = {
-      'openinference.span.kind': 'AGENT',
+      [OPENINFERENCE_SPAN_KIND]: 'AGENT',
       'agent.name': agentName,
       'agent.workflow.name': serviceName,
       ...runAttributes(run),
@@ -372,13 +381,13 @@ function readMergedShards<T extends { _update?: boolean }>(
 
 function spanToAttributes(span: Span, events: TraceEvent[]): Record<string, unknown> {
   const attrs: Record<string, unknown> = {
-    'openinference.span.kind': spanKindToOpenInferenceKind(span.kind),
+    [OPENINFERENCE_SPAN_KIND]: traceSpanKindToOpenInferenceKind(span.kind),
   }
   if (span.kind === 'llm') {
-    attrs['llm.model_name'] = span.model
-    if (span.inputTokens !== undefined) attrs['llm.token_count.prompt'] = span.inputTokens
-    if (span.outputTokens !== undefined) attrs['llm.token_count.completion'] = span.outputTokens
-    if (span.costUsd !== undefined) attrs['llm.cost_usd'] = span.costUsd
+    attrs[LLM_MODEL_NAME] = span.model
+    if (span.inputTokens !== undefined) attrs[LLM_INPUT_TOKENS] = span.inputTokens
+    if (span.outputTokens !== undefined) attrs[LLM_OUTPUT_TOKENS] = span.outputTokens
+    if (span.costUsd !== undefined) attrs[LLM_COST_USD] = span.costUsd
     if (span.finishReason) attrs['llm.finish_reason'] = span.finishReason
     if (Array.isArray(span.messages)) {
       attrs['llm.input_messages'] = JSON.stringify(span.messages.slice(-6))
@@ -387,7 +396,7 @@ function spanToAttributes(span: Span, events: TraceEvent[]): Record<string, unkn
       attrs['llm.output_messages'] = JSON.stringify([{ role: 'assistant', content: span.output }])
     }
   } else if (span.kind === 'tool') {
-    attrs['tool.name'] = span.toolName
+    attrs[TOOL_NAME] = span.toolName
     if (span.latencyMs !== undefined) attrs['tool.latency_ms'] = span.latencyMs
     attrs['input.value'] = safeStringify(span.args)
     if (span.result !== undefined) attrs['output.value'] = safeStringify(span.result)
@@ -417,25 +426,6 @@ function spanKindToOtlpKind(kind: Span['kind']): string {
       return 'SPAN_KIND_CLIENT'
     default:
       return 'SPAN_KIND_INTERNAL'
-  }
-}
-
-function spanKindToOpenInferenceKind(kind: Span['kind']): string {
-  switch (kind) {
-    case 'llm':
-      return 'LLM'
-    case 'tool':
-      return 'TOOL'
-    case 'retrieval':
-      return 'CHAIN'
-    case 'judge':
-      return 'GUARDRAIL'
-    case 'sandbox':
-      return 'CHAIN'
-    case 'agent':
-      return 'AGENT'
-    default:
-      return 'SPAN'
   }
 }
 

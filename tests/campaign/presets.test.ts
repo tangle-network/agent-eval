@@ -9,10 +9,10 @@ import {
   type DispatchFn,
   defaultProductionGate,
   emitLoopProvenance,
-  evolutionaryDriver,
+  evolutionaryProposer,
   FsLabeledScenarioStore,
   type Gate,
-  gepaDriver,
+  gepaProposer,
   heldOutGate,
   inMemoryCampaignStorage,
   type JudgeConfig,
@@ -159,21 +159,21 @@ describe('heldOutGate', () => {
   })
 })
 
-// ── gepaDriver end-to-end through runImprovementLoop + defaultProductionGate ─
+// ── gepaProposer end-to-end through runImprovementLoop + defaultProductionGate ─
 
-describe('gepaDriver → runImprovementLoop → defaultProductionGate (full wiring)', () => {
-  // The honesty gap (#101/#106): gepaDriver was only unit-tested in isolation
+describe('gepaProposer → runImprovementLoop → defaultProductionGate (full wiring)', () => {
+  // The honesty gap (#101/#106): gepaProposer was only unit-tested in isolation
   // with a fake fetch returning canned payloads — never driven through the
   // whole loop to a measured held-out lift + a real gate promotion. This test
   // closes the WIRING half of that gap deterministically (the live-router
   // half lives in examples/substrate-lift-proof): a weak baseline scores 0,
-  // gepaDriver's reflected candidate scores 1, the holdout re-score sees the
+  // gepaProposer's reflected candidate scores 1, the holdout re-score sees the
   // delta, and defaultProductionGate promotes. The regression it catches: any
   // refactor that collapses the candidate/baseline holdout maps (delta→0) or
-  // drops the driver's proposal before the gate (winner == baseline).
+  // drops the proposer's proposal before the gate (winner == baseline).
 
   // The worker scores 1 iff the surface carries the schema directive the
-  // driver is supposed to introduce; the weak baseline lacks it → scores 0.
+  // proposer is supposed to introduce; the weak baseline lacks it → scores 0.
   const SCHEMA_MARKER = 'OUTPUT_STRICT_SCHEMA'
   const judge: JudgeConfig<FakeArtifact, FakeScenario> = {
     name: 'has-schema',
@@ -184,10 +184,10 @@ describe('gepaDriver → runImprovementLoop → defaultProductionGate (full wiri
     },
   }
 
-  // Fake router for the driver's reflection: returns one candidate surface
+  // Fake router for the proposer's reflection: returns one candidate surface
   // that contains the marker. This is the LLM's job in the live proof —
   // here it is stubbed so the wiring is deterministic + offline.
-  function driverFetch(): typeof fetch {
+  function proposerFetch(): typeof fetch {
     return (async () => {
       const proposals = [
         { label: 'fix', rationale: 'add schema directive', payload: `BASE ${SCHEMA_MARKER}` },
@@ -200,9 +200,9 @@ describe('gepaDriver → runImprovementLoop → defaultProductionGate (full wiri
     }) as unknown as typeof fetch
   }
 
-  it('promotes a real driver-proposed lift on the held-out split', async () => {
-    const driver = gepaDriver({
-      llm: { apiKey: 'k', baseUrl: 'https://router.test/v1', fetch: driverFetch() },
+  it('promotes a real proposer-proposed lift on the held-out split', async () => {
+    const proposer = gepaProposer({
+      llm: { apiKey: 'k', baseUrl: 'https://router.test/v1', fetch: proposerFetch() },
       model: 'test-model',
       target: 'enforce a strict output schema',
     })
@@ -214,7 +214,7 @@ describe('gepaDriver → runImprovementLoop → defaultProductionGate (full wiri
       // The worker echoes the surface it was given — the judge keys on the marker.
       dispatchWithSurface: async (surface) => ({ text: String(surface) }),
       judges: [judge],
-      driver,
+      proposer,
       populationSize: 1,
       maxGenerations: 1,
       promoteTopK: 1,
@@ -234,7 +234,7 @@ describe('gepaDriver → runImprovementLoop → defaultProductionGate (full wiri
     expect(winnerMean).toBe(1)
     expect(result.gateResult.delta).toBeCloseTo(1)
     expect(result.gateResult.decision).toBe('ship')
-    // The promoted surface is the driver's proposal, NOT the baseline.
+    // The promoted surface is the proposer's proposal, NOT the baseline.
     expect(String(result.winnerSurface)).toContain(SCHEMA_MARKER)
     expect(String(result.winnerSurface)).not.toBe('BASE')
   })
@@ -246,8 +246,8 @@ describe('gepaDriver → runImprovementLoop → defaultProductionGate (full wiri
     // crash (e.g. a scorer that threw on a malformed persona). The loop must
     // REFUSE and surface the underlying failure instead of emitting a verdict
     // over an empty holdout.
-    const driver = gepaDriver({
-      llm: { apiKey: 'k', baseUrl: 'https://router.test/v1', fetch: driverFetch() },
+    const proposer = gepaProposer({
+      llm: { apiKey: 'k', baseUrl: 'https://router.test/v1', fetch: proposerFetch() },
       model: 'test-model',
       target: 'enforce a strict output schema',
     })
@@ -264,7 +264,7 @@ describe('gepaDriver → runImprovementLoop → defaultProductionGate (full wiri
           return { text: String(surface) }
         },
         judges: [judge],
-        driver,
+        proposer,
         populationSize: 1,
         maxGenerations: 1,
         promoteTopK: 1,
@@ -279,8 +279,8 @@ describe('gepaDriver → runImprovementLoop → defaultProductionGate (full wiri
     ).rejects.toThrow(/holdout produced no scorable cells/)
   })
 
-  it('holds when the driver proposes no improvement (winner == baseline)', async () => {
-    // Driver returns only the parent surface → deduped to empty → winner stays
+  it('holds when the proposer proposes no improvement (winner == baseline)', async () => {
+    // Proposer returns only the parent surface → deduped to empty → winner stays
     // baseline → holdout delta 0 → gate holds. Guards the "nothing to ship" path.
     const noopFetch = (async () => {
       const content = JSON.stringify({
@@ -298,7 +298,7 @@ describe('gepaDriver → runImprovementLoop → defaultProductionGate (full wiri
       baselineSurface: 'BASE',
       dispatchWithSurface: async (surface) => ({ text: String(surface) }),
       judges: [judge],
-      driver: gepaDriver({
+      proposer: gepaProposer({
         llm: { apiKey: 'k', baseUrl: 'https://router.test/v1', fetch: noopFetch },
         model: 'test-model',
         target: 'enforce a strict output schema',
@@ -337,7 +337,7 @@ describe('gepaDriver → runImprovementLoop → defaultProductionGate (full wiri
 
 describe('loop provenance emission (transaction-extraction shape, offline)', () => {
   // This is the deterministic, offline twin of examples/substrate-lift-proof:
-  // a weak baseline ('Extract the transaction info.') scores 0, gepaDriver's
+  // a weak baseline ('Extract the transaction info.') scores 0, gepaProposer's
   // reflected candidate carries the schema marker and scores 1, the holdout
   // re-score sees the +1 lift, defaultProductionGate ships. It then asserts
   // the FULL provenance chain the audit + ADC require is emitted + durable:
@@ -363,7 +363,7 @@ describe('loop provenance emission (transaction-extraction shape, offline)', () 
     },
   }
 
-  function driverFetch(): typeof fetch {
+  function proposerFetch(): typeof fetch {
     return (async () => {
       const proposals = [{ label: LABEL, rationale: RATIONALE, payload: `BASE ${SCHEMA_MARKER}` }]
       const content = JSON.stringify({ proposals })
@@ -397,8 +397,8 @@ describe('loop provenance emission (transaction-extraction shape, offline)', () 
   }
 
   it('emits the full chain + the +lift recomputes from the emitted record', async () => {
-    const driver = gepaDriver({
-      llm: { apiKey: 'k', baseUrl: 'https://router.test/v1', fetch: driverFetch() },
+    const proposer = gepaProposer({
+      llm: { apiKey: 'k', baseUrl: 'https://router.test/v1', fetch: proposerFetch() },
       model: 'test-model',
       target: 'enforce a strict output schema',
     })
@@ -409,7 +409,7 @@ describe('loop provenance emission (transaction-extraction shape, offline)', () 
       baselineSurface: 'BASE',
       dispatchWithSurface: async (surface) => ({ text: String(surface) }),
       judges: [judge],
-      driver,
+      proposer,
       populationSize: 1,
       maxGenerations: 1,
       promoteTopK: 1,
@@ -766,7 +766,7 @@ describe('runImprovementLoop — safety pre-flight', () => {
     holdoutScenarios: HOLDOUT,
     baselineSurface: 'You are helpful.',
     dispatchWithSurface: async (_s: string, sc: FakeScenario) => ({ text: sc.id }),
-    driver: evolutionaryDriver({ mutator: noopMutator }),
+    proposer: evolutionaryProposer({ mutator: noopMutator }),
     populationSize: 1,
     maxGenerations: 1,
     gate: heldOutGate({ scenarios: HOLDOUT, deltaThreshold: -10 }),
@@ -828,7 +828,7 @@ describe('runOptimization', () => {
           dispatchWithSurface: async (surface: string, s: FakeScenario) => ({
             text: `${surface}::${s.id}`,
           }),
-          driver: evolutionaryDriver({ mutator: noopMutator }),
+          proposer: evolutionaryProposer({ mutator: noopMutator }),
           populationSize: 1,
           maxGenerations: 1,
           runDir: undefined as unknown as string,
@@ -855,7 +855,7 @@ describe('runOptimization', () => {
       scenarios: SCENARIOS,
       baselineSurface: 'base',
       dispatchWithSurface,
-      driver: evolutionaryDriver({ mutator: noopMutator }),
+      proposer: evolutionaryProposer({ mutator: noopMutator }),
       populationSize: 2,
       maxGenerations: 2,
       runDir,
@@ -867,8 +867,8 @@ describe('runOptimization', () => {
     expect(result.baselineCampaign.cells).toHaveLength(2)
   })
 
-  it('records per-candidate dimensional + per-scenario scores (reflective-driver evidence)', async () => {
-    // The reflective driver needs to see WHICH dimensions a candidate is weak
+  it('records per-candidate dimensional + per-scenario scores (reflective-proposer evidence)', async () => {
+    // The reflective proposer needs to see WHICH dimensions a candidate is weak
     // on and WHICH scenarios it best/worst handled — not just one composite.
     const judge: JudgeConfig<FakeArtifact, FakeScenario> = {
       name: 'dim-judge',
@@ -895,7 +895,7 @@ describe('runOptimization', () => {
         text: `${surface}::${s.id}`,
       }),
       judges: [judge],
-      driver: evolutionaryDriver({ mutator: noopMutator }),
+      proposer: evolutionaryProposer({ mutator: noopMutator }),
       populationSize: 2,
       maxGenerations: 1,
       runDir,
@@ -912,12 +912,12 @@ describe('runOptimization', () => {
     expect(sa.composite).toBeGreaterThan(sb.composite)
   })
 
-  it('drives via ANY ImprovementDriver, not just a mutator (analyst-style)', async () => {
-    // A reflective driver that reasons over history instead of mutating —
-    // proves the loop is driver-agnostic. This is the shape an analystDriver
+  it('drives via ANY SurfaceProposer, not just a mutator (analyst-style)', async () => {
+    // A reflective proposer that reasons over history instead of mutating —
+    // proves the loop is proposer-agnostic. This is the shape an analystProposer
     // (consumer-wired from runAnalystLoop) conforms to.
     const proposeCalls: number[] = []
-    const reflectiveDriver = {
+    const reflectiveProposer = {
       kind: 'reflective:test',
       async propose({ currentSurface, history, generation, populationSize }) {
         proposeCalls.push(generation)
@@ -935,7 +935,7 @@ describe('runOptimization', () => {
       dispatchWithSurface: async (surface: string, s: FakeScenario) => ({
         text: `${surface}::${s.id}`,
       }),
-      driver: reflectiveDriver,
+      proposer: reflectiveProposer,
       populationSize: 2,
       maxGenerations: 3,
       runDir,
@@ -946,9 +946,9 @@ describe('runOptimization', () => {
     expect(result.winnerSurfaceHash).toMatch(/^[a-f0-9]{16}$/)
   })
 
-  it('honors driver.decide() early-stop', async () => {
+  it('honors proposer.decide() early-stop', async () => {
     let proposeCount = 0
-    const stopAfterOneDriver = {
+    const stopAfterOneProposer = {
       kind: 'stop-after-one',
       async propose({ currentSurface, populationSize }) {
         proposeCount += 1
@@ -966,7 +966,7 @@ describe('runOptimization', () => {
       dispatchWithSurface: async (surface: string, s: FakeScenario) => ({
         text: `${surface}::${s.id}`,
       }),
-      driver: stopAfterOneDriver,
+      proposer: stopAfterOneProposer,
       populationSize: 1,
       maxGenerations: 10,
       runDir,
@@ -978,14 +978,14 @@ describe('runOptimization', () => {
   })
 
   it('forwards the widened ProposeContext (dataset, report, maxImprovementShots)', async () => {
-    // Proves the loop hands a code-tier driver the data it needs to ground
+    // Proves the loop hands a code-tier proposer the data it needs to ground
     // proposals: the dataset handle, the Phase-2 report, and the depth knob.
     const seen: Array<{
       hasDataset: boolean
       report: unknown
       maxImprovementShots: number | undefined
     }> = []
-    const contextSnoopDriver = {
+    const contextSnoopProposer = {
       kind: 'snoop',
       async propose(ctx: {
         currentSurface: MutableSurface
@@ -1010,7 +1010,7 @@ describe('runOptimization', () => {
       dispatchWithSurface: async (surface: string, s: FakeScenario) => ({
         text: `${surface}::${s.id}`,
       }),
-      driver: contextSnoopDriver,
+      proposer: contextSnoopProposer,
       populationSize: 1,
       maxGenerations: 1,
       labeledStore: store,
@@ -1055,7 +1055,7 @@ describe('runOptimization — GEPA Pareto frontier', () => {
 
   it('threads the non-dominated set; composite-worse-but-uniquely-best survives', async () => {
     const seenParents: Array<Array<{ hash: string; composite: number }>> = []
-    const probeDriver = {
+    const probeProposer = {
       kind: 'pareto-probe',
       async propose(ctx: {
         generation: number
@@ -1076,7 +1076,7 @@ describe('runOptimization — GEPA Pareto frontier', () => {
       baselineSurface: 'base',
       dispatchWithSurface: async (surface) => ({ text: String(surface) }),
       judges: [lookupJudge],
-      driver: probeDriver,
+      proposer: probeProposer,
       populationSize: 2,
       maxGenerations: 2,
       runDir,
@@ -1128,7 +1128,7 @@ describe('runOptimization — GEPA Pareto frontier', () => {
       baselineSurface: 'base',
       dispatchWithSurface: async (surface) => ({ text: String(surface) }),
       judges: [floorJudge],
-      driver: {
+      proposer: {
         kind: 'pareto-probe',
         async propose(ctx: { generation: number }): Promise<MutableSurface[]> {
           return ctx.generation === 0 ? ['X', 'Y'] : []
@@ -1172,9 +1172,9 @@ describe('MutableSurface widening', () => {
   })
 
   it('drives an improvement loop over CodeSurface candidates (tier 4)', async () => {
-    // A driver that proposes code surfaces (worktree refs), not prompts.
+    // A proposer that proposes code surfaces (worktree refs), not prompts.
     // The dispatch checks out the worktree conceptually and runs the worker.
-    const codeDriver = {
+    const codeProposer = {
       kind: 'autoresearch:test',
       async propose({
         generation,
@@ -1202,7 +1202,7 @@ describe('MutableSurface widening', () => {
       scenarios: SCENARIOS,
       baselineSurface: { kind: 'code', worktreeRef: '/wt/main', baseRef: 'main' },
       dispatchWithSurface,
-      driver: codeDriver,
+      proposer: codeProposer,
       populationSize: 2,
       maxGenerations: 2,
       runDir,
@@ -1310,7 +1310,7 @@ describe('emitLoopProvenance — hosted ingest (eval-run + traces)', () => {
 })
 
 describe('runImprovementLoop — no-op guard (empty-diff false-ship killer)', () => {
-  // Regression for the observed production false positive: the gepaDriver's
+  // Regression for the observed production false positive: the gepaProposer's
   // candidate did NOT beat the training baseline, so the winner stayed the
   // baseline (empty diff) — yet the loop re-scored baseline-vs-itself on the
   // holdout, read model noise as a +4 "lift", and SHIPPED. A winner identical
@@ -1325,7 +1325,7 @@ describe('runImprovementLoop — no-op guard (empty-diff false-ship killer)', ()
       return { dimensions: { q: ok }, composite: ok, notes: '' }
     },
   }
-  // Driver proposes a STRICTLY WEAKER candidate (no marker → scores 0 < baseline 1).
+  // Proposer proposes a STRICTLY WEAKER candidate (no marker → scores 0 < baseline 1).
   const weakerProposalFetch = (async () => {
     const content = JSON.stringify({
       proposals: [{ label: 'weaker', rationale: 'r', payload: 'WEAKER_CANDIDATE' }],
@@ -1343,7 +1343,7 @@ describe('runImprovementLoop — no-op guard (empty-diff false-ship killer)', ()
       baselineSurface: STRONG,
       dispatchWithSurface: async (surface) => ({ text: String(surface) }),
       judges: [prefersBaseline],
-      driver: gepaDriver({
+      proposer: gepaProposer({
         llm: { apiKey: 'k', baseUrl: 'https://router.test/v1', fetch: weakerProposalFetch },
         model: 'm',
         target: 't',
@@ -1379,9 +1379,9 @@ describe('runOptimization — analyzeGeneration feeds findings forward', () => {
 
   it("re-diagnoses each generation and feeds the fresh findings into the NEXT generation's propose()", async () => {
     const seen: unknown[][] = []
-    // A recorder driver: captures ctx.findings each generation, returns a
+    // A recorder proposer: captures ctx.findings each generation, returns a
     // distinct candidate so the loop advances.
-    const driver = {
+    const proposer = {
       kind: 'recorder',
       async propose(ctx: ProposeContext) {
         seen.push(ctx.findings)
@@ -1394,7 +1394,7 @@ describe('runOptimization — analyzeGeneration feeds findings forward', () => {
       baselineSurface: 'BASE',
       dispatchWithSurface: async (surface) => ({ text: String(surface) }),
       judges: [passJudge],
-      driver,
+      proposer,
       populationSize: 1,
       maxGenerations: 3,
       promoteTopK: 1,
@@ -1421,7 +1421,7 @@ describe('runOptimization — analyzeGeneration feeds findings forward', () => {
 
   it('without analyzeGeneration, findings stay the static seed every generation', async () => {
     const seen: unknown[][] = []
-    const driver = {
+    const proposer = {
       kind: 'recorder',
       async propose(ctx: ProposeContext) {
         seen.push(ctx.findings)
@@ -1433,7 +1433,7 @@ describe('runOptimization — analyzeGeneration feeds findings forward', () => {
       baselineSurface: 'BASE',
       dispatchWithSurface: async (surface) => ({ text: String(surface) }),
       judges: [passJudge],
-      driver,
+      proposer,
       populationSize: 1,
       maxGenerations: 2,
       promoteTopK: 1,

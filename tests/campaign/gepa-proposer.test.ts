@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest'
-import { gepaDriver } from '../../src/campaign/drivers/gepa'
+import { gepaProposer } from '../../src/campaign/proposers/gepa'
 import type { GenerationRecord, ParetoParent, ProposeContext } from '../../src/campaign/types'
 
 /** A fake router fetch that echoes the reflection user-prompt back so the test
- *  can assert the driver fed the right evidence, and returns N proposals. */
+ *  can assert the proposer fed the right evidence, and returns N proposals. */
 function fakeFetch(capture: { userPrompt?: string }, payloads: string[]): typeof fetch {
   return (async (_url: string, init?: RequestInit) => {
     const body = JSON.parse(String(init?.body ?? '{}'))
@@ -28,10 +28,10 @@ function ctxWith(history: GenerationRecord[], populationSize: number): ProposeCo
   }
 }
 
-describe('gepaDriver', () => {
+describe('gepaProposer', () => {
   it('reflects on prior-generation evidence and returns proposed surfaces', async () => {
     const capture: { userPrompt?: string } = {}
-    const driver = gepaDriver({
+    const proposer = gepaProposer({
       llm: {
         apiKey: 'k',
         baseUrl: 'https://router.test/v1',
@@ -60,9 +60,9 @@ describe('gepaDriver', () => {
       },
     ]
 
-    const out = await driver.propose(ctxWith(history, 2))
+    const out = await proposer.propose(ctxWith(history, 2))
 
-    // Candidates carry the driver's label + rationale (the "why"), not just
+    // Candidates carry the proposer's label + rationale (the "why"), not just
     // the payload — the regression: gepa.ts dropping proposal.label/rationale.
     expect(out).toEqual([
       { surface: 'NEW A', label: 'c0', rationale: 'r' },
@@ -76,7 +76,7 @@ describe('gepaDriver', () => {
 
   it('drops the parent + dedupes proposals', async () => {
     const capture: { userPrompt?: string } = {}
-    const driver = gepaDriver({
+    const proposer = gepaProposer({
       llm: {
         apiKey: 'k',
         baseUrl: 'https://router.test/v1',
@@ -85,18 +85,18 @@ describe('gepaDriver', () => {
       model: 'test-model',
       target: 'system-directive',
     })
-    const out = await driver.propose(ctxWith([], 3))
+    const out = await proposer.propose(ctxWith([], 3))
     expect(out).toEqual([{ surface: 'KEEP', label: 'c1', rationale: 'r' }])
   })
 
   it('generation 0 (no history) reflects on the surface alone', async () => {
     const capture: { userPrompt?: string } = {}
-    const driver = gepaDriver({
+    const proposer = gepaProposer({
       llm: { apiKey: 'k', baseUrl: 'https://router.test/v1', fetch: fakeFetch(capture, ['G0']) },
       model: 'test-model',
       target: 'system-directive',
     })
-    const out = await driver.propose(ctxWith([], 1))
+    const out = await proposer.propose(ctxWith([], 1))
     expect(out).toEqual([{ surface: 'G0', label: 'c0', rationale: 'r' }])
     expect(capture.userPrompt).not.toContain('weakest dimensions')
   })
@@ -170,16 +170,16 @@ function ctxWithParents(parents: ParetoParent[], populationSize: number): Propos
   }
 }
 
-describe('gepaDriver — combine complementary lessons', () => {
+describe('gepaProposer — combine complementary lessons', () => {
   it('spends one population slot merging >1 non-dominated parents, fills the rest by reflection', async () => {
     const capture = { combineCalls: 0, reflectCalls: 0 } as Parameters<typeof combineAwareFetch>[0]
-    const driver = gepaDriver({
+    const proposer = gepaProposer({
       llm: { apiKey: 'k', baseUrl: 'https://router.test/v1', fetch: combineAwareFetch(capture) },
       model: 'test-model',
       target: 'system-directive',
     })
 
-    const out = await driver.propose(ctxWithParents([PARENT_A, PARENT_B], 2))
+    const out = await proposer.propose(ctxWithParents([PARENT_A, PARENT_B], 2))
 
     // population 2 → 1 combine candidate (first) + 1 reflection candidate.
     expect(out).toEqual([
@@ -208,12 +208,12 @@ describe('gepaDriver — combine complementary lessons', () => {
 
   it('does NOT combine with a single Pareto parent (pure reflection)', async () => {
     const capture = { combineCalls: 0, reflectCalls: 0 } as Parameters<typeof combineAwareFetch>[0]
-    const driver = gepaDriver({
+    const proposer = gepaProposer({
       llm: { apiKey: 'k', baseUrl: 'https://router.test/v1', fetch: combineAwareFetch(capture) },
       model: 'test-model',
       target: 'system-directive',
     })
-    const out = await driver.propose(ctxWithParents([PARENT_A], 2))
+    const out = await proposer.propose(ctxWithParents([PARENT_A], 2))
     expect(capture.combineCalls).toBe(0)
     expect(capture.reflectCalls).toBe(1)
     expect(out).toEqual([{ surface: 'REFLECT SURFACE', label: 'r0', rationale: 'r' }])
@@ -221,25 +221,25 @@ describe('gepaDriver — combine complementary lessons', () => {
 
   it('combineParents:false disables the merge even with >1 parents', async () => {
     const capture = { combineCalls: 0, reflectCalls: 0 } as Parameters<typeof combineAwareFetch>[0]
-    const driver = gepaDriver({
+    const proposer = gepaProposer({
       llm: { apiKey: 'k', baseUrl: 'https://router.test/v1', fetch: combineAwareFetch(capture) },
       model: 'test-model',
       target: 'system-directive',
       combineParents: false,
     })
-    await driver.propose(ctxWithParents([PARENT_A, PARENT_B], 2))
+    await proposer.propose(ctxWithParents([PARENT_A, PARENT_B], 2))
     expect(capture.combineCalls).toBe(0)
     expect(capture.reflectCalls).toBe(1)
   })
 
   it('populationSize 1 with combine yields ONLY the merge (budget honored)', async () => {
     const capture = { combineCalls: 0, reflectCalls: 0 } as Parameters<typeof combineAwareFetch>[0]
-    const driver = gepaDriver({
+    const proposer = gepaProposer({
       llm: { apiKey: 'k', baseUrl: 'https://router.test/v1', fetch: combineAwareFetch(capture) },
       model: 'test-model',
       target: 'system-directive',
     })
-    const out = await driver.propose(ctxWithParents([PARENT_A, PARENT_B], 1))
+    const out = await proposer.propose(ctxWithParents([PARENT_A, PARENT_B], 1))
     expect(out).toEqual([{ surface: 'MERGED SURFACE', label: 'merged', rationale: 'merge AB' }])
     expect(capture.combineCalls).toBe(1)
     expect(capture.reflectCalls).toBe(0) // no budget left for reflection
@@ -247,15 +247,15 @@ describe('gepaDriver — combine complementary lessons', () => {
 
   it('EYES→HANDS: feeds ctx.findings + ctx.report into the reflection prompt', async () => {
     // The dead-wire regression: findings/report were plumbed onto ProposeContext
-    // but the driver never read them, so the analyst loop never steered the
+    // but the proposer never read them, so the analyst loop never steered the
     // mutation. The reflection prompt must now carry the diagnosed root cause.
     const capture: { userPrompt?: string } = {}
-    const driver = gepaDriver({
+    const proposer = gepaProposer({
       llm: { apiKey: 'k', baseUrl: 'https://router.test/v1', fetch: fakeFetch(capture, ['NEW']) },
       model: 'test-model',
       target: 'system-directive',
     })
-    const out = await driver.propose({
+    const out = await proposer.propose({
       currentSurface: 'PARENT SURFACE',
       history: [],
       findings: [
@@ -281,12 +281,12 @@ describe('gepaDriver — combine complementary lessons', () => {
 
   it('no findings/report → no analyst block (clean prompt, no empty headers)', async () => {
     const capture: { userPrompt?: string } = {}
-    const driver = gepaDriver({
+    const proposer = gepaProposer({
       llm: { apiKey: 'k', baseUrl: 'https://router.test/v1', fetch: fakeFetch(capture, ['NEW']) },
       model: 'test-model',
       target: 'system-directive',
     })
-    await driver.propose(ctxWith([], 1))
+    await proposer.propose(ctxWith([], 1))
     expect(capture.userPrompt).not.toContain('Diagnosed findings')
     expect(capture.userPrompt).not.toContain('Research report')
   })

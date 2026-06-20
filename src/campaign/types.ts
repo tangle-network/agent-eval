@@ -160,7 +160,7 @@ export interface CodeSurface {
 export type MutableSurface = string | CodeSurface
 
 /** @experimental A proposer output carrying the surface AND the WHY behind
- *  it. Reflective proposers (`gepaDriver`) parse a `{label, rationale, payload}`
+ *  it. Reflective proposers (`gepaProposer`) parse a `{label, rationale, payload}`
  *  from the model; without this wrapper the loop keeps only `payload` and the
  *  rationale that motivated the change is lost — the candidate becomes
  *  unattributable. `propose()` may return either bare `MutableSurface`s (cheap
@@ -215,8 +215,7 @@ export interface ParetoParent {
 /** @experimental Stateless surface mutation — given findings + current
  *  surface, return N candidate surfaces. Pure transform, no generation
  *  awareness. Reflective-mutation and `AxGEPA` mutators conform. Wrapped by
- *  `evolutionaryDriver` to become a `SurfaceProposer` / historical
- *  `ImprovementDriver`. */
+ *  `evolutionaryProposer` to become a `SurfaceProposer`. */
 export interface Mutator<TFindings = unknown> {
   kind: string
   mutate(args: {
@@ -230,7 +229,7 @@ export interface Mutator<TFindings = unknown> {
 /** @experimental Everything a proposer may read to plan the next
  *  batch of candidates. The first six fields are always present; the rest are
  *  optional context the loop supplies when available, so cheap proposers
- *  (`evolutionaryDriver`) can ignore them while a code-tier agentic generator
+ *  (`evolutionaryProposer`) can ignore them while a code-tier agentic generator
  *  consumes the research report + dataset to drive a coding harness.
  *  See `docs/design/self-improvement-engine.md`. */
 export interface ProposeContext<TFindings = unknown> {
@@ -269,22 +268,17 @@ export interface ProposeContext<TFindings = unknown> {
   judgeScores?: never
 }
 
-/** @experimental A surface-improvement strategy — the proposer in the
- *  improvement loop. Given the current best surface, the history of what's
- *  been tried + scored, and any external findings, propose the next batch of
- *  candidate surfaces to measure. Optionally decide to stop early.
+/** @experimental A surface-improvement strategy. Given the current best
+ *  surface, the history of what's been tried + scored, and any external
+ *  findings, propose the next batch of candidate surfaces to measure.
+ *  Optionally decide to stop early.
  *
- *  The evolutionary mutator (`evolutionaryDriver`, here) and agent-runtime's
- *  `improvementDriver` (with reflective / agentic generators) both conform.
- *  They are proposers for the SAME loop, not separate loops. The loop body
- *  (`runOptimization`) and the gated promotion shell (`runImprovementLoop`)
- *  are proposer-agnostic.
- *
- *  Historical name: `ImprovementDriver`. Prefer `SurfaceProposer` in new docs
- *  and product code to avoid confusion with sandbox/router drivers that execute
- *  workers.
+ *  The evolutionary mutator (`evolutionaryProposer`, here) and agent-runtime's
+ *  reflective / agentic generators both conform. They are proposers for the
+ *  SAME loop, not separate loops. The loop body (`runOptimization`) and the
+ *  gated promotion shell (`runImprovementLoop`) are proposer-agnostic.
  */
-export interface ImprovementDriver<TFindings = unknown> {
+export interface SurfaceProposer<TFindings = unknown> {
   kind: string
   /** Plan: propose N candidate surfaces for the next generation. A proposer
    *  may return bare `MutableSurface`s or `ProposedCandidate`s that carry the
@@ -296,11 +290,6 @@ export interface ImprovementDriver<TFindings = unknown> {
   decide?(args: { history: GenerationRecord[] }): { stop: boolean; reason?: string }
 }
 
-/** Clearer public name for the object that proposes candidate surfaces.
- * `ImprovementDriver` remains the historical name for compatibility; both
- * names describe the same structural contract. */
-export type SurfaceProposer<TFindings = unknown> = ImprovementDriver<TFindings>
-
 /** Optional vocabulary alias. The loop is the optimizer; this object is the
  * proposer inside that loop. */
 export type OptimizationProposer<TFindings = unknown> = SurfaceProposer<TFindings>
@@ -311,19 +300,9 @@ export interface OptimizerConfigBase {
   surfaceExtractor: (profile: unknown) => MutableSurface
 }
 
-export type OptimizerConfig = OptimizerConfigBase &
-  (
-    | {
-        proposer: SurfaceProposer
-        /** @deprecated since v0.94.0, removal targeted v1.0. Use `proposer`. */
-        driver?: SurfaceProposer
-      }
-    | {
-        proposer?: SurfaceProposer
-        /** @deprecated since v0.94.0, removal targeted v1.0. Use `proposer`. */
-        driver: SurfaceProposer
-      }
-  )
+export interface OptimizerConfig extends OptimizerConfigBase {
+  proposer: SurfaceProposer
+}
 
 // ── Gates ─────────────────────────────────────────────────────────────
 

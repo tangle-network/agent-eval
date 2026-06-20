@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { AnalystFinding } from '../../analyst/types'
 import { isProposedCandidate, type ProposeContext, type ProposedCandidate } from '../types'
-import { traceAnalystDriver } from './trace-analyst'
+import { traceAnalystProposer } from './trace-analyst'
 
 function asCandidate(v: unknown): ProposedCandidate {
   if (!isProposedCandidate(v as never)) throw new Error('expected a ProposedCandidate')
@@ -45,9 +45,9 @@ const ctx = (currentSurface: string): ProposeContext =>
     signal: new AbortController().signal,
   }) as unknown as ProposeContext
 
-describe('traceAnalystDriver — wraps our trace-analyst registry as an ImprovementDriver', () => {
+describe('traceAnalystProposer — wraps our trace-analyst registry as a SurfaceProposer', () => {
   it('reads our findings from the resolved traces and applies them to the prompt surface', async () => {
-    const driver = traceAnalystDriver({
+    const proposer = traceAnalystProposer({
       baseUrl: 'https://api.deepseek.com/v1',
       apiKey: 'sk-test',
       model: 'deepseek-chat',
@@ -56,7 +56,7 @@ describe('traceAnalystDriver — wraps our trace-analyst registry as an Improvem
       analyze: async () => [finding({})],
       fetchImpl: stubFetch('IMPROVED PROMPT: always fetch spotify APIs before planning.'),
     })
-    const out = await driver.propose(ctx('BASE PROMPT: do the task.'))
+    const out = await proposer.propose(ctx('BASE PROMPT: do the task.'))
     expect(out).toHaveLength(1)
     const c = asCandidate(out[0])
     expect(c.surface).toBe('IMPROVED PROMPT: always fetch spotify APIs before planning.')
@@ -66,8 +66,8 @@ describe('traceAnalystDriver — wraps our trace-analyst registry as an Improvem
     expect(c.rationale).toContain('FIX:')
   })
 
-  it('is an ImprovementDriver of kind "trace-analyst" (drops into compareDrivers next to halo)', () => {
-    const d = traceAnalystDriver({
+  it('is a SurfaceProposer of kind "trace-analyst" (drops into compareProposers next to halo)', () => {
+    const d = traceAnalystProposer({
       baseUrl: 'https://x/v1',
       apiKey: 'sk-test',
       model: 'm',
@@ -79,7 +79,7 @@ describe('traceAnalystDriver — wraps our trace-analyst registry as an Improvem
 
   it('FAILS LOUD at construction when apiKey or model is missing (Ax has no env fallback)', () => {
     expect(() =>
-      traceAnalystDriver({
+      traceAnalystProposer({
         baseUrl: 'https://x/v1',
         apiKey: '',
         model: 'm',
@@ -87,7 +87,7 @@ describe('traceAnalystDriver — wraps our trace-analyst registry as an Improvem
       }),
     ).toThrow(/apiKey is required/)
     expect(() =>
-      traceAnalystDriver({
+      traceAnalystProposer({
         baseUrl: 'https://x/v1',
         apiKey: 'k',
         model: '',
@@ -97,7 +97,7 @@ describe('traceAnalystDriver — wraps our trace-analyst registry as an Improvem
   })
 
   it('FAILS LOUD when there are no traces (never fabricates a candidate)', async () => {
-    const driver = traceAnalystDriver({
+    const proposer = traceAnalystProposer({
       baseUrl: 'https://x/v1',
       apiKey: 'sk-test',
       model: 'm',
@@ -105,11 +105,11 @@ describe('traceAnalystDriver — wraps our trace-analyst registry as an Improvem
       analyze: async () => [finding({})],
       fetchImpl: stubFetch('x'),
     })
-    await expect(driver.propose(ctx('p'))).rejects.toThrow(/no OTLP traces/)
+    await expect(proposer.propose(ctx('p'))).rejects.toThrow(/no OTLP traces/)
   })
 
   it('FAILS LOUD when the analyst engine errors (no silent swallow)', async () => {
-    const driver = traceAnalystDriver({
+    const proposer = traceAnalystProposer({
       baseUrl: 'https://x/v1',
       apiKey: 'sk-test',
       model: 'm',
@@ -119,11 +119,11 @@ describe('traceAnalystDriver — wraps our trace-analyst registry as an Improvem
       },
       fetchImpl: stubFetch('x'),
     })
-    await expect(driver.propose(ctx('p'))).rejects.toThrow(/analyst engine failed.*registry boom/)
+    await expect(proposer.propose(ctx('p'))).rejects.toThrow(/analyst engine failed.*registry boom/)
   })
 
   it('FAILS LOUD when the analyst produces zero findings (no empty improvement)', async () => {
-    const driver = traceAnalystDriver({
+    const proposer = traceAnalystProposer({
       baseUrl: 'https://x/v1',
       apiKey: 'sk-test',
       model: 'm',
@@ -131,11 +131,11 @@ describe('traceAnalystDriver — wraps our trace-analyst registry as an Improvem
       analyze: async () => [],
       fetchImpl: stubFetch('x'),
     })
-    await expect(driver.propose(ctx('p'))).rejects.toThrow(/produced no findings/)
+    await expect(proposer.propose(ctx('p'))).rejects.toThrow(/produced no findings/)
   })
 
   it('returns no candidate when the applied surface is unchanged (no fake lift)', async () => {
-    const driver = traceAnalystDriver({
+    const proposer = traceAnalystProposer({
       baseUrl: 'https://x/v1',
       apiKey: 'sk-test',
       model: 'm',
@@ -143,7 +143,7 @@ describe('traceAnalystDriver — wraps our trace-analyst registry as an Improvem
       analyze: async () => [finding({})],
       fetchImpl: stubFetch('BASE PROMPT: do the task.'), // identical to parent
     })
-    const out = await driver.propose(ctx('BASE PROMPT: do the task.'))
+    const out = await proposer.propose(ctx('BASE PROMPT: do the task.'))
     expect(out).toHaveLength(0)
   })
 })

@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest'
 import {
   extractFapoAttributionSignals,
-  fapoDriver,
-  parameterSweepDriver,
-} from '../../src/campaign/drivers/fapo'
+  fapoProposer,
+  parameterSweepProposer,
+} from '../../src/campaign/proposers/fapo'
 import type {
   GenerationRecord,
   ProposeContext,
@@ -53,14 +53,14 @@ function gen(labels: string[], scores: number[]): GenerationRecord {
   }
 }
 
-describe('fapoDriver', () => {
+describe('fapoProposer', () => {
   it('starts at prompt level and proposes one reviewed candidate by default', async () => {
-    const driver = fapoDriver({
+    const proposer = fapoProposer({
       promptProposer: fixedProposer('prompt', 'PROMPT'),
       structuralProposer: fixedProposer('structural', 'STRUCTURE'),
     })
 
-    const out = await driver.propose(
+    const out = await proposer.propose(
       ctx([], [{ level: 'structural', count: 12, label: 'retrieval misses evidence' }]),
     )
 
@@ -71,11 +71,11 @@ describe('fapoDriver', () => {
   })
 
   it('accepts the level-proposer map for the clearer public vocabulary', async () => {
-    const driver = fapoDriver({
+    const proposer = fapoProposer({
       proposers: { prompt: fixedProposer('prompt', 'PROMPT') },
     })
 
-    const out = await driver.propose(ctx())
+    const out = await proposer.propose(ctx())
 
     expect(out).toHaveLength(1)
     expect(out[0]!.label).toContain('fapo:prompt')
@@ -94,7 +94,7 @@ describe('fapoDriver', () => {
         [0.7, 0.69, 0.68, 0.67],
       ),
     ]
-    const parameter = parameterSweepDriver({
+    const parameter = parameterSweepProposer({
       candidates: [
         {
           label: 'raise-retrieval-k',
@@ -103,13 +103,13 @@ describe('fapoDriver', () => {
         },
       ],
     })
-    const driver = fapoDriver({
+    const proposer = fapoProposer({
       promptProposer: fixedProposer('prompt', 'PROMPT'),
       parameterProposer: parameter,
       structuralProposer: fixedProposer('structural', 'STRUCTURE'),
     })
 
-    const out = await driver.propose({
+    const out = await proposer.propose({
       ...ctx(history, [{ label: 'retrieval misses on multi-entity queries', count: 9 }]),
       currentSurface: JSON.stringify({ retrieval: { k: 7 } }),
     })
@@ -132,20 +132,20 @@ describe('fapoDriver', () => {
         [0.7, 0.69, 0.68, 0.67],
       ),
     ]
-    const driver = fapoDriver({
+    const proposer = fapoProposer({
       promptProposer: fixedProposer('prompt', 'PROMPT'),
       structuralProposer: fixedProposer('structural', 'STRUCTURE'),
     })
 
-    await expect(driver.propose(ctx(history, []))).resolves.toEqual([])
+    await expect(proposer.propose(ctx(history, []))).resolves.toEqual([])
   })
 
   it('stops after an empty FAPO generation instead of burning the remaining budget', () => {
-    const driver = fapoDriver({
+    const proposer = fapoProposer({
       promptProposer: fixedProposer('prompt', 'PROMPT'),
       structuralProposer: fixedProposer('structural', 'STRUCTURE'),
     })
-    const result = driver.decide?.({
+    const result = proposer.decide?.({
       history: [
         {
           generationIndex: 0,
@@ -162,7 +162,7 @@ describe('fapoDriver', () => {
   })
 
   it('blocks reviewed failures before eval', async () => {
-    const driver = fapoDriver({
+    const proposer = fapoProposer({
       promptProposer: fixedProposer('prompt', 'PROMPT'),
       reviewCandidate: async () => ({
         verdict: 'fail',
@@ -176,7 +176,7 @@ describe('fapoDriver', () => {
       }),
     })
 
-    await expect(driver.propose(ctx())).rejects.toThrow(/reviewer blocked every prompt candidate/)
+    await expect(proposer.propose(ctx())).rejects.toThrow(/reviewer blocked every prompt candidate/)
   })
 
   it('parses FAPO attribution output shapes and analyst-style findings', () => {
@@ -218,14 +218,14 @@ describe('fapoDriver', () => {
         [0.7, 0.69, 0.68, 0.67],
       ),
     ]
-    const driver = fapoDriver({
+    const proposer = fapoProposer({
       promptProposer: fixedProposer('prompt', 'PROMPT'),
       parameterProposer: fixedProposer('parameter', 'PARAM'),
       structuralProposer: fixedProposer('structural', 'STRUCTURE'),
       parameterBeforeStructural: false,
     })
 
-    const out = await driver.propose(
+    const out = await proposer.propose(
       ctx(history, [{ label: 'tool chain drops the second lookup', count: 5 }]),
     )
 
@@ -246,14 +246,14 @@ describe('fapoDriver', () => {
         [0.7, 0.69, 0.68, 0.67],
       ),
     ]
-    const driver = fapoDriver({
+    const proposer = fapoProposer({
       promptProposer: fixedProposer('prompt', 'PROMPT'),
       structuralProposer: fixedProposer('structural', 'STRUCTURE'),
       scope: { forbiddenLevels: ['structural'] },
     })
 
     await expect(
-      driver.propose(ctx(history, [{ label: 'tool chain drops the second lookup', count: 5 }])),
+      proposer.propose(ctx(history, [{ label: 'tool chain drops the second lookup', count: 5 }])),
     ).resolves.toEqual([])
   })
 
@@ -268,9 +268,9 @@ describe('fapoDriver', () => {
         }))
       },
     }
-    const driver = fapoDriver({ promptProposer, proposalsPerCycle: 2 })
+    const proposer = fapoProposer({ promptProposer, proposalsPerCycle: 2 })
 
-    const out = await driver.propose(ctx())
+    const out = await proposer.propose(ctx())
 
     expect(out.map((candidate) => candidate.label)).toEqual([
       'fapo:prompt:variant-0',
@@ -293,9 +293,9 @@ describe('fapoDriver', () => {
   })
 })
 
-describe('parameterSweepDriver', () => {
+describe('parameterSweepProposer', () => {
   it('applies deep patches and dot-path changes to JSON config surfaces', async () => {
-    const driver = parameterSweepDriver({
+    const proposer = parameterSweepProposer({
       candidates: [
         {
           label: 'config-tune',
@@ -309,7 +309,7 @@ describe('parameterSweepDriver', () => {
       ],
     })
 
-    const out = await driver.propose({
+    const out = await proposer.propose({
       ...ctx(),
       currentSurface: JSON.stringify({
         model: { temperature: 0.7, top_p: 0.95 },
@@ -326,22 +326,22 @@ describe('parameterSweepDriver', () => {
   })
 
   it('fails loud on non-JSON config surfaces', async () => {
-    const driver = parameterSweepDriver({
+    const proposer = parameterSweepProposer({
       candidates: [{ label: 'x', rationale: 'r', patch: { temperature: 0.2 } }],
     })
 
-    await expect(driver.propose(ctx())).rejects.toThrow(/JSON/)
+    await expect(proposer.propose(ctx())).rejects.toThrow(/JSON/)
   })
 
   it('skips semantic no-op patches even when formatting changes', async () => {
-    const driver = parameterSweepDriver({
+    const proposer = parameterSweepProposer({
       candidates: [
         { label: 'same', rationale: 'r', patch: { retrieval: { k: 7 } } },
         { label: 'next', rationale: 'r', changes: [{ path: 'retrieval.k', value: 8 }] },
       ],
     })
 
-    const out = await driver.propose({
+    const out = await proposer.propose({
       ...ctx(),
       currentSurface: JSON.stringify({ retrieval: { k: 7 } }),
       populationSize: 2,
@@ -352,7 +352,7 @@ describe('parameterSweepDriver', () => {
   })
 
   it('rejects unsafe JSON patch keys before applying a parameter candidate', async () => {
-    const pathDriver = parameterSweepDriver({
+    const pathProposer = parameterSweepProposer({
       candidates: [
         {
           label: 'pollute-path',
@@ -361,7 +361,7 @@ describe('parameterSweepDriver', () => {
         },
       ],
     })
-    const patchDriver = parameterSweepDriver({
+    const patchProposer = parameterSweepProposer({
       candidates: [
         {
           label: 'pollute-patch',
@@ -372,13 +372,13 @@ describe('parameterSweepDriver', () => {
     })
 
     await expect(
-      pathDriver.propose({
+      pathProposer.propose({
         ...ctx(),
         currentSurface: JSON.stringify({ safe: {} }),
       }),
     ).rejects.toThrow(/unsafe JSON key/)
     await expect(
-      patchDriver.propose({
+      patchProposer.propose({
         ...ctx(),
         currentSurface: JSON.stringify({ safe: {} }),
       }),

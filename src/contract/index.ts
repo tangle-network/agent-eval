@@ -25,9 +25,8 @@
  *    scorer. Bring an LLM judge, a deterministic check, an ensemble —
  *    the engine only cares about `score(input) → JudgeScore`.
  * 4. **`SurfaceProposer`** — proposes next candidate surfaces for the
- *    optimization loop. Use `gepaDriver` (reflective LLM proposal) or
- *    `evolutionaryDriver`, or write your own. `ImprovementDriver` is the
- *    historical alias.
+ *    optimization loop. Use `gepaProposer` (reflective LLM proposal) or
+ *    `evolutionaryProposer`, or write your own.
  * 5. **`Gate`** — promotion guard. Returns `'ship'` / `'hold'` /
  *    `'need_more_work'` / others for each candidate; the loop only ships
  *    what passes. `defaultProductionGate` is the composite default;
@@ -102,7 +101,6 @@ export type {
   GateResult,
   GenerationCandidate,
   GenerationRecord,
-  ImprovementDriver,
   JudgeConfig,
   JudgeDimension,
   JudgeScore,
@@ -128,10 +126,10 @@ export { type RunCampaignOptions, runCampaign } from '../campaign/run-campaign'
 // ── Proposers ────────────────────────────────────────────────────────
 
 export {
-  type EvolutionaryDriverOptions,
-  evolutionaryDriver,
-} from '../campaign/drivers/evolutionary'
-export { type GepaDriverOptions, gepaDriver } from '../campaign/drivers/gepa'
+  type EvolutionaryProposerOptions,
+  evolutionaryProposer,
+} from '../campaign/proposers/evolutionary'
+export { type GepaProposerOptions, gepaProposer } from '../campaign/proposers/gepa'
 
 // ── Gates ────────────────────────────────────────────────────────────
 

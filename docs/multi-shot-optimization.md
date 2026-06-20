@@ -1,7 +1,7 @@
 # Multi-Shot Optimization
 
 > **Renamed.** `runMultiShotOptimization` was retired. The live API is
-> `runImprovementLoop` (proposer-agnostic, gated promotion) driven by `gepaDriver`,
+> `runImprovementLoop` (proposer-agnostic, gated promotion) driven by `gepaProposer`,
 > with `compareProposers` for head-to-head proposer lift. This doc was rewritten to the
 > live API; see also [feature-guide.md](./feature-guide.md) and [concepts.md](./concepts.md).
 
@@ -19,8 +19,8 @@ held-out re-score, the promotion gate, provenance):
 - **`dispatchWithSurface(surface, scenario, ctx)`** — run one task to completion
   under a candidate surface; return the artifact the judges score.
 - **`judges`** — score the artifact (`{ composite, dimensions }`).
-- **`proposer`** — proposes candidate surfaces each generation: `gepaDriver`
-  (reflective + Pareto frontier) or `evolutionaryDriver` (mutator).
+- **`proposer`** — proposes candidate surfaces each generation: `gepaProposer`
+  (reflective + Pareto frontier) or `evolutionaryProposer` (mutator).
 - **`gate`** — `defaultProductionGate` (held-out significance + red-team +
   reward-hacking + canary). Ships ONLY on a CI-lower-bound held-out lift.
 
@@ -29,7 +29,7 @@ held-out re-score, the promotion gate, provenance):
 ```ts
 import {
   runImprovementLoop,
-  gepaDriver,
+  gepaProposer,
   defaultProductionGate,
 } from '@tangle-network/agent-eval/contract'
 
@@ -40,7 +40,7 @@ const result = await runImprovementLoop({
   dispatchWithSurface: async (surface, scenario) =>
     runYourAgentToCompletion({ scenario, prompt: String(surface) }),
   judges: [myJudge],
-  proposer: gepaDriver({
+  proposer: gepaProposer({
     llm: { apiKey, baseUrl },
     model: 'gpt-5',
     target: 'enforce a strict output schema',

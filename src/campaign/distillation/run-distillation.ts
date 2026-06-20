@@ -4,7 +4,7 @@
  * `runDistillation` — the teacher→student distillation loop. COMPOSES existing
  * substrate primitives; reimplements none of them:
  *
- *   - DRIVER       = `gepaDriver` (reflective prompt optimizer)
+ *   - DRIVER       = `gepaProposer` (reflective prompt optimizer)
  *   - LOOP         = `runImprovementLoop` (outer: optimize → holdout re-score → gate)
  *   - MEASUREMENT  = `runCampaign` (inside the loop) scoring the student
  *   - JUDGE        = `buildAgreementJudge` — student label vs gold teacher label
@@ -29,9 +29,9 @@ import {
   createChatClient,
 } from '../../analyst/chat-client'
 import type { LlmCallResult, LlmClientOptions } from '../../llm-client'
-import { type GepaDriverConstraints, gepaDriver } from '../drivers/gepa'
 import { heldOutGate } from '../gates/heldout-gate'
 import { type RunImprovementLoopResult, runImprovementLoop } from '../presets/run-improvement-loop'
+import { type GepaProposerConstraints, gepaProposer } from '../proposers/gepa'
 import { campaignMeanComposite } from '../score-utils'
 import type { CampaignResult, Gate, JudgeConfig } from '../types'
 import type { GoldScenario } from './gold-scenarios'
@@ -62,7 +62,7 @@ export interface RunDistillationOptions<TProduced, TInput, TLabel> {
   /** Transport for BOTH the student (cheap model) and the GEPA reflection
    *  (the optimizer model). The student calls it via `createChatClient`. */
   llm: CreateChatClientOpts
-  /** Router transport the GEPA driver reflects through. `gepaDriver` uses the
+  /** Router transport the GEPA proposer reflects through. `gepaProposer` uses the
    *  package `LlmClient` directly (`LlmClientOptions`), not the ChatClient —
    *  pass the router creds here. A test may inject `fetch` to stub the
    *  reflection HTTP and exercise the wiring without real tokens. */
@@ -89,7 +89,7 @@ export interface RunDistillationOptions<TProduced, TInput, TLabel> {
   /** Levers offered to the GEPA reflection prompt. */
   mutationPrimitives?: string[]
   /** GEPA structured-doc constraints (preserve sections, edit budget). */
-  constraints?: GepaDriverConstraints
+  constraints?: GepaProposerConstraints
   /** Gate's minimum holdout-agreement delta to ship. Default 0.0 — a
    *  distillation run reports the lift; the caller decides the bar. Only used
    *  when `gate` is omitted (the default `heldOutGate`). */
@@ -129,7 +129,7 @@ export async function runDistillation<TProduced, TInput, TLabel>(
   const studentTemperature = opts.studentTemperature ?? 0
   const studentMaxTokens = opts.studentMaxTokens ?? 1024
 
-  const driver = gepaDriver({
+  const proposer = gepaProposer({
     llm: opts.reflectionLlm,
     model: opts.optimizerModel,
     target:
@@ -150,15 +150,15 @@ export async function runDistillation<TProduced, TInput, TLabel>(
     scenarios: opts.train,
     holdoutScenarios: opts.holdout,
     judges: [opts.judge],
-    driver,
+    proposer,
     gate,
     autoOnPromote: 'none', // the loop NEVER opens a PR — the caller decides
     populationSize: opts.populationSize ?? 4,
     maxGenerations: opts.maxGenerations ?? 3,
     reps: opts.reps ?? 1,
     runDir,
-    // The student spends tokens; tracing must stay on (the driver is wired and
-    // runImprovementLoop refuses tracing='off' with a driver).
+    // The student spends tokens; tracing must stay on (the proposer is wired and
+    // runImprovementLoop refuses tracing='off' with a proposer).
     tracing: 'on',
     dispatchWithSurface: async (surface, scenario, ctx) => {
       const prompt = render({

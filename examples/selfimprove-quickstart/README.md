@@ -18,7 +18,7 @@ pnpm tsx examples/selfimprove-quickstart/index.ts
 The agent, judge, and proposer are all synthetic so the example runs offline. For real use:
 - Replace `agent` with your actual agent + scenario interpreter.
 - Replace `judge.score` with your real LLM-as-judge (or a `langchainJudge` from `/adapters/langchain`).
-- Drop the custom `proposer` — selfImprove() defaults to `gepaDriver` (reflective LLM mutation), which needs an LLM endpoint configured via `opts.llm`.
+- Drop the custom `proposer` — selfImprove() defaults to `gepaProposer` (reflective LLM mutation), which needs an LLM endpoint configured via `opts.llm`.
 
 ## What you should see
 

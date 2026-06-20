@@ -2,13 +2,13 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { runSkillOpt } from '../../src/campaign/presets/run-skill-opt'
 import {
   type ProposePatchesArgs,
   parseSkillPatchResponse,
-  type SkillOptDriver,
-  skillOptDriver,
-} from '../../src/campaign/drivers/skill-opt'
-import { runSkillOpt } from '../../src/campaign/presets/run-skill-opt'
+  type SkillOptProposer,
+  skillOptProposer,
+} from '../../src/campaign/proposers/skill-opt'
 import type { SkillPatch } from '../../src/campaign/skill-patch'
 import type { JudgeConfig, ProposeContext, Scenario } from '../../src/campaign/types'
 
@@ -105,9 +105,9 @@ describe('parseSkillPatchResponse', () => {
   })
 })
 
-// ── skillOptDriver (LLM-stubbed) ────────────────────────────────────────────
+// ── skillOptProposer (LLM-stubbed) ────────────────────────────────────────────
 
-describe('skillOptDriver', () => {
+describe('skillOptProposer', () => {
   function patchFetch(capture: { user?: string }, patches: SkillPatch[]): typeof fetch {
     return (async (_url: string, init?: RequestInit) => {
       const body = JSON.parse(String(init?.body ?? '{}'))
@@ -124,12 +124,12 @@ describe('skillOptDriver', () => {
 
   it('proposePatches feeds the surface + rejected buffer into the prompt', async () => {
     const capture: { user?: string } = {}
-    const driver = skillOptDriver({
+    const proposer = skillOptProposer({
       llm: { apiKey: 'k', baseUrl: 'https://router.test/v1', fetch: patchFetch(capture, []) },
       model: 'm',
       target: 'citation policy',
     })
-    await driver.proposePatches({
+    await proposer.proposePatches({
       surface: DOC,
       evidence: {
         weakScenarios: [{ scenarioId: 'cite-missing', composite: 0.1 }],
@@ -152,7 +152,7 @@ describe('skillOptDriver', () => {
     // but skill-opt never read them. A patch must now be able to target the
     // analyst's diagnosed root cause, not just the weak-scenario evidence.
     const capture: { user?: string } = {}
-    const driver = skillOptDriver({
+    const proposer = skillOptProposer({
       llm: { apiKey: 'k', baseUrl: 'https://router.test/v1', fetch: patchFetch(capture, []) },
       model: 'm',
       target: 'citation policy',
@@ -173,7 +173,7 @@ describe('skillOptDriver', () => {
       generation: 0,
       signal: new AbortController().signal,
     }
-    await driver.propose(ctx)
+    await proposer.propose(ctx)
     expect(capture.user).toContain('Diagnosed findings')
     expect(capture.user).toContain('cite no source when the retrieval set is empty')
     expect(capture.user).toContain('no source found') // recommended_action
@@ -181,7 +181,7 @@ describe('skillOptDriver', () => {
     expect(capture.user).toContain('3 of 7 empty-retrieval')
   })
 
-  it('propose (generic ImprovementDriver) applies patches to the surface', async () => {
+  it('propose (generic SurfaceProposer) applies patches to the surface', async () => {
     const patches: SkillPatch[] = [
       {
         label: 'add-rule',
@@ -189,7 +189,7 @@ describe('skillOptDriver', () => {
         ops: [{ op: 'add', after: '- always cite a source', text: '- never fabricate a citation' }],
       },
     ]
-    const driver = skillOptDriver({
+    const proposer = skillOptProposer({
       llm: { apiKey: 'k', baseUrl: 'https://router.test/v1', fetch: patchFetch({}, patches) },
       model: 'm',
       target: 'citation policy',
@@ -202,7 +202,7 @@ describe('skillOptDriver', () => {
       generation: 0,
       signal: new AbortController().signal,
     }
-    const out = await driver.propose(ctx)
+    const out = await proposer.propose(ctx)
     expect(out).toHaveLength(1)
     expect(out[0]!.label).toBe('add-rule')
     expect(String(out[0]!.surface)).toContain('- never fabricate a citation')
@@ -210,13 +210,13 @@ describe('skillOptDriver', () => {
   })
 
   it('propose throws on a non-string (CodeSurface) — SkillOpt patches text', async () => {
-    const driver = skillOptDriver({
+    const proposer = skillOptProposer({
       llm: { apiKey: 'k', baseUrl: 'https://router.test/v1', fetch: patchFetch({}, []) },
       model: 'm',
       target: 't',
     })
     await expect(
-      driver.propose({
+      proposer.propose({
         currentSurface: { kind: 'code', worktreeRef: '/wt/a' },
         history: [],
         findings: [],
@@ -228,7 +228,7 @@ describe('skillOptDriver', () => {
   })
 })
 
-// ── runSkillOpt epoch loop (deterministic, scripted driver) ────────────────
+// ── runSkillOpt epoch loop (deterministic, scripted proposer) ────────────────
 
 describe('runSkillOpt', () => {
   const SCEN_TRAIN: S[] = [
@@ -254,7 +254,7 @@ describe('runSkillOpt', () => {
   /** A scripted SkillOpt proposer: epoch 0 adds GOOD_A (accepted), epochs 1+2
    *  add neutral lines (rejected → drives budget annealing), epoch 3 adds
    *  GOOD_B (accepted). Captures the args it was called with. */
-  function scriptedDriver(seen: ProposePatchesArgs[]): SkillOptDriver {
+  function scriptedProposer(seen: ProposePatchesArgs[]): SkillOptProposer {
     const scripts: SkillPatch[][] = [
       [{ label: 'add-good-a', rationale: 'introduce A', ops: [{ op: 'add', text: 'GOOD_A' }] }],
       [{ label: 'neutral-1', rationale: 'noise', ops: [{ op: 'add', text: 'NEUTRAL_1' }] }],
@@ -280,7 +280,7 @@ describe('runSkillOpt', () => {
       baselineSurface: '# Skill\n- base rule',
       dispatchWithSurface: async (surface) => ({ text: surface }),
       judges: [judge],
-      driver: scriptedDriver(seen),
+      proposer: scriptedProposer(seen),
       trainScenarios: SCEN_TRAIN,
       holdoutScenarios: SCEN_HOLD,
       maxEpochs: 4,
@@ -323,7 +323,7 @@ describe('runSkillOpt', () => {
   })
 
   it('reports zero lift when nothing improves (and never regresses)', async () => {
-    const onlyNeutral: SkillOptDriver = {
+    const onlyNeutral: SkillOptProposer = {
       kind: 'neutral',
       async propose() {
         return []
@@ -336,7 +336,7 @@ describe('runSkillOpt', () => {
       baselineSurface: '# Skill',
       dispatchWithSurface: async (surface) => ({ text: surface }),
       judges: [judge],
-      driver: onlyNeutral,
+      proposer: onlyNeutral,
       trainScenarios: SCEN_TRAIN,
       holdoutScenarios: SCEN_HOLD,
       maxEpochs: 3,
@@ -358,7 +358,7 @@ describe('runSkillOpt', () => {
       [{ label: 'add-good-a', rationale: 'A', ops: [{ op: 'add', text: 'GOOD_A' }] }],
     ]
     let call = 0
-    const driver: SkillOptDriver = {
+    const proposer: SkillOptProposer = {
       kind: 'one-reject-then-accept',
       async propose() {
         return []
@@ -371,7 +371,7 @@ describe('runSkillOpt', () => {
       baselineSurface: '# Skill',
       dispatchWithSurface: async (surface) => ({ text: surface }),
       judges: [judge],
-      driver,
+      proposer,
       trainScenarios: SCEN_TRAIN,
       holdoutScenarios: SCEN_HOLD,
       maxEpochs: 2,
@@ -387,7 +387,7 @@ describe('runSkillOpt', () => {
   it('rejects a patch whose ops do not apply (applied === 0), without accepting it', async () => {
     // The patch anchors on a line that does not exist → applySkillPatch yields
     // applied=0 / unchanged surface → the loop rejects it before scoring.
-    const driver: SkillOptDriver = {
+    const proposer: SkillOptProposer = {
       kind: 'unanchored',
       async propose() {
         return []
@@ -406,7 +406,7 @@ describe('runSkillOpt', () => {
       baselineSurface: '# Skill',
       dispatchWithSurface: async (surface) => ({ text: surface }),
       judges: [judge],
-      driver,
+      proposer,
       trainScenarios: SCEN_TRAIN,
       holdoutScenarios: SCEN_HOLD,
       maxEpochs: 1,
@@ -419,7 +419,7 @@ describe('runSkillOpt', () => {
     expect(result.winnerSurface).toBe('# Skill')
   })
 
-  const noopDriver: SkillOptDriver = {
+  const noopProposer: SkillOptProposer = {
     kind: 'noop',
     async propose() {
       return []
@@ -431,7 +431,7 @@ describe('runSkillOpt', () => {
   const guardBase = {
     baselineSurface: '# Skill',
     dispatchWithSurface: async (surface: string) => ({ text: surface }),
-    driver: noopDriver,
+    proposer: noopProposer,
     maxEpochs: 1,
     runDir: '/tmp/never',
     expectUsage: 'off' as const,

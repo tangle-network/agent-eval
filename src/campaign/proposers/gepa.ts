@@ -1,7 +1,7 @@
 /**
  * @experimental
  *
- * `gepaDriver` — a reflective `ImprovementDriver` for prompt-tier surfaces.
+ * `gepaProposer` — a reflective `SurfaceProposer` for prompt-tier surfaces.
  * Each generation it reflects on the prior best candidate's per-scenario
  * scores + weakest dimensions, asks an LLM to propose targeted rewrites of
  * the current surface, and returns them as the next population.
@@ -18,12 +18,12 @@
  *     call citing each parent's winning scenarios). Toggle via `combineParents`.
  * Dominance is computed by the package-canonical `paretoFrontier` (`pareto.ts`).
  *
- * Optional `constraints` move structured-doc guards into the driver
+ * Optional `constraints` move structured-doc guards into the proposer
  * (preserve H2 section headings, cap sentence-level edits) — useful when
  * the surface IS a structured procedure like a SKILL.md / runbook /
  * judge rubric. When `constraints` is omitted, behavior is unchanged.
  *
- * The driver is surface-agnostic — any string surface in any consumer opts
+ * The proposer is surface-agnostic — any string surface in any consumer opts
  * in by selecting it. Reuses the generic reflection primitive
  * (`buildReflectionPrompt` / `parseReflectionResponse`) and the router client.
  *
@@ -41,7 +41,7 @@ import {
   renderAnalystEvidence,
   type TrialTrace,
 } from '../../reflective-mutation'
-import type { ImprovementDriver, ProposeContext, ProposedCandidate } from '../types'
+import type { ProposeContext, ProposedCandidate, SurfaceProposer } from '../types'
 
 const REFLECTION_SYSTEM =
   'You are an expert prompt engineer performing GEPA-style reflective mutation. ' +
@@ -70,9 +70,9 @@ const COMBINE_SYSTEM =
   'with exactly one proposal whose `payload` is the FULL merged surface text. ' +
   'No prose outside the JSON.'
 
-export interface GepaDriverConstraints {
+export interface GepaProposerConstraints {
   /** H2 section headings that MUST appear unchanged in every candidate.
-   *  When set, the driver auto-detects current H2s if this is empty AND
+   *  When set, the proposer auto-detects current H2s if this is empty AND
    *  rejects any candidate that drops or renames a preserved heading.
    *  Use when the surface is a structured doc (SKILL.md, runbook,
    *  sectioned system prompt, judge rubric). */
@@ -84,7 +84,7 @@ export interface GepaDriverConstraints {
   maxSentenceEdits?: number
 }
 
-export interface GepaDriverOptions {
+export interface GepaProposerOptions {
   /** Router transport (apiKey/baseUrl). */
   llm: LlmClientOptions
   /** Model that performs the reflection. */
@@ -101,7 +101,7 @@ export interface GepaDriverOptions {
   maxTokens?: number
   /** Structured-doc constraints. Candidates violating any are rejected
    *  post-parse and dropped from the returned population. */
-  constraints?: GepaDriverConstraints
+  constraints?: GepaProposerConstraints
   /** GEPA combine-complementary-lessons: when the loop supplies a Pareto
    *  frontier of >1 non-dominated parents (`ctx.paretoParents`), spend one
    *  slot of the population on a merge of their strengths. Default `true` —
@@ -114,12 +114,12 @@ export interface GepaDriverOptions {
   combineMaxParents?: number
 }
 
-export function gepaDriver(opts: GepaDriverOptions): ImprovementDriver {
+export function gepaProposer(opts: GepaProposerOptions): SurfaceProposer {
   const evidenceK = opts.evidenceK ?? 3
   const combineParents = opts.combineParents ?? true
   const combineMaxParents = opts.combineMaxParents ?? 4
   if (combineParents && combineMaxParents < 1) {
-    throw new Error('gepaDriver: combineMaxParents must be >= 1 when combineParents is enabled')
+    throw new Error('gepaProposer: combineMaxParents must be >= 1 when combineParents is enabled')
   }
   return {
     kind: 'gepa',
@@ -154,7 +154,7 @@ export function gepaDriver(opts: GepaDriverOptions): ImprovementDriver {
 
       // ── (1) GEPA combine-complementary-lessons ──────────────────────────
       // When the loop supplies >1 non-dominated parents, spend the first slot
-      // merging their strengths. Only string surfaces merge (the driver is
+      // merging their strengths. Only string surfaces merge (the proposer is
       // prompt-tier); the merge prompt cites each parent's winning scenarios.
       const stringParents = (combineParents ? (ctx.paretoParents ?? []) : [])
         .filter((p): p is typeof p & { surface: string } => typeof p.surface === 'string')

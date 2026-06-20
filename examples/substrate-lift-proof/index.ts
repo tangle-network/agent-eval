@@ -1,6 +1,6 @@
 /**
  * Substrate lift proof — the FIRST controlled-but-REAL demonstration that
- * `gepaDriver` + `runImprovementLoop` + `defaultProductionGate` produce a
+ * `gepaProposer` + `runImprovementLoop` + `defaultProductionGate` produce a
  * measured held-out lift through a real LLM backend.
  *
  * The transaction-extraction corpus + deterministic judge + worker live in
@@ -25,7 +25,7 @@ import {
   defaultProductionGate,
   emitLoopProvenance,
   fsCampaignStorage,
-  gepaDriver,
+  gepaProposer,
   runImprovementLoop,
 } from '../../src/campaign'
 import { assertRealBackend, summarizeBackendIntegrity } from '../../src/integrity/backend-integrity'
@@ -87,7 +87,7 @@ async function main() {
   console.log(`  baseline surface: ${JSON.stringify(BASELINE_SURFACE)}`)
   console.log()
 
-  const proposer = gepaDriver({
+  const proposer = gepaProposer({
     llm,
     model: PROPOSER_MODEL,
     target: PROPOSER_TARGET,

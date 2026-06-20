@@ -65,7 +65,7 @@ const judge: JudgeConfig<A, S> = {
 }
 
 // Deterministic proposer: one candidate that introduces the marker, carrying the
-// rationale. This is what gepaDriver does with a real router; here it is fixed.
+// rationale. This is what gepaProposer does with a real router; here it is fixed.
 const proposer: SurfaceProposer = {
   kind: 'fake:marker',
   async propose({ currentSurface, populationSize }) {
@@ -220,34 +220,5 @@ describe('selfImprove — forwarded loop knobs', () => {
       },
     })
     expect(calls).toBeGreaterThanOrEqual(1)
-  })
-
-  it('rejects conflicting proposer and legacy driver options', async () => {
-    const otherProposer: SurfaceProposer = {
-      kind: 'fake:other',
-      async propose() {
-        return [{ surface: 'OTHER', label: 'other', rationale: 'other' }]
-      },
-    }
-
-    await expect(
-      selfImprove<S, A>({
-        ...base,
-        proposer,
-        driver: otherProposer,
-        expectUsage: 'off',
-      }),
-    ).rejects.toThrow(/either proposer or driver/)
-  })
-
-  it('rejects conflicting proposerTarget and legacy driverTarget options', async () => {
-    await expect(
-      selfImprove<S, A>({
-        ...base,
-        proposerTarget: 'prompt',
-        driverTarget: 'config',
-        expectUsage: 'off',
-      }),
-    ).rejects.toThrow(/either proposerTarget or driverTarget/)
   })
 })

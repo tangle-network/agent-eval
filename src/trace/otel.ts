@@ -9,6 +9,15 @@
  * Reference: OTLP 1.3.2 (ResourceSpans / ScopeSpans / Span).
  */
 
+import {
+  LLM_COST_USD,
+  LLM_INPUT_TOKENS,
+  LLM_MODEL_NAME,
+  LLM_OUTPUT_TOKENS,
+  OPENINFERENCE_SPAN_KIND,
+  TOOL_NAME,
+  traceSpanKindToOpenInferenceKind,
+} from './otlp-attributes'
 import type { Run, Span, TraceEvent } from './schema'
 import type { TraceStore } from './store'
 
@@ -103,16 +112,16 @@ function spanToOtlp(span: Span, traceId: string, events: TraceEvent[]): OtlpSpan
 
 function flattenSpanAttributes(span: Span): Record<string, string | number | boolean> {
   const base: Record<string, string | number | boolean> = {
-    'span.kind': span.kind,
+    [OPENINFERENCE_SPAN_KIND]: traceSpanKindToOpenInferenceKind(span.kind),
   }
   if (span.kind === 'llm') {
-    base['llm.model'] = span.model
-    if (span.inputTokens !== undefined) base['llm.input_tokens'] = span.inputTokens
-    if (span.outputTokens !== undefined) base['llm.output_tokens'] = span.outputTokens
-    if (span.costUsd !== undefined) base['llm.cost_usd'] = span.costUsd
+    base[LLM_MODEL_NAME] = span.model
+    if (span.inputTokens !== undefined) base[LLM_INPUT_TOKENS] = span.inputTokens
+    if (span.outputTokens !== undefined) base[LLM_OUTPUT_TOKENS] = span.outputTokens
+    if (span.costUsd !== undefined) base[LLM_COST_USD] = span.costUsd
     if (span.finishReason) base['llm.finish_reason'] = span.finishReason
   } else if (span.kind === 'tool') {
-    base['tool.name'] = span.toolName
+    base[TOOL_NAME] = span.toolName
     if (span.latencyMs !== undefined) base['tool.latency_ms'] = span.latencyMs
   } else if (span.kind === 'retrieval') {
     base['retrieval.query'] = span.query

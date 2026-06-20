@@ -1,17 +1,17 @@
 /**
  * @experimental
  *
- * `haloDriver` — wraps the REAL halo-engine (Inference.net's hierarchical
+ * `haloProposer` — wraps the REAL halo-engine (Inference.net's hierarchical
  * agentic trace analyzer, `pip install halo-engine`, repo context-labs/halo)
- * as an agent-eval `ImprovementDriver`, so HALO competes head-to-head with
- * `gepaDriver` — and with our own `traceAnalystDriver` — inside `compareDrivers`
+ * as an agent-eval `SurfaceProposer`, so HALO competes head-to-head with
+ * `gepaProposer` — and with our own `traceAnalystProposer` — inside `compareProposers`
  * on identical traces / scenarios / held-out scoring.
  *
  * It PRESERVES halo's actual working usage — `analyze` shells out to the
  * published CLI (`halo <traces.jsonl> -p <prompt> -m <model>`) and uses its real
  * RLM findings verbatim. We do NOT reimplement its analysis; that would make the
  * benchmark meaningless. The materialize/apply pipeline is the shared
- * `analysisEditDriver` — identical to `traceAnalystDriver`, which is what makes
+ * `analysisEditProposer` — identical to `traceAnalystProposer`, which is what makes
  * the comparison apples-to-apples.
  *
  * Fail-loud: no traces → throw; halo errors → throw; empty findings → throw.
@@ -20,12 +20,12 @@
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
 import type { LlmClientOptions } from '../../llm-client'
-import type { ImprovementDriver, ProposeContext } from '../types'
-import { analysisEditDriver } from './analysis-edit'
+import type { ProposeContext, SurfaceProposer } from '../types'
+import { analysisEditProposer } from './analysis-edit'
 
 const execFileAsync = promisify(execFile)
 
-export interface HaloDriverOptions {
+export interface HaloProposerOptions {
   /** OpenAI-compatible base URL for BOTH halo's RLM analysis and the apply
    *  step (e.g. the Tangle router `https://router.tangle.tools/v1`). */
   baseUrl: string
@@ -52,11 +52,11 @@ export interface HaloDriverOptions {
 const DEFAULT_ANALYSIS_PROMPT =
   'Diagnose the failures in these agent execution traces — hallucinated tool calls, redundant tool arguments, refusal loops, and semantic-correctness errors — and suggest concrete, generalizable fixes to the agent instructions.'
 
-/** Wrap the real halo-engine CLI as an ImprovementDriver (prompt-tier). */
-export function haloDriver(opts: HaloDriverOptions): ImprovementDriver {
+/** Wrap the real halo-engine CLI as a SurfaceProposer (prompt-tier). */
+export function haloProposer(opts: HaloProposerOptions): SurfaceProposer {
   const haloBin = opts.haloBin ?? 'halo'
   const model = opts.model ?? 'gpt-5.4-mini'
-  return analysisEditDriver({
+  return analysisEditProposer({
     kind: 'halo',
     label: 'halo',
     baseUrl: opts.baseUrl,
@@ -65,7 +65,7 @@ export function haloDriver(opts: HaloDriverOptions): ImprovementDriver {
     fetchImpl: opts.fetchImpl,
     resolveTraces: opts.resolveTraces,
     noTracesError:
-      'haloDriver: resolveTraces returned no OTLP traces — the halo engine has nothing to analyze',
+      'haloProposer: resolveTraces returned no OTLP traces — the halo engine has nothing to analyze',
     // HALO's real findings are preserved verbatim in the rationale (attribution).
     rationale: (findings) => `halo-engine findings:\n${findings.slice(0, 800)}`,
     analyze: async (tracePath, ctx) => {
@@ -94,10 +94,10 @@ export function haloDriver(opts: HaloDriverOptions): ImprovementDriver {
         findings = stdout.trim()
       } catch (e) {
         throw new Error(
-          `haloDriver: halo-engine ('${haloBin}') failed — ${e instanceof Error ? e.message : String(e)}`,
+          `haloProposer: halo-engine ('${haloBin}') failed — ${e instanceof Error ? e.message : String(e)}`,
         )
       }
-      if (!findings) throw new Error('haloDriver: halo-engine produced no findings')
+      if (!findings) throw new Error('haloProposer: halo-engine produced no findings')
       return findings
     },
   })

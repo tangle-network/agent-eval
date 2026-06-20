@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { deriveEfficiencyFindings } from '../analyst/behavioral-analyst'
+import { LLM_INPUT_TOKENS, LLM_OUTPUT_TOKENS } from '../trace/otlp-attributes'
 import { computeTraceMetrics } from './behavioral-metrics'
 import type { TraceAnalystSpan } from './types'
 
@@ -63,6 +64,23 @@ describe('computeTraceMetrics — deterministic behavioral signals (no LLM)', ()
     expect(m.distinctTools).toBe(1)
     expect(m.totalToolCalls).toBe(7)
     expect(m.hasSelfVerification).toBe(false)
+  })
+
+  it('prefers canonical OpenInference token attributes', () => {
+    const spans = [
+      {
+        ...llmSpan(1, 10, 5),
+        attributes: { [LLM_INPUT_TOKENS]: 10, [LLM_OUTPUT_TOKENS]: 5, step: 1 },
+      },
+      {
+        ...llmSpan(2, 20, 4),
+        attributes: { [LLM_INPUT_TOKENS]: 20, [LLM_OUTPUT_TOKENS]: 4, step: 2 },
+      },
+    ]
+
+    const m = computeTraceMetrics(spans)
+    expect(m.inputTokenTrajectory).toEqual([10, 20])
+    expect(m.outputTokenTrajectory).toEqual([5, 4])
   })
 
   it('fires all four HALO-class signals on the suboptimal-but-successful trace', () => {

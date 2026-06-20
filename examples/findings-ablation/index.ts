@@ -41,7 +41,7 @@ import { join } from 'node:path'
 import {
   campaignBreakdown,
   type DispatchContext,
-  gepaDriver,
+  gepaProposer,
   type RunOptimizationOptions,
   runOptimization,
 } from '../../src/campaign'
@@ -121,7 +121,7 @@ async function scoreOnHoldout(surface: string): Promise<number[]> {
 }
 
 function makeProposer() {
-  return gepaDriver({
+  return gepaProposer({
     llm,
     model: MODEL,
     target: PROPOSER_TARGET,

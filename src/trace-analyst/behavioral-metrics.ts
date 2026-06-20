@@ -11,6 +11,11 @@
  * tool usage present in any agentic OTLP trace, not any one benchmark.
  */
 
+import {
+  LLM_INPUT_TOKEN_ATTR_KEYS,
+  LLM_OUTPUT_TOKEN_ATTR_KEYS,
+  TOOL_NAME_ATTR_KEYS,
+} from '../trace/otlp-attributes'
 import type { TraceAnalystSpan } from './types'
 
 export type SuboptimalCode =
@@ -51,19 +56,34 @@ const VERIFY_RE = /verif|eval|inspect|check|assert|validat|review|confirm/i
 function num(v: unknown): number | null {
   return typeof v === 'number' && Number.isFinite(v) ? v : null
 }
+function numAttr(attrs: Record<string, unknown>, keys: readonly string[]): number | null {
+  for (const key of keys) {
+    const value = num(attrs[key])
+    if (value !== null) return value
+  }
+  return null
+}
 function inputTokensOf(s: TraceAnalystSpan): number | null {
-  return num(s.attributes['llm.input_tokens']) ?? num(s.attributes['llm.usage.input_tokens'])
+  return (
+    numAttr(s.attributes, LLM_INPUT_TOKEN_ATTR_KEYS) ?? num(s.attributes['llm.usage.input_tokens'])
+  )
 }
 function outputTokensOf(s: TraceAnalystSpan): number | null {
-  return num(s.attributes['llm.output_tokens']) ?? num(s.attributes['llm.usage.output_tokens'])
+  return (
+    numAttr(s.attributes, LLM_OUTPUT_TOKEN_ATTR_KEYS) ??
+    num(s.attributes['llm.usage.output_tokens'])
+  )
 }
 function stepOf(s: TraceAnalystSpan): number | null {
   return num(s.attributes.step)
 }
 function toolNameOf(s: TraceAnalystSpan): string | null {
   if (s.tool_name) return s.tool_name
-  const t = s.attributes['tool.name']
-  return typeof t === 'string' && t.length > 0 ? t : null
+  for (const key of TOOL_NAME_ATTR_KEYS) {
+    const t = s.attributes[key]
+    if (typeof t === 'string' && t.length > 0) return t
+  }
+  return null
 }
 
 /**

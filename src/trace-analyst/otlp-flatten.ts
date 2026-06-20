@@ -9,6 +9,13 @@
  */
 
 import type { OtlpExport, OtlpSpan } from '../trace/otel'
+import {
+  LLM_INPUT_TOKENS,
+  LLM_MODEL_NAME,
+  LLM_OUTPUT_TOKENS,
+  OPENINFERENCE_SPAN_KIND,
+  TOOL_NAME,
+} from '../trace/otlp-attributes'
 
 export interface OtlpFlatLine {
   trace_id: string
@@ -28,11 +35,9 @@ export interface OtlpFlatLine {
 }
 
 export interface FlattenOtlpOptions {
-  /** `'openinference'` (default) mirrors per-span attributes into the
-   *  OpenInference vocabulary the analyst's `inferKind` reads
-   *  (`llm.model`→`llm.model_name`, `tool.name`→`inference.tool.name`,
-   *  `span.kind`→`openinference.span.kind` uppercased). `'none'` passes
-   *  attributes through untouched. */
+  /** `'openinference'` (default) mirrors legacy per-span attributes into the
+   *  canonical OpenInference vocabulary the analyst readers consume. `'none'`
+   *  passes attributes through untouched. */
   attributeVocabulary?: 'openinference' | 'none'
   /** Override the numeric-kind → otlp-string mapping. */
   kindMap?: Partial<Record<number, string>>
@@ -75,14 +80,26 @@ function nanoToIso(nano: string): string {
 
 /** Mirror selected attributes into the OpenInference vocabulary in place. */
 function applyOpenInference(attrs: Record<string, string | number | boolean>): void {
-  if ('llm.model' in attrs && !('llm.model_name' in attrs)) {
-    attrs['llm.model_name'] = attrs['llm.model']!
+  if ('llm.model' in attrs && !(LLM_MODEL_NAME in attrs)) {
+    attrs[LLM_MODEL_NAME] = attrs['llm.model']!
   }
-  if ('tool.name' in attrs && !('inference.tool.name' in attrs)) {
-    attrs['inference.tool.name'] = attrs['tool.name']!
+  if ('llm.input_tokens' in attrs && !(LLM_INPUT_TOKENS in attrs)) {
+    attrs[LLM_INPUT_TOKENS] = attrs['llm.input_tokens']!
   }
-  if ('span.kind' in attrs && !('openinference.span.kind' in attrs)) {
-    attrs['openinference.span.kind'] = String(attrs['span.kind']).toUpperCase()
+  if ('inference.llm.input_tokens' in attrs && !(LLM_INPUT_TOKENS in attrs)) {
+    attrs[LLM_INPUT_TOKENS] = attrs['inference.llm.input_tokens']!
+  }
+  if ('llm.output_tokens' in attrs && !(LLM_OUTPUT_TOKENS in attrs)) {
+    attrs[LLM_OUTPUT_TOKENS] = attrs['llm.output_tokens']!
+  }
+  if ('inference.llm.output_tokens' in attrs && !(LLM_OUTPUT_TOKENS in attrs)) {
+    attrs[LLM_OUTPUT_TOKENS] = attrs['inference.llm.output_tokens']!
+  }
+  if (TOOL_NAME in attrs && !('inference.tool.name' in attrs)) {
+    attrs['inference.tool.name'] = attrs[TOOL_NAME]!
+  }
+  if ('span.kind' in attrs && !(OPENINFERENCE_SPAN_KIND in attrs)) {
+    attrs[OPENINFERENCE_SPAN_KIND] = String(attrs['span.kind']).toUpperCase()
   }
 }
 

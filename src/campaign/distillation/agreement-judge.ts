@@ -20,13 +20,13 @@ import type { JudgeConfig, JudgeScore, Scenario } from '../types'
 import type { GoldScenario } from './gold-scenarios'
 
 /** What an injected comparator returns: a [0,1] composite plus the per-field
- *  (per-dimension) agreement breakdown the GEPA driver reflects on to learn
+ *  (per-dimension) agreement breakdown the GEPA proposer reflects on to learn
  *  WHICH part of the verdict the student is getting wrong. */
 export interface AgreementResult {
   /** Overall agreement in [0,1]. */
   score: number
   /** Per-dimension agreement in [0,1] — keyed by field/aspect name. The
-   *  reflective driver surfaces the weakest of these as the lever to fix. */
+   *  reflective proposer surfaces the weakest of these as the lever to fix. */
   dimensions: Record<string, number>
 }
 

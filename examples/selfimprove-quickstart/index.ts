@@ -71,7 +71,7 @@ function clamp(x: number): number {
 
 // Synthetic proposer: deterministically proposes two variants per generation —
 // one adds 'tight,', the other adds 'specific,'. Lets the example run offline.
-// In real use, you'd use the default `gepaDriver` (reflective LLM mutation)
+// In real use, you'd use the default `gepaProposer` (reflective LLM mutation)
 // from `/contract`.
 const syntheticProposer: SurfaceProposer = {
   kind: 'synthetic-quickstart',

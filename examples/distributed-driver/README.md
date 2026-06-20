@@ -1,8 +1,9 @@
-# Distributed-driver reference
+# Distributed execution reference
 
 Two-process demo showing how `runEval` / `runCampaign` /
-`runImprovementLoop` decouple from worker placement. Driver runs in one
-terminal; worker(s) run in another (or many others, in other regions).
+`runImprovementLoop` decouple from worker placement. The coordinator process
+runs in one terminal; worker(s) run in another (or many others, in other
+regions).
 
 ## Two terminals — single worker
 
@@ -10,11 +11,11 @@ terminal; worker(s) run in another (or many others, in other regions).
 # Terminal 1 — worker
 pnpm tsx examples/distributed-driver/worker.ts
 
-# Terminal 2 — driver
+# Terminal 2 — coordinator
 pnpm tsx examples/distributed-driver/driver.ts
 ```
 
-The driver POSTs each scenario to the worker over HTTP, the worker
+The coordinator POSTs each scenario to the worker over HTTP, the worker
 returns the artifact, the substrate aggregates judge scores as if
 everything were in-process.
 
@@ -29,7 +30,7 @@ PORT=8082 WORKER_ID=eu pnpm tsx examples/distributed-driver/worker.ts
 PORT=8083 WORKER_ID=ap pnpm tsx examples/distributed-driver/worker.ts
 ```
 
-Run the driver pointing at all three:
+Run the coordinator pointing at all three:
 
 ```sh
 WORKER_URL_US=http://localhost:8081/dispatch \
@@ -38,7 +39,7 @@ WORKER_URL_AP=http://localhost:8083/dispatch \
 pnpm tsx examples/distributed-driver/driver.ts
 ```
 
-The driver's `cellPlacement` reads the scenario tag (`us` / `eu` /
+The coordinator's `cellPlacement` reads the scenario tag (`us` / `eu` /
 `ap`) and routes each cell to the matching worker. With
 `maxConcurrency: 4` you'll see the four cells dispatch in parallel,
 each to its target region.
@@ -47,7 +48,7 @@ each to its target region.
 
 - **`Dispatch` is location-transparent.** Worker can be local-loopback,
   cross-region, cross-cloud, behind a load balancer, in an autoscaling
-  fleet — the driver doesn't know and doesn't care.
+  fleet — the coordinator doesn't know and doesn't care.
 - **`cellPlacement` is a pure function.** Substrate calls it per cell;
   whatever string it returns becomes `ctx.placement` on the Dispatch.
   `httpDispatch.resolveUrl` reads that and picks a URL.
@@ -66,7 +67,7 @@ In production you'd swap:
   OpenAI Agents call, your sandbox runtime).
 - The `dev-token` for a real bearer credential or rotating creds via
   the `auth: () => Promise<string>` form.
-- The driver running locally for a long-lived "driver service" — same
+- The coordinator running locally as a long-lived service — same
   binary, deployed on its own infrastructure, holding the
   optimization state across many campaign cycles.
 - The console-logged `onRequest` worker callback for an OTel exporter

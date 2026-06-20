@@ -20,7 +20,7 @@
  *   AGENT_EVAL_GSM8K_PATH=~/.cache/agent-eval/gsm8k.jsonl \
  *   LLM_BASE_URL=https://api.deepseek.com/v1 LLM_API_KEY=$DEEPSEEK_API_KEY \
  *   LLM_MODEL=deepseek-v4-pro PRICE_IN_PER_M=0.27 PRICE_OUT_PER_M=1.10 \
- *   pnpm tsx examples/benchmarks/gsm8k/compare-drivers.ts
+ *   pnpm tsx examples/benchmarks/gsm8k/compare-proposers.ts
  */
 
 import { createHash } from 'node:crypto'
@@ -266,7 +266,7 @@ async function main() {
       holdoutN: holdoutScenarios.length,
       holdoutScenarioIds: comparison.holdoutScenarioIds,
     },
-    model: { worker: MODEL, driver: MODEL, provider: 'deepseek', baseUrl: BASE_URL },
+    model: { worker: MODEL, proposer: MODEL, provider: 'deepseek', baseUrl: BASE_URL },
     backendIntegrity: {
       verdict: integrity.verdict,
       realRecords: integrity.realRecords,
@@ -308,7 +308,7 @@ async function main() {
     provenance: {
       gitSha: process.env.GIT_SHA ?? 'local',
       publishedAt: new Date(startedAt).toISOString(),
-      command: 'examples/benchmarks/gsm8k/compare-drivers.ts',
+      command: 'examples/benchmarks/gsm8k/compare-proposers.ts',
       llmCalls: records.length,
       elapsedSec,
     },

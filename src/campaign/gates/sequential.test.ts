@@ -373,7 +373,7 @@ describe('sequentialPairedGate — pre-registration binding', () => {
   })
 })
 
-// ── sequentialDecide — ImprovementDriver.decide adapter ───────────────
+// ── sequentialDecide — SurfaceProposer.decide adapter ───────────────
 
 describe('sequentialDecide — early-stop adapter for the optimization loop', () => {
   const SCENARIOS = 10
