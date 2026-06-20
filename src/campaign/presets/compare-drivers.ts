@@ -32,7 +32,6 @@ import { campaignBreakdown } from '../score-utils'
 import type {
   CampaignResult,
   DispatchContext,
-  ImprovementDriver,
   JudgeConfig,
   MutableSurface,
   Scenario,
@@ -121,13 +120,13 @@ export type CompareProposersOptions<TScenario extends Scenario, TArtifact> = Omi
     | {
         /** Preferred name: entries to optimize, then uniformly score on holdout. */
         proposers: ProposerEntry[]
-        /** @deprecated Use `proposers`. */
+        /** @deprecated since v0.94.0, removal targeted v1.0. Use `proposers`. */
         drivers?: ProposerEntry[]
       }
     | {
         /** Preferred name: entries to optimize, then uniformly score on holdout. */
         proposers?: ProposerEntry[]
-        /** @deprecated Use `proposers`. */
+        /** @deprecated since v0.94.0, removal targeted v1.0. Use `proposers`. */
         drivers: ProposerEntry[]
       }
   )
@@ -264,8 +263,8 @@ async function compareDriverEntries<TScenario extends Scenario, TArtifact>(
 export async function compareProposers<TScenario extends Scenario, TArtifact>(
   opts: CompareProposersOptions<TScenario, TArtifact>,
 ): Promise<ProposerComparison> {
-  const drivers = selectCompareProposers(opts)
-  return compareDriverEntries({ ...opts, drivers }, 'compareProposers', 'proposer')
+  const proposers = selectCompareProposers(opts)
+  return compareDriverEntries({ ...opts, drivers: proposers }, 'compareProposers', 'proposer')
 }
 
 function selectCompareProposers(opts: {
@@ -355,7 +354,7 @@ function gepaEntry<TScenario extends Scenario, TArtifact>(
     name,
     async optimize() {
       const started = Date.now()
-      const driver = gepaDriver({
+      const proposer = gepaDriver({
         llm: config.llm,
         model: config.model,
         target: config.target,
@@ -368,7 +367,7 @@ function gepaEntry<TScenario extends Scenario, TArtifact>(
         baselineSurface: config.baselineSurface,
         dispatchWithSurface: config.dispatchWithSurface,
         judges: config.judges,
-        driver,
+        proposer,
         populationSize: config.populationSize ?? 2,
         maxGenerations: config.maxGenerations ?? 3,
         gate: defaultProductionGate<TArtifact, TScenario>({
@@ -433,10 +432,10 @@ export function skillOptEntry<TScenario extends Scenario, TArtifact>(
 }
 
 /** FAPO reviewed-escalation policy. This is an orchestration layer over
- * level-specific drivers, not a new mutation operator:
+ * level-specific proposers, not a new mutation operator:
  * prompt -> parameter -> structural, with scope + reviewer + plateau rules in
  * `fapoDriver`. The prompt proposer defaults to GEPA+Pareto because that is
- * the package's strongest prompt-tier driver; parameter/structural proposers
+ * the package's strongest prompt-tier proposer; parameter/structural proposers
  * are opt-in so we do not fake code-generation inside agent-eval. */
 export interface FapoEntryConfig<TScenario extends Scenario, TArtifact>
   extends OptimizerEntryConfig<TScenario, TArtifact> {
@@ -446,25 +445,12 @@ export interface FapoEntryConfig<TScenario extends Scenario, TArtifact>
   parameterProposer?: SurfaceProposer
   /** Structural/code-level proposer, typically supplied by agent-runtime. */
   structuralProposer?: SurfaceProposer
-  /** @deprecated Use `promptProposer`. */
-  promptDriver?: ImprovementDriver
-  /** @deprecated Use `parameterProposer`. */
-  parameterDriver?: ImprovementDriver
-  /** @deprecated Use `structuralProposer`. */
-  structuralDriver?: ImprovementDriver
   /** Convenience: build a `parameterSweepDriver` from these candidates. */
   parameterCandidates?: readonly ParameterCandidate[]
   /** FAPO policy knobs: scope, reviewer, plateau thresholds. */
   fapo?: Omit<
     FapoDriverOptions,
-    | 'proposers'
-    | 'drivers'
-    | 'promptProposer'
-    | 'parameterProposer'
-    | 'structuralProposer'
-    | 'promptDriver'
-    | 'parameterDriver'
-    | 'structuralDriver'
+    'proposers' | 'promptProposer' | 'parameterProposer' | 'structuralProposer'
   >
 }
 
@@ -476,9 +462,8 @@ export function fapoEscalationEntry<TScenario extends Scenario, TArtifact>(
     name,
     async optimize() {
       const started = Date.now()
-      const promptDriver =
+      const promptProposer =
         config.promptProposer ??
-        config.promptDriver ??
         gepaDriver({
           llm: config.llm,
           model: config.model,
@@ -486,18 +471,17 @@ export function fapoEscalationEntry<TScenario extends Scenario, TArtifact>(
           combineParents: true,
           ...(config.mutationPrimitives ? { mutationPrimitives: config.mutationPrimitives } : {}),
         })
-      const parameterDriver =
+      const parameterProposer =
         config.parameterProposer ??
-        config.parameterDriver ??
         (config.parameterCandidates
           ? parameterSweepDriver({ candidates: config.parameterCandidates })
           : undefined)
-      const structuralDriver = config.structuralProposer ?? config.structuralDriver
-      const driver = fapoDriver({
+      const structuralProposer = config.structuralProposer
+      const proposer = fapoDriver({
         ...(config.fapo ?? {}),
-        promptProposer: promptDriver,
-        ...(parameterDriver ? { parameterProposer: parameterDriver } : {}),
-        ...(structuralDriver ? { structuralProposer: structuralDriver } : {}),
+        promptProposer,
+        ...(parameterProposer ? { parameterProposer } : {}),
+        ...(structuralProposer ? { structuralProposer } : {}),
       })
       const result = await runImprovementLoop<TScenario, TArtifact>({
         scenarios: config.trainScenarios,
@@ -505,7 +489,7 @@ export function fapoEscalationEntry<TScenario extends Scenario, TArtifact>(
         baselineSurface: config.baselineSurface,
         dispatchWithSurface: config.dispatchWithSurface,
         judges: config.judges,
-        driver,
+        proposer,
         populationSize: config.populationSize ?? 2,
         maxGenerations: config.maxGenerations ?? 3,
         gate: defaultProductionGate<TArtifact, TScenario>({

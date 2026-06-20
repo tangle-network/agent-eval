@@ -10,12 +10,12 @@
  *
  * This substrate driver encodes that policy while keeping the edit generators
  * pluggable:
- *   - prompt: usually `gepaDriver`, `skillOptDriver`, or a runtime reflective driver
- *   - parameter: `parameterSweepDriver` or a caller-supplied config driver
- *   - structural: a caller-supplied code/worktree driver from agent-runtime
+ *   - prompt: usually `gepaDriver`, `skillOptDriver`, or a runtime reflective proposer
+ *   - parameter: `parameterSweepDriver` or a caller-supplied config proposer
+ *   - structural: a caller-supplied code/worktree proposer from agent-runtime
  *
  * It deliberately does not import Claude Code, LangGraph, or Cisco's tenant
- * runtime. agent-eval owns measurement and driver contracts; runtime-shaped
+ * runtime. agent-eval owns measurement and proposer contracts; runtime-shaped
  * code generation stays downstream.
  *
  * Grounded sources:
@@ -39,9 +39,11 @@ import { isProposedCandidate } from '../types'
 export type FapoOptimizationLevel = 'prompt' | 'parameter' | 'structural'
 
 const FAPO_LEVELS: readonly FapoOptimizationLevel[] = ['prompt', 'parameter', 'structural']
+const MAX_FINDING_DEPTH = 16
+const UNSAFE_JSON_KEYS = new Set(['__proto__', 'prototype', 'constructor'])
 
 export interface FapoScopeContract {
-  /** Levels the tenant/playbook allows. Defaults to the levels with drivers. */
+  /** Levels the tenant/playbook allows. Defaults to the levels with proposers. */
   allowedLevels?: readonly FapoOptimizationLevel[]
   /** Explicitly forbidden levels; wins over `allowedLevels`. */
   forbiddenLevels?: readonly FapoOptimizationLevel[]
@@ -84,18 +86,10 @@ export interface FapoReviewInput<TFindings = unknown> {
 export interface FapoDriverOptions<TFindings = unknown> {
   /** Level-specific candidate proposers. At least one is required. */
   proposers?: Partial<Record<FapoOptimizationLevel, SurfaceProposer<TFindings>>>
-  /** @deprecated Use `proposers`. */
-  drivers?: Partial<Record<FapoOptimizationLevel, SurfaceProposer<TFindings>>>
   /** Convenience aliases for `proposers.<level>`. */
   promptProposer?: SurfaceProposer<TFindings>
   parameterProposer?: SurfaceProposer<TFindings>
   structuralProposer?: SurfaceProposer<TFindings>
-  /** @deprecated Use `promptProposer`. */
-  promptDriver?: SurfaceProposer<TFindings>
-  /** @deprecated Use `parameterProposer`. */
-  parameterDriver?: SurfaceProposer<TFindings>
-  /** @deprecated Use `structuralProposer`. */
-  structuralDriver?: SurfaceProposer<TFindings>
   /** Tenant/playbook-derived allowed and forbidden edit levels. */
   scope?: FapoScopeContract
   /**
@@ -132,19 +126,19 @@ interface FapoPolicyState {
   signals: FapoAttributionSignals
 }
 
-/** Build a FAPO policy driver from level-specific candidate generators. */
+/** Build a FAPO policy proposer from level-specific candidate generators. */
 export function fapoDriver<TFindings = unknown>(
   opts: FapoDriverOptions<TFindings>,
 ): ImprovementDriver<TFindings> {
-  const drivers = levelDrivers(opts)
-  const allowed = allowedLevels(opts, drivers)
+  const proposers = levelProposers(opts)
+  const allowed = allowedLevels(opts, proposers)
   const plateauWindow = opts.plateauWindow ?? 3
   const minDistinctStrategies = opts.minDistinctStrategies ?? 3
   const minImprovement = opts.minImprovement ?? 0
   const proposalsPerCycle = opts.proposalsPerCycle ?? 1
 
   if (allowed.length === 0) {
-    throw new Error('fapoDriver: at least one allowed level must have a driver')
+    throw new Error('fapoDriver: at least one allowed level must have a proposer')
   }
   if (plateauWindow < 1) throw new Error('fapoDriver: plateauWindow must be >= 1')
   if (minDistinctStrategies < 1) {
@@ -163,20 +157,20 @@ export function fapoDriver<TFindings = unknown>(
       const decision = chooseLevel({
         allowed,
         available: allowed.filter((level) => !state.exhausted[level]),
-        drivers,
+        proposers,
         state,
         promptFirst: opts.promptFirst ?? true,
         parameterBeforeStructural: opts.parameterBeforeStructural ?? true,
       })
       if (!decision) return []
 
-      const driver = drivers[decision.level]
-      if (!driver) {
-        throw new Error(`fapoDriver: selected ${decision.level} but no driver is configured`)
+      const proposer = proposers[decision.level]
+      if (!proposer) {
+        throw new Error(`fapoDriver: selected ${decision.level} but no proposer is configured`)
       }
 
       const requested = Math.min(ctx.populationSize, proposalsPerCycle)
-      const raw = await driver.propose({ ...ctx, populationSize: requested })
+      const raw = await proposer.propose({ ...ctx, populationSize: requested })
       const wrapped = raw
         .map((candidate) => normalizeProposal(candidate))
         .map((candidate) => wrapProposal(candidate, decision.level, decision.reason))
@@ -223,29 +217,25 @@ export function fapoDriver<TFindings = unknown>(
   }
 }
 
-function levelDrivers<TFindings>(
+function levelProposers<TFindings>(
   opts: FapoDriverOptions<TFindings>,
 ): Partial<Record<FapoOptimizationLevel, SurfaceProposer<TFindings>>> {
   return {
     ...(opts.proposers ?? {}),
-    ...(opts.drivers ?? {}),
     ...(opts.promptProposer ? { prompt: opts.promptProposer } : {}),
     ...(opts.parameterProposer ? { parameter: opts.parameterProposer } : {}),
     ...(opts.structuralProposer ? { structural: opts.structuralProposer } : {}),
-    ...(opts.promptDriver ? { prompt: opts.promptDriver } : {}),
-    ...(opts.parameterDriver ? { parameter: opts.parameterDriver } : {}),
-    ...(opts.structuralDriver ? { structural: opts.structuralDriver } : {}),
   }
 }
 
 function allowedLevels<TFindings>(
   opts: FapoDriverOptions<TFindings>,
-  drivers: Partial<Record<FapoOptimizationLevel, SurfaceProposer<TFindings>>>,
+  proposers: Partial<Record<FapoOptimizationLevel, SurfaceProposer<TFindings>>>,
 ): FapoOptimizationLevel[] {
   const explicit = opts.scope?.allowedLevels
   const forbidden = new Set(opts.scope?.forbiddenLevels ?? [])
   return FAPO_LEVELS.filter((level) => {
-    if (!drivers[level]) return false
+    if (!proposers[level]) return false
     if (forbidden.has(level)) return false
     return explicit ? explicit.includes(level) : true
   })
@@ -328,7 +318,7 @@ function isLevelExhausted(
 function chooseLevel<TFindings>(args: {
   allowed: readonly FapoOptimizationLevel[]
   available: readonly FapoOptimizationLevel[]
-  drivers: Partial<Record<FapoOptimizationLevel, ImprovementDriver<TFindings>>>
+  proposers: Partial<Record<FapoOptimizationLevel, SurfaceProposer<TFindings>>>
   state: FapoPolicyState
   promptFirst: boolean
   parameterBeforeStructural: boolean
@@ -360,7 +350,7 @@ function chooseLevel<TFindings>(args: {
       strongest === 'structural' &&
       args.parameterBeforeStructural &&
       available.includes('parameter') &&
-      args.drivers.parameter
+      args.proposers.parameter
     ) {
       return {
         level: 'parameter',
@@ -390,7 +380,7 @@ function levelRank(level: FapoOptimizationLevel): number {
 function normalizeProposal(value: MutableSurface | ProposedCandidate): ProposedCandidate {
   return isProposedCandidate(value)
     ? value
-    : { surface: value, label: 'candidate', rationale: 'bare candidate from level driver' }
+    : { surface: value, label: 'candidate', rationale: 'bare candidate from level proposer' }
 }
 
 function wrapProposal(
@@ -405,7 +395,7 @@ function wrapProposal(
     rationale: [
       `fapo:${level} selected by reviewed escalation policy`,
       `Reason: ${reason}`,
-      candidate.rationale ? `Level driver rationale: ${candidate.rationale}` : '',
+      candidate.rationale ? `Level proposer rationale: ${candidate.rationale}` : '',
     ]
       .filter(Boolean)
       .join('\n'),
@@ -425,13 +415,20 @@ export function extractFapoAttributionSignals(
     counts: { prompt: 0, parameter: 0, structural: 0 },
     clusters: [],
   }
+  const seen = new WeakSet<object>()
   for (const finding of findings) {
-    collectFinding(signals, finding)
+    collectFinding(signals, finding, seen, 0)
   }
   return signals
 }
 
-function collectFinding(signals: FapoAttributionSignals, finding: unknown): void {
+function collectFinding(
+  signals: FapoAttributionSignals,
+  finding: unknown,
+  seen: WeakSet<object>,
+  depth: number,
+): void {
+  if (depth > MAX_FINDING_DEPTH) return
   if (!finding) return
   if (typeof finding === 'string') {
     const level = inferLevelFromText(finding)
@@ -439,15 +436,19 @@ function collectFinding(signals: FapoAttributionSignals, finding: unknown): void
     return
   }
   if (Array.isArray(finding)) {
-    for (const item of finding) collectFinding(signals, item)
+    if (seen.has(finding)) return
+    seen.add(finding)
+    for (const item of finding) collectFinding(signals, item, seen, depth + 1)
     return
   }
   if (typeof finding !== 'object') return
+  if (seen.has(finding)) return
+  seen.add(finding)
   const obj = finding as Record<string, unknown>
 
-  collectLevelPartition(signals, obj.level_partition ?? obj.levelPartition)
+  collectLevelPartition(signals, obj.level_partition ?? obj.levelPartition, seen, depth + 1)
   collectCounts(signals, obj)
-  collectClusters(signals, obj.clusters, true)
+  collectClusters(signals, obj.clusters, true, seen, depth + 1)
 
   const explicit = parseFindingLevel(obj.level ?? obj.optimization_level ?? obj.optimizationLevel)
   const text = textFields(obj)
@@ -464,8 +465,15 @@ function collectFinding(signals: FapoAttributionSignals, finding: unknown): void
   }
 }
 
-function collectLevelPartition(signals: FapoAttributionSignals, raw: unknown): void {
+function collectLevelPartition(
+  signals: FapoAttributionSignals,
+  raw: unknown,
+  seen: WeakSet<object>,
+  depth: number,
+): void {
   if (!raw || typeof raw !== 'object') return
+  if (seen.has(raw)) return
+  seen.add(raw)
   const partition = raw as Record<string, unknown>
   for (const level of FAPO_LEVELS) {
     const bucket = partition[level]
@@ -473,7 +481,7 @@ function collectLevelPartition(signals: FapoAttributionSignals, raw: unknown): v
     const obj = bucket as Record<string, unknown>
     const count = numberField(obj.count) ?? 0
     if (count > 0) signals.counts[level] += count
-    collectClusters(signals, obj.clusters, false)
+    collectClusters(signals, obj.clusters, false, seen, depth + 1)
   }
 }
 
@@ -490,11 +498,15 @@ function collectClusters(
   signals: FapoAttributionSignals,
   raw: unknown,
   countClusters: boolean,
+  seen: WeakSet<object>,
+  depth: number,
 ): void {
   if (!Array.isArray(raw)) return
+  if (seen.has(raw)) return
+  seen.add(raw)
   for (const item of raw) {
     if (countClusters) {
-      collectFinding(signals, item)
+      collectFinding(signals, item, seen, depth + 1)
       continue
     }
     const cluster = parseCluster(item)
@@ -619,7 +631,7 @@ export interface ParameterSweepDriverOptions {
   stringify?: (config: Record<string, JsonValue>) => string
 }
 
-/** Config/parameter-level driver for FAPO's middle escalation level. */
+/** Config/parameter-level proposer for FAPO's middle escalation level. */
 export function parameterSweepDriver(opts: ParameterSweepDriverOptions): ImprovementDriver {
   if (opts.candidates.length === 0) {
     throw new Error('parameterSweepDriver: candidates must not be empty')
@@ -634,13 +646,14 @@ export function parameterSweepDriver(opts: ParameterSweepDriverOptions): Improve
       const stringify =
         opts.stringify ?? ((config: Record<string, JsonValue>) => JSON.stringify(config, null, 2))
       const current = parse(ctx.currentSurface)
+      const currentCanonical = canonicalJson(current)
       const tried = triedLabels(ctx.history)
       const out: ProposedCandidate[] = []
       for (const candidate of opts.candidates) {
         if (tried.has(candidate.label)) continue
         const next = applyParameterCandidate(current, candidate)
         const surface = stringify(next)
-        if (surface === ctx.currentSurface) continue
+        if (surface === ctx.currentSurface || canonicalJson(next) === currentCanonical) continue
         out.push({ surface, label: candidate.label, rationale: candidate.rationale })
         if (out.length >= ctx.populationSize) break
       }
@@ -650,7 +663,14 @@ export function parameterSweepDriver(opts: ParameterSweepDriverOptions): Improve
 }
 
 function parseJsonObject(surface: string): Record<string, JsonValue> {
-  const parsed = JSON.parse(surface)
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(surface)
+  } catch (error) {
+    throw new Error(
+      `parameterSweepDriver: currentSurface must be valid JSON object config (${error instanceof Error ? error.message : String(error)})`,
+    )
+  }
   if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
     throw new Error('parameterSweepDriver: JSON surface must parse to an object')
   }
@@ -691,6 +711,7 @@ function cloneJsonObject(value: Record<string, JsonValue>): Record<string, JsonV
 
 function deepMerge(target: Record<string, JsonValue>, patch: Record<string, JsonValue>): void {
   for (const [key, value] of Object.entries(patch)) {
+    assertSafeJsonKey(key)
     if (isPlainObject(value) && isPlainObject(target[key])) {
       deepMerge(target[key] as Record<string, JsonValue>, value as Record<string, JsonValue>)
     } else {
@@ -701,6 +722,7 @@ function deepMerge(target: Record<string, JsonValue>, patch: Record<string, Json
 
 function setPath(target: Record<string, JsonValue>, path: string[], value: JsonValue): void {
   if (path.length === 0) throw new Error('parameterSweepDriver: change path must not be empty')
+  for (const part of path) assertSafeJsonKey(part)
   let cursor: Record<string, JsonValue> = target
   for (const part of path.slice(0, -1)) {
     const existing = cursor[part]
@@ -712,6 +734,26 @@ function setPath(target: Record<string, JsonValue>, path: string[], value: JsonV
   cursor[path[path.length - 1]!] = value
 }
 
+function assertSafeJsonKey(key: string): void {
+  if (!key.trim()) throw new Error('parameterSweepDriver: change path contains an empty key')
+  if (UNSAFE_JSON_KEYS.has(key)) {
+    throw new Error(`parameterSweepDriver: unsafe JSON key "${key}" is not allowed`)
+  }
+}
+
+function canonicalJson(value: JsonValue | Record<string, JsonValue>): string {
+  if (Array.isArray(value)) return `[${value.map((item) => canonicalJson(item)).join(',')}]`
+  if (isPlainObject(value)) {
+    return `{${Object.keys(value)
+      .sort()
+      .map((key) => `${JSON.stringify(key)}:${canonicalJson(value[key]!)}`)
+      .join(',')}}`
+  }
+  return JSON.stringify(value)
+}
+
 function isPlainObject(value: unknown): value is Record<string, JsonValue> {
-  return Boolean(value) && typeof value === 'object' && !Array.isArray(value)
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false
+  const proto = Object.getPrototypeOf(value)
+  return proto === Object.prototype || proto === null
 }

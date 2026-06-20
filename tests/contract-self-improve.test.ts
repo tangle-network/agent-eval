@@ -221,4 +221,33 @@ describe('selfImprove — forwarded loop knobs', () => {
     })
     expect(calls).toBeGreaterThanOrEqual(1)
   })
+
+  it('rejects conflicting proposer and legacy driver options', async () => {
+    const otherProposer: SurfaceProposer = {
+      kind: 'fake:other',
+      async propose() {
+        return [{ surface: 'OTHER', label: 'other', rationale: 'other' }]
+      },
+    }
+
+    await expect(
+      selfImprove<S, A>({
+        ...base,
+        proposer,
+        driver: otherProposer,
+        expectUsage: 'off',
+      }),
+    ).rejects.toThrow(/either proposer or driver/)
+  })
+
+  it('rejects conflicting proposerTarget and legacy driverTarget options', async () => {
+    await expect(
+      selfImprove<S, A>({
+        ...base,
+        proposerTarget: 'prompt',
+        driverTarget: 'config',
+        expectUsage: 'off',
+      }),
+    ).rejects.toThrow(/either proposerTarget or driverTarget/)
+  })
 })

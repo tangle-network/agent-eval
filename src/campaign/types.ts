@@ -315,12 +315,12 @@ export type OptimizerConfig = OptimizerConfigBase &
   (
     | {
         proposer: SurfaceProposer
-        /** @deprecated Use `proposer`. */
+        /** @deprecated since v0.94.0, removal targeted v1.0. Use `proposer`. */
         driver?: SurfaceProposer
       }
     | {
         proposer?: SurfaceProposer
-        /** @deprecated Use `proposer`. */
+        /** @deprecated since v0.94.0, removal targeted v1.0. Use `proposer`. */
         driver: SurfaceProposer
       }
   )
@@ -561,17 +561,17 @@ export interface GenerationCandidate {
   dimensions: Record<string, number>
   /** Per-scenario composite (mean over reps + judges), plus the judge's
    *  free-form `notes` for that scenario — the "why it scored low" evidence a
-   *  reflective driver grounds its next edit on. Keep `notes` GENERALIZABLE
+   *  reflective proposer grounds its next edit on. Keep `notes` GENERALIZABLE
    *  (which checks/lines/dimensions failed and how), NOT case-specific ground
    *  truth: leaking expected answers into the prompt is memorization, and the
    *  held-out gate would reject it anyway. */
   scenarios: Array<{ scenarioId: string; composite: number; notes?: string }>
-  /** Driver-supplied short label for the change. Present when the driver
+  /** Proposer-supplied short label for the change. Present when the proposer
    *  returned a `ProposedCandidate`; absent for bare-surface mutators. */
   label?: string
-  /** Driver-supplied rationale — WHY this candidate was proposed. The
+  /** Proposer-supplied rationale — WHY this candidate was proposed. The
    *  "because rationale Z" the audit requires to survive to the result.
-   *  Present when the driver returned a `ProposedCandidate`. */
+   *  Present when the proposer returned a `ProposedCandidate`. */
   rationale?: string
 }
 

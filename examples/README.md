@@ -20,7 +20,7 @@ The three top-level entry points map to three starting situations — same decis
 
 **Proof & benchmarks** — does it actually work, and which approach wins?
 - [`substrate-lift-proof`](./substrate-lift-proof) — the flagship: a real, reproducible held-out lift.
-- [`compare-drivers-canonical`](./compare-drivers-canonical) — `compareProposers` head-to-head (directory kept under its historical name).
+- [`compare-proposers-canonical`](./compare-proposers-canonical) — `compareProposers` head-to-head.
 - [`findings-ablation`](./findings-ablation) — the empirical gate for the EYES→HANDS findings wire.
 - [`held-out-gate`](./held-out-gate) — the promotion gate in isolation.
 - [`scorecard`](./scorecard) — render an eval scorecard.

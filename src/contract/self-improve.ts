@@ -63,7 +63,7 @@ export interface SelfImproveBudget {
   /** How many improvement generations to explore. Default 3. Set 0 to
    *  skip improvement entirely (selfImprove becomes a baseline-only run). */
   generations?: number
-  /** Candidates the driver proposes per generation. Default 2. */
+  /** Candidates the proposer emits per generation. Default 2. */
   populationSize?: number
   /** Max concurrent cells across the loop. Default 2. */
   maxConcurrency?: number
@@ -131,13 +131,13 @@ export interface SelfImproveOptions<TScenario extends Scenario, TArtifact> {
    *  `mutationPrimitives`. */
   proposer?: SurfaceProposer
 
-  /** @deprecated Use `proposer`. Kept so existing callers do not break. */
+  /** @deprecated since v0.94.0, removal targeted v1.0. Use `proposer`. */
   driver?: SurfaceProposer
 
   /** Default-proposer overrides — used when `proposer`/`driver` are unset. */
   mutationPrimitives?: string[]
   proposerTarget?: string
-  /** @deprecated Use `proposerTarget`. */
+  /** @deprecated since v0.94.0, removal targeted v1.0. Use `proposerTarget`. */
   driverTarget?: string
 
   /** Custom gate. Default is `defaultProductionGate` with
@@ -258,10 +258,10 @@ export interface SelfImproveResult<TScenario extends Scenario, TArtifact> {
     compositeMean: number
     perScenario: Record<string, number>
     surface: MutableSurface
-    /** Driver label for the promoted change. Absent ⇒ winner == baseline or
+    /** Proposer label for the promoted change. Absent ⇒ winner == baseline or
      *  a bare-surface mutator. */
     label?: string
-    /** Driver rationale — the "because Z" that motivated the promoted change.
+    /** Proposer rationale — the "because Z" that motivated the promoted change.
      *  Threaded from the proposer's `ProposedCandidate` through the loop.
      *  Absent ⇒ winner == baseline. */
     rationale?: string
@@ -279,7 +279,7 @@ export interface SelfImproveResult<TScenario extends Scenario, TArtifact> {
   /** `defaultProductionGate.decide()` result. */
   gateDecision: 'ship' | 'hold' | 'need_more_work' | 'model_ceiling' | 'arch_ceiling'
   /** Number of generations actually explored (may be less than the
-   *  budget if the driver gave up early). */
+   *  budget if the proposer gave up early). */
   generationsExplored: number
   /** Wall-clock total. */
   durationMs: number
@@ -401,6 +401,15 @@ export async function selfImprove<TScenario extends Scenario, TArtifact>(
   }
   if (holdout.length === 0) {
     throw new Error('selfImprove: holdout split is empty. Pass more scenarios.')
+  }
+
+  if (opts.proposer && opts.driver && opts.proposer !== opts.driver) {
+    throw new Error('selfImprove: pass either proposer or driver, not two different values')
+  }
+  if (opts.proposerTarget && opts.driverTarget && opts.proposerTarget !== opts.driverTarget) {
+    throw new Error(
+      'selfImprove: pass either proposerTarget or driverTarget, not two different values',
+    )
   }
 
   const proposer: SurfaceProposer =

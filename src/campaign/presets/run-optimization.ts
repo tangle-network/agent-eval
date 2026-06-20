@@ -36,14 +36,14 @@ import {
 interface RunOptimizationProposerOption {
   /** Preferred name: the strategy that proposes candidate surfaces. */
   proposer: SurfaceProposer
-  /** @deprecated Use `proposer`. Kept for existing `ImprovementDriver` callers. */
+  /** @deprecated since v0.94.0, removal targeted v1.0. Use `proposer`. */
   driver?: SurfaceProposer
 }
 
 interface RunOptimizationDriverOption {
   /** Preferred name: the strategy that proposes candidate surfaces. */
   proposer?: SurfaceProposer
-  /** @deprecated Use `proposer`. Kept for existing `ImprovementDriver` callers. */
+  /** @deprecated since v0.94.0, removal targeted v1.0. Use `proposer`. */
   driver: SurfaceProposer
 }
 
@@ -64,17 +64,17 @@ export interface RunOptimizationBaseOptions<TScenario extends Scenario, TArtifac
   maxGenerations: number
   /** How many top-scoring candidates carry to the next generation. Default 2. */
   promoteTopK?: number
-  /** DEPTH knob forwarded to the driver's `propose()` — max iterations the
+  /** DEPTH knob forwarded to the proposer's `propose()` — max iterations the
    *  agentic generator may take per candidate. */
   maxImprovementShots?: number
   /** Phase-2 research report forwarded to `propose()` (analyst findings +
-   *  diff). Opaque here; the driver types it. */
+   *  diff). Opaque here; the proposer types it. */
   report?: unknown
   /** Structured findings forwarded to `propose()` as `ctx.findings`. A
    *  findings producer (trace-analyst registry, HALO) emits these from the
-   *  generation's traces; findings-grounded drivers (`improvementDriver`,
+   *  generation's traces; findings-grounded proposers (`improvementDriver`,
    *  `memoryCurationDriver`, `traceAnalystDriver`) consume them. Opaque here;
-   *  the driver types its `TFindings`. Empty when no producer is wired. */
+   *  the proposer types its `TFindings`. Empty when no producer is wired. */
   findings?: unknown[]
   /** Per-generation findings producer — the EYES→HANDS loop closure. After each
    *  generation's candidates are scored, this is called with that generation's
@@ -113,11 +113,11 @@ export interface RunOptimizationResult<TArtifact, TScenario extends Scenario> {
   }>
   winnerSurface: MutableSurface
   winnerSurfaceHash: string
-  /** Driver label for the promoted surface. Present when the winning
-   *  candidate came from a `ProposedCandidate` (a reflective driver);
+  /** Proposer label for the promoted surface. Present when the winning
+   *  candidate came from a `ProposedCandidate` (a reflective proposer);
    *  absent when the winner is the baseline or a bare-surface mutator. */
   winnerLabel?: string
-  /** Driver rationale for the promoted surface — the "because Z" that
+  /** Proposer rationale for the promoted surface — the "because Z" that
    *  motivated the winning change. Survives to `SelfImproveResult` and the
    *  emitted provenance record. Absent when the winner is the baseline. */
   winnerRationale?: string
@@ -161,7 +161,7 @@ export async function runOptimization<TScenario extends Scenario, TArtifact>(
   // GEPA frontier accumulator — every scored surface as an objective vector
   // (per-scenario composite). The baseline seeds it as generation -1; each
   // candidate is added after its campaign. The non-dominated set of this list
-  // is recomputed before every `propose()` and handed to the driver.
+  // is recomputed before every `propose()` and handed to the proposer.
   const scored: ParetoParent[] = [
     toParetoParent(opts.baselineSurface, winnerSurfaceHash, baselineCampaign, -1),
   ]

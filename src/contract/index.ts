@@ -125,7 +125,7 @@ export {
 } from '../campaign/presets/run-improvement-loop'
 export { type RunCampaignOptions, runCampaign } from '../campaign/run-campaign'
 
-// ── Drivers ──────────────────────────────────────────────────────────
+// ── Proposers ────────────────────────────────────────────────────────
 
 export {
   type EvolutionaryDriverOptions,

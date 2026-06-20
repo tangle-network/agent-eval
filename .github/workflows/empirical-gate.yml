@@ -1,9 +1,9 @@
 name: Empirical Lift (scheduled)
 
 # The LIVE companion to the deterministic mechanism gate in ci.yml. ci.yml
-# proves the optimizer harness RANKS correctly (compare-drivers/skill-opt/presets
+# proves the optimizer harness RANKS correctly (compareProposers/skill-opt/presets
 # unit tests, every PR, no LLM). This job proves the optimizers move a REAL
-# held-out number on a real backend and records which driver wins — a periodic,
+# held-out number on a real backend and records which proposer wins — a periodic,
 # durable artifact, NOT a per-PR gate (live LLM runs are nondeterministic +
 # cost money; gating PRs on them would make CI flaky and expensive).
 #
@@ -49,11 +49,11 @@ jobs:
           if [ -n "$KEY" ]; then
             echo "run=true" >> "$GITHUB_OUTPUT"
           else
-            echo "::notice::No LLM_API_KEY / TANGLE_API_KEY secret set — skipping the live empirical run. The deterministic mechanism gate (compare-drivers/skill-opt/presets) still runs in ci.yml on every PR."
+            echo "::notice::No LLM_API_KEY / TANGLE_API_KEY secret set — skipping the live empirical run. The deterministic mechanism gate (compareProposers/skill-opt/presets) still runs in ci.yml on every PR."
             echo "run=false" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Run compareDrivers (gepa-reflection vs gepa-pareto vs skill-opt)
+      - name: Run compareProposers (gepa-reflection vs gepa-pareto vs skill-opt)
         if: steps.guard.outputs.run == 'true'
         env:
           # Defaults to the Tangle router; override the base/model via repo vars
@@ -66,12 +66,12 @@ jobs:
           POPULATION: ${{ github.event.inputs.population || '2' }}
           GENERATIONS: ${{ github.event.inputs.generations || '2' }}
           EPOCHS: ${{ github.event.inputs.epochs || '3' }}
-        run: pnpm tsx examples/compare-drivers-canonical/index.ts
+        run: pnpm tsx examples/compare-proposers-canonical/index.ts
 
       - name: Upload lift artifact
         if: steps.guard.outputs.run == 'true'
         uses: actions/upload-artifact@v4
         with:
           name: empirical-lift-${{ github.run_number }}
-          path: .evolve/compare-drivers-canonical/**/lift-drivers.json
+          path: .evolve/compare-proposers-canonical/**/lift-proposers.json
           if-no-files-found: warn

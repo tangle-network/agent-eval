@@ -4,9 +4,9 @@
  * measured held-out lift through a real LLM backend.
  *
  * The transaction-extraction corpus + deterministic judge + worker live in
- * `examples/_shared/extraction-task.ts` (shared with `compare-drivers-canonical`
- * so both measure the SAME task). This script runs the SINGLE-driver gated
- * loop; `compare-drivers-canonical` runs the head-to-head of all drivers.
+ * `examples/_shared/extraction-task.ts` (shared with `compare-proposers-canonical`
+ * so both measure the SAME task). This script runs the single-proposer gated
+ * loop; `compare-proposers-canonical` runs the head-to-head of all proposers.
  *
  * Real backend: token-emitting via the Tangle router (or any OpenAI-compatible
  * endpoint). `assertRealBackend` over the per-call RunRecords must verdict
@@ -34,12 +34,12 @@ import type { RunRecord } from '../../src/run-record'
 import {
   type Artifact,
   BASELINE_SURFACE,
-  DRIVER_TARGET,
-  extractionJudge,
   type ExtractScenario,
+  extractionJudge,
   HOLDOUT,
-  makeExtractionWorker,
   MUTATION_PRIMITIVES,
+  makeExtractionWorker,
+  PROPOSER_TARGET,
   SEARCH,
 } from '../_shared/extraction-task'
 
@@ -47,7 +47,7 @@ import {
 const API_KEY = process.env.TANGLE_API_KEY?.trim()
 const BASE_URL = process.env.TANGLE_ROUTER_URL?.trim() ?? 'https://router.tangle.tools/v1'
 const WORKER_MODEL = process.env.PROOF_WORKER_MODEL ?? 'anthropic/claude-haiku-4-5'
-const DRIVER_MODEL = process.env.PROOF_DRIVER_MODEL ?? 'anthropic/claude-haiku-4-5'
+const PROPOSER_MODEL = process.env.PROOF_PROPOSER_MODEL ?? 'anthropic/claude-haiku-4-5'
 const CALL_TIMEOUT_MS = 30_000
 
 if (!API_KEY) {
@@ -81,16 +81,16 @@ async function main() {
   mkdirSync(runRoot, { recursive: true })
 
   const startedAt = Date.now()
-  console.log('Substrate lift proof — gepaDriver + defaultProductionGate, real router')
-  console.log(`  worker=${WORKER_MODEL}  driver=${DRIVER_MODEL}  base=${BASE_URL}`)
+  console.log('Substrate lift proof — GEPA proposer + defaultProductionGate, real router')
+  console.log(`  worker=${WORKER_MODEL}  proposer=${PROPOSER_MODEL}  base=${BASE_URL}`)
   console.log(`  search=${SEARCH.length}  holdout=${HOLDOUT.length}`)
   console.log(`  baseline surface: ${JSON.stringify(BASELINE_SURFACE)}`)
   console.log()
 
-  const driver = gepaDriver({
+  const proposer = gepaDriver({
     llm,
-    model: DRIVER_MODEL,
-    target: DRIVER_TARGET,
+    model: PROPOSER_MODEL,
+    target: PROPOSER_TARGET,
     mutationPrimitives: MUTATION_PRIMITIVES,
     temperature: 0.7,
     maxTokens: 2000,
@@ -108,7 +108,7 @@ async function main() {
     baselineSurface: BASELINE_SURFACE,
     dispatchWithSurface: (surface, scenario, ctx) => worker(String(surface), scenario, ctx),
     judges: [extractionJudge([...SEARCH, ...HOLDOUT])],
-    driver,
+    proposer,
     populationSize: 2,
     maxGenerations: 2,
     promoteTopK: 1,

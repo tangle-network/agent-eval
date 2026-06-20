@@ -6,9 +6,9 @@ import {
 } from '../../src/campaign/drivers/fapo'
 import type {
   GenerationRecord,
-  ImprovementDriver,
   ProposeContext,
   ProposedCandidate,
+  SurfaceProposer,
 } from '../../src/campaign/types'
 
 function ctx(history: GenerationRecord[] = [], findings: unknown[] = []): ProposeContext {
@@ -22,7 +22,7 @@ function ctx(history: GenerationRecord[] = [], findings: unknown[] = []): Propos
   }
 }
 
-function fixedDriver(kind: string, suffix: string): ImprovementDriver {
+function fixedProposer(kind: string, suffix: string): SurfaceProposer {
   return {
     kind,
     async propose(c): Promise<ProposedCandidate[]> {
@@ -56,8 +56,8 @@ function gen(labels: string[], scores: number[]): GenerationRecord {
 describe('fapoDriver', () => {
   it('starts at prompt level and proposes one reviewed candidate by default', async () => {
     const driver = fapoDriver({
-      promptDriver: fixedDriver('prompt', 'PROMPT'),
-      structuralDriver: fixedDriver('structural', 'STRUCTURE'),
+      promptProposer: fixedProposer('prompt', 'PROMPT'),
+      structuralProposer: fixedProposer('structural', 'STRUCTURE'),
     })
 
     const out = await driver.propose(
@@ -70,9 +70,9 @@ describe('fapoDriver', () => {
     expect(String(out[0]!.surface)).toContain('PROMPT')
   })
 
-  it('accepts proposer aliases for the clearer public vocabulary', async () => {
+  it('accepts the level-proposer map for the clearer public vocabulary', async () => {
     const driver = fapoDriver({
-      promptProposer: fixedDriver('prompt', 'PROMPT'),
+      proposers: { prompt: fixedProposer('prompt', 'PROMPT') },
     })
 
     const out = await driver.propose(ctx())
@@ -104,9 +104,9 @@ describe('fapoDriver', () => {
       ],
     })
     const driver = fapoDriver({
-      promptDriver: fixedDriver('prompt', 'PROMPT'),
-      parameterDriver: parameter,
-      structuralDriver: fixedDriver('structural', 'STRUCTURE'),
+      promptProposer: fixedProposer('prompt', 'PROMPT'),
+      parameterProposer: parameter,
+      structuralProposer: fixedProposer('structural', 'STRUCTURE'),
     })
 
     const out = await driver.propose({
@@ -133,8 +133,8 @@ describe('fapoDriver', () => {
       ),
     ]
     const driver = fapoDriver({
-      promptDriver: fixedDriver('prompt', 'PROMPT'),
-      structuralDriver: fixedDriver('structural', 'STRUCTURE'),
+      promptProposer: fixedProposer('prompt', 'PROMPT'),
+      structuralProposer: fixedProposer('structural', 'STRUCTURE'),
     })
 
     await expect(driver.propose(ctx(history, []))).resolves.toEqual([])
@@ -142,8 +142,8 @@ describe('fapoDriver', () => {
 
   it('stops after an empty FAPO generation instead of burning the remaining budget', () => {
     const driver = fapoDriver({
-      promptDriver: fixedDriver('prompt', 'PROMPT'),
-      structuralDriver: fixedDriver('structural', 'STRUCTURE'),
+      promptProposer: fixedProposer('prompt', 'PROMPT'),
+      structuralProposer: fixedProposer('structural', 'STRUCTURE'),
     })
     const result = driver.decide?.({
       history: [
@@ -163,7 +163,7 @@ describe('fapoDriver', () => {
 
   it('blocks reviewed failures before eval', async () => {
     const driver = fapoDriver({
-      promptDriver: fixedDriver('prompt', 'PROMPT'),
+      promptProposer: fixedProposer('prompt', 'PROMPT'),
       reviewCandidate: async () => ({
         verdict: 'fail',
         issues: [
@@ -205,6 +205,92 @@ describe('fapoDriver', () => {
     expect(signals.counts.parameter).toBe(4)
     expect(signals.clusters.some((cluster) => cluster.level === 'parameter')).toBe(true)
   })
+
+  it('can escalate directly to structural when parameter-before-structural is disabled', async () => {
+    const history: GenerationRecord[] = [
+      gen(
+        [
+          'fapo:prompt:brevity-rules',
+          'fapo:prompt:negative-examples',
+          'fapo:prompt:ablation',
+          'fapo:prompt:format-tightening',
+        ],
+        [0.7, 0.69, 0.68, 0.67],
+      ),
+    ]
+    const driver = fapoDriver({
+      promptProposer: fixedProposer('prompt', 'PROMPT'),
+      parameterProposer: fixedProposer('parameter', 'PARAM'),
+      structuralProposer: fixedProposer('structural', 'STRUCTURE'),
+      parameterBeforeStructural: false,
+    })
+
+    const out = await driver.propose(
+      ctx(history, [{ label: 'tool chain drops the second lookup', count: 5 }]),
+    )
+
+    expect(out).toHaveLength(1)
+    expect(out[0]!.label).toContain('fapo:structural')
+    expect(String(out[0]!.surface)).toContain('STRUCTURE')
+  })
+
+  it('respects forbidden structural scope even when structural attribution is present', async () => {
+    const history: GenerationRecord[] = [
+      gen(
+        [
+          'fapo:prompt:brevity-rules',
+          'fapo:prompt:negative-examples',
+          'fapo:prompt:ablation',
+          'fapo:prompt:format-tightening',
+        ],
+        [0.7, 0.69, 0.68, 0.67],
+      ),
+    ]
+    const driver = fapoDriver({
+      promptProposer: fixedProposer('prompt', 'PROMPT'),
+      structuralProposer: fixedProposer('structural', 'STRUCTURE'),
+      scope: { forbiddenLevels: ['structural'] },
+    })
+
+    await expect(
+      driver.propose(ctx(history, [{ label: 'tool chain drops the second lookup', count: 5 }])),
+    ).resolves.toEqual([])
+  })
+
+  it('allows batch proposals only when proposalsPerCycle raises the paper-faithful default', async () => {
+    const promptProposer: SurfaceProposer = {
+      kind: 'prompt',
+      async propose({ populationSize }) {
+        return Array.from({ length: populationSize }, (_, i) => ({
+          surface: `PROMPT_${i}`,
+          label: `variant-${i}`,
+          rationale: `variant ${i}`,
+        }))
+      },
+    }
+    const driver = fapoDriver({ promptProposer, proposalsPerCycle: 2 })
+
+    const out = await driver.propose(ctx())
+
+    expect(out.map((candidate) => candidate.label)).toEqual([
+      'fapo:prompt:variant-0',
+      'fapo:prompt:variant-1',
+    ])
+  })
+
+  it('guards recursive attribution inputs instead of looping forever', () => {
+    const finding: Record<string, unknown> = {
+      label: 'retrieval misses evidence',
+      level: 'structural',
+      count: 1,
+    }
+    finding.clusters = [finding]
+
+    const signals = extractFapoAttributionSignals([finding])
+
+    expect(signals.counts.structural).toBe(1)
+    expect(signals.clusters).toHaveLength(1)
+  })
 })
 
 describe('parameterSweepDriver', () => {
@@ -245,5 +331,58 @@ describe('parameterSweepDriver', () => {
     })
 
     await expect(driver.propose(ctx())).rejects.toThrow(/JSON/)
+  })
+
+  it('skips semantic no-op patches even when formatting changes', async () => {
+    const driver = parameterSweepDriver({
+      candidates: [
+        { label: 'same', rationale: 'r', patch: { retrieval: { k: 7 } } },
+        { label: 'next', rationale: 'r', changes: [{ path: 'retrieval.k', value: 8 }] },
+      ],
+    })
+
+    const out = await driver.propose({
+      ...ctx(),
+      currentSurface: JSON.stringify({ retrieval: { k: 7 } }),
+      populationSize: 2,
+    })
+
+    expect(out).toHaveLength(1)
+    expect(out[0]!.label).toBe('next')
+  })
+
+  it('rejects unsafe JSON patch keys before applying a parameter candidate', async () => {
+    const pathDriver = parameterSweepDriver({
+      candidates: [
+        {
+          label: 'pollute-path',
+          rationale: 'r',
+          changes: [{ path: ['safe', '__proto__'], value: { polluted: true } }],
+        },
+      ],
+    })
+    const patchDriver = parameterSweepDriver({
+      candidates: [
+        {
+          label: 'pollute-patch',
+          rationale: 'r',
+          patch: { safe: { constructor: { polluted: true } } },
+        },
+      ],
+    })
+
+    await expect(
+      pathDriver.propose({
+        ...ctx(),
+        currentSurface: JSON.stringify({ safe: {} }),
+      }),
+    ).rejects.toThrow(/unsafe JSON key/)
+    await expect(
+      patchDriver.propose({
+        ...ctx(),
+        currentSurface: JSON.stringify({ safe: {} }),
+      }),
+    ).rejects.toThrow(/unsafe JSON key/)
+    expect(({} as { polluted?: boolean }).polluted).toBeUndefined()
   })
 })

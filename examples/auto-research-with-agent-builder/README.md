@@ -61,7 +61,8 @@ the outer loop that agent-builder doesn't own.
 
 `auto-research-with-agent-builder.ts` is fully runnable but uses a synthetic
 `runForgeBuilderSim` shim by default so the example doesn't need credentials or
-GPUs. To run against the real agent-builder:
+GPUs. The real agent-builder swap is an adapter sketch; verify the current
+agent-builder package export before running it:
 
 ```ts
 // Replace the shim:
@@ -102,9 +103,9 @@ verdict, reward-hacking) is shared agent-eval primitive.
 
 ## Status
 
-Example status: **runnable, synthetic-proposer-by-default**. Real-agent
-mode (against agent-builder's `runForgeBuilderSim`) is documented above
-and works with the current `@tangle-network/agent-eval` API.
+Example status: **runnable, synthetic-proposer-by-default**. Real-agent mode
+requires the current agent-builder `runForgeBuilderSim` export and should be
+smoke-tested in the consuming repo before treating it as a supported path.
 
 The composition pattern is stable. The auto-research thesis is genuinely
 load-bearing in this loop — every iteration's data informs the next, and
