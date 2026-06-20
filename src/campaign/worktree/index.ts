@@ -2,13 +2,13 @@
  * @experimental
  *
  * VCS-pluggable worktree adapter. One improvement = one worktree, PR-like
- * (multiple commits allowed). A code-tier driver's `propose()` creates a
+ * (multiple commits allowed). A code-tier proposer's `propose()` creates a
  * worktree, an agent commits the change into it, and `finalize()` returns a
  * `CodeSurface{ worktreeRef }` the measurement checks out to run the worker
  * against the changed code. On promotion the worktree becomes the PR branch.
  *
  * The interface is VCS-agnostic so a future `jj` ([jj-vcs](https://github.com/jj-vcs/jj))
- * adapter can slot in without touching driver code. Only the git adapter
+ * adapter can slot in without touching proposer code. Only the git adapter
  * ships today. See `docs/design/self-improvement-engine.md`.
  */
 

@@ -59,21 +59,21 @@ run that produces traces, and the analysts that turn traces into a report.
 `propose()` does NOT run the worker and does NOT measure. It returns N
 candidate surfaces to measure next.
 
-There is ONE proposer, not several. agent-runtime ships a single
-`improvementDriver` that implements this contract and owns the candidate
+There is one outer-loop proposer contract, not parallel improvement loops.
+agent-runtime implements that contract and owns the candidate
 lifecycle (worktree create → generate → finalize/discard, × `populationSize`);
 it delegates the only thing that varies — *how* a candidate change is produced
 — to a pluggable `CandidateGenerator`. The generators span a cost spectrum:
 
 | Generator | mechanism | sandbox? | output |
 |---|---|---|---|
-| `evolutionaryDriver` (agent-eval) | mutate current surface text into N variants | no | `string[]` |
+| `evolutionaryProposer` (agent-eval) | mutate current surface text into N variants | no | `string[]` |
 | `reflectiveGenerator` (agent-runtime) | LLM drafts patches from the report → applies them | LLM call | `CodeSurface` |
 | `agenticGenerator` (agent-runtime) | a real coding harness in the worktree (≤ `maxImprovementShots`) reads report+codebase → edits in place | **yes** | `CodeSurface` |
 
-`evolutionaryDriver` is a standalone `SurfaceProposer` (pure, agent-eval).
+`evolutionaryProposer` is a standalone `SurfaceProposer` (pure, agent-eval).
 The reflective + agentic paths are two *generators* of the one
-`improvementDriver` — the same operation at two settings of the cost dial, not
+runtime proposer — the same operation at two settings of the cost dial, not
 two separate proposers.
 
 The recursion: generating *one* candidate (the agentic generator) is itself a
@@ -94,13 +94,13 @@ So:
 
 | Piece | Package | Why |
 |---|---|---|
-| `SurfaceProposer` / historical `ImprovementDriver` contract | agent-eval | the shared interface; everyone implements it |
+| `SurfaceProposer` contract | agent-eval | the shared interface; everyone implements it |
 | widened `propose()` input (report/traces/dataset) | agent-eval | part of the contract |
-| `evolutionaryDriver` | agent-eval | pure: dataset → surface, no sandbox |
+| `evolutionaryProposer` | agent-eval | pure: dataset → surface, no sandbox |
 | **VCS-pluggable worktree adapter** | agent-eval | pure git/FS, no sandbox; produces `CodeSurface` |
 | `runOptimization` / `runImprovementLoop` | agent-eval | proposer-agnostic loop body + gated shell |
 | `defaultProductionGate` | agent-eval | measurement-side safety |
-| **`improvementDriver`** + `reflectiveGenerator` / `agenticGenerator` | agent-runtime | needs the coding-harness runner + worktree on a real FS |
+| runtime proposer + `reflectiveGenerator` / `agenticGenerator` | agent-runtime | needs the coding-harness runner + worktree on a real FS |
 | trace analysts / `runAnalystLoop` (Phase 2) | agent-runtime | runs agents to analyze |
 
 ## The worktree adapter (VCS-pluggable)
@@ -120,7 +120,7 @@ interface WorktreeAdapter {
 - **git** impl ships first (`git worktree add` / branch / commit).
 - **jj** ([jj-vcs](https://github.com/jj-vcs/jj)) is a candidate second impl —
   not built now; the interface exists so it can slot in without touching
-  driver code.
+  proposer code.
 
 The measurement (Phase 4) consumes a `CodeSurface` by checking out
 `worktreeRef` before running the worker; on promotion (Phase 5) the worktree
@@ -131,7 +131,7 @@ becomes the PR branch.
 1. **agent-eval 0.40.2** ✅: widen `propose()` input (additive optional
    `report` / `dataset` / `maxImprovementShots`); VCS-pluggable worktree
    adapter with a git impl.
-2. **agent-runtime 0.25.0** ✅: `improvementDriver` (the one driver) +
+2. **agent-runtime 0.25.0** ✅: runtime proposer +
    `reflectiveGenerator` (shots=1, no sandbox) + `agenticGenerator` (coding
    harness in the worktree, ≤ `maxImprovementShots`), all fed the Phase-2
    report. Default tracing was descoped — the flywheel's production capture is

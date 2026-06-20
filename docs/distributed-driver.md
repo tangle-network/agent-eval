@@ -1,7 +1,7 @@
-# Distributed driver — driver-on-A, workers-on-B (and C, D, E…)
+# Distributed campaign execution — coordinator-on-A, workers-on-B
 
-The driver (running `runCampaign` / `runImprovementLoop` / `gepaDriver`)
-and the worker (running your actual agent) **do not have to live in the
+The coordinator process (running `runCampaign` / `runImprovementLoop` /
+`gepaProposer`) and the worker (running your actual agent) **do not have to live in the
 same process, machine, region, or cloud.** `Dispatch` is just a
 function: scenario in, artifact out. Whatever returns the artifact is
 the worker — local, remote, sandboxed, or fanned out across a fleet.
@@ -10,11 +10,11 @@ the worker — local, remote, sandboxed, or fanned out across a fleet.
 
 | Pattern | Reason |
 |---|---|
-| **Driver on your VPC, workers on our sandbox fleet** | Driver holds secrets, training data, prompt corpus; workers stay stateless and scale horizontally |
+| **Coordinator on your VPC, workers on our sandbox fleet** | Coordinator holds secrets, training data, prompt corpus; workers stay stateless and scale horizontally |
 | **Multi-region campaigns** | Each cell runs in the region closest to its target API (latency, compliance, data residency) |
-| **Driver-as-a-service** | Long-running optimization process; reuses across many short-lived worker invocations |
+| **Coordinator-as-a-service** | Long-running optimization process; reuses across many short-lived worker invocations |
 | **Heterogeneous workers** | One cell on a CPU container, another on a GPU box, another against a third-party API — same Dispatch shape, different placement |
-| **Budget-isolated workers** | Worker boxes get scoped, time-bounded credentials; driver never holds production keys |
+| **Budget-isolated workers** | Worker boxes get scoped, time-bounded credentials; coordinator never holds production keys |
 
 ## Two new pieces in 0.45.0
 
@@ -48,9 +48,9 @@ This shipped in 0.40.
 
 ### 2. Single remote worker
 
-Driver-on-A talks to one worker-on-B over HTTP.
+Coordinator-on-A talks to one worker-on-B over HTTP.
 
-**Driver side (machine A):**
+**Coordinator side (machine A):**
 
 ```ts
 import { httpDispatch } from '@tangle-network/agent-eval/adapters/http'
@@ -89,7 +89,7 @@ custom auth headers, optional `fetchImpl` override — all there.
 
 ### 3. Multi-region fan-out
 
-Driver picks a region per cell; the same `httpDispatch` routes to
+The coordinator picks a region per cell; the same `httpDispatch` routes to
 different worker URLs based on placement.
 
 ```ts
@@ -129,13 +129,13 @@ round-robin, region-affinity from a previous run, scheduling table).
 
 | Concern | How |
 |---|---|
-| **Cancellation** | Driver's `AbortSignal` forwards into the HTTP request; server translates `AbortError` → `499` so client doesn't retry. |
+| **Cancellation** | The coordinator's `AbortSignal` forwards into the HTTP request; server translates `AbortError` → `499` so client doesn't retry. |
 | **Timeouts** | Per-call `timeoutMs` on the client; server can layer its own. |
-| **Retries** | Idempotent retries on 5xx / 408 / 429 with exponential backoff + jitter. Driver-aborts never retry. |
+| **Retries** | Idempotent retries on 5xx / 408 / 429 with exponential backoff + jitter. Coordinator aborts never retry. |
 | **Auth** | Bearer token on `Authorization`; pluggable via `auth: string \| () => string \| Promise<string>` for rotation/refresh. |
 | **Payload size** | Server enforces `maxBodyBytes` (default 10 MB). |
 | **Traces** | Both ends emit OTel — if both point at the same OTLP collector, you get a unified trace per cell. See `docs/adapters-observability.md`. |
-| **Cost** | Worker's `ctx.cost.observe(usd, source)` is local to the worker process. Roll up server-side and attach to your worker-side telemetry; we don't (yet) forward cost back to the driver. Tracked as follow-up. |
+| **Cost** | Worker's `ctx.cost.observe(usd, source)` is local to the worker process. Roll up server-side and attach to your worker-side telemetry; we don't (yet) forward cost back to the coordinator. Tracked as follow-up. |
 
 ## Running the reference example
 
@@ -145,7 +145,7 @@ See `examples/distributed-driver/`:
 # Terminal 1 — worker
 pnpm tsx examples/distributed-driver/worker.ts
 
-# Terminal 2 — driver
+# Terminal 2 — coordinator
 WORKER_URL=http://localhost:8080/dispatch \
 WORKER_TOKEN=dev-token \
 pnpm tsx examples/distributed-driver/driver.ts
@@ -160,7 +160,7 @@ and using `cellPlacement` to fan across many of them.
 - **Cost roll-up across the wire** — worker-side `ctx.cost` observations
   stay on the worker. We need to forward them in the response body so
   `defaultProductionGate`'s `budgetUsd` ceiling reflects total spend, not
-  driver-side spend. Tracked as a 0.45.x follow-up.
+  coordinator-side spend. Tracked as a 0.45.x follow-up.
 - **Per-cell artifact streaming** — when the worker writes intermediate
   artifacts via `ctx.artifacts.write`, those land on the worker's
   storage. For multi-worker campaigns you'll want a shared object store

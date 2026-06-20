@@ -1,12 +1,12 @@
 /**
  * @experimental
  *
- * `compareProposers` / historical `compareDrivers` — a head-to-head lift
- * benchmark across surface proposers on ONE corpus. This is the forcing
- * function: optimizer quality (GEPA reflection
- * vs GEPA+Pareto vs SkillOpt) becomes a NUMBER with a confidence interval, so a
- * proposer regression — or shipping a simplified proposer and calling it the real
- * one — turns a build red instead of going measurement-invisible.
+ * `compareProposers` — a head-to-head lift benchmark across surface proposers
+ * on ONE corpus. This is the forcing function: optimizer quality (GEPA
+ * reflection vs GEPA+Pareto vs SkillOpt) becomes a NUMBER with a confidence
+ * interval, so a proposer regression — or shipping a simplified proposer and
+ * calling it the real one — turns a build red instead of going
+ * measurement-invisible.
  *
  * Every entrant is scored the SAME way: each proposer returns the surface it
  * promoted, then the benchmark scores the baseline + every winner on the
@@ -18,15 +18,15 @@
 
 import type { LlmClientOptions } from '../../llm-client'
 import { pairedBootstrap } from '../../statistics'
-import {
-  type FapoDriverOptions,
-  fapoDriver,
-  type ParameterCandidate,
-  parameterSweepDriver,
-} from '../drivers/fapo'
-import { gepaDriver } from '../drivers/gepa'
-import { skillOptDriver } from '../drivers/skill-opt'
 import { defaultProductionGate } from '../gates/default-production-gate'
+import {
+  type FapoProposerOptions,
+  fapoProposer,
+  type ParameterCandidate,
+  parameterSweepProposer,
+} from '../proposers/fapo'
+import { gepaProposer } from '../proposers/gepa'
+import { skillOptProposer } from '../proposers/skill-opt'
 import { type RunCampaignOptions, runCampaign } from '../run-campaign'
 import { campaignBreakdown } from '../score-utils'
 import type {
@@ -43,19 +43,16 @@ import { runSkillOpt } from './run-skill-opt'
 /** What an optimizer produced: the surface it promoted + what it cost to get
  *  there. The comparison does the held-out scoring itself, so an entry only
  *  needs to run its loop and hand back the winner. */
-export interface DriverEntry {
+export interface ProposerEntry {
   name: string
   optimize: () => Promise<{ winnerSurface: MutableSurface; costUsd: number; durationMs?: number }>
 }
 
-/** Preferred name for new code. `DriverEntry` remains for compatibility. */
-export type ProposerEntry = DriverEntry
-
-export interface DriverScore {
+export interface ProposerScore {
   name: string
-  /** Mean held-out composite of the baseline (identical across drivers). */
+  /** Mean held-out composite of the baseline (identical across proposers). */
   baselineComposite: number
-  /** Mean held-out composite of this driver's promoted surface. */
+  /** Mean held-out composite of this proposer's promoted surface. */
   winnerComposite: number
   /** Mean per-scenario held-out lift (winner − baseline). */
   lift: number
@@ -68,8 +65,8 @@ export interface DriverScore {
   rank: number
 }
 
-export interface DriverPairwise {
-  /** Higher-ranked driver. */
+export interface ProposerPairwise {
+  /** Higher-ranked proposer. */
   a: string
   b: string
   /** Mean per-scenario held-out delta (a − b). */
@@ -80,27 +77,22 @@ export interface DriverPairwise {
   favored: string
 }
 
-export interface DriverComparison {
+export interface ProposerComparison {
   /** Sorted by descending lift; `rank` set accordingly. */
-  scores: DriverScore[]
-  best: DriverScore
-  /** Best vs each other driver, paired-bootstrap on the held-out winners. */
-  pairwise: DriverPairwise[]
+  scores: ProposerScore[]
+  best: ProposerScore
+  /** Best vs each other proposer, paired-bootstrap on the held-out winners. */
+  pairwise: ProposerPairwise[]
   holdoutScenarioIds: string[]
 }
 
-/** Preferred result names for new code. Historical `Driver*` names remain. */
-export type ProposerScore = DriverScore
-export type ProposerPairwise = DriverPairwise
-export type ProposerComparison = DriverComparison
-
-export interface CompareDriversOptions<TScenario extends Scenario, TArtifact>
+export interface CompareProposersOptions<TScenario extends Scenario, TArtifact>
   extends Omit<RunCampaignOptions<TScenario, TArtifact>, 'dispatch' | 'scenarios'> {
-  drivers: DriverEntry[]
+  proposers: ProposerEntry[]
   baselineSurface: MutableSurface
   /** The held-out scenarios every winner is scored on. */
   holdoutScenarios: TScenario[]
-  /** Scores a surface on a scenario — the same dispatcher the drivers used. */
+  /** Scores a surface on a scenario — the same dispatcher the proposers used. */
   dispatchWithSurface: (
     surface: MutableSurface,
     scenario: TScenario,
@@ -112,37 +104,16 @@ export interface CompareDriversOptions<TScenario extends Scenario, TArtifact>
   confidence?: number
 }
 
-export type CompareProposersOptions<TScenario extends Scenario, TArtifact> = Omit<
-  CompareDriversOptions<TScenario, TArtifact>,
-  'drivers'
-> &
-  (
-    | {
-        /** Preferred name: entries to optimize, then uniformly score on holdout. */
-        proposers: ProposerEntry[]
-        /** @deprecated since v0.94.0, removal targeted v1.0. Use `proposers`. */
-        drivers?: ProposerEntry[]
-      }
-    | {
-        /** Preferred name: entries to optimize, then uniformly score on holdout. */
-        proposers?: ProposerEntry[]
-        /** @deprecated since v0.94.0, removal targeted v1.0. Use `proposers`. */
-        drivers: ProposerEntry[]
-      }
-  )
-
-export async function compareDrivers<TScenario extends Scenario, TArtifact>(
-  opts: CompareDriversOptions<TScenario, TArtifact>,
-): Promise<DriverComparison> {
-  return compareDriverEntries(opts, 'compareDrivers', 'driver')
+export async function compareProposers<TScenario extends Scenario, TArtifact>(
+  opts: CompareProposersOptions<TScenario, TArtifact>,
+): Promise<ProposerComparison> {
+  return compareProposerEntries(opts)
 }
 
-async function compareDriverEntries<TScenario extends Scenario, TArtifact>(
-  opts: CompareDriversOptions<TScenario, TArtifact>,
-  owner: 'compareDrivers' | 'compareProposers',
-  entryLabel: 'driver' | 'proposer',
-): Promise<DriverComparison> {
-  if (opts.drivers.length === 0) throw new Error(`${owner}: no ${entryLabel}s to compare`)
+async function compareProposerEntries<TScenario extends Scenario, TArtifact>(
+  opts: CompareProposersOptions<TScenario, TArtifact>,
+): Promise<ProposerComparison> {
+  if (opts.proposers.length === 0) throw new Error('compareProposers: no proposers to compare')
   const seed = opts.seed ?? 42
   const resamples = opts.resamples ?? 2000
   const confidence = opts.confidence ?? 0.95
@@ -170,12 +141,12 @@ async function compareDriverEntries<TScenario extends Scenario, TArtifact>(
   // score). Fabricating a 0 there would silently penalize that surface and
   // corrupt the paired-bootstrap lift CI — the exact "no silent zeros" trap.
   const scenarioIds = [...new Set(opts.holdoutScenarios.map((s) => s.id))].sort()
-  if (scenarioIds.length === 0) throw new Error(`${owner}: holdoutScenarios is empty`)
+  if (scenarioIds.length === 0) throw new Error('compareProposers: holdoutScenarios is empty')
   const align = (byScenario: Record<string, number>, label: string): number[] => {
     const missing = scenarioIds.filter((id) => !(id in byScenario))
     if (missing.length > 0) {
       throw new Error(
-        `${owner}: ${label} produced no held-out score for scenario(s) [${missing.join(
+        `compareProposers: ${label} produced no held-out score for scenario(s) [${missing.join(
           ', ',
         )}] — a cell errored or its judges returned nothing. Refusing to fabricate a 0 (it would corrupt the lift comparison). Fix the dispatch/judge or drop the scenario.`,
       )
@@ -196,26 +167,26 @@ async function compareDriverEntries<TScenario extends Scenario, TArtifact>(
     durationMs?: number
     arr: number[]
   }> = []
-  for (const d of opts.drivers) {
-    const out = await d.optimize()
-    const byScenario = await scoreOnHoldout(out.winnerSurface, `compare-${slug(d.name)}`)
+  for (const proposer of opts.proposers) {
+    const out = await proposer.optimize()
+    const byScenario = await scoreOnHoldout(out.winnerSurface, `compare-${slug(proposer.name)}`)
     winners.push({
-      name: d.name,
+      name: proposer.name,
       winnerSurface: out.winnerSurface,
       costUsd: out.costUsd,
       durationMs: out.durationMs,
-      arr: align(byScenario, `${entryLabel} "${d.name}"`),
+      arr: align(byScenario, `proposer "${proposer.name}"`),
     })
   }
 
-  const scores: DriverScore[] = winners.map((w) => {
+  const scores: ProposerScore[] = winners.map((w) => {
     const boot = pairedBootstrap(baselineArr, w.arr, {
       seed,
       resamples,
       confidence,
       statistic: 'mean',
     })
-    const score: DriverScore = {
+    const score: ProposerScore = {
       name: w.name,
       baselineComposite: mean(baselineArr),
       winnerComposite: mean(w.arr),
@@ -237,7 +208,7 @@ async function compareDriverEntries<TScenario extends Scenario, TArtifact>(
 
   const byName = new Map(winners.map((w) => [w.name, w]))
   const bestArr = byName.get(best.name)!.arr
-  const pairwise: DriverPairwise[] = scores.slice(1).map((other) => {
+  const pairwise: ProposerPairwise[] = scores.slice(1).map((other) => {
     const otherArr = byName.get(other.name)!.arr
     // before = other, after = best ⇒ delta = best − other on the held-out set.
     const boot = pairedBootstrap(otherArr, bestArr, {
@@ -260,27 +231,6 @@ async function compareDriverEntries<TScenario extends Scenario, TArtifact>(
   return { scores, best, pairwise, holdoutScenarioIds: scenarioIds }
 }
 
-export async function compareProposers<TScenario extends Scenario, TArtifact>(
-  opts: CompareProposersOptions<TScenario, TArtifact>,
-): Promise<ProposerComparison> {
-  const proposers = selectCompareProposers(opts)
-  return compareDriverEntries({ ...opts, drivers: proposers }, 'compareProposers', 'proposer')
-}
-
-function selectCompareProposers(opts: {
-  proposers?: ProposerEntry[]
-  drivers?: ProposerEntry[]
-}): ProposerEntry[] {
-  if (opts.proposers && opts.drivers && opts.proposers !== opts.drivers) {
-    throw new Error('compareProposers: pass either proposers or drivers, not two different arrays')
-  }
-  const proposers = opts.proposers ?? opts.drivers
-  if (!proposers || proposers.length === 0) {
-    throw new Error('compareProposers: no proposers to compare')
-  }
-  return proposers
-}
-
 function mean(xs: number[]): number {
   return xs.length === 0 ? 0 : xs.reduce((a, b) => a + b, 0) / xs.length
 }
@@ -294,7 +244,7 @@ function slug(name: string): string {
 /** Shared corpus + transport for the three built-in optimizer entries. */
 export interface OptimizerEntryConfig<TScenario extends Scenario, TArtifact> {
   baselineSurface: string
-  /** Training scenarios the drivers reflect on. */
+  /** Training scenarios the proposers reflect on. */
   trainScenarios: TScenario[]
   /** Held-out scenarios (the gate axis + the benchmark scoring axis). */
   holdoutScenarios: TScenario[]
@@ -316,7 +266,7 @@ export interface OptimizerEntryConfig<TScenario extends Scenario, TArtifact> {
   /** SkillOpt epochs. Default 6. */
   maxEpochs?: number
   mutationPrimitives?: string[]
-  /** Static findings seed forwarded to each GEPA driver's `propose()` as
+  /** Static findings seed forwarded to each GEPA proposer's `propose()` as
    *  `ctx.findings` (the EYES→HANDS wire). Forwarded by `gepaReflectionEntry` /
    *  `gepaParetoEntry`; `skillOptEntry` runs findings-BLIND (see its doc). */
   findings?: unknown[]
@@ -333,7 +283,7 @@ export interface OptimizerEntryConfig<TScenario extends Scenario, TArtifact> {
 export function gepaReflectionEntry<TScenario extends Scenario, TArtifact>(
   config: OptimizerEntryConfig<TScenario, TArtifact>,
   name = 'gepa-reflection',
-): DriverEntry {
+): ProposerEntry {
   return gepaEntry(config, false, name)
 }
 
@@ -341,7 +291,7 @@ export function gepaReflectionEntry<TScenario extends Scenario, TArtifact>(
 export function gepaParetoEntry<TScenario extends Scenario, TArtifact>(
   config: OptimizerEntryConfig<TScenario, TArtifact>,
   name = 'gepa-pareto',
-): DriverEntry {
+): ProposerEntry {
   return gepaEntry(config, true, name)
 }
 
@@ -349,12 +299,12 @@ function gepaEntry<TScenario extends Scenario, TArtifact>(
   config: OptimizerEntryConfig<TScenario, TArtifact>,
   combineParents: boolean,
   name: string,
-): DriverEntry {
+): ProposerEntry {
   return {
     name,
     async optimize() {
       const started = Date.now()
-      const proposer = gepaDriver({
+      const proposer = gepaProposer({
         llm: config.llm,
         model: config.model,
         target: config.target,
@@ -377,7 +327,7 @@ function gepaEntry<TScenario extends Scenario, TArtifact>(
         autoOnPromote: 'none',
         runDir: `${config.runDir}/${slug(name)}-loop`,
         ...(config.seed !== undefined ? { seed: config.seed } : {}),
-        // EYES→HANDS: flow findings to the driver's propose(). These reach
+        // EYES→HANDS: flow findings to the proposer's propose(). These reach
         // runOptimization unchanged (runImprovementLoop extends RunOptimizationOptions
         // and forwards {...opts}); ctx.findings/report/analyzeGeneration are consumed there.
         ...(config.findings !== undefined ? { findings: config.findings } : {}),
@@ -405,17 +355,21 @@ function gepaEntry<TScenario extends Scenario, TArtifact>(
 export function skillOptEntry<TScenario extends Scenario, TArtifact>(
   config: OptimizerEntryConfig<TScenario, TArtifact>,
   name = 'skill-opt',
-): DriverEntry {
+): ProposerEntry {
   return {
     name,
     async optimize() {
       const started = Date.now()
-      const driver = skillOptDriver({ llm: config.llm, model: config.model, target: config.target })
+      const proposer = skillOptProposer({
+        llm: config.llm,
+        model: config.model,
+        target: config.target,
+      })
       const result = await runSkillOpt<TScenario, TArtifact>({
         baselineSurface: config.baselineSurface,
         dispatchWithSurface: config.dispatchWithSurface,
         judges: config.judges,
-        driver,
+        proposer,
         trainScenarios: config.trainScenarios,
         holdoutScenarios: config.holdoutScenarios,
         maxEpochs: config.maxEpochs ?? 6,
@@ -434,22 +388,22 @@ export function skillOptEntry<TScenario extends Scenario, TArtifact>(
 /** FAPO reviewed-escalation policy. This is an orchestration layer over
  * level-specific proposers, not a new mutation operator:
  * prompt -> parameter -> structural, with scope + reviewer + plateau rules in
- * `fapoDriver`. The prompt proposer defaults to GEPA+Pareto because that is
+ * `fapoProposer`. The prompt proposer defaults to GEPA+Pareto because that is
  * the package's strongest prompt-tier proposer; parameter/structural proposers
  * are opt-in so we do not fake code-generation inside agent-eval. */
 export interface FapoEntryConfig<TScenario extends Scenario, TArtifact>
   extends OptimizerEntryConfig<TScenario, TArtifact> {
-  /** Override the prompt-level proposer. Default: `gepaDriver({ combineParents: true })`. */
+  /** Override the prompt-level proposer. Default: `gepaProposer({ combineParents: true })`. */
   promptProposer?: SurfaceProposer
   /** Parameter/config-level proposer. If omitted, `parameterCandidates` builds one. */
   parameterProposer?: SurfaceProposer
   /** Structural/code-level proposer, typically supplied by agent-runtime. */
   structuralProposer?: SurfaceProposer
-  /** Convenience: build a `parameterSweepDriver` from these candidates. */
+  /** Convenience: build a `parameterSweepProposer` from these candidates. */
   parameterCandidates?: readonly ParameterCandidate[]
   /** FAPO policy knobs: scope, reviewer, plateau thresholds. */
   fapo?: Omit<
-    FapoDriverOptions,
+    FapoProposerOptions,
     'proposers' | 'promptProposer' | 'parameterProposer' | 'structuralProposer'
   >
 }
@@ -457,14 +411,14 @@ export interface FapoEntryConfig<TScenario extends Scenario, TArtifact>
 export function fapoEscalationEntry<TScenario extends Scenario, TArtifact>(
   config: FapoEntryConfig<TScenario, TArtifact>,
   name = 'fapo-escalation',
-): DriverEntry {
+): ProposerEntry {
   return {
     name,
     async optimize() {
       const started = Date.now()
       const promptProposer =
         config.promptProposer ??
-        gepaDriver({
+        gepaProposer({
           llm: config.llm,
           model: config.model,
           target: config.target,
@@ -474,10 +428,10 @@ export function fapoEscalationEntry<TScenario extends Scenario, TArtifact>(
       const parameterProposer =
         config.parameterProposer ??
         (config.parameterCandidates
-          ? parameterSweepDriver({ candidates: config.parameterCandidates })
+          ? parameterSweepProposer({ candidates: config.parameterCandidates })
           : undefined)
       const structuralProposer = config.structuralProposer
-      const proposer = fapoDriver({
+      const proposer = fapoProposer({
         ...(config.fapo ?? {}),
         promptProposer,
         ...(parameterProposer ? { parameterProposer } : {}),

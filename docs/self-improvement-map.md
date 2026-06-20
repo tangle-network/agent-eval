@@ -31,7 +31,7 @@ product imports the same function. Each generation it does four things:
 | Role | What it is | Plain meaning |
 |---|---|---|
 | **Surface** | a *string* — an agent directive, a `SKILL.md`, a playbook, a memory, a judge rubric | **what** gets improved |
-| **Proposer** | a `SurfaceProposer` / historical `ImprovementDriver` (the catalog below) | **how** candidate surfaces are proposed |
+| **Proposer** | a `SurfaceProposer` (the catalog below) | **how** candidate surfaces are proposed |
 | **Gate** | held-out split + significance (`paretoSignificanceGate` / `heldOutGate` / `defaultProductionGate`) | **did it actually get better**, vs noise |
 | **Judge** | scores a run | **how good** any version is |
 
@@ -44,19 +44,19 @@ surface; **bench-only proposers** exist solely to be raced inside
 
 | Proposer factory | Surface | Strategy | Role | Notes |
 |---|---|---|---|---|
-| `gepaDriver` | prompt | reflective full-surface rewrite + Pareto frontier | **production default** | consumes trace-analysis findings — see below |
-| `fapoDriver` | prompt/config/code | reviewed escalation policy over prompt → parameter → structural proposers | production, experimental | encodes FAPO's scope + reviewer + prompt-first escalation rules; structural generator is injected |
-| `parameterSweepDriver` | config | JSON config patch/sweep | production, experimental | middle FAPO level for parameter/config edits such as `retrieval.k`, `temperature`, `max_tokens` |
-| `skillOptDriver` | skill-doc | anchored add/delete/replace patch | production | preserves earlier rules; edit budget = "textual learning rate" |
-| `aceDriver` | playbook | append-only, provenance-tagged | production | accumulate hard-won lessons, never summarize away |
-| `memoryCurationDriver` | memory | dedup + rank + graft | production | compact alternative to `ace` |
-| `evolutionaryDriver` | any | population mutate → measure → select | production | blind search; no reflection over findings |
-| `traceAnalystDriver` | prompt | analysis → one LLM edit | **bench-only** | our evidence engine, wrapped as a proposer |
-| `haloDriver` | prompt | analysis → one LLM edit | **bench-only**, external | wraps `pip install halo-engine` (Inference.net) |
+| `gepaProposer` | prompt | reflective full-surface rewrite + Pareto frontier | **production default** | consumes trace-analysis findings — see below |
+| `fapoProposer` | prompt/config/code | reviewed escalation policy over prompt → parameter → structural proposers | production, experimental | encodes FAPO's scope + reviewer + prompt-first escalation rules; structural generator is injected |
+| `parameterSweepProposer` | config | JSON config patch/sweep | production, experimental | middle FAPO level for parameter/config edits such as `retrieval.k`, `temperature`, `max_tokens` |
+| `skillOptProposer` | skill-doc | anchored add/delete/replace patch | production | preserves earlier rules; edit budget = "textual learning rate" |
+| `aceProposer` | playbook | append-only, provenance-tagged | production | accumulate hard-won lessons, never summarize away |
+| `memoryCurationProposer` | memory | dedup + rank + graft | production | compact alternative to `ace` |
+| `evolutionaryProposer` | any | population mutate → measure → select | production | blind search; no reflection over findings |
+| `traceAnalystProposer` | prompt | analysis → one LLM edit | **bench-only** | our evidence engine, wrapped as a proposer |
+| `haloProposer` | prompt | analysis → one LLM edit | **bench-only**, external | wraps `pip install halo-engine` (Inference.net) |
 
-Default choice: start with `gepaDriver` for prompt surfaces, add
-`parameterSweepDriver` when config knobs are the likely failure mode, and wrap
-them with `fapoDriver` when evidence should decide when to escalate.
+Default choice: start with `gepaProposer` for prompt surfaces, add
+`parameterSweepProposer` when config knobs are the likely failure mode, and wrap
+them with `fapoProposer` when evidence should decide when to escalate.
 
 ## Trace analysis — what it is and the three places it is used
 
@@ -67,21 +67,21 @@ three places — this is the answer to "if GEPA does its own thing, what is trac
 analysis *for*?":
 
 1. **Ships to customers** — `analyzeRuns()` → `InsightReport`, the Intelligence product.
-2. **Feeds the proposer** — `gepaDriver` calls `renderAnalystEvidence(ctx.findings,
-   ctx.report)` (`src/campaign/drivers/gepa.ts`). This is the EYES→HANDS wire: GEPA's
+2. **Feeds the proposer** — `gepaProposer` calls `renderAnalystEvidence(ctx.findings,
+   ctx.report)` (`src/campaign/proposers/gepa.ts`). This is the EYES→HANDS wire: GEPA's
    rewrites are grounded in the diagnosis instead of guessing blind. Trace analysis
    **is** on the GEPA side.
-3. **Races HALO** — wrapped as `traceAnalystDriver` so our analysis competes
+3. **Races HALO** — wrapped as `traceAnalystProposer` so our analysis competes
    head-to-head with the external SOTA inside `compareProposers`.
 
 ## Where HALO fits (and why it feels "removed")
 
-`haloDriver` is alive (`src/campaign/drivers/halo.ts`, exported from the campaign
+`haloProposer` is alive (`src/campaign/proposers/halo.ts`, exported from the campaign
 barrel) but it is **never in the product loop**. It shells out to an *external* engine
 (`halo-engine`) — so the analysis genuinely lives outside this repo; we only wrap it.
 
-Its only job is the **bake-off**. HALO's real opponent is **not** `gepaDriver` — it is
-`traceAnalystDriver`. `compareProposers` holds the apply step identical (same
+Its only job is the **bake-off**. HALO's real opponent is **not** `gepaProposer` — it is
+`traceAnalystProposer`. `compareProposers` holds the apply step identical (same
 `APPLY_SYSTEM`, same `traces.jsonl`, same held-out scoring) so the only variable is
 **analysis quality: HALO vs ours.** A measuring stick, like a benchmark baseline.
 

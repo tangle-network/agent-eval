@@ -3,7 +3,7 @@ import { campaignBreakdown } from '../../src/campaign/score-utils'
 import type { CampaignCellResult, CampaignResult, Scenario } from '../../src/campaign/types'
 import { buildReflectionPrompt } from '../../src/reflective-mutation'
 
-// The conjunct-2 fix: a reflective driver was proposing blind generic rewrites
+// The conjunct-2 fix: a reflective proposer was proposing blind generic rewrites
 // because it only saw per-scenario SCORES, never the judge's "why it failed".
 // These guard the now-threaded path: judge.notes → campaignBreakdown.scenarios
 // → the reflection prompt's failure evidence. Generalizable by contract; the
@@ -24,7 +24,7 @@ function cell(scenarioId: string, composite: number, notes: string): CampaignCel
   }
 }
 
-describe('error-grounding — judge notes reach the reflective driver', () => {
+describe('error-grounding — judge notes reach the reflective proposer', () => {
   it('campaignBreakdown surfaces the per-scenario judge notes (the "why")', () => {
     const campaign = {
       cells: [

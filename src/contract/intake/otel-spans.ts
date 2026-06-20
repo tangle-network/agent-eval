@@ -29,12 +29,17 @@ import type {
   RunSplitTag,
   RunTokenUsage,
 } from '../../run-record'
+import {
+  LLM_INPUT_TOKEN_ATTR_KEYS,
+  LLM_MODEL_ATTR_KEYS,
+  LLM_OUTPUT_TOKEN_ATTR_KEYS,
+} from '../../trace/otlp-attributes'
 
 const SCORE_KEYS = ['tangle.score', 'eval.score', 'score']
-const MODEL_KEYS = ['tangle.model', 'gen_ai.request.model', 'llm.model', 'model']
+const MODEL_KEYS = ['tangle.model', ...LLM_MODEL_ATTR_KEYS, 'model']
 const COST_KEYS = ['tangle.cost.usd', 'gen_ai.usage.cost_usd', 'cost.usd', 'cost']
-const INPUT_TOKEN_KEYS = ['gen_ai.usage.input_tokens', 'tangle.tokens.in', 'tokens.in']
-const OUTPUT_TOKEN_KEYS = ['gen_ai.usage.output_tokens', 'tangle.tokens.out', 'tokens.out']
+const INPUT_TOKEN_KEYS = [...LLM_INPUT_TOKEN_ATTR_KEYS, 'tangle.tokens.in', 'tokens.in']
+const OUTPUT_TOKEN_KEYS = [...LLM_OUTPUT_TOKEN_ATTR_KEYS, 'tangle.tokens.out', 'tokens.out']
 const PROMPT_HASH_KEYS = ['tangle.prompt_hash', 'prompt.hash']
 const CONFIG_HASH_KEYS = ['tangle.config_hash', 'config.hash']
 

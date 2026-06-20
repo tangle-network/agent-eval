@@ -7,10 +7,9 @@ It does not run your agent. It does not score anything. It only proposes a new
 surface to measure. A surface is the thing you are changing: a prompt string, a
 serialized config string, or a code/worktree surface.
 
-Historical note: the older API name is `ImprovementDriver`, and several factory
-functions still end in `Driver` (`gepaDriver`, `fapoDriver`, ...). New docs use
-**proposer** for this role so it does not collide with sandbox/router drivers
-that execute workers.
+Use **proposer** for this role. Older optimizer APIs used "driver"; that word is
+now reserved for execution, sandbox, and router agents that actually drive
+workers.
 
 ## The Loop
 
@@ -58,12 +57,12 @@ auditable, so new proposers should return `ProposedCandidate`.
 
 | Proposer factory | Best when | Output surface |
 |---|---|---|
-| `gepaDriver` | You want a strong prompt rewrite driven by prior scores and findings. | prompt string |
-| `skillOptDriver` | You are editing a structured skill/runbook and want anchored small patches. | prompt/skill string |
-| `aceDriver` | You want append-only lessons from findings, preserving every distinct lesson. | prompt/playbook string |
-| `memoryCurationDriver` | You want compact deduped lessons from findings. | prompt/playbook string |
-| `parameterSweepDriver` | You want FAPO-style config/parameter edits from a JSON config surface. | JSON string |
-| `fapoDriver` | You want the FAPO policy: prompt first, then parameter, then structural only when evidence supports escalation. | whatever its level proposer returns |
+| `gepaProposer` | You want a strong prompt rewrite driven by prior scores and findings. | prompt string |
+| `skillOptProposer` | You are editing a structured skill/runbook and want anchored small patches. | prompt/skill string |
+| `aceProposer` | You want append-only lessons from findings, preserving every distinct lesson. | prompt/playbook string |
+| `memoryCurationProposer` | You want compact deduped lessons from findings. | prompt/playbook string |
+| `parameterSweepProposer` | You want FAPO-style config/parameter edits from a JSON config surface. | JSON string |
+| `fapoProposer` | You want the FAPO policy: prompt first, then parameter, then structural only when evidence supports escalation. | whatever its level proposer returns |
 
 ## FAPO Proposer
 
@@ -82,16 +81,16 @@ optional and should be injected by the app or runtime layer.
 
 ```ts
 import {
-  fapoDriver,
-  gepaDriver,
-  parameterSweepDriver,
+  fapoProposer,
+  gepaProposer,
+  parameterSweepProposer,
   runImprovementLoop,
 } from '@tangle-network/agent-eval/campaign'
 
-const proposer = fapoDriver({
+const proposer = fapoProposer({
   scope: { allowedLevels: ['prompt', 'parameter'] },
-  promptProposer: gepaDriver({ llm, model, target: 'agent prompt' }),
-  parameterProposer: parameterSweepDriver({
+  promptProposer: gepaProposer({ llm, model, target: 'agent prompt' }),
+  parameterProposer: parameterSweepProposer({
     candidates: [
       {
         label: 'raise-retrieval-k',

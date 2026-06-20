@@ -1,11 +1,11 @@
 /**
  * @experimental
  *
- * `traceAnalystDriver` — wraps agent-eval's OWN trace-analyst engine
- * (`AnalystRegistry` over the agentic OTLP reader) as an `ImprovementDriver`.
- * It is the symmetric opponent to `haloDriver`: both run the SAME shared
- * `analysisEditDriver` pipeline (materialize identical traces → apply via one
- * identical LLM edit), so a `compareDrivers` lift delta isolates a single
+ * `traceAnalystProposer` — wraps agent-eval's OWN trace-analyst engine
+ * (`AnalystRegistry` over the agentic OTLP reader) as a `SurfaceProposer`.
+ * It is the symmetric opponent to `haloProposer`: both run the SAME shared
+ * `analysisEditProposer` pipeline (materialize identical traces → apply via one
+ * identical LLM edit), so a `compareProposers` lift delta isolates a single
  * variable — ANALYSIS QUALITY. The benchmark answers "is our HALO clone as good
  * as the real HALO?" as a held-out lift CI, not a vibe.
  *
@@ -24,10 +24,10 @@ import { AnalystRegistry } from '../../analyst/registry'
 import type { AnalystFinding } from '../../analyst/types'
 import type { LlmClientOptions } from '../../llm-client'
 import { OtlpFileTraceStore } from '../../trace-analyst/store-otlp'
-import type { ImprovementDriver, ProposeContext } from '../types'
-import { analysisEditDriver } from './analysis-edit'
+import type { ProposeContext, SurfaceProposer } from '../types'
+import { analysisEditProposer } from './analysis-edit'
 
-export interface TraceAnalystDriverOptions {
+export interface TraceAnalystProposerOptions {
   /** OpenAI-compatible base URL for BOTH the analyst's agentic reads and the
    *  apply step (e.g. `https://api.deepseek.com/v1` or the Tangle router). */
   baseUrl: string
@@ -36,7 +36,7 @@ export interface TraceAnalystDriverOptions {
   /** Model the analyst kinds use for their agentic trace reads. */
   model: string
   /** Model used to APPLY findings to the prompt surface. Default = `model`.
-   *  Keep this EQUAL to haloDriver's `applyModel` for an apples-to-apples run. */
+   *  Keep this EQUAL to haloProposer's `applyModel` for an apples-to-apples run. */
   applyModel?: string
   /** Ax provider name. Default 'openai' — works for any OpenAI-compatible base
    *  via `apiURL`. Use 'deepseek' to hit DeepSeek's native provider. */
@@ -44,7 +44,7 @@ export interface TraceAnalystDriverOptions {
   /** Which analyst kinds to run. Default = the full shipped suite. */
   kinds?: readonly TraceAnalystKindSpec[]
   /** Resolve the OTLP traces (JSONL string) the analyst should read for THIS
-   *  generation — identical contract to `haloDriver.resolveTraces`. */
+   *  generation — identical contract to `haloProposer.resolveTraces`. */
   resolveTraces: (ctx: ProposeContext) => string | Promise<string>
   /** Override the findings producer. Default: the shipped `AnalystRegistry`
    *  over `kinds`. The unit suite injects canned findings here. */
@@ -65,10 +65,10 @@ function renderFindings(findings: ReadonlyArray<AnalystFinding>): string {
     .join('\n')
 }
 
-/** Wrap agent-eval's trace-analyst registry as an ImprovementDriver (prompt-tier). */
-export function traceAnalystDriver(opts: TraceAnalystDriverOptions): ImprovementDriver {
-  if (!opts.apiKey) throw new Error('traceAnalystDriver: apiKey is required')
-  if (!opts.model) throw new Error('traceAnalystDriver: model is required')
+/** Wrap agent-eval's trace-analyst registry as a SurfaceProposer (prompt-tier). */
+export function traceAnalystProposer(opts: TraceAnalystProposerOptions): SurfaceProposer {
+  if (!opts.apiKey) throw new Error('traceAnalystProposer: apiKey is required')
+  if (!opts.model) throw new Error('traceAnalystProposer: model is required')
   const kinds = opts.kinds ?? DEFAULT_TRACE_ANALYST_KINDS
 
   const produceFindings =
@@ -92,7 +92,7 @@ export function traceAnalystDriver(opts: TraceAnalystDriverOptions): Improvement
       return result.findings
     })
 
-  return analysisEditDriver({
+  return analysisEditProposer({
     kind: 'trace-analyst',
     label: 'trace-analyst',
     baseUrl: opts.baseUrl,
@@ -101,7 +101,7 @@ export function traceAnalystDriver(opts: TraceAnalystDriverOptions): Improvement
     fetchImpl: opts.fetchImpl,
     resolveTraces: opts.resolveTraces,
     noTracesError:
-      'traceAnalystDriver: resolveTraces returned no OTLP traces — the analyst has nothing to read',
+      'traceAnalystProposer: resolveTraces returned no OTLP traces — the analyst has nothing to read',
     rationale: (report) => `trace-analyst findings:\n${report.slice(0, 800)}`,
     analyze: async (tracePath, ctx) => {
       let findings: ReadonlyArray<AnalystFinding>
@@ -109,11 +109,11 @@ export function traceAnalystDriver(opts: TraceAnalystDriverOptions): Improvement
         findings = await produceFindings(tracePath, ctx)
       } catch (e) {
         throw new Error(
-          `traceAnalystDriver: analyst engine failed — ${e instanceof Error ? e.message : String(e)}`,
+          `traceAnalystProposer: analyst engine failed — ${e instanceof Error ? e.message : String(e)}`,
         )
       }
       if (findings.length === 0) {
-        throw new Error('traceAnalystDriver: analyst engine produced no findings')
+        throw new Error('traceAnalystProposer: analyst engine produced no findings')
       }
       return renderFindings(findings)
     },

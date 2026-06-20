@@ -1311,7 +1311,7 @@ export { traceJudge, traceJudgeEnsemble } from './traced-judges'
 
 // ── Teacher→student GEPA distillation ────────────────────────────────
 // Distill a cheap single-shot analyst's prompt toward an expensive workflow's
-// gold verdicts. Composes runImprovementLoop + gepaDriver + the gate.
+// gold verdicts. Composes runImprovementLoop + gepaProposer + the gate.
 
 export type {
   AgreementResult,

@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { isProposedCandidate, type ProposeContext, type ProposedCandidate } from '../types'
-import { haloDriver } from './halo'
+import { haloProposer } from './halo'
 
 function asCandidate(v: unknown): ProposedCandidate {
   if (!isProposedCandidate(v as never)) throw new Error('expected a ProposedCandidate')
@@ -40,9 +40,9 @@ const ctx = (currentSurface: string): ProposeContext =>
     signal: new AbortController().signal,
   }) as unknown as ProposeContext
 
-describe('haloDriver — wraps the real halo-engine CLI as an ImprovementDriver', () => {
+describe('haloProposer — wraps the real halo-engine CLI as a SurfaceProposer', () => {
   it('runs halo on the resolved traces and applies its findings to the prompt surface', async () => {
-    const driver = haloDriver({
+    const proposer = haloProposer({
       baseUrl: 'https://router.example/v1',
       apiKey: 'sk-test',
       haloBin: fakeHalo(
@@ -52,7 +52,7 @@ describe('haloDriver — wraps the real halo-engine CLI as an ImprovementDriver'
         '{"name":"agent.Assistant","trace_id":"t1"}\n{"name":"function.spotify__login"}',
       fetchImpl: stubFetch('IMPROVED PROMPT: always fetch spotify APIs before planning.'),
     })
-    const out = await driver.propose(ctx('BASE PROMPT: do the task.'))
+    const out = await proposer.propose(ctx('BASE PROMPT: do the task.'))
     expect(out).toHaveLength(1)
     const c = asCandidate(out[0])
     expect(c.surface).toBe('IMPROVED PROMPT: always fetch spotify APIs before planning.')
@@ -61,40 +61,40 @@ describe('haloDriver — wraps the real halo-engine CLI as an ImprovementDriver'
     expect(c.rationale).toContain('api_predictor under-fetched')
   })
 
-  it('is an ImprovementDriver of kind "halo" (drops into compareDrivers)', () => {
-    const d = haloDriver({ baseUrl: 'https://x/v1', resolveTraces: () => 'x' })
+  it('is a SurfaceProposer of kind "halo" (drops into compareProposers)', () => {
+    const d = haloProposer({ baseUrl: 'https://x/v1', resolveTraces: () => 'x' })
     expect(d.kind).toBe('halo')
     expect(typeof d.propose).toBe('function')
   })
 
   it('FAILS LOUD when there are no traces (never fabricates a candidate)', async () => {
-    const driver = haloDriver({
+    const proposer = haloProposer({
       baseUrl: 'https://x/v1',
       haloBin: fakeHalo('unused'),
       resolveTraces: () => '   ',
       fetchImpl: stubFetch('x'),
     })
-    await expect(driver.propose(ctx('p'))).rejects.toThrow(/no OTLP traces/)
+    await expect(proposer.propose(ctx('p'))).rejects.toThrow(/no OTLP traces/)
   })
 
   it('FAILS LOUD when the halo engine errors (no silent swallow)', async () => {
-    const driver = haloDriver({
+    const proposer = haloProposer({
       baseUrl: 'https://x/v1',
       haloBin: fakeHalo('boom', 3),
       resolveTraces: () => '{"name":"x"}',
       fetchImpl: stubFetch('x'),
     })
-    await expect(driver.propose(ctx('p'))).rejects.toThrow(/halo-engine/)
+    await expect(proposer.propose(ctx('p'))).rejects.toThrow(/halo-engine/)
   })
 
   it('returns no candidate when the applied surface is unchanged (no fake lift)', async () => {
-    const driver = haloDriver({
+    const proposer = haloProposer({
       baseUrl: 'https://x/v1',
       haloBin: fakeHalo('FINDING: nothing actionable.'),
       resolveTraces: () => '{"name":"x"}',
       fetchImpl: stubFetch('BASE PROMPT: do the task.'), // identical to parent
     })
-    const out = await driver.propose(ctx('BASE PROMPT: do the task.'))
+    const out = await proposer.propose(ctx('BASE PROMPT: do the task.'))
     expect(out).toHaveLength(0)
   })
 })

@@ -2,7 +2,7 @@
  * @experimental
  *
  * Shared campaign-score reductions used by every optimizer preset
- * (`runOptimization`, `runSkillOpt`, `compareDrivers`). ONE definition of
+ * (`runOptimization`, `runSkillOpt`, `compareProposers`). ONE definition of
  * "composite of a campaign" and "per-scenario / per-dimension breakdown" so
  * the optimizers cannot drift on how a surface's score is computed.
  */
@@ -29,11 +29,11 @@ export interface CampaignBreakdown {
   /** Mean score per judge dimension across all cells. */
   dimensions: Record<string, number>
   /** Per-scenario composite (mean over reps + judges) + the judge's free-form
-   *  `notes` for that scenario (the "why" a reflective driver grounds on). */
+   *  `notes` for that scenario (the "why" a reflective proposer grounds on). */
   scenarios: Array<{ scenarioId: string; composite: number; notes?: string }>
 }
 
-/** Per-candidate evidence a reflective/patch driver grounds its next proposal
+/** Per-candidate evidence a reflective/patch proposer grounds its next proposal
  *  on: mean score per judge dimension + per-scenario composite. */
 export function campaignBreakdown<TArtifact, TScenario extends Scenario>(
   campaign: CampaignResult<TArtifact, TScenario>,
@@ -50,7 +50,7 @@ export function campaignBreakdown<TArtifact, TScenario extends Scenario>(
     arr.push(cellComposite)
     byScenario.set(cell.scenarioId, arr)
     // Collect the judges' free-form notes per scenario (deduped) — the failure
-    // evidence the reflective driver grounds on. Generalizable by contract;
+    // evidence the reflective proposer grounds on. Generalizable by contract;
     // the judge must not put case-specific ground truth here.
     for (const s of judgeScores) {
       if (s.notes?.trim()) {

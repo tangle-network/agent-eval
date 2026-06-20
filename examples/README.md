@@ -2,7 +2,7 @@
 
 New here? Read these three in order — they cover the whole substrate.
 
-1. **[`substrate-lift-proof/`](./substrate-lift-proof)** — start here. `gepaDriver` promotes a *real* held-out gain (0.667 → 1.0, n=6 holdout, real Tangle Router backend, ~$0.02). This is the substrate doing its one job, end to end, with a number you can reproduce.
+1. **[`substrate-lift-proof/`](./substrate-lift-proof)** — start here. `gepaProposer` promotes a *real* held-out gain (0.667 → 1.0, n=6 holdout, real Tangle Router backend, ~$0.02). This is the substrate doing its one job, end to end, with a number you can reproduce.
 2. **[`selfimprove-quickstart/`](./selfimprove-quickstart)** — `selfImprove()`: the closed loop (run → judge → optimize → gate) returning one decision packet.
 3. **[`foreign-agent-quickstart/`](./foreign-agent-quickstart)** — bring your own agent: wrap an existing API, record runs, get the same decision packet back.
 

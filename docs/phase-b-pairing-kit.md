@@ -143,7 +143,7 @@ loop.
 
 | Time | What | Deliverable |
 |---|---|---|
-| 3:00 - 3:30 | Configure `runImprovementLoop` with `gepaDriver` (3 generations, population 2) + `defaultProductionGate` | Improvement run completes |
+| 3:00 - 3:30 | Configure `runImprovementLoop` with `gepaProposer` (3 generations, population 2) + `defaultProductionGate` | Improvement run completes |
 | 3:30 - 3:50 | Walk the partner through the gate decision + lift per scenario | Report artifact |
 | 3:50 - 4:00 | Capture: was the lift real? Would they ship the winner? Will they keep using the lib? | **Go/no-go signal for Phase D** |
 

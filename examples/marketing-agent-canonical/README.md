@@ -1,7 +1,7 @@
 # Canonical Phase-B demo — marketing agent self-improvement
 
 High-fidelity dry run of the design-partner pairing. A real multi-step
-marketing agent, real OpenAI-compatible endpoint, real `gepaDriver`
+marketing agent, real OpenAI-compatible endpoint, real `gepaProposer`
 reflective mutation, real held-out gate.
 
 This IS the artifact we open the pairing with — see
@@ -14,9 +14,9 @@ for the internal driving notes.
 | File | What it owns |
 |---|---|
 | `scenarios.ts` | 15 marketing rewrite scenarios across 15 surface types (landing-hero, tweet, push-notification, ...). 4 reserved as held-out for the gate. |
-| `agent.ts` | 5-step marketing agent (research → outline → draft → critique → final). Optimizes the **final-pass system prompt** via `gepaDriver`. |
+| `agent.ts` | 5-step marketing agent (research → outline → draft → critique → final). Optimizes the **final-pass system prompt** via `gepaProposer`. |
 | `judge.ts` | 6-dim marketing-quality judge calibrated to real copywriting practice. Strawman — partner modifies during the pairing. |
-| `index.ts` | `runEval` baseline → `runImprovementLoop` w/ `gepaDriver` + `defaultProductionGate` → markdown report artifact. |
+| `index.ts` | `runEval` baseline → `runImprovementLoop` w/ `gepaProposer` + `defaultProductionGate` → markdown report artifact. |
 
 ## Run it
 

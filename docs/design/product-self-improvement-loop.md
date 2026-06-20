@@ -42,7 +42,7 @@ Engine internals: [`self-improvement-engine.md`](./self-improvement-engine.md).
    This REPLACES bespoke "failure clustering": the analyst is the richer,
    LLM-driven version of "what should we improve and why".
 
-4. IMPROVE — runImprovementLoop( proposer = improvementDriver + agenticGenerator )
+4. IMPROVE — runImprovementLoop( proposer = runtime proposer with agenticGenerator )
    proposer.propose({ report, dataset, … }) → candidate surfaces.
    The agentic generator runs a coding harness in a worktree, reading the
    report + the codebase, making REAL product changes — prompt, tools, AND
@@ -94,7 +94,7 @@ wires its domain pieces into the seams.
 **COMPOSES (the substrate, in the one cycle):**
 - `runCampaign` (matrix measurement) · `runMultishot` (the dispatch flow) ·
   `FsLabeledScenarioStore` (dataset) · analysts (report) ·
-  `runImprovementLoop` + `improvementDriver` + `agenticGenerator` (improve) ·
+  `runImprovementLoop` + runtime proposer + `agenticGenerator` (improve) ·
   `defaultProductionGate` + `composeGate` (gate) · `openAutoPr` (promote).
 
 ---
@@ -131,7 +131,7 @@ Anything short of this is mid-migration, not done.
 | SAMPLE | profile variants of `OPERATOR_CEO_SYSTEM_PROMPT` + addendum; `GTM_LOOP_HOLDOUT_SCENARIOS` + `eval/business-owner/personas.json`; production failures from the trace store |
 | MEASURE | `dispatch` = `runMultishot(persona ↔ gtm-agent via runChatThroughRuntime, real tools)`; judges = the 3-model ensemble (`attribution_honesty`, `proposal_grounding`) + canonical 12-dim |
 | ANALYZE | trace analysts over the campaign traces → report (supersedes `FailureClusterConfig` clustering) |
-| IMPROVE | `improvementDriver` + `agenticGenerator` (claude harness) edits prompt/tools/code in a worktree, fed the report |
+| IMPROVE | Runtime proposer + `agenticGenerator` (claude harness) edits prompt/tools/code in a worktree, fed the report |
 | GATE | `composeGate(defaultProductionGate, antiFabricationGate, overfitGapGate)` |
 | PROMOTE | `openAutoPr` → PR against `tangle-network/gtm-agent` |
 

@@ -1,5 +1,5 @@
 /**
- * gepaDriver `constraints` option — structured-doc invariants.
+ * gepaProposer `constraints` option — structured-doc invariants.
  *
  * When `constraints.preserveSections` is set, candidates that drop any
  * named H2 heading are dropped from the returned population.
@@ -7,14 +7,14 @@
  * sentence-level edit count vs the parent exceeds `maxSentenceEdits * 2`
  * (counts adds + removes as separate edits) are dropped.
  *
- * These constraints subsume the former standalone `skillOptDriver`
- * (which was structurally gepaDriver + 2 post-parse rejections). The
- * `skillOptDriver` name is now reserved for a real implementation of
+ * These constraints subsume the former standalone `skillOptProposer`
+ * (which was structurally gepaProposer + 2 post-parse rejections). The
+ * `skillOptProposer` name is now reserved for a real implementation of
  * SkillOpt's 6-stage patch-mode pipeline (task #100).
  */
 
 import { describe, expect, it } from 'vitest'
-import { countSentenceEdits, extractH2Sections, gepaDriver } from '../src/campaign/drivers/gepa'
+import { countSentenceEdits, extractH2Sections, gepaProposer } from '../src/campaign/proposers/gepa'
 import type { ProposeContext } from '../src/campaign/types'
 
 function makeCtx(currentSurface: string, populationSize = 3): ProposeContext {
@@ -49,7 +49,7 @@ function mockLlm(payloads: string[]) {
   }
 }
 
-const BASELINE = `# Driver — structured procedure
+const BASELINE = `# Proposer — structured procedure
 
 ## Principle
 
@@ -95,67 +95,67 @@ describe('countSentenceEdits', () => {
   })
 })
 
-describe('gepaDriver constraints — preserveSections', () => {
+describe('gepaProposer constraints — preserveSections', () => {
   it('keeps candidates that preserve every named H2', async () => {
     const good = BASELINE.replace(
       'Bounded edits prevent useful rules from being overwritten.',
       'Bounded edits prevent useful prior rules from being overwritten by an LLM rewrite.',
     )
-    const driver = gepaDriver({
+    const proposer = gepaProposer({
       llm: mockLlm([good]),
       model: 'test-model',
       target: 'structured doc',
       constraints: { preserveSections: [], maxSentenceEdits: 10 }, // empty array = auto-detect from baseline
     })
-    const out = await driver.propose(makeCtx(BASELINE, 1))
+    const out = await proposer.propose(makeCtx(BASELINE, 1))
     expect(out.map((c) => c.surface)).toContain(good.trim())
   })
 
   it('rejects candidates that drop a preserved H2', async () => {
     const bad = BASELINE.replace('## Edit budget\n\nEdits beyond the budget are rejected.\n\n', '')
-    const driver = gepaDriver({
+    const proposer = gepaProposer({
       llm: mockLlm([bad]),
       model: 'test-model',
       target: 'structured doc',
       constraints: { preserveSections: [] },
     })
-    const out = await driver.propose(makeCtx(BASELINE, 1))
+    const out = await proposer.propose(makeCtx(BASELINE, 1))
     expect(out).not.toContain(bad.trim())
     expect(out.length).toBe(0)
   })
 
   it('honours an explicit preserveSections allowlist', async () => {
     const dropsExtraSection = BASELINE
-    const driver = gepaDriver({
+    const proposer = gepaProposer({
       llm: mockLlm([dropsExtraSection]),
       model: 'test-model',
       target: 'structured doc',
       constraints: { preserveSections: ['Principle', 'Edit budget'] },
     })
-    // Identical to baseline → driver's existing baseline-equality reject kicks in
-    const out = await driver.propose(makeCtx(BASELINE, 1))
+    // Identical to baseline → proposer's existing baseline-equality reject kicks in
+    const out = await proposer.propose(makeCtx(BASELINE, 1))
     expect(out.length).toBe(0)
   })
 })
 
-describe('gepaDriver constraints — maxSentenceEdits', () => {
+describe('gepaProposer constraints — maxSentenceEdits', () => {
   it('keeps candidates within the edit budget', async () => {
     const small = BASELINE.replace(
       'Edits beyond the budget are rejected.',
       'Edits beyond the budget are dropped from the returned population.',
     )
-    const driver = gepaDriver({
+    const proposer = gepaProposer({
       llm: mockLlm([small]),
       model: 'test-model',
       target: 'structured doc',
       constraints: { maxSentenceEdits: 2 }, // cap = 2*2 = 4 sentence diffs
     })
-    const out = await driver.propose(makeCtx(BASELINE, 1))
+    const out = await proposer.propose(makeCtx(BASELINE, 1))
     expect(out.map((c) => c.surface)).toContain(small.trim())
   })
 
   it('rejects candidates that exceed the edit budget', async () => {
-    const sprawling = `# Driver — structured procedure
+    const sprawling = `# Proposer — structured procedure
 
 ## Principle
 
@@ -168,47 +168,47 @@ Different sentence X. Different sentence Y. Different sentence Z.
 ## Section preservation
 
 New rule one. New rule two. New rule three.`
-    const driver = gepaDriver({
+    const proposer = gepaProposer({
       llm: mockLlm([sprawling]),
       model: 'test-model',
       target: 'structured doc',
       constraints: { maxSentenceEdits: 2 }, // cap = 4 sentence diffs
     })
-    const out = await driver.propose(makeCtx(BASELINE, 1))
+    const out = await proposer.propose(makeCtx(BASELINE, 1))
     expect(out.length).toBe(0)
   })
 })
 
-describe('gepaDriver — unconstrained behavior unchanged', () => {
+describe('gepaProposer — unconstrained behavior unchanged', () => {
   it('returns proposals without constraint when constraints option is omitted', async () => {
     const rewrite = BASELINE.replace('Bounded edits prevent', 'Bounded edits MUST prevent')
-    const driver = gepaDriver({
+    const proposer = gepaProposer({
       llm: mockLlm([rewrite]),
       model: 'test-model',
       target: 'structured doc',
     })
-    const out = await driver.propose(makeCtx(BASELINE, 1))
+    const out = await proposer.propose(makeCtx(BASELINE, 1))
     expect(out.map((c) => c.surface)).toContain(rewrite.trim())
   })
 
   it('still drops baseline-identical proposals', async () => {
-    const driver = gepaDriver({
+    const proposer = gepaProposer({
       llm: mockLlm([BASELINE, BASELINE]),
       model: 'test-model',
       target: 'structured doc',
     })
-    const out = await driver.propose(makeCtx(BASELINE, 2))
+    const out = await proposer.propose(makeCtx(BASELINE, 2))
     expect(out.length).toBe(0)
   })
 
   it('dedupes identical proposals', async () => {
     const r = BASELINE.replace('useful rules', 'useful prior rules')
-    const driver = gepaDriver({
+    const proposer = gepaProposer({
       llm: mockLlm([r, r, r]),
       model: 'test-model',
       target: 'structured doc',
     })
-    const out = await driver.propose(makeCtx(BASELINE, 3))
+    const out = await proposer.propose(makeCtx(BASELINE, 3))
     expect(out.length).toBe(1)
   })
 })

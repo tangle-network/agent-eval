@@ -65,9 +65,9 @@ export interface LoopProvenanceCandidate {
   surfaceHash: string
   /** Full sha256 content hash — byte-identical-verifiable. */
   contentHash: string
-  /** Driver label, when the driver returned a `ProposedCandidate`. */
+  /** Proposer label, when the proposer returned a `ProposedCandidate`. */
   label?: string
-  /** Driver rationale — the "because Z". When the driver returned a bare
+  /** Proposer rationale — the "because Z". When the proposer returned a bare
    *  surface (blind mutator) this is absent. */
   rationale?: string
   /** Mean composite this candidate scored on the search split. */
@@ -101,7 +101,7 @@ export interface LoopProvenanceRecord {
   /** Baseline + winner surface content hashes — distinguishable, byte-verifiable. */
   baselineContentHash: string
   winnerContentHash: string
-  /** Driver label/rationale for the promoted change. Absent ⇒ winner == baseline. */
+  /** Proposer label/rationale for the promoted change. Absent ⇒ winner == baseline. */
   winnerLabel?: string
   winnerRationale?: string
   /** The explicit baseline→winner unified diff the gate decided on. */

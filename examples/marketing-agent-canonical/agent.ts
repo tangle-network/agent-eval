@@ -1,7 +1,7 @@
 /**
  * Canonical multi-step marketing agent — what we wrap as `Dispatch` for
  * the Phase B demo. The shape is intentionally non-trivial so the
- * `gepaDriver` reflection has something real to optimize:
+ * `gepaProposer` reflection has something real to optimize:
  *
  *   1. Research — extract the value claim and audience signals from the brief.
  *   2. Outline — choose the structure (lead with outcome / quote / proof).
@@ -41,7 +41,7 @@ export interface AgentConfig {
   baseUrl: string
   model: string
   /** The mutable prompt — the system prompt for the final-pass rewrite.
-   *  This is what `gepaDriver` swaps each generation. */
+   *  This is what `gepaProposer` swaps each generation. */
   finalPassSystemPrompt: string
 }
 
@@ -166,7 +166,7 @@ export async function runMarketingAgent(
   ], signal)
   totalTokens += critique.tokens
 
-  // The optimizable step — uses cfg.finalPassSystemPrompt (mutated by gepaDriver).
+  // The optimizable step — uses cfg.finalPassSystemPrompt (mutated by gepaProposer).
   const finalPass = await chatCompletion(cfg, [
     { role: 'system', content: cfg.finalPassSystemPrompt },
     { role: 'user', content: `Brief:\n${brief}\n\nFirst draft:\n${firstDraft.content}\n\nCritique to address:\n${critique.content}` },

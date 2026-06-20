@@ -1,8 +1,8 @@
 /**
  * @experimental
  *
- * `skillOptDriver` — a patch-mode `ImprovementDriver` implementing SkillOpt
- * (Microsoft, arXiv:2605.23904). Where `gepaDriver` regenerates the whole
+ * `skillOptProposer` — a patch-mode `SurfaceProposer` implementing SkillOpt
+ * (Microsoft, arXiv:2605.23904). Where `gepaProposer` regenerates the whole
  * surface by reflection, SkillOpt proposes BOUNDED, anchored edits
  * (add/delete/replace) to ONE skill document, so a good rule introduced
  * earlier is not clobbered by a later sweeping rewrite. The edit budget is the
@@ -12,16 +12,16 @@
  * This module is the PROPOSER — the LLM call that turns evidence into
  * structured patches. The accept-only-if-held-out-improves loop, the budget
  * annealing, and the rejected buffer live in the `runSkillOpt` preset, which
- * owns the epoch hill-climb. The driver also conforms to `ImprovementDriver`
+ * owns the epoch hill-climb. The proposer also conforms to `SurfaceProposer`
  * (`propose` applies its patches to the current surface and returns the
  * candidate surfaces) so it is a drop-in for `runOptimization` and a fair
- * entrant in `compareDrivers`.
+ * entrant in `compareProposers`.
  */
 
 import { callLlm, type LlmClientOptions } from '../../llm-client'
 import { renderAnalystEvidence } from '../../reflective-mutation'
 import { applySkillPatch, type SkillPatch, type SkillPatchOp } from '../skill-patch'
-import type { ImprovementDriver, ProposeContext, ProposedCandidate } from '../types'
+import type { ProposeContext, ProposedCandidate, SurfaceProposer } from '../types'
 
 const SKILLOPT_SYSTEM =
   'You are a SkillOpt optimizer. You improve ONE skill document by proposing ' +
@@ -61,7 +61,7 @@ export interface ProposePatchesArgs {
   metaNote?: string
   /** Analyst findings + research report rendered as a prompt block (the
    *  EYES→HANDS wire) so a patch targets a NAMED diagnosed root cause. Built by
-   *  the driver from `ctx.findings`/`ctx.report`; the patch-native `runSkillOpt`
+   *  the proposer from `ctx.findings`/`ctx.report`; the patch-native `runSkillOpt`
    *  path may also supply it. */
   findingsNote?: string
   /** How many candidate patches to propose. */
@@ -69,12 +69,12 @@ export interface ProposePatchesArgs {
   signal: AbortSignal
 }
 
-export interface SkillOptDriverOptions {
+export interface SkillOptProposerOptions {
   llm: LlmClientOptions
   model: string
   /** What the skill document governs — orients the prompt. */
   target: string
-  /** Default ops-per-patch cap when used as a bare `ImprovementDriver`. The
+  /** Default ops-per-patch cap when used as a bare `SurfaceProposer`. The
    *  `runSkillOpt` preset overrides this per epoch as it anneals. Default 3. */
   editBudget?: number
   temperature?: number
@@ -83,13 +83,13 @@ export interface SkillOptDriverOptions {
   evidenceK?: number
 }
 
-export interface SkillOptDriver extends ImprovementDriver {
+export interface SkillOptProposer extends SurfaceProposer {
   /** Patch-native path used by `runSkillOpt` (the SkillOpt epoch loop owns
    *  acceptance/budget/buffer). Returns structured patches, NOT surfaces. */
   proposePatches(args: ProposePatchesArgs): Promise<SkillPatch[]>
 }
 
-export function skillOptDriver(opts: SkillOptDriverOptions): SkillOptDriver {
+export function skillOptProposer(opts: SkillOptProposerOptions): SkillOptProposer {
   const evidenceK = opts.evidenceK ?? 3
   const defaultBudget = opts.editBudget ?? 3
 
@@ -126,7 +126,7 @@ export function skillOptDriver(opts: SkillOptDriverOptions): SkillOptDriver {
     async propose(ctx: ProposeContext): Promise<ProposedCandidate[]> {
       if (typeof ctx.currentSurface !== 'string') {
         throw new Error(
-          'skillOptDriver: surface must be a string skill document (got a CodeSurface). SkillOpt patches text.',
+          'skillOptProposer: surface must be a string skill document (got a CodeSurface). SkillOpt patches text.',
         )
       }
       const surface = ctx.currentSurface
@@ -153,7 +153,7 @@ export function skillOptDriver(opts: SkillOptDriverOptions): SkillOptDriver {
   }
 }
 
-/** Derive evidence from the loop's generation history (generic-driver path):
+/** Derive evidence from the loop's generation history (generic-proposer path):
  *  the prior best candidate's worst scenarios + weakest dimensions. Empty on
  *  generation 0. */
 function evidenceFromHistory(ctx: ProposeContext, k: number): SkillOptEvidence {

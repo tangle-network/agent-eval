@@ -4,9 +4,9 @@
  * same shape `flattenOtlpExportToNdjson` produces) into validated
  * `RunRecord[]` — one record per `trace_id` (one trace == one task).
  *
- * This is the offline ingestion primitive the AppWorld driver bench and the
+ * This is the offline ingestion primitive the AppWorld proposer bench and the
  * hosted Intelligence product both stand on: traces in, paper-grade rows
- * out, ready for `compareDrivers` / `analyzeRuns` / the promotion gate.
+ * out, ready for `compareProposers` / `analyzeRuns` / the promotion gate.
  *
  * Aggregation per trace:
  *   - tokenUsage: sum LLM-span `input` / `output` (+ `cached` when present)
@@ -40,6 +40,13 @@ import {
   validateRunRecord,
 } from '../run-record'
 import {
+  LLM_CACHED_TOKEN_ATTR_KEYS,
+  LLM_COST_ATTR_KEYS,
+  LLM_INPUT_TOKEN_ATTR_KEYS,
+  LLM_MODEL_ATTR_KEYS,
+  LLM_OUTPUT_TOKEN_ATTR_KEYS,
+} from '../trace/otlp-attributes'
+import {
   compareSpanTime,
   firstNumberAttr,
   firstStringAttr,
@@ -48,50 +55,11 @@ import {
   spanEpochMillis,
 } from './otlp-span'
 
-/** Candidate attribute keys for LLM input (prompt) tokens, both dialects. */
-const INPUT_TOKEN_KEYS = [
-  'llm.input_tokens',
-  'inference.llm.input_tokens',
-  'llm.token_count.prompt',
-  'gen_ai.usage.input_tokens',
-  'gen_ai.usage.prompt_tokens',
-] as const
-/** Candidate attribute keys for LLM output (completion) tokens. */
-const OUTPUT_TOKEN_KEYS = [
-  'llm.output_tokens',
-  'inference.llm.output_tokens',
-  'llm.token_count.completion',
-  'gen_ai.usage.output_tokens',
-  'gen_ai.usage.completion_tokens',
-] as const
-/** Candidate attribute keys for cached/prompt-cache tokens. */
-const CACHED_TOKEN_KEYS = [
-  'llm.cached_tokens',
-  'inference.llm.cached_tokens',
-  'llm.token_count.prompt_cache_hit',
-  'gen_ai.usage.cached_tokens',
-] as const
-/** Candidate attribute keys for per-span LLM cost in USD. */
-const COST_KEYS = [
-  'llm.cost_usd',
-  'inference.llm.cost.total',
-  'llm.cost.total',
-  'gen_ai.usage.cost',
-] as const
-/** Candidate attribute keys for the model identifier. */
-const MODEL_KEYS = [
-  'llm.model_name',
-  'inference.llm.model_name',
-  'llm.model',
-  'gen_ai.request.model',
-  'gen_ai.response.model',
-] as const
-
 export interface OtlpToRunRecordsOptions {
   /** Logical experiment grouping for every produced record. */
   experimentId: string
   /** Candidate (variant) id — the surface these traces exercised. The
-   *  bench passes the driver label here so `compareDrivers` can pair rows. */
+   *  bench passes the proposer label here so `compareProposers` can pair rows. */
   candidateId: string
   /** Split assignment for every produced record. Default `'holdout'` —
    *  ingested traces are evidence, not the optimizer's training pool. */
@@ -305,16 +273,16 @@ function aggregateTrace(
 
     if (s.kind === 'LLM') {
       llmSpanCount += 1
-      const i = firstNumberAttr(s.attributes, INPUT_TOKEN_KEYS)
-      const o = firstNumberAttr(s.attributes, OUTPUT_TOKEN_KEYS)
-      const c = firstNumberAttr(s.attributes, CACHED_TOKEN_KEYS)
+      const i = firstNumberAttr(s.attributes, LLM_INPUT_TOKEN_ATTR_KEYS)
+      const o = firstNumberAttr(s.attributes, LLM_OUTPUT_TOKEN_ATTR_KEYS)
+      const c = firstNumberAttr(s.attributes, LLM_CACHED_TOKEN_ATTR_KEYS)
       if (i !== null) input += i
       if (o !== null) output += o
       if (c !== null) {
         cached += c
         sawCached = true
       }
-      const m = firstStringAttr(s.attributes, MODEL_KEYS) ?? s.model_name
+      const m = firstStringAttr(s.attributes, LLM_MODEL_ATTR_KEYS) ?? s.model_name
       if (m) modelVotes.set(m, (modelVotes.get(m) ?? 0) + 1)
     } else if (s.kind === 'TOOL') {
       toolSpanCount += 1
@@ -383,7 +351,7 @@ function resolveCost(
   let sawCost = false
   for (const s of spans) {
     if (s.kind !== 'LLM') continue
-    const c = firstNumberAttr(s.attributes, COST_KEYS)
+    const c = firstNumberAttr(s.attributes, LLM_COST_ATTR_KEYS)
     if (c !== null) {
       perSpanCost += c
       sawCost = true
@@ -443,7 +411,7 @@ function topVote(votes: Map<string, number>): string | null {
 
 function firstModelAttr(spans: ProjectedOtlpSpan[]): string | null {
   for (const s of spans) {
-    const m = firstStringAttr(s.attributes, MODEL_KEYS) ?? s.model_name
+    const m = firstStringAttr(s.attributes, LLM_MODEL_ATTR_KEYS) ?? s.model_name
     if (m) return m
   }
   return null

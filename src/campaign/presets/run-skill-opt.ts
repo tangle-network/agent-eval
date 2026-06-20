@@ -21,11 +21,11 @@
  * `HeldOutGate`/`defaultProductionGate`, applied per edit instead of once at
  * the end — which is why the held-out composite is monotonically
  * non-decreasing and a regression can never ship. `runCampaign` is the
- * measurement; `applySkillPatch` applies the edits; `skillOptDriver` proposes
+ * measurement; `applySkillPatch` applies the edits; `skillOptProposer` proposes
  * them.
  */
 
-import type { RejectedEdit, SkillOptDriver, SkillOptEvidence } from '../drivers/skill-opt'
+import type { RejectedEdit, SkillOptEvidence, SkillOptProposer } from '../proposers/skill-opt'
 import { type RunCampaignOptions, runCampaign } from '../run-campaign'
 import { campaignBreakdown, campaignMeanComposite } from '../score-utils'
 import { applySkillPatch } from '../skill-patch'
@@ -41,7 +41,7 @@ export interface RunSkillOptOptions<TScenario extends Scenario, TArtifact>
     scenario: TScenario,
     ctx: DispatchContext,
   ) => Promise<TArtifact>
-  driver: SkillOptDriver
+  proposer: SkillOptProposer
   /** Scenarios the optimizer reflects on for evidence. MUST be disjoint from
    *  `holdoutScenarios` — proposals never see the acceptance axis. */
   trainScenarios: TScenario[]
@@ -171,7 +171,7 @@ export async function runSkillOpt<TScenario extends Scenario, TArtifact>(
 
   for (let epoch = 0; epoch < opts.maxEpochs; epoch++) {
     epochsRun++
-    const patches = await opts.driver.proposePatches({
+    const patches = await opts.proposer.proposePatches({
       surface: current,
       evidence: currentEvidence,
       editBudget: budget,

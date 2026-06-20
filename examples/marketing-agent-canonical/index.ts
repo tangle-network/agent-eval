@@ -6,7 +6,7 @@
  *
  *   1. Baseline `runEval` across 15 marketing scenarios on the
  *      out-of-the-box system prompt.
- *   2. `runImprovementLoop` with `gepaDriver` + `defaultProductionGate`
+ *   2. `runImprovementLoop` with `gepaProposer` + `defaultProductionGate`
  *      that mutates the final-pass system prompt over 3 generations.
  *   3. A markdown report showing baseline vs winner, per-scenario lift,
  *      gate decision, and the shipped prompt diff.
@@ -38,7 +38,7 @@ import {
   type Dispatch,
   defaultProductionGate,
   fsCampaignStorage,
-  gepaDriver,
+  gepaProposer,
   runEval,
   runImprovementLoop,
 } from '../../src/contract'
@@ -117,7 +117,7 @@ async function main() {
   }
 
   // ── Self-improvement loop ───────────────────────────────────────
-  console.log('\n─── Self-improvement loop (gepaDriver + defaultProductionGate) ───')
+  console.log('\n─── Self-improvement loop (gepaProposer + defaultProductionGate) ───')
   const trainScenarios = MARKETING_SCENARIOS.filter((s) => !HOLDOUT_IDS.includes(s.id))
   const holdoutScenarios = MARKETING_SCENARIOS.filter((s) => HOLDOUT_IDS.includes(s.id))
   console.log(`train: ${trainScenarios.length} scenarios (${trainScenarios.map((s) => s.id).join(', ')})`)
@@ -132,7 +132,7 @@ async function main() {
       const prompt = typeof surface === 'string' ? surface : JSON.stringify(surface)
       return runMarketingAgent(scenario, { apiKey, baseUrl, model, finalPassSystemPrompt: prompt }, ctx.signal)
     },
-    driver: gepaDriver({
+    proposer: gepaProposer({
       llm: { apiKey, baseUrl },
       model: judgeModel,
       target: 'final-pass system prompt for a multi-step marketing copy agent',

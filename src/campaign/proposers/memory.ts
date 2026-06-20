@@ -1,8 +1,8 @@
 /**
  * @experimental
  *
- * `memoryCurationDriver` — a CURATOR `ImprovementDriver`, the complement to the
- * OPTIMIZER drivers (`gepaDriver` rewrites the prompt; this one BUILDS a
+ * `memoryCurationProposer` — a CURATOR `SurfaceProposer`, the complement to the
+ * OPTIMIZER proposers (`gepaProposer` rewrites the prompt; this one BUILDS a
  * searchable memory of what prior trajectories taught and grafts the most
  * relevant lessons onto the surface).
  *
@@ -28,7 +28,7 @@
  */
 
 import { callLlm, type LlmClientOptions } from '../../llm-client'
-import type { ImprovementDriver, ProposeContext, ProposedCandidate } from '../types'
+import type { ProposeContext, ProposedCandidate, SurfaceProposer } from '../types'
 import {
   extractBlockBody,
   findingToLesson,
@@ -37,10 +37,10 @@ import {
   surfaceToText,
 } from './_findings-text'
 
-const BLOCK_START = '<!-- BEGIN curated-memory (auto-managed by memoryCurationDriver) -->'
+const BLOCK_START = '<!-- BEGIN curated-memory (auto-managed by memoryCurationProposer) -->'
 const BLOCK_END = '<!-- END curated-memory -->'
 
-export interface MemoryCurationDriverOptions {
+export interface MemoryCurationProposerOptions {
   /** Top-K lessons retained in the surface memory block. Default 12. */
   maxEntries?: number
   /** Heading rendered above the lessons inside the block. Default below. */
@@ -75,7 +75,7 @@ function extractExistingLessons(text: string): string[] {
 
 async function distillLessons(
   raw: string[],
-  distill: NonNullable<MemoryCurationDriverOptions['distill']>,
+  distill: NonNullable<MemoryCurationProposerOptions['distill']>,
 ): Promise<string[]> {
   const res = await callLlm(
     {
@@ -102,8 +102,8 @@ async function distillLessons(
   return raw
 }
 
-/** Build the CURATOR driver. */
-export function memoryCurationDriver(opts: MemoryCurationDriverOptions = {}): ImprovementDriver {
+/** Build the CURATOR proposer. */
+export function memoryCurationProposer(opts: MemoryCurationProposerOptions = {}): SurfaceProposer {
   const maxEntries = opts.maxEntries ?? 12
   const heading = opts.sectionHeading ?? DEFAULT_HEADING
   return {

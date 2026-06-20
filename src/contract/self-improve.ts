@@ -9,7 +9,7 @@
  *
  * Defaults picked to match the LAND-tier story:
  *   - In-memory storage (no filesystem touch).
- *   - `gepaDriver` reflective mutation with copywriting-flavored primitives
+ *   - `gepaProposer` reflective mutation with copywriting-flavored primitives
  *     (override `proposer` or `mutationPrimitives` for any domain).
  *   - `defaultProductionGate` with `deltaThreshold: 0.05`.
  *   - Held-out split = 25% of scenarios, deterministic by id hash.
@@ -23,13 +23,13 @@
  */
 
 import { createHash } from 'node:crypto'
-import { gepaDriver } from '../campaign/drivers/gepa'
 import { defaultProductionGate } from '../campaign/gates/default-production-gate'
 import {
   type RunImprovementLoopResult,
   runImprovementLoop,
 } from '../campaign/presets/run-improvement-loop'
 import type { RunOptimizationOptions } from '../campaign/presets/run-optimization'
+import { gepaProposer } from '../campaign/proposers/gepa'
 import {
   emitLoopProvenance,
   type LoopProvenanceRecord,
@@ -83,7 +83,7 @@ export interface SelfImproveLlm {
   baseUrl?: string
   /** Bearer token. Default `process.env.OPENAI_API_KEY`. */
   apiKey?: string
-  /** Model id used by `gepaDriver` reflection. Default
+  /** Model id used by `gepaProposer` reflection. Default
    *  `anthropic/claude-sonnet-4.6`. */
   model?: string
 }
@@ -127,25 +127,20 @@ export interface SelfImproveOptions<TScenario extends Scenario, TArtifact> {
    *  story. */
   budget?: SelfImproveBudget
 
-  /** Custom surface proposer. Default is `gepaDriver` configured from `llm` +
+  /** Custom surface proposer. Default is `gepaProposer` configured from `llm` +
    *  `mutationPrimitives`. */
   proposer?: SurfaceProposer
 
-  /** @deprecated since v0.94.0, removal targeted v1.0. Use `proposer`. */
-  driver?: SurfaceProposer
-
-  /** Default-proposer overrides — used when `proposer`/`driver` are unset. */
+  /** Default-proposer overrides — used when `proposer` is unset. */
   mutationPrimitives?: string[]
   proposerTarget?: string
-  /** @deprecated since v0.94.0, removal targeted v1.0. Use `proposerTarget`. */
-  driverTarget?: string
 
   /** Custom gate. Default is `defaultProductionGate` with
    *  `deltaThreshold: 0.05` on the held-out split. */
   gate?: Gate<TArtifact, TScenario>
 
-  /** LLM config consumed by the default `gepaDriver`. Ignored if you pass
-   *  your own `proposer`/`driver`. */
+  /** LLM config consumed by the default `gepaProposer`. Ignored if you pass
+   *  your own `proposer`. */
   llm?: SelfImproveLlm
 
   /** Storage backend. Default is DURABLE: when a real (non-`mem://`) `runDir`
@@ -176,7 +171,7 @@ export interface SelfImproveOptions<TScenario extends Scenario, TArtifact> {
    *  Receives the structured record for inline assertions / custom routing. */
   onProvenance?: (record: LoopProvenanceRecord) => void
 
-  /** Distributed-driver seam — same as `RunCampaignOptions.cellPlacement`.
+  /** Distributed execution seam — same as `RunCampaignOptions.cellPlacement`.
    *  Returns an opaque placement key the substrate forwards to your agent
    *  as `ctx.placement`. Combined with `httpDispatch` from
    *  `/adapters/http`, fans cells across regions. */
@@ -403,19 +398,9 @@ export async function selfImprove<TScenario extends Scenario, TArtifact>(
     throw new Error('selfImprove: holdout split is empty. Pass more scenarios.')
   }
 
-  if (opts.proposer && opts.driver && opts.proposer !== opts.driver) {
-    throw new Error('selfImprove: pass either proposer or driver, not two different values')
-  }
-  if (opts.proposerTarget && opts.driverTarget && opts.proposerTarget !== opts.driverTarget) {
-    throw new Error(
-      'selfImprove: pass either proposerTarget or driverTarget, not two different values',
-    )
-  }
-
   const proposer: SurfaceProposer =
     opts.proposer ??
-    opts.driver ??
-    gepaDriver({
+    gepaProposer({
       llm: {
         baseUrl: opts.llm?.baseUrl ?? 'https://router.tangle.tools/v1',
         apiKey: opts.llm?.apiKey ?? process.env.OPENAI_API_KEY ?? '',
@@ -423,7 +408,6 @@ export async function selfImprove<TScenario extends Scenario, TArtifact>(
       model: opts.llm?.model ?? 'anthropic/claude-sonnet-4.6',
       target:
         opts.proposerTarget ??
-        opts.driverTarget ??
         'agent surface (system prompt or config) being optimized by selfImprove',
       mutationPrimitives: opts.mutationPrimitives ?? DEFAULT_MUTATION_PRIMITIVES,
     })

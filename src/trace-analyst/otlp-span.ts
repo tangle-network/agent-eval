@@ -21,6 +21,11 @@
  * Pure, no I/O.
  */
 
+import {
+  LLM_MODEL_ATTR_KEYS,
+  SPAN_KIND_ATTR_KEYS,
+  TOOL_NAME_ATTR_KEYS,
+} from '../trace/otlp-attributes'
 import type { TraceAnalystSpanKind, TraceAnalystSpanStatus } from './types'
 
 /**
@@ -74,13 +79,8 @@ export function projectOtlpFlatLine(raw: Record<string, unknown>): ProjectedOtlp
     asString(attributes['inference.agent.name']) ??
     asString(attributes['inference.agent_name']) ??
     null
-  const model_name =
-    asString(attributes['llm.model_name']) ??
-    asString(attributes['inference.llm.model_name']) ??
-    asString(attributes['llm.model']) ??
-    null
-  const tool_name =
-    asString(attributes['tool.name']) ?? asString(attributes['inference.tool.name']) ?? null
+  const model_name = firstStringAttr(attributes, LLM_MODEL_ATTR_KEYS)
+  const tool_name = firstStringAttr(attributes, TOOL_NAME_ATTR_KEYS)
 
   const kind = inferOtlpKind(attributes)
 
@@ -131,8 +131,7 @@ export function readOtlpStatus(raw: Record<string, unknown>): {
 }
 
 export function inferOtlpKind(attrs: Record<string, unknown>): TraceAnalystSpanKind {
-  const opik =
-    asString(attrs['openinference.span.kind']) ?? asString(attrs['inference.observation_kind'])
+  const opik = firstStringAttr(attrs, SPAN_KIND_ATTR_KEYS)
   if (opik) {
     const upper = opik.toUpperCase()
     if (

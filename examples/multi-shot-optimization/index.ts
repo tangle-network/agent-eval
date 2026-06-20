@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import {
   defaultProductionGate,
-  evolutionaryDriver,
+  evolutionaryProposer,
   type JudgeConfig,
   runImprovementLoop,
   type Scenario,
@@ -41,9 +41,9 @@ const judge: JudgeConfig<DemoArtifact> = {
 
 // Deterministic, LLM-free proposer: an evolutionary mutator that appends the
 // completion directive to the current surface. The reflective alternative is
-// `gepaDriver` (LLM-backed, reasons over trace findings) — both conform to the
+// `gepaProposer` (LLM-backed, reasons over trace findings) — both conform to the
 // same `SurfaceProposer`, and the loop below is identical regardless.
-const proposer = evolutionaryDriver({
+const proposer = evolutionaryProposer({
   mutator: {
     kind: 'append-completion-directive',
     async mutate({ currentSurface, populationSize }) {

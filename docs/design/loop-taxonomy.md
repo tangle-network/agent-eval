@@ -15,8 +15,8 @@ Cross-links: [`three-package-architecture.md`](../three-package-architecture.md)
 
 | Role | Definition | Lives at |
 |---|---|---|
-| **Execution driver** | The thing that decides the next turn/action inside a sandbox or worker conversation. | Inner layer only |
-| **Surface proposer** | The thing that proposes the next prompt/config/code surface for the improvement loop to measure. Historical API name: `ImprovementDriver`. | Outer layer only |
+| **Execution driver** | The thing that decides or routes the next turn/action inside a sandbox or worker conversation. | Inner layer only |
+| **Surface proposer** | The thing that proposes the next prompt/config/code surface for the improvement loop to measure. | Outer layer only |
 | **Worker** | An agent harness instance (Claude Code, Codex, OpenCode, …) running inside a sandbox. Does the actual work; responds in chat. | Inner layer only |
 | **Sandbox** | A multi-harness VM. Hosts **1..N workers**, which can share a workspace. Not an agent — the substrate an agent runs in. | Inner layer only |
 | **Measurement** | Runs the worker over a set of scenarios and judges the outputs into a scorecard with confidence intervals. This is `runCampaign`. | Outer layer |
@@ -29,8 +29,7 @@ Two facts that trip people up:
    `{ sibling, sandboxId }` = co-located workers; `{ fleet, fleetId,
    machineId, sandboxId }` = workers across machines.
 
-2. **"Driver" is now reserved for execution.** The old outer-loop name
-   `ImprovementDriver` remains in the API for compatibility, but the role is a
+2. **"Driver" is reserved for execution.** The outer loop uses a
    **surface proposer**: it proposes the next prompt / tool config / code
    surface for the measurement loop.
 
@@ -83,7 +82,7 @@ opinion about execution topology: the topology lives inside `dispatch`.
 - The worker is the agent in the sandbox. The driver talks to it. ✓
 - `runCampaign` is a **measurement**, not a worker. It *runs the worker* (via
   `dispatch`); the worker does not "run the eval".
-- The outer improvement loop has **no single worker** — its driver proposes a
+- The outer improvement loop has **no single worker** — its proposer proposes a
   *surface*, and each surface is scored by a *measurement* that drives the
   inner workers.
 
@@ -107,7 +106,7 @@ identical in shape:
 
 That captured corpus **is the GEPA training set.** A basic eval run, a
 production conversation, and an autoresearch loop all deposit the same
-`(input, output, reward)` tuples. The optimization driver later samples from
+`(input, output, reward)` tuples. The optimization proposer later samples from
 that corpus to evolve the surface. So:
 
 > Running *any* loop — even one whose purpose is not optimization — builds the
@@ -115,7 +114,7 @@ that corpus to evolve the surface. So:
 > currently optimizing.
 
 This is enforced, not aspirational: `runImprovementLoop` **refuses**
-`tracing: 'off'` whenever a driver is wired, precisely because a loop that
+`tracing: 'off'` whenever a proposer is wired, precisely because a loop that
 doesn't feed the dataset is a loop that breaks the flywheel.
 
 Temporal-split discipline (train vs holdout, `capturedBefore`) and
@@ -128,8 +127,7 @@ the holdout it is judged against. See `src/campaign/labeled-store/`.
 The improvement loop is **proposer-agnostic**. `runOptimization` (the loop body)
 and `runImprovementLoop` (the gated-promotion shell) call
 `proposer.propose(...)` → measure → `proposer.decide(...)`. They do not know
-which strategy proposed the candidate. The historical API interface is
-`ImprovementDriver`; the clearer alias is `SurfaceProposer`:
+which strategy proposed the candidate. The API interface is `SurfaceProposer`:
 
 ```ts
 interface SurfaceProposer<TFindings = unknown> {
@@ -148,17 +146,16 @@ interface SurfaceProposer<TFindings = unknown> {
 
 | Implementation | Strategy | How it proposes | Where it lives |
 |---|---|---|---|
-| `evolutionaryDriver` | Evolutionary (GEPA / AxGEPA) | Standalone `SurfaceProposer`. Mutates the current best surface into N candidates, blind to history beyond the current best. Optimizes against the dataset's rewards. | **agent-eval** (pure: dataset → surface, no sandbox) |
-| `improvementDriver` + `reflectiveGenerator` | Reflective | One proposer, cheap generator: drafts patches from the report and applies them into a worktree (shots=1, no sandbox). | **agent-runtime** — implements agent-eval's proposer contract |
-| `improvementDriver` + `agenticGenerator` | Agentic | Same proposer, full generator: runs a coding harness in the worktree (≤ `maxImprovementShots`) to edit in place. | **agent-runtime** |
+| `evolutionaryProposer` | Evolutionary (GEPA / AxGEPA) | Standalone `SurfaceProposer`. Mutates the current best surface into N candidates, blind to history beyond the current best. Optimizes against the dataset's rewards. | **agent-eval** (pure: dataset → surface, no sandbox) |
+| Runtime reflective proposer | Reflective | Cheap generator: drafts patches from the report and applies them into a worktree (shots=1, no sandbox). | **agent-runtime** — implements agent-eval's proposer contract |
+| Runtime agentic proposer | Agentic | Full generator: runs a coding harness in the worktree (≤ `maxImprovementShots`) to edit in place. | **agent-runtime** |
 
 This resolves the prior duplication where `runImprovementLoop` (evolutionary,
 agent-eval) and `runAnalystLoop` (reflective, agent-runtime) were two parallel
 loops doing "propose change → measure → gate → PR". There is **one loop** and
-**one proposer** (`improvementDriver`); the reflective and agentic paths are
-pluggable *generators* of it (the same operation at two settings of a cost
-dial), not separate proposers. The dependency direction permits this cleanly:
-agent-eval is the leaf and owns the proposer contract; agent-runtime
+one proposer contract. The reflective and agentic paths are two settings of the
+same cost dial, not separate outer loops. The dependency direction permits this
+cleanly: agent-eval is the leaf and owns the proposer contract; agent-runtime
 imports agent-eval and implements it.
 
 ## What "the surface" is — improvement tiers
@@ -169,7 +166,7 @@ for tiers 1–2, `CodeSurface{ worktreeRef }` for tier 4.
 
 | Tier | Surface | Generator that changes it | Blast radius |
 |---|---|---|---|
-| 1 | System prompt / prompt-signature addendum | `evolutionaryDriver` (GEPA), `reflectiveGenerator` | prompt only |
+| 1 | System prompt / prompt-signature addendum | `evolutionaryProposer` (GEPA), `reflectiveGenerator` | prompt only |
 | 2 | Tool config / tool signatures | `reflectiveGenerator` | which tools, their schemas |
 | 3 | Knowledge (wiki / knowledge graph) | agent-knowledge's knowledge adapter | what the agent *knows* |
 | 4 | Code / scaffolding | `agenticGenerator` (coding harness reads codebase + report) → worktree / PR | the implementation itself |
@@ -184,8 +181,8 @@ The cost/capability distinction:
   `maxImprovementShots` — measured by re-running the inner loop against the
   changed code.
 
-Both are generators of the one `improvementDriver` (propose → measure → gate →
-PR). They differ only in *what* they edit and *how invasive* it is — and both
+Both are implementations of the one proposer contract (propose → measure → gate
+→ PR). They differ only in *what* they edit and *how invasive* it is — and both
 consume the **same dataset** the flywheel builds.
 
 ## Resolved design decisions
@@ -201,9 +198,9 @@ consume the **same dataset** the flywheel builds.
    worktree before running the worker.
 
 2. **`runAnalystLoop` (agent-runtime): the analyst is a GENERATOR, knowledge
-   stays separate.** Shipped in agent-runtime 0.25.0 as `improvementDriver` +
+   stays separate.** Shipped in agent-runtime 0.25.0 as a runtime proposer with
    `reflectiveGenerator` (drafts patches from the report) / `agenticGenerator`
-   (coding harness in the worktree) — one runtime driver implementing the
+   (coding harness in the worktree) — one runtime proposer implementing the
    proposer contract with pluggable generators, fed
    into `runImprovementLoop`'s gate + PR machinery. `runAnalystLoop`'s other
    responsibilities — the findings ledger and knowledge-graph updates, which
@@ -233,10 +230,9 @@ consume the **same dataset** the flywheel builds.
   + optional PR. agent-eval.
 - **runAnalystLoop** — reflective autoresearch: findings + knowledge updates +
   improvement proposals. agent-runtime.
-- **SurfaceProposer** — the contract a surface proposer implements. Historical
-  API name: `ImprovementDriver`.
-  `evolutionaryDriver` (agent-eval) is one; agent-runtime's `improvementDriver`
-  is another, with pluggable `reflectiveGenerator` / `agenticGenerator`.
-- **CandidateGenerator** — the byte-producing seam inside `improvementDriver`;
+- **SurfaceProposer** — the contract a surface proposer implements.
+  `evolutionaryProposer` (agent-eval) is one; agent-runtime can provide
+  reflective or agentic implementations.
+- **CandidateGenerator** — the byte-producing seam inside a runtime proposer;
   `reflectiveGenerator` (cheap, no sandbox) and `agenticGenerator` (coding
   harness in the worktree) are the two cost settings. agent-runtime.

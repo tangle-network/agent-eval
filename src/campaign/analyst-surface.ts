@@ -6,8 +6,8 @@
  * The analyst that drives self-improvement is itself a prompt — and a
  * hand-tuned one (a hardcoded, hand-versioned `const`). This module lets the
  * loop optimize it: the analyst `actorDescription` becomes a `MutableSurface`
- * that `gepaDriver` / `haloDriver` / any `ImprovementDriver` can mutate inside
- * `runImprovementLoop` or `compareDrivers`. That is the second-order loop —
+ * that `gepaProposer` / `haloProposer` / any `SurfaceProposer` can mutate inside
+ * `runImprovementLoop` or `compareProposers`. That is the second-order loop —
  * optimizing the optimizer's eyes, not just the agent's prompt.
  *
  * Two pieces, both deliberately small (the loop engine already exists — this
@@ -33,7 +33,7 @@
  *     holdoutScenarios: heldOutScenarios,
  *     dispatchWithSurface,
  *     judges: [failureModeRecallJudge()],
- *     driver: gepaDriver({ baseUrl, apiKey }),
+ *     proposer: gepaProposer({ baseUrl, apiKey }),
  *     gate: heldOutGate({ minDelta: 0.02 }),
  *     autoOnPromote: 'none',
  *   })

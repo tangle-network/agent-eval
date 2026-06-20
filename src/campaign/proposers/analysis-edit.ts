@@ -1,9 +1,9 @@
 /**
- * Shared core for prompt-tier "analysis → one LLM edit" drivers. `haloDriver`
- * and `traceAnalystDriver` differ ONLY in who produces the findings; the
+ * Shared core for prompt-tier "analysis → one LLM edit" proposers. `haloProposer`
+ * and `traceAnalystProposer` differ ONLY in who produces the findings; the
  * materialize-traces → apply-via-`APPLY_SYSTEM` → candidate pipeline is
  * identical. Keeping it in one place IS the fairness contract their head-to-head
- * (`compareDrivers`) depends on — the apply step can no longer drift between the
+ * (`compareProposers`) depends on — the apply step can no longer drift between the
  * two engines being compared.
  */
 
@@ -12,7 +12,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { LlmClientOptions } from '../../llm-client'
 import { callLlm } from '../../llm-client'
-import type { ImprovementDriver, ProposeContext, ProposedCandidate } from '../types'
+import type { ProposeContext, ProposedCandidate, SurfaceProposer } from '../types'
 
 export const APPLY_SYSTEM =
   'You apply a trace-analysis report to an agent instruction prompt. Output ONLY the full revised prompt — no preamble, no commentary, no code fences. Make the minimal edits that address the report findings; preserve everything else verbatim.'
@@ -22,7 +22,7 @@ export function surfaceToPromptText(surface: unknown): string {
   return typeof surface === 'string' ? surface : JSON.stringify(surface)
 }
 
-export interface AnalysisEditDriverOptions {
+export interface AnalysisEditProposerOptions {
   kind: string
   label: string
   baseUrl: string
@@ -38,9 +38,9 @@ export interface AnalysisEditDriverOptions {
   rationale: (report: string) => string
 }
 
-/** Build an `ImprovementDriver` that runs `analyze` over the generation's OTLP
+/** Build a `SurfaceProposer` that runs `analyze` over the generation's OTLP
  *  traces and applies the report to the surface via one identical LLM edit. */
-export function analysisEditDriver(opts: AnalysisEditDriverOptions): ImprovementDriver {
+export function analysisEditProposer(opts: AnalysisEditProposerOptions): SurfaceProposer {
   return {
     kind: opts.kind,
     async propose(ctx: ProposeContext): Promise<ProposedCandidate[]> {
@@ -48,7 +48,7 @@ export function analysisEditDriver(opts: AnalysisEditDriverOptions): Improvement
 
       const traces = (await opts.resolveTraces(ctx)) ?? ''
       if (!traces.trim()) throw new Error(opts.noTracesError)
-      const dir = mkdtempSync(join(tmpdir(), `${opts.kind}-driver-`))
+      const dir = mkdtempSync(join(tmpdir(), `${opts.kind}-proposer-`))
       const tracePath = join(dir, 'traces.jsonl')
       writeFileSync(tracePath, traces.endsWith('\n') ? traces : `${traces}\n`)
 

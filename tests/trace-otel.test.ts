@@ -21,6 +21,10 @@ describe('OTLP export', () => {
     const scope = otlp.resourceSpans[0].scopeSpans[0]
     expect(scope.spans).toHaveLength(2)
     const toolSpan = scope.spans.find((s) => s.name === 'search')!
+    expect(
+      toolSpan.attributes.find((a) => a.key === 'openinference.span.kind')?.value.stringValue,
+    ).toBe('TOOL')
+    expect(toolSpan.attributes.find((a) => a.key === 'span.kind')).toBeUndefined()
     expect(toolSpan.attributes.find((a) => a.key === 'tool.name')?.value.stringValue).toBe('search')
     expect(toolSpan.attributes.find((a) => a.key === 'tool.latency_ms')?.value.intValue).toBe('42')
     // Resource attrs carry run metadata

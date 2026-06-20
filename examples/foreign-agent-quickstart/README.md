@@ -141,7 +141,7 @@ console.log(`Baseline composite: ${score.toFixed(3)}`)
 ## Run the closed self-improvement loop
 
 ```ts
-import { gepaDriver, defaultProductionGate } from '@tangle-network/agent-eval/contract'
+import { gepaProposer, defaultProductionGate } from '@tangle-network/agent-eval/contract'
 
 const baselineSurface = 'You are a senior copywriter. ...'
 
@@ -150,7 +150,7 @@ const result = await runImprovementLoop({
   baselineSurface,
   dispatchWithSurface: (surface, scenario, ctx) =>
     yourAgent.runWithPrompt(surface as string, scenario, ctx),
-  driver: gepaDriver({
+  proposer: gepaProposer({
     llm: { apiKey: process.env.OPENAI_API_KEY, baseUrl: '...' },
     model: 'gpt-4o-mini',
     target: 'marketing copywriting system prompt',
@@ -215,7 +215,7 @@ sandbox as a swap-in backend, those are opt-in:
 | Deployment outcomes feeding back into the gate | `OutcomeStore` + `predictiveValidityResearcher` from `/rl` |
 | Worker / edge runtime (no FS) | `inMemoryCampaignStorage()` instead of `fsCampaignStorage()` |
 | LangChain agent | `@tangle-network/agent-eval/adapters/langchain` (in the next release) |
-| Custom mutation strategy | Implement `SurfaceProposer` directly, or `evolutionaryDriver({ mutator })` |
+| Custom mutation strategy | Implement `SurfaceProposer` directly, or `evolutionaryProposer({ mutator })` |
 | Custom promotion logic | `composeGate(defaultProductionGate(...), yourCustomGate)` |
 
 ## Where to go next

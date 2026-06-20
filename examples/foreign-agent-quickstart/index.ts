@@ -13,7 +13,7 @@
  *   3. A 4-dimension LLM judge scoring hook strength, voice match, CTA
  *      clarity, factual grounding.
  *   4. `runEval` for a baseline score.
- *   5. `runImprovementLoop` with `gepaDriver` (reflective LLM mutation)
+ *   5. `runImprovementLoop` with `gepaProposer` (reflective LLM mutation)
  *      + `defaultProductionGate` (held-out promotion guard) — the
  *      closed self-improvement loop.
  *
@@ -35,7 +35,7 @@ import {
   type MutableSurface,
   type Scenario,
   defaultProductionGate,
-  gepaDriver,
+  gepaProposer,
   inMemoryCampaignStorage,
   runEval,
   runImprovementLoop,
@@ -228,18 +228,18 @@ async function main() {
   console.log(`Cells executed: ${baseline.aggregates.cellsExecuted}, cost: $${baseline.aggregates.totalCostUsd.toFixed(4)}`)
 
   if (!apiKey) {
-    console.log('\nNo OPENAI_API_KEY set — stopping after baseline. Set OPENAI_API_KEY (+ optional OPENAI_BASE_URL, MODEL_ID) and re-run to see the gepaDriver self-improvement loop with real lift.')
+    console.log('\nNo OPENAI_API_KEY set — stopping after baseline. Set OPENAI_API_KEY (+ optional OPENAI_BASE_URL, MODEL_ID) and re-run to see the gepaProposer self-improvement loop with real lift.')
     return
   }
 
   // ── Self-improvement loop ───────────────────────────────────────
   //
-  // gepaDriver proposes the next system prompt via reflective LLM
+  // gepaProposer proposes the next system prompt via reflective LLM
   // mutation (it reads the failures, writes a refined prompt).
   // defaultProductionGate enforces held-out improvement before any
   // candidate is allowed to ship.
 
-  console.log('\n═══ Self-improvement loop (gepaDriver + defaultProductionGate) ═══')
+  console.log('\n═══ Self-improvement loop (gepaProposer + defaultProductionGate) ═══')
   const holdout = scenarios.slice(0, 2)
   const train = scenarios.slice(2)
 
@@ -250,7 +250,7 @@ async function main() {
       const prompt = typeof surface === 'string' ? surface : JSON.stringify(surface)
       return buildDispatch(prompt)(scenario, ctx)
     },
-    driver: gepaDriver({
+    proposer: gepaProposer({
       llm: { apiKey, baseUrl },
       model: modelId,
       target: 'marketing copywriting system prompt',

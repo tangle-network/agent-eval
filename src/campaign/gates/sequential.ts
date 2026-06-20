@@ -388,7 +388,7 @@ export interface SequentialDecideFn {
 }
 
 /**
- * `ImprovementDriver.decide` adapter — stops the optimization loop the moment
+ * `SurfaceProposer.decide` adapter — stops the optimization loop the moment
  * the e-process decides the loop has produced a real improvement, instead of
  * always running `maxGenerations`.
  *

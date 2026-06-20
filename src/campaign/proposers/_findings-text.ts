@@ -1,6 +1,6 @@
 /**
- * Shared finding→text helpers for the curator-style drivers (`memoryCurationDriver`
- * dedup-and-replace, `aceDriver` append-mostly). One copy so the two drivers
+ * Shared finding→text helpers for the curator-style proposers (`memoryCurationProposer`
+ * dedup-and-replace, `aceProposer` append-mostly). One copy so the two proposers
  * extract lessons + normalize keys identically and cannot drift apart.
  */
 
@@ -28,13 +28,13 @@ export function normKey(s: string): string {
     .trim()
 }
 
-/** Curator drivers are prompt-tier — they manage a text block in the surface.
+/** Curator proposers are prompt-tier — they manage a text block in the surface.
  *  A code-tier surface has no prompt to append to; fail loud rather than
  *  silently coercing. */
 export function surfaceToText(surface: MutableSurface): string {
   if (typeof surface === 'string') return surface
   throw new Error(
-    `curator driver: surface must be a string prompt, got a ${surface.kind}-tier surface (${surface.worktreeRef}) — curation is prompt-tier`,
+    `curator proposer: surface must be a string prompt, got a ${surface.kind}-tier surface (${surface.worktreeRef}) — curation is prompt-tier`,
   )
 }
 

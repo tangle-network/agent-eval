@@ -1,9 +1,9 @@
 /**
  * # `@tangle-network/agent-eval/adapters/http` — distributed Dispatch over HTTP.
  *
- * Decouples driver and worker. The driver (running `runImprovementLoop` or
- * `runCampaign`) can live anywhere — your VPC, a dev laptop, a cron VM. The
- * workers (running the actual agent) can live anywhere else — different
+ * Decouples coordinator and worker. The coordinator (running
+ * `runImprovementLoop` or `runCampaign`) can live anywhere — your VPC, a dev
+ * laptop, a cron VM. The workers (running the actual agent) can live anywhere else — different
  * regions, different clouds, different boxes — as long as they speak HTTP.
  *
  * Both sides:
@@ -18,7 +18,7 @@
  *
  * # Topology examples
  *
- * **Single-worker:** driver on box A, worker on box B. Set
+ * **Single-worker:** coordinator on box A, worker on box B. Set
  * `httpDispatch({ url: 'https://box-b/dispatch' })`.
  *
  * **Multi-region:** N workers across regions. Use `httpDispatch({ resolveUrl })`
@@ -26,7 +26,7 @@
  * with `cellPlacement` on `RunCampaignOptions`, the substrate fans cells
  * across geographies in parallel.
  *
- * **Driver-as-a-service:** driver runs as a long-lived process or service
+ * **Coordinator-as-a-service:** coordinator runs as a long-lived process or service
  * (holds optimization state across generations); workers are stateless
  * HTTP services that can scale horizontally per cell.
  */

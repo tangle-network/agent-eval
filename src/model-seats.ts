@@ -12,8 +12,8 @@
  *                   and the `JudgeConfig`s handed to `makeEvalTools({ judges })`
  *                   (src/eval-tools.ts).
  *  - `reflection` → `selfImprove({ llm: { model: seats.reflection } })` — the
- *                   `gepaDriver` reflection model (src/contract/self-improve.ts);
- *                   same seat for any custom `ImprovementDriver`'s LLM.
+ *                   `gepaProposer` reflection model (src/contract/self-improve.ts);
+ *                   same seat for any custom `SurfaceProposer`'s LLM.
  *  - `worker`     → the dispatch model the agent itself calls — the model an
  *                   `AgentProfile` declares.
  *  - `analyst`    → the LLM behind `analyzeRuns` / analyst-registry kinds.
@@ -34,7 +34,7 @@ export interface ModelSeats {
   judges?: string[]
   /** Analyst model — `analyzeRuns` / analyst-registry LLM calls. */
   analyst?: string
-  /** Reflection/driver model — `gepaDriver` mutation proposals. */
+  /** Reflection/proposer model — `gepaProposer` mutation proposals. */
   reflection?: string
   /** Verifier model — completion/objective checking. */
   verifier?: string

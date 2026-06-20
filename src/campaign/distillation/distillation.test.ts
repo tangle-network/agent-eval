@@ -234,7 +234,7 @@ describe('buildAgreementJudge', () => {
 })
 
 // -- End-to-end wiring (no real tokens) ------------------------------------
-// Proves runDistillation composes runImprovementLoop + gepaDriver + the gate
+// Proves runDistillation composes runImprovementLoop + gepaProposer + the gate
 // end-to-end. The STUDENT runs on a mock ChatClient transport; the GEPA
 // reflection runs on a stubbed fetch. DISTILL_LIVE-gated only because it
 // exercises the full loop machinery, not because it costs anything.
@@ -315,7 +315,7 @@ describe.skipIf(!process.env.DISTILL_LIVE)('runDistillation wiring (mock transpo
     }
 
     // GEPA reflection: stub fetch returns one valid proposal whose payload is a
-    // distinct (non-parent) surface so the driver accepts it.
+    // distinct (non-parent) surface so the proposer accepts it.
     let reflectionCalls = 0
     const stubFetch = (async () => {
       reflectionCalls++
@@ -372,7 +372,7 @@ describe.skipIf(!process.env.DISTILL_LIVE)('runDistillation wiring (mock transpo
     expect(['ship', 'hold', 'need_more_work', 'model_ceiling', 'arch_ceiling']).toContain(
       result.gateResult.decision,
     )
-    // GEPA reflection was actually invoked (the driver is wired, not bypassed).
+    // GEPA reflection was actually invoked (the proposer is wired, not bypassed).
     expect(reflectionCalls).toBeGreaterThan(0)
     // One holdout scenario x 1 rep, scored on each of baseline + winner.
     expect(result.baselineOnHoldout.cells).toHaveLength(1)

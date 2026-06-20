@@ -10,14 +10,14 @@
  *   - PROPOSER   = the `SurfaceProposer` (evolutionary GEPA mutator OR
  *                  reflective analyst). Proposes candidate SURFACES — the
  *                  worker's system prompt / tool config — NOT conversation
- *                  turns. Historical option name: `driver`.
+ *                  turns.
  *   - MEASUREMENT= `runCampaign`. Scores one surface by running the worker
  *                  (via `dispatch`) over scenarios and judging the output.
  *   - WORKER     = the agent harness in the sandbox, invoked behind the
  *                  topology-opaque `dispatch` seam — never referenced here.
  *
  * Distinct from `runLoop` in `@tangle-network/agent-runtime`, which is the
- * INNER conversation loop (driver↔workers in a sandbox). `runImprovementLoop`
+ * INNER conversation loop (execution driver ↔ workers in a sandbox). `runImprovementLoop`
  * is the OUTER loop: it improves the surface that those workers run.
  *
  * Hard-refuses unsafe configurations:
@@ -88,7 +88,7 @@ export async function runImprovementLoop<TScenario extends Scenario, TArtifact>(
   // without traces is unattributable — its candidate surfaces cannot be
   // cited back to the spans that motivated them, and the dataset flywheel
   // (LabeledScenarioStore) that GEPA optimizes against goes unfed.
-  if (opts.tracing === 'off' && (opts.proposer ?? opts.driver)) {
+  if (opts.tracing === 'off' && opts.proposer) {
     throw new Error(
       "runImprovementLoop: tracing='off' is forbidden when a proposer is wired. The improvement loop without traces is unattributable; candidate surfaces cannot be cited back to spans and the optimization dataset goes unfed.",
     )

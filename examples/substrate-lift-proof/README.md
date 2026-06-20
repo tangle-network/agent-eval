@@ -1,9 +1,9 @@
-# Substrate lift proof — gepaDriver promotes a real held-out gain
+# Substrate lift proof — gepaProposer promotes a real held-out gain
 
-The first controlled-but-real demonstration that `gepaDriver` +
+The first controlled-but-real demonstration that `gepaProposer` +
 `runImprovementLoop` + `defaultProductionGate` produce a **measured held-out
 lift through a real LLM backend**. Retires the `real-unproven` status the
-substrate's honesty docs assign `gepaDriver` (#101/#106), whose unit tests
+substrate's honesty docs assign `gepaProposer` (#101/#106), whose unit tests
 only ever drove a fake fetch.
 
 ## What it does
@@ -13,10 +13,10 @@ only ever drove a fake fetch.
 - **Judge**: a deterministic exact-match checker (no LLM, no variance) scores
   the fraction of correct fields → composite in `[0,1]`. Lift is unambiguous.
 - **Weak baseline**: `"Extract the transaction info from the message as JSON."`
-  — under-specified, so the search split scores low and the driver has real
+  — under-specified, so the search split scores low and the proposer has real
   failures to reflect on (wrong keys like `vendor`, `Dining` casing, `$`).
-- **Split**: 8 search scenarios (`gepaDriver` optimizes against) + 6 held-out
-  (never seen by the driver; the gate scores baseline-vs-candidate here).
+- **Split**: 8 search scenarios (`gepaProposer` optimizes against) + 6 held-out
+  (never seen by the proposer; the gate scores baseline-vs-candidate here).
 - **Backend**: token-emitting via the Tangle router. `assertRealBackend`
   (strict, `allowMixed: false`) verdicts `real` or the proof aborts.
 - **Bounded**: every `callLlm` carries a 30s per-call timeout + bounded
@@ -45,7 +45,7 @@ is a checked-in run.
 | gate decision | `ship` (all 5 gates passed) |
 | cost (token-derived, haiku-4.5) | ~$0.02 |
 
-`gepaDriver` rewrote the weak one-liner into a schema-pinned prompt: exact
+`gepaProposer` rewrote the weak one-liner into a schema-pinned prompt: exact
 keys, bare-number amount, ISO `YYYY-MM-DD` date, fixed category taxonomy —
 precisely the failure classes the baseline exhibited. The lift is per-scenario
 monotone (no held-out scenario regressed).
@@ -70,7 +70,7 @@ durable artifacts under the run dir:
   `/v1/ingest/traces`.
 
 The wiring is also covered deterministically (offline, no network) in
-`tests/campaign/presets.test.ts` — `gepaDriver → runImprovementLoop →
+`tests/campaign/presets.test.ts` — `gepaProposer → runImprovementLoop →
 defaultProductionGate` ships a real gain, holds a no-op, AND asserts the full
 provenance chain is emitted + durable (rationale survives, hashes distinguish,
 diff present, spans + record written, backend verdict captured, +lift

@@ -93,7 +93,7 @@ Each is a falsifiable claim or unanswered formal question. Each maps to publisha
 
 3. **The cost of statistical strictness.** How much does a paired-bootstrap gate cost in rollouts vs a literal `>` gate (SkillOpt's choice), as a function of true effect size? Where's the crossover where strictness costs more than it saves?
 
-4. **Cross-surface attribution.** When `compositeDriver` ships a winner where N surfaces changed, which surface's change drove the lift? Shapley estimators on agent-profile surfaces — tractable? Required sample size?
+4. **Cross-surface attribution.** When `compositeProposer` ships a winner where N surfaces changed, which surface's change drove the lift? Shapley estimators on agent-profile surfaces — tractable? Required sample size?
 
 5. **Sample-efficient evaluation under distribution shift.** Given a held-out test slice and a known shift class (intra-domain / cross-domain / adversarial), how few held-out scenarios are needed to detect lift with target power? Is it a function of shift magnitude?
 
@@ -103,7 +103,7 @@ Each is a falsifiable claim or unanswered formal question. Each maps to publisha
 
 8. **Reward-hacking under self-improvement.** When the optimizer can mutate the judge prompt (the recursive surface), what's the formal condition under which it learns to game the judge instead of solving the task? Connect to Goodhart + AIRP.
 
-9. **Cost-quality Pareto across drivers.** What's the empirical Pareto frontier when you trade off `gepaDriver` (high $/gen) vs `evolutionaryDriver` ($0/gen) vs heuristic mutations? Is it task-dependent or universal?
+9. **Cost-quality Pareto across proposers.** What's the empirical Pareto frontier when you trade off `gepaProposer` (high $/gen) vs `evolutionaryProposer` ($0/gen) vs heuristic mutations? Is it task-dependent or universal?
 
 10. **Online-offline merge regret.** When harness branch and substrate branch are merged, what's the regret of the merged policy vs the better-of-two? Bounded? Worst-case adversarial?
 

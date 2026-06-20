@@ -9,8 +9,8 @@ holdout set, not just the search set it was selected on.
 
 - `runImprovementLoop` — the proposer-agnostic outer loop: optimize → re-score
   baseline vs winner on the disjoint holdout → gate.
-- `evolutionaryDriver` wrapping a tiny deterministic `mutator` (the LLM-free
-  strategy). The reflective alternative is `gepaDriver`; both conform to
+- `evolutionaryProposer` wrapping a tiny deterministic `mutator` (the LLM-free
+  strategy). The reflective alternative is `gepaProposer`; both conform to
   `SurfaceProposer` and the loop is identical.
 - `defaultProductionGate` separating *search* scenarios (selection) from
   *holdout* scenarios (paired-delta promotion) — it ships only on a
@@ -46,6 +46,6 @@ dispatch; a real dispatch reports usage via `ctx.cost`.
 
 Replace `dispatchWithSurface` with your real agent invocation (report cost via
 `ctx.cost`), the `judge` with your verifier or LLM-as-judge, and the
-`evolutionaryDriver` mutator with `gepaDriver` for reflective, trace-grounded
+`evolutionaryProposer` mutator with `gepaProposer` for reflective, trace-grounded
 proposals. Keep the holdout disjoint from the training scenarios — the gate's
 honesty depends on it.
