@@ -10,7 +10,7 @@ After this walkthrough you have:
 
 1. A repeatable evaluation harness against scenarios you control.
 2. A judge that scores agent output on dimensions you define.
-3. A closed self-improvement loop: campaign → judge → mutator → gate →
+3. A closed self-improvement loop: campaign → judge → proposer → gate →
    next generation. Stops when the gate ships or the budget exhausts.
 4. Traces + artifacts you own. Locally on disk or in-memory for edge
    runtimes.
@@ -20,7 +20,7 @@ No Tangle infrastructure required at any step.
 ## Install
 
 ```sh
-npm i @tangle-network/agent-eval@^0.44.0
+npm i @tangle-network/agent-eval
 ```
 
 `agent-eval`'s `@tangle-network/sandbox` and `@tangle-network/agent-runtime`
@@ -35,7 +35,7 @@ import {
   type Dispatch,        // your agent, behind one function
   type Scenario,        // what you evaluate against
   type JudgeConfig,     // what "good" means
-  type Mutator,         // how to propose the next surface
+  type SurfaceProposer, // how to propose the next surface
   type Gate,            // promotion guard
 } from '@tangle-network/agent-eval/contract'
 ```
@@ -215,7 +215,7 @@ sandbox as a swap-in backend, those are opt-in:
 | Deployment outcomes feeding back into the gate | `OutcomeStore` + `predictiveValidityResearcher` from `/rl` |
 | Worker / edge runtime (no FS) | `inMemoryCampaignStorage()` instead of `fsCampaignStorage()` |
 | LangChain agent | `@tangle-network/agent-eval/adapters/langchain` (in the next release) |
-| Custom mutation strategy | Implement `ImprovementDriver` directly, or `evolutionaryDriver({ mutator })` |
+| Custom mutation strategy | Implement `SurfaceProposer` directly, or `evolutionaryDriver({ mutator })` |
 | Custom promotion logic | `composeGate(defaultProductionGate(...), yourCustomGate)` |
 
 ## Where to go next
@@ -225,5 +225,5 @@ sandbox as a swap-in backend, those are opt-in:
 - `docs/design/external-agent-wedge.md` — the broader story: how this
   LAND tier composes into the EXPAND (hosted) and PLATFORM (sandbox)
   tiers when you're ready.
-- `docs/quickstart-external.md` — same walkthrough, polished as a
-  standalone doc.
+- `README.md` — the shortest current path through `analyzeRuns()` and
+  `selfImprove()`.

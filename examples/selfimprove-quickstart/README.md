@@ -11,14 +11,14 @@ pnpm tsx examples/selfimprove-quickstart/index.ts
 1. Defines a tiny scenario corpus (3 marketing-copy prompts).
 2. Wires a synthetic `agent` that simulates an agent producing artifacts with deterministic noise (higher score when surface contains "tight" / "specific").
 3. Wires a simple judge that scores artifacts on `clarity` and `concision`.
-4. Wires a synthetic `ImprovementDriver` that proposes two surface variants per generation (so the example runs without LLM credits).
+4. Wires a synthetic `SurfaceProposer` that proposes two surface variants per generation (so the example runs without LLM credits).
 5. Calls `selfImprove()` with a 1-generation budget against in-memory campaign storage.
 6. Prints the full decision packet.
 
-The agent, judge, and driver are all synthetic so the example runs offline. For real use:
+The agent, judge, and proposer are all synthetic so the example runs offline. For real use:
 - Replace `agent` with your actual agent + scenario interpreter.
 - Replace `judge.score` with your real LLM-as-judge (or a `langchainJudge` from `/adapters/langchain`).
-- Drop the custom `driver` — selfImprove() defaults to `gepaDriver` (reflective LLM mutation), which needs an LLM endpoint configured via `opts.llm`.
+- Drop the custom `proposer` — selfImprove() defaults to `gepaDriver` (reflective LLM mutation), which needs an LLM endpoint configured via `opts.llm`.
 
 ## What you should see
 

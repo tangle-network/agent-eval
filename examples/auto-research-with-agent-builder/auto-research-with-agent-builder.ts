@@ -14,8 +14,7 @@
  *   - The mutation step uses `reflective-mutation` against top/bottom trials
  *
  * To run against real agent-builder, replace `syntheticForgeRunner` with
- * `runForgeBuilderSim` from `@tangle-network/agent-builder` once that
- * package bumps to `agent-eval@^0.23.0`. See README.
+ * `runForgeBuilderSim` from `@tangle-network/agent-builder`. See README.
  */
 
 import {

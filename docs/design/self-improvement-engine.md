@@ -9,7 +9,7 @@ and where each existing primitive plugs in.
 
 ```
 PHASE 1 — RUN
-  driver ↔ workers (sandbox) over scenarios
+  execution driver ↔ workers (sandbox) over scenarios
   → traces emitted → TraceStore + LabeledScenarioStore (the dataset)
   Every run feeds the dataset regardless of why it ran (see the flywheel
   section in loop-taxonomy.md). This is the only source of improvement signal.
@@ -23,7 +23,7 @@ PHASE 2 — ANALYZE                                  ← the research report is 
   Output: a research report = { findings, diff } grounded in real traces.
 
 PHASE 3 — PROPOSE
-  ImprovementDriver.propose(input) → MutableSurface[]
+  SurfaceProposer.propose(input) → MutableSurface[]
   input carries:
     - currentSurface      the current best surface (prompt string or CodeSurface)
     - history             prior generations + their scores
@@ -33,15 +33,15 @@ PHASE 3 — PROPOSE
     - populationSize      BREADTH: how many candidate surfaces to return
     - maxImprovementShots DEPTH: how many runLoop iterations each candidate
                           generation may take (1..MAX_IMPROVEMENT_SHOTS)
-  For the code-tier (autoresearch) driver, propose() runs a FULL sandbox
-  runLoop: a driver↔worker(s) loop that reads report+traces+codebase and
+  For the code-tier (autoresearch) proposer, propose() runs a FULL sandbox
+  runLoop: an execution driver ↔ worker(s) loop that reads report+traces+codebase and
   produces the improvement as commits in ONE worktree per candidate.
   Output: CodeSurface{ worktreeRef }[] (or string[] for prompt-tier).
 
 PHASE 4 — MEASURE
   each candidate → runCampaign on the holdout set
   (checks out the candidate's worktree, runs the worker against the changed
-   code/prompt, judges, scores). The measurement is driver-agnostic.
+   code/prompt, judges, scores). The measurement is proposer-agnostic.
 
 PHASE 5 — GATE + PROMOTE
   defaultProductionGate(winner vs baseline on holdout) → ship | hold | …
@@ -59,7 +59,7 @@ run that produces traces, and the analysts that turn traces into a report.
 `propose()` does NOT run the worker and does NOT measure. It returns N
 candidate surfaces to measure next.
 
-There is ONE driver, not several. agent-runtime ships a single
+There is ONE proposer, not several. agent-runtime ships a single
 `improvementDriver` that implements this contract and owns the candidate
 lifecycle (worktree create → generate → finalize/discard, × `populationSize`);
 it delegates the only thing that varies — *how* a candidate change is produced
@@ -71,10 +71,10 @@ it delegates the only thing that varies — *how* a candidate change is produced
 | `reflectiveGenerator` (agent-runtime) | LLM drafts patches from the report → applies them | LLM call | `CodeSurface` |
 | `agenticGenerator` (agent-runtime) | a real coding harness in the worktree (≤ `maxImprovementShots`) reads report+codebase → edits in place | **yes** | `CodeSurface` |
 
-`evolutionaryDriver` is a standalone `ImprovementDriver` (pure, agent-eval).
+`evolutionaryDriver` is a standalone `SurfaceProposer` (pure, agent-eval).
 The reflective + agentic paths are two *generators* of the one
 `improvementDriver` — the same operation at two settings of the cost dial, not
-two separate drivers.
+two separate proposers.
 
 The recursion: generating *one* candidate (the agentic generator) is itself a
 harness-agent editing a worktree, nested inside the *measurement* of that
@@ -94,11 +94,11 @@ So:
 
 | Piece | Package | Why |
 |---|---|---|
-| `ImprovementDriver` contract | agent-eval | the shared interface; everyone implements it |
+| `SurfaceProposer` / historical `ImprovementDriver` contract | agent-eval | the shared interface; everyone implements it |
 | widened `propose()` input (report/traces/dataset) | agent-eval | part of the contract |
 | `evolutionaryDriver` | agent-eval | pure: dataset → surface, no sandbox |
 | **VCS-pluggable worktree adapter** | agent-eval | pure git/FS, no sandbox; produces `CodeSurface` |
-| `runOptimization` / `runImprovementLoop` | agent-eval | driver-agnostic loop body + gated shell |
+| `runOptimization` / `runImprovementLoop` | agent-eval | proposer-agnostic loop body + gated shell |
 | `defaultProductionGate` | agent-eval | measurement-side safety |
 | **`improvementDriver`** + `reflectiveGenerator` / `agenticGenerator` | agent-runtime | needs the coding-harness runner + worktree on a real FS |
 | trace analysts / `runAnalystLoop` (Phase 2) | agent-runtime | runs agents to analyze |
@@ -106,7 +106,7 @@ So:
 ## The worktree adapter (VCS-pluggable)
 
 One improvement = one worktree, PR-like (multiple commits allowed). The
-adapter abstracts the VCS so the driver code is VCS-agnostic:
+adapter abstracts the VCS so proposer code is VCS-agnostic:
 
 ```ts
 interface WorktreeAdapter {

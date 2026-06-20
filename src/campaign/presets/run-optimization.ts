@@ -2,17 +2,17 @@
  * @experimental
  *
  * `runOptimization` — the improvement loop body. Runs N generations: the
- * `ImprovementDriver` proposes K candidate surfaces per generation, each
+ * `SurfaceProposer` proposes K candidate surfaces per generation, each
  * candidate runs a campaign (the measurement), top-scoring promote to the
- * next generation. Driver-agnostic — the same loop runs an evolutionary
+ * next generation. Proposer-agnostic — the same loop runs an evolutionary
  * population mutator (`evolutionaryDriver`) or agent-runtime's
  * `improvementDriver` (reflective / agentic generators); they differ only in
  * how `propose()` picks candidates.
  *
  * This is `runLoop`'s shape (plan → measure → decide) specialized to surface
- * improvement: `driver.propose` = plan, `runCampaign` = the measurement (which
- * runs the worker behind `dispatch`), the mean-composite ranking = the
- * validator, `driver.decide` = the stop check.
+ * improvement: `proposer.propose` = plan, `runCampaign` = the measurement
+ * (which runs the worker behind `dispatch`), the mean-composite ranking = the
+ * validator, `proposer.decide` = the stop check.
  *
  * The gated-promotion shell (`runImprovementLoop`) wraps this with a holdout
  * re-score + release gate + optional PR.
@@ -25,15 +25,29 @@ import { campaignBreakdown, campaignMeanComposite } from '../score-utils'
 import {
   type CampaignResult,
   type GenerationRecord,
-  type ImprovementDriver,
   isProposedCandidate,
   type MutableSurface,
   type ParetoParent,
   type ProposedCandidate,
   type Scenario,
+  type SurfaceProposer,
 } from '../types'
 
-export interface RunOptimizationOptions<TScenario extends Scenario, TArtifact>
+interface RunOptimizationProposerOption {
+  /** Preferred name: the strategy that proposes candidate surfaces. */
+  proposer: SurfaceProposer
+  /** @deprecated Use `proposer`. Kept for existing `ImprovementDriver` callers. */
+  driver?: SurfaceProposer
+}
+
+interface RunOptimizationDriverOption {
+  /** Preferred name: the strategy that proposes candidate surfaces. */
+  proposer?: SurfaceProposer
+  /** @deprecated Use `proposer`. Kept for existing `ImprovementDriver` callers. */
+  driver: SurfaceProposer
+}
+
+export interface RunOptimizationBaseOptions<TScenario extends Scenario, TArtifact>
   extends Omit<RunCampaignOptions<TScenario, TArtifact>, 'dispatch'> {
   /** Initial mutable surface (typically system prompt or addendum). */
   baselineSurface: MutableSurface
@@ -43,10 +57,9 @@ export interface RunOptimizationOptions<TScenario extends Scenario, TArtifact>
     scenario: TScenario,
     ctx: Parameters<RunCampaignOptions<TScenario, TArtifact>['dispatch']>[1],
   ) => Promise<TArtifact>
-  /** The improvement strategy. Wrap a population `Mutator` via
+  /** The candidate-generation strategy. Wrap a population `Mutator` via
    *  `evolutionaryDriver({ mutator })`, or pass agent-runtime's
    *  `improvementDriver` (reflective / agentic generators). */
-  driver: ImprovementDriver
   populationSize: number
   maxGenerations: number
   /** How many top-scoring candidates carry to the next generation. Default 2. */
@@ -83,6 +96,12 @@ export interface RunOptimizationOptions<TScenario extends Scenario, TArtifact>
   }) => Promise<unknown[]>
 }
 
+export type RunOptimizationOptions<
+  TScenario extends Scenario,
+  TArtifact,
+> = RunOptimizationBaseOptions<TScenario, TArtifact> &
+  (RunOptimizationProposerOption | RunOptimizationDriverOption)
+
 export interface RunOptimizationResult<TArtifact, TScenario extends Scenario> {
   generations: Array<{
     record: GenerationRecord
@@ -114,6 +133,7 @@ export interface RunOptimizationResult<TArtifact, TScenario extends Scenario> {
 export async function runOptimization<TScenario extends Scenario, TArtifact>(
   opts: RunOptimizationOptions<TScenario, TArtifact>,
 ): Promise<RunOptimizationResult<TArtifact, TScenario>> {
+  const proposer = selectSurfaceProposer(opts, 'runOptimization')
   const promoteTopK = opts.promoteTopK ?? 2
   if (typeof opts.runDir !== 'string' || opts.runDir.trim().length === 0) {
     throw new Error('runOptimization: runDir is required and must be a non-empty string')
@@ -147,14 +167,14 @@ export async function runOptimization<TScenario extends Scenario, TArtifact>(
   ]
 
   for (let gen = 0; gen < opts.maxGenerations; gen++) {
-    // Decide: the driver may stop early based on accumulated history.
-    if (opts.driver.decide?.({ history }).stop) break
+    // Decide: the proposer may stop early based on accumulated history.
+    if (proposer.decide?.({ history }).stop) break
 
-    // Plan: the driver proposes N candidates from the current best surface,
+    // Plan: the proposer proposes N candidates from the current best surface,
     // the accumulated generation history, the Pareto frontier so far, and any
     // external findings.
     const paretoParents = computeParetoFrontier(scored)
-    const proposed = await opts.driver.propose({
+    const proposed = await proposer.propose({
       currentSurface: currentSurfaces[0] ?? opts.baselineSurface,
       history,
       findings: currentFindings,
@@ -167,7 +187,7 @@ export async function runOptimization<TScenario extends Scenario, TArtifact>(
       paretoParents,
     })
 
-    // Normalize: a driver may return bare surfaces (blind mutators) or
+    // Normalize: a proposer may return bare surfaces (blind mutators) or
     // `ProposedCandidate`s carrying {label, rationale}. Keep the rationale so
     // each candidate stays attributable through to the result + provenance.
     const candidates: ProposedCandidate[] = proposed.map((p) =>
@@ -267,6 +287,18 @@ export async function runOptimization<TScenario extends Scenario, TArtifact>(
     baselineCampaign,
     paretoFrontier: computeParetoFrontier(scored),
   }
+}
+
+function selectSurfaceProposer(
+  opts: { proposer?: SurfaceProposer; driver?: SurfaceProposer },
+  owner: string,
+): SurfaceProposer {
+  if (opts.proposer && opts.driver && opts.proposer !== opts.driver) {
+    throw new Error(`${owner}: pass either proposer or driver, not two different objects`)
+  }
+  const proposer = opts.proposer ?? opts.driver
+  if (!proposer) throw new Error(`${owner}: proposer is required`)
+  return proposer
 }
 
 /** Build a `ParetoParent` from a scored campaign — objective vector =

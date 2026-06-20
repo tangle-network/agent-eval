@@ -4,10 +4,13 @@ import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import {
   compareDrivers,
+  compareProposers,
   type DriverEntry,
+  fapoEscalationEntry,
   gepaParetoEntry,
   gepaReflectionEntry,
   type OptimizerEntryConfig,
+  type ProposerEntry,
   skillOptEntry,
 } from '../../src/campaign/presets/compare-drivers'
 import type { JudgeConfig, Scenario } from '../../src/campaign/types'
@@ -41,6 +44,10 @@ const judge: JudgeConfig<A, S> = {
  *  benchmark harness be exercised deterministically in CI. */
 function fixedEntry(name: string, winnerSurface: string, costUsd: number): DriverEntry {
   return { name, optimize: async () => ({ winnerSurface, costUsd, durationMs: 1 }) }
+}
+
+function fixedProposer(name: string, winnerSurface: string, costUsd: number): ProposerEntry {
+  return fixedEntry(name, winnerSurface, costUsd)
 }
 
 let runDir: string
@@ -167,6 +174,63 @@ describe('compareDrivers', () => {
         runDir,
       }),
     ).rejects.toThrow(/no drivers/)
+  })
+
+  it('accepts compareProposers + proposers for the clearer public vocabulary', async () => {
+    const result = await compareProposers<S, A>({
+      proposers: [
+        fixedProposer('weak', 'SOLVE_h1', 0.5),
+        fixedProposer('strong', 'SOLVE_h1 SOLVE_h2 SOLVE_h3 SOLVE_h4', 2.0),
+      ],
+      baselineSurface: 'nothing-solved',
+      holdoutScenarios: HOLDOUT,
+      dispatchWithSurface: async (surface) => ({ text: String(surface) }),
+      judges: [judge],
+      runDir,
+      seed: 7,
+      expectUsage: 'off',
+    })
+
+    expect(result.best.name).toBe('strong')
+    expect(result.scores.map((s) => s.name)).toEqual(['strong', 'weak'])
+  })
+
+  it('fails loud when compareProposers receives different proposers and drivers arrays', async () => {
+    await expect(
+      compareProposers<S, A>({
+        proposers: [fixedProposer('a', 'SOLVE_h1', 1)],
+        drivers: [fixedProposer('b', 'SOLVE_h2', 1)],
+        baselineSurface: 'nothing',
+        holdoutScenarios: HOLDOUT,
+        dispatchWithSurface: async (surface) => ({ text: String(surface) }),
+        judges: [judge],
+        runDir,
+        expectUsage: 'off',
+      }),
+    ).rejects.toThrow(/either proposers or drivers/)
+  })
+
+  it('uses compareProposers in downstream validation errors', async () => {
+    const flakeyJudge: JudgeConfig<S, A> = {
+      name: 'flakey',
+      dimensions: [{ key: 'solved', description: 'solved' }],
+      score: ({ scenario }) => {
+        if (scenario.id === 'h3') throw new Error('judge unavailable for h3')
+        return { dimensions: { solved: 1 }, composite: 1, notes: '' }
+      },
+    }
+
+    await expect(
+      compareProposers<S, A>({
+        proposers: [fixedProposer('d', 'whatever', 1)],
+        baselineSurface: 'b',
+        holdoutScenarios: HOLDOUT,
+        dispatchWithSurface: async (surface) => ({ text: String(surface) }),
+        judges: [flakeyJudge],
+        runDir,
+        expectUsage: 'off',
+      }),
+    ).rejects.toThrow(/compareProposers: baseline produced no held-out score.*h3/)
   })
 })
 
@@ -342,5 +406,61 @@ describe('compareDrivers — built-in entries, real loops, faked LLM only', () =
     expect(joined).toContain('Diagnosed findings') // the renderAnalystEvidence block
     expect(joined).toContain('omits MARKER_TWO') // the claim
     expect(joined).toContain('append MARKER_TWO to the skill document') // recommended_action
+  })
+
+  it('runs the FAPO escalation entry through the real loop and scores it uniformly', async () => {
+    const baseline = '# Skill\n- base rule'
+    const prompts: string[] = []
+    const fapoFetch = (async (_url: string, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body ?? '{}'))
+      prompts.push(body.messages?.find((m: { role: string }) => m.role === 'user')?.content ?? '')
+      const content = JSON.stringify({
+        proposals: [
+          {
+            label: 'prompt-fix',
+            rationale: 'prompt-level fix',
+            payload: `${baseline}\n${M1}\n${M2}`,
+          },
+        ],
+      })
+      return new Response(
+        JSON.stringify({ choices: [{ message: { content } }], usage: { total_tokens: 5 } }),
+        { status: 200, headers: { 'content-type': 'application/json' } },
+      )
+    }) as unknown as typeof fetch
+
+    const config: OptimizerEntryConfig<S, A> = {
+      baselineSurface: baseline,
+      trainScenarios: [
+        { id: 't1', kind: 'q' },
+        { id: 't2', kind: 'q' },
+      ],
+      holdoutScenarios: HOLDOUT,
+      dispatchWithSurface: async (surface) => ({ text: String(surface) }),
+      judges: [markerJudge],
+      llm: { apiKey: 'k', baseUrl: 'https://router.test/v1', fetch: fapoFetch },
+      model: 'test-model',
+      target: 'a skill document',
+      runDir: join(runDir, 'fapo-corpus'),
+      seed: 7,
+      populationSize: 1,
+      maxGenerations: 1,
+    }
+
+    const result = await compareDrivers<S, A>({
+      drivers: [fapoEscalationEntry(config)],
+      baselineSurface: baseline,
+      holdoutScenarios: HOLDOUT,
+      dispatchWithSurface: config.dispatchWithSurface,
+      judges: [markerJudge],
+      runDir: join(runDir, 'fapo-compare'),
+      seed: 7,
+      expectUsage: 'off',
+    })
+
+    expect(result.best.name).toBe('fapo-escalation')
+    expect(result.best.winnerComposite).toBe(1)
+    expect(String(result.best.winnerSurface)).toContain(M2)
+    expect(prompts.join('\n')).toContain('Current variant')
   })
 })

@@ -116,12 +116,12 @@ Each example: `README.md` + a single `index.ts` runnable via `pnpm tsx`. Prints 
 
 | Subpath | What it gives you |
 |---|---|
-| `…/contract` | **The headline, frozen surface — new code starts here.** `selfImprove`, `analyzeRuns`, `runEval`, `runCampaign`, `runImprovementLoop`, `diffRuns`; intake adapters (`fromFeedbackTable`, `fromOtelSpans`); drivers (`gepaDriver`, `evolutionaryDriver`); gates (`defaultProductionGate`, `heldOutGate`, `paretoSignificanceGate`, `composeGate`); the deployment-outcome store; storage; and the five core types `Scenario` / `Dispatch` / `JudgeConfig` / `Mutator` / `Gate`. |
+| `…/contract` | **The headline, frozen surface — new code starts here.** `selfImprove`, `analyzeRuns`, `runEval`, `runCampaign`, `runImprovementLoop`, `diffRuns`; intake adapters (`fromFeedbackTable`, `fromOtelSpans`); proposers (`gepaDriver`, `evolutionaryDriver`; historically called drivers); gates (`defaultProductionGate`, `heldOutGate`, `paretoSignificanceGate`, `composeGate`); the deployment-outcome store; storage; and the five core types `Scenario` / `Dispatch` / `JudgeConfig` / `SurfaceProposer` / `Gate`. |
 | `…/hosted` | `createHostedClient` / `hostedClientFromEnv` + the wire types to ship eval-run events + trace spans to a hosted orchestrator (ours or your own implementation of the spec) |
 | `…/adapters/otel` | `createOtelBridge` — forwards OpenTelemetry-shape spans into the hosted-tier ingest, no `@opentelemetry/*` dependency |
 | `…/adapters/langchain` | Wrap any LangChain `Runnable` as a `Dispatch` (or `JudgeConfig`), no `@langchain/core` peer dep |
-| `…/adapters/http` | `httpDispatch` + `runDispatchServer` — run a campaign's worker on another machine (multi-region, driver-as-a-service) |
-| `…/campaign` | **The measurement + improvement engine** (`@experimental`): `runProfileMatrix`, `compareDrivers`, every driver (`gepaDriver`, `haloDriver`, `skillOptDriver`, `aceDriver`, `memoryCurationDriver`, …), the gates, storage backends, and loop provenance. `/contract` re-exports the stable subset. |
+| `…/adapters/http` | `httpDispatch` + `runDispatchServer` — run a campaign's worker on another machine (multi-region, remote worker execution) |
+| `…/campaign` | **The measurement + improvement engine** (`@experimental`): `runProfileMatrix`, `compareProposers` (historical alias: `compareDrivers`), every surface proposer (`gepaDriver`, `fapoDriver`, `parameterSweepDriver`, `haloDriver`, `skillOptDriver`, `aceDriver`, `memoryCurationDriver`, …), the gates, storage backends, and loop provenance. `/contract` re-exports the stable subset. |
 | `…/rl` | RL bridge from eval artifacts to training signal: verifiable rewards, preferences, OPE, PRM, tournaments, contamination, compute curves, plus the durable corpus + `buildRlDataset` / datasheet bundle |
 | `…/reporting` | Release-decision statistics: `pairedBootstrap`, `benjaminiHochberg`, anytime-valid sequential e-values, `evaluateReleaseConfidence`, and the report renderers |
 | `…/analyst` | The trace-analyst surface: `AnalystRegistry` + `buildDefaultAnalystRegistry` (run the failure-clustering panel), `FindingsStore`, and the LLM chat transports |
@@ -147,7 +147,7 @@ agent-runtime    Runs agents (chat turns, one-shot tasks, multi-attempt loops), 
                  run as a trace, and calls optimizePrompt / runImprovementLoop. Produces the
                  RunRecords + traces agent-eval scores. Depends on agent-eval.
 
-agent-eval       selfImprove, analyzeRuns, runCampaign + drivers (gepaDriver, …), the gates
+agent-eval       selfImprove, analyzeRuns, runCampaign + surface proposers (gepaDriver, …), the gates
    (this repo)   (heldOutGate, defaultProductionGate, paretoSignificanceGate), the InsightReport
                  decision packet, the RL bridge, the wire protocol. Depends on neither consumer.
 
@@ -165,6 +165,7 @@ The rule: **agent-eval has zero upward dependencies on a consumer.** A concept t
 ## Concepts + design
 
 - [`docs/concepts.md`](./docs/concepts.md) — the three top-level functions, the layering rule, and the wire-protocol contract (the five core contract types are documented in the `/contract` barrel itself)
+- [`docs/campaign-proposers.md`](./docs/campaign-proposers.md) — ELI5 proposer inputs/outputs, when to use each proposer, and the FAPO escalation policy
 - [`docs/insight-report.md`](./docs/insight-report.md) — annotated walkthrough of every section of the decision packet
 - [`docs/customer-journeys.md`](./docs/customer-journeys.md) — three end-to-end journeys with code + expected output
 - [`docs/adapters-observability.md`](./docs/adapters-observability.md) — composing agent-eval with LangSmith, Langfuse, Phoenix, OpenLLMetry, TraceAI

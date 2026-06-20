@@ -1,6 +1,6 @@
 # AppWorld non-MCP REPL worker
 
-The runnable benchmark worker behind `compareDrivers([gepaDriver, memoryCurationDriver, haloDriver])` on AppWorld. It drives AppWorld's stateful Python REPL directly — the LLM emits a fenced `python` block, the worker runs it with `world.execute(...)`, feeds the stdout back as the next observation, and loops until the agent calls `apis.supervisor.complete_task(...)` or `--max-steps` is hit. Scoring is whatever `world.evaluate()` reports.
+The runnable benchmark worker behind `compareProposers([gepaDriver, memoryCurationDriver, haloDriver])` on AppWorld. It drives AppWorld's stateful Python REPL directly — the LLM emits a fenced `python` block, the worker runs it with `world.execute(...)`, feeds the stdout back as the next observation, and loops until the agent calls `apis.supervisor.complete_task(...)` or `--max-steps` is hit. Scoring is whatever `world.evaluate()` reports.
 
 It deliberately does NOT use AppWorld's `openai_agents_mcp_agent`, which wedges on MCP-connect and makes zero LLM calls. This is the direct path AppWorld's own `simplified_react_code_agent` takes, reimplemented standalone so the benchmark worker has no dependency on the demo's `appworld-agents` config machinery.
 

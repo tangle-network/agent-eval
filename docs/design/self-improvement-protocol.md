@@ -35,7 +35,7 @@ No competitor ships this combination. LangSmith / Braintrust / Phoenix / LangFus
                                   ▼
 ┌──────────────────────────────────────────────────────────────────────┐
 │  IMPROVE — selfImprove() closed loop                                 │
-│  gepaDriver · evolutionaryDriver · BYO ImprovementDriver             │
+│  gepaDriver · evolutionaryDriver · BYO SurfaceProposer               │
 │  → ProfileDiff (versioned, hashed, content-addressable)              │
 └─────────────────────────────────┬────────────────────────────────────┘
                                   ▼

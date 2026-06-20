@@ -150,7 +150,7 @@ export interface CodeSurface {
   summary?: string
 }
 
-/** @experimental The mutable surface a driver proposes. Tiers (see
+/** @experimental The mutable surface a proposer changes. Tiers (see
  *  `docs/design/loop-taxonomy.md`):
  *   - `string`      — tiers 1-2: system-prompt addendum / serialized tool
  *                     config. Cheap, reversible, text-diffable.
@@ -159,12 +159,12 @@ export interface CodeSurface {
  *  not this type. */
 export type MutableSurface = string | CodeSurface
 
-/** @experimental A driver proposal carrying the surface AND the WHY behind
- *  it. Reflective drivers (`gepaDriver`) parse a `{label, rationale, payload}`
+/** @experimental A proposer output carrying the surface AND the WHY behind
+ *  it. Reflective proposers (`gepaDriver`) parse a `{label, rationale, payload}`
  *  from the model; without this wrapper the loop keeps only `payload` and the
  *  rationale that motivated the change is lost — the candidate becomes
  *  unattributable. `propose()` may return either bare `MutableSurface`s (cheap
- *  blind mutators) or these (reflective drivers); the loop normalizes both. */
+ *  blind mutators) or these (reflective proposers); the loop normalizes both. */
 export interface ProposedCandidate {
   surface: MutableSurface
   /** Short human label for the change (≤ 40 chars typical). */
@@ -194,8 +194,8 @@ export function isProposedCandidate(
  *  surface beats on every scenario. A candidate worse on the mean composite
  *  but uniquely best on one hard scenario is non-dominated and survives here;
  *  the composite-best ranking would discard the lesson it carries. The loop
- *  computes the frontier across ALL generations and hands it to the driver so
- *  a reflective driver can combine complementary lessons (GEPA, Agrawal et
+ *  computes the frontier across ALL generations and hands it to the proposer so
+ *  a reflective proposer can combine complementary lessons (GEPA, Agrawal et
  *  al., arXiv:2507.19457). See `pareto.ts` (`paretoFrontier`). */
 export interface ParetoParent {
   surface: MutableSurface
@@ -215,7 +215,8 @@ export interface ParetoParent {
 /** @experimental Stateless surface mutation — given findings + current
  *  surface, return N candidate surfaces. Pure transform, no generation
  *  awareness. Reflective-mutation and `AxGEPA` mutators conform. Wrapped by
- *  `evolutionaryDriver` to become an `ImprovementDriver`. */
+ *  `evolutionaryDriver` to become a `SurfaceProposer` / historical
+ *  `ImprovementDriver`. */
 export interface Mutator<TFindings = unknown> {
   kind: string
   mutate(args: {
@@ -226,9 +227,9 @@ export interface Mutator<TFindings = unknown> {
   }): Promise<Array<MutableSurface | ProposedCandidate>>
 }
 
-/** @experimental Everything a driver's `propose()` may read to plan the next
+/** @experimental Everything a proposer may read to plan the next
  *  batch of candidates. The first six fields are always present; the rest are
- *  optional context the loop supplies when available, so cheap drivers
+ *  optional context the loop supplies when available, so cheap proposers
  *  (`evolutionaryDriver`) can ignore them while a code-tier agentic generator
  *  consumes the research report + dataset to drive a coding harness.
  *  See `docs/design/self-improvement-engine.md`. */
@@ -241,10 +242,10 @@ export interface ProposeContext<TFindings = unknown> {
   generation: number
   signal: AbortSignal
   /** The Phase-2 research report (analyst findings + diff), produced AFTER the
-   *  trace analysts run. Opaque to the substrate — the driver that consumes it
+   *  trace analysts run. Opaque to the substrate — the proposer that consumes it
    *  types it. See the phase diagram in self-improvement-engine.md. */
   report?: unknown
-  /** Handle to all captured data — the driver samples traces / artifacts /
+  /** Handle to all captured data — the proposer samples traces / artifacts /
    *  rewards here to ground its proposals. */
   dataset?: LabeledScenarioStore
   /** DEPTH: max iterations the agentic generator may take per candidate.
@@ -253,49 +254,76 @@ export interface ProposeContext<TFindings = unknown> {
   maxImprovementShots?: number
   /** GEPA Pareto frontier across ALL generations so far — the non-dominated
    *  surfaces by per-scenario objective vector. Empty/absent on generation 0
-   *  (only the baseline is scored). A reflective driver combines the
+   *  (only the baseline is scored). A reflective proposer combines the
    *  complementary lessons of these parents (each excels on different
-   *  scenarios) into a merged candidate. Drivers doing pure single-parent
+   *  scenarios) into a merged candidate. Proposers doing pure single-parent
    *  reflection may ignore it. See {@link ParetoParent}. */
   paretoParents?: ParetoParent[]
   /** FIREWALL (non-negotiable): the held-out judge is write-only — its verdicts
    *  score the chosen output and gate promotion, and are NEVER an input to
    *  proposal/steering (else the optimizer games the acceptance axis = an
    *  oracle). This `never`-typed field makes that a compile-time tripwire: a
-   *  driver that tries to thread judge verdicts into the proposal will not type.
+   *  proposer that tries to thread judge verdicts into the proposal will not type.
    *  Steering may consume TRACE-OBSERVABLE signals (what the agent did) via
    *  `findings`/`report`; it may NOT consume the judge's held-out verdict. */
   judgeScores?: never
 }
 
-/** @experimental A surface-improvement strategy — the DRIVER of the
+/** @experimental A surface-improvement strategy — the proposer in the
  *  improvement loop. Given the current best surface, the history of what's
  *  been tried + scored, and any external findings, propose the next batch of
  *  candidate surfaces to measure. Optionally decide to stop early.
  *
  *  The evolutionary mutator (`evolutionaryDriver`, here) and agent-runtime's
- *  `improvementDriver` (with reflective / agentic generators) both conform —
- *  drivers of the SAME loop, not separate loops. The loop body
+ *  `improvementDriver` (with reflective / agentic generators) both conform.
+ *  They are proposers for the SAME loop, not separate loops. The loop body
  *  (`runOptimization`) and the gated promotion shell (`runImprovementLoop`)
- *  are driver-agnostic. */
+ *  are proposer-agnostic.
+ *
+ *  Historical name: `ImprovementDriver`. Prefer `SurfaceProposer` in new docs
+ *  and product code to avoid confusion with sandbox/router drivers that execute
+ *  workers.
+ */
 export interface ImprovementDriver<TFindings = unknown> {
   kind: string
-  /** Plan: propose N candidate surfaces for the next generation. A driver
+  /** Plan: propose N candidate surfaces for the next generation. A proposer
    *  may return bare `MutableSurface`s or `ProposedCandidate`s that carry the
    *  `{label, rationale}` motivating the change — the loop threads the
    *  rationale into `GenerationCandidate` and the emitted provenance. */
   propose(ctx: ProposeContext<TFindings>): Promise<Array<MutableSurface | ProposedCandidate>>
-  /** Decide: stop early when the driver judges the search converged or
+  /** Decide: stop early when the proposer judges the search converged or
    *  exhausted. Default (omitted) runs all `maxGenerations`. */
   decide?(args: { history: GenerationRecord[] }): { stop: boolean; reason?: string }
 }
 
-export interface OptimizerConfig {
-  driver: ImprovementDriver
+/** Clearer public name for the object that proposes candidate surfaces.
+ * `ImprovementDriver` remains the historical name for compatibility; both
+ * names describe the same structural contract. */
+export type SurfaceProposer<TFindings = unknown> = ImprovementDriver<TFindings>
+
+/** Optional vocabulary alias. The loop is the optimizer; this object is the
+ * proposer inside that loop. */
+export type OptimizationProposer<TFindings = unknown> = SurfaceProposer<TFindings>
+
+export interface OptimizerConfigBase {
   populationSize: number
   maxGenerations: number
   surfaceExtractor: (profile: unknown) => MutableSurface
 }
+
+export type OptimizerConfig = OptimizerConfigBase &
+  (
+    | {
+        proposer: SurfaceProposer
+        /** @deprecated Use `proposer`. */
+        driver?: SurfaceProposer
+      }
+    | {
+        proposer?: SurfaceProposer
+        /** @deprecated Use `proposer`. */
+        driver: SurfaceProposer
+      }
+  )
 
 // ── Gates ─────────────────────────────────────────────────────────────
 
@@ -521,7 +549,7 @@ export interface GenerationRecord {
 }
 
 /** One scored candidate surface in a generation. `dimensions` + `scenarios`
- *  let a reflective `ImprovementDriver` ground its next proposal on WHICH
+ *  let a reflective proposer ground its next proposal on WHICH
  *  dimensions the candidate is weakest on and WHICH scenarios it best/worst
  *  handled — the evidence a blind `Mutator` cannot see. */
 export interface GenerationCandidate {

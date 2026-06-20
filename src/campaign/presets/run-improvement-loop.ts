@@ -2,15 +2,15 @@
  * @experimental
  *
  * `runImprovementLoop` — the gated-promotion shell around the improvement
- * loop body (`runOptimization`). Drives candidate surfaces via the
- * `ImprovementDriver`, re-scores the winner against the baseline on a
+ * loop body (`runOptimization`). Proposes candidate surfaces via the
+ * `SurfaceProposer`, re-scores the winner against the baseline on a
  * holdout set, runs the release gate, and optionally opens a PR.
  *
  * Role vocabulary (see docs/design/loop-taxonomy.md):
- *   - DRIVER     = the `ImprovementDriver` (evolutionary GEPA mutator OR
+ *   - PROPOSER   = the `SurfaceProposer` (evolutionary GEPA mutator OR
  *                  reflective analyst). Proposes candidate SURFACES — the
  *                  worker's system prompt / tool config — NOT conversation
- *                  turns.
+ *                  turns. Historical option name: `driver`.
  *   - MEASUREMENT= `runCampaign`. Scores one surface by running the worker
  *                  (via `dispatch`) over scenarios and judging the output.
  *   - WORKER     = the agent harness in the sandbox, invoked behind the
@@ -21,7 +21,7 @@
  * is the OUTER loop: it improves the surface that those workers run.
  *
  * Hard-refuses unsafe configurations:
- *   - `tracing: 'off'` when a driver is wired (improvement is unattributable)
+ *   - `tracing: 'off'` when a proposer is wired (improvement is unattributable)
  *   - `autoOnPromote: 'config'` — DEFERRED to Pass B; v0.40 only ships
  *     `'pr'` and `'none'`.
  */
@@ -37,8 +37,10 @@ import { runOptimization, surfaceHash } from './run-optimization'
  *  (and the CI job above it) forever with no diagnostic. */
 const DEFAULT_DISPATCH_TIMEOUT_MS = 600_000
 
-export interface RunImprovementLoopOptions<TScenario extends Scenario, TArtifact>
-  extends RunOptimizationOptions<TScenario, TArtifact> {
+export type RunImprovementLoopOptions<
+  TScenario extends Scenario,
+  TArtifact,
+> = RunOptimizationOptions<TScenario, TArtifact> & {
   /** Holdout scenarios kept OUT of the training optimization pool — used
    *  ONLY to score baseline vs winner for the gate. */
   holdoutScenarios: TScenario[]
@@ -82,13 +84,13 @@ export async function runImprovementLoop<TScenario extends Scenario, TArtifact>(
       "runImprovementLoop: autoOnPromote='config' is deferred to Pass B (requires shadow deploy + rollback + ensemble judges). Use 'pr' or 'none' in v0.40.",
     )
   }
-  // Refuse tracing=off whenever a driver is wired. An improvement loop
+  // Refuse tracing=off whenever a proposer is wired. An improvement loop
   // without traces is unattributable — its candidate surfaces cannot be
   // cited back to the spans that motivated them, and the dataset flywheel
   // (LabeledScenarioStore) that GEPA optimizes against goes unfed.
-  if (opts.tracing === 'off' && opts.driver) {
+  if (opts.tracing === 'off' && (opts.proposer ?? opts.driver)) {
     throw new Error(
-      "runImprovementLoop: tracing='off' is forbidden when a driver is wired. The improvement loop without traces is unattributable; candidate surfaces cannot be cited back to spans and the optimization dataset goes unfed.",
+      "runImprovementLoop: tracing='off' is forbidden when a proposer is wired. The improvement loop without traces is unattributable; candidate surfaces cannot be cited back to spans and the optimization dataset goes unfed.",
     )
   }
   if (opts.autoOnPromote === 'pr' && (!opts.ghOwner || !opts.ghRepo)) {

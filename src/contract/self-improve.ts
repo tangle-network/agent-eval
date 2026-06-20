@@ -10,7 +10,7 @@
  * Defaults picked to match the LAND-tier story:
  *   - In-memory storage (no filesystem touch).
  *   - `gepaDriver` reflective mutation with copywriting-flavored primitives
- *     (override `driver` or `mutationPrimitives` for any domain).
+ *     (override `proposer` or `mutationPrimitives` for any domain).
  *   - `defaultProductionGate` with `deltaThreshold: 0.05`.
  *   - Held-out split = 25% of scenarios, deterministic by id hash.
  *   - 3 generations × population 2 (raise via `budget` for more search).
@@ -19,7 +19,7 @@
  * Want one-click? Provide `agent` + `scenarios` + `judge`. Done.
  * Want distributed? Pass `cellPlacement` + an `httpDispatch`-backed
  * agent. Want a code-tier surface? Pass a `MutableSurface` + your own
- * `driver`. Same function.
+ * `proposer`. Same function.
  */
 
 import { createHash } from 'node:crypto'
@@ -44,11 +44,11 @@ import type {
   CampaignCellResult,
   DispatchContext,
   Gate,
-  ImprovementDriver,
   JudgeConfig,
   LabeledScenarioStore,
   MutableSurface,
   Scenario,
+  SurfaceProposer,
 } from '../campaign/types'
 import { createHostedClient, type HostedTenant } from '../hosted/client'
 import type { EvalRunCellScore, EvalRunEvent, EvalRunGenerationSnapshot } from '../hosted/types'
@@ -120,19 +120,24 @@ export interface SelfImproveOptions<TScenario extends Scenario, TArtifact> {
   judge: JudgeConfig<TArtifact, TScenario>
 
   /** Starting surface — system prompt, JSON config, anything `MutableSurface`
-   *  accepts. The driver mutates this each generation. */
+   *  accepts. The proposer mutates this each generation. */
   baselineSurface: MutableSurface
 
   /** Budget + loop shape. All fields optional; defaults pick the LAND-tier
    *  story. */
   budget?: SelfImproveBudget
 
-  /** Custom driver. Default is `gepaDriver` configured from `llm` +
+  /** Custom surface proposer. Default is `gepaDriver` configured from `llm` +
    *  `mutationPrimitives`. */
-  driver?: ImprovementDriver
+  proposer?: SurfaceProposer
 
-  /** Default-driver overrides — used when `driver` is unset. */
+  /** @deprecated Use `proposer`. Kept so existing callers do not break. */
+  driver?: SurfaceProposer
+
+  /** Default-proposer overrides — used when `proposer`/`driver` are unset. */
   mutationPrimitives?: string[]
+  proposerTarget?: string
+  /** @deprecated Use `proposerTarget`. */
   driverTarget?: string
 
   /** Custom gate. Default is `defaultProductionGate` with
@@ -140,7 +145,7 @@ export interface SelfImproveOptions<TScenario extends Scenario, TArtifact> {
   gate?: Gate<TArtifact, TScenario>
 
   /** LLM config consumed by the default `gepaDriver`. Ignored if you pass
-   *  your own `driver`. */
+   *  your own `proposer`/`driver`. */
   llm?: SelfImproveLlm
 
   /** Storage backend. Default is DURABLE: when a real (non-`mem://`) `runDir`
@@ -212,7 +217,7 @@ export interface SelfImproveOptions<TScenario extends Scenario, TArtifact> {
   hostedLabels?: Record<string, string>
 
   /** Capture every artifact + judge score to this store (labeled-example
-   *  corpus the driver may read for few-shot, and the dataset you ship). Pass
+   *  corpus the proposer may read for few-shot, and the dataset you ship). Pass
    *  `'off'` to disable. Default: off. */
   labeledStore?: LabeledScenarioStore | 'off'
 
@@ -231,14 +236,14 @@ export interface SelfImproveOptions<TScenario extends Scenario, TArtifact> {
   /**
    * Per-generation findings producer (the EYES→HANDS closure). After each
    * generation is scored, this is called; whatever it returns REPLACES the
-   * driver's `findings` for the next generation's `propose()`. Plug a
+   * proposer's `findings` for the next generation's `propose()`. Plug a
    * trace-analyst registry / HALO here. When absent, findings stay
    * `opts.findings`.
    */
   analyzeGeneration?: RunOptimizationOptions<TScenario, TArtifact>['analyzeGeneration']
 
-  /** Static findings forwarded to the driver's `propose()` as `ctx.findings`
-   *  (a findings-grounded driver consumes them). Default: none. */
+  /** Static findings forwarded to the proposer's `propose()` as `ctx.findings`
+   *  (a findings-grounded proposer consumes them). Default: none. */
   findings?: unknown[]
 }
 
@@ -257,7 +262,7 @@ export interface SelfImproveResult<TScenario extends Scenario, TArtifact> {
      *  a bare-surface mutator. */
     label?: string
     /** Driver rationale — the "because Z" that motivated the promoted change.
-     *  Threaded from the driver's `ProposedCandidate` through the loop.
+     *  Threaded from the proposer's `ProposedCandidate` through the loop.
      *  Absent ⇒ winner == baseline. */
     rationale?: string
   }
@@ -398,7 +403,8 @@ export async function selfImprove<TScenario extends Scenario, TArtifact>(
     throw new Error('selfImprove: holdout split is empty. Pass more scenarios.')
   }
 
-  const driver: ImprovementDriver =
+  const proposer: SurfaceProposer =
+    opts.proposer ??
     opts.driver ??
     gepaDriver({
       llm: {
@@ -407,6 +413,7 @@ export async function selfImprove<TScenario extends Scenario, TArtifact>(
       },
       model: opts.llm?.model ?? 'anthropic/claude-sonnet-4.6',
       target:
+        opts.proposerTarget ??
         opts.driverTarget ??
         'agent surface (system prompt or config) being optimized by selfImprove',
       mutationPrimitives: opts.mutationPrimitives ?? DEFAULT_MUTATION_PRIMITIVES,
@@ -435,7 +442,7 @@ export async function selfImprove<TScenario extends Scenario, TArtifact>(
     scenarios: train,
     baselineSurface: opts.baselineSurface,
     dispatchWithSurface: opts.agent,
-    driver,
+    proposer,
     judges: [opts.judge],
     populationSize,
     maxGenerations: generations,

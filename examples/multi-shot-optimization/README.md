@@ -7,11 +7,11 @@ holdout set, not just the search set it was selected on.
 
 ## What it shows
 
-- `runImprovementLoop` — the driver-agnostic outer loop: optimize → re-score
+- `runImprovementLoop` — the proposer-agnostic outer loop: optimize → re-score
   baseline vs winner on the disjoint holdout → gate.
 - `evolutionaryDriver` wrapping a tiny deterministic `mutator` (the LLM-free
   strategy). The reflective alternative is `gepaDriver`; both conform to
-  `ImprovementDriver` and the loop is identical.
+  `SurfaceProposer` and the loop is identical.
 - `defaultProductionGate` separating *search* scenarios (selection) from
   *holdout* scenarios (paired-delta promotion) — it ships only on a
   CI-lower-bound held-out lift over `deltaThreshold`.
@@ -36,7 +36,7 @@ inference.
 { decision: 'ship', delta: 1, winnerShipped: true, promotedDiff: '--- baseline\n+++ winner\n- Complete the user task.\n+ Complete the user task. VERIFY_EVERY_STEP' }
 ```
 
-The baseline (no directive) scores 0 on the holdout; the driver's candidate
+The baseline (no directive) scores 0 on the holdout; the proposer's candidate
 (directive appended) scores 1, so the gate ships it. You will also see
 `expectUsage` notices that each holdout cell reported zero cost — that is the
 substrate's capture-integrity guard correctly flagging the offline stub

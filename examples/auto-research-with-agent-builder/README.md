@@ -102,9 +102,9 @@ verdict, reward-hacking) is shared agent-eval primitive.
 
 ## Status
 
-Example status: **runnable, synthetic-driver-by-default**. Real-driver
+Example status: **runnable, synthetic-proposer-by-default**. Real-agent
 mode (against agent-builder's `runForgeBuilderSim`) is documented above
-and works once you bump agent-builder to `agent-eval@^0.23.0`.
+and works with the current `@tangle-network/agent-eval` API.
 
 The composition pattern is stable. The auto-research thesis is genuinely
 load-bearing in this loop — every iteration's data informs the next, and

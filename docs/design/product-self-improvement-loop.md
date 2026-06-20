@@ -11,7 +11,7 @@ PRs. A product should NOT have a "production loop" *and* a pile of `eval/*`
 CLIs *and* bespoke optimization orchestration. It has **one** loop, composed
 from the substrate. Everything else is deleted.
 
-Primitives reference: [`primitives-integration-spec.md`](./primitives-integration-spec.md).
+Primitives reference: [`../eval-surface-map.md`](../eval-surface-map.md).
 Engine internals: [`self-improvement-engine.md`](./self-improvement-engine.md).
 
 ---
@@ -42,8 +42,8 @@ Engine internals: [`self-improvement-engine.md`](./self-improvement-engine.md).
    This REPLACES bespoke "failure clustering": the analyst is the richer,
    LLM-driven version of "what should we improve and why".
 
-4. IMPROVE — runImprovementLoop( improvementDriver + agenticGenerator )
-   driver.propose({ report, dataset, … }) → candidate surfaces.
+4. IMPROVE — runImprovementLoop( proposer = improvementDriver + agenticGenerator )
+   proposer.propose({ report, dataset, … }) → candidate surfaces.
    The agentic generator runs a coding harness in a worktree, reading the
    report + the codebase, making REAL product changes — prompt, tools, AND
    code — not just an addendum string. Each candidate is measured on a

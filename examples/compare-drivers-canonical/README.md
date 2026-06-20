@@ -1,15 +1,15 @@
-# compareDrivers canonical — the real driver head-to-head
+# compareProposers canonical — the real proposer head-to-head
 
 The **live** companion to the deterministic mechanism gate. The unit tests
 (`tests/campaign/compare-drivers.test.ts`, run on every PR in `ci.yml`) prove
-the `compareDrivers` harness *ranks* correctly with a faked LLM. This example
+the `compareProposers` harness *ranks* correctly with a faked LLM. This example
 proves the optimizers move a **real** held-out number on a **real** backend and
-records **which driver wins** — the artifact a case study is made of.
+records **which proposer wins** — the artifact a case study is made of.
 
 It runs `gepa-reflection` vs `gepa-pareto` vs `skill-opt` on one corpus
 (transaction-field extraction, a **deterministic** exact-match judge → zero
 LLM-judge variance), scores every winner **uniformly** on the held-out split,
-and reports per-driver lift + paired-bootstrap CIs. `assertRealBackend` aborts
+and reports per-proposer lift + paired-bootstrap CIs. `assertRealBackend` aborts
 on a stub (zero-token) run, so a fake `$0` lift can never be reported.
 
 The corpus + judge + worker are shared with `substrate-lift-proof` via

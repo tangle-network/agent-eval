@@ -233,7 +233,7 @@ export interface ExtractionWorkerOptions {
  *  reports BOTH cost and token usage to the cell meter, and appends a
  *  `RunRecord` so the run's backend integrity is verdictable. Returns a
  *  `dispatchWithSurface` usable by every preset (runImprovementLoop,
- *  runSkillOpt, compareDrivers). */
+ *  runSkillOpt, compareProposers). */
 export function makeExtractionWorker(opts: ExtractionWorkerOptions) {
   const timeoutMs = opts.timeoutMs ?? 30_000
   const experimentId = opts.experimentId ?? 'extraction-task'

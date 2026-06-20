@@ -8,7 +8,7 @@
  * with your real agent + your real judge to point the loop at production.
  */
 
-import type { ImprovementDriver, MutableSurface, Scenario } from '../../src/contract'
+import type { MutableSurface, Scenario, SurfaceProposer } from '../../src/contract'
 import { selfImprove } from '../../src/contract'
 
 interface CopyScenario extends Scenario {
@@ -49,11 +49,7 @@ function hash(s: string): number {
 
 // Synthetic judge: scores 'clarity' and 'concision' as dimensions; their
 // mean is the composite the gate sees.
-async function judge({
-  artifact,
-}: {
-  artifact: { text: string; quality: number }
-}) {
+async function judge({ artifact }: { artifact: { text: string; quality: number } }) {
   const clarity = clamp(artifact.quality + 0.05 * Math.random())
   const concision = clamp(artifact.quality - 0.03 * Math.random())
   const composite = (clarity + concision) / 2
@@ -68,11 +64,11 @@ function clamp(x: number): number {
   return Math.max(0, Math.min(1, x))
 }
 
-// Synthetic driver: deterministically proposes two variants per generation —
+// Synthetic proposer: deterministically proposes two variants per generation —
 // one adds 'tight,', the other adds 'specific,'. Lets the example run offline.
 // In real use, you'd use the default `gepaDriver` (reflective LLM mutation)
 // from `/contract`.
-const syntheticDriver: ImprovementDriver = {
+const syntheticProposer: SurfaceProposer = {
   kind: 'synthetic-quickstart',
   async propose({ currentSurface, populationSize }) {
     const current = currentSurface as { kind: string; systemPrompt: string }
@@ -104,7 +100,7 @@ async function main() {
       kind: 'prompt',
       systemPrompt: 'You write marketing copy. Keep it short.',
     },
-    driver: syntheticDriver,
+    proposer: syntheticProposer,
     budget: { generations: 1, populationSize: 2, holdoutFraction: 0.5 },
   })
 
