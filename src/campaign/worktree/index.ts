@@ -1,6 +1,4 @@
 /**
- * @experimental
- *
  * VCS-pluggable worktree adapter. One improvement = one worktree, PR-like
  * (multiple commits allowed). A code-tier proposer's `propose()` creates a
  * worktree, an agent commits the change into it, and `finalize()` returns a

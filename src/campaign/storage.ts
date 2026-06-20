@@ -1,8 +1,6 @@
 import { createRequire } from 'node:module'
 
 /**
- * @experimental
- *
  * `CampaignStorage` — the filesystem seam `runCampaign` writes through
  * (run/cell dirs, the resumability cache, per-cell artifacts, trace spans).
  *

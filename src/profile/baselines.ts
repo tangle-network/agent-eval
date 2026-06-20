@@ -1,6 +1,4 @@
 /**
- * @experimental
- *
  * Strong, generically-useful baseline ROLES — the top zone of an `AgentProfile`
  * before any domain layer. A product composes one of these with its own
  * environment description (its sandbox) and its domain guidance, which lives in

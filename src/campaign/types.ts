@@ -1,6 +1,4 @@
 /**
- * @experimental
- *
  * Pass A substrate types — `runCampaign` is the one primitive every
  * eval flow composes from. Three contracts in this file:
  *
@@ -20,7 +18,7 @@
 
 import type { RunTokenUsage } from '../run-record'
 
-/** @experimental Stable identifier + kind tag for any scenario. Consumers
+/** Stable identifier + kind tag for any scenario. Consumers
  *  extend with their per-domain payload (persona, task, requirement, ...). */
 export interface Scenario {
   id: string
@@ -28,7 +26,7 @@ export interface Scenario {
   tags?: string[]
 }
 
-/** @experimental Context handed to every dispatch invocation. Scoped — every
+/** Context handed to every dispatch invocation. Scoped — every
  *  trace/span carries the cellId, every artifact write lands under the cell's
  *  artifact root, the cost meter accumulates per cell. */
 export interface DispatchContext {
@@ -54,7 +52,7 @@ export interface DispatchContext {
   placement?: string
 }
 
-/** @experimental One function: scenario + ctx → artifact. Dispatcher chooses
+/** One function: scenario + ctx → artifact. Dispatcher chooses
  *  whether to call `runMultishot`, `runLoop`, raw `streamPrompt`, anything. */
 export type DispatchFn<TScenario extends Scenario, TArtifact> = (
   scenario: TScenario,
@@ -63,7 +61,7 @@ export type DispatchFn<TScenario extends Scenario, TArtifact> = (
 
 // ── Sessions ──────────────────────────────────────────────────────────
 
-/** @experimental One session within a multi-session journey. Dispatch is
+/** One session within a multi-session journey. Dispatch is
  *  invoked once per session in order; state from prior session's artifact
  *  is exposed via `ctx.priorSessionArtifact`. */
 export interface SessionScript<TScenario, TArtifact> {
@@ -86,7 +84,7 @@ export interface JudgeDimension {
   description: string
 }
 
-/** @experimental Pluggable dimensional scorer. `score` is the contract:
+/** Pluggable dimensional scorer. `score` is the contract:
  *  given an artifact + scenario, return a `JudgeScore`. This is deliberately a
  *  function, not a fixed LLM-prompt shape — real consumers judge with
  *  ensembles, deterministic checks, or a single LLM call, and the substrate
@@ -134,7 +132,7 @@ export interface JudgeScore {
 
 // ── Optimization (population + generations + mutator) ─────────────────
 
-/** @experimental A tier-4 code surface — a candidate change to the agent's
+/** A tier-4 code surface — a candidate change to the agent's
  *  IMPLEMENTATION, not its prompt. Produced by autoresearch (reads codebase +
  *  trace findings → opens a worktree). Measured by checking out `worktreeRef`
  *  and running the worker against the changed code. See the improvement-tier
@@ -150,7 +148,7 @@ export interface CodeSurface {
   summary?: string
 }
 
-/** @experimental The mutable surface a proposer changes. Tiers (see
+/** The mutable surface a proposer changes. Tiers (see
  *  `docs/design/loop-taxonomy.md`):
  *   - `string`      — tiers 1-2: system-prompt addendum / serialized tool
  *                     config. Cheap, reversible, text-diffable.
@@ -159,7 +157,7 @@ export interface CodeSurface {
  *  not this type. */
 export type MutableSurface = string | CodeSurface
 
-/** @experimental A proposer output carrying the surface AND the WHY behind
+/** A proposer output carrying the surface AND the WHY behind
  *  it. Reflective proposers (`gepaProposer`) parse a `{label, rationale, payload}`
  *  from the model; without this wrapper the loop keeps only `payload` and the
  *  rationale that motivated the change is lost — the candidate becomes
@@ -175,7 +173,7 @@ export interface ProposedCandidate {
   rationale: string
 }
 
-/** @experimental Type guard: a proposal carrying its rationale vs a bare
+/** Type guard: a proposal carrying its rationale vs a bare
  *  surface. The loop branches on this to populate `GenerationCandidate`. */
 export function isProposedCandidate(
   value: MutableSurface | ProposedCandidate,
@@ -189,7 +187,7 @@ export function isProposedCandidate(
   )
 }
 
-/** @experimental A non-dominated parent on the GEPA Pareto frontier — a
+/** A non-dominated parent on the GEPA Pareto frontier — a
  *  surface that, across the per-scenario objective vectors, no other tried
  *  surface beats on every scenario. A candidate worse on the mean composite
  *  but uniquely best on one hard scenario is non-dominated and survives here;
@@ -212,7 +210,7 @@ export interface ParetoParent {
   rationale?: string
 }
 
-/** @experimental Stateless surface mutation — given findings + current
+/** Stateless surface mutation — given findings + current
  *  surface, return N candidate surfaces. Pure transform, no generation
  *  awareness. Reflective-mutation and `AxGEPA` mutators conform. Wrapped by
  *  `evolutionaryProposer` to become a `SurfaceProposer`. */
@@ -226,7 +224,7 @@ export interface Mutator<TFindings = unknown> {
   }): Promise<Array<MutableSurface | ProposedCandidate>>
 }
 
-/** @experimental Everything a proposer may read to plan the next
+/** Everything a proposer may read to plan the next
  *  batch of candidates. The first six fields are always present; the rest are
  *  optional context the loop supplies when available, so cheap proposers
  *  (`evolutionaryProposer`) can ignore them while a code-tier agentic generator
@@ -268,7 +266,7 @@ export interface ProposeContext<TFindings = unknown> {
   judgeScores?: never
 }
 
-/** @experimental A surface-improvement strategy. Given the current best
+/** A surface-improvement strategy. Given the current best
  *  surface, the history of what's been tried + scored, and any external
  *  findings, propose the next batch of candidate surfaces to measure.
  *  Optionally decide to stop early.
@@ -306,7 +304,7 @@ export interface OptimizerConfig extends OptimizerConfigBase {
 
 // ── Gates ─────────────────────────────────────────────────────────────
 
-/** @experimental Five-valued verdict taxonomy (MOSS-paper alignment). */
+/** Five-valued verdict taxonomy (MOSS-paper alignment). */
 export type GateDecision = 'ship' | 'hold' | 'need_more_work' | 'model_ceiling' | 'arch_ceiling'
 
 export interface GateContext<TArtifact, TScenario extends Scenario> {
@@ -331,7 +329,7 @@ export interface GateResult {
   delta?: number
 }
 
-/** @experimental Composable promotion gate. */
+/** Composable promotion gate. */
 export interface Gate<TArtifact = unknown, TScenario extends Scenario = Scenario> {
   name: string
   decide(ctx: GateContext<TArtifact, TScenario>): Promise<GateResult>
@@ -339,7 +337,7 @@ export interface Gate<TArtifact = unknown, TScenario extends Scenario = Scenario
 
 // ── Tracing / artifacts / cost ────────────────────────────────────────
 
-/** @experimental Scoped trace writer handed to each dispatch — every span
+/** Scoped trace writer handed to each dispatch — every span
  *  auto-tagged with the cellId so traces filter cleanly. */
 export interface CampaignTraceWriter {
   span(name: string, attributes?: Record<string, unknown>): TraceSpan
@@ -351,7 +349,7 @@ export interface TraceSpan {
   setAttribute(key: string, value: unknown): void
 }
 
-/** @experimental Scoped artifact writer — `write(path, content)` lands under
+/** Scoped artifact writer — `write(path, content)` lands under
  *  `<runDir>/<cellId>/<path>`. */
 export interface CampaignArtifactWriter {
   write(path: string, content: string | Uint8Array): Promise<string>
@@ -364,7 +362,7 @@ export interface CampaignArtifactWriter {
  *  `RunTokenUsage` is a compile error here, not a silent drift. */
 export type CampaignTokenUsage = RunTokenUsage
 
-/** @experimental Cell-scoped cost meter. NOTHING is captured automatically —
+/** Cell-scoped cost meter. NOTHING is captured automatically —
  *  the substrate does not intercept the LLM call, so it cannot see cost or
  *  tokens unless the dispatch reports them. Every LLM cost MUST be reported via
  *  `observe` and every token count via `observeTokens`; a dispatch that reports
@@ -386,7 +384,7 @@ export interface CampaignCostMeter {
 
 // ── LabeledScenarioStore ──────────────────────────────────────────────
 
-/** @experimental Source tag — required on every store write. Used by the
+/** Source tag — required on every store write. Used by the
  *  default training-source filter (production-trace samples NOT used as
  *  training scenarios unless explicitly opted in). */
 export type LabeledScenarioSource =
@@ -425,7 +423,7 @@ export function labelTrustRank(trust: LabelTrust | undefined): number {
   return LABEL_TRUST_RANK[trust ?? 'unverified']
 }
 
-/** @experimental Required-provenance write. The store rejects writes that
+/** Required-provenance write. The store rejects writes that
  *  lack provenance — a default-on flywheel without provenance is the
  *  data-poisoning vector flagged in the alignment review. */
 export interface LabeledScenarioWrite<TScenario extends Scenario = Scenario, TArtifact = unknown> {

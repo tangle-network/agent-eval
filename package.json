@@ -134,7 +134,7 @@
       "import": "./dist/authenticity/index.js",
       "default": "./dist/authenticity/index.js"
     },
-    "./experimental/belief-state": {
+    "./belief-state": {
       "types": "./dist/belief-state/index.d.ts",
       "import": "./dist/belief-state/index.js",
       "default": "./dist/belief-state/index.js"
@@ -168,6 +168,11 @@
       "types": "./dist/hosted/index.d.ts",
       "import": "./dist/hosted/index.js",
       "default": "./dist/hosted/index.js"
+    },
+    "./testing": {
+      "types": "./dist/testing.d.ts",
+      "import": "./dist/testing.js",
+      "default": "./dist/testing.js"
     },
     "./openapi.json": {
       "default": "./dist/openapi.json"

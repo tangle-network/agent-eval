@@ -1,6 +1,4 @@
 /**
- * @experimental — surface may evolve as production agents wire it in.
- *
  * Structured agent profile — the system prompt as named, addressable sections
  * instead of one opaque blob. The self-improvement loop targets ONE evolvable
  * `domain` section at a time (via `applyDomainPatch`); the role, environment,

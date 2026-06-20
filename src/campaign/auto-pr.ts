@@ -1,6 +1,4 @@
 /**
- * @experimental
- *
  * `openAutoPr` — thin shell-out helper for the `runImprovementLoop` preset's
  * `autoOnPromote: 'pr'` mode. Substitutes for the per-product PR-opening
  * code consumers duplicated 4 times. The PR body includes the campaign's

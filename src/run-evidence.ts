@@ -33,7 +33,7 @@ export interface ControlRunToRunRecordOptions extends RunEvidenceMetadata {
  * release gates, optimizer tables, and research reports.
  *
  * The control loop owns live execution evidence. The caller still supplies the
- * experimental cell metadata because prompt/config hashes, split assignment,
+ * experiment-cell metadata because prompt/config hashes, split assignment,
  * model snapshot, and commit SHA are product/harness concerns.
  */
 export function controlRunToRunRecord<

@@ -1,6 +1,4 @@
 /**
- * @experimental
- *
  * `defaultProductionGate` — composes the substrate's existing safety
  * primitives (red-team / reward-hacking / canary / heldout) into a single
  * Gate.decide shape. Closes the alignment + Anthropic-SI reviewers' "safety

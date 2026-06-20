@@ -1,6 +1,4 @@
 /**
- * @experimental
- *
  * Gold scenarios for teacher→student distillation. The TEACHER is an
  * expensive workflow (e.g. the 70-agent skill audit) whose verdicts are
  * frozen as gold labels; the STUDENT is a cheap single-shot analyst whose

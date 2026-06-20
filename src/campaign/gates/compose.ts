@@ -1,6 +1,4 @@
 /**
- * @experimental
- *
  * Compose multiple `Gate` implementations — every gate must pass for the
  * composite to ship. Closes the alignment reviewer's "default-only
  * heldOutGate + costGate would happily promote a reward-hacked prompt"

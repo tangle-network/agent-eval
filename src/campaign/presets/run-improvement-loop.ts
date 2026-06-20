@@ -1,6 +1,4 @@
 /**
- * @experimental
- *
  * `runImprovementLoop` — the gated-promotion shell around the improvement
  * loop body (`runOptimization`). Proposes candidate surfaces via the
  * `SurfaceProposer`, re-scores the winner against the baseline on a

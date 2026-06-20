@@ -1,12 +1,11 @@
 /**
  * @packageDocumentation
  *
- * Root barrel — the full symbol surface, kept wide for backward compatibility.
- * For new code prefer the cohesive entry points over this firehose: the few
- * top-level functions in docs/concepts.md (analyzeRuns / selfImprove / the intake
- * adapters), and the focused subpaths (`/contract`, `/campaign`, `/analyst`,
- * `/trace-analyst`, `/telemetry`, `/storyboard`, …). Reach for a subpath when one
- * fits; this barrel exists so older imports keep resolving.
+ * Root barrel — broad compatibility surface.
+ *
+ * Reach for focused subpaths when they fit: `/contract`, `/campaign`,
+ * `/analyst`, `/traces`, `/reporting`, `/rl`, `/prm`, `/meta-eval`,
+ * `/belief-state`, `/wire`, and `/testing`.
  */
 
 // ── Core types ───────────────────────────────────────────────────────
@@ -113,14 +112,6 @@ export {
   type EvidenceRef,
   makeFinding,
 } from './analyst/types'
-// ── Production loop primitive ────────────────────────────────────────
-// Closes the eval → prod → eval cycle: ingest production traces,
-// cluster failures, run evolve on the offending cluster, gate the
-// candidate, open a PR with the improved prompt.
-/**
- * @experimental — surface may evolve as production agents wire it in.
- * Pin the patch version if you depend on it.
- */
 export type {
   AutoPrClient,
   FileChange,
@@ -320,9 +311,6 @@ export {
   scorePrReviewSource,
   summarizePrReviewBenchmark,
 } from './pr-review-benchmark'
-/**
- * @experimental
- */
 export { ScenarioRegistry } from './registry'
 export { formatBenchmarkReport, formatDriverReport, printDriverSummary } from './reporter'
 export type {
@@ -1148,7 +1136,7 @@ export type {
   JudgeRetryPolicy,
 } from './judge-retry'
 export { withJudgeRetry } from './judge-retry'
-export { LockedJsonlAppender, resetLockedAppendersForTesting } from './locked-jsonl-appender'
+export { LockedJsonlAppender } from './locked-jsonl-appender'
 export type { OrthogonalityInput, OrthogonalityResult } from './orthogonality'
 export { passOrthogonality } from './orthogonality'
 // Pareto extensions (paretoFrontier + dominates already exported above)
@@ -1239,9 +1227,7 @@ export type {
   SteeringChange,
 } from './researcher'
 export { CallbackResearcher, NoopResearcher } from './researcher'
-// RL primitives — adapters, rewards, preferences, OPE, PRM, contamination,
-// tournaments, adversarial, compute curves, auto-research — live on the
-// dedicated subpath: @tangle-network/agent-eval/rl
+// RL/data bridge primitives live on @tangle-network/agent-eval/rl.
 export type {
   JudgeScoresRecord,
   RunJudgeMetadata,
@@ -1300,7 +1286,7 @@ export {
   summaryTable,
 } from './summary-report'
 
-// ── OTEL pipeline + traced wrappers ──────────────────────���───────────
+// ── OTEL pipeline + traced wrappers ─────────────────────────────────
 
 export type { OtelPipelineHandle, OtelPipelineOptions } from './otel-pipeline'
 export { isOtelConfigured, withOtelPipeline } from './otel-pipeline'

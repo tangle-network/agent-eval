@@ -1,5 +1,5 @@
 /**
- * @experimental — AppWorld proposer-comparison benchmark.
+ * AppWorld proposer-comparison benchmark.
  *
  * Head-to-head lift of agent-eval's self-improvement proposers on a PUBLIC
  * benchmark (AppWorld), scored objectively by `world.evaluate()` (SGC/TGC):

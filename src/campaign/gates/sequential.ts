@@ -1,6 +1,4 @@
 /**
- * @experimental
- *
  * Anytime-valid sequential promotion gate — an e-process (betting
  * test-martingale, see `eProcess` in `statistics.ts`) over paired
  * per-scenario deltas, so a campaign stops the MOMENT evidence decides

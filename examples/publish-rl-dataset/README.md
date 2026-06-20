@@ -12,7 +12,7 @@ of JSONL and a dataset a buyer will trust.
 
 ## What `buildRlDataset` adds over the raw exporters
 
-The format exporters (`toGrpoRows` / `toSftRows` / `toDpoRows`) already produce
+The format exporters (`toGrpoRows` / `toSftRows` / `toDpoRows`) produce
 trainer-ready shapes. `buildRlDataset` composes them and attaches the
 provenance a buyer checks first:
 

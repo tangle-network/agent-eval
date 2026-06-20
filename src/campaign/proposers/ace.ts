@@ -1,6 +1,4 @@
 /**
- * @experimental
- *
  * `aceProposer` — Agentic Context Engineering: an APPEND-MOSTLY curator, the
  * deliberate contrast to `memoryCurationProposer`'s dedup-and-replace. ACE's
  * thesis (arXiv:2510.04618) is that aggressively deduping/rewriting a context

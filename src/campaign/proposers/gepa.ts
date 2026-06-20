@@ -1,6 +1,4 @@
 /**
- * @experimental
- *
  * `gepaProposer` — a reflective `SurfaceProposer` for prompt-tier surfaces.
  * Each generation it reflects on the prior best candidate's per-scenario
  * scores + weakest dimensions, asks an LLM to propose targeted rewrites of

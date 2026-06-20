@@ -1,6 +1,4 @@
 /**
- * @experimental
- *
  * `runSkillOpt` — the SkillOpt epoch hill-climb (Microsoft, arXiv:2605.23904).
  * Unlike `runOptimization`'s population/promote-top-K search, SkillOpt is a
  * sequential, held-out-gated hill-climb on ONE skill document:

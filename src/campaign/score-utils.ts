@@ -1,6 +1,4 @@
 /**
- * @experimental
- *
  * Shared campaign-score reductions used by every optimizer preset
  * (`runOptimization`, `runSkillOpt`, `compareProposers`). ONE definition of
  * "composite of a campaign" and "per-scenario / per-dimension breakdown" so

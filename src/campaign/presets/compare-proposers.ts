@@ -1,6 +1,4 @@
 /**
- * @experimental
- *
  * `compareProposers` — a head-to-head lift benchmark across surface proposers
  * on ONE corpus. This is the forcing function: optimizer quality (GEPA
  * reflection vs GEPA+Pareto vs SkillOpt) becomes a NUMBER with a confidence

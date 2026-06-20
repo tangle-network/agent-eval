@@ -1,6 +1,4 @@
 /**
- * @experimental
- *
  * `skillOptProposer` — a patch-mode `SurfaceProposer` implementing SkillOpt
  * (Microsoft, arXiv:2605.23904). Where `gepaProposer` regenerates the whole
  * surface by reflection, SkillOpt proposes BOUNDED, anchored edits

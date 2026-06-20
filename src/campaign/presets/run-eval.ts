@@ -1,6 +1,4 @@
 /**
- * @experimental
- *
  * `runEval` — the simplest preset over `runCampaign`. No optimizer, no
  * gate, no auto-PR. Just: run scenarios through dispatch, score with
  * judges, return CampaignResult.

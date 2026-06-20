@@ -23,7 +23,7 @@ function finding(id: string, opts: { refs?: EvidenceRef[]; judge?: boolean } = {
 
 describe('steer firewall — provenance is the discriminator (the cases evidence gets backwards)', () => {
   it('ADMITS an evidence-less trace-analyst observation (would be wrongly rejected by an evidence gate)', () => {
-    // createTraceAnalystAdapter legitimately emits findings with evidence_refs: [].
+    // Trace analysts may legitimately emit findings with evidence_refs: [].
     const obs = finding('trace-bullet', { refs: [] })
     expect(isJudgeVerdict(obs)).toBe(false)
     expect(() => assertNoJudgeVerdict([obs])).not.toThrow()

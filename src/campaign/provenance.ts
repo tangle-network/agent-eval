@@ -1,6 +1,4 @@
 /**
- * @experimental
- *
  * Loop provenance — the durable, queryable record of WHAT a self-improvement
  * loop did and WHY, plus the OTel spans that let an OTLP collector pivot from
  * an eval-run to the underlying candidate→cell→gate→promote chain.

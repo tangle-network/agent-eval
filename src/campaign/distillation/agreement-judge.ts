@@ -1,6 +1,4 @@
 /**
- * @experimental
- *
  * Agreement judge for teacher→student distillation. Scores a STUDENT artifact
  * (the cheap analyst's produced label) against the GoldScenario's gold label
  * (the teacher's verdict). The score IS the distillation objective: 1.0 means

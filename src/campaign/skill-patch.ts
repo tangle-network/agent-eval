@@ -1,6 +1,4 @@
 /**
- * @experimental
- *
  * SkillOpt patch primitives (Microsoft, arXiv:2605.23904 — "Executive
  * Strategy for Self-Evolving Agent Skills"). Where GEPA regenerates a surface
  * by reflection, SkillOpt emits BOUNDED, anchored edits to ONE skill document

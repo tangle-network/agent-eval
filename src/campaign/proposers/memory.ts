@@ -1,6 +1,4 @@
 /**
- * @experimental
- *
  * `memoryCurationProposer` — a CURATOR `SurfaceProposer`, the complement to the
  * OPTIMIZER proposers (`gepaProposer` rewrites the prompt; this one BUILDS a
  * searchable memory of what prior trajectories taught and grafts the most
