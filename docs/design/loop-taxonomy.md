@@ -1,4 +1,4 @@
-# Loop taxonomy: driver, worker, measurement, and the improvement loop
+# Loop taxonomy: execution driver, worker, measurement, and surface proposer
 
 This is the canonical vocabulary for the Tangle agent stack. It exists because
 the same word ("loop", "shot", "worker") was being used at three different
@@ -15,7 +15,8 @@ Cross-links: [`three-package-architecture.md`](../three-package-architecture.md)
 
 | Role | Definition | Lives at |
 |---|---|---|
-| **Driver** | The thing that *decides what happens next*. Plans, then decides whether to continue. | Both layers (see below) |
+| **Execution driver** | The thing that decides the next turn/action inside a sandbox or worker conversation. | Inner layer only |
+| **Surface proposer** | The thing that proposes the next prompt/config/code surface for the improvement loop to measure. Historical API name: `ImprovementDriver`. | Outer layer only |
 | **Worker** | An agent harness instance (Claude Code, Codex, OpenCode, …) running inside a sandbox. Does the actual work; responds in chat. | Inner layer only |
 | **Sandbox** | A multi-harness VM. Hosts **1..N workers**, which can share a workspace. Not an agent — the substrate an agent runs in. | Inner layer only |
 | **Measurement** | Runs the worker over a set of scenarios and judges the outputs into a scorecard with confidence intervals. This is `runCampaign`. | Outer layer |
@@ -28,12 +29,10 @@ Two facts that trip people up:
    `{ sibling, sandboxId }` = co-located workers; `{ fleet, fleetId,
    machineId, sandboxId }` = workers across machines.
 
-2. **"Driver" exists at two layers and means the same *kind* of thing
-   (a decider) at each, but the things it decides differ:**
-   - **Conversation driver** (inner): decides the next *turn* — a persona/user
-     simulating chat, or a planner fanning work to workers.
-   - **Improvement driver** (outer): decides the next *surface* — what system
-     prompt / tool config / code the workers should run.
+2. **"Driver" is now reserved for execution.** The old outer-loop name
+   `ImprovementDriver` remains in the API for compatibility, but the role is a
+   **surface proposer**: it proposes the next prompt / tool config / code
+   surface for the measurement loop.
 
 ## The nesting
 
@@ -42,7 +41,7 @@ There are two loops. The outer one improves the thing the inner one runs.
 ```
 runImprovementLoop                         OUTER loop — improve the agent over time
 │
-├─ DRIVER = ImprovementDriver              proposes a candidate SURFACE
+├─ PROPOSER = SurfaceProposer              proposes a candidate SURFACE
 │           (evolutionary mutator |        (the worker's system prompt / tools / config)
 │            reflective analyst)            — NOT a conversation turn
 │
@@ -124,16 +123,16 @@ default-off-for-training of `production-trace` are enforced at the
 `LabeledScenarioStore.sample()` boundary so the flywheel cannot contaminate
 the holdout it is judged against. See `src/campaign/labeled-store/`.
 
-## One improvement loop, pluggable drivers
+## One improvement loop, pluggable proposers
 
-The improvement loop is **driver-agnostic**. `runOptimization` (the loop body)
+The improvement loop is **proposer-agnostic**. `runOptimization` (the loop body)
 and `runImprovementLoop` (the gated-promotion shell) call
-`driver.propose(...)` → measure → `driver.decide(...)`. They do not know which
-strategy is driving. Two strategies conform to the same `ImprovementDriver`
-interface:
+`proposer.propose(...)` → measure → `proposer.decide(...)`. They do not know
+which strategy proposed the candidate. The historical API interface is
+`ImprovementDriver`; the clearer alias is `SurfaceProposer`:
 
 ```ts
-interface ImprovementDriver<TFindings = unknown> {
+interface SurfaceProposer<TFindings = unknown> {
   kind: string
   propose(args: {
     currentSurface: MutableSurface
@@ -149,22 +148,22 @@ interface ImprovementDriver<TFindings = unknown> {
 
 | Implementation | Strategy | How it proposes | Where it lives |
 |---|---|---|---|
-| `evolutionaryDriver` | Evolutionary (GEPA / AxGEPA) | Standalone `ImprovementDriver`. Mutates the current best surface into N candidates, blind to history beyond the current best. Optimizes against the dataset's rewards. | **agent-eval** (pure: dataset → surface, no sandbox) |
-| `improvementDriver` + `reflectiveGenerator` | Reflective | One driver, cheap generator: drafts patches from the report and applies them into a worktree (shots=1, no sandbox). | **agent-runtime** — implements agent-eval's `ImprovementDriver` |
-| `improvementDriver` + `agenticGenerator` | Agentic | Same driver, full generator: runs a coding harness in the worktree (≤ `maxImprovementShots`) to edit in place. | **agent-runtime** |
+| `evolutionaryDriver` | Evolutionary (GEPA / AxGEPA) | Standalone `SurfaceProposer`. Mutates the current best surface into N candidates, blind to history beyond the current best. Optimizes against the dataset's rewards. | **agent-eval** (pure: dataset → surface, no sandbox) |
+| `improvementDriver` + `reflectiveGenerator` | Reflective | One proposer, cheap generator: drafts patches from the report and applies them into a worktree (shots=1, no sandbox). | **agent-runtime** — implements agent-eval's proposer contract |
+| `improvementDriver` + `agenticGenerator` | Agentic | Same proposer, full generator: runs a coding harness in the worktree (≤ `maxImprovementShots`) to edit in place. | **agent-runtime** |
 
 This resolves the prior duplication where `runImprovementLoop` (evolutionary,
 agent-eval) and `runAnalystLoop` (reflective, agent-runtime) were two parallel
 loops doing "propose change → measure → gate → PR". There is **one loop** and
-**one driver** (`improvementDriver`); the reflective and agentic paths are
+**one proposer** (`improvementDriver`); the reflective and agentic paths are
 pluggable *generators* of it (the same operation at two settings of a cost
-dial), not separate drivers. The dependency direction permits this cleanly:
-agent-eval is the leaf and owns the `ImprovementDriver` contract; agent-runtime
+dial), not separate proposers. The dependency direction permits this cleanly:
+agent-eval is the leaf and owns the proposer contract; agent-runtime
 imports agent-eval and implements it.
 
 ## What "the surface" is — improvement tiers
 
-`MutableSurface` is the thing the driver changes. It has tiers, least → most
+`MutableSurface` is the thing the proposer changes. It has tiers, least → most
 invasive. `MutableSurface = string | CodeSurface` spans all of them: `string`
 for tiers 1–2, `CodeSurface{ worktreeRef }` for tier 4.
 
@@ -204,7 +203,8 @@ consume the **same dataset** the flywheel builds.
 2. **`runAnalystLoop` (agent-runtime): the analyst is a GENERATOR, knowledge
    stays separate.** Shipped in agent-runtime 0.25.0 as `improvementDriver` +
    `reflectiveGenerator` (drafts patches from the report) / `agenticGenerator`
-   (coding harness in the worktree) — one driver, pluggable generators, fed
+   (coding harness in the worktree) — one runtime driver implementing the
+   proposer contract with pluggable generators, fed
    into `runImprovementLoop`'s gate + PR machinery. `runAnalystLoop`'s other
    responsibilities — the findings ledger and knowledge-graph updates, which
    are *not* surface optimization — stay where they are.
@@ -214,7 +214,7 @@ consume the **same dataset** the flywheel builds.
    two are the same shape (driver ↔ workers, iterate) differing only in
    backend and intent; unify them. **Phase 3+ (cross-repo); needs its own
    design pass — introduces a backend abstraction and couples the two repos'
-   inner loops, so it lands after the `ImprovementDriver` model is proven in
+   inner loops, so it lands after the `SurfaceProposer` model is proven in
    product use.**
 
 ## Vocabulary quick reference
@@ -227,13 +227,14 @@ consume the **same dataset** the flywheel builds.
   agent-runtime.
 - **runCampaign** — a measurement: a surface scored over N scenarios × M reps.
   agent-eval. (A "campaign" = a coordinated batch of measurements.)
-- **runOptimization** — the improvement loop body: driver proposes surfaces,
+- **runOptimization** — the improvement loop body: proposer suggests surfaces,
   each measured by a campaign, top-K promoted per generation. agent-eval.
 - **runImprovementLoop** — `runOptimization` + holdout re-score + release gate
   + optional PR. agent-eval.
 - **runAnalystLoop** — reflective autoresearch: findings + knowledge updates +
   improvement proposals. agent-runtime.
-- **ImprovementDriver** — the contract a surface-proposer implements.
+- **SurfaceProposer** — the contract a surface proposer implements. Historical
+  API name: `ImprovementDriver`.
   `evolutionaryDriver` (agent-eval) is one; agent-runtime's `improvementDriver`
   is another, with pluggable `reflectiveGenerator` / `agenticGenerator`.
 - **CandidateGenerator** — the byte-producing seam inside `improvementDriver`;

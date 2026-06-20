@@ -20,15 +20,15 @@ The three top-level entry points map to three starting situations — same decis
 
 **Proof & benchmarks** — does it actually work, and which approach wins?
 - [`substrate-lift-proof`](./substrate-lift-proof) — the flagship: a real, reproducible held-out lift.
-- [`compare-drivers-canonical`](./compare-drivers-canonical) — the driver head-to-head (the "which optimizer is better" forcing function).
+- [`compare-proposers-canonical`](./compare-proposers-canonical) — `compareProposers` head-to-head.
 - [`findings-ablation`](./findings-ablation) — the empirical gate for the EYES→HANDS findings wire.
 - [`held-out-gate`](./held-out-gate) — the promotion gate in isolation.
 - [`scorecard`](./scorecard) — render an eval scorecard.
 - [`benchmarks`](./benchmarks) — public-benchmark wrappers.
 
-**Drivers & optimization** — the improvement engines.
+**Proposers & optimization** — the improvement engines.
 - [`multi-shot-optimization`](./multi-shot-optimization) — `runImprovementLoop`: surface optimization with a held-out promotion gate.
-- [`distributed-driver`](./distributed-driver) / [`user-simulation-driver`](./user-simulation-driver) — distributed + simulated-user drivers.
+- [`distributed-driver`](./distributed-driver) / [`user-simulation-driver`](./user-simulation-driver) — execution-driver examples, not surface proposers.
 - [`marketing-agent-canonical`](./marketing-agent-canonical) / [`auto-research-with-agent-builder`](./auto-research-with-agent-builder) — full product-agent demos.
 
 **RL datasets** — turn graded runs into training data.

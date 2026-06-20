@@ -64,7 +64,7 @@ When the founder is ready, this becomes the template:
 
 1. Replace `runMarketingAgent` with their agent (wrap their existing
    API or framework via a `Dispatch` — see
-   [`docs/quickstart-external.md`](../../docs/quickstart-external.md)).
+   [`examples/foreign-agent-quickstart`](../foreign-agent-quickstart/)).
 2. Replace `MARKETING_SCENARIOS` with theirs (8-15 scenarios spanning
    their real surfaces — co-author during the pairing's hour 3).
 3. Replace `MARKETING_JUDGE_DIMENSIONS` with theirs (hour 2 of the

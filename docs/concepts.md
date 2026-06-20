@@ -182,7 +182,7 @@ release decision.
 
 ## Where to go next
 
-- **Confused by "GEPA / HALO / trace analysis / drivers everywhere"?** → [self-improvement-map.md](./self-improvement-map.md) — one loop, four roles, the seven-driver catalog (production vs bench-only), and why `gepa-refine` is the same loop on a test bench.
+- **Confused by "GEPA / HALO / trace analysis / proposers everywhere"?** → [self-improvement-map.md](./self-improvement-map.md) — one loop, four roles, the proposer catalog (production vs bench-only), and why `gepa-refine` is the same loop on a test bench.
 - **Which `run*` primitive do I use, and how do I grade produced state?** → [eval-surface-map.md](./eval-surface-map.md) — the campaign/matrix/optimization/gate primitives as a pick-by-"use-when" table, plus the produced-state grading composition (verifyCompletion-as-judge — there is no persona-dispatch wrapper) and the in-band body contract.
 - **Need the layman feature map?** → [feature-guide.md](./feature-guide.md) — what each primitive does, when to use it, integration patterns, and guardrails.
 - **Just want to score a string against a rubric?** → [wire-protocol.md](./wire-protocol.md) — HTTP/RPC interface, pluggable from any language.

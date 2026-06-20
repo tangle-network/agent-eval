@@ -39,11 +39,11 @@ const judge: JudgeConfig<DemoArtifact> = {
   },
 }
 
-// Deterministic, LLM-free driver: an evolutionary mutator that appends the
+// Deterministic, LLM-free proposer: an evolutionary mutator that appends the
 // completion directive to the current surface. The reflective alternative is
 // `gepaDriver` (LLM-backed, reasons over trace findings) — both conform to the
-// same `ImprovementDriver`, and the loop below is identical regardless.
-const driver = evolutionaryDriver({
+// same `SurfaceProposer`, and the loop below is identical regardless.
+const proposer = evolutionaryDriver({
   mutator: {
     kind: 'append-completion-directive',
     async mutate({ currentSurface, populationSize }) {
@@ -63,7 +63,7 @@ try {
     // The worker echoes the surface it was given; the judge keys on the marker.
     dispatchWithSurface: async (surface) => ({ text: String(surface) }),
     judges: [judge],
-    driver,
+    proposer,
     populationSize: 1,
     maxGenerations: 1,
     promoteTopK: 1,

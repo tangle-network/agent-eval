@@ -24,9 +24,10 @@
  * 3. **`JudgeConfig<TArtifact, TScenario>`** — pluggable dimensional
  *    scorer. Bring an LLM judge, a deterministic check, an ensemble —
  *    the engine only cares about `score(input) → JudgeScore`.
- * 4. **`Mutator`** — proposes a next surface for the optimization loop.
- *    Use `gepaDriver` (reflective LLM mutation) or `evolutionaryDriver`,
- *    or write your own.
+ * 4. **`SurfaceProposer`** — proposes next candidate surfaces for the
+ *    optimization loop. Use `gepaDriver` (reflective LLM proposal) or
+ *    `evolutionaryDriver`, or write your own. `ImprovementDriver` is the
+ *    historical alias.
  * 5. **`Gate`** — promotion guard. Returns `'ship'` / `'hold'` /
  *    `'need_more_work'` / others for each candidate; the loop only ships
  *    what passes. `defaultProductionGate` is the composite default;
@@ -107,9 +108,11 @@ export type {
   JudgeScore,
   MutableSurface,
   Mutator,
+  OptimizationProposer,
   OptimizerConfig,
   Scenario,
   SessionScript,
+  SurfaceProposer,
 } from '../campaign/types'
 
 // ── Campaign primitives (the four functions) ─────────────────────────
@@ -122,7 +125,7 @@ export {
 } from '../campaign/presets/run-improvement-loop'
 export { type RunCampaignOptions, runCampaign } from '../campaign/run-campaign'
 
-// ── Drivers ──────────────────────────────────────────────────────────
+// ── Proposers ────────────────────────────────────────────────────────
 
 export {
   type EvolutionaryDriverOptions,

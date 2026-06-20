@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Standalone non-MCP AppWorld REPL worker for the compareDrivers benchmark.
+"""Standalone non-MCP AppWorld REPL worker for the compareProposers benchmark.
 
 The wedged `openai_agents_mcp_agent` makes zero LLM calls on MCP-connect. This
 worker takes the DIRECT path: it drives AppWorld's stateful REPL itself. One
@@ -202,9 +202,9 @@ def run_task(
     temperature: float = 0.0,
     seed: int = 100,
 ) -> dict[str, Any]:
-    # The agent instruction prompt is the OPTIMIZABLE SURFACE: compareDrivers /
-    # gepaDriver / haloDriver / memoryCurationDriver mutate it and pass the
-    # candidate here. Default = the baseline SYSTEM_PROMPT (the baseline arm).
+    # The agent instruction prompt is the OPTIMIZABLE SURFACE: surface
+    # proposers mutate it and pass the candidate here. Default = the baseline
+    # SYSTEM_PROMPT (the baseline arm).
     active_system_prompt = system_prompt if system_prompt is not None else SYSTEM_PROMPT
     base_url = os.environ.get("OPENAI_BASE_URL")
     api_key = os.environ.get("OPENAI_API_KEY")

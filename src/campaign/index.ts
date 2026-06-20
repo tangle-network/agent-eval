@@ -4,9 +4,10 @@
  * `@tangle-network/agent-eval/campaign` — measurement + improvement loop.
  *
  * `runCampaign` is the measurement primitive (a surface scored over scenarios);
- * `runImprovementLoop` is the driver-agnostic improvement loop on top of it.
- * See `docs/design/loop-taxonomy.md` for the role vocabulary (driver / worker
- * / measurement) and the dataset flywheel.
+ * `runImprovementLoop` is the proposer-agnostic improvement loop on top of it.
+ * The historical type name is `ImprovementDriver`; new docs call that role a
+ * `SurfaceProposer` to avoid confusion with sandbox/router drivers that execute
+ * workers.
  */
 
 // ── Meta-loop: optimize the analyst's OWN prompt as a surface ─────────
@@ -26,6 +27,24 @@ export {
 } from './auto-pr'
 export { type AceDriverOptions, aceDriver } from './drivers/ace'
 export { type EvolutionaryDriverOptions, evolutionaryDriver } from './drivers/evolutionary'
+export {
+  extractFapoAttributionSignals,
+  type FapoAttributionSignals,
+  type FapoDriverOptions,
+  type FapoFailureCluster,
+  type FapoOptimizationLevel,
+  type FapoReviewInput,
+  type FapoReviewIssue,
+  type FapoReviewResult,
+  type FapoScopeContract,
+  fapoDriver,
+  type JsonPrimitive,
+  type JsonValue,
+  type ParameterCandidate,
+  type ParameterChange,
+  type ParameterSweepDriverOptions,
+  parameterSweepDriver,
+} from './drivers/fapo'
 export {
   countSentenceEdits,
   extractH2Sections,
@@ -95,14 +114,22 @@ export {
 // ── Presets (the documented public surface) ──────────────────────────
 export {
   type CompareDriversOptions,
+  type CompareProposersOptions,
   compareDrivers,
+  compareProposers,
   type DriverComparison,
   type DriverEntry,
   type DriverPairwise,
   type DriverScore,
+  type FapoEntryConfig,
+  fapoEscalationEntry,
   gepaParetoEntry,
   gepaReflectionEntry,
   type OptimizerEntryConfig,
+  type ProposerComparison,
+  type ProposerEntry,
+  type ProposerPairwise,
+  type ProposerScore,
   skillOptEntry,
 } from './presets/compare-drivers'
 export {
@@ -205,6 +232,7 @@ export type {
   LabelTrust,
   MutableSurface,
   Mutator,
+  OptimizationProposer,
   OptimizerConfig,
   ParetoParent,
   ProposeContext,
@@ -213,6 +241,7 @@ export type {
   Scenario,
   ScenarioAggregate,
   SessionScript,
+  SurfaceProposer,
   TraceSpan,
 } from './types'
 export { isProposedCandidate, labelTrustRank } from './types'

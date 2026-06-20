@@ -1,15 +1,15 @@
 /**
  * Shared canonical task for the substrate empirical-proof examples — ONE copy
  * of the transaction-extraction corpus + deterministic judge + real worker, so
- * `substrate-lift-proof` (single-driver lift) and `compare-drivers-canonical`
- * (head-to-head driver lift) measure the SAME thing and cannot drift apart.
+ * `substrate-lift-proof` (single-proposer lift) and `compare-proposers-canonical`
+ * (head-to-head proposer lift) measure the SAME thing and cannot drift apart.
  *
  * Task: structured field extraction. Each scenario is a short transaction
  * sentence; the worker emits `{merchant, amount, date, category}`. A
  * DETERMINISTIC checker scores per-field exact-match → composite in [0,1] — no
  * LLM judge, no variance, so a real prompt improvement moves the number and
  * nothing else can. The baseline prompt is deliberately weak (under-specified
- * format) so the search split scores low and a driver has real failures to
+ * format) so the search split scores low and a proposer has real failures to
  * reflect on.
  */
 
@@ -137,10 +137,10 @@ export const HOLDOUT: ExtractScenario[] = [
 
 /** The deliberately WEAK baseline: no schema, no field names, no date format,
  *  no taxonomy — so the exact-match checker penalizes the model's drift and a
- *  driver has real room to improve. */
+ *  proposer has real room to improve. */
 export const BASELINE_SURFACE = 'Extract the transaction info from the message as JSON.'
 
-export const DRIVER_TARGET =
+export const PROPOSER_TARGET =
   'a system prompt that makes the model extract transaction fields into strict JSON with keys ' +
   'merchant, amount, date, category — amount as a bare number, date as ISO YYYY-MM-DD, ' +
   `category from {${CATEGORIES.join(', ')}}`
@@ -201,7 +201,7 @@ export function extractionJudge(
 /** Tolerant JSON extraction: strip a ```json fence if present, else grab the
  *  first balanced object. The field-level checker still penalizes wrong keys /
  *  casing / formats, so this loosening does not inflate the score — it only
- *  stops a uniform parse failure from collapsing the gradient a driver reflects
+ *  stops a uniform parse failure from collapsing the gradient a proposer reflects
  *  on. */
 export function parseJsonLoose(raw: string): Record<string, unknown> | null {
   const fenced = /```(?:json)?\s*([\s\S]*?)```/.exec(raw)
@@ -233,7 +233,7 @@ export interface ExtractionWorkerOptions {
  *  reports BOTH cost and token usage to the cell meter, and appends a
  *  `RunRecord` so the run's backend integrity is verdictable. Returns a
  *  `dispatchWithSurface` usable by every preset (runImprovementLoop,
- *  runSkillOpt, compareDrivers). */
+ *  runSkillOpt, compareProposers). */
 export function makeExtractionWorker(opts: ExtractionWorkerOptions) {
   const timeoutMs = opts.timeoutMs ?? 30_000
   const experimentId = opts.experimentId ?? 'extraction-task'

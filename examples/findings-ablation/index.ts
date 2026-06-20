@@ -42,8 +42,8 @@ import {
   campaignBreakdown,
   type DispatchContext,
   gepaDriver,
-  runOptimization,
   type RunOptimizationOptions,
+  runOptimization,
 } from '../../src/campaign'
 import { assertRealBackend, summarizeBackendIntegrity } from '../../src/integrity/backend-integrity'
 import type { LlmClientOptions } from '../../src/llm-client'
@@ -52,12 +52,12 @@ import { pairedBootstrap } from '../../src/statistics'
 import {
   type Artifact,
   BASELINE_SURFACE,
-  DRIVER_TARGET,
   type ExtractScenario,
   extractionJudge,
   HOLDOUT,
   MUTATION_PRIMITIVES,
   makeExtractionWorker,
+  PROPOSER_TARGET,
   SEARCH,
 } from '../_shared/extraction-task'
 
@@ -120,11 +120,11 @@ async function scoreOnHoldout(surface: string): Promise<number[]> {
   return out
 }
 
-function makeDriver() {
+function makeProposer() {
   return gepaDriver({
     llm,
     model: MODEL,
-    target: DRIVER_TARGET,
+    target: PROPOSER_TARGET,
     mutationPrimitives: MUTATION_PRIMITIVES,
   })
 }
@@ -136,7 +136,7 @@ function optBase(runDir: string): RunOptimizationOptions<ExtractScenario, Artifa
     dispatchWithSurface: (surface, scenario, ctx) =>
       worker(String(surface), scenario as ExtractScenario, ctx),
     judges: [judge],
-    driver: makeDriver(),
+    proposer: makeProposer(),
     populationSize: POPULATION,
     maxGenerations: GENERATIONS,
     promoteTopK: 1,

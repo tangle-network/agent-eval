@@ -1,5 +1,5 @@
 /**
- * GSM8K substrate proof — the empirical headline: do the optimizer drivers move
+ * GSM8K substrate proof — the empirical headline: do the optimization proposers move
  * a REAL held-out number on a HARD task (no ceiling), with a clean CI? Extraction
  * ceilings on a strong model (gepa 0.625→1.0, 0 findings); GSM8K with a
  * deliberately weak baseline (no chain-of-thought) leaves genuine headroom that
@@ -7,7 +7,7 @@
  * discipline). DETERMINISTIC numeric judge (gsm8k/index.ts `evaluate`) → zero
  * LLM-judge variance, so the lift CI is defensible.
  *
- * Drivers compete head-to-head through `compareDrivers`: gepa-reflection,
+ * Proposers compete head-to-head through `compareProposers`: gepa-reflection,
  * gepa-pareto, skill-opt — each returns its promoted surface, all scored on the
  * SAME held-out split with paired-bootstrap lift CIs + pairwise ranking.
  * `assertRealBackend` aborts a stub run; the artifact records integrity honestly.
@@ -27,7 +27,7 @@ import { createHash } from 'node:crypto'
 import { mkdirSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import {
-  compareDrivers,
+  compareProposers,
   type DispatchContext,
   gepaParetoEntry,
   gepaReflectionEntry,
@@ -232,8 +232,8 @@ async function main() {
     maxEpochs: EPOCHS,
   }
 
-  const comparison = await compareDrivers<GsmScenario, Artifact>({
-    drivers: [
+  const comparison = await compareProposers<GsmScenario, Artifact>({
+    proposers: [
       gepaReflectionEntry(config, 'gepa-reflection'),
       gepaParetoEntry(config, 'gepa-pareto'),
       skillOptEntry(config, 'skill-opt'),

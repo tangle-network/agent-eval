@@ -1,6 +1,6 @@
 # The self-improvement map
 
-One loop. Four roles. A driver catalog of pluggable strategies. A bench rig that
+One loop. Four roles. A proposer catalog of pluggable strategies. A bench rig that
 proves the loop produces real lift. Nothing here is duplicated — it is one engine
 pointed at different surfaces. This map exists because the surface count makes it
 *look* like many competing systems when it is one.
@@ -16,7 +16,7 @@ product imports the same function. Each generation it does four things:
 ```
    run AGENT on SCENARIOS ──► JUDGE scores each run
                                       │
-                          DRIVER reads the failures and
+                          PROPOSER reads the failures and
                           proposes better SURFACE versions
                                       │
                   GATE: did a candidate beat the parent on a
@@ -31,28 +31,32 @@ product imports the same function. Each generation it does four things:
 | Role | What it is | Plain meaning |
 |---|---|---|
 | **Surface** | a *string* — an agent directive, a `SKILL.md`, a playbook, a memory, a judge rubric | **what** gets improved |
-| **Driver** | an `ImprovementDriver` (the catalog below) | **how** it is improved |
+| **Proposer** | a `SurfaceProposer` / historical `ImprovementDriver` (the catalog below) | **how** candidate surfaces are proposed |
 | **Gate** | held-out split + significance (`paretoSignificanceGate` / `heldOutGate` / `defaultProductionGate`) | **did it actually get better**, vs noise |
 | **Judge** | scores a run | **how good** any version is |
 
-## The driver catalog (one loop, seven strategies)
+## The proposer catalog (one loop, multiple strategies)
 
-Source of truth: `src/campaign/drivers/guide.ts` (`DRIVER_GUIDE` + `selectDriver()`).
-The split that matters: **production drivers** mutate a live surface; **bench-only
-drivers** exist solely to be raced inside `compareDrivers`.
+The package intentionally exposes named proposer factories instead of a hidden
+auto-selector. The split that matters: **production proposers** mutate a live
+surface; **bench-only proposers** exist solely to be raced inside
+`compareProposers`.
 
-| Driver | Surface | Strategy | Role | Notes |
+| Proposer factory | Surface | Strategy | Role | Notes |
 |---|---|---|---|---|
 | `gepaDriver` | prompt | reflective full-surface rewrite + Pareto frontier | **production default** | consumes trace-analysis findings — see below |
+| `fapoDriver` | prompt/config/code | reviewed escalation policy over prompt → parameter → structural proposers | production, experimental | encodes FAPO's scope + reviewer + prompt-first escalation rules; structural generator is injected |
+| `parameterSweepDriver` | config | JSON config patch/sweep | production, experimental | middle FAPO level for parameter/config edits such as `retrieval.k`, `temperature`, `max_tokens` |
 | `skillOptDriver` | skill-doc | anchored add/delete/replace patch | production | preserves earlier rules; edit budget = "textual learning rate" |
 | `aceDriver` | playbook | append-only, provenance-tagged | production | accumulate hard-won lessons, never summarize away |
 | `memoryCurationDriver` | memory | dedup + rank + graft | production | compact alternative to `ace` |
 | `evolutionaryDriver` | any | population mutate → measure → select | production | blind search; no reflection over findings |
-| `traceAnalystDriver` | prompt | analysis → one LLM edit | **bench-only** | our evidence engine, wrapped as a driver |
+| `traceAnalystDriver` | prompt | analysis → one LLM edit | **bench-only** | our evidence engine, wrapped as a proposer |
 | `haloDriver` | prompt | analysis → one LLM edit | **bench-only**, external | wraps `pip install halo-engine` (Inference.net) |
 
-`selectDriver({ goal, surface })` ranks these for you. `GOAL_RANK`: explore →
-`gepa`; refine → `skillOpt`; accumulate → `ace`; benchmark → `traceAnalyst`/`halo`.
+Default choice: start with `gepaDriver` for prompt surfaces, add
+`parameterSweepDriver` when config knobs are the likely failure mode, and wrap
+them with `fapoDriver` when evidence should decide when to escalate.
 
 ## Trace analysis — what it is and the three places it is used
 
@@ -63,12 +67,12 @@ three places — this is the answer to "if GEPA does its own thing, what is trac
 analysis *for*?":
 
 1. **Ships to customers** — `analyzeRuns()` → `InsightReport`, the Intelligence product.
-2. **Feeds the optimizer** — `gepaDriver` calls `renderAnalystEvidence(ctx.findings,
+2. **Feeds the proposer** — `gepaDriver` calls `renderAnalystEvidence(ctx.findings,
    ctx.report)` (`src/campaign/drivers/gepa.ts`). This is the EYES→HANDS wire: GEPA's
    rewrites are grounded in the diagnosis instead of guessing blind. Trace analysis
    **is** on the GEPA side.
 3. **Races HALO** — wrapped as `traceAnalystDriver` so our analysis competes
-   head-to-head with the external SOTA inside `compareDrivers`.
+   head-to-head with the external SOTA inside `compareProposers`.
 
 ## Where HALO fits (and why it feels "removed")
 
@@ -77,7 +81,7 @@ barrel) but it is **never in the product loop**. It shells out to an *external* 
 (`halo-engine`) — so the analysis genuinely lives outside this repo; we only wrap it.
 
 Its only job is the **bake-off**. HALO's real opponent is **not** `gepaDriver` — it is
-`traceAnalystDriver`. `compareDrivers` holds the apply step identical (same
+`traceAnalystDriver`. `compareProposers` holds the apply step identical (same
 `APPLY_SYSTEM`, same `traces.jsonl`, same held-out scoring) so the only variable is
 **analysis quality: HALO vs ours.** A measuring stick, like a benchmark baseline.
 
@@ -100,9 +104,9 @@ Products run the loop to get **better**. `gepa-refine` runs the identical loop t
 
 The code is well-factored; the confusion is narrative:
 
-- **Surface sprawl reads as chaos.** Seven drivers with overlapping shapes *look* like
-  seven competing loops. They are pluggable strategies for one loop — `guide.ts` says
-  so, but it was buried. (This doc surfaces it.)
+- **Surface sprawl reads as chaos.** Several proposers with overlapping shapes *look* like
+  competing loops. They are exported factories for one loop; this map makes that
+  explicit.
 - **The real gap is the missing proof, not the design.** The loop kept being proved on
   benchmarks too easy to show value: when a capable model ceilings an extraction task,
   **0 findings fire** and the whole trace-analysis→optimizer apparatus is inert. It

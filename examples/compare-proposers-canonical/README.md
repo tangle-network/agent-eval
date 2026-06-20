@@ -1,15 +1,15 @@
-# compareDrivers canonical — the real driver head-to-head
+# compareProposers canonical — the real proposer head-to-head
 
 The **live** companion to the deterministic mechanism gate. The unit tests
-(`tests/campaign/compare-drivers.test.ts`, run on every PR in `ci.yml`) prove
-the `compareDrivers` harness *ranks* correctly with a faked LLM. This example
+(`tests/campaign/compare-proposers.test.ts`, run on every PR in `ci.yml`) prove
+the `compareProposers` harness *ranks* correctly with a faked LLM. This example
 proves the optimizers move a **real** held-out number on a **real** backend and
-records **which driver wins** — the artifact a case study is made of.
+records **which proposer wins** — the artifact a case study is made of.
 
 It runs `gepa-reflection` vs `gepa-pareto` vs `skill-opt` on one corpus
 (transaction-field extraction, a **deterministic** exact-match judge → zero
 LLM-judge variance), scores every winner **uniformly** on the held-out split,
-and reports per-driver lift + paired-bootstrap CIs. `assertRealBackend` aborts
+and reports per-proposer lift + paired-bootstrap CIs. `assertRealBackend` aborts
 on a stub (zero-token) run, so a fake `$0` lift can never be reported.
 
 The corpus + judge + worker are shared with `substrate-lift-proof` via
@@ -24,19 +24,19 @@ Any OpenAI-compatible endpoint works:
 # DeepSeek
 LLM_BASE_URL=https://api.deepseek.com/v1 LLM_API_KEY=$DEEPSEEK_API_KEY \
 LLM_MODEL=deepseek-chat PRICE_IN_PER_M=0.27 PRICE_OUT_PER_M=1.10 \
-pnpm tsx examples/compare-drivers-canonical/index.ts
+pnpm tsx examples/compare-proposers-canonical/index.ts
 
 # Tangle router (default)
-TANGLE_API_KEY=$(cat /tmp/.tk) pnpm tsx examples/compare-drivers-canonical/index.ts
+TANGLE_API_KEY=$(cat /tmp/.tk) pnpm tsx examples/compare-proposers-canonical/index.ts
 ```
 
 Knobs: `POPULATION` / `GENERATIONS` (GEPA), `EPOCHS` (SkillOpt). The durable
-artifact lands in `.evolve/compare-drivers-canonical/<ts>/lift-drivers.json`;
-[`lift-drivers.json`](./lift-drivers.json) here is a checked-in reference run.
+artifact lands in `.evolve/compare-proposers-canonical/<ts>/lift-proposers.json`;
+[`lift-proposers.json`](./lift-proposers.json) here is a checked-in reference run.
 
 ## First real result (deepseek-chat, n=6 held-out, integrity `real`)
 
-| Driver | Held-out lift | 95% CI | base → winner | $cost |
+| Proposer | Held-out lift | 95% CI | base → winner | $cost |
 |---|---|---|---|---|
 | #1 gepa-reflection | **+0.417** | [0.208, 0.583] | 0.583 → 1.000 | $0.0028 |
 | #2 skill-opt | +0.417 | [0.208, 0.583] | 0.583 → 1.000 | $0.0035 |
@@ -44,7 +44,7 @@ artifact lands in `.evolve/compare-drivers-canonical/<ts>/lift-drivers.json`;
 
 176 real calls, 16,779 in / 7,175 out tokens, $0.012, 131s.
 
-**Honest reading:** all three drivers produce a **statistically-clear** real
+**Honest reading:** all three proposers produce a **statistically-clear** real
 lift (CI low = 0.208 > 0 → `lift-proven`), but they are **tied with each
 other** — this task saturates to the ceiling, so it can't separate the
 optimizers. To differentiate GEPA from SkillOpt you need a harder corpus with

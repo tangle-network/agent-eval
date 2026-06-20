@@ -1,8 +1,8 @@
 /**
- * compareDrivers canonical — the REAL head-to-head: gepa-reflection vs
+ * compareProposers canonical — the REAL head-to-head: gepa-reflection vs
  * gepa-pareto vs skill-opt on ONE corpus through a real LLM backend, scored
  * UNIFORMLY on the held-out split, with paired-bootstrap lift CIs. This is the
- * empirical companion to the deterministic mechanism gate (the compareDrivers
+ * empirical companion to the deterministic mechanism gate (the compareProposers
  * unit tests in CI): the tests prove the harness ranks correctly; THIS proves
  * the optimizers move a real held-out number and tells us which wins.
  *
@@ -19,16 +19,16 @@
  * Run (DeepSeek example):
  *   LLM_BASE_URL=https://api.deepseek.com/v1 LLM_API_KEY=$DEEPSEEK_API_KEY \
  *   LLM_MODEL=deepseek-v4-pro PRICE_IN_PER_M=0.27 PRICE_OUT_PER_M=1.10 \
- *   pnpm tsx examples/compare-drivers-canonical/index.ts
+ *   pnpm tsx examples/compare-proposers-canonical/index.ts
  *
  * Run (Tangle router):
- *   TANGLE_API_KEY=$(cat /tmp/.tk) pnpm tsx examples/compare-drivers-canonical/index.ts
+ *   TANGLE_API_KEY=$(cat /tmp/.tk) pnpm tsx examples/compare-proposers-canonical/index.ts
  */
 
 import { mkdirSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import {
-  compareDrivers,
+  compareProposers,
   gepaParetoEntry,
   gepaReflectionEntry,
   type OptimizerEntryConfig,
@@ -40,12 +40,12 @@ import type { RunRecord } from '../../src/run-record'
 import {
   type Artifact,
   BASELINE_SURFACE,
-  DRIVER_TARGET,
   type ExtractScenario,
   extractionJudge,
   HOLDOUT,
   MUTATION_PRIMITIVES,
   makeExtractionWorker,
+  PROPOSER_TARGET,
   SEARCH,
 } from '../_shared/extraction-task'
 
@@ -88,19 +88,19 @@ const worker = makeExtractionWorker({
   priceInPerMTokens: PRICE_IN_PER_M,
   priceOutPerMTokens: PRICE_OUT_PER_M,
   timeoutMs: CALL_TIMEOUT_MS,
-  experimentId: 'compare-drivers-canonical',
+  experimentId: 'compare-proposers-canonical',
 })
 
 const round = (n: number) => Math.round(n * 1000) / 1000
 const round6 = (n: number) => Math.round(n * 1_000_000) / 1_000_000
 
 async function main() {
-  const runRoot = join(process.cwd(), '.evolve', 'compare-drivers-canonical', String(Date.now()))
+  const runRoot = join(process.cwd(), '.evolve', 'compare-proposers-canonical', String(Date.now()))
   mkdirSync(runRoot, { recursive: true })
   const startedAt = Date.now()
 
   console.log(
-    'compareDrivers canonical — gepa-reflection vs gepa-pareto vs skill-opt, real backend',
+    'compareProposers canonical — gepa-reflection vs gepa-pareto vs skill-opt, real backend',
   )
   console.log(`  model=${MODEL}  base=${BASE_URL}`)
   console.log(
@@ -118,7 +118,7 @@ async function main() {
     judges: [extractionJudge([...SEARCH, ...HOLDOUT])],
     llm,
     model: MODEL,
-    target: DRIVER_TARGET,
+    target: PROPOSER_TARGET,
     mutationPrimitives: MUTATION_PRIMITIVES,
     runDir: join(runRoot, 'optimizers'),
     seed: 42,
@@ -127,8 +127,8 @@ async function main() {
     maxEpochs: EPOCHS,
   }
 
-  const comparison = await compareDrivers<ExtractScenario, Artifact>({
-    drivers: [
+  const comparison = await compareProposers<ExtractScenario, Artifact>({
+    proposers: [
       gepaReflectionEntry(config, 'gepa-reflection'),
       gepaParetoEntry(config, 'gepa-pareto'),
       skillOptEntry(config, 'skill-opt'),
@@ -150,7 +150,7 @@ async function main() {
   assertRealBackend(records, { allowMixed: false })
 
   const best = comparison.best
-  // CI clears zero ⇒ a real measurable lift for the winning driver.
+  // CI clears zero ⇒ a real measurable lift for the winning proposer.
   const honestVerdict = best.liftCi.low > 0 ? 'lift-proven' : 'no-measurable-lift'
   const totalCostUsd = records.reduce((a, r) => a + r.costUsd, 0)
   const elapsedSec = Math.round((Date.now() - startedAt) / 1000)
@@ -200,14 +200,14 @@ async function main() {
     publishedAt: new Date(startedAt).toISOString(),
   }
 
-  const artifactPath = join(runRoot, 'lift-drivers.json')
+  const artifactPath = join(runRoot, 'lift-proposers.json')
   writeFileSync(artifactPath, JSON.stringify(artifact, null, 2))
   writeFileSync(
-    join(process.cwd(), '.evolve', 'compare-drivers-canonical', 'latest.json'),
+    join(process.cwd(), '.evolve', 'compare-proposers-canonical', 'latest.json'),
     JSON.stringify(artifact, null, 2),
   )
 
-  console.log('── DRIVER COMPARISON (ranked by held-out lift) ─────────────')
+  console.log('── PROPOSER COMPARISON (ranked by held-out lift) ─────────────')
   for (const s of artifact.scores) {
     console.log(
       `  #${s.rank} ${s.name.padEnd(16)} lift=${s.lift >= 0 ? '+' : ''}${s.lift}  ` +
@@ -227,13 +227,13 @@ async function main() {
   console.log(`  total cost           : $${round6(totalCostUsd)}`)
   console.log(`  elapsed              : ${elapsedSec}s`)
   console.log(
-    `  BEST DRIVER          : ${best.name} (lift=${round(best.lift)}, CI.low=${round(best.liftCi.low)})`,
+    `  BEST PROPOSER          : ${best.name} (lift=${round(best.lift)}, CI.low=${round(best.liftCi.low)})`,
   )
   console.log(`  HONEST VERDICT       : ${honestVerdict}`)
   console.log(`  artifact: ${artifactPath}`)
 }
 
 main().catch((err) => {
-  console.error('COMPARE-DRIVERS FAILED:', err instanceof Error ? err.message : err)
+  console.error('COMPARE-PROPOSERS FAILED:', err instanceof Error ? err.message : err)
   process.exitCode = 1
 })

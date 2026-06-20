@@ -8,7 +8,7 @@
  * with your real agent + your real judge to point the loop at production.
  */
 
-import type { ImprovementDriver, MutableSurface, Scenario } from '../../src/contract'
+import type { Scenario, SurfaceProposer } from '../../src/contract'
 import { selfImprove } from '../../src/contract'
 
 interface CopyScenario extends Scenario {
@@ -19,6 +19,11 @@ const scenarios: CopyScenario[] = [
   { id: 'launch', kind: 'copy', brief: 'announce a new pricing tier' },
   { id: 'feature', kind: 'copy', brief: 'highlight a new collaboration feature' },
   { id: 'event', kind: 'copy', brief: 'invite to a customer roundtable' },
+  { id: 'renewal', kind: 'copy', brief: 'remind a customer about renewal' },
+  { id: 'webinar', kind: 'copy', brief: 'invite a prospect to a product webinar' },
+  { id: 'churn', kind: 'copy', brief: 'win back an inactive account' },
+  { id: 'case-study', kind: 'copy', brief: 'promote a customer case study' },
+  { id: 'security', kind: 'copy', brief: 'explain a new security feature' },
 ]
 
 // Synthetic agent: better surfaces produce higher-quality artifacts.
@@ -29,8 +34,8 @@ async function dispatch({
   scenario: CopyScenario
   systemPrompt: string
 }): Promise<{ text: string; quality: number }> {
-  const tightnessBonus = systemPrompt.includes('tight') ? 0.18 : 0
-  const specificBonus = systemPrompt.includes('specific') ? 0.12 : 0
+  const tightnessBonus = systemPrompt.includes('tight') ? 0.38 : 0
+  const specificBonus = systemPrompt.includes('specific') ? 0.28 : 0
   const noise = hash(scenario.id + systemPrompt)
   const quality = Math.min(1, 0.4 + tightnessBonus + specificBonus + 0.2 * noise)
   return {
@@ -49,13 +54,9 @@ function hash(s: string): number {
 
 // Synthetic judge: scores 'clarity' and 'concision' as dimensions; their
 // mean is the composite the gate sees.
-async function judge({
-  artifact,
-}: {
-  artifact: { text: string; quality: number }
-}) {
-  const clarity = clamp(artifact.quality + 0.05 * Math.random())
-  const concision = clamp(artifact.quality - 0.03 * Math.random())
+async function judge({ artifact }: { artifact: { text: string; quality: number } }) {
+  const clarity = clamp(artifact.quality + 0.03 * (hash(`${artifact.text}:clarity`) - 0.5))
+  const concision = clamp(artifact.quality - 0.02 * (hash(`${artifact.text}:concision`) - 0.5))
   const composite = (clarity + concision) / 2
   return {
     dimensions: { clarity, concision },
@@ -68,19 +69,20 @@ function clamp(x: number): number {
   return Math.max(0, Math.min(1, x))
 }
 
-// Synthetic driver: deterministically proposes two variants per generation —
+// Synthetic proposer: deterministically proposes two variants per generation —
 // one adds 'tight,', the other adds 'specific,'. Lets the example run offline.
 // In real use, you'd use the default `gepaDriver` (reflective LLM mutation)
 // from `/contract`.
-const syntheticDriver: ImprovementDriver = {
+const syntheticProposer: SurfaceProposer = {
   kind: 'synthetic-quickstart',
   async propose({ currentSurface, populationSize }) {
-    const current = currentSurface as { kind: string; systemPrompt: string }
+    const current = String(currentSurface)
     const additions = ['tight,', 'specific,', 'punchy,', 'concrete,']
     return additions.slice(0, populationSize).map((kw) => ({
-      kind: current.kind,
-      systemPrompt: `${current.systemPrompt} Write ${kw} engaging copy.`,
-    })) as MutableSurface[]
+      surface: `${current} Write ${kw} engaging copy.`,
+      label: `add-${kw.replace(',', '')}`,
+      rationale: `Add a ${kw.replace(',', '')} writing constraint.`,
+    }))
   },
 }
 
@@ -90,7 +92,7 @@ async function main() {
     agent: async (surface, scenario) =>
       dispatch({
         scenario,
-        systemPrompt: (surface as { systemPrompt: string }).systemPrompt,
+        systemPrompt: String(surface),
       }),
     judge: {
       name: 'rubric',
@@ -100,12 +102,10 @@ async function main() {
       ],
       score: judge,
     },
-    baselineSurface: {
-      kind: 'prompt',
-      systemPrompt: 'You write marketing copy. Keep it short.',
-    },
-    driver: syntheticDriver,
+    baselineSurface: 'You write marketing copy. Keep it short.',
+    proposer: syntheticProposer,
     budget: { generations: 1, populationSize: 2, holdoutFraction: 0.5 },
+    expectUsage: 'off',
   })
 
   const i = result.insight

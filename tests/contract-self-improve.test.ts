@@ -2,7 +2,7 @@
  * `selfImprove()` provenance emission — the LAND-tier one-shot must surface +
  * persist the full auditable chain, not just the lift number it returns.
  *
- * These tests drive the real `selfImprove` with a deterministic custom driver
+ * These tests drive the real `selfImprove` with a deterministic custom proposer
  * (no network) that returns a `ProposedCandidate` carrying a rationale, an
  * objective marker-keyed judge, and a real-on-disk runDir. They assert:
  *
@@ -13,7 +13,7 @@
  *   4. backend provenance is captured from caller-supplied worker records,
  *   5. the +lift RECOMPUTES from the persisted record (not the live return).
  *
- * Regressions guarded: gepa/driver dropping rationale; selfImprove defaulting
+ * Regressions guarded: gepa/proposer dropping rationale; selfImprove defaulting
  * to mem:// + inMemory so nothing persists; the +lift only living in memory.
  */
 
@@ -29,10 +29,10 @@ import {
 } from '../src/campaign/provenance'
 import type {
   DispatchContext,
-  ImprovementDriver,
   JudgeConfig,
   MutableSurface,
   Scenario,
+  SurfaceProposer,
 } from '../src/campaign/types'
 import { selfImprove } from '../src/contract/self-improve'
 import type { RunRecord } from '../src/run-record'
@@ -64,9 +64,9 @@ const judge: JudgeConfig<A, S> = {
   },
 }
 
-// Deterministic driver: one candidate that introduces the marker, carrying the
+// Deterministic proposer: one candidate that introduces the marker, carrying the
 // rationale. This is what gepaDriver does with a real router; here it is fixed.
-const driver: ImprovementDriver = {
+const proposer: SurfaceProposer = {
   kind: 'fake:marker',
   async propose({ currentSurface, populationSize }) {
     const base = typeof currentSurface === 'string' ? currentSurface : ''
@@ -118,7 +118,7 @@ describe('selfImprove provenance emission (durable by default)', () => {
       judge,
       expectUsage: 'off', // deterministic offline mock — no real backend to assert
       baselineSurface: 'BASE',
-      driver,
+      proposer,
       budget: { generations: 1, populationSize: 1 },
       gate: undefined,
       runDir, // real path ⇒ durable by default (fs storage)
@@ -176,7 +176,7 @@ describe('selfImprove provenance emission (durable by default)', () => {
       judge,
       expectUsage: 'off', // deterministic offline mock — no real backend to assert
       baselineSurface: 'BASE',
-      driver,
+      proposer,
       budget: { generations: 1, populationSize: 1 },
       // no runDir ⇒ mem://… ⇒ in-memory storage ⇒ nothing on disk
     })
@@ -192,7 +192,7 @@ describe('selfImprove — forwarded loop knobs', () => {
     scenarios: SCENARIOS,
     judge,
     baselineSurface: 'BASE',
-    driver,
+    proposer,
     budget: { generations: 1, populationSize: 1 },
   } as const
 
@@ -220,5 +220,34 @@ describe('selfImprove — forwarded loop knobs', () => {
       },
     })
     expect(calls).toBeGreaterThanOrEqual(1)
+  })
+
+  it('rejects conflicting proposer and legacy driver options', async () => {
+    const otherProposer: SurfaceProposer = {
+      kind: 'fake:other',
+      async propose() {
+        return [{ surface: 'OTHER', label: 'other', rationale: 'other' }]
+      },
+    }
+
+    await expect(
+      selfImprove<S, A>({
+        ...base,
+        proposer,
+        driver: otherProposer,
+        expectUsage: 'off',
+      }),
+    ).rejects.toThrow(/either proposer or driver/)
+  })
+
+  it('rejects conflicting proposerTarget and legacy driverTarget options', async () => {
+    await expect(
+      selfImprove<S, A>({
+        ...base,
+        proposerTarget: 'prompt',
+        driverTarget: 'config',
+        expectUsage: 'off',
+      }),
+    ).rejects.toThrow(/either proposerTarget or driverTarget/)
   })
 })

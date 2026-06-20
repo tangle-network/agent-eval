@@ -1,8 +1,8 @@
 # Multi-Shot Optimization
 
 > **Renamed.** `runMultiShotOptimization` was retired. The live API is
-> `runImprovementLoop` (driver-agnostic, gated promotion) driven by `gepaDriver`,
-> with `compareDrivers` for head-to-head driver lift. This doc was rewritten to the
+> `runImprovementLoop` (proposer-agnostic, gated promotion) driven by `gepaDriver`,
+> with `compareProposers` for head-to-head proposer lift. This doc was rewritten to the
 > live API; see also [feature-guide.md](./feature-guide.md) and [concepts.md](./concepts.md).
 
 `runImprovementLoop` is the public entry for GEPA-style optimization over a whole
@@ -19,7 +19,7 @@ held-out re-score, the promotion gate, provenance):
 - **`dispatchWithSurface(surface, scenario, ctx)`** — run one task to completion
   under a candidate surface; return the artifact the judges score.
 - **`judges`** — score the artifact (`{ composite, dimensions }`).
-- **`driver`** — proposes candidate surfaces each generation: `gepaDriver`
+- **`proposer`** — proposes candidate surfaces each generation: `gepaDriver`
   (reflective + Pareto frontier) or `evolutionaryDriver` (mutator).
 - **`gate`** — `defaultProductionGate` (held-out significance + red-team +
   reward-hacking + canary). Ships ONLY on a CI-lower-bound held-out lift.
@@ -40,7 +40,7 @@ const result = await runImprovementLoop({
   dispatchWithSurface: async (surface, scenario) =>
     runYourAgentToCompletion({ scenario, prompt: String(surface) }),
   judges: [myJudge],
-  driver: gepaDriver({
+  proposer: gepaDriver({
     llm: { apiKey, baseUrl },
     model: 'gpt-5',
     target: 'enforce a strict output schema',
@@ -53,7 +53,7 @@ const result = await runImprovementLoop({
 })
 
 if (result.gateResult.decision === 'ship') {
-  deploy(result.winnerSurface) // the driver's proposal, gated on a real held-out lift
+  deploy(result.winnerSurface) // the proposer's candidate, gated on a real held-out lift
 }
 ```
 
@@ -70,6 +70,6 @@ if (result.gateResult.decision === 'ship') {
   auditable candidate→gate→promote chain (rationale, content hashes, a held-out lift
   recomputable from the emitted record).
 
-Reach for `compareDrivers` when the question is "which DRIVER wins" rather than
+Reach for `compareProposers` when the question is "which proposer wins" rather than
 "improve this surface", and see `tests/campaign/presets.test.ts` for the executable
 contract (no-op guard, fail-loud holdout, gate promotion).

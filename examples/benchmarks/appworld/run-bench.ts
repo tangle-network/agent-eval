@@ -1,14 +1,14 @@
 /**
- * @experimental — AppWorld driver-comparison benchmark.
+ * @experimental — AppWorld proposer-comparison benchmark.
  *
- * Head-to-head lift of agent-eval's self-improvement drivers on a PUBLIC
+ * Head-to-head lift of agent-eval's self-improvement proposers on a PUBLIC
  * benchmark (AppWorld), scored objectively by `world.evaluate()` (SGC/TGC):
  *
  *   baseline  vs  gepa-reflection  vs  gepa-pareto  vs  memory-curation  vs  halo
  *
  * Each arm optimizes the SAME baseline agent instruction prompt (the surface)
  * on a TRAIN split, then every winner + the baseline are scored on a held-out
- * split via paired bootstrap CIs (compareDrivers). The agent itself is the real
+ * split via paired bootstrap CIs (compareProposers). The agent itself is the real
  * non-MCP REPL worker (repl_agent.py) driving real AppWorld tasks through the
  * Tangle router — no mocks, objective scoring.
  *
@@ -18,7 +18,7 @@
  *   BENCH_MODEL=gpt-5-mini TRAIN_N=4 HOLDOUT_N=6 MAX_GEN=2 \
  *   pnpm tsx examples/benchmarks/appworld/run-bench.ts > /tmp/appworld-bench/run.log 2>&1
  *
- * Output: a markdown report + the raw DriverComparison JSON under OUT_DIR.
+ * Output: a markdown report + the raw ProposerComparison JSON under OUT_DIR.
  */
 
 import { execFile } from 'node:child_process'
@@ -33,9 +33,8 @@ import {
   IMPROVEMENT_KIND_SPEC,
 } from '../../../src'
 import {
-  compareDrivers,
+  compareProposers,
   type DispatchContext,
-  type DriverEntry,
   defaultProductionGate,
   gepaParetoEntry,
   gepaReflectionEntry,
@@ -44,6 +43,7 @@ import {
   type MutableSurface,
   memoryCurationDriver,
   type OptimizerEntryConfig,
+  type ProposerEntry,
   runImprovementLoop,
   type Scenario,
   traceAnalystDriver,
@@ -57,7 +57,7 @@ const PYTHON = process.env.BENCH_PYTHON ?? `${APPWORLD_DIR}/.venv/bin/python`
 const HERE = dirname(fileURLToPath(import.meta.url))
 const WORKER = join(HERE, 'repl_agent.py')
 const MODEL = process.env.BENCH_MODEL ?? 'gpt-5.1' // the AGENT model (worker) — a strong model
-const REFLECT_MODEL = process.env.BENCH_REFLECT_MODEL ?? 'deepseek-v4-pro' // drivers' propose model
+const REFLECT_MODEL = process.env.BENCH_REFLECT_MODEL ?? 'deepseek-v4-pro' // proposers' model
 const BASE_URL = process.env.OPENAI_BASE_URL ?? 'https://router.tangle.tools/v1'
 const API_KEY = process.env.OPENAI_API_KEY ?? ''
 const TRAIN_N = Number(process.env.TRAIN_N ?? 3)
@@ -84,7 +84,7 @@ const HALO_MAX_TURNS = Number(process.env.HALO_MAX_TURNS ?? 20)
 // Our trace-analyst is the symmetric opponent to HALO. Opt-in (it spends extra
 // on the agentic analyst reads); turn BOTH on for the head-to-head.
 const WITH_ANALYST = process.env.WITH_ANALYST === '1'
-// Which analyst kinds the trace-analyst driver runs. Default = failure-mode +
+// Which analyst kinds the trace-analyst proposer runs. Default = failure-mode +
 // improvement (the two that map to HALO's diagnose+fix, keeping turns/cost
 // comparable). Set BENCH_ANALYST_KINDS=all for the full shipped suite.
 const ANALYST_KINDS = process.env.BENCH_ANALYST_KINDS ?? 'focused'
@@ -241,10 +241,10 @@ const appworldJudge: JudgeConfig<AppWorldArtifact, AppWorldScenario> = {
   },
 }
 
-/** memory-curation entry — runs runImprovementLoop with the CURATOR driver. */
+/** memory-curation entry — runs runImprovementLoop with the curator proposer. */
 function memoryEntry(
   config: OptimizerEntryConfig<AppWorldScenario, AppWorldArtifact>,
-): DriverEntry {
+): ProposerEntry {
   return {
     name: 'memory-curation',
     async optimize() {
@@ -255,7 +255,7 @@ function memoryEntry(
         baselineSurface: config.baselineSurface,
         dispatchWithSurface: config.dispatchWithSurface,
         judges: config.judges,
-        driver: memoryCurationDriver({}),
+        proposer: memoryCurationDriver({}),
         populationSize: 1,
         maxGenerations: config.maxGenerations ?? MAX_GEN,
         gate: defaultProductionGate<AppWorldArtifact, AppWorldScenario>({
@@ -277,8 +277,10 @@ function memoryEntry(
   }
 }
 
-/** halo entry — runs runImprovementLoop with the real halo-engine driver. */
-function haloEntry(config: OptimizerEntryConfig<AppWorldScenario, AppWorldArtifact>): DriverEntry {
+/** halo entry — runs runImprovementLoop with the real halo-engine proposer. */
+function haloEntry(
+  config: OptimizerEntryConfig<AppWorldScenario, AppWorldArtifact>,
+): ProposerEntry {
   return {
     name: 'halo',
     async optimize() {
@@ -289,7 +291,7 @@ function haloEntry(config: OptimizerEntryConfig<AppWorldScenario, AppWorldArtifa
         baselineSurface: config.baselineSurface,
         dispatchWithSurface: config.dispatchWithSurface,
         judges: config.judges,
-        driver: haloDriver({
+        proposer: haloDriver({
           baseUrl: BASE_URL,
           apiKey: API_KEY,
           model: REFLECT_MODEL,
@@ -342,7 +344,7 @@ function resolveTrainTraces(): string {
 // gate, traces, and apply-step — only the findings producer differs.
 function traceAnalystEntry(
   config: OptimizerEntryConfig<AppWorldScenario, AppWorldArtifact>,
-): DriverEntry {
+): ProposerEntry {
   const kinds =
     ANALYST_KINDS === 'all'
       ? DEFAULT_TRACE_ANALYST_KINDS
@@ -357,7 +359,7 @@ function traceAnalystEntry(
         baselineSurface: config.baselineSurface,
         dispatchWithSurface: config.dispatchWithSurface,
         judges: config.judges,
-        driver: traceAnalystDriver({
+        proposer: traceAnalystDriver({
           baseUrl: BASE_URL,
           apiKey: API_KEY,
           model: REFLECT_MODEL,
@@ -385,7 +387,7 @@ function traceAnalystEntry(
   }
 }
 
-// Track the most recent train-cell trace files so the halo driver can analyze them.
+// Track the most recent train-cell trace files so the halo proposer can analyze them.
 const latestTracePaths: string[] = []
 
 async function main(): Promise<void> {
@@ -411,7 +413,7 @@ async function main(): Promise<void> {
     },
   )
 
-  // Wrap dispatch to record train-cell trace paths for the halo driver.
+  // Wrap dispatch to record train-cell trace paths for the halo proposer.
   const trainIds = new Set(trainScenarios.map((s) => s.taskId))
   const recordingDispatch = async (
     surface: MutableSurface,
@@ -438,23 +440,29 @@ async function main(): Promise<void> {
     maxGenerations: MAX_GEN,
   }
 
-  let drivers: DriverEntry[] = [gepaReflectionEntry(cfg), gepaParetoEntry(cfg), memoryEntry(cfg)]
-  if (WITH_HALO) drivers.push(haloEntry(cfg))
-  if (WITH_ANALYST) drivers.push(traceAnalystEntry(cfg))
-  // BENCH_DRIVERS=gepa-reflection,memory-curation selects a subset (smoke / recovery).
-  const only = (process.env.BENCH_DRIVERS ?? '')
+  let proposers: ProposerEntry[] = [
+    gepaReflectionEntry(cfg),
+    gepaParetoEntry(cfg),
+    memoryEntry(cfg),
+  ]
+  if (WITH_HALO) proposers.push(haloEntry(cfg))
+  if (WITH_ANALYST) proposers.push(traceAnalystEntry(cfg))
+  // BENCH_PROPOSERS=gepa-reflection,memory-curation selects a subset (smoke / recovery).
+  const only = (process.env.BENCH_PROPOSERS ?? '')
     .split(',')
     .map((s) => s.trim())
     .filter(Boolean)
-  if (only.length > 0) drivers = drivers.filter((d) => only.includes(d.name))
-  if (drivers.length === 0) throw new Error(`BENCH_DRIVERS matched no drivers: ${only.join(',')}`)
+  if (only.length > 0) proposers = proposers.filter((d) => only.includes(d.name))
+  if (proposers.length === 0) {
+    throw new Error(`BENCH_PROPOSERS matched no proposers: ${only.join(',')}`)
+  }
 
   console.log(
-    `[bench] model=${MODEL} reflect=${REFLECT_MODEL} train=${TRAIN_N} holdout=${HOLDOUT_N} gen=${MAX_GEN} pop=${POP} drivers=${drivers.map((d) => d.name).join(',')}`,
+    `[bench] model=${MODEL} reflect=${REFLECT_MODEL} train=${TRAIN_N} holdout=${HOLDOUT_N} gen=${MAX_GEN} pop=${POP} proposers=${proposers.map((d) => d.name).join(',')}`,
   )
 
-  const comparison = await compareDrivers<AppWorldScenario, AppWorldArtifact>({
-    drivers,
+  const comparison = await compareProposers<AppWorldScenario, AppWorldArtifact>({
+    proposers,
     baselineSurface,
     holdoutScenarios,
     dispatchWithSurface: recordingDispatch,
@@ -472,7 +480,7 @@ async function main(): Promise<void> {
   console.log(`\n${md}\n[bench] artifacts in ${OUT_DIR}`)
 }
 
-function renderReport(c: Awaited<ReturnType<typeof compareDrivers>>): string {
+function renderReport(c: Awaited<ReturnType<typeof compareProposers>>): string {
   const rows = c.scores
     .map(
       (s) =>
@@ -483,12 +491,12 @@ function renderReport(c: Awaited<ReturnType<typeof compareDrivers>>): string {
     .filter((s) => s.liftCi.low > 0)
     .map((s) => s.name)
     .join(', ')
-  return `# AppWorld driver-comparison benchmark
+  return `# AppWorld proposer-comparison benchmark
 
 Public benchmark (AppWorld dev), objective scoring (\`world.evaluate\` TGC/SGC), paired bootstrap CIs.
 Held-out scenarios: ${c.holdoutScenarioIds.length} — \`${c.holdoutScenarioIds.join(', ')}\`
 
-| rank | driver | baseline | winner | lift | 95% CI | cost |
+| rank | proposer | baseline | winner | lift | 95% CI | cost |
 |---|---|---|---|---|---|---|
 ${rows}
 

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import type { Scenario } from '../types'
+import type { Scenario, SurfaceProposer } from '../types'
 import { type RunImprovementLoopOptions, runImprovementLoop } from './run-improvement-loop'
 
 // Regression: a scenario present in BOTH the training pool (`scenarios`, which
@@ -8,6 +8,10 @@ import { type RunImprovementLoopOptions, runImprovementLoop } from './run-improv
 // data the optimizer already saw (memorization read as generalization). The
 // pre-flight guard must reject this BEFORE any rollout, not silently inflate.
 const sc = (id: string): Scenario => ({ id, kind: 'unit' })
+const proposer = (kind: string): SurfaceProposer => ({
+  kind,
+  propose: async () => [],
+})
 
 // Minimal opts that reach the disjointness guard: autoOnPromote='none' skips the
 // gh-owner check; no driver/tracing avoids the tracing guard. Downstream fields
@@ -45,5 +49,25 @@ describe('runImprovementLoop train/holdout disjointness guard', () => {
     await expect(runImprovementLoop(optsWith([sc('train-1')], [sc('hold-1')]))).rejects.not.toThrow(
       /must be disjoint/,
     )
+  })
+
+  it('uses proposer in the tracing guard message', async () => {
+    await expect(
+      runImprovementLoop({
+        ...optsWith([sc('train-1')], [sc('hold-1')]),
+        proposer: proposer('unit-proposer'),
+        tracing: 'off',
+      }),
+    ).rejects.toThrow(/proposer is wired/)
+  })
+
+  it('rejects ambiguous driver plus proposer before running a campaign', async () => {
+    await expect(
+      runImprovementLoop({
+        ...optsWith([sc('train-1')], [sc('hold-1')]),
+        proposer: proposer('preferred'),
+        driver: proposer('legacy'),
+      }),
+    ).rejects.toThrow(/either proposer or driver/)
   })
 })
