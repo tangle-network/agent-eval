@@ -17,6 +17,7 @@ data/
 
 # Test + run ephemerals
 .runs/
+.marketing-agent-runs/
 .calibrate/
 coverage/
 *.junit.xml

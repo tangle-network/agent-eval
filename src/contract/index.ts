@@ -176,6 +176,7 @@ export {
 
 // ── One-shot helper ─────────────────────────────────────────────────
 
+export type { HostedTenant } from '../hosted/client'
 export {
   type AgentEvalAgent,
   type AgentEvalEvaluateOptions,

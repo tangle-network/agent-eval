@@ -162,7 +162,7 @@ describe('defineAgentEval', () => {
   })
 
   it('merges nested hosted tenant overrides without dropping credentials', async () => {
-    let request: { url: string; headers: Headers } | undefined
+    const requests: Array<{ url: string; headers: Headers }> = []
     const evalKit = defineAgentEval({
       scenarios,
       agent,
@@ -173,10 +173,10 @@ describe('defineAgentEval', () => {
         apiKey: 'secret-key',
         tenantId: 'tenant-a',
         fetchImpl: async (url, init) => {
-          request = {
+          requests.push({
             url: String(url),
             headers: new Headers(init?.headers),
-          }
+          })
           return new Response(JSON.stringify({ ok: true }), {
             status: 200,
             headers: { 'content-type': 'application/json' },
@@ -191,9 +191,18 @@ describe('defineAgentEval', () => {
       hostedTenant: { endpoint: 'https://new.example' },
     })
 
-    expect(request?.url).toBe('https://new.example/v1/ingest/eval-runs')
-    expect(request?.headers.get('authorization')).toBe('Bearer secret-key')
-    expect(request?.headers.get('x-tangle-tenant-id')).toBe('tenant-a')
+    expect(requests.length).toBeGreaterThan(0)
+    expect(
+      requests.every((request) => request.url.startsWith('https://new.example/v1/ingest/')),
+    ).toBe(true)
+    expect(requests.some((request) => request.url.endsWith('/eval-runs'))).toBe(true)
+    expect(requests.some((request) => request.url.endsWith('/traces'))).toBe(true)
+    expect(
+      requests.every((request) => request.headers.get('authorization') === 'Bearer secret-key'),
+    ).toBe(true)
+    expect(
+      requests.every((request) => request.headers.get('x-tangle-tenant-id') === 'tenant-a'),
+    ).toBe(true)
   })
 
   it('fails loudly when a partial hosted tenant has no defaults to complete it', async () => {
@@ -211,5 +220,32 @@ describe('defineAgentEval', () => {
         hostedTenant: { endpoint: 'https://new.example' },
       }),
     ).rejects.toThrow(/hostedTenant requires endpoint, apiKey, and tenantId/)
+  })
+
+  it('rejects zero reps instead of producing a zero-cell evaluate run', () => {
+    expect(() =>
+      defineAgentEval({
+        scenarios,
+        agent,
+        judge,
+        baselineSurface: 'base',
+        budget: { reps: 0 },
+        expectUsage: 'off',
+      }),
+    ).toThrow(/budget\.reps must be a positive integer/)
+  })
+
+  it('rejects per-call zero reps instead of producing a zero-cell evaluate run', async () => {
+    const evalKit = defineAgentEval({
+      scenarios,
+      agent,
+      judge,
+      baselineSurface: 'base',
+      expectUsage: 'off',
+    })
+
+    await expect(evalKit.evaluate({ reps: 0 })).rejects.toThrow(
+      /defineAgentEval: reps must be a positive integer/,
+    )
   })
 })

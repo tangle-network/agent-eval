@@ -6,13 +6,15 @@ import { canonicalize } from './pre-registration'
 export type { AgentProfile } from '@tangle-network/agent-interface'
 
 /**
- * Collision-resistant, human-readable profile id for eval artifacts.
+ * Collision-resistant, path-safe, human-readable profile id for eval artifacts.
  * Scorecard joins still use `agentProfileHash`; this id is for run ids, matrix
  * keys, and directory names where two profiles must not collapse onto one row.
+ * The suffix is the first 64 bits of the behaviour hash, enough for ordinary
+ * eval matrices while keeping filenames readable.
  */
 export function agentProfileId(profile: AgentProfile): string {
-  const label = agentProfileLabel(profile) ?? 'profile'
-  return `${label}-${agentProfileHash(profile).slice(0, 12)}`
+  const label = pathSafeProfileLabel(agentProfileDisplayLabel(profile)) ?? 'profile'
+  return `${label}-${agentProfileHash(profile).slice(0, 16)}`
 }
 
 /**
@@ -22,7 +24,7 @@ export function agentProfileId(profile: AgentProfile): string {
 export function agentProfileModelId(profile: AgentProfile): string {
   const model = profile.model?.default?.trim()
   if (!model) {
-    const label = agentProfileLabel(profile) ?? 'unnamed profile'
+    const label = agentProfileDisplayLabel(profile) ?? 'unnamed profile'
     throw new ValidationError(
       `AgentProfile "${label}" has no model.default — cannot record eval run`,
     )
@@ -30,8 +32,17 @@ export function agentProfileModelId(profile: AgentProfile): string {
   return model
 }
 
-function agentProfileLabel(profile: AgentProfile): string | undefined {
+function agentProfileDisplayLabel(profile: AgentProfile): string | undefined {
   return profile.name?.trim() || profile.version?.trim() || undefined
+}
+
+function pathSafeProfileLabel(label: string | undefined): string | undefined {
+  const safe = label
+    ?.trim()
+    .replace(/[^A-Za-z0-9._-]+/g, '-')
+    .replace(/-+/g, '-')
+    .replace(/^-|-$/g, '')
+  return safe || undefined
 }
 
 function compact<T extends Record<string, unknown>>(input: T): Partial<T> {

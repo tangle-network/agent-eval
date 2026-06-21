@@ -113,14 +113,22 @@ export function defineAgentEval<TScenario extends Scenario, TArtifact>(
         dispatch: (scenario, ctx) => selectedAgent(selectedSurface, scenario, ctx),
         judges: evaluateJudges(judges, judge ?? defaults.judge),
       }
+      if (evalOptions.reps !== undefined)
+        evalOptions.reps = requirePositiveInteger(evalOptions.reps, 'reps')
       return runEval<TScenario, TArtifact>(evalOptions)
     },
 
-    async improve(opts) {
-      const merged = mergeDefined(defaults, opts)
-      const budget = mergeBudget(defaults.budget, opts?.budget)
-      const llm = mergeLlm(defaults.llm, opts?.llm)
-      const hostedTenant = mergeHostedTenant(defaults.hostedTenant, opts?.hostedTenant)
+    async improve(opts = {}) {
+      const {
+        budget: budgetOverride,
+        hostedTenant: hostedTenantOverride,
+        llm: llmOverride,
+        ...topLevelOverrides
+      } = opts
+      const merged = mergeDefined(defaults, topLevelOverrides)
+      const budget = mergeBudget(defaults.budget, budgetOverride)
+      const llm = mergeLlm(defaults.llm, llmOverride)
+      const hostedTenant = mergeHostedTenant(defaults.hostedTenant, hostedTenantOverride)
       return selfImprove<TScenario, TArtifact>({
         ...merged,
         ...(budget ? { budget } : {}),
@@ -148,7 +156,8 @@ function evaluateDefaults<TScenario extends Scenario, TArtifact>(
   if (defaults.budget?.dollars !== undefined) out.costCeiling = defaults.budget.dollars
   if (defaults.budget?.maxConcurrency !== undefined)
     out.maxConcurrency = defaults.budget.maxConcurrency
-  if (defaults.budget?.reps !== undefined) out.reps = defaults.budget.reps
+  if (defaults.budget?.reps !== undefined)
+    out.reps = requirePositiveInteger(defaults.budget.reps, 'budget.reps')
   return out
 }
 
@@ -156,7 +165,9 @@ function mergeBudget(
   defaults: SelfImproveBudget | undefined,
   overrides: Partial<SelfImproveBudget> | undefined,
 ): SelfImproveBudget | undefined {
-  return mergeOptionalObject(defaults, overrides)
+  const merged = mergeOptionalObject(defaults, overrides)
+  if (merged?.reps !== undefined) merged.reps = requirePositiveInteger(merged.reps, 'budget.reps')
+  return merged
 }
 
 function mergeLlm(
@@ -180,7 +191,7 @@ function mergeHostedTenant(
   return merged
 }
 
-function mergeDefined<T extends object>(defaults: T, overrides: object | undefined): T {
+function mergeDefined<T extends object>(defaults: T, overrides: Partial<T> | undefined): T {
   if (!overrides) return defaults
   const merged = { ...defaults } as Record<string, unknown>
   for (const [key, value] of Object.entries(overrides)) {
@@ -208,4 +219,11 @@ function evaluateJudges<TArtifact, TScenario extends Scenario>(
     return judges
   }
   return [defaultJudge]
+}
+
+function requirePositiveInteger(value: number, field: string): number {
+  if (!Number.isInteger(value) || value < 1) {
+    throw new Error(`defineAgentEval: ${field} must be a positive integer`)
+  }
+  return value
 }

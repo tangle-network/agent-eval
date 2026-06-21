@@ -30,6 +30,29 @@ describe('agentProfileHash', () => {
     )
   })
 
+  it('treats resource array order as behavior-bearing', () => {
+    const first = {
+      ...base,
+      resources: {
+        skills: [
+          { kind: 'inline', name: 'first', content: 'first skill' },
+          { kind: 'inline', name: 'second', content: 'second skill' },
+        ],
+      },
+    } satisfies AgentProfile
+    const second = {
+      ...base,
+      resources: {
+        skills: [
+          { kind: 'inline', name: 'second', content: 'second skill' },
+          { kind: 'inline', name: 'first', content: 'first skill' },
+        ],
+      },
+    } satisfies AgentProfile
+
+    expect(agentProfileHash(first)).not.toBe(agentProfileHash(second))
+  })
+
   it('ignores human-facing name and description', () => {
     expect(agentProfileHash({ ...base, name: 'a-different-label', description: 'docs' })).toBe(
       agentProfileHash(base),
@@ -78,19 +101,25 @@ describe('agentProfileId', () => {
   it('uses the trimmed profile name plus a behavior hash suffix', () => {
     const id = agentProfileId({ ...base, name: '  sonnet-baseline  ' })
 
-    expect(id).toMatch(/^sonnet-baseline-[0-9a-f]{12}$/)
+    expect(id).toMatch(/^sonnet-baseline-[0-9a-f]{16}$/)
+  })
+
+  it('sanitizes the label before using it in run ids and paths', () => {
+    const id = agentProfileId({ ...base, name: '  sonnet/legal: v1  ' })
+
+    expect(id).toMatch(/^sonnet-legal-v1-[0-9a-f]{16}$/)
   })
 
   it('uses version as the human label when name is absent', () => {
     const id = agentProfileId({ ...base, name: undefined, version: '  v3  ' })
 
-    expect(id).toMatch(/^v3-[0-9a-f]{12}$/)
+    expect(id).toMatch(/^v3-[0-9a-f]{16}$/)
   })
 
   it('falls back to a profile hash label when no name or version is present', () => {
     const id = agentProfileId({ ...base, name: undefined, version: undefined })
 
-    expect(id).toMatch(/^profile-[0-9a-f]{12}$/)
+    expect(id).toMatch(/^profile-[0-9a-f]{16}$/)
   })
 
   it('fails loudly instead of inventing a fallback id for an unrecordable profile', () => {
