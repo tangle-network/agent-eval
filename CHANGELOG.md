@@ -4,6 +4,23 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ---
 
+## [0.95.0] — 2026-06-21 — FAPO proposer + public-surface prune
+
+### Added
+
+- **FAPO proposer policy** in the campaign proposer family — feeds `runImprovementLoop` / `runCampaign` proposer-driven self-improvement (`gepaProposer` at `src/campaign/proposers/gepa.ts`).
+
+### Changed
+
+- Profile handling finalized on the canonical `@tangle-network/agent-interface` `AgentProfile` — completes the migration in 0.94.0. Per-run profile cells are built via `buildAgentInterfaceProfileCell` with `sourceProfile.kind = 'agent-interface-profile'`.
+- Proposer and trace plumbing cleaned up across the campaign surface.
+
+### Removed
+
+- **Pruned stale public exports.** Loop / proposer / ship-gate primitives (`runImprovementLoop`, `gepaProposer`, `defaultProductionGate`, `defineAgentEval`, `runCampaign`, …) are reached via the `@tangle-network/agent-eval/contract` subpath; importing them from the package root no longer resolves.
+
+---
+
 ## [0.94.0] — 2026-06-21 — canonical AgentProfile + defineAgentEval DX
 
 ### Changed
