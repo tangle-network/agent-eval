@@ -5,13 +5,13 @@ the same word ("loop", "shot", "worker") was being used at three different
 layers, and the layers were getting conflated. Every role below has exactly
 one meaning. Use these words and nothing else.
 
-Cross-links: [`three-package-architecture.md`](../three-package-architecture.md)
-(who owns what), [`concepts.md`](../concepts.md) (eval mental model),
-[`multi-shot-optimization.md`](../multi-shot-optimization.md) (GEPA),
+Cross-links: [`concepts.md`](../concepts.md) (eval mental model),
+[`campaign-proposers.md`](../campaign-proposers.md) (proposer catalog),
+[`multi-shot-optimization.md`](../multi-shot-optimization.md) (GEPA), and
 [`auto-research-loop-end-to-end.md`](../auto-research-loop-end-to-end.md)
 (analyst / autoresearch).
 
-## The three roles
+## Core Roles
 
 | Role | Definition | Lives at |
 |---|---|---|
@@ -184,35 +184,6 @@ The cost/capability distinction:
 Both are implementations of the one proposer contract (propose → measure → gate
 → PR). They differ only in *what* they edit and *how invasive* it is — and both
 consume the **same dataset** the flywheel builds.
-
-## Resolved design decisions
-
-1. **`MutableSurface` widens to span all tiers.** `MutableSurface = string |
-   CodeSurface`. The `string` form is tiers 1–2 (prompt / serialized tool
-   config); `CodeSurface = { kind: 'code'; worktreeRef; baseRef?; summary? }`
-   is tier 4 (an implementation change behind a worktree ref). One loop spans
-   prompt *and* code improvement. `surfaceHash` hashes a string by content and
-   a code surface by its `(worktreeRef, baseRef)` identity (the content lives
-   in git). **Shipped in agent-eval 0.40.1.** The consumer's
-   `dispatchWithSurface` is responsible for checking out a code surface's
-   worktree before running the worker.
-
-2. **`runAnalystLoop` (agent-runtime): the analyst is a GENERATOR, knowledge
-   stays separate.** Shipped in agent-runtime 0.25.0 as a runtime proposer with
-   `reflectiveGenerator` (drafts patches from the report) / `agenticGenerator`
-   (coding harness in the worktree) — one runtime proposer implementing the
-   proposer contract with pluggable generators, fed
-   into `runImprovementLoop`'s gate + PR machinery. `runAnalystLoop`'s other
-   responsibilities — the findings ledger and knowledge-graph updates, which
-   are *not* surface optimization — stay where they are.
-
-3. **`runLoop` + `runMultishot` converge into one parameterized
-   `runConversationLoop`** with a pluggable backend (`sandbox | router`). The
-   two are the same shape (driver ↔ workers, iterate) differing only in
-   backend and intent; unify them. **Phase 3+ (cross-repo); needs its own
-   design pass — introduces a backend abstraction and couples the two repos'
-   inner loops, so it lands after the `SurfaceProposer` model is proven in
-   product use.**
 
 ## Vocabulary quick reference
 

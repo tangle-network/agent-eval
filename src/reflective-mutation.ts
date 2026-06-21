@@ -156,10 +156,9 @@ export function buildReflectionPrompt(ctx: ReflectionContext): string {
   return sections.join('\n')
 }
 
-/** Render analyst findings + the Phase-2 research report into a prompt evidence
- *  block — the EYES→HANDS wire. A findings producer (the trace-analyst registry,
- *  HALO) diagnoses the generation's traces; this surfaces that diagnosis to the
- *  proposer so a mutation targets a NAMED root cause instead of blindly
+/** Render analyst findings + an optional analysis report into a prompt evidence
+ *  block. A findings producer diagnoses the generation's traces; this surfaces
+ *  that diagnosis to the proposer so a mutation targets a NAMED root cause instead of blindly
  *  rephrasing. Duck-types the finding shape (claim / severity / area /
  *  recommended_action) so any findings producer's rows render. Returns null when
  *  there is nothing to add, so callers append nothing. */

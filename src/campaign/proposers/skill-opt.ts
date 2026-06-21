@@ -57,8 +57,8 @@ export interface ProposePatchesArgs {
   rejectedBuffer: RejectedEdit[]
   /** Slow-update meta guidance accumulated across epochs. */
   metaNote?: string
-  /** Analyst findings + research report rendered as a prompt block (the
-   *  EYES→HANDS wire) so a patch targets a NAMED diagnosed root cause. Built by
+  /** Analyst findings + research report rendered as a prompt block so a patch
+   *  targets a NAMED diagnosed root cause. Built by
    *  the proposer from `ctx.findings`/`ctx.report`; the patch-native `runSkillOpt`
    *  path may also supply it. */
   findingsNote?: string

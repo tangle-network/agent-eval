@@ -171,7 +171,7 @@ The rule: **agent-eval has zero upward dependencies on a consumer.** A concept t
 - [`docs/adapters-observability.md`](./docs/adapters-observability.md) — composing agent-eval with LangSmith, Langfuse, Phoenix, OpenLLMetry, TraceAI
 - [`docs/wire-protocol.md`](./docs/wire-protocol.md) — the HTTP/RPC contract Python (and any future language) speaks
 - [`docs/hosted-ingest-spec.md`](./docs/hosted-ingest-spec.md) — the hosted-tier wire format, frozen at `2026-05-26.v1`
-- [`docs/design/`](./docs/design/) — RFCs + architectural notes
+- [`docs/design/loop-taxonomy.md`](./docs/design/loop-taxonomy.md) — plain-language vocabulary for execution drivers, workers, measurements, and proposers
 
 The `.claude/skills/agent-eval/SKILL.md` skill ships embedded directives so LLM agents writing integration code don't reintroduce historical bug classes.
 

@@ -330,7 +330,7 @@ describe('compareProposers — built-in entries, real loops, faked LLM only', ()
     expect(result.pairwise).toHaveLength(2)
   })
 
-  it("forwards config.findings through the GEPA entry → the finding reaches propose()'s reflection prompt (EYES→HANDS)", async () => {
+  it("forwards config.findings through the GEPA entry into propose()'s reflection prompt", async () => {
     // The wiring this guards: OptimizerEntryConfig.findings → gepaEntry →
     // runImprovementLoop → runOptimization → ctx.findings → gepaProposer.propose →
     // reflection prompt. Capture the user prompt and assert the diagnosis landed.

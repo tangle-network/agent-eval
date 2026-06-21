@@ -1,5 +1,5 @@
 /**
- * # `@tangle-network/agent-eval/contract` — the LAND-tier public surface.
+ * # `@tangle-network/agent-eval/contract` - the app-facing public surface.
  *
  * **Stability:** every export in this file is the frozen public API for
  * foreign-agent consumers. New minors only ADD; nothing here changes shape
@@ -19,8 +19,8 @@
  *    optional `tags`; extend with your domain fields.
  * 2. **`Dispatch<TScenario, TArtifact>`** — the seam. One function:
  *    scenario in, artifact out. Whatever your agent is, wrap it as a
- *    `Dispatch` and the eval engine drives it. (`DispatchFn` is the
- *    legacy internal name; `Dispatch` is the canonical export.)
+ *    `Dispatch` and the eval engine drives it. The campaign internals call
+ *    the same shape `DispatchFn`; `/contract` exports it as `Dispatch`.
  * 3. **`JudgeConfig<TArtifact, TScenario>`** — pluggable dimensional
  *    scorer. Bring an LLM judge, a deterministic check, an ensemble —
  *    the engine only cares about `score(input) → JudgeScore`.
@@ -68,8 +68,8 @@
  * If you want to feed campaign output into RL training (TRL, prime-rl,
  * in-house), the RL bridge converts a `CampaignResult` to canonical
  * `RunRecord` + preference shapes. Pull those from
- * `@tangle-network/agent-eval/rl` directly — RL is opt-in and not part
- * of the LAND-tier contract.
+ * `@tangle-network/agent-eval/rl` directly - RL is opt-in and not part
+ * of the app-facing contract.
  *
  * ## What's NOT here
  *
@@ -83,9 +83,8 @@
 
 // ── Types: scenarios, dispatch, judges, gates, surfaces ──────────────
 
-// Foreign-agent seam — canonical name. `DispatchFn` is the legacy alias
-// that the existing campaign code uses internally; consumers should
-// import `Dispatch`.
+// App-facing seam. `DispatchFn` remains the internal campaign type name;
+// `/contract` exports it as `Dispatch`.
 export type {
   CampaignAggregates,
   CampaignArtifactWriter,
@@ -172,7 +171,7 @@ export {
   type OutcomeStore,
 } from '../meta-eval/outcome-store'
 
-// ── One-shot helper (LAND-tier happy path) ───────────────────────────
+// ── One-shot helper ─────────────────────────────────────────────────
 
 export {
   type SelfImproveBudget,

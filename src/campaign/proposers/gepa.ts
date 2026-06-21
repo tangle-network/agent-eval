@@ -202,8 +202,8 @@ export function gepaProposer(opts: GepaProposerOptions): SurfaceProposer {
           childCount: reflectCount,
           mutationPrimitives: opts.mutationPrimitives,
         })
-        // EYES→HANDS: append the analyst's diagnosis (ctx.findings / ctx.report)
-        // so reflection targets named root causes, not just low-scoring trials.
+        // Append the analyst's diagnosis (ctx.findings / ctx.report) so
+        // reflection targets named root causes, not just low-scoring trials.
         const analyst = renderAnalystEvidence(ctx.findings, ctx.report)
         const finalPrompt = analyst ? `${userPrompt}\n\n${analyst}` : userPrompt
         const result = await callLlm(

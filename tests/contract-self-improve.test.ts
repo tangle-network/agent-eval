@@ -1,5 +1,5 @@
 /**
- * `selfImprove()` provenance emission — the LAND-tier one-shot must surface +
+ * `selfImprove()` provenance emission - the one-call loop must surface +
  * persist the full auditable chain, not just the lift number it returns.
  *
  * These tests drive the real `selfImprove` with a deterministic custom proposer

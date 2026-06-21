@@ -7,7 +7,7 @@
  *
  * The interface is VCS-agnostic so a future `jj` ([jj-vcs](https://github.com/jj-vcs/jj))
  * adapter can slot in without touching proposer code. Only the git adapter
- * ships today. See `docs/design/self-improvement-engine.md`.
+ * ships today. See `docs/design/loop-taxonomy.md`.
  */
 
 import { execFileSync } from 'node:child_process'

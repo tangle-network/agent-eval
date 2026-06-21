@@ -245,7 +245,7 @@ describe('gepaProposer — combine complementary lessons', () => {
     expect(capture.reflectCalls).toBe(0) // no budget left for reflection
   })
 
-  it('EYES→HANDS: feeds ctx.findings + ctx.report into the reflection prompt', async () => {
+  it('feeds ctx.findings + ctx.report into the reflection prompt', async () => {
     // The dead-wire regression: findings/report were plumbed onto ProposeContext
     // but the proposer never read them, so the analyst loop never steered the
     // mutation. The reflection prompt must now carry the diagnosed root cause.

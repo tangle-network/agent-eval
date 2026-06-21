@@ -13,9 +13,9 @@ import {
   sanitizeWorkflowTraceEnvelope,
   summarizeWorkflowExecution,
   summarizeWorkflowTrace,
+  validateWorkflowPartnerReport,
   validateWorkflowTraceEnvelope,
   validateWorkflowTraceIntelligenceEnvelope,
-  validateWorkflowPartnerReport,
   type WorkflowTraceEnvelope,
   workflowEventsToTraceEnvelope,
   workflowRuntimeResultToTraceEnvelope,
@@ -899,7 +899,7 @@ describe('workflow trace substrate', () => {
     )
   })
 
-  it('builds a partner-facing workflow report with sanitized trace, RL trajectory, and PR-ready findings', () => {
+  it('builds a shareable workflow report with sanitized trace, RL trajectory, and PR-ready findings', () => {
     const docsFinding = makeFinding({
       analyst_id: 'knowledge-gap',
       severity: 'high',

@@ -979,7 +979,7 @@ describe('runOptimization', () => {
 
   it('forwards the widened ProposeContext (dataset, report, maxImprovementShots)', async () => {
     // Proves the loop hands a code-tier proposer the data it needs to ground
-    // proposals: the dataset handle, the Phase-2 report, and the depth knob.
+    // proposals: the dataset handle, the analysis report, and the depth knob.
     const seen: Array<{
       hasDataset: boolean
       report: unknown
@@ -1369,7 +1369,7 @@ describe('runImprovementLoop — no-op guard (empty-diff false-ship killer)', ()
   })
 })
 
-// ── runOptimization: analyzeGeneration loop closure (EYES→HANDS) ──────
+// ── runOptimization: analyzeGeneration feeds findings forward ────────
 describe('runOptimization — analyzeGeneration feeds findings forward', () => {
   const passJudge: JudgeConfig<FakeArtifact, FakeScenario> = {
     name: 'noop',

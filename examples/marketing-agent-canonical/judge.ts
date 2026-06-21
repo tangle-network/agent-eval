@@ -1,15 +1,13 @@
 /**
- * Marketing-quality judge — 6 dimensions calibrated to real copywriting
- * practice. Documented explicitly as the STRAWMAN the founder modifies
- * during the Phase B pairing — these are the prompts to react to, not
- * the answer.
+ * Marketing-quality judge - 6 dimensions calibrated to real copywriting
+ * practice. Treat these dimensions as the product quality bar for the demo:
+ * replace them when your agent has a different definition of "better".
  *
  * Each dimension scored 0.0 - 1.0. Composite = simple mean.
  *
- * The judge uses the SAME LLM endpoint as the agent (same baseUrl /
- * apiKey / model) so a foreign builder can run the entire pairing
- * with one API key. In production you'd typically use a stronger
- * model for the judge than the agent — see `docs/phase-b-runbook.md`.
+ * The judge uses the same LLM endpoint as the agent (same baseUrl /
+ * apiKey / model) so the example runs with one API key. In production,
+ * you would typically use a stronger model for the judge than the agent.
  */
 
 import type { JudgeConfig } from '../../src/contract'
@@ -23,12 +21,36 @@ export interface MarketingJudgeConfig {
 }
 
 export const MARKETING_JUDGE_DIMENSIONS = [
-  { key: 'hook_strength', description: 'Opens with a concrete user outcome or specific number — not the product category or a generic positioning claim.' },
-  { key: 'voice_match', description: 'Reads like a human wrote it. No AI slop: "revolutionary", "powerful", "seamless", "cutting-edge", "next-gen". Specific verbs and nouns over generic adjectives.' },
-  { key: 'cta_clarity', description: 'The next step is unambiguous to the named audience. The CTA matches the medium (button copy is short; email subjects invite a reply; H1s invite scrolling).' },
-  { key: 'factual_grounding', description: 'Only claims things the brief actually supports — uses the proofPoints; honors hedging on uncertain claims. No invented features, no exaggerated numbers.' },
-  { key: 'surface_fit', description: 'Length and register correct for the medium: tweet ≤ 240 chars, button = 2-4 words, push-notification ≤ 100 chars, etc. Reads like the medium it lives on.' },
-  { key: 'audience_specificity', description: 'Uses vocabulary the named audience actually responds to. A LinkedIn enterprise post is different from a Product Hunt tagline; both are different from a sales follow-up.' },
+  {
+    key: 'hook_strength',
+    description:
+      'Opens with a concrete user outcome or specific number — not the product category or a generic positioning claim.',
+  },
+  {
+    key: 'voice_match',
+    description:
+      'Reads like a human wrote it. No AI slop: "revolutionary", "powerful", "seamless", "cutting-edge", "next-gen". Specific verbs and nouns over generic adjectives.',
+  },
+  {
+    key: 'cta_clarity',
+    description:
+      'The next step is unambiguous to the named audience. The CTA matches the medium (button copy is short; email subjects invite a reply; H1s invite scrolling).',
+  },
+  {
+    key: 'factual_grounding',
+    description:
+      'Only claims things the brief actually supports — uses the proofPoints; honors hedging on uncertain claims. No invented features, no exaggerated numbers.',
+  },
+  {
+    key: 'surface_fit',
+    description:
+      'Length and register correct for the medium: tweet ≤ 240 chars, button = 2-4 words, push-notification ≤ 100 chars, etc. Reads like the medium it lives on.',
+  },
+  {
+    key: 'audience_specificity',
+    description:
+      'Uses vocabulary the named audience actually responds to. A LinkedIn enterprise post is different from a Product Hunt tagline; both are different from a sales follow-up.',
+  },
 ] as const
 
 const heuristicSurfaceTargets: Record<MarketingScenario['surface'], [number, number]> = {
@@ -49,7 +71,21 @@ const heuristicSurfaceTargets: Record<MarketingScenario['surface'], [number, num
   'sales-followup-subject': [20, 70],
 }
 
-const SLOP_TOKENS = ['revolutionary', 'powerful', 'seamless', 'cutting-edge', 'cutting edge', 'next-gen', 'next gen', 'unlock', 'leverage', 'synergy', 'transform your', 'game-changing', 'game changing']
+const SLOP_TOKENS = [
+  'revolutionary',
+  'powerful',
+  'seamless',
+  'cutting-edge',
+  'cutting edge',
+  'next-gen',
+  'next gen',
+  'unlock',
+  'leverage',
+  'synergy',
+  'transform your',
+  'game-changing',
+  'game changing',
+]
 
 interface JudgeJsonResponse {
   hook_strength: number
@@ -61,7 +97,10 @@ interface JudgeJsonResponse {
   notes?: string
 }
 
-function heuristicScore(artifact: MarketingArtifact, scenario: MarketingScenario): JudgeJsonResponse {
+function heuristicScore(
+  artifact: MarketingArtifact,
+  scenario: MarketingScenario,
+): JudgeJsonResponse {
   const text = artifact.rewrite.toLowerCase()
   const sloppy = SLOP_TOKENS.filter((s) => text.includes(s))
   const [lo, hi] = heuristicSurfaceTargets[scenario.surface]
@@ -91,7 +130,9 @@ async function llmJudge(
   scenario: MarketingScenario,
   signal: AbortSignal,
 ): Promise<JudgeJsonResponse> {
-  const dimensionsBlock = MARKETING_JUDGE_DIMENSIONS.map((d) => `- ${d.key}: ${d.description}`).join('\n')
+  const dimensionsBlock = MARKETING_JUDGE_DIMENSIONS.map(
+    (d) => `- ${d.key}: ${d.description}`,
+  ).join('\n')
   const prompt = `Score this copy rewrite on 6 dimensions, each 0.0 - 1.0. Return strict JSON, nothing else:
 {"hook_strength": n, "voice_match": n, "cta_clarity": n, "factual_grounding": n, "surface_fit": n, "audience_specificity": n, "notes": "one-line summary"}
 
@@ -131,7 +172,9 @@ Score strictly. A perfect 1.0 is a piece of copy you'd ship to production unchan
   return JSON.parse(match[0]) as JudgeJsonResponse
 }
 
-export function buildMarketingJudge(cfg: MarketingJudgeConfig): JudgeConfig<MarketingArtifact, MarketingScenario> {
+export function buildMarketingJudge(
+  cfg: MarketingJudgeConfig,
+): JudgeConfig<MarketingArtifact, MarketingScenario> {
   return {
     name: 'marketing-quality',
     dimensions: MARKETING_JUDGE_DIMENSIONS.map((d) => ({ key: d.key, description: d.description })),
@@ -148,14 +191,14 @@ export function buildMarketingJudge(cfg: MarketingJudgeConfig): JudgeConfig<Mark
         surface_fit: result.surface_fit,
         audience_specificity: result.audience_specificity,
       }
-      const composite = (
-        dims.hook_strength +
-        dims.voice_match +
-        dims.cta_clarity +
-        dims.factual_grounding +
-        dims.surface_fit +
-        dims.audience_specificity
-      ) / 6
+      const composite =
+        (dims.hook_strength +
+          dims.voice_match +
+          dims.cta_clarity +
+          dims.factual_grounding +
+          dims.surface_fit +
+          dims.audience_specificity) /
+        6
 
       return { dimensions: dims, composite, notes: result.notes ?? '' }
     },

@@ -26,7 +26,7 @@ npm i @tangle-network/agent-eval
 `agent-eval` depends on the shared `@tangle-network/agent-interface`
 profile contract and does not install sandbox or agent-runtime. Add those
 packages only when you want their execution backend or production-runtime
-helpers. The LAND tier in this quickstart uses neither.
+helpers. This quickstart uses neither.
 
 ## The five types
 
@@ -203,8 +203,9 @@ its lift over the baseline.
   in-process and return.
 
 If you later want hosted dashboards, cross-run intelligence, or our
-sandbox as a swap-in backend, those are opt-in:
-[`docs/design/external-agent-wedge.md`](../../docs/design/external-agent-wedge.md).
+sandbox as a swap-in backend, those are opt-in. Start with the hosted
+ingest contract in [`docs/hosted-ingest-spec.md`](../../docs/hosted-ingest-spec.md)
+or the same-sandbox example in [`examples/same-sandbox-harness/`](../same-sandbox-harness/).
 
 ## Common extensions
 
@@ -222,8 +223,7 @@ sandbox as a swap-in backend, those are opt-in:
 
 - `examples/production-loop/` — end-to-end demo with a real GitHub PR
   on a successful promotion.
-- `docs/design/external-agent-wedge.md` — the broader story: how this
-  LAND tier composes into the EXPAND (hosted) and PLATFORM (sandbox)
-  tiers when you're ready.
+- `docs/hosted-ingest-spec.md` — the hosted trace-ingest contract.
+- `examples/same-sandbox-harness/` — the sandbox-backed harness shape.
 - `README.md` — the shortest current path through `analyzeRuns()` and
   `selfImprove()`.

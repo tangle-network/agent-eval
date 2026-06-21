@@ -21,7 +21,7 @@ The three top-level entry points map to three starting situations — same decis
 **Proof & benchmarks** — does it actually work, and which approach wins?
 - [`substrate-lift-proof`](./substrate-lift-proof) — the flagship: a real, reproducible held-out lift.
 - [`compare-proposers-canonical`](./compare-proposers-canonical) — `compareProposers` head-to-head.
-- [`findings-ablation`](./findings-ablation) — the empirical gate for the EYES→HANDS findings wire.
+- [`findings-ablation`](./findings-ablation) — measures whether feeding findings into GEPA helps.
 - [`held-out-gate`](./held-out-gate) — the promotion gate in isolation.
 - [`scorecard`](./scorecard) — render an eval scorecard.
 - [`benchmarks`](./benchmarks) — public-benchmark wrappers.

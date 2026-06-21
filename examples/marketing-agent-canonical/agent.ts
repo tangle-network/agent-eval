@@ -1,7 +1,7 @@
 /**
- * Canonical multi-step marketing agent — what we wrap as `Dispatch` for
- * the Phase B demo. The shape is intentionally non-trivial so the
- * `gepaProposer` reflection has something real to optimize:
+ * Canonical multi-step marketing agent - what we wrap as `Dispatch` for
+ * the self-improvement demo. The shape is intentionally non-trivial so the
+ * `gepaProposer` reflection has real behavior to optimize:
  *
  *   1. Research — extract the value claim and audience signals from the brief.
  *   2. Outline — choose the structure (lead with outcome / quote / proof).
@@ -142,35 +142,61 @@ export async function runMarketingAgent(
   const brief = briefBlob(scenario)
   let totalTokens = 0
 
-  const research = await chatCompletion(cfg, [
-    { role: 'system', content: STEP_PROMPTS.research },
-    { role: 'user', content: brief },
-  ], signal)
+  const research = await chatCompletion(
+    cfg,
+    [
+      { role: 'system', content: STEP_PROMPTS.research },
+      { role: 'user', content: brief },
+    ],
+    signal,
+  )
   totalTokens += research.tokens
 
-  const outline = await chatCompletion(cfg, [
-    { role: 'system', content: STEP_PROMPTS.outline },
-    { role: 'user', content: `Brief:\n${brief}\n\nResearch notes:\n${research.content}` },
-  ], signal)
+  const outline = await chatCompletion(
+    cfg,
+    [
+      { role: 'system', content: STEP_PROMPTS.outline },
+      { role: 'user', content: `Brief:\n${brief}\n\nResearch notes:\n${research.content}` },
+    ],
+    signal,
+  )
   totalTokens += outline.tokens
 
-  const firstDraft = await chatCompletion(cfg, [
-    { role: 'system', content: STEP_PROMPTS.draft },
-    { role: 'user', content: `Brief:\n${brief}\n\nResearch:\n${research.content}\n\nPattern:\n${outline.content}` },
-  ], signal)
+  const firstDraft = await chatCompletion(
+    cfg,
+    [
+      { role: 'system', content: STEP_PROMPTS.draft },
+      {
+        role: 'user',
+        content: `Brief:\n${brief}\n\nResearch:\n${research.content}\n\nPattern:\n${outline.content}`,
+      },
+    ],
+    signal,
+  )
   totalTokens += firstDraft.tokens
 
-  const critique = await chatCompletion(cfg, [
-    { role: 'system', content: STEP_PROMPTS.critique },
-    { role: 'user', content: `Brief:\n${brief}\n\nFirst draft:\n${firstDraft.content}` },
-  ], signal)
+  const critique = await chatCompletion(
+    cfg,
+    [
+      { role: 'system', content: STEP_PROMPTS.critique },
+      { role: 'user', content: `Brief:\n${brief}\n\nFirst draft:\n${firstDraft.content}` },
+    ],
+    signal,
+  )
   totalTokens += critique.tokens
 
   // The optimizable step — uses cfg.finalPassSystemPrompt (mutated by gepaProposer).
-  const finalPass = await chatCompletion(cfg, [
-    { role: 'system', content: cfg.finalPassSystemPrompt },
-    { role: 'user', content: `Brief:\n${brief}\n\nFirst draft:\n${firstDraft.content}\n\nCritique to address:\n${critique.content}` },
-  ], signal)
+  const finalPass = await chatCompletion(
+    cfg,
+    [
+      { role: 'system', content: cfg.finalPassSystemPrompt },
+      {
+        role: 'user',
+        content: `Brief:\n${brief}\n\nFirst draft:\n${firstDraft.content}\n\nCritique to address:\n${critique.content}`,
+      },
+    ],
+    signal,
+  )
   totalTokens += finalPass.tokens
 
   return {
