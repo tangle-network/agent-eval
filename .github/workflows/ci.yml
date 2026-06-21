@@ -36,6 +36,8 @@ jobs:
         run: pnpm test
 
       - name: Build and emit OpenAPI
+        env:
+          NODE_OPTIONS: --max-old-space-size=4096
         run: pnpm build
 
       - name: Verify packed package exports
