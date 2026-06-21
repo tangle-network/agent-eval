@@ -190,7 +190,7 @@
     "access": "public"
   },
   "scripts": {
-    "build": "tsup && pnpm openapi",
+    "build": "tsup && tsc --emitDeclarationOnly && node scripts/emit-declaration-aliases.mjs && pnpm openapi",
     "dev": "tsup --watch",
     "prepare": "husky",
     "prepublishOnly": "pnpm build",
