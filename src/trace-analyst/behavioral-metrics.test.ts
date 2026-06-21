@@ -117,6 +117,16 @@ describe('computeTraceMetrics — deterministic behavioral signals (no LLM)', ()
     expect(m.signals.map((s) => s.code)).not.toContain('no-self-verification')
   })
 
+  it('counts real read/inspect tool names (Read/Grep) as self-verification', () => {
+    for (const tool of ['Read', 'Grep', 'read_file', 'git.status']) {
+      const spans = fixture530()
+      spans.push(toolSpan(8, tool))
+      const m = computeTraceMetrics(spans)
+      expect(m.hasSelfVerification).toBe(true)
+      expect(m.signals.map((s) => s.code)).not.toContain('no-self-verification')
+    }
+  })
+
   it('FIRES monotonic-input-growth on a 0→huge blowup (first call reported 0 input tokens)', () => {
     // First LLM call reports 0 input tokens, then context explodes. Ratio is
     // unbounded — the old `first > 0 ? last/first : 0` forced growth to 0 and

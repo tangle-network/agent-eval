@@ -50,8 +50,13 @@ export interface BehavioralMetrics {
 const INPUT_GROWTH_FACTOR = 3
 /** Tool-usage signals need at least this many calls to be meaningful. */
 const MIN_TOOL_CALLS = 3
-/** Tool names matching this are self-verification, not state mutation. */
-const VERIFY_RE = /verif|eval|inspect|check|assert|validat|review|confirm/i
+/** Tool names that read or check state count as self-verification, not mutation.
+ *  Covers the inspect verbs plus the read/search tools real harnesses use to
+ *  verify (Claude Code Read/Grep/Glob, codex read_file/ls/cat, git status/diff,
+ *  test/lint). A pure shell tool (Bash/exec_command) is intentionally NOT matched
+ *  — its name can't tell a `pytest` from an `rm`. */
+const VERIFY_RE =
+  /verif|eval|inspect|check|assert|validat|review|confirm|read|grep|glob|search|view|\blist\b|\bls\b|\bcat\b|\bfind\b|diff|status|\btest|lint|typecheck/i
 
 function num(v: unknown): number | null {
   return typeof v === 'number' && Number.isFinite(v) ? v : null
