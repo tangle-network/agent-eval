@@ -1,5 +1,5 @@
 /**
- * selfImprove() quickstart — closed-loop improvement with a decision packet.
+ * defineAgentEval() quickstart — closed-loop improvement with a decision packet.
  *
  * Run with: pnpm tsx examples/selfimprove-quickstart/index.ts
  *
@@ -8,8 +8,7 @@
  * with your real agent + your real judge to point the loop at production.
  */
 
-import type { Scenario, SurfaceProposer } from '../../src/contract'
-import { selfImprove } from '../../src/contract'
+import { defineAgentEval, type Scenario, type SurfaceProposer } from '../../src/contract'
 
 interface CopyScenario extends Scenario {
   brief: string
@@ -87,7 +86,7 @@ const syntheticProposer: SurfaceProposer = {
 }
 
 async function main() {
-  const result = await selfImprove({
+  const evalKit = defineAgentEval({
     scenarios,
     agent: async (surface, scenario) =>
       dispatch({
@@ -107,6 +106,8 @@ async function main() {
     budget: { generations: 1, populationSize: 2, holdoutFraction: 0.5 },
     expectUsage: 'off',
   })
+
+  const result = await evalKit.improve()
 
   const i = result.insight
   console.log('═══ selfImprove() decision packet ═══')

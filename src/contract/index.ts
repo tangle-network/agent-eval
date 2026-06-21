@@ -35,17 +35,20 @@
  *    and is itself factored as a pluggable `PromotionPolicy` over a
  *    `buildEvidenceVector` bus so competing strategies share one evidence set.
  *
- * ## The four functions you'll call
+ * ## The five functions you'll call
  *
- * 1. **`runEval(options)`** — one-off evaluation across scenarios. Use
+ * 1. **`defineAgentEval(options)`** — define scenarios, agent, judge, and
+ *    baseline once; call `.evaluate()` for a score or `.improve()` for the
+ *    closed loop.
+ * 2. **`runEval(options)`** — one-off evaluation across scenarios. Use
  *    when you just want a score.
- * 2. **`runCampaign(options)`** — structured set of cells (scenarios ×
+ * 3. **`runCampaign(options)`** — structured set of cells (scenarios ×
  *    seeds × replicates) that emits a `CampaignResult` downstream tools
  *    can read.
- * 3. **`runImprovementLoop(options)`** — the closed self-improvement
+ * 4. **`runImprovementLoop(options)`** — the closed self-improvement
  *    loop: campaign → judge → mutator → gate → next generation. Stops
  *    when the gate ships or the budget exhausts.
- * 4. **`defaultProductionGate(options)`** — the standard held-out gate
+ * 5. **`defaultProductionGate(options)`** — the standard held-out gate
  *    most consumers want; compose with `composeGate` to add custom
  *    checks (regression deltas, cost caps, red-team signals).
  *
@@ -113,7 +116,7 @@ export type {
   SurfaceProposer,
 } from '../campaign/types'
 
-// ── Campaign primitives (the four functions) ─────────────────────────
+// ── Campaign primitives ──────────────────────────────────────────────
 
 export { type RunEvalOptions, runEval } from '../campaign/presets/run-eval'
 export {
@@ -173,6 +176,14 @@ export {
 
 // ── One-shot helper ─────────────────────────────────────────────────
 
+export {
+  type AgentEvalAgent,
+  type AgentEvalEvaluateOptions,
+  type AgentEvalImproveOptions,
+  type DefineAgentEvalOptions,
+  type DefinedAgentEval,
+  defineAgentEval,
+} from './define-agent-eval'
 export {
   type SelfImproveBudget,
   type SelfImproveLlm,
