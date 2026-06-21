@@ -109,6 +109,8 @@ jobs:
 
       - run: pnpm install --frozen-lockfile
       - run: pnpm build
+        env:
+          NODE_OPTIONS: --max-old-space-size=8192
 
       # Both publish steps are idempotent: re-running a version already on the
       # registry (e.g. after a manual publish) skips rather than fails, so the
