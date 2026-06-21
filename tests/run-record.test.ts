@@ -58,7 +58,7 @@ describe('validateRunRecord — happy path', () => {
   it('accepts an agentProfile cell that matches model and promptHash', async () => {
     const agentProfile = await buildAgentProfileCell({
       profileId: 'gtm-founder-v1',
-      sourceProfile: { kind: 'sandbox-agent-profile', profile: { name: 'gtm-agent' } },
+      sourceProfile: { kind: 'agent-interface-profile', profile: { name: 'gtm-agent' } },
       harness: { id: 'gtm-agent-eval', version: '0.3.0' },
       model: 'claude-sonnet-4-6@2025-04-15',
       promptHash: 'a'.repeat(64),
@@ -163,7 +163,7 @@ describe('validateRunRecord — mandatory field enforcement', () => {
   it('rejects an agentProfile cell that contradicts the executed model or prompt', async () => {
     const agentProfile = await buildAgentProfileCell({
       profileId: 'gtm-founder-v1',
-      sourceProfile: { kind: 'sandbox-agent-profile', profile: { name: 'gtm-agent' } },
+      sourceProfile: { kind: 'agent-interface-profile', profile: { name: 'gtm-agent' } },
       harness: { id: 'gtm-agent-eval', version: '0.3.0' },
       model: 'claude-sonnet-4-6@2025-04-15',
       promptHash: 'a'.repeat(64),

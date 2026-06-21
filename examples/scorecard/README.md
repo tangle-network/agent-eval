@@ -7,10 +7,9 @@ scorecard does.
 
 What the example shows:
 
-- **`AgentProfile` + `agentProfileHash`** — the harness's unit of
-  variation. Model lives *inside* the profile, so "same model,
-  different skills" is two profiles. `id` is excluded from identity;
-  skill/tool order does not matter.
+- **`AgentProfile` + `agentProfileHash`** — the canonical
+  `@tangle-network/agent-interface` profile plus the eval hash used as the
+  scorecard's unit of variation. `name` is excluded from identity.
 - **`recordRunsToScorecard`** — append-only JSONL log, idempotent.
   Concurrent campaign runs cannot clobber.
 - **`loadScorecard` + `diffScorecard`** — per-cell verdict using

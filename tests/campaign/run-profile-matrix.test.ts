@@ -22,8 +22,18 @@ interface FakeArtifact {
 }
 
 const PROFILES: AgentProfile[] = [
-  { id: 'baseline', model: 'test-model@2025-01-01', promptVersion: 'v1' },
-  { id: 'tuned', model: 'test-model@2025-01-01', promptVersion: 'v2' },
+  {
+    name: 'baseline',
+    version: 'v1',
+    model: { default: 'test-model@2025-01-01' },
+    prompt: { systemPrompt: 'baseline prompt' },
+  },
+  {
+    name: 'tuned',
+    version: 'v2',
+    model: { default: 'test-model@2025-01-01' },
+    prompt: { systemPrompt: 'tuned prompt' },
+  },
 ]
 
 const SCENARIOS: FakeScenario[] = [
@@ -51,12 +61,12 @@ const realDispatch: ProfileDispatchFn<FakeScenario, FakeArtifact> = async (
 ) => {
   ctx.cost.observe(0.001, 'llm')
   ctx.cost.observeTokens({ input: 120, output: 40 })
-  return { text: `${profile.id}:${scenario.id}` }
+  return { text: `${profile.name}:${scenario.id}` }
 }
 
 /** Stub dispatch — never reports tokens (the classic "eval ran blind" failure). */
 const stubDispatch: ProfileDispatchFn<FakeScenario, FakeArtifact> = async (profile, scenario) => {
-  return { text: `${profile.id}:${scenario.id}` }
+  return { text: `${profile.name}:${scenario.id}` }
 }
 
 function baseOpts() {
@@ -149,7 +159,7 @@ describe('runProfileMatrix', () => {
     ) => {
       ctx.cost.observe(0, 'llm')
       ctx.cost.observeTokens({ input: 50, output: 10 })
-      return { text: `${profile.id}:${scenario.id}` }
+      return { text: `${profile.name}:${scenario.id}` }
     }
     const result = await runProfileMatrix({
       ...baseOpts(),
@@ -171,9 +181,9 @@ describe('runProfileMatrix', () => {
     // not read that as a free run — it prices the measured tokens against the
     // substrate table and flags the estimate so it is never mistaken for billed.
     const pricedProfile: AgentProfile = {
-      id: 'deepseek',
-      model: 'deepseek-v4-pro@2025-01-01',
-      promptVersion: 'v1',
+      name: 'deepseek',
+      version: 'v1',
+      model: { default: 'deepseek-v4-pro@2025-01-01' },
     }
     const sourceZeroCost: ProfileDispatchFn<FakeScenario, FakeArtifact> = async (
       profile,
@@ -182,7 +192,7 @@ describe('runProfileMatrix', () => {
     ) => {
       ctx.cost.observe(0, 'llm') // provider/sandbox can't rate this model → $0
       ctx.cost.observeTokens({ input: 160, output: 2086 }) // but real tokens flowed
-      return { text: `${profile.id}:${scenario.id}` }
+      return { text: `${profile.name}:${scenario.id}` }
     }
     const result = await runProfileMatrix({
       ...baseOpts(),
@@ -265,7 +275,7 @@ describe('runProfileMatrix', () => {
     await expect(
       runProfileMatrix({
         ...baseOpts(),
-        profiles: [{ id: 'bare', model: 'gpt-4o' }],
+        profiles: [{ name: 'bare', model: { default: 'gpt-4o' } }],
         dispatch: realDispatch,
       }),
     ).rejects.toBeInstanceOf(ProfileMatrixError)

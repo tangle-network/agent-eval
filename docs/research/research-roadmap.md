@@ -23,7 +23,9 @@
 - Tractable proof structure: paired-bootstrap + Hoeffding + union bound across surface dimensions.
 - Empirical validation: instrument Hermes-on-our-sandbox, measure consensus-vs-naïve-merge regret.
 
-**Estimated effort.** ~3 months focused. Maps to product task #98 (profile-versioning architecture).
+**Estimated effort.** ~3 months focused. Uses canonical `@tangle-network/agent-interface`
+profiles plus eval-side `AgentProfileCell` snapshots; do not add another
+profile contract in agent-eval.
 
 **Venue.** NeurIPS or ICLR main track. Or workshop at NeurIPS Foundation Models for Decision Making.
 

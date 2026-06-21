@@ -21,6 +21,9 @@ importers:
       '@hono/node-server':
         specifier: ^2.0.0
         version: 2.0.0(hono@4.12.18)
+      '@tangle-network/agent-interface':
+        specifier: ^0.10.0
+        version: 0.10.0
       '@tangle-network/tcloud':
         specifier: ^0.4.6
         version: 0.4.6(typescript@5.9.3)(zod@4.3.6)
@@ -34,9 +37,6 @@ importers:
       '@biomejs/biome':
         specifier: ^2.4.15
         version: 2.4.15
-      '@tangle-network/sandbox':
-        specifier: 0.4.0
-        version: 0.4.0(viem@2.48.8(typescript@5.9.3)(zod@4.3.6))
       '@types/node':
         specifier: ^25.6.0
         version: 25.6.0
@@ -473,31 +473,14 @@ packages:
   '@scure/bip39@2.2.0':
     resolution: {integrity: sha512-T/Bj/YvYMNkIPq6EENO6/rcs2e7qTNuyoUXf0KBFDmp0ZDu0H2X4Lq6yC3i0c8PcWkov5EbW+yQZZbdMmk154A==}
 
+  '@tangle-network/agent-interface@0.10.0':
+    resolution: {integrity: sha512-oiREgihkeX/xcGEtFfi9AkAfU2VzuF7SSla2s0iliXPUXyHCIIx6jwzHiYdwb1ZGCfvC+T+0SWOIa6fN5u195g==}
+
   '@tangle-network/sandbox@0.1.2':
     resolution: {integrity: sha512-6TPH9QgCgou9Bhc1kzLNL4/PRiT1mjId6NONY5Le/KT2kh77cXH8KN3TTY/cU+/eW+WM5FYJOy32FWl2HShXbw==}
     peerDependencies:
       viem: ^2.0.0
     peerDependenciesMeta:
-      viem:
-        optional: true
-
-  '@tangle-network/sandbox@0.4.0':
-    resolution: {integrity: sha512-OwlPc4avdKEiJmRDWkyHbay5VDci6/Iyb/SQMiQi8II2dWItt2wT8gxVf50JOK6IAR/y77fbkNngeWw0ohc/0g==}
-    peerDependencies:
-      '@mastra/core': '*'
-      '@modelcontextprotocol/sdk': ^1.29.0
-      ai: ^6.0.175
-      openai: ^6.36.0
-      viem: ^2.0.0
-    peerDependenciesMeta:
-      '@mastra/core':
-        optional: true
-      '@modelcontextprotocol/sdk':
-        optional: true
-      ai:
-        optional: true
-      openai:
-        optional: true
       viem:
         optional: true
 
@@ -1093,6 +1076,9 @@ packages:
   zod@4.3.6:
     resolution: {integrity: sha512-rftlrkhHZOcjDwkGlnUtZZkvaPHCsDATp4pGpuOOMDaTdDDXF91wuVDJoWoPsKX/3YPQ5fHuF3STjcYyKr+Qhg==}
 
+  zod@4.4.3:
+    resolution: {integrity: sha512-ytENFjIJFl2UwYglde2jchW2Hwm4GJFLDiSXWdTrJQBIN9Fcyp7n4DhxJEiWNAJMV1/BqWfW/kkg71UDcHJyTQ==}
+
 snapshots:
 
   '@adraffy/ens-normalize@1.11.1': {}
@@ -1357,11 +1343,11 @@ snapshots:
       '@noble/hashes': 2.2.0
       '@scure/base': 2.2.0
 
-  '@tangle-network/sandbox@0.1.2(viem@2.48.8(typescript@5.9.3)(zod@4.3.6))':
-    optionalDependencies:
-      viem: 2.48.8(typescript@5.9.3)(zod@4.3.6)
+  '@tangle-network/agent-interface@0.10.0':
+    dependencies:
+      zod: 4.4.3
 
-  '@tangle-network/sandbox@0.4.0(viem@2.48.8(typescript@5.9.3)(zod@4.3.6))':
+  '@tangle-network/sandbox@0.1.2(viem@2.48.8(typescript@5.9.3)(zod@4.3.6))':
     optionalDependencies:
       viem: 2.48.8(typescript@5.9.3)(zod@4.3.6)
 
@@ -1962,3 +1948,5 @@ snapshots:
     optional: true
 
   zod@4.3.6: {}
+
+  zod@4.4.3: {}

@@ -13,6 +13,7 @@
 export type { ActionExecutionPolicy, ActionPolicyDecision } from './action-policy'
 export { evaluateActionPolicy } from './action-policy'
 export type {
+  AgentInterfaceProfileLike,
   AgentProfileCell,
   AgentProfileCellInput,
   AgentProfileCellSchemaVersion,
@@ -22,7 +23,6 @@ export type {
   AgentProfileKind,
   AgentProfileSource,
   AgentProfileSourceInput,
-  SandboxAgentProfileLike,
 } from './agent-profile-cell'
 export {
   AGENT_PROFILE_KINDS,
@@ -30,8 +30,8 @@ export {
   agentProfileCellHashMaterial,
   agentProfileCellKey,
   assertRunAgentProfileCell,
+  buildAgentInterfaceProfileCell,
   buildAgentProfileCell,
-  buildSandboxAgentProfileCell,
   groupRunsByAgentProfileCell,
   requireAgentProfileCell,
   toAgentProfileJson,
@@ -633,7 +633,7 @@ export { buildTrajectory } from './trajectory'
 // ── Auxiliary statistical + decision modules ─────────────────────────
 
 export type { AgentProfile } from './agent-profile'
-export { agentProfileHash } from './agent-profile'
+export { agentProfileHash, agentProfileId, agentProfileModelId } from './agent-profile'
 export type { BaselineOptions, BaselineReport, MetricSamples, MetricVerdict } from './baseline'
 export { compareToBaseline, iqr, welchsTTest } from './baseline'
 export type {
@@ -1328,9 +1328,9 @@ export {
   runDistillation,
 } from './campaign/distillation/run-distillation'
 
-// Structured agent profile — namespaced (`profile.renderProfile`,
-// `profile.AgentProfile`) to avoid clashing with the benchmark-cell
-// `AgentProfile` exported above from `./agent-profile`.
+// Prompt-profile builder utilities are namespaced under `profile`. The
+// canonical public `AgentProfile` type is exported above from
+// `@tangle-network/agent-interface` via `./agent-profile`.
 export * as profile from './profile/index'
 
 // ── Cost governance — model seating chart + program cost report ─────────

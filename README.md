@@ -147,18 +147,18 @@ agent-runtime    Runs agents (chat turns, one-shot tasks, multi-attempt loops), 
                  run as a trace, and calls optimizePrompt / runImprovementLoop. Produces the
                  RunRecords + traces agent-eval scores. Depends on agent-eval.
 
-agent-eval       selfImprove, analyzeRuns, runCampaign + surface proposers (gepaDriver, …), the gates
+agent-eval       selfImprove, analyzeRuns, runCampaign + surface proposers (GEPA proposer, …), the gates
    (this repo)   (heldOutGate, defaultProductionGate, paretoSignificanceGate), the InsightReport
                  decision packet, the RL bridge, the wire protocol. Depends on neither consumer.
 
 agent-knowledge  proposeKnowledgeWrites / applyKnowledgeWriteBlocks. agent-eval's analyst findings
                  feed it; the knowledge gate consumes them. Depends on agent-eval.
 
-sandbox          AgentProfile, Sandbox.create, streamPrompt. The execution surface the runtime's
+sandbox          Sandbox.create, streamPrompt. One execution surface the runtime's
                  loops run on; agent-eval scores what comes back.
 ```
 
-The rule: **agent-eval has zero upward dependencies on a consumer.** A concept that makes sense *without* a running agent loop — a verdict, a run record, a scenario, a judge score — is substrate and lives here; a runtime-shaped one (a sandbox profile, a validation context with an abort signal) lives in agent-runtime. When in doubt, lean substrate.
+The rule: **agent-eval has zero upward dependencies on a consumer.** A concept that makes sense *without* a running agent loop — a verdict, a run record, a scenario, a judge score — is substrate and lives here. Runtime execution details (a validation context with an abort signal, a concrete sandbox session) live in agent-runtime or sandbox. Agent profile shape is the shared `@tangle-network/agent-interface` contract.
 
 ---
 

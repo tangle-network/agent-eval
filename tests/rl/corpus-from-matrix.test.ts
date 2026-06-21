@@ -34,9 +34,9 @@ const SCENARIOS: S[] = [
   { id: 'case-2', kind: 'task' },
 ]
 const PROFILE: AgentProfile = {
-  id: 'agent-v1',
-  model: 'deepseek-v4-pro@2026-05-31',
-  promptVersion: 'v1',
+  name: 'agent-v1',
+  version: 'v1',
+  model: { default: 'deepseek-v4-pro@2026-05-31' },
 }
 
 // Real-shaped dispatch: reports cost + tokens (the integrity guard + the cost
@@ -44,7 +44,7 @@ const PROFILE: AgentProfile = {
 const dispatch: ProfileDispatchFn<S, A> = async (profile, scenario, ctx) => {
   ctx.cost.observe(0.002, 'llm')
   ctx.cost.observeTokens({ input: 1500, output: 300 })
-  return { text: `FORM for ${scenario.id} by ${profile.id}` }
+  return { text: `FORM for ${scenario.id} by ${profile.name}` }
 }
 
 const judge: JudgeConfig<A, S> = {
@@ -110,7 +110,7 @@ describe('substrate composition: matrix → multi-dim + corpus → dataset (data
 
     // 4. A second matrix run accumulates into the same corpus (the flywheel).
     const result2 = await runProfileMatrix<S, A>({
-      profiles: [{ ...PROFILE, id: 'agent-v2', promptVersion: 'v2' }],
+      profiles: [{ ...PROFILE, name: 'agent-v2', version: 'v2' }],
       scenarios: SCENARIOS,
       dispatch,
       judges: [judge],

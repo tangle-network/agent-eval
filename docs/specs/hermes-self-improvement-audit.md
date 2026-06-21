@@ -69,7 +69,9 @@ This is **qualitative LLM-judges-LLM optimization driven by real user-corrective
 
 Hermes' per-turn loop is **online**. Our `selfImprove()` is **offline batch**. When Hermes runs on top of our sandbox, **the harness will mutate skills underneath us continuously**. By the time our offline eval finishes, the baseline we measured against may be 50 generations behind production.
 
-That's the gap task **#98 — Profile-versioning architecture** exists to close.
+That gap should be closed with canonical `@tangle-network/agent-interface`
+profiles plus eval-side `AgentProfileCell` snapshots, not a second eval-owned
+profile contract.
 
 ## What we should actually do differently
 
@@ -77,7 +79,7 @@ That's the gap task **#98 — Profile-versioning architecture** exists to close.
 
 2. **Add user-feedback signal as a substrate primitive.** Today our `RunRecord.outcome` carries judge scores and raw artifact data. It doesn't carry **in-conversation corrective signals** ("user said 'stop doing X' at turn 7"). If we want to fuse our statistical gate with Hermes' signal source, we need a `RunRecord.userFeedback?: UserCorrectionEvent[]` field.
 
-3. **Recognize the offline/online divide is structural.** Hermes is online. Our substrate is offline. The bridge is the profile-versioning architecture (task #98) — let the harness do per-turn online updates, let the substrate do batch offline eval against versioned snapshots, then merge/rebase via a real diff protocol.
+3. **Recognize the offline/online divide is structural.** Hermes is online. Our substrate is offline. The bridge is canonical profile snapshots: let the harness do per-turn online updates, stamp each evaluated version as an `AgentProfileCell`, then let the substrate do batch offline eval against those snapshots.
 
 4. **Do the per-turn signal extraction NOW (cheap).** Even without versioning, we could parse traces for user-corrective markers (regex on user messages: "stop", "don't", "I hate", "always Y", "just give me", "this is too X") and emit them as a new `RunRecord` field. That captures Hermes' signal source as additive substrate evidence.
 

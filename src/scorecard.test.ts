@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import type { AgentProfile } from './agent-profile'
-import { agentProfileHash } from './agent-profile'
+import { agentProfileHash, agentProfileModelId } from './agent-profile'
 import type { RunRecord } from './run-record'
 import {
   diffScorecard,
@@ -14,10 +14,15 @@ import {
 } from './scorecard'
 
 const profile: AgentProfile = {
-  id: 'sonnet-v3',
-  model: 'claude-sonnet-4-6@2025-04-15',
-  skills: ['intake', 'drafting'],
-  promptVersion: 'v3',
+  name: 'sonnet-v3',
+  version: 'v3',
+  model: { default: 'claude-sonnet-4-6@2025-04-15' },
+  resources: {
+    skills: [
+      { kind: 'inline', name: 'intake', content: 'intake skill' },
+      { kind: 'inline', name: 'drafting', content: 'drafting skill' },
+    ],
+  },
 }
 
 /** Minimal RunRecord-shaped object — only the fields the scorecard reads. */
@@ -28,7 +33,7 @@ function makeRun(scenarioId: string, seed: number, score: number): RunRecord {
     candidateId: 'cand',
     scenarioId,
     seed,
-    model: profile.model,
+    model: agentProfileModelId(profile),
     promptHash: 'p',
     configHash: 'c',
     commitSha: 'sha',
@@ -65,7 +70,7 @@ describe('recordRuns', () => {
     expect(a.entry.composite).toBeCloseTo(0.85, 6) // median of [0.8, 0.9]
     expect(a.entry.runIds).toEqual(['persona-a-seed0', 'persona-a-seed1'])
     expect(a.profileHash).toBe(agentProfileHash(profile))
-    expect(a.model).toBe(profile.model)
+    expect(a.model).toBe(agentProfileModelId(profile))
   })
 })
 
@@ -92,7 +97,7 @@ describe('loadScorecard', () => {
     const card = loadScorecard(log)
     expect(card.cells).toHaveLength(1)
     expect(card.cells[0]!.timeline.map((e) => e.commitSha)).toEqual(['c1', 'c2'])
-    expect(card.profiles[agentProfileHash(profile)]?.id).toBe('sonnet-v3')
+    expect(card.profiles[agentProfileHash(profile)]?.name).toBe('sonnet-v3')
   })
 
   it('skips a malformed line rather than failing the whole read', () => {

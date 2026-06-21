@@ -1,5 +1,5 @@
 /**
- * Structured agent profile — the system prompt as named, addressable sections
+ * Structured prompt profile — the system prompt as named, addressable sections
  * instead of one opaque blob. The self-improvement loop targets ONE evolvable
  * `domain` section at a time (via `applyDomainPatch`); the role, environment,
  * tool conventions, and skill roster stay fixed so a candidate diff is
@@ -12,11 +12,9 @@
  * loop's string `MutableSurface`: a profile renders to exactly the text a
  * candidate is scored on.
  *
- * Distinct from the benchmark-cell `AgentProfile` in `src/agent-profile.ts`,
- * which fingerprints a (model, skills, prompt, tools) cell for the scorecard.
- * That one is the unit of variation; this one is the prompt CONTENT being
- * varied. Consume this module by its own path (`@tangle-network/agent-eval`
- * exposes it under the `profile` namespace) to avoid the name clash.
+ * Distinct from the canonical `AgentProfile` exported by
+ * `@tangle-network/agent-interface`. This helper builds prompt content that can
+ * be rendered into an agent-interface profile's `prompt.systemPrompt`.
  */
 
 import { surfaceContentHash } from '../campaign/provenance'
@@ -52,7 +50,7 @@ export interface ProfileSkill {
 
 /** The structured system prompt. The first four fields are fixed scaffolding;
  *  `domain` is the evolvable surface the loop optimizes. */
-export interface AgentProfile {
+export interface PromptProfile {
   role: string
   environment: string
   toolConventions: string
@@ -78,7 +76,7 @@ function renderSkill(skill: ProfileSkill): string {
  * `### <title>` + body). The order is load-bearing — the loop diffs rendered
  * text, and reordering would make every candidate look like a full rewrite.
  */
-export function renderProfile(p: AgentProfile): string {
+export function renderProfile(p: PromptProfile): string {
   const zones: string[] = [
     p.role.trim(),
     `## Environment\n\n${p.environment.trim()}`,
@@ -97,7 +95,7 @@ export function renderProfile(p: AgentProfile): string {
 
 /** The string `MutableSurface` the self-improvement loop scores — a profile
  *  renders to exactly the text a candidate is graded on. */
-export function profileToSurface(p: AgentProfile): string {
+export function profileToSurface(p: PromptProfile): string {
   return renderProfile(p)
 }
 
@@ -141,7 +139,7 @@ export function baselineProfile(args: {
   environment?: string
   toolConventions?: string
   skills?: ProfileSkill[]
-}): AgentProfile {
+}): PromptProfile {
   return {
     role: args.role,
     environment: args.environment ?? ENVIRONMENT_PREAMBLE,
@@ -161,7 +159,7 @@ export function baselineProfile(args: {
 export function baselineProfileFromRole(
   role: BaselineRoleKey,
   args: { environment?: string; toolConventions?: string; skills?: ProfileSkill[] } = {},
-): AgentProfile {
+): PromptProfile {
   return baselineProfile({ role: BASELINE_ROLES[role], ...args })
 }
 
@@ -169,7 +167,10 @@ export function baselineProfileFromRole(
  *  shipped after self-improvement. Differs from the baseline ONLY in `domain`
  *  (and any skills the caller layered into the baseline) — the role,
  *  environment, and tool conventions are carried through unchanged. */
-export function prodProfile(baseline: AgentProfile, shipped: AgentProfileSection[]): AgentProfile {
+export function prodProfile(
+  baseline: PromptProfile,
+  shipped: AgentProfileSection[],
+): PromptProfile {
   return { ...baseline, domain: [...baseline.domain, ...shipped] }
 }
 
@@ -181,10 +182,10 @@ export function prodProfile(baseline: AgentProfile, shipped: AgentProfileSection
  * section is `evolvable: false`.
  */
 export function applyDomainPatch(
-  p: AgentProfile,
+  p: PromptProfile,
   sectionId: string,
   newBody: string,
-): AgentProfile {
+): PromptProfile {
   const idx = p.domain.findIndex((s) => s.id === sectionId)
   if (idx === -1) {
     throw new Error(

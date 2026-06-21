@@ -23,10 +23,10 @@ No Tangle infrastructure required at any step.
 npm i @tangle-network/agent-eval
 ```
 
-`agent-eval`'s `@tangle-network/sandbox` and `@tangle-network/agent-runtime`
-peers are both marked `optional` — install only if you want our backend
-or the production-runtime helpers. The LAND tier in this quickstart uses
-neither.
+`agent-eval` depends on the shared `@tangle-network/agent-interface`
+profile contract and does not install sandbox or agent-runtime. Add those
+packages only when you want their execution backend or production-runtime
+helpers. The LAND tier in this quickstart uses neither.
 
 ## The five types
 
