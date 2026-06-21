@@ -1,0 +1,19 @@
+{
+  "scope": "PR #264 review comment 4762012574 + local hardening diff",
+  "base": "9e6f0d1",
+  "head_before_fixes": "5a339d1",
+  "project_type": "typescript-node",
+  "flags": ["--diff-only", "--dx", "--review-comment"],
+  "score": "8/10",
+  "verdict": "APPROVE_AFTER_FIXES",
+  "findings_count_by_severity": { "CRITICAL": 0, "HIGH": 0, "MEDIUM": 1, "LOW": 9 },
+  "verification": [
+    "pnpm test src/agent-profile.test.ts tests/contract-define-agent-eval.test.ts tests/campaign/run-profile-matrix.test.ts",
+    "pnpm typecheck",
+    "pnpm lint",
+    "pnpm test",
+    "git diff --check",
+    "pnpm build",
+    "pnpm verify:package"
+  ]
+}

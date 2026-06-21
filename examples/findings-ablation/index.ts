@@ -1,5 +1,5 @@
 /**
- * findings-ablation — the empirical gate for the EYES→HANDS wire (roadmap A1.1).
+ * findings-ablation - measures whether feeding findings into GEPA helps.
  * Runs the SAME gepa optimizer twice on the SAME extraction corpus, differing in
  * ONE thing: whether the analyst's diagnosis is fed to the proposer.
  *

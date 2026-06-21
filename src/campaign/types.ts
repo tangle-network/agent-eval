@@ -228,8 +228,8 @@ export interface Mutator<TFindings = unknown> {
  *  batch of candidates. The first six fields are always present; the rest are
  *  optional context the loop supplies when available, so cheap proposers
  *  (`evolutionaryProposer`) can ignore them while a code-tier agentic generator
- *  consumes the research report + dataset to drive a coding harness.
- *  See `docs/design/self-improvement-engine.md`. */
+ *  consumes the report + dataset to drive a coding harness.
+ *  See `docs/campaign-proposers.md`. */
 export interface ProposeContext<TFindings = unknown> {
   currentSurface: MutableSurface
   history: GenerationRecord[]
@@ -238,9 +238,8 @@ export interface ProposeContext<TFindings = unknown> {
   populationSize: number
   generation: number
   signal: AbortSignal
-  /** The Phase-2 research report (analyst findings + diff), produced AFTER the
-   *  trace analysts run. Opaque to the substrate — the proposer that consumes it
-   *  types it. See the phase diagram in self-improvement-engine.md. */
+  /** Optional analysis report produced before proposal. Opaque to the substrate:
+   *  the proposer that consumes it owns the shape. */
   report?: unknown
   /** Handle to all captured data — the proposer samples traces / artifacts /
    *  rewards here to ground its proposals. */

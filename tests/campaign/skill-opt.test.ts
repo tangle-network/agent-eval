@@ -147,7 +147,7 @@ describe('skillOptProposer', () => {
     expect(capture.user).toContain('at most 2') // the edit budget
   })
 
-  it('EYES→HANDS: propose() feeds ctx.findings + ctx.report into the patch prompt', async () => {
+  it('propose() feeds ctx.findings + ctx.report into the patch prompt', async () => {
     // The dead-wire regression: findings/report were plumbed onto ProposeContext
     // but skill-opt never read them. A patch must now be able to target the
     // analyst's diagnosed root cause, not just the weak-scenario evidence.

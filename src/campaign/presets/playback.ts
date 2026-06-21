@@ -11,7 +11,7 @@
  * agent-eval owns the seam, the `UserStory` contract, and the scoreboard.
  */
 
-import type { AgentProfile } from '../../agent-profile'
+import type { AgentProfile } from '@tangle-network/agent-interface'
 import {
   type CompletionRequirement,
   type CompletionVerdict,

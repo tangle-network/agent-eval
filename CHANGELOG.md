@@ -4,6 +4,21 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ---
 
+## [0.94.0] — 2026-06-21 — canonical AgentProfile + defineAgentEval DX
+
+### Changed
+
+- **Agent profiles now use the canonical `@tangle-network/agent-interface` shape.** The old local flat profile shape is gone. Eval-owned helpers remain in agent-eval: `agentProfileHash`, `agentProfileId`, and `agentProfileModelId`.
+- **Profile ids are collision-resistant, path-safe labels.** `agentProfileId(profile)` now returns `label-<hash-prefix>` instead of a bare name/version label, so profile-matrix `byProfile` and `campaigns` keys no longer collapse distinct same-label profiles. Use `profile.name` for display-only labels.
+- **Profile hashes and profile-cell kinds intentionally changed.** `agentProfileHash` now hashes the canonical nested `AgentProfile` behavior surface, and profile cells use `sourceProfile.kind = 'agent-interface-profile'`. Existing scorecard/profile artifacts keyed by the old flat shape or old kind may not join with new rows; this is a clean greenfield migration, not a compatibility-preserving release.
+- **`defineAgentEval()` is the app-facing helper for the common flow.** Define scenarios, agent, judge, and baseline once, then call `.evaluate()` or `.improve()`. Nested per-call overrides for `budget`, `llm`, and `hostedTenant` merge field-by-field; invalid `budget.reps` and empty judge lists fail loudly.
+
+### Removed
+
+- Removed stale sandbox-profile compatibility names and obsolete Phase-B / self-improvement strategy docs instead of keeping legacy aliases or guidance.
+
+---
+
 ## [0.90.0] — 2026-06-10 — infra perf-benchmark substrate (`/perf`)
 
 Domain-agnostic infra-performance benchmarking: a journeys × axes scenario matrix, record-integrity contracts over flat metric records, and a percentile ratchet. Complements the judge-panel `BenchmarkRunner` (root) — that one scores QUALITY via judges; `/perf` scores LATENCY / RELIABILITY. All additive — no existing export changed.

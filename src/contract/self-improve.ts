@@ -1,5 +1,5 @@
 /**
- * # `selfImprove()` — the LAND-tier one-shot.
+ * # `selfImprove()` - the one-call improvement loop.
  *
  * The cheapest possible call site to run a real closed-loop self-
  * improvement over your agent. Wraps `runImprovementLoop` with smart
@@ -7,7 +7,7 @@
  * substrate exposes is reachable from here without losing the
  * one-function feel.
  *
- * Defaults picked to match the LAND-tier story:
+ * Defaults:
  *   - In-memory storage (no filesystem touch).
  *   - `gepaProposer` reflective mutation with copywriting-flavored primitives
  *     (override `proposer` or `mutationPrimitives` for any domain).
@@ -123,8 +123,7 @@ export interface SelfImproveOptions<TScenario extends Scenario, TArtifact> {
    *  accepts. The proposer mutates this each generation. */
   baselineSurface: MutableSurface
 
-  /** Budget + loop shape. All fields optional; defaults pick the LAND-tier
-   *  story. */
+  /** Budget + loop shape. All fields optional. */
   budget?: SelfImproveBudget
 
   /** Custom surface proposer. Default is `gepaProposer` configured from `llm` +
@@ -229,7 +228,7 @@ export interface SelfImproveOptions<TScenario extends Scenario, TArtifact> {
   expectUsage?: 'assert' | 'warn' | 'off'
 
   /**
-   * Per-generation findings producer (the EYES→HANDS closure). After each
+   * Per-generation findings producer. After each
    * generation is scored, this is called; whatever it returns REPLACES the
    * proposer's `findings` for the next generation's `propose()`. Plug a
    * trace-analyst registry / HALO here. When absent, findings stay
@@ -347,7 +346,7 @@ const DEFAULT_MUTATION_PRIMITIVES = [
  * One-shot self-improvement loop. See module docstring for defaults +
  * extension points.
  *
- * @example Minimum (LAND tier):
+ * @example Minimum:
  *
  *   const result = await selfImprove({
  *     agent: (surface, scenario, ctx) => myAgent(surface, scenario, ctx.signal),
@@ -546,9 +545,8 @@ export async function selfImprove<TScenario extends Scenario, TArtifact>(
     raw: result,
   }
 
-  // Opt-in hosted ingest. Failures logged but never fail the loop — the
-  // local result is always returned. This matches the wedge-doc invariant
-  // that LAND-tier never blocks on EXPAND-tier infra.
+  // Opt-in hosted ingest. Failures are logged but never fail the loop: the
+  // local result is always returned.
   if (opts.hostedTenant) {
     try {
       await shipEvalRunToHosted(opts.hostedTenant, opts, summary, result, runDir)

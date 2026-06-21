@@ -37,7 +37,7 @@ export default defineConfig({
     cli: 'src/cli.ts',
   },
   format: ['esm'],
-  dts: true,
+  dts: false,
   sourcemap: true,
   clean: true,
   target: 'es2022',

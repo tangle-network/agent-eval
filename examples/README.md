@@ -3,7 +3,7 @@
 New here? Read these three in order — they cover the whole substrate.
 
 1. **[`substrate-lift-proof/`](./substrate-lift-proof)** — start here. `gepaProposer` promotes a *real* held-out gain (0.667 → 1.0, n=6 holdout, real Tangle Router backend, ~$0.02). This is the substrate doing its one job, end to end, with a number you can reproduce.
-2. **[`selfimprove-quickstart/`](./selfimprove-quickstart)** — `selfImprove()`: the closed loop (run → judge → optimize → gate) returning one decision packet.
+2. **[`selfimprove-quickstart/`](./selfimprove-quickstart)** — `defineAgentEval().improve()`: define scenarios, agent, judge, and baseline once, then run the closed loop.
 3. **[`foreign-agent-quickstart/`](./foreign-agent-quickstart)** — bring your own agent: wrap an existing API, record runs, get the same decision packet back.
 
 ## Pick by what you already have
@@ -12,7 +12,7 @@ The three top-level entry points map to three starting situations — same decis
 
 | You have… | Call | Example |
 |-----------|------|---------|
-| A closed improvement loop | `selfImprove()` | [`selfimprove-quickstart`](./selfimprove-quickstart) |
+| A closed improvement loop | `defineAgentEval().improve()` | [`selfimprove-quickstart`](./selfimprove-quickstart) |
 | Production traces (OTel) | `analyzeRuns()` | [`customer-otel-traces`](./customer-otel-traces) |
 | An approve/reject label corpus | `analyzeRuns()` | [`customer-feedback-loop`](./customer-feedback-loop) |
 
@@ -21,7 +21,7 @@ The three top-level entry points map to three starting situations — same decis
 **Proof & benchmarks** — does it actually work, and which approach wins?
 - [`substrate-lift-proof`](./substrate-lift-proof) — the flagship: a real, reproducible held-out lift.
 - [`compare-proposers-canonical`](./compare-proposers-canonical) — `compareProposers` head-to-head.
-- [`findings-ablation`](./findings-ablation) — the empirical gate for the EYES→HANDS findings wire.
+- [`findings-ablation`](./findings-ablation) — measures whether feeding findings into GEPA helps.
 - [`held-out-gate`](./held-out-gate) — the promotion gate in isolation.
 - [`scorecard`](./scorecard) — render an eval scorecard.
 - [`benchmarks`](./benchmarks) — public-benchmark wrappers.

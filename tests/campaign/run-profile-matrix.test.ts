@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { type AgentProfile, agentProfileHash } from '../../src/agent-profile'
+import { type AgentProfile, agentProfileHash, agentProfileId } from '../../src/agent-profile'
 import {
   inMemoryCampaignStorage,
   type JudgeConfig,
@@ -22,9 +22,22 @@ interface FakeArtifact {
 }
 
 const PROFILES: AgentProfile[] = [
-  { id: 'baseline', model: 'test-model@2025-01-01', promptVersion: 'v1' },
-  { id: 'tuned', model: 'test-model@2025-01-01', promptVersion: 'v2' },
+  {
+    name: 'baseline',
+    version: 'v1',
+    model: { default: 'test-model@2025-01-01' },
+    prompt: { systemPrompt: 'baseline prompt' },
+  },
+  {
+    name: 'tuned',
+    version: 'v2',
+    model: { default: 'test-model@2025-01-01' },
+    prompt: { systemPrompt: 'tuned prompt' },
+  },
 ]
+
+const BASELINE_PROFILE_ID = agentProfileId(PROFILES[0]!)
+const TUNED_PROFILE_ID = agentProfileId(PROFILES[1]!)
 
 const SCENARIOS: FakeScenario[] = [
   { id: 's1', kind: 'task', persona: 'alice' },
@@ -51,12 +64,12 @@ const realDispatch: ProfileDispatchFn<FakeScenario, FakeArtifact> = async (
 ) => {
   ctx.cost.observe(0.001, 'llm')
   ctx.cost.observeTokens({ input: 120, output: 40 })
-  return { text: `${profile.id}:${scenario.id}` }
+  return { text: `${profile.name}:${scenario.id}` }
 }
 
 /** Stub dispatch — never reports tokens (the classic "eval ran blind" failure). */
 const stubDispatch: ProfileDispatchFn<FakeScenario, FakeArtifact> = async (profile, scenario) => {
-  return { text: `${profile.id}:${scenario.id}` }
+  return { text: `${profile.name}:${scenario.id}` }
 }
 
 function baseOpts() {
@@ -84,9 +97,9 @@ describe('runProfileMatrix', () => {
       expect(rec.splitTag).toBe('search')
       expect(rec.scenarioId).toBeDefined()
     }
-    // candidateId is the profile id; both profiles present.
+    // candidateId is the collision-resistant profile id; both profiles present.
     expect(new Set(result.records.map((r) => r.candidateId))).toEqual(
-      new Set(['baseline', 'tuned']),
+      new Set([BASELINE_PROFILE_ID, TUNED_PROFILE_ID]),
     )
   })
 
@@ -149,7 +162,7 @@ describe('runProfileMatrix', () => {
     ) => {
       ctx.cost.observe(0, 'llm')
       ctx.cost.observeTokens({ input: 50, output: 10 })
-      return { text: `${profile.id}:${scenario.id}` }
+      return { text: `${profile.name}:${scenario.id}` }
     }
     const result = await runProfileMatrix({
       ...baseOpts(),
@@ -171,9 +184,9 @@ describe('runProfileMatrix', () => {
     // not read that as a free run — it prices the measured tokens against the
     // substrate table and flags the estimate so it is never mistaken for billed.
     const pricedProfile: AgentProfile = {
-      id: 'deepseek',
-      model: 'deepseek-v4-pro@2025-01-01',
-      promptVersion: 'v1',
+      name: 'deepseek',
+      version: 'v1',
+      model: { default: 'deepseek-v4-pro@2025-01-01' },
     }
     const sourceZeroCost: ProfileDispatchFn<FakeScenario, FakeArtifact> = async (
       profile,
@@ -182,13 +195,14 @@ describe('runProfileMatrix', () => {
     ) => {
       ctx.cost.observe(0, 'llm') // provider/sandbox can't rate this model → $0
       ctx.cost.observeTokens({ input: 160, output: 2086 }) // but real tokens flowed
-      return { text: `${profile.id}:${scenario.id}` }
+      return { text: `${profile.name}:${scenario.id}` }
     }
     const result = await runProfileMatrix({
       ...baseOpts(),
       profiles: [pricedProfile],
       dispatch: sourceZeroCost,
     })
+    const pricedProfileId = agentProfileId(pricedProfile)
     const rec = result.records[0]!
     const raw = rec.outcome.raw
     // deepseek family rate: in 0.0003/1k, out 0.0011/1k.
@@ -200,14 +214,17 @@ describe('runProfileMatrix', () => {
     // Integrity: real activity AND no longer uncosted (the cost axis is filled).
     expect(result.integrity.verdict).toBe('real')
     expect(result.integrity.uncostedRecords).toBe(0)
-    expect(result.byProfile.deepseek!.totalCostUsd).toBeCloseTo(expected * result.records.length, 6)
-    // Every cost surface agrees — the embedded campaign aggregate is reconciled
-    // to the priced total, not runCampaign's raw ctx.cost ledger ($0).
-    expect(result.campaigns.deepseek!.aggregates.totalCostUsd).toBeCloseTo(
+    expect(result.byProfile[pricedProfileId]!.totalCostUsd).toBeCloseTo(
       expected * result.records.length,
       6,
     )
-    expect(result.byProfile.deepseek!.integrity.totalCostUsd).toBeCloseTo(
+    // Every cost surface agrees — the embedded campaign aggregate is reconciled
+    // to the priced total, not runCampaign's raw ctx.cost ledger ($0).
+    expect(result.campaigns[pricedProfileId]!.aggregates.totalCostUsd).toBeCloseTo(
+      expected * result.records.length,
+      6,
+    )
+    expect(result.byProfile[pricedProfileId]!.integrity.totalCostUsd).toBeCloseTo(
       expected * result.records.length,
       6,
     )
@@ -247,9 +264,9 @@ describe('runProfileMatrix', () => {
       dispatch: realDispatch,
       personaOf: (s: FakeScenario) => s.persona,
     })
-    expect(result.byProfile.tuned!.meanComposite).toBeCloseTo(0.9, 5)
-    expect(result.byProfile.baseline!.meanComposite).toBeCloseTo(0.6, 5)
-    expect(result.byProfile.tuned!.profileHash).toBe(agentProfileHash(PROFILES[1]!))
+    expect(result.byProfile[TUNED_PROFILE_ID]!.meanComposite).toBeCloseTo(0.9, 5)
+    expect(result.byProfile[BASELINE_PROFILE_ID]!.meanComposite).toBeCloseTo(0.6, 5)
+    expect(result.byProfile[TUNED_PROFILE_ID]!.profileHash).toBe(agentProfileHash(PROFILES[1]!))
 
     // 3 scenarios pivot, each with 2 profiles × 2 reps = 4 records.
     expect(Object.keys(result.byScenario).sort()).toEqual(['s1', 's2', 's3'])
@@ -265,7 +282,7 @@ describe('runProfileMatrix', () => {
     await expect(
       runProfileMatrix({
         ...baseOpts(),
-        profiles: [{ id: 'bare', model: 'gpt-4o' }],
+        profiles: [{ name: 'bare', model: { default: 'gpt-4o' } }],
         dispatch: realDispatch,
       }),
     ).rejects.toBeInstanceOf(ProfileMatrixError)

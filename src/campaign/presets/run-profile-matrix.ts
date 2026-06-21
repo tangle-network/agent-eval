@@ -34,7 +34,12 @@
 
 import { createHash } from 'node:crypto'
 import { join } from 'node:path'
-import { type AgentProfile, agentProfileHash } from '../../agent-profile'
+import {
+  type AgentProfile,
+  agentProfileHash,
+  agentProfileId,
+  agentProfileModelId,
+} from '../../agent-profile'
 import { AgentEvalError } from '../../errors'
 import {
   assertRealBackend,
@@ -220,6 +225,8 @@ function buildRunRecord<TScenario extends Scenario, TArtifact>(
 ): RunRecord {
   const { cell, profile, profileHash, configHash, experimentId, splitTag, commitSha, matrixId } =
     args
+  const profileId = agentProfileId(profile)
+  const model = agentProfileModelId(profile)
   const composite = cellComposite(cell)
 
   // Flatten judge dimensions (judge-prefixed to avoid collisions) into raw.
@@ -255,8 +262,8 @@ function buildRunRecord<TScenario extends Scenario, TArtifact>(
   // model the table also can't rate stays $0 (no fabrication).
   let costUsd = cell.costUsd
   let costEstimated = false
-  if (costUsd === 0 && cell.tokenUsage.output > 0 && isModelPriced(profile.model)) {
-    costUsd = estimateCost(cell.tokenUsage.input, cell.tokenUsage.output, profile.model)
+  if (costUsd === 0 && cell.tokenUsage.output > 0 && isModelPriced(model)) {
+    costUsd = estimateCost(cell.tokenUsage.input, cell.tokenUsage.output, model)
     costEstimated = costUsd > 0
   }
   raw.cost_usd = costUsd
@@ -282,11 +289,11 @@ function buildRunRecord<TScenario extends Scenario, TArtifact>(
   }
 
   const record: RunRecord & { prompt?: string; completion?: string } = {
-    runId: `${matrixId}:${profile.id}:${cell.cellId}`,
+    runId: `${matrixId}:${profileId}:${cell.cellId}`,
     experimentId,
-    candidateId: profile.id,
+    candidateId: profileId,
     seed: cell.seed,
-    model: profile.model,
+    model,
     promptHash: profileHash,
     configHash,
     commitSha,
@@ -326,7 +333,7 @@ export async function runProfileMatrix<TScenario extends Scenario, TArtifact>(
   const seed = opts.seed ?? 42
   const validate = opts.validate ?? true
   const integrityMode = opts.integrity ?? 'assert'
-  const profileIds = opts.profiles.map((p) => p.id)
+  const profileIds = opts.profiles.map(agentProfileId)
   const experimentId =
     opts.experimentId ??
     `pm_${sha({ profileIds, scenarios: opts.scenarios.map((s) => s.id) }).slice(0, 16)}`
@@ -340,13 +347,15 @@ export async function runProfileMatrix<TScenario extends Scenario, TArtifact>(
   // far downstream.
   for (const profile of opts.profiles) {
     const profileHash = agentProfileHash(profile)
+    const profileId = agentProfileId(profile)
+    const model = agentProfileModelId(profile)
     try {
       validateRunRecord({
-        runId: `${matrixId}:${profile.id}:probe`,
+        runId: `${matrixId}:${profileId}:probe`,
         experimentId,
-        candidateId: profile.id,
+        candidateId: profileId,
         seed,
-        model: profile.model,
+        model,
         promptHash: profileHash,
         configHash: profileHash,
         commitSha: opts.commitSha,
@@ -359,7 +368,7 @@ export async function runProfileMatrix<TScenario extends Scenario, TArtifact>(
       })
     } catch (err) {
       throw new ProfileMatrixError(
-        `profile '${profile.id}' is not recordable: ${err instanceof Error ? err.message : String(err)}`,
+        `profile '${profileId}' is not recordable: ${err instanceof Error ? err.message : String(err)}`,
       )
     }
   }
@@ -370,6 +379,8 @@ export async function runProfileMatrix<TScenario extends Scenario, TArtifact>(
 
   for (const profile of opts.profiles) {
     const profileHash = agentProfileHash(profile)
+    const profileId = agentProfileId(profile)
+    const model = agentProfileModelId(profile)
     const configHash = sha({
       profile: profileHash,
       judges: (opts.judges ?? []).map((j) => j.name),
@@ -381,7 +392,7 @@ export async function runProfileMatrix<TScenario extends Scenario, TArtifact>(
     // manifest hash is stable + distinct per profile.
     const dispatch = (scenario: TScenario, ctx: DispatchContext): Promise<TArtifact> =>
       opts.dispatch(profile, scenario, ctx)
-    Object.defineProperty(dispatch, 'name', { value: `profile_${sanitize(profile.id)}` })
+    Object.defineProperty(dispatch, 'name', { value: `profile_${sanitize(profileId)}` })
 
     const campaign = await runCampaign<TScenario, TArtifact>({
       scenarios: opts.scenarios,
@@ -395,7 +406,7 @@ export async function runProfileMatrix<TScenario extends Scenario, TArtifact>(
       captureSource: opts.captureSource,
       storage: opts.storage,
       now: opts.now,
-      runDir: join(opts.runDir, sanitize(profile.id)),
+      runDir: join(opts.runDir, sanitize(profileId)),
     })
 
     const profileRecords: RunRecord[] = []
@@ -424,15 +435,15 @@ export async function runProfileMatrix<TScenario extends Scenario, TArtifact>(
     // ledger only sees ctx.cost ($0 for an unpriced-at-source model), which
     // would otherwise disagree with byProfile + integrity for the same run.
     const pricedTotalCostUsd = profileRecords.reduce((a, r) => a + r.costUsd, 0)
-    campaigns[profile.id] = {
+    campaigns[profileId] = {
       ...campaign,
       aggregates: { ...campaign.aggregates, totalCostUsd: pricedTotalCostUsd },
     }
 
-    byProfile[profile.id] = {
-      profileId: profile.id,
+    byProfile[profileId] = {
+      profileId,
       profileHash,
-      model: profile.model,
+      model,
       records: profileRecords.length,
       meanComposite: mean(profileRecords.map(compositeOf)),
       totalCostUsd: pricedTotalCostUsd,

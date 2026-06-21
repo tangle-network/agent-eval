@@ -51,15 +51,15 @@ export interface RunOptimizationBaseOptions<TScenario extends Scenario, TArtifac
   /** DEPTH knob forwarded to the proposer's `propose()` — max iterations the
    *  agentic generator may take per candidate. */
   maxImprovementShots?: number
-  /** Phase-2 research report forwarded to `propose()` (analyst findings +
-   *  diff). Opaque here; the proposer types it. */
+  /** Optional analysis report forwarded to `propose()`. Opaque here; the
+   *  proposer types it. */
   report?: unknown
   /** Structured findings forwarded to `propose()` as `ctx.findings`. A
-   *  findings producer (trace-analyst registry, HALO) emits these from the
+   *  findings producer emits these from the
    *  generation's traces; findings-grounded proposers consume them. Opaque here;
    *  the proposer types its `TFindings`. Empty when no producer is wired. */
   findings?: unknown[]
-  /** Per-generation findings producer — the EYES→HANDS loop closure. After each
+  /** Per-generation findings producer. After each
    *  generation's candidates are scored, this is called with that generation's
    *  results; whatever it returns REPLACES `ctx.findings` for the NEXT
    *  generation's `propose()`, so the diagnosis is refreshed each round instead
@@ -130,8 +130,8 @@ export async function runOptimization<TScenario extends Scenario, TArtifact>(
 
   const generations: RunOptimizationResult<TArtifact, TScenario>['generations'] = []
   const history: GenerationRecord[] = []
-  // Refreshed each generation by `analyzeGeneration` (the EYES→HANDS loop
-  // closure); seeded with the static caller-supplied findings.
+  // Refreshed each generation by `analyzeGeneration`; seeded with the static
+  // caller-supplied findings.
   let currentFindings: unknown[] = opts.findings ?? []
   let currentSurfaces: MutableSurface[] = [opts.baselineSurface]
   let winnerSurface = opts.baselineSurface
@@ -242,8 +242,8 @@ export async function runOptimization<TScenario extends Scenario, TArtifact>(
       })),
     })
 
-    // EYES→HANDS: re-diagnose this generation's results and feed fresh findings
-    // to the next generation's propose(). On the last generation there is no
+    // Re-diagnose this generation's results and feed fresh findings to the next
+    // generation's propose(). On the last generation there is no
     // next propose(), so skip the (potentially expensive) producer call.
     if (opts.analyzeGeneration && gen < opts.maxGenerations - 1) {
       const fresh = await opts.analyzeGeneration({

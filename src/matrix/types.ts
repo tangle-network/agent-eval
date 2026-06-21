@@ -2,8 +2,8 @@
  * N-axis cartesian matrix over substrate types — types module.
  *
  * The matrix is a runner + aggregator. It iterates the cartesian product of
- * caller-provided axes (any value type — `AgentProfile` from sandbox, `Driver`
- * / `Validator` from agent-runtime, rubric records, thinking levels, anything)
+ * caller-provided axes (any value type — `AgentProfile` from agent-interface,
+ * `Driver` / `Validator` from agent-runtime, rubric records, thinking levels, anything)
  * and aggregates per-axis pass/score/cost summaries. Substrate types are
  * imported at the boundary by JSDoc only; the matrix never wraps them.
  */

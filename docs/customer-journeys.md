@@ -58,7 +58,7 @@ Cost mean:         $0.103 (p95: $0.131)
 
 1. Wire an `AnalystRegistry` to cluster the 6 failures by root cause via LLM analysis.
 2. Add `outcomeSignal` once they have downstream conversion / engagement / post-engagement data, and the report fits a reward model showing whether their score predicts the customer outcome.
-3. Once they identify a step worth optimizing (translation, say), graduate to journey #3 — wrap that step in a `Dispatch` and call `selfImprove()`.
+3. Once they identify a step worth optimizing (translation, say), graduate to journey #3 — wrap that step as an `agent(surface, scenario)` and call `defineAgentEval()`.
 
 **Runnable:** [`examples/customer-otel-traces/`](../examples/customer-otel-traces/)
 
@@ -130,7 +130,7 @@ Mean κ:               0.43
 1. **Triage meeting on the disagreement cases.** Mean κ=0.43 means the rubric is ambiguous; clarify it on the cases that split.
 2. **Calibrate one LLM judge per reviewer.** Each reviewer's history is the gold signal — substrate primitive `calibrateJudge` against `raterScores` filtered to that reviewer.
 3. **Add engagement as `outcomeSignal`** once the content downstream is instrumented. The `outcomeCorrelation` section tells the team whether their taste predicts the founder's token-max goal — and if not, the linear reward model says how to retarget.
-4. **Graduate to journey #3** — wrap the research-generation Claude-P call as a `Dispatch`, use the calibrated judges, run `selfImprove()` nightly. Open a PR against the GitHub Action when the holdout approval rate beats baseline.
+4. **Graduate to journey #3** — wrap the research-generation Claude-P call as an `agent(surface, scenario)`, use the calibrated judges, run `evalKit.improve()` nightly. Open a PR against the GitHub Action when the holdout approval rate beats baseline.
 
 **Runnable:** [`examples/customer-feedback-loop/`](../examples/customer-feedback-loop/)
 
@@ -142,14 +142,14 @@ Mean κ:               0.43
 
 **The frustration:** "We can run an A/B by hand but we don't know if the improvement is real. We don't have time to run paired bootstrap by hand. We want a function that decides."
 
-**What they need from agent-eval:** the closed loop in one function — propose, score, gate, ship — with the full rigor packet on the way out.
+**What they need from agent-eval:** one reusable eval definition — propose, score, gate, ship — with the full rigor packet on the way out.
 
 ### The code
 
 ```ts
-import { selfImprove } from '@tangle-network/agent-eval/contract'
+import { defineAgentEval } from '@tangle-network/agent-eval/contract'
 
-const result = await selfImprove({
+const evalKit = defineAgentEval({
   scenarios,
   agent: async (surface, scenario) =>
     await myAgent.run({ systemPrompt: (surface as { systemPrompt: string }).systemPrompt, scenario }),
@@ -162,6 +162,8 @@ const result = await selfImprove({
   budget: { generations: 3, populationSize: 2 },
 })
 
+const result = await evalKit.improve()
+
 result.gateDecision   // 'ship' | 'hold' | ...
 result.insight        // full decision packet
 ```
@@ -172,18 +174,18 @@ result.insight        // full decision packet
 ═══ selfImprove() decision packet ═══
 
 Gate decision:        ship
-Raw lift:             +0.194
+Raw lift:             +0.361
 
 ── Statistical lift (paired bootstrap) ──
-delta:    +0.254
-CI95:     [0.254, 0.254]
-pValue:   1.0000
-Cohen's d: 0.00
-MDE @ 80% power: 2.802
-required n at observed effect: 244
+delta:    +0.359
+CI95:     [0.311, 0.408]
+pValue:   0.0013
+Cohen's d: 8.58
+MDE @ 80% power: 1.401
+required n at observed effect: 122
 
 ── Recommendations ──
-[critical] ship — Ship — lift 0.254 (95% CI 0.254..0.254)
+[critical] ship — Ship — lift 0.359 (95% CI 0.311..0.408)
 ```
 
 ### Next steps for this customer

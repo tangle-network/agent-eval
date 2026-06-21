@@ -121,7 +121,7 @@ the record:
 ```ts
 const agentProfile = await buildAgentProfileCell({
   profileId: 'gtm-founder-v1',
-  sourceProfile: { kind: 'sandbox-agent-profile', profile: gtmAgentProfile },
+  sourceProfile: { kind: 'agent-interface-profile', profile: gtmAgentProfile },
   harness: { id: 'gtm-agent-eval', version: '0.3.0' },
   model: 'gpt-4o-2024-11-20',
   promptHash,

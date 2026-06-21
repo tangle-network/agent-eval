@@ -1,5 +1,5 @@
 /**
- * # `@tangle-network/agent-eval/contract` — the LAND-tier public surface.
+ * # `@tangle-network/agent-eval/contract` - the app-facing public surface.
  *
  * **Stability:** every export in this file is the frozen public API for
  * foreign-agent consumers. New minors only ADD; nothing here changes shape
@@ -19,8 +19,8 @@
  *    optional `tags`; extend with your domain fields.
  * 2. **`Dispatch<TScenario, TArtifact>`** — the seam. One function:
  *    scenario in, artifact out. Whatever your agent is, wrap it as a
- *    `Dispatch` and the eval engine drives it. (`DispatchFn` is the
- *    legacy internal name; `Dispatch` is the canonical export.)
+ *    `Dispatch` and the eval engine drives it. The campaign internals call
+ *    the same shape `DispatchFn`; `/contract` exports it as `Dispatch`.
  * 3. **`JudgeConfig<TArtifact, TScenario>`** — pluggable dimensional
  *    scorer. Bring an LLM judge, a deterministic check, an ensemble —
  *    the engine only cares about `score(input) → JudgeScore`.
@@ -35,17 +35,20 @@
  *    and is itself factored as a pluggable `PromotionPolicy` over a
  *    `buildEvidenceVector` bus so competing strategies share one evidence set.
  *
- * ## The four functions you'll call
+ * ## The five functions you'll call
  *
- * 1. **`runEval(options)`** — one-off evaluation across scenarios. Use
+ * 1. **`defineAgentEval(options)`** — define scenarios, agent, judge, and
+ *    baseline once; call `.evaluate()` for a score or `.improve()` for the
+ *    closed loop.
+ * 2. **`runEval(options)`** — one-off evaluation across scenarios. Use
  *    when you just want a score.
- * 2. **`runCampaign(options)`** — structured set of cells (scenarios ×
+ * 3. **`runCampaign(options)`** — structured set of cells (scenarios ×
  *    seeds × replicates) that emits a `CampaignResult` downstream tools
  *    can read.
- * 3. **`runImprovementLoop(options)`** — the closed self-improvement
+ * 4. **`runImprovementLoop(options)`** — the closed self-improvement
  *    loop: campaign → judge → mutator → gate → next generation. Stops
  *    when the gate ships or the budget exhausts.
- * 4. **`defaultProductionGate(options)`** — the standard held-out gate
+ * 5. **`defaultProductionGate(options)`** — the standard held-out gate
  *    most consumers want; compose with `composeGate` to add custom
  *    checks (regression deltas, cost caps, red-team signals).
  *
@@ -68,8 +71,8 @@
  * If you want to feed campaign output into RL training (TRL, prime-rl,
  * in-house), the RL bridge converts a `CampaignResult` to canonical
  * `RunRecord` + preference shapes. Pull those from
- * `@tangle-network/agent-eval/rl` directly — RL is opt-in and not part
- * of the LAND-tier contract.
+ * `@tangle-network/agent-eval/rl` directly - RL is opt-in and not part
+ * of the app-facing contract.
  *
  * ## What's NOT here
  *
@@ -83,9 +86,8 @@
 
 // ── Types: scenarios, dispatch, judges, gates, surfaces ──────────────
 
-// Foreign-agent seam — canonical name. `DispatchFn` is the legacy alias
-// that the existing campaign code uses internally; consumers should
-// import `Dispatch`.
+// App-facing seam. `DispatchFn` remains the internal campaign type name;
+// `/contract` exports it as `Dispatch`.
 export type {
   CampaignAggregates,
   CampaignArtifactWriter,
@@ -114,7 +116,7 @@ export type {
   SurfaceProposer,
 } from '../campaign/types'
 
-// ── Campaign primitives (the four functions) ─────────────────────────
+// ── Campaign primitives ──────────────────────────────────────────────
 
 export { type RunEvalOptions, runEval } from '../campaign/presets/run-eval'
 export {
@@ -172,8 +174,17 @@ export {
   type OutcomeStore,
 } from '../meta-eval/outcome-store'
 
-// ── One-shot helper (LAND-tier happy path) ───────────────────────────
+// ── One-shot helper ─────────────────────────────────────────────────
 
+export type { HostedTenant } from '../hosted/client'
+export {
+  type AgentEvalAgent,
+  type AgentEvalEvaluateOptions,
+  type AgentEvalImproveOptions,
+  type DefineAgentEvalOptions,
+  type DefinedAgentEval,
+  defineAgentEval,
+} from './define-agent-eval'
 export {
   type SelfImproveBudget,
   type SelfImproveLlm,

@@ -1,57 +1,76 @@
-/**
- * @stable
- *
- * AgentProfile — the eval harness's unit of variation.
- *
- * A profile pins everything that changes agent behaviour for a benchmark
- * cell: the model, the active skills, the prompt version, the available
- * tools. Vary the profile — swap a model, add a skill — and re-run the suite
- * to benchmark the change. The scorecard keys a cell on
- * `(scenarioId, profileHash)`, so the model is not a separate axis: it lives
- * inside the profile, and two profiles with the same model but different
- * skills are different cells.
- *
- * `agentProfileHash` is the profile's behaviour identity. Two profiles that
- * produce the same agent behaviour share a hash (and a scorecard cell);
- * reordering `skills` or `tools` does not change it; the human-facing `id`
- * label does not affect it.
- */
-
 import { createHash } from 'node:crypto'
+import type { AgentProfile } from '@tangle-network/agent-interface'
 import { ValidationError } from './errors'
 import { canonicalize } from './pre-registration'
 
-export interface AgentProfile {
-  /** Human-facing label, e.g. `sonnet-legal-skills-v3`. Not part of the hash. */
-  id: string
-  /** Model snapshot id this profile pins, e.g. `claude-sonnet-4-6@2025-04-15`. */
-  model: string
-  /** Skill ids/versions active in this profile — the primary behaviour lever. */
-  skills?: string[]
-  /** Prompt version identifier. */
-  promptVersion?: string
-  /** Tool ids available to the agent. */
-  tools?: string[]
-  /** Any other behaviour-bearing knobs that should fingerprint into the hash. */
-  metadata?: Record<string, string | number | boolean>
+export type { AgentProfile } from '@tangle-network/agent-interface'
+
+/**
+ * Collision-resistant, path-safe, human-readable profile id for eval artifacts.
+ * Scorecard joins still use `agentProfileHash`; this id is for run ids, matrix
+ * keys, and directory names where two profiles must not collapse onto one row.
+ * The suffix is the first 64 bits of the behaviour hash, enough for ordinary
+ * eval matrices while keeping filenames readable.
+ */
+export function agentProfileId(profile: AgentProfile): string {
+  const label = pathSafeProfileLabel(agentProfileDisplayLabel(profile)) ?? 'profile'
+  return `${label}-${agentProfileHash(profile).slice(0, 16)}`
 }
 
 /**
- * Deterministic behaviour identity of a profile — a sha256 over the
- * behaviour-bearing fields. `skills` and `tools` are order-insensitive; the
- * `id` label is excluded. Throws on a profile with no `model` — an unkeyable
- * profile must fail loud rather than collapse into a blank-model cell.
+ * Model snapshot used for `RunRecord.model`. Eval surfaces require a concrete
+ * model id because run records reject bare/missing model aliases.
+ */
+export function agentProfileModelId(profile: AgentProfile): string {
+  const model = profile.model?.default?.trim()
+  if (!model) {
+    const label = agentProfileDisplayLabel(profile) ?? 'unnamed profile'
+    throw new ValidationError(
+      `AgentProfile "${label}" has no model.default — cannot record eval run`,
+    )
+  }
+  return model
+}
+
+function agentProfileDisplayLabel(profile: AgentProfile): string | undefined {
+  return profile.name?.trim() || profile.version?.trim() || undefined
+}
+
+function pathSafeProfileLabel(label: string | undefined): string | undefined {
+  const safe = label
+    ?.trim()
+    .replace(/[^A-Za-z0-9._-]+/g, '-')
+    .replace(/-+/g, '-')
+    .replace(/^-|-$/g, '')
+  return safe || undefined
+}
+
+function compact<T extends Record<string, unknown>>(input: T): Partial<T> {
+  const out: Record<string, unknown> = {}
+  for (const [key, value] of Object.entries(input)) {
+    if (value !== undefined) out[key] = value
+  }
+  return out as Partial<T>
+}
+
+/**
+ * Deterministic behaviour identity for the canonical
+ * `@tangle-network/agent-interface` AgentProfile.
+ *
+ * `name` and `description` are labels and do not affect the hash. Profile
+ * `version`, prompt, model hints, tools, resources, hooks, modes, permissions,
+ * and extensions do affect the hash. Resource array order is hash-bearing
+ * because mount order can change agent behaviour. Undefined fields are treated
+ * as absent; explicit `null` fields remain hash-bearing.
  */
 export function agentProfileHash(profile: AgentProfile): string {
-  if (typeof profile.model !== 'string' || profile.model.trim().length === 0) {
-    throw new ValidationError(`AgentProfile "${profile.id}" has no model — cannot hash`)
-  }
+  const model = agentProfileModelId(profile)
   const behaviour = {
-    model: profile.model.trim(),
-    skills: [...(profile.skills ?? [])].sort(),
-    promptVersion: profile.promptVersion ?? null,
-    tools: [...(profile.tools ?? [])].sort(),
-    metadata: profile.metadata ?? {},
+    ...profile,
+    name: undefined,
+    description: undefined,
+    tags: profile.tags ? [...profile.tags].sort() : undefined,
+    model: compact({ ...profile.model, default: model }),
   }
   return createHash('sha256')
     .update(JSON.stringify(canonicalize(behaviour)))

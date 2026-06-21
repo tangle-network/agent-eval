@@ -1,6 +1,5 @@
+import type { AgentProfile } from '@tangle-network/agent-interface'
 import { describe, expect, it } from 'vitest'
-
-import type { AgentProfile } from '../../agent-profile'
 import type { CorrectnessChecker } from '../../completion-verifier'
 import type { RuntimeEventLike } from '../../produced-state'
 import type { DispatchContext } from '../types'
@@ -57,7 +56,10 @@ const ctx = {
   seed: 1,
   signal: new AbortController().signal,
 } as unknown as DispatchContext
-const profile = { id: 'haiku', model: 'anthropic/claude-haiku-4-5' } as unknown as AgentProfile
+const profile = {
+  name: 'haiku',
+  model: { default: 'anthropic/claude-haiku-4-5' },
+} satisfies AgentProfile
 
 describe('makePlaybackDispatch', () => {
   it('pipes driver events through extractProducedState into ProducedState', async () => {
@@ -77,7 +79,7 @@ describe('makePlaybackDispatch', () => {
       },
     }
     await makePlaybackDispatch(spy)(profile, STORY, ctx)
-    expect(seen?.profile.model).toBe('anthropic/claude-haiku-4-5')
+    expect(seen?.profile.model?.default).toBe('anthropic/claude-haiku-4-5')
     expect(seen?.cellId).toBe('c0')
   })
 })

@@ -5,9 +5,8 @@ any future open implementation) must accept. Frozen under semver:
 **new minors only add optional fields. Breaking changes mean a major
 bump and a new `HostedWireVersion` literal.**
 
-This is the contract that decouples the LAND-tier substrate
-(`@tangle-network/agent-eval`) from the EXPAND-tier hosted product. A
-foreign builder can:
+This is the contract between `@tangle-network/agent-eval` and any hosted
+or self-hosted orchestrator. A builder can:
 
 - Use our orchestrator at `https://orchestrator.tangle.tools/v1`.
 - Self-host the reference receiver from

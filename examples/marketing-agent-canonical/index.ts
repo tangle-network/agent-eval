@@ -1,8 +1,8 @@
 /**
- * # Canonical Phase-B demo — runnable end-to-end.
+ * # Marketing agent self-improvement demo — runnable end-to-end.
  *
- * What this is: a high-fidelity dry run of the design-partner pairing
- * built around a real multi-step marketing agent. Drive shows:
+ * What this is: a high-fidelity product-agent example built around a real
+ * multi-step marketing agent. The run shows:
  *
  *   1. Baseline `runEval` across 15 marketing scenarios on the
  *      out-of-the-box system prompt.
@@ -24,16 +24,14 @@
  * Without env vars, runs against deterministic stubs so the wiring is
  * verifiable in CI; you just don't get a real lift.
  *
- * This IS the pairing kit demo. When the design partner says yes, you
- * swap their `Dispatch` in for `runMarketingAgent`, swap their judge
- * dimensions in for the `MARKETING_JUDGE_DIMENSIONS`, and run the same
- * loop on their use case — typically 4 hours start to finish.
- *
- * See `docs/phase-b-pairing-kit.md` for the partner-facing runbook.
+ * To adapt it, swap a product `Dispatch` in for `runMarketingAgent`, swap
+ * product-specific judge dimensions in for `MARKETING_JUDGE_DIMENSIONS`, and
+ * run the same loop on that use case.
  */
 
 import { mkdir, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
+import type { CampaignResult } from '../../src/campaign/types'
 import {
   type Dispatch,
   defaultProductionGate,
@@ -42,11 +40,10 @@ import {
   runEval,
   runImprovementLoop,
 } from '../../src/contract'
-import type { CampaignResult } from '../../src/campaign/types'
 import {
   type AgentConfig,
-  type MarketingArtifact,
   DEFAULT_FINAL_PASS_SYSTEM_PROMPT,
+  type MarketingArtifact,
   runMarketingAgent,
 } from './agent'
 import { buildMarketingJudge } from './judge'
@@ -59,9 +56,16 @@ const judgeModel = process.env.JUDGE_MODEL_ID ?? model
 
 // Train / hold-out split — 4 scenarios held out for the gate so promotion
 // signal is genuine out-of-distribution, not just memorized training.
-const HOLDOUT_IDS = ['m05-healthtech-h1', 'm08-fitness-push', 'm11-dev-newsletter-subject', 'm15-saas-followup-subject']
+const HOLDOUT_IDS = [
+  'm05-healthtech-h1',
+  'm08-fitness-push',
+  'm11-dev-newsletter-subject',
+  'm15-saas-followup-subject',
+]
 
-function buildDispatch(finalPassSystemPrompt: string): Dispatch<MarketingScenario, MarketingArtifact> {
+function buildDispatch(
+  finalPassSystemPrompt: string,
+): Dispatch<MarketingScenario, MarketingArtifact> {
   const cfg: AgentConfig = { apiKey, baseUrl, model, finalPassSystemPrompt }
   return (scenario, ctx) => runMarketingAgent(scenario, cfg, ctx.signal)
 }
@@ -77,17 +81,19 @@ function formatScore(n: number): string {
 
 async function main() {
   console.log('═══════════════════════════════════════════════════════════════')
-  console.log('Canonical Phase-B demo — marketing agent self-improvement loop')
+  console.log('Marketing agent self-improvement loop')
   console.log('═══════════════════════════════════════════════════════════════')
   console.log(`endpoint: ${baseUrl}`)
   console.log(`agent model: ${model}`)
   console.log(`judge model: ${judgeModel}`)
   console.log(`mode: ${apiKey ? 'LIVE (real LLM calls)' : 'STUB (heuristic — wiring check only)'}`)
-  console.log(`scenarios: ${MARKETING_SCENARIOS.length} (${MARKETING_SCENARIOS.length - HOLDOUT_IDS.length} train + ${HOLDOUT_IDS.length} holdout)`)
+  console.log(
+    `scenarios: ${MARKETING_SCENARIOS.length} (${MARKETING_SCENARIOS.length - HOLDOUT_IDS.length} train + ${HOLDOUT_IDS.length} holdout)`,
+  )
   console.log('')
 
   const judge = buildMarketingJudge({ apiKey, baseUrl, model: judgeModel })
-  const runRoot = join(process.cwd(), '.phase-b-runs', `${Date.now()}`)
+  const runRoot = join(process.cwd(), '.marketing-agent-runs', `${Date.now()}`)
   await mkdir(runRoot, { recursive: true })
   const storage = fsCampaignStorage()
 
@@ -103,7 +109,9 @@ async function main() {
     maxConcurrency: 3,
   })
   const baselineScore = meanComposite(baseline)
-  console.log(`composite mean: ${formatScore(baselineScore)} (took ${((Date.now() - baselineStart) / 1000).toFixed(1)}s, $${baseline.aggregates.totalCostUsd.toFixed(4)})`)
+  console.log(
+    `composite mean: ${formatScore(baselineScore)} (took ${((Date.now() - baselineStart) / 1000).toFixed(1)}s, $${baseline.aggregates.totalCostUsd.toFixed(4)})`,
+  )
 
   // Per-scenario baseline scores so the report can show lift per scenario.
   const baselineByScenario: Record<string, number> = {}
@@ -112,7 +120,9 @@ async function main() {
   }
 
   if (!apiKey) {
-    console.log('\nNo OPENAI_API_KEY — stopping after baseline (stub mode). Set the env vars at the top of this file to run the full improvement loop with real lift.')
+    console.log(
+      '\nNo OPENAI_API_KEY — stopping after baseline (stub mode). Set the env vars at the top of this file to run the full improvement loop with real lift.',
+    )
     return
   }
 
@@ -120,8 +130,12 @@ async function main() {
   console.log('\n─── Self-improvement loop (gepaProposer + defaultProductionGate) ───')
   const trainScenarios = MARKETING_SCENARIOS.filter((s) => !HOLDOUT_IDS.includes(s.id))
   const holdoutScenarios = MARKETING_SCENARIOS.filter((s) => HOLDOUT_IDS.includes(s.id))
-  console.log(`train: ${trainScenarios.length} scenarios (${trainScenarios.map((s) => s.id).join(', ')})`)
-  console.log(`holdout: ${holdoutScenarios.length} scenarios (${holdoutScenarios.map((s) => s.id).join(', ')})`)
+  console.log(
+    `train: ${trainScenarios.length} scenarios (${trainScenarios.map((s) => s.id).join(', ')})`,
+  )
+  console.log(
+    `holdout: ${holdoutScenarios.length} scenarios (${holdoutScenarios.map((s) => s.id).join(', ')})`,
+  )
   console.log('')
 
   const improveStart = Date.now()
@@ -130,7 +144,11 @@ async function main() {
     baselineSurface: DEFAULT_FINAL_PASS_SYSTEM_PROMPT,
     dispatchWithSurface: (surface, scenario, ctx) => {
       const prompt = typeof surface === 'string' ? surface : JSON.stringify(surface)
-      return runMarketingAgent(scenario, { apiKey, baseUrl, model, finalPassSystemPrompt: prompt }, ctx.signal)
+      return runMarketingAgent(
+        scenario,
+        { apiKey, baseUrl, model, finalPassSystemPrompt: prompt },
+        ctx.signal,
+      )
     },
     proposer: gepaProposer({
       llm: { apiKey, baseUrl },
@@ -139,9 +157,9 @@ async function main() {
       mutationPrimitives: [
         'Tighten the hook rule: lead with the specific user outcome, not the category.',
         'Replace any generic adjective ("powerful", "seamless") with a specific verb or proof number.',
-        'Anchor every claim in a brief.proofPoints item, not in the LLM\'s prior knowledge.',
+        "Anchor every claim in a brief.proofPoints item, not in the LLM's prior knowledge.",
         'Make the surface-length constraint a hard requirement, not a guideline.',
-        'Match the audience\'s actual vocabulary (a CTO reads differently from a Product Hunt browser).',
+        "Match the audience's actual vocabulary (a CTO reads differently from a Product Hunt browser).",
       ],
     }),
     judges: [judge],
@@ -166,22 +184,27 @@ async function main() {
   console.log(`\nGenerations explored: ${result.generations.length}`)
   console.log(`Gate decision:        ${result.gateResult.decision}`)
   console.log(`Holdout baseline:     ${formatScore(baselineHoldout)}`)
-  console.log(`Holdout winner:       ${formatScore(winnerHoldout)} (Δ ${lift >= 0 ? '+' : ''}${lift.toFixed(3)})`)
+  console.log(
+    `Holdout winner:       ${formatScore(winnerHoldout)} (Δ ${lift >= 0 ? '+' : ''}${lift.toFixed(3)})`,
+  )
   console.log(`Took ${improveDuration.toFixed(1)}s`)
 
   // ── Report ──────────────────────────────────────────────────────
-  const reportPath = join(runRoot, 'phase-b-report.md')
-  await writeFile(reportPath, buildReport({
-    baselineScore,
-    baselineByScenario,
-    baselineOnHoldout: result.baselineOnHoldout,
-    winnerOnHoldout: result.winnerOnHoldout,
-    winnerSurface: result.winnerSurface,
-    gateDecision: result.gateResult.decision,
-    generations: result.generations.length,
-    durationSec: improveDuration,
-    holdoutScenarios,
-  }))
+  const reportPath = join(runRoot, 'marketing-agent-report.md')
+  await writeFile(
+    reportPath,
+    buildReport({
+      baselineScore,
+      baselineByScenario,
+      baselineOnHoldout: result.baselineOnHoldout,
+      winnerOnHoldout: result.winnerOnHoldout,
+      winnerSurface: result.winnerSurface,
+      gateDecision: result.gateResult.decision,
+      generations: result.generations.length,
+      durationSec: improveDuration,
+      holdoutScenarios,
+    }),
+  )
 
   console.log(`\nReport: ${reportPath}`)
 }
@@ -198,7 +221,7 @@ function buildReport(args: {
   holdoutScenarios: MarketingScenario[]
 }): string {
   const lines: string[] = []
-  lines.push('# Phase-B canonical demo — report')
+  lines.push('# Marketing agent self-improvement report')
   lines.push('')
   lines.push(`- Endpoint: \`${baseUrl}\``)
   lines.push(`- Agent model: \`${model}\``)
@@ -216,13 +239,16 @@ function buildReport(args: {
     const b = args.baselineOnHoldout.aggregates.byScenario[s.id]?.meanComposite ?? 0
     const w = args.winnerOnHoldout.aggregates.byScenario[s.id]?.meanComposite ?? 0
     const d = w - b
-    lines.push(`| \`${s.id}\` (${s.surface}) | ${b.toFixed(3)} | ${w.toFixed(3)} | ${d >= 0 ? '+' : ''}${d.toFixed(3)} |`)
+    lines.push(
+      `| \`${s.id}\` (${s.surface}) | ${b.toFixed(3)} | ${w.toFixed(3)} | ${d >= 0 ? '+' : ''}${d.toFixed(3)} |`,
+    )
   }
   lines.push('')
 
-  const winnerSurfaceStr = typeof args.winnerSurface === 'string'
-    ? args.winnerSurface
-    : JSON.stringify(args.winnerSurface, null, 2)
+  const winnerSurfaceStr =
+    typeof args.winnerSurface === 'string'
+      ? args.winnerSurface
+      : JSON.stringify(args.winnerSurface, null, 2)
   lines.push('## Shipped prompt (winner)')
   lines.push('')
   lines.push('```')

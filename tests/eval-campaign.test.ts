@@ -118,7 +118,7 @@ describe('runEvalCampaign — happy path', () => {
         agentProfile: ({ variantId }) => ({
           profileId: `gtm-${variantId}`,
           sourceProfile: {
-            kind: 'sandbox-agent-profile',
+            kind: 'agent-interface-profile',
             profile: { name: 'gtm-agent', variantId, permissions: { bash: 'ask' } },
           },
           harness: { id: 'gtm-agent-eval', version: '0.3.0' },
@@ -136,7 +136,7 @@ describe('runEvalCampaign — happy path', () => {
   it('rejects a prebuilt agent profile cell when it contradicts the observed run', async () => {
     const agentProfile = await buildAgentProfileCell({
       profileId: 'gtm-bad-cell',
-      sourceProfile: { kind: 'sandbox-agent-profile', profile: { name: 'gtm-agent' } },
+      sourceProfile: { kind: 'agent-interface-profile', profile: { name: 'gtm-agent' } },
       harness: { id: 'gtm-agent-eval', version: '0.3.0' },
       model: 'different-model@2026-05-08',
       promptHash: 'p'.repeat(64),
@@ -573,7 +573,7 @@ describe('runEvalCampaign — genuine-error containment (no orphaned workers)', 
           ...base,
           agentProfile: {
             profileId: 'mismatch',
-            sourceProfile: { kind: 'sandbox-agent-profile', profile: { name: 'a' } },
+            sourceProfile: { kind: 'agent-interface-profile', profile: { name: 'a' } },
             harness: { id: 'h', version: '1' },
             model: 'WRONG-MODEL@2026-05-08',
             promptHash: 'p'.repeat(64),

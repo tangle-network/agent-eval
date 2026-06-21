@@ -55,26 +55,31 @@ console.log(report.failureClusters)
 
 The output includes score distributions, lift confidence intervals, failure modes, cost-quality tradeoffs, judge agreement, contamination checks, and release recommendations when the input supports them.
 
-### 2. Run a gated improvement loop
+### 2. Define one eval, then score or improve
 
 Use this when you have scenarios, a runnable agent, and judges.
 
 ```ts
-import { selfImprove } from '@tangle-network/agent-eval/contract'
+import { defineAgentEval } from '@tangle-network/agent-eval/contract'
 
-const result = await selfImprove({
+const evalKit = defineAgentEval({
   scenarios,
-  dispatch: async ({ scenario }) => myAgent.run(scenario),
-  judges: [myJudge],
-  baselineSurface: { systemPrompt: currentPrompt },
+  agent: async (surface, scenario, ctx) =>
+    myAgent.run({ scenario, systemPrompt: String(surface), signal: ctx.signal }),
+  judge: myJudge,
+  baselineSurface: currentPrompt,
 })
 
+const baseline = await evalKit.evaluate()
+const result = await evalKit.improve({ budget: { generations: 2 } })
+
+console.log(baseline.aggregates.byJudge)
 console.log(result.gateDecision)
-console.log(result.winnerSurface)
+console.log(result.winner.surface)
 console.log(result.insight.recommendations)
 ```
 
-`selfImprove()` evaluates candidates on held-out scenarios before recommending a winner.
+`defineAgentEval()` is a small wrapper over `runEval()` and `selfImprove()`. It lets you define scenarios, agent, judge, and baseline once, then either score one surface with `.evaluate()` or run the gated loop with `.improve()`.
 
 ### 3. Adapt existing data
 
@@ -97,8 +102,9 @@ await analyzeRuns({ runs: [...runs, ...traceRuns], raterScores })
 - **RunRecord**: the durable row for one agent run: model, prompt/config hashes, split, cost, tokens, outcome.
 - **Scenario**: one task or case the agent attempts.
 - **Judge**: a scoring function, rule-based or model-based.
+- **Surface**: the thing being changed, usually a prompt string or config object.
 - **InsightReport**: the decision packet returned by `analyzeRuns()` and embedded in `selfImprove()`.
-- **Gate**: the policy that decides `ship`, `hold`, or `need_more_data`.
+- **Gate**: the policy that decides `ship`, `hold`, or `need_more_work`.
 
 ## Examples
 
@@ -116,7 +122,7 @@ Each example: `README.md` + a single `index.ts` runnable via `pnpm tsx`. Prints 
 
 | Subpath | What it gives you |
 |---|---|
-| `…/contract` | **The headline, frozen surface — new code starts here.** `selfImprove`, `analyzeRuns`, `runEval`, `runCampaign`, `runImprovementLoop`, `diffRuns`; intake adapters (`fromFeedbackTable`, `fromOtelSpans`); proposers (`gepaProposer`, `evolutionaryProposer`); gates (`defaultProductionGate`, `heldOutGate`, `paretoSignificanceGate`, `composeGate`); the deployment-outcome store; storage; and the five core types `Scenario` / `Dispatch` / `JudgeConfig` / `SurfaceProposer` / `Gate`. |
+| `…/contract` | **The headline, frozen surface — new code starts here.** `defineAgentEval`, `selfImprove`, `analyzeRuns`, `runEval`, `runCampaign`, `runImprovementLoop`, `diffRuns`; intake adapters (`fromFeedbackTable`, `fromOtelSpans`); proposers (`gepaProposer`, `evolutionaryProposer`); gates (`defaultProductionGate`, `heldOutGate`, `paretoSignificanceGate`, `composeGate`); the deployment-outcome store; storage; and the five core types `Scenario` / `Dispatch` / `JudgeConfig` / `SurfaceProposer` / `Gate`. |
 | `…/hosted` | `createHostedClient` / `hostedClientFromEnv` + the wire types to ship eval-run events + trace spans to a hosted orchestrator (ours or your own implementation of the spec) |
 | `…/adapters/otel` | `createOtelBridge` — forwards OpenTelemetry-shape spans into the hosted-tier ingest, no `@opentelemetry/*` dependency |
 | `…/adapters/langchain` | Wrap any LangChain `Runnable` as a `Dispatch` (or `JudgeConfig`), no `@langchain/core` peer dep |
@@ -147,31 +153,31 @@ agent-runtime    Runs agents (chat turns, one-shot tasks, multi-attempt loops), 
                  run as a trace, and calls optimizePrompt / runImprovementLoop. Produces the
                  RunRecords + traces agent-eval scores. Depends on agent-eval.
 
-agent-eval       selfImprove, analyzeRuns, runCampaign + surface proposers (gepaDriver, …), the gates
+agent-eval       selfImprove, analyzeRuns, runCampaign + surface proposers (GEPA proposer, …), the gates
    (this repo)   (heldOutGate, defaultProductionGate, paretoSignificanceGate), the InsightReport
                  decision packet, the RL bridge, the wire protocol. Depends on neither consumer.
 
 agent-knowledge  proposeKnowledgeWrites / applyKnowledgeWriteBlocks. agent-eval's analyst findings
                  feed it; the knowledge gate consumes them. Depends on agent-eval.
 
-sandbox          AgentProfile, Sandbox.create, streamPrompt. The execution surface the runtime's
+sandbox          Sandbox.create, streamPrompt. One execution surface the runtime's
                  loops run on; agent-eval scores what comes back.
 ```
 
-The rule: **agent-eval has zero upward dependencies on a consumer.** A concept that makes sense *without* a running agent loop — a verdict, a run record, a scenario, a judge score — is substrate and lives here; a runtime-shaped one (a sandbox profile, a validation context with an abort signal) lives in agent-runtime. When in doubt, lean substrate.
+The rule: **agent-eval has zero upward dependencies on a consumer.** A concept that makes sense *without* a running agent loop — a verdict, a run record, a scenario, a judge score — is substrate and lives here. Runtime execution details (a validation context with an abort signal, a concrete sandbox session) live in agent-runtime or sandbox. Agent profile shape is the shared `@tangle-network/agent-interface` contract.
 
 ---
 
 ## Concepts + design
 
-- [`docs/concepts.md`](./docs/concepts.md) — the three top-level functions, the layering rule, and the wire-protocol contract (the five core contract types are documented in the `/contract` barrel itself)
+- [`docs/concepts.md`](./docs/concepts.md) — the top-level entry points, the layering rule, and the wire-protocol contract (the five core contract types are documented in the `/contract` barrel itself)
 - [`docs/campaign-proposers.md`](./docs/campaign-proposers.md) — ELI5 proposer inputs/outputs, when to use each proposer, and the FAPO escalation policy
 - [`docs/insight-report.md`](./docs/insight-report.md) — annotated walkthrough of every section of the decision packet
 - [`docs/customer-journeys.md`](./docs/customer-journeys.md) — three end-to-end journeys with code + expected output
 - [`docs/adapters-observability.md`](./docs/adapters-observability.md) — composing agent-eval with LangSmith, Langfuse, Phoenix, OpenLLMetry, TraceAI
 - [`docs/wire-protocol.md`](./docs/wire-protocol.md) — the HTTP/RPC contract Python (and any future language) speaks
 - [`docs/hosted-ingest-spec.md`](./docs/hosted-ingest-spec.md) — the hosted-tier wire format, frozen at `2026-05-26.v1`
-- [`docs/design/`](./docs/design/) — RFCs + architectural notes
+- [`docs/design/loop-taxonomy.md`](./docs/design/loop-taxonomy.md) — plain-language vocabulary for execution drivers, workers, measurements, and proposers
 
 The `.claude/skills/agent-eval/SKILL.md` skill ships embedded directives so LLM agents writing integration code don't reintroduce historical bug classes.
 
@@ -182,8 +188,16 @@ The `.claude/skills/agent-eval/SKILL.md` skill ships embedded directives so LLM 
 Wire your loop to a hosted orchestrator (ours, or your own implementation of the spec) with one config:
 
 ```ts
-await selfImprove({
-  scenarios, dispatch, judges, baselineSurface,
+import { defineAgentEval } from '@tangle-network/agent-eval/contract'
+
+const evalKit = defineAgentEval({
+  scenarios,
+  agent,
+  judge,
+  baselineSurface,
+})
+
+await evalKit.improve({
   hostedTenant: {
     endpoint: 'https://intelligence.tangle.tools',
     apiKey: process.env.TANGLE_API_KEY!,

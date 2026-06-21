@@ -1,4 +1,4 @@
-import type { AgentProfile } from '@tangle-network/sandbox'
+import type { AgentProfile } from '@tangle-network/agent-interface'
 import { describe, expect, it, vi } from 'vitest'
 import {
   MultishotDriverEmptyError,

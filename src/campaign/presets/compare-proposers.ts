@@ -265,15 +265,15 @@ export interface OptimizerEntryConfig<TScenario extends Scenario, TArtifact> {
   maxEpochs?: number
   mutationPrimitives?: string[]
   /** Static findings seed forwarded to each GEPA proposer's `propose()` as
-   *  `ctx.findings` (the EYES→HANDS wire). Forwarded by `gepaReflectionEntry` /
-   *  `gepaParetoEntry`; `skillOptEntry` runs findings-BLIND (see its doc). */
+   *  `ctx.findings`. Forwarded by `gepaReflectionEntry` / `gepaParetoEntry`;
+   *  `skillOptEntry` runs without findings (see its doc). */
   findings?: unknown[]
-  /** Per-generation findings producer (EYES→HANDS loop closure): after each
-   *  generation scores, this re-diagnoses and REPLACES `ctx.findings` for the
+  /** Per-generation findings producer: after each generation scores, this
+   *  re-diagnoses and REPLACES `ctx.findings` for the
    *  next generation's `propose()`. Reuses the `runOptimization` field type so
    *  it cannot drift. GEPA entries only. */
   analyzeGeneration?: RunImprovementLoopOptions<TScenario, TArtifact>['analyzeGeneration']
-  /** Phase-2 research report forwarded to `propose()` as `ctx.report`. */
+  /** Optional analysis report forwarded to `propose()` as `ctx.report`. */
   report?: unknown
 }
 
@@ -325,9 +325,9 @@ function gepaEntry<TScenario extends Scenario, TArtifact>(
         autoOnPromote: 'none',
         runDir: `${config.runDir}/${slug(name)}-loop`,
         ...(config.seed !== undefined ? { seed: config.seed } : {}),
-        // EYES→HANDS: flow findings to the proposer's propose(). These reach
-        // runOptimization unchanged (runImprovementLoop extends RunOptimizationOptions
-        // and forwards {...opts}); ctx.findings/report/analyzeGeneration are consumed there.
+        // Flow findings to the proposer's propose(). These reach runOptimization
+        // unchanged (runImprovementLoop extends RunOptimizationOptions and
+        // forwards {...opts}); ctx.findings/report/analyzeGeneration are consumed there.
         ...(config.findings !== undefined ? { findings: config.findings } : {}),
         ...(config.analyzeGeneration ? { analyzeGeneration: config.analyzeGeneration } : {}),
         ...(config.report !== undefined ? { report: config.report } : {}),

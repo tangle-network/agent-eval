@@ -18,7 +18,7 @@
 import { appendFileSync, existsSync, mkdirSync, readFileSync } from 'node:fs'
 import { dirname } from 'node:path'
 import type { AgentProfile } from './agent-profile'
-import { agentProfileHash } from './agent-profile'
+import { agentProfileHash, agentProfileModelId } from './agent-profile'
 import { welchsTTest } from './baseline'
 import type { RunRecord } from './run-record'
 import { cohensD } from './statistics'
@@ -115,6 +115,7 @@ function aggregatePerDimension(runs: RunRecord[]): Record<string, number> | unde
  */
 export function recordRuns(runs: RunRecord[], opts: RecordRunsOptions): ScorecardLogLine[] {
   const profileHash = agentProfileHash(opts.profile)
+  const model = agentProfileModelId(opts.profile)
   const timestamp = opts.timestamp ?? new Date().toISOString()
 
   const byScenario = new Map<string, RunRecord[]>()
@@ -145,7 +146,7 @@ export function recordRuns(runs: RunRecord[], opts: RecordRunsOptions): Scorecar
     lines.push({
       scenarioId,
       profileHash,
-      model: opts.profile.model,
+      model,
       profile: opts.profile,
       entry,
     })

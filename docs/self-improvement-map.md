@@ -68,8 +68,8 @@ analysis *for*?":
 
 1. **Ships to customers** — `analyzeRuns()` → `InsightReport`, the Intelligence product.
 2. **Feeds the proposer** — `gepaProposer` calls `renderAnalystEvidence(ctx.findings,
-   ctx.report)` (`src/campaign/proposers/gepa.ts`). This is the EYES→HANDS wire: GEPA's
-   rewrites are grounded in the diagnosis instead of guessing blind. Trace analysis
+   ctx.report)` (`src/campaign/proposers/gepa.ts`). GEPA's rewrites are grounded
+   in the diagnosis instead of guessing blind. Trace analysis
    **is** on the GEPA side.
 3. **Races HALO** — wrapped as `traceAnalystProposer` so our analysis competes
    head-to-head with the external SOTA inside `compareProposers`.

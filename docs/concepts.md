@@ -9,17 +9,21 @@ connected, or the answer lacks required sources. The package gives products a
 shared way to record runs, check outcomes, classify failures, compare variants,
 and make release decisions.
 
-## The three top-level functions
+## The top-level functions
 
-Everything funnels through `/contract`. Three entries, one shape coming back:
+Everything funnels through `/contract`. Start with `defineAgentEval()` when you
+can; drop to the raw functions when you need lower-level control.
 
 | Function | When to call it | What you give it | What you get back |
 |---|---|---|---|
+| **`defineAgentEval()`** | You have scenarios, an agent, a judge, and a baseline surface, and you want one object you can score or improve. | scenarios, agent, judge, baseline surface | `{ evaluate(), improve() }` where `evaluate()` returns a campaign result and `improve()` returns a decision packet |
 | **`selfImprove()`** | You have a closed loop — scenarios, judge, agent in hand, and you want the substrate to propose better candidates + gate them. | scenarios, agent, judge, baseline surface | `SelfImproveResult.insight: InsightReport` + ship/hold verdict + winner surface |
 | **`analyzeRuns()`** | You have observed runs (production traces, an approve/reject corpus, a CSV gold set) and want the same rigor packet without invoking an agent. | `RunRecord[]` + optional flags | `InsightReport` |
 | **Intake adapters** (`fromFeedbackTable`, `fromOtelSpans`) | Your data isn't already in `RunRecord` shape — it's in Obsidian, Sheets, an OTel collector, etc. | source-specific input | `RunRecord[]` ready to pipe into `analyzeRuns()` |
 
-The three customer maturity stages — logs only → ratings → closed loop — map exactly to the three functions. See [`customer-journeys.md`](./customer-journeys.md) for the runnable walkthroughs.
+The customer maturity stages — logs only → ratings → closed loop — map to these
+entry points. See [`customer-journeys.md`](./customer-journeys.md) for the
+runnable walkthroughs.
 
 The shape of the answer — `InsightReport` — is identical across all three paths. Distributional summary, paired-bootstrap lift CI, judge stats, inter-rater agreement, cost-quality Pareto, failure clusters, contamination check, outcome correlation, release axes, and a ranked recommendations array. Walked through section-by-section in [`insight-report.md`](./insight-report.md).
 
