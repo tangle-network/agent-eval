@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest'
-import { type AgentProfile, agentProfileHash } from './agent-profile'
+import {
+  type AgentProfile,
+  agentProfileHash,
+  agentProfileId,
+  agentProfileModelId,
+} from './agent-profile'
 
 const base: AgentProfile = {
   name: 'sonnet-baseline',
@@ -65,6 +70,63 @@ describe('agentProfileHash', () => {
   it('throws on a profile with no default model — an unkeyable profile fails loud', () => {
     expect(() => agentProfileHash({ name: 'broken', model: { default: '  ' } })).toThrow(
       /model.default/,
+    )
+  })
+})
+
+describe('agentProfileId', () => {
+  it('uses the trimmed profile name plus a behavior hash suffix', () => {
+    const id = agentProfileId({ ...base, name: '  sonnet-baseline  ' })
+
+    expect(id).toMatch(/^sonnet-baseline-[0-9a-f]{12}$/)
+  })
+
+  it('uses version as the human label when name is absent', () => {
+    const id = agentProfileId({ ...base, name: undefined, version: '  v3  ' })
+
+    expect(id).toMatch(/^v3-[0-9a-f]{12}$/)
+  })
+
+  it('falls back to a profile hash label when no name or version is present', () => {
+    const id = agentProfileId({ ...base, name: undefined, version: undefined })
+
+    expect(id).toMatch(/^profile-[0-9a-f]{12}$/)
+  })
+
+  it('fails loudly instead of inventing a fallback id for an unrecordable profile', () => {
+    expect(() => agentProfileId({ name: 'model-less-profile' })).toThrow(
+      /model-less-profile.*model\.default/,
+    )
+  })
+
+  it('does not collapse distinct profiles that share the same version label', () => {
+    const first = agentProfileId({
+      ...base,
+      name: undefined,
+      version: 'v3',
+      model: { default: 'claude-sonnet-4-6@2025-04-15' },
+    })
+    const second = agentProfileId({
+      ...base,
+      name: undefined,
+      version: 'v3',
+      model: { default: 'claude-opus-4-6@2025-04-15' },
+    })
+
+    expect(first).not.toBe(second)
+  })
+})
+
+describe('agentProfileModelId', () => {
+  it('returns the trimmed default model id', () => {
+    expect(agentProfileModelId({ ...base, model: { default: '  model@2026-01-01  ' } })).toBe(
+      'model@2026-01-01',
+    )
+  })
+
+  it('names the broken profile when the default model is missing', () => {
+    expect(() => agentProfileModelId({ name: 'broken-profile', model: { default: '  ' } })).toThrow(
+      /broken-profile.*model\.default/,
     )
   })
 })

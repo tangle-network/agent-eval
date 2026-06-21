@@ -6,13 +6,13 @@ import { canonicalize } from './pre-registration'
 export type { AgentProfile } from '@tangle-network/agent-interface'
 
 /**
- * Human-readable profile id for eval artifacts. This is a label, not behaviour
- * identity; scorecard joins use `agentProfileHash`.
+ * Collision-resistant, human-readable profile id for eval artifacts.
+ * Scorecard joins still use `agentProfileHash`; this id is for run ids, matrix
+ * keys, and directory names where two profiles must not collapse onto one row.
  */
 export function agentProfileId(profile: AgentProfile): string {
-  const id = profile.name?.trim() || profile.version?.trim()
-  if (id) return id
-  return `profile-${agentProfileHash(profile).slice(0, 12)}`
+  const label = agentProfileLabel(profile) ?? 'profile'
+  return `${label}-${agentProfileHash(profile).slice(0, 12)}`
 }
 
 /**
@@ -22,17 +22,24 @@ export function agentProfileId(profile: AgentProfile): string {
 export function agentProfileModelId(profile: AgentProfile): string {
   const model = profile.model?.default?.trim()
   if (!model) {
-    throw new ValidationError('AgentProfile has no model.default — cannot record eval run')
+    const label = agentProfileLabel(profile) ?? 'unnamed profile'
+    throw new ValidationError(
+      `AgentProfile "${label}" has no model.default — cannot record eval run`,
+    )
   }
   return model
 }
 
-function compact<T extends Record<string, unknown>>(input: T): T {
+function agentProfileLabel(profile: AgentProfile): string | undefined {
+  return profile.name?.trim() || profile.version?.trim() || undefined
+}
+
+function compact<T extends Record<string, unknown>>(input: T): Partial<T> {
   const out: Record<string, unknown> = {}
   for (const [key, value] of Object.entries(input)) {
     if (value !== undefined) out[key] = value
   }
-  return out as T
+  return out as Partial<T>
 }
 
 /**
@@ -41,7 +48,9 @@ function compact<T extends Record<string, unknown>>(input: T): T {
  *
  * `name` and `description` are labels and do not affect the hash. Profile
  * `version`, prompt, model hints, tools, resources, hooks, modes, permissions,
- * and extensions do affect the hash.
+ * and extensions do affect the hash. Resource array order is hash-bearing
+ * because mount order can change agent behaviour. Undefined fields are treated
+ * as absent; explicit `null` fields remain hash-bearing.
  */
 export function agentProfileHash(profile: AgentProfile): string {
   const model = agentProfileModelId(profile)

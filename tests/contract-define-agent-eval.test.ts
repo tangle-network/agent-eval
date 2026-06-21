@@ -1,4 +1,4 @@
-import { existsSync, mkdtempSync, rmSync } from 'node:fs'
+import { mkdtempSync, readdirSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
@@ -94,7 +94,7 @@ describe('defineAgentEval', () => {
 
       await evalKit.evaluate()
 
-      expect(existsSync(join(dir, 'mem:'))).toBe(false)
+      expect(readdirSync(dir)).toEqual([])
     } finally {
       process.chdir(previousCwd)
       rmSync(dir, { recursive: true, force: true })
@@ -129,6 +129,18 @@ describe('defineAgentEval', () => {
     expect(result.aggregates.byJudge.quality).toBeUndefined()
   })
 
+  it('fails loudly when evaluate callers pass an empty judge list', async () => {
+    const evalKit = defineAgentEval({
+      scenarios,
+      agent,
+      judge,
+      baselineSurface: 'base',
+      expectUsage: 'off',
+    })
+
+    await expect(evalKit.evaluate({ judges: [] })).rejects.toThrow(/judges must not be empty/)
+  })
+
   it('runs selfImprove and merges budget overrides without dropping default knobs', async () => {
     const evalKit = defineAgentEval({
       scenarios,
@@ -147,5 +159,57 @@ describe('defineAgentEval', () => {
     expect(result.generationsExplored).toBe(1)
     expect(result.winner.surface).toBe('base better')
     expect(result.lift).toBeGreaterThan(0)
+  })
+
+  it('merges nested hosted tenant overrides without dropping credentials', async () => {
+    let request: { url: string; headers: Headers } | undefined
+    const evalKit = defineAgentEval({
+      scenarios,
+      agent,
+      judge,
+      baselineSurface: 'base',
+      hostedTenant: {
+        endpoint: 'https://old.example',
+        apiKey: 'secret-key',
+        tenantId: 'tenant-a',
+        fetchImpl: async (url, init) => {
+          request = {
+            url: String(url),
+            headers: new Headers(init?.headers),
+          }
+          return new Response(JSON.stringify({ ok: true }), {
+            status: 200,
+            headers: { 'content-type': 'application/json' },
+          })
+        },
+      },
+      budget: { generations: 0, holdoutFraction: 0.5 },
+      expectUsage: 'off',
+    })
+
+    await evalKit.improve({
+      hostedTenant: { endpoint: 'https://new.example' },
+    })
+
+    expect(request?.url).toBe('https://new.example/v1/ingest/eval-runs')
+    expect(request?.headers.get('authorization')).toBe('Bearer secret-key')
+    expect(request?.headers.get('x-tangle-tenant-id')).toBe('tenant-a')
+  })
+
+  it('fails loudly when a partial hosted tenant has no defaults to complete it', async () => {
+    const evalKit = defineAgentEval({
+      scenarios,
+      agent,
+      judge,
+      baselineSurface: 'base',
+      budget: { generations: 0, holdoutFraction: 0.5 },
+      expectUsage: 'off',
+    })
+
+    await expect(
+      evalKit.improve({
+        hostedTenant: { endpoint: 'https://new.example' },
+      }),
+    ).rejects.toThrow(/hostedTenant requires endpoint, apiKey, and tenantId/)
   })
 })

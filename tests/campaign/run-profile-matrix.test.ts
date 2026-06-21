@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { type AgentProfile, agentProfileHash } from '../../src/agent-profile'
+import { type AgentProfile, agentProfileHash, agentProfileId } from '../../src/agent-profile'
 import {
   inMemoryCampaignStorage,
   type JudgeConfig,
@@ -35,6 +35,9 @@ const PROFILES: AgentProfile[] = [
     prompt: { systemPrompt: 'tuned prompt' },
   },
 ]
+
+const BASELINE_PROFILE_ID = agentProfileId(PROFILES[0]!)
+const TUNED_PROFILE_ID = agentProfileId(PROFILES[1]!)
 
 const SCENARIOS: FakeScenario[] = [
   { id: 's1', kind: 'task', persona: 'alice' },
@@ -94,9 +97,9 @@ describe('runProfileMatrix', () => {
       expect(rec.splitTag).toBe('search')
       expect(rec.scenarioId).toBeDefined()
     }
-    // candidateId is the profile id; both profiles present.
+    // candidateId is the collision-resistant profile id; both profiles present.
     expect(new Set(result.records.map((r) => r.candidateId))).toEqual(
-      new Set(['baseline', 'tuned']),
+      new Set([BASELINE_PROFILE_ID, TUNED_PROFILE_ID]),
     )
   })
 
@@ -199,6 +202,7 @@ describe('runProfileMatrix', () => {
       profiles: [pricedProfile],
       dispatch: sourceZeroCost,
     })
+    const pricedProfileId = agentProfileId(pricedProfile)
     const rec = result.records[0]!
     const raw = rec.outcome.raw
     // deepseek family rate: in 0.0003/1k, out 0.0011/1k.
@@ -210,14 +214,17 @@ describe('runProfileMatrix', () => {
     // Integrity: real activity AND no longer uncosted (the cost axis is filled).
     expect(result.integrity.verdict).toBe('real')
     expect(result.integrity.uncostedRecords).toBe(0)
-    expect(result.byProfile.deepseek!.totalCostUsd).toBeCloseTo(expected * result.records.length, 6)
-    // Every cost surface agrees — the embedded campaign aggregate is reconciled
-    // to the priced total, not runCampaign's raw ctx.cost ledger ($0).
-    expect(result.campaigns.deepseek!.aggregates.totalCostUsd).toBeCloseTo(
+    expect(result.byProfile[pricedProfileId]!.totalCostUsd).toBeCloseTo(
       expected * result.records.length,
       6,
     )
-    expect(result.byProfile.deepseek!.integrity.totalCostUsd).toBeCloseTo(
+    // Every cost surface agrees — the embedded campaign aggregate is reconciled
+    // to the priced total, not runCampaign's raw ctx.cost ledger ($0).
+    expect(result.campaigns[pricedProfileId]!.aggregates.totalCostUsd).toBeCloseTo(
+      expected * result.records.length,
+      6,
+    )
+    expect(result.byProfile[pricedProfileId]!.integrity.totalCostUsd).toBeCloseTo(
       expected * result.records.length,
       6,
     )
@@ -257,9 +264,9 @@ describe('runProfileMatrix', () => {
       dispatch: realDispatch,
       personaOf: (s: FakeScenario) => s.persona,
     })
-    expect(result.byProfile.tuned!.meanComposite).toBeCloseTo(0.9, 5)
-    expect(result.byProfile.baseline!.meanComposite).toBeCloseTo(0.6, 5)
-    expect(result.byProfile.tuned!.profileHash).toBe(agentProfileHash(PROFILES[1]!))
+    expect(result.byProfile[TUNED_PROFILE_ID]!.meanComposite).toBeCloseTo(0.9, 5)
+    expect(result.byProfile[BASELINE_PROFILE_ID]!.meanComposite).toBeCloseTo(0.6, 5)
+    expect(result.byProfile[TUNED_PROFILE_ID]!.profileHash).toBe(agentProfileHash(PROFILES[1]!))
 
     // 3 scenarios pivot, each with 2 profiles × 2 reps = 4 records.
     expect(Object.keys(result.byScenario).sort()).toEqual(['s1', 's2', 's3'])

@@ -8,8 +8,10 @@ import type {
   MutableSurface,
   Scenario,
 } from '../campaign/types'
+import type { HostedTenant } from '../hosted/client'
 import {
   type SelfImproveBudget,
+  type SelfImproveLlm,
   type SelfImproveOptions,
   type SelfImproveResult,
   selfImprove,
@@ -45,9 +47,14 @@ export interface AgentEvalEvaluateOptions<TScenario extends Scenario, TArtifact>
   runDir?: string
 }
 
-export type AgentEvalImproveOptions<TScenario extends Scenario, TArtifact> = Partial<
-  SelfImproveOptions<TScenario, TArtifact>
->
+export type AgentEvalImproveOptions<TScenario extends Scenario, TArtifact> = Omit<
+  Partial<SelfImproveOptions<TScenario, TArtifact>>,
+  'budget' | 'hostedTenant' | 'llm'
+> & {
+  budget?: Partial<SelfImproveBudget>
+  hostedTenant?: Partial<HostedTenant>
+  llm?: Partial<SelfImproveLlm>
+}
 
 export interface DefinedAgentEval<TScenario extends Scenario, TArtifact> {
   /** The default scenarios used by `evaluate()` and `improve()`. */
@@ -62,9 +69,10 @@ export interface DefinedAgentEval<TScenario extends Scenario, TArtifact> {
     opts?: AgentEvalEvaluateOptions<TScenario, TArtifact>,
   ): Promise<CampaignResult<TArtifact, TScenario>>
   /**
-   * Run the closed improvement loop. Per-call overrides are shallow-merged with
-   * the definition; `budget` is merged field-by-field so callers can override
-   * one budget knob without repeating the rest.
+   * Run the closed improvement loop. Per-call overrides replace the definition
+   * except for nested config objects (`budget`, `llm`, `hostedTenant`), which
+   * are merged field-by-field so callers can override one knob without
+   * repeating secrets or budget defaults.
    */
   improve(
     opts?: AgentEvalImproveOptions<TScenario, TArtifact>,
@@ -103,7 +111,7 @@ export function defineAgentEval<TScenario extends Scenario, TArtifact>(
         runDir: selectedRunDir,
         scenarios: scenarios ?? defaults.scenarios,
         dispatch: (scenario, ctx) => selectedAgent(selectedSurface, scenario, ctx),
-        judges: judges ?? [judge ?? defaults.judge],
+        judges: evaluateJudges(judges, judge ?? defaults.judge),
       }
       return runEval<TScenario, TArtifact>(evalOptions)
     },
@@ -111,9 +119,13 @@ export function defineAgentEval<TScenario extends Scenario, TArtifact>(
     async improve(opts) {
       const merged = mergeDefined(defaults, opts)
       const budget = mergeBudget(defaults.budget, opts?.budget)
+      const llm = mergeLlm(defaults.llm, opts?.llm)
+      const hostedTenant = mergeHostedTenant(defaults.hostedTenant, opts?.hostedTenant)
       return selfImprove<TScenario, TArtifact>({
         ...merged,
         ...(budget ? { budget } : {}),
+        ...(llm ? { llm } : {}),
+        ...(hostedTenant ? { hostedTenant } : {}),
       })
     },
   }
@@ -142,17 +154,58 @@ function evaluateDefaults<TScenario extends Scenario, TArtifact>(
 
 function mergeBudget(
   defaults: SelfImproveBudget | undefined,
-  overrides: SelfImproveBudget | undefined,
+  overrides: Partial<SelfImproveBudget> | undefined,
 ): SelfImproveBudget | undefined {
-  if (!defaults && !overrides) return undefined
-  return mergeDefined(defaults ?? {}, overrides)
+  return mergeOptionalObject(defaults, overrides)
 }
 
-function mergeDefined<T extends object>(defaults: T, overrides: Partial<T> | undefined): T {
+function mergeLlm(
+  defaults: SelfImproveLlm | undefined,
+  overrides: Partial<SelfImproveLlm> | undefined,
+): SelfImproveLlm | undefined {
+  return mergeOptionalObject(defaults, overrides)
+}
+
+function mergeHostedTenant(
+  defaults: HostedTenant | undefined,
+  overrides: Partial<HostedTenant> | undefined,
+): HostedTenant | undefined {
+  const merged = mergeOptionalObject(defaults, overrides)
+  if (!merged) return undefined
+  if (!merged.endpoint?.trim() || !merged.apiKey?.trim() || !merged.tenantId?.trim()) {
+    throw new Error(
+      'defineAgentEval.improve: hostedTenant requires endpoint, apiKey, and tenantId after merging defaults and overrides',
+    )
+  }
+  return merged
+}
+
+function mergeDefined<T extends object>(defaults: T, overrides: object | undefined): T {
   if (!overrides) return defaults
   const merged = { ...defaults } as Record<string, unknown>
   for (const [key, value] of Object.entries(overrides)) {
     if (value !== undefined) merged[key] = value
   }
   return merged as T
+}
+
+function mergeOptionalObject<T extends object>(
+  defaults: T | undefined,
+  overrides: Partial<T> | undefined,
+): T | undefined {
+  if (!defaults && !overrides) return undefined
+  return mergeDefined(defaults ?? ({} as T), overrides)
+}
+
+function evaluateJudges<TArtifact, TScenario extends Scenario>(
+  judges: JudgeConfig<TArtifact, TScenario>[] | undefined,
+  defaultJudge: JudgeConfig<TArtifact, TScenario>,
+): JudgeConfig<TArtifact, TScenario>[] {
+  if (judges !== undefined) {
+    if (judges.length === 0) {
+      throw new Error('defineAgentEval.evaluate: judges must not be empty')
+    }
+    return judges
+  }
+  return [defaultJudge]
 }

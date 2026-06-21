@@ -10,7 +10,7 @@ held-out gate.
 |---|---|
 | `scenarios.ts` | 15 marketing rewrite scenarios across 15 surface types (landing-hero, tweet, push-notification, ...). 4 reserved as held-out for the gate. |
 | `agent.ts` | 5-step marketing agent (research → outline → draft → critique → final). Optimizes the **final-pass system prompt** via `gepaProposer`. |
-| `judge.ts` | 6-dim marketing-quality judge calibrated to real copywriting practice. Strawman — partner modifies during the pairing. |
+| `judge.ts` | 6-dim marketing-quality judge calibrated to real copywriting practice. Treat these dimensions as the product quality bar for the demo. |
 | `index.ts` | `runEval` baseline → `runImprovementLoop` w/ `gepaProposer` + `defaultProductionGate` → markdown report artifact. |
 
 ## Run it
@@ -60,7 +60,7 @@ When the founder is ready, this becomes the template:
    API or framework via a `Dispatch` — see
    [`examples/foreign-agent-quickstart`](../foreign-agent-quickstart/)).
 2. Replace `MARKETING_SCENARIOS` with theirs (8-15 scenarios spanning
-   their real surfaces — co-author during the pairing's hour 3).
+   their real product surfaces).
 3. Replace `MARKETING_JUDGE_DIMENSIONS` with the product's quality bar.
 4. Run the same `runImprovementLoop` configuration; capture the report.
 
