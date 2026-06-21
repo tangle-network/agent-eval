@@ -123,6 +123,11 @@ jobs:
       # is safe here. Idempotent: a version already on the registry is skipped so
       # the downstream PyPI step still runs.
       - name: Publish to npm (OIDC trusted publishing)
+        env:
+          # `npm publish` re-runs the `prepublishOnly` build hook, whose bundled
+          # declaration emit (tsup `dts: true`) OOMs the rollup-dts worker at the
+          # default heap. Match the 8192 used by the standalone build steps.
+          NODE_OPTIONS: --max-old-space-size=8192
         run: |
           npm install -g npm@latest
           NAME=$(node -p "require('./package.json').name")
