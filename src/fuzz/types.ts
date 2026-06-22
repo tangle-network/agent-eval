@@ -86,8 +86,17 @@ export interface ProposeContext<S> {
  * Produces candidate scenarios for a cell. A plain function — `mutationProposer`
  * builds one from mutation operators; an agent running a generator skill IS one
  * (`(ctx) => dispatchToSkill(ctx)`), no wrapper needed.
+ *
+ * Distinct from the optimization `SurfaceProposer` (`campaign/types`): that one
+ * is the proposer in the surface-optimization loop (`runOptimization`); this one
+ * is the scenario generator in the behavior-fuzzing loop. `SurfaceProposer` is
+ * THE optimization proposer.
  */
-export type Proposer<S> = (ctx: ProposeContext<S>) => Promise<S[]> | S[]
+export type MutationProposer<S> = (ctx: ProposeContext<S>) => Promise<S[]> | S[]
+
+/** @deprecated Renamed to `MutationProposer` to disambiguate from the
+ *  optimization `SurfaceProposer`. Kept as an alias for back-compat. */
+export type Proposer<S> = MutationProposer<S>
 
 /**
  * What "interesting" means. `interest` in [0,1]; a candidate is notable (gate-
@@ -249,7 +258,7 @@ export interface ExploreOptions<S> {
   /** The input stratification plan. */
   space: BehaviorSpace
   /** Candidate generator. */
-  proposer: Proposer<S>
+  proposer: MutationProposer<S>
   /** Runs the target → multi-objective `Evaluation`. */
   evaluate: Evaluator<S>
   /** Seed corpus per cell. */

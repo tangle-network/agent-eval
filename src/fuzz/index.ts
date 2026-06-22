@@ -34,6 +34,7 @@ export type {
   ExploreEvent,
   ExploreOptions,
   Finding,
+  MutationProposer,
   Objective,
   ObjectiveContext,
   ProposeContext,

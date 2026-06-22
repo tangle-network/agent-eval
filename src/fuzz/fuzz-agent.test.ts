@@ -6,7 +6,14 @@ import { fuzzAgent } from './fuzz-agent'
 import { composeGates } from './gates'
 import { mutationProposer, noveltyObjective } from './policies'
 import { makeExploreTools } from './tools'
-import type { BehaviorSpace, Cell, Evaluation, Evaluator, ExploreOptions, Proposer } from './types'
+import type {
+  BehaviorSpace,
+  Cell,
+  Evaluation,
+  Evaluator,
+  ExploreOptions,
+  MutationProposer,
+} from './types'
 
 interface Scn {
   id: string
@@ -46,7 +53,7 @@ const seedsFor = (cell: Cell): Scn[] => [
   },
 ]
 
-const proposer: Proposer<Scn> = mutationProposer<Scn>({
+const proposer: MutationProposer<Scn> = mutationProposer<Scn>({
   scenarioId: (s) => s.id,
   mutationsFor: () => [
     {
@@ -163,7 +170,7 @@ describe('fuzzAgent (adversarial preset)', () => {
     // allocation (base's mutation operator runs dry on easy cells, which is
     // legitimate engine behavior, not an allocation skew).
     let n = 0
-    const fresh: Proposer<Scn> = (ctx) =>
+    const fresh: MutationProposer<Scn> = (ctx) =>
       Array.from({ length: ctx.count }, () => {
         n++
         return {
