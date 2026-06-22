@@ -237,6 +237,88 @@ describe('runMultishot', () => {
     global.fetch = originalFetch
   })
 
+  it('uses configured max token budgets for agent, tool follow-up, and driver calls', async () => {
+    const originalFetch = global.fetch
+    process.env.TANGLE_API_KEY = 'test-key'
+
+    const fetchStub = makeFetchStub([
+      { toolCalls: [{ name: 'my_custom_tool', args: { x: 1 } }] },
+      { content: 'agent after custom tool' },
+      { content: 'driver follow-up' },
+      { content: 'final agent answer' },
+    ])
+    global.fetch = fetchStub as unknown as typeof fetch
+
+    await runMultishot({
+      profile: PROFILE,
+      persona: PERSONA,
+      shape: SHAPE,
+      maxTurns: 2,
+      agentMaxTokens: 111,
+      toolFollowupMaxTokens: 222,
+      driverMaxTokens: 333,
+      tools: [
+        {
+          type: 'function',
+          function: {
+            name: 'my_custom_tool',
+            description: 'test',
+            parameters: { type: 'object', properties: {} },
+          },
+        },
+      ],
+      toolExecutors: {
+        my_custom_tool: async () => ({ content: 'custom tool result', costUsd: 0.001 }),
+      },
+    })
+
+    const requestBodies = fetchStub.mock.calls.map(
+      ([, init]) => JSON.parse(String(init?.body)) as Record<string, unknown>,
+    )
+    expect(requestBodies.map((body) => body.max_tokens)).toEqual([111, 222, 333, 111])
+
+    global.fetch = originalFetch
+  })
+
+  it('tries driver fallback models after the primary driver returns empty twice', async () => {
+    const originalFetch = global.fetch
+    process.env.TANGLE_API_KEY = 'test-key'
+
+    const fetchStub = makeFetchStub([
+      { content: 'agent t0' },
+      { content: '' },
+      { content: '' },
+      { content: 'fallback driver response' },
+      { content: 'agent t1' },
+    ])
+    global.fetch = fetchStub as unknown as typeof fetch
+
+    const result = await runMultishot({
+      profile: PROFILE,
+      persona: PERSONA,
+      shape: SHAPE,
+      maxTurns: 2,
+      driverModel: 'primary-driver',
+      driverFallbackModels: ['fallback-driver'],
+    })
+
+    const requestBodies = fetchStub.mock.calls.map(
+      ([, init]) => JSON.parse(String(init?.body)) as Record<string, unknown>,
+    )
+    expect(requestBodies.map((body) => body.model)).toEqual([
+      'openai/gpt-5.4',
+      'primary-driver',
+      'primary-driver',
+      'fallback-driver',
+      'openai/gpt-5.4',
+    ])
+    expect(
+      result.transcript.some((message) => message.content === 'fallback driver response'),
+    ).toBe(true)
+
+    global.fetch = originalFetch
+  })
+
   it('does not send empty transcript messages to the driver after tool-only agent turns', async () => {
     const originalFetch = global.fetch
     process.env.TANGLE_API_KEY = 'test-key'

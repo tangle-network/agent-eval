@@ -89,6 +89,16 @@ export interface RunMultishotMatrixOptions<TPersona extends MultishotPersona> {
   agentModel?: string
   /** Driver model. */
   driverModel?: string
+  /** Fallback driver models tried when the primary simulated-user model returns empty twice. */
+  driverFallbackModels?: string[]
+  /** Maximum output tokens for the first agent call in each assistant turn. */
+  agentMaxTokens?: number
+  /** Maximum output tokens for agent follow-up calls after tool results. */
+  toolFollowupMaxTokens?: number
+  /** Maximum output tokens for each simulated-user driver response. */
+  driverMaxTokens?: number
+  /** Maximum output tokens for each judge response. */
+  judgeMaxTokens?: number
   /** Pass-thru fields. */
   apiKey?: string
   baseUrl?: string
@@ -188,6 +198,10 @@ export async function runMultishotMatrix<TPersona extends MultishotPersona>(
         maxToolDispatches: opts.maxToolDispatches,
         agentModel: opts.agentModel,
         driverModel: opts.driverModel,
+        driverFallbackModels: opts.driverFallbackModels,
+        agentMaxTokens: opts.agentMaxTokens,
+        toolFollowupMaxTokens: opts.toolFollowupMaxTokens,
+        driverMaxTokens: opts.driverMaxTokens,
         apiKey: opts.apiKey,
         baseUrl: opts.baseUrl,
       })
@@ -196,11 +210,17 @@ export async function runMultishotMatrix<TPersona extends MultishotPersona>(
       const contentArtifacts = sim.artifacts.filter((a) => contentTypes.has(a.type))
 
       const [conversation, codeReviews, contentReviews] = await Promise.all([
-        runJudge(opts.judges.conversation, { transcript: sim.transcript, persona }),
+        runJudge(withJudgeMaxTokens(opts.judges.conversation, opts.judgeMaxTokens), {
+          transcript: sim.transcript,
+          persona,
+        }),
         opts.judges.codeReview
           ? Promise.all(
               codeArtifacts.map((artifact) =>
-                runJudge(opts.judges.codeReview!, { artifact, persona }).then((s) => ({
+                runJudge(withJudgeMaxTokens(opts.judges.codeReview!, opts.judgeMaxTokens), {
+                  artifact,
+                  persona,
+                }).then((s) => ({
                   ...s,
                   turn: artifact.turn,
                   type: artifact.type,
@@ -211,7 +231,10 @@ export async function runMultishotMatrix<TPersona extends MultishotPersona>(
         opts.judges.contentQuality
           ? Promise.all(
               contentArtifacts.map((artifact) =>
-                runJudge(opts.judges.contentQuality!, { artifact, persona }).then((s) => ({
+                runJudge(withJudgeMaxTokens(opts.judges.contentQuality!, opts.judgeMaxTokens), {
+                  artifact,
+                  persona,
+                }).then((s) => ({
                   ...s,
                   turn: artifact.turn,
                   type: artifact.type,
@@ -298,4 +321,12 @@ export async function runMultishotMatrix<TPersona extends MultishotPersona>(
   writeFileSync(join(opts.runDir, 'summary.md'), md.join('\n'))
 
   return { matrix }
+}
+
+function withJudgeMaxTokens<TInput>(
+  judge: JudgeConfig<TInput>,
+  maxTokens: number | undefined,
+): JudgeConfig<TInput> {
+  if (maxTokens === undefined || judge.maxTokens !== undefined) return judge
+  return { ...judge, maxTokens }
 }

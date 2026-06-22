@@ -105,6 +105,22 @@ describe('runJudge', () => {
     expect(score.composite).toBe(6)
     global.fetch = original
   })
+
+  it('uses configured max token budget for judge calls', async () => {
+    const original = global.fetch
+    process.env.TANGLE_API_KEY = 'test-key'
+    const fetchStub = stubFetch([
+      { body: { choices: [{ message: { content: '{"quality":8,"specificity":8}' } }] } },
+    ])
+    global.fetch = fetchStub as unknown as typeof fetch
+
+    await runJudge({ ...JUDGE, maxTokens: 321 }, { text: 'x' })
+
+    const body = JSON.parse(String(fetchStub.mock.calls[0][1]?.body)) as Record<string, unknown>
+    expect(body.max_tokens).toBe(321)
+
+    global.fetch = original
+  })
 })
 
 describe('helpers', () => {
