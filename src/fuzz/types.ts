@@ -94,10 +94,6 @@ export interface ProposeContext<S> {
  */
 export type MutationProposer<S> = (ctx: ProposeContext<S>) => Promise<S[]> | S[]
 
-/** @deprecated Renamed to `MutationProposer` to disambiguate from the
- *  optimization `SurfaceProposer`. Kept as an alias for back-compat. */
-export type Proposer<S> = MutationProposer<S>
-
 /**
  * What "interesting" means. `interest` in [0,1]; a candidate is notable (gate-
  * checked, reported) when `interest >= threshold`. `adversarialObjective` (low
