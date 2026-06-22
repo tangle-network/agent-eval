@@ -8,7 +8,7 @@
  *     providing a `humanGoldenJudgeId`).
  */
 
-import { interRaterReliability } from '../statistics'
+import { interRaterReliability, pearsonR } from '../statistics'
 import type { JudgeSpan } from '../trace/schema'
 import type { TraceStore } from '../trace/store'
 
@@ -78,7 +78,7 @@ export async function judgeAgreementView(store: TraceStore): Promise<JudgeAgreem
           judgeB: judgeJ,
           dimension: dim,
           commonItems: common.length,
-          pearson: pearson(
+          pearson: pearsonR(
             common.map((c) => c[0]),
             common.map((c) => c[1]),
           ),
@@ -93,22 +93,4 @@ export async function judgeAgreementView(store: TraceStore): Promise<JudgeAgreem
     dimensions: [...byDimension.keys()].sort(),
     judgeIds,
   }
-}
-
-function pearson(a: number[], b: number[]): number {
-  if (a.length !== b.length || a.length < 2) return NaN
-  const mA = a.reduce((s, v) => s + v, 0) / a.length
-  const mB = b.reduce((s, v) => s + v, 0) / b.length
-  let num = 0,
-    denA = 0,
-    denB = 0
-  for (let i = 0; i < a.length; i++) {
-    const dA = a[i]! - mA
-    const dB = b[i]! - mB
-    num += dA * dB
-    denA += dA * dA
-    denB += dB * dB
-  }
-  if (denA === 0 || denB === 0) return denA === 0 && denB === 0 ? 1 : 0
-  return num / Math.sqrt(denA * denB)
 }

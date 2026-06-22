@@ -19,6 +19,8 @@
  * decide whether to trust the judge, retrain it, or add a tie-breaker.
  */
 
+import { pearsonR, spearmanR } from './statistics'
+
 export interface GoldenItem {
   itemId: string
   humanScore: number
@@ -153,24 +155,6 @@ export function selfPreference(
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────
-
-function pearsonR(a: number[], b: number[]): number {
-  if (a.length !== b.length || a.length < 2) return NaN
-  const mA = a.reduce((s, v) => s + v, 0) / a.length
-  const mB = b.reduce((s, v) => s + v, 0) / b.length
-  let num = 0,
-    dA = 0,
-    dB = 0
-  for (let i = 0; i < a.length; i++) {
-    const da = a[i]! - mA
-    const db = b[i]! - mB
-    num += da * db
-    dA += da * da
-    dB += db * db
-  }
-  if (dA === 0 || dB === 0) return dA === 0 && dB === 0 ? 1 : 0
-  return num / Math.sqrt(dA * dB)
-}
 
 /** Quadratic weighted Cohen's κ over bounded integer scores. */
 function weightedKappa(a: number[], b: number[]): number {
@@ -511,29 +495,6 @@ function avgPairwise(rows: number[][], fn: (a: number[], b: number[]) => number)
     }
   }
   return pairs === 0 ? NaN : sum / pairs
-}
-
-/** Spearman rank correlation. Ties get average ranks. */
-function spearmanR(a: number[], b: number[]): number {
-  if (a.length !== b.length || a.length < 2) return NaN
-  return pearsonR(rankWithTies(a), rankWithTies(b))
-}
-
-function rankWithTies(xs: number[]): number[] {
-  const n = xs.length
-  const indexed = xs.map((v, i) => ({ v, i }))
-  indexed.sort((x, y) => x.v - y.v)
-  const ranks = new Array(n).fill(0)
-  let i = 0
-  while (i < n) {
-    let j = i
-    while (j + 1 < n && indexed[j + 1]!.v === indexed[i]!.v) j++
-    // Average rank for ties (ranks are 1-indexed).
-    const avg = (i + j) / 2 + 1
-    for (let k = i; k <= j; k++) ranks[indexed[k]!.i] = avg
-    i = j + 1
-  }
-  return ranks
 }
 
 /** Seeded PRNG — Mulberry32. Deterministic across platforms. */

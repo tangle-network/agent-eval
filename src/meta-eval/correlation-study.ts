@@ -9,6 +9,7 @@
  * the framework is a moat — no other agent-eval tool publishes one.
  */
 
+import { pearsonR, spearmanR } from '../statistics'
 import { aggregateLlm, llmSpans } from '../trace/query'
 import type { Run } from '../trace/schema'
 import type { TraceStore } from '../trace/store'
@@ -118,7 +119,7 @@ export async function correlationStudy(
     .filter((p) => p.xs.length >= 3)
     .map((p) => {
       const pearson = pearsonR(p.xs, p.ys)
-      const spearman = pearsonR(ranks(p.xs), ranks(p.ys))
+      const spearman = spearmanR(p.xs, p.ys)
       const pearsonCi95 = bootstrapPearsonCi(p.xs, p.ys, options.bootstrapIterations ?? 500)
       const verdict: CorrelationResult['verdict'] =
         Math.abs(pearson) >= 0.7 ? 'strong' : Math.abs(pearson) >= 0.4 ? 'moderate' : 'weak'
@@ -163,37 +164,6 @@ function reduce(
     .filter((p) => p.v !== undefined)
   if (paired.length === 0) return v ?? null
   return paired.sort((a, b) => b.at - a.at)[0]?.v ?? null
-}
-
-function pearsonR(a: number[], b: number[]): number {
-  if (a.length !== b.length || a.length < 2) return NaN
-  const mA = a.reduce((s, v) => s + v, 0) / a.length
-  const mB = b.reduce((s, v) => s + v, 0) / b.length
-  let num = 0,
-    dA = 0,
-    dB = 0
-  for (let i = 0; i < a.length; i++) {
-    const da = a[i]! - mA,
-      db = b[i]! - mB
-    num += da * db
-    dA += da * da
-    dB += db * db
-  }
-  if (dA === 0 || dB === 0) return dA === 0 && dB === 0 ? 1 : 0
-  return num / Math.sqrt(dA * dB)
-}
-
-function ranks(xs: number[]): number[] {
-  const indexed = xs.map((v, i) => ({ v, i })).sort((x, y) => x.v - y.v)
-  const r = new Array<number>(xs.length)
-  for (let i = 0; i < indexed.length; i++) {
-    let j = i
-    while (j + 1 < indexed.length && indexed[j + 1]!.v === indexed[i]!.v) j++
-    const avg = (i + j + 2) / 2
-    for (let k = i; k <= j; k++) r[indexed[k]!.i] = avg
-    i = j
-  }
-  return r
 }
 
 function bootstrapPearsonCi(

@@ -18,7 +18,10 @@ import {
   pairedTTest,
   partialCredit,
   passAtK,
+  pearsonR,
+  ranks,
   requiredSampleSize,
+  spearmanR,
   weightedMean,
   wilcoxonSignedRank,
   wilson,
@@ -745,5 +748,81 @@ describe('mcnemarRequiredN / mcnemarPower — paired-binary power', () => {
   it('throws on impossible discordant probabilities', () => {
     expect(() => mcnemarRequiredN({ p10: 0.7, p01: 0.7 })).toThrow(/p10\+p01/)
     expect(() => mcnemarPower({ p10: -0.1, p01: 0.2, nPairs: 50 })).toThrow(/p10,p01/)
+  })
+})
+
+describe('pearsonR — consolidated correlation helper', () => {
+  it('returns +1 for a perfectly increasing linear relationship', () => {
+    expect(pearsonR([1, 2, 3, 4], [2, 4, 6, 8])).toBeCloseTo(1, 10)
+  })
+
+  it('returns -1 for a perfectly decreasing linear relationship', () => {
+    expect(pearsonR([1, 2, 3, 4], [8, 6, 4, 2])).toBeCloseTo(-1, 10)
+  })
+
+  it('matches the known Pearson value on a worked example', () => {
+    // r for ([1,2,3,4,5],[2,4,5,4,5]) ≈ 0.7745966692
+    expect(pearsonR([1, 2, 3, 4, 5], [2, 4, 5, 4, 5])).toBeCloseTo(0.7745966692, 8)
+  })
+
+  it('is symmetric in its arguments', () => {
+    const a = [3, 1, 4, 1, 5, 9]
+    const b = [2, 7, 1, 8, 2, 8]
+    expect(pearsonR(a, b)).toBeCloseTo(pearsonR(b, a), 12)
+  })
+
+  // Edge-case contract — the whole point of consolidating the divergent copies.
+  it('returns NaN for fewer than two observations (insufficient data, not 0)', () => {
+    expect(pearsonR([], [])).toBeNaN()
+    expect(pearsonR([1], [2])).toBeNaN()
+  })
+
+  it('returns NaN on a length mismatch', () => {
+    expect(pearsonR([1, 2, 3], [1, 2])).toBeNaN()
+  })
+
+  it('returns 1 when both series are constant (degenerate perfect agreement)', () => {
+    expect(pearsonR([5, 5, 5], [3, 3, 3])).toBe(1)
+  })
+
+  it('returns 0 when exactly one series is constant (no covariation to detect)', () => {
+    expect(pearsonR([5, 5, 5], [1, 2, 3])).toBe(0)
+    expect(pearsonR([1, 2, 3], [4, 4, 4])).toBe(0)
+  })
+})
+
+describe('ranks — average-rank-with-ties', () => {
+  it('ranks distinct values 1..n in value order', () => {
+    expect(ranks([10, 30, 20])).toEqual([1, 3, 2])
+  })
+
+  it('assigns the average rank to ties', () => {
+    // values [5,5,9] occupy ranks 1,2,3 → the two 5s share (1+2)/2 = 1.5
+    expect(ranks([5, 5, 9])).toEqual([1.5, 1.5, 3])
+    // four equal values all share (1+2+3+4)/4 = 2.5
+    expect(ranks([7, 7, 7, 7])).toEqual([2.5, 2.5, 2.5, 2.5])
+  })
+})
+
+describe('spearmanR — rank correlation', () => {
+  it('is +1 for any strictly increasing relationship, even non-linear', () => {
+    // cubic is monotone but not linear: Pearson < 1, Spearman = 1
+    const x = [1, 2, 3, 4, 5]
+    const y = x.map((v) => v ** 3)
+    expect(spearmanR(x, y)).toBeCloseTo(1, 10)
+    expect(pearsonR(x, y)).toBeLessThan(1)
+  })
+
+  it('is -1 for a strictly decreasing relationship', () => {
+    expect(spearmanR([1, 2, 3, 4], [40, 30, 20, 10])).toBeCloseTo(-1, 10)
+  })
+
+  it('handles ties via average ranks', () => {
+    expect(spearmanR([1, 2, 2, 4], [1, 2, 2, 4])).toBeCloseTo(1, 10)
+  })
+
+  it('inherits the n<2 / length-mismatch NaN contract', () => {
+    expect(spearmanR([1], [2])).toBeNaN()
+    expect(spearmanR([1, 2, 3], [1, 2])).toBeNaN()
   })
 })

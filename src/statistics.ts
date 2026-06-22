@@ -296,6 +296,68 @@ export function interpretCliffs(delta: number): CliffsMagnitude {
   return 'large'
 }
 
+// ── Correlation (Pearson / Spearman) ─────────────────────────────────
+//
+// The single source for linear (Pearson) and rank (Spearman) correlation.
+// Edge-case contract is explicit so every caller agrees on what a
+// degenerate input means:
+//   - length mismatch or n < 2  → NaN   (correlation is undefined; not 0)
+//   - both series constant      → 1     (degenerate perfect agreement)
+//   - exactly one series constant → 0   (no covariation to detect)
+// Returning NaN for n < 2 (rather than 0) keeps "not enough data" distinct
+// from "measured zero correlation", which a 0 would silently conflate.
+
+/**
+ * Average-rank-with-ties transform (1-indexed). Tied values receive the mean
+ * of the ranks they span, the standard correction for Spearman's ρ.
+ */
+export function ranks(xs: number[]): number[] {
+  const indexed = xs.map((v, i) => ({ v, i })).sort((a, b) => a.v - b.v)
+  const r = new Array<number>(xs.length)
+  let i = 0
+  while (i < indexed.length) {
+    let j = i
+    while (j + 1 < indexed.length && indexed[j + 1]!.v === indexed[i]!.v) j++
+    const avg = (i + j) / 2 + 1
+    for (let k = i; k <= j; k++) r[indexed[k]!.i] = avg
+    i = j + 1
+  }
+  return r
+}
+
+/**
+ * Pearson product-moment correlation coefficient r ∈ [-1, 1] between two
+ * equal-length series. See the edge-case contract above: NaN for n < 2 or
+ * unequal lengths, 1 when both series are constant, 0 when exactly one is.
+ */
+export function pearsonR(a: number[], b: number[]): number {
+  if (a.length !== b.length || a.length < 2) return Number.NaN
+  const n = a.length
+  const meanA = a.reduce((s, v) => s + v, 0) / n
+  const meanB = b.reduce((s, v) => s + v, 0) / n
+  let num = 0
+  let varA = 0
+  let varB = 0
+  for (let i = 0; i < n; i++) {
+    const da = a[i]! - meanA
+    const db = b[i]! - meanB
+    num += da * db
+    varA += da * da
+    varB += db * db
+  }
+  if (varA === 0 || varB === 0) return varA === 0 && varB === 0 ? 1 : 0
+  return num / Math.sqrt(varA * varB)
+}
+
+/**
+ * Spearman's rank correlation ρ — Pearson over the average-rank-with-ties
+ * transform of each series. Same edge-case contract as {@link pearsonR}.
+ */
+export function spearmanR(a: number[], b: number[]): number {
+  if (a.length !== b.length || a.length < 2) return Number.NaN
+  return pearsonR(ranks(a), ranks(b))
+}
+
 export interface WeightedCompositeInput {
   /** Per-dimension scores (typically 0..1). */
   dims: Record<string, number>

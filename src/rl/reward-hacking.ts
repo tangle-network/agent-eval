@@ -38,6 +38,7 @@
  */
 
 import type { RunRecord } from '../run-record'
+import { pearsonR } from '../statistics'
 import {
   filterDeterministicallyRewarded,
   type VerifiableRewardExtractionOptions,
@@ -268,24 +269,6 @@ function mean(xs: number[]): number {
 function clamp01(x: number): number {
   if (!Number.isFinite(x)) return 0
   return Math.max(0, Math.min(1, x))
-}
-
-function pearsonR(a: number[], b: number[]): number {
-  if (a.length !== b.length || a.length < 2) return 0
-  const ma = mean(a)
-  const mb = mean(b)
-  let num = 0,
-    da = 0,
-    db = 0
-  for (let i = 0; i < a.length; i++) {
-    const xa = a[i]! - ma
-    const xb = b[i]! - mb
-    num += xa * xb
-    da += xa * xa
-    db += xb * xb
-  }
-  if (da === 0 || db === 0) return 0
-  return num / Math.sqrt(da * db)
 }
 
 function ksStatistic(a: number[], b: number[]): number {
