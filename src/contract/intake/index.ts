@@ -14,6 +14,8 @@
  *   - `fromCodexSession` / `fromClaudeCodeSession` / `fromOpenCodeSession` /
  *     `fromKimiCodeSession` / `fromPiSession` — local coding-agent and
  *     graph-shaped sessions projected into process-scored `RunRecord`s.
+ *   - `fromRunRecordDir` — a `.json` / `.jsonl` file or a directory of them,
+ *     parsed and validated at the boundary.
  */
 
 export {
@@ -52,3 +54,9 @@ export {
   fromFeedbackTable,
 } from './feedback-table'
 export { type FromOtelSpansOptions, fromOtelSpans } from './otel-spans'
+export {
+  type FromRunRecordDirOptions,
+  type FromRunRecordDirResult,
+  fromRunRecordDir,
+  type RunRecordRejection,
+} from './run-record-dir'
