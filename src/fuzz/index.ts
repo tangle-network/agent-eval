@@ -38,7 +38,6 @@ export type {
   Objective,
   ObjectiveContext,
   ProposeContext,
-  Proposer,
   RunCost,
   SpaceAxis,
   ValidityGates,
