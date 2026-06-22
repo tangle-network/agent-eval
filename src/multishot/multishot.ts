@@ -40,6 +40,8 @@ export interface RunMultishotOptions<TPersona extends MultishotPersona> {
   maxTurns?: number
   agentModel?: string
   driverModel?: string
+  /** Maximum tool calls the agent may dispatch inside one assistant turn. */
+  maxToolDispatches?: number
   apiKey?: string
   baseUrl?: string
   signal?: AbortSignal
@@ -51,6 +53,7 @@ export async function runMultishot<TPersona extends MultishotPersona>(
   const apiKey = opts.apiKey ?? requireRouterApiKey()
   const baseUrl = opts.baseUrl ?? defaultRouterBaseUrl()
   const maxTurns = opts.maxTurns ?? 10
+  const maxToolDispatches = opts.maxToolDispatches ?? 4
   const agentModel = opts.agentModel ?? 'openai/gpt-5.4'
   const driverModel = opts.driverModel ?? 'openai/gpt-4o-mini'
 
@@ -84,85 +87,79 @@ export async function runMultishot<TPersona extends MultishotPersona>(
   for (let turn = 0; turn < maxTurns; turn++) {
     if (opts.signal?.aborted) throw new Error('multishot aborted')
 
-    const { message: agentMsg, usage: agentUsage } = await routerCompletion({
-      apiKey,
-      baseUrl,
-      model: agentModel,
-      messages: agentMessages,
-      tools,
-      temperature: 0.7,
-      maxTokens: 2500,
-      signal: opts.signal,
-    })
-    totalCostUsd += estimateRouterCost(agentModel, agentUsage)
-
-    const agentText = (agentMsg.content ?? '').trim()
-    const agentToolCalls = (agentMsg.tool_calls ?? []).map((tc) => ({
-      id: tc.id,
-      name: tc.function.name,
-      args: (() => {
-        try {
-          return JSON.parse(tc.function.arguments) as Record<string, unknown>
-        } catch {
-          return {} as Record<string, unknown>
-        }
-      })(),
-    }))
-
-    agentMessages.push({
-      role: 'assistant',
-      content: agentText || null,
-      ...(agentMsg.tool_calls?.length ? { tool_calls: agentMsg.tool_calls } : {}),
-    })
-    transcript.push({
-      role: 'assistant',
-      content: agentText,
-      toolCalls: agentToolCalls.length > 0 ? agentToolCalls : undefined,
-    })
-
-    for (const tc of agentToolCalls) {
-      toolCalls++
-      let toolResult = ''
-      try {
-        const executor = executors[tc.name]
-        if (!executor) {
-          toolResult = JSON.stringify({ error: `unknown tool ${tc.name}` })
-        } else {
-          const r = await executor(tc.args, { apiKey, baseUrl, signal: opts.signal })
-          toolResult = r.content
-          totalCostUsd += r.costUsd
-          const artifactType = artifactTypeFor(tc.name)
-          if (artifactType) {
-            artifacts.push({
-              type: artifactType,
-              turn,
-              invocation: { name: tc.name, args: tc.args },
-              content: toolResult,
-            })
-          }
-        }
-      } catch (err) {
-        toolResult = JSON.stringify({ error: err instanceof Error ? err.message : String(err) })
-      }
-      agentMessages.push({ role: 'tool', tool_call_id: tc.id, content: toolResult || 'done' })
-      transcript.push({ role: 'tool', content: toolResult || 'done', toolCallId: tc.id })
-    }
-
-    // If the agent emitted tool_calls, give it a follow-up turn to integrate the results.
-    if (agentToolCalls.length > 0) {
-      const followUp = await routerCompletion({
+    let dispatchesThisTurn = 0
+    while (true) {
+      const { message: agentMsg, usage: agentUsage } = await routerCompletion({
         apiKey,
         baseUrl,
         model: agentModel,
         messages: agentMessages,
+        tools,
         temperature: 0.7,
-        maxTokens: 2000,
+        maxTokens: dispatchesThisTurn === 0 ? 2500 : 2000,
         signal: opts.signal,
       })
-      totalCostUsd += estimateRouterCost(agentModel, followUp.usage)
-      const followUpText = (followUp.message.content ?? '').trim()
-      agentMessages.push({ role: 'assistant', content: followUpText })
-      transcript.push({ role: 'assistant', content: followUpText })
+      totalCostUsd += estimateRouterCost(agentModel, agentUsage)
+
+      const agentText = (agentMsg.content ?? '').trim()
+      const agentToolCalls = (agentMsg.tool_calls ?? []).map((tc) => ({
+        id: tc.id,
+        name: tc.function.name,
+        args: (() => {
+          try {
+            return JSON.parse(tc.function.arguments) as Record<string, unknown>
+          } catch {
+            return {} as Record<string, unknown>
+          }
+        })(),
+      }))
+
+      agentMessages.push({
+        role: 'assistant',
+        content: agentText || null,
+        ...(agentMsg.tool_calls?.length ? { tool_calls: agentMsg.tool_calls } : {}),
+      })
+      transcript.push({
+        role: 'assistant',
+        content: agentText,
+        toolCalls: agentToolCalls.length > 0 ? agentToolCalls : undefined,
+      })
+
+      if (agentToolCalls.length === 0) break
+      dispatchesThisTurn += agentToolCalls.length
+      if (dispatchesThisTurn > maxToolDispatches) {
+        throw new Error(
+          `multishot: tool dispatch cap exceeded (${dispatchesThisTurn}/${maxToolDispatches}) on turn ${turn}`,
+        )
+      }
+
+      for (const tc of agentToolCalls) {
+        toolCalls++
+        let toolResult = ''
+        try {
+          const executor = executors[tc.name]
+          if (!executor) {
+            toolResult = JSON.stringify({ error: `unknown tool ${tc.name}` })
+          } else {
+            const r = await executor(tc.args, { apiKey, baseUrl, signal: opts.signal })
+            toolResult = r.content
+            totalCostUsd += r.costUsd
+            const artifactType = artifactTypeFor(tc.name)
+            if (artifactType) {
+              artifacts.push({
+                type: artifactType,
+                turn,
+                invocation: { name: tc.name, args: tc.args },
+                content: toolResult,
+              })
+            }
+          }
+        } catch (err) {
+          toolResult = JSON.stringify({ error: err instanceof Error ? err.message : String(err) })
+        }
+        agentMessages.push({ role: 'tool', tool_call_id: tc.id, content: toolResult || 'done' })
+        transcript.push({ role: 'tool', content: toolResult || 'done', toolCallId: tc.id })
+      }
     }
 
     if (turn < maxTurns - 1) {
