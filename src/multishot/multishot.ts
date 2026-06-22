@@ -200,8 +200,10 @@ async function driverTurn<TPersona extends MultishotPersona>(opts: {
   const driverMessages: Array<Record<string, unknown>> = [{ role: 'system', content: driverSystem }]
   for (const msg of opts.transcript) {
     if (msg.role === 'tool') continue
-    if (msg.role === 'assistant') driverMessages.push({ role: 'user', content: msg.content })
-    else if (msg.role === 'user') driverMessages.push({ role: 'assistant', content: msg.content })
+    const content = driverVisibleContent(msg)
+    if (!content) continue
+    if (msg.role === 'assistant') driverMessages.push({ role: 'user', content })
+    else if (msg.role === 'user') driverMessages.push({ role: 'assistant', content })
   }
 
   // Driver must never go silent. Retry once on empty content; then fail loud.
@@ -219,4 +221,14 @@ async function driverTurn<TPersona extends MultishotPersona>(opts: {
     if (content.length > 0) return { content, costUsd: estimateRouterCost(opts.model, usage) }
   }
   throw new MultishotDriverEmptyError(opts.turn)
+}
+
+function driverVisibleContent(msg: MultishotMessage): string | null {
+  const text = msg.content.trim()
+  if (text.length > 0) return text
+  if (msg.role !== 'assistant' || !msg.toolCalls?.length) return null
+
+  const toolNames = msg.toolCalls.map((call) => call.name.trim()).filter(Boolean)
+  if (toolNames.length === 0) return 'Agent called tools.'
+  return `Agent called ${toolNames.length === 1 ? 'tool' : 'tools'}: ${toolNames.join(', ')}.`
 }

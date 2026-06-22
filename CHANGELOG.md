@@ -4,6 +4,12 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ---
 
+## [0.96.3] — 2026-06-22 — multishot driver transcript hygiene
+
+### Fixed
+
+- `runMultishot` no longer sends empty transcript messages to the persona driver after tool-only assistant turns. Tool-only turns are represented as concise tool-call summaries, preventing router 400s for empty message content while preserving the simulated user's awareness of agent actions.
+
 ## [0.96.2] — 2026-06-22 — multishot tool loop
 
 ### Fixed

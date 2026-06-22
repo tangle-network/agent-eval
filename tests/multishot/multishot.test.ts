@@ -236,6 +236,51 @@ describe('runMultishot', () => {
     global.fetch = originalFetch
   })
 
+  it('does not send empty transcript messages to the driver after tool-only agent turns', async () => {
+    const originalFetch = global.fetch
+    process.env.TANGLE_API_KEY = 'test-key'
+
+    const fetchStub = makeFetchStub([
+      { toolCalls: [{ name: 'my_custom_tool', args: { x: 1 } }] },
+      { content: 'agent after custom tool' },
+      { content: 'driver saw the tool use and continues' },
+      { content: 'final agent answer' },
+    ])
+    global.fetch = fetchStub as unknown as typeof fetch
+
+    await runMultishot({
+      profile: PROFILE,
+      persona: PERSONA,
+      shape: SHAPE,
+      maxTurns: 2,
+      tools: [
+        {
+          type: 'function',
+          function: {
+            name: 'my_custom_tool',
+            description: 'test',
+            parameters: { type: 'object', properties: {} },
+          },
+        },
+      ],
+      toolExecutors: {
+        my_custom_tool: async () => ({ content: 'custom tool result', costUsd: 0.001 }),
+      },
+      artifactTypeFor: (name) => (name === 'my_custom_tool' ? 'custom' : undefined),
+    })
+
+    const driverRequest = JSON.parse(String(fetchStub.mock.calls[2][1]?.body)) as {
+      messages: Array<{ role: string; content?: unknown }>
+    }
+    expect(driverRequest.messages.some((msg) => msg.content === '')).toBe(false)
+    expect(driverRequest.messages).toContainEqual({
+      role: 'user',
+      content: 'Agent called tool: my_custom_tool.',
+    })
+
+    global.fetch = originalFetch
+  })
+
   it('fails loud when one assistant turn exceeds the tool dispatch cap', async () => {
     const originalFetch = global.fetch
     process.env.TANGLE_API_KEY = 'test-key'
