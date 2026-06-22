@@ -191,4 +191,82 @@ describe('runMultishot', () => {
 
     global.fetch = originalFetch
   })
+
+  it('keeps tools available across follow-up dispatch rounds', async () => {
+    const originalFetch = global.fetch
+    process.env.TANGLE_API_KEY = 'test-key'
+
+    const customExecutor = vi.fn(async () => ({ content: 'custom tool result', costUsd: 0.001 }))
+    const fetchStub = makeFetchStub([
+      { toolCalls: [{ name: 'my_custom_tool', args: { x: 1 } }] },
+      { toolCalls: [{ name: 'my_custom_tool', args: { x: 2 } }] },
+      { content: 'agent after two custom tools' },
+    ])
+    global.fetch = fetchStub as unknown as typeof fetch
+
+    const result = await runMultishot({
+      profile: PROFILE,
+      persona: PERSONA,
+      shape: SHAPE,
+      maxTurns: 1,
+      tools: [
+        {
+          type: 'function',
+          function: {
+            name: 'my_custom_tool',
+            description: 'test',
+            parameters: { type: 'object', properties: {} },
+          },
+        },
+      ],
+      toolExecutors: { my_custom_tool: customExecutor },
+      artifactTypeFor: (name) => (name === 'my_custom_tool' ? 'custom' : undefined),
+    })
+
+    expect(customExecutor).toHaveBeenCalledTimes(2)
+    expect(result.toolCalls).toBe(2)
+    expect(result.artifacts).toHaveLength(2)
+    const requestBodies = fetchStub.mock.calls.map(
+      ([, init]) => JSON.parse(String(init?.body)) as Record<string, unknown>,
+    )
+    expect(requestBodies[0]).toHaveProperty('tools')
+    expect(requestBodies[1]).toHaveProperty('tools')
+    expect(requestBodies[2]).toHaveProperty('tools')
+
+    global.fetch = originalFetch
+  })
+
+  it('fails loud when one assistant turn exceeds the tool dispatch cap', async () => {
+    const originalFetch = global.fetch
+    process.env.TANGLE_API_KEY = 'test-key'
+    global.fetch = makeFetchStub([
+      { toolCalls: [{ name: 'my_custom_tool', args: { x: 1 } }] },
+      { toolCalls: [{ name: 'my_custom_tool', args: { x: 2 } }] },
+    ]) as unknown as typeof fetch
+
+    await expect(
+      runMultishot({
+        profile: PROFILE,
+        persona: PERSONA,
+        shape: SHAPE,
+        maxTurns: 1,
+        maxToolDispatches: 1,
+        tools: [
+          {
+            type: 'function',
+            function: {
+              name: 'my_custom_tool',
+              description: 'test',
+              parameters: { type: 'object', properties: {} },
+            },
+          },
+        ],
+        toolExecutors: {
+          my_custom_tool: async () => ({ content: 'custom tool result', costUsd: 0.001 }),
+        },
+      }),
+    ).rejects.toThrow(/tool dispatch cap exceeded/)
+
+    global.fetch = originalFetch
+  })
 })

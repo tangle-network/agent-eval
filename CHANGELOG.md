@@ -4,6 +4,18 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ---
 
+## [0.96.2] — 2026-06-22 — multishot tool loop
+
+### Fixed
+
+- `runMultishot` now keeps tools available across follow-up dispatch rounds and executes sequential tool calls until the agent returns text or hits `maxToolDispatches`. This prevents router-backed agents from emitting tool syntax as plain text after the first tool result.
+
+### Added
+
+- `maxToolDispatches` on `runMultishot` and `runMultishotMatrix` to fail loudly when one assistant turn exceeds the configured tool budget.
+
+---
+
 ## [0.95.0] — 2026-06-21 — FAPO proposer + public-surface prune
 
 ### Added

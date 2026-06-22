@@ -79,6 +79,8 @@ export interface RunMultishotMatrixOptions<TPersona extends MultishotPersona> {
   reps?: number
   /** Max conversation turns per cell. */
   maxTurns?: number
+  /** Maximum tool calls the agent may dispatch inside one assistant turn. */
+  maxToolDispatches?: number
   /** Max concurrent cells. */
   maxConcurrency?: number
   /** Total $ ceiling across the matrix; cells aborted past this. */
@@ -183,6 +185,7 @@ export async function runMultishotMatrix<TPersona extends MultishotPersona>(
         toolExecutors: opts.toolExecutors,
         artifactTypeFor: opts.artifactTypeFor,
         maxTurns: opts.maxTurns,
+        maxToolDispatches: opts.maxToolDispatches,
         agentModel: opts.agentModel,
         driverModel: opts.driverModel,
         apiKey: opts.apiKey,
