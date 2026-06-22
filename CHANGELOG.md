@@ -4,6 +4,12 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ---
 
+## [0.96.4] — 2026-06-22 — multishot fatal tool errors
+
+### Added
+
+- `MultishotFatalToolError` from `@tangle-network/agent-eval/multishot`. Tool executors can throw it when a tool failure should abort the cell instead of being fed back to the agent as a recoverable tool message.
+
 ## [0.96.3] — 2026-06-22 — multishot driver transcript hygiene
 
 ### Fixed
