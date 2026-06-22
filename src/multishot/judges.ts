@@ -38,6 +38,8 @@ export interface JudgeConfig<TInput> {
   /** Optional model + api overrides. */
   apiKey?: string
   baseUrl?: string
+  /** Maximum output tokens for the judge response. Defaults to 1500. */
+  maxTokens?: number
 }
 
 export async function runJudge<TInput>(
@@ -55,7 +57,7 @@ export async function runJudge<TInput>(
       baseUrl,
       model,
       temperature: 0,
-      maxTokens: 1500,
+      maxTokens: judge.maxTokens ?? 1500,
       messages: [
         { role: 'system', content: judge.systemPrompt },
         { role: 'user', content: prompt },

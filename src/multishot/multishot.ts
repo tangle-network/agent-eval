@@ -41,6 +41,14 @@ export interface RunMultishotOptions<TPersona extends MultishotPersona> {
   maxTurns?: number
   agentModel?: string
   driverModel?: string
+  /** Fallback driver models tried when the primary simulated-user model returns empty twice. */
+  driverFallbackModels?: string[]
+  /** Maximum output tokens for the first agent call in each assistant turn. */
+  agentMaxTokens?: number
+  /** Maximum output tokens for agent follow-up calls after tool results. */
+  toolFollowupMaxTokens?: number
+  /** Maximum output tokens for each simulated-user driver response. */
+  driverMaxTokens?: number
   /** Maximum tool calls the agent may dispatch inside one assistant turn. */
   maxToolDispatches?: number
   apiKey?: string
@@ -57,6 +65,10 @@ export async function runMultishot<TPersona extends MultishotPersona>(
   const maxToolDispatches = opts.maxToolDispatches ?? 4
   const agentModel = opts.agentModel ?? 'openai/gpt-5.4'
   const driverModel = opts.driverModel ?? 'openai/gpt-4o-mini'
+  const driverModels = [driverModel, ...(opts.driverFallbackModels ?? [])]
+  const agentMaxTokens = opts.agentMaxTokens ?? 2500
+  const toolFollowupMaxTokens = opts.toolFollowupMaxTokens ?? 2000
+  const driverMaxTokens = opts.driverMaxTokens ?? 600
 
   const bundle =
     opts.tools && opts.toolExecutors
@@ -97,7 +109,7 @@ export async function runMultishot<TPersona extends MultishotPersona>(
         messages: agentMessages,
         tools,
         temperature: 0.7,
-        maxTokens: dispatchesThisTurn === 0 ? 2500 : 2000,
+        maxTokens: dispatchesThisTurn === 0 ? agentMaxTokens : toolFollowupMaxTokens,
         signal: opts.signal,
       })
       totalCostUsd += estimateRouterCost(agentModel, agentUsage)
@@ -172,7 +184,8 @@ export async function runMultishot<TPersona extends MultishotPersona>(
         shape: opts.shape,
         transcript,
         turn,
-        model: driverModel,
+        models: driverModels,
+        maxTokens: driverMaxTokens,
         signal: opts.signal,
       })
       totalCostUsd += driver.costUsd
@@ -191,7 +204,8 @@ async function driverTurn<TPersona extends MultishotPersona>(opts: {
   shape: MultishotShape<TPersona>
   transcript: MultishotMessage[]
   turn: number
-  model: string
+  models: string[]
+  maxTokens: number
   signal?: AbortSignal
 }): Promise<{ content: string; costUsd: number }> {
   const driverSystem = opts.shape.buildDriverSystemPrompt(opts.persona)
@@ -209,18 +223,20 @@ async function driverTurn<TPersona extends MultishotPersona>(opts: {
   }
 
   // Driver must never go silent. Retry once on empty content; then fail loud.
-  for (let attempt = 0; attempt < 2; attempt++) {
-    const { message, usage } = await routerCompletion({
-      apiKey: opts.apiKey,
-      baseUrl: opts.baseUrl,
-      model: opts.model,
-      messages: driverMessages,
-      temperature: 0.9,
-      maxTokens: 600,
-      signal: opts.signal,
-    })
-    const content = (message.content ?? '').trim()
-    if (content.length > 0) return { content, costUsd: estimateRouterCost(opts.model, usage) }
+  for (const model of opts.models) {
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const { message, usage } = await routerCompletion({
+        apiKey: opts.apiKey,
+        baseUrl: opts.baseUrl,
+        model,
+        messages: driverMessages,
+        temperature: 0.9,
+        maxTokens: opts.maxTokens,
+        signal: opts.signal,
+      })
+      const content = (message.content ?? '').trim()
+      if (content.length > 0) return { content, costUsd: estimateRouterCost(model, usage) }
+    }
   }
   throw new MultishotDriverEmptyError(opts.turn)
 }
