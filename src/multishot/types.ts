@@ -57,3 +57,10 @@ export class MultishotDriverEmptyError extends Error {
     this.name = 'MultishotDriverEmptyError'
   }
 }
+
+export class MultishotFatalToolError extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = 'MultishotFatalToolError'
+  }
+}

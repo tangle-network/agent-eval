@@ -17,6 +17,7 @@ import {
 import {
   type MultishotArtifact,
   MultishotDriverEmptyError,
+  MultishotFatalToolError,
   type MultishotMessage,
   type MultishotPersona,
   type MultishotResult,
@@ -155,6 +156,7 @@ export async function runMultishot<TPersona extends MultishotPersona>(
             }
           }
         } catch (err) {
+          if (err instanceof MultishotFatalToolError) throw err
           toolResult = JSON.stringify({ error: err instanceof Error ? err.message : String(err) })
         }
         agentMessages.push({ role: 'tool', tool_call_id: tc.id, content: toolResult || 'done' })

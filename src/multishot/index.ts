@@ -49,6 +49,7 @@ export {
 export {
   type MultishotArtifact,
   MultishotDriverEmptyError,
+  MultishotFatalToolError,
   type MultishotMessage,
   type MultishotPersona,
   type MultishotResult,

@@ -2,6 +2,7 @@ import type { AgentProfile } from '@tangle-network/agent-interface'
 import { describe, expect, it, vi } from 'vitest'
 import {
   MultishotDriverEmptyError,
+  MultishotFatalToolError,
   type MultishotPersona,
   type MultishotShape,
   runMultishot,
@@ -312,6 +313,41 @@ describe('runMultishot', () => {
       }),
     ).rejects.toThrow(/tool dispatch cap exceeded/)
 
+    global.fetch = originalFetch
+  })
+
+  it('rethrows fatal tool errors instead of feeding them back to the agent', async () => {
+    const originalFetch = global.fetch
+    process.env.TANGLE_API_KEY = 'test-key'
+    global.fetch = makeFetchStub([
+      { toolCalls: [{ name: 'my_custom_tool', args: { x: 1 } }] },
+    ]) as unknown as typeof fetch
+
+    await expect(
+      runMultishot({
+        profile: PROFILE,
+        persona: PERSONA,
+        shape: SHAPE,
+        maxTurns: 1,
+        tools: [
+          {
+            type: 'function',
+            function: {
+              name: 'my_custom_tool',
+              description: 'test',
+              parameters: { type: 'object', properties: {} },
+            },
+          },
+        ],
+        toolExecutors: {
+          my_custom_tool: async () => {
+            throw new MultishotFatalToolError('stop repeated tool loop')
+          },
+        },
+      }),
+    ).rejects.toBeInstanceOf(MultishotFatalToolError)
+
+    expect(global.fetch).toHaveBeenCalledTimes(1)
     global.fetch = originalFetch
   })
 })
