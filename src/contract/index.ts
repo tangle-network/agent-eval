@@ -211,6 +211,15 @@ export {
 export type { AnalystFinding } from '../analyst/types'
 export type { AnalyzeRunsOptions } from './analyze-runs'
 export { analyzeRuns } from './analyze-runs'
+// One-call reporting suite: runs (or a run dir/file) → `analyzeRuns` →
+// optional `analysis.json`. Thin composition over `analyzeRuns` +
+// `fromRunRecordDir`; adds no analysis logic of its own.
+export {
+  type EvalReportingSuiteInput,
+  type EvalReportingSuiteOptions,
+  type EvalReportingSuiteResult,
+  evalReportingSuite,
+} from './eval-reporting-suite'
 export type {
   FailureClusterInsight,
   InsightReport,
@@ -258,6 +267,8 @@ export {
   type FromFeedbackTableOptions,
   type FromFeedbackTableResult,
   type FromOtelSpansOptions,
+  type FromRunRecordDirOptions,
+  type FromRunRecordDirResult,
   fromClaudeCodeSession,
   fromCodexSession,
   fromFeedbackTable,
@@ -266,9 +277,11 @@ export {
   fromOtelSpans,
   fromPigraphSession,
   fromPiSession,
+  fromRunRecordDir,
   type ParsedCodeAgentJsonl,
   type PartitionByAuthoringModelResult,
   parseAgentTrace,
   parseCodeAgentJsonl,
   partitionRunsByAuthoringModel,
+  type RunRecordRejection,
 } from './intake'
