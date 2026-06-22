@@ -26,7 +26,15 @@ import { checkCanaries } from '../contamination-guard'
 import type { DatasetScenario } from '../dataset'
 import { summarizeBackendIntegrity } from '../integrity/backend-integrity'
 import type { RunRecord } from '../run-record'
-import { cohensD, pairedBootstrap, pairedMde, pairedTTest, requiredSampleSize } from '../statistics'
+import {
+  cohensD,
+  pairedBootstrap,
+  pairedMde,
+  pairedTTest,
+  pearsonR,
+  requiredSampleSize,
+  spearmanR,
+} from '../statistics'
 import { type ParetoFigureSpec, paretoChart } from '../summary-report'
 
 import type {
@@ -581,10 +589,13 @@ function computeInterRater(
           bScores.push(sb)
         }
       }
-      perPair[`${a}::${b}`] = pearson(aScores, bScores)
+      perPair[`${a}::${b}`] = pearsonR(aScores, bScores)
     }
   }
-  const pairKappas = Object.values(perPair)
+  // Average only the finite pair correlations — a degenerate pair (a single
+  // jointly-rated run, or a rater whose scores are constant) yields NaN and
+  // carries no agreement signal, so it must not drag the mean toward 0.
+  const pairKappas = Object.values(perPair).filter((v) => Number.isFinite(v))
   const kappa =
     pairKappas.length === 0 ? 0 : pairKappas.reduce((s, v) => s + v, 0) / pairKappas.length
 
@@ -605,25 +616,6 @@ function computeInterRater(
     perPair,
     disagreementCases,
   }
-}
-
-function pearson(a: number[], b: number[]): number {
-  if (a.length !== b.length || a.length === 0) return 0
-  const n = a.length
-  const meanA = a.reduce((s, v) => s + v, 0) / n
-  const meanB = b.reduce((s, v) => s + v, 0) / n
-  let num = 0
-  let denomA = 0
-  let denomB = 0
-  for (let i = 0; i < n; i++) {
-    const da = a[i]! - meanA
-    const db = b[i]! - meanB
-    num += da * db
-    denomA += da * da
-    denomB += db * db
-  }
-  const denom = Math.sqrt(denomA * denomB)
-  return denom === 0 ? 0 : num / denom
 }
 
 // ── Lift ────────────────────────────────────────────────────────────
@@ -813,8 +805,8 @@ function computeOutcomeCorrelation(
   }
   if (xs.length < 3) return undefined
 
-  const p = pearson(xs, ys)
-  const s = spearman(xs, ys)
+  const p = pearsonR(xs, ys)
+  const s = spearmanR(xs, ys)
   const meanX = mean(xs)
   const meanY = mean(ys)
   let num = 0
@@ -836,26 +828,6 @@ function computeOutcomeCorrelation(
     spearman: s,
     rewardModel: { intercept, slope, r2 },
   }
-}
-
-function spearman(a: number[], b: number[]): number {
-  if (a.length !== b.length || a.length === 0) return 0
-  return pearson(rank(a), rank(b))
-}
-
-function rank(arr: number[]): number[] {
-  const indexed = arr.map((v, i) => ({ v, i }))
-  indexed.sort((x, y) => x.v - y.v)
-  const ranks = new Array(arr.length).fill(0)
-  let i = 0
-  while (i < indexed.length) {
-    let j = i
-    while (j + 1 < indexed.length && indexed[j + 1]!.v === indexed[i]!.v) j++
-    const avg = (i + j + 2) / 2
-    for (let k = i; k <= j; k++) ranks[indexed[k]!.i] = avg
-    i = j + 1
-  }
-  return ranks
 }
 
 // ── Release confidence scorecard ───────────────────────────────────

@@ -31,6 +31,7 @@
  */
 
 import type { RunRecord } from '../run-record'
+import { pearsonR, spearmanR } from '../statistics'
 import type { DeploymentOutcome, OutcomeStore } from './outcome-store'
 
 export interface RubricPredictiveValidityInput {
@@ -166,7 +167,7 @@ export async function rubricPredictiveValidity(
   for (const b of buckets) {
     if (b.xs.length < minSamples) continue
     const pearson = pearsonR(b.xs, b.ys)
-    const spearman = pearsonR(rankWithTies(b.xs), rankWithTies(b.ys))
+    const spearman = spearmanR(b.xs, b.ys)
     const ci = bootstrapCi(b.xs, b.ys, resamples, rng)
     const verdict: RubricOutcomePair['verdict'] =
       Math.abs(spearman) >= 0.7
@@ -226,37 +227,6 @@ function reduce(
     .filter((o) => typeof o.metrics[metric] === 'number')
     .sort((a, b) => b.capturedAt - a.capturedAt)
   return sorted[0]?.metrics[metric] ?? null
-}
-
-function pearsonR(a: number[], b: number[]): number {
-  if (a.length !== b.length || a.length < 2) return Number.NaN
-  const ma = a.reduce((s, v) => s + v, 0) / a.length
-  const mb = b.reduce((s, v) => s + v, 0) / b.length
-  let num = 0,
-    da = 0,
-    db = 0
-  for (let i = 0; i < a.length; i++) {
-    const xa = a[i]! - ma
-    const xb = b[i]! - mb
-    num += xa * xb
-    da += xa * xa
-    db += xb * xb
-  }
-  if (da === 0 || db === 0) return da === 0 && db === 0 ? 1 : 0
-  return num / Math.sqrt(da * db)
-}
-
-function rankWithTies(xs: number[]): number[] {
-  const indexed = xs.map((v, i) => ({ v, i })).sort((a, b) => a.v - b.v)
-  const r = new Array<number>(xs.length)
-  for (let i = 0; i < indexed.length; ) {
-    let j = i
-    while (j + 1 < indexed.length && indexed[j + 1]!.v === indexed[i]!.v) j++
-    const avg = (i + j + 2) / 2
-    for (let k = i; k <= j; k++) r[indexed[k]!.i] = avg
-    i = j + 1
-  }
-  return r
 }
 
 function bootstrapCi(

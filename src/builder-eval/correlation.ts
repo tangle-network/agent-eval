@@ -15,6 +15,7 @@
  * meta scores are often ordinal-ish.
  */
 
+import { pearsonR, spearmanR } from '../statistics'
 import type { ThreeLayerProjectReport } from './three-layer-eval'
 
 export interface LayerCorrelation {
@@ -75,39 +76,4 @@ function pairwise(
     pearson: pearsonR(xs, ys),
     spearman: spearmanR(xs, ys),
   }
-}
-
-function pearsonR(a: number[], b: number[]): number {
-  const mA = a.reduce((s, v) => s + v, 0) / a.length
-  const mB = b.reduce((s, v) => s + v, 0) / b.length
-  let num = 0,
-    dA = 0,
-    dB = 0
-  for (let i = 0; i < a.length; i++) {
-    const da = a[i]! - mA
-    const db = b[i]! - mB
-    num += da * db
-    dA += da * da
-    dB += db * db
-  }
-  if (dA === 0 || dB === 0) return dA === 0 && dB === 0 ? 1 : 0
-  return num / Math.sqrt(dA * dB)
-}
-
-function spearmanR(a: number[], b: number[]): number {
-  return pearsonR(ranks(a), ranks(b))
-}
-
-function ranks(xs: number[]): number[] {
-  const indexed = xs.map((v, i) => ({ v, i })).sort((x, y) => x.v - y.v)
-  const r = new Array<number>(xs.length)
-  for (let i = 0; i < indexed.length; i++) {
-    // Average rank for ties
-    let j = i
-    while (j + 1 < indexed.length && indexed[j + 1]!.v === indexed[i]!.v) j++
-    const avg = (i + j + 2) / 2
-    for (let k = i; k <= j; k++) r[indexed[k]!.i] = avg
-    i = j
-  }
-  return r
 }
