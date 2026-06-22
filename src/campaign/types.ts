@@ -274,6 +274,14 @@ export interface ProposeContext<TFindings = unknown> {
  *  reflective / agentic generators both conform. They are proposers for the
  *  SAME loop, not separate loops. The loop body (`runOptimization`) and the
  *  gated promotion shell (`runImprovementLoop`) are proposer-agnostic.
+ *
+ *  This is THE optimization proposer — every optimizer is a factory
+ *  `xProposer(opts): SurfaceProposer` (`evolutionaryProposer`, `aceProposer`,
+ *  `gepaProposer`, `skillOptProposer`, `traceAnalystProposer`, `haloProposer`,
+ *  `memoryCurationProposer`, `fapoProposer`), all exported from `/campaign` and
+ *  drivable by `selfImprove({ proposer })`. Not to be confused with the
+ *  behavior-fuzzing `MutationProposer` (`fuzz/types`), a scenario generator for
+ *  a different loop.
  */
 export interface SurfaceProposer<TFindings = unknown> {
   kind: string

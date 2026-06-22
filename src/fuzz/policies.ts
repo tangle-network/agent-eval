@@ -1,8 +1,8 @@
 /**
  * Shipped policies for the exploration engine.
  *
- * `Proposer` is a plain function type — an agent running a generator skill IS a
- * proposer (`(ctx) => dispatchToSkill(ctx)`), no wrapper needed. `mutationProposer`
+ * `MutationProposer` is a plain function type — an agent running a generator skill
+ * IS a proposer (`(ctx) => dispatchToSkill(ctx)`), no wrapper needed. `mutationProposer`
  * builds the deterministic, LLM-free one from mutation operators. Objectives are
  * interfaces because the engine reads `kind` + `threshold` off them.
  */
@@ -11,10 +11,10 @@ import type { AdversarialMutation } from '../rl/adversarial'
 import type {
   Cell,
   Evaluation,
+  MutationProposer,
   Objective,
   ObjectiveContext,
   ProposeContext,
-  Proposer,
 } from './types'
 
 const clamp01 = (x: number): number => Math.max(0, Math.min(1, x))
@@ -29,7 +29,7 @@ const clamp01 = (x: number): number => Math.max(0, Math.min(1, x))
 export function mutationProposer<S>(opts: {
   mutationsFor: (cell: Cell) => AdversarialMutation<S>[]
   scenarioId: (s: S) => string
-}): Proposer<S> {
+}): MutationProposer<S> {
   return async (ctx: ProposeContext<S>): Promise<S[]> => {
     const mutations = opts.mutationsFor(ctx.cell)
     const parents = [...ctx.elites, ...ctx.seeds]
