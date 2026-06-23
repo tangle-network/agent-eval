@@ -11,7 +11,7 @@
 export * from './active-curriculum'
 /** Advanced adaptation eval — does the policy actually learn from feedback? */
 export * from './adaptation-eval'
-/** Advanced scenario search for inputs the policy fails on. */
+/** Adversarial mutation contract consumed by the fuzz harness. */
 export * from './adversarial'
 /** @stable Compute curves: best-of-N, self-consistency, Pareto frontier across budgets. */
 export * from './compute-curves'

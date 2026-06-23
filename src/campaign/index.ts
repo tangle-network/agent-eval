@@ -5,6 +5,9 @@
  * `runImprovementLoop` is the proposer-agnostic improvement loop on top of it.
  */
 
+// ── Judge builders (single-call bridge to a canonical JudgeConfig) ────
+export type { LlmJudgeDimension, LlmJudgeOptions } from '../llm-judge'
+export { llmJudge } from '../llm-judge'
 // ── Meta-loop: optimize the analyst's OWN prompt as a surface ─────────
 export {
   type AnalystArtifact,

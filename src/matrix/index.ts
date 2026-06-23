@@ -11,7 +11,6 @@
  * `CellResult`, `AxisSummary`, `MatrixResult`.
  */
 
-export { buildByAxis, summariseRows } from './aggregation'
 export { runAgentMatrix } from './runner'
 export type {
   AxisSummary,

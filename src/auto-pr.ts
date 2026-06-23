@@ -1,14 +1,17 @@
 /**
- * Automated pull request opener for the improvement loop.
+ * Automated pull-request transports for the production loop.
  *
- * When `runImprovementLoop` ships a winner (`autoOnPromote: 'pr'`) it produces
- * a promoted surface diff. To close the eval → prod → eval cycle the framework
- * lands that change as a reviewable code change. This module does exactly that:
+ * A consumer's `runProductionLoop` ships a promoted surface diff as a
+ * reviewable code change by handing one of these clients to its
+ * `ProductionShipConfig.client`. Each `AutoPrClient.proposeChange`:
  *
  *   1. Stage a branch off `baseBranch`.
  *   2. Write each `fileChange` into the worktree.
  *   3. Commit + push.
  *   4. Open a PR via the GitHub API.
+ *
+ * (The campaign-loop `autoOnPromote: 'pr'` path uses `openAutoPr` in
+ * `src/campaign/auto-pr.ts`, a self-contained `gh pr create` shell-out.)
  *
  * Two transports ship in core:
  *
@@ -80,43 +83,41 @@ export interface AutoPrClient {
   proposeChange(input: ProposeAutomatedPullRequestInput): Promise<ProposeAutomatedPullRequestResult>
 }
 
-export async function proposeAutomatedPullRequest(
-  client: AutoPrClient,
-  input: ProposeAutomatedPullRequestInput,
-): Promise<ProposeAutomatedPullRequestResult> {
-  validate(input)
-  return client.proposeChange(input)
-}
-
-function validate(input: ProposeAutomatedPullRequestInput): void {
+/**
+ * Validate a proposed change before any transport touches the network. Each
+ * `AutoPrClient.proposeChange` runs this at its boundary so a malformed input
+ * (path traversal, duplicate path, branch == base, empty title) fails loud
+ * locally instead of producing a broken commit on the remote.
+ */
+function validateProposeInput(input: ProposeAutomatedPullRequestInput): void {
   if (!input.repo.owner.trim() || !input.repo.name.trim()) {
-    throw new ValidationError('proposeAutomatedPullRequest: repo.owner and repo.name required')
+    throw new ValidationError('proposeChange: repo.owner and repo.name required')
   }
   if (!input.branchName.trim() || /\s/.test(input.branchName)) {
     throw new ValidationError(
-      'proposeAutomatedPullRequest: branchName must be non-empty and contain no whitespace',
+      'proposeChange: branchName must be non-empty and contain no whitespace',
     )
   }
   if (input.branchName === (input.baseBranch ?? 'main')) {
-    throw new ValidationError('proposeAutomatedPullRequest: branchName must differ from baseBranch')
+    throw new ValidationError('proposeChange: branchName must differ from baseBranch')
   }
   if (input.fileChanges.length === 0) {
-    throw new ValidationError('proposeAutomatedPullRequest: fileChanges must not be empty')
+    throw new ValidationError('proposeChange: fileChanges must not be empty')
   }
   const seenPaths = new Set<string>()
   for (const change of input.fileChanges) {
     if (!change.path.trim() || change.path.includes('..') || change.path.startsWith('/')) {
       throw new ValidationError(
-        `proposeAutomatedPullRequest: invalid file path "${change.path}" (no '..' or leading '/')`,
+        `proposeChange: invalid file path "${change.path}" (no '..' or leading '/')`,
       )
     }
     if (seenPaths.has(change.path)) {
-      throw new ValidationError(`proposeAutomatedPullRequest: duplicate file path "${change.path}"`)
+      throw new ValidationError(`proposeChange: duplicate file path "${change.path}"`)
     }
     seenPaths.add(change.path)
   }
   if (!input.title.trim()) {
-    throw new ValidationError('proposeAutomatedPullRequest: title must not be empty')
+    throw new ValidationError('proposeChange: title must not be empty')
   }
 }
 
@@ -189,7 +190,7 @@ export function httpGithubClient(opts: HttpGithubClientOptions): AutoPrClient {
     if (!res.ok) {
       const text = await res.text().catch(() => '')
       throw new ConfigError(
-        `proposeAutomatedPullRequest: GitHub ${method} ${path} → ${res.status} ${text.slice(0, 400)}`,
+        `proposeChange: GitHub ${method} ${path} → ${res.status} ${text.slice(0, 400)}`,
       )
     }
     return (await res.json()) as T
@@ -197,6 +198,7 @@ export function httpGithubClient(opts: HttpGithubClientOptions): AutoPrClient {
 
   return {
     async proposeChange(input) {
+      validateProposeInput(input)
       const baseBranch = input.baseBranch ?? 'main'
       const repoPath = `/repos/${input.repo.owner}/${input.repo.name}`
 
@@ -212,14 +214,12 @@ export function httpGithubClient(opts: HttpGithubClientOptions): AutoPrClient {
       // 1. Find base SHA
       const baseRef = await api<GhRef>('GET', `${repoPath}/git/ref/heads/${baseBranch}`)
       if (!baseRef) {
-        throw new ConfigError(`proposeAutomatedPullRequest: base branch "${baseBranch}" not found`)
+        throw new ConfigError(`proposeChange: base branch "${baseBranch}" not found`)
       }
       const baseSha = baseRef.object.sha
       const baseCommit = await api<GhCommit>('GET', `${repoPath}/git/commits/${baseSha}`)
       if (!baseCommit) {
-        throw new ConfigError(
-          `proposeAutomatedPullRequest: base commit ${baseSha} not found (race condition?)`,
-        )
+        throw new ConfigError(`proposeChange: base commit ${baseSha} not found (race condition?)`)
       }
 
       // 2. Create blobs for each file
@@ -229,7 +229,7 @@ export function httpGithubClient(opts: HttpGithubClientOptions): AutoPrClient {
           content: change.contents,
           encoding: 'utf-8',
         })
-        if (!blob) throw new ConfigError('proposeAutomatedPullRequest: blob creation returned null')
+        if (!blob) throw new ConfigError('proposeChange: blob creation returned null')
         treeEntries.push({
           path: change.path,
           mode: '100644',
@@ -243,7 +243,7 @@ export function httpGithubClient(opts: HttpGithubClientOptions): AutoPrClient {
         base_tree: baseCommit.tree.sha,
         tree: treeEntries,
       })
-      if (!tree) throw new ConfigError('proposeAutomatedPullRequest: tree creation returned null')
+      if (!tree) throw new ConfigError('proposeChange: tree creation returned null')
 
       // 4. Create commit
       const author =
@@ -257,8 +257,7 @@ export function httpGithubClient(opts: HttpGithubClientOptions): AutoPrClient {
         parents: [baseSha],
         ...(author ? { author, committer: author } : {}),
       })
-      if (!commit)
-        throw new ConfigError('proposeAutomatedPullRequest: commit creation returned null')
+      if (!commit) throw new ConfigError('proposeChange: commit creation returned null')
 
       // 5. Create or fast-forward branch ref (idempotent on existing branch).
       const existing = await api<GhRef>(
@@ -294,8 +293,7 @@ export function httpGithubClient(opts: HttpGithubClientOptions): AutoPrClient {
           head: input.branchName,
           base: baseBranch,
         })
-        if (!created)
-          throw new ConfigError('proposeAutomatedPullRequest: PR creation returned null')
+        if (!created) throw new ConfigError('proposeChange: PR creation returned null')
         pr = created
       }
 
@@ -367,7 +365,7 @@ export function ghCliClient(opts: GhCliClientOptions = {}): AutoPrClient {
     const r = await exec(cmd, args, { cwd, stdin })
     if (r.exitCode !== 0) {
       throw new ConfigError(
-        `proposeAutomatedPullRequest: ${cmd} ${args.join(' ')} failed (${r.exitCode}): ${r.stderr.trim() || r.stdout.trim()}`,
+        `proposeChange: ${cmd} ${args.join(' ')} failed (${r.exitCode}): ${r.stderr.trim() || r.stdout.trim()}`,
       )
     }
     return r
@@ -375,6 +373,7 @@ export function ghCliClient(opts: GhCliClientOptions = {}): AutoPrClient {
 
   return {
     async proposeChange(input) {
+      validateProposeInput(input)
       const baseBranch = input.baseBranch ?? 'main'
       if (input.dryRun) {
         return {
