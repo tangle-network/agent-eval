@@ -15,7 +15,7 @@
  */
 import { describe, expect, it, vi } from 'vitest'
 
-import { ghCliClient, httpGithubClient, proposeAutomatedPullRequest } from '../src/auto-pr'
+import { ghCliClient, httpGithubClient } from '../src/auto-pr'
 import { ValidationError } from '../src/errors'
 
 function jsonResponse(body: unknown, status = 200): Response {
@@ -25,7 +25,7 @@ function jsonResponse(body: unknown, status = 200): Response {
   })
 }
 
-describe('proposeAutomatedPullRequest validation', () => {
+describe('proposeChange input validation', () => {
   const fixture = {
     repo: { owner: 'tangle-network', name: 'tax-agent' },
     branchName: 'eval/auto-improve/r1',
@@ -34,25 +34,33 @@ describe('proposeAutomatedPullRequest validation', () => {
     body: 'body',
   }
 
+  // Validation runs at the top of every client's proposeChange, before any
+  // network/process work — a fetch spy that must never fire proves it.
+  function clientWithSpy() {
+    const fetchImpl = vi.fn()
+    const client = httpGithubClient({ token: 'test-token', fetchImpl: fetchImpl as never })
+    return { client, fetchImpl }
+  }
+
   it('rejects an empty repo owner', async () => {
-    const client = { proposeChange: vi.fn() }
+    const { client, fetchImpl } = clientWithSpy()
     await expect(
-      proposeAutomatedPullRequest(client, { ...fixture, repo: { owner: '', name: 'x' } }),
+      client.proposeChange({ ...fixture, repo: { owner: '', name: 'x' } }),
     ).rejects.toBeInstanceOf(ValidationError)
-    expect(client.proposeChange).not.toHaveBeenCalled()
+    expect(fetchImpl).not.toHaveBeenCalled()
   })
 
   it('rejects whitespace branch names', async () => {
-    const client = { proposeChange: vi.fn() }
+    const { client } = clientWithSpy()
     await expect(
-      proposeAutomatedPullRequest(client, { ...fixture, branchName: 'has space' }),
+      client.proposeChange({ ...fixture, branchName: 'has space' }),
     ).rejects.toBeInstanceOf(ValidationError)
   })
 
   it('rejects path traversal', async () => {
-    const client = { proposeChange: vi.fn() }
+    const { client } = clientWithSpy()
     await expect(
-      proposeAutomatedPullRequest(client, {
+      client.proposeChange({
         ...fixture,
         fileChanges: [{ path: '../etc/passwd', contents: '' }],
       }),
@@ -60,9 +68,9 @@ describe('proposeAutomatedPullRequest validation', () => {
   })
 
   it('rejects duplicate paths', async () => {
-    const client = { proposeChange: vi.fn() }
+    const { client } = clientWithSpy()
     await expect(
-      proposeAutomatedPullRequest(client, {
+      client.proposeChange({
         ...fixture,
         fileChanges: [
           { path: 'a.txt', contents: '1' },
@@ -73,31 +81,26 @@ describe('proposeAutomatedPullRequest validation', () => {
   })
 
   it('rejects branch name equal to base branch', async () => {
-    const client = { proposeChange: vi.fn() }
+    const { client } = clientWithSpy()
     await expect(
-      proposeAutomatedPullRequest(client, { ...fixture, branchName: 'main', baseBranch: 'main' }),
+      client.proposeChange({ ...fixture, branchName: 'main', baseBranch: 'main' }),
     ).rejects.toBeInstanceOf(ValidationError)
   })
 
   it('empty title is rejected', async () => {
-    const client = { proposeChange: vi.fn() }
-    await expect(
-      proposeAutomatedPullRequest(client, { ...fixture, title: '   ' }),
-    ).rejects.toBeInstanceOf(ValidationError)
+    const { client } = clientWithSpy()
+    await expect(client.proposeChange({ ...fixture, title: '   ' })).rejects.toBeInstanceOf(
+      ValidationError,
+    )
   })
 
-  it('passes through to client.proposeChange on valid input', async () => {
-    const client = {
-      proposeChange: vi.fn().mockResolvedValue({
-        prUrl: 'u',
-        branchName: fixture.branchName,
-        headSha: 's',
-        dryRun: false,
-      }),
-    }
-    const result = await proposeAutomatedPullRequest(client, fixture)
-    expect(result.prUrl).toBe('u')
-    expect(client.proposeChange).toHaveBeenCalledTimes(1)
+  it('the gh CLI client validates too (path traversal rejected before any spawn)', async () => {
+    const exec = vi.fn()
+    const client = ghCliClient({ exec: exec as never })
+    await expect(
+      client.proposeChange({ ...fixture, fileChanges: [{ path: '../x', contents: '' }] }),
+    ).rejects.toBeInstanceOf(ValidationError)
+    expect(exec).not.toHaveBeenCalled()
   })
 })
 

@@ -121,11 +121,7 @@ export type {
   ProposeAutomatedPullRequestResult,
   RepoRef,
 } from './auto-pr'
-export {
-  ghCliClient,
-  httpGithubClient,
-  proposeAutomatedPullRequest,
-} from './auto-pr'
+export { ghCliClient, httpGithubClient } from './auto-pr'
 export { BenchmarkRunner } from './benchmark'
 // ── Client / driver / judges / executor / benchmark / registry / reporter ─
 export { ProductClient, runE2EWorkflow } from './client'
@@ -493,6 +489,8 @@ export {
   securityJudge,
   testJudge,
 } from './judge-runner'
+export type { LlmJudgeDimension, LlmJudgeOptions } from './llm-judge'
+export { llmJudge } from './llm-judge'
 export type { Playbook, PlaybookEntry } from './playbook'
 export { distillPlaybook, renderPlaybookMarkdown } from './playbook'
 export type {
