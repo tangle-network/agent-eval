@@ -610,6 +610,27 @@ export {
   FAILURE_CLASSES,
 } from './failure-taxonomy'
 export type {
+  BlendWeights,
+  FieldDestination,
+  HiddenCriteriaGrader,
+  HiddenGradeResult,
+  HiddenLeak,
+  JudgeScoreInput,
+  NoLeakOptions,
+  RoutedField,
+} from './hidden-criteria-grading'
+export {
+  agentVisibleFields,
+  assertNoHiddenLeak,
+  blendHeldout,
+  defaultBlendWeights,
+  gradeOnHidden,
+  hiddenGrade,
+  isHiddenDestination,
+  routeFields,
+  withHeldoutBlend,
+} from './hidden-criteria-grading'
+export type {
   ProjectRuntimeTrajectoryEvidenceOptions,
   RuntimeTrajectoryEvidenceProjection,
   RuntimeTrajectoryEvidenceSummary,
