@@ -134,6 +134,11 @@
       "import": "./dist/authenticity/index.js",
       "default": "./dist/authenticity/index.js"
     },
+    "./groundedness": {
+      "types": "./dist/groundedness/index.d.ts",
+      "import": "./dist/groundedness/index.js",
+      "default": "./dist/groundedness/index.js"
+    },
     "./belief-state": {
       "types": "./dist/belief-state/index.d.ts",
       "import": "./dist/belief-state/index.js",
