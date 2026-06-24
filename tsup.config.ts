@@ -26,6 +26,7 @@ export default defineConfig({
     'campaign/index': 'src/campaign/index.ts',
     'storyboard/index': 'src/storyboard/index.ts',
     'authenticity/index': 'src/authenticity/index.ts',
+    'groundedness/index': 'src/groundedness/index.ts',
     'belief-state/index': 'src/belief-state/index.ts',
     'workflow/index': 'src/workflow/index.ts',
     'contract/index': 'src/contract/index.ts',
