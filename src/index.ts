@@ -374,6 +374,26 @@ export type {
 } from './trace-analyst/behavioral-metrics'
 export { computeTraceMetrics } from './trace-analyst/behavioral-metrics'
 export type {
+  ToolMatcher,
+  TreatmentClass,
+  TreatmentGate,
+  TreatmentGateInput,
+  TreatmentGateOptions,
+} from './treatment-gate'
+// ── Treatment-applied gate (manipulation/validity precondition) ──────
+// Generalized from a benchmark's search-fired check: did a tool-treatment's
+// tool actually fire this run? Mirrors `gateRealness`'s pure-predicate shape;
+// consumes `computeTraceMetrics(spans).toolHistogram`. The tool matcher is a
+// parameter — no domain literal. Excluded runs partition onto the existing
+// objective-exclusion pattern, not a new classification enum.
+export {
+  classifyTreatment,
+  gateTreatmentApplied,
+  gateTreatmentFromMetrics,
+  gateTreatmentFromSpans,
+  gateTreatmentFromToolSpans,
+} from './treatment-gate'
+export type {
   ArtifactCheck,
   ArtifactResult,
   BenchmarkReport,
