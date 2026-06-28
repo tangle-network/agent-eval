@@ -137,6 +137,30 @@ describe('PolicyEdit contract', () => {
       'Always fetch current state before mutating a record.',
     )
 
+    const replaceEdit = makePolicyEdit({
+      axis: 'representation',
+      target: { surface: 'prompt', path: 'system-prompt:tool-use' },
+      change: {
+        kind: 'text',
+        mode: 'replace',
+        find: '  Fetch then mutate.  ',
+        value: 'Always fetch current state before mutating a record.',
+      },
+      claim: 'Agent mutates records before fetching current state.',
+      expectedGain: { metric: 'holdout.composite', direction: 'increase', amount: 0.12 },
+      confidence: 0.9,
+      risk: 'low',
+      source: {
+        findingIds: ['f_replace'],
+        analystIds: ['trace-analyst'],
+        evidenceRefs: [{ kind: 'span', uri: 'span://trace-1/span-7' }],
+      },
+    })
+    expect(replaceEdit.change).toMatchObject({ find: 'Fetch then mutate.' })
+    expect(applyPolicyEditToSurface('Fetch then mutate.', replaceEdit)).toBe(
+      'Always fetch current state before mutating a record.',
+    )
+
     const jsonEdit = makePolicyEdit({
       axis: 'budget',
       target: { surface: 'runtime-config', path: 'budget.maxTurns' },
@@ -154,5 +178,25 @@ describe('PolicyEdit contract', () => {
     expect(applyPolicyEditToSurface('{"budget":{"maxTurns":3}}', jsonEdit)).toEqual({
       budget: { maxTurns: 6 },
     })
+
+    const removeEdit = makePolicyEdit({
+      axis: 'budget',
+      target: { surface: 'runtime-config', path: 'budget.maxTurns' },
+      change: { kind: 'json', mode: 'remove', path: 'budget.maxTurns' },
+      claim: 'Remove a stale budget override.',
+      expectedGain: { metric: 'holdout.composite', direction: 'increase', amount: 0.04 },
+      confidence: 0.85,
+      risk: 'low',
+      source: {
+        findingIds: ['f_remove_budget'],
+        analystIds: ['trace-analyst'],
+        evidenceRefs: [{ kind: 'metric', uri: 'metric://stale_budget_override' }],
+      },
+    })
+    expect(applyPolicyEditToSurface('{"budget":{"maxTurns":3},"keep":true}', removeEdit)).toEqual({
+      budget: {},
+      keep: true,
+    })
+    expect(applyPolicyEditToSurface('{"keep":true}', removeEdit)).toEqual({ keep: true })
   })
 })

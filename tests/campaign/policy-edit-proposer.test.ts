@@ -70,6 +70,7 @@ describe('policyEditProposer', () => {
     const out = await proposer.propose(ctx([finding]))
 
     expect(out).toHaveLength(1)
+    expect(out[0]!.label).toBe('policy-edit:representation')
     expect(String(out[0]!.surface)).toContain(
       'Always fetch current state before mutating a record.',
     )

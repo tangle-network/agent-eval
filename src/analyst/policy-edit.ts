@@ -546,6 +546,12 @@ function setJsonAtPath(
   for (let i = 0; i < path.length - 1; i++) {
     const key = path[i]!
     const existing = cursor[key]
+    if (
+      mode === 'remove' &&
+      (!existing || typeof existing !== 'object' || Array.isArray(existing))
+    ) {
+      return out
+    }
     const next =
       existing && typeof existing === 'object' && !Array.isArray(existing) ? { ...existing } : {}
     cursor[key] = next
@@ -591,7 +597,7 @@ function normalizeChange(change: PolicyEditChange): PolicyEditChange {
       mode: change.mode,
       value: change.value.trim(),
     }
-    if (change.find?.trim()) out.find = change.find
+    if (change.find?.trim()) out.find = change.find.trim()
     return out
   }
   const out: Extract<PolicyEditChange, { kind: 'json' }> = {
