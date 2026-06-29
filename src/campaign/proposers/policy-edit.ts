@@ -43,6 +43,7 @@ export function policyEditProposer(opts: PolicyEditProposerOptions = {}): Surfac
         Math.min(opts.maxCandidates ?? ctx.populationSize, ctx.populationSize),
       )
       const out: ProposedCandidate[] = []
+      if (limit === 0) return out
 
       for (const edit of edits) {
         const admission = admitPolicyEdit(edit, opts.admission)
@@ -90,7 +91,12 @@ function materializePolicyEdits(
 function isAnalystFindingLike(input: unknown): input is AnalystFinding {
   if (!input || typeof input !== 'object') return false
   const obj = input as Record<string, unknown>
-  return typeof obj.finding_id === 'string' && typeof obj.analyst_id === 'string'
+  return (
+    typeof obj.finding_id === 'string' &&
+    typeof obj.analyst_id === 'string' &&
+    typeof obj.claim === 'string' &&
+    Array.isArray(obj.evidence_refs)
+  )
 }
 
 function coerceCandidateSurface(surface: unknown): MutableSurface {

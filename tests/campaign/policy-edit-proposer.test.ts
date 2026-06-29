@@ -2,34 +2,41 @@ import { describe, expect, it } from 'vitest'
 import { makePolicyEdit } from '../../src/analyst/policy-edit'
 import { makeFinding } from '../../src/analyst/types'
 import { policyEditProposer } from '../../src/campaign/proposers/policy-edit'
-import type { ProposeContext } from '../../src/campaign/types'
+import type { CodeSurface, ProposeContext } from '../../src/campaign/types'
 
-function ctx(findings: unknown[], currentSurface = 'Base prompt.'): ProposeContext {
+function ctx(
+  findings: unknown[],
+  currentSurface: ProposeContext['currentSurface'] = 'Base prompt.',
+  populationSize = 3,
+): ProposeContext {
   return {
     currentSurface,
     history: [],
     findings,
-    populationSize: 3,
+    populationSize,
     generation: 0,
     signal: new AbortController().signal,
   }
 }
 
-function edit() {
+function edit(
+  value = 'Always fetch current state before mutating a record.',
+  id = 'f_trace_mutation',
+) {
   return makePolicyEdit({
     axis: 'representation',
     target: { surface: 'prompt', path: 'system-prompt:tool-use' },
     change: {
       kind: 'text',
       mode: 'append',
-      value: 'Always fetch current state before mutating a record.',
+      value,
     },
     claim: 'Agent mutates records before fetching current state.',
     expectedGain: { metric: 'holdout.composite', direction: 'increase', amount: 0.12 },
     confidence: 0.9,
     risk: 'low',
     source: {
-      findingIds: ['f_trace_mutation'],
+      findingIds: [id],
       analystIds: ['trace-analyst'],
       evidenceRefs: [{ kind: 'span', uri: 'span://trace-1/span-7' }],
     },
@@ -47,6 +54,42 @@ describe('policyEditProposer', () => {
       'Always fetch current state before mutating a record.',
     )
     expect(out[0]!.rationale).toContain('expected increase holdout.composite')
+  })
+
+  it('uses static typed edits even when ctx.findings is empty', async () => {
+    const proposer = policyEditProposer({ edits: [edit()] })
+    const out = await proposer.propose(ctx([]))
+
+    expect(out).toHaveLength(1)
+    expect(String(out[0]!.surface)).toContain(
+      'Always fetch current state before mutating a record.',
+    )
+  })
+
+  it('bounds candidates by population size and maxCandidates', async () => {
+    const edits = [
+      edit('First measured instruction.', 'f_first'),
+      edit('Second measured instruction.', 'f_second'),
+    ]
+
+    await expect(
+      policyEditProposer({ edits }).propose(ctx([], 'Base prompt.', 1)),
+    ).resolves.toHaveLength(1)
+    await expect(
+      policyEditProposer({ edits, maxCandidates: 1 }).propose(ctx([], 'Base prompt.', 3)),
+    ).resolves.toHaveLength(1)
+    await expect(
+      policyEditProposer({ edits }).propose(ctx([], 'Base prompt.', 0)),
+    ).resolves.toEqual([])
+  })
+
+  it('skips same-surface edits produced by idempotent application', async () => {
+    const proposer = policyEditProposer({ edits: [edit()] })
+    const out = await proposer.propose(
+      ctx([], 'Base prompt.\n\nAlways fetch current state before mutating a record.'),
+    )
+
+    expect(out).toEqual([])
   })
 
   it('materializes legacy AnalystFinding rows only when they carry typed expected gain', async () => {
@@ -96,6 +139,17 @@ describe('policyEditProposer', () => {
     expect(admissions).toEqual(['reject'])
   })
 
+  it('ignores objects that only partially resemble analyst findings', async () => {
+    const partialFinding = {
+      finding_id: 'f_partial',
+      analyst_id: 'judge',
+      derived_from_judge: true,
+    }
+    const proposer = policyEditProposer()
+
+    await expect(proposer.propose(ctx([partialFinding]))).resolves.toEqual([])
+  })
+
   it('applies JSON policy edits to serialized runtime config surfaces', async () => {
     const budgetEdit = makePolicyEdit({
       axis: 'budget',
@@ -115,6 +169,36 @@ describe('policyEditProposer', () => {
     const out = await proposer.propose(ctx([budgetEdit], '{"budget":{"maxTurns":3}}'))
 
     expect(JSON.parse(String(out[0]!.surface))).toEqual({ budget: { maxTurns: 6 } })
+  })
+
+  it('passes through CodeSurface-shaped candidate surfaces', async () => {
+    const codeSurface: CodeSurface = {
+      kind: 'code',
+      worktreeRef: '/tmp/policy-edit-candidate',
+      summary: 'old summary',
+    }
+    const codeEdit = makePolicyEdit({
+      axis: 'agent_profile',
+      target: { surface: 'runtime-config', path: 'summary' },
+      change: { kind: 'json', mode: 'set', path: 'summary', value: 'updated summary' },
+      claim: 'Candidate code surfaces should preserve their worktree reference.',
+      expectedGain: { metric: 'holdout.composite', direction: 'increase', amount: 0.04 },
+      confidence: 0.85,
+      risk: 'low',
+      source: {
+        findingIds: ['f_code_surface'],
+        analystIds: ['trace-analyst'],
+        evidenceRefs: [{ kind: 'artifact', uri: 'file:///tmp/policy-edit-candidate' }],
+      },
+    })
+    const proposer = policyEditProposer()
+    const out = await proposer.propose(ctx([codeEdit], codeSurface))
+
+    expect(out[0]!.surface).toEqual({
+      kind: 'code',
+      worktreeRef: '/tmp/policy-edit-candidate',
+      summary: 'updated summary',
+    })
   })
 
   it('fails loud when judge-derived findings try to steer proposals', async () => {
