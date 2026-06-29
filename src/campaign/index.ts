@@ -158,6 +158,10 @@ export {
 export { type HaloProposerOptions, haloProposer } from './proposers/halo'
 export { type MemoryCurationProposerOptions, memoryCurationProposer } from './proposers/memory'
 export {
+  type PolicyEditProposerOptions,
+  policyEditProposer,
+} from './proposers/policy-edit'
+export {
   type ProposePatchesArgs,
   parseSkillPatchResponse,
   type RejectedEdit,

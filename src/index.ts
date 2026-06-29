@@ -89,6 +89,37 @@ export {
   KNOWLEDGE_POISONING_KIND_SPEC,
 } from './analyst/kinds'
 export { SKILL_USAGE_ANALYST, SkillUsageAnalyst } from './analyst/kinds/skill-usage'
+export type {
+  FindingToPolicyEditOptions,
+  PolicyEdit,
+  PolicyEditAdmission,
+  PolicyEditAdmissionOptions,
+  PolicyEditAxis,
+  PolicyEditChange,
+  PolicyEditExpectedGain,
+  PolicyEditGainDirection,
+  PolicyEditGainUnit,
+  PolicyEditInit,
+  PolicyEditRisk,
+  PolicyEditSchemaVersion,
+  PolicyEditSource,
+  PolicyEditTarget,
+  PolicyEditTargetSurface,
+} from './analyst/policy-edit'
+export {
+  admitPolicyEdit,
+  applyPolicyEditToSurface,
+  computePolicyEditId,
+  isPolicyEdit,
+  makePolicyEdit,
+  POLICY_EDIT_AXES,
+  POLICY_EDIT_TARGET_SURFACES,
+  PolicyEditValidationError,
+  policyEditFromFinding,
+  policyEditsFromFindings,
+  scorePolicyEditReadiness,
+  validatePolicyEdit,
+} from './analyst/policy-edit'
 export {
   type AnalystHooks,
   AnalystRegistry,
