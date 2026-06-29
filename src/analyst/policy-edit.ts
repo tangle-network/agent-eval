@@ -257,7 +257,8 @@ export function scorePolicyEditReadiness(
     Math.abs(edit.expectedGain.amount) / Math.max(minExpectedGain * 5, 0.001),
   )
   const targetScore = targetSpecificityScore(edit)
-  const riskPenalty = edit.risk === 'high' ? 0.35 : edit.risk === 'unknown' ? 0.2 : 0
+  const riskPenalty =
+    edit.risk === 'high' && opts.allowHighRisk !== true ? 0.35 : edit.risk === 'unknown' ? 0.2 : 0
 
   return clamp01(
     0.3 * evidenceScore +
@@ -469,11 +470,11 @@ function applyTextChange(
     throw new PolicyEditValidationError('text policy edits require a string surface', 'change')
   }
   if (change.mode === 'append') {
-    if (surface.includes(change.value)) return surface
+    if (hasExactTextBlock(surface, change.value)) return surface
     return `${surface.trimEnd()}\n\n${change.value}`.trimStart()
   }
   if (change.mode === 'prepend') {
-    if (surface.includes(change.value)) return surface
+    if (hasExactTextBlock(surface, change.value)) return surface
     return `${change.value}\n\n${surface.trimStart()}`.trimEnd()
   }
   const find = expectNonEmpty(change.find, 'change.find')
@@ -684,8 +685,8 @@ function validateSource(source: unknown): asserts source is PolicyEditSource {
   if (!source || typeof source !== 'object')
     throw new PolicyEditValidationError('expected object', 'source')
   const obj = source as PolicyEditSource
-  expectStringArray(obj.findingIds, 'source.findingIds')
-  expectStringArray(obj.analystIds, 'source.analystIds')
+  expectNonEmptyStringArray(obj.findingIds, 'source.findingIds')
+  expectNonEmptyStringArray(obj.analystIds, 'source.analystIds')
   if (!Array.isArray(obj.evidenceRefs)) {
     throw new PolicyEditValidationError('expected array', 'source.evidenceRefs')
   }
@@ -766,9 +767,21 @@ function expectNonEmpty(value: unknown, path: string): string {
 }
 
 function expectConfidence(value: unknown, path: string): asserts value is number {
-  if (typeof value !== 'number' || value < 0 || value > 1) {
-    throw new PolicyEditValidationError('expected number in [0,1]', path)
+  if (typeof value !== 'number' || !Number.isFinite(value) || value < 0 || value > 1) {
+    throw new PolicyEditValidationError('expected finite number in [0,1]', path)
   }
+}
+
+function hasExactTextBlock(surface: string, value: string): boolean {
+  const needle = normalizeTextBlock(value)
+  const normalizedSurface = surface.replace(/\r\n/g, '\n')
+  return [...normalizedSurface.split(/\n{2,}/), ...normalizedSurface.split('\n')].some(
+    (block) => normalizeTextBlock(block) === needle,
+  )
+}
+
+function normalizeTextBlock(value: string): string {
+  return value.replace(/\r\n/g, '\n').trim()
 }
 
 function expectOneOf<const T extends readonly string[]>(
@@ -784,6 +797,11 @@ function expectOneOf<const T extends readonly string[]>(
 function expectStringArray(value: unknown, path: string): asserts value is string[] {
   if (!Array.isArray(value)) throw new PolicyEditValidationError('expected array', path)
   for (const [i, item] of value.entries()) expectString(item, `${path}.${i}`)
+}
+
+function expectNonEmptyStringArray(value: unknown, path: string): asserts value is string[] {
+  expectStringArray(value, path)
+  if (value.length === 0) throw new PolicyEditValidationError('expected non-empty array', path)
 }
 
 function uniqueSorted(values: string[]): string[] {

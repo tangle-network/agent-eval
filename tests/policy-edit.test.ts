@@ -4,6 +4,7 @@ import {
   admitPolicyEdit,
   applyPolicyEditToSurface,
   makePolicyEdit,
+  type PolicyEditChange,
   policyEditFromFinding,
   policyEditsFromFindings,
   scorePolicyEditReadiness,
@@ -40,6 +41,40 @@ function strongEdit() {
   const edit = policyEditFromFinding(finding())
   if (!edit) throw new Error('expected edit')
   return edit
+}
+
+function textEdit(change: Extract<PolicyEditChange, { kind: 'text' }>, id = 'f_text') {
+  return makePolicyEdit({
+    axis: 'representation',
+    target: { surface: 'prompt', path: 'system-prompt:tool-use' },
+    change,
+    claim: 'Agent needs a deterministic instruction.',
+    expectedGain: { metric: 'holdout.composite', direction: 'increase', amount: 0.04 },
+    confidence: 0.85,
+    risk: 'low',
+    source: {
+      findingIds: [id],
+      analystIds: ['trace-analyst'],
+      evidenceRefs: [{ kind: 'span', uri: `span://trace-1/${id}` }],
+    },
+  })
+}
+
+function jsonEdit(change: Extract<PolicyEditChange, { kind: 'json' }>, id = 'f_json') {
+  return makePolicyEdit({
+    axis: 'budget',
+    target: { surface: 'runtime-config', path: change.path },
+    change,
+    claim: 'Runtime config needs a deterministic update.',
+    expectedGain: { metric: 'holdout.composite', direction: 'increase', amount: 0.04 },
+    confidence: 0.85,
+    risk: 'low',
+    source: {
+      findingIds: [id],
+      analystIds: ['trace-analyst'],
+      evidenceRefs: [{ kind: 'metric', uri: `metric://${id}` }],
+    },
+  })
 }
 
 describe('PolicyEdit contract', () => {
@@ -131,6 +166,40 @@ describe('PolicyEdit contract', () => {
     expect(validatePolicyEdit(edit).target.agentProfileCell?.cellId).toBe(cell.cellId)
   })
 
+  it('rejects non-finite confidence values', () => {
+    expect(() => validatePolicyEdit({ ...strongEdit(), confidence: Number.NaN })).toThrow(
+      /finite number in \[0,1\]/,
+    )
+  })
+
+  it('requires source attribution ids', () => {
+    expect(() =>
+      validatePolicyEdit({
+        ...strongEdit(),
+        source: { ...strongEdit().source, findingIds: [] },
+      }),
+    ).toThrow(/expected non-empty array/)
+    expect(() =>
+      validatePolicyEdit({
+        ...strongEdit(),
+        source: { ...strongEdit().source, analystIds: [] },
+      }),
+    ).toThrow(/expected non-empty array/)
+  })
+
+  it('honors admission option variants', () => {
+    const highRisk = policyEditFromFinding(
+      finding({
+        metadata: { policyEdit: { expectedGain: EXPECTED_GAIN, risk: 'high' } },
+      }),
+    )
+    if (!highRisk) throw new Error('expected high-risk edit')
+
+    expect(admitPolicyEdit(highRisk).decision).toBe('reject')
+    expect(admitPolicyEdit(highRisk, { allowHighRisk: true }).decision).toBe('admit')
+    expect(admitPolicyEdit(strongEdit(), { minScore: 0.95 }).decision).toBe('reject')
+  })
+
   it('applies text and JSON changes deterministically', () => {
     const textEdit = strongEdit()
     expect(applyPolicyEditToSurface('Base prompt.', textEdit)).toContain(
@@ -198,5 +267,69 @@ describe('PolicyEdit contract', () => {
       keep: true,
     })
     expect(applyPolicyEditToSurface('{"keep":true}', removeEdit)).toEqual({ keep: true })
+  })
+
+  it('applies prepend and JSON merge modes deterministically', () => {
+    const prependEdit = textEdit({
+      kind: 'text',
+      mode: 'prepend',
+      value: 'Always read state before choosing a write.',
+    })
+    expect(applyPolicyEditToSurface('Existing prompt.', prependEdit)).toBe(
+      'Always read state before choosing a write.\n\nExisting prompt.',
+    )
+
+    const mergeEdit = jsonEdit({
+      kind: 'json',
+      mode: 'merge',
+      path: 'budget',
+      value: { maxTurns: 6, stopOnResolved: true },
+    })
+    expect(
+      applyPolicyEditToSurface('{"budget":{"maxTurns":3,"trace":true},"keep":true}', mergeEdit),
+    ).toEqual({
+      budget: { maxTurns: 6, trace: true, stopOnResolved: true },
+      keep: true,
+    })
+  })
+
+  it('treats append and prepend idempotency as exact text blocks, not substrings', () => {
+    const appendEdit = textEdit({ kind: 'text', mode: 'append', value: 'fetch' }, 'f_append')
+    expect(applyPolicyEditToSurface('Always fetch current state.', appendEdit)).toBe(
+      'Always fetch current state.\n\nfetch',
+    )
+    expect(applyPolicyEditToSurface('Always fetch current state.\n\nfetch', appendEdit)).toBe(
+      'Always fetch current state.\n\nfetch',
+    )
+    expect(applyPolicyEditToSurface('Intro.\nfetch\nOutro.', appendEdit)).toBe(
+      'Intro.\nfetch\nOutro.',
+    )
+
+    const prependEdit = textEdit({ kind: 'text', mode: 'prepend', value: 'fetch' }, 'f_prepend')
+    expect(applyPolicyEditToSurface('Always fetch current state.', prependEdit)).toBe(
+      'fetch\n\nAlways fetch current state.',
+    )
+  })
+
+  it('fails loud on invalid surface/edit combinations', () => {
+    expect(() => applyPolicyEditToSurface({ prompt: 'Base prompt.' }, strongEdit())).toThrow(
+      /text policy edits require a string surface/,
+    )
+
+    const replaceEdit = textEdit(
+      { kind: 'text', mode: 'replace', find: 'missing text', value: 'replacement' },
+      'f_missing_replace',
+    )
+    expect(() => applyPolicyEditToSurface('Base prompt.', replaceEdit)).toThrow(
+      /replace target not found/,
+    )
+
+    const setEdit = jsonEdit(
+      { kind: 'json', mode: 'set', path: 'budget.maxTurns', value: 6 },
+      'f_invalid_json',
+    )
+    expect(() => applyPolicyEditToSurface('{not json', setEdit)).toThrow(
+      /json policy edits require a JSON string surface/,
+    )
   })
 })
