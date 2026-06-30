@@ -18,6 +18,7 @@ can; drop to the raw functions when you need lower-level control.
 |---|---|---|---|
 | **`defineAgentEval()`** | You have scenarios, an agent, a judge, and a baseline surface, and you want one object you can score or improve. | scenarios, agent, judge, baseline surface | `{ evaluate(), improve() }` where `evaluate()` returns a campaign result and `improve()` returns a decision packet |
 | **`selfImprove()`** | You have a closed loop — scenarios, judge, agent in hand, and you want the substrate to propose better candidates + gate them. | scenarios, agent, judge, baseline surface | `SelfImproveResult.insight: InsightReport` + ship/hold verdict + winner surface |
+| **`loadEvalFixtureScenarios()`** | You want agents to add evals as folders with `PROMPT.md`, checks, and starter files. | `evals/<name>/PROMPT.md + EVAL.ts + package.json` | `Scenario[]` that runs through `runCampaign`; pair with `planEvalFixtureRun()` before spending tokens |
 | **`analyzeRuns()`** | You have observed runs (production traces, an approve/reject corpus, a CSV gold set) and want the same rigor packet without invoking an agent. | `RunRecord[]` + optional flags | `InsightReport` |
 | **Intake adapters** (`fromFeedbackTable`, `fromOtelSpans`) | Your data isn't already in `RunRecord` shape — it's in Obsidian, Sheets, an OTel collector, etc. | source-specific input | `RunRecord[]` ready to pipe into `analyzeRuns()` |
 
