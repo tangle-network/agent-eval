@@ -752,6 +752,7 @@ export {
   improvementVerdict,
   inMemoryExperimentStore,
 } from './experiment-tracker'
+export { type LeaderboardOptions, type LeaderboardRow, leaderboard } from './leaderboard'
 export type { MuffledFinder, MuffledFinding, ScanOptions } from './muffled-gate-scanner'
 export {
   DEFAULT_FINDERS,
