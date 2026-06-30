@@ -123,6 +123,7 @@ export function createTraceAnalystKind(
       const maxDepth = spec.recursion?.maxDepth ?? 0
       const maxParallel = spec.recursion?.maxParallelSubagents ?? 2
       const priorContext = renderPriorFindings(ctx.priorFindings)
+      const functions = tools as unknown as NonNullable<Parameters<typeof agent>[1]>['functions']
 
       const actorDescription =
         spec.actorDescription.trim() +
@@ -159,7 +160,7 @@ export function createTraceAnalystKind(
           promptLevel: 'detailed',
           // Trace analysis depends on exact prior tool results and runtime variables.
           contextPolicy: { preset: 'full', budget: 'balanced' },
-          functions: { local: tools },
+          functions,
           actorOptions: {
             description: actorDescription,
             ...(opts.model ? { model: opts.model } : {}),

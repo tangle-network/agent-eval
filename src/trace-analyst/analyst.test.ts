@@ -82,6 +82,15 @@ vi.mock('@ax-llm/ax', () => {
       }
     },
     agent: (signature: string, options: Record<string, unknown>) => {
+      if (
+        options.functions !== undefined &&
+        !(
+          typeof (options.functions as { [Symbol.iterator]?: unknown })[Symbol.iterator] ===
+          'function'
+        )
+      ) {
+        throw new TypeError('functions must be iterable')
+      }
       axMock.agentCalls.push({ signature, options })
       return {
         async forward(ai: unknown, values: unknown) {
@@ -193,12 +202,12 @@ describe('analyzeTraces', () => {
       'question:string -> reasoning!:string, answer:string, findings:string[]',
     )
     expect(axMock.agentCalls[0]!.options.mode).toBe('advanced')
-    expect(axMock.agentCalls[0]!.options.functions).toMatchObject({
-      local: expect.arrayContaining([
+    expect(axMock.agentCalls[0]!.options.functions).toEqual(
+      expect.arrayContaining([
         expect.objectContaining({ namespace: 'traces', name: 'getDatasetOverview' }),
         expect.objectContaining({ namespace: 'traces', name: 'searchSpan' }),
       ]),
-    })
+    )
     expect(axMock.forwardCalls).toEqual([
       {
         ai,

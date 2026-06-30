@@ -152,6 +152,7 @@ export async function analyzeTraces(
   const maxTurns = options.maxTurns ?? 12
   const maxParallelSubagents = options.maxParallelSubagents ?? 2
   const maxRuntimeChars = options.maxRuntimeChars ?? 6000
+  const functions = tools as unknown as NonNullable<Parameters<typeof agent>[1]>['functions']
 
   const analyst = agent<{ question: string }, { answer: string; findings: string[] }>(
     // `reasoning!` is an internal (Ax `!`) scratchpad field: generated first to
@@ -183,7 +184,7 @@ export async function analyzeTraces(
       promptLevel: 'detailed',
       // Trace analysis depends on exact prior tool results and runtime variables.
       contextPolicy: { preset: 'full', budget: 'balanced' },
-      functions: { local: tools },
+      functions,
       actorOptions: {
         description: options.actorDescription ?? TRACE_ANALYST_ACTOR_DESCRIPTION,
         ...(options.model ? { model: options.model } : {}),
