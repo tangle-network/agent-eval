@@ -23,6 +23,7 @@ export default defineConfig({
     'matrix/index': 'src/matrix/index.ts',
     'multishot/index': 'src/multishot/index.ts',
     'perf/index': 'src/perf/index.ts',
+    'product-benchmark/index': 'src/product-benchmark/index.ts',
     'campaign/index': 'src/campaign/index.ts',
     'storyboard/index': 'src/storyboard/index.ts',
     'authenticity/index': 'src/authenticity/index.ts',
