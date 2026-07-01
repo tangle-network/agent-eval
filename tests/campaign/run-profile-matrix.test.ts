@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest'
-import { type AgentProfile, agentProfileHash, agentProfileId } from '../../src/agent-profile'
+import {
+  type AgentProfile,
+  agentProfileHash,
+  agentProfileId,
+  expandProfileAxes,
+} from '../../src/agent-profile'
+import { groupRunsByAgentProfileCell } from '../../src/agent-profile-cell'
 import {
   inMemoryCampaignStorage,
   type JudgeConfig,
@@ -292,5 +298,33 @@ describe('runProfileMatrix', () => {
     await expect(
       runProfileMatrix({ ...baseOpts(), profiles: [], dispatch: realDispatch }),
     ).rejects.toBeInstanceOf(ProfileMatrixError)
+  })
+
+  it('attaches a harness-bearing AgentProfileCell so runs group by harness', async () => {
+    const axisBase: AgentProfile = {
+      name: 'agent',
+      model: { default: 'test-model@2025-01-01' },
+      prompt: { systemPrompt: 'p' },
+    }
+    const profiles = expandProfileAxes({
+      base: axisBase,
+      harnesses: ['opencode', 'codex'],
+      models: ['test-model@2025-01-01'],
+    })
+    expect(profiles).toHaveLength(2)
+
+    const result = await runProfileMatrix({ ...baseOpts(), profiles, dispatch: realDispatch })
+
+    // Every record carries the canonical cell, and its harness is the one the
+    // generator stamped — no metadata smuggling, no hand-recomputed key.
+    for (const rec of result.records) {
+      expect(rec.agentProfile?.harness?.id).toMatch(/^(opencode|codex)$/)
+    }
+    expect(new Set(result.records.map((r) => r.agentProfile?.harness?.id))).toEqual(
+      new Set(['opencode', 'codex']),
+    )
+    // The EXISTING grouping (not a bespoke pivot) separates the two harnesses:
+    // one cell per (profile, harness, model), independent of scenario/rep.
+    expect(groupRunsByAgentProfileCell(result.records).size).toBe(2)
   })
 })

@@ -4,6 +4,9 @@ import {
   agentProfileHash,
   agentProfileId,
   agentProfileModelId,
+  CODING_HARNESSES,
+  expandProfileAxes,
+  harnessAxisOf,
 } from './agent-profile'
 
 const base: AgentProfile = {
@@ -157,5 +160,92 @@ describe('agentProfileModelId', () => {
     expect(() => agentProfileModelId({ name: 'broken-profile', model: { default: '  ' } })).toThrow(
       /broken-profile.*model\.default/,
     )
+  })
+})
+
+describe('CODING_HARNESSES', () => {
+  it('is the canonical primary coding-harness set', () => {
+    expect([...CODING_HARNESSES]).toEqual(['opencode', 'claude-code', 'codex', 'kimi-code'])
+  })
+})
+
+describe('expandProfileAxes', () => {
+  const axisBase: AgentProfile = { name: 'agent', model: { default: 'deepseek-v4-flash' } }
+
+  it('defaults to CODING_HARNESSES × the base model — one compatible cell per harness', () => {
+    const profiles = expandProfileAxes({ base: axisBase })
+    // An unprefixed model id is compatible with every harness → one cell each.
+    expect(profiles).toHaveLength(CODING_HARNESSES.length)
+    expect(profiles.map((p) => harnessAxisOf(p)?.harness).sort()).toEqual(
+      [...CODING_HARNESSES].sort(),
+    )
+    for (const p of profiles) expect(p.model?.default).toBe('deepseek-v4-flash')
+  })
+
+  it('crosses harnesses × models with a distinct id per cell (no collapse)', () => {
+    const profiles = expandProfileAxes({
+      base: axisBase,
+      harnesses: ['opencode', 'codex'],
+      models: ['m-a', 'm-b'],
+    })
+    expect(profiles).toHaveLength(4)
+    expect(new Set(profiles.map((p) => agentProfileId(p))).size).toBe(4)
+  })
+
+  it('drops (harness, model) pairs a vendor-locked harness cannot run', () => {
+    const pairs = expandProfileAxes({
+      base: axisBase,
+      harnesses: ['claude-code', 'codex'],
+      models: ['anthropic/claude-x', 'openai/gpt-x'],
+    })
+      .map((p) => harnessAxisOf(p))
+      .filter(Boolean)
+    expect(pairs).toContainEqual({ harness: 'claude-code', model: 'anthropic/claude-x' })
+    expect(pairs).toContainEqual({ harness: 'codex', model: 'openai/gpt-x' })
+    expect(pairs).not.toContainEqual({ harness: 'claude-code', model: 'openai/gpt-x' })
+    expect(pairs).toHaveLength(2)
+  })
+
+  it('router-backed harness (opencode) accepts any provider', () => {
+    expect(
+      expandProfileAxes({
+        base: axisBase,
+        harnesses: ['opencode'],
+        models: ['anthropic/x', 'openai/y'],
+      }),
+    ).toHaveLength(2)
+  })
+
+  it('keepIncompatible retains an otherwise-dropped pair', () => {
+    expect(
+      expandProfileAxes({
+        base: axisBase,
+        harnesses: ['claude-code'],
+        models: ['openai/gpt-x'],
+        keepIncompatible: true,
+      }),
+    ).toHaveLength(1)
+  })
+
+  it('carries harness + model in metadata and round-trips via harnessAxisOf', () => {
+    const [p] = expandProfileAxes({ base: axisBase, harnesses: ['opencode'], models: ['m1'] })
+    expect(p?.metadata?.harness).toBe('opencode')
+    expect(p?.metadata?.harnessModel).toBe('m1')
+    expect(harnessAxisOf(p as AgentProfile)).toEqual({ harness: 'opencode', model: 'm1' })
+  })
+
+  it('fails loud on no harnesses / no models / all-incompatible', () => {
+    expect(() => expandProfileAxes({ base: axisBase, harnesses: [] })).toThrow(/no harnesses/)
+    expect(() => expandProfileAxes({ base: { name: 'x' } })).toThrow(/no models/)
+    expect(() =>
+      expandProfileAxes({ base: axisBase, harnesses: ['claude-code'], models: ['openai/gpt-x'] }),
+    ).toThrow(/incompatible/)
+  })
+})
+
+describe('harnessAxisOf', () => {
+  it('returns undefined for a profile not produced by expandProfileAxes', () => {
+    expect(harnessAxisOf({ metadata: undefined })).toBeUndefined()
+    expect(harnessAxisOf({ metadata: { foo: 'bar' } })).toBeUndefined()
   })
 })

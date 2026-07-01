@@ -705,8 +705,15 @@ export { buildTrajectory } from './trajectory'
 
 // ── Auxiliary statistical + decision modules ─────────────────────────
 
-export type { AgentProfile } from './agent-profile'
-export { agentProfileHash, agentProfileId, agentProfileModelId } from './agent-profile'
+export type { AgentProfile, HarnessType, ProfileAxisSpec } from './agent-profile'
+export {
+  agentProfileHash,
+  agentProfileId,
+  agentProfileModelId,
+  CODING_HARNESSES,
+  expandProfileAxes,
+  harnessAxisOf,
+} from './agent-profile'
 export type { BaselineOptions, BaselineReport, MetricSamples, MetricVerdict } from './baseline'
 export { compareToBaseline, iqr, welchsTTest } from './baseline'
 export type {
