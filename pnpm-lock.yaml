@@ -25,8 +25,8 @@ importers:
         specifier: ^0.10.0
         version: 0.10.0
       '@tangle-network/tcloud':
-        specifier: ^0.4.6
-        version: 0.4.6(typescript@5.9.3)(zod@4.3.6)
+        specifier: ^0.4.14
+        version: 0.4.14(typescript@5.9.3)(zod@4.3.6)
       hono:
         specifier: ^4.12.16
         version: 4.12.18
@@ -100,24 +100,28 @@ packages:
     engines: {node: '>=14.21.3'}
     cpu: [arm64]
     os: [linux]
+    libc: [musl]
 
   '@biomejs/cli-linux-arm64@2.4.15':
     resolution: {integrity: sha512-owaAMZD/T4LrD0ELNCk0Km3qrRHuM0X6EAyVE1FSqGY0rbLoiDLrO4Us2tllm6cAeB2Ioa9C2C08NZPdr8+0Ug==}
     engines: {node: '>=14.21.3'}
     cpu: [arm64]
     os: [linux]
+    libc: [glibc]
 
   '@biomejs/cli-linux-x64-musl@2.4.15':
     resolution: {integrity: sha512-CNq/9W38SYSH023lfcQ4KKU8K0YX8T//FZUhcgtMMRABDojx5XsMV7jlweAvGSl389wJQB29Qo6Zb/a+jdvt+w==}
     engines: {node: '>=14.21.3'}
     cpu: [x64]
     os: [linux]
+    libc: [musl]
 
   '@biomejs/cli-linux-x64@2.4.15':
     resolution: {integrity: sha512-0jj7THz12GbUOLmMibktK6DZjqz2zV64KFxyBtcFTKPiiOIY0a7vns1elpO1dERvxpsZ5ik0oFfz0oGwFde1+g==}
     engines: {node: '>=14.21.3'}
     cpu: [x64]
     os: [linux]
+    libc: [glibc]
 
   '@biomejs/cli-win32-arm64@2.4.15':
     resolution: {integrity: sha512-ouhkYdlhp/1GghEJPdWwD/Vi3gQ1nFxuSpMolWsbq3Lsq3QUR4jl6UdhhscdCugKU5vOEuMiJhvKj66O0OCq+w==}
@@ -364,66 +368,79 @@ packages:
     resolution: {integrity: sha512-L+34Qqil+v5uC0zEubW7uByo78WOCIrBvci69E7sFASRl0X7b/MB6Cqd1lky/CtcSVTydWa2WZwFuWexjS5o6g==}
     cpu: [arm]
     os: [linux]
+    libc: [glibc]
 
   '@rollup/rollup-linux-arm-musleabihf@4.60.1':
     resolution: {integrity: sha512-n83O8rt4v34hgFzlkb1ycniJh7IR5RCIqt6mz1VRJD6pmhRi0CXdmfnLu9dIUS6buzh60IvACM842Ffb3xd6Gg==}
     cpu: [arm]
     os: [linux]
+    libc: [musl]
 
   '@rollup/rollup-linux-arm64-gnu@4.60.1':
     resolution: {integrity: sha512-Nql7sTeAzhTAja3QXeAI48+/+GjBJ+QmAH13snn0AJSNL50JsDqotyudHyMbO2RbJkskbMbFJfIJKWA6R1LCJQ==}
     cpu: [arm64]
     os: [linux]
+    libc: [glibc]
 
   '@rollup/rollup-linux-arm64-musl@4.60.1':
     resolution: {integrity: sha512-+pUymDhd0ys9GcKZPPWlFiZ67sTWV5UU6zOJat02M1+PiuSGDziyRuI/pPue3hoUwm2uGfxdL+trT6Z9rxnlMA==}
     cpu: [arm64]
     os: [linux]
+    libc: [musl]
 
   '@rollup/rollup-linux-loong64-gnu@4.60.1':
     resolution: {integrity: sha512-VSvgvQeIcsEvY4bKDHEDWcpW4Yw7BtlKG1GUT4FzBUlEKQK0rWHYBqQt6Fm2taXS+1bXvJT6kICu5ZwqKCnvlQ==}
     cpu: [loong64]
     os: [linux]
+    libc: [glibc]
 
   '@rollup/rollup-linux-loong64-musl@4.60.1':
     resolution: {integrity: sha512-4LqhUomJqwe641gsPp6xLfhqWMbQV04KtPp7/dIp0nzPxAkNY1AbwL5W0MQpcalLYk07vaW9Kp1PBhdpZYYcEw==}
     cpu: [loong64]
     os: [linux]
+    libc: [musl]
 
   '@rollup/rollup-linux-ppc64-gnu@4.60.1':
     resolution: {integrity: sha512-tLQQ9aPvkBxOc/EUT6j3pyeMD6Hb8QF2BTBnCQWP/uu1lhc9AIrIjKnLYMEroIz/JvtGYgI9dF3AxHZNaEH0rw==}
     cpu: [ppc64]
     os: [linux]
+    libc: [glibc]
 
   '@rollup/rollup-linux-ppc64-musl@4.60.1':
     resolution: {integrity: sha512-RMxFhJwc9fSXP6PqmAz4cbv3kAyvD1etJFjTx4ONqFP9DkTkXsAMU4v3Vyc5BgzC+anz7nS/9tp4obsKfqkDHg==}
     cpu: [ppc64]
     os: [linux]
+    libc: [musl]
 
   '@rollup/rollup-linux-riscv64-gnu@4.60.1':
     resolution: {integrity: sha512-QKgFl+Yc1eEk6MmOBfRHYF6lTxiiiV3/z/BRrbSiW2I7AFTXoBFvdMEyglohPj//2mZS4hDOqeB0H1ACh3sBbg==}
     cpu: [riscv64]
     os: [linux]
+    libc: [glibc]
 
   '@rollup/rollup-linux-riscv64-musl@4.60.1':
     resolution: {integrity: sha512-RAjXjP/8c6ZtzatZcA1RaQr6O1TRhzC+adn8YZDnChliZHviqIjmvFwHcxi4JKPSDAt6Uhf/7vqcBzQJy0PDJg==}
     cpu: [riscv64]
     os: [linux]
+    libc: [musl]
 
   '@rollup/rollup-linux-s390x-gnu@4.60.1':
     resolution: {integrity: sha512-wcuocpaOlaL1COBYiA89O6yfjlp3RwKDeTIA0hM7OpmhR1Bjo9j31G1uQVpDlTvwxGn2nQs65fBFL5UFd76FcQ==}
     cpu: [s390x]
     os: [linux]
+    libc: [glibc]
 
   '@rollup/rollup-linux-x64-gnu@4.60.1':
     resolution: {integrity: sha512-77PpsFQUCOiZR9+LQEFg9GClyfkNXj1MP6wRnzYs0EeWbPcHs02AXu4xuUbM1zhwn3wqaizle3AEYg5aeoohhg==}
     cpu: [x64]
     os: [linux]
+    libc: [glibc]
 
   '@rollup/rollup-linux-x64-musl@4.60.1':
     resolution: {integrity: sha512-5cIATbk5vynAjqqmyBjlciMJl1+R/CwX9oLk/EyiFXDWd95KpHdrOJT//rnUl4cUcskrd0jCCw3wpZnhIHdD9w==}
     cpu: [x64]
     os: [linux]
+    libc: [musl]
 
   '@rollup/rollup-openbsd-x64@4.60.1':
     resolution: {integrity: sha512-cl0w09WsCi17mcmWqqglez9Gk8isgeWvoUZ3WiJFYSR3zjBQc2J5/ihSjpl+VLjPqjQ/1hJRcqBfLjssREQILw==}
@@ -473,14 +490,35 @@ packages:
   '@scure/bip39@2.2.0':
     resolution: {integrity: sha512-T/Bj/YvYMNkIPq6EENO6/rcs2e7qTNuyoUXf0KBFDmp0ZDu0H2X4Lq6yC3i0c8PcWkov5EbW+yQZZbdMmk154A==}
 
+  '@tangle-network/agent-core@0.3.8':
+    resolution: {integrity: sha512-bZfVpdiFjXbcQwSxSQABdtXEmUuapWChCcXrHkP6fAnwqEy9hWEfeZLlMZUy+1XaOfpTaMLUOEAwYhXfN018wQ==}
+
   '@tangle-network/agent-interface@0.10.0':
     resolution: {integrity: sha512-oiREgihkeX/xcGEtFfi9AkAfU2VzuF7SSla2s0iliXPUXyHCIIx6jwzHiYdwb1ZGCfvC+T+0SWOIa6fN5u195g==}
 
-  '@tangle-network/sandbox@0.1.2':
-    resolution: {integrity: sha512-6TPH9QgCgou9Bhc1kzLNL4/PRiT1mjId6NONY5Le/KT2kh77cXH8KN3TTY/cU+/eW+WM5FYJOy32FWl2HShXbw==}
+  '@tangle-network/agent-interface@0.13.0':
+    resolution: {integrity: sha512-CeTPGRLoXqpt0h+BCyFgZPkfU1zyRpWmqfD+85i/uk+uvbqxkfI+JprfKVf3tBsQuCgJPSjPt5qjdW8n3h2BVg==}
+
+  '@tangle-network/agent-interface@0.17.1':
+    resolution: {integrity: sha512-B7dRJTo0HSUtgBCB1VMwkTFYkLUaRr/4BcRglrQuGhGUwOzKv1RYyMejOVh5M3a5AagY9N79f7GYbjcA3UmnIA==}
+
+  '@tangle-network/sandbox@0.9.5':
+    resolution: {integrity: sha512-yvX2OX6uISBVnMQ+v6Upkesa3u8yj6BHxsfcS6p8Vze+M4WBpyhkwA+onzFHuo9rti557ItZn8yDu4a/klljvQ==}
     peerDependencies:
+      '@mastra/core': ^1.36.0
+      '@modelcontextprotocol/sdk': ^1.29.0
+      ai: ^6.0.175
+      openai: ^6.36.0
       viem: ^2.0.0
     peerDependenciesMeta:
+      '@mastra/core':
+        optional: true
+      '@modelcontextprotocol/sdk':
+        optional: true
+      ai:
+        optional: true
+      openai:
+        optional: true
       viem:
         optional: true
 
@@ -488,8 +526,8 @@ packages:
     resolution: {integrity: sha512-+TAF9s5t1jOWGyGHvKhIWe2FYmG7puVaxmmg0Et67ylAjGa7GqUAvISXGjG/6dzld7A170V0kQHK0WVdh2Wh0Q==}
     engines: {node: '>=18'}
 
-  '@tangle-network/tcloud@0.4.6':
-    resolution: {integrity: sha512-ABjo9CBvFmKlEMWGazY7nPOlCI0lXa9nuM+qmVEa3RXLy+0q0RT33mA6ekqjA4Ieb8irym93uAan5P/iwdmxXg==}
+  '@tangle-network/tcloud@0.4.14':
+    resolution: {integrity: sha512-jWYt//cGdLBDOv0luLH6xAGS4gbuOt8uHIkaCWwDDpQ1zp0FUPATHIrA3RMuF0qtQq9Vq00IhLrmCnHdHBP+dg==}
     engines: {node: '>=18'}
     hasBin: true
 
@@ -1343,26 +1381,46 @@ snapshots:
       '@noble/hashes': 2.2.0
       '@scure/base': 2.2.0
 
+  '@tangle-network/agent-core@0.3.8':
+    dependencies:
+      '@tangle-network/agent-interface': 0.17.1
+      zod: 4.4.3
+
   '@tangle-network/agent-interface@0.10.0':
     dependencies:
       zod: 4.4.3
 
-  '@tangle-network/sandbox@0.1.2(viem@2.48.8(typescript@5.9.3)(zod@4.3.6))':
+  '@tangle-network/agent-interface@0.13.0':
+    dependencies:
+      zod: 4.4.3
+
+  '@tangle-network/agent-interface@0.17.1':
+    dependencies:
+      zod: 4.4.3
+
+  '@tangle-network/sandbox@0.9.5(viem@2.48.8(typescript@5.9.3)(zod@4.3.6))':
+    dependencies:
+      '@tangle-network/agent-core': 0.3.8
+      '@tangle-network/agent-interface': 0.13.0
     optionalDependencies:
       viem: 2.48.8(typescript@5.9.3)(zod@4.3.6)
 
   '@tangle-network/tcloud-attestation@0.1.1': {}
 
-  '@tangle-network/tcloud@0.4.6(typescript@5.9.3)(zod@4.3.6)':
+  '@tangle-network/tcloud@0.4.14(typescript@5.9.3)(zod@4.3.6)':
     dependencies:
       '@scure/bip32': 2.2.0
       '@scure/bip39': 2.2.0
-      '@tangle-network/sandbox': 0.1.2(viem@2.48.8(typescript@5.9.3)(zod@4.3.6))
+      '@tangle-network/sandbox': 0.9.5(viem@2.48.8(typescript@5.9.3)(zod@4.3.6))
       '@tangle-network/tcloud-attestation': 0.1.1
       commander: 14.0.3
       viem: 2.48.8(typescript@5.9.3)(zod@4.3.6)
     transitivePeerDependencies:
+      - '@mastra/core'
+      - '@modelcontextprotocol/sdk'
+      - ai
       - bufferutil
+      - openai
       - typescript
       - utf-8-validate
       - zod
