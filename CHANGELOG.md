@@ -4,6 +4,14 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ---
 
+## [0.100.3] — 2026-07-01 — product benchmark contract publish
+
+### Added
+
+- Published the `@tangle-network/agent-eval/product-benchmark` subpath so product agents can share one strict product-benchmark manifest, record, artifact, and integrity validator instead of copying Agent Lab or product-local schema code.
+
+---
+
 ## [0.96.4] — 2026-06-22 — multishot fatal tool errors
 
 ### Added
