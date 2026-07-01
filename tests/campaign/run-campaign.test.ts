@@ -9,6 +9,7 @@ import {
   inMemoryCampaignStorage,
   type JudgeConfig,
   LabeledScenarioStoreError,
+  planCampaignRun,
   runCampaign,
   type Scenario,
 } from '../../src/campaign/index'
@@ -150,6 +151,83 @@ describe('runCampaign — core primitive', () => {
     expect(dispatchCount).toBe(2) // no new dispatches
     expect(r2.cells.every((c) => c.cached)).toBe(true)
     expect(r2.aggregates.cellsCached).toBe(2)
+  })
+
+  it('does not resume cached cells when the manifest changes', async () => {
+    let dispatchCount = 0
+    const dispatch: DispatchFn<FakeScenario, FakeArtifact> = async (s) => {
+      dispatchCount += 1
+      return { text: `fresh-${s.intent}`, intent: s.intent }
+    }
+    const first = [{ id: 'a', kind: 'chat', intent: 'first' }]
+    const second = [{ id: 'a', kind: 'chat', intent: 'second' }]
+
+    await runCampaign({ scenarios: first, dispatch, dispatchRef: 'stable-dispatch', runDir })
+    const result = await runCampaign({
+      scenarios: second,
+      dispatch,
+      dispatchRef: 'stable-dispatch',
+      runDir,
+    })
+
+    expect(dispatchCount).toBe(2)
+    expect(result.cells[0]?.cached).toBe(false)
+    expect(result.cells[0]?.artifact.intent).toBe('second')
+  })
+
+  it('includes dispatchRef in the resume decision', async () => {
+    let dispatchCount = 0
+    const dispatch: DispatchFn<FakeScenario, FakeArtifact> = async (s) => {
+      dispatchCount += 1
+      return { text: `${s.id}-${dispatchCount}`, intent: s.intent }
+    }
+
+    await runCampaign({
+      scenarios: SCENARIOS.slice(0, 1),
+      dispatch,
+      dispatchRef: 'model-a',
+      runDir,
+    })
+    const result = await runCampaign({
+      scenarios: SCENARIOS.slice(0, 1),
+      dispatch,
+      dispatchRef: 'model-b',
+      runDir,
+    })
+
+    expect(dispatchCount).toBe(2)
+    expect(result.cells[0]?.cached).toBe(false)
+  })
+
+  it('plans cached vs runnable cells before spending', async () => {
+    await runCampaign({
+      scenarios: SCENARIOS,
+      dispatch: DISPATCH,
+      dispatchRef: 'preview-dispatch',
+      runDir,
+    })
+
+    const cached = planCampaignRun<FakeScenario, FakeArtifact>({
+      scenarios: SCENARIOS,
+      dispatchRef: 'preview-dispatch',
+      runDir,
+    })
+    expect(cached.totalCells).toBe(2)
+    expect(cached.cellsCached).toBe(2)
+    expect(cached.cellsToRun).toBe(0)
+    expect(cached.cells.every((cell) => cell.status === 'cached')).toBe(true)
+
+    const stale = planCampaignRun<FakeScenario, FakeArtifact>({
+      scenarios: [{ ...SCENARIOS[0]!, intent: 'changed' }, SCENARIOS[1]!],
+      dispatchRef: 'preview-dispatch',
+      runDir,
+    })
+    expect(stale.cellsCached).toBe(0)
+    expect(stale.cellsToRun).toBe(2)
+    expect(stale.cells.map((cell) => cell.reason)).toEqual([
+      'manifest-mismatch',
+      'manifest-mismatch',
+    ])
   })
 
   it('captures dispatch errors per cell without crashing campaign', async () => {

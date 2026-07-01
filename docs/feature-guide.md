@@ -31,6 +31,7 @@ trying, and whether a change made them better or worse.
 | “Should the agent keep trying?” | `runAgentControlLoop` | Budgeted `observe -> validate -> decide -> act` runtime. |
 | “The agent should propose, verify, review, and revise.” | `runProposeReviewAsControlLoop` | Reusable preset over the generic control loop. |
 | “Human feedback should become reusable eval data.” | `FeedbackTrajectory` | Captures approvals, rejections, edits, choices, metrics, and policy blocks. |
+| “I want Vercel-style eval folders agents can add quickly.” | `loadEvalFixtureScenarios`, `planEvalFixtureRun`, `runCampaign` | Folder-per-eval DX with campaign scoring and cache-safe dry runs. |
 | “Can this action run, or does it need approval?” | `evaluateActionPolicy` | Generic preflight for side effects, budgets, and required evidence. |
 | “I need train/dev/test/holdout examples.” | `Dataset` plus feedback trajectory conversion | Stable splits and contamination control. |
 | “Which prompt or signature wins?” | `runImprovementLoop`, steering optimizers | Runs variants on scenarios and compares scores. |
@@ -156,6 +157,7 @@ Store as `FeedbackTrajectory`, then derive:
 | Feedback data | `FeedbackTrajectory`, stores, converters | Human/environment labels | Domain adapters live in downstream repos. |
 | Action policy | `evaluateActionPolicy` | Approval/budget preflight | Blocks or labels actions before `act()`. |
 | Datasets | `Dataset`, holdout tools, canaries | Train/dev/test/holdout corpora | Keeps optimization honest. |
+| Eval fixtures | `discoverEvalFixtures`, `loadEvalFixtureScenarios`, `planEvalFixtureRun` | Coding-agent eval folders | Vercel-style input shape; still executes through `runCampaign`. |
 | Optimization | `runImprovementLoop`, steering optimizers | Prompt/signature comparison | Use held-out gates before promotion. |
 | Evolution | prompt/code mutators, sandbox pool, telemetry | Autoresearch and mutation loops | Use budgets and lineage; do not run unbounded. |
 | Telemetry | `TraceStore`, OTLP, file sinks | Audit and replay | Treat traces as evidence, not just logs. |
@@ -201,6 +203,8 @@ Downstream integrations provide domain state, policy, tools, and storage.
 
 - `examples/same-sandbox-harness`: one workdir for install/build/test plus
   evidence inspection.
+- `examples/eval-fixtures-quickstart`: Vercel-style fixture folders with a
+  dry-run plan and campaign cache reuse.
 - `examples/multi-shot-optimization`: full-trajectory optimization with a
   holdout gate.
 - `examples/benchmarks`: benchmark adapter contracts and reference wrappers.

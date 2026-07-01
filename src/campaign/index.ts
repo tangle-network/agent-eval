@@ -23,6 +23,21 @@ export {
   type OpenAutoPrResult,
   openAutoPr,
 } from './auto-pr'
+// ── Fixture UX / dry-run planning ────────────────────────────────────
+export {
+  discoverEvalFixtures,
+  type EvalFixture,
+  type EvalFixtureFile,
+  type EvalFixtureLoadOptions,
+  type EvalFixtureRunPlan,
+  type EvalFixtureScenario,
+  type EvalFixtureValidationMode,
+  type LoadEvalFixtureScenariosOptions,
+  loadEvalFixture,
+  loadEvalFixtureScenarios,
+  type PlanEvalFixtureRunOptions,
+  planEvalFixtureRun,
+} from './fixtures'
 // ── Gates ────────────────────────────────────────────────────────────
 export { composeGate } from './gates/compose'
 export {
@@ -187,7 +202,14 @@ export {
   provenanceSpansPath,
   surfaceContentHash,
 } from './provenance'
-export { type RunCampaignOptions, runCampaign } from './run-campaign'
+export {
+  type CampaignRunPlan,
+  type CampaignRunPlanCell,
+  type PlanCampaignRunOptions,
+  planCampaignRun,
+  type RunCampaignOptions,
+  runCampaign,
+} from './run-campaign'
 export { type CampaignBreakdown, campaignBreakdown, campaignMeanComposite } from './score-utils'
 export {
   type ApplySkillPatchResult,

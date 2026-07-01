@@ -4,6 +4,22 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ---
 
+## [Unreleased] — eval fixture UX + manifest-correct campaign resume
+
+### Added
+
+- **Vercel-style eval fixture loading in `/campaign`.** `discoverEvalFixtures`, `loadEvalFixture`, `loadEvalFixtureScenarios`, and `planEvalFixtureRun` let agents use the simple `evals/<name>/PROMPT.md + EVAL.ts + package.json` shape while still executing through the existing `runCampaign` primitive.
+- **Dry-run planning for campaigns.** `planCampaignRun` reports `totalCells`, `cellsCached`, `cellsToRun`, per-cell cache paths, and miss reasons before any agent work starts. This is the cheap proof before spending tokens.
+- **`dispatchRef` on `runCampaign`.** Callers can include the model/tool/prompt/runtime identity in the manifest when the same dispatch function name can run different behavior.
+
+### Fixed
+
+- **Campaign resumability now validates `manifestHash` before reusing a cached cell.** Reusing the same `runDir` after changing scenario payloads, judges, seed/reps, or `dispatchRef` no longer serves stale cells that only match by `cellId`.
+
+### Docs
+
+- Added `docs/eval-fixtures.md` and `examples/eval-fixtures-quickstart/` so agents can add fixture-backed evals without rediscovering the campaign plumbing.
+
 ## [0.100.3] — 2026-07-01 — product benchmark contract publish
 
 ### Added
