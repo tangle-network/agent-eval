@@ -34,6 +34,7 @@ try {
     './rl': ['import', 'types'],
     './prm': ['import', 'types'],
     './meta-eval': ['import', 'types'],
+    './product-benchmark': ['import', 'types'],
     './belief-state': ['import', 'types'],
     './wire': ['import', 'types'],
     './testing': ['import', 'types'],
@@ -107,6 +108,16 @@ try {
         const testing = await import('@tangle-network/agent-eval/testing')
         if (typeof testing.resetLockedAppendersForTesting !== 'function') {
           throw new Error('missing testing reset helper')
+        }
+        const productBenchmark = await import('@tangle-network/agent-eval/product-benchmark')
+        for (const name of [
+          'findProductBenchmarkArtifacts',
+          'productBenchmarkSplits',
+          'validateProductBenchmarkManifest',
+          'validateProductBenchmarkRecord',
+          'validateProductBenchmarkRun',
+        ]) {
+          if (!(name in productBenchmark)) throw new Error('missing product-benchmark export ' + name)
         }
       `,
     ],

@@ -114,6 +114,11 @@
       "import": "./dist/perf/index.js",
       "default": "./dist/perf/index.js"
     },
+    "./product-benchmark": {
+      "types": "./dist/product-benchmark/index.d.ts",
+      "import": "./dist/product-benchmark/index.js",
+      "default": "./dist/product-benchmark/index.js"
+    },
     "./multishot": {
       "types": "./dist/multishot/index.d.ts",
       "import": "./dist/multishot/index.js",

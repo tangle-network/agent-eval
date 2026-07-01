@@ -1446,6 +1446,33 @@ export {
   scenarioKey,
   summarizeRecords,
 } from './perf'
+// Product-owned benchmark bundles: portable product runs for agent-lab research.
+export type {
+  AgentProfileRuntimeReceipt,
+  ProductBenchmarkArm,
+  ProductBenchmarkArtifactPaths,
+  ProductBenchmarkBudgets,
+  ProductBenchmarkManifest,
+  ProductBenchmarkProfileRef,
+  ProductBenchmarkRecord,
+  ProductBenchmarkRepoRef,
+  ProductBenchmarkRunInput,
+  ProductBenchmarkScenario,
+  ProductBenchmarkSplit,
+  ProductBenchmarkSubstrateVersions,
+  ProductBenchmarkValidationReport,
+  RuntimeResolution,
+} from './product-benchmark'
+export {
+  findProductBenchmarkArtifacts,
+  productBenchmarkIntegrityFailures,
+  productBenchmarkSplits,
+  readProductBenchmarkManifest,
+  readProductBenchmarkRecords,
+  validateProductBenchmarkManifest,
+  validateProductBenchmarkRecord,
+  validateProductBenchmarkRun,
+} from './product-benchmark'
 // ── Anytime-valid sequential testing (e-process core) ────────────────
 // The betting test-martingale behind the sequential gates. Gate-level
 // machinery (sequentialPairedGate, sequentialDecide) lives on the /campaign
