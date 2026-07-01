@@ -9,10 +9,10 @@
  * the core orchestrator minimal — Phase 1 of the Pass A track.
  */
 
-import { createHash } from 'node:crypto'
 import { join } from 'node:path'
 import { BackendIntegrityError, type BackendIntegrityReport } from '../integrity/backend-integrity'
 import { confidenceInterval } from '../statistics'
+import { contentHash } from '../verdict-cache'
 import { type CampaignStorage, fsCampaignStorage } from './storage'
 import type {
   CampaignAggregates,
@@ -36,6 +36,12 @@ import type {
 export interface RunCampaignOptions<TScenario extends Scenario, TArtifact> {
   scenarios: TScenario[]
   dispatch: DispatchFn<TScenario, TArtifact>
+  /**
+   * Stable identity for the dispatch behavior, included in the manifest/cache
+   * key. Set this when the same function name can run different models,
+   * prompts, tools, or external config.
+   */
+  dispatchRef?: string
   judges?: JudgeConfig<TArtifact, TScenario>[]
   /** Required for reproducibility. Default 42. */
   seed?: number
@@ -129,7 +135,7 @@ export async function runCampaign<TScenario extends Scenario, TArtifact>(
   const manifestHash = computeManifestHash({
     scenarios: opts.scenarios,
     judges: judges as unknown as JudgeConfig<unknown>[],
-    dispatchRef: opts.dispatch.name || 'anonymous',
+    dispatchRef: dispatchRefFor(opts.dispatch, opts.dispatchRef),
     seed,
     reps,
   })
@@ -139,16 +145,7 @@ export async function runCampaign<TScenario extends Scenario, TArtifact>(
   const artifactsByPath: Record<string, string> = {}
 
   // Build the cell schedule (scenario × rep).
-  const schedule: Array<{ scenario: TScenario; rep: number; cellId: string; cellSeed: number }> = []
-  let cellIndex = 0
-  for (const scenario of opts.scenarios) {
-    for (let rep = 0; rep < reps; rep++) {
-      const cellId = `${scenario.id}:${rep}`
-      const cellSeed = seed + cellIndex
-      schedule.push({ scenario, rep, cellId, cellSeed })
-      cellIndex += 1
-    }
-  }
+  const schedule = buildCellSchedule(opts.scenarios, seed, reps)
 
   // Concurrency-limited execution.
   let totalCostUsd = 0
@@ -259,16 +256,14 @@ async function executeCell<TScenario extends Scenario, TArtifact>(
   // Resumability: cache key = (manifestHash, scenarioId, rep)
   const cachePath = join(cellDir, 'cached-result.json')
   if (args.resumable) {
-    const raw = storage.read(cachePath)
-    if (raw !== undefined) {
-      try {
-        const cached = JSON.parse(raw) as CampaignCellResult<TArtifact>
-        if (cached.cellId === args.slot.cellId) {
-          return { cell: { ...cached, cached: true }, artifactsByPath: {} }
-        }
-      } catch {
-        // Corrupt cache — fall through to re-run.
-      }
+    const cached = readCachedCell<TArtifact>({
+      storage,
+      cachePath,
+      cellId: args.slot.cellId,
+      manifestHash: args.manifestHash,
+    })
+    if (cached.status === 'hit') {
+      return { cell: { ...cached.cell, cached: true }, artifactsByPath: {} }
     }
   }
 
@@ -391,6 +386,7 @@ async function executeCell<TScenario extends Scenario, TArtifact>(
   await trace.flush()
 
   const cell: CampaignCellResult<TArtifact> = {
+    manifestHash: args.manifestHash,
     cellId: args.slot.cellId,
     scenarioId: args.slot.scenario.id,
     rep: args.slot.rep,
@@ -409,6 +405,112 @@ async function executeCell<TScenario extends Scenario, TArtifact>(
   }
 
   return { cell, artifactsByPath }
+}
+
+export interface CampaignRunPlanCell {
+  cellId: string
+  scenarioId: string
+  rep: number
+  seed: number
+  cachePath: string
+  status: 'cached' | 'run'
+  reason?: 'missing' | 'manifest-mismatch' | 'cell-mismatch' | 'corrupt' | 'resumable-off'
+}
+
+export interface CampaignRunPlan {
+  manifestHash: string
+  totalCells: number
+  cellsCached: number
+  cellsToRun: number
+  cells: CampaignRunPlanCell[]
+}
+
+export interface PlanCampaignRunOptions<TScenario extends Scenario, TArtifact> {
+  scenarios: TScenario[]
+  dispatch?: DispatchFn<TScenario, TArtifact>
+  dispatchRef?: string
+  judges?: JudgeConfig<TArtifact, TScenario>[]
+  seed?: number
+  reps?: number
+  resumable?: boolean
+  runDir: string
+  storage?: CampaignStorage
+}
+
+export function planCampaignRun<TScenario extends Scenario, TArtifact>(
+  opts: PlanCampaignRunOptions<TScenario, TArtifact>,
+): CampaignRunPlan {
+  const seed = opts.seed ?? 42
+  const reps = opts.reps ?? 1
+  const resumable = opts.resumable ?? true
+  const storage = opts.storage ?? fsCampaignStorage()
+
+  if (typeof opts.runDir !== 'string' || opts.runDir.trim().length === 0) {
+    throw new Error('planCampaignRun: runDir is required and must be a non-empty string')
+  }
+
+  const manifestHash = computeManifestHash({
+    scenarios: opts.scenarios,
+    judges: (opts.judges ?? []) as unknown as JudgeConfig<unknown>[],
+    dispatchRef: dispatchRefFor(opts.dispatch, opts.dispatchRef),
+    seed,
+    reps,
+  })
+
+  const cells = buildCellSchedule(opts.scenarios, seed, reps).map((slot): CampaignRunPlanCell => {
+    const cachePath = join(
+      opts.runDir,
+      slot.cellId.replace(/[^a-zA-Z0-9_-]/g, '_'),
+      'cached-result.json',
+    )
+    if (!resumable) {
+      return {
+        cellId: slot.cellId,
+        scenarioId: slot.scenario.id,
+        rep: slot.rep,
+        seed: slot.cellSeed,
+        cachePath,
+        status: 'run',
+        reason: 'resumable-off',
+      }
+    }
+
+    const cached = readCachedCell<unknown>({
+      storage,
+      cachePath,
+      cellId: slot.cellId,
+      manifestHash,
+    })
+    if (cached.status === 'hit') {
+      return {
+        cellId: slot.cellId,
+        scenarioId: slot.scenario.id,
+        rep: slot.rep,
+        seed: slot.cellSeed,
+        cachePath,
+        status: 'cached',
+      }
+    }
+
+    return {
+      cellId: slot.cellId,
+      scenarioId: slot.scenario.id,
+      rep: slot.rep,
+      seed: slot.cellSeed,
+      cachePath,
+      status: 'run',
+      reason: cached.reason,
+    }
+  })
+
+  const cellsCached = cells.filter((cell) => cell.status === 'cached').length
+  return {
+    manifestHash,
+    totalCells: cells.length,
+    cellsCached,
+    cellsToRun: cells.length - cellsCached,
+    cells,
+  }
 }
 
 /**
@@ -499,6 +601,60 @@ function skippedCell<TScenario extends Scenario, TArtifact>(
   }
 }
 
+function buildCellSchedule<TScenario extends Scenario>(
+  scenarios: TScenario[],
+  seed: number,
+  reps: number,
+): Array<{ scenario: TScenario; rep: number; cellId: string; cellSeed: number }> {
+  const schedule: Array<{ scenario: TScenario; rep: number; cellId: string; cellSeed: number }> = []
+  let cellIndex = 0
+  for (const scenario of scenarios) {
+    for (let rep = 0; rep < reps; rep++) {
+      const cellId = `${scenario.id}:${rep}`
+      const cellSeed = seed + cellIndex
+      schedule.push({ scenario, rep, cellId, cellSeed })
+      cellIndex += 1
+    }
+  }
+  return schedule
+}
+
+function dispatchRefFor<TScenario extends Scenario, TArtifact>(
+  dispatch: DispatchFn<TScenario, TArtifact> | undefined,
+  override: string | undefined,
+): string {
+  const ref = override ?? dispatch?.name ?? 'anonymous'
+  if (typeof ref !== 'string' || ref.trim().length === 0) {
+    throw new Error('runCampaign: dispatchRef must be a non-empty string when provided')
+  }
+  return ref
+}
+
+type CacheRead<TArtifact> =
+  | { status: 'hit'; cell: CampaignCellResult<TArtifact> }
+  | { status: 'miss'; reason: 'missing' | 'manifest-mismatch' | 'cell-mismatch' | 'corrupt' }
+
+function readCachedCell<TArtifact>(args: {
+  storage: CampaignStorage
+  cachePath: string
+  cellId: string
+  manifestHash: string
+}): CacheRead<TArtifact> {
+  const raw = args.storage.read(args.cachePath)
+  if (raw === undefined) return { status: 'miss', reason: 'missing' }
+
+  try {
+    const cached = JSON.parse(raw) as CampaignCellResult<TArtifact>
+    if (cached.cellId !== args.cellId) return { status: 'miss', reason: 'cell-mismatch' }
+    if (cached.manifestHash !== args.manifestHash) {
+      return { status: 'miss', reason: 'manifest-mismatch' }
+    }
+    return { status: 'hit', cell: cached }
+  } catch {
+    return { status: 'miss', reason: 'corrupt' }
+  }
+}
+
 interface CaptureArgs<TScenario extends Scenario, TArtifact> {
   store: LabeledScenarioStore
   cell: CampaignCellResult<TArtifact>
@@ -530,14 +686,13 @@ function computeManifestHash(input: {
   seed: number
   reps: number
 }): string {
-  const canonical = {
-    scenarios: input.scenarios.map((s) => ({ id: s.id, kind: s.kind })),
-    judges: input.judges.map((j) => ({ name: j.name, dims: j.dimensions.map((d) => d.key) })),
+  return contentHash({
+    scenarios: input.scenarios,
+    judges: input.judges.map((j) => ({ name: j.name, dims: j.dimensions })),
     dispatch: input.dispatchRef,
     seed: input.seed,
     reps: input.reps,
-  }
-  return createHash('sha256').update(JSON.stringify(canonical)).digest('hex')
+  })
 }
 
 function computeAggregates<TArtifact>(

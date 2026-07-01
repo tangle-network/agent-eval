@@ -496,6 +496,9 @@ export interface LabeledScenarioStore {
 // ── The CampaignResult schema (the downstream-tools contract) ─────────
 
 export interface CampaignCellResult<TArtifact> {
+  /** Manifest that produced this cell. Resumability refuses to reuse a cell
+   *  whose manifest differs from the current run. */
+  manifestHash?: string
   cellId: string
   scenarioId: string
   rep: number
