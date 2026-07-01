@@ -13,6 +13,7 @@ The three top-level entry points map to three starting situations — same decis
 | You have… | Call | Example |
 |-----------|------|---------|
 | A closed improvement loop | `defineAgentEval().improve()` | [`selfimprove-quickstart`](./selfimprove-quickstart) |
+| Vercel-style eval folders | `loadEvalFixtureScenarios()` + `planEvalFixtureRun()` | [`eval-fixtures-quickstart`](./eval-fixtures-quickstart) |
 | Production traces (OTel) | `analyzeRuns()` | [`customer-otel-traces`](./customer-otel-traces) |
 | An approve/reject label corpus | `analyzeRuns()` | [`customer-feedback-loop`](./customer-feedback-loop) |
 
@@ -20,6 +21,7 @@ The three top-level entry points map to three starting situations — same decis
 
 **Proof & benchmarks** — does it actually work, and which approach wins?
 - [`substrate-lift-proof`](./substrate-lift-proof) — the flagship: a real, reproducible held-out lift.
+- [`eval-fixtures-quickstart`](./eval-fixtures-quickstart) — folder-per-eval UX with cache-safe dry-run planning.
 - [`compare-proposers-canonical`](./compare-proposers-canonical) — `compareProposers` head-to-head.
 - [`findings-ablation`](./findings-ablation) — measures whether feeding findings into GEPA helps.
 - [`held-out-gate`](./held-out-gate) — the promotion gate in isolation.

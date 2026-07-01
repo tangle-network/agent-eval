@@ -39,7 +39,9 @@ import {
   agentProfileHash,
   agentProfileId,
   agentProfileModelId,
+  harnessAxisOf,
 } from '../../agent-profile'
+import { type AgentProfileCell, buildAgentProfileCell } from '../../agent-profile-cell'
 import { AgentEvalError } from '../../errors'
 import {
   assertRealBackend,
@@ -213,6 +215,10 @@ interface BuildRecordArgs<TScenario extends Scenario, TArtifact> {
   splitTag: RunSplitTag
   commitSha: string
   matrixId: string
+  /** The (profile, harness, model, dimensions) identity of this cell — attached to
+   *  every record so results group by the canonical `groupRunsByAgentProfileCell`
+   *  (harness/model aware) instead of profileId alone. */
+  agentProfileCell?: AgentProfileCell
   scenario?: TScenario
   corpusText?: (
     artifact: TArtifact,
@@ -303,6 +309,7 @@ function buildRunRecord<TScenario extends Scenario, TArtifact>(
     outcome,
     splitTag,
     scenarioId: cell.scenarioId,
+    ...(args.agentProfileCell ? { agentProfile: args.agentProfileCell } : {}),
     ...(cell.error ? { failureMode: cell.error } : {}),
   }
 
@@ -409,6 +416,19 @@ export async function runProfileMatrix<TScenario extends Scenario, TArtifact>(
       runDir: join(opts.runDir, sanitize(profileId)),
     })
 
+    // The canonical (profile, harness, model) identity for every record in this
+    // column, so results group by `groupRunsByAgentProfileCell` (harness/model
+    // aware). Harness comes from the axis stamp `expandProfileAxes` left on the
+    // profile; a profile that wasn't axis-expanded simply has no harness in its
+    // cell (unchanged grouping). Built once per profile.
+    const axis = harnessAxisOf(profile)
+    const agentProfileCell = await buildAgentProfileCell({
+      profileId,
+      sourceProfile: { kind: 'agent-interface-profile', hash: profileHash },
+      model,
+      ...(axis ? { harness: { id: axis.harness } } : {}),
+    })
+
     const profileRecords: RunRecord[] = []
     for (const cell of campaign.cells) {
       const record = buildRunRecord({
@@ -420,6 +440,7 @@ export async function runProfileMatrix<TScenario extends Scenario, TArtifact>(
         splitTag,
         commitSha: opts.commitSha,
         matrixId,
+        agentProfileCell,
         scenario: scenarioById.get(cell.scenarioId),
         corpusText: opts.corpusText,
       })
