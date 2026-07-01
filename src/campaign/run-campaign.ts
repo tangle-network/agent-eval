@@ -13,6 +13,7 @@ import { join } from 'node:path'
 import { BackendIntegrityError, type BackendIntegrityReport } from '../integrity/backend-integrity'
 import { confidenceInterval } from '../statistics'
 import { contentHash } from '../verdict-cache'
+import { resolveRunDir } from './run-dir'
 import { type CampaignStorage, fsCampaignStorage } from './storage'
 import type {
   CampaignAggregates,
@@ -71,8 +72,13 @@ export interface RunCampaignOptions<TScenario extends Scenario, TArtifact> {
    * every loop/CI job above it) forever. `undefined`/`0` = unbounded (legacy).
    */
   dispatchTimeoutMs?: number
-  /** Required: where artifacts + traces land. */
+  /** Required: where artifacts + traces land. A bare name (not an absolute path)
+   *  resolves to the shared `~/.tangle/traces/<repo>/runs/<name>` root so run
+   *  bundles never pollute a repo working tree. Pass an absolute path to override. */
   runDir: string
+  /** Subject repo for the shared run-dir root (defaults to the CWD basename).
+   *  Only consulted when `runDir` is a bare name. */
+  repo?: string
   /** Tracing posture. Default is the substrate's `FileSystemTraceStore` rooted
    *  at `<runDir>/traces/`. `'off'` disables capture entirely — substrate
    *  refuses this when the caller wires `autoOnPromote !== 'none'`. */
@@ -130,6 +136,7 @@ export async function runCampaign<TScenario extends Scenario, TArtifact>(
   if (typeof opts.runDir !== 'string' || opts.runDir.trim().length === 0) {
     throw new Error('runCampaign: runDir is required and must be a non-empty string')
   }
+  opts.runDir = resolveRunDir(opts.runDir, opts.repo)
   storage.ensureDir(opts.runDir)
 
   const manifestHash = computeManifestHash({
@@ -434,6 +441,8 @@ export interface PlanCampaignRunOptions<TScenario extends Scenario, TArtifact> {
   reps?: number
   resumable?: boolean
   runDir: string
+  /** Subject repo for the shared run-dir root (see RunCampaignOptions.repo). */
+  repo?: string
   storage?: CampaignStorage
 }
 
@@ -448,6 +457,7 @@ export function planCampaignRun<TScenario extends Scenario, TArtifact>(
   if (typeof opts.runDir !== 'string' || opts.runDir.trim().length === 0) {
     throw new Error('planCampaignRun: runDir is required and must be a non-empty string')
   }
+  opts.runDir = resolveRunDir(opts.runDir, opts.repo)
 
   const manifestHash = computeManifestHash({
     scenarios: opts.scenarios,

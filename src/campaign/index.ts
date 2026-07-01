@@ -210,6 +210,7 @@ export {
   type RunCampaignOptions,
   runCampaign,
 } from './run-campaign'
+export { resolveRunDir, tangleTracesRoot } from './run-dir.js'
 export { type CampaignBreakdown, campaignBreakdown, campaignMeanComposite } from './score-utils'
 export {
   type ApplySkillPatchResult,
