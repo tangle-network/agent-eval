@@ -712,6 +712,7 @@ export {
   agentProfileModelId,
   CODING_HARNESSES,
   expandProfileAxes,
+  HARNESS_NATIVE_MODEL,
   harnessAxisOf,
 } from './agent-profile'
 export type { BaselineOptions, BaselineReport, MetricSamples, MetricVerdict } from './baseline'
