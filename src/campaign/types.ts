@@ -384,9 +384,20 @@ export interface CampaignCostMeter {
    *  `tokenUsage`, so a cell that never reports tokens reads as a stub. Any
    *  dispatch that calls an LLM MUST report its usage. */
   observeTokens(usage: CampaignTokenUsage): void
+  /** Record the concrete model the backend RESOLVED this cell to at runtime.
+   *  The substrate cannot see the LLM call, so it cannot know which model a
+   *  vendor-locked harness actually served — only the dispatch, reading the
+   *  backend's usage/terminal events, can. A dispatch whose profile declares a
+   *  runtime-resolved model (the `HARNESS_NATIVE_MODEL` sentinel) MUST report
+   *  the resolved, snapshot-bearing id here so the RunRecord pins a real model
+   *  instead of the sentinel. Last write wins (a cell issues one logical run);
+   *  optional because most dispatches declare a concrete model up front. */
+  observeModel?(model: string): void
   current(): number
   /** Accumulated token usage for this cell (zeros if never observed). */
   tokens(): CampaignTokenUsage
+  /** The runtime-resolved model reported via `observeModel`, if any. */
+  resolvedModel?(): string | undefined
 }
 
 // ── LabeledScenarioStore ──────────────────────────────────────────────
@@ -510,6 +521,12 @@ export interface CampaignCellResult<TArtifact> {
    *  `{ input: 0, output: 0 }` when the dispatch reported none — which the
    *  backend-integrity guard reads as a stub. */
   tokenUsage: CampaignTokenUsage
+  /** The concrete model the backend resolved this cell to at runtime, reported
+   *  by the dispatch via `ctx.cost.observeModel`. Set only when the dispatch
+   *  reported it — a profile that declares a concrete model up front has no
+   *  need to. Consumed by `buildRunRecord` to pin the real model when the
+   *  declared model is the `HARNESS_NATIVE_MODEL` sentinel. */
+  resolvedModel?: string
   durationMs: number
   seed: number
   cached: boolean

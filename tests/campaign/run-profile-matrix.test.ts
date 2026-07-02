@@ -4,6 +4,7 @@ import {
   agentProfileHash,
   agentProfileId,
   expandProfileAxes,
+  HARNESS_NATIVE_MODEL,
 } from '../../src/agent-profile'
 import { groupRunsByAgentProfileCell } from '../../src/agent-profile-cell'
 import {
@@ -326,5 +327,86 @@ describe('runProfileMatrix', () => {
     // The EXISTING grouping (not a bespoke pivot) separates the two harnesses:
     // one cell per (profile, harness, model), independent of scenario/rep.
     expect(groupRunsByAgentProfileCell(result.records).size).toBe(2)
+  })
+})
+
+describe('runProfileMatrix — HARNESS_NATIVE_MODEL provenance', () => {
+  // A vendor-locked harness that supports none of the swept models snaps to the
+  // `HARNESS_NATIVE_MODEL` sentinel (see expandProfileAxes): its profile declares
+  // no concrete model — the backend resolves it at runtime, and the dispatch
+  // reports the resolved id via ctx.cost.observeModel.
+  function nativeProfile(): AgentProfile {
+    return {
+      name: 'agent',
+      model: { default: HARNESS_NATIVE_MODEL },
+      prompt: { systemPrompt: 'p' },
+      metadata: { harness: 'kimi-code', harnessModel: HARNESS_NATIVE_MODEL },
+    }
+  }
+
+  it('records the RUNTIME-RESOLVED, snapshot-bearing model (never the sentinel) when the dispatch reports it', async () => {
+    const resolved = 'moonshot/kimi-k2@2025-01-01'
+    const dispatch: ProfileDispatchFn<FakeScenario, FakeArtifact> = async (
+      profile,
+      scenario,
+      ctx,
+    ) => {
+      ctx.cost.observe(0.001, 'llm')
+      ctx.cost.observeTokens({ input: 120, output: 40 })
+      ctx.cost.observeModel?.(resolved)
+      return { text: `${profile.name}:${scenario.id}` }
+    }
+
+    const result = await runProfileMatrix({
+      ...baseOpts(),
+      profiles: [nativeProfile()],
+      dispatch,
+    })
+
+    expect(result.records.length).toBeGreaterThan(0)
+    for (const rec of result.records) {
+      expect(rec.model).toBe(resolved)
+      // The sentinel must never leak into a recorded row.
+      expect(rec.model).not.toBe(HARNESS_NATIVE_MODEL)
+      // The AgentProfileCell identity carries the resolved model too, so the
+      // by-cell pivot groups by the real model.
+      expect(rec.agentProfile?.model).toBe(resolved)
+      expect(rec.agentProfile?.harness?.id).toBe('kimi-code')
+      expect(isRunRecord(rec)).toBe(true)
+    }
+  })
+
+  it('FAILS LOUD when a sentinel profile reports NO resolved model (never records the sentinel)', async () => {
+    const dispatch: ProfileDispatchFn<FakeScenario, FakeArtifact> = async (
+      profile,
+      scenario,
+      ctx,
+    ) => {
+      ctx.cost.observe(0.001, 'llm')
+      ctx.cost.observeTokens({ input: 120, output: 40 })
+      // No observeModel — the provenance channel is silent.
+      return { text: `${profile.name}:${scenario.id}` }
+    }
+
+    await expect(
+      runProfileMatrix({ ...baseOpts(), profiles: [nativeProfile()], dispatch }),
+    ).rejects.toThrow(/reported no resolved model|observeModel/)
+  })
+
+  it('FAILS LOUD when the resolved model lacks a snapshot version', async () => {
+    const dispatch: ProfileDispatchFn<FakeScenario, FakeArtifact> = async (
+      profile,
+      scenario,
+      ctx,
+    ) => {
+      ctx.cost.observe(0.001, 'llm')
+      ctx.cost.observeTokens({ input: 120, output: 40 })
+      ctx.cost.observeModel?.('moonshot/kimi-k2') // bare alias, no snapshot
+      return { text: `${profile.name}:${scenario.id}` }
+    }
+
+    await expect(
+      runProfileMatrix({ ...baseOpts(), profiles: [nativeProfile()], dispatch }),
+    ).rejects.toThrow(/lacks a snapshot/)
   })
 })
