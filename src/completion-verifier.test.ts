@@ -22,6 +22,8 @@ import {
   type TaskGold,
   verifyCompletion,
 } from './completion-verifier'
+import { JudgeParseError } from './judges'
+import type { RawProviderEvent, RawProviderSink } from './trace/raw-provider-sink'
 
 const LONG = 'x'.repeat(120)
 
@@ -441,12 +443,25 @@ describe('parseCorrectnessResponse', () => {
     expect(r.correct).toBe(false)
   })
 
-  it('throws when no JSON object is present', () => {
-    expect(() => parseCorrectnessResponse('the artifact looks fine')).toThrow(/no JSON object/)
+  it('throws JudgeParseError when no JSON object is present', () => {
+    expect(() => parseCorrectnessResponse('the artifact looks fine')).toThrow(JudgeParseError)
   })
 
-  it("throws when 'correct' is not a boolean", () => {
-    expect(() => parseCorrectnessResponse('{"correct": "yes"}')).toThrow(/not a boolean/)
+  it("throws JudgeParseError when 'correct' is not a boolean", () => {
+    expect(() => parseCorrectnessResponse('{"correct": "yes"}')).toThrow(JudgeParseError)
+  })
+
+  it('recovers the verdict from a response truncated mid-JSON (max_tokens cap)', () => {
+    // The boolean landed before the cap: a real measurement, recover it.
+    expect(parseCorrectnessResponse('{"correct": false, "').correct).toBe(false)
+    expect(parseCorrectnessResponse('{"correct": true, "reason": "the deliv').correct).toBe(true)
+  })
+
+  it('does not fabricate a verdict when the boolean itself was cut off', () => {
+    expect(() => parseCorrectnessResponse('{"correct": ')).toThrow(JudgeParseError)
+    expect(() => parseCorrectnessResponse('{"reason": "looks fine", "corr')).toThrow(
+      JudgeParseError,
+    )
   })
 })
 
@@ -461,9 +476,137 @@ describe('createLlmCorrectnessChecker', () => {
     expect(r).toEqual({ correct: true, reason: 'fulfils it' })
   })
 
-  it('fails loud on an unparseable model response', async () => {
-    const check = createLlmCorrectnessChecker(mockTc('I could not decide'))
-    await expect(check(DISPUTE_REQ, LONG)).rejects.toThrow(/no JSON object/)
+  it('fails loud after retries on an unparseable model response', async () => {
+    let calls = 0
+    const tc = {
+      chat: async () => {
+        calls += 1
+        return { choices: [{ message: { content: 'I could not decide' } }] }
+      },
+    } as unknown as TCloud
+    const check = createLlmCorrectnessChecker(tc)
+    await expect(check(DISPUTE_REQ, LONG)).rejects.toThrow(JudgeParseError)
+    expect(calls).toBe(2)
+  })
+
+  it('retries once and succeeds when the second attempt parses', async () => {
+    let calls = 0
+    const tc = {
+      chat: async () => {
+        calls += 1
+        return {
+          choices: [
+            {
+              message: {
+                content: calls === 1 ? 'garbage' : '{"correct": true, "reason": "second try"}',
+              },
+            },
+          ],
+        }
+      },
+    } as unknown as TCloud
+    const check = createLlmCorrectnessChecker(tc)
+    const r = await check(DISPUTE_REQ, LONG)
+    expect(r).toEqual({ correct: true, reason: 'second try' })
+    expect(calls).toBe(2)
+  })
+
+  it('records every checker request/response/error to the raw sink', async () => {
+    const events: RawProviderEvent[] = []
+    const sink: RawProviderSink = {
+      record: async (e) => {
+        events.push(e)
+      },
+    }
+    let calls = 0
+    const tc = {
+      chat: async () => {
+        calls += 1
+        if (calls === 1) throw new Error('upstream 503')
+        return { choices: [{ message: { content: '{"correct": false, "reason": "thin"}' } }] }
+      },
+    } as unknown as TCloud
+    const check = createLlmCorrectnessChecker(tc, { rawSink: sink })
+    await check(DISPUTE_REQ, LONG)
+    expect(events.map((e) => [e.direction, e.attemptIndex])).toEqual([
+      ['request', 0],
+      ['error', 0],
+      ['request', 1],
+      ['response', 1],
+    ])
+    expect(events.every((e) => e.provider === 'correctness-checker')).toBe(true)
+  })
+
+  it('honors a custom maxAttempts on an all-fail response', async () => {
+    let calls = 0
+    const tc = {
+      chat: async () => {
+        calls += 1
+        return { choices: [{ message: { content: 'never json' } }] }
+      },
+    } as unknown as TCloud
+    const check = createLlmCorrectnessChecker(tc, { maxAttempts: 3 })
+    await expect(check(DISPUTE_REQ, LONG)).rejects.toThrow(JudgeParseError)
+    expect(calls).toBe(3)
+  })
+
+  it('a throwing sink never corrupts the verdict (best-effort recording)', async () => {
+    const sink: RawProviderSink = {
+      record: async () => {
+        throw new Error('disk full')
+      },
+    }
+    const check = createLlmCorrectnessChecker(mockTc('{"correct": true, "reason": "fine"}'), {
+      rawSink: sink,
+    })
+    const r = await check(DISPUTE_REQ, LONG)
+    expect(r).toEqual({ correct: true, reason: 'fine' })
+  })
+})
+
+describe('verifyCompletion — unmeasured propagation', () => {
+  const unmeasuredGold = gold([
+    { reqId: 'r1', title: 'Working Capital Adjustment Dispute Notice', category: 'deal_diligence' },
+    { reqId: 'r2', title: 'Peg Staleness Risk Memo', category: 'deal_diligence' },
+  ])
+  const unmeasuredState: ProducedState = {
+    ...emptyState(),
+    artifacts: [
+      artifact('vault/working-capital-dispute-notice.md', LONG),
+      artifact('vault/peg-staleness-risk-memo.md', LONG),
+    ],
+  }
+
+  it('records a checker failure as unmeasured, never as a zero', async () => {
+    let first = true
+    const flaky: CorrectnessChecker = async () => {
+      if (first) {
+        first = false
+        throw new JudgeParseError('correctness-checker', '{"correct": fal')
+      }
+      return { correct: true, reason: 'ok' }
+    }
+    const v = await verifyCompletion(unmeasuredGold, unmeasuredState, flaky)
+    const unmeasured = v.requirements.filter((r) => r.unmeasured)
+    expect(unmeasured).toHaveLength(1)
+    expect(unmeasured[0]!.correct).toBeNull()
+    expect(unmeasured[0]!.satisfied).toBe(false)
+    expect(unmeasured[0]!.unmeasuredReason).toMatch(/unparseable after retry/)
+    // Denominator excludes the unmeasured row: 1 satisfied / 1 measurable.
+    expect(v.unmeasuredCount).toBe(1)
+    expect(v.completionRate).toBe(1)
+    // But full completion cannot be claimed with an unmeasured row.
+    expect(v.fullyComplete).toBe(false)
+    expect(v.valid).toBe(false)
+  })
+
+  it('throws when every correctness check fails — infrastructure error, not a scored run', async () => {
+    const alwaysFailing: CorrectnessChecker = async () => {
+      throw new Error('checker backend unreachable')
+    }
+    await expect(verifyCompletion(unmeasuredGold, unmeasuredState, alwaysFailing)).rejects.toThrow(
+      /no measurable requirements/,
+    )
   })
 })
 

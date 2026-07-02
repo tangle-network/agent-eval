@@ -55,7 +55,7 @@ function canonicalizeAt(value: unknown, path: string): string {
   const obj = value as Record<string, unknown>
   // Honor toJSON (Date → ISO string) before structural checks — without it a
   // Date would canonicalize to '{}' and every timestamp would collide.
-  if (typeof obj['toJSON'] === 'function') {
+  if (typeof obj.toJSON === 'function') {
     return canonicalizeAt((obj as { toJSON(): unknown }).toJSON(), path)
   }
   if (Array.isArray(obj)) {

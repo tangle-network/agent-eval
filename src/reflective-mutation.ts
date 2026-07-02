@@ -17,6 +17,8 @@
  *   - Quote concrete mutation primitives so the model has a vocabulary
  */
 
+import { autoCloseTruncatedJson } from './json-recovery'
+
 export interface TrialTrace {
   /** Stable id for the trial — surfaces in the prompt for grounding. */
   id: string
@@ -222,58 +224,6 @@ export interface ReflectionProposal {
  * Parse the model's JSON response back into proposals. Tolerates markdown
  * fences and surrounding prose. Returns at most `maxProposals`.
  */
-/**
- * Walk the input as JSON-aware (string vs not, escape-aware) and close
- * unclosed `{` / `[` in LIFO order at the tail. If the input was already
- * balanced returns it unchanged. If a string was open at end-of-input we
- * also close it with `"` first, since a truncated string-mid-value is the
- * most common LLM cap-hit failure mode and JSON.parse cannot proceed
- * without one.
- *
- * Returns null when the structure is unrecoverable (e.g. depth would go
- * negative — that's an *over*-closed prefix, not a truncation).
- */
-function autoCloseTruncatedJson(raw: string): string | null {
-  const stack: Array<'{' | '['> = []
-  let inString = false
-  let escaped = false
-  for (const c of raw) {
-    if (escaped) {
-      escaped = false
-      continue
-    }
-    if (inString) {
-      if (c === '\\') {
-        escaped = true
-        continue
-      }
-      if (c === '"') {
-        inString = false
-        continue
-      }
-      continue
-    }
-    if (c === '"') {
-      inString = true
-      continue
-    }
-    if (c === '{' || c === '[') stack.push(c)
-    else if (c === '}') {
-      if (stack.pop() !== '{') return null
-    } else if (c === ']') {
-      if (stack.pop() !== '[') return null
-    }
-  }
-  if (stack.length === 0 && !inString) return raw
-  let suffix = ''
-  if (inString) suffix += '"'
-  while (stack.length > 0) {
-    const opener = stack.pop()!
-    suffix += opener === '{' ? '}' : ']'
-  }
-  return raw + suffix
-}
-
 export function parseReflectionResponse(raw: string, maxProposals?: number): ReflectionProposal[] {
   let text = raw.trim()
   if (text.startsWith('```')) text = text.replace(/^```(?:json)?\n?/, '').replace(/\n?```$/, '')
