@@ -22,6 +22,9 @@
 
 import type { TCloud } from '@tangle-network/tcloud'
 import type { Artifact } from './artifact-validator'
+import { recoverTruncatedJson } from './json-recovery'
+import { JudgeParseError } from './judges'
+import type { RawProviderEvent, RawProviderSink } from './trace/raw-provider-sink'
 import type { DefaultVerdict } from './verdict'
 
 /** What kind of produced state can satisfy a requirement structurally. */
@@ -68,12 +71,23 @@ export interface RequirementCheck {
   structurallyPresent: boolean
   /**
    * Whether the matched item actually fulfils the requirement. `null` when
-   * not structurally present, or when the matched item carries no content
-   * to assess.
+   * not structurally present, when the matched item carries no content
+   * to assess, or when the correctness check itself failed (`unmeasured`).
    */
   correct: boolean | null
-  /** structurallyPresent && correct !== false. */
+  /** structurallyPresent && !unmeasured && correct !== false. */
   satisfied: boolean
+  /**
+   * Set when the correctness check itself errored (LLM call failure or an
+   * unparseable response after retry). The requirement's fulfilment is
+   * UNKNOWN — `correct` stays null, `satisfied` is false, and
+   * `completionVerdict` excludes the row from `completionRate`'s
+   * denominator. Never folded into a zero: a synthetic zero is
+   * indistinguishable from a real failure (see `JudgeParseError`).
+   */
+  unmeasured?: true
+  /** Why the correctness check could not be measured (present iff `unmeasured`). */
+  unmeasuredReason?: string
   /** Human-readable evidence for the verdict. */
   evidence: string[]
 }
