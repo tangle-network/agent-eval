@@ -20,6 +20,7 @@
  * before scoring quality.
  */
 
+import { randomUUID } from 'node:crypto'
 import type { TCloud } from '@tangle-network/tcloud'
 import type { Artifact } from './artifact-validator'
 import { recoverTruncatedJson } from './json-recovery'
@@ -98,10 +99,12 @@ export interface RequirementCheck {
 export interface CompletionVerdict extends DefaultVerdict {
   taskId: string
   requirements: RequirementCheck[]
-  /** satisfied / total requirements. */
+  /** satisfied / MEASURABLE requirements (unmeasured rows leave the denominator). */
   completionRate: number
-  /** Every requirement satisfied. */
+  /** Every measurable requirement satisfied (false when anything is unmeasured). */
   fullyComplete: boolean
+  /** Requirements whose correctness check errored — reported, never scored as zero. */
+  unmeasuredCount: number
 }
 
 /**
@@ -120,14 +123,26 @@ export function completionVerdict(input: {
       `completionVerdict: task '${input.taskId}' has no requirement checks — nothing to derive a verdict from`,
     )
   }
-  const satisfiedCount = input.requirements.filter((r) => r.satisfied).length
-  const completionRate = satisfiedCount / input.requirements.length
-  const fullyComplete = satisfiedCount === input.requirements.length
+  const measurable = input.requirements.filter((r) => !r.unmeasured)
+  const unmeasuredCount = input.requirements.length - measurable.length
+  if (measurable.length === 0) {
+    // Every check errored: this is an infrastructure failure, not a scored
+    // run. A 0-rate verdict here would be a fabricated measurement.
+    throw new Error(
+      `completionVerdict: task '${input.taskId}' has no measurable requirements — all ${input.requirements.length} correctness checks failed (${input.requirements[0]?.unmeasuredReason ?? 'unknown reason'})`,
+    )
+  }
+  const satisfiedCount = measurable.filter((r) => r.satisfied).length
+  const completionRate = satisfiedCount / measurable.length
+  // A run with unmeasured rows can still report a rate over what WAS
+  // measured, but must not claim full completion.
+  const fullyComplete = unmeasuredCount === 0 && satisfiedCount === measurable.length
   return {
     taskId: input.taskId,
     requirements: input.requirements,
     completionRate,
     fullyComplete,
+    unmeasuredCount,
     valid: fullyComplete,
     score: completionRate,
   }
@@ -365,13 +380,25 @@ export async function verifyCompletion(
     const match = assigned.get(i)
     const evidence: string[] = []
     let correct: boolean | null = null
+    let unmeasuredReason: string | undefined
 
     if (match) {
       evidence.push(match.evidence)
       if (match.content !== null) {
-        const r = await checkCorrectness(req, match.content)
-        correct = r.correct
-        evidence.push(`correctness: ${r.correct ? 'pass' : 'fail'} — ${r.reason}`)
+        try {
+          const r = await checkCorrectness(req, match.content)
+          correct = r.correct
+          evidence.push(`correctness: ${r.correct ? 'pass' : 'fail'} — ${r.reason}`)
+        } catch (err) {
+          // The CHECKER failed, not the requirement. Recording this as a
+          // zero would fabricate a model failure out of an infrastructure
+          // one; the requirement is unmeasured and leaves the denominator.
+          unmeasuredReason =
+            err instanceof JudgeParseError
+              ? `checker response unparseable after retry: ${err.raw.slice(0, 200)}`
+              : `checker call failed: ${err instanceof Error ? err.message : String(err)}`
+          evidence.push(`correctness: UNMEASURED — ${unmeasuredReason}`)
+        }
       } else {
         evidence.push('correctness: not assessed — matched item carries no content')
       }
@@ -382,13 +409,15 @@ export async function verifyCompletion(
     }
 
     const structurallyPresent = match !== undefined
-    const satisfied = structurallyPresent && correct !== false
+    const unmeasured = unmeasuredReason !== undefined
+    const satisfied = structurallyPresent && !unmeasured && correct !== false
     requirements.push({
       reqId: req.reqId,
       title: req.title,
       structurallyPresent,
       correct,
       satisfied,
+      ...(unmeasured ? { unmeasured: true as const, unmeasuredReason } : {}),
       evidence,
     })
   }
@@ -400,19 +429,52 @@ export interface LlmCorrectnessCheckerOpts {
   model?: string
   /** Max chars of artifact content sent to the checker. */
   maxContentChars?: number
+  /**
+   * Checker LLM calls per requirement before giving up (parse failures and
+   * call errors both consume attempts). The failure then surfaces as an
+   * `unmeasured` requirement, never a zero.
+   */
+  maxAttempts?: number
+  /**
+   * Forensic capture of every checker request/response/error — without it a
+   * checker failure is unauditable (the agent-turn raws never contain the
+   * checker's own calls). Same sink contract as `LlmClient`.
+   */
+  rawSink?: RawProviderSink
 }
 
-/** Parse the correctness checker's model response. Fails loud on a bad shape. */
+/**
+ * Parse the correctness checker's model response. Tolerates a response
+ * truncated mid-JSON (max_tokens cap) by auto-closing the prefix — the
+ * verdict boolean usually lands in the first few tokens, so a recovered
+ * prefix with a boolean `correct` is a real measurement, not a guess.
+ * Fails loud (JudgeParseError) when no boolean verdict is recoverable.
+ */
 export function parseCorrectnessResponse(raw: string): { correct: boolean; reason: string } {
+  const readVerdict = (candidate: unknown): { correct: boolean; reason: string } | null => {
+    if (candidate === null || typeof candidate !== 'object') return null
+    const { correct, reason } = candidate as { correct?: unknown; reason?: unknown }
+    if (typeof correct !== 'boolean') return null
+    return { correct, reason: typeof reason === 'string' ? reason : '' }
+  }
+
   const match = raw.match(/\{[\s\S]*\}/)
-  if (!match) {
-    throw new Error(`correctness checker: no JSON object in model response: ${raw.slice(0, 200)}`)
+  if (match) {
+    try {
+      const strict = readVerdict(JSON.parse(match[0]))
+      if (strict) return strict
+    } catch {
+      // fall through to truncation recovery
+    }
   }
-  const parsed = JSON.parse(match[0]) as { correct?: unknown; reason?: unknown }
-  if (typeof parsed.correct !== 'boolean') {
-    throw new Error(`correctness checker: 'correct' is not a boolean in: ${match[0].slice(0, 200)}`)
+  // The strict path needs a closing `}`; a cap-hit response has none. Take
+  // everything from the first `{` and auto-close it.
+  const start = raw.indexOf('{')
+  if (start !== -1) {
+    const recovered = readVerdict(recoverTruncatedJson(raw.slice(start)))
+    if (recovered) return recovered
   }
-  return { correct: parsed.correct, reason: typeof parsed.reason === 'string' ? parsed.reason : '' }
+  throw new JudgeParseError('correctness-checker', raw)
 }
 
 /**
@@ -427,17 +489,27 @@ export function createLlmCorrectnessChecker(
 ): CorrectnessChecker {
   const model = opts.model ?? 'claude-sonnet-4-6'
   const maxContentChars = opts.maxContentChars ?? 8000
+  const maxAttempts = opts.maxAttempts ?? 2
+  const sink = opts.rawSink
+  const record = async (event: RawProviderEvent): Promise<void> => {
+    // Forensic capture is best-effort; the verdict is the system of record.
+    try {
+      await sink?.record(event)
+    } catch {
+      // Intentionally swallowed.
+    }
+  }
   return async (requirement, content) => {
-    const resp = await tc.chat({
+    const request = {
       model,
       messages: [
         {
-          role: 'system',
+          role: 'system' as const,
           content:
             'You verify whether a produced work artifact actually fulfils a stated requirement. Judge fulfilment only — is the deliverable substantively present and on-point — not polish. A plan to do it later, a vague gesture, or a description of what should be done does NOT fulfil a requirement; the artifact must BE the deliverable. Respond with a single JSON object: {"correct": boolean, "reason": string (<= 30 words)}.',
         },
         {
-          role: 'user',
+          role: 'user' as const,
           content: `Requirement: ${requirement.title}\n${
             requirement.category ? `Category: ${requirement.category}\n` : ''
           }\nProduced artifact:\n${content.slice(0, maxContentChars)}`,
@@ -445,11 +517,59 @@ export function createLlmCorrectnessChecker(
       ],
       temperature: 0,
       maxTokens: 200,
-    })
-    const raw =
-      (resp as { choices?: { message?: { content?: string } }[] }).choices?.[0]?.message?.content ??
-      ''
-    return parseCorrectnessResponse(raw)
+    }
+    let lastErr: unknown
+    for (let attempt = 0; attempt < maxAttempts; attempt++) {
+      const started = Date.now()
+      await record({
+        eventId: randomUUID(),
+        provider: 'correctness-checker',
+        model,
+        endpoint: '/chat',
+        baseUrl: '',
+        attemptIndex: attempt,
+        direction: 'request',
+        timestamp: started,
+        requestBody: request,
+        redactedFields: [],
+      })
+      try {
+        const resp = await tc.chat(request)
+        const raw =
+          (resp as { choices?: { message?: { content?: string } }[] }).choices?.[0]?.message
+            ?.content ?? ''
+        await record({
+          eventId: randomUUID(),
+          provider: 'correctness-checker',
+          model,
+          endpoint: '/chat',
+          baseUrl: '',
+          attemptIndex: attempt,
+          direction: 'response',
+          timestamp: Date.now(),
+          durationMs: Date.now() - started,
+          responseBody: resp,
+          redactedFields: [],
+        })
+        return parseCorrectnessResponse(raw)
+      } catch (err) {
+        lastErr = err
+        await record({
+          eventId: randomUUID(),
+          provider: 'correctness-checker',
+          model,
+          endpoint: '/chat',
+          baseUrl: '',
+          attemptIndex: attempt,
+          direction: 'error',
+          timestamp: Date.now(),
+          durationMs: Date.now() - started,
+          errorMessage: err instanceof Error ? err.message : String(err),
+          redactedFields: [],
+        })
+      }
+    }
+    throw lastErr instanceof Error ? lastErr : new Error(String(lastErr))
   }
 }
 
