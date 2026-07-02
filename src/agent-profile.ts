@@ -29,11 +29,20 @@ export interface ProfileAxisSpec {
   /** Models to cross. Default: `[base.model.default]` — one model, i.e. today's
    *  single-model behaviour, so omitting this never changes an existing run. */
   models?: readonly string[]
-  /** Keep (harness, model) pairs the harness can't run instead of dropping them.
-   *  Default: drop (via `harnessSupportsModel`), so a vendor-locked harness paired
-   *  with a foreign model doesn't become a guaranteed-failing cell. */
+  /** Force every (harness, model) pair verbatim, even ones the harness can't run —
+   *  for deliberately testing failure modes. Default (false): SNAP instead — a
+   *  vendor-locked harness runs only the swept models in its family, or its native
+   *  default when it supports none, so no harness is dropped and none gets a
+   *  guaranteed-failing foreign-model cell. */
   keepIncompatible?: boolean
 }
+
+/** Model sentinel for a vendor-locked harness that supports none of the swept models:
+ *  it carries no provider prefix, so `harnessSupportsModel` accepts it and the harness
+ *  resolves it to its own native default model at runtime (e.g. kimi-code → its Kimi
+ *  model). Lets `expandProfileAxes` snap-instead-of-drop without a per-harness flagship
+ *  table that would rot as router catalogs change. */
+export const HARNESS_NATIVE_MODEL = 'default'
 
 /**
  * Expand a base profile across the harness × model matrix into the `AgentProfile[]`
@@ -45,7 +54,9 @@ export interface ProfileAxisSpec {
  * Each cell clones `base`, sets `model.default`, and stamps `metadata.harness` +
  * `metadata.harnessModel` (both hash-bearing, so every cell gets a distinct
  * `agentProfileId` row and results join back by harness/model via {@link harnessAxisOf}
- * with no hand-recomputed key). Incompatible pairs are dropped unless `keepIncompatible`.
+ * with no hand-recomputed key). A vendor-locked harness snaps to its family's swept
+ * models — or its native default ({@link HARNESS_NATIVE_MODEL}) when it supports none —
+ * so every requested harness runs; `keepIncompatible` forces every pair verbatim.
  *
  * Omit `harnesses`/`models` to sweep the full default set — the "turn it on for
  * everything we care about" switch, identical in shape whether one harness or all.
@@ -63,8 +74,19 @@ export function expandProfileAxes(spec: ProfileAxisSpec): AgentProfile[] {
   const out: AgentProfile[] = []
   const seen = new Set<string>()
   for (const harness of harnesses) {
-    for (const model of models) {
-      if (!spec.keepIncompatible && !harnessSupportsModel(harness, model)) continue
+    // A universal (router-backed) harness — opencode/pi/claudish — runs every swept
+    // model. A vendor-locked harness — codex/claude-code/kimi-code — runs only the
+    // swept models in its own family; when it supports NONE of them it snaps to its
+    // native default (the `HARNESS_NATIVE_MODEL` sentinel it resolves at runtime)
+    // rather than being dropped, so every requested harness still appears in the
+    // sweep on a model it can actually run — e.g. sweeping `deepseek/x` puts opencode
+    // on deepseek and kimi-code on its own Kimi model, a real head-to-head.
+    // `keepIncompatible` forces every (harness, model) pair verbatim (failure-mode runs).
+    const supported = spec.keepIncompatible
+      ? models
+      : models.filter((model) => harnessSupportsModel(harness, model))
+    const effective = supported.length > 0 ? supported : [HARNESS_NATIVE_MODEL]
+    for (const model of effective) {
       const profile: AgentProfile = {
         ...spec.base,
         name: `${spec.base.name ?? 'agent'}/${harness}/${model}`,
@@ -78,8 +100,10 @@ export function expandProfileAxes(spec: ProfileAxisSpec): AgentProfile[] {
     }
   }
   if (out.length === 0) {
+    // Unreachable in normal use — snapping guarantees ≥1 cell per harness — but keep a
+    // fail-closed guard so a future refactor can't silently produce an empty sweep.
     throw new ValidationError(
-      `expandProfileAxes: every (harness, model) pair was incompatible (harnesses=[${harnesses.join(', ')}], models=[${models.join(', ')}]). Widen the models or pass keepIncompatible.`,
+      `expandProfileAxes: produced no profiles (harnesses=[${harnesses.join(', ')}], models=[${models.join(', ')}]).`,
     )
   }
   return out

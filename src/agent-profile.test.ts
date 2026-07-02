@@ -6,6 +6,7 @@ import {
   agentProfileModelId,
   CODING_HARNESSES,
   expandProfileAxes,
+  HARNESS_NATIVE_MODEL,
   harnessAxisOf,
 } from './agent-profile'
 
@@ -206,6 +207,34 @@ describe('expandProfileAxes', () => {
     expect(pairs).toHaveLength(2)
   })
 
+  it('snaps a vendor-locked harness to its native default when it supports none of the swept models', () => {
+    // Sweeping only a deepseek model must NOT drop kimi-code — it snaps to its own
+    // Kimi model (the native sentinel), so the harness still appears in the sweep.
+    const pairs = expandProfileAxes({
+      base: axisBase,
+      harnesses: ['kimi-code'],
+      models: ['deepseek/deepseek-v3.2'],
+    })
+      .map((p) => harnessAxisOf(p))
+      .filter(Boolean)
+    expect(pairs).toEqual([{ harness: 'kimi-code', model: HARNESS_NATIVE_MODEL }])
+  })
+
+  it('produces a real head-to-head: universal harness on the swept model, locked harness on its native model', () => {
+    // The leaderboard case — `opencode vs kimi-code` on a single deepseek sweep:
+    // opencode runs deepseek, kimi-code snaps to its own model. Two harnesses, no drop.
+    const byHarness = new Map(
+      expandProfileAxes({
+        base: axisBase,
+        harnesses: ['opencode', 'kimi-code'],
+        models: ['deepseek/deepseek-v3.2'],
+      }).map((p) => [harnessAxisOf(p)?.harness, harnessAxisOf(p)?.model]),
+    )
+    expect(byHarness.get('opencode')).toBe('deepseek/deepseek-v3.2')
+    expect(byHarness.get('kimi-code')).toBe(HARNESS_NATIVE_MODEL)
+    expect(byHarness.size).toBe(2)
+  })
+
   it('router-backed harness (opencode) accepts any provider', () => {
     expect(
       expandProfileAxes({
@@ -234,12 +263,20 @@ describe('expandProfileAxes', () => {
     expect(harnessAxisOf(p as AgentProfile)).toEqual({ harness: 'opencode', model: 'm1' })
   })
 
-  it('fails loud on no harnesses / no models / all-incompatible', () => {
+  it('fails loud on no harnesses / no models — but snaps (never throws) on all-incompatible', () => {
     expect(() => expandProfileAxes({ base: axisBase, harnesses: [] })).toThrow(/no harnesses/)
     expect(() => expandProfileAxes({ base: { name: 'x' } })).toThrow(/no models/)
-    expect(() =>
-      expandProfileAxes({ base: axisBase, harnesses: ['claude-code'], models: ['openai/gpt-x'] }),
-    ).toThrow(/incompatible/)
+    // A locked harness with no compatible swept model snaps to its native default —
+    // it is never dropped and the call never throws (that was the old drop behaviour).
+    const [snapped] = expandProfileAxes({
+      base: axisBase,
+      harnesses: ['claude-code'],
+      models: ['openai/gpt-x'],
+    })
+    expect(harnessAxisOf(snapped as AgentProfile)).toEqual({
+      harness: 'claude-code',
+      model: HARNESS_NATIVE_MODEL,
+    })
   })
 })
 

@@ -291,6 +291,7 @@ async function executeCell<TScenario extends Scenario, TArtifact>(
   }
   let costSoFar = 0
   const tokensSoFar: CampaignTokenUsage = { input: 0, output: 0 }
+  let resolvedModel: string | undefined
   const cost: CampaignCostMeter = {
     observe(amount, source) {
       costSoFar += amount
@@ -301,11 +302,18 @@ async function executeCell<TScenario extends Scenario, TArtifact>(
       tokensSoFar.output += usage.output
       if (usage.cached) tokensSoFar.cached = (tokensSoFar.cached ?? 0) + usage.cached
     },
+    observeModel(model) {
+      const trimmed = model?.trim()
+      if (trimmed) resolvedModel = trimmed
+    },
     current() {
       return costSoFar
     },
     tokens() {
       return { ...tokensSoFar }
+    },
+    resolvedModel() {
+      return resolvedModel
     },
   }
 
@@ -401,6 +409,7 @@ async function executeCell<TScenario extends Scenario, TArtifact>(
     judgeScores,
     costUsd: costSoFar,
     tokenUsage: { ...tokensSoFar },
+    ...(resolvedModel ? { resolvedModel } : {}),
     durationMs: Date.now() - startMs,
     seed: args.slot.cellSeed,
     cached: false,
