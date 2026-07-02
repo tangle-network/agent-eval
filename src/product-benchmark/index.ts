@@ -133,6 +133,11 @@ export interface ProductBenchmarkValidationReport {
   readonly manifestPath: string
   readonly recordsPath: string
   readonly records: number
+  /** Manifest repo fields that are empty or the `'unknown'` export sentinel. */
+  readonly repoFailures: readonly string[]
+  /** Manifest substrate versions that are empty or the `'unknown'` export
+   *  sentinel — a bundle without substrate identity is not reproducible. */
+  readonly substrateFailures: readonly string[]
   readonly projects: readonly string[]
   readonly benchmarks: readonly string[]
   readonly arms: readonly string[]
@@ -469,10 +474,20 @@ export function validateProductBenchmarkRun(
       fail(`records[${index}].scenarioId`, `unknown scenario ${record.scenarioId}`)
     }
   }
+  const repoFailures = (['url', 'commit', 'branch'] as const)
+    .filter((key) => manifest.repo[key].trim().length === 0 || manifest.repo[key] === 'unknown')
+    .map((key) => `manifest.repo.${key}`)
+  const substrateFailures = (['agentEval', 'agentRuntime', 'agentInterface', 'sandbox'] as const)
+    .filter(
+      (key) => manifest.substrate[key].trim().length === 0 || manifest.substrate[key] === 'unknown',
+    )
+    .map((key) => `manifest.substrate.${key}`)
   return {
     manifestPath: input.manifestPath,
     recordsPath: input.recordsPath,
     records: records.length,
+    repoFailures,
+    substrateFailures,
     projects: sortedUnique(records.map((record) => record.projectId)),
     benchmarks: sortedUnique(records.map((record) => record.benchmarkId)),
     arms: sortedUnique(records.map((record) => record.armId)),
@@ -532,3 +547,40 @@ export function findProductBenchmarkArtifacts(
   }
   return null
 }
+
+/**
+ * Fail-loud gate over a bundle directory: locates the manifest + records,
+ * runs `validateProductBenchmarkRun`, and throws with every repo,
+ * integrity, and artifact failure listed. Returns the report when clean.
+ */
+export function assertProductBenchmarkRun(runDir: string): ProductBenchmarkValidationReport {
+  const artifacts = findProductBenchmarkArtifacts(runDir)
+  if (!artifacts) {
+    fail(runDir, 'missing product-benchmark-manifest.json or product-benchmark-records.jsonl')
+  }
+  const report = validateProductBenchmarkRun({ ...artifacts, artifactRoot: runDir })
+  const failures = [
+    ...report.repoFailures,
+    ...report.substrateFailures,
+    ...report.integrityFailures,
+    ...report.missingArtifacts,
+  ]
+  if (failures.length > 0) {
+    fail(runDir, `product benchmark validation failed:\n${failures.join('\n')}`)
+  }
+  return report
+}
+
+export type {
+  ProductBenchmarkExportOptions,
+  ProductBenchmarkExportResult,
+  ProductBenchmarkSingleRunExportOptions,
+} from './export'
+export {
+  buildProductBenchmarkManifest,
+  exportProductBenchmark,
+  exportProductBenchmarkRuns,
+  productBenchmarkMutableSurfaces,
+  productBenchmarkRepoIdentity,
+  runRecordToProductBenchmarkRecord,
+} from './export'
