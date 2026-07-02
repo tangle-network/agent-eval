@@ -162,7 +162,7 @@ function matchText(actual: string | undefined, matcher: TextMatcher): boolean {
 
 function resolveToolName(span: ContractSpan): string | undefined {
   if (typeof span.toolName === 'string') return span.toolName
-  const fromAttr = span.attributes?.['tool.name'] ?? span.attributes?.['toolName']
+  const fromAttr = span.attributes?.['tool.name'] ?? span.attributes?.toolName
   if (typeof fromAttr === 'string') return fromAttr
   if (span.kind === 'tool' && typeof span.name === 'string') return span.name
   return undefined

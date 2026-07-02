@@ -56,6 +56,10 @@ export function autoCloseTruncatedJson(raw: string): string | null {
   }
   if (stack.length === 0 && !inString) return raw
   let suffix = ''
+  // A truncation right after a backslash leaves an incomplete escape: the
+  // closing `"` we append would be consumed as the escape target and the
+  // string would stay open. Complete the escape to a literal backslash first.
+  if (escaped) suffix += '\\'
   if (inString) suffix += '"'
   while (stack.length > 0) {
     const opener = stack.pop()!
@@ -100,10 +104,12 @@ function lastCommaOutsideString(s: string): number {
 
 /**
  * Best-effort parse of a possibly-truncated JSON payload embedded in model
- * output (prose and markdown fences tolerated). Slices from the first `{` /
- * `[`, then tries, in order:
+ * output (prose and markdown fences tolerated). Tries each opener position
+ * (earliest `{`/`[` first, then the other when the first yields nothing —
+ * prose like `[note] {"score":3}` must not poison the slice), and from each
+ * start, in order:
  *
- *   1. plain `JSON.parse` of the first-opener → last-closer slice,
+ *   1. plain `JSON.parse` of the opener → last-closer slice,
  *   2. auto-closing unclosed structures at the tail
  *      (`autoCloseTruncatedJson`),
  *   3. trimming the tail back to the previous complete member boundary (the
@@ -117,9 +123,16 @@ function lastCommaOutsideString(s: string): number {
 export function recoverTruncatedJson(text: string): unknown {
   const objStart = text.indexOf('{')
   const arrStart = text.indexOf('[')
-  const starts = [objStart, arrStart].filter((i) => i >= 0)
-  if (starts.length === 0) return null
-  let candidate = text.slice(Math.min(...starts))
+  const starts = [objStart, arrStart].filter((i) => i >= 0).sort((a, b) => a - b)
+  for (const start of starts) {
+    const recovered = recoverFrom(text.slice(start))
+    if (recovered !== UNPARSEABLE) return recovered
+  }
+  return null
+}
+
+function recoverFrom(slice: string): unknown {
+  let candidate = slice
 
   const lastClose = Math.max(candidate.lastIndexOf('}'), candidate.lastIndexOf(']'))
   if (lastClose > 0) {
@@ -136,8 +149,8 @@ export function recoverTruncatedJson(text: string): unknown {
       if (parsed !== UNPARSEABLE) return parsed
     }
     const cut = lastCommaOutsideString(candidate)
-    if (cut <= 0) return null
+    if (cut <= 0) return UNPARSEABLE
     candidate = candidate.slice(0, cut)
   }
-  return null
+  return UNPARSEABLE
 }

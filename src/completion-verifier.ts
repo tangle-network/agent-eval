@@ -15,9 +15,10 @@
  *      actually fulfils the requirement. A hallucinated artifact fails here;
  *      an absent one already failed stage 1.
  *
- * `completionRate` is satisfied / total. Quality dimensions are meaningless
- * on an incomplete task — callers gate on `fullyComplete` / `completionRate`
- * before scoring quality.
+ * `completionRate` is satisfied / MEASURABLE requirements (unmeasured rows —
+ * checker failures — are excluded from the denominator, never scored as
+ * zeros). Quality dimensions are meaningless on an incomplete task — callers
+ * gate on `fullyComplete` / `completionRate` before scoring quality.
  */
 
 import { randomUUID } from 'node:crypto'

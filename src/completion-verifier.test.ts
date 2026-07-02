@@ -536,6 +536,32 @@ describe('createLlmCorrectnessChecker', () => {
     ])
     expect(events.every((e) => e.provider === 'correctness-checker')).toBe(true)
   })
+
+  it('honors a custom maxAttempts on an all-fail response', async () => {
+    let calls = 0
+    const tc = {
+      chat: async () => {
+        calls += 1
+        return { choices: [{ message: { content: 'never json' } }] }
+      },
+    } as unknown as TCloud
+    const check = createLlmCorrectnessChecker(tc, { maxAttempts: 3 })
+    await expect(check(DISPUTE_REQ, LONG)).rejects.toThrow(JudgeParseError)
+    expect(calls).toBe(3)
+  })
+
+  it('a throwing sink never corrupts the verdict (best-effort recording)', async () => {
+    const sink: RawProviderSink = {
+      record: async () => {
+        throw new Error('disk full')
+      },
+    }
+    const check = createLlmCorrectnessChecker(mockTc('{"correct": true, "reason": "fine"}'), {
+      rawSink: sink,
+    })
+    const r = await check(DISPUTE_REQ, LONG)
+    expect(r).toEqual({ correct: true, reason: 'fine' })
+  })
 })
 
 describe('verifyCompletion — unmeasured propagation', () => {

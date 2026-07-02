@@ -57,4 +57,24 @@ describe('recoverTruncatedJson', () => {
     const r = recoverTruncatedJson('{"correct": ') as Record<string, unknown> | null
     expect(r === null || !('correct' in r)).toBe(true)
   })
+
+  it('recovers an object preceded by a bracketed prose tag', () => {
+    expect(recoverTruncatedJson('[note] {"score": 3}')).toEqual({ score: 3 })
+  })
+
+  it('still recovers a truncated top-level array', () => {
+    expect(recoverTruncatedJson('scores: [1, 2, 3')).toEqual([1, 2, 3])
+  })
+
+  it('recovers a string truncated right after a backslash', () => {
+    const r = recoverTruncatedJson('{"a": "val\\') as Record<string, unknown> | null
+    expect(r).not.toBeNull()
+    expect(typeof r?.a).toBe('string')
+  })
+
+  it('auto-close completes a trailing escape instead of emitting an escaped quote', () => {
+    const closed = autoCloseTruncatedJson('{"a":"x\\')
+    expect(closed).not.toBeNull()
+    expect(() => JSON.parse(closed as string)).not.toThrow()
+  })
 })
