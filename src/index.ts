@@ -1320,6 +1320,7 @@ export type {
 } from './run-record'
 export {
   isRunRecord,
+  modelHasSnapshot,
   parseRunRecordSafe,
   RunRecordValidationError,
   roundTripRunRecord,

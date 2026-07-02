@@ -39,6 +39,7 @@ import {
   agentProfileHash,
   agentProfileId,
   agentProfileModelId,
+  HARNESS_NATIVE_MODEL,
   harnessAxisOf,
 } from '../../agent-profile'
 import { type AgentProfileCell, buildAgentProfileCell } from '../../agent-profile-cell'
@@ -50,6 +51,7 @@ import {
 } from '../../integrity/backend-integrity'
 import { estimateCost, isModelPriced } from '../../metrics'
 import {
+  modelHasSnapshot,
   type RunOutcome,
   type RunRecord,
   type RunSplitTag,
@@ -226,13 +228,45 @@ interface BuildRecordArgs<TScenario extends Scenario, TArtifact> {
   ) => { prompt: string; completion: string } | undefined
 }
 
+/**
+ * Resolve the concrete, snapshot-bearing model for a cell whose profile
+ * declared the `HARNESS_NATIVE_MODEL` sentinel (a vendor-locked harness that
+ * resolves its model at runtime). The dispatch must have reported it via
+ * `ctx.cost.observeModel` — surfaced as `cell.resolvedModel`. Throws when it is
+ * missing or lacks a snapshot, so a provenance-broken row can never be
+ * recorded as the bare sentinel.
+ */
+function requireResolvedModel(cell: CampaignCellResult<unknown>, profileId: string): string {
+  const resolved = cell.resolvedModel?.trim()
+  if (!resolved) {
+    throw new ProfileMatrixError(
+      `profile '${profileId}' declared the '${HARNESS_NATIVE_MODEL}' runtime-resolved model but its dispatch reported no resolved model for cell '${cell.cellId}' — report it via ctx.cost.observeModel(<id>) so the RunRecord pins the real model (never records '${HARNESS_NATIVE_MODEL}')`,
+    )
+  }
+  if (!modelHasSnapshot(resolved)) {
+    throw new ProfileMatrixError(
+      `profile '${profileId}' resolved to model '${resolved}' for cell '${cell.cellId}', which lacks a snapshot version — pin it (name@YYYY-MM-DD or name-YYYYMMDD) before reporting it via ctx.cost.observeModel`,
+    )
+  }
+  return resolved
+}
+
 function buildRunRecord<TScenario extends Scenario, TArtifact>(
   args: BuildRecordArgs<TScenario, TArtifact>,
 ): RunRecord {
   const { cell, profile, profileHash, configHash, experimentId, splitTag, commitSha, matrixId } =
     args
   const profileId = agentProfileId(profile)
-  const model = agentProfileModelId(profile)
+  const declaredModel = agentProfileModelId(profile)
+  // Provenance guarantee: every recorded cell pins a real, snapshot-bearing
+  // model. A profile that declared the `HARNESS_NATIVE_MODEL` sentinel resolved
+  // its model at runtime — the dispatch reports it via `ctx.cost.observeModel`,
+  // surfaced here as `cell.resolvedModel`. Substitute it (and require a
+  // snapshot). If the dispatch reported no resolved model, or an unpinned one,
+  // FAIL LOUD — never silently record the sentinel, which would erase which
+  // model actually produced the row.
+  const model =
+    declaredModel === HARNESS_NATIVE_MODEL ? requireResolvedModel(cell, profileId) : declaredModel
   const composite = cellComposite(cell)
 
   // Flatten judge dimensions (judge-prefixed to avoid collisions) into raw.
@@ -352,10 +386,24 @@ export async function runProfileMatrix<TScenario extends Scenario, TArtifact>(
   // carry a snapshot version, BEFORE any LLM spend. A probe record run through
   // validateRunRecord catches both in the exact place they'd otherwise surface
   // far downstream.
+  //
+  // Exception: a vendor-locked harness that snapped to `HARNESS_NATIVE_MODEL`
+  // declares no concrete model up front — the backend resolves it at runtime.
+  // Its declared model deliberately carries no snapshot, so probing it verbatim
+  // would fail the snapshot assertion for a profile that IS recordable (the
+  // resolved model, reported via `ctx.cost.observeModel`, pins the RunRecord).
+  // Probe such a profile with a snapshot-bearing placeholder so the OTHER
+  // recordability checks still run, without asserting a snapshot the sentinel
+  // can't have. `buildRunRecord` enforces the real snapshot from the resolved
+  // model — never records the sentinel.
   for (const profile of opts.profiles) {
     const profileHash = agentProfileHash(profile)
     const profileId = agentProfileId(profile)
-    const model = agentProfileModelId(profile)
+    const declaredModel = agentProfileModelId(profile)
+    const model =
+      declaredModel === HARNESS_NATIVE_MODEL
+        ? `${HARNESS_NATIVE_MODEL}@runtime-resolved`
+        : declaredModel
     try {
       validateRunRecord({
         runId: `${matrixId}:${profileId}:probe`,
@@ -387,7 +435,7 @@ export async function runProfileMatrix<TScenario extends Scenario, TArtifact>(
   for (const profile of opts.profiles) {
     const profileHash = agentProfileHash(profile)
     const profileId = agentProfileId(profile)
-    const model = agentProfileModelId(profile)
+    const declaredModel = agentProfileModelId(profile)
     const configHash = sha({
       profile: profileHash,
       judges: (opts.judges ?? []).map((j) => j.name),
@@ -420,17 +468,28 @@ export async function runProfileMatrix<TScenario extends Scenario, TArtifact>(
     // column, so results group by `groupRunsByAgentProfileCell` (harness/model
     // aware). Harness comes from the axis stamp `expandProfileAxes` left on the
     // profile; a profile that wasn't axis-expanded simply has no harness in its
-    // cell (unchanged grouping). Built once per profile.
+    // cell (unchanged grouping). The `model` is the profile's declared model
+    // UNLESS it snapped to the `HARNESS_NATIVE_MODEL` sentinel — then the cell
+    // identity must carry the RUNTIME-RESOLVED model per cell (surfaced via
+    // `cell.resolvedModel`), so the pivot groups by the real Kimi/etc. model and
+    // the cell identity matches the RunRecord's pinned model.
     const axis = harnessAxisOf(profile)
-    const agentProfileCell = await buildAgentProfileCell({
-      profileId,
-      sourceProfile: { kind: 'agent-interface-profile', hash: profileHash },
-      model,
-      ...(axis ? { harness: { id: axis.harness } } : {}),
-    })
+    const buildCellIdentity = (cellModel: string): Promise<AgentProfileCell> =>
+      buildAgentProfileCell({
+        profileId,
+        sourceProfile: { kind: 'agent-interface-profile', hash: profileHash },
+        model: cellModel,
+        ...(axis ? { harness: { id: axis.harness } } : {}),
+      })
+    // A profile with a concrete declared model builds its cell identity once and
+    // shares it; the sentinel path builds one per cell after resolution.
+    const sharedCellIdentity =
+      declaredModel === HARNESS_NATIVE_MODEL ? undefined : await buildCellIdentity(declaredModel)
 
     const profileRecords: RunRecord[] = []
     for (const cell of campaign.cells) {
+      const agentProfileCell =
+        sharedCellIdentity ?? (await buildCellIdentity(requireResolvedModel(cell, profileId)))
       const record = buildRunRecord({
         cell,
         profile,
@@ -464,7 +523,13 @@ export async function runProfileMatrix<TScenario extends Scenario, TArtifact>(
     byProfile[profileId] = {
       profileId,
       profileHash,
-      model,
+      // The declared model, unless it snapped to the sentinel — then the
+      // resolved model the cells actually ran on (all cells of a profile share
+      // one harness, so the first record's model is representative).
+      model:
+        declaredModel === HARNESS_NATIVE_MODEL
+          ? (profileRecords[0]?.model ?? declaredModel)
+          : declaredModel,
       records: profileRecords.length,
       meanComposite: mean(profileRecords.map(compositeOf)),
       totalCostUsd: pricedTotalCostUsd,
