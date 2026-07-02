@@ -76,6 +76,13 @@ export interface ProductBenchmarkExportOptions {
   readonly toolCallFallback?: (record: RunRecord, runDir: string) => number
   /** Backend version recorded per row. Defaults to the cwd package.json's `@tangle-network/sandbox` range. */
   readonly backendVersion?: string
+  /**
+   * Explicit substrate versions for the manifest, merged over what the cwd
+   * package.json / node_modules resolve. Use when a substrate package is not
+   * installed where the export runs — the validator refuses an `'unknown'`
+   * version, so provide the real one rather than shipping the sentinel.
+   */
+  readonly substrate?: Partial<ProductBenchmarkManifest['substrate']>
 }
 
 export interface ProductBenchmarkSingleRunExportOptions
@@ -155,12 +162,26 @@ export function productBenchmarkRepoIdentity(): ProductBenchmarkManifest['repo']
   }
 }
 
+/** The declared range from the cwd package.json when present, else the
+ *  INSTALLED version read from node_modules (covers transitive installs —
+ *  a product that gets sandbox via agent-runtime still records real
+ *  provenance), else the `'unknown'` sentinel the validator refuses. */
 function packageVersion(name: string): string {
   const pkg = JSON.parse(readFileSync(resolve('package.json'), 'utf8')) as {
+    name?: string
+    version?: string
     dependencies?: Record<string, string>
     devDependencies?: Record<string, string>
   }
-  return pkg.dependencies?.[name] ?? pkg.devDependencies?.[name] ?? 'unknown'
+  if (pkg.name === name && pkg.version) return pkg.version
+  const declared = pkg.dependencies?.[name] ?? pkg.devDependencies?.[name]
+  if (declared) return declared
+  const installed = resolve('node_modules', name, 'package.json')
+  if (existsSync(installed)) {
+    const installedPkg = JSON.parse(readFileSync(installed, 'utf8')) as { version?: string }
+    if (installedPkg.version) return installedPkg.version
+  }
+  return 'unknown'
 }
 
 // ── Run record ingestion ─────────────────────────────────────────────
@@ -467,12 +488,68 @@ export function runRecordToProductBenchmarkRecord(
   return validateProductBenchmarkRecord(product)
 }
 
+/** One record per arm id, failing loud when records sharing an arm id
+ *  disagree on any attribute the manifest arm carries (profile, model,
+ *  backend, harness, reasoning effort) — an id-only dedup would silently
+ *  keep one policy and misrepresent the rest. */
+function uniqueArmRecords(records: readonly ProductBenchmarkRecord[]): ProductBenchmarkRecord[] {
+  const byArm = new Map<string, ProductBenchmarkRecord>()
+  for (const record of records) {
+    const prior = byArm.get(record.armId)
+    if (!prior) {
+      byArm.set(record.armId, record)
+      continue
+    }
+    const fields = [
+      ['profileId', prior.agentProfile.id, record.agentProfile.id],
+      ['model', prior.agentProfile.resolved.model, record.agentProfile.resolved.model],
+      ['backend', prior.agentProfile.resolved.backend, record.agentProfile.resolved.backend],
+      ['harness', prior.agentProfile.resolved.harness, record.agentProfile.resolved.harness],
+      [
+        'reasoningEffort',
+        prior.agentProfile.resolved.reasoningEffort,
+        record.agentProfile.resolved.reasoningEffort,
+      ],
+    ] as const
+    for (const [name, a, b] of fields) {
+      if (a !== b) {
+        throw new ValidationError(
+          `records for arm '${record.armId}' disagree on ${name} (${String(a)} vs ${String(b)}) — one arm id must map to one policy`,
+        )
+      }
+    }
+  }
+  return [...byArm.values()]
+}
+
+/** One record per scenario id, failing loud on a divergent split — the
+ *  manifest scenario carries one split, so two records disagreeing would be
+ *  silently misfiled. */
+function uniqueScenarioRecords(
+  records: readonly ProductBenchmarkRecord[],
+): ProductBenchmarkRecord[] {
+  const byScenario = new Map<string, ProductBenchmarkRecord>()
+  for (const record of records) {
+    const prior = byScenario.get(record.scenarioId)
+    if (!prior) {
+      byScenario.set(record.scenarioId, record)
+      continue
+    }
+    if (prior.split !== record.split) {
+      throw new ValidationError(
+        `records for scenario '${record.scenarioId}' disagree on split (${prior.split} vs ${record.split})`,
+      )
+    }
+  }
+  return [...byScenario.values()]
+}
+
 /** Derive the bundle manifest from already-normalized records. */
 export function buildProductBenchmarkManifest(
   records: readonly ProductBenchmarkRecord[],
   options: Pick<
     ProductBenchmarkExportOptions,
-    'outDir' | 'projectId' | 'benchmarkId' | 'scenarioTagPrefix' | 'mutableSurfaces'
+    'outDir' | 'projectId' | 'benchmarkId' | 'scenarioTagPrefix' | 'mutableSurfaces' | 'substrate'
   >,
 ): ProductBenchmarkManifest {
   if (records.length === 0) {
@@ -498,9 +575,10 @@ export function buildProductBenchmarkManifest(
       agentRuntime: packageVersion('@tangle-network/agent-runtime'),
       agentInterface: packageVersion('@tangle-network/agent-interface'),
       sandbox: packageVersion('@tangle-network/sandbox'),
+      ...options.substrate,
     },
     profiles: [...byProfile.values()],
-    arms: [...new Map(records.map((record) => [record.armId, record])).values()].map((record) => ({
+    arms: uniqueArmRecords(records).map((record) => ({
       id: record.armId,
       profileId: record.agentProfile.id,
       mutableSurfaces: [...mutableSurfaces],
@@ -514,14 +592,12 @@ export function buildProductBenchmarkManifest(
           : {}),
       },
     })),
-    scenarios: [...new Map(records.map((record) => [record.scenarioId, record])).values()].map(
-      (record) => ({
-        id: record.scenarioId,
-        split: record.split,
-        tags: [scenarioTagPrefix, options.benchmarkId, record.split],
-        sourceAllowedForSynthesis: false,
-      }),
-    ),
+    scenarios: uniqueScenarioRecords(records).map((record) => ({
+      id: record.scenarioId,
+      split: record.split,
+      tags: [scenarioTagPrefix, options.benchmarkId, record.split],
+      sourceAllowedForSynthesis: false,
+    })),
     budgets: {
       maxUsd: records.reduce((sum, record) => sum + record.usage.costUsd, 0),
       maxCells: records.length,
@@ -586,6 +662,7 @@ export function exportProductBenchmarkRuns(
     benchmarkId: opts.benchmarkId,
     scenarioTagPrefix: opts.scenarioTagPrefix,
     mutableSurfaces: opts.mutableSurfaces,
+    ...(options.substrate !== undefined ? { substrate: options.substrate } : {}),
   })
   const manifestPath = join(outDir, 'product-benchmark-manifest.json')
   const recordsPath = join(outDir, 'product-benchmark-records.jsonl')

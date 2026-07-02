@@ -71,6 +71,10 @@ const baseOptions = {
   projectId: 'tax-agent',
   benchmarkId: 'tax-canonical',
   agentProfilePath: 'apps/web/src/lib/.server/tax/agent-profile.ts',
+  // agent-runtime and sandbox are not installed in this repo (layering:
+  // agent-eval sits below both), so the fixtures inject real-looking versions
+  // through the explicit override — the validator refuses 'unknown'.
+  substrate: { agentRuntime: '0.79.4', sandbox: '0.9.5' },
 } as const
 
 describe('exportProductBenchmarkRuns', () => {
@@ -291,5 +295,58 @@ describe('exportProductBenchmarkRuns', () => {
     })
     expect(report.repoFailures).toEqual(['manifest.repo.commit'])
     expect(() => assertProductBenchmarkRun(outDir)).toThrow(/manifest\.repo\.commit/)
+  })
+
+  it('reports unknown substrate versions and assertProductBenchmarkRun fails on them', () => {
+    const runDir = writeRunDir([fixtureRunRecord()])
+    const outDir = outDirFixture()
+    const result = exportProductBenchmarkRuns({ ...baseOptions, runDirs: [runDir], outDir })
+
+    const manifest = JSON.parse(
+      JSON.stringify(readProductBenchmarkManifest(result.manifestPath)),
+    ) as { substrate: { agentEval: string } }
+    manifest.substrate.agentEval = 'unknown'
+    writeFileSync(result.manifestPath, `${JSON.stringify(manifest, null, 2)}\n`)
+
+    const report = validateProductBenchmarkRun({
+      manifestPath: result.manifestPath,
+      recordsPath: result.recordsPath,
+      artifactRoot: outDir,
+    })
+    expect(report.substrateFailures).toEqual(['manifest.substrate.agentEval'])
+    expect(() => assertProductBenchmarkRun(outDir)).toThrow(/manifest\.substrate\.agentEval/)
+  })
+
+  it('fails loud when records sharing an arm id disagree on a policy axis', () => {
+    const runDir = writeRunDir([
+      fixtureRunRecord(),
+      fixtureRunRecord({
+        runId: 'run-2',
+        scenarioId: 'scenario-2',
+        model: 'glm-5.2',
+        agentProfile: {
+          schemaVersion: 'agent-profile-cell/v1',
+          cellId: 'agent-profile-cell:sha256:beefdead',
+          profileId: 'production-profile',
+          sourceProfile: { kind: 'agent-interface-profile', hash: 'sha256:source' },
+          harness: { id: 'tax-agent-canonical-eval' },
+          model: 'glm-5.2',
+          dimensions: { backend: 'sandbox' },
+        },
+      }),
+    ])
+    expect(() =>
+      exportProductBenchmarkRuns({ ...baseOptions, runDirs: [runDir], outDir: outDirFixture() }),
+    ).toThrow(/arm 'production-profile' disagree on profileId/)
+  })
+
+  it('fails loud when records sharing a scenario id disagree on split', () => {
+    const runDir = writeRunDir([
+      fixtureRunRecord(),
+      fixtureRunRecord({ runId: 'run-2', splitTag: 'holdout' }),
+    ])
+    expect(() =>
+      exportProductBenchmarkRuns({ ...baseOptions, runDirs: [runDir], outDir: outDirFixture() }),
+    ).toThrow(/scenario 'scenario-1' disagree on split/)
   })
 })
