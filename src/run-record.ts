@@ -474,7 +474,7 @@ function validateJudgeScores(value: unknown, path: string): void {
  * Rejects bare aliases like `claude-sonnet-4` or `gpt-4o` that remap
  * silently as providers ship new snapshots.
  */
-function modelHasSnapshot(model: string): boolean {
+export function modelHasSnapshot(model: string): boolean {
   if (model.includes('@')) return true
   if (/-\d{8}$/.test(model)) return true
   if (/-\d{4}-\d{2}-\d{2}$/.test(model)) return true
