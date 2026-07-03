@@ -56,4 +56,8 @@ export {
   type MultishotShape,
   type MultishotToolDefinition,
   type MultishotToolExecutor,
+  type MultishotTransport,
+  type MultishotTransportRequest,
+  type MultishotTransportResponse,
+  type MultishotTransportToolCall,
 } from './types'

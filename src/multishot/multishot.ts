@@ -1,8 +1,8 @@
 // Multi-turn driver-agent simulation with inline tool execution.
 //
 // The driver = LLM acting as the persona (reactive, non-deterministic).
-// The agent = the product agent under test (router call with profile's
-// systemPrompt + the configured tools).
+// The agent = the product agent under test (router call by default, or an
+// injected transport — with profile's systemPrompt + the configured tools).
 // Tool calls execute inline via the configured executors and feed back
 // into the agent's message log so the agent integrates the result.
 
@@ -24,6 +24,7 @@ import {
   type MultishotShape,
   type MultishotToolDefinition,
   type MultishotToolExecutor,
+  type MultishotTransport,
 } from './types'
 
 export interface RunMultishotOptions<TPersona extends MultishotPersona> {
@@ -51,6 +52,16 @@ export interface RunMultishotOptions<TPersona extends MultishotPersona> {
   driverMaxTokens?: number
   /** Maximum tool calls the agent may dispatch inside one assistant turn. */
   maxToolDispatches?: number
+  /** Execution seam for the agent leg. When provided, every agent inference
+   *  step goes through this function instead of the router HTTP call; the
+   *  string levers (agentModel, apiKey, baseUrl) stop applying to that leg.
+   *  apiKey/baseUrl are still resolved for tool executors and any leg
+   *  without an injected transport. */
+  agentTransport?: MultishotTransport
+  /** Execution seam for the simulated-user driver leg (symmetric to
+   *  agentTransport). Driver model fallback rotation still applies — the
+   *  transport receives each candidate model in turn. */
+  driverTransport?: MultishotTransport
   apiKey?: string
   baseUrl?: string
   signal?: AbortSignal
@@ -82,6 +93,10 @@ export async function runMultishot<TPersona extends MultishotPersona>(
   const executors = opts.toolExecutors ?? bundle.executors
   const artifactTypeFor = opts.artifactTypeFor ?? bundle.artifactTypeFor
 
+  const routerTransport: MultishotTransport = (req) => routerCompletion({ apiKey, baseUrl, ...req })
+  const agentTransport = opts.agentTransport ?? routerTransport
+  const driverTransport = opts.driverTransport ?? routerTransport
+
   const start = Date.now()
   const transcript: MultishotMessage[] = []
   const artifacts: MultishotArtifact[] = []
@@ -102,9 +117,11 @@ export async function runMultishot<TPersona extends MultishotPersona>(
 
     let dispatchesThisTurn = 0
     while (true) {
-      const { message: agentMsg, usage: agentUsage } = await routerCompletion({
-        apiKey,
-        baseUrl,
+      const {
+        message: agentMsg,
+        usage: agentUsage,
+        costUsd: agentCostUsd,
+      } = await agentTransport({
         model: agentModel,
         messages: agentMessages,
         tools,
@@ -112,7 +129,7 @@ export async function runMultishot<TPersona extends MultishotPersona>(
         maxTokens: dispatchesThisTurn === 0 ? agentMaxTokens : toolFollowupMaxTokens,
         signal: opts.signal,
       })
-      totalCostUsd += estimateRouterCost(agentModel, agentUsage)
+      totalCostUsd += agentCostUsd ?? estimateRouterCost(agentModel, agentUsage)
 
       const agentText = (agentMsg.content ?? '').trim()
       const agentToolCalls = (agentMsg.tool_calls ?? []).map((tc) => ({
@@ -178,8 +195,7 @@ export async function runMultishot<TPersona extends MultishotPersona>(
 
     if (turn < maxTurns - 1) {
       const driver = await driverTurn({
-        apiKey,
-        baseUrl,
+        transport: driverTransport,
         persona: opts.persona,
         shape: opts.shape,
         transcript,
@@ -198,8 +214,7 @@ export async function runMultishot<TPersona extends MultishotPersona>(
 }
 
 async function driverTurn<TPersona extends MultishotPersona>(opts: {
-  apiKey: string
-  baseUrl: string
+  transport: MultishotTransport
   persona: TPersona
   shape: MultishotShape<TPersona>
   transcript: MultishotMessage[]
@@ -225,9 +240,7 @@ async function driverTurn<TPersona extends MultishotPersona>(opts: {
   // Driver must never go silent. Retry once on empty content; then fail loud.
   for (const model of opts.models) {
     for (let attempt = 0; attempt < 2; attempt++) {
-      const { message, usage } = await routerCompletion({
-        apiKey: opts.apiKey,
-        baseUrl: opts.baseUrl,
+      const { message, usage, costUsd } = await opts.transport({
         model,
         messages: driverMessages,
         temperature: 0.9,
@@ -235,7 +248,8 @@ async function driverTurn<TPersona extends MultishotPersona>(opts: {
         signal: opts.signal,
       })
       const content = (message.content ?? '').trim()
-      if (content.length > 0) return { content, costUsd: estimateRouterCost(model, usage) }
+      if (content.length > 0)
+        return { content, costUsd: costUsd ?? estimateRouterCost(model, usage) }
     }
   }
   throw new MultishotDriverEmptyError(opts.turn)
