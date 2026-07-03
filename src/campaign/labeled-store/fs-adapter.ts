@@ -48,6 +48,7 @@ export interface FsLabeledScenarioStoreOptions {
   now?: () => number
 }
 
+/** Typed rejection from a labeled-scenario store (bad provenance, rate limit, invalid sample args) — carries a stable string `code`. */
 export class LabeledScenarioStoreError extends Error {
   constructor(
     public readonly code: string,
@@ -64,6 +65,10 @@ interface RateLimitState {
   count: number
 }
 
+/**
+ * Filesystem `LabeledScenarioStore`: appends one JSONL file per source with provenance and
+ * rate-limit guards. For tests, local dev, and small workloads — high-throughput lands in Turso.
+ */
 export class FsLabeledScenarioStore implements LabeledScenarioStore {
   private readonly now: () => number
   private readonly rateLimits = new Map<string, RateLimitState>()

@@ -458,6 +458,10 @@ export interface PlanCampaignRunOptions<TScenario extends Scenario, TArtifact> {
   storage?: CampaignStorage
 }
 
+/**
+ * Plan a campaign WITHOUT dispatching: computes the manifest hash and the per-cell
+ * run-vs-cached schedule so callers can preview cost and resumability before spending.
+ */
 export function planCampaignRun<TScenario extends Scenario, TArtifact>(
   opts: PlanCampaignRunOptions<TScenario, TArtifact>,
 ): CampaignRunPlan {

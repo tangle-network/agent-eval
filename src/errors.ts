@@ -24,6 +24,10 @@ export type AgentEvalErrorCode =
   | 'backend_integrity'
   | 'profile_matrix'
 
+/**
+ * Base class for every contract error this package throws — carries the stable
+ * string `code` taxonomy so consumers can `instanceof`-match or switch on `code`.
+ */
 export class AgentEvalError extends Error {
   /** Stable string code. Survives minification; safe to switch on. */
   readonly code: AgentEvalErrorCode

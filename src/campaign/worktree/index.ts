@@ -35,6 +35,7 @@ export interface WorktreeAdapter {
   discard(worktree: Worktree): Promise<void>
 }
 
+/** Typed failure from a `WorktreeAdapter` operation (create/finalize/discard) — wraps the underlying git error as `cause`. */
 export class WorktreeAdapterError extends Error {
   constructor(
     message: string,
