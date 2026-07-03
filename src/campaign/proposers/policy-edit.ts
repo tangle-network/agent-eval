@@ -33,6 +33,10 @@ export interface PolicyEditProposerOptions {
   onAdmission?: (admission: PolicyEditAdmission) => void
 }
 
+/**
+ * `SurfaceProposer` that admission-checks typed analyst `PolicyEdit`s and applies each
+ * admitted edit to the current surface as one measured candidate.
+ */
 export function policyEditProposer(opts: PolicyEditProposerOptions = {}): SurfaceProposer {
   return {
     kind: 'policy-edit',

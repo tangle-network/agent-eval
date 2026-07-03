@@ -63,6 +63,7 @@ export type EvalFixtureRunPlan = CampaignRunPlan & {
   fixtures: Array<Pick<EvalFixtureScenario, 'fixtureName' | 'fixturePath' | 'fingerprint'>>
 }
 
+/** Walk `evalsDir` and return the relative name of every fixture directory (one containing an exact-case `PROMPT.md`). */
 export function discoverEvalFixtures(evalsDir: string): string[] {
   const root = resolve(evalsDir)
   if (!existsSync(root)) throw new Error(`discoverEvalFixtures: evalsDir not found: ${root}`)
@@ -87,6 +88,10 @@ export function discoverEvalFixtures(evalsDir: string): string[] {
   return fixtures
 }
 
+/**
+ * Load ONE fixture by name: reads `PROMPT.md` (plus `EVAL.ts`/`EVAL.tsx` and `package.json` under
+ * `vitest` validation) and content-fingerprints the full file set for cache identity.
+ */
 export function loadEvalFixture(
   evalsDir: string,
   name: string,
@@ -134,6 +139,7 @@ export function loadEvalFixture(
   }
 }
 
+/** Load fixtures (all discovered, or just `names`) as campaign `Scenario`s tagged `eval-fixture`. */
 export function loadEvalFixtureScenarios(
   evalsDir: string,
   options: LoadEvalFixtureScenariosOptions = {},
@@ -156,6 +162,10 @@ export function loadEvalFixtureScenarios(
   })
 }
 
+/**
+ * Dry-run planner for a fixture campaign: loads the scenarios, delegates to `planCampaignRun`,
+ * and returns the plan plus each fixture's name/path/fingerprint.
+ */
 export function planEvalFixtureRun<TArtifact = unknown>(
   options: PlanEvalFixtureRunOptions<TArtifact>,
 ): EvalFixtureRunPlan {
