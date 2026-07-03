@@ -20,6 +20,7 @@ import type {
   MultishotShape,
   MultishotToolDefinition,
   MultishotToolExecutor,
+  MultishotTransport,
 } from './types'
 
 export interface ConversationJudgeInput<TPersona extends MultishotPersona> {
@@ -99,6 +100,12 @@ export interface RunMultishotMatrixOptions<TPersona extends MultishotPersona> {
   driverMaxTokens?: number
   /** Maximum output tokens for each judge response. */
   judgeMaxTokens?: number
+  /** Execution seam for the agent leg of every cell — replaces the router
+   *  HTTP call when provided (see RunMultishotOptions.agentTransport).
+   *  Judges are unaffected; configure those via MultishotJudges. */
+  agentTransport?: MultishotTransport
+  /** Execution seam for the simulated-user driver leg of every cell. */
+  driverTransport?: MultishotTransport
   /** Pass-thru fields. */
   apiKey?: string
   baseUrl?: string
@@ -202,6 +209,8 @@ export async function runMultishotMatrix<TPersona extends MultishotPersona>(
         agentMaxTokens: opts.agentMaxTokens,
         toolFollowupMaxTokens: opts.toolFollowupMaxTokens,
         driverMaxTokens: opts.driverMaxTokens,
+        agentTransport: opts.agentTransport,
+        driverTransport: opts.driverTransport,
         apiKey: opts.apiKey,
         baseUrl: opts.baseUrl,
       })

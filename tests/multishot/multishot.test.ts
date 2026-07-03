@@ -5,6 +5,8 @@ import {
   MultishotFatalToolError,
   type MultishotPersona,
   type MultishotShape,
+  type MultishotTransportRequest,
+  type MultishotTransportResponse,
   runMultishot,
 } from '../../src/multishot/index'
 
@@ -430,6 +432,171 @@ describe('runMultishot', () => {
     ).rejects.toBeInstanceOf(MultishotFatalToolError)
 
     expect(global.fetch).toHaveBeenCalledTimes(1)
+    global.fetch = originalFetch
+  })
+})
+
+function makeTransportStub(
+  responses: Array<{
+    content?: string
+    toolCalls?: Array<{ name: string; args: Record<string, unknown> }>
+    usage?: { prompt_tokens?: number; completion_tokens?: number }
+    costUsd?: number
+  }>,
+) {
+  let i = 0
+  return vi.fn(async (_req: MultishotTransportRequest): Promise<MultishotTransportResponse> => {
+    const r = responses[i++]
+    if (!r) throw new Error(`transport stub exhausted at call ${i}`)
+    return {
+      message: {
+        content: r.content ?? null,
+        ...(r.toolCalls?.length
+          ? {
+              tool_calls: r.toolCalls.map((tc, idx) => ({
+                id: `t-${i}-${idx}`,
+                type: 'function' as const,
+                function: { name: tc.name, arguments: JSON.stringify(tc.args) },
+              })),
+            }
+          : {}),
+      },
+      usage: r.usage,
+      costUsd: r.costUsd,
+    }
+  })
+}
+
+function forbiddenFetch() {
+  return vi.fn(async () => {
+    throw new Error('unexpected HTTP call — transport seam should have handled this leg')
+  }) as unknown as typeof fetch
+}
+
+describe('runMultishot transport seam', () => {
+  it('uses injected agentTransport instead of the router and meters returned costUsd', async () => {
+    const originalFetch = global.fetch
+    global.fetch = forbiddenFetch()
+    process.env.TANGLE_API_KEY = 'test-key'
+
+    const transport = makeTransportStub([{ content: 'hi from injected backend', costUsd: 0.123 }])
+    const result = await runMultishot({
+      profile: PROFILE,
+      persona: PERSONA,
+      shape: SHAPE,
+      maxTurns: 1,
+      agentTransport: transport,
+    })
+
+    expect(transport).toHaveBeenCalledOnce()
+    const req = transport.mock.calls[0][0]
+    expect(req.model).toBe('openai/gpt-5.4')
+    expect(req.maxTokens).toBe(2500)
+    expect(req.tools?.length).toBeGreaterThan(0)
+    expect(req.messages[0]).toMatchObject({ role: 'system' })
+    expect(result.transcript.at(-1)?.content).toBe('hi from injected backend')
+    expect(result.costUsd).toBe(0.123)
+    expect(global.fetch).not.toHaveBeenCalled()
+
+    global.fetch = originalFetch
+  })
+
+  it('meters transport usage via the router estimator when costUsd is omitted', async () => {
+    const originalFetch = global.fetch
+    global.fetch = forbiddenFetch()
+    process.env.TANGLE_API_KEY = 'test-key'
+
+    const transport = makeTransportStub([
+      { content: 'usage-only', usage: { prompt_tokens: 1000, completion_tokens: 1000 } },
+    ])
+    const result = await runMultishot({
+      profile: PROFILE,
+      persona: PERSONA,
+      shape: SHAPE,
+      maxTurns: 1,
+      agentTransport: transport,
+    })
+
+    // gpt-5.4 estimator: (1000 * 0.003 + 1000 * 0.015) / 1000
+    expect(result.costUsd).toBeCloseTo(0.018, 10)
+
+    global.fetch = originalFetch
+  })
+
+  it('runs tool dispatch through the injected agentTransport while the driver stays on the router', async () => {
+    const originalFetch = global.fetch
+    process.env.TANGLE_API_KEY = 'test-key'
+
+    const driverFetch = makeFetchStub([{ content: 'driver pushback via router' }])
+    global.fetch = driverFetch as unknown as typeof fetch
+
+    const executor = vi.fn(async () => ({ content: 'tool output', costUsd: 0.002 }))
+    const transport = makeTransportStub([
+      { toolCalls: [{ name: 'my_custom_tool', args: { x: 1 } }], costUsd: 0.01 },
+      { content: 'agent after tool', costUsd: 0.01 },
+      { content: 'final agent answer', costUsd: 0.01 },
+    ])
+
+    const result = await runMultishot({
+      profile: PROFILE,
+      persona: PERSONA,
+      shape: SHAPE,
+      maxTurns: 2,
+      agentTransport: transport,
+      tools: [
+        {
+          type: 'function',
+          function: {
+            name: 'my_custom_tool',
+            description: 'test',
+            parameters: { type: 'object', properties: {} },
+          },
+        },
+      ],
+      toolExecutors: { my_custom_tool: executor },
+      artifactTypeFor: (name) => (name === 'my_custom_tool' ? 'custom' : undefined),
+    })
+
+    expect(transport).toHaveBeenCalledTimes(3)
+    expect(executor).toHaveBeenCalledOnce()
+    expect(result.artifacts).toHaveLength(1)
+    // Only the driver turn touches HTTP.
+    expect(driverFetch).toHaveBeenCalledTimes(1)
+    expect(result.transcript.some((m) => m.content === 'driver pushback via router')).toBe(true)
+    // 3 agent calls + tool executor cost + driver estimator cost (>0 from stub usage).
+    expect(result.costUsd).toBeGreaterThan(0.032)
+
+    global.fetch = originalFetch
+  })
+
+  it('uses injected driverTransport for the simulated user — zero HTTP with both seams', async () => {
+    const originalFetch = global.fetch
+    global.fetch = forbiddenFetch()
+    process.env.TANGLE_API_KEY = 'test-key'
+
+    const agentTransport = makeTransportStub([
+      { content: 'agent t0', costUsd: 0.01 },
+      { content: 'agent t1', costUsd: 0.01 },
+    ])
+    const driverTransport = makeTransportStub([{ content: 'driver via seam', costUsd: 0.005 }])
+
+    const result = await runMultishot({
+      profile: PROFILE,
+      persona: PERSONA,
+      shape: SHAPE,
+      maxTurns: 2,
+      agentTransport,
+      driverTransport,
+    })
+
+    expect(driverTransport).toHaveBeenCalledOnce()
+    expect(driverTransport.mock.calls[0][0].model).toBe('openai/gpt-4o-mini')
+    expect(
+      result.transcript.some((m) => m.role === 'user' && m.content === 'driver via seam'),
+    ).toBe(true)
+    expect(result.costUsd).toBeCloseTo(0.025, 10)
+    expect(global.fetch).not.toHaveBeenCalled()
+
     global.fetch = originalFetch
   })
 })
