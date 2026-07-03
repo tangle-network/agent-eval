@@ -63,6 +63,9 @@ export interface DefaultProductionGateOptions {
   blockOnRewardHackingGaming?: boolean
 }
 
+/**
+ * Opinionated production gate composing held-out significance, red-team, reward-hacking, and canary checks into a single `Gate.decide` decision.
+ */
 export function defaultProductionGate<TArtifact, TScenario extends Scenario>(
   options: DefaultProductionGateOptions,
 ): Gate<TArtifact, TScenario> {

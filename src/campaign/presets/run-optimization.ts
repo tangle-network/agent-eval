@@ -112,6 +112,9 @@ export interface RunOptimizationResult<TArtifact, TScenario extends Scenario> {
   paretoFrontier: ParetoParent[]
 }
 
+/**
+ * Improvement loop body: N generations of propose → campaign → rank, maintaining a Pareto frontier and promoting the top-scoring candidates to the next generation.
+ */
 export async function runOptimization<TScenario extends Scenario, TArtifact>(
   opts: RunOptimizationOptions<TScenario, TArtifact>,
 ): Promise<RunOptimizationResult<TArtifact, TScenario>> {
@@ -330,6 +333,9 @@ function computeParetoFrontier(scored: ParetoParent[]): ParetoParent[] {
   return paretoFrontier(scored, objectives).frontier
 }
 
+/**
+ * Short (16-char) sha256 fingerprint of a `MutableSurface`: hashes text content for prompt surfaces, or the worktree + base ref pair for code surfaces.
+ */
 export function surfaceHash(surface: MutableSurface): string {
   // Prompt/tool surfaces (string) hash by content; code surfaces hash by the
   // worktree + base ref pair (the content lives in git, not in the string).

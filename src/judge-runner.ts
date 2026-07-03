@@ -90,18 +90,22 @@ export async function runJudgeFleet(
   return results
 }
 
+/** Build a `SandboxJudgeSpec` that scores whether the harness compiles without errors. */
 export function compilerJudge(id: string, config: HarnessConfig): SandboxJudgeSpec {
   return { id, kind: 'compiler', config }
 }
 
+/** Build a `SandboxJudgeSpec` that scores the harness by its test-suite pass rate. */
 export function testJudge(id: string, config: HarnessConfig): SandboxJudgeSpec {
   return { id, kind: 'test', config }
 }
 
+/** Build a `SandboxJudgeSpec` that scores the harness by linter rule violations. */
 export function linterJudge(id: string, config: HarnessConfig): SandboxJudgeSpec {
   return { id, kind: 'linter', config }
 }
 
+/** Build a `SandboxJudgeSpec` that scores the harness output for security issues via a security scanner. */
 export function securityJudge(id: string, config: HarnessConfig): SandboxJudgeSpec {
   return { id, kind: 'security', config }
 }

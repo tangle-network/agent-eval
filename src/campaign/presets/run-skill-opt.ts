@@ -105,6 +105,9 @@ export interface RunSkillOptResult {
   totalCostUsd: number
 }
 
+/**
+ * SkillOpt sequential hill-climb: each epoch reflects on train-scenario weaknesses, proposes bounded patches, accepts the first patch that strictly improves the held-out composite, and anneals the edit budget on consecutive rejections.
+ */
 export async function runSkillOpt<TScenario extends Scenario, TArtifact>(
   opts: RunSkillOptOptions<TScenario, TArtifact>,
 ): Promise<RunSkillOptResult> {

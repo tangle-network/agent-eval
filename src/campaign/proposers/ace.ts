@@ -65,6 +65,9 @@ function parsePlaybook(surface: string): Bullet[] {
   return out
 }
 
+/**
+ * Append-only context engineering proposer: grows a skill playbook by appending generation-tagged lessons without merging or overwriting prior entries.
+ */
 export function aceProposer(opts: AceProposerOptions = {}): SurfaceProposer {
   const maxEntries = opts.maxEntries ?? 50
   if (maxEntries < 1) throw new Error('aceProposer: maxEntries must be >= 1')

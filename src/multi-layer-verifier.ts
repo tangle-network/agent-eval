@@ -156,6 +156,9 @@ export function gradeSemanticStatus(input: {
 
 // ─── Verifier ───────────────────────────────────────────────────────────
 
+/**
+ * Ordered DAG of verification layers with dependency-based skipping, per-layer findings, soft-fail semantics, and a blended composite score across all passed layers.
+ */
 export class MultiLayerVerifier<Env = unknown> {
   constructor(private readonly layers: Layer<Env>[]) {
     const seen = new Set<string>()

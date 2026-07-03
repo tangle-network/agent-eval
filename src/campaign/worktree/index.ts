@@ -79,6 +79,9 @@ function slug(label: string): string {
   )
 }
 
+/**
+ * Git-backed `WorktreeAdapter`: creates isolated worktrees on fresh branches, commits agent changes, and discards losers.
+ */
 export function gitWorktreeAdapter(opts: GitWorktreeAdapterOptions): WorktreeAdapter {
   const git = opts.git ?? defaultGit
   const worktreeDir = opts.worktreeDir ?? join(opts.repoRoot, '.worktrees')

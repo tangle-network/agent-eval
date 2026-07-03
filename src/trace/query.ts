@@ -29,6 +29,7 @@ export async function toolSpans(
   return spans.filter(isToolSpan)
 }
 
+/** Query judge-kind spans from the trace store, optionally scoped to a single run. */
 export async function judgeSpans(store: TraceStore, runId?: string): Promise<JudgeSpan[]> {
   const spans = await store.spans({ runId, kind: 'judge' })
   return spans.filter(isJudgeSpan)

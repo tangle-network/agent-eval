@@ -46,6 +46,9 @@ export interface OpenAutoPrResult {
   reason: string
 }
 
+/**
+ * Open a GitHub PR for a gate-approved surface promotion, attaching the manifest hash, gate verdict, and diff as the PR body.
+ */
 export function openAutoPr<TArtifact, TScenario extends Scenario>(
   options: OpenAutoPrOptions<TArtifact, TScenario>,
 ): OpenAutoPrResult {

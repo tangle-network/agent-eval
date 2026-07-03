@@ -190,6 +190,9 @@ export interface JudgeReplayGateArgs<TOutput> {
   judgeConcurrency?: number
 }
 
+/**
+ * Confirm a candidate's win with a stronger judge: score baseline and candidate outputs independently, then bootstrap a CI to verify the lift generalises beyond the inner loop.
+ */
 export async function judgeReplayGate<TOutput>(
   args: JudgeReplayGateArgs<TOutput>,
 ): Promise<BootstrapResult & { baselineSamples: number; candidateSamples: number }> {

@@ -1,4 +1,5 @@
 /**
+ * @module
  * Thin Gate adapter — exposes delta-threshold-on-holdout as a composable
  * `Gate`. Use when you want held-out as one of N composed gates instead of
  * the full `defaultProductionGate` stack.
@@ -11,6 +12,9 @@ export interface HeldOutGateOptions<TScenario extends Scenario = Scenario> {
   deltaThreshold?: number
 }
 
+/**
+ * Composable held-out delta gate: ships only when the candidate's mean composite on `scenarios` beats the baseline by at least `deltaThreshold`.
+ */
 export function heldOutGate<TArtifact, TScenario extends Scenario>(
   options: HeldOutGateOptions<TScenario>,
 ): Gate<TArtifact, TScenario> {
