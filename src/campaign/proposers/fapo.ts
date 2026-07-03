@@ -405,6 +405,9 @@ function renderReviewWarnings(review: FapoReviewResult): string {
   return `Reviewer warnings:\n${issues.map((issue) => `- ${issue.checkName}: ${issue.description}`).join('\n')}`
 }
 
+/**
+ * Scan a findings array and extract FAPO attribution signals — per-level counts and failure clusters used to decide which optimization level to escalate to next.
+ */
 export function extractFapoAttributionSignals(
   findings: readonly unknown[],
 ): FapoAttributionSignals {

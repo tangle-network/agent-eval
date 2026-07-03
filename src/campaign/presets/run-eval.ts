@@ -14,6 +14,9 @@ export interface RunEvalOptions<TScenario extends Scenario, TArtifact>
   runDir: string
 }
 
+/**
+ * Simplest evaluation preset: run scenarios through dispatch, score with judges, and return a `CampaignResult` — no optimizer, no gate, no PR.
+ */
 export async function runEval<TScenario extends Scenario, TArtifact>(
   opts: RunEvalOptions<TScenario, TArtifact>,
 ): Promise<CampaignResult<TArtifact, TScenario>> {

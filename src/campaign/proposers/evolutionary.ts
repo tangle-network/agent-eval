@@ -19,6 +19,9 @@ export interface EvolutionaryProposerOptions<TFindings = unknown> {
   findings?: TFindings[]
 }
 
+/**
+ * Wrap a stateless `Mutator` (GEPA, AxGEPA, reflective-mutation) as a `SurfaceProposer` that mutates the current best surface into N candidates each generation.
+ */
 export function evolutionaryProposer<TFindings = unknown>(
   opts: EvolutionaryProposerOptions<TFindings>,
 ): SurfaceProposer<TFindings> {

@@ -122,6 +122,9 @@ export interface RunCampaignOptions<TScenario extends Scenario, TArtifact> {
   }) => string | undefined
 }
 
+/**
+ * Core campaign orchestrator: fan scenarios through dispatch, score with judges, aggregate bootstrap CIs, and persist reproducible `CampaignResult` records.
+ */
 export async function runCampaign<TScenario extends Scenario, TArtifact>(
   opts: RunCampaignOptions<TScenario, TArtifact>,
 ): Promise<CampaignResult<TArtifact, TScenario>> {

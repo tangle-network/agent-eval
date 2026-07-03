@@ -82,6 +82,9 @@ export function agentProfileCellHashMaterial(
   return normalizeAgentProfileCell(material)
 }
 
+/**
+ * Verify an `AgentProfileCell`'s `cellId` matches the sha256 of its hash-material fields, confirming the record has not been tampered with.
+ */
 export async function verifyAgentProfileCell(cell: AgentProfileCell): Promise<boolean> {
   validateAgentProfileCell(cell)
   return (

@@ -112,6 +112,9 @@ export interface GepaProposerOptions {
   combineMaxParents?: number
 }
 
+/**
+ * GEPA reflective proposer: each generation reflects on the weakest scenarios and dimensions to produce targeted prompt rewrites, optionally combining Pareto-frontier parents.
+ */
 export function gepaProposer(opts: GepaProposerOptions): SurfaceProposer {
   const evidenceK = opts.evidenceK ?? 3
   const combineParents = opts.combineParents ?? true

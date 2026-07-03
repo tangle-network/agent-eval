@@ -364,6 +364,9 @@ function buildRunRecord<TScenario extends Scenario, TArtifact>(
   return record
 }
 
+/**
+ * Profile × scenario matrix runner: fan N agent profiles across M scenarios, project each cell to a validated `RunRecord` with real token usage, and enforce the backend-integrity guard before returning.
+ */
 export async function runProfileMatrix<TScenario extends Scenario, TArtifact>(
   opts: RunProfileMatrixOptions<TScenario, TArtifact>,
 ): Promise<RunProfileMatrixResult<TArtifact, TScenario>> {

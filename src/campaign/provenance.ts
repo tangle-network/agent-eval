@@ -380,6 +380,9 @@ export function loopProvenanceSpans(
 export function provenanceRecordPath(runDir: string): string {
   return join(runDir, 'loop-provenance.json')
 }
+/**
+ * Canonical path for the durable OTLP spans JSONL file under a loop run directory.
+ */
 export function provenanceSpansPath(runDir: string): string {
   return join(runDir, 'loop-provenance-spans.jsonl')
 }

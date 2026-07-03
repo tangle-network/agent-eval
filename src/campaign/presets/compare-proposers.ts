@@ -102,6 +102,9 @@ export interface CompareProposersOptions<TScenario extends Scenario, TArtifact>
   confidence?: number
 }
 
+/**
+ * Run a head-to-head lift benchmark across surface proposers on a shared holdout, returning per-proposer lift CIs and pairwise "who wins" verdicts.
+ */
 export async function compareProposers<TScenario extends Scenario, TArtifact>(
   opts: CompareProposersOptions<TScenario, TArtifact>,
 ): Promise<ProposerComparison> {
@@ -406,6 +409,9 @@ export interface FapoEntryConfig<TScenario extends Scenario, TArtifact>
   >
 }
 
+/**
+ * Build a `ProposerEntry` that runs the full FAPO escalation policy (prompt → parameter → structural) as a single comparable optimizer entry.
+ */
 export function fapoEscalationEntry<TScenario extends Scenario, TArtifact>(
   config: FapoEntryConfig<TScenario, TArtifact>,
   name = 'fapo-escalation',

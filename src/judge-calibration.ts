@@ -46,6 +46,9 @@ export interface CalibrationResult {
   worstItems: Array<{ itemId: string; judge: number; human: number; delta: number }>
 }
 
+/**
+ * Measure judge quality against human gold labels: computes Cohen's κ, Pearson correlation, and MAE over matched item ids.
+ */
 export function calibrateJudge(
   golden: GoldenItem[],
   candidate: CandidateScore[],

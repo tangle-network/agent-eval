@@ -87,6 +87,9 @@ export interface SkillOptProposer extends SurfaceProposer {
   proposePatches(args: ProposePatchesArgs): Promise<SkillPatch[]>
 }
 
+/**
+ * SkillOpt proposer: proposes bounded, anchored patch operations (add/delete/replace) on a skill document, conforming to both the patch-native `SkillOptProposer` and the generic `SurfaceProposer` interfaces.
+ */
 export function skillOptProposer(opts: SkillOptProposerOptions): SkillOptProposer {
   const evidenceK = opts.evidenceK ?? 3
   const defaultBudget = opts.editBudget ?? 3
@@ -232,6 +235,9 @@ export class SkillPatchParseError extends Error {
   }
 }
 
+/**
+ * Parse a SkillOpt LLM response into validated `SkillPatch` objects, throwing `SkillPatchParseError` on malformed JSON and silently dropping ops that violate the edit budget.
+ */
 export function parseSkillPatchResponse(
   raw: string,
   maxPatches: number,

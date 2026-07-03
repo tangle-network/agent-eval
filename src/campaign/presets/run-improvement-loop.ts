@@ -73,6 +73,9 @@ export interface RunImprovementLoopResult<TArtifact, TScenario extends Scenario>
   prResult?: ReturnType<typeof openAutoPr>
 }
 
+/**
+ * Gated-promotion shell over `runOptimization`: scores the winner against the baseline on a holdout set, runs the release gate, and optionally opens a PR.
+ */
 export async function runImprovementLoop<TScenario extends Scenario, TArtifact>(
   opts: RunImprovementLoopOptions<TScenario, TArtifact>,
 ): Promise<RunImprovementLoopResult<TArtifact, TScenario>> {
@@ -253,6 +256,9 @@ export async function runImprovementLoop<TScenario extends Scenario, TArtifact>(
   }
 }
 
+/**
+ * Default surface diff renderer: produces a unified baseline/winner text diff for prompt surfaces or a worktree-ref summary for code surfaces.
+ */
 export function defaultRenderDiff(
   winnerSurface: MutableSurface,
   baselineSurface: MutableSurface,
