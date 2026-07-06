@@ -32,6 +32,13 @@ export interface PowerPreflightOptions {
   deltaThreshold?: number
   /** CI confidence the gate uses. Default 0.95. */
   confidence?: number
+  /** True when the holdout is scored by the SAME judge/scorer family as the gate
+   *  (selfImprove's default composition — one judge scores everything). Under a
+   *  shared channel, raising paired n reduces only the IDIOSYNCRATIC noise share;
+   *  systematic judge bias is untouched, so the MDE here is a lower bound and the
+   *  only full debiaser is an independent second scoring channel
+   *  (recursive-self-improvement S1c, closed form in EXP-023 P0). Default false. */
+  sharedScorerChannel?: boolean
 }
 
 export interface PowerPreflight {
@@ -54,6 +61,9 @@ export interface PowerPreflight {
   scaleAssumed: boolean
   deltaThreshold: number
   confidence: number
+  /** Set when the holdout shares the gate's scoring channel: more cells cannot
+   *  buy back systematic judge bias — treat the MDE as a lower bound. */
+  sharedChannelCaveat?: string
   /** One actionable sentence for humans and logs. */
   recommendation: string
 }
@@ -89,6 +99,10 @@ export function powerPreflight(opts: PowerPreflightOptions): PowerPreflight {
   const headroom = Math.max(0, 1 - mean)
   const underpowered = scaleAssumed && mde > headroom
 
+  const sharedChannelCaveat = opts.sharedScorerChannel
+    ? 'Holdout and gate share one scoring channel: raising n/reps reduces only idiosyncratic noise — systematic judge bias remains and this MDE is a lower bound. Full debiasing needs an independent second scoring channel (different judge/benchmark family).'
+    : undefined
+
   const recommendation = underpowered
     ? `UNDERPOWERED: minimum detectable lift ${mde.toFixed(3)} exceeds the ${headroom.toFixed(3)} headroom above the baseline (${mean.toFixed(3)}) — no achievable effect can ship at this budget. Raise paired n (scenarios x reps) to ~${Math.ceil(((z * Math.SQRT2 * sd) / Math.max(headroom - deltaThreshold, 0.01)) ** 2)} or reduce worker variance before searching.`
     : `Minimum detectable lift at n=${n}: ${mde.toFixed(3)} (baseline sd ${sd.toFixed(3)}). Effects smaller than this cannot clear the gate; budget the search for effects you believe exceed it.`
@@ -103,6 +117,9 @@ export function powerPreflight(opts: PowerPreflightOptions): PowerPreflight {
     scaleAssumed,
     deltaThreshold,
     confidence,
-    recommendation,
+    ...(sharedChannelCaveat ? { sharedChannelCaveat } : {}),
+    recommendation: sharedChannelCaveat
+      ? `${recommendation} ${sharedChannelCaveat}`
+      : recommendation,
   }
 }

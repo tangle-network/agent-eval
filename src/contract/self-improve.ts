@@ -481,7 +481,13 @@ export async function selfImprove<TScenario extends Scenario, TArtifact>(
     })
     .filter((v) => Number.isFinite(v))
   if (baselineHoldoutComposites.length >= 3) {
-    power = powerPreflight({ baselineComposites: baselineHoldoutComposites })
+    // selfImprove's holdout is scored by the SAME judge as the gate — the
+    // shared-channel case by construction (S1c): flag it so the MDE reads as a
+    // lower bound and nobody buys reps expecting them to fix judge bias.
+    power = powerPreflight({
+      baselineComposites: baselineHoldoutComposites,
+      sharedScorerChannel: true,
+    })
     if (opts.onProgress) {
       opts.onProgress({
         kind: 'power.estimated',
