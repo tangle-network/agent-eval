@@ -335,12 +335,6 @@ function meanComposite(byScenario: Record<string, { meanComposite: number }>): {
   }
 }
 
-const DEFAULT_MUTATION_PRIMITIVES = [
-  'Tighten the hook: lead with the specific user outcome.',
-  'Replace generic adjectives with specific verbs or proof numbers.',
-  "Anchor every claim in something the scenario's brief literally supports.",
-  'Honor the surface-shape constraint (length, register, audience vocabulary).',
-]
 
 /**
  * One-shot self-improvement loop. See module docstring for defaults +
@@ -408,7 +402,10 @@ export async function selfImprove<TScenario extends Scenario, TArtifact>(
       target:
         opts.proposerTarget ??
         'agent surface (system prompt or config) being optimized by selfImprove',
-      mutationPrimitives: opts.mutationPrimitives ?? DEFAULT_MUTATION_PRIMITIVES,
+      // Pass-through: when unset, gepaProposer falls back to its own domain-neutral
+      // engineering primitives — this facade previously overrode them with a
+      // copywriting-flavored list, steering every domain's reflection toward copy edits.
+      mutationPrimitives: opts.mutationPrimitives,
     })
 
   const gate: Gate<TArtifact, TScenario> =
