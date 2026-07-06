@@ -46,6 +46,11 @@ export {
 } from './gates/default-production-gate'
 export { type HeldOutGateOptions, heldOutGate } from './gates/heldout-gate'
 export {
+  type PowerPreflight,
+  type PowerPreflightOptions,
+  powerPreflight,
+} from './gates/power-preflight'
+export {
   type AxisEvidence,
   type AxisVerdict,
   type BuildEvidenceVectorOptions,
