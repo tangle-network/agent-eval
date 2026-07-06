@@ -9,7 +9,7 @@
  *
  * Defaults:
  *   - In-memory storage (no filesystem touch).
- *   - `gepaProposer` reflective mutation with copywriting-flavored primitives
+ *   - `gepaProposer` reflective mutation with domain-neutral engineering primitives
  *     (override `proposer` or `mutationPrimitives` for any domain).
  *   - `defaultProductionGate` with `deltaThreshold: 0.05`.
  *   - Held-out split = 25% of scenarios, deterministic by id hash.
@@ -342,13 +342,6 @@ function meanComposite(byScenario: Record<string, { meanComposite: number }>): {
   }
 }
 
-const DEFAULT_MUTATION_PRIMITIVES = [
-  'Tighten the hook: lead with the specific user outcome.',
-  'Replace generic adjectives with specific verbs or proof numbers.',
-  "Anchor every claim in something the scenario's brief literally supports.",
-  'Honor the surface-shape constraint (length, register, audience vocabulary).',
-]
-
 /**
  * One-shot self-improvement loop. See module docstring for defaults +
  * extension points.
@@ -415,7 +408,9 @@ export async function selfImprove<TScenario extends Scenario, TArtifact>(
       target:
         opts.proposerTarget ??
         'agent surface (system prompt or config) being optimized by selfImprove',
-      mutationPrimitives: opts.mutationPrimitives ?? DEFAULT_MUTATION_PRIMITIVES,
+      // Pass-through: when unset, gepaProposer falls back to its own
+      // domain-neutral engineering primitives.
+      mutationPrimitives: opts.mutationPrimitives,
     })
 
   const gate: Gate<TArtifact, TScenario> =
