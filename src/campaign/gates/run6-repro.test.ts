@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import type { JudgeScore } from '../types'
+import type { GateContext, JudgeScore } from '../types'
 import { defaultProductionGate } from './default-production-gate'
 
 /**
@@ -61,7 +61,10 @@ describe('run-6 tie-domination regression guard (mean ships what median wrongly 
       scenarios,
       cost: { candidate: 1, baseline: 1 },
       signal: new AbortController().signal,
-    } as never)
+    } satisfies Partial<GateContext<unknown, { id: string; kind: string }>> as GateContext<
+      unknown,
+      { id: string; kind: string }
+    >)
 
     const sig = result.contributingGates?.find((g) => g.name === 'heldout-significance')
     const detail = sig?.detail as

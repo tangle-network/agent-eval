@@ -27,6 +27,12 @@
 import { type PairedBootstrapResult, pairedBootstrap } from '../../statistics'
 import type { JudgeScore } from '../types'
 
+/** Tie fraction at/above which a gate annotates its verdict with the tie share.
+ *  Tie-domination of the median bites structurally at >= 0.5 (the median is then
+ *  0 by construction); 0.4 is a softer warn threshold that flags a run APPROACHING
+ *  that regime, so an operator sees it before the median goes fully blind. */
+export const TIE_WARN_FRACTION = 0.4
+
 export interface PairedHoldout {
   /** Baseline scalar per paired cell (same order as `after`/`cellIds`). */
   before: number[]
