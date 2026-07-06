@@ -59,6 +59,15 @@ describe('powerPreflight (minimum-detectable-lift calculator)', () => {
     expect(p.mde).toBeGreaterThan(0)
   })
 
+  it('flags the shared scoring channel: MDE reads as a lower bound, reps cannot debias', () => {
+    const composites = [1, 0, 1, 0, 1, 0, 1, 0]
+    const shared = powerPreflight({ baselineComposites: composites, sharedScorerChannel: true })
+    expect(shared.sharedChannelCaveat).toMatch(/independent second scoring channel/)
+    expect(shared.recommendation).toMatch(/systematic judge bias remains/)
+    const independent = powerPreflight({ baselineComposites: composites })
+    expect(independent.sharedChannelCaveat).toBeUndefined()
+  })
+
   it('fails loud on insufficient evidence', () => {
     expect(() => powerPreflight({ baselineComposites: [1, 0] })).toThrow(/>= 3 finite/)
     expect(() => powerPreflight({ baselineComposites: [1, 0, 1], pairedN: 1 })).toThrow(/pairedN/)
