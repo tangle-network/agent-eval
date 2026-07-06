@@ -99,14 +99,18 @@ export function defaultProductionGate<TArtifact, TScenario extends Scenario>(
         ),
         { deltaThreshold, minProductiveRuns, confidence, resamples, seed },
       )
-      const delta = sig.bootstrap.median
+      // The ship statistic is the MEAN paired delta (tie-robust); `.low`/`.high`
+      // are its CI. `.median` is the tie-dominated diagnostic.
+      const delta = sig.bootstrap.mean
       const heldoutPass = sig.significant
       contributing.push({
         name: 'heldout-significance',
         passed: heldoutPass,
         detail: {
           n: sig.n,
-          deltaMedian: sig.bootstrap.median,
+          deltaMean: sig.bootstrap.mean,
+          deltaMedianDiagnostic: sig.medianBootstrap.median,
+          tieFraction: sig.tieFraction,
           ciLow: sig.bootstrap.low,
           ciHigh: sig.bootstrap.high,
           confidence: sig.bootstrap.confidence,
@@ -115,10 +119,12 @@ export function defaultProductionGate<TArtifact, TScenario extends Scenario>(
         },
       })
       if (!heldoutPass) {
+        const tieNote =
+          sig.tieFraction >= 0.4 ? `; ${(sig.tieFraction * 100).toFixed(0)}% tied scenarios` : ''
         reasons.push(
           sig.fewRuns
             ? `held-out: only ${sig.n} paired runs (< ${minProductiveRuns}) — too few to claim significance`
-            : `held-out CI.low ${sig.bootstrap.low.toFixed(3)} ≤ threshold ${deltaThreshold} (median ${sig.bootstrap.median.toFixed(3)}, ${(sig.bootstrap.confidence * 100).toFixed(0)}% CI [${sig.bootstrap.low.toFixed(3)}, ${sig.bootstrap.high.toFixed(3)}])`,
+            : `held-out CI.low ${sig.bootstrap.low.toFixed(3)} ≤ threshold ${deltaThreshold} (mean Δ ${sig.bootstrap.mean.toFixed(3)}, ${(sig.bootstrap.confidence * 100).toFixed(0)}% CI [${sig.bootstrap.low.toFixed(3)}, ${sig.bootstrap.high.toFixed(3)}]${tieNote})`,
         )
       }
 

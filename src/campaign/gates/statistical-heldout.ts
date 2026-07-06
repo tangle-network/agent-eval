@@ -99,7 +99,17 @@ export function pairHoldout(
 
 export interface HeldoutSignificance {
   paired: PairedHoldout
+  /** The bootstrap the ship decision keys on — of the MEAN paired delta by
+   *  default (see the tie note on `heldoutSignificance`). */
   bootstrap: PairedBootstrapResult
+  /** The MEDIAN paired-delta bootstrap, reported as a diagnostic. When many
+   *  scenarios are tied (both sides solve them), the median is pinned near 0
+   *  regardless of the mean lift — comparing the two exposes tie-domination. */
+  medianBootstrap: PairedBootstrapResult
+  /** Fraction of paired observations that are exact ties (|delta| < 1e-9). A
+   *  high tie fraction is WHY a median-based gate would have missed a real lift;
+   *  it is the observability the tie fix adds. */
+  tieFraction: number
   /** n paired observations. */
   n: number
   /** True iff n >= minProductiveRuns AND the CI lower bound clears the threshold. */
@@ -130,16 +140,48 @@ export function heldoutSignificance(
 ): HeldoutSignificance {
   const deltaThreshold = opts.deltaThreshold ?? 0
   const minProductiveRuns = opts.minProductiveRuns ?? 3
+  const confidence = opts.confidence ?? 0.95
+  const resamples = opts.resamples ?? 2000
+  const seed = opts.seed ?? 1337
+  // DEFAULT to the MEAN paired delta, not the median. The median is destroyed by
+  // TIES: whenever both baseline and candidate solve a holdout scenario (a common
+  // case once the agent is decent — and INCREASINGLY common as you add holdout
+  // scenarios for statistical power), that scenario contributes delta 0. When
+  // >=50% of paired cells are ties the median is pinned at 0 regardless of a large,
+  // consistent lift on the rest, and the gate holds a genuinely better candidate.
+  // (Measured live, supervisor-lab run 6: 40 cells, 20 ties, MEAN +0.177, MEDIAN 0
+  // → false hold. Doubling the holdout for "power" made it WORSE by adding ties.)
+  // The mean equals the reported aggregate lift, ties correctly contribute 0
+  // without dominating, and it is the textbook paired-comparison estimator; the
+  // median is kept as a reported diagnostic. Callers wanting outlier-robustness at
+  // the cost of tie-blindness can still pass `statistic: 'median'`.
+  const statistic = opts.statistic ?? 'mean'
   const bootstrap = pairedBootstrap(paired.before, paired.after, {
-    confidence: opts.confidence ?? 0.95,
-    resamples: opts.resamples ?? 2000,
-    statistic: opts.statistic ?? 'median',
-    seed: opts.seed ?? 1337,
+    confidence,
+    resamples,
+    statistic,
+    seed,
   })
+  const medianBootstrap =
+    statistic === 'median'
+      ? bootstrap
+      : pairedBootstrap(paired.before, paired.after, {
+          confidence,
+          resamples,
+          statistic: 'median',
+          seed,
+        })
   const n = paired.before.length
+  let ties = 0
+  for (let i = 0; i < n; i += 1) {
+    const after = paired.after[i] ?? 0
+    const before = paired.before[i] ?? 0
+    if (Math.abs(after - before) < 1e-9) ties += 1
+  }
+  const tieFraction = n === 0 ? 0 : ties / n
   const fewRuns = n < minProductiveRuns
   const significant = !fewRuns && bootstrap.low > deltaThreshold
-  return { paired, bootstrap, n, significant, fewRuns }
+  return { paired, bootstrap, medianBootstrap, tieFraction, n, significant, fewRuns }
 }
 
 export interface DimensionRegression {
