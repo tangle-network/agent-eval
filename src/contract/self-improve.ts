@@ -24,6 +24,7 @@
 
 import { createHash } from 'node:crypto'
 import { defaultProductionGate } from '../campaign/gates/default-production-gate'
+import { type PowerPreflight, powerPreflight } from '../campaign/gates/power-preflight'
 import {
   type RunImprovementLoopResult,
   runImprovementLoop,
@@ -94,6 +95,7 @@ export type SelfImproveProgressEvent =
   | { kind: 'generation.started'; index: number; populationSize: number }
   | { kind: 'generation.completed'; index: number; bestComposite: number; durationMs: number }
   | { kind: 'gate.decided'; decision: string; lift: number }
+  | { kind: 'power.estimated'; n: number; sd: number; mde: number; underpowered: boolean }
 
 export interface SelfImproveOptions<TScenario extends Scenario, TArtifact> {
   /**
@@ -286,6 +288,11 @@ export interface SelfImproveResult<TScenario extends Scenario, TArtifact> {
    * Hosted-tier dashboards render this as the v3-vs-v4 decision view.
    */
   insight: InsightReport
+  /** Minimum-detectable-lift analysis from the baseline holdout cells: could this
+   *  budget have shipped ANY plausible effect? Absent when the baseline produced
+   *  fewer than 3 scored holdout cells. See `powerPreflight` for the standalone
+   *  pre-run version (run `gate: 'none'` first, budget the real search after). */
+  power?: PowerPreflight
   /**
    * Raw substrate result for advanced inspection — full per-generation
    * candidates, full campaign artifacts, all judge scores. Useful for
@@ -460,6 +467,35 @@ export async function selfImprove<TScenario extends Scenario, TArtifact>(
   const baseline = meanComposite(result.baselineOnHoldout.aggregates.byScenario)
   const winnerStats = meanComposite(result.winnerOnHoldout.aggregates.byScenario)
 
+  // Power analysis from the baseline holdout cells — the number that says whether
+  // this budget could ship ANY effect. Attached to every result; loud when the
+  // search was structurally unable to promote (that spend should not repeat).
+  let power: PowerPreflight | undefined
+  const baselineHoldoutComposites = result.baselineOnHoldout.cells
+    .filter((cell) => !cell.error)
+    .map((cell) => {
+      const scores = Object.values(cell.judgeScores)
+      return scores.length === 0
+        ? Number.NaN
+        : scores.reduce((sum, s) => sum + s.composite, 0) / scores.length
+    })
+    .filter((v) => Number.isFinite(v))
+  if (baselineHoldoutComposites.length >= 3) {
+    power = powerPreflight({ baselineComposites: baselineHoldoutComposites })
+    if (opts.onProgress) {
+      opts.onProgress({
+        kind: 'power.estimated',
+        n: power.n,
+        sd: power.sd,
+        mde: power.mde,
+        underpowered: power.underpowered,
+      })
+    }
+    if (power.underpowered && generations > 0) {
+      console.warn(`[selfImprove] ${power.recommendation}`)
+    }
+  }
+
   if (opts.onProgress) {
     opts.onProgress({
       kind: 'baseline.completed',
@@ -542,6 +578,7 @@ export async function selfImprove<TScenario extends Scenario, TArtifact>(
     durationMs,
     totalCostUsd: totalCost,
     insight,
+    ...(power ? { power } : {}),
     raw: result,
   }
 
