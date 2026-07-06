@@ -154,6 +154,20 @@ export type {
 } from './auto-pr'
 export { ghCliClient, httpGithubClient } from './auto-pr'
 export { BenchmarkRunner } from './benchmark'
+export type {
+  AssertCapabilityHeadroomOptions,
+  CapabilityHeadroomOptions,
+  CapabilityHeadroomResult,
+  HeadroomClass,
+  HeadroomInput,
+  TaskHeadroom,
+} from './capability-headroom'
+// ── Capability-headroom gate (calibrate-before-measure) ─────────────
+// A capability A/B can only detect the capability on tasks the
+// capability-absent baseline FAILS. Classifies per-task headroom from
+// baseline outcomes (fail-closed on unknowns) and guards the comparison
+// behind a minimum-gap assert.
+export { assertCapabilityHeadroom, capabilityHeadroom } from './capability-headroom'
 // ── Client / driver / judges / executor / benchmark / registry / reporter ─
 export { ProductClient, runE2EWorkflow } from './client'
 export type {
@@ -318,6 +332,23 @@ export {
   resolveModelPricing,
   TokenCounter,
 } from './metrics'
+export type {
+  ComparePairedArmsOptions,
+  MatchedPair,
+  PairArmsOptions,
+  PairArmsResult,
+  PairedArmRow,
+  PairedArmsComparison,
+  PairedCorrectness,
+  PairedMetricDelta,
+} from './paired-arms'
+// ── Matched-pair arm comparison ──────────────────────────────────────
+// Pairs run-record-like rows across two arms by pairKey (multi-rep items
+// match on repKey identity, leftovers reported) and composes the paired
+// estimators from `statistics` (mcnemar + pairedRiskDifference for
+// pass/fail, pairedBootstrap + wilcoxonSignedRank per metric). Arm names
+// are parameters — no domain literal ships here.
+export { comparePairedArms, pairArms } from './paired-arms'
 export type {
   PrReviewAuditCase,
   PrReviewBenchmarkSummary,
