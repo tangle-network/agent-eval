@@ -9,7 +9,7 @@
  *
  * Defaults:
  *   - In-memory storage (no filesystem touch).
- *   - `gepaProposer` reflective mutation with copywriting-flavored primitives
+ *   - `gepaProposer` reflective mutation with domain-neutral engineering primitives
  *     (override `proposer` or `mutationPrimitives` for any domain).
  *   - `defaultProductionGate` with `deltaThreshold: 0.05`.
  *   - Held-out split = 25% of scenarios, deterministic by id hash.
@@ -335,7 +335,6 @@ function meanComposite(byScenario: Record<string, { meanComposite: number }>): {
   }
 }
 
-
 /**
  * One-shot self-improvement loop. See module docstring for defaults +
  * extension points.
@@ -402,9 +401,8 @@ export async function selfImprove<TScenario extends Scenario, TArtifact>(
       target:
         opts.proposerTarget ??
         'agent surface (system prompt or config) being optimized by selfImprove',
-      // Pass-through: when unset, gepaProposer falls back to its own domain-neutral
-      // engineering primitives — this facade previously overrode them with a
-      // copywriting-flavored list, steering every domain's reflection toward copy edits.
+      // Pass-through: when unset, gepaProposer falls back to its own
+      // domain-neutral engineering primitives.
       mutationPrimitives: opts.mutationPrimitives,
     })
 

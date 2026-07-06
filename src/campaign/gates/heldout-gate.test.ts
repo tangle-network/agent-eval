@@ -8,17 +8,16 @@ const score = (composite: number): Record<string, JudgeScore> => ({
 
 function cells(values: number[]): Map<string, Record<string, JudgeScore>> {
   const map = new Map<string, Record<string, JudgeScore>>()
-  values.forEach((v, i) => map.set(`s${Math.floor(i / 2)}:${i % 2}`, score(v)))
+  for (const [i, v] of values.entries()) {
+    map.set(`s${Math.floor(i / 2)}:${i % 2}`, score(v))
+  }
   return map
 }
 
 const scenarios = Array.from({ length: 6 }, (_, i) => ({ id: `s${i}`, kind: 'fixture' }))
 
-describe('heldOutGate (statistical fold of the point-estimate gate)', () => {
-  it('HOLDS on the false positive the point-estimate gate shipped: noise read as lift', async () => {
-    // Baseline and candidate draw from the same noisy distribution; the candidate
-    // MEAN happens to be higher (the "91 vs 95" incident). The old gate shipped
-    // this; the paired CI must not.
+describe('heldOutGate', () => {
+  it('HOLDS on same-distribution noise even when the candidate mean is higher', async () => {
     const baseline = cells([0.9, 0.5, 0.7, 0.95, 0.6, 0.8, 0.85, 0.55, 0.75, 0.9, 0.65, 0.7])
     const candidate = cells([0.95, 0.6, 0.65, 0.9, 0.75, 0.85, 0.8, 0.7, 0.85, 0.8, 0.75, 0.8])
     const gate = heldOutGate({ scenarios, deltaThreshold: 0.02 })
@@ -40,6 +39,30 @@ describe('heldOutGate (statistical fold of the point-estimate gate)', () => {
     } as never)
     expect(result.decision).toBe('ship')
     expect(result.delta).toBeCloseTo(0.3, 1)
+  })
+
+  it('uses the default threshold and exposes the configured bootstrap seed', async () => {
+    const baseline = cells([0.1, 0.1, 0.1, 0.1, 0.1, 0.1])
+    const candidate = cells([0.9, 0.9, 0.9, 0.9, 0.9, 0.9])
+    const gate = heldOutGate({ scenarios: scenarios.slice(0, 3), bootstrapSeed: 99 })
+    const result = await gate.decide({
+      judgeScores: candidate,
+      baselineJudgeScores: baseline,
+    } as never)
+    expect(result.decision).toBe('ship')
+    expect(result.contributingGates[0]?.detail).toMatchObject({
+      deltaThreshold: 0.5,
+      seed: 99,
+    })
+  })
+
+  it('throws when baseline scores are missing', async () => {
+    const gate = heldOutGate({ scenarios: scenarios.slice(0, 3), deltaThreshold: 0.1 })
+    await expect(
+      gate.decide({
+        judgeScores: cells([0.9, 0.9, 0.9, 0.9, 0.9, 0.9]),
+      } as never),
+    ).rejects.toThrow(/baselineJudgeScores/)
   })
 
   it('HOLDS with too few paired observations regardless of the delta', async () => {

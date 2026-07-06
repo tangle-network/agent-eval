@@ -1,15 +1,10 @@
 /**
  * @module
- * Composable held-out promotion gate — statistical, not point-estimate.
+ * Composable held-out promotion gate backed by paired bootstrap confidence.
  *
- * HISTORY (the fold): this gate originally compared candidate-vs-baseline MEAN
- * composites and shipped on `delta >= threshold` — the exact point-estimate
- * false positive `statistical-heldout.ts` was built to prevent (run-to-run
- * model noise read as a "+4 lift" and shipped). The name and the composable
- * `Gate` shape are preserved; the verdict now comes from the same paired
- * bootstrap significance core `defaultProductionGate` uses: pair by full
- * `scenario:rep` cellId, bootstrap the paired delta, ship only when CI.low
- * clears the threshold with at least `minProductiveRuns` paired observations.
+ * Pair by full `scenario:rep` cellId, bootstrap the paired candidate-minus-
+ * baseline delta, and ship only when CI.low strictly clears the threshold with
+ * at least `minProductiveRuns` paired observations.
  *
  * Use when you want held-out significance as ONE of N composed gates instead
  * of the full `defaultProductionGate` stack (which adds critical-dimension
@@ -22,7 +17,7 @@ import { heldoutSignificance, pairHoldout } from './statistical-heldout'
 export interface HeldOutGateOptions<TScenario extends Scenario = Scenario> {
   scenarios: TScenario[]
   /** Effect-size threshold the CI lower bound must clear, in the judge's native
-   *  scale. Default 0.5 (unchanged from the point-estimate era). */
+   *  scale. Default 0.5. Equality holds; CI.low must be greater than this value. */
   deltaThreshold?: number
   /** Bootstrap CI confidence. Default 0.95. */
   confidence?: number
@@ -30,6 +25,8 @@ export interface HeldOutGateOptions<TScenario extends Scenario = Scenario> {
   minProductiveRuns?: number
   /** Bootstrap resamples. Default 2000. */
   resamples?: number
+  /** Fixed bootstrap seed for deterministic verdicts. Default 1337. */
+  bootstrapSeed?: number
 }
 
 /**
@@ -40,24 +37,27 @@ export function heldOutGate<TArtifact, TScenario extends Scenario>(
   options: HeldOutGateOptions<TScenario>,
 ): Gate<TArtifact, TScenario> {
   const deltaThreshold = options.deltaThreshold ?? 0.5
+  const confidence = options.confidence ?? 0.95
+  const minProductiveRuns = options.minProductiveRuns ?? 3
+  const resamples = options.resamples ?? 2000
+  const seed = options.bootstrapSeed ?? 1337
   return {
     name: 'heldOutGate',
     async decide(ctx: GateContext<TArtifact, TScenario>): Promise<GateResult> {
+      if (!ctx.baselineJudgeScores) {
+        throw new Error(
+          'heldOutGate: ctx.baselineJudgeScores is required — comparing candidate scores against themselves would hide a missing baseline',
+        )
+      }
       const scenarioIds = new Set(options.scenarios.map((s) => s.id))
-      // Baseline scores live in their OWN map — falling back to `judgeScores`
-      // would compare the candidate against itself (delta 0).
       const sig = heldoutSignificance(
-        pairHoldout(
-          ctx.judgeScores,
-          ctx.baselineJudgeScores ?? ctx.judgeScores,
-          scenarioIds,
-          (s) => s.composite,
-        ),
+        pairHoldout(ctx.judgeScores, ctx.baselineJudgeScores, scenarioIds, (s) => s.composite),
         {
           deltaThreshold,
-          confidence: options.confidence ?? 0.95,
-          minProductiveRuns: options.minProductiveRuns ?? 3,
-          resamples: options.resamples ?? 2000,
+          confidence,
+          minProductiveRuns,
+          resamples,
+          seed,
         },
       )
       const delta = sig.bootstrap.median
@@ -86,6 +86,7 @@ export function heldOutGate<TArtifact, TScenario extends Scenario>(
               n: sig.n,
               deltaThreshold,
               fewRuns: sig.fewRuns,
+              seed,
             },
           },
         ],

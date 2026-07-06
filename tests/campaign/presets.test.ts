@@ -118,23 +118,26 @@ describe('heldOutGate', () => {
     string,
     Record<string, { composite: number; dimensions: Record<string, number>; notes: string }>
   >
-  const mk = (h1: number, h2: number): Scores =>
-    new Map([
-      ['h1:0', { judge: { composite: h1, dimensions: {}, notes: '' } }],
-      ['h2:0', { judge: { composite: h2, dimensions: {}, notes: '' } }],
-    ])
+  const mk = (...values: number[]): Scores =>
+    new Map(
+      values.map((value, index) => [
+        `h${index + 1}:0`,
+        { judge: { composite: value, dimensions: {}, notes: '' } },
+      ]),
+    )
   const artifacts = new Map([
     ['h1:0', null],
     ['h2:0', null],
+    ['h3:0', null],
   ])
 
-  it('ships when candidate beats baseline by >= deltaThreshold (separate score maps)', async () => {
+  it('ships when the candidate-baseline CI lower bound clears deltaThreshold', async () => {
     const gate = heldOutGate({ scenarios: HOLDOUT, deltaThreshold: 0.5 })
     const result = await gate.decide({
       candidateArtifacts: artifacts as never,
       baselineArtifacts: artifacts as never,
-      judgeScores: mk(9, 8), // candidate mean 8.5
-      baselineJudgeScores: mk(5, 4), // baseline mean 4.5 → delta 4.0
+      judgeScores: mk(9, 8, 7),
+      baselineJudgeScores: mk(5, 4, 3),
       scenarios: HOLDOUT,
       cost: { candidate: 0, baseline: 0 },
       signal: new AbortController().signal,
@@ -148,8 +151,8 @@ describe('heldOutGate', () => {
     const result = await gate.decide({
       candidateArtifacts: artifacts as never,
       baselineArtifacts: artifacts as never,
-      judgeScores: mk(6, 6), // candidate 6
-      baselineJudgeScores: mk(6, 6), // baseline 6 → delta 0 < 0.5
+      judgeScores: mk(6, 6, 6),
+      baselineJudgeScores: mk(6, 6, 6),
       scenarios: HOLDOUT,
       cost: { candidate: 0, baseline: 0 },
       signal: new AbortController().signal,
