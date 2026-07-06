@@ -18,7 +18,12 @@ import type { RewardHackingReport } from '../../rl/reward-hacking'
 import { detectRewardHacking } from '../../rl/reward-hacking'
 import type { RunRecord } from '../../run-record'
 import type { Gate, GateContext, GateResult, Scenario } from '../types'
-import { dimensionRegressions, heldoutSignificance, pairHoldout } from './statistical-heldout'
+import {
+  dimensionRegressions,
+  heldoutSignificance,
+  pairHoldout,
+  TIE_WARN_FRACTION,
+} from './statistical-heldout'
 
 export interface DefaultProductionGateOptions {
   /** Required: scenarios held out from training; substrate compares
@@ -39,6 +44,10 @@ export interface DefaultProductionGateOptions {
    *  significance claim is allowed; below it the gate HOLDS with `few_runs`
    *  rather than reading a degenerate CI. Default 3. */
   minProductiveRuns?: number
+  /** Ship statistic for the held-out significance test. Default `'mean'`
+   *  (tie-robust — see `heldoutSignificance`). Pass `'median'` for
+   *  outlier-robustness at the cost of tie-blindness. */
+  heldoutStatistic?: 'mean' | 'median'
   /** Critical judge dimensions that must NOT significantly regress even when
    *  the net composite rises (anti-Goodhart). The gate HOLDS if any listed
    *  dimension's paired-delta CI lower bound < −`regressionTolerance`. E.g.
@@ -74,6 +83,7 @@ export function defaultProductionGate<TArtifact, TScenario extends Scenario>(
   const resamples = options.bootstrapResamples ?? 2000
   const seed = options.bootstrapSeed ?? 1337
   const minProductiveRuns = options.minProductiveRuns ?? 3
+  const heldoutStatistic = options.heldoutStatistic ?? 'mean'
   const blockOnGaming = options.blockOnRewardHackingGaming ?? true
 
   return {
@@ -97,16 +107,31 @@ export function defaultProductionGate<TArtifact, TScenario extends Scenario>(
           scenarioIds,
           (s) => s.composite,
         ),
-        { deltaThreshold, minProductiveRuns, confidence, resamples, seed },
+        {
+          deltaThreshold,
+          minProductiveRuns,
+          confidence,
+          resamples,
+          seed,
+          statistic: heldoutStatistic,
+        },
       )
-      const delta = sig.bootstrap.median
+      // Point estimate of the CHOSEN ship statistic (mean by default); `.low`/
+      // `.high` are its CI. The median is kept as a diagnostic.
+      const delta = heldoutStatistic === 'median' ? sig.bootstrap.median : sig.bootstrap.mean
       const heldoutPass = sig.significant
       contributing.push({
         name: 'heldout-significance',
         passed: heldoutPass,
         detail: {
           n: sig.n,
-          deltaMedian: sig.bootstrap.median,
+          delta,
+          deltaMean: sig.bootstrap.mean,
+          deltaMedianDiagnostic: sig.medianBootstrap.median,
+          // Back-compat: prior consumers read `deltaMedian`. It now always carries
+          // the median diagnostic (the ship decision keys on `delta`/mean).
+          deltaMedian: sig.medianBootstrap.median,
+          tieFraction: sig.tieFraction,
           ciLow: sig.bootstrap.low,
           ciHigh: sig.bootstrap.high,
           confidence: sig.bootstrap.confidence,
@@ -115,10 +140,14 @@ export function defaultProductionGate<TArtifact, TScenario extends Scenario>(
         },
       })
       if (!heldoutPass) {
+        const tieNote =
+          sig.tieFraction >= TIE_WARN_FRACTION
+            ? `; ${(sig.tieFraction * 100).toFixed(0)}% tied scenarios`
+            : ''
         reasons.push(
           sig.fewRuns
             ? `held-out: only ${sig.n} paired runs (< ${minProductiveRuns}) — too few to claim significance`
-            : `held-out CI.low ${sig.bootstrap.low.toFixed(3)} ≤ threshold ${deltaThreshold} (median ${sig.bootstrap.median.toFixed(3)}, ${(sig.bootstrap.confidence * 100).toFixed(0)}% CI [${sig.bootstrap.low.toFixed(3)}, ${sig.bootstrap.high.toFixed(3)}])`,
+            : `held-out CI.low ${sig.bootstrap.low.toFixed(3)} ≤ threshold ${deltaThreshold} (${heldoutStatistic} Δ ${delta.toFixed(3)}, ${(sig.bootstrap.confidence * 100).toFixed(0)}% CI [${sig.bootstrap.low.toFixed(3)}, ${sig.bootstrap.high.toFixed(3)}]${tieNote})`,
         )
       }
 

@@ -12,7 +12,7 @@
  */
 
 import type { Gate, GateContext, GateResult, Scenario } from '../types'
-import { heldoutSignificance, pairHoldout } from './statistical-heldout'
+import { heldoutSignificance, pairHoldout, TIE_WARN_FRACTION } from './statistical-heldout'
 
 export interface HeldOutGateOptions<TScenario extends Scenario = Scenario> {
   scenarios: TScenario[]
@@ -60,26 +60,34 @@ export function heldOutGate<TArtifact, TScenario extends Scenario>(
           seed,
         },
       )
-      const delta = sig.bootstrap.median
+      // Ship on the MEAN paired delta (tie-robust; matches heldoutSignificance's
+      // default and defaultProductionGate). The CI (`low`/`high`) is the mean's,
+      // so the reported point estimate must be the mean too — reporting the
+      // sample median here (as before) would pair a mean CI with a median value.
+      const delta = sig.bootstrap.mean
       const passed = sig.significant
+      const tieNote =
+        sig.tieFraction >= TIE_WARN_FRACTION ? `, ${(sig.tieFraction * 100).toFixed(0)}% tied` : ''
       const ci = `${(sig.bootstrap.confidence * 100).toFixed(0)}% CI [${sig.bootstrap.low.toFixed(3)}, ${sig.bootstrap.high.toFixed(3)}]`
       return {
         decision: passed ? 'ship' : 'hold',
         reasons: passed
           ? [
-              `held-out paired Δ median ${delta.toFixed(3)}, CI.low ${sig.bootstrap.low.toFixed(3)} > ${deltaThreshold} (${ci}, n=${sig.n})`,
+              `held-out mean Δ ${delta.toFixed(3)}, CI.low ${sig.bootstrap.low.toFixed(3)} > ${deltaThreshold} (${ci}, n=${sig.n}${tieNote})`,
             ]
           : [
               sig.fewRuns
                 ? `held-out: only ${sig.n} paired runs — too few to claim significance`
-                : `held-out paired Δ median ${delta.toFixed(3)}, CI.low ${sig.bootstrap.low.toFixed(3)} ≤ ${deltaThreshold} (${ci}, n=${sig.n})`,
+                : `held-out mean Δ ${delta.toFixed(3)}, CI.low ${sig.bootstrap.low.toFixed(3)} ≤ ${deltaThreshold} (${ci}, n=${sig.n}${tieNote})`,
             ],
         contributingGates: [
           {
             name: 'heldOutGate',
             passed,
             detail: {
-              deltaMedian: delta,
+              deltaMean: delta,
+              deltaMedianDiagnostic: sig.medianBootstrap.median,
+              tieFraction: sig.tieFraction,
               ciLow: sig.bootstrap.low,
               ciHigh: sig.bootstrap.high,
               confidence: sig.bootstrap.confidence,
