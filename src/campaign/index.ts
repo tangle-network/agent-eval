@@ -238,6 +238,13 @@ export {
   runCampaign,
 } from './run-campaign'
 export { resolveRunDir, tangleTracesRoot } from './run-dir.js'
+// ── Discriminative holdout selection (drop saturated ties) ───────────
+export {
+  type DiscriminationScore,
+  type ScenarioSignal,
+  scoreDiscrimination,
+  selectDiscriminative,
+} from './scenario-selection'
 export { type CampaignBreakdown, campaignBreakdown, campaignMeanComposite } from './score-utils'
 export {
   type ApplySkillPatchResult,
