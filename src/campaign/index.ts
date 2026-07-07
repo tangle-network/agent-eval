@@ -148,6 +148,13 @@ export {
   runImprovementLoop,
 } from './presets/run-improvement-loop'
 export {
+  type RunLineageLoopOptions,
+  type RunLineageLoopResult,
+  type RunLineageLoopSeed,
+  runLineageLoop,
+  type SurfaceScore,
+} from './presets/run-lineage-loop'
+export {
   type RunOptimizationOptions,
   type RunOptimizationResult,
   runOptimization,
