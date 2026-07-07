@@ -1,3 +1,25 @@
+export {
+  callbackGovernor,
+  fsLineageStore,
+  type Governor,
+  type GovernorContext,
+  type GovernorOp,
+  type HeuristicGovernorOptions,
+  heuristicGovernor,
+  Lineage,
+  type LineageEdge,
+  type LineageGraph,
+  type LineageNode,
+  type LineageNodeInput,
+  type LineageStore,
+  lineageNodeId,
+  memLineageStore,
+  type RunLineageOptions,
+  type RunLineageResult,
+  type RunLineageSeed,
+  type RunLineageStepResult,
+  runLineage,
+} from './lineage'
 /**
  * `@tangle-network/agent-eval/campaign` — measurement + improvement loop.
  *
