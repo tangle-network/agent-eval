@@ -76,6 +76,10 @@ function zFor(confidence: number): number {
   return 1.282
 }
 
+/** Estimate the minimum detectable lift a paired-holdout improvement run can
+ *  ship at a given budget, from the baseline holdout composites — call it BEFORE
+ *  spending a search to learn whether the effect you are hunting is even
+ *  observable at this holdout size and worker variance. */
 export function powerPreflight(opts: PowerPreflightOptions): PowerPreflight {
   const composites = opts.baselineComposites.filter((v) => Number.isFinite(v))
   if (composites.length < 3) {
