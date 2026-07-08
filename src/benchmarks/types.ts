@@ -4,7 +4,32 @@
  * `BenchmarkAdapter` plus its own typed `DatasetItem` shape.
  */
 
+import type { DispatchContext, Scenario } from '../campaign/types'
 import type { RunSplitTag } from '../run-record'
+
+export type BenchmarkTaskKind =
+  | 'retrieval'
+  | 'rag-answer'
+  | 'hallucination'
+  | 'kb-improvement'
+  | 'routing'
+  | 'custom'
+
+export type BenchmarkFamily =
+  | 'beir'
+  | 'mteb-retrieval'
+  | 'msmarco'
+  | 'trec-dl'
+  | 'miracl'
+  | 'lotte'
+  | 'bright'
+  | 'crag'
+  | 'hotpotqa'
+  | 'kilt'
+  | 'ragtruth'
+  | 'faithbench'
+  | 'first-party'
+  | 'custom'
 
 export interface BenchmarkDatasetItem<TPayload = unknown> {
   /** Stable dataset-local item id (used for split assignment + paper
@@ -12,6 +37,17 @@ export interface BenchmarkDatasetItem<TPayload = unknown> {
   id: string
   /** Free-form payload. Each benchmark defines its own shape. */
   payload: TPayload
+  /** Optional precomputed split. When absent, adapters use assignSplit(id). */
+  split?: RunSplitTag
+  /** Benchmark family this row came from, e.g. `beir` or `crag`. */
+  family?: BenchmarkFamily | string
+  /** Benchmark-local task kind, e.g. retrieval vs answer quality. */
+  taskKind?: BenchmarkTaskKind | string
+  /** Slice labels such as language, domain, freshness, multihop, long-tail. */
+  tags?: string[]
+  /** Dataset provenance, version, URL, or license notes. */
+  source?: BenchmarkSource
+  metadata?: Record<string, unknown>
 }
 
 export interface BenchmarkEvaluation {
@@ -19,9 +55,22 @@ export interface BenchmarkEvaluation {
    *  benchmarks use 0/1; partial-credit benchmarks may return
    *  fractional values. */
   score: number
+  /** Optional pass/fail projection. Defaults to `score > 0` when absent. */
+  passed?: boolean
+  /** Numeric sub-metrics. These become report dimensions. */
+  dimensions?: Record<string, number>
   /** Optional bag of raw scoring signals — e.g. parsed numeric
    *  answer, regex match, judge sub-scores. */
   raw: Record<string, unknown>
+  notes?: string
+}
+
+export interface BenchmarkSource {
+  name?: string
+  url?: string
+  version?: string
+  license?: string
+  citation?: string
 }
 
 /** Common signature implemented by every adapter under `src/benchmarks/*`. */
@@ -29,19 +78,41 @@ export interface BenchmarkEvaluation {
 // downstream type-narrowing extensions (a richer `BenchmarkDatasetItem`
 // subclass that adds e.g. provenance metadata) but is intentionally
 // unused here. `noUnusedLocals` requires the leading underscore.
-export interface BenchmarkAdapter<_TItem = unknown, TPayload = unknown> {
+export interface BenchmarkAdapter<_TItem = unknown, TPayload = unknown, TArtifact = string> {
+  /** Stable benchmark id such as `beir/nfcorpus` or `crag/smoke`. */
+  id?: string
+  family?: BenchmarkFamily | string
+  taskKind?: BenchmarkTaskKind | string
+  description?: string
+  source?: BenchmarkSource
+  defaultMetric?: string
   /** Load the dataset for the given split. May hit the network on
    *  first call but should be cache-friendly. Adapters that don't
    *  ship the dataset itself MUST throw a clearly-marked error
    *  pointing the caller at the loader script. */
   loadDataset(split: RunSplitTag): Promise<BenchmarkDatasetItem<TPayload>[]>
   /** Score a single response. Pure with respect to the inputs. */
-  evaluate(item: BenchmarkDatasetItem<TPayload>, response: string): Promise<BenchmarkEvaluation>
+  evaluate(item: BenchmarkDatasetItem<TPayload>, artifact: TArtifact): Promise<BenchmarkEvaluation>
   /** Deterministic split assignment via item id hashing. The
    *  fraction of items in each split is implementation-defined but
    *  MUST be stable across processes and platforms. */
   assignSplit(itemId: string): RunSplitTag
 }
+
+export interface BenchmarkScenario<TPayload = unknown> extends Scenario {
+  kind: 'benchmark'
+  benchmarkId: string
+  family: BenchmarkFamily | string
+  taskKind: BenchmarkTaskKind | string
+  splitTag: RunSplitTag
+  item: BenchmarkDatasetItem<TPayload>
+}
+
+export type BenchmarkResponder<TPayload = unknown, TArtifact = string> = (input: {
+  scenario: BenchmarkScenario<TPayload>
+  item: BenchmarkDatasetItem<TPayload>
+  context: DispatchContext
+}) => Promise<TArtifact> | TArtifact
 
 // ── Deterministic split assignment ───────────────────────────────────
 
