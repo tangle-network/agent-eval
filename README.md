@@ -136,7 +136,7 @@ Each example: `README.md` + a single `index.ts` runnable via `pnpm tsx`. Prints 
 | `…/matrix` | `runAgentMatrix` — an N-axis cartesian over caller-supplied substrate values, per-axis pass/score/cost/duration |
 | `…/multishot` | N-shot persona × shot matrix runner (`runMultishot` / `runMultishotMatrix`) |
 | `…/wire` | The cross-language HTTP/RPC server + Zod schemas (the source-of-truth protocol the Python client speaks) + the built-in rubric registry |
-| `…/benchmarks` | `BenchmarkAdapter` contract + `deterministicSplit` + the bundled `routing` reference benchmark |
+| `…/benchmarks` | `BenchmarkAdapter` contract, `runBenchmarkAdapter`, `calibrateBenchmarkMetric`, standard retrieval parsers + ranked retrieval metrics, `deterministicSplit`, and the bundled `routing` reference benchmark |
 
 **Specialized surfaces** (subpath-only): `…/prm` (process-reward grading + best-of-N), `…/meta-eval` (judge calibration + the deployment-outcome store), `…/belief-state` (decision-point extraction + selective-policy reports), `…/pipelines` (trace-diagnostic views: budget breach, failure cluster, stuck loop, …), `…/governance` (EU AI Act / NIST AI RMF / SOC2 reports), `…/knowledge` (knowledge-readiness gating before a run), `…/builder-eval` (code-generator three-layer eval), `…/storyboard` (trace → watchable replay), `…/authenticity` (anti-Goodhart "real or convincing BS" scorer over produced files), `…/workflow` (workflow-trace eval + partner export), `…/telemetry` (Workers-safe telemetry client), `…/testing` (test-only reset helpers).
 

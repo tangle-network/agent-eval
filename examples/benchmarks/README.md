@@ -26,6 +26,46 @@ assignSplit(itemId: string): 'search' | 'dev' | 'holdout'
 
 `assignSplit` uses `deterministicSplit(itemId, BENCHMARK_SPLIT_SEED)` — same item gets the same split everywhere. Don't change the seed; it's load-bearing for reproducibility.
 
+## Running a benchmark
+
+Use `runBenchmarkAdapter` when you want a campaign-backed run with resumability, traces, cost, latency, split reporting, and persisted report artifacts.
+
+```ts
+import { runBenchmarkAdapter, routing } from '@tangle-network/agent-eval/benchmarks'
+
+const result = await runBenchmarkAdapter({
+  adapter: new routing.RoutingAdapter(),
+  runDir: 'routing-smoke',
+  respond: async ({ item, context }) => {
+    const route = await callRouter(item.payload.prompt)
+    context.cost.observe(0.001, 'router')
+    return route
+  },
+})
+
+console.log(result.report.score.mean)
+console.log(result.reportMarkdownPath)
+```
+
+Before treating a benchmark metric as real evidence, run `calibrateBenchmarkMetric` with an intentionally weak and intentionally strong artifact.
+The default pass condition is weak score at most `0.3`, strong score at least `0.7`, and gap at least `0.4`.
+
+## Standard retrieval formats
+
+`@tangle-network/agent-eval/benchmarks` also exports dependency-free helpers for BEIR/MTEB/MS MARCO/TREC/MIRACL-style files:
+
+- `parseBeirCorpusJsonl`
+- `parseBeirQueriesJsonl`
+- `parseQrels`
+- `buildStandardRetrievalItems`
+- `createRetrievalIdBenchmarkAdapter`
+- `evaluateStandardRetrieval`
+
+These helpers normalize public retrieval datasets into the same `BenchmarkDatasetItem` shape.
+The retrieval evaluator accepts ranked document IDs and reports nDCG@k, recall@k, precision@k, MRR@k, and hit@k.
+It does not copy the full corpus into every query payload unless `includeCorpusInPayload` is explicitly set.
+Domain packages such as `agent-knowledge` can then map those items into their own RAG scenario types instead of re-parsing every public benchmark.
+
 ## Adding a new benchmark
 
 1. Create `examples/benchmarks/<your-benchmark>/index.ts`.

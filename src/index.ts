@@ -1181,6 +1181,11 @@ export type {
   BenchmarkAdapter,
   BenchmarkDatasetItem,
   BenchmarkEvaluation,
+  BenchmarkFamily,
+  BenchmarkResponder,
+  BenchmarkScenario,
+  BenchmarkSource,
+  BenchmarkTaskKind,
 } from './benchmarks/types'
 export {
   BENCHMARK_SPLIT_SEED,

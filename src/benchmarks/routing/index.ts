@@ -20,6 +20,12 @@ export type RoutingPayload = RoutingItem
 export type RoutingDatasetItem = BenchmarkDatasetItem<RoutingPayload>
 
 class RoutingAdapter implements BenchmarkAdapter<RoutingDatasetItem, RoutingPayload> {
+  readonly id = 'first-party/routing'
+  readonly family = 'first-party'
+  readonly taskKind = 'routing'
+  readonly description = 'Synthetic fixed-route classification smoke benchmark'
+  readonly defaultMetric = 'route_exact_match'
+
   async loadDataset(split: RunSplitTag): Promise<RoutingDatasetItem[]> {
     return ROUTING_DATASET.map((item) => ({ id: item.id, payload: item })).filter(
       (it) => assignSplitImpl(it.id) === split,
