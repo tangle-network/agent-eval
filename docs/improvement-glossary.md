@@ -197,3 +197,7 @@ Every entrant is re-scored on the **same** holdout with the **same** judges, so 
 - Do not let a proposer read held-out judge scores — `ProposeContext` makes that a compile error on purpose; a proposer that games the acceptance axis is an oracle, not an optimizer.
 - Do not read `lift` without `result.power`/MDE — a "+4" on a valset too small to detect +4 is noise wearing a number.
 - Do not look for a `compositeProposer` — `fapoProposer` is the composite; `compareProposers` is the race; `runImprovementLoop`/`improve` is the plug.
+
+### neutralizationGate — the placebo / content-causality control
+
+Standard gates prove a candidate *beat baseline*. `neutralizationGate` proves the candidate's **content** caused the lift, not the extra prompt bytes: it blanks the candidate's added content to byte-length-matched filler, holds everything else fixed, and requires the lift to vanish. A fully-neutralized candidate that still scores is decorative and is rejected. Exports: `neutralizationGate` (`src/campaign/gates/neutralization-gate.ts`), `neutralizeText` (`src/campaign/neutralize.ts`). Since 0.107.0. Pair it with `heldOutGate` in any loop that promotes authored artifacts (prompts, tool docs, knowledge) so a lift that is really just added prompt size cannot be shipped.
