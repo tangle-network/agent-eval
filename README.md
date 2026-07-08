@@ -122,7 +122,7 @@ Each example: `README.md` + a single `index.ts` runnable via `pnpm tsx`. Prints 
 
 | Subpath | What it gives you |
 |---|---|
-| `…/contract` | **The headline, frozen surface — new code starts here.** `defineAgentEval`, `selfImprove`, `analyzeRuns`, `runEval`, `runCampaign`, `runImprovementLoop`, `diffRuns`; intake adapters (`fromFeedbackTable`, `fromOtelSpans`); proposers (`gepaProposer`, `evolutionaryProposer`); gates (`defaultProductionGate`, `heldOutGate`, `paretoSignificanceGate`, `composeGate`); the deployment-outcome store; storage; and the five core types `Scenario` / `Dispatch` / `JudgeConfig` / `SurfaceProposer` / `Gate`. |
+| `…/contract` | **The headline, frozen surface — new code starts here.** `defineAgentEval`, `selfImprove`, `analyzeRuns`, `runEval`, `runCampaign`, `runImprovementLoop`, `diffRuns`; intake adapters (`fromFeedbackTable`, `fromOtelSpans`); proposers (`gepaProposer`, `evolutionaryProposer`); gates (`defaultProductionGate`, `heldOutGate`, `paretoSignificanceGate`, `neutralizationGate`, `composeGate`); the deployment-outcome store; storage; and the five core types `Scenario` / `Dispatch` / `JudgeConfig` / `SurfaceProposer` / `Gate`. |
 | `…/hosted` | `createHostedClient` / `hostedClientFromEnv` + the wire types to ship eval-run events + trace spans to a hosted orchestrator (ours or your own implementation of the spec) |
 | `…/adapters/otel` | `createOtelBridge` — forwards OpenTelemetry-shape spans into the hosted-tier ingest, no `@opentelemetry/*` dependency |
 | `…/adapters/langchain` | Wrap any LangChain `Runnable` as a `Dispatch` (or `JudgeConfig`), no `@langchain/core` peer dep |
