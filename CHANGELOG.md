@@ -4,6 +4,16 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ---
 
+## [0.108.0] — 2026-07-08 — placebo control reaches the facades
+
+### Added
+
+- **`neutralize` passthrough on `selfImprove`.** 0.107.0 wired the footprint-matched placebo arm at `runImprovementLoop`; the public `selfImprove` facade did not forward it, so the placebo gate was unreachable from the one-call entry point. `selfImprove({ ..., neutralize })` now scores the third placebo arm and exposes `ctx.neutralizedJudgeScores` to the gate — compose `neutralizationGate` into `gate` to act on it.
+
+Additive (one optional field); no consumer bump required.
+
+---
+
 ## [0.107.0] — 2026-07-07 — footprint-matched placebo promotion gate
 
 ### Added

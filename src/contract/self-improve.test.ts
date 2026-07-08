@@ -8,7 +8,7 @@
  */
 
 import { describe, expect, it } from 'vitest'
-import type { JudgeConfig } from '../campaign/types'
+import type { Gate, JudgeConfig, SurfaceProposer } from '../campaign/types'
 import type { DispatchContext, Scenario } from './index'
 import { type SelfImproveProgressEvent, selfImprove } from './self-improve'
 
@@ -59,5 +59,50 @@ describe('selfImprove — power analysis wiring', () => {
 
     const powerEvents = events.filter((e) => e.kind === 'power.estimated')
     expect(powerEvents).toHaveLength(1)
+  })
+})
+
+describe('selfImprove — neutralize (placebo arm) passthrough', () => {
+  it('forwards `neutralize`: runs the placebo arm and hands its scores to the gate', async () => {
+    let neutralizeCalled = false
+    let gateSawNeutralized = false
+
+    // Rewards only the surface containing "better", so the proposed candidate
+    // beats the baseline → the loop promotes a winner ≠ baseline → the placebo
+    // arm runs (it is skipped when winner == baseline).
+    const winJudge: JudgeConfig<{ text: string }, Scenario> = {
+      name: 'win-judge',
+      dimensions: [{ key: 'q', description: 'fixture quality' }],
+      score: ({ artifact }) => {
+        const good = artifact.text.includes('better') ? 1 : 0
+        return { dimensions: { q: good }, composite: good, notes: '' }
+      },
+    }
+    const proposer: SurfaceProposer = { kind: 'stub', propose: async () => ['better'] }
+    const captureGate: Gate<{ text: string }, Scenario> = {
+      name: 'capture',
+      async decide(ctx) {
+        gateSawNeutralized = (ctx.neutralizedJudgeScores?.size ?? 0) > 0
+        return { decision: 'hold', reasons: [], contributingGates: [] }
+      },
+    }
+
+    await selfImprove({
+      agent: stubAgent,
+      scenarios,
+      judge: winJudge,
+      baselineSurface: 'base',
+      proposer,
+      gate: captureGate,
+      budget: { generations: 1, populationSize: 1, holdoutFraction: 0.5 },
+      neutralize: (winner) => {
+        neutralizeCalled = true
+        // footprint-matched-ish blank: same length, zero content
+        return '#'.repeat(String(winner).length)
+      },
+    })
+
+    expect(neutralizeCalled).toBe(true)
+    expect(gateSawNeutralized).toBe(true)
   })
 })
