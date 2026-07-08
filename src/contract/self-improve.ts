@@ -140,6 +140,15 @@ export interface SelfImproveOptions<TScenario extends Scenario, TArtifact> {
    *  `deltaThreshold: 0.05` on the held-out split. */
   gate?: Gate<TArtifact, TScenario>
 
+  /** Placebo control. When supplied AND the winner differs from baseline, the
+   *  loop scores a THIRD held-out arm: the winner surface with its content
+   *  footprint-matched-blanked by this fn (typically via `neutralizeText`). Its
+   *  scores reach the gate as `ctx.neutralizedJudgeScores`, letting a
+   *  `neutralizationGate` reject a win whose lift survives blanking the content
+   *  (decorative — driven by footprint, not content). Costs one extra held-out
+   *  campaign; omit to skip. Compose `neutralizationGate` into `gate` to act on it. */
+  neutralize?: (winnerSurface: MutableSurface, baselineSurface: MutableSurface) => MutableSurface
+
   /** LLM config consumed by the default `gepaProposer`. Ignored if you pass
    *  your own `proposer`. */
   llm?: SelfImproveLlm
@@ -444,6 +453,7 @@ export async function selfImprove<TScenario extends Scenario, TArtifact>(
     reps: budget.reps,
     holdoutScenarios: holdout,
     gate,
+    neutralize: opts.neutralize,
     autoOnPromote: opts.autoOnPromote ?? 'none',
     ghOwner: opts.ghOwner,
     ghRepo: opts.ghRepo,
