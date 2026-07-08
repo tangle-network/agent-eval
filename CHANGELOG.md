@@ -4,6 +4,16 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ---
 
+## [0.108.1] — 2026-07-08 — public catalog docs patch
+
+### Fixed
+
+- Added the missing public TSDoc summary for `Lineage`, so downstream primitive catalogs can consume the latest campaign surface without tripping their undocumented-callable ratchet.
+
+No behavior changes.
+
+---
+
 ## [0.108.0] — 2026-07-08 — placebo control reaches the facades
 
 ### Added

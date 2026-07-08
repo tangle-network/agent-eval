@@ -85,6 +85,7 @@ export type LineageNodeInput = Omit<LineageNode, 'id' | 'seq' | 'generation'> & 
   generation?: number
 }
 
+/** Deterministic improvement-candidate graph with mutation, merge, frontier, and persistence helpers. */
 export class Lineage {
   private readonly byId = new Map<string, LineageNode>()
   private readonly childIds = new Map<string, string[]>()
