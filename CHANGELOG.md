@@ -4,6 +4,17 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ---
 
+## [0.107.0] — 2026-07-07 — footprint-matched placebo promotion gate
+
+### Added
+
+- **`neutralizationGate` + `neutralizeText` (`/campaign`).** A composable promotion gate that proves a held-out lift comes from the candidate's *content* rather than from the prompt/mount *footprint* the content added. A held-out gate proves "candidate beat baseline"; it cannot tell an informative surface from one that merely added bytes the model spends attention on. `neutralizationGate` compares the candidate's lift against a footprint-matched neutralized variant (same layout + length, zero content, via `neutralizeText`) and holds any win whose lift survives blanking (decorative) — however large or significant the raw lift. Compose after significance: `composeGate(heldOutGate({ … }), neutralizationGate({ … }))`.
+- **`runImprovementLoop({ neutralize })` + `GateContext.neutralizedJudgeScores` / `neutralizedArtifacts`.** When a `neutralize` function is supplied and the winner changed, the loop scores a third holdout arm (the blanked winner) and exposes it to the gate. Opt-in — one extra holdout campaign only when wired; existing callers are unaffected.
+
+Additive (new exports + optional fields only); no consumer bump required.
+
+---
+
 ## [0.100.3] — 2026-07-01 — product benchmark contract + eval fixture UX
 
 ### Added
