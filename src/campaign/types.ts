@@ -324,6 +324,16 @@ export interface GateContext<TArtifact, TScenario extends Scenario> {
    *  cannot represent both. A gate computing a holdout delta MUST read
    *  candidate from `judgeScores` and baseline from here. */
   baselineJudgeScores?: Map<string, Record<string, JudgeScore>>
+  /** Neutralized-arm judge scores, keyed by cellId — the winner surface with its
+   *  content footprint-matched-blanked (via a `neutralize` fn). Same scenarios as
+   *  `judgeScores`. Present ONLY when `runImprovementLoop` was given a `neutralize`
+   *  function. A placebo gate (`neutralizationGate`) compares this arm's lift
+   *  against the candidate's to reject decorative wins (lift from footprint, not
+   *  content). Undefined otherwise. */
+  neutralizedJudgeScores?: Map<string, Record<string, JudgeScore>>
+  /** Neutralized-arm artifacts, keyed by cellId. Present alongside
+   *  `neutralizedJudgeScores`. */
+  neutralizedArtifacts?: Map<string, TArtifact>
   scenarios: TScenario[]
   cost: { candidate: number; baseline: number }
   signal: AbortSignal

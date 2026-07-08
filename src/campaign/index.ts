@@ -68,6 +68,10 @@ export {
 } from './gates/default-production-gate'
 export { type HeldOutGateOptions, heldOutGate } from './gates/heldout-gate'
 export {
+  type NeutralizationGateOptions,
+  neutralizationGate,
+} from './gates/neutralization-gate'
+export {
   type PowerPreflight,
   type PowerPreflightOptions,
   powerPreflight,
@@ -110,6 +114,7 @@ export {
   type FsLabeledScenarioStoreOptions,
   LabeledScenarioStoreError,
 } from './labeled-store/fs-adapter'
+export { neutralizeText } from './neutralize'
 // ── Presets (the documented public surface) ──────────────────────────
 export {
   type CompareProposersOptions,
