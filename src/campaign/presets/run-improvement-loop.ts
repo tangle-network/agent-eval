@@ -58,6 +58,14 @@ export type RunImprovementLoopOptions<
   /** Optional render override — substrate writes a diff-shaped surface; pass
    *  a function to format the promoted surface differently. */
   renderPromotedDiff?: (winnerSurface: MutableSurface, baselineSurface: MutableSurface) => string
+  /** Placebo control. When supplied AND the winner differs from baseline, the
+   *  loop scores a THIRD holdout arm: the winner surface with its content
+   *  footprint-matched-blanked by this function (typically via `neutralizeText`).
+   *  Its scores are exposed to the gate as `ctx.neutralizedJudgeScores`, letting
+   *  a `neutralizationGate` reject a win whose lift survives blanking the content
+   *  (decorative — driven by footprint, not content). Costs one extra holdout
+   *  campaign; omit to skip. Return a byte/layout-matched blank of the winner. */
+  neutralize?: (winnerSurface: MutableSurface, baselineSurface: MutableSurface) => MutableSurface
 }
 
 export interface RunImprovementLoopResult<TArtifact, TScenario extends Scenario>
@@ -197,6 +205,32 @@ export async function runImprovementLoop<TScenario extends Scenario, TArtifact>(
     baselineJudgeScores.set(cell.cellId, cell.judgeScores)
   }
 
+  // ── (3a) placebo arm ───────────────────────────────────────────────
+  // When a `neutralize` fn is wired and the winner actually changed something,
+  // score a third holdout arm: the winner surface with its content
+  // footprint-matched-blanked. A `neutralizationGate` reads these scores to
+  // reject a win whose lift survives blanking the content (decorative — driven
+  // by the added footprint, not the content). Skipped for a no-op winner (there
+  // is no content to blank) and when no `neutralize` is supplied.
+  let neutralizedArtifacts: Map<string, TArtifact> | undefined
+  let neutralizedJudgeScores: ScoreMap | undefined
+  if (opts.neutralize && !winnerIsBaseline) {
+    const neutralizedSurface = opts.neutralize(optimization.winnerSurface, opts.baselineSurface)
+    const neutralizedOnHoldout = await runCampaign<TScenario, TArtifact>({
+      ...opts,
+      dispatchTimeoutMs,
+      scenarios: opts.holdoutScenarios,
+      dispatch: (scenario, ctx) => opts.dispatchWithSurface(neutralizedSurface, scenario, ctx),
+      runDir: `${opts.runDir}/holdout-neutralized`,
+    })
+    neutralizedArtifacts = new Map<string, TArtifact>()
+    neutralizedJudgeScores = new Map()
+    for (const cell of neutralizedOnHoldout.cells) {
+      neutralizedArtifacts.set(cell.cellId, cell.artifact)
+      neutralizedJudgeScores.set(cell.cellId, cell.judgeScores)
+    }
+  }
+
   // No-op guard: a winner identical to the baseline has nothing to promote, so
   // it never reaches the gate — otherwise the gate scores baseline-vs-itself,
   // sees model noise as a delta, and can "ship" an empty diff (the observed
@@ -217,6 +251,8 @@ export async function runImprovementLoop<TScenario extends Scenario, TArtifact>(
         baselineArtifacts,
         judgeScores,
         baselineJudgeScores,
+        neutralizedArtifacts,
+        neutralizedJudgeScores,
         scenarios: opts.holdoutScenarios,
         cost: {
           candidate: winnerOnHoldout.aggregates.totalCostUsd,
