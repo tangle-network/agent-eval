@@ -1,6 +1,6 @@
 {
   "name": "@tangle-network/agent-eval",
-  "version": "0.109.1",
+  "version": "0.110.0",
   "description": "Evaluate and improve AI agents from runs, traces, judges, and feedback. Compare candidates, cluster failures, measure lift, and gate releases.",
   "homepage": "https://github.com/tangle-network/agent-eval#readme",
   "repository": {
@@ -39,11 +39,6 @@
       "import": "./dist/rl.js",
       "default": "./dist/rl.js"
     },
-    "./diagnose": {
-      "types": "./dist/diagnose.d.ts",
-      "import": "./dist/diagnose.js",
-      "default": "./dist/diagnose.js"
-    },
     "./fuzz": {
       "types": "./dist/fuzz.d.ts",
       "import": "./dist/fuzz.js",
@@ -53,16 +48,6 @@
       "types": "./dist/traces.d.ts",
       "import": "./dist/traces.js",
       "default": "./dist/traces.js"
-    },
-    "./telemetry": {
-      "types": "./dist/telemetry/index.d.ts",
-      "import": "./dist/telemetry/index.js",
-      "default": "./dist/telemetry/index.js"
-    },
-    "./telemetry/file": {
-      "types": "./dist/telemetry/file.d.ts",
-      "import": "./dist/telemetry/file.js",
-      "default": "./dist/telemetry/file.js"
     },
     "./wire": {
       "types": "./dist/wire/index.d.ts",
@@ -84,40 +69,15 @@
       "import": "./dist/meta-eval/index.js",
       "default": "./dist/meta-eval/index.js"
     },
-    "./prm": {
-      "types": "./dist/prm/index.d.ts",
-      "import": "./dist/prm/index.js",
-      "default": "./dist/prm/index.js"
-    },
     "./builder-eval": {
       "types": "./dist/builder-eval/index.d.ts",
       "import": "./dist/builder-eval/index.js",
       "default": "./dist/builder-eval/index.js"
     },
-    "./governance": {
-      "types": "./dist/governance/index.d.ts",
-      "import": "./dist/governance/index.js",
-      "default": "./dist/governance/index.js"
-    },
-    "./knowledge": {
-      "types": "./dist/knowledge/index.d.ts",
-      "import": "./dist/knowledge/index.js",
-      "default": "./dist/knowledge/index.js"
-    },
     "./matrix": {
       "types": "./dist/matrix/index.d.ts",
       "import": "./dist/matrix/index.js",
       "default": "./dist/matrix/index.js"
-    },
-    "./perf": {
-      "types": "./dist/perf/index.d.ts",
-      "import": "./dist/perf/index.js",
-      "default": "./dist/perf/index.js"
-    },
-    "./product-benchmark": {
-      "types": "./dist/product-benchmark/index.d.ts",
-      "import": "./dist/product-benchmark/index.js",
-      "default": "./dist/product-benchmark/index.js"
     },
     "./multishot": {
       "types": "./dist/multishot/index.d.ts",
@@ -139,50 +99,20 @@
       "import": "./dist/authenticity/index.js",
       "default": "./dist/authenticity/index.js"
     },
-    "./groundedness": {
-      "types": "./dist/groundedness/index.d.ts",
-      "import": "./dist/groundedness/index.js",
-      "default": "./dist/groundedness/index.js"
-    },
     "./belief-state": {
       "types": "./dist/belief-state/index.d.ts",
       "import": "./dist/belief-state/index.js",
       "default": "./dist/belief-state/index.js"
-    },
-    "./workflow": {
-      "types": "./dist/workflow/index.d.ts",
-      "import": "./dist/workflow/index.js",
-      "default": "./dist/workflow/index.js"
     },
     "./contract": {
       "types": "./dist/contract/index.d.ts",
       "import": "./dist/contract/index.js",
       "default": "./dist/contract/index.js"
     },
-    "./adapters/langchain": {
-      "types": "./dist/adapters/langchain.d.ts",
-      "import": "./dist/adapters/langchain.js",
-      "default": "./dist/adapters/langchain.js"
-    },
-    "./adapters/http": {
-      "types": "./dist/adapters/http.d.ts",
-      "import": "./dist/adapters/http.js",
-      "default": "./dist/adapters/http.js"
-    },
-    "./adapters/otel": {
-      "types": "./dist/adapters/otel.d.ts",
-      "import": "./dist/adapters/otel.js",
-      "default": "./dist/adapters/otel.js"
-    },
     "./hosted": {
       "types": "./dist/hosted/index.d.ts",
       "import": "./dist/hosted/index.js",
       "default": "./dist/hosted/index.js"
-    },
-    "./testing": {
-      "types": "./dist/testing.d.ts",
-      "import": "./dist/testing.js",
-      "default": "./dist/testing.js"
     },
     "./openapi.json": {
       "default": "./dist/openapi.json"
