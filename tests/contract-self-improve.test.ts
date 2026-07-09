@@ -210,8 +210,6 @@ describe('selfImprove — forwarded loop knobs', () => {
     let calls = 0
     await selfImprove<S, A>({
       ...base,
-      // analyzeGeneration runs BETWEEN generations (its findings feed the next),
-      // so it needs ≥2 generations to fire at least once.
       budget: { generations: 2, populationSize: 1 },
       expectUsage: 'off',
       analyzeGeneration: async () => {
@@ -220,5 +218,22 @@ describe('selfImprove — forwarded loop knobs', () => {
       },
     })
     expect(calls).toBeGreaterThanOrEqual(1)
+  })
+
+  it('with generations=1, analyzeGeneration fires on the BASELINE (gen -1) so propose() is not blind', async () => {
+    const analyzed: number[] = []
+    await selfImprove<S, A>({
+      ...base,
+      // Single generation — the common case. The producer analyzes the
+      // baseline traces first (gen -1) so gen 0 proposes with that report;
+      // the between-generation call is skipped (gen 0 is the last).
+      budget: { generations: 1, populationSize: 1 },
+      expectUsage: 'off',
+      analyzeGeneration: async ({ generation }) => {
+        analyzed.push(generation)
+        return [{ claim: 'baseline finding' }]
+      },
+    })
+    expect(analyzed).toEqual([-1])
   })
 })
