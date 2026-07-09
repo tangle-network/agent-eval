@@ -6,7 +6,7 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ## [0.110.1] — 2026-07-09 — proposer portfolio export
 
-### Fixed
+### Added
 
 - Exported the existing `compositeProposer` and `CompositeProposerOptions` from `@tangle-network/agent-eval/campaign`, so consumers can split one population budget across GEPA, SkillOpt, FAPO, memory, trace-analysis, or other proposers without copying the portfolio implementation.
 - Added a packed-package import check for the export.

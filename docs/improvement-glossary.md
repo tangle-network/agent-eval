@@ -94,8 +94,8 @@ import {
 const llm = { baseUrl: process.env.TANGLE_BASE_URL, apiKey: process.env.TANGLE_API_KEY }
 const model = 'deepseek-v4-flash'
 
-// Compose: prompt edits first (GEPA), escalate to a config knob only when
-// prompt-level search plateaus. `fapoProposer` IS the composite proposer.
+// Compose by escalation: prompt edits first (GEPA), then a config knob only
+// when prompt-level search plateaus. This is distinct from a peer portfolio.
 const proposer = fapoProposer({
   scope: { allowedLevels: ['prompt', 'parameter'] },   // no structural/code tier here
   promptProposer: gepaProposer({ llm, model, target: 'agent system prompt' }),
@@ -148,7 +148,7 @@ const out = await improve(profile, findings, {
 if (out.shipped) deploy(out.profile)  // out.lift is the held-out winner − baseline
 ```
 
-### 2 — race proposers head-to-head for a lift CI
+### 3 — race proposers head-to-head for a lift CI
 
 ```ts
 import {
