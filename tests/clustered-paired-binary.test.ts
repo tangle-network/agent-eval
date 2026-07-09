@@ -134,6 +134,41 @@ describe('clusteredPairedBinary', () => {
     })
   })
 
+  it('supports the less alternative with the mirrored exact probability', () => {
+    const rows: BinaryRow[] = []
+    for (let index = 0; index < 3; index++) {
+      rows.push(row(`task-${index}`, `cluster-${index}`, 'baseline', true))
+      rows.push(row(`task-${index}`, `cluster-${index}`, 'candidate', false))
+    }
+
+    const result = clusteredPairedBinary(rows, options({ alternative: 'less' }))
+
+    expect(result.statistics!.signFlip).toMatchObject({
+      statistic: -1,
+      pValue: 1 / 8,
+      alternative: 'less',
+      method: 'exact',
+    })
+  })
+
+  it('pairs multiple replicates by repKey before aggregating their cluster', () => {
+    const rows = [
+      { ...row('task', 'cluster', 'baseline', true), rep: 'b' },
+      { ...row('task', 'cluster', 'candidate', false), rep: 'b' },
+      { ...row('task', 'cluster', 'baseline', false), rep: 'a' },
+      { ...row('task', 'cluster', 'candidate', true), rep: 'a' },
+    ]
+
+    const result = clusteredPairedBinary(rows, options())
+
+    expect(result.matchedPairs.map((pair) => pair.repIndex)).toEqual([0, 1])
+    expect(result.matchedPairs.map((pair) => [pair.baseline.rep, pair.treatment.rep])).toEqual([
+      ['a', 'a'],
+      ['b', 'b'],
+    ])
+    expect(result.statistics).toMatchObject({ nPairs: 2, nClusters: 1, b10: 1, b01: 1 })
+  })
+
   it('uses deterministic Monte Carlo sign flips above the exact limit', () => {
     const rows: BinaryRow[] = []
     for (let index = 0; index < 8; index++) {
@@ -264,6 +299,12 @@ describe('clusteredPairedBinary', () => {
     )
     expect(() => clusteredPairedBinary(rows, options({ bootstrapResamples: 0 }))).toThrow(
       /bootstrapResamples must be a positive integer/,
+    )
+    expect(() => clusteredPairedBinary(rows, options({ bootstrapResamples: 1_000_001 }))).toThrow(
+      /bootstrapResamples must not exceed 1000000/,
+    )
+    expect(() => clusteredPairedBinary(rows, options({ signFlipResamples: 1_000_001 }))).toThrow(
+      /signFlipResamples must not exceed 1000000/,
     )
     expect(() => clusteredPairedBinary(rows, options({ exactClusterLimit: 21 }))).toThrow(
       /exactClusterLimit must be an integer in \[0,20\]/,

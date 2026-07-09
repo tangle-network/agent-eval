@@ -32,7 +32,7 @@ export interface ClusteredPairedBinaryOptions<TRow> {
   seed: number
   /** Percentile confidence level. Default 0.95. */
   confidence?: number
-  /** Whole-cluster bootstrap draws. Default 10,000. */
+  /** Whole-cluster bootstrap draws. Default 10,000; maximum 1,000,000. */
   bootstrapResamples?: number
   /** Sign-flip alternative. Default 'two-sided'. */
   alternative?: ClusterSignFlipAlternative
@@ -41,7 +41,7 @@ export interface ClusteredPairedBinaryOptions<TRow> {
    * otherwise use Monte Carlo. Default 20; maximum 20.
    */
   exactClusterLimit?: number
-  /** Monte Carlo sign-flip draws when exact enumeration is not used. Default 100,000. */
+  /** Monte Carlo sign-flip draws when exact enumeration is not used. Default 100,000; maximum 1,000,000. */
   signFlipResamples?: number
 }
 
@@ -127,6 +127,7 @@ interface ProjectedRow<TRow> extends PairedArmRow {
 
 const DEFAULT_BOOTSTRAP_RESAMPLES = 10_000
 const DEFAULT_SIGN_FLIP_RESAMPLES = 100_000
+const MAX_RESAMPLES = 1_000_000
 const DEFAULT_EXACT_CLUSTER_LIMIT = 20
 const SIGN_FLIP_SEED_SALT = 0x9e3779b9
 
@@ -231,7 +232,7 @@ function validateOptions<TRow>(options: ClusteredPairedBinaryOptions<TRow>): Val
     )
   }
   const bootstrapResamples = options.bootstrapResamples ?? DEFAULT_BOOTSTRAP_RESAMPLES
-  assertPositiveInteger('bootstrapResamples', bootstrapResamples)
+  assertResampleCount('bootstrapResamples', bootstrapResamples)
   const rawMinimumBootstrapResamples = 2 / (1 - confidence)
   const minimumBootstrapResamples = Math.ceil(
     rawMinimumBootstrapResamples - Number.EPSILON * Math.max(1, rawMinimumBootstrapResamples) * 8,
@@ -242,7 +243,7 @@ function validateOptions<TRow>(options: ClusteredPairedBinaryOptions<TRow>): Val
     )
   }
   const signFlipResamples = options.signFlipResamples ?? DEFAULT_SIGN_FLIP_RESAMPLES
-  assertPositiveInteger('signFlipResamples', signFlipResamples)
+  assertResampleCount('signFlipResamples', signFlipResamples)
   const exactClusterLimit = options.exactClusterLimit ?? DEFAULT_EXACT_CLUSTER_LIMIT
   if (
     !Number.isInteger(exactClusterLimit) ||
@@ -269,10 +270,15 @@ function validateOptions<TRow>(options: ClusteredPairedBinaryOptions<TRow>): Val
   }
 }
 
-function assertPositiveInteger(name: string, value: number): void {
+function assertResampleCount(name: string, value: number): void {
   if (!Number.isInteger(value) || value <= 0) {
     throw new ValidationError(
       `clusteredPairedBinary: ${name} must be a positive integer, got ${value}`,
+    )
+  }
+  if (value > MAX_RESAMPLES) {
+    throw new ValidationError(
+      `clusteredPairedBinary: ${name} must not exceed ${MAX_RESAMPLES}, got ${value}`,
     )
   }
 }
