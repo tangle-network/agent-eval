@@ -78,6 +78,10 @@ try {
         if (!('analyzeBeliefPolicy' in beliefState)) {
           throw new Error('missing belief-state export analyzeBeliefPolicy')
         }
+        const campaign = await import('@tangle-network/agent-eval/campaign')
+        if (!('compositeProposer' in campaign)) {
+          throw new Error('missing campaign export compositeProposer')
+        }
       `,
     ],
     appDir,
