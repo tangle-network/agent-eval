@@ -171,6 +171,17 @@ export { assertCapabilityHeadroom, capabilityHeadroom } from './capability-headr
 // ── Client / driver / judges / executor / benchmark / registry / reporter ─
 export { ProductClient, runE2EWorkflow } from './client'
 export type {
+  ClusterBootstrapInterval,
+  ClusteredBinaryCluster,
+  ClusteredMatchedPair,
+  ClusteredPairedBinaryOptions,
+  ClusteredPairedBinaryResult,
+  ClusteredPairedBinaryStatistics,
+  ClusterSignFlipAlternative,
+  ClusterSignFlipResult,
+} from './clustered-paired-binary'
+export { clusteredPairedBinary } from './clustered-paired-binary'
+export type {
   ControlActionFailureMode,
   ControlActionOutcome,
   ControlBudget,
@@ -402,6 +413,7 @@ export {
   confidenceInterval,
   corpusInterRaterAgreement,
   corpusInterRaterAgreementFromJudgeScores,
+  holm,
   interpretCliffs,
   interRaterReliability,
   mannWhitneyU,

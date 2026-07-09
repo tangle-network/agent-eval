@@ -846,6 +846,43 @@ export function bonferroni(
 }
 
 /**
+ * Holm step-down family-wise error adjustment.
+ *
+ * P-values are sorted from smallest to largest, multiplied by their remaining
+ * hypothesis count, and made monotonically non-decreasing before being mapped
+ * back to input order. This uniformly dominates plain Bonferroni while keeping
+ * strong family-wise error control under arbitrary dependence.
+ */
+export function holm(
+  pValues: readonly number[],
+  alpha = 0.05,
+): { adjusted: number[]; significant: boolean[] } {
+  if (!Number.isFinite(alpha) || alpha <= 0 || alpha >= 1) {
+    throw new Error(`holm: alpha must be in (0,1), got ${alpha}`)
+  }
+  for (const [index, pValue] of pValues.entries()) {
+    if (!Number.isFinite(pValue) || pValue < 0 || pValue > 1) {
+      throw new Error(`holm: pValues[${index}] must be in [0,1], got ${pValue}`)
+    }
+  }
+  const count = pValues.length
+  if (count === 0) return { adjusted: [], significant: [] }
+
+  const ordered = pValues
+    .map((pValue, index) => ({ pValue, index }))
+    .sort((a, b) => a.pValue - b.pValue || a.index - b.index)
+  const adjusted = new Array<number>(count)
+  let previous = 0
+  for (let rank = 0; rank < count; rank++) {
+    const entry = ordered[rank]!
+    const stepAdjusted = Math.min(1, entry.pValue * (count - rank))
+    previous = Math.max(previous, stepAdjusted)
+    adjusted[entry.index] = previous
+  }
+  return { adjusted, significant: adjusted.map((pValue) => pValue <= alpha) }
+}
+
+/**
  * Benjamini–Hochberg false discovery rate. Returns adjusted q-values and
  * significance at the target FDR; handles ties and preserves q monotonicity.
  */
