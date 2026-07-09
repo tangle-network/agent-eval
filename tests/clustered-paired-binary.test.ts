@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest'
-import { type ClusteredPairedBinaryOptions, clusteredPairedBinary, holm } from '../src/index'
+import {
+  type ClusteredPairedBinaryOptions,
+  clusteredPairedBinary,
+  holm,
+  ValidationError,
+} from '../src/index'
 
 interface BinaryRow {
   task: string
@@ -295,6 +300,9 @@ describe('holm', () => {
   })
 
   it('rejects invalid p-values and alpha', () => {
+    for (const call of [() => holm([0.1, Number.NaN]), () => holm([-0.1]), () => holm([0.1], 0)]) {
+      expect(call).toThrow(ValidationError)
+    }
     expect(() => holm([0.1, Number.NaN])).toThrow(/pValues\[1\] must be in \[0,1\]/)
     expect(() => holm([-0.1])).toThrow(/pValues\[0\] must be in \[0,1\]/)
     expect(() => holm([0.1], 0)).toThrow(/alpha must be in \(0,1\)/)

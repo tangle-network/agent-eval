@@ -858,11 +858,11 @@ export function holm(
   alpha = 0.05,
 ): { adjusted: number[]; significant: boolean[] } {
   if (!Number.isFinite(alpha) || alpha <= 0 || alpha >= 1) {
-    throw new Error(`holm: alpha must be in (0,1), got ${alpha}`)
+    throw new ValidationError(`holm: alpha must be in (0,1), got ${alpha}`)
   }
   for (const [index, pValue] of pValues.entries()) {
     if (!Number.isFinite(pValue) || pValue < 0 || pValue > 1) {
-      throw new Error(`holm: pValues[${index}] must be in [0,1], got ${pValue}`)
+      throw new ValidationError(`holm: pValues[${index}] must be in [0,1], got ${pValue}`)
     }
   }
   const count = pValues.length
@@ -879,6 +879,7 @@ export function holm(
     previous = Math.max(previous, stepAdjusted)
     adjusted[entry.index] = previous
   }
+  // Holm's rejection rule is inclusive at the adjusted alpha boundary.
   return { adjusted, significant: adjusted.map((pValue) => pValue <= alpha) }
 }
 
