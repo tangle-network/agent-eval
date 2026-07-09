@@ -4,6 +4,15 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ---
 
+## [0.111.0] — 2026-07-09 — repository-clustered paired inference
+
+### Added
+
+- Added `clusteredPairedBinary`, which pairs binary outcomes by work item, exposes every unmatched row, resamples whole repositories for a task-weighted confidence interval, and tests the same effect with whole-repository sign flips.
+- Added Holm step-down adjustment for strong family-wise error control across benchmark arms.
+
+The cluster interval is unavailable below two repositories, and consumers must reject unmatched rows before promotion.
+
 ## [0.110.1] — 2026-07-09 — proposer portfolio export
 
 ### Added
