@@ -61,9 +61,9 @@ describe('buildAnalystSurfaceDispatch — runs the analyst with the surface as a
 
   it('fails loud if handed a code-tier surface (analyst prompt is prompt-tier)', async () => {
     const dispatch = buildAnalystSurfaceDispatch({ analystOptions: { ai: {} as never } })
-    await expect(dispatch({ kind: 'code', worktreeRef: 'wt/abc' }, scenario, ctx)).rejects.toThrow(
-      /prompt-tier/,
-    )
+    await expect(
+      dispatch({ kind: 'code', worktreeRef: 'wt/abc' } as never, scenario, ctx),
+    ).rejects.toThrow(/prompt-tier/)
   })
 })
 

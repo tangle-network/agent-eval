@@ -286,6 +286,11 @@ export {
   type SkillPatchRejection,
 } from './skill-patch'
 export { type CampaignStorage, fsCampaignStorage, inMemoryCampaignStorage } from './storage'
+// ── Code-surface content identity ────────────────────────────────────
+export {
+  assertCodeSurfaceIdentity,
+  codeSurfaceIdentityMaterial,
+} from './surface-identity'
 export { isTransientTransportFailure, type TransientFailureOptions } from './transient-failure'
 export type {
   CampaignAggregates,
@@ -331,9 +336,11 @@ export type {
 export { isProposedCandidate, labelTrustRank } from './types'
 // ── Worktree adapter (VCS-pluggable; code-tier surfaces) ─────────────
 export {
+  type CodeSurfaceVerification,
   type GitWorktreeAdapterOptions,
   gitWorktreeAdapter,
   resolveWorktreePath,
+  verifyCodeSurface,
   type Worktree,
   type WorktreeAdapter,
   WorktreeAdapterError,

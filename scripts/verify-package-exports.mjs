@@ -80,8 +80,16 @@ try {
           throw new Error('missing belief-state export analyzeBeliefPolicy')
         }
         const campaign = await import('@tangle-network/agent-eval/campaign')
-        if (!('compositeProposer' in campaign)) {
-          throw new Error('missing campaign export compositeProposer')
+        for (const name of [
+          'compositeProposer',
+          'gitWorktreeAdapter',
+          'verifyCodeSurface',
+          'resolveWorktreePath',
+          'assertCodeSurfaceIdentity',
+          'surfaceHash',
+          'surfaceContentHash',
+        ]) {
+          if (!(name in campaign)) throw new Error('missing campaign export ' + name)
         }
       `,
     ],

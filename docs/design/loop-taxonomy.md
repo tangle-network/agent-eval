@@ -162,7 +162,11 @@ imports agent-eval and implements it.
 
 `MutableSurface` is the thing the proposer changes. It has tiers, least → most
 invasive. `MutableSurface = string | CodeSurface` spans all of them: `string`
-for tiers 1–2, `CodeSurface{ worktreeRef }` for tier 4.
+for tiers 1–2, and a finalized `CodeSurface` for tier 4. A code surface's
+worktree path is only its locator; exact base/candidate commits, final tree,
+and binary-patch digest are its portable identity. Call `verifyCodeSurface`
+before executing the checkout so a moved ref or post-finalization mutation
+fails before measurement.
 
 | Tier | Surface | Generator that changes it | Blast radius |
 |---|---|---|---|

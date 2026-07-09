@@ -132,20 +132,35 @@ export interface JudgeScore {
 
 // ── Optimization (population + generations + mutator) ─────────────────
 
-/** A tier-4 code surface — a candidate change to the agent's
+/** A tier-4 code surface — a finalized candidate change to the agent's
  *  IMPLEMENTATION, not its prompt. Produced by autoresearch (reads codebase +
- *  trace findings → opens a worktree). Measured by checking out `worktreeRef`
- *  and running the worker against the changed code. See the improvement-tier
- *  table in `docs/design/loop-taxonomy.md`. */
+ *  trace findings → opens a worktree). `worktreeRef` locates the candidate;
+ *  the exact commits, tree, and binary-patch digest identify it. See the
+ *  improvement-tier table in `docs/design/loop-taxonomy.md`. */
 export interface CodeSurface {
-  kind: 'code'
-  /** Worktree path or git ref holding the candidate code change. The
-   *  consumer's `dispatchWithSurface` checks this out before running. */
-  worktreeRef: string
-  /** Base ref the change is measured against. Default: the repo's main. */
-  baseRef?: string
+  readonly kind: 'code'
+  /** Worktree path or git ref holding the candidate code change. This is a
+   *  mutable locator and is deliberately excluded from content hashes. */
+  readonly worktreeRef: string
+  /** Human-readable ref the worktree was forked from. Not identity-bearing. */
+  readonly baseRef: string
+  /** Exact commit the candidate was forked from. */
+  readonly baseCommit: string
+  /** Exact tree object for `baseCommit`. */
+  readonly baseTree: string
+  /** Exact finalized candidate commit. */
+  readonly candidateCommit: string
+  /** Exact tree object for `candidateCommit`. */
+  readonly candidateTree: string
+  /** Identity of the exact patch artifact. The deployable candidate bundle
+   *  carries the same descriptor plus its base64-encoded content. */
+  readonly patch: {
+    readonly format: 'git-diff-binary'
+    readonly sha256: `sha256:${string}`
+    readonly byteLength: number
+  }
   /** Human summary of what changed — rendered into the auto-PR body. */
-  summary?: string
+  readonly summary?: string
 }
 
 /** The mutable surface a proposer changes. Tiers (see

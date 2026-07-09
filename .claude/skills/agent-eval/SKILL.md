@@ -976,7 +976,7 @@ Do you have ≥5 well-defined transformations to test (e.g. directive enum)?
 **Recipe by tier:**
 
 - **Prompt-tier (string surface)** — start with `gepaDriver()`. Escalate to a custom `Mutator` + `evolutionaryDriver` only when you have a known directive enum that beats LLM-discovery.
-- **Code-tier (`CodeSurface`)** — use agent-runtime's `improvementDriver` with a `reflectiveGenerator` or `agenticGenerator`. The substrate's drivers don't reason about code diffs.
+- **Code-tier (`CodeSurface`)** — use agent-runtime's `improvementDriver` with a `reflectiveGenerator` or `agenticGenerator`, then finalize through `gitWorktreeAdapter` and call `verifyCodeSurface` before execution. The substrate's drivers don't reason about code diffs.
 - **Knowledge-tier** — out of scope here; agent-knowledge owns this.
 
 ### Surface menu — what string to pick

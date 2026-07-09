@@ -16,6 +16,7 @@ import {
   policyEditsFromFindings,
 } from '../../analyst/policy-edit'
 import type { AnalystFinding } from '../../analyst/types'
+import { assertCodeSurfaceIdentity } from '../surface-identity'
 import type { MutableSurface, ProposeContext, ProposedCandidate, SurfaceProposer } from '../types'
 
 export interface PolicyEditProposerOptions {
@@ -108,7 +109,8 @@ function coerceCandidateSurface(surface: unknown): MutableSurface {
   if (surface && typeof surface === 'object') {
     const obj = surface as Record<string, unknown>
     if (obj.kind === 'code' && typeof obj.worktreeRef === 'string') {
-      return surface as MutableSurface
+      assertCodeSurfaceIdentity(surface)
+      return surface
     }
     return JSON.stringify(surface, null, 2)
   }

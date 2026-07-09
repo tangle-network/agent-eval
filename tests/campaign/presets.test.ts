@@ -28,6 +28,24 @@ import {
   surfaceContentHash,
   surfaceHash,
 } from '../../src/campaign/index'
+
+function fakeCodeSurface(worktreeRef: string, identityDigit: string): CodeSurface {
+  return {
+    kind: 'code',
+    worktreeRef,
+    baseRef: 'main',
+    baseCommit: 'a'.repeat(40),
+    baseTree: 'b'.repeat(40),
+    candidateCommit: identityDigit.repeat(40),
+    candidateTree: identityDigit.repeat(40),
+    patch: {
+      format: 'git-diff-binary',
+      sha256: `sha256:${identityDigit.repeat(64)}`,
+      byteLength: 1,
+    },
+  }
+}
+
 import type { RunRecord } from '../../src/run-record'
 
 interface FakeScenario extends Scenario {
@@ -1160,17 +1178,14 @@ describe('MutableSurface widening', () => {
     expect(surfaceHash('hello')).not.toBe(surfaceHash('world'))
   })
 
-  it('surfaceHash distinguishes code surfaces by worktree + base ref', () => {
-    const a: CodeSurface = { kind: 'code', worktreeRef: '/wt/a', baseRef: 'main' }
-    const b: CodeSurface = { kind: 'code', worktreeRef: '/wt/b', baseRef: 'main' }
-    const aAgain: CodeSurface = {
-      kind: 'code',
-      worktreeRef: '/wt/a',
-      baseRef: 'main',
-      summary: 'ignored in hash',
-    }
+  it('surfaceHash identifies code content independently of its worktree path', () => {
+    const a = fakeCodeSurface('/wt/a', '1')
+    const sameBytesElsewhere = fakeCodeSurface('/wt/b', '1')
+    const differentBytes = fakeCodeSurface('/wt/c', '2')
+    const aAgain: CodeSurface = { ...fakeCodeSurface('/wt/a', '1'), summary: 'ignored in hash' }
     expect(surfaceHash(a)).toBe(surfaceHash(aAgain)) // summary not part of identity
-    expect(surfaceHash(a)).not.toBe(surfaceHash(b))
+    expect(surfaceHash(a)).toBe(surfaceHash(sameBytesElsewhere))
+    expect(surfaceHash(a)).not.toBe(surfaceHash(differentBytes))
     expect(surfaceHash(a)).toMatch(/^[a-f0-9]{16}$/)
   })
 
@@ -1188,9 +1203,10 @@ describe('MutableSurface widening', () => {
       }) {
         return new Array(populationSize).fill(0).map(
           (_, i): MutableSurface => ({
-            kind: 'code',
-            worktreeRef: `/wt/gen${generation}-cand${i}`,
-            baseRef: 'main',
+            ...fakeCodeSurface(
+              `/wt/gen${generation}-cand${i}`,
+              (generation * populationSize + i + 1).toString(16),
+            ),
             summary: `candidate ${i}`,
           }),
         )
@@ -1203,7 +1219,7 @@ describe('MutableSurface widening', () => {
 
     const result = await runOptimization({
       scenarios: SCENARIOS,
-      baselineSurface: { kind: 'code', worktreeRef: '/wt/main', baseRef: 'main' },
+      baselineSurface: fakeCodeSurface('/wt/main', 'f'),
       dispatchWithSurface,
       proposer: codeProposer,
       populationSize: 2,

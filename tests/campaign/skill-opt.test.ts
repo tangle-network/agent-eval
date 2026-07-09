@@ -217,7 +217,7 @@ describe('skillOptProposer', () => {
     })
     await expect(
       proposer.propose({
-        currentSurface: { kind: 'code', worktreeRef: '/wt/a' },
+        currentSurface: { kind: 'code', worktreeRef: '/wt/a' } as never,
         history: [],
         findings: [],
         populationSize: 1,
