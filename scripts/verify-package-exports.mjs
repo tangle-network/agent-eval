@@ -101,7 +101,7 @@ function verifyVersionLock() {
   const uvLock = readFileSync(join(repoRoot, 'clients/python/uv.lock'), 'utf8')
   const pythonPackageVersion = matchVersion(
     pyproject,
-  /^version\s*=\s*"([^"]+)"$/m,
+    /^version\s*=\s*"([^"]+)"$/m,
     'clients/python/pyproject.toml',
   )
   const pythonFallbackVersion = matchVersion(
