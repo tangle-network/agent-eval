@@ -192,6 +192,10 @@ export {
   type SkillOptEpochRecord,
 } from './presets/run-skill-opt'
 export { type AceProposerOptions, aceProposer } from './proposers/ace'
+export {
+  type CompositeProposerOptions,
+  compositeProposer,
+} from './proposers/composite'
 export { type EvolutionaryProposerOptions, evolutionaryProposer } from './proposers/evolutionary'
 export {
   extractFapoAttributionSignals,

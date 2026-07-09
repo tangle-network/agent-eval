@@ -7,6 +7,7 @@ const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const tempRoot = mkdtempSync(join(repoRoot, '.tmp-package-exports-'))
 
 try {
+  verifyVersionLock()
   const packDir = join(tempRoot, 'pack')
   const unpackDir = join(tempRoot, 'unpack')
   const appDir = join(tempRoot, 'app')
@@ -78,12 +79,61 @@ try {
         if (!('analyzeBeliefPolicy' in beliefState)) {
           throw new Error('missing belief-state export analyzeBeliefPolicy')
         }
+        const campaign = await import('@tangle-network/agent-eval/campaign')
+        if (!('compositeProposer' in campaign)) {
+          throw new Error('missing campaign export compositeProposer')
+        }
       `,
     ],
     appDir,
   )
 } finally {
   rmSync(tempRoot, { recursive: true, force: true })
+}
+
+function verifyVersionLock() {
+  const npmVersion = JSON.parse(readFileSync(join(repoRoot, 'package.json'), 'utf8')).version
+  const pyproject = readFileSync(join(repoRoot, 'clients/python/pyproject.toml'), 'utf8')
+  const pythonSource = readFileSync(
+    join(repoRoot, 'clients/python/src/agent_eval_rpc/__init__.py'),
+    'utf8',
+  )
+  const uvLock = readFileSync(join(repoRoot, 'clients/python/uv.lock'), 'utf8')
+  const pythonPackageVersion = matchVersion(
+    pyproject,
+    /^version\s*=\s*"([^"]+)"$/m,
+    'clients/python/pyproject.toml',
+  )
+  const pythonFallbackVersion = matchVersion(
+    pythonSource,
+    /except PackageNotFoundError:\s*\n\s*__version__ = "([^"]+)"/,
+    'clients/python/src/agent_eval_rpc/__init__.py',
+  )
+  const uvRootVersion = matchVersion(
+    uvLock,
+    /\[\[package\]\]\s*\nname = "agent-eval-rpc"\s*\nversion = "([^"]+)"/,
+    'clients/python/uv.lock',
+  )
+  const versions = {
+    npm: npmVersion,
+    pythonPackage: pythonPackageVersion,
+    pythonFallback: pythonFallbackVersion,
+    uvRoot: uvRootVersion,
+  }
+  const mismatched = Object.entries(versions).filter(([, version]) => version !== npmVersion)
+  if (mismatched.length > 0) {
+    throw new Error(
+      `release version mismatch: ${Object.entries(versions)
+        .map(([name, version]) => `${name}=${version}`)
+        .join(', ')}`,
+    )
+  }
+}
+
+function matchVersion(source, pattern, path) {
+  const match = source.match(pattern)
+  if (!match?.[1]) throw new Error(`could not read release version from ${path}`)
+  return match[1]
 }
 
 function run(command, args, cwd) {

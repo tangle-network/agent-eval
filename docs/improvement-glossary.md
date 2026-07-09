@@ -61,25 +61,26 @@ Start at the top row and only move down when the row's *"reach for it when"* mat
 | `gepaProposer` | You want the strong default: reflective full-surface prompt rewrites, grounded in findings, keeping a Pareto frontier of complementary winners. | prompt string | **Yes — `improve({ surface: 'prompt' })` default.** Proven live. |
 | `skillOptProposer` | You are editing a structured `SKILL.md`/runbook and want small anchored add/delete/replace patches that preserve earlier rules. | skill/prompt string | **Yes — `improve({ surface: 'skills' })` default.** Not yet proven live. |
 | `parameterSweepProposer` | The likely fix is a config knob, not words — `retrieval.k`, `temperature`, `max_tokens`. You give it candidate patches; it applies them to a JSON surface. | JSON config string | Yes, but you supply the candidate list. |
-| `fapoProposer` | You want *evidence to decide when to escalate*: try prompt edits first, move to parameters, then to structural code — one scoped change per cycle, only escalating when the cheaper level is exhausted. **This is the composite/orchestration proposer** (there is no separate `compositeProposer`). | whatever its level proposers return | Exported; you wire the level proposers. |
+| `fapoProposer` | You want *evidence to decide when to escalate*: try prompt edits first, move to parameters, then to structural code — one scoped change per cycle, only escalating when the cheaper level is exhausted. | whatever its level proposers return | Exported; you wire the level proposers. |
+| `compositeProposer` | You want several proposers to share one candidate-generation budget in the same round. It allocates the population by declared weights, preserves member provenance, deduplicates surfaces, and isolates a member failure unless every member fails. | whatever its member proposers return | Exported; you wire the member proposers. |
 | `aceProposer` | You are accumulating hard-won lessons into a playbook and must **never** summarize an old lesson away (append-only, provenance-tagged). | playbook string | Exported. |
 | `memoryCurationProposer` | Same as ACE but you want a compact, deduped, re-ranked memory instead of append-only growth. | memory string | Exported. |
 | `evolutionaryProposer` | You want blind population search (mutate → measure → select) with no reflection over findings — a cheap control or a baseline to beat. | any string | Exported. |
 | `traceAnalystProposer` | Bench-only: race our trace-analysis evidence engine head-to-head inside `compareProposers`. | prompt string | Bench-only. |
 | `haloProposer` | Bench-only: race the external `halo-engine` analysis against ours. | prompt string | Bench-only, external. |
 
-Default path: `gepaProposer` for prompts; add `parameterSweepProposer` when a config knob is the suspect; wrap both in `fapoProposer` when you want the loop to decide *when* to escalate from words to knobs to code.
+Default path: `gepaProposer` for prompts; add `parameterSweepProposer` when a config knob is the suspect; wrap levels in `fapoProposer` when the loop should decide *when* to escalate, or use `compositeProposer` when multiple proposer families must split one fixed population budget.
 
-## Composing proposers — the only three ways, with runnable code
+## Composing proposers — four distinct shapes
 
-There is deliberately **no** `chainProposer`/`compositeProposer` primitive.
-Composition happens in exactly three shapes:
+Choose the shape that matches the experiment:
 
-1. **Escalate** — `fapoProposer` wraps a prompt + parameter + structural proposer into one, spending the cheapest level first.
-2. **Race** — `compareProposers` runs N proposers on one holdout and returns a per-proposer lift CI + pairwise "who won".
-3. **Plug in** — hand any composed proposer to the gated loop via `runImprovementLoop({ proposer })`, or the one-liner `improve({ surface, generator })` in `@tangle-network/agent-runtime`.
+1. **Portfolio** — `compositeProposer` splits one generation's population across member proposers by fixed weights and returns one provenance-labelled pool.
+2. **Escalate** — `fapoProposer` wraps prompt + parameter + structural levels into one proposer and spends on the cheapest level until evidence says to escalate.
+3. **Race** — `compareProposers` gives proposers separate loops, then re-scores their winners on one holdout and returns per-proposer lift intervals plus pairwise results.
+4. **Plug in** — hand any proposer to `runImprovementLoop({ proposer })`, or use `improve({ surface, generator })` in `@tangle-network/agent-runtime`.
 
-### 1 + 3 — compose by escalation, then run the gated loop
+### 2 + 4 — compose by escalation, then run the improvement loop
 
 ```ts
 import {
@@ -93,8 +94,8 @@ import {
 const llm = { baseUrl: process.env.TANGLE_BASE_URL, apiKey: process.env.TANGLE_API_KEY }
 const model = 'deepseek-v4-flash'
 
-// Compose: prompt edits first (GEPA), escalate to a config knob only when
-// prompt-level search plateaus. `fapoProposer` IS the composite proposer.
+// Compose by escalation: prompt edits first (GEPA), then a config knob only
+// when prompt-level search plateaus. This is distinct from a peer portfolio.
 const proposer = fapoProposer({
   scope: { allowedLevels: ['prompt', 'parameter'] },   // no structural/code tier here
   promptProposer: gepaProposer({ llm, model, target: 'agent system prompt' }),
@@ -147,7 +148,7 @@ const out = await improve(profile, findings, {
 if (out.shipped) deploy(out.profile)  // out.lift is the held-out winner − baseline
 ```
 
-### 2 — race proposers head-to-head for a lift CI
+### 3 — race proposers head-to-head for a lift CI
 
 ```ts
 import {
@@ -196,7 +197,7 @@ Every entrant is re-scored on the **same** holdout with the **same** judges, so 
 - Do not put eval logic inside a proposer — scoring lives in `dispatch` + `judges`, proposing lives in the proposer.
 - Do not let a proposer read held-out judge scores — `ProposeContext` makes that a compile error on purpose; a proposer that games the acceptance axis is an oracle, not an optimizer.
 - Do not read `lift` without `result.power`/MDE — a "+4" on a valset too small to detect +4 is noise wearing a number.
-- Do not look for a `compositeProposer` — `fapoProposer` is the composite; `compareProposers` is the race; `runImprovementLoop`/`improve` is the plug.
+- Do not confuse `compositeProposer` with `fapoProposer`: the former allocates one fixed population across peers, while the latter escalates through ordered levels from cheaper to more structural changes.
 
 ### neutralizationGate — the placebo / content-causality control
 
