@@ -1,0 +1,29 @@
+{
+  "scope": [
+    "src/clustered-paired-binary.ts",
+    "src/statistics.ts",
+    "src/index.ts",
+    "tests/clustered-paired-binary.test.ts",
+    ".claude/skills/agent-eval/SKILL.md"
+  ],
+  "base": "39e8002748f43aa9b440805e7c73000d8aba1a19",
+  "head": "abe1d89a11fe1b40b75d0e4d96ccf68dfa2403b1",
+  "project_type": "typescript-node",
+  "flags": ["--diff-only"],
+  "score": "8/10",
+  "verdict": "APPROVE",
+  "findings_count_by_severity": {
+    "CRITICAL": 0,
+    "HIGH": 0,
+    "MEDIUM": 0,
+    "LOW": 1
+  },
+  "verification": [
+    "pnpm test: 270 files, 2752 passed, 2 skipped",
+    "pnpm typecheck",
+    "pnpm build",
+    "pnpm verify:package",
+    "pnpm lint: 0 errors, 4 pre-existing warnings",
+    "git diff --check"
+  ]
+}
