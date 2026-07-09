@@ -59,10 +59,12 @@ export interface RunOptimizationBaseOptions<TScenario extends Scenario, TArtifac
    *  generation's traces; findings-grounded proposers consume them. Opaque here;
    *  the proposer types its `TFindings`. Empty when no producer is wired. */
   findings?: unknown[]
-  /** Per-generation findings producer. After each
-   *  generation's candidates are scored, this is called with that generation's
-   *  results; whatever it returns REPLACES `ctx.findings` for the NEXT
-   *  generation's `propose()`, so the diagnosis is refreshed each round instead
+  /** Per-generation findings producer. Runs once on the BASELINE campaign
+   *  (as `generation: -1`, the baseline convention) before generation 0
+   *  proposes — so even a single-generation run proposes with trace context —
+   *  and then after each generation's candidates are scored with that
+   *  generation's results; whatever it returns REPLACES `ctx.findings` for the
+   *  NEXT `propose()`, so the diagnosis is refreshed each round instead
    *  of being a static one-shot. Generic by design: the substrate does not
    *  import an analyst — the consumer plugs its trace-analyst registry / HALO
    *  here (reading the per-candidate `runDir` traces). When absent, findings
@@ -150,6 +152,26 @@ export async function runOptimization<TScenario extends Scenario, TArtifact>(
   const scored: ParetoParent[] = [
     toParetoParent(opts.baselineSurface, winnerSurfaceHash, baselineCampaign, -1),
   ]
+
+  // Diagnose the BASELINE traces before generation 0 proposes. The
+  // between-generation producer call below only fires after gen g to feed gen
+  // g+1, so without this a single-generation run (maxGenerations = 1)
+  // proposes blind even though baseline traces exist. Baseline is
+  // `generation: -1` — the same convention the Pareto accumulator uses above.
+  // Skipped when the baseline produced no cells (dry/offline modes have no
+  // traces to analyze) or there is no generation 0 to feed; `propose()` then
+  // sees the static seed findings exactly as before.
+  if (opts.analyzeGeneration && opts.maxGenerations > 0 && baselineCampaign.cells.length > 0) {
+    const fresh = await opts.analyzeGeneration({
+      generation: -1,
+      runDir: `${opts.runDir}/baseline`,
+      candidates: [
+        { surfaceHash: winnerSurfaceHash, campaign: baselineCampaign, composite: winnerComposite },
+      ],
+      history,
+    })
+    if (Array.isArray(fresh)) currentFindings = fresh
+  }
 
   for (let gen = 0; gen < opts.maxGenerations; gen++) {
     // Decide: the proposer may stop early based on accumulated history.

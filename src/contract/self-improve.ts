@@ -239,11 +239,12 @@ export interface SelfImproveOptions<TScenario extends Scenario, TArtifact> {
   expectUsage?: 'assert' | 'warn' | 'off'
 
   /**
-   * Per-generation findings producer. After each
-   * generation is scored, this is called; whatever it returns REPLACES the
-   * proposer's `findings` for the next generation's `propose()`. Plug a
-   * trace-analyst registry / HALO here. When absent, findings stay
-   * `opts.findings`.
+   * Per-generation findings producer. Runs once on the baseline campaign (as
+   * `generation: -1`) before generation 0 proposes — so single-generation runs
+   * propose with trace context — and again after each generation is scored;
+   * whatever it returns REPLACES the proposer's `findings` for the next
+   * `propose()`. Plug a trace-analyst registry / HALO here. When absent,
+   * findings stay `opts.findings`.
    */
   analyzeGeneration?: RunOptimizationOptions<TScenario, TArtifact>['analyzeGeneration']
 

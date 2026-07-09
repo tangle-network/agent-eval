@@ -1414,12 +1414,93 @@ describe('runOptimization — analyzeGeneration feeds findings forward', () => {
     })
 
     expect(seen).toHaveLength(3)
-    // Gen 0 sees the static seed; gen 1 sees gen-0's produced finding; gen 2 gen-1's.
-    expect(seen[0]).toEqual([{ claim: 'seed' }])
+    // Gen 0 sees the baseline (gen -1) analysis — not the static seed; gen 1
+    // sees gen-0's produced finding; gen 2 gen-1's.
+    expect(seen[0]).toEqual([{ claim: 'gen--1 finding' }])
     expect(seen[1]).toEqual([{ claim: 'gen-0 finding' }])
     expect(seen[2]).toEqual([{ claim: 'gen-1 finding' }])
-    // Producer runs after gens 0 and 1, NOT the last (gen 2 has no next propose()).
-    expect(analyzed).toEqual([0, 1])
+    // Producer runs on the baseline (-1) and after gens 0 and 1, NOT the last
+    // (gen 2 has no next propose()).
+    expect(analyzed).toEqual([-1, 0, 1])
+  })
+
+  it("with generations=1, gen 0's propose() receives the baseline (gen -1) trace analysis", async () => {
+    const seen: unknown[][] = []
+    const proposer = {
+      kind: 'recorder',
+      async propose(ctx: ProposeContext) {
+        seen.push(ctx.findings)
+        return [{ surface: 'S-gen0', label: 'g0', rationale: 'r' }]
+      },
+    }
+    const result = await runOptimization<FakeScenario, FakeArtifact>({
+      scenarios: SCENARIOS,
+      baselineSurface: 'BASE',
+      dispatchWithSurface: async (surface) => ({ text: String(surface) }),
+      judges: [passJudge],
+      proposer,
+      populationSize: 1,
+      maxGenerations: 1,
+      promoteTopK: 1,
+      runDir,
+      seed: 1,
+      findings: [{ claim: 'seed' }],
+      analyzeGeneration: async ({ generation, runDir: analyzedDir, candidates, history }) => {
+        // The single propose() of the run is fed by a BASELINE analysis:
+        // generation -1 (the baseline convention), the baseline runDir, no
+        // history yet, and the baseline campaign as the sole candidate.
+        expect(generation).toBe(-1)
+        expect(analyzedDir).toBe(`${runDir}/baseline`)
+        expect(history).toEqual([])
+        expect(candidates).toHaveLength(1)
+        expect(candidates[0]!.surfaceHash).toBe(surfaceHash('BASE'))
+        // Marker derived from the baseline traces: the analyzed cells carry
+        // the artifact the BASELINE surface dispatched.
+        const artifacts = candidates[0]!.campaign.cells.map(
+          (c) => (c.artifact as FakeArtifact).text,
+        )
+        expect(artifacts).toEqual(['BASE', 'BASE'])
+        return [{ claim: 'baseline finding', from: artifacts.join(',') }]
+      },
+    })
+
+    // Gen 0 proposed WITH the baseline analysis (not the static seed), and the
+    // report is traceably derived from the baseline artifacts.
+    expect(seen).toEqual([[{ claim: 'baseline finding', from: 'BASE,BASE' }]])
+    expect(result.generations).toHaveLength(1)
+  })
+
+  it('skips the baseline analysis when the baseline produced no cells (nothing to analyze)', async () => {
+    const seen: unknown[][] = []
+    const analyzed: number[] = []
+    const proposer = {
+      kind: 'recorder',
+      async propose(ctx: ProposeContext) {
+        seen.push(ctx.findings)
+        return [{ surface: 'S-gen0', label: 'g0', rationale: 'r' }]
+      },
+    }
+    await runOptimization<FakeScenario, FakeArtifact>({
+      // No scenarios → the baseline campaign has zero cells (the dry shape) —
+      // the producer must NOT run on it, and propose() sees the static seed.
+      scenarios: [],
+      baselineSurface: 'BASE',
+      dispatchWithSurface: async (surface) => ({ text: String(surface) }),
+      judges: [passJudge],
+      proposer,
+      populationSize: 1,
+      maxGenerations: 1,
+      promoteTopK: 1,
+      runDir,
+      seed: 1,
+      findings: [{ claim: 'seed' }],
+      analyzeGeneration: async ({ generation }) => {
+        analyzed.push(generation)
+        return [{ claim: 'should not reach gen 0' }]
+      },
+    })
+    expect(analyzed).toEqual([])
+    expect(seen).toEqual([[{ claim: 'seed' }]])
   })
 
   it('without analyzeGeneration, findings stay the static seed every generation', async () => {
