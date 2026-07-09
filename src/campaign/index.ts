@@ -109,6 +109,16 @@ export {
   type PairedHoldout,
   pairHoldout,
 } from './gates/statistical-heldout'
+// ── Grounded reflection + run hygiene (lifted from agent-lab R357/R358) ──
+export {
+  classifyUngroundedLiterals,
+  type RolloutArgumentDiff,
+  type RolloutArgumentDiffOptions,
+  type RolloutCall,
+  rolloutArgumentDiff,
+  type ScoredRollout,
+  type UngroundedLiteralReport,
+} from './grounded-reflection'
 export {
   FsLabeledScenarioStore,
   type FsLabeledScenarioStoreOptions,
@@ -259,6 +269,11 @@ export {
 } from './scenario-selection'
 export { type CampaignBreakdown, campaignBreakdown, campaignMeanComposite } from './score-utils'
 export {
+  acquireSingleRunLock,
+  type SingleRunLock,
+  type SingleRunLockOptions,
+} from './single-run-lock'
+export {
   type ApplySkillPatchResult,
   applySkillPatch,
   patchEditCount,
@@ -267,6 +282,7 @@ export {
   type SkillPatchRejection,
 } from './skill-patch'
 export { type CampaignStorage, fsCampaignStorage, inMemoryCampaignStorage } from './storage'
+export { isTransientTransportFailure, type TransientFailureOptions } from './transient-failure'
 export type {
   CampaignAggregates,
   CampaignArtifactWriter,
