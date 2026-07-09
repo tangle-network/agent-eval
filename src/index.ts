@@ -652,7 +652,7 @@ export {
 
 export * from './trace'
 
-// `knowledge`, `governance`, and `trace` remain re-exported at root because
+// `knowledge` and `trace` remain re-exported at root because
 // they're load-bearing for the capture-integrity story documented in the
 // README. Every other module is reachable only through its subpath
 // (`/rl`, `/pipelines`, `/meta-eval`, `/prm`, `/builder-eval`, `/traces`).
@@ -1034,10 +1034,6 @@ export type {
   SelfPlayScorer,
 } from './self-play'
 export { runSelfPlay } from './self-play'
-
-// ── Governance templates ─────────────────────────────────────────────
-
-export * from './governance'
 
 // ── LLM client, multi-layer verifier, semantic concept judge, error-count ─
 
@@ -1472,25 +1468,6 @@ export { ATTESTATION_ALGORITHM, attest, verifyAttestation } from './attestation'
 // percentile ratchet (summarize → baseline → gate). Scores LATENCY /
 // RELIABILITY over flat metric records; the judge-panel BenchmarkRunner
 // (./benchmark) scores QUALITY. Also on the `/perf` subpath.
-export type {
-  IntegrityResult,
-  IntegrityViolation,
-  JourneySpec,
-  PerfBaseline,
-  PerfGateResult,
-  PerfRegression,
-  PerfScenario,
-  PerfStat,
-  ScenarioAxes,
-} from './perf'
-export {
-  assertRecordIntegrity,
-  checkRecordIntegrity,
-  expandMatrix,
-  gatePerf,
-  scenarioKey,
-  summarizeRecords,
-} from './perf'
 // Product-owned benchmark bundles: portable product runs for agent-lab research.
 export type {
   AgentProfileRuntimeReceipt,

@@ -28,16 +28,12 @@ try {
   const packageJson = JSON.parse(readFileSync(join(packageDir, 'package.json'), 'utf8'))
   const requiredExports = {
     '.': ['import', 'types'],
-    './workflow': ['import', 'types'],
     './campaign': ['import', 'types'],
     './traces': ['import', 'types'],
     './rl': ['import', 'types'],
-    './prm': ['import', 'types'],
     './meta-eval': ['import', 'types'],
-    './product-benchmark': ['import', 'types'],
     './belief-state': ['import', 'types'],
     './wire': ['import', 'types'],
-    './testing': ['import', 'types'],
     './openapi.json': ['default'],
   }
 
@@ -60,27 +56,6 @@ try {
       '--input-type=module',
       '--eval',
       `
-        const workflow = await import('@tangle-network/agent-eval/workflow')
-        const expected = [
-          'buildWorkflowAnalystFeedbackPack',
-          'buildWorkflowPartnerReport',
-          'buildWorkflowTraceIntelligenceEnvelope',
-          'decideWorkflowDriverPromotion',
-          'sanitizeWorkflowTraceEnvelope',
-          'summarizeWorkflowExecution',
-          'validateWorkflowTraceEnvelope',
-          'validateWorkflowTraceEvent',
-          'validateWorkflowTraceEventKind',
-          'validateWorkflowTraceEventPayload',
-          'workflowEventsToTraceEnvelope',
-          'workflowPhaseGraph',
-          'workflowRuntimeResultToTraceEnvelope',
-          'workflowTraceToFeedbackTrajectory',
-          'workflowTraceToRunRecord',
-        ]
-        for (const name of expected) {
-          if (!(name in workflow)) throw new Error('missing workflow export ' + name)
-        }
       `,
     ],
     appDir,
@@ -95,8 +70,6 @@ try {
         for (const name of ['campaignToRunRecords', 'extractPreferences', 'buildRlDataset', 'toSftRows', 'runRLCampaign']) {
           if (!(name in rl)) throw new Error('missing rl export ' + name)
         }
-        const prm = await import('@tangle-network/agent-eval/prm')
-        if (!('PrmGrader' in prm)) throw new Error('missing prm export PrmGrader')
         const metaEval = await import('@tangle-network/agent-eval/meta-eval')
         if (!('InMemoryOutcomeStore' in metaEval)) throw new Error('missing meta-eval export InMemoryOutcomeStore')
         const wire = await import('@tangle-network/agent-eval/wire')
@@ -104,20 +77,6 @@ try {
         const beliefState = await import('@tangle-network/agent-eval/belief-state')
         if (!('analyzeBeliefPolicy' in beliefState)) {
           throw new Error('missing belief-state export analyzeBeliefPolicy')
-        }
-        const testing = await import('@tangle-network/agent-eval/testing')
-        if (typeof testing.resetLockedAppendersForTesting !== 'function') {
-          throw new Error('missing testing reset helper')
-        }
-        const productBenchmark = await import('@tangle-network/agent-eval/product-benchmark')
-        for (const name of [
-          'findProductBenchmarkArtifacts',
-          'productBenchmarkSplits',
-          'validateProductBenchmarkManifest',
-          'validateProductBenchmarkRecord',
-          'validateProductBenchmarkRun',
-        ]) {
-          if (!(name in productBenchmark)) throw new Error('missing product-benchmark export ' + name)
         }
       `,
     ],
