@@ -1183,8 +1183,17 @@ describe('MutableSurface widening', () => {
     const sameBytesElsewhere = fakeCodeSurface('/wt/b', '1')
     const differentBytes = fakeCodeSurface('/wt/c', '2')
     const aAgain: CodeSurface = { ...fakeCodeSurface('/wt/a', '1'), summary: 'ignored in hash' }
+    const reorderedPatch: CodeSurface = {
+      ...a,
+      patch: {
+        byteLength: a.patch.byteLength,
+        sha256: a.patch.sha256,
+        format: a.patch.format,
+      },
+    }
     expect(surfaceHash(a)).toBe(surfaceHash(aAgain)) // summary not part of identity
     expect(surfaceHash(a)).toBe(surfaceHash(sameBytesElsewhere))
+    expect(surfaceHash(a)).toBe(surfaceHash(reorderedPatch))
     expect(surfaceHash(a)).not.toBe(surfaceHash(differentBytes))
     expect(surfaceHash(a)).toMatch(/^[a-f0-9]{16}$/)
   })

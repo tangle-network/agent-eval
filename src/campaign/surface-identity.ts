@@ -49,7 +49,11 @@ export function codeSurfaceIdentityMaterial(surface: CodeSurface): string {
     baseCommit: surface.baseCommit,
     baseTree: surface.baseTree,
     candidateTree: surface.candidateTree,
-    patch: surface.patch,
+    patch: {
+      format: surface.patch.format,
+      sha256: surface.patch.sha256,
+      byteLength: surface.patch.byteLength,
+    },
   })
 }
 

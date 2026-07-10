@@ -486,13 +486,6 @@ function verifyCodeSurfaceWithGit(
     )
   }
 
-  const candidateObject = resolveCommit(git, path, surface.candidateCommit)
-  if (candidateObject !== surface.candidateCommit) {
-    throw new WorktreeAdapterError(
-      `CodeSurface candidate object mismatch: expected ${surface.candidateCommit}, got ${candidateObject}`,
-    )
-  }
-
   const candidateTree = gitText(
     git,
     ['rev-parse', '--verify', `${surface.candidateCommit}^{tree}`],
