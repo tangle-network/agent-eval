@@ -23,7 +23,7 @@ import {
   readSync,
   realpathSync,
 } from 'node:fs'
-import { basename, isAbsolute, join, relative, resolve, sep } from 'node:path'
+import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path'
 import { assertCodeSurfaceIdentity, surfaceContentHash } from '../surface-identity'
 import type { CodeSurface } from '../types'
 
@@ -325,6 +325,12 @@ function assertSymlinkTargetIsBound(
     )
   }
   if (isAbsolute(target)) {
+    throw new WorktreeAdapterError(
+      `CodeSurface symbolic link escapes its worktree at ${displayGitPath(linkPath)}`,
+    )
+  }
+  const lexicalTarget = resolve(dirname(linkPath), target)
+  if (!isWithinRoot(root, lexicalTarget)) {
     throw new WorktreeAdapterError(
       `CodeSurface symbolic link escapes its worktree at ${displayGitPath(linkPath)}`,
     )

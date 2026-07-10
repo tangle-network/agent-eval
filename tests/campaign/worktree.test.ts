@@ -272,6 +272,19 @@ describe('gitWorktreeAdapter — real git worktrees', () => {
     }
   })
 
+  it('rejects a symbolic link that leaves and re-enters through untracked content', async () => {
+    const adapter = gitWorktreeAdapter({ repoRoot })
+    const wt = await adapter.create({ baseRef: 'main', label: 'external-trampoline' })
+    const outside = `${wt.path}-outside`
+    mkdirSync(outside)
+    symlinkSync(join(wt.path, 'prompt.txt'), join(outside, 'back'))
+    symlinkSync(`../${basename(outside)}/back`, join(wt.path, 'trampoline'))
+
+    await expect(adapter.finalize(wt, 'add external trampoline')).rejects.toThrow(
+      /symbolic link escapes/,
+    )
+  })
+
   it('rejects Git submodules whose checked-out bytes are outside the tree identity', async () => {
     const adapter = gitWorktreeAdapter({ repoRoot })
     const wt = await adapter.create({ baseRef: 'main', label: 'submodule' })
