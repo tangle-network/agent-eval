@@ -50,7 +50,9 @@ export type { FindingSubject, FindingSubjectKind } from './finding-subject'
 export {
   FINDING_SUBJECT_GRAMMAR_PROMPT,
   FINDING_SUBJECT_KINDS,
+  FINDING_SUBJECT_SYNTAX,
   FindingSubjectStringSchema,
+  findingSubjectGrammarPromptFor,
   KIND_EXPECTED_SUBJECTS,
   parseFindingSubject,
   renderFindingSubject,

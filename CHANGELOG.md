@@ -4,7 +4,7 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ---
 
-## [0.112.0] — 2026-07-09 — immutable code candidates
+## [0.113.0] — 2026-07-10 — immutable code candidates
 
 ### Changed
 
@@ -23,7 +23,18 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
   There is intentionally no lenient fallback on the evaluation path.
 - Path-only `CodeSurface` objects are invalid.
   Every field in the finalized identity is required.
-  Downstream callers must migrate to adapter-finalized candidates when adopting 0.112.0.
+  Downstream callers must migrate to adapter-finalized candidates when adopting 0.113.0.
+
+## [0.112.0] — 2026-07-10 — complete agent-surface findings
+
+### Added
+
+- Added typed finding subjects for skills, MCP servers and tools, hooks, subagents, workflows, rollout policy, generic agent-profile fields, and code paths.
+- Routed every new subject into a typed policy edit so products do not need local string classifiers.
+
+### Changed
+
+- Updated the direct `@tangle-network/agent-interface` dependency from `^0.10.0` to `^0.22.0`.
 
 ## [0.111.0] — 2026-07-09 — repository-clustered paired inference
 
