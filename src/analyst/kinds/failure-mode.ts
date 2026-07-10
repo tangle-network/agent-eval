@@ -15,10 +15,15 @@
  * ~16 leaf clusters before hitting the depth ceiling.
  */
 
+import { findingSubjectGrammarPromptFor } from '../finding-subject'
 import type { TraceAnalystKindSpec } from '../kind-factory'
 import { buildTraceToolsForGroup } from '../tool-groups'
 
+const subjectGrammar = findingSubjectGrammarPromptFor('failure-mode')
+
 const ACTOR_PROMPT = `You are a failure-mode classifier for an OTLP trace dataset. Your job is to identify the **distinct ways agents failed** in this dataset, not to grade individual runs.
+
+${subjectGrammar}
 
 DISCOVERY → CLUSTER → CITE protocol:
 
@@ -28,7 +33,7 @@ DISCOVERY → CLUSTER → CITE protocol:
 4. **Cluster, do not enumerate.** Two failures with the same root cause should be ONE finding citing both traces, not two findings. The point of this analyst is to compress N runs into K modes.
 5. For each cluster you can defend with evidence, emit ONE finding with:
    - \`area\` = "failure-mode"
-   - \`subject\` = a short label for the cluster ("tool-call-loop", "auth-revoked-mid-run", "agent-asked-clarification-too-late", ...)
+   - \`subject\` = a lowercase cluster label matching the subject grammar above ("tool-call-loop", "auth-revoked-mid-run", ...)
    - \`claim\` = one sentence stating the mode
    - \`severity\` = "critical" when it blocks the run, "high" when the run finished degraded, "medium" when it slowed convergence
    - \`evidence_uri\` = \`span://<trace_id>/<span_id>\` of the most representative span

@@ -1,11 +1,19 @@
 import { describe, expect, it } from 'vitest'
 import {
   FINDING_SUBJECT_KINDS,
+  FINDING_SUBJECT_SYNTAX,
   type FindingSubject,
+  findingSubjectGrammarPromptFor,
   KIND_EXPECTED_SUBJECTS,
   parseFindingSubject,
   renderFindingSubject,
 } from './finding-subject'
+import {
+  FAILURE_MODE_KIND_SPEC,
+  IMPROVEMENT_KIND_SPEC,
+  KNOWLEDGE_GAP_KIND_SPEC,
+  KNOWLEDGE_POISONING_KIND_SPEC,
+} from './kinds'
 
 describe('parseFindingSubject — knowledge loci', () => {
   it('parses agent-knowledge:wiki:<slug>', () => {
@@ -89,6 +97,30 @@ describe('parseFindingSubject — runtime surfaces', () => {
       kind: 'new-tool',
       name: 'diff_csv',
     })
+  })
+
+  it.each([
+    ['skill:linear-triage', { kind: 'skill', name: 'linear-triage' }],
+    ['mcp:linear', { kind: 'mcp', server: 'linear' }],
+    ['mcp:linear:get_issue', { kind: 'mcp', server: 'linear', tool: 'get_issue' }],
+    ['hook:post-tool-use', { kind: 'hook', name: 'post-tool-use' }],
+    ['subagent:reviewer', { kind: 'subagent', name: 'reviewer' }],
+    ['workflow:linear-ticket', { kind: 'workflow', name: 'linear-ticket' }],
+    ['rollout-policy:maxTurns', { kind: 'rollout-policy', field: 'maxTurns' }],
+    ['agent-profile:model', { kind: 'agent-profile', field: 'model' }],
+    ['code:src/dispatch.ts', { kind: 'code', path: 'src/dispatch.ts' }],
+  ])('parses %s', (raw, expected) => {
+    expect(parseFindingSubject(raw)).toEqual(expected)
+  })
+
+  it.each([
+    'skill:CodeReview',
+    'mcp:Linear',
+    'hook:',
+    'subagent:',
+    'workflow:',
+  ])('rejects malformed runtime subject %s', (raw) => {
+    expect(parseFindingSubject(raw)).toBeNull()
   })
 
   it('parses rag:<corpus>:<doc>', () => {
@@ -244,9 +276,18 @@ describe('renderFindingSubject', () => {
       { kind: 'knowledge.raw', sourceId: 'irs-pub-501-2024' },
       { kind: 'knowledge.stale', slug: 'old-vat-rates' },
       { kind: 'system-prompt', section: 'request-classification' },
+      { kind: 'skill', name: 'linear-triage' },
       { kind: 'tool-doc', tool: 'list_invoices' },
       { kind: 'tool-doc', tool: 'list_invoices', aspect: 'examples' },
       { kind: 'new-tool', name: 'diff_csv' },
+      { kind: 'mcp', server: 'linear' },
+      { kind: 'mcp', server: 'linear', tool: 'get_issue' },
+      { kind: 'hook', name: 'post-tool-use' },
+      { kind: 'subagent', name: 'reviewer' },
+      { kind: 'workflow', name: 'linear-ticket' },
+      { kind: 'rollout-policy', field: 'maxTurns' },
+      { kind: 'agent-profile', field: 'model' },
+      { kind: 'code', path: 'src/dispatch.ts' },
       { kind: 'rag', corpus: 'irs-rulings', docId: 'rev-rul-2024-12' },
       { kind: 'memory', key: 'last-customer-id' },
       { kind: 'scaffolding', concern: 'retry-policy' },
@@ -292,5 +333,22 @@ describe('KIND_EXPECTED_SUBJECTS', () => {
     const improvement = KIND_EXPECTED_SUBJECTS.improvement!
     expect(improvement).not.toContain('websearch.outdated')
     expect(improvement).not.toContain('prior-run-summary')
+  })
+
+  it.each([
+    ['failure-mode', FAILURE_MODE_KIND_SPEC],
+    ['improvement', IMPROVEMENT_KIND_SPEC],
+    ['knowledge-gap', KNOWLEDGE_GAP_KIND_SPEC],
+    ['knowledge-poisoning', KNOWLEDGE_POISONING_KIND_SPEC],
+  ])('%s actor prompt embeds its complete allowed grammar', (kindId, spec) => {
+    const grammar = findingSubjectGrammarPromptFor(kindId)
+    expect(spec.actorDescription).toContain(grammar)
+    for (const subjectKind of KIND_EXPECTED_SUBJECTS[kindId] ?? []) {
+      expect(grammar).toContain(FINDING_SUBJECT_SYNTAX[subjectKind])
+    }
+  })
+
+  it('rejects an unknown analyst kind instead of emitting an empty grammar', () => {
+    expect(() => findingSubjectGrammarPromptFor('unknown')).toThrow(/unknown analyst kind/)
   })
 })
