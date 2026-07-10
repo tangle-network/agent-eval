@@ -86,6 +86,7 @@ try {
           'verifyCodeSurface',
           'resolveWorktreePath',
           'assertCodeSurfaceIdentity',
+          'codeSurfaceIdentityMaterial',
           'surfaceHash',
           'surfaceContentHash',
         ]) {

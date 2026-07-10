@@ -41,6 +41,7 @@ import {
   fsCampaignStorage,
   inMemoryCampaignStorage,
 } from '../campaign/storage'
+import { surfaceHash } from '../campaign/surface-identity'
 import type {
   CampaignCellResult,
   DispatchContext,
@@ -620,7 +621,7 @@ async function shipEvalRunToHosted<TScenario extends Scenario, TArtifact>(
 
   function snapshotFromCampaign(
     index: number,
-    surface: MutableSurface | undefined,
+    surface: MutableSurface,
     campaign: RunImprovementLoopResult<TArtifact, TScenario>['baselineCampaign'],
     durationMs: number,
   ): EvalRunGenerationSnapshot {
@@ -644,10 +645,7 @@ async function shipEvalRunToHosted<TScenario extends Scenario, TArtifact>(
       cells.length === 0 ? 0 : cells.reduce((s, c) => s + c.compositeMean, 0) / cells.length
     return {
       index,
-      surfaceHash:
-        typeof surface === 'string'
-          ? hashString(surface)
-          : hashString(JSON.stringify(surface ?? '')),
+      surfaceHash: surfaceHash(surface),
       surface,
       cells,
       compositeMean,

@@ -184,7 +184,7 @@ describe('policyEditProposer', () => {
     expect(JSON.parse(String(out[0]!.surface))).toEqual({ budget: { maxTurns: 6 } })
   })
 
-  it('passes through CodeSurface-shaped candidate surfaces', async () => {
+  it('skips metadata-only CodeSurface edits that do not change candidate identity', async () => {
     const codeSurface: CodeSurface = {
       kind: 'code',
       worktreeRef: '/tmp/policy-edit-candidate',
@@ -208,12 +208,7 @@ describe('policyEditProposer', () => {
     const proposer = policyEditProposer()
     const out = await proposer.propose(ctx([codeEdit], codeSurface))
 
-    expect(out[0]!.surface).toEqual({
-      kind: 'code',
-      worktreeRef: '/tmp/policy-edit-candidate',
-      ...CODE_IDENTITY,
-      summary: 'updated summary',
-    })
+    expect(out).toEqual([])
   })
 
   it('rejects a path-only CodeSurface instead of preserving mutable identity', async () => {
