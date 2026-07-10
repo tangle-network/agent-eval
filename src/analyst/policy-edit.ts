@@ -30,6 +30,7 @@ export const POLICY_EDIT_TARGET_SURFACES = [
   'runtime-config',
   'memory',
   'agent-profile',
+  'code',
   'deployment',
 ] as const
 
@@ -335,6 +336,11 @@ function routeParsedSubject(subject: FindingSubject): {
         axis: 'representation',
         target: { surface: 'prompt', path: `system-prompt:${subject.section}` },
       }
+    case 'skill':
+      return {
+        axis: 'agent_profile',
+        target: { surface: 'agent-profile', path: `skill:${subject.name}` },
+      }
     case 'tool-doc':
       return {
         axis: 'tool_contract',
@@ -349,6 +355,44 @@ function routeParsedSubject(subject: FindingSubject): {
       return {
         axis: 'tool_contract',
         target: { surface: 'tool-contract', path: `new-tool:${subject.name}` },
+      }
+    case 'mcp':
+      return {
+        axis: 'tool_contract',
+        target: {
+          surface: 'agent-profile',
+          path: subject.tool ? `mcp:${subject.server}:${subject.tool}` : `mcp:${subject.server}`,
+        },
+      }
+    case 'hook':
+      return {
+        axis: 'agent_profile',
+        target: { surface: 'agent-profile', path: `hook:${subject.name}` },
+      }
+    case 'subagent':
+      return {
+        axis: 'routing',
+        target: { surface: 'agent-profile', path: `subagent:${subject.name}` },
+      }
+    case 'workflow':
+      return {
+        axis: 'routing',
+        target: { surface: 'runtime-config', path: `workflow:${subject.name}` },
+      }
+    case 'rollout-policy':
+      return {
+        axis: rolloutPolicyAxis(subject.field),
+        target: { surface: 'runtime-config', path: `rollout-policy:${subject.field}` },
+      }
+    case 'agent-profile':
+      return {
+        axis: 'agent_profile',
+        target: { surface: 'agent-profile', path: `agent-profile:${subject.field}` },
+      }
+    case 'code':
+      return {
+        axis: 'representation',
+        target: { surface: 'code', path: `code:${subject.path}` },
       }
     case 'rag':
       return {
@@ -403,6 +447,18 @@ function routeParsedSubject(subject: FindingSubject): {
     case 'cluster':
       return { axis: 'representation', target: { surface: 'prompt', path: subject.label } }
   }
+}
+
+function rolloutPolicyAxis(field: string): PolicyEditAxis {
+  const normalized = field.toLowerCase()
+  if (/budget|max(?:imum)?[-_. ]?(?:turns?|tokens?|cost)|timeout|deadline/.test(normalized)) {
+    return 'budget'
+  }
+  if (/temperature|top[-_. ]?p|sampling|seed|shots?|parallel|concurrency/.test(normalized)) {
+    return 'sampling'
+  }
+  if (/output|schema|format/.test(normalized)) return 'output_contract'
+  return 'routing'
 }
 
 function resolveExpectedGain(

@@ -121,6 +121,21 @@ describe('PolicyEdit contract', () => {
     expect(validatePolicyEdit(edit)).toBe(edit)
   })
 
+  it.each([
+    ['skill:linear-triage', 'agent_profile', 'agent-profile', 'skill:linear-triage'],
+    ['mcp:linear:get_issue', 'tool_contract', 'agent-profile', 'mcp:linear:get_issue'],
+    ['hook:post-tool-use', 'agent_profile', 'agent-profile', 'hook:post-tool-use'],
+    ['subagent:reviewer', 'routing', 'agent-profile', 'subagent:reviewer'],
+    ['workflow:linear-ticket', 'routing', 'runtime-config', 'workflow:linear-ticket'],
+    ['rollout-policy:maxTurns', 'budget', 'runtime-config', 'rollout-policy:maxTurns'],
+    ['rollout-policy:temperature', 'sampling', 'runtime-config', 'rollout-policy:temperature'],
+    ['agent-profile:model', 'agent_profile', 'agent-profile', 'agent-profile:model'],
+    ['code:src/dispatch.ts', 'representation', 'code', 'code:src/dispatch.ts'],
+  ])('routes %s to %s / %s / %s', (subject, axis, surface, path) => {
+    const edit = policyEditFromFinding(finding({ subject }))
+    expect(edit).toMatchObject({ axis, target: { surface, path } })
+  })
+
   it('returns no edit when the finding lacks a typed expected gain', () => {
     const edit = policyEditFromFinding(finding({ metadata: undefined }))
     expect(edit).toBeNull()

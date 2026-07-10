@@ -18,10 +18,15 @@
  * itself is actually false in ground truth.
  */
 
+import { findingSubjectGrammarPromptFor } from '../finding-subject'
 import type { TraceAnalystKindSpec } from '../kind-factory'
 import { buildTraceToolsForGroup } from '../tool-groups'
 
+const subjectGrammar = findingSubjectGrammarPromptFor('knowledge-poisoning')
+
 const ACTOR_PROMPT = `You are a knowledge-poisoning analyst for an OTLP trace dataset. Your job is to identify cases where the agent **confidently used wrong information** — not where it lacked information (that's the knowledge-gap analyst).
+
+${subjectGrammar}
 
 DISCOVERY → DUAL-VERIFY → CITE protocol:
 
@@ -43,7 +48,7 @@ DISCOVERY → DUAL-VERIFY → CITE protocol:
 
 For each confirmed poisoning, emit ONE finding with:
 - \`area\` = "knowledge-poisoning"
-- \`subject\` = the source of the false belief, one of: \`agent-knowledge:wiki:<page-slug>\` (wiki page contradicts current ground truth), \`agent-knowledge:claim:<topic>\` (a specific claim/relation went stale), \`agent-knowledge:raw:<source-id>\` (the raw source is outdated and the wiki inherited the drift), \`websearch:outdated:<url-or-topic>\`, \`tool-doc:<tool>\`, \`system-prompt:<section>\`, \`memory:<key>\`, \`prior-run-summary:<topic>\`
+- \`subject\` = the source of the false belief using one exact form from the subject grammar above
 - \`claim\` = one sentence: "agent believed X (from source S); evidence in trace shows X is false"
 - \`severity\` = "critical" when poisoning caused a wrong user-visible action; "high" when caught internally but wasted significant work; "medium" for inefficiency only
 - \`evidence_uri\` = \`span://<trace_id>/<span_id>\` of the action span (the moment the agent acted on the false belief)
