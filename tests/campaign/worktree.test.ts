@@ -9,7 +9,7 @@ import {
   unlinkSync,
   writeFileSync,
 } from 'node:fs'
-import { tmpdir } from 'node:os'
+import { devNull, tmpdir } from 'node:os'
 import { basename, dirname, join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { surfaceHash } from '../../src/campaign/presets/run-optimization'
@@ -76,6 +76,9 @@ describe('gitWorktreeAdapter — real git worktrees', () => {
       'git',
       [
         'diff',
+        '--unified=3',
+        '--inter-hunk-context=0',
+        `-O${devNull}`,
         '--binary',
         '--full-index',
         '--no-color',
@@ -120,6 +123,32 @@ describe('gitWorktreeAdapter — real git worktrees', () => {
     expect(verifyCodeSurface(surface).path).toBe(wt.path)
   })
 
+  it('finalizes and verifies SHA-256 repositories', async () => {
+    const shaRoot = mkdtempSync(join(tmpdir(), 'wt-sha256-repo-'))
+    try {
+      git(['init', '-q', '-b', 'main', '--object-format=sha256'], shaRoot)
+      git(['config', 'user.email', 'test@test.dev'], shaRoot)
+      git(['config', 'user.name', 'Test'], shaRoot)
+      const emptyHooks = join(shaRoot, '.empty-hooks')
+      mkdirSync(emptyHooks)
+      git(['config', 'core.hooksPath', emptyHooks], shaRoot)
+      writeFileSync(join(shaRoot, 'prompt.txt'), 'baseline prompt\n')
+      git(['add', '-A'], shaRoot)
+      git(['commit', '-q', '-m', 'init'], shaRoot)
+
+      const adapter = gitWorktreeAdapter({ repoRoot: shaRoot })
+      const wt = await adapter.create({ baseRef: 'main', label: 'sha256' })
+      writeFileSync(join(wt.path, 'prompt.txt'), 'candidate prompt\n')
+      const surface = await adapter.finalize(wt, 'sha256 candidate')
+
+      expect(surface.baseCommit).toMatch(/^[a-f0-9]{64}$/)
+      expect(surface.candidateCommit).toMatch(/^[a-f0-9]{64}$/)
+      expect(verifyCodeSurface(surface).path).toBe(wt.path)
+    } finally {
+      rmSync(shaRoot, { recursive: true, force: true })
+    }
+  })
+
   it('hashes candidate bytes, not worktree paths or commit metadata', async () => {
     const adapter = gitWorktreeAdapter({ repoRoot })
     const a = await adapter.create({ baseRef: 'main', label: 'same-a' })
@@ -138,7 +167,7 @@ describe('gitWorktreeAdapter — real git worktrees', () => {
     expect(surfaceHash(surfaceA)).toBe(surfaceHash(surfaceB))
   })
 
-  it('pins binary patch bytes across repository and global compression config', async () => {
+  it('pins patch bytes across repository and global diff config', async () => {
     const priorHome = process.env.HOME
     const priorXdgConfigHome = process.env.XDG_CONFIG_HOME
     const isolatedHome = mkdtempSync(join(tmpdir(), 'wt-git-home-'))
@@ -153,28 +182,70 @@ describe('gitWorktreeAdapter — real git worktrees', () => {
         candidate[i] = ((candidate[i] ?? 0) + 1) & 0xff
       }
       writeFileSync(join(repoRoot, 'fixture.bin'), baseline)
+      writeFileSync(
+        join(repoRoot, 'context.txt'),
+        ['GLOBAL heading', 'one', '', 'two', '', 'three', 'LOCAL heading', 'tail', ''].join('\n'),
+      )
+      writeFileSync(join(repoRoot, '.gitattributes'), 'context.txt diff=fixture\n')
       git(['add', 'fixture.bin'], repoRoot)
+      git(['add', 'context.txt', '.gitattributes'], repoRoot)
       git(['commit', '-q', '-m', 'add binary fixture'], repoRoot)
 
       const adapter = gitWorktreeAdapter({ repoRoot })
+      const globalOrder = join(isolatedHome, 'global-order')
+      const repoOrder = join(isolatedHome, 'repo-order')
+      writeFileSync(globalOrder, 'fixture.bin\ncontext.txt\n')
+      writeFileSync(repoOrder, 'context.txt\nfixture.bin\n')
       git(['config', '--global', 'core.compression', '9'], repoRoot)
+      git(['config', '--global', 'diff.context', '20'], repoRoot)
+      git(['config', '--global', 'diff.interHunkContext', '20'], repoRoot)
+      git(['config', '--global', 'diff.suppressBlankEmpty', 'true'], repoRoot)
+      git(['config', '--global', 'diff.orderFile', globalOrder], repoRoot)
+      git(['config', '--global', 'diff.fixture.xfuncname', '^GLOBAL'], repoRoot)
       git(['config', 'core.compression', '1'], repoRoot)
-      const repoConfigured = await adapter.create({ baseRef: 'main', label: 'repo-compression' })
+      git(['config', 'diff.context', '0'], repoRoot)
+      git(['config', 'diff.interHunkContext', '0'], repoRoot)
+      git(['config', 'diff.suppressBlankEmpty', 'false'], repoRoot)
+      git(['config', 'diff.orderFile', repoOrder], repoRoot)
+      git(['config', 'diff.fixture.xfuncname', '^LOCAL'], repoRoot)
+      const repoConfigured = await adapter.create({ baseRef: 'main', label: 'repo-config' })
       writeFileSync(join(repoConfigured.path, 'fixture.bin'), candidate)
+      writeFileSync(
+        join(repoConfigured.path, 'context.txt'),
+        ['GLOBAL heading', 'ONE', '', 'two', '', 'THREE', 'LOCAL heading', 'tail', ''].join('\n'),
+      )
       const surfaceA = await adapter.finalize(repoConfigured, 'binary candidate A')
 
-      git(['config', '--unset', 'core.compression'], repoRoot)
+      for (const key of [
+        'core.compression',
+        'diff.context',
+        'diff.interHunkContext',
+        'diff.suppressBlankEmpty',
+        'diff.orderFile',
+        'diff.fixture.xfuncname',
+      ]) {
+        git(['config', '--unset', key], repoRoot)
+      }
       const globalConfigured = await adapter.create({
         baseRef: 'main',
-        label: 'global-compression',
+        label: 'global-config',
       })
       writeFileSync(join(globalConfigured.path, 'fixture.bin'), candidate)
+      writeFileSync(
+        join(globalConfigured.path, 'context.txt'),
+        ['GLOBAL heading', 'ONE', '', 'two', '', 'THREE', 'LOCAL heading', 'tail', ''].join('\n'),
+      )
       const surfaceB = await adapter.finalize(globalConfigured, 'binary candidate B')
 
       expect(surfaceA.patch).toEqual(surfaceB.patch)
       expect(surfaceContentHash(surfaceA)).toBe(surfaceContentHash(surfaceB))
 
       git(['config', 'core.compression', '6'], repoRoot)
+      git(['config', 'diff.context', '10'], repoRoot)
+      git(['config', 'diff.interHunkContext', '10'], repoRoot)
+      git(['config', 'diff.suppressBlankEmpty', 'true'], repoRoot)
+      git(['config', 'diff.orderFile', repoOrder], repoRoot)
+      git(['config', 'diff.fixture.xfuncname', '^LOCAL'], repoRoot)
       expect(() => verifyCodeSurface(surfaceA)).not.toThrow()
       expect(() => verifyCodeSurface(surfaceB)).not.toThrow()
     } finally {

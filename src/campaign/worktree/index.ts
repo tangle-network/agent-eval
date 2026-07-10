@@ -18,11 +18,15 @@ import {
   constants as fsConstants,
   fstatSync,
   lstatSync,
+  mkdirSync,
+  mkdtempSync,
   openSync,
   readlinkSync,
   readSync,
   realpathSync,
+  rmSync,
 } from 'node:fs'
+import { devNull, tmpdir } from 'node:os'
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path'
 import { assertCodeSurfaceIdentity, surfaceContentHash } from '../surface-identity'
 import type { CodeSurface } from '../types'
@@ -31,7 +35,8 @@ const MAX_GIT_OUTPUT_BYTES = 256 * 1024 * 1024
 const FILE_HASH_CHUNK_BYTES = 1024 * 1024
 
 type GitOutput = string | Uint8Array
-type GitRunner = (args: string[], cwd: string) => GitOutput
+type GitEnvironment = Readonly<Record<string, string>>
+type GitRunner = (args: string[], cwd: string, env?: GitEnvironment) => GitOutput
 
 const GIT_REPOSITORY_ENV = new Set([
   'GIT_ALTERNATE_OBJECT_DIRECTORIES',
@@ -87,19 +92,30 @@ export interface GitWorktreeAdapterOptions {
   /** Branch-name prefix. Default: `improve`. */
   branchPrefix?: string
   /** Test seam — defaults to a real `git` runner. The return value must contain
-   *  stdout verbatim; trimming a binary diff changes candidate identity. */
+   *  stdout verbatim, and runners that execute Git must forward the optional
+   *  environment overrides used to isolate patch generation. */
   git?: GitRunner
 }
 
-function defaultGit(args: string[], cwd: string): Uint8Array {
+function defaultGit(args: string[], cwd: string, overrides?: GitEnvironment): Uint8Array {
   try {
     const env = { ...process.env }
     for (const key of Object.keys(env)) {
-      if (GIT_REPOSITORY_ENV.has(key) || key === 'GIT_CONFIG' || key.startsWith('GIT_CONFIG_')) {
+      if (
+        GIT_REPOSITORY_ENV.has(key) ||
+        key === 'GIT_CONFIG' ||
+        key.startsWith('GIT_CONFIG_') ||
+        key.startsWith('GIT_ATTR_') ||
+        key === 'GIT_DIFF_OPTS' ||
+        key === 'GIT_EXTERNAL_DIFF'
+      ) {
         delete env[key]
       }
     }
+    Object.assign(env, overrides)
     env.GIT_NO_REPLACE_OBJECTS = '1'
+    env.LC_ALL = 'C'
+    env.LANG = 'C'
     return execFileSync('git', args, { cwd, env, maxBuffer: MAX_GIT_OUTPUT_BYTES })
   } catch (err) {
     const stderr =
@@ -110,9 +126,9 @@ function defaultGit(args: string[], cwd: string): Uint8Array {
   }
 }
 
-function gitBytes(git: GitRunner, args: string[], cwd: string): Buffer {
+function gitBytes(git: GitRunner, args: string[], cwd: string, env?: GitEnvironment): Buffer {
   try {
-    const output = git(args, cwd)
+    const output = git(args, cwd, env)
     return typeof output === 'string' ? Buffer.from(output, 'utf8') : Buffer.from(output)
   } catch (err) {
     if (err instanceof WorktreeAdapterError) throw err
@@ -120,8 +136,8 @@ function gitBytes(git: GitRunner, args: string[], cwd: string): Buffer {
   }
 }
 
-function gitText(git: GitRunner, args: string[], cwd: string): string {
-  return gitBytes(git, args, cwd).toString('utf8').trim()
+function gitText(git: GitRunner, args: string[], cwd: string, env?: GitEnvironment): string {
+  return gitBytes(git, args, cwd, env).toString('utf8').trim()
 }
 
 function sha256(bytes: Uint8Array): `sha256:${string}` {
@@ -134,7 +150,16 @@ const PATCH_ARGS = [
   // the candidate identity for the same base and final tree.
   '-c',
   'core.compression=0',
+  '-c',
+  `core.attributesFile=${devNull}`,
+  '-c',
+  'core.quotePath=true',
+  '-c',
+  'diff.suppressBlankEmpty=false',
   'diff',
+  '--unified=3',
+  '--inter-hunk-context=0',
+  `-O${devNull}`,
   '--binary',
   '--full-index',
   '--no-color',
@@ -147,13 +172,55 @@ const PATCH_ARGS = [
   '--dst-prefix=b/',
 ] as const
 
+const CANONICAL_GIT_ENV: GitEnvironment = {
+  GIT_ATTR_GLOBAL: devNull,
+  GIT_ATTR_NOSYSTEM: '1',
+  GIT_CONFIG_GLOBAL: devNull,
+  GIT_CONFIG_NOSYSTEM: '1',
+  GIT_CONFIG_SYSTEM: devNull,
+}
+
+/** Render the transport patch from immutable objects through fresh Git metadata.
+ *  Source-repository config, info attributes, templates, and caller environment
+ *  therefore cannot alter bytes for the same two trees. */
 function patchBytes(
   git: GitRunner,
   cwd: string,
   baseCommit: string,
   candidateCommit: string,
 ): Buffer {
-  return gitBytes(git, [...PATCH_ARGS, baseCommit, candidateCommit, '--'], cwd)
+  const scratch = mkdtempSync(join(tmpdir(), 'agent-eval-patch-'))
+  const bareRepo = join(scratch, 'repo.git')
+  const emptyTemplate = join(scratch, 'empty-template')
+  mkdirSync(emptyTemplate)
+  try {
+    const objectFormat = gitObjectHashAlgorithm(candidateCommit)
+    const sourceObjects = realpathSync(gitText(git, ['rev-parse', '--git-path', 'objects'], cwd))
+    gitText(
+      git,
+      [
+        'init',
+        '--bare',
+        '--quiet',
+        ...(objectFormat === 'sha256' ? ['--object-format=sha256'] : []),
+        `--template=${emptyTemplate}`,
+        bareRepo,
+      ],
+      scratch,
+      CANONICAL_GIT_ENV,
+    )
+    return gitBytes(
+      git,
+      [`--git-dir=${bareRepo}`, ...PATCH_ARGS, baseCommit, candidateCommit, '--'],
+      scratch,
+      {
+        ...CANONICAL_GIT_ENV,
+        GIT_ALTERNATE_OBJECT_DIRECTORIES: sourceObjects,
+      },
+    )
+  } finally {
+    rmSync(scratch, { recursive: true, force: true })
+  }
 }
 
 function resolveCommit(git: GitRunner, cwd: string, ref: string): string {
