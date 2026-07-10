@@ -138,6 +138,54 @@ describe('gitWorktreeAdapter — real git worktrees', () => {
     expect(surfaceHash(surfaceA)).toBe(surfaceHash(surfaceB))
   })
 
+  it('pins binary patch bytes across repository and global compression config', async () => {
+    const priorHome = process.env.HOME
+    const priorXdgConfigHome = process.env.XDG_CONFIG_HOME
+    const isolatedHome = mkdtempSync(join(tmpdir(), 'wt-git-home-'))
+    process.env.HOME = isolatedHome
+    process.env.XDG_CONFIG_HOME = isolatedHome
+    try {
+      const baseline = Buffer.concat(
+        Array.from({ length: 1024 }, (_, i) => Buffer.from(`record-${i % 17}\0`.repeat(32))),
+      )
+      const candidate = Buffer.from(baseline)
+      for (let i = 0; i < candidate.length; i += 4096) {
+        candidate[i] = ((candidate[i] ?? 0) + 1) & 0xff
+      }
+      writeFileSync(join(repoRoot, 'fixture.bin'), baseline)
+      git(['add', 'fixture.bin'], repoRoot)
+      git(['commit', '-q', '-m', 'add binary fixture'], repoRoot)
+
+      const adapter = gitWorktreeAdapter({ repoRoot })
+      git(['config', '--global', 'core.compression', '9'], repoRoot)
+      git(['config', 'core.compression', '1'], repoRoot)
+      const repoConfigured = await adapter.create({ baseRef: 'main', label: 'repo-compression' })
+      writeFileSync(join(repoConfigured.path, 'fixture.bin'), candidate)
+      const surfaceA = await adapter.finalize(repoConfigured, 'binary candidate A')
+
+      git(['config', '--unset', 'core.compression'], repoRoot)
+      const globalConfigured = await adapter.create({
+        baseRef: 'main',
+        label: 'global-compression',
+      })
+      writeFileSync(join(globalConfigured.path, 'fixture.bin'), candidate)
+      const surfaceB = await adapter.finalize(globalConfigured, 'binary candidate B')
+
+      expect(surfaceA.patch).toEqual(surfaceB.patch)
+      expect(surfaceContentHash(surfaceA)).toBe(surfaceContentHash(surfaceB))
+
+      git(['config', 'core.compression', '6'], repoRoot)
+      expect(() => verifyCodeSurface(surfaceA)).not.toThrow()
+      expect(() => verifyCodeSurface(surfaceB)).not.toThrow()
+    } finally {
+      if (priorHome === undefined) delete process.env.HOME
+      else process.env.HOME = priorHome
+      if (priorXdgConfigHome === undefined) delete process.env.XDG_CONFIG_HOME
+      else process.env.XDG_CONFIG_HOME = priorXdgConfigHome
+      rmSync(isolatedHome, { recursive: true, force: true })
+    }
+  })
+
   it('changes both content hashes when one candidate byte changes', async () => {
     const adapter = gitWorktreeAdapter({ repoRoot })
     const a = await adapter.create({ baseRef: 'main', label: 'bytes-a' })

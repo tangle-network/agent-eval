@@ -129,6 +129,11 @@ function sha256(bytes: Uint8Array): `sha256:${string}` {
 }
 
 const PATCH_ARGS = [
+  // Git binary patches embed a zlib stream. Pin no-compression at command
+  // scope so repository/global config and compressor heuristics cannot change
+  // the candidate identity for the same base and final tree.
+  '-c',
+  'core.compression=0',
   'diff',
   '--binary',
   '--full-index',
