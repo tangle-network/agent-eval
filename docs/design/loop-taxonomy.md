@@ -166,7 +166,9 @@ for tiers 1–2, and a finalized `CodeSurface` for tier 4. A code surface's
 worktree path is only its locator; exact base/candidate commits, final tree,
 and binary-patch digest are its portable identity. Call `verifyCodeSurface`
 before executing the checkout so a moved ref or post-finalization mutation
-fails before measurement.
+fails before measurement. Verification hashes raw files and executable modes
+without Git filters and rejects external symlinks or submodules whose bytes are
+not represented by the candidate tree.
 
 | Tier | Surface | Generator that changes it | Blast radius |
 |---|---|---|---|

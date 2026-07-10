@@ -12,12 +12,23 @@
 
 import { execFileSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
-import { existsSync } from 'node:fs'
-import { basename, isAbsolute, join } from 'node:path'
+import {
+  closeSync,
+  existsSync,
+  constants as fsConstants,
+  fstatSync,
+  lstatSync,
+  openSync,
+  readlinkSync,
+  readSync,
+  realpathSync,
+} from 'node:fs'
+import { basename, isAbsolute, join, relative, resolve, sep } from 'node:path'
 import { assertCodeSurfaceIdentity, surfaceContentHash } from '../surface-identity'
 import type { CodeSurface } from '../types'
 
 const MAX_GIT_OUTPUT_BYTES = 256 * 1024 * 1024
+const FILE_HASH_CHUNK_BYTES = 1024 * 1024
 
 type GitOutput = string | Uint8Array
 type GitRunner = (args: string[], cwd: string) => GitOutput
@@ -88,6 +99,7 @@ function defaultGit(args: string[], cwd: string): Uint8Array {
         delete env[key]
       }
     }
+    env.GIT_NO_REPLACE_OBJECTS = '1'
     return execFileSync('git', args, { cwd, env, maxBuffer: MAX_GIT_OUTPUT_BYTES })
   } catch (err) {
     const stderr =
@@ -149,6 +161,250 @@ function unresolvedWorktreePath(surface: CodeSurface, worktreeDir?: string): str
   return surface.worktreeRef
 }
 
+interface GitTreeEntry {
+  mode: string
+  objectId: string
+  path: string
+}
+
+function displayGitPath(path: string): string {
+  return JSON.stringify(path)
+}
+
+function parseGitTreeEntries(bytes: Uint8Array): GitTreeEntry[] {
+  const input = Buffer.from(bytes)
+  const entries: GitTreeEntry[] = []
+  let start = 0
+  while (start < input.length) {
+    const end = input.indexOf(0, start)
+    if (end < 0) throw new WorktreeAdapterError('Git tree output was not NUL-terminated')
+    const record = input.subarray(start, end)
+    start = end + 1
+    if (record.length === 0) continue
+
+    const tab = record.indexOf(0x09)
+    if (tab < 0) throw new WorktreeAdapterError('Git tree entry did not contain a path')
+    const metadata = record.subarray(0, tab).toString('ascii').split(' ')
+    if (metadata.length !== 3) throw new WorktreeAdapterError('Git tree entry was malformed')
+    const mode = metadata[0]
+    const type = metadata[1]
+    const objectId = metadata[2]
+    if (!mode || !type || !objectId) {
+      throw new WorktreeAdapterError('Git tree entry was malformed')
+    }
+    const pathBytes = record.subarray(tab + 1)
+    const path = pathBytes.toString('utf8')
+    if (!Buffer.from(path, 'utf8').equals(pathBytes)) {
+      throw new WorktreeAdapterError('CodeSurface paths must be valid UTF-8')
+    }
+    if (type !== 'blob' && type !== 'commit') {
+      throw new WorktreeAdapterError(
+        `CodeSurface contains unsupported Git object type ${type} at ${displayGitPath(path)}`,
+      )
+    }
+    entries.push({ mode, objectId, path })
+  }
+  return entries
+}
+
+function parseGitPathList(bytes: Uint8Array): string[] {
+  const input = Buffer.from(bytes)
+  const paths: string[] = []
+  let start = 0
+  while (start < input.length) {
+    const end = input.indexOf(0, start)
+    if (end < 0) throw new WorktreeAdapterError('Git path output was not NUL-terminated')
+    const pathBytes = input.subarray(start, end)
+    start = end + 1
+    if (pathBytes.length === 0) continue
+    const path = pathBytes.toString('utf8')
+    if (!Buffer.from(path, 'utf8').equals(pathBytes)) {
+      throw new WorktreeAdapterError('CodeSurface paths must be valid UTF-8')
+    }
+    paths.push(path)
+  }
+  return paths
+}
+
+function isWithinRoot(root: string, candidate: string): boolean {
+  const rel = relative(root, candidate)
+  return rel === '' || (!isAbsolute(rel) && rel !== '..' && !rel.startsWith(`..${sep}`))
+}
+
+function assertSafeRelativePath(root: string, path: string): string {
+  if (path.length === 0 || isAbsolute(path)) {
+    throw new WorktreeAdapterError(`CodeSurface contains unsafe path ${displayGitPath(path)}`)
+  }
+  const absolutePath = resolve(root, path)
+  if (!isWithinRoot(root, absolutePath) || absolutePath === root) {
+    throw new WorktreeAdapterError(`CodeSurface path escapes its worktree: ${displayGitPath(path)}`)
+  }
+
+  const segments = path.split(/[\\/]/u)
+  let parent = root
+  for (const segment of segments.slice(0, -1)) {
+    if (segment.length === 0 || segment === '.' || segment === '..') {
+      throw new WorktreeAdapterError(`CodeSurface contains unsafe path ${displayGitPath(path)}`)
+    }
+    parent = join(parent, segment)
+    const stat = lstatSync(parent)
+    if (!stat.isDirectory() || stat.isSymbolicLink()) {
+      throw new WorktreeAdapterError(
+        `CodeSurface path traverses a non-directory or symbolic link: ${displayGitPath(path)}`,
+      )
+    }
+  }
+  return absolutePath
+}
+
+function gitObjectHashAlgorithm(objectId: string): 'sha1' | 'sha256' {
+  if (/^[a-f0-9]{40}$/.test(objectId)) return 'sha1'
+  if (/^[a-f0-9]{64}$/.test(objectId)) return 'sha256'
+  throw new WorktreeAdapterError(`Unsupported Git object id: ${objectId}`)
+}
+
+function hashGitBlobBytes(bytes: Uint8Array, objectId: string): string {
+  const hash = createHash(gitObjectHashAlgorithm(objectId))
+  hash.update(`blob ${bytes.byteLength}\0`)
+  hash.update(bytes)
+  return hash.digest('hex')
+}
+
+function hashGitBlobFile(path: string, objectId: string): { hash: string; executable: boolean } {
+  const before = lstatSync(path)
+  if (!before.isFile() || before.isSymbolicLink()) {
+    throw new WorktreeAdapterError(`CodeSurface expected a regular file at ${displayGitPath(path)}`)
+  }
+
+  const noFollow = process.platform === 'win32' ? 0 : fsConstants.O_NOFOLLOW
+  const fd = openSync(path, fsConstants.O_RDONLY | noFollow)
+  try {
+    const opened = fstatSync(fd)
+    if (
+      !opened.isFile() ||
+      opened.dev !== before.dev ||
+      opened.ino !== before.ino ||
+      opened.size !== before.size
+    ) {
+      throw new WorktreeAdapterError(
+        `CodeSurface file changed while it was being verified: ${displayGitPath(path)}`,
+      )
+    }
+
+    const hash = createHash(gitObjectHashAlgorithm(objectId))
+    hash.update(`blob ${opened.size}\0`)
+    const chunk = Buffer.allocUnsafe(FILE_HASH_CHUNK_BYTES)
+    let total = 0
+    while (true) {
+      const count = readSync(fd, chunk, 0, chunk.length, null)
+      if (count === 0) break
+      total += count
+      hash.update(chunk.subarray(0, count))
+    }
+    if (total !== opened.size) {
+      throw new WorktreeAdapterError(
+        `CodeSurface file changed while it was being verified: ${displayGitPath(path)}`,
+      )
+    }
+    return { hash: hash.digest('hex'), executable: (opened.mode & 0o111) !== 0 }
+  } finally {
+    closeSync(fd)
+  }
+}
+
+function assertSymlinkTargetIsBound(
+  root: string,
+  linkPath: string,
+  trackedPaths: ReadonlySet<string>,
+): void {
+  const targetBytes = readlinkSync(linkPath, { encoding: 'buffer' })
+  const target = targetBytes.toString('utf8')
+  if (!Buffer.from(target, 'utf8').equals(targetBytes)) {
+    throw new WorktreeAdapterError(
+      `CodeSurface symbolic link has an unsafe target at ${displayGitPath(linkPath)}`,
+    )
+  }
+  if (isAbsolute(target)) {
+    throw new WorktreeAdapterError(
+      `CodeSurface symbolic link escapes its worktree at ${displayGitPath(linkPath)}`,
+    )
+  }
+  let resolvedTarget: string
+  try {
+    resolvedTarget = realpathSync(linkPath)
+  } catch (err) {
+    throw new WorktreeAdapterError(
+      `CodeSurface symbolic link target is missing or cyclic at ${displayGitPath(linkPath)}`,
+      err,
+    )
+  }
+  if (!isWithinRoot(root, resolvedTarget)) {
+    throw new WorktreeAdapterError(
+      `CodeSurface symbolic link escapes its worktree at ${displayGitPath(linkPath)}`,
+    )
+  }
+
+  const targetRelative = relative(root, resolvedTarget).split(sep).join('/')
+  const targetIsTracked =
+    trackedPaths.has(targetRelative) ||
+    [...trackedPaths].some((trackedPath) => trackedPath.startsWith(`${targetRelative}/`))
+  if (!targetIsTracked) {
+    throw new WorktreeAdapterError(
+      `CodeSurface symbolic link resolves to untracked content at ${displayGitPath(linkPath)}`,
+    )
+  }
+}
+
+function assertRawTreeMatchesWorktree(git: GitRunner, root: string, candidateCommit: string): void {
+  const entries = parseGitTreeEntries(
+    gitBytes(git, ['ls-tree', '-r', '-z', '--full-tree', candidateCommit], root),
+  )
+  const trackedPaths = new Set(entries.map((entry) => entry.path))
+
+  for (const entry of entries) {
+    const absolutePath = assertSafeRelativePath(root, entry.path)
+    if (entry.mode === '160000' || entry.mode === '040000') {
+      throw new WorktreeAdapterError(
+        `CodeSurface contains a Git submodule whose executable bytes are not bound: ${displayGitPath(entry.path)}`,
+      )
+    }
+    if (entry.mode === '120000') {
+      const stat = lstatSync(absolutePath)
+      if (!stat.isSymbolicLink()) {
+        throw new WorktreeAdapterError(
+          `CodeSurface expected a symbolic link at ${displayGitPath(entry.path)}`,
+        )
+      }
+      const targetBytes = readlinkSync(absolutePath, { encoding: 'buffer' })
+      const actualObjectId = hashGitBlobBytes(targetBytes, entry.objectId)
+      if (actualObjectId !== entry.objectId) {
+        throw new WorktreeAdapterError(
+          `CodeSurface raw symbolic-link bytes differ from the candidate tree at ${displayGitPath(entry.path)}`,
+        )
+      }
+      assertSymlinkTargetIsBound(root, absolutePath, trackedPaths)
+      continue
+    }
+    if (entry.mode !== '100644' && entry.mode !== '100755') {
+      throw new WorktreeAdapterError(
+        `CodeSurface contains unsupported Git mode ${entry.mode} at ${displayGitPath(entry.path)}`,
+      )
+    }
+
+    const actual = hashGitBlobFile(absolutePath, entry.objectId)
+    if (actual.hash !== entry.objectId) {
+      throw new WorktreeAdapterError(
+        `CodeSurface raw tracked bytes differ from the candidate tree because the worktree changed after finalization at ${displayGitPath(entry.path)}`,
+      )
+    }
+    if (process.platform !== 'win32' && actual.executable !== (entry.mode === '100755')) {
+      throw new WorktreeAdapterError(
+        `CodeSurface executable mode differs from the candidate tree at ${displayGitPath(entry.path)}`,
+      )
+    }
+  }
+}
+
 export interface CodeSurfaceVerification {
   /** Verified worktree path. */
   path: string
@@ -170,6 +426,23 @@ function verifyCodeSurfaceWithGit(
   if (!existsSync(path)) {
     throw new WorktreeAdapterError(`CodeSurface worktree does not exist: ${path}`)
   }
+  const lexicalRoot = resolve(path)
+  const canonicalRoot = realpathSync(path)
+  if (
+    lstatSync(lexicalRoot).isSymbolicLink() ||
+    (process.platform !== 'win32' && lexicalRoot !== canonicalRoot)
+  ) {
+    throw new WorktreeAdapterError(
+      `CodeSurface worktree locator must not contain a symbolic link: ${path}`,
+    )
+  }
+  const repoRoot = gitText(git, ['rev-parse', '--show-toplevel'], path)
+  const canonicalRepoRoot = realpathSync(repoRoot)
+  if (canonicalRepoRoot !== canonicalRoot) {
+    throw new WorktreeAdapterError(
+      `CodeSurface worktree locator is not the repository root: expected ${repoRoot}, got ${path}`,
+    )
+  }
 
   const indexFlags = gitText(git, ['ls-files', '-v'], path)
     .split('\n')
@@ -180,24 +453,15 @@ function verifyCodeSurfaceWithGit(
     )
   }
 
-  const status = gitText(
-    git,
-    [
-      '-c',
-      'core.fsmonitor=false',
-      '-c',
-      'core.untrackedCache=false',
-      'status',
-      '--porcelain=v1',
-      '--untracked-files=all',
-      '--ignored=matching',
-      '--ignore-submodules=none',
-    ],
-    path,
-  )
-  if (status.length > 0) {
+  const extraPaths = [
+    ...parseGitPathList(gitBytes(git, ['ls-files', '--others', '--exclude-standard', '-z'], path)),
+    ...parseGitPathList(
+      gitBytes(git, ['ls-files', '--others', '--ignored', '--exclude-standard', '-z'], path),
+    ),
+  ]
+  if (extraPaths.length > 0) {
     throw new WorktreeAdapterError(
-      `CodeSurface worktree changed after finalization: ${path}\n${status}`,
+      `CodeSurface worktree changed after finalization: ${path}\n${extraPaths.join('\n')}`,
     )
   }
 
@@ -240,35 +504,32 @@ function verifyCodeSurfaceWithGit(
     )
   }
 
-  // Rebuild the index from the frozen commit before comparing it to the
-  // filesystem. This clears cached stat data, so same-size/same-mtime edits
-  // cannot hide behind Git's normal status shortcut.
-  gitText(git, ['read-tree', '--reset', surface.candidateCommit], path)
   try {
     gitText(
       git,
       [
-        '-c',
-        'core.filemode=true',
-        '-c',
-        'core.symlinks=true',
-        '-c',
-        'core.fsmonitor=false',
-        '-c',
-        'core.ignorestat=false',
-        'diff-files',
+        'diff-index',
+        '--cached',
+        '--quiet',
         '--no-ext-diff',
         '--no-textconv',
-        '--quiet',
+        surface.candidateCommit,
         '--',
       ],
       path,
     )
   } catch (err) {
     throw new WorktreeAdapterError(
-      `CodeSurface tracked bytes changed after finalization: ${path}`,
+      `CodeSurface index differs from finalized candidate: ${path}`,
       err,
     )
+  }
+
+  try {
+    assertRawTreeMatchesWorktree(git, canonicalRepoRoot, surface.candidateCommit)
+  } catch (err) {
+    if (err instanceof WorktreeAdapterError) throw err
+    throw new WorktreeAdapterError(`CodeSurface raw tree verification failed: ${path}`, err)
   }
 
   const mergeBase = gitText(git, ['merge-base', surface.baseCommit, surface.candidateCommit], path)
@@ -288,7 +549,7 @@ function verifyCodeSurfaceWithGit(
 
   return {
     path,
-    repoRoot: gitText(git, ['rev-parse', '--show-toplevel'], path),
+    repoRoot: canonicalRepoRoot,
     contentHash: surfaceContentHash(surface),
     patchBytes: new Uint8Array(patch),
   }
@@ -376,7 +637,8 @@ export function gitWorktreeAdapter(opts: GitWorktreeAdapterOptions): WorktreeAda
 }
 
 /** Verify a finalized code surface against its current checkout. This rejects
- *  dirty/ignored files, moved refs, missing Git objects, and byte mismatches. */
+ *  dirty/ignored files, moved refs, missing Git objects, raw byte/mode
+ *  mismatches, external symlinks, and submodules. */
 export function verifyCodeSurface(
   surface: CodeSurface,
   worktreeDir?: string,

@@ -1,8 +1,16 @@
 import { execFileSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import {
+  chmodSync,
+  mkdirSync,
+  mkdtempSync,
+  rmSync,
+  symlinkSync,
+  unlinkSync,
+  writeFileSync,
+} from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { basename, dirname, join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { surfaceHash } from '../../src/campaign/presets/run-optimization'
 import { surfaceContentHash } from '../../src/campaign/provenance'
@@ -165,6 +173,120 @@ describe('gitWorktreeAdapter — real git worktrees', () => {
     writeFileSync(join(wt.path, 'prompt.txt'), 'hidden mutation\n')
 
     expect(() => verifyCodeSurface(surface)).toThrow(/hidden index entries/)
+  })
+
+  it('rejects raw tracked bytes hidden by a Git clean filter', async () => {
+    git(['config', 'filter.hide.clean', "sed 's/^evil$/safe/'"], repoRoot)
+    git(['config', 'filter.hide.smudge', 'cat'], repoRoot)
+    writeFileSync(join(repoRoot, '.gitattributes'), 'filtered.txt filter=hide\n')
+    writeFileSync(join(repoRoot, 'filtered.txt'), 'safe\n')
+    git(['add', '-A'], repoRoot)
+    git(['commit', '-q', '-m', 'add filtered file'], repoRoot)
+
+    const adapter = gitWorktreeAdapter({ repoRoot })
+    const wt = await adapter.create({ baseRef: 'main', label: 'clean-filter-bypass' })
+    const surface = await adapter.finalize(wt, 'no-op')
+    writeFileSync(join(wt.path, 'filtered.txt'), 'evil\n')
+
+    // Git reports the checkout clean because the configured filter maps the
+    // changed bytes back to the committed blob. Verification must read raw
+    // filesystem bytes instead of trusting that filtered comparison.
+    expect(git(['status', '--porcelain=v1'], wt.path)).toBe('')
+    expect(() => verifyCodeSurface(surface)).toThrow(/raw tracked bytes differ/)
+  })
+
+  it('rejects checkout bytes rewritten by a Git smudge filter', async () => {
+    git(['config', 'filter.rewrite.clean', "sed 's/^evil$/safe/'"], repoRoot)
+    git(['config', 'filter.rewrite.smudge', "sed 's/^safe$/evil/'"], repoRoot)
+    writeFileSync(join(repoRoot, '.gitattributes'), 'filtered.txt filter=rewrite\n')
+    writeFileSync(join(repoRoot, 'filtered.txt'), 'safe\n')
+    git(['add', '-A'], repoRoot)
+    git(['commit', '-q', '-m', 'add smudged file'], repoRoot)
+
+    const adapter = gitWorktreeAdapter({ repoRoot })
+    const wt = await adapter.create({ baseRef: 'main', label: 'smudge-filter-bypass' })
+
+    expect(git(['status', '--porcelain=v1'], wt.path)).toBe('')
+    await expect(adapter.finalize(wt, 'no-op')).rejects.toThrow(/raw tracked bytes differ/)
+  })
+
+  it('rejects executable-mode changes hidden by core.filemode=false', async () => {
+    if (process.platform === 'win32') return
+    const adapter = gitWorktreeAdapter({ repoRoot })
+    const wt = await adapter.create({ baseRef: 'main', label: 'hidden-mode' })
+    const surface = await adapter.finalize(wt, 'no-op')
+    git(['config', 'core.filemode', 'false'], wt.path)
+    chmodSync(join(wt.path, 'prompt.txt'), 0o755)
+
+    expect(git(['status', '--porcelain=v1'], wt.path)).toBe('')
+    expect(() => verifyCodeSurface(surface)).toThrow(/executable mode differs/)
+  })
+
+  it('rejects a symbolic worktree locator', async () => {
+    const adapter = gitWorktreeAdapter({ repoRoot })
+    const wt = await adapter.create({ baseRef: 'main', label: 'linked-locator' })
+    const surface = await adapter.finalize(wt, 'no-op')
+    const linkedPath = `${wt.path}-link`
+    symlinkSync(wt.path, linkedPath, 'dir')
+    try {
+      expect(() => verifyCodeSurface({ ...surface, worktreeRef: linkedPath })).toThrow(
+        /locator must not contain a symbolic link/,
+      )
+    } finally {
+      unlinkSync(linkedPath)
+    }
+  })
+
+  it('rejects a worktree locator that traverses a symbolic-link parent', async () => {
+    if (process.platform === 'win32') return
+    const adapter = gitWorktreeAdapter({ repoRoot })
+    const wt = await adapter.create({ baseRef: 'main', label: 'linked-parent' })
+    const surface = await adapter.finalize(wt, 'no-op')
+    const linkedParent = `${dirname(wt.path)}-link`
+    symlinkSync(dirname(wt.path), linkedParent, 'dir')
+    try {
+      expect(() =>
+        verifyCodeSurface({
+          ...surface,
+          worktreeRef: join(linkedParent, basename(wt.path)),
+        }),
+      ).toThrow(/locator must not contain a symbolic link/)
+    } finally {
+      unlinkSync(linkedParent)
+    }
+  })
+
+  it('rejects a tracked symbolic link that escapes the worktree', async () => {
+    const outside = join(repoRoot, '..', `${basename(repoRoot)}-outside.txt`)
+    writeFileSync(outside, 'outside bytes\n')
+    symlinkSync(outside, join(repoRoot, 'outside-link'))
+    git(['add', 'outside-link'], repoRoot)
+    git(['commit', '-q', '-m', 'add external link'], repoRoot)
+
+    const adapter = gitWorktreeAdapter({ repoRoot })
+    const wt = await adapter.create({ baseRef: 'main', label: 'external-link' })
+    try {
+      await expect(adapter.finalize(wt, 'no-op')).rejects.toThrow(/symbolic link escapes/)
+    } finally {
+      rmSync(outside, { force: true })
+    }
+  })
+
+  it('rejects Git submodules whose checked-out bytes are outside the tree identity', async () => {
+    const adapter = gitWorktreeAdapter({ repoRoot })
+    const wt = await adapter.create({ baseRef: 'main', label: 'submodule' })
+    const nested = join(wt.path, 'vendor', 'nested')
+    mkdirSync(nested, { recursive: true })
+    git(['init', '-q', '-b', 'main'], nested)
+    git(['config', 'user.email', 'test@test.dev'], nested)
+    git(['config', 'user.name', 'Test'], nested)
+    writeFileSync(join(nested, 'module.txt'), 'module bytes\n')
+    git(['add', '-A'], nested)
+    git(['commit', '-q', '-m', 'nested'], nested)
+
+    await expect(adapter.finalize(wt, 'add embedded repository')).rejects.toThrow(
+      /Git submodule.*not bound/,
+    )
   })
 
   it('rejects an ignored file instead of evaluating bytes outside Git identity', async () => {
