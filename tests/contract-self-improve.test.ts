@@ -142,7 +142,7 @@ describe('selfImprove provenance emission (durable by default)', () => {
 
     // (3) the provenance record is on the result AND fired through onProvenance.
     expect(captured).toBeDefined()
-    expect(result.provenance.schema).toBe('tangle.loop-provenance.v1')
+    expect(result.provenance.schema).toBe('tangle.loop-provenance.v2')
     expect(result.provenance.winnerRationale).toBe(RATIONALE)
 
     // real content hashes distinguish baseline from winner + verify bytes.
@@ -181,7 +181,7 @@ describe('selfImprove provenance emission (durable by default)', () => {
       // no runDir ⇒ mem://… ⇒ in-memory storage ⇒ nothing on disk
     })
     // The provenance record is still produced in-memory + on the result.
-    expect(result.provenance.schema).toBe('tangle.loop-provenance.v1')
+    expect(result.provenance.schema).toBe('tangle.loop-provenance.v2')
     expect(result.provenance.runDir.startsWith('mem://')).toBe(true)
   })
 })

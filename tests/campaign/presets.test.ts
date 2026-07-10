@@ -499,7 +499,7 @@ describe('loop provenance emission (transaction-extraction shape, offline)', () 
 
     // (4) the structured record + OTel spans are DURABLE (written to storage).
     expect(storage.read(recordPath)).toBeDefined()
-    expect(JSON.parse(storage.read(recordPath)!).schema).toBe('tangle.loop-provenance.v1')
+    expect(JSON.parse(storage.read(recordPath)!).schema).toBe('tangle.loop-provenance.v2')
     const spanLines = storage.read(spansPath)!.split('\n')
     expect(spanLines.length).toBe(spans.length)
     // Spans pivot on the OTLP-ingestable tangle.* attributes the otel adapter reads.

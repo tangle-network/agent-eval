@@ -11,6 +11,7 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 - `CodeSurface` is now a finalized, content-addressed code candidate.
   `gitWorktreeAdapter.finalize()` records exact base/candidate commits, the final tree, and the SHA-256 + byte length of the raw binary Git patch; `surfaceHash` and `surfaceContentHash` no longer use filesystem paths.
   Binary-patch generation runs against an isolated bare repository with fixed diff options, config, attributes, compression, and locale, so ambient repository, global, system, or environment settings cannot change the digest for identical trees.
+- `LoopProvenanceRecord.schema` is now `tangle.loop-provenance.v2`, distinguishing records that use content-addressed code-surface hashes from v1 records whose code hashes included mutable paths.
 - `resolveWorktreePath()` now verifies the candidate before returning its checkout.
   Dirty or ignored files, moved refs, missing objects, wrong trees, raw byte or executable-mode mismatches, external symlinks, submodules, and patch-byte mismatches fail instead of being evaluated under stale identity.
   Raw file hashing bypasses Git clean/smudge filters so repository configuration cannot hide different executable bytes.

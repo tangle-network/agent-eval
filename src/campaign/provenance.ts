@@ -78,7 +78,7 @@ export interface LoopProvenanceBackend {
  * the bare hosted event) + backend provenance.
  */
 export interface LoopProvenanceRecord {
-  schema: 'tangle.loop-provenance.v1'
+  schema: 'tangle.loop-provenance.v2'
   runId: string
   runDir: string
   timestamp: string
@@ -186,7 +186,7 @@ export function buildLoopProvenanceRecord<TArtifact, TScenario extends Scenario>
   const winnerHoldoutComposite = meanHoldoutComposite(args.winnerOnHoldout)
 
   const record: LoopProvenanceRecord = {
-    schema: 'tangle.loop-provenance.v1',
+    schema: 'tangle.loop-provenance.v2',
     runId: args.runId,
     runDir: args.runDir,
     timestamp: args.timestamp,
