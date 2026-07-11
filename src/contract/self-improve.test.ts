@@ -8,7 +8,8 @@
  */
 
 import { describe, expect, it } from 'vitest'
-import type { Gate, JudgeConfig, SurfaceProposer } from '../campaign/types'
+import { surfaceHash } from '../campaign/surface-identity'
+import type { CodeSurface, Gate, JudgeConfig, SurfaceProposer } from '../campaign/types'
 import type { DispatchContext, Scenario } from './index'
 import { type SelfImproveProgressEvent, selfImprove } from './self-improve'
 
@@ -37,6 +38,23 @@ async function stubAgent(
   return { text: String(surface) }
 }
 
+function codeSurface(worktreeRef: string): CodeSurface {
+  return {
+    kind: 'code',
+    worktreeRef,
+    baseRef: 'main',
+    baseCommit: '1'.repeat(40),
+    baseTree: '2'.repeat(40),
+    candidateCommit: '3'.repeat(40),
+    candidateTree: '4'.repeat(40),
+    patch: {
+      format: 'git-diff-binary',
+      sha256: `sha256:${'5'.repeat(64)}`,
+      byteLength: 1,
+    },
+  }
+}
+
 describe('selfImprove — power analysis wiring', () => {
   it('attaches the MDE analysis to the result and emits power.estimated', async () => {
     const events: SelfImproveProgressEvent[] = []
@@ -59,6 +77,53 @@ describe('selfImprove — power analysis wiring', () => {
 
     const powerEvents = events.filter((e) => e.kind === 'power.estimated')
     expect(powerEvents).toHaveLength(1)
+  })
+})
+
+describe('selfImprove — hosted code-surface identity', () => {
+  it('uses the content identity in snapshots instead of the mutable worktree path', async () => {
+    const baseline = codeSurface('/tmp/candidate-a')
+    const sameBytesElsewhere = codeSurface('/tmp/candidate-b')
+    const payloads: Array<{
+      events?: Array<{
+        baseline?: { surfaceHash: string }
+        generations: Array<{ surfaceHash: string }>
+      }>
+    }> = []
+    const fetchImpl: typeof fetch = async (_input, init) => {
+      if (typeof init?.body === 'string') payloads.push(JSON.parse(init.body))
+      return new Response(JSON.stringify({ accepted: 1, rejected: [] }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      })
+    }
+    const proposer: SurfaceProposer = {
+      kind: 'code-candidate',
+      propose: async () => [sameBytesElsewhere],
+    }
+
+    await selfImprove({
+      agent: stubAgent,
+      scenarios,
+      judge,
+      baselineSurface: baseline,
+      proposer,
+      budget: { generations: 1, populationSize: 1, holdoutFraction: 0.5 },
+      hostedTenant: {
+        endpoint: 'https://ingest.example',
+        apiKey: 'test-key',
+        tenantId: 'test-tenant',
+        fetchImpl,
+      },
+    })
+
+    const expected = surfaceHash(baseline)
+    const event = payloads
+      .flatMap((payload) => payload.events ?? [])
+      .find((candidate) => candidate.baseline?.surfaceHash === expected)
+    expect(event).toBeDefined()
+    expect(event?.generations[0]?.surfaceHash).toBe(expected)
+    expect(surfaceHash(sameBytesElsewhere)).toBe(expected)
   })
 })
 

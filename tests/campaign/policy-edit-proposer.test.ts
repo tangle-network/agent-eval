@@ -4,6 +4,19 @@ import { makeFinding } from '../../src/analyst/types'
 import { policyEditProposer } from '../../src/campaign/proposers/policy-edit'
 import type { CodeSurface, ProposeContext } from '../../src/campaign/types'
 
+const CODE_IDENTITY = {
+  baseRef: 'main',
+  baseCommit: 'a'.repeat(40),
+  baseTree: 'b'.repeat(40),
+  candidateCommit: 'c'.repeat(40),
+  candidateTree: 'd'.repeat(40),
+  patch: {
+    format: 'git-diff-binary' as const,
+    sha256: `sha256:${'e'.repeat(64)}` as const,
+    byteLength: 123,
+  },
+}
+
 function ctx(
   findings: unknown[],
   currentSurface: ProposeContext['currentSurface'] = 'Base prompt.',
@@ -171,10 +184,11 @@ describe('policyEditProposer', () => {
     expect(JSON.parse(String(out[0]!.surface))).toEqual({ budget: { maxTurns: 6 } })
   })
 
-  it('passes through CodeSurface-shaped candidate surfaces', async () => {
+  it('skips metadata-only CodeSurface edits that do not change candidate identity', async () => {
     const codeSurface: CodeSurface = {
       kind: 'code',
       worktreeRef: '/tmp/policy-edit-candidate',
+      ...CODE_IDENTITY,
       summary: 'old summary',
     }
     const codeEdit = makePolicyEdit({
@@ -194,11 +208,29 @@ describe('policyEditProposer', () => {
     const proposer = policyEditProposer()
     const out = await proposer.propose(ctx([codeEdit], codeSurface))
 
-    expect(out[0]!.surface).toEqual({
-      kind: 'code',
-      worktreeRef: '/tmp/policy-edit-candidate',
-      summary: 'updated summary',
+    expect(out).toEqual([])
+  })
+
+  it('rejects a path-only CodeSurface instead of preserving mutable identity', async () => {
+    const codeEdit = makePolicyEdit({
+      axis: 'agent_profile',
+      target: { surface: 'runtime-config', path: 'summary' },
+      change: { kind: 'json', mode: 'set', path: 'summary', value: 'updated' },
+      claim: 'Candidate code surface must already be finalized.',
+      expectedGain: { metric: 'holdout.composite', direction: 'increase', amount: 0.04 },
+      confidence: 0.85,
+      risk: 'low',
+      source: {
+        findingIds: ['f_code_surface'],
+        analystIds: ['trace-analyst'],
+        evidenceRefs: [{ kind: 'artifact', uri: 'file:///tmp/policy-edit-candidate' }],
+      },
     })
+    const proposer = policyEditProposer()
+
+    await expect(
+      proposer.propose(ctx([codeEdit], { kind: 'code', worktreeRef: '/tmp/path-only' } as never)),
+    ).rejects.toThrow(/baseRef/)
   })
 
   it('fails loud when judge-derived findings try to steer proposals', async () => {

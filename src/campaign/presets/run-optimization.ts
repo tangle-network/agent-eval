@@ -15,10 +15,10 @@
  * re-score + release gate + optional PR.
  */
 
-import { createHash } from 'node:crypto'
 import { type Objective, paretoFrontier } from '../../pareto'
 import { type RunCampaignOptions, runCampaign } from '../run-campaign'
 import { campaignBreakdown, campaignMeanComposite } from '../score-utils'
+import { surfaceHash } from '../surface-identity'
 import {
   type CampaignResult,
   type GenerationRecord,
@@ -355,19 +355,4 @@ function computeParetoFrontier(scored: ParetoParent[]): ParetoParent[] {
   return paretoFrontier(scored, objectives).frontier
 }
 
-/**
- * Short (16-char) sha256 fingerprint of a `MutableSurface`: hashes text content for prompt surfaces, or the worktree + base ref pair for code surfaces.
- */
-export function surfaceHash(surface: MutableSurface): string {
-  // Prompt/tool surfaces (string) hash by content; code surfaces hash by the
-  // worktree + base ref pair (the content lives in git, not in the string).
-  const material =
-    typeof surface === 'string'
-      ? surface
-      : JSON.stringify({
-          kind: surface.kind,
-          worktreeRef: surface.worktreeRef,
-          baseRef: surface.baseRef ?? null,
-        })
-  return createHash('sha256').update(material).digest('hex').slice(0, 16)
-}
+export { surfaceHash } from '../surface-identity'

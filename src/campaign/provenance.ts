@@ -37,24 +37,10 @@ import type {
 import { summarizeBackendIntegrity } from '../integrity/backend-integrity'
 import type { RunRecord } from '../run-record'
 import type { CampaignStorage } from './storage'
+import { surfaceContentHash } from './surface-identity'
 import type { CampaignResult, GateDecision, GateResult, MutableSurface, Scenario } from './types'
 
-/** Stable sha256 (full hex) of a surface's effective text. Code surfaces hash
- *  their worktree+base identity since the content lives in git. Distinct from
- *  `surfaceHash` (16-char content fingerprint used as a loop identity key);
- *  this is the byte-identical-verifiable content hash the provenance record +
- *  `RunRecord.promptHash` carry. */
-export function surfaceContentHash(surface: MutableSurface): string {
-  const material =
-    typeof surface === 'string'
-      ? surface
-      : JSON.stringify({
-          kind: surface.kind,
-          worktreeRef: surface.worktreeRef,
-          baseRef: surface.baseRef ?? null,
-        })
-  return `sha256:${createHash('sha256').update(material).digest('hex')}`
-}
+export { surfaceContentHash } from './surface-identity'
 
 export interface LoopProvenanceCandidate {
   /** Generation index this candidate was proposed in. */
@@ -92,7 +78,7 @@ export interface LoopProvenanceBackend {
  * the bare hosted event) + backend provenance.
  */
 export interface LoopProvenanceRecord {
-  schema: 'tangle.loop-provenance.v1'
+  schema: 'tangle.loop-provenance.v2'
   runId: string
   runDir: string
   timestamp: string
@@ -200,7 +186,7 @@ export function buildLoopProvenanceRecord<TArtifact, TScenario extends Scenario>
   const winnerHoldoutComposite = meanHoldoutComposite(args.winnerOnHoldout)
 
   const record: LoopProvenanceRecord = {
-    schema: 'tangle.loop-provenance.v1',
+    schema: 'tangle.loop-provenance.v2',
     runId: args.runId,
     runDir: args.runDir,
     timestamp: args.timestamp,

@@ -30,7 +30,7 @@ Grounded to `agent-eval/src/campaign/types.ts` unless noted.
 
 | Term | Plain sentence | If you know DSPy/GEPA |
 |---|---|---|
-| **surface** | The one thing being changed this run — a prompt string, a JSON config string, or a code/worktree ref (`MutableSurface = string \| CodeSurface`, `types.ts:158`). | The optimized artifact: a signature/predictor's instruction text, or the module config. |
+| **surface** | The one thing being changed this run — a prompt string, a JSON config string, or a finalized code candidate (`MutableSurface = string \| CodeSurface`, `types.ts`). | The optimized artifact: a signature/predictor's instruction text, or the module config. |
 | **proposer** | The strategy that, given the current surface + what failed, proposes the next batch of candidate surfaces to measure — it does **not** run the agent or score anything (`SurfaceProposer.propose`, `types.ts:286`). | The optimizer / teleprompter (MIPRO, BootstrapFewShot, GEPA's reflective proposer). |
 | **candidate** | One proposed surface plus its human `label` and `rationale`, ready to be measured (`ProposedCandidate`, `types.ts:166`). | One trial instruction/program the optimizer wants to evaluate. |
 | **generation** | One round of *propose → measure → rank → promote*; the loop runs up to `maxGenerations` of them (`GenerationRecord`, `types.ts:549`). | One GEPA iteration / optimization step. |
