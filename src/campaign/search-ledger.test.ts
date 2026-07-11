@@ -8,6 +8,7 @@ import {
   type SearchArtifactRef,
   type SearchCandidateDecidedEvent,
   type SearchCandidateRegisteredEvent,
+  type SearchCandidateSlotClosedEvent,
   type SearchCompletedEvent,
   type SearchCostAccounting,
   SearchLedgerConflictError,
@@ -82,12 +83,13 @@ function candidate(
     slotId?: string
     parents?: string[]
     generation?: number
+    occurredAt?: string
   } = {},
 ): SearchCandidateRegisteredEvent {
   return {
     kind: 'candidate-registered',
     eventId: options.eventId ?? `candidate:${candidateId}`,
-    occurredAt: '2026-07-11T12:00:00.000Z',
+    occurredAt: options.occurredAt ?? '2026-07-11T12:00:00.000Z',
     artifacts: [artifact('proposal-receipt', HASHES.proposal)],
     slotId: options.slotId ?? 'slot-a',
     candidateId,
@@ -118,6 +120,7 @@ function candidate(
 
 function operation(
   cost: SearchCostAccounting = { status: 'known', usd: 0.02, source: 'provider' },
+  outcome: SearchOperationRecordedEvent['outcome'] = { status: 'completed' },
 ): SearchOperationRecordedEvent {
   return {
     kind: 'search-operation-recorded',
@@ -134,10 +137,25 @@ function operation(
         revision: REVISIONS.proposer,
       },
     },
-    outcome: { status: 'completed' },
+    outcome,
     accounting: {
       tokens: { status: 'known', inputTokens: 50, outputTokens: 10, cachedTokens: 0 },
       cost,
+    },
+  }
+}
+
+function slotClosure(): SearchCandidateSlotClosedEvent {
+  return {
+    kind: 'candidate-slot-closed',
+    eventId: 'slot:slot-a:closed',
+    occurredAt: '2026-07-11T12:02:00.000Z',
+    artifacts: [artifact('candidate-generation-failure', HASHES.decision)],
+    slotId: 'slot-a',
+    generationOperationId: 'candidate-generation:a',
+    reason: {
+      code: 'proposal-failed',
+      message: 'candidate generation returned no valid candidate',
     },
   }
 }
@@ -518,6 +536,66 @@ describe('search ledger evidence completeness', () => {
       /missing candidate slots: slot-b/,
     )
     expect((await ledger.replay()).audit.expected.missingCandidateSlots).toEqual(['slot-b'])
+  })
+
+  it('closes a failed proposal slot without inventing a candidate or task outcome', async () => {
+    const path = await ledgerPath('failed-proposal')
+    const ledger = openSearchLedger({ path, campaignId: 'campaign-failed-proposal' })
+    const failedProposal = operation(
+      { status: 'known', usd: 0.02, source: 'provider' },
+      {
+        status: 'failed',
+        failure: { code: 'invalid-candidate', message: 'proposal did not parse' },
+      },
+    )
+    await ledger.append(plan())
+    await ledger.append(failedProposal)
+    await ledger.append(slotClosure())
+    const terminal = await ledger.append(completion('all-rejected'))
+
+    expect(terminal.replay.closedCandidateSlots).toHaveLength(1)
+    expect(terminal.replay.audit).toMatchObject({
+      status: 'all-rejected',
+      candidateCount: 0,
+      closedCandidateSlotCount: 1,
+      attemptCount: 0,
+      operationOutcomes: { completed: 0, failed: 1 },
+      expected: {
+        candidateSlots: 1,
+        taskOutcomes: 0,
+        missingCandidateSlots: [],
+        missingTaskOutcomes: [],
+        missingOperations: [],
+      },
+      accounting: {
+        status: 'known',
+        inputTokens: 50,
+        outputTokens: 10,
+        cachedTokens: 0,
+        costUsd: 0.02,
+      },
+    })
+  })
+
+  it('rejects binding a candidate to an already closed proposal slot', async () => {
+    const path = await ledgerPath('closed-slot-double-use')
+    const ledger = openSearchLedger({ path, campaignId: 'campaign-closed-slot-double-use' })
+    await ledger.append(plan())
+    await ledger.append(
+      operation(
+        { status: 'known', usd: 0.02, source: 'provider' },
+        {
+          status: 'failed',
+          failure: { code: 'invalid-candidate', message: 'proposal did not parse' },
+        },
+      ),
+    )
+    await ledger.append(slotClosure())
+
+    await expect(
+      ledger.append(candidate('candidate-a', { occurredAt: '2026-07-11T12:02:30.000Z' })),
+    ).rejects.toThrow(/slot slot-a was already closed/)
+    expect((await ledger.replay()).audit.candidateCount).toBe(0)
   })
 
   it('refuses completion when a predeclared task outcome is missing', async () => {

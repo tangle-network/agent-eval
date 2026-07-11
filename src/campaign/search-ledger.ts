@@ -207,6 +207,13 @@ export interface SearchCandidateRegisteredEvent extends SearchLedgerEventBase {
   surfaces: SearchCandidateSurface[]
 }
 
+export interface SearchCandidateSlotClosedEvent extends SearchLedgerEventBase {
+  kind: 'candidate-slot-closed'
+  slotId: string
+  generationOperationId: string
+  reason: SearchFailureReason
+}
+
 export interface SearchTaskAttemptedEvent extends SearchLedgerEventBase {
   kind: 'task-attempted'
   candidateId: string
@@ -271,6 +278,7 @@ export interface SearchCompletedEvent extends SearchLedgerEventBase {
 export type SearchLedgerEvent =
   | SearchPlannedEvent
   | SearchCandidateRegisteredEvent
+  | SearchCandidateSlotClosedEvent
   | SearchTaskAttemptedEvent
   | SearchOperationRecordedEvent
   | SearchCandidateDecidedEvent
@@ -307,6 +315,7 @@ export interface SearchLedgerAudit {
   campaignId: string
   eventCount: number
   candidateCount: number
+  closedCandidateSlotCount: number
   attemptCount: number
   operationCount: number
   outcomes: { passed: number; failed: number; errored: number }
@@ -330,6 +339,7 @@ export interface SearchLedgerReplay {
   entries: SearchLedgerEntry[]
   plan: SearchPlannedEvent | null
   candidates: SearchCandidateRegisteredEvent[]
+  closedCandidateSlots: SearchCandidateSlotClosedEvent[]
   attempts: SearchTaskAttemptedEvent[]
   operations: SearchOperationRecordedEvent[]
   decisions: SearchCandidateDecidedEvent[]
@@ -466,6 +476,16 @@ const CandidateRegisteredSchema = z
           .strict(),
       )
       .min(1),
+  })
+  .strict()
+
+const CandidateSlotClosedSchema = z
+  .object({
+    ...EventBaseShape,
+    kind: z.literal('candidate-slot-closed'),
+    slotId: NON_EMPTY,
+    generationOperationId: NON_EMPTY,
+    reason: FailureReasonSchema,
   })
   .strict()
 
@@ -710,6 +730,7 @@ const SearchCompletedSchema = z
 const EventSchema = z.discriminatedUnion('kind', [
   SearchPlannedSchema,
   CandidateRegisteredSchema,
+  CandidateSlotClosedSchema,
   TaskAttemptedSchema,
   SearchOperationRecordedSchema,
   CandidateDecidedSchema,
@@ -887,11 +908,13 @@ interface CandidateState {
 function replayEntries(entries: SearchLedgerEntry[], campaignId: string): SearchLedgerReplay {
   const candidates = new Map<string, CandidateState>()
   const candidateBySlot = new Map<string, string>()
+  const closedSlots = new Map<string, SearchCandidateSlotClosedEvent>()
   const lineageNodes = new Map<string, string>()
   const eventIds = new Set<string>()
   const runIds = new Set<string>()
   const attemptKeys = new Set<string>()
   const candidateEvents: SearchCandidateRegisteredEvent[] = []
+  const closedSlotEvents: SearchCandidateSlotClosedEvent[] = []
   const attempts: SearchTaskAttemptedEvent[] = []
   const operationEvents: SearchOperationRecordedEvent[] = []
   const operationsById = new Map<string, SearchOperationRecordedEvent>()
@@ -982,6 +1005,9 @@ function replayEntries(entries: SearchLedgerEntry[], campaignId: string): Search
       }
       if (candidateBySlot.has(event.slotId)) {
         throw new SearchLedgerIntegrityError(`candidate slot ${event.slotId} was bound twice`)
+      }
+      if (closedSlots.has(event.slotId)) {
+        throw new SearchLedgerIntegrityError(`candidate slot ${event.slotId} was already closed`)
       }
       const previousCandidate = lineageNodes.get(event.lineage.lineageNodeId)
       if (previousCandidate) {
@@ -1129,6 +1155,44 @@ function replayEntries(entries: SearchLedgerEntry[], campaignId: string): Search
       continue
     }
 
+    if (event.kind === 'candidate-slot-closed') {
+      if (!planEvent.plan.candidateSlots.includes(event.slotId)) {
+        throw new SearchLedgerIntegrityError(
+          `candidate slot closure ${event.eventId} references unknown slot ${event.slotId}`,
+        )
+      }
+      if (candidateBySlot.has(event.slotId)) {
+        throw new SearchLedgerIntegrityError(
+          `candidate slot ${event.slotId} was already bound to a candidate`,
+        )
+      }
+      if (closedSlots.has(event.slotId)) {
+        throw new SearchLedgerIntegrityError(`candidate slot ${event.slotId} was closed twice`)
+      }
+      const plannedOperation = planEvent.plan.operations.find(
+        (operation) => operation.operationId === event.generationOperationId,
+      )
+      if (!plannedOperation || plannedOperation.kind !== 'candidate-generation') {
+        throw new SearchLedgerIntegrityError(
+          `candidate slot closure ${event.eventId} references unplanned candidate-generation operation ${event.generationOperationId}`,
+        )
+      }
+      const operation = operationsById.get(event.generationOperationId)
+      if (!operation) {
+        throw new SearchLedgerIntegrityError(
+          `candidate slot closure ${event.eventId} precedes operation ${event.generationOperationId}`,
+        )
+      }
+      if (operation.outcome.status !== 'failed') {
+        throw new SearchLedgerIntegrityError(
+          `candidate slot ${event.slotId} cannot close from completed operation ${event.generationOperationId}`,
+        )
+      }
+      closedSlots.set(event.slotId, event)
+      closedSlotEvents.push(event)
+      continue
+    }
+
     if (event.kind === 'candidate-decided') {
       const candidate = candidates.get(event.candidateId)
       if (!candidate) {
@@ -1155,7 +1219,7 @@ function replayEntries(entries: SearchLedgerEntry[], campaignId: string): Search
     }
 
     const missingCandidateSlots = planEvent.plan.candidateSlots.filter(
-      (slotId) => !candidateBySlot.has(slotId),
+      (slotId) => !candidateBySlot.has(slotId) && !closedSlots.has(slotId),
     )
     if (missingCandidateSlots.length > 0) {
       throw new SearchLedgerIntegrityError(
@@ -1254,7 +1318,9 @@ function replayEntries(entries: SearchLedgerEntry[], campaignId: string): Search
         ? 'all-rejected'
         : 'in-progress'
   const missingCandidateSlots =
-    planEvent?.plan.candidateSlots.filter((slotId) => !candidateBySlot.has(slotId)) ?? []
+    planEvent?.plan.candidateSlots.filter(
+      (slotId) => !candidateBySlot.has(slotId) && !closedSlots.has(slotId),
+    ) ?? []
   const missingTaskOutcomes = planEvent ? plannedTaskOutcomeKeys(planEvent, candidates) : []
   const missingOperations =
     planEvent?.plan.operations
@@ -1264,6 +1330,7 @@ function replayEntries(entries: SearchLedgerEntry[], campaignId: string): Search
     entries: [...entries],
     plan: planEvent,
     candidates: candidateEvents,
+    closedCandidateSlots: closedSlotEvents,
     attempts,
     operations: operationEvents,
     decisions,
@@ -1272,6 +1339,7 @@ function replayEntries(entries: SearchLedgerEntry[], campaignId: string): Search
       campaignId,
       eventCount: entries.length,
       candidateCount: candidates.size,
+      closedCandidateSlotCount: closedSlots.size,
       attemptCount: attempts.length,
       operationCount: operationEvents.length,
       outcomes: outcomeCounts,
@@ -1283,8 +1351,7 @@ function replayEntries(entries: SearchLedgerEntry[], campaignId: string): Search
       },
       expected: {
         candidateSlots: planEvent?.plan.candidateSlots.length ?? 0,
-        taskOutcomes:
-          (planEvent?.plan.candidateSlots.length ?? 0) * (planEvent?.plan.tasks.length ?? 0),
+        taskOutcomes: candidates.size * (planEvent?.plan.tasks.length ?? 0),
         operations: planEvent?.plan.operations.length ?? 0,
         missingCandidateSlots,
         missingTaskOutcomes,
@@ -1302,14 +1369,14 @@ function plannedTaskOutcomeKeys(
   planEvent: SearchPlannedEvent,
   candidates: Map<string, CandidateState>,
 ): string[] {
-  const candidateBySlot = new Map(
-    [...candidates.values()].map((candidate) => [candidate.registered.slotId, candidate]),
-  )
   const missing: string[] = []
-  for (const slotId of planEvent.plan.candidateSlots) {
-    const candidate = candidateBySlot.get(slotId)
+  const registeredCandidates = [...candidates.values()].sort((a, b) =>
+    compareStrings(a.registered.slotId, b.registered.slotId),
+  )
+  for (const candidate of registeredCandidates) {
+    const slotId = candidate.registered.slotId
     for (const task of planEvent.plan.tasks) {
-      const measured = candidate?.attempts.some(
+      const measured = candidate.attempts.some(
         (attempt) => attempt.task.taskId === task.taskId && attempt.outcome.status !== 'errored',
       )
       if (!measured) missing.push(`${slotId}/${task.taskId}`)
