@@ -145,8 +145,8 @@ try {
         ]
         const outcomes = {
           fixed: [false, false],
-          'a-only': [true, false],
-          'b-only': [false, true],
+          'a-only': [false, false],
+          'b-only': [false, false],
           'a-b': [true, true],
         }
         const rows = candidates.flatMap((candidate) =>
@@ -185,8 +185,11 @@ try {
             minimumBundleComponents: 2,
           },
         })
-        if (interaction.selections.interactionAware.selectedCandidateId !== 'a-b') {
-          throw new Error('invalid packed cross-surface selection')
+        if (
+          interaction.selections.bestSingle !== null ||
+          interaction.selections.interactionAware.selectedCandidateId !== 'a-b'
+        ) {
+          throw new Error('packed cross-surface selector lost pure synergy')
         }
       `,
     ],

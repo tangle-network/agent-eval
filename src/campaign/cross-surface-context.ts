@@ -235,9 +235,14 @@ function validateSelection<TRow extends CrossSurfaceTaskRow>(
       )
     }
   }
-  if (!Number.isInteger(policy.minimumBundleComponents) || policy.minimumBundleComponents < 2) {
+  if (
+    !Number.isInteger(policy.minimumBundleComponents) ||
+    policy.minimumBundleComponents < 2 ||
+    policy.minimumBundleComponents > input.componentOrder.length
+  ) {
     throw new ValidationError(
-      `analyzeCrossSurfaceInteractions: selection.minimumBundleComponents must be an integer >= 2`,
+      `analyzeCrossSurfaceInteractions: selection.minimumBundleComponents must be an integer in ` +
+        `[2,${input.componentOrder.length}]`,
     )
   }
   for (const [metric, limit] of Object.entries(policy.maximumMedianCostRatioToBaseline)) {
@@ -357,6 +362,12 @@ function validateRow<TRow extends CrossSurfaceTaskRow>(
   for (const evidence of evidenceByComponent.values()) {
     assertTriState(evidence.fired, 'fired', row)
     assertTriState(evidence.effectObserved, 'effectObserved', row)
+    if (evidence.effectObserved === true && evidence.fired !== true) {
+      throw new ValidationError(
+        `analyzeCrossSurfaceInteractions: effectObserved=true requires fired=true for component ` +
+          `'${evidence.componentId}' on row '${row.candidateId}/${row.taskId}'`,
+      )
+    }
   }
 }
 

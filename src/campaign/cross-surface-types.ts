@@ -198,8 +198,9 @@ export interface CrossSurfaceInteractionEffect {
 }
 
 export type CrossSurfacePairIncompatibilityReason =
-  | 'constituent_ineligible'
+  | 'constituent_not_ready'
   | 'pair_incomplete'
+  | 'baseline_regression'
   | 'interference'
   | 'no_incremental_resolution'
   | 'firing_below_minimum'
@@ -251,6 +252,7 @@ export type CrossSurfaceAdditionRejectionReason =
   | 'pair_incompatible'
   | 'full_bundle_not_evaluated'
   | 'bundle_incomplete'
+  | 'baseline_regression'
   | 'no_incremental_resolution'
   | 'incremental_regression'
   | 'firing_below_minimum'
@@ -278,13 +280,27 @@ export interface CrossSurfaceCompositionStep {
   selectedCandidateId: string | null
 }
 
-export interface CrossSurfaceInteractionAwareSelection {
-  /** Candidate reached by the deterministic walk, even if the minimum size is not met. */
+/** One deterministic growth path starting from a compatible two-surface seed. */
+export interface CrossSurfaceInteractionPath {
+  seedCandidateId: string
   terminalCandidateId: string
   terminalComponentIds: string[]
-  /** null when the walk did not produce a qualifying multi-component bundle. */
+  qualified: boolean
+  steps: CrossSurfaceCompositionStep[]
+}
+
+export interface CrossSurfaceInteractionAwareSelection {
+  /** Compatible pair that seeded the selected deterministic growth path. */
+  seedCandidateId: string
+  /** Candidate reached by the winning path, even if the minimum size is not met. */
+  terminalCandidateId: string
+  terminalComponentIds: string[]
+  /** null when no path produced a qualifying multi-component bundle. */
   selectedCandidateId: string | null
   qualified: boolean
+  /** Every compatible pair seed is retained so seed choice cannot hide an interaction. */
+  evaluatedPaths: CrossSurfaceInteractionPath[]
+  /** Convenience alias for the winning path's steps. */
   steps: CrossSurfaceCompositionStep[]
 }
 

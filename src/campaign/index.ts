@@ -68,6 +68,7 @@ export type {
   CrossSurfaceIneligibilityReason,
   CrossSurfaceInteractionAwareSelection,
   CrossSurfaceInteractionEffect,
+  CrossSurfaceInteractionPath,
   CrossSurfaceInteractionReport,
   CrossSurfaceInteractionTask,
   CrossSurfaceNaiveStackSelection,

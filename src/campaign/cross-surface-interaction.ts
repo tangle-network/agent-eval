@@ -31,6 +31,7 @@ import type {
   CrossSurfaceIneligibilityReason,
   CrossSurfaceInteractionAwareSelection,
   CrossSurfaceInteractionEffect,
+  CrossSurfaceInteractionPath,
   CrossSurfaceInteractionReport,
   CrossSurfaceNaiveStackSelection,
   CrossSurfacePairCompatibility,
@@ -70,8 +71,15 @@ export function analyzeCrossSurfaceInteractions<TRow extends CrossSurfaceTaskRow
   )
   const summaryById = new Map(summaries.map((summary) => [summary.candidate.candidateId, summary]))
   const eligibleSingles = rankedEligibleSingles(context, summaryById)
-  const pairwise = buildPairwise(context, summaryById, eligibleSingles, baselineSummary)
-  const selections = selectCandidates(context, summaryById, eligibleSingles, pairwise)
+  const interactionReadySingles = rankedInteractionReadySingles(context, summaryById)
+  const pairwise = buildPairwise(context, summaryById, interactionReadySingles, baselineSummary)
+  const selections = selectCandidates(
+    context,
+    summaryById,
+    eligibleSingles,
+    interactionReadySingles,
+    pairwise,
+  )
   const rows = context.candidates.flatMap((candidate) =>
     input.taskOrder.map(
       (taskId) => context.rowsByCandidate.get(candidate.candidateId)!.get(taskId)!,
@@ -275,6 +283,27 @@ function rankedEligibleSingles<TRow extends CrossSurfaceTaskRow>(
     .sort((left, right) => compareSingleSummaries(context, left, right))
 }
 
+/**
+ * A neutral constituent may seed a composition when it has complete, bounded,
+ * observed evidence and causes no baseline regression. Individual benefit is
+ * deliberately left to the best-single arm rather than used as a pair gate.
+ */
+function rankedInteractionReadySingles<TRow extends CrossSurfaceTaskRow>(
+  context: AnalysisContext<TRow>,
+  summaryById: Map<string, CrossSurfaceCandidateSummary>,
+): CrossSurfaceCandidateSummary[] {
+  return [...context.singleByComponent.values()]
+    .map((candidate) => summaryById.get(candidate.candidateId)!)
+    .filter(
+      (summary) =>
+        summary.outcome.regressionTaskIds.length === 0 &&
+        summary.eligibility?.reasons.every(
+          (reason) => reason === 'benefit_not_greater_than_regression',
+        ),
+    )
+    .sort((left, right) => compareSingleSummaries(context, left, right))
+}
+
 function compareSingleSummaries<TRow extends CrossSurfaceTaskRow>(
   context: AnalysisContext<TRow>,
   left: CrossSurfaceCandidateSummary,
@@ -302,10 +331,12 @@ function compareSingleSummaries<TRow extends CrossSurfaceTaskRow>(
 function buildPairwise<TRow extends CrossSurfaceTaskRow>(
   context: AnalysisContext<TRow>,
   summaryById: Map<string, CrossSurfaceCandidateSummary>,
-  eligibleSingles: CrossSurfaceCandidateSummary[],
+  interactionReadySingles: CrossSurfaceCandidateSummary[],
   baseline: CrossSurfaceCandidateSummary,
 ): CrossSurfacePairwiseEntry[] {
-  const eligibleIds = new Set(eligibleSingles.map((summary) => summary.candidate.candidateId))
+  const interactionReadyIds = new Set(
+    interactionReadySingles.map((summary) => summary.candidate.candidateId),
+  )
   const entries: CrossSurfacePairwiseEntry[] = []
   for (let leftIndex = 0; leftIndex < context.components.length; leftIndex++) {
     for (let rightIndex = leftIndex + 1; rightIndex < context.components.length; rightIndex++) {
@@ -356,7 +387,8 @@ function buildPairwise<TRow extends CrossSurfaceTaskRow>(
         baseline,
         betterSingle,
         incrementalVsConstituents,
-        eligibleIds.has(leftSingle.candidateId) && eligibleIds.has(rightSingle.candidateId),
+        interactionReadyIds.has(leftSingle.candidateId) &&
+          interactionReadyIds.has(rightSingle.candidateId),
         interferenceTaskIds,
         firing,
         effect,
@@ -392,13 +424,13 @@ function pairCompatibility<TRow extends CrossSurfaceTaskRow>(
   baseline: CrossSurfaceCandidateSummary,
   betterSingle: CrossSurfaceCandidateSummary,
   comparisons: [CrossSurfaceCandidateComparison, CrossSurfaceCandidateComparison],
-  constituentsEligible: boolean,
+  constituentsReady: boolean,
   interferenceTaskIds: string[],
   firing: CrossSurfacePairEvidence,
   effect: CrossSurfacePairEvidence,
 ): CrossSurfacePairCompatibility {
   const reasons: CrossSurfacePairIncompatibilityReason[] = []
-  if (!constituentsEligible) reasons.push('constituent_ineligible')
+  if (!constituentsReady) reasons.push('constituent_not_ready')
   if (
     pair.outcome.missingTaskIds.length > 0 ||
     pair.outcome.invalidTaskIds.length > 0 ||
@@ -406,6 +438,7 @@ function pairCompatibility<TRow extends CrossSurfaceTaskRow>(
   ) {
     reasons.push('pair_incomplete')
   }
+  if (pair.outcome.regressionTaskIds.length > 0) reasons.push('baseline_regression')
   if (interferenceTaskIds.length > 0) reasons.push('interference')
   const betterComparison = comparisons.find(
     (comparison) => comparison.comparatorCandidateId === betterSingle.candidate.candidateId,
@@ -507,6 +540,7 @@ function selectCandidates<TRow extends CrossSurfaceTaskRow>(
   context: AnalysisContext<TRow>,
   summaryById: Map<string, CrossSurfaceCandidateSummary>,
   eligibleSingles: CrossSurfaceCandidateSummary[],
+  interactionReadySingles: CrossSurfaceCandidateSummary[],
   pairwise: CrossSurfacePairwiseEntry[],
 ): CrossSurfaceSelections {
   const bestSingleRanking = eligibleSingles.filter((summary) => {
@@ -527,9 +561,12 @@ function selectCandidates<TRow extends CrossSurfaceTaskRow>(
       }
     : null
   const naiveStack = selectNaiveStack(context, eligibleSingles)
-  const interactionAware = best
-    ? selectInteractionAware(context, summaryById, eligibleSingles, pairwise, best)
-    : null
+  const interactionAware = selectInteractionAware(
+    context,
+    summaryById,
+    interactionReadySingles,
+    pairwise,
+  )
   return { bestSingle, naiveStack, interactionAware }
 }
 
@@ -553,18 +590,56 @@ function selectNaiveStack<TRow extends CrossSurfaceTaskRow>(
 function selectInteractionAware<TRow extends CrossSurfaceTaskRow>(
   context: AnalysisContext<TRow>,
   summaryById: Map<string, CrossSurfaceCandidateSummary>,
-  eligibleSingles: CrossSurfaceCandidateSummary[],
+  interactionReadySingles: CrossSurfaceCandidateSummary[],
   pairwise: CrossSurfacePairwiseEntry[],
-  best: CrossSurfaceCandidateSummary,
-): CrossSurfaceInteractionAwareSelection {
+): CrossSurfaceInteractionAwareSelection | null {
   const baseline = summaryById.get(context.input.baselineCandidateId)!
   const pairByComponents = new Map(
     pairwise.map((entry) => [componentSetKey(entry.componentIds), entry]),
   )
-  let current = best
-  let retained = [...best.candidate.componentIds]
-  let remaining = eligibleSingles.filter(
-    (summary) => summary.candidate.candidateId !== best.candidate.candidateId,
+  const paths = pairwise
+    .filter((entry) => entry.compatibility.compatible)
+    .map((entry) =>
+      growInteractionPath(
+        context,
+        summaryById,
+        interactionReadySingles,
+        pairByComponents,
+        baseline,
+        summaryById.get(entry.compositionCandidateId)!,
+      ),
+    )
+  if (paths.length === 0) return null
+
+  const qualified = paths
+    .filter((path) => path.qualified)
+    .sort((left, right) => compareInteractionPaths(context, summaryById, left, right))
+  const winning =
+    qualified[0] ??
+    [...paths].sort((left, right) => compareInteractionPaths(context, summaryById, left, right))[0]!
+  return {
+    seedCandidateId: winning.seedCandidateId,
+    terminalCandidateId: winning.terminalCandidateId,
+    terminalComponentIds: [...winning.terminalComponentIds],
+    selectedCandidateId: qualified.length > 0 ? winning.terminalCandidateId : null,
+    qualified: qualified.length > 0,
+    evaluatedPaths: paths,
+    steps: winning.steps,
+  }
+}
+
+function growInteractionPath<TRow extends CrossSurfaceTaskRow>(
+  context: AnalysisContext<TRow>,
+  summaryById: Map<string, CrossSurfaceCandidateSummary>,
+  interactionReadySingles: CrossSurfaceCandidateSummary[],
+  pairByComponents: Map<string, CrossSurfacePairwiseEntry>,
+  baseline: CrossSurfaceCandidateSummary,
+  seed: CrossSurfaceCandidateSummary,
+): CrossSurfaceInteractionPath {
+  let current = seed
+  let retained = [...seed.candidate.componentIds]
+  let remaining = interactionReadySingles.filter(
+    (summary) => !retained.includes(summary.candidate.componentIds[0]!),
   )
   const steps: CrossSurfaceCompositionStep[] = []
 
@@ -605,12 +680,44 @@ function selectInteractionAware<TRow extends CrossSurfaceTaskRow>(
 
   const qualified = retained.length >= context.input.selection.minimumBundleComponents
   return {
+    seedCandidateId: seed.candidate.candidateId,
     terminalCandidateId: current.candidate.candidateId,
     terminalComponentIds: retained,
-    selectedCandidateId: qualified ? current.candidate.candidateId : null,
     qualified,
     steps,
   }
+}
+
+function compareInteractionPaths<TRow extends CrossSurfaceTaskRow>(
+  context: AnalysisContext<TRow>,
+  summaryById: Map<string, CrossSurfaceCandidateSummary>,
+  left: CrossSurfaceInteractionPath,
+  right: CrossSurfaceInteractionPath,
+): number {
+  const leftSummary = summaryById.get(left.terminalCandidateId)!
+  const rightSummary = summaryById.get(right.terminalCandidateId)!
+  const byNetBenefit = rightSummary.outcome.netBenefit - leftSummary.outcome.netBenefit
+  if (byNetBenefit !== 0) return byNetBenefit
+  const byBenefit =
+    rightSummary.outcome.benefitTaskIds.length - leftSummary.outcome.benefitTaskIds.length
+  if (byBenefit !== 0) return byBenefit
+  const byRegression =
+    leftSummary.outcome.regressionTaskIds.length - rightSummary.outcome.regressionTaskIds.length
+  if (byRegression !== 0) return byRegression
+  for (const metric of context.input.costMetricOrder) {
+    const byCost = leftSummary.costs[metric]!.median - rightSummary.costs[metric]!.median
+    if (byCost !== 0) return byCost
+  }
+  const byBytes = leftSummary.candidate.artifactBytes - rightSummary.candidate.artifactBytes
+  if (byBytes !== 0) return byBytes
+  const byCandidateOrder =
+    context.candidateIndex.get(left.terminalCandidateId)! -
+    context.candidateIndex.get(right.terminalCandidateId)!
+  if (byCandidateOrder !== 0) return byCandidateOrder
+  return (
+    context.candidateIndex.get(left.seedCandidateId)! -
+    context.candidateIndex.get(right.seedCandidateId)!
+  )
 }
 
 function evaluateAddition<TRow extends CrossSurfaceTaskRow>(
@@ -644,6 +751,7 @@ function evaluateAddition<TRow extends CrossSurfaceTaskRow>(
   ) {
     reasons.push('bundle_incomplete')
   }
+  if (bundleSummary.outcome.regressionTaskIds.length > 0) reasons.push('baseline_regression')
   const comparison = compareCandidates(
     context,
     summaryById,

@@ -205,14 +205,55 @@ describe('analyzeCrossSurfaceInteractions', () => {
     )
     expect(report.selections.bestSingle?.candidateId).toBe('profile-only')
     expect(report.selections.naiveStack?.candidateId).toBe('profile-code')
-    expect(report.selections.interactionAware?.selectedCandidateId).toBe('profile-code')
-    expect(report.selections.interactionAware?.steps[0]?.considered[0]).toMatchObject({
-      additionCandidateId: 'code-only',
-      bundleCandidateId: 'profile-code',
-      incrementalResolutionTaskIds: ['t2', 't3'],
-      incrementalRegressionTaskIds: [],
-      eligible: true,
-      selected: true,
+    expect(report.selections.interactionAware).toMatchObject({
+      seedCandidateId: 'profile-code',
+      terminalCandidateId: 'profile-code',
+      selectedCandidateId: 'profile-code',
+      terminalComponentIds: ['profile-change', 'code-change'],
+      qualified: true,
+      steps: [],
+    })
+    expect(report.selections.interactionAware?.evaluatedPaths).toHaveLength(1)
+  })
+
+  it('selects pure synergy when neither constituent improves the baseline alone', () => {
+    const input = fixture()
+    for (const taskId of TASKS) {
+      const baseline = row(input, 'fixed', taskId)
+      for (const candidateId of ['profile-only', 'code-only']) {
+        const single = row(input, candidateId, taskId)
+        single.pass = baseline.pass
+        single.score = baseline.score
+      }
+    }
+
+    const report = analyzeCrossSurfaceInteractions(input)
+    const profile = report.candidates.find(
+      (candidate) => candidate.candidate.candidateId === 'profile-only',
+    )!
+    const code = report.candidates.find(
+      (candidate) => candidate.candidate.candidateId === 'code-only',
+    )!
+
+    expect(profile.eligibility).toEqual({
+      eligible: false,
+      reasons: ['benefit_not_greater_than_regression'],
+    })
+    expect(code.eligibility).toEqual({
+      eligible: false,
+      reasons: ['benefit_not_greater_than_regression'],
+    })
+    expect(report.selections.bestSingle).toBeNull()
+    expect(report.selections.naiveStack).toBeNull()
+    expect(report.pairwise[0]).toMatchObject({
+      synergyTaskIds: ['t1', 't2', 't3'],
+      compatibility: { compatible: true, reasons: [] },
+    })
+    expect(report.selections.interactionAware).toMatchObject({
+      seedCandidateId: 'profile-code',
+      terminalCandidateId: 'profile-code',
+      selectedCandidateId: 'profile-code',
+      qualified: true,
     })
   })
 
@@ -233,14 +274,7 @@ describe('analyzeCrossSurfaceInteractions', () => {
     expect(pair.compatibility.reasons).toEqual(
       expect.arrayContaining(['interference', 'no_incremental_resolution']),
     )
-    expect(report.selections.interactionAware).toMatchObject({
-      terminalCandidateId: 'profile-only',
-      selectedCandidateId: null,
-      qualified: false,
-    })
-    expect(report.selections.interactionAware?.steps[0]?.considered[0]?.reasons).toContain(
-      'pair_incompatible',
-    )
+    expect(report.selections.interactionAware).toBeNull()
   })
 
   it('walks higher-order bundles by incremental resolutions before cost', () => {
@@ -252,16 +286,13 @@ describe('analyzeCrossSurfaceInteractions', () => {
       candidateId: 'abc',
       componentIds: ['a', 'b', 'c'],
     })
+    expect(selected?.seedCandidateId).toBe('ab')
     expect(selected?.steps[0]?.considered.find((decision) => decision.selected)).toMatchObject({
-      additionCandidateId: 'b',
-      bundleCandidateId: 'ab',
-      incrementalResolutionTaskIds: ['u2', 'u4'],
-    })
-    expect(selected?.steps[1]?.considered.find((decision) => decision.selected)).toMatchObject({
       additionCandidateId: 'c',
       bundleCandidateId: 'abc',
       incrementalResolutionTaskIds: ['u3', 'u5', 'u6'],
     })
+    expect(selected?.evaluatedPaths.map((path) => path.seedCandidateId)).toEqual(['ab', 'ac', 'bc'])
     expect(selected).toMatchObject({
       terminalCandidateId: 'abc',
       selectedCandidateId: 'abc',
@@ -326,7 +357,9 @@ describe('analyzeCrossSurfaceInteractions', () => {
   it('marks a surface that never fires ineligible instead of crediting its pass rows', () => {
     const input = fixture()
     for (const taskId of TASKS) {
-      row(input, 'profile-only', taskId).componentEvidence[0]!.fired = false
+      const evidence = row(input, 'profile-only', taskId).componentEvidence[0]!
+      evidence.fired = false
+      evidence.effectObserved = false
     }
 
     const report = analyzeCrossSurfaceInteractions(input)
@@ -336,11 +369,11 @@ describe('analyzeCrossSurfaceInteractions', () => {
     expect(profile.firing.byComponent[0]?.notObservedTaskIds).toEqual([...TASKS])
     expect(profile.eligibility).toEqual({
       eligible: false,
-      reasons: ['firing_below_minimum'],
+      reasons: ['firing_below_minimum', 'effect_below_minimum'],
     })
     expect(report.selections.bestSingle?.candidateId).toBe('code-only')
     expect(report.selections.naiveStack?.candidateId).toBe('code-only')
-    expect(report.pairwise[0]?.compatibility.reasons).toContain('constituent_ineligible')
+    expect(report.pairwise[0]?.compatibility.reasons).toContain('constituent_not_ready')
   })
 
   it('keeps firing evidence distinct from observed behavioral effect', () => {
@@ -365,6 +398,26 @@ describe('analyzeCrossSurfaceInteractions', () => {
     const input = fixture()
     row(input, 'profile-code', 't3').cost.usd = null
     expect(() => analyzeCrossSurfaceInteractions(input)).toThrow(/unknown or invalid cost 'usd'/)
+  })
+
+  it('rejects behavioral effect evidence when its component did not fire', () => {
+    const input = fixture()
+    row(input, 'profile-only', 't1').componentEvidence[0] = {
+      componentId: 'profile-change',
+      fired: false,
+      effectObserved: true,
+    }
+    expect(() => analyzeCrossSurfaceInteractions(input)).toThrow(
+      /effectObserved=true requires fired=true.*profile-only\/t1/,
+    )
+  })
+
+  it('rejects a minimum bundle size larger than the declared component set', () => {
+    const input = fixture()
+    input.selection.minimumBundleComponents = 3
+    expect(() => analyzeCrossSurfaceInteractions(input)).toThrow(
+      /minimumBundleComponents must be an integer in \[2,2\]/,
+    )
   })
 
   it('is invariant to component, candidate, and row insertion order', () => {
