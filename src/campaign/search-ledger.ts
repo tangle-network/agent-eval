@@ -841,8 +841,7 @@ function replayEntries(entries: SearchLedgerEntry[], campaignId: string): Search
         throw new SearchLedgerIntegrityError(`runId ${event.runId} was recorded twice`)
       }
       runIds.add(event.runId)
-      const attemptPrefix = `${event.candidateId}\u0000${event.task.taskId}\u0000`
-      const attemptKey = `${attemptPrefix}${event.attemptIndex}`
+      const attemptKey = canonicalString([event.candidateId, event.task.taskId, event.attemptIndex])
       if (attemptKeys.has(attemptKey)) {
         throw new SearchLedgerIntegrityError(
           `candidate ${event.candidateId} task ${event.task.taskId} attempt ${event.attemptIndex} was recorded twice`,
@@ -1033,7 +1032,7 @@ function normalizeEvent(event: SearchLedgerEvent): SearchLedgerEvent {
       },
       surfaces: [...event.surfaces]
         .map((surface) => ({ ...surface, artifact: { ...surface.artifact } }))
-        .sort((a, b) => a.surfaceId.localeCompare(b.surfaceId)),
+        .sort((a, b) => compareStrings(a.surfaceId, b.surfaceId)),
     }
   }
   if (event.kind === 'task-attempted') {
@@ -1042,7 +1041,7 @@ function normalizeEvent(event: SearchLedgerEvent): SearchLedgerEvent {
       artifacts,
       surfaceEvidence: [...event.surfaceEvidence]
         .map((evidence) => ({ ...evidence, evidence: sortArtifacts(evidence.evidence) }))
-        .sort((a, b) => a.surfaceId.localeCompare(b.surfaceId)),
+        .sort((a, b) => compareStrings(a.surfaceId, b.surfaceId)),
     }
   }
   return { ...event, artifacts }
@@ -1051,11 +1050,15 @@ function normalizeEvent(event: SearchLedgerEvent): SearchLedgerEvent {
 function sortArtifacts(artifacts: SearchArtifactRef[]): SearchArtifactRef[] {
   return [...artifacts]
     .map((artifact) => ({ ...artifact }))
-    .sort((a, b) => artifactKey(a).localeCompare(artifactKey(b)))
+    .sort((a, b) => compareStrings(artifactKey(a), artifactKey(b)))
 }
 
 function artifactKey(artifact: SearchArtifactRef): string {
-  return `${artifact.role}\u0000${artifact.uri}\u0000${artifact.sha256}\u0000${artifact.byteLength}`
+  return canonicalString(artifact)
+}
+
+function compareStrings(a: string, b: string): number {
+  return a < b ? -1 : a > b ? 1 : 0
 }
 
 function sortedStrings(values: string[]): string[] {
