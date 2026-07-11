@@ -57,6 +57,10 @@ try {
       '--input-type=module',
       '--eval',
       `
+        const root = await import('@tangle-network/agent-eval')
+        if (!('pairedSignTest' in root)) throw new Error('missing root export pairedSignTest')
+        const signTest = root.pairedSignTest([1, 0.5], 'greater')
+        if (signTest.pValue !== 0.25) throw new Error('invalid packed pairedSignTest result')
       `,
     ],
     appDir,

@@ -15,6 +15,7 @@ import {
   pairedBootstrap,
   pairedMde,
   pairedRiskDifference,
+  pairedSignTest,
   pairedTTest,
   partialCredit,
   passAtK,
@@ -673,6 +674,64 @@ describe('pairedRiskDifference — paired-binary effect size + CI', () => {
 
   it('throws on unequal lengths', () => {
     expect(() => pairedRiskDifference([0, 1, 1], [0, 1])).toThrow(/unequal sample sizes/)
+  })
+})
+
+describe('pairedSignTest — exact one-sided paired differences', () => {
+  it('returns p = 0.25 for two positive differences', () => {
+    const result = pairedSignTest([1, 0.5], 'greater')
+    expect(result).toEqual({
+      n: 2,
+      positive: 2,
+      negative: 0,
+      ties: 0,
+      nNonTies: 2,
+      alternative: 'greater',
+      pValue: 0.25,
+    })
+  })
+
+  it('ignores zero ties in the binomial denominator', () => {
+    const result = pairedSignTest([1, 0], 'greater')
+    expect(result.nNonTies).toBe(1)
+    expect(result.ties).toBe(1)
+    expect(result.pValue).toBe(0.5)
+  })
+
+  it('returns p = 1 when every difference is tied', () => {
+    const result = pairedSignTest([0, -0, 0], 'greater')
+    expect(result.nNonTies).toBe(0)
+    expect(result.ties).toBe(3)
+    expect(result.pValue).toBe(1)
+  })
+
+  it('supports the opposite pre-registered direction', () => {
+    expect(pairedSignTest([1, 0.5], 'less').pValue).toBe(1)
+    expect(pairedSignTest([-1, -0.5], 'less').pValue).toBe(0.25)
+  })
+
+  it('matches a multi-term exact binomial tail without combinatorial overflow', () => {
+    const result = pairedSignTest([1, 1, 1, -1], 'greater')
+    expect(result.pValue).toBeCloseTo(5 / 16, 15)
+  })
+
+  it('is symmetric under sign reversal and direction reversal', () => {
+    const differences = [1, -0.5, 0, 2, 3, -4]
+    const greater = pairedSignTest(differences, 'greater')
+    const reflected = pairedSignTest(
+      differences.map((difference) => -difference),
+      'less',
+    )
+    expect(reflected.pValue).toBeCloseTo(greater.pValue, 15)
+    expect(reflected.positive).toBe(greater.negative)
+    expect(reflected.negative).toBe(greater.positive)
+    expect(reflected.ties).toBe(greater.ties)
+  })
+
+  it('rejects non-finite differences and invalid directions', () => {
+    expect(() => pairedSignTest([1, Number.NaN], 'greater')).toThrow(/index 1.*finite/)
+    expect(() => pairedSignTest([Number.POSITIVE_INFINITY], 'less')).toThrow(/finite/)
+    expect(() => pairedSignTest([1], 'two-sided' as 'greater')).toThrow(/alternative/)
   })
 })
 
