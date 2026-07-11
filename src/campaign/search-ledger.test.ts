@@ -320,6 +320,13 @@ describe('search ledger persistence and replay', () => {
 })
 
 describe('search ledger evidence completeness', () => {
+  it('rejects a non-canonical campaign id before creating a file', async () => {
+    const path = await ledgerPath('campaign-id')
+    expect(() => openSearchLedger({ path, campaignId: ' campaign ' })).toThrow(
+      /surrounding whitespace/,
+    )
+  })
+
   it('records unknown cost explicitly as a partial total, never a fake zero', async () => {
     const path = await ledgerPath('unknown-cost')
     const ledger = openSearchLedger({ path, campaignId: 'campaign-cost' })
@@ -356,6 +363,37 @@ describe('search ledger evidence completeness', () => {
     expect(replay.audit.outcomes).toEqual({ passed: 0, failed: 1, errored: 0 })
     expect(replay.attempts[0]!.outcome).toEqual(failedOutcome())
     expect(replay.attempts[0]!.surfaceEvidence).toEqual(surfaceEvidence())
+  })
+
+  it('does not select a candidate whose only attempt errored', async () => {
+    const path = await ledgerPath('error-only')
+    const ledger = openSearchLedger({ path, campaignId: 'campaign-error-only' })
+    await ledger.append(candidate())
+    await ledger.append(
+      attempt('candidate-a', {
+        outcome: {
+          status: 'errored',
+          metrics: {},
+          error: { code: 'worker-crash', message: 'worker exited 137', retryable: true },
+        },
+      }),
+    )
+
+    await expect(ledger.append(decision('candidate-a', 'selected'))).rejects.toThrow(
+      /without a measured task outcome/,
+    )
+  })
+
+  it('rejects execution-identity drift between retries of one task', async () => {
+    const path = await ledgerPath('retry-identity')
+    const ledger = openSearchLedger({ path, campaignId: 'campaign-retry-identity' })
+    await ledger.append(candidate())
+    await ledger.append(attempt())
+    const retry = attempt('candidate-a', { attemptIndex: 1 })
+    retry.identity.model.snapshot = 'gpt-5.4@2026-07-01'
+
+    await expect(ledger.append(retry)).rejects.toThrow(/changed immutable execution identity/)
+    expect((await ledger.replay()).audit.attemptCount).toBe(1)
   })
 
   it('requires evidence for every declared surface on every task attempt', async () => {

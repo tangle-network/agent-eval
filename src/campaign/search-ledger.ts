@@ -17,6 +17,7 @@
 
 import { createHash } from 'node:crypto'
 import { existsSync, readFileSync } from 'node:fs'
+import { resolve } from 'node:path'
 import { z } from 'zod'
 import { Mutex } from '../concurrency'
 import { canonicalize } from '../pre-registration'
@@ -393,7 +394,13 @@ const UnknownCostSchema = z
   })
   .strict()
 
-const MetricsSchema = z.record(NON_EMPTY, FINITE_NUMBER)
+const MetricsSchema = z.record(NON_EMPTY, FINITE_NUMBER).superRefine((metrics, ctx) => {
+  for (const key of Object.keys(metrics)) {
+    if (key === '__proto__' || key === 'constructor' || key === 'prototype') {
+      ctx.addIssue({ code: 'custom', message: `unsafe metric key ${key}` })
+    }
+  }
+})
 
 const OutcomeSchema = z.discriminatedUnion('status', [
   z
@@ -588,7 +595,6 @@ export interface SearchLedger {
  * first `append` or `replay` validates the complete existing file. */
 export function openSearchLedger(options: OpenSearchLedgerOptions): SearchLedger {
   if (options.path.trim().length === 0) throw new SearchLedgerError('ledger path is empty')
-  if (options.campaignId.trim().length === 0) throw new SearchLedgerError('campaignId is empty')
   return new FileSearchLedger(options.path, options.campaignId)
 }
 
@@ -609,10 +615,13 @@ export class FileSearchLedger implements SearchLedger {
 
   constructor(path: string, campaignId: string) {
     if (path.trim().length === 0) throw new SearchLedgerError('ledger path is empty')
-    if (campaignId.trim().length === 0) throw new SearchLedgerError('campaignId is empty')
-    this.path = path
+    if (campaignId.length === 0) throw new SearchLedgerError('campaignId is empty')
+    if (campaignId.trim() !== campaignId) {
+      throw new SearchLedgerError('campaignId must not contain surrounding whitespace')
+    }
+    this.path = resolve(path)
     this.campaignId = campaignId
-    this.mutex = mutexFor(path)
+    this.mutex = mutexFor(this.path)
   }
 
   async replay(): Promise<SearchLedgerReplay> {
@@ -723,6 +732,7 @@ function replayEntries(entries: SearchLedgerEntry[], campaignId: string): Search
   const eventIds = new Set<string>()
   const runIds = new Set<string>()
   const attemptKeys = new Set<string>()
+  const taskSources = new Map<string, { task: SearchSourceRef; benchmark: SearchSourceRef }>()
   const candidateEvents: SearchCandidateRegisteredEvent[] = []
   const attempts: SearchTaskAttemptedEvent[] = []
   const decisions: SearchCandidateDecidedEvent[] = []
@@ -846,6 +856,29 @@ function replayEntries(entries: SearchLedgerEntry[], campaignId: string): Search
           `candidate ${event.candidateId} task ${event.task.taskId} attempt index ${event.attemptIndex} is not contiguous (expected ${expectedAttemptIndex})`,
         )
       }
+      const previousAttempt = candidate.attempts.find(
+        (attempt) => attempt.task.taskId === event.task.taskId,
+      )
+      if (
+        previousAttempt &&
+        canonicalString({ task: previousAttempt.task, identity: previousAttempt.identity }) !==
+          canonicalString({ task: event.task, identity: event.identity })
+      ) {
+        throw new SearchLedgerIntegrityError(
+          `candidate ${event.candidateId} task ${event.task.taskId} changed immutable execution identity between attempts`,
+        )
+      }
+      const establishedTaskSource = taskSources.get(event.task.taskId)
+      const taskSource = { task: event.task.source, benchmark: event.identity.benchmark }
+      if (
+        establishedTaskSource &&
+        canonicalString(establishedTaskSource) !== canonicalString(taskSource)
+      ) {
+        throw new SearchLedgerIntegrityError(
+          `task ${event.task.taskId} changed source or benchmark identity within the campaign`,
+        )
+      }
+      taskSources.set(event.task.taskId, taskSource)
       attemptKeys.add(attemptKey)
 
       const declared = candidate.registered.surfaces.map((surface) => surface.surfaceId).sort()
@@ -875,9 +908,9 @@ function replayEntries(entries: SearchLedgerEntry[], campaignId: string): Search
         throw new SearchLedgerIntegrityError(`candidate ${event.candidateId} was decided twice`)
       }
       if (event.decision.status === 'selected') {
-        if (candidate.attempts.length === 0) {
+        if (!candidate.attempts.some((attempt) => attempt.outcome.status !== 'errored')) {
           throw new SearchLedgerIntegrityError(
-            `candidate ${event.candidateId} cannot be selected without a task attempt`,
+            `candidate ${event.candidateId} cannot be selected without a measured task outcome`,
           )
         }
         if (decisions.some((decision) => decision.decision.status === 'selected')) {
