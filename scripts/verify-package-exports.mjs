@@ -91,6 +91,7 @@ try {
           'resolveWorktreePath',
           'assertCodeSurfaceIdentity',
           'codeSurfaceIdentityMaterial',
+          'analyzeCrossSurfaceInteractions',
           'surfaceHash',
           'surfaceContentHash',
           'openSearchLedger',
@@ -131,6 +132,61 @@ try {
         const replay = await ledger.replay()
         if (replay.audit.eventCount !== 1 || replay.audit.expected.missingCandidateSlots[0] !== 'slot-0') {
           throw new Error('packed search ledger lost its declared denominator')
+        }
+        const components = [
+          { componentId: 'a', surfaceId: 'profile', bestSingleEligible: true },
+          { componentId: 'b', surfaceId: 'code', bestSingleEligible: true },
+        ]
+        const candidates = [
+          { candidateId: 'fixed', componentIds: [], contentHash: '0', artifactBytes: 0 },
+          { candidateId: 'a-only', componentIds: ['a'], contentHash: '1', artifactBytes: 1 },
+          { candidateId: 'b-only', componentIds: ['b'], contentHash: '2', artifactBytes: 1 },
+          { candidateId: 'a-b', componentIds: ['a', 'b'], contentHash: '3', artifactBytes: 2 },
+        ]
+        const outcomes = {
+          fixed: [false, false],
+          'a-only': [true, false],
+          'b-only': [false, true],
+          'a-b': [true, true],
+        }
+        const rows = candidates.flatMap((candidate) =>
+          ['t1', 't2'].map((taskId, index) => ({
+            taskId,
+            candidateId: candidate.candidateId,
+            componentIds: candidate.componentIds,
+            completeness: 'complete',
+            pass: outcomes[candidate.candidateId][index],
+            score: Number(outcomes[candidate.candidateId][index]),
+            cost: { usd: candidate.componentIds.length === 0 ? 1 : 1.1 },
+            componentEvidence: candidate.componentIds.map((componentId) => ({
+              componentId,
+              fired: true,
+              effectObserved: true,
+            })),
+            rejectReason: null,
+          })),
+        )
+        const interaction = campaign.analyzeCrossSurfaceInteractions({
+          components,
+          candidates,
+          rows,
+          baselineCandidateId: 'fixed',
+          taskOrder: ['t1', 't2'],
+          componentOrder: ['a', 'b'],
+          candidateOrder: ['fixed', 'a-only', 'b-only', 'a-b'],
+          costMetricOrder: ['usd'],
+          bootstrap: { seed: 7, resamples: 20, confidence: 0.95 },
+          selection: {
+            minimumFiringTasks: 1,
+            minimumEffectTasks: 1,
+            requireObservedFiring: true,
+            requireObservedEffect: true,
+            maximumMedianCostRatioToBaseline: { usd: 1.5 },
+            minimumBundleComponents: 2,
+          },
+        })
+        if (interaction.selections.interactionAware.selectedCandidateId !== 'a-b') {
+          throw new Error('invalid packed cross-surface selection')
         }
       `,
     ],
