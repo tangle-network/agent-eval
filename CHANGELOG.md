@@ -4,6 +4,18 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ---
 
+## [0.115.0] — 2026-07-11 — auditable cross-surface improvement search
+
+### Added
+
+- `openSearchLedger()` records the predeclared candidate, task, and operation denominators for an improvement search in a durable hash-chained event stream.
+  Failed proposal slots, partial batches, task attempts, measured cost, surface firing and effect, and terminal selection decisions remain replayable after a crash.
+- `analyzeCrossSurfaceInteractions()` compares fixed, best-single, blind-union, and interaction-aware agent changes on the same task rows.
+  It preserves missing and invalid attempts, cost, firing, effect, synergy, interference, and every evaluated composition path, including combinations whose constituents are neutral alone.
+
+This release is additive.
+Existing consumers do not need to update unless they want durable improvement-search accounting or cross-surface composition.
+
 ## [0.114.0] — 2026-07-11 — exact directional paired inference
 
 ### Added
