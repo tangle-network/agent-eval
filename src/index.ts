@@ -399,8 +399,10 @@ export type {
   McNemarResult,
   PairedBootstrapOptions,
   PairedBootstrapResult,
+  PairedSignTestResult,
   ProportionInterval,
   RiskDifferenceResult,
+  SignTestAlternative,
   WeightedCompositeInput,
   WeightedCompositeResult,
 } from './statistics'
@@ -424,6 +426,7 @@ export {
   pairedBootstrap,
   pairedMde,
   pairedRiskDifference,
+  pairedSignTest,
   pairedTTest,
   partialCredit,
   passAtK,

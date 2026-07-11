@@ -4,6 +4,19 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ---
 
+## [0.114.0] — 2026-07-11 — exact directional paired inference
+
+### Added
+
+- `pairedSignTest(differences, alternative)` computes an exact one-sided sign test for paired numeric differences, excludes zero ties, requires a predeclared `greater` or `less` direction, and reports every denominator.
+
+### Changed
+
+- McNemar's exact two-sided calculation now reuses the same log-space binomial-tail implementation without changing its public result contract.
+
+This release is additive.
+Existing consumers do not need to update unless they want the new statistic.
+
 ## [0.113.0] — 2026-07-10 — immutable code candidates
 
 ### Changed
