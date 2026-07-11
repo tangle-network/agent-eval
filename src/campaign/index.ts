@@ -45,6 +45,43 @@ export {
   type OpenAutoPrResult,
   openAutoPr,
 } from './auto-pr'
+// ── Cross-surface interaction matrix + frozen bundle selection ──────
+export { analyzeCrossSurfaceInteractions } from './cross-surface-interaction'
+export type {
+  AnalyzeCrossSurfaceInteractionsInput,
+  CrossSurfaceAdditionDecision,
+  CrossSurfaceAdditionRejectionReason,
+  CrossSurfaceAttemptCompleteness,
+  CrossSurfaceBestSingleSelection,
+  CrossSurfaceBootstrapPolicy,
+  CrossSurfaceCandidate,
+  CrossSurfaceCandidateComparison,
+  CrossSurfaceCandidateEvidence,
+  CrossSurfaceCandidateOutcome,
+  CrossSurfaceCandidateSummary,
+  CrossSurfaceComponent,
+  CrossSurfaceComponentEvidence,
+  CrossSurfaceCompositionStep,
+  CrossSurfaceDistribution,
+  CrossSurfaceEligibility,
+  CrossSurfaceEvidenceBreakdown,
+  CrossSurfaceIneligibilityReason,
+  CrossSurfaceInteractionAwareSelection,
+  CrossSurfaceInteractionEffect,
+  CrossSurfaceInteractionPath,
+  CrossSurfaceInteractionReport,
+  CrossSurfaceInteractionTask,
+  CrossSurfaceNaiveStackSelection,
+  CrossSurfacePairCompatibility,
+  CrossSurfacePairEvidence,
+  CrossSurfacePairIncompatibilityReason,
+  CrossSurfacePairwiseEntry,
+  CrossSurfaceRankedSingle,
+  CrossSurfaceRelativeCost,
+  CrossSurfaceSelectionPolicy,
+  CrossSurfaceSelections,
+  CrossSurfaceTaskRow,
+} from './cross-surface-types'
 // ── Fixture UX / dry-run planning ────────────────────────────────────
 export {
   discoverEvalFixtures,
