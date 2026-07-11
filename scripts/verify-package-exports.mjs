@@ -115,7 +115,10 @@ try {
             byteLength: 1,
           }],
           plan: {
-            candidateSlots: ['slot-0'],
+            candidateSlots: [{
+              slotId: 'slot-0',
+              generationOperationId: 'proposal-0',
+            }],
             tasks: [{
               taskId: 'task-0',
               source: { uri: 'git://task', revision: '1'.repeat(40) },

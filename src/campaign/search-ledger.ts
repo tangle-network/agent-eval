@@ -102,11 +102,17 @@ export interface SearchPlannedOperation {
   kind: SearchOperationKind
 }
 
+export interface SearchCandidateSlot {
+  slotId: string
+  /** Planned candidate-generation call that must either produce this slot or
+   * fail before the slot can be closed. Several slots may share one batched call. */
+  generationOperationId: string
+}
+
 export interface SearchPlan {
-  /** Stable slots are declared before proposal calls; generated candidate ids
-   * bind to them later. */
-  candidateSlots: string[]
-  /** Every task applies to every candidate slot. */
+  /** Stable slots and their proposer calls are frozen before search begins. */
+  candidateSlots: SearchCandidateSlot[]
+  /** Every task applies to every successfully registered candidate. */
   tasks: SearchPlannedTask[]
   /** Non-task spend slots: proposal, analysis, selection, extra judges, etc. */
   operations: SearchPlannedOperation[]
@@ -202,6 +208,7 @@ export interface SearchPlannedEvent extends SearchLedgerEventBase {
 export interface SearchCandidateRegisteredEvent extends SearchLedgerEventBase {
   kind: 'candidate-registered'
   slotId: string
+  generationOperationId: string
   candidateId: string
   lineage: SearchCandidateLineage
   surfaces: SearchCandidateSurface[]
@@ -413,7 +420,16 @@ const SearchPlannedSchema = z
     kind: z.literal('search-planned'),
     plan: z
       .object({
-        candidateSlots: z.array(NON_EMPTY).min(1),
+        candidateSlots: z
+          .array(
+            z
+              .object({
+                slotId: NON_EMPTY,
+                generationOperationId: NON_EMPTY,
+              })
+              .strict(),
+          )
+          .min(1),
         tasks: z
           .array(
             z
@@ -446,6 +462,7 @@ const CandidateRegisteredSchema = z
     ...EventBaseShape,
     kind: z.literal('candidate-registered'),
     slotId: NON_EMPTY,
+    generationOperationId: NON_EMPTY,
     candidateId: NON_EMPTY,
     lineage: z
       .object({
@@ -973,7 +990,11 @@ function replayEntries(entries: SearchLedgerEntry[], campaignId: string): Search
       if (index !== 0 || planEvent) {
         throw new SearchLedgerIntegrityError('search plan must be the first and only plan event')
       }
-      assertUnique(event.plan.candidateSlots, 'candidate slot', event.eventId)
+      assertUnique(
+        event.plan.candidateSlots.map((slot) => slot.slotId),
+        'candidate slot',
+        event.eventId,
+      )
       assertUnique(
         event.plan.tasks.map((task) => task.taskId),
         'planned taskId',
@@ -984,6 +1005,16 @@ function replayEntries(entries: SearchLedgerEntry[], campaignId: string): Search
         'planned operationId',
         event.eventId,
       )
+      for (const slot of event.plan.candidateSlots) {
+        const generationOperation = event.plan.operations.find(
+          (operation) => operation.operationId === slot.generationOperationId,
+        )
+        if (!generationOperation || generationOperation.kind !== 'candidate-generation') {
+          throw new SearchLedgerIntegrityError(
+            `candidate slot ${slot.slotId} references unplanned candidate-generation operation ${slot.generationOperationId}`,
+          )
+        }
+      }
       planEvent = event
       continue
     }
@@ -998,7 +1029,8 @@ function replayEntries(entries: SearchLedgerEntry[], campaignId: string): Search
       if (candidates.has(event.candidateId)) {
         throw new SearchLedgerIntegrityError(`candidate ${event.candidateId} was registered twice`)
       }
-      if (!planEvent.plan.candidateSlots.includes(event.slotId)) {
+      const plannedSlot = planEvent.plan.candidateSlots.find((slot) => slot.slotId === event.slotId)
+      if (!plannedSlot) {
         throw new SearchLedgerIntegrityError(
           `candidate ${event.candidateId} binds unknown slot ${event.slotId}`,
         )
@@ -1008,6 +1040,22 @@ function replayEntries(entries: SearchLedgerEntry[], campaignId: string): Search
       }
       if (closedSlots.has(event.slotId)) {
         throw new SearchLedgerIntegrityError(`candidate slot ${event.slotId} was already closed`)
+      }
+      if (event.generationOperationId !== plannedSlot.generationOperationId) {
+        throw new SearchLedgerIntegrityError(
+          `candidate ${event.candidateId} generation operation ${event.generationOperationId} does not match slot ${event.slotId} plan ${plannedSlot.generationOperationId}`,
+        )
+      }
+      const generationOperation = operationsById.get(event.generationOperationId)
+      if (!generationOperation) {
+        throw new SearchLedgerIntegrityError(
+          `candidate ${event.candidateId} precedes generation operation ${event.generationOperationId}`,
+        )
+      }
+      if (generationOperation.outcome.status !== 'completed') {
+        throw new SearchLedgerIntegrityError(
+          `candidate ${event.candidateId} cannot bind failed generation operation ${event.generationOperationId}`,
+        )
       }
       const previousCandidate = lineageNodes.get(event.lineage.lineageNodeId)
       if (previousCandidate) {
@@ -1156,9 +1204,15 @@ function replayEntries(entries: SearchLedgerEntry[], campaignId: string): Search
     }
 
     if (event.kind === 'candidate-slot-closed') {
-      if (!planEvent.plan.candidateSlots.includes(event.slotId)) {
+      const plannedSlot = planEvent.plan.candidateSlots.find((slot) => slot.slotId === event.slotId)
+      if (!plannedSlot) {
         throw new SearchLedgerIntegrityError(
           `candidate slot closure ${event.eventId} references unknown slot ${event.slotId}`,
+        )
+      }
+      if (event.generationOperationId !== plannedSlot.generationOperationId) {
+        throw new SearchLedgerIntegrityError(
+          `candidate slot closure ${event.eventId} generation operation ${event.generationOperationId} does not match slot ${event.slotId} plan ${plannedSlot.generationOperationId}`,
         )
       }
       if (candidateBySlot.has(event.slotId)) {
@@ -1168,14 +1222,6 @@ function replayEntries(entries: SearchLedgerEntry[], campaignId: string): Search
       }
       if (closedSlots.has(event.slotId)) {
         throw new SearchLedgerIntegrityError(`candidate slot ${event.slotId} was closed twice`)
-      }
-      const plannedOperation = planEvent.plan.operations.find(
-        (operation) => operation.operationId === event.generationOperationId,
-      )
-      if (!plannedOperation || plannedOperation.kind !== 'candidate-generation') {
-        throw new SearchLedgerIntegrityError(
-          `candidate slot closure ${event.eventId} references unplanned candidate-generation operation ${event.generationOperationId}`,
-        )
       }
       const operation = operationsById.get(event.generationOperationId)
       if (!operation) {
@@ -1218,9 +1264,9 @@ function replayEntries(entries: SearchLedgerEntry[], campaignId: string): Search
       continue
     }
 
-    const missingCandidateSlots = planEvent.plan.candidateSlots.filter(
-      (slotId) => !candidateBySlot.has(slotId) && !closedSlots.has(slotId),
-    )
+    const missingCandidateSlots = planEvent.plan.candidateSlots
+      .filter((slot) => !candidateBySlot.has(slot.slotId) && !closedSlots.has(slot.slotId))
+      .map((slot) => slot.slotId)
     if (missingCandidateSlots.length > 0) {
       throw new SearchLedgerIntegrityError(
         `search completed with missing candidate slots: ${missingCandidateSlots.join(', ')}`,
@@ -1318,9 +1364,9 @@ function replayEntries(entries: SearchLedgerEntry[], campaignId: string): Search
         ? 'all-rejected'
         : 'in-progress'
   const missingCandidateSlots =
-    planEvent?.plan.candidateSlots.filter(
-      (slotId) => !candidateBySlot.has(slotId) && !closedSlots.has(slotId),
-    ) ?? []
+    planEvent?.plan.candidateSlots
+      .filter((slot) => !candidateBySlot.has(slot.slotId) && !closedSlots.has(slot.slotId))
+      .map((slot) => slot.slotId) ?? []
   const missingTaskOutcomes = planEvent ? plannedTaskOutcomeKeys(planEvent, candidates) : []
   const missingOperations =
     planEvent?.plan.operations
@@ -1392,7 +1438,9 @@ function normalizeEvent(event: SearchLedgerEvent): SearchLedgerEvent {
       ...event,
       artifacts,
       plan: {
-        candidateSlots: sortedStrings(event.plan.candidateSlots),
+        candidateSlots: [...event.plan.candidateSlots].sort((a, b) =>
+          compareStrings(a.slotId, b.slotId),
+        ),
         tasks: [...event.plan.tasks].sort((a, b) => compareStrings(a.taskId, b.taskId)),
         operations: [...event.plan.operations].sort((a, b) =>
           compareStrings(a.operationId, b.operationId),

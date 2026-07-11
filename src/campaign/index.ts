@@ -284,6 +284,7 @@ export {
   type SearchCandidateDecidedEvent,
   type SearchCandidateLineage,
   type SearchCandidateRegisteredEvent,
+  type SearchCandidateSlot,
   type SearchCandidateSlotClosedEvent,
   type SearchCandidateSurface,
   type SearchCompletedEvent,
