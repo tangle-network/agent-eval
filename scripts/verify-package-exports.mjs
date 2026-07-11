@@ -93,8 +93,19 @@ try {
           'codeSurfaceIdentityMaterial',
           'surfaceHash',
           'surfaceContentHash',
+          'openSearchLedger',
+          'FileSearchLedger',
+          'SearchLedgerIntegrityError',
         ]) {
           if (!(name in campaign)) throw new Error('missing campaign export ' + name)
+        }
+        const ledger = campaign.openSearchLedger({
+          path: './packed-search-ledger.jsonl',
+          campaignId: 'packed-consumer',
+        })
+        const replay = await ledger.replay()
+        if (replay.audit.eventCount !== 0 || replay.audit.status !== 'in-progress') {
+          throw new Error('packed search ledger returned an invalid empty replay')
         }
       `,
     ],
