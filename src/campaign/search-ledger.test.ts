@@ -152,13 +152,16 @@ function operation(
   }
 }
 
-function slotClosure(): SearchCandidateSlotClosedEvent {
+function slotClosure(
+  options: { slotId?: string; eventId?: string } = {},
+): SearchCandidateSlotClosedEvent {
+  const slotId = options.slotId ?? 'slot-a'
   return {
     kind: 'candidate-slot-closed',
-    eventId: 'slot:slot-a:closed',
+    eventId: options.eventId ?? `slot:${slotId}:closed`,
     occurredAt: '2026-07-11T12:02:00.000Z',
     artifacts: [artifact('candidate-generation-failure', HASHES.decision)],
-    slotId: 'slot-a',
+    slotId,
     generationOperationId: 'candidate-generation:a',
     reason: {
       code: 'proposal-failed',
@@ -632,7 +635,7 @@ describe('search ledger evidence completeness', () => {
       candidateCount: 0,
       closedCandidateSlotCount: 1,
       attemptCount: 0,
-      operationOutcomes: { completed: 0, failed: 1 },
+      operationOutcomes: { completed: 0, partial: 0, failed: 1 },
       expected: {
         candidateSlots: 1,
         taskOutcomes: 0,
@@ -648,6 +651,42 @@ describe('search ledger evidence completeness', () => {
         costUsd: 0.02,
       },
     })
+  })
+
+  it('records partial batched generation with one candidate and one failed slot', async () => {
+    const path = await ledgerPath('partial-batched-proposal')
+    const ledger = openSearchLedger({ path, campaignId: 'campaign-partial-batched-proposal' })
+    await ledger.append(plan({ candidateSlots: ['slot-a', 'slot-b'] }))
+    await ledger.append(
+      operation(
+        { status: 'known', usd: 0.02, source: 'provider' },
+        {
+          status: 'partial',
+          failure: { code: 'one-invalid-candidate', message: 'one of two proposals did not parse' },
+        },
+      ),
+    )
+    await ledger.append(candidate('candidate-a'))
+    await ledger.append(attempt('candidate-a'))
+    await ledger.append(slotClosure({ slotId: 'slot-b' }))
+    await ledger.append(decision('candidate-a', 'rejected'))
+    const terminal = await ledger.append(completion('all-rejected'))
+
+    expect(terminal.replay.audit).toMatchObject({
+      status: 'all-rejected',
+      candidateCount: 1,
+      closedCandidateSlotCount: 1,
+      attemptCount: 1,
+      operationOutcomes: { completed: 0, partial: 1, failed: 0 },
+      expected: {
+        candidateSlots: 2,
+        taskOutcomes: 1,
+        missingCandidateSlots: [],
+        missingTaskOutcomes: [],
+        missingOperations: [],
+      },
+    })
+    expect(terminal.replay.closedCandidateSlots[0]!.slotId).toBe('slot-b')
   })
 
   it('rejects binding a candidate to an already closed proposal slot', async () => {

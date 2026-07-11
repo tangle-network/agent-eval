@@ -254,7 +254,10 @@ export interface SearchOperationRecordedEvent extends SearchLedgerEventBase {
         kind: 'deterministic'
         source: SearchSourceRef
       }
-  outcome: { status: 'completed' } | { status: 'failed'; failure: SearchFailureReason }
+  outcome:
+    | { status: 'completed' }
+    | { status: 'partial'; failure: SearchFailureReason }
+    | { status: 'failed'; failure: SearchFailureReason }
   accounting: SearchAttemptAccounting
 }
 
@@ -326,7 +329,7 @@ export interface SearchLedgerAudit {
   attemptCount: number
   operationCount: number
   outcomes: { passed: number; failed: number; errored: number }
-  operationOutcomes: { completed: number; failed: number }
+  operationOutcomes: { completed: number; partial: number; failed: number }
   decisions: { selected: number; rejected: number; pending: number }
   expected: {
     candidateSlots: number
@@ -697,6 +700,12 @@ const SearchOperationRecordedSchema = z
       z.object({ status: z.literal('completed') }).strict(),
       z
         .object({
+          status: z.literal('partial'),
+          failure: FailureReasonSchema,
+        })
+        .strict(),
+      z
+        .object({
           status: z.literal('failed'),
           failure: FailureReasonSchema,
         })
@@ -1052,7 +1061,7 @@ function replayEntries(entries: SearchLedgerEntry[], campaignId: string): Search
           `candidate ${event.candidateId} precedes generation operation ${event.generationOperationId}`,
         )
       }
-      if (generationOperation.outcome.status !== 'completed') {
+      if (generationOperation.outcome.status === 'failed') {
         throw new SearchLedgerIntegrityError(
           `candidate ${event.candidateId} cannot bind failed generation operation ${event.generationOperationId}`,
         )
@@ -1229,7 +1238,7 @@ function replayEntries(entries: SearchLedgerEntry[], campaignId: string): Search
           `candidate slot closure ${event.eventId} precedes operation ${event.generationOperationId}`,
         )
       }
-      if (operation.outcome.status !== 'failed') {
+      if (operation.outcome.status === 'completed') {
         throw new SearchLedgerIntegrityError(
           `candidate slot ${event.slotId} cannot close from completed operation ${event.generationOperationId}`,
         )
@@ -1286,6 +1295,31 @@ function replayEntries(entries: SearchLedgerEntry[], campaignId: string): Search
         `search completed with missing search operations: ${missingOperations.join(', ')}`,
       )
     }
+    for (const operation of planEvent.plan.operations) {
+      if (operation.kind !== 'candidate-generation') continue
+      const generationOutcome = operationsById.get(operation.operationId)!.outcome.status
+      const slots = planEvent.plan.candidateSlots.filter(
+        (slot) => slot.generationOperationId === operation.operationId,
+      )
+      if (slots.length === 0) continue
+      const registeredCount = slots.filter((slot) => candidateBySlot.has(slot.slotId)).length
+      const closedCount = slots.filter((slot) => closedSlots.has(slot.slotId)).length
+      if (generationOutcome === 'completed' && closedCount > 0) {
+        throw new SearchLedgerIntegrityError(
+          `completed generation operation ${operation.operationId} contains ${closedCount} closed slot(s)`,
+        )
+      }
+      if (generationOutcome === 'failed' && registeredCount > 0) {
+        throw new SearchLedgerIntegrityError(
+          `failed generation operation ${operation.operationId} contains ${registeredCount} registered candidate(s)`,
+        )
+      }
+      if (generationOutcome === 'partial' && (registeredCount === 0 || closedCount === 0)) {
+        throw new SearchLedgerIntegrityError(
+          `partial generation operation ${operation.operationId} must contain both a registered candidate and a closed slot`,
+        )
+      }
+    }
     const pending = [...candidates.values()].filter((candidate) => candidate.decision === null)
     if (pending.length > 0) {
       throw new SearchLedgerIntegrityError(
@@ -1308,7 +1342,7 @@ function replayEntries(entries: SearchLedgerEntry[], campaignId: string): Search
   const selectedDecisions = decisions.filter((decision) => decision.decision.status === 'selected')
   const rejectedDecisions = decisions.filter((decision) => decision.decision.status === 'rejected')
   const outcomeCounts = { passed: 0, failed: 0, errored: 0 }
-  const operationOutcomeCounts = { completed: 0, failed: 0 }
+  const operationOutcomeCounts = { completed: 0, partial: 0, failed: 0 }
   let inputTokens = 0
   let outputTokens = 0
   let cachedTokens = 0
