@@ -81,6 +81,37 @@ export interface SearchCandidateLineage {
   proposerSource: SearchSourceRef
 }
 
+export type SearchOperationKind =
+  | 'candidate-generation'
+  | 'analysis'
+  | 'selection'
+  | 'judge'
+  | 'other'
+
+export interface SearchPlannedTask {
+  taskId: string
+  source: SearchSourceRef
+  benchmark: SearchSourceRef
+  /** Maximum transport attempts for this task and candidate. Only an explicit
+   * passed/failed outcome satisfies the planned denominator. */
+  maxAttempts: number
+}
+
+export interface SearchPlannedOperation {
+  operationId: string
+  kind: SearchOperationKind
+}
+
+export interface SearchPlan {
+  /** Stable slots are declared before proposal calls; generated candidate ids
+   * bind to them later. */
+  candidateSlots: string[]
+  /** Every task applies to every candidate slot. */
+  tasks: SearchPlannedTask[]
+  /** Non-task spend slots: proposal, analysis, selection, extra judges, etc. */
+  operations: SearchPlannedOperation[]
+}
+
 export type SearchTokenAccounting =
   | {
       status: 'known'
@@ -163,8 +194,14 @@ interface SearchLedgerEventBase {
   artifacts: SearchArtifactRef[]
 }
 
+export interface SearchPlannedEvent extends SearchLedgerEventBase {
+  kind: 'search-planned'
+  plan: SearchPlan
+}
+
 export interface SearchCandidateRegisteredEvent extends SearchLedgerEventBase {
   kind: 'candidate-registered'
+  slotId: string
   candidateId: string
   lineage: SearchCandidateLineage
   surfaces: SearchCandidateSurface[]
@@ -187,6 +224,24 @@ export interface SearchTaskAttemptedEvent extends SearchLedgerEventBase {
   outcome: SearchTaskOutcome
   accounting: SearchAttemptAccounting
   surfaceEvidence: SearchSurfaceEvidence[]
+}
+
+export interface SearchOperationRecordedEvent extends SearchLedgerEventBase {
+  kind: 'search-operation-recorded'
+  operationId: string
+  operationKind: SearchOperationKind
+  execution:
+    | {
+        kind: 'model'
+        model: SearchModelIdentity
+        source: SearchSourceRef
+      }
+    | {
+        kind: 'deterministic'
+        source: SearchSourceRef
+      }
+  outcome: { status: 'completed' } | { status: 'failed'; failure: SearchFailureReason }
+  accounting: SearchAttemptAccounting
 }
 
 export interface SearchCandidateDecidedEvent extends SearchLedgerEventBase {
@@ -214,8 +269,10 @@ export interface SearchCompletedEvent extends SearchLedgerEventBase {
 }
 
 export type SearchLedgerEvent =
+  | SearchPlannedEvent
   | SearchCandidateRegisteredEvent
   | SearchTaskAttemptedEvent
+  | SearchOperationRecordedEvent
   | SearchCandidateDecidedEvent
   | SearchCompletedEvent
 
@@ -251,8 +308,18 @@ export interface SearchLedgerAudit {
   eventCount: number
   candidateCount: number
   attemptCount: number
+  operationCount: number
   outcomes: { passed: number; failed: number; errored: number }
+  operationOutcomes: { completed: number; failed: number }
   decisions: { selected: number; rejected: number; pending: number }
+  expected: {
+    candidateSlots: number
+    taskOutcomes: number
+    operations: number
+    missingCandidateSlots: string[]
+    missingTaskOutcomes: string[]
+    missingOperations: string[]
+  }
   status: 'in-progress' | 'selected' | 'all-rejected'
   selectedCandidateId: string | null
   accounting: SearchAccountingAudit
@@ -261,8 +328,10 @@ export interface SearchLedgerAudit {
 
 export interface SearchLedgerReplay {
   entries: SearchLedgerEntry[]
+  plan: SearchPlannedEvent | null
   candidates: SearchCandidateRegisteredEvent[]
   attempts: SearchTaskAttemptedEvent[]
+  operations: SearchOperationRecordedEvent[]
   decisions: SearchCandidateDecidedEvent[]
   completion: SearchCompletedEvent | null
   audit: SearchLedgerAudit
@@ -320,10 +389,53 @@ const EventBaseShape = {
   artifacts: z.array(ArtifactRefSchema).min(1),
 }
 
+const OperationKindSchema = z.enum([
+  'candidate-generation',
+  'analysis',
+  'selection',
+  'judge',
+  'other',
+])
+
+const SearchPlannedSchema = z
+  .object({
+    ...EventBaseShape,
+    kind: z.literal('search-planned'),
+    plan: z
+      .object({
+        candidateSlots: z.array(NON_EMPTY).min(1),
+        tasks: z
+          .array(
+            z
+              .object({
+                taskId: NON_EMPTY,
+                source: SourceRefSchema,
+                benchmark: SourceRefSchema,
+                maxAttempts: z.number().int().positive().safe(),
+              })
+              .strict(),
+          )
+          .min(1),
+        operations: z
+          .array(
+            z
+              .object({
+                operationId: NON_EMPTY,
+                kind: OperationKindSchema,
+              })
+              .strict(),
+          )
+          .min(1),
+      })
+      .strict(),
+  })
+  .strict()
+
 const CandidateRegisteredSchema = z
   .object({
     ...EventBaseShape,
     kind: z.literal('candidate-registered'),
+    slotId: NON_EMPTY,
     candidateId: NON_EMPTY,
     lineage: z
       .object({
@@ -391,6 +503,13 @@ const UnknownCostSchema = z
     status: z.literal('unknown'),
     knownLowerBoundUsd: z.number().finite().nonnegative(),
     reason: NON_EMPTY,
+  })
+  .strict()
+
+const AccountingSchema = z
+  .object({
+    tokens: z.discriminatedUnion('status', [KnownTokensSchema, UnknownSchema]),
+    cost: z.discriminatedUnion('status', [KnownCostSchema, UnknownCostSchema]),
   })
   .strict()
 
@@ -503,13 +622,50 @@ const TaskAttemptedSchema = z
       })
       .strict(),
     outcome: OutcomeSchema,
-    accounting: z
-      .object({
-        tokens: z.discriminatedUnion('status', [KnownTokensSchema, UnknownSchema]),
-        cost: z.discriminatedUnion('status', [KnownCostSchema, UnknownCostSchema]),
-      })
-      .strict(),
+    accounting: AccountingSchema,
     surfaceEvidence: z.array(SurfaceEvidenceSchema).min(1),
+  })
+  .strict()
+
+const SearchOperationRecordedSchema = z
+  .object({
+    ...EventBaseShape,
+    kind: z.literal('search-operation-recorded'),
+    operationId: NON_EMPTY,
+    operationKind: OperationKindSchema,
+    execution: z.discriminatedUnion('kind', [
+      z
+        .object({
+          kind: z.literal('model'),
+          model: z
+            .object({
+              provider: NON_EMPTY,
+              snapshot: NON_EMPTY.refine(
+                modelHasSnapshot,
+                'model must include an immutable snapshot',
+              ),
+            })
+            .strict(),
+          source: SourceRefSchema,
+        })
+        .strict(),
+      z
+        .object({
+          kind: z.literal('deterministic'),
+          source: SourceRefSchema,
+        })
+        .strict(),
+    ]),
+    outcome: z.discriminatedUnion('status', [
+      z.object({ status: z.literal('completed') }).strict(),
+      z
+        .object({
+          status: z.literal('failed'),
+          failure: FailureReasonSchema,
+        })
+        .strict(),
+    ]),
+    accounting: AccountingSchema,
   })
   .strict()
 
@@ -552,8 +708,10 @@ const SearchCompletedSchema = z
   .strict()
 
 const EventSchema = z.discriminatedUnion('kind', [
+  SearchPlannedSchema,
   CandidateRegisteredSchema,
   TaskAttemptedSchema,
+  SearchOperationRecordedSchema,
   CandidateDecidedSchema,
   SearchCompletedSchema,
 ])
@@ -728,14 +886,17 @@ interface CandidateState {
 
 function replayEntries(entries: SearchLedgerEntry[], campaignId: string): SearchLedgerReplay {
   const candidates = new Map<string, CandidateState>()
+  const candidateBySlot = new Map<string, string>()
   const lineageNodes = new Map<string, string>()
   const eventIds = new Set<string>()
   const runIds = new Set<string>()
   const attemptKeys = new Set<string>()
-  const taskSources = new Map<string, { task: SearchSourceRef; benchmark: SearchSourceRef }>()
   const candidateEvents: SearchCandidateRegisteredEvent[] = []
   const attempts: SearchTaskAttemptedEvent[] = []
+  const operationEvents: SearchOperationRecordedEvent[] = []
+  const operationsById = new Map<string, SearchOperationRecordedEvent>()
   const decisions: SearchCandidateDecidedEvent[] = []
+  let planEvent: SearchPlannedEvent | null = null
   let completion: SearchCompletedEvent | null = null
   let expectedPrevious: SearchLedgerHash | null = null
   let previousOccurredAt = Number.NEGATIVE_INFINITY
@@ -785,9 +946,42 @@ function replayEntries(entries: SearchLedgerEntry[], campaignId: string): Search
     previousOccurredAt = occurredAt
     assertUnique(event.artifacts.map(artifactKey), 'artifact receipt', event.eventId)
 
+    if (event.kind === 'search-planned') {
+      if (index !== 0 || planEvent) {
+        throw new SearchLedgerIntegrityError('search plan must be the first and only plan event')
+      }
+      assertUnique(event.plan.candidateSlots, 'candidate slot', event.eventId)
+      assertUnique(
+        event.plan.tasks.map((task) => task.taskId),
+        'planned taskId',
+        event.eventId,
+      )
+      assertUnique(
+        event.plan.operations.map((operation) => operation.operationId),
+        'planned operationId',
+        event.eventId,
+      )
+      planEvent = event
+      continue
+    }
+
+    if (!planEvent) {
+      throw new SearchLedgerIntegrityError(
+        `event ${event.eventId} appears before the required search plan`,
+      )
+    }
+
     if (event.kind === 'candidate-registered') {
       if (candidates.has(event.candidateId)) {
         throw new SearchLedgerIntegrityError(`candidate ${event.candidateId} was registered twice`)
+      }
+      if (!planEvent.plan.candidateSlots.includes(event.slotId)) {
+        throw new SearchLedgerIntegrityError(
+          `candidate ${event.candidateId} binds unknown slot ${event.slotId}`,
+        )
+      }
+      if (candidateBySlot.has(event.slotId)) {
+        throw new SearchLedgerIntegrityError(`candidate slot ${event.slotId} was bound twice`)
       }
       const previousCandidate = lineageNodes.get(event.lineage.lineageNodeId)
       if (previousCandidate) {
@@ -820,6 +1014,7 @@ function replayEntries(entries: SearchLedgerEntry[], campaignId: string): Search
         event.eventId,
       )
       candidates.set(event.candidateId, { registered: event, attempts: [], decision: null })
+      candidateBySlot.set(event.slotId, event.candidateId)
       lineageNodes.set(event.lineage.lineageNodeId, event.candidateId)
       candidateEvents.push(event)
       continue
@@ -835,6 +1030,25 @@ function replayEntries(entries: SearchLedgerEntry[], campaignId: string): Search
       if (candidate.decision) {
         throw new SearchLedgerIntegrityError(
           `attempt ${event.eventId} appears after candidate ${event.candidateId} was decided`,
+        )
+      }
+      const plannedTask = planEvent.plan.tasks.find((task) => task.taskId === event.task.taskId)
+      if (!plannedTask) {
+        throw new SearchLedgerIntegrityError(
+          `attempt ${event.eventId} references unplanned task ${event.task.taskId}`,
+        )
+      }
+      if (
+        canonicalString(plannedTask.source) !== canonicalString(event.task.source) ||
+        canonicalString(plannedTask.benchmark) !== canonicalString(event.identity.benchmark)
+      ) {
+        throw new SearchLedgerIntegrityError(
+          `task ${event.task.taskId} does not match its planned source identity`,
+        )
+      }
+      if (event.attemptIndex >= plannedTask.maxAttempts) {
+        throw new SearchLedgerIntegrityError(
+          `task ${event.task.taskId} attempt ${event.attemptIndex} exceeds planned maxAttempts ${plannedTask.maxAttempts}`,
         )
       }
       if (runIds.has(event.runId)) {
@@ -859,6 +1073,14 @@ function replayEntries(entries: SearchLedgerEntry[], campaignId: string): Search
         (attempt) => attempt.task.taskId === event.task.taskId,
       )
       if (
+        previousAttempt?.outcome.status !== undefined &&
+        previousAttempt.outcome.status !== 'errored'
+      ) {
+        throw new SearchLedgerIntegrityError(
+          `task ${event.task.taskId} was retried after a measured outcome`,
+        )
+      }
+      if (
         previousAttempt &&
         canonicalString({ task: previousAttempt.task, identity: previousAttempt.identity }) !==
           canonicalString({ task: event.task, identity: event.identity })
@@ -867,17 +1089,6 @@ function replayEntries(entries: SearchLedgerEntry[], campaignId: string): Search
           `candidate ${event.candidateId} task ${event.task.taskId} changed immutable execution identity between attempts`,
         )
       }
-      const establishedTaskSource = taskSources.get(event.task.taskId)
-      const taskSource = { task: event.task.source, benchmark: event.identity.benchmark }
-      if (
-        establishedTaskSource &&
-        canonicalString(establishedTaskSource) !== canonicalString(taskSource)
-      ) {
-        throw new SearchLedgerIntegrityError(
-          `task ${event.task.taskId} changed source or benchmark identity within the campaign`,
-        )
-      }
-      taskSources.set(event.task.taskId, taskSource)
       attemptKeys.add(attemptKey)
 
       const declared = candidate.registered.surfaces.map((surface) => surface.surfaceId).sort()
@@ -893,6 +1104,28 @@ function replayEntries(entries: SearchLedgerEntry[], campaignId: string): Search
       }
       candidate.attempts.push(event)
       attempts.push(event)
+      continue
+    }
+
+    if (event.kind === 'search-operation-recorded') {
+      const plannedOperation = planEvent.plan.operations.find(
+        (operation) => operation.operationId === event.operationId,
+      )
+      if (!plannedOperation) {
+        throw new SearchLedgerIntegrityError(
+          `operation ${event.operationId} was not declared in the search plan`,
+        )
+      }
+      if (plannedOperation.kind !== event.operationKind) {
+        throw new SearchLedgerIntegrityError(
+          `operation ${event.operationId} kind ${event.operationKind} does not match planned ${plannedOperation.kind}`,
+        )
+      }
+      if (operationsById.has(event.operationId)) {
+        throw new SearchLedgerIntegrityError(`operation ${event.operationId} was recorded twice`)
+      }
+      operationsById.set(event.operationId, event)
+      operationEvents.push(event)
       continue
     }
 
@@ -921,8 +1154,27 @@ function replayEntries(entries: SearchLedgerEntry[], campaignId: string): Search
       continue
     }
 
-    if (candidates.size === 0) {
-      throw new SearchLedgerIntegrityError('search cannot complete without candidates')
+    const missingCandidateSlots = planEvent.plan.candidateSlots.filter(
+      (slotId) => !candidateBySlot.has(slotId),
+    )
+    if (missingCandidateSlots.length > 0) {
+      throw new SearchLedgerIntegrityError(
+        `search completed with missing candidate slots: ${missingCandidateSlots.join(', ')}`,
+      )
+    }
+    const missingTaskOutcomes = plannedTaskOutcomeKeys(planEvent, candidates)
+    if (missingTaskOutcomes.length > 0) {
+      throw new SearchLedgerIntegrityError(
+        `search completed with missing task outcomes: ${missingTaskOutcomes.join(', ')}`,
+      )
+    }
+    const missingOperations = planEvent.plan.operations
+      .filter((operation) => !operationsById.has(operation.operationId))
+      .map((operation) => operation.operationId)
+    if (missingOperations.length > 0) {
+      throw new SearchLedgerIntegrityError(
+        `search completed with missing search operations: ${missingOperations.join(', ')}`,
+      )
     }
     const pending = [...candidates.values()].filter((candidate) => candidate.decision === null)
     if (pending.length > 0) {
@@ -946,6 +1198,7 @@ function replayEntries(entries: SearchLedgerEntry[], campaignId: string): Search
   const selectedDecisions = decisions.filter((decision) => decision.decision.status === 'selected')
   const rejectedDecisions = decisions.filter((decision) => decision.decision.status === 'rejected')
   const outcomeCounts = { passed: 0, failed: 0, errored: 0 }
+  const operationOutcomeCounts = { completed: 0, failed: 0 }
   let inputTokens = 0
   let outputTokens = 0
   let cachedTokens = 0
@@ -954,18 +1207,23 @@ function replayEntries(entries: SearchLedgerEntry[], campaignId: string): Search
   const unknownCostEventIds: string[] = []
   for (const attempt of attempts) {
     outcomeCounts[attempt.outcome.status] += 1
-    if (attempt.accounting.tokens.status === 'known') {
-      inputTokens += attempt.accounting.tokens.inputTokens
-      outputTokens += attempt.accounting.tokens.outputTokens
-      cachedTokens += attempt.accounting.tokens.cachedTokens
+  }
+  for (const operation of operationEvents) {
+    operationOutcomeCounts[operation.outcome.status] += 1
+  }
+  for (const costedEvent of [...attempts, ...operationEvents]) {
+    if (costedEvent.accounting.tokens.status === 'known') {
+      inputTokens += costedEvent.accounting.tokens.inputTokens
+      outputTokens += costedEvent.accounting.tokens.outputTokens
+      cachedTokens += costedEvent.accounting.tokens.cachedTokens
     } else {
-      unknownTokenEventIds.push(attempt.eventId)
+      unknownTokenEventIds.push(costedEvent.eventId)
     }
-    if (attempt.accounting.cost.status === 'known') {
-      costUsd += attempt.accounting.cost.usd
+    if (costedEvent.accounting.cost.status === 'known') {
+      costUsd += costedEvent.accounting.cost.usd
     } else {
-      costUsd += attempt.accounting.cost.knownLowerBoundUsd
-      unknownCostEventIds.push(attempt.eventId)
+      costUsd += costedEvent.accounting.cost.knownLowerBoundUsd
+      unknownCostEventIds.push(costedEvent.eventId)
     }
   }
   const accounting: SearchAccountingAudit =
@@ -995,10 +1253,19 @@ function replayEntries(entries: SearchLedgerEntry[], campaignId: string): Search
       : completion?.result.status === 'all-rejected'
         ? 'all-rejected'
         : 'in-progress'
+  const missingCandidateSlots =
+    planEvent?.plan.candidateSlots.filter((slotId) => !candidateBySlot.has(slotId)) ?? []
+  const missingTaskOutcomes = planEvent ? plannedTaskOutcomeKeys(planEvent, candidates) : []
+  const missingOperations =
+    planEvent?.plan.operations
+      .filter((operation) => !operationsById.has(operation.operationId))
+      .map((operation) => operation.operationId) ?? []
   return {
     entries: [...entries],
+    plan: planEvent,
     candidates: candidateEvents,
     attempts,
+    operations: operationEvents,
     decisions,
     completion,
     audit: {
@@ -1006,11 +1273,22 @@ function replayEntries(entries: SearchLedgerEntry[], campaignId: string): Search
       eventCount: entries.length,
       candidateCount: candidates.size,
       attemptCount: attempts.length,
+      operationCount: operationEvents.length,
       outcomes: outcomeCounts,
+      operationOutcomes: operationOutcomeCounts,
       decisions: {
         selected: selectedDecisions.length,
         rejected: rejectedDecisions.length,
         pending: candidates.size - decisions.length,
+      },
+      expected: {
+        candidateSlots: planEvent?.plan.candidateSlots.length ?? 0,
+        taskOutcomes:
+          (planEvent?.plan.candidateSlots.length ?? 0) * (planEvent?.plan.tasks.length ?? 0),
+        operations: planEvent?.plan.operations.length ?? 0,
+        missingCandidateSlots,
+        missingTaskOutcomes,
+        missingOperations,
       },
       status,
       selectedCandidateId,
@@ -1020,8 +1298,41 @@ function replayEntries(entries: SearchLedgerEntry[], campaignId: string): Search
   }
 }
 
+function plannedTaskOutcomeKeys(
+  planEvent: SearchPlannedEvent,
+  candidates: Map<string, CandidateState>,
+): string[] {
+  const candidateBySlot = new Map(
+    [...candidates.values()].map((candidate) => [candidate.registered.slotId, candidate]),
+  )
+  const missing: string[] = []
+  for (const slotId of planEvent.plan.candidateSlots) {
+    const candidate = candidateBySlot.get(slotId)
+    for (const task of planEvent.plan.tasks) {
+      const measured = candidate?.attempts.some(
+        (attempt) => attempt.task.taskId === task.taskId && attempt.outcome.status !== 'errored',
+      )
+      if (!measured) missing.push(`${slotId}/${task.taskId}`)
+    }
+  }
+  return missing
+}
+
 function normalizeEvent(event: SearchLedgerEvent): SearchLedgerEvent {
   const artifacts = sortArtifacts(event.artifacts)
+  if (event.kind === 'search-planned') {
+    return {
+      ...event,
+      artifacts,
+      plan: {
+        candidateSlots: sortedStrings(event.plan.candidateSlots),
+        tasks: [...event.plan.tasks].sort((a, b) => compareStrings(a.taskId, b.taskId)),
+        operations: [...event.plan.operations].sort((a, b) =>
+          compareStrings(a.operationId, b.operationId),
+        ),
+      },
+    }
+  }
   if (event.kind === 'candidate-registered') {
     return {
       ...event,

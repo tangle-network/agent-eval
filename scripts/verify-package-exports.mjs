@@ -96,6 +96,7 @@ try {
           'openSearchLedger',
           'FileSearchLedger',
           'SearchLedgerIntegrityError',
+          'validateSearchLedgerEvent',
         ]) {
           if (!(name in campaign)) throw new Error('missing campaign export ' + name)
         }
@@ -103,9 +104,30 @@ try {
           path: './packed-search-ledger.jsonl',
           campaignId: 'packed-consumer',
         })
+        await ledger.append({
+          kind: 'search-planned',
+          eventId: 'packed:plan',
+          occurredAt: '2026-07-11T00:00:00.000Z',
+          artifacts: [{
+            role: 'manifest',
+            uri: 'artifact://packed-manifest',
+            sha256: 'sha256:' + '0'.repeat(64),
+            byteLength: 1,
+          }],
+          plan: {
+            candidateSlots: ['slot-0'],
+            tasks: [{
+              taskId: 'task-0',
+              source: { uri: 'git://task', revision: '1'.repeat(40) },
+              benchmark: { uri: 'git://benchmark', revision: '2'.repeat(40) },
+              maxAttempts: 1,
+            }],
+            operations: [{ operationId: 'proposal-0', kind: 'candidate-generation' }],
+          },
+        })
         const replay = await ledger.replay()
-        if (replay.audit.eventCount !== 0 || replay.audit.status !== 'in-progress') {
-          throw new Error('packed search ledger returned an invalid empty replay')
+        if (replay.audit.eventCount !== 1 || replay.audit.expected.missingCandidateSlots[0] !== 'slot-0') {
+          throw new Error('packed search ledger lost its declared denominator')
         }
       `,
     ],

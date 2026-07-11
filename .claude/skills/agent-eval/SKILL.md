@@ -111,7 +111,7 @@ If a term below isn't in this table or in `docs/concepts.md`, that's a bug — f
 | Emit an A/B summary table or Pareto / gain figure spec | `summaryTable` / `paretoChart` / `gainHistogram` |
 | Build a launch-decision-grade research report (paired stats, ROPE, MDE, fingerprint, methodology) | `researchReport` (§Research reports) |
 | Run a matrix of variants × scenarios × seeds with capture integrity by construction | `runEvalCampaign` (§EvalCampaign — preferred starting point for new evals) |
-| Resume or audit a multi-surface improvement search without losing rejected attempts | `openSearchLedger` (`/campaign`) — append candidate, attempt, decision, and completion events |
+| Resume or audit a multi-surface improvement search without losing rejected attempts or spend | `openSearchLedger` (`/campaign`) — predeclare slots/tasks/operations, then append every outcome |
 | Re-run / re-judge / determinism-audit a past campaign for free | `ReplayCache` + `createReplayFetch` (§Replay & sequential evaluation) |
 | Ship the moment evidence is decisive, with anytime-valid α control across rolling looks | `pairedEvalueSequence`, `evaluateInterimReleaseConfidence` (§Replay & sequential evaluation) |
 | Tell load-bearing rubrics from decorative ones using deployment outcomes | `rubricPredictiveValidity` (§Outcome calibration) |

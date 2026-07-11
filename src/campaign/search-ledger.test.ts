@@ -12,6 +12,8 @@ import {
   type SearchCostAccounting,
   SearchLedgerConflictError,
   SearchLedgerIntegrityError,
+  type SearchOperationRecordedEvent,
+  type SearchPlannedEvent,
   type SearchSurfaceEvidence,
   type SearchTaskAttemptedEvent,
   type SearchTaskOutcome,
@@ -39,11 +41,45 @@ function artifact(role: string, sha256: SearchArtifactRef['sha256']): SearchArti
   return { role, uri: `artifact://${role}`, sha256, byteLength: 128 }
 }
 
+function plan(
+  options: {
+    candidateSlots?: string[]
+    taskIds?: string[]
+    operations?: Array<{ operationId: string; kind: 'candidate-generation' | 'analysis' }>
+  } = {},
+): SearchPlannedEvent {
+  return {
+    kind: 'search-planned',
+    eventId: 'search:plan',
+    occurredAt: '2026-07-11T11:59:00.000Z',
+    artifacts: [artifact('search-manifest', HASHES.report)],
+    plan: {
+      candidateSlots: options.candidateSlots ?? ['slot-a'],
+      tasks: (options.taskIds ?? ['task-1']).map((taskId) => ({
+        taskId,
+        source: {
+          uri: 'git+https://github.com/example/task-repo.git',
+          revision: REVISIONS.task,
+        },
+        benchmark: {
+          uri: 'hf://datasets/example/repository-tasks',
+          revision: REVISIONS.benchmark,
+        },
+        maxAttempts: 2,
+      })),
+      operations: options.operations ?? [
+        { operationId: 'candidate-generation:a', kind: 'candidate-generation' },
+      ],
+    },
+  }
+}
+
 function candidate(
   candidateId = 'candidate-a',
   options: {
     eventId?: string
     lineageNodeId?: string
+    slotId?: string
     parents?: string[]
     generation?: number
   } = {},
@@ -53,6 +89,7 @@ function candidate(
     eventId: options.eventId ?? `candidate:${candidateId}`,
     occurredAt: '2026-07-11T12:00:00.000Z',
     artifacts: [artifact('proposal-receipt', HASHES.proposal)],
+    slotId: options.slotId ?? 'slot-a',
     candidateId,
     lineage: {
       lineageNodeId: options.lineageNodeId ?? 'e'.repeat(16),
@@ -76,6 +113,32 @@ function candidate(
         artifact: artifact('code-patch', HASHES.code),
       },
     ],
+  }
+}
+
+function operation(
+  cost: SearchCostAccounting = { status: 'known', usd: 0.02, source: 'provider' },
+): SearchOperationRecordedEvent {
+  return {
+    kind: 'search-operation-recorded',
+    eventId: 'operation:candidate-generation:a',
+    occurredAt: '2026-07-11T12:01:30.000Z',
+    artifacts: [artifact('operation-receipt', HASHES.proposal)],
+    operationId: 'candidate-generation:a',
+    operationKind: 'candidate-generation',
+    execution: {
+      kind: 'model',
+      model: { provider: 'openai', snapshot: 'gpt-5.4@2026-06-01' },
+      source: {
+        uri: 'git+https://github.com/tangle-network/agent-eval.git',
+        revision: REVISIONS.proposer,
+      },
+    },
+    outcome: { status: 'completed' },
+    accounting: {
+      tokens: { status: 'known', inputTokens: 50, outputTokens: 10, cachedTokens: 0 },
+      cost,
+    },
   }
 }
 
@@ -204,39 +267,46 @@ describe('search ledger persistence and replay', () => {
   it('resumes from durable state with the full candidate → attempt → decision chain', async () => {
     const path = await ledgerPath('resume')
     const first = openSearchLedger({ path, campaignId: 'campaign-resume' })
+    await first.append(plan())
     await first.append(candidate())
     await first.append(attempt())
+    await first.append(operation())
     await first.append(decision('candidate-a', 'selected'))
     await first.append(completion('selected'))
 
     const resumed = await openSearchLedger({ path, campaignId: 'campaign-resume' }).replay()
-    expect(resumed.entries).toHaveLength(4)
-    expect(resumed.entries.map((entry) => entry.sequence)).toEqual([0, 1, 2, 3])
+    expect(resumed.entries).toHaveLength(6)
+    expect(resumed.entries.map((entry) => entry.sequence)).toEqual([0, 1, 2, 3, 4, 5])
     expect(resumed.entries[1]!.previousHash).toBe(resumed.entries[0]!.entryHash)
     expect(resumed.attempts[0]!.identity.model.snapshot).toBe('gpt-5.4@2026-06-01')
     expect(resumed.attempts[0]!.surfaceEvidence).toHaveLength(2)
     expect(resumed.audit).toMatchObject({
-      eventCount: 4,
+      eventCount: 6,
       candidateCount: 1,
       attemptCount: 1,
+      operationCount: 1,
       outcomes: { passed: 0, failed: 1, errored: 0 },
       decisions: { selected: 1, rejected: 0, pending: 0 },
       status: 'selected',
       selectedCandidateId: 'candidate-a',
       accounting: {
         status: 'known',
-        inputTokens: 1_000,
-        outputTokens: 200,
+        inputTokens: 1_050,
+        outputTokens: 210,
         cachedTokens: 100,
-        costUsd: 0.12,
       },
     })
-    expect(readFileSync(path, 'utf8').trim().split('\n')).toHaveLength(4)
+    expect(resumed.audit.accounting.status).toBe('known')
+    if (resumed.audit.accounting.status === 'known') {
+      expect(resumed.audit.accounting.costUsd).toBeCloseTo(0.14)
+    }
+    expect(readFileSync(path, 'utf8').trim().split('\n')).toHaveLength(6)
   })
 
   it('treats an exact duplicate as idempotent and rejects conflicting content', async () => {
     const path = await ledgerPath('duplicate')
     const ledger = openSearchLedger({ path, campaignId: 'campaign-duplicate' })
+    await ledger.append(plan())
     const event = candidate()
     const first = await ledger.append(event)
     const duplicate = await ledger.append({
@@ -247,7 +317,7 @@ describe('search ledger persistence and replay', () => {
     expect(first.appended).toBe(true)
     expect(duplicate.appended).toBe(false)
     expect(duplicate.entry.entryHash).toBe(first.entry.entryHash)
-    expect(readFileSync(path, 'utf8').trim().split('\n')).toHaveLength(1)
+    expect(readFileSync(path, 'utf8').trim().split('\n')).toHaveLength(2)
 
     await expect(
       ledger.append({
@@ -260,6 +330,7 @@ describe('search ledger persistence and replay', () => {
   it('detects a partial final write instead of silently dropping it', async () => {
     const path = await ledgerPath('partial')
     const ledger = openSearchLedger({ path, campaignId: 'campaign-partial' })
+    await ledger.append(plan())
     await ledger.append(candidate())
     appendFileSync(path, '{"schema":"tangle.search-ledger.v1"', 'utf8')
 
@@ -270,10 +341,11 @@ describe('search ledger persistence and replay', () => {
   it('rejects a complete malformed row instead of skipping it', async () => {
     const path = await ledgerPath('malformed')
     const ledger = openSearchLedger({ path, campaignId: 'campaign-malformed' })
+    await ledger.append(plan())
     await ledger.append(candidate())
     appendFileSync(path, '{}\n', 'utf8')
 
-    await expect(ledger.replay()).rejects.toThrow(/malformed entry at line 2/)
+    await expect(ledger.replay()).rejects.toThrow(/malformed entry at line 3/)
   })
 
   it('writes byte-identical logs for identical events', async () => {
@@ -281,7 +353,7 @@ describe('search ledger persistence and replay', () => {
     const secondPath = await ledgerPath('deterministic-b')
     const first = openSearchLedger({ path: firstPath, campaignId: 'campaign-deterministic' })
     const second = openSearchLedger({ path: secondPath, campaignId: 'campaign-deterministic' })
-    for (const event of [candidate(), attempt(), decision()] as const) {
+    for (const event of [plan(), candidate(), attempt(), decision()] as const) {
       await first.append(event)
       await second.append(event)
     }
@@ -292,11 +364,11 @@ describe('search ledger persistence and replay', () => {
   it('detects content tampering through the hash chain', async () => {
     const path = await ledgerPath('tamper')
     const ledger = openSearchLedger({ path, campaignId: 'campaign-tamper' })
-    await ledger.append(candidate())
+    await ledger.append(plan())
     const row = JSON.parse(readFileSync(path, 'utf8')) as {
-      event: { candidateId: string }
+      event: { plan: { candidateSlots: string[] } }
     }
-    row.event.candidateId = 'tampered-candidate'
+    row.event.plan.candidateSlots[0] = 'tampered-slot'
     writeFileSync(path, `${JSON.stringify(row)}\n`, 'utf8')
 
     await expect(ledger.replay()).rejects.toThrow(/hash mismatch/)
@@ -313,7 +385,7 @@ describe('search ledger persistence and replay', () => {
       'utf8',
     )
 
-    const result = await ledger.append(candidate())
+    const result = await ledger.append(plan())
     expect(result.appended).toBe(true)
     expect(result.replay.audit.eventCount).toBe(1)
   })
@@ -330,6 +402,7 @@ describe('search ledger evidence completeness', () => {
   it('records unknown cost explicitly as a partial total, never a fake zero', async () => {
     const path = await ledgerPath('unknown-cost')
     const ledger = openSearchLedger({ path, campaignId: 'campaign-cost' })
+    await ledger.append(plan())
     await ledger.append(candidate())
     const unknownCostAttempt = attempt('candidate-a', {
       cost: {
@@ -355,6 +428,7 @@ describe('search ledger evidence completeness', () => {
   it('preserves a failed task attempt, its denominator, and its failure reason', async () => {
     const path = await ledgerPath('failed-attempt')
     const ledger = openSearchLedger({ path, campaignId: 'campaign-failure' })
+    await ledger.append(plan())
     await ledger.append(candidate())
     await ledger.append(attempt())
 
@@ -368,6 +442,7 @@ describe('search ledger evidence completeness', () => {
   it('does not select a candidate whose only attempt errored', async () => {
     const path = await ledgerPath('error-only')
     const ledger = openSearchLedger({ path, campaignId: 'campaign-error-only' })
+    await ledger.append(plan())
     await ledger.append(candidate())
     await ledger.append(
       attempt('candidate-a', {
@@ -387,8 +462,17 @@ describe('search ledger evidence completeness', () => {
   it('rejects execution-identity drift between retries of one task', async () => {
     const path = await ledgerPath('retry-identity')
     const ledger = openSearchLedger({ path, campaignId: 'campaign-retry-identity' })
+    await ledger.append(plan())
     await ledger.append(candidate())
-    await ledger.append(attempt())
+    await ledger.append(
+      attempt('candidate-a', {
+        outcome: {
+          status: 'errored',
+          metrics: {},
+          error: { code: 'transport', message: 'connection reset', retryable: true },
+        },
+      }),
+    )
     const retry = attempt('candidate-a', { attemptIndex: 1 })
     retry.identity.model.snapshot = 'gpt-5.4@2026-07-01'
 
@@ -399,34 +483,121 @@ describe('search ledger evidence completeness', () => {
   it('requires evidence for every declared surface on every task attempt', async () => {
     const path = await ledgerPath('surface-coverage')
     const ledger = openSearchLedger({ path, campaignId: 'campaign-surfaces' })
+    await ledger.append(plan())
     await ledger.append(candidate())
 
     await expect(
       ledger.append(attempt('candidate-a', { evidence: surfaceEvidence().slice(0, 1) })),
     ).rejects.toThrow(/does not exactly cover candidate/)
-    expect((await ledger.replay()).audit.eventCount).toBe(1)
+    expect((await ledger.replay()).audit.eventCount).toBe(2)
   })
 
   it('rejects bare model aliases and mutable source refs before touching disk', async () => {
     const path = await ledgerPath('immutable-identities')
     const ledger = openSearchLedger({ path, campaignId: 'campaign-identities' })
+    await ledger.append(plan())
     await ledger.append(candidate())
     const invalid = attempt()
     invalid.identity.model.snapshot = 'gpt-5.4'
     invalid.identity.benchmark.revision = 'main'
 
     await expect(ledger.append(invalid)).rejects.toThrow(/immutable snapshot|Invalid/)
-    expect((await ledger.replay()).audit.eventCount).toBe(1)
+    expect((await ledger.replay()).audit.eventCount).toBe(2)
+  })
+
+  it('refuses completion when a predeclared candidate slot is missing', async () => {
+    const path = await ledgerPath('missing-candidate-slot')
+    const ledger = openSearchLedger({ path, campaignId: 'campaign-missing-candidate' })
+    await ledger.append(plan({ candidateSlots: ['slot-a', 'slot-b'] }))
+    await ledger.append(candidate())
+    await ledger.append(attempt())
+    await ledger.append(operation())
+    await ledger.append(decision())
+
+    await expect(ledger.append(completion('all-rejected'))).rejects.toThrow(
+      /missing candidate slots: slot-b/,
+    )
+    expect((await ledger.replay()).audit.expected.missingCandidateSlots).toEqual(['slot-b'])
+  })
+
+  it('refuses completion when a predeclared task outcome is missing', async () => {
+    const path = await ledgerPath('missing-task')
+    const ledger = openSearchLedger({ path, campaignId: 'campaign-missing-task' })
+    await ledger.append(plan({ taskIds: ['task-1', 'task-2'] }))
+    await ledger.append(candidate())
+    await ledger.append(attempt())
+    await ledger.append(operation())
+    await ledger.append(decision())
+
+    await expect(ledger.append(completion('all-rejected'))).rejects.toThrow(
+      /missing task outcomes: slot-a\/task-2/,
+    )
+    expect((await ledger.replay()).audit.expected.missingTaskOutcomes).toEqual(['slot-a/task-2'])
+  })
+
+  it('refuses completion when a predeclared non-task operation is missing', async () => {
+    const path = await ledgerPath('missing-operation')
+    const ledger = openSearchLedger({ path, campaignId: 'campaign-missing-operation' })
+    await ledger.append(plan())
+    await ledger.append(candidate())
+    await ledger.append(attempt())
+    await ledger.append(decision())
+
+    await expect(ledger.append(completion('all-rejected'))).rejects.toThrow(
+      /missing search operations: candidate-generation:a/,
+    )
+    expect((await ledger.replay()).audit.expected.missingOperations).toEqual([
+      'candidate-generation:a',
+    ])
+  })
+
+  it('includes unknown proposer spend in the total search-cost audit', async () => {
+    const path = await ledgerPath('unknown-proposer-cost')
+    const ledger = openSearchLedger({ path, campaignId: 'campaign-unknown-proposer-cost' })
+    await ledger.append(plan())
+    await ledger.append(candidate())
+    await ledger.append(attempt())
+    const proposer = operation({
+      status: 'unknown',
+      knownLowerBoundUsd: 0.03,
+      reason: 'provider omitted candidate-generation price',
+    })
+    await ledger.append(proposer)
+    await ledger.append(decision())
+    const terminal = await ledger.append(completion('all-rejected'))
+
+    expect(terminal.replay.audit.accounting).toEqual({
+      status: 'partial',
+      knownInputTokens: 1_050,
+      knownOutputTokens: 210,
+      knownCachedTokens: 100,
+      knownCostUsd: 0.15,
+      unknownTokenEventIds: [],
+      unknownCostEventIds: [proposer.eventId],
+    })
+    expect(terminal.replay.audit.expected.missingOperations).toEqual([])
   })
 
   it('represents an all-rejected search as a terminal audited outcome', async () => {
     const path = await ledgerPath('all-rejected')
     const ledger = openSearchLedger({ path, campaignId: 'campaign-all-rejected' })
+    await ledger.append(plan({ candidateSlots: ['slot-a', 'slot-b'] }))
     await ledger.append(candidate('candidate-a'))
     await ledger.append(
-      candidate('candidate-b', { eventId: 'candidate:candidate-b', lineageNodeId: 'f'.repeat(16) }),
+      candidate('candidate-b', {
+        eventId: 'candidate:candidate-b',
+        lineageNodeId: 'f'.repeat(16),
+        slotId: 'slot-b',
+      }),
     )
     await ledger.append(attempt('candidate-a'))
+    await ledger.append(
+      attempt('candidate-b', {
+        eventId: 'attempt:candidate-b:task-1:0',
+        runId: 'run:candidate-b:0',
+      }),
+    )
+    await ledger.append(operation())
     await ledger.append(decision('candidate-a', 'rejected'))
     await ledger.append(decision('candidate-b', 'rejected'))
     const terminal = await ledger.append(completion('all-rejected'))
@@ -435,7 +606,8 @@ describe('search ledger evidence completeness', () => {
       status: 'all-rejected',
       selectedCandidateId: null,
       candidateCount: 2,
-      attemptCount: 1,
+      attemptCount: 2,
+      operationCount: 1,
       decisions: { selected: 0, rejected: 2, pending: 0 },
     })
     expect(terminal.replay.completion?.result.status).toBe('all-rejected')
