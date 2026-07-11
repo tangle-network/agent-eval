@@ -560,7 +560,7 @@ function selectCandidates<TRow extends CrossSurfaceTaskRow>(
         ranking,
       }
     : null
-  const naiveStack = selectNaiveStack(context, eligibleSingles)
+  const naiveStack = selectNaiveStack(context, interactionReadySingles)
   const interactionAware = selectInteractionAware(
     context,
     summaryById,

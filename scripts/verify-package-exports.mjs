@@ -187,6 +187,7 @@ try {
         })
         if (
           interaction.selections.bestSingle !== null ||
+          interaction.selections.naiveStack.candidateId !== 'a-b' ||
           interaction.selections.interactionAware.selectedCandidateId !== 'a-b'
         ) {
           throw new Error('packed cross-surface selector lost pure synergy')

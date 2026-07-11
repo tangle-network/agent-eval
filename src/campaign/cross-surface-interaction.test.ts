@@ -244,7 +244,10 @@ describe('analyzeCrossSurfaceInteractions', () => {
       reasons: ['benefit_not_greater_than_regression'],
     })
     expect(report.selections.bestSingle).toBeNull()
-    expect(report.selections.naiveStack).toBeNull()
+    expect(report.selections.naiveStack).toEqual({
+      candidateId: 'profile-code',
+      componentIds: ['profile-change', 'code-change'],
+    })
     expect(report.pairwise[0]).toMatchObject({
       synergyTaskIds: ['t1', 't2', 't3'],
       compatibility: { compatible: true, reasons: [] },
@@ -297,6 +300,56 @@ describe('analyzeCrossSurfaceInteractions', () => {
       terminalCandidateId: 'abc',
       selectedCandidateId: 'abc',
       terminalComponentIds: ['a', 'b', 'c'],
+      qualified: true,
+    })
+  })
+
+  it('beats an equal-input blind union only when another surface interferes', () => {
+    const input = threeSurfaceFixture()
+    const passes: Record<string, boolean[]> = {
+      fixed: [false, false, false, false, false, false],
+      a: [false, false, false, false, false, false],
+      b: [false, false, false, false, false, false],
+      c: [false, false, true, false, false, false],
+      ab: [true, true, false, false, false, false],
+      ac: [false, false, false, false, false, false],
+      bc: [false, false, false, false, false, false],
+      abc: [false, false, true, false, false, false],
+    }
+    for (const candidate of input.candidates) {
+      input.taskOrder.forEach((taskId, index) => {
+        const candidateRow = row(input, candidate.candidateId, taskId)
+        candidateRow.pass = passes[candidate.candidateId]![index]!
+        candidateRow.score = Number(candidateRow.pass)
+      })
+    }
+
+    const report = analyzeCrossSurfaceInteractions(input)
+    expect(report.selections.bestSingle?.candidateId).toBe('c')
+    expect(report.selections.naiveStack).toEqual({
+      candidateId: 'abc',
+      componentIds: ['a', 'b', 'c'],
+    })
+    expect(report.pairwise.find((pair) => pair.compositionCandidateId === 'ab')).toMatchObject({
+      compatibility: { compatible: true, reasons: [] },
+      synergyTaskIds: ['u1', 'u2'],
+    })
+    for (const candidateId of ['ac', 'bc']) {
+      expect(
+        report.pairwise.find((pair) => pair.compositionCandidateId === candidateId),
+      ).toMatchObject({
+        compatibility: {
+          compatible: false,
+          reasons: expect.arrayContaining(['interference']),
+        },
+        interferenceTaskIds: ['u3'],
+      })
+    }
+    expect(report.selections.interactionAware).toMatchObject({
+      seedCandidateId: 'ab',
+      terminalCandidateId: 'ab',
+      terminalComponentIds: ['a', 'b'],
+      selectedCandidateId: 'ab',
       qualified: true,
     })
   })
