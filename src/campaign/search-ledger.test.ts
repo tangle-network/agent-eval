@@ -689,6 +689,63 @@ describe('search ledger evidence completeness', () => {
     expect(terminal.replay.closedCandidateSlots[0]!.slotId).toBe('slot-b')
   })
 
+  it('rejects a partial batch when every slot registered a candidate', async () => {
+    const path = await ledgerPath('partial-batch-all-registered')
+    const ledger = openSearchLedger({ path, campaignId: 'campaign-partial-all-registered' })
+    await ledger.append(plan({ candidateSlots: ['slot-a', 'slot-b'] }))
+    await ledger.append(
+      operation(
+        { status: 'known', usd: 0.02, source: 'provider' },
+        {
+          status: 'partial',
+          failure: { code: 'partial-response', message: 'provider reported a partial response' },
+        },
+      ),
+    )
+    await ledger.append(candidate('candidate-a'))
+    await ledger.append(
+      candidate('candidate-b', {
+        eventId: 'candidate:candidate-b',
+        lineageNodeId: 'f'.repeat(16),
+        slotId: 'slot-b',
+      }),
+    )
+    await ledger.append(attempt('candidate-a'))
+    await ledger.append(
+      attempt('candidate-b', {
+        eventId: 'attempt:candidate-b:task-1:0',
+        runId: 'run:candidate-b:0',
+      }),
+    )
+    await ledger.append(decision('candidate-a', 'rejected'))
+    await ledger.append(decision('candidate-b', 'rejected'))
+
+    await expect(ledger.append(completion('all-rejected'))).rejects.toThrow(
+      /partial generation operation candidate-generation:a must contain both/,
+    )
+  })
+
+  it('rejects a partial batch when every slot was closed', async () => {
+    const path = await ledgerPath('partial-batch-all-closed')
+    const ledger = openSearchLedger({ path, campaignId: 'campaign-partial-all-closed' })
+    await ledger.append(plan({ candidateSlots: ['slot-a', 'slot-b'] }))
+    await ledger.append(
+      operation(
+        { status: 'known', usd: 0.02, source: 'provider' },
+        {
+          status: 'partial',
+          failure: { code: 'partial-response', message: 'provider reported a partial response' },
+        },
+      ),
+    )
+    await ledger.append(slotClosure({ slotId: 'slot-a' }))
+    await ledger.append(slotClosure({ slotId: 'slot-b' }))
+
+    await expect(ledger.append(completion('all-rejected'))).rejects.toThrow(
+      /partial generation operation candidate-generation:a must contain both/,
+    )
+  })
+
   it('rejects binding a candidate to an already closed proposal slot', async () => {
     const path = await ledgerPath('closed-slot-double-use')
     const ledger = openSearchLedger({ path, campaignId: 'campaign-closed-slot-double-use' })
