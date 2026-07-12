@@ -4,6 +4,16 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ---
 
+## [0.115.1] — 2026-07-11 — fair cross-surface baseline selection
+
+### Fixed
+
+- `analyzeCrossSurfaceInteractions()` now builds the naive stack only from single-surface candidates that satisfy individual eligibility.
+  Complete, non-regressing neutral constituents remain available exclusively to interaction-aware search, preserving pure-synergy discovery without weakening the naive comparison.
+
+This patch corrects selection semantics without changing the report schema.
+Consumers comparing naive and interaction-aware compositions should update.
+
 ## [0.115.0] — 2026-07-11 — auditable cross-surface improvement search
 
 ### Added
