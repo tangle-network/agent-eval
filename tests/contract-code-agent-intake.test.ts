@@ -418,6 +418,35 @@ describe('code-agent session intake', () => {
     expect(report.costQuality.degraded?.cost).not.toMatch(/unpriced/)
   })
 
+  it('uses a captured OpenCode part cost when message usage has no cost', () => {
+    const { runs } = fromOpenCodeSession({
+      entries: [
+        {
+          id: 'msg-with-usage',
+          sessionID: 'opencode-part-cost',
+          role: 'assistant',
+          providerID: 'kimi',
+          modelID: 'kimi-k2-code',
+          tokens: { input: 100, output: 10 },
+          finish: 'stop',
+        },
+        {
+          id: 'part-with-cost',
+          messageID: 'msg-with-usage',
+          sessionID: 'opencode-part-cost',
+          type: 'step-finish',
+          tokens: { input: 999, output: 99 },
+          cost: 0.25,
+        },
+      ],
+    })
+
+    const run = validateRunRecord(runs[0])
+    expect(run.tokenUsage).toEqual({ input: 100, output: 10 })
+    expect(run.costUsd).toBe(0.25)
+    expect(run.costProvenance).toEqual({ kind: 'observed', usd: 0.25 })
+  })
+
   it('projects Kimi Code wire events and token usage into RunRecord metrics', () => {
     const secretPrompt = 'private kimi task text'
     const { runs, diagnostics, metrics } = fromKimiCodeSession({
