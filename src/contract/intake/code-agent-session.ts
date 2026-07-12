@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto'
 import { estimateCost, isModelPriced } from '../../metrics'
-import type { RunRecord, RunSplitTag, RunTokenUsage } from '../../run-record'
+import type { RunCostProvenance, RunRecord, RunSplitTag, RunTokenUsage } from '../../run-record'
 
 export type CodeAgentSessionSource = 'codex' | 'claude-code' | 'opencode' | 'kimi-code' | 'pi'
 
@@ -37,6 +37,7 @@ export interface CodeAgentSessionMetrics {
   outputTokens: number
   cachedTokens: number
   observedCostUsd: number
+  observedCostCaptured?: boolean
   wallMs: number
   processScore: number
 }
@@ -52,6 +53,7 @@ export interface CodeAgentSessionDiagnostic {
   hasQualityLabel: boolean
   hasTokenUsage: boolean
   hasCost: boolean
+  costKind?: RunCostProvenance['kind']
   warnings: string[]
 }
 
@@ -75,6 +77,11 @@ export interface CodeAgentSessionIntakeOptions {
   configHash?: string
   commitSha?: string
   score?: number
+  /** Explicit cost receipt. Use `uncaptured` when the source says dollars
+   *  were not captured; the adapter will not relabel its compatibility $0
+   *  sentinel as observed. When omitted, source-reported cost wins, then a
+   *  token-priced estimate, then uncaptured. */
+  costProvenance?: RunCostProvenance
 }
 
 export function parseCodeAgentJsonl(jsonl: string): ParsedCodeAgentJsonl {
@@ -144,6 +151,7 @@ function fromCodeAgentSession(
           hasQualityLabel: false,
           hasTokenUsage: false,
           hasCost: false,
+          costKind: 'uncaptured',
           warnings: ['no parseable session entries'],
         },
       ],
@@ -160,11 +168,7 @@ function fromCodeAgentSession(
     output: metrics.outputTokens,
     ...(metrics.cachedTokens > 0 ? { cached: metrics.cachedTokens } : {}),
   }
-  const estimatedCostUsd =
-    metrics.inputTokens > 0 || metrics.outputTokens > 0
-      ? estimateCost(metrics.inputTokens, metrics.outputTokens, model)
-      : 0
-  const costUsd = metrics.observedCostUsd > 0 ? metrics.observedCostUsd : estimatedCostUsd
+  const { costUsd, costProvenance } = resolveSessionCost(options.costProvenance, metrics, model)
   const score = clamp01(options.score ?? metrics.processScore)
   const promptHash =
     options.promptHash ?? hashString(`prompt:${source}:${firstUserText(entries) ?? ''}`)
@@ -183,7 +187,7 @@ function fromCodeAgentSession(
     explicitTerminal,
     malformedLines: options.malformedLines ?? 0,
     scoreOverridden: options.score !== undefined,
-    costUsd,
+    costKind: costProvenance.kind,
   })
 
   const run: RunRecord = {
@@ -197,6 +201,7 @@ function fromCodeAgentSession(
     commitSha: options.commitSha ?? 'local-session',
     wallMs: metrics.wallMs,
     costUsd,
+    costProvenance,
     tokenUsage,
     outcome: {
       holdoutScore: score,
@@ -228,11 +233,16 @@ function fromCodeAgentSession(
         output_tokens: metrics.outputTokens,
         cached_tokens: metrics.cachedTokens,
         observed_cost_usd: metrics.observedCostUsd,
+        observed_cost_captured: metrics.observedCostCaptured ? 1 : 0,
+        estimated_cost_usd: costProvenance.kind === 'estimated' ? costUsd : 0,
         process_score: score,
         inferred_score: options.score === undefined ? 1 : 0,
         explicit_terminal_signal: explicitTerminal ? 1 : 0,
         quality_label_present: options.score !== undefined ? 1 : 0,
-        cost_unknown: costUsd === 0 && !isModelPriced(model) ? 1 : 0,
+        cost_observed: costProvenance.kind === 'observed' ? 1 : 0,
+        cost_estimated: costProvenance.kind === 'estimated' ? 1 : 0,
+        cost_uncaptured: costProvenance.kind === 'uncaptured' ? 1 : 0,
+        cost_unknown: costProvenance.kind === 'uncaptured' ? 1 : 0,
       },
     },
     splitTag: options.splitTag ?? 'holdout',
@@ -255,7 +265,8 @@ function fromCodeAgentSession(
         hasExplicitTerminalSignal: explicitTerminal,
         hasQualityLabel: options.score !== undefined,
         hasTokenUsage: metrics.inputTokens > 0 || metrics.outputTokens > 0,
-        hasCost: costUsd > 0,
+        hasCost: costProvenance.kind !== 'uncaptured',
+        costKind: costProvenance.kind,
         warnings,
       },
     ],
@@ -503,6 +514,8 @@ function openCodeMetrics(entries: Record<string, unknown>[]): CodeAgentSessionMe
   const partUsage = emptyTokenTotals()
   let messageCost = 0
   let partCost = 0
+  let messageCostCaptured = false
+  let partCostCaptured = false
   let startedAt: number | undefined
   let completedAt: number | undefined
 
@@ -543,10 +556,16 @@ function openCodeMetrics(entries: Record<string, unknown>[]): CodeAgentSessionMe
     const cost = numberField(entry, 'cost')
     if (record(entry.tokens) && role) {
       addUsageTo(messageUsage, record(entry.tokens))
-      if (cost !== undefined) messageCost += cost
+      if (cost !== undefined) {
+        messageCost += cost
+        messageCostCaptured = true
+      }
     } else if (record(entry.tokens)) {
       addUsageTo(partUsage, record(entry.tokens))
-      if (cost !== undefined) partCost += cost
+      if (cost !== undefined) {
+        partCost += cost
+        partCostCaptured = true
+      }
     }
   }
 
@@ -554,7 +573,8 @@ function openCodeMetrics(entries: Record<string, unknown>[]): CodeAgentSessionMe
   metrics.inputTokens = usage.input
   metrics.outputTokens = usage.output
   metrics.cachedTokens = usage.cached
-  metrics.observedCostUsd = messageCost > 0 ? messageCost : partCost
+  metrics.observedCostUsd = messageCostCaptured ? messageCost : partCost
+  metrics.observedCostCaptured = messageCostCaptured || partCostCaptured
   if (metrics.wallMs === 0 && startedAt !== undefined && completedAt !== undefined)
     metrics.wallMs = Math.max(0, completedAt - startedAt)
   metrics.processScore = terminalProcessScore(metrics)
@@ -696,6 +716,7 @@ function emptyMetrics(entries: number): CodeAgentSessionMetrics {
     outputTokens: 0,
     cachedTokens: 0,
     observedCostUsd: 0,
+    observedCostCaptured: false,
     wallMs: 0,
     processScore: 0,
   }
@@ -816,6 +837,36 @@ function alternativeNumericUsage(obj: Record<string, unknown>, names: string[]):
   return 0
 }
 
+function resolveSessionCost(
+  explicit: RunCostProvenance | undefined,
+  metrics: CodeAgentSessionMetrics,
+  model: string,
+): { costUsd: number; costProvenance: RunCostProvenance } {
+  if (explicit) {
+    if (explicit.kind === 'uncaptured') {
+      if (explicit.usd !== null) throw new Error('uncaptured cost must have usd: null')
+      return { costUsd: 0, costProvenance: explicit }
+    }
+    if (!Number.isFinite(explicit.usd) || explicit.usd < 0) {
+      throw new Error(`${explicit.kind} cost must be a finite, non-negative USD amount`)
+    }
+    return { costUsd: explicit.usd, costProvenance: explicit }
+  }
+
+  if (metrics.observedCostCaptured) {
+    const costProvenance = { kind: 'observed', usd: metrics.observedCostUsd } as const
+    return { costUsd: metrics.observedCostUsd, costProvenance }
+  }
+
+  const hasUsage = metrics.inputTokens > 0 || metrics.outputTokens > 0
+  if (hasUsage && isModelPriced(model)) {
+    const costUsd = estimateCost(metrics.inputTokens, metrics.outputTokens, model)
+    return { costUsd, costProvenance: { kind: 'estimated', usd: costUsd } }
+  }
+
+  return { costUsd: 0, costProvenance: { kind: 'uncaptured', usd: null } }
+}
+
 function diagnosticsFor(
   metrics: CodeAgentSessionMetrics,
   options: {
@@ -823,14 +874,18 @@ function diagnosticsFor(
     explicitTerminal: boolean
     malformedLines: number
     scoreOverridden: boolean
-    costUsd: number
+    costKind: RunCostProvenance['kind']
   },
 ): string[] {
   const warnings: string[] = []
   if (!options.scoreOverridden) warnings.push('outcome score is inferred from process telemetry')
   if (!options.explicitTerminal) warnings.push('no explicit terminal success/failure signal')
   if (metrics.inputTokens === 0 && metrics.outputTokens === 0) warnings.push('missing token usage')
-  if (options.costUsd === 0 && !isModelPriced(options.model)) warnings.push('model pricing unknown')
+  if (options.costKind === 'estimated')
+    warnings.push('USD cost estimated from token usage and model pricing')
+  if (options.costKind === 'uncaptured') warnings.push('USD cost uncaptured')
+  if (options.costKind === 'uncaptured' && !isModelPriced(options.model))
+    warnings.push('model pricing unknown')
   if (options.malformedLines > 0)
     warnings.push(`${options.malformedLines} malformed JSONL lines skipped`)
   return warnings

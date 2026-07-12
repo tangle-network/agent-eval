@@ -38,6 +38,19 @@ export interface RunTokenUsage {
   cached?: number
 }
 
+/**
+ * How a run's USD amount was obtained.
+ *
+ * `costUsd` remains mandatory for wire compatibility. New producers should
+ * always populate this discriminated union so a missing bill is never
+ * mistaken for an observed zero-dollar run. For `uncaptured`, `costUsd` uses
+ * the legacy `0` sentinel while this field carries the truthful null.
+ */
+export type RunCostProvenance =
+  | { kind: 'observed'; usd: number }
+  | { kind: 'estimated'; usd: number }
+  | { kind: 'uncaptured'; usd: null }
+
 export interface RunJudgeMetadata {
   model: string
   promptVersion: string
@@ -152,8 +165,13 @@ export interface RunRecord {
   /** Time spent queued before execution started, if known. */
   queueMs?: number
   /** Total USD cost. Mandatory — runs without a cost number are
-   *  unbounded by definition and must not be admitted into the gate. */
+   *  unbounded by definition and must not be admitted into the gate.
+   *  `0` is retained as the compatibility sentinel for an uncaptured amount;
+   *  inspect `costProvenance` before treating it as observed. */
   costUsd: number
+  /** Observed, model-priced estimate, or genuinely uncaptured USD amount.
+   *  Optional only so existing serialized RunRecords remain valid. */
+  costProvenance?: RunCostProvenance
   /** Token usage breakdown. */
   tokenUsage: RunTokenUsage
   /** Judge-side metadata, if a judge was used. */
@@ -248,6 +266,9 @@ export function validateRunRecord(input: unknown): RunRecord {
   expectFiniteNumber(obj.wallMs, 'wallMs')
   if (obj.queueMs !== undefined) expectFiniteNumber(obj.queueMs, 'queueMs')
   expectFiniteNumber(obj.costUsd, 'costUsd')
+  if (obj.costProvenance !== undefined) {
+    validateCostProvenance(obj.costProvenance, obj.costUsd as number)
+  }
 
   // Snapshot discipline: bare model aliases are not paper-grade.
   if (!modelHasSnapshot(obj.model as string)) {
@@ -365,6 +386,66 @@ export function validateRunRecord(input: unknown): RunRecord {
   }
 
   return input as RunRecord
+}
+
+/**
+ * Resolve provenance for both new and legacy records.
+ *
+ * Legacy producers sometimes set `outcome.raw.cost_estimated = 1`. A positive
+ * unlabeled amount is treated as observed, matching the historical contract.
+ * Zero without an explicit label is conservatively uncaptured: claiming an
+ * observed $0 would be stronger than the serialized evidence supports.
+ */
+export function resolveRunCostProvenance(
+  run: Pick<RunRecord, 'costUsd' | 'costProvenance' | 'outcome'>,
+): RunCostProvenance {
+  if (run.costProvenance) return run.costProvenance
+  if (run.outcome.raw.cost_estimated === 1) {
+    return { kind: 'estimated', usd: run.costUsd }
+  }
+  if (run.costUsd > 0) return { kind: 'observed', usd: run.costUsd }
+  return { kind: 'uncaptured', usd: null }
+}
+
+function validateCostProvenance(input: unknown, costUsd: number): void {
+  if (input === null || typeof input !== 'object') {
+    throw new RunRecordValidationError('costProvenance must be an object', 'costProvenance')
+  }
+  const value = input as Record<string, unknown>
+  if (value.kind !== 'observed' && value.kind !== 'estimated' && value.kind !== 'uncaptured') {
+    throw new RunRecordValidationError(
+      'costProvenance.kind must be observed, estimated, or uncaptured',
+      'costProvenance.kind',
+    )
+  }
+  if (value.kind === 'uncaptured') {
+    if (value.usd !== null) {
+      throw new RunRecordValidationError(
+        'uncaptured costProvenance.usd must be null',
+        'costProvenance.usd',
+      )
+    }
+    if (costUsd !== 0) {
+      throw new RunRecordValidationError(
+        'uncaptured costProvenance requires the compatibility costUsd sentinel 0',
+        'costUsd',
+      )
+    }
+    return
+  }
+  expectFiniteNumber(value.usd, 'costProvenance.usd')
+  if ((value.usd as number) < 0) {
+    throw new RunRecordValidationError(
+      'costProvenance.usd must be non-negative',
+      'costProvenance.usd',
+    )
+  }
+  if (value.usd !== costUsd) {
+    throw new RunRecordValidationError(
+      'costProvenance.usd must equal costUsd',
+      'costProvenance.usd',
+    )
+  }
 }
 
 /** Boolean validator — convenience for filtering arrays. */

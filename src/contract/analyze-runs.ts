@@ -25,7 +25,7 @@ import type { AnalystFinding } from '../analyst/types'
 import { checkCanaries } from '../contamination-guard'
 import type { DatasetScenario } from '../dataset'
 import { summarizeBackendIntegrity } from '../integrity/backend-integrity'
-import type { RunRecord } from '../run-record'
+import { type RunRecord, resolveRunCostProvenance } from '../run-record'
 import {
   cohensD,
   pairedBootstrap,
@@ -38,6 +38,7 @@ import {
 import { type ParetoFigureSpec, paretoChart } from '../summary-report'
 
 import type {
+  CostProvenanceSummary,
   FailureClusterInsight,
   FailureModeTally,
   InsightReport,
@@ -118,12 +119,19 @@ export async function analyzeRuns(opts: AnalyzeRunsOptions): Promise<InsightRepo
 
   const perDimension = computePerDimension(runs, bins)
 
-  const costs = runs.map((r) => r.costUsd).filter(Number.isFinite)
+  const provenance = summarizeCostProvenance(runs)
+  const knownCostRuns = runs.filter((run) => resolveRunCostProvenance(run).kind !== 'uncaptured')
+  const costs = knownCostRuns.map((r) => r.costUsd).filter(Number.isFinite)
   const costDist = distributionOf(costs, bins)
-  const pareto = paretoChart(runs, { split })
+  const pareto = paretoChart(knownCostRuns, { split })
   const degraded: { cost?: string; pareto?: string } = {}
-  if (costs.length === 0 || costs.every((c) => c === 0)) {
-    degraded.cost = diagnoseZeroCost(runs)
+  if (provenance.uncaptured.n > 0) {
+    degraded.cost = diagnoseCostCoverage(runs, provenance)
+  } else if (costs.length === 0 || costs.every((c) => c === 0)) {
+    degraded.cost =
+      runs.length > 0 && runs.every((run) => run.costProvenance !== undefined)
+        ? `all ${runs.length} explicitly observed or estimated USD values are $0`
+        : diagnoseZeroCost(runs)
   }
   if (pareto.points.length < 2) {
     degraded.pareto =
@@ -134,6 +142,7 @@ export async function analyzeRuns(opts: AnalyzeRunsOptions): Promise<InsightRepo
   const costQuality = {
     cost: costDist,
     pareto,
+    provenance,
     ...(degraded.cost || degraded.pareto ? { degraded } : {}),
   }
 
@@ -192,6 +201,38 @@ export async function analyzeRuns(opts: AnalyzeRunsOptions): Promise<InsightRepo
     ...(priorPeriodComparison ? { priorPeriodComparison } : {}),
     recommendations,
   }
+}
+
+function summarizeCostProvenance(runs: RunRecord[]): CostProvenanceSummary {
+  const summary: CostProvenanceSummary = {
+    observed: { n: 0, totalUsd: 0 },
+    estimated: { n: 0, totalUsd: 0 },
+    uncaptured: { n: 0 },
+    knownFraction: 0,
+  }
+  for (const run of runs) {
+    const cost = resolveRunCostProvenance(run)
+    if (cost.kind === 'uncaptured') {
+      summary.uncaptured.n += 1
+    } else {
+      summary[cost.kind].n += 1
+      summary[cost.kind].totalUsd += cost.usd
+    }
+  }
+  const known = summary.observed.n + summary.estimated.n
+  summary.knownFraction = runs.length > 0 ? known / runs.length : 0
+  return summary
+}
+
+function diagnoseCostCoverage(runs: RunRecord[], provenance: CostProvenanceSummary): string {
+  const uncaptured = provenance.uncaptured.n
+  const known = provenance.observed.n + provenance.estimated.n
+  const explicitUncaptured = runs.some((run) => run.costProvenance?.kind === 'uncaptured')
+  if (uncaptured === runs.length && !explicitUncaptured) return diagnoseZeroCost(runs)
+  if (uncaptured === runs.length) {
+    return `USD cost uncaptured for all ${runs.length} runs — no observed or estimated USD values; token and wall-time metrics remain available.`
+  }
+  return `USD cost uncaptured for ${uncaptured}/${runs.length} runs; excluded those rows from cost statistics (${known}/${runs.length} retained: ${provenance.observed.n} observed, ${provenance.estimated.n} estimated).`
 }
 
 /** Model-free failure tally. Keys on the canonical cross-agent
@@ -265,8 +306,8 @@ function computePriorPeriodComparison(
     directions.composite = 'higher-is-better'
   }
 
-  const costCurrent = current.map((r) => r.costUsd).filter(Number.isFinite)
-  const costBaseline = baseline.map((r) => r.costUsd).filter(Number.isFinite)
+  const costCurrent = knownCostValues(current)
+  const costBaseline = knownCostValues(baseline)
   if (costCurrent.length > 0 && costBaseline.length > 0) {
     metrics.cost = welchCompare(costBaseline, costCurrent)
     directions.cost = 'lower-is-better'
@@ -321,6 +362,13 @@ function computePriorPeriodComparison(
     regressedMetrics,
     improvedMetrics,
   }
+}
+
+function knownCostValues(runs: RunRecord[]): number[] {
+  return runs
+    .filter((run) => resolveRunCostProvenance(run).kind !== 'uncaptured')
+    .map((run) => run.costUsd)
+    .filter(Number.isFinite)
 }
 
 /** Collect per-dimension values across runs (from outcome.judgeScores.perDimMean). */
