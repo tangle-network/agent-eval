@@ -4,6 +4,16 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ---
 
+## [0.115.2] — 2026-07-12 — truthful code-agent session accounting
+
+### Fixed
+
+- fix(contract): ingest direct Codex 0.144.x exec JSONL lifecycle, tool, patch, terminal, and token events without double-counting transitions or reasoning tokens.
+- fix(contract): preserve observed, estimated, and uncaptured USD provenance through code-agent session intake and analyzeRuns.
+
+This patch corrects imported trace and cost semantics while retaining backward-compatible serialized RunRecords.
+Consumers importing code-agent execution traces should update.
+
 ## [0.115.1] — 2026-07-11 — fair cross-surface baseline selection
 
 ### Fixed
