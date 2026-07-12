@@ -1359,6 +1359,7 @@ export { CallbackResearcher, NoopResearcher } from './researcher'
 // RL/data bridge primitives live on @tangle-network/agent-eval/rl.
 export type {
   JudgeScoresRecord,
+  RunCostProvenance,
   RunJudgeMetadata,
   RunOutcome,
   RunRecord,
@@ -1370,6 +1371,7 @@ export {
   modelHasSnapshot,
   parseRunRecordSafe,
   RunRecordValidationError,
+  resolveRunCostProvenance,
   roundTripRunRecord,
   validateRunRecord,
 } from './run-record'

@@ -48,6 +48,10 @@ export interface InsightReport {
   costQuality: {
     cost: ScalarDistribution
     pareto: ParetoFigureSpec
+    /** Cost source coverage. `uncaptured` rows are excluded from the USD
+     *  distribution and Pareto chart; observed and estimated totals remain
+     *  separate so reports never present estimates as billed spend. */
+    provenance?: CostProvenanceSummary
     /** Set when the cost/quality view is degraded because the input data
      *  doesn't fully support it — e.g. all `costUsd` were zero, or only a
      *  single candidate appears (so the Pareto is a single point). The
@@ -106,6 +110,13 @@ export interface InsightReport {
   /** Top-N actionable recommendations, ranked by priority. The packet's
    *  human-readable layer; the numeric sections are the evidence. */
   recommendations: Recommendation[]
+}
+
+export interface CostProvenanceSummary {
+  observed: { n: number; totalUsd: number }
+  estimated: { n: number; totalUsd: number }
+  uncaptured: { n: number }
+  knownFraction: number
 }
 
 // ── Building blocks ─────────────────────────────────────────────────

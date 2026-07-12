@@ -221,6 +221,7 @@ export {
   evalReportingSuite,
 } from './eval-reporting-suite'
 export type {
+  CostProvenanceSummary,
   FailureClusterInsight,
   InsightReport,
   InterRaterInsight,

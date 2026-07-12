@@ -5,6 +5,7 @@ import {
   parseRunRecordSafe,
   type RunRecord,
   RunRecordValidationError,
+  resolveRunCostProvenance,
   roundTripRunRecord,
   validateRunRecord,
 } from '../src/run-record'
@@ -75,6 +76,41 @@ describe('validateRunRecord — happy path', () => {
   it('parseRunRecordSafe returns ok=true on success', () => {
     const result = parseRunRecordSafe(makeRecord())
     expect(result.ok).toBe(true)
+  })
+
+  it('round-trips observed, estimated, and uncaptured cost provenance', () => {
+    const observed = makeRecord({
+      costUsd: 0,
+      costProvenance: { kind: 'observed', usd: 0 },
+    })
+    const estimated = makeRecord({
+      costUsd: 0.04,
+      costProvenance: { kind: 'estimated', usd: 0.04 },
+    })
+    const uncaptured = makeRecord({
+      costUsd: 0,
+      costProvenance: { kind: 'uncaptured', usd: null },
+    })
+
+    expect(roundTripRunRecord(observed).costProvenance).toEqual({ kind: 'observed', usd: 0 })
+    expect(roundTripRunRecord(estimated).costProvenance).toEqual({
+      kind: 'estimated',
+      usd: 0.04,
+    })
+    expect(roundTripRunRecord(uncaptured).costProvenance).toEqual({
+      kind: 'uncaptured',
+      usd: null,
+    })
+  })
+
+  it('resolves conservative provenance for legacy cost records', () => {
+    expect(resolveRunCostProvenance(makeRecord({ costUsd: 0.02 })).kind).toBe('observed')
+    expect(
+      resolveRunCostProvenance(
+        makeRecord({ costUsd: 0.02, outcome: { holdoutScore: 1, raw: { cost_estimated: 1 } } }),
+      ).kind,
+    ).toBe('estimated')
+    expect(resolveRunCostProvenance(makeRecord({ costUsd: 0 })).kind).toBe('uncaptured')
   })
 })
 
@@ -158,6 +194,24 @@ describe('validateRunRecord — mandatory field enforcement', () => {
       },
     })
     expect(() => validateRunRecord(r)).toThrow(/fallback must be boolean/)
+  })
+
+  it('rejects cost provenance that contradicts costUsd', () => {
+    expect(() =>
+      validateRunRecord(
+        makeRecord({ costUsd: 0, costProvenance: { kind: 'estimated', usd: 0.03 } }),
+      ),
+    ).toThrow(/must equal costUsd/)
+    expect(() =>
+      validateRunRecord(
+        makeRecord({ costUsd: 0.03, costProvenance: { kind: 'uncaptured', usd: null } }),
+      ),
+    ).toThrow(/sentinel 0/)
+    expect(() =>
+      validateRunRecord(
+        makeRecord({ costUsd: -0.03, costProvenance: { kind: 'observed', usd: -0.03 } }),
+      ),
+    ).toThrow(/non-negative/)
   })
 
   it('rejects an agentProfile cell that contradicts the executed model or prompt', async () => {

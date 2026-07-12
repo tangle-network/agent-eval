@@ -405,7 +405,30 @@ describe('analyzeRuns — recommendations are always actionable', () => {
     expect(report.costQuality.degraded!.cost).toMatch(/no costUsd/)
     expect(report.costQuality.degraded!.cost).toMatch(/unpriced model/)
     expect(report.costQuality.degraded!.cost).toMatch(/5\/5 records have token usage/)
-    expect(report.costQuality.degraded!.pareto).toMatch(/single candidate/)
+    expect(report.costQuality.degraded!.pareto).toMatch(/no candidates/)
+  })
+
+  it('separates observed, estimated, and uncaptured USD in cost analysis', async () => {
+    const observed = makeRun({ id: 'cost-observed', candidate: 'c', composite: 0.7, cost: 0 })
+    observed.costProvenance = { kind: 'observed', usd: 0 }
+    const estimated = makeRun({ id: 'cost-estimated', candidate: 'c', composite: 0.8, cost: 0.2 })
+    estimated.costProvenance = { kind: 'estimated', usd: 0.2 }
+    const uncaptured = makeRun({ id: 'cost-uncaptured', candidate: 'c', composite: 0.9, cost: 0 })
+    uncaptured.costProvenance = { kind: 'uncaptured', usd: null }
+
+    const report = await analyzeRuns({ runs: [observed, estimated, uncaptured] })
+
+    expect(report.costQuality.provenance).toEqual({
+      observed: { n: 1, totalUsd: 0 },
+      estimated: { n: 1, totalUsd: 0.2 },
+      uncaptured: { n: 1 },
+      knownFraction: 2 / 3,
+    })
+    expect(report.costQuality.cost.n).toBe(2)
+    expect(report.costQuality.cost.mean).toBeCloseTo(0.1)
+    expect(report.costQuality.pareto.points[0]).toMatchObject({ candidateId: 'c', n: 2 })
+    expect(report.costQuality.degraded?.cost).toMatch(/1\/3 runs/)
+    expect(report.costQuality.degraded?.cost).toMatch(/1 observed, 1 estimated/)
   })
 
   it('zero-cost diagnosis distinguishes stub-mode (no tokens) from uncosted (unpriced model)', async () => {

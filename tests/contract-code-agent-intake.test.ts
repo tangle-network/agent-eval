@@ -108,6 +108,7 @@ describe('code-agent session intake', () => {
     expect(run.runId).toBe('codex:codex-session-1')
     expect(run.model).toBe('claude-code/sonnet@observed-local')
     expect(run.costUsd).toBeGreaterThan(0)
+    expect(run.costProvenance).toMatchObject({ kind: 'estimated', usd: run.costUsd })
     expect(run.tokenUsage).toEqual({ input: 1000, output: 300, cached: 200 })
     expect(run.outcome.holdoutScore).toBeGreaterThan(0)
     expect(run.outcome.holdoutScore).toBeLessThan(1)
@@ -124,6 +125,7 @@ describe('code-agent session intake', () => {
       hasExplicitTerminalSignal: true,
       hasTokenUsage: true,
       hasCost: true,
+      costKind: 'estimated',
     })
     expect(diagnostics[0]!.warnings).toContain('outcome score is inferred from process telemetry')
     expect(metrics[0]!.patchFailures).toBe(1)
@@ -168,13 +170,47 @@ describe('code-agent session intake', () => {
     expect(runs[0]).toMatchObject({
       runId: 'codex:00000000-0000-7000-8000-000000000144',
       tokenUsage: { input: 482267, output: 9006, cached: 409600 },
+      costProvenance: { kind: 'estimated' },
       failureMode: 'tool_error',
     })
     expect(diagnostics[0]).toMatchObject({
       sessionId: '00000000-0000-7000-8000-000000000144',
       hasExplicitTerminalSignal: true,
       hasTokenUsage: true,
+      costKind: 'estimated',
     })
+  })
+
+  it('preserves an explicitly uncaptured Codex cost instead of emitting observed $0', async () => {
+    const jsonl = readFileSync(
+      new URL('./fixtures/codex-exec-0.144.1.jsonl', import.meta.url),
+      'utf8',
+    )
+    const parsed = parseCodeAgentJsonl(jsonl)
+    const { runs, diagnostics } = fromCodexSession({
+      ...parsed,
+      model: 'gpt-5.4@2026-07-12',
+      costProvenance: { kind: 'uncaptured', usd: null },
+    })
+
+    const run = validateRunRecord(runs[0])
+    expect(run.costUsd).toBe(0)
+    expect(run.costProvenance).toEqual({ kind: 'uncaptured', usd: null })
+    expect(run.outcome.raw.cost_observed).toBe(0)
+    expect(run.outcome.raw.cost_estimated).toBe(0)
+    expect(run.outcome.raw.cost_uncaptured).toBe(1)
+    expect(diagnostics[0]).toMatchObject({ hasCost: false, costKind: 'uncaptured' })
+
+    const report = await analyzeRuns({ runs })
+    expect(report.costQuality.provenance).toEqual({
+      observed: { n: 0, totalUsd: 0 },
+      estimated: { n: 0, totalUsd: 0 },
+      uncaptured: { n: 1 },
+      knownFraction: 0,
+    })
+    expect(report.costQuality.cost.n).toBe(0)
+    expect(report.costQuality.pareto.points).toHaveLength(0)
+    expect(report.costQuality.degraded?.cost).toMatch(/uncaptured for all 1 runs/)
   })
 
   it('treats a failed Codex exec turn as an explicit abort', () => {
@@ -340,6 +376,7 @@ describe('code-agent session intake', () => {
     expect(run.model).toBe('kimi/kimi-k2-code@observed-local')
     expect(run.tokenUsage).toEqual({ input: 1000, output: 150, cached: 40 })
     expect(run.costUsd).toBe(0.42)
+    expect(run.costProvenance).toEqual({ kind: 'observed', usd: 0.42 })
     expect(run.failureMode).toBe('tool_error')
     expect(run.outcome.raw.tool_calls).toBe(2)
     expect(run.outcome.raw.tool_outputs).toBe(2)
@@ -351,7 +388,34 @@ describe('code-agent session intake', () => {
       reasoningItems: 1,
       toolErrors: 1,
       observedCostUsd: 0.42,
+      observedCostCaptured: true,
     })
+  })
+
+  it('keeps a source-reported zero-dollar OpenCode run observed', async () => {
+    const { runs, diagnostics } = fromOpenCodeSession({
+      entries: [
+        {
+          id: 'msg-free',
+          sessionID: 'opencode-free',
+          role: 'assistant',
+          providerID: 'local',
+          modelID: 'free-model',
+          tokens: { input: 10, output: 2 },
+          cost: 0,
+          finish: 'stop',
+        },
+      ],
+    })
+
+    const run = validateRunRecord(runs[0])
+    expect(run.costUsd).toBe(0)
+    expect(run.costProvenance).toEqual({ kind: 'observed', usd: 0 })
+    expect(diagnostics[0]).toMatchObject({ hasCost: true, costKind: 'observed' })
+    const report = await analyzeRuns({ runs })
+    expect(report.costQuality.provenance?.observed).toEqual({ n: 1, totalUsd: 0 })
+    expect(report.costQuality.degraded?.cost).toMatch(/explicitly observed/)
+    expect(report.costQuality.degraded?.cost).not.toMatch(/unpriced/)
   })
 
   it('projects Kimi Code wire events and token usage into RunRecord metrics', () => {
