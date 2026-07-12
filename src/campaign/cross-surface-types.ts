@@ -244,6 +244,7 @@ export interface CrossSurfaceBestSingleSelection {
 }
 
 export interface CrossSurfaceNaiveStackSelection {
+  /** Every individually eligible single, stacked in canonical component order. */
   candidateId: string
   componentIds: string[]
 }
