@@ -216,7 +216,7 @@ describe('analyzeCrossSurfaceInteractions', () => {
     expect(report.selections.interactionAware?.evaluatedPaths).toHaveLength(1)
   })
 
-  it('selects pure synergy when neither constituent improves the baseline alone', () => {
+  it('selects pure synergy without weakening the strict naive stack', () => {
     const input = fixture()
     for (const taskId of TASKS) {
       const baseline = row(input, 'fixed', taskId)
@@ -244,10 +244,7 @@ describe('analyzeCrossSurfaceInteractions', () => {
       reasons: ['benefit_not_greater_than_regression'],
     })
     expect(report.selections.bestSingle).toBeNull()
-    expect(report.selections.naiveStack).toEqual({
-      candidateId: 'profile-code',
-      componentIds: ['profile-change', 'code-change'],
-    })
+    expect(report.selections.naiveStack).toBeNull()
     expect(report.pairwise[0]).toMatchObject({
       synergyTaskIds: ['t1', 't2', 't3'],
       compatibility: { compatible: true, reasons: [] },
@@ -326,10 +323,7 @@ describe('analyzeCrossSurfaceInteractions', () => {
 
     const report = analyzeCrossSurfaceInteractions(input)
     expect(report.selections.bestSingle?.candidateId).toBe('c')
-    expect(report.selections.naiveStack).toEqual({
-      candidateId: 'abc',
-      componentIds: ['a', 'b', 'c'],
-    })
+    expect(report.selections.naiveStack).toEqual({ candidateId: 'c', componentIds: ['c'] })
     expect(report.pairwise.find((pair) => pair.compositionCandidateId === 'ab')).toMatchObject({
       compatibility: { compatible: true, reasons: [] },
       synergyTaskIds: ['u1', 'u2'],
