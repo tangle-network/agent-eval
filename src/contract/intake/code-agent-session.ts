@@ -283,6 +283,7 @@ function metricsFor(
 
 function codexMetrics(entries: Record<string, unknown>[]): CodeAgentSessionMetrics {
   const metrics = emptyMetrics(entries.length)
+  const startedToolIds = new Set<string>()
   let startedAt: number | undefined
   let completedAt: number | undefined
 
@@ -294,6 +295,19 @@ function codexMetrics(entries: Record<string, unknown>[]): CodeAgentSessionMetri
     if (timestamp !== undefined) {
       startedAt = startedAt === undefined ? timestamp : Math.min(startedAt, timestamp)
       completedAt = completedAt === undefined ? timestamp : Math.max(completedAt, timestamp)
+    }
+
+    if (entryType === 'turn.started') metrics.turnsStarted += 1
+    if (entryType === 'turn.completed') {
+      metrics.turnsCompleted += 1
+      addCodexExecUsage(metrics, record(entry.usage))
+    }
+    if (entryType === 'turn.failed') metrics.turnsAborted += 1
+    if (entryType === 'error') metrics.toolErrors += 1
+
+    const item = record(entry.item)
+    if (item && (entryType === 'item.started' || entryType === 'item.completed')) {
+      addCodexExecItem(metrics, startedToolIds, entryType, item)
     }
 
     if (entryType === 'response_item') {
@@ -342,7 +356,7 @@ function codexMetrics(entries: Record<string, unknown>[]): CodeAgentSessionMetri
         }
       }
       if (payloadType === 'token_count')
-        setCumulativeUsage(metrics, record(record(payload.info)?.total_token_usage))
+        setCodexCumulativeUsage(metrics, record(record(payload.info)?.total_token_usage))
       const result = record(payload.result)
       if (result && 'Err' in result) metrics.toolErrors += 1
     }
@@ -353,6 +367,94 @@ function codexMetrics(entries: Record<string, unknown>[]): CodeAgentSessionMetri
   }
   metrics.processScore = codexProcessScore(metrics)
   return metrics
+}
+
+function addCodexExecItem(
+  metrics: CodeAgentSessionMetrics,
+  startedToolIds: Set<string>,
+  eventType: 'item.started' | 'item.completed',
+  item: Record<string, unknown>,
+): void {
+  const itemType = stringField(item, 'type')
+  const itemId = stringField(item, 'id')
+  const isTool =
+    itemType === 'command_execution' ||
+    itemType === 'mcp_tool_call' ||
+    itemType === 'collab_tool_call' ||
+    itemType === 'web_search'
+
+  if (eventType === 'item.started' && isTool) {
+    metrics.toolCalls += 1
+    if (itemId) startedToolIds.add(itemId)
+  }
+  if (eventType === 'item.completed' && isTool) {
+    if (!itemId || !startedToolIds.has(itemId)) metrics.toolCalls += 1
+    metrics.toolOutputs += 1
+  }
+  if (eventType !== 'item.completed') return
+
+  if (itemType === 'agent_message' || itemType === 'message') metrics.assistantMessages += 1
+  if (itemType === 'reasoning') metrics.reasoningItems += 1
+  if (itemType === 'file_change') {
+    metrics.patchAttempts += 1
+    const status = stringField(item, 'status')
+    if (status === 'completed') metrics.patchSuccesses += 1
+    if (status === 'failed') {
+      metrics.patchFailures += 1
+      metrics.toolErrors += 1
+    }
+  }
+  if (itemType === 'error' || codexExecToolFailed(itemType, item)) metrics.toolErrors += 1
+}
+
+function codexExecToolFailed(itemType: string | undefined, item: Record<string, unknown>): boolean {
+  const status = stringField(item, 'status')
+  if (itemType === 'command_execution') {
+    const exitCode = numberField(item, 'exit_code')
+    return (
+      status === 'failed' || status === 'declined' || (exitCode !== undefined && exitCode !== 0)
+    )
+  }
+  if (itemType === 'mcp_tool_call') return status === 'failed' || record(item.error) !== null
+  return itemType === 'collab_tool_call' && status === 'failed'
+}
+
+function addCodexExecUsage(
+  metrics: CodeAgentSessionMetrics,
+  usage: Record<string, unknown> | null,
+): void {
+  const parsed = readCodexUsage(usage)
+  metrics.inputTokens += parsed.input
+  metrics.outputTokens += parsed.output
+  metrics.cachedTokens += parsed.cached
+}
+
+function setCodexCumulativeUsage(
+  metrics: CodeAgentSessionMetrics,
+  usage: Record<string, unknown> | null,
+): void {
+  const parsed = readCodexUsage(usage)
+  metrics.inputTokens = Math.max(metrics.inputTokens, parsed.input)
+  metrics.outputTokens = Math.max(metrics.outputTokens, parsed.output)
+  metrics.cachedTokens = Math.max(metrics.cachedTokens, parsed.cached)
+}
+
+function readCodexUsage(usage: Record<string, unknown> | null): {
+  input: number
+  output: number
+  cached: number
+} {
+  if (!usage) return { input: 0, output: 0, cached: 0 }
+  return {
+    input: alternativeNumericUsage(usage, ['input_tokens', 'inputTokens']),
+    output: alternativeNumericUsage(usage, ['output_tokens', 'outputTokens']),
+    cached: alternativeNumericUsage(usage, [
+      'cached_input_tokens',
+      'cachedInputTokens',
+      'cache_read_input_tokens',
+      'cacheReadInputTokens',
+    ]),
+  }
 }
 
 function claudeCodeMetrics(entries: Record<string, unknown>[]): CodeAgentSessionMetrics {
@@ -658,16 +760,6 @@ function addUsageTo(
   totals.cached += parsed.cached
 }
 
-function setCumulativeUsage(
-  metrics: CodeAgentSessionMetrics,
-  usage: Record<string, unknown> | null | undefined,
-): void {
-  const parsed = readUsage(usage)
-  metrics.inputTokens = Math.max(metrics.inputTokens, parsed.input)
-  metrics.outputTokens = Math.max(metrics.outputTokens, parsed.output)
-  metrics.cachedTokens = Math.max(metrics.cachedTokens, parsed.cached)
-}
-
 function readUsage(usage: Record<string, unknown> | null | undefined): {
   input: number
   output: number
@@ -716,6 +808,14 @@ function numericUsage(obj: Record<string, unknown>, names: string[]): number {
   return total
 }
 
+function alternativeNumericUsage(obj: Record<string, unknown>, names: string[]): number {
+  for (const name of names) {
+    const value = obj[name]
+    if (typeof value === 'number' && Number.isFinite(value)) return value
+  }
+  return 0
+}
+
 function diagnosticsFor(
   metrics: CodeAgentSessionMetrics,
   options: {
@@ -753,6 +853,8 @@ function sessionIdFromEntries(
 ): string | undefined {
   for (const entry of entries) {
     if (source === 'codex') {
+      const threadId = stringField(entry, 'thread_id')
+      if (threadId) return threadId
       const payload = record(entry.payload)
       const id = payload ? stringField(payload, 'id') : undefined
       if (id) return id
