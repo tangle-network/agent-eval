@@ -86,7 +86,8 @@ describe('code-agent session intake', () => {
               total_token_usage: {
                 input_tokens: 1000,
                 output_tokens: 300,
-                cache_read_input_tokens: 200,
+                cached_input_tokens: 200,
+                reasoning_output_tokens: 120,
               },
             },
           },

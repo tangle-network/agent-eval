@@ -356,7 +356,7 @@ function codexMetrics(entries: Record<string, unknown>[]): CodeAgentSessionMetri
         }
       }
       if (payloadType === 'token_count')
-        setCumulativeUsage(metrics, record(record(payload.info)?.total_token_usage))
+        setCodexCumulativeUsage(metrics, record(record(payload.info)?.total_token_usage))
       const result = record(payload.result)
       if (result && 'Err' in result) metrics.toolErrors += 1
     }
@@ -423,10 +423,38 @@ function addCodexExecUsage(
   metrics: CodeAgentSessionMetrics,
   usage: Record<string, unknown> | null,
 ): void {
-  if (!usage) return
-  metrics.inputTokens += numericUsage(usage, ['input_tokens', 'inputTokens'])
-  metrics.outputTokens += numericUsage(usage, ['output_tokens', 'outputTokens'])
-  metrics.cachedTokens += numericUsage(usage, ['cached_input_tokens', 'cachedInputTokens'])
+  const parsed = readCodexUsage(usage)
+  metrics.inputTokens += parsed.input
+  metrics.outputTokens += parsed.output
+  metrics.cachedTokens += parsed.cached
+}
+
+function setCodexCumulativeUsage(
+  metrics: CodeAgentSessionMetrics,
+  usage: Record<string, unknown> | null,
+): void {
+  const parsed = readCodexUsage(usage)
+  metrics.inputTokens = Math.max(metrics.inputTokens, parsed.input)
+  metrics.outputTokens = Math.max(metrics.outputTokens, parsed.output)
+  metrics.cachedTokens = Math.max(metrics.cachedTokens, parsed.cached)
+}
+
+function readCodexUsage(usage: Record<string, unknown> | null): {
+  input: number
+  output: number
+  cached: number
+} {
+  if (!usage) return { input: 0, output: 0, cached: 0 }
+  return {
+    input: alternativeNumericUsage(usage, ['input_tokens', 'inputTokens']),
+    output: alternativeNumericUsage(usage, ['output_tokens', 'outputTokens']),
+    cached: alternativeNumericUsage(usage, [
+      'cached_input_tokens',
+      'cachedInputTokens',
+      'cache_read_input_tokens',
+      'cacheReadInputTokens',
+    ]),
+  }
 }
 
 function claudeCodeMetrics(entries: Record<string, unknown>[]): CodeAgentSessionMetrics {
@@ -732,16 +760,6 @@ function addUsageTo(
   totals.cached += parsed.cached
 }
 
-function setCumulativeUsage(
-  metrics: CodeAgentSessionMetrics,
-  usage: Record<string, unknown> | null | undefined,
-): void {
-  const parsed = readUsage(usage)
-  metrics.inputTokens = Math.max(metrics.inputTokens, parsed.input)
-  metrics.outputTokens = Math.max(metrics.outputTokens, parsed.output)
-  metrics.cachedTokens = Math.max(metrics.cachedTokens, parsed.cached)
-}
-
 function readUsage(usage: Record<string, unknown> | null | undefined): {
   input: number
   output: number
@@ -788,6 +806,14 @@ function numericUsage(obj: Record<string, unknown>, names: string[]): number {
     if (typeof value === 'number' && Number.isFinite(value)) total += value
   }
   return total
+}
+
+function alternativeNumericUsage(obj: Record<string, unknown>, names: string[]): number {
+  for (const name of names) {
+    const value = obj[name]
+    if (typeof value === 'number' && Number.isFinite(value)) return value
+  }
+  return 0
 }
 
 function diagnosticsFor(
