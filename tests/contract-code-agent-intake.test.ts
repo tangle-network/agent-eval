@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 import {
   analyzeRuns,
@@ -129,6 +130,72 @@ describe('code-agent session intake', () => {
     const report = await analyzeRuns({ runs })
     expect(report.n).toBe(1)
     expect(report.composite.n).toBe(1)
+  })
+
+  it('projects Codex exec 0.144.1 JSONL lifecycle items and usage', () => {
+    const jsonl = readFileSync(
+      new URL('./fixtures/codex-exec-0.144.1.jsonl', import.meta.url),
+      'utf8',
+    )
+    const parsed = parseCodeAgentJsonl(jsonl)
+    const { runs, diagnostics, metrics } = fromCodexSession({
+      ...parsed,
+      sourcePath: 'codex-exec-0.144.1.jsonl',
+      model: 'gpt-5.4@2026-07-12',
+    })
+
+    expect(parsed.entries).toHaveLength(15)
+    expect(parsed.malformedLines).toBe(0)
+    expect(metrics[0]).toMatchObject({
+      entries: 15,
+      assistantMessages: 1,
+      reasoningItems: 1,
+      toolCalls: 4,
+      toolOutputs: 4,
+      toolErrors: 1,
+      patchAttempts: 1,
+      patchSuccesses: 1,
+      patchFailures: 0,
+      turnsStarted: 1,
+      turnsCompleted: 1,
+      turnsAborted: 0,
+      inputTokens: 482267,
+      outputTokens: 9006,
+      cachedTokens: 409600,
+      processScore: 0.9,
+    })
+    expect(runs[0]).toMatchObject({
+      runId: 'codex:00000000-0000-7000-8000-000000000144',
+      tokenUsage: { input: 482267, output: 9006, cached: 409600 },
+      failureMode: 'tool_error',
+    })
+    expect(diagnostics[0]).toMatchObject({
+      sessionId: '00000000-0000-7000-8000-000000000144',
+      hasExplicitTerminalSignal: true,
+      hasTokenUsage: true,
+    })
+  })
+
+  it('treats a failed Codex exec turn as an explicit abort', () => {
+    const { runs, diagnostics, metrics } = fromCodexSession({
+      entries: [
+        { type: 'thread.started', thread_id: 'codex-failed-turn' },
+        { type: 'turn.started' },
+        { type: 'error', message: 'request failed' },
+        { type: 'turn.failed', error: { message: 'request failed' } },
+      ],
+      model: 'gpt-5.4@2026-07-12',
+    })
+
+    expect(metrics[0]).toMatchObject({
+      turnsStarted: 1,
+      turnsCompleted: 0,
+      turnsAborted: 1,
+      toolErrors: 1,
+      processScore: 0,
+    })
+    expect(runs[0]!.failureMode).toBe('turn_aborted')
+    expect(diagnostics[0]!.hasExplicitTerminalSignal).toBe(true)
   })
 
   it('projects Claude Code sessions with tool errors and PR links into RunRecord metrics', () => {
