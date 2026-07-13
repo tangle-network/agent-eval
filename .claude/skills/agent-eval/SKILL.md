@@ -702,6 +702,10 @@ If you're skipping any of the four for a reason that isn't "this is a unit test,
 
 15. **Hook errors are swallowed and logged by default.** `TraceEmitterOptions.onRunComplete` hooks that throw don't crash the run — that's intentional, auto-orchestration must not fail the underlying flow. If a hook is *load-bearing* for the run's correctness (e.g. a gate that must pass before declaring success), set `hookErrors: 'throw'` or wire the gate as an explicit assertion outside the hook.
 
+16. **`compareProposers` requires three disjoint partitions.** Train authors candidates, selection accepts or early-stops them, and untouched test alone determines the final proposer ranking.
+    The optimizer receives `ProposerOptimizationData` with train and selection only.
+    The legacy `holdoutScenarios` input fails closed because it cannot prove selection and test are distinct.
+
 ---
 
 ## Regression tests worth writing

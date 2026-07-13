@@ -144,18 +144,25 @@ await compareProposers({
     }),
   ],
   baselineSurface,
-  holdoutScenarios,
+  trainScenarios,
+  selectionScenarios,
+  testScenarios,
   dispatchWithSurface,
   judges,
   runDir,
 })
 ```
 
+`compareProposers` owns all three partitions.
+It passes only train and selection to each entry, where selection may drive acceptance or early stopping.
+It keeps test unreachable until every optimizer has returned a winner, then uses only test for lift intervals and final ranking.
+All three partitions must be non-empty and pairwise disjoint by scenario ID.
+
 ## Common Mistakes
 
 - Do not put eval logic inside a proposer. Put it in `dispatch` and `judges`.
-- Do not let a proposer read held-out judge scores. `ProposeContext` makes this
-  a type-level firewall.
+- Do not let a proposer read untouched test rows or scores.
+  `compareProposers` omits them from `ProposerOptimizationData` by construction.
 - Do not call FAPO a prompt-only optimizer. Its main value is evidence-based
   escalation beyond prompt edits.
 - Do not put Claude Code or sandbox-specific code in `agent-eval`. Structural

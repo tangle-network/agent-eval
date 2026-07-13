@@ -4,6 +4,21 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ---
 
+## Unreleased
+
+### Fixed
+
+- `compareProposers()` now owns three non-empty, pairwise-disjoint scenario partitions.
+  Optimizers receive train and adaptive selection rows, while only the untouched test rows determine final lift intervals and proposer ranking.
+  Every optimizer finishes before the first test dispatch; built-in GEPA, SkillOpt, and FAPO entries use selection for acceptance and cannot receive test rows.
+
+### Breaking
+
+- `compareProposers({ holdoutScenarios })` fails closed.
+  Pass `trainScenarios`, `selectionScenarios`, and `testScenarios`; read `testScenarioIds` from the result.
+- `runSkillOpt({ holdoutScenarios })` fails closed because those rows are adaptively reused.
+  Pass `selectionScenarios`; selection result fields now use `Selection` instead of `Holdout`.
+
 ## [0.116.0] — 2026-07-12 — evidence-linked AgentProfile optimization
 
 ### Added

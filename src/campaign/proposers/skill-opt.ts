@@ -8,7 +8,7 @@
  * meta-note steer the optimizer away from dead ends.
  *
  * This module is the PROPOSER — the LLM call that turns evidence into
- * structured patches. The accept-only-if-held-out-improves loop, the budget
+ * structured patches. The accept-only-if-selection-improves loop, the budget
  * annealing, and the rejected buffer live in the `runSkillOpt` preset, which
  * owns the epoch hill-climb. The proposer also conforms to `SurfaceProposer`
  * (`propose` applies its patches to the current surface and returns the
@@ -33,7 +33,7 @@ const SKILLOPT_SYSTEM =
 
 /** Evidence the optimizer reflects on: where the current surface is weakest.
  *  Computed by the caller (the preset uses a TRAIN campaign so proposals never
- *  see the held-out split; the generic loop derives it from history). */
+ *  see the selection split; the generic loop derives it from history). */
 export interface SkillOptEvidence {
   /** Lowest-scoring scenarios (drives WHICH behavior to patch). */
   weakScenarios: Array<{ scenarioId: string; composite: number }>

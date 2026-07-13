@@ -82,7 +82,7 @@ barrel) but it is **never in the product loop**. It shells out to an *external* 
 
 Its only job is the **bake-off**. HALO's real opponent is **not** `gepaProposer` — it is
 `traceAnalystProposer`. `compareProposers` holds the apply step identical (same
-`APPLY_SYSTEM`, same `traces.jsonl`, same held-out scoring) so the only variable is
+`APPLY_SYSTEM`, same `traces.jsonl`, same train/selection inputs, and same untouched test scoring) so the only variable is
 **analysis quality: HALO vs ours.** A measuring stick, like a benchmark baseline.
 
 ## `gepa-refine.ts` is the loop on a test bench, not a second loop

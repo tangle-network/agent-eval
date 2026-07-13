@@ -77,7 +77,7 @@ Choose the shape that matches the experiment:
 
 1. **Portfolio** — `compositeProposer` splits one generation's population across member proposers by fixed weights and returns one provenance-labelled pool.
 2. **Escalate** — `fapoProposer` wraps prompt + parameter + structural levels into one proposer and spends on the cheapest level until evidence says to escalate.
-3. **Race** — `compareProposers` gives proposers separate loops, then re-scores their winners on one holdout and returns per-proposer lift intervals plus pairwise results.
+3. **Race** — `compareProposers` gives proposers the same train and selection rows, then re-scores their winners on one untouched test partition and returns per-proposer lift intervals plus pairwise results.
 4. **Plug in** — hand any proposer to `runImprovementLoop({ proposer })`, or use `improve({ surface, generator })` in `@tangle-network/agent-runtime`.
 
 ### 2 + 4 — compose by escalation, then run the improvement loop
@@ -159,8 +159,6 @@ import {
 
 const config = {
   baselineSurface: currentPromptString,
-  trainScenarios,
-  holdoutScenarios,
   dispatchWithSurface,
   judges,
   llm, model,
@@ -179,7 +177,9 @@ const comparison = await compareProposers({
     }),
   ],
   baselineSurface: currentPromptString,
-  holdoutScenarios,
+  trainScenarios,                         // candidate authoring/fitting
+  selectionScenarios,                     // acceptance + early stopping
+  testScenarios,                          // untouched final comparison
   dispatchWithSurface,
   judges,
   runDir: '/tmp/compare-run',
@@ -190,12 +190,14 @@ comparison.scores        // per-proposer { lift, liftCi:{low,high}, cost } — l
 comparison.pairwise      // best vs each other, paired-bootstrap: 'a' | 'b' | 'tie'
 ```
 
-Every entrant is re-scored on the **same** holdout with the **same** judges, so the comparison never trusts how a proposer measured itself — the only variable is proposal quality.
+Every entrant receives the same train and selection rows, but never the test rows.
+After optimization, every selected winner is re-scored on the **same untouched test** with the **same** judges, so the comparison never trusts how a proposer measured itself.
 
 ## Common traps (they cost the most)
 
 - Do not put eval logic inside a proposer — scoring lives in `dispatch` + `judges`, proposing lives in the proposer.
-- Do not let a proposer read held-out judge scores — `ProposeContext` makes that a compile error on purpose; a proposer that games the acceptance axis is an oracle, not an optimizer.
+- Do not let a proposer read untouched test rows or scores.
+  Selection is allowed to guide acceptance; test is reserved for the final comparison and is absent from `ProposerOptimizationData`.
 - Do not read `lift` without `result.power`/MDE — a "+4" on a valset too small to detect +4 is noise wearing a number.
 - Do not confuse `compositeProposer` with `fapoProposer`: the former allocates one fixed population across peers, while the latter escalates through ordered levels from cheaper to more structural changes.
 

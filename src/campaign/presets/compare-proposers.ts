@@ -6,12 +6,13 @@
  * calling it the real one — turns a build red instead of going
  * measurement-invisible.
  *
- * Every entrant is scored the SAME way: each proposer returns the surface it
- * promoted, then the benchmark scores the baseline + every winner on the
- * SAME held-out scenarios with the SAME judges. Apples-to-apples by
- * construction — the comparison never depends on how a proposer measured itself.
- * The per-scenario held-out composites feed a paired bootstrap (`statistics.ts`)
- * for each proposer's lift CI and for the pairwise "which proposer wins" CI.
+ * Every entrant receives the SAME train + selection partitions and is scored
+ * the SAME way: each proposer returns the surface accepted on selection, then
+ * the benchmark scores the baseline + every winner on the SAME untouched test
+ * scenarios with the SAME judges. Apples-to-apples by construction — the
+ * comparison never depends on how a proposer measured itself. The
+ * per-scenario test composites feed a paired bootstrap (`statistics.ts`) for
+ * each proposer's lift CI and for the pairwise "which proposer wins" CI.
  */
 
 import type { LlmClientOptions } from '../../llm-client'
@@ -38,21 +39,31 @@ import type {
 import { type RunImprovementLoopOptions, runImprovementLoop } from './run-improvement-loop'
 import { runSkillOpt } from './run-skill-opt'
 
-/** What an optimizer produced: the surface it promoted + what it cost to get
- *  there. The comparison does the held-out scoring itself, so an entry only
- *  needs to run its loop and hand back the winner. */
-export interface ProposerEntry {
+/** The adaptive data an optimizer may consume. The untouched test partition
+ *  is deliberately absent from this object. */
+export interface ProposerOptimizationData<TScenario extends Scenario> {
+  /** Evidence used to author or fit candidates. */
+  readonly trainScenarios: readonly TScenario[]
+  /** Data used for candidate acceptance, early stopping, and model selection. */
+  readonly selectionScenarios: readonly TScenario[]
+}
+
+/** What an optimizer produced: the surface accepted on selection + what it
+ *  cost to get there. The comparison does the untouched test scoring itself. */
+export interface ProposerEntry<TScenario extends Scenario = Scenario> {
   name: string
-  optimize: () => Promise<{ winnerSurface: MutableSurface; costUsd: number; durationMs?: number }>
+  optimize: (
+    data: ProposerOptimizationData<TScenario>,
+  ) => Promise<{ winnerSurface: MutableSurface; costUsd: number; durationMs?: number }>
 }
 
 export interface ProposerScore {
   name: string
-  /** Mean held-out composite of the baseline (identical across proposers). */
+  /** Mean untouched-test composite of the baseline (identical across proposers). */
   baselineComposite: number
-  /** Mean held-out composite of this proposer's promoted surface. */
+  /** Mean untouched-test composite of this proposer's selected surface. */
   winnerComposite: number
-  /** Mean per-scenario held-out lift (winner − baseline). */
+  /** Mean per-scenario untouched-test lift (winner − baseline). */
   lift: number
   /** Paired-bootstrap CI of the per-scenario lift. `low > 0` ⇒ a real gain. */
   liftCi: { low: number; high: number }
@@ -67,7 +78,7 @@ export interface ProposerPairwise {
   /** Higher-ranked proposer. */
   a: string
   b: string
-  /** Mean per-scenario held-out delta (a − b). */
+  /** Mean per-scenario untouched-test delta (a − b). */
   deltaMean: number
   low: number
   high: number
@@ -79,17 +90,21 @@ export interface ProposerComparison {
   /** Sorted by descending lift; `rank` set accordingly. */
   scores: ProposerScore[]
   best: ProposerScore
-  /** Best vs each other proposer, paired-bootstrap on the held-out winners. */
+  /** Best vs each other proposer, paired-bootstrap on the test winners. */
   pairwise: ProposerPairwise[]
-  holdoutScenarioIds: string[]
+  testScenarioIds: string[]
 }
 
 export interface CompareProposersOptions<TScenario extends Scenario, TArtifact>
   extends Omit<RunCampaignOptions<TScenario, TArtifact>, 'dispatch' | 'scenarios'> {
-  proposers: ProposerEntry[]
+  proposers: ProposerEntry<TScenario>[]
   baselineSurface: MutableSurface
-  /** The held-out scenarios every winner is scored on. */
-  holdoutScenarios: TScenario[]
+  /** Evidence used by every optimizer to author or fit candidates. */
+  trainScenarios: TScenario[]
+  /** Candidate acceptance, early-stopping, and optimizer-selection data. */
+  selectionScenarios: TScenario[]
+  /** Untouched final comparison data. Never passed to a proposer entry. */
+  testScenarios: TScenario[]
   /** Scores a surface on a scenario — the same dispatcher the proposers used. */
   dispatchWithSurface: (
     surface: MutableSurface,
@@ -103,29 +118,24 @@ export interface CompareProposersOptions<TScenario extends Scenario, TArtifact>
 }
 
 /**
- * Run a head-to-head lift benchmark across surface proposers on a shared holdout, returning per-proposer lift CIs and pairwise "who wins" verdicts.
+ * Run a head-to-head lift benchmark with disjoint train, selection, and untouched test partitions, returning per-proposer test lift CIs and pairwise "who wins" verdicts.
  */
 export async function compareProposers<TScenario extends Scenario, TArtifact>(
   opts: CompareProposersOptions<TScenario, TArtifact>,
 ): Promise<ProposerComparison> {
-  return compareProposerEntries(opts)
-}
-
-async function compareProposerEntries<TScenario extends Scenario, TArtifact>(
-  opts: CompareProposersOptions<TScenario, TArtifact>,
-): Promise<ProposerComparison> {
   if (opts.proposers.length === 0) throw new Error('compareProposers: no proposers to compare')
+  assertComparisonPartitions(opts)
   const seed = opts.seed ?? 42
   const resamples = opts.resamples ?? 2000
   const confidence = opts.confidence ?? 0.95
 
-  const scoreOnHoldout = async (
+  const scoreOnTest = async (
     surface: MutableSurface,
     tag: string,
   ): Promise<Record<string, number>> => {
     const campaign: CampaignResult<TArtifact, TScenario> = await runCampaign<TScenario, TArtifact>({
       ...opts,
-      scenarios: opts.holdoutScenarios,
+      scenarios: opts.testScenarios,
       dispatch: (scenario, ctx) => opts.dispatchWithSurface(surface, scenario, ctx),
       runDir: `${opts.runDir}/${tag}`,
     })
@@ -136,18 +146,17 @@ async function compareProposerEntries<TScenario extends Scenario, TArtifact>(
     return byScenario
   }
 
-  // The comparison axis is the DESIGNED held-out set, not whatever a campaign
+  // The comparison axis is the DESIGNED untouched test set, not whatever a campaign
   // happened to score. Align every score vector to it and FAIL LOUD if a
   // surface is missing any scenario (an errored cell / a judge that returned no
   // score). Fabricating a 0 there would silently penalize that surface and
   // corrupt the paired-bootstrap lift CI — the exact "no silent zeros" trap.
-  const scenarioIds = [...new Set(opts.holdoutScenarios.map((s) => s.id))].sort()
-  if (scenarioIds.length === 0) throw new Error('compareProposers: holdoutScenarios is empty')
+  const scenarioIds = opts.testScenarios.map((s) => s.id).sort()
   const align = (byScenario: Record<string, number>, label: string): number[] => {
     const missing = scenarioIds.filter((id) => !(id in byScenario))
     if (missing.length > 0) {
       throw new Error(
-        `compareProposers: ${label} produced no held-out score for scenario(s) [${missing.join(
+        `compareProposers: ${label} produced no test score for scenario(s) [${missing.join(
           ', ',
         )}] — a cell errored or its judges returned nothing. Refusing to fabricate a 0 (it would corrupt the lift comparison). Fix the dispatch/judge or drop the scenario.`,
       )
@@ -155,28 +164,38 @@ async function compareProposerEntries<TScenario extends Scenario, TArtifact>(
     return scenarioIds.map((id) => byScenario[id]!)
   }
 
-  const baselineArr = align(
-    await scoreOnHoldout(opts.baselineSurface, 'compare-baseline'),
-    'baseline',
-  )
-
-  // Run + uniformly re-score every entrant on the SAME held-out axis.
-  const winners: Array<{
+  // Entries receive only train + selection. Finish EVERY optimization before
+  // the first test dispatch so a later entry cannot observe test-side effects
+  // through a shared transport, trace sink, or cache.
+  const optimizationData: ProposerOptimizationData<TScenario> = Object.freeze({
+    trainScenarios: Object.freeze([...opts.trainScenarios]),
+    selectionScenarios: Object.freeze([...opts.selectionScenarios]),
+  })
+  const optimized: Array<{
     name: string
     winnerSurface: MutableSurface
     costUsd: number
     durationMs?: number
-    arr: number[]
   }> = []
   for (const proposer of opts.proposers) {
-    const out = await proposer.optimize()
-    const byScenario = await scoreOnHoldout(out.winnerSurface, `compare-${slug(proposer.name)}`)
-    winners.push({
+    const out = await proposer.optimize(optimizationData)
+    optimized.push({
       name: proposer.name,
       winnerSurface: out.winnerSurface,
       costUsd: out.costUsd,
       durationMs: out.durationMs,
-      arr: align(byScenario, `proposer "${proposer.name}"`),
+    })
+  }
+
+  // Only after candidate selection is closed do we open the untouched test
+  // partition and uniformly score baseline + every selected winner.
+  const baselineArr = align(await scoreOnTest(opts.baselineSurface, 'compare-baseline'), 'baseline')
+  const winners: Array<(typeof optimized)[number] & { arr: number[] }> = []
+  for (const winner of optimized) {
+    const byScenario = await scoreOnTest(winner.winnerSurface, `compare-${slug(winner.name)}`)
+    winners.push({
+      ...winner,
+      arr: align(byScenario, `proposer "${winner.name}"`),
     })
   }
 
@@ -211,7 +230,7 @@ async function compareProposerEntries<TScenario extends Scenario, TArtifact>(
   const bestArr = byName.get(best.name)!.arr
   const pairwise: ProposerPairwise[] = scores.slice(1).map((other) => {
     const otherArr = byName.get(other.name)!.arr
-    // before = other, after = best ⇒ delta = best − other on the held-out set.
+    // before = other, after = best ⇒ delta = best − other on the test set.
     const boot = pairedBootstrap(otherArr, bestArr, {
       seed,
       resamples,
@@ -229,7 +248,61 @@ async function compareProposerEntries<TScenario extends Scenario, TArtifact>(
     }
   })
 
-  return { scores, best, pairwise, holdoutScenarioIds: scenarioIds }
+  return { scores, best, pairwise, testScenarioIds: scenarioIds }
+}
+
+function assertComparisonPartitions<TScenario extends Scenario>(
+  opts: CompareProposersOptions<TScenario, unknown>,
+): void {
+  const legacy = opts as CompareProposersOptions<TScenario, unknown> & {
+    holdoutScenarios?: unknown
+  }
+  if (legacy.holdoutScenarios !== undefined) {
+    throw new Error(
+      'compareProposers: holdoutScenarios is ambiguous and no longer accepted. Provide disjoint trainScenarios, selectionScenarios, and testScenarios; selection may be reused adaptively, test must remain untouched.',
+    )
+  }
+
+  const partitions: Array<{
+    name: 'trainScenarios' | 'selectionScenarios' | 'testScenarios'
+    scenarios: TScenario[] | undefined
+  }> = [
+    { name: 'trainScenarios', scenarios: opts.trainScenarios },
+    { name: 'selectionScenarios', scenarios: opts.selectionScenarios },
+    { name: 'testScenarios', scenarios: opts.testScenarios },
+  ]
+
+  const owner = new Map<string, string>()
+  for (const partition of partitions) {
+    if (!Array.isArray(partition.scenarios) || partition.scenarios.length === 0) {
+      throw new Error(`compareProposers: ${partition.name} is empty`)
+    }
+    const local = new Set<string>()
+    const duplicates = new Set<string>()
+    const overlaps = new Map<string, string>()
+    for (const scenario of partition.scenarios) {
+      if (local.has(scenario.id)) duplicates.add(scenario.id)
+      local.add(scenario.id)
+      const prior = owner.get(scenario.id)
+      if (prior !== undefined && prior !== partition.name) overlaps.set(scenario.id, prior)
+    }
+    if (duplicates.size > 0) {
+      throw new Error(
+        `compareProposers: ${partition.name} contains duplicate scenario id(s) [${[
+          ...duplicates,
+        ].join(', ')}]`,
+      )
+    }
+    if (overlaps.size > 0) {
+      const detail = [...overlaps]
+        .map(([id, prior]) => `${id} (${prior} ∩ ${partition.name})`)
+        .join(', ')
+      throw new Error(
+        `compareProposers: trainScenarios, selectionScenarios, and testScenarios must be pairwise disjoint; overlap: [${detail}]`,
+      )
+    }
+    for (const id of local) owner.set(id, partition.name)
+  }
 }
 
 function mean(xs: number[]): number {
@@ -242,13 +315,11 @@ function slug(name: string): string {
 
 // ── Built-in entries — wire the real optimizers for a live comparison ───────
 
-/** Shared corpus + transport for the three built-in optimizer entries. */
-export interface OptimizerEntryConfig<TScenario extends Scenario, TArtifact> {
+/** Shared transport and optimizer settings for the built-in entries. Scenario
+ *  partitions are owned by `compareProposers` and passed to `optimize()` so a
+ *  built-in can never receive the untouched test set. */
+export interface BuiltinProposerEntryConfig<TScenario extends Scenario, TArtifact> {
   baselineSurface: string
-  /** Training scenarios the proposers reflect on. */
-  trainScenarios: TScenario[]
-  /** Held-out scenarios (the gate axis + the benchmark scoring axis). */
-  holdoutScenarios: TScenario[]
   dispatchWithSurface: (
     surface: MutableSurface,
     scenario: TScenario,
@@ -280,31 +351,39 @@ export interface OptimizerEntryConfig<TScenario extends Scenario, TArtifact> {
   report?: unknown
 }
 
+/** @deprecated Use `BuiltinProposerEntryConfig`. */
+export type OptimizerEntryConfig<
+  TScenario extends Scenario,
+  TArtifact,
+> = BuiltinProposerEntryConfig<TScenario, TArtifact>
+
 /** GEPA, reflection-only (single-parent, no Pareto combine). */
 export function gepaReflectionEntry<TScenario extends Scenario, TArtifact>(
-  config: OptimizerEntryConfig<TScenario, TArtifact>,
+  config: BuiltinProposerEntryConfig<TScenario, TArtifact>,
   name = 'gepa-reflection',
-): ProposerEntry {
+): ProposerEntry<TScenario> {
   return gepaEntry(config, false, name)
 }
 
 /** GEPA with the Pareto frontier + combine-complementary-lessons. */
 export function gepaParetoEntry<TScenario extends Scenario, TArtifact>(
-  config: OptimizerEntryConfig<TScenario, TArtifact>,
+  config: BuiltinProposerEntryConfig<TScenario, TArtifact>,
   name = 'gepa-pareto',
-): ProposerEntry {
+): ProposerEntry<TScenario> {
   return gepaEntry(config, true, name)
 }
 
 function gepaEntry<TScenario extends Scenario, TArtifact>(
-  config: OptimizerEntryConfig<TScenario, TArtifact>,
+  config: BuiltinProposerEntryConfig<TScenario, TArtifact>,
   combineParents: boolean,
   name: string,
-): ProposerEntry {
+): ProposerEntry<TScenario> {
   return {
     name,
-    async optimize() {
+    async optimize(data) {
       const started = Date.now()
+      const trainScenarios = [...data.trainScenarios]
+      const selectionScenarios = [...data.selectionScenarios]
       const proposer = gepaProposer({
         llm: config.llm,
         model: config.model,
@@ -313,8 +392,8 @@ function gepaEntry<TScenario extends Scenario, TArtifact>(
         ...(config.mutationPrimitives ? { mutationPrimitives: config.mutationPrimitives } : {}),
       })
       const result = await runImprovementLoop<TScenario, TArtifact>({
-        scenarios: config.trainScenarios,
-        holdoutScenarios: config.holdoutScenarios,
+        scenarios: trainScenarios,
+        holdoutScenarios: selectionScenarios,
         baselineSurface: config.baselineSurface,
         dispatchWithSurface: config.dispatchWithSurface,
         judges: config.judges,
@@ -322,7 +401,7 @@ function gepaEntry<TScenario extends Scenario, TArtifact>(
         populationSize: config.populationSize ?? 2,
         maxGenerations: config.maxGenerations ?? 3,
         gate: defaultProductionGate<TArtifact, TScenario>({
-          holdoutScenarios: config.holdoutScenarios,
+          holdoutScenarios: selectionScenarios,
           deltaThreshold: 0,
         }),
         autoOnPromote: 'none',
@@ -342,7 +421,12 @@ function gepaEntry<TScenario extends Scenario, TArtifact>(
             sum + g.surfaces.reduce((s, sf) => s + sf.campaign.aggregates.totalCostUsd, 0),
           0,
         )
-      return { winnerSurface: result.winnerSurface, costUsd, durationMs: Date.now() - started }
+      return {
+        winnerSurface:
+          result.gateResult.decision === 'ship' ? result.winnerSurface : config.baselineSurface,
+        costUsd,
+        durationMs: Date.now() - started,
+      }
     },
   }
 }
@@ -354,12 +438,12 @@ function gepaEntry<TScenario extends Scenario, TArtifact>(
  *  findings-fed. (Threading findings into the SkillOpt epoch loop is a separate
  *  refactor, deferred not faked.) */
 export function skillOptEntry<TScenario extends Scenario, TArtifact>(
-  config: OptimizerEntryConfig<TScenario, TArtifact>,
+  config: BuiltinProposerEntryConfig<TScenario, TArtifact>,
   name = 'skill-opt',
-): ProposerEntry {
+): ProposerEntry<TScenario> {
   return {
     name,
-    async optimize() {
+    async optimize(data) {
       const started = Date.now()
       const proposer = skillOptProposer({
         llm: config.llm,
@@ -371,8 +455,8 @@ export function skillOptEntry<TScenario extends Scenario, TArtifact>(
         dispatchWithSurface: config.dispatchWithSurface,
         judges: config.judges,
         proposer,
-        trainScenarios: config.trainScenarios,
-        holdoutScenarios: config.holdoutScenarios,
+        trainScenarios: [...data.trainScenarios],
+        selectionScenarios: [...data.selectionScenarios],
         maxEpochs: config.maxEpochs ?? 6,
         runDir: `${config.runDir}/${slug(name)}-loop`,
         ...(config.seed !== undefined ? { seed: config.seed } : {}),
@@ -393,7 +477,7 @@ export function skillOptEntry<TScenario extends Scenario, TArtifact>(
  * the package's strongest prompt-tier proposer; parameter/structural proposers
  * are opt-in so we do not fake code-generation inside agent-eval. */
 export interface FapoEntryConfig<TScenario extends Scenario, TArtifact>
-  extends OptimizerEntryConfig<TScenario, TArtifact> {
+  extends BuiltinProposerEntryConfig<TScenario, TArtifact> {
   /** Override the prompt-level proposer. Default: `gepaProposer({ combineParents: true })`. */
   promptProposer?: SurfaceProposer
   /** Parameter/config-level proposer. If omitted, `parameterCandidates` builds one. */
@@ -415,11 +499,13 @@ export interface FapoEntryConfig<TScenario extends Scenario, TArtifact>
 export function fapoEscalationEntry<TScenario extends Scenario, TArtifact>(
   config: FapoEntryConfig<TScenario, TArtifact>,
   name = 'fapo-escalation',
-): ProposerEntry {
+): ProposerEntry<TScenario> {
   return {
     name,
-    async optimize() {
+    async optimize(data) {
       const started = Date.now()
+      const trainScenarios = [...data.trainScenarios]
+      const selectionScenarios = [...data.selectionScenarios]
       const promptProposer =
         config.promptProposer ??
         gepaProposer({
@@ -442,8 +528,8 @@ export function fapoEscalationEntry<TScenario extends Scenario, TArtifact>(
         ...(structuralProposer ? { structuralProposer } : {}),
       })
       const result = await runImprovementLoop<TScenario, TArtifact>({
-        scenarios: config.trainScenarios,
-        holdoutScenarios: config.holdoutScenarios,
+        scenarios: trainScenarios,
+        holdoutScenarios: selectionScenarios,
         baselineSurface: config.baselineSurface,
         dispatchWithSurface: config.dispatchWithSurface,
         judges: config.judges,
@@ -451,7 +537,7 @@ export function fapoEscalationEntry<TScenario extends Scenario, TArtifact>(
         populationSize: config.populationSize ?? 2,
         maxGenerations: config.maxGenerations ?? 3,
         gate: defaultProductionGate<TArtifact, TScenario>({
-          holdoutScenarios: config.holdoutScenarios,
+          holdoutScenarios: selectionScenarios,
           deltaThreshold: 0,
         }),
         autoOnPromote: 'none',
@@ -468,7 +554,12 @@ export function fapoEscalationEntry<TScenario extends Scenario, TArtifact>(
             sum + g.surfaces.reduce((s, sf) => s + sf.campaign.aggregates.totalCostUsd, 0),
           0,
         )
-      return { winnerSurface: result.winnerSurface, costUsd, durationMs: Date.now() - started }
+      return {
+        winnerSurface:
+          result.gateResult.decision === 'ship' ? result.winnerSurface : config.baselineSurface,
+        costUsd,
+        durationMs: Date.now() - started,
+      }
     },
   }
 }

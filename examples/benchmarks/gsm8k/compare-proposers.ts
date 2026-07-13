@@ -1,6 +1,6 @@
 /**
  * GSM8K substrate proof — the empirical headline: do the optimization proposers move
- * a REAL held-out number on a HARD task (no ceiling), with a clean CI? Extraction
+ * a REAL untouched-test number on a HARD task (no ceiling), with a clean CI? Extraction
  * ceilings on a strong model (gepa 0.625→1.0, 0 findings); GSM8K with a
  * deliberately weak baseline (no chain-of-thought) leaves genuine headroom that
  * the optimizer recovers by evolving the system prompt (inject CoT + answer-format
@@ -9,7 +9,7 @@
  *
  * Proposers compete head-to-head through `compareProposers`: gepa-reflection,
  * gepa-pareto, skill-opt — each returns its promoted surface, all scored on the
- * SAME held-out split with paired-bootstrap lift CIs + pairwise ranking.
+ * SAME untouched test split with paired-bootstrap lift CIs + pairwise ranking.
  * `assertRealBackend` aborts a stub run; the artifact records integrity honestly.
  *
  * This run does NOT wire `analyzeGeneration` — GSM8K failures are per-problem, so
@@ -27,12 +27,12 @@ import { createHash } from 'node:crypto'
 import { mkdirSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import {
+  type BuiltinProposerEntryConfig,
   compareProposers,
   type DispatchContext,
   gepaParetoEntry,
   gepaReflectionEntry,
   type JudgeConfig,
-  type OptimizerEntryConfig,
   type Scenario,
   skillOptEntry,
 } from '../../../src/campaign'
@@ -55,7 +55,8 @@ const PRICE_IN_PER_M = Number(process.env.PRICE_IN_PER_M || '0.27')
 const PRICE_OUT_PER_M = Number(process.env.PRICE_OUT_PER_M || '1.10')
 const CALL_TIMEOUT_MS = Number(process.env.CALL_TIMEOUT_MS || '60000')
 const TRAIN_N = Number(process.env.TRAIN_N || '8')
-const HOLDOUT_N = Number(process.env.HOLDOUT_N || '20')
+const SELECTION_N = Number(process.env.SELECTION_N || '8')
+const TEST_N = Number(process.env.TEST_N || '20')
 const POPULATION = Number(process.env.POPULATION || '2')
 const GENERATIONS = Number(process.env.GENERATIONS || '2')
 const EPOCHS = Number(process.env.EPOCHS || '2')
@@ -175,11 +176,18 @@ async function main() {
   })
   const search = (await loadDataset('search')).sort((a, b) => a.id.localeCompare(b.id))
   const holdout = (await loadDataset('holdout')).sort((a, b) => a.id.localeCompare(b.id))
-  const trainScenarios = search.slice(0, TRAIN_N).map((it) => toScenario(it, 'search'))
-  const holdoutScenarios = holdout.slice(0, HOLDOUT_N).map((it) => toScenario(it, 'holdout'))
-  if (trainScenarios.length < TRAIN_N || holdoutScenarios.length < HOLDOUT_N) {
+  const trainScenarios = search.slice(0, TRAIN_N).map((it) => toScenario(it, 'train'))
+  const selectionScenarios = search
+    .slice(TRAIN_N, TRAIN_N + SELECTION_N)
+    .map((it) => toScenario(it, 'selection'))
+  const testScenarios = holdout.slice(0, TEST_N).map((it) => toScenario(it, 'test'))
+  if (
+    trainScenarios.length < TRAIN_N ||
+    selectionScenarios.length < SELECTION_N ||
+    testScenarios.length < TEST_N
+  ) {
     throw new Error(
-      `GSM8K corpus too small: train ${trainScenarios.length}/${TRAIN_N}, holdout ${holdoutScenarios.length}/${HOLDOUT_N}. Stage more rows.`,
+      `GSM8K corpus too small: train ${trainScenarios.length}/${TRAIN_N}, selection ${selectionScenarios.length}/${SELECTION_N}, test ${testScenarios.length}/${TEST_N}. Stage more rows.`,
     )
   }
 
@@ -191,12 +199,12 @@ async function main() {
   console.log('GSM8K substrate proof — gepa-reflection vs gepa-pareto vs skill-opt')
   console.log(`  model=${MODEL}  base=${BASE_URL}`)
   console.log(
-    `  train=${trainScenarios.length} holdout=${holdoutScenarios.length} pop=${POPULATION} gens=${GENERATIONS} epochs=${EPOCHS}`,
+    `  train=${trainScenarios.length} selection=${selectionScenarios.length} test=${testScenarios.length} pop=${POPULATION} gens=${GENERATIONS} epochs=${EPOCHS}`,
   )
 
-  // ── Baseline smoke: confirm the weak baseline leaves headroom (< 0.85). ──
+  // ── Baseline smoke on selection: confirm headroom without touching test. ──
   let baselineSmoke = 0
-  for (const sc of holdoutScenarios) {
+  for (const sc of selectionScenarios) {
     const art = await worker(BASELINE_SURFACE, sc, {
       cellId: `smoke-${sc.id}`,
       cost: { observe: () => {}, observeTokens: () => {} },
@@ -205,19 +213,17 @@ async function main() {
       await judge.score({ artifact: art, scenario: sc } as Parameters<typeof judge.score>[0])
     ).composite
   }
-  baselineSmoke /= holdoutScenarios.length
+  baselineSmoke /= selectionScenarios.length
   console.log(
-    `  baseline holdout accuracy = ${round(baselineSmoke)} ${baselineSmoke >= 0.85 ? '⚠ CEILING RISK (weaken the baseline)' : '(headroom OK)'}`,
+    `  baseline selection accuracy = ${round(baselineSmoke)} ${baselineSmoke >= 0.85 ? '⚠ CEILING RISK (weaken the baseline)' : '(headroom OK)'}`,
   )
   if (SMOKE) {
     console.log('SMOKE=1 → baseline-only, stopping before the optimizer run.')
     return
   }
 
-  const config: OptimizerEntryConfig<GsmScenario, Artifact> = {
+  const config: BuiltinProposerEntryConfig<GsmScenario, Artifact> = {
     baselineSurface: BASELINE_SURFACE,
-    trainScenarios,
-    holdoutScenarios,
     dispatchWithSurface: (surface, scenario, ctx) =>
       worker(String(surface), scenario as GsmScenario, ctx),
     judges: [judge],
@@ -239,7 +245,9 @@ async function main() {
       skillOptEntry(config, 'skill-opt'),
     ],
     baselineSurface: BASELINE_SURFACE,
-    holdoutScenarios,
+    trainScenarios,
+    selectionScenarios,
+    testScenarios,
     dispatchWithSurface: (surface, scenario, ctx) =>
       worker(String(surface), scenario as GsmScenario, ctx),
     judges: [judge],
@@ -263,8 +271,9 @@ async function main() {
       corpus: 'gsm8k',
       judge: 'deterministic-exact-match',
       trainN: trainScenarios.length,
-      holdoutN: holdoutScenarios.length,
-      holdoutScenarioIds: comparison.holdoutScenarioIds,
+      selectionN: selectionScenarios.length,
+      testN: testScenarios.length,
+      testScenarioIds: comparison.testScenarioIds,
     },
     model: { worker: MODEL, proposer: MODEL, provider: 'deepseek', baseUrl: BASE_URL },
     backendIntegrity: {
@@ -275,7 +284,7 @@ async function main() {
       outputTokens: integrity.totalOutputTokens,
       diagnosis: integrity.diagnosis,
     },
-    baselineHoldoutAccuracy: round(baselineSmoke),
+    baselineSelectionAccuracy: round(baselineSmoke),
     comparison: {
       scores: comparison.scores.map((s) => ({
         name: s.name,

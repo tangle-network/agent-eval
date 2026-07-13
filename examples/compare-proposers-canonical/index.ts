@@ -1,10 +1,10 @@
 /**
  * compareProposers canonical — the REAL head-to-head: gepa-reflection vs
  * gepa-pareto vs skill-opt on ONE corpus through a real LLM backend, scored
- * UNIFORMLY on the held-out split, with paired-bootstrap lift CIs. This is the
+ * UNIFORMLY on an untouched test split, with paired-bootstrap lift CIs. This is the
  * empirical companion to the deterministic mechanism gate (the compareProposers
  * unit tests in CI): the tests prove the harness ranks correctly; THIS proves
- * the optimizers move a real held-out number and tells us which wins.
+ * the optimizers move a real test number and tells us which wins.
  *
  * Provider-agnostic: defaults to the Tangle router, but any OpenAI-compatible
  * endpoint works — set LLM_BASE_URL + LLM_API_KEY + LLM_MODEL (+ optional
@@ -12,9 +12,9 @@
  * recorded honestly in the artifact. `assertRealBackend` aborts on a stub
  * (zero-token) run, so a fake $0 lift can never be reported.
  *
- * Bounded: population 2 × 2 generations (gepa), 3 epochs (skill-opt), 8 search
- * + 6 held-out scenarios, deterministic exact-match judge (no LLM-judge
- * variance). Completes in a few minutes / cents.
+ * Bounded: population 2 × 2 generations (gepa), 3 epochs (skill-opt), 5 train
+ * + 3 selection + 6 untouched test scenarios, deterministic exact-match judge
+ * (no LLM-judge variance). Completes in a few minutes / cents.
  *
  * Run (DeepSeek example):
  *   LLM_BASE_URL=https://api.deepseek.com/v1 LLM_API_KEY=$DEEPSEEK_API_KEY \
@@ -28,10 +28,10 @@
 import { mkdirSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import {
+  type BuiltinProposerEntryConfig,
   compareProposers,
   gepaParetoEntry,
   gepaReflectionEntry,
-  type OptimizerEntryConfig,
   skillOptEntry,
 } from '../../src/campaign'
 import { assertRealBackend, summarizeBackendIntegrity } from '../../src/integrity/backend-integrity'
@@ -65,6 +65,10 @@ const CALL_TIMEOUT_MS = 30_000
 const POPULATION = Number(process.env.POPULATION || '2')
 const GENERATIONS = Number(process.env.GENERATIONS || '2')
 const EPOCHS = Number(process.env.EPOCHS || '3')
+const SELECTION_N = 3
+const TRAIN = SEARCH.slice(0, -SELECTION_N)
+const SELECTION = SEARCH.slice(-SELECTION_N)
+const TEST = HOLDOUT
 
 if (!API_KEY) {
   console.error(
@@ -104,15 +108,13 @@ async function main() {
   )
   console.log(`  model=${MODEL}  base=${BASE_URL}`)
   console.log(
-    `  search=${SEARCH.length}  holdout=${HOLDOUT.length}  pop=${POPULATION} gens=${GENERATIONS} epochs=${EPOCHS}`,
+    `  train=${TRAIN.length} selection=${SELECTION.length} test=${TEST.length}  pop=${POPULATION} gens=${GENERATIONS} epochs=${EPOCHS}`,
   )
   console.log()
 
   // Shared corpus + transport for all three optimizer entries.
-  const config: OptimizerEntryConfig<ExtractScenario, Artifact> = {
+  const config: BuiltinProposerEntryConfig<ExtractScenario, Artifact> = {
     baselineSurface: BASELINE_SURFACE,
-    trainScenarios: SEARCH,
-    holdoutScenarios: HOLDOUT,
     dispatchWithSurface: (surface, scenario, ctx) =>
       worker(String(surface), scenario as ExtractScenario, ctx),
     judges: [extractionJudge([...SEARCH, ...HOLDOUT])],
@@ -134,10 +136,12 @@ async function main() {
       skillOptEntry(config, 'skill-opt'),
     ],
     baselineSurface: BASELINE_SURFACE,
-    holdoutScenarios: HOLDOUT,
+    trainScenarios: TRAIN,
+    selectionScenarios: SELECTION,
+    testScenarios: TEST,
     dispatchWithSurface: (surface, scenario, ctx) =>
       worker(String(surface), scenario as ExtractScenario, ctx),
-    judges: [extractionJudge([...SEARCH, ...HOLDOUT])],
+    judges: [extractionJudge([...TRAIN, ...SELECTION, ...TEST])],
     runDir: join(runRoot, 'score'),
     seed: 42,
     resamples: 4000,
@@ -167,9 +171,9 @@ async function main() {
       totalOutputTokens: integrity.totalOutputTokens,
       diagnosis: integrity.diagnosis,
     },
-    dataset: { search: SEARCH.length, holdout: HOLDOUT.length },
+    dataset: { train: TRAIN.length, selection: SELECTION.length, test: TEST.length },
     baselineSurface: BASELINE_SURFACE,
-    holdoutScenarioIds: comparison.holdoutScenarioIds,
+    testScenarioIds: comparison.testScenarioIds,
     scores: comparison.scores.map((s) => ({
       name: s.name,
       rank: s.rank,

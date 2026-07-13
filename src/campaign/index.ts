@@ -171,6 +171,7 @@ export {
 export { neutralizeText } from './neutralize'
 // ── Presets (the documented public surface) ──────────────────────────
 export {
+  type BuiltinProposerEntryConfig,
   type CompareProposersOptions,
   compareProposers,
   type FapoEntryConfig,
@@ -180,6 +181,7 @@ export {
   type OptimizerEntryConfig,
   type ProposerComparison,
   type ProposerEntry,
+  type ProposerOptimizationData,
   type ProposerPairwise,
   type ProposerScore,
   skillOptEntry,

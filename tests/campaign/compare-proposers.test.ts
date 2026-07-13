@@ -3,11 +3,12 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import {
+  type BuiltinProposerEntryConfig,
+  type CompareProposersOptions,
   compareProposers,
   fapoEscalationEntry,
   gepaParetoEntry,
   gepaReflectionEntry,
-  type OptimizerEntryConfig,
   type ProposerEntry,
   skillOptEntry,
 } from '../../src/campaign/presets/compare-proposers'
@@ -21,14 +22,30 @@ interface A {
   text: string
 }
 
-// Held-out scenarios; a surface scores 1 on a scenario iff it contains that
+const TRAIN: S[] = [
+  { id: 't1', kind: 'q' },
+  { id: 't2', kind: 'q' },
+  { id: 't3', kind: 'q' },
+]
+const SELECTION: S[] = [
+  { id: 's1', kind: 'q' },
+  { id: 's2', kind: 'q' },
+  { id: 's3', kind: 'q' },
+  { id: 's4', kind: 'q' },
+]
+// Untouched test scenarios; a surface scores 1 on a scenario iff it contains that
 // scenario's marker. So a winner that solves more scenarios scores higher.
-const HOLDOUT: S[] = [
+const TEST: S[] = [
   { id: 'h1', kind: 'q' },
   { id: 'h2', kind: 'q' },
   { id: 'h3', kind: 'q' },
   { id: 'h4', kind: 'q' },
 ]
+const PARTITIONS = {
+  trainScenarios: TRAIN,
+  selectionScenarios: SELECTION,
+  testScenarios: TEST,
+}
 const judge: JudgeConfig<A, S> = {
   name: 'solves',
   dimensions: [{ key: 'solved', description: 'scenario solved' }],
@@ -40,11 +57,11 @@ const judge: JudgeConfig<A, S> = {
 
 /** A proposer entry that "promotes" a fixed surface (no LLM) — lets the
  *  benchmark harness be exercised deterministically in CI. */
-function fixedEntry(name: string, winnerSurface: string, costUsd: number): ProposerEntry {
+function fixedEntry(name: string, winnerSurface: string, costUsd: number): ProposerEntry<S> {
   return { name, optimize: async () => ({ winnerSurface, costUsd, durationMs: 1 }) }
 }
 
-function fixedProposer(name: string, winnerSurface: string, costUsd: number): ProposerEntry {
+function fixedProposer(name: string, winnerSurface: string, costUsd: number): ProposerEntry<S> {
   return fixedEntry(name, winnerSurface, costUsd)
 }
 
@@ -57,7 +74,7 @@ afterEach(() => {
 })
 
 describe('compareProposers', () => {
-  it('ranks proposers by held-out lift, scores every winner uniformly, computes CIs', async () => {
+  it('ranks proposers by untouched-test lift, scores every winner uniformly, computes CIs', async () => {
     // Baseline solves nothing. Strong proposer solves all 4; weak solves 1.
     const result = await compareProposers<S, A>({
       proposers: [
@@ -65,7 +82,7 @@ describe('compareProposers', () => {
         fixedEntry('strong', 'SOLVE_h1 SOLVE_h2 SOLVE_h3 SOLVE_h4', 2.0),
       ],
       baselineSurface: 'nothing-solved',
-      holdoutScenarios: HOLDOUT,
+      ...PARTITIONS,
       dispatchWithSurface: async (surface) => ({ text: String(surface) }),
       judges: [judge],
       runDir,
@@ -101,14 +118,14 @@ describe('compareProposers', () => {
     expect(pw.deltaMean).toBeCloseTo(0.75, 5)
     expect(pw.favored).toBe('strong')
     expect(pw.low).toBeGreaterThan(0) // CI clears zero → a real difference
-    expect(result.holdoutScenarioIds).toEqual(['h1', 'h2', 'h3', 'h4'])
+    expect(result.testScenarioIds).toEqual(['h1', 'h2', 'h3', 'h4'])
   })
 
   it('reports a tie (CI straddling 0) when two proposers solve the same scenarios', async () => {
     const result = await compareProposers<S, A>({
       proposers: [fixedEntry('a', 'SOLVE_h1 SOLVE_h2', 1), fixedEntry('b', 'SOLVE_h1 SOLVE_h2', 1)],
       baselineSurface: 'nothing',
-      holdoutScenarios: HOLDOUT,
+      ...PARTITIONS,
       dispatchWithSurface: async (surface) => ({ text: String(surface) }),
       judges: [judge],
       runDir,
@@ -126,7 +143,7 @@ describe('compareProposers', () => {
         fixedEntry('cheap', 'SOLVE_h1 SOLVE_h2', 1),
       ],
       baselineSurface: 'nothing',
-      holdoutScenarios: HOLDOUT,
+      ...PARTITIONS,
       dispatchWithSurface: async (surface) => ({ text: String(surface) }),
       judges: [judge],
       runDir,
@@ -136,7 +153,7 @@ describe('compareProposers', () => {
     expect(result.best.name).toBe('cheap')
   })
 
-  it('FAILS LOUD when a surface is missing a held-out scenario score (no fabricated 0)', async () => {
+  it('FAILS LOUD when a surface is missing a test scenario score (no fabricated 0)', async () => {
     // A judge that errors on h3 → that cell has no score → the baseline score
     // vector omits h3. compareProposers must refuse to fabricate a 0 for the
     // missing scenario (which would corrupt the lift CI) and throw, naming h3.
@@ -152,7 +169,7 @@ describe('compareProposers', () => {
       compareProposers<S, A>({
         proposers: [fixedEntry('d', 'whatever', 1)],
         baselineSurface: 'b',
-        holdoutScenarios: HOLDOUT,
+        ...PARTITIONS,
         dispatchWithSurface: async (surface) => ({ text: String(surface) }),
         judges: [flakeyJudge],
         runDir,
@@ -166,7 +183,7 @@ describe('compareProposers', () => {
       compareProposers<S, A>({
         proposers: [],
         baselineSurface: 'x',
-        holdoutScenarios: HOLDOUT,
+        ...PARTITIONS,
         dispatchWithSurface: async (surface) => ({ text: String(surface) }),
         judges: [judge],
         runDir,
@@ -181,7 +198,7 @@ describe('compareProposers', () => {
         fixedProposer('strong', 'SOLVE_h1 SOLVE_h2 SOLVE_h3 SOLVE_h4', 2.0),
       ],
       baselineSurface: 'nothing-solved',
-      holdoutScenarios: HOLDOUT,
+      ...PARTITIONS,
       dispatchWithSurface: async (surface) => ({ text: String(surface) }),
       judges: [judge],
       runDir,
@@ -207,13 +224,127 @@ describe('compareProposers', () => {
       compareProposers<S, A>({
         proposers: [fixedProposer('d', 'whatever', 1)],
         baselineSurface: 'b',
-        holdoutScenarios: HOLDOUT,
+        ...PARTITIONS,
         dispatchWithSurface: async (surface) => ({ text: String(surface) }),
         judges: [flakeyJudge],
         runDir,
         expectUsage: 'off',
       }),
-    ).rejects.toThrow(/compareProposers: baseline produced no held-out score.*h3/)
+    ).rejects.toThrow(/compareProposers: baseline produced no test score.*h3/)
+  })
+
+  it('passes only train + selection to optimizers and keeps test unreachable', async () => {
+    let seen: unknown
+    const entry: ProposerEntry<S> = {
+      name: 'spy',
+      async optimize(data) {
+        seen = data
+        expect('testScenarios' in data).toBe(false)
+        return { winnerSurface: 'SOLVE_h1', costUsd: 0 }
+      },
+    }
+    await compareProposers<S, A>({
+      proposers: [entry],
+      baselineSurface: 'nothing',
+      ...PARTITIONS,
+      dispatchWithSurface: async (surface) => ({ text: String(surface) }),
+      judges: [judge],
+      runDir,
+      expectUsage: 'off',
+    })
+    expect(seen).toEqual({ trainScenarios: TRAIN, selectionScenarios: SELECTION })
+  })
+
+  it('finishes every optimization before the first test dispatch', async () => {
+    const events: string[] = []
+    const entry = (name: string): ProposerEntry<S> => ({
+      name,
+      async optimize() {
+        events.push(`optimize:${name}`)
+        return { winnerSurface: 'nothing', costUsd: 0 }
+      },
+    })
+
+    await compareProposers<S, A>({
+      proposers: [entry('a'), entry('b')],
+      baselineSurface: 'nothing',
+      ...PARTITIONS,
+      dispatchWithSurface: async (surface, scenario) => {
+        events.push(`test:${scenario.id}`)
+        return { text: String(surface) }
+      },
+      judges: [judge],
+      runDir,
+      expectUsage: 'off',
+    })
+
+    expect(events.slice(0, 2)).toEqual(['optimize:a', 'optimize:b'])
+    expect(events.slice(2).every((event) => event.startsWith('test:'))).toBe(true)
+  })
+
+  it.each([
+    ['train/selection', { ...PARTITIONS, trainScenarios: [...TRAIN, SELECTION[0]!] }],
+    ['train/test', { ...PARTITIONS, trainScenarios: [...TRAIN, TEST[0]!] }],
+    ['selection/test', { ...PARTITIONS, selectionScenarios: [...SELECTION, TEST[0]!] }],
+  ])('rejects %s overlap before any scoring', async (_label, partitions) => {
+    await expect(
+      compareProposers<S, A>({
+        proposers: [fixedEntry('d', 'whatever', 1)],
+        baselineSurface: 'b',
+        ...partitions,
+        dispatchWithSurface: async (surface) => ({ text: String(surface) }),
+        judges: [judge],
+        runDir,
+        expectUsage: 'off',
+      }),
+    ).rejects.toThrow(/must be pairwise disjoint/)
+  })
+
+  it.each([
+    'trainScenarios',
+    'selectionScenarios',
+    'testScenarios',
+  ] as const)('rejects an empty %s partition', async (partition) => {
+    await expect(
+      compareProposers<S, A>({
+        proposers: [fixedEntry('d', 'whatever', 1)],
+        baselineSurface: 'b',
+        ...PARTITIONS,
+        [partition]: [],
+        dispatchWithSurface: async (surface) => ({ text: String(surface) }),
+        judges: [judge],
+        runDir,
+        expectUsage: 'off',
+      }),
+    ).rejects.toThrow(new RegExp(`${partition} is empty`))
+  })
+
+  it('rejects duplicate scenario IDs within a partition', async () => {
+    await expect(
+      compareProposers<S, A>({
+        proposers: [fixedEntry('d', 'whatever', 1)],
+        baselineSurface: 'b',
+        ...PARTITIONS,
+        testScenarios: [...TEST, TEST[0]!],
+        dispatchWithSurface: async (surface) => ({ text: String(surface) }),
+        judges: [judge],
+        runDir,
+        expectUsage: 'off',
+      }),
+    ).rejects.toThrow(/testScenarios contains duplicate scenario id/)
+  })
+
+  it('fails closed on the ambiguous legacy holdoutScenarios contract', async () => {
+    const legacy = {
+      proposers: [fixedEntry('d', 'whatever', 1)],
+      baselineSurface: 'b',
+      holdoutScenarios: TEST,
+      dispatchWithSurface: async (surface: string) => ({ text: surface }),
+      judges: [judge],
+      runDir,
+      expectUsage: 'off',
+    } as unknown as CompareProposersOptions<S, A>
+    await expect(compareProposers(legacy)).rejects.toThrow(/holdoutScenarios is ambiguous/)
   })
 })
 
@@ -275,15 +406,10 @@ describe('compareProposers — built-in entries, real loops, faked LLM only', ()
     }) as unknown as typeof fetch
   }
 
-  it('runs gepa-reflection vs gepa-pareto vs skill-opt and ranks by measured held-out lift', async () => {
+  it('runs gepa-reflection vs gepa-pareto vs skill-opt and ranks by measured test lift', async () => {
     const baseline = '# Skill\n- base rule' // neither marker → composite 0
-    const config: OptimizerEntryConfig<S, A> = {
+    const config: BuiltinProposerEntryConfig<S, A> = {
       baselineSurface: baseline,
-      trainScenarios: [
-        { id: 't1', kind: 'q' },
-        { id: 't2', kind: 'q' },
-      ],
-      holdoutScenarios: HOLDOUT,
       dispatchWithSurface: async (surface) => ({ text: String(surface) }),
       judges: [markerJudge],
       llm: { apiKey: 'k', baseUrl: 'https://router.test/v1', fetch: tripleFetch(baseline) },
@@ -299,7 +425,7 @@ describe('compareProposers — built-in entries, real loops, faked LLM only', ()
     const result = await compareProposers<S, A>({
       proposers: [gepaReflectionEntry(config), gepaParetoEntry(config), skillOptEntry(config)],
       baselineSurface: baseline,
-      holdoutScenarios: HOLDOUT,
+      ...PARTITIONS,
       dispatchWithSurface: config.dispatchWithSurface,
       judges: [markerJudge],
       runDir: join(runDir, 'compare'),
@@ -331,7 +457,7 @@ describe('compareProposers — built-in entries, real loops, faked LLM only', ()
   })
 
   it("forwards config.findings through the GEPA entry into propose()'s reflection prompt", async () => {
-    // The wiring this guards: OptimizerEntryConfig.findings → gepaEntry →
+    // The wiring this guards: BuiltinProposerEntryConfig.findings → gepaEntry →
     // runImprovementLoop → runOptimization → ctx.findings → gepaProposer.propose →
     // reflection prompt. Capture the user prompt and assert the diagnosis landed.
     const baseline = '# Skill\n- base rule'
@@ -348,13 +474,8 @@ describe('compareProposers — built-in entries, real loops, faked LLM only', ()
       )
     }) as unknown as typeof fetch
 
-    const config: OptimizerEntryConfig<S, A> = {
+    const config: BuiltinProposerEntryConfig<S, A> = {
       baselineSurface: baseline,
-      trainScenarios: [
-        { id: 't1', kind: 'q' },
-        { id: 't2', kind: 'q' },
-      ],
-      holdoutScenarios: HOLDOUT,
       dispatchWithSurface: async (surface) => ({ text: String(surface) }),
       judges: [markerJudge],
       llm: { apiKey: 'k', baseUrl: 'https://router.test/v1', fetch: capturingFetch },
@@ -368,7 +489,7 @@ describe('compareProposers — built-in entries, real loops, faked LLM only', ()
         {
           severity: 'high',
           area: 'markers',
-          claim: 'the surface omits MARKER_TWO on every holdout scenario',
+          claim: 'the surface omits MARKER_TWO on every training scenario',
           recommended_action: 'append MARKER_TWO to the skill document',
         },
       ],
@@ -377,7 +498,7 @@ describe('compareProposers — built-in entries, real loops, faked LLM only', ()
     await compareProposers<S, A>({
       proposers: [gepaReflectionEntry(config)],
       baselineSurface: baseline,
-      holdoutScenarios: HOLDOUT,
+      ...PARTITIONS,
       dispatchWithSurface: config.dispatchWithSurface,
       judges: [markerJudge],
       runDir: join(runDir, 'findings-compare'),
@@ -412,13 +533,8 @@ describe('compareProposers — built-in entries, real loops, faked LLM only', ()
       )
     }) as unknown as typeof fetch
 
-    const config: OptimizerEntryConfig<S, A> = {
+    const config: BuiltinProposerEntryConfig<S, A> = {
       baselineSurface: baseline,
-      trainScenarios: [
-        { id: 't1', kind: 'q' },
-        { id: 't2', kind: 'q' },
-      ],
-      holdoutScenarios: HOLDOUT,
       dispatchWithSurface: async (surface) => ({ text: String(surface) }),
       judges: [markerJudge],
       llm: { apiKey: 'k', baseUrl: 'https://router.test/v1', fetch: fapoFetch },
@@ -433,7 +549,7 @@ describe('compareProposers — built-in entries, real loops, faked LLM only', ()
     const result = await compareProposers<S, A>({
       proposers: [fapoEscalationEntry(config)],
       baselineSurface: baseline,
-      holdoutScenarios: HOLDOUT,
+      ...PARTITIONS,
       dispatchWithSurface: config.dispatchWithSurface,
       judges: [markerJudge],
       runDir: join(runDir, 'fapo-compare'),
@@ -445,5 +561,75 @@ describe('compareProposers — built-in entries, real loops, faked LLM only', ()
     expect(result.best.winnerComposite).toBe(1)
     expect(String(result.best.winnerSurface)).toContain(M2)
     expect(prompts.join('\n')).toContain('Current variant')
+  })
+
+  it('requires GEPA, SkillOpt, and FAPO winners to clear selection before test scoring', async () => {
+    const baseline = '# baseline'
+    const candidate = `${baseline}\nTEST_ONLY_WIN`
+    const selectionFirewallJudge: JudgeConfig<A, S> = {
+      name: 'selection-firewall',
+      dimensions: [{ key: 'q', description: 'quality' }],
+      score: ({ artifact, scenario }) => {
+        const score = scenario.id.startsWith('s')
+          ? 0
+          : artifact.text.includes('TEST_ONLY_WIN')
+            ? 1
+            : 0
+        return { dimensions: { q: score }, composite: score, notes: '' }
+      },
+    }
+    const fetch = (async (_url: string, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body ?? '{}'))
+      const system: string =
+        body.messages?.find((m: { role: string }) => m.role === 'system')?.content ?? ''
+      const content = system.includes('SkillOpt optimizer')
+        ? JSON.stringify({
+            patches: [
+              {
+                label: 'test-only',
+                rationale: 'would win only on test',
+                ops: [{ op: 'add', text: 'TEST_ONLY_WIN' }],
+              },
+            ],
+          })
+        : JSON.stringify({
+            proposals: [{ label: 'test-only', rationale: 'test-only', payload: candidate }],
+          })
+      return new Response(
+        JSON.stringify({ choices: [{ message: { content } }], usage: { total_tokens: 5 } }),
+        { status: 200, headers: { 'content-type': 'application/json' } },
+      )
+    }) as unknown as typeof globalThis.fetch
+    const config: BuiltinProposerEntryConfig<S, A> = {
+      baselineSurface: baseline,
+      dispatchWithSurface: async (surface) => ({ text: String(surface) }),
+      judges: [selectionFirewallJudge],
+      llm: { apiKey: 'k', baseUrl: 'https://router.test/v1', fetch },
+      model: 'test-model',
+      target: 'a skill document',
+      runDir: join(runDir, 'selection-firewall-loops'),
+      seed: 7,
+      populationSize: 1,
+      maxGenerations: 1,
+      maxEpochs: 1,
+    }
+
+    const result = await compareProposers<S, A>({
+      proposers: [gepaReflectionEntry(config), skillOptEntry(config), fapoEscalationEntry(config)],
+      baselineSurface: baseline,
+      ...PARTITIONS,
+      dispatchWithSurface: config.dispatchWithSurface,
+      judges: [selectionFirewallJudge],
+      runDir: join(runDir, 'selection-firewall-compare'),
+      seed: 7,
+      expectUsage: 'off',
+    })
+
+    expect(result.scores.map((score) => score.winnerSurface)).toEqual([
+      baseline,
+      baseline,
+      baseline,
+    ])
+    expect(result.scores.every((score) => score.winnerComposite === 0)).toBe(true)
   })
 })

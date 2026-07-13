@@ -7,15 +7,16 @@
  *   baseline  vs  gepa-reflection  vs  gepa-pareto  vs  memory-curation  vs  halo
  *
  * Each arm optimizes the SAME baseline agent instruction prompt (the surface)
- * on a TRAIN split, then every winner + the baseline are scored on a held-out
- * split via paired bootstrap CIs (compareProposers). The agent itself is the real
+ * on a train split, accepts candidates on a separate selection split, then every
+ * winner + the baseline are scored on an untouched test split via paired
+ * bootstrap CIs (`compareProposers`). The agent itself is the real
  * non-MCP REPL worker (repl_agent.py) driving real AppWorld tasks through the
  * Tangle router — no mocks, objective scoring.
  *
  * Run (overnight):
  *   export OPENAI_BASE_URL=https://router.tangle.tools/v1 OPENAI_API_KEY=$(cat /tmp/.tk)
  *   APPWORLD_DIR=/tmp/halo-repo/demo/appworld \
- *   BENCH_MODEL=gpt-5-mini TRAIN_N=4 HOLDOUT_N=6 MAX_GEN=2 \
+ *   BENCH_MODEL=gpt-5-mini TRAIN_N=4 SELECTION_N=4 TEST_N=6 MAX_GEN=2 \
  *   pnpm tsx examples/benchmarks/appworld/run-bench.ts > /tmp/appworld-bench/run.log 2>&1
  *
  * Output: a markdown report + the raw ProposerComparison JSON under OUT_DIR.
@@ -33,6 +34,7 @@ import {
   IMPROVEMENT_KIND_SPEC,
 } from '../../../src'
 import {
+  type BuiltinProposerEntryConfig,
   compareProposers,
   type DispatchContext,
   defaultProductionGate,
@@ -42,7 +44,6 @@ import {
   type JudgeConfig,
   type MutableSurface,
   memoryCurationProposer,
-  type OptimizerEntryConfig,
   type ProposerEntry,
   runImprovementLoop,
   type Scenario,
@@ -61,14 +62,15 @@ const REFLECT_MODEL = process.env.BENCH_REFLECT_MODEL ?? 'deepseek-v4-pro' // pr
 const BASE_URL = process.env.OPENAI_BASE_URL ?? 'https://router.tangle.tools/v1'
 const API_KEY = process.env.OPENAI_API_KEY ?? ''
 const TRAIN_N = Number(process.env.TRAIN_N ?? 3)
-const HOLDOUT_N = Number(process.env.HOLDOUT_N ?? 5)
+const SELECTION_N = Number(process.env.SELECTION_N ?? 3)
+const TEST_N = Number(process.env.TEST_N ?? 5)
 const MAX_GEN = Number(process.env.MAX_GEN ?? 1)
 const POP = Number(process.env.POP ?? 2)
-const REPS = Number(process.env.REPS ?? 5) // shots per holdout cell → bootstrap CIs over reps×scenarios
+const REPS = Number(process.env.REPS ?? 5) // shots per test cell → bootstrap CIs over reps×scenarios
 const MAX_STEPS = Number(process.env.MAX_STEPS ?? 0) // 0 = no cap (maxTurns=0)
 const MAX_WALL = Number(process.env.MAX_WALL ?? 900) // per-episode wall-clock safety net (s)
 const TEMPERATURE = Number(process.env.TEMPERATURE ?? 0.7) // >0 → independent shots (vs cached reps)
-const MAXCONC = Number(process.env.MAXCONC ?? 3) // holdout-scoring concurrency (router absorbs 429s)
+const MAXCONC = Number(process.env.MAXCONC ?? 3) // test-scoring concurrency (router absorbs 429s)
 const CALL_TIMEOUT = Number(process.env.CALL_TIMEOUT ?? 120)
 const MAX_TOKENS = Number(process.env.MAX_TOKENS ?? 6000)
 const OUT_DIR = process.env.OUT_DIR ?? join(tmpdir(), 'appworld-bench')
@@ -111,12 +113,12 @@ mkdirSync(OUT_DIR, { recursive: true })
 // leaves zero lift headroom for the bake-off; difficulty 3 lands at tgc≈0 /
 // sgc≈0.9 (composite ~0.45) — the movable regime where a better prompt can win.
 const BENCH_DIFFICULTY = process.env.BENCH_DIFFICULTY // '1' | '2' | '3' | undefined
-// Which AppWorld split to draw train+holdout from. Default 'dev' (small). For a
+// Which AppWorld split to draw train+selection+test from. Default 'dev' (small). For a
 // difficulty-3 proof use 'train' (18 d3 tasks) — 'dev' has only 3 d3 tasks.
 const BENCH_SPLIT = process.env.BENCH_SPLIT ?? 'dev'
 
 /** AppWorld task ids — load deterministically from BENCH_SPLIT, take
- *  train+holdout as disjoint slices. */
+ *  train+selection+test as disjoint slices. */
 async function loadTaskIds(): Promise<string[]> {
   const arg = BENCH_DIFFICULTY ? `, difficulty=${Number(BENCH_DIFFICULTY)}` : ''
   const { stdout } = await execFileAsync(
@@ -243,15 +245,16 @@ const appworldJudge: JudgeConfig<AppWorldArtifact, AppWorldScenario> = {
 
 /** memory-curation entry — runs runImprovementLoop with the curator proposer. */
 function memoryEntry(
-  config: OptimizerEntryConfig<AppWorldScenario, AppWorldArtifact>,
-): ProposerEntry {
+  config: BuiltinProposerEntryConfig<AppWorldScenario, AppWorldArtifact>,
+): ProposerEntry<AppWorldScenario> {
   return {
     name: 'memory-curation',
-    async optimize() {
+    async optimize(data) {
       const started = Date.now()
+      const selectionScenarios = [...data.selectionScenarios]
       const result = await runImprovementLoop<AppWorldScenario, AppWorldArtifact>({
-        scenarios: config.trainScenarios,
-        holdoutScenarios: config.holdoutScenarios,
+        scenarios: [...data.trainScenarios],
+        holdoutScenarios: selectionScenarios,
         baselineSurface: config.baselineSurface,
         dispatchWithSurface: config.dispatchWithSurface,
         judges: config.judges,
@@ -259,7 +262,7 @@ function memoryEntry(
         populationSize: 1,
         maxGenerations: config.maxGenerations ?? MAX_GEN,
         gate: defaultProductionGate<AppWorldArtifact, AppWorldScenario>({
-          holdoutScenarios: config.holdoutScenarios,
+          holdoutScenarios: selectionScenarios,
           deltaThreshold: 0,
         }),
         autoOnPromote: 'none',
@@ -272,22 +275,28 @@ function memoryEntry(
           (s, g) => s + g.surfaces.reduce((a, sf) => a + sf.campaign.aggregates.totalCostUsd, 0),
           0,
         )
-      return { winnerSurface: result.winnerSurface, costUsd, durationMs: Date.now() - started }
+      return {
+        winnerSurface:
+          result.gateResult.decision === 'ship' ? result.winnerSurface : config.baselineSurface,
+        costUsd,
+        durationMs: Date.now() - started,
+      }
     },
   }
 }
 
 /** halo entry — runs runImprovementLoop with the real halo-engine proposer. */
 function haloEntry(
-  config: OptimizerEntryConfig<AppWorldScenario, AppWorldArtifact>,
-): ProposerEntry {
+  config: BuiltinProposerEntryConfig<AppWorldScenario, AppWorldArtifact>,
+): ProposerEntry<AppWorldScenario> {
   return {
     name: 'halo',
-    async optimize() {
+    async optimize(data) {
       const started = Date.now()
+      const selectionScenarios = [...data.selectionScenarios]
       const result = await runImprovementLoop<AppWorldScenario, AppWorldArtifact>({
-        scenarios: config.trainScenarios,
-        holdoutScenarios: config.holdoutScenarios,
+        scenarios: [...data.trainScenarios],
+        holdoutScenarios: selectionScenarios,
         baselineSurface: config.baselineSurface,
         dispatchWithSurface: config.dispatchWithSurface,
         judges: config.judges,
@@ -307,7 +316,7 @@ function haloEntry(
         populationSize: 1,
         maxGenerations: config.maxGenerations ?? MAX_GEN,
         gate: defaultProductionGate<AppWorldArtifact, AppWorldScenario>({
-          holdoutScenarios: config.holdoutScenarios,
+          holdoutScenarios: selectionScenarios,
           deltaThreshold: 0,
         }),
         autoOnPromote: 'none',
@@ -320,7 +329,12 @@ function haloEntry(
           (s, g) => s + g.surfaces.reduce((a, sf) => a + sf.campaign.aggregates.totalCostUsd, 0),
           0,
         )
-      return { winnerSurface: result.winnerSurface, costUsd, durationMs: Date.now() - started }
+      return {
+        winnerSurface:
+          result.gateResult.decision === 'ship' ? result.winnerSurface : config.baselineSurface,
+        costUsd,
+        durationMs: Date.now() - started,
+      }
     },
   }
 }
@@ -343,19 +357,20 @@ function resolveTrainTraces(): string {
 // Our trace-analyst engine as the symmetric opponent to HALO: identical loop,
 // gate, traces, and apply-step — only the findings producer differs.
 function traceAnalystEntry(
-  config: OptimizerEntryConfig<AppWorldScenario, AppWorldArtifact>,
-): ProposerEntry {
+  config: BuiltinProposerEntryConfig<AppWorldScenario, AppWorldArtifact>,
+): ProposerEntry<AppWorldScenario> {
   const kinds =
     ANALYST_KINDS === 'all'
       ? DEFAULT_TRACE_ANALYST_KINDS
       : [FAILURE_MODE_KIND_SPEC, IMPROVEMENT_KIND_SPEC]
   return {
     name: 'trace-analyst',
-    async optimize() {
+    async optimize(data) {
       const started = Date.now()
+      const selectionScenarios = [...data.selectionScenarios]
       const result = await runImprovementLoop<AppWorldScenario, AppWorldArtifact>({
-        scenarios: config.trainScenarios,
-        holdoutScenarios: config.holdoutScenarios,
+        scenarios: [...data.trainScenarios],
+        holdoutScenarios: selectionScenarios,
         baselineSurface: config.baselineSurface,
         dispatchWithSurface: config.dispatchWithSurface,
         judges: config.judges,
@@ -369,7 +384,7 @@ function traceAnalystEntry(
         populationSize: 1,
         maxGenerations: config.maxGenerations ?? MAX_GEN,
         gate: defaultProductionGate<AppWorldArtifact, AppWorldScenario>({
-          holdoutScenarios: config.holdoutScenarios,
+          holdoutScenarios: selectionScenarios,
           deltaThreshold: 0,
         }),
         autoOnPromote: 'none',
@@ -382,7 +397,12 @@ function traceAnalystEntry(
           (s, g) => s + g.surfaces.reduce((a, sf) => a + sf.campaign.aggregates.totalCostUsd, 0),
           0,
         )
-      return { winnerSurface: result.winnerSurface, costUsd, durationMs: Date.now() - started }
+      return {
+        winnerSurface:
+          result.gateResult.decision === 'ship' ? result.winnerSurface : config.baselineSurface,
+        costUsd,
+        durationMs: Date.now() - started,
+      }
     },
   }
 }
@@ -392,14 +412,19 @@ const latestTracePaths: string[] = []
 
 async function main(): Promise<void> {
   const ids = await loadTaskIds()
-  if (ids.length < TRAIN_N + HOLDOUT_N) {
-    throw new Error(`AppWorld dev has ${ids.length} tasks; need ${TRAIN_N + HOLDOUT_N}`)
+  if (ids.length < TRAIN_N + SELECTION_N + TEST_N) {
+    throw new Error(
+      `AppWorld ${BENCH_SPLIT} has ${ids.length} tasks; need ${TRAIN_N + SELECTION_N + TEST_N}`,
+    )
   }
   const trainScenarios: AppWorldScenario[] = ids
     .slice(0, TRAIN_N)
     .map((taskId) => ({ id: taskId, kind: 'appworld', taskId }))
-  const holdoutScenarios: AppWorldScenario[] = ids
-    .slice(TRAIN_N, TRAIN_N + HOLDOUT_N)
+  const selectionScenarios: AppWorldScenario[] = ids
+    .slice(TRAIN_N, TRAIN_N + SELECTION_N)
+    .map((taskId) => ({ id: taskId, kind: 'appworld', taskId }))
+  const testScenarios: AppWorldScenario[] = ids
+    .slice(TRAIN_N + SELECTION_N, TRAIN_N + SELECTION_N + TEST_N)
     .map((taskId) => ({ id: taskId, kind: 'appworld', taskId }))
 
   // Baseline surface = the worker's baseline SYSTEM_PROMPT.
@@ -425,10 +450,8 @@ async function main(): Promise<void> {
     return art
   }
 
-  const cfg: OptimizerEntryConfig<AppWorldScenario, AppWorldArtifact> = {
+  const cfg: BuiltinProposerEntryConfig<AppWorldScenario, AppWorldArtifact> = {
     baselineSurface,
-    trainScenarios,
-    holdoutScenarios,
     dispatchWithSurface: recordingDispatch,
     judges: [appworldJudge],
     llm: { baseUrl: BASE_URL, apiKey: API_KEY },
@@ -440,7 +463,7 @@ async function main(): Promise<void> {
     maxGenerations: MAX_GEN,
   }
 
-  let proposers: ProposerEntry[] = [
+  let proposers: ProposerEntry<AppWorldScenario>[] = [
     gepaReflectionEntry(cfg),
     gepaParetoEntry(cfg),
     memoryEntry(cfg),
@@ -458,19 +481,21 @@ async function main(): Promise<void> {
   }
 
   console.log(
-    `[bench] model=${MODEL} reflect=${REFLECT_MODEL} train=${TRAIN_N} holdout=${HOLDOUT_N} gen=${MAX_GEN} pop=${POP} proposers=${proposers.map((d) => d.name).join(',')}`,
+    `[bench] model=${MODEL} reflect=${REFLECT_MODEL} train=${TRAIN_N} selection=${SELECTION_N} test=${TEST_N} gen=${MAX_GEN} pop=${POP} proposers=${proposers.map((d) => d.name).join(',')}`,
   )
 
   const comparison = await compareProposers<AppWorldScenario, AppWorldArtifact>({
     proposers,
     baselineSurface,
-    holdoutScenarios,
+    trainScenarios,
+    selectionScenarios,
+    testScenarios,
     dispatchWithSurface: recordingDispatch,
     judges: [appworldJudge],
     runDir: join(OUT_DIR, 'compare'),
     seed: SEED,
-    reps: REPS, // 5 shots per holdout cell — the CI is over reps×scenarios, not a single point
-    maxConcurrency: MAXCONC, // parallelize the holdout-scoring fan-out (the bulk of the run)
+    reps: REPS, // 5 shots per test cell — the CI is over reps×scenarios, not a single point
+    maxConcurrency: MAXCONC, // parallelize the test-scoring fan-out (the bulk of the run)
     expectUsage: 'assert', // NO STUBS — a zero-token cell fails loud, never silently scored 0
   })
 
@@ -494,7 +519,7 @@ function renderReport(c: Awaited<ReturnType<typeof compareProposers>>): string {
   return `# AppWorld proposer-comparison benchmark
 
 Public benchmark (AppWorld dev), objective scoring (\`world.evaluate\` TGC/SGC), paired bootstrap CIs.
-Held-out scenarios: ${c.holdoutScenarioIds.length} — \`${c.holdoutScenarioIds.join(', ')}\`
+Untouched test scenarios: ${c.testScenarioIds.length} — \`${c.testScenarioIds.join(', ')}\`
 
 | rank | proposer | baseline | winner | lift | 95% CI | cost |
 |---|---|---|---|---|---|---|

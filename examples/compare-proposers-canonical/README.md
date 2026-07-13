@@ -3,12 +3,13 @@
 The **live** companion to the deterministic mechanism gate. The unit tests
 (`tests/campaign/compare-proposers.test.ts`, run on every PR in `ci.yml`) prove
 the `compareProposers` harness *ranks* correctly with a faked LLM. This example
-proves the optimizers move a **real** held-out number on a **real** backend and
+proves the optimizers move a **real** untouched-test number on a **real** backend and
 records **which proposer wins** — the artifact a case study is made of.
 
 It runs `gepa-reflection` vs `gepa-pareto` vs `skill-opt` on one corpus
 (transaction-field extraction, a **deterministic** exact-match judge → zero
-LLM-judge variance), scores every winner **uniformly** on the held-out split,
+LLM-judge variance), lets each optimizer adapt on a separate selection split,
+scores every winner **uniformly** on the untouched test split,
 and reports per-proposer lift + paired-bootstrap CIs. `assertRealBackend` aborts
 on a stub (zero-token) run, so a fake `$0` lift can never be reported.
 
@@ -34,9 +35,14 @@ Knobs: `POPULATION` / `GENERATIONS` (GEPA), `EPOCHS` (SkillOpt). The durable
 artifact lands in `.evolve/compare-proposers-canonical/<ts>/lift-proposers.json`;
 [`lift-proposers.json`](./lift-proposers.json) here is a checked-in reference run.
 
-## First real result (deepseek-chat, n=6 held-out, integrity `real`)
+## Historical result — not valid for proposer ranking
 
-| Proposer | Held-out lift | 95% CI | base → winner | $cost |
+The checked-in June 2026 artifact reused its six “holdout” scenarios for
+SkillOpt edit acceptance and final proposer ranking.
+Those rows prove the backend and scoring path ran, but the ranking is selection-contaminated and must not support a research claim.
+Regenerate it with the current train/selection/test contract before citing a proposer comparison.
+
+| Proposer | Contaminated lift | 95% CI | base → winner | $cost |
 |---|---|---|---|---|
 | #1 gepa-reflection | **+0.417** | [0.208, 0.583] | 0.583 → 1.000 | $0.0028 |
 | #2 skill-opt | +0.417 | [0.208, 0.583] | 0.583 → 1.000 | $0.0035 |
@@ -44,12 +50,10 @@ artifact lands in `.evolve/compare-proposers-canonical/<ts>/lift-proposers.json`
 
 176 real calls, 16,779 in / 7,175 out tokens, $0.012, 131s.
 
-**Honest reading:** all three proposers produce a **statistically-clear** real
-lift (CI low = 0.208 > 0 → `lift-proven`), but they are **tied with each
-other** — this task saturates to the ceiling, so it can't separate the
-optimizers. To differentiate GEPA from SkillOpt you need a harder corpus with
-more headroom (a product persona suite is the next target). The instrument is
-proven; the separation experiment is the follow-on.
+**Honest reading:** no final proposer-comparison conclusion is licensed by this
+artifact because one optimizer adapted to the final scoring rows.
+The next run must report all three disjoint denominators and use only the test
+rows for lift and pairwise intervals.
 
 ## Relationship to CI
 
