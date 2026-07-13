@@ -4,7 +4,7 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ---
 
-## [0.116.1] — 2026-07-13 — bounded behavioral evidence
+## [0.117.0] — 2026-07-13 — durable cost and bounded behavioral evidence
 
 ### Added
 
@@ -15,10 +15,15 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 - `CostLedger.runPaidCall()` is now the single paid-call path across campaigns, proposers, judges, analysts, and distillation.
   It durably reserves maximum spend before dispatch, records provider receipts, blocks unresolved crash state, and enforces the run ceiling before another paid call starts.
 
+### Breaking
+
+- `CostLedger.record()` is removed because recording spend after a provider call cannot enforce a cost limit or survive a crash.
+  Use `CostLedger.runPaidCall()` for billable work, `CostLedger` receipt import for already-settled calls, or `costForUsage()` for pure estimates.
+
 ### Fixed
 
-- Repeated-call findings now require a contiguous, time-bounded episode instead of grouping identical calls across an entire run.
-- Token-growth and output-decay findings now require every adjacent paired sample to support the reported trend.
+- Repeated-call findings now require a contiguous, time-bounded episode within one agent branch instead of grouping identical calls across an entire run.
+- Behavioral token findings now analyze one trace at a time, require complete and deterministic ordering, and only attribute output decay to context that actually grew.
 
 ## [0.116.0] — 2026-07-12 — evidence-linked AgentProfile optimization
 

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import type { Run, ToolSpan } from '../trace/schema'
+import type { Run, Span, ToolSpan } from '../trace/schema'
 import { InMemoryTraceStore } from '../trace/store'
 import { stuckLoopView } from './stuck-loop'
 
@@ -15,7 +15,7 @@ function tool(i: number, name: string, args: unknown, startedAt = 1000 + i * 100
   }
 }
 
-async function storeWith(spans: ToolSpan[]): Promise<InMemoryTraceStore> {
+async function storeWith(spans: Span[]): Promise<InMemoryTraceStore> {
   const store = new InMemoryTraceStore()
   await store.appendRun({ runId: 'r', scenarioId: 's' } as Run)
   for (const s of spans) await store.appendSpan(s)
@@ -158,6 +158,56 @@ describe('stuckLoopView', () => {
     const r = await stuckLoopView(store)
 
     expect(r.findings).toHaveLength(0)
+  })
+
+  it('does not combine one identical call from each parallel agent', async () => {
+    const workers: Span[] = [0, 1, 2].map((index) => ({
+      spanId: `worker-${index}`,
+      runId: 'r',
+      kind: 'agent',
+      name: `worker.${index}`,
+      startedAt: 0,
+    }))
+    const calls = [0, 1, 2].map((index) => ({
+      ...tool(index, 'status', { scope: 'project' }, 1000),
+      parentSpanId: `worker-${index}`,
+    }))
+
+    const r = await stuckLoopView(await storeWith([...workers, ...calls]))
+
+    expect(r.findings).toHaveLength(0)
+  })
+
+  it('joins sequential calls with distinct LLM parents under one agent', async () => {
+    const agent: Span = {
+      spanId: 'agent',
+      runId: 'r',
+      kind: 'agent',
+      name: 'agent',
+      startedAt: 0,
+    }
+    const llmParents: Span[] = [0, 1, 2].map((index) => ({
+      spanId: `llm-${index}`,
+      parentSpanId: 'agent',
+      runId: 'r',
+      kind: 'llm',
+      name: `llm.${index}`,
+      startedAt: index * 1000,
+      model: 'model',
+      messages: [],
+    }))
+    const calls = [0, 1, 2].map((index) => ({
+      ...tool(index, 'status', { scope: 'project' }, 1000 + index * 1000),
+      parentSpanId: `llm-${index}`,
+    }))
+
+    const r = await stuckLoopView(await storeWith([agent, ...llmParents, ...calls]))
+
+    expect(r.findings).toHaveLength(1)
+    expect(r.findings[0]).toMatchObject({
+      scopeSpanId: 'agent',
+      spanIds: ['t0', 't1', 't2'],
+    })
   })
 
   it('returns only the repeated cluster inside the configured window', async () => {

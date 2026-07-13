@@ -8,8 +8,8 @@
  * fraction of runs affected.
  */
 
-import { argHash, toolSpans } from '../trace/query'
-import type { ToolSpan } from '../trace/schema'
+import { argHash } from '../trace/query'
+import { isToolSpan, type Span, type ToolSpan } from '../trace/schema'
 import type { TraceStore } from '../trace/store'
 
 const DEFAULT_MAX_WINDOW_MS = 60_000
@@ -18,6 +18,7 @@ const DEFAULT_MAX_INTERVENING_TOOL_CALLS = 0
 interface IndexedToolCall {
   span: ToolSpan
   toolCallIndex: number
+  scopeSpanId: string | null
 }
 
 export interface StuckLoopFinding {
@@ -27,6 +28,8 @@ export interface StuckLoopFinding {
   /** Calls in this episode's densest qualifying interval, not the whole-run total. */
   occurrences: number
   spanIds: string[]
+  /** Nearest agent ancestor, or the direct parent when ancestry is incomplete. */
+  scopeSpanId?: string
   /** Milliseconds between first and last call in the loop. */
   windowMs: number
 }
@@ -74,28 +77,41 @@ export async function stuckLoopView(
 
   const findings: StuckLoopFinding[] = []
   for (const { runId } of runs) {
-    const tools = await toolSpans(store, runId)
-    const orderedTools = tools
+    const spans = await store.spans({ runId })
+    const spansById = new Map(spans.map((span) => [span.spanId, span]))
+    const nextToolIndexByScope = new Map<string | null, number>()
+    const orderedTools = spans
+      .filter(isToolSpan)
       .map((span, sourceIndex) => ({ span, sourceIndex }))
       .sort((a, b) => a.span.startedAt - b.span.startedAt || a.sourceIndex - b.sourceIndex)
-      .map(({ span }, toolCallIndex): IndexedToolCall => ({ span, toolCallIndex }))
-    const byKey = new Map<string, { calls: IndexedToolCall[]; argHash: string; toolName: string }>()
+      .map(({ span }): IndexedToolCall => {
+        const scopeSpanId = executionScopeSpanId(span, spansById)
+        const toolCallIndex = nextToolIndexByScope.get(scopeSpanId) ?? 0
+        nextToolIndexByScope.set(scopeSpanId, toolCallIndex + 1)
+        return { span, toolCallIndex, scopeSpanId }
+      })
+    const byKey = new Map<
+      string,
+      {
+        calls: IndexedToolCall[]
+        argHash: string
+        toolName: string
+        scopeSpanId: string | null
+      }
+    >()
     for (const call of orderedTools) {
       const h = argHash(call.span.args)
-      // NUL delimiter never appears in a tool name or a JSON argHash, so the
-      // key cannot collide; toolName is carried in the bucket rather than
-      // re-derived by splitting the key (which mislabeled any tool whose name
-      // contained the delimiter, e.g. "shell|grep").
-      const key = `${call.span.toolName}\u0000${h}`
+      const key = JSON.stringify([call.scopeSpanId, call.span.toolName, h])
       const bucket = byKey.get(key) ?? {
         calls: [],
         argHash: h,
         toolName: call.span.toolName,
+        scopeSpanId: call.scopeSpanId,
       }
       bucket.calls.push(call)
       byKey.set(key, bucket)
     }
-    for (const { calls, argHash: h, toolName } of byKey.values()) {
+    for (const { calls, argHash: h, toolName, scopeSpanId } of byKey.values()) {
       if (calls.length < minOccurrences) continue
       let episodeStart = 0
       for (let episodeEnd = 1; episodeEnd <= calls.length; episodeEnd += 1) {
@@ -130,6 +146,7 @@ export async function stuckLoopView(
             argHash: h,
             occurrences: loop.length,
             spanIds: loop.map((call) => call.span.spanId),
+            ...(scopeSpanId ? { scopeSpanId } : {}),
             windowMs: last - first,
           })
         }
@@ -144,4 +161,20 @@ export async function stuckLoopView(
     affectedRunRatio: runs.length > 0 ? affectedRuns.size / runs.length : 0,
     totalRuns: runs.length,
   }
+}
+
+function executionScopeSpanId(span: ToolSpan, spansById: ReadonlyMap<string, Span>): string | null {
+  const directParent = span.parentSpanId
+  if (!directParent) return null
+
+  let currentId: string | undefined = directParent
+  const seen = new Set<string>()
+  while (currentId && !seen.has(currentId)) {
+    seen.add(currentId)
+    const current = spansById.get(currentId)
+    if (!current) return directParent
+    if (current.kind === 'agent') return current.spanId
+    currentId = current.parentSpanId
+  }
+  return directParent
 }

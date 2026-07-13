@@ -34,6 +34,8 @@ export interface SuboptimalSignal {
 }
 
 export interface BehavioralMetrics {
+  /** The only trace represented by these metrics; null when spans are empty. */
+  traceId: string | null
   llmCallCount: number
   inputTokenTrajectory: number[]
   outputTokenTrajectory: number[]
@@ -96,12 +98,30 @@ function toolNameOf(s: TraceAnalystSpan): string | null {
  * Pure + deterministic: same spans → same output, on any machine, no model.
  */
 export function computeTraceMetrics(spans: readonly TraceAnalystSpan[]): BehavioralMetrics {
-  // Order by step (when present) then start_time so trajectories reflect run order.
-  const ordered = [...spans].sort((a, b) => {
-    const sa = stepOf(a)
-    const sb = stepOf(b)
-    if (sa !== null && sb !== null && sa !== sb) return sa - sb
-    return a.start_time.localeCompare(b.start_time)
+  const traceIds = new Set(spans.map((span) => span.trace_id))
+  if (traceIds.size > 1) {
+    throw new Error(
+      `computeTraceMetrics: expected spans from one trace, received ${traceIds.size} traces`,
+    )
+  }
+  const traceId = traceIds.values().next().value ?? null
+
+  const samples = spans.map((span) => ({
+    span,
+    input: inputTokensOf(span),
+    output: outputTokensOf(span),
+    step: stepOf(span),
+  }))
+  const llmSamples = samples.filter((sample) => sample.span.kind === 'LLM')
+  const tokenSamples =
+    llmSamples.length > 0
+      ? llmSamples
+      : samples.filter((sample) => sample.input !== null || sample.output !== null)
+  const hasCompleteStepOrder = tokenSamples.every((sample) => sample.step !== null)
+  tokenSamples.sort((a, b) => {
+    if (hasCompleteStepOrder && a.step !== b.step) return a.step! - b.step!
+    const timeOrder = a.span.start_time.localeCompare(b.span.start_time)
+    return timeOrder || a.span.span_id.localeCompare(b.span.span_id)
   })
 
   const inputTokenTrajectory: number[] = []
@@ -110,12 +130,15 @@ export function computeTraceMetrics(spans: readonly TraceAnalystSpan[]): Behavio
   const toolHistogram: Record<string, number> = {}
   let hasSelfVerification = false
 
-  for (const s of ordered) {
-    const inT = inputTokensOf(s)
-    if (inT !== null) inputTokenTrajectory.push(inT)
-    const outT = outputTokensOf(s)
-    if (outT !== null) outputTokenTrajectory.push(outT)
-    if (inT !== null && outT !== null) pairedTokenTrajectory.push({ input: inT, output: outT })
+  for (const sample of tokenSamples) {
+    if (sample.input !== null) inputTokenTrajectory.push(sample.input)
+    if (sample.output !== null) outputTokenTrajectory.push(sample.output)
+    if (sample.input !== null && sample.output !== null) {
+      pairedTokenTrajectory.push({ input: sample.input, output: sample.output })
+    }
+  }
+
+  for (const s of spans) {
     const tool = toolNameOf(s)
     if (tool) {
       toolHistogram[tool] = (toolHistogram[tool] ?? 0) + 1
@@ -129,7 +152,7 @@ export function computeTraceMetrics(spans: readonly TraceAnalystSpan[]): Behavio
 
   const signals: SuboptimalSignal[] = []
 
-  if (inputTokenTrajectory.length >= 3) {
+  if (inputTokenTrajectory.length >= 3 && inputTokenTrajectory.length === tokenSamples.length) {
     const first = inputTokenTrajectory[0]!
     const last = inputTokenTrajectory[inputTokenTrajectory.length - 1]!
     const isMonotonic = everyAdjacent(
@@ -146,7 +169,7 @@ export function computeTraceMetrics(spans: readonly TraceAnalystSpan[]): Behavio
       signals.push({
         code: 'monotonic-input-growth',
         severity: 'high',
-        detail: `LLM input tokens grew ${growthLabel} (${first}→${last}) across ${inputTokenTrajectory.length} calls — full history re-sent each step with no compression.`,
+        detail: `LLM input tokens grew ${growthLabel} (${first}→${last}) across ${inputTokenTrajectory.length} calls without an intervening decrease.`,
         evidence: {
           first,
           last,
@@ -157,7 +180,7 @@ export function computeTraceMetrics(spans: readonly TraceAnalystSpan[]): Behavio
     }
   }
 
-  if (pairedTokenTrajectory.length >= 3) {
+  if (pairedTokenTrajectory.length >= 3 && pairedTokenTrajectory.length === tokenSamples.length) {
     const pairedInputs = pairedTokenTrajectory.map((sample) => sample.input)
     const pairedOutputs = pairedTokenTrajectory.map((sample) => sample.output)
     const first = pairedOutputs[0]!
@@ -167,11 +190,12 @@ export function computeTraceMetrics(spans: readonly TraceAnalystSpan[]): Behavio
       pairedOutputs,
       (previous, current) => current <= previous,
     )
-    if (inputIsMonotonic && outputIsMonotonic && last < first) {
+    const inputGrew = pairedInputs[pairedInputs.length - 1]! > pairedInputs[0]!
+    if (inputIsMonotonic && inputGrew && outputIsMonotonic && last < first) {
       signals.push({
         code: 'output-length-decay',
         severity: 'medium',
-        detail: `LLM output tokens shrank ${first}→${last} over ${pairedTokenTrajectory.length} calls — less planning/reasoning per step as context grows.`,
+        detail: `LLM output tokens shrank ${first}→${last} over ${pairedTokenTrajectory.length} calls while input tokens increased monotonically.`,
         evidence: { first, last, calls: pairedTokenTrajectory.length },
       })
     }
@@ -182,7 +206,7 @@ export function computeTraceMetrics(spans: readonly TraceAnalystSpan[]): Behavio
     signals.push({
       code: 'single-tool-dependency',
       severity: 'medium',
-      detail: `All ${totalToolCalls} tool calls are \`${only}\` — no tool diversity and no fallback path.`,
+      detail: `All ${totalToolCalls} observed tool calls are \`${only}\`; no alternate tool call was observed.`,
       evidence: { tool: only, calls: totalToolCalls, distinct_tools: 1 },
     })
   }
@@ -191,13 +215,14 @@ export function computeTraceMetrics(spans: readonly TraceAnalystSpan[]): Behavio
     signals.push({
       code: 'no-self-verification',
       severity: 'medium',
-      detail: `${totalToolCalls} tool calls and none verify/inspect/check state — the agent never validates its own actions.`,
+      detail: `${totalToolCalls} tool calls were observed without a verification-named tool call.`,
       evidence: { tool_calls: totalToolCalls, verification_calls: 0 },
     })
   }
 
   return {
-    llmCallCount: inputTokenTrajectory.length,
+    traceId,
+    llmCallCount: tokenSamples.length,
     inputTokenTrajectory,
     outputTokenTrajectory,
     toolHistogram,

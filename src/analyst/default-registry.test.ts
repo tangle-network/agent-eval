@@ -97,4 +97,74 @@ describe('buildDefaultAnalystRegistry', () => {
     )
     expect(res.per_analyst.every((p) => p.status === 'ok')).toBe(true)
   })
+
+  it('analyzes sampled traces independently instead of joining unrelated calls', async () => {
+    const cases: Array<[string, number, number]> = [
+      ['t1', 100, 90],
+      ['t2', 200, 60],
+      ['t3', 400, 30],
+    ]
+    const traces = new Map(
+      cases.map(([traceId, input, output]) => [
+        traceId,
+        [
+          span({
+            trace_id: traceId,
+            span_id: `llm-${traceId}`,
+            kind: 'LLM',
+            attributes: {
+              'llm.input_tokens': input,
+              'llm.output_tokens': output,
+              step: 1,
+            },
+          }),
+        ],
+      ]),
+    )
+    const store = {
+      async getOverview() {
+        return { sample_trace_ids: [...traces.keys()] }
+      },
+      async viewTrace({ trace_id }: { trace_id: string }) {
+        return { trace_id, spans: traces.get(trace_id) }
+      },
+    } as unknown as TraceAnalysisStore
+
+    const result = await buildDefaultAnalystRegistry().run('independent-traces', {
+      traceStore: store,
+    })
+
+    expect(result.findings).toEqual([])
+    expect(result.per_analyst[0]?.status).toBe('ok')
+  })
+
+  it('reports oversized traces as incomplete instead of silently dropping them', async () => {
+    const store = {
+      async getOverview() {
+        return { sample_trace_ids: ['large'] }
+      },
+      async viewTrace() {
+        return {
+          trace_id: 'large',
+          oversized: {
+            span_count: 10_000,
+            top_span_names: [],
+            span_response_bytes_max: 1_000,
+            error_span_count: 0,
+          },
+        }
+      },
+    } as unknown as TraceAnalysisStore
+
+    const result = await buildDefaultAnalystRegistry().run('oversized-trace', {
+      traceStore: store,
+    })
+
+    expect(result.per_analyst[0]).toMatchObject({
+      status: 'failed',
+      error: {
+        message: "behavioralAnalyst: trace 'large' is oversized; complete spans are required",
+      },
+    })
+  })
 })

@@ -58,6 +58,7 @@ function fixture530(): TraceAnalystSpan[] {
 describe('computeTraceMetrics — deterministic behavioral signals (no LLM)', () => {
   it('extracts the exact trajectories + histogram from the 530b157_1-shaped trace', () => {
     const m = computeTraceMetrics(fixture530())
+    expect(m.traceId).toBe('t1')
     expect(m.inputTokenTrajectory).toEqual(INPUTS)
     expect(m.outputTokenTrajectory).toEqual(OUTPUTS)
     expect(m.toolHistogram).toEqual({ 'world.execute': 7 })
@@ -100,6 +101,35 @@ describe('computeTraceMetrics — deterministic behavioral signals (no LLM)', ()
   it('is order-independent (sorts by step) and shuffling spans does not change signals', () => {
     const shuffled = [...fixture530()].reverse()
     expect(computeTraceMetrics(shuffled).inputTokenTrajectory).toEqual(INPUTS)
+  })
+
+  it('uses one deterministic time order when any token sample lacks a step', () => {
+    const spans = [
+      {
+        ...llmSpan(1, 400, 30),
+        start_time: '2026-01-01T00:00:03.000Z',
+        end_time: '2026-01-01T00:00:03.400Z',
+      },
+      {
+        ...llmSpan(2, 200, 60),
+        start_time: '2026-01-01T00:00:02.000Z',
+        end_time: '2026-01-01T00:00:02.400Z',
+        attributes: { 'llm.input_tokens': 200, 'llm.output_tokens': 60 },
+      },
+      {
+        ...llmSpan(3, 100, 90),
+        start_time: '2026-01-01T00:00:01.000Z',
+        end_time: '2026-01-01T00:00:01.400Z',
+        attributes: { 'llm.input_tokens': 100, 'llm.output_tokens': 90, step: 2 },
+      },
+    ]
+
+    const forward = computeTraceMetrics(spans)
+    const reversed = computeTraceMetrics([...spans].reverse())
+
+    expect(forward.inputTokenTrajectory).toEqual([100, 200, 400])
+    expect(reversed.inputTokenTrajectory).toEqual(forward.inputTokenTrajectory)
+    expect(reversed.signals).toEqual(forward.signals)
   })
 
   it('does NOT fire tool signals below the min-call threshold (no false positives)', () => {
@@ -150,6 +180,53 @@ describe('computeTraceMetrics — deterministic behavioral signals (no LLM)', ()
     expect(codes).not.toContain('monotonic-input-growth')
   })
 
+  it('rejects spans from multiple traces instead of fabricating one trajectory', () => {
+    const spans = [
+      llmSpan(1, 100, 90),
+      { ...llmSpan(2, 200, 60), trace_id: 't2' },
+      { ...llmSpan(3, 400, 30), trace_id: 't3' },
+    ]
+
+    expect(() => computeTraceMetrics(spans)).toThrow(
+      'computeTraceMetrics: expected spans from one trace, received 3 traces',
+    )
+  })
+
+  it('does not attribute output decay to context growth when input stays flat', () => {
+    const spans = [llmSpan(1, 100, 90), llmSpan(2, 100, 60), llmSpan(3, 100, 30)]
+
+    expect(computeTraceMetrics(spans).signals.map((signal) => signal.code)).not.toContain(
+      'output-length-decay',
+    )
+  })
+
+  it('does not infer token trends across an LLM call with missing usage', () => {
+    const missingUsage = {
+      ...llmSpan(2, 200, 60),
+      attributes: { step: 2 },
+    }
+    const spans = [llmSpan(1, 100, 90), missingUsage, llmSpan(3, 400, 30)]
+    const metrics = computeTraceMetrics(spans)
+
+    expect(metrics.llmCallCount).toBe(3)
+    expect(metrics.inputTokenTrajectory).toEqual([100, 400])
+    expect(metrics.outputTokenTrajectory).toEqual([90, 30])
+    expect(metrics.signals.map((signal) => signal.code)).not.toContain('monotonic-input-growth')
+    expect(metrics.signals.map((signal) => signal.code)).not.toContain('output-length-decay')
+  })
+
+  it('does not infer output decay when one LLM call lacks output usage', () => {
+    const missingOutput = {
+      ...llmSpan(2, 200, 60),
+      attributes: { 'llm.input_tokens': 200, step: 2 },
+    }
+    const spans = [llmSpan(1, 100, 90), missingOutput, llmSpan(3, 400, 60), llmSpan(4, 800, 30)]
+
+    expect(computeTraceMetrics(spans).signals.map((signal) => signal.code)).not.toContain(
+      'output-length-decay',
+    )
+  })
+
   it('does not infer monotonic growth or output decay across context resets', () => {
     const inputs = [25_073, 100_000, 240_000, 30_000, 120_000, 210_878]
     const outputs = [934, 150, 1_200, 120, 900, 137]
@@ -195,6 +272,8 @@ describe('deriveEfficiencyFindings — the 0→4, any-model flip', () => {
       expect(f.evidence_refs[0]!.kind).toBe('metric')
       expect(f.recommended_action).toBeTruthy()
       expect(f.metadata?.deterministic).toBe(true)
+      expect(f.metadata?.trace_id).toBe('t1')
+      expect(f.evidence_refs[0]!.uri).toContain('/t1/')
     }
     const growth = findings.find((f) => f.subject === 'monotonic-input-growth')!
     expect(growth.claim).toContain('671→8776')
