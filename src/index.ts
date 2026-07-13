@@ -1153,6 +1153,15 @@ export type {
   MultiToolchainLayerConfig,
 } from './multi-toolchain-layer'
 export { mergeLayerResults, multiToolchainLayer } from './multi-toolchain-layer'
+export type {
+  ReferenceEquivalenceJudgeInput,
+  ReferenceEquivalenceJudgeOptions,
+  ReferenceEquivalenceJudgeResult,
+} from './reference-equivalence-judge'
+export {
+  REFERENCE_EQUIVALENCE_JUDGE_VERSION,
+  runReferenceEquivalenceJudge,
+} from './reference-equivalence-judge'
 // ── Reference replay ─────────────────────────────────────────────────
 export {
   compareReferenceReplay,

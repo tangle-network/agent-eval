@@ -126,6 +126,18 @@ export {
 } from '../campaign/presets/run-improvement-loop'
 export { type RunCampaignOptions, runCampaign } from '../campaign/run-campaign'
 
+// ── Reference-answer judge ───────────────────────────────────────────
+
+export type {
+  ReferenceEquivalenceJudgeInput,
+  ReferenceEquivalenceJudgeOptions,
+  ReferenceEquivalenceJudgeResult,
+} from '../reference-equivalence-judge'
+export {
+  REFERENCE_EQUIVALENCE_JUDGE_VERSION,
+  runReferenceEquivalenceJudge,
+} from '../reference-equivalence-judge'
+
 // ── Proposers ────────────────────────────────────────────────────────
 
 export {
