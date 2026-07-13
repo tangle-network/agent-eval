@@ -106,6 +106,7 @@ export function computeTraceMetrics(spans: readonly TraceAnalystSpan[]): Behavio
 
   const inputTokenTrajectory: number[] = []
   const outputTokenTrajectory: number[] = []
+  const pairedTokenTrajectory: Array<{ input: number; output: number }> = []
   const toolHistogram: Record<string, number> = {}
   let hasSelfVerification = false
 
@@ -114,6 +115,7 @@ export function computeTraceMetrics(spans: readonly TraceAnalystSpan[]): Behavio
     if (inT !== null) inputTokenTrajectory.push(inT)
     const outT = outputTokensOf(s)
     if (outT !== null) outputTokenTrajectory.push(outT)
+    if (inT !== null && outT !== null) pairedTokenTrajectory.push({ input: inT, output: outT })
     const tool = toolNameOf(s)
     if (tool) {
       toolHistogram[tool] = (toolHistogram[tool] ?? 0) + 1
@@ -130,12 +132,16 @@ export function computeTraceMetrics(spans: readonly TraceAnalystSpan[]): Behavio
   if (inputTokenTrajectory.length >= 3) {
     const first = inputTokenTrajectory[0]!
     const last = inputTokenTrajectory[inputTokenTrajectory.length - 1]!
+    const isMonotonic = everyAdjacent(
+      inputTokenTrajectory,
+      (previous, current) => current >= previous,
+    )
     // first === 0 with later growth is an unbounded ratio (0→huge context blowup);
     // treat it as infinite so the signal fires, and report it as such instead of
     // dividing by zero for the displayed factor.
     const growthFromZero = first === 0 && last > 0
     const growth = growthFromZero ? Infinity : first > 0 ? last / first : 0
-    if (last > first && growth >= INPUT_GROWTH_FACTOR) {
+    if (isMonotonic && last > first && growth >= INPUT_GROWTH_FACTOR) {
       const growthLabel = growthFromZero ? '0→nonzero (unbounded)' : `${growth.toFixed(1)}x`
       signals.push({
         code: 'monotonic-input-growth',
@@ -151,15 +157,22 @@ export function computeTraceMetrics(spans: readonly TraceAnalystSpan[]): Behavio
     }
   }
 
-  if (outputTokenTrajectory.length >= 3) {
-    const first = outputTokenTrajectory[0]!
-    const last = outputTokenTrajectory[outputTokenTrajectory.length - 1]!
-    if (last < first) {
+  if (pairedTokenTrajectory.length >= 3) {
+    const pairedInputs = pairedTokenTrajectory.map((sample) => sample.input)
+    const pairedOutputs = pairedTokenTrajectory.map((sample) => sample.output)
+    const first = pairedOutputs[0]!
+    const last = pairedOutputs[pairedOutputs.length - 1]!
+    const inputIsMonotonic = everyAdjacent(pairedInputs, (previous, current) => current >= previous)
+    const outputIsMonotonic = everyAdjacent(
+      pairedOutputs,
+      (previous, current) => current <= previous,
+    )
+    if (inputIsMonotonic && outputIsMonotonic && last < first) {
       signals.push({
         code: 'output-length-decay',
         severity: 'medium',
-        detail: `LLM output tokens shrank ${first}→${last} over ${outputTokenTrajectory.length} calls — less planning/reasoning per step as context grows.`,
-        evidence: { first, last, calls: outputTokenTrajectory.length },
+        detail: `LLM output tokens shrank ${first}→${last} over ${pairedTokenTrajectory.length} calls — less planning/reasoning per step as context grows.`,
+        evidence: { first, last, calls: pairedTokenTrajectory.length },
       })
     }
   }
@@ -194,4 +207,11 @@ export function computeTraceMetrics(spans: readonly TraceAnalystSpan[]): Behavio
     hasSelfVerification,
     signals,
   }
+}
+
+function everyAdjacent(
+  values: readonly number[],
+  predicate: (previous: number, current: number) => boolean,
+): boolean {
+  return values.slice(1).every((current, index) => predicate(values[index]!, current))
 }

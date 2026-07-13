@@ -149,6 +149,38 @@ describe('computeTraceMetrics — deterministic behavioral signals (no LLM)', ()
     const codes = computeTraceMetrics(spans).signals.map((s) => s.code)
     expect(codes).not.toContain('monotonic-input-growth')
   })
+
+  it('does not infer monotonic growth or output decay across context resets', () => {
+    const inputs = [25_073, 100_000, 240_000, 30_000, 120_000, 210_878]
+    const outputs = [934, 150, 1_200, 120, 900, 137]
+    const spans = inputs.map((input, index) => llmSpan(index + 1, input, outputs[index]!))
+
+    const codes = computeTraceMetrics(spans).signals.map((signal) => signal.code)
+
+    expect(codes).not.toContain('monotonic-input-growth')
+    expect(codes).not.toContain('output-length-decay')
+  })
+
+  it('requires paired input and output samples before attributing output decay to context growth', () => {
+    const inputs = [llmSpan(1, 100, 10), llmSpan(2, 200, 10), llmSpan(3, 400, 10)].map((span) => ({
+      ...span,
+      attributes: {
+        'llm.input_tokens': span.attributes['llm.input_tokens'],
+        step: span.attributes.step,
+      },
+    }))
+    const outputs = [llmSpan(4, 100, 90), llmSpan(5, 100, 60), llmSpan(6, 100, 30)].map((span) => ({
+      ...span,
+      attributes: {
+        'llm.output_tokens': span.attributes['llm.output_tokens'],
+        step: span.attributes.step,
+      },
+    }))
+
+    const codes = computeTraceMetrics([...inputs, ...outputs]).signals.map((signal) => signal.code)
+
+    expect(codes).not.toContain('output-length-decay')
+  })
 })
 
 describe('deriveEfficiencyFindings — the 0→4, any-model flip', () => {
