@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { deriveEfficiencyFindings } from '../analyst/behavioral-analyst'
+import { diffFindings } from '../analyst/findings-store'
 import { LLM_INPUT_TOKENS, LLM_OUTPUT_TOKENS } from '../trace/otlp-attributes'
 import { computeTraceMetrics } from './behavioral-metrics'
 import type { TraceAnalystSpan } from './types'
@@ -130,6 +131,223 @@ describe('computeTraceMetrics — deterministic behavioral signals (no LLM)', ()
     expect(forward.inputTokenTrajectory).toEqual([100, 200, 400])
     expect(reversed.inputTokenTrajectory).toEqual(forward.inputTokenTrajectory)
     expect(reversed.signals).toEqual(forward.signals)
+  })
+
+  it('orders mixed ISO and epoch timestamps by time instead of string representation', () => {
+    const spans = [
+      {
+        ...llmSpan(1, 300, 90),
+        start_time: '2024-01-01T00:00:00.000Z',
+        end_time: '2024-01-01T00:00:00.400Z',
+        attributes: { 'llm.input_tokens': 300, 'llm.output_tokens': 90 },
+      },
+      {
+        ...llmSpan(2, 900, 60),
+        start_time: '1704067201000',
+        end_time: '1704067201400',
+        attributes: { 'llm.input_tokens': 900, 'llm.output_tokens': 60 },
+      },
+      {
+        ...llmSpan(3, 100, 30),
+        start_time: '2024-01-01T00:00:02.000Z',
+        end_time: '2024-01-01T00:00:02.400Z',
+        attributes: { 'llm.input_tokens': 100, 'llm.output_tokens': 30 },
+      },
+    ]
+
+    const metrics = computeTraceMetrics(spans)
+
+    expect(metrics.inputTokenTrajectory).toEqual([300, 900, 100])
+    expect(metrics.signals.map((signal) => signal.code)).not.toContain('monotonic-input-growth')
+    expect(metrics.signals.map((signal) => signal.code)).not.toContain('output-length-decay')
+  })
+
+  it('does not infer one token trend across parallel workers', () => {
+    const workers: TraceAnalystSpan[] = [0, 1, 2].map((index) => ({
+      ...llmSpan(index + 1, 0, 0),
+      span_id: `worker-${index}`,
+      parent_span_id: 'root',
+      name: `worker.${index}`,
+      kind: 'AGENT',
+      model_name: null,
+      attributes: {},
+    }))
+    const calls = [
+      { input: 100, output: 90 },
+      { input: 300, output: 60 },
+      { input: 900, output: 30 },
+    ].map(({ input, output }, index) => ({
+      ...llmSpan(index + 1, input, output),
+      parent_span_id: `worker-${index}`,
+      start_time: '2026-01-01T00:00:01.000Z',
+      end_time: '2026-01-01T00:00:01.400Z',
+    }))
+
+    const metrics = computeTraceMetrics([...workers, ...calls])
+
+    expect(metrics.tokenSequences).toHaveLength(3)
+    expect(metrics.signals.map((signal) => signal.code)).not.toContain('monotonic-input-growth')
+    expect(metrics.signals.map((signal) => signal.code)).not.toContain('output-length-decay')
+  })
+
+  it('does not infer one token trend across overlapping branches under one agent', () => {
+    const agent: TraceAnalystSpan = {
+      ...llmSpan(1, 0, 0),
+      span_id: 'agent',
+      parent_span_id: 'root',
+      kind: 'AGENT',
+      start_time: '2026-01-01T00:00:00.000Z',
+      end_time: '2026-01-01T00:00:10.000Z',
+      duration_ms: 10_000,
+      model_name: null,
+      attributes: {},
+    }
+    const branches: TraceAnalystSpan[] = ['a', 'b'].map((id) => ({
+      ...agent,
+      span_id: `branch-${id}`,
+      parent_span_id: 'agent',
+      kind: 'SPAN',
+    }))
+    const calls = [
+      { id: 'a1', parent: 'branch-a', input: 100, output: 90, second: 1 },
+      { id: 'b1', parent: 'branch-b', input: 400, output: 60, second: 2 },
+      { id: 'a2', parent: 'branch-a', input: 900, output: 30, second: 3 },
+    ].map(({ id, parent, input, output, second }) => ({
+      ...llmSpan(second, input, output),
+      span_id: id,
+      parent_span_id: parent,
+    }))
+
+    const metrics = computeTraceMetrics([agent, ...branches, ...calls])
+
+    expect(metrics.tokenSequences.map((sequence) => sequence.spanIds)).toEqual([
+      ['a1', 'a2'],
+      ['b1'],
+    ])
+    expect(metrics.signals.map((signal) => signal.code)).not.toContain('monotonic-input-growth')
+    expect(metrics.signals.map((signal) => signal.code)).not.toContain('output-length-decay')
+  })
+
+  it('joins a direct call with later child calls when timing proves order', () => {
+    const agent: TraceAnalystSpan = {
+      ...llmSpan(1, 0, 0),
+      span_id: 'agent',
+      parent_span_id: 'root',
+      kind: 'AGENT',
+      start_time: '2026-01-01T00:00:00.000Z',
+      end_time: '2026-01-01T00:00:10.000Z',
+      duration_ms: 10_000,
+      model_name: null,
+      attributes: {},
+    }
+    const phase: TraceAnalystSpan = {
+      ...agent,
+      span_id: 'phase',
+      parent_span_id: 'agent',
+      kind: 'SPAN',
+      start_time: '2026-01-01T00:00:02.000Z',
+      end_time: '2026-01-01T00:00:04.000Z',
+      duration_ms: 2000,
+    }
+    const calls = [
+      { id: 'direct', parent: 'agent', input: 100, output: 90, second: 1 },
+      { id: 'phase-1', parent: 'phase', input: 400, output: 60, second: 2 },
+      { id: 'phase-2', parent: 'phase', input: 900, output: 30, second: 3 },
+    ].map(({ id, parent, input, output, second }) => ({
+      ...llmSpan(second, input, output),
+      span_id: id,
+      parent_span_id: parent,
+    }))
+
+    const metrics = computeTraceMetrics([agent, phase, ...calls])
+
+    expect(metrics.tokenSequences.map((sequence) => sequence.spanIds)).toEqual([
+      ['direct', 'phase-1', 'phase-2'],
+    ])
+    expect(metrics.signals.map((signal) => signal.code)).toContain('monotonic-input-growth')
+    expect(metrics.signals.map((signal) => signal.code)).toContain('output-length-decay')
+  })
+
+  it('partitions 25,000 overlapping calls without pairwise lane search', () => {
+    const calls = Array.from({ length: 25_000 }, (_, index) => ({
+      ...llmSpan(1, index + 1, 1),
+      span_id: `parallel-${index.toString().padStart(5, '0')}`,
+      start_time: '2026-01-01T00:00:01.000Z',
+      end_time: '2026-01-01T00:00:02.000Z',
+      duration_ms: 1000,
+      attributes: {
+        'llm.input_tokens': index + 1,
+        'llm.output_tokens': 1,
+        step: index,
+      },
+    }))
+
+    const metrics = computeTraceMetrics(calls)
+
+    expect(metrics.tokenSequences).toHaveLength(25_000)
+    expect(metrics.tokenSequences.every((sequence) => sequence.spanIds.length === 1)).toBe(true)
+    expect(metrics.signals).toEqual([])
+  })
+
+  it('resolves 25,000 nested parent links without repeated ancestry walks', () => {
+    const base = 1_704_067_200_000
+    const calls = Array.from({ length: 25_000 }, (_, index) => ({
+      ...llmSpan(index + 1, index + 1, 1),
+      span_id: `nested-${index}`,
+      parent_span_id: index === 0 ? 'missing-root' : `nested-${index - 1}`,
+      start_time: String(base + index * 2),
+      end_time: String(base + index * 2 + 1),
+      duration_ms: 1,
+    }))
+
+    const metrics = computeTraceMetrics(calls)
+
+    expect(metrics.tokenSequences.map((sequence) => sequence.spanIds.length)).toEqual([25_000])
+    expect(metrics.signals.map((signal) => signal.code)).toContain('monotonic-input-growth')
+  })
+
+  it('orders malformed timestamps deterministically regardless of input order', () => {
+    const valid = [llmSpan(1, 100, 90), llmSpan(4, 400, 60), llmSpan(2, 900, 30)]
+    const malformed = {
+      ...llmSpan(3, 200, 80),
+      span_id: 'malformed',
+      start_time: 'invalid',
+      end_time: 'invalid',
+      duration_ms: 0,
+    }
+
+    const forward = computeTraceMetrics([malformed, ...valid])
+    const reversed = computeTraceMetrics([...valid].reverse().concat(malformed))
+
+    expect(reversed.tokenSequences).toEqual(forward.tokenSequences)
+    expect(reversed.signals).toEqual(forward.signals)
+  })
+
+  it('still detects a trend inside one worker when another worker is present', () => {
+    const workers: TraceAnalystSpan[] = ['a', 'b'].map((id) => ({
+      ...llmSpan(1, 0, 0),
+      span_id: `worker-${id}`,
+      parent_span_id: 'root',
+      name: `worker.${id}`,
+      kind: 'AGENT',
+      model_name: null,
+      attributes: {},
+    }))
+    const workerA = [100, 400, 900].map((input, index) => ({
+      ...llmSpan(index + 1, input, 90 - index * 30),
+      parent_span_id: 'worker-a',
+    }))
+    const workerB = {
+      ...llmSpan(1, 50, 20),
+      span_id: 'worker-b-call',
+      parent_span_id: 'worker-b',
+    }
+
+    const metrics = computeTraceMetrics([...workers, ...workerA, workerB])
+
+    expect(metrics.tokenSequences.map((sequence) => sequence.spanIds.length)).toEqual([3, 1])
+    expect(metrics.signals.map((signal) => signal.code)).toContain('monotonic-input-growth')
+    expect(metrics.signals.map((signal) => signal.code)).toContain('output-length-decay')
   })
 
   it('does NOT fire tool signals below the min-call threshold (no false positives)', () => {
@@ -280,9 +498,17 @@ describe('deriveEfficiencyFindings — the 0→4, any-model flip', () => {
     expect((growth.metadata!.evidence as { growth_x: number }).growth_x).toBeCloseTo(13.08, 1)
   })
 
-  it('is fully deterministic — identical finding_ids across runs (any model, any machine)', () => {
+  it('keeps finding identity stable across trace ids and cross-run diffs', () => {
     const a = deriveEfficiencyFindings(computeTraceMetrics(fixture530()), { producedAt: 'x' })
-    const b = deriveEfficiencyFindings(computeTraceMetrics(fixture530()), { producedAt: 'x' })
+    const secondTrace = fixture530().map((span) => ({ ...span, trace_id: 't2' }))
+    const b = deriveEfficiencyFindings(computeTraceMetrics(secondTrace), { producedAt: 'x' })
     expect(a.map((f) => f.finding_id)).toEqual(b.map((f) => f.finding_id))
+    const diff = diffFindings(
+      a.map((finding) => ({ ...finding, run_id: 'old' })),
+      b.map((finding) => ({ ...finding, run_id: 'new' })),
+    )
+    expect(diff.appeared).toEqual([])
+    expect(diff.disappeared).toEqual([])
+    expect(diff.persisted).toHaveLength(4)
   })
 })

@@ -19,11 +19,14 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 - `CostLedger.record()` is removed because recording spend after a provider call cannot enforce a cost limit or survive a crash.
   Use `CostLedger.runPaidCall()` for billable work, `CostLedger` receipt import for already-settled calls, or `costForUsage()` for pure estimates.
+- `computeTraceMetrics()` now rejects mixed-trace input, and `BehavioralMetrics` adds required `traceId` and `tokenSequences` fields.
+  The convenience token trajectories now expose the longest proven-serial sequence instead of flattening parallel branches.
 
 ### Fixed
 
-- Repeated-call findings now require a contiguous, time-bounded episode within one agent branch instead of grouping identical calls across an entire run.
-- Behavioral token findings now analyze one trace at a time, require complete and deterministic ordering, and only attribute output decay to context that actually grew.
+- Repeated-call findings now require a contiguous, time-bounded, serial episode within one agent branch instead of grouping identical or concurrent calls across an entire run.
+- Behavioral token findings now analyze each trace and serial agent timeline independently, use numeric time ordering across accepted timestamp formats, and only attribute output decay to context that actually grew.
+- Behavioral issue IDs remain stable across trace runs while evidence retains exact trace identities and sampled prevalence.
 
 ## [0.116.0] — 2026-07-12 — evidence-linked AgentProfile optimization
 

@@ -68,7 +68,7 @@ export function deriveEfficiencyFindings(
         evidence: sig.evidence,
         ...(traceId ? { trace_id: traceId } : {}),
       },
-      ...(traceId ? { id_basis: `${traceId}:${sig.code}` } : {}),
+      id_basis: sig.code,
       ...(opts.producedAt ? { produced_at: opts.producedAt } : {}),
     }),
   )
@@ -85,8 +85,12 @@ export function behavioralAnalyst(): Analyst<TraceAnalysisStore> {
     version: '2.0.0',
     async analyze(store) {
       const overview = await store.getOverview()
-      const findings: AnalystFinding[] = []
-      for (const traceId of overview.sample_trace_ids) {
+      const analyzedTraceIds = [...new Set(overview.sample_trace_ids)].sort()
+      const findingsById = new Map<
+        string,
+        { finding: AnalystFinding; traceIds: string[]; evidence: AnalystFinding['evidence_refs'] }
+      >()
+      for (const traceId of analyzedTraceIds) {
         const viewed = await store.viewTrace({ trace_id: traceId })
         if (viewed.trace_id !== traceId) {
           throw new Error(
@@ -104,9 +108,32 @@ export function behavioralAnalyst(): Analyst<TraceAnalysisStore> {
             `behavioralAnalyst: requested trace '${traceId}', received '${metrics.traceId}'`,
           )
         }
-        findings.push(...deriveEfficiencyFindings(metrics))
+        for (const finding of deriveEfficiencyFindings(metrics)) {
+          const current = findingsById.get(finding.finding_id)
+          if (!current) {
+            findingsById.set(finding.finding_id, {
+              finding,
+              traceIds: [traceId],
+              evidence: [...finding.evidence_refs],
+            })
+            continue
+          }
+          current.traceIds.push(traceId)
+          current.evidence.push(...finding.evidence_refs)
+        }
       }
-      return findings
+      return [...findingsById.values()].map(({ finding, traceIds, evidence }) => ({
+        ...finding,
+        rationale: `${traceIds.length}/${analyzedTraceIds.length} analyzed traces exhibited this pattern.`,
+        evidence_refs: evidence,
+        metadata: {
+          deterministic: true,
+          evidence: finding.metadata?.evidence,
+          trace_ids: traceIds,
+          observed_trace_count: traceIds.length,
+          analyzed_trace_count: analyzedTraceIds.length,
+        },
+      }))
     },
   }
 }

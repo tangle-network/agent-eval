@@ -32,6 +32,8 @@ for (let i = 0; i < 5; i++) {
       span_id: `llm-${i}`,
       kind: 'LLM',
       model_name: 'deepseek-chat',
+      start_time: `2026-01-01T00:00:0${i}.000Z`,
+      end_time: `2026-01-01T00:00:0${i}.100Z`,
       attributes: { 'llm.input_tokens': INPUTS[i]!, 'llm.output_tokens': OUTPUTS[i]!, step: i },
     }),
     span({
@@ -136,6 +138,58 @@ describe('buildDefaultAnalystRegistry', () => {
 
     expect(result.findings).toEqual([])
     expect(result.per_analyst[0]?.status).toBe('ok')
+  })
+
+  it('aggregates the same behavioral issue across traces with prevalence evidence', async () => {
+    const traces = new Map(
+      ['t1', 't2'].map((traceId) => [
+        traceId,
+        SPANS.map((item) => ({
+          ...item,
+          trace_id: traceId,
+          span_id: `${traceId}-${item.span_id}`,
+        })),
+      ]),
+    )
+    const store = {
+      async getOverview() {
+        return { sample_trace_ids: [...traces.keys()] }
+      },
+      async viewTrace({ trace_id }: { trace_id: string }) {
+        return { trace_id, spans: traces.get(trace_id) }
+      },
+    } as unknown as TraceAnalysisStore
+
+    const result = await buildDefaultAnalystRegistry().run('repeated-patterns', {
+      traceStore: store,
+    })
+
+    expect(result.findings).toHaveLength(4)
+    expect(new Set(result.findings.map((finding) => finding.finding_id)).size).toBe(4)
+    for (const finding of result.findings) {
+      expect(finding.rationale).toBe('2/2 analyzed traces exhibited this pattern.')
+      expect(finding.evidence_refs).toHaveLength(2)
+      expect(finding.metadata).toMatchObject({
+        trace_ids: ['t1', 't2'],
+        observed_trace_count: 2,
+        analyzed_trace_count: 2,
+      })
+    }
+
+    const reversedStore = {
+      async getOverview() {
+        return { sample_trace_ids: [...traces.keys()].reverse() }
+      },
+      async viewTrace({ trace_id }: { trace_id: string }) {
+        return { trace_id, spans: traces.get(trace_id) }
+      },
+    } as unknown as TraceAnalysisStore
+    const reversed = await buildDefaultAnalystRegistry().run('repeated-patterns-reversed', {
+      traceStore: reversedStore,
+    })
+    const withoutProducedAt = (findings: typeof result.findings) =>
+      findings.map(({ produced_at: _producedAt, ...finding }) => finding)
+    expect(withoutProducedAt(reversed.findings)).toEqual(withoutProducedAt(result.findings))
   })
 
   it('reports oversized traces as incomplete instead of silently dropping them', async () => {

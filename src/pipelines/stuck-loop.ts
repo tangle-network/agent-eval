@@ -8,6 +8,7 @@
  * fraction of runs affected.
  */
 
+import { executionTrackByLane } from '../trace/execution-tracks'
 import { argHash } from '../trace/query'
 import { isToolSpan, type Span, type ToolSpan } from '../trace/schema'
 import type { TraceStore } from '../trace/store'
@@ -15,10 +16,15 @@ import type { TraceStore } from '../trace/store'
 const DEFAULT_MAX_WINDOW_MS = 60_000
 const DEFAULT_MAX_INTERVENING_TOOL_CALLS = 0
 
-interface IndexedToolCall {
+interface ScopedToolCall {
   span: ToolSpan
-  toolCallIndex: number
   scopeSpanId: string | null
+  laneSpanId: string | null
+}
+
+interface IndexedToolCall extends ScopedToolCall {
+  toolCallIndex: number
+  trackId: string
 }
 
 export interface StuckLoopFinding {
@@ -79,17 +85,34 @@ export async function stuckLoopView(
   for (const { runId } of runs) {
     const spans = await store.spans({ runId })
     const spansById = new Map(spans.map((span) => [span.spanId, span]))
-    const nextToolIndexByScope = new Map<string | null, number>()
-    const orderedTools = spans
+    const scopedTools: ScopedToolCall[] = spans
       .filter(isToolSpan)
       .map((span, sourceIndex) => ({ span, sourceIndex }))
       .sort((a, b) => a.span.startedAt - b.span.startedAt || a.sourceIndex - b.sourceIndex)
-      .map(({ span }): IndexedToolCall => {
-        const scopeSpanId = executionScopeSpanId(span, spansById)
-        const toolCallIndex = nextToolIndexByScope.get(scopeSpanId) ?? 0
-        nextToolIndexByScope.set(scopeSpanId, toolCallIndex + 1)
-        return { span, toolCallIndex, scopeSpanId }
-      })
+      .map(({ span }) => ({ span, ...executionScope(span, spansById) }))
+    const trackByLane = executionTrackByLane(
+      scopedTools.map((call) => {
+        const direct = call.laneSpanId === null || call.laneSpanId === call.scopeSpanId
+        const timed = direct
+          ? call.span
+          : call.laneSpanId
+            ? spansById.get(call.laneSpanId)
+            : undefined
+        return {
+          key: executionKey(call),
+          scopeKey: JSON.stringify(call.scopeSpanId),
+          start: timed?.startedAt ?? null,
+          end: timed?.endedAt ?? null,
+        }
+      }),
+    )
+    const nextToolIndexByTrack = new Map<string, number>()
+    const orderedTools: IndexedToolCall[] = scopedTools.map((call) => {
+      const trackId = trackByLane.get(executionKey(call))!
+      const toolCallIndex = nextToolIndexByTrack.get(trackId) ?? 0
+      nextToolIndexByTrack.set(trackId, toolCallIndex + 1)
+      return { ...call, toolCallIndex, trackId }
+    })
     const byKey = new Map<
       string,
       {
@@ -101,7 +124,7 @@ export async function stuckLoopView(
     >()
     for (const call of orderedTools) {
       const h = argHash(call.span.args)
-      const key = JSON.stringify([call.scopeSpanId, call.span.toolName, h])
+      const key = JSON.stringify([call.trackId, call.span.toolName, h])
       const bucket = byKey.get(key) ?? {
         calls: [],
         argHash: h,
@@ -120,7 +143,8 @@ export async function stuckLoopView(
         const episodeEnded =
           next === undefined ||
           next.span.startedAt - previous.span.startedAt > maxWindowMs ||
-          next.toolCallIndex - previous.toolCallIndex - 1 > maxInterveningToolCalls
+          next.toolCallIndex - previous.toolCallIndex - 1 > maxInterveningToolCalls ||
+          !callsAreSerial(previous, next)
         if (!episodeEnded) continue
 
         const episode = calls.slice(episodeStart, episodeEnd)
@@ -163,18 +187,39 @@ export async function stuckLoopView(
   }
 }
 
-function executionScopeSpanId(span: ToolSpan, spansById: ReadonlyMap<string, Span>): string | null {
+function laneKey(call: Pick<ScopedToolCall, 'scopeSpanId' | 'laneSpanId'>): string {
+  return JSON.stringify([call.scopeSpanId, call.laneSpanId])
+}
+
+function executionKey(call: ScopedToolCall): string {
+  return call.laneSpanId === null || call.laneSpanId === call.scopeSpanId
+    ? JSON.stringify([call.scopeSpanId, call.span.spanId])
+    : laneKey(call)
+}
+
+function executionScope(
+  span: ToolSpan,
+  spansById: ReadonlyMap<string, Span>,
+): { scopeSpanId: string | null; laneSpanId: string | null } {
   const directParent = span.parentSpanId
-  if (!directParent) return null
+  if (!directParent) return { scopeSpanId: null, laneSpanId: null }
 
   let currentId: string | undefined = directParent
+  let laneSpanId: string | null = null
   const seen = new Set<string>()
   while (currentId && !seen.has(currentId)) {
     seen.add(currentId)
     const current = spansById.get(currentId)
-    if (!current) return directParent
-    if (current.kind === 'agent') return current.spanId
+    if (!current) return { scopeSpanId: directParent, laneSpanId: directParent }
+    if (current.kind === 'agent') {
+      return { scopeSpanId: current.spanId, laneSpanId: laneSpanId ?? current.spanId }
+    }
+    laneSpanId = current.spanId
     currentId = current.parentSpanId
   }
-  return directParent
+  return { scopeSpanId: directParent, laneSpanId: directParent }
+}
+
+function callsAreSerial(previous: IndexedToolCall, next: IndexedToolCall): boolean {
+  return previous.span.endedAt !== undefined && previous.span.endedAt <= next.span.startedAt
 }

@@ -450,6 +450,7 @@ export {
 export * from './trace-analyst'
 export type {
   BehavioralMetrics,
+  BehavioralTokenSequence,
   SuboptimalCode,
   SuboptimalSignal,
 } from './trace-analyst/behavioral-metrics'
