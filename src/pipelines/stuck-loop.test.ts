@@ -3,13 +3,13 @@ import type { Run, ToolSpan } from '../trace/schema'
 import { InMemoryTraceStore } from '../trace/store'
 import { stuckLoopView } from './stuck-loop'
 
-function tool(i: number, name: string, args: unknown): ToolSpan {
+function tool(i: number, name: string, args: unknown, startedAt = 1000 + i * 1000): ToolSpan {
   return {
     spanId: `t${i}`,
     runId: 'r',
     kind: 'tool',
     name: `tool.${name}`,
-    startedAt: 1000 + i * 1000,
+    startedAt,
     toolName: name,
     args,
   }
@@ -69,5 +69,63 @@ describe('stuckLoopView', () => {
     ])
     const r = await stuckLoopView(store, { minOccurrences: 3 })
     expect(r.findings).toHaveLength(0)
+  })
+
+  it('does not treat identical calls spread across a long run as a loop', async () => {
+    const store = await storeWith([
+      tool(0, 'bash', { cmd: 'status' }, 0),
+      tool(1, 'bash', { cmd: 'status' }, 61_000),
+      tool(2, 'bash', { cmd: 'status' }, 122_000),
+    ])
+
+    const r = await stuckLoopView(store)
+
+    expect(r.findings).toHaveLength(0)
+  })
+
+  it('returns only the repeated cluster inside the configured window', async () => {
+    const store = await storeWith([
+      tool(0, 'bash', { cmd: 'status' }, 0),
+      tool(1, 'bash', { cmd: 'status' }, 1000),
+      tool(2, 'bash', { cmd: 'status' }, 2000),
+      tool(3, 'bash', { cmd: 'status' }, 120_000),
+      tool(4, 'bash', { cmd: 'status' }, 121_000),
+    ])
+
+    const r = await stuckLoopView(store, { maxWindowMs: 5000 })
+
+    expect(r.findings[0]).toMatchObject({
+      occurrences: 3,
+      spanIds: ['t0', 't1', 't2'],
+      windowMs: 2000,
+    })
+  })
+
+  it('preserves repeated clusters from separate episodes', async () => {
+    const store = await storeWith([
+      tool(0, 'bash', { cmd: 'status' }, 0),
+      tool(1, 'bash', { cmd: 'status' }, 1000),
+      tool(2, 'bash', { cmd: 'status' }, 2000),
+      tool(3, 'bash', { cmd: 'status' }, 1_200_000),
+      tool(4, 'bash', { cmd: 'status' }, 1_201_000),
+      tool(5, 'bash', { cmd: 'status' }, 1_202_000),
+    ])
+
+    const r = await stuckLoopView(store, { maxWindowMs: 5000 })
+
+    expect(
+      r.findings.map(({ occurrences, spanIds, windowMs }) => ({ occurrences, spanIds, windowMs })),
+    ).toEqual([
+      { occurrences: 3, spanIds: ['t0', 't1', 't2'], windowMs: 2000 },
+      { occurrences: 3, spanIds: ['t3', 't4', 't5'], windowMs: 2000 },
+    ])
+  })
+
+  it('rejects an invalid time window', async () => {
+    const store = await storeWith([])
+
+    await expect(stuckLoopView(store, { maxWindowMs: -1 })).rejects.toThrow(
+      'maxWindowMs must be a finite non-negative number',
+    )
   })
 })
