@@ -1,17 +1,16 @@
 /**
- * `captureFetchToRawSink` — wrap a `fetch` so every request / response / error
- * against a provider is recorded into a `RawProviderSink` as the canonical
- * `RawProviderEvent` triple. The one substrate copy of the fetch-capture
- * pattern four consumers hand-roll (legal ships two copies).
+ * Wrap a provider `fetch` and record request, response, and error events.
  *
- * The returned value is a plain `typeof fetch` — pass it as the `fetchImpl` to
- * any OpenAI-compatible backend factory. Capture is best-effort by default: a
- * sink write that throws does NOT take down the underlying LLM call (set
- * `failClosed` to change that). Uses the existing `defaultProviderRedactor` +
- * `providerFromBaseUrl` — no new redaction policy.
+ * The returned value is a plain `typeof fetch`. Capture is best-effort by
+ * default; set `failClosed` when telemetry loss must stop the provider call.
  */
 
-import { type ExtractedUsage, extractUsage, extractUsageFromSse } from './extract-usage'
+import {
+  type ExtractedUsage,
+  extractUsage,
+  extractUsageFromSse,
+  type SseUsageMode,
+} from './extract-usage'
 import {
   defaultProviderRedactor,
   type ProviderRedactor,
@@ -53,6 +52,8 @@ export interface CaptureFetchOptions {
    * unless `failClosed` is set.
    */
   onUsage?: (usage: ExtractedUsage, ctx: CaptureFetchContext) => void
+  /** How repeated SSE usage events should be reconciled. Default `cumulative`. */
+  sseUsageMode?: SseUsageMode
 }
 
 const DEFAULT_BODY_CAP = 2 * 1024 * 1024
@@ -195,7 +196,9 @@ export function captureFetchToRawSink(
         const parsedForUsage = parseMaybeJson(rawText)
         const usage =
           extractUsage(parsedForUsage) ??
-          (typeof parsedForUsage === 'string' ? extractUsageFromSse(rawText) : null)
+          (typeof parsedForUsage === 'string'
+            ? extractUsageFromSse(rawText, { mode: opts.sseUsageMode })
+            : null)
         if (usage) opts.onUsage(usage, ctx)
       } catch (err) {
         if (opts.failClosed) throw err

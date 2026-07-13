@@ -109,7 +109,12 @@ describe('code-agent session intake', () => {
     expect(run.model).toBe('claude-code/sonnet@observed-local')
     expect(run.costUsd).toBeGreaterThan(0)
     expect(run.costProvenance).toMatchObject({ kind: 'estimated', usd: run.costUsd })
-    expect(run.tokenUsage).toEqual({ input: 1000, output: 300, cached: 200 })
+    expect(run.tokenUsage).toEqual({
+      input: 1000,
+      output: 300,
+      reasoning: 120,
+      cached: 200,
+    })
     expect(run.outcome.holdoutScore).toBeGreaterThan(0)
     expect(run.outcome.holdoutScore).toBeLessThan(1)
     expect(run.failureMode).toBe('tool_error')
@@ -164,12 +169,13 @@ describe('code-agent session intake', () => {
       turnsAborted: 0,
       inputTokens: 482267,
       outputTokens: 9006,
+      reasoningTokens: 4529,
       cachedTokens: 409600,
       processScore: 0.9,
     })
     expect(runs[0]).toMatchObject({
       runId: 'codex:00000000-0000-7000-8000-000000000144',
-      tokenUsage: { input: 482267, output: 9006, cached: 409600 },
+      tokenUsage: { input: 482267, output: 9006, reasoning: 4529, cached: 409600 },
       costProvenance: { kind: 'estimated' },
       failureMode: 'tool_error',
     })
@@ -374,7 +380,7 @@ describe('code-agent session intake', () => {
     const run = validateRunRecord(runs[0])
     expect(run.runId).toBe('opencode:opencode-session-1')
     expect(run.model).toBe('kimi/kimi-k2-code@observed-local')
-    expect(run.tokenUsage).toEqual({ input: 1000, output: 150, cached: 40 })
+    expect(run.tokenUsage).toEqual({ input: 1000, output: 150, reasoning: 30, cached: 40 })
     expect(run.costUsd).toBe(0.42)
     expect(run.costProvenance).toEqual({ kind: 'observed', usd: 0.42 })
     expect(run.failureMode).toBe('tool_error')
@@ -390,6 +396,67 @@ describe('code-agent session intake', () => {
       observedCostUsd: 0.42,
       observedCostCaptured: true,
     })
+  })
+
+  it('prefers cache-only OpenCode message usage over duplicate part summaries', () => {
+    const { runs } = fromOpenCodeSession({
+      entries: [
+        {
+          id: 'msg-cache-only',
+          sessionID: 'opencode-cache-only',
+          role: 'assistant',
+          providerID: 'anthropic',
+          modelID: 'claude-opus',
+          tokens: { cache_read_tokens: 40, cache_creation_tokens: 5 },
+          cost: 0.1,
+          finish: 'stop',
+        },
+        {
+          id: 'part-duplicate',
+          messageID: 'msg-cache-only',
+          sessionID: 'opencode-cache-only',
+          type: 'step-finish',
+          tokens: { input: 999, output: 999 },
+          cost: 9,
+        },
+      ],
+    })
+
+    const run = validateRunRecord(runs[0])
+    expect(run.tokenUsage).toEqual({ input: 0, output: 0, cached: 40, cacheWrite: 5 })
+    expect(run.costUsd).toBe(0.1)
+  })
+
+  it('preserves OpenCode nested cache reads and writes', () => {
+    const { runs } = fromOpenCodeSession({
+      entries: [
+        {
+          id: 'msg-nested-cache',
+          sessionID: 'opencode-nested-cache',
+          role: 'assistant',
+          providerID: 'zai-coding-plan',
+          modelID: 'glm-5.1',
+          tokens: {
+            input: 250,
+            output: 1264,
+            reasoning: 41,
+            cache: { read: 12096, write: 7 },
+          },
+          cost: 0,
+          finish: 'stop',
+        },
+      ],
+    })
+
+    const run = validateRunRecord(runs[0])
+    expect(run.tokenUsage).toEqual({
+      input: 250,
+      output: 1305,
+      reasoning: 41,
+      cached: 12096,
+      cacheWrite: 7,
+    })
+    expect(run.costProvenance).toEqual({ kind: 'observed', usd: 0 })
   })
 
   it('keeps a source-reported zero-dollar OpenCode run observed', async () => {
@@ -509,7 +576,12 @@ describe('code-agent session intake', () => {
     const run = validateRunRecord(runs[0])
     expect(run.runId).toBe('kimi-code:kimi-session-1')
     expect(run.model).toBe('kimi-code@2026-05-01')
-    expect(run.tokenUsage).toEqual({ input: 700, output: 110, cached: 75 })
+    expect(run.tokenUsage).toEqual({
+      input: 700,
+      output: 110,
+      cached: 50,
+      cacheWrite: 25,
+    })
     expect(run.outcome.raw.turns_started).toBe(1)
     expect(run.outcome.raw.turns_completed).toBe(1)
     expect(run.outcome.raw.reasoning_items).toBe(2)

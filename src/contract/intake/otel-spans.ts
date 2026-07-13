@@ -13,7 +13,8 @@
  *   - `wallMs` from `endTimeUnixNano - startTimeUnixNano`
  *   - `model` from `gen_ai.request.model` / `llm.model` / `tangle.model`
  *   - cost from `cost.usd` / `gen_ai.usage.cost_usd` / `tangle.cost.usd`
- *   - token usage from `gen_ai.usage.{input,output}_tokens`
+ *   - token usage from model-call input, output, cache-read, and cache-write
+ *     attributes without double-counting aggregate parent spans
  *   - `outcome.searchScore` from `tangle.score` / `eval.score` when
  *     present; `outcome.raw` collects every numeric attribute.
  *
@@ -22,24 +23,15 @@
  */
 
 import type { TraceSpanEvent } from '../../hosted/types'
-import type {
-  JudgeScoresRecord,
-  RunOutcome,
-  RunRecord,
-  RunSplitTag,
-  RunTokenUsage,
-} from '../../run-record'
+import type { JudgeScoresRecord, RunOutcome, RunRecord, RunSplitTag } from '../../run-record'
 import {
-  LLM_INPUT_TOKEN_ATTR_KEYS,
-  LLM_MODEL_ATTR_KEYS,
-  LLM_OUTPUT_TOKEN_ATTR_KEYS,
-} from '../../trace/otlp-attributes'
+  recordAggregateMeasurements,
+  summarizeExecutionMeasurements,
+} from '../../trace/execution-measurements'
+import { LLM_MODEL_ATTR_KEYS } from '../../trace/otlp-attributes'
 
 const SCORE_KEYS = ['tangle.score', 'eval.score', 'score']
 const MODEL_KEYS = ['tangle.model', ...LLM_MODEL_ATTR_KEYS, 'model']
-const COST_KEYS = ['tangle.cost.usd', 'gen_ai.usage.cost_usd', 'cost.usd', 'cost']
-const INPUT_TOKEN_KEYS = [...LLM_INPUT_TOKEN_ATTR_KEYS, 'tangle.tokens.in', 'tokens.in']
-const OUTPUT_TOKEN_KEYS = [...LLM_OUTPUT_TOKEN_ATTR_KEYS, 'tangle.tokens.out', 'tokens.out']
 const PROMPT_HASH_KEYS = ['tangle.prompt_hash', 'prompt.hash']
 const CONFIG_HASH_KEYS = ['tangle.config_hash', 'config.hash']
 
@@ -59,21 +51,38 @@ export function fromOtelSpans(opts: FromOtelSpansOptions): RunRecord[] {
   for (const [groupKey, groupSpans] of grouped) {
     const root = findRoot(groupSpans)
     if (!root) continue
+    const measurements = summarizeExecutionMeasurements(
+      groupSpans.map((span) => ({
+        id: span.spanId,
+        ...(span.parentSpanId ? { parentId: span.parentSpanId } : {}),
+        attributes: span.attributes,
+        modelCall: isExplicitModelCall(span),
+        aggregate: isExplicitAggregate(span),
+      })),
+    )
+    const callSpanIds = new Set(measurements.callSpanIds)
+    const callSpans = groupSpans.filter((span) => callSpanIds.has(span.spanId))
 
     const wallMs = Math.max(0, (root.endTimeUnixNano - root.startTimeUnixNano) / 1_000_000)
-    const model = readAttrString(groupSpans, MODEL_KEYS) ?? 'unknown@unknown'
-    const costUsd = readAttrNumber(groupSpans, COST_KEYS) ?? 0
-    const inputTokens = readAttrNumber(groupSpans, INPUT_TOKEN_KEYS) ?? 0
-    const outputTokens = readAttrNumber(groupSpans, OUTPUT_TOKEN_KEYS) ?? 0
+    const model =
+      readAttrString(callSpans, MODEL_KEYS) ??
+      readAttrString(groupSpans, MODEL_KEYS) ??
+      'unknown@unknown'
+    const capturedCost =
+      (measurements.cost.complete ? measurements.cost.value : undefined) ??
+      measurements.aggregate?.costUsd
+    const costUsd = capturedCost ?? 0
     const promptHash = readAttrString(groupSpans, PROMPT_HASH_KEYS) ?? 'sha256:unknown'
     const configHash = readAttrString(groupSpans, CONFIG_HASH_KEYS) ?? 'sha256:unknown'
     const score = readAttrNumber(groupSpans, SCORE_KEYS)
 
     const rawNumeric = collectNumericAttrs(groupSpans)
-    const tokenUsage: RunTokenUsage = {
-      input: inputTokens,
-      output: outputTokens,
+    rawNumeric.error_span_count = groupSpans.filter((span) => span.status?.code === 'ERROR').length
+    rawNumeric.llm_span_count = measurements.modelCallCount
+    if (measurements.cost.value !== undefined && !measurements.cost.complete) {
+      rawNumeric.partial_observed_cost_usd = measurements.cost.value
     }
+    recordAggregateMeasurements(rawNumeric, measurements.aggregate)
 
     const judgeScores: JudgeScoresRecord | undefined =
       score !== undefined
@@ -102,13 +111,34 @@ export function fromOtelSpans(opts: FromOtelSpansOptions): RunRecord[] {
       commitSha: (root.attributes['tangle.commit_sha'] as string | undefined) ?? 'unknown',
       wallMs,
       costUsd,
-      tokenUsage,
+      costProvenance:
+        capturedCost === undefined
+          ? { kind: 'uncaptured', usd: null }
+          : { kind: 'observed', usd: capturedCost },
+      tokenUsage: measurements.tokenUsage,
       outcome,
       splitTag: defaultSplit,
       ...(errorSpan ? { failureMode: errorSpan.name } : {}),
     } as RunRecord)
   }
   return runs
+}
+
+function isExplicitModelCall(span: TraceSpanEvent): boolean {
+  const kind = span.attributes['openinference.span.kind']
+  if (typeof kind === 'string') return kind.toUpperCase() === 'LLM'
+  const spanType = span.attributes['span.type']
+  return (
+    (typeof spanType === 'string' && spanType.toLowerCase() === 'llm_request') ||
+    span.name.toLowerCase().includes('llm') ||
+    readAttrString([span], MODEL_KEYS) !== undefined ||
+    typeof span.attributes['gen_ai.operation.name'] === 'string'
+  )
+}
+
+function isExplicitAggregate(span: TraceSpanEvent): boolean {
+  const kind = span.attributes['openinference.span.kind']
+  return typeof kind === 'string' && kind.toUpperCase() !== 'LLM'
 }
 
 // ── Internal helpers ────────────────────────────────────────────────

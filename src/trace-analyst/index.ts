@@ -1,6 +1,7 @@
 /** Ax RLM trace analyst over bounded OTLP-JSONL trace stores. */
 
 export {
+  LLM_CACHE_WRITE_TOKENS,
   LLM_CACHED_TOKENS,
   LLM_COST_USD,
   LLM_INPUT_TOKENS,

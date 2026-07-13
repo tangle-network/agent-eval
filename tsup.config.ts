@@ -25,7 +25,6 @@ export default defineConfig({
     cli: 'src/cli.ts',
   },
   format: ['esm'],
-  dts: true,
   sourcemap: true,
   clean: true,
   target: 'es2022',
