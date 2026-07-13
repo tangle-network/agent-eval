@@ -589,6 +589,19 @@ export interface GenerationCandidate {
   surfaceHash: string
   composite: number
   ci95: [number, number]
+  /** Whether this candidate had a scorable result for every designed campaign
+   *  cell and was therefore eligible for ranking, promotion, and Pareto
+   *  selection. Older externally-authored records may omit this field; loop
+   *  records always populate it. */
+  eligibleForPromotion?: boolean
+  /** Exact denominator receipt for selection eligibility. Scores stay
+   *  descriptive: an incomplete candidate is retained with its observed score
+   *  and errors instead of receiving an invented penalty. */
+  coverage?: {
+    expectedCells: number
+    scorableCells: number
+    unscorableCells: Array<{ cellId: string; reason: string }>
+  }
   /** Mean score per judge dimension across all cells (scenarios × reps ×
    *  judges that reported the dimension). */
   dimensions: Record<string, number>

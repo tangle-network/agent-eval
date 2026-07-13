@@ -1128,11 +1128,10 @@ describe('runOptimization — GEPA Pareto frontier', () => {
     expect(frontierHashes.has(hX)).toBe(true)
   })
 
-  it('keeps a candidate missing a scenario score via the finite floor (not dropped)', async () => {
-    // The judge is "unavailable" for (X, scenario b) → X's campaign cell b errors
-    // → X.objectives omits 'b'. computeParetoFrontier must rank X worst on 'b'
-    // via a FINITE floor, NOT -Infinity (which the canonical paretoFrontier would
-    // exclude entirely, silently dropping X). Regression guard for that floor.
+  it('excludes a candidate missing a scenario score from the Pareto frontier', async () => {
+    // The judge is unavailable for (X, scenario b), so X has no complete
+    // objective vector. Preserve its raw failed campaign and descriptive score,
+    // but do not let missing evidence become Pareto value.
     const floorJudge: JudgeConfig<FakeArtifact, FakeScenario> = {
       name: 'floor-lookup',
       dimensions: [{ key: 'q', description: 'quality' }],
@@ -1160,13 +1159,19 @@ describe('runOptimization — GEPA Pareto frontier', () => {
       runDir,
     })
 
-    const xParent = result.paretoFrontier.find((p) => p.surfaceHash === surfaceHash('X'))
-    // X scored only scenario 'a' (b errored) — but it is STILL on the frontier
-    // (uniquely best on 'a'), not silently dropped for the missing axis.
-    expect(xParent).toBeDefined()
-    expect(Object.keys(xParent!.objectives)).toEqual(['a'])
-    expect(xParent!.objectives.a).toBeCloseTo(0.9, 5)
-    expect(result.paretoFrontier.some((p) => p.surfaceHash === surfaceHash('Y'))).toBe(true)
+    const xRecord = result.generations[0]!.record.candidates.find(
+      (candidate) => candidate.surfaceHash === surfaceHash('X'),
+    )!
+    expect(xRecord.composite).toBeCloseTo(0.9, 5)
+    expect(xRecord.eligibleForPromotion).toBe(false)
+    expect(xRecord.coverage?.unscorableCells).toEqual([
+      {
+        cellId: 'b:0',
+        reason: "judge 'floor-lookup' failed: judge unavailable for X on scenario b",
+      },
+    ])
+    expect(result.paretoFrontier.some((p) => p.surfaceHash === surfaceHash('X'))).toBe(false)
+    expect(result.paretoFrontier.map((p) => p.surfaceHash)).toEqual([surfaceHash('Y')])
   })
 })
 

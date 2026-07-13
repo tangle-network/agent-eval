@@ -322,7 +322,9 @@ function buildEvidence(
   if (!last || last.candidates.length === 0) {
     return { top: [], bottom: [], target: baseTarget }
   }
-  const best = [...last.candidates].sort((a, b) => b.composite - a.composite)[0]
+  const best = [...last.candidates]
+    .filter((candidate) => candidate.eligibleForPromotion !== false)
+    .sort((a, b) => b.composite - a.composite)[0]
   if (!best) return { top: [], bottom: [], target: baseTarget }
 
   const byScore = [...best.scenarios].sort((a, b) => b.composite - a.composite)

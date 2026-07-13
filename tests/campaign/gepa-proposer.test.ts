@@ -74,6 +74,48 @@ describe('gepaProposer', () => {
     expect(capture.userPrompt).toContain('PARENT SURFACE')
   })
 
+  it('does not use an incomplete candidate as reflective evidence', async () => {
+    const capture: { userPrompt?: string } = {}
+    const proposer = gepaProposer({
+      llm: {
+        apiKey: 'k',
+        baseUrl: 'https://router.test/v1',
+        fetch: fakeFetch(capture, ['NEW']),
+      },
+      model: 'test-model',
+      target: 'system-directive',
+    })
+    const history: GenerationRecord[] = [
+      {
+        generationIndex: 0,
+        promoted: ['complete'],
+        candidates: [
+          {
+            surfaceHash: 'incomplete',
+            composite: 0.99,
+            ci95: [0.99, 0.99],
+            eligibleForPromotion: false,
+            dimensions: { safety: 0.99 },
+            scenarios: [{ scenarioId: 'INCOMPLETE-EVIDENCE', composite: 0.99 }],
+          },
+          {
+            surfaceHash: 'complete',
+            composite: 0.5,
+            ci95: [0.5, 0.5],
+            eligibleForPromotion: true,
+            dimensions: { safety: 0.2 },
+            scenarios: [{ scenarioId: 'COMPLETE-EVIDENCE', composite: 0.5 }],
+          },
+        ],
+      },
+    ]
+
+    await proposer.propose(ctxWith(history, 1))
+
+    expect(capture.userPrompt).toContain('COMPLETE-EVIDENCE')
+    expect(capture.userPrompt).not.toContain('INCOMPLETE-EVIDENCE')
+  })
+
   it('drops the parent + dedupes proposals', async () => {
     const capture: { userPrompt?: string } = {}
     const proposer = gepaProposer({
