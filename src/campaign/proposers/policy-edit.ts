@@ -48,6 +48,7 @@ export function policyEditProposer(opts: PolicyEditProposerOptions = {}): Surfac
         Math.min(opts.maxCandidates ?? ctx.populationSize, ctx.populationSize),
       )
       const out: ProposedCandidate[] = []
+      const seen = new Set([surfaceContentHash(ctx.currentSurface)])
       if (limit === 0) return out
 
       for (const edit of edits) {
@@ -56,7 +57,9 @@ export function policyEditProposer(opts: PolicyEditProposerOptions = {}): Surfac
         if (admission.decision !== 'admit') continue
 
         const surface = coerceCandidateSurface(applyPolicyEditToSurface(ctx.currentSurface, edit))
-        if (sameSurface(ctx.currentSurface, surface)) continue
+        const hash = surfaceContentHash(surface)
+        if (seen.has(hash)) continue
+        seen.add(hash)
 
         out.push({
           surface,
@@ -115,8 +118,4 @@ function coerceCandidateSurface(surface: unknown): MutableSurface {
     return JSON.stringify(surface, null, 2)
   }
   throw new Error('policyEditProposer: policy edit produced an unsupported surface')
-}
-
-function sameSurface(a: MutableSurface, b: MutableSurface): boolean {
-  return surfaceContentHash(a) === surfaceContentHash(b)
 }

@@ -261,6 +261,15 @@ export {
 } from './proposers/gepa'
 // ── Surface proposers ────────────────────────────────────────────────
 export { type HaloProposerOptions, haloProposer } from './proposers/halo'
+export {
+  DEFAULT_POLICY_EDIT_HISTORY_LIMITS,
+  type LlmPolicyEditProposerOptions,
+  llmPolicyEditProposer,
+  type PolicyEditHistoryCandidateContext,
+  type PolicyEditHistoryGenerationContext,
+  type PolicyEditHistoryProjectionOptions,
+  projectPolicyEditHistory,
+} from './proposers/llm-policy-edit'
 export { type MemoryCurationProposerOptions, memoryCurationProposer } from './proposers/memory'
 export {
   type PolicyEditProposerOptions,
