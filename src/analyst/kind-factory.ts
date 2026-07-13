@@ -29,6 +29,7 @@ import { AxJSRuntime, agent } from '@ax-llm/ax'
 import type { TraceAnalysisStore } from '../trace-analyst/store'
 import { TraceFileMissingError } from '../trace-analyst/store-otlp'
 import {
+  evidenceRefsFromRawFinding,
   parseRawFinding,
   RAW_FINDING_SCHEMA_PROMPT,
   type RawAnalystFinding,
@@ -67,6 +68,8 @@ export interface TraceAnalystKindSpec {
   cost: AnalystCost
   /** Per-finding-row hook — kinds may reject / rewrite before lifting. */
   postProcess?: (row: RawAnalystFinding, ctx: AnalystContext) => RawAnalystFinding | null
+  /** Minimum citations per finding. Default 1; rows below it are rejected. */
+  minimumEvidenceCitations?: number
   /** Optional optimizer hook — populated when a kind wants to fit its prompt against labeled examples. */
   goldens?: TraceAnalystGolden[]
 }
@@ -112,6 +115,10 @@ export function createTraceAnalystKind(
   opts: CreateTraceAnalystKindOpts,
 ): Analyst<TraceAnalysisStore> {
   const version = opts.versionSuffix ? `${spec.version}+${opts.versionSuffix}` : spec.version
+  const minimumEvidenceCitations = spec.minimumEvidenceCitations ?? 1
+  if (!Number.isInteger(minimumEvidenceCitations) || minimumEvidenceCitations < 1) {
+    throw new TypeError('minimumEvidenceCitations must be a positive integer')
+  }
   return {
     id: spec.id,
     description: spec.description,
@@ -130,11 +137,14 @@ export function createTraceAnalystKind(
         priorContext +
         '\n\n' +
         RAW_FINDING_SCHEMA_PROMPT +
+        (minimumEvidenceCitations > 1
+          ? `\n\nThis kind requires at least ${minimumEvidenceCitations} evidence citations per finding; rows with fewer are rejected.`
+          : '') +
         '\n\nFirst write `report`: a concise free-form prose diagnosis of what ' +
         'the traces show — what succeeded, what was suboptimal or failed — with ' +
         'concrete trace ids and numbers. THEN return the structured `findings` ' +
-        'array (it MAY be empty when there is nothing to report). Use `final(...)` ' +
-        'with the `{ report, findings }` payload when you are done.'
+        'array (it MAY be empty when there is nothing to report). Call ' +
+        '`final({ report, findings })` exactly once when done.'
 
       const ax = agent<{ question: string }, { report: string; findings: unknown[] }>(
         'question:string -> report:string, findings:json[]',
@@ -190,9 +200,19 @@ export function createTraceAnalystKind(
       const out: AnalystFinding[] = []
       const rawRows = Array.isArray(result.findings) ? result.findings : []
       let rejectedWrongKind = 0
+      let rejectedInsufficientEvidence = 0
       for (const row of rawRows) {
         const parsed = parseRawFinding(row, ctx.log)
         if (!parsed) continue
+        if (parsed.evidence.length < minimumEvidenceCitations) {
+          ctx.log?.('finding rejected: insufficient evidence citations', {
+            kind: spec.id,
+            required: minimumEvidenceCitations,
+            received: parsed.evidence.length,
+          })
+          rejectedInsufficientEvidence += 1
+          continue
+        }
         // Subject-grammar check: if the kind has a declared expects-set
         // (every shipped kind does), the finding's subject MUST parse to
         // one of the declared variants. A wrong-kind subject is a
@@ -228,6 +248,7 @@ export function createTraceAnalystKind(
         emitted: rawRows.length,
         accepted: out.length,
         rejected_wrong_subject: rejectedWrongKind,
+        rejected_insufficient_evidence: rejectedInsufficientEvidence,
       })
 
       // Two-phase recovery / fail-loud. The actor reasons free-form (the
@@ -296,25 +317,10 @@ function toAnalystFinding(spec: TraceAnalystKindSpec, raw: RawAnalystFinding): A
     rationale: raw.rationale,
     severity: raw.severity,
     confidence: raw.confidence,
-    evidence_refs: [
-      {
-        kind: evidenceKindFromUri(raw.evidence_uri),
-        uri: raw.evidence_uri,
-        excerpt: raw.evidence_excerpt,
-      },
-    ],
+    evidence_refs: evidenceRefsFromRawFinding(raw),
     recommended_action: raw.recommended_action,
     metadata: { kind_version: spec.version },
   })
-}
-
-function evidenceKindFromUri(uri: string): 'span' | 'artifact' | 'metric' | 'event' | 'finding' {
-  if (uri.startsWith('span://')) return 'span'
-  if (uri.startsWith('artifact://')) return 'artifact'
-  if (uri.startsWith('metric://')) return 'metric'
-  if (uri.startsWith('event://')) return 'event'
-  if (uri.startsWith('finding://')) return 'finding'
-  return 'artifact'
 }
 
 /**

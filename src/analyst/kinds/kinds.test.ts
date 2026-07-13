@@ -17,8 +17,12 @@ describe('RawAnalystFindingSchema', () => {
       severity: 'high',
       claim: 'agent looped on tool foo',
       subject: 'tool-doc:foo',
-      evidence_uri: 'span://abc/def',
-      evidence_excerpt: 'foo() called 11 times with same args',
+      evidence: [
+        {
+          uri: 'span://abc/def',
+          excerpt: 'foo() called 11 times with same args',
+        },
+      ],
       confidence: 0.9,
       rationale: 'eleven identical calls without progress',
       recommended_action: 'add per-call dedupe in scaffolding',
@@ -26,11 +30,37 @@ describe('RawAnalystFindingSchema', () => {
     expect(parsed.success).toBe(true)
   })
 
+  it('normalizes legacy single-citation rows into the plural contract', () => {
+    const parsed = RawAnalystFindingSchema.safeParse({
+      severity: 'medium',
+      claim: 'legacy finding',
+      evidence_uri: 'span://legacy/action',
+      evidence_excerpt: 'legacy excerpt',
+      confidence: 0.7,
+    })
+    expect(parsed.success).toBe(true)
+    if (!parsed.success) throw new Error('test setup invariant')
+    expect(parsed.data.evidence).toEqual([
+      { uri: 'span://legacy/action', excerpt: 'legacy excerpt' },
+    ])
+    expect(parsed.data).not.toHaveProperty('evidence_uri')
+  })
+
+  it('requires at least one citation', () => {
+    const parsed = RawAnalystFindingSchema.safeParse({
+      severity: 'high',
+      claim: 'x',
+      evidence: [],
+      confidence: 0.5,
+    })
+    expect(parsed.success).toBe(false)
+  })
+
   it('rejects out-of-range confidence', () => {
     const parsed = RawAnalystFindingSchema.safeParse({
       severity: 'high',
       claim: 'x',
-      evidence_uri: 'span://a/b',
+      evidence: [{ uri: 'span://a/b' }],
       confidence: 1.5,
     })
     expect(parsed.success).toBe(false)
@@ -40,7 +70,7 @@ describe('RawAnalystFindingSchema', () => {
     const parsed = RawAnalystFindingSchema.safeParse({
       severity: 'catastrophic',
       claim: 'x',
-      evidence_uri: 'span://a/b',
+      evidence: [{ uri: 'span://a/b' }],
       confidence: 0.5,
     })
     expect(parsed.success).toBe(false)
@@ -50,7 +80,7 @@ describe('RawAnalystFindingSchema', () => {
     const parsed = RawAnalystFindingSchema.safeParse({
       severity: 'low',
       claim: 'x',
-      evidence_uri: 'span://a/b',
+      evidence: [{ uri: 'span://a/b' }],
       confidence: 0.5,
       unexpected: 'field',
     })
@@ -75,7 +105,7 @@ describe('parseRawFinding logs the rejection reason on schema failure', () => {
       {
         severity: 'low',
         claim: 'test',
-        evidence_uri: 'span://t/s',
+        evidence: [{ uri: 'span://t/s' }],
         confidence: 0.4,
       },
       log,
@@ -95,10 +125,13 @@ describe('default kind suite shape', () => {
     ])
   })
 
-  it('every default kind declares a non-empty actor prompt + structured-output instruction', () => {
+  it('every default kind declares a non-empty lens prompt without duplicating the output contract', () => {
     for (const spec of DEFAULT_TRACE_ANALYST_KINDS) {
       expect(spec.actorDescription.length).toBeGreaterThan(500)
-      expect(spec.actorDescription).toMatch(/findings|final\(/)
+      expect(spec.actorDescription).not.toMatch(/`area`\s*=/)
+      expect(spec.actorDescription).not.toContain('`evidence_uri`')
+      expect(spec.actorDescription).not.toContain('`evidence_excerpt`')
+      expect(spec.actorDescription).not.toMatch(/final\(\{\s*findings/)
     }
   })
 
@@ -131,6 +164,7 @@ describe('default kind suite shape', () => {
 
   it('knowledge-poisoning prompt enforces dual-verify (acted on + actually false)', () => {
     expect(KNOWLEDGE_POISONING_KIND_SPEC.actorDescription).toMatch(/DUAL-VERIFY/)
+    expect(KNOWLEDGE_POISONING_KIND_SPEC.minimumEvidenceCitations).toBe(2)
   })
 
   it('failure-mode prompt requires clustering, not enumeration', () => {

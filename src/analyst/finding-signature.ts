@@ -18,10 +18,20 @@
 import { z } from 'zod'
 import { parseFindingSubject } from './finding-subject'
 import { coerceJson } from './parse-tolerant'
+import type { EvidenceRef } from './types'
 
 export const ANALYST_SEVERITIES = ['critical', 'high', 'medium', 'low', 'info'] as const
 
-export const RawAnalystFindingSchema = z
+export const RawAnalystEvidenceSchema = z
+  .object({
+    uri: z.string().min(1).max(2000),
+    excerpt: z.string().max(2000).optional(),
+  })
+  .strict()
+
+export type RawAnalystEvidence = z.infer<typeof RawAnalystEvidenceSchema>
+
+const CanonicalRawAnalystFindingSchema = z
   .object({
     severity: z.enum(ANALYST_SEVERITIES),
     claim: z.string().min(1).max(2000),
@@ -43,13 +53,23 @@ export const RawAnalystFindingSchema = z
         message: 'subject does not match the finding-subject grammar',
       })
       .optional(),
-    evidence_uri: z.string().min(1).max(2000),
-    evidence_excerpt: z.string().max(2000).optional(),
+    evidence: z.array(RawAnalystEvidenceSchema).min(1),
     confidence: z.number().min(0).max(1),
     rationale: z.string().max(4000).optional(),
     recommended_action: z.string().max(2000).optional(),
   })
   .strict()
+
+/**
+ * Canonical plural-evidence contract. The preprocessor accepts the original
+ * `evidence_uri` / `evidence_excerpt` pair and normalizes it into one evidence
+ * item so persisted rows and older model fixtures remain readable. New output
+ * always receives the plural shape.
+ */
+export const RawAnalystFindingSchema = z.preprocess(
+  normalizeLegacySingleCitation,
+  CanonicalRawAnalystFindingSchema,
+)
 
 export type RawAnalystFinding = z.infer<typeof RawAnalystFindingSchema>
 
@@ -58,17 +78,25 @@ export type RawAnalystFinding = z.infer<typeof RawAnalystFindingSchema>
  * shape to emit. Kept here so kinds share one source of truth rather
  * than restating the schema in every prompt.
  */
-export const RAW_FINDING_SCHEMA_PROMPT = `Each finding MUST be a JSON object with these fields:
-  - severity: one of "critical" | "high" | "medium" | "low" | "info"
+export const RAW_FINDING_SCHEMA_PROMPT = `Each finding MUST be a strict JSON object with:
+  - severity: "critical" | "high" | "medium" | "low" | "info"
   - claim: one-sentence statement (max 2000 chars)
-  - subject?: the routing locus this finding is about. It MUST be one of the exact subject forms listed in this kind's instructions above (e.g. \`system-prompt:<section>\`, \`agent-knowledge:wiki:<slug>\`, \`tool-doc:<tool>\`). A free phrase, a bare noun, or any form not in that list is REJECTED at parse time and the finding is discarded — omit subject entirely rather than guess a form.
-  - evidence_uri: REQUIRED, never blank. Exactly one of "span://<trace_id>/<span_id>" (trace evidence), "artifact://<relative-path>" (files), "metric://<name>" (named scalars) — ALWAYS cite a real id surfaced by the tools. If you have no citable id, do not emit the finding.
-  - evidence_excerpt?: short quote (<=2000 chars) from the cited span/artifact
-  - confidence: number 0..1 — 0.9+ when backed by exact quotes, 0.6-0.8 for inferred patterns, <0.5 for speculative
-  - rationale?: one or two sentences explaining the reasoning
-  - recommended_action?: concrete change phrased as an imperative ("Add ...", "Replace ...", "Stop ...") — omit when the finding is purely descriptive
+  - subject?: one exact subject form listed by this kind; omit rather than guess
+  - evidence: REQUIRED non-empty array of {"uri": string, "excerpt"?: string}. Use real identifiers with span://, event://, artifact://, metric://, or finding://. Include a short exact quote in excerpt when available. If nothing is citable, do not emit the finding.
+  - confidence: number 0..1 (0.9+ exact evidence; 0.6-0.8 inferred pattern; <0.5 speculative)
+  - rationale?: one or two reasoning sentences
+  - recommended_action?: concrete imperative change; omit for descriptive findings
 
-Emit an empty array when the question has no findings to report. Do not fabricate evidence.`
+Unknown fields are rejected. Do not emit area; the factory assigns it. Emit [] when there are no findings. Never fabricate evidence.`
+
+/** Convert canonical raw citations into the public finding evidence envelope. */
+export function evidenceRefsFromRawFinding(finding: RawAnalystFinding): EvidenceRef[] {
+  return finding.evidence.map(({ uri, excerpt }) => ({
+    kind: evidenceKindFromUri(uri),
+    uri,
+    excerpt,
+  }))
+}
 
 /**
  * Validate one row emitted by the LLM. Returns the typed finding on
@@ -98,4 +126,23 @@ export function parseRawFinding(
     })),
   })
   return null
+}
+
+function normalizeLegacySingleCitation(value: unknown): unknown {
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) return value
+  const row = value as Record<string, unknown>
+  if ('evidence' in row || !('evidence_uri' in row)) return value
+  const { evidence_uri: uri, evidence_excerpt: excerpt, ...rest } = row
+  return {
+    ...rest,
+    evidence: [{ uri, ...(excerpt === undefined ? {} : { excerpt }) }],
+  }
+}
+
+function evidenceKindFromUri(uri: string): EvidenceRef['kind'] {
+  if (uri.startsWith('span://')) return 'span'
+  if (uri.startsWith('event://')) return 'event'
+  if (uri.startsWith('finding://')) return 'finding'
+  if (uri.startsWith('metric://')) return 'metric'
+  return 'artifact'
 }

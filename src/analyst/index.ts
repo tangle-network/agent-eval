@@ -39,11 +39,13 @@ export {
   buildDefaultAnalystRegistry,
   type DefaultAnalystRegistryOptions,
 } from './default-registry'
-export type { RawAnalystFinding } from './finding-signature'
+export type { RawAnalystEvidence, RawAnalystFinding } from './finding-signature'
 export {
   ANALYST_SEVERITIES,
+  evidenceRefsFromRawFinding,
   parseRawFinding,
   RAW_FINDING_SCHEMA_PROMPT,
+  RawAnalystEvidenceSchema,
   RawAnalystFindingSchema,
 } from './finding-signature'
 export type { FindingSubject, FindingSubjectKind } from './finding-subject'

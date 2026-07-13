@@ -15,7 +15,12 @@
  */
 
 import { callLlm, type LlmClientOptions } from '../llm-client'
-import { parseRawFinding, type RawAnalystFinding } from './finding-signature'
+import {
+  evidenceRefsFromRawFinding,
+  parseRawFinding,
+  RAW_FINDING_SCHEMA_PROMPT,
+  type RawAnalystFinding,
+} from './finding-signature'
 import { coerceToFindingRows } from './parse-tolerant'
 import { type AnalystFinding, makeFinding } from './types'
 
@@ -42,9 +47,8 @@ export interface StructureFindingsResult {
 const SYSTEM = [
   'You convert a free-form trace-analysis report into a STRICT JSON array of findings.',
   'Output ONLY the JSON array — no prose, no code fences.',
-  'Each element: {"severity":"critical|high|medium|low|info","claim":string,"evidence_uri":string,',
-  '"subject"?:string,"rationale"?:string,"recommended_action"?:string,"confidence":number(0..1)}.',
-  'evidence_uri cites the trace element the report referenced (e.g. "span://<trace>/<span>") or "report://summary".',
+  RAW_FINDING_SCHEMA_PROMPT,
+  'Omit subject when the report does not contain an exact valid locus.',
   'If the report asserts NO problems, output exactly [].',
 ].join(' ')
 
@@ -54,14 +58,14 @@ function buildRows(raw: unknown, analystId: string, area: string): AnalystFindin
   for (const row of rows) {
     // Recovery findings are extracted from PROSE — the report itself is the
     // evidence. A weak model often returns a sound claim + severity but omits
-    // `evidence_uri`; default it to the report rather than dropping the row
-    // (the strict evidence_uri requirement is a recovery yield-killer).
+    // any citation; default it to the report rather than dropping the row.
     const normalized =
       row &&
       typeof row === 'object' &&
       !Array.isArray(row) &&
-      !(row as Record<string, unknown>).evidence_uri
-        ? { ...(row as Record<string, unknown>), evidence_uri: 'report://summary' }
+      !('evidence' in row) &&
+      !('evidence_uri' in row)
+        ? { ...(row as Record<string, unknown>), evidence: [{ uri: 'report://summary' }] }
         : row
     const parsed: RawAnalystFinding | null = parseRawFinding(normalized)
     if (!parsed) continue
@@ -74,13 +78,7 @@ function buildRows(raw: unknown, analystId: string, area: string): AnalystFindin
         rationale: parsed.rationale,
         severity: parsed.severity,
         confidence: parsed.confidence,
-        evidence_refs: [
-          {
-            kind: parsed.evidence_uri.startsWith('span://') ? 'span' : 'artifact',
-            uri: parsed.evidence_uri,
-            excerpt: parsed.evidence_excerpt,
-          },
-        ],
+        evidence_refs: evidenceRefsFromRawFinding(parsed),
         recommended_action: parsed.recommended_action,
       }),
     )
