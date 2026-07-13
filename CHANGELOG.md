@@ -4,6 +4,13 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ---
 
+## [0.116.1] — 2026-07-13 — bounded behavioral evidence
+
+### Fixed
+
+- Repeated-call findings now require a contiguous, time-bounded episode instead of grouping identical calls across an entire run.
+- Token-growth and output-decay findings now require every adjacent paired sample to support the reported trend.
+
 ## [0.116.0] — 2026-07-12 — evidence-linked AgentProfile optimization
 
 ### Added
