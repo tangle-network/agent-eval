@@ -64,7 +64,7 @@ export type {
   TraceAnalystGolden,
   TraceAnalystKindSpec,
 } from './kind-factory'
-export { createTraceAnalystKind, renderPriorFindings } from './kind-factory'
+export { createTraceAnalystKind, renderPriorFindings, renderUpstreamFindings } from './kind-factory'
 export {
   DEFAULT_TRACE_ANALYST_KINDS,
   FAILURE_MODE_KIND_SPEC,
@@ -146,6 +146,7 @@ export type {
   AnalystRunResult,
   AnalystRunSummary,
   AnalystSeverity,
+  AnalystUsageReceipt,
   EvidenceRef,
 } from './types'
 export { computeFindingId, makeFinding } from './types'

@@ -85,7 +85,7 @@ export function traceAnalystProposer(opts: TraceAnalystProposerOptions): Surface
       const result = await registry.run(
         `trace-analyst-gen-${c.generation}`,
         { traceStore: new OtlpFileTraceStore({ path }) },
-        { signal: c.signal },
+        { signal: c.signal, chainFindings: true },
       )
       return result.findings
     })

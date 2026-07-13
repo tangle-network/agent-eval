@@ -17,6 +17,7 @@
  */
 
 import { randomUUID } from 'node:crypto'
+import type { RunCostProvenance, RunTokenUsage } from '../run-record'
 import type { ChatClient } from './chat-client'
 import type {
   Analyst,
@@ -26,6 +27,7 @@ import type {
   AnalystRunInputs,
   AnalystRunResult,
   AnalystRunSummary,
+  AnalystUsageReceipt,
 } from './types'
 
 // ── Hook + policy surfaces ─────────────────────────────────────────
@@ -105,10 +107,16 @@ export interface RegistryRunOpts {
    * analyst via `ctx.priorFindings`. The registry forwards the slice
    * whose `analyst_id` matches each registered analyst so a kind sees
    * only its own history. Pass `{ '*': findings }` to broadcast to
-   * every analyst (useful for cross-kind chaining where the improvement
-   * analyst consumes upstream failure findings).
+   * every analyst (useful when several kinds share the same historical
+   * context). For findings from this run, use `chainFindings` instead.
    */
   priorFindings?: ReadonlyArray<AnalystFinding> | Record<string, ReadonlyArray<AnalystFinding>>
+  /**
+   * Pass findings produced earlier in this registry run to each later analyst
+   * via `ctx.upstreamFindings`. Registration order is dependency order.
+   * Disabled by default because independent analyst suites must opt in.
+   */
+  chainFindings?: boolean
 }
 
 export class AnalystRegistry {
@@ -214,6 +222,7 @@ export class AnalystRegistry {
           findings_count: 0,
           latency_ms: 0,
           cost_usd: 0,
+          usage: zeroUsage(),
         }
         summaries.push(summary)
         log(`[analyst] skip ${analyst.id} — missing input`, { runId, kind: analyst.inputKind })
@@ -227,6 +236,7 @@ export class AnalystRegistry {
         remainingUsd,
         runningCount: runnableCount,
       })
+      const usageReceipts: AnalystUsageReceipt[] = []
 
       const ctx: AnalystContext = {
         runId,
@@ -238,6 +248,12 @@ export class AnalystRegistry {
         log: (msg, fields) => log(`[${analyst.id}] ${msg}`, { runId, correlationId, ...fields }),
         signal: runOpts.signal,
         priorFindings: selectPriorFindings(runOpts.priorFindings, analyst.id),
+        upstreamFindings:
+          runOpts.chainFindings && allFindings.length > 0 ? [...allFindings] : undefined,
+        recordUsage: (receipt) => {
+          assertValidUsageReceipt(receipt)
+          usageReceipts.push(receipt)
+        },
       }
 
       await hooks.onBeforeAnalyze?.({ analyst, ctx, runId })
@@ -250,7 +266,8 @@ export class AnalystRegistry {
       try {
         const findings = await (analyst as Analyst<unknown>).analyze(input.value, ctx)
         const latency = Date.now() - t0
-        const cost = sumFindingCost(findings)
+        const usage = resolveUsage(analyst, findings, usageReceipts)
+        const cost = capturedUsd(usage.cost)
         totalCost += cost
         if (typeof remainingUsd === 'number') remainingUsd = Math.max(0, remainingUsd - cost)
         allFindings.push(...findings)
@@ -260,6 +277,7 @@ export class AnalystRegistry {
           findings_count: findings.length,
           latency_ms: latency,
           cost_usd: cost,
+          usage,
         }
         summaries.push(summary)
         log(`[analyst] ok ${analyst.id}`, {
@@ -267,7 +285,17 @@ export class AnalystRegistry {
           findings: findings.length,
           latency_ms: latency,
           cost_usd: cost,
+          cost_kind: usage.cost.kind,
+          input_tokens: usage.tokens?.input ?? null,
+          output_tokens: usage.tokens?.output ?? null,
         })
+        if (perBudget !== undefined && usage.cost.kind === 'uncaptured') {
+          log(`[analyst] WARN ${analyst.id} — USD cost uncaptured; budget not reconciled`, {
+            runId,
+            budget_usd: perBudget,
+            cost_captured: false,
+          })
+        }
         await hooks.onAfterAnalyze?.({ analyst, summary, findings, runId })
         yield { type: 'analyst-completed', summary, findings }
       } catch (err) {
@@ -276,12 +304,17 @@ export class AnalystRegistry {
         // Hook gets first chance to convert the error into findings.
         const hookFindings = (await hooks.onError?.({ analyst, error: e, runId })) ?? []
         if (hookFindings.length) allFindings.push(...hookFindings)
+        const usage = resolveUsage(analyst, hookFindings, usageReceipts)
+        const cost = capturedUsd(usage.cost)
+        totalCost += cost
+        if (typeof remainingUsd === 'number') remainingUsd = Math.max(0, remainingUsd - cost)
         const summary: AnalystRunSummary = {
           analyst_id: analyst.id,
           status: 'failed',
           findings_count: hookFindings.length,
           latency_ms: latency,
-          cost_usd: 0,
+          cost_usd: cost,
+          usage,
           error: { class: e.constructor.name, message: e.message },
         }
         summaries.push(summary)
@@ -289,7 +322,16 @@ export class AnalystRegistry {
           runId,
           error_class: e.constructor.name,
           error: e.message,
+          cost_usd: cost,
+          cost_kind: usage.cost.kind,
         })
+        if (perBudget !== undefined && usage.cost.kind === 'uncaptured') {
+          log(`[analyst] WARN ${analyst.id} — USD cost uncaptured; budget not reconciled`, {
+            runId,
+            budget_usd: perBudget,
+            cost_captured: false,
+          })
+        }
         await hooks.onAfterAnalyze?.({ analyst, summary, findings: hookFindings, runId })
         yield { type: 'analyst-completed', summary, findings: hookFindings }
         // Continue — isolation invariant.
@@ -304,6 +346,9 @@ export class AnalystRegistry {
       findings: allFindings,
       per_analyst: summaries,
       total_cost_usd: totalCost,
+      total_cost_provenance: aggregateCostProvenance(
+        summaries.map((summary) => summary.usage?.cost ?? { kind: 'uncaptured', usd: null }),
+      ),
     }
     await hooks.onComplete?.({ result })
     yield { type: 'run-completed', result }
@@ -382,18 +427,120 @@ function allocateBudget(
   return policy.totalUsd / Math.max(1, args.runningCount)
 }
 
+function zeroUsage(): AnalystUsageReceipt {
+  return {
+    calls: 0,
+    tokens: { input: 0, output: 0 },
+    cost: { kind: 'observed', usd: 0 },
+  }
+}
+
+/**
+ * Prefer receipts reported independently of findings. Legacy analysts that
+ * annotate `metadata.cost_usd` retain their existing accounting, while an LLM
+ * analyst with neither source is explicitly uncaptured rather than observed $0.
+ */
+function resolveUsage(
+  analyst: Analyst,
+  findings: AnalystFinding[],
+  receipts: ReadonlyArray<AnalystUsageReceipt>,
+): AnalystUsageReceipt {
+  const legacyCost = sumFindingCost(findings)
+  if (receipts.length > 0) {
+    const merged = mergeUsageReceipts(receipts)
+    return merged.cost.kind === 'uncaptured' && legacyCost.captured
+      ? { ...merged, cost: { kind: 'observed', usd: legacyCost.usd } }
+      : merged
+  }
+
+  if (legacyCost.captured) {
+    return {
+      calls: null,
+      tokens: null,
+      cost: { kind: 'observed', usd: legacyCost.usd },
+    }
+  }
+  if (analyst.cost.kind === 'deterministic') return zeroUsage()
+  return { calls: null, tokens: null, cost: { kind: 'uncaptured', usd: null } }
+}
+
+function mergeUsageReceipts(receipts: ReadonlyArray<AnalystUsageReceipt>): AnalystUsageReceipt {
+  const calls = receipts.every((receipt) => receipt.calls !== null)
+    ? receipts.reduce((sum, receipt) => sum + (receipt.calls ?? 0), 0)
+    : null
+  const tokens = receipts.every((receipt) => receipt.tokens !== null)
+    ? receipts.reduce<RunTokenUsage>(
+        (sum, receipt) => ({
+          input: sum.input + (receipt.tokens?.input ?? 0),
+          output: sum.output + (receipt.tokens?.output ?? 0),
+          ...(sum.cached !== undefined || receipt.tokens?.cached !== undefined
+            ? { cached: (sum.cached ?? 0) + (receipt.tokens?.cached ?? 0) }
+            : {}),
+        }),
+        { input: 0, output: 0 },
+      )
+    : null
+  return {
+    calls,
+    tokens,
+    cost: aggregateCostProvenance(receipts.map((receipt) => receipt.cost)),
+  }
+}
+
+function capturedUsd(cost: RunCostProvenance): number {
+  return cost.kind === 'uncaptured' ? 0 : cost.usd
+}
+
+function aggregateCostProvenance(costs: ReadonlyArray<RunCostProvenance>): RunCostProvenance {
+  if (costs.some((cost) => cost.kind === 'uncaptured')) {
+    return { kind: 'uncaptured', usd: null }
+  }
+  const usd = costs.reduce((sum, cost) => sum + (cost.usd ?? 0), 0)
+  return costs.some((cost) => cost.kind === 'estimated')
+    ? { kind: 'estimated', usd }
+    : { kind: 'observed', usd }
+}
+
+function assertValidUsageReceipt(receipt: AnalystUsageReceipt): void {
+  if (receipt.calls !== null && (!Number.isInteger(receipt.calls) || receipt.calls < 0)) {
+    throw new Error('AnalystContext.recordUsage: calls must be a non-negative integer or null')
+  }
+  if (receipt.tokens) {
+    assertNonNegativeFinite(receipt.tokens.input, 'tokens.input')
+    assertNonNegativeFinite(receipt.tokens.output, 'tokens.output')
+    if (receipt.tokens.cached !== undefined) {
+      assertNonNegativeFinite(receipt.tokens.cached, 'tokens.cached')
+    }
+  }
+  if (receipt.cost.kind !== 'uncaptured') {
+    assertNonNegativeFinite(receipt.cost.usd, 'cost.usd')
+  } else if (receipt.cost.usd !== null) {
+    throw new Error('AnalystContext.recordUsage: uncaptured cost.usd must be null')
+  }
+}
+
+function assertNonNegativeFinite(value: number, field: string): void {
+  if (!Number.isFinite(value) || value < 0) {
+    throw new Error(`AnalystContext.recordUsage: ${field} must be a non-negative finite number`)
+  }
+}
+
 /**
  * Findings may carry their cost in `metadata.cost_usd` when the analyst
  * tracks it (the LLM-driven adapters do this — they sum chat-client
  * responses). Deterministic findings have no cost field.
  */
-function sumFindingCost(findings: AnalystFinding[]): number {
+function sumFindingCost(findings: AnalystFinding[]): { usd: number; captured: boolean } {
   let sum = 0
+  let captured = false
   for (const f of findings) {
     const c = f.metadata?.cost_usd
-    if (typeof c === 'number' && Number.isFinite(c)) sum += c
+    if (typeof c === 'number' && Number.isFinite(c)) {
+      sum += c
+      captured = true
+    }
   }
-  return sum
+  return { usd: sum, captured }
 }
 
 /**
@@ -404,9 +551,8 @@ function sumFindingCost(findings: AnalystFinding[]): number {
  *                   another kind's history by accident.
  *   - Record form → the analyst gets the entry keyed by its id, with
  *                   the `'*'` wildcard appended (in that order). Use
- *                   the wildcard for cross-kind chaining, e.g. when
- *                   `improvement` should see all upstream failure /
- *                   gap / poisoning findings.
+ *                   the wildcard when several kinds should see the same
+ *                   historical findings.
  */
 function selectPriorFindings(
   source: RegistryRunOpts['priorFindings'],

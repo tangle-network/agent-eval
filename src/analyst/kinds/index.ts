@@ -5,8 +5,8 @@
  * The four kinds chain: failure-mode classifies; knowledge-gap and
  * knowledge-poisoning explain *why* in two orthogonal ways; improvement
  * proposes concrete edits. Register all four against the same trace
- * store and the registry runs them in dependency order if the operator
- * pipes findings between them.
+ * store in this order and run the registry with `chainFindings: true`
+ * to pass each completed kind's findings to the kinds that follow it.
  */
 
 export { FAILURE_MODE_KIND_SPEC } from './failure-mode'

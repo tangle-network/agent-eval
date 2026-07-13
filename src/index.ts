@@ -78,6 +78,7 @@ export {
   type CreateTraceAnalystKindOpts,
   createTraceAnalystKind,
   renderPriorFindings,
+  renderUpstreamFindings,
   type TraceAnalystGolden,
   type TraceAnalystKindSpec,
 } from './analyst/kind-factory'
@@ -143,6 +144,7 @@ export {
   type AnalystRunResult,
   type AnalystRunSummary,
   type AnalystSeverity,
+  type AnalystUsageReceipt,
   computeFindingId,
   type EvidenceRef,
   makeFinding,

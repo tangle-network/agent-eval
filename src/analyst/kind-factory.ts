@@ -35,7 +35,13 @@ import {
 } from './finding-signature'
 import { KIND_EXPECTED_SUBJECTS, parseFindingSubject } from './finding-subject'
 import { structureFindings } from './structure-findings'
-import type { Analyst, AnalystContext, AnalystCost, AnalystFinding } from './types'
+import type {
+  Analyst,
+  AnalystContext,
+  AnalystCost,
+  AnalystFinding,
+  AnalystUsageReceipt,
+} from './types'
 import { makeFinding } from './types'
 
 /**
@@ -123,11 +129,13 @@ export function createTraceAnalystKind(
       const maxDepth = spec.recursion?.maxDepth ?? 0
       const maxParallel = spec.recursion?.maxParallelSubagents ?? 2
       const priorContext = renderPriorFindings(ctx.priorFindings)
+      const upstreamContext = renderUpstreamFindings(ctx.upstreamFindings)
       const functions = tools as unknown as NonNullable<Parameters<typeof agent>[1]>['functions']
 
       const actorDescription =
         spec.actorDescription.trim() +
         priorContext +
+        upstreamContext +
         '\n\n' +
         RAW_FINDING_SCHEMA_PROMPT +
         '\n\nFirst write `report`: a concise free-form prose diagnosis of what ' +
@@ -184,7 +192,12 @@ export function createTraceAnalystKind(
         tags: ctx.tags,
       })
 
-      const result = await ax.forward(opts.ai, { question: deriveQuestion(ctx, spec) })
+      let result: { report: string; findings: unknown[] }
+      try {
+        result = await ax.forward(opts.ai, { question: deriveQuestion(ctx, spec) })
+      } finally {
+        ctx.recordUsage?.(usageReceiptFromAx(ax.getUsage()))
+      }
 
       const expectedSubjects = KIND_EXPECTED_SUBJECTS[spec.id]
       const out: AnalystFinding[] = []
@@ -353,6 +366,90 @@ export function renderPriorFindings(prior: AnalystContext['priorFindings']): str
   ]
     .filter(Boolean)
     .join('\n')
+}
+
+/** Render findings produced earlier in this same registry run. */
+export function renderUpstreamFindings(upstream: AnalystContext['upstreamFindings']): string {
+  if (!upstream || upstream.length === 0) return ''
+  const MAX_ROWS = 40
+  const rows = upstream.slice(0, MAX_ROWS).map((finding) => {
+    const subject = finding.subject ? ` [${finding.subject}]` : ''
+    const action = finding.recommended_action
+      ? ` action=${truncateForContext(finding.recommended_action, 120)}`
+      : ''
+    const evidence = finding.evidence_refs[0]
+      ? ` evidence=${truncateForContext(finding.evidence_refs[0].uri, 120)}`
+      : ''
+    return `  - id=${finding.finding_id} source=${finding.analyst_id} ${finding.severity}${subject} claim=${truncateForContext(finding.claim, 160)}${action}${evidence}`
+  })
+  const overflow =
+    upstream.length > MAX_ROWS
+      ? `\n  ... +${upstream.length - MAX_ROWS} more upstream findings (truncated)`
+      : ''
+  return [
+    '',
+    '',
+    'UPSTREAM FINDINGS (produced earlier in this same registry run):',
+    'Use these as intermediate evidence. Build on them instead of repeating the same diagnosis, and cite a dependency with `finding://<id>`.',
+    ...rows,
+    overflow,
+  ]
+    .filter(Boolean)
+    .join('\n')
+}
+
+/** Convert Ax's public usage records into the registry's provider-neutral receipt. */
+function usageReceiptFromAx(value: unknown): AnalystUsageReceipt {
+  const usage = asRecord(value)
+  const entries = [...asRecordArray(usage.actor), ...asRecordArray(usage.responder)]
+  let input = 0
+  let output = 0
+  let cached = 0
+  let sawCached = false
+  let tokensCaptured = entries.length > 0
+
+  for (const entry of entries) {
+    const tokens = asRecord(entry.tokens)
+    const promptTokens = finiteNonNegative(tokens.promptTokens)
+    const completionTokens = finiteNonNegative(tokens.completionTokens)
+    if (promptTokens === null || completionTokens === null) {
+      tokensCaptured = false
+      continue
+    }
+    input += promptTokens
+    output += completionTokens
+    const cacheReadTokens = finiteNonNegative(tokens.cacheReadTokens)
+    if (cacheReadTokens !== null) {
+      cached += cacheReadTokens
+      sawCached = true
+    }
+  }
+
+  return {
+    calls: entries.length,
+    tokens: tokensCaptured ? { input, output, ...(sawCached ? { cached } : {}) } : null,
+    // AxProgramUsage exposes model + token usage, but no billed or estimated
+    // dollars. Keep that absence explicit instead of manufacturing $0.
+    cost: { kind: 'uncaptured', usd: null },
+  }
+}
+
+function asRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === 'object' && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {}
+}
+
+function asRecordArray(value: unknown): Record<string, unknown>[] {
+  if (!Array.isArray(value)) return []
+  return value.filter(
+    (entry): entry is Record<string, unknown> =>
+      entry !== null && typeof entry === 'object' && !Array.isArray(entry),
+  )
+}
+
+function finiteNonNegative(value: unknown): number | null {
+  return typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : null
 }
 
 function truncateForContext(s: string, max: number): string {
