@@ -36,6 +36,7 @@ import {
   type LoopProvenanceRecord,
   surfaceContentHash,
 } from '../campaign/provenance'
+import { campaignMeanComposite } from '../campaign/score-utils'
 import {
   type CampaignStorage,
   fsCampaignStorage,
@@ -76,7 +77,8 @@ export interface SelfImproveBudget {
   holdoutScenarios?: Scenario[]
   /** Per-scenario replicates per cell — raises bootstrap-CI tightness. Default 1. */
   reps?: number
-  /** Top-scoring candidates carried into the next generation. Default 2. */
+  /** @deprecated Must be 1 when supplied. The loop promotes only a candidate
+   *  that replaces its single global incumbent. */
   promoteTopK?: number
 }
 
@@ -558,6 +560,7 @@ export async function selfImprove<TScenario extends Scenario, TArtifact>(
     winnerLabel: result.winnerLabel,
     winnerRationale: result.winnerRationale,
     diff: result.promotedDiff,
+    baselineSearchComposite: campaignMeanComposite(result.baselineCampaign),
     generations: result.generations.map((g) => ({
       generationIndex: g.record.generationIndex,
       candidates: g.record.candidates,

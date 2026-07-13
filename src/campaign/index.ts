@@ -20,6 +20,7 @@ export {
   type RunLineageStepResult,
   runLineage,
 } from './lineage'
+
 /**
  * `@tangle-network/agent-eval/campaign` — measurement + improvement loop.
  *
@@ -27,6 +28,12 @@ export {
  * `runImprovementLoop` is the proposer-agnostic improvement loop on top of it.
  */
 
+// ── Surface proposers ────────────────────────────────────────────────
+export {
+  POLICY_EDIT_CANDIDATE_RECORD_SCHEMA,
+  type PolicyEditCandidateRecord,
+  validatePolicyEditCandidateRecord,
+} from '../analyst/policy-edit'
 // ── Judge builders (single-call bridge to a canonical JudgeConfig) ────
 export type { LlmJudgeDimension, LlmJudgeOptions } from '../llm-judge'
 export { llmJudge } from '../llm-judge'
@@ -259,13 +266,34 @@ export {
   type GepaProposerOptions,
   gepaProposer,
 } from './proposers/gepa'
-// ── Surface proposers ────────────────────────────────────────────────
 export { type HaloProposerOptions, haloProposer } from './proposers/halo'
+export {
+  DEFAULT_POLICY_EDIT_HISTORY_LIMITS,
+  type JsonPolicyEditTargetSurface,
+  type LlmPolicyEditProposerOptions,
+  llmPolicyEditProposer,
+  type PolicyEditCandidateSummary,
+  type PolicyEditFindingInput,
+  type PolicyEditFindingSource,
+  type PolicyEditHistoryCandidateContext,
+  type PolicyEditHistoryGenerationContext,
+  type PolicyEditHistoryProjectionOptions,
+  type PolicyEditObjective,
+  type PolicyEditOutcomeContext,
+  projectPolicyEditHistory,
+} from './proposers/llm-policy-edit'
 export { type MemoryCurationProposerOptions, memoryCurationProposer } from './proposers/memory'
 export {
   type PolicyEditProposerOptions,
   policyEditProposer,
 } from './proposers/policy-edit'
+export {
+  assertPolicyEditAuthorContextBudget,
+  type PolicyEditAuthorScenarioRow,
+  type SelectPolicyEditAuthorRowsOptions,
+  type SerializedJsonBudget,
+  selectPolicyEditAuthorRows,
+} from './proposers/policy-edit-author-context'
 export {
   type ProposePatchesArgs,
   parseSkillPatchResponse,
@@ -409,6 +437,7 @@ export type {
   RedactionStatus,
   Scenario,
   ScenarioAggregate,
+  ScoredSurfaceOutcome,
   SessionScript,
   SurfaceProposer,
   TraceSpan,

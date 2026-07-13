@@ -39,6 +39,7 @@ import {
   renderAnalystEvidence,
   type TrialTrace,
 } from '../../reflective-mutation'
+import { surfaceHash } from '../surface-identity'
 import type { ProposeContext, ProposedCandidate, SurfaceProposer } from '../types'
 
 const REFLECTION_SYSTEM =
@@ -310,19 +311,31 @@ function validatePreservedSections(candidate: string, required: readonly string[
   return true
 }
 
-/** Turn the prior generation's best candidate into reflective evidence:
- *  top/bottom scenarios by composite + a weakest-dimensions note on the target.
- *  Empty on generation 0 — the model reflects on the surface alone. */
+/** Turn the measured incumbent into reflective evidence: top/bottom scenarios
+ *  plus its weakest dimensions. The surface being edited and the evidence must
+ *  describe the same candidate; the latest generation may contain only losers. */
 function buildEvidence(
   ctx: ProposeContext,
   evidenceK: number,
   baseTarget: string,
 ): { top: TrialTrace[]; bottom: TrialTrace[]; target: string } {
   const last = ctx.history.at(-1)
-  if (!last || last.candidates.length === 0) {
-    return { top: [], bottom: [], target: baseTarget }
-  }
-  const best = [...last.candidates].sort((a, b) => b.composite - a.composite)[0]
+  const currentSurfaceHash = surfaceHash(ctx.currentSurface)
+  const measuredCurrentSurface = ctx.history
+    .flatMap((record) => record.candidates)
+    .reverse()
+    .find(
+      (candidate) =>
+        candidate.surfaceHash === currentSurfaceHash && candidate.eligibleForPromotion !== false,
+    )
+  const best =
+    ctx.incumbentOutcome ??
+    measuredCurrentSurface ??
+    (last
+      ? [...last.candidates]
+          .filter((candidate) => candidate.eligibleForPromotion !== false)
+          .sort((a, b) => b.composite - a.composite)[0]
+      : undefined)
   if (!best) return { top: [], bottom: [], target: baseTarget }
 
   const byScore = [...best.scenarios].sort((a, b) => b.composite - a.composite)

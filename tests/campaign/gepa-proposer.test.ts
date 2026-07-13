@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { gepaProposer } from '../../src/campaign/proposers/gepa'
+import { surfaceHash } from '../../src/campaign/surface-identity'
 import type { GenerationRecord, ParetoParent, ProposeContext } from '../../src/campaign/types'
 
 /** A fake router fetch that echoes the reflection user-prompt back so the test
@@ -72,6 +73,98 @@ describe('gepaProposer', () => {
     expect(capture.userPrompt).toContain('bad')
     expect(capture.userPrompt).toContain('safety')
     expect(capture.userPrompt).toContain('PARENT SURFACE')
+  })
+
+  it('does not use an incomplete candidate as reflective evidence', async () => {
+    const capture: { userPrompt?: string } = {}
+    const proposer = gepaProposer({
+      llm: {
+        apiKey: 'k',
+        baseUrl: 'https://router.test/v1',
+        fetch: fakeFetch(capture, ['NEW']),
+      },
+      model: 'test-model',
+      target: 'system-directive',
+    })
+    const history: GenerationRecord[] = [
+      {
+        generationIndex: 0,
+        promoted: ['complete'],
+        candidates: [
+          {
+            surfaceHash: 'incomplete',
+            composite: 0.99,
+            ci95: [0.99, 0.99],
+            eligibleForPromotion: false,
+            dimensions: { safety: 0.99 },
+            scenarios: [{ scenarioId: 'INCOMPLETE-EVIDENCE', composite: 0.99 }],
+          },
+          {
+            surfaceHash: 'complete',
+            composite: 0.5,
+            ci95: [0.5, 0.5],
+            eligibleForPromotion: true,
+            dimensions: { safety: 0.2 },
+            scenarios: [{ scenarioId: 'COMPLETE-EVIDENCE', composite: 0.5 }],
+          },
+        ],
+      },
+    ]
+
+    await proposer.propose(ctxWith(history, 1))
+
+    expect(capture.userPrompt).toContain('COMPLETE-EVIDENCE')
+    expect(capture.userPrompt).not.toContain('INCOMPLETE-EVIDENCE')
+  })
+
+  it('matches the current surface to measured history after the latest generation regresses', async () => {
+    const capture: { userPrompt?: string } = {}
+    const proposer = gepaProposer({
+      llm: {
+        apiKey: 'k',
+        baseUrl: 'https://router.test/v1',
+        fetch: fakeFetch(capture, ['NEW']),
+      },
+      model: 'test-model',
+      target: 'system-directive',
+    })
+    const winnerHash = surfaceHash('WINNER SURFACE')
+    const history: GenerationRecord[] = [
+      {
+        generationIndex: 0,
+        promoted: [winnerHash],
+        candidates: [
+          {
+            surfaceHash: winnerHash,
+            composite: 0.8,
+            ci95: [0.8, 0.8],
+            dimensions: { safety: 0.7 },
+            scenarios: [{ scenarioId: 'WINNER-EVIDENCE', composite: 0.8 }],
+          },
+        ],
+      },
+      {
+        generationIndex: 1,
+        promoted: [],
+        candidates: [
+          {
+            surfaceHash: 'loser',
+            composite: 0.1,
+            ci95: [0.1, 0.1],
+            dimensions: { safety: 0.1 },
+            scenarios: [{ scenarioId: 'LOSER-EVIDENCE', composite: 0.1 }],
+          },
+        ],
+      },
+    ]
+    const ctx = ctxWith(history, 1)
+    ctx.currentSurface = 'WINNER SURFACE'
+
+    await proposer.propose(ctx)
+
+    expect(capture.userPrompt).toContain('WINNER SURFACE')
+    expect(capture.userPrompt).toContain('WINNER-EVIDENCE')
+    expect(capture.userPrompt).not.toContain('LOSER-EVIDENCE')
   })
 
   it('drops the parent + dedupes proposals', async () => {

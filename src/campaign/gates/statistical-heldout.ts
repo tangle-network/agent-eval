@@ -67,8 +67,14 @@ export function pairHoldout(
     if (!scores) return undefined
     const vals: number[] = []
     for (const s of Object.values(scores)) {
+      if (s.failed === true) {
+        throw new Error(`pairHoldout: cell '${cellId}' contains a failed judge score`)
+      }
       const v = select(s)
-      if (typeof v === 'number' && Number.isFinite(v)) vals.push(v)
+      if (typeof v === 'number' && !Number.isFinite(v)) {
+        throw new Error(`pairHoldout: cell '${cellId}' contains a non-finite selected score`)
+      }
+      if (typeof v === 'number') vals.push(v)
     }
     if (vals.length === 0) return undefined
     return vals.reduce((a, b) => a + b, 0) / vals.length
@@ -93,9 +99,12 @@ export function pairHoldout(
   for (const cellId of candCells) {
     const b = cellValue(baseline, cellId)
     const a = cellValue(candidate, cellId)
-    // Only pair when BOTH sides produced the scalar (a dimension absent on one
-    // side would otherwise create an unpaired observation).
-    if (b === undefined || a === undefined) continue
+    // A scalar absent on both sides means that dimension was not scored. A
+    // one-sided absence is asymmetric evidence loss, never a row to discard.
+    if (b === undefined && a === undefined) continue
+    if (b === undefined || a === undefined) {
+      throw new Error(`pairHoldout: cell '${cellId}' has a selected score on only one arm`)
+    }
     before.push(b)
     after.push(a)
     cellIds.push(cellId)

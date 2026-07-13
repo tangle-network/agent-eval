@@ -16,6 +16,7 @@
  * can build dashboards / CI gates / regression diffs against a stable schema.
  */
 
+import type { PolicyEditCandidateRecord } from '../analyst/policy-edit'
 import type { RunTokenUsage } from '../run-record'
 
 /** Stable identifier + kind tag for any scenario. Consumers
@@ -186,6 +187,9 @@ export interface ProposedCandidate {
    *  primitive it used. Survives to `GenerationCandidate.rationale` and the
    *  emitted provenance record. */
   rationale: string
+  /** Structured, JSON-safe cause for this exact candidate when the proposer
+   *  can provide one. Policy edits retain the full validated edit here. */
+  candidateRecord?: PolicyEditCandidateRecord
 }
 
 /** Type guard: a proposal carrying its rationale vs a bare
@@ -225,6 +229,25 @@ export interface ParetoParent {
   rationale?: string
 }
 
+/** Exact measured state for the surface an optimizer is learning from.
+ *  Unlike a model-authored expected gain, every value here comes from a
+ *  completed campaign over the designed denominator. */
+export interface ScoredSurfaceOutcome {
+  /** Optimization/search evidence only. Held-out results must never flow back
+   *  into a proposer through this type. */
+  split: 'search'
+  /** Generation that actually measured this surface (`-1` for the baseline). */
+  generation: number
+  surfaceHash: string
+  composite: number
+  dimensions: Record<string, number>
+  scenarios: Array<{ scenarioId: string; composite: number; notes?: string }>
+  coverage: {
+    expectedCells: number
+    scorableCells: number
+  }
+}
+
 /** Stateless surface mutation — given findings + current
  *  surface, return N candidate surfaces. Pure transform, no generation
  *  awareness. Reflective-mutation and `AxGEPA` mutators conform. Wrapped by
@@ -253,6 +276,12 @@ export interface ProposeContext<TFindings = unknown> {
   populationSize: number
   generation: number
   signal: AbortSignal
+  /** Measured baseline for this optimization run. `runOptimization` always
+   *  supplies it; optional for standalone proposer callers. */
+  baselineOutcome?: ScoredSurfaceOutcome
+  /** Measured result for `currentSurface`, the complete global incumbent every
+   *  new candidate mutates. `runOptimization` always supplies it. */
+  incumbentOutcome?: ScoredSurfaceOutcome
   /** Optional analysis report produced before proposal. Opaque to the substrate:
    *  the proposer that consumes it owns the shape. */
   report?: unknown
@@ -585,6 +614,26 @@ export interface GenerationCandidate {
   surfaceHash: string
   composite: number
   ci95: [number, number]
+  /** Exact surface this candidate mutated. */
+  parentSurfaceHash?: string
+  /** Measured search-split composite of the exact parent surface. */
+  parentComposite?: number
+  /** Candidate composite minus its parent's composite. Present only when the
+   *  candidate completed the designed denominator. */
+  observedDeltaFromParent?: number
+  /** Whether this candidate had a scorable result for every designed campaign
+   *  cell and was therefore eligible for ranking, promotion, and Pareto
+   *  selection. Older externally-authored records may omit this field; loop
+   *  records always populate it. */
+  eligibleForPromotion?: boolean
+  /** Exact denominator receipt for selection eligibility. Scores stay
+   *  descriptive: an incomplete candidate is retained with its observed score
+   *  and errors instead of receiving an invented penalty. */
+  coverage?: {
+    expectedCells: number
+    scorableCells: number
+    unscorableCells: Array<{ cellId: string; reason: string }>
+  }
   /** Mean score per judge dimension across all cells (scenarios × reps ×
    *  judges that reported the dimension). */
   dimensions: Record<string, number>
@@ -602,6 +651,8 @@ export interface GenerationCandidate {
    *  "because rationale Z" the audit requires to survive to the result.
    *  Present when the proposer returned a `ProposedCandidate`. */
   rationale?: string
+  /** Exact structured cause threaded from the proposer, when available. */
+  candidateRecord?: PolicyEditCandidateRecord
 }
 
 export interface CampaignAggregates {

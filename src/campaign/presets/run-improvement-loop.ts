@@ -25,6 +25,7 @@
  */
 
 import { openAutoPr } from '../auto-pr'
+import { campaignCoverage, formatCoverageFailures } from '../coverage'
 import type { CampaignResult, Gate, MutableSurface, Scenario } from '../types'
 import type { RunOptimizationOptions, RunOptimizationResult } from './run-optimization'
 import { runOptimization, surfaceHash } from './run-optimization'
@@ -164,25 +165,32 @@ export async function runImprovementLoop<TScenario extends Scenario, TArtifact>(
         runDir: `${opts.runDir}/holdout-winner`,
       })
 
-  // Fail loud if the holdout produced nothing to score. Every holdout dispatch
-  // or judge errored ⇒ the gate would read both means as 0, compute delta 0,
-  // and silently "hold" on garbage — indistinguishable from a real no-lift
-  // result. Refuse: surface the underlying failure instead.
-  const scorable = (r: CampaignResult<TArtifact, TScenario>) =>
-    r.cells.filter((c) => !c.error && c.artifact != null)
-  const baseScorable = scorable(baselineOnHoldout)
-  const winnerScorable = scorable(winnerOnHoldout)
-  if (baseScorable.length === 0 || winnerScorable.length === 0) {
-    const firstErr = (r: CampaignResult<TArtifact, TScenario>) =>
-      r.cells.find((c) => c.error)?.error ?? 'unknown'
-    throw new Error(
-      `runImprovementLoop: holdout produced no scorable cells ` +
-        `(baseline ${baseScorable.length}/${baselineOnHoldout.cells.length}, ` +
-        `winner ${winnerScorable.length}/${winnerOnHoldout.cells.length}) — every holdout ` +
-        `dispatch or judge failed. Refusing to emit a gate decision over an empty holdout. ` +
-        `First baseline error: "${firstErr(baselineOnHoldout)}"; first winner error: "${firstErr(winnerOnHoldout)}".`,
+  // A final comparison is valid only when both arms scored every designed
+  // (scenario × rep) cell with the same complete judge set. Otherwise an arm
+  // can appear to improve by silently dropping its hardest cell or failed
+  // judge. This is the same exact-denominator check used during optimization.
+  const requireJudgeScore = (opts.judges?.length ?? 0) > 0
+  const reps = opts.reps ?? 1
+  const assertCompleteHoldout = (
+    arm: string,
+    campaign: CampaignResult<TArtifact, TScenario>,
+  ): void => {
+    const coverage = campaignCoverage(
+      campaign.cells,
+      opts.holdoutScenarios,
+      reps,
+      requireJudgeScore,
     )
+    if (!coverage.complete) {
+      throw new Error(
+        `runImprovementLoop: ${arm} holdout is incomplete ` +
+          `(${coverage.scorableCellIds.length}/${coverage.expectedCellIds.length} designed cells scorable) — ` +
+          `${formatCoverageFailures(coverage)}. Refusing to compare unequal holdout results.`,
+      )
+    }
   }
+  assertCompleteHoldout('baseline', baselineOnHoldout)
+  assertCompleteHoldout('winner', winnerOnHoldout)
 
   // ── (3) gate verdict ───────────────────────────────────────────────
   // Candidate + baseline share cellIds (same holdout scenarios), so their
@@ -223,6 +231,7 @@ export async function runImprovementLoop<TScenario extends Scenario, TArtifact>(
       dispatch: (scenario, ctx) => opts.dispatchWithSurface(neutralizedSurface, scenario, ctx),
       runDir: `${opts.runDir}/holdout-neutralized`,
     })
+    assertCompleteHoldout('neutralized', neutralizedOnHoldout)
     neutralizedArtifacts = new Map<string, TArtifact>()
     neutralizedJudgeScores = new Map()
     for (const cell of neutralizedOnHoldout.cells) {

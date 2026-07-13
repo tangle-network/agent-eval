@@ -297,7 +297,7 @@ describe('gepaProposer → runImprovementLoop → defaultProductionGate (full wi
         runDir: mkdtempSync(join(tmpdir(), 'holdout-fail-loud-')),
         seed: 7,
       }),
-    ).rejects.toThrow(/holdout produced no scorable cells/)
+    ).rejects.toThrow(/baseline holdout is incomplete \(0\/3 designed cells scorable\)/)
   })
 
   it('holds when the proposer proposes no improvement (winner == baseline)', async () => {
@@ -469,6 +469,7 @@ describe('loop provenance emission (transaction-extraction shape, offline)', () 
       winnerLabel: result.winnerLabel,
       winnerRationale: result.winnerRationale,
       diff: result.promotedDiff,
+      baselineSearchComposite: 0,
       generations: result.generations.map((g) => ({
         generationIndex: g.record.generationIndex,
         candidates: g.record.candidates,
@@ -499,15 +500,22 @@ describe('loop provenance emission (transaction-extraction shape, offline)', () 
 
     // (4) the structured record + OTel spans are DURABLE (written to storage).
     expect(storage.read(recordPath)).toBeDefined()
-    expect(JSON.parse(storage.read(recordPath)!).schema).toBe('tangle.loop-provenance.v2')
+    expect(JSON.parse(storage.read(recordPath)!).schema).toBe('tangle.loop-provenance.v3')
     const spanLines = storage.read(spansPath)!.split('\n')
     expect(spanLines.length).toBe(spans.length)
     // Spans pivot on the OTLP-ingestable tangle.* attributes the otel adapter reads.
     const root = spans.find((s) => s.name === 'improvement-loop')!
     expect(root['tangle.runId']).toBe('prov-test#1')
+    expect(root.attributes['tangle.baselineSearchComposite']).toBe(0)
     const candidateSpan = spans.find((s) => s.name.startsWith('candidate-'))!
     expect(candidateSpan.attributes['tangle.candidateRationale']).toBe(RATIONALE)
     expect(candidateSpan.attributes['tangle.candidateLabel']).toBe(LABEL)
+    expect(candidateSpan.attributes['tangle.parentSurfaceHash']).toBe(surfaceHash('BASE'))
+    expect(candidateSpan.attributes['tangle.parentComposite']).toBe(0)
+    expect(candidateSpan.attributes['tangle.observedDeltaFromParent']).toBe(1)
+    expect(candidateSpan.attributes['tangle.eligibleForPromotion']).toBe(true)
+    expect(candidateSpan.attributes['tangle.expectedCells']).toBe(2)
+    expect(candidateSpan.attributes['tangle.scorableCells']).toBe(2)
     expect(candidateSpan['tangle.generation']).toBe(0)
     const gateSpan = spans.find((s) => s.name === 'gate-decision')!
     expect(gateSpan.attributes['tangle.gateDecision']).toBe('ship')
@@ -539,6 +547,7 @@ describe('loop provenance emission (transaction-extraction shape, offline)', () 
       baselineSurface: 'BASE',
       winnerSurface: 'BASE',
       diff: '',
+      baselineSearchComposite: 0,
       generations: [],
       gate: { decision: 'hold', reasons: [], contributingGates: [] },
       baselineOnHoldout: { cells: [] } as never,
@@ -577,12 +586,28 @@ describe('loop provenance emission (transaction-extraction shape, offline)', () 
       winnerSurface: 'BASE NEW',
       winnerRationale: 'r',
       diff: '--- baseline\n+++ winner',
+      baselineSearchComposite: 0,
       generations: [
         {
           generationIndex: 0,
-          candidates: [{ surfaceHash: 'abc', composite: 1, label: 'l', rationale: 'r' }],
-          promoted: ['abc'],
-          surfaces: [{ surfaceHash: 'abc', surface: 'BASE NEW' }],
+          candidates: [
+            {
+              surfaceHash: surfaceHash('BASE NEW'),
+              composite: 1,
+              ci95: [1, 1],
+              parentSurfaceHash: surfaceHash('BASE'),
+              parentComposite: 0,
+              observedDeltaFromParent: 1,
+              eligibleForPromotion: true,
+              coverage: { expectedCells: 1, scorableCells: 1, unscorableCells: [] },
+              dimensions: {},
+              scenarios: [],
+              label: 'l',
+              rationale: 'r',
+            },
+          ],
+          promoted: [surfaceHash('BASE NEW')],
+          surfaces: [{ surfaceHash: surfaceHash('BASE NEW'), surface: 'BASE NEW' }],
         },
       ],
       gate: { decision: 'ship', reasons: ['ok'], delta: 1, contributingGates: [] },
@@ -595,7 +620,7 @@ describe('loop provenance emission (transaction-extraction shape, offline)', () 
     const spans = loopProvenanceSpans(record)
     const root = spans.find((s) => s.name === 'improvement-loop')!
     const gen = spans.find((s) => s.name === 'generation-0')!
-    const cand = spans.find((s) => s.name === 'candidate-abc')!
+    const cand = spans.find((s) => s.name === `candidate-${surfaceHash('BASE NEW')}`)!
     const gate = spans.find((s) => s.name === 'gate-decision')!
     expect(gen.parentSpanId).toBe(root.spanId)
     expect(cand.parentSpanId).toBe(gen.spanId)
@@ -1128,11 +1153,10 @@ describe('runOptimization — GEPA Pareto frontier', () => {
     expect(frontierHashes.has(hX)).toBe(true)
   })
 
-  it('keeps a candidate missing a scenario score via the finite floor (not dropped)', async () => {
-    // The judge is "unavailable" for (X, scenario b) → X's campaign cell b errors
-    // → X.objectives omits 'b'. computeParetoFrontier must rank X worst on 'b'
-    // via a FINITE floor, NOT -Infinity (which the canonical paretoFrontier would
-    // exclude entirely, silently dropping X). Regression guard for that floor.
+  it('excludes a candidate missing a scenario score from the Pareto frontier', async () => {
+    // The judge is unavailable for (X, scenario b), so X has no complete
+    // objective vector. Preserve its raw failed campaign and descriptive score,
+    // but do not let missing evidence become Pareto value.
     const floorJudge: JudgeConfig<FakeArtifact, FakeScenario> = {
       name: 'floor-lookup',
       dimensions: [{ key: 'q', description: 'quality' }],
@@ -1160,13 +1184,19 @@ describe('runOptimization — GEPA Pareto frontier', () => {
       runDir,
     })
 
-    const xParent = result.paretoFrontier.find((p) => p.surfaceHash === surfaceHash('X'))
-    // X scored only scenario 'a' (b errored) — but it is STILL on the frontier
-    // (uniquely best on 'a'), not silently dropped for the missing axis.
-    expect(xParent).toBeDefined()
-    expect(Object.keys(xParent!.objectives)).toEqual(['a'])
-    expect(xParent!.objectives.a).toBeCloseTo(0.9, 5)
-    expect(result.paretoFrontier.some((p) => p.surfaceHash === surfaceHash('Y'))).toBe(true)
+    const xRecord = result.generations[0]!.record.candidates.find(
+      (candidate) => candidate.surfaceHash === surfaceHash('X'),
+    )!
+    expect(xRecord.composite).toBeCloseTo(0.9, 5)
+    expect(xRecord.eligibleForPromotion).toBe(false)
+    expect(xRecord.coverage?.unscorableCells).toEqual([
+      {
+        cellId: 'b:0',
+        reason: "judge 'floor-lookup' failed: judge unavailable for X on scenario b",
+      },
+    ])
+    expect(result.paretoFrontier.some((p) => p.surfaceHash === surfaceHash('X'))).toBe(false)
+    expect(result.paretoFrontier.map((p) => p.surfaceHash)).toEqual([surfaceHash('Y')])
   })
 })
 
@@ -1296,12 +1326,28 @@ describe('emitLoopProvenance — hosted ingest (eval-run + traces)', () => {
       winnerLabel: 'fix',
       winnerRationale: 'because',
       diff: '--- baseline\n+++ winner',
+      baselineSearchComposite: 0,
       generations: [
         {
           generationIndex: 0,
-          candidates: [{ surfaceHash: 'h', composite: 1, label: 'fix', rationale: 'because' }],
-          promoted: ['h'],
-          surfaces: [{ surfaceHash: 'h', surface: 'BASE BETTER' }],
+          candidates: [
+            {
+              surfaceHash: surfaceHash('BASE BETTER'),
+              composite: 1,
+              ci95: [1, 1],
+              parentSurfaceHash: surfaceHash('BASE'),
+              parentComposite: 0,
+              observedDeltaFromParent: 1,
+              eligibleForPromotion: true,
+              coverage: { expectedCells: 1, scorableCells: 1, unscorableCells: [] },
+              dimensions: {},
+              scenarios: [],
+              label: 'fix',
+              rationale: 'because',
+            },
+          ],
+          promoted: [surfaceHash('BASE BETTER')],
+          surfaces: [{ surfaceHash: surfaceHash('BASE BETTER'), surface: 'BASE BETTER' }],
         },
       ],
       gate: { decision: 'ship', reasons: ['ok'], delta: 0.5, contributingGates: [] },
