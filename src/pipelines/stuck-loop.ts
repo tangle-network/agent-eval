@@ -17,6 +17,7 @@ export interface StuckLoopFinding {
   runId: string
   toolName: string
   argHash: string
+  /** Calls in the densest qualifying interval, not the whole-run total. */
   occurrences: number
   spanIds: string[]
   /** Milliseconds between first and last call in the loop. */
