@@ -204,15 +204,6 @@ export function createTraceAnalystKind(
       for (const row of rawRows) {
         const parsed = parseRawFinding(row, ctx.log)
         if (!parsed) continue
-        if (parsed.evidence.length < minimumEvidenceCitations) {
-          ctx.log?.('finding rejected: insufficient evidence citations', {
-            kind: spec.id,
-            required: minimumEvidenceCitations,
-            received: parsed.evidence.length,
-          })
-          rejectedInsufficientEvidence += 1
-          continue
-        }
         // Subject-grammar check: if the kind has a declared expects-set
         // (every shipped kind does), the finding's subject MUST parse to
         // one of the declared variants. A wrong-kind subject is a
@@ -239,8 +230,17 @@ export function createTraceAnalystKind(
             continue
           }
         }
-        const postProcessed = spec.postProcess?.(parsed, ctx) ?? parsed
+        const postProcessed = spec.postProcess ? spec.postProcess(parsed, ctx) : parsed
         if (!postProcessed) continue
+        if (postProcessed.evidence.length < minimumEvidenceCitations) {
+          ctx.log?.('finding rejected: insufficient evidence citations', {
+            kind: spec.id,
+            required: minimumEvidenceCitations,
+            received: postProcessed.evidence.length,
+          })
+          rejectedInsufficientEvidence += 1
+          continue
+        }
         out.push(toAnalystFinding(spec, postProcessed))
       }
 
@@ -270,10 +270,15 @@ export function createTraceAnalystKind(
             apiKey: opts.recovery.apiKey,
             fetchImpl: opts.recovery.fetchImpl,
           })
-          out.push(...recovered.findings)
+          const acceptedRecovered = recovered.findings.filter(
+            (finding) => finding.evidence_refs.length >= minimumEvidenceCitations,
+          )
+          const rejectedRecovered = recovered.findings.length - acceptedRecovered.length
+          out.push(...acceptedRecovered)
           ctx.log?.(`analyst.kind ${spec.id} recovery`, {
             outcome: recovered.outcome,
-            recovered: recovered.findings.length,
+            recovered: acceptedRecovered.length,
+            rejected_insufficient_evidence: rejectedRecovered,
           })
         }
         if (out.length === 0) {

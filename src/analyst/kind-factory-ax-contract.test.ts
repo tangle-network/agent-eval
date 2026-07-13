@@ -149,6 +149,76 @@ describe('createTraceAnalystKind Ax contract', () => {
       expect.objectContaining({ required: 2, received: 1 }),
     )
   })
+
+  it('applies the minimum-citation contract to prose-recovery findings', async () => {
+    axMock.agentCalls.length = 0
+    axMock.forwardResult = {
+      report: 'A'.repeat(220),
+      findings: [],
+    }
+    const log = vi.fn()
+    const fetchImpl = vi.fn(
+      async () =>
+        new Response(
+          JSON.stringify({
+            choices: [
+              {
+                message: {
+                  content: JSON.stringify([
+                    {
+                      severity: 'high',
+                      claim: 'one-sided poisoning claim',
+                      evidence: [{ uri: 'span://trace/action' }],
+                      confidence: 0.8,
+                    },
+                  ]),
+                },
+              },
+            ],
+          }),
+          { status: 200, headers: { 'content-type': 'application/json' } },
+        ),
+    ) as unknown as typeof fetch
+    const analyst = createTraceAnalystKind(
+      { ...testSpec(), minimumEvidenceCitations: 2 },
+      {
+        ai: {} as never,
+        recovery: { baseUrl: 'https://example.test/v1', model: 'test', fetchImpl },
+      },
+    )
+
+    const findings = await analyst.analyze({} as never, { tags: {}, log } as never)
+
+    expect(findings).toHaveLength(1)
+    expect(findings[0]!.metadata).toEqual({ outcome: 'extraction_failed' })
+    expect(log).toHaveBeenCalledWith(
+      'analyst.kind test-kind recovery',
+      expect.objectContaining({ recovered: 0, rejected_insufficient_evidence: 1 }),
+    )
+  })
+
+  it('honors a kind postProcess null rejection', async () => {
+    axMock.agentCalls.length = 0
+    axMock.forwardResult = {
+      report: '',
+      findings: [
+        {
+          severity: 'medium',
+          claim: 'kind-specific false positive',
+          evidence: [{ uri: 'span://trace/span' }],
+          confidence: 0.7,
+        },
+      ],
+    }
+    const analyst = createTraceAnalystKind(
+      { ...testSpec(), postProcess: () => null },
+      { ai: {} as never },
+    )
+
+    const findings = await analyst.analyze({} as never, { tags: {} } as never)
+
+    expect(findings).toEqual([])
+  })
 })
 
 function testSpec(): TraceAnalystKindSpec {
