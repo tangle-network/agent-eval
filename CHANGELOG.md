@@ -4,6 +4,30 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ---
 
+## [0.116.0] — 2026-07-12 — evidence-linked AgentProfile optimization
+
+### Added
+
+- `llmPolicyEditProposer()` converts attributed trace findings and bounded search history into typed JSON edits over caller-approved AgentProfile paths.
+- Author context selection retains promoted candidates plus outcome extremes, selects task rows by difficulty and change from parent, enforces an exact serialized size limit, and pseudonymizes known task identifiers before model dispatch.
+- Policy-edit history and provenance retain the exact edit, measured parent, observed score change, coverage, eligibility, surface bytes, and final winner chain needed for credit assignment.
+
+### Changed
+
+- `runOptimization()` now keeps one best complete surface across every generation.
+  Baselines and candidates must cover the exact designed task-by-repetition count, and partial, failed, or non-finite results cannot be promoted.
+- Model-authored confidence and gain forecasts no longer suppress evidence-linked candidates by default.
+  Forecasts must describe increasing raw search scores, respect the declared range and current headroom, and enter residual history only when their units match the measured outcome.
+- GEPA reflection now uses evidence from the measured incumbent that is actually being edited instead of the latest losing candidate.
+
+### Breaking
+
+- `runOptimization({ promoteTopK })` accepts only `1`; multiple concurrent incumbents were never represented by the optimizer state and now fail before dispatch.
+- `ScoredSurfaceOutcome` requires `split: 'search'` and the actual `generation` that measured the surface.
+- `llmPolicyEditProposer()` requires explicit raw-score objectives and `PolicyEditFindingInput` rows whose source is either an exact measured surface-generation pair or an explicitly global finding.
+- `LoopProvenanceRecord.schema` is now `tangle.loop-provenance.v3`.
+  Consumers of v2 records must migrate to the v3 baseline score, parent chain, coverage, eligibility, and exact surface fields; no compatibility shim is provided.
+
 ## [0.115.3] — 2026-07-12 — fail-closed structured output parsing
 
 ### Fixed
