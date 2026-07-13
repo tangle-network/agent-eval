@@ -172,40 +172,20 @@ function wrapLlmClient(
     defaultModel,
     chat: async (req, callOpts) => {
       const resolved = resolveModel(req, defaultModel)
-      // LlmClient.call doesn't accept an external AbortSignal today (it
-      // owns its own AbortController for the per-attempt timeout). We
-      // race the response against the caller's signal so awaiting code
-      // unblocks on abort. The in-flight HTTP request still runs to its
-      // own timeoutMs — when LlmClient grows a signal parameter, wire
-      // it directly here and drop the race.
-      const call = inner.call({
-        model: resolved.model!,
-        messages: req.messages,
-        jsonMode: req.jsonMode,
-        jsonSchema: req.jsonSchema,
-        temperature: req.temperature,
-        maxTokens: req.maxTokens,
-        timeoutMs: req.timeoutMs,
-      })
-      if (!callOpts?.signal) return await call
-      return await Promise.race([call, abortAsRejection(callOpts.signal)])
+      return await inner.call(
+        {
+          model: resolved.model!,
+          messages: req.messages,
+          jsonMode: req.jsonMode,
+          jsonSchema: req.jsonSchema,
+          temperature: req.temperature,
+          maxTokens: req.maxTokens,
+          timeoutMs: req.timeoutMs,
+        },
+        { signal: callOpts?.signal },
+      )
     },
   }
-}
-
-function abortAsRejection(signal: AbortSignal): Promise<never> {
-  if (signal.aborted) return Promise.reject(toAbortError(signal))
-  return new Promise<never>((_, reject) => {
-    signal.addEventListener('abort', () => reject(toAbortError(signal)), { once: true })
-  })
-}
-
-function toAbortError(signal: AbortSignal): Error {
-  const reason = (signal as { reason?: unknown }).reason
-  if (reason instanceof Error) return reason
-  const e = new Error('ChatClient.chat: aborted')
-  e.name = 'AbortError'
-  return e
 }
 
 function resolveModel(req: ChatRequest, defaultModel: string | undefined): ChatRequest {

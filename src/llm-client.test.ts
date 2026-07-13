@@ -6,8 +6,43 @@ import {
   isTransientLlmError,
   LlmCallError,
   LlmClient,
+  maximumChargeForLlmRequest,
   stripFencedJson,
 } from './llm-client'
+
+describe('maximumChargeForLlmRequest', () => {
+  it('bounds the exact text request and its enforced output limit', () => {
+    const maximum = maximumChargeForLlmRequest({
+      model: 'gpt-4o',
+      messages: [{ role: 'user', content: 'hello' }],
+      maxTokens: 400,
+    })
+
+    expect(maximum).toMatchObject({ model: 'gpt-4o', outputTokens: 400 })
+    expect(maximum && 'inputTokens' in maximum ? maximum.inputTokens : 0).toBeGreaterThan(5)
+  })
+
+  it('returns no bound for unbounded output or image input', () => {
+    expect(
+      maximumChargeForLlmRequest({
+        model: 'gpt-4o',
+        messages: [{ role: 'user', content: 'hello' }],
+      }),
+    ).toBeUndefined()
+    expect(
+      maximumChargeForLlmRequest({
+        model: 'gpt-4o',
+        messages: [
+          {
+            role: 'user',
+            content: [{ type: 'image_url', image_url: { url: 'https://example.test/a.png' } }],
+          },
+        ],
+        maxTokens: 400,
+      }),
+    ).toBeUndefined()
+  })
+})
 
 function mockFetch(handlers: Array<(url: string, init: RequestInit) => Promise<Response>>) {
   let call = 0

@@ -1,8 +1,8 @@
 /**
  * The ensemble reducer's job is to fold N judge verdicts into one trustworthy
  * number. These tests pin the invariants a silent zero would break: a failed
- * judge never counts as zero, all-failed throws, cost includes failures, and
- * the composite/disagreement signals match the per-dimension survivors.
+ * judge never counts as zero, all-failed throws, and the
+ * composite/disagreement signals match the per-dimension survivors.
  */
 
 import { describe, expect, it } from 'vitest'
@@ -12,8 +12,8 @@ import { aggregateJudgeVerdicts, type JudgeVerdict } from './judge-ensemble'
 type Dim = 'accuracy' | 'tone'
 const DIMS: readonly Dim[] = ['accuracy', 'tone']
 
-function verdict(model: string, accuracy: number, tone: number, costUsd = 0): JudgeVerdict<Dim> {
-  return { model, perDimension: { accuracy, tone }, rationale: `${model} ok`, costUsd }
+function verdict(model: string, accuracy: number, tone: number): JudgeVerdict<Dim> {
+  return { model, perDimension: { accuracy, tone }, rationale: `${model} ok` }
 }
 
 describe('aggregateJudgeVerdicts', () => {
@@ -56,14 +56,6 @@ describe('aggregateJudgeVerdicts', () => {
         DIMS,
       ),
     ).toThrow(/all 2 judges failed/)
-  })
-
-  it('sums cost across ALL verdicts including failed ones', () => {
-    const agg = aggregateJudgeVerdicts(
-      [verdict('a', 0.5, 0.5, 0.01), { model: 'b', perDimension: null, costUsd: 0.02 }],
-      DIMS,
-    )
-    expect(agg.costUsd).toBeCloseTo(0.03, 5)
   })
 
   it('reports max per-dimension disagreement spread across survivors', () => {

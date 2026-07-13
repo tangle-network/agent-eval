@@ -42,9 +42,19 @@ const PROFILE: AgentProfile = {
 // Real-shaped dispatch: reports cost + tokens (the integrity guard + the cost
 // dimension depend on it) and returns the agent's output text.
 const dispatch: ProfileDispatchFn<S, A> = async (profile, scenario, ctx) => {
-  ctx.cost.observe(0.002, 'llm')
-  ctx.cost.observeTokens({ input: 1500, output: 300 })
-  return { text: `FORM for ${scenario.id} by ${profile.name}` }
+  const paid = await ctx.cost.runPaidCall({
+    actor: 'llm',
+    model: 'deepseek-v4-pro@2026-05-31',
+    execute: async () => ({ text: `FORM for ${scenario.id} by ${profile.name}` }),
+    receipt: () => ({
+      model: 'deepseek-v4-pro@2026-05-31',
+      inputTokens: 1500,
+      outputTokens: 300,
+      actualCostUsd: 0.002,
+    }),
+  })
+  if (!paid.succeeded) throw paid.error
+  return paid.value
 }
 
 const judge: JudgeConfig<A, S> = {

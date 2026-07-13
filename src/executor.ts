@@ -1,4 +1,5 @@
 import type { TCloud } from '@tangle-network/tcloud'
+import type { CostLedger } from './cost-ledger'
 import { CaptureIntegrityError } from './errors'
 import { JudgeParseError } from './judges'
 import { isTransientLlmError } from './llm-client'
@@ -24,6 +25,9 @@ export interface ExecutorConfig {
   model?: string
   /** Judges to run after execution */
   judges: JudgeFn[]
+  /** Shared ledger for paid built-in judges. */
+  costLedger?: CostLedger
+  costPhase?: string
   /** Regex patterns for detecting tool/API calls in responses */
   toolCallPatterns?: RegExp[]
   /** Block delimiter pattern (default: :::type\n...\n:::) */
@@ -207,7 +211,14 @@ export async function executeScenario(
   // output (JudgeParseError, non-retryable) or errors across every attempt —
   // is COUNTED as a failed judge, never folded into the scores as a fake
   // zero row: a synthetic zero is indistinguishable from a real low score.
-  const judgeInput = { scenario, turns, artifacts }
+  const judgeInput = {
+    scenario,
+    turns,
+    artifacts,
+    costLedger: config.costLedger,
+    costPhase: config.costPhase ?? 'benchmark.judge',
+    costTags: { scenarioId: scenario.id },
+  }
   const judgeResults: JudgeScore[][] = []
   let failedJudges = 0
   const judgeFailures: JudgeFailure[] = []

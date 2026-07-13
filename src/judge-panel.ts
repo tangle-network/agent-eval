@@ -19,6 +19,7 @@
  */
 
 import type { JudgeConfig, JudgeScore } from './campaign/types'
+import { CostLedger, type CostReceiptInput, type MaximumCharge } from './cost-ledger'
 import { aggregateJudgeVerdicts, type JudgeVerdict } from './judge-ensemble'
 import { assertCrossFamily } from './judge-families'
 import { type JudgeRetryPolicy, withJudgeRetry } from './judge-retry'
@@ -38,8 +39,14 @@ export interface EnsembleJudgeOptions<D extends string> {
    */
   scoreWith: (
     model: string,
-    input: { artifact: unknown; scenario?: unknown },
+    input: { artifact: unknown; scenario?: unknown; signal: AbortSignal },
   ) => Promise<JudgeVerdict<D>>
+  /** Recover usage from a failed provider response when its error retains one. */
+  receiptFromError?: (error: Error, model: string) => CostReceiptInput | undefined
+  /** Used by direct score calls; campaigns supply their run ledger in score(). */
+  costLedger?: CostLedger
+  /** Required per model when the shared ledger has a dollar cap. */
+  maximumCharge?: MaximumCharge | ((model: string) => MaximumCharge)
   /**
    * Per-model retry policy, applied via `withJudgeRetry`. The panel's
    * `models` list drives the fan-out, so `retry.models` (the fallback
@@ -77,42 +84,83 @@ export function ensembleJudge<D extends string>(
   if (opts.crossFamily !== false) {
     assertCrossFamily(opts.models)
   }
+  const directCostLedger = opts.costLedger ?? new CostLedger()
 
-  const scoreOne = async (
-    model: string,
-    input: { artifact: unknown; scenario?: unknown },
-  ): Promise<JudgeVerdict<D>> => {
-    if (opts.retry) {
-      const outcome = await withJudgeRetry((m) => opts.scoreWith(m, input), {
-        ...opts.retry,
-        models: [model],
-      })
-      if (!outcome.succeeded || outcome.value === null) {
-        return {
+  const scoreOne = async (args: {
+    model: string
+    artifact: unknown
+    scenario?: unknown
+    signal: AbortSignal
+    costLedger: CostLedger
+    costPhase: string
+    costTags?: Record<string, string>
+  }): Promise<JudgeVerdict<D>> => {
+    const outcome = await withJudgeRetry(
+      async (model, retrySignal) => {
+        const paid = await args.costLedger.runPaidCall({
+          channel: 'judge',
+          phase: args.costPhase,
+          actor: `${opts.name}.${model}`,
           model,
-          perDimension: null,
-          rationale: outcome.error?.message ?? 'judge failed after retries',
-        }
-      }
-      return outcome.value
-    }
-    try {
-      return await opts.scoreWith(model, input)
-    } catch (err) {
+          maximumCharge:
+            typeof opts.maximumCharge === 'function'
+              ? opts.maximumCharge(model)
+              : opts.maximumCharge,
+          tags: args.costTags,
+          signal: AbortSignal.any([args.signal, retrySignal]),
+          execute: (signal) =>
+            opts.scoreWith(model, { artifact: args.artifact, scenario: args.scenario, signal }),
+          receipt: (verdict) => ({
+            model: verdict.model,
+            inputTokens: 0,
+            outputTokens: 0,
+            ...(verdict.costUsd === undefined
+              ? { costUnknown: true }
+              : { actualCostUsd: verdict.costUsd }),
+          }),
+          receiptFromError: (error) => opts.receiptFromError?.(error, model),
+        })
+        if (!paid.succeeded) throw paid.error
+        return paid.value
+      },
+      opts.retry
+        ? { ...opts.retry, models: [args.model] }
+        : { maxAttempts: 1, models: [args.model], isRetryable: () => false },
+    )
+    if (!outcome.succeeded || outcome.value === null) {
       return {
-        model,
+        model: args.model,
         perDimension: null,
-        rationale: err instanceof Error ? err.message : String(err),
+        rationale: outcome.error?.message ?? 'judge failed',
       }
     }
+    return outcome.value
   }
 
   return {
     name: opts.name,
     dimensions: opts.dimensions.map((d) => ({ key: d, description: d })),
-    async score({ artifact, scenario }): Promise<JudgeScore> {
-      const input = { artifact, scenario }
-      const verdicts = await Promise.all(opts.models.map((model) => scoreOne(model, input)))
+    async score({
+      artifact,
+      scenario,
+      signal,
+      costLedger,
+      costPhase,
+      costTags,
+    }): Promise<JudgeScore> {
+      const verdicts = await Promise.all(
+        opts.models.map((model) =>
+          scoreOne({
+            model,
+            artifact,
+            scenario,
+            signal,
+            costLedger: costLedger ?? directCostLedger,
+            costPhase: costPhase ?? 'judge',
+            costTags,
+          }),
+        ),
+      )
       // All-failed throws here — propagate so the engine records a failed cell.
       const agg = aggregateJudgeVerdicts(verdicts, opts.dimensions, opts.weights)
       const score: JudgeScore = {

@@ -126,6 +126,19 @@ export {
 } from '../campaign/presets/run-improvement-loop'
 export { type RunCampaignOptions, runCampaign } from '../campaign/run-campaign'
 
+export type {
+  ReferenceEquivalenceJudgeInput,
+  ReferenceEquivalenceJudgeOptions,
+  ReferenceEquivalenceJudgeResult,
+  ReferenceEquivalenceScenario,
+} from '../reference-equivalence-judge'
+export {
+  createReferenceEquivalenceJudge,
+  REFERENCE_EQUIVALENCE_INPUT_LIMITS,
+  REFERENCE_EQUIVALENCE_JUDGE_VERSION,
+  runReferenceEquivalenceJudge,
+} from '../reference-equivalence-judge'
+
 // ── Proposers ────────────────────────────────────────────────────────
 
 export {
@@ -191,6 +204,7 @@ export {
   type SelfImproveOptions,
   type SelfImproveProgressEvent,
   type SelfImproveResult,
+  SelfImproveRunError,
   selfImprove,
 } from './self-improve'
 

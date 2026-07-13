@@ -31,15 +31,23 @@ assignSplit(itemId: string): 'search' | 'dev' | 'holdout'
 Use `runBenchmarkAdapter` when you want a campaign-backed run with resumability, traces, cost, latency, split reporting, and persisted report artifacts.
 
 ```ts
+import { maximumChargeForLlmRequest } from '@tangle-network/agent-eval'
 import { runBenchmarkAdapter, routing } from '@tangle-network/agent-eval/benchmarks'
 
 const result = await runBenchmarkAdapter({
   adapter: new routing.RoutingAdapter(),
   runDir: 'routing-smoke',
   respond: async ({ item, context }) => {
-    const route = await callRouter(item.payload.prompt)
-    context.cost.observe(0.001, 'router')
-    return route
+    const request = buildRouterRequest(item.payload.prompt, { maxTokens: 256 })
+    const paid = await context.cost.runPaidCall({
+      actor: 'routing-worker',
+      model: request.model,
+      maximumCharge: maximumChargeForLlmRequest(request),
+      execute: (signal) => callRouter(request, signal),
+      receipt: (route) => route.receipt,
+    })
+    if (!paid.succeeded) throw paid.error
+    return paid.value
   },
 })
 

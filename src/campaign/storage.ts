@@ -1,4 +1,6 @@
 import { createRequire } from 'node:module'
+import { join } from 'node:path'
+import { CostLedger } from '../cost-ledger'
 
 /**
  * `CampaignStorage` — the filesystem seam `runCampaign` writes through
@@ -80,4 +82,23 @@ export function inMemoryCampaignStorage(): CampaignStorage {
       files.set(path, content)
     },
   }
+}
+
+/** Open the durable spend account stored beside a logical run. */
+export function createRunCostLedger(input: {
+  storage: CampaignStorage
+  runDir: string
+  costCeilingUsd?: number
+  resume?: boolean
+}): CostLedger {
+  const path = join(input.runDir, 'cost-ledger.jsonl')
+  input.storage.ensureDir(input.runDir)
+  return new CostLedger({
+    costCeilingUsd: input.costCeilingUsd,
+    resume: input.resume,
+    persistence: {
+      read: () => input.storage.read(path),
+      write: (content) => input.storage.write(path, content),
+    },
+  })
 }

@@ -1,3 +1,5 @@
+import type { CostLedger } from './cost-ledger'
+
 // ── Scenario Definition ──
 
 export interface Scenario {
@@ -276,12 +278,19 @@ export interface BenchmarkRunnerConfig {
   passThreshold?: number
   generation?: number
   promptVersion?: string
+  /** Shared ledger for agent and judge calls made by the benchmark. */
+  costLedger?: CostLedger
 }
 
 export interface JudgeInput {
   scenario: Scenario
   turns: TurnResult[]
   artifacts: CollectedArtifacts
+  /** Shared ledger for paid built-in judges. Direct calls default to an uncapped ledger. */
+  costLedger?: CostLedger
+  costPhase?: string
+  costTags?: Record<string, string>
+  signal?: AbortSignal
 }
 
 export type JudgeFn = (tc: TCloud, input: JudgeInput) => Promise<JudgeScore[]>

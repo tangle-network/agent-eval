@@ -41,6 +41,7 @@ export class BenchmarkRunner {
         systemPrompt: this.config.systemPrompt,
         model: this.config.model,
         judges: this.config.judges,
+        costLedger: this.config.costLedger,
       })
       results.push(result)
 

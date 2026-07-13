@@ -13,6 +13,7 @@ import {
   runCampaign,
   type Scenario,
 } from '../../src/campaign/index'
+import { CostLedger } from '../../src/cost-ledger'
 import { BackendIntegrityError } from '../../src/integrity/backend-integrity'
 
 interface FakeScenario extends Scenario {
@@ -27,8 +28,22 @@ interface FakeArtifact {
 }
 
 const DISPATCH: DispatchFn<FakeScenario, FakeArtifact> = async (scenario, ctx) => {
-  ctx.cost.observe(0.01, 'fake-llm')
-  return { text: `dispatched-${scenario.id}-rep${ctx.rep}`, intent: scenario.intent }
+  const paid = await ctx.cost.runPaidCall({
+    actor: 'fake-llm',
+    model: 'fake-model',
+    execute: async () => ({
+      text: `dispatched-${scenario.id}-rep${ctx.rep}`,
+      intent: scenario.intent,
+    }),
+    receipt: () => ({
+      model: 'fake-model',
+      inputTokens: 0,
+      outputTokens: 0,
+      actualCostUsd: 0.01,
+    }),
+  })
+  if (!paid.succeeded) throw paid.error
+  return paid.value
 }
 
 const SCENARIOS: FakeScenario[] = [
@@ -140,17 +155,40 @@ describe('runCampaign — core primitive', () => {
   it('resumes cached cells on rerun (resumability)', async () => {
     let dispatchCount = 0
     const counting: DispatchFn<FakeScenario, FakeArtifact> = async (s, ctx) => {
-      dispatchCount += 1
-      return { text: `${s.id}-${ctx.rep}`, intent: s.intent }
+      const paid = await ctx.cost.runPaidCall({
+        actor: 'worker',
+        model: 'fake-model',
+        execute: async () => {
+          dispatchCount += 1
+          return { text: `${s.id}-${ctx.rep}`, intent: s.intent }
+        },
+        receipt: () => ({
+          model: 'fake-model',
+          inputTokens: 10,
+          outputTokens: 5,
+          actualCostUsd: 0.4,
+        }),
+      })
+      if (!paid.succeeded) throw paid.error
+      return paid.value
     }
     await runCampaign({ scenarios: SCENARIOS, dispatch: counting, runDir })
     expect(dispatchCount).toBe(2)
 
     // Second run with same runDir + scenarios should hit cache.
-    const r2 = await runCampaign({ scenarios: SCENARIOS, dispatch: counting, runDir })
+    const replayLedger = new CostLedger(0)
+    const r2 = await runCampaign({
+      scenarios: SCENARIOS,
+      dispatch: counting,
+      costLedger: replayLedger,
+      runDir,
+    })
     expect(dispatchCount).toBe(2) // no new dispatches
     expect(r2.cells.every((c) => c.cached)).toBe(true)
     expect(r2.aggregates.cellsCached).toBe(2)
+    expect(r2.aggregates.totalCostUsd).toBe(0)
+    expect(replayLedger.summary().totalCostUsd).toBe(0)
+    expect(replayLedger.list()).toHaveLength(0)
   })
 
   it('does not resume cached cells when the manifest changes', async () => {
@@ -231,21 +269,68 @@ describe('runCampaign — core primitive', () => {
   })
 
   it('captures dispatch errors per cell without crashing campaign', async () => {
-    const flaky: DispatchFn<FakeScenario, FakeArtifact> = async (s) => {
-      if (s.id === 'a') throw new Error('boom')
-      return { text: 'ok', intent: s.intent }
+    const ledger = new CostLedger()
+    const flaky: DispatchFn<FakeScenario, FakeArtifact> = async (s, ctx) => {
+      const amount = s.id === 'a' ? 0.4 : 0.1
+      const paid = await ctx.cost.runPaidCall({
+        actor: 'worker',
+        model: 'fake-model',
+        execute: async () => {
+          if (s.id === 'a') throw new Error('boom after provider response')
+          return { text: 'ok', intent: s.intent }
+        },
+        receipt: () => ({
+          model: 'fake-model',
+          inputTokens: 0,
+          outputTokens: 0,
+          actualCostUsd: amount,
+        }),
+        receiptFromError: () => ({
+          model: 'fake-model',
+          inputTokens: 0,
+          outputTokens: 0,
+          actualCostUsd: amount,
+        }),
+      })
+      if (!paid.succeeded) throw paid.error
+      return paid.value
     }
-    const result = await runCampaign({ scenarios: SCENARIOS, dispatch: flaky, runDir })
+    const result = await runCampaign({
+      scenarios: SCENARIOS,
+      dispatch: flaky,
+      costLedger: ledger,
+      costPhase: 'search.baseline',
+      runDir,
+    })
     expect(result.cells).toHaveLength(2)
     expect(result.aggregates.cellsFailed).toBe(1)
     expect(result.cells.find((c) => c.scenarioId === 'a')?.error).toContain('boom')
     expect(result.cells.find((c) => c.scenarioId === 'b')?.error).toBeUndefined()
+    expect(result.cells.find((c) => c.scenarioId === 'a')?.costUsd).toBeCloseTo(0.4, 9)
+    expect(ledger.summary().totalCostUsd).toBeCloseTo(0.5, 9)
+    expect(ledger.list()[0]).toMatchObject({ phase: 'search.baseline', actor: 'worker' })
   })
 
-  it('respects costCeiling and marks excess cells skipped', async () => {
+  it('atomically reserves capped calls without constraining free dispatches', async () => {
+    let calls = 0
     const expensive: DispatchFn<FakeScenario, FakeArtifact> = async (s, ctx) => {
-      ctx.cost.observe(10, 'expensive')
-      return { text: '', intent: s.intent }
+      const paid = await ctx.cost.runPaidCall({
+        actor: 'expensive',
+        model: 'fake-model',
+        maximumCharge: { providerLimitUsd: 10 },
+        execute: async () => {
+          calls += 1
+          return { text: '', intent: s.intent }
+        },
+        receipt: () => ({
+          model: 'fake-model',
+          inputTokens: 0,
+          outputTokens: 0,
+          actualCostUsd: 10,
+        }),
+      })
+      if (!paid.succeeded) throw paid.error
+      return paid.value
     }
     const result = await runCampaign({
       scenarios: [
@@ -255,11 +340,56 @@ describe('runCampaign — core primitive', () => {
       ],
       dispatch: expensive,
       costCeiling: 15,
-      maxConcurrency: 1, // serialize so cost-ceiling fires deterministically
+      maxConcurrency: 10,
       runDir,
     })
-    expect(result.aggregates.totalCostUsd).toBeGreaterThanOrEqual(10)
-    expect(result.aggregates.cellsSkipped).toBeGreaterThanOrEqual(1)
+    expect(calls).toBe(1)
+    expect(result.aggregates.totalCostUsd).toBe(10)
+    expect(result.aggregates.totalCostUsd).toBeLessThanOrEqual(15)
+    expect(result.aggregates.cellsFailed).toBe(2)
+
+    const free = await runCampaign({
+      scenarios: SCENARIOS.slice(0, 1),
+      dispatch: async (scenario) => ({ text: '', intent: scenario.intent }),
+      costCeiling: 0,
+      resumable: false,
+      runDir,
+    })
+    expect(free.aggregates.cellsExecuted).toBe(1)
+    expect(free.aggregates.totalCostUsd).toBe(0)
+  })
+
+  it('does not double-bill cached input when deriving a tokens-only receipt', async () => {
+    const ledger = new CostLedger(1)
+    await runCampaign({
+      scenarios: SCENARIOS.slice(0, 1),
+      dispatch: async (scenario, ctx) => {
+        const paid = await ctx.cost.runPaidCall({
+          actor: 'worker',
+          model: 'gpt-4o',
+          maximumCharge: {
+            model: 'gpt-4o',
+            inputTokens: 600,
+            outputTokens: 0,
+            cachedTokens: 400,
+          },
+          execute: async () => ({ text: '', intent: scenario.intent }),
+          receipt: () => ({
+            model: 'gpt-4o',
+            inputTokens: 600,
+            outputTokens: 0,
+            cachedTokens: 400,
+          }),
+        })
+        if (!paid.succeeded) throw paid.error
+        return paid.value
+      },
+      costLedger: ledger,
+      resumable: false,
+      runDir,
+    })
+
+    expect(ledger.summary().totalCostUsd).toBeCloseTo(0.0025, 9)
   })
 
   it('actually invokes judge.score and records the real composite', async () => {
@@ -688,9 +818,19 @@ describe('runCampaign — expectUsage stub guard', () => {
 
   it('does NOT throw when the dispatch reports usage (real cell)', async () => {
     const real: DispatchFn<FakeScenario, FakeArtifact> = async (scenario, ctx) => {
-      ctx.cost.observe(0.002, 'llm')
-      ctx.cost.observeTokens({ input: 80, output: 20 })
-      return { text: scenario.id, intent: scenario.intent }
+      const paid = await ctx.cost.runPaidCall({
+        actor: 'llm',
+        model: 'fake-model',
+        execute: async () => ({ text: scenario.id, intent: scenario.intent }),
+        receipt: () => ({
+          model: 'fake-model',
+          inputTokens: 80,
+          outputTokens: 20,
+          actualCostUsd: 0.002,
+        }),
+      })
+      if (!paid.succeeded) throw paid.error
+      return paid.value
     }
     const result = await runCampaign({
       scenarios: SCENARIOS.slice(0, 1),

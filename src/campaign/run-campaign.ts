@@ -10,11 +10,12 @@
  */
 
 import { join } from 'node:path'
+import type { CostLedger, CostLedgerSummary } from '../cost-ledger'
 import { BackendIntegrityError, type BackendIntegrityReport } from '../integrity/backend-integrity'
 import { confidenceInterval } from '../statistics'
 import { contentHash } from '../verdict-cache'
 import { resolveRunDir } from './run-dir'
-import { type CampaignStorage, fsCampaignStorage } from './storage'
+import { type CampaignStorage, createRunCostLedger, fsCampaignStorage } from './storage'
 import type {
   CampaignAggregates,
   CampaignArtifactWriter,
@@ -58,8 +59,13 @@ export interface RunCampaignOptions<TScenario extends Scenario, TArtifact> {
   labeledStore?: LabeledScenarioStore | 'off'
   captureSource?: 'production-trace' | 'eval-run' | 'manual' | 'red-team' | 'synthetic'
   captureSourceVersionHash?: string
-  /** Wall-clock cost cap across all cells. Cells beyond ceiling are skipped. */
+  /** Observed-spend cap across all newly dispatched cells. */
   costCeiling?: number
+  /** Shared spend account. Improvement loops pass one ledger through every
+   *  campaign so the ceiling and returned total are run-wide. */
+  costLedger?: CostLedger
+  /** Attribution label for receipts recorded by this campaign. */
+  costPhase?: string
   /** Max concurrent cells. Default 2. */
   maxConcurrency?: number
   /**
@@ -131,16 +137,28 @@ export async function runCampaign<TScenario extends Scenario, TArtifact>(
   const seed = opts.seed ?? 42
   const reps = opts.reps ?? 1
   const resumable = opts.resumable ?? true
-  const maxConcurrency = opts.maxConcurrency ?? 2
   const now = opts.now ?? (() => new Date())
   const judges = opts.judges ?? []
   const storage = opts.storage ?? fsCampaignStorage()
+  const costPhase = opts.costPhase ?? 'campaign'
 
   if (typeof opts.runDir !== 'string' || opts.runDir.trim().length === 0) {
     throw new Error('runCampaign: runDir is required and must be a non-empty string')
   }
   opts.runDir = resolveRunDir(opts.runDir, opts.repo)
   storage.ensureDir(opts.runDir)
+  const costLedger =
+    opts.costLedger ??
+    createRunCostLedger({
+      storage,
+      runDir: opts.runDir,
+      costCeilingUsd: opts.costCeiling,
+      resume: resumable,
+    })
+  if (opts.costCeiling !== undefined && costLedger.costCeilingUsd !== opts.costCeiling) {
+    throw new Error('runCampaign: costCeiling must match the shared CostLedger ceiling')
+  }
+  const maxConcurrency = opts.maxConcurrency ?? 2
 
   const manifestHash = computeManifestHash({
     scenarios: opts.scenarios,
@@ -158,8 +176,6 @@ export async function runCampaign<TScenario extends Scenario, TArtifact>(
   const schedule = buildCellSchedule(opts.scenarios, seed, reps)
 
   // Concurrency-limited execution.
-  let totalCostUsd = 0
-  let costCeilingReached = false
   const abortController = new AbortController()
   // Concurrency lanes that drain the cell schedule. Named "lanes" — not
   // "workers" — to avoid clashing with the taxonomy's worker (= the agent
@@ -175,10 +191,6 @@ export async function runCampaign<TScenario extends Scenario, TArtifact>(
           const myIdx = nextIdx++
           if (myIdx >= schedule.length) return
           const slot = schedule[myIdx]!
-          if (costCeilingReached) {
-            cellsRef.push(skippedCell(slot, 'cost_ceiling_reached'))
-            continue
-          }
           const result = await executeCell({
             slot,
             opts,
@@ -189,14 +201,11 @@ export async function runCampaign<TScenario extends Scenario, TArtifact>(
             buildTraceWriter: opts.buildTraceWriter ?? defaultBuildTraceWriter(storage),
             signal: abortController.signal,
             dispatchTimeoutMs: opts.dispatchTimeoutMs,
+            costLedger,
+            costPhase,
           })
           cellsRef.push(result.cell)
-          enforceCellUsage(result.cell, opts.expectUsage ?? 'warn')
-          totalCostUsd += result.cell.costUsd
           Object.assign(artifactsByPath, result.artifactsByPath)
-          if (opts.costCeiling !== undefined && totalCostUsd >= opts.costCeiling) {
-            costCeilingReached = true
-          }
           // Capture into LabeledScenarioStore unless explicitly disabled.
           if (opts.labeledStore && opts.labeledStore !== 'off' && !result.cell.error) {
             await captureToStore({
@@ -222,10 +231,12 @@ export async function runCampaign<TScenario extends Scenario, TArtifact>(
   const endedAt = now()
   cellsRef.sort((a, b) => a.cellId.localeCompare(b.cellId))
 
+  const campaignCost = costLedger.summary({ tags: { runDir: opts.runDir } })
   const aggregates = computeAggregates(
     cellsRef,
     judges as unknown as JudgeConfig<TArtifact>[],
     seed,
+    campaignCost,
   )
 
   return {
@@ -254,6 +265,8 @@ interface ExecuteCellArgs<TScenario extends Scenario, TArtifact> {
   buildTraceWriter: (cellId: string, dir: string) => CampaignTraceWriter
   signal: AbortSignal
   dispatchTimeoutMs?: number
+  costLedger: CostLedger
+  costPhase: string
 }
 
 async function executeCell<TScenario extends Scenario, TArtifact>(
@@ -273,7 +286,9 @@ async function executeCell<TScenario extends Scenario, TArtifact>(
       manifestHash: args.manifestHash,
     })
     if (cached.status === 'hit') {
-      return { cell: { ...cached.cell, cached: true }, artifactsByPath: {} }
+      const cell = { ...cached.cell, cached: true }
+      enforceDispatchUsage(cell, args.opts.expectUsage ?? 'warn')
+      return { cell, artifactsByPath: {} }
     }
   }
 
@@ -292,31 +307,26 @@ async function executeCell<TScenario extends Scenario, TArtifact>(
       return artifacts.write(path, JSON.stringify(value, null, 2))
     },
   }
-  let costSoFar = 0
-  const tokensSoFar: CampaignTokenUsage = { input: 0, output: 0 }
-  let resolvedModel: string | undefined
+  const costTags = {
+    runDir: args.opts.runDir,
+    cellId: args.slot.cellId,
+    scenarioId: args.slot.scenario.id,
+    rep: String(args.slot.rep),
+  }
   const cost: CampaignCostMeter = {
-    observe(amount, source) {
-      costSoFar += amount
-      trace.span(`cost.${source}`, { amountUsd: amount }).end()
-    },
-    observeTokens(usage) {
-      tokensSoFar.input += usage.input
-      tokensSoFar.output += usage.output
-      if (usage.cached) tokensSoFar.cached = (tokensSoFar.cached ?? 0) + usage.cached
-    },
-    observeModel(model) {
-      const trimmed = model?.trim()
-      if (trimmed) resolvedModel = trimmed
-    },
-    current() {
-      return costSoFar
-    },
-    tokens() {
-      return { ...tokensSoFar }
-    },
-    resolvedModel() {
-      return resolvedModel
+    async runPaidCall(input) {
+      const result = await args.costLedger.runPaidCall({
+        ...input,
+        channel: input.channel ?? 'agent',
+        phase: args.costPhase,
+        actor: input.actor,
+        tags: costTags,
+        signal: cellAbort.signal,
+      })
+      if (result.receipt) {
+        trace.span(`cost.${result.receipt.actor}`, { amountUsd: result.receipt.costUsd }).end()
+      }
+      return result
     },
   }
 
@@ -381,6 +391,28 @@ async function executeCell<TScenario extends Scenario, TArtifact>(
     args.signal.removeEventListener('abort', onCampaignAbort)
   }
 
+  const agentReceipts = args.costLedger.list({ channel: 'agent', tags: costTags })
+  const agentCost = args.costLedger.summary({ channel: 'agent', tags: costTags })
+  const tokenUsage: CampaignTokenUsage = {
+    input: agentCost.inputTokens,
+    output: agentCost.outputTokens,
+    ...(agentCost.cachedTokens > 0 ? { cached: agentCost.cachedTokens } : {}),
+  }
+  const resolvedModel = agentReceipts.at(-1)?.model
+  const dispatchResult = {
+    cellId: args.slot.cellId,
+    artifact,
+    error: errorMessage,
+    costUsd: agentCost.totalCostUsd,
+    tokenUsage,
+  }
+  try {
+    enforceDispatchUsage(dispatchResult, args.opts.expectUsage ?? 'warn')
+  } catch (error) {
+    await trace.flush()
+    throw error
+  }
+
   // Run judges (only if we have an artifact). A judge that throws invalidates
   // the cell — recorded as `error`, NOT folded into a fake composite:0 (a fake
   // zero is indistinguishable from a real zero and poisons every aggregate).
@@ -393,6 +425,9 @@ async function executeCell<TScenario extends Scenario, TArtifact>(
           artifact,
           scenario: args.slot.scenario,
           signal: args.signal,
+          costLedger: args.costLedger,
+          costPhase: args.costPhase,
+          costTags,
         })
       } catch (err) {
         errorMessage = `judge '${judge.name}' failed: ${err instanceof Error ? err.message : String(err)}`
@@ -410,8 +445,11 @@ async function executeCell<TScenario extends Scenario, TArtifact>(
     rep: args.slot.rep,
     artifact: (artifact ?? null) as TArtifact,
     judgeScores,
-    costUsd: costSoFar,
-    tokenUsage: { ...tokensSoFar },
+    costUsd: agentCost.totalCostUsd,
+    costEstimated: agentReceipts.some(
+      (receipt) => receipt.actualCostUsd === undefined && !receipt.costUnknown,
+    ),
+    tokenUsage,
     ...(resolvedModel ? { resolvedModel } : {}),
     durationMs: Date.now() - startMs,
     seed: args.slot.cellSeed,
@@ -546,15 +584,18 @@ export function planCampaignRun<TScenario extends Scenario, TArtifact>(
  * `'assert'` throws (fail-fast), `'off'` skips. An errored/skipped cell or a
  * deterministic judge-only run that genuinely made no LLM call is not flagged.
  */
-function enforceCellUsage<TArtifact>(
-  cell: CampaignCellResult<TArtifact>,
+function enforceDispatchUsage(
+  cell: Pick<
+    CampaignCellResult<unknown>,
+    'cellId' | 'artifact' | 'error' | 'costUsd' | 'tokenUsage'
+  >,
   mode: 'assert' | 'warn' | 'off',
 ): void {
   if (mode === 'off' || cell.error) return
   if (cell.artifact === null || cell.artifact === undefined) return
   const zeroTokens = cell.tokenUsage.input === 0 && cell.tokenUsage.output === 0
   if (cell.costUsd !== 0 || !zeroTokens) return
-  const msg = `cell '${cell.cellId}' produced an artifact but reported zero cost and zero tokens — the dispatch never reported LLM usage via ctx.cost.observe/observeTokens (a stub cell)`
+  const msg = `cell '${cell.cellId}' produced an artifact but reported zero cost and zero tokens — the dispatch made no paid call through ctx.cost.runPaidCall (a stub cell)`
   if (mode === 'assert') {
     const report: BackendIntegrityReport = {
       totalRecords: 1,
@@ -575,7 +616,7 @@ function enforceCellUsage<TArtifact>(
 
 async function runJudgeCell<TArtifact, TScenario extends Scenario>(
   judge: JudgeConfig<TArtifact, TScenario>,
-  input: { artifact: TArtifact; scenario: TScenario; signal: AbortSignal },
+  input: Parameters<JudgeConfig<TArtifact, TScenario>['score']>[0],
 ): Promise<JudgeScore> {
   return judge.score(input)
 }
@@ -605,25 +646,6 @@ function defaultBuildTraceWriter(
         storage.write(join(dir, 'spans.jsonl'), spans.map((s) => JSON.stringify(s)).join('\n'))
       },
     }
-  }
-}
-
-function skippedCell<TScenario extends Scenario, TArtifact>(
-  slot: { scenario: TScenario; rep: number; cellId: string; cellSeed: number },
-  reason: string,
-): CampaignCellResult<TArtifact> {
-  return {
-    cellId: slot.cellId,
-    scenarioId: slot.scenario.id,
-    rep: slot.rep,
-    artifact: null as unknown as TArtifact,
-    judgeScores: {},
-    costUsd: 0,
-    tokenUsage: { input: 0, output: 0 },
-    durationMs: 0,
-    seed: slot.cellSeed,
-    cached: false,
-    error: `skipped: ${reason}`,
   }
 }
 
@@ -725,6 +747,7 @@ function computeAggregates<TArtifact>(
   cells: CampaignCellResult<TArtifact>[],
   judges: JudgeConfig<TArtifact>[],
   seed: number,
+  cost: CostLedgerSummary,
 ): CampaignAggregates {
   const byJudge: Record<string, JudgeAggregate> = {}
   for (const judge of judges) {
@@ -752,7 +775,8 @@ function computeAggregates<TArtifact>(
   return {
     byJudge,
     byScenario,
-    totalCostUsd: cells.reduce((a, c) => a + c.costUsd, 0),
+    cost,
+    totalCostUsd: cost.totalCostUsd,
     cellsExecuted: cells.filter((c) => !c.error).length,
     cellsSkipped: cells.filter((c) => c.error?.startsWith('skipped:')).length,
     cellsCached: cells.filter((c) => c.cached).length,

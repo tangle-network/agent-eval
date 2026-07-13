@@ -27,9 +27,7 @@ const evalsDir = join(here, 'evals')
 const runDir = join(tmpdir(), 'agent-eval-fixtures-quickstart')
 const dispatchRef = 'offline-fixture-agent/v1'
 
-const dispatch: DispatchFn<EvalFixtureScenario, FixtureArtifact> = async (scenario, ctx) => {
-  ctx.cost.observe(0.001, 'offline-agent')
-  ctx.cost.observeTokens({ input: scenario.prompt.length, output: 64 })
+const dispatch: DispatchFn<EvalFixtureScenario, FixtureArtifact> = async (scenario) => {
   return {
     answer: `Implemented ${scenario.fixtureName}: ${scenario.prompt.trim()}`,
     filesTouched: ['src/app.ts', 'README.md'],
@@ -77,7 +75,7 @@ async function main() {
     dispatchRef,
     judges: [judge],
     runDir,
-    expectUsage: 'assert',
+    expectUsage: 'off',
   })
 
   const after = planEvalFixtureRun<FixtureArtifact>({

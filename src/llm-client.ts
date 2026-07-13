@@ -20,6 +20,7 @@
  * that need free-form text use `callLlm` and parse output themselves.
  */
 
+import type { CostReceiptInput, MaximumCharge } from './cost-ledger'
 import { AgentEvalError, CaptureIntegrityError } from './errors'
 import {
   defaultProviderRedactor,
@@ -56,6 +57,35 @@ export interface LlmCallRequest {
   maxTokens?: number
   /** Per-call timeout, default 300s. */
   timeoutMs?: number
+}
+
+/** Conservative priced bound for the exact text request sent to a provider.
+ * Returns undefined when output or multimodal input is not bounded, causing a
+ * capped CostLedger to reject the call before execution. */
+export function maximumChargeForLlmRequest(
+  request: Pick<LlmCallRequest, 'model' | 'messages' | 'jsonSchema' | 'maxTokens'>,
+): MaximumCharge | undefined {
+  if (request.maxTokens === undefined) return undefined
+  if (!Number.isInteger(request.maxTokens) || request.maxTokens <= 0) {
+    throw new RangeError(`maximumChargeForLlmRequest: maxTokens must be a positive integer`)
+  }
+  if (
+    request.messages.some(
+      (message) =>
+        Array.isArray(message.content) && message.content.some((part) => part.type === 'image_url'),
+    )
+  ) {
+    return undefined
+  }
+
+  const encoded = new TextEncoder().encode(
+    JSON.stringify({ messages: request.messages, jsonSchema: request.jsonSchema }),
+  ).byteLength
+  return {
+    model: request.model,
+    inputTokens: encoded + 256 + request.messages.length * 16,
+    outputTokens: request.maxTokens,
+  }
 }
 
 export interface LlmUsage {
@@ -99,6 +129,25 @@ export interface LlmCallResult {
   raw: Record<string, unknown>
 }
 
+export type LlmCallMetadata = Pick<LlmCallResult, 'usage' | 'costUsd' | 'model' | 'durationMs'>
+
+/** Convert a provider result into the canonical paid-call receipt input. */
+export function costReceiptFromLlm(result: LlmCallResult): CostReceiptInput {
+  const cachedTokens = result.usage.cachedPromptTokens ?? 0
+  return {
+    model: result.model,
+    inputTokens: Math.max(0, result.usage.promptTokens - cachedTokens),
+    outputTokens: result.usage.completionTokens,
+    cachedTokens: cachedTokens > 0 ? cachedTokens : undefined,
+    actualCostUsd: result.costUsd ?? undefined,
+  }
+}
+
+/** Structured-response failures retain their completed provider receipt. */
+export function costReceiptFromLlmError(error: Error): CostReceiptInput | undefined {
+  return error instanceof LlmResponseError ? costReceiptFromLlm(error.result) : undefined
+}
+
 export class LlmCallError extends AgentEvalError {
   constructor(
     message: string,
@@ -107,6 +156,19 @@ export class LlmCallError extends AgentEvalError {
     public readonly model: string,
   ) {
     super('judge', message)
+  }
+}
+
+/** A provider response completed and incurred measurable usage, but its content
+ *  could not satisfy the caller's response contract. The response envelope is
+ *  retained so accounting can commit the receipt before the error propagates. */
+export class LlmResponseError extends AgentEvalError {
+  constructor(
+    message: string,
+    public readonly result: LlmCallResult,
+    options?: { cause?: unknown },
+  ) {
+    super('judge', message, options)
   }
 }
 
@@ -691,29 +753,37 @@ export async function callLlmJson<T = unknown>(
   req: LlmCallRequest,
   opts: LlmClientOptions = {},
 ): Promise<{ value: T; result: LlmCallResult }> {
+  const result = await callLlmStructured(req, opts)
+  return { value: parseJsonResult<T>(result), result }
+}
+
+async function callLlmStructured(
+  req: LlmCallRequest,
+  opts: LlmClientOptions,
+): Promise<LlmCallResult> {
   try {
-    const result = await callLlm({ ...req, jsonMode: req.jsonMode ?? !req.jsonSchema }, opts)
-    const value = parseJsonResult<T>(result)
-    return { value, result }
+    return await callLlm({ ...req, jsonMode: req.jsonMode ?? !req.jsonSchema }, opts)
   } catch (err) {
     if (err instanceof LlmCallError && isSchemaRejection(err.status, err.body) && req.jsonSchema) {
-      // Degrade to json_object + retry.
-      const degradedReq: LlmCallRequest = { ...req, jsonMode: true, jsonSchema: undefined }
-      const result = await callLlm(degradedReq, opts)
-      const value = parseJsonResult<T>(result)
-      return { value, result }
+      return callLlm({ ...req, jsonMode: true, jsonSchema: undefined }, opts)
     }
     throw err
   }
 }
 
 function parseJsonResult<T>(result: LlmCallResult): T {
-  if (result.finishReason === 'length') {
-    throw new Error(
-      `LLM returned truncated JSON content (model=${result.model}, finishReason=length)`,
-    )
+  try {
+    if (result.finishReason === 'length') {
+      throw new Error(
+        `LLM returned truncated JSON content (model=${result.model}, finishReason=length)`,
+      )
+    }
+    return parseJsonSafely<T>(result.content, result.model)
+  } catch (error) {
+    if (error instanceof LlmResponseError) throw error
+    const cause = error instanceof Error ? error : new Error(String(error))
+    throw new LlmResponseError(cause.message, result, { cause })
   }
-  return parseJsonSafely<T>(result.content, result.model)
 }
 
 function parseJsonSafely<T>(content: string, model: string): T {
@@ -886,7 +956,8 @@ export class LlmClient {
   constructor(private readonly opts: LlmClientOptions = {}) {}
 
   call(req: LlmCallRequest, per?: LlmClientOptions): Promise<LlmCallResult> {
-    return callLlm(req, { ...this.opts, ...per })
+    const options = { ...this.opts, ...per }
+    return req.jsonSchema ? callLlmStructured(req, options) : callLlm(req, options)
   }
 
   callJson<T = unknown>(

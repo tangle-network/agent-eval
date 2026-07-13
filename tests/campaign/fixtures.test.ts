@@ -96,8 +96,19 @@ describe('eval fixture UX', () => {
     writeFixture('beta', { prompt: 'Fix beta' })
 
     const dispatch: DispatchFn<EvalFixtureScenario, FixtureArtifact> = async (scenario, ctx) => {
-      ctx.cost.observe(0.01, 'fixture-agent')
-      return { prompt: scenario.prompt, fingerprint: scenario.fingerprint }
+      const paid = await ctx.cost.runPaidCall({
+        actor: 'fixture-agent',
+        model: 'fixture-model',
+        execute: async () => ({ prompt: scenario.prompt, fingerprint: scenario.fingerprint }),
+        receipt: () => ({
+          model: 'fixture-model',
+          inputTokens: 0,
+          outputTokens: 0,
+          actualCostUsd: 0.01,
+        }),
+      })
+      if (!paid.succeeded) throw paid.error
+      return paid.value
     }
 
     const before = planEvalFixtureRun<FixtureArtifact>({

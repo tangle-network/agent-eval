@@ -24,8 +24,10 @@
 import { randomUUID } from 'node:crypto'
 import type { TCloud } from '@tangle-network/tcloud'
 import type { Artifact } from './artifact-validator'
+import { CostLedger, type CostReceiptInput, type MaximumCharge } from './cost-ledger'
 import { recoverTruncatedJson } from './json-recovery'
 import { JudgeParseError } from './judges'
+import { type LlmCallRequest, maximumChargeForLlmRequest } from './llm-client'
 import type { RawProviderEvent, RawProviderSink } from './trace/raw-provider-sink'
 import type { DefaultVerdict } from './verdict'
 
@@ -428,6 +430,11 @@ export async function verifyCompletion(
 
 export interface LlmCorrectnessCheckerOpts {
   model?: string
+  /** Optional ledger for direct use. */
+  costLedger?: CostLedger
+  costPhase?: string
+  maximumCharge?: MaximumCharge
+  signal?: AbortSignal
   /** Max chars of artifact content sent to the checker. */
   maxContentChars?: number
   /**
@@ -491,6 +498,7 @@ export function createLlmCorrectnessChecker(
   const model = opts.model ?? 'claude-sonnet-4-6'
   const maxContentChars = opts.maxContentChars ?? 8000
   const maxAttempts = opts.maxAttempts ?? 2
+  const costLedger = opts.costLedger ?? new CostLedger()
   const sink = opts.rawSink
   const record = async (event: RawProviderEvent): Promise<void> => {
     // Forensic capture is best-effort; the verdict is the system of record.
@@ -518,7 +526,7 @@ export function createLlmCorrectnessChecker(
       ],
       temperature: 0,
       maxTokens: 200,
-    }
+    } satisfies LlmCallRequest
     let lastErr: unknown
     for (let attempt = 0; attempt < maxAttempts; attempt++) {
       const started = Date.now()
@@ -535,7 +543,19 @@ export function createLlmCorrectnessChecker(
         redactedFields: [],
       })
       try {
-        const resp = await tc.chat(request)
+        const paid = await costLedger.runPaidCall({
+          channel: 'verifier',
+          phase: opts.costPhase ?? 'completion.correctness',
+          actor: 'correctness-checker',
+          model,
+          maximumCharge: opts.maximumCharge ?? maximumChargeForLlmRequest(request),
+          tags: { requirementId: requirement.reqId, attempt: String(attempt) },
+          signal: opts.signal,
+          execute: () => tc.chat(request),
+          receipt: (response) => receiptFromTCloud(response, model),
+        })
+        if (!paid.succeeded) throw paid.error
+        const resp = paid.value
         const raw =
           (resp as { choices?: { message?: { content?: string } }[] }).choices?.[0]?.message
             ?.content ?? ''
@@ -571,6 +591,19 @@ export function createLlmCorrectnessChecker(
       }
     }
     throw lastErr instanceof Error ? lastErr : new Error(String(lastErr))
+  }
+}
+
+function receiptFromTCloud(
+  response: Awaited<ReturnType<TCloud['chat']>>,
+  requestedModel: string,
+): CostReceiptInput {
+  const usage = response.usage
+  return {
+    model: response.model || requestedModel,
+    inputTokens: usage?.prompt_tokens ?? 0,
+    outputTokens: usage?.completion_tokens ?? 0,
+    costUnknown: usage === undefined,
   }
 }
 

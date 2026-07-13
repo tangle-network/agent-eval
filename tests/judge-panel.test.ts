@@ -7,7 +7,7 @@
  */
 
 import { describe, expect, it } from 'vitest'
-import { CrossFamilyError, ensembleJudge, type JudgeVerdict } from '../src/index'
+import { CostLedger, CrossFamilyError, ensembleJudge, type JudgeVerdict } from '../src/index'
 
 type Dim = 'accuracy' | 'tone'
 const DIMS: Dim[] = ['accuracy', 'tone']
@@ -75,6 +75,26 @@ describe('ensembleJudge — construction', () => {
 })
 
 describe('ensembleJudge — scoring', () => {
+  it('rejects opaque panel calls before spend when a capped run has no hard maximum', async () => {
+    let calls = 0
+    const costLedger = new CostLedger({ costCeilingUsd: 1 })
+    const judge = ensembleJudge({
+      name: 'panel',
+      dimensions: DIMS,
+      models: PANEL,
+      scoreWith: async (model) => {
+        calls++
+        return { model, perDimension: { accuracy: 1, tone: 1 } }
+      },
+    })
+
+    await expect(judge.score({ artifact: 'text', scenario, signal, costLedger })).rejects.toThrow(
+      /all 2 judges failed/,
+    )
+    expect(calls).toBe(0)
+    expect(costLedger.summary()).toMatchObject({ totalCalls: 0, totalCostUsd: 0 })
+  })
+
   it('aggregates per-dimension means + composite across the panel', async () => {
     const judge = ensembleJudge({
       name: 'panel',
