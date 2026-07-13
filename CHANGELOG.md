@@ -4,6 +4,16 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ---
 
+## [0.115.3] — 2026-07-12 — fail-closed structured output parsing
+
+### Fixed
+
+- `callLlmJson()` now rejects responses terminated with finish reason `length`, even when the returned prefix happens to parse as JSON.
+- JSON extraction no longer descends into a valid nested object or array when a response declares an incomplete top-level JSON root.
+
+This patch prevents truncated structured responses from being silently accepted under the wrong response shape.
+Consumers of `callLlmJson()` should update.
+
 ## [0.115.2] — 2026-07-12 — truthful code-agent session accounting
 
 ### Fixed
