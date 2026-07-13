@@ -1,6 +1,7 @@
 import { z } from 'zod'
 import type { ChatClient } from './analyst/chat-client'
 import type { JudgeConfig, Scenario } from './campaign/types'
+import type { CostLedger } from './cost-ledger'
 import type { LlmCallMetadata } from './llm-client'
 import { llmJudge } from './llm-judge'
 
@@ -30,6 +31,8 @@ export interface ReferenceEquivalenceJudgeOptions {
   model?: string
   /** Used only by the direct-call adapter. */
   signal?: AbortSignal
+  /** Optional receipt destination for direct calls; campaigns supply their own. */
+  costLedger?: CostLedger
 }
 
 export interface ReferenceEquivalenceJudgeResult extends LlmCallMetadata {
@@ -68,6 +71,8 @@ export function createReferenceEquivalenceJudge(
   return llmJudge<string, ReferenceEquivalenceScenario>(JUDGE_NAME, SYSTEM_INSTRUCTIONS, {
     chat: options.chat,
     model: options.model,
+    costLedger: options.costLedger,
+    judgeVersion: REFERENCE_EQUIVALENCE_JUDGE_VERSION,
     dimensions: [
       {
         key: DIMENSION,
@@ -119,6 +124,7 @@ export async function runReferenceEquivalenceJudge(
       expectedAnswer: input.expectedAnswer,
     },
     signal: options.signal ?? new AbortController().signal,
+    costLedger: options.costLedger,
   })
   if (!score.llmCall) {
     throw new Error('reference-equivalence: llmJudge returned no call metadata')

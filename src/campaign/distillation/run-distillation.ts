@@ -26,7 +26,13 @@ import {
   type CreateChatClientOpts,
   createChatClient,
 } from '../../analyst/chat-client'
-import type { LlmCallResult, LlmClientOptions } from '../../llm-client'
+import {
+  costReceiptFromLlm,
+  costReceiptFromLlmError,
+  type LlmCallRequest,
+  type LlmClientOptions,
+  maximumChargeForLlmRequest,
+} from '../../llm-client'
 import { heldOutGate } from '../gates/heldout-gate'
 import { type RunImprovementLoopResult, runImprovementLoop } from '../presets/run-improvement-loop'
 import { type GepaProposerConstraints, gepaProposer } from '../proposers/gepa'
@@ -164,18 +170,26 @@ export async function runDistillation<TProduced, TInput, TLabel>(
         input: scenario.input,
         scenarioId: scenario.id,
       })
-      const response: ChatResponse = await chat.chat(
-        {
-          model: opts.studentModel,
-          messages: prompt,
-          jsonMode: true,
-          temperature: studentTemperature,
-          maxTokens: studentMaxTokens,
-        },
-        { signal: ctx.signal },
-      )
-      reportUsage(ctx.cost, response)
-      return parse(response.content, scenario.id)
+      const request: LlmCallRequest = {
+        model: opts.studentModel,
+        messages: prompt,
+        jsonMode: true,
+        temperature: studentTemperature,
+        maxTokens: studentMaxTokens,
+      }
+      const paid = await ctx.cost.runPaidCall<ChatResponse>({
+        actor: 'distillation-student',
+        model: opts.studentModel,
+        maximumCharge:
+          chat.maximumAttempts === undefined
+            ? undefined
+            : maximumChargeForLlmRequest(request, { maxRetries: chat.maximumAttempts }),
+        execute: (signal, callId) => chat.chat(request, { signal, idempotencyKey: callId }),
+        receipt: costReceiptFromLlm,
+        receiptFromError: costReceiptFromLlmError,
+      })
+      if (!paid.succeeded) throw paid.error
+      return parse(paid.value.content, scenario.id)
     },
   })
 
@@ -189,25 +203,6 @@ export async function runDistillation<TProduced, TInput, TLabel>(
     winnerPrompt,
     holdoutAgreement: { baseline, winner, delta: winner - baseline },
   }
-}
-
-/** Report the student call's cost + tokens to the cell meter. A cell that
- *  reports neither reads as a stub to `assertRealBackend` — every student call
- *  MUST report. When the proxy doesn't return a cost we still report tokens so
- *  the cell is non-stub. */
-function reportUsage(
-  cost: {
-    observe(amountUsd: number, source: string): void
-    observeTokens(u: { input: number; output: number; cached?: number }): void
-  },
-  response: LlmCallResult,
-): void {
-  if (typeof response.costUsd === 'number') cost.observe(response.costUsd, 'distillation-student')
-  cost.observeTokens({
-    input: response.usage.promptTokens,
-    output: response.usage.completionTokens,
-    cached: response.usage.cachedPromptTokens,
-  })
 }
 
 const DEFAULT_MUTATION_PRIMITIVES = [

@@ -398,7 +398,12 @@ export {
   type SkillPatchOp,
   type SkillPatchRejection,
 } from './skill-patch'
-export { type CampaignStorage, fsCampaignStorage, inMemoryCampaignStorage } from './storage'
+export {
+  type CampaignStorage,
+  createRunCostLedger,
+  fsCampaignStorage,
+  inMemoryCampaignStorage,
+} from './storage'
 // ── Code-surface content identity ────────────────────────────────────
 export {
   assertCodeSurfaceIdentity,

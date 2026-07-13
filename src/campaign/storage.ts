@@ -1,4 +1,6 @@
 import { createRequire } from 'node:module'
+import { dirname, join } from 'node:path'
+import { CostLedger } from '../cost-ledger'
 
 /**
  * `CampaignStorage` — the filesystem seam `runCampaign` writes through
@@ -24,6 +26,9 @@ export interface CampaignStorage {
   read(path: string): string | undefined
   /** Write a file (string or bytes). Parent dir is assumed ensured. */
   write(path: string, content: string | Uint8Array): void
+  /** Append only when the current UTF-8 byte length matches `expectedBytes`.
+   * Returns the new length, or undefined when another writer won. */
+  append?(path: string, content: string, expectedBytes: number): number | undefined
 }
 
 /** Node-filesystem storage — the default. Lazily requires `node:fs` so the
@@ -35,9 +40,17 @@ export interface CampaignStorage {
  *  the shape this package publishes. */
 export function fsCampaignStorage(): CampaignStorage {
   const nodeRequire = createRequire(import.meta.url)
-  const { existsSync, mkdirSync, readFileSync, writeFileSync } = nodeRequire(
-    'node:fs',
-  ) as typeof import('node:fs')
+  const {
+    closeSync,
+    existsSync,
+    fsyncSync,
+    mkdirSync,
+    openSync,
+    readFileSync,
+    statSync,
+    writeFileSync,
+  } = nodeRequire('node:fs') as typeof import('node:fs')
+  const lockfile = nodeRequire('proper-lockfile') as typeof import('proper-lockfile')
   return {
     ensureDir(dir) {
       if (!existsSync(dir)) mkdirSync(dir, { recursive: true })
@@ -54,6 +67,44 @@ export function fsCampaignStorage(): CampaignStorage {
     },
     write(path, content) {
       writeFileSync(path, content as Uint8Array)
+    },
+    append(path, content, expectedBytes) {
+      let release: (() => void) | undefined
+      try {
+        release = lockfile.lockSync(path, {
+          realpath: false,
+          retries: 0,
+          stale: 10_000,
+        })
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === 'ELOCKED') return undefined
+        throw error
+      }
+      try {
+        let actualBytes = 0
+        try {
+          actualBytes = statSync(path).size
+        } catch (error) {
+          if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
+        }
+        if (actualBytes !== expectedBytes) return undefined
+        const fd = openSync(path, 'a')
+        try {
+          writeFileSync(fd, content)
+          fsyncSync(fd)
+        } finally {
+          closeSync(fd)
+        }
+        const directoryFd = openSync(dirname(path), 'r')
+        try {
+          fsyncSync(directoryFd)
+        } finally {
+          closeSync(directoryFd)
+        }
+        return expectedBytes + Buffer.byteLength(content)
+      } finally {
+        release?.()
+      }
     },
   }
 }
@@ -79,5 +130,55 @@ export function inMemoryCampaignStorage(): CampaignStorage {
     write(path, content) {
       files.set(path, content)
     },
+    append(path, content, expectedBytes) {
+      const current = files.get(path)
+      const currentText =
+        current === undefined
+          ? ''
+          : typeof current === 'string'
+            ? current
+            : new TextDecoder().decode(current)
+      const currentBytes = new TextEncoder().encode(currentText).byteLength
+      if (currentBytes !== expectedBytes) return undefined
+      files.set(path, `${currentText}${content}`)
+      return currentBytes + new TextEncoder().encode(content).byteLength
+    },
   }
+}
+
+/** Open the durable spend account stored beside a logical run. */
+export function createRunCostLedger(input: {
+  storage: CampaignStorage
+  runDir: string
+  costCeilingUsd?: number
+}): CostLedger {
+  const path = join(input.runDir, 'cost-ledger.jsonl')
+  input.storage.ensureDir(input.runDir)
+  return new CostLedger({
+    costCeilingUsd: input.costCeilingUsd,
+    persistence: {
+      read: () => {
+        const stored = input.storage.read(path)
+        if (stored === undefined && input.storage.exists(path)) {
+          throw new Error(`CostLedger: cannot read existing event log '${path}'`)
+        }
+        const events = stored ?? ''
+        return {
+          revision: String(new TextEncoder().encode(events).byteLength),
+          events,
+        }
+      },
+      append: (expectedRevision, event) => {
+        const expectedBytes = Number(expectedRevision)
+        if (!Number.isSafeInteger(expectedBytes) || expectedBytes < 0) {
+          throw new Error(`CostLedger: invalid storage revision '${expectedRevision}'`)
+        }
+        if (!input.storage.append) {
+          throw new Error('CostLedger: CampaignStorage.append is required for paid calls')
+        }
+        const next = input.storage.append(path, event, expectedBytes)
+        return next === undefined ? undefined : String(next)
+      },
+    },
+  })
 }

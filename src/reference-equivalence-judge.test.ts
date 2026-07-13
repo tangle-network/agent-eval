@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { type ChatRequest, type ChatResponse, createChatClient } from './analyst/chat-client'
 import { runCampaign } from './campaign/run-campaign'
 import { inMemoryCampaignStorage } from './campaign/storage'
+import { CostLedger } from './cost-ledger'
 import { BackendIntegrityError } from './integrity/backend-integrity'
 import { JudgeParseError } from './judges'
 import {
@@ -184,10 +185,15 @@ describe('reference-equivalence transport and campaign integration', () => {
     ])
   })
 
-  it('propagates cancellation to the provider fetch', async () => {
+  it('propagates cancellation and records an incomplete receipt after transport termination', async () => {
     let providerSignal: AbortSignal | null | undefined
+    let markStarted!: () => void
+    const started = new Promise<void>((resolve) => {
+      markStarted = resolve
+    })
     const fetch = vi.fn((_input: RequestInfo | URL, init?: RequestInit) => {
       providerSignal = init?.signal
+      markStarted()
       return new Promise<Response>((_resolve, reject) => {
         providerSignal?.addEventListener(
           'abort',
@@ -198,26 +204,42 @@ describe('reference-equivalence transport and campaign integration', () => {
     }) as unknown as typeof globalThis.fetch
     vi.stubGlobal('fetch', fetch)
     const controller = new AbortController()
-    const pending = scoreWith(directProvider(), controller.signal)
+    const ledger = new CostLedger()
+    const pending = createReferenceEquivalenceJudge({
+      chat: directProvider(),
+      costLedger: ledger,
+    }).score({
+      artifact: INPUT.candidateOutput,
+      scenario: SCENARIO,
+      signal: controller.signal,
+    })
 
+    await started
     controller.abort(new DOMException('campaign cancelled', 'AbortError'))
 
     await expect(pending).rejects.toMatchObject({ name: 'AbortError' })
     expect(fetch).toHaveBeenCalledOnce()
     expect(providerSignal?.aborted).toBe(true)
+    expect(ledger.list()).toEqual([
+      expect.objectContaining({ costUnknown: true, usageUnknown: true, error: expect.any(String) }),
+    ])
+    expect(ledger.summary()).toMatchObject({
+      pendingCalls: 0,
+      unresolvedCalls: 0,
+      accountingComplete: false,
+    })
   })
 
-  it('charges parse failures and exports the campaign factory', async () => {
+  it('charges parse failures only through the campaign ledger', async () => {
+    const ledger = new CostLedger()
     const judge = createReferenceEquivalenceJudge({
       chat: mockChat('{"dimensions":{"equivalence":0.9}'),
     })
     const result = await runCampaign({
       scenarios: [SCENARIO],
-      dispatch: async (_scenario, ctx) => {
-        ctx.cost.observeModel?.('candidate-model@2026-07-01')
-        return INPUT.candidateOutput
-      },
+      dispatch: async () => INPUT.candidateOutput,
       judges: [judge],
+      costLedger: ledger,
       expectUsage: 'off',
       runDir: '/unused/reference-equivalence-parse-failure',
       storage: inMemoryCampaignStorage(),
@@ -227,15 +249,11 @@ describe('reference-equivalence transport and campaign integration', () => {
       judgeScores: {},
       costUsd: 0,
       tokenUsage: { input: 0, output: 0 },
-      failedJudgeCall: {
-        usage: USAGE,
-        costUsd: 0.0042,
-        model: 'judge-model-2026-07-01',
-        durationMs: 37,
-      },
-      resolvedModel: 'candidate-model@2026-07-01',
+      error: expect.stringContaining("judge 'reference-equivalence' failed"),
     })
-    expect(result.aggregates.totalCostUsd).toBe(0.0042)
+    expect(result.aggregates.cost.totalCostUsd).toBe(0.0042)
+    expect(ledger.list()).toHaveLength(1)
+    expect(ledger.list()[0]).toMatchObject({ channel: 'judge', costUsd: 0.0042 })
     expect((await import('./campaign/index')).createReferenceEquivalenceJudge).toBe(
       createReferenceEquivalenceJudge,
     )

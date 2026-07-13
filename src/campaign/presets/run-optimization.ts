@@ -16,10 +16,13 @@
  * re-score + release gate + optional PR.
  */
 
+import type { CostLedger, CostLedgerSummary } from '../../cost-ledger'
 import { type Objective, paretoFrontier } from '../../pareto'
 import { type CampaignCoverage, campaignCoverage, formatCoverageFailures } from '../coverage'
 import { type RunCampaignOptions, runCampaign } from '../run-campaign'
+import { resolveRunDir } from '../run-dir'
 import { campaignBreakdown, campaignMeanComposite } from '../score-utils'
+import { createRunCostLedger, fsCampaignStorage } from '../storage'
 import { surfaceHash } from '../surface-identity'
 import {
   type CampaignResult,
@@ -82,6 +85,9 @@ export interface RunOptimizationBaseOptions<TScenario extends Scenario, TArtifac
       composite: number
     }>
     history: GenerationRecord[]
+    /** Shared run spend account and receipt attribution phase. */
+    costLedger?: CostLedger
+    costPhase?: string
   }) => Promise<unknown[]>
 }
 
@@ -110,6 +116,8 @@ export interface RunOptimizationResult<TArtifact, TScenario extends Scenario> {
    *  emitted provenance record. Absent when the winner is the baseline. */
   winnerRationale?: string
   baselineCampaign: CampaignResult<TArtifact, TScenario>
+  /** Run-wide spend, including agents, proposers, analysts, and judges. */
+  cost: CostLedgerSummary
   /** The GEPA Pareto frontier across every scored surface (baseline + all
    *  generations) by per-scenario objective vector — the non-dominated set.
    *  Each generation's `propose()` received the frontier-so-far as
@@ -128,6 +136,15 @@ export async function runOptimization<TScenario extends Scenario, TArtifact>(
   if (typeof opts.runDir !== 'string' || opts.runDir.trim().length === 0) {
     throw new Error('runOptimization: runDir is required and must be a non-empty string')
   }
+  opts.runDir = resolveRunDir(opts.runDir, opts.repo)
+  const storage = opts.storage ?? fsCampaignStorage()
+  const costLedger =
+    opts.costLedger ??
+    createRunCostLedger({
+      storage,
+      runDir: opts.runDir,
+      costCeilingUsd: opts.costCeiling,
+    })
   if (opts.promoteTopK !== undefined && opts.promoteTopK !== 1) {
     throw new Error(
       'runOptimization: promoteTopK must be 1 because the loop has one global incumbent',
@@ -137,6 +154,8 @@ export async function runOptimization<TScenario extends Scenario, TArtifact>(
   // Baseline run
   const baselineCampaign = await runCampaign<TScenario, TArtifact>({
     ...opts,
+    costLedger,
+    costPhase: 'search.baseline',
     dispatch: (scenario, ctx) => opts.dispatchWithSurface(opts.baselineSurface, scenario, ctx),
     runDir: `${opts.runDir}/baseline`,
   })
@@ -195,6 +214,8 @@ export async function runOptimization<TScenario extends Scenario, TArtifact>(
         { surfaceHash: winnerSurfaceHash, campaign: baselineCampaign, composite: winnerComposite },
       ],
       history,
+      costLedger,
+      costPhase: 'analysis.baseline',
     })
     if (Array.isArray(fresh)) currentFindings = fresh
   }
@@ -225,6 +246,8 @@ export async function runOptimization<TScenario extends Scenario, TArtifact>(
       dataset: opts.labeledStore && opts.labeledStore !== 'off' ? opts.labeledStore : undefined,
       maxImprovementShots: opts.maxImprovementShots,
       paretoParents,
+      costLedger,
+      costPhase: 'search.proposal',
     })
 
     // Normalize: a proposer may return bare surfaces (blind mutators) or
@@ -250,6 +273,8 @@ export async function runOptimization<TScenario extends Scenario, TArtifact>(
       const hash = surfaceHash(surface)
       const campaign = await runCampaign<TScenario, TArtifact>({
         ...opts,
+        costLedger,
+        costPhase: 'search.candidate',
         dispatch: (scenario, ctx) => opts.dispatchWithSurface(surface, scenario, ctx),
         runDir: `${opts.runDir}/gen-${gen}/candidate-${i}`,
       })
@@ -350,6 +375,8 @@ export async function runOptimization<TScenario extends Scenario, TArtifact>(
           composite: s.composite,
         })),
         history,
+        costLedger,
+        costPhase: 'analysis.generation',
       })
       if (Array.isArray(fresh)) currentFindings = fresh
     }
@@ -363,6 +390,7 @@ export async function runOptimization<TScenario extends Scenario, TArtifact>(
     winnerRationale,
     baselineCampaign,
     paretoFrontier: computeParetoFrontier(scored),
+    cost: costLedger.summary(),
   }
 }
 

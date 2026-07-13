@@ -211,6 +211,7 @@ export {
   type SelfImproveOptions,
   type SelfImproveProgressEvent,
   type SelfImproveResult,
+  SelfImproveRunError,
   selfImprove,
 } from './self-improve'
 

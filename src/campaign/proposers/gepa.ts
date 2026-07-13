@@ -32,7 +32,15 @@
  * the mutation primitives alone.
  */
 
-import { callLlm, type LlmClientOptions } from '../../llm-client'
+import { CostLedger } from '../../cost-ledger'
+import {
+  callLlm,
+  costReceiptFromLlm,
+  costReceiptFromLlmError,
+  type LlmCallRequest,
+  type LlmClientOptions,
+  maximumChargeForLlmRequest,
+} from '../../llm-client'
 import {
   buildReflectionPrompt,
   parseReflectionResponse,
@@ -88,6 +96,8 @@ export interface GepaProposerOptions {
   llm: LlmClientOptions
   /** Model that performs the reflection. */
   model: string
+  /** Optional ledger for direct proposer use. Campaign context takes precedence. */
+  costLedger?: CostLedger
   /** What is being optimized — appears in the reflection prompt for orientation. */
   target: string
   /** Surface-specific mutation levers offered to the model. */
@@ -120,12 +130,15 @@ export function gepaProposer(opts: GepaProposerOptions): SurfaceProposer {
   const evidenceK = opts.evidenceK ?? 3
   const combineParents = opts.combineParents ?? true
   const combineMaxParents = opts.combineMaxParents ?? 4
+  const maxTokens = opts.maxTokens ?? 6000
+  const directCostLedger = opts.costLedger ?? new CostLedger()
   if (combineParents && combineMaxParents < 1) {
     throw new Error('gepaProposer: combineMaxParents must be >= 1 when combineParents is enabled')
   }
   return {
     kind: 'gepa',
     async propose(ctx: ProposeContext): Promise<ProposedCandidate[]> {
+      const costLedger = ctx.costLedger ?? directCostLedger
       const parent =
         typeof ctx.currentSurface === 'string'
           ? ctx.currentSurface
@@ -168,19 +181,31 @@ export function gepaProposer(opts: GepaProposerOptions): SurfaceProposer {
           parents: stringParents,
           evidenceK,
         })
-        const combineResult = await callLlm(
-          {
-            model: opts.model,
-            messages: [
-              { role: 'system', content: COMBINE_SYSTEM },
-              { role: 'user', content: combinePrompt },
-            ],
-            jsonMode: true,
-            temperature: opts.temperature ?? 0.7,
-            maxTokens: opts.maxTokens ?? 6000,
-          },
-          opts.llm,
-        )
+        const request: LlmCallRequest = {
+          model: opts.model,
+          messages: [
+            { role: 'system', content: COMBINE_SYSTEM },
+            { role: 'user', content: combinePrompt },
+          ],
+          jsonMode: true,
+          temperature: opts.temperature ?? 0.7,
+          maxTokens,
+        }
+        const paid = await costLedger.runPaidCall({
+          channel: 'driver',
+          phase: ctx.costPhase ?? 'search.proposal',
+          actor: 'gepa.combine',
+          model: opts.model,
+          maximumCharge: maximumChargeForLlmRequest(request, opts.llm),
+          tags: { generation: String(ctx.generation) },
+          signal: ctx.signal,
+          execute: (signal, callId) =>
+            callLlm(request, { ...opts.llm, signal, idempotencyKey: callId }),
+          receipt: costReceiptFromLlm,
+          receiptFromError: costReceiptFromLlmError,
+        })
+        if (!paid.succeeded) throw paid.error
+        const combineResult = paid.value
         const merged = parseReflectionResponse(combineResult.content, 1)[0]
         if (merged) {
           accept(
@@ -210,19 +235,31 @@ export function gepaProposer(opts: GepaProposerOptions): SurfaceProposer {
         // reflection targets named root causes, not just low-scoring trials.
         const analyst = renderAnalystEvidence(ctx.findings, ctx.report)
         const finalPrompt = analyst ? `${userPrompt}\n\n${analyst}` : userPrompt
-        const result = await callLlm(
-          {
-            model: opts.model,
-            messages: [
-              { role: 'system', content: REFLECTION_SYSTEM },
-              { role: 'user', content: finalPrompt },
-            ],
-            jsonMode: true,
-            temperature: opts.temperature ?? 0.7,
-            maxTokens: opts.maxTokens ?? 6000,
-          },
-          opts.llm,
-        )
+        const request: LlmCallRequest = {
+          model: opts.model,
+          messages: [
+            { role: 'system', content: REFLECTION_SYSTEM },
+            { role: 'user', content: finalPrompt },
+          ],
+          jsonMode: true,
+          temperature: opts.temperature ?? 0.7,
+          maxTokens,
+        }
+        const paid = await costLedger.runPaidCall({
+          channel: 'driver',
+          phase: ctx.costPhase ?? 'search.proposal',
+          actor: 'gepa.reflect',
+          model: opts.model,
+          maximumCharge: maximumChargeForLlmRequest(request, opts.llm),
+          tags: { generation: String(ctx.generation) },
+          signal: ctx.signal,
+          execute: (signal, callId) =>
+            callLlm(request, { ...opts.llm, signal, idempotencyKey: callId }),
+          receipt: costReceiptFromLlm,
+          receiptFromError: costReceiptFromLlmError,
+        })
+        if (!paid.succeeded) throw paid.error
+        const result = paid.value
         for (const proposal of parseReflectionResponse(result.content, reflectCount)) {
           accept(proposal.payload, proposal.label, proposal.rationale)
         }

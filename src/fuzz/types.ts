@@ -18,7 +18,7 @@
  * never a parallel score shape.
  */
 
-import type { CostChannel, CostLedger } from '../cost-ledger'
+import type { CostChannel, CostLedger, MaximumCharge } from '../cost-ledger'
 import type { AdversarialMutation } from '../rl/adversarial'
 import type { DefaultVerdict } from '../verdict'
 
@@ -295,12 +295,11 @@ export interface ExploreOptions<S> {
    * every other cost option (`costBudgetUsd` / `ledger` / `onCost`).
    */
   costOf?: (scenario: S, cell: Cell, ev: Evaluation) => RunCost | null
+  /** Pre-call hard maximum. Required whenever the explorer uses a capped ledger. */
+  maximumChargeOf?: (scenario: S, cell: Cell) => MaximumCharge
   /**
-   * Hard dollar ceiling on accumulated KNOWN cost (same semantics as the
-   * control-runtime `budget.maxCostUsd`: nonnegative finite, the session stops
-   * once spent ≥ ceiling; no new evaluation starts after that). Unknown-cost
-   * runs do not consume budget — they are reported separately, so the ceiling
-   * is honest about what it can see.
+   * Hard dollar cap. Each evaluation reserves `maximumChargeOf` before it starts;
+   * calls that do not fit are rejected. Unknown totals stop further paid work.
    */
   costBudgetUsd?: number
   /**

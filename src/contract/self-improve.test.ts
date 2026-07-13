@@ -10,8 +10,9 @@
 import { describe, expect, it } from 'vitest'
 import { surfaceHash } from '../campaign/surface-identity'
 import type { CodeSurface, Gate, JudgeConfig, SurfaceProposer } from '../campaign/types'
+import { CostLedger } from '../cost-ledger'
 import type { DispatchContext, Scenario } from './index'
-import { type SelfImproveProgressEvent, selfImprove } from './self-improve'
+import { type SelfImproveProgressEvent, SelfImproveRunError, selfImprove } from './self-improve'
 
 const scenarios: Scenario[] = Array.from({ length: 8 }, (_, i) => ({
   id: `s${i}`,
@@ -33,9 +34,19 @@ async function stubAgent(
   _scenario: Scenario,
   ctx: DispatchContext,
 ): Promise<{ text: string }> {
-  ctx.cost.observe(0.0001, 'stub-agent')
-  ctx.cost.observeTokens({ input: 1, output: 1 })
-  return { text: String(surface) }
+  const paid = await ctx.cost.runPaidCall({
+    actor: 'stub-agent',
+    model: 'stub-model',
+    execute: async () => ({ text: String(surface) }),
+    receipt: () => ({
+      model: 'stub-model',
+      inputTokens: 1,
+      outputTokens: 1,
+      actualCostUsd: 0.0001,
+    }),
+  })
+  if (!paid.succeeded) throw paid.error
+  return paid.value
 }
 
 function codeSurface(worktreeRef: string): CodeSurface {
@@ -169,5 +180,215 @@ describe('selfImprove — neutralize (placebo arm) passthrough', () => {
 
     expect(neutralizeCalled).toBe(true)
     expect(gateSawNeutralized).toBe(true)
+  })
+})
+
+describe('selfImprove — run-wide spend account', () => {
+  const spendScenarios: Scenario[] = Array.from({ length: 3 }, (_, i) => ({
+    id: `cost-${i}`,
+    kind: 'fixture',
+  }))
+  const spendJudge: JudgeConfig<{ text: string }, Scenario> = {
+    name: 'surface-quality',
+    dimensions: [{ key: 'quality', description: 'candidate quality' }],
+    score: ({ artifact }) => {
+      const quality = artifact.text === 'BETTER' ? 1 : 0
+      return { dimensions: { quality }, composite: quality, notes: '' }
+    },
+  }
+  const spendProposer: SurfaceProposer = {
+    kind: 'cost-proof',
+    propose: async () => ['BETTER'],
+  }
+  const spendGate: Gate<{ text: string }, Scenario> = {
+    name: 'cost-proof',
+    decide: async () => ({ decision: 'ship', reasons: [], contributingGates: [] }),
+  }
+  const spendBase = {
+    scenarios: spendScenarios,
+    judge: spendJudge,
+    baselineSurface: 'BASE',
+    proposer: spendProposer,
+    gate: spendGate,
+    budget: { generations: 1, populationSize: 1, maxConcurrency: 1 },
+  }
+
+  it('wraps a frozen provider error without losing its cause or receipt', async () => {
+    const ledger = new CostLedger()
+    const frozen = Object.freeze(new Error('frozen provider failure'))
+    const paid = await ledger.runPaidCall({
+      channel: 'agent',
+      phase: 'search.baseline',
+      actor: 'worker',
+      model: 'provider-receipt',
+      execute: async () => {
+        throw frozen
+      },
+      receipt: () => ({ model: 'provider-receipt', inputTokens: 0, outputTokens: 0 }),
+      receiptFromError: () => ({
+        model: 'provider-receipt',
+        inputTokens: 10,
+        outputTokens: 5,
+        actualCostUsd: 0.4,
+      }),
+    })
+    if (paid.succeeded) throw new Error('expected paid call to fail')
+
+    const wrapped = new SelfImproveRunError(paid.error, ledger)
+    expect(wrapped.cause).toBe(frozen)
+    expect(wrapped.cost.totalCostUsd).toBe(0.4)
+    expect(wrapped.receipts).toEqual([
+      expect.objectContaining({ actor: 'worker', error: 'frozen provider failure' }),
+    ])
+  })
+
+  function paidAgent(amount: number, onCall?: () => void) {
+    return async (surface: unknown, _scenario: Scenario, ctx: DispatchContext) => {
+      const paid = await ctx.cost.runPaidCall({
+        actor: 'worker',
+        model: 'provider-receipt',
+        maximumCharge: { externallyEnforcedMaximumUsd: amount },
+        execute: async () => {
+          onCall?.()
+          return { text: String(surface) }
+        },
+        receipt: () => ({
+          model: 'provider-receipt',
+          inputTokens: 10,
+          outputTokens: 5,
+          actualCostUsd: amount,
+        }),
+      })
+      if (!paid.succeeded) throw paid.error
+      return paid.value
+    }
+  }
+
+  it('reports all six measured $0.60 dispatches across search and holdout', async () => {
+    let calls = 0
+    const result = await selfImprove({
+      ...spendBase,
+      agent: paidAgent(0.6, () => calls++),
+    })
+
+    expect(calls).toBe(6)
+    expect(result.totalCostUsd).toBeCloseTo(3.6, 9)
+    expect(result.receipts).toHaveLength(6)
+    expect(result.receipts.map((entry) => entry.phase)).toEqual([
+      'search.baseline',
+      'search.baseline',
+      'search.candidate',
+      'search.candidate',
+      'holdout.baseline',
+      'holdout.winner',
+    ])
+    expect(result.receipts.every((entry) => entry.actor === 'worker')).toBe(true)
+  })
+
+  it('shares the same account with paid proposal, analysis, and promotion work', async () => {
+    const seenLedgers = new Set<unknown>()
+    const charge = async (
+      context: { costLedger?: CostLedger; costPhase?: string },
+      amount: number,
+      channel: 'driver' | 'judge' | 'analyst' | 'verifier',
+      actor: string,
+    ): Promise<void> => {
+      if (!context.costLedger || !context.costPhase) throw new Error('missing cost account')
+      seenLedgers.add(context.costLedger)
+      const paid = await context.costLedger.runPaidCall({
+        channel,
+        phase: context.costPhase,
+        actor,
+        model: 'provider-receipt',
+        execute: async () => undefined,
+        receipt: () => ({
+          model: 'provider-receipt',
+          inputTokens: 0,
+          outputTokens: 0,
+          actualCostUsd: amount,
+        }),
+      })
+      if (!paid.succeeded) throw paid.error
+    }
+    const paidProposer: SurfaceProposer = {
+      kind: 'paid-proposer',
+      propose: async (ctx) => {
+        await charge(ctx, 0.1, 'driver', 'proposer')
+        return ['BETTER']
+      },
+    }
+    const paidGate: Gate<{ text: string }, Scenario> = {
+      name: 'paid-gate',
+      decide: async (ctx) => {
+        await charge(ctx, 0.3, 'verifier', 'promoter')
+        return { decision: 'ship', reasons: [], contributingGates: [] }
+      },
+    }
+
+    const result = await selfImprove({
+      ...spendBase,
+      agent: paidAgent(0.1),
+      judge: {
+        ...spendJudge,
+        score: async (ctx) => {
+          await charge(ctx, 0.05, 'judge', 'paid-judge')
+          return await spendJudge.score(ctx)
+        },
+      },
+      proposer: paidProposer,
+      gate: paidGate,
+      analyzeGeneration: async (ctx) => {
+        await charge(ctx, 0.2, 'analyst', 'analyst')
+        return []
+      },
+    })
+
+    expect(seenLedgers.size).toBe(1)
+    expect(result.totalCostUsd).toBeCloseTo(1.5, 9)
+    expect(result.receipts).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ phase: 'search.proposal', actor: 'proposer' }),
+        expect.objectContaining({ phase: 'analysis.baseline', actor: 'analyst' }),
+        expect.objectContaining({ phase: 'promotion.gate', actor: 'promoter' }),
+      ]),
+    )
+  })
+
+  it('refuses a paid dispatch whose reservation would exceed the run cap', async () => {
+    let calls = 0
+    let thrown: unknown
+    try {
+      await selfImprove({
+        ...spendBase,
+        agent: paidAgent(0.6, () => calls++),
+        budget: { ...spendBase.budget, dollars: 1 },
+      })
+    } catch (error) {
+      thrown = error
+    }
+
+    expect(thrown).toBeInstanceOf(Error)
+    expect(calls).toBe(1)
+    const accounted = thrown as SelfImproveRunError
+    expect(accounted.cost.totalCostUsd).toBeCloseTo(0.6, 9)
+    expect(accounted.cost.totalCostUsd).toBeLessThanOrEqual(1)
+    expect(accounted.receipts).toHaveLength(1)
+  })
+
+  it.each([
+    -1,
+    Number.NaN,
+    Number.POSITIVE_INFINITY,
+    Number.NEGATIVE_INFINITY,
+  ])('rejects invalid dollar budgets before dispatch: %s', async (dollars) => {
+    let calls = 0
+    await expect(
+      selfImprove({
+        ...spendBase,
+        agent: paidAgent(0, () => calls++),
+        budget: { ...spendBase.budget, dollars },
+      }),
+    ).rejects.toThrow(/costCeilingUsd/)
+    expect(calls).toBe(0)
   })
 })

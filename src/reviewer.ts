@@ -15,7 +15,15 @@
  * low-level pure builder + high-level factory built on top.
  */
 
-import { callLlmJson, type LlmClientOptions } from './llm-client'
+import { CostLedger, type CostReceipt } from './cost-ledger'
+import {
+  callLlmJson,
+  costReceiptFromLlm,
+  costReceiptFromLlmError,
+  type LlmCallRequest,
+  type LlmClientOptions,
+  maximumChargeForLlmRequest,
+} from './llm-client'
 
 // ─── Types ──────────────────────────────────────────────────────────────
 
@@ -91,8 +99,14 @@ export interface CreateDefaultReviewerOptions {
   model: string
   /** Per-call timeout. Default 300s. */
   timeoutMs?: number
+  /** Provider-enforced output limit. Default 4000. */
+  maxTokens?: number
   /** LlmClient transport config (baseUrl, apiKey, authHeader, etc.). */
   llm?: LlmClientOptions
+  /** Shared run spend account. */
+  costLedger?: CostLedger
+  costPhase?: string
+  signal?: AbortSignal
   /**
    * Override the prompt builder. Default: `buildReviewerPrompt`.
    * Consumers with different reviewer voices pass their own.
@@ -217,30 +231,50 @@ export function createDefaultReviewer(
   }
   const promptBuilder = options.promptBuilder ?? buildReviewerPrompt
   const timeoutMs = options.timeoutMs ?? 300_000
+  const maxTokens = options.maxTokens ?? 4_000
+  const costLedger = options.costLedger ?? new CostLedger()
 
   return async (input) => {
     const start = Date.now()
     const { system, user } = promptBuilder(input)
+    let receipt: CostReceipt | undefined
     try {
-      const { value, result } = await callLlmJson<{
-        observations: string
-        diagnosis: string
-        nextShotInstruction: string
-        shouldContinue: boolean
-        confidence: number
-      }>(
-        {
-          model: options.model,
-          messages: [
-            { role: 'system', content: system },
-            { role: 'user', content: user },
-          ],
-          jsonSchema: { name: 'reviewer_output', schema: REVIEWER_SCHEMA },
-          temperature: 0,
-          timeoutMs,
-        },
-        options.llm ?? {},
-      )
+      const request = {
+        model: options.model,
+        messages: [
+          { role: 'system' as const, content: system },
+          { role: 'user' as const, content: user },
+        ],
+        jsonSchema: { name: 'reviewer_output', schema: REVIEWER_SCHEMA },
+        temperature: 0,
+        maxTokens,
+        timeoutMs,
+      } satisfies LlmCallRequest
+      const paid = await costLedger.runPaidCall({
+        channel: 'analyst',
+        phase: options.costPhase ?? 'review',
+        actor: 'default-reviewer',
+        model: options.model,
+        maximumCharge: maximumChargeForLlmRequest(request, options.llm),
+        signal: options.signal,
+        execute: (signal, callId) =>
+          callLlmJson<{
+            observations: string
+            diagnosis: string
+            nextShotInstruction: string
+            shouldContinue: boolean
+            confidence: number
+          }>(request, {
+            ...options.llm,
+            signal,
+            idempotencyKey: callId,
+          }),
+        receipt: ({ result }) => costReceiptFromLlm(result),
+        receiptFromError: costReceiptFromLlmError,
+      })
+      receipt = paid.receipt
+      if (!paid.succeeded) throw paid.error
+      const { value } = paid.value
 
       return {
         shot: input.shot,
@@ -249,7 +283,7 @@ export function createDefaultReviewer(
         nextShotInstruction: String(value.nextShotInstruction ?? softFail.nextShotInstruction),
         shouldContinue: Boolean(value.shouldContinue),
         confidence: Math.max(0, Math.min(1, Number(value.confidence ?? softFail.confidence))),
-        costUsd: result.costUsd ?? null,
+        costUsd: paid.receipt.costUnknown ? null : paid.receipt.costUsd,
         durationMs: Date.now() - start,
         available: true,
       }
@@ -261,7 +295,7 @@ export function createDefaultReviewer(
         nextShotInstruction: softFail.nextShotInstruction,
         shouldContinue: softFail.shouldContinue,
         confidence: softFail.confidence,
-        costUsd: null,
+        costUsd: receipt && !receipt.costUnknown ? receipt.costUsd : null,
         durationMs: Date.now() - start,
         available: false,
         error: err instanceof Error ? err.message : String(err),

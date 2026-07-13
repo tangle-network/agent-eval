@@ -36,7 +36,10 @@ export interface ChatClient {
   readonly transport: ChatTransport
   /** Default model when caller omits — operators bind this per environment. */
   readonly defaultModel?: string
+  /** Total provider attempts this transport can make for one chat call. */
+  readonly maximumAttempts?: number
 
+  /** Implementations must enforce `req.maxTokens` when it is present. */
   chat(req: ChatRequest, opts?: ChatCallOpts): Promise<ChatResponse>
 }
 
@@ -61,6 +64,8 @@ export interface ChatCallOpts {
   maxCostUsd?: number
   /** Correlation tag carried into request headers when the transport allows. */
   correlationId?: string
+  /** Stable provider idempotency key for retries/redrives of one paid call. */
+  idempotencyKey?: string
 }
 
 // ── Factory ─────────────────────────────────────────────────────────
@@ -74,6 +79,8 @@ export type CreateChatClientOpts =
 
 interface BaseTransportOpts {
   defaultModel?: string
+  /** Total provider attempts. Required for opaque transports used in capped runs. */
+  maximumAttempts?: number
 }
 
 export interface RouterTransportOpts extends BaseTransportOpts {
@@ -127,6 +134,7 @@ export function createChatClient(opts: CreateChatClientOpts): ChatClient {
         new LlmClient({
           baseUrl: opts.baseUrl ?? 'https://router.tangle.tools/v1',
           apiKey: opts.apiKey,
+          maxRetries: opts.maximumAttempts,
         } as LlmClientOptions),
       )
     case 'cli-bridge':
@@ -136,6 +144,7 @@ export function createChatClient(opts: CreateChatClientOpts): ChatClient {
         new LlmClient({
           baseUrl: opts.baseUrl ?? 'http://127.0.0.1:3344/v1',
           apiKey: opts.bearer ?? '',
+          maxRetries: opts.maximumAttempts,
         } as LlmClientOptions),
       )
     case 'direct-provider':
@@ -145,18 +154,21 @@ export function createChatClient(opts: CreateChatClientOpts): ChatClient {
         new LlmClient({
           baseUrl: opts.baseUrl,
           apiKey: opts.apiKey,
+          maxRetries: opts.maximumAttempts,
         } as LlmClientOptions),
       )
     case 'sandbox-sdk':
       return {
         transport: 'sandbox-sdk',
         defaultModel: opts.defaultModel,
+        maximumAttempts: opts.maximumAttempts,
         chat: async (req, callOpts) => opts.chat(resolveModel(req, opts.defaultModel), callOpts),
       }
     case 'mock':
       return {
         transport: 'mock',
         defaultModel: opts.defaultModel,
+        maximumAttempts: 1,
         chat: async (req, callOpts) => opts.handler(resolveModel(req, opts.defaultModel), callOpts),
       }
   }
@@ -170,6 +182,7 @@ function wrapLlmClient(
   return {
     transport,
     defaultModel,
+    maximumAttempts: inner.maximumAttempts,
     chat: (req, callOpts) => {
       const resolved = resolveModel(req, defaultModel)
       const request: LlmCallRequest = {
@@ -181,7 +194,10 @@ function wrapLlmClient(
         maxTokens: req.maxTokens,
         timeoutMs: req.timeoutMs,
       }
-      return inner.call(request, callOpts?.signal ? { signal: callOpts.signal } : undefined)
+      return inner.call(request, {
+        signal: callOpts?.signal,
+        idempotencyKey: callOpts?.idempotencyKey,
+      })
     },
   }
 }

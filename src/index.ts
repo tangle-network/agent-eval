@@ -771,11 +771,29 @@ export type {
   ChannelRollup,
   CostChannel,
   CostLedgerEntry,
+  CostLedgerFilter,
+  CostLedgerOptions,
+  CostLedgerPersistence,
   CostLedgerSummary,
+  CostReceipt,
+  CostReceiptInput,
   CostResult,
   CostUsage,
+  MaximumCharge,
+  PaidCallResult,
+  RunPaidCallInput,
 } from './cost-ledger'
-export { CostLedger, costForUsage, modelPriceKey } from './cost-ledger'
+export {
+  CostAccountingIncompleteError,
+  CostCallConflictError,
+  CostCeilingReachedError,
+  CostLedger,
+  CostLedgerPersistenceError,
+  CostReceiptCaptureError,
+  CostReservationExceededError,
+  costForUsage,
+  modelPriceKey,
+} from './cost-ledger'
 export type { CostEntry, CostSummary, ScenarioCost, TokenSpec } from './cost-tracker'
 export { CostTracker } from './cost-tracker'
 export type {
@@ -1127,10 +1145,14 @@ export {
   backoffMs,
   callLlm,
   callLlmJson,
+  costReceiptFromLlm,
+  costReceiptFromLlmError,
   isTransientLlmError,
   LlmCallError,
   LlmClient,
+  LlmResponseError,
   LlmRouteAssertionError,
+  maximumChargeForLlmRequest,
   probeLlm,
   stripFencedJson,
 } from './llm-client'

@@ -16,7 +16,15 @@
  * entrant in `compareProposers`.
  */
 
-import { callLlm, type LlmClientOptions } from '../../llm-client'
+import { CostLedger } from '../../cost-ledger'
+import {
+  callLlm,
+  costReceiptFromLlm,
+  costReceiptFromLlmError,
+  type LlmCallRequest,
+  type LlmClientOptions,
+  maximumChargeForLlmRequest,
+} from '../../llm-client'
 import { renderAnalystEvidence } from '../../reflective-mutation'
 import { applySkillPatch, type SkillPatch, type SkillPatchOp } from '../skill-patch'
 import type { ProposeContext, ProposedCandidate, SurfaceProposer } from '../types'
@@ -65,11 +73,15 @@ export interface ProposePatchesArgs {
   /** How many candidate patches to propose. */
   count: number
   signal: AbortSignal
+  costLedger?: CostLedger
+  costPhase?: string
 }
 
 export interface SkillOptProposerOptions {
   llm: LlmClientOptions
   model: string
+  /** Optional ledger for direct proposer use. Campaign context takes precedence. */
+  costLedger?: CostLedger
   /** What the skill document governs — orients the prompt. */
   target: string
   /** Default ops-per-patch cap when used as a bare `SurfaceProposer`. The
@@ -93,6 +105,7 @@ export interface SkillOptProposer extends SurfaceProposer {
 export function skillOptProposer(opts: SkillOptProposerOptions): SkillOptProposer {
   const evidenceK = opts.evidenceK ?? 3
   const defaultBudget = opts.editBudget ?? 3
+  const directCostLedger = opts.costLedger ?? new CostLedger()
 
   async function proposePatches(args: ProposePatchesArgs): Promise<SkillPatch[]> {
     const userPrompt = buildPatchPrompt({
@@ -105,19 +118,30 @@ export function skillOptProposer(opts: SkillOptProposerOptions): SkillOptPropose
       findingsNote: args.findingsNote,
       count: args.count,
     })
-    const result = await callLlm(
-      {
-        model: opts.model,
-        messages: [
-          { role: 'system', content: SKILLOPT_SYSTEM },
-          { role: 'user', content: userPrompt },
-        ],
-        jsonMode: true,
-        temperature: opts.temperature ?? 0.6,
-        maxTokens: opts.maxTokens ?? 4000,
-      },
-      opts.llm,
-    )
+    const request: LlmCallRequest = {
+      model: opts.model,
+      messages: [
+        { role: 'system', content: SKILLOPT_SYSTEM },
+        { role: 'user', content: userPrompt },
+      ],
+      jsonMode: true,
+      temperature: opts.temperature ?? 0.6,
+      maxTokens: opts.maxTokens ?? 4000,
+    }
+    const paid = await (args.costLedger ?? directCostLedger).runPaidCall({
+      channel: 'driver',
+      phase: args.costPhase ?? 'search.proposal',
+      actor: 'skill-opt.propose',
+      model: opts.model,
+      maximumCharge: maximumChargeForLlmRequest(request, opts.llm),
+      signal: args.signal,
+      execute: (signal, callId) =>
+        callLlm(request, { ...opts.llm, signal, idempotencyKey: callId }),
+      receipt: costReceiptFromLlm,
+      receiptFromError: costReceiptFromLlmError,
+    })
+    if (!paid.succeeded) throw paid.error
+    const result = paid.value
     return parseSkillPatchResponse(result.content, args.count, args.editBudget)
   }
 
@@ -139,6 +163,8 @@ export function skillOptProposer(opts: SkillOptProposerOptions): SkillOptPropose
         findingsNote: renderAnalystEvidence(ctx.findings, ctx.report) ?? undefined,
         count: ctx.populationSize,
         signal: ctx.signal,
+        costLedger: ctx.costLedger ?? directCostLedger,
+        costPhase: ctx.costPhase ?? 'search.proposal',
       })
       const out: ProposedCandidate[] = []
       const seen = new Set<string>()

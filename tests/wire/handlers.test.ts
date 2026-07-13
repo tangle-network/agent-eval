@@ -9,13 +9,23 @@ const llmMock = vi.hoisted(() => ({
   } as unknown,
 }))
 
-vi.mock('../../src/llm-client', () => ({
+vi.mock('../../src/llm-client', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../src/llm-client')>()),
   callLlmJson: vi.fn(async () => ({
     value: llmMock.value,
-    result: { model: 'mock-model', content: JSON.stringify(llmMock.value), durationMs: 1 },
+    result: {
+      model: 'gpt-4o',
+      content: JSON.stringify(llmMock.value),
+      usage: { promptTokens: 10, completionTokens: 5, totalTokens: 15 },
+      costUsd: 0.001,
+      finishReason: 'stop',
+      durationMs: 1,
+      raw: {},
+    },
   })),
 }))
 
+import { CostLedger } from '../../src/cost-ledger'
 import { handleJudge, type WireError } from '../../src/wire/handlers'
 import type { Rubric } from '../../src/wire/schemas'
 
@@ -37,12 +47,16 @@ describe('handleJudge output validation', () => {
       rationale: 'Clear enough.',
     }
 
-    const result = await handleJudge({ rubric, content: 'hello' })
+    const costLedger = new CostLedger()
+    const result = await handleJudge({ rubric, content: 'hello' }, { costLedger })
 
     expect(result.composite).toBe(0.8)
     expect(result.failureModes).toEqual(['bad'])
     expect(result.wins).toEqual(['good'])
     expect(result.rationale).toBe('Clear enough.')
+    expect(costLedger.list()).toEqual([
+      expect.objectContaining({ channel: 'judge', actor: 'wire.inline', costUsd: 0.001 }),
+    ])
   })
 
   it('rejects malformed dimension scores before returning wire output', async () => {

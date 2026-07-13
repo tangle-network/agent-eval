@@ -23,10 +23,13 @@
  * them.
  */
 
+import type { CostLedger, CostLedgerSummary } from '../../cost-ledger'
 import type { RejectedEdit, SkillOptEvidence, SkillOptProposer } from '../proposers/skill-opt'
 import { type RunCampaignOptions, runCampaign } from '../run-campaign'
+import { resolveRunDir } from '../run-dir'
 import { campaignBreakdown, campaignMeanComposite } from '../score-utils'
 import { applySkillPatch } from '../skill-patch'
+import { createRunCostLedger, fsCampaignStorage } from '../storage'
 import type { CampaignResult, DispatchContext, Scenario } from '../types'
 
 export interface RunSkillOptOptions<TScenario extends Scenario, TArtifact>
@@ -103,6 +106,8 @@ export interface RunSkillOptResult {
   /** Total cost across every scoring campaign (train evidence + holdout
    *  acceptance) the hill-climb ran. */
   totalCostUsd: number
+  /** Run-wide spend, including scoring, proposals, and judges. */
+  cost: CostLedgerSummary
 }
 
 /**
@@ -142,17 +147,23 @@ export async function runSkillOpt<TScenario extends Scenario, TArtifact>(
   const budgetAnneal = opts.budgetAnneal ?? true
   const rejectedBufferSize = opts.rejectedBufferSize ?? 12
   const slowMetaEvery = opts.slowMetaEvery ?? 2
+  opts.runDir = resolveRunDir(opts.runDir, opts.repo)
+  const storage = opts.storage ?? fsCampaignStorage()
+  const costLedger =
+    opts.costLedger ??
+    createRunCostLedger({
+      storage,
+      runDir: opts.runDir,
+      costCeilingUsd: opts.costCeiling,
+    })
 
-  let totalCostUsd = 0
   const scoreHoldout = async (surface: string, tag: string): Promise<number> => {
-    const campaign = await runScoringCampaign(opts, opts.holdoutScenarios, surface, tag)
-    totalCostUsd += campaign.aggregates.totalCostUsd
+    const campaign = await runScoringCampaign(opts, opts.holdoutScenarios, surface, tag, costLedger)
     return campaignMeanComposite(campaign)
   }
   const evidenceK = opts.evidenceK ?? 3
   const trainEvidence = async (surface: string, tag: string): Promise<SkillOptEvidence> => {
-    const campaign = await runScoringCampaign(opts, opts.trainScenarios, surface, tag)
-    totalCostUsd += campaign.aggregates.totalCostUsd
+    const campaign = await runScoringCampaign(opts, opts.trainScenarios, surface, tag, costLedger)
     return toEvidence(campaign, evidenceK)
   }
 
@@ -180,6 +191,8 @@ export async function runSkillOpt<TScenario extends Scenario, TArtifact>(
       metaNote,
       count: patchesPerEpoch,
       signal: opts.signal ?? new AbortController().signal,
+      costLedger,
+      costPhase: 'skill-opt.proposal',
     })
 
     let accepted: AcceptedEdit | null = null
@@ -248,6 +261,7 @@ export async function runSkillOpt<TScenario extends Scenario, TArtifact>(
     if (sinceAccept >= patience) break
   }
 
+  const cost = costLedger.summary()
   return {
     winnerSurface: current,
     baselineHoldoutComposite: baselineHoldout,
@@ -257,7 +271,8 @@ export async function runSkillOpt<TScenario extends Scenario, TArtifact>(
     rejectedEdits: rejectedAll,
     epochsRun,
     history,
-    totalCostUsd,
+    totalCostUsd: cost.totalCostUsd,
+    cost,
   }
 }
 
@@ -266,9 +281,11 @@ function runScoringCampaign<TScenario extends Scenario, TArtifact>(
   scenarios: TScenario[],
   surface: string,
   tag: string,
+  costLedger: CostLedger,
 ): Promise<CampaignResult<TArtifact, TScenario>> {
   return runCampaign<TScenario, TArtifact>({
     ...opts,
+    costLedger,
     scenarios,
     dispatch: (scenario, ctx) => opts.dispatchWithSurface(surface, scenario, ctx),
     runDir: `${opts.runDir}/${tag}`,

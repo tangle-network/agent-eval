@@ -1,12 +1,18 @@
 import { describe, expect, it } from 'vitest'
-import { type ChatRequest, createChatClient } from '../src/analyst/chat-client'
+import { type ChatClient, type ChatRequest, createChatClient } from '../src/analyst/chat-client'
 import type { Scenario } from '../src/campaign/types'
+import { CostLedger } from '../src/cost-ledger'
 import { JudgeParseError } from '../src/judges'
 import { llmJudge } from '../src/llm-judge'
 
 /** A mock ChatClient whose handler returns a fixed model response. The handler
  *  also records the requests it saw, so a test can assert what the judge sent. */
-function mockChat(reply: string | ((req: ChatRequest) => string), defaultModel = 'mock-model') {
+function mockChat(
+  reply: string | ((req: ChatRequest) => string),
+  defaultModel = 'mock-model',
+  usage = { promptTokens: 0, completionTokens: 0, totalTokens: 0 },
+  costUsd: number | null = null,
+) {
   const seen: ChatRequest[] = []
   const client = createChatClient({
     transport: 'mock',
@@ -16,8 +22,8 @@ function mockChat(reply: string | ((req: ChatRequest) => string), defaultModel =
       const content = typeof reply === 'function' ? reply(req) : reply
       return {
         content,
-        usage: { promptTokens: 0, completionTokens: 0, totalTokens: 0 },
-        costUsd: null,
+        usage,
+        costUsd,
         model: req.model ?? defaultModel,
         durationMs: 0,
         raw: {},
@@ -124,11 +130,100 @@ describe('llmJudge — single-call canonical bridge', () => {
   })
 
   it('throws JudgeParseError on an unparseable model response (fail-loud, no silent zero)', async () => {
-    const { client } = mockChat('not json at all')
-    const judge = llmJudge('bad', 'rate it', { chat: client, dimensions: ['quality'] })
+    const { client } = mockChat(
+      'not json at all',
+      'gpt-4o',
+      { promptTokens: 20, completionTokens: 10, totalTokens: 30 },
+      0.0025,
+    )
+    const ledger = new CostLedger(1)
+    const judge = llmJudge('bad', 'rate it', {
+      chat: client,
+      dimensions: ['quality'],
+    })
     await expect(
-      judge.score({ artifact, scenario, signal: new AbortController().signal }),
+      judge.score({
+        artifact,
+        scenario,
+        signal: new AbortController().signal,
+        costLedger: ledger,
+        costPhase: 'holdout.winner',
+      }),
     ).rejects.toBeInstanceOf(JudgeParseError)
+    expect(ledger.summary().totalCostUsd).toBeCloseTo(0.0025, 9)
+    expect(ledger.list()[0]).toMatchObject({
+      channel: 'judge',
+      phase: 'holdout.winner',
+      actor: 'bad',
+      tags: { scenarioId: 's1' },
+    })
+  })
+
+  it('rejects an unpriced built-in judge before spending from a capped run', async () => {
+    const { client: chat, seen } = mockChat(
+      JSON.stringify({ dimensions: { quality: 1 } }),
+      'unpriced-model',
+      { promptTokens: 20, completionTokens: 10, totalTokens: 30 },
+    )
+    const ledger = new CostLedger(1)
+    const judge = llmJudge('unknown-cost-judge', 'rate it', {
+      chat,
+      dimensions: ['quality'],
+    })
+
+    const input = {
+      artifact,
+      scenario,
+      signal: new AbortController().signal,
+      costLedger: ledger,
+      costPhase: 'search.baseline',
+    }
+    await expect(judge.score(input)).rejects.toThrow(/cannot reserve unpriced model/i)
+    expect(seen).toHaveLength(0)
+    expect(ledger.list()).toHaveLength(0)
+  })
+
+  it('derives a priced request maximum and rejects before a capped call starts', async () => {
+    const { client, seen } = mockChat(JSON.stringify({ dimensions: { quality: 1 } }), 'gpt-4o')
+    const ledger = new CostLedger(0.001)
+    const judge = llmJudge('bounded', 'rate it', { chat: client, dimensions: ['quality'] })
+
+    await expect(
+      judge.score({
+        artifact,
+        scenario,
+        signal: new AbortController().signal,
+        costLedger: ledger,
+      }),
+    ).rejects.toThrow(/would exceed/i)
+    expect(seen).toHaveLength(0)
+    expect(ledger.summary().totalCostUsd).toBe(0)
+  })
+
+  it('rejects a capped custom transport whose retry count is opaque', async () => {
+    let calls = 0
+    const chat: ChatClient = {
+      transport: 'sandbox-sdk',
+      defaultModel: 'gpt-4o',
+      async chat() {
+        calls += 1
+        throw new Error('must not dispatch')
+      },
+    }
+    const judge = llmJudge('opaque-retries', 'rate it', {
+      chat,
+      dimensions: ['quality'],
+    })
+
+    await expect(
+      judge.score({
+        artifact,
+        scenario,
+        signal: new AbortController().signal,
+        costLedger: new CostLedger(1),
+      }),
+    ).rejects.toThrow(/require a hard maximumCharge/i)
+    expect(calls).toBe(0)
   })
 
   it('throws when a declared dimension is missing from the response', async () => {
