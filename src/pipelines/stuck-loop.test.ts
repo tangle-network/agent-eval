@@ -101,6 +101,26 @@ describe('stuckLoopView', () => {
     })
   })
 
+  it('preserves repeated clusters from separate episodes', async () => {
+    const store = await storeWith([
+      tool(0, 'bash', { cmd: 'status' }, 0),
+      tool(1, 'bash', { cmd: 'status' }, 1000),
+      tool(2, 'bash', { cmd: 'status' }, 2000),
+      tool(3, 'bash', { cmd: 'status' }, 1_200_000),
+      tool(4, 'bash', { cmd: 'status' }, 1_201_000),
+      tool(5, 'bash', { cmd: 'status' }, 1_202_000),
+    ])
+
+    const r = await stuckLoopView(store, { maxWindowMs: 5000 })
+
+    expect(
+      r.findings.map(({ occurrences, spanIds, windowMs }) => ({ occurrences, spanIds, windowMs })),
+    ).toEqual([
+      { occurrences: 3, spanIds: ['t0', 't1', 't2'], windowMs: 2000 },
+      { occurrences: 3, spanIds: ['t3', 't4', 't5'], windowMs: 2000 },
+    ])
+  })
+
   it('rejects an invalid time window', async () => {
     const store = await storeWith([])
 

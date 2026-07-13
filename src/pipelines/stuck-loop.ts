@@ -17,7 +17,7 @@ export interface StuckLoopFinding {
   runId: string
   toolName: string
   argHash: string
-  /** Calls in the densest qualifying interval, not the whole-run total. */
+  /** Calls in this episode's densest qualifying interval, not the whole-run total. */
   occurrences: number
   spanIds: string[]
   /** Milliseconds between first and last call in the loop. */
@@ -70,28 +70,39 @@ export async function stuckLoopView(
     for (const { spans, argHash: h, toolName } of byKey.values()) {
       if (spans.length < minOccurrences) continue
       const sorted = [...spans].sort((a, b) => a.startedAt - b.startedAt)
-      let left = 0
-      let bestStart = 0
-      let bestEnd = -1
-      for (let right = 0; right < sorted.length; right += 1) {
-        while (sorted[right]!.startedAt - sorted[left]!.startedAt > maxWindowMs) left += 1
-        if (right - left > bestEnd - bestStart) {
-          bestStart = left
-          bestEnd = right
+      let episodeStart = 0
+      for (let episodeEnd = 1; episodeEnd <= sorted.length; episodeEnd += 1) {
+        const episodeEnded =
+          episodeEnd === sorted.length ||
+          sorted[episodeEnd]!.startedAt - sorted[episodeEnd - 1]!.startedAt > maxWindowMs
+        if (!episodeEnded) continue
+
+        const episode = sorted.slice(episodeStart, episodeEnd)
+        let left = 0
+        let bestStart = 0
+        let bestEnd = -1
+        for (let right = 0; right < episode.length; right += 1) {
+          while (episode[right]!.startedAt - episode[left]!.startedAt > maxWindowMs) left += 1
+          if (right - left > bestEnd - bestStart) {
+            bestStart = left
+            bestEnd = right
+          }
         }
+        if (bestEnd - bestStart + 1 >= minOccurrences) {
+          const loop = episode.slice(bestStart, bestEnd + 1)
+          const first = loop[0]!.startedAt
+          const last = loop[loop.length - 1]!.startedAt
+          findings.push({
+            runId,
+            toolName,
+            argHash: h,
+            occurrences: loop.length,
+            spanIds: loop.map((s) => s.spanId),
+            windowMs: last - first,
+          })
+        }
+        episodeStart = episodeEnd
       }
-      if (bestEnd - bestStart + 1 < minOccurrences) continue
-      const loop = sorted.slice(bestStart, bestEnd + 1)
-      const first = loop[0]!.startedAt
-      const last = loop[loop.length - 1]!.startedAt
-      findings.push({
-        runId,
-        toolName,
-        argHash: h,
-        occurrences: loop.length,
-        spanIds: loop.map((s) => s.spanId),
-        windowMs: last - first,
-      })
     }
   }
 
