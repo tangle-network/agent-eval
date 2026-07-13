@@ -46,6 +46,51 @@ afterEach(() => {
 })
 
 describe('runOptimization selection integrity', () => {
+  it('attributes every measured delta to the complete incumbent it mutated', async () => {
+    const seen: Array<{ baseline: number | undefined; incumbent: number | undefined }> = []
+    const result = await runOptimization<TestScenario, TestArtifact>({
+      scenarios,
+      baselineSurface: 'BASE',
+      dispatchWithSurface: async (surface) => ({ text: String(surface) }),
+      judges: [
+        scoreJudge((surface) => {
+          if (surface === 'WINNER') return 0.8
+          if (surface === 'LOSER') return 0.2
+          return 0.4
+        }),
+      ],
+      proposer: {
+        kind: 'credit-assignment-probe',
+        async propose(ctx: ProposeContext) {
+          seen.push({
+            baseline: ctx.baselineOutcome?.composite,
+            incumbent: ctx.incumbentOutcome?.composite,
+          })
+          return [ctx.generation === 0 ? 'WINNER' : 'LOSER']
+        },
+      },
+      populationSize: 1,
+      maxGenerations: 2,
+      promoteTopK: 1,
+      expectUsage: 'off',
+      runDir,
+    })
+
+    expect(seen).toEqual([
+      { baseline: 0.4, incumbent: 0.4 },
+      { baseline: 0.4, incumbent: 0.8 },
+    ])
+    expect(result.generations[0]!.record.candidates[0]).toMatchObject({
+      parentSurfaceHash: surfaceHash('BASE'),
+      observedDeltaFromParent: 0.4,
+    })
+    expect(result.generations[1]!.record.candidates[0]).toMatchObject({
+      parentSurfaceHash: surfaceHash('WINNER'),
+    })
+    expect(result.generations[1]!.record.candidates[0]!.observedDeltaFromParent).toBeCloseTo(-0.6)
+    expect(result.winnerSurface).toBe('WINNER')
+  })
+
   it('keeps the global incumbent as currentSurface after a complete candidate regresses', async () => {
     const seen: string[] = []
     const result = await runOptimization<TestScenario, TestArtifact>({

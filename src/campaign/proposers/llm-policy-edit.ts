@@ -22,6 +22,7 @@ import type {
   MutableSurface,
   ProposeContext,
   ProposedCandidate,
+  ScoredSurfaceOutcome,
   SurfaceProposer,
 } from '../types'
 import { policyEditProposer } from './policy-edit'
@@ -245,12 +246,28 @@ export interface PolicyEditHistoryProjectionOptions {
 
 export interface PolicyEditHistoryCandidateContext {
   surfaceHash: string
+  parentSurfaceHash: string | null
   label: string | null
   rationale: string | null
   composite: number
+  observedDeltaFromParent: number | null
+  eligibleForPromotion: boolean | null
+  coverage: {
+    expectedCells: number
+    scorableCells: number
+    unscorableCells: Array<{ reason: string }>
+  } | null
   dimensions: Record<string, number>
   scenarios: Array<{ scenarioId: string; composite: number; notes: string | null }>
   candidateRecord: PolicyEditCandidateRecord | null
+}
+
+export interface PolicyEditOutcomeContext {
+  surfaceHash: string
+  composite: number
+  dimensions: Record<string, number>
+  scenarios: Array<{ scenarioId: string; composite: number; notes: string | null }>
+  coverage: { expectedCells: number; scorableCells: number }
 }
 
 export interface PolicyEditHistoryGenerationContext {
@@ -268,6 +285,7 @@ const POLICY_EDIT_AUTHOR_SYSTEM = [
   'change must be exactly one operation: {"kind":"json","mode":"set","path":string,"value":json}, {"kind":"json","mode":"merge","path":string,"value":json}, or {"kind":"json","mode":"remove","path":string}.',
   'Nullable fields required by the response schema must be null when they do not apply.',
   'Every edit must cite one or more supplied finding IDs in source.findingIds. Do not emit analyst IDs or evidence references; the caller binds those from the cited findings.',
+  'Treat expectedGain and confidence as forecasts, never as measured evidence. Learn from baselineOutcome, incumbentOutcome, and observedDeltaFromParent.',
   'Do not invent a finding, path, field, score, or task fact. Do not include schemaVersion, editId, metadata, prose, or undeclared keys.',
 ].join('\n')
 
@@ -362,6 +380,14 @@ export function llmPolicyEditProposer(
                 generation: ctx.generation,
                 currentSurface,
                 findings: findings.map(renderFinding),
+                baselineOutcome: projectOutcome(
+                  ctx.baselineOutcome,
+                  historyLimits.scenarioIdTransform,
+                ),
+                incumbentOutcome: projectOutcome(
+                  ctx.incumbentOutcome,
+                  historyLimits.scenarioIdTransform,
+                ),
                 history: projectPolicyEditHistory(ctx.history, historyLimits),
               }),
             },
@@ -455,9 +481,23 @@ function projectHistoryCandidate(
 ): PolicyEditHistoryCandidateContext {
   return {
     surfaceHash: candidate.surfaceHash,
+    parentSurfaceHash: candidate.parentSurfaceHash ?? null,
     label: candidate.label ?? null,
     rationale: candidate.rationale ?? null,
     composite: candidate.composite,
+    observedDeltaFromParent: candidate.observedDeltaFromParent ?? null,
+    eligibleForPromotion: candidate.eligibleForPromotion ?? null,
+    coverage: candidate.coverage
+      ? {
+          expectedCells: candidate.coverage.expectedCells,
+          scorableCells: candidate.coverage.scorableCells,
+          // `cellId` embeds the raw scenario ID. The aggregate reason is useful
+          // for search, but the identifier must not bypass scenarioIdTransform.
+          unscorableCells: candidate.coverage.unscorableCells.map((cell) => ({
+            reason: cell.reason,
+          })),
+        }
+      : null,
     // GenerationCandidate.ci95 is currently a placeholder [composite, composite],
     // not a measured interval. Keep it out of author context until it is real.
     dimensions: { ...candidate.dimensions },
@@ -477,6 +517,32 @@ function projectHistoryCandidate(
     candidateRecord: candidate.candidateRecord
       ? validatePolicyEditCandidateRecord(candidate.candidateRecord)
       : null,
+  }
+}
+
+function projectOutcome(
+  outcome: ScoredSurfaceOutcome | undefined,
+  scenarioIdTransform: (scenarioId: string) => string,
+): PolicyEditOutcomeContext | null {
+  if (!outcome) return null
+  return {
+    surfaceHash: outcome.surfaceHash,
+    composite: outcome.composite,
+    dimensions: { ...outcome.dimensions },
+    scenarios: outcome.scenarios.map((scenario) => {
+      const scenarioId = scenarioIdTransform(scenario.scenarioId)
+      if (!scenarioId || scenarioId.trim() !== scenarioId) {
+        throw new Error(
+          'llmPolicyEditProposer: scenarioIdTransform must return a trimmed non-empty string',
+        )
+      }
+      return {
+        scenarioId,
+        composite: scenario.composite,
+        notes: scenario.notes ?? null,
+      }
+    }),
+    coverage: { ...outcome.coverage },
   }
 }
 

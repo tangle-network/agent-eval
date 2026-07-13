@@ -14,6 +14,7 @@ import type {
   MutableSurface,
   ProposeContext,
   ProposedCandidate,
+  ScoredSurfaceOutcome,
 } from '../../src/campaign/types'
 
 interface CapturedRequest {
@@ -107,6 +108,8 @@ function context(input: {
   history?: GenerationRecord[]
   generation?: number
   populationSize?: number
+  baselineOutcome?: ScoredSurfaceOutcome
+  incumbentOutcome?: ScoredSurfaceOutcome
 }): ProposeContext<AnalystFinding> {
   return {
     currentSurface:
@@ -116,6 +119,8 @@ function context(input: {
     populationSize: input.populationSize ?? 1,
     generation: input.generation ?? 0,
     signal: new AbortController().signal,
+    ...(input.baselineOutcome ? { baselineOutcome: input.baselineOutcome } : {}),
+    ...(input.incumbentOutcome ? { incumbentOutcome: input.incumbentOutcome } : {}),
   }
 }
 
@@ -162,6 +167,20 @@ function candidateSurface(candidate: MutableSurface | ProposedCandidate): string
   return String(
     typeof candidate === 'object' && 'surface' in candidate ? candidate.surface : candidate,
   )
+}
+
+function measuredOutcome(
+  surfaceHash: string,
+  composite: number,
+  scenarioId: string,
+): ScoredSurfaceOutcome {
+  return {
+    surfaceHash,
+    composite,
+    dimensions: { correctness: composite },
+    scenarios: [{ scenarioId, composite, notes: 'measured task result' }],
+    coverage: { expectedCells: 1, scorableCells: 1 },
+  }
 }
 
 describe('llmPolicyEditProposer', () => {
@@ -211,6 +230,102 @@ describe('llmPolicyEditProposer', () => {
     expect(providerSchema).toContain('"mode":{"const":"set"}')
     expect(providerSchema).toContain('"mode":{"const":"merge"}')
     expect(providerSchema).toContain('"mode":{"const":"remove"}')
+  })
+
+  it('shows the author measured baseline, incumbent, and exact parent deltas', async () => {
+    const source = finding()
+    const capture: CapturedRequest = {}
+    const history: GenerationRecord[] = [
+      {
+        generationIndex: 0,
+        promoted: ['candidate-a'],
+        candidates: [
+          {
+            surfaceHash: 'candidate-a',
+            parentSurfaceHash: 'baseline',
+            composite: 0.7,
+            observedDeltaFromParent: 0.3,
+            eligibleForPromotion: true,
+            coverage: { expectedCells: 1, scorableCells: 1, unscorableCells: [] },
+            ci95: [0.7, 0.7],
+            dimensions: { correctness: 0.7 },
+            scenarios: [{ scenarioId: 'private-task', composite: 0.7 }],
+          },
+          {
+            surfaceHash: 'incomplete-candidate',
+            parentSurfaceHash: 'baseline',
+            composite: 0.9,
+            eligibleForPromotion: false,
+            coverage: {
+              expectedCells: 1,
+              scorableCells: 0,
+              unscorableCells: [{ cellId: 'private-task:0', reason: 'transport failed' }],
+            },
+            ci95: [0.9, 0.9],
+            dimensions: {},
+            scenarios: [],
+          },
+        ],
+      },
+    ]
+    await proposer({
+      response: { edits: [authoredEdit(source.finding_id)] },
+      capture,
+      historyScenarioIdTransform: () => 'task-1',
+    }).propose(
+      context({
+        finding: source,
+        generation: 1,
+        history,
+        baselineOutcome: measuredOutcome('baseline', 0.4, 'private-task'),
+        incumbentOutcome: measuredOutcome('candidate-a', 0.7, 'private-task'),
+      }),
+    )
+
+    expect(capture.user).toMatchObject({
+      baselineOutcome: {
+        surfaceHash: 'baseline',
+        composite: 0.4,
+        scenarios: [{ scenarioId: 'task-1', composite: 0.4 }],
+        coverage: { expectedCells: 1, scorableCells: 1 },
+      },
+      incumbentOutcome: {
+        surfaceHash: 'candidate-a',
+        composite: 0.7,
+        scenarios: [{ scenarioId: 'task-1', composite: 0.7 }],
+      },
+    })
+    expect(capture.user?.history).toEqual([
+      expect.objectContaining({
+        candidates: expect.arrayContaining([
+          expect.objectContaining({
+            surfaceHash: 'candidate-a',
+            parentSurfaceHash: 'baseline',
+            observedDeltaFromParent: 0.3,
+            eligibleForPromotion: true,
+          }),
+        ]),
+      }),
+    ])
+    expect(JSON.stringify(capture.user)).not.toContain('private-task')
+    expect(capture.user).toMatchObject({
+      history: [
+        {
+          candidates: expect.arrayContaining([
+            expect.objectContaining({
+              surfaceHash: 'incomplete-candidate',
+              eligibleForPromotion: false,
+              coverage: {
+                expectedCells: 1,
+                scorableCells: 0,
+                unscorableCells: [{ reason: 'transport failed' }],
+              },
+            }),
+          ]),
+        },
+      ],
+    })
+    expect(capture.system).toContain('observedDeltaFromParent')
   })
 
   it('includes later scored history and applies the exact authored merge operation', async () => {
@@ -389,6 +504,10 @@ describe('llmPolicyEditProposer', () => {
           {
             ...historyCandidate('promoted', 0.7),
             ci95: [0.65, 0.75] as [number, number],
+            parentSurfaceHash: 'baseline',
+            observedDeltaFromParent: 0.2,
+            eligibleForPromotion: true,
+            coverage: { expectedCells: 2, scorableCells: 2, unscorableCells: [] },
             label: 'kept candidate',
             rationale: 'Targets the observed repository-instruction failure.',
             dimensions: { correctness: 0.7, efficiency: 0.8, safety: 0.95 },
@@ -418,9 +537,13 @@ describe('llmPolicyEditProposer', () => {
         candidates: [
           {
             surfaceHash: 'promoted',
+            parentSurfaceHash: 'baseline',
             label: 'kept candidate',
             rationale: 'Targets the observed repository-instruction failure.',
             composite: 0.7,
+            observedDeltaFromParent: 0.2,
+            eligibleForPromotion: true,
+            coverage: { expectedCells: 2, scorableCells: 2, unscorableCells: [] },
             dimensions: { correctness: 0.7, efficiency: 0.8, safety: 0.95 },
             scenarios: [
               { scenarioId: 'repo-a', composite: 0.6, notes: 'read instructions' },
@@ -430,18 +553,26 @@ describe('llmPolicyEditProposer', () => {
           },
           {
             surfaceHash: 'low',
+            parentSurfaceHash: null,
             label: null,
             rationale: null,
             composite: 0.1,
+            observedDeltaFromParent: null,
+            eligibleForPromotion: null,
+            coverage: null,
             dimensions: { correctness: 0.1, efficiency: 0.7 },
             scenarios: [{ scenarioId: 'repo-a', composite: 0.1, notes: null }],
             candidateRecord: null,
           },
           {
             surfaceHash: 'high',
+            parentSurfaceHash: null,
             label: null,
             rationale: null,
             composite: 0.9,
+            observedDeltaFromParent: null,
+            eligibleForPromotion: null,
+            coverage: null,
             dimensions: { correctness: 0.9, efficiency: 0.7 },
             scenarios: [{ scenarioId: 'repo-a', composite: 0.9, notes: null }],
             candidateRecord: null,
@@ -454,9 +585,13 @@ describe('llmPolicyEditProposer', () => {
         candidates: [
           {
             surfaceHash: 'latest',
+            parentSurfaceHash: null,
             label: null,
             rationale: null,
             composite: 0.8,
+            observedDeltaFromParent: null,
+            eligibleForPromotion: null,
+            coverage: null,
             dimensions: { correctness: 0.8, efficiency: 0.7 },
             scenarios: [{ scenarioId: 'repo-a', composite: 0.8, notes: null }],
             candidateRecord: null,

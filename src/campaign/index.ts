@@ -274,6 +274,7 @@ export {
   type PolicyEditHistoryCandidateContext,
   type PolicyEditHistoryGenerationContext,
   type PolicyEditHistoryProjectionOptions,
+  type PolicyEditOutcomeContext,
   projectPolicyEditHistory,
 } from './proposers/llm-policy-edit'
 export { type MemoryCurationProposerOptions, memoryCurationProposer } from './proposers/memory'
@@ -424,6 +425,7 @@ export type {
   RedactionStatus,
   Scenario,
   ScenarioAggregate,
+  ScoredSurfaceOutcome,
   SessionScript,
   SurfaceProposer,
   TraceSpan,

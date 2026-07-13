@@ -28,6 +28,7 @@ import {
   type ParetoParent,
   type ProposedCandidate,
   type Scenario,
+  type ScoredSurfaceOutcome,
   type SurfaceProposer,
 } from '../types'
 
@@ -154,6 +155,12 @@ export async function runOptimization<TScenario extends Scenario, TArtifact>(
   let winnerSurface = opts.baselineSurface
   let winnerSurfaceHash = surfaceHash(opts.baselineSurface)
   let winnerComposite = campaignMeanComposite(baselineCampaign)
+  const baselineOutcome = toScoredSurfaceOutcome(
+    winnerSurfaceHash,
+    baselineCampaign,
+    baselineCoverage,
+  )
+  let winnerOutcome = baselineOutcome
   let winnerLabel: string | undefined
   let winnerRationale: string | undefined
 
@@ -193,6 +200,8 @@ export async function runOptimization<TScenario extends Scenario, TArtifact>(
     // the accumulated generation history, the Pareto frontier so far, and any
     // external findings.
     const paretoParents = computeParetoFrontier(scored)
+    const parentSurfaceHash = winnerSurfaceHash
+    const parentComposite = winnerComposite
     const proposed = await proposer.propose({
       // The mutation anchor is always the best complete surface seen across the
       // whole run. Exploratory losers remain in history/Pareto evidence, but a
@@ -203,6 +212,8 @@ export async function runOptimization<TScenario extends Scenario, TArtifact>(
       populationSize: opts.populationSize,
       generation: gen,
       signal: new AbortController().signal,
+      baselineOutcome,
+      incumbentOutcome: winnerOutcome,
       report: opts.report,
       dataset: opts.labeledStore && opts.labeledStore !== 'off' ? opts.labeledStore : undefined,
       maxImprovementShots: opts.maxImprovementShots,
@@ -269,6 +280,7 @@ export async function runOptimization<TScenario extends Scenario, TArtifact>(
       winnerSurface = top.surface
       winnerSurfaceHash = top.surfaceHash
       winnerComposite = top.composite
+      winnerOutcome = toScoredSurfaceOutcome(top.surfaceHash, top.campaign, top.coverage)
       winnerLabel = top.label || undefined
       winnerRationale = top.rationale || undefined
     }
@@ -281,6 +293,10 @@ export async function runOptimization<TScenario extends Scenario, TArtifact>(
           surfaceHash: s.surfaceHash,
           composite: s.composite,
           ci95: [s.composite, s.composite] as [number, number],
+          parentSurfaceHash,
+          ...(s.coverage.complete
+            ? { observedDeltaFromParent: s.composite - parentComposite }
+            : {}),
           eligibleForPromotion: s.coverage.complete,
           coverage: {
             expectedCells: s.coverage.expectedCellIds.length,
@@ -399,6 +415,24 @@ interface CampaignCoverage {
   expectedCellIds: string[]
   scorableCellIds: string[]
   unscorableCells: Array<{ cellId: string; reason: string }>
+}
+
+function toScoredSurfaceOutcome<TArtifact, TScenario extends Scenario>(
+  surfaceHash: string,
+  campaign: CampaignResult<TArtifact, TScenario>,
+  coverage: CampaignCoverage,
+): ScoredSurfaceOutcome {
+  const breakdown = campaignBreakdown(campaign)
+  return {
+    surfaceHash,
+    composite: campaignMeanComposite(campaign),
+    dimensions: breakdown.dimensions,
+    scenarios: breakdown.scenarios,
+    coverage: {
+      expectedCells: coverage.expectedCellIds.length,
+      scorableCells: coverage.scorableCellIds.length,
+    },
+  }
 }
 
 function designedCellIds<TScenario extends Scenario>(

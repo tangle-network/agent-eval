@@ -229,6 +229,20 @@ export interface ParetoParent {
   rationale?: string
 }
 
+/** Exact measured state for the surface an optimizer is learning from.
+ *  Unlike a model-authored expected gain, every value here comes from a
+ *  completed campaign over the designed denominator. */
+export interface ScoredSurfaceOutcome {
+  surfaceHash: string
+  composite: number
+  dimensions: Record<string, number>
+  scenarios: Array<{ scenarioId: string; composite: number; notes?: string }>
+  coverage: {
+    expectedCells: number
+    scorableCells: number
+  }
+}
+
 /** Stateless surface mutation — given findings + current
  *  surface, return N candidate surfaces. Pure transform, no generation
  *  awareness. Reflective-mutation and `AxGEPA` mutators conform. Wrapped by
@@ -257,6 +271,12 @@ export interface ProposeContext<TFindings = unknown> {
   populationSize: number
   generation: number
   signal: AbortSignal
+  /** Measured baseline for this optimization run. `runOptimization` always
+   *  supplies it; optional for standalone proposer callers. */
+  baselineOutcome?: ScoredSurfaceOutcome
+  /** Measured result for `currentSurface`, the complete global incumbent every
+   *  new candidate mutates. `runOptimization` always supplies it. */
+  incumbentOutcome?: ScoredSurfaceOutcome
   /** Optional analysis report produced before proposal. Opaque to the substrate:
    *  the proposer that consumes it owns the shape. */
   report?: unknown
@@ -589,6 +609,11 @@ export interface GenerationCandidate {
   surfaceHash: string
   composite: number
   ci95: [number, number]
+  /** Exact surface this candidate mutated. */
+  parentSurfaceHash?: string
+  /** Candidate composite minus its parent's composite. Present only when the
+   *  candidate completed the designed denominator. */
+  observedDeltaFromParent?: number
   /** Whether this candidate had a scorable result for every designed campaign
    *  cell and was therefore eligible for ranking, promotion, and Pareto
    *  selection. Older externally-authored records may omit this field; loop
