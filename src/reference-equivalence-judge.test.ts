@@ -239,6 +239,7 @@ describe('reference-equivalence transport and campaign integration', () => {
     expect((await import('./campaign/index')).createReferenceEquivalenceJudge).toBe(
       createReferenceEquivalenceJudge,
     )
+    expect((await import('./contract/index')).createChatClient).toBe(createChatClient)
   })
 
   it('does not count judge usage as dispatch usage', async () => {

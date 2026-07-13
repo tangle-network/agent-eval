@@ -128,6 +128,11 @@ export { type RunCampaignOptions, runCampaign } from '../campaign/run-campaign'
 
 // ── Reference-answer judge ───────────────────────────────────────────
 
+export {
+  type ChatClient,
+  type CreateChatClientOpts,
+  createChatClient,
+} from '../analyst/chat-client'
 export type {
   ReferenceEquivalenceJudgeInput,
   ReferenceEquivalenceJudgeOptions,
