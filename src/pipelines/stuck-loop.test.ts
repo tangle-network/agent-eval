@@ -83,6 +83,83 @@ describe('stuckLoopView', () => {
     expect(r.findings).toHaveLength(0)
   })
 
+  it('does not join periodic identical calls through intervening work', async () => {
+    const store = await storeWith([
+      tool(0, 'status', { scope: 'project' }, 0),
+      tool(1, 'edit', { file: 'a.ts' }, 1000),
+      tool(2, 'status', { scope: 'project' }, 2000),
+      tool(3, 'test', { file: 'a.ts' }, 3000),
+      tool(4, 'status', { scope: 'project' }, 4000),
+    ])
+
+    const r = await stuckLoopView(store)
+
+    expect(r.findings).toHaveLength(0)
+  })
+
+  it('still detects a real contiguous tight loop', async () => {
+    const store = await storeWith([
+      tool(0, 'status', { scope: 'project' }, 0),
+      tool(1, 'status', { scope: 'project' }, 1000),
+      tool(2, 'status', { scope: 'project' }, 2000),
+    ])
+
+    const r = await stuckLoopView(store)
+
+    expect(r.findings[0]).toMatchObject({
+      occurrences: 3,
+      spanIds: ['t0', 't1', 't2'],
+      windowMs: 2000,
+    })
+  })
+
+  it('can opt into one intervening call for alternating loops', async () => {
+    const store = await storeWith([
+      tool(0, 'status', { scope: 'project' }, 0),
+      tool(1, 'inspect', { target: 'worker' }, 1000),
+      tool(2, 'status', { scope: 'project' }, 2000),
+      tool(3, 'inspect', { target: 'worker' }, 3000),
+      tool(4, 'status', { scope: 'project' }, 4000),
+    ])
+
+    const r = await stuckLoopView(store, { maxInterveningToolCalls: 1 })
+
+    expect(r.findings).toHaveLength(1)
+    expect(r.findings[0]!.spanIds).toEqual(['t0', 't2', 't4'])
+  })
+
+  it('preserves tight episodes separated by intervening work', async () => {
+    const store = await storeWith([
+      tool(0, 'status', { scope: 'project' }, 0),
+      tool(1, 'status', { scope: 'project' }, 1000),
+      tool(2, 'status', { scope: 'project' }, 2000),
+      tool(3, 'edit', { file: 'a.ts' }, 3000),
+      tool(4, 'status', { scope: 'project' }, 4000),
+      tool(5, 'status', { scope: 'project' }, 5000),
+      tool(6, 'status', { scope: 'project' }, 6000),
+    ])
+
+    const r = await stuckLoopView(store)
+
+    expect(r.findings.map((finding) => finding.spanIds)).toEqual([
+      ['t0', 't1', 't2'],
+      ['t4', 't5', 't6'],
+    ])
+  })
+
+  it('uses source order to resolve equal timestamps', async () => {
+    const store = await storeWith([
+      tool(0, 'status', { scope: 'project' }, 1000),
+      tool(1, 'edit', { file: 'a.ts' }, 1000),
+      tool(2, 'status', { scope: 'project' }, 1000),
+      tool(3, 'status', { scope: 'project' }, 1000),
+    ])
+
+    const r = await stuckLoopView(store)
+
+    expect(r.findings).toHaveLength(0)
+  })
+
   it('returns only the repeated cluster inside the configured window', async () => {
     const store = await storeWith([
       tool(0, 'bash', { cmd: 'status' }, 0),
@@ -121,11 +198,36 @@ describe('stuckLoopView', () => {
     ])
   })
 
-  it('rejects an invalid time window', async () => {
+  it.each([
+    -1,
+    Number.NaN,
+    Number.POSITIVE_INFINITY,
+  ])('rejects invalid time window %s', async (value) => {
     const store = await storeWith([])
 
-    await expect(stuckLoopView(store, { maxWindowMs: -1 })).rejects.toThrow(
+    await expect(stuckLoopView(store, { maxWindowMs: value })).rejects.toThrow(
       'maxWindowMs must be a finite non-negative number',
+    )
+  })
+
+  it.each([0, -1, 1.5, Number.NaN])('rejects invalid minOccurrences %s', async (value) => {
+    const store = await storeWith([])
+
+    await expect(stuckLoopView(store, { minOccurrences: value })).rejects.toThrow(
+      'minOccurrences must be a positive integer',
+    )
+  })
+
+  it.each([
+    -1,
+    1.5,
+    Number.NaN,
+    Number.POSITIVE_INFINITY,
+  ])('rejects invalid maxInterveningToolCalls %s', async (value) => {
+    const store = await storeWith([])
+
+    await expect(stuckLoopView(store, { maxInterveningToolCalls: value })).rejects.toThrow(
+      'maxInterveningToolCalls must be a non-negative integer',
     )
   })
 })
