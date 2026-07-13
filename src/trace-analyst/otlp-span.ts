@@ -86,9 +86,9 @@ export function projectOtlpFlatLine(raw: Record<string, unknown>): ProjectedOtlp
 
   let duration_ms = 0
   if (start_time && end_time) {
-    const a = Date.parse(start_time)
-    const b = Date.parse(end_time)
-    if (!Number.isNaN(a) && !Number.isNaN(b)) duration_ms = Math.max(0, b - a)
+    const a = spanEpochMillis(start_time)
+    const b = spanEpochMillis(end_time)
+    if (a !== null && b !== null) duration_ms = Math.max(0, b - a)
   }
 
   return {

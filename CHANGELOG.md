@@ -4,6 +4,37 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ---
 
+## [0.117.0] — 2026-07-13 — durable cost and bounded behavioral evidence
+
+### Added
+
+- `createReferenceEquivalenceJudge()` and `runReferenceEquivalenceJudge()` score whether an answer preserves the meaning of one or more references, with the same cost and transport accounting as other judges.
+
+### Changed
+
+- `CostLedger.runPaidCall()` is now the single paid-call path across campaigns, proposers, judges, analysts, and distillation.
+  It durably reserves maximum spend before dispatch, records provider receipts, blocks unresolved crash state, and enforces the run ceiling before another paid call starts.
+- `ToolSpan.argsCaptured` distinguishes a call with unavailable arguments from a captured no-argument call.
+  Repeated-call analysis, failure clustering, tool-use metrics, and per-step redundancy grading no longer compare uncaptured arguments.
+  Every OTLP export path uses one mapping that preserves this distinction.
+
+### Breaking
+
+- `CostLedger.record()` is removed because recording spend after a provider call cannot enforce a cost limit or survive a crash.
+  Use `CostLedger.runPaidCall()` for billable work, `CostLedger` receipt import for already-settled calls, or `costForUsage()` for pure estimates.
+- `computeTraceMetrics()` now rejects mixed-trace input, and `BehavioralMetrics` adds required `traceId` and `tokenSequences` fields.
+  The convenience token trajectories now expose the longest proven-serial sequence instead of flattening parallel branches.
+- `ToolUseMetrics` and `ToolStats` add required `callsWithCapturedArgs` fields.
+  `duplicateRate` now uses captured-argument calls as its denominator.
+
+### Fixed
+
+- Repeated-call findings now require a contiguous, time-bounded, serial episode within one agent branch instead of grouping identical or concurrent calls across an entire run.
+- Behavioral token findings now analyze each trace and serial agent timeline independently, use numeric time ordering across accepted timestamp formats, and only attribute output decay to context that actually grew.
+- Behavioral issue IDs remain stable across trace runs while evidence retains exact trace identities and sampled prevalence.
+- Partial timing isolates only the uncertain interval, and same-named root spans retain independent structural identity.
+- Multi-trace behavioral findings use pattern-level claims while each trace's exact values remain in its evidence reference.
+
 ## [0.116.0] — 2026-07-12 — evidence-linked AgentProfile optimization
 
 ### Added

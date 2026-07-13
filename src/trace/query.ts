@@ -55,6 +55,11 @@ export function argHash(args: unknown): string {
   return stableStringify(args)
 }
 
+/** Whether argument-based comparisons are valid for this tool call. */
+export function hasCapturedToolArgs(span: ToolSpan): boolean {
+  return span.argsCaptured !== false
+}
+
 function stableStringify(value: unknown): string {
   // Must ALWAYS return a string: JSON.stringify(undefined) — and stringify of
   // functions/symbols — yields the JS value `undefined`, which would make

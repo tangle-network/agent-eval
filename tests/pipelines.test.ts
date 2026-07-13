@@ -17,7 +17,8 @@ async function runWithTools(
   toolNames: string[],
   args: unknown[] = [],
 ): Promise<string> {
-  const e = new TraceEmitter(store)
+  let now = 0
+  const e = new TraceEmitter(store, { now: () => now++ })
   await e.startRun({ scenarioId })
   for (let i = 0; i < toolNames.length; i++) {
     const h = await e.tool({

@@ -21,12 +21,12 @@
 import { readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import {
+  applyToolSpanOtlpAttributes,
   LLM_COST_USD,
   LLM_INPUT_TOKENS,
   LLM_MODEL_NAME,
   LLM_OUTPUT_TOKENS,
   OPENINFERENCE_SPAN_KIND,
-  TOOL_NAME,
   traceSpanKindToOpenInferenceKind,
 } from './otlp-attributes'
 import type { Run, Span, TraceEvent } from './schema'
@@ -396,10 +396,7 @@ function spanToAttributes(span: Span, events: TraceEvent[]): Record<string, unkn
       attrs['llm.output_messages'] = JSON.stringify([{ role: 'assistant', content: span.output }])
     }
   } else if (span.kind === 'tool') {
-    attrs[TOOL_NAME] = span.toolName
-    if (span.latencyMs !== undefined) attrs['tool.latency_ms'] = span.latencyMs
-    attrs['input.value'] = safeStringify(span.args)
-    if (span.result !== undefined) attrs['output.value'] = safeStringify(span.result)
+    applyToolSpanOtlpAttributes(attrs, span)
   } else if (span.kind === 'judge') {
     attrs['judge.id'] = span.judgeId
     attrs['judge.dimension'] = span.dimension
@@ -490,12 +487,4 @@ function foldTo16Hex(s: string): string {
 
 function foldTo32Hex(s: string): string {
   return foldTo16Hex(s) + foldTo16Hex(`${s}::trace`).slice(0, 16)
-}
-
-function safeStringify(value: unknown): string {
-  try {
-    return typeof value === 'string' ? value : JSON.stringify(value)
-  } catch {
-    return String(value)
-  }
 }

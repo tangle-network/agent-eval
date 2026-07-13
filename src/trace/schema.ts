@@ -128,6 +128,8 @@ export interface ToolSpan extends SpanBase {
   kind: 'tool'
   toolName: string
   args: unknown
+  /** False when the source observed the call but did not capture its arguments. */
+  argsCaptured?: boolean
   result?: unknown
   latencyMs?: number
 }

@@ -7,7 +7,7 @@
  */
 
 import { classifyFailure, DEFAULT_RULES, type FailureRule } from '../failure-taxonomy'
-import { argHash, toolSpans } from '../trace/query'
+import { argHash, hasCapturedToolArgs, toolSpans } from '../trace/query'
 import type { FailureClass, Span } from '../trace/schema'
 import type { TraceStore } from '../trace/store'
 
@@ -62,7 +62,7 @@ export async function failureClusterView(
       const trig = spans.find((s) => s.spanId === cls.triggerSpanId)
       if (trig?.kind === 'tool') {
         toolName = trig.toolName
-        argPrefix = argHash(trig.args).slice(0, 16)
+        if (hasCapturedToolArgs(trig)) argPrefix = argHash(trig.args).slice(0, 16)
       } else if (trig?.kind === 'judge') {
         dimension = trig.dimension
       }
@@ -73,7 +73,7 @@ export async function failureClusterView(
       const errored = ts.filter((t) => t.status === 'error').pop()
       if (errored) {
         toolName = errored.toolName
-        argPrefix = argHash(errored.args).slice(0, 16)
+        if (hasCapturedToolArgs(errored)) argPrefix = argHash(errored.args).slice(0, 16)
       }
     }
     // Secondary signal: any judge span on the failed run carries a
