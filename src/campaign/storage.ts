@@ -1,6 +1,7 @@
 import { createRequire } from 'node:module'
-import { dirname, join } from 'node:path'
+import { join } from 'node:path'
 import { CostLedger } from '../cost-ledger'
+import { appendSearchLedgerLine, tryWithSearchLedgerFileLock } from './search-ledger-file'
 
 /**
  * `CampaignStorage` — the filesystem seam `runCampaign` writes through
@@ -40,17 +41,9 @@ export interface CampaignStorage {
  *  the shape this package publishes. */
 export function fsCampaignStorage(): CampaignStorage {
   const nodeRequire = createRequire(import.meta.url)
-  const {
-    closeSync,
-    existsSync,
-    fsyncSync,
-    mkdirSync,
-    openSync,
-    readFileSync,
-    statSync,
-    writeFileSync,
-  } = nodeRequire('node:fs') as typeof import('node:fs')
-  const lockfile = nodeRequire('proper-lockfile') as typeof import('proper-lockfile')
+  const { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } = nodeRequire(
+    'node:fs',
+  ) as typeof import('node:fs')
   return {
     ensureDir(dir) {
       if (!existsSync(dir)) mkdirSync(dir, { recursive: true })
@@ -69,18 +62,7 @@ export function fsCampaignStorage(): CampaignStorage {
       writeFileSync(path, content as Uint8Array)
     },
     append(path, content, expectedBytes) {
-      let release: (() => void) | undefined
-      try {
-        release = lockfile.lockSync(path, {
-          realpath: false,
-          retries: 0,
-          stale: 10_000,
-        })
-      } catch (error) {
-        if ((error as NodeJS.ErrnoException).code === 'ELOCKED') return undefined
-        throw error
-      }
-      try {
+      const result = tryWithSearchLedgerFileLock(path, () => {
         let actualBytes = 0
         try {
           actualBytes = statSync(path).size
@@ -88,23 +70,10 @@ export function fsCampaignStorage(): CampaignStorage {
           if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
         }
         if (actualBytes !== expectedBytes) return undefined
-        const fd = openSync(path, 'a')
-        try {
-          writeFileSync(fd, content)
-          fsyncSync(fd)
-        } finally {
-          closeSync(fd)
-        }
-        const directoryFd = openSync(dirname(path), 'r')
-        try {
-          fsyncSync(directoryFd)
-        } finally {
-          closeSync(directoryFd)
-        }
+        appendSearchLedgerLine(path, content)
         return expectedBytes + Buffer.byteLength(content)
-      } finally {
-        release?.()
-      }
+      })
+      return result.acquired ? result.value : undefined
     },
   }
 }

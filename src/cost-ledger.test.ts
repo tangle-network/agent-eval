@@ -1,5 +1,5 @@
-import { mkdirSync, mkdtempSync, rmSync, utimesSync } from 'node:fs'
-import { tmpdir } from 'node:os'
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { hostname, tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { type CampaignStorage, createRunCostLedger, fsCampaignStorage } from './campaign/storage'
@@ -545,7 +545,11 @@ describe('CostLedger', () => {
 
   it('blocks dispatch while another process holds the filesystem lock', async () => {
     const runDir = mkdtempSync(join(tmpdir(), 'agent-eval-cost-claim-'))
-    mkdirSync(join(runDir, 'cost-ledger.jsonl.lock'))
+    writeFileSync(
+      join(runDir, 'cost-ledger.jsonl.lock'),
+      `${JSON.stringify({ host: hostname(), nonce: 'active-process', pid: process.pid })}\n`,
+      'utf8',
+    )
     const ledger = createRunCostLedger({ storage: fsCampaignStorage(), runDir })
     let calls = 0
 
@@ -574,9 +578,11 @@ describe('CostLedger', () => {
   it('recovers a stale filesystem lock left by a crashed writer', async () => {
     const runDir = mkdtempSync(join(tmpdir(), 'agent-eval-cost-stale-lock-'))
     const lockPath = join(runDir, 'cost-ledger.jsonl.lock')
-    mkdirSync(lockPath)
-    const stale = new Date(Date.now() - 20_000)
-    utimesSync(lockPath, stale, stale)
+    writeFileSync(
+      lockPath,
+      `${JSON.stringify({ host: hostname(), nonce: 'crashed-process', pid: 999_999_999 })}\n`,
+      'utf8',
+    )
     const ledger = createRunCostLedger({ storage: fsCampaignStorage(), runDir })
 
     try {
