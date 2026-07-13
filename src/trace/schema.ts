@@ -117,8 +117,11 @@ export interface LlmSpan extends SpanBase {
   messages: Message[]
   output?: string
   inputTokens?: number
+  /** All generated tokens, including the reasoning subset when present. */
   outputTokens?: number
   cachedTokens?: number
+  cacheWriteTokens?: number
+  /** Reasoning-token subset of `outputTokens`. */
   reasoningTokens?: number
   costUsd?: number
   finishReason?: string

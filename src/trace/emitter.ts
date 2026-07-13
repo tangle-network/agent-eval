@@ -360,6 +360,7 @@ export function llmSpanFromProvider(args: {
     inputTokens?: number
     outputTokens?: number
     cachedTokens?: number
+    cacheWriteTokens?: number
     reasoningTokens?: number
   }
   costUsd?: number
@@ -373,6 +374,7 @@ export function llmSpanFromProvider(args: {
     inputTokens: args.usage?.inputTokens,
     outputTokens: args.usage?.outputTokens,
     cachedTokens: args.usage?.cachedTokens,
+    cacheWriteTokens: args.usage?.cacheWriteTokens,
     reasoningTokens: args.usage?.reasoningTokens,
     costUsd: args.costUsd,
     finishReason: args.finishReason,

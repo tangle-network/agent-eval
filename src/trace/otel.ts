@@ -11,10 +11,13 @@
 
 import {
   applyToolSpanOtlpAttributes,
+  LLM_CACHE_WRITE_TOKENS,
+  LLM_CACHED_TOKENS,
   LLM_COST_USD,
   LLM_INPUT_TOKENS,
   LLM_MODEL_NAME,
   LLM_OUTPUT_TOKENS,
+  LLM_REASONING_TOKENS,
   OPENINFERENCE_SPAN_KIND,
   traceSpanKindToOpenInferenceKind,
 } from './otlp-attributes'
@@ -122,6 +125,11 @@ function flattenSpanAttributes(span: Span): Record<string, string | number | boo
     base[LLM_MODEL_NAME] = span.model
     if (span.inputTokens !== undefined) base[LLM_INPUT_TOKENS] = span.inputTokens
     if (span.outputTokens !== undefined) base[LLM_OUTPUT_TOKENS] = span.outputTokens
+    if (span.reasoningTokens !== undefined) base[LLM_REASONING_TOKENS] = span.reasoningTokens
+    if (span.cachedTokens !== undefined) base[LLM_CACHED_TOKENS] = span.cachedTokens
+    if (span.cacheWriteTokens !== undefined) {
+      base[LLM_CACHE_WRITE_TOKENS] = span.cacheWriteTokens
+    }
     if (span.costUsd !== undefined) base[LLM_COST_USD] = span.costUsd
     if (span.finishReason) base['llm.finish_reason'] = span.finishReason
   } else if (span.kind === 'tool') {

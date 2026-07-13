@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto'
 import { estimateCost, isModelPriced } from '../../metrics'
 import type { RunCostProvenance, RunRecord, RunSplitTag, RunTokenUsage } from '../../run-record'
+import { extractUsage } from '../../trace/extract-usage'
 
 export type CodeAgentSessionSource = 'codex' | 'claude-code' | 'opencode' | 'kimi-code' | 'pi'
 
@@ -35,7 +36,9 @@ export interface CodeAgentSessionMetrics {
   reliabilityLift: number
   inputTokens: number
   outputTokens: number
+  reasoningTokens: number
   cachedTokens: number
+  cacheWriteTokens: number
   observedCostUsd: number
   observedCostCaptured?: boolean
   wallMs: number
@@ -166,7 +169,9 @@ function fromCodeAgentSession(
   const tokenUsage: RunTokenUsage = {
     input: metrics.inputTokens,
     output: metrics.outputTokens,
+    ...(metrics.reasoningTokens > 0 ? { reasoning: metrics.reasoningTokens } : {}),
     ...(metrics.cachedTokens > 0 ? { cached: metrics.cachedTokens } : {}),
+    ...(metrics.cacheWriteTokens > 0 ? { cacheWrite: metrics.cacheWriteTokens } : {}),
   }
   const { costUsd, costProvenance } = resolveSessionCost(options.costProvenance, metrics, model)
   const score = clamp01(options.score ?? metrics.processScore)
@@ -231,7 +236,9 @@ function fromCodeAgentSession(
         reliability_lift: metrics.reliabilityLift,
         input_tokens: metrics.inputTokens,
         output_tokens: metrics.outputTokens,
+        reasoning_tokens: metrics.reasoningTokens,
         cached_tokens: metrics.cachedTokens,
+        cache_write_tokens: metrics.cacheWriteTokens,
         observed_cost_usd: metrics.observedCostUsd,
         observed_cost_captured: metrics.observedCostCaptured ? 1 : 0,
         estimated_cost_usd: costProvenance.kind === 'estimated' ? costUsd : 0,
@@ -264,7 +271,12 @@ function fromCodeAgentSession(
         inferredScore: options.score === undefined,
         hasExplicitTerminalSignal: explicitTerminal,
         hasQualityLabel: options.score !== undefined,
-        hasTokenUsage: metrics.inputTokens > 0 || metrics.outputTokens > 0,
+        hasTokenUsage:
+          metrics.inputTokens > 0 ||
+          metrics.outputTokens > 0 ||
+          metrics.reasoningTokens > 0 ||
+          metrics.cachedTokens > 0 ||
+          metrics.cacheWriteTokens > 0,
         hasCost: costProvenance.kind !== 'uncaptured',
         costKind: costProvenance.kind,
         warnings,
@@ -434,38 +446,24 @@ function addCodexExecUsage(
   metrics: CodeAgentSessionMetrics,
   usage: Record<string, unknown> | null,
 ): void {
-  const parsed = readCodexUsage(usage)
+  const parsed = readUsage(usage)
   metrics.inputTokens += parsed.input
   metrics.outputTokens += parsed.output
+  metrics.reasoningTokens += parsed.reasoning
   metrics.cachedTokens += parsed.cached
+  metrics.cacheWriteTokens += parsed.cacheWrite
 }
 
 function setCodexCumulativeUsage(
   metrics: CodeAgentSessionMetrics,
   usage: Record<string, unknown> | null,
 ): void {
-  const parsed = readCodexUsage(usage)
+  const parsed = readUsage(usage)
   metrics.inputTokens = Math.max(metrics.inputTokens, parsed.input)
   metrics.outputTokens = Math.max(metrics.outputTokens, parsed.output)
+  metrics.reasoningTokens = Math.max(metrics.reasoningTokens, parsed.reasoning)
   metrics.cachedTokens = Math.max(metrics.cachedTokens, parsed.cached)
-}
-
-function readCodexUsage(usage: Record<string, unknown> | null): {
-  input: number
-  output: number
-  cached: number
-} {
-  if (!usage) return { input: 0, output: 0, cached: 0 }
-  return {
-    input: alternativeNumericUsage(usage, ['input_tokens', 'inputTokens']),
-    output: alternativeNumericUsage(usage, ['output_tokens', 'outputTokens']),
-    cached: alternativeNumericUsage(usage, [
-      'cached_input_tokens',
-      'cachedInputTokens',
-      'cache_read_input_tokens',
-      'cacheReadInputTokens',
-    ]),
-  }
+  metrics.cacheWriteTokens = Math.max(metrics.cacheWriteTokens, parsed.cacheWrite)
 }
 
 function claudeCodeMetrics(entries: Record<string, unknown>[]): CodeAgentSessionMetrics {
@@ -569,10 +567,12 @@ function openCodeMetrics(entries: Record<string, unknown>[]): CodeAgentSessionMe
     }
   }
 
-  const usage = messageUsage.input + messageUsage.output > 0 ? messageUsage : partUsage
+  const usage = hasTokenTotals(messageUsage) ? messageUsage : partUsage
   metrics.inputTokens = usage.input
   metrics.outputTokens = usage.output
+  metrics.reasoningTokens = usage.reasoning
   metrics.cachedTokens = usage.cached
+  metrics.cacheWriteTokens = usage.cacheWrite
   metrics.observedCostUsd = messageCostCaptured ? messageCost : partCost
   metrics.observedCostCaptured = messageCostCaptured || partCostCaptured
   if (metrics.wallMs === 0 && startedAt !== undefined && completedAt !== undefined)
@@ -714,7 +714,9 @@ function emptyMetrics(entries: number): CodeAgentSessionMetrics {
     reliabilityLift: 0,
     inputTokens: 0,
     outputTokens: 0,
+    reasoningTokens: 0,
     cachedTokens: 0,
+    cacheWriteTokens: 0,
     observedCostUsd: 0,
     observedCostCaptured: false,
     wallMs: 0,
@@ -757,8 +759,20 @@ function penalizeErrors(base: number, metrics: CodeAgentSessionMetrics): number 
   return clamp01(base * (1 - 0.5 * errorRate))
 }
 
-function emptyTokenTotals(): { input: number; output: number; cached: number } {
-  return { input: 0, output: 0, cached: 0 }
+type TokenTotals = Required<RunTokenUsage>
+
+function emptyTokenTotals(): TokenTotals {
+  return { input: 0, output: 0, reasoning: 0, cached: 0, cacheWrite: 0 }
+}
+
+function hasTokenTotals(usage: TokenTotals): boolean {
+  return (
+    usage.input > 0 ||
+    usage.output > 0 ||
+    usage.reasoning > 0 ||
+    usage.cached > 0 ||
+    usage.cacheWrite > 0
+  )
 }
 
 function addUsage(
@@ -768,73 +782,29 @@ function addUsage(
   const parsed = readUsage(usage)
   metrics.inputTokens += parsed.input
   metrics.outputTokens += parsed.output
+  metrics.reasoningTokens += parsed.reasoning
   metrics.cachedTokens += parsed.cached
+  metrics.cacheWriteTokens += parsed.cacheWrite
 }
 
-function addUsageTo(
-  totals: { input: number; output: number; cached: number },
-  usage: Record<string, unknown> | null | undefined,
-): void {
+function addUsageTo(totals: TokenTotals, usage: Record<string, unknown> | null | undefined): void {
   const parsed = readUsage(usage)
   totals.input += parsed.input
   totals.output += parsed.output
+  totals.reasoning += parsed.reasoning
   totals.cached += parsed.cached
+  totals.cacheWrite += parsed.cacheWrite
 }
 
-function readUsage(usage: Record<string, unknown> | null | undefined): {
-  input: number
-  output: number
-  cached: number
-} {
-  if (!usage) return { input: 0, output: 0, cached: 0 }
+function readUsage(usage: Record<string, unknown> | null | undefined): TokenTotals {
+  const parsed = extractUsage(usage)
   return {
-    input: numericUsage(usage, [
-      'input',
-      'input_tokens',
-      'inputTokens',
-      'prompt_tokens',
-      'promptTokens',
-      'input_other',
-    ]),
-    output: numericUsage(usage, [
-      'output',
-      'output_tokens',
-      'outputTokens',
-      'completion_tokens',
-      'completionTokens',
-      'reasoning',
-      'reasoning_tokens',
-      'reasoningTokens',
-    ]),
-    cached: numericUsage(usage, [
-      'cache',
-      'cached_tokens',
-      'cachedTokens',
-      'cache_read_input_tokens',
-      'cacheReadInputTokens',
-      'cache_creation_input_tokens',
-      'cacheCreationInputTokens',
-      'input_cache_read',
-      'input_cache_creation',
-    ]),
+    input: parsed?.input ?? 0,
+    output: parsed?.output ?? 0,
+    reasoning: parsed?.reasoning ?? 0,
+    cached: parsed?.cached ?? 0,
+    cacheWrite: parsed?.cacheWrite ?? 0,
   }
-}
-
-function numericUsage(obj: Record<string, unknown>, names: string[]): number {
-  let total = 0
-  for (const name of names) {
-    const value = obj[name]
-    if (typeof value === 'number' && Number.isFinite(value)) total += value
-  }
-  return total
-}
-
-function alternativeNumericUsage(obj: Record<string, unknown>, names: string[]): number {
-  for (const name of names) {
-    const value = obj[name]
-    if (typeof value === 'number' && Number.isFinite(value)) return value
-  }
-  return 0
 }
 
 function resolveSessionCost(
@@ -880,7 +850,15 @@ function diagnosticsFor(
   const warnings: string[] = []
   if (!options.scoreOverridden) warnings.push('outcome score is inferred from process telemetry')
   if (!options.explicitTerminal) warnings.push('no explicit terminal success/failure signal')
-  if (metrics.inputTokens === 0 && metrics.outputTokens === 0) warnings.push('missing token usage')
+  if (
+    metrics.inputTokens === 0 &&
+    metrics.outputTokens === 0 &&
+    metrics.reasoningTokens === 0 &&
+    metrics.cachedTokens === 0 &&
+    metrics.cacheWriteTokens === 0
+  ) {
+    warnings.push('missing token usage')
+  }
   if (options.costKind === 'estimated')
     warnings.push('USD cost estimated from token usage and model pricing')
   if (options.costKind === 'uncaptured') warnings.push('USD cost uncaptured')
