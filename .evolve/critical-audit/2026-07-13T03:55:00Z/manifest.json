@@ -1,0 +1,13 @@
+{
+  "scope": "git diff 0b70fde..a22a3e4 plus optimization dependency paths",
+  "base": "0b70fde6db04b638b91cbb317e14c925fb589196",
+  "head": "a22a3e4",
+  "project_type": "typescript-node",
+  "flags": ["diff-only"],
+  "findings_count_by_severity": {
+    "critical": 0,
+    "high": 4,
+    "medium": 2,
+    "low": 0
+  }
+}

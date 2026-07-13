@@ -1,0 +1,14 @@
+{
+  "scope": "git diff 0b70fde..7f91fe8",
+  "base": "0b70fde6db04b638b91cbb317e14c925fb589196",
+  "head": "7f91fe8",
+  "project_type": "typescript-node",
+  "flags": ["diff-only", "reaudit"],
+  "priorRun": ".evolve/critical-audit/2026-07-13T03:55:00Z",
+  "findings_count_by_severity": {
+    "critical": 0,
+    "high": 4,
+    "medium": 2,
+    "low": 0
+  }
+}
