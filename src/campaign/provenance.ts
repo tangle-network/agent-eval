@@ -6,7 +6,7 @@
  * Two artifacts, one source of truth:
  *
  *   1. `LoopProvenanceRecord` — a structured JSON record capturing every
- *      candidate (surfaceHash + label + rationale), its measured composite,
+ *      candidate (surfaceHash + label + rationale + structured cause), its measured composite,
  *      the gate decision + reasons + delta, the held-out lift, the explicit
  *      baseline→candidate diff, and BACKEND PROVENANCE (the
  *      `assertRealBackend` verdict + worker call count + model). This is the
@@ -27,6 +27,10 @@
 
 import { createHash } from 'node:crypto'
 import { join } from 'node:path'
+import {
+  type PolicyEditCandidateRecord,
+  validatePolicyEditCandidateRecord,
+} from '../analyst/policy-edit'
 import type { HostedClient } from '../hosted/client'
 import type {
   EvalRunCellScore,
@@ -54,6 +58,8 @@ export interface LoopProvenanceCandidate {
   /** Proposer rationale — the "because Z". When the proposer returned a bare
    *  surface (blind mutator) this is absent. */
   rationale?: string
+  /** Exact validated cause when the proposer emitted a structured record. */
+  candidateRecord?: PolicyEditCandidateRecord
   /** Mean composite this candidate scored on the search split. */
   composite: number
   /** Whether this candidate was promoted out of its generation. */
@@ -90,7 +96,7 @@ export interface LoopProvenanceRecord {
   winnerRationale?: string
   /** The explicit baseline→winner unified diff the gate decided on. */
   diff: string
-  /** Every candidate across every generation, each carrying its rationale. */
+  /** Every candidate across every generation, with its rationale and structured cause. */
   candidates: LoopProvenanceCandidate[]
   /** The gate verdict — decision + reasons + contributing gates + delta. */
   gate: {
@@ -128,6 +134,7 @@ export interface BuildLoopProvenanceArgs<TArtifact, TScenario extends Scenario> 
       composite: number
       label?: string
       rationale?: string
+      candidateRecord?: PolicyEditCandidateRecord
     }>
     promoted: string[]
     /** Surfaces measured this generation, keyed positionally to candidates so
@@ -178,6 +185,9 @@ export function buildLoopProvenanceRecord<TArtifact, TScenario extends Scenario>
       }
       if (c.label) entry.label = c.label
       if (c.rationale) entry.rationale = c.rationale
+      if (c.candidateRecord) {
+        entry.candidateRecord = validatePolicyEditCandidateRecord(c.candidateRecord)
+      }
       candidates.push(entry)
     }
   }

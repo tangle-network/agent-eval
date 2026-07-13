@@ -100,6 +100,14 @@ export interface PolicyEdit {
   metadata?: Record<string, unknown>
 }
 
+export const POLICY_EDIT_CANDIDATE_RECORD_SCHEMA = 'tangle.policy-edit-candidate.v1' as const
+
+/** JSON-safe attribution carried with a measured candidate and its scores. */
+export interface PolicyEditCandidateRecord {
+  schema: typeof POLICY_EDIT_CANDIDATE_RECORD_SCHEMA
+  policyEdit: PolicyEdit
+}
+
 export type PolicyEditInit = Omit<PolicyEdit, 'schemaVersion' | 'editId'> & {
   schemaVersion?: PolicyEditSchemaVersion
   editId?: string
@@ -191,6 +199,32 @@ export function validatePolicyEdit(input: unknown): PolicyEdit {
     throw new PolicyEditValidationError('editId does not match policy edit content', 'editId')
   }
   return obj
+}
+
+export function makePolicyEditCandidateRecord(edit: PolicyEdit): PolicyEditCandidateRecord {
+  return validatePolicyEditCandidateRecord({
+    schema: POLICY_EDIT_CANDIDATE_RECORD_SCHEMA,
+    policyEdit: edit,
+  })
+}
+
+export function validatePolicyEditCandidateRecord(input: unknown): PolicyEditCandidateRecord {
+  if (input === null || typeof input !== 'object' || Array.isArray(input)) {
+    throw new PolicyEditValidationError('expected object', 'candidateRecord')
+  }
+  const obj = input as Record<string, unknown>
+  const keys = Object.keys(obj).sort()
+  if (keys.length !== 2 || keys[0] !== 'policyEdit' || keys[1] !== 'schema') {
+    throw new PolicyEditValidationError('expected exactly schema and policyEdit', 'candidateRecord')
+  }
+  expectLiteral(obj.schema, POLICY_EDIT_CANDIDATE_RECORD_SCHEMA, 'candidateRecord.schema')
+  const policyEdit = validatePolicyEdit(obj.policyEdit)
+  assertJsonSafe(policyEdit, 'candidateRecord.policyEdit')
+  const snapshot = JSON.parse(JSON.stringify(policyEdit)) as unknown
+  return {
+    schema: POLICY_EDIT_CANDIDATE_RECORD_SCHEMA,
+    policyEdit: validatePolicyEdit(snapshot),
+  }
 }
 
 export function isPolicyEdit(input: unknown): input is PolicyEdit {
@@ -636,6 +670,41 @@ function normalizePolicyEdit(input: Omit<PolicyEdit, 'editId'>): Omit<PolicyEdit
   if (input.validationPlan?.trim()) out.validationPlan = input.validationPlan.trim()
   if (input.metadata) out.metadata = input.metadata
   return out
+}
+
+function assertJsonSafe(value: unknown, path: string, ancestors = new WeakSet<object>()): void {
+  if (value === null || typeof value === 'string' || typeof value === 'boolean') return
+  if (typeof value === 'number') {
+    if (Number.isFinite(value)) return
+    throw new PolicyEditValidationError('expected finite JSON number', path)
+  }
+  if (typeof value !== 'object') {
+    throw new PolicyEditValidationError('expected JSON-safe value', path)
+  }
+  if (ancestors.has(value)) {
+    throw new PolicyEditValidationError('cyclic value is not JSON-safe', path)
+  }
+  ancestors.add(value)
+  if (Array.isArray(value)) {
+    for (let i = 0; i < value.length; i++) {
+      if (!(i in value)) {
+        throw new PolicyEditValidationError('sparse array is not JSON-safe', `${path}.${i}`)
+      }
+      assertJsonSafe(value[i], `${path}.${i}`, ancestors)
+    }
+  } else {
+    const prototype = Object.getPrototypeOf(value)
+    if (prototype !== Object.prototype && prototype !== null) {
+      throw new PolicyEditValidationError('expected plain JSON object', path)
+    }
+    if (Object.getOwnPropertySymbols(value).length > 0) {
+      throw new PolicyEditValidationError('symbol keys are not JSON-safe', path)
+    }
+    for (const [key, child] of Object.entries(value as Record<string, unknown>)) {
+      assertJsonSafe(child, `${path}.${key}`, ancestors)
+    }
+  }
+  ancestors.delete(value)
 }
 
 function normalizeTarget(target: PolicyEditTarget): PolicyEditTarget {

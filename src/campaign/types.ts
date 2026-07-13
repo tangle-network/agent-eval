@@ -16,6 +16,7 @@
  * can build dashboards / CI gates / regression diffs against a stable schema.
  */
 
+import type { PolicyEditCandidateRecord } from '../analyst/policy-edit'
 import type { RunTokenUsage } from '../run-record'
 
 /** Stable identifier + kind tag for any scenario. Consumers
@@ -186,6 +187,9 @@ export interface ProposedCandidate {
    *  primitive it used. Survives to `GenerationCandidate.rationale` and the
    *  emitted provenance record. */
   rationale: string
+  /** Structured, JSON-safe cause for this exact candidate when the proposer
+   *  can provide one. Policy edits retain the full validated edit here. */
+  candidateRecord?: PolicyEditCandidateRecord
 }
 
 /** Type guard: a proposal carrying its rationale vs a bare
@@ -602,6 +606,8 @@ export interface GenerationCandidate {
    *  "because rationale Z" the audit requires to survive to the result.
    *  Present when the proposer returned a `ProposedCandidate`. */
   rationale?: string
+  /** Exact structured cause threaded from the proposer, when available. */
+  candidateRecord?: PolicyEditCandidateRecord
 }
 
 export interface CampaignAggregates {

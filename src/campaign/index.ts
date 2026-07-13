@@ -20,6 +20,7 @@ export {
   type RunLineageStepResult,
   runLineage,
 } from './lineage'
+
 /**
  * `@tangle-network/agent-eval/campaign` — measurement + improvement loop.
  *
@@ -27,6 +28,12 @@ export {
  * `runImprovementLoop` is the proposer-agnostic improvement loop on top of it.
  */
 
+// ── Surface proposers ────────────────────────────────────────────────
+export {
+  POLICY_EDIT_CANDIDATE_RECORD_SCHEMA,
+  type PolicyEditCandidateRecord,
+  validatePolicyEditCandidateRecord,
+} from '../analyst/policy-edit'
 // ── Judge builders (single-call bridge to a canonical JudgeConfig) ────
 export type { LlmJudgeDimension, LlmJudgeOptions } from '../llm-judge'
 export { llmJudge } from '../llm-judge'
@@ -259,7 +266,6 @@ export {
   type GepaProposerOptions,
   gepaProposer,
 } from './proposers/gepa'
-// ── Surface proposers ────────────────────────────────────────────────
 export { type HaloProposerOptions, haloProposer } from './proposers/halo'
 export {
   DEFAULT_POLICY_EDIT_HISTORY_LIMITS,

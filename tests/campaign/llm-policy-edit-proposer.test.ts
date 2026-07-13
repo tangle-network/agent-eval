@@ -1,4 +1,9 @@
 import { describe, expect, it } from 'vitest'
+import {
+  makePolicyEdit,
+  makePolicyEditCandidateRecord,
+  type PolicyEditAdmissionOptions,
+} from '../../src/analyst/policy-edit'
 import { type AnalystFinding, makeFinding } from '../../src/analyst/types'
 import {
   llmPolicyEditProposer,
@@ -36,6 +41,9 @@ function authoredEdit(
     axis?: 'representation' | 'agent_profile'
     mode?: 'set' | 'merge' | 'remove'
     value?: unknown
+    expectedGain?: number
+    confidence?: number
+    risk?: 'low' | 'medium' | 'high' | 'unknown'
   } = {},
 ) {
   const path = options.path ?? 'prompt.systemPrompt'
@@ -57,12 +65,12 @@ function authoredEdit(
     expectedGain: {
       metric: 'holdout.composite',
       direction: 'increase',
-      amount: 0.12,
+      amount: options.expectedGain ?? 0.12,
       unit: 'score',
       rationale: null,
     },
-    confidence: 0.9,
-    risk: 'low',
+    confidence: options.confidence ?? 0.9,
+    risk: options.risk ?? 'low',
     source: { findingIds: [findingId] },
     rationale: 'The cited trace shows editing began before repository guidance was read.',
     validationPlan: 'Measure on disjoint repository tasks.',
@@ -118,6 +126,9 @@ function proposer(input: {
   finishReason?: string | null
   maxHistoryGenerations?: number
   maxHistoryCandidatesPerGeneration?: number
+  historyScenarioIdTransform?: (scenarioId: string) => string
+  admissionMode?: 'evidence-only' | 'strict'
+  admission?: PolicyEditAdmissionOptions
 }) {
   return llmPolicyEditProposer({
     llm: {
@@ -139,6 +150,11 @@ function proposer(input: {
     ...(input.maxHistoryCandidatesPerGeneration === undefined
       ? {}
       : { maxHistoryCandidatesPerGeneration: input.maxHistoryCandidatesPerGeneration }),
+    ...(input.historyScenarioIdTransform === undefined
+      ? {}
+      : { historyScenarioIdTransform: input.historyScenarioIdTransform }),
+    ...(input.admissionMode === undefined ? {} : { admissionMode: input.admissionMode }),
+    ...(input.admission === undefined ? {} : { admission: input.admission }),
   })
 }
 
@@ -183,7 +199,11 @@ describe('llmPolicyEditProposer', () => {
       json_schema: {
         name: 'policy_edit_author',
         strict: true,
-        schema: { type: 'object', additionalProperties: false },
+        schema: {
+          type: 'object',
+          additionalProperties: false,
+          properties: { edits: { maxItems: 1 } },
+        },
       },
     })
     const providerSchema = JSON.stringify(capture.responseFormat)
@@ -221,6 +241,7 @@ describe('llmPolicyEditProposer', () => {
       response: { edits: [edit] },
       capture,
       allowedJsonPaths: ['resources'],
+      historyScenarioIdTransform: () => 'scenario-1',
     }).propose(context({ finding: source, history, generation: 1 }))
 
     expect(capture.user).toMatchObject({
@@ -236,12 +257,16 @@ describe('llmPolicyEditProposer', () => {
               rationale: null,
               composite: 0.45,
               dimensions: { correctness: 0.3, efficiency: 0.6 },
-              scenarios: [{ scenarioId: 'repo-a', composite: 0.2, notes: 'missed instructions' }],
+              scenarios: [
+                { scenarioId: 'scenario-1', composite: 0.2, notes: 'missed instructions' },
+              ],
+              candidateRecord: null,
             },
           ],
         },
       ],
     })
+    expect(JSON.stringify(capture.user)).not.toContain('repo-a')
     expect(JSON.parse(candidateSurface(out[0]!))).toEqual({
       prompt: { systemPrompt: 'Base' },
       resources: { keep: true, instructions: ['READ_REPO.md'] },
@@ -266,6 +291,24 @@ describe('llmPolicyEditProposer', () => {
     await expect(
       proposer({ response: { edits: [edit] } }).propose(context({ finding: source })),
     ).rejects.toThrow(/invalid PolicyEdit response.*change/)
+  })
+
+  it('measures uncertain evidence-backed edits by default and rejects them in explicit strict mode', async () => {
+    const source = finding()
+    const uncertain = authoredEdit(source.finding_id, {
+      expectedGain: 0.000_001,
+      confidence: 0.01,
+      risk: 'high',
+    })
+
+    await expect(
+      proposer({ response: { edits: [uncertain] } }).propose(context({ finding: source })),
+    ).resolves.toHaveLength(1)
+    await expect(
+      proposer({ response: { edits: [uncertain] }, admissionMode: 'strict' }).propose(
+        context({ finding: source }),
+      ),
+    ).resolves.toEqual([])
   })
 
   it('rejects edits without a cited finding', async () => {
@@ -304,6 +347,20 @@ describe('llmPolicyEditProposer', () => {
     ).rejects.toThrow(/truncated JSON content/)
   })
 
+  it('retains a local candidate cap after provider schema enforcement', async () => {
+    const source = finding()
+    await expect(
+      proposer({
+        response: {
+          edits: [
+            authoredEdit(source.finding_id),
+            authoredEdit(source.finding_id, { path: 'prompt.systemPrompt' }),
+          ],
+        },
+      }).propose(context({ finding: source, populationSize: 1 })),
+    ).rejects.toThrow(/returned 2 edits for 1 candidate slots/)
+  })
+
   it('delegates duplicate candidate removal to policyEditProposer', async () => {
     const source = finding()
     const first = authoredEdit(source.finding_id)
@@ -319,21 +376,27 @@ describe('llmPolicyEditProposer', () => {
   })
 
   it('bounds history while preserving all dimensions and scenario evidence in admitted rows', () => {
+    const exactEdit = recordedPolicyEdit()
+    const exactRecord = makePolicyEditCandidateRecord(exactEdit)
     const history = [
       historyGeneration(0, [historyCandidate('old', 0.1)]),
       historyGeneration(
         1,
         [
           historyCandidate('high', 0.9),
+          historyCandidate('middle', 0.5),
+          historyCandidate('low', 0.1),
           {
-            ...historyCandidate('promoted', 0.2),
+            ...historyCandidate('promoted', 0.7),
+            ci95: [0.65, 0.75] as [number, number],
             label: 'kept candidate',
             rationale: 'Targets the observed repository-instruction failure.',
-            dimensions: { correctness: 0.2, efficiency: 0.7, safety: 0.95 },
+            dimensions: { correctness: 0.7, efficiency: 0.8, safety: 0.95 },
             scenarios: [
-              { scenarioId: 'repo-a', composite: 0.1, notes: 'skipped instructions' },
-              { scenarioId: 'repo-b', composite: 0.3, notes: 'read after editing' },
+              { scenarioId: 'repo-a', composite: 0.6, notes: 'read instructions' },
+              { scenarioId: 'repo-b', composite: 0.8, notes: 'edited after reading' },
             ],
+            candidateRecord: exactRecord,
             rawTrace: { secret: 'must not cross the projection' },
             artifacts: ['raw-output.txt'],
           },
@@ -345,7 +408,7 @@ describe('llmPolicyEditProposer', () => {
 
     const projected = projectPolicyEditHistory(history, {
       maxGenerations: 2,
-      maxCandidatesPerGeneration: 1,
+      maxCandidatesPerGeneration: 3,
     })
 
     expect(projected).toEqual([
@@ -357,12 +420,31 @@ describe('llmPolicyEditProposer', () => {
             surfaceHash: 'promoted',
             label: 'kept candidate',
             rationale: 'Targets the observed repository-instruction failure.',
-            composite: 0.2,
-            dimensions: { correctness: 0.2, efficiency: 0.7, safety: 0.95 },
+            composite: 0.7,
+            dimensions: { correctness: 0.7, efficiency: 0.8, safety: 0.95 },
             scenarios: [
-              { scenarioId: 'repo-a', composite: 0.1, notes: 'skipped instructions' },
-              { scenarioId: 'repo-b', composite: 0.3, notes: 'read after editing' },
+              { scenarioId: 'repo-a', composite: 0.6, notes: 'read instructions' },
+              { scenarioId: 'repo-b', composite: 0.8, notes: 'edited after reading' },
             ],
+            candidateRecord: exactRecord,
+          },
+          {
+            surfaceHash: 'low',
+            label: null,
+            rationale: null,
+            composite: 0.1,
+            dimensions: { correctness: 0.1, efficiency: 0.7 },
+            scenarios: [{ scenarioId: 'repo-a', composite: 0.1, notes: null }],
+            candidateRecord: null,
+          },
+          {
+            surfaceHash: 'high',
+            label: null,
+            rationale: null,
+            composite: 0.9,
+            dimensions: { correctness: 0.9, efficiency: 0.7 },
+            scenarios: [{ scenarioId: 'repo-a', composite: 0.9, notes: null }],
+            candidateRecord: null,
           },
         ],
       },
@@ -377,12 +459,32 @@ describe('llmPolicyEditProposer', () => {
             composite: 0.8,
             dimensions: { correctness: 0.8, efficiency: 0.7 },
             scenarios: [{ scenarioId: 'repo-a', composite: 0.8, notes: null }],
+            candidateRecord: null,
           },
         ],
       },
     ])
     expect(JSON.stringify(projected)).not.toContain('rawTrace')
     expect(JSON.stringify(projected)).not.toContain('artifacts')
+    expect(
+      projected
+        .flatMap((generation) => generation.candidates)
+        .some((candidate) => 'ci95' in candidate),
+    ).toBe(false)
+  })
+
+  it('fails closed when scored history carries an invalid candidate record', () => {
+    const candidate = historyCandidate('bad-record', 0.4)
+    const history = historyGeneration(0, [
+      {
+        ...candidate,
+        candidateRecord: {
+          schema: 'tangle.policy-edit-candidate.v1',
+          policyEdit: { ...recordedPolicyEdit(), editId: 'forged' },
+        },
+      } as never,
+    ])
+    expect(() => projectPolicyEditHistory([history])).toThrow(/editId/)
   })
 
   it('rejects invalid history caps before making an LLM call', () => {
@@ -411,4 +513,26 @@ function historyGeneration(
   promoted: string[] = [],
 ): GenerationRecord {
   return { generationIndex, candidates, promoted }
+}
+
+function recordedPolicyEdit() {
+  return makePolicyEdit({
+    axis: 'representation',
+    target: { surface: 'agent-profile', path: 'prompt.systemPrompt' },
+    change: {
+      kind: 'json',
+      mode: 'set',
+      path: 'prompt.systemPrompt',
+      value: 'Read repository instructions first.',
+    },
+    claim: 'Reading repository instructions should improve correctness.',
+    expectedGain: { metric: 'holdout.composite', direction: 'increase', amount: 0.1 },
+    confidence: 0.8,
+    risk: 'low',
+    source: {
+      findingIds: ['finding-recorded'],
+      analystIds: ['trace-analyst'],
+      evidenceRefs: [{ kind: 'span', uri: 'span://trace-1/span-7' }],
+    },
+  })
 }

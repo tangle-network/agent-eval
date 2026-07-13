@@ -7,9 +7,11 @@ import {
   type PolicyEdit,
   type PolicyEditAdmission,
   type PolicyEditAdmissionOptions,
+  type PolicyEditCandidateRecord,
   type PolicyEditExpectedGain,
   type PolicyEditInit,
   type PolicyEditTargetSurface,
+  validatePolicyEditCandidateRecord,
 } from '../../analyst/policy-edit'
 import { assertNoJudgeVerdict } from '../../analyst/steer-firewall'
 import type { AnalystFinding, EvidenceRef } from '../../analyst/types'
@@ -216,6 +218,17 @@ const POLICY_EDIT_AUTHOR_JSON_SCHEMA: Record<string, unknown> = {
   },
 }
 
+function policyEditAuthorJsonSchema(maxItems: number): Record<string, unknown> {
+  const schema = JSON.parse(JSON.stringify(POLICY_EDIT_AUTHOR_JSON_SCHEMA)) as Record<
+    string,
+    unknown
+  >
+  const properties = schema.properties as Record<string, unknown>
+  const edits = properties.edits as Record<string, unknown>
+  edits.maxItems = maxItems
+  return schema
+}
+
 export const DEFAULT_POLICY_EDIT_HISTORY_LIMITS = Object.freeze({
   generations: 4,
   candidatesPerGeneration: 16,
@@ -226,6 +239,8 @@ export interface PolicyEditHistoryProjectionOptions {
   maxGenerations?: number
   /** Number of candidates retained per generation. Default: 16. */
   maxCandidatesPerGeneration?: number
+  /** Optional pseudonymizer applied before scenario IDs enter author text. */
+  scenarioIdTransform?: (scenarioId: string) => string
 }
 
 export interface PolicyEditHistoryCandidateContext {
@@ -235,6 +250,7 @@ export interface PolicyEditHistoryCandidateContext {
   composite: number
   dimensions: Record<string, number>
   scenarios: Array<{ scenarioId: string; composite: number; notes: string | null }>
+  candidateRecord: PolicyEditCandidateRecord | null
 }
 
 export interface PolicyEditHistoryGenerationContext {
@@ -264,6 +280,10 @@ export interface LlmPolicyEditProposerOptions {
   targetSurface: PolicyEditTargetSurface
   /** Exact JSON paths the author may change. Prefix or fuzzy matches are not accepted. */
   allowedJsonPaths: readonly string[]
+  /** Default: evidence-only, so uncertain edits are measured rather than
+   *  suppressed by their own model-authored predictions. */
+  admissionMode?: 'evidence-only' | 'strict'
+  /** Readiness thresholds used only when admissionMode is explicitly strict. */
   admission?: PolicyEditAdmissionOptions
   maxCandidates?: number
   temperature?: number
@@ -273,6 +293,8 @@ export interface LlmPolicyEditProposerOptions {
   maxHistoryGenerations?: number
   /** Candidates retained per admitted generation. Default: 16. */
   maxHistoryCandidatesPerGeneration?: number
+  /** Optional pseudonymizer applied before scenario IDs enter author text. */
+  historyScenarioIdTransform?: (scenarioId: string) => string
   onAdmission?: (admission: PolicyEditAdmission) => void
 }
 
@@ -295,6 +317,13 @@ export function llmPolicyEditProposer(
   ) {
     throw new Error('llmPolicyEditProposer: maxCandidates must be a non-negative safe integer')
   }
+  const admissionMode = opts.admissionMode ?? 'evidence-only'
+  if (admissionMode !== 'evidence-only' && admissionMode !== 'strict') {
+    throw new Error("llmPolicyEditProposer: admissionMode must be 'evidence-only' or 'strict'")
+  }
+  if (opts.admission && admissionMode !== 'strict') {
+    throw new Error("llmPolicyEditProposer: admission thresholds require admissionMode: 'strict'")
+  }
   const historyLimits = validateHistoryLimits({
     ...(opts.maxHistoryGenerations === undefined
       ? {}
@@ -302,6 +331,9 @@ export function llmPolicyEditProposer(
     ...(opts.maxHistoryCandidatesPerGeneration === undefined
       ? {}
       : { maxCandidatesPerGeneration: opts.maxHistoryCandidatesPerGeneration }),
+    ...(opts.historyScenarioIdTransform === undefined
+      ? {}
+      : { scenarioIdTransform: opts.historyScenarioIdTransform }),
   })
 
   return {
@@ -336,7 +368,7 @@ export function llmPolicyEditProposer(
           ],
           jsonSchema: {
             name: 'policy_edit_author',
-            schema: POLICY_EDIT_AUTHOR_JSON_SCHEMA,
+            schema: policyEditAuthorJsonSchema(limit),
           },
           temperature: opts.temperature ?? 0.2,
           maxTokens: opts.maxTokens ?? 6_000,
@@ -355,7 +387,15 @@ export function llmPolicyEditProposer(
       )
       return policyEditProposer({
         edits,
-        admission: opts.admission,
+        admission:
+          admissionMode === 'strict'
+            ? opts.admission
+            : {
+                minScore: 0,
+                minExpectedGain: 0,
+                allowHighRisk: true,
+                requireEvidence: true,
+              },
         maxCandidates: limit,
         onAdmission: opts.onAdmission,
       }).propose(ctx)
@@ -379,47 +419,71 @@ export function projectPolicyEditHistory(
     return {
       generationIndex: record.generationIndex,
       promoted: record.promoted.filter((hash) => hashes.has(hash)),
-      candidates: candidates.map(projectHistoryCandidate),
+      candidates: candidates.map((candidate) =>
+        projectHistoryCandidate(candidate, limits.scenarioIdTransform),
+      ),
     }
   })
 }
 
 function selectHistoryCandidates(record: GenerationRecord, limit: number): GenerationCandidate[] {
   const promotionOrder = new Map(record.promoted.map((hash, index) => [hash, index]))
-  return [...record.candidates]
-    .sort((a, b) => {
-      const aPromoted = promotionOrder.get(a.surfaceHash)
-      const bPromoted = promotionOrder.get(b.surfaceHash)
-      if (aPromoted !== undefined || bPromoted !== undefined) {
-        if (aPromoted === undefined) return 1
-        if (bPromoted === undefined) return -1
-        return aPromoted - bPromoted
-      }
-      return b.composite - a.composite || a.surfaceHash.localeCompare(b.surfaceHash)
-    })
-    .slice(0, limit)
+  const promoted = [...record.candidates]
+    .filter((candidate) => promotionOrder.has(candidate.surfaceHash))
+    .sort((a, b) => promotionOrder.get(a.surfaceHash)! - promotionOrder.get(b.surfaceHash)!)
+  const selected = promoted.slice(0, limit)
+  const selectedHashes = new Set(selected.map((candidate) => candidate.surfaceHash))
+  const remaining = [...record.candidates]
+    .filter((candidate) => !promotionOrder.has(candidate.surfaceHash))
+    .sort((a, b) => b.composite - a.composite || a.surfaceHash.localeCompare(b.surfaceHash))
+  let high = 0
+  let low = remaining.length - 1
+  let takeLow = selected.length > 0
+  while (selected.length < limit && high <= low) {
+    const candidate = takeLow ? remaining[low--] : remaining[high++]
+    takeLow = !takeLow
+    if (!candidate || selectedHashes.has(candidate.surfaceHash)) continue
+    selected.push(candidate)
+    selectedHashes.add(candidate.surfaceHash)
+  }
+  return selected
 }
 
 function projectHistoryCandidate(
   candidate: GenerationCandidate,
+  scenarioIdTransform: (scenarioId: string) => string,
 ): PolicyEditHistoryCandidateContext {
   return {
     surfaceHash: candidate.surfaceHash,
     label: candidate.label ?? null,
     rationale: candidate.rationale ?? null,
     composite: candidate.composite,
+    // GenerationCandidate.ci95 is currently a placeholder [composite, composite],
+    // not a measured interval. Keep it out of author context until it is real.
     dimensions: { ...candidate.dimensions },
-    scenarios: candidate.scenarios.map((scenario) => ({
-      scenarioId: scenario.scenarioId,
-      composite: scenario.composite,
-      notes: scenario.notes ?? null,
-    })),
+    scenarios: candidate.scenarios.map((scenario) => {
+      const scenarioId = scenarioIdTransform(scenario.scenarioId)
+      if (!scenarioId || scenarioId.trim() !== scenarioId) {
+        throw new Error(
+          'llmPolicyEditProposer: scenarioIdTransform must return a trimmed non-empty string',
+        )
+      }
+      return {
+        scenarioId,
+        composite: scenario.composite,
+        notes: scenario.notes ?? null,
+      }
+    }),
+    candidateRecord: candidate.candidateRecord
+      ? validatePolicyEditCandidateRecord(candidate.candidateRecord)
+      : null,
   }
 }
 
 function validateHistoryLimits(options: PolicyEditHistoryProjectionOptions): {
   maxGenerations: number
   maxCandidatesPerGeneration: number
+  scenarioIdTransform: (scenarioId: string) => string
 } {
   const maxGenerations = options.maxGenerations ?? DEFAULT_POLICY_EDIT_HISTORY_LIMITS.generations
   const maxCandidatesPerGeneration =
@@ -432,7 +496,11 @@ function validateHistoryLimits(options: PolicyEditHistoryProjectionOptions): {
       'llmPolicyEditProposer: maxHistoryCandidatesPerGeneration must be a positive safe integer',
     )
   }
-  return { maxGenerations, maxCandidatesPerGeneration }
+  return {
+    maxGenerations,
+    maxCandidatesPerGeneration,
+    scenarioIdTransform: options.scenarioIdTransform ?? ((scenarioId) => scenarioId),
+  }
 }
 
 function parseAuthorResponse(value: unknown): z.infer<typeof PolicyEditAuthorResponseSchema> {

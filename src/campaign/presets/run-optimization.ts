@@ -207,11 +207,12 @@ export async function runOptimization<TScenario extends Scenario, TArtifact>(
       surface: MutableSurface
       label: string
       rationale: string
+      candidateRecord?: ProposedCandidate['candidateRecord']
       campaign: CampaignResult<TArtifact, TScenario>
       composite: number
     }> = []
     for (let i = 0; i < candidates.length; i++) {
-      const { surface, label, rationale } = candidates[i]!
+      const { surface, label, rationale, candidateRecord } = candidates[i]!
       const hash = surfaceHash(surface)
       const campaign = await runCampaign<TScenario, TArtifact>({
         ...opts,
@@ -219,7 +220,15 @@ export async function runOptimization<TScenario extends Scenario, TArtifact>(
         runDir: `${opts.runDir}/gen-${gen}/candidate-${i}`,
       })
       const composite = campaignMeanComposite(campaign)
-      surfaceResults.push({ surfaceHash: hash, surface, label, rationale, campaign, composite })
+      surfaceResults.push({
+        surfaceHash: hash,
+        surface,
+        label,
+        rationale,
+        ...(candidateRecord ? { candidateRecord } : {}),
+        campaign,
+        composite,
+      })
       // Add to the GEPA frontier accumulator — the NEXT generation's
       // `propose()` sees this candidate's per-scenario objective vector.
       scored.push(
@@ -253,6 +262,7 @@ export async function runOptimization<TScenario extends Scenario, TArtifact>(
         }
         if (s.label) candidate.label = s.label
         if (s.rationale) candidate.rationale = s.rationale
+        if (s.candidateRecord) candidate.candidateRecord = s.candidateRecord
         return candidate
       }),
       promoted: promoted.map((p) => p.surfaceHash),

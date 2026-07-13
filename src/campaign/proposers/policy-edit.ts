@@ -10,6 +10,7 @@ import {
   applyPolicyEditToSurface,
   type FindingToPolicyEditOptions,
   isPolicyEdit,
+  makePolicyEditCandidateRecord,
   type PolicyEdit,
   type PolicyEditAdmission,
   type PolicyEditAdmissionOptions,
@@ -68,6 +69,7 @@ export function policyEditProposer(opts: PolicyEditProposerOptions = {}): Surfac
             `${edit.editId} expected ${edit.expectedGain.direction} ` +
             `${edit.expectedGain.metric} by ${edit.expectedGain.amount}; ` +
             `source findings [${edit.source.findingIds.join(', ')}]`,
+          candidateRecord: makePolicyEditCandidateRecord(edit),
         })
         if (out.length >= limit) break
       }
