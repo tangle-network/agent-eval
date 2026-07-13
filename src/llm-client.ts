@@ -346,9 +346,13 @@ export function extractJsonPayload(raw: string): string {
     JSON.parse(stripped)
     return stripped
   } catch {
-    // Continue with balanced extraction below.
+    // A response that declares a JSON root must parse as that complete root.
+    // Scanning onward could turn a truncated object into one of its valid nested
+    // arrays or objects and silently change the response schema.
+    if (stripped.startsWith('{') || stripped.startsWith('[')) return stripped
   }
 
+  // Only prose-leading responses may contain a recoverable JSON payload.
   const starts = [...stripped.matchAll(/[[{]/g)]
     .map((match) => match.index)
     .filter((index) => index != null)
@@ -689,18 +693,27 @@ export async function callLlmJson<T = unknown>(
 ): Promise<{ value: T; result: LlmCallResult }> {
   try {
     const result = await callLlm({ ...req, jsonMode: req.jsonMode ?? !req.jsonSchema }, opts)
-    const value = parseJsonSafely<T>(result.content, result.model)
+    const value = parseJsonResult<T>(result)
     return { value, result }
   } catch (err) {
     if (err instanceof LlmCallError && isSchemaRejection(err.status, err.body) && req.jsonSchema) {
       // Degrade to json_object + retry.
       const degradedReq: LlmCallRequest = { ...req, jsonMode: true, jsonSchema: undefined }
       const result = await callLlm(degradedReq, opts)
-      const value = parseJsonSafely<T>(result.content, result.model)
+      const value = parseJsonResult<T>(result)
       return { value, result }
     }
     throw err
   }
+}
+
+function parseJsonResult<T>(result: LlmCallResult): T {
+  if (result.finishReason === 'length') {
+    throw new Error(
+      `LLM returned truncated JSON content (model=${result.model}, finishReason=length)`,
+    )
+  }
+  return parseJsonSafely<T>(result.content, result.model)
 }
 
 function parseJsonSafely<T>(content: string, model: string): T {
