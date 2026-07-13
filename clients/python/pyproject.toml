@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "agent-eval-rpc"
-version = "0.115.3"
+version = "0.116.0"
 description = "Python RPC client for @tangle-network/agent-eval — judge content against rubrics over HTTP or stdio RPC. Eval logic runs in the Node runtime; this package is a thin wire client."
 readme = "README.md"
 requires-python = ">=3.10"
