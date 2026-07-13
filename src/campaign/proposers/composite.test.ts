@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { CodeSurface, ProposeContext, SurfaceProposer } from '../types'
 import { compositeProposer } from './composite'
+import { parameterSweepProposer } from './fapo'
 
 function ctxOf(populationSize: number): ProposeContext {
   return {
@@ -101,6 +102,49 @@ describe('compositeProposer (N proposers, one generation pool)', () => {
 
     expect(pool).toHaveLength(1)
     expect((pool[0] as { surface: CodeSurface }).surface.worktreeRef).toBe(first.worktreeRef)
+  })
+
+  it('lets stateful members recognize their own prior labels', async () => {
+    const composite = compositeProposer({
+      proposers: [
+        parameterSweepProposer({
+          candidates: [
+            { label: 'low', rationale: 'try low', patch: { effort: 'low' } },
+            { label: 'high', rationale: 'try high', patch: { effort: 'high' } },
+          ],
+        }),
+      ],
+    })
+    const first = await composite.propose({
+      ...ctxOf(1),
+      currentSurface: '{"effort":"medium"}',
+    })
+    const firstCandidate = first[0] as { surface: string; label: string; rationale: string }
+    const second = await composite.propose({
+      ...ctxOf(2),
+      currentSurface: '{"effort":"medium"}',
+      history: [
+        {
+          generationIndex: 0,
+          promoted: [],
+          candidates: [
+            {
+              surfaceHash: 'first',
+              label: firstCandidate.label,
+              rationale: firstCandidate.rationale,
+              composite: 0.5,
+              ci95: [0.5, 0.5],
+              dimensions: {},
+              scenarios: [],
+            },
+          ],
+        },
+      ],
+    })
+
+    expect(firstCandidate.label).toBe('parameter-sweep:low')
+    expect(second).toHaveLength(1)
+    expect((second[0] as { label: string }).label).toBe('parameter-sweep:high')
   })
 
   it('isolates a failing member; throws only when ALL members fail', async () => {

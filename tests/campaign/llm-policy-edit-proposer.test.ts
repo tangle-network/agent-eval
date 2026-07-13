@@ -158,6 +158,7 @@ function proposer(input: {
   targetSurface?: 'agent-profile' | 'code'
   admissionMode?: 'evidence-only' | 'strict'
   admission?: PolicyEditAdmissionOptions
+  projectAuthorSurface?: (surface: Record<string, unknown>) => Record<string, unknown>
 }) {
   return llmPolicyEditProposer({
     llm: {
@@ -192,6 +193,9 @@ function proposer(input: {
       : { maxAuthorContextChars: input.maxAuthorContextChars }),
     ...(input.admissionMode === undefined ? {} : { admissionMode: input.admissionMode }),
     ...(input.admission === undefined ? {} : { admission: input.admission }),
+    ...(input.projectAuthorSurface === undefined
+      ? {}
+      : { projectAuthorSurface: input.projectAuthorSurface }),
   })
 }
 
@@ -271,6 +275,156 @@ describe('llmPolicyEditProposer', () => {
     expect(providerSchema).toContain('"mode":{"const":"set"}')
     expect(providerSchema).toContain('"mode":{"const":"merge"}')
     expect(providerSchema).toContain('"mode":{"const":"remove"}')
+  })
+
+  it('authors from a private-field projection but applies edits to the complete surface', async () => {
+    const capture: CapturedRequest = {}
+    const out = await proposer({
+      response: { edits: [authoredEdit('finding-1')] },
+      capture,
+      projectAuthorSurface: (surface) => ({ prompt: surface.prompt }),
+    }).propose(
+      context({
+        finding: finding(),
+        currentSurface: JSON.stringify({
+          prompt: { systemPrompt: 'Base' },
+          mcp: {
+            linear: {
+              transport: 'http',
+              url: 'https://mcp.example.test',
+              headers: { Authorization: 'Bearer private-token' },
+            },
+          },
+        }),
+      }),
+    )
+
+    expect(capture.user?.currentSurface).toEqual({ prompt: { systemPrompt: 'Base' } })
+    expect(JSON.stringify(capture.user)).not.toContain('private-token')
+    expect(JSON.parse(candidateSurface(out[0]!))).toEqual({
+      prompt: { systemPrompt: 'Read repository instructions first.' },
+      mcp: {
+        linear: {
+          transport: 'http',
+          url: 'https://mcp.example.test',
+          headers: { Authorization: 'Bearer private-token' },
+        },
+      },
+    })
+  })
+
+  it('rejects a non-object author projection before model dispatch', async () => {
+    let called = false
+    const configured = llmPolicyEditProposer({
+      llm: {
+        apiKey: 'test-key',
+        baseUrl: 'https://router.test/v1',
+        fetch: (async () => {
+          called = true
+          throw new Error('must not dispatch')
+        }) as typeof fetch,
+      },
+      model: 'test-model-snapshot',
+      target: 'canonical agent profile JSON',
+      targetSurface: 'agent-profile',
+      allowedJsonPaths: ['prompt.systemPrompt'],
+      objectives: OBJECTIVES,
+      projectAuthorSurface: () => [] as unknown as Record<string, unknown>,
+    })
+
+    await expect(configured.propose(context({ finding: finding() }))).rejects.toThrow(
+      /projectAuthorSurface must return a JSON object/,
+    )
+    expect(called).toBe(false)
+  })
+
+  it('rejects a projection that hides an editable subtree before model dispatch', async () => {
+    let called = false
+    const configured = llmPolicyEditProposer({
+      llm: {
+        apiKey: 'test-key',
+        baseUrl: 'https://router.test/v1',
+        fetch: (async () => {
+          called = true
+          throw new Error('must not dispatch')
+        }) as typeof fetch,
+      },
+      model: 'test-model-snapshot',
+      target: 'canonical agent profile JSON',
+      targetSurface: 'agent-profile',
+      allowedJsonPaths: ['mcp.linear'],
+      objectives: OBJECTIVES,
+      projectAuthorSurface: (surface) => ({ prompt: surface.prompt }),
+    })
+
+    await expect(
+      configured.propose(
+        context({
+          finding: finding(),
+          currentSurface: JSON.stringify({
+            prompt: { systemPrompt: 'Base' },
+            mcp: {
+              linear: {
+                transport: 'http',
+                headers: { Authorization: 'Bearer private-token' },
+              },
+            },
+          }),
+        }),
+      ),
+    ).rejects.toThrow(/must not change or hide allowed JSON path 'mcp\.linear'/)
+    expect(called).toBe(false)
+  })
+
+  it('does not let a mutating projection alter the executable surface', async () => {
+    const out = await proposer({
+      response: { edits: [authoredEdit('finding-1')] },
+      projectAuthorSurface: (surface) => {
+        delete surface.mcp
+        return { prompt: surface.prompt }
+      },
+    }).propose(
+      context({
+        finding: finding(),
+        currentSurface: JSON.stringify({
+          prompt: { systemPrompt: 'Base' },
+          mcp: { linear: { headers: { Authorization: 'Bearer private-token' } } },
+        }),
+      }),
+    )
+
+    expect(JSON.parse(candidateSurface(out[0]!))).toMatchObject({
+      mcp: { linear: { headers: { Authorization: 'Bearer private-token' } } },
+    })
+  })
+
+  it('rejects projected JSON keys that validation would otherwise rewrite', async () => {
+    const configured = proposer({
+      response: { edits: [] },
+      projectAuthorSurface: (surface) => ({ ...surface, ' mcp': {} }),
+    })
+
+    await expect(configured.propose(context({ finding: finding() }))).rejects.toThrow(
+      /projectAuthorSurface must return a JSON object/,
+    )
+  })
+
+  it('does not let an author projection hide task identifiers in the executable surface', async () => {
+    const configured = proposer({
+      response: { edits: [authoredEdit('finding-1')] },
+      scenarioIdTransform: () => 'task-1',
+      projectAuthorSurface: () => ({}),
+    })
+
+    await expect(
+      configured.propose(
+        context({
+          finding: finding(),
+          currentSurface: '{"prompt":{"systemPrompt":"Handle private-task"}}',
+          baselineOutcome: measuredOutcome('baseline', 0.4, 'private-task'),
+        }),
+      ),
+    ).rejects.toThrow(/raw scenario identifier/)
   })
 
   it('shows the author measured baseline, incumbent, and exact parent deltas', async () => {

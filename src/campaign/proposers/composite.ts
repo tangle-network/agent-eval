@@ -91,7 +91,11 @@ export function compositeProposer<TFindings = unknown>(
         const share = shares[i] ?? 0
         if (!member || share === 0 || ctx.signal.aborted) continue
         try {
-          const proposals = await member.propose({ ...ctx, populationSize: share })
+          const proposals = await member.propose({
+            ...ctx,
+            history: historyForMember(ctx.history, member.kind),
+            populationSize: share,
+          })
           for (const proposal of proposals) {
             const isCandidate =
               typeof proposal === 'object' && proposal !== null && 'surface' in proposal
@@ -133,7 +137,11 @@ export function compositeProposer<TFindings = unknown>(
     decide(args: { history: GenerationRecord[] }): { stop: boolean; reason?: string } {
       const votes = members
         .filter((m) => typeof m.decide === 'function')
-        .map((m) => (m.decide as NonNullable<SurfaceProposer<TFindings>['decide']>)(args))
+        .map((m) =>
+          (m.decide as NonNullable<SurfaceProposer<TFindings>['decide']>)({
+            history: historyForMember(args.history, m.kind),
+          }),
+        )
       if (votes.length === 0) return { stop: false }
       const allStop = votes.every((v) => v.stop)
       return allStop
@@ -148,4 +156,16 @@ export function compositeProposer<TFindings = unknown>(
         : { stop: false }
     },
   }
+}
+
+function historyForMember(history: GenerationRecord[], memberKind: string): GenerationRecord[] {
+  const prefix = `${memberKind}:`
+  return history.map((generation) => ({
+    ...generation,
+    candidates: generation.candidates.map((candidate) =>
+      candidate.label?.startsWith(prefix)
+        ? { ...candidate, label: candidate.label.slice(prefix.length) }
+        : candidate,
+    ),
+  }))
 }

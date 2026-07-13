@@ -41,6 +41,10 @@ const JSON_POLICY_EDIT_TARGET_SURFACES = [
 export type JsonPolicyEditTargetSurface = (typeof JSON_POLICY_EDIT_TARGET_SURFACES)[number]
 
 const NonEmptyStringSchema = z.string().trim().min(1)
+const JsonObjectKeySchema = z
+  .string()
+  .min(1)
+  .refine((key) => key.trim() === key, 'JSON object keys must not have surrounding whitespace')
 
 const JsonValueSchema: z.ZodType<AgentProfileJson> = z.lazy(() =>
   z.union([
@@ -49,7 +53,7 @@ const JsonValueSchema: z.ZodType<AgentProfileJson> = z.lazy(() =>
     z.boolean(),
     z.null(),
     z.array(JsonValueSchema),
-    z.record(NonEmptyStringSchema, JsonValueSchema),
+    z.record(JsonObjectKeySchema, JsonValueSchema),
   ]),
 )
 
@@ -414,6 +418,13 @@ export interface LlmPolicyEditProposerOptions {
   maxAuthorContextChars?: number
   /** Optional one-to-one pseudonymizer applied to every author-visible evidence field. */
   scenarioIdTransform?: (scenarioId: string) => string
+  /**
+   * Project the current JSON surface before it enters model context. Use this
+   * to remove credentials or unrelated private fields outside allowedJsonPaths.
+   * Every editable path must remain unchanged. Scored history is not projected.
+   * Authored edits are validated and applied to the original surface.
+   */
+  projectAuthorSurface?: (surface: AgentProfileJson) => AgentProfileJson
   onAdmission?: (admission: PolicyEditAdmission) => void
 }
 
@@ -493,6 +504,12 @@ export function llmPolicyEditProposer(
         { currentSurface, allowedJsonPaths, objectives, targetSurface: opts.targetSurface },
         scenarioIds,
       )
+      const authorSurface = projectAuthorSurface(
+        currentSurface,
+        allowedJsonPaths,
+        opts.projectAuthorSurface,
+      )
+      assertSurfaceIsTaskAgnostic(authorSurface, scenarioIds)
       const measuredSources = measuredSourceMeasurements(ctx)
       const findings = citableFindings(ctx.findings, measuredSources, maxFindings)
       const findingByKey = new Map(
@@ -505,7 +522,7 @@ export function llmPolicyEditProposer(
         objectives,
         candidateCount: limit,
         generation: ctx.generation,
-        currentSurface,
+        currentSurface: authorSurface,
         findings: findings.map((finding, index) =>
           renderFinding(finding, `finding-${index + 1}`, scenarioIds, measuredSources),
         ),
@@ -1245,6 +1262,67 @@ function parseJsonSurface(surface: MutableSurface): AgentProfileJson {
     throw new Error('llmPolicyEditProposer: currentSurface JSON root must be an object')
   }
   return parsed as AgentProfileJson
+}
+
+function projectAuthorSurface(
+  surface: AgentProfileJson,
+  allowedJsonPaths: readonly string[],
+  project: LlmPolicyEditProposerOptions['projectAuthorSurface'],
+): AgentProfileJson {
+  if (!project) return surface
+  const projected = project(structuredClone(surface))
+  const parsed = JsonValueSchema.safeParse(projected)
+  if (
+    !parsed.success ||
+    !parsed.data ||
+    typeof parsed.data !== 'object' ||
+    Array.isArray(parsed.data)
+  ) {
+    throw new Error('llmPolicyEditProposer: projectAuthorSurface must return a JSON object')
+  }
+  for (const path of allowedJsonPaths) {
+    if (!jsonValuesEqual(readJsonPath(surface, path), readJsonPath(parsed.data, path))) {
+      throw new Error(
+        `llmPolicyEditProposer: projectAuthorSurface must not change or hide allowed JSON path '${path}'`,
+      )
+    }
+  }
+  return parsed.data
+}
+
+function readJsonPath(root: AgentProfileJson, path: string): AgentProfileJson | undefined {
+  let cursor: AgentProfileJson | undefined = root
+  for (const part of path
+    .split('.')
+    .map((segment) => segment.trim())
+    .filter(Boolean)) {
+    if (!cursor || typeof cursor !== 'object' || Array.isArray(cursor)) return undefined
+    cursor = cursor[part]
+  }
+  return cursor
+}
+
+function jsonValuesEqual(
+  left: AgentProfileJson | undefined,
+  right: AgentProfileJson | undefined,
+): boolean {
+  if (left === right) return true
+  if (left === undefined || right === undefined || left === null || right === null) return false
+  if (Array.isArray(left) || Array.isArray(right)) {
+    return (
+      Array.isArray(left) &&
+      Array.isArray(right) &&
+      left.length === right.length &&
+      left.every((value, index) => jsonValuesEqual(value, right[index]))
+    )
+  }
+  if (typeof left !== 'object' || typeof right !== 'object') return false
+  const leftKeys = Object.keys(left)
+  const rightKeys = Object.keys(right)
+  return (
+    leftKeys.length === rightKeys.length &&
+    leftKeys.every((key) => Object.hasOwn(right, key) && jsonValuesEqual(left[key], right[key]))
+  )
 }
 
 interface CitableFinding {

@@ -4,6 +4,16 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ---
 
+## Unreleased
+
+### Added
+
+- `llmPolicyEditProposer({ projectAuthorSurface })` can remove credentials and unrelated private fields outside editable paths from the current surface sent to the model while applying validated edits to the complete original surface.
+
+### Fixed
+
+- `compositeProposer` restores each member's original labels when replaying history, so stateful members do not repeat candidates whose labels were decorated for provenance.
+
 ## [0.116.0] — 2026-07-12 — evidence-linked AgentProfile optimization
 
 ### Added
