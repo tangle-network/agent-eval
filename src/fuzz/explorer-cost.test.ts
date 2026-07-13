@@ -29,7 +29,11 @@ function makeOpts(overrides: Partial<ExploreOptions<string>>): ExploreOptions<st
 describe('BehaviorExplorer cost budget', () => {
   it('stops the loop when accumulated known cost reaches costBudgetUsd', async () => {
     const explorer = new BehaviorExplorer(
-      makeOpts({ costOf: () => ({ usd: 1 }), costBudgetUsd: 3 }),
+      makeOpts({
+        costOf: () => ({ usd: 1 }),
+        maximumChargeOf: () => ({ externallyEnforcedMaximumUsd: 1 }),
+        costBudgetUsd: 3,
+      }),
     )
     const capsule = await explorer.run()
     expect(capsule.stats.totalRuns).toBe(3)
@@ -39,14 +43,18 @@ describe('BehaviorExplorer cost budget', () => {
 
   it('a zero budget stops before any evaluation — same >= semantics as control-runtime', async () => {
     const explorer = new BehaviorExplorer(
-      makeOpts({ costOf: () => ({ usd: 1 }), costBudgetUsd: 0 }),
+      makeOpts({
+        costOf: () => ({ usd: 1 }),
+        maximumChargeOf: () => ({ externallyEnforcedMaximumUsd: 1 }),
+        costBudgetUsd: 0,
+      }),
     )
     const capsule = await explorer.run()
     expect(capsule.stats.totalRuns).toBe(0)
     expect(capsule.stats.costUsd).toBe(0)
   })
 
-  it('counts unknown-cost runs separately — never as $0, never against the budget', async () => {
+  it('stops a capped run after unknown cost makes the remaining budget unknowable', async () => {
     let call = 0
     const onCost: Array<{ usd: number; channel: string }> = []
     const explorer = new BehaviorExplorer(
@@ -54,18 +62,16 @@ describe('BehaviorExplorer cost budget', () => {
         budget: 4,
         // Runs 1 and 3 cost $1; runs 2 and 4 have unknown cost.
         costOf: () => (call++ % 2 === 0 ? { usd: 1 } : null),
+        maximumChargeOf: () => ({ externallyEnforcedMaximumUsd: 1 }),
         costBudgetUsd: 10,
         onCost: (e) => onCost.push(e),
       }),
     )
     const capsule = await explorer.run()
-    expect(capsule.stats.totalRuns).toBe(4)
-    expect(capsule.stats.costUsd).toBe(2)
-    expect(capsule.stats.costUnknownRuns).toBe(2)
-    expect(onCost).toEqual([
-      { usd: 1, channel: 'agent' },
-      { usd: 1, channel: 'agent' },
-    ])
+    expect(capsule.stats.totalRuns).toBe(2)
+    expect(capsule.stats.costUsd).toBe(1)
+    expect(capsule.stats.costUnknownRuns).toBe(1)
+    expect(onCost).toEqual([{ usd: 1, channel: 'agent' }])
   })
 
   it('records known costs into the supplied ledger with channel agent + actualCostUsd', async () => {
@@ -113,6 +119,30 @@ describe('BehaviorExplorer cost budget', () => {
     expect(() => new BehaviorExplorer(makeOpts({ onCost: () => {} }))).toThrow(ValidationError)
   })
 
+  it('rejects capped exploration without a pre-call maximum', () => {
+    expect(
+      () => new BehaviorExplorer(makeOpts({ costOf: () => ({ usd: 1 }), costBudgetUsd: 3 })),
+    ).toThrow(/maximumChargeOf/)
+  })
+
+  it('reports a ledger refusal as an evaluation error', async () => {
+    const progress: string[] = []
+    const explorer = new BehaviorExplorer(
+      makeOpts({
+        budget: 1,
+        costOf: () => ({ usd: 1 }),
+        ledger: new CostLedger(0),
+        maximumChargeOf: () => ({ externallyEnforcedMaximumUsd: 1 }),
+        onProgress: (event) => progress.push(event.type),
+      }),
+    )
+
+    const capsule = await explorer.run()
+
+    expect(capsule.stats.evalErrors).toBe(1)
+    expect(progress).toContain('eval-error')
+  })
+
   it('rejects a fabricated costOf number loudly — null is the only unknown', async () => {
     const explorer = new BehaviorExplorer(
       makeOpts({ budget: 1, costOf: () => ({ usd: Number.NaN }) }),
@@ -130,7 +160,11 @@ describe('BehaviorExplorer cost budget', () => {
 describe('renderCapsuleHtml cost KPI', () => {
   it('shows the known-dollar KPI when cost tracking was wired', async () => {
     const explorer = new BehaviorExplorer(
-      makeOpts({ costOf: () => ({ usd: 1 }), costBudgetUsd: 3 }),
+      makeOpts({
+        costOf: () => ({ usd: 1 }),
+        maximumChargeOf: () => ({ externallyEnforcedMaximumUsd: 1 }),
+        costBudgetUsd: 3,
+      }),
     )
     const html = renderCapsuleHtml(await explorer.run())
     expect(html).toContain('$3.00')

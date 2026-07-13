@@ -26,6 +26,8 @@
 
 import { openAutoPr } from '../auto-pr'
 import { campaignCoverage, formatCoverageFailures } from '../coverage'
+import { resolveRunDir } from '../run-dir'
+import { createRunCostLedger, fsCampaignStorage } from '../storage'
 import type { CampaignResult, Gate, MutableSurface, Scenario } from '../types'
 import type { RunOptimizationOptions, RunOptimizationResult } from './run-optimization'
 import { runOptimization, surfaceHash } from './run-optimization'
@@ -122,6 +124,19 @@ export async function runImprovementLoop<TScenario extends Scenario, TArtifact>(
     )
   }
 
+  if (typeof opts.runDir !== 'string' || opts.runDir.trim().length === 0) {
+    throw new Error('runImprovementLoop: runDir is required and must be a non-empty string')
+  }
+  opts.runDir = resolveRunDir(opts.runDir, opts.repo)
+  const storage = opts.storage ?? fsCampaignStorage()
+  const costLedger =
+    opts.costLedger ??
+    createRunCostLedger({
+      storage,
+      runDir: opts.runDir,
+      costCeilingUsd: opts.costCeiling,
+    })
+
   // Per-cell dispatch deadline applied to EVERY campaign in the loop
   // (optimization + both holdout passes). A single non-settling dispatch — a
   // stalled model request, an exhausted runtime resource, a stream that never
@@ -131,7 +146,7 @@ export async function runImprovementLoop<TScenario extends Scenario, TArtifact>(
   const dispatchTimeoutMs = opts.dispatchTimeoutMs ?? DEFAULT_DISPATCH_TIMEOUT_MS
 
   // ── (1) optimization loop produces a winner ────────────────────────
-  const optimization = await runOptimization({ ...opts, dispatchTimeoutMs })
+  const optimization = await runOptimization({ ...opts, dispatchTimeoutMs, costLedger })
 
   // No candidate beat the training baseline ⇒ the "winner" IS the baseline
   // (empty diff). Re-scoring the baseline against ITSELF on the holdout and
@@ -145,6 +160,8 @@ export async function runImprovementLoop<TScenario extends Scenario, TArtifact>(
 
   const baselineOnHoldout = await runCampaign<TScenario, TArtifact>({
     ...opts,
+    costLedger,
+    costPhase: 'holdout.baseline',
     dispatchTimeoutMs,
     scenarios: opts.holdoutScenarios,
     dispatch: (scenario, ctx) => opts.dispatchWithSurface(opts.baselineSurface, scenario, ctx),
@@ -158,6 +175,8 @@ export async function runImprovementLoop<TScenario extends Scenario, TArtifact>(
     ? baselineOnHoldout
     : await runCampaign<TScenario, TArtifact>({
         ...opts,
+        costLedger,
+        costPhase: 'holdout.winner',
         dispatchTimeoutMs,
         scenarios: opts.holdoutScenarios,
         dispatch: (scenario, ctx) =>
@@ -226,6 +245,8 @@ export async function runImprovementLoop<TScenario extends Scenario, TArtifact>(
     const neutralizedSurface = opts.neutralize(optimization.winnerSurface, opts.baselineSurface)
     const neutralizedOnHoldout = await runCampaign<TScenario, TArtifact>({
       ...opts,
+      costLedger,
+      costPhase: 'holdout.neutralized',
       dispatchTimeoutMs,
       scenarios: opts.holdoutScenarios,
       dispatch: (scenario, ctx) => opts.dispatchWithSurface(neutralizedSurface, scenario, ctx),
@@ -267,6 +288,8 @@ export async function runImprovementLoop<TScenario extends Scenario, TArtifact>(
           candidate: winnerOnHoldout.aggregates.totalCostUsd,
           baseline: baselineOnHoldout.aggregates.totalCostUsd,
         },
+        costLedger,
+        costPhase: 'promotion.gate',
         signal: new AbortController().signal,
       })
 
@@ -298,6 +321,7 @@ export async function runImprovementLoop<TScenario extends Scenario, TArtifact>(
     gateResult,
     promotedDiff,
     prResult,
+    cost: costLedger.summary(),
   }
 }
 

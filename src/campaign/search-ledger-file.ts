@@ -32,11 +32,25 @@ export function appendSearchLedgerLine(path: string, line: string): void {
 }
 
 export function withSearchLedgerFileLock<T>(ledgerPath: string, run: () => T): T {
+  const result = tryWithSearchLedgerFileLock(ledgerPath, run)
+  if (!result.acquired) {
+    throw new SearchLedgerIntegrityError(`search ledger lock is held (${ledgerPath})`)
+  }
+  return result.value
+}
+
+export type FileLockResult<T> = { acquired: true; value: T } | { acquired: false }
+
+export function tryWithSearchLedgerFileLock<T>(
+  ledgerPath: string,
+  run: () => T,
+): FileLockResult<T> {
   mkdirSync(dirname(ledgerPath), { recursive: true })
   const lockPath = `${ledgerPath}.lock`
   const owner = acquireLock(lockPath)
+  if (!owner) return { acquired: false }
   try {
-    return run()
+    return { acquired: true, value: run() }
   } finally {
     releaseLock(lockPath, owner)
   }
@@ -69,7 +83,7 @@ interface LockOwner {
 /** Create a complete owner inode first, then hard-link it into the fixed lock
  * path. `link` is the atomic compare-and-set; a crash can never leave an empty
  * or partially-written lock owner. */
-function acquireLock(lockPath: string): LockOwner {
+function acquireLock(lockPath: string): LockOwner | undefined {
   const owner: LockOwner = { pid: process.pid, host: hostname(), nonce: randomUUID() }
   const ownerBytes = `${canonicalOwner(owner)}\n`
   for (let attempt = 0; attempt < 8; attempt += 1) {
@@ -93,9 +107,7 @@ function acquireLock(lockPath: string): LockOwner {
 
     const holder = readOwner(lockPath)
     if (holder.host !== owner.host || isProcessAlive(holder.pid)) {
-      throw new SearchLedgerIntegrityError(
-        `search ledger lock is held by pid ${holder.pid} on ${holder.host}`,
-      )
+      return undefined
     }
 
     const tombstone = `${lockPath}.stale.${owner.nonce}.${attempt}`

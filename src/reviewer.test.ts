@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
+import { CostLedger } from './cost-ledger'
 import { buildReviewerPrompt, createDefaultReviewer } from './reviewer'
 
 const BASE_INPUT = {
@@ -95,6 +96,7 @@ describe('createDefaultReviewer', () => {
   }
 
   it('calls LLM, parses structured output, returns ReviewerOutput', async () => {
+    const costLedger = new CostLedger()
     const fetch = mockFetch([
       {
         observations: 'worker wrote 3 files via Edit, no errors logged, build failed on typecheck.',
@@ -105,7 +107,7 @@ describe('createDefaultReviewer', () => {
         confidence: 0.85,
       },
     ])
-    const reviewer = createDefaultReviewer({ model: 'mock-model', llm: { fetch } })
+    const reviewer = createDefaultReviewer({ model: 'mock-model', llm: { fetch }, costLedger })
     const r = await reviewer(BASE_INPUT)
     expect(r.available).toBe(true)
     expect(r.shot).toBe(2)
@@ -113,6 +115,9 @@ describe('createDefaultReviewer', () => {
     expect(r.shouldContinue).toBe(true)
     expect(r.diagnosis).toMatch(/wagmi v2/)
     expect(r.costUsd).toBeCloseTo(0.001)
+    expect(costLedger.list()).toEqual([
+      expect.objectContaining({ channel: 'analyst', actor: 'default-reviewer', costUsd: 0.001 }),
+    ])
   })
 
   it('clamps confidence to [0, 1]', async () => {

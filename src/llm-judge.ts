@@ -24,11 +24,23 @@
  * folded into a silent zero.
  */
 
+import { z } from 'zod'
 import type { ChatClient } from './analyst/chat-client'
 import type { JudgeConfig, JudgeDimension, JudgeScore, Scenario } from './campaign/types'
+import { CostLedger } from './cost-ledger'
 import { JudgeParseError } from './judges'
+import {
+  costReceiptFromLlm,
+  costReceiptFromLlmError,
+  type LlmCallMetadata,
+  type LlmCallRequest,
+  type LlmCallResult,
+  maximumChargeForLlmRequest,
+  stripFencedJson,
+} from './llm-client'
 import { clamp01 } from './run-score'
 import { weightedComposite } from './statistics'
+import { contentHash } from './verdict-cache'
 
 /** A rubric dimension as a bare key or the full `{ key, description }` shape. A
  *  bare string uses the key as its own description. */
@@ -44,6 +56,8 @@ export interface LlmJudgeOptions<TArtifact, TScenario extends Scenario = Scenari
   dimensions?: LlmJudgeDimension[]
   /** Model id. Falls back to `chat.defaultModel`; one of the two MUST resolve. */
   model?: string
+  /** Explicit scoring revision for opaque transport or renderer changes. */
+  judgeVersion?: string
   temperature?: number
   maxTokens?: number
   /** Composite weights forwarded to `weightedComposite`: a partial map selects
@@ -59,6 +73,9 @@ export interface LlmJudgeOptions<TArtifact, TScenario extends Scenario = Scenari
   /** Render the artifact + scenario into the user message. Default:
    *  pretty-printed JSON of `{ scenario, artifact }`. */
   renderUser?: (input: { artifact: TArtifact; scenario: TScenario }) => string
+  /** Strict runtime contract; its JSON Schema is sent to the provider. */
+  costLedger?: CostLedger
+  responseSchema?: { name: string; schema: z.ZodObject }
 }
 
 interface RawJudgeResponse {
@@ -116,31 +133,90 @@ export function llmJudge<TArtifact = unknown, TScenario extends Scenario = Scena
   }
 
   const systemPrompt = `${prompt}\n\n${renderContract(dimensions, scale)}`
+  const directCostLedger = opts.costLedger ?? new CostLedger()
+  let jsonSchema: { name: string; schema: Record<string, unknown> } | undefined
+  if (opts.responseSchema) {
+    const schema = { ...(z.toJSONSchema(opts.responseSchema.schema) as Record<string, unknown>) }
+    delete schema.$schema
+    jsonSchema = { name: opts.responseSchema.name, schema }
+  }
+  const declaredJudgeVersion = opts.judgeVersion?.trim()
+  if (opts.judgeVersion !== undefined && !declaredJudgeVersion) {
+    throw new Error(`llmJudge '${name}': judgeVersion must be non-empty when provided`)
+  }
+  const judgeVersion =
+    declaredJudgeVersion ??
+    contentHash({
+      kind: 'llmJudge',
+      prompt: systemPrompt,
+      model,
+      transport: opts.chat.transport,
+      maximumAttempts: opts.chat.maximumAttempts ?? null,
+      temperature: opts.temperature ?? 0.1,
+      maxTokens: opts.maxTokens ?? 800,
+      weights: opts.weights ?? null,
+      scale,
+      jsonSchema: jsonSchema ?? null,
+      renderUser: opts.renderUser?.toString() ?? null,
+    })
 
   return {
     name,
     dimensions,
+    judgeVersion,
     appliesTo: opts.appliesTo,
-    async score({ artifact, scenario, signal }): Promise<JudgeScore> {
-      const response = await opts.chat.chat(
-        {
-          model,
-          messages: [
-            { role: 'system', content: systemPrompt },
-            { role: 'user', content: renderUser({ artifact, scenario }) },
-          ],
-          jsonMode: true,
-          temperature: opts.temperature ?? 0.1,
-          maxTokens: opts.maxTokens ?? 800,
-        },
-        { signal },
-      )
+    async score({
+      artifact,
+      scenario,
+      signal,
+      costLedger,
+      costPhase,
+      costTags,
+    }): Promise<JudgeScore> {
+      const request: LlmCallRequest = {
+        model,
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: renderUser({ artifact, scenario }) },
+        ],
+        jsonMode: true,
+        jsonSchema,
+        temperature: opts.temperature ?? 0.1,
+        maxTokens: opts.maxTokens ?? 800,
+      }
+      const paid = await (costLedger ?? directCostLedger).runPaidCall({
+        channel: 'judge',
+        phase: costPhase ?? 'judge',
+        actor: name,
+        model,
+        maximumCharge:
+          opts.chat.maximumAttempts === undefined
+            ? undefined
+            : maximumChargeForLlmRequest(request, {
+                maxRetries: opts.chat.maximumAttempts,
+              }),
+        tags: { ...costTags, scenarioId: scenario.id },
+        signal,
+        execute: (callSignal, callId) =>
+          opts.chat.chat(request, { signal: callSignal, idempotencyKey: callId }),
+        receipt: costReceiptFromLlm,
+        receiptFromError: costReceiptFromLlmError,
+      })
+      if (!paid.succeeded) throw paid.error
+      const response = paid.value
+      const llmCall: LlmCallMetadata = {
+        usage: response.usage,
+        costUsd: response.costUsd,
+        model: response.model,
+        durationMs: response.durationMs,
+      }
 
-      const parsed = parseResponse(name, response.content)
+      const parsed = parseResponse(name, response, opts.responseSchema?.schema, llmCall)
       const rawDims = parsed.dimensions ?? parsed.scores
       if (!rawDims || typeof rawDims !== 'object') {
         throw new JudgeParseError(name, response.content, {
           cause: new Error('response has no `dimensions` object'),
+          llmCall,
         })
       }
 
@@ -153,6 +229,7 @@ export function llmJudge<TArtifact = unknown, TScenario extends Scenario = Scena
             cause: new Error(
               `dimension '${key}' missing or non-numeric (got ${JSON.stringify(raw)})`,
             ),
+            llmCall,
           })
         }
         dims[key] = clamp01(value / divisor)
@@ -167,7 +244,7 @@ export function llmJudge<TArtifact = unknown, TScenario extends Scenario = Scena
         firstString(parsed.rationale) ??
         `${name}: composite ${composite.toFixed(3)} over ${dimensions.length} dimension(s)`
 
-      return { dimensions: dims, composite, notes }
+      return { dimensions: dims, composite, notes, llmCall }
     },
   }
 }
@@ -208,7 +285,26 @@ function renderContract(dimensions: JudgeDimension[], scale: 'unit' | 'ten'): st
   ].join('\n')
 }
 
-function parseResponse(name: string, content: string): RawJudgeResponse {
+function parseResponse(
+  name: string,
+  response: LlmCallResult,
+  schema: z.ZodObject | undefined,
+  llmCall: LlmCallMetadata,
+): RawJudgeResponse {
+  const { content } = response
+  const fail = (cause: unknown) => new JudgeParseError(name, content, { cause, llmCall })
+  if (response.finishReason != null && response.finishReason !== 'stop') {
+    throw fail(
+      new Error(`response did not complete normally (finishReason=${response.finishReason})`),
+    )
+  }
+  if (schema) {
+    try {
+      return schema.parse(JSON.parse(stripFencedJson(content))) as RawJudgeResponse
+    } catch (cause) {
+      throw fail(cause)
+    }
+  }
   const stripped = content.replace(/```json\n?|\n?```/g, '').trim()
   const objMatch = stripped.match(/\{[\s\S]*\}/)
   const payload = objMatch ? objMatch[0] : stripped
@@ -218,8 +314,8 @@ function parseResponse(name: string, content: string): RawJudgeResponse {
       throw new Error('parsed value is not an object')
     }
     return parsed
-  } catch (err) {
-    throw new JudgeParseError(name, content, { cause: err })
+  } catch (cause) {
+    throw fail(cause)
   }
 }
 

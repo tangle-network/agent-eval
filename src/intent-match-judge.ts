@@ -23,7 +23,15 @@
  * treat failure as "judge skipped."
  */
 
-import { callLlmJson, type LlmClientOptions } from './llm-client'
+import { CostLedger, type CostReceipt } from './cost-ledger'
+import {
+  callLlmJson,
+  costReceiptFromLlm,
+  costReceiptFromLlmError,
+  type LlmCallRequest,
+  type LlmClientOptions,
+  maximumChargeForLlmRequest,
+} from './llm-client'
 
 export const INTENT_MATCH_JUDGE_VERSION = 'intent-match-judge-v1-2026-04-24'
 
@@ -55,14 +63,19 @@ export interface IntentMatchResult {
 export interface IntentMatchOptions {
   model?: string
   timeoutMs?: number
+  maxTokens?: number
   maxSourceChars?: number
   maxPerFileChars?: number
   maxHtmlChars?: number
   llm?: LlmClientOptions
+  costLedger?: CostLedger
+  costPhase?: string
+  signal?: AbortSignal
 }
 
 const DEFAULT_MODEL = 'claude-sonnet-4-6'
 const DEFAULT_TIMEOUT = 300_000
+const DEFAULT_MAX_TOKENS = 800
 const DEFAULT_MAX_SOURCE = 25_000
 const DEFAULT_MAX_PER_FILE = 12_000
 const DEFAULT_MAX_HTML = 20_000
@@ -137,10 +150,14 @@ export async function runIntentMatchJudge(
   const opts: Required<IntentMatchOptions> = {
     model: options.model ?? DEFAULT_MODEL,
     timeoutMs: options.timeoutMs ?? DEFAULT_TIMEOUT,
+    maxTokens: options.maxTokens ?? DEFAULT_MAX_TOKENS,
     maxSourceChars: options.maxSourceChars ?? DEFAULT_MAX_SOURCE,
     maxPerFileChars: options.maxPerFileChars ?? DEFAULT_MAX_PER_FILE,
     maxHtmlChars: options.maxHtmlChars ?? DEFAULT_MAX_HTML,
     llm: options.llm ?? {},
+    costLedger: options.costLedger ?? new CostLedger(),
+    costPhase: options.costPhase ?? 'judge.intent-match',
+    signal: options.signal ?? new AbortController().signal,
   }
 
   if (input.sourceFiles.length === 0 && !input.servedHtml) {
@@ -156,24 +173,42 @@ export async function runIntentMatchJudge(
     }
   }
 
+  let receipt: CostReceipt | undefined
   try {
-    const { value, result } = await callLlmJson<{ score: number; evidence: string }>(
-      {
-        model: opts.model,
-        messages: [
-          {
-            role: 'system',
-            content:
-              'You are a holistic code reviewer answering one question: did the agent build the right app for the user. Return strict JSON. No prose outside.',
-          },
-          { role: 'user', content: buildPrompt(input, opts) },
-        ],
-        jsonSchema: { name: 'intent_match_judge', schema: INTENT_SCHEMA },
-        temperature: 0,
-        timeoutMs: opts.timeoutMs,
-      },
-      opts.llm,
-    )
+    const request = {
+      model: opts.model,
+      messages: [
+        {
+          role: 'system' as const,
+          content:
+            'You are a holistic code reviewer answering one question: did the agent build the right app for the user. Return strict JSON. No prose outside.',
+        },
+        { role: 'user' as const, content: buildPrompt(input, opts) },
+      ],
+      jsonSchema: { name: 'intent_match_judge', schema: INTENT_SCHEMA },
+      temperature: 0,
+      maxTokens: opts.maxTokens,
+      timeoutMs: opts.timeoutMs,
+    } satisfies LlmCallRequest
+    const paid = await opts.costLedger.runPaidCall({
+      channel: 'judge',
+      phase: opts.costPhase,
+      actor: 'intent-match',
+      model: opts.model,
+      maximumCharge: maximumChargeForLlmRequest(request, opts.llm),
+      signal: opts.signal,
+      execute: (signal, callId) =>
+        callLlmJson<{ score: number; evidence: string }>(request, {
+          ...opts.llm,
+          signal,
+          idempotencyKey: callId,
+        }),
+      receipt: ({ result }) => costReceiptFromLlm(result),
+      receiptFromError: costReceiptFromLlmError,
+    })
+    receipt = paid.receipt
+    if (!paid.succeeded) throw paid.error
+    const { value } = paid.value
 
     const score = Math.max(0, Math.min(1, Number(value?.score ?? 0)))
     return {
@@ -182,7 +217,7 @@ export async function runIntentMatchJudge(
       score: Number(score.toFixed(3)),
       evidence: String(value?.evidence ?? '').slice(0, 400),
       durationMs: Date.now() - start,
-      costUsd: result.costUsd ?? null,
+      costUsd: paid.receipt.costUnknown ? null : paid.receipt.costUsd,
       available: true,
     }
   } catch (err) {
@@ -192,7 +227,7 @@ export async function runIntentMatchJudge(
       score: 0,
       evidence: '',
       durationMs: Date.now() - start,
-      costUsd: null,
+      costUsd: receipt && !receipt.costUnknown ? receipt.costUsd : null,
       available: false,
       error: err instanceof Error ? err.message : String(err),
     }

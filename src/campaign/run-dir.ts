@@ -15,7 +15,7 @@ export function tangleTracesRoot(): string {
  *  so bundles never pollute a repo working tree — the default the harness should
  *  compute so callers pass a *name*, not a path. */
 export function resolveRunDir(runDir: string, repo?: string): string {
-  if (isAbsolute(runDir)) return runDir
+  if (isAbsolute(runDir) || runDir.startsWith('mem://')) return runDir
   const r = repo && repo.trim().length > 0 ? repo : basename(process.cwd())
   return join(tangleTracesRoot(), r, 'runs', runDir)
 }

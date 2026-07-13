@@ -7,6 +7,7 @@
 
 import type { TCloud } from '@tangle-network/tcloud'
 import { describe, expect, it, vi } from 'vitest'
+import { CostLedger } from '../src/cost-ledger'
 import { executeScenario } from '../src/executor'
 import { createCustomJudge, JudgeParseError } from '../src/judges'
 import type { JudgeFn, Scenario } from '../src/types'
@@ -63,6 +64,51 @@ describe('parseJudgeResponse — fail loud', () => {
         evidence: undefined,
       },
     ])
+  })
+
+  it('admits built-in judge calls from an enforced token bound and records their receipt', async () => {
+    let calls = 0
+    const tc = {
+      chat: async () => {
+        calls++
+        return {
+          model: 'gpt-4o',
+          choices: [
+            { message: { content: '[{"dimension":"quality","score":7,"reasoning":"fine"}]' } },
+          ],
+          usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 },
+        }
+      },
+    } as unknown as TCloud
+    const judge = createCustomJudge('strict', 'score it', {
+      model: 'gpt-4o',
+      maxTokens: 1_000,
+    })
+    const baseInput = {
+      scenario: scenario as never,
+      turns: [{ userMessage: 'hi', agentResponse: 'yo' }],
+      artifacts: { vaultFiles: [], blocksExtracted: [], codeBlocks: [], toolCalls: [] },
+      tcloudMaximumAttempts: 1,
+    }
+
+    const blocked = new CostLedger({ costCeilingUsd: 0 })
+    await expect(judge(tc, { ...baseInput, costLedger: blocked } as never)).rejects.toThrow(
+      /would exceed ceiling/,
+    )
+    expect(calls).toBe(0)
+    expect(blocked.summary().totalCostUsd).toBe(0)
+
+    const admitted = new CostLedger({ costCeilingUsd: 1 })
+    await judge(tc, { ...baseInput, costLedger: admitted } as never)
+    expect(calls).toBe(1)
+    expect(admitted.summary()).toMatchObject({
+      totalCalls: 1,
+      inputTokens: 10,
+      outputTokens: 5,
+      fullyPriced: true,
+      accountingComplete: true,
+    })
+    expect(admitted.summary({ channel: 'judge' }).totalCostUsd).toBeGreaterThan(0)
   })
 })
 

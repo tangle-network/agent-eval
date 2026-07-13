@@ -25,7 +25,15 @@
  * empty generation because early generations legitimately have no findings.
  */
 
-import { callLlm, type LlmClientOptions } from '../../llm-client'
+import { CostLedger } from '../../cost-ledger'
+import {
+  callLlm,
+  costReceiptFromLlm,
+  costReceiptFromLlmError,
+  type LlmCallRequest,
+  type LlmClientOptions,
+  maximumChargeForLlmRequest,
+} from '../../llm-client'
 import type { ProposeContext, ProposedCandidate, SurfaceProposer } from '../types'
 import {
   extractBlockBody,
@@ -39,6 +47,8 @@ const BLOCK_START = '<!-- BEGIN curated-memory (auto-managed by memoryCurationPr
 const BLOCK_END = '<!-- END curated-memory -->'
 
 export interface MemoryCurationProposerOptions {
+  /** Optional ledger for direct proposer use. Campaign context takes precedence. */
+  costLedger?: CostLedger
   /** Top-K lessons retained in the surface memory block. Default 12. */
   maxEntries?: number
   /** Heading rendered above the lessons inside the block. Default below. */
@@ -51,6 +61,7 @@ export interface MemoryCurationProposerOptions {
     baseUrl: string
     apiKey?: string
     model: string
+    maxTokens?: number
     fetchImpl?: LlmClientOptions['fetch']
   }
 }
@@ -74,17 +85,36 @@ function extractExistingLessons(text: string): string[] {
 async function distillLessons(
   raw: string[],
   distill: NonNullable<MemoryCurationProposerOptions['distill']>,
+  ctx: ProposeContext,
+  costLedger: CostLedger,
 ): Promise<string[]> {
-  const res = await callLlm(
-    {
-      model: distill.model,
-      messages: [
-        { role: 'system', content: DISTILL_SYSTEM },
-        { role: 'user', content: `Findings:\n${raw.map((r) => `- ${r}`).join('\n')}` },
-      ],
-    },
-    { baseUrl: distill.baseUrl, apiKey: distill.apiKey, fetch: distill.fetchImpl },
-  )
+  const request: LlmCallRequest = {
+    model: distill.model,
+    messages: [
+      { role: 'system', content: DISTILL_SYSTEM },
+      { role: 'user', content: `Findings:\n${raw.map((r) => `- ${r}`).join('\n')}` },
+    ],
+    maxTokens: distill.maxTokens ?? 2000,
+  }
+  const llm: LlmClientOptions = {
+    baseUrl: distill.baseUrl,
+    apiKey: distill.apiKey,
+    fetch: distill.fetchImpl,
+  }
+  const paid = await costLedger.runPaidCall({
+    channel: 'driver',
+    phase: ctx.costPhase ?? 'search.proposal',
+    actor: 'memory-curation.distill',
+    model: distill.model,
+    maximumCharge: maximumChargeForLlmRequest(request, llm),
+    tags: { generation: String(ctx.generation) },
+    signal: ctx.signal,
+    execute: (signal, callId) => callLlm(request, { ...llm, signal, idempotencyKey: callId }),
+    receipt: costReceiptFromLlm,
+    receiptFromError: costReceiptFromLlmError,
+  })
+  if (!paid.succeeded) throw paid.error
+  const res = paid.value
   try {
     const parsed = JSON.parse(res.content.trim())
     if (Array.isArray(parsed)) {
@@ -104,6 +134,7 @@ async function distillLessons(
 export function memoryCurationProposer(opts: MemoryCurationProposerOptions = {}): SurfaceProposer {
   const maxEntries = opts.maxEntries ?? 12
   const heading = opts.sectionHeading ?? DEFAULT_HEADING
+  const directCostLedger = opts.costLedger ?? new CostLedger()
   return {
     kind: 'memory-curation',
     async propose(ctx: ProposeContext): Promise<ProposedCandidate[]> {
@@ -120,7 +151,9 @@ export function memoryCurationProposer(opts: MemoryCurationProposerOptions = {})
       if (fresh.length === 0 && carried.length === 0) return [] // nothing learned yet
 
       const distilled =
-        opts.distill && fresh.length > 0 ? await distillLessons(fresh, opts.distill) : fresh
+        opts.distill && fresh.length > 0
+          ? await distillLessons(fresh, opts.distill, ctx, ctx.costLedger ?? directCostLedger)
+          : fresh
 
       // (2) Curate: dedup by normalized key, rank by recurrence (carried lessons
       //     start with a recurrence prior of 1; each fresh occurrence adds).

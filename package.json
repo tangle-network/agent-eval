@@ -148,7 +148,7 @@
     "@hono/node-server": "^2.0.0",
     "@tangle-network/agent-interface": "^0.22.0",
     "@tangle-network/tcloud": "^0.4.14",
-    "hono": "^4.12.16",
+    "hono": "^4.12.30",
     "zod": "^4.3.6"
   },
   "devDependencies": {
@@ -165,7 +165,7 @@
     "minimumReleaseAge": 4320,
     "overrides": {
       "postcss@<8.5.10": "^8.5.10",
-      "ws@>=8.0.0 <8.20.1": "^8.20.1"
+      "ws@>=8.0.0 <8.21.0": "^8.21.0"
     }
   },
   "engines": {
