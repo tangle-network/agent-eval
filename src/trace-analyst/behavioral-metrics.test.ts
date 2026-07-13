@@ -190,6 +190,52 @@ describe('computeTraceMetrics — deterministic behavioral signals (no LLM)', ()
     expect(metrics.signals.map((signal) => signal.code)).not.toContain('output-length-decay')
   })
 
+  it('does not join independent structural roots that share an agent name', () => {
+    const roots: TraceAnalystSpan[] = [1, 2, 3].map((step) => ({
+      ...llmSpan(step, 0, 0),
+      span_id: `agent-${step}`,
+      parent_span_id: null,
+      kind: 'AGENT',
+      agent_name: 'shared-name',
+      model_name: null,
+      attributes: {},
+    }))
+    const calls = [
+      { input: 100, output: 90 },
+      { input: 300, output: 60 },
+      { input: 900, output: 30 },
+    ].map(({ input, output }, index) => ({
+      ...llmSpan(index + 1, input, output),
+      parent_span_id: `agent-${index + 1}`,
+      agent_name: 'shared-name',
+    }))
+
+    const metrics = computeTraceMetrics([...roots, ...calls])
+
+    expect(metrics.tokenSequences).toHaveLength(3)
+    expect(metrics.signals.map((signal) => signal.code)).not.toContain('monotonic-input-growth')
+    expect(metrics.signals.map((signal) => signal.code)).not.toContain('output-length-decay')
+  })
+
+  it('joins serial parentless calls within one trace', () => {
+    const calls = [
+      { input: 100, output: 90 },
+      { input: 300, output: 60 },
+      { input: 900, output: 30 },
+    ].map(({ input, output }, index) => ({
+      ...llmSpan(index + 1, input, output),
+      parent_span_id: null,
+    }))
+
+    const metrics = computeTraceMetrics(calls)
+
+    expect(metrics.tokenSequences.map((sequence) => sequence.spanIds)).toEqual([
+      ['llm-1', 'llm-2', 'llm-3'],
+    ])
+    expect(metrics.signals.map((signal) => signal.code)).toContain('monotonic-input-growth')
+    expect(metrics.signals.map((signal) => signal.code)).toContain('output-length-decay')
+  })
+
   it('does not infer one token trend across overlapping branches under one agent', () => {
     const agent: TraceAnalystSpan = {
       ...llmSpan(1, 0, 0),
@@ -321,6 +367,43 @@ describe('computeTraceMetrics — deterministic behavioral signals (no LLM)', ()
 
     expect(reversed.tokenSequences).toEqual(forward.tokenSequences)
     expect(reversed.signals).toEqual(forward.signals)
+  })
+
+  it('treats an incomplete timed lane as a barrier between serial calls', () => {
+    const calls = [
+      llmSpan(1, 100, 90),
+      { ...llmSpan(2, 500, 70), end_time: 'invalid' },
+      llmSpan(3, 300, 50),
+      llmSpan(4, 900, 30),
+    ]
+
+    const metrics = computeTraceMetrics(calls)
+
+    expect(metrics.tokenSequences.map((sequence) => sequence.spanIds)).toEqual([
+      ['llm-3', 'llm-4'],
+      ['llm-1'],
+      ['llm-2'],
+    ])
+    expect(metrics.signals.map((signal) => signal.code)).not.toContain('monotonic-input-growth')
+  })
+
+  it('preserves complete sequences after a lane whose start time is missing', () => {
+    const incomplete = {
+      ...llmSpan(1, 50, 10),
+      span_id: 'incomplete',
+      start_time: 'invalid',
+      end_time: '2026-01-01T00:00:00.500Z',
+      duration_ms: 0,
+    }
+    const complete = [llmSpan(2, 100, 10), llmSpan(3, 300, 10), llmSpan(4, 900, 10)]
+
+    const metrics = computeTraceMetrics([incomplete, ...complete])
+
+    expect(metrics.tokenSequences.map((sequence) => sequence.spanIds)).toEqual([
+      ['llm-2', 'llm-3', 'llm-4'],
+      ['incomplete'],
+    ])
+    expect(metrics.signals.map((signal) => signal.code)).toContain('monotonic-input-growth')
   })
 
   it('still detects a trend inside one worker when another worker is present', () => {

@@ -34,6 +34,17 @@ const RECOMMENDED_ACTION: Record<SuboptimalCode, string> = {
 
 const ANALYST_ID = 'efficiency-behavioral'
 
+const AGGREGATE_CLAIM: Record<SuboptimalCode, (observed: number, analyzed: number) => string> = {
+  'monotonic-input-growth': (observed, analyzed) =>
+    `${observed}/${analyzed} analyzed traces showed input tokens grow from zero to nonzero or to at least 3x their initial value across at least 3 serial model calls without a decrease.`,
+  'output-length-decay': (observed, analyzed) =>
+    `${observed}/${analyzed} analyzed traces showed output tokens decrease while input tokens increased monotonically across at least 3 serial model calls.`,
+  'single-tool-dependency': (observed, analyzed) =>
+    `${observed}/${analyzed} analyzed traces used only one named tool across at least 3 tool calls.`,
+  'no-self-verification': (observed, analyzed) =>
+    `${observed}/${analyzed} analyzed traces had at least 3 tool calls without a verification-named tool call.`,
+}
+
 /**
  * Map computed signals → structured AnalystFindings. Pure: no LLM, no clock
  * dependence beyond `produced_at` (overridable for deterministic tests).
@@ -124,11 +135,14 @@ export function behavioralAnalyst(): Analyst<TraceAnalysisStore> {
       }
       return [...findingsById.values()].map(({ finding, traceIds, evidence }) => ({
         ...finding,
+        claim: AGGREGATE_CLAIM[finding.subject as SuboptimalCode](
+          traceIds.length,
+          analyzedTraceIds.length,
+        ),
         rationale: `${traceIds.length}/${analyzedTraceIds.length} analyzed traces exhibited this pattern.`,
         evidence_refs: evidence,
         metadata: {
           deterministic: true,
-          evidence: finding.metadata?.evidence,
           trace_ids: traceIds,
           observed_trace_count: traceIds.length,
           analyzed_trace_count: analyzedTraceIds.length,

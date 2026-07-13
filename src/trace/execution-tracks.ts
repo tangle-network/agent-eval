@@ -17,44 +17,68 @@ export function executionTrackByLane(lanes: readonly ExecutionLane[]): Map<strin
   }
 
   const trackByLane = new Map<string, string>()
-  const completeByScope = new Map<string, ExecutionLane[]>()
+  const lanesByScope = new Map<string, ExecutionLane[]>()
   for (const lane of unique.values()) {
-    if (lane.start === null || lane.end === null || lane.end <= lane.start) {
-      trackByLane.set(lane.key, trackId('lane', lane.key))
-      continue
-    }
-    const scoped = completeByScope.get(lane.scopeKey) ?? []
+    const scoped = lanesByScope.get(lane.scopeKey) ?? []
     scoped.push(lane)
-    completeByScope.set(lane.scopeKey, scoped)
+    lanesByScope.set(lane.scopeKey, scoped)
   }
 
-  for (const [scopeKey, scoped] of completeByScope) {
-    const ordered = [...scoped].sort(
-      (a, b) => a.start! - b.start! || a.end! - b.end! || a.key.localeCompare(b.key),
-    )
-    let componentStart = 0
-    let componentEnd = Number.NEGATIVE_INFINITY
-    let serialTrack = 0
-    const flush = (end: number) => {
-      const component = ordered.slice(componentStart, end)
-      if (component.length === 1) {
-        trackByLane.set(component[0]!.key, trackId('serial', scopeKey, serialTrack))
-        return
+  for (const [scopeKey, scoped] of lanesByScope) {
+    if (scoped.some((lane) => lane.start === null && lane.end === null)) {
+      for (const lane of scoped) trackByLane.set(lane.key, trackId('lane', lane.key))
+      continue
+    }
+    const incompleteKeys = new Set<string>()
+    const boundarySet = new Set<number>()
+    for (const lane of scoped) {
+      if (lane.start !== null && lane.end !== null && lane.end > lane.start) continue
+      incompleteKeys.add(lane.key)
+      const boundary = lane.start ?? lane.end
+      if (boundary !== null) boundarySet.add(boundary)
+      trackByLane.set(lane.key, trackId('lane', lane.key))
+    }
+    const boundaries = [...boundarySet].sort((a, b) => a - b)
+    const completeBySegment = new Map<number, ExecutionLane[]>()
+    for (const lane of scoped) {
+      if (incompleteKeys.has(lane.key)) continue
+      const segment = upperBound(boundaries, lane.start!)
+      const nextBoundary = boundaries[segment]
+      if (nextBoundary !== undefined && nextBoundary < lane.end!) {
+        trackByLane.set(lane.key, trackId('lane', lane.key))
+        continue
       }
-      for (const lane of component) trackByLane.set(lane.key, trackId('lane', lane.key))
-      serialTrack += 1
+      const complete = completeBySegment.get(segment) ?? []
+      complete.push(lane)
+      completeBySegment.set(segment, complete)
     }
 
-    for (let index = 0; index < ordered.length; index += 1) {
-      const lane = ordered[index]!
-      if (index > componentStart && lane.start! >= componentEnd) {
-        flush(index)
-        componentStart = index
+    let serialTrack = 0
+    for (const [, segment] of [...completeBySegment].sort(([a], [b]) => a - b)) {
+      const ordered = [...segment].sort(
+        (a, b) => a.start! - b.start! || a.end! - b.end! || a.key.localeCompare(b.key),
+      )
+      let component: ExecutionLane[] = []
+      let componentEnd = Number.NEGATIVE_INFINITY
+      const flush = () => {
+        if (component.length === 1) {
+          trackByLane.set(component[0]!.key, trackId('serial', scopeKey, serialTrack))
+        } else if (component.length > 1) {
+          for (const lane of component) trackByLane.set(lane.key, trackId('lane', lane.key))
+          serialTrack += 1
+        }
+        component = []
         componentEnd = Number.NEGATIVE_INFINITY
       }
-      componentEnd = Math.max(componentEnd, lane.end!)
+
+      for (const lane of ordered) {
+        if (component.length > 0 && lane.start! >= componentEnd) flush()
+        component.push(lane)
+        componentEnd = Math.max(componentEnd, lane.end!)
+      }
+      flush()
+      serialTrack += 1
     }
-    flush(ordered.length)
   }
 
   return trackByLane
@@ -66,4 +90,15 @@ function sameLane(a: ExecutionLane, b: ExecutionLane): boolean {
 
 function trackId(kind: string, key: string, index?: number): string {
   return JSON.stringify(index === undefined ? [kind, key] : [kind, key, index])
+}
+
+function upperBound(sorted: readonly number[], target: number): number {
+  let low = 0
+  let high = sorted.length
+  while (low < high) {
+    const middle = (low + high) >>> 1
+    if (sorted[middle]! <= target) low = middle + 1
+    else high = middle
+  }
+  return low
 }

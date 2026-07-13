@@ -26,11 +26,76 @@ describe('OTLP export', () => {
     ).toBe('TOOL')
     expect(toolSpan.attributes.find((a) => a.key === 'span.kind')).toBeUndefined()
     expect(toolSpan.attributes.find((a) => a.key === 'tool.name')?.value.stringValue).toBe('search')
+    expect(toolSpan.attributes.find((a) => a.key === 'tool.args_captured')?.value.boolValue).toBe(
+      true,
+    )
+    expect(toolSpan.attributes.find((a) => a.key === 'input.value')?.value.stringValue).toBe(
+      '{"q":"x"}',
+    )
     expect(toolSpan.attributes.find((a) => a.key === 'tool.latency_ms')?.value.intValue).toBe('42')
     // Resource attrs carry run metadata
     const resAttrs = otlp.resourceSpans[0].resource.attributes
     expect(resAttrs.find((a) => a.key === 'run.scenario_id')?.value.stringValue).toBe('scn-1')
     expect(resAttrs.find((a) => a.key === 'deployment.environment')?.value.stringValue).toBe('test')
+  })
+
+  it('distinguishes unavailable arguments from a captured no-argument call', async () => {
+    const store = new InMemoryTraceStore()
+    const emitter = new TraceEmitter(store)
+    await emitter.startRun({ scenarioId: 's' })
+    const tool = await emitter.tool({
+      name: 'search',
+      toolName: 'search',
+      args: undefined,
+      argsCaptured: false,
+    })
+    await tool.end()
+    const noArgs = await emitter.tool({
+      name: 'list',
+      toolName: 'list',
+      args: undefined,
+      argsCaptured: true,
+    })
+    await noArgs.end()
+
+    const otlp = await exportRunAsOtlp(store, emitter.runId)
+    const spans = otlp.resourceSpans[0]!.scopeSpans[0]!.spans
+    const unavailable = spans.find((span) => span.name === 'search')!.attributes
+    const captured = spans.find((span) => span.name === 'list')!.attributes
+
+    expect(unavailable.find((a) => a.key === 'tool.args_captured')?.value.boolValue).toBe(false)
+    expect(unavailable.find((a) => a.key === 'input.value')).toBeUndefined()
+    expect(captured.find((a) => a.key === 'tool.args_captured')?.value.boolValue).toBe(true)
+    expect(captured.find((a) => a.key === 'input.value')?.value.stringValue).toBe('null')
+  })
+
+  it('does not let custom attributes overwrite canonical tool evidence', async () => {
+    const store = new InMemoryTraceStore()
+    const emitter = new TraceEmitter(store)
+    await emitter.startRun({ scenarioId: 's' })
+    const tool = await emitter.tool({
+      name: 'search',
+      toolName: 'search',
+      args: undefined,
+      argsCaptured: false,
+      attributes: {
+        'openinference.span.kind': 'LLM',
+        'tool.name': 'forged',
+        'tool.args_captured': true,
+        'input.value': 'forged',
+      },
+    })
+    await tool.end()
+
+    const otlp = await exportRunAsOtlp(store, emitter.runId)
+    const attributes = otlp.resourceSpans[0]!.scopeSpans[0]!.spans[0]!.attributes
+
+    expect(attributes.find((a) => a.key === 'openinference.span.kind')?.value.stringValue).toBe(
+      'TOOL',
+    )
+    expect(attributes.find((a) => a.key === 'tool.name')?.value.stringValue).toBe('search')
+    expect(attributes.find((a) => a.key === 'tool.args_captured')?.value.boolValue).toBe(false)
+    expect(attributes.find((a) => a.key === 'input.value')).toBeUndefined()
   })
 
   it('sets status=error with message on failed spans', async () => {

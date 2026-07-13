@@ -81,6 +81,16 @@ describe('failureClusterView', () => {
     expect(report.clusters.every((c) => c.runCount === 1)).toBe(true)
   })
 
+  it('does not invent an argument fingerprint when tool arguments were not captured', async () => {
+    const call = { ...erroredTool('missing', 'bash', undefined), argsCaptured: false }
+    const report = await failureClusterView(
+      await storeWith([{ run: failedRun('missing', 's'), spans: [call] }]),
+    )
+
+    expect(report.clusters[0]).toMatchObject({ toolName: 'bash', runCount: 1 })
+    expect(report.clusters[0]!.argPrefix).toBeUndefined()
+  })
+
   it('does NOT merge a tool whose argHash differs only by a 17th+ char (argPrefix is first 16)', async () => {
     // argHash is stableStringify of args; pick two arg objects whose stringify
     // shares the first 16 chars but diverges later -> SAME prefix -> SAME cluster.

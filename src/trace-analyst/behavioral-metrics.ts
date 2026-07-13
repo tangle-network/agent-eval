@@ -260,16 +260,17 @@ function createTokenExecutionScopeResolver(spansById: ReadonlyMap<string, TraceA
   const cache = new Map<string, AncestorScope>()
   return (span) => {
     const ancestry = resolveAncestorScope(span.parent_span_id, spansById, cache)
+    const rootId = ancestry.rootId
     const scopeId = ancestry.agentId
       ? `span:${ancestry.agentId}`
-      : span.agent_name
-        ? `agent:${span.agent_name}`
-        : ancestry.missingParentId
-          ? `parent:${ancestry.missingParentId}`
-          : ancestry.rootId
-            ? `root:${ancestry.rootId}`
+      : ancestry.missingParentId
+        ? `parent:${ancestry.missingParentId}`
+        : rootId
+          ? `root:${rootId}`
+          : span.agent_name
+            ? `agent:${span.agent_name}`
             : `trace:${span.trace_id}`
-    const scopeSpanId = ancestry.agentId ?? ancestry.missingParentId ?? ancestry.rootId
+    const scopeSpanId = ancestry.agentId ?? ancestry.missingParentId ?? rootId
     const laneSpan = ancestry.laneSpanId ? spansById.get(ancestry.laneSpanId) : undefined
     const direct = scopeSpanId === null || ancestry.laneSpanId === scopeSpanId
     const timedSpan = direct ? span : laneSpan

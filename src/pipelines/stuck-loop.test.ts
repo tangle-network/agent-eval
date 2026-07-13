@@ -72,6 +72,17 @@ describe('stuckLoopView', () => {
     expect(r.findings).toHaveLength(0)
   })
 
+  it('does not treat uncaptured arguments as identical calls', async () => {
+    const calls = [0, 1, 2].map((index) => ({
+      ...tool(index, 'bash', undefined),
+      argsCaptured: false,
+    }))
+
+    const r = await stuckLoopView(await storeWith(calls))
+
+    expect(r.findings).toHaveLength(0)
+  })
+
   it('does not treat identical calls spread across a long run as a loop', async () => {
     const store = await storeWith([
       tool(0, 'bash', { cmd: 'status' }, 0),
@@ -413,6 +424,26 @@ describe('stuckLoopView', () => {
       )
       return { ...call, parentSpanId: 'agent' }
     })
+
+    const r = await stuckLoopView(await storeWith([agent, ...calls]))
+
+    expect(r.findings).toHaveLength(0)
+  })
+
+  it('does not reconnect serial calls across a direct call without an end time', async () => {
+    const agent: Span = {
+      spanId: 'agent',
+      runId: 'r',
+      kind: 'agent',
+      name: 'agent',
+      startedAt: 0,
+      endedAt: 10_000,
+    }
+    const calls = [0, 1, 2, 3].map((index) => ({
+      ...tool(index, 'status', { scope: 'project' }, 1000 + index * 1000),
+      parentSpanId: 'agent',
+    }))
+    delete calls[1]!.endedAt
 
     const r = await stuckLoopView(await storeWith([agent, ...calls]))
 

@@ -91,6 +91,58 @@ describe('OTEL export', () => {
     vi.unstubAllGlobals()
   })
 
+  it('streams captured tool evidence without inventing unavailable arguments', async () => {
+    const bodies: any[] = []
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (_url: string, init: RequestInit) => {
+        bodies.push(JSON.parse(String(init.body)))
+        return new Response('', { status: 200 })
+      }),
+    )
+    const exporter = createOtelExporter({ endpoint: 'http://localhost:4318', batchSize: 2 })!
+
+    for (const argsCaptured of [false, true]) {
+      exporter.exportSpan({
+        traceId: 'aaaa',
+        spanId: argsCaptured ? 'captured' : 'unknown',
+        name: 'search',
+        kind: 'tool',
+        startedAt: 1000,
+        endedAt: 1100,
+        tool: { toolName: 'search', args: undefined, argsCaptured },
+        attributes: argsCaptured
+          ? undefined
+          : {
+              'tool.name': 'forged',
+              'tool.args_captured': true,
+              'input.value': 'forged',
+              'output.value': 'forged',
+            },
+      })
+    }
+    await exporter.flush()
+
+    const spans = bodies[0].resourceSpans[0].scopeSpans[0].spans
+    const attrs = (span: any) =>
+      Object.fromEntries(
+        span.attributes.map((attribute: any) => [attribute.key, Object.values(attribute.value)[0]]),
+      )
+    expect(attrs(spans[0])).toMatchObject({
+      'tool.name': 'search',
+      'tool.args_captured': false,
+    })
+    expect(attrs(spans[0])['input.value']).toBeUndefined()
+    expect(attrs(spans[0])['output.value']).toBeUndefined()
+    expect(attrs(spans[1])).toMatchObject({
+      'tool.args_captured': true,
+      'input.value': 'null',
+    })
+
+    await exporter.shutdown()
+    vi.unstubAllGlobals()
+  })
+
   it('header propagation from env', () => {
     process.env.OTEL_EXPORTER_OTLP_ENDPOINT = 'http://localhost:4318'
     process.env.OTEL_EXPORTER_OTLP_HEADERS = 'x-api-key=secret123,x-org=my-org'
@@ -267,6 +319,18 @@ describe('OTEL pipeline integration', () => {
       messages: [],
     } as any)
     await store.appendSpan({
+      spanId: 's3',
+      runId: 'run-1',
+      kind: 'tool',
+      name: 'search',
+      startedAt: 2000,
+      endedAt: 2100,
+      status: 'ok',
+      toolName: 'search',
+      args: undefined,
+      argsCaptured: false,
+    } as any)
+    await store.appendSpan({
       spanId: 's2',
       runId: 'run-1',
       kind: 'custom',
@@ -283,10 +347,15 @@ describe('OTEL pipeline integration', () => {
       status: 'completed',
     })
 
-    expect(exported).toHaveLength(2)
+    expect(exported).toHaveLength(3)
     expect(exported.map((s: any) => s.name).sort()).toEqual([
       'analyst:analyze-traces',
       'judge:test',
+      'search',
     ])
+    expect(exported.find((span: any) => span.name === 'search').tool).toMatchObject({
+      toolName: 'search',
+      argsCaptured: false,
+    })
   })
 })

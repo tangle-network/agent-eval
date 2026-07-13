@@ -7,16 +7,18 @@
  * retry rate, duplicate-call rate) that are useful on their own.
  */
 
-import { argHash, groupBy, toolSpans } from './trace/query'
+import { argHash, groupBy, hasCapturedToolArgs, toolSpans } from './trace/query'
 import type { Span } from './trace/schema'
 import type { TraceStore } from './trace/store'
 
 export interface ToolUseMetrics {
   runId: string
   totalCalls: number
+  /** Calls whose arguments were captured and can be compared for duplication. */
+  callsWithCapturedArgs: number
   byTool: Record<string, ToolStats>
   errorRate: number
-  /** Ratio of calls with identical (toolName, argHash) already seen earlier in the same run. */
+  /** Ratio of captured-argument calls already seen with the same tool name and arguments. */
   duplicateRate: number
   /** Ratio of error calls followed by ≥1 retry on same tool. */
   retryRate: number
@@ -26,6 +28,7 @@ export interface ToolUseMetrics {
 
 export interface ToolStats {
   calls: number
+  callsWithCapturedArgs: number
   errors: number
   avgLatencyMs: number
   duplicates: number
@@ -43,18 +46,33 @@ export async function computeToolUseMetrics(
 ): Promise<ToolUseMetrics> {
   const tools = await toolSpans(store, runId)
   if (tools.length === 0) {
-    return { runId, totalCalls: 0, byTool: {}, errorRate: 0, duplicateRate: 0, retryRate: 0 }
+    return {
+      runId,
+      totalCalls: 0,
+      callsWithCapturedArgs: 0,
+      byTool: {},
+      errorRate: 0,
+      duplicateRate: 0,
+      retryRate: 0,
+    }
   }
 
   const byTool: Record<string, ToolStats> = {}
   let totalErrors = 0
   let totalDuplicates = 0
+  let callsWithCapturedArgs = 0
   const sortedTools = [...tools].sort((a, b) => a.startedAt - b.startedAt)
   const seenSignatures = new Set<string>()
 
   // duplicate detection + per-tool aggregation
   for (const t of sortedTools) {
-    byTool[t.toolName] ??= { calls: 0, errors: 0, avgLatencyMs: 0, duplicates: 0 }
+    byTool[t.toolName] ??= {
+      calls: 0,
+      callsWithCapturedArgs: 0,
+      errors: 0,
+      avgLatencyMs: 0,
+      duplicates: 0,
+    }
     const stat = byTool[t.toolName]!
     stat.calls += 1
     if (t.status === 'error') {
@@ -62,12 +80,16 @@ export async function computeToolUseMetrics(
       totalErrors += 1
     }
     if (typeof t.latencyMs === 'number') stat.avgLatencyMs += t.latencyMs
-    const sig = `${t.toolName}|${argHash(t.args)}`
-    if (seenSignatures.has(sig)) {
-      stat.duplicates += 1
-      totalDuplicates += 1
+    if (hasCapturedToolArgs(t)) {
+      callsWithCapturedArgs += 1
+      stat.callsWithCapturedArgs += 1
+      const sig = `${t.toolName}|${argHash(t.args)}`
+      if (seenSignatures.has(sig)) {
+        stat.duplicates += 1
+        totalDuplicates += 1
+      }
+      seenSignatures.add(sig)
     }
-    seenSignatures.add(sig)
   }
 
   for (const stat of Object.values(byTool)) {
@@ -98,9 +120,10 @@ export async function computeToolUseMetrics(
   return {
     runId,
     totalCalls: sortedTools.length,
+    callsWithCapturedArgs,
     byTool,
     errorRate: totalErrors / sortedTools.length,
-    duplicateRate: totalDuplicates / sortedTools.length,
+    duplicateRate: callsWithCapturedArgs > 0 ? totalDuplicates / callsWithCapturedArgs : 0,
     retryRate,
     selectionAccuracy,
   }

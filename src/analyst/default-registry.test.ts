@@ -100,6 +100,34 @@ describe('buildDefaultAnalystRegistry', () => {
     expect(res.per_analyst.every((p) => p.status === 'ok')).toBe(true)
   })
 
+  it('reports zero-baseline growth without inventing a finite ratio', async () => {
+    const inputs = [0, 4_000, 9_000]
+    const spans = inputs.map((input, index) =>
+      span({
+        span_id: `llm-${index}`,
+        kind: 'LLM',
+        start_time: `2026-01-01T00:00:0${index}.000Z`,
+        end_time: `2026-01-01T00:00:0${index}.100Z`,
+        attributes: { 'llm.input_tokens': input, 'llm.output_tokens': 100, step: index },
+      }),
+    )
+    const store = {
+      async getOverview() {
+        return { sample_trace_ids: ['t1'] }
+      },
+      async viewTrace() {
+        return { trace_id: 't1', spans }
+      },
+    } as unknown as TraceAnalysisStore
+
+    const result = await buildDefaultAnalystRegistry().run('zero-baseline', {
+      traceStore: store,
+    })
+    const growth = result.findings.find((finding) => finding.subject === 'monotonic-input-growth')
+
+    expect(growth?.claim).toContain('grow from zero to nonzero or to at least 3x')
+  })
+
   it('analyzes sampled traces independently instead of joining unrelated calls', async () => {
     const cases: Array<[string, number, number]> = [
       ['t1', 100, 90],
@@ -148,6 +176,12 @@ describe('buildDefaultAnalystRegistry', () => {
           ...item,
           trace_id: traceId,
           span_id: `${traceId}-${item.span_id}`,
+          ...(traceId === 't2' && item.kind === 'TOOL'
+            ? {
+                tool_name: 'Bash',
+                attributes: { ...item.attributes, 'tool.name': 'Bash' },
+              }
+            : {}),
         })),
       ]),
     )
@@ -175,6 +209,16 @@ describe('buildDefaultAnalystRegistry', () => {
         analyzed_trace_count: 2,
       })
     }
+    const toolDependency = result.findings.find(
+      (finding) => finding.subject === 'single-tool-dependency',
+    )!
+    expect(toolDependency.claim).not.toContain('world.execute')
+    expect(toolDependency.claim).not.toContain('Bash')
+    expect(toolDependency.evidence_refs.map((ref) => ref.excerpt)).toEqual([
+      expect.stringContaining('world.execute'),
+      expect.stringContaining('Bash'),
+    ])
+    expect(toolDependency.metadata).not.toHaveProperty('evidence')
 
     const reversedStore = {
       async getOverview() {

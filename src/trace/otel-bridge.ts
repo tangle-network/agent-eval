@@ -12,7 +12,7 @@
 
 import type { RunCompleteHook } from './emitter'
 import type { ExportableSpan, OtelExporter } from './otel-export'
-import type { LlmSpan, Span } from './schema'
+import type { LlmSpan, Span, ToolSpan } from './schema'
 import type { TraceStore } from './store'
 
 /**
@@ -87,6 +87,7 @@ export function createOtelTracingStore(
 
 function storeSpanToExportable(span: Span, traceId: string): ExportableSpan {
   const llm = span.kind === 'llm' ? (span as LlmSpan) : undefined
+  const tool = span.kind === 'tool' ? (span as ToolSpan) : undefined
   return {
     traceId,
     spanId: span.spanId,
@@ -101,6 +102,15 @@ function storeSpanToExportable(span: Span, traceId: string): ExportableSpan {
     inputTokens: llm?.inputTokens,
     outputTokens: llm?.outputTokens,
     costUsd: llm?.costUsd,
+    tool: tool
+      ? {
+          toolName: tool.toolName,
+          args: tool.args,
+          argsCaptured: tool.argsCaptured,
+          result: tool.result,
+          latencyMs: tool.latencyMs,
+        }
+      : undefined,
     attributes: span.attributes as Record<string, unknown> | undefined,
   }
 }

@@ -9,7 +9,7 @@
  */
 
 import { executionTrackByLane } from '../trace/execution-tracks'
-import { argHash } from '../trace/query'
+import { argHash, hasCapturedToolArgs } from '../trace/query'
 import { isToolSpan, type Span, type ToolSpan } from '../trace/schema'
 import type { TraceStore } from '../trace/store'
 
@@ -123,6 +123,7 @@ export async function stuckLoopView(
       }
     >()
     for (const call of orderedTools) {
+      if (!hasCapturedToolArgs(call.span)) continue
       const h = argHash(call.span.args)
       const key = JSON.stringify([call.trackId, call.span.toolName, h])
       const bucket = byKey.get(key) ?? {
