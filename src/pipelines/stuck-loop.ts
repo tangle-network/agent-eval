@@ -11,6 +11,8 @@
 import { argHash, toolSpans } from '../trace/query'
 import type { TraceStore } from '../trace/store'
 
+const DEFAULT_MAX_WINDOW_MS = 60_000
+
 export interface StuckLoopFinding {
   runId: string
   toolName: string
@@ -30,6 +32,8 @@ export interface StuckLoopReport {
 export interface StuckLoopOptions {
   /** Minimum call count to flag a loop (default 3). */
   minOccurrences?: number
+  /** Maximum time between the first and last repeated call (default 60 seconds). */
+  maxWindowMs?: number
   /** Filter to a specific runId; omit to scan the entire corpus. */
   runId?: string
 }
@@ -39,6 +43,10 @@ export async function stuckLoopView(
   options: StuckLoopOptions = {},
 ): Promise<StuckLoopReport> {
   const minOccurrences = options.minOccurrences ?? 3
+  const maxWindowMs = options.maxWindowMs ?? DEFAULT_MAX_WINDOW_MS
+  if (!Number.isFinite(maxWindowMs) || maxWindowMs < 0) {
+    throw new RangeError('maxWindowMs must be a finite non-negative number')
+  }
   const runs = options.runId
     ? [{ runId: options.runId }]
     : (await store.listRuns()).map((r) => ({ runId: r.runId }))
@@ -61,14 +69,26 @@ export async function stuckLoopView(
     for (const { spans, argHash: h, toolName } of byKey.values()) {
       if (spans.length < minOccurrences) continue
       const sorted = [...spans].sort((a, b) => a.startedAt - b.startedAt)
-      const first = sorted[0]!.startedAt
-      const last = sorted[sorted.length - 1]!.startedAt
+      let left = 0
+      let bestStart = 0
+      let bestEnd = -1
+      for (let right = 0; right < sorted.length; right += 1) {
+        while (sorted[right]!.startedAt - sorted[left]!.startedAt > maxWindowMs) left += 1
+        if (right - left > bestEnd - bestStart) {
+          bestStart = left
+          bestEnd = right
+        }
+      }
+      if (bestEnd - bestStart + 1 < minOccurrences) continue
+      const loop = sorted.slice(bestStart, bestEnd + 1)
+      const first = loop[0]!.startedAt
+      const last = loop[loop.length - 1]!.startedAt
       findings.push({
         runId,
         toolName,
         argHash: h,
-        occurrences: sorted.length,
-        spanIds: sorted.map((s) => s.spanId),
+        occurrences: loop.length,
+        spanIds: loop.map((s) => s.spanId),
         windowMs: last - first,
       })
     }
