@@ -48,7 +48,8 @@ export interface RunOptimizationBaseOptions<TScenario extends Scenario, TArtifac
   proposer: SurfaceProposer
   populationSize: number
   maxGenerations: number
-  /** How many top-scoring candidates carry to the next generation. Default 2. */
+  /** @deprecated The loop has one global incumbent and can promote only the
+   *  single candidate that beats it. Retained for source compatibility. */
   promoteTopK?: number
   /** DEPTH knob forwarded to the proposer's `propose()` — max iterations the
    *  agentic generator may take per candidate. */
@@ -123,9 +124,13 @@ export async function runOptimization<TScenario extends Scenario, TArtifact>(
   opts: RunOptimizationOptions<TScenario, TArtifact>,
 ): Promise<RunOptimizationResult<TArtifact, TScenario>> {
   const { proposer } = opts
-  const promoteTopK = opts.promoteTopK ?? 2
   if (typeof opts.runDir !== 'string' || opts.runDir.trim().length === 0) {
     throw new Error('runOptimization: runDir is required and must be a non-empty string')
+  }
+  if (opts.promoteTopK !== undefined && opts.promoteTopK !== 1) {
+    throw new Error(
+      'runOptimization: promoteTopK must be 1 because the loop has one global incumbent',
+    )
   }
 
   // Baseline run
@@ -274,9 +279,10 @@ export async function runOptimization<TScenario extends Scenario, TArtifact>(
       return b.composite - a.composite
     })
     const eligibleResults = surfaceResults.filter((result) => result.coverage.complete)
-    const promoted = eligibleResults.slice(0, promoteTopK)
     const top = eligibleResults[0]
-    if (top && top.composite > winnerComposite) {
+    const promoted = top && top.composite > winnerComposite ? [top] : []
+    if (promoted[0]) {
+      const top = promoted[0]
       winnerSurface = top.surface
       winnerSurfaceHash = top.surfaceHash
       winnerComposite = top.composite
@@ -472,8 +478,15 @@ function campaignCoverage<TArtifact>(
     }
 
     const cell = matches[0]!
-    const successfulScores = Object.values(cell.judgeScores).filter(
-      (score) => score.failed !== true && Number.isFinite(score.composite),
+    const scoreEntries = Object.entries(cell.judgeScores)
+    const successfulScores = scoreEntries
+      .map(([, score]) => score)
+      .filter((score) => score.failed !== true && Number.isFinite(score.composite))
+    const nonFiniteScores = scoreEntries.filter(
+      ([, score]) =>
+        score.failed !== true &&
+        (!Number.isFinite(score.composite) ||
+          Object.values(score.dimensions).some((value) => !Number.isFinite(value))),
     )
     const reasons: string[] = []
     if (cell.error) reasons.push(cell.error)
@@ -483,6 +496,14 @@ function campaignCoverage<TArtifact>(
     }
     if (Object.values(cell.judgeScores).some((score) => score.failed === true)) {
       reasons.push('judge score marked failed')
+    }
+    if (nonFiniteScores.length > 0) {
+      reasons.push(
+        `non-finite judge score: ${nonFiniteScores
+          .map(([name]) => name)
+          .sort()
+          .join(', ')}`,
+      )
     }
 
     if (reasons.length > 0) {

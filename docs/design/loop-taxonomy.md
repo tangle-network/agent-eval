@@ -201,8 +201,7 @@ consume the **same dataset** the flywheel builds.
   agent-runtime.
 - **runCampaign** — a measurement: a surface scored over N scenarios × M reps.
   agent-eval. (A "campaign" = a coordinated batch of measurements.)
-- **runOptimization** — the improvement loop body: proposer suggests surfaces,
-  each measured by a campaign, top-K promoted per generation. agent-eval.
+- **runOptimization** — the improvement loop body: proposer suggests surfaces, each is measured, and only a candidate that beats the global incumbent is promoted. agent-eval.
 - **runImprovementLoop** — `runOptimization` + holdout re-score + release gate
   + optional PR. agent-eval.
 - **runAnalystLoop** — reflective autoresearch: findings + knowledge updates +

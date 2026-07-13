@@ -365,6 +365,10 @@ export function llmPolicyEditProposer(
       const currentSurface = parseJsonSurface(ctx.currentSurface)
       const findings = citableFindings(ctx.findings)
       const findingById = new Map(findings.map((finding) => [finding.finding_id, finding]))
+      const scenarioIds = createScenarioIdProjector(historyLimits.scenarioIdTransform)
+      registerOutcomeScenarioIds(ctx.baselineOutcome, scenarioIds)
+      registerOutcomeScenarioIds(ctx.incumbentOutcome, scenarioIds)
+      registerHistoryScenarioIds(ctx.history.slice(-historyLimits.maxGenerations), scenarioIds)
       const { value } = await callLlmJson<unknown>(
         {
           model: opts.model,
@@ -380,15 +384,13 @@ export function llmPolicyEditProposer(
                 generation: ctx.generation,
                 currentSurface,
                 findings: findings.map(renderFinding),
-                baselineOutcome: projectOutcome(
-                  ctx.baselineOutcome,
-                  historyLimits.scenarioIdTransform,
+                baselineOutcome: projectOutcome(ctx.baselineOutcome, scenarioIds),
+                incumbentOutcome: projectOutcome(ctx.incumbentOutcome, scenarioIds),
+                history: projectPolicyEditHistoryWithProjector(
+                  ctx.history,
+                  historyLimits,
+                  scenarioIds,
                 ),
-                incumbentOutcome: projectOutcome(
-                  ctx.incumbentOutcome,
-                  historyLimits.scenarioIdTransform,
-                ),
-                history: projectPolicyEditHistory(ctx.history, historyLimits),
               }),
             },
           ],
@@ -439,15 +441,23 @@ export function projectPolicyEditHistory(
   options: PolicyEditHistoryProjectionOptions = {},
 ): PolicyEditHistoryGenerationContext[] {
   const limits = validateHistoryLimits(options)
+  const scenarioIds = createScenarioIdProjector(limits.scenarioIdTransform)
+  registerHistoryScenarioIds(history.slice(-limits.maxGenerations), scenarioIds)
+  return projectPolicyEditHistoryWithProjector(history, limits, scenarioIds)
+}
+
+function projectPolicyEditHistoryWithProjector(
+  history: readonly GenerationRecord[],
+  limits: ReturnType<typeof validateHistoryLimits>,
+  scenarioIds: ScenarioIdProjector,
+): PolicyEditHistoryGenerationContext[] {
   return history.slice(-limits.maxGenerations).map((record) => {
     const candidates = selectHistoryCandidates(record, limits.maxCandidatesPerGeneration)
     const hashes = new Set(candidates.map((candidate) => candidate.surfaceHash))
     return {
       generationIndex: record.generationIndex,
       promoted: record.promoted.filter((hash) => hashes.has(hash)),
-      candidates: candidates.map((candidate) =>
-        projectHistoryCandidate(candidate, limits.scenarioIdTransform),
-      ),
+      candidates: candidates.map((candidate) => projectHistoryCandidate(candidate, scenarioIds)),
     }
   })
 }
@@ -477,7 +487,7 @@ function selectHistoryCandidates(record: GenerationRecord, limit: number): Gener
 
 function projectHistoryCandidate(
   candidate: GenerationCandidate,
-  scenarioIdTransform: (scenarioId: string) => string,
+  scenarioIds: ScenarioIdProjector,
 ): PolicyEditHistoryCandidateContext {
   return {
     surfaceHash: candidate.surfaceHash,
@@ -494,7 +504,7 @@ function projectHistoryCandidate(
           // `cellId` embeds the raw scenario ID. The aggregate reason is useful
           // for search, but the identifier must not bypass scenarioIdTransform.
           unscorableCells: candidate.coverage.unscorableCells.map((cell) => ({
-            reason: cell.reason,
+            reason: scenarioIds.sanitize(cell.reason),
           })),
         }
       : null,
@@ -502,16 +512,10 @@ function projectHistoryCandidate(
     // not a measured interval. Keep it out of author context until it is real.
     dimensions: { ...candidate.dimensions },
     scenarios: candidate.scenarios.map((scenario) => {
-      const scenarioId = scenarioIdTransform(scenario.scenarioId)
-      if (!scenarioId || scenarioId.trim() !== scenarioId) {
-        throw new Error(
-          'llmPolicyEditProposer: scenarioIdTransform must return a trimmed non-empty string',
-        )
-      }
       return {
-        scenarioId,
+        scenarioId: scenarioIds.project(scenario.scenarioId),
         composite: scenario.composite,
-        notes: scenario.notes ?? null,
+        notes: scenario.notes ? scenarioIds.sanitize(scenario.notes) : null,
       }
     }),
     candidateRecord: candidate.candidateRecord
@@ -522,7 +526,7 @@ function projectHistoryCandidate(
 
 function projectOutcome(
   outcome: ScoredSurfaceOutcome | undefined,
-  scenarioIdTransform: (scenarioId: string) => string,
+  scenarioIds: ScenarioIdProjector,
 ): PolicyEditOutcomeContext | null {
   if (!outcome) return null
   return {
@@ -530,19 +534,85 @@ function projectOutcome(
     composite: outcome.composite,
     dimensions: { ...outcome.dimensions },
     scenarios: outcome.scenarios.map((scenario) => {
-      const scenarioId = scenarioIdTransform(scenario.scenarioId)
-      if (!scenarioId || scenarioId.trim() !== scenarioId) {
+      return {
+        scenarioId: scenarioIds.project(scenario.scenarioId),
+        composite: scenario.composite,
+        notes: scenario.notes ? scenarioIds.sanitize(scenario.notes) : null,
+      }
+    }),
+    coverage: { ...outcome.coverage },
+  }
+}
+
+interface ScenarioIdProjector {
+  project(scenarioId: string): string
+  sanitize(text: string): string
+}
+
+function createScenarioIdProjector(transform: (scenarioId: string) => string): ScenarioIdProjector {
+  const aliases = new Map<string, string>()
+  const originals = new Map<string, string>()
+  return {
+    project(scenarioId) {
+      const known = aliases.get(scenarioId)
+      if (known) return known
+      const alias = transform(scenarioId)
+      if (!alias || alias.trim() !== alias) {
         throw new Error(
           'llmPolicyEditProposer: scenarioIdTransform must return a trimmed non-empty string',
         )
       }
-      return {
-        scenarioId,
-        composite: scenario.composite,
-        notes: scenario.notes ?? null,
+      const collision = originals.get(alias)
+      if (collision && collision !== scenarioId) {
+        throw new Error(
+          `llmPolicyEditProposer: scenarioIdTransform collision for '${collision}' and '${scenarioId}'`,
+        )
       }
-    }),
-    coverage: { ...outcome.coverage },
+      const aliasIsAnotherOriginal = aliases.has(alias) && alias !== scenarioId
+      const originalIsAnotherAlias =
+        originals.has(scenarioId) && originals.get(scenarioId) !== scenarioId
+      if (aliasIsAnotherOriginal || originalIsAnotherAlias) {
+        throw new Error(
+          'llmPolicyEditProposer: scenarioIdTransform aliases overlap raw scenario IDs',
+        )
+      }
+      aliases.set(scenarioId, alias)
+      originals.set(alias, scenarioId)
+      return alias
+    },
+    sanitize(text) {
+      const originalsByLength = [...aliases.keys()].sort((a, b) => b.length - a.length)
+      if (originalsByLength.length === 0) return text
+      const pattern = new RegExp(originalsByLength.map(escapeRegExp).join('|'), 'g')
+      return text.replace(pattern, (original) => aliases.get(original) ?? original)
+    },
+  }
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
+
+function registerOutcomeScenarioIds(
+  outcome: ScoredSurfaceOutcome | undefined,
+  scenarioIds: ScenarioIdProjector,
+): void {
+  for (const scenario of outcome?.scenarios ?? []) scenarioIds.project(scenario.scenarioId)
+}
+
+function registerHistoryScenarioIds(
+  history: readonly GenerationRecord[],
+  scenarioIds: ScenarioIdProjector,
+): void {
+  for (const record of history) {
+    for (const candidate of record.candidates) {
+      for (const scenario of candidate.scenarios) scenarioIds.project(scenario.scenarioId)
+      for (const cell of candidate.coverage?.unscorableCells ?? []) {
+        const separator = cell.cellId.lastIndexOf(':')
+        if (separator <= 0 || !/^\d+$/.test(cell.cellId.slice(separator + 1))) continue
+        scenarioIds.project(cell.cellId.slice(0, separator))
+      }
+    }
   }
 }
 

@@ -178,7 +178,7 @@ function measuredOutcome(
     surfaceHash,
     composite,
     dimensions: { correctness: composite },
-    scenarios: [{ scenarioId, composite, notes: 'measured task result' }],
+    scenarios: [{ scenarioId, composite, notes: `${scenarioId} measured task result` }],
     coverage: { expectedCells: 1, scorableCells: 1 },
   }
 }
@@ -259,7 +259,9 @@ describe('llmPolicyEditProposer', () => {
             coverage: {
               expectedCells: 1,
               scorableCells: 0,
-              unscorableCells: [{ cellId: 'private-task:0', reason: 'transport failed' }],
+              unscorableCells: [
+                { cellId: 'private-task:0', reason: 'private-task transport failed' },
+              ],
             },
             ci95: [0.9, 0.9],
             dimensions: {},
@@ -318,7 +320,7 @@ describe('llmPolicyEditProposer', () => {
               coverage: {
                 expectedCells: 1,
                 scorableCells: 0,
-                unscorableCells: [{ reason: 'transport failed' }],
+                unscorableCells: [{ reason: 'task-1 transport failed' }],
               },
             }),
           ]),
@@ -629,6 +631,25 @@ describe('llmPolicyEditProposer', () => {
     expect(() =>
       proposer({ response: { edits: [] }, maxHistoryCandidatesPerGeneration: 1.5 }),
     ).toThrow(/maxHistoryCandidatesPerGeneration/)
+  })
+
+  it('rejects scenario pseudonym collisions before making an LLM call', async () => {
+    const source = finding()
+    const history = historyGeneration(0, [
+      {
+        ...historyCandidate('collision', 0.5),
+        scenarios: [
+          { scenarioId: 'private-a', composite: 0.4 },
+          { scenarioId: 'private-b', composite: 0.6 },
+        ],
+      },
+    ])
+    await expect(
+      proposer({
+        response: { edits: [] },
+        historyScenarioIdTransform: () => 'task',
+      }).propose(context({ finding: source, history: [history] })),
+    ).rejects.toThrow(/scenarioIdTransform collision/)
   })
 })
 

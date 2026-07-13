@@ -46,6 +46,28 @@ afterEach(() => {
 })
 
 describe('runOptimization selection integrity', () => {
+  it('fails before spending when legacy promoteTopK requests multiple incumbents', async () => {
+    let dispatchCalls = 0
+    await expect(
+      runOptimization<TestScenario, TestArtifact>({
+        scenarios,
+        baselineSurface: 'BASE',
+        dispatchWithSurface: async (surface) => {
+          dispatchCalls += 1
+          return { text: String(surface) }
+        },
+        judges: [scoreJudge(() => 0.5)],
+        proposer: { kind: 'unused', propose: async () => ['CANDIDATE'] },
+        populationSize: 1,
+        maxGenerations: 1,
+        promoteTopK: 2,
+        expectUsage: 'off',
+        runDir,
+      }),
+    ).rejects.toThrow(/promoteTopK must be 1/)
+    expect(dispatchCalls).toBe(0)
+  })
+
   it('attributes every measured delta to the complete incumbent it mutated', async () => {
     const seen: Array<{ baseline: number | undefined; incumbent: number | undefined }> = []
     const result = await runOptimization<TestScenario, TestArtifact>({
@@ -113,6 +135,7 @@ describe('runOptimization selection integrity', () => {
     })
 
     expect(seen).toEqual(['BASE', 'BASE'])
+    expect(result.generations[0]!.record.promoted).toEqual([])
     expect(result.winnerSurface).toBe('BASE')
     expect(result.winnerSurfaceHash).toBe(surfaceHash('BASE'))
   })
@@ -185,6 +208,36 @@ describe('runOptimization selection integrity', () => {
         runDir,
       }),
     ).rejects.toThrow(/baseline is incomplete \(1\/2 designed cells scorable\).*b:0/)
+    expect(proposeCalls).toBe(0)
+  })
+
+  it('rejects mixed finite and non-finite judge results before proposal', async () => {
+    let proposeCalls = 0
+    const invalid: JudgeConfig<TestArtifact, TestScenario> = {
+      name: 'invalid',
+      dimensions: [{ key: 'quality', description: 'quality' }],
+      score: () => ({ composite: Number.NaN, dimensions: { quality: Number.NaN }, notes: '' }),
+    }
+
+    await expect(
+      runOptimization<TestScenario, TestArtifact>({
+        scenarios,
+        baselineSurface: 'BASE',
+        dispatchWithSurface: async (surface) => ({ text: String(surface) }),
+        judges: [scoreJudge(() => 0.5), invalid],
+        proposer: {
+          kind: 'must-not-run',
+          async propose() {
+            proposeCalls += 1
+            return ['CANDIDATE']
+          },
+        },
+        populationSize: 1,
+        maxGenerations: 1,
+        expectUsage: 'off',
+        runDir,
+      }),
+    ).rejects.toThrow(/baseline is incomplete.*non-finite judge score: invalid/)
     expect(proposeCalls).toBe(0)
   })
 

@@ -42,7 +42,14 @@ import { summarizeBackendIntegrity } from '../integrity/backend-integrity'
 import type { RunRecord } from '../run-record'
 import type { CampaignStorage } from './storage'
 import { surfaceContentHash } from './surface-identity'
-import type { CampaignResult, GateDecision, GateResult, MutableSurface, Scenario } from './types'
+import type {
+  CampaignResult,
+  GateDecision,
+  GateResult,
+  GenerationCandidate,
+  MutableSurface,
+  Scenario,
+} from './types'
 
 export { surfaceContentHash } from './surface-identity'
 
@@ -60,6 +67,14 @@ export interface LoopProvenanceCandidate {
   rationale?: string
   /** Exact validated cause when the proposer emitted a structured record. */
   candidateRecord?: PolicyEditCandidateRecord
+  /** Exact complete incumbent this candidate mutated. */
+  parentSurfaceHash?: string
+  /** Search-split composite change relative to the exact parent. */
+  observedDeltaFromParent?: number
+  /** Whether the candidate completed every designed cell and could be selected. */
+  eligibleForPromotion?: boolean
+  /** Designed-denominator receipt retained even for incomplete candidates. */
+  coverage?: GenerationCandidate['coverage']
   /** Mean composite this candidate scored on the search split. */
   composite: number
   /** Whether this candidate was promoted out of its generation. */
@@ -129,13 +144,7 @@ export interface BuildLoopProvenanceArgs<TArtifact, TScenario extends Scenario> 
   /** Per-generation candidate records straight off the loop result. */
   generations: Array<{
     generationIndex: number
-    candidates: Array<{
-      surfaceHash: string
-      composite: number
-      label?: string
-      rationale?: string
-      candidateRecord?: PolicyEditCandidateRecord
-    }>
+    candidates: GenerationCandidate[]
     promoted: string[]
     /** Surfaces measured this generation, keyed positionally to candidates so
      *  the content hash can be computed from the real surface text. */
@@ -174,6 +183,7 @@ export function buildLoopProvenanceRecord<TArtifact, TScenario extends Scenario>
     const promotedSet = new Set(gen.promoted)
     const surfaceByHash = new Map(gen.surfaces.map((s) => [s.surfaceHash, s.surface]))
     for (const c of gen.candidates) {
+      validateCandidateMeasurement(c)
       const surface = surfaceByHash.get(c.surfaceHash)
       const entry: LoopProvenanceCandidate = {
         generation: gen.generationIndex,
@@ -187,6 +197,20 @@ export function buildLoopProvenanceRecord<TArtifact, TScenario extends Scenario>
       if (c.rationale) entry.rationale = c.rationale
       if (c.candidateRecord) {
         entry.candidateRecord = validatePolicyEditCandidateRecord(c.candidateRecord)
+      }
+      if (c.parentSurfaceHash) entry.parentSurfaceHash = c.parentSurfaceHash
+      if (c.observedDeltaFromParent !== undefined) {
+        entry.observedDeltaFromParent = c.observedDeltaFromParent
+      }
+      if (c.eligibleForPromotion !== undefined) {
+        entry.eligibleForPromotion = c.eligibleForPromotion
+      }
+      if (c.coverage) {
+        entry.coverage = {
+          expectedCells: c.coverage.expectedCells,
+          scorableCells: c.coverage.scorableCells,
+          unscorableCells: c.coverage.unscorableCells.map((cell) => ({ ...cell })),
+        }
       }
       candidates.push(entry)
     }
@@ -230,6 +254,48 @@ export function buildLoopProvenanceRecord<TArtifact, TScenario extends Scenario>
   if (args.winnerLabel) record.winnerLabel = args.winnerLabel
   if (args.winnerRationale) record.winnerRationale = args.winnerRationale
   return record
+}
+
+function validateCandidateMeasurement(candidate: GenerationCandidate): void {
+  if (!Number.isFinite(candidate.composite)) {
+    throw new Error('buildLoopProvenanceRecord: candidate composite must be finite')
+  }
+  if (
+    candidate.parentSurfaceHash !== undefined &&
+    !/^[a-f0-9]{16}$/.test(candidate.parentSurfaceHash)
+  ) {
+    throw new Error(
+      'buildLoopProvenanceRecord: parentSurfaceHash must be 16 lowercase hex characters',
+    )
+  }
+  if (candidate.observedDeltaFromParent !== undefined) {
+    if (!Number.isFinite(candidate.observedDeltaFromParent)) {
+      throw new Error('buildLoopProvenanceRecord: observedDeltaFromParent must be finite')
+    }
+    if (!candidate.parentSurfaceHash || candidate.eligibleForPromotion !== true) {
+      throw new Error(
+        'buildLoopProvenanceRecord: observedDeltaFromParent requires a complete eligible candidate and parentSurfaceHash',
+      )
+    }
+  }
+  const coverage = candidate.coverage
+  if (!coverage) return
+  if (
+    !Number.isSafeInteger(coverage.expectedCells) ||
+    coverage.expectedCells < 0 ||
+    !Number.isSafeInteger(coverage.scorableCells) ||
+    coverage.scorableCells < 0 ||
+    coverage.scorableCells > coverage.expectedCells
+  ) {
+    throw new Error('buildLoopProvenanceRecord: invalid candidate coverage denominator')
+  }
+  const complete =
+    coverage.scorableCells === coverage.expectedCells && coverage.unscorableCells.length === 0
+  if (candidate.eligibleForPromotion !== undefined && candidate.eligibleForPromotion !== complete) {
+    throw new Error(
+      'buildLoopProvenanceRecord: candidate eligibility contradicts its coverage receipt',
+    )
+  }
 }
 
 // ── OTel span emission ──────────────────────────────────────────────────

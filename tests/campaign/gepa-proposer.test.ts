@@ -116,6 +116,62 @@ describe('gepaProposer', () => {
     expect(capture.userPrompt).not.toContain('INCOMPLETE-EVIDENCE')
   })
 
+  it('reflects on the global incumbent after the latest generation regresses', async () => {
+    const capture: { userPrompt?: string } = {}
+    const proposer = gepaProposer({
+      llm: {
+        apiKey: 'k',
+        baseUrl: 'https://router.test/v1',
+        fetch: fakeFetch(capture, ['NEW']),
+      },
+      model: 'test-model',
+      target: 'system-directive',
+    })
+    const history: GenerationRecord[] = [
+      {
+        generationIndex: 0,
+        promoted: ['winner'],
+        candidates: [
+          {
+            surfaceHash: 'winner',
+            composite: 0.8,
+            ci95: [0.8, 0.8],
+            dimensions: { safety: 0.7 },
+            scenarios: [{ scenarioId: 'WINNER-EVIDENCE', composite: 0.8 }],
+          },
+        ],
+      },
+      {
+        generationIndex: 1,
+        promoted: [],
+        candidates: [
+          {
+            surfaceHash: 'loser',
+            composite: 0.1,
+            ci95: [0.1, 0.1],
+            dimensions: { safety: 0.1 },
+            scenarios: [{ scenarioId: 'LOSER-EVIDENCE', composite: 0.1 }],
+          },
+        ],
+      },
+    ]
+    const ctx = ctxWith(history, 1)
+    ctx.currentSurface = 'WINNER SURFACE'
+    ctx.incumbentOutcome = {
+      surfaceHash: 'winner',
+      composite: 0.8,
+      dimensions: { safety: 0.7 },
+      scenarios: [{ scenarioId: 'WINNER-EVIDENCE', composite: 0.8 }],
+      coverage: { expectedCells: 1, scorableCells: 1 },
+    }
+
+    await proposer.propose(ctx)
+
+    expect(capture.userPrompt).toContain('WINNER SURFACE')
+    expect(capture.userPrompt).toContain('WINNER-EVIDENCE')
+    expect(capture.userPrompt).not.toContain('LOSER-EVIDENCE')
+  })
+
   it('drops the parent + dedupes proposals', async () => {
     const capture: { userPrompt?: string } = {}
     const proposer = gepaProposer({

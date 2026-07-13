@@ -8,7 +8,7 @@ import {
   validatePolicyEditCandidateRecord,
 } from '../../src/analyst/policy-edit'
 import { makeFinding } from '../../src/analyst/types'
-import { runOptimization } from '../../src/campaign/presets/run-optimization'
+import { runOptimization, surfaceHash } from '../../src/campaign/presets/run-optimization'
 import { policyEditProposer } from '../../src/campaign/proposers/policy-edit'
 import { buildLoopProvenanceRecord } from '../../src/campaign/provenance'
 import type { CodeSurface, JudgeConfig, ProposeContext, Scenario } from '../../src/campaign/types'
@@ -134,7 +134,7 @@ describe('policyEditProposer', () => {
         policyEdit: sourceEdit,
       })
 
-      const provenance = buildLoopProvenanceRecord({
+      const provenanceArgs: Parameters<typeof buildLoopProvenanceRecord>[0] = {
         runId: 'policy-edit-record',
         runDir,
         timestamp: '2026-07-12T00:00:00.000Z',
@@ -158,11 +158,26 @@ describe('policyEditProposer', () => {
         workerRecords: [],
         totalCostUsd: 0,
         totalDurationMs: 1,
-      })
+      }
+      const provenance = buildLoopProvenanceRecord(provenanceArgs)
       expect(provenance.candidates[0]!.candidateRecord).toEqual({
         schema: 'tangle.policy-edit-candidate.v1',
         policyEdit: sourceEdit,
       })
+      expect(provenance.candidates[0]).toMatchObject({
+        parentSurfaceHash: surfaceHash('Base prompt.'),
+        observedDeltaFromParent: 1,
+        eligibleForPromotion: true,
+        coverage: { expectedCells: 1, scorableCells: 1, unscorableCells: [] },
+      })
+      const measured = generation.record.candidates[0]!
+      const observedDelta = measured.observedDeltaFromParent
+      if (observedDelta === undefined) throw new Error('test setup missing observed delta')
+      measured.observedDeltaFromParent = Number.NaN
+      expect(() => buildLoopProvenanceRecord(provenanceArgs)).toThrow(
+        /observedDeltaFromParent must be finite/,
+      )
+      measured.observedDeltaFromParent = observedDelta
     } finally {
       rmSync(runDir, { recursive: true, force: true })
     }
