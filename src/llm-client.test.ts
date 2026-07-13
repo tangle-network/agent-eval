@@ -54,6 +54,13 @@ describe('llm-client — stripFencedJson', () => {
 })
 
 describe('llm-client — extractJsonPayload', () => {
+  it('keeps complete top-level objects and arrays intact', () => {
+    expect(extractJsonPayload('{"findings":[{"claim":"complete"}]}')).toBe(
+      '{"findings":[{"claim":"complete"}]}',
+    )
+    expect(extractJsonPayload('[{"claim":"complete"}]')).toBe('[{"claim":"complete"}]')
+  })
+
   it('extracts a balanced JSON object after prose', () => {
     expect(extractJsonPayload('Reviewing artifact. {"ok": true, "items": [1, 2]}')).toBe(
       '{"ok": true, "items": [1, 2]}',
@@ -68,6 +75,18 @@ describe('llm-client — extractJsonPayload', () => {
     expect(extractJsonPayload('prefix {"text": "{literal}", "ok": true} suffix')).toBe(
       '{"text": "{literal}", "ok": true}',
     )
+  })
+
+  it('does not recover a nested array from an incomplete top-level object', () => {
+    const truncated = '{"findings":[{"claim":"complete nested item"}]'
+    expect(extractJsonPayload(truncated)).toBe(truncated)
+    expect(() => JSON.parse(extractJsonPayload(truncated))).toThrow()
+  })
+
+  it('does not recover a nested object from an incomplete top-level array', () => {
+    const truncated = '[{"claim":"complete nested item"}'
+    expect(extractJsonPayload(truncated)).toBe(truncated)
+    expect(() => JSON.parse(extractJsonPayload(truncated))).toThrow()
   })
 })
 
@@ -473,6 +492,32 @@ describe('llm-client — callLlmJson + schema degrade', () => {
     await expect(
       callLlmJson({ model: 'm', messages: [{ role: 'user', content: 'x' }] }, { fetch }),
     ).rejects.toThrow(/non-JSON/)
+  })
+
+  it('rejects an incomplete top-level object instead of parsing its nested findings array', async () => {
+    const fetch = mockFetch([
+      async () =>
+        mkOkResponse({
+          choices: [{ message: { content: '{"findings":[{"claim":"complete nested item"}]' } }],
+          usage: {},
+        }),
+    ])
+    await expect(
+      callLlmJson({ model: 'm', messages: [{ role: 'user', content: 'x' }] }, { fetch }),
+    ).rejects.toThrow(/non-JSON/)
+  })
+
+  it('rejects a parsable JSON prefix when the provider reports length truncation', async () => {
+    const fetch = mockFetch([
+      async () =>
+        mkOkResponse({
+          choices: [{ message: { content: '{"findings":[]}' }, finish_reason: 'length' }],
+          usage: {},
+        }),
+    ])
+    await expect(
+      callLlmJson({ model: 'm', messages: [{ role: 'user', content: 'x' }] }, { fetch }),
+    ).rejects.toThrow(/truncated JSON content.*finishReason=length/)
   })
 
   it('strips fenced JSON before parsing (regression)', async () => {
