@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
+import { CostLedger } from './cost-ledger'
 import { runIntentMatchJudge } from './intent-match-judge'
 
 function mockFetch(bodies: Array<object | { status: number; body: string }>) {
@@ -32,6 +33,7 @@ describe('runIntentMatchJudge', () => {
   })
 
   it('returns score and evidence on a happy LLM call', async () => {
+    const costLedger = new CostLedger()
     const fetch = mockFetch([
       {
         score: 0.92,
@@ -49,12 +51,15 @@ describe('runIntentMatchJudge', () => {
           },
         ],
       },
-      { llm: { fetch } },
+      { llm: { fetch }, costLedger },
     )
 
     expect(r.available).toBe(true)
     expect(r.score).toBe(0.92)
     expect(r.evidence).toContain('MintWidget')
+    expect(costLedger.list()).toEqual([
+      expect.objectContaining({ channel: 'judge', actor: 'intent-match' }),
+    ])
   })
 
   it('soft-fails (available=false) on LLM 500', async () => {

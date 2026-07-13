@@ -1,8 +1,10 @@
 import type { TCloud } from '@tangle-network/tcloud'
+import { CostLedger } from './cost-ledger'
 import { CaptureIntegrityError } from './errors'
 import { JudgeParseError } from './judges'
 import { isTransientLlmError } from './llm-client'
 import { normalizeScores, weightedMean } from './statistics'
+import { costReceiptFromTCloud, maximumChargeForTCloudRequest } from './tcloud-cost'
 import type {
   CollectedArtifacts,
   JudgeFn,
@@ -24,6 +26,13 @@ export interface ExecutorConfig {
   model?: string
   /** Judges to run after execution */
   judges: JudgeFn[]
+  /** Shared ledger for paid built-in judges. */
+  costLedger?: CostLedger
+  costPhase?: string
+  costTags?: Record<string, string>
+  /** Exact maximum provider attempts configured on the supplied TCloud client. */
+  tcloudMaximumAttempts?: number
+  signal?: AbortSignal
   /** Regex patterns for detecting tool/API calls in responses */
   toolCallPatterns?: RegExp[]
   /** Block delimiter pattern (default: :::type\n...\n:::) */
@@ -70,6 +79,12 @@ export async function executeScenario(
 ): Promise<ScenarioResult> {
   const startTime = Date.now()
   const model = config.model ?? 'gpt-4o'
+  const costLedger = config.costLedger ?? new CostLedger()
+  const costTags = {
+    ...config.costTags,
+    scenarioId: scenario.id,
+    executionId: globalThis.crypto.randomUUID(),
+  }
 
   const systemPrompt = [config.systemPrompt, scenario.systemPromptAppend ?? '']
     .filter(Boolean)
@@ -90,12 +105,25 @@ export async function executeScenario(
 
     messages.push({ role: 'user', content: turn.user })
 
-    const resp = await tc.chat({
+    const request = {
       model,
       messages,
       temperature: 0.4,
       maxTokens: 3000,
+    }
+    const paid = await costLedger.runPaidCall({
+      channel: 'agent',
+      phase: config.costPhase ?? 'benchmark.agent',
+      actor: 'scenario-agent',
+      model,
+      maximumCharge: maximumChargeForTCloudRequest(request, config.tcloudMaximumAttempts),
+      tags: costTags,
+      signal: config.signal,
+      execute: () => tc.chat(request),
+      receipt: (response) => costReceiptFromTCloud(response, model),
     })
+    if (!paid.succeeded) throw paid.error
+    const resp = paid.value
 
     const message = (resp as { choices?: { message?: { content?: unknown } }[] }).choices?.[0]
       ?.message
@@ -207,7 +235,16 @@ export async function executeScenario(
   // output (JudgeParseError, non-retryable) or errors across every attempt —
   // is COUNTED as a failed judge, never folded into the scores as a fake
   // zero row: a synthetic zero is indistinguishable from a real low score.
-  const judgeInput = { scenario, turns, artifacts }
+  const judgeInput = {
+    scenario,
+    turns,
+    artifacts,
+    costLedger,
+    costPhase: config.costPhase ?? 'benchmark.judge',
+    costTags,
+    signal: config.signal,
+    tcloudMaximumAttempts: config.tcloudMaximumAttempts,
+  }
   const judgeResults: JudgeScore[][] = []
   let failedJudges = 0
   const judgeFailures: JudgeFailure[] = []
@@ -292,6 +329,7 @@ export async function executeScenario(
     overallScore,
     totalDurationMs: Date.now() - startTime,
     artifacts,
+    cost: costLedger.summary({ tags: costTags }),
   }
   if (judgeFailures.length > 0) result.judgeFailures = judgeFailures
   return result

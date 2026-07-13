@@ -57,7 +57,7 @@ export interface PlaybackContext extends DispatchContext {
  * `SandboxPlaybackDriver` (real API / sandbox workspace) and
  * `PlaywrightPlaybackDriver` (real UI) — because they depend on runtime /
  * browser infra the substrate must not import. The driver MUST report LLM
- * usage via `ctx.cost.observeTokens` so the backend-integrity guard sees real
+ * usage through `ctx.cost.runPaidCall` so the backend-integrity check sees real
  * tokens (a run that never reports tokens reads as a stub).
  */
 export interface PlaybackDriver<TStory extends UserStory = UserStory> {

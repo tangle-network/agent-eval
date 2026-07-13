@@ -14,7 +14,15 @@
  * (no silent empty).
  */
 
-import { callLlm, type LlmClientOptions } from '../llm-client'
+import { CostLedger } from '../cost-ledger'
+import {
+  callLlm,
+  costReceiptFromLlm,
+  costReceiptFromLlmError,
+  type LlmCallRequest,
+  type LlmClientOptions,
+  maximumChargeForLlmRequest,
+} from '../llm-client'
 import { parseRawFinding, type RawAnalystFinding } from './finding-signature'
 import { coerceToFindingRows } from './parse-tolerant'
 import { type AnalystFinding, makeFinding } from './types'
@@ -28,6 +36,10 @@ export interface StructureFindingsOptions {
   model: string
   baseUrl: string
   apiKey?: string
+  /** Optional ledger for direct use. */
+  costLedger?: CostLedger
+  costPhase?: string
+  maxTokens?: number
   /** Max reask attempts after a zero/invalid extraction. Default 1. */
   maxReasks?: number
   /** Test seam: inject a fetch (no network in unit tests). */
@@ -93,19 +105,31 @@ export async function structureFindings(
 ): Promise<StructureFindingsResult> {
   const maxReasks = opts.maxReasks ?? 1
   const llm = { baseUrl: opts.baseUrl, apiKey: opts.apiKey, fetch: opts.fetchImpl }
+  const costLedger = opts.costLedger ?? new CostLedger()
   let user = `TRACE-ANALYSIS REPORT:\n${opts.report}\n\nReturn the findings JSON array.`
 
   for (let attempt = 0; attempt <= maxReasks; attempt++) {
-    const res = await callLlm(
-      {
-        model: opts.model,
-        messages: [
-          { role: 'system', content: SYSTEM },
-          { role: 'user', content: user },
-        ],
-      },
-      llm,
-    )
+    const request: LlmCallRequest = {
+      model: opts.model,
+      messages: [
+        { role: 'system', content: SYSTEM },
+        { role: 'user', content: user },
+      ],
+      maxTokens: opts.maxTokens ?? 2_000,
+    }
+    const paid = await costLedger.runPaidCall({
+      channel: 'analyst',
+      phase: opts.costPhase ?? 'analyst.structure-findings',
+      actor: 'structure-findings',
+      model: opts.model,
+      maximumCharge: maximumChargeForLlmRequest(request, llm),
+      tags: { analystId: opts.analystId, attempt: String(attempt) },
+      execute: (signal, callId) => callLlm(request, { ...llm, signal, idempotencyKey: callId }),
+      receipt: costReceiptFromLlm,
+      receiptFromError: costReceiptFromLlmError,
+    })
+    if (!paid.succeeded) throw paid.error
+    const res = paid.value
     const text = res.content.trim()
     const findings = buildRows(text, opts.analystId, opts.area)
     if (findings.length > 0) return { findings, outcome: 'ok' }

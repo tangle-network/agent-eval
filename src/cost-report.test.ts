@@ -1,28 +1,34 @@
 import { describe, expect, it } from 'vitest'
-import { CostLedger } from './cost-ledger'
+import type { CostReceipt, CostReceiptInput } from './cost-ledger'
+import { CostLedger, costForUsage } from './cost-ledger'
 import { attachCostToReport, costReport } from './cost-report'
 import { ValidationError } from './errors'
 
+let receiptSequence = 0
+
+function receipt(channel: 'agent' | 'judge', input: CostReceiptInput): CostReceipt {
+  const estimated = costForUsage(input.model, input)
+  return {
+    status: 'settled',
+    callId: `fixture-${receiptSequence++}`,
+    ...input,
+    channel,
+    phase: 'test',
+    actor: 'fixture',
+    costUsd: input.actualCostUsd ?? estimated.costUsd,
+    costUnknown: input.actualCostUsd === undefined && estimated.costUnknown,
+    timestamp: 1,
+  }
+}
+
 function buildLedger(): CostLedger {
-  const ledger = new CostLedger()
-  // gpt-4o: 0.0025 in + 0.01 out per 1k
-  ledger.record({
-    model: 'gpt-4o',
-    channel: 'agent',
-    usage: { inputTokens: 1000, outputTokens: 1000 },
+  return new CostLedger({
+    receipts: [
+      receipt('agent', { model: 'gpt-4o', inputTokens: 1000, outputTokens: 1000 }),
+      receipt('judge', { model: 'gpt-4o', inputTokens: 2000, outputTokens: 0 }),
+      receipt('judge', { model: 'made-up-zzz', inputTokens: 1000, outputTokens: 1000 }),
+    ],
   })
-  ledger.record({
-    model: 'gpt-4o',
-    channel: 'judge',
-    usage: { inputTokens: 2000, outputTokens: 0 },
-  })
-  // Unpriced model — costUnknown, the $0 is a lower bound, not a measured zero.
-  ledger.record({
-    model: 'made-up-zzz',
-    channel: 'judge',
-    usage: { inputTokens: 1000, outputTokens: 1000 },
-  })
-  return ledger
 }
 
 describe('costReport', () => {
@@ -53,12 +59,15 @@ describe('costReport', () => {
   })
 
   it('an actualCostUsd override clears unpriced — observed dollars are real', () => {
-    const ledger = new CostLedger()
-    ledger.record({
-      model: 'made-up-zzz',
-      channel: 'agent',
-      usage: { inputTokens: 100, outputTokens: 100 },
-      actualCostUsd: 0.42,
+    const ledger = new CostLedger({
+      receipts: [
+        receipt('agent', {
+          model: 'made-up-zzz',
+          inputTokens: 100,
+          outputTokens: 100,
+          actualCostUsd: 0.42,
+        }),
+      ],
     })
     const report = costReport(ledger)
     expect(report.perModel[0]).toEqual({

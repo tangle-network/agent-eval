@@ -335,14 +335,11 @@ function gepaEntry<TScenario extends Scenario, TArtifact>(
         ...(config.analyzeGeneration ? { analyzeGeneration: config.analyzeGeneration } : {}),
         ...(config.report !== undefined ? { report: config.report } : {}),
       })
-      const costUsd =
-        result.baselineCampaign.aggregates.totalCostUsd +
-        result.generations.reduce(
-          (sum, g) =>
-            sum + g.surfaces.reduce((s, sf) => s + sf.campaign.aggregates.totalCostUsd, 0),
-          0,
-        )
-      return { winnerSurface: result.winnerSurface, costUsd, durationMs: Date.now() - started }
+      return {
+        winnerSurface: result.winnerSurface,
+        costUsd: result.cost.totalCostUsd,
+        durationMs: Date.now() - started,
+      }
     },
   }
 }
@@ -461,14 +458,11 @@ export function fapoEscalationEntry<TScenario extends Scenario, TArtifact>(
         ...(config.analyzeGeneration ? { analyzeGeneration: config.analyzeGeneration } : {}),
         ...(config.report !== undefined ? { report: config.report } : {}),
       })
-      const costUsd =
-        result.baselineCampaign.aggregates.totalCostUsd +
-        result.generations.reduce(
-          (sum, g) =>
-            sum + g.surfaces.reduce((s, sf) => s + sf.campaign.aggregates.totalCostUsd, 0),
-          0,
-        )
-      return { winnerSurface: result.winnerSurface, costUsd, durationMs: Date.now() - started }
+      return {
+        winnerSurface: result.winnerSurface,
+        costUsd: result.cost.totalCostUsd,
+        durationMs: Date.now() - started,
+      }
     },
   }
 }

@@ -140,10 +140,20 @@ describe('routing benchmark', () => {
       splits: ['search', 'dev', 'holdout'],
       runDir: '/runs/routing-smoke',
       storage,
-      respond: ({ item, context }) => {
-        context.cost.observe(0.001, 'unit-test')
-        context.cost.observeTokens({ input: 3, output: 2 })
-        return `route=${item.payload.route}`
+      respond: async ({ item, context }) => {
+        const paid = await context.cost.runPaidCall({
+          actor: 'unit-test',
+          model: 'fixture-model',
+          execute: async () => `route=${item.payload.route}`,
+          receipt: () => ({
+            model: 'fixture-model',
+            inputTokens: 3,
+            outputTokens: 2,
+            actualCostUsd: 0.001,
+          }),
+        })
+        if (!paid.succeeded) throw paid.error
+        return paid.value
       },
     })
 
