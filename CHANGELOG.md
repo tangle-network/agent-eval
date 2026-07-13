@@ -6,6 +6,15 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ## [0.116.1] — 2026-07-13 — bounded behavioral evidence
 
+### Added
+
+- `createReferenceEquivalenceJudge()` and `runReferenceEquivalenceJudge()` score whether an answer preserves the meaning of one or more references, with the same cost and transport accounting as other judges.
+
+### Changed
+
+- `CostLedger.runPaidCall()` is now the single paid-call path across campaigns, proposers, judges, analysts, and distillation.
+  It durably reserves maximum spend before dispatch, records provider receipts, blocks unresolved crash state, and enforces the run ceiling before another paid call starts.
+
 ### Fixed
 
 - Repeated-call findings now require a contiguous, time-bounded episode instead of grouping identical calls across an entire run.
