@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { gepaProposer } from '../../src/campaign/proposers/gepa'
+import { surfaceHash } from '../../src/campaign/surface-identity'
 import type { GenerationRecord, ParetoParent, ProposeContext } from '../../src/campaign/types'
 
 /** A fake router fetch that echoes the reflection user-prompt back so the test
@@ -116,7 +117,7 @@ describe('gepaProposer', () => {
     expect(capture.userPrompt).not.toContain('INCOMPLETE-EVIDENCE')
   })
 
-  it('reflects on the global incumbent after the latest generation regresses', async () => {
+  it('matches the current surface to measured history after the latest generation regresses', async () => {
     const capture: { userPrompt?: string } = {}
     const proposer = gepaProposer({
       llm: {
@@ -127,13 +128,14 @@ describe('gepaProposer', () => {
       model: 'test-model',
       target: 'system-directive',
     })
+    const winnerHash = surfaceHash('WINNER SURFACE')
     const history: GenerationRecord[] = [
       {
         generationIndex: 0,
-        promoted: ['winner'],
+        promoted: [winnerHash],
         candidates: [
           {
-            surfaceHash: 'winner',
+            surfaceHash: winnerHash,
             composite: 0.8,
             ci95: [0.8, 0.8],
             dimensions: { safety: 0.7 },
@@ -157,13 +159,6 @@ describe('gepaProposer', () => {
     ]
     const ctx = ctxWith(history, 1)
     ctx.currentSurface = 'WINNER SURFACE'
-    ctx.incumbentOutcome = {
-      surfaceHash: 'winner',
-      composite: 0.8,
-      dimensions: { safety: 0.7 },
-      scenarios: [{ scenarioId: 'WINNER-EVIDENCE', composite: 0.8 }],
-      coverage: { expectedCells: 1, scorableCells: 1 },
-    }
 
     await proposer.propose(ctx)
 

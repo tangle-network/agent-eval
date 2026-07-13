@@ -69,7 +69,12 @@ describe('runOptimization selection integrity', () => {
   })
 
   it('attributes every measured delta to the complete incumbent it mutated', async () => {
-    const seen: Array<{ baseline: number | undefined; incumbent: number | undefined }> = []
+    const seen: Array<{
+      baseline: number | undefined
+      baselineSplit: 'search' | undefined
+      incumbent: number | undefined
+      incumbentSplit: 'search' | undefined
+    }> = []
     const result = await runOptimization<TestScenario, TestArtifact>({
       scenarios,
       baselineSurface: 'BASE',
@@ -86,7 +91,9 @@ describe('runOptimization selection integrity', () => {
         async propose(ctx: ProposeContext) {
           seen.push({
             baseline: ctx.baselineOutcome?.composite,
+            baselineSplit: ctx.baselineOutcome?.split,
             incumbent: ctx.incumbentOutcome?.composite,
+            incumbentSplit: ctx.incumbentOutcome?.split,
           })
           return [ctx.generation === 0 ? 'WINNER' : 'LOSER']
         },
@@ -99,8 +106,18 @@ describe('runOptimization selection integrity', () => {
     })
 
     expect(seen).toEqual([
-      { baseline: 0.4, incumbent: 0.4 },
-      { baseline: 0.4, incumbent: 0.8 },
+      {
+        baseline: 0.4,
+        baselineSplit: 'search',
+        incumbent: 0.4,
+        incumbentSplit: 'search',
+      },
+      {
+        baseline: 0.4,
+        baselineSplit: 'search',
+        incumbent: 0.8,
+        incumbentSplit: 'search',
+      },
     ])
     expect(result.generations[0]!.record.candidates[0]).toMatchObject({
       parentSurfaceHash: surfaceHash('BASE'),

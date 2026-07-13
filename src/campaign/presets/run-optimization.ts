@@ -1,10 +1,11 @@
 /**
  * `runOptimization` — the improvement loop body. Runs N generations: the
  * `SurfaceProposer` proposes K candidate surfaces per generation, each
- * candidate runs a campaign (the measurement), top-scoring promote to the
- * next generation. Proposer-agnostic — the same loop runs an evolutionary
- * population mutator (`evolutionaryProposer`) or any reflective / agentic
- * proposer; they differ only in how `propose()` picks candidates.
+ * candidate runs a campaign (the measurement), and only a candidate that beats
+ * the single global incumbent becomes the next generation's parent.
+ * Proposer-agnostic — the same loop runs an evolutionary population mutator
+ * (`evolutionaryProposer`) or any reflective / agentic proposer; they differ
+ * only in how `propose()` picks candidates.
  *
  * This is `runLoop`'s shape (plan → measure → decide) specialized to surface
  * improvement: `proposer.propose` = plan, `runCampaign` = the measurement
@@ -16,11 +17,11 @@
  */
 
 import { type Objective, paretoFrontier } from '../../pareto'
+import { type CampaignCoverage, campaignCoverage, formatCoverageFailures } from '../coverage'
 import { type RunCampaignOptions, runCampaign } from '../run-campaign'
 import { campaignBreakdown, campaignMeanComposite } from '../score-utils'
 import { surfaceHash } from '../surface-identity'
 import {
-  type CampaignCellResult,
   type CampaignResult,
   type GenerationRecord,
   isProposedCandidate,
@@ -118,7 +119,7 @@ export interface RunOptimizationResult<TArtifact, TScenario extends Scenario> {
 }
 
 /**
- * Improvement loop body: N generations of propose → campaign → rank, maintaining a Pareto frontier and promoting the top-scoring candidates to the next generation.
+ * Improvement loop body: N generations of propose → campaign → rank, maintaining a Pareto frontier and one global incumbent across generations.
  */
 export async function runOptimization<TScenario extends Scenario, TArtifact>(
   opts: RunOptimizationOptions<TScenario, TArtifact>,
@@ -139,11 +140,11 @@ export async function runOptimization<TScenario extends Scenario, TArtifact>(
     dispatch: (scenario, ctx) => opts.dispatchWithSurface(opts.baselineSurface, scenario, ctx),
     runDir: `${opts.runDir}/baseline`,
   })
-  const expectedCellIds = designedCellIds(opts.scenarios, opts.reps ?? 1)
   const requireJudgeScore = (opts.judges?.length ?? 0) > 0
   const baselineCoverage = campaignCoverage(
     baselineCampaign.cells,
-    expectedCellIds,
+    opts.scenarios,
+    opts.reps ?? 1,
     requireJudgeScore,
   )
   if (!baselineCoverage.complete) {
@@ -252,7 +253,12 @@ export async function runOptimization<TScenario extends Scenario, TArtifact>(
         runDir: `${opts.runDir}/gen-${gen}/candidate-${i}`,
       })
       const composite = campaignMeanComposite(campaign)
-      const coverage = campaignCoverage(campaign.cells, expectedCellIds, requireJudgeScore)
+      const coverage = campaignCoverage(
+        campaign.cells,
+        opts.scenarios,
+        opts.reps ?? 1,
+        requireJudgeScore,
+      )
       surfaceResults.push({
         surfaceHash: hash,
         surface,
@@ -300,6 +306,7 @@ export async function runOptimization<TScenario extends Scenario, TArtifact>(
           composite: s.composite,
           ci95: [s.composite, s.composite] as [number, number],
           parentSurfaceHash,
+          parentComposite,
           ...(s.coverage.complete
             ? { observedDeltaFromParent: s.composite - parentComposite }
             : {}),
@@ -416,13 +423,6 @@ function computeParetoFrontier(scored: ParetoParent[]): ParetoParent[] {
 
 export { surfaceHash } from '../surface-identity'
 
-interface CampaignCoverage {
-  complete: boolean
-  expectedCellIds: string[]
-  scorableCellIds: string[]
-  unscorableCells: Array<{ cellId: string; reason: string }>
-}
-
 function toScoredSurfaceOutcome<TArtifact, TScenario extends Scenario>(
   surfaceHash: string,
   campaign: CampaignResult<TArtifact, TScenario>,
@@ -430,6 +430,7 @@ function toScoredSurfaceOutcome<TArtifact, TScenario extends Scenario>(
 ): ScoredSurfaceOutcome {
   const breakdown = campaignBreakdown(campaign)
   return {
+    split: 'search',
     surfaceHash,
     composite: campaignMeanComposite(campaign),
     dimensions: breakdown.dimensions,
@@ -439,100 +440,4 @@ function toScoredSurfaceOutcome<TArtifact, TScenario extends Scenario>(
       scorableCells: coverage.scorableCellIds.length,
     },
   }
-}
-
-function designedCellIds<TScenario extends Scenario>(
-  scenarios: readonly TScenario[],
-  reps: number,
-): string[] {
-  const ids: string[] = []
-  for (const scenario of scenarios) {
-    for (let rep = 0; rep < reps; rep++) ids.push(`${scenario.id}:${rep}`)
-  }
-  return ids
-}
-
-function campaignCoverage<TArtifact>(
-  cells: readonly CampaignCellResult<TArtifact>[],
-  expectedCellIds: readonly string[],
-  requireJudgeScore: boolean,
-): CampaignCoverage {
-  const cellsById = new Map<string, CampaignCellResult<TArtifact>[]>()
-  for (const cell of cells) {
-    const matches = cellsById.get(cell.cellId) ?? []
-    matches.push(cell)
-    cellsById.set(cell.cellId, matches)
-  }
-
-  const scorableCellIds: string[] = []
-  const unscorableCells: Array<{ cellId: string; reason: string }> = []
-  for (const cellId of expectedCellIds) {
-    const matches = cellsById.get(cellId) ?? []
-    if (matches.length === 0) {
-      unscorableCells.push({ cellId, reason: 'missing campaign cell' })
-      continue
-    }
-    if (matches.length > 1) {
-      unscorableCells.push({ cellId, reason: `duplicate campaign cell (${matches.length})` })
-      continue
-    }
-
-    const cell = matches[0]!
-    const scoreEntries = Object.entries(cell.judgeScores)
-    const successfulScores = scoreEntries
-      .map(([, score]) => score)
-      .filter((score) => score.failed !== true && Number.isFinite(score.composite))
-    const nonFiniteScores = scoreEntries.filter(
-      ([, score]) =>
-        score.failed !== true &&
-        (!Number.isFinite(score.composite) ||
-          Object.values(score.dimensions).some((value) => !Number.isFinite(value))),
-    )
-    const reasons: string[] = []
-    if (cell.error) reasons.push(cell.error)
-    if (cell.artifact === null || cell.artifact === undefined) reasons.push('missing artifact')
-    if (!cell.error && requireJudgeScore && successfulScores.length === 0) {
-      reasons.push('no successful finite judge score')
-    }
-    if (Object.values(cell.judgeScores).some((score) => score.failed === true)) {
-      reasons.push('judge score marked failed')
-    }
-    if (nonFiniteScores.length > 0) {
-      reasons.push(
-        `non-finite judge score: ${nonFiniteScores
-          .map(([name]) => name)
-          .sort()
-          .join(', ')}`,
-      )
-    }
-
-    if (reasons.length > 0) {
-      unscorableCells.push({ cellId, reason: reasons.join('; ') })
-    } else {
-      scorableCellIds.push(cellId)
-    }
-  }
-
-  const expected = new Set(expectedCellIds)
-  for (const cell of cells) {
-    if (!expected.has(cell.cellId)) {
-      unscorableCells.push({ cellId: cell.cellId, reason: 'unexpected campaign cell' })
-    }
-  }
-
-  return {
-    complete: unscorableCells.length === 0 && scorableCellIds.length === expectedCellIds.length,
-    expectedCellIds: [...expectedCellIds],
-    scorableCellIds,
-    unscorableCells,
-  }
-}
-
-function formatCoverageFailures(coverage: CampaignCoverage): string {
-  const shown = coverage.unscorableCells
-    .slice(0, 3)
-    .map((cell) => `${cell.cellId}: ${cell.reason}`)
-    .join('; ')
-  const remainder = coverage.unscorableCells.length - Math.min(3, coverage.unscorableCells.length)
-  return remainder > 0 ? `${shown}; +${remainder} more` : shown || 'unknown coverage failure'
 }

@@ -7,6 +7,9 @@ import {
 import { type AnalystFinding, makeFinding } from '../../src/analyst/types'
 import {
   llmPolicyEditProposer,
+  type PolicyEditFindingInput,
+  type PolicyEditFindingSource,
+  type PolicyEditObjective,
   projectPolicyEditHistory,
 } from '../../src/campaign/proposers/llm-policy-edit'
 import type {
@@ -35,8 +38,18 @@ function finding(): AnalystFinding {
   })
 }
 
+const OBJECTIVES: PolicyEditObjective[] = [
+  {
+    key: 'search.composite',
+    split: 'search',
+    direction: 'increase',
+    scale: { min: 0, max: 1 },
+    unit: 'score',
+  },
+]
+
 function authoredEdit(
-  findingId: string,
+  findingKey: string,
   options: {
     path?: string
     axis?: 'representation' | 'agent_profile'
@@ -64,7 +77,7 @@ function authoredEdit(
     change,
     claim: 'Reading repository instructions first should prevent avoidable edits.',
     expectedGain: {
-      metric: 'holdout.composite',
+      metric: 'search.composite',
       direction: 'increase',
       amount: options.expectedGain ?? 0.12,
       unit: 'score',
@@ -72,7 +85,7 @@ function authoredEdit(
     },
     confidence: options.confidence ?? 0.9,
     risk: options.risk ?? 'low',
-    source: { findingIds: [findingId] },
+    source: { findingKeys: [findingKey] },
     rationale: 'The cited trace shows editing began before repository guidance was read.',
     validationPlan: 'Measure on disjoint repository tasks.',
   }
@@ -110,12 +123,18 @@ function context(input: {
   populationSize?: number
   baselineOutcome?: ScoredSurfaceOutcome
   incumbentOutcome?: ScoredSurfaceOutcome
-}): ProposeContext<AnalystFinding> {
+  findingSource?: PolicyEditFindingSource
+}): ProposeContext<PolicyEditFindingInput> {
   return {
     currentSurface:
       input.currentSurface ?? '{"prompt":{"systemPrompt":"Base"},"resources":{"keep":true}}',
     history: input.history ?? [],
-    findings: [input.finding],
+    findings: [
+      {
+        finding: input.finding,
+        source: input.findingSource ?? { kind: 'global', label: 'test doctrine' },
+      },
+    ],
     populationSize: input.populationSize ?? 1,
     generation: input.generation ?? 0,
     signal: new AbortController().signal,
@@ -131,7 +150,12 @@ function proposer(input: {
   finishReason?: string | null
   maxHistoryGenerations?: number
   maxHistoryCandidatesPerGeneration?: number
-  historyScenarioIdTransform?: (scenarioId: string) => string
+  scenarioIdTransform?: (scenarioId: string) => string
+  maxScenariosPerCandidate?: number
+  maxFindings?: number
+  maxAuthorContextChars?: number
+  objectives?: PolicyEditObjective[]
+  targetSurface?: 'agent-profile' | 'code'
   admissionMode?: 'evidence-only' | 'strict'
   admission?: PolicyEditAdmissionOptions
 }) {
@@ -147,17 +171,25 @@ function proposer(input: {
     },
     model: 'test-model-snapshot',
     target: 'canonical agent profile JSON',
-    targetSurface: 'agent-profile',
+    targetSurface: (input.targetSurface ?? 'agent-profile') as 'agent-profile',
     allowedJsonPaths: input.allowedJsonPaths ?? ['prompt.systemPrompt'],
+    objectives: input.objectives ?? OBJECTIVES,
     ...(input.maxHistoryGenerations === undefined
       ? {}
       : { maxHistoryGenerations: input.maxHistoryGenerations }),
     ...(input.maxHistoryCandidatesPerGeneration === undefined
       ? {}
       : { maxHistoryCandidatesPerGeneration: input.maxHistoryCandidatesPerGeneration }),
-    ...(input.historyScenarioIdTransform === undefined
+    ...(input.scenarioIdTransform === undefined
       ? {}
-      : { historyScenarioIdTransform: input.historyScenarioIdTransform }),
+      : { scenarioIdTransform: input.scenarioIdTransform }),
+    ...(input.maxScenariosPerCandidate === undefined
+      ? {}
+      : { maxScenariosPerCandidate: input.maxScenariosPerCandidate }),
+    ...(input.maxFindings === undefined ? {} : { maxFindings: input.maxFindings }),
+    ...(input.maxAuthorContextChars === undefined
+      ? {}
+      : { maxAuthorContextChars: input.maxAuthorContextChars }),
     ...(input.admissionMode === undefined ? {} : { admissionMode: input.admissionMode }),
     ...(input.admission === undefined ? {} : { admission: input.admission }),
   })
@@ -175,6 +207,7 @@ function measuredOutcome(
   scenarioId: string,
 ): ScoredSurfaceOutcome {
   return {
+    split: 'search',
     surfaceHash,
     composite,
     dimensions: { correctness: composite },
@@ -187,7 +220,7 @@ describe('llmPolicyEditProposer', () => {
   it('authors a generation-zero edit from exact cited findings and typed JSON operations', async () => {
     const source = finding()
     const capture: CapturedRequest = {}
-    const edit = authoredEdit(source.finding_id)
+    const edit = authoredEdit('finding-1')
     const out = await proposer({ response: { edits: [edit] }, capture }).propose(
       context({ finding: source }),
     )
@@ -204,15 +237,21 @@ describe('llmPolicyEditProposer', () => {
       history: [],
       findings: [
         {
-          findingId: source.finding_id,
-          evidenceRefs: source.evidence_refs,
+          findingKey: 'finding-1',
+          sources: [{ kind: 'global', label: 'test doctrine' }],
+          evidenceRefs: [
+            expect.objectContaining({
+              kind: source.evidence_refs[0]!.kind,
+              uri: source.evidence_refs[0]!.uri,
+            }),
+          ],
         },
       ],
     })
     expect(capture.system).toContain('"mode":"set"')
     expect(capture.system).toContain('"mode":"merge"')
     expect(capture.system).toContain('"mode":"remove"')
-    expect(capture.system).toContain('source.findingIds')
+    expect(capture.system).toContain('source.findingKeys')
     expect(capture.responseFormat).toMatchObject({
       type: 'json_schema',
       json_schema: {
@@ -243,6 +282,7 @@ describe('llmPolicyEditProposer', () => {
           {
             surfaceHash: 'candidate-a',
             parentSurfaceHash: 'baseline',
+            parentComposite: 0.4,
             composite: 0.7,
             observedDeltaFromParent: 0.3,
             eligibleForPromotion: true,
@@ -254,6 +294,7 @@ describe('llmPolicyEditProposer', () => {
           {
             surfaceHash: 'incomplete-candidate',
             parentSurfaceHash: 'baseline',
+            parentComposite: 0.4,
             composite: 0.9,
             eligibleForPromotion: false,
             coverage: {
@@ -271,9 +312,9 @@ describe('llmPolicyEditProposer', () => {
       },
     ]
     await proposer({
-      response: { edits: [authoredEdit(source.finding_id)] },
+      response: { edits: [authoredEdit('finding-1')] },
       capture,
-      historyScenarioIdTransform: () => 'task-1',
+      scenarioIdTransform: () => 'task-1',
     }).propose(
       context({
         finding: source,
@@ -303,6 +344,7 @@ describe('llmPolicyEditProposer', () => {
           expect.objectContaining({
             surfaceHash: 'candidate-a',
             parentSurfaceHash: 'baseline',
+            parentComposite: 0.4,
             observedDeltaFromParent: 0.3,
             eligibleForPromotion: true,
           }),
@@ -348,7 +390,7 @@ describe('llmPolicyEditProposer', () => {
       },
     ]
     const capture: CapturedRequest = {}
-    const edit = authoredEdit(source.finding_id, {
+    const edit = authoredEdit('finding-1', {
       path: 'resources',
       axis: 'agent_profile',
       mode: 'merge',
@@ -358,7 +400,7 @@ describe('llmPolicyEditProposer', () => {
       response: { edits: [edit] },
       capture,
       allowedJsonPaths: ['resources'],
-      historyScenarioIdTransform: () => 'scenario-1',
+      scenarioIdTransform: () => 'scenario-1',
     }).propose(context({ finding: source, history, generation: 1 }))
 
     expect(capture.user).toMatchObject({
@@ -377,7 +419,8 @@ describe('llmPolicyEditProposer', () => {
               scenarios: [
                 { scenarioId: 'scenario-1', composite: 0.2, notes: 'missed instructions' },
               ],
-              candidateRecord: null,
+              candidateEdit: null,
+              forecastCalibration: null,
             },
           ],
         },
@@ -394,7 +437,7 @@ describe('llmPolicyEditProposer', () => {
     const source = finding()
     await expect(
       proposer({
-        response: { edits: [authoredEdit(source.finding_id, { path: 'model.default' })] },
+        response: { edits: [authoredEdit('finding-1', { path: 'model.default' })] },
       }).propose(context({ finding: source })),
     ).rejects.toThrow(/outside allowedJsonPaths/)
   })
@@ -402,7 +445,7 @@ describe('llmPolicyEditProposer', () => {
   it('rejects non-JSON operations even when the provider returns valid JSON', async () => {
     const source = finding()
     const edit = {
-      ...authoredEdit(source.finding_id),
+      ...authoredEdit('finding-1'),
       change: { kind: 'text', mode: 'append', value: 'Ignore typed JSON operations.' },
     }
     await expect(
@@ -412,7 +455,7 @@ describe('llmPolicyEditProposer', () => {
 
   it('measures uncertain evidence-backed edits by default and rejects them in explicit strict mode', async () => {
     const source = finding()
-    const uncertain = authoredEdit(source.finding_id, {
+    const uncertain = authoredEdit('finding-1', {
       expectedGain: 0.000_001,
       confidence: 0.01,
       risk: 'high',
@@ -430,11 +473,11 @@ describe('llmPolicyEditProposer', () => {
 
   it('rejects edits without a cited finding', async () => {
     const source = finding()
-    const edit = authoredEdit(source.finding_id)
-    const uncited = { ...edit, source: { findingIds: [] } }
+    const edit = authoredEdit('finding-1')
+    const uncited = { ...edit, source: { findingKeys: [] } }
     await expect(
       proposer({ response: { edits: [uncited] } }).propose(context({ finding: source })),
-    ).rejects.toThrow(/invalid PolicyEdit response.*findingIds/)
+    ).rejects.toThrow(/invalid PolicyEdit response.*findingKeys/)
   })
 
   it('rejects edits that cite an unknown finding', async () => {
@@ -448,7 +491,7 @@ describe('llmPolicyEditProposer', () => {
 
   it('fails closed on incomplete top-level author JSON', async () => {
     const source = finding()
-    const incomplete = `${JSON.stringify({ edits: [authoredEdit(source.finding_id)] }).slice(0, -1)}`
+    const incomplete = `${JSON.stringify({ edits: [authoredEdit('finding-1')] }).slice(0, -1)}`
     await expect(
       proposer({ response: incomplete }).propose(context({ finding: source })),
     ).rejects.toThrow(/non-JSON/)
@@ -458,7 +501,7 @@ describe('llmPolicyEditProposer', () => {
     const source = finding()
     await expect(
       proposer({
-        response: { edits: [authoredEdit(source.finding_id)] },
+        response: { edits: [authoredEdit('finding-1')] },
         finishReason: 'length',
       }).propose(context({ finding: source })),
     ).rejects.toThrow(/truncated JSON content/)
@@ -470,8 +513,8 @@ describe('llmPolicyEditProposer', () => {
       proposer({
         response: {
           edits: [
-            authoredEdit(source.finding_id),
-            authoredEdit(source.finding_id, { path: 'prompt.systemPrompt' }),
+            authoredEdit('finding-1'),
+            authoredEdit('finding-1', { path: 'prompt.systemPrompt' }),
           ],
         },
       }).propose(context({ finding: source, populationSize: 1 })),
@@ -480,9 +523,9 @@ describe('llmPolicyEditProposer', () => {
 
   it('delegates duplicate candidate removal to policyEditProposer', async () => {
     const source = finding()
-    const first = authoredEdit(source.finding_id)
+    const first = authoredEdit('finding-1')
     const second = {
-      ...authoredEdit(source.finding_id),
+      ...authoredEdit('finding-1'),
       claim: 'A second claim for the same operation.',
     }
     const out = await proposer({ response: { edits: [first, second] } }).propose(
@@ -507,6 +550,7 @@ describe('llmPolicyEditProposer', () => {
             ...historyCandidate('promoted', 0.7),
             ci95: [0.65, 0.75] as [number, number],
             parentSurfaceHash: 'baseline',
+            parentComposite: 0.5,
             observedDeltaFromParent: 0.2,
             eligibleForPromotion: true,
             coverage: { expectedCells: 2, scorableCells: 2, unscorableCells: [] },
@@ -530,6 +574,7 @@ describe('llmPolicyEditProposer', () => {
     const projected = projectPolicyEditHistory(history, {
       maxGenerations: 2,
       maxCandidatesPerGeneration: 3,
+      objectives: OBJECTIVES,
     })
 
     expect(projected).toEqual([
@@ -540,6 +585,7 @@ describe('llmPolicyEditProposer', () => {
           {
             surfaceHash: 'promoted',
             parentSurfaceHash: 'baseline',
+            parentComposite: 0.5,
             label: 'kept candidate',
             rationale: 'Targets the observed repository-instruction failure.',
             composite: 0.7,
@@ -551,11 +597,22 @@ describe('llmPolicyEditProposer', () => {
               { scenarioId: 'repo-a', composite: 0.6, notes: 'read instructions' },
               { scenarioId: 'repo-b', composite: 0.8, notes: 'edited after reading' },
             ],
-            candidateRecord: exactRecord,
+            candidateEdit: expect.objectContaining({
+              editId: exactEdit.editId,
+              change: exactEdit.change,
+              sourceFindingIds: ['finding-recorded'],
+            }),
+            forecastCalibration: {
+              objectiveKey: 'search.composite',
+              predictedDelta: 0.1,
+              observedDelta: 0.2,
+              residual: 0.1,
+            },
           },
           {
             surfaceHash: 'low',
             parentSurfaceHash: null,
+            parentComposite: null,
             label: null,
             rationale: null,
             composite: 0.1,
@@ -564,11 +621,13 @@ describe('llmPolicyEditProposer', () => {
             coverage: null,
             dimensions: { correctness: 0.1, efficiency: 0.7 },
             scenarios: [{ scenarioId: 'repo-a', composite: 0.1, notes: null }],
-            candidateRecord: null,
+            candidateEdit: null,
+            forecastCalibration: null,
           },
           {
             surfaceHash: 'high',
             parentSurfaceHash: null,
+            parentComposite: null,
             label: null,
             rationale: null,
             composite: 0.9,
@@ -577,7 +636,8 @@ describe('llmPolicyEditProposer', () => {
             coverage: null,
             dimensions: { correctness: 0.9, efficiency: 0.7 },
             scenarios: [{ scenarioId: 'repo-a', composite: 0.9, notes: null }],
-            candidateRecord: null,
+            candidateEdit: null,
+            forecastCalibration: null,
           },
         ],
       },
@@ -588,6 +648,7 @@ describe('llmPolicyEditProposer', () => {
           {
             surfaceHash: 'latest',
             parentSurfaceHash: null,
+            parentComposite: null,
             label: null,
             rationale: null,
             composite: 0.8,
@@ -596,7 +657,8 @@ describe('llmPolicyEditProposer', () => {
             coverage: null,
             dimensions: { correctness: 0.8, efficiency: 0.7 },
             scenarios: [{ scenarioId: 'repo-a', composite: 0.8, notes: null }],
-            candidateRecord: null,
+            candidateEdit: null,
+            forecastCalibration: null,
           },
         ],
       },
@@ -647,9 +709,311 @@ describe('llmPolicyEditProposer', () => {
     await expect(
       proposer({
         response: { edits: [] },
-        historyScenarioIdTransform: () => 'task',
+        scenarioIdTransform: () => 'task',
       }).propose(context({ finding: source, history: [history] })),
     ).rejects.toThrow(/scenarioIdTransform collision/)
+  })
+
+  it('scrubs one-letter scenario IDs without corrupting ordinary prose', () => {
+    const history = historyGeneration(0, [
+      {
+        ...historyCandidate('short-ids', 0.5),
+        coverage: {
+          expectedCells: 2,
+          scorableCells: 0,
+          unscorableCells: [
+            { cellId: 'a:0', reason: 'a transport failed' },
+            { cellId: 'b:0', reason: 'transport failed for b' },
+          ],
+        },
+        scenarios: [
+          { scenarioId: 'a', composite: 0.4, notes: 'a transport failed' },
+          { scenarioId: 'b', composite: 0.6, notes: 'transport failed for b' },
+        ],
+      },
+    ])
+
+    const projected = projectPolicyEditHistory([history], {
+      scenarioIdTransform: (scenarioId) => `task-${scenarioId}`,
+    })
+    const serialized = JSON.stringify(projected)
+
+    expect(serialized).toContain('task-a transport failed')
+    expect(serialized).toContain('transport failed for task-b')
+    expect(serialized).not.toContain('trtask-ansport')
+    expect(serialized).not.toContain('fatask-ailed')
+  })
+
+  it('bounds a 4 × 16 × 500-task history before the model call', async () => {
+    const source = finding()
+    const capture: CapturedRequest = {}
+    const history: GenerationRecord[] = Array.from({ length: 4 }, (_, generationIndex) => ({
+      generationIndex,
+      promoted: [],
+      candidates: Array.from({ length: 16 }, (_, candidateIndex) => ({
+        surfaceHash: `surface-${generationIndex}-${candidateIndex}`,
+        composite: 0.5,
+        ci95: [0.5, 0.5] as [number, number],
+        dimensions: { correctness: 0.5 },
+        scenarios: Array.from({ length: 500 }, (_, scenarioIndex) => ({
+          scenarioId: `task-${scenarioIndex.toString().padStart(3, '0')}`,
+          composite: scenarioIndex / 500,
+          notes: `measured task ${scenarioIndex}`,
+        })),
+      })),
+    }))
+
+    await proposer({ response: { edits: [] }, capture }).propose(
+      context({ finding: source, history, generation: 4 }),
+    )
+
+    const serialized = JSON.stringify(capture.user)
+    expect(serialized.length).toBeLessThan(200_000)
+    const projected = capture.user?.history as Array<{
+      candidates: Array<{ scenarios: Array<{ scenarioId: string }> }>
+    }>
+    expect(projected).toHaveLength(4)
+    expect(projected.flatMap((generation) => generation.candidates)).toHaveLength(64)
+    for (const candidate of projected.flatMap((generation) => generation.candidates)) {
+      expect(candidate.scenarios).toHaveLength(12)
+      expect(candidate.scenarios[0]?.scenarioId).toBe('task-000')
+    }
+  })
+
+  it('keeps contradictory findings attached to their exact measured source surfaces', async () => {
+    const winnerFinding = makeFinding({
+      analyst_id: 'trace-analyst',
+      area: 'tool-use',
+      severity: 'high',
+      subject: 'repository-read',
+      claim: 'The winning profile reads repository instructions.',
+      evidence_refs: [{ kind: 'span', uri: 'span://winner/read' }],
+      confidence: 0.9,
+    })
+    const loserFinding = makeFinding({
+      analyst_id: 'trace-analyst',
+      area: 'tool-use',
+      severity: 'high',
+      subject: 'repository-read',
+      claim: 'The losing profile skips repository instructions.',
+      evidence_refs: [{ kind: 'span', uri: 'span://loser/skip' }],
+      confidence: 0.9,
+    })
+    const history = historyGeneration(0, [
+      historyCandidate('winner-surface', 0.8),
+      historyCandidate('loser-surface', 0.2),
+    ])
+    const ctx = context({ finding: winnerFinding, history: [history], generation: 1 })
+    ctx.findings = [
+      {
+        finding: winnerFinding,
+        source: { kind: 'surface', surfaceHash: 'winner-surface', generation: 0 },
+      },
+      {
+        finding: loserFinding,
+        source: { kind: 'surface', surfaceHash: 'loser-surface', generation: 0 },
+      },
+    ]
+    const capture: CapturedRequest = {}
+
+    await proposer({ response: { edits: [] }, capture }).propose(ctx)
+
+    const rendered = capture.user?.findings as Array<{
+      claim: string
+      subject: string
+      sources: PolicyEditFindingSource[]
+    }>
+    expect(rendered).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          claim: winnerFinding.claim,
+          subject: 'repository-read',
+          sources: [
+            expect.objectContaining({
+              kind: 'surface',
+              surfaceHash: 'winner-surface',
+              generation: 0,
+              composite: 0.8,
+            }),
+          ],
+        }),
+        expect.objectContaining({
+          claim: loserFinding.claim,
+          subject: 'repository-read',
+          sources: [
+            expect.objectContaining({
+              kind: 'surface',
+              surfaceHash: 'loser-surface',
+              generation: 0,
+              composite: 0.2,
+            }),
+          ],
+        }),
+      ]),
+    )
+  })
+
+  it('pseudonymizes every author-visible evidence and history field', async () => {
+    const source = makeFinding({
+      analyst_id: 'private-task',
+      area: 'private-task',
+      severity: 'high',
+      subject: 'private-task',
+      claim: 'private-task failed',
+      rationale: 'private-task rationale',
+      recommended_action: 'fix private-task',
+      validation_plan: 'rerun private-task',
+      evidence_refs: [
+        {
+          kind: 'span',
+          uri: 'span://private-task/1',
+          excerpt: 'private-task excerpt',
+        },
+      ],
+      confidence: 0.9,
+    })
+    const priorEdit = makePolicyEdit({
+      axis: 'agent_profile',
+      target: { surface: 'agent-profile', path: 'prompt.systemPrompt' },
+      change: {
+        kind: 'json',
+        mode: 'set',
+        path: 'prompt.systemPrompt',
+        value: 'private-task instruction',
+      },
+      claim: 'private-task edit',
+      expectedGain: {
+        metric: 'search.composite',
+        direction: 'increase',
+        amount: 0.1,
+        unit: 'score',
+      },
+      confidence: 0.8,
+      risk: 'low',
+      source: {
+        findingIds: ['private-task'],
+        analystIds: ['private-task'],
+        evidenceRefs: [{ kind: 'span', uri: 'span://private-task/prior' }],
+      },
+    })
+    const history = historyGeneration(0, [
+      {
+        ...historyCandidate('private-task', 0.2),
+        label: 'private-task label',
+        rationale: 'private-task rationale',
+        scenarios: [{ scenarioId: 'private-task', composite: 0.2, notes: 'private-task note' }],
+        candidateRecord: makePolicyEditCandidateRecord(priorEdit),
+      },
+    ])
+    const capture: CapturedRequest = {}
+
+    await proposer({
+      response: { edits: [] },
+      capture,
+      scenarioIdTransform: () => 'task-1',
+    }).propose(
+      context({
+        finding: source,
+        findingSource: { kind: 'global', label: 'private-task doctrine' },
+        history: [history],
+      }),
+    )
+
+    expect(
+      JSON.stringify({
+        system: capture.system,
+        user: capture.user,
+        responseFormat: capture.responseFormat,
+      }),
+    ).not.toContain('private-task')
+  })
+
+  it('rejects unattributed findings and unknown measured sources before a model call', async () => {
+    const source = finding()
+    const capture: CapturedRequest = {}
+    const unwrapped = context({ finding: source })
+    unwrapped.findings = [source as never]
+    await expect(proposer({ response: { edits: [] }, capture }).propose(unwrapped)).rejects.toThrow(
+      /attributed PolicyEditFindingInput/,
+    )
+    expect(capture.user).toBeUndefined()
+
+    const unknown = context({
+      finding: source,
+      findingSource: { kind: 'surface', surfaceHash: 'not-measured', generation: 0 },
+    })
+    await expect(proposer({ response: { edits: [] }, capture }).propose(unknown)).rejects.toThrow(
+      /is not a measured surface/,
+    )
+  })
+
+  it('rejects held-out outcomes, non-JSON targets, and unmeasurable forecast objectives', async () => {
+    const source = finding()
+    const badSplit = context({
+      finding: source,
+      baselineOutcome: { ...measuredOutcome('baseline', 0.4, 'task'), split: 'holdout' } as never,
+    })
+    await expect(proposer({ response: { edits: [] } }).propose(badSplit)).rejects.toThrow(
+      /baselineOutcome must be a search-split outcome/,
+    )
+
+    expect(() => proposer({ response: { edits: [] }, targetSurface: 'code' })).toThrow(
+      /not a JSON-backed surface/,
+    )
+    expect(() =>
+      proposer({
+        response: { edits: [] },
+        objectives: [
+          {
+            ...OBJECTIVES[0]!,
+            key: 'holdout.composite',
+          },
+        ],
+      }),
+    ).toThrow(/not yet measurable/)
+  })
+
+  it('rejects forecast direction, unit, and magnitude outside the declared objective', async () => {
+    const source = finding()
+    await expect(
+      proposer({
+        response: {
+          edits: [
+            {
+              ...authoredEdit('finding-1'),
+              expectedGain: {
+                ...authoredEdit('finding-1').expectedGain,
+                direction: 'decrease',
+              },
+            },
+          ],
+        },
+      }).propose(context({ finding: source })),
+    ).rejects.toThrow(/forecast direction/)
+    await expect(
+      proposer({
+        response: {
+          edits: [
+            {
+              ...authoredEdit('finding-1'),
+              expectedGain: { ...authoredEdit('finding-1').expectedGain, unit: 'percent' },
+            },
+          ],
+        },
+      }).propose(context({ finding: source })),
+    ).rejects.toThrow(/forecast unit/)
+    await expect(
+      proposer({
+        response: {
+          edits: [
+            {
+              ...authoredEdit('finding-1'),
+              expectedGain: { ...authoredEdit('finding-1').expectedGain, amount: 2 },
+            },
+          ],
+        },
+      }).propose(context({ finding: source })),
+    ).rejects.toThrow(/exceeds its declared scale/)
   })
 })
 
@@ -682,7 +1046,12 @@ function recordedPolicyEdit() {
       value: 'Read repository instructions first.',
     },
     claim: 'Reading repository instructions should improve correctness.',
-    expectedGain: { metric: 'holdout.composite', direction: 'increase', amount: 0.1 },
+    expectedGain: {
+      metric: 'search.composite',
+      direction: 'increase',
+      amount: 0.1,
+      unit: 'score',
+    },
     confidence: 0.8,
     risk: 'low',
     source: {

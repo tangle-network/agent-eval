@@ -41,7 +41,7 @@ import type {
 import { summarizeBackendIntegrity } from '../integrity/backend-integrity'
 import type { RunRecord } from '../run-record'
 import type { CampaignStorage } from './storage'
-import { surfaceContentHash } from './surface-identity'
+import { surfaceContentHash, surfaceHash } from './surface-identity'
 import type {
   CampaignResult,
   GateDecision,
@@ -68,13 +68,15 @@ export interface LoopProvenanceCandidate {
   /** Exact validated cause when the proposer emitted a structured record. */
   candidateRecord?: PolicyEditCandidateRecord
   /** Exact complete incumbent this candidate mutated. */
-  parentSurfaceHash?: string
+  parentSurfaceHash: string
+  /** Search-split composite of the exact parent. */
+  parentComposite: number
   /** Search-split composite change relative to the exact parent. */
   observedDeltaFromParent?: number
   /** Whether the candidate completed every designed cell and could be selected. */
-  eligibleForPromotion?: boolean
+  eligibleForPromotion: boolean
   /** Designed-denominator receipt retained even for incomplete candidates. */
-  coverage?: GenerationCandidate['coverage']
+  coverage: NonNullable<GenerationCandidate['coverage']>
   /** Mean composite this candidate scored on the search split. */
   composite: number
   /** Whether this candidate was promoted out of its generation. */
@@ -99,7 +101,7 @@ export interface LoopProvenanceBackend {
  * the bare hosted event) + backend provenance.
  */
 export interface LoopProvenanceRecord {
-  schema: 'tangle.loop-provenance.v2'
+  schema: 'tangle.loop-provenance.v3'
   runId: string
   runDir: string
   timestamp: string
@@ -113,6 +115,8 @@ export interface LoopProvenanceRecord {
   diff: string
   /** Every candidate across every generation, with its rationale and structured cause. */
   candidates: LoopProvenanceCandidate[]
+  /** Baseline composite on the search split that generated the candidates. */
+  baselineSearchComposite: number
   /** The gate verdict — decision + reasons + contributing gates + delta. */
   gate: {
     decision: GateDecision
@@ -141,13 +145,15 @@ export interface BuildLoopProvenanceArgs<TArtifact, TScenario extends Scenario> 
   winnerLabel?: string
   winnerRationale?: string
   diff: string
+  /** Baseline composite on the search split, distinct from holdout scoring. */
+  baselineSearchComposite: number
   /** Per-generation candidate records straight off the loop result. */
   generations: Array<{
     generationIndex: number
     candidates: GenerationCandidate[]
     promoted: string[]
-    /** Surfaces measured this generation, keyed positionally to candidates so
-     *  the content hash can be computed from the real surface text. */
+    /** Surfaces measured this generation, keyed by surface hash so the content
+     *  hash can be computed and the loop identity rechecked from real bytes. */
     surfaces: Array<{ surfaceHash: string; surface: MutableSurface }>
   }>
   gate: GateResult
@@ -177,19 +183,75 @@ export function buildLoopProvenanceRecord<TArtifact, TScenario extends Scenario>
 ): LoopProvenanceRecord {
   const integrity = summarizeBackendIntegrity(args.workerRecords)
   const models = [...new Set(args.workerRecords.map((r) => r.model))].sort()
+  if (!Number.isFinite(args.baselineSearchComposite)) {
+    throw new Error('buildLoopProvenanceRecord: baselineSearchComposite must be finite')
+  }
 
   const candidates: LoopProvenanceCandidate[] = []
+  let incumbentSurfaceHash = surfaceHash(args.baselineSurface)
+  let incumbentComposite = args.baselineSearchComposite
+  let previousGeneration = -1
   for (const gen of args.generations) {
+    if (!Number.isSafeInteger(gen.generationIndex) || gen.generationIndex <= previousGeneration) {
+      throw new Error(
+        'buildLoopProvenanceRecord: generation indices must be strictly increasing integers',
+      )
+    }
+    previousGeneration = gen.generationIndex
+    if (new Set(gen.promoted).size !== gen.promoted.length || gen.promoted.length > 1) {
+      throw new Error(
+        'buildLoopProvenanceRecord: each generation may promote at most one candidate',
+      )
+    }
     const promotedSet = new Set(gen.promoted)
     const surfaceByHash = new Map(gen.surfaces.map((s) => [s.surfaceHash, s.surface]))
+    const candidateByHash = new Map(
+      gen.candidates.map((candidate) => [candidate.surfaceHash, candidate]),
+    )
+    if (candidateByHash.size !== gen.candidates.length) {
+      throw new Error('buildLoopProvenanceRecord: duplicate candidate surface hash')
+    }
+    if (surfaceByHash.size !== gen.surfaces.length) {
+      throw new Error('buildLoopProvenanceRecord: duplicate candidate surface entry')
+    }
+    if (surfaceByHash.size !== candidateByHash.size) {
+      throw new Error(
+        'buildLoopProvenanceRecord: every measured candidate requires exactly one surface',
+      )
+    }
+    for (const promotedHash of promotedSet) {
+      if (!candidateByHash.has(promotedHash)) {
+        throw new Error('buildLoopProvenanceRecord: promoted hash has no measured candidate')
+      }
+    }
     for (const c of gen.candidates) {
-      validateCandidateMeasurement(c)
+      validateCandidateMeasurement(
+        c,
+        incumbentSurfaceHash,
+        incumbentComposite,
+        promotedSet.has(c.surfaceHash),
+      )
       const surface = surfaceByHash.get(c.surfaceHash)
+      if (surface === undefined) {
+        throw new Error('buildLoopProvenanceRecord: measured candidate is missing its surface')
+      }
+      if (surfaceHash(surface) !== c.surfaceHash) {
+        throw new Error(
+          'buildLoopProvenanceRecord: candidate surface hash does not match its surface bytes',
+        )
+      }
       const entry: LoopProvenanceCandidate = {
         generation: gen.generationIndex,
         surfaceHash: c.surfaceHash,
-        contentHash:
-          surface !== undefined ? surfaceContentHash(surface) : `sha256:${c.surfaceHash}`,
+        contentHash: surfaceContentHash(surface),
+        parentSurfaceHash: c.parentSurfaceHash!,
+        parentComposite: c.parentComposite!,
+        eligibleForPromotion: c.eligibleForPromotion!,
+        coverage: {
+          expectedCells: c.coverage!.expectedCells,
+          scorableCells: c.coverage!.scorableCells,
+          unscorableCells: c.coverage!.unscorableCells.map((cell) => ({ ...cell })),
+        },
         composite: c.composite,
         promoted: promotedSet.has(c.surfaceHash),
       }
@@ -198,29 +260,29 @@ export function buildLoopProvenanceRecord<TArtifact, TScenario extends Scenario>
       if (c.candidateRecord) {
         entry.candidateRecord = validatePolicyEditCandidateRecord(c.candidateRecord)
       }
-      if (c.parentSurfaceHash) entry.parentSurfaceHash = c.parentSurfaceHash
       if (c.observedDeltaFromParent !== undefined) {
         entry.observedDeltaFromParent = c.observedDeltaFromParent
       }
-      if (c.eligibleForPromotion !== undefined) {
-        entry.eligibleForPromotion = c.eligibleForPromotion
-      }
-      if (c.coverage) {
-        entry.coverage = {
-          expectedCells: c.coverage.expectedCells,
-          scorableCells: c.coverage.scorableCells,
-          unscorableCells: c.coverage.unscorableCells.map((cell) => ({ ...cell })),
-        }
-      }
       candidates.push(entry)
     }
+    const promotedHash = gen.promoted[0]
+    if (promotedHash) {
+      const promoted = candidateByHash.get(promotedHash)!
+      incumbentSurfaceHash = promoted.surfaceHash
+      incumbentComposite = promoted.composite
+    }
+  }
+  if (surfaceHash(args.winnerSurface) !== incumbentSurfaceHash) {
+    throw new Error(
+      'buildLoopProvenanceRecord: winner surface does not match the final promoted incumbent',
+    )
   }
 
   const baselineHoldoutComposite = meanHoldoutComposite(args.baselineOnHoldout)
   const winnerHoldoutComposite = meanHoldoutComposite(args.winnerOnHoldout)
 
   const record: LoopProvenanceRecord = {
-    schema: 'tangle.loop-provenance.v2',
+    schema: 'tangle.loop-provenance.v3',
     runId: args.runId,
     runDir: args.runDir,
     timestamp: args.timestamp,
@@ -228,6 +290,7 @@ export function buildLoopProvenanceRecord<TArtifact, TScenario extends Scenario>
     winnerContentHash: surfaceContentHash(args.winnerSurface),
     diff: args.diff,
     candidates,
+    baselineSearchComposite: args.baselineSearchComposite,
     gate: {
       decision: args.gate.decision,
       reasons: args.gate.reasons,
@@ -256,38 +319,74 @@ export function buildLoopProvenanceRecord<TArtifact, TScenario extends Scenario>
   return record
 }
 
-function validateCandidateMeasurement(candidate: GenerationCandidate): void {
+function validateCandidateMeasurement(
+  candidate: GenerationCandidate,
+  expectedParentHash: string,
+  expectedParentComposite: number,
+  promoted: boolean,
+): void {
   if (!Number.isFinite(candidate.composite)) {
     throw new Error('buildLoopProvenanceRecord: candidate composite must be finite')
   }
-  if (
-    candidate.parentSurfaceHash !== undefined &&
-    !/^[a-f0-9]{16}$/.test(candidate.parentSurfaceHash)
-  ) {
+  if (!candidate.parentSurfaceHash || !/^[a-f0-9]{16}$/.test(candidate.parentSurfaceHash)) {
     throw new Error(
       'buildLoopProvenanceRecord: parentSurfaceHash must be 16 lowercase hex characters',
+    )
+  }
+  if (candidate.parentSurfaceHash !== expectedParentHash) {
+    throw new Error('buildLoopProvenanceRecord: candidate parent does not match the incumbent')
+  }
+  if (
+    candidate.parentComposite === undefined ||
+    !Number.isFinite(candidate.parentComposite) ||
+    Math.abs(candidate.parentComposite - expectedParentComposite) > 1e-12
+  ) {
+    throw new Error(
+      'buildLoopProvenanceRecord: candidate parentComposite does not match the incumbent',
+    )
+  }
+  if (candidate.eligibleForPromotion === undefined || !candidate.coverage) {
+    throw new Error(
+      'buildLoopProvenanceRecord: candidate measurement requires eligibility and coverage',
     )
   }
   if (candidate.observedDeltaFromParent !== undefined) {
     if (!Number.isFinite(candidate.observedDeltaFromParent)) {
       throw new Error('buildLoopProvenanceRecord: observedDeltaFromParent must be finite')
     }
-    if (!candidate.parentSurfaceHash || candidate.eligibleForPromotion !== true) {
+    if (candidate.eligibleForPromotion !== true) {
       throw new Error(
         'buildLoopProvenanceRecord: observedDeltaFromParent requires a complete eligible candidate and parentSurfaceHash',
       )
     }
   }
   const coverage = candidate.coverage
-  if (!coverage) return
   if (
     !Number.isSafeInteger(coverage.expectedCells) ||
-    coverage.expectedCells < 0 ||
+    coverage.expectedCells <= 0 ||
     !Number.isSafeInteger(coverage.scorableCells) ||
     coverage.scorableCells < 0 ||
     coverage.scorableCells > coverage.expectedCells
   ) {
     throw new Error('buildLoopProvenanceRecord: invalid candidate coverage denominator')
+  }
+  const unscorableIds = new Set<string>()
+  for (const failure of coverage.unscorableCells) {
+    if (
+      typeof failure.cellId !== 'string' ||
+      failure.cellId.length === 0 ||
+      typeof failure.reason !== 'string' ||
+      failure.reason.length === 0 ||
+      unscorableIds.has(failure.cellId)
+    ) {
+      throw new Error('buildLoopProvenanceRecord: invalid candidate coverage failures')
+    }
+    unscorableIds.add(failure.cellId)
+  }
+  if (coverage.expectedCells - coverage.scorableCells !== coverage.unscorableCells.length) {
+    throw new Error(
+      'buildLoopProvenanceRecord: candidate coverage counts do not match its failures',
+    )
   }
   const complete =
     coverage.scorableCells === coverage.expectedCells && coverage.unscorableCells.length === 0
@@ -295,6 +394,22 @@ function validateCandidateMeasurement(candidate: GenerationCandidate): void {
     throw new Error(
       'buildLoopProvenanceRecord: candidate eligibility contradicts its coverage receipt',
     )
+  }
+  if (complete) {
+    if (candidate.observedDeltaFromParent === undefined) {
+      throw new Error(
+        'buildLoopProvenanceRecord: complete candidate is missing observedDeltaFromParent',
+      )
+    }
+    const recomputed = candidate.composite - candidate.parentComposite
+    if (Math.abs(candidate.observedDeltaFromParent - recomputed) > 1e-12) {
+      throw new Error('buildLoopProvenanceRecord: observed delta does not match measured scores')
+    }
+  } else if (candidate.observedDeltaFromParent !== undefined) {
+    throw new Error('buildLoopProvenanceRecord: incomplete candidate cannot carry observed delta')
+  }
+  if (promoted && (!complete || (candidate.observedDeltaFromParent ?? 0) <= 0)) {
+    throw new Error('buildLoopProvenanceRecord: promoted candidate must improve the incumbent')
   }
 }
 
@@ -344,6 +459,7 @@ export function loopProvenanceSpans(
       'tangle.runDir': record.runDir,
       'tangle.baselineContentHash': record.baselineContentHash,
       'tangle.winnerContentHash': record.winnerContentHash,
+      'tangle.baselineSearchComposite': record.baselineSearchComposite,
       'tangle.heldOutLift': record.heldOutLift,
       'tangle.gateDecision': record.gate.decision,
       'tangle.backendVerdict': record.backend.verdict,
@@ -363,7 +479,7 @@ export function loopProvenanceSpans(
   }
   for (const [generation, cands] of [...byGen.entries()].sort((a, b) => a[0] - b[0])) {
     const genSpanId = hashId(['gen', record.runId, String(generation)]).slice(0, 16)
-    const bestComposite = cands.reduce((m, c) => Math.max(m, c.composite), 0)
+    const bestComposite = Math.max(...cands.map((candidate) => candidate.composite))
     spans.push({
       traceId,
       spanId: genSpanId,
@@ -391,8 +507,20 @@ export function loopProvenanceSpans(
         'tangle.generation': generation,
         'tangle.surfaceHash': c.surfaceHash,
         'tangle.contentHash': c.contentHash,
+        'tangle.parentSurfaceHash': c.parentSurfaceHash,
+        'tangle.parentComposite': c.parentComposite,
         'tangle.composite': c.composite,
+        'tangle.eligibleForPromotion': c.eligibleForPromotion,
+        'tangle.expectedCells': c.coverage.expectedCells,
+        'tangle.scorableCells': c.coverage.scorableCells,
+        'tangle.unscorableCells': c.coverage.unscorableCells.length,
         'tangle.promoted': c.promoted,
+      }
+      if (c.observedDeltaFromParent !== undefined) {
+        attributes['tangle.observedDeltaFromParent'] = c.observedDeltaFromParent
+      }
+      if (c.candidateRecord) {
+        attributes['tangle.policyEditId'] = c.candidateRecord.policyEdit.editId
       }
       if (c.label) attributes['tangle.candidateLabel'] = c.label
       if (c.rationale) attributes['tangle.candidateRationale'] = c.rationale

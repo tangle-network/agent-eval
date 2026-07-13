@@ -233,6 +233,9 @@ export interface ParetoParent {
  *  Unlike a model-authored expected gain, every value here comes from a
  *  completed campaign over the designed denominator. */
 export interface ScoredSurfaceOutcome {
+  /** Optimization/search evidence only. Held-out results must never flow back
+   *  into a proposer through this type. */
+  split: 'search'
   surfaceHash: string
   composite: number
   dimensions: Record<string, number>
@@ -611,6 +614,8 @@ export interface GenerationCandidate {
   ci95: [number, number]
   /** Exact surface this candidate mutated. */
   parentSurfaceHash?: string
+  /** Measured search-split composite of the exact parent surface. */
+  parentComposite?: number
   /** Candidate composite minus its parent's composite. Present only when the
    *  candidate completed the designed denominator. */
   observedDeltaFromParent?: number

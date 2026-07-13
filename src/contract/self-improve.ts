@@ -36,6 +36,7 @@ import {
   type LoopProvenanceRecord,
   surfaceContentHash,
 } from '../campaign/provenance'
+import { campaignMeanComposite } from '../campaign/score-utils'
 import {
   type CampaignStorage,
   fsCampaignStorage,
@@ -559,6 +560,7 @@ export async function selfImprove<TScenario extends Scenario, TArtifact>(
     winnerLabel: result.winnerLabel,
     winnerRationale: result.winnerRationale,
     diff: result.promotedDiff,
+    baselineSearchComposite: campaignMeanComposite(result.baselineCampaign),
     generations: result.generations.map((g) => ({
       generationIndex: g.record.generationIndex,
       candidates: g.record.candidates,

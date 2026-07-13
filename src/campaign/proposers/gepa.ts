@@ -39,6 +39,7 @@ import {
   renderAnalystEvidence,
   type TrialTrace,
 } from '../../reflective-mutation'
+import { surfaceHash } from '../surface-identity'
 import type { ProposeContext, ProposedCandidate, SurfaceProposer } from '../types'
 
 const REFLECTION_SYSTEM =
@@ -319,8 +320,17 @@ function buildEvidence(
   baseTarget: string,
 ): { top: TrialTrace[]; bottom: TrialTrace[]; target: string } {
   const last = ctx.history.at(-1)
+  const currentSurfaceHash = surfaceHash(ctx.currentSurface)
+  const measuredCurrentSurface = ctx.history
+    .flatMap((record) => record.candidates)
+    .reverse()
+    .find(
+      (candidate) =>
+        candidate.surfaceHash === currentSurfaceHash && candidate.eligibleForPromotion !== false,
+    )
   const best =
     ctx.incumbentOutcome ??
+    measuredCurrentSurface ??
     (last
       ? [...last.candidates]
           .filter((candidate) => candidate.eligibleForPromotion !== false)

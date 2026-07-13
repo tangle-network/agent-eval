@@ -141,6 +141,7 @@ describe('policyEditProposer', () => {
         baselineSurface: 'Base prompt.',
         winnerSurface: result.winnerSurface,
         diff: '',
+        baselineSearchComposite: 0,
         generations: [
           {
             generationIndex: generation.record.generationIndex,
@@ -166,6 +167,7 @@ describe('policyEditProposer', () => {
       })
       expect(provenance.candidates[0]).toMatchObject({
         parentSurfaceHash: surfaceHash('Base prompt.'),
+        parentComposite: 0,
         observedDeltaFromParent: 1,
         eligibleForPromotion: true,
         coverage: { expectedCells: 1, scorableCells: 1, unscorableCells: [] },

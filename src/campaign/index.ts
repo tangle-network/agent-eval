@@ -269,11 +269,16 @@ export {
 export { type HaloProposerOptions, haloProposer } from './proposers/halo'
 export {
   DEFAULT_POLICY_EDIT_HISTORY_LIMITS,
+  type JsonPolicyEditTargetSurface,
   type LlmPolicyEditProposerOptions,
   llmPolicyEditProposer,
+  type PolicyEditCandidateSummary,
+  type PolicyEditFindingInput,
+  type PolicyEditFindingSource,
   type PolicyEditHistoryCandidateContext,
   type PolicyEditHistoryGenerationContext,
   type PolicyEditHistoryProjectionOptions,
+  type PolicyEditObjective,
   type PolicyEditOutcomeContext,
   projectPolicyEditHistory,
 } from './proposers/llm-policy-edit'
@@ -282,6 +287,13 @@ export {
   type PolicyEditProposerOptions,
   policyEditProposer,
 } from './proposers/policy-edit'
+export {
+  assertPolicyEditAuthorContextBudget,
+  type PolicyEditAuthorScenarioRow,
+  type SelectPolicyEditAuthorRowsOptions,
+  type SerializedJsonBudget,
+  selectPolicyEditAuthorRows,
+} from './proposers/policy-edit-author-context'
 export {
   type ProposePatchesArgs,
   parseSkillPatchResponse,

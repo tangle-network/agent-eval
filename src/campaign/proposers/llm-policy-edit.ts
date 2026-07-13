@@ -9,8 +9,9 @@ import {
   type PolicyEditAdmissionOptions,
   type PolicyEditCandidateRecord,
   type PolicyEditExpectedGain,
+  type PolicyEditGainDirection,
+  type PolicyEditGainUnit,
   type PolicyEditInit,
-  type PolicyEditTargetSurface,
   validatePolicyEditCandidateRecord,
 } from '../../analyst/policy-edit'
 import { assertNoJudgeVerdict } from '../../analyst/steer-firewall'
@@ -26,6 +27,20 @@ import type {
   SurfaceProposer,
 } from '../types'
 import { policyEditProposer } from './policy-edit'
+import {
+  assertPolicyEditAuthorContextBudget,
+  selectPolicyEditAuthorRows,
+} from './policy-edit-author-context'
+
+const JSON_POLICY_EDIT_TARGET_SURFACES = [
+  'prompt',
+  'tool-contract',
+  'runtime-config',
+  'memory',
+  'agent-profile',
+] as const satisfies readonly (typeof POLICY_EDIT_TARGET_SURFACES)[number][]
+
+export type JsonPolicyEditTargetSurface = (typeof JSON_POLICY_EDIT_TARGET_SURFACES)[number]
 
 const NonEmptyStringSchema = z.string().trim().min(1)
 
@@ -91,10 +106,10 @@ const AuthoredPolicyEditSchema = z
     risk: z.enum(['low', 'medium', 'high', 'unknown']),
     source: z
       .object({
-        findingIds: z
+        findingKeys: z
           .array(NonEmptyStringSchema)
           .min(1)
-          .refine((ids) => new Set(ids).size === ids.length, 'findingIds must be unique'),
+          .refine((ids) => new Set(ids).size === ids.length, 'findingKeys must be unique'),
       })
       .strict(),
     rationale: NonEmptyStringSchema.max(4_000).nullable(),
@@ -201,9 +216,9 @@ const POLICY_EDIT_AUTHOR_JSON_SCHEMA: Record<string, unknown> = {
           source: {
             type: 'object',
             additionalProperties: false,
-            required: ['findingIds'],
+            required: ['findingKeys'],
             properties: {
-              findingIds: {
+              findingKeys: {
                 type: 'array',
                 minItems: 1,
                 uniqueItems: true,
@@ -219,7 +234,12 @@ const POLICY_EDIT_AUTHOR_JSON_SCHEMA: Record<string, unknown> = {
   },
 }
 
-function policyEditAuthorJsonSchema(maxItems: number): Record<string, unknown> {
+function policyEditAuthorJsonSchema(
+  maxItems: number,
+  targetSurface: JsonPolicyEditTargetSurface,
+  allowedJsonPaths: readonly string[],
+  objectives: readonly PolicyEditObjective[],
+): Record<string, unknown> {
   const schema = JSON.parse(JSON.stringify(POLICY_EDIT_AUTHOR_JSON_SCHEMA)) as Record<
     string,
     unknown
@@ -227,26 +247,91 @@ function policyEditAuthorJsonSchema(maxItems: number): Record<string, unknown> {
   const properties = schema.properties as Record<string, unknown>
   const edits = properties.edits as Record<string, unknown>
   edits.maxItems = maxItems
+  const item = edits.items as Record<string, unknown>
+  const itemProperties = item.properties as Record<string, unknown>
+  const target = itemProperties.target as Record<string, unknown>
+  const targetProperties = target.properties as Record<string, unknown>
+  targetProperties.surface = { type: 'string', enum: [targetSurface] }
+  targetProperties.path = { type: 'string', enum: [...allowedJsonPaths] }
+  const change = itemProperties.change as { anyOf: Array<Record<string, unknown>> }
+  for (const variant of change.anyOf) {
+    const variantProperties = variant.properties as Record<string, unknown>
+    variantProperties.path = { type: 'string', enum: [...allowedJsonPaths] }
+  }
+  const expectedGain = itemProperties.expectedGain as Record<string, unknown>
+  const gainProperties = expectedGain.properties as Record<string, unknown>
+  gainProperties.metric = { type: 'string', enum: objectives.map((objective) => objective.key) }
+  gainProperties.direction = {
+    type: 'string',
+    enum: [...new Set(objectives.map((objective) => objective.direction))],
+  }
+  gainProperties.unit = {
+    type: 'string',
+    enum: [...new Set(objectives.map((objective) => objective.unit))],
+  }
   return schema
 }
 
 export const DEFAULT_POLICY_EDIT_HISTORY_LIMITS = Object.freeze({
   generations: 4,
   candidatesPerGeneration: 16,
+  scenariosPerCandidate: 12,
+  findings: 32,
+  authorContextChars: 200_000,
 })
+
+export interface PolicyEditObjective {
+  /** Stable objective key cited by forecasts, for example `search.composite`. */
+  key: string
+  /** Steering objectives are search-only; fresh-task results never enter author context. */
+  split: 'search'
+  direction: PolicyEditGainDirection
+  scale: { min: number; max: number }
+  unit: PolicyEditGainUnit
+}
+
+export type PolicyEditFindingSource =
+  | { kind: 'surface'; surfaceHash: string; generation: number }
+  | { kind: 'global'; label: string }
+
+/** Trace-derived findings must name the measured profile that produced them.
+ *  Cross-run doctrine can be explicitly global; an unwrapped finding is rejected. */
+export interface PolicyEditFindingInput {
+  finding: AnalystFinding
+  source: PolicyEditFindingSource
+}
 
 export interface PolicyEditHistoryProjectionOptions {
   /** Number of most recent generations retained. Default: 4. */
   maxGenerations?: number
   /** Number of candidates retained per generation. Default: 16. */
   maxCandidatesPerGeneration?: number
+  /** Scored tasks retained per candidate/outcome after deterministic extreme selection. */
+  maxScenariosPerCandidate?: number
   /** Optional pseudonymizer applied before scenario IDs enter author text. */
   scenarioIdTransform?: (scenarioId: string) => string
+  /** Objectives used to compute forecast residuals from measured composite deltas. */
+  objectives?: readonly PolicyEditObjective[]
+}
+
+export interface PolicyEditCandidateSummary {
+  editId: string
+  axis: PolicyEdit['axis']
+  target: PolicyEdit['target']
+  change: PolicyEdit['change']
+  claim: string
+  expectedGain: PolicyEdit['expectedGain']
+  confidence: number
+  risk: PolicyEdit['risk']
+  sourceFindingIds: string[]
+  rationale: string | null
+  validationPlan: string | null
 }
 
 export interface PolicyEditHistoryCandidateContext {
   surfaceHash: string
   parentSurfaceHash: string | null
+  parentComposite: number | null
   label: string | null
   rationale: string | null
   composite: number
@@ -259,10 +344,17 @@ export interface PolicyEditHistoryCandidateContext {
   } | null
   dimensions: Record<string, number>
   scenarios: Array<{ scenarioId: string; composite: number; notes: string | null }>
-  candidateRecord: PolicyEditCandidateRecord | null
+  candidateEdit: PolicyEditCandidateSummary | null
+  forecastCalibration: {
+    objectiveKey: string
+    predictedDelta: number
+    observedDelta: number
+    residual: number
+  } | null
 }
 
 export interface PolicyEditOutcomeContext {
+  split: 'search'
   surfaceHash: string
   composite: number
   dimensions: Record<string, number>
@@ -284,7 +376,7 @@ const POLICY_EDIT_AUTHOR_SYSTEM = [
   'target.path and change.path must be the same caller-allowed JSON path.',
   'change must be exactly one operation: {"kind":"json","mode":"set","path":string,"value":json}, {"kind":"json","mode":"merge","path":string,"value":json}, or {"kind":"json","mode":"remove","path":string}.',
   'Nullable fields required by the response schema must be null when they do not apply.',
-  'Every edit must cite one or more supplied finding IDs in source.findingIds. Do not emit analyst IDs or evidence references; the caller binds those from the cited findings.',
+  'Every edit must cite one or more supplied finding keys in source.findingKeys. Do not emit persistent finding IDs, analyst IDs, or evidence references; the caller binds those from the cited findings.',
   'Treat expectedGain and confidence as forecasts, never as measured evidence. Learn from baselineOutcome, incumbentOutcome, and observedDeltaFromParent.',
   'Do not invent a finding, path, field, score, or task fact. Do not include schemaVersion, editId, metadata, prose, or undeclared keys.',
 ].join('\n')
@@ -295,9 +387,11 @@ export interface LlmPolicyEditProposerOptions {
   /** Plain-language description of the JSON surface being improved. */
   target: string
   /** PolicyEdit target surface every authored edit must retain. */
-  targetSurface: PolicyEditTargetSurface
+  targetSurface: JsonPolicyEditTargetSurface
   /** Exact JSON paths the author may change. Prefix or fuzzy matches are not accepted. */
   allowedJsonPaths: readonly string[]
+  /** Exact search objectives forecasts may name. Unknown keys or mismatched directions fail. */
+  objectives: readonly PolicyEditObjective[]
   /** Default: evidence-only, so uncertain edits are measured rather than
    *  suppressed by their own model-authored predictions. */
   admissionMode?: 'evidence-only' | 'strict'
@@ -311,8 +405,14 @@ export interface LlmPolicyEditProposerOptions {
   maxHistoryGenerations?: number
   /** Candidates retained per admitted generation. Default: 16. */
   maxHistoryCandidatesPerGeneration?: number
-  /** Optional pseudonymizer applied before scenario IDs enter author text. */
-  historyScenarioIdTransform?: (scenarioId: string) => string
+  /** Scored tasks retained per candidate/outcome after deterministic extreme selection. */
+  maxScenariosPerCandidate?: number
+  /** Evidence-bearing findings retained after deterministic severity/confidence ordering. */
+  maxFindings?: number
+  /** Hard character limit over system + schema + serialized author context. */
+  maxAuthorContextChars?: number
+  /** Optional one-to-one pseudonymizer applied to every author-visible evidence field. */
+  scenarioIdTransform?: (scenarioId: string) => string
   onAdmission?: (admission: PolicyEditAdmission) => void
 }
 
@@ -324,11 +424,18 @@ export interface LlmPolicyEditProposerOptions {
  */
 export function llmPolicyEditProposer(
   opts: LlmPolicyEditProposerOptions,
-): SurfaceProposer<AnalystFinding> {
+): SurfaceProposer<PolicyEditFindingInput> {
   const allowedJsonPaths = validateAllowedJsonPaths(opts.allowedJsonPaths)
   const allowedPathSet = new Set(allowedJsonPaths)
+  const objectives = validateObjectives(opts.objectives)
+  const objectiveByKey = new Map(objectives.map((objective) => [objective.key, objective]))
   requireNonEmpty(opts.model, 'model')
   requireNonEmpty(opts.target, 'target')
+  if (!(JSON_POLICY_EDIT_TARGET_SURFACES as readonly string[]).includes(opts.targetSurface)) {
+    throw new Error(
+      `llmPolicyEditProposer: targetSurface '${opts.targetSurface}' is not a JSON-backed surface`,
+    )
+  }
   if (
     opts.maxCandidates !== undefined &&
     (!Number.isSafeInteger(opts.maxCandidates) || opts.maxCandidates < 0)
@@ -349,26 +456,86 @@ export function llmPolicyEditProposer(
     ...(opts.maxHistoryCandidatesPerGeneration === undefined
       ? {}
       : { maxCandidatesPerGeneration: opts.maxHistoryCandidatesPerGeneration }),
-    ...(opts.historyScenarioIdTransform === undefined
+    ...(opts.maxScenariosPerCandidate === undefined
       ? {}
-      : { scenarioIdTransform: opts.historyScenarioIdTransform }),
+      : { maxScenariosPerCandidate: opts.maxScenariosPerCandidate }),
+    ...(opts.scenarioIdTransform === undefined
+      ? {}
+      : { scenarioIdTransform: opts.scenarioIdTransform }),
   })
+  const maxFindings = positiveLimit(
+    opts.maxFindings ?? DEFAULT_POLICY_EDIT_HISTORY_LIMITS.findings,
+    'maxFindings',
+  )
+  const maxAuthorContextChars = positiveLimit(
+    opts.maxAuthorContextChars ?? DEFAULT_POLICY_EDIT_HISTORY_LIMITS.authorContextChars,
+    'maxAuthorContextChars',
+  )
 
   return {
     kind: 'llm-policy-edit',
     async propose(
-      ctx: ProposeContext<AnalystFinding>,
+      ctx: ProposeContext<PolicyEditFindingInput>,
     ): Promise<Array<MutableSurface | ProposedCandidate>> {
       const limit = Math.min(ctx.populationSize, opts.maxCandidates ?? ctx.populationSize)
       if (limit <= 0) return []
 
       const currentSurface = parseJsonSurface(ctx.currentSurface)
-      const findings = citableFindings(ctx.findings)
-      const findingById = new Map(findings.map((finding) => [finding.finding_id, finding]))
+      assertSearchOutcome(ctx.baselineOutcome, 'baselineOutcome')
+      assertSearchOutcome(ctx.incumbentOutcome, 'incumbentOutcome')
       const scenarioIds = createScenarioIdProjector(historyLimits.scenarioIdTransform)
       registerOutcomeScenarioIds(ctx.baselineOutcome, scenarioIds)
       registerOutcomeScenarioIds(ctx.incumbentOutcome, scenarioIds)
       registerHistoryScenarioIds(ctx.history.slice(-historyLimits.maxGenerations), scenarioIds)
+      assertSurfaceIsTaskAgnostic(
+        { currentSurface, allowedJsonPaths, objectives, targetSurface: opts.targetSurface },
+        scenarioIds,
+      )
+      const measuredSources = measuredSourceMeasurements(ctx)
+      const findings = citableFindings(ctx.findings, measuredSources, maxFindings)
+      const findingByKey = new Map(
+        findings.map((finding, index) => [`finding-${index + 1}`, finding]),
+      )
+      const authorContext = {
+        target: scenarioIds.sanitize(opts.target),
+        targetSurface: opts.targetSurface,
+        allowedJsonPaths,
+        objectives,
+        candidateCount: limit,
+        generation: ctx.generation,
+        currentSurface,
+        findings: findings.map((finding, index) =>
+          renderFinding(finding, `finding-${index + 1}`, scenarioIds, measuredSources),
+        ),
+        baselineOutcome: projectOutcome(
+          ctx.baselineOutcome,
+          scenarioIds,
+          historyLimits.maxScenariosPerCandidate,
+        ),
+        incumbentOutcome: projectOutcome(
+          ctx.incumbentOutcome,
+          scenarioIds,
+          historyLimits.maxScenariosPerCandidate,
+          ctx.baselineOutcome,
+        ),
+        history: projectPolicyEditHistoryWithProjector(
+          ctx.history,
+          historyLimits,
+          scenarioIds,
+          objectiveByKey,
+        ),
+      }
+      const responseSchema = policyEditAuthorJsonSchema(
+        limit,
+        opts.targetSurface,
+        allowedJsonPaths,
+        objectives,
+      )
+      assertPolicyEditAuthorContextBudget(
+        { system: POLICY_EDIT_AUTHOR_SYSTEM, authorContext, responseSchema },
+        maxAuthorContextChars,
+      )
+      const userContent = JSON.stringify(authorContext)
       const { value } = await callLlmJson<unknown>(
         {
           model: opts.model,
@@ -376,27 +543,12 @@ export function llmPolicyEditProposer(
             { role: 'system', content: POLICY_EDIT_AUTHOR_SYSTEM },
             {
               role: 'user',
-              content: JSON.stringify({
-                target: opts.target,
-                targetSurface: opts.targetSurface,
-                allowedJsonPaths,
-                candidateCount: limit,
-                generation: ctx.generation,
-                currentSurface,
-                findings: findings.map(renderFinding),
-                baselineOutcome: projectOutcome(ctx.baselineOutcome, scenarioIds),
-                incumbentOutcome: projectOutcome(ctx.incumbentOutcome, scenarioIds),
-                history: projectPolicyEditHistoryWithProjector(
-                  ctx.history,
-                  historyLimits,
-                  scenarioIds,
-                ),
-              }),
+              content: userContent,
             },
           ],
           jsonSchema: {
             name: 'policy_edit_author',
-            schema: policyEditAuthorJsonSchema(limit),
+            schema: responseSchema,
           },
           temperature: opts.temperature ?? 0.2,
           maxTokens: opts.maxTokens ?? 6_000,
@@ -411,7 +563,7 @@ export function llmPolicyEditProposer(
         )
       }
       const edits = response.edits.map((draft) =>
-        bindAuthoredEdit(draft, findingById, opts.targetSurface, allowedPathSet),
+        bindAuthoredEdit(draft, findingByKey, opts.targetSurface, allowedPathSet, objectiveByKey),
       )
       return policyEditProposer({
         edits,
@@ -441,23 +593,48 @@ export function projectPolicyEditHistory(
   options: PolicyEditHistoryProjectionOptions = {},
 ): PolicyEditHistoryGenerationContext[] {
   const limits = validateHistoryLimits(options)
+  const objectiveByKey = new Map(
+    (options.objectives ? validateObjectives(options.objectives) : []).map((objective) => [
+      objective.key,
+      objective,
+    ]),
+  )
   const scenarioIds = createScenarioIdProjector(limits.scenarioIdTransform)
   registerHistoryScenarioIds(history.slice(-limits.maxGenerations), scenarioIds)
-  return projectPolicyEditHistoryWithProjector(history, limits, scenarioIds)
+  return projectPolicyEditHistoryWithProjector(history, limits, scenarioIds, objectiveByKey)
 }
 
 function projectPolicyEditHistoryWithProjector(
   history: readonly GenerationRecord[],
   limits: ReturnType<typeof validateHistoryLimits>,
   scenarioIds: ScenarioIdProjector,
+  objectiveByKey: ReadonlyMap<string, PolicyEditObjective>,
 ): PolicyEditHistoryGenerationContext[] {
-  return history.slice(-limits.maxGenerations).map((record) => {
+  const retainedHistory = history.slice(-limits.maxGenerations)
+  const candidateByHash = new Map(
+    retainedHistory.flatMap((record) =>
+      record.candidates.map((candidate) => [candidate.surfaceHash, candidate] as const),
+    ),
+  )
+  return retainedHistory.map((record) => {
     const candidates = selectHistoryCandidates(record, limits.maxCandidatesPerGeneration)
     const hashes = new Set(candidates.map((candidate) => candidate.surfaceHash))
     return {
       generationIndex: record.generationIndex,
-      promoted: record.promoted.filter((hash) => hashes.has(hash)),
-      candidates: candidates.map((candidate) => projectHistoryCandidate(candidate, scenarioIds)),
+      promoted: record.promoted
+        .filter((hash) => hashes.has(hash))
+        .map((hash) => scenarioIds.sanitize(hash)),
+      candidates: candidates.map((candidate) =>
+        projectHistoryCandidate(
+          candidate,
+          scenarioIds,
+          limits.maxScenariosPerCandidate,
+          candidate.parentSurfaceHash
+            ? candidateByHash.get(candidate.parentSurfaceHash)?.scenarios
+            : undefined,
+          objectiveByKey,
+        ),
+      ),
     }
   })
 }
@@ -488,12 +665,28 @@ function selectHistoryCandidates(record: GenerationRecord, limit: number): Gener
 function projectHistoryCandidate(
   candidate: GenerationCandidate,
   scenarioIds: ScenarioIdProjector,
+  maxScenarios: number,
+  parentScenarios: GenerationCandidate['scenarios'] | undefined,
+  objectiveByKey: ReadonlyMap<string, PolicyEditObjective>,
 ): PolicyEditHistoryCandidateContext {
+  const referenceByScenario = parentScenarios
+    ? new Map(parentScenarios.map((scenario) => [scenario.scenarioId, scenario.composite]))
+    : undefined
+  const selectedScenarios = selectPolicyEditAuthorRows(candidate.scenarios, {
+    limit: maxScenarios,
+    ...(referenceByScenario ? { referenceByScenario } : {}),
+  })
+  const validatedRecord = candidate.candidateRecord
+    ? validatePolicyEditCandidateRecord(candidate.candidateRecord)
+    : undefined
   return {
-    surfaceHash: candidate.surfaceHash,
-    parentSurfaceHash: candidate.parentSurfaceHash ?? null,
-    label: candidate.label ?? null,
-    rationale: candidate.rationale ?? null,
+    surfaceHash: scenarioIds.sanitize(candidate.surfaceHash),
+    parentSurfaceHash: candidate.parentSurfaceHash
+      ? scenarioIds.sanitize(candidate.parentSurfaceHash)
+      : null,
+    parentComposite: candidate.parentComposite ?? null,
+    label: candidate.label ? scenarioIds.sanitize(candidate.label) : null,
+    rationale: candidate.rationale ? scenarioIds.sanitize(candidate.rationale) : null,
     composite: candidate.composite,
     observedDeltaFromParent: candidate.observedDeltaFromParent ?? null,
     eligibleForPromotion: candidate.eligibleForPromotion ?? null,
@@ -503,37 +696,47 @@ function projectHistoryCandidate(
           scorableCells: candidate.coverage.scorableCells,
           // `cellId` embeds the raw scenario ID. The aggregate reason is useful
           // for search, but the identifier must not bypass scenarioIdTransform.
-          unscorableCells: candidate.coverage.unscorableCells.map((cell) => ({
-            reason: scenarioIds.sanitize(cell.reason),
-          })),
+          unscorableCells: [...candidate.coverage.unscorableCells]
+            .sort((a, b) => a.cellId.localeCompare(b.cellId))
+            .slice(0, maxScenarios)
+            .map((cell) => ({ reason: scenarioIds.sanitize(cell.reason) })),
         }
       : null,
     // GenerationCandidate.ci95 is currently a placeholder [composite, composite],
     // not a measured interval. Keep it out of author context until it is real.
     dimensions: { ...candidate.dimensions },
-    scenarios: candidate.scenarios.map((scenario) => {
+    scenarios: selectedScenarios.map((scenario) => {
       return {
         scenarioId: scenarioIds.project(scenario.scenarioId),
         composite: scenario.composite,
         notes: scenario.notes ? scenarioIds.sanitize(scenario.notes) : null,
       }
     }),
-    candidateRecord: candidate.candidateRecord
-      ? validatePolicyEditCandidateRecord(candidate.candidateRecord)
-      : null,
+    candidateEdit: validatedRecord ? summarizeCandidateEdit(validatedRecord, scenarioIds) : null,
+    forecastCalibration: forecastCalibration(candidate, validatedRecord, objectiveByKey),
   }
 }
 
 function projectOutcome(
   outcome: ScoredSurfaceOutcome | undefined,
   scenarioIds: ScenarioIdProjector,
+  maxScenarios: number,
+  reference: ScoredSurfaceOutcome | undefined = undefined,
 ): PolicyEditOutcomeContext | null {
   if (!outcome) return null
+  const referenceByScenario = reference
+    ? new Map(reference.scenarios.map((scenario) => [scenario.scenarioId, scenario.composite]))
+    : undefined
+  const selectedScenarios = selectPolicyEditAuthorRows(outcome.scenarios, {
+    limit: maxScenarios,
+    ...(referenceByScenario ? { referenceByScenario } : {}),
+  })
   return {
-    surfaceHash: outcome.surfaceHash,
+    split: 'search',
+    surfaceHash: scenarioIds.sanitize(outcome.surfaceHash),
     composite: outcome.composite,
     dimensions: { ...outcome.dimensions },
-    scenarios: outcome.scenarios.map((scenario) => {
+    scenarios: selectedScenarios.map((scenario) => {
       return {
         scenarioId: scenarioIds.project(scenario.scenarioId),
         composite: scenario.composite,
@@ -583,14 +786,178 @@ function createScenarioIdProjector(transform: (scenarioId: string) => string): S
     sanitize(text) {
       const originalsByLength = [...aliases.keys()].sort((a, b) => b.length - a.length)
       if (originalsByLength.length === 0) return text
-      const pattern = new RegExp(originalsByLength.map(escapeRegExp).join('|'), 'g')
-      return text.replace(pattern, (original) => aliases.get(original) ?? original)
+      const pattern = new RegExp(
+        `(^|[^A-Za-z0-9_-])(${originalsByLength.map(escapeRegExp).join('|')})(?=$|[^A-Za-z0-9_-])`,
+        'g',
+      )
+      return text.replace(
+        pattern,
+        (_match, prefix: string, original: string) =>
+          `${prefix}${aliases.get(original) ?? original}`,
+      )
     },
   }
 }
 
 function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
+
+interface PolicyEditFindingMeasurement {
+  surfaceHash: string
+  generation: number
+  composite: number
+  parentComposite: number | null
+  observedDeltaFromParent: number | null
+  eligibleForPromotion: boolean
+  coverage: { expectedCells: number; scorableCells: number }
+}
+
+function sourceKey(surfaceHash: string, generation: number): string {
+  return `${surfaceHash}@${generation}`
+}
+
+function measuredSourceMeasurements(
+  ctx: ProposeContext<PolicyEditFindingInput>,
+): Map<string, PolicyEditFindingMeasurement> {
+  const measurements = new Map<string, PolicyEditFindingMeasurement>()
+  const add = (measurement: PolicyEditFindingMeasurement) => {
+    measurements.set(sourceKey(measurement.surfaceHash, measurement.generation), measurement)
+  }
+  if (ctx.baselineOutcome) {
+    add({
+      surfaceHash: ctx.baselineOutcome.surfaceHash,
+      generation: -1,
+      composite: ctx.baselineOutcome.composite,
+      parentComposite: null,
+      observedDeltaFromParent: null,
+      eligibleForPromotion: true,
+      coverage: { ...ctx.baselineOutcome.coverage },
+    })
+  }
+  for (const record of ctx.history) {
+    for (const candidate of record.candidates) {
+      add({
+        surfaceHash: candidate.surfaceHash,
+        generation: record.generationIndex,
+        composite: candidate.composite,
+        parentComposite: candidate.parentComposite ?? null,
+        observedDeltaFromParent: candidate.observedDeltaFromParent ?? null,
+        eligibleForPromotion: candidate.eligibleForPromotion === true,
+        coverage: candidate.coverage
+          ? {
+              expectedCells: candidate.coverage.expectedCells,
+              scorableCells: candidate.coverage.scorableCells,
+            }
+          : { expectedCells: 0, scorableCells: 0 },
+      })
+    }
+  }
+  if (ctx.incumbentOutcome) {
+    const generation = Math.max(-1, ctx.generation - 1)
+    const key = sourceKey(ctx.incumbentOutcome.surfaceHash, generation)
+    if (!measurements.has(key)) {
+      add({
+        surfaceHash: ctx.incumbentOutcome.surfaceHash,
+        generation,
+        composite: ctx.incumbentOutcome.composite,
+        parentComposite: null,
+        observedDeltaFromParent: null,
+        eligibleForPromotion: true,
+        coverage: { ...ctx.incumbentOutcome.coverage },
+      })
+    }
+  }
+  return measurements
+}
+
+function validateFindingSource(
+  source: PolicyEditFindingSource,
+  measured: ReadonlyMap<string, PolicyEditFindingMeasurement>,
+): void {
+  if (source.kind === 'global') {
+    requireNonEmpty(source.label, 'global finding source label')
+    return
+  }
+  if (!measured.has(sourceKey(source.surfaceHash, source.generation))) {
+    throw new Error(
+      `llmPolicyEditProposer: finding source ${source.surfaceHash}@${source.generation} is not a measured surface`,
+    )
+  }
+}
+
+function sameFindingSource(a: PolicyEditFindingSource, b: PolicyEditFindingSource): boolean {
+  if (a.kind !== b.kind) return false
+  return a.kind === 'surface' && b.kind === 'surface'
+    ? a.surfaceHash === b.surfaceHash && a.generation === b.generation
+    : a.kind === 'global' && b.kind === 'global' && a.label === b.label
+}
+
+function summarizeCandidateEdit(
+  record: PolicyEditCandidateRecord,
+  scenarioIds: ScenarioIdProjector,
+): PolicyEditCandidateSummary {
+  const edit = record.policyEdit
+  return {
+    editId: edit.editId,
+    axis: edit.axis,
+    target: sanitizeAuthorValue(edit.target, scenarioIds) as PolicyEdit['target'],
+    change: sanitizeAuthorValue(edit.change, scenarioIds) as PolicyEdit['change'],
+    claim: scenarioIds.sanitize(edit.claim),
+    expectedGain: sanitizeAuthorValue(edit.expectedGain, scenarioIds) as PolicyEdit['expectedGain'],
+    confidence: edit.confidence,
+    risk: edit.risk,
+    sourceFindingIds: edit.source.findingIds.map((id) => scenarioIds.sanitize(id)),
+    rationale: edit.rationale ? scenarioIds.sanitize(edit.rationale) : null,
+    validationPlan: edit.validationPlan ? scenarioIds.sanitize(edit.validationPlan) : null,
+  }
+}
+
+function sanitizeAuthorValue(value: unknown, scenarioIds: ScenarioIdProjector): unknown {
+  if (typeof value === 'string') return scenarioIds.sanitize(value)
+  if (Array.isArray(value)) return value.map((item) => sanitizeAuthorValue(item, scenarioIds))
+  if (value && typeof value === 'object') {
+    return Object.fromEntries(
+      Object.entries(value).map(([key, child]) => [
+        scenarioIds.sanitize(key),
+        sanitizeAuthorValue(child, scenarioIds),
+      ]),
+    )
+  }
+  return value
+}
+
+function forecastCalibration(
+  candidate: GenerationCandidate,
+  record: PolicyEditCandidateRecord | undefined,
+  objectiveByKey: ReadonlyMap<string, PolicyEditObjective>,
+): PolicyEditHistoryCandidateContext['forecastCalibration'] {
+  if (!record || candidate.observedDeltaFromParent === undefined) return null
+  const forecast = record.policyEdit.expectedGain
+  const objective = objectiveByKey.get(forecast.metric)
+  if (!objective || objective.key !== 'search.composite') return null
+  const predictedDelta = forecast.direction === 'increase' ? forecast.amount : -forecast.amount
+  return {
+    objectiveKey: objective.key,
+    predictedDelta,
+    observedDelta: candidate.observedDeltaFromParent,
+    residual: candidate.observedDeltaFromParent - predictedDelta,
+  }
+}
+
+function assertSearchOutcome(outcome: ScoredSurfaceOutcome | undefined, field: string): void {
+  if (outcome && (outcome as { split?: unknown }).split !== 'search') {
+    throw new Error(`llmPolicyEditProposer: ${field} must be a search-split outcome`)
+  }
+}
+
+function assertSurfaceIsTaskAgnostic(value: unknown, scenarioIds: ScenarioIdProjector): void {
+  const serialized = JSON.stringify(value)
+  if (scenarioIds.sanitize(serialized) !== serialized) {
+    throw new Error(
+      'llmPolicyEditProposer: current JSON surface or signature contains a raw scenario identifier',
+    )
+  }
 }
 
 function registerOutcomeScenarioIds(
@@ -619,11 +986,14 @@ function registerHistoryScenarioIds(
 function validateHistoryLimits(options: PolicyEditHistoryProjectionOptions): {
   maxGenerations: number
   maxCandidatesPerGeneration: number
+  maxScenariosPerCandidate: number
   scenarioIdTransform: (scenarioId: string) => string
 } {
   const maxGenerations = options.maxGenerations ?? DEFAULT_POLICY_EDIT_HISTORY_LIMITS.generations
   const maxCandidatesPerGeneration =
     options.maxCandidatesPerGeneration ?? DEFAULT_POLICY_EDIT_HISTORY_LIMITS.candidatesPerGeneration
+  const maxScenariosPerCandidate =
+    options.maxScenariosPerCandidate ?? DEFAULT_POLICY_EDIT_HISTORY_LIMITS.scenariosPerCandidate
   if (!Number.isSafeInteger(maxGenerations) || maxGenerations <= 0) {
     throw new Error('llmPolicyEditProposer: maxHistoryGenerations must be a positive safe integer')
   }
@@ -632,11 +1002,66 @@ function validateHistoryLimits(options: PolicyEditHistoryProjectionOptions): {
       'llmPolicyEditProposer: maxHistoryCandidatesPerGeneration must be a positive safe integer',
     )
   }
+  if (!Number.isSafeInteger(maxScenariosPerCandidate) || maxScenariosPerCandidate <= 0) {
+    throw new Error(
+      'llmPolicyEditProposer: maxScenariosPerCandidate must be a positive safe integer',
+    )
+  }
   return {
     maxGenerations,
     maxCandidatesPerGeneration,
+    maxScenariosPerCandidate,
     scenarioIdTransform: options.scenarioIdTransform ?? ((scenarioId) => scenarioId),
   }
+}
+
+function validateObjectives(inputs: readonly PolicyEditObjective[]): PolicyEditObjective[] {
+  if (inputs.length === 0) {
+    throw new Error('llmPolicyEditProposer: objectives must not be empty')
+  }
+  const seen = new Set<string>()
+  return inputs.map((input) => {
+    requireNonEmpty(input.key, 'objective key')
+    if (seen.has(input.key)) {
+      throw new Error(`llmPolicyEditProposer: duplicate objective '${input.key}'`)
+    }
+    seen.add(input.key)
+    if (input.split !== 'search') {
+      throw new Error(`llmPolicyEditProposer: objective '${input.key}' must use the search split`)
+    }
+    if (input.key !== 'search.composite') {
+      throw new Error(
+        `llmPolicyEditProposer: objective '${input.key}' is not yet measurable; use 'search.composite'`,
+      )
+    }
+    if (input.direction !== 'increase' && input.direction !== 'decrease') {
+      throw new Error(`llmPolicyEditProposer: objective '${input.key}' has an invalid direction`)
+    }
+    if (
+      !Number.isFinite(input.scale.min) ||
+      !Number.isFinite(input.scale.max) ||
+      input.scale.max <= input.scale.min
+    ) {
+      throw new Error(`llmPolicyEditProposer: objective '${input.key}' has an invalid scale`)
+    }
+    if (!['absolute', 'relative', 'percent', 'score'].includes(input.unit)) {
+      throw new Error(`llmPolicyEditProposer: objective '${input.key}' has an invalid unit`)
+    }
+    return {
+      key: input.key,
+      split: 'search',
+      direction: input.direction,
+      scale: { ...input.scale },
+      unit: input.unit,
+    }
+  })
+}
+
+function positiveLimit(value: number, field: string): number {
+  if (!Number.isSafeInteger(value) || value <= 0) {
+    throw new Error(`llmPolicyEditProposer: ${field} must be a positive safe integer`)
+  }
+  return value
 }
 
 function parseAuthorResponse(value: unknown): z.infer<typeof PolicyEditAuthorResponseSchema> {
@@ -650,9 +1075,10 @@ function parseAuthorResponse(value: unknown): z.infer<typeof PolicyEditAuthorRes
 
 function bindAuthoredEdit(
   draft: AuthoredPolicyEdit,
-  findingById: ReadonlyMap<string, AnalystFinding>,
-  targetSurface: PolicyEditTargetSurface,
+  findingByKey: ReadonlyMap<string, CitableFinding>,
+  targetSurface: JsonPolicyEditTargetSurface,
   allowedPaths: ReadonlySet<string>,
+  objectiveByKey: ReadonlyMap<string, PolicyEditObjective>,
 ): PolicyEdit {
   if (draft.target.surface !== targetSurface) {
     throw new Error(
@@ -668,18 +1094,40 @@ function bindAuthoredEdit(
     )
   }
 
-  const cited = draft.source.findingIds.map((findingId) => {
-    const finding = findingById.get(findingId)
+  const cited = draft.source.findingKeys.map((findingKey) => {
+    const finding = findingByKey.get(findingKey)
     if (!finding) {
       throw new Error(
-        `llmPolicyEditProposer: edit cites unknown or uncitable finding '${findingId}'`,
+        `llmPolicyEditProposer: edit cites unknown or uncitable finding key '${findingKey}'`,
       )
     }
     return finding
   })
-  const evidenceRefs = uniqueEvidenceRefs(cited.flatMap((finding) => finding.evidence_refs))
+  const evidenceRefs = uniqueEvidenceRefs(cited.flatMap((finding) => finding.evidenceRefs))
   if (evidenceRefs.length === 0) {
     throw new Error('llmPolicyEditProposer: authored edit has no cited evidence')
+  }
+
+  const objective = objectiveByKey.get(draft.expectedGain.metric)
+  if (!objective) {
+    throw new Error(
+      `llmPolicyEditProposer: unknown forecast objective '${draft.expectedGain.metric}'`,
+    )
+  }
+  if (draft.expectedGain.direction !== objective.direction) {
+    throw new Error(
+      `llmPolicyEditProposer: forecast direction for '${objective.key}' must be '${objective.direction}'`,
+    )
+  }
+  if (draft.expectedGain.unit !== objective.unit) {
+    throw new Error(
+      `llmPolicyEditProposer: forecast unit for '${objective.key}' must be '${objective.unit}'`,
+    )
+  }
+  if (draft.expectedGain.amount > objective.scale.max - objective.scale.min) {
+    throw new Error(
+      `llmPolicyEditProposer: forecast amount for '${objective.key}' exceeds its declared scale`,
+    )
   }
 
   const expectedGain: PolicyEditExpectedGain = {
@@ -702,8 +1150,8 @@ function bindAuthoredEdit(
     confidence: draft.confidence,
     risk: draft.risk,
     source: {
-      findingIds: draft.source.findingIds,
-      analystIds: cited.map((finding) => finding.analyst_id),
+      findingIds: [...new Set(cited.map((finding) => finding.finding.finding_id))],
+      analystIds: [...new Set(cited.map((finding) => finding.finding.analyst_id))],
       evidenceRefs,
     },
     ...(draft.rationale ? { rationale: draft.rationale } : {}),
@@ -728,25 +1176,79 @@ function parseJsonSurface(surface: MutableSurface): AgentProfileJson {
   return parsed as AgentProfileJson
 }
 
-function citableFindings(inputs: readonly AnalystFinding[]): AnalystFinding[] {
+interface CitableFinding {
+  finding: AnalystFinding
+  sources: PolicyEditFindingSource[]
+  evidenceRefs: EvidenceRef[]
+}
+
+function citableFindings(
+  inputs: readonly PolicyEditFindingInput[],
+  measuredSources: ReadonlyMap<string, PolicyEditFindingMeasurement>,
+  limit: number,
+): CitableFinding[] {
   if (inputs.length === 0) {
     throw new Error('llmPolicyEditProposer: at least one analyst finding is required')
   }
+  const findings: AnalystFinding[] = []
   for (const input of inputs) {
-    if (!isAnalystFindingLike(input)) {
-      throw new Error('llmPolicyEditProposer: ctx.findings contains an invalid AnalystFinding')
+    if (!isPolicyEditFindingInput(input)) {
+      throw new Error(
+        'llmPolicyEditProposer: ctx.findings must contain attributed PolicyEditFindingInput rows',
+      )
     }
+    findings.push(input.finding)
   }
-  assertNoJudgeVerdict(inputs, 'llmPolicyEditProposer')
-  const ids = inputs.map((finding) => finding.finding_id)
-  if (new Set(ids).size !== ids.length) {
-    throw new Error('llmPolicyEditProposer: finding IDs must be unique')
+  assertNoJudgeVerdict(findings, 'llmPolicyEditProposer')
+  const grouped = new Map<string, CitableFinding>()
+  for (const input of inputs) {
+    validateFindingSource(input.source, measuredSources)
+    if (input.finding.evidence_refs.length === 0) continue
+    const existing = grouped.get(input.finding.finding_id)
+    if (existing) {
+      if (
+        existing.finding.analyst_id !== input.finding.analyst_id ||
+        existing.finding.area !== input.finding.area ||
+        existing.finding.claim !== input.finding.claim ||
+        existing.finding.subject !== input.finding.subject
+      ) {
+        throw new Error(
+          `llmPolicyEditProposer: finding '${input.finding.finding_id}' has conflicting content`,
+        )
+      }
+      if (!existing.sources.some((source) => sameFindingSource(source, input.source))) {
+        existing.sources.push(input.source)
+      }
+      existing.evidenceRefs = uniqueEvidenceRefs([
+        ...existing.evidenceRefs,
+        ...input.finding.evidence_refs,
+      ])
+      continue
+    }
+    grouped.set(input.finding.finding_id, {
+      finding: input.finding,
+      sources: [input.source],
+      evidenceRefs: uniqueEvidenceRefs(input.finding.evidence_refs),
+    })
   }
-  const citable = inputs.filter((finding) => finding.evidence_refs.length > 0)
-  if (citable.length === 0) {
+  if (grouped.size === 0) {
     throw new Error('llmPolicyEditProposer: no evidence-bearing findings are available')
   }
-  return citable
+  const severityRank: Record<AnalystFinding['severity'], number> = {
+    critical: 0,
+    high: 1,
+    medium: 2,
+    low: 3,
+    info: 4,
+  }
+  return [...grouped.values()]
+    .sort(
+      (a, b) =>
+        severityRank[a.finding.severity] - severityRank[b.finding.severity] ||
+        b.finding.confidence - a.finding.confidence ||
+        a.finding.finding_id.localeCompare(b.finding.finding_id),
+    )
+    .slice(0, limit)
 }
 
 function isAnalystFindingLike(input: unknown): input is AnalystFinding {
@@ -760,17 +1262,55 @@ function isAnalystFindingLike(input: unknown): input is AnalystFinding {
   )
 }
 
-function renderFinding(finding: AnalystFinding): Record<string, unknown> {
+function isPolicyEditFindingInput(input: unknown): input is PolicyEditFindingInput {
+  if (!input || typeof input !== 'object') return false
+  const value = input as Partial<PolicyEditFindingInput>
+  return isAnalystFindingLike(value.finding) && isFindingSource(value.source)
+}
+
+function isFindingSource(input: unknown): input is PolicyEditFindingSource {
+  if (!input || typeof input !== 'object') return false
+  const value = input as Partial<PolicyEditFindingSource>
+  if (value.kind === 'surface') {
+    return typeof value.surfaceHash === 'string' && Number.isSafeInteger(value.generation)
+  }
+  return value.kind === 'global' && typeof value.label === 'string' && value.label.trim().length > 0
+}
+
+function renderFinding(
+  context: CitableFinding,
+  findingKey: string,
+  scenarioIds: ScenarioIdProjector,
+  measuredSources: ReadonlyMap<string, PolicyEditFindingMeasurement>,
+): Record<string, unknown> {
+  const { finding } = context
   return {
-    findingId: finding.finding_id,
-    analystId: finding.analyst_id,
-    area: finding.area,
+    findingKey,
+    sources: context.sources.map((source) =>
+      source.kind === 'surface'
+        ? {
+            ...measuredSources.get(sourceKey(source.surfaceHash, source.generation))!,
+            surfaceHash: scenarioIds.sanitize(source.surfaceHash),
+            kind: 'surface',
+          }
+        : { kind: 'global', label: scenarioIds.sanitize(source.label) },
+    ),
+    analystId: scenarioIds.sanitize(finding.analyst_id),
+    area: scenarioIds.sanitize(finding.area),
     severity: finding.severity,
-    claim: finding.claim,
-    rationale: finding.rationale ?? null,
-    recommendedAction: finding.recommended_action ?? null,
+    subject: finding.subject ? scenarioIds.sanitize(finding.subject) : null,
+    claim: scenarioIds.sanitize(finding.claim),
+    rationale: finding.rationale ? scenarioIds.sanitize(finding.rationale) : null,
+    recommendedAction: finding.recommended_action
+      ? scenarioIds.sanitize(finding.recommended_action)
+      : null,
+    validationPlan: finding.validation_plan ? scenarioIds.sanitize(finding.validation_plan) : null,
     confidence: finding.confidence,
-    evidenceRefs: finding.evidence_refs,
+    evidenceRefs: context.evidenceRefs.map((ref) => ({
+      kind: ref.kind,
+      uri: scenarioIds.sanitize(ref.uri),
+      excerpt: ref.excerpt ? scenarioIds.sanitize(ref.excerpt) : null,
+    })),
   }
 }
 
