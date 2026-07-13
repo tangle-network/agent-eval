@@ -11,6 +11,8 @@
 
 import { join } from 'node:path'
 import { BackendIntegrityError, type BackendIntegrityReport } from '../integrity/backend-integrity'
+import { JudgeParseError } from '../judges'
+import type { LlmCallMetadata } from '../llm-client'
 import { confidenceInterval } from '../statistics'
 import { contentHash } from '../verdict-cache'
 import { resolveRunDir } from './run-dir'
@@ -191,8 +193,7 @@ export async function runCampaign<TScenario extends Scenario, TArtifact>(
             dispatchTimeoutMs: opts.dispatchTimeoutMs,
           })
           cellsRef.push(result.cell)
-          enforceCellUsage(result.cell, opts.expectUsage ?? 'warn')
-          totalCostUsd += result.cell.costUsd
+          totalCostUsd += totalCellCost(result.cell)
           Object.assign(artifactsByPath, result.artifactsByPath)
           if (opts.costCeiling !== undefined && totalCostUsd >= opts.costCeiling) {
             costCeilingReached = true
@@ -273,6 +274,7 @@ async function executeCell<TScenario extends Scenario, TArtifact>(
       manifestHash: args.manifestHash,
     })
     if (cached.status === 'hit') {
+      enforceDispatchUsage(cached.cell, args.opts.expectUsage ?? 'warn')
       return { cell: { ...cached.cell, cached: true }, artifactsByPath: {} }
     }
   }
@@ -381,20 +383,42 @@ async function executeCell<TScenario extends Scenario, TArtifact>(
     args.signal.removeEventListener('abort', onCampaignAbort)
   }
 
+  try {
+    enforceDispatchUsage(
+      {
+        cellId: args.slot.cellId,
+        artifact,
+        costUsd: costSoFar,
+        tokenUsage: { ...tokensSoFar },
+      },
+      args.opts.expectUsage ?? 'warn',
+    )
+  } catch (err) {
+    await trace.flush()
+    throw err
+  }
+
   // Run judges (only if we have an artifact). A judge that throws invalidates
   // the cell — recorded as `error`, NOT folded into a fake composite:0 (a fake
   // zero is indistinguishable from a real zero and poisons every aggregate).
   const judgeScores: Record<string, JudgeScore> = {}
+  let failedJudgeCall: LlmCallMetadata | undefined
   if (artifact !== undefined) {
     for (const judge of args.opts.judges ?? []) {
       if (judge.appliesTo && !judge.appliesTo(args.slot.scenario)) continue
       try {
-        judgeScores[judge.name] = await runJudgeCell(judge, {
+        const score = await runJudgeCell(judge, {
           artifact,
           scenario: args.slot.scenario,
           signal: args.signal,
         })
+        traceJudgeCost(trace, judge.name, score.llmCall)
+        judgeScores[judge.name] = score
       } catch (err) {
+        if (err instanceof JudgeParseError) {
+          failedJudgeCall = err.llmCall
+          traceJudgeCost(trace, judge.name, err.llmCall)
+        }
         errorMessage = `judge '${judge.name}' failed: ${err instanceof Error ? err.message : String(err)}`
         break
       }
@@ -412,6 +436,7 @@ async function executeCell<TScenario extends Scenario, TArtifact>(
     judgeScores,
     costUsd: costSoFar,
     tokenUsage: { ...tokensSoFar },
+    ...(failedJudgeCall ? { failedJudgeCall } : {}),
     ...(resolvedModel ? { resolvedModel } : {}),
     durationMs: Date.now() - startMs,
     seed: args.slot.cellSeed,
@@ -540,17 +565,16 @@ export function planCampaignRun<TScenario extends Scenario, TArtifact>(
 }
 
 /**
- * Per-cell stub guard. A cell that produced an artifact (no error) but reported
- * `costUsd === 0` AND zero tokens means the dispatch never called `ctx.cost` —
+ * Per-dispatch stub guard. An artifact produced with `costUsd === 0` AND zero
+ * tokens means the dispatch never called `ctx.cost` —
  * i.e. it ran against a stub or silently dropped its usage. `'warn'` logs it,
- * `'assert'` throws (fail-fast), `'off'` skips. An errored/skipped cell or a
- * deterministic judge-only run that genuinely made no LLM call is not flagged.
+ * `'assert'` throws (fail-fast), and `'off'` skips the check.
  */
-function enforceCellUsage<TArtifact>(
-  cell: CampaignCellResult<TArtifact>,
+function enforceDispatchUsage<TArtifact>(
+  cell: Pick<CampaignCellResult<TArtifact>, 'cellId' | 'artifact' | 'costUsd' | 'tokenUsage'>,
   mode: 'assert' | 'warn' | 'off',
 ): void {
-  if (mode === 'off' || cell.error) return
+  if (mode === 'off') return
   if (cell.artifact === null || cell.artifact === undefined) return
   const zeroTokens = cell.tokenUsage.input === 0 && cell.tokenUsage.output === 0
   if (cell.costUsd !== 0 || !zeroTokens) return
@@ -578,6 +602,24 @@ async function runJudgeCell<TArtifact, TScenario extends Scenario>(
   input: { artifact: TArtifact; scenario: TScenario; signal: AbortSignal },
 ): Promise<JudgeScore> {
   return judge.score(input)
+}
+
+function traceJudgeCost(
+  trace: CampaignTraceWriter,
+  judgeName: string,
+  call: LlmCallMetadata | undefined,
+): void {
+  if (call?.costUsd != null) {
+    trace.span(`cost.judge.${judgeName}`, { amountUsd: call.costUsd }).end()
+  }
+}
+
+function totalCellCost<TArtifact>(cell: CampaignCellResult<TArtifact>): number {
+  const scored = Object.values(cell.judgeScores).reduce(
+    (total, score) => total + (score.llmCall?.costUsd ?? 0),
+    0,
+  )
+  return cell.costUsd + scored + (cell.failedJudgeCall?.costUsd ?? 0)
 }
 
 function defaultBuildTraceWriter(
@@ -752,7 +794,7 @@ function computeAggregates<TArtifact>(
   return {
     byJudge,
     byScenario,
-    totalCostUsd: cells.reduce((a, c) => a + c.costUsd, 0),
+    totalCostUsd: cells.reduce((total, cell) => total + totalCellCost(cell), 0),
     cellsExecuted: cells.filter((c) => !c.error).length,
     cellsSkipped: cells.filter((c) => c.error?.startsWith('skipped:')).length,
     cellsCached: cells.filter((c) => c.cached).length,

@@ -1,6 +1,9 @@
 import type { TCloud } from '@tangle-network/tcloud'
 import { JudgeError } from './errors'
+import type { LlmCallMetadata } from './llm-client'
 import type { JudgeFn, JudgeInput, JudgeScore } from './types'
+
+type JudgeParseErrorOptions = { cause?: unknown; llmCall?: LlmCallMetadata }
 
 /**
  * A judge's LLM response could not be parsed into scored dimensions.
@@ -14,11 +17,14 @@ export class JudgeParseError extends JudgeError {
   readonly judgeName: string
   /** The raw (truncated) model response that failed to parse. */
   readonly raw: string
+  /** Paid-call metadata remains available even when the verdict is unusable. */
+  readonly llmCall?: LlmCallMetadata
 
-  constructor(judgeName: string, raw: string, options?: { cause?: unknown }) {
+  constructor(judgeName: string, raw: string, options?: JudgeParseErrorOptions) {
     super(`judge '${judgeName}' returned an unparseable response: ${raw.slice(0, 200)}`, options)
     this.judgeName = judgeName
     this.raw = raw
+    this.llmCall = options?.llmCall
   }
 }
 

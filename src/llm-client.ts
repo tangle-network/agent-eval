@@ -99,6 +99,8 @@ export interface LlmCallResult {
   raw: Record<string, unknown>
 }
 
+export type LlmCallMetadata = Pick<LlmCallResult, 'usage' | 'costUsd' | 'model' | 'durationMs'>
+
 export class LlmCallError extends AgentEvalError {
   constructor(
     message: string,
@@ -691,17 +693,22 @@ export async function callLlmJson<T = unknown>(
   req: LlmCallRequest,
   opts: LlmClientOptions = {},
 ): Promise<{ value: T; result: LlmCallResult }> {
+  const result = await callLlmStructured(req, opts)
+  const value = parseJsonResult<T>(result)
+  return { value, result }
+}
+
+/** Shared schema-to-JSON-mode fallback that preserves the raw result. */
+async function callLlmStructured(
+  req: LlmCallRequest,
+  opts: LlmClientOptions = {},
+): Promise<LlmCallResult> {
   try {
-    const result = await callLlm({ ...req, jsonMode: req.jsonMode ?? !req.jsonSchema }, opts)
-    const value = parseJsonResult<T>(result)
-    return { value, result }
+    return await callLlm({ ...req, jsonMode: req.jsonMode ?? !req.jsonSchema }, opts)
   } catch (err) {
     if (err instanceof LlmCallError && isSchemaRejection(err.status, err.body) && req.jsonSchema) {
-      // Degrade to json_object + retry.
       const degradedReq: LlmCallRequest = { ...req, jsonMode: true, jsonSchema: undefined }
-      const result = await callLlm(degradedReq, opts)
-      const value = parseJsonResult<T>(result)
-      return { value, result }
+      return await callLlm(degradedReq, opts)
     }
     throw err
   }
@@ -886,7 +893,8 @@ export class LlmClient {
   constructor(private readonly opts: LlmClientOptions = {}) {}
 
   call(req: LlmCallRequest, per?: LlmClientOptions): Promise<LlmCallResult> {
-    return callLlm(req, { ...this.opts, ...per })
+    const options = { ...this.opts, ...per }
+    return req.jsonSchema ? callLlmStructured(req, options) : callLlm(req, options)
   }
 
   callJson<T = unknown>(

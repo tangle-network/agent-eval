@@ -17,6 +17,7 @@
  */
 
 import type { PolicyEditCandidateRecord } from '../analyst/policy-edit'
+import type { LlmCallMetadata } from '../llm-client'
 import type { RunTokenUsage } from '../run-record'
 
 /** Stable identifier + kind tag for any scenario. Consumers
@@ -118,6 +119,8 @@ export interface JudgeScore {
   dimensions: Record<string, number>
   composite: number
   notes: string
+  /** Present when scoring made an LLM call. Campaigns add it to cell accounting. */
+  llmCall?: LlmCallMetadata
   /** Set when the judge itself failed (call error, unparseable output).
    *  `composite`/`dimensions` carry no signal — aggregators MUST exclude
    *  failed scores from means instead of folding them into zeros. */
@@ -575,6 +578,8 @@ export interface CampaignCellResult<TArtifact> {
    *  `{ input: 0, output: 0 }` when the dispatch reported none — which the
    *  backend-integrity guard reads as a stub. */
   tokenUsage: CampaignTokenUsage
+  /** Paid call from a judge whose response could not be scored. */
+  failedJudgeCall?: LlmCallMetadata
   /** The concrete model the backend resolved this cell to at runtime, reported
    *  by the dispatch via `ctx.cost.observeModel`. Set only when the dispatch
    *  reported it — a profile that declares a concrete model up front has no

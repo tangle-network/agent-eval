@@ -132,8 +132,11 @@ export type {
   ReferenceEquivalenceJudgeInput,
   ReferenceEquivalenceJudgeOptions,
   ReferenceEquivalenceJudgeResult,
+  ReferenceEquivalenceScenario,
 } from '../reference-equivalence-judge'
 export {
+  createReferenceEquivalenceJudge,
+  REFERENCE_EQUIVALENCE_INPUT_LIMITS,
   REFERENCE_EQUIVALENCE_JUDGE_VERSION,
   runReferenceEquivalenceJudge,
 } from '../reference-equivalence-judge'
