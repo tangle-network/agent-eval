@@ -7,6 +7,7 @@ export {
   LLM_INPUT_TOKENS,
   LLM_MODEL_NAME,
   LLM_OUTPUT_TOKENS,
+  LLM_REASONING_TOKENS,
   OPENINFERENCE_SPAN_KIND,
   TOOL_NAME,
 } from '../trace/otlp-attributes'
