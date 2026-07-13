@@ -236,6 +236,8 @@ export interface ScoredSurfaceOutcome {
   /** Optimization/search evidence only. Held-out results must never flow back
    *  into a proposer through this type. */
   split: 'search'
+  /** Generation that actually measured this surface (`-1` for the baseline). */
+  generation: number
   surfaceHash: string
   composite: number
   dimensions: Record<string, number>

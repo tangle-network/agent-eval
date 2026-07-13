@@ -205,9 +205,11 @@ function measuredOutcome(
   surfaceHash: string,
   composite: number,
   scenarioId: string,
+  generation = -1,
 ): ScoredSurfaceOutcome {
   return {
     split: 'search',
+    generation,
     surfaceHash,
     composite,
     dimensions: { correctness: composite },
@@ -321,7 +323,7 @@ describe('llmPolicyEditProposer', () => {
         generation: 1,
         history,
         baselineOutcome: measuredOutcome('baseline', 0.4, 'private-task'),
-        incumbentOutcome: measuredOutcome('candidate-a', 0.7, 'private-task'),
+        incumbentOutcome: measuredOutcome('candidate-a', 0.7, 'private-task', 0),
       }),
     )
 
@@ -686,6 +688,35 @@ describe('llmPolicyEditProposer', () => {
     expect(() => projectPolicyEditHistory([history])).toThrow(/editId/)
   })
 
+  it('does not compare historical forecasts in a different unit or outside the score scale', () => {
+    const { editId: _editId, schemaVersion: _schemaVersion, ...base } = recordedPolicyEdit()
+    void _editId
+    void _schemaVersion
+    const calibration = (unit: 'percent' | 'score', amount: number) => {
+      const edit = makePolicyEdit({
+        ...base,
+        expectedGain: {
+          metric: 'search.composite',
+          direction: 'increase',
+          amount,
+          unit,
+        },
+      })
+      const candidate = {
+        ...historyCandidate('candidate', 0.7),
+        parentComposite: 0.5,
+        observedDeltaFromParent: 0.2,
+        candidateRecord: makePolicyEditCandidateRecord(edit),
+      }
+      return projectPolicyEditHistory([historyGeneration(0, [candidate])], {
+        objectives: OBJECTIVES,
+      })[0]?.candidates[0]?.forecastCalibration
+    }
+
+    expect(calibration('percent', 10)).toBeNull()
+    expect(calibration('score', 10)).toBeNull()
+  })
+
   it('rejects invalid history caps before making an LLM call', () => {
     expect(() => proposer({ response: { edits: [] }, maxHistoryGenerations: 0 })).toThrow(
       /maxHistoryGenerations/,
@@ -853,6 +884,42 @@ describe('llmPolicyEditProposer', () => {
     )
   })
 
+  it('uses the incumbent measurement generation instead of the current proposal index', async () => {
+    const source = finding()
+    const winner = historyCandidate('winner-surface', 0.8)
+    const history: GenerationRecord[] = [
+      historyGeneration(0, [winner], ['winner-surface']),
+      historyGeneration(1, [historyCandidate('loser-1', 0.2)]),
+      historyGeneration(2, [historyCandidate('loser-2', 0.3)]),
+      historyGeneration(3, [historyCandidate('loser-3', 0.1)]),
+    ]
+    const incumbentOutcome = measuredOutcome('winner-surface', 0.8, 'task', 0)
+
+    await expect(
+      proposer({ response: { edits: [] } }).propose(
+        context({
+          finding: source,
+          findingSource: { kind: 'surface', surfaceHash: 'winner-surface', generation: 0 },
+          history,
+          generation: 4,
+          incumbentOutcome,
+        }),
+      ),
+    ).resolves.toEqual([])
+
+    await expect(
+      proposer({ response: { edits: [] } }).propose(
+        context({
+          finding: source,
+          findingSource: { kind: 'surface', surfaceHash: 'winner-surface', generation: 3 },
+          history,
+          generation: 4,
+          incumbentOutcome,
+        }),
+      ),
+    ).rejects.toThrow(/winner-surface@3 is not a measured surface/)
+  })
+
   it('pseudonymizes every author-visible evidence and history field', async () => {
     const source = makeFinding({
       analyst_id: 'private-task',
@@ -901,6 +968,7 @@ describe('llmPolicyEditProposer', () => {
         ...historyCandidate('private-task', 0.2),
         label: 'private-task label',
         rationale: 'private-task rationale',
+        dimensions: { 'private-task': 0.2 },
         scenarios: [{ scenarioId: 'private-task', composite: 0.2, notes: 'private-task note' }],
         candidateRecord: makePolicyEditCandidateRecord(priorEdit),
       },
@@ -916,6 +984,10 @@ describe('llmPolicyEditProposer', () => {
         finding: source,
         findingSource: { kind: 'global', label: 'private-task doctrine' },
         history: [history],
+        baselineOutcome: {
+          ...measuredOutcome('baseline', 0.3, 'private-task'),
+          dimensions: { 'private-task': 0.3 },
+        },
       }),
     )
 
@@ -973,6 +1045,41 @@ describe('llmPolicyEditProposer', () => {
     ).toThrow(/not yet measurable/)
   })
 
+  it('rejects objective meanings that disagree with raw score maximization', () => {
+    expect(() =>
+      proposer({
+        response: { edits: [] },
+        objectives: [
+          {
+            ...OBJECTIVES[0]!,
+            direction: 'decrease',
+          },
+        ] as never,
+      }),
+    ).toThrow(/must increase/)
+    for (const unit of ['percent', 'relative', 'absolute'] as const) {
+      expect(() =>
+        proposer({
+          response: { edits: [] },
+          objectives: [{ ...OBJECTIVES[0]!, unit }] as never,
+        }),
+      ).toThrow(/must use raw score deltas/)
+    }
+  })
+
+  it('rejects measured composites outside the declared score scale before a model call', async () => {
+    const capture: CapturedRequest = {}
+    await expect(
+      proposer({ response: { edits: [] }, capture }).propose(
+        context({
+          finding: finding(),
+          baselineOutcome: measuredOutcome('baseline', 1.01, 'task'),
+        }),
+      ),
+    ).rejects.toThrow(/baselineOutcome\.composite 1\.01 is outside objective/)
+    expect(capture.user).toBeUndefined()
+  })
+
   it('rejects forecast direction, unit, and magnitude outside the declared objective', async () => {
     const source = finding()
     await expect(
@@ -1013,7 +1120,20 @@ describe('llmPolicyEditProposer', () => {
           ],
         },
       }).propose(context({ finding: source })),
-    ).rejects.toThrow(/exceeds its declared scale/)
+    ).rejects.toThrow(/exceeds the available score headroom/)
+
+    await expect(
+      proposer({
+        response: {
+          edits: [authoredEdit('finding-1', { expectedGain: 0.12 })],
+        },
+      }).propose(
+        context({
+          finding: source,
+          baselineOutcome: measuredOutcome('baseline', 0.95, 'task'),
+        }),
+      ),
+    ).rejects.toThrow(/exceeds the available score headroom/)
   })
 })
 

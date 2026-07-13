@@ -9,8 +9,6 @@ import {
   type PolicyEditAdmissionOptions,
   type PolicyEditCandidateRecord,
   type PolicyEditExpectedGain,
-  type PolicyEditGainDirection,
-  type PolicyEditGainUnit,
   type PolicyEditInit,
   validatePolicyEditCandidateRecord,
 } from '../../analyst/policy-edit'
@@ -285,9 +283,11 @@ export interface PolicyEditObjective {
   key: string
   /** Steering objectives are search-only; fresh-task results never enter author context. */
   split: 'search'
-  direction: PolicyEditGainDirection
+  /** Search promotes only larger composite scores. */
+  direction: 'increase'
   scale: { min: number; max: number }
-  unit: PolicyEditGainUnit
+  /** Forecast amounts are absolute deltas on the declared score scale. */
+  unit: 'score'
 }
 
 export type PolicyEditFindingSource =
@@ -355,6 +355,7 @@ export interface PolicyEditHistoryCandidateContext {
 
 export interface PolicyEditOutcomeContext {
   split: 'search'
+  generation: number
   surfaceHash: string
   composite: number
   dimensions: Record<string, number>
@@ -483,6 +484,7 @@ export function llmPolicyEditProposer(
       const currentSurface = parseJsonSurface(ctx.currentSurface)
       assertSearchOutcome(ctx.baselineOutcome, 'baselineOutcome')
       assertSearchOutcome(ctx.incumbentOutcome, 'incumbentOutcome')
+      assertMeasuredCompositesInScale(ctx, objectives[0]!)
       const scenarioIds = createScenarioIdProjector(historyLimits.scenarioIdTransform)
       registerOutcomeScenarioIds(ctx.baselineOutcome, scenarioIds)
       registerOutcomeScenarioIds(ctx.incumbentOutcome, scenarioIds)
@@ -563,7 +565,14 @@ export function llmPolicyEditProposer(
         )
       }
       const edits = response.edits.map((draft) =>
-        bindAuthoredEdit(draft, findingByKey, opts.targetSurface, allowedPathSet, objectiveByKey),
+        bindAuthoredEdit(
+          draft,
+          findingByKey,
+          opts.targetSurface,
+          allowedPathSet,
+          objectiveByKey,
+          ctx.incumbentOutcome?.composite ?? ctx.baselineOutcome?.composite,
+        ),
       )
       return policyEditProposer({
         edits,
@@ -704,7 +713,7 @@ function projectHistoryCandidate(
       : null,
     // GenerationCandidate.ci95 is currently a placeholder [composite, composite],
     // not a measured interval. Keep it out of author context until it is real.
-    dimensions: { ...candidate.dimensions },
+    dimensions: sanitizeDimensions(candidate.dimensions, scenarioIds),
     scenarios: selectedScenarios.map((scenario) => {
       return {
         scenarioId: scenarioIds.project(scenario.scenarioId),
@@ -733,9 +742,10 @@ function projectOutcome(
   })
   return {
     split: 'search',
+    generation: outcome.generation,
     surfaceHash: scenarioIds.sanitize(outcome.surfaceHash),
     composite: outcome.composite,
-    dimensions: { ...outcome.dimensions },
+    dimensions: sanitizeDimensions(outcome.dimensions, scenarioIds),
     scenarios: selectedScenarios.map((scenario) => {
       return {
         scenarioId: scenarioIds.project(scenario.scenarioId),
@@ -827,7 +837,7 @@ function measuredSourceMeasurements(
   if (ctx.baselineOutcome) {
     add({
       surfaceHash: ctx.baselineOutcome.surfaceHash,
-      generation: -1,
+      generation: ctx.baselineOutcome.generation,
       composite: ctx.baselineOutcome.composite,
       parentComposite: null,
       observedDeltaFromParent: null,
@@ -854,7 +864,7 @@ function measuredSourceMeasurements(
     }
   }
   if (ctx.incumbentOutcome) {
-    const generation = Math.max(-1, ctx.generation - 1)
+    const generation = ctx.incumbentOutcome.generation
     const key = sourceKey(ctx.incumbentOutcome.surfaceHash, generation)
     if (!measurements.has(key)) {
       add({
@@ -927,6 +937,24 @@ function sanitizeAuthorValue(value: unknown, scenarioIds: ScenarioIdProjector): 
   return value
 }
 
+function sanitizeDimensions(
+  dimensions: Readonly<Record<string, number>>,
+  scenarioIds: ScenarioIdProjector,
+): Record<string, number> {
+  const sanitized = new Map<string, { original: string; value: number }>()
+  for (const [key, value] of Object.entries(dimensions)) {
+    const projected = scenarioIds.sanitize(key)
+    const prior = sanitized.get(projected)
+    if (prior && prior.original !== key) {
+      throw new Error(
+        `llmPolicyEditProposer: pseudonymized dimension key collision for '${prior.original}' and '${key}'`,
+      )
+    }
+    sanitized.set(projected, { original: key, value })
+  }
+  return Object.fromEntries([...sanitized].map(([key, entry]) => [key, entry.value]))
+}
+
 function forecastCalibration(
   candidate: GenerationCandidate,
   record: PolicyEditCandidateRecord | undefined,
@@ -936,7 +964,9 @@ function forecastCalibration(
   const forecast = record.policyEdit.expectedGain
   const objective = objectiveByKey.get(forecast.metric)
   if (!objective || objective.key !== 'search.composite') return null
-  const predictedDelta = forecast.direction === 'increase' ? forecast.amount : -forecast.amount
+  if (forecast.direction !== objective.direction || forecast.unit !== objective.unit) return null
+  if (forecast.amount > objective.scale.max - objective.scale.min) return null
+  const predictedDelta = forecast.amount
   return {
     objectiveKey: objective.key,
     predictedDelta,
@@ -948,6 +978,40 @@ function forecastCalibration(
 function assertSearchOutcome(outcome: ScoredSurfaceOutcome | undefined, field: string): void {
   if (outcome && (outcome as { split?: unknown }).split !== 'search') {
     throw new Error(`llmPolicyEditProposer: ${field} must be a search-split outcome`)
+  }
+}
+
+function assertMeasuredCompositesInScale(
+  ctx: ProposeContext<PolicyEditFindingInput>,
+  objective: PolicyEditObjective,
+): void {
+  const assertInScale = (value: number, field: string) => {
+    if (!Number.isFinite(value) || value < objective.scale.min || value > objective.scale.max) {
+      throw new Error(
+        `llmPolicyEditProposer: ${field} ${value} is outside objective '${objective.key}' scale [${objective.scale.min}, ${objective.scale.max}]`,
+      )
+    }
+  }
+  const assertOutcome = (outcome: ScoredSurfaceOutcome | undefined, field: string) => {
+    if (!outcome) return
+    assertInScale(outcome.composite, `${field}.composite`)
+    for (const [index, scenario] of outcome.scenarios.entries()) {
+      assertInScale(scenario.composite, `${field}.scenarios[${index}].composite`)
+    }
+  }
+  assertOutcome(ctx.baselineOutcome, 'baselineOutcome')
+  assertOutcome(ctx.incumbentOutcome, 'incumbentOutcome')
+  for (const [generationIndex, generation] of ctx.history.entries()) {
+    for (const [candidateIndex, candidate] of generation.candidates.entries()) {
+      const field = `history[${generationIndex}].candidates[${candidateIndex}]`
+      assertInScale(candidate.composite, `${field}.composite`)
+      if (candidate.parentComposite !== undefined) {
+        assertInScale(candidate.parentComposite, `${field}.parentComposite`)
+      }
+      for (const [scenarioIndex, scenario] of candidate.scenarios.entries()) {
+        assertInScale(scenario.composite, `${field}.scenarios[${scenarioIndex}].composite`)
+      }
+    }
   }
 }
 
@@ -1034,8 +1098,10 @@ function validateObjectives(inputs: readonly PolicyEditObjective[]): PolicyEditO
         `llmPolicyEditProposer: objective '${input.key}' is not yet measurable; use 'search.composite'`,
       )
     }
-    if (input.direction !== 'increase' && input.direction !== 'decrease') {
-      throw new Error(`llmPolicyEditProposer: objective '${input.key}' has an invalid direction`)
+    if (input.direction !== 'increase') {
+      throw new Error(
+        `llmPolicyEditProposer: objective '${input.key}' must increase because search promotes larger composite scores`,
+      )
     }
     if (
       !Number.isFinite(input.scale.min) ||
@@ -1044,8 +1110,8 @@ function validateObjectives(inputs: readonly PolicyEditObjective[]): PolicyEditO
     ) {
       throw new Error(`llmPolicyEditProposer: objective '${input.key}' has an invalid scale`)
     }
-    if (!['absolute', 'relative', 'percent', 'score'].includes(input.unit)) {
-      throw new Error(`llmPolicyEditProposer: objective '${input.key}' has an invalid unit`)
+    if (input.unit !== 'score') {
+      throw new Error(`llmPolicyEditProposer: objective '${input.key}' must use raw score deltas`)
     }
     return {
       key: input.key,
@@ -1079,6 +1145,7 @@ function bindAuthoredEdit(
   targetSurface: JsonPolicyEditTargetSurface,
   allowedPaths: ReadonlySet<string>,
   objectiveByKey: ReadonlyMap<string, PolicyEditObjective>,
+  currentComposite: number | undefined,
 ): PolicyEdit {
   if (draft.target.surface !== targetSurface) {
     throw new Error(
@@ -1124,9 +1191,13 @@ function bindAuthoredEdit(
       `llmPolicyEditProposer: forecast unit for '${objective.key}' must be '${objective.unit}'`,
     )
   }
-  if (draft.expectedGain.amount > objective.scale.max - objective.scale.min) {
+  const maxGain =
+    currentComposite === undefined
+      ? objective.scale.max - objective.scale.min
+      : objective.scale.max - currentComposite
+  if (draft.expectedGain.amount > maxGain) {
     throw new Error(
-      `llmPolicyEditProposer: forecast amount for '${objective.key}' exceeds its declared scale`,
+      `llmPolicyEditProposer: forecast amount for '${objective.key}' exceeds the available score headroom`,
     )
   }
 

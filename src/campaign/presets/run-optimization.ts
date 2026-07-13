@@ -165,6 +165,7 @@ export async function runOptimization<TScenario extends Scenario, TArtifact>(
     winnerSurfaceHash,
     baselineCampaign,
     baselineCoverage,
+    -1,
   )
   let winnerOutcome = baselineOutcome
   let winnerLabel: string | undefined
@@ -292,7 +293,7 @@ export async function runOptimization<TScenario extends Scenario, TArtifact>(
       winnerSurface = top.surface
       winnerSurfaceHash = top.surfaceHash
       winnerComposite = top.composite
-      winnerOutcome = toScoredSurfaceOutcome(top.surfaceHash, top.campaign, top.coverage)
+      winnerOutcome = toScoredSurfaceOutcome(top.surfaceHash, top.campaign, top.coverage, gen)
       winnerLabel = top.label || undefined
       winnerRationale = top.rationale || undefined
     }
@@ -427,10 +428,12 @@ function toScoredSurfaceOutcome<TArtifact, TScenario extends Scenario>(
   surfaceHash: string,
   campaign: CampaignResult<TArtifact, TScenario>,
   coverage: CampaignCoverage,
+  generation: number,
 ): ScoredSurfaceOutcome {
   const breakdown = campaignBreakdown(campaign)
   return {
     split: 'search',
+    generation,
     surfaceHash,
     composite: campaignMeanComposite(campaign),
     dimensions: breakdown.dimensions,
