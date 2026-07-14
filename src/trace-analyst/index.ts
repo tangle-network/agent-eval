@@ -1,5 +1,6 @@
 /** Ax RLM trace analyst over bounded OTLP-JSONL trace stores. */
 
+export { asNumber, firstNumberAttr } from '../trace/attribute-vocabulary'
 export type { LlmSpanOtlpInput } from '../trace/otlp-attributes'
 export {
   applyLlmSpanOtlpAttributes,
@@ -52,10 +53,8 @@ export {
   type OtlpFlatLine,
 } from './otlp-flatten'
 export {
-  asNumber,
   asString,
   extractOtlpAttributes,
-  firstNumberAttr,
   firstStringAttr,
   inferOtlpKind,
   type ProjectedOtlpSpan,
