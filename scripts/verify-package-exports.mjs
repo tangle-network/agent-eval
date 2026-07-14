@@ -93,7 +93,9 @@ try {
       } from '@tangle-network/agent-eval/traces'
       import {
         applyLlmSpanOtlpAttributes,
+        firstNumberAttr,
         LLM_CONTEXT_TOKENS,
+        LLM_INPUT_TOKEN_ATTR_KEYS,
         LLM_INPUT_TOKENS,
         contextInputTokens,
       } from '@tangle-network/agent-eval/trace-attributes'
@@ -121,6 +123,10 @@ try {
       const campaignCostLedger: CampaignCostLedgerHandle = costLedger
       const contractCostLedger: ContractCostLedgerHandle = costLedger
       const contextTokens = contextInputTokens({ inputTokens: 10, cachedTokens: 20 })
+      const inputTokens = firstNumberAttr(
+        { 'gen_ai.usage.input_tokens': '10' },
+        LLM_INPUT_TOKEN_ATTR_KEYS,
+      )
       const traceAttributes: Record<string, unknown> = {}
       applyLlmSpanOtlpAttributes(traceAttributes, {
         inputTokens: 10,
@@ -140,6 +146,7 @@ try {
         LLM_INPUT_TOKENS,
         LLM_CONTEXT_TOKENS,
         contextTokens,
+        inputTokens,
         traceAttributes,
         LLM_REASONING_TOKENS,
       ]

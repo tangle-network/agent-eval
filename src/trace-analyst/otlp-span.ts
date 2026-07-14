@@ -195,28 +195,6 @@ export function asString(v: unknown): string | null {
   return typeof v === 'string' && v.length > 0 ? v : null
 }
 
-/** Read a numeric attribute, tolerating numeric strings; `null` if absent/NaN. */
-export function asNumber(v: unknown): number | null {
-  if (typeof v === 'number') return Number.isFinite(v) ? v : null
-  if (typeof v === 'string' && v.length > 0) {
-    const n = Number(v)
-    return Number.isFinite(n) ? n : null
-  }
-  return null
-}
-
-/** First finite numeric value across a list of candidate attribute keys. */
-export function firstNumberAttr(
-  attrs: Record<string, unknown>,
-  keys: readonly string[],
-): number | null {
-  for (const k of keys) {
-    const n = asNumber(attrs[k])
-    if (n !== null) return n
-  }
-  return null
-}
-
 /** First non-empty string value across a list of candidate attribute keys. */
 export function firstStringAttr(
   attrs: Record<string, unknown>,
