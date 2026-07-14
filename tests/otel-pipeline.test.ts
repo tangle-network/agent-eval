@@ -60,6 +60,9 @@ describe('OTEL export', () => {
       model: 'gpt-4o',
       inputTokens: 100,
       outputTokens: 50,
+      reasoningTokens: 40,
+      cachedTokens: 300,
+      cacheWriteTokens: 25,
     })
     exporter.exportSpan({
       traceId: 'aaaa',
@@ -86,6 +89,12 @@ describe('OTEL export', () => {
     const span = body.resourceSpans[0].scopeSpans[0].spans[0]
     expect(span.name).toBe('judge:domain')
     expect(span.traceId).toBe('aaaa0000000000000000000000000000')
+    const attributes = Object.fromEntries(
+      span.attributes.map((attribute: any) => [attribute.key, Object.values(attribute.value)[0]]),
+    )
+    expect(attributes['llm.token_count.prompt_cache_hit']).toBe('300')
+    expect(attributes['llm.token_count.prompt_cache_write']).toBe('25')
+    expect(attributes['llm.token_count.reasoning']).toBe('40')
 
     await exporter.shutdown()
     vi.unstubAllGlobals()

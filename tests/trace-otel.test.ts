@@ -39,6 +39,35 @@ describe('OTLP export', () => {
     expect(resAttrs.find((a) => a.key === 'deployment.environment')?.value.stringValue).toBe('test')
   })
 
+  it('preserves cache reads and writes in OTLP attributes', async () => {
+    const store = new InMemoryTraceStore()
+    const emitter = new TraceEmitter(store)
+    await emitter.startRun({ scenarioId: 'cache-usage' })
+    const llm = await emitter.llm({
+      name: 'model-call',
+      model: 'claude-opus',
+      messages: [],
+      cachedTokens: 300,
+      cacheWriteTokens: 25,
+      reasoningTokens: 40,
+    })
+    await llm.end()
+
+    const otlp = await exportRunAsOtlp(store, emitter.runId)
+    const attributes = otlp.resourceSpans[0]!.scopeSpans[0]!.spans[0]!.attributes
+    expect(
+      attributes.find((attribute) => attribute.key === 'llm.token_count.prompt_cache_hit')?.value
+        .intValue,
+    ).toBe('300')
+    expect(
+      attributes.find((attribute) => attribute.key === 'llm.token_count.prompt_cache_write')?.value
+        .intValue,
+    ).toBe('25')
+    expect(
+      attributes.find((attribute) => attribute.key === 'llm.token_count.reasoning')?.value.intValue,
+    ).toBe('40')
+  })
+
   it('distinguishes unavailable arguments from a captured no-argument call', async () => {
     const store = new InMemoryTraceStore()
     const emitter = new TraceEmitter(store)

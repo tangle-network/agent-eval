@@ -101,6 +101,9 @@ function storeSpanToExportable(span: Span, traceId: string): ExportableSpan {
     model: llm?.model,
     inputTokens: llm?.inputTokens,
     outputTokens: llm?.outputTokens,
+    reasoningTokens: llm?.reasoningTokens,
+    cachedTokens: llm?.cachedTokens,
+    cacheWriteTokens: llm?.cacheWriteTokens,
     costUsd: llm?.costUsd,
     tool: tool
       ? {

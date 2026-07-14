@@ -1,5 +1,12 @@
 import { spawnSync } from 'node:child_process'
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync } from 'node:fs'
+import {
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -31,6 +38,7 @@ try {
     '.': ['import', 'types'],
     './campaign': ['import', 'types'],
     './traces': ['import', 'types'],
+    './trace-attributes': ['import', 'types'],
     './rl': ['import', 'types'],
     './meta-eval': ['import', 'types'],
     './belief-state': ['import', 'types'],
@@ -51,6 +59,46 @@ try {
   }
 
   symlinkSync(packageDir, join(appDir, 'node_modules', '@tangle-network', 'agent-eval'), 'dir')
+  writeFileSync(
+    join(appDir, 'index.ts'),
+    `
+      import { InMemoryTraceStore, type Run, type RunRecord } from '@tangle-network/agent-eval'
+      import { summarizeExecution, type ExecutionReport } from '@tangle-network/agent-eval/contract'
+      import { stuckLoopView, type StuckLoopReport } from '@tangle-network/agent-eval/pipelines'
+      import {
+        LLM_REASONING_TOKENS,
+        OtlpFileTraceStore,
+        otlpToRunRecords,
+        type TraceAnalysisStore,
+      } from '@tangle-network/agent-eval/traces'
+      import { LLM_INPUT_TOKENS } from '@tangle-network/agent-eval/trace-attributes'
+
+      const store: TraceAnalysisStore = new OtlpFileTraceStore({ path: 'spans.jsonl' })
+      const runs: RunRecord[] = otlpToRunRecords('{}', {
+        experimentId: 'consumer',
+        candidateId: 'candidate',
+      })
+      const report: ExecutionReport = summarizeExecution({ runs })
+      const loop: Promise<StuckLoopReport> = stuckLoopView(new InMemoryTraceStore())
+      const runtimeRun: Run | undefined = undefined
+      void [store, report, loop, runtimeRun, LLM_INPUT_TOKENS, LLM_REASONING_TOKENS]
+    `,
+  )
+  writeFileSync(
+    join(appDir, 'tsconfig.json'),
+    JSON.stringify({
+      compilerOptions: {
+        target: 'ES2022',
+        module: 'NodeNext',
+        moduleResolution: 'NodeNext',
+        strict: true,
+        skipLibCheck: true,
+        noEmit: true,
+      },
+      include: ['index.ts'],
+    }),
+  )
+  run(join(repoRoot, 'node_modules', '.bin', 'tsc'), ['-p', 'tsconfig.json'], appDir)
   run(
     process.execPath,
     [

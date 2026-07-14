@@ -4,6 +4,29 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ---
 
+## [0.118.0] — 2026-07-13 — complete execution accounting
+
+### Added
+
+- `InsightReport.execution` reports duration, optional queue time, direct input, output, reasoning, cache-read, and cache-write tokens, model cohorts, model-call coverage, explicit failure counts, and separately labeled orchestration aggregates from the same `RunRecord[]` passed to `analyzeRuns()`.
+- `summarizeExecution()` returns those execution facts and cost provenance without interpreting task quality.
+- `RunTokenUsage.reasoning` preserves the reasoning subset of normalized output, and `RunTokenUsage.cacheWrite` preserves provider cache creation separately from cache reads.
+
+### Changed
+
+- Trace capture, every OTLP exporter, OTLP intake, and code-agent session intake preserve reasoning, cache reads, and cache writes separately.
+- Both OTLP intake paths use one field-by-field reconciliation rule for nested model-call wrappers, preserving complementary parent data without double-counting complete child data.
+- Code-agent intake uses the shared provider-usage parser, including OpenCode's nested `cache.read` and `cache.write` fields and OpenAI-compatible token-detail objects.
+- OTLP-derived run records explicitly label complete USD as observed, model-priced USD as estimated, and missing or partial USD as uncaptured instead of relying on a zero-value inference.
+- Usage parsing reuses `@tangle-network/agent-core` token vocabulary and SSE framing, preserves agent-eval-specific reasoning and cache-write details, reconciles cumulative streams by default, and accepts explicit delta mode through `captureFetchToRawSink({ sseUsageMode })`.
+- Run-record validation rejects negative execution measurements and unknown failure classes, and OTLP intake rejects duplicate span identities instead of corrupting totals.
+- Declaration bundles build sequentially and package verification compiles a strict Node consumer, preserving the public subpath types without concurrent declaration workers exhausting memory.
+- `@tangle-network/agent-interface` is updated to `0.26.x`.
+
+### Breaking
+
+- `InsightReport.execution`, `CodeAgentSessionMetrics.reasoningTokens`, and `CodeAgentSessionMetrics.cacheWriteTokens` are required fields on newly constructed objects.
+
 ## [0.117.1] — 2026-07-13 — retry-safe code-candidate cleanup
 
 ### Fixed

@@ -230,8 +230,8 @@ export {
   type DefaultAnalystRegistryOptions,
 } from '../analyst/default-registry'
 export type { AnalystFinding } from '../analyst/types'
-export type { AnalyzeRunsOptions } from './analyze-runs'
-export { analyzeRuns } from './analyze-runs'
+export type { AnalyzeRunsOptions, ExecutionReport, SummarizeExecutionOptions } from './analyze-runs'
+export { analyzeRuns, summarizeExecution } from './analyze-runs'
 // One-call reporting suite: runs (or a run dir/file) → `analyzeRuns` →
 // optional `analysis.json`. Thin composition over `analyzeRuns` +
 // `fromRunRecordDir`; adds no analysis logic of its own.
@@ -243,6 +243,7 @@ export {
 } from './eval-reporting-suite'
 export type {
   CostProvenanceSummary,
+  ExecutionInsight,
   FailureClusterInsight,
   InsightReport,
   InterRaterInsight,
@@ -252,6 +253,7 @@ export type {
   Recommendation,
   ReleaseSummary,
   ScalarDistribution,
+  TokenUsageInsight,
 } from './insight-report'
 
 // ── Run-to-run diff (compare two eval runs, or a run's baseline→winner) ──
