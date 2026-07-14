@@ -26,33 +26,17 @@ vi.mock('@ax-llm/ax', () => ({
     }
     axMock.agentCalls.push({ signature, options })
     return {
-      async forward() {
+      async forward(ai: { chat(request: unknown): Promise<unknown> }) {
         axMock.events.push('forward')
+        await ai.chat({
+          model: 'gpt-4o-mini',
+          chatPrompt: [{ role: 'user', content: 'actor' }],
+        })
+        await ai.chat({
+          model: 'gpt-4o-mini',
+          chatPrompt: [{ role: 'user', content: 'responder' }],
+        })
         return { report: '', findings: [] }
-      },
-      getUsage() {
-        axMock.events.push('getUsage')
-        return {
-          actor: [
-            {
-              ai: 'openai',
-              model: 'm',
-              tokens: {
-                promptTokens: 100,
-                completionTokens: 20,
-                totalTokens: 120,
-                cacheReadTokens: 8,
-              },
-            },
-          ],
-          responder: [
-            {
-              ai: 'openai',
-              model: 'm',
-              tokens: { promptTokens: 30, completionTokens: 5, totalTokens: 35 },
-            },
-          ],
-        }
       },
       getChatLog() {
         return {}
@@ -76,7 +60,35 @@ describe('createTraceAnalystKind Ax contract', () => {
       buildTools: () => [tool as never],
       cost: { kind: 'llm' },
     }
-    const analyst = createTraceAnalystKind(spec, { ai: {} as never })
+    let call = 0
+    const ai = {
+      async chat() {
+        call += 1
+        return call === 1
+          ? {
+              results: [],
+              modelUsage: {
+                ai: 'openai',
+                model: 'gpt-4o-mini',
+                tokens: {
+                  promptTokens: 100,
+                  completionTokens: 20,
+                  totalTokens: 120,
+                  cacheReadTokens: 8,
+                },
+              },
+            }
+          : {
+              results: [],
+              modelUsage: {
+                ai: 'openai',
+                model: 'gpt-4o-mini',
+                tokens: { promptTokens: 30, completionTokens: 5, totalTokens: 35 },
+              },
+            }
+      },
+    }
+    const analyst = createTraceAnalystKind(spec, { ai: ai as never })
 
     let receipt: AnalystUsageReceipt | undefined
     const findings = await analyst.analyze(
@@ -90,14 +102,43 @@ describe('createTraceAnalystKind Ax contract', () => {
     )
 
     expect(findings).toEqual([])
-    expect(axMock.events).toEqual(['forward', 'getUsage'])
+    expect(axMock.events).toEqual(['forward'])
     expect(receipt).toEqual({
       calls: 2,
-      tokens: { input: 130, output: 25, cached: 8 },
-      cost: { kind: 'uncaptured', usd: null },
+      tokens: { input: 122, output: 25, cached: 8 },
+      cost: { kind: 'estimated', usd: expect.any(Number) },
     })
     expect(axMock.agentCalls).toHaveLength(1)
     expect(axMock.agentCalls[0]!.options.functions).toEqual([tool])
+  })
+
+  it('enforces the allocated analyst budget before the provider call', async () => {
+    const providerChat = vi.fn(async () => ({
+      results: [],
+      modelUsage: {
+        ai: 'openai',
+        model: 'gpt-4o-mini',
+        tokens: { promptTokens: 1, completionTokens: 1, totalTokens: 2 },
+      },
+    }))
+    const spec: TraceAnalystKindSpec = {
+      id: 'failure-mode',
+      description: 'Find trace failures',
+      area: 'failure-mode',
+      version: '0.0.1',
+      actorDescription: 'Return findings.',
+      buildTools: () => [],
+      cost: { kind: 'llm' },
+      maxOutputTokens: 64,
+    }
+    const analyst = createTraceAnalystKind(spec, {
+      ai: { chat: providerChat } as never,
+    })
+
+    await expect(analyst.analyze({} as never, { budgetUsd: 0 } as never)).rejects.toThrow(
+      /would exceed ceiling 0/,
+    )
+    expect(providerChat).not.toHaveBeenCalled()
   })
 
   it('renders same-run upstream findings as dependency context, not prior-run memory', async () => {
@@ -120,7 +161,20 @@ describe('createTraceAnalystKind Ax contract', () => {
       evidence_refs: [{ kind: 'span', uri: 'span://trace/tool-call' }],
       recommended_action: 'deduplicate identical calls',
     })
-    const analyst = createTraceAnalystKind(spec, { ai: {} as never })
+    const analyst = createTraceAnalystKind(spec, {
+      ai: {
+        async chat() {
+          return {
+            results: [],
+            modelUsage: {
+              ai: 'openai',
+              model: 'gpt-4o-mini',
+              tokens: { promptTokens: 1, completionTokens: 1, totalTokens: 2 },
+            },
+          }
+        },
+      } as never,
+    })
 
     await analyst.analyze({} as never, { upstreamFindings: [upstream] } as never)
 

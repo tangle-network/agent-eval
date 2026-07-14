@@ -38,6 +38,49 @@ declare module '@ax-llm/ax' {
 
   // ─── trace-analyst surface ─────────────────────────────────────────
 
+  export interface AxModelConfig {
+    maxTokens?: number
+    [key: string]: unknown
+  }
+
+  export type AxChatContentPart = {
+    type: string
+    fileUri?: string
+    [key: string]: unknown
+  }
+
+  export interface AxChatRequest<TModel = unknown> {
+    chatPrompt: ReadonlyArray<{
+      role: string
+      content?: string | ReadonlyArray<AxChatContentPart>
+      [key: string]: unknown
+    }>
+    functions?: ReadonlyArray<{
+      cache?: boolean
+      [key: string]: unknown
+    }>
+    modelConfig?: AxModelConfig
+    model?: TModel
+    [key: string]: unknown
+  }
+
+  export interface AxChatResponse {
+    results: ReadonlyArray<Record<string, unknown>>
+    modelUsage?: {
+      ai: string
+      model: string
+      tokens?: {
+        promptTokens: number
+        completionTokens: number
+        totalTokens: number
+        thoughtsTokens?: number
+        reasoningTokens?: number
+        cacheCreationTokens?: number
+        cacheReadTokens?: number
+      }
+    }
+  }
+
   /** Concrete shape is owned by @ax-llm/ax; agent-eval passes it through. */
   export interface AxAIService {}
 

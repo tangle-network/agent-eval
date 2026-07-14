@@ -26,8 +26,11 @@
 
 import type { AxAIService, AxFunction } from '@ax-llm/ax'
 import { AxJSRuntime, agent } from '@ax-llm/ax'
+import { CostLedger } from '../cost-ledger'
 import type { TraceAnalysisStore } from '../trace-analyst/store'
 import { TraceFileMissingError } from '../trace-analyst/store-otlp'
+import { analystUsageFromCostLedger, meterAxChatService } from './ax-cost-service'
+import { getConfiguredAnalystModel } from './ax-service'
 import {
   parseRawFinding,
   RAW_FINDING_SCHEMA_PROMPT,
@@ -35,13 +38,7 @@ import {
 } from './finding-signature'
 import { KIND_EXPECTED_SUBJECTS, parseFindingSubject } from './finding-subject'
 import { structureFindings } from './structure-findings'
-import type {
-  Analyst,
-  AnalystContext,
-  AnalystCost,
-  AnalystFinding,
-  AnalystUsageReceipt,
-} from './types'
+import type { Analyst, AnalystContext, AnalystCost, AnalystFinding } from './types'
 import { makeFinding } from './types'
 
 /**
@@ -69,6 +66,8 @@ export interface TraceAnalystKindSpec {
   maxTurns?: number
   /** Runtime char cap. Default 6000. */
   maxRuntimeChars?: number
+  /** Maximum output tokens for every actor, responder, and recursive model call. Default 4096. */
+  maxOutputTokens?: number
   /** Cost classification surfaced in `registry.list()` and budget enforcement. */
   cost: AnalystCost
   /** Per-finding-row hook — kinds may reject / rewrite before lifting. */
@@ -125,167 +124,176 @@ export function createTraceAnalystKind(
     cost: spec.cost,
     version,
     async analyze(store, ctx) {
-      const tools = spec.buildTools(store)
-      const maxDepth = spec.recursion?.maxDepth ?? 0
-      const maxParallel = spec.recursion?.maxParallelSubagents ?? 2
-      const priorContext = renderPriorFindings(ctx.priorFindings)
-      const upstreamContext = renderUpstreamFindings(ctx.upstreamFindings)
-      const functions = tools as unknown as NonNullable<Parameters<typeof agent>[1]>['functions']
-
-      const actorDescription =
-        spec.actorDescription.trim() +
-        priorContext +
-        upstreamContext +
-        '\n\n' +
-        RAW_FINDING_SCHEMA_PROMPT +
-        '\n\nFirst write `report`: a concise free-form prose diagnosis of what ' +
-        'the traces show — what succeeded, what was suboptimal or failed — with ' +
-        'concrete trace ids and numbers. THEN return the structured `findings` ' +
-        'array (it MAY be empty when there is nothing to report). Use `final(...)` ' +
-        'with the `{ report, findings }` payload when you are done.'
-
-      const ax = agent<{ question: string }, { report: string; findings: unknown[] }>(
-        'question:string -> report:string, findings:json[]',
-        {
-          agentIdentity: {
-            name: spec.id,
-            description: spec.description,
-          },
-          contextFields: ['question'],
-          runtime: new AxJSRuntime({
-            permissions: [],
-            blockDynamicImport: true,
-            allowedModules: [],
-            freezeIntrinsics: true,
-            blockShadowRealm: true,
-            preventGlobalThisExtensions: false,
-          }),
-          mode: maxDepth > 0 ? 'advanced' : 'simple',
-          recursionOptions: maxDepth > 0 ? { maxDepth } : undefined,
-          maxTurns: spec.maxTurns ?? 12,
-          maxRuntimeChars: spec.maxRuntimeChars ?? 6000,
-          maxBatchedLlmQueryConcurrency: maxParallel,
-          promptLevel: 'detailed',
-          // Trace analysis depends on exact prior tool results and runtime variables.
-          contextPolicy: { preset: 'full', budget: 'balanced' },
-          functions,
-          actorOptions: {
-            description: actorDescription,
-            ...(opts.model ? { model: opts.model } : {}),
-            showThoughts: false,
-            thinkingTokenBudget: 'none',
-          },
-          responderOptions: {
-            description:
-              spec.responderDescription ??
-              "Pass through the actor's `report` prose verbatim, and format the `findings` array exactly as the actor produced it. Do not add, drop, or summarize entries.",
-            ...(opts.model ? { model: opts.model } : {}),
-            showThoughts: false,
-          },
-          bubbleErrors: [TraceFileMissingError],
-        },
-      )
-
-      ctx.log?.(`analyst.kind ${spec.id} forward`, {
-        max_depth: maxDepth,
-        tool_count: tools.length,
-        tags: ctx.tags,
+      const costLedger = new CostLedger(ctx.budgetUsd)
+      const meteredAi = meterAxChatService(opts.ai, {
+        ledger: costLedger,
+        actor: spec.id,
+        maxOutputTokens: spec.maxOutputTokens ?? 4096,
+        defaultModel: opts.model ?? getConfiguredAnalystModel(opts.ai),
+        signal: ctx.signal,
+        tags: { analystId: spec.id, ...(ctx.tags ?? {}) },
       })
-
-      let result: { report: string; findings: unknown[] }
       try {
-        result = await ax.forward(opts.ai, { question: deriveQuestion(ctx, spec) })
-      } finally {
-        ctx.recordUsage?.(usageReceiptFromAx(ax.getUsage()))
-      }
+        const tools = spec.buildTools(store)
+        const maxDepth = spec.recursion?.maxDepth ?? 0
+        const maxParallel = spec.recursion?.maxParallelSubagents ?? 2
+        const priorContext = renderPriorFindings(ctx.priorFindings)
+        const upstreamContext = renderUpstreamFindings(ctx.upstreamFindings)
+        const functions = tools as unknown as NonNullable<Parameters<typeof agent>[1]>['functions']
 
-      const expectedSubjects = KIND_EXPECTED_SUBJECTS[spec.id]
-      const out: AnalystFinding[] = []
-      const rawRows = Array.isArray(result.findings) ? result.findings : []
-      let rejectedWrongKind = 0
-      for (const row of rawRows) {
-        const parsed = parseRawFinding(row, ctx.log)
-        if (!parsed) continue
-        // Subject-grammar check: if the kind has a declared expects-set
-        // (every shipped kind does), the finding's subject MUST parse to
-        // one of the declared variants. A wrong-kind subject is a
-        // contract violation — the actor's prompt drifted from the
-        // grammar — and we count it for prompt-audit visibility.
-        if (expectedSubjects && parsed.subject !== undefined) {
-          const parsedSubject = parseFindingSubject(parsed.subject)
-          if (parsedSubject === null) {
-            ctx.log?.('finding rejected: subject failed to parse', {
-              kind: spec.id,
-              subject: parsed.subject,
-            })
-            rejectedWrongKind += 1
-            continue
-          }
-          if (!expectedSubjects.includes(parsedSubject.kind)) {
-            ctx.log?.('finding rejected: subject variant not allowed for this kind', {
-              kind: spec.id,
-              subject_kind: parsedSubject.kind,
-              subject: parsed.subject,
-              allowed: expectedSubjects,
-            })
-            rejectedWrongKind += 1
-            continue
-          }
-        }
-        const postProcessed = spec.postProcess?.(parsed, ctx) ?? parsed
-        if (!postProcessed) continue
-        out.push(toAnalystFinding(spec, postProcessed))
-      }
+        const actorDescription =
+          spec.actorDescription.trim() +
+          priorContext +
+          upstreamContext +
+          '\n\n' +
+          RAW_FINDING_SCHEMA_PROMPT +
+          '\n\nFirst write `report`: a concise free-form prose diagnosis of what ' +
+          'the traces show — what succeeded, what was suboptimal or failed — with ' +
+          'concrete trace ids and numbers. THEN return the structured `findings` ' +
+          'array (it MAY be empty when there is nothing to report). Use `final(...)` ' +
+          'with the `{ report, findings }` payload when you are done.'
 
-      ctx.log?.(`analyst.kind ${spec.id} done`, {
-        emitted: rawRows.length,
-        accepted: out.length,
-        rejected_wrong_subject: rejectedWrongKind,
-      })
-
-      // Two-phase recovery / fail-loud. The actor reasons free-form (the
-      // `report`); a weak model often produces a sound diagnosis but fails the
-      // strict findings emission (or the rows get rejected). If the harvest is
-      // empty but the report is substantive, recover findings from the prose
-      // via the tolerant structuring pass (opt-in), and — either way — surface
-      // the report as a visible info finding so an empty harvest is never a
-      // silent zero. A genuinely empty diagnosis (short/no report) stays empty.
-      const report = typeof result.report === 'string' ? result.report : ''
-      if (out.length === 0 && report.trim().length >= 200) {
-        if (opts.recovery) {
-          const recovered = await structureFindings({
-            report,
-            analystId: spec.id,
-            area: spec.area,
-            model: opts.recovery.model ?? opts.model ?? '',
-            baseUrl: opts.recovery.baseUrl,
-            apiKey: opts.recovery.apiKey,
-            fetchImpl: opts.recovery.fetchImpl,
-          })
-          out.push(...recovered.findings)
-          ctx.log?.(`analyst.kind ${spec.id} recovery`, {
-            outcome: recovered.outcome,
-            recovered: recovered.findings.length,
-          })
-        }
-        if (out.length === 0) {
-          out.push(
-            makeFinding({
-              analyst_id: spec.id,
-              area: spec.area,
-              claim: 'Analyst produced a diagnosis but no structured findings — see report.',
-              rationale: report.slice(0, 1500),
-              severity: 'info',
-              confidence: 0.3,
-              evidence_refs: [
-                { kind: 'artifact', uri: 'report://summary', excerpt: report.slice(0, 2000) },
-              ],
-              metadata: { outcome: 'extraction_failed' },
+        const ax = agent<{ question: string }, { report: string; findings: unknown[] }>(
+          'question:string -> report:string, findings:json[]',
+          {
+            agentIdentity: {
+              name: spec.id,
+              description: spec.description,
+            },
+            contextFields: ['question'],
+            runtime: new AxJSRuntime({
+              permissions: [],
+              blockDynamicImport: true,
+              allowedModules: [],
+              freezeIntrinsics: true,
+              blockShadowRealm: true,
+              preventGlobalThisExtensions: false,
             }),
-          )
+            mode: maxDepth > 0 ? 'advanced' : 'simple',
+            recursionOptions: maxDepth > 0 ? { maxDepth } : undefined,
+            maxTurns: spec.maxTurns ?? 12,
+            maxRuntimeChars: spec.maxRuntimeChars ?? 6000,
+            maxBatchedLlmQueryConcurrency: maxParallel,
+            promptLevel: 'detailed',
+            // Trace analysis depends on exact prior tool results and runtime variables.
+            contextPolicy: { preset: 'full', budget: 'balanced' },
+            functions,
+            actorOptions: {
+              description: actorDescription,
+              ...(opts.model ? { model: opts.model } : {}),
+              showThoughts: false,
+              thinkingTokenBudget: 'none',
+            },
+            responderOptions: {
+              description:
+                spec.responderDescription ??
+                "Pass through the actor's `report` prose verbatim, and format the `findings` array exactly as the actor produced it. Do not add, drop, or summarize entries.",
+              ...(opts.model ? { model: opts.model } : {}),
+              showThoughts: false,
+            },
+            bubbleErrors: [TraceFileMissingError],
+          },
+        )
+
+        ctx.log?.(`analyst.kind ${spec.id} forward`, {
+          max_depth: maxDepth,
+          tool_count: tools.length,
+          tags: ctx.tags,
+        })
+
+        const result = await ax.forward(meteredAi, { question: deriveQuestion(ctx, spec) })
+
+        const expectedSubjects = KIND_EXPECTED_SUBJECTS[spec.id]
+        const out: AnalystFinding[] = []
+        const rawRows = Array.isArray(result.findings) ? result.findings : []
+        let rejectedWrongKind = 0
+        for (const row of rawRows) {
+          const parsed = parseRawFinding(row, ctx.log)
+          if (!parsed) continue
+          // Subject-grammar check: if the kind has a declared expects-set
+          // (every shipped kind does), the finding's subject MUST parse to
+          // one of the declared variants. A wrong-kind subject is a
+          // contract violation — the actor's prompt drifted from the
+          // grammar — and we count it for prompt-audit visibility.
+          if (expectedSubjects && parsed.subject !== undefined) {
+            const parsedSubject = parseFindingSubject(parsed.subject)
+            if (parsedSubject === null) {
+              ctx.log?.('finding rejected: subject failed to parse', {
+                kind: spec.id,
+                subject: parsed.subject,
+              })
+              rejectedWrongKind += 1
+              continue
+            }
+            if (!expectedSubjects.includes(parsedSubject.kind)) {
+              ctx.log?.('finding rejected: subject variant not allowed for this kind', {
+                kind: spec.id,
+                subject_kind: parsedSubject.kind,
+                subject: parsed.subject,
+                allowed: expectedSubjects,
+              })
+              rejectedWrongKind += 1
+              continue
+            }
+          }
+          const postProcessed = spec.postProcess?.(parsed, ctx) ?? parsed
+          if (!postProcessed) continue
+          out.push(toAnalystFinding(spec, postProcessed))
         }
+
+        ctx.log?.(`analyst.kind ${spec.id} done`, {
+          emitted: rawRows.length,
+          accepted: out.length,
+          rejected_wrong_subject: rejectedWrongKind,
+        })
+
+        // Two-phase recovery / fail-loud. The actor reasons free-form (the
+        // `report`); a weak model often produces a sound diagnosis but fails the
+        // strict findings emission (or the rows get rejected). If the harvest is
+        // empty but the report is substantive, recover findings from the prose
+        // via the tolerant structuring pass (opt-in), and — either way — surface
+        // the report as a visible info finding so an empty harvest is never a
+        // silent zero. A genuinely empty diagnosis (short/no report) stays empty.
+        const report = typeof result.report === 'string' ? result.report : ''
+        if (out.length === 0 && report.trim().length >= 200) {
+          if (opts.recovery) {
+            const recovered = await structureFindings({
+              report,
+              analystId: spec.id,
+              area: spec.area,
+              model: opts.recovery.model ?? opts.model ?? '',
+              baseUrl: opts.recovery.baseUrl,
+              apiKey: opts.recovery.apiKey,
+              fetchImpl: opts.recovery.fetchImpl,
+              costLedger,
+            })
+            out.push(...recovered.findings)
+            ctx.log?.(`analyst.kind ${spec.id} recovery`, {
+              outcome: recovered.outcome,
+              recovered: recovered.findings.length,
+            })
+          }
+          if (out.length === 0) {
+            out.push(
+              makeFinding({
+                analyst_id: spec.id,
+                area: spec.area,
+                claim: 'Analyst produced a diagnosis but no structured findings — see report.',
+                rationale: report.slice(0, 1500),
+                severity: 'info',
+                confidence: 0.3,
+                evidence_refs: [
+                  { kind: 'artifact', uri: 'report://summary', excerpt: report.slice(0, 2000) },
+                ],
+                metadata: { outcome: 'extraction_failed' },
+              }),
+            )
+          }
+        }
+        return out
+      } finally {
+        ctx.recordUsage?.(analystUsageFromCostLedger(costLedger))
       }
-      return out
     },
   }
 }
@@ -396,60 +404,6 @@ export function renderUpstreamFindings(upstream: AnalystContext['upstreamFinding
   ]
     .filter(Boolean)
     .join('\n')
-}
-
-/** Convert Ax's public usage records into the registry's provider-neutral receipt. */
-function usageReceiptFromAx(value: unknown): AnalystUsageReceipt {
-  const usage = asRecord(value)
-  const entries = [...asRecordArray(usage.actor), ...asRecordArray(usage.responder)]
-  let input = 0
-  let output = 0
-  let cached = 0
-  let sawCached = false
-  let tokensCaptured = entries.length > 0
-
-  for (const entry of entries) {
-    const tokens = asRecord(entry.tokens)
-    const promptTokens = finiteNonNegative(tokens.promptTokens)
-    const completionTokens = finiteNonNegative(tokens.completionTokens)
-    if (promptTokens === null || completionTokens === null) {
-      tokensCaptured = false
-      continue
-    }
-    input += promptTokens
-    output += completionTokens
-    const cacheReadTokens = finiteNonNegative(tokens.cacheReadTokens)
-    if (cacheReadTokens !== null) {
-      cached += cacheReadTokens
-      sawCached = true
-    }
-  }
-
-  return {
-    calls: entries.length,
-    tokens: tokensCaptured ? { input, output, ...(sawCached ? { cached } : {}) } : null,
-    // AxProgramUsage exposes model + token usage, but no billed or estimated
-    // dollars. Keep that absence explicit instead of manufacturing $0.
-    cost: { kind: 'uncaptured', usd: null },
-  }
-}
-
-function asRecord(value: unknown): Record<string, unknown> {
-  return value && typeof value === 'object' && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
-    : {}
-}
-
-function asRecordArray(value: unknown): Record<string, unknown>[] {
-  if (!Array.isArray(value)) return []
-  return value.filter(
-    (entry): entry is Record<string, unknown> =>
-      entry !== null && typeof entry === 'object' && !Array.isArray(entry),
-  )
-}
-
-function finiteNonNegative(value: unknown): number | null {
-  return typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : null
 }
 
 function truncateForContext(s: string, max: number): string {

@@ -200,6 +200,8 @@ export interface AnalystUsageReceipt {
   tokens: RunTokenUsage | null
   /** Observed, estimated, or explicitly uncaptured dollar cost. */
   cost: RunCostProvenance
+  /** Known lower bound when one or more calls have uncaptured cost. */
+  knownCostUsd?: number
 }
 
 // ── finding_id stability ─────────────────────────────────────────────

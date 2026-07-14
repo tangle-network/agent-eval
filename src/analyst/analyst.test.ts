@@ -886,6 +886,43 @@ describe('AnalystRegistry usage receipts', () => {
     expect(result.total_cost_usd).toBe(0.025)
     expect(result.total_cost_provenance).toEqual({ kind: 'observed', usd: 0.025 })
   })
+
+  it('keeps the known subtotal when another call has uncaptured cost', async () => {
+    const registry = new AnalystRegistry()
+    registry.register({
+      id: 'partial',
+      description: 'partial',
+      inputKind: 'custom',
+      cost: { kind: 'llm' },
+      version: '1',
+      async analyze(_input, context) {
+        context.recordUsage?.({
+          calls: 1,
+          tokens: { input: 10, output: 4 },
+          cost: { kind: 'estimated', usd: 0.025 },
+        })
+        context.recordUsage?.({
+          calls: null,
+          tokens: null,
+          cost: { kind: 'uncaptured', usd: null },
+          knownCostUsd: 0.01,
+        })
+        return []
+      },
+    })
+
+    const result = await registry.run('run-1', { custom: { partial: 1 } })
+
+    expect(result.per_analyst[0]).toMatchObject({
+      cost_usd: 0.035,
+      usage: {
+        cost: { kind: 'uncaptured', usd: null },
+        knownCostUsd: 0.035,
+      },
+    })
+    expect(result.total_cost_usd).toBe(0.035)
+    expect(result.total_cost_provenance).toEqual({ kind: 'uncaptured', usd: null })
+  })
 })
 
 describe('ChatClient signal racing', () => {

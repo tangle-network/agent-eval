@@ -207,9 +207,16 @@ export class AnalystRegistry {
     // Budget is split only across analysts that actually run. Analysts skipped
     // for missing input never spend, so counting them would under-budget the
     // ones that do. routeInput is pure, so the pre-count is safe.
-    const runnableCount = selected.filter(
-      (a) => this.routeInput(a, inputs).kind !== 'missing',
-    ).length
+    const runnableAnalysts = selected.filter((a) => this.routeInput(a, inputs).kind !== 'missing')
+    const runnableCount = runnableAnalysts.length
+    const weights = budget?.weights
+    const totalWeight =
+      weights && budget?.totalUsd != null && !budget.allocate && runnableCount > 0
+        ? runnableAnalysts.reduce((sum, analyst) => sum + analystWeight(weights, analyst.id), 0)
+        : undefined
+    if (totalWeight === 0) {
+      throw new Error('BudgetPolicy.weights must allocate positive weight to a runnable analyst')
+    }
 
     for (const analyst of selected) {
       const t0 = Date.now()
@@ -235,6 +242,7 @@ export class AnalystRegistry {
         analyst,
         remainingUsd,
         runningCount: runnableCount,
+        totalWeight,
       })
       const usageReceipts: AnalystUsageReceipt[] = []
 
@@ -267,7 +275,7 @@ export class AnalystRegistry {
         const findings = await (analyst as Analyst<unknown>).analyze(input.value, ctx)
         const latency = Date.now() - t0
         const usage = resolveUsage(analyst, findings, usageReceipts)
-        const cost = capturedUsd(usage.cost)
+        const cost = knownCostUsd(usage)
         totalCost += cost
         if (typeof remainingUsd === 'number') remainingUsd = Math.max(0, remainingUsd - cost)
         allFindings.push(...findings)
@@ -305,7 +313,7 @@ export class AnalystRegistry {
         const hookFindings = (await hooks.onError?.({ analyst, error: e, runId })) ?? []
         if (hookFindings.length) allFindings.push(...hookFindings)
         const usage = resolveUsage(analyst, hookFindings, usageReceipts)
-        const cost = capturedUsd(usage.cost)
+        const cost = knownCostUsd(usage)
         totalCost += cost
         if (typeof remainingUsd === 'number') remainingUsd = Math.max(0, remainingUsd - cost)
         const summary: AnalystRunSummary = {
@@ -401,7 +409,12 @@ export class AnalystRegistry {
  */
 function allocateBudget(
   policy: BudgetPolicy | undefined,
-  args: { analyst: Analyst; remainingUsd: number | undefined; runningCount: number },
+  args: {
+    analyst: Analyst
+    remainingUsd: number | undefined
+    runningCount: number
+    totalWeight: number | undefined
+  },
 ): number | undefined {
   if (!policy) return undefined
   if (policy.allocate) {
@@ -414,17 +427,17 @@ function allocateBudget(
   }
   if (policy.totalUsd == null) return undefined
   if (policy.weights) {
-    // Weighted split: caller-supplied weights, default 1 for missing ids.
-    // We can only normalize against the analysts in this run, but the
-    // registry doesn't know all ids at allocator-time without passing
-    // them. We approximate by treating `runningCount` as the count of
-    // weight=1 analysts when the weight map omits ids. The exact split
-    // is left to consumers that need precision via `allocate`.
-    const w = policy.weights[args.analyst.id] ?? 1
-    const totalWeight = Math.max(1, args.runningCount) // see note above
-    return (policy.totalUsd * w) / totalWeight
+    return (policy.totalUsd * analystWeight(policy.weights, args.analyst.id)) / args.totalWeight!
   }
   return policy.totalUsd / Math.max(1, args.runningCount)
+}
+
+function analystWeight(weights: Record<string, number>, analystId: string): number {
+  const weight = weights[analystId] ?? 1
+  if (!Number.isFinite(weight) || weight < 0) {
+    throw new Error(`BudgetPolicy.weights['${analystId}'] must be a non-negative finite number`)
+  }
+  return weight
 }
 
 function zeroUsage(): AnalystUsageReceipt {
@@ -449,7 +462,7 @@ function resolveUsage(
   if (receipts.length > 0) {
     const merged = mergeUsageReceipts(receipts)
     return merged.cost.kind === 'uncaptured' && legacyCost.captured
-      ? { ...merged, cost: { kind: 'observed', usd: legacyCost.usd } }
+      ? { ...merged, knownCostUsd: Math.max(merged.knownCostUsd ?? 0, legacyCost.usd) }
       : merged
   }
 
@@ -480,15 +493,21 @@ function mergeUsageReceipts(receipts: ReadonlyArray<AnalystUsageReceipt>): Analy
         { input: 0, output: 0 },
       )
     : null
+  const cost = aggregateCostProvenance(receipts.map((receipt) => receipt.cost))
   return {
     calls,
     tokens,
-    cost: aggregateCostProvenance(receipts.map((receipt) => receipt.cost)),
+    cost,
+    ...(cost.kind === 'uncaptured'
+      ? {
+          knownCostUsd: receipts.reduce((sum, receipt) => sum + knownCostUsd(receipt), 0),
+        }
+      : {}),
   }
 }
 
-function capturedUsd(cost: RunCostProvenance): number {
-  return cost.kind === 'uncaptured' ? 0 : cost.usd
+function knownCostUsd(receipt: AnalystUsageReceipt): number {
+  return receipt.cost.kind === 'uncaptured' ? (receipt.knownCostUsd ?? 0) : receipt.cost.usd
 }
 
 function aggregateCostProvenance(costs: ReadonlyArray<RunCostProvenance>): RunCostProvenance {
@@ -516,6 +535,9 @@ function assertValidUsageReceipt(receipt: AnalystUsageReceipt): void {
     assertNonNegativeFinite(receipt.cost.usd, 'cost.usd')
   } else if (receipt.cost.usd !== null) {
     throw new Error('AnalystContext.recordUsage: uncaptured cost.usd must be null')
+  }
+  if (receipt.knownCostUsd !== undefined) {
+    assertNonNegativeFinite(receipt.knownCostUsd, 'knownCostUsd')
   }
 }
 

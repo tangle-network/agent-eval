@@ -1,6 +1,8 @@
 import type { AxAIService } from '@ax-llm/ax'
 import { ai } from '@ax-llm/ax'
 
+const configuredModels = new WeakMap<object, string>()
+
 export interface CreateAnalystAiConfig {
   /** OpenAI-compatible API key forwarded as `Authorization: Bearer`.
    *  cli-bridge ignores the value on loopback but Ax requires a non-empty string. */
@@ -27,10 +29,16 @@ export interface CreateAnalystAiConfig {
  * `@ax-llm/ax` dependency for it.
  */
 export function createAnalystAi(config: CreateAnalystAiConfig): AxAIService {
-  return ai({
+  const service = ai({
     name: config.provider ?? 'openai',
     apiKey: config.apiKey,
     apiURL: config.baseUrl,
     config: { model: config.model },
   })
+  configuredModels.set(service as object, config.model)
+  return service
+}
+
+export function getConfiguredAnalystModel(service: AxAIService): string | undefined {
+  return configuredModels.get(service as object)
 }
