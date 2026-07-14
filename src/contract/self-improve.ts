@@ -264,6 +264,8 @@ export interface SelfImproveResult<TScenario extends Scenario, TArtifact> {
   baseline: {
     compositeMean: number
     perScenario: Record<string, number>
+    /** Exact surface evaluated by the baseline holdout arm. */
+    surface: MutableSurface
   }
   /** Composite mean on the held-out set, winner run. */
   winner: {
@@ -609,7 +611,7 @@ async function runSelfImprove<TScenario extends Scenario, TArtifact>(
   if (opts.onProvenance) opts.onProvenance(provenance)
 
   const summary: SelfImproveResult<TScenario, TArtifact> = {
-    baseline,
+    baseline: { ...baseline, surface: opts.baselineSurface },
     winner: {
       ...winnerStats,
       surface: result.winnerSurface,

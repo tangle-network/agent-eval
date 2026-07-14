@@ -4,6 +4,11 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ---
 
+## [0.119.2] — 2026-07-14 — exact measured provenance
+
+- Bind portable improvement evidence to the exact baseline and winner surfaces, raw heldout measurements, decision, diff, cost, and duration.
+- Reject contradictory provenance and malformed paired cells before products can publish an improvement proposal.
+
 ## [0.119.1] — 2026-07-14 — portable improvement evidence
 
 ### Added

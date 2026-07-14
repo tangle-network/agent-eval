@@ -5,6 +5,7 @@ import {
   agentImprovementMeasuredComparisonSchema,
   type Sha256Digest,
 } from '@tangle-network/agent-interface'
+import { surfaceContentHash } from '../campaign/surface-identity'
 import type { Scenario } from '../campaign/types'
 import { type PairedArmRow, pairArms } from '../paired-arms'
 import { pairedBootstrap } from '../statistics'
@@ -48,9 +49,33 @@ export function measuredComparisonFromSelfImproveResult<TScenario extends Scenar
   assertMeasuredNumber(result.lift, composite.delta, 'heldout lift')
   assertMeasuredNumber(result.baseline.compositeMean, composite.baseline, 'heldout baseline')
   assertMeasuredNumber(result.winner.compositeMean, composite.candidate, 'heldout candidate')
+  assertMeasuredNumber(
+    result.provenance.baselineHoldoutComposite,
+    composite.baseline,
+    'provenance heldout baseline',
+  )
+  assertMeasuredNumber(
+    result.provenance.winnerHoldoutComposite,
+    composite.candidate,
+    'provenance heldout candidate',
+  )
   assertMeasuredNumber(result.provenance.heldOutLift, composite.delta, 'provenance heldout lift')
+  assertMeasuredNumber(result.provenance.totalCostUsd, result.totalCostUsd, 'provenance total cost')
+  assertMeasuredNumber(
+    result.provenance.totalDurationMs,
+    result.durationMs,
+    'provenance total duration',
+  )
+  const baselineContentHash = surfaceContentHash(result.baseline.surface)
+  const candidateContentHash = surfaceContentHash(result.winner.surface)
   if (
     result.gateDecision !== result.provenance.gate.decision ||
+    result.gateDecision !== result.raw.gateResult.decision ||
+    result.diff !== result.provenance.diff ||
+    result.diff !== result.raw.promotedDiff ||
+    candidateContentHash !== surfaceContentHash(result.raw.winnerSurface) ||
+    result.provenance.baselineContentHash !== baselineContentHash ||
+    result.provenance.winnerContentHash !== candidateContentHash ||
     power.n !== composite.n ||
     power.confidence !== 0.95
   ) {
@@ -104,8 +129,8 @@ export function measuredComparisonFromSelfImproveResult<TScenario extends Scenar
       schema: result.provenance.schema,
       runId: result.provenance.runId,
       recordDigest: digest(result.provenance),
-      baselineContentHash: result.provenance.baselineContentHash,
-      candidateContentHash: result.provenance.winnerContentHash,
+      baselineContentHash,
+      candidateContentHash,
     },
     diff: result.diff,
     evaluation: {

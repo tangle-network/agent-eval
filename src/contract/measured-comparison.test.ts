@@ -57,28 +57,37 @@ async function paidAgent(
   return paid.value
 }
 
+function fixtureResult() {
+  return selfImprove({
+    agent: paidAgent,
+    scenarios,
+    judge,
+    baselineSurface: 'BASELINE',
+    proposer,
+    gate: promotion,
+    budget: { generations: 1, populationSize: 1, holdoutFraction: 0.5 },
+  })
+}
+
+type FixtureResult = Awaited<ReturnType<typeof fixtureResult>>
+
+function measuredComparison(result: FixtureResult) {
+  return measuredComparisonFromSelfImproveResult({
+    result,
+    benchmark: {
+      name: 'comparison-fixture',
+      version: '1',
+      splitDigest: `sha256:${'1'.repeat(64)}`,
+    },
+    baselineProfileDigest: `sha256:${'2'.repeat(64)}`,
+    candidateBundleDigest: `sha256:${'3'.repeat(64)}`,
+  })
+}
+
 describe('measuredComparisonFromSelfImproveResult', () => {
   it('preserves paired quality, cost, latency, power, decision, and provenance', async () => {
-    const result = await selfImprove({
-      agent: paidAgent,
-      scenarios,
-      judge,
-      baselineSurface: 'BASELINE',
-      proposer,
-      gate: promotion,
-      budget: { generations: 1, populationSize: 1, holdoutFraction: 0.5 },
-    })
-
-    const comparison = measuredComparisonFromSelfImproveResult({
-      result,
-      benchmark: {
-        name: 'comparison-fixture',
-        version: '1',
-        splitDigest: `sha256:${'1'.repeat(64)}`,
-      },
-      baselineProfileDigest: `sha256:${'2'.repeat(64)}`,
-      candidateBundleDigest: `sha256:${'3'.repeat(64)}`,
-    })
+    const result = await fixtureResult()
+    const comparison = measuredComparison(result)
 
     expect(comparison.overall).toMatchObject({
       baseline: 0.375,
@@ -105,6 +114,12 @@ describe('measuredComparisonFromSelfImproveResult', () => {
       contributingChecks: [{ name: 'paired-heldout', passed: true }],
     })
     expect(comparison.power.n).toBe(4)
+    expect(comparison.provenance.baselineContentHash).toBe(
+      `sha256:${createHash('sha256').update('BASELINE').digest('hex')}`,
+    )
+    expect(comparison.provenance.candidateContentHash).toBe(
+      `sha256:${createHash('sha256').update('BETTER').digest('hex')}`,
+    )
     expect(comparison.provenance.recordDigest).toBe(
       `sha256:${createHash('sha256')
         .update(canonicalJson(JSON.parse(JSON.stringify(result.provenance))))
@@ -113,15 +128,7 @@ describe('measuredComparisonFromSelfImproveResult', () => {
   })
 
   it('rejects an unpaired heldout result instead of silently dropping a cell', async () => {
-    const result = await selfImprove({
-      agent: paidAgent,
-      scenarios,
-      judge,
-      baselineSurface: 'BASELINE',
-      proposer,
-      gate: promotion,
-      budget: { generations: 1, populationSize: 1, holdoutFraction: 0.5 },
-    })
+    const result = await fixtureResult()
     const unpaired = {
       ...result,
       raw: {
@@ -133,30 +140,11 @@ describe('measuredComparisonFromSelfImproveResult', () => {
       },
     }
 
-    expect(() =>
-      measuredComparisonFromSelfImproveResult({
-        result: unpaired,
-        benchmark: {
-          name: 'comparison-fixture',
-          version: '1',
-          splitDigest: `sha256:${'1'.repeat(64)}`,
-        },
-        baselineProfileDigest: `sha256:${'2'.repeat(64)}`,
-        candidateBundleDigest: `sha256:${'3'.repeat(64)}`,
-      }),
-    ).toThrow(/same non-empty paired heldout cells/)
+    expect(() => measuredComparison(unpaired)).toThrow(/same non-empty paired heldout cells/)
   })
 
   it('rejects matched errored cells instead of publishing only surviving pairs', async () => {
-    const result = await selfImprove({
-      agent: paidAgent,
-      scenarios,
-      judge,
-      baselineSurface: 'BASELINE',
-      proposer,
-      gate: promotion,
-      budget: { generations: 1, populationSize: 1, holdoutFraction: 0.5 },
-    })
+    const result = await fixtureResult()
     const errored = {
       ...result,
       raw: {
@@ -176,17 +164,144 @@ describe('measuredComparisonFromSelfImproveResult', () => {
       },
     }
 
-    expect(() =>
-      measuredComparisonFromSelfImproveResult({
-        result: errored,
-        benchmark: {
-          name: 'comparison-fixture',
-          version: '1',
-          splitDigest: `sha256:${'1'.repeat(64)}`,
-        },
-        baselineProfileDigest: `sha256:${'2'.repeat(64)}`,
-        candidateBundleDigest: `sha256:${'3'.repeat(64)}`,
+    expect(() => measuredComparison(errored)).toThrow(/cannot publish 2 errored heldout cells/)
+  })
+
+  it.each([
+    {
+      name: 'baseline holdout composite',
+      mutate: (result: FixtureResult) => ({
+        ...result,
+        provenance: { ...result.provenance, baselineHoldoutComposite: 999 },
       }),
-    ).toThrow(/cannot publish 2 errored heldout cells/)
+      message: /provenance heldout baseline does not agree/,
+    },
+    {
+      name: 'winner holdout composite',
+      mutate: (result: FixtureResult) => ({
+        ...result,
+        provenance: { ...result.provenance, winnerHoldoutComposite: 999 },
+      }),
+      message: /provenance heldout candidate does not agree/,
+    },
+    {
+      name: 'baseline content hash',
+      mutate: (result: FixtureResult) => ({
+        ...result,
+        provenance: {
+          ...result.provenance,
+          baselineContentHash: `sha256:${'a'.repeat(64)}`,
+        },
+      }),
+      message: /measurement sources do not agree/,
+    },
+    {
+      name: 'winner content hash',
+      mutate: (result: FixtureResult) => ({
+        ...result,
+        provenance: {
+          ...result.provenance,
+          winnerContentHash: `sha256:${'b'.repeat(64)}`,
+        },
+      }),
+      message: /measurement sources do not agree/,
+    },
+    {
+      name: 'decision',
+      mutate: (result: FixtureResult) => ({
+        ...result,
+        provenance: {
+          ...result.provenance,
+          gate: { ...result.provenance.gate, decision: 'hold' as const },
+        },
+      }),
+      message: /measurement sources do not agree/,
+    },
+    {
+      name: 'diff',
+      mutate: (result: FixtureResult) => ({
+        ...result,
+        provenance: { ...result.provenance, diff: 'contradictory diff' },
+      }),
+      message: /measurement sources do not agree/,
+    },
+    {
+      name: 'total cost',
+      mutate: (result: FixtureResult) => ({
+        ...result,
+        provenance: { ...result.provenance, totalCostUsd: result.totalCostUsd + 1 },
+      }),
+      message: /provenance total cost does not agree/,
+    },
+    {
+      name: 'total duration',
+      mutate: (result: FixtureResult) => ({
+        ...result,
+        provenance: { ...result.provenance, totalDurationMs: result.durationMs + 1 },
+      }),
+      message: /provenance total duration does not agree/,
+    },
+  ])('rejects contradictory $name provenance', async ({ mutate, message }) => {
+    const result = await fixtureResult()
+    expect(() => measuredComparison(mutate(result))).toThrow(message)
+  })
+
+  it('rejects duplicate, missing-score, and non-finite heldout cells', async () => {
+    const result = await fixtureResult()
+    const baselineCell = result.raw.baselineOnHoldout.cells[0]
+    const winnerCell = result.raw.winnerOnHoldout.cells[0]
+    if (!baselineCell || !winnerCell) throw new Error('expected heldout fixture cells')
+    const cases = [
+      {
+        name: 'duplicate rep',
+        result: {
+          ...result,
+          raw: {
+            ...result.raw,
+            baselineOnHoldout: {
+              ...result.raw.baselineOnHoldout,
+              cells: [baselineCell, ...result.raw.baselineOnHoldout.cells],
+            },
+          },
+        },
+        message: /duplicate repKey/,
+      },
+      {
+        name: 'missing score',
+        result: {
+          ...result,
+          raw: {
+            ...result.raw,
+            winnerOnHoldout: {
+              ...result.raw.winnerOnHoldout,
+              cells: result.raw.winnerOnHoldout.cells.map((cell, index) =>
+                index === 0 ? { ...cell, judgeScores: {} } : cell,
+              ),
+            },
+          },
+        },
+        message: /has no successful composite score/,
+      },
+      {
+        name: 'non-finite latency',
+        result: {
+          ...result,
+          raw: {
+            ...result.raw,
+            winnerOnHoldout: {
+              ...result.raw.winnerOnHoldout,
+              cells: result.raw.winnerOnHoldout.cells.map((cell, index) =>
+                index === 0 ? { ...cell, durationMs: Number.NaN } : cell,
+              ),
+            },
+          },
+        },
+        message: /latency:latency.*not finite/,
+      },
+    ]
+
+    for (const testCase of cases) {
+      expect(() => measuredComparison(testCase.result), testCase.name).toThrow(testCase.message)
+    }
   })
 })
