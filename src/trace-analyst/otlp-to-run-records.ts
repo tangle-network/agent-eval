@@ -9,9 +9,9 @@
  * out, ready for `compareProposers` / `analyzeRuns` / the promotion gate.
  *
  * Aggregation per trace:
- *   - tokenUsage: sum LLM-span `input` / `output` (+ `cached` when present)
- *     across every LLM span in the trace.
- *   - costUsd: sum per-span LLM cost when present; else priced via
+ *   - tokenUsage: reconcile input, output, cache-read, and cache-write across
+ *     nested model-call wrappers without double-counting parent aggregates.
+ *   - costUsd: reconcile complete observed model-call cost when present; else priced via
  *     `opts.priceUsdPerToken` from the aggregated tokens; else 0 with a
  *     loud `raw.cost_unpriced = 1` marker so a missing price is visible, not
  *     a silent zero folded into a gate.
@@ -34,21 +34,20 @@
  */
 
 import {
+  type RunCostProvenance,
   type RunRecord,
   type RunSplitTag,
   type RunTokenUsage,
   validateRunRecord,
 } from '../run-record'
 import {
-  LLM_CACHED_TOKEN_ATTR_KEYS,
-  LLM_COST_ATTR_KEYS,
-  LLM_INPUT_TOKEN_ATTR_KEYS,
-  LLM_MODEL_ATTR_KEYS,
-  LLM_OUTPUT_TOKEN_ATTR_KEYS,
-} from '../trace/otlp-attributes'
+  type MeasurementCoverage,
+  recordAggregateMeasurements,
+  summarizeExecutionMeasurements,
+} from '../trace/execution-measurements'
+import { LLM_MODEL_ATTR_KEYS } from '../trace/otlp-attributes'
 import {
   compareSpanTime,
-  firstNumberAttr,
   firstStringAttr,
   type ProjectedOtlpSpan,
   projectOtlpFlatLine,
@@ -129,6 +128,12 @@ export interface TraceAggregate {
   wallMs: number
 }
 
+interface AggregatedTrace extends TraceAggregate {
+  callSpanIds: string[]
+  costMeasurement: MeasurementCoverage
+  aggregateMeasurement?: ReturnType<typeof summarizeExecutionMeasurements>['aggregate']
+}
+
 /**
  * Parse + aggregate an OTLP traces.jsonl string into validated
  * `RunRecord[]` (one per trace). Use {@link otlpToTraceRunRecords} when you
@@ -138,9 +143,36 @@ export function otlpToRunRecords(otlpJsonl: string, opts: OtlpToRunRecordsOption
   return otlpToTraceRunRecords(otlpJsonl, opts).map((r) => r.record)
 }
 
+/**
+ * Aggregate already-parsed OTLP flat rows without serializing them back to
+ * JSONL. This is the in-memory counterpart to {@link otlpToRunRecords}; both
+ * paths share projection, reconciliation, validation, and ordering.
+ */
+export function otlpRowsToRunRecords(
+  rows: Iterable<object>,
+  opts: OtlpToRunRecordsOptions,
+): RunRecord[] {
+  return otlpRowsToTraceRunRecords(rows, opts).map((row) => row.record)
+}
+
 /** As {@link otlpToRunRecords} but returns the prompt/completion text too. */
 export function otlpToTraceRunRecords(
   otlpJsonl: string,
+  opts: OtlpToRunRecordsOptions,
+): OtlpTraceRunRecord[] {
+  return traceRunRecordsFromSpans(groupJsonlSpansByTrace(otlpJsonl), opts)
+}
+
+/** Parsed-row counterpart to {@link otlpToTraceRunRecords}. */
+export function otlpRowsToTraceRunRecords(
+  rows: Iterable<object>,
+  opts: OtlpToRunRecordsOptions,
+): OtlpTraceRunRecord[] {
+  return traceRunRecordsFromSpans(groupRowsByTrace(rows), opts)
+}
+
+function traceRunRecordsFromSpans(
+  byTrace: Map<string, ProjectedOtlpSpan[]>,
   opts: OtlpToRunRecordsOptions,
 ): OtlpTraceRunRecord[] {
   const splitTag = opts.splitTag ?? 'holdout'
@@ -150,10 +182,9 @@ export function otlpToTraceRunRecords(
   const seed = opts.seed ?? 0
   const fallbackModel = opts.fallbackModel ?? 'unknown@otlp'
 
-  const byTrace = groupSpansByTrace(otlpJsonl)
   if (byTrace.size === 0) {
     throw new Error(
-      'otlpToRunRecords: OTLP input produced zero valid spans — every line was empty, malformed, or missing trace_id/span_id',
+      'otlpToRunRecords: OTLP input produced zero valid spans — every row was empty, malformed, or missing trace_id/span_id',
     )
   }
 
@@ -167,7 +198,7 @@ export function otlpToTraceRunRecords(
     const agg = aggregateTrace(traceId, spans, fallbackModel)
 
     const score = resolveScore(opts, traceId, agg)
-    const { costUsd, costUnpriced } = resolveCost(opts, agg, spans)
+    const { costUsd, costProvenance } = resolveCost(opts, agg)
 
     const raw: Record<string, number> = {
       span_count: agg.spanCount,
@@ -178,13 +209,21 @@ export function otlpToTraceRunRecords(
       prompt_tokens: agg.tokenUsage.input,
       completion_tokens: agg.tokenUsage.output,
     }
+    if (agg.tokenUsage.reasoning !== undefined) raw.reasoning_tokens = agg.tokenUsage.reasoning
     if (agg.tokenUsage.cached !== undefined) raw.cached_tokens = agg.tokenUsage.cached
-    if (costUnpriced) raw.cost_unpriced = 1
+    if (agg.tokenUsage.cacheWrite !== undefined) {
+      raw.cache_write_tokens = agg.tokenUsage.cacheWrite
+    }
+    if (agg.costMeasurement.value !== undefined && !agg.costMeasurement.complete) {
+      raw.partial_observed_cost_usd = agg.costMeasurement.value
+    }
+    recordAggregateMeasurements(raw, agg.aggregateMeasurement)
+    if (costProvenance.kind === 'uncaptured') raw.cost_unpriced = 1
 
     const outcome =
       splitTag === 'holdout' ? { holdoutScore: score, raw } : { searchScore: score, raw }
 
-    const { promptText, completionText } = extractPromptCompletion(spans)
+    const { promptText, completionText } = extractPromptCompletion(spans, agg.callSpanIds)
     const judgeMetadata = opts.judgeMetadataForTrace?.(traceId)
 
     const record = validateRunRecord({
@@ -198,6 +237,7 @@ export function otlpToTraceRunRecords(
       commitSha,
       wallMs: agg.wallMs,
       costUsd,
+      costProvenance,
       tokenUsage: agg.tokenUsage,
       ...(judgeMetadata ? { judgeMetadata } : {}),
       outcome,
@@ -218,8 +258,7 @@ export function otlpToTraceRunRecords(
 
 // ── Internals ──────────────────────────────────────────────────────────
 
-function groupSpansByTrace(otlpJsonl: string): Map<string, ProjectedOtlpSpan[]> {
-  const byTrace = new Map<string, ProjectedOtlpSpan[]>()
+function* yieldJsonlRows(otlpJsonl: string): Iterable<Record<string, unknown>> {
   for (const line of otlpJsonl.split('\n')) {
     const trimmed = line.trim()
     if (trimmed.length === 0) continue
@@ -232,8 +271,19 @@ function groupSpansByTrace(otlpJsonl: string): Map<string, ProjectedOtlpSpan[]> 
       // that is ENTIRELY malformed still throws (zero valid spans).
       continue
     }
-    if (!parsed || typeof parsed !== 'object') continue
-    const span = projectOtlpFlatLine(parsed as Record<string, unknown>)
+    if (parsed && typeof parsed === 'object') yield parsed as Record<string, unknown>
+  }
+}
+
+function groupJsonlSpansByTrace(otlpJsonl: string): Map<string, ProjectedOtlpSpan[]> {
+  return groupRowsByTrace(yieldJsonlRows(otlpJsonl))
+}
+
+function groupRowsByTrace(rows: Iterable<object>): Map<string, ProjectedOtlpSpan[]> {
+  const byTrace = new Map<string, ProjectedOtlpSpan[]>()
+  for (const row of rows) {
+    if (!row || typeof row !== 'object') continue
+    const span = projectOtlpFlatLine(row as Record<string, unknown>)
     if (!span) continue
     const arr = byTrace.get(span.trace_id)
     if (arr) arr.push(span)
@@ -246,18 +296,26 @@ function aggregateTrace(
   traceId: string,
   spans: ProjectedOtlpSpan[],
   fallbackModel: string,
-): TraceAggregate {
+): AggregatedTrace {
   // Span order within a trace is by start time (epoch-aware across ISO/epoch
   // dialects), then a stable tiebreak.
   const ordered = [...spans].sort(
     (a, b) => compareSpanTime(a.start_time, b.start_time) || a.span_id.localeCompare(b.span_id),
   )
 
-  let input = 0
-  let output = 0
-  let cached = 0
-  let sawCached = false
-  let llmSpanCount = 0
+  const measurements = summarizeExecutionMeasurements(
+    ordered.map((span) => ({
+      id: span.span_id,
+      ...(span.parent_span_id ? { parentId: span.parent_span_id } : {}),
+      attributes: span.attributes,
+      modelCall:
+        span.kind === 'LLM' ||
+        (span.kind === 'UNKNOWN' &&
+          (span.model_name !== null ||
+            typeof span.attributes['gen_ai.operation.name'] === 'string')),
+      aggregate: span.kind !== 'LLM' && span.kind !== 'UNKNOWN',
+    })),
+  )
   let toolSpanCount = 0
   let agentSpanCount = 0
   let errorSpanCount = 0
@@ -271,20 +329,7 @@ function aggregateTrace(
       earliest = s.start_time
     if (s.end_time && (!latest || compareSpanTime(s.end_time, latest) > 0)) latest = s.end_time
 
-    if (s.kind === 'LLM') {
-      llmSpanCount += 1
-      const i = firstNumberAttr(s.attributes, LLM_INPUT_TOKEN_ATTR_KEYS)
-      const o = firstNumberAttr(s.attributes, LLM_OUTPUT_TOKEN_ATTR_KEYS)
-      const c = firstNumberAttr(s.attributes, LLM_CACHED_TOKEN_ATTR_KEYS)
-      if (i !== null) input += i
-      if (o !== null) output += o
-      if (c !== null) {
-        cached += c
-        sawCached = true
-      }
-      const m = firstStringAttr(s.attributes, LLM_MODEL_ATTR_KEYS) ?? s.model_name
-      if (m) modelVotes.set(m, (modelVotes.get(m) ?? 0) + 1)
-    } else if (s.kind === 'TOOL') {
+    if (s.kind === 'TOOL') {
       toolSpanCount += 1
     } else if (s.kind === 'AGENT') {
       agentSpanCount += 1
@@ -298,6 +343,13 @@ function aggregateTrace(
     }
   }
 
+  const callSpanIds = new Set(measurements.callSpanIds)
+  for (const span of ordered) {
+    if (!callSpanIds.has(span.span_id)) continue
+    const model = firstStringAttr(span.attributes, LLM_MODEL_ATTR_KEYS) ?? span.model_name
+    if (model) modelVotes.set(model, (modelVotes.get(model) ?? 0) + 1)
+  }
+
   // Dominant model across LLM spans; falls back to any model attribute on a
   // non-LLM span, then the supplied fallback snapshot.
   const model = topVote(modelVotes) ?? firstModelAttr(ordered) ?? fallbackModel
@@ -309,21 +361,22 @@ function aggregateTrace(
   const b = spanEpochMillis(latest)
   if (a !== null && b !== null) wallMs = Math.max(0, b - a)
 
-  const tokenUsage: RunTokenUsage = sawCached ? { input, output, cached } : { input, output }
-
   return {
     traceId,
     spanCount: spans.length,
-    llmSpanCount,
+    llmSpanCount: measurements.modelCallCount,
     toolSpanCount,
     agentSpanCount,
     errorSpanCount,
-    tokenUsage,
+    tokenUsage: measurements.tokenUsage,
     firstErrorMessage,
     model,
     startTime: earliest,
     endTime: latest,
     wallMs,
+    callSpanIds: measurements.callSpanIds,
+    costMeasurement: measurements.cost,
+    ...(measurements.aggregate ? { aggregateMeasurement: measurements.aggregate } : {}),
   }
 }
 
@@ -343,41 +396,47 @@ function resolveScore(opts: OtlpToRunRecordsOptions, traceId: string, agg: Trace
 
 function resolveCost(
   opts: OtlpToRunRecordsOptions,
-  agg: TraceAggregate,
-  spans: ProjectedOtlpSpan[],
-): { costUsd: number; costUnpriced: boolean } {
-  // Prefer per-span LLM cost attributes summed across the trace.
-  let perSpanCost = 0
-  let sawCost = false
-  for (const s of spans) {
-    if (s.kind !== 'LLM') continue
-    const c = firstNumberAttr(s.attributes, LLM_COST_ATTR_KEYS)
-    if (c !== null) {
-      perSpanCost += c
-      sawCost = true
+  agg: AggregatedTrace,
+): { costUsd: number; costProvenance: RunCostProvenance } {
+  const observedCost = agg.costMeasurement
+  if (observedCost.complete && observedCost.value !== undefined) {
+    return {
+      costUsd: observedCost.value,
+      costProvenance: { kind: 'observed', usd: observedCost.value },
     }
   }
-  if (sawCost) return { costUsd: perSpanCost, costUnpriced: false }
+  if (agg.aggregateMeasurement?.costUsd !== undefined) {
+    return {
+      costUsd: agg.aggregateMeasurement.costUsd,
+      costProvenance: { kind: 'observed', usd: agg.aggregateMeasurement.costUsd },
+    }
+  }
 
   if (opts.priceUsdPerToken !== undefined) {
     const totalTokens = agg.tokenUsage.input + agg.tokenUsage.output
-    return { costUsd: totalTokens * opts.priceUsdPerToken, costUnpriced: false }
+    const costUsd = totalTokens * opts.priceUsdPerToken
+    return { costUsd, costProvenance: { kind: 'estimated', usd: costUsd } }
   }
 
   // No per-span cost, no price table — record 0 but flag it loudly so a
   // missing price never silently flatters a cost axis.
-  return { costUsd: 0, costUnpriced: true }
+  return { costUsd: 0, costProvenance: { kind: 'uncaptured', usd: null } }
 }
 
-function extractPromptCompletion(spans: ProjectedOtlpSpan[]): {
+function extractPromptCompletion(
+  spans: ProjectedOtlpSpan[],
+  callSpanIds: string[],
+): {
   promptText?: string
   completionText?: string
 } {
-  const llm = spans
-    .filter((s) => s.kind === 'LLM')
-    .sort(
-      (a, b) => compareSpanTime(a.start_time, b.start_time) || a.span_id.localeCompare(b.span_id),
-    )
+  const callIds = new Set(callSpanIds)
+  const measuredCalls = spans.filter((span) => callIds.has(span.span_id))
+  const llm = (
+    measuredCalls.length > 0 ? measuredCalls : spans.filter((s) => s.kind === 'LLM')
+  ).sort(
+    (a, b) => compareSpanTime(a.start_time, b.start_time) || a.span_id.localeCompare(b.span_id),
+  )
   if (llm.length === 0) return {}
   const promptText =
     firstStringAttr(llm[0]!.attributes, ['input.value', 'llm.input_messages', 'gen_ai.prompt']) ??

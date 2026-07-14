@@ -5,6 +5,7 @@
  * following the StepRubric contract.
  */
 
+import { hasCapturedToolArgs } from '../trace/query'
 import type { LlmSpan, ToolSpan } from '../trace/schema'
 import type { StepRubric } from './rubric'
 
@@ -62,11 +63,14 @@ export function toolNonRedundantRubric(args: { weight?: number } = {}): StepRubr
     weight,
     async grade({ step, prior }) {
       const tool = step.span as ToolSpan
+      if (!hasCapturedToolArgs(tool)) return null
       const priorMatches = prior.filter((p) => {
         if (p.span.kind !== 'tool') return false
         const pt = p.span as ToolSpan
         return (
-          pt.toolName === tool.toolName && stableStringify(pt.args) === stableStringify(tool.args)
+          hasCapturedToolArgs(pt) &&
+          pt.toolName === tool.toolName &&
+          stableStringify(pt.args) === stableStringify(tool.args)
         )
       })
       if (priorMatches.length === 0) return { score: 1, rationale: 'novel call' }

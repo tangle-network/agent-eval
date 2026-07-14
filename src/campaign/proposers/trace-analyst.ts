@@ -20,6 +20,7 @@ import { createTraceAnalystKind, type TraceAnalystKindSpec } from '../../analyst
 import { DEFAULT_TRACE_ANALYST_KINDS } from '../../analyst/kinds'
 import { AnalystRegistry } from '../../analyst/registry'
 import type { AnalystFinding } from '../../analyst/types'
+import type { CostLedgerHandle, CostReceiptInput, MaximumCharge } from '../../cost-ledger'
 import type { LlmClientOptions } from '../../llm-client'
 import { OtlpFileTraceStore } from '../../trace-analyst/store-otlp'
 import type { ProposeContext, SurfaceProposer } from '../types'
@@ -36,6 +37,11 @@ export interface TraceAnalystProposerOptions {
   /** Model used to APPLY findings to the prompt surface. Default = `model`.
    *  Keep this EQUAL to haloProposer's `applyModel` for an apples-to-apples run. */
   applyModel?: string
+  /** Optional ledger for direct proposer use. Campaign context takes precedence. */
+  costLedger?: CostLedgerHandle
+  analysisMaximumCharge?: MaximumCharge
+  analysisReceipt?: (report: string) => CostReceiptInput
+  applyMaxTokens?: number
   /** Ax provider name. Default 'openai' — works for any OpenAI-compatible base
    *  via `apiURL`. Use 'deepseek' to hit DeepSeek's native provider. */
   provider?: string
@@ -95,7 +101,12 @@ export function traceAnalystProposer(opts: TraceAnalystProposerOptions): Surface
     label: 'trace-analyst',
     baseUrl: opts.baseUrl,
     apiKey: opts.apiKey,
+    analysisModel: opts.model,
     applyModel: opts.applyModel ?? opts.model,
+    costLedger: opts.costLedger,
+    analysisMaximumCharge: opts.analysisMaximumCharge,
+    analysisReceipt: opts.analysisReceipt,
+    applyMaxTokens: opts.applyMaxTokens,
     fetchImpl: opts.fetchImpl,
     resolveTraces: opts.resolveTraces,
     noTracesError:

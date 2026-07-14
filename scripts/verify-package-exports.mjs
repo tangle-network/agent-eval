@@ -1,5 +1,12 @@
 import { spawnSync } from 'node:child_process'
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync } from 'node:fs'
+import {
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -31,6 +38,7 @@ try {
     '.': ['import', 'types'],
     './campaign': ['import', 'types'],
     './traces': ['import', 'types'],
+    './trace-attributes': ['import', 'types'],
     './rl': ['import', 'types'],
     './meta-eval': ['import', 'types'],
     './belief-state': ['import', 'types'],
@@ -51,6 +59,114 @@ try {
   }
 
   symlinkSync(packageDir, join(appDir, 'node_modules', '@tangle-network', 'agent-eval'), 'dir')
+  writeFileSync(
+    join(appDir, 'index.ts'),
+    `
+      import {
+        CostLedger,
+        InMemoryTraceStore,
+        type CostLedgerHandle as RootCostLedgerHandle,
+        type LlmJudgeOptions as RootLlmJudgeOptions,
+        type ReferenceEquivalenceJudgeOptions as RootReferenceEquivalenceJudgeOptions,
+        type Run,
+        type RunRecord,
+      } from '@tangle-network/agent-eval'
+      import {
+        type CostLedgerHandle as ContractCostLedgerHandle,
+        type ReferenceEquivalenceJudgeOptions as ContractReferenceEquivalenceJudgeOptions,
+        summarizeExecution,
+        type ExecutionReport,
+        type SurfaceProposer as ContractSurfaceProposer,
+      } from '@tangle-network/agent-eval/contract'
+      import {
+        type CostLedgerHandle as CampaignCostLedgerHandle,
+        type LlmJudgeOptions as CampaignLlmJudgeOptions,
+        type ReferenceEquivalenceJudgeOptions as CampaignReferenceEquivalenceJudgeOptions,
+        type SurfaceProposer as CampaignSurfaceProposer,
+      } from '@tangle-network/agent-eval/campaign'
+      import { stuckLoopView, type StuckLoopReport } from '@tangle-network/agent-eval/pipelines'
+      import {
+        LLM_REASONING_TOKENS,
+        OtlpFileTraceStore,
+        otlpToRunRecords,
+        type TraceAnalysisStore,
+      } from '@tangle-network/agent-eval/traces'
+      import {
+        applyLlmSpanOtlpAttributes,
+        firstNumberAttr,
+        LLM_CONTEXT_TOKENS,
+        LLM_INPUT_TOKEN_ATTR_KEYS,
+        LLM_INPUT_TOKENS,
+        contextInputTokens,
+      } from '@tangle-network/agent-eval/trace-attributes'
+
+      const store: TraceAnalysisStore = new OtlpFileTraceStore({ path: 'spans.jsonl' })
+      const runs: RunRecord[] = otlpToRunRecords('{}', {
+        experimentId: 'consumer',
+        candidateId: 'candidate',
+      })
+      const report: ExecutionReport = summarizeExecution({ runs })
+      const loop: Promise<StuckLoopReport> = stuckLoopView(new InMemoryTraceStore())
+      const runtimeRun: Run | undefined = undefined
+      const campaignProposer = null as unknown as CampaignSurfaceProposer
+      const contractProposer: ContractSurfaceProposer = campaignProposer
+      const campaignRoundTrip: CampaignSurfaceProposer = contractProposer
+      const campaignLlmOptions = null as unknown as CampaignLlmJudgeOptions<unknown>
+      const rootLlmOptions: RootLlmJudgeOptions<unknown> = campaignLlmOptions
+      const campaignLlmRoundTrip: CampaignLlmJudgeOptions<unknown> = rootLlmOptions
+      const campaignReferenceOptions = null as unknown as CampaignReferenceEquivalenceJudgeOptions
+      const contractReferenceOptions: ContractReferenceEquivalenceJudgeOptions = campaignReferenceOptions
+      const rootReferenceOptions: RootReferenceEquivalenceJudgeOptions = contractReferenceOptions
+      const campaignReferenceRoundTrip: CampaignReferenceEquivalenceJudgeOptions = rootReferenceOptions
+      const costLedger = new CostLedger()
+      const rootCostLedger: RootCostLedgerHandle = costLedger
+      const campaignCostLedger: CampaignCostLedgerHandle = costLedger
+      const contractCostLedger: ContractCostLedgerHandle = costLedger
+      const contextTokens = contextInputTokens({ inputTokens: 10, cachedTokens: 20 })
+      const inputTokens = firstNumberAttr(
+        { 'gen_ai.usage.input_tokens': '10' },
+        LLM_INPUT_TOKEN_ATTR_KEYS,
+      )
+      const traceAttributes: Record<string, unknown> = {}
+      applyLlmSpanOtlpAttributes(traceAttributes, {
+        inputTokens: 10,
+        cachedTokens: 20,
+      })
+      void [
+        store,
+        report,
+        loop,
+        runtimeRun,
+        campaignRoundTrip,
+        campaignLlmRoundTrip,
+        campaignReferenceRoundTrip,
+        rootCostLedger,
+        campaignCostLedger,
+        contractCostLedger,
+        LLM_INPUT_TOKENS,
+        LLM_CONTEXT_TOKENS,
+        contextTokens,
+        inputTokens,
+        traceAttributes,
+        LLM_REASONING_TOKENS,
+      ]
+    `,
+  )
+  writeFileSync(
+    join(appDir, 'tsconfig.json'),
+    JSON.stringify({
+      compilerOptions: {
+        target: 'ES2022',
+        module: 'NodeNext',
+        moduleResolution: 'NodeNext',
+        strict: true,
+        skipLibCheck: true,
+        noEmit: true,
+      },
+      include: ['index.ts'],
+    }),
+  )
+  run(join(repoRoot, 'node_modules', '.bin', 'tsc'), ['-p', 'tsconfig.json'], appDir)
   run(
     process.execPath,
     [

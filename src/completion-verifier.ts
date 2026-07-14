@@ -24,8 +24,11 @@
 import { randomUUID } from 'node:crypto'
 import type { TCloud } from '@tangle-network/tcloud'
 import type { Artifact } from './artifact-validator'
+import { CostLedger, type CostLedgerHandle, type CostReceiptInput } from './cost-ledger'
 import { recoverTruncatedJson } from './json-recovery'
 import { JudgeParseError } from './judges'
+import type { LlmCallRequest } from './llm-client'
+import { costReceiptFromTCloud, maximumChargeForTCloudRequest } from './tcloud-cost'
 import type { RawProviderEvent, RawProviderSink } from './trace/raw-provider-sink'
 import type { DefaultVerdict } from './verdict'
 
@@ -428,6 +431,15 @@ export async function verifyCompletion(
 
 export interface LlmCorrectnessCheckerOpts {
   model?: string
+  /** Optional ledger for direct use. */
+  costLedger?: CostLedgerHandle
+  costPhase?: string
+  costTags?: Record<string, string>
+  signal?: AbortSignal
+  /** Exact maximum provider attempts configured on the supplied TCloud client. */
+  tcloudMaximumAttempts?: number
+  /** Usage/cost retained by a failed provider response; enables a safe retry. */
+  receiptFromError?: (error: Error, attempt: number) => CostReceiptInput | undefined
   /** Max chars of artifact content sent to the checker. */
   maxContentChars?: number
   /**
@@ -491,6 +503,7 @@ export function createLlmCorrectnessChecker(
   const model = opts.model ?? 'claude-sonnet-4-6'
   const maxContentChars = opts.maxContentChars ?? 8000
   const maxAttempts = opts.maxAttempts ?? 2
+  const costLedger = opts.costLedger ?? new CostLedger()
   const sink = opts.rawSink
   const record = async (event: RawProviderEvent): Promise<void> => {
     // Forensic capture is best-effort; the verdict is the system of record.
@@ -518,7 +531,7 @@ export function createLlmCorrectnessChecker(
       ],
       temperature: 0,
       maxTokens: 200,
-    }
+    } satisfies LlmCallRequest
     let lastErr: unknown
     for (let attempt = 0; attempt < maxAttempts; attempt++) {
       const started = Date.now()
@@ -535,7 +548,24 @@ export function createLlmCorrectnessChecker(
         redactedFields: [],
       })
       try {
-        const resp = await tc.chat(request)
+        const paid = await costLedger.runPaidCall({
+          channel: 'verifier',
+          phase: opts.costPhase ?? 'completion.correctness',
+          actor: 'correctness-checker',
+          model,
+          maximumCharge: maximumChargeForTCloudRequest(request, opts.tcloudMaximumAttempts),
+          tags: {
+            ...opts.costTags,
+            requirementId: requirement.reqId,
+            attempt: String(attempt),
+          },
+          signal: opts.signal,
+          execute: () => tc.chat(request),
+          receipt: (response) => costReceiptFromTCloud(response, model),
+          receiptFromError: (error) => opts.receiptFromError?.(error, attempt),
+        })
+        if (!paid.succeeded) throw paid.error
+        const resp = paid.value
         const raw =
           (resp as { choices?: { message?: { content?: string } }[] }).choices?.[0]?.message
             ?.content ?? ''

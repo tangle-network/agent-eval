@@ -7,7 +7,7 @@
 
 import type { TCloud } from '@tangle-network/tcloud'
 import { describe, expect, it } from 'vitest'
-
+import { CostLedger } from './cost-ledger'
 import {
   buildDriverSystemPrompt,
   buildWorkerDriverSystemPrompt,
@@ -212,6 +212,51 @@ describe('decideNextUserTurn', () => {
       model: 'gpt-5.4',
     })
     expect(captured[0]!.model).toBe('gpt-5.4')
+  })
+
+  it('attributes driver-model usage and rejects unbounded capped calls before dispatch', async () => {
+    let calls = 0
+    const tc = {
+      chat: async () => {
+        calls++
+        return {
+          model: 'gpt-4o',
+          choices: [{ message: { content: 'next' } }],
+          usage: { prompt_tokens: 100, completion_tokens: 20 },
+        }
+      },
+    } as unknown as TCloud
+    const ledger = new CostLedger()
+
+    await decideNextUserTurn(tc, {
+      persona: persona(),
+      state: STATE,
+      history: [],
+      model: 'gpt-4o',
+      costLedger: ledger,
+      costTags: { driverRunId: 'driver-a' },
+    })
+
+    expect(ledger.summary()).toMatchObject({
+      totalCalls: 1,
+      inputTokens: 100,
+      outputTokens: 20,
+      accountingComplete: true,
+      byChannel: [{ channel: 'driver', calls: 1 }],
+    })
+    expect(ledger.summary({ tags: { driverRunId: 'driver-a' } }).totalCalls).toBe(1)
+    expect(ledger.summary({ tags: { driverRunId: 'driver-b' } }).totalCalls).toBe(0)
+
+    await expect(
+      decideNextUserTurn(tc, {
+        persona: persona(),
+        state: STATE,
+        history: [],
+        model: 'gpt-4o',
+        costLedger: new CostLedger(1),
+      }),
+    ).rejects.toThrow(/hard maximumCharge/)
+    expect(calls).toBe(1)
   })
 })
 

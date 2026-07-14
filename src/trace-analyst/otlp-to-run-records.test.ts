@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest'
 import { isRunRecord, type RunRecord, validateRunRecord } from '../run-record'
-import { otlpToRunRecords, otlpToTraceRunRecords } from './otlp-to-run-records'
+import {
+  otlpRowsToRunRecords,
+  otlpToRunRecords,
+  otlpToTraceRunRecords,
+} from './otlp-to-run-records'
 
 /** Destructure the two-record result with a present-assertion so the strict
  *  `noUncheckedIndexedAccess` compiler doesn't widen each to `T | undefined`. */
@@ -55,6 +59,8 @@ const FIXTURE = [
       'inference.llm.model_name': 'gpt-4o-mini-2024-07-18',
       'inference.llm.input_tokens': 325,
       'inference.llm.output_tokens': 21,
+      cache_read_tokens: 1000,
+      cache_creation_tokens: 200,
       'llm.token_count.prompt': 325,
       'llm.token_count.completion': 21,
       'inference.llm.cost.total': 0.0012,
@@ -178,9 +184,16 @@ describe('otlpToRunRecords', () => {
   it('sums LLM-span tokens across the trace (input + output, both dialects)', () => {
     const clean = otlpToRunRecords(FIXTURE, baseOpts)[0]!
     // 325 + 410 input, 21 + 35 output across the two clean LLM spans.
-    expect(clean.tokenUsage).toEqual({ input: 735, output: 56 })
+    expect(clean.tokenUsage).toEqual({
+      input: 735,
+      output: 56,
+      cached: 1000,
+      cacheWrite: 200,
+    })
     expect(clean.outcome.raw.prompt_tokens).toBe(735)
     expect(clean.outcome.raw.completion_tokens).toBe(56)
+    expect(clean.outcome.raw.cached_tokens).toBe(1000)
+    expect(clean.outcome.raw.cache_write_tokens).toBe(200)
     expect(clean.outcome.raw.llm_span_count).toBe(2)
     expect(clean.outcome.raw.tool_span_count).toBe(1)
     expect(clean.outcome.raw.agent_span_count).toBe(1)
@@ -191,10 +204,450 @@ describe('otlpToRunRecords', () => {
     const [clean, error] = twoRecords(otlpToRunRecords(FIXTURE, baseOpts))
     // clean: 0.0012 + 0.0018 from the two LLM cost attributes.
     expect(clean.costUsd).toBeCloseTo(0.003, 6)
+    expect(clean.costProvenance).toEqual({ kind: 'observed', usd: 0.003 })
     expect(clean.outcome.raw.cost_unpriced).toBeUndefined()
     // error trace: no cost attribute anywhere → 0 BUT flagged loudly.
     expect(error.costUsd).toBe(0)
+    expect(error.costProvenance).toEqual({ kind: 'uncaptured', usd: null })
     expect(error.outcome.raw.cost_unpriced).toBe(1)
+  })
+
+  it('reconciles nested aggregate wrappers without duplicating tokens or cost', () => {
+    const nested = [
+      spanLine({
+        trace_id: 'nested-trace',
+        span_id: 'nested-trace:root',
+        parent_span_id: '',
+        name: 'agent.run',
+        start_time: '2026-04-23T05:32:00.000Z',
+        end_time: '2026-04-23T05:32:04.000Z',
+        attributes: {
+          'openinference.span.kind': 'AGENT',
+          'gen_ai.usage.input_tokens': 9999,
+          'gen_ai.usage.output_tokens': 9999,
+          'tangle.cost.usd': 0.5,
+        },
+      }),
+      spanLine({
+        trace_id: 'nested-trace',
+        span_id: 'nested-trace:call-1',
+        parent_span_id: 'root',
+        name: 'provider.request',
+        start_time: '2026-04-23T05:32:01.000Z',
+        end_time: '2026-04-23T05:32:02.000Z',
+        attributes: {
+          'openinference.span.kind': 'LLM',
+          'gen_ai.request.model': 'claude-opus-4-8@2026-07-01',
+          'gen_ai.usage.input_tokens': 10,
+          'gen_ai.usage.output_tokens': 2,
+          'tangle.cost.usd': 0.1,
+        },
+      }),
+      spanLine({
+        trace_id: 'nested-trace',
+        span_id: 'nested-trace:call-2',
+        parent_span_id: 'root',
+        name: 'provider.request',
+        start_time: '2026-04-23T05:32:02.000Z',
+        end_time: '2026-04-23T05:32:03.000Z',
+        attributes: {
+          'openinference.span.kind': 'LLM',
+          'gen_ai.request.model': 'claude-opus-4-8@2026-07-01',
+          'gen_ai.usage.input_tokens': 20,
+          'gen_ai.usage.output_tokens': 3,
+        },
+      }),
+    ].join('\n')
+
+    const run = otlpToRunRecords(nested, baseOpts)[0]!
+
+    expect(run.tokenUsage).toEqual({ input: 30, output: 5 })
+    expect(run.costProvenance).toEqual({ kind: 'observed', usd: 0.5 })
+    expect(run.outcome.raw.llm_span_count).toBe(2)
+    expect(run.outcome.raw.aggregate_prompt_tokens).toBe(9999)
+    expect(run.outcome.raw.aggregate_completion_tokens).toBe(9999)
+    expect(run.outcome.raw.aggregate_cost_usd).toBe(0.5)
+  })
+
+  it('keeps genuine nested model calls when their measurements differ', () => {
+    const nestedCalls = [
+      spanLine({
+        trace_id: 'nested-calls',
+        span_id: 'nested-calls:outer',
+        parent_span_id: '',
+        name: 'outer.request',
+        start_time: '2026-04-23T05:32:00.000Z',
+        end_time: '2026-04-23T05:32:03.000Z',
+        attributes: {
+          'openinference.span.kind': 'LLM',
+          'gen_ai.usage.input_tokens': 10,
+          'gen_ai.usage.output_tokens': 2,
+        },
+      }),
+      spanLine({
+        trace_id: 'nested-calls',
+        span_id: 'nested-calls:inner',
+        parent_span_id: 'outer',
+        name: 'inner.request',
+        start_time: '2026-04-23T05:32:01.000Z',
+        end_time: '2026-04-23T05:32:02.000Z',
+        attributes: {
+          'openinference.span.kind': 'LLM',
+          'gen_ai.usage.input_tokens': 20,
+          'gen_ai.usage.output_tokens': 3,
+        },
+      }),
+    ].join('\n')
+
+    const run = otlpToRunRecords(nestedCalls, baseOpts)[0]!
+
+    expect(run.tokenUsage).toEqual({ input: 30, output: 5 })
+    expect(run.outcome.raw.llm_span_count).toBe(2)
+    expect(run.outcome.raw.aggregate_prompt_tokens).toBeUndefined()
+  })
+
+  it('reconciles complementary nested LLM wrappers as one model call', () => {
+    const complementaryWrapper = [
+      spanLine({
+        trace_id: 'complementary-wrapper',
+        span_id: 'complementary-wrapper:outer',
+        parent_span_id: '',
+        name: 'instrumented.request',
+        start_time: '2026-04-23T05:32:00.000Z',
+        end_time: '2026-04-23T05:32:02.000Z',
+        attributes: {
+          'openinference.span.kind': 'LLM',
+          'gen_ai.usage.input_tokens': 50,
+          'gen_ai.usage.output_tokens': 8,
+        },
+      }),
+      spanLine({
+        trace_id: 'complementary-wrapper',
+        span_id: 'complementary-wrapper:provider',
+        parent_span_id: 'outer',
+        name: 'provider.request',
+        start_time: '2026-04-23T05:32:01.000Z',
+        end_time: '2026-04-23T05:32:02.000Z',
+        attributes: {
+          'openinference.span.kind': 'LLM',
+          'gen_ai.request.model': 'claude-opus-4-8@2026-07-01',
+          cache_read_tokens: 400,
+          cache_creation_tokens: 20,
+          'tangle.cost.usd': 0.04,
+        },
+      }),
+    ].join('\n')
+
+    const run = otlpToRunRecords(complementaryWrapper, baseOpts)[0]!
+
+    expect(run.tokenUsage).toEqual({
+      input: 50,
+      output: 8,
+      cached: 400,
+      cacheWrite: 20,
+    })
+    expect(run.costProvenance).toEqual({ kind: 'observed', usd: 0.04 })
+    expect(run.outcome.raw.llm_span_count).toBe(1)
+    expect(run.outcome.raw.aggregate_prompt_tokens).toBe(50)
+    expect(run.outcome.raw.aggregate_completion_tokens).toBe(8)
+  })
+
+  it('collapses an exact duplicate model wrapper into separately labeled aggregate usage', () => {
+    const duplicateWrapper = [
+      spanLine({
+        trace_id: 'duplicate-wrapper',
+        span_id: 'duplicate-wrapper:outer',
+        parent_span_id: '',
+        name: 'wrapped.request',
+        start_time: '2026-04-23T05:32:00.000Z',
+        end_time: '2026-04-23T05:32:03.000Z',
+        attributes: {
+          'openinference.span.kind': 'LLM',
+          'gen_ai.usage.input_tokens': 30,
+          'gen_ai.usage.output_tokens': 5,
+          'tangle.cost.usd': 0.3,
+        },
+      }),
+      spanLine({
+        trace_id: 'duplicate-wrapper',
+        span_id: 'duplicate-wrapper:call-1',
+        parent_span_id: 'outer',
+        name: 'provider.request',
+        start_time: '2026-04-23T05:32:01.000Z',
+        end_time: '2026-04-23T05:32:02.000Z',
+        attributes: {
+          'openinference.span.kind': 'LLM',
+          'gen_ai.usage.input_tokens': 10,
+          'gen_ai.usage.output_tokens': 2,
+          'tangle.cost.usd': 0.1,
+        },
+      }),
+      spanLine({
+        trace_id: 'duplicate-wrapper',
+        span_id: 'duplicate-wrapper:call-2',
+        parent_span_id: 'outer',
+        name: 'provider.request',
+        start_time: '2026-04-23T05:32:02.000Z',
+        end_time: '2026-04-23T05:32:03.000Z',
+        attributes: {
+          'openinference.span.kind': 'LLM',
+          'gen_ai.usage.input_tokens': 20,
+          'gen_ai.usage.output_tokens': 3,
+        },
+      }),
+    ].join('\n')
+
+    const run = otlpToRunRecords(duplicateWrapper, baseOpts)[0]!
+
+    expect(run.tokenUsage).toEqual({ input: 30, output: 5 })
+    expect(run.outcome.raw.llm_span_count).toBe(2)
+    expect(run.outcome.raw.aggregate_prompt_tokens).toBe(30)
+    expect(run.outcome.raw.aggregate_completion_tokens).toBe(5)
+    expect(run.outcome.raw.aggregate_cost_usd).toBeCloseTo(0.3)
+    expect(run.costProvenance).toEqual({ kind: 'observed', usd: 0.3 })
+  })
+
+  it('reconciles a wrapper against all retained model calls below nested calls', () => {
+    const deepWrapper = [
+      spanLine({
+        trace_id: 'deep-wrapper',
+        span_id: 'deep-wrapper:root',
+        parent_span_id: '',
+        name: 'wrapped.request',
+        start_time: '2026-04-23T05:32:00.000Z',
+        end_time: '2026-04-23T05:32:04.000Z',
+        attributes: {
+          'openinference.span.kind': 'LLM',
+          'gen_ai.usage.input_tokens': 30,
+          'gen_ai.usage.output_tokens': 5,
+        },
+      }),
+      spanLine({
+        trace_id: 'deep-wrapper',
+        span_id: 'deep-wrapper:outer',
+        parent_span_id: 'root',
+        name: 'outer.request',
+        start_time: '2026-04-23T05:32:01.000Z',
+        end_time: '2026-04-23T05:32:03.000Z',
+        attributes: {
+          'openinference.span.kind': 'LLM',
+          'gen_ai.usage.input_tokens': 10,
+          'gen_ai.usage.output_tokens': 2,
+        },
+      }),
+      spanLine({
+        trace_id: 'deep-wrapper',
+        span_id: 'deep-wrapper:inner',
+        parent_span_id: 'outer',
+        name: 'inner.request',
+        start_time: '2026-04-23T05:32:02.000Z',
+        end_time: '2026-04-23T05:32:03.000Z',
+        attributes: {
+          'openinference.span.kind': 'LLM',
+          'gen_ai.usage.input_tokens': 20,
+          'gen_ai.usage.output_tokens': 3,
+        },
+      }),
+    ].join('\n')
+
+    const run = otlpToRunRecords(deepWrapper, baseOpts)[0]!
+
+    expect(run.tokenUsage).toEqual({ input: 30, output: 5 })
+    expect(run.outcome.raw.llm_span_count).toBe(2)
+    expect(run.outcome.raw.aggregate_prompt_tokens).toBe(30)
+    expect(run.outcome.raw.aggregate_completion_tokens).toBe(5)
+  })
+
+  it('does not infer a model call from an unrelated generic cost attribute', () => {
+    const businessCost = [
+      spanLine({
+        trace_id: 'business-cost',
+        span_id: 'business-cost:task',
+        parent_span_id: '',
+        name: 'invoice.process',
+        start_time: '2026-04-23T05:32:00.000Z',
+        end_time: '2026-04-23T05:32:02.000Z',
+        attributes: {
+          cost: 7,
+        },
+      }),
+      spanLine({
+        trace_id: 'business-cost',
+        span_id: 'business-cost:model',
+        parent_span_id: 'task',
+        name: 'provider.request',
+        start_time: '2026-04-23T05:32:01.000Z',
+        end_time: '2026-04-23T05:32:02.000Z',
+        attributes: {
+          'openinference.span.kind': 'LLM',
+          'gen_ai.usage.input_tokens': 10,
+          'gen_ai.usage.output_tokens': 2,
+        },
+      }),
+    ].join('\n')
+
+    const run = otlpToRunRecords(businessCost, baseOpts)[0]!
+
+    expect(run.tokenUsage).toEqual({ input: 10, output: 2 })
+    expect(run.outcome.raw.llm_span_count).toBe(1)
+    expect(run.costProvenance).toEqual({ kind: 'uncaptured', usd: null })
+    expect(run.outcome.raw.aggregate_cost_usd).toBeUndefined()
+  })
+
+  it('preserves an explicit run-total cost without inventing a model call', () => {
+    const runCost = spanLine({
+      trace_id: 'run-cost',
+      span_id: 'run-cost:workflow',
+      parent_span_id: '',
+      name: 'workflow.run',
+      start_time: '2026-04-23T05:32:00.000Z',
+      end_time: '2026-04-23T05:32:02.000Z',
+      attributes: { 'cost.usd': 0.25 },
+    })
+
+    const run = otlpToRunRecords(runCost, baseOpts)[0]!
+
+    expect(run.costProvenance).toEqual({ kind: 'observed', usd: 0.25 })
+    expect(run.outcome.raw.llm_span_count).toBe(0)
+    expect(run.outcome.raw.aggregate_cost_usd).toBe(0.25)
+  })
+
+  it('keeps aggregate-only orchestration usage separate from model-call totals', () => {
+    const orchestration = spanLine({
+      trace_id: 'orchestration-trace',
+      span_id: 'orchestration-trace:root',
+      parent_span_id: '',
+      name: 'orchestrator.run',
+      start_time: '2026-04-23T05:32:00.000Z',
+      end_time: '2026-04-23T05:32:04.000Z',
+      attributes: {
+        'openinference.span.kind': 'CHAIN',
+        'gen_ai.usage.input_tokens': 50,
+        'gen_ai.usage.output_tokens': 500,
+      },
+    })
+
+    const run = otlpToRunRecords(orchestration, baseOpts)[0]!
+
+    expect(run.tokenUsage).toEqual({ input: 0, output: 0 })
+    expect(run.outcome.raw.llm_span_count).toBe(0)
+    expect(run.outcome.raw.aggregate_prompt_tokens).toBe(50)
+    expect(run.outcome.raw.aggregate_completion_tokens).toBe(500)
+  })
+
+  it('preserves nested provider cache and reasoning details without inflating output', () => {
+    const providerDetails = spanLine({
+      trace_id: 'provider-details',
+      span_id: 'provider-details:call',
+      parent_span_id: '',
+      name: 'provider.request',
+      start_time: '2026-04-23T05:32:00.000Z',
+      end_time: '2026-04-23T05:32:01.000Z',
+      attributes: {
+        'openinference.span.kind': 'LLM',
+        'gen_ai.usage.input_tokens': 100,
+        'gen_ai.usage.output_tokens': 50,
+        'gen_ai.usage.input_tokens_details.cached_tokens': 80,
+        'gen_ai.usage.output_tokens_details.reasoning_tokens': 30,
+      },
+    })
+
+    const run = otlpToRunRecords(providerDetails, baseOpts)[0]!
+
+    expect(run.tokenUsage).toEqual({ input: 100, output: 50, reasoning: 30, cached: 80 })
+    expect(run.outcome.raw.reasoning_tokens).toBe(30)
+  })
+
+  it('round-trips canonical reasoning as a subset of output', () => {
+    const canonical = spanLine({
+      trace_id: 'canonical-reasoning',
+      span_id: 'canonical-reasoning:call',
+      parent_span_id: '',
+      name: 'provider.request',
+      start_time: '2026-04-23T05:32:00.000Z',
+      end_time: '2026-04-23T05:32:01.000Z',
+      attributes: {
+        'openinference.span.kind': 'LLM',
+        'llm.token_count.prompt': 100,
+        'llm.token_count.completion': 50,
+        'llm.token_count.reasoning': 30,
+      },
+    })
+
+    expect(otlpToRunRecords(canonical, baseOpts)[0]!.tokenUsage).toEqual({
+      input: 100,
+      output: 50,
+      reasoning: 30,
+    })
+  })
+
+  it('counts reasoning-only output for calls with partial output coverage', () => {
+    const partialOutput = [
+      spanLine({
+        trace_id: 'partial-output',
+        span_id: 'partial-output:visible',
+        parent_span_id: '',
+        name: 'provider.request',
+        start_time: '2026-04-23T05:32:00.000Z',
+        end_time: '2026-04-23T05:32:01.000Z',
+        attributes: {
+          'openinference.span.kind': 'LLM',
+          'gen_ai.usage.output_tokens': 5,
+        },
+      }),
+      spanLine({
+        trace_id: 'partial-output',
+        span_id: 'partial-output:reasoning-only',
+        parent_span_id: '',
+        name: 'provider.request',
+        start_time: '2026-04-23T05:32:01.000Z',
+        end_time: '2026-04-23T05:32:02.000Z',
+        attributes: {
+          'openinference.span.kind': 'LLM',
+          'gen_ai.usage.reasoning_output_tokens': 7,
+        },
+      }),
+    ].join('\n')
+
+    const run = otlpToRunRecords(partialOutput, baseOpts)[0]!
+
+    expect(run.tokenUsage).toEqual({ input: 0, output: 12, reasoning: 7 })
+    expect(run.outcome.raw.llm_span_count).toBe(2)
+  })
+
+  it('does not label a partial model-call cost total as complete', () => {
+    const partial = [
+      spanLine({
+        trace_id: 'partial-trace',
+        span_id: 'call-1',
+        parent_span_id: '',
+        name: 'provider.request',
+        start_time: '2026-04-23T05:32:01.000Z',
+        end_time: '2026-04-23T05:32:02.000Z',
+        attributes: {
+          'openinference.span.kind': 'LLM',
+          'gen_ai.usage.input_tokens': 10,
+          'tangle.cost.usd': 0.1,
+        },
+      }),
+      spanLine({
+        trace_id: 'partial-trace',
+        span_id: 'call-2',
+        parent_span_id: '',
+        name: 'provider.request',
+        start_time: '2026-04-23T05:32:02.000Z',
+        end_time: '2026-04-23T05:32:03.000Z',
+        attributes: {
+          'openinference.span.kind': 'LLM',
+          'gen_ai.usage.input_tokens': 20,
+        },
+      }),
+    ].join('\n')
+
+    const run = otlpToRunRecords(partial, baseOpts)[0]!
+
+    expect(run.costProvenance).toEqual({ kind: 'uncaptured', usd: null })
+    expect(run.outcome.raw.partial_observed_cost_usd).toBe(0.1)
   })
 
   it('prices an unpriced trace from priceUsdPerToken when supplied', () => {
@@ -203,6 +656,7 @@ describe('otlpToRunRecords', () => {
     )
     // (300 + 18) tokens * 0.000002 = 0.000636
     expect(error.costUsd).toBeCloseTo(0.000636, 9)
+    expect(error.costProvenance).toEqual({ kind: 'estimated', usd: 0.000636 })
     expect(error.outcome.raw.cost_unpriced).toBeUndefined()
   })
 
@@ -267,6 +721,39 @@ describe('otlpToRunRecords', () => {
     const withGarbage = `${'garbage not json'}\n${FIXTURE}\n\n`
     const records = otlpToRunRecords(withGarbage, baseOpts)
     expect(records).toHaveLength(2)
+  })
+
+  it('produces identical records from parsed rows without a JSONL round trip', () => {
+    const rows = FIXTURE.split('\n').map((line) => JSON.parse(line)) as Array<{
+      trace_id: string
+      span_id: string
+    }>
+    expect(otlpRowsToRunRecords(rows, baseOpts)).toEqual(otlpToRunRecords(FIXTURE, baseOpts))
+  })
+
+  it('fails loudly when parsed rows contain no valid spans', () => {
+    expect(() => otlpRowsToRunRecords([], baseOpts)).toThrow(/zero valid spans/)
+    expect(() => otlpRowsToRunRecords([{}], baseOpts)).toThrow(/zero valid spans/)
+    expect(() => otlpRowsToRunRecords([null] as unknown as object[], baseOpts)).toThrow(
+      /zero valid spans/,
+    )
+  })
+
+  it('rejects duplicate span identities instead of corrupting accounting', () => {
+    const line = spanLine({
+      trace_id: 'duplicate-id',
+      span_id: 'duplicate-id:call',
+      parent_span_id: '',
+      name: 'provider.request',
+      start_time: '2026-04-23T05:32:00.000Z',
+      end_time: '2026-04-23T05:32:01.000Z',
+      attributes: {
+        'openinference.span.kind': 'LLM',
+        'gen_ai.usage.input_tokens': 10,
+      },
+    })
+
+    expect(() => otlpToRunRecords(`${line}\n${line}`, baseOpts)).toThrow(/duplicate span id/)
   })
 
   it('throws when scoreForTrace returns a non-finite score', () => {

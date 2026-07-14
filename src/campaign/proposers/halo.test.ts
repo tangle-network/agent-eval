@@ -2,6 +2,7 @@ import { chmodSync, mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
+import { CostLedger } from '../../cost-ledger'
 import { isProposedCandidate, type ProposeContext, type ProposedCandidate } from '../types'
 import { haloProposer } from './halo'
 
@@ -85,6 +86,19 @@ describe('haloProposer — wraps the real halo-engine CLI as a SurfaceProposer',
       fetchImpl: stubFetch('x'),
     })
     await expect(proposer.propose(ctx('p'))).rejects.toThrow(/halo-engine/)
+  })
+
+  it('rejects capped external analysis before spend when no receipt can be produced', async () => {
+    const proposer = haloProposer({
+      baseUrl: 'https://x/v1',
+      haloBin: fakeHalo('unused'),
+      resolveTraces: () => '{"name":"x"}',
+      analysisMaximumCharge: { externallyEnforcedMaximumUsd: 0.5 },
+      fetchImpl: stubFetch('x'),
+    })
+    const input = ctx('p')
+    input.costLedger = new CostLedger(1)
+    await expect(proposer.propose(input)).rejects.toThrow(/analysisReceipt/)
   })
 
   it('returns no candidate when the applied surface is unchanged (no fake lift)', async () => {

@@ -21,12 +21,9 @@
 import { readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import {
-  LLM_COST_USD,
-  LLM_INPUT_TOKENS,
-  LLM_MODEL_NAME,
-  LLM_OUTPUT_TOKENS,
+  applyLlmSpanOtlpAttributes,
+  applyToolSpanOtlpAttributes,
   OPENINFERENCE_SPAN_KIND,
-  TOOL_NAME,
   traceSpanKindToOpenInferenceKind,
 } from './otlp-attributes'
 import type { Run, Span, TraceEvent } from './schema'
@@ -384,11 +381,7 @@ function spanToAttributes(span: Span, events: TraceEvent[]): Record<string, unkn
     [OPENINFERENCE_SPAN_KIND]: traceSpanKindToOpenInferenceKind(span.kind),
   }
   if (span.kind === 'llm') {
-    attrs[LLM_MODEL_NAME] = span.model
-    if (span.inputTokens !== undefined) attrs[LLM_INPUT_TOKENS] = span.inputTokens
-    if (span.outputTokens !== undefined) attrs[LLM_OUTPUT_TOKENS] = span.outputTokens
-    if (span.costUsd !== undefined) attrs[LLM_COST_USD] = span.costUsd
-    if (span.finishReason) attrs['llm.finish_reason'] = span.finishReason
+    applyLlmSpanOtlpAttributes(attrs, span)
     if (Array.isArray(span.messages)) {
       attrs['llm.input_messages'] = JSON.stringify(span.messages.slice(-6))
     }
@@ -396,10 +389,7 @@ function spanToAttributes(span: Span, events: TraceEvent[]): Record<string, unkn
       attrs['llm.output_messages'] = JSON.stringify([{ role: 'assistant', content: span.output }])
     }
   } else if (span.kind === 'tool') {
-    attrs[TOOL_NAME] = span.toolName
-    if (span.latencyMs !== undefined) attrs['tool.latency_ms'] = span.latencyMs
-    attrs['input.value'] = safeStringify(span.args)
-    if (span.result !== undefined) attrs['output.value'] = safeStringify(span.result)
+    applyToolSpanOtlpAttributes(attrs, span)
   } else if (span.kind === 'judge') {
     attrs['judge.id'] = span.judgeId
     attrs['judge.dimension'] = span.dimension
@@ -490,12 +480,4 @@ function foldTo16Hex(s: string): string {
 
 function foldTo32Hex(s: string): string {
   return foldTo16Hex(s) + foldTo16Hex(`${s}::trace`).slice(0, 16)
-}
-
-function safeStringify(value: unknown): string {
-  try {
-    return typeof value === 'string' ? value : JSON.stringify(value)
-  } catch {
-    return String(value)
-  }
 }

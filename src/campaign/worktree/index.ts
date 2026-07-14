@@ -69,7 +69,7 @@ export interface WorktreeAdapter {
   /** Commit pending changes, freeze the exact Git objects + binary patch, and
    *  verify the worktree still matches that identity. */
   finalize(worktree: Worktree, summary: string): Promise<CodeSurface>
-  /** Remove the worktree (and its branch) — called for losing candidates. */
+  /** Idempotently remove the worktree and branch. Safe to retry after partial cleanup. */
   discard(worktree: Worktree): Promise<void>
 }
 
@@ -138,6 +138,53 @@ function gitBytes(git: GitRunner, args: string[], cwd: string, env?: GitEnvironm
 
 function gitText(git: GitRunner, args: string[], cwd: string, env?: GitEnvironment): string {
   return gitBytes(git, args, cwd, env).toString('utf8').trim()
+}
+
+function hasRegisteredWorktree(git: GitRunner, repoRoot: string, path: string): boolean {
+  const expected = Buffer.from(`worktree ${resolve(path)}`, 'utf8')
+  const records = gitBytes(git, ['worktree', 'list', '--porcelain', '-z'], repoRoot)
+  let start = 0
+  while (start < records.length) {
+    const end = records.indexOf(0, start)
+    if (end < 0) {
+      throw new WorktreeAdapterError('Git worktree list output was not NUL-terminated')
+    }
+    if (records.subarray(start, end).equals(expected)) return true
+    start = end + 1
+  }
+  return false
+}
+
+function hasLocalBranch(git: GitRunner, repoRoot: string, branch: string): boolean {
+  const ref = `refs/heads/${branch}`
+  return gitText(git, ['for-each-ref', '--format=%(refname)', '--', ref], repoRoot)
+    .split('\n')
+    .some((candidate) => candidate === ref)
+}
+
+function reconcileAbsent(exists: () => boolean, remove: () => void): unknown | undefined {
+  try {
+    if (!exists()) return undefined
+  } catch (err) {
+    return err
+  }
+
+  try {
+    remove()
+    return undefined
+  } catch (removeError) {
+    try {
+      // Git may complete the mutation before the caller observes a failure, or
+      // another cleanup may win the race. The desired end state is what matters.
+      if (!exists()) return undefined
+    } catch (recheckError) {
+      return new AggregateError(
+        [removeError, recheckError],
+        'Removal failed and the resulting resource state could not be checked',
+      )
+    }
+    return removeError
+  }
 }
 
 function sha256(bytes: Uint8Array): `sha256:${string}` {
@@ -699,10 +746,30 @@ export function gitWorktreeAdapter(opts: GitWorktreeAdapterOptions): WorktreeAda
     },
 
     async discard(worktree) {
-      // Remove the worktree, then delete its branch. Force-remove because the
-      // worktree may hold uncommitted experiment state we're discarding.
-      gitText(git, ['worktree', 'remove', '--force', worktree.path], opts.repoRoot)
-      gitText(git, ['branch', '-D', worktree.branch], opts.repoRoot)
+      // Reconcile both resources independently so a retry can finish cleanup
+      // after either command succeeded alone. Force-remove because the worktree
+      // may hold uncommitted experiment state we're discarding.
+      const failures = [
+        reconcileAbsent(
+          () => hasRegisteredWorktree(git, opts.repoRoot, worktree.path),
+          () => gitText(git, ['worktree', 'remove', '--force', '--', worktree.path], opts.repoRoot),
+        ),
+        reconcileAbsent(
+          () => hasLocalBranch(git, opts.repoRoot, worktree.branch),
+          () => gitText(git, ['branch', '-D', '--', worktree.branch], opts.repoRoot),
+        ),
+      ].filter((failure) => failure !== undefined)
+
+      if (failures.length > 0) {
+        const cause =
+          failures.length === 1
+            ? failures[0]
+            : new AggregateError(failures, 'Multiple Git resources could not be removed')
+        throw new WorktreeAdapterError(
+          `Failed to discard worktree ${worktree.path} and branch ${worktree.branch}`,
+          cause,
+        )
+      }
     },
   }
 }

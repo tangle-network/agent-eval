@@ -1,26 +1,7 @@
-/**
- * CostLedger — per-run token + USD accounting with an explicit `costUnknown`
- * axis, folded over the substrate's pricing resolver.
- *
- * `estimateCost` already resolves a model id to a price (exact table, then
- * family regex) and warns-once on a miss, but it returns 0 for an unpriced
- * model — indistinguishable downstream from a genuinely free run. Four
- * consumers re-wrap it to surface that distinction (physim's `costForUsage` /
- * `modelPriceKey` is the cleanest), and to bucket spend by "channel" (the
- * logical role of the call: agent / judge / verifier / …) so a dashboard can
- * answer "how much did judging cost vs the agent itself?".
- *
- * This is the canonical version. `modelPriceKey` exposes the resolver's verdict
- * as a stable key (or null). `CostLedger` folds usage records into per-channel
- * and total rollups, tracks `unpricedModels` so a $0 is never mistaken for a
- * measured zero, and computes cost-per-completed-task.
- */
-
+import { z } from 'zod'
 import { ValidationError } from './errors'
 import { estimateCost, isModelPriced, resolveModelPricing } from './metrics'
 
-/** Logical role of an LLM call. Free-form union — consumers add their own
- *  channels; the rollup keys on whatever string is supplied. */
 export type CostChannel = 'agent' | 'judge' | 'verifier' | 'analyst' | 'driver' | (string & {})
 
 export interface CostUsage {
@@ -29,51 +10,73 @@ export interface CostUsage {
   cachedTokens?: number
 }
 
-/**
- * Resolve a model id to the stable pricing key the substrate's `MODEL_PRICING`
- * / family resolver would use, or null when the id is unpriced. A non-null
- * return means `estimateCost` will produce a real number for this id; null
- * means any cost computed is `costUnknown` and the 0 must not aggregate as a
- * measured cost.
- */
-export function modelPriceKey(model: string): string | null {
-  return isModelPriced(model) ? model : null
-}
-
-export interface CostResult {
-  costUsd: number
-  /** True when `model` has no pricing — the 0 is "not priced", NOT "free". */
-  costUnknown: boolean
-}
-
-/**
- * Cost for one usage record. Resolves pricing via the substrate resolver and
- * flags `costUnknown` when the model is unpriced so the 0 is observable rather
- * than silently emitted as a measured cost. Cached tokens are billed at the
- * model's input rate when present (no separate cache-discount table — callers
- * that need provider-specific cache pricing supply `actualCostUsd` upstream).
- */
-export function costForUsage(model: string, usage: CostUsage): CostResult {
-  assertNonNegative(usage.inputTokens, 'inputTokens')
-  assertNonNegative(usage.outputTokens, 'outputTokens')
-  if (usage.cachedTokens !== undefined) assertNonNegative(usage.cachedTokens, 'cachedTokens')
-  const pricing = resolveModelPricing(model)
-  if (!pricing) return { costUsd: 0, costUnknown: true }
-  const billedInput = usage.inputTokens + (usage.cachedTokens ?? 0)
-  return { costUsd: estimateCost(billedInput, usage.outputTokens, model), costUnknown: false }
-}
-
-export interface CostLedgerEntry extends CostUsage {
-  model: string
+interface CostCallBase {
+  callId: string
   channel: CostChannel
-  costUsd: number
-  costUnknown: boolean
-  /** Override the estimate with an observed provider cost. */
-  actualCostUsd?: number
-  /** Free-form tags (scenario id, variant id, round, …). */
+  phase: string
+  actor: string
+  model: string
+  maximumCostUsd?: number
   tags?: Record<string, string>
   timestamp: number
 }
+
+export interface PendingCostCall extends CostCallBase {
+  status: 'pending'
+}
+
+export interface CostReceipt extends CostCallBase, CostUsage {
+  status: 'settled'
+  costUsd: number
+  costUnknown: boolean
+  usageUnknown?: boolean
+  pricing?: {
+    inputUsdPerThousand: number
+    outputUsdPerThousand: number
+  }
+  actualCostUsd?: number
+  error?: string
+}
+
+export type CostLedgerRecord = PendingCostCall | CostReceipt
+
+/** @deprecated Read-only compatibility shape. New paid work uses `runPaidCall`. */
+export type CostLedgerEntry = Omit<
+  CostReceipt,
+  'status' | 'callId' | 'phase' | 'actor' | 'maximumCostUsd' | 'usageUnknown' | 'pricing' | 'error'
+>
+
+export interface CostReceiptInput extends CostUsage {
+  model: string
+  actualCostUsd?: number
+  costUnknown?: boolean
+  usageUnknown?: boolean
+}
+
+export type MaximumCharge =
+  | { externallyEnforcedMaximumUsd: number }
+  | ({ model: string } & CostUsage)
+
+export interface RunPaidCallInput<T> {
+  callId?: string
+  channel: CostChannel
+  phase: string
+  actor: string
+  /** Used before a provider receipt exists and on failures without one. */
+  model?: string
+  tags?: Record<string, string>
+  signal?: AbortSignal
+  /** Provider-enforced dollar maximum, or maximum priced token usage. Required when capped. */
+  maximumCharge?: MaximumCharge
+  /** `callId` can be forwarded as the provider's idempotency key. */
+  execute(signal: AbortSignal, callId: string): Promise<T>
+  receipt(value: T): CostReceiptInput
+  receiptFromError?(error: Error): CostReceiptInput | undefined
+}
+
+export type PaidCallResult<T> =
+  | { succeeded: true; callId: string; value: T; receipt: CostReceipt }
+  | { succeeded: false; callId?: string; error: Error; receipt?: CostReceipt }
 
 export interface ChannelRollup {
   channel: CostChannel
@@ -82,134 +85,1015 @@ export interface ChannelRollup {
   outputTokens: number
   cachedTokens: number
   costUsd: number
-  /** Calls whose model was unpriced (their costUsd is 0-but-unknown). */
   unpricedCalls: number
+  unknownUsageCalls: number
 }
 
 export interface CostLedgerSummary {
   totalCalls: number
+  pendingCalls: number
+  unresolvedCalls: number
+  reservedCostUsd: number
   inputTokens: number
   outputTokens: number
   cachedTokens: number
   totalCostUsd: number
-  /** Per-channel breakdown, sorted by channel name. */
   byChannel: ChannelRollup[]
-  /** Distinct unpriced model ids seen — non-empty means totalCostUsd is a
-   *  lower bound (some calls priced to an unknown 0). */
   unpricedModels: string[]
-  /** True when no unpriced model was charged — totalCostUsd is then exact. */
   fullyPriced: boolean
+  usageComplete: boolean
+  accountingComplete: boolean
+  incompleteReasons: string[]
 }
 
-/**
- * Append-only ledger of LLM spend for a single run. Record each call with its
- * channel; read per-channel and total rollups plus the unpriced-model set.
- * Pure accounting — no I/O. The `markCompleted` / `costPerCompletedTask` pair
- * answers "dollars per finished task", the metric every optimizer's
- * quality-vs-cost tradeoff needs.
- */
-export class CostLedger {
-  private readonly entries: CostLedgerEntry[] = []
-  private completedTasks = 0
+export interface CostLedgerFilter {
+  channel?: CostChannel
+  phase?: string
+  tags?: Record<string, string>
+}
 
-  /**
-   * Record one LLM call. The cost is computed from pricing unless
-   * `actualCostUsd` is supplied (a finite observed cost from the provider
-   * response), in which case `costUnknown` is false regardless of pricing.
-   */
-  record(input: {
-    model: string
-    channel: CostChannel
-    usage: CostUsage
-    actualCostUsd?: number
-    tags?: Record<string, string>
-    timestamp?: number
-  }): CostLedgerEntry {
-    const { costUsd, costUnknown } = costForUsage(input.model, input.usage)
-    const hasActual =
-      typeof input.actualCostUsd === 'number' && Number.isFinite(input.actualCostUsd)
-    if (hasActual) assertNonNegative(input.actualCostUsd as number, 'actualCostUsd')
-    const entry: CostLedgerEntry = {
-      model: input.model,
-      channel: input.channel,
-      inputTokens: input.usage.inputTokens,
-      outputTokens: input.usage.outputTokens,
-      cachedTokens: input.usage.cachedTokens,
-      costUsd: hasActual ? (input.actualCostUsd as number) : costUsd,
-      costUnknown: hasActual ? false : costUnknown,
-      actualCostUsd: hasActual ? (input.actualCostUsd as number) : undefined,
-      tags: input.tags,
-      timestamp: input.timestamp ?? Date.now(),
+/** Append-only storage. `append` must atomically reject stale revisions. */
+export interface CostLedgerPersistence {
+  read(): { revision: string; events: string }
+  append(expectedRevision: string, event: string): string | undefined
+}
+
+export interface CostLedgerOptions {
+  costCeilingUsd?: number
+  persistence?: CostLedgerPersistence
+  /** Import already-settled receipts without admitting new paid work. */
+  receipts?: readonly CostReceipt[]
+}
+
+export class CostCeilingReachedError extends ValidationError {
+  constructor(
+    ceilingUsd: number,
+    committedAndReservedUsd: number,
+    requestedUsd: number,
+    phase: string,
+    actor: string,
+  ) {
+    super(
+      `CostLedger: reserving ${requestedUsd} for '${actor}' during '${phase}' would exceed ceiling ${ceilingUsd} with ${committedAndReservedUsd} already committed or reserved`,
+    )
+  }
+}
+
+export class CostAccountingIncompleteError extends ValidationError {}
+
+export class CostReservationExceededError extends ValidationError {
+  constructor(actor: string, actualUsd: number, maximumUsd: number) {
+    super(
+      `CostLedger: '${actor}' charged ${actualUsd}, exceeding its enforced maximum ${maximumUsd}`,
+    )
+  }
+}
+
+export class CostCallConflictError extends ValidationError {
+  readonly callId?: string
+  readonly receipt?: CostReceipt
+
+  constructor(
+    message: string,
+    options: { callId?: string; receipt?: CostReceipt; cause?: unknown } = {},
+  ) {
+    super(message, options.cause === undefined ? undefined : { cause: options.cause })
+    this.callId = options.callId
+    this.receipt = options.receipt ? cloneReceipt(options.receipt) : undefined
+  }
+}
+
+export class CostLedgerPersistenceError extends ValidationError {
+  readonly callId?: string
+  readonly receipt?: CostReceipt
+
+  constructor(cause: unknown, callId?: string, receipt?: CostReceipt) {
+    super(
+      `CostLedger: failed to persist${callId ? ` call '${callId}'` : ''}: ${toError(cause).message}`,
+      { cause },
+    )
+    this.callId = callId
+    this.receipt = receipt ? cloneReceipt(receipt) : undefined
+  }
+}
+
+export class CostReceiptCaptureError extends ValidationError {
+  readonly callId: string
+  readonly receipt?: CostReceipt
+  readonly receiptError: Error
+
+  constructor(callId: string, cause: unknown, receiptError: unknown, receipt?: CostReceipt) {
+    super(`CostLedger: could not capture the provider receipt for call '${callId}'`, { cause })
+    this.callId = callId
+    this.receipt = receipt ? cloneReceipt(receipt) : undefined
+    this.receiptError = toError(receiptError)
+  }
+}
+
+interface CostCallEvent {
+  version: 1
+  record: CostLedgerRecord
+}
+
+interface CompletedTasksEvent {
+  version: 1
+  completedTasks: number
+}
+
+interface CostLimitEvent {
+  version: 1
+  costCeilingUsd: number
+}
+
+type CostLedgerEvent = CostCallEvent | CompletedTasksEvent | CostLimitEvent
+
+/** Run-wide paid-call admission, durable call state, receipts, and summaries. */
+export class CostLedger {
+  private readonly records = new Map<string, CostLedgerRecord>()
+  private readonly activeCallIds = new Set<string>()
+  private readonly lateCallIds = new Set<string>()
+  private completedTasks = 0
+  private revision = 'memory'
+  private costLimitPersisted = false
+  readonly costCeilingUsd?: number
+  private readonly persistence?: CostLedgerPersistence
+
+  constructor(input?: number | CostLedgerOptions) {
+    const options = typeof input === 'number' ? { costCeilingUsd: input } : (input ?? {})
+    this.persistence = options.persistence
+    if (options.costCeilingUsd !== undefined) {
+      assertNonNegative(options.costCeilingUsd, 'costCeilingUsd')
     }
-    this.entries.push(entry)
-    return entry
+
+    let persistedCostCeilingUsd: number | undefined
+    if (this.persistence) {
+      let stored: ReturnType<CostLedgerPersistence['read']>
+      try {
+        stored = this.persistence.read()
+      } catch (cause) {
+        throw new CostLedgerPersistenceError(cause)
+      }
+      assertString(stored.revision, 'persistence revision')
+      this.revision = stored.revision
+      const restored = parseEvents(stored.events)
+      for (const record of restored.records) this.records.set(record.callId, record)
+      this.completedTasks = restored.completedTasks
+      persistedCostCeilingUsd = restored.costCeilingUsd
+    }
+
+    if (
+      options.costCeilingUsd !== undefined &&
+      persistedCostCeilingUsd !== undefined &&
+      options.costCeilingUsd !== persistedCostCeilingUsd
+    ) {
+      throw new ValidationError(
+        `CostLedger: requested cost ceiling ${options.costCeilingUsd} does not match persisted ceiling ${persistedCostCeilingUsd}`,
+      )
+    }
+    this.costCeilingUsd = persistedCostCeilingUsd ?? options.costCeilingUsd
+    this.costLimitPersisted =
+      !this.persistence ||
+      this.costCeilingUsd === undefined ||
+      persistedCostCeilingUsd !== undefined
+
+    if (
+      this.costCeilingUsd !== undefined &&
+      [...this.records.values()].some(
+        (record) => record.status === 'pending' && record.maximumCostUsd === undefined,
+      )
+    ) {
+      throw new ValidationError('CostLedger: capped event log contains an unbounded pending call')
+    }
+
+    if (options.receipts?.length) {
+      const imported = options.receipts.map((receipt, index) =>
+        parseImportedReceipt(receipt, `imported receipt ${index + 1}`),
+      )
+      this.ensureCostLimitPersisted()
+      for (const receipt of imported) this.appendRecord(receipt)
+    }
   }
 
-  /** Increment the completed-task counter (used for cost-per-completed-task). */
+  async runPaidCall<T>(input: RunPaidCallInput<T>): Promise<PaidCallResult<T>> {
+    let callId: string | undefined
+    let pending: PendingCostCall | undefined
+    try {
+      callId = resolveCallId(input.callId)
+      validateAttribution(input)
+      if (input.signal?.aborted) {
+        return { succeeded: false, callId, error: abortError(input.signal) }
+      }
+      if (this.records.has(callId)) {
+        return {
+          succeeded: false,
+          callId,
+          error: new CostCallConflictError(`CostLedger: callId '${callId}' already exists`),
+        }
+      }
+      this.ensureCostLimitPersisted(callId)
+
+      const summary = this.summary()
+      if (summary.unresolvedCalls > 0) {
+        return {
+          succeeded: false,
+          callId,
+          error: new CostAccountingIncompleteError(
+            `CostLedger: ${summary.unresolvedCalls} unresolved call(s) must be reconciled before new paid work`,
+          ),
+        }
+      }
+
+      const maximumCostUsd = this.resolveMaximum(input.maximumCharge)
+      if (this.costCeilingUsd !== undefined && this.hasIncompleteSettledCall()) {
+        return {
+          succeeded: false,
+          callId,
+          error: new CostAccountingIncompleteError(
+            `CostLedger: accounting is incomplete; refusing paid call '${input.actor}' during '${input.phase}'`,
+          ),
+        }
+      }
+      if (this.costCeilingUsd !== undefined) {
+        const committedAndReserved = summary.totalCostUsd + summary.reservedCostUsd
+        if (committedAndReserved + maximumCostUsd! > this.costCeilingUsd) {
+          return {
+            succeeded: false,
+            callId,
+            error: new CostCeilingReachedError(
+              this.costCeilingUsd,
+              committedAndReserved,
+              maximumCostUsd!,
+              input.phase,
+              input.actor,
+            ),
+          }
+        }
+      }
+
+      pending = {
+        status: 'pending',
+        callId,
+        channel: input.channel,
+        phase: input.phase,
+        actor: input.actor,
+        model: pendingModel(input),
+        ...(maximumCostUsd === undefined ? {} : { maximumCostUsd }),
+        ...(input.tags ? { tags: { ...input.tags } } : {}),
+        timestamp: Date.now(),
+      }
+      this.appendRecord(pending)
+      this.activeCallIds.add(callId)
+    } catch (error) {
+      return { succeeded: false, ...(callId ? { callId } : {}), error: toError(error) }
+    }
+
+    try {
+      return await this.execute(input, pending)
+    } catch (error) {
+      return { succeeded: false, callId: pending.callId, error: toError(error) }
+    } finally {
+      if (!this.lateCallIds.has(pending.callId)) this.activeCallIds.delete(pending.callId)
+    }
+  }
+
+  /** Settle a call left pending by a crashed process after reconciling with the provider. */
+  reconcile(
+    callId: string,
+    observed: CostReceiptInput,
+    options: { error?: string } = {},
+  ): CostReceipt {
+    const pending = [...this.records.values()].find(
+      (record): record is PendingCostCall =>
+        record.callId === callId && record.status === 'pending',
+    )
+    if (!pending) throw new CostCallConflictError(`CostLedger: no pending call '${callId}'`)
+    if (this.activeCallIds.has(callId)) {
+      throw new CostCallConflictError(`CostLedger: call '${callId}' is still active`)
+    }
+    this.ensureCostLimitPersisted(callId)
+    return this.commitReceipt(pending, observed, options.error)
+  }
+
+  list(filter?: CostLedgerFilter): CostReceipt[] {
+    return [...this.records.values()]
+      .filter((record): record is CostReceipt => record.status === 'settled')
+      .filter((receipt) => matches(receipt, filter))
+      .map(cloneReceipt)
+  }
+
+  summary(filter?: CostLedgerFilter): CostLedgerSummary {
+    const records = [...this.records.values()].filter((record) => matches(record, filter))
+    const pending = records.filter(
+      (record): record is PendingCostCall => record.status === 'pending',
+    )
+    const receipts = records.filter((record): record is CostReceipt => record.status === 'settled')
+    const byChannel = new Map<string, ChannelRollup>()
+    const unpriced = new Set<string>()
+    const incompleteReasons: string[] = pending.map(
+      (record) => `call '${record.callId}' for '${record.actor}' is pending`,
+    )
+    let inputTokens = 0
+    let outputTokens = 0
+    let cachedTokens = 0
+    let totalCostUsd = 0
+
+    for (const receipt of receipts) {
+      inputTokens += receipt.inputTokens
+      outputTokens += receipt.outputTokens
+      cachedTokens += receipt.cachedTokens ?? 0
+      totalCostUsd += receipt.costUsd
+      if (receipt.costUnknown) {
+        unpriced.add(receipt.model)
+        incompleteReasons.push(
+          receipt.error ?? `cost unknown for '${receipt.actor}' using '${receipt.model}'`,
+        )
+      }
+      if (receipt.usageUnknown) {
+        incompleteReasons.push(
+          `token usage unknown for '${receipt.actor}' using '${receipt.model}'`,
+        )
+      }
+      if (receipt.maximumCostUsd !== undefined && receipt.costUsd > receipt.maximumCostUsd) {
+        incompleteReasons.push(
+          `'${receipt.actor}' charged ${receipt.costUsd}, exceeding its enforced maximum ${receipt.maximumCostUsd}`,
+        )
+      }
+      const rollup = byChannel.get(receipt.channel) ?? emptyRollup(receipt.channel)
+      rollup.calls += 1
+      rollup.inputTokens += receipt.inputTokens
+      rollup.outputTokens += receipt.outputTokens
+      rollup.cachedTokens += receipt.cachedTokens ?? 0
+      rollup.costUsd += receipt.costUsd
+      if (receipt.costUnknown) rollup.unpricedCalls += 1
+      if (receipt.usageUnknown) rollup.unknownUsageCalls += 1
+      byChannel.set(receipt.channel, rollup)
+    }
+
+    return {
+      totalCalls: receipts.length,
+      pendingCalls: pending.length,
+      unresolvedCalls: pending.filter(
+        (record) => !this.activeCallIds.has(record.callId) || this.lateCallIds.has(record.callId),
+      ).length,
+      reservedCostUsd: pending.reduce((sum, record) => sum + (record.maximumCostUsd ?? 0), 0),
+      inputTokens,
+      outputTokens,
+      cachedTokens,
+      totalCostUsd,
+      byChannel: [...byChannel.values()].sort((a, b) => a.channel.localeCompare(b.channel)),
+      unpricedModels: [...unpriced].sort(),
+      fullyPriced: unpriced.size === 0,
+      usageComplete: receipts.every((receipt) => !receipt.usageUnknown),
+      accountingComplete: incompleteReasons.length === 0,
+      incompleteReasons: [...new Set(incompleteReasons)],
+    }
+  }
+
   markCompleted(count = 1): void {
     if (!Number.isInteger(count) || count < 0) {
       throw new ValidationError(
         `CostLedger.markCompleted: count must be a non-negative integer, got ${count}`,
       )
     }
+    if (count === 0) return
+    this.ensureCostLimitPersisted()
+    this.appendEvent({ version: 1, completedTasks: count })
     this.completedTasks += count
   }
 
-  list(): CostLedgerEntry[] {
-    return [...this.entries]
+  costPerCompletedTask(): number | null {
+    return this.completedTasks === 0 ? null : this.summary().totalCostUsd / this.completedTasks
   }
 
-  summary(): CostLedgerSummary {
-    const byChannel = new Map<string, ChannelRollup>()
-    const unpriced = new Set<string>()
-    let totalCost = 0
-    let inputTokens = 0
-    let outputTokens = 0
-    let cachedTokens = 0
-    for (const e of this.entries) {
-      totalCost += e.costUsd
-      inputTokens += e.inputTokens
-      outputTokens += e.outputTokens
-      cachedTokens += e.cachedTokens ?? 0
-      if (e.costUnknown) unpriced.add(e.model)
-      const roll = byChannel.get(e.channel) ?? {
-        channel: e.channel,
-        calls: 0,
+  private async execute<T>(
+    input: RunPaidCallInput<T>,
+    pending: PendingCostCall,
+  ): Promise<PaidCallResult<T>> {
+    const signal = input.signal ?? new AbortController().signal
+    if (signal.aborted) {
+      return this.commitOutcome(pending, abortError(signal), {
+        model: pending.model,
         inputTokens: 0,
         outputTokens: 0,
-        cachedTokens: 0,
-        costUsd: 0,
-        unpricedCalls: 0,
-      }
-      roll.calls += 1
-      roll.inputTokens += e.inputTokens
-      roll.outputTokens += e.outputTokens
-      roll.cachedTokens += e.cachedTokens ?? 0
-      roll.costUsd += e.costUsd
-      if (e.costUnknown) roll.unpricedCalls += 1
-      byChannel.set(e.channel, roll)
+        actualCostUsd: 0,
+      })
     }
-    return {
-      totalCalls: this.entries.length,
-      inputTokens,
-      outputTokens,
-      cachedTokens,
-      totalCostUsd: totalCost,
-      byChannel: [...byChannel.values()].sort((a, b) => a.channel.localeCompare(b.channel)),
-      unpricedModels: [...unpriced].sort(),
-      fullyPriced: unpriced.size === 0,
+
+    const operation = Promise.resolve().then(() => input.execute(signal, pending.callId))
+    const settled = await settle(operation, signal)
+    if (settled.kind === 'aborted') {
+      this.lateCallIds.add(pending.callId)
+      this.captureLateOutcome(input, pending, operation)
+      return paidFailure(pending.callId, abortError(signal))
+    }
+    if (settled.kind === 'error') {
+      let observed: CostReceiptInput | undefined
+      try {
+        observed = input.receiptFromError?.(settled.error)
+      } catch (receiptError) {
+        return this.captureFailure(pending, settled.error, receiptError)
+      }
+      return this.commitOutcome(pending, settled.error, observed ?? unknownReceipt(pending.model))
+    }
+
+    try {
+      const receipt = this.commitReceipt(pending, input.receipt(settled.value))
+      if (receipt.maximumCostUsd !== undefined && receipt.costUsd > receipt.maximumCostUsd) {
+        return paidFailure(
+          pending.callId,
+          new CostReservationExceededError(pending.actor, receipt.costUsd, receipt.maximumCostUsd),
+          receipt,
+        )
+      }
+      return { succeeded: true, callId: pending.callId, value: settled.value, receipt }
+    } catch (receiptError) {
+      if (
+        receiptError instanceof CostLedgerPersistenceError ||
+        receiptError instanceof CostCallConflictError
+      ) {
+        return paidFailure(pending.callId, receiptError)
+      }
+      return this.captureFailure(pending, receiptError, receiptError)
     }
   }
 
-  /** Total spend divided by completed tasks; null when nothing completed. */
-  costPerCompletedTask(): number | null {
-    if (this.completedTasks === 0) return null
-    return this.summary().totalCostUsd / this.completedTasks
+  private captureLateOutcome<T>(
+    input: RunPaidCallInput<T>,
+    pending: PendingCostCall,
+    operation: Promise<T>,
+  ): void {
+    void operation
+      .then(
+        (value) => {
+          if (this.records.get(pending.callId)?.status !== 'pending') return
+          try {
+            this.commitReceipt(pending, input.receipt(value))
+          } catch {
+            // A failed durable settlement leaves the reservation pending and blocks new paid work.
+          }
+        },
+        (cause) => {
+          if (this.records.get(pending.callId)?.status !== 'pending') return
+          const error = toError(cause)
+          try {
+            const observed = input.receiptFromError?.(error)
+            this.commitReceipt(pending, observed ?? unknownReceipt(pending.model), error.message)
+          } catch (receiptError) {
+            if (
+              receiptError instanceof CostLedgerPersistenceError ||
+              receiptError instanceof CostCallConflictError
+            ) {
+              return
+            }
+            this.captureFailure(pending, error, receiptError)
+          }
+        },
+      )
+      .finally(() => {
+        this.lateCallIds.delete(pending.callId)
+        this.activeCallIds.delete(pending.callId)
+      })
+  }
+
+  private commitOutcome<T>(
+    pending: PendingCostCall,
+    error: Error,
+    observed: CostReceiptInput,
+  ): PaidCallResult<T> {
+    try {
+      const receipt = this.commitReceipt(pending, observed, error.message)
+      return paidFailure(pending.callId, error, receipt)
+    } catch (receiptError) {
+      if (
+        receiptError instanceof CostLedgerPersistenceError ||
+        receiptError instanceof CostCallConflictError
+      ) {
+        return paidFailure(pending.callId, receiptError)
+      }
+      return this.captureFailure(pending, error, receiptError)
+    }
+  }
+
+  private captureFailure<T>(
+    pending: PendingCostCall,
+    cause: unknown,
+    receiptError: unknown,
+  ): PaidCallResult<T> {
+    try {
+      const receipt = this.commitReceipt(
+        pending,
+        unknownReceipt(pending.model),
+        toError(receiptError).message,
+      )
+      return paidFailure(
+        pending.callId,
+        new CostReceiptCaptureError(pending.callId, cause, receiptError, receipt),
+        receipt,
+      )
+    } catch (error) {
+      const typed = error instanceof Error ? error : toError(error)
+      return paidFailure(pending.callId, typed)
+    }
+  }
+
+  private commitReceipt(
+    pending: PendingCostCall,
+    observed: CostReceiptInput,
+    error?: string,
+  ): CostReceipt {
+    const receipt = buildReceipt(pending, observed, error)
+    if (this.records.get(pending.callId)?.status !== 'pending') {
+      throw new CostCallConflictError(`CostLedger: call '${pending.callId}' is not pending`)
+    }
+    this.appendRecord(receipt)
+    return cloneReceipt(receipt)
+  }
+
+  private resolveMaximum(maximum: MaximumCharge | undefined): number | undefined {
+    if (!maximum) {
+      if (this.costCeilingUsd !== undefined) {
+        throw new CostAccountingIncompleteError(
+          'CostLedger: capped paid calls require a hard maximumCharge before execution',
+        )
+      }
+      return undefined
+    }
+    if ('externallyEnforcedMaximumUsd' in maximum) {
+      assertNonNegative(
+        maximum.externallyEnforcedMaximumUsd,
+        'maximumCharge.externallyEnforcedMaximumUsd',
+      )
+      return maximum.externallyEnforcedMaximumUsd
+    }
+    const priced = costForUsage(maximum.model, maximum)
+    if (priced.costUnknown) {
+      if (this.costCeilingUsd !== undefined) {
+        throw new CostAccountingIncompleteError(
+          `CostLedger: cannot reserve unpriced model '${maximum.model}' in a capped run`,
+        )
+      }
+      return undefined
+    }
+    return priced.costUsd
+  }
+
+  private hasIncompleteSettledCall(): boolean {
+    return [...this.records.values()].some(
+      (record) =>
+        record.status === 'settled' &&
+        (record.costUnknown ||
+          record.usageUnknown ||
+          (record.maximumCostUsd !== undefined && record.costUsd > record.maximumCostUsd)),
+    )
+  }
+
+  private appendRecord(record: CostLedgerRecord): void {
+    const callId = record.callId
+    const receipt = record.status === 'settled' ? record : undefined
+    validateTransition(this.records, record)
+    const event: CostCallEvent = {
+      version: 1,
+      record: cloneRecord(record),
+    }
+    this.appendEvent(event, callId, receipt)
+    this.records.set(callId, cloneRecord(record))
+  }
+
+  private ensureCostLimitPersisted(callId?: string): void {
+    if (this.costLimitPersisted || this.costCeilingUsd === undefined) return
+    this.appendEvent({ version: 1, costCeilingUsd: this.costCeilingUsd }, callId)
+    this.costLimitPersisted = true
+  }
+
+  private appendEvent(event: CostLedgerEvent, callId?: string, receipt?: CostReceipt): void {
+    try {
+      if (this.persistence) {
+        const nextRevision = this.persistence.append(this.revision, `${JSON.stringify(event)}\n`)
+        if (nextRevision === undefined) {
+          throw new CostCallConflictError(
+            `CostLedger: persisted revision changed while writing call '${callId}'`,
+            { callId, receipt },
+          )
+        }
+        assertString(nextRevision, 'persistence revision')
+        this.revision = nextRevision
+      }
+    } catch (cause) {
+      if (cause instanceof CostCallConflictError) throw cause
+      throw new CostLedgerPersistenceError(cause, callId, receipt)
+    }
   }
 }
 
-function assertNonNegative(n: number, name: string): void {
-  if (!Number.isFinite(n) || n < 0) {
-    throw new ValidationError(`CostLedger: ${name} must be a non-negative finite number, got ${n}`)
+/** Public callback surface for a shared cost ledger.
+ *
+ * Declaration bundles may expose this type through multiple package subpaths.
+ * Keeping callback contracts structural lets those subpaths compose while the
+ * concrete {@link CostLedger} retains its private durable state.
+ */
+export type CostLedgerHandle = Pick<CostLedger, keyof CostLedger>
+
+/** Return the canonical pricing-table key, or null when the model is unpriced. */
+export function modelPriceKey(model: string): string | null {
+  return isModelPriced(model) ? model : null
+}
+
+export interface CostResult {
+  costUsd: number
+  costUnknown: boolean
+}
+
+export function costForUsage(model: string, usage: CostUsage): CostResult {
+  assertUsage(usage)
+  if (!resolveModelPricing(model)) return { costUsd: 0, costUnknown: true }
+  return {
+    costUsd: estimateCost(usage.inputTokens + (usage.cachedTokens ?? 0), usage.outputTokens, model),
+    costUnknown: false,
+  }
+}
+
+type Settled<T> =
+  | { kind: 'value'; value: T }
+  | { kind: 'error'; error: Error }
+  | { kind: 'aborted' }
+
+async function settle<T>(promise: Promise<T>, signal: AbortSignal): Promise<Settled<T>> {
+  return await new Promise((resolve) => {
+    let done = false
+    const finish = (value: Settled<T>): void => {
+      if (done) return
+      done = true
+      signal.removeEventListener('abort', onAbort)
+      resolve(value)
+    }
+    const onAbort = () => finish({ kind: 'aborted' })
+    signal.addEventListener('abort', onAbort, { once: true })
+    if (signal.aborted) onAbort()
+    promise.then(
+      (value) => finish({ kind: 'value', value }),
+      (error) => finish({ kind: 'error', error: toError(error) }),
+    )
+  })
+}
+
+function buildReceipt(
+  pending: PendingCostCall,
+  observed: CostReceiptInput,
+  error?: string,
+): CostReceipt {
+  assertUsage(observed)
+  assertString(observed.model, 'receipt.model')
+  const estimated = costForUsage(observed.model, observed)
+  const hasActual = observed.actualCostUsd !== undefined
+  if (hasActual && observed.costUnknown === true) {
+    throw new ValidationError(
+      'CostLedger: a receipt cannot have both actualCostUsd and costUnknown=true',
+    )
+  }
+  if (hasActual) assertNonNegative(observed.actualCostUsd!, 'actualCostUsd')
+  const usageUnknown = observed.usageUnknown === true
+  const costUnknown =
+    observed.costUnknown === true || (!hasActual && (usageUnknown || estimated.costUnknown))
+  const resolvedPricing = !hasActual && !costUnknown ? resolveModelPricing(observed.model) : null
+  return parseReceipt(
+    {
+      status: 'settled',
+      callId: pending.callId,
+      channel: pending.channel,
+      phase: pending.phase,
+      actor: pending.actor,
+      model: observed.model,
+      inputTokens: observed.inputTokens,
+      outputTokens: observed.outputTokens,
+      ...(observed.cachedTokens === undefined ? {} : { cachedTokens: observed.cachedTokens }),
+      costUsd: costUnknown ? 0 : hasActual ? observed.actualCostUsd! : estimated.costUsd,
+      costUnknown,
+      usageUnknown,
+      ...(resolvedPricing
+        ? {
+            pricing: {
+              inputUsdPerThousand: resolvedPricing.input,
+              outputUsdPerThousand: resolvedPricing.output,
+            },
+          }
+        : {}),
+      ...(hasActual ? { actualCostUsd: observed.actualCostUsd } : {}),
+      ...(pending.maximumCostUsd === undefined ? {} : { maximumCostUsd: pending.maximumCostUsd }),
+      ...(error ? { error } : {}),
+      ...(pending.tags ? { tags: { ...pending.tags } } : {}),
+      timestamp: pending.timestamp,
+    },
+    'provider receipt',
+  )
+}
+
+const NonEmptyString = z.string().refine((value) => value.trim().length > 0, 'must be non-empty')
+const TokenCount = z.number().int().nonnegative().finite()
+const NonNegative = z.number().nonnegative().finite()
+const Positive = z.number().positive().finite()
+const Tags = z.record(NonEmptyString, z.string())
+const CostPricingSchema = z.strictObject({
+  inputUsdPerThousand: Positive,
+  outputUsdPerThousand: Positive,
+})
+const CostCallBaseShape = {
+  callId: NonEmptyString,
+  channel: NonEmptyString,
+  phase: NonEmptyString,
+  actor: NonEmptyString,
+  model: NonEmptyString,
+  maximumCostUsd: NonNegative.optional(),
+  tags: Tags.optional(),
+  timestamp: NonNegative,
+}
+const PendingCostCallSchema = z.strictObject({
+  status: z.literal('pending'),
+  ...CostCallBaseShape,
+})
+const CostReceiptSchema = z
+  .strictObject({
+    status: z.literal('settled'),
+    ...CostCallBaseShape,
+    inputTokens: TokenCount,
+    outputTokens: TokenCount,
+    cachedTokens: TokenCount.optional(),
+    costUsd: NonNegative,
+    costUnknown: z.boolean(),
+    usageUnknown: z.boolean().default(false),
+    pricing: CostPricingSchema.optional(),
+    actualCostUsd: NonNegative.optional(),
+    error: z.string().optional(),
+  })
+  .superRefine((receipt, ctx) => {
+    if (receipt.actualCostUsd !== undefined) {
+      if (receipt.costUnknown || receipt.costUsd !== receipt.actualCostUsd) {
+        ctx.addIssue({ code: 'custom', message: 'actual cost must be known and equal costUsd' })
+      }
+      if (receipt.pricing !== undefined) {
+        ctx.addIssue({ code: 'custom', message: 'actual cost must not include estimated pricing' })
+      }
+      return
+    }
+    if (receipt.costUnknown) {
+      if (receipt.costUsd !== 0) {
+        ctx.addIssue({ code: 'custom', message: 'unknown cost must have costUsd 0' })
+      }
+      if (receipt.pricing !== undefined) {
+        ctx.addIssue({ code: 'custom', message: 'unknown cost must not include estimated pricing' })
+      }
+      return
+    }
+    if (receipt.usageUnknown) {
+      ctx.addIssue({ code: 'custom', message: 'known estimated cost requires known usage' })
+    }
+    if (!receipt.pricing) {
+      ctx.addIssue({ code: 'custom', message: 'known estimated cost requires a pricing snapshot' })
+      return
+    }
+    const expected = costFromPricing(receipt, receipt.pricing)
+    if (receipt.costUsd !== expected) {
+      ctx.addIssue({
+        code: 'custom',
+        message: `estimated cost ${receipt.costUsd} does not match pricing snapshot ${expected}`,
+      })
+    }
+  })
+const CostLedgerEventSchema = z.union([
+  z.strictObject({
+    version: z.literal(1),
+    record: z.union([PendingCostCallSchema, CostReceiptSchema]),
+  }),
+  z.strictObject({
+    version: z.literal(1),
+    completedTasks: TokenCount,
+  }),
+  z.strictObject({
+    version: z.literal(1),
+    costCeilingUsd: NonNegative,
+  }),
+])
+
+function parseEvents(serialized: string): {
+  records: CostLedgerRecord[]
+  completedTasks: number
+  costCeilingUsd?: number
+} {
+  const records = new Map<string, CostLedgerRecord>()
+  let completedTasks = 0
+  let costCeilingUsd: number | undefined
+  let lineNumber = 0
+  try {
+    for (const line of serialized.split('\n')) {
+      if (!line.trim()) continue
+      lineNumber += 1
+      const event = CostLedgerEventSchema.parse(JSON.parse(line)) as CostLedgerEvent
+      if ('record' in event) {
+        validateTransition(records, event.record)
+        records.set(event.record.callId, cloneRecord(event.record))
+      } else if ('completedTasks' in event) {
+        completedTasks += event.completedTasks
+        if (!Number.isSafeInteger(completedTasks)) {
+          throw new ValidationError('CostLedger: completed task count exceeds safe integer range')
+        }
+      } else {
+        if (costCeilingUsd !== undefined) {
+          throw new ValidationError('CostLedger: duplicate persisted cost ceiling')
+        }
+        costCeilingUsd = event.costCeilingUsd
+      }
+    }
+    return {
+      records: [...records.values()],
+      completedTasks,
+      ...(costCeilingUsd === undefined ? {} : { costCeilingUsd }),
+    }
+  } catch (cause) {
+    throw new ValidationError(
+      `CostLedger: invalid persisted event ${lineNumber || 1}: ${validationMessage(cause)}`,
+      { cause },
+    )
+  }
+}
+
+function validateTransition(
+  records: ReadonlyMap<string, CostLedgerRecord>,
+  record: CostLedgerRecord,
+): void {
+  const current = records.get(record.callId)
+  if (!current) return
+  if (record.status === 'pending' || current.status === 'settled') {
+    throw new CostCallConflictError(`CostLedger: duplicate callId '${record.callId}'`)
+  }
+  if (!sameAttribution(current, record)) {
+    throw new ValidationError(`CostLedger: receipt attribution changed for call '${record.callId}'`)
+  }
+}
+
+function sameAttribution(before: CostCallBase, after: CostCallBase): boolean {
+  return (
+    before.channel === after.channel &&
+    before.phase === after.phase &&
+    before.actor === after.actor &&
+    before.maximumCostUsd === after.maximumCostUsd &&
+    before.timestamp === after.timestamp &&
+    JSON.stringify(before.tags ?? {}) === JSON.stringify(after.tags ?? {})
+  )
+}
+
+function parseReceipt(value: unknown, path: string): CostReceipt {
+  try {
+    return CostReceiptSchema.parse(value) as CostReceipt
+  } catch (cause) {
+    throw new ValidationError(`CostLedger: invalid ${path}: ${validationMessage(cause)}`, { cause })
+  }
+}
+
+function parseImportedReceipt(value: unknown, path: string): CostReceipt {
+  if (typeof value !== 'object' || value === null) return parseReceipt(value, path)
+  const candidate = { ...value } as Record<string, unknown>
+  if (
+    candidate.status === 'settled' &&
+    candidate.actualCostUsd === undefined &&
+    candidate.costUnknown === false &&
+    candidate.pricing === undefined &&
+    typeof candidate.model === 'string'
+  ) {
+    const pricing = resolveModelPricing(candidate.model)
+    if (pricing) {
+      candidate.pricing = {
+        inputUsdPerThousand: pricing.input,
+        outputUsdPerThousand: pricing.output,
+      }
+    }
+  }
+  return parseReceipt(candidate, path)
+}
+
+function validateAttribution(
+  input: Pick<RunPaidCallInput<unknown>, 'channel' | 'phase' | 'actor' | 'model' | 'tags'>,
+): void {
+  assertString(input.channel, 'channel')
+  assertString(input.phase, 'phase')
+  assertString(input.actor, 'actor')
+  if (input.model !== undefined) assertString(input.model, 'model')
+  if (input.tags !== undefined) {
+    const parsed = Tags.safeParse(input.tags)
+    if (!parsed.success)
+      throw new ValidationError(`CostLedger: invalid tags: ${parsed.error.message}`)
+  }
+}
+
+function matches(record: CostCallBase, filter: CostLedgerFilter | undefined): boolean {
+  if (!filter) return true
+  if (filter.channel !== undefined && record.channel !== filter.channel) return false
+  if (filter.phase !== undefined && record.phase !== filter.phase) return false
+  return Object.entries(filter.tags ?? {}).every(([key, value]) => record.tags?.[key] === value)
+}
+
+function cloneRecord(record: CostLedgerRecord): CostLedgerRecord {
+  return record.status === 'settled'
+    ? cloneReceipt(record)
+    : { ...record, tags: record.tags ? { ...record.tags } : undefined }
+}
+
+function cloneReceipt(receipt: CostReceipt): CostReceipt {
+  return {
+    ...receipt,
+    tags: receipt.tags ? { ...receipt.tags } : undefined,
+    pricing: receipt.pricing ? { ...receipt.pricing } : undefined,
+  }
+}
+
+function costFromPricing(usage: CostUsage, pricing: NonNullable<CostReceipt['pricing']>): number {
+  return (
+    ((usage.inputTokens + (usage.cachedTokens ?? 0)) / 1000) * pricing.inputUsdPerThousand +
+    (usage.outputTokens / 1000) * pricing.outputUsdPerThousand
+  )
+}
+
+function emptyRollup(channel: CostChannel): ChannelRollup {
+  return {
+    channel,
+    calls: 0,
+    inputTokens: 0,
+    outputTokens: 0,
+    cachedTokens: 0,
+    costUsd: 0,
+    unpricedCalls: 0,
+    unknownUsageCalls: 0,
+  }
+}
+
+function pendingModel(input: RunPaidCallInput<unknown>): string {
+  if (input.model) return input.model
+  if (input.maximumCharge && 'model' in input.maximumCharge) return input.maximumCharge.model
+  return 'unknown'
+}
+
+function unknownReceipt(model: string): CostReceiptInput {
+  return { model, inputTokens: 0, outputTokens: 0, costUnknown: true, usageUnknown: true }
+}
+
+function resolveCallId(input: string | undefined): string {
+  if (input !== undefined) {
+    assertString(input, 'callId')
+    return input
+  }
+  if (typeof globalThis.crypto?.randomUUID !== 'function') {
+    throw new ValidationError('CostLedger: crypto.randomUUID is required when callId is omitted')
+  }
+  return globalThis.crypto.randomUUID()
+}
+
+function abortError(signal: AbortSignal): Error {
+  const reason = (signal as { reason?: unknown }).reason
+  if (reason instanceof Error) return reason
+  const error = new Error('CostLedger: paid call aborted')
+  error.name = 'AbortError'
+  return error
+}
+
+function toError(value: unknown): Error {
+  return value instanceof Error ? value : new Error(String(value))
+}
+
+function paidFailure<T>(callId: string, error: Error, receipt?: CostReceipt): PaidCallResult<T> {
+  return {
+    succeeded: false,
+    callId,
+    error,
+    ...(receipt ? { receipt: cloneReceipt(receipt) } : {}),
+  }
+}
+
+function validationMessage(cause: unknown): string {
+  return cause instanceof z.ZodError ? z.prettifyError(cause) : toError(cause).message
+}
+
+function assertUsage(usage: CostUsage): void {
+  assertTokenCount(usage.inputTokens, 'inputTokens')
+  assertTokenCount(usage.outputTokens, 'outputTokens')
+  if (usage.cachedTokens !== undefined) assertTokenCount(usage.cachedTokens, 'cachedTokens')
+}
+
+function assertTokenCount(value: unknown, name: string): asserts value is number {
+  if (typeof value !== 'number' || !Number.isInteger(value) || value < 0) {
+    throw new ValidationError(
+      `CostLedger: ${name} must be a non-negative integer, got ${String(value)}`,
+    )
+  }
+}
+
+function assertNonNegative(value: unknown, name: string): asserts value is number {
+  if (typeof value !== 'number' || !Number.isFinite(value) || value < 0) {
+    throw new ValidationError(
+      `CostLedger: ${name} must be a non-negative finite number, got ${String(value)}`,
+    )
+  }
+}
+
+function assertString(value: unknown, name: string): asserts value is string {
+  if (typeof value !== 'string' || value.trim().length === 0) {
+    throw new ValidationError(`CostLedger: ${name} must be a non-empty string`)
   }
 }

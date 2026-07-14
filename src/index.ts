@@ -452,6 +452,7 @@ export {
 export * from './trace-analyst'
 export type {
   BehavioralMetrics,
+  BehavioralTokenSequence,
   SuboptimalCode,
   SuboptimalSignal,
 } from './trace-analyst/behavioral-metrics'
@@ -773,11 +774,30 @@ export type {
   ChannelRollup,
   CostChannel,
   CostLedgerEntry,
+  CostLedgerFilter,
+  CostLedgerHandle,
+  CostLedgerOptions,
+  CostLedgerPersistence,
   CostLedgerSummary,
+  CostReceipt,
+  CostReceiptInput,
   CostResult,
   CostUsage,
+  MaximumCharge,
+  PaidCallResult,
+  RunPaidCallInput,
 } from './cost-ledger'
-export { CostLedger, costForUsage, modelPriceKey } from './cost-ledger'
+export {
+  CostAccountingIncompleteError,
+  CostCallConflictError,
+  CostCeilingReachedError,
+  CostLedger,
+  CostLedgerPersistenceError,
+  CostReceiptCaptureError,
+  CostReservationExceededError,
+  costForUsage,
+  modelPriceKey,
+} from './cost-ledger'
 export type { CostEntry, CostSummary, ScenarioCost, TokenSpec } from './cost-tracker'
 export { CostTracker } from './cost-tracker'
 export type {
@@ -1116,6 +1136,7 @@ export {
   runKeywordCoverageJudgeUrl,
 } from './keyword-coverage-judge'
 export type {
+  LlmCallMetadata,
   LlmCallRequest,
   LlmCallResult,
   LlmClientOptions,
@@ -1128,10 +1149,14 @@ export {
   backoffMs,
   callLlm,
   callLlmJson,
+  costReceiptFromLlm,
+  costReceiptFromLlmError,
   isTransientLlmError,
   LlmCallError,
   LlmClient,
+  LlmResponseError,
   LlmRouteAssertionError,
+  maximumChargeForLlmRequest,
   probeLlm,
   stripFencedJson,
 } from './llm-client'
@@ -1155,6 +1180,18 @@ export type {
   MultiToolchainLayerConfig,
 } from './multi-toolchain-layer'
 export { mergeLayerResults, multiToolchainLayer } from './multi-toolchain-layer'
+export type {
+  ReferenceEquivalenceJudgeInput,
+  ReferenceEquivalenceJudgeOptions,
+  ReferenceEquivalenceJudgeResult,
+  ReferenceEquivalenceScenario,
+} from './reference-equivalence-judge'
+export {
+  createReferenceEquivalenceJudge,
+  REFERENCE_EQUIVALENCE_INPUT_LIMITS,
+  REFERENCE_EQUIVALENCE_JUDGE_VERSION,
+  runReferenceEquivalenceJudge,
+} from './reference-equivalence-judge'
 // ── Reference replay ─────────────────────────────────────────────────
 export {
   compareReferenceReplay,

@@ -34,9 +34,15 @@ export {
   type PolicyEditCandidateRecord,
   validatePolicyEditCandidateRecord,
 } from '../analyst/policy-edit'
+export type { CostLedgerHandle } from '../cost-ledger'
 // ── Judge builders (single-call bridge to a canonical JudgeConfig) ────
 export type { LlmJudgeDimension, LlmJudgeOptions } from '../llm-judge'
 export { llmJudge } from '../llm-judge'
+export type {
+  ReferenceEquivalenceJudgeOptions,
+  ReferenceEquivalenceScenario,
+} from '../reference-equivalence-judge'
+export { createReferenceEquivalenceJudge } from '../reference-equivalence-judge'
 // ── Meta-loop: optimize the analyst's OWN prompt as a surface ─────────
 export {
   type AnalystArtifact,
@@ -393,7 +399,12 @@ export {
   type SkillPatchOp,
   type SkillPatchRejection,
 } from './skill-patch'
-export { type CampaignStorage, fsCampaignStorage, inMemoryCampaignStorage } from './storage'
+export {
+  type CampaignStorage,
+  createRunCostLedger,
+  fsCampaignStorage,
+  inMemoryCampaignStorage,
+} from './storage'
 // ── Code-surface content identity ────────────────────────────────────
 export {
   assertCodeSurfaceIdentity,

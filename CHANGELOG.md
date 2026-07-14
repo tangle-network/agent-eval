@@ -4,6 +4,81 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ---
 
+## [0.118.2] — 2026-07-13 — interoperable contracts and trace accounting
+
+### Fixed
+
+- Every caller-supplied cost-ledger API now uses the public structural `CostLedgerHandle`, so types remain assignable when TypeScript resolves them through separate package entrypoints.
+- Trace writers emit an exact context-input total from known non-overlapping input and cache categories; behavioral analysis uses that value and leaves ambiguous third-party prompt totals unchanged.
+
+## [0.118.1] — 2026-07-13 — parsed OTLP intake
+
+### Added
+
+- `otlpRowsToRunRecords()` and `otlpRowsToTraceRunRecords()` accept already-parsed OTLP flat rows.
+  They use the same projection, nested measurement reconciliation, validation, and deterministic ordering as JSONL intake without forcing in-memory consumers to serialize and parse the rows again.
+
+## [0.118.0] — 2026-07-13 — complete execution accounting
+
+### Added
+
+- `InsightReport.execution` reports duration, optional queue time, direct input, output, reasoning, cache-read, and cache-write tokens, model cohorts, model-call coverage, explicit failure counts, and separately labeled orchestration aggregates from the same `RunRecord[]` passed to `analyzeRuns()`.
+- `summarizeExecution()` returns those execution facts and cost provenance without interpreting task quality.
+- `RunTokenUsage.reasoning` preserves the reasoning subset of normalized output, and `RunTokenUsage.cacheWrite` preserves provider cache creation separately from cache reads.
+
+### Changed
+
+- Trace capture, every OTLP exporter, OTLP intake, and code-agent session intake preserve reasoning, cache reads, and cache writes separately.
+- Both OTLP intake paths use one field-by-field reconciliation rule for nested model-call wrappers, preserving complementary parent data without double-counting complete child data.
+- Code-agent intake uses the shared provider-usage parser, including OpenCode's nested `cache.read` and `cache.write` fields and OpenAI-compatible token-detail objects.
+- OTLP-derived run records explicitly label complete USD as observed, model-priced USD as estimated, and missing or partial USD as uncaptured instead of relying on a zero-value inference.
+- Usage parsing reuses `@tangle-network/agent-core` token vocabulary and SSE framing, preserves agent-eval-specific reasoning and cache-write details, reconciles cumulative streams by default, and accepts explicit delta mode through `captureFetchToRawSink({ sseUsageMode })`.
+- Run-record validation rejects negative execution measurements and unknown failure classes, and OTLP intake rejects duplicate span identities instead of corrupting totals.
+- Declaration bundles build sequentially and package verification compiles a strict Node consumer, preserving the public subpath types without concurrent declaration workers exhausting memory.
+- `@tangle-network/agent-interface` is updated to `0.26.x`.
+
+### Breaking
+
+- `InsightReport.execution`, `CodeAgentSessionMetrics.reasoningTokens`, and `CodeAgentSessionMetrics.cacheWriteTokens` are required fields on newly constructed objects.
+
+## [0.117.1] — 2026-07-13 — retry-safe code-candidate cleanup
+
+### Fixed
+
+- `gitWorktreeAdapter().discard()` now reconciles worktree and branch removal independently.
+  Repeated cleanup is safe, partial cleanup can be retried, and a Git command that reports an error after completing its mutation no longer strands candidate branches or worktrees.
+
+## [0.117.0] — 2026-07-13 — durable cost and bounded behavioral evidence
+
+### Added
+
+- `createReferenceEquivalenceJudge()` and `runReferenceEquivalenceJudge()` score whether an answer preserves the meaning of one or more references, with the same cost and transport accounting as other judges.
+
+### Changed
+
+- `CostLedger.runPaidCall()` is now the single paid-call path across campaigns, proposers, judges, analysts, and distillation.
+  It durably reserves maximum spend before dispatch, records provider receipts, blocks unresolved crash state, and enforces the run ceiling before another paid call starts.
+- `ToolSpan.argsCaptured` distinguishes a call with unavailable arguments from a captured no-argument call.
+  Repeated-call analysis, failure clustering, tool-use metrics, and per-step redundancy grading no longer compare uncaptured arguments.
+  Every OTLP export path uses one mapping that preserves this distinction.
+
+### Breaking
+
+- `CostLedger.record()` is removed because recording spend after a provider call cannot enforce a cost limit or survive a crash.
+  Use `CostLedger.runPaidCall()` for billable work, `CostLedger` receipt import for already-settled calls, or `costForUsage()` for pure estimates.
+- `computeTraceMetrics()` now rejects mixed-trace input, and `BehavioralMetrics` adds required `traceId` and `tokenSequences` fields.
+  The convenience token trajectories now expose the longest proven-serial sequence instead of flattening parallel branches.
+- `ToolUseMetrics` and `ToolStats` add required `callsWithCapturedArgs` fields.
+  `duplicateRate` now uses captured-argument calls as its denominator.
+
+### Fixed
+
+- Repeated-call findings now require a contiguous, time-bounded, serial episode within one agent branch instead of grouping identical or concurrent calls across an entire run.
+- Behavioral token findings now analyze each trace and serial agent timeline independently, use numeric time ordering across accepted timestamp formats, and only attribute output decay to context that actually grew.
+- Behavioral issue IDs remain stable across trace runs while evidence retains exact trace identities and sampled prevalence.
+- Partial timing isolates only the uncertain interval, and same-named root spans retain independent structural identity.
+- Multi-trace behavioral findings use pattern-level claims while each trace's exact values remain in its evidence reference.
+
 ## [0.116.0] — 2026-07-12 — evidence-linked AgentProfile optimization
 
 ### Added

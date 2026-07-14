@@ -36,9 +36,11 @@ import {
   type LoopProvenanceRecord,
   surfaceContentHash,
 } from '../campaign/provenance'
+import { resolveRunDir } from '../campaign/run-dir'
 import { campaignMeanComposite } from '../campaign/score-utils'
 import {
   type CampaignStorage,
+  createRunCostLedger,
   fsCampaignStorage,
   inMemoryCampaignStorage,
 } from '../campaign/storage'
@@ -53,6 +55,7 @@ import type {
   Scenario,
   SurfaceProposer,
 } from '../campaign/types'
+import type { CostLedgerHandle, CostLedgerSummary, CostReceipt } from '../cost-ledger'
 import { createHostedClient, type HostedTenant } from '../hosted/client'
 import type { EvalRunCellScore, EvalRunEvent, EvalRunGenerationSnapshot } from '../hosted/types'
 import type { JudgeScoresRecord, RunRecord } from '../run-record'
@@ -60,8 +63,8 @@ import { analyzeRuns } from './analyze-runs'
 import type { InsightReport } from './insight-report'
 
 export interface SelfImproveBudget {
-  /** Hard $ ceiling across all cells in baseline + every generation. Cells
-   *  beyond the ceiling are skipped (cost-aware, not aborted). */
+  /** Hard spend cap across the full run. Each paid call reserves its enforced
+   *  maximum before dispatch, so completed spend cannot cross this amount. */
   dollars?: number
   /** How many improvement generations to explore. Default 3. Set 0 to
    *  skip improvement entirely (selfImprove becomes a baseline-only run). */
@@ -292,8 +295,13 @@ export interface SelfImproveResult<TScenario extends Scenario, TArtifact> {
   generationsExplored: number
   /** Wall-clock total. */
   durationMs: number
-  /** Total cost across baseline + every generation. */
+  /** Total newly observed cost across the full run. */
   totalCostUsd: number
+  /** Canonical run-wide spend summary. */
+  cost: CostLedgerSummary
+  /** Run-wide receipts across proposal, search, holdout, judging, analysis,
+   *  and promotion work, with phase and actor attribution. */
+  receipts: CostReceipt[]
   /**
    * Rigor packet: distributional summary, paired-bootstrap lift CI,
    * judge stats, contamination check, recommendations. Wired through
@@ -312,6 +320,20 @@ export interface SelfImproveResult<TScenario extends Scenario, TArtifact> {
    * debugging or reporting beyond the summary.
    */
   raw: RunImprovementLoopResult<TArtifact, TScenario>
+}
+
+/** Failed self-improvement run with an immutable receipt snapshot. */
+export class SelfImproveRunError extends Error {
+  readonly cost: CostLedgerSummary
+  readonly receipts: CostReceipt[]
+
+  constructor(cause: unknown, ledger: CostLedgerHandle) {
+    const original = cause instanceof Error ? cause : new Error(String(cause))
+    super(original.message, { cause: original })
+    this.name = 'SelfImproveRunError'
+    this.cost = ledger.summary()
+    this.receipts = ledger.list()
+  }
 }
 
 /**
@@ -384,13 +406,34 @@ export async function selfImprove<TScenario extends Scenario, TArtifact>(
   opts: SelfImproveOptions<TScenario, TArtifact>,
 ): Promise<SelfImproveResult<TScenario, TArtifact>> {
   const startedAt = Date.now()
+  const requestedRunDir = opts.runDir ?? `mem://selfImprove-${startedAt}`
+  const runDir = resolveRunDir(requestedRunDir)
+  const storage =
+    opts.storage ?? (runDir.startsWith('mem://') ? inMemoryCampaignStorage() : fsCampaignStorage())
+  const costLedger = createRunCostLedger({
+    storage,
+    runDir,
+    costCeilingUsd: opts.budget?.dollars,
+  })
+  try {
+    return await runSelfImprove(opts, costLedger, startedAt, runDir, storage)
+  } catch (error) {
+    throw new SelfImproveRunError(error, costLedger)
+  }
+}
 
+async function runSelfImprove<TScenario extends Scenario, TArtifact>(
+  opts: SelfImproveOptions<TScenario, TArtifact>,
+  costLedger: CostLedgerHandle,
+  startedAt: number,
+  runDir: string,
+  storage: CampaignStorage,
+): Promise<SelfImproveResult<TScenario, TArtifact>> {
   const budget = opts.budget ?? {}
   const generations = budget.generations ?? 3
   const populationSize = budget.populationSize ?? 2
   const maxConcurrency = budget.maxConcurrency ?? 2
   const holdoutFraction = budget.holdoutFraction ?? 0.25
-  const costCeiling = budget.dollars
   const expectUsage = opts.expectUsage ?? 'assert'
 
   const explicitHoldout = budget.holdoutScenarios
@@ -433,14 +476,6 @@ export async function selfImprove<TScenario extends Scenario, TArtifact>(
       deltaThreshold: 0.05,
     })
 
-  // Durable by default: a real (non-`mem://`) runDir means the caller wants
-  // persistence, so default to fs storage — the provenance record + spans
-  // survive the call. A `mem://` runDir (or none) stays in-memory. An explicit
-  // `storage` always wins (the opt-out path for tests / edge runtimes).
-  const runDir = opts.runDir ?? `mem://selfImprove-${startedAt}`
-  const isMemRunDir = runDir.startsWith('mem://')
-  const storage = opts.storage ?? (isMemRunDir ? inMemoryCampaignStorage() : fsCampaignStorage())
-
   if (opts.onProgress) {
     opts.onProgress({ kind: 'baseline.started', scenarios: opts.scenarios.length })
   }
@@ -465,7 +500,7 @@ export async function selfImprove<TScenario extends Scenario, TArtifact>(
     runDir,
     maxConcurrency,
     cellPlacement: opts.cellPlacement,
-    costCeiling,
+    costLedger,
     expectUsage,
     labeledStore: opts.labeledStore,
     captureSource: opts.captureSource,
@@ -524,13 +559,8 @@ export async function selfImprove<TScenario extends Scenario, TArtifact>(
     })
   }
 
-  const totalCost =
-    result.baselineCampaign.aggregates.totalCostUsd +
-    result.generations.reduce(
-      (sum, gen) =>
-        sum + gen.surfaces.reduce((s, sf) => s + sf.campaign.aggregates.totalCostUsd, 0),
-      0,
-    )
+  const cost = result.cost
+  const totalCost = cost.totalCostUsd
 
   // Rigor packet: feed baseline + winner cells through analyzeRuns().
   // The two candidates (`baseline` / `winner`) give the lift section a
@@ -593,6 +623,8 @@ export async function selfImprove<TScenario extends Scenario, TArtifact>(
     generationsExplored: result.generations.length,
     durationMs,
     totalCostUsd: totalCost,
+    cost,
+    receipts: costLedger.list(),
     insight,
     ...(power ? { power } : {}),
     raw: result,

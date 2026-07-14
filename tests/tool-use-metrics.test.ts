@@ -9,7 +9,30 @@ describe('computeToolUseMetrics', () => {
     await e.startRun({ scenarioId: 's' })
     const m = await computeToolUseMetrics(store, e.runId)
     expect(m.totalCalls).toBe(0)
+    expect(m.callsWithCapturedArgs).toBe(0)
     expect(m.errorRate).toBe(0)
+  })
+
+  it('does not classify uncaptured arguments as duplicate calls', async () => {
+    const store = new InMemoryTraceStore()
+    const e = new TraceEmitter(store)
+    await e.startRun({ scenarioId: 's' })
+    for (let index = 0; index < 3; index += 1) {
+      const call = await e.tool({
+        name: 'bash',
+        toolName: 'bash',
+        args: undefined,
+        argsCaptured: false,
+      })
+      await call.end()
+    }
+
+    const metrics = await computeToolUseMetrics(store, e.runId)
+
+    expect(metrics.totalCalls).toBe(3)
+    expect(metrics.callsWithCapturedArgs).toBe(0)
+    expect(metrics.duplicateRate).toBe(0)
+    expect(metrics.byTool.bash).toMatchObject({ calls: 3, callsWithCapturedArgs: 0, duplicates: 0 })
   })
 
   it('counts duplicates by (toolName, argHash) — regression: arg-order variance would miss dupes', async () => {

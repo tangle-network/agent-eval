@@ -9,11 +9,10 @@
 
 import { OTEL_AGENT_EVAL_SCOPE, type OtlpExport, type OtlpSpan } from './otel'
 import {
-  LLM_COST_USD,
-  LLM_INPUT_TOKENS,
-  LLM_MODEL_NAME,
-  LLM_OUTPUT_TOKENS,
+  applyLlmSpanOtlpAttributes,
+  applyToolSpanOtlpAttributes,
   OPENINFERENCE_SPAN_KIND,
+  type ToolSpanOtlpInput,
   traceSpanKindToOpenInferenceKind,
 } from './otlp-attributes'
 
@@ -54,7 +53,11 @@ export interface ExportableSpan {
   model?: string
   inputTokens?: number
   outputTokens?: number
+  reasoningTokens?: number
+  cachedTokens?: number
+  cacheWriteTokens?: number
   costUsd?: number
+  tool?: ToolSpanOtlpInput
   attributes?: Record<string, unknown>
 }
 
@@ -161,18 +164,15 @@ function parseHeadersFromEnv(): Record<string, string> {
 
 function toOtlpSpan(span: ExportableSpan): OtlpSpan {
   const endedAt = span.endedAt ?? span.startedAt
-  const attrs: Record<string, string | number | boolean> = {
-    [OPENINFERENCE_SPAN_KIND]: traceSpanKindToOpenInferenceKind(span.kind),
-  }
-  if (span.model) attrs[LLM_MODEL_NAME] = span.model
-  if (span.inputTokens !== undefined) attrs[LLM_INPUT_TOKENS] = span.inputTokens
-  if (span.outputTokens !== undefined) attrs[LLM_OUTPUT_TOKENS] = span.outputTokens
-  if (span.costUsd !== undefined) attrs[LLM_COST_USD] = span.costUsd
+  const attrs: Record<string, string | number | boolean> = {}
   if (span.attributes) {
     for (const [k, v] of Object.entries(span.attributes)) {
       if (typeof v === 'string' || typeof v === 'number' || typeof v === 'boolean') attrs[k] = v
     }
   }
+  attrs[OPENINFERENCE_SPAN_KIND] = traceSpanKindToOpenInferenceKind(span.kind)
+  applyLlmSpanOtlpAttributes(attrs, span)
+  if (span.tool) applyToolSpanOtlpAttributes(attrs, span.tool)
   return {
     traceId: padTraceId(span.traceId),
     spanId: padSpanId(span.spanId),

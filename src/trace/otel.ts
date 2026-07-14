@@ -10,12 +10,9 @@
  */
 
 import {
-  LLM_COST_USD,
-  LLM_INPUT_TOKENS,
-  LLM_MODEL_NAME,
-  LLM_OUTPUT_TOKENS,
+  applyLlmSpanOtlpAttributes,
+  applyToolSpanOtlpAttributes,
   OPENINFERENCE_SPAN_KIND,
-  TOOL_NAME,
   traceSpanKindToOpenInferenceKind,
 } from './otlp-attributes'
 import type { Run, Span, TraceEvent } from './schema'
@@ -111,18 +108,17 @@ function spanToOtlp(span: Span, traceId: string, events: TraceEvent[]): OtlpSpan
 }
 
 function flattenSpanAttributes(span: Span): Record<string, string | number | boolean> {
-  const base: Record<string, string | number | boolean> = {
-    [OPENINFERENCE_SPAN_KIND]: traceSpanKindToOpenInferenceKind(span.kind),
+  const base: Record<string, string | number | boolean> = {}
+  if (span.attributes) {
+    for (const [k, v] of Object.entries(span.attributes)) {
+      if (typeof v === 'string' || typeof v === 'number' || typeof v === 'boolean') base[k] = v
+    }
   }
+  base[OPENINFERENCE_SPAN_KIND] = traceSpanKindToOpenInferenceKind(span.kind)
   if (span.kind === 'llm') {
-    base[LLM_MODEL_NAME] = span.model
-    if (span.inputTokens !== undefined) base[LLM_INPUT_TOKENS] = span.inputTokens
-    if (span.outputTokens !== undefined) base[LLM_OUTPUT_TOKENS] = span.outputTokens
-    if (span.costUsd !== undefined) base[LLM_COST_USD] = span.costUsd
-    if (span.finishReason) base['llm.finish_reason'] = span.finishReason
+    applyLlmSpanOtlpAttributes(base, span)
   } else if (span.kind === 'tool') {
-    base[TOOL_NAME] = span.toolName
-    if (span.latencyMs !== undefined) base['tool.latency_ms'] = span.latencyMs
+    applyToolSpanOtlpAttributes(base, span)
   } else if (span.kind === 'retrieval') {
     base['retrieval.query'] = span.query
     base['retrieval.hits'] = span.hits.length
@@ -136,11 +132,6 @@ function flattenSpanAttributes(span: Span): Record<string, string | number | boo
     if (span.exitCode !== undefined) base['sandbox.exit_code'] = span.exitCode
     if (span.testsPassed !== undefined) base['sandbox.tests_passed'] = span.testsPassed
     if (span.testsTotal !== undefined) base['sandbox.tests_total'] = span.testsTotal
-  }
-  if (span.attributes) {
-    for (const [k, v] of Object.entries(span.attributes)) {
-      if (typeof v === 'string' || typeof v === 'number' || typeof v === 'boolean') base[k] = v
-    }
   }
   return base
 }
