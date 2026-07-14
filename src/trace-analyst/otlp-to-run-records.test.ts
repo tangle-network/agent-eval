@@ -724,16 +724,19 @@ describe('otlpToRunRecords', () => {
   })
 
   it('produces identical records from parsed rows without a JSONL round trip', () => {
-    const rows = FIXTURE.split('\n').map((line) => JSON.parse(line) as Record<string, unknown>)
+    const rows = FIXTURE.split('\n').map((line) => JSON.parse(line)) as Array<{
+      trace_id: string
+      span_id: string
+    }>
     expect(otlpRowsToRunRecords(rows, baseOpts)).toEqual(otlpToRunRecords(FIXTURE, baseOpts))
   })
 
   it('fails loudly when parsed rows contain no valid spans', () => {
     expect(() => otlpRowsToRunRecords([], baseOpts)).toThrow(/zero valid spans/)
     expect(() => otlpRowsToRunRecords([{}], baseOpts)).toThrow(/zero valid spans/)
-    expect(() =>
-      otlpRowsToRunRecords([null] as unknown as Record<string, unknown>[], baseOpts),
-    ).toThrow(/zero valid spans/)
+    expect(() => otlpRowsToRunRecords([null] as unknown as object[], baseOpts)).toThrow(
+      /zero valid spans/,
+    )
   })
 
   it('rejects duplicate span identities instead of corrupting accounting', () => {

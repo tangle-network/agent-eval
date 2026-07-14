@@ -149,7 +149,7 @@ export function otlpToRunRecords(otlpJsonl: string, opts: OtlpToRunRecordsOption
  * paths share projection, reconciliation, validation, and ordering.
  */
 export function otlpRowsToRunRecords(
-  rows: Iterable<Record<string, unknown>>,
+  rows: Iterable<object>,
   opts: OtlpToRunRecordsOptions,
 ): RunRecord[] {
   return otlpRowsToTraceRunRecords(rows, opts).map((row) => row.record)
@@ -165,7 +165,7 @@ export function otlpToTraceRunRecords(
 
 /** Parsed-row counterpart to {@link otlpToTraceRunRecords}. */
 export function otlpRowsToTraceRunRecords(
-  rows: Iterable<Record<string, unknown>>,
+  rows: Iterable<object>,
   opts: OtlpToRunRecordsOptions,
 ): OtlpTraceRunRecord[] {
   return traceRunRecordsFromSpans(groupRowsByTrace(rows), opts)
@@ -279,13 +279,11 @@ function groupJsonlSpansByTrace(otlpJsonl: string): Map<string, ProjectedOtlpSpa
   return groupRowsByTrace(yieldJsonlRows(otlpJsonl))
 }
 
-function groupRowsByTrace(
-  rows: Iterable<Record<string, unknown>>,
-): Map<string, ProjectedOtlpSpan[]> {
+function groupRowsByTrace(rows: Iterable<object>): Map<string, ProjectedOtlpSpan[]> {
   const byTrace = new Map<string, ProjectedOtlpSpan[]>()
   for (const row of rows) {
     if (!row || typeof row !== 'object') continue
-    const span = projectOtlpFlatLine(row)
+    const span = projectOtlpFlatLine(row as Record<string, unknown>)
     if (!span) continue
     const arr = byTrace.get(span.trace_id)
     if (arr) arr.push(span)
