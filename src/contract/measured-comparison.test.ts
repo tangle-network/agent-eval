@@ -330,6 +330,18 @@ describe('measuredComparisonFromSelfImproveResult', () => {
       }),
       message: /raw winner label does not agree/,
     },
+    {
+      name: 'incomplete cost accounting',
+      mutate: (result: FixtureResult) => {
+        const cost = {
+          ...result.cost,
+          accountingComplete: false,
+          incompleteReasons: ['provider bill is pending'],
+        }
+        return { ...result, cost, raw: { ...result.raw, cost } }
+      },
+      message: /cost accounting is incomplete/,
+    },
   ])('rejects contradictory $name provenance', async ({ mutate, message }) => {
     const result = await fixtureResult()
     expect(() => measuredComparison(mutate(result))).toThrow(message)

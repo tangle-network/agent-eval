@@ -118,7 +118,17 @@ export function measuredComparisonFromSelfImproveResult<TScenario extends Scenar
   )
   assertMeasuredNumber(result.totalCostUsd, result.cost.totalCostUsd, 'cost summary')
   assertMeasuredIdentity(digest(result.cost), digest(result.raw.cost), 'raw cost summary')
+  if (!result.cost.accountingComplete) {
+    throw new Error(
+      `cost accounting is incomplete: ${result.cost.incompleteReasons.join('; ') || 'unknown reason'}`,
+    )
+  }
+  assertMeasuredNumber(result.receipts.length, result.cost.totalCalls, 'cost receipt count')
+  const receiptIds = new Set<string>()
   const receiptCostUsd = result.receipts.reduce((total, receipt) => {
+    if (receiptIds.has(receipt.callId))
+      throw new Error(`duplicate cost receipt '${receipt.callId}'`)
+    receiptIds.add(receipt.callId)
     return total + nonnegativeMeasuredValue(receipt.costUsd, `receipt ${receipt.callId} cost`)
   }, 0)
   assertMeasuredNumber(result.totalCostUsd, receiptCostUsd, 'cost receipts')
