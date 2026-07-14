@@ -15,7 +15,8 @@
  * throw. Never fabricate a candidate.
  */
 
-import { ai } from '@ax-llm/ax'
+import type { AxAIArgs } from '@ax-llm/ax'
+import { createAnalystAi } from '../../analyst/ax-service'
 import { createTraceAnalystKind, type TraceAnalystKindSpec } from '../../analyst/kind-factory'
 import { DEFAULT_TRACE_ANALYST_KINDS } from '../../analyst/kinds'
 import { AnalystRegistry } from '../../analyst/registry'
@@ -44,7 +45,7 @@ export interface TraceAnalystProposerOptions {
   applyMaxTokens?: number
   /** Ax provider name. Default 'openai' — works for any OpenAI-compatible base
    *  via `apiURL`. Use 'deepseek' to hit DeepSeek's native provider. */
-  provider?: string
+  provider?: AxAIArgs<unknown>['name']
   /** Which analyst kinds to run. Default = the full shipped suite. */
   kinds?: readonly TraceAnalystKindSpec[]
   /** Resolve the OTLP traces (JSONL string) the analyst should read for THIS
@@ -78,11 +79,11 @@ export function traceAnalystProposer(opts: TraceAnalystProposerOptions): Surface
   const produceFindings =
     opts.analyze ??
     (async (path: string, c: ProposeContext): Promise<ReadonlyArray<AnalystFinding>> => {
-      const aiService = ai({
-        name: opts.provider ?? 'openai',
+      const aiService = createAnalystAi({
+        provider: opts.provider ?? 'openai',
         apiKey: opts.apiKey,
-        apiURL: opts.baseUrl,
-        config: { model: opts.model },
+        baseUrl: opts.baseUrl,
+        model: opts.model,
       })
       const registry = new AnalystRegistry()
       for (const spec of kinds) {

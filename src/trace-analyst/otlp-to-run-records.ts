@@ -2,7 +2,8 @@
  * `otlpToRunRecords` — fold an OTLP traces.jsonl (one OTLP span per line;
  * the form AppWorld / HALO emit via their OpenInference OTLP exporter, the
  * same shape `flattenOtlpExportToNdjson` produces) into validated
- * `RunRecord[]` — one record per `trace_id` (one trace == one task).
+ * `RunRecord[]` — one record per `trace_id` by default, or per caller-defined
+ * logical run when one task is fragmented across multiple OTLP traces.
  *
  * This is the offline ingestion primitive the AppWorld proposer bench and the
  * hosted Intelligence product both stand on: traces in, paper-grade rows
@@ -86,17 +87,28 @@ export interface OtlpToRunRecordsOptions {
    */
   priceUsdPerToken?: number
   /**
-   * Score for a trace's outcome (AppWorld `world.evaluate()` → TGC/SGC, or
-   * any [0,1] task-success signal). Keyed by `trace_id`; falls through to
+   * Map each OTLP `trace_id` to the logical run it belongs to. Use this when a
+   * provider emits several traces for one task attempt. All mapped traces are
+   * aggregated into one record; duplicate span ids remain isolated by their
+   * source trace. The callback must return a non-empty id for every trace.
+   *
+   * When omitted, every `trace_id` remains an independent run.
+   */
+  logicalRunIdForTrace?: (traceId: string) => string
+  /**
+   * Score for a produced run's outcome (AppWorld `world.evaluate()` →
+   * TGC/SGC, or
+   * any [0,1] task-success signal). Keyed by the logical run id when
+   * `logicalRunIdForTrace` is supplied, otherwise by `trace_id`; falls through to
    * the error-derived default (1 = no error span, 0 = had one) when the map
    * has no entry or the function returns undefined.
    */
-  scoreForTrace?: (traceId: string, span: TraceAggregate) => number | undefined
+  scoreForTrace?: (runId: string, span: TraceAggregate) => number | undefined
   /**
    * Per-record judge metadata when an external judge produced the score.
-   * Keyed by `trace_id`.
+   * Keyed by the logical run id when supplied, otherwise by `trace_id`.
    */
-  judgeMetadataForTrace?: (traceId: string) => RunRecord['judgeMetadata'] | undefined
+  judgeMetadataForTrace?: (runId: string) => RunRecord['judgeMetadata'] | undefined
 }
 
 /** A `RunRecord` plus the verbatim prompt/completion text when the trace's
@@ -114,6 +126,10 @@ export interface OtlpTraceRunRecord {
 /** Per-trace rollup the score callback can inspect. */
 export interface TraceAggregate {
   traceId: string
+  /** Number of source OTLP traces folded into this run. */
+  sourceTraceCount: number
+  /** Source OTLP trace ids folded into this run, sorted for deterministic audit output. */
+  sourceTraceIds: readonly string[]
   spanCount: number
   llmSpanCount: number
   toolSpanCount: number
@@ -160,7 +176,10 @@ export function otlpToTraceRunRecords(
   otlpJsonl: string,
   opts: OtlpToRunRecordsOptions,
 ): OtlpTraceRunRecord[] {
-  return traceRunRecordsFromSpans(groupJsonlSpansByTrace(otlpJsonl), opts)
+  return traceRunRecordsFromSpans(
+    groupSpansByLogicalRun(groupJsonlSpansByTrace(otlpJsonl), opts.logicalRunIdForTrace),
+    opts,
+  )
 }
 
 /** Parsed-row counterpart to {@link otlpToTraceRunRecords}. */
@@ -168,7 +187,10 @@ export function otlpRowsToTraceRunRecords(
   rows: Iterable<object>,
   opts: OtlpToRunRecordsOptions,
 ): OtlpTraceRunRecord[] {
-  return traceRunRecordsFromSpans(groupRowsByTrace(rows), opts)
+  return traceRunRecordsFromSpans(
+    groupSpansByLogicalRun(groupRowsByTrace(rows), opts.logicalRunIdForTrace),
+    opts,
+  )
 }
 
 function traceRunRecordsFromSpans(
@@ -201,6 +223,7 @@ function traceRunRecordsFromSpans(
     const { costUsd, costProvenance } = resolveCost(opts, agg)
 
     const raw: Record<string, number> = {
+      source_trace_count: agg.sourceTraceCount,
       span_count: agg.spanCount,
       llm_span_count: agg.llmSpanCount,
       tool_span_count: agg.toolSpanCount,
@@ -292,6 +315,39 @@ function groupRowsByTrace(rows: Iterable<object>): Map<string, ProjectedOtlpSpan
   return byTrace
 }
 
+function groupSpansByLogicalRun(
+  byTrace: Map<string, ProjectedOtlpSpan[]>,
+  logicalRunIdForTrace: OtlpToRunRecordsOptions['logicalRunIdForTrace'],
+): Map<string, ProjectedOtlpSpan[]> {
+  if (!logicalRunIdForTrace) return byTrace
+
+  const byRun = new Map<string, ProjectedOtlpSpan[]>()
+  for (const [traceId, spans] of byTrace) {
+    const suppliedRunId = logicalRunIdForTrace(traceId)
+    if (typeof suppliedRunId !== 'string' || suppliedRunId.trim().length === 0) {
+      throw new Error(
+        `otlpToRunRecords: logicalRunIdForTrace('${traceId}') returned an empty run id`,
+      )
+    }
+    const runId = suppliedRunId.trim()
+    const target = byRun.get(runId) ?? []
+    for (const span of spans) {
+      target.push({
+        ...span,
+        span_id: qualifySpanId(traceId, span.span_id),
+        parent_span_id: span.parent_span_id ? qualifySpanId(traceId, span.parent_span_id) : null,
+      })
+    }
+    byRun.set(runId, target)
+  }
+  return byRun
+}
+
+function qualifySpanId(traceId: string, spanId: string): string {
+  const prefix = `${traceId}:`
+  return spanId.startsWith(prefix) ? spanId : `${prefix}${spanId}`
+}
+
 function aggregateTrace(
   traceId: string,
   spans: ProjectedOtlpSpan[],
@@ -361,8 +417,12 @@ function aggregateTrace(
   const b = spanEpochMillis(latest)
   if (a !== null && b !== null) wallMs = Math.max(0, b - a)
 
+  const sourceTraceIds = [...new Set(spans.map((span) => span.trace_id))].sort()
+
   return {
     traceId,
+    sourceTraceCount: sourceTraceIds.length,
+    sourceTraceIds,
     spanCount: spans.length,
     llmSpanCount: measurements.modelCallCount,
     toolSpanCount,

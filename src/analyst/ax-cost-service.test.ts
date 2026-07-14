@@ -1,4 +1,6 @@
 import {
+  AxAIGoogleGeminiModel,
+  AxAIOpenAIModel,
   type AxAIService,
   type AxChatRequest,
   type AxChatResponse,
@@ -212,6 +214,36 @@ describe('meterAxChatService', () => {
     })
   })
 
+  it('preserves reasoning reported separately from visible completion tokens', async () => {
+    const ai = fakeAi(async () => ({
+      results: [{ index: 0, content: 'done' }],
+      modelUsage: {
+        ai: 'openai',
+        model: 'gpt-4o-mini',
+        tokens: {
+          promptTokens: 100,
+          completionTokens: 10,
+          reasoningTokens: 50,
+          totalTokens: 160,
+        },
+      },
+    }))
+    const ledger = new CostLedger()
+    const metered = meterAxChatService(ai, {
+      ledger,
+      actor: 'failure-mode',
+      maxOutputTokens: 128,
+    })
+
+    await metered.chat(request())
+
+    expect(usageReceiptFromCostLedger(ledger).tokens).toEqual({
+      input: 100,
+      output: 60,
+      reasoning: 50,
+    })
+  })
+
   it('reserves the full output bound for multi-completion requests', () => {
     const input = { ...request(), modelConfig: { maxTokens: 64, n: 3 } }
     const requestBytes = new TextEncoder().encode(JSON.stringify(input)).byteLength
@@ -362,7 +394,7 @@ describe('meterAxChatService', () => {
       name: 'openai',
       apiKey: 'test-key',
       apiURL: 'https://provider.invalid/v1',
-      config: { model: 'gpt-4o-mini' },
+      config: { model: AxAIOpenAIModel.GPT4OMini },
       options: { fetch: fetchImpl },
     })
     const metered = meterAxChatService(ai, {
@@ -383,7 +415,7 @@ describe('meterAxChatService', () => {
     const ai = createAxAi({
       name: 'google-gemini',
       apiKey: 'test-key',
-      config: { model: 'models/gemini-3-flash-preview' },
+      config: { model: AxAIGoogleGeminiModel.Gemini3Flash },
       options: { fetch: fetchImpl },
     })
     const metered = meterAxChatService(ai, {

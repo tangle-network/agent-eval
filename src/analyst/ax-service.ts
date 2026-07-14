@@ -1,4 +1,4 @@
-import type { AxAIService } from '@ax-llm/ax'
+import type { AxAIArgs, AxAIService } from '@ax-llm/ax'
 import { ai } from '@ax-llm/ax'
 
 const configuredModels = new WeakMap<object, string>()
@@ -9,11 +9,11 @@ export interface CreateAnalystAiConfig {
   apiKey: string
   /** OpenAI-compatible base URL — e.g. `https://router.tangle.tools/v1` or a
    *  cli-bridge loopback. */
-  baseUrl: string
-  /** Model id forwarded to the analyst actor + responder. */
+  baseUrl?: string
+  /** Model id forwarded to analyst calls. */
   model: string
   /** Ax provider name. Defaults to the OpenAI-compatible client. */
-  provider?: 'openai' | 'anthropic'
+  provider?: AxAIArgs<unknown>['name']
 }
 
 /**
@@ -31,12 +31,13 @@ export interface CreateAnalystAiConfig {
 export function createAnalystAi(config: CreateAnalystAiConfig): AxAIService {
   const model = config.model.trim()
   if (!model) throw new TypeError('createAnalystAi: model must be a non-empty string')
-  const service = ai({
+  const args = {
     name: config.provider ?? 'openai',
     apiKey: config.apiKey,
-    apiURL: config.baseUrl,
+    ...(config.baseUrl ? { apiURL: config.baseUrl } : {}),
     config: { model },
-  })
+  } as unknown as AxAIArgs<unknown>
+  const service = ai(args)
   configuredModels.set(service as object, model)
   return service
 }

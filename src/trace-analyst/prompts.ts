@@ -27,44 +27,24 @@ DISCOVERY → NARROW → DEEP-READ protocol — follow exactly:
 
 9. If a ~4KB-truncated payload from viewTrace / searchTrace matters for your answer, first try viewSpans on that span id (~16KB cap). If a 16KB-truncated payload from viewSpans still matters, narrow further with searchSpan against a more specific regex rather than asking for the full payload again.
 
-10. If maxDepth > 0 and the question splits into independent semantic branches, delegate well-defined subtasks to subagents using \`await llmQuery(...)\`. Pass narrow context and a focused query. Examples:
+10. If the question splits into independent reasoning branches, use bounded \`llmQuery(...)\` calls over evidence you already loaded. Subqueries cannot inspect the trace store, so pass the exact trace excerpts they need. Example:
 
     const reviews = await llmQuery([
-      { query: 'Drill into trace abc123 — what tool calls preceded the failure?', context: { trace_id: 'abc123' } },
-      { query: 'Drill into trace def456 — same failure mode?', context: { trace_id: 'def456' } },
+      { query: 'Classify the failure mechanism in this excerpt.', context: traceAbcExcerpt },
+      { query: 'Classify the failure mechanism in this excerpt.', context: traceDefExcerpt },
     ]);
 
 OBSERVABILITY rules:
-- Each non-final actor turn must emit at least one \`console.log(...)\` for evidence. Up to 3 logs per turn is fine when correlating multiple data sources (e.g. one log for findings list, one for source-file content, one for derived analysis).
-- Do NOT combine \`console.log\` with \`final(...)\` or \`askClarification(...)\` in the same turn — finish gathering data first, then call final on its own turn.
+- Each discovery turn must emit at least one concise \`console.log(...)\` showing what evidence was learned.
+- Finish gathering evidence before submitting the analysis.
 - Reuse runtime variables across turns; don't recompute.
-- When done, call \`await final(answer)\` with the fully-formed report. The responder rewrites the answer into output fields; if you only pass a vague summary string the responder has nothing concrete to format.
-
-CRITICAL — \`final()\` payload contract for evidence-grounded analysis tasks:
-- Pass a STRUCTURED object as the second arg with the actual data the responder needs to format the answer. Do NOT pass abstract instructions; pass evidence.
-- Example for per-item verdict tasks:
-  \`\`\`js
-  await final("Format the per-item verdict report from the evidence below.", {
-    findings: [
-      { id: 'sub-1-finding-1', claim: '...', verdict: 'TRUE-POSITIVE', evidence: 'lines 42-45 of contracts/X.sol show ...' },
-      ...all items
-    ],
-    systemic_summary: '3 sentences I wrote based on the evidence above'
-  });
-  \`\`\`
-- Calling \`final("answer", {})\` with no evidence is a failure mode — the responder will hallucinate or echo back the field names. Always include the gathered data.
-- Premature final after a single viewSpans call is INSUFFICIENT for per-finding analysis tasks. Read the requested attributes (e.g. \`spans[i].attributes['redteam.finding.title']\`), and for each one perform the requested cross-reference (e.g. read the source SPAN's \`attributes['source.content']\`).
 
 OUTPUT contract — your final answer must include:
 - A clear prose conclusion answering the user's question.
 - Trace ids and span ids cited as evidence for each claim.
 - Failure modes named in the user's domain language, with frequency and concrete examples.
+- A concise findings array containing only claims supported by inspected evidence.
 
 Do NOT invent trace ids, span ids, error messages, or model names. Every fact must be traceable to a tool result.`
 
-export const TRACE_ANALYST_ACTOR_DESCRIPTION_VERSION = 'trace-analyst-actor-v5-2026-05-06'
-
-/** Subagent prompt for focused trace-inspection subtasks. */
-export const TRACE_ANALYST_SUBAGENT_DESCRIPTION = `You are a trace-analyst subagent. Your parent has delegated a focused trace-inspection question. Use the same DISCOVERY → NARROW → DEEP-READ protocol but stay tightly scoped: do exactly what was asked, return a concise compact answer, do NOT spawn further subagents unless the parent's question is genuinely multi-branch.
-
-Cite trace ids and span ids for every claim. Do NOT invent ids.`
+export const TRACE_ANALYST_ACTOR_DESCRIPTION_VERSION = 'trace-analyst-actor-v6-2026-07-14'

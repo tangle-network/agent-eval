@@ -1,11 +1,8 @@
-import { type AxActorTurn, type AxAIService, type AxFunction, AxJSRuntime, agent } from '@ax-llm/ax'
-import {
-  TRACE_ANALYST_ACTOR_DESCRIPTION,
-  TRACE_ANALYST_ACTOR_DESCRIPTION_VERSION,
-  TRACE_ANALYST_SUBAGENT_DESCRIPTION,
-} from './prompts'
+import type { AxAgentActorTurnCallbackArgs, AxAIService, AxFunction } from '@ax-llm/ax'
+import { runTraceAnalysisLoop, type TraceAnalysisLoopResult } from './loop'
+import { TRACE_ANALYST_ACTOR_DESCRIPTION, TRACE_ANALYST_ACTOR_DESCRIPTION_VERSION } from './prompts'
 import type { TraceAnalysisStore } from './store'
-import { OtlpFileTraceStore, TraceFileMissingError } from './store-otlp'
+import { OtlpFileTraceStore } from './store-otlp'
 import { buildTraceAnalystTools } from './tools'
 
 export interface AnalyzeTracesInput {
@@ -15,11 +12,11 @@ export interface AnalyzeTracesInput {
 }
 
 export interface AnalyzeTracesResult {
-  /** The responder's prose answer. */
+  /** The actor's submitted prose answer. */
   answer: string
-  /** Bulleted findings extracted from the responder's structured output. */
+  /** Bulleted findings from the actor's structured completion. */
   findings: string[]
-  /** Per-actor-turn snapshots captured via `actorTurnCallback`. */
+  /** Per-turn snapshots captured via `actorTurnCallback`. */
   turns: AnalyzeTracesTurnSnapshot[]
   /** Total turns the actor took. */
   turnCount: number
@@ -50,13 +47,14 @@ export interface TraceAnalystChatMessage {
 }
 
 export interface AnalyzeTracesTurnSnapshot {
+  stage: AxAgentActorTurnCallbackArgs['stage']
   turn: number
   isError: boolean
   /** The JS code the actor produced for this turn. */
   code: string
   /** The formatted action-log entry the actor sees on the next turn. */
   output: string
-  /** Provider thought (when `actorOptions.showThoughts` is true and the
+  /** Provider thought (when `executorOptions.showThoughts` is true and the
    *  provider returns it). */
   thought?: string
 }
@@ -66,18 +64,18 @@ export interface AnalyzeTracesOptions {
   source: string | TraceAnalysisStore
   /** Caller-provided AxAIService. */
   ai: AxAIService
-  /** Model id forwarded to actor + responder. */
+  /** Model id forwarded to the actor. */
   model?: string
-  /** Recursion depth. 0 = no sub-agent dispatch. Default 1. */
-  maxDepth?: number
+  /** Maximum model subqueries. 0 disables model fan-out. Default 4. */
+  maxSubqueries?: number
   /** Maximum actor turns. Default 12. */
   maxTurns?: number
-  /** Maximum parallel sub-agent calls in batched llmQuery. Default 2. */
-  maxParallelSubagents?: number
+  /** Maximum parallel model subqueries. Default 2. */
+  maxParallelSubqueries?: number
+  /** Cancels in-flight model and tool work. */
+  signal?: AbortSignal
   /** Override the actor description. */
   actorDescription?: string
-  /** Override the subagent description. */
-  subagentDescription?: string
   /** Per-turn observability hook. */
   onTurn?: (turn: AnalyzeTracesTurnSnapshot) => void | Promise<void>
   /** Override max runtime characters per turn. Default 6000. */
@@ -85,8 +83,7 @@ export interface AnalyzeTracesOptions {
   /** When set, every turn's snapshot is appended to this JSONL file
    *  immediately. If the analyst crashes mid-loop (provider 503,
    *  network error, validator reject) the partial reasoning is still
-   *  on disk. Replay the file with the responder afterward to recover
-   *  evidence. */
+   *  on disk for diagnosis and recovery. */
   progressLogPath?: string
 }
 
@@ -105,6 +102,7 @@ export async function analyzeTraces(
   if (!input.question || typeof input.question !== 'string') {
     throw new TypeError('analyzeTraces: input.question must be a non-empty string')
   }
+  rejectRemovedOptions(options)
 
   const store: TraceAnalysisStore =
     typeof options.source === 'string'
@@ -129,8 +127,9 @@ export async function analyzeTraces(
     progressFs = createWriteStream(options.progressLogPath, { flags: 'a' })
   }
 
-  const actorTurnCallback = async (turn: AxActorTurn): Promise<void> => {
+  const actorTurnCallback = async (turn: AxAgentActorTurnCallbackArgs): Promise<void> => {
     const snap: AnalyzeTracesTurnSnapshot = {
+      stage: turn.stage,
       turn: turn.turn,
       isError: turn.isError,
       code: turn.code,
@@ -148,63 +147,31 @@ export async function analyzeTraces(
     if (options.onTurn) await options.onTurn(snap)
   }
 
-  const maxDepth = options.maxDepth ?? 1
+  const maxSubqueries = options.maxSubqueries ?? 4
   const maxTurns = options.maxTurns ?? 12
-  const maxParallelSubagents = options.maxParallelSubagents ?? 2
+  const maxParallelSubqueries = options.maxParallelSubqueries ?? 2
   const maxRuntimeChars = options.maxRuntimeChars ?? 6000
-  const functions = tools as unknown as NonNullable<Parameters<typeof agent>[1]>['functions']
+  let completed: TraceAnalysisLoopResult<string>
+  try {
+    completed = await runTraceAnalysisLoop({
+      id: 'TraceAnalyst',
+      description:
+        'Analyzes OTLP-shaped JSONL traces using bounded discovery tools to identify systemic failure modes.',
+      prompt: `${options.actorDescription ?? TRACE_ANALYST_ACTOR_DESCRIPTION}
 
-  const analyst = agent<{ question: string }, { answer: string; findings: string[] }>(
-    // `reasoning!` is an internal (Ax `!`) scratchpad field: generated first to
-    // force reason-before-conclude, stripped from the returned output — so the
-    // consumed shape stays { answer, findings }. Brings the trace-analyst to the
-    // same prose-first CoT ordering the kind-factory gets from its `report` field.
-    'question:string -> reasoning!:string, answer:string, findings:string[]',
-    {
-      agentIdentity: {
-        name: 'TraceAnalyst',
-        description:
-          'Analyzes OTLP-shaped JSONL traces using bounded discovery tools to identify systemic failure modes.',
-      },
-      contextFields: ['question'],
-      runtime: new AxJSRuntime({
-        permissions: [],
-        blockDynamicImport: true,
-        allowedModules: [],
-        freezeIntrinsics: true,
-        blockShadowRealm: true,
-        // RLM stdout mode relies on runtime bindings persisting across turns.
-        preventGlobalThisExtensions: false,
-      }),
-      mode: maxDepth > 0 ? 'advanced' : 'simple',
-      recursionOptions: maxDepth > 0 ? { maxDepth } : undefined,
+The report must answer the user's question, and findings must be an array of concise evidence-backed strings.`,
+      question: input.question,
+      ai: options.ai,
+      ...(options.model ? { model: options.model } : {}),
+      tools,
+      findingType: 'string',
+      maxSubqueries,
+      maxParallelSubqueries,
       maxTurns,
       maxRuntimeChars,
-      maxBatchedLlmQueryConcurrency: maxParallelSubagents,
-      promptLevel: 'detailed',
-      // Trace analysis depends on exact prior tool results and runtime variables.
-      contextPolicy: { preset: 'full', budget: 'balanced' },
-      functions,
-      actorOptions: {
-        description: options.actorDescription ?? TRACE_ANALYST_ACTOR_DESCRIPTION,
-        ...(options.model ? { model: options.model } : {}),
-        // Keep actor messages tool-call/content shaped across reasoning models.
-        showThoughts: false,
-        thinkingTokenBudget: 'none',
-      },
-      responderOptions: {
-        ...(options.model ? { model: options.model } : {}),
-        description: options.subagentDescription ?? TRACE_ANALYST_SUBAGENT_DESCRIPTION,
-        showThoughts: false,
-      },
-      actorTurnCallback,
-      bubbleErrors: [TraceFileMissingError],
-    },
-  )
-
-  let result: { answer: unknown; findings: unknown }
-  try {
-    result = await analyst.forward(options.ai, { question: input.question })
+      ...(options.signal ? { signal: options.signal } : {}),
+      onTurn: actorTurnCallback,
+    })
   } finally {
     if (progressFs) {
       await new Promise<void>((resolve) => progressFs!.end(() => resolve()))
@@ -212,26 +179,27 @@ export async function analyzeTraces(
   }
 
   return {
-    answer: typeof result.answer === 'string' ? result.answer : String(result.answer ?? ''),
-    findings: Array.isArray(result.findings)
-      ? result.findings.filter((s): s is string => typeof s === 'string')
-      : [],
+    answer: completed.report,
+    findings: completed.findings,
     turns,
     turnCount: turns.length,
-    usage: normalizeRoleArrays(analyst.getUsage()),
-    chatLog: normalizeRoleArrays(analyst.getChatLog()),
+    usage: { actor: normalizeRecordArray(completed.usage), responder: [] },
+    chatLog: { actor: normalizeRecordArray(completed.chatLog), responder: [] },
     actorPromptVersion: TRACE_ANALYST_ACTOR_DESCRIPTION_VERSION,
   }
 }
 
-function normalizeRoleArrays(value: unknown): {
-  actor: Record<string, unknown>[]
-  responder: Record<string, unknown>[]
-} {
-  const record = value && typeof value === 'object' ? (value as Record<string, unknown>) : {}
-  return {
-    actor: normalizeRecordArray(record.actor),
-    responder: normalizeRecordArray(record.responder),
+function rejectRemovedOptions(options: AnalyzeTracesOptions): void {
+  const supplied = options as unknown as Record<string, unknown>
+  const migrations = [
+    ['maxDepth', 'maxSubqueries'],
+    ['maxParallelSubagents', 'maxParallelSubqueries'],
+    ['subagentDescription', 'actorDescription'],
+  ] as const
+  for (const [removed, replacement] of migrations) {
+    if (removed in supplied) {
+      throw new TypeError(`analyzeTraces: '${removed}' is unsupported; use '${replacement}'`)
+    }
   }
 }
 

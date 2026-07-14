@@ -698,6 +698,81 @@ describe('otlpToRunRecords', () => {
     expect(clean.splitTag).toBe('search')
   })
 
+  it('folds provider trace fragments into one logical run without losing accounting', () => {
+    const seen: Array<{
+      runId: string
+      sourceTraceCount: number
+      sourceTraceIds: readonly string[]
+    }> = []
+    const records = otlpToRunRecords(FIXTURE, {
+      ...baseOpts,
+      logicalRunIdForTrace: () => 'symphony-run-1',
+      scoreForTrace: (runId, aggregate) => {
+        seen.push({
+          runId,
+          sourceTraceCount: aggregate.sourceTraceCount,
+          sourceTraceIds: aggregate.sourceTraceIds,
+        })
+        return 0.25
+      },
+      judgeMetadataForTrace: (runId) => ({
+        model: `${runId}@observed`,
+        promptVersion: 'v1',
+        confidence: 0.9,
+        fallback: false,
+      }),
+    })
+
+    expect(records).toHaveLength(1)
+    const run = records[0]!
+    expect(run.scenarioId).toBe('symphony-run-1')
+    expect(run.runId).toContain(':symphony-run-1')
+    expect(run.wallMs).toBe(1_685_000)
+    expect(run.tokenUsage).toEqual({
+      input: 1_035,
+      output: 74,
+      cached: 1_000,
+      cacheWrite: 200,
+    })
+    expect(run.outcome.holdoutScore).toBe(0.25)
+    expect(run.outcome.raw).toMatchObject({
+      source_trace_count: 2,
+      span_count: 7,
+      llm_span_count: 3,
+      tool_span_count: 2,
+      error_span_count: 1,
+    })
+    expect(run.failureMode).toBe('Error running tool (non-fatal): No such file or directory')
+    expect(run.judgeMetadata?.model).toBe('symphony-run-1@observed')
+    expect(seen).toEqual([
+      {
+        runId: 'symphony-run-1',
+        sourceTraceCount: 2,
+        sourceTraceIds: [TASK_CLEAN, TASK_ERROR],
+      },
+    ])
+  })
+
+  it('canonicalizes logical run ids before grouping fragments', () => {
+    const records = otlpToRunRecords(FIXTURE, {
+      ...baseOpts,
+      logicalRunIdForTrace: (traceId) =>
+        traceId === TASK_CLEAN ? '  symphony-run-1  ' : 'symphony-run-1',
+    })
+
+    expect(records).toHaveLength(1)
+    expect(records[0]?.scenarioId).toBe('symphony-run-1')
+  })
+
+  it('rejects a missing logical run id instead of silently splitting the run', () => {
+    expect(() =>
+      otlpToRunRecords(FIXTURE, {
+        ...baseOpts,
+        logicalRunIdForTrace: () => '',
+      }),
+    ).toThrow(/returned an empty run id/)
+  })
+
   it('carries verbatim prompt/completion text on otlpToTraceRunRecords', () => {
     const rows = otlpToTraceRunRecords(FIXTURE, baseOpts)
     const clean = rows.find((r) => r.record.scenarioId === TASK_CLEAN)!

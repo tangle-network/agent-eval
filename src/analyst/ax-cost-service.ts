@@ -170,13 +170,20 @@ function costReceiptFromAxResponse(
     validUsage(tokens.reasoningTokens) ? tokens.reasoningTokens : 0,
     thoughtsTokens,
   )
-  const outputTokens = tokens.completionTokens + thoughtsTokens
+  // OpenAI includes reasoning in completionTokens, while other Ax providers may
+  // report hidden output separately. Only add reasoning when it cannot be a
+  // subset of completionTokens; thoughts are always separately billed output.
+  const separateReasoningTokens = reasoningTokens > tokens.completionTokens ? reasoningTokens : 0
+  const additionalOutputTokens = Math.max(thoughtsTokens, separateReasoningTokens)
+  const outputTokens = tokens.completionTokens + additionalOutputTokens
   const directTotal = tokens.promptTokens + tokens.completionTokens
-  const classifiedTotal = directTotal + thoughtsTokens + totalCacheTokens
-  if (
-    reasoningTokens > outputTokens ||
-    (tokens.totalTokens !== directTotal && tokens.totalTokens !== classifiedTotal)
-  ) {
+  const validTotals = new Set([
+    directTotal,
+    directTotal + totalCacheTokens,
+    directTotal + additionalOutputTokens,
+    directTotal + totalCacheTokens + additionalOutputTokens,
+  ])
+  if (!validTotals.has(tokens.totalTokens)) {
     return {
       model,
       inputTokens: 0,
@@ -228,10 +235,8 @@ function containsUnboundedOrCacheableContent(request: Readonly<AxChatRequest<unk
   if (request.functions?.some((fn) => fn.cache === true)) return true
   return request.chatPrompt.some((message) => {
     if (message.cache === true) return true
-    return (
-      Array.isArray(message.content) &&
-      message.content.some((part) => part.cache === true || part.type !== 'text')
-    )
+    if (!('content' in message) || !Array.isArray(message.content)) return false
+    return message.content.some((part) => part.cache === true || part.type !== 'text')
   })
 }
 

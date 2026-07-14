@@ -241,16 +241,16 @@ describe('default kind suite shape', () => {
     }
   })
 
-  it('every default kind exercises Ax recursion (maxDepth >= 1)', () => {
+  it('every default kind has an explicit bounded subquery budget', () => {
     for (const spec of DEFAULT_TRACE_ANALYST_KINDS) {
-      expect(spec.recursion?.maxDepth ?? 0).toBeGreaterThanOrEqual(1)
-      expect(spec.recursion?.maxParallelSubagents ?? 0).toBeGreaterThanOrEqual(2)
+      expect(spec.subqueries?.maxCalls ?? 0).toBeGreaterThanOrEqual(1)
+      expect(spec.subqueries?.maxParallel ?? 0).toBeGreaterThanOrEqual(2)
     }
   })
 
-  it('improvement kind has the deepest recursion budget (it competes candidate fixes)', () => {
-    const max = Math.max(...DEFAULT_TRACE_ANALYST_KINDS.map((k) => k.recursion?.maxDepth ?? 0))
-    expect(IMPROVEMENT_KIND_SPEC.recursion?.maxDepth).toBe(max)
+  it('improvement kind has a maximum subquery budget for competing fixes', () => {
+    const max = Math.max(...DEFAULT_TRACE_ANALYST_KINDS.map((k) => k.subqueries?.maxCalls ?? 0))
+    expect(IMPROVEMENT_KIND_SPEC.subqueries?.maxCalls).toBe(max)
   })
 
   it("knowledge-gap prompt anchors on agent-knowledge wiki + websearch + tool-doc layers, not generic 'RAG'", () => {
