@@ -194,7 +194,7 @@ describe('measuredComparisonFromSelfImproveResult', () => {
           baselineContentHash: `sha256:${'a'.repeat(64)}`,
         },
       }),
-      message: /measurement sources do not agree/,
+      message: /baseline surface does not agree/,
     },
     {
       name: 'winner content hash',
@@ -205,7 +205,7 @@ describe('measuredComparisonFromSelfImproveResult', () => {
           winnerContentHash: `sha256:${'b'.repeat(64)}`,
         },
       }),
-      message: /measurement sources do not agree/,
+      message: /winner surface does not agree/,
     },
     {
       name: 'decision',
@@ -216,7 +216,7 @@ describe('measuredComparisonFromSelfImproveResult', () => {
           gate: { ...result.provenance.gate, decision: 'hold' as const },
         },
       }),
-      message: /measurement sources do not agree/,
+      message: /provenance decision does not agree/,
     },
     {
       name: 'decision reasons',
@@ -227,7 +227,7 @@ describe('measuredComparisonFromSelfImproveResult', () => {
           gate: { ...result.provenance.gate, reasons: ['contradictory reason'] },
         },
       }),
-      message: /measurement sources do not agree/,
+      message: /gate evidence does not agree/,
     },
     {
       name: 'decision checks',
@@ -238,7 +238,7 @@ describe('measuredComparisonFromSelfImproveResult', () => {
           gate: { ...result.provenance.gate, contributingGates: [] },
         },
       }),
-      message: /measurement sources do not agree/,
+      message: /gate evidence does not agree/,
     },
     {
       name: 'decision delta',
@@ -249,7 +249,7 @@ describe('measuredComparisonFromSelfImproveResult', () => {
           gate: { ...result.provenance.gate, delta: 999 },
         },
       }),
-      message: /measurement sources do not agree/,
+      message: /gate evidence does not agree/,
     },
     {
       name: 'diff',
@@ -257,7 +257,7 @@ describe('measuredComparisonFromSelfImproveResult', () => {
         ...result,
         provenance: { ...result.provenance, diff: 'contradictory diff' },
       }),
-      message: /measurement sources do not agree/,
+      message: /provenance diff does not agree/,
     },
     {
       name: 'total cost',

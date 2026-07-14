@@ -72,20 +72,36 @@ export function measuredComparisonFromSelfImproveResult<TScenario extends Scenar
     ? surfaceContentHash(options.baselineSurface)
     : result.provenance.baselineContentHash
   const candidateContentHash = surfaceContentHash(result.winner.surface)
-  if (
-    result.gateDecision !== result.provenance.gate.decision ||
-    result.gateDecision !== result.raw.gateResult.decision ||
-    measuredGateDigest(result.provenance.gate) !== measuredGateDigest(result.raw.gateResult) ||
-    result.diff !== result.provenance.diff ||
-    result.diff !== result.raw.promotedDiff ||
-    candidateContentHash !== surfaceContentHash(result.raw.winnerSurface) ||
-    result.provenance.baselineContentHash !== baselineContentHash ||
-    result.provenance.winnerContentHash !== candidateContentHash ||
-    power.n !== composite.n ||
-    power.confidence !== 0.95
-  ) {
-    throw new Error('agent improvement measurement sources do not agree')
-  }
+  assertMeasuredIdentity(
+    result.gateDecision,
+    result.provenance.gate.decision,
+    'provenance decision',
+  )
+  assertMeasuredIdentity(result.gateDecision, result.raw.gateResult.decision, 'raw decision')
+  assertMeasuredIdentity(
+    measuredGateDigest(result.provenance.gate),
+    measuredGateDigest(result.raw.gateResult),
+    'gate evidence',
+  )
+  assertMeasuredIdentity(result.diff, result.provenance.diff, 'provenance diff')
+  assertMeasuredIdentity(result.diff, result.raw.promotedDiff, 'raw diff')
+  assertMeasuredIdentity(
+    candidateContentHash,
+    surfaceContentHash(result.raw.winnerSurface),
+    'raw winner surface',
+  )
+  assertMeasuredIdentity(
+    result.provenance.baselineContentHash,
+    baselineContentHash,
+    'baseline surface',
+  )
+  assertMeasuredIdentity(
+    result.provenance.winnerContentHash,
+    candidateContentHash,
+    'winner surface',
+  )
+  assertMeasuredNumber(power.n, composite.n, 'power sample size')
+  assertMeasuredNumber(power.confidence, 0.95, 'power confidence')
 
   return agentImprovementMeasuredComparisonSchema.parse({
     schemaVersion: 1,
@@ -406,6 +422,10 @@ function assertMeasuredNumber(actual: number, expected: number, name: string): v
   ) {
     throw new Error(`${name} does not agree across the measured comparison`)
   }
+}
+
+function assertMeasuredIdentity(actual: string, expected: string, name: string): void {
+  if (actual !== expected) throw new Error(`${name} does not agree across the measured comparison`)
 }
 
 function measuredGateDigest(gate: {
