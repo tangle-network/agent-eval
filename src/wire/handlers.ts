@@ -10,7 +10,7 @@
  *   - Lets unexpected errors bubble — the transport maps them to 500.
  */
 
-import { CostLedger } from '../cost-ledger'
+import { CostLedger, type CostLedgerHandle } from '../cost-ledger'
 import type { FeedbackTrajectoryStore } from '../feedback-trajectory'
 import {
   callLlmJson,
@@ -188,7 +188,7 @@ function buildJudgePrompt(content: string, context: unknown): string {
 const DEFAULT_JUDGE_MODEL = 'claude-sonnet-4-6'
 
 export interface HandleJudgeOptions {
-  costLedger?: CostLedger
+  costLedger?: CostLedgerHandle
   costPhase?: string
   llm?: LlmClientOptions
   signal?: AbortSignal

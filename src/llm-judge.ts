@@ -27,7 +27,7 @@
 import { z } from 'zod'
 import type { ChatClient } from './analyst/chat-client'
 import type { JudgeConfig, JudgeDimension, JudgeScore, Scenario } from './campaign/types'
-import { CostLedger } from './cost-ledger'
+import { CostLedger, type CostLedgerHandle } from './cost-ledger'
 import { JudgeParseError } from './judges'
 import {
   costReceiptFromLlm,
@@ -74,7 +74,7 @@ export interface LlmJudgeOptions<TArtifact, TScenario extends Scenario = Scenari
    *  pretty-printed JSON of `{ scenario, artifact }`. */
   renderUser?: (input: { artifact: TArtifact; scenario: TScenario }) => string
   /** Strict runtime contract; its JSON Schema is sent to the provider. */
-  costLedger?: CostLedger
+  costLedger?: CostLedgerHandle
   responseSchema?: { name: string; schema: z.ZodObject }
 }
 

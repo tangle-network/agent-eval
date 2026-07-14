@@ -1,7 +1,7 @@
 import type { TCloud } from '@tangle-network/tcloud'
 import type { ProductClient } from './client'
 import { ConvergenceTracker } from './convergence'
-import { CostLedger } from './cost-ledger'
+import { CostLedger, type CostLedgerHandle } from './cost-ledger'
 import { MetricsCollector } from './metrics'
 import {
   costReceiptFromTCloud,
@@ -16,7 +16,7 @@ export interface AgentDriverConfig {
   /** System prompt context for the driver LLM to understand the product */
   productContext?: string
   /** Shared account for driver-model calls. */
-  costLedger?: CostLedger
+  costLedger?: CostLedgerHandle
   /** Exact provider attempt count, required when costLedger has a cap. */
   tcloudMaximumAttempts?: number
 }
@@ -46,7 +46,7 @@ export class AgentDriver {
   private client: ProductClient
   private driverModel: string
   private productContext: string
-  private costLedger: CostLedger
+  private costLedger: CostLedgerHandle
   private tcloudMaximumAttempts?: number
 
   constructor(tc: TCloud, config: AgentDriverConfig) {
@@ -349,7 +349,7 @@ export interface DecideNextUserTurnOpts {
   /** Driver LLM model. Defaults to claude-sonnet-4-6. */
   model?: string
   /** Shared account for the paid driver-model call. */
-  costLedger?: CostLedger
+  costLedger?: CostLedgerHandle
   /** Attribution tags merged into the paid-call receipt. */
   costTags?: Record<string, string>
   /** Exact provider attempt count, required when costLedger has a cap. */

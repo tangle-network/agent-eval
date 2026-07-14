@@ -18,7 +18,7 @@
  * never a parallel score shape.
  */
 
-import type { CostChannel, CostLedger, MaximumCharge } from '../cost-ledger'
+import type { CostChannel, CostLedgerHandle, MaximumCharge } from '../cost-ledger'
 import type { AdversarialMutation } from '../rl/adversarial'
 import type { DefaultVerdict } from '../verdict'
 
@@ -308,7 +308,7 @@ export interface ExploreOptions<S> {
    * explorer only sees dollars). Pass the program's shared `CostLedger` so
    * `costReport` stamps fuzz spend alongside judge/analyst spend.
    */
-  ledger?: CostLedger
+  ledger?: CostLedgerHandle
   /** Observer fired for every known-cost run recorded. */
   onCost?: (entry: { usd: number; channel: CostChannel }) => void
 }

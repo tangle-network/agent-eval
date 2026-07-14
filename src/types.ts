@@ -1,4 +1,4 @@
-import type { CostLedger, CostLedgerSummary } from './cost-ledger'
+import type { CostLedgerHandle, CostLedgerSummary } from './cost-ledger'
 
 // ── Scenario Definition ──
 
@@ -282,7 +282,7 @@ export interface BenchmarkRunnerConfig {
   generation?: number
   promptVersion?: string
   /** Shared ledger for agent and judge calls made by the benchmark. */
-  costLedger?: CostLedger
+  costLedger?: CostLedgerHandle
   /** Exact maximum provider attempts configured on the supplied TCloud client. */
   tcloudMaximumAttempts?: number
 }
@@ -292,7 +292,7 @@ export interface JudgeInput {
   turns: TurnResult[]
   artifacts: CollectedArtifacts
   /** Shared ledger for paid built-in judges. Direct calls default to an uncapped ledger. */
-  costLedger?: CostLedger
+  costLedger?: CostLedgerHandle
   costPhase?: string
   costTags?: Record<string, string>
   signal?: AbortSignal

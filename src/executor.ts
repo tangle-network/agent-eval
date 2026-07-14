@@ -1,5 +1,5 @@
 import type { TCloud } from '@tangle-network/tcloud'
-import { CostLedger } from './cost-ledger'
+import { CostLedger, type CostLedgerHandle } from './cost-ledger'
 import { CaptureIntegrityError } from './errors'
 import { JudgeParseError } from './judges'
 import { isTransientLlmError } from './llm-client'
@@ -27,7 +27,7 @@ export interface ExecutorConfig {
   /** Judges to run after execution */
   judges: JudgeFn[]
   /** Shared ledger for paid built-in judges. */
-  costLedger?: CostLedger
+  costLedger?: CostLedgerHandle
   costPhase?: string
   costTags?: Record<string, string>
   /** Exact maximum provider attempts configured on the supplied TCloud client. */

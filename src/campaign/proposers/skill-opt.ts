@@ -16,7 +16,7 @@
  * entrant in `compareProposers`.
  */
 
-import { CostLedger } from '../../cost-ledger'
+import { CostLedger, type CostLedgerHandle } from '../../cost-ledger'
 import {
   callLlm,
   costReceiptFromLlm,
@@ -73,7 +73,7 @@ export interface ProposePatchesArgs {
   /** How many candidate patches to propose. */
   count: number
   signal: AbortSignal
-  costLedger?: CostLedger
+  costLedger?: CostLedgerHandle
   costPhase?: string
 }
 
@@ -81,7 +81,7 @@ export interface SkillOptProposerOptions {
   llm: LlmClientOptions
   model: string
   /** Optional ledger for direct proposer use. Campaign context takes precedence. */
-  costLedger?: CostLedger
+  costLedger?: CostLedgerHandle
   /** What the skill document governs — orients the prompt. */
   target: string
   /** Default ops-per-patch cap when used as a bare `SurfaceProposer`. The

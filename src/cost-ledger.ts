@@ -685,6 +685,14 @@ export class CostLedger {
   }
 }
 
+/** Public callback surface for a shared cost ledger.
+ *
+ * Declaration bundles may expose this type through multiple package subpaths.
+ * Keeping callback contracts structural lets those subpaths compose while the
+ * concrete {@link CostLedger} retains its private durable state.
+ */
+export type CostLedgerHandle = Pick<CostLedger, keyof CostLedger>
+
 /** Return the canonical pricing-table key, or null when the model is unpriced. */
 export function modelPriceKey(model: string): string | null {
   return isModelPriced(model) ? model : null

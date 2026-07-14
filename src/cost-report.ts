@@ -9,7 +9,7 @@
  * unpriced model is a lower bound, never a measured zero.
  */
 
-import type { ChannelRollup, CostLedger } from './cost-ledger'
+import type { ChannelRollup, CostLedgerHandle } from './cost-ledger'
 import { ValidationError } from './errors'
 
 export interface ModelCostRollup {
@@ -35,7 +35,7 @@ export interface CostReport {
 }
 
 /** Project a ledger into the program cost report. Pure — no I/O, no clock. */
-export function costReport(ledger: CostLedger): CostReport {
+export function costReport(ledger: CostLedgerHandle): CostReport {
   const summary = ledger.summary()
   const perModel = new Map<string, ModelCostRollup>()
   for (const entry of ledger.list()) {
@@ -68,7 +68,7 @@ export function costReport(ledger: CostLedger): CostReport {
  */
 export function attachCostToReport<R extends object>(
   report: R,
-  ledger: CostLedger,
+  ledger: CostLedgerHandle,
 ): R & { cost: CostReport } {
   if ('cost' in report) {
     throw new ValidationError(

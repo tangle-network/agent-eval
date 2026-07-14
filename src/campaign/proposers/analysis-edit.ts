@@ -13,6 +13,7 @@ import { join } from 'node:path'
 import {
   CostAccountingIncompleteError,
   CostLedger,
+  type CostLedgerHandle,
   type CostReceiptInput,
   type MaximumCharge,
 } from '../../cost-ledger'
@@ -42,7 +43,7 @@ export interface AnalysisEditProposerOptions {
   analysisModel: string
   applyModel: string
   /** Optional ledger for direct proposer use. Campaign context takes precedence. */
-  costLedger?: CostLedger
+  costLedger?: CostLedgerHandle
   /** Required for each external step when the shared ledger has a dollar cap. */
   analysisMaximumCharge?: MaximumCharge
   /** Convert the external analyzer's result into measured usage/cost. */

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { exportRunAsOtlp, InMemoryTraceStore, TraceEmitter } from '../src/trace'
+import { contextInputTokens } from '../src/trace/attribute-vocabulary'
 
 describe('OTLP export', () => {
   it('maps a run + spans into OTLP resource spans — regression: missing fields break Jaeger render', async () => {
@@ -40,6 +41,7 @@ describe('OTLP export', () => {
   })
 
   it('preserves cache reads and writes in OTLP attributes', async () => {
+    expect(contextInputTokens({ cachedTokens: 300, cacheWriteTokens: 25 })).toBeUndefined()
     const store = new InMemoryTraceStore()
     const emitter = new TraceEmitter(store)
     await emitter.startRun({ scenarioId: 'cache-usage' })
@@ -47,6 +49,7 @@ describe('OTLP export', () => {
       name: 'model-call',
       model: 'claude-opus',
       messages: [],
+      inputTokens: 100,
       cachedTokens: 300,
       cacheWriteTokens: 25,
       reasoningTokens: 40,
@@ -63,6 +66,9 @@ describe('OTLP export', () => {
       attributes.find((attribute) => attribute.key === 'llm.token_count.prompt_cache_write')?.value
         .intValue,
     ).toBe('25')
+    expect(
+      attributes.find((attribute) => attribute.key === 'tangle.llm.context_tokens')?.value.intValue,
+    ).toBe('425')
     expect(
       attributes.find((attribute) => attribute.key === 'llm.token_count.reasoning')?.value.intValue,
     ).toBe('40')

@@ -25,7 +25,7 @@
  * empty generation because early generations legitimately have no findings.
  */
 
-import { CostLedger } from '../../cost-ledger'
+import { CostLedger, type CostLedgerHandle } from '../../cost-ledger'
 import {
   callLlm,
   costReceiptFromLlm,
@@ -48,7 +48,7 @@ const BLOCK_END = '<!-- END curated-memory -->'
 
 export interface MemoryCurationProposerOptions {
   /** Optional ledger for direct proposer use. Campaign context takes precedence. */
-  costLedger?: CostLedger
+  costLedger?: CostLedgerHandle
   /** Top-K lessons retained in the surface memory block. Default 12. */
   maxEntries?: number
   /** Heading rendered above the lessons inside the block. Default below. */
@@ -86,7 +86,7 @@ async function distillLessons(
   raw: string[],
   distill: NonNullable<MemoryCurationProposerOptions['distill']>,
   ctx: ProposeContext,
-  costLedger: CostLedger,
+  costLedger: CostLedgerHandle,
 ): Promise<string[]> {
   const request: LlmCallRequest = {
     model: distill.model,

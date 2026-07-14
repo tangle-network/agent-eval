@@ -14,7 +14,7 @@
  * (no silent empty).
  */
 
-import { CostLedger } from '../cost-ledger'
+import { CostLedger, type CostLedgerHandle } from '../cost-ledger'
 import {
   callLlm,
   costReceiptFromLlm,
@@ -37,7 +37,7 @@ export interface StructureFindingsOptions {
   baseUrl: string
   apiKey?: string
   /** Optional ledger for direct use. */
-  costLedger?: CostLedger
+  costLedger?: CostLedgerHandle
   costPhase?: string
   maxTokens?: number
   /** Max reask attempts after a zero/invalid extraction. Default 1. */

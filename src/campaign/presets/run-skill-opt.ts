@@ -23,7 +23,7 @@
  * them.
  */
 
-import type { CostLedger, CostLedgerSummary } from '../../cost-ledger'
+import type { CostLedgerHandle, CostLedgerSummary } from '../../cost-ledger'
 import type { RejectedEdit, SkillOptEvidence, SkillOptProposer } from '../proposers/skill-opt'
 import { type RunCampaignOptions, runCampaign } from '../run-campaign'
 import { resolveRunDir } from '../run-dir'
@@ -281,7 +281,7 @@ function runScoringCampaign<TScenario extends Scenario, TArtifact>(
   scenarios: TScenario[],
   surface: string,
   tag: string,
-  costLedger: CostLedger,
+  costLedger: CostLedgerHandle,
 ): Promise<CampaignResult<TArtifact, TScenario>> {
   return runCampaign<TScenario, TArtifact>({
     ...opts,

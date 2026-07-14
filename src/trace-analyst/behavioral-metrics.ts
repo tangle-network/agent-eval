@@ -11,6 +11,7 @@
  * tool usage present in any agentic OTLP trace, not any one benchmark.
  */
 
+import { LLM_CONTEXT_TOKENS } from '../trace/attribute-vocabulary'
 import { executionTrackByLane } from '../trace/execution-tracks'
 import {
   LLM_INPUT_TOKEN_ATTR_KEYS,
@@ -90,6 +91,10 @@ function numAttr(attrs: Record<string, unknown>, keys: readonly string[]): numbe
   return null
 }
 function inputTokensOf(s: TraceAnalystSpan): number | null {
+  const exactContext = num(s.attributes[LLM_CONTEXT_TOKENS])
+  if (exactContext !== null) return exactContext
+  // Foreign producers disagree on whether prompt includes cached tokens.
+  // Without an exact total, retain the reported prompt instead of guessing.
   return (
     numAttr(s.attributes, LLM_INPUT_TOKEN_ATTR_KEYS) ?? num(s.attributes['llm.usage.input_tokens'])
   )

@@ -94,6 +94,7 @@ describe('OTEL export', () => {
     )
     expect(attributes['llm.token_count.prompt_cache_hit']).toBe('300')
     expect(attributes['llm.token_count.prompt_cache_write']).toBe('25')
+    expect(attributes['tangle.llm.context_tokens']).toBe('425')
     expect(attributes['llm.token_count.reasoning']).toBe('40')
 
     await exporter.shutdown()

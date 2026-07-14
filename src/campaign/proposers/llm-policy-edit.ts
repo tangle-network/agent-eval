@@ -14,7 +14,7 @@ import {
 } from '../../analyst/policy-edit'
 import { assertNoJudgeVerdict } from '../../analyst/steer-firewall'
 import type { AnalystFinding, EvidenceRef } from '../../analyst/types'
-import { CostLedger } from '../../cost-ledger'
+import { CostLedger, type CostLedgerHandle } from '../../cost-ledger'
 import {
   callLlmJson,
   costReceiptFromLlm,
@@ -394,7 +394,7 @@ export interface LlmPolicyEditProposerOptions {
   llm: LlmClientOptions
   model: string
   /** Optional ledger for direct proposer use. Campaign context takes precedence. */
-  costLedger?: CostLedger
+  costLedger?: CostLedgerHandle
   /** Plain-language description of the JSON surface being improved. */
   target: string
   /** PolicyEdit target surface every authored edit must retain. */

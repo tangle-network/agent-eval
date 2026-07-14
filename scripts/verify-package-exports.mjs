@@ -62,8 +62,28 @@ try {
   writeFileSync(
     join(appDir, 'index.ts'),
     `
-      import { InMemoryTraceStore, type Run, type RunRecord } from '@tangle-network/agent-eval'
-      import { summarizeExecution, type ExecutionReport } from '@tangle-network/agent-eval/contract'
+      import {
+        CostLedger,
+        InMemoryTraceStore,
+        type CostLedgerHandle as RootCostLedgerHandle,
+        type LlmJudgeOptions as RootLlmJudgeOptions,
+        type ReferenceEquivalenceJudgeOptions as RootReferenceEquivalenceJudgeOptions,
+        type Run,
+        type RunRecord,
+      } from '@tangle-network/agent-eval'
+      import {
+        type CostLedgerHandle as ContractCostLedgerHandle,
+        type ReferenceEquivalenceJudgeOptions as ContractReferenceEquivalenceJudgeOptions,
+        summarizeExecution,
+        type ExecutionReport,
+        type SurfaceProposer as ContractSurfaceProposer,
+      } from '@tangle-network/agent-eval/contract'
+      import {
+        type CostLedgerHandle as CampaignCostLedgerHandle,
+        type LlmJudgeOptions as CampaignLlmJudgeOptions,
+        type ReferenceEquivalenceJudgeOptions as CampaignReferenceEquivalenceJudgeOptions,
+        type SurfaceProposer as CampaignSurfaceProposer,
+      } from '@tangle-network/agent-eval/campaign'
       import { stuckLoopView, type StuckLoopReport } from '@tangle-network/agent-eval/pipelines'
       import {
         LLM_REASONING_TOKENS,
@@ -71,7 +91,11 @@ try {
         otlpToRunRecords,
         type TraceAnalysisStore,
       } from '@tangle-network/agent-eval/traces'
-      import { LLM_INPUT_TOKENS } from '@tangle-network/agent-eval/trace-attributes'
+      import {
+        LLM_CONTEXT_TOKENS,
+        LLM_INPUT_TOKENS,
+        contextInputTokens,
+      } from '@tangle-network/agent-eval/trace-attributes'
 
       const store: TraceAnalysisStore = new OtlpFileTraceStore({ path: 'spans.jsonl' })
       const runs: RunRecord[] = otlpToRunRecords('{}', {
@@ -81,7 +105,37 @@ try {
       const report: ExecutionReport = summarizeExecution({ runs })
       const loop: Promise<StuckLoopReport> = stuckLoopView(new InMemoryTraceStore())
       const runtimeRun: Run | undefined = undefined
-      void [store, report, loop, runtimeRun, LLM_INPUT_TOKENS, LLM_REASONING_TOKENS]
+      const campaignProposer = null as unknown as CampaignSurfaceProposer
+      const contractProposer: ContractSurfaceProposer = campaignProposer
+      const campaignRoundTrip: CampaignSurfaceProposer = contractProposer
+      const campaignLlmOptions = null as unknown as CampaignLlmJudgeOptions<unknown>
+      const rootLlmOptions: RootLlmJudgeOptions<unknown> = campaignLlmOptions
+      const campaignLlmRoundTrip: CampaignLlmJudgeOptions<unknown> = rootLlmOptions
+      const campaignReferenceOptions = null as unknown as CampaignReferenceEquivalenceJudgeOptions
+      const contractReferenceOptions: ContractReferenceEquivalenceJudgeOptions = campaignReferenceOptions
+      const rootReferenceOptions: RootReferenceEquivalenceJudgeOptions = contractReferenceOptions
+      const campaignReferenceRoundTrip: CampaignReferenceEquivalenceJudgeOptions = rootReferenceOptions
+      const costLedger = new CostLedger()
+      const rootCostLedger: RootCostLedgerHandle = costLedger
+      const campaignCostLedger: CampaignCostLedgerHandle = costLedger
+      const contractCostLedger: ContractCostLedgerHandle = costLedger
+      const contextTokens = contextInputTokens({ inputTokens: 10, cachedTokens: 20 })
+      void [
+        store,
+        report,
+        loop,
+        runtimeRun,
+        campaignRoundTrip,
+        campaignLlmRoundTrip,
+        campaignReferenceRoundTrip,
+        rootCostLedger,
+        campaignCostLedger,
+        contractCostLedger,
+        LLM_INPUT_TOKENS,
+        LLM_CONTEXT_TOKENS,
+        contextTokens,
+        LLM_REASONING_TOKENS,
+      ]
     `,
   )
   writeFileSync(

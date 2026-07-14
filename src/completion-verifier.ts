@@ -24,7 +24,7 @@
 import { randomUUID } from 'node:crypto'
 import type { TCloud } from '@tangle-network/tcloud'
 import type { Artifact } from './artifact-validator'
-import { CostLedger, type CostReceiptInput } from './cost-ledger'
+import { CostLedger, type CostLedgerHandle, type CostReceiptInput } from './cost-ledger'
 import { recoverTruncatedJson } from './json-recovery'
 import { JudgeParseError } from './judges'
 import type { LlmCallRequest } from './llm-client'
@@ -432,7 +432,7 @@ export async function verifyCompletion(
 export interface LlmCorrectnessCheckerOpts {
   model?: string
   /** Optional ledger for direct use. */
-  costLedger?: CostLedger
+  costLedger?: CostLedgerHandle
   costPhase?: string
   costTags?: Record<string, string>
   signal?: AbortSignal

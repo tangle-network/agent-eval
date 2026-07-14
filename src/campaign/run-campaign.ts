@@ -12,7 +12,7 @@
 import { join } from 'node:path'
 import {
   CostAccountingIncompleteError,
-  type CostLedger,
+  type CostLedgerHandle,
   type CostLedgerSummary,
 } from '../cost-ledger'
 import { BackendIntegrityError, type BackendIntegrityReport } from '../integrity/backend-integrity'
@@ -67,7 +67,7 @@ export interface RunCampaignOptions<TScenario extends Scenario, TArtifact> {
   costCeiling?: number
   /** Shared spend account. Improvement loops pass one ledger through every
    *  campaign so the ceiling and returned total are run-wide. */
-  costLedger?: CostLedger
+  costLedger?: CostLedgerHandle
   /** Attribution label for receipts recorded by this campaign. */
   costPhase?: string
   /** Max concurrent cells. Default 2. */
@@ -270,7 +270,7 @@ interface ExecuteCellArgs<TScenario extends Scenario, TArtifact> {
   buildTraceWriter: (cellId: string, dir: string) => CampaignTraceWriter
   signal: AbortSignal
   dispatchTimeoutMs?: number
-  costLedger: CostLedger
+  costLedger: CostLedgerHandle
   costPhase: string
   runAttemptId: string
 }

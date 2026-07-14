@@ -1,7 +1,13 @@
 import { describe, expect, it } from 'vitest'
 import { deriveEfficiencyFindings } from '../analyst/behavioral-analyst'
 import { diffFindings } from '../analyst/findings-store'
-import { LLM_INPUT_TOKENS, LLM_OUTPUT_TOKENS } from '../trace/otlp-attributes'
+import {
+  LLM_CACHE_WRITE_TOKENS,
+  LLM_CACHED_TOKENS,
+  LLM_CONTEXT_TOKENS,
+  LLM_INPUT_TOKENS,
+  LLM_OUTPUT_TOKENS,
+} from '../trace/otlp-attributes'
 import { computeTraceMetrics } from './behavioral-metrics'
 import type { TraceAnalystSpan } from './types'
 
@@ -83,6 +89,45 @@ describe('computeTraceMetrics — deterministic behavioral signals (no LLM)', ()
     const m = computeTraceMetrics(spans)
     expect(m.inputTokenTrajectory).toEqual([10, 20])
     expect(m.outputTokenTrajectory).toEqual([5, 4])
+  })
+
+  it('detects growing context when canonical input is split across fresh and cache tokens', () => {
+    const spans = [
+      { fresh: 100, cached: 0, cacheWrite: 0 },
+      { fresh: 10, cached: 190, cacheWrite: 100 },
+      { fresh: 10, cached: 790, cacheWrite: 100 },
+    ].map(({ fresh, cached, cacheWrite }, index) => ({
+      ...llmSpan(index + 1, fresh, 10),
+      attributes: {
+        [LLM_INPUT_TOKENS]: fresh,
+        [LLM_CACHED_TOKENS]: cached,
+        [LLM_CACHE_WRITE_TOKENS]: cacheWrite,
+        [LLM_CONTEXT_TOKENS]: fresh + cached + cacheWrite,
+        [LLM_OUTPUT_TOKENS]: 10,
+        step: index + 1,
+      },
+    }))
+
+    const metrics = computeTraceMetrics(spans)
+
+    expect(metrics.inputTokenTrajectory).toEqual([100, 300, 900])
+    expect(metrics.signals.map((signal) => signal.code)).toContain('monotonic-input-growth')
+  })
+
+  it('does not guess whether a foreign provider prompt total includes cache', () => {
+    const metrics = computeTraceMetrics([
+      {
+        ...llmSpan(1, 100, 10),
+        attributes: {
+          [LLM_INPUT_TOKENS]: 100,
+          [LLM_CACHED_TOKENS]: 80,
+          [LLM_OUTPUT_TOKENS]: 10,
+          step: 1,
+        },
+      },
+    ])
+
+    expect(metrics.inputTokenTrajectory).toEqual([100])
   })
 
   it('fires all four HALO-class signals on the suboptimal-but-successful trace', () => {

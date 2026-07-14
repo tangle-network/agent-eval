@@ -13,7 +13,7 @@
  * observations and coverage are projections of it.
  */
 
-import { CostLedger, CostReceiptCaptureError } from '../cost-ledger'
+import { CostLedger, type CostLedgerHandle, CostReceiptCaptureError } from '../cost-ledger'
 import { ValidationError } from '../errors'
 import { varianceBasedCurriculum } from '../rl/active-curriculum'
 import { buildCapsule } from './capsule'
@@ -70,7 +70,7 @@ export class BehaviorExplorer<S> {
   private consecutiveEvalErrors = 0
   private stoppedEarly: { reason: 'eval-errors'; detail: string } | undefined
   private rngState: number
-  private readonly costLedger?: CostLedger
+  private readonly costLedger?: CostLedgerHandle
   private readonly costPhase = 'fuzz.explore'
 
   constructor(private readonly opts: ExploreOptions<S>) {
