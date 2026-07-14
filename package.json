@@ -35,12 +35,12 @@
       "default": "./dist/reporting.js"
     },
     "./rl": {
-      "types": "./dist/rl.d.ts",
+      "types": "./dist/rl/index.d.ts",
       "import": "./dist/rl.js",
       "default": "./dist/rl.js"
     },
     "./fuzz": {
-      "types": "./dist/fuzz.d.ts",
+      "types": "./dist/fuzz/index.d.ts",
       "import": "./dist/fuzz.js",
       "default": "./dist/fuzz.js"
     },
