@@ -184,7 +184,7 @@ function traceRunRecordsFromSpans(
 
   if (byTrace.size === 0) {
     throw new Error(
-      'otlpToRunRecords: OTLP input produced zero valid spans — every line was empty, malformed, or missing trace_id/span_id',
+      'otlpToRunRecords: OTLP input produced zero valid spans — every row was empty, malformed, or missing trace_id/span_id',
     )
   }
 
@@ -258,7 +258,7 @@ function traceRunRecordsFromSpans(
 
 // ── Internals ──────────────────────────────────────────────────────────
 
-function* parseJsonlRows(otlpJsonl: string): Iterable<Record<string, unknown>> {
+function* yieldJsonlRows(otlpJsonl: string): Iterable<Record<string, unknown>> {
   for (const line of otlpJsonl.split('\n')) {
     const trimmed = line.trim()
     if (trimmed.length === 0) continue
@@ -276,7 +276,7 @@ function* parseJsonlRows(otlpJsonl: string): Iterable<Record<string, unknown>> {
 }
 
 function groupJsonlSpansByTrace(otlpJsonl: string): Map<string, ProjectedOtlpSpan[]> {
-  return groupRowsByTrace(parseJsonlRows(otlpJsonl))
+  return groupRowsByTrace(yieldJsonlRows(otlpJsonl))
 }
 
 function groupRowsByTrace(
@@ -284,6 +284,7 @@ function groupRowsByTrace(
 ): Map<string, ProjectedOtlpSpan[]> {
   const byTrace = new Map<string, ProjectedOtlpSpan[]>()
   for (const row of rows) {
+    if (!row || typeof row !== 'object') continue
     const span = projectOtlpFlatLine(row)
     if (!span) continue
     const arr = byTrace.get(span.trace_id)

@@ -731,6 +731,9 @@ describe('otlpToRunRecords', () => {
   it('fails loudly when parsed rows contain no valid spans', () => {
     expect(() => otlpRowsToRunRecords([], baseOpts)).toThrow(/zero valid spans/)
     expect(() => otlpRowsToRunRecords([{}], baseOpts)).toThrow(/zero valid spans/)
+    expect(() =>
+      otlpRowsToRunRecords([null] as unknown as Record<string, unknown>[], baseOpts),
+    ).toThrow(/zero valid spans/)
   })
 
   it('rejects duplicate span identities instead of corrupting accounting', () => {
