@@ -86,13 +86,13 @@ try {
       } from '@tangle-network/agent-eval/campaign'
       import { stuckLoopView, type StuckLoopReport } from '@tangle-network/agent-eval/pipelines'
       import {
-        applyLlmSpanOtlpAttributes,
         LLM_REASONING_TOKENS,
         OtlpFileTraceStore,
         otlpToRunRecords,
         type TraceAnalysisStore,
       } from '@tangle-network/agent-eval/traces'
       import {
+        applyLlmSpanOtlpAttributes,
         LLM_CONTEXT_TOKENS,
         LLM_INPUT_TOKENS,
         contextInputTokens,

@@ -6,11 +6,9 @@ import {
   GEN_AI_OUTPUT_TOKEN_KEYS,
 } from '@tangle-network/agent-core/telemetry'
 import {
-  contextInputTokens,
   INPUT_VALUE,
   LLM_CACHE_WRITE_TOKENS,
   LLM_CACHED_TOKENS,
-  LLM_CONTEXT_TOKENS,
   LLM_COST_USD,
   LLM_INPUT_TOKENS,
   LLM_MODEL_NAME,
@@ -118,35 +116,6 @@ export const LLM_COST_ATTR_KEYS = [
 export const RUN_COST_ATTR_KEYS = ['tangle.cost.usd', 'cost.usd'] as const
 
 export const TOOL_NAME_ATTR_KEYS = [TOOL_NAME, 'inference.tool.name'] as const
-
-export interface LlmSpanOtlpInput {
-  model?: string
-  inputTokens?: number
-  outputTokens?: number
-  reasoningTokens?: number
-  cachedTokens?: number
-  cacheWriteTokens?: number
-  costUsd?: number
-  finishReason?: string
-}
-
-export function applyLlmSpanOtlpAttributes(
-  attributes: Record<string, unknown>,
-  span: LlmSpanOtlpInput,
-): void {
-  if (span.model !== undefined) attributes[LLM_MODEL_NAME] = span.model
-  if (span.inputTokens !== undefined) attributes[LLM_INPUT_TOKENS] = span.inputTokens
-  if (span.outputTokens !== undefined) attributes[LLM_OUTPUT_TOKENS] = span.outputTokens
-  if (span.reasoningTokens !== undefined) attributes[LLM_REASONING_TOKENS] = span.reasoningTokens
-  if (span.cachedTokens !== undefined) attributes[LLM_CACHED_TOKENS] = span.cachedTokens
-  if (span.cacheWriteTokens !== undefined) {
-    attributes[LLM_CACHE_WRITE_TOKENS] = span.cacheWriteTokens
-  }
-  const contextTokens = contextInputTokens(span)
-  if (contextTokens !== undefined) attributes[LLM_CONTEXT_TOKENS] = contextTokens
-  if (span.costUsd !== undefined) attributes[LLM_COST_USD] = span.costUsd
-  if (span.finishReason) attributes['llm.finish_reason'] = span.finishReason
-}
 
 export type ToolSpanOtlpInput = Pick<
   ToolSpan,
