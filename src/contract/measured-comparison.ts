@@ -6,7 +6,7 @@ import {
   type Sha256Digest,
 } from '@tangle-network/agent-interface'
 import { surfaceContentHash } from '../campaign/surface-identity'
-import type { Scenario } from '../campaign/types'
+import type { MutableSurface, Scenario } from '../campaign/types'
 import { type PairedArmRow, pairArms } from '../paired-arms'
 import { pairedBootstrap } from '../statistics'
 import { canonicalJson } from '../verdict-cache'
@@ -20,6 +20,8 @@ export interface MeasuredComparisonFromSelfImproveResultOptions<
   benchmark: AgentImprovementMeasuredComparison['benchmark']
   baselineProfileDigest: Sha256Digest
   candidateBundleDigest: Sha256Digest
+  /** When supplied, reject results whose recorded baseline is not this exact surface. */
+  baselineSurface?: MutableSurface
 }
 
 /** Convert one paired self-improvement result into the portable Interface evidence record. */
@@ -66,11 +68,14 @@ export function measuredComparisonFromSelfImproveResult<TScenario extends Scenar
     result.durationMs,
     'provenance total duration',
   )
-  const baselineContentHash = surfaceContentHash(result.baseline.surface)
+  const baselineContentHash = options.baselineSurface
+    ? surfaceContentHash(options.baselineSurface)
+    : result.provenance.baselineContentHash
   const candidateContentHash = surfaceContentHash(result.winner.surface)
   if (
     result.gateDecision !== result.provenance.gate.decision ||
     result.gateDecision !== result.raw.gateResult.decision ||
+    measuredGateDigest(result.provenance.gate) !== measuredGateDigest(result.raw.gateResult) ||
     result.diff !== result.provenance.diff ||
     result.diff !== result.raw.promotedDiff ||
     candidateContentHash !== surfaceContentHash(result.raw.winnerSurface) ||
@@ -401,6 +406,20 @@ function assertMeasuredNumber(actual: number, expected: number, name: string): v
   ) {
     throw new Error(`${name} does not agree across the measured comparison`)
   }
+}
+
+function measuredGateDigest(gate: {
+  decision: string
+  reasons: readonly string[]
+  delta?: number
+  contributingGates: ReadonlyArray<{ name: string; passed: boolean }>
+}): Sha256Digest {
+  return digest({
+    decision: gate.decision,
+    reasons: [...gate.reasons],
+    ...(gate.delta === undefined ? {} : { delta: gate.delta }),
+    contributingGates: gate.contributingGates.map(({ name, passed }) => ({ name, passed })),
+  })
 }
 
 function digest(value: unknown): Sha256Digest {

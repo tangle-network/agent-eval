@@ -81,6 +81,7 @@ function measuredComparison(result: FixtureResult) {
     },
     baselineProfileDigest: `sha256:${'2'.repeat(64)}`,
     candidateBundleDigest: `sha256:${'3'.repeat(64)}`,
+    baselineSurface: 'BASELINE',
   })
 }
 
@@ -213,6 +214,39 @@ describe('measuredComparisonFromSelfImproveResult', () => {
         provenance: {
           ...result.provenance,
           gate: { ...result.provenance.gate, decision: 'hold' as const },
+        },
+      }),
+      message: /measurement sources do not agree/,
+    },
+    {
+      name: 'decision reasons',
+      mutate: (result: FixtureResult) => ({
+        ...result,
+        provenance: {
+          ...result.provenance,
+          gate: { ...result.provenance.gate, reasons: ['contradictory reason'] },
+        },
+      }),
+      message: /measurement sources do not agree/,
+    },
+    {
+      name: 'decision checks',
+      mutate: (result: FixtureResult) => ({
+        ...result,
+        provenance: {
+          ...result.provenance,
+          gate: { ...result.provenance.gate, contributingGates: [] },
+        },
+      }),
+      message: /measurement sources do not agree/,
+    },
+    {
+      name: 'decision delta',
+      mutate: (result: FixtureResult) => ({
+        ...result,
+        provenance: {
+          ...result.provenance,
+          gate: { ...result.provenance.gate, delta: 999 },
         },
       }),
       message: /measurement sources do not agree/,
