@@ -10,7 +10,7 @@
 import { describe, expect, it } from 'vitest'
 import { surfaceHash } from '../campaign/surface-identity'
 import type { CodeSurface, Gate, JudgeConfig, SurfaceProposer } from '../campaign/types'
-import { CostLedger } from '../cost-ledger'
+import { CostLedger, type CostLedgerHandle } from '../cost-ledger'
 import type { DispatchContext, Scenario } from './index'
 import { type SelfImproveProgressEvent, SelfImproveRunError, selfImprove } from './self-improve'
 
@@ -288,7 +288,7 @@ describe('selfImprove — run-wide spend account', () => {
   it('shares the same account with paid proposal, analysis, and promotion work', async () => {
     const seenLedgers = new Set<unknown>()
     const charge = async (
-      context: { costLedger?: CostLedger; costPhase?: string },
+      context: { costLedger?: CostLedgerHandle; costPhase?: string },
       amount: number,
       channel: 'driver' | 'judge' | 'analyst' | 'verifier',
       actor: string,

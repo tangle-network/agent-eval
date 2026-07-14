@@ -21,14 +21,8 @@
 import { readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import {
+  applyLlmSpanOtlpAttributes,
   applyToolSpanOtlpAttributes,
-  LLM_CACHE_WRITE_TOKENS,
-  LLM_CACHED_TOKENS,
-  LLM_COST_USD,
-  LLM_INPUT_TOKENS,
-  LLM_MODEL_NAME,
-  LLM_OUTPUT_TOKENS,
-  LLM_REASONING_TOKENS,
   OPENINFERENCE_SPAN_KIND,
   traceSpanKindToOpenInferenceKind,
 } from './otlp-attributes'
@@ -387,16 +381,7 @@ function spanToAttributes(span: Span, events: TraceEvent[]): Record<string, unkn
     [OPENINFERENCE_SPAN_KIND]: traceSpanKindToOpenInferenceKind(span.kind),
   }
   if (span.kind === 'llm') {
-    attrs[LLM_MODEL_NAME] = span.model
-    if (span.inputTokens !== undefined) attrs[LLM_INPUT_TOKENS] = span.inputTokens
-    if (span.outputTokens !== undefined) attrs[LLM_OUTPUT_TOKENS] = span.outputTokens
-    if (span.reasoningTokens !== undefined) attrs[LLM_REASONING_TOKENS] = span.reasoningTokens
-    if (span.cachedTokens !== undefined) attrs[LLM_CACHED_TOKENS] = span.cachedTokens
-    if (span.cacheWriteTokens !== undefined) {
-      attrs[LLM_CACHE_WRITE_TOKENS] = span.cacheWriteTokens
-    }
-    if (span.costUsd !== undefined) attrs[LLM_COST_USD] = span.costUsd
-    if (span.finishReason) attrs['llm.finish_reason'] = span.finishReason
+    applyLlmSpanOtlpAttributes(attrs, span)
     if (Array.isArray(span.messages)) {
       attrs['llm.input_messages'] = JSON.stringify(span.messages.slice(-6))
     }

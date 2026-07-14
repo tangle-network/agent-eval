@@ -9,14 +9,8 @@
 
 import { OTEL_AGENT_EVAL_SCOPE, type OtlpExport, type OtlpSpan } from './otel'
 import {
+  applyLlmSpanOtlpAttributes,
   applyToolSpanOtlpAttributes,
-  LLM_CACHE_WRITE_TOKENS,
-  LLM_CACHED_TOKENS,
-  LLM_COST_USD,
-  LLM_INPUT_TOKENS,
-  LLM_MODEL_NAME,
-  LLM_OUTPUT_TOKENS,
-  LLM_REASONING_TOKENS,
   OPENINFERENCE_SPAN_KIND,
   type ToolSpanOtlpInput,
   traceSpanKindToOpenInferenceKind,
@@ -177,15 +171,7 @@ function toOtlpSpan(span: ExportableSpan): OtlpSpan {
     }
   }
   attrs[OPENINFERENCE_SPAN_KIND] = traceSpanKindToOpenInferenceKind(span.kind)
-  if (span.model) attrs[LLM_MODEL_NAME] = span.model
-  if (span.inputTokens !== undefined) attrs[LLM_INPUT_TOKENS] = span.inputTokens
-  if (span.outputTokens !== undefined) attrs[LLM_OUTPUT_TOKENS] = span.outputTokens
-  if (span.reasoningTokens !== undefined) attrs[LLM_REASONING_TOKENS] = span.reasoningTokens
-  if (span.cachedTokens !== undefined) attrs[LLM_CACHED_TOKENS] = span.cachedTokens
-  if (span.cacheWriteTokens !== undefined) {
-    attrs[LLM_CACHE_WRITE_TOKENS] = span.cacheWriteTokens
-  }
-  if (span.costUsd !== undefined) attrs[LLM_COST_USD] = span.costUsd
+  applyLlmSpanOtlpAttributes(attrs, span)
   if (span.tool) applyToolSpanOtlpAttributes(attrs, span.tool)
   return {
     traceId: padTraceId(span.traceId),

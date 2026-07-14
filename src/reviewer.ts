@@ -15,7 +15,7 @@
  * low-level pure builder + high-level factory built on top.
  */
 
-import { CostLedger, type CostReceipt } from './cost-ledger'
+import { CostLedger, type CostLedgerHandle, type CostReceipt } from './cost-ledger'
 import {
   callLlmJson,
   costReceiptFromLlm,
@@ -104,7 +104,7 @@ export interface CreateDefaultReviewerOptions {
   /** LlmClient transport config (baseUrl, apiKey, authHeader, etc.). */
   llm?: LlmClientOptions
   /** Shared run spend account. */
-  costLedger?: CostLedger
+  costLedger?: CostLedgerHandle
   costPhase?: string
   signal?: AbortSignal
   /**

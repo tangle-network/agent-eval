@@ -773,6 +773,7 @@ export type {
   CostChannel,
   CostLedgerEntry,
   CostLedgerFilter,
+  CostLedgerHandle,
   CostLedgerOptions,
   CostLedgerPersistence,
   CostLedgerSummary,

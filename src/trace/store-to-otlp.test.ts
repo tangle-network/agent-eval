@@ -104,6 +104,7 @@ describe('convertTraceStoresToOtlp', () => {
     expect(span!.attributes['llm.token_count.prompt']).toBe(120)
     expect(span!.attributes['llm.token_count.prompt_cache_hit']).toBe(300)
     expect(span!.attributes['llm.token_count.prompt_cache_write']).toBe(25)
+    expect(span!.attributes['tangle.llm.context_tokens']).toBe(445)
     expect(span!.attributes['llm.token_count.reasoning']).toBe(15)
     expect(span!.parent_span_id).toBe(anchor!.span_id)
     expect(span!.resource.attributes['test.persona_id']).toBe('p1')

@@ -272,6 +272,7 @@ export {
 // Adapters that meet customers where their data already lives. Pipe the
 // output straight into `analyzeRuns({ runs })`.
 
+export type { CostLedgerHandle } from '../cost-ledger'
 export {
   type AgentTraceContributor,
   type AgentTraceContributorType,

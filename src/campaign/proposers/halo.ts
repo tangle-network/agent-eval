@@ -17,7 +17,7 @@
 
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
-import type { CostLedger, CostReceiptInput, MaximumCharge } from '../../cost-ledger'
+import type { CostLedgerHandle, CostReceiptInput, MaximumCharge } from '../../cost-ledger'
 import type { LlmClientOptions } from '../../llm-client'
 import type { ProposeContext, SurfaceProposer } from '../types'
 import { analysisEditProposer } from './analysis-edit'
@@ -35,7 +35,7 @@ export interface HaloProposerOptions {
   /** Model used to APPLY halo's findings to the prompt surface. Default = `model`. */
   applyModel?: string
   /** Optional ledger for direct proposer use. Campaign context takes precedence. */
-  costLedger?: CostLedger
+  costLedger?: CostLedgerHandle
   analysisMaximumCharge?: MaximumCharge
   analysisReceipt?: (report: string) => CostReceiptInput
   applyMaxTokens?: number

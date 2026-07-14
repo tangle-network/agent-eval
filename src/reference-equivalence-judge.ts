@@ -1,7 +1,7 @@
 import { z } from 'zod'
 import type { ChatClient } from './analyst/chat-client'
 import type { JudgeConfig, Scenario } from './campaign/types'
-import type { CostLedger } from './cost-ledger'
+import type { CostLedgerHandle } from './cost-ledger'
 import type { LlmCallMetadata } from './llm-client'
 import { llmJudge } from './llm-judge'
 
@@ -32,7 +32,7 @@ export interface ReferenceEquivalenceJudgeOptions {
   /** Used only by the direct-call adapter. */
   signal?: AbortSignal
   /** Optional receipt destination for direct calls; campaigns supply their own. */
-  costLedger?: CostLedger
+  costLedger?: CostLedgerHandle
 }
 
 export interface ReferenceEquivalenceJudgeResult extends LlmCallMetadata {

@@ -19,7 +19,7 @@
 import type { PolicyEditCandidateRecord } from '../analyst/policy-edit'
 import type {
   CostChannel,
-  CostLedger,
+  CostLedgerHandle,
   CostLedgerSummary,
   PaidCallResult,
   RunPaidCallInput,
@@ -114,7 +114,7 @@ export interface JudgeConfig<TArtifact, TScenario extends Scenario = Scenario> {
     scenario: TScenario
     signal: AbortSignal
     /** Shared run spend account and receipt attribution phase. */
-    costLedger?: CostLedger
+    costLedger?: CostLedgerHandle
     costPhase?: string
     costTags?: Record<string, string>
   }): JudgeScore | Promise<JudgeScore>
@@ -318,7 +318,7 @@ export interface ProposeContext<TFindings = unknown> {
    *  reflection may ignore it. See {@link ParetoParent}. */
   paretoParents?: ParetoParent[]
   /** Shared run spend account and receipt attribution phase. */
-  costLedger?: CostLedger
+  costLedger?: CostLedgerHandle
   costPhase?: string
   /** FIREWALL (non-negotiable): the held-out judge is write-only — its verdicts
    *  score the chosen output and gate promotion, and are NEVER an input to
@@ -402,7 +402,7 @@ export interface GateContext<TArtifact, TScenario extends Scenario> {
   scenarios: TScenario[]
   cost: { candidate: number; baseline: number }
   /** Shared run spend account and receipt attribution phase. */
-  costLedger?: CostLedger
+  costLedger?: CostLedgerHandle
   costPhase?: string
   signal: AbortSignal
 }

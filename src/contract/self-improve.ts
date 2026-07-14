@@ -55,7 +55,7 @@ import type {
   Scenario,
   SurfaceProposer,
 } from '../campaign/types'
-import type { CostLedger, CostLedgerSummary, CostReceipt } from '../cost-ledger'
+import type { CostLedgerHandle, CostLedgerSummary, CostReceipt } from '../cost-ledger'
 import { createHostedClient, type HostedTenant } from '../hosted/client'
 import type { EvalRunCellScore, EvalRunEvent, EvalRunGenerationSnapshot } from '../hosted/types'
 import type { JudgeScoresRecord, RunRecord } from '../run-record'
@@ -327,7 +327,7 @@ export class SelfImproveRunError extends Error {
   readonly cost: CostLedgerSummary
   readonly receipts: CostReceipt[]
 
-  constructor(cause: unknown, ledger: CostLedger) {
+  constructor(cause: unknown, ledger: CostLedgerHandle) {
     const original = cause instanceof Error ? cause : new Error(String(cause))
     super(original.message, { cause: original })
     this.name = 'SelfImproveRunError'
@@ -424,7 +424,7 @@ export async function selfImprove<TScenario extends Scenario, TArtifact>(
 
 async function runSelfImprove<TScenario extends Scenario, TArtifact>(
   opts: SelfImproveOptions<TScenario, TArtifact>,
-  costLedger: CostLedger,
+  costLedger: CostLedgerHandle,
   startedAt: number,
   runDir: string,
   storage: CampaignStorage,

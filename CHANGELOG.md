@@ -4,6 +4,13 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ---
 
+## [0.118.2] — 2026-07-13 — interoperable contracts and trace accounting
+
+### Fixed
+
+- Every caller-supplied cost-ledger API now uses the public structural `CostLedgerHandle`, so types remain assignable when TypeScript resolves them through separate package entrypoints.
+- Trace writers emit an exact context-input total from known non-overlapping input and cache categories; behavioral analysis uses that value and leaves ambiguous third-party prompt totals unchanged.
+
 ## [0.118.1] — 2026-07-13 — parsed OTLP intake
 
 ### Added

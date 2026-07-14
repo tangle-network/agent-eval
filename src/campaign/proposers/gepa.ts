@@ -32,7 +32,7 @@
  * the mutation primitives alone.
  */
 
-import { CostLedger } from '../../cost-ledger'
+import { CostLedger, type CostLedgerHandle } from '../../cost-ledger'
 import {
   callLlm,
   costReceiptFromLlm,
@@ -97,7 +97,7 @@ export interface GepaProposerOptions {
   /** Model that performs the reflection. */
   model: string
   /** Optional ledger for direct proposer use. Campaign context takes precedence. */
-  costLedger?: CostLedger
+  costLedger?: CostLedgerHandle
   /** What is being optimized — appears in the reflection prompt for orientation. */
   target: string
   /** Surface-specific mutation levers offered to the model. */

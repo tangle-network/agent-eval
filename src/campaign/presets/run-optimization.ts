@@ -16,7 +16,7 @@
  * re-score + release gate + optional PR.
  */
 
-import type { CostLedger, CostLedgerSummary } from '../../cost-ledger'
+import type { CostLedgerHandle, CostLedgerSummary } from '../../cost-ledger'
 import { type Objective, paretoFrontier } from '../../pareto'
 import { type CampaignCoverage, campaignCoverage, formatCoverageFailures } from '../coverage'
 import { type RunCampaignOptions, runCampaign } from '../run-campaign'
@@ -86,7 +86,7 @@ export interface RunOptimizationBaseOptions<TScenario extends Scenario, TArtifac
     }>
     history: GenerationRecord[]
     /** Shared run spend account and receipt attribution phase. */
-    costLedger?: CostLedger
+    costLedger?: CostLedgerHandle
     costPhase?: string
   }) => Promise<unknown[]>
 }

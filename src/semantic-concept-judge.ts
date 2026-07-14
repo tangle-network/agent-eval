@@ -19,7 +19,7 @@
  * rather than "layer failed" in a multi-layer pipeline.
  */
 
-import { CostLedger, type CostReceipt } from './cost-ledger'
+import { CostLedger, type CostLedgerHandle, type CostReceipt } from './cost-ledger'
 import {
   callLlmJson,
   costReceiptFromLlm,
@@ -133,7 +133,7 @@ export interface SemanticConceptJudgeOptions {
   maxHtmlChars?: number
   /** LlmClient config (baseUrl, apiKey, authHeader, …). */
   llm?: LlmClientOptions
-  costLedger?: CostLedger
+  costLedger?: CostLedgerHandle
   costPhase?: string
   signal?: AbortSignal
   /**

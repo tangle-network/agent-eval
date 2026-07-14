@@ -19,7 +19,12 @@
  */
 
 import type { JudgeConfig, JudgeScore } from './campaign/types'
-import { CostLedger, type CostReceiptInput, type MaximumCharge } from './cost-ledger'
+import {
+  CostLedger,
+  type CostLedgerHandle,
+  type CostReceiptInput,
+  type MaximumCharge,
+} from './cost-ledger'
 import { aggregateJudgeVerdicts, type JudgeVerdict } from './judge-ensemble'
 import { assertCrossFamily } from './judge-families'
 import { type JudgeRetryPolicy, withJudgeRetry } from './judge-retry'
@@ -47,7 +52,7 @@ export interface EnsembleJudgeOptions<D extends string> {
   /** Recover usage from a failed provider response when its error retains one. */
   receiptFromError?: (error: Error, model: string) => CostReceiptInput | undefined
   /** Used by direct score calls; campaigns supply their run ledger in score(). */
-  costLedger?: CostLedger
+  costLedger?: CostLedgerHandle
   /** Required per model when the shared ledger has a dollar cap. */
   maximumCharge?: MaximumCharge | ((model: string) => MaximumCharge)
   /**
@@ -121,7 +126,7 @@ export function ensembleJudge<D extends string>(
     artifact: unknown
     scenario?: unknown
     signal: AbortSignal
-    costLedger: CostLedger
+    costLedger: CostLedgerHandle
     costPhase: string
     costTags?: Record<string, string>
   }): Promise<JudgeVerdict<D>> => {
