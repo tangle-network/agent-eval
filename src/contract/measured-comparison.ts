@@ -222,24 +222,28 @@ function pairMeasuredCells(
   baselineCells: readonly MeasuredEvaluationCell[],
   candidateCells: readonly MeasuredEvaluationCell[],
 ): Array<readonly [MeasuredEvaluationCell, MeasuredEvaluationCell]> {
+  const errors = [...baselineCells, ...candidateCells].filter((cell) => cell.error)
+  if (errors.length > 0) {
+    throw new Error(
+      `measured objectives cannot publish ${errors.length} errored heldout cells: ${errors
+        .map((cell) => measuredCellKey(cell))
+        .join(', ')}`,
+    )
+  }
   type MeasuredArmRow = PairedArmRow & { cell: MeasuredEvaluationCell }
   const rows: MeasuredArmRow[] = [
-    ...baselineCells
-      .filter((cell) => !cell.error)
-      .map((cell) => ({
-        pairKey: cell.scenarioId,
-        repKey: String(cell.rep),
-        arm: 'baseline',
-        cell,
-      })),
-    ...candidateCells
-      .filter((cell) => !cell.error)
-      .map((cell) => ({
-        pairKey: cell.scenarioId,
-        repKey: String(cell.rep),
-        arm: 'candidate',
-        cell,
-      })),
+    ...baselineCells.map((cell) => ({
+      pairKey: cell.scenarioId,
+      repKey: String(cell.rep),
+      arm: 'baseline',
+      cell,
+    })),
+    ...candidateCells.map((cell) => ({
+      pairKey: cell.scenarioId,
+      repKey: String(cell.rep),
+      arm: 'candidate',
+      cell,
+    })),
   ]
   const paired = pairArms(rows, { baselineArm: 'baseline', treatmentArm: 'candidate' })
   if (

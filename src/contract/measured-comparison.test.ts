@@ -1,6 +1,9 @@
+import { createHash } from 'node:crypto'
+
 import { describe, expect, it } from 'vitest'
 
 import type { Gate, JudgeConfig, Scenario, SurfaceProposer } from '../campaign/types'
+import { canonicalJson } from '../verdict-cache'
 import type { DispatchContext } from './index'
 import { measuredComparisonFromSelfImproveResult } from './measured-comparison'
 import { selfImprove } from './self-improve'
@@ -102,7 +105,11 @@ describe('measuredComparisonFromSelfImproveResult', () => {
       contributingChecks: [{ name: 'paired-heldout', passed: true }],
     })
     expect(comparison.power.n).toBe(4)
-    expect(comparison.provenance.recordDigest).toMatch(/^sha256:[a-f0-9]{64}$/)
+    expect(comparison.provenance.recordDigest).toBe(
+      `sha256:${createHash('sha256')
+        .update(canonicalJson(JSON.parse(JSON.stringify(result.provenance))))
+        .digest('hex')}`,
+    )
   })
 
   it('rejects an unpaired heldout result instead of silently dropping a cell', async () => {
@@ -138,5 +145,48 @@ describe('measuredComparisonFromSelfImproveResult', () => {
         candidateBundleDigest: `sha256:${'3'.repeat(64)}`,
       }),
     ).toThrow(/same non-empty paired heldout cells/)
+  })
+
+  it('rejects matched errored cells instead of publishing only surviving pairs', async () => {
+    const result = await selfImprove({
+      agent: paidAgent,
+      scenarios,
+      judge,
+      baselineSurface: 'BASELINE',
+      proposer,
+      gate: promotion,
+      budget: { generations: 1, populationSize: 1, holdoutFraction: 0.5 },
+    })
+    const errored = {
+      ...result,
+      raw: {
+        ...result.raw,
+        baselineOnHoldout: {
+          ...result.raw.baselineOnHoldout,
+          cells: result.raw.baselineOnHoldout.cells.map((cell, index) =>
+            index === 0 ? { ...cell, error: 'baseline failed' } : cell,
+          ),
+        },
+        winnerOnHoldout: {
+          ...result.raw.winnerOnHoldout,
+          cells: result.raw.winnerOnHoldout.cells.map((cell, index) =>
+            index === 0 ? { ...cell, error: 'candidate failed' } : cell,
+          ),
+        },
+      },
+    }
+
+    expect(() =>
+      measuredComparisonFromSelfImproveResult({
+        result: errored,
+        benchmark: {
+          name: 'comparison-fixture',
+          version: '1',
+          splitDigest: `sha256:${'1'.repeat(64)}`,
+        },
+        baselineProfileDigest: `sha256:${'2'.repeat(64)}`,
+        candidateBundleDigest: `sha256:${'3'.repeat(64)}`,
+      }),
+    ).toThrow(/cannot publish 2 errored heldout cells/)
   })
 })
