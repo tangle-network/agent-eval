@@ -1,29 +1,8 @@
 import { defineConfig } from 'tsup'
+import { buildEntries } from './scripts/build-entries.mjs'
 
 export default defineConfig({
-  entry: {
-    index: 'src/index.ts',
-    'analyst/index': 'src/analyst/index.ts',
-    control: 'src/control.ts',
-    reporting: 'src/reporting.ts',
-    rl: 'src/rl/index.ts',
-    fuzz: 'src/fuzz/index.ts',
-    traces: 'src/traces.ts',
-    'wire/index': 'src/wire/index.ts',
-    'benchmarks/index': 'src/benchmarks/index.ts',
-    'pipelines/index': 'src/pipelines/index.ts',
-    'meta-eval/index': 'src/meta-eval/index.ts',
-    'builder-eval/index': 'src/builder-eval/index.ts',
-    'matrix/index': 'src/matrix/index.ts',
-    'multishot/index': 'src/multishot/index.ts',
-    'campaign/index': 'src/campaign/index.ts',
-    'storyboard/index': 'src/storyboard/index.ts',
-    'authenticity/index': 'src/authenticity/index.ts',
-    'belief-state/index': 'src/belief-state/index.ts',
-    'contract/index': 'src/contract/index.ts',
-    'hosted/index': 'src/hosted/index.ts',
-    cli: 'src/cli.ts',
-  },
+  entry: buildEntries,
   format: ['esm'],
   sourcemap: true,
   clean: true,

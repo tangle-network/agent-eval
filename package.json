@@ -35,12 +35,12 @@
       "default": "./dist/reporting.js"
     },
     "./rl": {
-      "types": "./dist/rl/index.d.ts",
+      "types": "./dist/rl.d.ts",
       "import": "./dist/rl.js",
       "default": "./dist/rl.js"
     },
     "./fuzz": {
-      "types": "./dist/fuzz/index.d.ts",
+      "types": "./dist/fuzz.d.ts",
       "import": "./dist/fuzz.js",
       "default": "./dist/fuzz.js"
     },
@@ -48,6 +48,11 @@
       "types": "./dist/traces.d.ts",
       "import": "./dist/traces.js",
       "default": "./dist/traces.js"
+    },
+    "./trace-attributes": {
+      "types": "./dist/trace-attributes.d.ts",
+      "import": "./dist/trace-attributes.js",
+      "default": "./dist/trace-attributes.js"
     },
     "./wire": {
       "types": "./dist/wire/index.d.ts",
@@ -130,7 +135,7 @@
     "access": "public"
   },
   "scripts": {
-    "build": "tsup && tsc -p tsconfig.build.json && pnpm openapi",
+    "build": "tsup && node scripts/build-declarations.mjs && pnpm openapi",
     "dev": "tsup --watch",
     "prepare": "husky",
     "prepublishOnly": "pnpm build",

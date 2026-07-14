@@ -5,21 +5,24 @@ import {
   GEN_AI_MODEL_KEYS,
   GEN_AI_OUTPUT_TOKEN_KEYS,
 } from '@tangle-network/agent-core/telemetry'
+import {
+  INPUT_VALUE,
+  LLM_CACHE_WRITE_TOKENS,
+  LLM_CACHED_TOKENS,
+  LLM_COST_USD,
+  LLM_INPUT_TOKENS,
+  LLM_MODEL_NAME,
+  LLM_OUTPUT_TOKENS,
+  LLM_REASONING_TOKENS,
+  OPENINFERENCE_SPAN_KIND,
+  OUTPUT_VALUE,
+  TOOL_ARGS_CAPTURED,
+  TOOL_LATENCY_MS,
+  TOOL_NAME,
+} from './attribute-vocabulary'
 import type { ToolSpan } from './schema'
 
-export const OPENINFERENCE_SPAN_KIND = 'openinference.span.kind'
-export const LLM_MODEL_NAME = 'llm.model_name'
-export const LLM_INPUT_TOKENS = 'llm.token_count.prompt'
-export const LLM_OUTPUT_TOKENS = 'llm.token_count.completion'
-export const LLM_REASONING_TOKENS = 'llm.token_count.reasoning'
-export const LLM_CACHED_TOKENS = 'llm.token_count.prompt_cache_hit'
-export const LLM_CACHE_WRITE_TOKENS = 'llm.token_count.prompt_cache_write'
-export const LLM_COST_USD = 'llm.cost_usd'
-export const TOOL_NAME = 'tool.name'
-export const TOOL_ARGS_CAPTURED = 'tool.args_captured'
-export const TOOL_LATENCY_MS = 'tool.latency_ms'
-export const INPUT_VALUE = 'input.value'
-export const OUTPUT_VALUE = 'output.value'
+export * from './attribute-vocabulary'
 
 const TOOL_SPAN_ATTRIBUTE_KEYS = [
   TOOL_NAME,
