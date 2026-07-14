@@ -1,6 +1,8 @@
 /** Ax RLM trace analyst over bounded OTLP-JSONL trace stores. */
 
+export type { LlmSpanOtlpInput } from '../trace/otlp-attributes'
 export {
+  applyLlmSpanOtlpAttributes,
   contextInputTokens,
   LLM_CACHE_WRITE_TOKENS,
   LLM_CACHED_TOKENS,

@@ -86,6 +86,7 @@ try {
       } from '@tangle-network/agent-eval/campaign'
       import { stuckLoopView, type StuckLoopReport } from '@tangle-network/agent-eval/pipelines'
       import {
+        applyLlmSpanOtlpAttributes,
         LLM_REASONING_TOKENS,
         OtlpFileTraceStore,
         otlpToRunRecords,
@@ -120,6 +121,11 @@ try {
       const campaignCostLedger: CampaignCostLedgerHandle = costLedger
       const contractCostLedger: ContractCostLedgerHandle = costLedger
       const contextTokens = contextInputTokens({ inputTokens: 10, cachedTokens: 20 })
+      const traceAttributes: Record<string, unknown> = {}
+      applyLlmSpanOtlpAttributes(traceAttributes, {
+        inputTokens: 10,
+        cachedTokens: 20,
+      })
       void [
         store,
         report,
@@ -134,6 +140,7 @@ try {
         LLM_INPUT_TOKENS,
         LLM_CONTEXT_TOKENS,
         contextTokens,
+        traceAttributes,
         LLM_REASONING_TOKENS,
       ]
     `,
