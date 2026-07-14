@@ -62,6 +62,8 @@ export {
 export {
   type OtlpToRunRecordsOptions,
   type OtlpTraceRunRecord,
+  otlpRowsToRunRecords,
+  otlpRowsToTraceRunRecords,
   otlpToRunRecords,
   otlpToTraceRunRecords,
   type TraceAggregate,

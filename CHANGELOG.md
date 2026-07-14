@@ -4,6 +4,13 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ---
 
+## [0.118.1] — 2026-07-13 — parsed OTLP intake
+
+### Added
+
+- `otlpRowsToRunRecords()` and `otlpRowsToTraceRunRecords()` accept already-parsed OTLP flat rows.
+  They use the same projection, nested measurement reconciliation, validation, and deterministic ordering as JSONL intake without forcing in-memory consumers to serialize and parse the rows again.
+
 ## [0.118.0] — 2026-07-13 — complete execution accounting
 
 ### Added

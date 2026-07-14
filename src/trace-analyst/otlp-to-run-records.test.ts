@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest'
 import { isRunRecord, type RunRecord, validateRunRecord } from '../run-record'
-import { otlpToRunRecords, otlpToTraceRunRecords } from './otlp-to-run-records'
+import {
+  otlpRowsToRunRecords,
+  otlpToRunRecords,
+  otlpToTraceRunRecords,
+} from './otlp-to-run-records'
 
 /** Destructure the two-record result with a present-assertion so the strict
  *  `noUncheckedIndexedAccess` compiler doesn't widen each to `T | undefined`. */
@@ -717,6 +721,22 @@ describe('otlpToRunRecords', () => {
     const withGarbage = `${'garbage not json'}\n${FIXTURE}\n\n`
     const records = otlpToRunRecords(withGarbage, baseOpts)
     expect(records).toHaveLength(2)
+  })
+
+  it('produces identical records from parsed rows without a JSONL round trip', () => {
+    const rows = FIXTURE.split('\n').map((line) => JSON.parse(line)) as Array<{
+      trace_id: string
+      span_id: string
+    }>
+    expect(otlpRowsToRunRecords(rows, baseOpts)).toEqual(otlpToRunRecords(FIXTURE, baseOpts))
+  })
+
+  it('fails loudly when parsed rows contain no valid spans', () => {
+    expect(() => otlpRowsToRunRecords([], baseOpts)).toThrow(/zero valid spans/)
+    expect(() => otlpRowsToRunRecords([{}], baseOpts)).toThrow(/zero valid spans/)
+    expect(() => otlpRowsToRunRecords([null] as unknown as object[], baseOpts)).toThrow(
+      /zero valid spans/,
+    )
   })
 
   it('rejects duplicate span identities instead of corrupting accounting', () => {
