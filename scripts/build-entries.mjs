@@ -20,5 +20,6 @@ export const buildEntries = {
   'belief-state/index': 'src/belief-state/index.ts',
   'contract/index': 'src/contract/index.ts',
   'hosted/index': 'src/hosted/index.ts',
+  'primeintellect/index': 'src/primeintellect/index.ts',
   cli: 'src/cli.ts',
 }

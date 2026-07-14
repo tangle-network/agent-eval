@@ -119,6 +119,11 @@
       "import": "./dist/hosted/index.js",
       "default": "./dist/hosted/index.js"
     },
+    "./primeintellect": {
+      "types": "./dist/primeintellect/index.d.ts",
+      "import": "./dist/primeintellect/index.js",
+      "default": "./dist/primeintellect/index.js"
+    },
     "./openapi.json": {
       "default": "./dist/openapi.json"
     }
