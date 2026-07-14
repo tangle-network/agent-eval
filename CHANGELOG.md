@@ -4,6 +4,12 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ---
 
+## [0.119.1] — 2026-07-14 — portable improvement evidence
+
+### Added
+
+- `measuredComparisonFromSelfImproveResult()` converts paired held-out quality, cost, latency, uncertainty, power, decision, and provenance into the shared `AgentImprovementMeasuredComparison` contract.
+
 ## [0.119.0] — 2026-07-14 — chained, metered trace analysis
 
 ### Added
