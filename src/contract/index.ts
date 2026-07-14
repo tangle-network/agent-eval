@@ -206,6 +206,10 @@ export {
   defineAgentEval,
 } from './define-agent-eval'
 export {
+  type MeasuredComparisonFromSelfImproveResultOptions,
+  measuredComparisonFromSelfImproveResult,
+} from './measured-comparison'
+export {
   type SelfImproveBudget,
   type SelfImproveLlm,
   type SelfImproveOptions,

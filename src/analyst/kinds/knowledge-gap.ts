@@ -20,8 +20,8 @@
  * knowledge-gap names the *information* whose absence (or staleness)
  * caused the break. One failure-mode often maps to several gaps.
  *
- * Recursion (`maxDepth: 2`) is enough to fan out one subagent per
- * candidate gap-source layer; each subagent runs a focused detection.
+ * Five bounded model subqueries let the actor compare candidate gaps
+ * across source layers after it has loaded the relevant excerpts.
  */
 
 import { findingSubjectGrammarPromptFor } from '../finding-subject'
@@ -51,7 +51,7 @@ DISCOVERY → ATTRIBUTE-TO-LAYER → CITE protocol:
 3. For each gap, identify the **layer of the runtime that should have prevented it** and use its exact locus from the subject grammar above.
 4. For each defensible gap, emit ONE finding. Use an exact locus from the subject grammar and name the missing or stale knowledge (for example, "wiki has no page on invoice line-item shape; agent re-derived it from raw spans"). Rate it high when it caused failure or a clarifying question, medium for unnecessary turns, and low for minor inefficiency. Cite the span where the question, correction, retrieval miss, or stale result surfaced and quote it exactly. Use confidence 0.85+ when the agent articulated the gap and 0.6-0.8 when inferred. Recommend a concrete wiki edit for an agent-knowledge locus or a prompt/tool-description edit otherwise.
 
-**Delegate per layer.** After your first scan, you should have candidates spread across \`agent-knowledge:*\`, \`websearch:outdated\`, \`tool-doc:*\`, \`system-prompt:*\`, and \`memory:*\`. Spawn one \`llmQuery\` per layer in parallel — each subagent runs a focused detection (e.g. the \`agent-knowledge\` subagent looks for both missing-pages AND stale-pages; the \`websearch\` subagent looks specifically for date staleness signals; the \`tool-doc\` subagent looks for tool-call argument errors a fuller description would have prevented). Merge their evidence into the final finding set.
+**Compare layers over loaded evidence.** After the first scan, load the exact excerpts behind candidates across \`agent-knowledge:*\`, \`websearch:outdated\`, \`tool-doc:*\`, \`system-prompt:*\`, and \`memory:*\`. Use one bounded \`llmQuery\` per layer to classify those excerpts. Subqueries cannot call trace tools. Merge their classifications into the final finding set only when the source excerpts support them.
 
 Do NOT report a gap that the agent later recovered from cleanly within the same turn — that's resilience, not a gap. Cite the *non-recovery* version when both exist.
 
@@ -63,10 +63,10 @@ export const KNOWLEDGE_GAP_KIND_SPEC: TraceAnalystKindSpec = {
   description:
     'Identifies missing or stale pieces of knowledge — primarily against the agent-knowledge wiki — and attributes each to the runtime layer (wiki page, claim, raw source, websearch, tool-doc, system-prompt, memory) that should have held it.',
   area: 'knowledge-gap',
-  version: '1.1.0',
+  version: '1.2.0',
   actorDescription: ACTOR_PROMPT,
   buildTools: (store) => buildTraceToolsForGroup('discoveryAndSearch', store),
-  recursion: { maxDepth: 2, maxParallelSubagents: 4 },
+  subqueries: { maxCalls: 5, maxParallel: 4 },
   maxTurns: 18,
   cost: { kind: 'llm' },
 }

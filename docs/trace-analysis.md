@@ -30,19 +30,23 @@ import {
   analyzeTraces,
 } from '@tangle-network/agent-eval'
 
+const abortController = new AbortController()
 const result = await analyzeTraces({
   question: 'Why did app-runtime holdout runs fail this week?',
 }, {
   source: new OtlpFileTraceStore({ path: 'traces/otlp.jsonl' }),
   ai,
   model: 'gpt-4o-2024-11-20',
+  maxSubqueries: 4,
+  maxParallelSubqueries: 2,
+  signal: abortController.signal,
 })
 
 console.log(result.findings)
 ```
 
-Products can pass any `TraceAnalysisStore`; they do not need to use the file
-store in production.
+Products can pass any `TraceAnalysisStore`; they do not need to use the file store in production.
+The analyst runs one Ax executor loop and accepts only an explicit structured `final(task, { report, findings })` result; max-turn fallback text fails loud.
 
 ## Deterministic failure coverage (no LLM)
 

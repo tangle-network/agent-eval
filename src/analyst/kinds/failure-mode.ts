@@ -6,13 +6,8 @@
  * findings. The actor's job is *taxonomy + evidence*, not fix-design —
  * that's the improvement-analyst's job.
  *
- * Recursion is deep (`maxDepth: 3`) because real failure-mode
- * discovery is genuinely tree-shaped: the actor splits the dataset
- * into candidate clusters, each cluster spawns a focused investigator
- * that drills into representative traces, and a deeply-recursed
- * investigator may itself split a confounded mode into two sub-modes.
- * Each level fans out 4-way, so the analyst can investigate up to
- * ~16 leaf clusters before hitting the depth ceiling.
+ * Eight bounded model subqueries let the actor compare candidate
+ * clusters in parallel after it has loaded representative evidence.
  */
 
 import { findingSubjectGrammarPromptFor } from '../finding-subject'
@@ -35,11 +30,7 @@ DISCOVERY → CLUSTER → CITE protocol:
 
 If the dataset has no failures, return an empty findings array — do NOT pad with low-confidence speculation.
 
-**Delegate aggressively.** The recursion budget is there to be used:
-- After your first \`getDatasetOverview\` + \`queryTraces\` calls, you should have 3-6 candidate failure clusters in mind. Spawn one \`llmQuery\` per cluster in a single batch — they investigate in parallel.
-- A sub-investigator that finds its cluster is actually two distinct modes should split again at its own level. Recursion is meant to discover sub-modes, not to do trivial drilling that the parent could do in-line.
-- Pass narrow context to each subagent: { question: 'investigate the auth-revoked-mid-run cluster', context: { trace_ids: ['abc', 'def'], suspected_root_cause: 'token refresh skipped on idle sessions' } }. Subagents need enough context to skip re-discovery but not the whole conversation.
-- Each subagent returns candidate cluster evidence; the parent merges it into the final finding set.
+**Use subqueries over loaded evidence.** After the first scan, load representative span excerpts for each candidate cluster. Then send one bounded \`llmQuery\` per cluster in one batch, including the exact excerpts and asking it to classify the root cause. Subqueries cannot call trace tools. Merge or split clusters yourself from their classifications and the cited source evidence.
 
 OBSERVABILITY rules:
 - Each non-final turn must emit at least one \`console.log\` for evidence.
@@ -50,10 +41,10 @@ export const FAILURE_MODE_KIND_SPEC: TraceAnalystKindSpec = {
   description:
     'Clusters trace-dataset failures into distinct failure modes with cited evidence and a short recommended action.',
   area: 'failure-mode',
-  version: '1.1.0',
+  version: '1.2.0',
   actorDescription: ACTOR_PROMPT,
   buildTools: (store) => buildTraceToolsForGroup('all', store),
-  recursion: { maxDepth: 3, maxParallelSubagents: 4 },
+  subqueries: { maxCalls: 8, maxParallel: 4 },
   maxTurns: 24,
   cost: { kind: 'llm' },
 }

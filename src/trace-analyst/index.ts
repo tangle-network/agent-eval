@@ -74,7 +74,6 @@ export {
 export {
   TRACE_ANALYST_ACTOR_DESCRIPTION,
   TRACE_ANALYST_ACTOR_DESCRIPTION_VERSION,
-  TRACE_ANALYST_SUBAGENT_DESCRIPTION,
 } from './prompts'
 export type { TraceAnalysisStore } from './store'
 export {

@@ -2,8 +2,8 @@
  * Analyst-kind factory — the typed way to define trace analysts.
  *
  * A "kind" is a specialized analyst whose actor prompt, tool subset,
- * and Ax recursion config target one failure-mode lens (failure-mode
- * classification, knowledge gap discovery, knowledge poisoning, recursive
+ * and bounded Ax subqueries target one failure-mode lens (failure-mode
+ * classification, knowledge gap discovery, knowledge poisoning,
  * self-improvement, ...). Kinds emit findings in the typed
  * `CanonicalRawAnalystFinding` shape via a JSON-array Ax output; the factory
  * validates each row with Zod and lifts it into `AnalystFinding[]`.
@@ -14,21 +14,19 @@
  *   - Each kind picks a narrow tool subset from `ANALYST_TOOL_GROUPS`.
  *     A kind that never needs full-trace dumps can drop `viewTrace` /
  *     `viewSpans` and stay cheap.
- *   - Each kind declares its recursion + parallelism budget. Discovery-
- *     heavy kinds (failure-mode) get higher `maxDepth`; lens kinds
- *     (poisoning) usually stay at 0 since they have a tighter brief.
+ *   - Each kind declares its subquery + parallelism budget. Discovery-heavy
+ *     kinds can fan out more bounded semantic questions than narrow lenses.
  *
  * Optimizer hook: kinds may declare `goldens` — labeled examples used
- * by `AxMiPRO` / `AxBootstrapFewShot` / `AxGEPA` to fit the actor
+ * by `AxBootstrapFewShot` / `AxGEPA` to fit the actor
  * description programmatically. Stored on the kind, not the registry,
  * because the right metric is kind-specific.
  */
 
 import type { AxAIService, AxFunction } from '@ax-llm/ax'
-import { AxJSRuntime, agent } from '@ax-llm/ax'
 import { CostLedger } from '../cost-ledger'
+import { runTraceAnalysisLoop } from '../trace-analyst/loop'
 import type { TraceAnalysisStore } from '../trace-analyst/store'
-import { TraceFileMissingError } from '../trace-analyst/store-otlp'
 import { meterAxChatService } from './ax-cost-service'
 import { resolveAnalystModel } from './ax-service'
 import {
@@ -60,17 +58,15 @@ export interface TraceAnalystKindSpec {
   version: string
   /** Actor system prompt. Must instruct the LLM to emit `findings` per the schema. */
   actorDescription: string
-  /** Responder system prompt; falls back to a minimal "format the findings" instruction. */
-  responderDescription?: string
   /** Tool functions the actor may call. Pick narrow subsets via `ANALYST_TOOL_GROUPS`. */
   buildTools: (store: TraceAnalysisStore) => AxFunction[]
-  /** Recursion budget. `maxDepth: 0` disables subagents. */
-  recursion?: { maxDepth: number; maxParallelSubagents?: number }
+  /** Bounded semantic subqueries. `maxCalls: 0` disables model fan-out. */
+  subqueries?: { maxCalls: number; maxParallel?: number }
   /** Actor turn cap. Default 12. */
   maxTurns?: number
   /** Runtime char cap. Default 6000. */
   maxRuntimeChars?: number
-  /** Maximum output tokens for every actor, responder, and recursive model call. Default 4096. */
+  /** Maximum output tokens for every actor and subquery model call. Default 4096. */
   maxOutputTokens?: number
   /** Cost classification surfaced in `registry.list()` and budget enforcement. */
   cost: AnalystCost
@@ -124,6 +120,7 @@ export function createTraceAnalystKind(
   spec: TraceAnalystKindSpec,
   opts: CreateTraceAnalystKindOpts,
 ): Analyst<TraceAnalysisStore> {
+  rejectRemovedKindOptions(spec)
   const version = opts.versionSuffix ? `${spec.version}+${opts.versionSuffix}` : spec.version
   const model = resolveAnalystModel(opts.ai, opts.model)
   const minimumEvidenceCitations = spec.minimumEvidenceCitations ?? 1
@@ -135,7 +132,7 @@ export function createTraceAnalystKind(
     id: spec.id,
     description: spec.description,
     inputKind: 'trace-store',
-    cost: spec.cost,
+    cost: { ...spec.cost, settlement_timeout_ms: settlementTimeoutMs },
     version,
     async analyze(store, ctx) {
       const maxOutputTokens = spec.maxOutputTokens ?? 4096
@@ -156,12 +153,10 @@ export function createTraceAnalystKind(
       })
       try {
         const tools = spec.buildTools(store)
-        const maxDepth = spec.recursion?.maxDepth ?? 0
-        const maxParallel = spec.recursion?.maxParallelSubagents ?? 2
+        const maxSubqueries = spec.subqueries?.maxCalls ?? 0
+        const maxParallel = spec.subqueries?.maxParallel ?? 2
         const priorContext = renderPriorFindings(ctx.priorFindings)
         const upstreamContext = renderUpstreamFindings(ctx.upstreamFindings)
-        const functions = tools as unknown as NonNullable<Parameters<typeof agent>[1]>['functions']
-
         const actorDescription =
           spec.actorDescription.trim() +
           priorContext +
@@ -174,62 +169,34 @@ export function createTraceAnalystKind(
           '\n\nFirst write `report`: a concise free-form prose diagnosis of what ' +
           'the traces show — what succeeded, what was suboptimal or failed — with ' +
           'concrete trace ids and numbers. THEN return the structured `findings` ' +
-          'array (it MAY be empty when there is nothing to report). Call ' +
-          '`final({ report, findings })` exactly once when done.'
-
-        const ax = agent<{ question: string }, { report: string; findings: unknown[] }>(
-          'question:string -> report:string, findings:json[]',
-          {
-            agentIdentity: {
-              name: spec.id,
-              description: spec.description,
-            },
-            contextFields: ['question'],
-            runtime: new AxJSRuntime({
-              permissions: [],
-              blockDynamicImport: true,
-              allowedModules: [],
-              freezeIntrinsics: true,
-              blockShadowRealm: true,
-              preventGlobalThisExtensions: false,
-            }),
-            mode: maxDepth > 0 ? 'advanced' : 'simple',
-            recursionOptions: maxDepth > 0 ? { maxDepth } : undefined,
-            maxTurns: spec.maxTurns ?? 12,
-            maxRuntimeChars: spec.maxRuntimeChars ?? 6000,
-            maxBatchedLlmQueryConcurrency: maxParallel,
-            promptLevel: 'detailed',
-            // Trace analysis depends on exact prior tool results and runtime variables.
-            contextPolicy: { preset: 'full', budget: 'balanced' },
-            functions,
-            actorOptions: {
-              description: actorDescription,
-              model,
-              showThoughts: false,
-              thinkingTokenBudget: 'none',
-            },
-            responderOptions: {
-              description:
-                spec.responderDescription ??
-                "Pass through the actor's `report` prose verbatim, and format the `findings` array exactly as the actor produced it. Do not add, drop, or summarize entries.",
-              model,
-              showThoughts: false,
-            },
-            bubbleErrors: [TraceFileMissingError],
-          },
-        )
+          'array (it MAY be empty when there is nothing to report).'
 
         ctx.log?.(`analyst.kind ${spec.id} forward`, {
-          max_depth: maxDepth,
+          max_subqueries: maxSubqueries,
           tool_count: tools.length,
           tags: ctx.tags,
         })
 
-        const result = await ax.forward(meteredAi, { question: deriveQuestion(ctx, spec) })
+        const completed = await runTraceAnalysisLoop({
+          id: spec.id,
+          description: spec.description,
+          prompt: actorDescription,
+          question: deriveQuestion(ctx, spec),
+          ai: meteredAi,
+          model,
+          tools,
+          findingType: 'object',
+          maxSubqueries,
+          maxParallelSubqueries: maxParallel,
+          maxTurns: spec.maxTurns ?? 12,
+          maxRuntimeChars: spec.maxRuntimeChars ?? 6000,
+          ...(ctx.signal ? { signal: ctx.signal } : {}),
+        })
+        const { report, findings: submittedFindings } = completed
 
         const expectedSubjects = KIND_EXPECTED_SUBJECTS[spec.id]
         const out: AnalystFinding[] = []
-        const rawRows = Array.isArray(result.findings) ? result.findings : []
+        const rawRows = submittedFindings
         let rejectedWrongKind = 0
         let rejectedInsufficientEvidence = 0
         const processRow = (
@@ -301,7 +268,6 @@ export function createTraceAnalystKind(
         // via the tolerant structuring pass (opt-in), and — either way — surface
         // the report as a visible info finding so an empty harvest is never a
         // silent zero. A genuinely empty diagnosis (short/no report) stays empty.
-        const report = typeof result.report === 'string' ? result.report : ''
         if (out.length === 0 && report.trim().length >= 200) {
           if (opts.recovery) {
             const wrongKindBefore = rejectedWrongKind
@@ -366,6 +332,24 @@ export function createTraceAnalystKind(
         ctx.recordUsage?.(usage.receipt)
       }
     },
+  }
+}
+
+function rejectRemovedKindOptions(spec: TraceAnalystKindSpec): void {
+  const supplied = spec as unknown as Record<string, unknown>
+  const migrations = [
+    ['recursion', 'subqueries'],
+    ['responderDescription', 'actorDescription'],
+    ['maxDepth', 'subqueries'],
+    ['maxParallelSubagents', 'subqueries.maxParallel'],
+    ['subagentDescription', 'actorDescription'],
+  ] as const
+  for (const [removed, replacement] of migrations) {
+    if (removed in supplied) {
+      throw new TypeError(
+        `createTraceAnalystKind: '${removed}' is unsupported; use '${replacement}'`,
+      )
+    }
   }
 }
 

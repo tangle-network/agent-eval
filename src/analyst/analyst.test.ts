@@ -57,7 +57,7 @@ describe('computeFindingId', () => {
 })
 
 describe('AnalystRegistry', () => {
-  it('rejects duplicate ids and missing version at register-time', () => {
+  it('rejects invalid analyst declarations at register-time', () => {
     const reg = new AnalystRegistry()
     const ok: Analyst = {
       id: 'a',
@@ -72,6 +72,20 @@ describe('AnalystRegistry', () => {
     reg.register(ok)
     expect(() => reg.register(ok)).toThrow(/duplicate/)
     expect(() => reg.register({ ...ok, id: 'b', version: '' } as Analyst)).toThrow(/version/)
+    expect(() =>
+      reg.register({
+        ...ok,
+        id: 'c',
+        cost: { kind: 'deterministic', settlement_timeout_ms: 1 },
+      }),
+    ).toThrow(/deterministic analyst.*cannot declare settlement_timeout_ms/)
+    expect(() =>
+      reg.register({
+        ...ok,
+        id: 'd',
+        cost: { kind: 'llm', settlement_timeout_ms: -1 },
+      }),
+    ).toThrow(/settlementTimeoutMs must be a non-negative safe integer/)
   })
 
   it('routes inputKind correctly and skips analysts with missing input', async () => {
@@ -404,6 +418,26 @@ describe('AnalystHooks', () => {
     expect(calls).toEqual(['before:a', 'after:a:ok', 'before:b', 'after:b:ok', 'complete:2'])
   })
 
+  it('does not reclassify a successful analyst when its after hook fails', async () => {
+    let onErrorCalls = 0
+    const reg = new AnalystRegistry({
+      hooks: {
+        onAfterAnalyze: () => {
+          throw new Error('telemetry failed')
+        },
+        onError: () => {
+          onErrorCalls += 1
+          return []
+        },
+      },
+    })
+    reg.register(ok('a'))
+    const record = { id: 'r' } as unknown as AnalystRunInputs['runRecord']
+
+    await expect(reg.run('run-1', { runRecord: record })).rejects.toThrow('telemetry failed')
+    expect(onErrorCalls).toBe(0)
+  })
+
   it('onError can convert a thrown analyst into findings', async () => {
     const hooks: AnalystHooks = {
       onError: ({ analyst, error }) => [
@@ -449,6 +483,184 @@ describe('AnalystHooks', () => {
     })
     await reg.run('run-1', {})
     expect(summaries).toEqual(['wants-judge:skipped'])
+  })
+
+  it('enforces the run timeout while preserving earlier successful findings', async () => {
+    const beforeAnalyze: string[] = []
+    const reg = new AnalystRegistry({
+      hooks: {
+        onBeforeAnalyze: ({ analyst }) => {
+          beforeAnalyze.push(analyst.id)
+        },
+      },
+    })
+    reg.register(ok('first'))
+    let observedSignal: AbortSignal | undefined
+    reg.register({
+      id: 'stuck',
+      description: 'never settles',
+      inputKind: 'run-record',
+      cost: { kind: 'deterministic' },
+      version: '1',
+      async analyze(_input, ctx) {
+        observedSignal = ctx.signal
+        return new Promise<never>((_resolve, reject) => {
+          ctx.signal?.addEventListener('abort', () => reject(ctx.signal?.reason), { once: true })
+        })
+      },
+    })
+    let afterTimeoutCalled = false
+    reg.register({
+      id: 'after-timeout',
+      description: 'must not start after the run expires',
+      inputKind: 'run-record',
+      cost: { kind: 'deterministic' },
+      version: '1',
+      async analyze() {
+        afterTimeoutCalled = true
+        return []
+      },
+    })
+    const record = { id: 'r' } as unknown as AnalystRunInputs['runRecord']
+    const started = Date.now()
+
+    const result = await reg.run('run-1', { runRecord: record }, { timeoutMs: 20 })
+
+    expect(Date.now() - started).toBeLessThan(500)
+    expect(observedSignal?.aborted).toBe(true)
+    expect(afterTimeoutCalled).toBe(false)
+    expect(beforeAnalyze).toEqual(['first', 'stuck'])
+    expect(result.findings).toHaveLength(1)
+    expect(result.per_analyst).toMatchObject([
+      { analyst_id: 'first', status: 'ok' },
+      {
+        analyst_id: 'stuck',
+        status: 'failed',
+        error: { class: 'DOMException', message: expect.stringMatching(/timeout/i) },
+      },
+      {
+        analyst_id: 'after-timeout',
+        status: 'skipped',
+        reason: expect.stringMatching(/timeout/i),
+        usage: {
+          calls: 0,
+          tokens: { input: 0, output: 0 },
+          cost: { kind: 'observed', usd: 0 },
+        },
+      },
+    ])
+  })
+
+  it('does not add model receipt grace to deterministic work that ignores cancellation', async () => {
+    const reg = new AnalystRegistry()
+    reg.register({
+      id: 'stuck',
+      description: 'ignores cancellation',
+      inputKind: 'run-record',
+      cost: { kind: 'deterministic' },
+      version: '1',
+      async analyze() {
+        return new Promise<never>(() => {})
+      },
+    })
+    const record = { id: 'r' } as unknown as AnalystRunInputs['runRecord']
+    const started = Date.now()
+
+    const result = await reg.run('run-1', { runRecord: record }, { timeoutMs: 20 })
+
+    expect(Date.now() - started).toBeLessThan(500)
+    expect(result.per_analyst[0]).toMatchObject({
+      analyst_id: 'stuck',
+      status: 'failed',
+      error: { class: 'DOMException', message: expect.stringMatching(/timeout/i) },
+    })
+  })
+
+  it('bounds a lifecycle callback and never starts its analyst after expiry', async () => {
+    let analyzeCalled = false
+    const reg = new AnalystRegistry({
+      hooks: {
+        onBeforeAnalyze: async () => new Promise<never>(() => {}),
+      },
+    })
+    reg.register({
+      id: 'after-hook',
+      description: 'must not start',
+      inputKind: 'run-record',
+      cost: { kind: 'deterministic' },
+      version: '1',
+      async analyze() {
+        analyzeCalled = true
+        return []
+      },
+    })
+    const record = { id: 'r' } as unknown as AnalystRunInputs['runRecord']
+    const started = Date.now()
+
+    const result = await reg.run('run-1', { runRecord: record }, { timeoutMs: 20 })
+
+    expect(Date.now() - started).toBeLessThan(500)
+    expect(analyzeCalled).toBe(false)
+    expect(result.per_analyst[0]).toMatchObject({
+      analyst_id: 'after-hook',
+      status: 'skipped',
+      reason: expect.stringMatching(/timeout/i),
+    })
+  })
+
+  it('reports pre-aborted model work as an observed zero-cost skip', async () => {
+    const controller = new AbortController()
+    controller.abort(new DOMException('cancelled', 'AbortError'))
+    let analyzeCalled = false
+    const reg = new AnalystRegistry()
+    reg.register({
+      id: 'cancelled',
+      description: 'must not start',
+      inputKind: 'run-record',
+      cost: { kind: 'llm' },
+      version: '1',
+      async analyze() {
+        analyzeCalled = true
+        return []
+      },
+    })
+    const record = { id: 'r' } as unknown as AnalystRunInputs['runRecord']
+
+    const result = await reg.run('run-1', { runRecord: record }, { signal: controller.signal })
+
+    expect(analyzeCalled).toBe(false)
+    expect(result.per_analyst[0]).toEqual({
+      analyst_id: 'cancelled',
+      status: 'skipped',
+      reason: 'AbortError: cancelled',
+      findings_count: 0,
+      latency_ms: 0,
+      cost_usd: 0,
+      usage: {
+        calls: 0,
+        tokens: { input: 0, output: 0 },
+        cost: { kind: 'observed', usd: 0 },
+      },
+    })
+    expect(result.total_cost_provenance).toEqual({ kind: 'observed', usd: 0 })
+  })
+
+  it.each([
+    0,
+    -1,
+    0.5,
+    2_147_483_648,
+    Number.MAX_SAFE_INTEGER,
+    Number.NaN,
+    Number.POSITIVE_INFINITY,
+  ])('rejects invalid timeout %s before running an analyst', async (timeoutMs) => {
+    const reg = new AnalystRegistry()
+    reg.register(ok('first'))
+    const record = { id: 'r' } as unknown as AnalystRunInputs['runRecord']
+
+    await expect(reg.run('run-1', { runRecord: record }, { timeoutMs })).rejects.toThrow(
+      /timeoutMs must be a positive safe integer no greater than 2147483647/,
+    )
   })
 })
 
