@@ -17,6 +17,7 @@
  * same primitive instance is safe.
  */
 
+import { CostLedger } from '../cost-ledger'
 import type {
   Finding as LayerFinding,
   Severity as LayerSeverity,
@@ -29,10 +30,12 @@ import {
   SEMANTIC_CONCEPT_JUDGE_VERSION,
   type SemanticConceptJudgeInput,
   type SemanticConceptJudgeOptions,
+  type SemanticConceptJudgeResult,
 } from '../semantic-concept-judge'
 import type { JudgeFn, JudgeInput, JudgeScore, TCloud } from '../types'
 import type { Analyst, AnalystFinding, AnalystSeverity } from './types'
 import { makeFinding } from './types'
+import { settleUsageReceiptFromCostLedger, validateUsageSettlementTimeout } from './usage-receipt'
 
 const ADAPTER_REV = '1'
 
@@ -275,7 +278,10 @@ function liftJudgeScore(analyst_id: string, area: string, s: JudgeScore): Analys
 export interface SemanticConceptJudgeAdapterOpts {
   id?: string
   area?: string
-  options?: SemanticConceptJudgeOptions
+  /** Registry context owns cancellation and the per-analyst cost ledger. */
+  options?: Omit<SemanticConceptJudgeOptions, 'costLedger' | 'signal'>
+  /** Maximum post-cancellation wait for a provider receipt. Default 5 seconds. */
+  settlementTimeoutMs?: number
 }
 
 export function createSemanticConceptJudgeAdapter(
@@ -283,6 +289,7 @@ export function createSemanticConceptJudgeAdapter(
 ): Analyst<SemanticConceptJudgeInput> {
   const id = opts.id ?? 'semantic-concept-judge'
   const area = opts.area ?? 'concept-coverage'
+  const settlementTimeoutMs = validateUsageSettlementTimeout(opts.settlementTimeoutMs)
   return {
     id,
     description:
@@ -290,8 +297,28 @@ export function createSemanticConceptJudgeAdapter(
     inputKind: 'custom',
     cost: { kind: 'llm', models: opts.options?.model ? [opts.options.model] : undefined },
     version: `${SEMANTIC_CONCEPT_JUDGE_VERSION}-adapter-${ADAPTER_REV}`,
-    async analyze(input) {
-      const result = await runSemanticConceptJudge(input, opts.options)
+    async analyze(input, ctx) {
+      const costLedger = new CostLedger(ctx.budgetUsd)
+      let result: SemanticConceptJudgeResult
+      try {
+        result = await runSemanticConceptJudge(input, {
+          ...opts.options,
+          costLedger,
+          signal: ctx.signal,
+        })
+      } finally {
+        const usage = await settleUsageReceiptFromCostLedger(costLedger, {
+          channel: 'judge',
+          timeoutMs: settlementTimeoutMs,
+        })
+        if (!usage.settled) {
+          ctx.log?.('semantic-concept judge provider settlement timed out', {
+            pending_calls: usage.pendingCalls,
+            timeout_ms: settlementTimeoutMs,
+          })
+        }
+        ctx.recordUsage?.(usage.receipt)
+      }
       if (!result.available) {
         return [
           makeFinding({
@@ -327,7 +354,6 @@ export function createSemanticConceptJudgeAdapter(
               concept: f.concept,
               present: f.present,
               score_10: f.score,
-              cost_usd: result.costUsd ?? undefined,
             },
           }),
         )

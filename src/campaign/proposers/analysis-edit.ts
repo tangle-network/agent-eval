@@ -48,6 +48,8 @@ export interface AnalysisEditProposerOptions {
   analysisMaximumCharge?: MaximumCharge
   /** Convert the external analyzer's result into measured usage/cost. */
   analysisReceipt?: (report: string) => CostReceiptInput
+  /** The analyzer records its own provider calls in `ctx.costLedger`. */
+  analysisAlreadyMetered?: boolean
   applyMaxTokens?: number
   fetchImpl?: LlmClientOptions['fetch']
   /** Resolve the OTLP traces (JSONL) for THIS generation. Empty → `noTracesError`. */
@@ -76,31 +78,36 @@ export function analysisEditProposer(opts: AnalysisEditProposerOptions): Surface
       const tracePath = join(dir, 'traces.jsonl')
       writeFileSync(tracePath, traces.endsWith('\n') ? traces : `${traces}\n`)
 
-      if (costLedger.costCeilingUsd !== undefined && !opts.analysisReceipt) {
-        throw new CostAccountingIncompleteError(
-          `${opts.kind}: capped analysis requires analysisReceipt before external execution`,
-        )
+      let report: string
+      if (opts.analysisAlreadyMetered) {
+        report = await opts.analyze(tracePath, { ...ctx, costLedger, costPhase: phase })
+      } else {
+        if (costLedger.costCeilingUsd !== undefined && !opts.analysisReceipt) {
+          throw new CostAccountingIncompleteError(
+            `${opts.kind}: capped analysis requires analysisReceipt before external execution`,
+          )
+        }
+        const analysis = await costLedger.runPaidCall({
+          channel: 'analyst',
+          phase,
+          actor: `${opts.kind}.analyze`,
+          model: opts.analysisModel,
+          maximumCharge: opts.analysisMaximumCharge,
+          tags: { generation: String(ctx.generation) },
+          signal: ctx.signal,
+          execute: (signal) =>
+            opts.analyze(tracePath, { ...ctx, signal, costLedger, costPhase: phase }),
+          receipt: (value) =>
+            opts.analysisReceipt?.(value) ?? {
+              model: opts.analysisModel,
+              inputTokens: 0,
+              outputTokens: 0,
+              costUnknown: true,
+            },
+        })
+        if (!analysis.succeeded) throw analysis.error
+        report = analysis.value
       }
-
-      const analysis = await costLedger.runPaidCall({
-        channel: 'analyst',
-        phase,
-        actor: `${opts.kind}.analyze`,
-        model: opts.analysisModel,
-        maximumCharge: opts.analysisMaximumCharge,
-        tags: { generation: String(ctx.generation) },
-        signal: ctx.signal,
-        execute: (signal) => opts.analyze(tracePath, { ...ctx, signal }),
-        receipt: (report) =>
-          opts.analysisReceipt?.(report) ?? {
-            model: opts.analysisModel,
-            inputTokens: 0,
-            outputTokens: 0,
-            costUnknown: true,
-          },
-      })
-      if (!analysis.succeeded) throw analysis.error
-      const report = analysis.value
 
       const request: LlmCallRequest = {
         model: opts.applyModel,

@@ -91,7 +91,12 @@ export function traceAnalystProposer(opts: TraceAnalystProposerOptions): Surface
       const result = await registry.run(
         `trace-analyst-gen-${c.generation}`,
         { traceStore: new OtlpFileTraceStore({ path }) },
-        { signal: c.signal },
+        {
+          signal: c.signal,
+          chainFindings: true,
+          costLedger: c.costLedger,
+          costPhase: c.costPhase,
+        },
       )
       return result.findings
     })
@@ -106,6 +111,7 @@ export function traceAnalystProposer(opts: TraceAnalystProposerOptions): Surface
     costLedger: opts.costLedger,
     analysisMaximumCharge: opts.analysisMaximumCharge,
     analysisReceipt: opts.analysisReceipt,
+    analysisAlreadyMetered: opts.analyze === undefined,
     applyMaxTokens: opts.applyMaxTokens,
     fetchImpl: opts.fetchImpl,
     resolveTraces: opts.resolveTraces,

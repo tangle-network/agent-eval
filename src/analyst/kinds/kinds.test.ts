@@ -1,5 +1,10 @@
 import { describe, expect, it, vi } from 'vitest'
-import { parseRawFinding, RawAnalystFindingSchema } from '../finding-signature'
+import {
+  CanonicalRawAnalystFindingSchema,
+  parseCanonicalRawFinding,
+  parseRawFinding,
+  RawAnalystFindingSchema,
+} from '../finding-signature'
 import { createTraceAnalystKind, type TraceAnalystKindSpec } from '../kind-factory'
 import { buildTraceToolsForGroup } from '../tool-groups'
 import { computeFindingId, makeFinding } from '../types'
@@ -11,14 +16,18 @@ import {
   KNOWLEDGE_POISONING_KIND_SPEC,
 } from './index'
 
-describe('RawAnalystFindingSchema', () => {
+describe('CanonicalRawAnalystFindingSchema', () => {
   it('accepts a complete finding', () => {
-    const parsed = RawAnalystFindingSchema.safeParse({
+    const parsed = CanonicalRawAnalystFindingSchema.safeParse({
       severity: 'high',
       claim: 'agent looped on tool foo',
       subject: 'tool-doc:foo',
-      evidence_uri: 'span://abc/def',
-      evidence_excerpt: 'foo() called 11 times with same args',
+      evidence: [
+        {
+          uri: 'span://abc/def',
+          excerpt: 'foo() called 11 times with same args',
+        },
+      ],
       confidence: 0.9,
       rationale: 'eleven identical calls without progress',
       recommended_action: 'add per-call dedupe in scaffolding',
@@ -26,35 +35,142 @@ describe('RawAnalystFindingSchema', () => {
     expect(parsed.success).toBe(true)
   })
 
-  it('rejects out-of-range confidence', () => {
-    const parsed = RawAnalystFindingSchema.safeParse({
+  it('normalizes legacy single-citation rows into the plural contract', () => {
+    const parsed = CanonicalRawAnalystFindingSchema.safeParse({
+      severity: 'medium',
+      claim: 'legacy finding',
+      evidence_uri: 'span://legacy/action',
+      evidence_excerpt: 'legacy excerpt',
+      confidence: 0.7,
+    })
+    expect(parsed.success).toBe(true)
+    if (!parsed.success) throw new Error('test setup invariant')
+    expect(parsed.data.evidence).toEqual([
+      { uri: 'span://legacy/action', excerpt: 'legacy excerpt' },
+    ])
+    expect(parsed.data).not.toHaveProperty('evidence_uri')
+  })
+
+  it('preserves both citations when a provider mixes plural and singular fields', () => {
+    const parsed = CanonicalRawAnalystFindingSchema.parse({
+      severity: 'medium',
+      claim: 'mixed finding',
+      evidence: [{ uri: 'span://canonical/action' }],
+      evidence_uri: 'event://legacy/result',
+      evidence_excerpt: 'legacy corroboration',
+      confidence: 0.7,
+    })
+
+    expect(parsed.evidence).toEqual([
+      { uri: 'span://canonical/action' },
+      { uri: 'event://legacy/result', excerpt: 'legacy corroboration' },
+    ])
+  })
+
+  it('keeps a legacy excerpt when mixed fields cite the same source', () => {
+    const parsed = CanonicalRawAnalystFindingSchema.parse({
+      severity: 'medium',
+      claim: 'mixed finding',
+      evidence: [{ uri: 'span://canonical/action' }],
+      evidence_uri: 'span://canonical/action',
+      evidence_excerpt: 'exact corroboration',
+      confidence: 0.7,
+    })
+
+    expect(parsed.evidence).toEqual([
+      { uri: 'span://canonical/action', excerpt: 'exact corroboration' },
+    ])
+  })
+
+  it('requires at least one citation', () => {
+    const parsed = CanonicalRawAnalystFindingSchema.safeParse({
       severity: 'high',
       claim: 'x',
-      evidence_uri: 'span://a/b',
+      evidence: [],
+      confidence: 0.5,
+    })
+    expect(parsed.success).toBe(false)
+  })
+
+  it('rejects whitespace-only citation identifiers', () => {
+    const parsed = CanonicalRawAnalystFindingSchema.safeParse({
+      severity: 'high',
+      claim: 'x',
+      evidence: [{ uri: 'span://a/b' }, { uri: '   ' }],
+      confidence: 0.5,
+    })
+    expect(parsed.success).toBe(false)
+  })
+
+  it('rejects out-of-range confidence', () => {
+    const parsed = CanonicalRawAnalystFindingSchema.safeParse({
+      severity: 'high',
+      claim: 'x',
+      evidence: [{ uri: 'span://a/b' }],
       confidence: 1.5,
     })
     expect(parsed.success).toBe(false)
   })
 
   it('rejects unknown severity', () => {
-    const parsed = RawAnalystFindingSchema.safeParse({
+    const parsed = CanonicalRawAnalystFindingSchema.safeParse({
       severity: 'catastrophic',
       claim: 'x',
-      evidence_uri: 'span://a/b',
+      evidence: [{ uri: 'span://a/b' }],
       confidence: 0.5,
     })
     expect(parsed.success).toBe(false)
   })
 
   it('rejects unknown extra fields (strict mode)', () => {
-    const parsed = RawAnalystFindingSchema.safeParse({
+    const parsed = CanonicalRawAnalystFindingSchema.safeParse({
       severity: 'low',
       claim: 'x',
-      evidence_uri: 'span://a/b',
+      evidence: [{ uri: 'span://a/b' }],
       confidence: 0.5,
       unexpected: 'field',
     })
     expect(parsed.success).toBe(false)
+  })
+})
+
+describe('RawAnalystFindingSchema compatibility', () => {
+  it('retains the original singular evidence result', () => {
+    const parsed = RawAnalystFindingSchema.parse({
+      severity: 'medium',
+      claim: 'legacy finding',
+      evidence_uri: 'span://legacy/action',
+      evidence_excerpt: 'legacy excerpt',
+      confidence: 0.7,
+    })
+
+    expect(parsed).toEqual({
+      severity: 'medium',
+      claim: 'legacy finding',
+      evidence_uri: 'span://legacy/action',
+      evidence_excerpt: 'legacy excerpt',
+      confidence: 0.7,
+    })
+    expect(parsed).not.toHaveProperty('evidence')
+  })
+
+  it('rejects blank identifiers without rewriting accepted legacy values', () => {
+    const parsed = RawAnalystFindingSchema.parse({
+      severity: 'medium',
+      claim: 'legacy finding',
+      evidence_uri: '  span://legacy/action  ',
+      confidence: 0.7,
+    })
+
+    expect(parsed.evidence_uri).toBe('  span://legacy/action  ')
+    expect(
+      RawAnalystFindingSchema.safeParse({
+        severity: 'medium',
+        claim: 'legacy finding',
+        evidence_uri: '   ',
+        confidence: 0.7,
+      }).success,
+    ).toBe(false)
   })
 })
 
@@ -81,7 +197,20 @@ describe('parseRawFinding logs the rejection reason on schema failure', () => {
       log,
     )
     expect(out?.claim).toBe('test')
+    expect(out).toHaveProperty('evidence_uri', 'span://t/s')
+    expect(out).not.toHaveProperty('evidence')
     expect(log).not.toHaveBeenCalled()
+  })
+
+  it('keeps canonical parsing explicit and separate', () => {
+    expect(
+      parseCanonicalRawFinding({
+        severity: 'low',
+        claim: 'canonical',
+        evidence: [{ uri: 'span://t/s' }],
+        confidence: 0.4,
+      }),
+    ).toMatchObject({ evidence: [{ uri: 'span://t/s' }] })
   })
 })
 
@@ -95,10 +224,13 @@ describe('default kind suite shape', () => {
     ])
   })
 
-  it('every default kind declares a non-empty actor prompt + structured-output instruction', () => {
+  it('every default kind declares a non-empty lens prompt without duplicating the output contract', () => {
     for (const spec of DEFAULT_TRACE_ANALYST_KINDS) {
       expect(spec.actorDescription.length).toBeGreaterThan(500)
-      expect(spec.actorDescription).toMatch(/findings|final\(/)
+      expect(spec.actorDescription).not.toMatch(/`area`\s*=/)
+      expect(spec.actorDescription).not.toContain('`evidence_uri`')
+      expect(spec.actorDescription).not.toContain('`evidence_excerpt`')
+      expect(spec.actorDescription).not.toMatch(/final\(\{\s*findings/)
     }
   })
 
@@ -131,6 +263,7 @@ describe('default kind suite shape', () => {
 
   it('knowledge-poisoning prompt enforces dual-verify (acted on + actually false)', () => {
     expect(KNOWLEDGE_POISONING_KIND_SPEC.actorDescription).toMatch(/DUAL-VERIFY/)
+    expect(KNOWLEDGE_POISONING_KIND_SPEC.minimumEvidenceCitations).toBe(2)
   })
 
   it('failure-mode prompt requires clustering, not enumeration', () => {
@@ -180,7 +313,7 @@ describe('createTraceAnalystKind wires the spec into the Analyst contract', () =
       buildTools: () => [],
       cost: { kind: 'llm' },
     }
-    const analyst = createTraceAnalystKind(spec, { ai: stubAi() })
+    const analyst = createTraceAnalystKind(spec, { ai: stubAi(), model: 'test-model' })
     expect(analyst.id).toBe('test-kind')
     expect(analyst.version).toBe('0.0.1')
     expect(analyst.inputKind).toBe('trace-store')
@@ -199,6 +332,7 @@ describe('createTraceAnalystKind wires the spec into the Analyst contract', () =
     }
     const analyst = createTraceAnalystKind(spec, {
       ai: stubAi(),
+      model: 'test-model',
       versionSuffix: 'mipro-2026-05-18',
     })
     expect(analyst.version).toBe('1.0.0+mipro-2026-05-18')

@@ -220,6 +220,55 @@ describe('AnalystRegistry', () => {
     expect(result.per_analyst[0]?.cost_usd).toBeCloseTo(0.1, 5)
     expect(result.total_cost_usd).toBeCloseTo(0.1, 5)
   })
+
+  it('rejects a negative legacy cost without expanding the remaining budget', async () => {
+    const secondBudgets: Array<number | undefined> = []
+    const reg = new AnalystRegistry()
+    reg.register({
+      id: 'invalid-cost',
+      description: '',
+      inputKind: 'run-record',
+      cost: { kind: 'llm' },
+      version: '1',
+      async analyze() {
+        return [
+          makeFinding({
+            analyst_id: 'invalid-cost',
+            area: 'x',
+            claim: 'invalid cost',
+            severity: 'info',
+            confidence: 1,
+            evidence_refs: [],
+            metadata: { cost_usd: -3 },
+          }),
+        ]
+      },
+    })
+    reg.register({
+      id: 'second',
+      description: '',
+      inputKind: 'run-record',
+      cost: { kind: 'deterministic' },
+      version: '1',
+      async analyze(_input, ctx) {
+        secondBudgets.push(ctx.budgetUsd)
+        return []
+      },
+    })
+
+    const result = await reg.run(
+      'run-1',
+      { runRecord: { id: 'r' } as unknown as AnalystRunInputs['runRecord'] },
+      { budget: { totalUsd: 1, allocate: ({ remainingUsd }) => remainingUsd } },
+    )
+
+    expect(result.per_analyst[0]).toMatchObject({
+      status: 'failed',
+      error: { message: expect.stringContaining('metadata.cost_usd') },
+    })
+    expect(secondBudgets).toEqual([0])
+    expect(result.total_cost_usd).toBe(0)
+  })
 })
 
 describe('FindingsStore + diffFindings', () => {
@@ -734,6 +783,194 @@ describe('RegistryRunOpts.priorFindings forwarding', () => {
     r.register(a)
     await r.run('run-1', inputs)
     expect(a.seen[0]).toBeUndefined()
+  })
+})
+
+describe('RegistryRunOpts.chainFindings same-run forwarding', () => {
+  function finding(id: string, analystId: string): AnalystFinding {
+    return makeFinding({
+      analyst_id: analystId,
+      area: analystId,
+      claim: id,
+      severity: 'low',
+      confidence: 0.5,
+      evidence_refs: [],
+    })
+  }
+
+  it('passes an ordered snapshot of all earlier findings to each later analyst', async () => {
+    const registry = new AnalystRegistry()
+    const callOrder: string[] = []
+    const seen = new Map<string, string[] | undefined>()
+    for (const id of ['failure-mode', 'knowledge-gap', 'improvement']) {
+      registry.register({
+        id,
+        description: id,
+        inputKind: 'custom',
+        cost: { kind: 'deterministic' },
+        version: '1',
+        async analyze(_input, context) {
+          callOrder.push(id)
+          seen.set(
+            id,
+            context.upstreamFindings?.map((upstream) => `${upstream.analyst_id}:${upstream.claim}`),
+          )
+          return [finding(`${id}-finding`, id)]
+        },
+      })
+    }
+
+    await registry.run(
+      'run-1',
+      { custom: { 'failure-mode': 1, 'knowledge-gap': 1, improvement: 1 } },
+      { chainFindings: true },
+    )
+
+    expect(callOrder).toEqual(['failure-mode', 'knowledge-gap', 'improvement'])
+    expect(seen.get('failure-mode')).toBeUndefined()
+    expect(seen.get('knowledge-gap')).toEqual(['failure-mode:failure-mode-finding'])
+    expect(seen.get('improvement')).toEqual([
+      'failure-mode:failure-mode-finding',
+      'knowledge-gap:knowledge-gap-finding',
+    ])
+  })
+
+  it('keeps analysts independent unless same-run chaining is explicitly enabled', async () => {
+    let seen: ReadonlyArray<AnalystFinding> | undefined
+    const registry = new AnalystRegistry()
+    registry.register({
+      id: 'first',
+      description: 'first',
+      inputKind: 'custom',
+      cost: { kind: 'deterministic' },
+      version: '1',
+      async analyze() {
+        return [finding('first-finding', 'first')]
+      },
+    })
+    registry.register({
+      id: 'second',
+      description: 'second',
+      inputKind: 'custom',
+      cost: { kind: 'deterministic' },
+      version: '1',
+      async analyze(_input, context) {
+        seen = context.upstreamFindings
+        return []
+      },
+    })
+
+    await registry.run('run-1', { custom: { first: 1, second: 1 } })
+    expect(seen).toBeUndefined()
+  })
+})
+
+describe('AnalystRegistry usage receipts', () => {
+  it('reports tokens and explicit uncaptured USD for an empty, budgeted LLM result', async () => {
+    const logs: Array<{ message: string; fields?: Record<string, unknown> }> = []
+    const registry = new AnalystRegistry({
+      log: (message, fields) => logs.push({ message, fields }),
+    })
+    registry.register({
+      id: 'metered',
+      description: 'metered',
+      inputKind: 'custom',
+      cost: { kind: 'llm' },
+      version: '1',
+      async analyze(_input, context) {
+        context.recordUsage?.({
+          calls: 2,
+          tokens: { input: 120, output: 30, reasoning: 5, cached: 20, cacheWrite: 3 },
+          cost: { kind: 'uncaptured', usd: null },
+        })
+        return []
+      },
+    })
+
+    const result = await registry.run(
+      'run-1',
+      { custom: { metered: 1 } },
+      { budget: { totalUsd: 1 } },
+    )
+
+    expect(result.per_analyst[0]).toMatchObject({
+      status: 'ok',
+      findings_count: 0,
+      cost_usd: 0,
+      usage: {
+        calls: 2,
+        tokens: { input: 120, output: 30, reasoning: 5, cached: 20, cacheWrite: 3 },
+        cost: { kind: 'uncaptured', usd: null },
+      },
+    })
+    expect(result.total_cost_provenance).toEqual({ kind: 'uncaptured', usd: null })
+    expect(logs).toContainEqual({
+      message: '[analyst] WARN metered — USD cost uncaptured; budget not reconciled',
+      fields: { runId: 'run-1', budget_usd: 1, cost_captured: false },
+    })
+  })
+
+  it('uses a captured receipt as the cost source even when findings are empty', async () => {
+    const registry = new AnalystRegistry()
+    registry.register({
+      id: 'priced',
+      description: 'priced',
+      inputKind: 'custom',
+      cost: { kind: 'llm' },
+      version: '1',
+      async analyze(_input, context) {
+        context.recordUsage?.({
+          calls: 1,
+          tokens: { input: 10, output: 4 },
+          cost: { kind: 'observed', usd: 0.025 },
+        })
+        return []
+      },
+    })
+
+    const result = await registry.run('run-1', { custom: { priced: 1 } })
+
+    expect(result.per_analyst[0]?.cost_usd).toBe(0.025)
+    expect(result.per_analyst[0]?.usage?.cost).toEqual({ kind: 'observed', usd: 0.025 })
+    expect(result.total_cost_usd).toBe(0.025)
+    expect(result.total_cost_provenance).toEqual({ kind: 'observed', usd: 0.025 })
+  })
+
+  it('keeps the known subtotal when another call has uncaptured cost', async () => {
+    const registry = new AnalystRegistry()
+    registry.register({
+      id: 'partial',
+      description: 'partial',
+      inputKind: 'custom',
+      cost: { kind: 'llm' },
+      version: '1',
+      async analyze(_input, context) {
+        context.recordUsage?.({
+          calls: 1,
+          tokens: { input: 10, output: 4 },
+          cost: { kind: 'estimated', usd: 0.025 },
+        })
+        context.recordUsage?.({
+          calls: null,
+          tokens: null,
+          cost: { kind: 'uncaptured', usd: null },
+          knownCostUsd: 0.01,
+        })
+        return []
+      },
+    })
+
+    const result = await registry.run('run-1', { custom: { partial: 1 } })
+
+    expect(result.per_analyst[0]).toMatchObject({
+      cost_usd: 0.035,
+      usage: {
+        cost: { kind: 'uncaptured', usd: null },
+        knownCostUsd: 0.035,
+      },
+    })
+    expect(result.total_cost_usd).toBe(0.035)
+    expect(result.total_cost_provenance).toEqual({ kind: 'uncaptured', usd: null })
   })
 })
 

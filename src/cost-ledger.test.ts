@@ -42,14 +42,139 @@ describe('costForUsage', () => {
     expect(r.costUsd).toBe(0)
   })
 
-  it('bills cached tokens at the input rate', () => {
+  it('bills cache reads and writes at the input rate when provider cost is unavailable', () => {
     const base = costForUsage('gpt-4o', { inputTokens: 1000, outputTokens: 0 })
     const cached = costForUsage('gpt-4o', {
       inputTokens: 1000,
       outputTokens: 0,
       cachedTokens: 1000,
+      cacheWriteTokens: 1000,
     })
-    expect(cached.costUsd).toBeCloseTo(base.costUsd * 2, 6)
+    expect(cached.costUsd).toBeCloseTo(base.costUsd * 3, 6)
+  })
+
+  it('preserves reasoning and cache-write dimensions in durable receipts', async () => {
+    const { persistence, state } = memoryPersistence()
+    const ledger = new CostLedger({ persistence })
+    const result = await ledger.runPaidCall({
+      channel: 'analyst',
+      phase: 'inspect',
+      actor: 'fixture',
+      model: 'gpt-4o',
+      execute: async () => 'ok',
+      receipt: () => ({
+        model: 'gpt-4o',
+        inputTokens: 10,
+        outputTokens: 7,
+        reasoningTokens: 3,
+        cachedTokens: 4,
+        cacheWriteTokens: 2,
+      }),
+    })
+
+    expect(result.succeeded).toBe(true)
+    const events = persistedEvents(state.events)
+    const settledEvent = events.find(
+      (event) =>
+        event.record !== undefined && 'status' in event.record && event.record.status === 'settled',
+    )
+    expect(settledEvent).toMatchObject({
+      version: 2,
+      record: {
+        inputTokens: 10,
+        outputTokens: 7,
+        reasoningTokens: 3,
+        cachedTokens: 4,
+        cacheWriteTokens: 2,
+      },
+    })
+    expect(settledEvent?.record).not.toHaveProperty('error')
+
+    const pendingEvent = events[0]
+    expect(pendingEvent).toMatchObject({
+      version: 1,
+      record: {
+        status: 'pending',
+        callId: settledEvent?.record?.callId,
+        channel: settledEvent?.record?.channel,
+        phase: settledEvent?.record?.phase,
+        actor: settledEvent?.record?.actor,
+        timestamp: settledEvent?.record?.timestamp,
+      },
+    })
+    expect(pendingEvent?.record?.tags).toEqual(settledEvent?.record?.tags)
+
+    const reloaded = new CostLedger({ persistence })
+    expect(reloaded.list()[0]).toMatchObject({
+      inputTokens: 10,
+      outputTokens: 7,
+      reasoningTokens: 3,
+      cachedTokens: 4,
+      cacheWriteTokens: 2,
+    })
+    expect(reloaded.list()[0]?.tags).toBeUndefined()
+    expect(reloaded.list()[0]?.error).toBeUndefined()
+    expect(reloaded.summary()).toMatchObject({
+      reasoningTokens: 3,
+      cachedTokens: 4,
+      cacheWriteTokens: 2,
+      byChannel: [
+        expect.objectContaining({
+          channel: 'analyst',
+          reasoningTokens: 3,
+          cachedTokens: 4,
+          cacheWriteTokens: 2,
+        }),
+      ],
+    })
+  })
+
+  it('preserves a provider error alongside the compatible usage extension', async () => {
+    const { persistence, state } = memoryPersistence()
+    const ledger = new CostLedger({ persistence })
+
+    const result = await ledger.runPaidCall({
+      channel: 'analyst',
+      phase: 'inspect',
+      actor: 'fixture',
+      model: 'gpt-4o',
+      execute: async () => {
+        throw new Error('provider rejected output')
+      },
+      receipt: () => ({ model: 'gpt-4o', inputTokens: 0, outputTokens: 0 }),
+      receiptFromError: () => ({
+        model: 'gpt-4o',
+        inputTokens: 10,
+        outputTokens: 7,
+        reasoningTokens: 3,
+        cacheWriteTokens: 2,
+      }),
+    })
+
+    expect(result).toMatchObject({
+      succeeded: false,
+      error: { message: 'provider rejected output' },
+    })
+    const settledEvent = persistedEvents(state.events).find(
+      (event) =>
+        event.record !== undefined && 'status' in event.record && event.record.status === 'settled',
+    )
+    expect(settledEvent).toMatchObject({
+      version: 2,
+      record: {
+        inputTokens: 10,
+        outputTokens: 7,
+        reasoningTokens: 3,
+        cacheWriteTokens: 2,
+        error: 'provider rejected output',
+      },
+    })
+    expect(new CostLedger({ persistence }).list()[0]).toMatchObject({
+      inputTokens: 10,
+      reasoningTokens: 3,
+      cacheWriteTokens: 2,
+      error: 'provider rejected output',
+    })
   })
 
   it('fails loud on negative tokens', () => {
@@ -83,19 +208,25 @@ function memoryPersistence(initialEvents = ''): {
   }
 }
 
-function eventFor(record: object): string {
-  return `${JSON.stringify({ version: 1, record })}\n`
+function eventFor(record: object, version: 1 | 2 = 1): string {
+  return `${JSON.stringify({ version, record })}\n`
 }
 
-function persistedRecords(events: string): unknown[] {
+function persistedEvents(events: string): Array<{
+  version: number
+  record?: Record<string, unknown>
+}> {
   return events
     .trim()
     .split('\n')
     .filter(Boolean)
-    .flatMap((line) => {
-      const event = JSON.parse(line) as { record?: unknown }
-      return event.record === undefined ? [] : [event.record]
-    })
+    .map((line) => JSON.parse(line) as { version: number; record?: Record<string, unknown> })
+}
+
+function persistedRecords(events: string): unknown[] {
+  return persistedEvents(events).flatMap((event) =>
+    event.record === undefined ? [] : [event.record],
+  )
 }
 
 function storedReceipt(channel: 'agent' | 'judge', input: CostReceiptInput): CostReceipt {
@@ -777,6 +908,7 @@ describe('CostLedger', () => {
       totalCostUsd: 0,
       pendingCalls: 1,
       unresolvedCalls: 1,
+      usageComplete: false,
       accountingComplete: false,
     })
     let nextCalls = 0
@@ -797,12 +929,43 @@ describe('CostLedger', () => {
     expect(nextCalls).toBe(0)
 
     finish()
-    await new Promise((resolve) => setTimeout(resolve, 0))
+    await ledger.waitForIdle()
     expect(ledger.summary()).toMatchObject({
       totalCostUsd: 0.5,
       pendingCalls: 0,
       unresolvedCalls: 0,
       accountingComplete: true,
+    })
+  })
+
+  it('bounds idle waiting when a provider ignores cancellation', async () => {
+    const ledger = new CostLedger()
+    const controller = new AbortController()
+    let started!: () => void
+    const providerStarted = new Promise<void>((resolve) => {
+      started = resolve
+    })
+    const call = ledger.runPaidCall({
+      channel: 'agent',
+      phase: 'search',
+      actor: 'stuck-provider',
+      model: 'gpt-4o',
+      signal: controller.signal,
+      async execute() {
+        started()
+        return new Promise<never>(() => {})
+      },
+      receipt: () => ({ model: 'gpt-4o', inputTokens: 1, outputTokens: 1 }),
+    })
+
+    await providerStarted
+    controller.abort(new Error('deadline'))
+    await expect(call).resolves.toMatchObject({ succeeded: false })
+    await expect(ledger.waitForIdle({ timeoutMs: 1 })).resolves.toBe(false)
+    expect(ledger.summary()).toMatchObject({
+      pendingCalls: 1,
+      usageComplete: false,
+      accountingComplete: false,
     })
   })
 
@@ -866,8 +1029,7 @@ describe('CostLedger', () => {
     expect(followupCalls).toBe(0)
 
     finish(0.5)
-    await provider
-    await new Promise((resolve) => setTimeout(resolve, 0))
+    await ledger.waitForIdle()
     expect(ledger.summary()).toMatchObject({
       totalCostUsd: 0.5,
       pendingCalls: 0,
@@ -907,8 +1069,7 @@ describe('CostLedger', () => {
     expect(ledger.summary()).toMatchObject({ pendingCalls: 1, unresolvedCalls: 1 })
 
     fail(new DOMException('provider request aborted', 'AbortError'))
-    await provider.catch(() => undefined)
-    await new Promise((resolve) => setTimeout(resolve, 0))
+    await ledger.waitForIdle()
     expect(ledger.summary()).toMatchObject({
       pendingCalls: 0,
       unresolvedCalls: 0,
@@ -1277,6 +1438,37 @@ describe('CostLedger', () => {
     ).toThrow(/does not match pricing snapshot/)
   })
 
+  it('rejects persisted reasoning usage that exceeds total output', () => {
+    const invalid = eventFor(
+      {
+        status: 'settled',
+        callId: 'impossible-reasoning',
+        channel: 'analyst',
+        phase: 'inspect',
+        actor: 'worker',
+        model: 'gpt-4o',
+        inputTokens: 10,
+        outputTokens: 2,
+        reasoningTokens: 3,
+        costUsd: 0.000045,
+        costUnknown: false,
+        pricing: { inputUsdPerThousand: 0.0025, outputUsdPerThousand: 0.01 },
+        timestamp: 1,
+      },
+      2,
+    )
+
+    expect(
+      () =>
+        new CostLedger({
+          persistence: {
+            read: () => ({ revision: revision(invalid), events: invalid }),
+            append: () => undefined,
+          },
+        }),
+    ).toThrow(/reasoningTokens must not exceed outputTokens/)
+  })
+
   it('fails loud on a partial final event instead of dropping possible spend', () => {
     const complete = eventFor({
       status: 'pending',
@@ -1322,6 +1514,7 @@ describe('CostLedger', () => {
       error: { name: 'AbortError' },
     })
     expect(result).not.toHaveProperty('receipt')
+    await ledger.waitForIdle()
     expect(ledger.list()).toHaveLength(1)
     expect(ledger.summary()).toMatchObject({ pendingCalls: 0, unresolvedCalls: 0 })
   })

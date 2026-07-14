@@ -64,7 +64,11 @@ export {
   buildDefaultAnalystRegistry,
   type DefaultAnalystRegistryOptions,
 } from './analyst/default-registry'
-export type { RawAnalystFinding } from './analyst/finding-signature'
+export type {
+  CanonicalRawAnalystFinding,
+  RawAnalystEvidence,
+  RawAnalystFinding,
+} from './analyst/finding-signature'
 export type { FindingSubject, FindingSubjectKind } from './analyst/finding-subject'
 export {
   type DiffPolicy,
@@ -78,6 +82,7 @@ export {
   type CreateTraceAnalystKindOpts,
   createTraceAnalystKind,
   renderPriorFindings,
+  renderUpstreamFindings,
   type TraceAnalystGolden,
   type TraceAnalystKindSpec,
 } from './analyst/kind-factory'
@@ -143,6 +148,7 @@ export {
   type AnalystRunResult,
   type AnalystRunSummary,
   type AnalystSeverity,
+  type AnalystUsageReceipt,
   computeFindingId,
   type EvidenceRef,
   makeFinding,

@@ -1,4 +1,5 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
+import { RawAnalystFindingSchema } from './finding-signature'
 import { structureFindings } from './structure-findings'
 
 // Stub an OpenAI-compatible chat completion. Mocks ONLY the network boundary.
@@ -66,10 +67,7 @@ describe('structureFindings — free-form report → structured findings (any mo
     expect(res.findings).toHaveLength(0)
   })
 
-  it('recovery yield: keeps a sound prose finding that omits evidence_uri (defaults to report://summary)', async () => {
-    // Weak models routinely return a valid claim + severity but no span
-    // citation. The strict evidence_uri requirement used to drop the whole row
-    // (0 yield); the report itself is the evidence, so it is now retained.
+  it('rejects recovery findings without citations instead of making the report self-evidencing', async () => {
     const noEvidence =
       '[{"severity":"high","claim":"agent never verified its writes","confidence":0.9}]'
     const res = await structureFindings({
@@ -81,10 +79,74 @@ describe('structureFindings — free-form report → structured findings (any mo
       apiKey: 'k',
       fetchImpl: stubFetch(noEvidence),
     })
-    expect(res.outcome).toBe('ok')
-    expect(res.findings).toHaveLength(1)
-    expect(res.findings[0]!.evidence_refs[0]!.uri).toBe('report://summary')
-    expect(res.findings[0]!.evidence_refs[0]!.kind).toBe('artifact')
-    expect(res.findings[0]!.claim).toContain('never verified')
+    expect(res.outcome).toBe('extraction_failed')
+    expect(res.findings).toEqual([])
+  })
+
+  it('gives original callbacks the exact singular shape without dropping extra citations', async () => {
+    const res = await structureFindings({
+      report: REPORT,
+      analystId: 'failure-mode',
+      area: 'failure-mode',
+      model: 'any',
+      baseUrl: 'https://x/v1',
+      apiKey: 'k',
+      fetchImpl: stubFetch(
+        JSON.stringify([
+          {
+            severity: 'high',
+            claim: 'two sources support this finding',
+            evidence: [{ uri: 'span://t/s' }, { uri: 'event://t/e' }],
+            confidence: 0.9,
+          },
+        ]),
+      ),
+      processRow: (row) => ({
+        ...RawAnalystFindingSchema.parse(row),
+        claim: `${row.claim}; reviewed`,
+      }),
+    })
+
+    expect(res.findings[0]).toMatchObject({
+      claim: 'two sources support this finding; reviewed',
+      evidence_refs: [{ uri: 'span://t/s' }, { uri: 'event://t/e' }],
+    })
+  })
+
+  it('forwards cancellation and does not start recovery work after abort', async () => {
+    const controller = new AbortController()
+    const fetchImpl = vi.fn(stubFetch('[]'))
+    controller.abort(new DOMException('cancelled', 'AbortError'))
+
+    await expect(
+      structureFindings({
+        report: REPORT,
+        analystId: 'failure-mode',
+        area: 'failure-mode',
+        model: 'any',
+        baseUrl: 'https://x/v1',
+        apiKey: 'k',
+        signal: controller.signal,
+        fetchImpl,
+      }),
+    ).rejects.toMatchObject({ name: 'AbortError' })
+    expect(fetchImpl).not.toHaveBeenCalled()
+  })
+
+  it('rejects an invalid reask count before any paid work', async () => {
+    const fetchImpl = vi.fn(stubFetch('[]'))
+
+    await expect(
+      structureFindings({
+        report: REPORT,
+        analystId: 'failure-mode',
+        area: 'failure-mode',
+        model: 'any',
+        baseUrl: 'https://x/v1',
+        maxReasks: Number.POSITIVE_INFINITY,
+        fetchImpl,
+      }),
+    ).rejects.toThrow(/maxReasks/)
+    expect(fetchImpl).not.toHaveBeenCalled()
   })
 })
