@@ -4,6 +4,13 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ---
 
+## [0.117.1] — 2026-07-13 — retry-safe code-candidate cleanup
+
+### Fixed
+
+- `gitWorktreeAdapter().discard()` now reconciles worktree and branch removal independently.
+  Repeated cleanup is safe, partial cleanup can be retried, and a Git command that reports an error after completing its mutation no longer strands candidate branches or worktrees.
+
 ## [0.117.0] — 2026-07-13 — durable cost and bounded behavioral evidence
 
 ### Added
