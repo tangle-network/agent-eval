@@ -97,7 +97,9 @@ export function buildReflectionPrompt(ctx: ReflectionContext): string {
       )
       if (trial.failureNote) {
         sections.push('')
-        sections.push(`**Why it scored low:** ${truncate(trial.failureNote, 600)}`)
+        // 1500 chars fits a real traceback / failing-assertion note; the old
+        // 600 silently clipped executable-judge evidence mid-traceback.
+        sections.push(`**Why it scored low:** ${truncate(trial.failureNote, 1500)}`)
       }
       const missed = (trial.expectations ?? []).filter((e) => !e.matched)
       if (missed.length > 0) {
@@ -111,7 +113,9 @@ export function buildReflectionPrompt(ctx: ReflectionContext): string {
         sections.push('')
         sections.push('**What the agent emitted:**')
         sections.push('```')
-        sections.push(truncate(trial.emitted, 600))
+        // Matches the campaign breakdown's 2000-char emitted bound — rendering
+        // less than the evidence carried would silently re-blind the proposer.
+        sections.push(truncate(trial.emitted, 2000))
         sections.push('```')
       }
       sections.push('')

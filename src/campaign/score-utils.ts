@@ -23,12 +23,18 @@ export function campaignMeanComposite<TArtifact, TScenario extends Scenario>(
   return composites.length === 0 ? 0 : composites.reduce((a, b) => a + b, 0) / composites.length
 }
 
+/** Bound on the per-scenario `emitted` excerpt so trajectory evidence cannot
+ *  blow the reflection-prompt budget (a run transcript can be megabytes). */
+const EMITTED_MAX_CHARS = 2000
+
 export interface CampaignBreakdown {
   /** Mean score per judge dimension across all cells. */
   dimensions: Record<string, number>
   /** Per-scenario composite (mean over reps + judges) + the judge's free-form
-   *  `notes` for that scenario (the "why" a reflective proposer grounds on). */
-  scenarios: Array<{ scenarioId: string; composite: number; notes?: string }>
+   *  `notes` for that scenario (the "why" a reflective proposer grounds on) +
+   *  an optional `emitted` excerpt of the candidate's raw output (the "what it
+   *  actually did" a reflective proposer grounds on). */
+  scenarios: Array<{ scenarioId: string; composite: number; notes?: string; emitted?: string }>
 }
 
 /** Per-candidate evidence a reflective/patch proposer grounds its next proposal
@@ -40,6 +46,7 @@ export function campaignBreakdown<TArtifact, TScenario extends Scenario>(
   const dimCounts: Record<string, number> = {}
   const byScenario = new Map<string, number[]>()
   const notesByScenario = new Map<string, Set<string>>()
+  const emittedByScenario = new Map<string, { composite: number; text: string }>()
   for (const cell of campaign.cells) {
     const judgeScores = Object.values(cell.judgeScores)
     if (judgeScores.length === 0) continue
@@ -47,6 +54,19 @@ export function campaignBreakdown<TArtifact, TScenario extends Scenario>(
     const arr = byScenario.get(cell.scenarioId) ?? []
     arr.push(cellComposite)
     byScenario.set(cell.scenarioId, arr)
+    // Carry the candidate's raw output as trajectory evidence when the artifact
+    // is a string (the common prompt-tier shape). Across reps, keep the
+    // LOWEST-composite cell's output — reflection grounds on the failure, and
+    // the bottom-trial excerpt is the one buildReflectionPrompt renders.
+    if (typeof cell.artifact === 'string' && cell.artifact.trim().length > 0) {
+      const prev = emittedByScenario.get(cell.scenarioId)
+      if (!prev || cellComposite < prev.composite) {
+        emittedByScenario.set(cell.scenarioId, {
+          composite: cellComposite,
+          text: cell.artifact.slice(0, EMITTED_MAX_CHARS),
+        })
+      }
+    }
     // Collect the judges' free-form notes per scenario (deduped) — the failure
     // evidence the reflective proposer grounds on. Generalizable by contract;
     // the judge must not put case-specific ground truth here.
@@ -72,10 +92,12 @@ export function campaignBreakdown<TArtifact, TScenario extends Scenario>(
   const scenarios = [...byScenario.entries()].map(([scenarioId, comps]) => {
     const notesSet = notesByScenario.get(scenarioId)
     const notes = notesSet && notesSet.size > 0 ? [...notesSet].join(' | ') : undefined
+    const emitted = emittedByScenario.get(scenarioId)?.text
     return {
       scenarioId,
       composite: comps.reduce((a, b) => a + b, 0) / comps.length,
       ...(notes ? { notes } : {}),
+      ...(emitted ? { emitted } : {}),
     }
   })
   return { dimensions, scenarios }

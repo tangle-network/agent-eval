@@ -578,8 +578,11 @@ export interface GenerationCandidate {
    *  reflective proposer grounds its next edit on. Keep `notes` GENERALIZABLE
    *  (which checks/lines/dimensions failed and how), NOT case-specific ground
    *  truth: leaking expected answers into the prompt is memorization, and the
-   *  held-out gate would reject it anyway. */
-  scenarios: Array<{ scenarioId: string; composite: number; notes?: string }>
+   *  held-out gate would reject it anyway. `emitted` is a bounded excerpt of
+   *  the candidate's raw output for the scenario (worst rep when reps > 1) —
+   *  the "what it actually did" evidence; optional so trajectory capture is
+   *  never required of a dispatch. */
+  scenarios: Array<{ scenarioId: string; composite: number; notes?: string; emitted?: string }>
   /** Proposer-supplied short label for the change. Present when the proposer
    *  returned a `ProposedCandidate`; absent for bare-surface mutators. */
   label?: string

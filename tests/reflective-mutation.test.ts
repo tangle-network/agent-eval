@@ -72,8 +72,23 @@ describe('buildReflectionPrompt', () => {
     expect(prompt).not.toContain(DEFAULT_MUTATION_PRIMITIVES[0])
   })
 
-  it('truncates long emitted text', () => {
-    const big = 'a'.repeat(1000)
+  it('renders emitted text up to the 2000-char evidence bound, then truncates', () => {
+    // Within the bound: rendered whole, no truncation marker — real trace
+    // evidence (a traceback + the wrong code) must arrive intact.
+    const evidence = 'x'.repeat(1900)
+    const intact = buildReflectionPrompt({
+      target: 't',
+      parentPayload: {},
+      topTrials: [],
+      bottomTrials: [{ id: 't1', score: 0, emitted: evidence }],
+      childCount: 1,
+    })
+    expect(intact).toContain(evidence)
+    expect(intact).not.toContain('truncated')
+
+    // Beyond the bound: clipped to 2000 chars + marker so a megabyte
+    // transcript cannot blow the prompt budget.
+    const big = 'a'.repeat(3000)
     const prompt = buildReflectionPrompt({
       target: 't',
       parentPayload: {},
@@ -82,7 +97,8 @@ describe('buildReflectionPrompt', () => {
       childCount: 1,
     })
     expect(prompt).toContain('truncated')
-    expect(prompt.length).toBeLessThan(big.length + 1500)
+    expect(prompt).toContain('a'.repeat(2000))
+    expect(prompt).not.toContain('a'.repeat(2001))
   })
 })
 
