@@ -36,6 +36,7 @@ try {
   const packageJson = JSON.parse(readFileSync(join(packageDir, 'package.json'), 'utf8'))
   const requiredExports = {
     '.': ['import', 'types'],
+    './analyst': ['import', 'types'],
     './campaign': ['import', 'types'],
     './traces': ['import', 'types'],
     './trace-attributes': ['import', 'types'],
@@ -72,6 +73,13 @@ try {
         type RunRecord,
       } from '@tangle-network/agent-eval'
       import {
+        CanonicalRawAnalystFindingSchema,
+        RawAnalystFindingSchema,
+        type CanonicalRawAnalystFinding,
+        type RawAnalystFinding,
+        type TraceAnalystGolden,
+      } from '@tangle-network/agent-eval/analyst'
+      import {
         type CostLedgerHandle as ContractCostLedgerHandle,
         type ReferenceEquivalenceJudgeOptions as ContractReferenceEquivalenceJudgeOptions,
         summarizeExecution,
@@ -101,6 +109,30 @@ try {
       } from '@tangle-network/agent-eval/trace-attributes'
 
       const store: TraceAnalysisStore = new OtlpFileTraceStore({ path: 'spans.jsonl' })
+      const legacyFinding: RawAnalystFinding = RawAnalystFindingSchema.parse({
+        severity: 'info',
+        claim: 'legacy',
+        evidence_uri: 'artifact://legacy',
+        confidence: 1,
+      })
+      const canonicalFinding: CanonicalRawAnalystFinding =
+        CanonicalRawAnalystFindingSchema.parse({
+          severity: 'info',
+          claim: 'canonical',
+          evidence: [{ uri: 'artifact://canonical' }],
+          confidence: 1,
+        })
+      const golden: TraceAnalystGolden = {
+        question: 'find corroborated failures',
+        expected: [{
+          severity: 'high',
+          claim: 'failure',
+          evidence: [
+            { uri: 'span://primary' },
+            { uri: 'span://corroborating' },
+          ],
+        }],
+      }
       const runs: RunRecord[] = otlpToRunRecords('{}', {
         experimentId: 'consumer',
         candidateId: 'candidate',
@@ -134,6 +166,9 @@ try {
       })
       void [
         store,
+        legacyFinding,
+        canonicalFinding,
+        golden,
         report,
         loop,
         runtimeRun,
@@ -174,7 +209,11 @@ try {
       '--eval',
       `
         const root = await import('@tangle-network/agent-eval')
+        const analyst = await import('@tangle-network/agent-eval/analyst')
         if (!('pairedSignTest' in root)) throw new Error('missing root export pairedSignTest')
+        if (!('CanonicalRawAnalystFindingSchema' in analyst)) {
+          throw new Error('missing analyst export CanonicalRawAnalystFindingSchema')
+        }
         const signTest = root.pairedSignTest([1, 0.5], 'greater')
         if (signTest.pValue !== 0.25) throw new Error('invalid packed pairedSignTest result')
       `,

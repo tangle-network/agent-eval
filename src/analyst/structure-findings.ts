@@ -23,7 +23,14 @@ import {
   type LlmClientOptions,
   maximumChargeForLlmRequest,
 } from '../llm-client'
-import { parseRawFinding, type RawAnalystFinding } from './finding-signature'
+import {
+  applyLegacyRawFindingCallback,
+  type CanonicalRawAnalystFinding,
+  evidenceRefsFromRawFinding,
+  parseCanonicalRawFinding,
+  RAW_FINDING_SCHEMA_PROMPT,
+  type RawAnalystFinding,
+} from './finding-signature'
 import { coerceToFindingRows } from './parse-tolerant'
 import { type AnalystFinding, makeFinding } from './types'
 
@@ -39,9 +46,17 @@ export interface StructureFindingsOptions {
   /** Optional ledger for direct use. */
   costLedger?: CostLedgerHandle
   costPhase?: string
+  costTags?: Record<string, string>
   maxTokens?: number
+  signal?: AbortSignal
   /** Max reask attempts after a zero/invalid extraction. Default 1. */
   maxReasks?: number
+  /** Apply the caller's normal finding rules before a recovered row is lifted. */
+  processRow?: (row: RawAnalystFinding) => RawAnalystFinding | null
+  /** Apply canonical multi-citation rules after any original callback. */
+  processCanonicalRow?: (row: CanonicalRawAnalystFinding) => CanonicalRawAnalystFinding | null
+  /** Provenance copied onto every recovered finding. */
+  findingMetadata?: Record<string, unknown>
   /** Test seam: inject a fetch (no network in unit tests). */
   fetchImpl?: LlmClientOptions['fetch']
 }
@@ -54,46 +69,37 @@ export interface StructureFindingsResult {
 const SYSTEM = [
   'You convert a free-form trace-analysis report into a STRICT JSON array of findings.',
   'Output ONLY the JSON array — no prose, no code fences.',
-  'Each element: {"severity":"critical|high|medium|low|info","claim":string,"evidence_uri":string,',
-  '"subject"?:string,"rationale"?:string,"recommended_action"?:string,"confidence":number(0..1)}.',
-  'evidence_uri cites the trace element the report referenced (e.g. "span://<trace>/<span>") or "report://summary".',
+  RAW_FINDING_SCHEMA_PROMPT,
+  'Omit subject when the report does not contain an exact valid locus.',
   'If the report asserts NO problems, output exactly [].',
 ].join(' ')
 
-function buildRows(raw: unknown, analystId: string, area: string): AnalystFinding[] {
+function buildRows(raw: unknown, opts: StructureFindingsOptions): AnalystFinding[] {
   const rows = coerceToFindingRows(raw)
   const out: AnalystFinding[] = []
   for (const row of rows) {
-    // Recovery findings are extracted from PROSE — the report itself is the
-    // evidence. A weak model often returns a sound claim + severity but omits
-    // `evidence_uri`; default it to the report rather than dropping the row
-    // (the strict evidence_uri requirement is a recovery yield-killer).
-    const normalized =
-      row &&
-      typeof row === 'object' &&
-      !Array.isArray(row) &&
-      !(row as Record<string, unknown>).evidence_uri
-        ? { ...(row as Record<string, unknown>), evidence_uri: 'report://summary' }
-        : row
-    const parsed: RawAnalystFinding | null = parseRawFinding(normalized)
+    const parsed = parseCanonicalRawFinding(row)
     if (!parsed) continue
+    const callbackProcessed = opts.processRow
+      ? applyLegacyRawFindingCallback(parsed, opts.processRow)
+      : parsed
+    if (!callbackProcessed) continue
+    const processed = opts.processCanonicalRow
+      ? opts.processCanonicalRow(callbackProcessed)
+      : callbackProcessed
+    if (!processed) continue
     out.push(
       makeFinding({
-        analyst_id: analystId,
-        area,
-        subject: parsed.subject,
-        claim: parsed.claim,
-        rationale: parsed.rationale,
-        severity: parsed.severity,
-        confidence: parsed.confidence,
-        evidence_refs: [
-          {
-            kind: parsed.evidence_uri.startsWith('span://') ? 'span' : 'artifact',
-            uri: parsed.evidence_uri,
-            excerpt: parsed.evidence_excerpt,
-          },
-        ],
-        recommended_action: parsed.recommended_action,
+        analyst_id: opts.analystId,
+        area: opts.area,
+        subject: processed.subject,
+        claim: processed.claim,
+        rationale: processed.rationale,
+        severity: processed.severity,
+        confidence: processed.confidence,
+        evidence_refs: evidenceRefsFromRawFinding(processed),
+        recommended_action: processed.recommended_action,
+        ...(opts.findingMetadata ? { metadata: { ...opts.findingMetadata } } : {}),
       }),
     )
   }
@@ -104,6 +110,9 @@ export async function structureFindings(
   opts: StructureFindingsOptions,
 ): Promise<StructureFindingsResult> {
   const maxReasks = opts.maxReasks ?? 1
+  if (!Number.isSafeInteger(maxReasks) || maxReasks < 0) {
+    throw new RangeError('structureFindings: maxReasks must be a non-negative safe integer')
+  }
   const llm = { baseUrl: opts.baseUrl, apiKey: opts.apiKey, fetch: opts.fetchImpl }
   const costLedger = opts.costLedger ?? new CostLedger()
   let user = `TRACE-ANALYSIS REPORT:\n${opts.report}\n\nReturn the findings JSON array.`
@@ -122,8 +131,9 @@ export async function structureFindings(
       phase: opts.costPhase ?? 'analyst.structure-findings',
       actor: 'structure-findings',
       model: opts.model,
+      signal: opts.signal,
       maximumCharge: maximumChargeForLlmRequest(request, llm),
-      tags: { analystId: opts.analystId, attempt: String(attempt) },
+      tags: { ...opts.costTags, analystId: opts.analystId, attempt: String(attempt) },
       execute: (signal, callId) => callLlm(request, { ...llm, signal, idempotencyKey: callId }),
       receipt: costReceiptFromLlm,
       receiptFromError: costReceiptFromLlmError,
@@ -131,7 +141,7 @@ export async function structureFindings(
     if (!paid.succeeded) throw paid.error
     const res = paid.value
     const text = res.content.trim()
-    const findings = buildRows(text, opts.analystId, opts.area)
+    const findings = buildRows(text, opts)
     if (findings.length > 0) return { findings, outcome: 'ok' }
     // A report that asserts nothing is a legitimate empty — only reask when the
     // report is substantive (the extraction, not the diagnosis, likely failed).

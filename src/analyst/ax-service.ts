@@ -29,16 +29,34 @@ export interface CreateAnalystAiConfig {
  * `@ax-llm/ax` dependency for it.
  */
 export function createAnalystAi(config: CreateAnalystAiConfig): AxAIService {
+  const model = config.model.trim()
+  if (!model) throw new TypeError('createAnalystAi: model must be a non-empty string')
   const service = ai({
     name: config.provider ?? 'openai',
     apiKey: config.apiKey,
     apiURL: config.baseUrl,
-    config: { model: config.model },
+    config: { model },
   })
-  configuredModels.set(service as object, config.model)
+  configuredModels.set(service as object, model)
   return service
 }
 
 export function getConfiguredAnalystModel(service: AxAIService): string | undefined {
   return configuredModels.get(service as object)
+}
+
+/** Resolve the model before paid work so every request can be bounded and attributed. */
+export function resolveAnalystModel(service: AxAIService, override?: string): string {
+  if (override !== undefined) {
+    const model = override.trim()
+    if (!model) throw new TypeError('createTraceAnalystKind: model must be a non-empty string')
+    return model
+  }
+  const model = getConfiguredAnalystModel(service)?.trim()
+  if (!model) {
+    throw new TypeError(
+      'createTraceAnalystKind: model is required for Ax services not created by createAnalystAi()',
+    )
+  }
+  return model
 }

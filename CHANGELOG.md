@@ -4,6 +4,27 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ---
 
+## [0.119.0] — 2026-07-14 — chained, metered trace analysis
+
+### Added
+
+- Trace analysts can consume findings produced earlier in the same ordered run and emit multiple evidence citations without changing the original singular-citation callback API.
+- Analyst summaries report provider calls, input, output, reasoning, cache-read, cache-write, dollar provenance, and known partial spend independently of finding count.
+
+### Fixed
+
+- All Ax analyst calls reserve spend before dispatch, disable hidden provider retries, honor cancellation, wait a bounded time for late receipts, and preserve known charges when token usage is unavailable.
+- Trace-analysis proposers record each model call directly in the campaign cost ledger instead of replacing them with one estimated wrapper receipt.
+- Direct Gemini 3 analysis keeps its output limit without sending Ax's incompatible thinking-level option.
+- Recovery findings pass through the same subject, evidence, and post-processing rules as primary findings, and malformed recovery calls fail visibly.
+- Budget allocation rejects invalid values and cannot exceed the remaining run budget or regain spend through malformed finding metadata.
+
+### Breaking
+
+- `SemanticConceptJudgeAdapterOpts.options` no longer accepts `costLedger` or `signal`; remove those fields because `AnalystRegistry` now supplies the run budget and cancellation signal and records the resulting usage.
+- `createTraceAnalystKind()` now requires `model` when passed an externally constructed Ax service; supply the service's model explicitly or construct it with `createAnalystAi()` so the model can be recovered safely.
+- `TraceAnalystGolden.expected` now uses `CanonicalRawAnalystFinding` with an `evidence` array; migrate singular `evidence_uri` and `evidence_excerpt` fields into the first array entry.
+
 ## [0.118.2] — 2026-07-13 — interoperable contracts and trace accounting
 
 ### Fixed

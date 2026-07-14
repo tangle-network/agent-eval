@@ -64,7 +64,11 @@ export {
   buildDefaultAnalystRegistry,
   type DefaultAnalystRegistryOptions,
 } from './analyst/default-registry'
-export type { RawAnalystFinding } from './analyst/finding-signature'
+export type {
+  CanonicalRawAnalystFinding,
+  RawAnalystEvidence,
+  RawAnalystFinding,
+} from './analyst/finding-signature'
 export type { FindingSubject, FindingSubjectKind } from './analyst/finding-subject'
 export {
   type DiffPolicy,

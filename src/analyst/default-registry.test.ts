@@ -67,7 +67,7 @@ describe('buildDefaultAnalystRegistry', () => {
   })
 
   it('registers the agentic RLM kinds when an ai service is supplied', () => {
-    const ids = buildDefaultAnalystRegistry({ ai: stubAi() })
+    const ids = buildDefaultAnalystRegistry({ ai: stubAi(), model: 'test-model' })
       .list()
       .map((a) => a.id)
     expect(ids).toContain('efficiency-behavioral')

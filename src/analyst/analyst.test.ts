@@ -220,6 +220,55 @@ describe('AnalystRegistry', () => {
     expect(result.per_analyst[0]?.cost_usd).toBeCloseTo(0.1, 5)
     expect(result.total_cost_usd).toBeCloseTo(0.1, 5)
   })
+
+  it('rejects a negative legacy cost without expanding the remaining budget', async () => {
+    const secondBudgets: Array<number | undefined> = []
+    const reg = new AnalystRegistry()
+    reg.register({
+      id: 'invalid-cost',
+      description: '',
+      inputKind: 'run-record',
+      cost: { kind: 'llm' },
+      version: '1',
+      async analyze() {
+        return [
+          makeFinding({
+            analyst_id: 'invalid-cost',
+            area: 'x',
+            claim: 'invalid cost',
+            severity: 'info',
+            confidence: 1,
+            evidence_refs: [],
+            metadata: { cost_usd: -3 },
+          }),
+        ]
+      },
+    })
+    reg.register({
+      id: 'second',
+      description: '',
+      inputKind: 'run-record',
+      cost: { kind: 'deterministic' },
+      version: '1',
+      async analyze(_input, ctx) {
+        secondBudgets.push(ctx.budgetUsd)
+        return []
+      },
+    })
+
+    const result = await reg.run(
+      'run-1',
+      { runRecord: { id: 'r' } as unknown as AnalystRunInputs['runRecord'] },
+      { budget: { totalUsd: 1, allocate: ({ remainingUsd }) => remainingUsd } },
+    )
+
+    expect(result.per_analyst[0]).toMatchObject({
+      status: 'failed',
+      error: { message: expect.stringContaining('metadata.cost_usd') },
+    })
+    expect(secondBudgets).toEqual([0])
+    expect(result.total_cost_usd).toBe(0)
+  })
 })
 
 describe('FindingsStore + diffFindings', () => {
@@ -831,7 +880,7 @@ describe('AnalystRegistry usage receipts', () => {
       async analyze(_input, context) {
         context.recordUsage?.({
           calls: 2,
-          tokens: { input: 120, output: 30, cached: 20 },
+          tokens: { input: 120, output: 30, reasoning: 5, cached: 20, cacheWrite: 3 },
           cost: { kind: 'uncaptured', usd: null },
         })
         return []
@@ -850,7 +899,7 @@ describe('AnalystRegistry usage receipts', () => {
       cost_usd: 0,
       usage: {
         calls: 2,
-        tokens: { input: 120, output: 30, cached: 20 },
+        tokens: { input: 120, output: 30, reasoning: 5, cached: 20, cacheWrite: 3 },
         cost: { kind: 'uncaptured', usd: null },
       },
     })

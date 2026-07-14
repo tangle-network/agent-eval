@@ -4,9 +4,9 @@
  * A "kind" is a specialized analyst whose actor prompt, tool subset,
  * and Ax recursion config target one failure-mode lens (failure-mode
  * classification, knowledge gap discovery, knowledge poisoning, recursive
- * self-improvement, ...). Kinds emit findings in the typed `RawAnalystFinding`
- * shape via a JSON-array Ax output; the factory validates each row with
- * Zod and lifts it into `AnalystFinding[]` with no shape guessing.
+ * self-improvement, ...). Kinds emit findings in the typed
+ * `CanonicalRawAnalystFinding` shape via a JSON-array Ax output; the factory
+ * validates each row with Zod and lifts it into `AnalystFinding[]`.
  *
  * Composition rules:
  *   - Each kind owns its actor description. No generic "answer this
@@ -29,10 +29,13 @@ import { AxJSRuntime, agent } from '@ax-llm/ax'
 import { CostLedger } from '../cost-ledger'
 import type { TraceAnalysisStore } from '../trace-analyst/store'
 import { TraceFileMissingError } from '../trace-analyst/store-otlp'
-import { analystUsageFromCostLedger, meterAxChatService } from './ax-cost-service'
-import { getConfiguredAnalystModel } from './ax-service'
+import { meterAxChatService } from './ax-cost-service'
+import { resolveAnalystModel } from './ax-service'
 import {
-  parseRawFinding,
+  applyLegacyRawFindingCallback,
+  type CanonicalRawAnalystFinding,
+  evidenceRefsFromRawFinding,
+  parseCanonicalRawFinding,
   RAW_FINDING_SCHEMA_PROMPT,
   type RawAnalystFinding,
 } from './finding-signature'
@@ -40,6 +43,7 @@ import { KIND_EXPECTED_SUBJECTS, parseFindingSubject } from './finding-subject'
 import { structureFindings } from './structure-findings'
 import type { Analyst, AnalystContext, AnalystCost, AnalystFinding } from './types'
 import { makeFinding } from './types'
+import { settleUsageReceiptFromCostLedger, validateUsageSettlementTimeout } from './usage-receipt'
 
 /**
  * Per-kind specification. The factory turns this into a regular
@@ -72,6 +76,8 @@ export interface TraceAnalystKindSpec {
   cost: AnalystCost
   /** Per-finding-row hook — kinds may reject / rewrite before lifting. */
   postProcess?: (row: RawAnalystFinding, ctx: AnalystContext) => RawAnalystFinding | null
+  /** Minimum citations per finding. Default 1; rows below it are rejected. */
+  minimumEvidenceCitations?: number
   /** Optional optimizer hook — populated when a kind wants to fit its prompt against labeled examples. */
   goldens?: TraceAnalystGolden[]
 }
@@ -84,13 +90,13 @@ export interface TraceAnalystKindSpec {
  */
 export interface TraceAnalystGolden {
   question: string
-  expected: ReadonlyArray<Omit<RawAnalystFinding, 'confidence'>>
+  expected: ReadonlyArray<Omit<CanonicalRawAnalystFinding, 'confidence'>>
 }
 
 export interface CreateTraceAnalystKindOpts {
   /** AxAIService bound at registration time. */
   ai: AxAIService
-  /** Optional model override; falls back to the AI service's default. */
+  /** Required unless `ai` was created by {@link createAnalystAi}. */
   model?: string
   /** Override the spec's `version` (e.g. when an optimizer has fitted a new prompt). */
   versionSuffix?: string
@@ -102,6 +108,8 @@ export interface CreateTraceAnalystKindOpts {
    * actor's harvest as-is (the report is still surfaced fail-loud either way).
    */
   recovery?: { baseUrl: string; apiKey?: string; model?: string; fetchImpl?: typeof fetch }
+  /** Maximum post-cancellation wait for a provider receipt. Default 5 seconds. */
+  settlementTimeoutMs?: number
 }
 
 /**
@@ -117,6 +125,12 @@ export function createTraceAnalystKind(
   opts: CreateTraceAnalystKindOpts,
 ): Analyst<TraceAnalysisStore> {
   const version = opts.versionSuffix ? `${spec.version}+${opts.versionSuffix}` : spec.version
+  const model = resolveAnalystModel(opts.ai, opts.model)
+  const minimumEvidenceCitations = spec.minimumEvidenceCitations ?? 1
+  if (!Number.isInteger(minimumEvidenceCitations) || minimumEvidenceCitations < 1) {
+    throw new TypeError('minimumEvidenceCitations must be a positive integer')
+  }
+  const settlementTimeoutMs = validateUsageSettlementTimeout(opts.settlementTimeoutMs)
   return {
     id: spec.id,
     description: spec.description,
@@ -124,14 +138,21 @@ export function createTraceAnalystKind(
     cost: spec.cost,
     version,
     async analyze(store, ctx) {
-      const costLedger = new CostLedger(ctx.budgetUsd)
+      const maxOutputTokens = spec.maxOutputTokens ?? 4096
+      const costLedger = ctx.costLedger ?? new CostLedger(ctx.budgetUsd)
+      const costTags = {
+        ...(ctx.tags ?? {}),
+        analystId: spec.id,
+        ...(ctx.correlationId ? { analystRunId: ctx.correlationId } : {}),
+      }
       const meteredAi = meterAxChatService(opts.ai, {
         ledger: costLedger,
         actor: spec.id,
-        maxOutputTokens: spec.maxOutputTokens ?? 4096,
-        defaultModel: opts.model ?? getConfiguredAnalystModel(opts.ai),
+        maxOutputTokens,
+        defaultModel: model,
+        phase: ctx.costPhase,
         signal: ctx.signal,
-        tags: { analystId: spec.id, ...(ctx.tags ?? {}) },
+        tags: costTags,
       })
       try {
         const tools = spec.buildTools(store)
@@ -147,11 +168,14 @@ export function createTraceAnalystKind(
           upstreamContext +
           '\n\n' +
           RAW_FINDING_SCHEMA_PROMPT +
+          (minimumEvidenceCitations > 1
+            ? `\n\nThis kind requires at least ${minimumEvidenceCitations} evidence citations per finding; rows with fewer are rejected.`
+            : '') +
           '\n\nFirst write `report`: a concise free-form prose diagnosis of what ' +
           'the traces show — what succeeded, what was suboptimal or failed — with ' +
           'concrete trace ids and numbers. THEN return the structured `findings` ' +
-          'array (it MAY be empty when there is nothing to report). Use `final(...)` ' +
-          'with the `{ report, findings }` payload when you are done.'
+          'array (it MAY be empty when there is nothing to report). Call ' +
+          '`final({ report, findings })` exactly once when done.'
 
         const ax = agent<{ question: string }, { report: string; findings: unknown[] }>(
           'question:string -> report:string, findings:json[]',
@@ -180,7 +204,7 @@ export function createTraceAnalystKind(
             functions,
             actorOptions: {
               description: actorDescription,
-              ...(opts.model ? { model: opts.model } : {}),
+              model,
               showThoughts: false,
               thinkingTokenBudget: 'none',
             },
@@ -188,7 +212,7 @@ export function createTraceAnalystKind(
               description:
                 spec.responderDescription ??
                 "Pass through the actor's `report` prose verbatim, and format the `findings` array exactly as the actor produced it. Do not add, drop, or summarize entries.",
-              ...(opts.model ? { model: opts.model } : {}),
+              model,
               showThoughts: false,
             },
             bubbleErrors: [TraceFileMissingError],
@@ -207,44 +231,67 @@ export function createTraceAnalystKind(
         const out: AnalystFinding[] = []
         const rawRows = Array.isArray(result.findings) ? result.findings : []
         let rejectedWrongKind = 0
-        for (const row of rawRows) {
-          const parsed = parseRawFinding(row, ctx.log)
-          if (!parsed) continue
-          // Subject-grammar check: if the kind has a declared expects-set
-          // (every shipped kind does), the finding's subject MUST parse to
-          // one of the declared variants. A wrong-kind subject is a
-          // contract violation — the actor's prompt drifted from the
-          // grammar — and we count it for prompt-audit visibility.
-          if (expectedSubjects && parsed.subject !== undefined) {
-            const parsedSubject = parseFindingSubject(parsed.subject)
+        let rejectedInsufficientEvidence = 0
+        const processRow = (
+          parsed: CanonicalRawAnalystFinding,
+        ): CanonicalRawAnalystFinding | null => {
+          const postProcessed = spec.postProcess
+            ? applyLegacyRawFindingCallback(
+                parsed,
+                (row) => spec.postProcess?.(row, ctx) ?? null,
+                ctx.log,
+              )
+            : parsed
+          if (!postProcessed) return null
+          if (expectedSubjects && postProcessed.subject !== undefined) {
+            const parsedSubject = parseFindingSubject(postProcessed.subject)
             if (parsedSubject === null) {
               ctx.log?.('finding rejected: subject failed to parse', {
                 kind: spec.id,
-                subject: parsed.subject,
+                subject: postProcessed.subject,
               })
               rejectedWrongKind += 1
-              continue
+              return null
             }
             if (!expectedSubjects.includes(parsedSubject.kind)) {
               ctx.log?.('finding rejected: subject variant not allowed for this kind', {
                 kind: spec.id,
                 subject_kind: parsedSubject.kind,
-                subject: parsed.subject,
+                subject: postProcessed.subject,
                 allowed: expectedSubjects,
               })
               rejectedWrongKind += 1
-              continue
+              return null
             }
           }
-          const postProcessed = spec.postProcess?.(parsed, ctx) ?? parsed
+          const distinctEvidenceCitations = new Set(
+            postProcessed.evidence.map((citation) => citation.uri.trim()),
+          ).size
+          if (distinctEvidenceCitations < minimumEvidenceCitations) {
+            ctx.log?.('finding rejected: insufficient evidence citations', {
+              kind: spec.id,
+              required: minimumEvidenceCitations,
+              received: postProcessed.evidence.length,
+              distinct: distinctEvidenceCitations,
+            })
+            rejectedInsufficientEvidence += 1
+            return null
+          }
+          return postProcessed
+        }
+        for (const row of rawRows) {
+          const parsed = parseCanonicalRawFinding(row, ctx.log)
+          if (!parsed) continue
+          const postProcessed = processRow(parsed)
           if (!postProcessed) continue
-          out.push(toAnalystFinding(spec, postProcessed))
+          out.push(toAnalystFinding(spec, version, postProcessed))
         }
 
         ctx.log?.(`analyst.kind ${spec.id} done`, {
           emitted: rawRows.length,
           accepted: out.length,
           rejected_wrong_subject: rejectedWrongKind,
+          rejected_insufficient_evidence: rejectedInsufficientEvidence,
         })
 
         // Two-phase recovery / fail-loud. The actor reasons free-form (the
@@ -257,42 +304,66 @@ export function createTraceAnalystKind(
         const report = typeof result.report === 'string' ? result.report : ''
         if (out.length === 0 && report.trim().length >= 200) {
           if (opts.recovery) {
+            const wrongKindBefore = rejectedWrongKind
+            const insufficientEvidenceBefore = rejectedInsufficientEvidence
             const recovered = await structureFindings({
               report,
               analystId: spec.id,
               area: spec.area,
-              model: opts.recovery.model ?? opts.model ?? '',
+              model: opts.recovery.model ?? model,
               baseUrl: opts.recovery.baseUrl,
               apiKey: opts.recovery.apiKey,
               fetchImpl: opts.recovery.fetchImpl,
               costLedger,
+              costPhase: ctx.costPhase,
+              costTags,
+              signal: ctx.signal,
+              maxTokens: Math.min(maxOutputTokens, 2_000),
+              processCanonicalRow: processRow,
+              findingMetadata: { kind_version: version },
             })
             out.push(...recovered.findings)
             ctx.log?.(`analyst.kind ${spec.id} recovery`, {
               outcome: recovered.outcome,
               recovered: recovered.findings.length,
+              rejected_wrong_subject: rejectedWrongKind - wrongKindBefore,
+              rejected_insufficient_evidence:
+                rejectedInsufficientEvidence - insufficientEvidenceBefore,
             })
           }
           if (out.length === 0) {
-            out.push(
-              makeFinding({
-                analyst_id: spec.id,
-                area: spec.area,
-                claim: 'Analyst produced a diagnosis but no structured findings — see report.',
-                rationale: report.slice(0, 1500),
-                severity: 'info',
-                confidence: 0.3,
-                evidence_refs: [
-                  { kind: 'artifact', uri: 'report://summary', excerpt: report.slice(0, 2000) },
-                ],
-                metadata: { outcome: 'extraction_failed' },
-              }),
-            )
+            const fallback = processRow({
+              claim: 'Analyst produced a diagnosis but no structured findings — see report.',
+              rationale: report.slice(0, 1500),
+              severity: 'info',
+              confidence: 0.3,
+              evidence: [{ uri: 'report://summary', excerpt: report.slice(0, 2000) }],
+            })
+            if (fallback) {
+              out.push(toAnalystFinding(spec, version, fallback, { outcome: 'extraction_failed' }))
+            } else {
+              throw new Error(
+                `Trace analyst '${spec.id}' produced a substantive report, but no finding satisfied its acceptance rules`,
+              )
+            }
           }
         }
         return out
       } finally {
-        ctx.recordUsage?.(analystUsageFromCostLedger(costLedger))
+        const usage = await settleUsageReceiptFromCostLedger(costLedger, {
+          tags: {
+            analystId: spec.id,
+            ...(ctx.correlationId ? { analystRunId: ctx.correlationId } : {}),
+          },
+          timeoutMs: settlementTimeoutMs,
+        })
+        if (!usage.settled) {
+          ctx.log?.(`analyst.kind ${spec.id} provider settlement timed out`, {
+            pending_calls: usage.pendingCalls,
+            timeout_ms: settlementTimeoutMs,
+          })
+        }
+        ctx.recordUsage?.(usage.receipt)
       }
     },
   }
@@ -308,7 +379,12 @@ function deriveQuestion(ctx: AnalystContext, spec: TraceAnalystKindSpec): string
   return focus ? `${task} Focus: ${focus}.` : task
 }
 
-function toAnalystFinding(spec: TraceAnalystKindSpec, raw: RawAnalystFinding): AnalystFinding {
+function toAnalystFinding(
+  spec: TraceAnalystKindSpec,
+  version: string,
+  raw: CanonicalRawAnalystFinding,
+  metadata: Record<string, unknown> = {},
+): AnalystFinding {
   return makeFinding({
     analyst_id: spec.id,
     area: spec.area,
@@ -317,25 +393,10 @@ function toAnalystFinding(spec: TraceAnalystKindSpec, raw: RawAnalystFinding): A
     rationale: raw.rationale,
     severity: raw.severity,
     confidence: raw.confidence,
-    evidence_refs: [
-      {
-        kind: evidenceKindFromUri(raw.evidence_uri),
-        uri: raw.evidence_uri,
-        excerpt: raw.evidence_excerpt,
-      },
-    ],
+    evidence_refs: evidenceRefsFromRawFinding(raw),
     recommended_action: raw.recommended_action,
-    metadata: { kind_version: spec.version },
+    metadata: { kind_version: version, ...metadata },
   })
-}
-
-function evidenceKindFromUri(uri: string): 'span' | 'artifact' | 'metric' | 'event' | 'finding' {
-  if (uri.startsWith('span://')) return 'span'
-  if (uri.startsWith('artifact://')) return 'artifact'
-  if (uri.startsWith('metric://')) return 'metric'
-  if (uri.startsWith('event://')) return 'event'
-  if (uri.startsWith('finding://')) return 'finding'
-  return 'artifact'
 }
 
 /**

@@ -40,6 +40,7 @@ declare module '@ax-llm/ax' {
 
   export interface AxModelConfig {
     maxTokens?: number
+    n?: number
     [key: string]: unknown
   }
 

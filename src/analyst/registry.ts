@@ -17,6 +17,7 @@
  */
 
 import { randomUUID } from 'node:crypto'
+import type { CostLedgerHandle } from '../cost-ledger'
 import type { RunCostProvenance, RunTokenUsage } from '../run-record'
 import type { ChatClient } from './chat-client'
 import type {
@@ -68,7 +69,8 @@ export interface BudgetPolicy {
   /**
    * Custom allocator — receives the analyst, remaining/total budget, and
    * the count of analysts that will run. Returns the per-analyst budget
-   * (or undefined to leave it uncapped). Overrides weights when set.
+   * (or undefined only when the run has no overall cap). Overrides weights
+   * when set.
    */
   allocate?: (args: {
     analyst: Analyst
@@ -100,6 +102,10 @@ export interface RegistryRunOpts {
   timeoutMs?: number
   /** Abort signal — forwarded into every analyst's context. */
   signal?: AbortSignal
+  /** Shared paid-call account forwarded to every analyst. */
+  costLedger?: CostLedgerHandle
+  /** Attribution phase for calls written to `costLedger`. */
+  costPhase?: string
   /** Tags echoed into AnalystContext.tags — useful for tracking environment/version in findings. */
   tags?: Record<string, string>
   /**
@@ -190,6 +196,7 @@ export class AnalystRegistry {
 
     const selected = this.selectAnalysts(runOpts)
     const budget = runOpts.budget ?? this.options.defaultBudget
+    validateBudgetPolicy(budget)
 
     yield {
       type: 'run-started',
@@ -251,6 +258,8 @@ export class AnalystRegistry {
         correlationId,
         deadlineMs,
         budgetUsd: perBudget,
+        costLedger: runOpts.costLedger,
+        costPhase: runOpts.costPhase,
         chat: this.options.chat,
         tags: runOpts.tags,
         log: (msg, fields) => log(`[${analyst.id}] ${msg}`, { runId, correlationId, ...fields }),
@@ -265,6 +274,7 @@ export class AnalystRegistry {
       }
 
       await hooks.onBeforeAnalyze?.({ analyst, ctx, runId })
+      const effectiveBudget = validateEffectiveBudget(ctx.budgetUsd, remainingUsd, analyst.id)
       yield {
         type: 'analyst-started',
         analyst_id: analyst.id,
@@ -277,7 +287,9 @@ export class AnalystRegistry {
         const usage = resolveUsage(analyst, findings, usageReceipts)
         const cost = knownCostUsd(usage)
         totalCost += cost
-        if (typeof remainingUsd === 'number') remainingUsd = Math.max(0, remainingUsd - cost)
+        if (typeof remainingUsd === 'number') {
+          remainingUsd = Math.max(0, remainingUsd - budgetDebit(usage, effectiveBudget))
+        }
         allFindings.push(...findings)
         const summary: AnalystRunSummary = {
           analyst_id: analyst.id,
@@ -297,10 +309,10 @@ export class AnalystRegistry {
           input_tokens: usage.tokens?.input ?? null,
           output_tokens: usage.tokens?.output ?? null,
         })
-        if (perBudget !== undefined && usage.cost.kind === 'uncaptured') {
+        if (effectiveBudget !== undefined && usage.cost.kind === 'uncaptured') {
           log(`[analyst] WARN ${analyst.id} — USD cost uncaptured; budget not reconciled`, {
             runId,
-            budget_usd: perBudget,
+            budget_usd: effectiveBudget,
             cost_captured: false,
           })
         }
@@ -315,7 +327,9 @@ export class AnalystRegistry {
         const usage = resolveUsage(analyst, hookFindings, usageReceipts)
         const cost = knownCostUsd(usage)
         totalCost += cost
-        if (typeof remainingUsd === 'number') remainingUsd = Math.max(0, remainingUsd - cost)
+        if (typeof remainingUsd === 'number') {
+          remainingUsd = Math.max(0, remainingUsd - budgetDebit(usage, effectiveBudget))
+        }
         const summary: AnalystRunSummary = {
           analyst_id: analyst.id,
           status: 'failed',
@@ -333,10 +347,10 @@ export class AnalystRegistry {
           cost_usd: cost,
           cost_kind: usage.cost.kind,
         })
-        if (perBudget !== undefined && usage.cost.kind === 'uncaptured') {
+        if (effectiveBudget !== undefined && usage.cost.kind === 'uncaptured') {
           log(`[analyst] WARN ${analyst.id} — USD cost uncaptured; budget not reconciled`, {
             runId,
-            budget_usd: perBudget,
+            budget_usd: effectiveBudget,
             cost_captured: false,
           })
         }
@@ -418,25 +432,69 @@ function allocateBudget(
 ): number | undefined {
   if (!policy) return undefined
   if (policy.allocate) {
-    return policy.allocate({
+    const allocated = policy.allocate({
       analyst: args.analyst,
       totalUsd: policy.totalUsd,
       remainingUsd: args.remainingUsd,
       runningCount: args.runningCount,
     })
+    if (allocated === undefined) {
+      if (policy.totalUsd !== undefined) {
+        throw new Error(
+          `BudgetPolicy.allocate('${args.analyst.id}') cannot return undefined when totalUsd is set`,
+        )
+      }
+      return undefined
+    }
+    assertBudgetAmount(allocated, `BudgetPolicy.allocate('${args.analyst.id}')`)
+    return args.remainingUsd === undefined ? allocated : Math.min(allocated, args.remainingUsd)
   }
   if (policy.totalUsd == null) return undefined
-  if (policy.weights) {
-    return (policy.totalUsd * analystWeight(policy.weights, args.analyst.id)) / args.totalWeight!
+  const allocated = policy.weights
+    ? (policy.totalUsd * analystWeight(policy.weights, args.analyst.id)) / args.totalWeight!
+    : policy.totalUsd / Math.max(1, args.runningCount)
+  return args.remainingUsd === undefined ? allocated : Math.min(allocated, args.remainingUsd)
+}
+
+function validateBudgetPolicy(policy: BudgetPolicy | undefined): void {
+  if (!policy) return
+  if (policy.totalUsd !== undefined) assertBudgetAmount(policy.totalUsd, 'BudgetPolicy.totalUsd')
+  for (const [analystId, weight] of Object.entries(policy.weights ?? {})) {
+    assertBudgetAmount(weight, `BudgetPolicy.weights['${analystId}']`)
   }
-  return policy.totalUsd / Math.max(1, args.runningCount)
+}
+
+function assertBudgetAmount(value: number, field: string): void {
+  if (!Number.isFinite(value) || value < 0) {
+    throw new Error(`${field} must be a non-negative finite number`)
+  }
+}
+
+function validateEffectiveBudget(
+  budgetUsd: number | undefined,
+  remainingUsd: number | undefined,
+  analystId: string,
+): number | undefined {
+  if (budgetUsd !== undefined) {
+    assertBudgetAmount(budgetUsd, `AnalystContext.budgetUsd for '${analystId}'`)
+  }
+  if (remainingUsd === undefined) return budgetUsd
+  if (budgetUsd === undefined) {
+    throw new Error(
+      `AnalystContext.budgetUsd for '${analystId}' cannot be removed while an overall budget remains`,
+    )
+  }
+  if (budgetUsd > remainingUsd) {
+    throw new Error(
+      `AnalystContext.budgetUsd for '${analystId}' (${budgetUsd}) exceeds the remaining overall budget (${remainingUsd})`,
+    )
+  }
+  return budgetUsd
 }
 
 function analystWeight(weights: Record<string, number>, analystId: string): number {
   const weight = weights[analystId] ?? 1
-  if (!Number.isFinite(weight) || weight < 0) {
-    throw new Error(`BudgetPolicy.weights['${analystId}'] must be a non-negative finite number`)
-  }
+  assertBudgetAmount(weight, `BudgetPolicy.weights['${analystId}']`)
   return weight
 }
 
@@ -486,8 +544,14 @@ function mergeUsageReceipts(receipts: ReadonlyArray<AnalystUsageReceipt>): Analy
         (sum, receipt) => ({
           input: sum.input + (receipt.tokens?.input ?? 0),
           output: sum.output + (receipt.tokens?.output ?? 0),
+          ...(sum.reasoning !== undefined || receipt.tokens?.reasoning !== undefined
+            ? { reasoning: (sum.reasoning ?? 0) + (receipt.tokens?.reasoning ?? 0) }
+            : {}),
           ...(sum.cached !== undefined || receipt.tokens?.cached !== undefined
             ? { cached: (sum.cached ?? 0) + (receipt.tokens?.cached ?? 0) }
+            : {}),
+          ...(sum.cacheWrite !== undefined || receipt.tokens?.cacheWrite !== undefined
+            ? { cacheWrite: (sum.cacheWrite ?? 0) + (receipt.tokens?.cacheWrite ?? 0) }
             : {}),
         }),
         { input: 0, output: 0 },
@@ -510,6 +574,13 @@ function knownCostUsd(receipt: AnalystUsageReceipt): number {
   return receipt.cost.kind === 'uncaptured' ? (receipt.knownCostUsd ?? 0) : receipt.cost.usd
 }
 
+function budgetDebit(receipt: AnalystUsageReceipt, allocatedUsd: number | undefined): number {
+  const known = knownCostUsd(receipt)
+  return receipt.cost.kind === 'uncaptured' && allocatedUsd !== undefined
+    ? Math.max(known, allocatedUsd)
+    : known
+}
+
 function aggregateCostProvenance(costs: ReadonlyArray<RunCostProvenance>): RunCostProvenance {
   if (costs.some((cost) => cost.kind === 'uncaptured')) {
     return { kind: 'uncaptured', usd: null }
@@ -527,8 +598,19 @@ function assertValidUsageReceipt(receipt: AnalystUsageReceipt): void {
   if (receipt.tokens) {
     assertNonNegativeFinite(receipt.tokens.input, 'tokens.input')
     assertNonNegativeFinite(receipt.tokens.output, 'tokens.output')
+    if (receipt.tokens.reasoning !== undefined) {
+      assertNonNegativeFinite(receipt.tokens.reasoning, 'tokens.reasoning')
+      if (receipt.tokens.reasoning > receipt.tokens.output) {
+        throw new Error(
+          'AnalystContext.recordUsage: tokens.reasoning must not exceed tokens.output',
+        )
+      }
+    }
     if (receipt.tokens.cached !== undefined) {
       assertNonNegativeFinite(receipt.tokens.cached, 'tokens.cached')
+    }
+    if (receipt.tokens.cacheWrite !== undefined) {
+      assertNonNegativeFinite(receipt.tokens.cacheWrite, 'tokens.cacheWrite')
     }
   }
   if (receipt.cost.kind !== 'uncaptured') {
@@ -548,19 +630,22 @@ function assertNonNegativeFinite(value: number, field: string): void {
 }
 
 /**
- * Findings may carry their cost in `metadata.cost_usd` when the analyst
- * tracks it (the LLM-driven adapters do this — they sum chat-client
- * responses). Deterministic findings have no cost field.
+ * Legacy analysts may carry chat-client cost in `metadata.cost_usd`.
+ * Current adapters report usage independently of findings.
  */
 function sumFindingCost(findings: AnalystFinding[]): { usd: number; captured: boolean } {
   let sum = 0
   let captured = false
   for (const f of findings) {
     const c = f.metadata?.cost_usd
-    if (typeof c === 'number' && Number.isFinite(c)) {
-      sum += c
-      captured = true
+    if (c === undefined) continue
+    if (typeof c !== 'number' || !Number.isFinite(c) || c < 0) {
+      throw new Error(
+        `Analyst finding '${f.finding_id}' metadata.cost_usd must be a non-negative finite number`,
+      )
     }
+    sum += c
+    captured = true
   }
   return { usd: sum, captured }
 }

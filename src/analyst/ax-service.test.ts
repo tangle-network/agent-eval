@@ -25,4 +25,15 @@ describe('createAnalystAi', () => {
       config: { model: 'gpt-4o-mini' },
     })
   })
+
+  it('rejects a blank model before constructing a provider service', () => {
+    expect(() =>
+      createAnalystAi({
+        apiKey: 'test',
+        baseUrl: 'https://example.test/v1',
+        model: '   ',
+      }),
+    ).toThrow(/model must be a non-empty string/)
+    expect(axMock.ai).not.toHaveBeenCalled()
+  })
 })

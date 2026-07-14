@@ -49,30 +49,21 @@ DISCOVERY → ATTRIBUTE-TO-LAYER → CITE protocol:
    - Fabricated identifiers that don't appear in dataset \`sample_trace_ids\`
    Use \`traces.searchTrace\` with patterns like \`I (don.?t|do not) know\`, \`assumed\`, \`unclear\`, \`could you (clarify|tell me|provide)\`, \`not found\`, \`undefined\`, \`unknown\`, \`null\`, dates older than the analysis window, or the agent's specific clarification phrases.
 3. For each gap, identify the **layer of the runtime that should have prevented it** and use its exact locus from the subject grammar above.
-4. For each gap you can defend with evidence, emit ONE finding with:
-   - \`area\` = "knowledge-gap"
-   - \`subject\` = one exact locus form from the subject grammar above
-   - \`claim\` = a sentence naming the missing or stale knowledge ("wiki has no page on invoice line-item shape, agent had to re-derive it from raw spans")
-   - \`severity\` = "high" when the gap caused a failure or a clarifying question; "medium" when it caused unnecessary turns; "low" when it caused minor inefficiency
-   - \`evidence_uri\` = \`span://<trace_id>/<span_id>\` of the moment the gap surfaced (the question, the self-correction, the retrieval miss, the stale web result)
-   - \`evidence_excerpt\` = exact quote where the agent showed the gap
-   - \`confidence\` = 0.85+ when the agent itself articulated the gap; 0.6-0.8 when inferred from behavior
-   - \`recommended_action\` = phrased as a wiki edit when the locus is \`agent-knowledge:*\` ("Create wiki page \`invoice-line-items\` with claims: ..."), or as a prompt/tool-doc edit otherwise
+4. For each defensible gap, emit ONE finding. Use an exact locus from the subject grammar and name the missing or stale knowledge (for example, "wiki has no page on invoice line-item shape; agent re-derived it from raw spans"). Rate it high when it caused failure or a clarifying question, medium for unnecessary turns, and low for minor inefficiency. Cite the span where the question, correction, retrieval miss, or stale result surfaced and quote it exactly. Use confidence 0.85+ when the agent articulated the gap and 0.6-0.8 when inferred. Recommend a concrete wiki edit for an agent-knowledge locus or a prompt/tool-description edit otherwise.
 
-**Delegate per layer.** After your first scan, you should have candidates spread across \`agent-knowledge:*\`, \`websearch:outdated\`, \`tool-doc:*\`, \`system-prompt:*\`, and \`memory:*\`. Spawn one \`llmQuery\` per layer in parallel — each subagent runs a focused detection (e.g. the \`agent-knowledge\` subagent looks for both missing-pages AND stale-pages; the \`websearch\` subagent looks specifically for date staleness signals; the \`tool-doc\` subagent looks for tool-call argument errors a fuller description would have prevented). Subagents return findings; you merge and emit one \`final({ findings })\` at the top.
+**Delegate per layer.** After your first scan, you should have candidates spread across \`agent-knowledge:*\`, \`websearch:outdated\`, \`tool-doc:*\`, \`system-prompt:*\`, and \`memory:*\`. Spawn one \`llmQuery\` per layer in parallel — each subagent runs a focused detection (e.g. the \`agent-knowledge\` subagent looks for both missing-pages AND stale-pages; the \`websearch\` subagent looks specifically for date staleness signals; the \`tool-doc\` subagent looks for tool-call argument errors a fuller description would have prevented). Merge their evidence into the final finding set.
 
 Do NOT report a gap that the agent later recovered from cleanly within the same turn — that's resilience, not a gap. Cite the *non-recovery* version when both exist.
 
 OBSERVABILITY rules:
-- Each non-final turn must emit at least one \`console.log\` for evidence.
-- Call \`final({ findings: [...] })\` exactly once at the top level.`
+- Each non-final turn must emit at least one \`console.log\` for evidence.`
 
 export const KNOWLEDGE_GAP_KIND_SPEC: TraceAnalystKindSpec = {
   id: 'knowledge-gap',
   description:
     'Identifies missing or stale pieces of knowledge — primarily against the agent-knowledge wiki — and attributes each to the runtime layer (wiki page, claim, raw source, websearch, tool-doc, system-prompt, memory) that should have held it.',
   area: 'knowledge-gap',
-  version: '1.0.0',
+  version: '1.1.0',
   actorDescription: ACTOR_PROMPT,
   buildTools: (store) => buildTraceToolsForGroup('discoveryAndSearch', store),
   recursion: { maxDepth: 2, maxParallelSubagents: 4 },

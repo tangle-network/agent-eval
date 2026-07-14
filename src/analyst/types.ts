@@ -16,6 +16,7 @@
  */
 
 import { createHash } from 'node:crypto'
+import type { CostLedgerHandle } from '../cost-ledger'
 import type { RunCostProvenance, RunRecord, RunTokenUsage } from '../run-record'
 import type { TraceAnalysisStore } from '../trace-analyst/store'
 import type { JudgeInput } from '../types'
@@ -136,6 +137,10 @@ export interface AnalystContext {
   deadlineMs?: number
   /** Per-analyst USD budget. Analysts MAY check before issuing LLM calls. */
   budgetUsd?: number
+  /** Shared paid-call account when the analyst runs inside a larger campaign. */
+  costLedger?: CostLedgerHandle
+  /** Attribution phase used when writing to the shared paid-call account. */
+  costPhase?: string
   /**
    * Shared chat client. Analysts that call an LLM go through this so
    * the operator picks transport (sandbox-sdk | router | cli-bridge |

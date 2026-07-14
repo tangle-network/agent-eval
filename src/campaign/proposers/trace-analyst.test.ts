@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import { AnalystRegistry } from '../../analyst/registry'
 import type { AnalystFinding } from '../../analyst/types'
+import { CostLedger } from '../../cost-ledger'
 import { isProposedCandidate, type ProposeContext, type ProposedCandidate } from '../types'
 import { traceAnalystProposer } from './trace-analyst'
 
@@ -97,14 +98,22 @@ describe('traceAnalystProposer — wraps our trace-analyst registry as a Surface
         resolveTraces: () => '{"name":"agent.Assistant","trace_id":"t1"}',
         fetchImpl: stubFetch('IMPROVED'),
       })
+      const input = ctx('BASE')
+      const costLedger = new CostLedger()
+      input.costLedger = costLedger
 
-      await proposer.propose(ctx('BASE'))
+      await proposer.propose(input)
 
       expect(run).toHaveBeenCalledWith(
         'trace-analyst-gen-1',
         expect.objectContaining({ traceStore: expect.anything() }),
-        expect.objectContaining({ chainFindings: true, signal: expect.any(AbortSignal) }),
+        expect.objectContaining({
+          chainFindings: true,
+          signal: expect.any(AbortSignal),
+          costLedger,
+        }),
       )
+      expect(costLedger.list().map((receipt) => receipt.actor)).toEqual(['trace-analyst.apply'])
     } finally {
       run.mockRestore()
     }
