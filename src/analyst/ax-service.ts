@@ -10,6 +10,8 @@ export interface CreateAnalystAiConfig {
   /** OpenAI-compatible base URL — e.g. `https://router.tangle.tools/v1` or a
    *  cli-bridge loopback. */
   baseUrl?: string
+  /** Additional headers required by the gateway, such as tenant or execution policy. */
+  headers?: Record<string, string>
   /** Model id forwarded to analyst calls. */
   model: string
   /** Ax provider name. Defaults to the OpenAI-compatible client. */
@@ -35,6 +37,7 @@ export function createAnalystAi(config: CreateAnalystAiConfig): AxAIService {
     name: config.provider ?? 'openai',
     apiKey: config.apiKey,
     ...(config.baseUrl ? { apiURL: config.baseUrl } : {}),
+    ...(config.headers ? { headers: config.headers } : {}),
     config: { model },
   } as unknown as AxAIArgs<unknown>
   const service = ai(args)
