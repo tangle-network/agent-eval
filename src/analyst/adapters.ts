@@ -295,7 +295,11 @@ export function createSemanticConceptJudgeAdapter(
     description:
       'Runs the semantic-concept judge and surfaces missing / weak concepts as findings.',
     inputKind: 'custom',
-    cost: { kind: 'llm', models: opts.options?.model ? [opts.options.model] : undefined },
+    cost: {
+      kind: 'llm',
+      models: opts.options?.model ? [opts.options.model] : undefined,
+      settlement_timeout_ms: settlementTimeoutMs,
+    },
     version: `${SEMANTIC_CONCEPT_JUDGE_VERSION}-adapter-${ADAPTER_REV}`,
     async analyze(input, ctx) {
       const costLedger = new CostLedger(ctx.budgetUsd)

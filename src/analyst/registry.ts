@@ -30,6 +30,7 @@ import type {
   AnalystRunSummary,
   AnalystUsageReceipt,
 } from './types'
+import { validateUsageSettlementTimeout } from './usage-receipt'
 
 // ── Hook + policy surfaces ─────────────────────────────────────────
 
@@ -98,7 +99,7 @@ export interface RegistryRunOpts {
   skip?: string[]
   /** Budget policy — totalUsd + optional weights/allocator. Falls back to options.defaultBudget. */
   budget?: BudgetPolicy
-  /** Wall-clock cap. Analysts SHOULD honor `ctx.deadlineMs`. */
+  /** Active-work cap for the complete registry run. Model receipt settlement may follow. */
   timeoutMs?: number
   /** Abort signal — forwarded into every analyst's context. */
   signal?: AbortSignal
@@ -140,6 +141,14 @@ export class AnalystRegistry {
     }
     if (!analyst.version) {
       throw new Error(`AnalystRegistry.register: analyst "${analyst.id}" must declare a version`)
+    }
+    if (analyst.cost.kind === 'deterministic' && analyst.cost.settlement_timeout_ms !== undefined) {
+      throw new TypeError(
+        `AnalystRegistry.register: deterministic analyst "${analyst.id}" cannot declare settlement_timeout_ms`,
+      )
+    }
+    if (analyst.cost.settlement_timeout_ms !== undefined) {
+      validateUsageSettlementTimeout(analyst.cost.settlement_timeout_ms)
     }
     this.analysts.set(analyst.id, analyst)
   }
@@ -192,7 +201,10 @@ export class AnalystRegistry {
     const hooks = this.options.hooks ?? {}
     const startedAt = new Date().toISOString()
     const started = Date.now()
-    const deadlineMs = runOpts.timeoutMs ? started + runOpts.timeoutMs : undefined
+    const timeoutMs = validateTimeout(runOpts.timeoutMs)
+    const deadlineMs = timeoutMs === undefined ? undefined : started + timeoutMs
+    const timeoutSignal = timeoutMs === undefined ? undefined : AbortSignal.timeout(timeoutMs)
+    const runSignal = combineAbortSignals(runOpts.signal, timeoutSignal)
 
     const selected = this.selectAnalysts(runOpts)
     const budget = runOpts.budget ?? this.options.defaultBudget
@@ -227,6 +239,13 @@ export class AnalystRegistry {
 
     for (const analyst of selected) {
       const t0 = Date.now()
+      if (runSignal?.aborted) {
+        const summary = abortedBeforeStartSummary(analyst, runSignal)
+        summaries.push(summary)
+        log(`[analyst] skip ${analyst.id} — run aborted`, { runId, reason: summary.reason })
+        yield { type: 'analyst-skipped', summary }
+        continue
+      }
       const input = this.routeInput(analyst, inputs)
       if (input.kind === 'missing') {
         const summary: AnalystRunSummary = {
@@ -240,7 +259,12 @@ export class AnalystRegistry {
         }
         summaries.push(summary)
         log(`[analyst] skip ${analyst.id} — missing input`, { runId, kind: analyst.inputKind })
-        await hooks.onAfterAnalyze?.({ analyst, summary, findings: [], runId })
+        await waitForHook(
+          hooks.onAfterAnalyze
+            ? () => hooks.onAfterAnalyze?.({ analyst, summary, findings: [], runId })
+            : undefined,
+          runSignal,
+        )
         yield { type: 'analyst-skipped', summary }
         continue
       }
@@ -263,7 +287,7 @@ export class AnalystRegistry {
         chat: this.options.chat,
         tags: runOpts.tags,
         log: (msg, fields) => log(`[${analyst.id}] ${msg}`, { runId, correlationId, ...fields }),
-        signal: runOpts.signal,
+        signal: runSignal,
         priorFindings: selectPriorFindings(runOpts.priorFindings, analyst.id),
         upstreamFindings:
           runOpts.chainFindings && allFindings.length > 0 ? [...allFindings] : undefined,
@@ -273,7 +297,17 @@ export class AnalystRegistry {
         },
       }
 
-      await hooks.onBeforeAnalyze?.({ analyst, ctx, runId })
+      await waitForHook(
+        hooks.onBeforeAnalyze ? () => hooks.onBeforeAnalyze?.({ analyst, ctx, runId }) : undefined,
+        runSignal,
+      )
+      if (runSignal?.aborted) {
+        const summary = abortedBeforeStartSummary(analyst, runSignal, Date.now() - t0)
+        summaries.push(summary)
+        log(`[analyst] skip ${analyst.id} — run aborted`, { runId, reason: summary.reason })
+        yield { type: 'analyst-skipped', summary }
+        continue
+      }
       const effectiveBudget = validateEffectiveBudget(ctx.budgetUsd, remainingUsd, analyst.id)
       yield {
         type: 'analyst-started',
@@ -281,8 +315,15 @@ export class AnalystRegistry {
         started_at: new Date(t0).toISOString(),
       }
 
+      let findings: AnalystFinding[]
+      let summary: AnalystRunSummary
       try {
-        const findings = await (analyst as Analyst<unknown>).analyze(input.value, ctx)
+        if (runSignal?.aborted) throw abortReason(runSignal)
+        findings = await waitForOperation(
+          (analyst as Analyst<unknown>).analyze(input.value, ctx),
+          runSignal,
+          analystAbortGraceMs(analyst),
+        )
         const latency = Date.now() - t0
         const usage = resolveUsage(analyst, findings, usageReceipts)
         const cost = knownCostUsd(usage)
@@ -291,7 +332,7 @@ export class AnalystRegistry {
           remainingUsd = Math.max(0, remainingUsd - budgetDebit(usage, effectiveBudget))
         }
         allFindings.push(...findings)
-        const summary: AnalystRunSummary = {
+        summary = {
           analyst_id: analyst.id,
           status: 'ok',
           findings_count: findings.length,
@@ -316,13 +357,13 @@ export class AnalystRegistry {
             cost_captured: false,
           })
         }
-        await hooks.onAfterAnalyze?.({ analyst, summary, findings, runId })
-        yield { type: 'analyst-completed', summary, findings }
       } catch (err) {
         const latency = Date.now() - t0
         const e = err instanceof Error ? err : new Error(String(err))
         // Hook gets first chance to convert the error into findings.
-        const hookFindings = (await hooks.onError?.({ analyst, error: e, runId })) ?? []
+        const hookFindings = runSignal?.aborted
+          ? []
+          : ((await hooks.onError?.({ analyst, error: e, runId })) ?? [])
         if (hookFindings.length) allFindings.push(...hookFindings)
         const usage = resolveUsage(analyst, hookFindings, usageReceipts)
         const cost = knownCostUsd(usage)
@@ -354,10 +395,22 @@ export class AnalystRegistry {
             cost_captured: false,
           })
         }
-        await hooks.onAfterAnalyze?.({ analyst, summary, findings: hookFindings, runId })
+        await waitForHook(
+          hooks.onAfterAnalyze
+            ? () => hooks.onAfterAnalyze?.({ analyst, summary, findings: hookFindings, runId })
+            : undefined,
+          runSignal,
+        )
         yield { type: 'analyst-completed', summary, findings: hookFindings }
-        // Continue — isolation invariant.
+        continue
       }
+      await waitForHook(
+        hooks.onAfterAnalyze
+          ? () => hooks.onAfterAnalyze?.({ analyst, summary, findings, runId })
+          : undefined,
+        runSignal,
+      )
+      yield { type: 'analyst-completed', summary, findings }
     }
 
     const result: AnalystRunResult = {
@@ -372,7 +425,10 @@ export class AnalystRegistry {
         summaries.map((summary) => summary.usage?.cost ?? { kind: 'uncaptured', usd: null }),
       ),
     }
-    await hooks.onComplete?.({ result })
+    await waitForHook(
+      hooks.onComplete ? () => hooks.onComplete?.({ result }) : undefined,
+      runSignal,
+    )
     yield { type: 'run-completed', result }
   }
 
@@ -414,6 +470,117 @@ export class AnalystRegistry {
       }
     }
   }
+}
+
+function validateTimeout(timeoutMs: number | undefined): number | undefined {
+  if (timeoutMs === undefined) return undefined
+  if (!Number.isSafeInteger(timeoutMs) || timeoutMs <= 0 || timeoutMs > 2_147_483_647) {
+    throw new TypeError(
+      'RegistryRunOpts.timeoutMs must be a positive safe integer no greater than 2147483647',
+    )
+  }
+  return timeoutMs
+}
+
+function combineAbortSignals(
+  caller: AbortSignal | undefined,
+  timeout: AbortSignal | undefined,
+): AbortSignal | undefined {
+  if (!caller) return timeout
+  if (!timeout) return caller
+  return AbortSignal.any([caller, timeout])
+}
+
+async function waitForOperation<T>(
+  operation: Promise<T>,
+  signal: AbortSignal | undefined,
+  abortGraceMs: number,
+): Promise<T> {
+  if (!signal) return operation
+  if (signal.aborted) {
+    void operation.catch(() => {})
+    throw abortReason(signal)
+  }
+  return new Promise<T>((resolve, reject) => {
+    let settlementTimer: ReturnType<typeof setTimeout> | undefined
+    const cleanup = (): void => {
+      signal.removeEventListener('abort', onAbort)
+      if (settlementTimer) clearTimeout(settlementTimer)
+    }
+    const onAbort = (): void => {
+      if (abortGraceMs === 0) {
+        cleanup()
+        reject(abortReason(signal))
+        return
+      }
+      settlementTimer = setTimeout(() => {
+        cleanup()
+        reject(abortReason(signal))
+      }, abortGraceMs)
+    }
+    signal.addEventListener('abort', onAbort, { once: true })
+    operation.then(
+      (value) => {
+        cleanup()
+        if (signal.aborted) reject(abortReason(signal))
+        else resolve(value)
+      },
+      (error) => {
+        cleanup()
+        reject(signal.aborted ? abortReason(signal) : error)
+      },
+    )
+  })
+}
+
+async function waitForHook<T>(
+  operation: (() => T | Promise<T>) | undefined,
+  signal: AbortSignal | undefined,
+): Promise<T | undefined> {
+  if (operation === undefined || signal?.aborted) return undefined
+  try {
+    return await waitForOperation(
+      Promise.resolve().then(() => {
+        if (signal?.aborted) throw abortReason(signal)
+        return operation()
+      }),
+      signal,
+      0,
+    )
+  } catch (error) {
+    if (signal?.aborted) return undefined
+    throw error
+  }
+}
+
+function analystAbortGraceMs(analyst: Analyst): number {
+  if (analyst.cost.kind === 'deterministic') return 0
+  const settlementMs = validateUsageSettlementTimeout(analyst.cost.settlement_timeout_ms)
+  if (settlementMs === 0) return 0
+  return Math.min(settlementMs + 100, 2_147_483_647)
+}
+
+function abortedBeforeStartSummary(
+  analyst: Analyst,
+  signal: AbortSignal,
+  latencyMs = 0,
+): AnalystRunSummary {
+  const reason = abortReason(signal)
+  return {
+    analyst_id: analyst.id,
+    status: 'skipped',
+    reason: `${reason.name}: ${reason.message}`,
+    findings_count: 0,
+    latency_ms: latencyMs,
+    cost_usd: 0,
+    usage: zeroUsage(),
+  }
+}
+
+function abortReason(signal: AbortSignal): Error {
+  return signal.reason instanceof Error
+    ? signal.reason
+    : new DOMException('The operation was aborted', 'AbortError')
 }
 
 /**

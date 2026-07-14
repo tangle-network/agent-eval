@@ -132,7 +132,7 @@ export function createTraceAnalystKind(
     id: spec.id,
     description: spec.description,
     inputKind: 'trace-store',
-    cost: spec.cost,
+    cost: { ...spec.cost, settlement_timeout_ms: settlementTimeoutMs },
     version,
     async analyze(store, ctx) {
       const maxOutputTokens = spec.maxOutputTokens ?? 4096

@@ -107,6 +107,8 @@ export interface AnalystCost {
   est_usd_per_run?: number
   /** Models the analyst expects to use (informational). */
   models?: string[]
+  /** Maximum post-cancellation wait for provider usage. Model analysts default to 5 seconds. */
+  settlement_timeout_ms?: number
 }
 
 export interface AnalystRequirements {
@@ -133,7 +135,7 @@ export interface AnalystContext {
   runId: string
   /** Stable correlation id so logs from a single registry.run() share a tag. */
   correlationId: string
-  /** Wall-clock deadline (epoch ms). Analysts SHOULD honor for graceful cancel. */
+  /** Enforced wall-clock deadline (epoch ms). */
   deadlineMs?: number
   /** Per-analyst USD budget. Analysts MAY check before issuing LLM calls. */
   budgetUsd?: number
