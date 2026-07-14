@@ -5,6 +5,7 @@ import {
   agentImprovementMeasuredComparisonSchema,
   type Sha256Digest,
 } from '@tangle-network/agent-interface'
+import { powerPreflight } from '../campaign/gates/power-preflight'
 import { surfaceContentHash } from '../campaign/surface-identity'
 import type { MutableSurface, Scenario } from '../campaign/types'
 import { type PairedArmRow, pairArms } from '../paired-arms'
@@ -20,8 +21,8 @@ export interface MeasuredComparisonFromSelfImproveResultOptions<
   benchmark: AgentImprovementMeasuredComparison['benchmark']
   baselineProfileDigest: Sha256Digest
   candidateBundleDigest: Sha256Digest
-  /** When supplied, reject results whose recorded baseline is not this exact surface. */
-  baselineSurface?: MutableSurface
+  /** Exact baseline surface; contradictory recorded provenance is rejected. */
+  baselineSurface: MutableSurface
 }
 
 /** Convert one paired self-improvement result into the portable Interface evidence record. */
@@ -68,9 +69,7 @@ export function measuredComparisonFromSelfImproveResult<TScenario extends Scenar
     result.durationMs,
     'provenance total duration',
   )
-  const baselineContentHash = options.baselineSurface
-    ? surfaceContentHash(options.baselineSurface)
-    : result.provenance.baselineContentHash
+  const baselineContentHash = surfaceContentHash(options.baselineSurface)
   const candidateContentHash = surfaceContentHash(result.winner.surface)
   assertMeasuredIdentity(
     result.gateDecision,
@@ -100,8 +99,45 @@ export function measuredComparisonFromSelfImproveResult<TScenario extends Scenar
     candidateContentHash,
     'winner surface',
   )
+  assertMeasuredIdentity(
+    digest(power),
+    digest(
+      powerPreflight({
+        baselineComposites: pairs.map(([cell]) => measuredComposite(cell)),
+        sharedScorerChannel: true,
+      }),
+    ),
+    'power analysis',
+  )
   assertMeasuredNumber(power.n, composite.n, 'power sample size')
   assertMeasuredNumber(power.confidence, 0.95, 'power confidence')
+  assertMeasuredNumber(
+    result.generationsExplored,
+    result.raw.generations.length,
+    'generation count',
+  )
+  assertMeasuredNumber(result.totalCostUsd, result.cost.totalCostUsd, 'cost summary')
+  assertMeasuredIdentity(digest(result.cost), digest(result.raw.cost), 'raw cost summary')
+  const receiptCostUsd = result.receipts.reduce((total, receipt) => {
+    return total + nonnegativeMeasuredValue(receipt.costUsd, `receipt ${receipt.callId} cost`)
+  }, 0)
+  assertMeasuredNumber(result.totalCostUsd, receiptCostUsd, 'cost receipts')
+  assertMeasuredOptional(result.winner.label, result.raw.winnerLabel, 'raw winner label')
+  assertMeasuredOptional(
+    result.winner.rationale,
+    result.raw.winnerRationale,
+    'raw winner rationale',
+  )
+  assertMeasuredOptional(
+    result.winner.label,
+    result.provenance.winnerLabel,
+    'provenance winner label',
+  )
+  assertMeasuredOptional(
+    result.winner.rationale,
+    result.provenance.winnerRationale,
+    'provenance winner rationale',
+  )
 
   return agentImprovementMeasuredComparisonSchema.parse({
     schemaVersion: 1,
@@ -163,6 +199,7 @@ export function measuredComparisonFromSelfImproveResult<TScenario extends Scenar
 }
 
 interface MeasuredEvaluationCell {
+  cellId: string
   scenarioId: string
   rep: number
   judgeScores: Record<
@@ -172,6 +209,7 @@ interface MeasuredEvaluationCell {
   costUsd: number
   tokenUsage?: { input: number; output: number }
   durationMs: number
+  seed: number
   error?: string
 }
 
@@ -268,7 +306,9 @@ function pairMeasuredCells(
   baselineCells: readonly MeasuredEvaluationCell[],
   candidateCells: readonly MeasuredEvaluationCell[],
 ): Array<readonly [MeasuredEvaluationCell, MeasuredEvaluationCell]> {
-  const errors = [...baselineCells, ...candidateCells].filter((cell) => cell.error)
+  const cells = [...baselineCells, ...candidateCells]
+  for (const cell of cells) assertMeasuredCell(cell)
+  const errors = cells.filter((cell) => cell.error)
   if (errors.length > 0) {
     throw new Error(
       `measured objectives cannot publish ${errors.length} errored heldout cells: ${errors
@@ -279,14 +319,14 @@ function pairMeasuredCells(
   type MeasuredArmRow = PairedArmRow & { cell: MeasuredEvaluationCell }
   const rows: MeasuredArmRow[] = [
     ...baselineCells.map((cell) => ({
-      pairKey: cell.scenarioId,
-      repKey: String(cell.rep),
+      pairKey: cell.cellId,
+      repKey: '0',
       arm: 'baseline',
       cell,
     })),
     ...candidateCells.map((cell) => ({
-      pairKey: cell.scenarioId,
-      repKey: String(cell.rep),
+      pairKey: cell.cellId,
+      repKey: '0',
       arm: 'candidate',
       cell,
     })),
@@ -299,10 +339,41 @@ function pairMeasuredCells(
   ) {
     throw new Error('measured objectives require the same non-empty paired heldout cells')
   }
-  return paired.pairs.map(
-    (pair) =>
-      [(pair.baseline as MeasuredArmRow).cell, (pair.treatment as MeasuredArmRow).cell] as const,
-  )
+  return paired.pairs.map((pair) => {
+    const baseline = (pair.baseline as MeasuredArmRow).cell
+    const candidate = (pair.treatment as MeasuredArmRow).cell
+    if (baseline.seed !== candidate.seed) {
+      throw new Error(`heldout cell ${baseline.cellId} does not share one paired seed`)
+    }
+    return [baseline, candidate] as const
+  })
+}
+
+function assertMeasuredCell(cell: MeasuredEvaluationCell): void {
+  if (
+    !cell.scenarioId.trim() ||
+    !Number.isSafeInteger(cell.rep) ||
+    cell.rep < 0 ||
+    !Number.isSafeInteger(cell.seed) ||
+    cell.cellId !== measuredCellKey(cell)
+  ) {
+    throw new Error(`heldout cell '${cell.cellId}' has an invalid scenario/rep identity`)
+  }
+  nonnegativeMeasuredValue(cell.costUsd, `heldout cell ${cell.cellId} cost`)
+  nonnegativeMeasuredValue(cell.durationMs, `heldout cell ${cell.cellId} latency`)
+  if (cell.tokenUsage) {
+    nonnegativeMeasuredInteger(cell.tokenUsage.input, `heldout cell ${cell.cellId} input tokens`)
+    nonnegativeMeasuredInteger(cell.tokenUsage.output, `heldout cell ${cell.cellId} output tokens`)
+  }
+  for (const [judge, score] of Object.entries(cell.judgeScores)) {
+    if (score.failed) {
+      throw new Error(`heldout cell ${cell.cellId} contains failed judge '${judge}'`)
+    }
+    finiteMeasuredValue(score.composite, `objective:${judge}`)
+    for (const [dimension, value] of Object.entries(score.dimensions)) {
+      finiteMeasuredValue(value, `dimension:${judge}:${dimension}`)
+    }
+  }
 }
 
 type MeasuredObjectiveIdentity =
@@ -400,6 +471,18 @@ function finiteMeasuredValue(value: number, name: string): number {
   return value
 }
 
+function nonnegativeMeasuredValue(value: number, name: string): number {
+  if (!Number.isFinite(value) || value < 0) throw new Error(`${name} must be non-negative`)
+  return value
+}
+
+function nonnegativeMeasuredInteger(value: number, name: string): number {
+  if (!Number.isSafeInteger(value) || value < 0) {
+    throw new Error(`${name} must be a non-negative safe integer`)
+  }
+  return value
+}
+
 function measuredMean(values: readonly number[]): number {
   if (values.length === 0) throw new Error('measured objective has no paired values')
   return values.reduce((sum, value) => sum + value, 0) / values.length
@@ -425,6 +508,14 @@ function assertMeasuredNumber(actual: number, expected: number, name: string): v
 }
 
 function assertMeasuredIdentity(actual: string, expected: string, name: string): void {
+  if (actual !== expected) throw new Error(`${name} does not agree across the measured comparison`)
+}
+
+function assertMeasuredOptional(
+  actual: string | undefined,
+  expected: string | undefined,
+  name: string,
+): void {
   if (actual !== expected) throw new Error(`${name} does not agree across the measured comparison`)
 }
 

@@ -2,7 +2,13 @@ import { createHash } from 'node:crypto'
 
 import { describe, expect, it } from 'vitest'
 
-import type { Gate, JudgeConfig, Scenario, SurfaceProposer } from '../campaign/types'
+import type {
+  Gate,
+  JudgeConfig,
+  MutableSurface,
+  Scenario,
+  SurfaceProposer,
+} from '../campaign/types'
 import { canonicalJson } from '../verdict-cache'
 import type { DispatchContext } from './index'
 import { measuredComparisonFromSelfImproveResult } from './measured-comparison'
@@ -71,7 +77,7 @@ function fixtureResult() {
 
 type FixtureResult = Awaited<ReturnType<typeof fixtureResult>>
 
-function measuredComparison(result: FixtureResult) {
+function measuredComparison(result: FixtureResult, baselineSurface: MutableSurface = 'BASELINE') {
   return measuredComparisonFromSelfImproveResult({
     result,
     benchmark: {
@@ -81,7 +87,7 @@ function measuredComparison(result: FixtureResult) {
     },
     baselineProfileDigest: `sha256:${'2'.repeat(64)}`,
     candidateBundleDigest: `sha256:${'3'.repeat(64)}`,
-    baselineSurface: 'BASELINE',
+    baselineSurface,
   })
 }
 
@@ -166,6 +172,11 @@ describe('measuredComparisonFromSelfImproveResult', () => {
     }
 
     expect(() => measuredComparison(errored)).toThrow(/cannot publish 2 errored heldout cells/)
+  })
+
+  it('requires the exact baseline surface, including an empty string', async () => {
+    const result = await fixtureResult()
+    expect(() => measuredComparison(result, '')).toThrow(/baseline surface does not agree/)
   })
 
   it.each([
@@ -275,6 +286,50 @@ describe('measuredComparisonFromSelfImproveResult', () => {
       }),
       message: /provenance total duration does not agree/,
     },
+    {
+      name: 'power analysis',
+      mutate: (result: FixtureResult) => ({
+        ...result,
+        power: { ...result.power!, mde: 999, recommendation: 'forged power analysis' },
+      }),
+      message: /power analysis does not agree/,
+    },
+    {
+      name: 'generation count',
+      mutate: (result: FixtureResult) => ({ ...result, generationsExplored: 999 }),
+      message: /generation count does not agree/,
+    },
+    {
+      name: 'cost summary',
+      mutate: (result: FixtureResult) => ({
+        ...result,
+        totalCostUsd: result.totalCostUsd + 1,
+        provenance: { ...result.provenance, totalCostUsd: result.totalCostUsd + 1 },
+      }),
+      message: /cost summary does not agree/,
+    },
+    {
+      name: 'cost receipts',
+      mutate: (result: FixtureResult) => {
+        const totalCostUsd = result.totalCostUsd + 1
+        return {
+          ...result,
+          totalCostUsd,
+          cost: { ...result.cost, totalCostUsd },
+          provenance: { ...result.provenance, totalCostUsd },
+          raw: { ...result.raw, cost: { ...result.raw.cost, totalCostUsd } },
+        }
+      },
+      message: /cost receipts does not agree/,
+    },
+    {
+      name: 'winner label',
+      mutate: (result: FixtureResult) => ({
+        ...result,
+        winner: { ...result.winner, label: 'forged label' },
+      }),
+      message: /raw winner label does not agree/,
+    },
   ])('rejects contradictory $name provenance', async ({ mutate, message }) => {
     const result = await fixtureResult()
     expect(() => measuredComparison(mutate(result))).toThrow(message)
@@ -285,6 +340,9 @@ describe('measuredComparisonFromSelfImproveResult', () => {
     const baselineCell = result.raw.baselineOnHoldout.cells[0]
     const winnerCell = result.raw.winnerOnHoldout.cells[0]
     if (!baselineCell || !winnerCell) throw new Error('expected heldout fixture cells')
+    const judgeEntry = Object.entries(winnerCell.judgeScores)[0]
+    if (!judgeEntry) throw new Error('expected heldout fixture judge')
+    const [judgeName, judgeScore] = judgeEntry
     const cases = [
       {
         name: 'duplicate rep',
@@ -330,7 +388,95 @@ describe('measuredComparisonFromSelfImproveResult', () => {
             },
           },
         },
-        message: /latency:latency.*not finite/,
+        message: /latency must be non-negative/,
+      },
+      {
+        name: 'negative cost',
+        result: {
+          ...result,
+          raw: {
+            ...result.raw,
+            winnerOnHoldout: {
+              ...result.raw.winnerOnHoldout,
+              cells: result.raw.winnerOnHoldout.cells.map((cell, index) =>
+                index === 0 ? { ...cell, costUsd: -1 } : cell,
+              ),
+            },
+          },
+        },
+        message: /cost must be non-negative/,
+      },
+      {
+        name: 'failed judge',
+        result: {
+          ...result,
+          raw: {
+            ...result.raw,
+            winnerOnHoldout: {
+              ...result.raw.winnerOnHoldout,
+              cells: result.raw.winnerOnHoldout.cells.map((cell, index) =>
+                index === 0
+                  ? {
+                      ...cell,
+                      judgeScores: {
+                        ...cell.judgeScores,
+                        [judgeName]: { ...judgeScore, failed: true as const },
+                      },
+                    }
+                  : cell,
+              ),
+            },
+          },
+        },
+        message: /contains failed judge/,
+      },
+      {
+        name: 'mismatched cell identity',
+        result: {
+          ...result,
+          raw: {
+            ...result.raw,
+            winnerOnHoldout: {
+              ...result.raw.winnerOnHoldout,
+              cells: result.raw.winnerOnHoldout.cells.map((cell, index) =>
+                index === 0 ? { ...cell, scenarioId: 'different-scenario' } : cell,
+              ),
+            },
+          },
+        },
+        message: /invalid scenario\/rep identity/,
+      },
+      {
+        name: 'negative token count',
+        result: {
+          ...result,
+          raw: {
+            ...result.raw,
+            winnerOnHoldout: {
+              ...result.raw.winnerOnHoldout,
+              cells: result.raw.winnerOnHoldout.cells.map((cell, index) =>
+                index === 0 ? { ...cell, tokenUsage: { ...cell.tokenUsage, input: -1 } } : cell,
+              ),
+            },
+          },
+        },
+        message: /input tokens must be a non-negative safe integer/,
+      },
+      {
+        name: 'mismatched paired seed',
+        result: {
+          ...result,
+          raw: {
+            ...result.raw,
+            winnerOnHoldout: {
+              ...result.raw.winnerOnHoldout,
+              cells: result.raw.winnerOnHoldout.cells.map((cell, index) =>
+                index === 0 ? { ...cell, seed: cell.seed + 1 } : cell,
+              ),
+            },
+          },
+        },
+        message: /does not share one paired seed/,
       },
     ]
 
