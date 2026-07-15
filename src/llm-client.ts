@@ -20,6 +20,7 @@
  * that need free-form text use `callLlm` and parse output themselves.
  */
 
+import type { CostReceiptInput, MaximumCharge } from './cost-ledger'
 import { AgentEvalError, CaptureIntegrityError } from './errors'
 import {
   defaultProviderRedactor,
@@ -58,10 +59,47 @@ export interface LlmCallRequest {
   timeoutMs?: number
 }
 
+/** Conservative priced bound for the exact text request sent to a provider.
+ * Returns undefined when output or multimodal input is not bounded, causing a
+ * capped CostLedger to reject the call before execution. */
+export function maximumChargeForLlmRequest(
+  request: Pick<LlmCallRequest, 'model' | 'messages' | 'jsonSchema' | 'maxTokens'>,
+  options: LlmClientOptions = {},
+): MaximumCharge | undefined {
+  if (request.maxTokens === undefined) return undefined
+  if (!Number.isInteger(request.maxTokens) || request.maxTokens <= 0) {
+    throw new RangeError(`maximumChargeForLlmRequest: maxTokens must be a positive integer`)
+  }
+  if (
+    request.messages.some(
+      (message) =>
+        Array.isArray(message.content) && message.content.some((part) => part.type === 'image_url'),
+    )
+  ) {
+    return undefined
+  }
+
+  const attempts = resolveMaximumAttempts(options.maxRetries)
+  // A byte-level tokenizer cannot emit more input tokens than request bytes.
+  // Pricing the complete body also covers role/schema framing omitted from content-only estimates.
+  const requestBytes = new TextEncoder().encode(
+    JSON.stringify(buildBody(request, false)),
+  ).byteLength
+  // A rejected response schema can trigger one JSON-mode batch with the same output limit.
+  const batches = request.jsonSchema ? 2 : 1
+  return {
+    model: request.model,
+    inputTokens: requestBytes * attempts * batches,
+    outputTokens: request.maxTokens * attempts * batches,
+  }
+}
+
 export interface LlmUsage {
   promptTokens: number
   completionTokens: number
   totalTokens: number
+  /** False when the provider omitted or malformed prompt/completion usage. */
+  captured?: boolean
   /** Proxies populate this when prompt caching is on. */
   cachedPromptTokens?: number
 }
@@ -99,6 +137,26 @@ export interface LlmCallResult {
   raw: Record<string, unknown>
 }
 
+export type LlmCallMetadata = Pick<LlmCallResult, 'usage' | 'costUsd' | 'model' | 'durationMs'>
+
+/** Convert a provider result into the canonical paid-call receipt input. */
+export function costReceiptFromLlm(result: LlmCallResult): CostReceiptInput {
+  const cachedTokens = result.usage.cachedPromptTokens ?? 0
+  return {
+    model: result.model,
+    inputTokens: Math.max(0, result.usage.promptTokens - cachedTokens),
+    outputTokens: result.usage.completionTokens,
+    cachedTokens: cachedTokens > 0 ? cachedTokens : undefined,
+    actualCostUsd: result.costUsd ?? undefined,
+    usageUnknown: result.usage.captured === false,
+  }
+}
+
+/** Structured-response failures retain their completed provider receipt. */
+export function costReceiptFromLlmError(error: Error): CostReceiptInput | undefined {
+  return error instanceof LlmResponseError ? costReceiptFromLlm(error.result) : undefined
+}
+
 export class LlmCallError extends AgentEvalError {
   constructor(
     message: string,
@@ -110,6 +168,19 @@ export class LlmCallError extends AgentEvalError {
   }
 }
 
+/** A provider response completed and incurred measurable usage, but its content
+ *  could not satisfy the caller's response contract. The response envelope is
+ *  retained so accounting can commit the receipt before the error propagates. */
+export class LlmResponseError extends AgentEvalError {
+  constructor(
+    message: string,
+    public readonly result: LlmCallResult,
+    options?: { cause?: unknown },
+  ) {
+    super('judge', message, options)
+  }
+}
+
 export interface LlmClientOptions {
   /** Base URL (without trailing slash). Must end at the `/v1` prefix. */
   baseUrl?: string
@@ -118,6 +189,8 @@ export interface LlmClientOptions {
   bearer?: string
   /** Override for the `Authorization` header (e.g. `X-Auth: ...`). Takes precedence over apiKey/bearer. */
   authHeader?: { name: string; value: string }
+  /** Stable provider idempotency key, reused across retries of this logical call. */
+  idempotencyKey?: string
   /** Default timeout in ms. Per-call can override. */
   defaultTimeoutMs?: number
   /**
@@ -132,10 +205,10 @@ export interface LlmClientOptions {
    * Before launching each attempt the loop checks the remaining budget and
    * stops retrying once it is exhausted, rather than waiting the full
    * per-attempt timeout on every retry. Bounds total time independent of
-   * `maxRetries` × `timeoutMs`.
+   * total attempts × `timeoutMs`.
    */
   deadlineMs?: number
-  /** Max retry attempts on retriable errors. Default 3 (1 initial + 2 retries). */
+  /** Total provider attempts. Legacy option name; default 3 (1 initial + 2 retries). */
   maxRetries?: number
   /** Fetch implementation — defaults to global `fetch`. Override for custom transport (e.g. tests). */
   fetch?: typeof fetch
@@ -171,6 +244,18 @@ const DEFAULT_BASE_URL = 'https://router.tangle.tools/v1'
 // still win for callers that know their model's latency.
 const DEFAULT_TIMEOUT_MS = Number(process.env.TANGLE_LLM_TIMEOUT_MS) || 300_000
 const DEFAULT_MAX_RETRIES = Number(process.env.TANGLE_LLM_MAX_RETRIES) || 3
+
+function resolveMaximumAttempts(configured: number | undefined): number {
+  const attempts = configured ?? DEFAULT_MAX_RETRIES
+  if (!Number.isInteger(attempts) || attempts <= 0) {
+    throw new RangeError('LLM maximum attempts must be a positive integer')
+  }
+  return attempts
+}
+
+function providerTokenCount(value: unknown): number | undefined {
+  return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0 ? value : undefined
+}
 
 const RETRYABLE_STATUS = new Set([429, 502, 503, 504])
 
@@ -257,6 +342,7 @@ function buildHeaders(opts: LlmClientOptions): Record<string, string> {
   } else if (opts.bearer || opts.apiKey) {
     headers.Authorization = `Bearer ${opts.bearer ?? opts.apiKey}`
   }
+  if (opts.idempotencyKey) headers['Idempotency-Key'] = opts.idempotencyKey
   return headers
 }
 
@@ -346,9 +432,13 @@ export function extractJsonPayload(raw: string): string {
     JSON.parse(stripped)
     return stripped
   } catch {
-    // Continue with balanced extraction below.
+    // A response that declares a JSON root must parse as that complete root.
+    // Scanning onward could turn a truncated object into one of its valid nested
+    // arrays or objects and silently change the response schema.
+    if (stripped.startsWith('{') || stripped.startsWith('[')) return stripped
   }
 
+  // Only prose-leading responses may contain a recoverable JSON payload.
   const starts = [...stripped.matchAll(/[[{]/g)]
     .map((match) => match.index)
     .filter((index) => index != null)
@@ -415,7 +505,7 @@ export async function callLlm(
   const url = `${baseUrl}/chat/completions`
   const endpoint = '/chat/completions'
   const timeoutMs = req.timeoutMs ?? opts.defaultTimeoutMs ?? DEFAULT_TIMEOUT_MS
-  const maxRetries = opts.maxRetries ?? DEFAULT_MAX_RETRIES
+  const maximumAttempts = resolveMaximumAttempts(opts.maxRetries)
   const fetchFn = opts.fetch ?? globalThis.fetch
   const headers = buildHeaders(opts)
   const provider = opts.provider ?? providerFromBaseUrl(baseUrl)
@@ -427,7 +517,7 @@ export async function callLlm(
   const deadlineStart = Date.now()
 
   let lastErr: unknown
-  for (let attempt = 0; attempt < maxRetries; attempt++) {
+  for (let attempt = 0; attempt < maximumAttempts; attempt++) {
     // A caller cancel is fatal — never retried. Checking before each attempt
     // means an already-aborted signal short-circuits without firing fetch.
     if (callerSignal?.aborted) {
@@ -503,7 +593,7 @@ export async function callLlm(
         )
         if (
           RETRYABLE_STATUS.has(res.status) &&
-          attempt < maxRetries - 1 &&
+          attempt < maximumAttempts - 1 &&
           !deadlineExceeded(deadlineStart, deadlineMs)
         ) {
           lastErr = err
@@ -566,7 +656,26 @@ export async function callLlm(
           | Array<{ message?: { content?: string }; finish_reason?: string | null }>
           | undefined
       )?.[0]
-      const usageRaw = (json.usage as Record<string, unknown> | undefined) ?? {}
+      const usageRaw =
+        json.usage && typeof json.usage === 'object' && !Array.isArray(json.usage)
+          ? (json.usage as Record<string, unknown>)
+          : undefined
+      const promptTokens = providerTokenCount(usageRaw?.prompt_tokens)
+      const completionTokens = providerTokenCount(usageRaw?.completion_tokens)
+      const totalTokens = providerTokenCount(usageRaw?.total_tokens)
+      const cachedRaw =
+        usageRaw?.prompt_tokens_details &&
+        typeof usageRaw.prompt_tokens_details === 'object' &&
+        !Array.isArray(usageRaw.prompt_tokens_details)
+          ? (usageRaw.prompt_tokens_details as Record<string, unknown>).cached_tokens
+          : undefined
+      const cachedPromptTokens = cachedRaw === undefined ? undefined : providerTokenCount(cachedRaw)
+      const usageCaptured =
+        promptTokens !== undefined &&
+        completionTokens !== undefined &&
+        (cachedRaw === undefined ||
+          (cachedPromptTokens !== undefined && cachedPromptTokens <= promptTokens)) &&
+        (totalTokens === undefined || totalTokens === promptTokens + completionTokens)
       const costFromProxy = (json._response_cost ?? json.cost_usd) as number | undefined
       const content = choice?.message?.content ?? ''
 
@@ -575,15 +684,11 @@ export async function callLlm(
         finishReason: choice?.finish_reason ?? null,
         contentEmpty: content.trim().length === 0,
         usage: {
-          promptTokens: Number(usageRaw.prompt_tokens ?? 0),
-          completionTokens: Number(usageRaw.completion_tokens ?? 0),
-          totalTokens: Number(usageRaw.total_tokens ?? 0),
-          cachedPromptTokens:
-            usageRaw.prompt_tokens_details && typeof usageRaw.prompt_tokens_details === 'object'
-              ? Number(
-                  (usageRaw.prompt_tokens_details as Record<string, unknown>).cached_tokens ?? 0,
-                )
-              : undefined,
+          promptTokens: promptTokens ?? 0,
+          completionTokens: completionTokens ?? 0,
+          totalTokens: totalTokens ?? (promptTokens ?? 0) + (completionTokens ?? 0),
+          captured: usageCaptured,
+          cachedPromptTokens,
         },
         costUsd: typeof costFromProxy === 'number' ? costFromProxy : null,
         model: (json.model as string) ?? req.model,
@@ -637,7 +742,7 @@ export async function callLlm(
         })
       }
       if (
-        attempt < maxRetries - 1 &&
+        attempt < maximumAttempts - 1 &&
         isTransientLlmError(err) &&
         !deadlineExceeded(deadlineStart, deadlineMs)
       ) {
@@ -687,19 +792,39 @@ export async function callLlmJson<T = unknown>(
   req: LlmCallRequest,
   opts: LlmClientOptions = {},
 ): Promise<{ value: T; result: LlmCallResult }> {
+  const result = await callLlmStructured(req, opts)
+  const value = parseJsonResult<T>(result)
+  return { value, result }
+}
+
+/** Shared schema-to-JSON-mode fallback that preserves the raw result. */
+async function callLlmStructured(
+  req: LlmCallRequest,
+  opts: LlmClientOptions = {},
+): Promise<LlmCallResult> {
   try {
-    const result = await callLlm({ ...req, jsonMode: req.jsonMode ?? !req.jsonSchema }, opts)
-    const value = parseJsonSafely<T>(result.content, result.model)
-    return { value, result }
+    return await callLlm({ ...req, jsonMode: req.jsonMode ?? !req.jsonSchema }, opts)
   } catch (err) {
     if (err instanceof LlmCallError && isSchemaRejection(err.status, err.body) && req.jsonSchema) {
-      // Degrade to json_object + retry.
       const degradedReq: LlmCallRequest = { ...req, jsonMode: true, jsonSchema: undefined }
-      const result = await callLlm(degradedReq, opts)
-      const value = parseJsonSafely<T>(result.content, result.model)
-      return { value, result }
+      return await callLlm(degradedReq, opts)
     }
     throw err
+  }
+}
+
+function parseJsonResult<T>(result: LlmCallResult): T {
+  try {
+    if (result.finishReason === 'length') {
+      throw new Error(
+        `LLM returned truncated JSON content (model=${result.model}, finishReason=length)`,
+      )
+    }
+    return parseJsonSafely<T>(result.content, result.model)
+  } catch (error) {
+    if (error instanceof LlmResponseError) throw error
+    const cause = error instanceof Error ? error : new Error(String(error))
+    throw new LlmResponseError(cause.message, result, { cause })
   }
 }
 
@@ -870,10 +995,17 @@ export async function probeLlm(
  * to inject a single configured instance into multiple primitives.
  */
 export class LlmClient {
-  constructor(private readonly opts: LlmClientOptions = {}) {}
+  readonly maximumAttempts: number
+  private readonly opts: LlmClientOptions
+
+  constructor(opts: LlmClientOptions = {}) {
+    this.opts = opts
+    this.maximumAttempts = resolveMaximumAttempts(opts.maxRetries)
+  }
 
   call(req: LlmCallRequest, per?: LlmClientOptions): Promise<LlmCallResult> {
-    return callLlm(req, { ...this.opts, ...per })
+    const options = { ...this.opts, ...per }
+    return req.jsonSchema ? callLlmStructured(req, options) : callLlm(req, options)
   }
 
   callJson<T = unknown>(

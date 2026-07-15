@@ -4,6 +4,266 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ---
 
+## [0.121.0] — 2026-07-15 — one measured-comparison contract
+
+### Changed
+
+- Emit the single current measured-comparison shape without a schema version field.
+- Consume `@tangle-network/agent-interface` 0.28, which removes unused candidate compatibility formats and speculative version fields.
+
+## [0.120.1] — 2026-07-15 — configurable improvement deadlines
+
+### Fixed
+
+- `selfImprove()` forwards `dispatchTimeoutMs` to baseline, candidate, and held-out campaign cells so long-running workers use the caller's declared deadline instead of the 600-second default.
+
+## [0.120.0] — 2026-07-14 — exact measured provenance
+
+### Changed
+
+- Give each campaign a canonical split digest over the full scenario payload and replicate count, and require the exported benchmark to identify that exact heldout design.
+- Emit self-addressed `tangle.loop-provenance` records from one shared loop-result translator, and derive prompt or code diffs from the exact measured surfaces instead of accepting caller-authored text.
+- Retain one strict hash per scenario so consumers can verify the tested split without persisting customer task payloads.
+
+### Breaking
+
+- Require the exact baseline surface and bind portable evidence to every search, winner, heldout, and neutralized campaign; the full decision; the reconstructed receipt ledger; duration; power analysis; and validated candidate history.
+- Require every scored row to link to a successful model receipt; reject contradictory provenance, duplicate scenarios, broken cell identity or pairing, failed judges, and invalid cost, latency, or token measurements before products can publish an improvement proposal.
+- Stop optimization when a proposer returns no candidates, reject empty or non-contiguous generation records, and refuse a shipped no-op.
+- Remove the duplicate worker-record collector and caller-authored diff hook; settled receipts and exact surfaces are now the only evidence path.
+- Remove `@tangle-network/agent-eval/primeintellect`, which generated a legacy single-turn Verifiers package with unsafe substring scoring. Use `@tangle-network/agent-runtime/primeintellect` for task packaging, real runtime execution, and full trace import.
+- Verify the same npm archive implementation used by the release workflow.
+
+## [0.119.1] — 2026-07-14 — portable improvement evidence
+
+### Added
+
+- `measuredComparisonFromSelfImproveResult()` converts paired held-out quality, cost, latency, uncertainty, power, decision, and provenance into the shared `AgentImprovementMeasuredComparison` contract.
+
+## [0.119.0] — 2026-07-14 — chained, metered trace analysis
+
+### Added
+
+- Trace analysts can consume findings produced earlier in the same ordered run and emit multiple evidence citations without changing the original singular-citation callback API.
+- Analyst summaries report provider calls, input, output, reasoning, cache-read, cache-write, dollar provenance, and known partial spend independently of finding count.
+
+### Fixed
+
+- All Ax analyst calls reserve spend before dispatch, disable hidden provider retries, honor cancellation, wait a bounded time for late receipts, and preserve known charges when token usage is unavailable.
+- Trace-analysis proposers record each model call directly in the campaign cost ledger instead of replacing them with one estimated wrapper receipt.
+- Direct Gemini 3 analysis keeps its output limit without sending Ax's incompatible thinking-level option.
+- Recovery findings pass through the same subject, evidence, and post-processing rules as primary findings, and malformed recovery calls fail visibly.
+- Budget allocation rejects invalid values and cannot exceed the remaining run budget or regain spend through malformed finding metadata.
+
+### Breaking
+
+- `SemanticConceptJudgeAdapterOpts.options` no longer accepts `costLedger` or `signal`; remove those fields because `AnalystRegistry` now supplies the run budget and cancellation signal and records the resulting usage.
+- `createTraceAnalystKind()` now requires `model` when passed an externally constructed Ax service; supply the service's model explicitly or construct it with `createAnalystAi()` so the model can be recovered safely.
+- `TraceAnalystGolden.expected` now uses `CanonicalRawAnalystFinding` with an `evidence` array; migrate singular `evidence_uri` and `evidence_excerpt` fields into the first array entry.
+
+## [0.118.2] — 2026-07-13 — interoperable contracts and trace accounting
+
+### Fixed
+
+- Every caller-supplied cost-ledger API now uses the public structural `CostLedgerHandle`, so types remain assignable when TypeScript resolves them through separate package entrypoints.
+- Trace writers emit an exact context-input total from known non-overlapping input and cache categories; behavioral analysis uses that value and leaves ambiguous third-party prompt totals unchanged.
+
+## [0.118.1] — 2026-07-13 — parsed OTLP intake
+
+### Added
+
+- `otlpRowsToRunRecords()` and `otlpRowsToTraceRunRecords()` accept already-parsed OTLP flat rows.
+  They use the same projection, nested measurement reconciliation, validation, and deterministic ordering as JSONL intake without forcing in-memory consumers to serialize and parse the rows again.
+
+## [0.118.0] — 2026-07-13 — complete execution accounting
+
+### Added
+
+- `InsightReport.execution` reports duration, optional queue time, direct input, output, reasoning, cache-read, and cache-write tokens, model cohorts, model-call coverage, explicit failure counts, and separately labeled orchestration aggregates from the same `RunRecord[]` passed to `analyzeRuns()`.
+- `summarizeExecution()` returns those execution facts and cost provenance without interpreting task quality.
+- `RunTokenUsage.reasoning` preserves the reasoning subset of normalized output, and `RunTokenUsage.cacheWrite` preserves provider cache creation separately from cache reads.
+
+### Changed
+
+- Trace capture, every OTLP exporter, OTLP intake, and code-agent session intake preserve reasoning, cache reads, and cache writes separately.
+- Both OTLP intake paths use one field-by-field reconciliation rule for nested model-call wrappers, preserving complementary parent data without double-counting complete child data.
+- Code-agent intake uses the shared provider-usage parser, including OpenCode's nested `cache.read` and `cache.write` fields and OpenAI-compatible token-detail objects.
+- OTLP-derived run records explicitly label complete USD as observed, model-priced USD as estimated, and missing or partial USD as uncaptured instead of relying on a zero-value inference.
+- Usage parsing reuses `@tangle-network/agent-core` token vocabulary and SSE framing, preserves agent-eval-specific reasoning and cache-write details, reconciles cumulative streams by default, and accepts explicit delta mode through `captureFetchToRawSink({ sseUsageMode })`.
+- Run-record validation rejects negative execution measurements and unknown failure classes, and OTLP intake rejects duplicate span identities instead of corrupting totals.
+- Declaration bundles build sequentially and package verification compiles a strict Node consumer, preserving the public subpath types without concurrent declaration workers exhausting memory.
+- `@tangle-network/agent-interface` is updated to `0.26.x`.
+
+### Breaking
+
+- `InsightReport.execution`, `CodeAgentSessionMetrics.reasoningTokens`, and `CodeAgentSessionMetrics.cacheWriteTokens` are required fields on newly constructed objects.
+
+## [0.117.1] — 2026-07-13 — retry-safe code-candidate cleanup
+
+### Fixed
+
+- `gitWorktreeAdapter().discard()` now reconciles worktree and branch removal independently.
+  Repeated cleanup is safe, partial cleanup can be retried, and a Git command that reports an error after completing its mutation no longer strands candidate branches or worktrees.
+
+## [0.117.0] — 2026-07-13 — durable cost and bounded behavioral evidence
+
+### Added
+
+- `createReferenceEquivalenceJudge()` and `runReferenceEquivalenceJudge()` score whether an answer preserves the meaning of one or more references, with the same cost and transport accounting as other judges.
+
+### Changed
+
+- `CostLedger.runPaidCall()` is now the single paid-call path across campaigns, proposers, judges, analysts, and distillation.
+  It durably reserves maximum spend before dispatch, records provider receipts, blocks unresolved crash state, and enforces the run ceiling before another paid call starts.
+- `ToolSpan.argsCaptured` distinguishes a call with unavailable arguments from a captured no-argument call.
+  Repeated-call analysis, failure clustering, tool-use metrics, and per-step redundancy grading no longer compare uncaptured arguments.
+  Every OTLP export path uses one mapping that preserves this distinction.
+
+### Breaking
+
+- `CostLedger.record()` is removed because recording spend after a provider call cannot enforce a cost limit or survive a crash.
+  Use `CostLedger.runPaidCall()` for billable work, `CostLedger` receipt import for already-settled calls, or `costForUsage()` for pure estimates.
+- `computeTraceMetrics()` now rejects mixed-trace input, and `BehavioralMetrics` adds required `traceId` and `tokenSequences` fields.
+  The convenience token trajectories now expose the longest proven-serial sequence instead of flattening parallel branches.
+- `ToolUseMetrics` and `ToolStats` add required `callsWithCapturedArgs` fields.
+  `duplicateRate` now uses captured-argument calls as its denominator.
+
+### Fixed
+
+- Repeated-call findings now require a contiguous, time-bounded, serial episode within one agent branch instead of grouping identical or concurrent calls across an entire run.
+- Behavioral token findings now analyze each trace and serial agent timeline independently, use numeric time ordering across accepted timestamp formats, and only attribute output decay to context that actually grew.
+- Behavioral issue IDs remain stable across trace runs while evidence retains exact trace identities and sampled prevalence.
+- Partial timing isolates only the uncertain interval, and same-named root spans retain independent structural identity.
+- Multi-trace behavioral findings use pattern-level claims while each trace's exact values remain in its evidence reference.
+
+## [0.116.0] — 2026-07-12 — evidence-linked AgentProfile optimization
+
+### Added
+
+- `llmPolicyEditProposer()` converts attributed trace findings and bounded search history into typed JSON edits over caller-approved AgentProfile paths.
+- Author context selection retains promoted candidates plus outcome extremes, selects task rows by difficulty and change from parent, enforces an exact serialized size limit, and pseudonymizes known task identifiers before model dispatch.
+- Policy-edit history and provenance retain the exact edit, measured parent, observed score change, coverage, eligibility, surface bytes, and final winner chain needed for credit assignment.
+
+### Changed
+
+- `runOptimization()` now keeps one best complete surface across every generation.
+  Baselines and candidates must cover the exact designed task-by-repetition count, and partial, failed, or non-finite results cannot be promoted.
+- Model-authored confidence and gain forecasts no longer suppress evidence-linked candidates by default.
+  Forecasts must describe increasing raw search scores, respect the declared range and current headroom, and enter residual history only when their units match the measured outcome.
+- GEPA reflection now uses evidence from the measured incumbent that is actually being edited instead of the latest losing candidate.
+
+### Breaking
+
+- `runOptimization({ promoteTopK })` accepts only `1`; multiple concurrent incumbents were never represented by the optimizer state and now fail before dispatch.
+- `ScoredSurfaceOutcome` requires `split: 'search'` and the actual `generation` that measured the surface.
+- `llmPolicyEditProposer()` requires explicit raw-score objectives and `PolicyEditFindingInput` rows whose source is either an exact measured surface-generation pair or an explicitly global finding.
+- Loop provenance preserves complete candidate measurement lineage: baseline score, parent chain, coverage, eligibility, and exact surface fields.
+
+## [0.115.3] — 2026-07-12 — fail-closed structured output parsing
+
+### Fixed
+
+- `callLlmJson()` now rejects responses terminated with finish reason `length`, even when the returned prefix happens to parse as JSON.
+- JSON extraction no longer descends into a valid nested object or array when a response declares an incomplete top-level JSON root.
+
+This patch prevents truncated structured responses from being silently accepted under the wrong response shape.
+Consumers of `callLlmJson()` should update.
+
+## [0.115.2] — 2026-07-12 — truthful code-agent session accounting
+
+### Fixed
+
+- fix(contract): ingest direct Codex 0.144.x exec JSONL lifecycle, tool, patch, terminal, and token events without double-counting transitions or reasoning tokens.
+- fix(contract): preserve observed, estimated, and uncaptured USD provenance through code-agent session intake and analyzeRuns.
+
+This patch corrects imported trace and cost semantics while retaining backward-compatible serialized RunRecords.
+Consumers importing code-agent execution traces should update.
+
+## [0.115.1] — 2026-07-11 — fair cross-surface baseline selection
+
+### Fixed
+
+- `analyzeCrossSurfaceInteractions()` now builds the naive stack only from single-surface candidates that satisfy individual eligibility.
+  Complete, non-regressing neutral constituents remain available exclusively to interaction-aware search, preserving pure-synergy discovery without weakening the naive comparison.
+
+This patch corrects selection semantics without changing the report schema.
+Consumers comparing naive and interaction-aware compositions should update.
+
+## [0.115.0] — 2026-07-11 — auditable cross-surface improvement search
+
+### Added
+
+- `openSearchLedger()` records the predeclared candidate, task, and operation denominators for an improvement search in a durable hash-chained event stream.
+  Failed proposal slots, partial batches, task attempts, measured cost, surface firing and effect, and terminal selection decisions remain replayable after a crash.
+- `analyzeCrossSurfaceInteractions()` compares fixed, best-single, blind-union, and interaction-aware agent changes on the same task rows.
+  It preserves missing and invalid attempts, cost, firing, effect, synergy, interference, and every evaluated composition path, including combinations whose constituents are neutral alone.
+
+This release is additive.
+Existing consumers do not need to update unless they want durable improvement-search accounting or cross-surface composition.
+
+## [0.114.0] — 2026-07-11 — exact directional paired inference
+
+### Added
+
+- `pairedSignTest(differences, alternative)` computes an exact one-sided sign test for paired numeric differences, excludes zero ties, requires a predeclared `greater` or `less` direction, and reports every denominator.
+
+### Changed
+
+- McNemar's exact two-sided calculation now reuses the same log-space binomial-tail implementation without changing its public result contract.
+
+This release is additive.
+Existing consumers do not need to update unless they want the new statistic.
+
+## [0.113.0] — 2026-07-10 — immutable code candidates
+
+### Changed
+
+- `CodeSurface` is now a finalized, content-addressed code candidate.
+  `gitWorktreeAdapter.finalize()` records exact base/candidate commits, the final tree, and the SHA-256 + byte length of the raw binary Git patch; `surfaceHash` and `surfaceContentHash` no longer use filesystem paths.
+  Binary-patch generation runs against an isolated bare repository with fixed diff options, config, attributes, compression, and locale, so ambient repository, global, system, or environment settings cannot change the digest for identical trees.
+- Code-surface provenance now uses content-addressed hashes instead of mutable paths.
+- `resolveWorktreePath()` now verifies the candidate before returning its checkout.
+  Dirty or ignored files, moved refs, missing objects, wrong trees, raw byte or executable-mode mismatches, external symlinks, submodules, and patch-byte mismatches fail instead of being evaluated under stale identity.
+  Raw file hashing bypasses Git clean/smudge filters so repository configuration cannot hide different executable bytes.
+  Use `verifyCodeSurface()` when a verification receipt is needed directly.
+
+### Breaking
+
+- `resolveWorktreePath()` no longer returns a best-effort, unchecked locator: it verifies the finalized candidate and throws on any identity mismatch.
+  There is intentionally no lenient fallback on the evaluation path.
+- Path-only `CodeSurface` objects are invalid.
+  Every field in the finalized identity is required.
+  Downstream callers must migrate to adapter-finalized candidates when adopting 0.113.0.
+
+## [0.112.0] — 2026-07-10 — complete agent-surface findings
+
+### Added
+
+- Added typed finding subjects for skills, MCP servers and tools, hooks, subagents, workflows, rollout policy, generic agent-profile fields, and code paths.
+- Routed every new subject into a typed policy edit so products do not need local string classifiers.
+
+### Changed
+
+- Updated the direct `@tangle-network/agent-interface` dependency from `^0.10.0` to `^0.22.0`.
+
+## [0.111.0] — 2026-07-09 — repository-clustered paired inference
+
+### Added
+
+- Added `clusteredPairedBinary`, which pairs binary outcomes by work item, exposes every unmatched row, resamples whole repositories for a task-weighted confidence interval, and tests the same effect with whole-repository sign flips.
+- Added Holm step-down adjustment for strong family-wise error control across benchmark arms.
+
+The cluster interval is unavailable below two repositories, and consumers must reject unmatched rows before promotion.
+
+## [0.110.1] — 2026-07-09 — proposer portfolio export
+
+### Added
+
+- Exported the existing `compositeProposer` and `CompositeProposerOptions` from `@tangle-network/agent-eval/campaign`, so consumers can split one population budget across GEPA, SkillOpt, FAPO, memory, trace-analysis, or other proposers without copying the portfolio implementation.
+- Added a packed-package import check for the export.
+
+No proposer behavior changed.
+
 ## [0.108.1] — 2026-07-08 — public catalog docs patch
 
 ### Fixed

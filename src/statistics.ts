@@ -846,6 +846,44 @@ export function bonferroni(
 }
 
 /**
+ * Holm step-down family-wise error adjustment.
+ *
+ * P-values are sorted from smallest to largest, multiplied by their remaining
+ * hypothesis count, and made monotonically non-decreasing before being mapped
+ * back to input order. This uniformly dominates plain Bonferroni while keeping
+ * strong family-wise error control under arbitrary dependence.
+ */
+export function holm(
+  pValues: readonly number[],
+  alpha = 0.05,
+): { adjusted: number[]; significant: boolean[] } {
+  if (!Number.isFinite(alpha) || alpha <= 0 || alpha >= 1) {
+    throw new ValidationError(`holm: alpha must be in (0,1), got ${alpha}`)
+  }
+  for (const [index, pValue] of pValues.entries()) {
+    if (!Number.isFinite(pValue) || pValue < 0 || pValue > 1) {
+      throw new ValidationError(`holm: pValues[${index}] must be in [0,1], got ${pValue}`)
+    }
+  }
+  const count = pValues.length
+  if (count === 0) return { adjusted: [], significant: [] }
+
+  const ordered = pValues
+    .map((pValue, index) => ({ pValue, index }))
+    .sort((a, b) => a.pValue - b.pValue || a.index - b.index)
+  const adjusted = new Array<number>(count)
+  let previous = 0
+  for (let rank = 0; rank < count; rank++) {
+    const entry = ordered[rank]!
+    const stepAdjusted = Math.min(1, entry.pValue * (count - rank))
+    previous = Math.max(previous, stepAdjusted)
+    adjusted[entry.index] = previous
+  }
+  // Holm's rejection rule is inclusive at the adjusted alpha boundary.
+  return { adjusted, significant: adjusted.map((pValue) => pValue <= alpha) }
+}
+
+/**
  * Benjamini–Hochberg false discovery rate. Returns adjusted q-values and
  * significance at the target FDR; handles ties and preserves q monotonicity.
  */
@@ -962,6 +1000,78 @@ export function pairedBootstrap(
     high: samples[Math.max(highIdx, lowIdx)]!,
     confidence,
     resamples,
+  }
+}
+
+/** Pre-registered direction for a one-sided paired sign test. */
+export type SignTestAlternative = 'greater' | 'less'
+
+/** Exact one-sided sign-test result for paired numeric differences. */
+export interface PairedSignTestResult {
+  /** Total supplied differences, including zero ties. */
+  n: number
+  /** Strictly positive differences. */
+  positive: number
+  /** Strictly negative differences. */
+  negative: number
+  /** Zero differences excluded from the binomial test. */
+  ties: number
+  /** Non-zero differences used by the binomial test. */
+  nNonTies: number
+  /** Direction of the pre-registered alternative hypothesis. */
+  alternative: SignTestAlternative
+  /** Exact one-sided p-value under P(positive) = P(negative) = 0.5. */
+  pValue: number
+}
+
+/**
+ * Exact one-sided sign test over paired differences.
+ *
+ * Pass `after[i] - before[i]` for each matched item. `alternative = 'greater'`
+ * tests whether positive signs are more likely than negative signs and returns
+ * `P(Binomial(nNonTies, 0.5) >= positive)`. `alternative = 'less'` treats
+ * negative signs as successes instead. With a continuous difference
+ * distribution this is the usual directional median test. Exact zero
+ * differences are ties and do not enter the binomial denominator. All-tie and
+ * empty inputs return p = 1. Every input difference must be finite, and the
+ * direction must be chosen explicitly so a caller cannot select it after
+ * seeing the signs.
+ */
+export function pairedSignTest(
+  differences: readonly number[],
+  alternative: SignTestAlternative,
+): PairedSignTestResult {
+  if (alternative !== 'greater' && alternative !== 'less') {
+    throw new ValidationError(
+      `pairedSignTest: alternative must be 'greater' or 'less', got ${alternative}`,
+    )
+  }
+
+  let positive = 0
+  let negative = 0
+  let ties = 0
+  for (let i = 0; i < differences.length; i++) {
+    const difference = differences[i]!
+    if (!Number.isFinite(difference)) {
+      throw new ValidationError(
+        `pairedSignTest: difference at index ${i} must be finite, got ${difference}`,
+      )
+    }
+    if (difference > 0) positive++
+    else if (difference < 0) negative++
+    else ties++
+  }
+
+  const nNonTies = positive + negative
+  const successes = alternative === 'greater' ? positive : negative
+  return {
+    n: differences.length,
+    positive,
+    negative,
+    ties,
+    nNonTies,
+    alternative,
+    pValue: binomialHalfUpperTail(successes, nNonTies),
   }
 }
 
@@ -1154,14 +1264,44 @@ export function passAtK(n: number, c: number, k: number): number {
 function binomialSignTwoSided(b: number, c: number): number {
   const nd = b + c
   if (nd === 0) return 1
-  const k = Math.min(b, c)
-  const logHalfN = nd * Math.log(0.5)
-  let tail = 0
-  for (let i = 0; i <= k; i++) {
-    const logChoose = lnGamma(nd + 1) - lnGamma(i + 1) - lnGamma(nd - i + 1)
-    tail += Math.exp(logChoose + logHalfN)
+  return Math.min(1, 2 * binomialHalfLowerTail(Math.min(b, c), nd))
+}
+
+/** P(X >= successes) for X ~ Binomial(n, 0.5). */
+function binomialHalfUpperTail(successes: number, n: number): number {
+  if (successes <= 0) return 1
+  if (successes > n) return 0
+
+  // Use the smaller side of the distribution. For lower thresholds the
+  // complement sums at most half the mass; for upper thresholds symmetry
+  // maps the upper tail to a lower tail without subtraction.
+  if (successes <= n / 2) {
+    return Math.max(0, 1 - binomialHalfLowerTail(successes - 1, n))
   }
-  return Math.min(1, 2 * tail)
+  return binomialHalfLowerTail(n - successes, n)
+}
+
+/** P(X <= maxSuccesses) for X ~ Binomial(n, 0.5), accumulated in log space. */
+function binomialHalfLowerTail(maxSuccesses: number, n: number): number {
+  if (maxSuccesses < 0) return 0
+  if (maxSuccesses >= n) return 1
+  if (maxSuccesses === 0) return 2 ** -n
+
+  const logHalfN = n * Math.log(0.5)
+  let logTail = Number.NEGATIVE_INFINITY
+  for (let i = 0; i <= maxSuccesses; i++) {
+    const logChoose = lnGamma(n + 1) - lnGamma(i + 1) - lnGamma(n - i + 1)
+    logTail = logAddExp(logTail, logChoose + logHalfN)
+  }
+  return Math.min(1, Math.exp(logTail))
+}
+
+function logAddExp(a: number, b: number): number {
+  if (a === Number.NEGATIVE_INFINITY) return b
+  if (b === Number.NEGATIVE_INFINITY) return a
+  const max = Math.max(a, b)
+  const min = Math.min(a, b)
+  return max + Math.log1p(Math.exp(min - max))
 }
 
 // ── Anytime-valid e-process (betting test-martingale) ────────────────

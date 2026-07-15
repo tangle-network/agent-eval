@@ -1,6 +1,15 @@
 import type { TCloud } from '@tangle-network/tcloud'
+import { CostLedger } from './cost-ledger'
 import { JudgeError } from './errors'
+import type { LlmCallMetadata, LlmCallRequest } from './llm-client'
+import { costReceiptFromTCloud, maximumChargeForTCloudRequest } from './tcloud-cost'
 import type { JudgeFn, JudgeInput, JudgeScore } from './types'
+
+type JudgeParseErrorOptions = { cause?: unknown; llmCall?: LlmCallMetadata }
+type PaidJudgeRequest = Pick<LlmCallRequest, 'model' | 'temperature'> & {
+  messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }>
+  maxTokens: number
+}
 
 /**
  * A judge's LLM response could not be parsed into scored dimensions.
@@ -14,11 +23,14 @@ export class JudgeParseError extends JudgeError {
   readonly judgeName: string
   /** The raw (truncated) model response that failed to parse. */
   readonly raw: string
+  /** Paid-call metadata remains available even when the verdict is unusable. */
+  readonly llmCall?: LlmCallMetadata
 
-  constructor(judgeName: string, raw: string, options?: { cause?: unknown }) {
+  constructor(judgeName: string, raw: string, options?: JudgeParseErrorOptions) {
     super(`judge '${judgeName}' returned an unparseable response: ${raw.slice(0, 200)}`, options)
     this.judgeName = judgeName
     this.raw = raw
+    this.llmCall = options?.llmCall
   }
 }
 
@@ -33,10 +45,8 @@ export class JudgeParseError extends JudgeError {
  * pluggable, fail-loud, and drive the campaign/improvement-loop engines.
  */
 export function createDomainExpertJudge(domain: string): JudgeFn {
-  return async (
-    tc: TCloud,
-    { scenario, turns }: Pick<JudgeInput, 'scenario' | 'turns'>,
-  ): Promise<JudgeScore[]> => {
+  return async (tc: TCloud, input: JudgeInput): Promise<JudgeScore[]> => {
+    const { scenario, turns } = input
     const conversation = turns
       .map(
         (t, i) =>
@@ -44,7 +54,7 @@ export function createDomainExpertJudge(domain: string): JudgeFn {
       )
       .join('\n\n---\n\n')
 
-    const resp = await tc.chat({
+    const resp = await runJudgeChat(tc, input, 'domain_expert', {
       model: 'gpt-4o',
       messages: [
         {
@@ -79,7 +89,8 @@ Respond with JSON only: [{"dimension":"domain_accuracy","score":N,"reasoning":".
  * Build judges as campaign `JudgeConfig`s (src/campaign/types.ts) — or
  * multi-model panels via `ensembleJudge` (src/judge-panel.ts).
  */
-export const codeExecutionJudge: JudgeFn = async (tc, { scenario, artifacts }) => {
+export const codeExecutionJudge: JudgeFn = async (tc, input) => {
+  const { scenario, artifacts } = input
   const codeBlocks = artifacts.codeBlocks
   if (codeBlocks.length === 0) {
     return [
@@ -99,7 +110,7 @@ export const codeExecutionJudge: JudgeFn = async (tc, { scenario, artifacts }) =
     )
     .join('\n\n')
 
-  const resp = await tc.chat({
+  const resp = await runJudgeChat(tc, input, 'code_execution', {
     model: 'gpt-4o',
     messages: [
       {
@@ -132,7 +143,8 @@ Respond with JSON only: [{"dimension":"executability","score":N,"reasoning":"...
  * Build judges as campaign `JudgeConfig`s (src/campaign/types.ts) — or
  * multi-model panels via `ensembleJudge` (src/judge-panel.ts).
  */
-export const coherenceJudge: JudgeFn = async (tc, { scenario, turns }) => {
+export const coherenceJudge: JudgeFn = async (tc, input) => {
+  const { scenario, turns } = input
   if (turns.length < 2) {
     // Single-turn scenarios carry no multi-turn signal. Emit no judge
     // scores so the coherence dimension is correctly absent from the
@@ -147,7 +159,7 @@ export const coherenceJudge: JudgeFn = async (tc, { scenario, turns }) => {
     )
     .join('\n\n---\n\n')
 
-  const resp = await tc.chat({
+  const resp = await runJudgeChat(tc, input, 'coherence', {
     model: 'gpt-4o',
     messages: [
       {
@@ -180,14 +192,15 @@ Respond with JSON only: [{"dimension":"consistency","score":N,"reasoning":"..."}
  * Build judges as campaign `JudgeConfig`s (src/campaign/types.ts) — or
  * multi-model panels via `ensembleJudge` (src/judge-panel.ts).
  */
-export const adversarialJudge: JudgeFn = async (tc, { scenario, turns }) => {
+export const adversarialJudge: JudgeFn = async (tc, input) => {
+  const { scenario, turns } = input
   const conversation = turns
     .map(
       (t, i) => `Turn ${i + 1}:\nUser: ${t.userMessage}\nAgent: ${t.agentResponse.slice(0, 1500)}`,
     )
     .join('\n\n---\n\n')
 
-  const resp = await tc.chat({
+  const resp = await runJudgeChat(tc, input, 'adversarial', {
     model: 'gpt-4o',
     messages: [
       {
@@ -226,7 +239,8 @@ export function createCustomJudge(
   systemPrompt: string,
   opts?: { model?: string; temperature?: number; maxTokens?: number },
 ): JudgeFn {
-  return async (tc, { scenario, turns }) => {
+  return async (tc, input) => {
+    const { scenario, turns } = input
     const conversation = turns
       .map(
         (t, i) =>
@@ -234,7 +248,7 @@ export function createCustomJudge(
       )
       .join('\n\n---\n\n')
 
-    const resp = await tc.chat({
+    const resp = await runJudgeChat(tc, input, name, {
       model: opts?.model ?? 'gpt-4o',
       messages: [
         {
@@ -293,4 +307,25 @@ function parseJudgeResponse(judgeName: string, resp: unknown): JudgeScore[] {
     // `{ dimension: 'parse_error', score: 0 }` poisons composites downstream.
     throw new JudgeParseError(judgeName, content, { cause: err })
   }
+}
+
+async function runJudgeChat(
+  tc: TCloud,
+  input: JudgeInput,
+  judgeName: string,
+  request: PaidJudgeRequest,
+): Promise<Awaited<ReturnType<TCloud['chat']>>> {
+  const paid = await (input.costLedger ?? new CostLedger()).runPaidCall({
+    channel: 'judge',
+    phase: input.costPhase ?? 'judge',
+    actor: `legacy-judge.${judgeName}`,
+    model: request.model,
+    maximumCharge: maximumChargeForTCloudRequest(request, input.tcloudMaximumAttempts),
+    tags: input.costTags,
+    signal: input.signal,
+    execute: () => tc.chat(request),
+    receipt: (response) => costReceiptFromTCloud(response, request.model),
+  })
+  if (!paid.succeeded) throw paid.error
+  return paid.value
 }

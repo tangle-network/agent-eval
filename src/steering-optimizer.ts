@@ -1,4 +1,5 @@
-import { type AxAIService, AxGEPA, ai, ax } from '@ax-llm/ax'
+import { type AxAIService, AxGEPA, type AxMetricFn, AxSignature, ax } from '@ax-llm/ax'
+import { createAnalystAi } from './analyst/ax-service'
 import { aggregateRunScore, type RunScore, type RunScoreWeights } from './run-score'
 import type { SteeringBundle } from './steering'
 
@@ -48,13 +49,6 @@ export interface AxSteeringOptimizerConfig extends SteeringOptimizerConfig {
   minScenarioWinners?: number
 }
 
-interface ScenarioWinner {
-  task: string
-  split: string
-  seedPreview: string
-  variantId: string
-}
-
 export class PairwiseSteeringOptimizer {
   optimize(
     rows: SteeringOptimizationRow[],
@@ -89,10 +83,11 @@ export class AxGepaSteeringOptimizer {
     }
 
     const signature = `task:string, split:string, seedPreview:string -> variantId:class "${variantIds.join(', ')}", rationale:string`
-    const selector = ax<
+    const selectorSignature = AxSignature.from<
       { task: string; split: string; seedPreview: string },
       { variantId: string; rationale?: string }
-    >(signature, {
+    >(signature)
+    const selector = ax(selectorSignature, {
       description: 'Choose the best steering bundle variant for an autopilot task.',
     })
     const shuffled = seededShuffle(byScenario, signature)
@@ -123,16 +118,12 @@ export class AxGepaSteeringOptimizer {
       sampleCount: 1,
     })
 
-    const compiled = await optimizer.compile(
-      selector,
-      train,
-      (input: { prediction?: { variantId?: string }; example?: ScenarioWinner }) =>
-        input.prediction?.variantId === input.example?.variantId ? 1 : 0,
-      {
-        validationExamples: validation,
-        maxMetricCalls: 64,
-      },
-    )
+    const metric: AxMetricFn = ({ prediction, example }) =>
+      stringField(prediction, 'variantId') === stringField(example, 'variantId') ? 1 : 0
+    const compiled = await optimizer.compile(selector, train, metric, {
+      validationExamples: validation,
+      maxMetricCalls: 64,
+    })
     if (compiled.optimizedProgram !== undefined) {
       selector.applyOptimization(compiled.optimizedProgram)
     }
@@ -207,11 +198,17 @@ function createAxService(
   apiKey: string,
   model: string,
 ): AxAIService {
-  return ai({
-    name: provider,
+  return createAnalystAi({
+    provider,
     apiKey,
-    config: { model },
+    model,
   })
+}
+
+function stringField(value: unknown, field: string): string | undefined {
+  if (!value || typeof value !== 'object') return undefined
+  const candidate = (value as Record<string, unknown>)[field]
+  return typeof candidate === 'string' ? candidate : undefined
 }
 
 // Deterministic Fisher-Yates driven by a seeded mulberry32 PRNG. Seeding from

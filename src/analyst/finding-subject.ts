@@ -53,8 +53,16 @@ export type FindingSubject =
   // ── system-prompt / tool / new-tool / rag / memory / scaffolding / output-schema ──
   // routed to the ImprovementAdapter
   | { kind: 'system-prompt'; section: string }
+  | { kind: 'skill'; name: string }
   | { kind: 'tool-doc'; tool: string; aspect?: string }
   | { kind: 'new-tool'; name: string }
+  | { kind: 'mcp'; server: string; tool?: string }
+  | { kind: 'hook'; name: string }
+  | { kind: 'subagent'; name: string }
+  | { kind: 'workflow'; name: string }
+  | { kind: 'rollout-policy'; field: string }
+  | { kind: 'agent-profile'; field: string }
+  | { kind: 'code'; path: string }
   | { kind: 'rag'; corpus: string; docId: string }
   | { kind: 'memory'; key: string }
   | { kind: 'scaffolding'; concern: string }
@@ -73,8 +81,16 @@ export const FINDING_SUBJECT_KINDS: ReadonlyArray<FindingSubjectKind> = [
   'knowledge.raw',
   'knowledge.stale',
   'system-prompt',
+  'skill',
   'tool-doc',
   'new-tool',
+  'mcp',
+  'hook',
+  'subagent',
+  'workflow',
+  'rollout-policy',
+  'agent-profile',
+  'code',
   'rag',
   'memory',
   'scaffolding',
@@ -132,6 +148,10 @@ export function parseFindingSubject(raw: string | null | undefined): FindingSubj
   const sp = trimmed.match(/^system-prompt:(.+)$/)
   if (sp && sp[1]!.trim().length > 0) return { kind: 'system-prompt', section: sp[1]!.trim() }
 
+  // skill:<name>
+  const skill = trimmed.match(/^skill:([a-z0-9][a-z0-9_.-]*)$/)
+  if (skill) return { kind: 'skill', name: skill[1]! }
+
   // tool-doc:<tool>[:<aspect>]
   const tdAspect = trimmed.match(/^tool-doc:([a-z0-9][a-z0-9_-]*):(.+)$/)
   if (tdAspect && tdAspect[2]!.trim().length > 0) {
@@ -143,6 +163,34 @@ export function parseFindingSubject(raw: string | null | undefined): FindingSubj
   // new-tool:<name>
   const nt = trimmed.match(/^new-tool:([a-z0-9][a-z0-9_-]*)$/)
   if (nt) return { kind: 'new-tool', name: nt[1]! }
+
+  // mcp:<server>[:<tool>]
+  const mcp = trimmed.match(/^mcp:([a-z0-9][a-z0-9_.-]*)(?::([a-z0-9][a-z0-9_.-]*))?$/)
+  if (mcp) {
+    return { kind: 'mcp', server: mcp[1]!, ...(mcp[2] ? { tool: mcp[2] } : {}) }
+  }
+
+  // hook / subagent / workflow:<name>
+  const hook = trimmed.match(/^hook:([a-z0-9][a-z0-9_.-]*)$/)
+  if (hook) return { kind: 'hook', name: hook[1]! }
+  const subagent = trimmed.match(/^subagent:([a-z0-9][a-z0-9_.-]*)$/)
+  if (subagent) return { kind: 'subagent', name: subagent[1]! }
+  const workflow = trimmed.match(/^workflow:([a-z0-9][a-z0-9_.-]*)$/)
+  if (workflow) return { kind: 'workflow', name: workflow[1]! }
+
+  // rollout-policy / agent-profile:<field>
+  const rolloutPolicy = trimmed.match(/^rollout-policy:(.+)$/)
+  if (rolloutPolicy && rolloutPolicy[1]!.trim().length > 0) {
+    return { kind: 'rollout-policy', field: rolloutPolicy[1]!.trim() }
+  }
+  const agentProfile = trimmed.match(/^agent-profile:(.+)$/)
+  if (agentProfile && agentProfile[1]!.trim().length > 0) {
+    return { kind: 'agent-profile', field: agentProfile[1]!.trim() }
+  }
+
+  // code:<path>
+  const code = trimmed.match(/^code:(.+)$/)
+  if (code && code[1]!.trim().length > 0) return { kind: 'code', path: code[1]!.trim() }
 
   // rag:<corpus>:<doc-id>
   const rag = trimmed.match(/^rag:([a-z0-9][a-z0-9_-]*):(.+)$/)
@@ -200,10 +248,26 @@ export function renderFindingSubject(s: FindingSubject): string {
       return `agent-knowledge:stale:${s.slug}`
     case 'system-prompt':
       return `system-prompt:${s.section}`
+    case 'skill':
+      return `skill:${s.name}`
     case 'tool-doc':
       return s.aspect ? `tool-doc:${s.tool}:${s.aspect}` : `tool-doc:${s.tool}`
     case 'new-tool':
       return `new-tool:${s.name}`
+    case 'mcp':
+      return s.tool ? `mcp:${s.server}:${s.tool}` : `mcp:${s.server}`
+    case 'hook':
+      return `hook:${s.name}`
+    case 'subagent':
+      return `subagent:${s.name}`
+    case 'workflow':
+      return `workflow:${s.name}`
+    case 'rollout-policy':
+      return `rollout-policy:${s.field}`
+    case 'agent-profile':
+      return `agent-profile:${s.field}`
+    case 'code':
+      return `code:${s.path}`
     case 'rag':
       return `rag:${s.corpus}:${s.docId}`
     case 'memory':
@@ -232,33 +296,65 @@ export function renderFindingSubject(s: FindingSubject): string {
  * this constant + the matching `expects` set, and the unit tests below
  * lock the table to the parser.
  */
-export const FINDING_SUBJECT_GRAMMAR_PROMPT = [
-  'Subjects MUST match this grammar — anything else is rejected at parse time and your work is wasted:',
-  '',
-  '  Knowledge loci (write to the agent-knowledge base):',
-  '    agent-knowledge:wiki:<slug>[#<heading>]   create / update a wiki page',
-  '    agent-knowledge:claim:<topic>             draft a claim / relation triple',
-  '    agent-knowledge:raw:<source-id>           lift a raw source into a curated page',
-  '    agent-knowledge:stale:<slug>              mark a page superseded',
-  '',
-  '  Runtime mutable surfaces (write to prompts / tools / scaffolding):',
-  '    system-prompt:<section>                   add / replace a system-prompt section',
-  '    tool-doc:<tool>[:<aspect>]                rewrite a tool description',
-  '    new-tool:<name>                           propose a new tool surface',
-  '    rag:<corpus>:<doc-id>                     ingest / correct a RAG document',
-  '    memory:<key>                              invalidate / set a memory entry',
-  '    scaffolding:<concern>                     change a precondition / retry / verifier',
-  '    output-schema:<field>                     constrain the agent output shape',
-  '',
-  '  Stale signals (knowledge-poisoning only):',
-  '    websearch:outdated:<topic>                stale web result',
-  '    prior-run-summary:<topic>                 stale prior-run summary',
-  '',
-  '  Cluster label (failure-mode only):',
-  '    <kebab-case-label>                        short cluster id, e.g. "tool-call-loop"',
-  '',
-  'Slugs / tool ids: [a-z0-9-]+ (lowercase kebab). Topics / keys / sections: free-form, trimmed.',
-].join('\n')
+export const FINDING_SUBJECT_SYNTAX: Readonly<Record<FindingSubjectKind, string>> = {
+  'knowledge.wiki': 'agent-knowledge:wiki:<slug>[#<heading>]',
+  'knowledge.claim': 'agent-knowledge:claim:<topic>',
+  'knowledge.raw': 'agent-knowledge:raw:<source-id>',
+  'knowledge.stale': 'agent-knowledge:stale:<slug>',
+  'system-prompt': 'system-prompt:<section>',
+  skill: 'skill:<name>',
+  'tool-doc': 'tool-doc:<tool>[:<aspect>]',
+  'new-tool': 'new-tool:<name>',
+  mcp: 'mcp:<server>[:<tool>]',
+  hook: 'hook:<name>',
+  subagent: 'subagent:<name>',
+  workflow: 'workflow:<name>',
+  'rollout-policy': 'rollout-policy:<field>',
+  'agent-profile': 'agent-profile:<field>',
+  code: 'code:<path>',
+  rag: 'rag:<corpus>:<doc-id>',
+  memory: 'memory:<key>',
+  scaffolding: 'scaffolding:<concern>',
+  'output-schema': 'output-schema:<field>',
+  'websearch.outdated': 'websearch:outdated:<topic>',
+  'prior-run-summary': 'prior-run-summary:<topic>',
+  cluster: '<lowercase-cluster-label>',
+}
+
+const FINDING_SUBJECT_PURPOSE: Readonly<Record<FindingSubjectKind, string>> = {
+  'knowledge.wiki': 'create or update a wiki page',
+  'knowledge.claim': 'draft a claim or relation',
+  'knowledge.raw': 'curate a raw source',
+  'knowledge.stale': 'mark a stale page',
+  'system-prompt': 'revise a system-prompt section',
+  skill: 'create or revise a skill',
+  'tool-doc': 'revise a tool contract',
+  'new-tool': 'propose a new tool',
+  mcp: 'revise an MCP server or tool',
+  hook: 'revise a lifecycle hook',
+  subagent: 'revise a delegated agent',
+  workflow: 'revise an orchestration workflow',
+  'rollout-policy': 'revise budget, sampling, or stop policy',
+  'agent-profile': 'revise another AgentProfile field',
+  code: 'revise an implementation path',
+  rag: 'ingest or correct a RAG document',
+  memory: 'invalidate or set memory',
+  scaffolding: 'revise preconditions, retries, or verification',
+  'output-schema': 'constrain the output shape',
+  'websearch.outdated': 'identify a stale web result',
+  'prior-run-summary': 'identify a stale prior-run summary',
+  cluster: 'name one failure cluster',
+}
+
+function renderFindingSubjectGrammar(kinds: ReadonlyArray<FindingSubjectKind>): string {
+  return [
+    'Subjects MUST match one of these forms — anything else is rejected at parse time:',
+    ...kinds.map((kind) => `  ${FINDING_SUBJECT_SYNTAX[kind]} — ${FINDING_SUBJECT_PURPOSE[kind]}`),
+    'Runtime ids are lowercase [a-z0-9_.-]+. Topics, keys, paths, and sections are free-form and trimmed.',
+  ].join('\n')
+}
+
+export const FINDING_SUBJECT_GRAMMAR_PROMPT = renderFindingSubjectGrammar(FINDING_SUBJECT_KINDS)
 
 // ── kind expects sets ─────────────────────────────────────────────────
 
@@ -279,6 +375,10 @@ export const KIND_EXPECTED_SUBJECTS: Record<string, ReadonlyArray<FindingSubject
     'knowledge.stale',
     'tool-doc',
     'system-prompt',
+    'skill',
+    'mcp',
+    'subagent',
+    'workflow',
     'memory',
     'websearch.outdated',
     'prior-run-summary',
@@ -289,14 +389,25 @@ export const KIND_EXPECTED_SUBJECTS: Record<string, ReadonlyArray<FindingSubject
     'knowledge.raw',
     'tool-doc',
     'system-prompt',
+    'skill',
+    'mcp',
+    'hook',
     'memory',
     'websearch.outdated',
     'prior-run-summary',
   ],
   improvement: [
     'system-prompt',
+    'skill',
     'tool-doc',
     'new-tool',
+    'mcp',
+    'hook',
+    'subagent',
+    'workflow',
+    'rollout-policy',
+    'agent-profile',
+    'code',
     'rag',
     'memory',
     'scaffolding',
@@ -304,6 +415,13 @@ export const KIND_EXPECTED_SUBJECTS: Record<string, ReadonlyArray<FindingSubject
     'knowledge.wiki',
     'knowledge.claim',
   ],
+}
+
+/** Render only the subject forms one analyst kind is permitted to emit. */
+export function findingSubjectGrammarPromptFor(kindId: string): string {
+  const kinds = KIND_EXPECTED_SUBJECTS[kindId]
+  if (!kinds) throw new Error(`unknown analyst kind: ${kindId}`)
+  return renderFindingSubjectGrammar(kinds)
 }
 
 // ── Zod schema for boundary validation ───────────────────────────────

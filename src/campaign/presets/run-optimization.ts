@@ -1,10 +1,11 @@
 /**
  * `runOptimization` — the improvement loop body. Runs N generations: the
  * `SurfaceProposer` proposes K candidate surfaces per generation, each
- * candidate runs a campaign (the measurement), top-scoring promote to the
- * next generation. Proposer-agnostic — the same loop runs an evolutionary
- * population mutator (`evolutionaryProposer`) or any reflective / agentic
- * proposer; they differ only in how `propose()` picks candidates.
+ * candidate runs a campaign (the measurement), and only a candidate that beats
+ * the single global incumbent becomes the next generation's parent.
+ * Proposer-agnostic — the same loop runs an evolutionary population mutator
+ * (`evolutionaryProposer`) or any reflective / agentic proposer; they differ
+ * only in how `propose()` picks candidates.
  *
  * This is `runLoop`'s shape (plan → measure → decide) specialized to surface
  * improvement: `proposer.propose` = plan, `runCampaign` = the measurement
@@ -15,10 +16,14 @@
  * re-score + release gate + optional PR.
  */
 
-import { createHash } from 'node:crypto'
+import type { CostLedgerHandle, CostLedgerSummary } from '../../cost-ledger'
 import { type Objective, paretoFrontier } from '../../pareto'
+import { type CampaignCoverage, campaignCoverage, formatCoverageFailures } from '../coverage'
 import { type RunCampaignOptions, runCampaign } from '../run-campaign'
+import { resolveRunDir } from '../run-dir'
 import { campaignBreakdown, campaignMeanComposite } from '../score-utils'
+import { createRunCostLedger, fsCampaignStorage } from '../storage'
+import { surfaceHash } from '../surface-identity'
 import {
   type CampaignResult,
   type GenerationRecord,
@@ -27,6 +32,7 @@ import {
   type ParetoParent,
   type ProposedCandidate,
   type Scenario,
+  type ScoredSurfaceOutcome,
   type SurfaceProposer,
 } from '../types'
 
@@ -46,7 +52,8 @@ export interface RunOptimizationBaseOptions<TScenario extends Scenario, TArtifac
   proposer: SurfaceProposer
   populationSize: number
   maxGenerations: number
-  /** How many top-scoring candidates carry to the next generation. Default 2. */
+  /** @deprecated The loop has one global incumbent and can promote only the
+   *  single candidate that beats it. Retained for source compatibility. */
   promoteTopK?: number
   /** DEPTH knob forwarded to the proposer's `propose()` — max iterations the
    *  agentic generator may take per candidate. */
@@ -59,10 +66,12 @@ export interface RunOptimizationBaseOptions<TScenario extends Scenario, TArtifac
    *  generation's traces; findings-grounded proposers consume them. Opaque here;
    *  the proposer types its `TFindings`. Empty when no producer is wired. */
   findings?: unknown[]
-  /** Per-generation findings producer. After each
-   *  generation's candidates are scored, this is called with that generation's
-   *  results; whatever it returns REPLACES `ctx.findings` for the NEXT
-   *  generation's `propose()`, so the diagnosis is refreshed each round instead
+  /** Per-generation findings producer. Runs once on the BASELINE campaign
+   *  (as `generation: -1`, the baseline convention) before generation 0
+   *  proposes — so even a single-generation run proposes with trace context —
+   *  and then after each generation's candidates are scored with that
+   *  generation's results; whatever it returns REPLACES `ctx.findings` for the
+   *  NEXT `propose()`, so the diagnosis is refreshed each round instead
    *  of being a static one-shot. Generic by design: the substrate does not
    *  import an analyst — the consumer plugs its trace-analyst registry / HALO
    *  here (reading the per-candidate `runDir` traces). When absent, findings
@@ -76,6 +85,9 @@ export interface RunOptimizationBaseOptions<TScenario extends Scenario, TArtifac
       composite: number
     }>
     history: GenerationRecord[]
+    /** Shared run spend account and receipt attribution phase. */
+    costLedger?: CostLedgerHandle
+    costPhase?: string
   }) => Promise<unknown[]>
 }
 
@@ -104,6 +116,8 @@ export interface RunOptimizationResult<TArtifact, TScenario extends Scenario> {
    *  emitted provenance record. Absent when the winner is the baseline. */
   winnerRationale?: string
   baselineCampaign: CampaignResult<TArtifact, TScenario>
+  /** Run-wide spend, including agents, proposers, analysts, and judges. */
+  cost: CostLedgerSummary
   /** The GEPA Pareto frontier across every scored surface (baseline + all
    *  generations) by per-scenario objective vector — the non-dominated set.
    *  Each generation's `propose()` received the frontier-so-far as
@@ -113,33 +127,66 @@ export interface RunOptimizationResult<TArtifact, TScenario extends Scenario> {
 }
 
 /**
- * Improvement loop body: N generations of propose → campaign → rank, maintaining a Pareto frontier and promoting the top-scoring candidates to the next generation.
+ * Improvement loop body: N generations of propose → campaign → rank, maintaining a Pareto frontier and one global incumbent across generations.
  */
 export async function runOptimization<TScenario extends Scenario, TArtifact>(
   opts: RunOptimizationOptions<TScenario, TArtifact>,
 ): Promise<RunOptimizationResult<TArtifact, TScenario>> {
   const { proposer } = opts
-  const promoteTopK = opts.promoteTopK ?? 2
   if (typeof opts.runDir !== 'string' || opts.runDir.trim().length === 0) {
     throw new Error('runOptimization: runDir is required and must be a non-empty string')
+  }
+  opts.runDir = resolveRunDir(opts.runDir, opts.repo)
+  const storage = opts.storage ?? fsCampaignStorage()
+  const costLedger =
+    opts.costLedger ??
+    createRunCostLedger({
+      storage,
+      runDir: opts.runDir,
+      costCeilingUsd: opts.costCeiling,
+    })
+  if (opts.promoteTopK !== undefined && opts.promoteTopK !== 1) {
+    throw new Error(
+      'runOptimization: promoteTopK must be 1 because the loop has one global incumbent',
+    )
   }
 
   // Baseline run
   const baselineCampaign = await runCampaign<TScenario, TArtifact>({
     ...opts,
+    costLedger,
+    costPhase: 'search.baseline',
     dispatch: (scenario, ctx) => opts.dispatchWithSurface(opts.baselineSurface, scenario, ctx),
     runDir: `${opts.runDir}/baseline`,
   })
+  const requireJudgeScore = (opts.judges?.length ?? 0) > 0
+  const baselineCoverage = campaignCoverage(
+    baselineCampaign.cells,
+    opts.scenarios,
+    opts.reps ?? 1,
+    requireJudgeScore,
+  )
+  if (!baselineCoverage.complete) {
+    throw new Error(
+      `runOptimization: baseline is incomplete (${baselineCoverage.scorableCellIds.length}/${baselineCoverage.expectedCellIds.length} designed cells scorable) — ${formatCoverageFailures(baselineCoverage)}. Refusing to optimize against an incomplete incumbent.`,
+    )
+  }
 
   const generations: RunOptimizationResult<TArtifact, TScenario>['generations'] = []
   const history: GenerationRecord[] = []
   // Refreshed each generation by `analyzeGeneration`; seeded with the static
   // caller-supplied findings.
   let currentFindings: unknown[] = opts.findings ?? []
-  let currentSurfaces: MutableSurface[] = [opts.baselineSurface]
   let winnerSurface = opts.baselineSurface
   let winnerSurfaceHash = surfaceHash(opts.baselineSurface)
   let winnerComposite = campaignMeanComposite(baselineCampaign)
+  const baselineOutcome = toScoredSurfaceOutcome(
+    winnerSurfaceHash,
+    baselineCampaign,
+    baselineCoverage,
+    -1,
+  )
+  let winnerOutcome = baselineOutcome
   let winnerLabel: string | undefined
   let winnerRationale: string | undefined
 
@@ -151,6 +198,28 @@ export async function runOptimization<TScenario extends Scenario, TArtifact>(
     toParetoParent(opts.baselineSurface, winnerSurfaceHash, baselineCampaign, -1),
   ]
 
+  // Diagnose the BASELINE traces before generation 0 proposes. The
+  // between-generation producer call below only fires after gen g to feed gen
+  // g+1, so without this a single-generation run (maxGenerations = 1)
+  // proposes blind even though baseline traces exist. Baseline is
+  // `generation: -1` — the same convention the Pareto accumulator uses above.
+  // Skipped when the baseline produced no cells (dry/offline modes have no
+  // traces to analyze) or there is no generation 0 to feed; `propose()` then
+  // sees the static seed findings exactly as before.
+  if (opts.analyzeGeneration && opts.maxGenerations > 0 && baselineCampaign.cells.length > 0) {
+    const fresh = await opts.analyzeGeneration({
+      generation: -1,
+      runDir: `${opts.runDir}/baseline`,
+      candidates: [
+        { surfaceHash: winnerSurfaceHash, campaign: baselineCampaign, composite: winnerComposite },
+      ],
+      history,
+      costLedger,
+      costPhase: 'analysis.baseline',
+    })
+    if (Array.isArray(fresh)) currentFindings = fresh
+  }
+
   for (let gen = 0; gen < opts.maxGenerations; gen++) {
     // Decide: the proposer may stop early based on accumulated history.
     if (proposer.decide?.({ history }).stop) break
@@ -159,18 +228,28 @@ export async function runOptimization<TScenario extends Scenario, TArtifact>(
     // the accumulated generation history, the Pareto frontier so far, and any
     // external findings.
     const paretoParents = computeParetoFrontier(scored)
+    const parentSurfaceHash = winnerSurfaceHash
+    const parentComposite = winnerComposite
     const proposed = await proposer.propose({
-      currentSurface: currentSurfaces[0] ?? opts.baselineSurface,
+      // The mutation anchor is always the best complete surface seen across the
+      // whole run. Exploratory losers remain in history/Pareto evidence, but a
+      // later generation never compounds a candidate already known to regress.
+      currentSurface: winnerSurface,
       history,
       findings: currentFindings,
       populationSize: opts.populationSize,
       generation: gen,
       signal: new AbortController().signal,
+      baselineOutcome,
+      incumbentOutcome: winnerOutcome,
       report: opts.report,
       dataset: opts.labeledStore && opts.labeledStore !== 'off' ? opts.labeledStore : undefined,
       maxImprovementShots: opts.maxImprovementShots,
       paretoParents,
+      costLedger,
+      costPhase: 'search.proposal',
     })
+    if (proposed.length === 0) break
 
     // Normalize: a proposer may return bare surfaces (blind mutators) or
     // `ProposedCandidate`s carrying {label, rationale}. Keep the rationale so
@@ -185,35 +264,62 @@ export async function runOptimization<TScenario extends Scenario, TArtifact>(
       surface: MutableSurface
       label: string
       rationale: string
+      candidateRecord?: ProposedCandidate['candidateRecord']
       campaign: CampaignResult<TArtifact, TScenario>
       composite: number
+      coverage: CampaignCoverage
     }> = []
     for (let i = 0; i < candidates.length; i++) {
-      const { surface, label, rationale } = candidates[i]!
+      const { surface, label, rationale, candidateRecord } = candidates[i]!
       const hash = surfaceHash(surface)
       const campaign = await runCampaign<TScenario, TArtifact>({
         ...opts,
+        costLedger,
+        costPhase: 'search.candidate',
         dispatch: (scenario, ctx) => opts.dispatchWithSurface(surface, scenario, ctx),
         runDir: `${opts.runDir}/gen-${gen}/candidate-${i}`,
       })
       const composite = campaignMeanComposite(campaign)
-      surfaceResults.push({ surfaceHash: hash, surface, label, rationale, campaign, composite })
-      // Add to the GEPA frontier accumulator — the NEXT generation's
-      // `propose()` sees this candidate's per-scenario objective vector.
-      scored.push(
-        toParetoParent(surface, hash, campaign, gen, label || undefined, rationale || undefined),
+      const coverage = campaignCoverage(
+        campaign.cells,
+        opts.scenarios,
+        opts.reps ?? 1,
+        requireJudgeScore,
       )
+      surfaceResults.push({
+        surfaceHash: hash,
+        surface,
+        label,
+        rationale,
+        ...(candidateRecord ? { candidateRecord } : {}),
+        campaign,
+        composite,
+        coverage,
+      })
+      if (coverage.complete) {
+        // Incomplete candidates retain their raw campaign and history row but
+        // cannot gain Pareto value by avoiding a difficult cell.
+        scored.push(
+          toParetoParent(surface, hash, campaign, gen, label || undefined, rationale || undefined),
+        )
+      }
     }
 
-    // Rank, promote top-K.
-    surfaceResults.sort((a, b) => b.composite - a.composite)
-    const promoted = surfaceResults.slice(0, promoteTopK)
-    currentSurfaces = promoted.map((p) => p.surface)
-    const top = surfaceResults[0]
-    if (top && top.composite > winnerComposite) {
+    // Rank only candidates with the complete designed denominator. Incomplete
+    // rows follow the eligible rows for auditability but never promote.
+    surfaceResults.sort((a, b) => {
+      if (a.coverage.complete !== b.coverage.complete) return a.coverage.complete ? -1 : 1
+      return b.composite - a.composite
+    })
+    const eligibleResults = surfaceResults.filter((result) => result.coverage.complete)
+    const top = eligibleResults[0]
+    const promoted = top && top.composite > winnerComposite ? [top] : []
+    if (promoted[0]) {
+      const top = promoted[0]
       winnerSurface = top.surface
       winnerSurfaceHash = top.surfaceHash
       winnerComposite = top.composite
+      winnerOutcome = toScoredSurfaceOutcome(top.surfaceHash, top.campaign, top.coverage, gen)
       winnerLabel = top.label || undefined
       winnerRationale = top.rationale || undefined
     }
@@ -226,11 +332,23 @@ export async function runOptimization<TScenario extends Scenario, TArtifact>(
           surfaceHash: s.surfaceHash,
           composite: s.composite,
           ci95: [s.composite, s.composite] as [number, number],
+          parentSurfaceHash,
+          parentComposite,
+          ...(s.coverage.complete
+            ? { observedDeltaFromParent: s.composite - parentComposite }
+            : {}),
+          eligibleForPromotion: s.coverage.complete,
+          coverage: {
+            expectedCells: s.coverage.expectedCellIds.length,
+            scorableCells: s.coverage.scorableCellIds.length,
+            unscorableCells: s.coverage.unscorableCells,
+          },
           dimensions: breakdown.dimensions,
           scenarios: breakdown.scenarios,
         }
         if (s.label) candidate.label = s.label
         if (s.rationale) candidate.rationale = s.rationale
+        if (s.candidateRecord) candidate.candidateRecord = s.candidateRecord
         return candidate
       }),
       promoted: promoted.map((p) => p.surfaceHash),
@@ -258,6 +376,8 @@ export async function runOptimization<TScenario extends Scenario, TArtifact>(
           composite: s.composite,
         })),
         history,
+        costLedger,
+        costPhase: 'analysis.generation',
       })
       if (Array.isArray(fresh)) currentFindings = fresh
     }
@@ -271,6 +391,7 @@ export async function runOptimization<TScenario extends Scenario, TArtifact>(
     winnerRationale,
     baselineCampaign,
     paretoFrontier: computeParetoFrontier(scored),
+    cost: costLedger.summary(),
   }
 }
 
@@ -301,13 +422,10 @@ function toParetoParent<TArtifact, TScenario extends Scenario>(
 }
 
 /** The non-dominated set over the per-scenario objective vectors. Every
- *  scenario seen across the scored set becomes a `maximize` objective; a
- *  surface missing a scenario (a failed cell) is ranked worst on that axis via
- *  a FINITE floor (the lowest real score seen there) — never a non-finite
- *  value, because the canonical `paretoFrontier` excludes any candidate with a
- *  non-finite objective, which would silently drop the whole frontier if one
- *  scenario errored across every candidate. Delegates dominance to the
- *  package-canonical `paretoFrontier` — ONE implementation of the relation. */
+ *  scenario seen across the scored set becomes a `maximize` objective.
+ *  `runOptimization` admits only complete campaigns to this set; the finite
+ *  floor remains a defensive fallback for manually constructed/no-judge
+ *  vectors. Delegates dominance to the package-canonical `paretoFrontier`. */
 function computeParetoFrontier(scored: ParetoParent[]): ParetoParent[] {
   if (scored.length <= 1) return [...scored]
   const ids = new Set<string>()
@@ -333,19 +451,23 @@ function computeParetoFrontier(scored: ParetoParent[]): ParetoParent[] {
   return paretoFrontier(scored, objectives).frontier
 }
 
-/**
- * Short (16-char) sha256 fingerprint of a `MutableSurface`: hashes text content for prompt surfaces, or the worktree + base ref pair for code surfaces.
- */
-export function surfaceHash(surface: MutableSurface): string {
-  // Prompt/tool surfaces (string) hash by content; code surfaces hash by the
-  // worktree + base ref pair (the content lives in git, not in the string).
-  const material =
-    typeof surface === 'string'
-      ? surface
-      : JSON.stringify({
-          kind: surface.kind,
-          worktreeRef: surface.worktreeRef,
-          baseRef: surface.baseRef ?? null,
-        })
-  return createHash('sha256').update(material).digest('hex').slice(0, 16)
+function toScoredSurfaceOutcome<TArtifact, TScenario extends Scenario>(
+  surfaceHash: string,
+  campaign: CampaignResult<TArtifact, TScenario>,
+  coverage: CampaignCoverage,
+  generation: number,
+): ScoredSurfaceOutcome {
+  const breakdown = campaignBreakdown(campaign)
+  return {
+    split: 'search',
+    generation,
+    surfaceHash,
+    composite: campaignMeanComposite(campaign),
+    dimensions: breakdown.dimensions,
+    scenarios: breakdown.scenarios,
+    coverage: {
+      expectedCells: coverage.expectedCellIds.length,
+      scorableCells: coverage.scorableCellIds.length,
+    },
+  }
 }

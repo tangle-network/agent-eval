@@ -339,8 +339,7 @@ export function sequentialPairedGate<TArtifact = unknown, TScenario extends Scen
         direction: cfg.direction,
         minEffect: cfg.minEffect,
         pairedN: deltas.length,
-        preRegisteredId: manifest?.id,
-        metric: manifest?.metric,
+        ...(manifest ? { preRegisteredId: manifest.id, metric: manifest.metric } : {}),
       }
       const meanDelta =
         deltas.length === 0 ? undefined : deltas.reduce((s, d) => s + d, 0) / deltas.length

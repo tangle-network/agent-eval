@@ -16,6 +16,15 @@
  * can build dashboards / CI gates / regression diffs against a stable schema.
  */
 
+import type { PolicyEditCandidateRecord } from '../analyst/policy-edit'
+import type {
+  CostChannel,
+  CostLedgerHandle,
+  CostLedgerSummary,
+  PaidCallResult,
+  RunPaidCallInput,
+} from '../cost-ledger'
+import type { LlmCallMetadata } from '../llm-client'
 import type { RunTokenUsage } from '../run-record'
 
 /** Stable identifier + kind tag for any scenario. Consumers
@@ -24,6 +33,11 @@ export interface Scenario {
   id: string
   kind: string
   tags?: string[]
+}
+
+/** Redacted identity of a complete scenario payload retained in campaign results. */
+export interface CampaignScenarioIdentity extends Pick<Scenario, 'id' | 'kind'> {
+  scenarioDigest: `sha256:${string}`
 }
 
 /** Context handed to every dispatch invocation. Scoped — every
@@ -94,12 +108,20 @@ export interface JudgeDimension {
 export interface JudgeConfig<TArtifact, TScenario extends Scenario = Scenario> {
   name: string
   dimensions: JudgeDimension[]
+  /** Stable scoring revision used by campaign resume and verdict caches.
+   * Built-in judges derive this from their prompt, model, and rubric. Custom
+   * judges should set it when closure state can change without changing code. */
+  judgeVersion?: string
   /** Score one artifact. Throw on failure — a thrown judge is recorded as a
    *  failed cell, never silently folded into a zero. */
   score(input: {
     artifact: TArtifact
     scenario: TScenario
     signal: AbortSignal
+    /** Shared run spend account and receipt attribution phase. */
+    costLedger?: CostLedgerHandle
+    costPhase?: string
+    costTags?: Record<string, string>
   }): JudgeScore | Promise<JudgeScore>
   appliesTo?: (scenario: TScenario) => boolean
 }
@@ -117,6 +139,8 @@ export interface JudgeScore {
   dimensions: Record<string, number>
   composite: number
   notes: string
+  /** Provider metadata for display and diagnostics; accounting uses CostLedger receipts. */
+  llmCall?: LlmCallMetadata
   /** Set when the judge itself failed (call error, unparseable output).
    *  `composite`/`dimensions` carry no signal — aggregators MUST exclude
    *  failed scores from means instead of folding them into zeros. */
@@ -132,20 +156,35 @@ export interface JudgeScore {
 
 // ── Optimization (population + generations + mutator) ─────────────────
 
-/** A tier-4 code surface — a candidate change to the agent's
+/** A tier-4 code surface — a finalized candidate change to the agent's
  *  IMPLEMENTATION, not its prompt. Produced by autoresearch (reads codebase +
- *  trace findings → opens a worktree). Measured by checking out `worktreeRef`
- *  and running the worker against the changed code. See the improvement-tier
- *  table in `docs/design/loop-taxonomy.md`. */
+ *  trace findings → opens a worktree). `worktreeRef` locates the candidate;
+ *  the exact commits, tree, and binary-patch digest identify it. See the
+ *  improvement-tier table in `docs/design/loop-taxonomy.md`. */
 export interface CodeSurface {
-  kind: 'code'
-  /** Worktree path or git ref holding the candidate code change. The
-   *  consumer's `dispatchWithSurface` checks this out before running. */
-  worktreeRef: string
-  /** Base ref the change is measured against. Default: the repo's main. */
-  baseRef?: string
+  readonly kind: 'code'
+  /** Worktree path or git ref holding the candidate code change. This is a
+   *  mutable locator and is deliberately excluded from content hashes. */
+  readonly worktreeRef: string
+  /** Human-readable ref the worktree was forked from. Not identity-bearing. */
+  readonly baseRef: string
+  /** Exact commit the candidate was forked from. */
+  readonly baseCommit: string
+  /** Exact tree object for `baseCommit`. */
+  readonly baseTree: string
+  /** Exact finalized candidate commit. */
+  readonly candidateCommit: string
+  /** Exact tree object for `candidateCommit`. */
+  readonly candidateTree: string
+  /** Identity of the exact patch artifact. The deployable candidate bundle
+   *  carries the same descriptor plus its base64-encoded content. */
+  readonly patch: {
+    readonly format: 'git-diff-binary'
+    readonly sha256: `sha256:${string}`
+    readonly byteLength: number
+  }
   /** Human summary of what changed — rendered into the auto-PR body. */
-  summary?: string
+  readonly summary?: string
 }
 
 /** The mutable surface a proposer changes. Tiers (see
@@ -171,6 +210,9 @@ export interface ProposedCandidate {
    *  primitive it used. Survives to `GenerationCandidate.rationale` and the
    *  emitted provenance record. */
   rationale: string
+  /** Structured, JSON-safe cause for this exact candidate when the proposer
+   *  can provide one. Policy edits retain the full validated edit here. */
+  candidateRecord?: PolicyEditCandidateRecord
 }
 
 /** Type guard: a proposal carrying its rationale vs a bare
@@ -210,6 +252,25 @@ export interface ParetoParent {
   rationale?: string
 }
 
+/** Exact measured state for the surface an optimizer is learning from.
+ *  Unlike a model-authored expected gain, every value here comes from a
+ *  completed campaign over the designed denominator. */
+export interface ScoredSurfaceOutcome {
+  /** Optimization/search evidence only. Held-out results must never flow back
+   *  into a proposer through this type. */
+  split: 'search'
+  /** Generation that actually measured this surface (`-1` for the baseline). */
+  generation: number
+  surfaceHash: string
+  composite: number
+  dimensions: Record<string, number>
+  scenarios: Array<{ scenarioId: string; composite: number; notes?: string }>
+  coverage: {
+    expectedCells: number
+    scorableCells: number
+  }
+}
+
 /** Stateless surface mutation — given findings + current
  *  surface, return N candidate surfaces. Pure transform, no generation
  *  awareness. Reflective-mutation and `AxGEPA` mutators conform. Wrapped by
@@ -238,6 +299,12 @@ export interface ProposeContext<TFindings = unknown> {
   populationSize: number
   generation: number
   signal: AbortSignal
+  /** Measured baseline for this optimization run. `runOptimization` always
+   *  supplies it; optional for standalone proposer callers. */
+  baselineOutcome?: ScoredSurfaceOutcome
+  /** Measured result for `currentSurface`, the complete global incumbent every
+   *  new candidate mutates. `runOptimization` always supplies it. */
+  incumbentOutcome?: ScoredSurfaceOutcome
   /** Optional analysis report produced before proposal. Opaque to the substrate:
    *  the proposer that consumes it owns the shape. */
   report?: unknown
@@ -255,6 +322,9 @@ export interface ProposeContext<TFindings = unknown> {
    *  scenarios) into a merged candidate. Proposers doing pure single-parent
    *  reflection may ignore it. See {@link ParetoParent}. */
   paretoParents?: ParetoParent[]
+  /** Shared run spend account and receipt attribution phase. */
+  costLedger?: CostLedgerHandle
+  costPhase?: string
   /** FIREWALL (non-negotiable): the held-out judge is write-only — its verdicts
    *  score the chosen output and gate promotion, and are NEVER an input to
    *  proposal/steering (else the optimizer games the acceptance axis = an
@@ -336,6 +406,9 @@ export interface GateContext<TArtifact, TScenario extends Scenario> {
   neutralizedArtifacts?: Map<string, TArtifact>
   scenarios: TScenario[]
   cost: { candidate: number; baseline: number }
+  /** Shared run spend account and receipt attribution phase. */
+  costLedger?: CostLedgerHandle
+  costPhase?: string
   signal: AbortSignal
 }
 
@@ -379,35 +452,17 @@ export interface CampaignArtifactWriter {
  *  `RunTokenUsage` is a compile error here, not a silent drift. */
 export type CampaignTokenUsage = RunTokenUsage
 
-/** Cell-scoped cost meter. NOTHING is captured automatically —
- *  the substrate does not intercept the LLM call, so it cannot see cost or
- *  tokens unless the dispatch reports them. Every LLM cost MUST be reported via
- *  `observe` and every token count via `observeTokens`; a dispatch that reports
- *  neither yields a `{cost:0, tokens:0}` cell, which the backend-integrity
- *  guard (`assertRealBackend`) correctly reads as a stub. Also use `observe`
- *  for non-LLM spend (sandbox time, tool costs). */
+/** Cell-scoped paid-call entry point. The dispatch places every paid operation
+ *  inside `runPaidCall`; the returned provider result supplies one receipt with
+ *  cost, tokens, and resolved model. Calls made outside this method are not
+ *  admitted or captured. */
 export interface CampaignCostMeter {
-  observe(amountUsd: number, source: string): void
-  /** Record LLM token usage for this cell; accumulates across calls. A cell
-   *  has `costUsd` but no token counts unless the dispatch reports them here —
-   *  and the backend-integrity guard (`assertRealBackend`) keys on
-   *  `tokenUsage`, so a cell that never reports tokens reads as a stub. Any
-   *  dispatch that calls an LLM MUST report its usage. */
-  observeTokens(usage: CampaignTokenUsage): void
-  /** Record the concrete model the backend RESOLVED this cell to at runtime.
-   *  The substrate cannot see the LLM call, so it cannot know which model a
-   *  vendor-locked harness actually served — only the dispatch, reading the
-   *  backend's usage/terminal events, can. A dispatch whose profile declares a
-   *  runtime-resolved model (the `HARNESS_NATIVE_MODEL` sentinel) MUST report
-   *  the resolved, snapshot-bearing id here so the RunRecord pins a real model
-   *  instead of the sentinel. Last write wins (a cell issues one logical run);
-   *  optional because most dispatches declare a concrete model up front. */
-  observeModel?(model: string): void
-  current(): number
-  /** Accumulated token usage for this cell (zeros if never observed). */
-  tokens(): CampaignTokenUsage
-  /** The runtime-resolved model reported via `observeModel`, if any. */
-  resolvedModel?(): string | undefined
+  /** The only paid-call path. Returns a typed result; callers must inspect it. */
+  runPaidCall<T>(
+    input: Omit<RunPaidCallInput<T>, 'channel' | 'phase' | 'tags'> & {
+      channel?: CostChannel
+    },
+  ): Promise<PaidCallResult<T>>
 }
 
 // ── LabeledScenarioStore ──────────────────────────────────────────────
@@ -527,15 +582,16 @@ export interface CampaignCellResult<TArtifact> {
   artifact: TArtifact
   judgeScores: Record<string, JudgeScore>
   costUsd: number
-  /** LLM token usage the dispatch reported via `ctx.cost.observeTokens`.
-   *  `{ input: 0, output: 0 }` when the dispatch reported none — which the
-   *  backend-integrity guard reads as a stub. */
+  /** True when at least one priced receipt used the model table instead of a provider bill. */
+  costEstimated?: boolean
+  /** Exact durable receipts required to reuse this cached result. */
+  costCallIds?: string[]
+  /** Agent-call token usage committed by `ctx.cost.runPaidCall`.
+   *  `{ input: 0, output: 0 }` when no paid agent call was recorded. */
   tokenUsage: CampaignTokenUsage
-  /** The concrete model the backend resolved this cell to at runtime, reported
-   *  by the dispatch via `ctx.cost.observeModel`. Set only when the dispatch
-   *  reported it — a profile that declares a concrete model up front has no
-   *  need to. Consumed by `buildRunRecord` to pin the real model when the
-   *  declared model is the `HARNESS_NATIVE_MODEL` sentinel. */
+  /** Concrete model from the latest committed agent receipt. Consumed by
+   *  `buildRunRecord` to pin the model when the declared profile uses a
+   *  runtime-resolved sentinel. */
   resolvedModel?: string
   durationMs: number
   seed: number
@@ -570,6 +626,26 @@ export interface GenerationCandidate {
   surfaceHash: string
   composite: number
   ci95: [number, number]
+  /** Exact surface this candidate mutated. */
+  parentSurfaceHash?: string
+  /** Measured search-split composite of the exact parent surface. */
+  parentComposite?: number
+  /** Candidate composite minus its parent's composite. Present only when the
+   *  candidate completed the designed denominator. */
+  observedDeltaFromParent?: number
+  /** Whether this candidate had a scorable result for every designed campaign
+   *  cell and was therefore eligible for ranking, promotion, and Pareto
+   *  selection. Older externally-authored records may omit this field; loop
+   *  records always populate it. */
+  eligibleForPromotion?: boolean
+  /** Exact denominator receipt for selection eligibility. Scores stay
+   *  descriptive: an incomplete candidate is retained with its observed score
+   *  and errors instead of receiving an invented penalty. */
+  coverage?: {
+    expectedCells: number
+    scorableCells: number
+    unscorableCells: Array<{ cellId: string; reason: string }>
+  }
   /** Mean score per judge dimension across all cells (scenarios × reps ×
    *  judges that reported the dimension). */
   dimensions: Record<string, number>
@@ -590,11 +666,16 @@ export interface GenerationCandidate {
    *  "because rationale Z" the audit requires to survive to the result.
    *  Present when the proposer returned a `ProposedCandidate`. */
   rationale?: string
+  /** Exact structured cause threaded from the proposer, when available. */
+  candidateRecord?: PolicyEditCandidateRecord
 }
 
 export interface CampaignAggregates {
   byJudge: Record<string, JudgeAggregate>
   byScenario: Record<string, ScenarioAggregate>
+  /** Canonical campaign accounting, including worker and judge calls. */
+  cost: CostLedgerSummary
+  /** Compatibility alias of `cost.totalCostUsd`. */
   totalCostUsd: number
   cellsExecuted: number
   cellsSkipped: number
@@ -605,7 +686,11 @@ export interface CampaignAggregates {
 export interface CampaignResult<TArtifact = unknown, TScenario extends Scenario = Scenario> {
   /** sha256(scenarios, judges, dispatch source ref, optimizer config, seed). Stable identity for reruns. */
   manifestHash: string
+  /** Canonical identity of the exact scenario payloads and replicate count. */
+  splitDigest: `sha256:${string}`
   seed: number
+  /** Replicates designed for every scenario in this campaign. */
+  reps: number
   startedAt: string
   endedAt: string
   durationMs: number
@@ -619,9 +704,7 @@ export interface CampaignResult<TArtifact = unknown, TScenario extends Scenario 
   prUrl?: string
   runDir: string
   artifactsByPath: Record<string, string>
-  /** Substrate strips the input scenarios to id+kind for the result manifest;
-   *  consumers needing full payload look it up via the original input. The
-   *  type parameter `TScenario` is propagated for downstream consumers that
-   *  want narrowed types when extending `CampaignResult`. */
-  scenarios: Array<Pick<TScenario, 'id' | 'kind'>>
+  /** Redacted identities that let consumers verify the exact scenario payloads
+   *  without retaining customer task content in the result. */
+  scenarios: Array<CampaignScenarioIdentity & Pick<TScenario, 'id' | 'kind'>>
 }

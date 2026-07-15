@@ -39,18 +39,28 @@ export {
   buildDefaultAnalystRegistry,
   type DefaultAnalystRegistryOptions,
 } from './default-registry'
-export type { RawAnalystFinding } from './finding-signature'
+export type {
+  CanonicalRawAnalystFinding,
+  RawAnalystEvidence,
+  RawAnalystFinding,
+} from './finding-signature'
 export {
   ANALYST_SEVERITIES,
+  CanonicalRawAnalystFindingSchema,
+  evidenceRefsFromRawFinding,
+  parseCanonicalRawFinding,
   parseRawFinding,
   RAW_FINDING_SCHEMA_PROMPT,
+  RawAnalystEvidenceSchema,
   RawAnalystFindingSchema,
 } from './finding-signature'
 export type { FindingSubject, FindingSubjectKind } from './finding-subject'
 export {
   FINDING_SUBJECT_GRAMMAR_PROMPT,
   FINDING_SUBJECT_KINDS,
+  FINDING_SUBJECT_SYNTAX,
   FindingSubjectStringSchema,
+  findingSubjectGrammarPromptFor,
   KIND_EXPECTED_SUBJECTS,
   parseFindingSubject,
   renderFindingSubject,
@@ -62,7 +72,7 @@ export type {
   TraceAnalystGolden,
   TraceAnalystKindSpec,
 } from './kind-factory'
-export { createTraceAnalystKind, renderPriorFindings } from './kind-factory'
+export { createTraceAnalystKind, renderPriorFindings, renderUpstreamFindings } from './kind-factory'
 export {
   DEFAULT_TRACE_ANALYST_KINDS,
   FAILURE_MODE_KIND_SPEC,
@@ -88,6 +98,7 @@ export type {
   PolicyEditAdmission,
   PolicyEditAdmissionOptions,
   PolicyEditAxis,
+  PolicyEditCandidateRecord,
   PolicyEditChange,
   PolicyEditExpectedGain,
   PolicyEditGainDirection,
@@ -105,13 +116,16 @@ export {
   computePolicyEditId,
   isPolicyEdit,
   makePolicyEdit,
+  makePolicyEditCandidateRecord,
   POLICY_EDIT_AXES,
+  POLICY_EDIT_CANDIDATE_RECORD_SCHEMA,
   POLICY_EDIT_TARGET_SURFACES,
   PolicyEditValidationError,
   policyEditFromFinding,
   policyEditsFromFindings,
   scorePolicyEditReadiness,
   validatePolicyEdit,
+  validatePolicyEditCandidateRecord,
 } from './policy-edit'
 export type {
   AnalystHooks,
@@ -140,6 +154,7 @@ export type {
   AnalystRunResult,
   AnalystRunSummary,
   AnalystSeverity,
+  AnalystUsageReceipt,
   EvidenceRef,
 } from './types'
 export { computeFindingId, makeFinding } from './types'

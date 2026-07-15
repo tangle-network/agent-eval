@@ -13,6 +13,7 @@
  * observations and coverage are projections of it.
  */
 
+import { CostLedger, type CostLedgerHandle, CostReceiptCaptureError } from '../cost-ledger'
 import { ValidationError } from '../errors'
 import { varianceBasedCurriculum } from '../rl/active-curriculum'
 import { buildCapsule } from './capsule'
@@ -24,7 +25,6 @@ import type {
   CapsuleData,
   Cell,
   CoverageCell,
-  Evaluation,
   ExploreOptions,
   Finding,
   Objective,
@@ -70,9 +70,8 @@ export class BehaviorExplorer<S> {
   private consecutiveEvalErrors = 0
   private stoppedEarly: { reason: 'eval-errors'; detail: string } | undefined
   private rngState: number
-  /** Accumulated KNOWN dollars — unknown-cost runs never inflate it. */
-  private spentKnownUsd = 0
-  private costUnknownRuns = 0
+  private readonly costLedger?: CostLedgerHandle
+  private readonly costPhase = 'fuzz.explore'
 
   constructor(private readonly opts: ExploreOptions<S>) {
     this.cells = enumerateCells(opts.space)
@@ -95,6 +94,24 @@ export class BehaviorExplorer<S> {
           'cannot know run cost without it; supply costOf or drop the cost options',
       )
     }
+    if (
+      (opts.costBudgetUsd !== undefined || opts.ledger?.costCeilingUsd !== undefined) &&
+      !opts.maximumChargeOf
+    ) {
+      throw new ValidationError(
+        'BehaviorExplorer: capped cost tracking requires maximumChargeOf before evaluation',
+      )
+    }
+    if (
+      opts.ledger &&
+      opts.costBudgetUsd !== undefined &&
+      opts.ledger.costCeilingUsd !== opts.costBudgetUsd
+    ) {
+      throw new ValidationError(
+        'BehaviorExplorer: costBudgetUsd must match the supplied CostLedger ceiling',
+      )
+    }
+    if (opts.costOf) this.costLedger = opts.ledger ?? new CostLedger(opts.costBudgetUsd)
     this.cellById = new Map(this.cells.map((c) => [c.id, c]))
     this.objective = opts.objective ?? adversarialObjective(0.5)
     this.threshold = this.objective.threshold ?? 0.5
@@ -149,40 +166,6 @@ export class BehaviorExplorer<S> {
     }
   }
 
-  /** Mirrors control-runtime: stop once accumulated KNOWN cost ≥ the ceiling. */
-  private costExhausted(): boolean {
-    return this.opts.costBudgetUsd !== undefined && this.spentKnownUsd >= this.opts.costBudgetUsd
-  }
-
-  /** Fold one run's cost in: null counts as unknown (never $0); a known cost
-   *  accrues toward the budget, lands in the ledger, and fires `onCost`. */
-  /** Returns the run's known cost, `null` when tracked-but-unknown, `undefined`
-   *  when cost tracking is not wired — the log row mirrors this exactly. */
-  private recordRunCost(scenario: S, cell: Cell, ev: Evaluation): number | null | undefined {
-    if (!this.opts.costOf) return undefined
-    const cost = this.opts.costOf(scenario, cell, ev)
-    if (cost === null) {
-      this.costUnknownRuns++
-      return null
-    }
-    if (typeof cost.usd !== 'number' || !Number.isFinite(cost.usd) || cost.usd < 0) {
-      throw new RangeError(
-        `BehaviorExplorer: costOf returned an invalid usd (${String(cost?.usd)}) — ` +
-          'return null when cost is unknown, never a fabricated number',
-      )
-    }
-    this.spentKnownUsd += cost.usd
-    this.opts.ledger?.record({
-      model: cost.model ?? 'unattributed',
-      channel: 'agent',
-      usage: { inputTokens: 0, outputTokens: 0 },
-      actualCostUsd: cost.usd,
-      tags: { target: this.opts.target, cell: cell.id },
-    })
-    this.opts.onCost?.({ usd: cost.usd, channel: 'agent' })
-    return cost.usd
-  }
-
   /** Elites whose INPUT cell matches — what the proposer mutates/deepens from. */
   private elitesFor(cellId: string): S[] {
     const out: S[] = []
@@ -193,8 +176,7 @@ export class BehaviorExplorer<S> {
   /** One allocate → propose → evaluate → gate → archive round. */
   async step(): Promise<{ runs: number; findings: Finding<S>[] }> {
     const remaining = this.opts.budget - this.runsUsed
-    if (remaining <= 0 || this.costExhausted() || this.opts.signal?.aborted)
-      return { runs: 0, findings: [] }
+    if (remaining <= 0 || this.opts.signal?.aborted) return { runs: 0, findings: [] }
 
     const allocations = this.allocate(Math.min(this.perRoundBudget, remaining))
     const newFindings: Finding<S>[] = []
@@ -203,7 +185,6 @@ export class BehaviorExplorer<S> {
     for (const alloc of allocations) {
       if (
         this.runsUsed >= this.opts.budget ||
-        this.costExhausted() ||
         this.stoppedEarly !== undefined ||
         this.opts.signal?.aborted
       )
@@ -234,7 +215,6 @@ export class BehaviorExplorer<S> {
         async (scenario) => {
           if (
             this.runsUsed >= this.opts.budget ||
-            this.costExhausted() ||
             this.stoppedEarly !== undefined ||
             this.opts.signal?.aborted
           )
@@ -246,14 +226,64 @@ export class BehaviorExplorer<S> {
           // backend stops the run rather than burning the remaining budget.
           try {
             const startedAt = performance.now()
-            const ev = await this.opts.evaluate(scenario, cell)
+            const paid = this.costLedger
+              ? await this.costLedger.runPaidCall({
+                  channel: 'agent',
+                  phase: this.costPhase,
+                  actor: 'fuzz.evaluate',
+                  tags: { target: this.opts.target, cell: cell.id },
+                  signal: this.opts.signal,
+                  maximumCharge: this.opts.maximumChargeOf?.(scenario, cell),
+                  execute: () => this.opts.evaluate(scenario, cell),
+                  receipt: (evaluation) => {
+                    const cost = this.opts.costOf!(scenario, cell, evaluation)
+                    if (cost === null) {
+                      return {
+                        model: 'unattributed',
+                        inputTokens: 0,
+                        outputTokens: 0,
+                        costUnknown: true,
+                      }
+                    }
+                    if (!Number.isFinite(cost.usd) || cost.usd < 0) {
+                      throw new RangeError(
+                        `BehaviorExplorer: costOf returned an invalid usd (${String(cost.usd)}) — ` +
+                          'return null when cost is unknown, never a fabricated number',
+                      )
+                    }
+                    return {
+                      model: cost.model ?? 'unattributed',
+                      inputTokens: 0,
+                      outputTokens: 0,
+                      actualCostUsd: cost.usd,
+                    }
+                  },
+                })
+              : undefined
+            if (paid && !paid.succeeded) {
+              if (
+                paid.error instanceof CostReceiptCaptureError &&
+                paid.error.receiptError instanceof RangeError
+              ) {
+                throw paid.error.receiptError
+              }
+              throw paid.error
+            }
+            const ev = paid ? paid.value : await this.opts.evaluate(scenario, cell)
             // Consumer-measured latency wins (it can exclude judge time); the
             // engine's wall-clock is the default so latency is never missing.
             const latencyMs = ev.latencyMs ?? performance.now() - startedAt
             this.runsUsed++
             runsThisStep++
             this.consecutiveEvalErrors = 0
-            const costUsd = this.recordRunCost(scenario, cell, ev)
+            const costUsd = paid
+              ? paid.receipt.costUnknown
+                ? null
+                : paid.receipt.costUsd
+              : undefined
+            if (paid?.receipt.actualCostUsd !== undefined) {
+              this.opts.onCost?.({ usd: paid.receipt.actualCostUsd, channel: 'agent' })
+            }
             const interest = this.objective.interest(ev, this.objectiveContext())
             this.log.push({
               cell,
@@ -332,7 +362,6 @@ export class BehaviorExplorer<S> {
   async run(): Promise<CapsuleData<S>> {
     while (
       this.runsUsed < this.opts.budget &&
-      !this.costExhausted() &&
       this.stoppedEarly === undefined &&
       !this.opts.signal?.aborted
     ) {
@@ -351,6 +380,10 @@ export class BehaviorExplorer<S> {
   }
 
   capsule(): CapsuleData<S> {
+    const cost = this.costLedger?.summary({
+      phase: this.costPhase,
+      tags: { target: this.opts.target },
+    })
     return buildCapsule({
       target: this.opts.target,
       objective: this.objective.kind,
@@ -361,8 +394,11 @@ export class BehaviorExplorer<S> {
       findings: this._findings,
       candidateFindings: this.candidateFindings,
       runsUsed: this.runsUsed,
-      cost: this.opts.costOf
-        ? { costUsd: this.spentKnownUsd, costUnknownRuns: this.costUnknownRuns }
+      cost: cost
+        ? {
+            costUsd: cost.totalCostUsd,
+            costUnknownRuns: cost.byChannel.reduce((sum, row) => sum + row.unpricedCalls, 0),
+          }
         : undefined,
       evalErrors: this.evalErrors,
       stoppedEarly: this.stoppedEarly,

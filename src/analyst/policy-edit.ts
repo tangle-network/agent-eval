@@ -30,6 +30,7 @@ export const POLICY_EDIT_TARGET_SURFACES = [
   'runtime-config',
   'memory',
   'agent-profile',
+  'code',
   'deployment',
 ] as const
 
@@ -97,6 +98,14 @@ export interface PolicyEdit {
   rationale?: string
   validationPlan?: string
   metadata?: Record<string, unknown>
+}
+
+export const POLICY_EDIT_CANDIDATE_RECORD_SCHEMA = 'tangle.policy-edit-candidate.v1' as const
+
+/** JSON-safe attribution carried with a measured candidate and its scores. */
+export interface PolicyEditCandidateRecord {
+  schema: typeof POLICY_EDIT_CANDIDATE_RECORD_SCHEMA
+  policyEdit: PolicyEdit
 }
 
 export type PolicyEditInit = Omit<PolicyEdit, 'schemaVersion' | 'editId'> & {
@@ -190,6 +199,32 @@ export function validatePolicyEdit(input: unknown): PolicyEdit {
     throw new PolicyEditValidationError('editId does not match policy edit content', 'editId')
   }
   return obj
+}
+
+export function makePolicyEditCandidateRecord(edit: PolicyEdit): PolicyEditCandidateRecord {
+  return validatePolicyEditCandidateRecord({
+    schema: POLICY_EDIT_CANDIDATE_RECORD_SCHEMA,
+    policyEdit: edit,
+  })
+}
+
+export function validatePolicyEditCandidateRecord(input: unknown): PolicyEditCandidateRecord {
+  if (input === null || typeof input !== 'object' || Array.isArray(input)) {
+    throw new PolicyEditValidationError('expected object', 'candidateRecord')
+  }
+  const obj = input as Record<string, unknown>
+  const keys = Object.keys(obj).sort()
+  if (keys.length !== 2 || keys[0] !== 'policyEdit' || keys[1] !== 'schema') {
+    throw new PolicyEditValidationError('expected exactly schema and policyEdit', 'candidateRecord')
+  }
+  expectLiteral(obj.schema, POLICY_EDIT_CANDIDATE_RECORD_SCHEMA, 'candidateRecord.schema')
+  const policyEdit = validatePolicyEdit(obj.policyEdit)
+  assertJsonSafe(policyEdit, 'candidateRecord.policyEdit')
+  const snapshot = JSON.parse(JSON.stringify(policyEdit)) as unknown
+  return {
+    schema: POLICY_EDIT_CANDIDATE_RECORD_SCHEMA,
+    policyEdit: validatePolicyEdit(snapshot),
+  }
 }
 
 export function isPolicyEdit(input: unknown): input is PolicyEdit {
@@ -335,6 +370,11 @@ function routeParsedSubject(subject: FindingSubject): {
         axis: 'representation',
         target: { surface: 'prompt', path: `system-prompt:${subject.section}` },
       }
+    case 'skill':
+      return {
+        axis: 'agent_profile',
+        target: { surface: 'agent-profile', path: `skill:${subject.name}` },
+      }
     case 'tool-doc':
       return {
         axis: 'tool_contract',
@@ -349,6 +389,44 @@ function routeParsedSubject(subject: FindingSubject): {
       return {
         axis: 'tool_contract',
         target: { surface: 'tool-contract', path: `new-tool:${subject.name}` },
+      }
+    case 'mcp':
+      return {
+        axis: 'tool_contract',
+        target: {
+          surface: 'agent-profile',
+          path: subject.tool ? `mcp:${subject.server}:${subject.tool}` : `mcp:${subject.server}`,
+        },
+      }
+    case 'hook':
+      return {
+        axis: 'agent_profile',
+        target: { surface: 'agent-profile', path: `hook:${subject.name}` },
+      }
+    case 'subagent':
+      return {
+        axis: 'routing',
+        target: { surface: 'agent-profile', path: `subagent:${subject.name}` },
+      }
+    case 'workflow':
+      return {
+        axis: 'routing',
+        target: { surface: 'runtime-config', path: `workflow:${subject.name}` },
+      }
+    case 'rollout-policy':
+      return {
+        axis: rolloutPolicyAxis(subject.field),
+        target: { surface: 'runtime-config', path: `rollout-policy:${subject.field}` },
+      }
+    case 'agent-profile':
+      return {
+        axis: 'agent_profile',
+        target: { surface: 'agent-profile', path: `agent-profile:${subject.field}` },
+      }
+    case 'code':
+      return {
+        axis: 'representation',
+        target: { surface: 'code', path: `code:${subject.path}` },
       }
     case 'rag':
       return {
@@ -403,6 +481,18 @@ function routeParsedSubject(subject: FindingSubject): {
     case 'cluster':
       return { axis: 'representation', target: { surface: 'prompt', path: subject.label } }
   }
+}
+
+function rolloutPolicyAxis(field: string): PolicyEditAxis {
+  const normalized = field.toLowerCase()
+  if (/budget|max(?:imum)?[-_. ]?(?:turns?|tokens?|cost)|timeout|deadline/.test(normalized)) {
+    return 'budget'
+  }
+  if (/temperature|top[-_. ]?p|sampling|seed|shots?|parallel|concurrency/.test(normalized)) {
+    return 'sampling'
+  }
+  if (/output|schema|format/.test(normalized)) return 'output_contract'
+  return 'routing'
 }
 
 function resolveExpectedGain(
@@ -580,6 +670,41 @@ function normalizePolicyEdit(input: Omit<PolicyEdit, 'editId'>): Omit<PolicyEdit
   if (input.validationPlan?.trim()) out.validationPlan = input.validationPlan.trim()
   if (input.metadata) out.metadata = input.metadata
   return out
+}
+
+function assertJsonSafe(value: unknown, path: string, ancestors = new WeakSet<object>()): void {
+  if (value === null || typeof value === 'string' || typeof value === 'boolean') return
+  if (typeof value === 'number') {
+    if (Number.isFinite(value)) return
+    throw new PolicyEditValidationError('expected finite JSON number', path)
+  }
+  if (typeof value !== 'object') {
+    throw new PolicyEditValidationError('expected JSON-safe value', path)
+  }
+  if (ancestors.has(value)) {
+    throw new PolicyEditValidationError('cyclic value is not JSON-safe', path)
+  }
+  ancestors.add(value)
+  if (Array.isArray(value)) {
+    for (let i = 0; i < value.length; i++) {
+      if (!(i in value)) {
+        throw new PolicyEditValidationError('sparse array is not JSON-safe', `${path}.${i}`)
+      }
+      assertJsonSafe(value[i], `${path}.${i}`, ancestors)
+    }
+  } else {
+    const prototype = Object.getPrototypeOf(value)
+    if (prototype !== Object.prototype && prototype !== null) {
+      throw new PolicyEditValidationError('expected plain JSON object', path)
+    }
+    if (Object.getOwnPropertySymbols(value).length > 0) {
+      throw new PolicyEditValidationError('symbol keys are not JSON-safe', path)
+    }
+    for (const [key, child] of Object.entries(value as Record<string, unknown>)) {
+      assertJsonSafe(child, `${path}.${key}`, ancestors)
+    }
+  }
+  ancestors.delete(value)
 }
 
 function normalizeTarget(target: PolicyEditTarget): PolicyEditTarget {

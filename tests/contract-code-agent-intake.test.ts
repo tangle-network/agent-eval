@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 import {
   analyzeRuns,
@@ -85,7 +86,8 @@ describe('code-agent session intake', () => {
               total_token_usage: {
                 input_tokens: 1000,
                 output_tokens: 300,
-                cache_read_input_tokens: 200,
+                cached_input_tokens: 200,
+                reasoning_output_tokens: 120,
               },
             },
           },
@@ -106,7 +108,13 @@ describe('code-agent session intake', () => {
     expect(run.runId).toBe('codex:codex-session-1')
     expect(run.model).toBe('claude-code/sonnet@observed-local')
     expect(run.costUsd).toBeGreaterThan(0)
-    expect(run.tokenUsage).toEqual({ input: 1000, output: 300, cached: 200 })
+    expect(run.costProvenance).toMatchObject({ kind: 'estimated', usd: run.costUsd })
+    expect(run.tokenUsage).toEqual({
+      input: 1000,
+      output: 300,
+      reasoning: 120,
+      cached: 200,
+    })
     expect(run.outcome.holdoutScore).toBeGreaterThan(0)
     expect(run.outcome.holdoutScore).toBeLessThan(1)
     expect(run.failureMode).toBe('tool_error')
@@ -122,6 +130,7 @@ describe('code-agent session intake', () => {
       hasExplicitTerminalSignal: true,
       hasTokenUsage: true,
       hasCost: true,
+      costKind: 'estimated',
     })
     expect(diagnostics[0]!.warnings).toContain('outcome score is inferred from process telemetry')
     expect(metrics[0]!.patchFailures).toBe(1)
@@ -129,6 +138,107 @@ describe('code-agent session intake', () => {
     const report = await analyzeRuns({ runs })
     expect(report.n).toBe(1)
     expect(report.composite.n).toBe(1)
+  })
+
+  it('projects Codex exec 0.144.1 JSONL lifecycle items and usage', () => {
+    const jsonl = readFileSync(
+      new URL('./fixtures/codex-exec-0.144.1.jsonl', import.meta.url),
+      'utf8',
+    )
+    const parsed = parseCodeAgentJsonl(jsonl)
+    const { runs, diagnostics, metrics } = fromCodexSession({
+      ...parsed,
+      sourcePath: 'codex-exec-0.144.1.jsonl',
+      model: 'gpt-5.4@2026-07-12',
+    })
+
+    expect(parsed.entries).toHaveLength(15)
+    expect(parsed.malformedLines).toBe(0)
+    expect(metrics[0]).toMatchObject({
+      entries: 15,
+      assistantMessages: 1,
+      reasoningItems: 1,
+      toolCalls: 4,
+      toolOutputs: 4,
+      toolErrors: 1,
+      patchAttempts: 1,
+      patchSuccesses: 1,
+      patchFailures: 0,
+      turnsStarted: 1,
+      turnsCompleted: 1,
+      turnsAborted: 0,
+      inputTokens: 482267,
+      outputTokens: 9006,
+      reasoningTokens: 4529,
+      cachedTokens: 409600,
+      processScore: 0.9,
+    })
+    expect(runs[0]).toMatchObject({
+      runId: 'codex:00000000-0000-7000-8000-000000000144',
+      tokenUsage: { input: 482267, output: 9006, reasoning: 4529, cached: 409600 },
+      costProvenance: { kind: 'estimated' },
+      failureMode: 'tool_error',
+    })
+    expect(diagnostics[0]).toMatchObject({
+      sessionId: '00000000-0000-7000-8000-000000000144',
+      hasExplicitTerminalSignal: true,
+      hasTokenUsage: true,
+      costKind: 'estimated',
+    })
+  })
+
+  it('preserves an explicitly uncaptured Codex cost instead of emitting observed $0', async () => {
+    const jsonl = readFileSync(
+      new URL('./fixtures/codex-exec-0.144.1.jsonl', import.meta.url),
+      'utf8',
+    )
+    const parsed = parseCodeAgentJsonl(jsonl)
+    const { runs, diagnostics } = fromCodexSession({
+      ...parsed,
+      model: 'gpt-5.4@2026-07-12',
+      costProvenance: { kind: 'uncaptured', usd: null },
+    })
+
+    const run = validateRunRecord(runs[0])
+    expect(run.costUsd).toBe(0)
+    expect(run.costProvenance).toEqual({ kind: 'uncaptured', usd: null })
+    expect(run.outcome.raw.cost_observed).toBe(0)
+    expect(run.outcome.raw.cost_estimated).toBe(0)
+    expect(run.outcome.raw.cost_uncaptured).toBe(1)
+    expect(diagnostics[0]).toMatchObject({ hasCost: false, costKind: 'uncaptured' })
+
+    const report = await analyzeRuns({ runs })
+    expect(report.costQuality.provenance).toEqual({
+      observed: { n: 0, totalUsd: 0 },
+      estimated: { n: 0, totalUsd: 0 },
+      uncaptured: { n: 1 },
+      knownFraction: 0,
+    })
+    expect(report.costQuality.cost.n).toBe(0)
+    expect(report.costQuality.pareto.points).toHaveLength(0)
+    expect(report.costQuality.degraded?.cost).toMatch(/uncaptured for all 1 runs/)
+  })
+
+  it('treats a failed Codex exec turn as an explicit abort', () => {
+    const { runs, diagnostics, metrics } = fromCodexSession({
+      entries: [
+        { type: 'thread.started', thread_id: 'codex-failed-turn' },
+        { type: 'turn.started' },
+        { type: 'error', message: 'request failed' },
+        { type: 'turn.failed', error: { message: 'request failed' } },
+      ],
+      model: 'gpt-5.4@2026-07-12',
+    })
+
+    expect(metrics[0]).toMatchObject({
+      turnsStarted: 1,
+      turnsCompleted: 0,
+      turnsAborted: 1,
+      toolErrors: 1,
+      processScore: 0,
+    })
+    expect(runs[0]!.failureMode).toBe('turn_aborted')
+    expect(diagnostics[0]!.hasExplicitTerminalSignal).toBe(true)
   })
 
   it('projects Claude Code sessions with tool errors and PR links into RunRecord metrics', () => {
@@ -270,8 +380,9 @@ describe('code-agent session intake', () => {
     const run = validateRunRecord(runs[0])
     expect(run.runId).toBe('opencode:opencode-session-1')
     expect(run.model).toBe('kimi/kimi-k2-code@observed-local')
-    expect(run.tokenUsage).toEqual({ input: 1000, output: 150, cached: 40 })
+    expect(run.tokenUsage).toEqual({ input: 1000, output: 150, reasoning: 30, cached: 40 })
     expect(run.costUsd).toBe(0.42)
+    expect(run.costProvenance).toEqual({ kind: 'observed', usd: 0.42 })
     expect(run.failureMode).toBe('tool_error')
     expect(run.outcome.raw.tool_calls).toBe(2)
     expect(run.outcome.raw.tool_outputs).toBe(2)
@@ -283,7 +394,124 @@ describe('code-agent session intake', () => {
       reasoningItems: 1,
       toolErrors: 1,
       observedCostUsd: 0.42,
+      observedCostCaptured: true,
     })
+  })
+
+  it('prefers cache-only OpenCode message usage over duplicate part summaries', () => {
+    const { runs } = fromOpenCodeSession({
+      entries: [
+        {
+          id: 'msg-cache-only',
+          sessionID: 'opencode-cache-only',
+          role: 'assistant',
+          providerID: 'anthropic',
+          modelID: 'claude-opus',
+          tokens: { cache_read_tokens: 40, cache_creation_tokens: 5 },
+          cost: 0.1,
+          finish: 'stop',
+        },
+        {
+          id: 'part-duplicate',
+          messageID: 'msg-cache-only',
+          sessionID: 'opencode-cache-only',
+          type: 'step-finish',
+          tokens: { input: 999, output: 999 },
+          cost: 9,
+        },
+      ],
+    })
+
+    const run = validateRunRecord(runs[0])
+    expect(run.tokenUsage).toEqual({ input: 0, output: 0, cached: 40, cacheWrite: 5 })
+    expect(run.costUsd).toBe(0.1)
+  })
+
+  it('preserves OpenCode nested cache reads and writes', () => {
+    const { runs } = fromOpenCodeSession({
+      entries: [
+        {
+          id: 'msg-nested-cache',
+          sessionID: 'opencode-nested-cache',
+          role: 'assistant',
+          providerID: 'zai-coding-plan',
+          modelID: 'glm-5.1',
+          tokens: {
+            input: 250,
+            output: 1264,
+            reasoning: 41,
+            cache: { read: 12096, write: 7 },
+          },
+          cost: 0,
+          finish: 'stop',
+        },
+      ],
+    })
+
+    const run = validateRunRecord(runs[0])
+    expect(run.tokenUsage).toEqual({
+      input: 250,
+      output: 1305,
+      reasoning: 41,
+      cached: 12096,
+      cacheWrite: 7,
+    })
+    expect(run.costProvenance).toEqual({ kind: 'observed', usd: 0 })
+  })
+
+  it('keeps a source-reported zero-dollar OpenCode run observed', async () => {
+    const { runs, diagnostics } = fromOpenCodeSession({
+      entries: [
+        {
+          id: 'msg-free',
+          sessionID: 'opencode-free',
+          role: 'assistant',
+          providerID: 'local',
+          modelID: 'free-model',
+          tokens: { input: 10, output: 2 },
+          cost: 0,
+          finish: 'stop',
+        },
+      ],
+    })
+
+    const run = validateRunRecord(runs[0])
+    expect(run.costUsd).toBe(0)
+    expect(run.costProvenance).toEqual({ kind: 'observed', usd: 0 })
+    expect(diagnostics[0]).toMatchObject({ hasCost: true, costKind: 'observed' })
+    const report = await analyzeRuns({ runs })
+    expect(report.costQuality.provenance?.observed).toEqual({ n: 1, totalUsd: 0 })
+    expect(report.costQuality.degraded?.cost).toMatch(/explicitly observed/)
+    expect(report.costQuality.degraded?.cost).not.toMatch(/unpriced/)
+  })
+
+  it('uses a captured OpenCode part cost when message usage has no cost', () => {
+    const { runs } = fromOpenCodeSession({
+      entries: [
+        {
+          id: 'msg-with-usage',
+          sessionID: 'opencode-part-cost',
+          role: 'assistant',
+          providerID: 'kimi',
+          modelID: 'kimi-k2-code',
+          tokens: { input: 100, output: 10 },
+          finish: 'stop',
+        },
+        {
+          id: 'part-with-cost',
+          messageID: 'msg-with-usage',
+          sessionID: 'opencode-part-cost',
+          type: 'step-finish',
+          tokens: { input: 999, output: 99 },
+          cost: 0.25,
+        },
+      ],
+    })
+
+    const run = validateRunRecord(runs[0])
+    expect(run.tokenUsage).toEqual({ input: 100, output: 10 })
+    expect(run.costUsd).toBe(0.25)
+    expect(run.costProvenance).toEqual({ kind: 'observed', usd: 0.25 })
   })
 
   it('projects Kimi Code wire events and token usage into RunRecord metrics', () => {
@@ -348,7 +576,12 @@ describe('code-agent session intake', () => {
     const run = validateRunRecord(runs[0])
     expect(run.runId).toBe('kimi-code:kimi-session-1')
     expect(run.model).toBe('kimi-code@2026-05-01')
-    expect(run.tokenUsage).toEqual({ input: 700, output: 110, cached: 75 })
+    expect(run.tokenUsage).toEqual({
+      input: 700,
+      output: 110,
+      cached: 50,
+      cacheWrite: 25,
+    })
     expect(run.outcome.raw.turns_started).toBe(1)
     expect(run.outcome.raw.turns_completed).toBe(1)
     expect(run.outcome.raw.reasoning_items).toBe(2)

@@ -34,13 +34,16 @@ import { gepaProposer } from '../campaign/proposers/gepa'
 import {
   emitLoopProvenance,
   type LoopProvenanceRecord,
-  surfaceContentHash,
+  loopProvenanceArgsFromResult,
 } from '../campaign/provenance'
+import { resolveRunDir } from '../campaign/run-dir'
 import {
   type CampaignStorage,
+  createRunCostLedger,
   fsCampaignStorage,
   inMemoryCampaignStorage,
 } from '../campaign/storage'
+import { surfaceContentHash, surfaceHash } from '../campaign/surface-identity'
 import type {
   CampaignCellResult,
   DispatchContext,
@@ -51,6 +54,7 @@ import type {
   Scenario,
   SurfaceProposer,
 } from '../campaign/types'
+import type { CostLedgerHandle, CostLedgerSummary, CostReceipt } from '../cost-ledger'
 import { createHostedClient, type HostedTenant } from '../hosted/client'
 import type { EvalRunCellScore, EvalRunEvent, EvalRunGenerationSnapshot } from '../hosted/types'
 import type { JudgeScoresRecord, RunRecord } from '../run-record'
@@ -58,8 +62,8 @@ import { analyzeRuns } from './analyze-runs'
 import type { InsightReport } from './insight-report'
 
 export interface SelfImproveBudget {
-  /** Hard $ ceiling across all cells in baseline + every generation. Cells
-   *  beyond the ceiling are skipped (cost-aware, not aborted). */
+  /** Hard spend cap across the full run. Each paid call reserves its enforced
+   *  maximum before dispatch, so completed spend cannot cross this amount. */
   dollars?: number
   /** How many improvement generations to explore. Default 3. Set 0 to
    *  skip improvement entirely (selfImprove becomes a baseline-only run). */
@@ -75,7 +79,8 @@ export interface SelfImproveBudget {
   holdoutScenarios?: Scenario[]
   /** Per-scenario replicates per cell — raises bootstrap-CI tightness. Default 1. */
   reps?: number
-  /** Top-scoring candidates carried into the next generation. Default 2. */
+  /** @deprecated Must be 1 when supplied. The loop promotes only a candidate
+   *  that replaces its single global incumbent. */
   promoteTopK?: number
 }
 
@@ -165,18 +170,6 @@ export interface SelfImproveOptions<TScenario extends Scenario, TArtifact> {
    *  real path to persist the provenance record + spans. */
   runDir?: string
 
-  /**
-   * Worker call records for backend provenance. The agent is opaque to the
-   * substrate (it returns an artifact, not token usage), so to capture an
-   * `assertRealBackend`-grade verdict + worker call count + model in the
-   * provenance record, the agent reports its per-call `RunRecord`s here.
-   * Called once after the loop; return the records the agent accumulated.
-   * When unset, backend provenance is derived from campaign cells (cost only;
-   * verdict will read `stub` without token usage — the honest signal that no
-   * token channel was wired).
-   */
-  collectWorkerRecords?: () => RunRecord[]
-
   /** Fires once the durable provenance record + OTel spans are emitted.
    *  Receives the structured record for inline assertions / custom routing. */
   onProvenance?: (record: LoopProvenanceRecord) => void
@@ -190,6 +183,10 @@ export interface SelfImproveOptions<TScenario extends Scenario, TArtifact> {
     rep: number
     generation?: number
   }) => string | undefined
+
+  /** Per-cell agent dispatch deadline, applied to baseline, candidate, and
+   *  held-out campaigns. Default 600_000 ms. Set 0 to disable. */
+  dispatchTimeoutMs?: number
 
   /** Streaming hook — fires on baseline + each generation + gate decision.
    *  Consumer routes events wherever (UI, dashboard, logs). */
@@ -239,11 +236,12 @@ export interface SelfImproveOptions<TScenario extends Scenario, TArtifact> {
   expectUsage?: 'assert' | 'warn' | 'off'
 
   /**
-   * Per-generation findings producer. After each
-   * generation is scored, this is called; whatever it returns REPLACES the
-   * proposer's `findings` for the next generation's `propose()`. Plug a
-   * trace-analyst registry / HALO here. When absent, findings stay
-   * `opts.findings`.
+   * Per-generation findings producer. Runs once on the baseline campaign (as
+   * `generation: -1`) before generation 0 proposes — so single-generation runs
+   * propose with trace context — and again after each generation is scored;
+   * whatever it returns REPLACES the proposer's `findings` for the next
+   * `propose()`. Plug a trace-analyst registry / HALO here. When absent,
+   * findings stay `opts.findings`.
    */
   analyzeGeneration?: RunOptimizationOptions<TScenario, TArtifact>['analyzeGeneration']
 
@@ -288,8 +286,13 @@ export interface SelfImproveResult<TScenario extends Scenario, TArtifact> {
   generationsExplored: number
   /** Wall-clock total. */
   durationMs: number
-  /** Total cost across baseline + every generation. */
+  /** Total newly observed cost across the full run. */
   totalCostUsd: number
+  /** Canonical run-wide spend summary. */
+  cost: CostLedgerSummary
+  /** Run-wide receipts across proposal, search, holdout, judging, analysis,
+   *  and promotion work, with phase and actor attribution. */
+  receipts: CostReceipt[]
   /**
    * Rigor packet: distributional summary, paired-bootstrap lift CI,
    * judge stats, contamination check, recommendations. Wired through
@@ -308,6 +311,20 @@ export interface SelfImproveResult<TScenario extends Scenario, TArtifact> {
    * debugging or reporting beyond the summary.
    */
   raw: RunImprovementLoopResult<TArtifact, TScenario>
+}
+
+/** Failed self-improvement run with an immutable receipt snapshot. */
+export class SelfImproveRunError extends Error {
+  readonly cost: CostLedgerSummary
+  readonly receipts: CostReceipt[]
+
+  constructor(cause: unknown, ledger: CostLedgerHandle) {
+    const original = cause instanceof Error ? cause : new Error(String(cause))
+    super(original.message, { cause: original })
+    this.name = 'SelfImproveRunError'
+    this.cost = ledger.summary()
+    this.receipts = ledger.list()
+  }
 }
 
 /**
@@ -380,13 +397,34 @@ export async function selfImprove<TScenario extends Scenario, TArtifact>(
   opts: SelfImproveOptions<TScenario, TArtifact>,
 ): Promise<SelfImproveResult<TScenario, TArtifact>> {
   const startedAt = Date.now()
+  const requestedRunDir = opts.runDir ?? `mem://selfImprove-${startedAt}`
+  const runDir = resolveRunDir(requestedRunDir)
+  const storage =
+    opts.storage ?? (runDir.startsWith('mem://') ? inMemoryCampaignStorage() : fsCampaignStorage())
+  const costLedger = createRunCostLedger({
+    storage,
+    runDir,
+    costCeilingUsd: opts.budget?.dollars,
+  })
+  try {
+    return await runSelfImprove(opts, costLedger, startedAt, runDir, storage)
+  } catch (error) {
+    throw new SelfImproveRunError(error, costLedger)
+  }
+}
 
+async function runSelfImprove<TScenario extends Scenario, TArtifact>(
+  opts: SelfImproveOptions<TScenario, TArtifact>,
+  costLedger: CostLedgerHandle,
+  startedAt: number,
+  runDir: string,
+  storage: CampaignStorage,
+): Promise<SelfImproveResult<TScenario, TArtifact>> {
   const budget = opts.budget ?? {}
   const generations = budget.generations ?? 3
   const populationSize = budget.populationSize ?? 2
   const maxConcurrency = budget.maxConcurrency ?? 2
   const holdoutFraction = budget.holdoutFraction ?? 0.25
-  const costCeiling = budget.dollars
   const expectUsage = opts.expectUsage ?? 'assert'
 
   const explicitHoldout = budget.holdoutScenarios
@@ -429,14 +467,6 @@ export async function selfImprove<TScenario extends Scenario, TArtifact>(
       deltaThreshold: 0.05,
     })
 
-  // Durable by default: a real (non-`mem://`) runDir means the caller wants
-  // persistence, so default to fs storage — the provenance record + spans
-  // survive the call. A `mem://` runDir (or none) stays in-memory. An explicit
-  // `storage` always wins (the opt-out path for tests / edge runtimes).
-  const runDir = opts.runDir ?? `mem://selfImprove-${startedAt}`
-  const isMemRunDir = runDir.startsWith('mem://')
-  const storage = opts.storage ?? (isMemRunDir ? inMemoryCampaignStorage() : fsCampaignStorage())
-
   if (opts.onProgress) {
     opts.onProgress({ kind: 'baseline.started', scenarios: opts.scenarios.length })
   }
@@ -461,7 +491,8 @@ export async function selfImprove<TScenario extends Scenario, TArtifact>(
     runDir,
     maxConcurrency,
     cellPlacement: opts.cellPlacement,
-    costCeiling,
+    dispatchTimeoutMs: opts.dispatchTimeoutMs,
+    costLedger,
     expectUsage,
     labeledStore: opts.labeledStore,
     captureSource: opts.captureSource,
@@ -520,13 +551,8 @@ export async function selfImprove<TScenario extends Scenario, TArtifact>(
     })
   }
 
-  const totalCost =
-    result.baselineCampaign.aggregates.totalCostUsd +
-    result.generations.reduce(
-      (sum, gen) =>
-        sum + gen.surfaces.reduce((s, sf) => s + sf.campaign.aggregates.totalCostUsd, 0),
-      0,
-    )
+  const cost = result.cost
+  const totalCost = cost.totalCostUsd
 
   // Rigor packet: feed baseline + winner cells through analyzeRuns().
   // The two candidates (`baseline` / `winner`) give the lift section a
@@ -544,30 +570,17 @@ export async function selfImprove<TScenario extends Scenario, TArtifact>(
   // ── Durable provenance: candidate→cell→gate→promote chain + rationale +
   // diff + backend provenance. Always emitted; the +lift recomputes from it.
   const durationMs = Date.now() - startedAt
-  const workerRecords =
-    opts.collectWorkerRecords?.() ??
-    cellsToRunRecords(result.winnerOnHoldout.cells, 'winner', runDir, result.winnerSurface)
   const { record: provenance } = await emitLoopProvenance<TArtifact, TScenario>({
-    runId: `${runDir}#${startedAt}`,
-    runDir,
-    timestamp: new Date(startedAt).toISOString(),
-    baselineSurface: opts.baselineSurface,
-    winnerSurface: result.winnerSurface,
-    winnerLabel: result.winnerLabel,
-    winnerRationale: result.winnerRationale,
-    diff: result.promotedDiff,
-    generations: result.generations.map((g) => ({
-      generationIndex: g.record.generationIndex,
-      candidates: g.record.candidates,
-      promoted: g.record.promoted,
-      surfaces: g.surfaces.map((s) => ({ surfaceHash: s.surfaceHash, surface: s.surface })),
-    })),
-    gate: result.gateResult,
-    baselineOnHoldout: result.baselineOnHoldout,
-    winnerOnHoldout: result.winnerOnHoldout,
-    workerRecords,
-    totalCostUsd: totalCost,
-    totalDurationMs: durationMs,
+    ...loopProvenanceArgsFromResult({
+      runId: `${runDir}#${startedAt}`,
+      runDir,
+      timestamp: new Date(startedAt).toISOString(),
+      baselineSurface: opts.baselineSurface,
+      result,
+      costReceipts: costLedger.list(),
+      totalCostUsd: totalCost,
+      totalDurationMs: durationMs,
+    }),
     storage,
     hostedClient: opts.hostedTenant ? createHostedClient(opts.hostedTenant) : undefined,
   })
@@ -588,6 +601,8 @@ export async function selfImprove<TScenario extends Scenario, TArtifact>(
     generationsExplored: result.generations.length,
     durationMs,
     totalCostUsd: totalCost,
+    cost,
+    receipts: costLedger.list(),
     insight,
     ...(power ? { power } : {}),
     raw: result,
@@ -619,7 +634,7 @@ async function shipEvalRunToHosted<TScenario extends Scenario, TArtifact>(
 
   function snapshotFromCampaign(
     index: number,
-    surface: MutableSurface | undefined,
+    surface: MutableSurface,
     campaign: RunImprovementLoopResult<TArtifact, TScenario>['baselineCampaign'],
     durationMs: number,
   ): EvalRunGenerationSnapshot {
@@ -643,10 +658,7 @@ async function shipEvalRunToHosted<TScenario extends Scenario, TArtifact>(
       cells.length === 0 ? 0 : cells.reduce((s, c) => s + c.compositeMean, 0) / cells.length
     return {
       index,
-      surfaceHash:
-        typeof surface === 'string'
-          ? hashString(surface)
-          : hashString(JSON.stringify(surface ?? '')),
+      surfaceHash: surfaceHash(surface),
       surface,
       cells,
       compositeMean,
@@ -775,7 +787,17 @@ function cellsToRunRecords<TArtifact>(
       commitSha: 'cell',
       wallMs: cell.durationMs,
       costUsd: cell.costUsd,
-      tokenUsage: { input: 0, output: 0 },
+      tokenUsage: {
+        input: cell.tokenUsage.input,
+        output: cell.tokenUsage.output,
+        ...(cell.tokenUsage.reasoning === undefined
+          ? {}
+          : { reasoning: cell.tokenUsage.reasoning }),
+        ...(cell.tokenUsage.cached === undefined ? {} : { cached: cell.tokenUsage.cached }),
+        ...(cell.tokenUsage.cacheWrite === undefined
+          ? {}
+          : { cacheWrite: cell.tokenUsage.cacheWrite }),
+      },
       outcome: {
         holdoutScore: composite,
         raw: {},

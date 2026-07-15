@@ -36,7 +36,10 @@ export interface ChatClient {
   readonly transport: ChatTransport
   /** Default model when caller omits — operators bind this per environment. */
   readonly defaultModel?: string
+  /** Total provider attempts this transport can make for one chat call. */
+  readonly maximumAttempts?: number
 
+  /** Implementations must enforce `req.maxTokens` when it is present. */
   chat(req: ChatRequest, opts?: ChatCallOpts): Promise<ChatResponse>
 }
 
@@ -61,6 +64,8 @@ export interface ChatCallOpts {
   maxCostUsd?: number
   /** Correlation tag carried into request headers when the transport allows. */
   correlationId?: string
+  /** Stable provider idempotency key for retries/redrives of one paid call. */
+  idempotencyKey?: string
 }
 
 // ── Factory ─────────────────────────────────────────────────────────
@@ -74,6 +79,8 @@ export type CreateChatClientOpts =
 
 interface BaseTransportOpts {
   defaultModel?: string
+  /** Total provider attempts. Required for opaque transports used in capped runs. */
+  maximumAttempts?: number
 }
 
 export interface RouterTransportOpts extends BaseTransportOpts {
@@ -127,6 +134,7 @@ export function createChatClient(opts: CreateChatClientOpts): ChatClient {
         new LlmClient({
           baseUrl: opts.baseUrl ?? 'https://router.tangle.tools/v1',
           apiKey: opts.apiKey,
+          maxRetries: opts.maximumAttempts,
         } as LlmClientOptions),
       )
     case 'cli-bridge':
@@ -136,6 +144,7 @@ export function createChatClient(opts: CreateChatClientOpts): ChatClient {
         new LlmClient({
           baseUrl: opts.baseUrl ?? 'http://127.0.0.1:3344/v1',
           apiKey: opts.bearer ?? '',
+          maxRetries: opts.maximumAttempts,
         } as LlmClientOptions),
       )
     case 'direct-provider':
@@ -145,18 +154,21 @@ export function createChatClient(opts: CreateChatClientOpts): ChatClient {
         new LlmClient({
           baseUrl: opts.baseUrl,
           apiKey: opts.apiKey,
+          maxRetries: opts.maximumAttempts,
         } as LlmClientOptions),
       )
     case 'sandbox-sdk':
       return {
         transport: 'sandbox-sdk',
         defaultModel: opts.defaultModel,
+        maximumAttempts: opts.maximumAttempts,
         chat: async (req, callOpts) => opts.chat(resolveModel(req, opts.defaultModel), callOpts),
       }
     case 'mock':
       return {
         transport: 'mock',
         defaultModel: opts.defaultModel,
+        maximumAttempts: 1,
         chat: async (req, callOpts) => opts.handler(resolveModel(req, opts.defaultModel), callOpts),
       }
   }
@@ -170,15 +182,10 @@ function wrapLlmClient(
   return {
     transport,
     defaultModel,
-    chat: async (req, callOpts) => {
+    maximumAttempts: inner.maximumAttempts,
+    chat: (req, callOpts) => {
       const resolved = resolveModel(req, defaultModel)
-      // LlmClient.call doesn't accept an external AbortSignal today (it
-      // owns its own AbortController for the per-attempt timeout). We
-      // race the response against the caller's signal so awaiting code
-      // unblocks on abort. The in-flight HTTP request still runs to its
-      // own timeoutMs — when LlmClient grows a signal parameter, wire
-      // it directly here and drop the race.
-      const call = inner.call({
+      const request: LlmCallRequest = {
         model: resolved.model!,
         messages: req.messages,
         jsonMode: req.jsonMode,
@@ -186,26 +193,13 @@ function wrapLlmClient(
         temperature: req.temperature,
         maxTokens: req.maxTokens,
         timeoutMs: req.timeoutMs,
+      }
+      return inner.call(request, {
+        signal: callOpts?.signal,
+        idempotencyKey: callOpts?.idempotencyKey,
       })
-      if (!callOpts?.signal) return await call
-      return await Promise.race([call, abortAsRejection(callOpts.signal)])
     },
   }
-}
-
-function abortAsRejection(signal: AbortSignal): Promise<never> {
-  if (signal.aborted) return Promise.reject(toAbortError(signal))
-  return new Promise<never>((_, reject) => {
-    signal.addEventListener('abort', () => reject(toAbortError(signal)), { once: true })
-  })
-}
-
-function toAbortError(signal: AbortSignal): Error {
-  const reason = (signal as { reason?: unknown }).reason
-  if (reason instanceof Error) return reason
-  const e = new Error('ChatClient.chat: aborted')
-  e.name = 'AbortError'
-  return e
 }
 
 function resolveModel(req: ChatRequest, defaultModel: string | undefined): ChatRequest {

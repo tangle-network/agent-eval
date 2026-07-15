@@ -22,12 +22,12 @@
  * It runs `runCampaign` once per profile (reusing its seeds, reps, bootstrap
  * CIs, resumability, and the `LabeledScenarioStore` capture flywheel), maps
  * every cell to a validated `RunRecord` carrying the real `tokenUsage` the
- * dispatch reported via `ctx.cost.observeTokens`, and runs `assertRealBackend`
+ * dispatch committed via `ctx.cost.runPaidCall`, and runs `assertRealBackend`
  * BY CONSTRUCTION before returning — so a stub-backend run fails loudly instead
  * of reporting a clean 0/N leaderboard.
  *
  * Dispatch contract: a dispatch that calls an LLM MUST report usage via
- * `ctx.cost.observeTokens({ input, output })` (and cost via `ctx.cost.observe`).
+ * `ctx.cost.runPaidCall({ execute, receipt })`.
  * A dispatch that reports zero tokens is indistinguishable from a stub and the
  * integrity guard treats it as one.
  */
@@ -49,7 +49,6 @@ import {
   type BackendIntegrityReport,
   summarizeBackendIntegrity,
 } from '../../integrity/backend-integrity'
-import { estimateCost, isModelPriced } from '../../metrics'
 import {
   modelHasSnapshot,
   type RunOutcome,
@@ -79,8 +78,8 @@ export class ProfileMatrixError extends AgentEvalError {
 }
 
 /** Dispatch for one cell: render `profile` against `scenario`, returning the
- *  artifact the judges score. Report LLM usage via `ctx.cost.observeTokens`
- *  and `ctx.cost.observe` — the integrity guard depends on it. */
+ *  artifact the judges score. Run LLM work through `ctx.cost.runPaidCall` —
+ *  the integrity check depends on its receipt. */
 export type ProfileDispatchFn<TScenario extends Scenario, TArtifact> = (
   profile: AgentProfile,
   scenario: TScenario,
@@ -232,7 +231,7 @@ interface BuildRecordArgs<TScenario extends Scenario, TArtifact> {
  * Resolve the concrete, snapshot-bearing model for a cell whose profile
  * declared the `HARNESS_NATIVE_MODEL` sentinel (a vendor-locked harness that
  * resolves its model at runtime). The dispatch must have reported it via
- * `ctx.cost.observeModel` — surfaced as `cell.resolvedModel`. Throws when it is
+ * the model in a paid-call receipt — surfaced as `cell.resolvedModel`. Throws when it is
  * missing or lacks a snapshot, so a provenance-broken row can never be
  * recorded as the bare sentinel.
  */
@@ -240,12 +239,12 @@ function requireResolvedModel(cell: CampaignCellResult<unknown>, profileId: stri
   const resolved = cell.resolvedModel?.trim()
   if (!resolved) {
     throw new ProfileMatrixError(
-      `profile '${profileId}' declared the '${HARNESS_NATIVE_MODEL}' runtime-resolved model but its dispatch reported no resolved model for cell '${cell.cellId}' — report it via ctx.cost.observeModel(<id>) so the RunRecord pins the real model (never records '${HARNESS_NATIVE_MODEL}')`,
+      `profile '${profileId}' declared the '${HARNESS_NATIVE_MODEL}' runtime-resolved model but its dispatch reported no resolved model for cell '${cell.cellId}' — return it in the ctx.cost.runPaidCall receipt so the RunRecord pins the real model (never records '${HARNESS_NATIVE_MODEL}')`,
     )
   }
   if (!modelHasSnapshot(resolved)) {
     throw new ProfileMatrixError(
-      `profile '${profileId}' resolved to model '${resolved}' for cell '${cell.cellId}', which lacks a snapshot version — pin it (name@YYYY-MM-DD or name-YYYYMMDD) before reporting it via ctx.cost.observeModel`,
+      `profile '${profileId}' resolved to model '${resolved}' for cell '${cell.cellId}', which lacks a snapshot version — pin it (name@YYYY-MM-DD or name-YYYYMMDD) in the paid-call receipt`,
     )
   }
   return resolved
@@ -260,7 +259,7 @@ function buildRunRecord<TScenario extends Scenario, TArtifact>(
   const declaredModel = agentProfileModelId(profile)
   // Provenance guarantee: every recorded cell pins a real, snapshot-bearing
   // model. A profile that declared the `HARNESS_NATIVE_MODEL` sentinel resolved
-  // its model at runtime — the dispatch reports it via `ctx.cost.observeModel`,
+  // its model at runtime — the dispatch commits it in the paid-call receipt,
   // surfaced here as `cell.resolvedModel`. Substitute it (and require a
   // snapshot). If the dispatch reported no resolved model, or an unpinned one,
   // FAIL LOUD — never silently record the sentinel, which would erase which
@@ -293,21 +292,9 @@ function buildRunRecord<TScenario extends Scenario, TArtifact>(
   // ratios are guarded so a zero-cost stub or zero-quality cell never writes a
   // non-finite value into the raw bag.
   //
-  // Cost precedence: source-billed > token-estimated > none. A dispatch path
-  // whose provider reports real spend (cell.costUsd > 0) is authoritative. When
-  // it reports $0 but tokens actually flowed, the model is unpriced AT THE
-  // SOURCE (the sandbox/router can't rate it) — not a free run. We price the
-  // measured tokens against the substrate table (real rate × real tokens) and
-  // mark cost_estimated=1 so the estimate is never read as a billed number. A
-  // model the table also can't rate stays $0 (no fabrication).
-  let costUsd = cell.costUsd
-  let costEstimated = false
-  if (costUsd === 0 && cell.tokenUsage.output > 0 && isModelPriced(model)) {
-    costUsd = estimateCost(cell.tokenUsage.input, cell.tokenUsage.output, model)
-    costEstimated = costUsd > 0
-  }
+  const costUsd = cell.costUsd
   raw.cost_usd = costUsd
-  raw.cost_estimated = costEstimated ? 1 : 0
+  raw.cost_estimated = cell.costEstimated ? 1 : 0
   raw.tokens_input = cell.tokenUsage.input
   raw.tokens_output = cell.tokenUsage.output
   if (typeof cell.tokenUsage.cached === 'number') raw.tokens_cached = cell.tokenUsage.cached
@@ -394,7 +381,7 @@ export async function runProfileMatrix<TScenario extends Scenario, TArtifact>(
   // declares no concrete model up front — the backend resolves it at runtime.
   // Its declared model deliberately carries no snapshot, so probing it verbatim
   // would fail the snapshot assertion for a profile that IS recordable (the
-  // resolved model, reported via `ctx.cost.observeModel`, pins the RunRecord).
+  // resolved model, committed in the paid-call receipt, pins the RunRecord).
   // Probe such a profile with a snapshot-bearing placeholder so the OTHER
   // recordability checks still run, without asserting a snapshot the sentinel
   // can't have. `buildRunRecord` enforces the real snapshot from the resolved
@@ -511,17 +498,8 @@ export async function runProfileMatrix<TScenario extends Scenario, TArtifact>(
       records.push(record)
     }
 
-    // Effective cost = billed-or-priced. buildRunRecord prices the measured
-    // tokens when the source reports $0 for a model it can't rate (and leaves
-    // billed cost untouched otherwise), so the RunRecords are the model-aware
-    // authority. Surface that same total on campaigns[id] — runCampaign's own
-    // ledger only sees ctx.cost ($0 for an unpriced-at-source model), which
-    // would otherwise disagree with byProfile + integrity for the same run.
-    const pricedTotalCostUsd = profileRecords.reduce((a, r) => a + r.costUsd, 0)
-    campaigns[profileId] = {
-      ...campaign,
-      aggregates: { ...campaign.aggregates, totalCostUsd: pricedTotalCostUsd },
-    }
+    const totalCostUsd = campaign.aggregates.totalCostUsd
+    campaigns[profileId] = campaign
 
     byProfile[profileId] = {
       profileId,
@@ -535,7 +513,7 @@ export async function runProfileMatrix<TScenario extends Scenario, TArtifact>(
           : declaredModel,
       records: profileRecords.length,
       meanComposite: mean(profileRecords.map(compositeOf)),
-      totalCostUsd: pricedTotalCostUsd,
+      totalCostUsd,
       integrity: summarizeBackendIntegrity(profileRecords),
     }
   }

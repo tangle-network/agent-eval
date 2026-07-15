@@ -70,6 +70,30 @@ describe('PrmGrader', () => {
     expect(duplicateVerdict).toBeDefined()
   })
 
+  it('does not score redundancy without captured arguments', async () => {
+    const store = new InMemoryTraceStore()
+    const e = new TraceEmitter(store)
+    await e.startRun({ scenarioId: 's' })
+    for (const argsCaptured of [false, false, true, true]) {
+      const call = await e.tool({
+        name: 'search',
+        toolName: 'search',
+        args: argsCaptured ? { q: 'x' } : undefined,
+        argsCaptured,
+      })
+      await call.end({ result: 'ok' } as Partial<ToolSpan>)
+    }
+    await e.endRun({ pass: true })
+
+    const graded = await new PrmGrader([toolNonRedundantRubric()]).grade(store, e.runId)
+
+    expect(graded.steps.map(({ score, rationale }) => ({ score, rationale }))).toEqual([
+      { score: 1, rationale: 'novel call' },
+      { score: 0.5, rationale: '1 duplicate(s)' },
+    ])
+    expect(graded.ungradedCount).toBe(2)
+  })
+
   it('nonRefusalRubric scores 0 on a refusal', async () => {
     const store = new InMemoryTraceStore()
     const runId = await seedTrajectory(store, 'I cannot help with that.')

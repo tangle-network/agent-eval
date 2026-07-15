@@ -25,8 +25,8 @@ import {
   type LoopProvenanceRecord,
   provenanceRecordPath,
   provenanceSpansPath,
-  surfaceContentHash,
 } from '../src/campaign/provenance'
+import { surfaceContentHash } from '../src/campaign/surface-identity'
 import type {
   DispatchContext,
   JudgeConfig,
@@ -35,7 +35,6 @@ import type {
   SurfaceProposer,
 } from '../src/campaign/types'
 import { selfImprove } from '../src/contract/self-improve'
-import type { RunRecord } from '../src/run-record'
 
 interface S extends Scenario {
   id: string
@@ -93,27 +92,23 @@ afterEach(() => {
 
 describe('selfImprove provenance emission (durable by default)', () => {
   it('threads rationale + diff + durable provenance, and the +lift recomputes from disk', async () => {
-    const workerRecords: RunRecord[] = [
-      {
-        runId: 'w1',
-        experimentId: 'self-improve',
-        candidateId: 'winner',
-        seed: 1,
-        model: 'anthropic/claude-haiku-4-5@2025-01-01',
-        promptHash: 'sha256:a',
-        configHash: 'sha256:b',
-        commitSha: 'local',
-        wallMs: 5,
-        costUsd: 0.002,
-        tokenUsage: { input: 200, output: 80 },
-        outcome: { holdoutScore: 1, raw: {} },
-        splitTag: 'holdout',
-      },
-    ]
-
     let captured: LoopProvenanceRecord | undefined
     const result = await selfImprove<S, A>({
-      agent,
+      agent: async (surface, _scenario, context) => {
+        const paid = await context.cost.runPaidCall({
+          actor: 'self-improve-test',
+          model: 'anthropic/claude-haiku-4-5@2025-01-01',
+          execute: async () => ({ text: String(surface) }),
+          receipt: () => ({
+            model: 'anthropic/claude-haiku-4-5@2025-01-01',
+            inputTokens: 200,
+            outputTokens: 80,
+            actualCostUsd: 0.002,
+          }),
+        })
+        if (!paid.succeeded) throw paid.error
+        return paid.value
+      },
       scenarios: SCENARIOS,
       judge,
       expectUsage: 'off', // deterministic offline mock — no real backend to assert
@@ -122,7 +117,6 @@ describe('selfImprove provenance emission (durable by default)', () => {
       budget: { generations: 1, populationSize: 1 },
       gate: undefined,
       runDir, // real path ⇒ durable by default (fs storage)
-      collectWorkerRecords: () => workerRecords,
       onProvenance: (r) => {
         captured = r
       },
@@ -142,7 +136,7 @@ describe('selfImprove provenance emission (durable by default)', () => {
 
     // (3) the provenance record is on the result AND fired through onProvenance.
     expect(captured).toBeDefined()
-    expect(result.provenance.schema).toBe('tangle.loop-provenance.v1')
+    expect(result.provenance.schema).toBe('tangle.loop-provenance')
     expect(result.provenance.winnerRationale).toBe(RATIONALE)
 
     // real content hashes distinguish baseline from winner + verify bytes.
@@ -150,9 +144,11 @@ describe('selfImprove provenance emission (durable by default)', () => {
     expect(result.provenance.winnerContentHash).toBe(surfaceContentHash(result.winner.surface))
     expect(result.provenance.baselineContentHash).not.toBe(result.provenance.winnerContentHash)
 
-    // (4) backend provenance from the caller-supplied real records.
+    // (4) backend provenance comes from every settled agent call in this run.
     expect(result.provenance.backend.verdict).toBe('real')
-    expect(result.provenance.backend.workerCallCount).toBe(1)
+    expect(result.provenance.backend.workerCallCount).toBe(
+      result.receipts.filter((receipt) => receipt.channel === 'agent').length,
+    )
     expect(result.provenance.backend.models).toEqual(['anthropic/claude-haiku-4-5@2025-01-01'])
 
     // (3, durable) — the record + spans are on DISK (fs storage by default).
@@ -181,7 +177,7 @@ describe('selfImprove provenance emission (durable by default)', () => {
       // no runDir ⇒ mem://… ⇒ in-memory storage ⇒ nothing on disk
     })
     // The provenance record is still produced in-memory + on the result.
-    expect(result.provenance.schema).toBe('tangle.loop-provenance.v1')
+    expect(result.provenance.schema).toBe('tangle.loop-provenance')
     expect(result.provenance.runDir.startsWith('mem://')).toBe(true)
   })
 })
@@ -206,12 +202,38 @@ describe('selfImprove — forwarded loop knobs', () => {
     expect(ok.gateDecision).toBeDefined()
   })
 
+  it('forwards dispatchTimeoutMs to the real campaign deadline', async () => {
+    let observedAbort = false
+    const train = SCENARIOS[0]!
+    const holdout = SCENARIOS[1]!
+
+    await expect(
+      selfImprove<S, A>({
+        ...base,
+        agent: (_surface, _scenario, ctx) =>
+          new Promise<A>(() => {
+            ctx.signal.addEventListener(
+              'abort',
+              () => {
+                observedAbort = true
+              },
+              { once: true },
+            )
+          }),
+        scenarios: [train, holdout],
+        budget: { generations: 0, holdoutScenarios: [holdout] },
+        dispatchTimeoutMs: 25,
+        expectUsage: 'off',
+      }),
+    ).rejects.toThrow(/dispatch exceeded 25ms/)
+
+    expect(observedAbort).toBe(true)
+  })
+
   it('forwards analyzeGeneration — the per-generation findings producer fires', async () => {
     let calls = 0
     await selfImprove<S, A>({
       ...base,
-      // analyzeGeneration runs BETWEEN generations (its findings feed the next),
-      // so it needs ≥2 generations to fire at least once.
       budget: { generations: 2, populationSize: 1 },
       expectUsage: 'off',
       analyzeGeneration: async () => {
@@ -220,5 +242,22 @@ describe('selfImprove — forwarded loop knobs', () => {
       },
     })
     expect(calls).toBeGreaterThanOrEqual(1)
+  })
+
+  it('with generations=1, analyzeGeneration fires on the BASELINE (gen -1) so propose() is not blind', async () => {
+    const analyzed: number[] = []
+    await selfImprove<S, A>({
+      ...base,
+      // Single generation — the common case. The producer analyzes the
+      // baseline traces first (gen -1) so gen 0 proposes with that report;
+      // the between-generation call is skipped (gen 0 is the last).
+      budget: { generations: 1, populationSize: 1 },
+      expectUsage: 'off',
+      analyzeGeneration: async ({ generation }) => {
+        analyzed.push(generation)
+        return [{ claim: 'baseline finding' }]
+      },
+    })
+    expect(analyzed).toEqual([-1])
   })
 })

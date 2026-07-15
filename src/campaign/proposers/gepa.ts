@@ -32,13 +32,22 @@
  * the mutation primitives alone.
  */
 
-import { callLlm, type LlmClientOptions } from '../../llm-client'
+import { CostLedger, type CostLedgerHandle } from '../../cost-ledger'
+import {
+  callLlm,
+  costReceiptFromLlm,
+  costReceiptFromLlmError,
+  type LlmCallRequest,
+  type LlmClientOptions,
+  maximumChargeForLlmRequest,
+} from '../../llm-client'
 import {
   buildReflectionPrompt,
   parseReflectionResponse,
   renderAnalystEvidence,
   type TrialTrace,
 } from '../../reflective-mutation'
+import { surfaceHash } from '../surface-identity'
 import type { ProposeContext, ProposedCandidate, SurfaceProposer } from '../types'
 
 const REFLECTION_SYSTEM =
@@ -87,6 +96,8 @@ export interface GepaProposerOptions {
   llm: LlmClientOptions
   /** Model that performs the reflection. */
   model: string
+  /** Optional ledger for direct proposer use. Campaign context takes precedence. */
+  costLedger?: CostLedgerHandle
   /** What is being optimized — appears in the reflection prompt for orientation. */
   target: string
   /** Surface-specific mutation levers offered to the model. */
@@ -119,12 +130,15 @@ export function gepaProposer(opts: GepaProposerOptions): SurfaceProposer {
   const evidenceK = opts.evidenceK ?? 3
   const combineParents = opts.combineParents ?? true
   const combineMaxParents = opts.combineMaxParents ?? 4
+  const maxTokens = opts.maxTokens ?? 6000
+  const directCostLedger = opts.costLedger ?? new CostLedger()
   if (combineParents && combineMaxParents < 1) {
     throw new Error('gepaProposer: combineMaxParents must be >= 1 when combineParents is enabled')
   }
   return {
     kind: 'gepa',
     async propose(ctx: ProposeContext): Promise<ProposedCandidate[]> {
+      const costLedger = ctx.costLedger ?? directCostLedger
       const parent =
         typeof ctx.currentSurface === 'string'
           ? ctx.currentSurface
@@ -167,19 +181,31 @@ export function gepaProposer(opts: GepaProposerOptions): SurfaceProposer {
           parents: stringParents,
           evidenceK,
         })
-        const combineResult = await callLlm(
-          {
-            model: opts.model,
-            messages: [
-              { role: 'system', content: COMBINE_SYSTEM },
-              { role: 'user', content: combinePrompt },
-            ],
-            jsonMode: true,
-            temperature: opts.temperature ?? 0.7,
-            maxTokens: opts.maxTokens ?? 6000,
-          },
-          opts.llm,
-        )
+        const request: LlmCallRequest = {
+          model: opts.model,
+          messages: [
+            { role: 'system', content: COMBINE_SYSTEM },
+            { role: 'user', content: combinePrompt },
+          ],
+          jsonMode: true,
+          temperature: opts.temperature ?? 0.7,
+          maxTokens,
+        }
+        const paid = await costLedger.runPaidCall({
+          channel: 'driver',
+          phase: ctx.costPhase ?? 'search.proposal',
+          actor: 'gepa.combine',
+          model: opts.model,
+          maximumCharge: maximumChargeForLlmRequest(request, opts.llm),
+          tags: { generation: String(ctx.generation) },
+          signal: ctx.signal,
+          execute: (signal, callId) =>
+            callLlm(request, { ...opts.llm, signal, idempotencyKey: callId }),
+          receipt: costReceiptFromLlm,
+          receiptFromError: costReceiptFromLlmError,
+        })
+        if (!paid.succeeded) throw paid.error
+        const combineResult = paid.value
         const merged = parseReflectionResponse(combineResult.content, 1)[0]
         if (merged) {
           accept(
@@ -209,19 +235,31 @@ export function gepaProposer(opts: GepaProposerOptions): SurfaceProposer {
         // reflection targets named root causes, not just low-scoring trials.
         const analyst = renderAnalystEvidence(ctx.findings, ctx.report)
         const finalPrompt = analyst ? `${userPrompt}\n\n${analyst}` : userPrompt
-        const result = await callLlm(
-          {
-            model: opts.model,
-            messages: [
-              { role: 'system', content: REFLECTION_SYSTEM },
-              { role: 'user', content: finalPrompt },
-            ],
-            jsonMode: true,
-            temperature: opts.temperature ?? 0.7,
-            maxTokens: opts.maxTokens ?? 6000,
-          },
-          opts.llm,
-        )
+        const request: LlmCallRequest = {
+          model: opts.model,
+          messages: [
+            { role: 'system', content: REFLECTION_SYSTEM },
+            { role: 'user', content: finalPrompt },
+          ],
+          jsonMode: true,
+          temperature: opts.temperature ?? 0.7,
+          maxTokens,
+        }
+        const paid = await costLedger.runPaidCall({
+          channel: 'driver',
+          phase: ctx.costPhase ?? 'search.proposal',
+          actor: 'gepa.reflect',
+          model: opts.model,
+          maximumCharge: maximumChargeForLlmRequest(request, opts.llm),
+          tags: { generation: String(ctx.generation) },
+          signal: ctx.signal,
+          execute: (signal, callId) =>
+            callLlm(request, { ...opts.llm, signal, idempotencyKey: callId }),
+          receipt: costReceiptFromLlm,
+          receiptFromError: costReceiptFromLlmError,
+        })
+        if (!paid.succeeded) throw paid.error
+        const result = paid.value
         for (const proposal of parseReflectionResponse(result.content, reflectCount)) {
           accept(proposal.payload, proposal.label, proposal.rationale)
         }
@@ -310,19 +348,31 @@ function validatePreservedSections(candidate: string, required: readonly string[
   return true
 }
 
-/** Turn the prior generation's best candidate into reflective evidence:
- *  top/bottom scenarios by composite + a weakest-dimensions note on the target.
- *  Empty on generation 0 — the model reflects on the surface alone. */
+/** Turn the measured incumbent into reflective evidence: top/bottom scenarios
+ *  plus its weakest dimensions. The surface being edited and the evidence must
+ *  describe the same candidate; the latest generation may contain only losers. */
 function buildEvidence(
   ctx: ProposeContext,
   evidenceK: number,
   baseTarget: string,
 ): { top: TrialTrace[]; bottom: TrialTrace[]; target: string } {
   const last = ctx.history.at(-1)
-  if (!last || last.candidates.length === 0) {
-    return { top: [], bottom: [], target: baseTarget }
-  }
-  const best = [...last.candidates].sort((a, b) => b.composite - a.composite)[0]
+  const currentSurfaceHash = surfaceHash(ctx.currentSurface)
+  const measuredCurrentSurface = ctx.history
+    .flatMap((record) => record.candidates)
+    .reverse()
+    .find(
+      (candidate) =>
+        candidate.surfaceHash === currentSurfaceHash && candidate.eligibleForPromotion !== false,
+    )
+  const best =
+    ctx.incumbentOutcome ??
+    measuredCurrentSurface ??
+    (last
+      ? [...last.candidates]
+          .filter((candidate) => candidate.eligibleForPromotion !== false)
+          .sort((a, b) => b.composite - a.composite)[0]
+      : undefined)
   if (!best) return { top: [], bottom: [], target: baseTarget }
 
   const byScore = [...best.scenarios].sort((a, b) => b.composite - a.composite)

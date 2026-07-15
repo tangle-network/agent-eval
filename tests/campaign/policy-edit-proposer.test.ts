@@ -1,8 +1,31 @@
+import { mkdtempSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { makePolicyEdit } from '../../src/analyst/policy-edit'
+import {
+  makePolicyEdit,
+  makePolicyEditCandidateRecord,
+  validatePolicyEditCandidateRecord,
+} from '../../src/analyst/policy-edit'
 import { makeFinding } from '../../src/analyst/types'
+import { runOptimization } from '../../src/campaign/presets/run-optimization'
 import { policyEditProposer } from '../../src/campaign/proposers/policy-edit'
-import type { CodeSurface, ProposeContext } from '../../src/campaign/types'
+import { buildLoopProvenanceRecord } from '../../src/campaign/provenance'
+import { surfaceHash } from '../../src/campaign/surface-identity'
+import type { CodeSurface, JudgeConfig, ProposeContext, Scenario } from '../../src/campaign/types'
+
+const CODE_IDENTITY = {
+  baseRef: 'main',
+  baseCommit: 'a'.repeat(40),
+  baseTree: 'b'.repeat(40),
+  candidateCommit: 'c'.repeat(40),
+  candidateTree: 'd'.repeat(40),
+  patch: {
+    format: 'git-diff-binary' as const,
+    sha256: `sha256:${'e'.repeat(64)}` as const,
+    byteLength: 123,
+  },
+}
 
 function ctx(
   findings: unknown[],
@@ -45,8 +68,9 @@ function edit(
 
 describe('policyEditProposer', () => {
   it('turns admitted typed edits into candidate surfaces', async () => {
+    const sourceEdit = edit()
     const proposer = policyEditProposer()
-    const out = await proposer.propose(ctx([edit()]))
+    const out = await proposer.propose(ctx([sourceEdit]))
 
     expect(out).toHaveLength(1)
     expect(out[0]!.label).toBe('policy-edit:representation')
@@ -54,6 +78,10 @@ describe('policyEditProposer', () => {
       'Always fetch current state before mutating a record.',
     )
     expect(out[0]!.rationale).toContain('expected increase holdout.composite')
+    expect(out[0]!.candidateRecord).toEqual({
+      schema: 'tangle.policy-edit-candidate.v1',
+      policyEdit: sourceEdit,
+    })
   })
 
   it('uses static typed edits even when ctx.findings is empty', async () => {
@@ -64,6 +92,98 @@ describe('policyEditProposer', () => {
     expect(String(out[0]!.surface)).toContain(
       'Always fetch current state before mutating a record.',
     )
+  })
+
+  it('rejects opaque fields on the JSON-safe candidate record', () => {
+    const record = makePolicyEditCandidateRecord(edit())
+    expect(() =>
+      validatePolicyEditCandidateRecord({
+        ...record,
+        rawTrace: { spans: ['must not persist here'] },
+      }),
+    ).toThrow(/exactly schema and policyEdit/)
+  })
+
+  it('threads the exact edit through scored history and durable provenance', async () => {
+    const sourceEdit = edit()
+    const runDir = mkdtempSync(join(tmpdir(), 'policy-edit-candidate-'))
+    const scenarios: Scenario[] = [{ id: 'repo-task', kind: 'test' }]
+    const judge: JudgeConfig<{ text: string }, Scenario> = {
+      name: 'instruction-present',
+      dimensions: [{ key: 'present', description: 'instruction is present' }],
+      score: ({ artifact }) => {
+        const score = artifact.text.includes('Always fetch current state') ? 1 : 0
+        return { dimensions: { present: score }, composite: score, notes: '' }
+      },
+    }
+
+    try {
+      const result = await runOptimization<Scenario, { text: string }>({
+        scenarios,
+        baselineSurface: 'Base prompt.',
+        dispatchWithSurface: async (surface) => ({ text: String(surface) }),
+        judges: [judge],
+        proposer: policyEditProposer({ edits: [sourceEdit] }),
+        populationSize: 1,
+        maxGenerations: 1,
+        promoteTopK: 1,
+        runDir,
+      })
+      const generation = result.generations[0]!
+      expect(generation.record.candidates[0]!.candidateRecord).toEqual({
+        schema: 'tangle.policy-edit-candidate.v1',
+        policyEdit: sourceEdit,
+      })
+
+      const provenanceArgs: Parameters<typeof buildLoopProvenanceRecord>[0] = {
+        runId: 'policy-edit-record',
+        runDir,
+        timestamp: '2026-07-12T00:00:00.000Z',
+        baselineSurface: 'Base prompt.',
+        winnerSurface: result.winnerSurface,
+        baselineSearchCampaign: result.baselineCampaign,
+        generations: [
+          {
+            generationIndex: generation.record.generationIndex,
+            candidates: generation.record.candidates,
+            promoted: generation.record.promoted,
+            surfaces: generation.surfaces.map(({ surfaceHash, surface, campaign }) => ({
+              surfaceHash,
+              surface,
+              campaign,
+            })),
+          },
+        ],
+        gate: { decision: 'hold', reasons: [], contributingGates: [] },
+        baselineOnHoldout: result.baselineCampaign,
+        winnerOnHoldout: generation.surfaces[0]!.campaign,
+        costReceipts: [],
+        totalCostUsd: 0,
+        totalDurationMs: 1,
+      }
+      const provenance = buildLoopProvenanceRecord(provenanceArgs)
+      expect(provenance.candidates[0]!.candidateRecord).toEqual({
+        schema: 'tangle.policy-edit-candidate.v1',
+        policyEdit: sourceEdit,
+      })
+      expect(provenance.candidates[0]).toMatchObject({
+        parentSurfaceHash: surfaceHash('Base prompt.'),
+        parentComposite: 0,
+        observedDeltaFromParent: 1,
+        eligibleForPromotion: true,
+        coverage: { expectedCells: 1, scorableCells: 1, unscorableCells: [] },
+      })
+      const measured = generation.record.candidates[0]!
+      const observedDelta = measured.observedDeltaFromParent
+      if (observedDelta === undefined) throw new Error('test setup missing observed delta')
+      measured.observedDeltaFromParent = Number.NaN
+      expect(() => buildLoopProvenanceRecord(provenanceArgs)).toThrow(
+        /observedDeltaFromParent must be finite/,
+      )
+      measured.observedDeltaFromParent = observedDelta
+    } finally {
+      rmSync(runDir, { recursive: true, force: true })
+    }
   })
 
   it('bounds candidates by population size and maxCandidates', async () => {
@@ -171,10 +291,11 @@ describe('policyEditProposer', () => {
     expect(JSON.parse(String(out[0]!.surface))).toEqual({ budget: { maxTurns: 6 } })
   })
 
-  it('passes through CodeSurface-shaped candidate surfaces', async () => {
+  it('skips metadata-only CodeSurface edits that do not change candidate identity', async () => {
     const codeSurface: CodeSurface = {
       kind: 'code',
       worktreeRef: '/tmp/policy-edit-candidate',
+      ...CODE_IDENTITY,
       summary: 'old summary',
     }
     const codeEdit = makePolicyEdit({
@@ -194,11 +315,29 @@ describe('policyEditProposer', () => {
     const proposer = policyEditProposer()
     const out = await proposer.propose(ctx([codeEdit], codeSurface))
 
-    expect(out[0]!.surface).toEqual({
-      kind: 'code',
-      worktreeRef: '/tmp/policy-edit-candidate',
-      summary: 'updated summary',
+    expect(out).toEqual([])
+  })
+
+  it('rejects a path-only CodeSurface instead of preserving mutable identity', async () => {
+    const codeEdit = makePolicyEdit({
+      axis: 'agent_profile',
+      target: { surface: 'runtime-config', path: 'summary' },
+      change: { kind: 'json', mode: 'set', path: 'summary', value: 'updated' },
+      claim: 'Candidate code surface must already be finalized.',
+      expectedGain: { metric: 'holdout.composite', direction: 'increase', amount: 0.04 },
+      confidence: 0.85,
+      risk: 'low',
+      source: {
+        findingIds: ['f_code_surface'],
+        analystIds: ['trace-analyst'],
+        evidenceRefs: [{ kind: 'artifact', uri: 'file:///tmp/policy-edit-candidate' }],
+      },
     })
+    const proposer = policyEditProposer()
+
+    await expect(
+      proposer.propose(ctx([codeEdit], { kind: 'code', worktreeRef: '/tmp/path-only' } as never)),
+    ).rejects.toThrow(/baseRef/)
   })
 
   it('fails loud when judge-derived findings try to steer proposals', async () => {

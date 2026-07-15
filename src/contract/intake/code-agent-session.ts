@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto'
 import { estimateCost, isModelPriced } from '../../metrics'
-import type { RunRecord, RunSplitTag, RunTokenUsage } from '../../run-record'
+import type { RunCostProvenance, RunRecord, RunSplitTag, RunTokenUsage } from '../../run-record'
+import { extractUsage } from '../../trace/extract-usage'
 
 export type CodeAgentSessionSource = 'codex' | 'claude-code' | 'opencode' | 'kimi-code' | 'pi'
 
@@ -35,8 +36,11 @@ export interface CodeAgentSessionMetrics {
   reliabilityLift: number
   inputTokens: number
   outputTokens: number
+  reasoningTokens: number
   cachedTokens: number
+  cacheWriteTokens: number
   observedCostUsd: number
+  observedCostCaptured?: boolean
   wallMs: number
   processScore: number
 }
@@ -52,6 +56,7 @@ export interface CodeAgentSessionDiagnostic {
   hasQualityLabel: boolean
   hasTokenUsage: boolean
   hasCost: boolean
+  costKind?: RunCostProvenance['kind']
   warnings: string[]
 }
 
@@ -75,6 +80,11 @@ export interface CodeAgentSessionIntakeOptions {
   configHash?: string
   commitSha?: string
   score?: number
+  /** Explicit cost receipt. Use `uncaptured` when the source says dollars
+   *  were not captured; the adapter will not relabel its compatibility $0
+   *  sentinel as observed. When omitted, source-reported cost wins, then a
+   *  token-priced estimate, then uncaptured. */
+  costProvenance?: RunCostProvenance
 }
 
 export function parseCodeAgentJsonl(jsonl: string): ParsedCodeAgentJsonl {
@@ -144,6 +154,7 @@ function fromCodeAgentSession(
           hasQualityLabel: false,
           hasTokenUsage: false,
           hasCost: false,
+          costKind: 'uncaptured',
           warnings: ['no parseable session entries'],
         },
       ],
@@ -158,13 +169,11 @@ function fromCodeAgentSession(
   const tokenUsage: RunTokenUsage = {
     input: metrics.inputTokens,
     output: metrics.outputTokens,
+    ...(metrics.reasoningTokens > 0 ? { reasoning: metrics.reasoningTokens } : {}),
     ...(metrics.cachedTokens > 0 ? { cached: metrics.cachedTokens } : {}),
+    ...(metrics.cacheWriteTokens > 0 ? { cacheWrite: metrics.cacheWriteTokens } : {}),
   }
-  const estimatedCostUsd =
-    metrics.inputTokens > 0 || metrics.outputTokens > 0
-      ? estimateCost(metrics.inputTokens, metrics.outputTokens, model)
-      : 0
-  const costUsd = metrics.observedCostUsd > 0 ? metrics.observedCostUsd : estimatedCostUsd
+  const { costUsd, costProvenance } = resolveSessionCost(options.costProvenance, metrics, model)
   const score = clamp01(options.score ?? metrics.processScore)
   const promptHash =
     options.promptHash ?? hashString(`prompt:${source}:${firstUserText(entries) ?? ''}`)
@@ -183,7 +192,7 @@ function fromCodeAgentSession(
     explicitTerminal,
     malformedLines: options.malformedLines ?? 0,
     scoreOverridden: options.score !== undefined,
-    costUsd,
+    costKind: costProvenance.kind,
   })
 
   const run: RunRecord = {
@@ -197,6 +206,7 @@ function fromCodeAgentSession(
     commitSha: options.commitSha ?? 'local-session',
     wallMs: metrics.wallMs,
     costUsd,
+    costProvenance,
     tokenUsage,
     outcome: {
       holdoutScore: score,
@@ -226,13 +236,20 @@ function fromCodeAgentSession(
         reliability_lift: metrics.reliabilityLift,
         input_tokens: metrics.inputTokens,
         output_tokens: metrics.outputTokens,
+        reasoning_tokens: metrics.reasoningTokens,
         cached_tokens: metrics.cachedTokens,
+        cache_write_tokens: metrics.cacheWriteTokens,
         observed_cost_usd: metrics.observedCostUsd,
+        observed_cost_captured: metrics.observedCostCaptured ? 1 : 0,
+        estimated_cost_usd: costProvenance.kind === 'estimated' ? costUsd : 0,
         process_score: score,
         inferred_score: options.score === undefined ? 1 : 0,
         explicit_terminal_signal: explicitTerminal ? 1 : 0,
         quality_label_present: options.score !== undefined ? 1 : 0,
-        cost_unknown: costUsd === 0 && !isModelPriced(model) ? 1 : 0,
+        cost_observed: costProvenance.kind === 'observed' ? 1 : 0,
+        cost_estimated: costProvenance.kind === 'estimated' ? 1 : 0,
+        cost_uncaptured: costProvenance.kind === 'uncaptured' ? 1 : 0,
+        cost_unknown: costProvenance.kind === 'uncaptured' ? 1 : 0,
       },
     },
     splitTag: options.splitTag ?? 'holdout',
@@ -254,8 +271,14 @@ function fromCodeAgentSession(
         inferredScore: options.score === undefined,
         hasExplicitTerminalSignal: explicitTerminal,
         hasQualityLabel: options.score !== undefined,
-        hasTokenUsage: metrics.inputTokens > 0 || metrics.outputTokens > 0,
-        hasCost: costUsd > 0,
+        hasTokenUsage:
+          metrics.inputTokens > 0 ||
+          metrics.outputTokens > 0 ||
+          metrics.reasoningTokens > 0 ||
+          metrics.cachedTokens > 0 ||
+          metrics.cacheWriteTokens > 0,
+        hasCost: costProvenance.kind !== 'uncaptured',
+        costKind: costProvenance.kind,
         warnings,
       },
     ],
@@ -283,6 +306,7 @@ function metricsFor(
 
 function codexMetrics(entries: Record<string, unknown>[]): CodeAgentSessionMetrics {
   const metrics = emptyMetrics(entries.length)
+  const startedToolIds = new Set<string>()
   let startedAt: number | undefined
   let completedAt: number | undefined
 
@@ -294,6 +318,19 @@ function codexMetrics(entries: Record<string, unknown>[]): CodeAgentSessionMetri
     if (timestamp !== undefined) {
       startedAt = startedAt === undefined ? timestamp : Math.min(startedAt, timestamp)
       completedAt = completedAt === undefined ? timestamp : Math.max(completedAt, timestamp)
+    }
+
+    if (entryType === 'turn.started') metrics.turnsStarted += 1
+    if (entryType === 'turn.completed') {
+      metrics.turnsCompleted += 1
+      addCodexExecUsage(metrics, record(entry.usage))
+    }
+    if (entryType === 'turn.failed') metrics.turnsAborted += 1
+    if (entryType === 'error') metrics.toolErrors += 1
+
+    const item = record(entry.item)
+    if (item && (entryType === 'item.started' || entryType === 'item.completed')) {
+      addCodexExecItem(metrics, startedToolIds, entryType, item)
     }
 
     if (entryType === 'response_item') {
@@ -342,7 +379,7 @@ function codexMetrics(entries: Record<string, unknown>[]): CodeAgentSessionMetri
         }
       }
       if (payloadType === 'token_count')
-        setCumulativeUsage(metrics, record(record(payload.info)?.total_token_usage))
+        setCodexCumulativeUsage(metrics, record(record(payload.info)?.total_token_usage))
       const result = record(payload.result)
       if (result && 'Err' in result) metrics.toolErrors += 1
     }
@@ -353,6 +390,80 @@ function codexMetrics(entries: Record<string, unknown>[]): CodeAgentSessionMetri
   }
   metrics.processScore = codexProcessScore(metrics)
   return metrics
+}
+
+function addCodexExecItem(
+  metrics: CodeAgentSessionMetrics,
+  startedToolIds: Set<string>,
+  eventType: 'item.started' | 'item.completed',
+  item: Record<string, unknown>,
+): void {
+  const itemType = stringField(item, 'type')
+  const itemId = stringField(item, 'id')
+  const isTool =
+    itemType === 'command_execution' ||
+    itemType === 'mcp_tool_call' ||
+    itemType === 'collab_tool_call' ||
+    itemType === 'web_search'
+
+  if (eventType === 'item.started' && isTool) {
+    metrics.toolCalls += 1
+    if (itemId) startedToolIds.add(itemId)
+  }
+  if (eventType === 'item.completed' && isTool) {
+    if (!itemId || !startedToolIds.has(itemId)) metrics.toolCalls += 1
+    metrics.toolOutputs += 1
+  }
+  if (eventType !== 'item.completed') return
+
+  if (itemType === 'agent_message' || itemType === 'message') metrics.assistantMessages += 1
+  if (itemType === 'reasoning') metrics.reasoningItems += 1
+  if (itemType === 'file_change') {
+    metrics.patchAttempts += 1
+    const status = stringField(item, 'status')
+    if (status === 'completed') metrics.patchSuccesses += 1
+    if (status === 'failed') {
+      metrics.patchFailures += 1
+      metrics.toolErrors += 1
+    }
+  }
+  if (itemType === 'error' || codexExecToolFailed(itemType, item)) metrics.toolErrors += 1
+}
+
+function codexExecToolFailed(itemType: string | undefined, item: Record<string, unknown>): boolean {
+  const status = stringField(item, 'status')
+  if (itemType === 'command_execution') {
+    const exitCode = numberField(item, 'exit_code')
+    return (
+      status === 'failed' || status === 'declined' || (exitCode !== undefined && exitCode !== 0)
+    )
+  }
+  if (itemType === 'mcp_tool_call') return status === 'failed' || record(item.error) !== null
+  return itemType === 'collab_tool_call' && status === 'failed'
+}
+
+function addCodexExecUsage(
+  metrics: CodeAgentSessionMetrics,
+  usage: Record<string, unknown> | null,
+): void {
+  const parsed = readUsage(usage)
+  metrics.inputTokens += parsed.input
+  metrics.outputTokens += parsed.output
+  metrics.reasoningTokens += parsed.reasoning
+  metrics.cachedTokens += parsed.cached
+  metrics.cacheWriteTokens += parsed.cacheWrite
+}
+
+function setCodexCumulativeUsage(
+  metrics: CodeAgentSessionMetrics,
+  usage: Record<string, unknown> | null,
+): void {
+  const parsed = readUsage(usage)
+  metrics.inputTokens = Math.max(metrics.inputTokens, parsed.input)
+  metrics.outputTokens = Math.max(metrics.outputTokens, parsed.output)
+  metrics.reasoningTokens = Math.max(metrics.reasoningTokens, parsed.reasoning)
+  metrics.cachedTokens = Math.max(metrics.cachedTokens, parsed.cached)
+  metrics.cacheWriteTokens = Math.max(metrics.cacheWriteTokens, parsed.cacheWrite)
 }
 
 function claudeCodeMetrics(entries: Record<string, unknown>[]): CodeAgentSessionMetrics {
@@ -401,6 +512,8 @@ function openCodeMetrics(entries: Record<string, unknown>[]): CodeAgentSessionMe
   const partUsage = emptyTokenTotals()
   let messageCost = 0
   let partCost = 0
+  let messageCostCaptured = false
+  let partCostCaptured = false
   let startedAt: number | undefined
   let completedAt: number | undefined
 
@@ -441,18 +554,27 @@ function openCodeMetrics(entries: Record<string, unknown>[]): CodeAgentSessionMe
     const cost = numberField(entry, 'cost')
     if (record(entry.tokens) && role) {
       addUsageTo(messageUsage, record(entry.tokens))
-      if (cost !== undefined) messageCost += cost
+      if (cost !== undefined) {
+        messageCost += cost
+        messageCostCaptured = true
+      }
     } else if (record(entry.tokens)) {
       addUsageTo(partUsage, record(entry.tokens))
-      if (cost !== undefined) partCost += cost
+      if (cost !== undefined) {
+        partCost += cost
+        partCostCaptured = true
+      }
     }
   }
 
-  const usage = messageUsage.input + messageUsage.output > 0 ? messageUsage : partUsage
+  const usage = hasTokenTotals(messageUsage) ? messageUsage : partUsage
   metrics.inputTokens = usage.input
   metrics.outputTokens = usage.output
+  metrics.reasoningTokens = usage.reasoning
   metrics.cachedTokens = usage.cached
-  metrics.observedCostUsd = messageCost > 0 ? messageCost : partCost
+  metrics.cacheWriteTokens = usage.cacheWrite
+  metrics.observedCostUsd = messageCostCaptured ? messageCost : partCost
+  metrics.observedCostCaptured = messageCostCaptured || partCostCaptured
   if (metrics.wallMs === 0 && startedAt !== undefined && completedAt !== undefined)
     metrics.wallMs = Math.max(0, completedAt - startedAt)
   metrics.processScore = terminalProcessScore(metrics)
@@ -592,8 +714,11 @@ function emptyMetrics(entries: number): CodeAgentSessionMetrics {
     reliabilityLift: 0,
     inputTokens: 0,
     outputTokens: 0,
+    reasoningTokens: 0,
     cachedTokens: 0,
+    cacheWriteTokens: 0,
     observedCostUsd: 0,
+    observedCostCaptured: false,
     wallMs: 0,
     processScore: 0,
   }
@@ -634,8 +759,20 @@ function penalizeErrors(base: number, metrics: CodeAgentSessionMetrics): number 
   return clamp01(base * (1 - 0.5 * errorRate))
 }
 
-function emptyTokenTotals(): { input: number; output: number; cached: number } {
-  return { input: 0, output: 0, cached: 0 }
+type TokenTotals = Required<RunTokenUsage>
+
+function emptyTokenTotals(): TokenTotals {
+  return { input: 0, output: 0, reasoning: 0, cached: 0, cacheWrite: 0 }
+}
+
+function hasTokenTotals(usage: TokenTotals): boolean {
+  return (
+    usage.input > 0 ||
+    usage.output > 0 ||
+    usage.reasoning > 0 ||
+    usage.cached > 0 ||
+    usage.cacheWrite > 0
+  )
 }
 
 function addUsage(
@@ -645,75 +782,59 @@ function addUsage(
   const parsed = readUsage(usage)
   metrics.inputTokens += parsed.input
   metrics.outputTokens += parsed.output
+  metrics.reasoningTokens += parsed.reasoning
   metrics.cachedTokens += parsed.cached
+  metrics.cacheWriteTokens += parsed.cacheWrite
 }
 
-function addUsageTo(
-  totals: { input: number; output: number; cached: number },
-  usage: Record<string, unknown> | null | undefined,
-): void {
+function addUsageTo(totals: TokenTotals, usage: Record<string, unknown> | null | undefined): void {
   const parsed = readUsage(usage)
   totals.input += parsed.input
   totals.output += parsed.output
+  totals.reasoning += parsed.reasoning
   totals.cached += parsed.cached
+  totals.cacheWrite += parsed.cacheWrite
 }
 
-function setCumulativeUsage(
-  metrics: CodeAgentSessionMetrics,
-  usage: Record<string, unknown> | null | undefined,
-): void {
-  const parsed = readUsage(usage)
-  metrics.inputTokens = Math.max(metrics.inputTokens, parsed.input)
-  metrics.outputTokens = Math.max(metrics.outputTokens, parsed.output)
-  metrics.cachedTokens = Math.max(metrics.cachedTokens, parsed.cached)
-}
-
-function readUsage(usage: Record<string, unknown> | null | undefined): {
-  input: number
-  output: number
-  cached: number
-} {
-  if (!usage) return { input: 0, output: 0, cached: 0 }
+function readUsage(usage: Record<string, unknown> | null | undefined): TokenTotals {
+  const parsed = extractUsage(usage)
   return {
-    input: numericUsage(usage, [
-      'input',
-      'input_tokens',
-      'inputTokens',
-      'prompt_tokens',
-      'promptTokens',
-      'input_other',
-    ]),
-    output: numericUsage(usage, [
-      'output',
-      'output_tokens',
-      'outputTokens',
-      'completion_tokens',
-      'completionTokens',
-      'reasoning',
-      'reasoning_tokens',
-      'reasoningTokens',
-    ]),
-    cached: numericUsage(usage, [
-      'cache',
-      'cached_tokens',
-      'cachedTokens',
-      'cache_read_input_tokens',
-      'cacheReadInputTokens',
-      'cache_creation_input_tokens',
-      'cacheCreationInputTokens',
-      'input_cache_read',
-      'input_cache_creation',
-    ]),
+    input: parsed?.input ?? 0,
+    output: parsed?.output ?? 0,
+    reasoning: parsed?.reasoning ?? 0,
+    cached: parsed?.cached ?? 0,
+    cacheWrite: parsed?.cacheWrite ?? 0,
   }
 }
 
-function numericUsage(obj: Record<string, unknown>, names: string[]): number {
-  let total = 0
-  for (const name of names) {
-    const value = obj[name]
-    if (typeof value === 'number' && Number.isFinite(value)) total += value
+function resolveSessionCost(
+  explicit: RunCostProvenance | undefined,
+  metrics: CodeAgentSessionMetrics,
+  model: string,
+): { costUsd: number; costProvenance: RunCostProvenance } {
+  if (explicit) {
+    if (explicit.kind === 'uncaptured') {
+      if (explicit.usd !== null) throw new Error('uncaptured cost must have usd: null')
+      return { costUsd: 0, costProvenance: explicit }
+    }
+    if (!Number.isFinite(explicit.usd) || explicit.usd < 0) {
+      throw new Error(`${explicit.kind} cost must be a finite, non-negative USD amount`)
+    }
+    return { costUsd: explicit.usd, costProvenance: explicit }
   }
-  return total
+
+  if (metrics.observedCostCaptured) {
+    const costProvenance = { kind: 'observed', usd: metrics.observedCostUsd } as const
+    return { costUsd: metrics.observedCostUsd, costProvenance }
+  }
+
+  const hasUsage = metrics.inputTokens > 0 || metrics.outputTokens > 0
+  if (hasUsage && isModelPriced(model)) {
+    const costUsd = estimateCost(metrics.inputTokens, metrics.outputTokens, model)
+    return { costUsd, costProvenance: { kind: 'estimated', usd: costUsd } }
+  }
+
+  return { costUsd: 0, costProvenance: { kind: 'uncaptured', usd: null } }
 }
 
 function diagnosticsFor(
@@ -723,14 +844,26 @@ function diagnosticsFor(
     explicitTerminal: boolean
     malformedLines: number
     scoreOverridden: boolean
-    costUsd: number
+    costKind: RunCostProvenance['kind']
   },
 ): string[] {
   const warnings: string[] = []
   if (!options.scoreOverridden) warnings.push('outcome score is inferred from process telemetry')
   if (!options.explicitTerminal) warnings.push('no explicit terminal success/failure signal')
-  if (metrics.inputTokens === 0 && metrics.outputTokens === 0) warnings.push('missing token usage')
-  if (options.costUsd === 0 && !isModelPriced(options.model)) warnings.push('model pricing unknown')
+  if (
+    metrics.inputTokens === 0 &&
+    metrics.outputTokens === 0 &&
+    metrics.reasoningTokens === 0 &&
+    metrics.cachedTokens === 0 &&
+    metrics.cacheWriteTokens === 0
+  ) {
+    warnings.push('missing token usage')
+  }
+  if (options.costKind === 'estimated')
+    warnings.push('USD cost estimated from token usage and model pricing')
+  if (options.costKind === 'uncaptured') warnings.push('USD cost uncaptured')
+  if (options.costKind === 'uncaptured' && !isModelPriced(options.model))
+    warnings.push('model pricing unknown')
   if (options.malformedLines > 0)
     warnings.push(`${options.malformedLines} malformed JSONL lines skipped`)
   return warnings
@@ -753,6 +886,8 @@ function sessionIdFromEntries(
 ): string | undefined {
   for (const entry of entries) {
     if (source === 'codex') {
+      const threadId = stringField(entry, 'thread_id')
+      if (threadId) return threadId
       const payload = record(entry.payload)
       const id = payload ? stringField(payload, 'id') : undefined
       if (id) return id

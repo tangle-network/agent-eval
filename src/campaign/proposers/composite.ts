@@ -31,6 +31,7 @@
  * component attribution — see the experiment-optimal research brief.
  */
 
+import { surfaceContentHash } from '../surface-identity'
 import type {
   GenerationRecord,
   MutableSurface,
@@ -99,10 +100,18 @@ export function compositeProposer<TFindings = unknown>(
               : (proposal as MutableSurface)
             const label = isCandidate ? (proposal as ProposedCandidate).label : 'candidate'
             const rationale = isCandidate ? (proposal as ProposedCandidate).rationale : ''
-            const key = typeof surface === 'string' ? surface : JSON.stringify(surface)
+            const candidateRecord = isCandidate
+              ? (proposal as ProposedCandidate).candidateRecord
+              : undefined
+            const key = surfaceContentHash(surface)
             if (seen.has(key)) continue
             seen.add(key)
-            pool.push({ surface, label: `${member.kind}:${label}`, rationale })
+            pool.push({
+              surface,
+              label: `${member.kind}:${label}`,
+              rationale,
+              ...(candidateRecord ? { candidateRecord } : {}),
+            })
           }
         } catch (err) {
           errors.push(`${member.kind}: ${err instanceof Error ? err.message : String(err)}`)

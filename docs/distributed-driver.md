@@ -135,7 +135,7 @@ round-robin, region-affinity from a previous run, scheduling table).
 | **Auth** | Bearer token on `Authorization`; pluggable via `auth: string \| () => string \| Promise<string>` for rotation/refresh. |
 | **Payload size** | Server enforces `maxBodyBytes` (default 10 MB). |
 | **Traces** | Both ends emit OTel — if both point at the same OTLP collector, you get a unified trace per cell. See `docs/adapters-observability.md`. |
-| **Cost** | Worker's `ctx.cost.observe(usd, source)` is local to the worker process. Roll up server-side and attach to your worker-side telemetry; we don't (yet) forward cost back to the coordinator. Tracked as follow-up. |
+| **Cost** | Worker's `ctx.cost.runPaidCall(...)` writes durable receipts in the worker process. Roll up those receipts server-side and attach them to worker telemetry; they are not forwarded to the coordinator automatically. |
 
 ## Running the reference example
 

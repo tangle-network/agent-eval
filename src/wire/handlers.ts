@@ -9,8 +9,17 @@
  *   - Throws `WireError` for caller-fixable errors (404, 400, 422).
  *   - Lets unexpected errors bubble — the transport maps them to 500.
  */
+
+import { CostLedger, type CostLedgerHandle } from '../cost-ledger'
 import type { FeedbackTrajectoryStore } from '../feedback-trajectory'
-import { callLlmJson } from '../llm-client'
+import {
+  callLlmJson,
+  costReceiptFromLlm,
+  costReceiptFromLlmError,
+  type LlmCallRequest,
+  type LlmClientOptions,
+  maximumChargeForLlmRequest,
+} from '../llm-client'
 import type { TraceEvent as InternalTraceEvent } from '../trace/schema'
 import type { TraceStore } from '../trace/store'
 import { getBuiltinRubric, listBuiltinRubrics } from './rubrics'
@@ -178,7 +187,17 @@ function buildJudgePrompt(content: string, context: unknown): string {
 
 const DEFAULT_JUDGE_MODEL = 'claude-sonnet-4-6'
 
-export async function handleJudge(req: JudgeRequest): Promise<JudgeResult> {
+export interface HandleJudgeOptions {
+  costLedger?: CostLedgerHandle
+  costPhase?: string
+  llm?: LlmClientOptions
+  signal?: AbortSignal
+}
+
+export async function handleJudge(
+  req: JudgeRequest,
+  options: HandleJudgeOptions = {},
+): Promise<JudgeResult> {
   // Resolve rubric
   let rubric: Rubric
   if (req.rubricName) {
@@ -197,7 +216,7 @@ export async function handleJudge(req: JudgeRequest): Promise<JudgeResult> {
   const startedAt = Date.now()
   const model = req.model ?? DEFAULT_JUDGE_MODEL
 
-  const { value, result } = await callLlmJson<JudgeOutput>({
+  const request = {
     model,
     messages: [
       { role: 'system', content: rubric.systemPrompt },
@@ -205,8 +224,28 @@ export async function handleJudge(req: JudgeRequest): Promise<JudgeResult> {
     ],
     jsonSchema: judgeOutputSchema(rubric),
     temperature: 0.0,
+    maxTokens: 4_000,
     timeoutMs: 60_000,
+  } satisfies LlmCallRequest
+  const ledger = options.costLedger ?? new CostLedger()
+  const paid = await ledger.runPaidCall({
+    channel: 'judge',
+    phase: options.costPhase ?? 'wire.judge',
+    actor: `wire.${req.rubricName ?? 'inline'}`,
+    model,
+    maximumCharge: maximumChargeForLlmRequest(request, options.llm),
+    signal: options.signal,
+    execute: (signal, callId) =>
+      callLlmJson<JudgeOutput>(request, {
+        ...options.llm,
+        signal,
+        idempotencyKey: callId,
+      }),
+    receipt: ({ result }) => costReceiptFromLlm(result),
+    receiptFromError: costReceiptFromLlmError,
   })
+  if (!paid.succeeded) throw paid.error
+  const { value, result } = paid.value
 
   const output = validateJudgeOutput(value, rubric)
 

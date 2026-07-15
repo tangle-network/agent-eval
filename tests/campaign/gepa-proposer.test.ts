@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import { gepaProposer } from '../../src/campaign/proposers/gepa'
+import { surfaceHash } from '../../src/campaign/surface-identity'
 import type { GenerationRecord, ParetoParent, ProposeContext } from '../../src/campaign/types'
+import { CostLedger } from '../../src/cost-ledger'
 
 /** A fake router fetch that echoes the reflection user-prompt back so the test
  *  can assert the proposer fed the right evidence, and returns N proposals. */
@@ -25,6 +27,8 @@ function ctxWith(history: GenerationRecord[], populationSize: number): ProposeCo
     populationSize,
     generation: history.length,
     signal: new AbortController().signal,
+    costLedger: new CostLedger(),
+    costPhase: 'search.proposal',
   }
 }
 
@@ -74,6 +78,98 @@ describe('gepaProposer', () => {
     expect(capture.userPrompt).toContain('PARENT SURFACE')
   })
 
+  it('does not use an incomplete candidate as reflective evidence', async () => {
+    const capture: { userPrompt?: string } = {}
+    const proposer = gepaProposer({
+      llm: {
+        apiKey: 'k',
+        baseUrl: 'https://router.test/v1',
+        fetch: fakeFetch(capture, ['NEW']),
+      },
+      model: 'test-model',
+      target: 'system-directive',
+    })
+    const history: GenerationRecord[] = [
+      {
+        generationIndex: 0,
+        promoted: ['complete'],
+        candidates: [
+          {
+            surfaceHash: 'incomplete',
+            composite: 0.99,
+            ci95: [0.99, 0.99],
+            eligibleForPromotion: false,
+            dimensions: { safety: 0.99 },
+            scenarios: [{ scenarioId: 'INCOMPLETE-EVIDENCE', composite: 0.99 }],
+          },
+          {
+            surfaceHash: 'complete',
+            composite: 0.5,
+            ci95: [0.5, 0.5],
+            eligibleForPromotion: true,
+            dimensions: { safety: 0.2 },
+            scenarios: [{ scenarioId: 'COMPLETE-EVIDENCE', composite: 0.5 }],
+          },
+        ],
+      },
+    ]
+
+    await proposer.propose(ctxWith(history, 1))
+
+    expect(capture.userPrompt).toContain('COMPLETE-EVIDENCE')
+    expect(capture.userPrompt).not.toContain('INCOMPLETE-EVIDENCE')
+  })
+
+  it('matches the current surface to measured history after the latest generation regresses', async () => {
+    const capture: { userPrompt?: string } = {}
+    const proposer = gepaProposer({
+      llm: {
+        apiKey: 'k',
+        baseUrl: 'https://router.test/v1',
+        fetch: fakeFetch(capture, ['NEW']),
+      },
+      model: 'test-model',
+      target: 'system-directive',
+    })
+    const winnerHash = surfaceHash('WINNER SURFACE')
+    const history: GenerationRecord[] = [
+      {
+        generationIndex: 0,
+        promoted: [winnerHash],
+        candidates: [
+          {
+            surfaceHash: winnerHash,
+            composite: 0.8,
+            ci95: [0.8, 0.8],
+            dimensions: { safety: 0.7 },
+            scenarios: [{ scenarioId: 'WINNER-EVIDENCE', composite: 0.8 }],
+          },
+        ],
+      },
+      {
+        generationIndex: 1,
+        promoted: [],
+        candidates: [
+          {
+            surfaceHash: 'loser',
+            composite: 0.1,
+            ci95: [0.1, 0.1],
+            dimensions: { safety: 0.1 },
+            scenarios: [{ scenarioId: 'LOSER-EVIDENCE', composite: 0.1 }],
+          },
+        ],
+      },
+    ]
+    const ctx = ctxWith(history, 1)
+    ctx.currentSurface = 'WINNER SURFACE'
+
+    await proposer.propose(ctx)
+
+    expect(capture.userPrompt).toContain('WINNER SURFACE')
+    expect(capture.userPrompt).toContain('WINNER-EVIDENCE')
+    expect(capture.userPrompt).not.toContain('LOSER-EVIDENCE')
+  })
+
   it('drops the parent + dedupes proposals', async () => {
     const capture: { userPrompt?: string } = {}
     const proposer = gepaProposer({
@@ -99,6 +195,37 @@ describe('gepaProposer', () => {
     const out = await proposer.propose(ctxWith([], 1))
     expect(out).toEqual([{ surface: 'G0', label: 'c0', rationale: 'r' }])
     expect(capture.userPrompt).not.toContain('weakest dimensions')
+  })
+
+  it('charges the returned proposal cost before parsing malformed output', async () => {
+    const ledger = new CostLedger(1)
+    const fetch = (async () =>
+      new Response(
+        JSON.stringify({
+          choices: [{ message: { content: 'not-json' } }],
+          usage: { prompt_tokens: 20, completion_tokens: 10, total_tokens: 30 },
+          model: 'provider-priced-model',
+          _response_cost: 0.3,
+        }),
+        { status: 200, headers: { 'content-type': 'application/json' } },
+      )) as typeof globalThis.fetch
+    const proposer = gepaProposer({
+      llm: { apiKey: 'k', baseUrl: 'https://router.test/v1', fetch },
+      model: 'gpt-4o',
+      maxTokens: 30_000,
+      target: 'system-directive',
+    })
+    const ctx = ctxWith([], 1)
+    ctx.costLedger = ledger
+    ctx.costPhase = 'search.proposal'
+
+    await expect(proposer.propose(ctx)).resolves.toEqual([])
+    expect(ledger.summary().totalCostUsd).toBeCloseTo(0.3, 9)
+    expect(ledger.list()[0]).toMatchObject({
+      channel: 'driver',
+      phase: 'search.proposal',
+      actor: 'gepa.reflect',
+    })
   })
 })
 
@@ -167,6 +294,8 @@ function ctxWithParents(parents: ParetoParent[], populationSize: number): Propos
     generation: 1,
     signal: new AbortController().signal,
     paretoParents: parents,
+    costLedger: new CostLedger(),
+    costPhase: 'search.proposal',
   }
 }
 
@@ -270,6 +399,8 @@ describe('gepaProposer — combine complementary lessons', () => {
       populationSize: 1,
       generation: 0,
       signal: new AbortController().signal,
+      costLedger: new CostLedger(),
+      costPhase: 'search.proposal',
     })
     expect(out).toEqual([{ surface: 'NEW', label: 'c0', rationale: 'r' }])
     expect(capture.userPrompt).toContain('Diagnosed findings')

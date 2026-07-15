@@ -20,6 +20,7 @@ export {
   type RunLineageStepResult,
   runLineage,
 } from './lineage'
+
 /**
  * `@tangle-network/agent-eval/campaign` — measurement + improvement loop.
  *
@@ -27,9 +28,21 @@ export {
  * `runImprovementLoop` is the proposer-agnostic improvement loop on top of it.
  */
 
+// ── Surface proposers ────────────────────────────────────────────────
+export {
+  POLICY_EDIT_CANDIDATE_RECORD_SCHEMA,
+  type PolicyEditCandidateRecord,
+  validatePolicyEditCandidateRecord,
+} from '../analyst/policy-edit'
+export type { CostLedgerHandle } from '../cost-ledger'
 // ── Judge builders (single-call bridge to a canonical JudgeConfig) ────
 export type { LlmJudgeDimension, LlmJudgeOptions } from '../llm-judge'
 export { llmJudge } from '../llm-judge'
+export type {
+  ReferenceEquivalenceJudgeOptions,
+  ReferenceEquivalenceScenario,
+} from '../reference-equivalence-judge'
+export { createReferenceEquivalenceJudge } from '../reference-equivalence-judge'
 // ── Meta-loop: optimize the analyst's OWN prompt as a surface ─────────
 export {
   type AnalystArtifact,
@@ -45,6 +58,50 @@ export {
   type OpenAutoPrResult,
   openAutoPr,
 } from './auto-pr'
+export {
+  assertCampaignDesign,
+  assertCampaignSplitIdentity,
+  campaignScenarioIdentity,
+  campaignSplitDigest,
+  campaignSplitDigestFromIdentities,
+} from './coverage'
+// ── Cross-surface interaction matrix + frozen bundle selection ──────
+export { analyzeCrossSurfaceInteractions } from './cross-surface-interaction'
+export type {
+  AnalyzeCrossSurfaceInteractionsInput,
+  CrossSurfaceAdditionDecision,
+  CrossSurfaceAdditionRejectionReason,
+  CrossSurfaceAttemptCompleteness,
+  CrossSurfaceBestSingleSelection,
+  CrossSurfaceBootstrapPolicy,
+  CrossSurfaceCandidate,
+  CrossSurfaceCandidateComparison,
+  CrossSurfaceCandidateEvidence,
+  CrossSurfaceCandidateOutcome,
+  CrossSurfaceCandidateSummary,
+  CrossSurfaceComponent,
+  CrossSurfaceComponentEvidence,
+  CrossSurfaceCompositionStep,
+  CrossSurfaceDistribution,
+  CrossSurfaceEligibility,
+  CrossSurfaceEvidenceBreakdown,
+  CrossSurfaceIneligibilityReason,
+  CrossSurfaceInteractionAwareSelection,
+  CrossSurfaceInteractionEffect,
+  CrossSurfaceInteractionPath,
+  CrossSurfaceInteractionReport,
+  CrossSurfaceInteractionTask,
+  CrossSurfaceNaiveStackSelection,
+  CrossSurfacePairCompatibility,
+  CrossSurfacePairEvidence,
+  CrossSurfacePairIncompatibilityReason,
+  CrossSurfacePairwiseEntry,
+  CrossSurfaceRankedSingle,
+  CrossSurfaceRelativeCost,
+  CrossSurfaceSelectionPolicy,
+  CrossSurfaceSelections,
+  CrossSurfaceTaskRow,
+} from './cross-surface-types'
 // ── Fixture UX / dry-run planning ────────────────────────────────────
 export {
   discoverEvalFixtures,
@@ -109,6 +166,16 @@ export {
   type PairedHoldout,
   pairHoldout,
 } from './gates/statistical-heldout'
+// ── Grounded reflection + run hygiene (lifted from agent-lab R357/R358) ──
+export {
+  classifyUngroundedLiterals,
+  type RolloutArgumentDiff,
+  type RolloutArgumentDiffOptions,
+  type RolloutCall,
+  rolloutArgumentDiff,
+  type ScoredRollout,
+  type UngroundedLiteralReport,
+} from './grounded-reflection'
 export {
   FsLabeledScenarioStore,
   type FsLabeledScenarioStoreOptions,
@@ -147,7 +214,6 @@ export {
 } from './presets/playback'
 export { type RunEvalOptions, runEval } from './presets/run-eval'
 export {
-  defaultRenderDiff,
   type RunImprovementLoopOptions,
   type RunImprovementLoopResult,
   runImprovementLoop,
@@ -163,7 +229,6 @@ export {
   type RunOptimizationOptions,
   type RunOptimizationResult,
   runOptimization,
-  surfaceHash,
 } from './presets/run-optimization'
 export {
   type ProfileDispatchFn,
@@ -182,6 +247,10 @@ export {
   type SkillOptEpochRecord,
 } from './presets/run-skill-opt'
 export { type AceProposerOptions, aceProposer } from './proposers/ace'
+export {
+  type CompositeProposerOptions,
+  compositeProposer,
+} from './proposers/composite'
 export { type EvolutionaryProposerOptions, evolutionaryProposer } from './proposers/evolutionary'
 export {
   extractFapoAttributionSignals,
@@ -208,13 +277,34 @@ export {
   type GepaProposerOptions,
   gepaProposer,
 } from './proposers/gepa'
-// ── Surface proposers ────────────────────────────────────────────────
 export { type HaloProposerOptions, haloProposer } from './proposers/halo'
+export {
+  DEFAULT_POLICY_EDIT_HISTORY_LIMITS,
+  type JsonPolicyEditTargetSurface,
+  type LlmPolicyEditProposerOptions,
+  llmPolicyEditProposer,
+  type PolicyEditCandidateSummary,
+  type PolicyEditFindingInput,
+  type PolicyEditFindingSource,
+  type PolicyEditHistoryCandidateContext,
+  type PolicyEditHistoryGenerationContext,
+  type PolicyEditHistoryProjectionOptions,
+  type PolicyEditObjective,
+  type PolicyEditOutcomeContext,
+  projectPolicyEditHistory,
+} from './proposers/llm-policy-edit'
 export { type MemoryCurationProposerOptions, memoryCurationProposer } from './proposers/memory'
 export {
   type PolicyEditProposerOptions,
   policyEditProposer,
 } from './proposers/policy-edit'
+export {
+  assertPolicyEditAuthorContextBudget,
+  type PolicyEditAuthorScenarioRow,
+  type SelectPolicyEditAuthorRowsOptions,
+  type SerializedJsonBudget,
+  selectPolicyEditAuthorRows,
+} from './proposers/policy-edit-author-context'
 export {
   type ProposePatchesArgs,
   parseSkillPatchResponse,
@@ -230,16 +320,20 @@ export { type TraceAnalystProposerOptions, traceAnalystProposer } from './propos
 export {
   type BuildLoopProvenanceArgs,
   buildLoopProvenanceRecord,
+  campaignMeasurementDigest,
   type EmitLoopProvenanceArgs,
   type EmitLoopProvenanceResult,
   emitLoopProvenance,
+  type LoopProvenanceArgsFromResult,
   type LoopProvenanceBackend,
   type LoopProvenanceCandidate,
+  type LoopProvenanceEvidence,
   type LoopProvenanceRecord,
+  loopProvenanceArgsFromResult,
   loopProvenanceSpans,
   provenanceRecordPath,
   provenanceSpansPath,
-  surfaceContentHash,
+  verifyLoopProvenanceRecord,
 } from './provenance'
 export {
   type CampaignRunPlan,
@@ -258,6 +352,54 @@ export {
   selectDiscriminative,
 } from './scenario-selection'
 export { type CampaignBreakdown, campaignBreakdown, campaignMeanComposite } from './score-utils'
+// ── Durable improvement-search audit log ────────────────────────────
+export {
+  FileSearchLedger,
+  type OpenSearchLedgerOptions,
+  openSearchLedger,
+  SEARCH_LEDGER_SCHEMA,
+  type SearchAccountingAudit,
+  type SearchArtifactRef,
+  type SearchAttemptAccounting,
+  type SearchCandidateDecidedEvent,
+  type SearchCandidateLineage,
+  type SearchCandidateRegisteredEvent,
+  type SearchCandidateSlot,
+  type SearchCandidateSlotClosedEvent,
+  type SearchCandidateSurface,
+  type SearchCompletedEvent,
+  type SearchCostAccounting,
+  type SearchFailureReason,
+  type SearchLedger,
+  type SearchLedgerAppendResult,
+  SearchLedgerConflictError,
+  type SearchLedgerEntry,
+  SearchLedgerError,
+  type SearchLedgerEvent,
+  type SearchLedgerHash,
+  SearchLedgerIntegrityError,
+  type SearchLedgerReplay,
+  type SearchModelIdentity,
+  type SearchOperationKind,
+  type SearchOperationRecordedEvent,
+  type SearchPlan,
+  type SearchPlannedEvent,
+  type SearchPlannedOperation,
+  type SearchPlannedTask,
+  type SearchSourceRef,
+  type SearchSurfaceEffect,
+  type SearchSurfaceEvidence,
+  type SearchSurfaceKind,
+  type SearchTaskAttemptedEvent,
+  type SearchTaskOutcome,
+  type SearchTokenAccounting,
+  validateSearchLedgerEvent,
+} from './search-ledger'
+export {
+  acquireSingleRunLock,
+  type SingleRunLock,
+  type SingleRunLockOptions,
+} from './single-run-lock'
 export {
   type ApplySkillPatchResult,
   applySkillPatch,
@@ -266,13 +408,28 @@ export {
   type SkillPatchOp,
   type SkillPatchRejection,
 } from './skill-patch'
-export { type CampaignStorage, fsCampaignStorage, inMemoryCampaignStorage } from './storage'
+export {
+  type CampaignStorage,
+  createRunCostLedger,
+  fsCampaignStorage,
+  inMemoryCampaignStorage,
+} from './storage'
+// ── Code-surface content identity ────────────────────────────────────
+export {
+  assertCodeSurfaceIdentity,
+  codeSurfaceIdentityMaterial,
+  renderSurfaceDiff,
+  surfaceContentHash,
+  surfaceHash,
+} from './surface-identity'
+export { isTransientTransportFailure, type TransientFailureOptions } from './transient-failure'
 export type {
   CampaignAggregates,
   CampaignArtifactWriter,
   CampaignCellResult,
   CampaignCostMeter,
   CampaignResult,
+  CampaignScenarioIdentity,
   CampaignTokenUsage,
   CampaignTraceWriter,
   CodeSurface,
@@ -304,6 +461,7 @@ export type {
   RedactionStatus,
   Scenario,
   ScenarioAggregate,
+  ScoredSurfaceOutcome,
   SessionScript,
   SurfaceProposer,
   TraceSpan,
@@ -311,9 +469,11 @@ export type {
 export { isProposedCandidate, labelTrustRank } from './types'
 // ── Worktree adapter (VCS-pluggable; code-tier surfaces) ─────────────
 export {
+  type CodeSurfaceVerification,
   type GitWorktreeAdapterOptions,
   gitWorktreeAdapter,
   resolveWorktreePath,
+  verifyCodeSurface,
   type Worktree,
   type WorktreeAdapter,
   WorktreeAdapterError,

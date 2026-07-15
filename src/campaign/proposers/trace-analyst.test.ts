@@ -1,5 +1,7 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
+import { AnalystRegistry } from '../../analyst/registry'
 import type { AnalystFinding } from '../../analyst/types'
+import { CostLedger } from '../../cost-ledger'
 import { isProposedCandidate, type ProposeContext, type ProposedCandidate } from '../types'
 import { traceAnalystProposer } from './trace-analyst'
 
@@ -75,6 +77,46 @@ describe('traceAnalystProposer — wraps our trace-analyst registry as a Surface
     })
     expect(d.kind).toBe('trace-analyst')
     expect(typeof d.propose).toBe('function')
+  })
+
+  it('enables same-run chaining on the default analyst registry path', async () => {
+    const run = vi.spyOn(AnalystRegistry.prototype, 'run').mockResolvedValue({
+      run_id: 'trace-analyst-gen-1',
+      correlation_id: 'ar_test',
+      started_at: '2026-01-01T00:00:00.000Z',
+      ended_at: '2026-01-01T00:00:01.000Z',
+      findings: [finding({})],
+      per_analyst: [],
+      total_cost_usd: 0,
+      total_cost_provenance: { kind: 'uncaptured', usd: null },
+    })
+    try {
+      const proposer = traceAnalystProposer({
+        baseUrl: 'https://x/v1',
+        apiKey: 'sk-test',
+        model: 'm',
+        resolveTraces: () => '{"name":"agent.Assistant","trace_id":"t1"}',
+        fetchImpl: stubFetch('IMPROVED'),
+      })
+      const input = ctx('BASE')
+      const costLedger = new CostLedger()
+      input.costLedger = costLedger
+
+      await proposer.propose(input)
+
+      expect(run).toHaveBeenCalledWith(
+        'trace-analyst-gen-1',
+        expect.objectContaining({ traceStore: expect.anything() }),
+        expect.objectContaining({
+          chainFindings: true,
+          signal: expect.any(AbortSignal),
+          costLedger,
+        }),
+      )
+      expect(costLedger.list().map((receipt) => receipt.actor)).toEqual(['trace-analyst.apply'])
+    } finally {
+      run.mockRestore()
+    }
   })
 
   it('FAILS LOUD at construction when apiKey or model is missing (Ax has no env fallback)', () => {

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import type { ProposeContext, SurfaceProposer } from '../types'
+import type { CodeSurface, ProposeContext, SurfaceProposer } from '../types'
 import { compositeProposer } from './composite'
 
 function ctxOf(populationSize: number): ProposeContext {
@@ -29,6 +29,23 @@ function stub(
     ...(opts?.stop !== undefined
       ? { decide: () => ({ stop: opts.stop as boolean, reason: `${kind} vote` }) }
       : {}),
+  }
+}
+
+function codeSurface(worktreeRef: string): CodeSurface {
+  return {
+    kind: 'code',
+    worktreeRef,
+    baseRef: 'main',
+    baseCommit: '1'.repeat(40),
+    baseTree: '2'.repeat(40),
+    candidateCommit: '3'.repeat(40),
+    candidateTree: '4'.repeat(40),
+    patch: {
+      format: 'git-diff-binary',
+      sha256: `sha256:${'5'.repeat(64)}`,
+      byteLength: 1,
+    },
   }
 }
 
@@ -67,6 +84,23 @@ describe('compositeProposer (N proposers, one generation pool)', () => {
       pool.find((c) => (c as { surface: string }).surface === 'same') as { label: string }
     ).label
     expect(sameLabel.startsWith('a:')).toBe(true)
+  })
+
+  it('dedupes content-identical code surfaces across different worktree paths', async () => {
+    const proposer = (kind: string, surface: CodeSurface): SurfaceProposer => ({
+      kind,
+      propose: async () => [{ surface, label: 'v', rationale: 'r' }],
+    })
+    const first = codeSurface('/tmp/candidate-a')
+    const sameBytesElsewhere = codeSurface('/tmp/candidate-b')
+    const composite = compositeProposer({
+      proposers: [proposer('a', first), proposer('b', sameBytesElsewhere)],
+    })
+
+    const pool = await composite.propose(ctxOf(2))
+
+    expect(pool).toHaveLength(1)
+    expect((pool[0] as { surface: CodeSurface }).surface.worktreeRef).toBe(first.worktreeRef)
   })
 
   it('isolates a failing member; throws only when ALL members fail', async () => {

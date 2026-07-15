@@ -25,7 +25,7 @@ import type { AnalystFinding } from '../analyst/types'
 import { checkCanaries } from '../contamination-guard'
 import type { DatasetScenario } from '../dataset'
 import { summarizeBackendIntegrity } from '../integrity/backend-integrity'
-import type { RunRecord } from '../run-record'
+import { type RunRecord, type RunTokenUsage, resolveRunCostProvenance } from '../run-record'
 import {
   cohensD,
   pairedBootstrap,
@@ -38,6 +38,8 @@ import {
 import { type ParetoFigureSpec, paretoChart } from '../summary-report'
 
 import type {
+  CostProvenanceSummary,
+  ExecutionInsight,
   FailureClusterInsight,
   FailureModeTally,
   InsightReport,
@@ -49,6 +51,7 @@ import type {
   PriorPeriodComparison,
   Recommendation,
   ScalarDistribution,
+  TokenUsageInsight,
 } from './insight-report'
 
 // ── Public API ───────────────────────────────────────────────────────
@@ -101,6 +104,25 @@ export interface AnalyzeRunsOptions {
   baselineLabel?: string
 }
 
+export interface SummarizeExecutionOptions {
+  runs: RunRecord[]
+  histogramBins?: number
+}
+
+export interface ExecutionReport {
+  execution: ExecutionInsight
+  costProvenance: CostProvenanceSummary
+}
+
+/** Summarize runtime facts without interpreting task quality or promotion readiness. */
+export function summarizeExecution(opts: SummarizeExecutionOptions): ExecutionReport {
+  const bins = opts.histogramBins ?? 12
+  return {
+    execution: computeExecutionInsight(opts.runs, bins),
+    costProvenance: summarizeCostProvenance(opts.runs),
+  }
+}
+
 export async function analyzeRuns(opts: AnalyzeRunsOptions): Promise<InsightReport> {
   const runs = opts.runs
   const bins = opts.histogramBins ?? 12
@@ -117,13 +139,22 @@ export async function analyzeRuns(opts: AnalyzeRunsOptions): Promise<InsightRepo
   )
 
   const perDimension = computePerDimension(runs, bins)
-
-  const costs = runs.map((r) => r.costUsd).filter(Number.isFinite)
+  const { execution, costProvenance: provenance } = summarizeExecution({
+    runs,
+    histogramBins: bins,
+  })
+  const knownCostRuns = runs.filter((run) => resolveRunCostProvenance(run).kind !== 'uncaptured')
+  const costs = knownCostRuns.map((r) => r.costUsd).filter(Number.isFinite)
   const costDist = distributionOf(costs, bins)
-  const pareto = paretoChart(runs, { split })
+  const pareto = paretoChart(knownCostRuns, { split })
   const degraded: { cost?: string; pareto?: string } = {}
-  if (costs.length === 0 || costs.every((c) => c === 0)) {
-    degraded.cost = diagnoseZeroCost(runs)
+  if (provenance.uncaptured.n > 0) {
+    degraded.cost = diagnoseCostCoverage(runs, provenance)
+  } else if (costs.length === 0 || costs.every((c) => c === 0)) {
+    degraded.cost =
+      runs.length > 0 && runs.every((run) => run.costProvenance !== undefined)
+        ? `all ${runs.length} explicitly observed or estimated USD values are $0`
+        : diagnoseZeroCost(runs)
   }
   if (pareto.points.length < 2) {
     degraded.pareto =
@@ -134,6 +165,7 @@ export async function analyzeRuns(opts: AnalyzeRunsOptions): Promise<InsightRepo
   const costQuality = {
     cost: costDist,
     pareto,
+    provenance,
     ...(degraded.cost || degraded.pareto ? { degraded } : {}),
   }
 
@@ -178,6 +210,7 @@ export async function analyzeRuns(opts: AnalyzeRunsOptions): Promise<InsightRepo
 
   return {
     n: runs.length,
+    execution,
     composite,
     perDimension,
     costQuality,
@@ -192,6 +225,182 @@ export async function analyzeRuns(opts: AnalyzeRunsOptions): Promise<InsightRepo
     ...(priorPeriodComparison ? { priorPeriodComparison } : {}),
     recommendations,
   }
+}
+
+function computeExecutionInsight(runs: RunRecord[], bins: number): ExecutionInsight {
+  const aggregateRows = runs.flatMap((run) => {
+    const usage = aggregateTokenUsage(run)
+    return usage ? [{ usage, costUsd: finiteRaw(run, 'aggregate_cost_usd') }] : []
+  })
+  const aggregateCosts = aggregateRows.flatMap((row) =>
+    row.costUsd !== undefined ? [row.costUsd] : [],
+  )
+  const modelCounts = new Map<string, number>()
+  let failureRuns = 0
+  let reportedErrorEvents = 0
+  let errorReportingRuns = 0
+  let modelCallRuns = 0
+  let modelCallEvents = 0
+  let modelCallReportingRuns = 0
+
+  for (const run of runs) {
+    modelCounts.set(run.model, (modelCounts.get(run.model) ?? 0) + 1)
+    const modelCalls = run.outcome.raw.llm_span_count
+    if (Number.isFinite(modelCalls)) {
+      modelCallEvents += modelCalls!
+      modelCallReportingRuns += 1
+    }
+    const usage = run.tokenUsage
+    if (
+      (modelCalls ?? 0) > 0 ||
+      usage.input > 0 ||
+      usage.output > 0 ||
+      (usage.cached ?? 0) > 0 ||
+      (usage.cacheWrite ?? 0) > 0
+    ) {
+      modelCallRuns += 1
+    }
+    const errorEvents = run.outcome.raw.error_span_count
+    if (Number.isFinite(errorEvents)) {
+      reportedErrorEvents += errorEvents!
+      errorReportingRuns += 1
+    }
+    if (
+      (run.failureClass !== undefined && run.failureClass !== 'success') ||
+      run.failureMode !== undefined ||
+      (errorEvents ?? 0) > 0
+    ) {
+      failureRuns += 1
+    }
+  }
+
+  return {
+    durationMs: distributionOf(
+      runs.map((run) => run.wallMs),
+      bins,
+    ),
+    queueMs: distributionOf(
+      runs.filter((run) => run.queueMs !== undefined).map((run) => run.queueMs!),
+      bins,
+    ),
+    tokenUsage: summarizeTokenUsage(
+      runs.map((run) => run.tokenUsage),
+      bins,
+    ),
+    aggregateUsage: {
+      runs: aggregateRows.length,
+      tokenUsage: summarizeTokenUsage(
+        aggregateRows.map((row) => row.usage),
+        bins,
+      ),
+      costUsd: distributionOf(aggregateCosts, bins),
+      totalCostUsd: aggregateCosts.reduce((total, value) => total + value, 0),
+    },
+    models: [...modelCounts.entries()]
+      .map(([model, count]) => ({ model, runs: count }))
+      .sort((left, right) => right.runs - left.runs || left.model.localeCompare(right.model)),
+    modelCalls: {
+      runs: modelCallRuns,
+      events: modelCallEvents,
+      reportingRuns: modelCallReportingRuns,
+    },
+    failures: {
+      runs: failureRuns,
+      fraction: runs.length > 0 ? failureRuns / runs.length : 0,
+      reportedErrorEvents,
+      reportingRuns: errorReportingRuns,
+    },
+  }
+}
+
+function summarizeTokenUsage(usages: RunTokenUsage[], bins: number): TokenUsageInsight {
+  const reasoning = usages.flatMap((usage) =>
+    usage.reasoning !== undefined ? [usage.reasoning] : [],
+  )
+  const cached = usages.flatMap((usage) => (usage.cached !== undefined ? [usage.cached] : []))
+  const cacheWrite = usages.flatMap((usage) =>
+    usage.cacheWrite !== undefined ? [usage.cacheWrite] : [],
+  )
+  return {
+    input: distributionOf(
+      usages.map((usage) => usage.input),
+      bins,
+    ),
+    output: distributionOf(
+      usages.map((usage) => usage.output),
+      bins,
+    ),
+    reasoning: distributionOf(reasoning, bins),
+    cached: distributionOf(cached, bins),
+    cacheWrite: distributionOf(cacheWrite, bins),
+    totals: {
+      input: usages.reduce((total, usage) => total + usage.input, 0),
+      output: usages.reduce((total, usage) => total + usage.output, 0),
+      reasoning: reasoning.reduce((total, value) => total + value, 0),
+      cached: cached.reduce((total, value) => total + value, 0),
+      cacheWrite: cacheWrite.reduce((total, value) => total + value, 0),
+    },
+  }
+}
+
+function aggregateTokenUsage(run: RunRecord): RunTokenUsage | undefined {
+  const input = finiteRaw(run, 'aggregate_prompt_tokens')
+  const output = finiteRaw(run, 'aggregate_completion_tokens')
+  const reasoning = finiteRaw(run, 'aggregate_reasoning_tokens')
+  const cached = finiteRaw(run, 'aggregate_cached_tokens')
+  const cacheWrite = finiteRaw(run, 'aggregate_cache_write_tokens')
+  if (
+    input === undefined &&
+    output === undefined &&
+    reasoning === undefined &&
+    cached === undefined &&
+    cacheWrite === undefined
+  )
+    return undefined
+  return {
+    input: input ?? 0,
+    output: output ?? 0,
+    ...(reasoning !== undefined ? { reasoning } : {}),
+    ...(cached !== undefined ? { cached } : {}),
+    ...(cacheWrite !== undefined ? { cacheWrite } : {}),
+  }
+}
+
+function finiteRaw(run: RunRecord, key: string): number | undefined {
+  const value = run.outcome.raw[key]
+  return typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : undefined
+}
+
+function summarizeCostProvenance(runs: RunRecord[]): CostProvenanceSummary {
+  const summary: CostProvenanceSummary = {
+    observed: { n: 0, totalUsd: 0 },
+    estimated: { n: 0, totalUsd: 0 },
+    uncaptured: { n: 0 },
+    knownFraction: 0,
+  }
+  for (const run of runs) {
+    const cost = resolveRunCostProvenance(run)
+    if (cost.kind === 'uncaptured') {
+      summary.uncaptured.n += 1
+    } else {
+      summary[cost.kind].n += 1
+      summary[cost.kind].totalUsd += cost.usd
+    }
+  }
+  const known = summary.observed.n + summary.estimated.n
+  summary.knownFraction = runs.length > 0 ? known / runs.length : 0
+  return summary
+}
+
+function diagnoseCostCoverage(runs: RunRecord[], provenance: CostProvenanceSummary): string {
+  const uncaptured = provenance.uncaptured.n
+  const known = provenance.observed.n + provenance.estimated.n
+  const explicitUncaptured = runs.some((run) => run.costProvenance?.kind === 'uncaptured')
+  if (uncaptured === runs.length && !explicitUncaptured) return diagnoseZeroCost(runs)
+  if (uncaptured === runs.length) {
+    return `USD cost uncaptured for all ${runs.length} runs — no observed or estimated USD values; token and wall-time metrics remain available.`
+  }
+  return `USD cost uncaptured for ${uncaptured}/${runs.length} runs; excluded those rows from cost statistics (${known}/${runs.length} retained: ${provenance.observed.n} observed, ${provenance.estimated.n} estimated).`
 }
 
 /** Model-free failure tally. Keys on the canonical cross-agent
@@ -265,8 +474,8 @@ function computePriorPeriodComparison(
     directions.composite = 'higher-is-better'
   }
 
-  const costCurrent = current.map((r) => r.costUsd).filter(Number.isFinite)
-  const costBaseline = baseline.map((r) => r.costUsd).filter(Number.isFinite)
+  const costCurrent = knownCostValues(current)
+  const costBaseline = knownCostValues(baseline)
   if (costCurrent.length > 0 && costBaseline.length > 0) {
     metrics.cost = welchCompare(costBaseline, costCurrent)
     directions.cost = 'lower-is-better'
@@ -321,6 +530,13 @@ function computePriorPeriodComparison(
     regressedMetrics,
     improvedMetrics,
   }
+}
+
+function knownCostValues(runs: RunRecord[]): number[] {
+  return runs
+    .filter((run) => resolveRunCostProvenance(run).kind !== 'uncaptured')
+    .map((run) => run.costUsd)
+    .filter(Number.isFinite)
 }
 
 /** Collect per-dimension values across runs (from outcome.judgeScores.perDimMean). */

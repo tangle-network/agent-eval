@@ -40,7 +40,7 @@ export function coerceJson(text: string): unknown {
  * Coerce arbitrary actor/structurer output into an array of candidate finding
  * rows: a JSON string → parse; a single object → 1-element array; an array →
  * as-is; anything else → []. Callers still run each row through Zod
- * (`parseRawFinding`) — this only fixes the SHAPE, never invents fields.
+ * (`parseCanonicalRawFinding`) — this only fixes the SHAPE, never invents fields.
  */
 export function coerceToFindingRows(raw: unknown): unknown[] {
   let value = raw

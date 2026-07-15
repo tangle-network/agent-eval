@@ -64,7 +64,11 @@ export {
   buildDefaultAnalystRegistry,
   type DefaultAnalystRegistryOptions,
 } from './analyst/default-registry'
-export type { RawAnalystFinding } from './analyst/finding-signature'
+export type {
+  CanonicalRawAnalystFinding,
+  RawAnalystEvidence,
+  RawAnalystFinding,
+} from './analyst/finding-signature'
 export type { FindingSubject, FindingSubjectKind } from './analyst/finding-subject'
 export {
   type DiffPolicy,
@@ -78,6 +82,7 @@ export {
   type CreateTraceAnalystKindOpts,
   createTraceAnalystKind,
   renderPriorFindings,
+  renderUpstreamFindings,
   type TraceAnalystGolden,
   type TraceAnalystKindSpec,
 } from './analyst/kind-factory'
@@ -95,6 +100,7 @@ export type {
   PolicyEditAdmission,
   PolicyEditAdmissionOptions,
   PolicyEditAxis,
+  PolicyEditCandidateRecord,
   PolicyEditChange,
   PolicyEditExpectedGain,
   PolicyEditGainDirection,
@@ -112,13 +118,16 @@ export {
   computePolicyEditId,
   isPolicyEdit,
   makePolicyEdit,
+  makePolicyEditCandidateRecord,
   POLICY_EDIT_AXES,
+  POLICY_EDIT_CANDIDATE_RECORD_SCHEMA,
   POLICY_EDIT_TARGET_SURFACES,
   PolicyEditValidationError,
   policyEditFromFinding,
   policyEditsFromFindings,
   scorePolicyEditReadiness,
   validatePolicyEdit,
+  validatePolicyEditCandidateRecord,
 } from './analyst/policy-edit'
 export {
   type AnalystHooks,
@@ -139,6 +148,7 @@ export {
   type AnalystRunResult,
   type AnalystRunSummary,
   type AnalystSeverity,
+  type AnalystUsageReceipt,
   computeFindingId,
   type EvidenceRef,
   makeFinding,
@@ -170,6 +180,17 @@ export type {
 export { assertCapabilityHeadroom, capabilityHeadroom } from './capability-headroom'
 // ── Client / driver / judges / executor / benchmark / registry / reporter ─
 export { ProductClient, runE2EWorkflow } from './client'
+export type {
+  ClusterBootstrapInterval,
+  ClusteredBinaryCluster,
+  ClusteredMatchedPair,
+  ClusteredPairedBinaryOptions,
+  ClusteredPairedBinaryResult,
+  ClusteredPairedBinaryStatistics,
+  ClusterSignFlipAlternative,
+  ClusterSignFlipResult,
+} from './clustered-paired-binary'
+export { clusteredPairedBinary } from './clustered-paired-binary'
 export type {
   ControlActionFailureMode,
   ControlActionOutcome,
@@ -274,8 +295,10 @@ export {
 // pass-rate never silently masks a misconfigured runtime.
 export type { BackendIntegrityReport } from './integrity/backend-integrity'
 export {
+  assertRealAgentReceipts,
   assertRealBackend,
   BackendIntegrityError,
+  summarizeAgentReceiptIntegrity,
   summarizeBackendIntegrity,
 } from './integrity/backend-integrity'
 // Pre-hoc complement to assertRealBackend: verify the campaign's models are
@@ -388,8 +411,10 @@ export type {
   McNemarResult,
   PairedBootstrapOptions,
   PairedBootstrapResult,
+  PairedSignTestResult,
   ProportionInterval,
   RiskDifferenceResult,
+  SignTestAlternative,
   WeightedCompositeInput,
   WeightedCompositeResult,
 } from './statistics'
@@ -402,6 +427,7 @@ export {
   confidenceInterval,
   corpusInterRaterAgreement,
   corpusInterRaterAgreementFromJudgeScores,
+  holm,
   interpretCliffs,
   interRaterReliability,
   mannWhitneyU,
@@ -412,6 +438,7 @@ export {
   pairedBootstrap,
   pairedMde,
   pairedRiskDifference,
+  pairedSignTest,
   pairedTTest,
   partialCredit,
   passAtK,
@@ -431,6 +458,7 @@ export {
 export * from './trace-analyst'
 export type {
   BehavioralMetrics,
+  BehavioralTokenSequence,
   SuboptimalCode,
   SuboptimalSignal,
 } from './trace-analyst/behavioral-metrics'
@@ -652,7 +680,7 @@ export {
 
 export * from './trace'
 
-// `knowledge`, `governance`, and `trace` remain re-exported at root because
+// `knowledge` and `trace` remain re-exported at root because
 // they're load-bearing for the capture-integrity story documented in the
 // README. Every other module is reachable only through its subpath
 // (`/rl`, `/pipelines`, `/meta-eval`, `/prm`, `/builder-eval`, `/traces`).
@@ -752,11 +780,30 @@ export type {
   ChannelRollup,
   CostChannel,
   CostLedgerEntry,
+  CostLedgerFilter,
+  CostLedgerHandle,
+  CostLedgerOptions,
+  CostLedgerPersistence,
   CostLedgerSummary,
+  CostReceipt,
+  CostReceiptInput,
   CostResult,
   CostUsage,
+  MaximumCharge,
+  PaidCallResult,
+  RunPaidCallInput,
 } from './cost-ledger'
-export { CostLedger, costForUsage, modelPriceKey } from './cost-ledger'
+export {
+  CostAccountingIncompleteError,
+  CostCallConflictError,
+  CostCeilingReachedError,
+  CostLedger,
+  CostLedgerPersistenceError,
+  CostReceiptCaptureError,
+  CostReservationExceededError,
+  costForUsage,
+  modelPriceKey,
+} from './cost-ledger'
 export type { CostEntry, CostSummary, ScenarioCost, TokenSpec } from './cost-tracker'
 export { CostTracker } from './cost-tracker'
 export type {
@@ -1035,10 +1082,6 @@ export type {
 } from './self-play'
 export { runSelfPlay } from './self-play'
 
-// ── Governance templates ─────────────────────────────────────────────
-
-export * from './governance'
-
 // ── LLM client, multi-layer verifier, semantic concept judge, error-count ─
 
 export type {
@@ -1099,6 +1142,7 @@ export {
   runKeywordCoverageJudgeUrl,
 } from './keyword-coverage-judge'
 export type {
+  LlmCallMetadata,
   LlmCallRequest,
   LlmCallResult,
   LlmClientOptions,
@@ -1111,10 +1155,14 @@ export {
   backoffMs,
   callLlm,
   callLlmJson,
+  costReceiptFromLlm,
+  costReceiptFromLlmError,
   isTransientLlmError,
   LlmCallError,
   LlmClient,
+  LlmResponseError,
   LlmRouteAssertionError,
+  maximumChargeForLlmRequest,
   probeLlm,
   stripFencedJson,
 } from './llm-client'
@@ -1138,6 +1186,18 @@ export type {
   MultiToolchainLayerConfig,
 } from './multi-toolchain-layer'
 export { mergeLayerResults, multiToolchainLayer } from './multi-toolchain-layer'
+export type {
+  ReferenceEquivalenceJudgeInput,
+  ReferenceEquivalenceJudgeOptions,
+  ReferenceEquivalenceJudgeResult,
+  ReferenceEquivalenceScenario,
+} from './reference-equivalence-judge'
+export {
+  createReferenceEquivalenceJudge,
+  REFERENCE_EQUIVALENCE_INPUT_LIMITS,
+  REFERENCE_EQUIVALENCE_JUDGE_VERSION,
+  runReferenceEquivalenceJudge,
+} from './reference-equivalence-judge'
 // ── Reference replay ─────────────────────────────────────────────────
 export {
   compareReferenceReplay,
@@ -1348,6 +1408,7 @@ export { CallbackResearcher, NoopResearcher } from './researcher'
 // RL/data bridge primitives live on @tangle-network/agent-eval/rl.
 export type {
   JudgeScoresRecord,
+  RunCostProvenance,
   RunJudgeMetadata,
   RunOutcome,
   RunRecord,
@@ -1359,6 +1420,7 @@ export {
   modelHasSnapshot,
   parseRunRecordSafe,
   RunRecordValidationError,
+  resolveRunCostProvenance,
   roundTripRunRecord,
   validateRunRecord,
 } from './run-record'
@@ -1472,25 +1534,6 @@ export { ATTESTATION_ALGORITHM, attest, verifyAttestation } from './attestation'
 // percentile ratchet (summarize → baseline → gate). Scores LATENCY /
 // RELIABILITY over flat metric records; the judge-panel BenchmarkRunner
 // (./benchmark) scores QUALITY. Also on the `/perf` subpath.
-export type {
-  IntegrityResult,
-  IntegrityViolation,
-  JourneySpec,
-  PerfBaseline,
-  PerfGateResult,
-  PerfRegression,
-  PerfScenario,
-  PerfStat,
-  ScenarioAxes,
-} from './perf'
-export {
-  assertRecordIntegrity,
-  checkRecordIntegrity,
-  expandMatrix,
-  gatePerf,
-  scenarioKey,
-  summarizeRecords,
-} from './perf'
 // Product-owned benchmark bundles: portable product runs for agent-lab research.
 export type {
   AgentProfileRuntimeReceipt,

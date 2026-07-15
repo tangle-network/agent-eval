@@ -111,6 +111,8 @@ If a term below isn't in this table or in `docs/concepts.md`, that's a bug — f
 | Emit an A/B summary table or Pareto / gain figure spec | `summaryTable` / `paretoChart` / `gainHistogram` |
 | Build a launch-decision-grade research report (paired stats, ROPE, MDE, fingerprint, methodology) | `researchReport` (§Research reports) |
 | Run a matrix of variants × scenarios × seeds with capture integrity by construction | `runEvalCampaign` (§EvalCampaign — preferred starting point for new evals) |
+| Resume or audit a multi-surface improvement search without losing rejected attempts or spend | `openSearchLedger` in the campaign subpath — predeclare slots, tasks, and operations, then append every outcome or failed slot |
+| Compare single and composed agent surfaces on the same task axis, then select frozen bundles | `analyzeCrossSurfaceInteractions` from `/campaign` |
 | Re-run / re-judge / determinism-audit a past campaign for free | `ReplayCache` + `createReplayFetch` (§Replay & sequential evaluation) |
 | Ship the moment evidence is decisive, with anytime-valid α control across rolling looks | `pairedEvalueSequence`, `evaluateInterimReleaseConfidence` (§Replay & sequential evaluation) |
 | Tell load-bearing rubrics from decorative ones using deployment outcomes | `rubricPredictiveValidity` (§Outcome calibration) |
@@ -145,10 +147,12 @@ Extend, don't fork — see §"Extend, don't duplicate."
 | `HeldOutGate` | `held-out-gate.ts` | Paired-delta + overfit-gap gate. Three rejection codes: `few_runs`, `negative_delta`, `overfit_gap`. Use before promoting an optimizer's top-1. Pairs with `promotion-gate.ts` (bootstrap CI for "is this real?") — use both. |
 | `RunRecord` | `run-record.ts` | Typed run schema. `validateRunRecord` throws on missing fields and on bare model aliases — record the snapshot (`claude-sonnet-4-6@2025-04-15`). |
 | `pairedBootstrap`, `pairedWilcoxon`, `bhAdjust` | `paired-stats.ts` | Stats primitives. Pass `seed` to `pairedBootstrap` when the result feeds a CI / promotion decision. |
+| `clusteredPairedBinary`, `holm` | `clustered-paired-binary.ts`, `statistics.ts` | Repository- or subject-clustered paired binary inference plus strong family-wise multiple-comparison adjustment. The clustered result preserves original paired/unpaired rows, resamples whole clusters for a task-weighted interval, and sign-flips whole-cluster totals for the same estimand with a required deterministic seed. |
 | `runCanaries` | `canary.ts` | Silent fallback (constant confidence), calibration drift (KS), distribution shift (chi-square). Returns a report; doesn't fail tests — wire it to a notification. |
 | `summaryTable`, `paretoChart`, `gainHistogram` | `summary-report.ts` | A/B reporting. `summaryTable` emits markdown with bootstrap CIs + paired Wilcoxon p (BH-adjusted) + Cohen's d. The other two return vega-lite-friendly specs. |
 | `researchReport` | `summary-report.ts` | Async, launch-decision-grade artifact: paired-evidence-only verdicts (`promote` / `hold` / `equivalent` / `reject` / `needs_more_data`), ROPE, Pr(Δ>0), per-candidate MDE via `pairedMde`, SHA-256 `runFingerprint`, optional `preregistrationHash`, embedded methodology. See [`docs/research-report-methodology.md`](../../../docs/research-report-methodology.md). |
 | `runEvalCampaign` | `eval-campaign.ts` | The capture-integrity directives, made structural. Variants × scenarios × seeds → `RunRecord[]` + integrity reports + (optional) `researchReport`. Wires `assertLlmRoute` at preflight, builds `TraceStore` + `RawProviderSink` + `TraceEmitter` per run, asserts `requireRawCoverageOfLlmSpans` at run-end, runs the analyst on completion. See §EvalCampaign. |
+| `analyzeCrossSurfaceInteractions` | `campaign/cross-surface-interaction.ts` | Preserves the complete candidate × task table; reports benefit, regression, firing, cost, synergy, interference, and additive interaction; gives blind-union and interaction-aware arms the same safe constituents, then grows every compatible pair seed. |
 | `ReplayCache` + `createReplayFetch` + `iterateRawCalls` | `replay.ts` | Turns a populated `RawProviderSink` into a `(canonical request → cached response)` cache + a `fetch`-shaped shim. Pass via `LlmClientOptions.fetch` and `callLlm` reads from the cache transparently; zero LLM cost for re-judging, post-hoc scoring, or determinism audits. See §Replay & sequential evaluation. |
 | `pairedEvalueSequence`, `evaluateInterimReleaseConfidence` | `sequential.ts` | Anytime-valid sequential evaluation: predictable plug-in betting martingale (Waudby-Smith & Ramdas 2024) + empirical Bernstein confidence sequence (Howard et al. 2021). Verdict at every interim look is type-I-error-controlled at α regardless of how many times you peeked. Pair with `runEvalCampaign` for ship-when-decisive. |
 | `rubricPredictiveValidity` | `meta-eval/rubric-predictive-validity.ts` | The outcome-calibration loop: joins campaign `RunRecord`s to deployment `OutcomeStore` and ranks rubrics by `\|spearman\|` against each outcome metric, with bootstrap CI. Buckets: `'load_bearing' \| 'informative' \| 'decorative'`. Use to deprecate decorative rubrics, re-weight composites, trigger recalibration when validity drops. |
@@ -975,7 +979,7 @@ Do you have ≥5 well-defined transformations to test (e.g. directive enum)?
 **Recipe by tier:**
 
 - **Prompt-tier (string surface)** — start with `gepaDriver()`. Escalate to a custom `Mutator` + `evolutionaryDriver` only when you have a known directive enum that beats LLM-discovery.
-- **Code-tier (`CodeSurface`)** — use agent-runtime's `improvementDriver` with a `reflectiveGenerator` or `agenticGenerator`. The substrate's drivers don't reason about code diffs.
+- **Code-tier (`CodeSurface`)** — use agent-runtime's `improvementDriver` with a `reflectiveGenerator` or `agenticGenerator`, then finalize through `gitWorktreeAdapter` and call `verifyCodeSurface` before execution. The substrate's drivers don't reason about code diffs.
 - **Knowledge-tier** — out of scope here; agent-knowledge owns this.
 
 ### Surface menu — what string to pick

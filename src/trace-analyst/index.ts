@@ -1,11 +1,18 @@
 /** Ax RLM trace analyst over bounded OTLP-JSONL trace stores. */
 
+export { asNumber, firstNumberAttr } from '../trace/attribute-vocabulary'
+export type { LlmSpanOtlpInput } from '../trace/otlp-attributes'
 export {
+  applyLlmSpanOtlpAttributes,
+  contextInputTokens,
+  LLM_CACHE_WRITE_TOKENS,
   LLM_CACHED_TOKENS,
+  LLM_CONTEXT_TOKENS,
   LLM_COST_USD,
   LLM_INPUT_TOKENS,
   LLM_MODEL_NAME,
   LLM_OUTPUT_TOKENS,
+  LLM_REASONING_TOKENS,
   OPENINFERENCE_SPAN_KIND,
   TOOL_NAME,
 } from '../trace/otlp-attributes'
@@ -46,10 +53,8 @@ export {
   type OtlpFlatLine,
 } from './otlp-flatten'
 export {
-  asNumber,
   asString,
   extractOtlpAttributes,
-  firstNumberAttr,
   firstStringAttr,
   inferOtlpKind,
   type ProjectedOtlpSpan,
@@ -60,6 +65,8 @@ export {
 export {
   type OtlpToRunRecordsOptions,
   type OtlpTraceRunRecord,
+  otlpRowsToRunRecords,
+  otlpRowsToTraceRunRecords,
   otlpToRunRecords,
   otlpToTraceRunRecords,
   type TraceAggregate,
@@ -67,7 +74,6 @@ export {
 export {
   TRACE_ANALYST_ACTOR_DESCRIPTION,
   TRACE_ANALYST_ACTOR_DESCRIPTION_VERSION,
-  TRACE_ANALYST_SUBAGENT_DESCRIPTION,
 } from './prompts'
 export type { TraceAnalysisStore } from './store'
 export {

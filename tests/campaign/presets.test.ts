@@ -5,6 +5,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   buildLoopProvenanceRecord,
   type CodeSurface,
+  campaignScenarioIdentity,
+  campaignSplitDigestFromIdentities,
   composeGate,
   type DispatchFn,
   defaultProductionGate,
@@ -28,7 +30,25 @@ import {
   surfaceContentHash,
   surfaceHash,
 } from '../../src/campaign/index'
-import type { RunRecord } from '../../src/run-record'
+
+function fakeCodeSurface(worktreeRef: string, identityDigit: string): CodeSurface {
+  return {
+    kind: 'code',
+    worktreeRef,
+    baseRef: 'main',
+    baseCommit: 'a'.repeat(40),
+    baseTree: 'b'.repeat(40),
+    candidateCommit: identityDigit.repeat(40),
+    candidateTree: identityDigit.repeat(40),
+    patch: {
+      format: 'git-diff-binary',
+      sha256: `sha256:${identityDigit.repeat(64)}`,
+      byteLength: 1,
+    },
+  }
+}
+
+import type { CostReceipt } from '../../src/cost-ledger'
 
 interface FakeScenario extends Scenario {
   id: string
@@ -65,6 +85,42 @@ beforeEach(() => {
 afterEach(() => {
   rmSync(runDir, { recursive: true, force: true })
 })
+
+function provenanceFixtureCampaign(composite: number, suffix: string) {
+  const scenario = campaignScenarioIdentity<FakeScenario>({
+    id: 'h1',
+    kind: 'fixture',
+    intent: 'fixture',
+  })
+  return {
+    manifestHash: `fixture-${suffix}`,
+    splitDigest: campaignSplitDigestFromIdentities([scenario], 1),
+    seed: 1,
+    reps: 1,
+    startedAt: '2026-05-30T00:00:00.000Z',
+    endedAt: '2026-05-30T00:00:00.005Z',
+    cells: [
+      {
+        cellId: 'h1:0',
+        scenarioId: 'h1',
+        rep: 0,
+        artifact: {},
+        judgeScores: { j: { composite, dimensions: { q: composite }, notes: '' } },
+        costUsd: 0.01,
+        costCallIds: [],
+        tokenUsage: { input: 10, output: 5 },
+        durationMs: 5,
+        seed: 1,
+        cached: false,
+      },
+    ],
+    aggregates: { totalCostUsd: 0.01 },
+    durationMs: 5,
+    runDir: `${runDir}/${suffix}`,
+    artifactsByPath: {},
+    scenarios: [scenario],
+  } as never
+}
 
 // ── runEval ────────────────────────────────────────────────────────
 
@@ -279,7 +335,7 @@ describe('gepaProposer → runImprovementLoop → defaultProductionGate (full wi
         runDir: mkdtempSync(join(tmpdir(), 'holdout-fail-loud-')),
         seed: 7,
       }),
-    ).rejects.toThrow(/holdout produced no scorable cells/)
+    ).rejects.toThrow(/baseline holdout is incomplete \(0\/3 designed cells scorable\)/)
   })
 
   it('holds when the proposer proposes no improvement (winner == baseline)', async () => {
@@ -377,24 +433,20 @@ describe('loop provenance emission (transaction-extraction shape, offline)', () 
     }) as unknown as typeof fetch
   }
 
-  // Real-shaped worker records (nonzero tokens) so the backend verdict reads
-  // 'real' — the honest provenance an actual router run would carry.
-  function workerRecords(): RunRecord[] {
+  function costReceipts(): CostReceipt[] {
     return [
       {
-        runId: 'wr-1',
-        experimentId: 'prov-test',
-        candidateId: 'winner',
-        seed: 7,
+        callId: 'worker-1',
+        channel: 'agent',
+        phase: 'holdout.candidate',
+        actor: 'worker',
         model: 'anthropic/claude-haiku-4-5@2025-01-01',
-        promptHash: 'sha256:x',
-        configHash: 'sha256:y',
-        commitSha: 'local',
-        wallMs: 10,
+        timestamp: 1,
+        status: 'settled',
+        inputTokens: 120,
+        outputTokens: 40,
         costUsd: 0.001,
-        tokenUsage: { input: 120, output: 40 },
-        outcome: { holdoutScore: 1, raw: {} },
-        splitTag: 'holdout',
+        costUnknown: false,
       },
     ]
   }
@@ -450,17 +502,21 @@ describe('loop provenance emission (transaction-extraction shape, offline)', () 
       winnerSurface: result.winnerSurface,
       winnerLabel: result.winnerLabel,
       winnerRationale: result.winnerRationale,
-      diff: result.promotedDiff,
+      baselineSearchCampaign: result.baselineCampaign,
       generations: result.generations.map((g) => ({
         generationIndex: g.record.generationIndex,
         candidates: g.record.candidates,
         promoted: g.record.promoted,
-        surfaces: g.surfaces.map((s) => ({ surfaceHash: s.surfaceHash, surface: s.surface })),
+        surfaces: g.surfaces.map((s) => ({
+          surfaceHash: s.surfaceHash,
+          surface: s.surface,
+          campaign: s.campaign,
+        })),
       })),
       gate: result.gateResult,
       baselineOnHoldout: result.baselineOnHoldout,
       winnerOnHoldout: result.winnerOnHoldout,
-      workerRecords: workerRecords(),
+      costReceipts: costReceipts(),
       totalCostUsd: 0.001,
       totalDurationMs: 1234,
       storage,
@@ -481,15 +537,22 @@ describe('loop provenance emission (transaction-extraction shape, offline)', () 
 
     // (4) the structured record + OTel spans are DURABLE (written to storage).
     expect(storage.read(recordPath)).toBeDefined()
-    expect(JSON.parse(storage.read(recordPath)!).schema).toBe('tangle.loop-provenance.v1')
+    expect(JSON.parse(storage.read(recordPath)!).schema).toBe('tangle.loop-provenance')
     const spanLines = storage.read(spansPath)!.split('\n')
     expect(spanLines.length).toBe(spans.length)
     // Spans pivot on the OTLP-ingestable tangle.* attributes the otel adapter reads.
     const root = spans.find((s) => s.name === 'improvement-loop')!
     expect(root['tangle.runId']).toBe('prov-test#1')
+    expect(root.attributes['tangle.baselineSearchComposite']).toBe(0)
     const candidateSpan = spans.find((s) => s.name.startsWith('candidate-'))!
     expect(candidateSpan.attributes['tangle.candidateRationale']).toBe(RATIONALE)
     expect(candidateSpan.attributes['tangle.candidateLabel']).toBe(LABEL)
+    expect(candidateSpan.attributes['tangle.parentSurfaceHash']).toBe(surfaceHash('BASE'))
+    expect(candidateSpan.attributes['tangle.parentComposite']).toBe(0)
+    expect(candidateSpan.attributes['tangle.observedDeltaFromParent']).toBe(1)
+    expect(candidateSpan.attributes['tangle.eligibleForPromotion']).toBe(true)
+    expect(candidateSpan.attributes['tangle.expectedCells']).toBe(2)
+    expect(candidateSpan.attributes['tangle.scorableCells']).toBe(2)
     expect(candidateSpan['tangle.generation']).toBe(0)
     const gateSpan = spans.find((s) => s.name === 'gate-decision')!
     expect(gateSpan.attributes['tangle.gateDecision']).toBe('ship')
@@ -520,26 +583,24 @@ describe('loop provenance emission (transaction-extraction shape, offline)', () 
       timestamp: '2026-05-30T00:00:00.000Z',
       baselineSurface: 'BASE',
       winnerSurface: 'BASE',
-      diff: '',
+      baselineSearchCampaign: provenanceFixtureCampaign(0, 'stub-search'),
       generations: [],
       gate: { decision: 'hold', reasons: [], contributingGates: [] },
-      baselineOnHoldout: { cells: [] } as never,
-      winnerOnHoldout: { cells: [] } as never,
-      workerRecords: [
+      baselineOnHoldout: provenanceFixtureCampaign(0, 'stub-holdout-baseline'),
+      winnerOnHoldout: provenanceFixtureCampaign(0, 'stub-holdout-winner'),
+      costReceipts: [
         {
-          runId: 'c',
-          experimentId: 'e',
-          candidateId: 'winner',
-          seed: 1,
+          callId: 'stub-1',
+          channel: 'agent',
+          phase: 'holdout.candidate',
+          actor: 'worker',
           model: 'campaign-cell',
-          promptHash: 'sha256:p',
-          configHash: 'sha256:c',
-          commitSha: 'cell',
-          wallMs: 1,
+          timestamp: 1,
+          status: 'settled',
+          inputTokens: 0,
+          outputTokens: 0,
           costUsd: 0,
-          tokenUsage: { input: 0, output: 0 },
-          outcome: { holdoutScore: 0, raw: {} },
-          splitTag: 'holdout',
+          costUnknown: false,
         },
       ],
       totalCostUsd: 0,
@@ -558,26 +619,47 @@ describe('loop provenance emission (transaction-extraction shape, offline)', () 
       baselineSurface: 'BASE',
       winnerSurface: 'BASE NEW',
       winnerRationale: 'r',
-      diff: '--- baseline\n+++ winner',
+      baselineSearchCampaign: provenanceFixtureCampaign(0, 'tree-search-baseline'),
       generations: [
         {
           generationIndex: 0,
-          candidates: [{ surfaceHash: 'abc', composite: 1, label: 'l', rationale: 'r' }],
-          promoted: ['abc'],
-          surfaces: [{ surfaceHash: 'abc', surface: 'BASE NEW' }],
+          candidates: [
+            {
+              surfaceHash: surfaceHash('BASE NEW'),
+              composite: 1,
+              ci95: [1, 1],
+              parentSurfaceHash: surfaceHash('BASE'),
+              parentComposite: 0,
+              observedDeltaFromParent: 1,
+              eligibleForPromotion: true,
+              coverage: { expectedCells: 1, scorableCells: 1, unscorableCells: [] },
+              dimensions: {},
+              scenarios: [],
+              label: 'l',
+              rationale: 'r',
+            },
+          ],
+          promoted: [surfaceHash('BASE NEW')],
+          surfaces: [
+            {
+              surfaceHash: surfaceHash('BASE NEW'),
+              surface: 'BASE NEW',
+              campaign: provenanceFixtureCampaign(1, 'tree-search-candidate'),
+            },
+          ],
         },
       ],
       gate: { decision: 'ship', reasons: ['ok'], delta: 1, contributingGates: [] },
-      baselineOnHoldout: { cells: [] } as never,
-      winnerOnHoldout: { cells: [] } as never,
-      workerRecords: [],
+      baselineOnHoldout: provenanceFixtureCampaign(0, 'tree-holdout-baseline'),
+      winnerOnHoldout: provenanceFixtureCampaign(1, 'tree-holdout-winner'),
+      costReceipts: [],
       totalCostUsd: 0,
       totalDurationMs: 1,
     })
     const spans = loopProvenanceSpans(record)
     const root = spans.find((s) => s.name === 'improvement-loop')!
     const gen = spans.find((s) => s.name === 'generation-0')!
-    const cand = spans.find((s) => s.name === 'candidate-abc')!
+    const cand = spans.find((s) => s.name === `candidate-${surfaceHash('BASE NEW')}`)!
     const gate = spans.find((s) => s.name === 'gate-decision')!
     expect(gen.parentSpanId).toBe(root.spanId)
     expect(cand.parentSpanId).toBe(gen.spanId)
@@ -799,14 +881,14 @@ describe('runImprovementLoop — safety pre-flight', () => {
     ).rejects.toThrow(/ghOwner/)
   })
 
-  it('refuses Pass B autoOnPromote=config (deferred)', async () => {
+  it('refuses live config mutation without deployment safeguards', async () => {
     await expect(
       runImprovementLoop({
         ...baseOpts,
         autoOnPromote: 'config' as never,
         runDir,
       }),
-    ).rejects.toThrow(/Pass B/)
+    ).rejects.toThrow(/isolated deployment, rollback, and independent validation/)
   })
 })
 
@@ -1110,11 +1192,10 @@ describe('runOptimization — GEPA Pareto frontier', () => {
     expect(frontierHashes.has(hX)).toBe(true)
   })
 
-  it('keeps a candidate missing a scenario score via the finite floor (not dropped)', async () => {
-    // The judge is "unavailable" for (X, scenario b) → X's campaign cell b errors
-    // → X.objectives omits 'b'. computeParetoFrontier must rank X worst on 'b'
-    // via a FINITE floor, NOT -Infinity (which the canonical paretoFrontier would
-    // exclude entirely, silently dropping X). Regression guard for that floor.
+  it('excludes a candidate missing a scenario score from the Pareto frontier', async () => {
+    // The judge is unavailable for (X, scenario b), so X has no complete
+    // objective vector. Preserve its raw failed campaign and descriptive score,
+    // but do not let missing evidence become Pareto value.
     const floorJudge: JudgeConfig<FakeArtifact, FakeScenario> = {
       name: 'floor-lookup',
       dimensions: [{ key: 'q', description: 'quality' }],
@@ -1142,13 +1223,19 @@ describe('runOptimization — GEPA Pareto frontier', () => {
       runDir,
     })
 
-    const xParent = result.paretoFrontier.find((p) => p.surfaceHash === surfaceHash('X'))
-    // X scored only scenario 'a' (b errored) — but it is STILL on the frontier
-    // (uniquely best on 'a'), not silently dropped for the missing axis.
-    expect(xParent).toBeDefined()
-    expect(Object.keys(xParent!.objectives)).toEqual(['a'])
-    expect(xParent!.objectives.a).toBeCloseTo(0.9, 5)
-    expect(result.paretoFrontier.some((p) => p.surfaceHash === surfaceHash('Y'))).toBe(true)
+    const xRecord = result.generations[0]!.record.candidates.find(
+      (candidate) => candidate.surfaceHash === surfaceHash('X'),
+    )!
+    expect(xRecord.composite).toBeCloseTo(0.9, 5)
+    expect(xRecord.eligibleForPromotion).toBe(false)
+    expect(xRecord.coverage?.unscorableCells).toEqual([
+      {
+        cellId: 'b:0',
+        reason: "judge 'floor-lookup' failed: judge unavailable for X on scenario b",
+      },
+    ])
+    expect(result.paretoFrontier.some((p) => p.surfaceHash === surfaceHash('X'))).toBe(false)
+    expect(result.paretoFrontier.map((p) => p.surfaceHash)).toEqual([surfaceHash('Y')])
   })
 })
 
@@ -1160,17 +1247,23 @@ describe('MutableSurface widening', () => {
     expect(surfaceHash('hello')).not.toBe(surfaceHash('world'))
   })
 
-  it('surfaceHash distinguishes code surfaces by worktree + base ref', () => {
-    const a: CodeSurface = { kind: 'code', worktreeRef: '/wt/a', baseRef: 'main' }
-    const b: CodeSurface = { kind: 'code', worktreeRef: '/wt/b', baseRef: 'main' }
-    const aAgain: CodeSurface = {
-      kind: 'code',
-      worktreeRef: '/wt/a',
-      baseRef: 'main',
-      summary: 'ignored in hash',
+  it('surfaceHash identifies code content independently of its worktree path', () => {
+    const a = fakeCodeSurface('/wt/a', '1')
+    const sameBytesElsewhere = fakeCodeSurface('/wt/b', '1')
+    const differentBytes = fakeCodeSurface('/wt/c', '2')
+    const aAgain: CodeSurface = { ...fakeCodeSurface('/wt/a', '1'), summary: 'ignored in hash' }
+    const reorderedPatch: CodeSurface = {
+      ...a,
+      patch: {
+        byteLength: a.patch.byteLength,
+        sha256: a.patch.sha256,
+        format: a.patch.format,
+      },
     }
     expect(surfaceHash(a)).toBe(surfaceHash(aAgain)) // summary not part of identity
-    expect(surfaceHash(a)).not.toBe(surfaceHash(b))
+    expect(surfaceHash(a)).toBe(surfaceHash(sameBytesElsewhere))
+    expect(surfaceHash(a)).toBe(surfaceHash(reorderedPatch))
+    expect(surfaceHash(a)).not.toBe(surfaceHash(differentBytes))
     expect(surfaceHash(a)).toMatch(/^[a-f0-9]{16}$/)
   })
 
@@ -1188,9 +1281,10 @@ describe('MutableSurface widening', () => {
       }) {
         return new Array(populationSize).fill(0).map(
           (_, i): MutableSurface => ({
-            kind: 'code',
-            worktreeRef: `/wt/gen${generation}-cand${i}`,
-            baseRef: 'main',
+            ...fakeCodeSurface(
+              `/wt/gen${generation}-cand${i}`,
+              (generation * populationSize + i + 1).toString(16),
+            ),
             summary: `candidate ${i}`,
           }),
         )
@@ -1203,7 +1297,7 @@ describe('MutableSurface widening', () => {
 
     const result = await runOptimization({
       scenarios: SCENARIOS,
-      baselineSurface: { kind: 'code', worktreeRef: '/wt/main', baseRef: 'main' },
+      baselineSurface: fakeCodeSurface('/wt/main', 'f'),
       dispatchWithSurface,
       proposer: codeProposer,
       populationSize: 2,
@@ -1222,24 +1316,7 @@ describe('MutableSurface widening', () => {
 
 describe('emitLoopProvenance — hosted ingest (eval-run + traces)', () => {
   function mkHoldout(composite: number) {
-    return {
-      cells: [
-        {
-          cellId: 'h1:0',
-          scenarioId: 'h1',
-          rep: 0,
-          artifact: {},
-          judgeScores: { j: { composite, dimensions: { q: composite }, notes: '' } },
-          costUsd: 0.01,
-          tokenUsage: { input: 10, output: 5 },
-          durationMs: 5,
-          seed: 1,
-          cached: false,
-        },
-      ],
-      aggregates: { totalCostUsd: 0.01 },
-      durationMs: 5,
-    } as never
+    return provenanceFixtureCampaign(composite, `hosted-${composite}`)
   }
 
   it('ships an eval-run event (run list) AND trace spans (drill-down)', async () => {
@@ -1270,19 +1347,40 @@ describe('emitLoopProvenance — hosted ingest (eval-run + traces)', () => {
       winnerSurface: 'BASE BETTER',
       winnerLabel: 'fix',
       winnerRationale: 'because',
-      diff: '--- baseline\n+++ winner',
+      baselineSearchCampaign: mkHoldout(0),
       generations: [
         {
           generationIndex: 0,
-          candidates: [{ surfaceHash: 'h', composite: 1, label: 'fix', rationale: 'because' }],
-          promoted: ['h'],
-          surfaces: [{ surfaceHash: 'h', surface: 'BASE BETTER' }],
+          candidates: [
+            {
+              surfaceHash: surfaceHash('BASE BETTER'),
+              composite: 1,
+              ci95: [1, 1],
+              parentSurfaceHash: surfaceHash('BASE'),
+              parentComposite: 0,
+              observedDeltaFromParent: 1,
+              eligibleForPromotion: true,
+              coverage: { expectedCells: 1, scorableCells: 1, unscorableCells: [] },
+              dimensions: {},
+              scenarios: [],
+              label: 'fix',
+              rationale: 'because',
+            },
+          ],
+          promoted: [surfaceHash('BASE BETTER')],
+          surfaces: [
+            {
+              surfaceHash: surfaceHash('BASE BETTER'),
+              surface: 'BASE BETTER',
+              campaign: mkHoldout(1),
+            },
+          ],
         },
       ],
       gate: { decision: 'ship', reasons: ['ok'], delta: 0.5, contributingGates: [] },
       baselineOnHoldout: mkHoldout(0.5),
       winnerOnHoldout: mkHoldout(1.0),
-      workerRecords: [],
+      costReceipts: [],
       totalCostUsd: 0.02,
       totalDurationMs: 10,
       storage: inMemoryCampaignStorage(),
@@ -1414,12 +1512,93 @@ describe('runOptimization — analyzeGeneration feeds findings forward', () => {
     })
 
     expect(seen).toHaveLength(3)
-    // Gen 0 sees the static seed; gen 1 sees gen-0's produced finding; gen 2 gen-1's.
-    expect(seen[0]).toEqual([{ claim: 'seed' }])
+    // Gen 0 sees the baseline (gen -1) analysis — not the static seed; gen 1
+    // sees gen-0's produced finding; gen 2 gen-1's.
+    expect(seen[0]).toEqual([{ claim: 'gen--1 finding' }])
     expect(seen[1]).toEqual([{ claim: 'gen-0 finding' }])
     expect(seen[2]).toEqual([{ claim: 'gen-1 finding' }])
-    // Producer runs after gens 0 and 1, NOT the last (gen 2 has no next propose()).
-    expect(analyzed).toEqual([0, 1])
+    // Producer runs on the baseline (-1) and after gens 0 and 1, NOT the last
+    // (gen 2 has no next propose()).
+    expect(analyzed).toEqual([-1, 0, 1])
+  })
+
+  it("with generations=1, gen 0's propose() receives the baseline (gen -1) trace analysis", async () => {
+    const seen: unknown[][] = []
+    const proposer = {
+      kind: 'recorder',
+      async propose(ctx: ProposeContext) {
+        seen.push(ctx.findings)
+        return [{ surface: 'S-gen0', label: 'g0', rationale: 'r' }]
+      },
+    }
+    const result = await runOptimization<FakeScenario, FakeArtifact>({
+      scenarios: SCENARIOS,
+      baselineSurface: 'BASE',
+      dispatchWithSurface: async (surface) => ({ text: String(surface) }),
+      judges: [passJudge],
+      proposer,
+      populationSize: 1,
+      maxGenerations: 1,
+      promoteTopK: 1,
+      runDir,
+      seed: 1,
+      findings: [{ claim: 'seed' }],
+      analyzeGeneration: async ({ generation, runDir: analyzedDir, candidates, history }) => {
+        // The single propose() of the run is fed by a BASELINE analysis:
+        // generation -1 (the baseline convention), the baseline runDir, no
+        // history yet, and the baseline campaign as the sole candidate.
+        expect(generation).toBe(-1)
+        expect(analyzedDir).toBe(`${runDir}/baseline`)
+        expect(history).toEqual([])
+        expect(candidates).toHaveLength(1)
+        expect(candidates[0]!.surfaceHash).toBe(surfaceHash('BASE'))
+        // Marker derived from the baseline traces: the analyzed cells carry
+        // the artifact the BASELINE surface dispatched.
+        const artifacts = candidates[0]!.campaign.cells.map(
+          (c) => (c.artifact as FakeArtifact).text,
+        )
+        expect(artifacts).toEqual(['BASE', 'BASE'])
+        return [{ claim: 'baseline finding', from: artifacts.join(',') }]
+      },
+    })
+
+    // Gen 0 proposed WITH the baseline analysis (not the static seed), and the
+    // report is traceably derived from the baseline artifacts.
+    expect(seen).toEqual([[{ claim: 'baseline finding', from: 'BASE,BASE' }]])
+    expect(result.generations).toHaveLength(1)
+  })
+
+  it('skips the baseline analysis when the baseline produced no cells (nothing to analyze)', async () => {
+    const seen: unknown[][] = []
+    const analyzed: number[] = []
+    const proposer = {
+      kind: 'recorder',
+      async propose(ctx: ProposeContext) {
+        seen.push(ctx.findings)
+        return [{ surface: 'S-gen0', label: 'g0', rationale: 'r' }]
+      },
+    }
+    await runOptimization<FakeScenario, FakeArtifact>({
+      // No scenarios → the baseline campaign has zero cells (the dry shape) —
+      // the producer must NOT run on it, and propose() sees the static seed.
+      scenarios: [],
+      baselineSurface: 'BASE',
+      dispatchWithSurface: async (surface) => ({ text: String(surface) }),
+      judges: [passJudge],
+      proposer,
+      populationSize: 1,
+      maxGenerations: 1,
+      promoteTopK: 1,
+      runDir,
+      seed: 1,
+      findings: [{ claim: 'seed' }],
+      analyzeGeneration: async ({ generation }) => {
+        analyzed.push(generation)
+        return [{ claim: 'should not reach gen 0' }]
+      },
+    })
+    expect(analyzed).toEqual([])
+    expect(seen).toEqual([[{ claim: 'seed' }]])
   })
 
   it('without analyzeGeneration, findings stay the static seed every generation', async () => {

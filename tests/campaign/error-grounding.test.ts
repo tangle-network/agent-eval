@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { campaignBreakdown } from '../../src/campaign/score-utils'
+import { campaignBreakdown, campaignMeanComposite } from '../../src/campaign/score-utils'
 import type { CampaignCellResult, CampaignResult, Scenario } from '../../src/campaign/types'
 import { buildReflectionPrompt } from '../../src/reflective-mutation'
 
@@ -50,6 +50,22 @@ describe('error-grounding — judge notes reach the reflective proposer', () => 
     const bd = campaignBreakdown(campaign)
     const c = bd.scenarios.find((s) => s.scenarioId === 'c')
     expect(c?.notes).toBe('missed line 16') // deduped, not 'missed line 16 | missed line 16'
+  })
+
+  it('keeps invalid judge values out of descriptive aggregates', () => {
+    const mixed = cell('mixed', 0.6, 'finite result')
+    mixed.judgeScores.invalid = {
+      composite: Number.NaN,
+      dimensions: { broken: Number.NaN },
+      notes: 'invalid result',
+    }
+    const campaign = { cells: [mixed] } as unknown as CampaignResult<unknown, Scenario>
+
+    expect(campaignMeanComposite(campaign)).toBe(0.6)
+    expect(campaignBreakdown(campaign)).toEqual({
+      dimensions: { d: 0.6 },
+      scenarios: [{ scenarioId: 'mixed', composite: 0.6, notes: 'finite result' }],
+    })
   })
 
   it('buildReflectionPrompt quotes the failure note so the model targets it', () => {

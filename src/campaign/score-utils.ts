@@ -7,15 +7,19 @@
 
 import type { CampaignResult, Scenario } from './types'
 
-/** Mean composite across a campaign: per cell, the mean of its judges'
- *  composites; then the mean across cells. Cells with no judge scores are
- *  skipped. Empty ⇒ 0. */
+/** Mean composite across a campaign: per cell, the mean of its finite,
+ *  successful judge composites; then the mean across cells. Invalid scores
+ *  remain visible on raw cells and coverage receipts but never poison the
+ *  descriptive aggregate with NaN. Cells with no valid scores are skipped.
+ *  Empty ⇒ 0. */
 export function campaignMeanComposite<TArtifact, TScenario extends Scenario>(
   campaign: CampaignResult<TArtifact, TScenario>,
 ): number {
   const composites: number[] = []
   for (const cell of campaign.cells) {
-    const cellComposites = Object.values(cell.judgeScores).map((s) => s.composite)
+    const cellComposites = Object.values(cell.judgeScores)
+      .filter((score) => score.failed !== true && Number.isFinite(score.composite))
+      .map((score) => score.composite)
     if (cellComposites.length > 0) {
       composites.push(cellComposites.reduce((a, b) => a + b, 0) / cellComposites.length)
     }
@@ -48,7 +52,9 @@ export function campaignBreakdown<TArtifact, TScenario extends Scenario>(
   const notesByScenario = new Map<string, Set<string>>()
   const emittedByScenario = new Map<string, { composite: number; text: string }>()
   for (const cell of campaign.cells) {
-    const judgeScores = Object.values(cell.judgeScores)
+    const judgeScores = Object.values(cell.judgeScores).filter(
+      (score) => score.failed !== true && Number.isFinite(score.composite),
+    )
     if (judgeScores.length === 0) continue
     const cellComposite = judgeScores.reduce((a, s) => a + s.composite, 0) / judgeScores.length
     const arr = byScenario.get(cell.scenarioId) ?? []
@@ -79,6 +85,7 @@ export function campaignBreakdown<TArtifact, TScenario extends Scenario>(
     }
     for (const score of judgeScores) {
       for (const [key, value] of Object.entries(score.dimensions)) {
+        if (!Number.isFinite(value)) continue
         dimSums[key] = (dimSums[key] ?? 0) + value
         dimCounts[key] = (dimCounts[key] ?? 0) + 1
       }

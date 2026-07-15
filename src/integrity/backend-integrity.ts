@@ -22,6 +22,7 @@
  *                often the 429-cascade or auth-half-failed case)
  */
 
+import type { CostReceipt } from '../cost-ledger'
 import { AgentEvalError } from '../errors'
 import type { RunRecord } from '../run-record'
 
@@ -60,14 +61,6 @@ export class BackendIntegrityError extends AgentEvalError {
   }
 }
 
-function isStubRecord(rec: RunRecord): boolean {
-  return rec.tokenUsage.input === 0 && rec.tokenUsage.output === 0
-}
-
-function isUncostedRecord(rec: RunRecord): boolean {
-  return rec.tokenUsage.output > 0 && rec.costUsd === 0
-}
-
 /**
  * Inspect a batch of RunRecords and return an integrity report. Pure
  * function — no I/O, no logging. The caller decides what to do with the
@@ -76,6 +69,37 @@ function isUncostedRecord(rec: RunRecord): boolean {
 export function summarizeBackendIntegrity(
   records: ReadonlyArray<RunRecord>,
 ): BackendIntegrityReport {
+  return summarizeBackendUsage(
+    records.map((record) => ({
+      inputTokens: record.tokenUsage.input,
+      outputTokens: record.tokenUsage.output,
+      costUsd: record.costUsd,
+    })),
+  )
+}
+
+/** Inspect settled agent calls from the canonical cost ledger. */
+export function summarizeAgentReceiptIntegrity(
+  receipts: ReadonlyArray<CostReceipt>,
+): BackendIntegrityReport {
+  return summarizeBackendUsage(
+    receipts
+      .filter((receipt) => receipt.channel === 'agent')
+      .map((receipt) => ({
+        inputTokens: receipt.inputTokens,
+        outputTokens: receipt.outputTokens,
+        costUsd: receipt.costUsd,
+      })),
+  )
+}
+
+interface BackendUsage {
+  inputTokens: number
+  outputTokens: number
+  costUsd: number
+}
+
+function summarizeBackendUsage(records: readonly BackendUsage[]): BackendIntegrityReport {
   const totalRecords = records.length
   let stubRecords = 0
   let realRecords = 0
@@ -84,12 +108,12 @@ export function summarizeBackendIntegrity(
   let totalOutputTokens = 0
   let totalCostUsd = 0
   for (const rec of records) {
-    totalInputTokens += rec.tokenUsage.input
-    totalOutputTokens += rec.tokenUsage.output
+    totalInputTokens += rec.inputTokens
+    totalOutputTokens += rec.outputTokens
     totalCostUsd += rec.costUsd
-    if (isStubRecord(rec)) stubRecords++
+    if (rec.inputTokens === 0 && rec.outputTokens === 0) stubRecords++
     else realRecords++
-    if (isUncostedRecord(rec)) uncostedRecords++
+    if (rec.outputTokens > 0 && rec.costUsd === 0) uncostedRecords++
   }
   const verdict: BackendIntegrityReport['verdict'] =
     totalRecords === 0
@@ -168,6 +192,22 @@ export function assertRealBackend(
   opts: { allowMixed?: boolean } = {},
 ): BackendIntegrityReport {
   const report = summarizeBackendIntegrity(records)
+  return assertBackendReport(report, opts)
+}
+
+/** Reject a cost ledger with no real agent call or a partial stub run. */
+export function assertRealAgentReceipts(
+  receipts: ReadonlyArray<CostReceipt>,
+  opts: { allowMixed?: boolean } = {},
+): BackendIntegrityReport {
+  const report = summarizeAgentReceiptIntegrity(receipts)
+  return assertBackendReport(report, opts)
+}
+
+function assertBackendReport(
+  report: BackendIntegrityReport,
+  opts: { allowMixed?: boolean },
+): BackendIntegrityReport {
   const allowMixed = opts.allowMixed ?? true
   if (report.verdict === 'stub') {
     throw new BackendIntegrityError(

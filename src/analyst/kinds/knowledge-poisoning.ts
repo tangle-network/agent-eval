@@ -12,16 +12,19 @@
  * surface as questions / self-correction; poisonings surface as
  * confident-but-wrong actions that downstream evidence contradicts.
  *
- * Recursion is moderate (`maxDepth: 2`) because each candidate
- * poisoning typically needs two sub-investigations: one to confirm
- * the agent acted on the false belief, one to confirm the belief
- * itself is actually false in ground truth.
+ * Eight bounded model subqueries let the actor independently assess
+ * the action and contradiction excerpts for candidate poisonings.
  */
 
+import { findingSubjectGrammarPromptFor } from '../finding-subject'
 import type { TraceAnalystKindSpec } from '../kind-factory'
 import { buildTraceToolsForGroup } from '../tool-groups'
 
+const subjectGrammar = findingSubjectGrammarPromptFor('knowledge-poisoning')
+
 const ACTOR_PROMPT = `You are a knowledge-poisoning analyst for an OTLP trace dataset. Your job is to identify cases where the agent **confidently used wrong information** — not where it lacked information (that's the knowledge-gap analyst).
+
+${subjectGrammar}
 
 DISCOVERY → DUAL-VERIFY → CITE protocol:
 
@@ -39,33 +42,25 @@ DISCOVERY → DUAL-VERIFY → CITE protocol:
    - Confirm the belief is actually false in this trace's own evidence (cite the span that contradicts it)
    Only emit a finding when both halves are nailed down. If you can only nail one, drop it — single-evidence poisoning findings are too speculative to be useful.
 
-**Delegate the dual-verify.** Use the recursion budget so each candidate poisoning gets one subagent investigating "did the agent act?" and one investigating "is the belief false?". After your first scan, fire off N parallel \`llmQuery\` pairs (one cluster per pair). Subagents return their findings; you accept only the ones where BOTH halves of the pair were confirmed.
+**Independently assess both halves.** Load the action excerpt and contradicting excerpt yourself, then send bounded \`llmQuery\` calls the exact evidence for "did the agent act?" and "does the trace contradict the belief?" Subqueries cannot call trace tools. Accept a poisoning only when both assessments and the source excerpts support it.
 
-For each confirmed poisoning, emit ONE finding with:
-- \`area\` = "knowledge-poisoning"
-- \`subject\` = the source of the false belief, one of: \`agent-knowledge:wiki:<page-slug>\` (wiki page contradicts current ground truth), \`agent-knowledge:claim:<topic>\` (a specific claim/relation went stale), \`agent-knowledge:raw:<source-id>\` (the raw source is outdated and the wiki inherited the drift), \`websearch:outdated:<url-or-topic>\`, \`tool-doc:<tool>\`, \`system-prompt:<section>\`, \`memory:<key>\`, \`prior-run-summary:<topic>\`
-- \`claim\` = one sentence: "agent believed X (from source S); evidence in trace shows X is false"
-- \`severity\` = "critical" when poisoning caused a wrong user-visible action; "high" when caught internally but wasted significant work; "medium" for inefficiency only
-- \`evidence_uri\` = \`span://<trace_id>/<span_id>\` of the action span (the moment the agent acted on the false belief)
-- \`evidence_excerpt\` = exact quote of the confident-but-wrong claim or action
-- \`confidence\` = 0.85+ when both halves are exact-quote backed; 0.6-0.8 when one half is inferred
-- \`recommended_action\` = where the source should be updated and how ("Update wiki page \`X\` claim \`Y\` to '...'", "Invalidate raw source \`Z\` and re-curate", "Replace system-prompt section X with 'tool foo now returns Y'")
+For each confirmed poisoning, emit ONE finding. Use the source of the false belief as the exact subject. State "agent believed X (from source S); trace evidence shows X is false." Rate it critical for a wrong user-visible action, high when caught internally after significant waste, and medium for inefficiency. Cite BOTH the action span and the contradicting span with exact quotes. Use confidence 0.85+ when both halves have exact quotes and 0.6-0.8 when one half is inferred. Recommend the literal source correction: update the wiki claim, invalidate and re-curate the raw source, or replace the stale prompt/tool instruction.
 
 Do NOT report a finding if the agent caught and corrected the false belief in the same turn — that's the system working. Reserve poisoning for cases where the false belief shaped downstream action.
 
 OBSERVABILITY rules:
-- Each non-final turn must emit at least one \`console.log\` for evidence.
-- Call \`final({ findings: [...] })\` exactly once at the top level.`
+- Each non-final turn must emit at least one \`console.log\` for evidence.`
 
 export const KNOWLEDGE_POISONING_KIND_SPEC: TraceAnalystKindSpec = {
   id: 'knowledge-poisoning',
   description:
     'Identifies confident-but-wrong actions caused by stale memory, contradicting RAG, deprecated tool docs, or outdated system-prompt instructions.',
   area: 'knowledge-poisoning',
-  version: '1.0.0',
+  version: '1.2.0',
   actorDescription: ACTOR_PROMPT,
   buildTools: (store) => buildTraceToolsForGroup('all', store),
-  recursion: { maxDepth: 2, maxParallelSubagents: 4 },
+  subqueries: { maxCalls: 8, maxParallel: 4 },
   maxTurns: 20,
+  minimumEvidenceCitations: 2,
   cost: { kind: 'llm' },
 }
