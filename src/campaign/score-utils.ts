@@ -5,6 +5,7 @@
  * the optimizers cannot drift on how a surface's score is computed.
  */
 
+import { EMITTED_EVIDENCE_MAX_CHARS } from '../reflective-mutation'
 import type { CampaignResult, Scenario } from './types'
 
 /** Mean composite across a campaign: per cell, the mean of its finite,
@@ -26,10 +27,6 @@ export function campaignMeanComposite<TArtifact, TScenario extends Scenario>(
   }
   return composites.length === 0 ? 0 : composites.reduce((a, b) => a + b, 0) / composites.length
 }
-
-/** Bound on the per-scenario `emitted` excerpt so trajectory evidence cannot
- *  blow the reflection-prompt budget (a run transcript can be megabytes). */
-const EMITTED_MAX_CHARS = 2000
 
 export interface CampaignBreakdown {
   /** Mean score per judge dimension across all cells. */
@@ -69,7 +66,7 @@ export function campaignBreakdown<TArtifact, TScenario extends Scenario>(
       if (!prev || cellComposite < prev.composite) {
         emittedByScenario.set(cell.scenarioId, {
           composite: cellComposite,
-          text: cell.artifact.slice(0, EMITTED_MAX_CHARS),
+          text: cell.artifact.slice(0, EMITTED_EVIDENCE_MAX_CHARS),
         })
       }
     }

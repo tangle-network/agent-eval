@@ -19,6 +19,11 @@
 
 import { autoCloseTruncatedJson } from './json-recovery'
 
+/** Bound on rendered/carried `emitted` evidence. ONE constant shared by the
+ *  producer (campaignBreakdown's per-scenario excerpt) and this renderer — if
+ *  the two drifted, the tighter side would silently re-clip carried evidence. */
+export const EMITTED_EVIDENCE_MAX_CHARS = 2000
+
 export interface TrialTrace {
   /** Stable id for the trial — surfaces in the prompt for grounding. */
   id: string
@@ -114,9 +119,7 @@ export function buildReflectionPrompt(ctx: ReflectionContext): string {
         sections.push('')
         sections.push('**What the agent emitted:**')
         sections.push('```')
-        // Matches the campaign breakdown's 2000-char emitted bound — rendering
-        // less than the evidence carried would silently re-blind the proposer.
-        sections.push(truncate(trial.emitted, 2000))
+        sections.push(truncate(trial.emitted, EMITTED_EVIDENCE_MAX_CHARS))
         sections.push('```')
       }
       sections.push('')
