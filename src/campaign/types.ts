@@ -264,7 +264,11 @@ export interface ScoredSurfaceOutcome {
   surfaceHash: string
   composite: number
   dimensions: Record<string, number>
-  scenarios: Array<{ scenarioId: string; composite: number; notes?: string }>
+  /** Same per-scenario carrier shape as `GenerationCandidate.scenarios` and
+   *  `CampaignBreakdown.scenarios`: judge notes (the "why") + an optional
+   *  bounded `emitted` excerpt of the candidate's raw output (the "what it
+   *  actually did"). Copied verbatim from the measuring campaign's breakdown. */
+  scenarios: Array<{ scenarioId: string; composite: number; notes?: string; emitted?: string }>
   coverage: {
     expectedCells: number
     scorableCells: number
