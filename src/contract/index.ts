@@ -118,6 +118,7 @@ export type {
 
 // ── Campaign primitives ──────────────────────────────────────────────
 
+export { campaignSplitDigest } from '../campaign/coverage'
 export { type RunEvalOptions, runEval } from '../campaign/presets/run-eval'
 export {
   type RunImprovementLoopOptions,

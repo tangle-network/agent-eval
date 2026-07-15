@@ -295,8 +295,10 @@ export {
 // pass-rate never silently masks a misconfigured runtime.
 export type { BackendIntegrityReport } from './integrity/backend-integrity'
 export {
+  assertRealAgentReceipts,
   assertRealBackend,
   BackendIntegrityError,
+  summarizeAgentReceiptIntegrity,
   summarizeBackendIntegrity,
 } from './integrity/backend-integrity'
 // Pre-hoc complement to assertRealBackend: verify the campaign's models are

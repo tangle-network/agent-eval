@@ -22,7 +22,8 @@ try {
   mkdirSync(unpackDir, { recursive: true })
   mkdirSync(join(appDir, 'node_modules', '@tangle-network'), { recursive: true })
 
-  run('pnpm', ['pack', '--pack-destination', packDir], repoRoot)
+  // Verify the same archive implementation used by the release workflow.
+  run('npm', ['pack', '--pack-destination', packDir], repoRoot)
   const tarballs = run('find', [packDir, '-maxdepth', '1', '-name', '*.tgz', '-print'], repoRoot)
     .trim()
     .split('\n')

@@ -35,6 +35,11 @@ export interface Scenario {
   tags?: string[]
 }
 
+/** Redacted identity of a complete scenario payload retained in campaign results. */
+export interface CampaignScenarioIdentity extends Pick<Scenario, 'id' | 'kind'> {
+  scenarioDigest: `sha256:${string}`
+}
+
 /** Context handed to every dispatch invocation. Scoped — every
  *  trace/span carries the cellId, every artifact write lands under the cell's
  *  artifact root, the cost meter accumulates per cell. */
@@ -678,7 +683,11 @@ export interface CampaignAggregates {
 export interface CampaignResult<TArtifact = unknown, TScenario extends Scenario = Scenario> {
   /** sha256(scenarios, judges, dispatch source ref, optimizer config, seed). Stable identity for reruns. */
   manifestHash: string
+  /** Canonical identity of the exact scenario payloads and replicate count. */
+  splitDigest: `sha256:${string}`
   seed: number
+  /** Replicates designed for every scenario in this campaign. */
+  reps: number
   startedAt: string
   endedAt: string
   durationMs: number
@@ -692,9 +701,7 @@ export interface CampaignResult<TArtifact = unknown, TScenario extends Scenario 
   prUrl?: string
   runDir: string
   artifactsByPath: Record<string, string>
-  /** Substrate strips the input scenarios to id+kind for the result manifest;
-   *  consumers needing full payload look it up via the original input. The
-   *  type parameter `TScenario` is propagated for downstream consumers that
-   *  want narrowed types when extending `CampaignResult`. */
-  scenarios: Array<Pick<TScenario, 'id' | 'kind'>>
+  /** Redacted identities that let consumers verify the exact scenario payloads
+   *  without retaining customer task content in the result. */
+  scenarios: Array<CampaignScenarioIdentity & Pick<TScenario, 'id' | 'kind'>>
 }

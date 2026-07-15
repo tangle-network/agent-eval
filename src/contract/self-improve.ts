@@ -34,17 +34,16 @@ import { gepaProposer } from '../campaign/proposers/gepa'
 import {
   emitLoopProvenance,
   type LoopProvenanceRecord,
-  surfaceContentHash,
+  loopProvenanceArgsFromResult,
 } from '../campaign/provenance'
 import { resolveRunDir } from '../campaign/run-dir'
-import { campaignMeanComposite } from '../campaign/score-utils'
 import {
   type CampaignStorage,
   createRunCostLedger,
   fsCampaignStorage,
   inMemoryCampaignStorage,
 } from '../campaign/storage'
-import { surfaceHash } from '../campaign/surface-identity'
+import { surfaceContentHash, surfaceHash } from '../campaign/surface-identity'
 import type {
   CampaignCellResult,
   DispatchContext,
@@ -170,18 +169,6 @@ export interface SelfImproveOptions<TScenario extends Scenario, TArtifact> {
    *  Default `mem://selfImprove-<timestamp>` (in-memory, non-durable). Pass a
    *  real path to persist the provenance record + spans. */
   runDir?: string
-
-  /**
-   * Worker call records for backend provenance. The agent is opaque to the
-   * substrate (it returns an artifact, not token usage), so to capture an
-   * `assertRealBackend`-grade verdict + worker call count + model in the
-   * provenance record, the agent reports its per-call `RunRecord`s here.
-   * Called once after the loop; return the records the agent accumulated.
-   * When unset, backend provenance is derived from campaign cells (cost only;
-   * verdict will read `stub` without token usage — the honest signal that no
-   * token channel was wired).
-   */
-  collectWorkerRecords?: () => RunRecord[]
 
   /** Fires once the durable provenance record + OTel spans are emitted.
    *  Receives the structured record for inline assertions / custom routing. */
@@ -578,31 +565,17 @@ async function runSelfImprove<TScenario extends Scenario, TArtifact>(
   // ── Durable provenance: candidate→cell→gate→promote chain + rationale +
   // diff + backend provenance. Always emitted; the +lift recomputes from it.
   const durationMs = Date.now() - startedAt
-  const workerRecords =
-    opts.collectWorkerRecords?.() ??
-    cellsToRunRecords(result.winnerOnHoldout.cells, 'winner', runDir, result.winnerSurface)
   const { record: provenance } = await emitLoopProvenance<TArtifact, TScenario>({
-    runId: `${runDir}#${startedAt}`,
-    runDir,
-    timestamp: new Date(startedAt).toISOString(),
-    baselineSurface: opts.baselineSurface,
-    winnerSurface: result.winnerSurface,
-    winnerLabel: result.winnerLabel,
-    winnerRationale: result.winnerRationale,
-    diff: result.promotedDiff,
-    baselineSearchComposite: campaignMeanComposite(result.baselineCampaign),
-    generations: result.generations.map((g) => ({
-      generationIndex: g.record.generationIndex,
-      candidates: g.record.candidates,
-      promoted: g.record.promoted,
-      surfaces: g.surfaces.map((s) => ({ surfaceHash: s.surfaceHash, surface: s.surface })),
-    })),
-    gate: result.gateResult,
-    baselineOnHoldout: result.baselineOnHoldout,
-    winnerOnHoldout: result.winnerOnHoldout,
-    workerRecords,
-    totalCostUsd: totalCost,
-    totalDurationMs: durationMs,
+    ...loopProvenanceArgsFromResult({
+      runId: `${runDir}#${startedAt}`,
+      runDir,
+      timestamp: new Date(startedAt).toISOString(),
+      baselineSurface: opts.baselineSurface,
+      result,
+      costReceipts: costLedger.list(),
+      totalCostUsd: totalCost,
+      totalDurationMs: durationMs,
+    }),
     storage,
     hostedClient: opts.hostedTenant ? createHostedClient(opts.hostedTenant) : undefined,
   })
@@ -809,7 +782,17 @@ function cellsToRunRecords<TArtifact>(
       commitSha: 'cell',
       wallMs: cell.durationMs,
       costUsd: cell.costUsd,
-      tokenUsage: { input: 0, output: 0 },
+      tokenUsage: {
+        input: cell.tokenUsage.input,
+        output: cell.tokenUsage.output,
+        ...(cell.tokenUsage.reasoning === undefined
+          ? {}
+          : { reasoning: cell.tokenUsage.reasoning }),
+        ...(cell.tokenUsage.cached === undefined ? {} : { cached: cell.tokenUsage.cached }),
+        ...(cell.tokenUsage.cacheWrite === undefined
+          ? {}
+          : { cacheWrite: cell.tokenUsage.cacheWrite }),
+      },
       outcome: {
         holdoutScore: composite,
         raw: {},

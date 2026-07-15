@@ -58,6 +58,13 @@ export {
   type OpenAutoPrResult,
   openAutoPr,
 } from './auto-pr'
+export {
+  assertCampaignDesign,
+  assertCampaignSplitIdentity,
+  campaignScenarioIdentity,
+  campaignSplitDigest,
+  campaignSplitDigestFromIdentities,
+} from './coverage'
 // ── Cross-surface interaction matrix + frozen bundle selection ──────
 export { analyzeCrossSurfaceInteractions } from './cross-surface-interaction'
 export type {
@@ -207,7 +214,6 @@ export {
 } from './presets/playback'
 export { type RunEvalOptions, runEval } from './presets/run-eval'
 export {
-  defaultRenderDiff,
   type RunImprovementLoopOptions,
   type RunImprovementLoopResult,
   runImprovementLoop,
@@ -223,7 +229,6 @@ export {
   type RunOptimizationOptions,
   type RunOptimizationResult,
   runOptimization,
-  surfaceHash,
 } from './presets/run-optimization'
 export {
   type ProfileDispatchFn,
@@ -315,16 +320,20 @@ export { type TraceAnalystProposerOptions, traceAnalystProposer } from './propos
 export {
   type BuildLoopProvenanceArgs,
   buildLoopProvenanceRecord,
+  campaignMeasurementDigest,
   type EmitLoopProvenanceArgs,
   type EmitLoopProvenanceResult,
   emitLoopProvenance,
+  type LoopProvenanceArgsFromResult,
   type LoopProvenanceBackend,
   type LoopProvenanceCandidate,
+  type LoopProvenanceEvidence,
   type LoopProvenanceRecord,
+  loopProvenanceArgsFromResult,
   loopProvenanceSpans,
   provenanceRecordPath,
   provenanceSpansPath,
-  surfaceContentHash,
+  verifyLoopProvenanceRecord,
 } from './provenance'
 export {
   type CampaignRunPlan,
@@ -409,6 +418,9 @@ export {
 export {
   assertCodeSurfaceIdentity,
   codeSurfaceIdentityMaterial,
+  renderSurfaceDiff,
+  surfaceContentHash,
+  surfaceHash,
 } from './surface-identity'
 export { isTransientTransportFailure, type TransientFailureOptions } from './transient-failure'
 export type {
@@ -417,6 +429,7 @@ export type {
   CampaignCellResult,
   CampaignCostMeter,
   CampaignResult,
+  CampaignScenarioIdentity,
   CampaignTokenUsage,
   CampaignTraceWriter,
   CodeSurface,

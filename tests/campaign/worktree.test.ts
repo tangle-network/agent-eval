@@ -12,8 +12,7 @@ import {
 import { devNull, tmpdir } from 'node:os'
 import { basename, dirname, join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { surfaceHash } from '../../src/campaign/presets/run-optimization'
-import { surfaceContentHash } from '../../src/campaign/provenance'
+import { surfaceContentHash, surfaceHash } from '../../src/campaign/surface-identity'
 import {
   gitWorktreeAdapter,
   resolveWorktreePath,
