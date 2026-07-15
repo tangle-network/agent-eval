@@ -152,6 +152,7 @@ describe('runOptimization selection integrity', () => {
     })
 
     expect(seen).toEqual(['BASE', 'BASE'])
+    expect(result.generations).toHaveLength(1)
     expect(result.generations[0]!.record.promoted).toEqual([])
     expect(result.winnerSurface).toBe('BASE')
     expect(result.winnerSurfaceHash).toBe(surfaceHash('BASE'))

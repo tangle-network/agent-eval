@@ -249,6 +249,7 @@ export async function runOptimization<TScenario extends Scenario, TArtifact>(
       costLedger,
       costPhase: 'search.proposal',
     })
+    if (proposed.length === 0) break
 
     // Normalize: a proposer may return bare surfaces (blind mutators) or
     // `ProposedCandidate`s carrying {label, rationale}. Keep the rationale so
@@ -449,8 +450,6 @@ function computeParetoFrontier(scored: ParetoParent[]): ParetoParent[] {
   }))
   return paretoFrontier(scored, objectives).frontier
 }
-
-export { surfaceHash } from '../surface-identity'
 
 function toScoredSurfaceOutcome<TArtifact, TScenario extends Scenario>(
   surfaceHash: string,

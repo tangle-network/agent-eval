@@ -199,7 +199,7 @@ export function defaultProductionGate<TArtifact, TScenario extends Scenario>(
         detail: {
           candidateUsd: ctx.cost.candidate,
           baselineUsd: ctx.cost.baseline,
-          budgetUsd: options.budgetUsd,
+          ...(options.budgetUsd === undefined ? {} : { budgetUsd: options.budgetUsd }),
         },
       })
       if (!budgetPass) {

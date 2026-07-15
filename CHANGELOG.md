@@ -6,8 +6,18 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ## [0.120.0] — 2026-07-14 — exact measured provenance
 
-- Require the exact baseline surface and bind portable evidence to the winner, raw heldout measurements, decision, diff, cost ledger, receipts, duration, power analysis, and generation count.
-- Reject contradictory provenance, broken cell identity or pairing, failed judges, and invalid cost, latency, or token measurements before products can publish an improvement proposal.
+### Changed
+
+- Give each campaign a canonical split digest over the full scenario payload and replicate count, and require the exported benchmark to identify that exact heldout design.
+- Emit self-addressed `tangle.loop-provenance` records from one shared loop-result translator, and derive prompt or code diffs from the exact measured surfaces instead of accepting caller-authored text.
+- Retain one strict hash per scenario so consumers can verify the tested split without persisting customer task payloads.
+
+### Breaking
+
+- Require the exact baseline surface and bind portable evidence to every search, winner, heldout, and neutralized campaign; the full decision; the reconstructed receipt ledger; duration; power analysis; and validated candidate history.
+- Require every scored row to link to a successful model receipt; reject contradictory provenance, duplicate scenarios, broken cell identity or pairing, failed judges, and invalid cost, latency, or token measurements before products can publish an improvement proposal.
+- Stop optimization when a proposer returns no candidates, reject empty or non-contiguous generation records, and refuse a shipped no-op.
+- Remove the duplicate worker-record collector and caller-authored diff hook; settled receipts and exact surfaces are now the only evidence path.
 - Verify the same npm archive implementation used by the release workflow.
 
 ## [0.119.1] — 2026-07-14 — portable improvement evidence
@@ -133,8 +143,7 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 - `runOptimization({ promoteTopK })` accepts only `1`; multiple concurrent incumbents were never represented by the optimizer state and now fail before dispatch.
 - `ScoredSurfaceOutcome` requires `split: 'search'` and the actual `generation` that measured the surface.
 - `llmPolicyEditProposer()` requires explicit raw-score objectives and `PolicyEditFindingInput` rows whose source is either an exact measured surface-generation pair or an explicitly global finding.
-- `LoopProvenanceRecord.schema` is now `tangle.loop-provenance.v3`.
-  Consumers of v2 records must migrate to the v3 baseline score, parent chain, coverage, eligibility, and exact surface fields; no compatibility shim is provided.
+- Loop provenance preserves complete candidate measurement lineage: baseline score, parent chain, coverage, eligibility, and exact surface fields.
 
 ## [0.115.3] — 2026-07-12 — fail-closed structured output parsing
 
@@ -198,7 +207,7 @@ Existing consumers do not need to update unless they want the new statistic.
 - `CodeSurface` is now a finalized, content-addressed code candidate.
   `gitWorktreeAdapter.finalize()` records exact base/candidate commits, the final tree, and the SHA-256 + byte length of the raw binary Git patch; `surfaceHash` and `surfaceContentHash` no longer use filesystem paths.
   Binary-patch generation runs against an isolated bare repository with fixed diff options, config, attributes, compression, and locale, so ambient repository, global, system, or environment settings cannot change the digest for identical trees.
-- `LoopProvenanceRecord.schema` is now `tangle.loop-provenance.v2`, distinguishing records that use content-addressed code-surface hashes from v1 records whose code hashes included mutable paths.
+- Code-surface provenance now uses content-addressed hashes instead of mutable paths.
 - `resolveWorktreePath()` now verifies the candidate before returning its checkout.
   Dirty or ignored files, moved refs, missing objects, wrong trees, raw byte or executable-mode mismatches, external symlinks, submodules, and patch-byte mismatches fail instead of being evaluated under stale identity.
   Raw file hashing bypasses Git clean/smudge filters so repository configuration cannot hide different executable bytes.

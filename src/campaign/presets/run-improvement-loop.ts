@@ -20,17 +20,18 @@
  *
  * Hard-refuses unsafe configurations:
  *   - `tracing: 'off'` when a proposer is wired (improvement is unattributable)
- *   - `autoOnPromote: 'config'` — DEFERRED to Pass B; v0.40 only ships
- *     `'pr'` and `'none'`.
+ *   - `autoOnPromote: 'config'` — live mutation is unsupported without
+ *     isolated deployment, rollback, and independent validation.
  */
 
 import { openAutoPr } from '../auto-pr'
 import { campaignCoverage, formatCoverageFailures } from '../coverage'
 import { resolveRunDir } from '../run-dir'
 import { createRunCostLedger, fsCampaignStorage } from '../storage'
+import { renderSurfaceDiff, surfaceHash } from '../surface-identity'
 import type { CampaignResult, Gate, MutableSurface, Scenario } from '../types'
 import type { RunOptimizationOptions, RunOptimizationResult } from './run-optimization'
-import { runOptimization, surfaceHash } from './run-optimization'
+import { runOptimization } from './run-optimization'
 
 /** Default per-cell dispatch deadline (10 min). Generous enough that only a
  *  true hang trips it; a single agent turn that legitimately needs longer can
@@ -52,15 +53,11 @@ export type RunImprovementLoopOptions<
   /** What to do when the gate ships:
    *   - `'pr'`: open a PR via `openAutoPr`
    *   - `'none'`: just report — caller decides what to do with the winner
-   *  v0.40 does NOT support `'config'` (live-runtime self-mutation) —
-   *  deferred to Pass B behind safety stack. */
+   *  Live-runtime self-mutation is intentionally unsupported. */
   autoOnPromote: 'pr' | 'none'
   /** GH owner / repo for the auto-PR. Required when autoOnPromote === 'pr'. */
   ghOwner?: string
   ghRepo?: string
-  /** Optional render override — substrate writes a diff-shaped surface; pass
-   *  a function to format the promoted surface differently. */
-  renderPromotedDiff?: (winnerSurface: MutableSurface, baselineSurface: MutableSurface) => string
   /** Placebo control. When supplied AND the winner differs from baseline, the
    *  loop scores a THIRD holdout arm: the winner surface with its content
    *  footprint-matched-blanked by this function (typically via `neutralizeText`).
@@ -75,6 +72,8 @@ export interface RunImprovementLoopResult<TArtifact, TScenario extends Scenario>
   extends RunOptimizationResult<TArtifact, TScenario> {
   baselineOnHoldout: CampaignResult<TArtifact, TScenario>
   winnerOnHoldout: CampaignResult<TArtifact, TScenario>
+  neutralizedOnHoldout?: CampaignResult<TArtifact, TScenario>
+  neutralizedSurface?: MutableSurface
   gateResult: Awaited<ReturnType<Gate<TArtifact, TScenario>['decide']>>
   /** Unified baseline→winner surface diff. Computed UNCONDITIONALLY (not only
    *  when `autoOnPromote === 'pr'`) so the diff that the gate decided on is
@@ -93,7 +92,7 @@ export async function runImprovementLoop<TScenario extends Scenario, TArtifact>(
   // ── Safety pre-flight ─────────────────────────────────────────────
   if ((opts as { autoOnPromote?: string }).autoOnPromote === 'config') {
     throw new Error(
-      "runImprovementLoop: autoOnPromote='config' is deferred to Pass B (requires shadow deploy + rollback + ensemble judges). Use 'pr' or 'none' in v0.40.",
+      "runImprovementLoop: autoOnPromote='config' requires isolated deployment, rollback, and independent validation. Use 'pr' or 'none'.",
     )
   }
   // Refuse tracing=off whenever a proposer is wired. An improvement loop
@@ -241,15 +240,18 @@ export async function runImprovementLoop<TScenario extends Scenario, TArtifact>(
   // is no content to blank) and when no `neutralize` is supplied.
   let neutralizedArtifacts: Map<string, TArtifact> | undefined
   let neutralizedJudgeScores: ScoreMap | undefined
+  let neutralizedOnHoldout: CampaignResult<TArtifact, TScenario> | undefined
+  let neutralizedSurface: MutableSurface | undefined
   if (opts.neutralize && !winnerIsBaseline) {
-    const neutralizedSurface = opts.neutralize(optimization.winnerSurface, opts.baselineSurface)
-    const neutralizedOnHoldout = await runCampaign<TScenario, TArtifact>({
+    const surface = opts.neutralize(optimization.winnerSurface, opts.baselineSurface)
+    neutralizedSurface = surface
+    neutralizedOnHoldout = await runCampaign<TScenario, TArtifact>({
       ...opts,
       costLedger,
       costPhase: 'holdout.neutralized',
       dispatchTimeoutMs,
       scenarios: opts.holdoutScenarios,
-      dispatch: (scenario, ctx) => opts.dispatchWithSurface(neutralizedSurface, scenario, ctx),
+      dispatch: (scenario, ctx) => opts.dispatchWithSurface(surface, scenario, ctx),
       runDir: `${opts.runDir}/holdout-neutralized`,
     })
     assertCompleteHoldout('neutralized', neutralizedOnHoldout)
@@ -297,11 +299,10 @@ export async function runImprovementLoop<TScenario extends Scenario, TArtifact>(
   // The diff is computed UNCONDITIONALLY — it's the human-auditable record of
   // what the loop actually changed, needed for the provenance artifact whether
   // or not a PR is opened. winner == baseline ⇒ empty diff (nothing changed).
-  const render = opts.renderPromotedDiff ?? defaultRenderDiff
   const promotedDiff =
     optimization.winnerSurfaceHash === surfaceHash(opts.baselineSurface)
       ? ''
-      : render(optimization.winnerSurface, opts.baselineSurface)
+      : renderSurfaceDiff(optimization.winnerSurface, opts.baselineSurface)
 
   let prResult: ReturnType<typeof openAutoPr> | undefined
   if (opts.autoOnPromote === 'pr' && gateResult.decision === 'ship') {
@@ -318,33 +319,12 @@ export async function runImprovementLoop<TScenario extends Scenario, TArtifact>(
     ...optimization,
     baselineOnHoldout,
     winnerOnHoldout,
+    ...(neutralizedOnHoldout && neutralizedSurface
+      ? { neutralizedOnHoldout, neutralizedSurface }
+      : {}),
     gateResult,
     promotedDiff,
     prResult,
     cost: costLedger.summary(),
   }
-}
-
-/**
- * Default surface diff renderer: produces a unified baseline/winner text diff for prompt surfaces or a worktree-ref summary for code surfaces.
- */
-export function defaultRenderDiff(
-  winnerSurface: MutableSurface,
-  baselineSurface: MutableSurface,
-): string {
-  // Code surfaces aren't text-diffable here — the diff lives in git. Render
-  // the worktree/base refs + summary so the PR body points at the change.
-  if (typeof winnerSurface !== 'string' || typeof baselineSurface !== 'string') {
-    const fmt = (s: MutableSurface): string =>
-      typeof s === 'string'
-        ? '(prompt surface)'
-        : `worktree=${s.worktreeRef}${s.baseRef ? ` base=${s.baseRef}` : ''}${s.summary ? `\n${s.summary}` : ''}`
-    return `--- baseline\n${fmt(baselineSurface)}\n+++ winner\n${fmt(winnerSurface)}`
-  }
-  const lines: string[] = []
-  lines.push('--- baseline')
-  lines.push('+++ winner')
-  for (const l of baselineSurface.split('\n')) lines.push(`- ${l}`)
-  for (const l of winnerSurface.split('\n')) lines.push(`+ ${l}`)
-  return lines.join('\n')
 }

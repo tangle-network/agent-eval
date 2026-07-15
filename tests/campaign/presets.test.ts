@@ -5,6 +5,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   buildLoopProvenanceRecord,
   type CodeSurface,
+  campaignScenarioIdentity,
+  campaignSplitDigestFromIdentities,
   composeGate,
   type DispatchFn,
   defaultProductionGate,
@@ -46,7 +48,7 @@ function fakeCodeSurface(worktreeRef: string, identityDigit: string): CodeSurfac
   }
 }
 
-import type { RunRecord } from '../../src/run-record'
+import type { CostReceipt } from '../../src/cost-ledger'
 
 interface FakeScenario extends Scenario {
   id: string
@@ -83,6 +85,42 @@ beforeEach(() => {
 afterEach(() => {
   rmSync(runDir, { recursive: true, force: true })
 })
+
+function provenanceFixtureCampaign(composite: number, suffix: string) {
+  const scenario = campaignScenarioIdentity<FakeScenario>({
+    id: 'h1',
+    kind: 'fixture',
+    intent: 'fixture',
+  })
+  return {
+    manifestHash: `fixture-${suffix}`,
+    splitDigest: campaignSplitDigestFromIdentities([scenario], 1),
+    seed: 1,
+    reps: 1,
+    startedAt: '2026-05-30T00:00:00.000Z',
+    endedAt: '2026-05-30T00:00:00.005Z',
+    cells: [
+      {
+        cellId: 'h1:0',
+        scenarioId: 'h1',
+        rep: 0,
+        artifact: {},
+        judgeScores: { j: { composite, dimensions: { q: composite }, notes: '' } },
+        costUsd: 0.01,
+        costCallIds: [],
+        tokenUsage: { input: 10, output: 5 },
+        durationMs: 5,
+        seed: 1,
+        cached: false,
+      },
+    ],
+    aggregates: { totalCostUsd: 0.01 },
+    durationMs: 5,
+    runDir: `${runDir}/${suffix}`,
+    artifactsByPath: {},
+    scenarios: [scenario],
+  } as never
+}
 
 // ── runEval ────────────────────────────────────────────────────────
 
@@ -395,24 +433,20 @@ describe('loop provenance emission (transaction-extraction shape, offline)', () 
     }) as unknown as typeof fetch
   }
 
-  // Real-shaped worker records (nonzero tokens) so the backend verdict reads
-  // 'real' — the honest provenance an actual router run would carry.
-  function workerRecords(): RunRecord[] {
+  function costReceipts(): CostReceipt[] {
     return [
       {
-        runId: 'wr-1',
-        experimentId: 'prov-test',
-        candidateId: 'winner',
-        seed: 7,
+        callId: 'worker-1',
+        channel: 'agent',
+        phase: 'holdout.candidate',
+        actor: 'worker',
         model: 'anthropic/claude-haiku-4-5@2025-01-01',
-        promptHash: 'sha256:x',
-        configHash: 'sha256:y',
-        commitSha: 'local',
-        wallMs: 10,
+        timestamp: 1,
+        status: 'settled',
+        inputTokens: 120,
+        outputTokens: 40,
         costUsd: 0.001,
-        tokenUsage: { input: 120, output: 40 },
-        outcome: { holdoutScore: 1, raw: {} },
-        splitTag: 'holdout',
+        costUnknown: false,
       },
     ]
   }
@@ -468,18 +502,21 @@ describe('loop provenance emission (transaction-extraction shape, offline)', () 
       winnerSurface: result.winnerSurface,
       winnerLabel: result.winnerLabel,
       winnerRationale: result.winnerRationale,
-      diff: result.promotedDiff,
-      baselineSearchComposite: 0,
+      baselineSearchCampaign: result.baselineCampaign,
       generations: result.generations.map((g) => ({
         generationIndex: g.record.generationIndex,
         candidates: g.record.candidates,
         promoted: g.record.promoted,
-        surfaces: g.surfaces.map((s) => ({ surfaceHash: s.surfaceHash, surface: s.surface })),
+        surfaces: g.surfaces.map((s) => ({
+          surfaceHash: s.surfaceHash,
+          surface: s.surface,
+          campaign: s.campaign,
+        })),
       })),
       gate: result.gateResult,
       baselineOnHoldout: result.baselineOnHoldout,
       winnerOnHoldout: result.winnerOnHoldout,
-      workerRecords: workerRecords(),
+      costReceipts: costReceipts(),
       totalCostUsd: 0.001,
       totalDurationMs: 1234,
       storage,
@@ -500,7 +537,7 @@ describe('loop provenance emission (transaction-extraction shape, offline)', () 
 
     // (4) the structured record + OTel spans are DURABLE (written to storage).
     expect(storage.read(recordPath)).toBeDefined()
-    expect(JSON.parse(storage.read(recordPath)!).schema).toBe('tangle.loop-provenance.v3')
+    expect(JSON.parse(storage.read(recordPath)!).schema).toBe('tangle.loop-provenance')
     const spanLines = storage.read(spansPath)!.split('\n')
     expect(spanLines.length).toBe(spans.length)
     // Spans pivot on the OTLP-ingestable tangle.* attributes the otel adapter reads.
@@ -546,27 +583,24 @@ describe('loop provenance emission (transaction-extraction shape, offline)', () 
       timestamp: '2026-05-30T00:00:00.000Z',
       baselineSurface: 'BASE',
       winnerSurface: 'BASE',
-      diff: '',
-      baselineSearchComposite: 0,
+      baselineSearchCampaign: provenanceFixtureCampaign(0, 'stub-search'),
       generations: [],
       gate: { decision: 'hold', reasons: [], contributingGates: [] },
-      baselineOnHoldout: { cells: [] } as never,
-      winnerOnHoldout: { cells: [] } as never,
-      workerRecords: [
+      baselineOnHoldout: provenanceFixtureCampaign(0, 'stub-holdout-baseline'),
+      winnerOnHoldout: provenanceFixtureCampaign(0, 'stub-holdout-winner'),
+      costReceipts: [
         {
-          runId: 'c',
-          experimentId: 'e',
-          candidateId: 'winner',
-          seed: 1,
+          callId: 'stub-1',
+          channel: 'agent',
+          phase: 'holdout.candidate',
+          actor: 'worker',
           model: 'campaign-cell',
-          promptHash: 'sha256:p',
-          configHash: 'sha256:c',
-          commitSha: 'cell',
-          wallMs: 1,
+          timestamp: 1,
+          status: 'settled',
+          inputTokens: 0,
+          outputTokens: 0,
           costUsd: 0,
-          tokenUsage: { input: 0, output: 0 },
-          outcome: { holdoutScore: 0, raw: {} },
-          splitTag: 'holdout',
+          costUnknown: false,
         },
       ],
       totalCostUsd: 0,
@@ -585,8 +619,7 @@ describe('loop provenance emission (transaction-extraction shape, offline)', () 
       baselineSurface: 'BASE',
       winnerSurface: 'BASE NEW',
       winnerRationale: 'r',
-      diff: '--- baseline\n+++ winner',
-      baselineSearchComposite: 0,
+      baselineSearchCampaign: provenanceFixtureCampaign(0, 'tree-search-baseline'),
       generations: [
         {
           generationIndex: 0,
@@ -607,13 +640,19 @@ describe('loop provenance emission (transaction-extraction shape, offline)', () 
             },
           ],
           promoted: [surfaceHash('BASE NEW')],
-          surfaces: [{ surfaceHash: surfaceHash('BASE NEW'), surface: 'BASE NEW' }],
+          surfaces: [
+            {
+              surfaceHash: surfaceHash('BASE NEW'),
+              surface: 'BASE NEW',
+              campaign: provenanceFixtureCampaign(1, 'tree-search-candidate'),
+            },
+          ],
         },
       ],
       gate: { decision: 'ship', reasons: ['ok'], delta: 1, contributingGates: [] },
-      baselineOnHoldout: { cells: [] } as never,
-      winnerOnHoldout: { cells: [] } as never,
-      workerRecords: [],
+      baselineOnHoldout: provenanceFixtureCampaign(0, 'tree-holdout-baseline'),
+      winnerOnHoldout: provenanceFixtureCampaign(1, 'tree-holdout-winner'),
+      costReceipts: [],
       totalCostUsd: 0,
       totalDurationMs: 1,
     })
@@ -842,14 +881,14 @@ describe('runImprovementLoop — safety pre-flight', () => {
     ).rejects.toThrow(/ghOwner/)
   })
 
-  it('refuses Pass B autoOnPromote=config (deferred)', async () => {
+  it('refuses live config mutation without deployment safeguards', async () => {
     await expect(
       runImprovementLoop({
         ...baseOpts,
         autoOnPromote: 'config' as never,
         runDir,
       }),
-    ).rejects.toThrow(/Pass B/)
+    ).rejects.toThrow(/isolated deployment, rollback, and independent validation/)
   })
 })
 
@@ -1277,24 +1316,7 @@ describe('MutableSurface widening', () => {
 
 describe('emitLoopProvenance — hosted ingest (eval-run + traces)', () => {
   function mkHoldout(composite: number) {
-    return {
-      cells: [
-        {
-          cellId: 'h1:0',
-          scenarioId: 'h1',
-          rep: 0,
-          artifact: {},
-          judgeScores: { j: { composite, dimensions: { q: composite }, notes: '' } },
-          costUsd: 0.01,
-          tokenUsage: { input: 10, output: 5 },
-          durationMs: 5,
-          seed: 1,
-          cached: false,
-        },
-      ],
-      aggregates: { totalCostUsd: 0.01 },
-      durationMs: 5,
-    } as never
+    return provenanceFixtureCampaign(composite, `hosted-${composite}`)
   }
 
   it('ships an eval-run event (run list) AND trace spans (drill-down)', async () => {
@@ -1325,8 +1347,7 @@ describe('emitLoopProvenance — hosted ingest (eval-run + traces)', () => {
       winnerSurface: 'BASE BETTER',
       winnerLabel: 'fix',
       winnerRationale: 'because',
-      diff: '--- baseline\n+++ winner',
-      baselineSearchComposite: 0,
+      baselineSearchCampaign: mkHoldout(0),
       generations: [
         {
           generationIndex: 0,
@@ -1347,13 +1368,19 @@ describe('emitLoopProvenance — hosted ingest (eval-run + traces)', () => {
             },
           ],
           promoted: [surfaceHash('BASE BETTER')],
-          surfaces: [{ surfaceHash: surfaceHash('BASE BETTER'), surface: 'BASE BETTER' }],
+          surfaces: [
+            {
+              surfaceHash: surfaceHash('BASE BETTER'),
+              surface: 'BASE BETTER',
+              campaign: mkHoldout(1),
+            },
+          ],
         },
       ],
       gate: { decision: 'ship', reasons: ['ok'], delta: 0.5, contributingGates: [] },
       baselineOnHoldout: mkHoldout(0.5),
       winnerOnHoldout: mkHoldout(1.0),
-      workerRecords: [],
+      costReceipts: [],
       totalCostUsd: 0.02,
       totalDurationMs: 10,
       storage: inMemoryCampaignStorage(),

@@ -8,9 +8,10 @@ import {
   validatePolicyEditCandidateRecord,
 } from '../../src/analyst/policy-edit'
 import { makeFinding } from '../../src/analyst/types'
-import { runOptimization, surfaceHash } from '../../src/campaign/presets/run-optimization'
+import { runOptimization } from '../../src/campaign/presets/run-optimization'
 import { policyEditProposer } from '../../src/campaign/proposers/policy-edit'
 import { buildLoopProvenanceRecord } from '../../src/campaign/provenance'
+import { surfaceHash } from '../../src/campaign/surface-identity'
 import type { CodeSurface, JudgeConfig, ProposeContext, Scenario } from '../../src/campaign/types'
 
 const CODE_IDENTITY = {
@@ -140,23 +141,23 @@ describe('policyEditProposer', () => {
         timestamp: '2026-07-12T00:00:00.000Z',
         baselineSurface: 'Base prompt.',
         winnerSurface: result.winnerSurface,
-        diff: '',
-        baselineSearchComposite: 0,
+        baselineSearchCampaign: result.baselineCampaign,
         generations: [
           {
             generationIndex: generation.record.generationIndex,
             candidates: generation.record.candidates,
             promoted: generation.record.promoted,
-            surfaces: generation.surfaces.map(({ surfaceHash, surface }) => ({
+            surfaces: generation.surfaces.map(({ surfaceHash, surface, campaign }) => ({
               surfaceHash,
               surface,
+              campaign,
             })),
           },
         ],
         gate: { decision: 'hold', reasons: [], contributingGates: [] },
         baselineOnHoldout: result.baselineCampaign,
         winnerOnHoldout: generation.surfaces[0]!.campaign,
-        workerRecords: [],
+        costReceipts: [],
         totalCostUsd: 0,
         totalDurationMs: 1,
       }

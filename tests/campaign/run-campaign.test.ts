@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
+  campaignSplitDigestFromIdentities,
   type DispatchFn,
   FsLabeledScenarioStore,
   fsCampaignStorage,
@@ -115,10 +116,16 @@ describe('runCampaign — core primitive', () => {
     expect(result.aggregates.cellsFailed).toBe(0)
     expect(result.manifestHash).toMatch(/^[a-f0-9]{64}$/)
     expect(result.seed).toBe(42)
-    expect(result.scenarios).toEqual([
+    expect(result.scenarios.map(({ id, kind }) => ({ id, kind }))).toEqual([
       { id: 'a', kind: 'chat' },
       { id: 'b', kind: 'chat' },
     ])
+    expect(
+      result.scenarios.every(({ scenarioDigest }) => /^sha256:[a-f0-9]{64}$/.test(scenarioDigest)),
+    ).toBe(true)
+    expect(campaignSplitDigestFromIdentities(result.scenarios, result.reps)).toBe(
+      result.splitDigest,
+    )
   })
 
   it('produces a stable manifestHash for identical inputs', async () => {

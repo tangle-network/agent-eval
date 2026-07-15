@@ -4,7 +4,7 @@ import type { CodeSurface, MutableSurface } from './types'
 const GIT_OBJECT_ID = /^(?:[a-f0-9]{40}|[a-f0-9]{64})$/
 const SHA256 = /^sha256:[a-f0-9]{64}$/
 
-/** Fail when a code surface does not carry a complete immutable identity. */
+/** Validate the immutable identity shape; the owning executor verifies the Git objects and patch. */
 export function assertCodeSurfaceIdentity(surface: unknown): asserts surface is CodeSurface {
   if (!surface || typeof surface !== 'object') {
     throw new TypeError('CodeSurface must be an object')
@@ -45,7 +45,7 @@ export function assertCodeSurfaceIdentity(surface: unknown): asserts surface is 
 export function codeSurfaceIdentityMaterial(surface: CodeSurface): string {
   assertCodeSurfaceIdentity(surface)
   return JSON.stringify({
-    schema: 'tangle.code-surface.v1',
+    schema: 'tangle.code-surface',
     baseCommit: surface.baseCommit,
     baseTree: surface.baseTree,
     candidateTree: surface.candidateTree,
@@ -66,4 +66,35 @@ export function surfaceContentHash(surface: MutableSurface): `sha256:${string}` 
 /** Short loop key derived from the same content identity as provenance. */
 export function surfaceHash(surface: MutableSurface): string {
   return surfaceContentHash(surface).slice('sha256:'.length, 'sha256:'.length + 16)
+}
+
+/** Canonical customer-visible description of the exact before/after surfaces. */
+export function renderSurfaceDiff(
+  winnerSurface: MutableSurface,
+  baselineSurface: MutableSurface,
+): string {
+  if (typeof winnerSurface === 'string' && typeof baselineSurface === 'string') {
+    return [
+      '--- baseline',
+      '+++ winner',
+      ...baselineSurface.split('\n').map((line) => `- ${line}`),
+      ...winnerSurface.split('\n').map((line) => `+ ${line}`),
+    ].join('\n')
+  }
+
+  const describe = (surface: MutableSurface): string => {
+    if (typeof surface === 'string') return '(prompt surface)'
+    assertCodeSurfaceIdentity(surface)
+    return [
+      `baseCommit=${surface.baseCommit}`,
+      `baseTree=${surface.baseTree}`,
+      `candidateCommit=${surface.candidateCommit}`,
+      `candidateTree=${surface.candidateTree}`,
+      `patch=${surface.patch.sha256}`,
+      `patchBytes=${surface.patch.byteLength}`,
+      ...(surface.summary ? [surface.summary] : []),
+    ].join('\n')
+  }
+
+  return `--- baseline\n${describe(baselineSurface)}\n+++ winner\n${describe(winnerSurface)}`
 }

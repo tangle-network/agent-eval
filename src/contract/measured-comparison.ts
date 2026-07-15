@@ -1,16 +1,28 @@
-import { createHash } from 'node:crypto'
-
 import {
   type AgentImprovementMeasuredComparison,
   agentImprovementMeasuredComparisonSchema,
   type Sha256Digest,
 } from '@tangle-network/agent-interface'
+import { assertCampaignSplitIdentity, campaignCoverage } from '../campaign/coverage'
 import { powerPreflight } from '../campaign/gates/power-preflight'
-import { surfaceContentHash } from '../campaign/surface-identity'
-import type { MutableSurface, Scenario } from '../campaign/types'
+import {
+  buildLoopProvenanceRecord,
+  canonicalDigest,
+  loopProvenanceArgsFromResult,
+  verifyLoopProvenanceRecord,
+} from '../campaign/provenance'
+import { campaignBreakdown, campaignMeanComposite } from '../campaign/score-utils'
+import { renderSurfaceDiff, surfaceContentHash } from '../campaign/surface-identity'
+import type {
+  CampaignCellResult,
+  CampaignResult,
+  MutableSurface,
+  Scenario,
+} from '../campaign/types'
+import { CostLedger, type CostReceipt } from '../cost-ledger'
+import { assertRealAgentReceipts } from '../integrity/backend-integrity'
 import { type PairedArmRow, pairArms } from '../paired-arms'
 import { pairedBootstrap } from '../statistics'
-import { canonicalJson } from '../verdict-cache'
 import type { SelfImproveResult } from './self-improve'
 
 export interface MeasuredComparisonFromSelfImproveResultOptions<
@@ -19,7 +31,9 @@ export interface MeasuredComparisonFromSelfImproveResultOptions<
 > {
   result: SelfImproveResult<TScenario, TArtifact>
   benchmark: AgentImprovementMeasuredComparison['benchmark']
+  /** Canonical digest verified by the runtime that owns the baseline profile. */
   baselineProfileDigest: Sha256Digest
+  /** Canonical digest verified by the runtime that owns candidate sealing. */
   candidateBundleDigest: Sha256Digest
   /** Exact baseline surface; contradictory recorded provenance is rejected. */
   baselineSurface: MutableSurface
@@ -30,11 +44,30 @@ export function measuredComparisonFromSelfImproveResult<TScenario extends Scenar
   options: MeasuredComparisonFromSelfImproveResultOptions<TScenario, TArtifact>,
 ): AgentImprovementMeasuredComparison {
   const { result } = options
+  verifyLoopProvenanceRecord(result.provenance)
   const power = result.power
   if (!power) throw new Error('agent improvement comparison requires heldout power analysis')
   if (result.provenance.gate.reasons.length === 0) {
     throw new Error('agent improvement comparison requires measured decision reasons')
   }
+  const receiptLedger = new CostLedger({ receipts: result.receipts })
+  const receiptCost = receiptLedger.summary()
+  const receipts = receiptLedger.list()
+  assertRealAgentReceipts(receipts, { allowMixed: false })
+  const receiptsById = new Map(receipts.map((receipt) => [receipt.callId, receipt]))
+  const receiptIdsByCell = indexReceiptIdsByCell(receipts)
+  assertCompleteMeasuredCampaign(
+    result.raw.baselineOnHoldout,
+    'heldout baseline',
+    receiptsById,
+    receiptIdsByCell,
+  )
+  assertCompleteMeasuredCampaign(
+    result.raw.winnerOnHoldout,
+    'heldout candidate',
+    receiptsById,
+    receiptIdsByCell,
+  )
   const pairs = pairMeasuredCells(
     result.raw.baselineOnHoldout.cells,
     result.raw.winnerOnHoldout.cells,
@@ -52,56 +85,29 @@ export function measuredComparisonFromSelfImproveResult<TScenario extends Scenar
   assertMeasuredNumber(result.lift, composite.delta, 'heldout lift')
   assertMeasuredNumber(result.baseline.compositeMean, composite.baseline, 'heldout baseline')
   assertMeasuredNumber(result.winner.compositeMean, composite.candidate, 'heldout candidate')
-  assertMeasuredNumber(
-    result.provenance.baselineHoldoutComposite,
-    composite.baseline,
-    'provenance heldout baseline',
-  )
-  assertMeasuredNumber(
-    result.provenance.winnerHoldoutComposite,
-    composite.candidate,
-    'provenance heldout candidate',
-  )
-  assertMeasuredNumber(result.provenance.heldOutLift, composite.delta, 'provenance heldout lift')
-  assertMeasuredNumber(result.provenance.totalCostUsd, result.totalCostUsd, 'provenance total cost')
-  assertMeasuredNumber(
-    result.provenance.totalDurationMs,
-    result.durationMs,
-    'provenance total duration',
-  )
   const baselineContentHash = surfaceContentHash(options.baselineSurface)
   const candidateContentHash = surfaceContentHash(result.winner.surface)
-  assertMeasuredIdentity(
-    result.gateDecision,
-    result.provenance.gate.decision,
-    'provenance decision',
-  )
+  const canonicalDiff =
+    baselineContentHash === candidateContentHash
+      ? ''
+      : renderSurfaceDiff(result.raw.winnerSurface, options.baselineSurface)
   assertMeasuredIdentity(result.gateDecision, result.raw.gateResult.decision, 'raw decision')
-  assertMeasuredIdentity(
-    measuredGateDigest(result.provenance.gate),
-    measuredGateDigest(result.raw.gateResult),
-    'gate evidence',
-  )
-  assertMeasuredIdentity(result.diff, result.provenance.diff, 'provenance diff')
-  assertMeasuredIdentity(result.diff, result.raw.promotedDiff, 'raw diff')
   assertMeasuredIdentity(
     candidateContentHash,
     surfaceContentHash(result.raw.winnerSurface),
     'raw winner surface',
   )
+  assertMeasuredIdentity(result.diff, canonicalDiff, 'surface diff')
+  assertMeasuredIdentity(result.raw.promotedDiff, canonicalDiff, 'raw surface diff')
+  if (
+    result.gateDecision === 'ship' &&
+    (baselineContentHash === candidateContentHash || result.diff.trim().length === 0)
+  ) {
+    throw new Error('a shipped improvement requires a changed surface and non-empty diff')
+  }
   assertMeasuredIdentity(
-    result.provenance.baselineContentHash,
-    baselineContentHash,
-    'baseline surface',
-  )
-  assertMeasuredIdentity(
-    result.provenance.winnerContentHash,
-    candidateContentHash,
-    'winner surface',
-  )
-  assertMeasuredIdentity(
-    digest(power),
-    digest(
+    canonicalDigest(power),
+    canonicalDigest(
       powerPreflight({
         baselineComposites: pairs.map(([cell]) => measuredComposite(cell)),
         sharedScorerChannel: true,
@@ -111,42 +117,79 @@ export function measuredComparisonFromSelfImproveResult<TScenario extends Scenar
   )
   assertMeasuredNumber(power.n, composite.n, 'power sample size')
   assertMeasuredNumber(power.confidence, 0.95, 'power confidence')
-  assertMeasuredNumber(
-    result.generationsExplored,
-    result.raw.generations.length,
-    'generation count',
+  assertCompleteMeasuredCampaign(
+    result.raw.baselineCampaign,
+    'search baseline',
+    receiptsById,
+    receiptIdsByCell,
   )
+  assertGenerationMeasurements(result.raw.generations, receiptsById, receiptIdsByCell)
+  if (
+    (result.raw.neutralizedOnHoldout === undefined) !==
+    (result.raw.neutralizedSurface === undefined)
+  ) {
+    throw new Error('neutralized surface and campaign must be supplied together')
+  }
+  if (result.raw.neutralizedOnHoldout) {
+    assertCompleteMeasuredCampaign(
+      result.raw.neutralizedOnHoldout,
+      'heldout neutralized',
+      receiptsById,
+      receiptIdsByCell,
+    )
+    pairMeasuredCells(result.raw.baselineOnHoldout.cells, result.raw.neutralizedOnHoldout.cells)
+  }
+  const rebuiltProvenance = buildLoopProvenanceRecord(
+    loopProvenanceArgsFromResult({
+      runId: result.provenance.runId,
+      runDir: result.provenance.runDir,
+      timestamp: result.provenance.timestamp,
+      baselineSurface: options.baselineSurface,
+      result: result.raw,
+      costReceipts: receipts,
+      totalCostUsd: result.totalCostUsd,
+      totalDurationMs: result.durationMs,
+    }),
+  )
+  assertMeasuredIdentity(
+    result.provenance.recordDigest,
+    rebuiltProvenance.recordDigest,
+    'provenance record',
+  )
+  assertMeasuredIdentity(
+    options.benchmark.splitDigest,
+    rebuiltProvenance.evidence.holdout.splitDigest,
+    'benchmark heldout split',
+  )
+  const generationsExplored = result.raw.generations.length
+  assertMeasuredNumber(result.generationsExplored, generationsExplored, 'generation count')
   assertMeasuredNumber(result.totalCostUsd, result.cost.totalCostUsd, 'cost summary')
-  assertMeasuredIdentity(digest(result.cost), digest(result.raw.cost), 'raw cost summary')
+  assertMeasuredIdentity(
+    canonicalDigest(result.cost),
+    canonicalDigest(result.raw.cost),
+    'raw cost summary',
+  )
   if (!result.cost.accountingComplete) {
     throw new Error(
       `cost accounting is incomplete: ${result.cost.incompleteReasons.join('; ') || 'unknown reason'}`,
     )
   }
-  assertMeasuredNumber(result.receipts.length, result.cost.totalCalls, 'cost receipt count')
-  const receiptIds = new Set<string>()
-  const receiptCostUsd = result.receipts.reduce((total, receipt) => {
-    if (receiptIds.has(receipt.callId))
-      throw new Error(`duplicate cost receipt '${receipt.callId}'`)
-    receiptIds.add(receipt.callId)
-    return total + nonnegativeMeasuredValue(receipt.costUsd, `receipt ${receipt.callId} cost`)
-  }, 0)
-  assertMeasuredNumber(result.totalCostUsd, receiptCostUsd, 'cost receipts')
+  if (!receiptCost.accountingComplete) {
+    throw new Error(
+      `cost accounting is incomplete: ${receiptCost.incompleteReasons.join('; ') || 'unknown reason'}`,
+    )
+  }
+  assertMeasuredIdentity(
+    canonicalDigest(result.cost),
+    canonicalDigest(receiptCost),
+    'cost receipt summary',
+  )
+  assertMeasuredNumber(result.totalCostUsd, receiptCost.totalCostUsd, 'cost receipts')
   assertMeasuredOptional(result.winner.label, result.raw.winnerLabel, 'raw winner label')
   assertMeasuredOptional(
     result.winner.rationale,
     result.raw.winnerRationale,
     'raw winner rationale',
-  )
-  assertMeasuredOptional(
-    result.winner.label,
-    result.provenance.winnerLabel,
-    'provenance winner label',
-  )
-  assertMeasuredOptional(
-    result.winner.rationale,
-    result.provenance.winnerRationale,
-    'provenance winner rationale',
   )
 
   return agentImprovementMeasuredComparisonSchema.parse({
@@ -176,8 +219,8 @@ export function measuredComparisonFromSelfImproveResult<TScenario extends Scenar
       : {}),
     decision: {
       outcome: result.gateDecision,
-      reasons: result.provenance.gate.reasons,
-      contributingChecks: result.provenance.gate.contributingGates.map((check) => ({
+      reasons: rebuiltProvenance.gate.reasons,
+      contributingChecks: rebuiltProvenance.gate.contributingGates.map((check) => ({
         name: check.name,
         passed: check.passed,
       })),
@@ -193,35 +236,117 @@ export function measuredComparisonFromSelfImproveResult<TScenario extends Scenar
     },
     provenance: {
       kind: 'agent-eval-loop',
-      schema: result.provenance.schema,
-      runId: result.provenance.runId,
-      recordDigest: digest(result.provenance),
+      schema: rebuiltProvenance.schema,
+      runId: rebuiltProvenance.runId,
+      recordDigest: rebuiltProvenance.recordDigest,
       baselineContentHash,
       candidateContentHash,
     },
-    diff: result.diff,
+    diff: canonicalDiff,
     evaluation: {
-      generationsExplored: result.generationsExplored,
+      generationsExplored,
       durationMs: result.durationMs,
       totalCostUsd: result.totalCostUsd,
     },
   })
 }
 
-interface MeasuredEvaluationCell {
-  cellId: string
-  scenarioId: string
-  rep: number
-  judgeScores: Record<
-    string,
-    { composite: number; dimensions: Record<string, number>; failed?: true }
-  >
-  costUsd: number
-  tokenUsage?: { input: number; output: number }
-  durationMs: number
-  seed: number
-  error?: string
+function assertGenerationMeasurements<TScenario extends Scenario, TArtifact>(
+  generations: SelfImproveResult<TScenario, TArtifact>['raw']['generations'],
+  receiptsById: ReadonlyMap<string, CostReceipt>,
+  receiptIdsByCell: ReadonlyMap<string, readonly string[]>,
+): void {
+  for (const generation of generations) {
+    for (const measured of generation.surfaces) {
+      const candidate = generation.record.candidates.find(
+        (entry) => entry.surfaceHash === measured.surfaceHash,
+      )
+      if (!candidate) {
+        throw new Error(
+          `generation ${generation.record.generationIndex} is missing candidate ${measured.surfaceHash}`,
+        )
+      }
+      const composite = campaignMeanComposite(measured.campaign)
+      const breakdown = campaignBreakdown(measured.campaign)
+      const coverage = campaignCoverage(
+        measured.campaign.cells,
+        measured.campaign.scenarios,
+        measured.campaign.reps,
+        true,
+      )
+      assertScorableMeasuredCells(
+        measured.campaign,
+        coverage.scorableCellIds,
+        receiptsById,
+        receiptIdsByCell,
+      )
+      assertMeasuredNumber(
+        candidate.composite,
+        composite,
+        `candidate ${measured.surfaceHash} composite`,
+      )
+      if (!candidate.coverage) {
+        throw new Error(`candidate ${measured.surfaceHash} does not report campaign coverage`)
+      }
+      assertMeasuredIdentity(
+        canonicalDigest(candidate.coverage),
+        canonicalDigest({
+          expectedCells: coverage.expectedCellIds.length,
+          scorableCells: coverage.scorableCellIds.length,
+          unscorableCells: coverage.unscorableCells,
+        }),
+        `candidate ${measured.surfaceHash} coverage`,
+      )
+      assertMeasuredIdentity(
+        String(candidate.eligibleForPromotion),
+        String(coverage.complete),
+        `candidate ${measured.surfaceHash} eligibility`,
+      )
+      assertMeasuredIdentity(
+        canonicalDigest(candidate.dimensions),
+        canonicalDigest(breakdown.dimensions),
+        `candidate ${measured.surfaceHash} dimensions`,
+      )
+      assertMeasuredIdentity(
+        canonicalDigest(candidate.scenarios),
+        canonicalDigest(breakdown.scenarios),
+        `candidate ${measured.surfaceHash} scenarios`,
+      )
+    }
+  }
 }
+
+function assertCompleteMeasuredCampaign<TArtifact, TScenario extends Scenario>(
+  campaign: CampaignResult<TArtifact, TScenario>,
+  name: string,
+  receiptsById: ReadonlyMap<string, CostReceipt>,
+  receiptIdsByCell: ReadonlyMap<string, readonly string[]>,
+): void {
+  assertCampaignSplitIdentity(campaign.scenarios, campaign.reps, campaign.splitDigest)
+  const coverage = campaignCoverage(campaign.cells, campaign.scenarios, campaign.reps, true)
+  if (!coverage.complete) {
+    throw new Error(
+      `${name} is incomplete (${coverage.scorableCellIds.length}/${coverage.expectedCellIds.length} designed cells scorable)`,
+    )
+  }
+  assertScorableMeasuredCells(campaign, coverage.scorableCellIds, receiptsById, receiptIdsByCell)
+}
+
+function assertScorableMeasuredCells<TArtifact, TScenario extends Scenario>(
+  campaign: CampaignResult<TArtifact, TScenario>,
+  scorableCellIds: readonly string[],
+  receiptsById: ReadonlyMap<string, CostReceipt>,
+  receiptIdsByCell: ReadonlyMap<string, readonly string[]>,
+): void {
+  const cellsById = new Map(campaign.cells.map((cell) => [cell.cellId, cell]))
+  for (const cellId of scorableCellIds) {
+    const cell = cellsById.get(cellId)
+    if (!cell) throw new Error(`measured campaign is missing scorable cell ${cellId}`)
+    assertMeasuredCell(cell, receiptsById, receiptIdsByCell, campaign.runDir)
+  }
+}
+
+type MeasuredEvaluationCell = CampaignCellResult<unknown>
 
 function measuredObjectives(
   pairs: ReadonlyArray<readonly [MeasuredEvaluationCell, MeasuredEvaluationCell]>,
@@ -274,21 +399,6 @@ function measuredCostObjective(
 ): AgentImprovementMeasuredComparison['objectives'][number] {
   const cells = pairs.flat()
   for (const cell of cells) finiteMeasuredValue(cell.costUsd, 'cost:cost')
-  const reported = cells.some(
-    (cell) =>
-      cell.costUsd !== 0 ||
-      (cell.tokenUsage !== undefined && (cell.tokenUsage.input > 0 || cell.tokenUsage.output > 0)),
-  )
-  if (!reported) {
-    return {
-      kind: 'cost',
-      name: 'cost',
-      availability: 'unavailable',
-      reason: 'heldout cells did not report model usage or cost',
-      direction: 'lower-is-better',
-      unit: 'usd',
-    }
-  }
   return measuredObjective(
     {
       kind: 'cost',
@@ -317,7 +427,6 @@ function pairMeasuredCells(
   candidateCells: readonly MeasuredEvaluationCell[],
 ): Array<readonly [MeasuredEvaluationCell, MeasuredEvaluationCell]> {
   const cells = [...baselineCells, ...candidateCells]
-  for (const cell of cells) assertMeasuredCell(cell)
   const errors = cells.filter((cell) => cell.error)
   if (errors.length > 0) {
     throw new Error(
@@ -329,14 +438,14 @@ function pairMeasuredCells(
   type MeasuredArmRow = PairedArmRow & { cell: MeasuredEvaluationCell }
   const rows: MeasuredArmRow[] = [
     ...baselineCells.map((cell) => ({
-      pairKey: cell.cellId,
-      repKey: '0',
+      pairKey: cell.scenarioId,
+      repKey: String(cell.rep),
       arm: 'baseline',
       cell,
     })),
     ...candidateCells.map((cell) => ({
-      pairKey: cell.cellId,
-      repKey: '0',
+      pairKey: cell.scenarioId,
+      repKey: String(cell.rep),
       arm: 'candidate',
       cell,
     })),
@@ -359,7 +468,12 @@ function pairMeasuredCells(
   })
 }
 
-function assertMeasuredCell(cell: MeasuredEvaluationCell): void {
+function assertMeasuredCell(
+  cell: MeasuredEvaluationCell,
+  receiptsById: ReadonlyMap<string, CostReceipt>,
+  receiptIdsByCell: ReadonlyMap<string, readonly string[]>,
+  runDir: string,
+): void {
   if (
     !cell.scenarioId.trim() ||
     !Number.isSafeInteger(cell.rep) ||
@@ -371,10 +485,69 @@ function assertMeasuredCell(cell: MeasuredEvaluationCell): void {
   }
   nonnegativeMeasuredValue(cell.costUsd, `heldout cell ${cell.cellId} cost`)
   nonnegativeMeasuredValue(cell.durationMs, `heldout cell ${cell.cellId} latency`)
-  if (cell.tokenUsage) {
-    nonnegativeMeasuredInteger(cell.tokenUsage.input, `heldout cell ${cell.cellId} input tokens`)
-    nonnegativeMeasuredInteger(cell.tokenUsage.output, `heldout cell ${cell.cellId} output tokens`)
+  if (!cell.tokenUsage) {
+    throw new Error(`heldout cell ${cell.cellId} does not report token usage`)
   }
+  nonnegativeMeasuredInteger(cell.tokenUsage.input, `heldout cell ${cell.cellId} input tokens`)
+  nonnegativeMeasuredInteger(cell.tokenUsage.output, `heldout cell ${cell.cellId} output tokens`)
+  if (cell.tokenUsage.cached !== undefined) {
+    nonnegativeMeasuredInteger(cell.tokenUsage.cached, `heldout cell ${cell.cellId} cached tokens`)
+  }
+  if (!Array.isArray(cell.costCallIds)) {
+    throw new Error(`heldout cell ${cell.cellId} does not identify its cost receipts`)
+  }
+  if (new Set(cell.costCallIds).size !== cell.costCallIds.length) {
+    throw new Error(`heldout cell ${cell.cellId} repeats a cost receipt`)
+  }
+  const linkedReceipts = cell.costCallIds.map((callId) => {
+    const receipt = receiptsById.get(callId)
+    if (!receipt)
+      throw new Error(`heldout cell ${cell.cellId} references missing cost receipt ${callId}`)
+    if (
+      receipt.tags?.runDir !== runDir ||
+      receipt.tags.cellId !== cell.cellId ||
+      receipt.tags.scenarioId !== cell.scenarioId ||
+      receipt.tags.rep !== String(cell.rep)
+    ) {
+      throw new Error(`heldout cell ${cell.cellId} references a cost receipt from another cell`)
+    }
+    return receipt
+  })
+  assertMeasuredIdentity(
+    canonicalDigest([...cell.costCallIds].sort()),
+    canonicalDigest(
+      [
+        ...(receiptIdsByCell.get(receiptCellKey(runDir, cell.cellId, cell.scenarioId, cell.rep)) ??
+          []),
+      ].sort(),
+    ),
+    `heldout cell ${cell.cellId} cost receipt IDs`,
+  )
+  const agentReceipts = linkedReceipts.filter((receipt) => receipt.channel === 'agent')
+  if (agentReceipts.some((receipt) => receipt.error)) {
+    throw new Error(`measured cell ${cell.cellId} links a failed agent receipt`)
+  }
+  assertRealAgentReceipts(agentReceipts, { allowMixed: false })
+  assertMeasuredNumber(
+    cell.costUsd,
+    agentReceipts.reduce((total, receipt) => total + receipt.costUsd, 0),
+    `heldout cell ${cell.cellId} cost receipts`,
+  )
+  assertMeasuredNumber(
+    cell.tokenUsage.input,
+    agentReceipts.reduce((total, receipt) => total + receipt.inputTokens, 0),
+    `heldout cell ${cell.cellId} input receipts`,
+  )
+  assertMeasuredNumber(
+    cell.tokenUsage.output,
+    agentReceipts.reduce((total, receipt) => total + receipt.outputTokens, 0),
+    `heldout cell ${cell.cellId} output receipts`,
+  )
+  assertMeasuredNumber(
+    cell.tokenUsage.cached ?? 0,
+    agentReceipts.reduce((total, receipt) => total + (receipt.cachedTokens ?? 0), 0),
+    `heldout cell ${cell.cellId} cached receipts`,
+  )
   for (const [judge, score] of Object.entries(cell.judgeScores)) {
     if (score.failed) {
       throw new Error(`heldout cell ${cell.cellId} contains failed judge '${judge}'`)
@@ -384,6 +557,7 @@ function assertMeasuredCell(cell: MeasuredEvaluationCell): void {
       finiteMeasuredValue(value, `dimension:${judge}:${dimension}`)
     }
   }
+  measuredComposite(cell)
 }
 
 type MeasuredObjectiveIdentity =
@@ -529,24 +703,26 @@ function assertMeasuredOptional(
   if (actual !== expected) throw new Error(`${name} does not agree across the measured comparison`)
 }
 
-function measuredGateDigest(gate: {
-  decision: string
-  reasons: readonly string[]
-  delta?: number
-  contributingGates: ReadonlyArray<{ name: string; passed: boolean }>
-}): Sha256Digest {
-  return digest({
-    decision: gate.decision,
-    reasons: [...gate.reasons],
-    ...(gate.delta === undefined ? {} : { delta: gate.delta }),
-    contributingGates: gate.contributingGates.map(({ name, passed }) => ({ name, passed })),
-  })
+function indexReceiptIdsByCell(
+  receipts: readonly CostReceipt[],
+): ReadonlyMap<string, readonly string[]> {
+  const idsByCell = new Map<string, string[]>()
+  for (const receipt of receipts) {
+    const tags = receipt.tags
+    if (!tags?.runDir || !tags.cellId || !tags.scenarioId || tags.rep === undefined) continue
+    const key = receiptCellKey(tags.runDir, tags.cellId, tags.scenarioId, tags.rep)
+    const ids = idsByCell.get(key) ?? []
+    ids.push(receipt.callId)
+    idsByCell.set(key, ids)
+  }
+  return idsByCell
 }
 
-function digest(value: unknown): Sha256Digest {
-  const json = JSON.stringify(value)
-  if (json === undefined) throw new Error('agent improvement provenance is not serializable')
-  return `sha256:${createHash('sha256')
-    .update(canonicalJson(JSON.parse(json)))
-    .digest('hex')}`
+function receiptCellKey(
+  runDir: string,
+  cellId: string,
+  scenarioId: string,
+  rep: string | number,
+): string {
+  return JSON.stringify([runDir, cellId, scenarioId, String(rep)])
 }

@@ -18,6 +18,7 @@ import {
 import { BackendIntegrityError, type BackendIntegrityReport } from '../integrity/backend-integrity'
 import { confidenceInterval } from '../statistics'
 import { contentHash } from '../verdict-cache'
+import { assertCampaignDesign, campaignScenarioIdentity, campaignSplitDigest } from './coverage'
 import { resolveRunDir } from './run-dir'
 import { type CampaignStorage, createRunCostLedger, fsCampaignStorage } from './storage'
 import type {
@@ -146,6 +147,8 @@ export async function runCampaign<TScenario extends Scenario, TArtifact>(
   const storage = opts.storage ?? fsCampaignStorage()
   const costPhase = opts.costPhase ?? 'campaign'
 
+  assertCampaignDesign(opts.scenarios, reps)
+
   if (typeof opts.runDir !== 'string' || opts.runDir.trim().length === 0) {
     throw new Error('runCampaign: runDir is required and must be a non-empty string')
   }
@@ -170,6 +173,7 @@ export async function runCampaign<TScenario extends Scenario, TArtifact>(
     seed,
     reps,
   })
+  const splitDigest = campaignSplitDigest(opts.scenarios, reps)
 
   const startedAt = now()
   const runAttemptId = globalThis.crypto.randomUUID()
@@ -246,7 +250,9 @@ export async function runCampaign<TScenario extends Scenario, TArtifact>(
 
   return {
     manifestHash,
+    splitDigest,
     seed,
+    reps,
     startedAt: startedAt.toISOString(),
     endedAt: endedAt.toISOString(),
     durationMs: endedAt.getTime() - startedAt.getTime(),
@@ -254,7 +260,7 @@ export async function runCampaign<TScenario extends Scenario, TArtifact>(
     aggregates,
     runDir: opts.runDir,
     artifactsByPath,
-    scenarios: opts.scenarios.map((s) => ({ id: s.id, kind: s.kind })),
+    scenarios: opts.scenarios.map(campaignScenarioIdentity),
   }
 }
 
@@ -526,6 +532,7 @@ export interface CampaignRunPlanCell {
 
 export interface CampaignRunPlan {
   manifestHash: string
+  splitDigest: `sha256:${string}`
   totalCells: number
   cellsCached: number
   cellsToRun: number
@@ -558,6 +565,8 @@ export function planCampaignRun<TScenario extends Scenario, TArtifact>(
   const resumable = opts.resumable ?? true
   const storage = opts.storage ?? fsCampaignStorage()
 
+  assertCampaignDesign(opts.scenarios, reps)
+
   if (typeof opts.runDir !== 'string' || opts.runDir.trim().length === 0) {
     throw new Error('planCampaignRun: runDir is required and must be a non-empty string')
   }
@@ -570,6 +579,7 @@ export function planCampaignRun<TScenario extends Scenario, TArtifact>(
     seed,
     reps,
   })
+  const splitDigest = campaignSplitDigest(opts.scenarios, reps)
 
   const cells = buildCellSchedule(opts.scenarios, seed, reps).map((slot): CampaignRunPlanCell => {
     const cachePath = join(
@@ -620,6 +630,7 @@ export function planCampaignRun<TScenario extends Scenario, TArtifact>(
   const cellsCached = cells.filter((cell) => cell.status === 'cached').length
   return {
     manifestHash,
+    splitDigest,
     totalCells: cells.length,
     cellsCached,
     cellsToRun: cells.length - cellsCached,

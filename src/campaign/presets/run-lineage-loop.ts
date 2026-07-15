@@ -51,6 +51,7 @@ import { gepaProposer } from '../proposers/gepa'
 import { type RunCampaignOptions, runCampaign } from '../run-campaign'
 import { campaignBreakdown, campaignMeanComposite } from '../score-utils'
 import type { CampaignStorage } from '../storage'
+import { surfaceHash } from '../surface-identity'
 import {
   isProposedCandidate,
   type JudgeConfig,
@@ -60,7 +61,6 @@ import {
   type Scenario,
   type SurfaceProposer,
 } from '../types'
-import { surfaceHash } from './run-optimization'
 
 /** A seed track: the initial surface + track identity. Unlike
  *  {@link RunLineageSeed} there is NO `score` — `runLineageLoop` scores each
