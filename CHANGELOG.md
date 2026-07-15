@@ -4,6 +4,12 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ---
 
+## Unreleased
+
+### Breaking
+
+- Removed `@tangle-network/agent-eval/primeintellect`, which generated a legacy single-turn Verifiers package with unsafe substring scoring. Use `@tangle-network/agent-runtime/primeintellect` for Verifiers v1 task packaging, real runtime execution, and full trace import.
+
 ## [0.119.1] — 2026-07-14 — portable improvement evidence
 
 ### Added
