@@ -202,6 +202,34 @@ describe('selfImprove — forwarded loop knobs', () => {
     expect(ok.gateDecision).toBeDefined()
   })
 
+  it('forwards dispatchTimeoutMs to the real campaign deadline', async () => {
+    let observedAbort = false
+    const train = SCENARIOS[0]!
+    const holdout = SCENARIOS[1]!
+
+    await expect(
+      selfImprove<S, A>({
+        ...base,
+        agent: (_surface, _scenario, ctx) =>
+          new Promise<A>(() => {
+            ctx.signal.addEventListener(
+              'abort',
+              () => {
+                observedAbort = true
+              },
+              { once: true },
+            )
+          }),
+        scenarios: [train, holdout],
+        budget: { generations: 0, holdoutScenarios: [holdout] },
+        dispatchTimeoutMs: 25,
+        expectUsage: 'off',
+      }),
+    ).rejects.toThrow(/dispatch exceeded 25ms/)
+
+    expect(observedAbort).toBe(true)
+  })
+
   it('forwards analyzeGeneration — the per-generation findings producer fires', async () => {
     let calls = 0
     await selfImprove<S, A>({
