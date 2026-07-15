@@ -376,12 +376,21 @@ function buildEvidence(
   if (!best) return { top: [], bottom: [], target: baseTarget }
 
   const byScore = [...best.scenarios].sort((a, b) => b.composite - a.composite)
-  const toTrace = (s: { scenarioId: string; composite: number; notes?: string }): TrialTrace => ({
+  const toTrace = (s: {
+    scenarioId: string
+    composite: number
+    notes?: string
+    emitted?: string
+  }): TrialTrace => ({
     id: s.scenarioId,
     score: s.composite,
     // The judge's "why it scored low" — grounds the reflection on real failure
     // patterns instead of blind rephrasing. Generalizable by the judge contract.
     ...(s.notes ? { failureNote: s.notes } : {}),
+    // The candidate's raw output for the scenario — buildReflectionPrompt
+    // renders it as the "what the agent emitted" block, so the reflection sees
+    // the actual wrong output, not just the score.
+    ...(s.emitted ? { emitted: s.emitted } : {}),
   })
   const top = byScore.slice(0, evidenceK).map(toTrace)
   const bottom = byScore.slice(-evidenceK).reverse().map(toTrace)

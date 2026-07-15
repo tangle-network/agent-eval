@@ -264,7 +264,11 @@ export interface ScoredSurfaceOutcome {
   surfaceHash: string
   composite: number
   dimensions: Record<string, number>
-  scenarios: Array<{ scenarioId: string; composite: number; notes?: string }>
+  /** Same per-scenario carrier shape as `GenerationCandidate.scenarios` and
+   *  `CampaignBreakdown.scenarios`: judge notes (the "why") + an optional
+   *  bounded `emitted` excerpt of the candidate's raw output (the "what it
+   *  actually did"). Copied verbatim from the measuring campaign's breakdown. */
+  scenarios: Array<{ scenarioId: string; composite: number; notes?: string; emitted?: string }>
   coverage: {
     expectedCells: number
     scorableCells: number
@@ -654,8 +658,11 @@ export interface GenerationCandidate {
    *  reflective proposer grounds its next edit on. Keep `notes` GENERALIZABLE
    *  (which checks/lines/dimensions failed and how), NOT case-specific ground
    *  truth: leaking expected answers into the prompt is memorization, and the
-   *  held-out gate would reject it anyway. */
-  scenarios: Array<{ scenarioId: string; composite: number; notes?: string }>
+   *  held-out gate would reject it anyway. `emitted` is a bounded excerpt of
+   *  the candidate's raw output for the scenario (worst rep when reps > 1) —
+   *  the "what it actually did" evidence; optional so trajectory capture is
+   *  never required of a dispatch. */
+  scenarios: Array<{ scenarioId: string; composite: number; notes?: string; emitted?: string }>
   /** Proposer-supplied short label for the change. Present when the proposer
    *  returned a `ProposedCandidate`; absent for bare-surface mutators. */
   label?: string
