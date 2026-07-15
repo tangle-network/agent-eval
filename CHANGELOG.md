@@ -18,6 +18,7 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 - Require every scored row to link to a successful model receipt; reject contradictory provenance, duplicate scenarios, broken cell identity or pairing, failed judges, and invalid cost, latency, or token measurements before products can publish an improvement proposal.
 - Stop optimization when a proposer returns no candidates, reject empty or non-contiguous generation records, and refuse a shipped no-op.
 - Remove the duplicate worker-record collector and caller-authored diff hook; settled receipts and exact surfaces are now the only evidence path.
+- Remove `@tangle-network/agent-eval/primeintellect`, which generated a legacy single-turn Verifiers package with unsafe substring scoring. Use `@tangle-network/agent-runtime/primeintellect` for task packaging, real runtime execution, and full trace import.
 - Verify the same npm archive implementation used by the release workflow.
 
 ## [0.119.1] — 2026-07-14 — portable improvement evidence
