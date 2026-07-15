@@ -4,6 +4,12 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ---
 
+## [0.120.1] — 2026-07-15 — configurable improvement deadlines
+
+### Fixed
+
+- `selfImprove()` forwards `dispatchTimeoutMs` to baseline, candidate, and held-out campaign cells so long-running workers use the caller's declared deadline instead of the 600-second default.
+
 ## [0.120.0] — 2026-07-14 — exact measured provenance
 
 ### Changed

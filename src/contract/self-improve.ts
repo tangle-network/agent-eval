@@ -184,6 +184,10 @@ export interface SelfImproveOptions<TScenario extends Scenario, TArtifact> {
     generation?: number
   }) => string | undefined
 
+  /** Per-cell agent dispatch deadline, applied to baseline, candidate, and
+   *  held-out campaigns. Default 600_000 ms. Set 0 to disable. */
+  dispatchTimeoutMs?: number
+
   /** Streaming hook — fires on baseline + each generation + gate decision.
    *  Consumer routes events wherever (UI, dashboard, logs). */
   onProgress?: (event: SelfImproveProgressEvent) => void
@@ -487,6 +491,7 @@ async function runSelfImprove<TScenario extends Scenario, TArtifact>(
     runDir,
     maxConcurrency,
     cellPlacement: opts.cellPlacement,
+    dispatchTimeoutMs: opts.dispatchTimeoutMs,
     costLedger,
     expectUsage,
     labeledStore: opts.labeledStore,
