@@ -95,31 +95,6 @@ const traceRuns = fromOtelSpans({ spans: yourOtelSpans })
 await analyzeRuns({ runs: [...runs, ...traceRuns], raterScores })
 ```
 
-### 4. Export to PrimeIntellect
-
-Use this when you want PrimeIntellect Verifiers to run or train against tasks produced by Tangle evals, runtime runs, or knowledge runs.
-
-```ts
-import {
-  primeIntellectRowsFromRunRecords,
-  writePrimeIntellectEnvironmentPackage,
-} from '@tangle-network/agent-eval/primeintellect'
-
-const rows = primeIntellectRowsFromRunRecords({
-  records, // RunRecord[] with scenarioId
-  scenarios, // prompts plus answer or requiredSubstrings
-})
-
-await writePrimeIntellectEnvironmentPackage('prime-envs/refund-policy', {
-  name: 'refund-policy',
-  rows,
-  runRecords: records,
-})
-```
-
-The generated package contains `load_environment()`, `data/dataset.jsonl`, `data/run_records.jsonl`, and a manifest.
-Run it with `uv run vf-eval refund-policy` or upload it with `prime env push`.
-
 ---
 
 ## Core concepts
@@ -149,7 +124,6 @@ Each example: `README.md` + a single `index.ts` runnable via `pnpm tsx`. Prints 
 |---|---|
 | `…/contract` | **The headline, frozen surface — new code starts here.** `defineAgentEval`, `selfImprove`, `analyzeRuns`, `runEval`, `runCampaign`, `runImprovementLoop`, `diffRuns`; intake adapters (`fromFeedbackTable`, `fromOtelSpans`); proposers (`gepaProposer`, `evolutionaryProposer`); gates (`defaultProductionGate`, `heldOutGate`, `paretoSignificanceGate`, `neutralizationGate`, `composeGate`); the deployment-outcome store; storage; and the five core types `Scenario` / `Dispatch` / `JudgeConfig` / `SurfaceProposer` / `Gate`. |
 | `…/hosted` | `createHostedClient` / `hostedClientFromEnv` + the wire types to ship eval-run events + trace spans to a hosted orchestrator (ours or your own implementation of the spec) |
-| `…/primeintellect` | Export validated `RunRecord`s plus scenario prompts into a PrimeIntellect Verifiers package: Python `load_environment()`, `data/dataset.jsonl`, `data/run_records.jsonl`, and export manifest |
 | `…/adapters/otel` | `createOtelBridge` — forwards OpenTelemetry-shape spans into the hosted-tier ingest, no `@opentelemetry/*` dependency |
 | `…/adapters/langchain` | Wrap any LangChain `Runnable` as a `Dispatch` (or `JudgeConfig`), no `@langchain/core` peer dep |
 | `…/adapters/http` | `httpDispatch` + `runDispatchServer` — run a campaign's worker on another machine (multi-region, remote worker execution) |
