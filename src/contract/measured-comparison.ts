@@ -193,7 +193,6 @@ export function measuredComparisonFromSelfImproveResult<TScenario extends Scenar
   )
 
   return agentImprovementMeasuredComparisonSchema.parse({
-    schemaVersion: 1,
     kind: 'agent-improvement-measured-comparison',
     benchmark: options.benchmark,
     baselineProfileDigest: options.baselineProfileDigest,

@@ -4,6 +4,13 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ---
 
+## [0.121.0] — 2026-07-15 — one measured-comparison contract
+
+### Changed
+
+- Emit the single current measured-comparison shape without a schema version field.
+- Consume `@tangle-network/agent-interface` 0.28, which removes unused candidate compatibility formats and speculative version fields.
+
 ## [0.120.1] — 2026-07-15 — configurable improvement deadlines
 
 ### Fixed
