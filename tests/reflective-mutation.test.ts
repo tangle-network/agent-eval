@@ -99,6 +99,54 @@ describe('buildReflectionPrompt', () => {
     expect(prompt).toContain('truncated')
     expect(prompt).toContain('a'.repeat(2000))
     expect(prompt).not.toContain('a'.repeat(2001))
+
+    // Exact boundary: 2000 chars renders whole; 2001 clips back to 2000.
+    const exact = 'b'.repeat(2000)
+    const atBound = buildReflectionPrompt({
+      target: 't',
+      parentPayload: {},
+      topTrials: [],
+      bottomTrials: [{ id: 't1', score: 0, emitted: exact }],
+      childCount: 1,
+    })
+    expect(atBound).toContain(exact)
+    expect(atBound).not.toContain('truncated')
+    const overBound = buildReflectionPrompt({
+      target: 't',
+      parentPayload: {},
+      topTrials: [],
+      bottomTrials: [{ id: 't1', score: 0, emitted: `${exact}b` }],
+      childCount: 1,
+    })
+    expect(overBound).toContain('truncated')
+    expect(overBound).not.toContain('b'.repeat(2001))
+  })
+
+  it('renders failure notes up to the 1500-char evidence bound, then truncates', () => {
+    // Within the bound: a real traceback-sized note arrives intact.
+    const note = 'n'.repeat(1400)
+    const intact = buildReflectionPrompt({
+      target: 't',
+      parentPayload: {},
+      topTrials: [],
+      bottomTrials: [{ id: 't1', score: 0, failureNote: note }],
+      childCount: 1,
+    })
+    expect(intact).toContain(note)
+    expect(intact).not.toContain('truncated')
+
+    // Beyond the bound: clipped to exactly 1500 chars + marker.
+    const big = 'm'.repeat(2000)
+    const clipped = buildReflectionPrompt({
+      target: 't',
+      parentPayload: {},
+      topTrials: [],
+      bottomTrials: [{ id: 't1', score: 0, failureNote: big }],
+      childCount: 1,
+    })
+    expect(clipped).toContain('truncated')
+    expect(clipped).toContain('m'.repeat(1500))
+    expect(clipped).not.toContain('m'.repeat(1501))
   })
 })
 

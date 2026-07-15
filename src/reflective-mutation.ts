@@ -97,8 +97,9 @@ export function buildReflectionPrompt(ctx: ReflectionContext): string {
       )
       if (trial.failureNote) {
         sections.push('')
-        // 1500 chars fits a real traceback / failing-assertion note; the old
-        // 600 silently clipped executable-judge evidence mid-traceback.
+        // 1500 chars fits a real traceback / failing-assertion note; clipping
+        // mid-traceback would hide the executable-judge evidence the
+        // reflection targets.
         sections.push(`**Why it scored low:** ${truncate(trial.failureNote, 1500)}`)
       }
       const missed = (trial.expectations ?? []).filter((e) => !e.matched)
