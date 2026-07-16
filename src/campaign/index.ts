@@ -321,6 +321,7 @@ export {
   type BuildLoopProvenanceArgs,
   buildLoopProvenanceRecord,
   campaignMeasurementDigest,
+  canonicalDigest,
   type EmitLoopProvenanceArgs,
   type EmitLoopProvenanceResult,
   emitLoopProvenance,

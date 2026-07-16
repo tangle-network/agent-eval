@@ -2,8 +2,25 @@ import { createHash } from 'node:crypto'
 import { estimateCost, isModelPriced } from '../../metrics'
 import type { RunCostProvenance, RunRecord, RunSplitTag, RunTokenUsage } from '../../run-record'
 import { extractUsage } from '../../trace/extract-usage'
+import {
+  type CodeAgentSessionExecutionReceipt,
+  type CodeAgentSessionObservation,
+  type CodeAgentSessionSource,
+  observeCodeAgentSession,
+} from './code-agent-observation'
 
-export type CodeAgentSessionSource = 'codex' | 'claude-code' | 'opencode' | 'kimi-code' | 'pi'
+export type {
+  CodeAgentSessionAction,
+  CodeAgentSessionActionKind,
+  CodeAgentSessionActionStatus,
+  CodeAgentSessionActionSurface,
+  CodeAgentSessionExecutionReceipt,
+  CodeAgentSessionObservation,
+  CodeAgentSessionSource,
+  CodeAgentSessionTerminalStatus,
+  ObserveCodeAgentSessionOptions,
+} from './code-agent-observation'
+export { observeCodeAgentSession } from './code-agent-observation'
 
 export interface ParsedCodeAgentJsonl {
   entries: unknown[]
@@ -25,6 +42,12 @@ export interface CodeAgentSessionMetrics {
   turnsCompleted: number
   turnsAborted: number
   contextCompactions: number
+  mcpCalls: number
+  subagentCalls: number
+  skillCalls: number
+  hookCalls: number
+  webCalls: number
+  codeActions: number
   prLinks: number
   fileSnapshots: number
   graphNodes: number
@@ -53,6 +76,7 @@ export interface CodeAgentSessionDiagnostic {
   malformedLines: number
   inferredScore: boolean
   hasExplicitTerminalSignal: boolean
+  hasFinalOutput: boolean
   hasQualityLabel: boolean
   hasTokenUsage: boolean
   hasCost: boolean
@@ -64,6 +88,7 @@ export interface CodeAgentSessionIntakeResult {
   runs: RunRecord[]
   diagnostics: CodeAgentSessionDiagnostic[]
   metrics: CodeAgentSessionMetrics[]
+  observations: CodeAgentSessionObservation[]
 }
 
 export interface CodeAgentSessionIntakeOptions {
@@ -85,6 +110,9 @@ export interface CodeAgentSessionIntakeOptions {
    *  sentinel as observed. When omitted, source-reported cost wins, then a
    *  token-priced estimate, then uncaptured. */
   costProvenance?: RunCostProvenance
+  /** Exact executor-owned process result. This is required when a provider's
+   * JSON stream has no terminal event, as with `opencode run --format json`. */
+  execution?: CodeAgentSessionExecutionReceipt
 }
 
 export function parseCodeAgentJsonl(jsonl: string): ParsedCodeAgentJsonl {
@@ -151,6 +179,7 @@ function fromCodeAgentSession(
           malformedLines: options.malformedLines ?? 0,
           inferredScore: true,
           hasExplicitTerminalSignal: false,
+          hasFinalOutput: false,
           hasQualityLabel: false,
           hasTokenUsage: false,
           hasCost: false,
@@ -159,12 +188,20 @@ function fromCodeAgentSession(
         },
       ],
       metrics: [],
+      observations: [],
     }
   }
 
   const metrics = metricsFor(source, entries)
   const sessionId =
     sessionIdFromEntries(source, entries) ?? fallbackSessionId(source, options.sourcePath)
+  const observation = observeCodeAgentSession({
+    source,
+    entries,
+    sourcePath: options.sourcePath,
+    execution: options.execution,
+  })
+  applyObservedSurfaceMetrics(metrics, observation)
   const model = withSnapshot(options.model ?? modelFromEntries(source, entries) ?? source)
   const tokenUsage: RunTokenUsage = {
     input: metrics.inputTokens,
@@ -186,7 +223,7 @@ function fromCodeAgentSession(
       cwd: cwdFromEntries(entries),
       entryCount: entries.length,
     })
-  const explicitTerminal = hasExplicitTerminalSignal(source, metrics)
+  const explicitTerminal = observation.terminal.explicit
   const warnings = diagnosticsFor(metrics, {
     model,
     explicitTerminal,
@@ -225,6 +262,12 @@ function fromCodeAgentSession(
         turns_completed: metrics.turnsCompleted,
         turns_aborted: metrics.turnsAborted,
         context_compactions: metrics.contextCompactions,
+        mcp_calls: metrics.mcpCalls,
+        subagent_calls: metrics.subagentCalls,
+        skill_calls: metrics.skillCalls,
+        hook_calls: metrics.hookCalls,
+        web_calls: metrics.webCalls,
+        code_actions: metrics.codeActions,
         pr_links: metrics.prLinks,
         file_snapshots: metrics.fileSnapshots,
         graph_nodes: metrics.graphNodes,
@@ -270,6 +313,7 @@ function fromCodeAgentSession(
         malformedLines: options.malformedLines ?? 0,
         inferredScore: options.score === undefined,
         hasExplicitTerminalSignal: explicitTerminal,
+        hasFinalOutput: observation.finalText !== null,
         hasQualityLabel: options.score !== undefined,
         hasTokenUsage:
           metrics.inputTokens > 0 ||
@@ -283,6 +327,7 @@ function fromCodeAgentSession(
       },
     ],
     metrics: [metrics],
+    observations: [{ ...observation, sessionId }],
   }
 }
 
@@ -703,6 +748,12 @@ function emptyMetrics(entries: number): CodeAgentSessionMetrics {
     turnsCompleted: 0,
     turnsAborted: 0,
     contextCompactions: 0,
+    mcpCalls: 0,
+    subagentCalls: 0,
+    skillCalls: 0,
+    hookCalls: 0,
+    webCalls: 0,
+    codeActions: 0,
     prLinks: 0,
     fileSnapshots: 0,
     graphNodes: 0,
@@ -869,15 +920,19 @@ function diagnosticsFor(
   return warnings
 }
 
-function hasExplicitTerminalSignal(
-  source: CodeAgentSessionSource,
+function applyObservedSurfaceMetrics(
   metrics: CodeAgentSessionMetrics,
-): boolean {
-  if (source === 'codex') return metrics.turnsCompleted + metrics.turnsAborted > 0
-  if (source === 'opencode' || source === 'kimi-code')
-    return metrics.turnsCompleted + metrics.turnsAborted > 0
-  if (source === 'pi') return metrics.completionDecisions > 0 || metrics.reliabilityRows > 0
-  return metrics.prLinks > 0 || metrics.toolErrors > 0
+  observation: CodeAgentSessionObservation,
+): void {
+  const actions = observation.actions.filter(
+    (action) => action.kind === 'tool' || action.kind === 'patch',
+  )
+  metrics.mcpCalls = actions.filter((action) => action.surface === 'mcp').length
+  metrics.subagentCalls = actions.filter((action) => action.surface === 'subagent').length
+  metrics.skillCalls = actions.filter((action) => action.surface === 'skill').length
+  metrics.hookCalls = actions.filter((action) => action.surface === 'hook').length
+  metrics.webCalls = actions.filter((action) => action.surface === 'web').length
+  metrics.codeActions = actions.filter((action) => action.surface === 'code').length
 }
 
 function sessionIdFromEntries(

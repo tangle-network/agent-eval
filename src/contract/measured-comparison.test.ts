@@ -1,959 +1,705 @@
-import { createHash } from 'node:crypto'
-
-import { describe, expect, it } from 'vitest'
-import { campaignScenarioIdentity, campaignSplitDigestFromIdentities } from '../campaign/coverage'
-import { neutralizationGate } from '../campaign/gates/neutralization-gate'
 import type {
-  Gate,
-  JudgeConfig,
-  MutableSurface,
-  Scenario,
-  SurfaceProposer,
-} from '../campaign/types'
-import type { DispatchContext } from './index'
-import { measuredComparisonFromSelfImproveResult } from './measured-comparison'
-import { selfImprove } from './self-improve'
+  AgentCandidateBenchmarkCellRef,
+  AgentCandidateBenchmarkTask,
+  AgentCandidateBundle,
+  AgentCandidateExperiment,
+  AgentCandidateFixedSpend,
+  AgentCandidateTermination,
+  CandidateExecutionEvidence,
+  Sha256Digest,
+} from '@tangle-network/agent-interface'
+import { canonicalCandidateDigest } from '@tangle-network/agent-interface'
+import { describe, expect, it } from 'vitest'
+import {
+  measuredComparisonFromCandidateExperiment,
+  runCandidateExperiment,
+  sealCandidateBenchmarkSuite,
+  sealCandidateBenchmarkTask,
+  sealCandidateExperiment,
+  verifyCandidateExperiment,
+  verifyCandidateExperimentComparison,
+} from './measured-comparison'
 
-const scenarios: Scenario[] = Array.from({ length: 8 }, (_, index) => ({
-  id: `comparison-${index}`,
-  kind: 'fixture',
-}))
+const sha = (digit: string) => `sha256:${digit.repeat(64)}` as Sha256Digest
 
-const judge: JudgeConfig<{ text: string }, Scenario> = {
-  name: 'quality',
-  dimensions: [{ key: 'correctness', description: 'fixture quality' }],
-  score: ({ artifact, scenario }) => {
-    const base = Number.parseInt(scenario.id.split('-')[1] ?? '0', 10) % 2 === 0 ? 0.25 : 0.5
-    const score = artifact.text === 'BETTER' ? base + 0.25 : base
-    return { composite: score, dimensions: { correctness: score }, notes: '' }
-  },
+function artifact(key: string, digest = sha('a'), byteLength = 1) {
+  return {
+    locator: { kind: 's3' as const, bucket: 'candidate-artifacts', key },
+    sha256: digest,
+    byteLength,
+  }
 }
 
-const proposer: SurfaceProposer = {
-  kind: 'comparison-fixture',
-  propose: async () => ['BETTER'],
+function addressed<T extends object>(material: T): T & { digest: Sha256Digest } {
+  return { ...material, digest: canonicalCandidateDigest(material) }
 }
 
-const promotion: Gate<{ text: string }, Scenario> = {
-  name: 'comparison-fixture',
-  decide: async () => ({
-    decision: 'ship',
-    reasons: ['candidate improved on paired heldout cells'],
-    contributingGates: [{ name: 'paired-heldout', passed: true, detail: { delta: 0.25 } }],
-  }),
-}
-
-async function paidAgent(
-  surface: unknown,
-  _scenario: Scenario,
-  context: DispatchContext,
-): Promise<{ text: string }> {
-  const paid = await context.cost.runPaidCall({
-    actor: 'comparison-fixture',
-    model: 'fixture',
-    execute: async () => ({ text: String(surface) }),
-    receipt: () => ({
-      model: 'fixture',
-      inputTokens: 1,
-      outputTokens: 1,
-      actualCostUsd: 0.001,
-    }),
-  })
-  if (!paid.succeeded) throw paid.error
-  return paid.value
-}
-
-function fixtureResult(gate: Gate<{ text: string }, Scenario> = promotion, reps = 1) {
-  return selfImprove({
-    agent: paidAgent,
-    scenarios,
-    judge,
-    baselineSurface: 'BASELINE',
-    proposer,
-    gate,
-    budget: { generations: 1, populationSize: 1, holdoutFraction: 0.5, reps },
-  })
-}
-
-function noOpFixtureResult() {
-  return selfImprove({
-    agent: paidAgent,
-    scenarios,
-    judge,
-    baselineSurface: 'BASELINE',
-    proposer: { kind: 'empty-fixture', propose: async () => [] },
-    gate: promotion,
-    budget: { generations: 1, populationSize: 1, holdoutFraction: 0.5 },
-  })
-}
-
-type FixtureResult = Awaited<ReturnType<typeof fixtureResult>>
-
-function measuredComparison(
-  result: FixtureResult,
-  baselineSurface: MutableSurface = 'BASELINE',
-  splitDigest = result.raw.baselineOnHoldout.splitDigest,
+function materialEvidence<TKind extends string, TMaterial extends object>(
+  kind: TKind,
+  material: TMaterial,
+  key: string,
 ) {
-  return measuredComparisonFromSelfImproveResult({
-    result,
-    benchmark: {
-      name: 'comparison-fixture',
-      version: '1',
-      splitDigest,
+  const digest = canonicalCandidateDigest(material)
+  return {
+    kind,
+    digest,
+    material,
+    artifact: artifact(key, digest),
+  }
+}
+
+function workspace(name: string) {
+  const material = {
+    kind: 'agent-candidate-workspace-manifest' as const,
+    files: [],
+  }
+  const digest = canonicalCandidateDigest(material)
+  return {
+    kind: 'agent-candidate-workspace-snapshot' as const,
+    digest,
+    material,
+    manifest: artifact(`workspaces/${name}.manifest.json`, digest),
+    archive: artifact(`workspaces/${name}.tar`, sha('b')),
+  }
+}
+
+const resolvedModel = {
+  requested: 'openai/gpt-5.4',
+  provider: 'openai',
+  model: 'gpt-5.4',
+  snapshot: 'gpt-5.4-2026-07-15',
+  reasoningEffort: 'high' as const,
+}
+
+function bundle(prompt: string): AgentCandidateBundle {
+  return addressed({
+    kind: 'agent-candidate-bundle' as const,
+    digestAlgorithm: 'rfc8785-sha256' as const,
+    profile: {
+      name: 'support-agent',
+      prompt: { systemPrompt: prompt },
+      resources: { failOnError: true as const },
     },
-    baselineProfileDigest: `sha256:${'2'.repeat(64)}`,
-    candidateBundleDigest: `sha256:${'3'.repeat(64)}`,
-    baselineSurface,
+    code: {
+      kind: 'disabled' as const,
+    },
+    execution: {
+      harness: 'codex' as const,
+      harnessVersion: '0.1.0',
+      launch: { kind: 'container-command' as const, executable: 'node' },
+      instructionDelivery: { kind: 'stdin-utf8' as const },
+      cwd: { workspace: 'task' as const, path: '.' },
+      environment: { kind: 'evaluator-task-container' as const },
+      isolation: {
+        network: 'disabled' as const,
+        remoteIntegrations: 'disabled' as const,
+        candidateSecrets: 'disabled' as const,
+      },
+    },
+    memory: { mode: 'disabled' as const },
   })
 }
 
-describe('measuredComparisonFromSelfImproveResult', () => {
-  it('preserves paired quality, cost, latency, power, decision, and provenance', async () => {
-    const result = await fixtureResult()
-    const comparison = measuredComparison(result)
+function benchmarkTask(): AgentCandidateBenchmarkTask {
+  return sealCandidateBenchmarkTask({
+    kind: 'agent-candidate-benchmark-task',
+    digestAlgorithm: 'rfc8785-sha256',
+    benchmark: {
+      name: 'support-quality',
+      version: '2026-07-15',
+      splitDigest: sha('1'),
+    },
+    scenario: {
+      id: 'case-1',
+      kind: 'support-case',
+      scenarioDigest: sha('2'),
+    },
+    instruction: 'Resolve the support case.',
+    outcome: { kind: 'output', mediaType: 'text/plain', maxBytes: 4_096 },
+    workspace: workspace('case-1'),
+    grader: {
+      name: 'support-grader',
+      version: '1.0.0',
+      format: 'tangle-grader',
+      artifact: artifact('graders/support-grader.tar', sha('3')),
+    },
+    model: resolvedModel,
+    attempt: { maxAttempts: 1, retryPolicy: 'none' },
+    evaluatorTaskContainer: {
+      source: 'evaluator-task-container',
+      image: 'ghcr.io/tangle-network/support-eval:sha-abc',
+      indexDigest: sha('4'),
+      manifestDigest: sha('5'),
+      platform: { os: 'linux', architecture: 'amd64' },
+    },
+    limits: {
+      timeoutMs: 60_000,
+      maxSteps: 20,
+      maxModelCalls: 1,
+      maxInputTokens: 100,
+      maxOutputTokens: 100,
+      maxCostUsd: 0.1,
+    },
+  })
+}
 
-    expect(comparison.overall).toMatchObject({
-      baseline: 0.375,
-      candidate: 0.625,
-      delta: 0.25,
-      n: 4,
+function experiment(reps = 3): AgentCandidateExperiment {
+  const task = benchmarkTask()
+  const seeds = Array.from({ length: reps }, (_, index) => 101 + index) as [number, ...number[]]
+  return sealCandidateExperiment({
+    kind: 'agent-candidate-experiment',
+    digestAlgorithm: 'rfc8785-sha256',
+    baseline: bundle('Answer the support request.'),
+    candidate: bundle('Answer the support request and verify every claim.'),
+    candidateLineage: { source: 'human' },
+    benchmark: sealCandidateBenchmarkSuite({ tasks: [task], reps, seeds }),
+    policy: {
+      confidenceLevel: 0.95,
+      resamples: 2_000,
+      bootstrapSeed: 1_337,
+      deltaThreshold: 0,
+      minProductiveRuns: 3,
+      budgetUsd: 1,
+      criticalDimensions: ['reliability'],
+      regressionTolerance: 0.05,
+    },
+  })
+}
+
+function executionEvidence(input: {
+  experiment: AgentCandidateExperiment
+  arm: 'baseline' | 'candidate'
+  task: AgentCandidateBenchmarkTask
+  benchmarkCell: AgentCandidateBenchmarkCellRef
+  score: number
+  passed?: boolean
+  termination?: AgentCandidateTermination
+  sourceProfileDigest?: Sha256Digest
+  profileEnv?: Record<string, { kind: 'public'; value: string }>
+  graderUsage?: AgentCandidateFixedSpend
+  graderDurationMs?: number
+}): CandidateExecutionEvidence {
+  const bundle = input.experiment[input.arm]
+  const executionId = `${input.arm}-${input.benchmarkCell.repetition}`
+  const cellIndex =
+    input.benchmarkCell.taskIndex * input.experiment.benchmark.suite.reps +
+    input.benchmarkCell.repetition
+  const seed = input.experiment.benchmark.suite.seeds[cellIndex]!
+  const runCell = addressed({
+    kind: 'agent-candidate-run-cell' as const,
+    experimentDigest: input.experiment.digest,
+    arm: input.arm,
+    bundleDigest: bundle.digest,
+    suiteDigest: input.experiment.benchmark.suite.digest,
+    taskDigest: input.task.digest,
+    taskIndex: input.benchmarkCell.taskIndex,
+    repetition: input.benchmarkCell.repetition,
+    seed,
+    attempt: 1,
+  })
+  const profilePlan = materialEvidence(
+    'agent-profile-workspace-plan',
+    {
+      sourceProfileDigest: input.sourceProfileDigest ?? canonicalCandidateDigest(bundle.profile),
+      harness: 'codex' as const,
+      files: [],
+      env: input.profileEnv ?? {},
+      flags: [],
+      unsupported: [],
+    },
+    `plans/${executionId}-profile.json`,
+  )
+  const profileActivation = addressed({
+    kind: 'agent-candidate-profile-activation' as const,
+    profilePlan,
+    files: [],
+  })
+  const executionPlan = materialEvidence(
+    'agent-candidate-execution-plan',
+    {
+      kind: 'agent-candidate-execution-plan-material' as const,
+      runCell,
+      executionId,
+      workspaces: { taskRoot: '/work/task' },
+      codeKind: 'disabled' as const,
+      profile: {
+        planDigest: profilePlan.digest,
+        targetWorkspace: 'task' as const,
+        mountPaths: [],
+      },
+      harness: 'codex' as const,
+      harnessVersion: '0.1.0',
+      instructionDelivery: bundle.execution.instructionDelivery,
+      limits: input.task.limits,
+      container: {
+        source: 'evaluator-task-container' as const,
+        image: 'ghcr.io/tangle-network/support-eval:sha-abc',
+        indexDigest: sha('4'),
+        manifestDigest: sha('5'),
+        platform: { os: 'linux', architecture: 'amd64' },
+      },
+      model: {
+        policy: 'single' as const,
+        resolved: resolvedModel,
+        access: {
+          kind: 'evaluator-mediated' as const,
+          grantDigest: sha('6'),
+          network: {
+            mode: 'gateway-only' as const,
+            domains: ['router.tangle.tools'],
+          },
+        },
+        routes: [{ kind: 'primary' as const, requested: resolvedModel.requested }],
+      },
+      launch: {
+        executable: 'node',
+        args: [],
+        env: {},
+        cwd: { workspace: 'task' as const, path: '.' },
+      },
+      memory: { mode: 'disabled' as const },
+      network: { mode: 'disabled' as const },
+    },
+    `plans/${executionId}-execution.json`,
+  )
+  const materializationReceipt = addressed({
+    kind: 'agent-candidate-materialization' as const,
+    digestAlgorithm: 'rfc8785-sha256' as const,
+    bundleDigest: bundle.digest,
+    benchmark: {
+      suite: {
+        digest: input.experiment.benchmark.suite.digest,
+        material: artifact(
+          `benchmarks/${input.experiment.benchmark.suite.digest}.json`,
+          input.experiment.benchmark.suite.digest,
+        ),
+      },
+      task: {
+        digest: input.task.digest,
+        material: artifact(`benchmarks/${input.task.digest}.json`, input.task.digest),
+      },
+    },
+    profileActivation,
+    executionPlan,
+    codeKind: 'disabled' as const,
+    harness: 'codex' as const,
+    harnessVersion: '0.1.0',
+    container: executionPlan.material.container,
+    resolvedModel,
+  })
+  const modelSettlement = materialEvidence(
+    'agent-candidate-model-settlement',
+    {
+      kind: 'agent-candidate-model-settlement-material' as const,
+      executionPlanDigest: executionPlan.digest,
+      preparationId: `preparation-${executionId}`,
+      grantDigest: executionPlan.material.model.access.grantDigest,
+      closed: true as const,
+      resolved: resolvedModel,
+      calls: [],
+      usage: {
+        inputTokens: 0,
+        outputTokens: 0,
+        cachedInputTokens: 0,
+        reasoningTokens: 0,
+        modelCalls: 0,
+        costUsdNanos: 0,
+      },
+    },
+    `settlements/${executionId}.json`,
+  )
+  const taskOutcome = materialEvidence(
+    'agent-candidate-task-outcome',
+    {
+      kind: 'agent-candidate-task-outcome-material' as const,
+      executionPlanDigest: executionPlan.digest,
+      outcome: {
+        kind: 'output' as const,
+        spec:
+          input.task.outcome.kind === 'output'
+            ? {
+                mediaType: input.task.outcome.mediaType,
+                maxBytes: input.task.outcome.maxBytes,
+              }
+            : neverOutput(),
+        artifact: artifact(`outcomes/${executionId}.txt`, sha('7'), 20),
+      },
+    },
+    `outcomes/${executionId}.json`,
+  )
+  const benchmarkResult = materialEvidence(
+    'agent-candidate-benchmark-result',
+    {
+      kind: 'agent-candidate-benchmark-result-material' as const,
+      executionPlanDigest: executionPlan.digest,
+      taskOutcomeDigest: taskOutcome.digest,
+      grader: input.task.grader,
+      evidence: artifact(`results/${executionId}-grader.json`, sha('8'), 20),
+      grading: {
+        usage: input.graderUsage ?? {
+          inputTokens: 0,
+          outputTokens: 0,
+          cachedInputTokens: 0,
+          reasoningTokens: 0,
+          modelCalls: 0,
+          costUsdNanos: 0,
+        },
+        timing: {
+          startedAtMs: 2_000,
+          endedAtMs: 2_000 + (input.graderDurationMs ?? 0),
+          durationMs: input.graderDurationMs ?? 0,
+        },
+      },
+      score: input.score,
+      passed: input.passed ?? input.score >= 0.5,
+      dimensions: [{ name: 'reliability', score: input.score }],
+    },
+    `results/${executionId}.json`,
+  )
+  const startedAtMs = 1_000 + input.benchmarkCell.repetition * 100
+  const durationMs = input.arm === 'baseline' ? 100 : 90
+  const receipt = addressed({
+    kind: 'agent-candidate-run' as const,
+    digestAlgorithm: 'rfc8785-sha256' as const,
+    bundleDigest: bundle.digest,
+    runCellDigest: runCell.digest,
+    materializationReceiptDigest: materializationReceipt.digest,
+    executionPlanDigest: executionPlan.digest,
+    timing: {
+      startedAtMs,
+      endedAtMs: startedAtMs + durationMs,
+      durationMs,
+    },
+    memory: { mode: 'disabled' as const },
+    trace: {
+      artifact: artifact(`traces/${executionId}.json`, sha('9'), 20),
+      eventCount: 1,
+      modelCallCount: 0,
+    },
+    termination: input.termination ?? { kind: 'exit' as const, exitCode: 0 },
+    executorCapture: artifact(`captures/${executionId}.json`, sha('a'), 20),
+    modelSettlement,
+    taskOutcome,
+    benchmarkResult,
+  })
+  return addressed({
+    kind: 'agent-candidate-execution-evidence' as const,
+    materializationReceipt,
+    receipt,
+  })
+}
+
+function neverOutput(): never {
+  throw new Error('fixture task must use an output contract')
+}
+
+describe('candidate experiment comparison', () => {
+  it('runs the exact signed matrix and derives every statistic from Runtime receipts', async () => {
+    const frozen = experiment()
+    const observedSeeds: number[] = []
+    const measurements = await runCandidateExperiment({
+      experiment: frozen,
+      maxConcurrency: 3,
+      async execute(input) {
+        observedSeeds.push(input.seed)
+        const baseline = [0.2, 0.25, 0.3][input.benchmarkCell.repetition]!
+        const candidate = [0.7, 0.75, 0.8][input.benchmarkCell.repetition]!
+        return executionEvidence({
+          experiment: input.experiment,
+          arm: input.arm,
+          task: input.task,
+          benchmarkCell: input.benchmarkCell,
+          score: input.arm === 'baseline' ? baseline : candidate,
+          graderUsage: {
+            inputTokens: 10,
+            outputTokens: 2,
+            cachedInputTokens: 0,
+            reasoningTokens: 0,
+            modelCalls: 1,
+            costUsdNanos: 10_000_000,
+          },
+          graderDurationMs: 5,
+        })
+      },
     })
+    const comparison = measuredComparisonFromCandidateExperiment({
+      experiment: frozen,
+      measurements,
+      runId: 'candidate-experiment-1',
+      diff: '-Answer the support request.\n+Answer the support request and verify every claim.',
+      candidate: { label: 'verified-claims prompt' },
+      generationsExplored: 2,
+      searchDurationMs: 50,
+      searchCostUsd: 0.25,
+    })
+
+    expect(comparison.overall).toMatchObject({ baseline: 0.25, candidate: 0.75, delta: 0.5, n: 3 })
+    expect(comparison.decision.outcome).toBe('ship')
+    expect(comparison.measurements).toHaveLength(3)
+    expect(comparison.evaluation).toMatchObject({
+      executionDurationMs: 600,
+      durationMs: 650,
+    })
+    expect(comparison.evaluation.executionCostUsd).toBeCloseTo(0.06)
+    expect(comparison.evaluation.totalCostUsd).toBeCloseTo(0.31)
     expect(comparison.objectives).toEqual(
       expect.arrayContaining([
-        expect.objectContaining({ kind: 'objective', name: 'quality', availability: 'measured' }),
-        expect.objectContaining({
-          kind: 'dimension',
-          objective: 'quality',
-          name: 'correctness',
-          availability: 'measured',
-        }),
-        expect.objectContaining({ kind: 'cost', availability: 'measured' }),
-        expect.objectContaining({ kind: 'latency', availability: 'measured' }),
+        expect.objectContaining({ kind: 'cost', baseline: 0.01, candidate: 0.01 }),
+        expect.objectContaining({ kind: 'latency', baseline: 105, candidate: 95 }),
       ]),
     )
-    expect(comparison.decision).toEqual({
-      outcome: 'ship',
-      reasons: ['candidate improved on paired heldout cells'],
-      contributingChecks: [{ name: 'paired-heldout', passed: true }],
+    expect(observedSeeds.sort((left, right) => left - right)).toEqual([
+      101, 101, 102, 102, 103, 103,
+    ])
+  })
+
+  it('keeps constant-score intervals numerically consistent with their measured delta', async () => {
+    const frozen = experiment(10)
+    const measurements = await runCandidateExperiment({
+      experiment: frozen,
+      async execute(input) {
+        return executionEvidence({
+          experiment: input.experiment,
+          arm: input.arm,
+          task: input.task,
+          benchmarkCell: input.benchmarkCell,
+          score: input.arm === 'baseline' ? 0.3 : 0.9,
+        })
+      },
     })
-    expect(comparison.power.n).toBe(4)
-    expect(comparison.provenance.baselineContentHash).toBe(
-      `sha256:${createHash('sha256').update('BASELINE').digest('hex')}`,
-    )
-    expect(comparison.provenance.candidateContentHash).toBe(
-      `sha256:${createHash('sha256').update('BETTER').digest('hex')}`,
-    )
-    expect(comparison.provenance.recordDigest).toBe(result.provenance.recordDigest)
-  })
-
-  it('pairs every scenario replicate explicitly', async () => {
-    const result = await fixtureResult(promotion, 2)
-    expect(measuredComparison(result).overall.n).toBe(8)
-  })
-
-  it('rejects an unpaired heldout result instead of silently dropping a cell', async () => {
-    const result = await fixtureResult()
-    const omittedScenarioId = result.raw.winnerOnHoldout.cells[0]?.scenarioId
-    if (!omittedScenarioId) throw new Error('expected a heldout fixture cell')
-    const winnerScenarios = result.raw.winnerOnHoldout.scenarios.filter(
-      (scenario) => scenario.id !== omittedScenarioId,
-    )
-    const unpaired = {
-      ...result,
-      raw: {
-        ...result.raw,
-        winnerOnHoldout: {
-          ...result.raw.winnerOnHoldout,
-          splitDigest: campaignSplitDigestFromIdentities(
-            winnerScenarios,
-            result.raw.winnerOnHoldout.reps,
-          ),
-          cells: result.raw.winnerOnHoldout.cells.slice(1),
-          scenarios: winnerScenarios,
-        },
-      },
-    }
-
-    expect(() => measuredComparison(unpaired)).toThrow(/same non-empty paired heldout cells/)
-  })
-
-  it('rejects a heldout scenario declared without its designed cell', async () => {
-    const result = await fixtureResult()
-    const omittedScenario = campaignScenarioIdentity({
-      id: 'omitted-hard-case',
-      kind: 'fixture',
-    })
-    const expandedScenarios = [...result.raw.baselineOnHoldout.scenarios, omittedScenario]
-    const expandedSplitDigest = campaignSplitDigestFromIdentities(
-      expandedScenarios,
-      result.raw.baselineOnHoldout.reps,
-    )
-    const incomplete = {
-      ...result,
-      raw: {
-        ...result.raw,
-        baselineOnHoldout: {
-          ...result.raw.baselineOnHoldout,
-          splitDigest: expandedSplitDigest,
-          scenarios: expandedScenarios,
-        },
-        winnerOnHoldout: {
-          ...result.raw.winnerOnHoldout,
-          splitDigest: expandedSplitDigest,
-          scenarios: expandedScenarios,
-        },
-      },
-    }
-
-    expect(() => measuredComparison(incomplete)).toThrow(/heldout baseline is incomplete \(4\/5/)
-  })
-
-  it('rejects matched errored cells instead of publishing only surviving pairs', async () => {
-    const result = await fixtureResult()
-    const errored = {
-      ...result,
-      raw: {
-        ...result.raw,
-        baselineOnHoldout: {
-          ...result.raw.baselineOnHoldout,
-          cells: result.raw.baselineOnHoldout.cells.map((cell, index) =>
-            index === 0 ? { ...cell, error: 'baseline failed' } : cell,
-          ),
-        },
-        winnerOnHoldout: {
-          ...result.raw.winnerOnHoldout,
-          cells: result.raw.winnerOnHoldout.cells.map((cell, index) =>
-            index === 0 ? { ...cell, error: 'candidate failed' } : cell,
-          ),
-        },
-      },
-    }
-
-    expect(() => measuredComparison(errored)).toThrow(/heldout baseline is incomplete/)
-  })
-
-  it('requires the exact baseline surface, including an empty string', async () => {
-    const result = await fixtureResult()
-    expect(() => measuredComparison(result, '')).toThrow(/surface diff does not agree/)
-  })
-
-  it('rejects a shipped no-op even when every decision field agrees', async () => {
-    const result = await noOpFixtureResult()
-    const gate = {
-      decision: 'ship' as const,
-      reasons: ['forged no-op shipment'],
-      contributingGates: [{ name: 'forged', passed: true, detail: { winnerIsBaseline: false } }],
-      delta: 0,
-    }
-    const forged = {
-      ...result,
-      gateDecision: 'ship' as const,
-      provenance: { ...result.provenance, gate },
-      raw: { ...result.raw, gateResult: gate },
-    }
-
-    expect(() => measuredComparison(forged)).toThrow(/record digest/)
-  })
-
-  it('normalizes an undefined decision-check detail through the canonical provenance builder', async () => {
-    const result = await fixtureResult({
-      name: 'undefined-detail-fixture',
-      decide: async () => ({
-        decision: 'ship',
-        reasons: ['candidate improved on paired heldout cells'],
-        contributingGates: [{ name: 'paired-heldout', passed: true, detail: undefined }],
-      }),
+    const comparison = measuredComparisonFromCandidateExperiment({
+      experiment: frozen,
+      measurements,
+      runId: 'constant-score-interval',
+      diff: '-old\n+new',
     })
 
-    expect(result.provenance.gate.contributingGates[0]?.detail).toBeNull()
-    expect(() => measuredComparison(result)).not.toThrow()
-  })
-
-  it('binds the exported benchmark to the exact heldout design', async () => {
-    const result = await fixtureResult()
-    expect(() => measuredComparison(result, 'BASELINE', `sha256:${'9'.repeat(64)}`)).toThrow(
-      /benchmark heldout split does not agree/,
+    expect(comparison.overall.confidenceInterval.lower).toBeLessThanOrEqual(
+      comparison.overall.delta,
+    )
+    expect(comparison.overall.confidenceInterval.upper).toBeGreaterThanOrEqual(
+      comparison.overall.delta,
     )
   })
 
-  it('rejects a campaign split detached from its retained task identities', async () => {
-    const result = await fixtureResult()
-    const forged = {
-      ...result,
-      raw: {
-        ...result.raw,
-        baselineOnHoldout: {
-          ...result.raw.baselineOnHoldout,
-          scenarios: result.raw.baselineOnHoldout.scenarios.map((scenario, index) =>
-            index === 0
-              ? { ...scenario, scenarioDigest: `sha256:${'9'.repeat(64)}` as const }
-              : scenario,
-          ),
-        },
-      },
-    }
-
-    expect(() => measuredComparison(forged)).toThrow(/split digest does not match/)
-  })
-
-  it('rejects duplicate scenario ids instead of inflating the designed denominator', async () => {
-    const result = await fixtureResult()
-    const duplicate = result.raw.baselineOnHoldout.scenarios[0]
-    if (!duplicate) throw new Error('expected a heldout scenario')
-    const forged = {
-      ...result,
-      raw: {
-        ...result.raw,
-        baselineOnHoldout: {
-          ...result.raw.baselineOnHoldout,
-          scenarios: [...result.raw.baselineOnHoldout.scenarios, duplicate],
-        },
-        winnerOnHoldout: {
-          ...result.raw.winnerOnHoldout,
-          scenarios: [...result.raw.winnerOnHoldout.scenarios, duplicate],
-        },
-      },
-    }
-
-    expect(() => measuredComparison(forged)).toThrow(/duplicate scenario id/)
-  })
-
-  it('requires a successful model receipt for every scored heldout row', async () => {
-    const holdout = scenarios.slice(4)
-    const holdoutIds = new Set(holdout.map((scenario) => scenario.id))
-    const result = await selfImprove({
-      agent: async (surface, scenario, context) =>
-        holdoutIds.has(scenario.id)
-          ? { text: String(surface) }
-          : paidAgent(surface, scenario, context),
-      scenarios,
-      judge,
-      baselineSurface: 'BASELINE',
-      proposer,
-      gate: promotion,
-      expectUsage: 'off',
-      budget: {
-        generations: 1,
-        populationSize: 1,
-        holdoutScenarios: holdout,
+  it('rejects missing cells, substituted arms, and changed signed task bytes', async () => {
+    const frozen = experiment()
+    const measurements = await runCandidateExperiment({
+      experiment: frozen,
+      async execute(input) {
+        return executionEvidence({
+          experiment: input.experiment,
+          arm: input.arm,
+          task: input.task,
+          benchmarkCell: input.benchmarkCell,
+          score: input.arm === 'baseline' ? 0.2 : 0.8,
+        })
       },
     })
-
-    expect(result.provenance.backend.verdict).toBe('real')
-    expect(() => measuredComparison(result)).toThrow(/stub or unconfigured backend/)
-  })
-
-  it('rejects a failed agent receipt linked to a scored row', async () => {
-    const result = await fixtureResult()
-    const callId = result.raw.winnerOnHoldout.cells[0]?.costCallIds?.[0]
-    if (!callId) throw new Error('expected a heldout agent receipt')
-    const forged = {
-      ...result,
-      receipts: result.receipts.map((receipt) =>
-        receipt.callId === callId ? { ...receipt, error: 'provider failed' } : receipt,
-      ),
-    }
-
-    expect(() => measuredComparison(forged)).toThrow(/links a failed agent receipt/)
-  })
-
-  it('rejects a customer-visible diff not derived from the measured surfaces', async () => {
-    const result = await fixtureResult()
-    const diff = 'FORGED: deploy an unrelated change'
-    const forged = {
-      ...result,
-      diff,
-      provenance: { ...result.provenance, diff },
-      raw: { ...result.raw, promotedDiff: diff },
-    }
-
-    expect(() => measuredComparison(forged)).toThrow(/record digest/)
-  })
-
-  it('rejects altered neutralization evidence after the decision', async () => {
-    const holdout = scenarios.slice(4)
-    const result = await selfImprove({
-      agent: paidAgent,
-      scenarios,
-      judge,
-      baselineSurface: 'BASELINE',
-      proposer,
-      gate: neutralizationGate<{ text: string }, Scenario>({ scenarios: holdout }),
-      neutralize: () => 'NEUTRAL',
-      budget: {
-        generations: 1,
-        populationSize: 1,
-        holdoutScenarios: holdout,
-      },
-    })
-    if (!result.raw.neutralizedOnHoldout) {
-      throw new Error('expected neutralized holdout evidence')
-    }
-    const forged = {
-      ...result,
-      raw: {
-        ...result.raw,
-        neutralizedSurface: 'FORGED-PLACEBO',
-        neutralizedOnHoldout: {
-          ...result.raw.neutralizedOnHoldout,
-          cells: result.raw.neutralizedOnHoldout.cells.map((cell) => ({
-            ...cell,
-            judgeScores: Object.fromEntries(
-              Object.entries(cell.judgeScores).map(([name, score]) => [
-                name,
-                { ...score, composite: 0.99, dimensions: { correctness: 0.99 } },
-              ]),
-            ),
-          })),
-        },
-      },
-    }
-
-    expect(() => measuredComparison(forged)).toThrow(/provenance record does not agree/)
-  })
-
-  it('rejects a changed run identity or provenance schema', async () => {
-    const result = await fixtureResult()
     expect(() =>
-      measuredComparison({
-        ...result,
-        provenance: { ...result.provenance, runId: 'another-customer/run' },
+      measuredComparisonFromCandidateExperiment({
+        experiment: frozen,
+        measurements: measurements.slice(0, 2),
+        runId: 'missing-cell',
+        diff: '-old\n+new',
       }),
-    ).toThrow(/record digest/)
+    ).toThrow(/incomplete/)
+
+    const baselineAsCandidate = measurements[0]!.baseline
     expect(() =>
-      measuredComparison({
-        ...result,
-        provenance: { ...result.provenance, schema: 'forged.provenance.v999' as never },
+      measuredComparisonFromCandidateExperiment({
+        experiment: frozen,
+        measurements: [
+          { ...measurements[0]!, candidate: baselineAsCandidate },
+          ...measurements.slice(1),
+        ],
+        runId: 'substituted-arm',
+        diff: '-old\n+new',
       }),
-    ).toThrow(/unsupported schema/)
-  })
+    ).toThrow(/substituted|bundle/)
 
-  it.each([
-    {
-      name: 'baseline holdout composite',
-      mutate: (result: FixtureResult) => ({
-        ...result,
-        provenance: { ...result.provenance, baselineHoldoutComposite: 999 },
-      }),
-      message: /record digest/,
-    },
-    {
-      name: 'winner holdout composite',
-      mutate: (result: FixtureResult) => ({
-        ...result,
-        provenance: { ...result.provenance, winnerHoldoutComposite: 999 },
-      }),
-      message: /record digest/,
-    },
-    {
-      name: 'baseline content hash',
-      mutate: (result: FixtureResult) => ({
-        ...result,
-        provenance: {
-          ...result.provenance,
-          baselineContentHash: `sha256:${'a'.repeat(64)}`,
-        },
-      }),
-      message: /record digest/,
-    },
-    {
-      name: 'winner content hash',
-      mutate: (result: FixtureResult) => ({
-        ...result,
-        provenance: {
-          ...result.provenance,
-          winnerContentHash: `sha256:${'b'.repeat(64)}`,
-        },
-      }),
-      message: /record digest/,
-    },
-    {
-      name: 'decision',
-      mutate: (result: FixtureResult) => ({
-        ...result,
-        provenance: {
-          ...result.provenance,
-          gate: { ...result.provenance.gate, decision: 'hold' as const },
-        },
-      }),
-      message: /record digest/,
-    },
-    {
-      name: 'decision reasons',
-      mutate: (result: FixtureResult) => ({
-        ...result,
-        provenance: {
-          ...result.provenance,
-          gate: { ...result.provenance.gate, reasons: ['contradictory reason'] },
-        },
-      }),
-      message: /provenance record|record digest/,
-    },
-    {
-      name: 'decision checks',
-      mutate: (result: FixtureResult) => ({
-        ...result,
-        provenance: {
-          ...result.provenance,
-          gate: { ...result.provenance.gate, contributingGates: [] },
-        },
-      }),
-      message: /provenance record|record digest/,
-    },
-    {
-      name: 'decision check detail',
-      mutate: (result: FixtureResult) => ({
-        ...result,
-        raw: {
-          ...result.raw,
-          gateResult: {
-            ...result.raw.gateResult,
-            contributingGates: result.raw.gateResult.contributingGates.map((check) => ({
-              ...check,
-              detail: { forged: true },
-            })),
-          },
-        },
-      }),
-      message: /provenance record|record digest/,
-    },
-    {
-      name: 'decision delta',
-      mutate: (result: FixtureResult) => ({
-        ...result,
-        provenance: {
-          ...result.provenance,
-          gate: { ...result.provenance.gate, delta: 999 },
-        },
-      }),
-      message: /provenance record|record digest/,
-    },
-    {
-      name: 'diff',
-      mutate: (result: FixtureResult) => ({
-        ...result,
-        provenance: { ...result.provenance, diff: 'contradictory diff' },
-      }),
-      message: /record digest/,
-    },
-    {
-      name: 'total cost',
-      mutate: (result: FixtureResult) => ({
-        ...result,
-        provenance: { ...result.provenance, totalCostUsd: result.totalCostUsd + 1 },
-      }),
-      message: /record digest/,
-    },
-    {
-      name: 'total duration',
-      mutate: (result: FixtureResult) => ({
-        ...result,
-        provenance: { ...result.provenance, totalDurationMs: result.durationMs + 1 },
-      }),
-      message: /record digest/,
-    },
-    {
-      name: 'power analysis',
-      mutate: (result: FixtureResult) => ({
-        ...result,
-        power: { ...result.power!, mde: 999, recommendation: 'forged power analysis' },
-      }),
-      message: /power analysis does not agree/,
-    },
-    {
-      name: 'generation count',
-      mutate: (result: FixtureResult) => ({ ...result, generationsExplored: 999 }),
-      message: /generation count does not agree/,
-    },
-    {
-      name: 'generation history',
-      mutate: (result: FixtureResult) => ({
-        ...result,
-        provenance: { ...result.provenance, candidates: [] },
-      }),
-      message: /record digest/,
-    },
-    {
-      name: 'candidate composite',
-      mutate: (result: FixtureResult) => ({
-        ...result,
-        raw: {
-          ...result.raw,
-          generations: result.raw.generations.map((generation) => ({
-            ...generation,
-            record: {
-              ...generation.record,
-              candidates: generation.record.candidates.map((candidate) => ({
-                ...candidate,
-                composite: candidate.composite + 0.1,
-                ci95: [candidate.composite + 0.1, candidate.composite + 0.1] as [number, number],
-                observedDeltaFromParent: (candidate.observedDeltaFromParent ?? 0) + 0.1,
-              })),
-            },
-          })),
-        },
-        provenance: {
-          ...result.provenance,
-          candidates: result.provenance.candidates.map((candidate) => ({
-            ...candidate,
-            composite: candidate.composite + 0.1,
-            observedDeltaFromParent: (candidate.observedDeltaFromParent ?? 0) + 0.1,
-          })),
-        },
-      }),
-      message: /record digest/,
-    },
-    {
-      name: 'candidate dimensions',
-      mutate: (result: FixtureResult) => ({
-        ...result,
-        raw: {
-          ...result.raw,
-          generations: result.raw.generations.map((generation) => ({
-            ...generation,
-            record: {
-              ...generation.record,
-              candidates: generation.record.candidates.map((candidate) => ({
-                ...candidate,
-                dimensions: { forged: 1 },
-              })),
-            },
-          })),
-        },
-      }),
-      message: /candidate .* dimensions does not agree/,
-    },
-    {
-      name: 'backend provenance',
-      mutate: (result: FixtureResult) => ({
-        ...result,
-        provenance: {
-          ...result.provenance,
-          backend: { ...result.provenance.backend, verdict: 'stub' as const },
-        },
-      }),
-      message: /record digest/,
-    },
-    {
-      name: 'candidate coverage',
-      mutate: (result: FixtureResult) => ({
-        ...result,
-        raw: {
-          ...result.raw,
-          generations: result.raw.generations.map((generation) => ({
-            ...generation,
-            surfaces: generation.surfaces.map((surface, index) => ({
-              ...surface,
-              campaign: {
-                ...surface.campaign,
-                cells: surface.campaign.cells.map((cell, cellIndex) =>
-                  index === 0 && cellIndex === 0 ? { ...cell, error: 'search failed' } : cell,
-                ),
-              },
-            })),
-          })),
-        },
-      }),
-      message: /candidate .* coverage does not agree/,
-    },
-    {
-      name: 'generation index',
-      mutate: (result: FixtureResult) => ({
-        ...result,
-        raw: {
-          ...result.raw,
-          generations: result.raw.generations.map((generation) => ({
-            ...generation,
-            record: { ...generation.record, generationIndex: 1 },
-          })),
-        },
-      }),
-      message: /contiguous integers starting at zero/,
-    },
-    {
-      name: 'cost summary',
-      mutate: (result: FixtureResult) => ({
-        ...result,
-        totalCostUsd: result.totalCostUsd + 1,
-        provenance: { ...result.provenance, totalCostUsd: result.totalCostUsd + 1 },
-      }),
-      message: /provenance record|record digest/,
-    },
-    {
-      name: 'cost receipts',
-      mutate: (result: FixtureResult) => {
-        const totalCostUsd = result.totalCostUsd + 1
-        return {
-          ...result,
-          totalCostUsd,
-          cost: { ...result.cost, totalCostUsd },
-          provenance: { ...result.provenance, totalCostUsd },
-          raw: { ...result.raw, cost: { ...result.raw.cost, totalCostUsd } },
-        }
-      },
-      message: /provenance record|record digest/,
-    },
-    {
-      name: 'winner label',
-      mutate: (result: FixtureResult) => ({
-        ...result,
-        winner: { ...result.winner, label: 'forged label' },
-      }),
-      message: /raw winner label does not agree/,
-    },
-    {
-      name: 'incomplete cost accounting',
-      mutate: (result: FixtureResult) => {
-        const cost = {
-          ...result.cost,
-          accountingComplete: false,
-          incompleteReasons: ['provider bill is pending'],
-        }
-        return { ...result, cost, raw: { ...result.raw, cost } }
-      },
-      message: /cost accounting is incomplete/,
-    },
-    {
-      name: 'forged cost rollup',
-      mutate: (result: FixtureResult) => {
-        const cost = { ...result.cost, inputTokens: result.cost.inputTokens + 1 }
-        return { ...result, cost, raw: { ...result.raw, cost } }
-      },
-      message: /cost receipt summary does not agree/,
-    },
-    {
-      name: 'invalid receipt usage',
-      mutate: (result: FixtureResult) => ({
-        ...result,
-        receipts: result.receipts.map((receipt, index) =>
-          index === 0 ? { ...receipt, inputTokens: -1 } : receipt,
-        ),
-      }),
-      message: /invalid imported receipt/,
-    },
-  ])('rejects contradictory $name provenance', async ({ mutate, message }) => {
-    const result = await fixtureResult()
-    expect(() => measuredComparison(mutate(result))).toThrow(message)
-  })
-
-  it('rejects duplicate, missing-score, and non-finite heldout cells', async () => {
-    const result = await fixtureResult()
-    const baselineCell = result.raw.baselineOnHoldout.cells[0]
-    const winnerCell = result.raw.winnerOnHoldout.cells[0]
-    if (!baselineCell || !winnerCell) throw new Error('expected heldout fixture cells')
-    const judgeEntry = Object.entries(winnerCell.judgeScores)[0]
-    if (!judgeEntry) throw new Error('expected heldout fixture judge')
-    const [judgeName, judgeScore] = judgeEntry
-    const cases = [
-      {
-        name: 'duplicate rep',
-        result: {
-          ...result,
-          raw: {
-            ...result.raw,
-            baselineOnHoldout: {
-              ...result.raw.baselineOnHoldout,
-              cells: [baselineCell, ...result.raw.baselineOnHoldout.cells],
-            },
-          },
-        },
-        message: /heldout baseline is incomplete/,
-      },
-      {
-        name: 'missing score',
-        result: {
-          ...result,
-          raw: {
-            ...result.raw,
-            winnerOnHoldout: {
-              ...result.raw.winnerOnHoldout,
-              cells: result.raw.winnerOnHoldout.cells.map((cell, index) =>
-                index === 0 ? { ...cell, judgeScores: {} } : cell,
-              ),
-            },
-          },
-        },
-        message: /heldout candidate is incomplete/,
-      },
-      {
-        name: 'non-finite latency',
-        result: {
-          ...result,
-          raw: {
-            ...result.raw,
-            winnerOnHoldout: {
-              ...result.raw.winnerOnHoldout,
-              cells: result.raw.winnerOnHoldout.cells.map((cell, index) =>
-                index === 0 ? { ...cell, durationMs: Number.NaN } : cell,
-              ),
-            },
-          },
-        },
-        message: /latency must be non-negative/,
-      },
-      {
-        name: 'negative cost',
-        result: {
-          ...result,
-          raw: {
-            ...result.raw,
-            winnerOnHoldout: {
-              ...result.raw.winnerOnHoldout,
-              cells: result.raw.winnerOnHoldout.cells.map((cell, index) =>
-                index === 0 ? { ...cell, costUsd: -1 } : cell,
-              ),
-            },
-          },
-        },
-        message: /cost must be non-negative/,
-      },
-      {
-        name: 'cost not backed by receipts',
-        result: {
-          ...result,
-          raw: {
-            ...result.raw,
-            winnerOnHoldout: {
-              ...result.raw.winnerOnHoldout,
-              cells: result.raw.winnerOnHoldout.cells.map((cell, index) =>
-                index === 0 ? { ...cell, costUsd: cell.costUsd + 1 } : cell,
-              ),
-            },
-          },
-        },
-        message: /cost receipts does not agree/,
-      },
-      {
-        name: 'cost receipt omitted from cell',
-        result: {
-          ...result,
-          raw: {
-            ...result.raw,
-            winnerOnHoldout: {
-              ...result.raw.winnerOnHoldout,
-              cells: result.raw.winnerOnHoldout.cells.map((cell, index) =>
-                index === 0
-                  ? { ...cell, costUsd: 0, costCallIds: [], tokenUsage: { input: 0, output: 0 } }
-                  : cell,
-              ),
-            },
-          },
-        },
-        message: /cost receipt IDs does not agree/,
-      },
-      {
-        name: 'token usage not backed by receipts',
-        result: {
-          ...result,
-          raw: {
-            ...result.raw,
-            winnerOnHoldout: {
-              ...result.raw.winnerOnHoldout,
-              cells: result.raw.winnerOnHoldout.cells.map((cell, index) =>
-                index === 0
-                  ? {
-                      ...cell,
-                      tokenUsage: { ...cell.tokenUsage, input: cell.tokenUsage.input + 1 },
-                    }
-                  : cell,
-              ),
-            },
-          },
-        },
-        message: /input receipts does not agree/,
-      },
-      {
-        name: 'receipt from another cell',
-        result: {
-          ...result,
-          raw: {
-            ...result.raw,
-            winnerOnHoldout: {
-              ...result.raw.winnerOnHoldout,
-              cells: result.raw.winnerOnHoldout.cells.map((cell, index, cells) =>
-                index === 0 ? { ...cell, costCallIds: cells[1]?.costCallIds } : cell,
-              ),
-            },
-          },
-        },
-        message: /receipt from another cell/,
-      },
-      {
-        name: 'failed judge',
-        result: {
-          ...result,
-          raw: {
-            ...result.raw,
-            winnerOnHoldout: {
-              ...result.raw.winnerOnHoldout,
-              cells: result.raw.winnerOnHoldout.cells.map((cell, index) =>
-                index === 0
-                  ? {
-                      ...cell,
-                      judgeScores: {
-                        ...cell.judgeScores,
-                        [judgeName]: { ...judgeScore, failed: true as const },
-                      },
-                    }
-                  : cell,
-              ),
-            },
-          },
-        },
-        message: /heldout candidate is incomplete/,
-      },
-      {
-        name: 'mismatched cell identity',
-        result: {
-          ...result,
-          raw: {
-            ...result.raw,
-            winnerOnHoldout: {
-              ...result.raw.winnerOnHoldout,
-              cells: result.raw.winnerOnHoldout.cells.map((cell, index) =>
-                index === 0 ? { ...cell, scenarioId: 'different-scenario' } : cell,
-              ),
-            },
-          },
-        },
-        message: /heldout candidate is incomplete/,
-      },
-      {
-        name: 'negative token count',
-        result: {
-          ...result,
-          raw: {
-            ...result.raw,
-            winnerOnHoldout: {
-              ...result.raw.winnerOnHoldout,
-              cells: result.raw.winnerOnHoldout.cells.map((cell, index) =>
-                index === 0 ? { ...cell, tokenUsage: { ...cell.tokenUsage, input: -1 } } : cell,
-              ),
-            },
-          },
-        },
-        message: /input tokens must be a non-negative safe integer/,
-      },
-      {
-        name: 'mismatched paired seed',
-        result: {
-          ...result,
-          raw: {
-            ...result.raw,
-            winnerOnHoldout: {
-              ...result.raw.winnerOnHoldout,
-              cells: result.raw.winnerOnHoldout.cells.map((cell, index) =>
-                index === 0 ? { ...cell, seed: cell.seed + 1 } : cell,
-              ),
-            },
-          },
-        },
-        message: /does not share one paired seed/,
-      },
-    ]
-
-    for (const testCase of cases) {
-      expect(() => measuredComparison(testCase.result), testCase.name).toThrow(testCase.message)
+    const changedTask = {
+      ...frozen.benchmark.tasks[0],
+      instruction: 'A different task with the old digest.',
     }
+    expect(() =>
+      verifyCandidateExperiment({
+        ...frozen,
+        benchmark: { ...frozen.benchmark, tasks: [changedTask] },
+      }),
+    ).toThrow(/digest/)
+  })
+
+  it('holds an experiment with fewer than three paired cells', async () => {
+    const frozen = experiment(2)
+    const measurements = await runCandidateExperiment({
+      experiment: frozen,
+      async execute(input) {
+        return executionEvidence({
+          experiment: input.experiment,
+          arm: input.arm,
+          task: input.task,
+          benchmarkCell: input.benchmarkCell,
+          score: input.arm === 'baseline' ? 0.2 : 0.9,
+        })
+      },
+    })
+    const comparison = measuredComparisonFromCandidateExperiment({
+      experiment: frozen,
+      measurements,
+      runId: 'underpowered',
+      diff: '-old\n+new',
+    })
+    expect(comparison.decision.outcome).toBe('need_more_work')
+    expect(comparison.power.sufficient).toBe(false)
+  })
+
+  it('binds decision policy before execution and recomputes the published verdict', async () => {
+    const frozen = experiment()
+    const measurements = await runCandidateExperiment({
+      experiment: frozen,
+      async execute(input) {
+        return executionEvidence({
+          experiment: input.experiment,
+          arm: input.arm,
+          task: input.task,
+          benchmarkCell: input.benchmarkCell,
+          score: input.arm === 'baseline' ? 0.2 : 0.8,
+        })
+      },
+    })
+    const comparison = measuredComparisonFromCandidateExperiment({
+      experiment: frozen,
+      measurements,
+      runId: 'policy-binding',
+      diff: '-old\n+new',
+    })
+
+    const { digest: _digest, ...material } = frozen
+    const alteredExperiment = addressed({
+      ...material,
+      policy: { ...frozen.policy, deltaThreshold: 0.9 },
+    })
+    expect(() =>
+      measuredComparisonFromCandidateExperiment({
+        experiment: alteredExperiment,
+        measurements,
+        runId: 'changed-policy',
+        diff: '-old\n+new',
+      }),
+    ).toThrow(/substituted/)
+
+    expect(() =>
+      verifyCandidateExperimentComparison({
+        ...comparison,
+        decision: {
+          ...comparison.decision,
+          outcome: 'hold',
+          reasons: ['caller changed the verdict'],
+        },
+      }),
+    ).toThrow(/does not match/)
+  })
+
+  it('does not ship incomplete or grader-failed candidate runs', async () => {
+    for (const failure of ['timeout', 'grader'] as const) {
+      const frozen = experiment()
+      const measurements = await runCandidateExperiment({
+        experiment: frozen,
+        async execute(input) {
+          return executionEvidence({
+            experiment: input.experiment,
+            arm: input.arm,
+            task: input.task,
+            benchmarkCell: input.benchmarkCell,
+            score: input.arm === 'baseline' ? 0.2 : 0.8,
+            ...(input.arm === 'candidate' && failure === 'timeout'
+              ? { termination: { kind: 'timeout' as const, timeoutMs: 60_000 } }
+              : {}),
+            ...(input.arm === 'candidate' && failure === 'grader' ? { passed: false } : {}),
+          })
+        },
+      })
+      const comparison = measuredComparisonFromCandidateExperiment({
+        experiment: frozen,
+        measurements,
+        runId: `candidate-${failure}`,
+        diff: '-old\n+new',
+      })
+      expect(comparison.decision.outcome).toBe('hold')
+      expect(
+        comparison.decision.contributingChecks.find((check) =>
+          failure === 'timeout'
+            ? check.name === 'all-runs-completed'
+            : check.name === 'candidate-task-pass',
+        )?.passed,
+      ).toBe(false)
+    }
+  })
+
+  it('rejects materialized profile bytes that do not come from the experiment arm', async () => {
+    const frozen = experiment()
+    await expect(
+      runCandidateExperiment({
+        experiment: frozen,
+        async execute(input) {
+          return executionEvidence({
+            experiment: input.experiment,
+            arm: input.arm,
+            task: input.task,
+            benchmarkCell: input.benchmarkCell,
+            score: input.arm === 'baseline' ? 0.2 : 0.8,
+            ...(input.arm === 'candidate' ? { sourceProfileDigest: sha('f') } : {}),
+          })
+        },
+      }),
+    ).rejects.toThrow(/substituted/)
+  })
+
+  it('accepts signed pre-model retries and rejects inconsistent native profile plans', async () => {
+    const frozen = experiment()
+    const task = frozen.benchmark.tasks[0]!
+    const { digest: _taskDigest, ...taskMaterial } = task
+    const retriedTask = sealCandidateBenchmarkTask({
+      ...taskMaterial,
+      attempt: { maxAttempts: 2, retryPolicy: 'pre-model-infrastructure-only' },
+    })
+    const { digest: _experimentDigest, ...experimentMaterial } = frozen
+    const retriedExperiment = sealCandidateExperiment({
+      ...experimentMaterial,
+      benchmark: sealCandidateBenchmarkSuite({
+        tasks: [retriedTask],
+        reps: 3,
+        seeds: [101, 102, 103],
+      }),
+    })
+    expect(retriedExperiment.benchmark.tasks[0]?.attempt).toEqual({
+      maxAttempts: 2,
+      retryPolicy: 'pre-model-infrastructure-only',
+    })
+
+    const measurements = await runCandidateExperiment({
+      experiment: frozen,
+      async execute(input) {
+        return executionEvidence({
+          experiment: input.experiment,
+          arm: input.arm,
+          task: input.task,
+          benchmarkCell: input.benchmarkCell,
+          score: input.arm === 'baseline' ? 0.2 : 0.8,
+          ...(input.arm === 'candidate' && input.benchmarkCell.repetition === 1
+            ? { profileEnv: { DIFFERENT: { kind: 'public', value: '1' } } }
+            : {}),
+        })
+      },
+    })
+    expect(() =>
+      measuredComparisonFromCandidateExperiment({
+        experiment: frozen,
+        measurements,
+        runId: 'inconsistent-profile-plan',
+        diff: '-old\n+new',
+      }),
+    ).toThrow(/materialized a different profile/)
   })
 })
