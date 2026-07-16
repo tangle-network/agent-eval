@@ -178,6 +178,7 @@ function executionEvidence(input: {
   profileEnv?: Record<string, { kind: 'public'; value: string }>
   graderUsage?: AgentCandidateFixedSpend
   graderDurationMs?: number
+  dimensions?: Array<{ name: string; score: number }>
 }): CandidateExecutionEvidence {
   const bundle = input.experiment[input.arm]
   const executionId = `${input.arm}-${input.benchmarkCell.repetition}`
@@ -352,7 +353,7 @@ function executionEvidence(input: {
       },
       score: input.score,
       passed: input.passed ?? input.score >= 0.5,
-      dimensions: [{ name: 'reliability', score: input.score }],
+      dimensions: input.dimensions ?? [{ name: 'reliability', score: input.score }],
     },
     `results/${executionId}.json`,
   )
@@ -394,6 +395,17 @@ function neverOutput(): never {
 }
 
 describe('candidate experiment comparison', () => {
+  it('rejects an experiment whose candidate is identical to its baseline', () => {
+    const frozen = experiment()
+    const { digest: _digest, ...material } = frozen
+    expect(() =>
+      sealCandidateExperiment({
+        ...material,
+        candidate: frozen.baseline,
+      }),
+    ).toThrow(/identical/)
+  })
+
   it('runs the exact signed matrix and derives every statistic from Runtime receipts', async () => {
     const frozen = experiment()
     const observedSeeds: number[] = []
@@ -426,7 +438,6 @@ describe('candidate experiment comparison', () => {
       experiment: frozen,
       measurements,
       runId: 'candidate-experiment-1',
-      diff: '-Answer the support request.\n+Answer the support request and verify every claim.',
       candidate: { label: 'verified-claims prompt' },
       generationsExplored: 2,
       searchDurationMs: 50,
@@ -435,6 +446,8 @@ describe('candidate experiment comparison', () => {
 
     expect(comparison.overall).toMatchObject({ baseline: 0.25, candidate: 0.75, delta: 0.5, n: 3 })
     expect(comparison.decision.outcome).toBe('ship')
+    expect(comparison.diff).toContain('--- baseline/profile')
+    expect(comparison.diff).toContain('verify every claim')
     expect(comparison.measurements).toHaveLength(3)
     expect(comparison.evaluation).toMatchObject({
       executionDurationMs: 600,
@@ -471,7 +484,6 @@ describe('candidate experiment comparison', () => {
       experiment: frozen,
       measurements,
       runId: 'constant-score-interval',
-      diff: '-old\n+new',
     })
 
     expect(comparison.overall.confidenceInterval.lower).toBeLessThanOrEqual(
@@ -501,7 +513,6 @@ describe('candidate experiment comparison', () => {
         experiment: frozen,
         measurements: measurements.slice(0, 2),
         runId: 'missing-cell',
-        diff: '-old\n+new',
       }),
     ).toThrow(/incomplete/)
 
@@ -514,7 +525,6 @@ describe('candidate experiment comparison', () => {
           ...measurements.slice(1),
         ],
         runId: 'substituted-arm',
-        diff: '-old\n+new',
       }),
     ).toThrow(/substituted|bundle/)
 
@@ -548,7 +558,6 @@ describe('candidate experiment comparison', () => {
       experiment: frozen,
       measurements,
       runId: 'underpowered',
-      diff: '-old\n+new',
     })
     expect(comparison.decision.outcome).toBe('need_more_work')
     expect(comparison.power.sufficient).toBe(false)
@@ -572,7 +581,6 @@ describe('candidate experiment comparison', () => {
       experiment: frozen,
       measurements,
       runId: 'policy-binding',
-      diff: '-old\n+new',
     })
 
     const { digest: _digest, ...material } = frozen
@@ -585,7 +593,6 @@ describe('candidate experiment comparison', () => {
         experiment: alteredExperiment,
         measurements,
         runId: 'changed-policy',
-        diff: '-old\n+new',
       }),
     ).toThrow(/substituted/)
 
@@ -599,6 +606,89 @@ describe('candidate experiment comparison', () => {
         },
       }),
     ).toThrow(/does not match/)
+  })
+
+  it('binds the complete comparison record, not only its measurements', async () => {
+    const frozen = experiment()
+    const measurements = await runCandidateExperiment({
+      experiment: frozen,
+      async execute(input) {
+        return executionEvidence({
+          experiment: input.experiment,
+          arm: input.arm,
+          task: input.task,
+          benchmarkCell: input.benchmarkCell,
+          score: input.arm === 'baseline' ? 0.2 : 0.8,
+        })
+      },
+    })
+    const first = measuredComparisonFromCandidateExperiment({
+      experiment: frozen,
+      measurements,
+      runId: 'record-a',
+      candidate: { label: 'first label' },
+    })
+    const second = measuredComparisonFromCandidateExperiment({
+      experiment: frozen,
+      measurements,
+      runId: 'record-b',
+      candidate: { label: 'second label' },
+    })
+
+    expect(first.provenance.recordDigest).not.toBe(second.provenance.recordDigest)
+    expect(() =>
+      verifyCandidateExperimentComparison({
+        ...first,
+        metadata: { altered: true },
+      }),
+    ).toThrow(/does not match/)
+  })
+
+  it('holds when a required dimension is absent and preserves schema-level dimension checks', async () => {
+    const initial = experiment()
+    const { digest: _digest, ...material } = initial
+    const frozen = sealCandidateExperiment({
+      ...material,
+      policy: { ...material.policy, criticalDimensions: ['safety'] },
+    })
+    const measurements = await runCandidateExperiment({
+      experiment: frozen,
+      async execute(input) {
+        return executionEvidence({
+          experiment: input.experiment,
+          arm: input.arm,
+          task: input.task,
+          benchmarkCell: input.benchmarkCell,
+          score: input.arm === 'baseline' ? 0.2 : 0.8,
+        })
+      },
+    })
+    const comparison = measuredComparisonFromCandidateExperiment({
+      experiment: frozen,
+      measurements,
+      runId: 'missing-critical-dimension',
+    })
+    expect(comparison.decision.outcome).toBe('hold')
+    expect(comparison.decision.reasons).toContain('critical dimensions missing: safety')
+
+    await expect(
+      runCandidateExperiment({
+        experiment: initial,
+        async execute(input) {
+          return executionEvidence({
+            experiment: input.experiment,
+            arm: input.arm,
+            task: input.task,
+            benchmarkCell: input.benchmarkCell,
+            score: input.arm === 'baseline' ? 0.2 : 0.8,
+            dimensions: [
+              { name: 'reliability', score: 0.8 },
+              { name: 'reliability', score: 0.8 },
+            ],
+          })
+        },
+      }),
+    ).rejects.toThrow(/dimensions must be unique/)
   })
 
   it('does not ship incomplete or grader-failed candidate runs', async () => {
@@ -624,7 +714,6 @@ describe('candidate experiment comparison', () => {
         experiment: frozen,
         measurements,
         runId: `candidate-${failure}`,
-        diff: '-old\n+new',
       })
       expect(comparison.decision.outcome).toBe('hold')
       expect(
@@ -698,7 +787,6 @@ describe('candidate experiment comparison', () => {
         experiment: frozen,
         measurements,
         runId: 'inconsistent-profile-plan',
-        diff: '-old\n+new',
       }),
     ).toThrow(/materialized a different profile/)
   })

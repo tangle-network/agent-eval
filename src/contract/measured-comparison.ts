@@ -50,7 +50,6 @@ export interface CompareCandidateExperimentOptions {
   experiment: AgentCandidateExperiment
   measurements: AgentCandidateExperimentMeasurement[]
   runId: string
-  diff: string
   candidate?: AgentImprovementMeasuredComparison['candidate']
   generationsExplored?: number
   searchDurationMs?: number
@@ -103,6 +102,9 @@ export function verifyCandidateExperiment(input: unknown): AgentCandidateExperim
   verifySelfAddressed(experiment, 'candidate experiment')
   verifyBundle(experiment.baseline, 'baseline bundle')
   verifyBundle(experiment.candidate, 'candidate bundle')
+  if (experiment.baseline.digest === experiment.candidate.digest) {
+    throw new Error('candidate experiment baseline and candidate bundles are identical')
+  }
   verifyCandidateBenchmarkSuiteInputs(experiment.benchmark)
   return experiment
 }
@@ -279,6 +281,9 @@ export function measuredComparisonFromCandidateExperiment(
   const powerSufficient =
     baselineScores.length >= minProductiveRuns && power !== undefined && !power.underpowered
   const guardedDimensions = new Set(criticalDimensions)
+  const missingCriticalDimensions = criticalDimensions.filter(
+    (dimension) => !dimensions.includes(dimension),
+  )
   const regressions = objectives.filter(
     (objective) =>
       objective.kind === 'dimension' &&
@@ -307,7 +312,10 @@ export function measuredComparisonFromCandidateExperiment(
     { name: 'statistical-power', passed: powerSufficient },
     { name: 'all-runs-completed', passed: incompleteRuns.length === 0 },
     { name: 'candidate-task-pass', passed: failedCandidateResults.length === 0 },
-    { name: 'critical-dimensions', passed: regressions.length === 0 },
+    {
+      name: 'critical-dimensions',
+      passed: regressions.length === 0 && missingCriticalDimensions.length === 0,
+    },
     { name: 'budget', passed: budgetPassed },
   ]
   const shipped = checks.every((check) => check.passed)
@@ -325,6 +333,9 @@ export function measuredComparisonFromCandidateExperiment(
     ...(regressions.length === 0
       ? []
       : [`critical dimensions regressed: ${regressions.map((entry) => entry.name).join(', ')}`]),
+    ...(missingCriticalDimensions.length === 0
+      ? []
+      : [`critical dimensions missing: ${missingCriticalDimensions.join(', ')}`]),
     ...(incompleteRuns.length === 0
       ? []
       : [`${incompleteRuns.length} benchmark executions did not exit successfully`]),
@@ -333,9 +344,7 @@ export function measuredComparisonFromCandidateExperiment(
       : [`candidate failed ${failedCandidateResults.length} benchmark tasks`]),
     ...(budgetPassed ? [] : [`total cost ${totalCostUsd} exceeded budget ${budgetUsd}`]),
   ]
-  if (shipped && options.diff.trim().length === 0) {
-    throw new Error('a passing candidate experiment requires a non-empty candidate diff')
-  }
+  const diff = deriveCandidateBundleDiff(experiment)
   const executionDurationMs = measurements.reduce(
     (sum, measurement) =>
       sum + latencyFromEvidence(measurement.baseline) + latencyFromEvidence(measurement.candidate),
@@ -343,24 +352,7 @@ export function measuredComparisonFromCandidateExperiment(
   )
   const searchDurationMs = options.searchDurationMs ?? 0
   const durationMs = executionDurationMs + searchDurationMs
-  const recordDigest = canonicalCandidateDigest({
-    kind: 'agent-candidate-experiment-measurement',
-    experimentDigest: experiment.digest,
-    measurementDigests: measurements.flatMap((measurement) => [
-      measurement.baseline.digest,
-      measurement.candidate.digest,
-    ]),
-    confidence,
-    resamples,
-    bootstrapSeed,
-    deltaThreshold,
-    minProductiveRuns,
-    criticalDimensions,
-    regressionTolerance,
-    budgetUsd: budgetUsd ?? null,
-  })
-
-  return agentImprovementMeasuredComparisonSchema.parse({
+  const provisional = agentImprovementMeasuredComparisonSchema.parse({
     kind: 'agent-improvement-measured-comparison',
     experiment,
     measurements,
@@ -395,11 +387,11 @@ export function measuredComparisonFromCandidateExperiment(
       kind: 'agent-eval-loop',
       schema: 'agent-candidate-experiment',
       runId: options.runId,
-      recordDigest,
+      recordDigest: canonicalCandidateDigest({}),
       baselineContentHash: experiment.baseline.digest,
       candidateContentHash: experiment.candidate.digest,
     },
-    diff: options.diff,
+    diff,
     evaluation: {
       generationsExplored: options.generationsExplored ?? 0,
       searchDurationMs,
@@ -410,6 +402,14 @@ export function measuredComparisonFromCandidateExperiment(
       totalCostUsd,
     },
     ...(options.metadata ? { metadata: options.metadata } : {}),
+  })
+  const { recordDigest: _recordDigest, ...provenance } = provisional.provenance
+  return agentImprovementMeasuredComparisonSchema.parse({
+    ...provisional,
+    provenance: {
+      ...provenance,
+      recordDigest: canonicalCandidateDigest({ ...provisional, provenance }),
+    },
   })
 }
 
@@ -422,7 +422,6 @@ export function verifyCandidateExperimentComparison(
     experiment: comparison.experiment,
     measurements: comparison.measurements,
     runId: comparison.provenance.runId,
-    diff: comparison.diff,
     ...(comparison.candidate ? { candidate: comparison.candidate } : {}),
     generationsExplored: comparison.evaluation.generationsExplored,
     searchDurationMs: comparison.evaluation.searchDurationMs,
@@ -433,6 +432,28 @@ export function verifyCandidateExperimentComparison(
     throw new Error('candidate experiment comparison does not match its Runtime receipts')
   }
   return comparison
+}
+
+function deriveCandidateBundleDiff(experiment: AgentCandidateExperiment): string {
+  const surfaces = ['profile', 'code', 'execution', 'knowledge', 'memory'] as const
+  const changed = surfaces.flatMap((surface) => {
+    const baseline = experiment.baseline[surface] ?? null
+    const candidate = experiment.candidate[surface] ?? null
+    const baselineDigest = canonicalCandidateDigest(baseline)
+    const candidateDigest = canonicalCandidateDigest(candidate)
+    if (baselineDigest === candidateDigest) return []
+    return [
+      [
+        `--- baseline/${surface} (${baselineDigest})`,
+        `+++ candidate/${surface} (${candidateDigest})`,
+        JSON.stringify({ baseline, candidate }, null, 2),
+      ].join('\n'),
+    ]
+  })
+  if (changed.length === 0) {
+    throw new Error('candidate experiment has no changed candidate surface')
+  }
+  return changed.join('\n\n')
 }
 
 export function verifyCandidateBenchmarkTask(input: unknown): AgentCandidateBenchmarkTask {
