@@ -135,6 +135,7 @@ export interface SemanticConceptJudgeOptions {
   llm?: LlmClientOptions
   costLedger?: CostLedgerHandle
   costPhase?: string
+  costTags?: Record<string, string>
   signal?: AbortSignal
   /**
    * Score aggregation strategy. Default `mean` — uniform average across
@@ -279,6 +280,7 @@ export async function runSemanticConceptJudge(
     llm: options.llm ?? {},
     costLedger: options.costLedger ?? new CostLedger(),
     costPhase: options.costPhase ?? 'judge.semantic-concept',
+    costTags: options.costTags ?? {},
     signal: options.signal ?? new AbortController().signal,
     weightConcepts: options.weightConcepts ?? 'mean',
     complexityWeights: { ...DEFAULT_COMPLEXITY_WEIGHTS, ...(options.complexityWeights ?? {}) },
@@ -322,6 +324,7 @@ export async function runSemanticConceptJudge(
       phase: opts.costPhase,
       actor: 'semantic-concept',
       model: opts.model,
+      ...(Object.keys(opts.costTags).length > 0 ? { tags: opts.costTags } : {}),
       maximumCharge: maximumChargeForLlmRequest(request, opts.llm),
       signal: opts.signal,
       execute: (signal, callId) =>

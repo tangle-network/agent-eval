@@ -70,6 +70,7 @@ export interface IntentMatchOptions {
   llm?: LlmClientOptions
   costLedger?: CostLedgerHandle
   costPhase?: string
+  costTags?: Record<string, string>
   signal?: AbortSignal
 }
 
@@ -157,6 +158,7 @@ export async function runIntentMatchJudge(
     llm: options.llm ?? {},
     costLedger: options.costLedger ?? new CostLedger(),
     costPhase: options.costPhase ?? 'judge.intent-match',
+    costTags: options.costTags ?? {},
     signal: options.signal ?? new AbortController().signal,
   }
 
@@ -195,6 +197,7 @@ export async function runIntentMatchJudge(
       phase: opts.costPhase,
       actor: 'intent-match',
       model: opts.model,
+      ...(Object.keys(opts.costTags).length > 0 ? { tags: opts.costTags } : {}),
       maximumCharge: maximumChargeForLlmRequest(request, opts.llm),
       signal: opts.signal,
       execute: (signal, callId) =>
