@@ -154,6 +154,16 @@ describe('acquireSingleRunLock', () => {
     }
   })
 
+  it('fails closed for an owner on another host', () => {
+    const lockPath = join(dir(), 'gym.lock')
+    const owner = { host: 'remote-worker.example', nonce: 'remote-owner', pid: 999_999_999 }
+    writeFileSync(lockPath, JSON.stringify(owner))
+    expect(() => acquireSingleRunLock({ lockPath, releaseOnExit: false })).toThrow(
+      /held by live pid 999999999/,
+    )
+    expect(JSON.parse(readFileSync(lockPath, 'utf8'))).toEqual(owner)
+  })
+
   it('respects other runners lockfiles via alsoCheck without writing them', () => {
     const d = dir()
     const mine = join(d, 'mine.lock')
