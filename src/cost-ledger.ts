@@ -1091,16 +1091,17 @@ function matches(record: CostCallBase, filter: CostLedgerFilter | undefined): bo
 }
 
 function cloneRecord(record: CostLedgerRecord): CostLedgerRecord {
-  return record.status === 'settled'
-    ? cloneReceipt(record)
-    : { ...record, tags: record.tags ? { ...record.tags } : undefined }
+  if (record.status === 'settled') return cloneReceipt(record)
+  const { tags, ...rest } = record
+  return { ...rest, ...(tags ? { tags: { ...tags } } : {}) }
 }
 
 function cloneReceipt(receipt: CostReceipt): CostReceipt {
+  const { pricing, tags, ...rest } = receipt
   return {
-    ...receipt,
-    tags: receipt.tags ? { ...receipt.tags } : undefined,
-    pricing: receipt.pricing ? { ...receipt.pricing } : undefined,
+    ...rest,
+    ...(tags ? { tags: { ...tags } } : {}),
+    ...(pricing ? { pricing: { ...pricing } } : {}),
   }
 }
 
