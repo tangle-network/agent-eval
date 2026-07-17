@@ -70,6 +70,13 @@ describe('gepaProposer reflection evidence', () => {
       populationSize: 1,
       generation: 1,
       signal: new AbortController().signal,
+      track: {
+        id: 'contrarian',
+        operation: 'branch',
+        proposer: 'gepa',
+        vision: 'challenge assumptions with a distinct retrieval strategy',
+        parentTrackIds: ['baseline'],
+      },
     }
     const out = await proposer.propose(ctx)
 
@@ -80,5 +87,7 @@ describe('gepaProposer reflection evidence', () => {
     expect(userPrompt).toContain('What the agent emitted')
     expect(userPrompt).toContain(EMITTED_EXCERPT)
     expect(userPrompt).toContain(FAILURE_NOTE)
+    expect(userPrompt).toContain('Track objective (contrarian)')
+    expect(userPrompt).toContain('challenge assumptions with a distinct retrieval strategy')
   })
 })

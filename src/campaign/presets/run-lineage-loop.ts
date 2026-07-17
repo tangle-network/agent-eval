@@ -135,6 +135,8 @@ export interface RunLineageLoopOptions<TScenario extends Scenario, TArtifact> {
   /** Override the per-step proposer. Default {@link gepaProposer}. Inject a
    *  pure stub to unit-test without an LLM. */
   proposer?: SurfaceProposer
+  /** Optional proposer implementations keyed by the labels carried by tracks. */
+  proposers?: Readonly<Record<string, SurfaceProposer>>
   /** Override how a surface is scored into a DAG-node fitness. Default is a
    *  {@link runCampaign} pass over `holdoutScenarios ?? scenarios`. Inject a
    *  deterministic function to unit-test without a campaign. */
@@ -190,20 +192,24 @@ export async function runLineageLoop<TScenario extends Scenario, TArtifact>(
   }
 
   // ── Resolve the proposer seam ─────────────────────────────────────────────
-  let proposer = opts.proposer
-  if (!proposer) {
-    if (!opts.llm || !opts.model) {
-      throw new Error(
-        'runLineageLoop: a proposer is required — either inject `proposer`, or provide `llm` + `model` for the default gepaProposer.',
-      )
-    }
-    proposer = gepaProposer({
+  let defaultProposer = opts.proposer
+  if (!defaultProposer && opts.llm && opts.model) {
+    defaultProposer = gepaProposer({
       llm: opts.llm,
       model: opts.model,
       target: opts.target ?? 'agent surface',
-      // GEPA combine-complementary-lessons is what the `merge` seam relies on.
       combineParents: true,
     })
+  }
+  if (!defaultProposer && !opts.proposers) {
+    throw new Error(
+      'runLineageLoop: a proposer is required — inject `proposer` or `proposers`, or provide `llm` + `model` for the default gepaProposer.',
+    )
+  }
+  const proposerFor = (name: string): SurfaceProposer => {
+    const resolved = opts.proposers?.[name] ?? defaultProposer
+    if (!resolved) throw new Error(`runLineageLoop: no proposer is registered for '${name}'`)
+    return resolved
   }
 
   // ── Resolve the scoreSurface seam ─────────────────────────────────────────
@@ -282,16 +288,28 @@ export async function runLineageLoop<TScenario extends Scenario, TArtifact>(
 
   // ── (2) The live `step` seam: propose from the tip, score, pick the best ──
   const step = async (args: {
+    track: string
+    proposer: string
     tip: LineageNode
+    operation: 'extend' | 'branch'
+    generation: number
+    vision?: string
   }): Promise<SurfaceScore & { surface: string; rationale?: string }> => {
-    const proposed = await proposer!.propose({
+    const proposed = await proposerFor(args.proposer).propose({
       currentSurface: args.tip.surface,
       history: [],
       findings: [],
       populationSize,
-      generation: 0,
+      generation: args.generation,
       signal: new AbortController().signal,
       paretoParents: [],
+      track: {
+        id: args.track,
+        operation: args.operation,
+        proposer: args.proposer,
+        parentTrackIds: [args.tip.track],
+        ...(args.vision !== undefined ? { vision: args.vision } : {}),
+      },
     })
 
     // Elitism: keep the tip in the pool so a step never regresses below its
@@ -342,7 +360,11 @@ export async function runLineageLoop<TScenario extends Scenario, TArtifact>(
 
   // ── (3) The live `merge` seam: GEPA crossover of the parents, then score ──
   const merge = async (args: {
+    track: string
+    proposer: string
     parents: LineageNode[]
+    generation: number
+    vision?: string
   }): Promise<SurfaceScore & { surface: string; rationale?: string }> => {
     // Order parents best-first; the strongest surface is the reflection base and
     // GEPA reads each parent's per-scenario objectives to combine strengths.
@@ -355,7 +377,7 @@ export async function runLineageLoop<TScenario extends Scenario, TArtifact>(
       generation: node.generation,
     }))
 
-    const proposed = await proposer!.propose({
+    const proposed = await proposerFor(args.proposer).propose({
       currentSurface: ordered[0]!.surface,
       history: [],
       findings: [],
@@ -363,9 +385,16 @@ export async function runLineageLoop<TScenario extends Scenario, TArtifact>(
       // paretoParents has > 1 string member.
       populationSize: 1,
       // generation >= 1 keeps the combine slot semantically a "merge" step.
-      generation: 1,
+      generation: args.generation,
       signal: new AbortController().signal,
       paretoParents,
+      track: {
+        id: args.track,
+        operation: 'merge',
+        proposer: args.proposer,
+        parentTrackIds: [...new Set(ordered.map((parent) => parent.track))],
+        ...(args.vision !== undefined ? { vision: args.vision } : {}),
+      },
     })
 
     const first = proposed[0]

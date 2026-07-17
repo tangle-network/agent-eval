@@ -249,9 +249,16 @@ export class Lineage {
     return this.all().filter((n) => n.track === track)
   }
 
-  /** The highest-`score` tip of a track (ties broken by lowest `seq`). */
+  /** Highest-scoring node without a child in the same track.
+   *  A branch or merge into another track does not retire this track. */
   trackTip(track: string): LineageNode | undefined {
-    return pickBest(this.tips().filter((n) => n.track === track))
+    return pickBest(
+      this.trackNodes(track).filter((node) =>
+        (this.childIds.get(node.id) ?? []).every(
+          (childId) => this.byId.get(childId)?.track !== track,
+        ),
+      ),
+    )
   }
 
   /** The highest-`score` node overall (ties broken by lowest `seq`). */
@@ -259,11 +266,13 @@ export class Lineage {
     return pickBest(this.all())
   }
 
-  /** The Pareto-non-dominated set among TIPS. Uses `scoreVector` when every
+  /** The Pareto-non-dominated set among current per-track tips. Uses `scoreVector` when every
    *  compared tip carries one, else the scalar `score`. A dominates B iff A is
    *  >= B on every component and > B on at least one. */
   frontier(): LineageNode[] {
-    const tips = this.tips()
+    const tips = this.tracks()
+      .map((track) => this.trackTip(track))
+      .filter((node): node is LineageNode => node !== undefined)
     const useVector = tips.length > 0 && tips.every((n) => n.scoreVector !== undefined)
     const vecOf = (n: LineageNode): number[] => (useVector ? n.scoreVector! : [n.score])
     return tips
@@ -601,11 +610,17 @@ export interface RunLineageOptions {
     track: string
     proposer: string
     tip: LineageNode
+    operation: 'extend' | 'branch'
+    generation: number
+    vision?: string
   }) => Promise<RunLineageStepResult>
   /** Collapse 2+ parent surfaces into one (GEPA crossover / LLM merge in real use). */
   merge: (args: {
     parents: LineageNode[]
     track: string
+    proposer: string
+    generation: number
+    vision?: string
   }) => Promise<Omit<RunLineageStepResult, 'gate'>>
   governor: Governor
   budget: {
@@ -726,13 +741,23 @@ export async function runLineage(opts: RunLineageOptions): Promise<RunLineageRes
         steps += 1
         continue
       }
-      const result = await opts.merge({ parents, track: op.track })
+      const target = parents.find((parent) => parent.track === op.track) ?? pickBest(parents)!
+      const proposer = trackProposer.get(op.track) ?? target.proposer
+      const vision = target.vision
+      const result = await opts.merge({
+        parents,
+        track: op.track,
+        proposer,
+        generation: Math.max(...parents.map((parent) => parent.generation)) + 1,
+        ...(vision !== undefined ? { vision } : {}),
+      })
       const node = lineage.merge({
         parentIds: parents.map((p) => p.id),
         track: op.track,
         surface: result.surface,
         score: result.score,
-        ...(parents[0]!.vision !== undefined ? { vision: parents[0]!.vision } : {}),
+        proposer,
+        ...(vision !== undefined ? { vision } : {}),
         ...(result.scoreVector !== undefined ? { scoreVector: result.scoreVector } : {}),
         ...(result.rationale !== undefined ? { rationale: result.rationale } : {}),
       })
@@ -754,14 +779,22 @@ export async function runLineage(opts: RunLineageOptions): Promise<RunLineageRes
         continue
       }
       trackProposer.set(op.track, op.proposer)
-      const result = await opts.step({ track: op.track, proposer: op.proposer, tip: from })
+      const vision = op.vision ?? from.vision
+      const result = await opts.step({
+        track: op.track,
+        proposer: op.proposer,
+        tip: from,
+        operation: 'branch',
+        generation: from.generation + 1,
+        ...(vision !== undefined ? { vision } : {}),
+      })
       const node = lineage.addNode({
         parentIds: [from.id],
         track: op.track,
         surface: result.surface,
         score: result.score,
         proposer: op.proposer,
-        ...(op.vision !== undefined ? { vision: op.vision } : {}),
+        ...(vision !== undefined ? { vision } : {}),
         ...(result.scoreVector !== undefined ? { scoreVector: result.scoreVector } : {}),
         ...(result.rationale !== undefined ? { rationale: result.rationale } : {}),
         ...(result.gate !== undefined ? { gate: result.gate } : {}),
@@ -784,7 +817,14 @@ export async function runLineage(opts: RunLineageOptions): Promise<RunLineageRes
       continue
     }
     const proposer = trackProposer.get(op.track) ?? tip.proposer
-    const result = await opts.step({ track: op.track, proposer, tip })
+    const result = await opts.step({
+      track: op.track,
+      proposer,
+      tip,
+      operation: 'extend',
+      generation: tip.generation + 1,
+      ...(tip.vision !== undefined ? { vision: tip.vision } : {}),
+    })
     const node = lineage.addNode({
       parentIds: [tip.id],
       track: op.track,
