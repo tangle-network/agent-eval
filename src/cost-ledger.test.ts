@@ -15,6 +15,7 @@ import {
   costForUsage,
   modelPriceKey,
 } from './cost-ledger'
+import { canonicalJson } from './verdict-cache'
 
 describe('modelPriceKey', () => {
   it('returns the id for a priced model (exact or family)', () => {
@@ -863,6 +864,19 @@ describe('CostLedger', () => {
       succeeded: false,
       receipt: { costUsd: 0, costUnknown: true, usageUnknown: true },
     })
+    if (unknownFailure.succeeded || !unknownFailure.receipt) {
+      throw new Error('expected the failed provider call to return its settled receipt')
+    }
+    const listedUnknownReceipt = ledger
+      .list()
+      .find((receipt) => receipt.callId === unknownFailure.callId)
+    if (!listedUnknownReceipt) throw new Error('expected the settled receipt in the ledger')
+    const unknownReceipts = [unknownFailure.receipt, listedUnknownReceipt]
+    for (const receipt of unknownReceipts) {
+      expect(receipt).not.toHaveProperty('tags')
+      expect(receipt).not.toHaveProperty('pricing')
+      expect(() => canonicalJson(receipt)).not.toThrow()
+    }
     expect(ledger.summary()).toMatchObject({
       totalCostUsd: 0.4,
       pendingCalls: 0,
