@@ -18,7 +18,13 @@
 
 import type { CostLedgerHandle, CostLedgerSummary } from '../../cost-ledger'
 import { type Objective, paretoFrontier } from '../../pareto'
-import { type CampaignCoverage, campaignCoverage, formatCoverageFailures } from '../coverage'
+import {
+  assertCampaignSplitIdentity,
+  type CampaignCoverage,
+  campaignCoverage,
+  campaignSplitDigest,
+  formatCoverageFailures,
+} from '../coverage'
 import { type RunCampaignOptions, runCampaign } from '../run-campaign'
 import { resolveRunDir } from '../run-dir'
 import { campaignBreakdown, campaignMeanComposite } from '../score-utils'
@@ -36,10 +42,26 @@ import {
   type SurfaceProposer,
 } from '../types'
 
+export interface PremeasuredOptimizationBaseline<TArtifact, TScenario extends Scenario> {
+  /** Hash of the exact surface that produced `campaign`. */
+  surfaceHash: string
+  /** Complete prior measurement reused by identity, including artifactsByPath. */
+  campaign: CampaignResult<TArtifact, TScenario>
+}
+
 export interface RunOptimizationBaseOptions<TScenario extends Scenario, TArtifact>
   extends Omit<RunCampaignOptions<TScenario, TArtifact>, 'dispatch'> {
   /** Initial mutable surface (typically system prompt or addendum). */
   baselineSurface: MutableSurface
+  /**
+   * Complete prior measurement of `baselineSurface`. When present,
+   * `runOptimization` validates its surface, scenario split, seed, reps, and
+   * normal campaign coverage, then skips the baseline campaign entirely — no
+   * dispatch or resumability-cache lookup. Candidate campaigns still run
+   * normally. Prior spend remains in the imported campaign aggregates and is
+   * not added again to this continuation's CostLedger.
+   */
+  premeasuredBaseline?: PremeasuredOptimizationBaseline<TArtifact, TScenario>
   /** Dispatcher that takes the CURRENT surface + scenario → artifact. */
   dispatchWithSurface: (
     surface: MutableSurface,
@@ -151,24 +173,34 @@ export async function runOptimization<TScenario extends Scenario, TArtifact>(
     )
   }
 
-  // Baseline run
-  const baselineCampaign = await runCampaign<TScenario, TArtifact>({
-    ...opts,
-    costLedger,
-    costPhase: 'search.baseline',
-    dispatch: (scenario, ctx) => opts.dispatchWithSurface(opts.baselineSurface, scenario, ctx),
-    runDir: `${opts.runDir}/baseline`,
-  })
   const requireJudgeScore = (opts.judges?.length ?? 0) > 0
+  const reps = opts.reps ?? 1
+  const premeasuredBaseline = opts.premeasuredBaseline
+  const baselineCampaign = premeasuredBaseline
+    ? validatedPremeasuredBaseline({
+        input: premeasuredBaseline,
+        baselineSurface: opts.baselineSurface,
+        scenarios: opts.scenarios,
+        reps,
+        seed: opts.seed ?? 42,
+      })
+    : await runCampaign<TScenario, TArtifact>({
+        ...opts,
+        costLedger,
+        costPhase: 'search.baseline',
+        dispatch: (scenario, ctx) => opts.dispatchWithSurface(opts.baselineSurface, scenario, ctx),
+        runDir: `${opts.runDir}/baseline`,
+      })
   const baselineCoverage = campaignCoverage(
     baselineCampaign.cells,
     opts.scenarios,
-    opts.reps ?? 1,
+    reps,
     requireJudgeScore,
   )
   if (!baselineCoverage.complete) {
+    const label = opts.premeasuredBaseline ? 'premeasured baseline' : 'baseline'
     throw new Error(
-      `runOptimization: baseline is incomplete (${baselineCoverage.scorableCellIds.length}/${baselineCoverage.expectedCellIds.length} designed cells scorable) — ${formatCoverageFailures(baselineCoverage)}. Refusing to optimize against an incomplete incumbent.`,
+      `runOptimization: ${label} is incomplete (${baselineCoverage.scorableCellIds.length}/${baselineCoverage.expectedCellIds.length} designed cells scorable) — ${formatCoverageFailures(baselineCoverage)}. Refusing to optimize against an incomplete incumbent.`,
     )
   }
 
@@ -209,7 +241,7 @@ export async function runOptimization<TScenario extends Scenario, TArtifact>(
   if (opts.analyzeGeneration && opts.maxGenerations > 0 && baselineCampaign.cells.length > 0) {
     const fresh = await opts.analyzeGeneration({
       generation: -1,
-      runDir: `${opts.runDir}/baseline`,
+      runDir: baselineCampaign.runDir,
       candidates: [
         { surfaceHash: winnerSurfaceHash, campaign: baselineCampaign, composite: winnerComposite },
       ],
@@ -393,6 +425,47 @@ export async function runOptimization<TScenario extends Scenario, TArtifact>(
     paretoFrontier: computeParetoFrontier(scored),
     cost: costLedger.summary(),
   }
+}
+
+function validatedPremeasuredBaseline<TScenario extends Scenario, TArtifact>(args: {
+  input: PremeasuredOptimizationBaseline<TArtifact, TScenario>
+  baselineSurface: MutableSurface
+  scenarios: TScenario[]
+  reps: number
+  seed: number
+}): CampaignResult<TArtifact, TScenario> {
+  const { input } = args
+  if (input.surfaceHash !== surfaceHash(args.baselineSurface)) {
+    throw new Error(
+      'runOptimization: premeasured baseline surface hash does not match baselineSurface',
+    )
+  }
+
+  const campaign = input.campaign
+  if (campaign.reps !== args.reps) {
+    throw new Error(
+      `runOptimization: premeasured baseline reps ${campaign.reps} do not match requested reps ${args.reps}`,
+    )
+  }
+  if (campaign.seed !== args.seed) {
+    throw new Error(
+      `runOptimization: premeasured baseline seed ${campaign.seed} does not match requested seed ${args.seed}`,
+    )
+  }
+
+  try {
+    assertCampaignSplitIdentity(campaign.scenarios, campaign.reps, campaign.splitDigest)
+  } catch (error) {
+    throw new Error(
+      `runOptimization: premeasured baseline has an invalid retained split identity — ${error instanceof Error ? error.message : String(error)}`,
+    )
+  }
+  if (campaign.splitDigest !== campaignSplitDigest(args.scenarios, args.reps)) {
+    throw new Error(
+      'runOptimization: premeasured baseline split does not match the requested scenarios',
+    )
+  }
+  return campaign
 }
 
 /** Build a `ParetoParent` from a scored campaign — objective vector =
