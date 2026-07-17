@@ -58,7 +58,7 @@ export class Mutex {
 /**
  * Map independent work with a fixed worker count while preserving input order.
  * After the first rejection, no new items start; already-running work is allowed
- * to settle before the returned promise rejects.
+ * to settle before the returned promise rejects. Partial results are discarded.
  */
 export async function mapConcurrent<T, R>(
   items: readonly T[],

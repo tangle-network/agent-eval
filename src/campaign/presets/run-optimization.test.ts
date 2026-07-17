@@ -314,6 +314,10 @@ describe('runOptimization candidate concurrency', () => {
   it('runs candidate campaigns in parallel without changing result order', async () => {
     let active = 0
     let maxActive = 0
+    let release: (() => void) | undefined
+    const twoActive = new Promise<void>((resolve) => {
+      release = resolve
+    })
     const wideProposer: SurfaceProposer = {
       kind: 'wide',
       async propose() {
@@ -328,7 +332,8 @@ describe('runOptimization candidate concurrency', () => {
         if (surface !== 'BASELINE') {
           active += 1
           maxActive = Math.max(maxActive, active)
-          await new Promise((resolve) => setTimeout(resolve, 10))
+          if (active === 2) release?.()
+          await twoActive
           active -= 1
         }
         return { surface: String(surface) }
