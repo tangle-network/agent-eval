@@ -165,10 +165,10 @@ describe('runCampaign — core primitive', () => {
     })
   })
 
-  it('rejects an empty seed group', async () => {
+  it.each(['', ' '])('rejects an empty seed group %#', async (seedGroup) => {
     await expect(
       runCampaign({
-        scenarios: [{ ...SCENARIOS[0]!, seedGroup: ' ' }],
+        scenarios: [{ ...SCENARIOS[0]!, seedGroup }],
         dispatch: DISPATCH,
         runDir,
       }),
@@ -196,14 +196,21 @@ describe('runCampaign — core primitive', () => {
     expect(r1.manifestHash).not.toBe(r2.manifestHash)
   })
 
-  it('threads cell-level seed = baseSeed + cellIndex', async () => {
-    const seenSeeds: number[] = []
-    const dispatch: DispatchFn<FakeScenario, FakeArtifact> = async (s, ctx) => {
-      seenSeeds.push(ctx.seed)
-      return { text: '', intent: s.intent }
-    }
-    await runCampaign({ scenarios: SCENARIOS, dispatch, seed: 100, reps: 2, runDir })
-    expect(seenSeeds.sort()).toEqual([100, 101, 102, 103])
+  it('retains the previous sequential seed schedule when seedGroup is unset', async () => {
+    const result = await runCampaign({
+      scenarios: SCENARIOS,
+      dispatch: DISPATCH,
+      seed: 100,
+      reps: 2,
+      runDir,
+    })
+
+    expect(Object.fromEntries(result.cells.map((cell) => [cell.cellId, cell.seed]))).toEqual({
+      'a:0': 100,
+      'a:1': 101,
+      'b:0': 102,
+      'b:1': 103,
+    })
   })
 
   it('resumes cached cells with their durable receipts', async () => {
@@ -391,6 +398,32 @@ describe('runCampaign — core primitive', () => {
     expect(dispatchCount).toBe(2)
     expect(result.cells[0]?.cached).toBe(false)
     expect(result.cells[0]?.artifact.intent).toBe('second')
+  })
+
+  it('does not resume cached cells when a seed group changes', async () => {
+    let dispatchCount = 0
+    const dispatch: DispatchFn<FakeScenario, FakeArtifact> = async (scenario) => {
+      dispatchCount += 1
+      return { text: `fresh-${scenario.intent}`, intent: scenario.intent }
+    }
+    const ungrouped = [{ id: 'a', kind: 'chat', intent: 'same' }]
+    const grouped = [{ ...ungrouped[0]!, seedGroup: 'paired-case' }]
+
+    await runCampaign({
+      scenarios: ungrouped,
+      dispatch,
+      dispatchRef: 'stable-dispatch',
+      runDir,
+    })
+    const result = await runCampaign({
+      scenarios: grouped,
+      dispatch,
+      dispatchRef: 'stable-dispatch',
+      runDir,
+    })
+
+    expect(dispatchCount).toBe(2)
+    expect(result.cells[0]?.cached).toBe(false)
   })
 
   it('includes dispatchRef in the resume decision', async () => {
