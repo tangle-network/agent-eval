@@ -4,6 +4,12 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ---
 
+## [0.120.3] — 2026-07-16 — complete compatibility package
+
+### Fixed
+
+- Publish the compiled JavaScript files omitted from the deprecated `0.120.2` npm archive; the cost-receipt behavior is unchanged from the reviewed `0.120.2` source.
+
 ## [0.120.2] — 2026-07-16 — canonical cost receipts
 
 ### Fixed
