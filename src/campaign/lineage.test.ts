@@ -159,6 +159,33 @@ describe('Lineage.merge + diamond shape', () => {
 })
 
 describe('Lineage.frontier', () => {
+  it('keeps a source track live when its child starts another track', () => {
+    const l = new Lineage()
+    const root = l.addNode({
+      parentIds: [],
+      track: 'source',
+      surface: 'root',
+      score: 0,
+      proposer: 'seed',
+    })
+    const sourceTip = l.addNode({
+      parentIds: [root.id],
+      track: 'source',
+      surface: 'source-tip',
+      score: 1,
+      proposer: 'source-proposer',
+    })
+    l.addNode({
+      parentIds: [sourceTip.id],
+      track: 'branch',
+      surface: 'branch-tip',
+      score: 2,
+      proposer: 'branch-proposer',
+    })
+
+    expect(l.trackTip('source')?.id).toBe(sourceTip.id)
+  })
+
   it('scalar-score frontier keeps only the best tip', () => {
     const l = new Lineage()
     const root = l.addNode({ parentIds: [], track: 't', surface: 'r', score: 0, proposer: 'seed' })

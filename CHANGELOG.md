@@ -4,6 +4,14 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ---
 
+## [Unreleased]
+
+### Changed
+
+- Keep one live tip per lineage track when another track branches or merges from it, and compare those track tips when building the frontier.
+- Pass track identity, operation, vision, ancestry, and proposer choice to candidate generation so independent tracks can pursue distinct strategies.
+- Route named tracks to caller-supplied proposers, with the default proposer as fallback, and make heuristic branches inherit their parent track's proposer.
+
 ## [0.122.2] — 2026-07-17 — premeasured optimization continuation
 
 ### Added

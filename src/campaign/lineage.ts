@@ -554,7 +554,7 @@ export function heuristicGovernor(opts: HeuristicGovernorOptions = {}): Governor
           op: 'branch',
           fromNodeId: leader.id,
           track: `${leader.track}+${lineage.tracks().length}`,
-          proposer: 'gepa',
+          proposer: leader.proposer,
         }
       }
 
