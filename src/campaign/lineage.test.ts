@@ -251,6 +251,7 @@ describe('persistence', () => {
     const l = new Lineage()
     const root = l.addNode({ parentIds: [], track: 't', surface: 'r', score: 0, proposer: 'seed' })
     await store.append(root)
+    await store.append(root)
     const reloaded = await store.load()
     expect(reloaded.all()).toHaveLength(1)
   })
