@@ -37,6 +37,7 @@
  * Additive: no changes to `lineage.ts`, `run-optimization.ts`, or `gepa.ts`.
  */
 
+import { mapConcurrent } from '../../concurrency'
 import type { LlmClientOptions } from '../../llm-client'
 import {
   type Governor,
@@ -120,6 +121,9 @@ export interface RunLineageLoopOptions<TScenario extends Scenario, TArtifact> {
   /** Candidates proposed per extend/branch step (BREADTH within one step).
    *  Default 4. The merge always proposes a single crossover. */
   populationSize?: number
+  /** Candidate surfaces measured at once. Default 1. Total concurrent cells are
+   *  bounded by candidateConcurrency * maxConcurrency. */
+  candidateConcurrency?: number
 
   // ── DAG control ───────────────────────────────────────────────────────────
   /** Agent-managed decision layer. Default {@link heuristicGovernor}. */
@@ -177,8 +181,12 @@ export async function runLineageLoop<TScenario extends Scenario, TArtifact>(
 ): Promise<RunLineageLoopResult> {
   const governor = opts.governor ?? heuristicGovernor()
   const populationSize = opts.populationSize ?? 4
+  const candidateConcurrency = opts.candidateConcurrency ?? 1
   if (populationSize < 1) {
     throw new Error('runLineageLoop: populationSize must be >= 1')
+  }
+  if (!Number.isInteger(candidateConcurrency) || candidateConcurrency < 1) {
+    throw new Error('runLineageLoop: candidateConcurrency must be a positive integer')
   }
 
   // ── Resolve the proposer seam ─────────────────────────────────────────────
@@ -260,18 +268,17 @@ export async function runLineageLoop<TScenario extends Scenario, TArtifact>(
   }
 
   // ── (1) Score every seed surface → RunLineageSeed[] ───────────────────────
-  const scoredSeeds: RunLineageSeed[] = []
-  for (const seed of opts.seeds) {
+  const scoredSeeds = await mapConcurrent(opts.seeds, candidateConcurrency, async (seed) => {
     const measured = await scoreSurface(seed.surface)
-    scoredSeeds.push({
+    return {
       surface: seed.surface as string,
       track: seed.track,
       proposer: seed.proposer,
       score: measured.score,
       ...(seed.vision !== undefined ? { vision: seed.vision } : {}),
       ...(measured.scoreVector !== undefined ? { scoreVector: measured.scoreVector } : {}),
-    })
-  }
+    } satisfies RunLineageSeed
+  })
 
   // ── (2) The live `step` seam: propose from the tip, score, pick the best ──
   const step = async (args: {
@@ -305,16 +312,21 @@ export async function runLineageLoop<TScenario extends Scenario, TArtifact>(
         ...(args.tip.rationale !== undefined ? { rationale: args.tip.rationale } : {}),
       },
     ]
-    for (const p of proposed) {
-      const { surface, rationale } = toCandidate(p)
-      const measured = await scoreSurface!(surface)
-      pool.push({
-        surface,
-        score: measured.score,
-        ...(measured.scoreVector !== undefined ? { scoreVector: measured.scoreVector } : {}),
-        ...(rationale !== undefined ? { rationale } : {}),
-      })
-    }
+    const measuredCandidates = await mapConcurrent(
+      proposed,
+      candidateConcurrency,
+      async (p): Promise<PoolEntry> => {
+        const { surface, rationale } = toCandidate(p)
+        const measured = await scoreSurface!(surface)
+        return {
+          surface,
+          score: measured.score,
+          ...(measured.scoreVector !== undefined ? { scoreVector: measured.scoreVector } : {}),
+          ...(rationale !== undefined ? { rationale } : {}),
+        }
+      },
+    )
+    pool.push(...measuredCandidates)
 
     let best = pool[0]!
     for (const entry of pool) {

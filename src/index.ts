@@ -1260,7 +1260,7 @@ export type {
 } from './canary'
 export { runCanaries } from './canary'
 // ── Concurrency + persistence + telemetry primitives for evolution loops ──
-export { Mutex } from './concurrency'
+export { Mutex, mapConcurrent } from './concurrency'
 export type {
   DescriptionLengthCandidate,
   DescriptionLengthConfig,

@@ -54,3 +54,47 @@ export class Mutex {
     return this.waiters.length
   }
 }
+
+/**
+ * Map independent work with a fixed worker count while preserving input order.
+ * After the first rejection, no new items start; already-running work is allowed
+ * to settle before the returned promise rejects.
+ */
+export async function mapConcurrent<T, R>(
+  items: readonly T[],
+  concurrency: number,
+  map: (item: T, index: number) => Promise<R>,
+): Promise<R[]> {
+  if (!Number.isInteger(concurrency) || concurrency < 1) {
+    throw new Error(`mapConcurrent: concurrency must be a positive integer, got ${concurrency}`)
+  }
+  if (items.length === 0) return []
+
+  const results = new Array<R>(items.length)
+  let nextIndex = 0
+  let stopped = false
+  let failed = false
+  let failure: unknown
+
+  const worker = async (): Promise<void> => {
+    while (!stopped) {
+      const index = nextIndex
+      nextIndex += 1
+      if (index >= items.length) return
+
+      try {
+        results[index] = await map(items[index]!, index)
+      } catch (error) {
+        stopped = true
+        if (!failed) {
+          failed = true
+          failure = error
+        }
+      }
+    }
+  }
+
+  await Promise.all(Array.from({ length: Math.min(concurrency, items.length) }, () => worker()))
+  if (failed) throw failure
+  return results
+}
