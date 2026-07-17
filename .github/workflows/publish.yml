@@ -142,8 +142,8 @@ jobs:
             if [ -z "$LATEST_VERSION" ]; then
               PUBLISH_TAG=latest
             else
-              PUBLISH_TAG=$(node - "$VERSION" "$LATEST_VERSION" <<'NODE'
-          const [candidateVersion, latestVersion] = process.argv.slice(2)
+              PUBLISH_TAG=$(node -e '
+          const [candidateVersion, latestVersion] = process.argv.slice(1)
           const parseRelease = (version) => {
             const match = /^(\d+)\.(\d+)\.(\d+)$/.exec(version)
             if (!match) throw new Error(`Expected a stable release version, received ${version}`)
@@ -157,9 +157,8 @@ jobs:
             comparison = candidate[index] > latest[index] ? 1 : -1
             break
           }
-          process.stdout.write(comparison > 0 ? 'latest' : `release-${candidate[0]}.${candidate[1]}`)
-          NODE
-              )
+          process.stdout.write(comparison > 0 ? "latest" : "release-" + candidate[0] + "." + candidate[1])
+          ' "$VERSION" "$LATEST_VERSION")
             fi
             echo "Publishing $NAME@$VERSION with dist-tag $PUBLISH_TAG (registry latest: ${LATEST_VERSION:-none})"
             npm publish --provenance --access public --tag "$PUBLISH_TAG" --registry=https://registry.npmjs.org
