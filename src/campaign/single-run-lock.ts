@@ -14,7 +14,11 @@
  * them even though it writes only its own.
  */
 
-import { closeSync, existsSync, openSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs'
+import {
+  type AtomicFileLockUnavailable,
+  probeAtomicFileLock,
+  tryAcquireAtomicFileLock,
+} from './atomic-file-lock'
 
 export interface SingleRunLockOptions {
   /** Lockfile this runner writes (and checks). */
@@ -23,7 +27,7 @@ export interface SingleRunLockOptions {
   readonly alsoCheck?: readonly string[]
   /** Install a process 'exit' hook that releases the lock. Default true. */
   readonly releaseOnExit?: boolean
-  /** Owner pid recorded in the lockfile. Default process.pid. */
+  /** Owner pid recorded in the lockfile metadata. Default process.pid. */
   readonly pid?: number
 }
 
@@ -32,119 +36,20 @@ export interface SingleRunLock {
   release(): void
 }
 
-function liveHolder(path: string): number | null {
-  let raw: string
-  try {
-    raw = readFileSync(path, 'utf8').trim()
-  } catch (error) {
-    if (isMissing(error)) return null
-    throw error
-  }
-  const holder = Number(raw)
-  if (!Number.isSafeInteger(holder) || holder <= 0) {
-    throw new Error(`single-run lock has an invalid owner (${path}); refusing unsafe recovery`)
-  }
-  try {
-    process.kill(holder, 0)
-    return holder
-  } catch (error) {
-    if (error instanceof Error && 'code' in error && error.code === 'ESRCH') return null
-    if (error instanceof Error && 'code' in error && error.code === 'EPERM') return holder
-    throw error
-  }
+function assertAvailable(path: string): void {
+  const unavailable = probeAtomicFileLock({ lockPath: path, acceptLegacyPid: true })
+  if (unavailable) throw unavailableError(path, unavailable)
 }
 
-function isAlreadyExists(error: unknown): boolean {
-  return error instanceof Error && 'code' in error && error.code === 'EEXIST'
-}
-
-function isMissing(error: unknown): boolean {
-  return error instanceof Error && 'code' in error && error.code === 'ENOENT'
-}
-
-function createLock(path: string, pid: number): boolean {
-  let descriptor: number
-  try {
-    descriptor = openSync(path, 'wx', 0o600)
-  } catch (error) {
-    if (isAlreadyExists(error)) return false
-    throw error
-  }
-  try {
-    writeFileSync(descriptor, String(pid), 'utf8')
-  } catch (error) {
-    closeSync(descriptor)
-    try {
-      unlinkSync(path)
-    } catch (cleanupError) {
-      if (!isMissing(cleanupError)) throw cleanupError
-    }
-    throw error
-  }
-  closeSync(descriptor)
-  return true
-}
-
-function releaseOwnedPath(path: string, pid: number): void {
-  try {
-    if (readFileSync(path, 'utf8').trim() === String(pid)) unlinkSync(path)
-  } catch (error) {
-    if (!isMissing(error)) throw error
-  }
-}
-
-function recoveryPath(path: string): string {
-  return `${path}.reclaim`
-}
-
-function assertNoRecovery(path: string): void {
-  if (existsSync(recoveryPath(path))) {
-    throw new Error(
+function unavailableError(path: string, unavailable: AtomicFileLockUnavailable): Error {
+  if (unavailable.reason === 'recovery') {
+    return new Error(
       `single-run lock recovery is already in progress (${path}); refusing a concurrent run`,
     )
   }
-}
-
-function acquireOwnedPath(path: string, pid: number): void {
-  while (true) {
-    assertNoRecovery(path)
-    if (createLock(path, pid)) return
-    const holder = liveHolder(path)
-    if (holder !== null) {
-      throw new Error(
-        `single-run lock held by live pid ${holder} (${path}); refusing a concurrent run on the shared resource`,
-      )
-    }
-
-    const reclaim = recoveryPath(path)
-    if (!createLock(reclaim, pid)) {
-      throw new Error(
-        `single-run lock recovery is already in progress (${path}); refusing a concurrent run`,
-      )
-    }
-    try {
-      const current = liveHolder(path)
-      if (current !== null) continue
-      try {
-        unlinkSync(path)
-      } catch (error) {
-        if (!isMissing(error)) throw error
-      }
-      if (createLock(path, pid)) return
-    } finally {
-      releaseOwnedPath(reclaim, pid)
-    }
-  }
-}
-
-function assertAvailable(path: string): void {
-  assertNoRecovery(path)
-  const holder = liveHolder(path)
-  if (holder !== null) {
-    throw new Error(
-      `single-run lock held by live pid ${holder} (${path}); refusing a concurrent run on the shared resource`,
-    )
-  }
+  return new Error(
+    `single-run lock held by live pid ${unavailable.holder.pid} (${path}); refusing a concurrent run on the shared resource`,
+  )
 }
 
 /**
@@ -157,10 +62,15 @@ export function acquireSingleRunLock(opts: SingleRunLockOptions): SingleRunLock 
   if (!Number.isSafeInteger(pid) || pid <= 0)
     throw new Error('single-run lock pid must be a positive integer')
   for (const path of opts.alsoCheck ?? []) assertAvailable(path)
-  acquireOwnedPath(opts.lockPath, pid)
+  const acquisition = tryAcquireAtomicFileLock({
+    lockPath: opts.lockPath,
+    pid,
+    acceptLegacyPid: true,
+  })
+  if (!acquisition.acquired) throw unavailableError(opts.lockPath, acquisition)
   const release = (): void => {
     try {
-      releaseOwnedPath(opts.lockPath, pid)
+      acquisition.lock.release()
     } catch {
       // release is best-effort; a leftover stale lock is reclaimed on next acquire
     }

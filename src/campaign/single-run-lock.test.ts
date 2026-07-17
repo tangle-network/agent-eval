@@ -1,6 +1,6 @@
 import { spawn } from 'node:child_process'
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
-import { tmpdir } from 'node:os'
+import { hostname, tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import ts from 'typescript'
@@ -18,14 +18,26 @@ async function synchronizedContenders(options: {
   const releasePath = join(root, 'release')
   const finishPath = join(root, 'finish')
   const modulePath = join(root, 'single-run-lock.mjs')
+  const atomicModulePath = join(root, 'atomic-file-lock.mjs')
   const source = readFileSync(new URL('./single-run-lock.ts', import.meta.url), 'utf8')
+  const transpile = (input: string): string =>
+    ts.transpileModule(input, {
+      compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 },
+    }).outputText
   writeFileSync(
     modulePath,
-    ts.transpileModule(source, {
-      compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 },
-    }).outputText,
+    transpile(source).replace(/from ['"]\.\/atomic-file-lock['"]/, "from './atomic-file-lock.mjs'"),
   )
-  if (options.stale) writeFileSync(lockPath, '999999999')
+  writeFileSync(
+    atomicModulePath,
+    transpile(readFileSync(new URL('./atomic-file-lock.ts', import.meta.url), 'utf8')),
+  )
+  if (options.stale) {
+    writeFileSync(
+      lockPath,
+      JSON.stringify({ host: hostname(), nonce: 'crashed-owner', pid: 999_999_999 }),
+    )
+  }
 
   const childSource = `
     import { existsSync } from 'node:fs'
@@ -92,7 +104,9 @@ describe('acquireSingleRunLock', () => {
   it('acquires, records the pid, and releases idempotently', () => {
     const lockPath = join(dir(), 'gym.lock')
     const lock = acquireSingleRunLock({ lockPath, releaseOnExit: false })
-    expect(readFileSync(lockPath, 'utf8')).toBe(String(process.pid))
+    const owner = JSON.parse(readFileSync(lockPath, 'utf8')) as Record<string, unknown>
+    expect(owner).toMatchObject({ host: hostname(), pid: process.pid })
+    expect(owner.nonce).toEqual(expect.any(String))
     lock.release()
     lock.release()
     expect(() => acquireSingleRunLock({ lockPath, releaseOnExit: false }).release()).not.toThrow()
@@ -112,7 +126,7 @@ describe('acquireSingleRunLock', () => {
     expect(() => acquireSingleRunLock({ lockPath, releaseOnExit: false })).toThrow(
       /held by live pid/,
     )
-    expect(readFileSync(lockPath, 'utf8')).toBe(String(process.pid))
+    expect(JSON.parse(readFileSync(lockPath, 'utf8'))).toMatchObject({ pid: process.pid })
     lock.release()
   })
 
@@ -120,7 +134,7 @@ describe('acquireSingleRunLock', () => {
     const lockPath = join(dir(), 'gym.lock')
     writeFileSync(lockPath, '999999999') // beyond pid_max: never a live process
     const lock = acquireSingleRunLock({ lockPath, releaseOnExit: false })
-    expect(readFileSync(lockPath, 'utf8')).toBe(String(process.pid))
+    expect(JSON.parse(readFileSync(lockPath, 'utf8'))).toMatchObject({ pid: process.pid })
     lock.release()
   })
 
