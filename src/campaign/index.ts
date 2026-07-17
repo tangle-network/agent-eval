@@ -1,5 +1,6 @@
 export {
   callbackGovernor,
+  campaignLineageStore,
   fsLineageStore,
   type Governor,
   type GovernorContext,
@@ -12,6 +13,7 @@ export {
   type LineageNode,
   type LineageNodeInput,
   type LineageStore,
+  LineageStoreConflictError,
   lineageNodeId,
   memLineageStore,
   type RunLineageOptions,

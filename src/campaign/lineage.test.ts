@@ -4,15 +4,18 @@ import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import {
   callbackGovernor,
+  campaignLineageStore,
   fsLineageStore,
   type GovernorContext,
   type GovernorOp,
   heuristicGovernor,
   Lineage,
+  type LineageNode,
   lineageNodeId,
   memLineageStore,
   runLineage,
 } from './lineage'
+import { inMemoryCampaignStorage } from './storage'
 
 describe('lineageNodeId', () => {
   it('is deterministic and order-insensitive on parents', () => {
@@ -249,8 +252,109 @@ describe('persistence', () => {
     const l = new Lineage()
     const root = l.addNode({ parentIds: [], track: 't', surface: 'r', score: 0, proposer: 'seed' })
     await store.append(root)
+    await store.append(root)
     const reloaded = await store.load()
     expect(reloaded.all()).toHaveLength(1)
+  })
+
+  it('CampaignStorage appends are idempotent and reject a stale controller', async () => {
+    const storage = inMemoryCampaignStorage()
+    const path = '/runs/lineage.jsonl'
+    const store = campaignLineageStore(storage, path)
+    const lineage = new Lineage()
+    const root = lineage.addNode({
+      parentIds: [],
+      track: 't',
+      surface: 'root',
+      score: 0,
+      proposer: 'seed',
+    })
+    await store.append(root)
+    await store.append(root)
+
+    const stale = new Lineage([root])
+    const staleChild = stale.addNode({
+      parentIds: [root.id],
+      track: 't',
+      surface: 'stale',
+      score: 0.5,
+      proposer: 'gepa',
+    })
+    const liveChild = lineage.addNode({
+      parentIds: [root.id],
+      track: 't',
+      surface: 'live',
+      score: 1,
+      proposer: 'gepa',
+    })
+    await store.append(liveChild)
+
+    await expect(store.append(staleChild)).rejects.toThrow(/stale controller/)
+    expect(storage.read(path)?.trim().split('\n')).toHaveLength(2)
+  })
+
+  it('CampaignStorage compares nodes structurally and rejects unknown parents', async () => {
+    const storage = inMemoryCampaignStorage()
+    const path = '/runs/lineage-structure.jsonl'
+    const store = campaignLineageStore(storage, path)
+    const lineage = new Lineage()
+    const root = lineage.addNode({
+      parentIds: [],
+      track: 't',
+      surface: 'root',
+      score: 0,
+      proposer: 'seed',
+    })
+    await store.append(root)
+    await store.append({
+      seq: root.seq,
+      proposer: root.proposer,
+      score: root.score,
+      surface: root.surface,
+      track: root.track,
+      parentIds: root.parentIds,
+      id: root.id,
+      generation: root.generation,
+    })
+
+    const unknownParent: LineageNode = {
+      id: 'unknown-parent-child',
+      parentIds: ['missing'],
+      track: 't',
+      surface: 'child',
+      score: 1,
+      proposer: 'gepa',
+      generation: 1,
+      seq: 1,
+    }
+    await expect(store.append(unknownParent)).rejects.toThrow(/unknown persisted parent 'missing'/)
+    expect(storage.read(path)?.trim().split('\n')).toHaveLength(1)
+  })
+
+  it('CampaignStorage save replaces and reloads a full snapshot', async () => {
+    const storage = inMemoryCampaignStorage()
+    const path = '/runs/lineage-snapshot.jsonl'
+    const store = campaignLineageStore(storage, path)
+    const lineage = new Lineage()
+    const root = lineage.addNode({
+      parentIds: [],
+      track: 't',
+      surface: 'root',
+      score: 0,
+      proposer: 'seed',
+    })
+    lineage.addNode({
+      parentIds: [root.id],
+      track: 't',
+      surface: 'child',
+      score: 1,
+      proposer: 'gepa',
+    })
+
+    await store.save(lineage)
+
+    expect((await store.load()).all()).toEqual(lineage.all())
+    expect(storage.read(path)?.trim().split('\n')).toHaveLength(2)
   })
 })
 
@@ -467,5 +571,56 @@ describe('runLineage end-to-end', () => {
     })
     const reloaded = await store.load()
     expect(reloaded.all().length).toBeGreaterThan(1)
+  })
+
+  it('uses maxNodes as one total limit across resumed invocations', async () => {
+    const storage = inMemoryCampaignStorage()
+    const path = '/runs/resume/lineage.jsonl'
+    const store = campaignLineageStore(storage, path)
+    let stepCalls = 0
+    const run = () =>
+      runLineage({
+        seeds: [{ surface: 'a0', track: 'a', proposer: 'g', score: 0.1 }],
+        step: async ({ tip }) => {
+          stepCalls += 1
+          return { surface: `${tip.surface}.${stepCalls}`, score: tip.score + 0.1 }
+        },
+        merge: mergeStub,
+        governor: callbackGovernor(async ({ lineage }) => ({
+          op: 'extend',
+          track: lineage.best()!.track,
+        })),
+        budget: { maxSteps: 2, maxNodes: 3 },
+        store,
+      })
+
+    const first = await run()
+    const resumed = await run()
+
+    expect(first.steps).toBe(2)
+    expect(resumed.steps).toBe(0)
+    expect(stepCalls).toBe(2)
+    expect(resumed.lineage.all()).toHaveLength(3)
+    expect(storage.read(path)?.trim().split('\n')).toHaveLength(3)
+  })
+
+  it('rejects seed sets that cannot fit within maxNodes before persisting', async () => {
+    const storage = inMemoryCampaignStorage()
+    const path = '/runs/seed-budget/lineage.jsonl'
+
+    await expect(
+      runLineage({
+        seeds: [
+          { surface: 'a0', track: 'a', proposer: 'g', score: 0.1 },
+          { surface: 'b0', track: 'b', proposer: 'g', score: 0.2 },
+        ],
+        step: climbingStep(),
+        merge: mergeStub,
+        governor: heuristicGovernor(),
+        budget: { maxSteps: 0, maxNodes: 1 },
+        store: campaignLineageStore(storage, path),
+      }),
+    ).rejects.toThrow(/requires 2 new nodes.*1 slots remaining/)
+    expect(storage.read(path)).toBeUndefined()
   })
 })
