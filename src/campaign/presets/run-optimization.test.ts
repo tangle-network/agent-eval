@@ -309,3 +309,53 @@ describe('runOptimization premeasured baseline', () => {
     ).rejects.toThrow(/premeasured baseline seed 7 does not match requested seed 8/)
   })
 })
+
+describe('runOptimization candidate concurrency', () => {
+  it('runs candidate campaigns in parallel without changing result order', async () => {
+    let active = 0
+    let maxActive = 0
+    let release: (() => void) | undefined
+    const twoActive = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    const wideProposer: SurfaceProposer = {
+      kind: 'wide',
+      async propose() {
+        return ['CANDIDATE', 'CANDIDATE-2', 'CANDIDATE-3']
+      },
+    }
+
+    const result = await runOptimization({
+      baselineSurface: 'BASELINE',
+      scenarios,
+      dispatchWithSurface: async (surface) => {
+        if (surface !== 'BASELINE') {
+          active += 1
+          maxActive = Math.max(maxActive, active)
+          if (active === 2) release?.()
+          await twoActive
+          active -= 1
+        }
+        return { surface: String(surface) }
+      },
+      judges: [qualityJudge],
+      proposer: wideProposer,
+      populationSize: 3,
+      candidateConcurrency: 2,
+      maxConcurrency: 1,
+      maxGenerations: 1,
+      runDir: '/parallel-candidates',
+      storage: inMemoryCampaignStorage(),
+      tracing: 'off',
+      expectUsage: 'off',
+    })
+
+    expect(maxActive).toBe(2)
+    expect(result.generations[0]?.surfaces.map((entry) => entry.surface)).toEqual([
+      'CANDIDATE',
+      'CANDIDATE-2',
+      'CANDIDATE-3',
+    ])
+    expect(result.winnerSurface).toBe('CANDIDATE')
+  })
+})

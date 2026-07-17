@@ -16,6 +16,7 @@
  * re-score + release gate + optional PR.
  */
 
+import { mapConcurrent } from '../../concurrency'
 import type { CostLedgerHandle, CostLedgerSummary } from '../../cost-ledger'
 import { type Objective, paretoFrontier } from '../../pareto'
 import {
@@ -74,6 +75,9 @@ export interface RunOptimizationBaseOptions<TScenario extends Scenario, TArtifac
   proposer: SurfaceProposer
   populationSize: number
   maxGenerations: number
+  /** Candidate campaigns run at once. Default 1. Total concurrent cells are
+   *  bounded by candidateConcurrency * maxConcurrency. */
+  candidateConcurrency?: number
   /** @deprecated The loop has one global incumbent and can promote only the
    *  single candidate that beats it. Retained for source compatibility. */
   promoteTopK?: number
@@ -155,8 +159,12 @@ export async function runOptimization<TScenario extends Scenario, TArtifact>(
   opts: RunOptimizationOptions<TScenario, TArtifact>,
 ): Promise<RunOptimizationResult<TArtifact, TScenario>> {
   const { proposer } = opts
+  const candidateConcurrency = opts.candidateConcurrency ?? 1
   if (typeof opts.runDir !== 'string' || opts.runDir.trim().length === 0) {
     throw new Error('runOptimization: runDir is required and must be a non-empty string')
+  }
+  if (!Number.isInteger(candidateConcurrency) || candidateConcurrency < 1) {
+    throw new Error('runOptimization: candidateConcurrency must be a positive integer')
   }
   opts.runDir = resolveRunDir(opts.runDir, opts.repo)
   const storage = opts.storage ?? fsCampaignStorage()
@@ -291,7 +299,7 @@ export async function runOptimization<TScenario extends Scenario, TArtifact>(
     )
 
     // Run each candidate as its own campaign.
-    const surfaceResults: Array<{
+    type SurfaceResult = {
       surfaceHash: string
       surface: MutableSurface
       label: string
@@ -300,34 +308,40 @@ export async function runOptimization<TScenario extends Scenario, TArtifact>(
       campaign: CampaignResult<TArtifact, TScenario>
       composite: number
       coverage: CampaignCoverage
-    }> = []
-    for (let i = 0; i < candidates.length; i++) {
-      const { surface, label, rationale, candidateRecord } = candidates[i]!
-      const hash = surfaceHash(surface)
-      const campaign = await runCampaign<TScenario, TArtifact>({
-        ...opts,
-        costLedger,
-        costPhase: 'search.candidate',
-        dispatch: (scenario, ctx) => opts.dispatchWithSurface(surface, scenario, ctx),
-        runDir: `${opts.runDir}/gen-${gen}/candidate-${i}`,
-      })
-      const composite = campaignMeanComposite(campaign)
-      const coverage = campaignCoverage(
-        campaign.cells,
-        opts.scenarios,
-        opts.reps ?? 1,
-        requireJudgeScore,
-      )
-      surfaceResults.push({
-        surfaceHash: hash,
-        surface,
-        label,
-        rationale,
-        ...(candidateRecord ? { candidateRecord } : {}),
-        campaign,
-        composite,
-        coverage,
-      })
+    }
+    const surfaceResults = await mapConcurrent(
+      candidates,
+      candidateConcurrency,
+      async ({ surface, label, rationale, candidateRecord }, i): Promise<SurfaceResult> => {
+        const hash = surfaceHash(surface)
+        const campaign = await runCampaign<TScenario, TArtifact>({
+          ...opts,
+          costLedger,
+          costPhase: 'search.candidate',
+          dispatch: (scenario, ctx) => opts.dispatchWithSurface(surface, scenario, ctx),
+          runDir: `${opts.runDir}/gen-${gen}/candidate-${i}`,
+        })
+        const composite = campaignMeanComposite(campaign)
+        const coverage = campaignCoverage(
+          campaign.cells,
+          opts.scenarios,
+          opts.reps ?? 1,
+          requireJudgeScore,
+        )
+        return {
+          surfaceHash: hash,
+          surface,
+          label,
+          rationale,
+          ...(candidateRecord ? { candidateRecord } : {}),
+          campaign,
+          composite,
+          coverage,
+        }
+      },
+    )
+    for (const result of surfaceResults) {
+      const { surface, surfaceHash: hash, campaign, coverage, label, rationale } = result
       if (coverage.complete) {
         // Incomplete candidates retain their raw campaign and history row but
         // cannot gain Pareto value by avoiding a difficult cell.

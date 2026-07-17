@@ -196,3 +196,48 @@ describe('runLineageLoop — required-seam validation', () => {
     ).rejects.toThrow(/scoring is required/)
   })
 })
+
+describe('runLineageLoop candidate concurrency', () => {
+  it('scores independent seeds and candidates with the configured bound', async () => {
+    let decisions = 0
+    let active = 0
+    let maxActive = 0
+    let release: (() => void) | undefined
+    const twoActive = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    const governor = callbackGovernor(async (): Promise<GovernorOp> => {
+      decisions += 1
+      return decisions === 1 ? { op: 'extend', track: 'wide' } : { op: 'stop' }
+    })
+    const proposer: SurfaceProposer = {
+      kind: 'wide',
+      async propose() {
+        return [mk(0.2, 'a'), mk(0.3, 'b'), mk(0.4, 'c')]
+      },
+    }
+
+    const result = await runLineageLoop({
+      scenarios: [sc('a')],
+      seeds: [{ surface: mk(0.1, 'seed'), track: 'wide', proposer: 'wide' }],
+      proposer,
+      scoreSurface: async (surface) => {
+        const text = String(surface)
+        if (text.startsWith('seed:')) return { score: decode(text) }
+        active += 1
+        maxActive = Math.max(maxActive, active)
+        if (active === 2) release?.()
+        await twoActive
+        active -= 1
+        return { score: decode(text) }
+      },
+      governor,
+      populationSize: 3,
+      candidateConcurrency: 2,
+      budget: { maxSteps: 2 },
+    })
+
+    expect(maxActive).toBe(2)
+    expect(result.best?.surface).toBe(mk(0.4, 'c'))
+  })
+})
