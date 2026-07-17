@@ -138,7 +138,30 @@ jobs:
           if npm view "$NAME@$VERSION" version --registry=https://registry.npmjs.org >/dev/null 2>&1; then
             echo "$NAME@$VERSION already on registry; skipping publish"
           else
-            npm publish --provenance --access public --registry=https://registry.npmjs.org
+            LATEST_VERSION=$(npm view "$NAME@latest" version --registry=https://registry.npmjs.org 2>/dev/null || true)
+            if [ -z "$LATEST_VERSION" ]; then
+              PUBLISH_TAG=latest
+            else
+              PUBLISH_TAG=$(node -e '
+          const [candidateVersion, latestVersion] = process.argv.slice(1)
+          const parseRelease = (version) => {
+            const match = /^(\d+)\.(\d+)\.(\d+)$/.exec(version)
+            if (!match) throw new Error(`Expected a stable release version, received ${version}`)
+            return match.slice(1).map(Number)
+          }
+          const candidate = parseRelease(candidateVersion)
+          const latest = parseRelease(latestVersion)
+          let comparison = 0
+          for (let index = 0; index < candidate.length; index += 1) {
+            if (candidate[index] === latest[index]) continue
+            comparison = candidate[index] > latest[index] ? 1 : -1
+            break
+          }
+          process.stdout.write(comparison > 0 ? "latest" : "release-" + candidate[0] + "." + candidate[1])
+          ' "$VERSION" "$LATEST_VERSION")
+            fi
+            echo "Publishing $NAME@$VERSION with dist-tag $PUBLISH_TAG (registry latest: ${LATEST_VERSION:-none})"
+            npm publish --provenance --access public --tag "$PUBLISH_TAG" --registry=https://registry.npmjs.org
           fi
 
   publish-pypi:
@@ -146,7 +169,7 @@ jobs:
     # idempotent and succeeds when the version is already on the registry, so
     # reruns can still repair a missing PyPI artifact without creating skew.
     needs: [verify, publish-npm]
-    if: startsWith(github.ref, 'refs/tags/v')
+    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     permissions:
       contents: read
