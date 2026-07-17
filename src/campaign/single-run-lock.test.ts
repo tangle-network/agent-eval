@@ -16,6 +16,7 @@ async function synchronizedContenders(options: {
   const root = dir()
   const lockPath = join(root, 'gym.lock')
   const releasePath = join(root, 'release')
+  const finishPath = join(root, 'finish')
   const modulePath = join(root, 'single-run-lock.mjs')
   const source = readFileSync(new URL('./single-run-lock.ts', import.meta.url), 'utf8')
   writeFileSync(
@@ -29,14 +30,14 @@ async function synchronizedContenders(options: {
   const childSource = `
     import { existsSync } from 'node:fs'
     import { acquireSingleRunLock } from ${JSON.stringify(pathToFileURL(modulePath).href)}
-    const [lockPath, releasePath] = process.argv.slice(1)
+    const [lockPath, releasePath, finishPath] = process.argv.slice(1)
     process.stdout.write('READY\\n')
     const wait = new Int32Array(new SharedArrayBuffer(4))
     while (!existsSync(releasePath)) Atomics.wait(wait, 0, 0, 10)
     try {
       const lock = acquireSingleRunLock({ lockPath, releaseOnExit: false })
       process.stdout.write('ACQUIRED\\n')
-      await new Promise((resolve) => setTimeout(resolve, 250))
+      while (!existsSync(finishPath)) Atomics.wait(wait, 0, 0, 10)
       lock.release()
     } catch {
       process.stdout.write('REJECTED\\n')
@@ -45,34 +46,44 @@ async function synchronizedContenders(options: {
   const children = Array.from({ length: options.count }, () => {
     const child = spawn(
       process.execPath,
-      ['--input-type=module', '--eval', childSource, lockPath, releasePath],
+      ['--input-type=module', '--eval', childSource, lockPath, releasePath, finishPath],
       { stdio: ['ignore', 'pipe', 'pipe'] },
     )
     let stdout = ''
     let stderr = ''
+    let resolveOutcome: (outcome: string) => void
+    const outcome = new Promise<string>((resolve) => {
+      resolveOutcome = resolve
+    })
     const ready = new Promise<void>((resolve) => {
       child.stdout.on('data', (chunk: Buffer) => {
         stdout += chunk.toString('utf8')
         if (stdout.includes('READY\n')) resolve()
+        if (stdout.includes('ACQUIRED\n')) resolveOutcome('ACQUIRED')
+        if (stdout.includes('REJECTED\n')) resolveOutcome('REJECTED')
       })
     })
     child.stderr.on('data', (chunk: Buffer) => {
       stderr += chunk.toString('utf8')
     })
-    const done = new Promise<string>((resolve, reject) => {
+    const done = new Promise<void>((resolve, reject) => {
       child.once('error', reject)
       child.once('close', (code) => {
-        if (code === 0) resolve(stdout.trim().split('\n').at(-1) ?? '')
+        if (code === 0) resolve()
         else reject(new Error(`single-run contender exited ${String(code)}: ${stderr}`))
       })
     })
-    return { ready, done }
+    return { child, ready, outcome, done }
   })
   try {
     await Promise.all(children.map((child) => child.ready))
     writeFileSync(releasePath, 'go')
-    return await Promise.all(children.map((child) => child.done))
+    const outcomes = await Promise.all(children.map((child) => child.outcome))
+    writeFileSync(finishPath, 'done')
+    await Promise.all(children.map((child) => child.done))
+    return outcomes
   } finally {
+    for (const child of children) child.child.kill()
     rmSync(root, { recursive: true, force: true })
   }
 }
