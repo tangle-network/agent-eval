@@ -10,6 +10,7 @@ import {
   type GovernorOp,
   heuristicGovernor,
   Lineage,
+  type LineageNode,
   lineageNodeId,
   memLineageStore,
   runLineage,
@@ -291,6 +292,70 @@ describe('persistence', () => {
     await expect(store.append(staleChild)).rejects.toThrow(/stale controller/)
     expect(storage.read(path)?.trim().split('\n')).toHaveLength(2)
   })
+
+  it('CampaignStorage compares nodes structurally and rejects unknown parents', async () => {
+    const storage = inMemoryCampaignStorage()
+    const path = '/runs/lineage-structure.jsonl'
+    const store = campaignLineageStore(storage, path)
+    const lineage = new Lineage()
+    const root = lineage.addNode({
+      parentIds: [],
+      track: 't',
+      surface: 'root',
+      score: 0,
+      proposer: 'seed',
+    })
+    await store.append(root)
+    await store.append({
+      seq: root.seq,
+      proposer: root.proposer,
+      score: root.score,
+      surface: root.surface,
+      track: root.track,
+      parentIds: root.parentIds,
+      id: root.id,
+      generation: root.generation,
+    })
+
+    const unknownParent: LineageNode = {
+      id: 'unknown-parent-child',
+      parentIds: ['missing'],
+      track: 't',
+      surface: 'child',
+      score: 1,
+      proposer: 'gepa',
+      generation: 1,
+      seq: 1,
+    }
+    await expect(store.append(unknownParent)).rejects.toThrow(/unknown persisted parent 'missing'/)
+    expect(storage.read(path)?.trim().split('\n')).toHaveLength(1)
+  })
+
+  it('CampaignStorage save replaces and reloads a full snapshot', async () => {
+    const storage = inMemoryCampaignStorage()
+    const path = '/runs/lineage-snapshot.jsonl'
+    const store = campaignLineageStore(storage, path)
+    const lineage = new Lineage()
+    const root = lineage.addNode({
+      parentIds: [],
+      track: 't',
+      surface: 'root',
+      score: 0,
+      proposer: 'seed',
+    })
+    lineage.addNode({
+      parentIds: [root.id],
+      track: 't',
+      surface: 'child',
+      score: 1,
+      proposer: 'gepa',
+    })
+
+    await store.save(lineage)
+
+    expect((await store.load()).all()).toEqual(lineage.all())
+    expect(storage.read(path)?.trim().split('\n')).toHaveLength(2)
+  })
 })
 
 describe('heuristicGovernor', () => {
@@ -537,5 +602,25 @@ describe('runLineage end-to-end', () => {
     expect(stepCalls).toBe(2)
     expect(resumed.lineage.all()).toHaveLength(3)
     expect(storage.read(path)?.trim().split('\n')).toHaveLength(3)
+  })
+
+  it('rejects seed sets that cannot fit within maxNodes before persisting', async () => {
+    const storage = inMemoryCampaignStorage()
+    const path = '/runs/seed-budget/lineage.jsonl'
+
+    await expect(
+      runLineage({
+        seeds: [
+          { surface: 'a0', track: 'a', proposer: 'g', score: 0.1 },
+          { surface: 'b0', track: 'b', proposer: 'g', score: 0.2 },
+        ],
+        step: climbingStep(),
+        merge: mergeStub,
+        governor: heuristicGovernor(),
+        budget: { maxSteps: 0, maxNodes: 1 },
+        store: campaignLineageStore(storage, path),
+      }),
+    ).rejects.toThrow(/requires 2 new nodes.*1 slots remaining/)
+    expect(storage.read(path)).toBeUndefined()
   })
 })

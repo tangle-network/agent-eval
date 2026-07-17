@@ -25,6 +25,7 @@
 
 import { createHash } from 'node:crypto'
 import { dirname } from 'node:path'
+import { canonicalJson } from '../verdict-cache'
 import { type CampaignStorage, fsCampaignStorage } from './storage'
 
 export interface LineageNode {
@@ -454,7 +455,7 @@ function assertSamePersistedNode(
   candidate: LineageNode,
   store: string,
 ): void {
-  if (JSON.stringify(existing) !== JSON.stringify(candidate)) {
+  if (canonicalJson(existing) !== canonicalJson(candidate)) {
     throw new LineageStoreConflictError(
       `${store}: node '${candidate.id}' already exists with different content`,
     )
@@ -641,6 +642,27 @@ export async function runLineage(opts: RunLineageOptions): Promise<RunLineageRes
   const lineage = await store.load()
   const log = opts.log ?? (() => {})
   const pruned = new Set<string>()
+
+  if (opts.budget.maxNodes !== undefined) {
+    const missingSeedIds = new Set(
+      opts.seeds
+        .map((seed) =>
+          lineageNodeId({
+            parentIds: [],
+            track: seed.track,
+            surface: seed.surface,
+            proposer: seed.proposer,
+          }),
+        )
+        .filter((id) => !lineage.has(id)),
+    )
+    const available = Math.max(0, opts.budget.maxNodes - lineage.all().length)
+    if (missingSeedIds.size > available) {
+      throw new Error(
+        `runLineage: seed set requires ${missingSeedIds.size} new nodes but budget.maxNodes has ${available} slots remaining`,
+      )
+    }
+  }
 
   // The proposer a track extends with — seeded, inherited by branches.
   const trackProposer = new Map<string, string>()
