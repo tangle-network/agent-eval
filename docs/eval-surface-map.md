@@ -15,6 +15,9 @@ composition point already exists (see Produced-state grading below).**
 | `runOptimization` | GENERATE: measured or validated premeasured baseline → N generations of propose → measure → rank → promote. No release gate. | generations + winner |
 | `runImprovementLoop` | The release-gate shell around `runOptimization`: adds a held-out re-score + a promotion gate (+ optional auto-PR). | gate decision + winner |
 | `runEvalCampaign` | Inversion-of-control variant of `runCampaign` — the runner is handed a pre-wired trace/sink/emitter and integrity gating as a precondition. Use when you need full capture by construction. | `CampaignResult` + records |
+
+When variants of the same task run inside one `runCampaign`, give those scenarios the same `seedGroup` so each repetition uses common randomness.
+Use `runProfileMatrix` instead when profiles are separate campaign axes.
 | `runAgentMatrix` | The bare N-axis cartesian scheduler with concurrency control. The layer beneath the eval surface — reach for it only when you need raw scheduling, not eval semantics. | cell results |
 
 Mental model: **measure** (`runCampaign`/`runEval`) → **factor** (`runProfileMatrix`) →
