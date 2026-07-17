@@ -754,13 +754,27 @@ function buildCellSchedule<TScenario extends Scenario>(
   reps: number,
 ): Array<{ scenario: TScenario; rep: number; cellId: string; cellSeed: number }> {
   const schedule: Array<{ scenario: TScenario; rep: number; cellId: string; cellSeed: number }> = []
-  let cellIndex = 0
+  const groupIndexes = new Map<string, number>()
+  let nextGroupIndex = 0
   for (const scenario of scenarios) {
+    let groupIndex: number
+    if (scenario.seedGroup === undefined) {
+      groupIndex = nextGroupIndex
+      nextGroupIndex += 1
+    } else {
+      const existing = groupIndexes.get(scenario.seedGroup)
+      if (existing !== undefined) {
+        groupIndex = existing
+      } else {
+        groupIndex = nextGroupIndex
+        nextGroupIndex += 1
+        groupIndexes.set(scenario.seedGroup, groupIndex)
+      }
+    }
     for (let rep = 0; rep < reps; rep++) {
       const cellId = `${scenario.id}:${rep}`
-      const cellSeed = seed + cellIndex
+      const cellSeed = seed + groupIndex * reps + rep
       schedule.push({ scenario, rep, cellId, cellSeed })
-      cellIndex += 1
     }
   }
   return schedule

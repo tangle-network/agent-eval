@@ -128,6 +128,53 @@ describe('runCampaign — core primitive', () => {
     )
   })
 
+  it('uses common random seeds for scenario variants in the same seed group', async () => {
+    const observed = new Map<string, number>()
+    const scenarios: FakeScenario[] = [
+      { id: 'provider-a:case-1', kind: 'chat', intent: 'same task', seedGroup: 'case-1' },
+      { id: 'provider-b:case-1', kind: 'chat', intent: 'same task', seedGroup: 'case-1' },
+      { id: 'independent', kind: 'chat', intent: 'another task' },
+    ]
+    const result = await runCampaign({
+      scenarios,
+      reps: 2,
+      seed: 100,
+      runDir,
+      expectUsage: 'off',
+      dispatch: async (scenario, context) => {
+        observed.set(`${scenario.id}:${context.rep}`, context.seed)
+        return { text: String(context.seed), intent: scenario.intent }
+      },
+    })
+
+    expect(Object.fromEntries(observed)).toEqual({
+      'provider-a:case-1:0': 100,
+      'provider-a:case-1:1': 101,
+      'provider-b:case-1:0': 100,
+      'provider-b:case-1:1': 101,
+      'independent:0': 102,
+      'independent:1': 103,
+    })
+    expect(Object.fromEntries(result.cells.map((cell) => [cell.cellId, cell.seed]))).toEqual({
+      'provider-a:case-1:0': 100,
+      'provider-a:case-1:1': 101,
+      'provider-b:case-1:0': 100,
+      'provider-b:case-1:1': 101,
+      'independent:0': 102,
+      'independent:1': 103,
+    })
+  })
+
+  it('rejects an empty seed group', async () => {
+    await expect(
+      runCampaign({
+        scenarios: [{ ...SCENARIOS[0]!, seedGroup: ' ' }],
+        dispatch: DISPATCH,
+        runDir,
+      }),
+    ).rejects.toThrow('seedGroup to be a non-empty string')
+  })
+
   it('produces a stable manifestHash for identical inputs', async () => {
     const r1 = await runCampaign({ scenarios: SCENARIOS, dispatch: DISPATCH, runDir })
     const r2 = await runCampaign({

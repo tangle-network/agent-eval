@@ -33,6 +33,11 @@ export interface Scenario {
   id: string
   kind: string
   tags?: string[]
+  /**
+   * Variants with the same non-empty value receive the same seed for a given
+   * replicate. Leave unset when every scenario should have an independent seed.
+   */
+  seedGroup?: string
 }
 
 /** Redacted identity of a complete scenario payload retained in campaign results. */

@@ -27,6 +27,12 @@ export function assertCampaignDesign<TScenario extends Scenario>(
     if (typeof scenario.kind !== 'string' || scenario.kind.trim().length === 0) {
       throw new Error('campaign design requires every scenario to have a non-empty kind')
     }
+    if (
+      scenario.seedGroup !== undefined &&
+      (typeof scenario.seedGroup !== 'string' || scenario.seedGroup.trim().length === 0)
+    ) {
+      throw new Error('campaign design requires seedGroup to be a non-empty string when set')
+    }
     scenarioIds.add(scenario.id)
   }
 }
