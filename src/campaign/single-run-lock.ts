@@ -14,7 +14,11 @@
  * them even though it writes only its own.
  */
 
-import { existsSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs'
+import {
+  type AtomicFileLockUnavailable,
+  probeAtomicFileLock,
+  tryAcquireAtomicFileLock,
+} from './atomic-file-lock'
 
 export interface SingleRunLockOptions {
   /** Lockfile this runner writes (and checks). */
@@ -23,7 +27,7 @@ export interface SingleRunLockOptions {
   readonly alsoCheck?: readonly string[]
   /** Install a process 'exit' hook that releases the lock. Default true. */
   readonly releaseOnExit?: boolean
-  /** Owner pid recorded in the lockfile. Default process.pid. */
+  /** Owner pid recorded in the lockfile metadata. Default process.pid. */
   readonly pid?: number
 }
 
@@ -32,41 +36,50 @@ export interface SingleRunLock {
   release(): void
 }
 
-function liveHolder(path: string): number | null {
-  if (!existsSync(path)) return null
-  const holder = Number(readFileSync(path, 'utf8').trim())
-  if (!Number.isFinite(holder) || holder <= 0) return null
-  try {
-    process.kill(holder, 0)
-    return holder
-  } catch {
-    return null // stale: holder pid is gone; safe to reclaim
+function assertAvailable(path: string): void {
+  const unavailable = probeAtomicFileLock({ lockPath: path, acceptLegacyPid: true })
+  if (unavailable) throw unavailableError(path, unavailable)
+}
+
+function unavailableError(path: string, unavailable: AtomicFileLockUnavailable): Error {
+  if (unavailable.reason === 'recovery') {
+    return new Error(
+      `single-run lock recovery is already in progress (${path}); refusing a concurrent run`,
+    )
   }
+  return new Error(
+    `single-run lock held by live pid ${unavailable.holder.pid} (${path}); refusing a concurrent run on the shared resource`,
+  )
 }
 
 /**
  * Acquire the lock or throw naming the live holder. A stale lock (holder pid
- * no longer running) is reclaimed silently.
+ * no longer running) is reclaimed by one contender. An interrupted reclaim
+ * leaves a marker that fails closed instead of admitting overlapping runs.
  */
 export function acquireSingleRunLock(opts: SingleRunLockOptions): SingleRunLock {
   const pid = opts.pid ?? process.pid
-  for (const path of [opts.lockPath, ...(opts.alsoCheck ?? [])]) {
-    const holder = liveHolder(path)
-    if (holder !== null && holder !== pid) {
-      throw new Error(
-        `single-run lock held by live pid ${holder} (${path}); refusing a concurrent run on the shared resource`,
-      )
-    }
-  }
-  writeFileSync(opts.lockPath, String(pid))
+  if (!Number.isSafeInteger(pid) || pid <= 0)
+    throw new Error('single-run lock pid must be a positive integer')
+  for (const path of opts.alsoCheck ?? []) assertAvailable(path)
+  const acquisition = tryAcquireAtomicFileLock({
+    lockPath: opts.lockPath,
+    pid,
+    acceptLegacyPid: true,
+  })
+  if (!acquisition.acquired) throw unavailableError(opts.lockPath, acquisition)
   const release = (): void => {
     try {
-      if (existsSync(opts.lockPath) && readFileSync(opts.lockPath, 'utf8').trim() === String(pid)) {
-        unlinkSync(opts.lockPath)
-      }
+      acquisition.lock.release()
     } catch {
       // release is best-effort; a leftover stale lock is reclaimed on next acquire
     }
+  }
+  try {
+    for (const path of opts.alsoCheck ?? []) assertAvailable(path)
+  } catch (error) {
+    release()
+    throw error
   }
   if (opts.releaseOnExit ?? true) process.on('exit', release)
   return { release }
