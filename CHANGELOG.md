@@ -4,6 +4,12 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ---
 
+## [0.122.2] — 2026-07-17 — premeasured optimization continuation
+
+### Added
+
+- `runOptimization()` accepts a surface-bound, split-validated complete campaign as `premeasuredBaseline`, preserves its artifacts for analysis, and skips duplicate baseline dispatch.
+
 ## [0.121.0] — 2026-07-15 — one measured-comparison contract
 
 ### Changed
