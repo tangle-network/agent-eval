@@ -26,6 +26,7 @@
 import { createHash } from 'node:crypto'
 import { appendFile, mkdir, readFile, writeFile } from 'node:fs/promises'
 import { dirname } from 'node:path'
+import type { CampaignStorage } from './storage'
 
 export interface LineageNode {
   /** Deterministic content+lineage hash (see {@link lineageNodeId}). */
@@ -348,6 +349,84 @@ export interface LineageStore {
   save(lineage: Lineage): Promise<void>
 }
 
+export class LineageStoreConflictError extends Error {
+  override readonly name = 'LineageStoreConflictError'
+}
+
+/**
+ * Store a lineage through CampaignStorage. Appends use its compare-and-append
+ * primitive, so retries are idempotent and a second controller fails instead
+ * of assigning the same sequence number to different nodes.
+ */
+export function campaignLineageStore(
+  storage: CampaignStorage,
+  path: string,
+  options: { maxAppendAttempts?: number } = {},
+): LineageStore {
+  const maxAppendAttempts = options.maxAppendAttempts ?? 100
+  if (!Number.isInteger(maxAppendAttempts) || maxAppendAttempts < 1) {
+    throw new Error('campaignLineageStore: maxAppendAttempts must be a positive integer')
+  }
+  storage.ensureDir(dirname(path))
+
+  const read = (): { text: string; lineage: Lineage } => {
+    const stored = storage.read(path)
+    if (stored === undefined && storage.exists(path)) {
+      throw new Error(`campaignLineageStore: cannot read existing lineage '${path}'`)
+    }
+    const text = stored ?? ''
+    return { text, lineage: Lineage.fromJSONL(text) }
+  }
+
+  return {
+    async load() {
+      return read().lineage
+    },
+    async append(node) {
+      if (!storage.append) {
+        throw new Error('campaignLineageStore: CampaignStorage.append is required')
+      }
+      for (let attempt = 0; attempt < maxAppendAttempts; attempt += 1) {
+        const { text, lineage } = read()
+        const existing = lineage.get(node.id)
+        if (existing) {
+          if (JSON.stringify(existing) !== JSON.stringify(node)) {
+            throw new LineageStoreConflictError(
+              `campaignLineageStore: node '${node.id}' already exists with different content`,
+            )
+          }
+          return
+        }
+        for (const parentId of node.parentIds) {
+          if (!lineage.has(parentId)) {
+            throw new LineageStoreConflictError(
+              `campaignLineageStore: node '${node.id}' has unknown persisted parent '${parentId}'`,
+            )
+          }
+        }
+        const persisted = lineage.all()
+        const expectedSeq =
+          persisted.length === 0 ? 0 : Math.max(...persisted.map((entry) => entry.seq)) + 1
+        if (node.seq !== expectedSeq) {
+          throw new LineageStoreConflictError(
+            `campaignLineageStore: stale controller tried sequence ${node.seq}; expected ${expectedSeq}`,
+          )
+        }
+        const line = `${JSON.stringify(node)}\n`
+        const expectedBytes = new TextEncoder().encode(text).byteLength
+        if (storage.append(path, line, expectedBytes) !== undefined) return
+      }
+      throw new LineageStoreConflictError(
+        `campaignLineageStore: could not append after ${maxAppendAttempts} attempts`,
+      )
+    },
+    async save(lineage) {
+      const jsonl = lineage.toJSONL()
+      storage.write(path, jsonl.length > 0 ? `${jsonl}\n` : '')
+    },
+  }
+}
+
 /** JSONL-file store: append-only durability, snapshot via rewrite, `load` parses
  *  through {@link Lineage.fromJSONL}. */
 export function fsLineageStore(path: string): LineageStore {
@@ -536,7 +615,12 @@ export interface RunLineageOptions {
     track: string
   }) => Promise<Omit<RunLineageStepResult, 'gate'>>
   governor: Governor
-  budget: { maxSteps: number }
+  budget: {
+    /** Maximum controller operations in this invocation. */
+    maxSteps: number
+    /** Optional maximum persisted nodes across every resumed invocation. */
+    maxNodes?: number
+  }
   store?: LineageStore
   log?: (msg: string, fields?: Record<string, unknown>) => void
 }
@@ -552,6 +636,15 @@ export interface RunLineageResult {
  *  (extend / branch / merge / prune / stop) up to `budget.maxSteps`, persisting
  *  every node. Honors `prune`: a pruned track is never extended or branched again. */
 export async function runLineage(opts: RunLineageOptions): Promise<RunLineageResult> {
+  if (!Number.isInteger(opts.budget.maxSteps) || opts.budget.maxSteps < 0) {
+    throw new Error('runLineage: budget.maxSteps must be a non-negative integer')
+  }
+  if (
+    opts.budget.maxNodes !== undefined &&
+    (!Number.isInteger(opts.budget.maxNodes) || opts.budget.maxNodes < 0)
+  ) {
+    throw new Error('runLineage: budget.maxNodes must be a non-negative integer')
+  }
   const store = opts.store ?? memLineageStore()
   const lineage = await store.load()
   const log = opts.log ?? (() => {})
@@ -565,6 +658,13 @@ export async function runLineage(opts: RunLineageOptions): Promise<RunLineageRes
   }
 
   for (const seed of opts.seeds) {
+    const id = lineageNodeId({
+      parentIds: [],
+      track: seed.track,
+      surface: seed.surface,
+      proposer: seed.proposer,
+    })
+    const existed = lineage.has(id)
     const node = lineage.addNode({
       parentIds: [],
       track: seed.track,
@@ -575,15 +675,26 @@ export async function runLineage(opts: RunLineageOptions): Promise<RunLineageRes
       ...(seed.scoreVector !== undefined ? { scoreVector: seed.scoreVector } : {}),
     })
     trackProposer.set(seed.track, seed.proposer)
-    await persist(node)
+    if (!existed) await persist(node)
   }
 
   let steps = 0
   while (steps < opts.budget.maxSteps) {
+    if (opts.budget.maxNodes !== undefined && lineage.all().length >= opts.budget.maxNodes) {
+      log('lineage: persisted node limit reached', {
+        maxNodes: opts.budget.maxNodes,
+        nodes: lineage.all().length,
+      })
+      break
+    }
+    const nodeBudgetRemaining =
+      opts.budget.maxNodes === undefined
+        ? Number.POSITIVE_INFINITY
+        : opts.budget.maxNodes - lineage.all().length
     const op = await opts.governor.decide({
       lineage,
       step: steps,
-      budgetRemaining: opts.budget.maxSteps - steps,
+      budgetRemaining: Math.min(opts.budget.maxSteps - steps, nodeBudgetRemaining),
       prunedTracks: [...pruned],
     })
 
@@ -609,6 +720,13 @@ export async function runLineage(opts: RunLineageOptions): Promise<RunLineageRes
         continue
       }
       const result = await opts.merge({ parents, track: op.track })
+      const id = lineageNodeId({
+        parentIds: parents.map((parent) => parent.id),
+        track: op.track,
+        surface: result.surface,
+        proposer: 'merge',
+      })
+      const existed = lineage.has(id)
       const node = lineage.merge({
         parentIds: parents.map((p) => p.id),
         track: op.track,
@@ -618,7 +736,7 @@ export async function runLineage(opts: RunLineageOptions): Promise<RunLineageRes
         ...(result.scoreVector !== undefined ? { scoreVector: result.scoreVector } : {}),
         ...(result.rationale !== undefined ? { rationale: result.rationale } : {}),
       })
-      await persist(node)
+      if (!existed) await persist(node)
       steps += 1
       continue
     }
@@ -637,6 +755,13 @@ export async function runLineage(opts: RunLineageOptions): Promise<RunLineageRes
       }
       trackProposer.set(op.track, op.proposer)
       const result = await opts.step({ track: op.track, proposer: op.proposer, tip: from })
+      const id = lineageNodeId({
+        parentIds: [from.id],
+        track: op.track,
+        surface: result.surface,
+        proposer: op.proposer,
+      })
+      const existed = lineage.has(id)
       const node = lineage.addNode({
         parentIds: [from.id],
         track: op.track,
@@ -648,7 +773,7 @@ export async function runLineage(opts: RunLineageOptions): Promise<RunLineageRes
         ...(result.rationale !== undefined ? { rationale: result.rationale } : {}),
         ...(result.gate !== undefined ? { gate: result.gate } : {}),
       })
-      await persist(node)
+      if (!existed) await persist(node)
       steps += 1
       continue
     }
@@ -667,6 +792,13 @@ export async function runLineage(opts: RunLineageOptions): Promise<RunLineageRes
     }
     const proposer = trackProposer.get(op.track) ?? tip.proposer
     const result = await opts.step({ track: op.track, proposer, tip })
+    const id = lineageNodeId({
+      parentIds: [tip.id],
+      track: op.track,
+      surface: result.surface,
+      proposer,
+    })
+    const existed = lineage.has(id)
     const node = lineage.addNode({
       parentIds: [tip.id],
       track: op.track,
@@ -678,7 +810,7 @@ export async function runLineage(opts: RunLineageOptions): Promise<RunLineageRes
       ...(result.rationale !== undefined ? { rationale: result.rationale } : {}),
       ...(result.gate !== undefined ? { gate: result.gate } : {}),
     })
-    await persist(node)
+    if (!existed) await persist(node)
     steps += 1
   }
 

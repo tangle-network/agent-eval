@@ -128,7 +128,7 @@ export interface RunLineageLoopOptions<TScenario extends Scenario, TArtifact> {
   // ── DAG control ───────────────────────────────────────────────────────────
   /** Agent-managed decision layer. Default {@link heuristicGovernor}. */
   governor?: Governor
-  budget: { maxSteps: number }
+  budget: { maxSteps: number; maxNodes?: number }
   store?: LineageStore
 
   // ── Injectable seams (unit-testable without a live model) ─────────────────
