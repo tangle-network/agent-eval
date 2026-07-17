@@ -128,6 +128,53 @@ describe('runCampaign — core primitive', () => {
     )
   })
 
+  it('uses common random seeds for scenario variants in the same seed group', async () => {
+    const observed = new Map<string, number>()
+    const scenarios: FakeScenario[] = [
+      { id: 'provider-a:case-1', kind: 'chat', intent: 'same task', seedGroup: 'case-1' },
+      { id: 'provider-b:case-1', kind: 'chat', intent: 'same task', seedGroup: 'case-1' },
+      { id: 'independent', kind: 'chat', intent: 'another task' },
+    ]
+    const result = await runCampaign({
+      scenarios,
+      reps: 2,
+      seed: 100,
+      runDir,
+      expectUsage: 'off',
+      dispatch: async (scenario, context) => {
+        observed.set(`${scenario.id}:${context.rep}`, context.seed)
+        return { text: String(context.seed), intent: scenario.intent }
+      },
+    })
+
+    expect(Object.fromEntries(observed)).toEqual({
+      'provider-a:case-1:0': 100,
+      'provider-a:case-1:1': 101,
+      'provider-b:case-1:0': 100,
+      'provider-b:case-1:1': 101,
+      'independent:0': 102,
+      'independent:1': 103,
+    })
+    expect(Object.fromEntries(result.cells.map((cell) => [cell.cellId, cell.seed]))).toEqual({
+      'provider-a:case-1:0': 100,
+      'provider-a:case-1:1': 101,
+      'provider-b:case-1:0': 100,
+      'provider-b:case-1:1': 101,
+      'independent:0': 102,
+      'independent:1': 103,
+    })
+  })
+
+  it.each(['', ' '])('rejects an empty seed group %#', async (seedGroup) => {
+    await expect(
+      runCampaign({
+        scenarios: [{ ...SCENARIOS[0]!, seedGroup }],
+        dispatch: DISPATCH,
+        runDir,
+      }),
+    ).rejects.toThrow('seedGroup to be a non-empty string')
+  })
+
   it('produces a stable manifestHash for identical inputs', async () => {
     const r1 = await runCampaign({ scenarios: SCENARIOS, dispatch: DISPATCH, runDir })
     const r2 = await runCampaign({
@@ -149,14 +196,21 @@ describe('runCampaign — core primitive', () => {
     expect(r1.manifestHash).not.toBe(r2.manifestHash)
   })
 
-  it('threads cell-level seed = baseSeed + cellIndex', async () => {
-    const seenSeeds: number[] = []
-    const dispatch: DispatchFn<FakeScenario, FakeArtifact> = async (s, ctx) => {
-      seenSeeds.push(ctx.seed)
-      return { text: '', intent: s.intent }
-    }
-    await runCampaign({ scenarios: SCENARIOS, dispatch, seed: 100, reps: 2, runDir })
-    expect(seenSeeds.sort()).toEqual([100, 101, 102, 103])
+  it('retains the previous sequential seed schedule when seedGroup is unset', async () => {
+    const result = await runCampaign({
+      scenarios: SCENARIOS,
+      dispatch: DISPATCH,
+      seed: 100,
+      reps: 2,
+      runDir,
+    })
+
+    expect(Object.fromEntries(result.cells.map((cell) => [cell.cellId, cell.seed]))).toEqual({
+      'a:0': 100,
+      'a:1': 101,
+      'b:0': 102,
+      'b:1': 103,
+    })
   })
 
   it('resumes cached cells with their durable receipts', async () => {
@@ -344,6 +398,32 @@ describe('runCampaign — core primitive', () => {
     expect(dispatchCount).toBe(2)
     expect(result.cells[0]?.cached).toBe(false)
     expect(result.cells[0]?.artifact.intent).toBe('second')
+  })
+
+  it('does not resume cached cells when a seed group changes', async () => {
+    let dispatchCount = 0
+    const dispatch: DispatchFn<FakeScenario, FakeArtifact> = async (scenario) => {
+      dispatchCount += 1
+      return { text: `fresh-${scenario.intent}`, intent: scenario.intent }
+    }
+    const ungrouped = [{ id: 'a', kind: 'chat', intent: 'same' }]
+    const grouped = [{ ...ungrouped[0]!, seedGroup: 'paired-case' }]
+
+    await runCampaign({
+      scenarios: ungrouped,
+      dispatch,
+      dispatchRef: 'stable-dispatch',
+      runDir,
+    })
+    const result = await runCampaign({
+      scenarios: grouped,
+      dispatch,
+      dispatchRef: 'stable-dispatch',
+      runDir,
+    })
+
+    expect(dispatchCount).toBe(2)
+    expect(result.cells[0]?.cached).toBe(false)
   })
 
   it('includes dispatchRef in the resume decision', async () => {
