@@ -241,3 +241,64 @@ describe('runLineageLoop candidate concurrency', () => {
     expect(result.best?.surface).toBe(mk(0.4, 'c'))
   })
 })
+
+describe('runLineageLoop track proposal context', () => {
+  it('routes each track to its proposer and carries vision through branch, extend, and merge', async () => {
+    const contexts: ProposeContext[] = []
+    let proposal = 0
+    const contrarian: SurfaceProposer = {
+      kind: 'contrarian',
+      async propose(ctx) {
+        contexts.push(ctx)
+        proposal += 1
+        return [mk(0.2 + proposal / 10, `${ctx.track?.operation}-${proposal}`)]
+      },
+    }
+    const base: SurfaceProposer = {
+      kind: 'base',
+      async propose() {
+        throw new Error('base proposer should not run in this schedule')
+      },
+    }
+    let decision = 0
+    const governor = callbackGovernor(async (ctx): Promise<GovernorOp> => {
+      decision += 1
+      if (decision === 1) {
+        return {
+          op: 'branch',
+          fromNodeId: ctx.lineage.trackTip('base')!.id,
+          track: 'challenge',
+          proposer: 'contrarian',
+          vision: 'challenge assumptions',
+        }
+      }
+      if (decision === 2) return { op: 'extend', track: 'challenge' }
+      if (decision === 3) {
+        return {
+          op: 'merge',
+          parentIds: [ctx.lineage.trackTip('base')!.id, ctx.lineage.trackTip('challenge')!.id],
+          track: 'challenge',
+        }
+      }
+      return { op: 'stop' }
+    })
+
+    await runLineageLoop({
+      scenarios: [sc('a')],
+      seeds: [{ surface: mk(0.1), track: 'base', vision: 'baseline', proposer: 'base' }],
+      proposers: { base, contrarian },
+      scoreSurface: async (surface) => ({ score: decode(String(surface)) }),
+      governor,
+      budget: { maxSteps: 4 },
+      populationSize: 1,
+    })
+
+    expect(contexts.map((ctx) => ctx.track?.operation)).toEqual(['branch', 'extend', 'merge'])
+    expect(contexts.map((ctx) => ctx.generation)).toEqual([1, 2, 3])
+    expect(contexts.every((ctx) => ctx.track?.id === 'challenge')).toBe(true)
+    expect(contexts.every((ctx) => ctx.track?.vision === 'challenge assumptions')).toBe(true)
+    expect(contexts[0]?.track?.parentTrackIds).toEqual(['base'])
+    expect(contexts[1]?.track?.parentTrackIds).toEqual(['challenge'])
+    expect(contexts[2]?.track?.parentTrackIds).toEqual(['challenge', 'base'])
+  })
+})

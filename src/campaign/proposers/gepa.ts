@@ -139,6 +139,7 @@ export function gepaProposer(opts: GepaProposerOptions): SurfaceProposer {
     kind: 'gepa',
     async propose(ctx: ProposeContext): Promise<ProposedCandidate[]> {
       const costLedger = ctx.costLedger ?? directCostLedger
+      const target = targetForTrack(opts.target, ctx)
       const parent =
         typeof ctx.currentSurface === 'string'
           ? ctx.currentSurface
@@ -177,7 +178,7 @@ export function gepaProposer(opts: GepaProposerOptions): SurfaceProposer {
         .slice(0, combineMaxParents)
       if (stringParents.length > 1) {
         const combinePrompt = buildCombinePrompt({
-          target: opts.target,
+          target,
           parents: stringParents,
           evidenceK,
         })
@@ -222,9 +223,9 @@ export function gepaProposer(opts: GepaProposerOptions): SurfaceProposer {
       // ── (2) Reflection fill for the remaining population budget ──────────
       const reflectCount = Math.max(0, ctx.populationSize - out.length)
       if (reflectCount > 0) {
-        const { top, bottom, target } = buildEvidence(ctx, evidenceK, opts.target)
+        const { top, bottom, target: evidenceTarget } = buildEvidence(ctx, evidenceK, target)
         const userPrompt = buildReflectionPrompt({
-          target,
+          target: evidenceTarget,
           parentPayload: parent,
           topTrials: top,
           bottomTrials: bottom,
@@ -268,6 +269,11 @@ export function gepaProposer(opts: GepaProposerOptions): SurfaceProposer {
       return out.slice(0, ctx.populationSize)
     },
   }
+}
+
+function targetForTrack(base: string, ctx: ProposeContext): string {
+  const vision = ctx.track?.vision?.trim()
+  return vision ? `${base}\n\nTrack objective (${ctx.track!.id}): ${vision}` : base
 }
 
 /** Build the GEPA combine prompt: each non-dominated parent's full surface +

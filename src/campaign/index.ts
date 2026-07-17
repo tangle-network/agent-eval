@@ -460,6 +460,7 @@ export type {
   OptimizationProposer,
   OptimizerConfig,
   ParetoParent,
+  ProposalTrackContext,
   ProposeContext,
   ProposedCandidate,
   RedactionStatus,

@@ -257,6 +257,15 @@ export interface ParetoParent {
   rationale?: string
 }
 
+/** The lineage track that requested a proposal. */
+export interface ProposalTrackContext {
+  id: string
+  operation: 'extend' | 'branch' | 'merge'
+  proposer: string
+  vision?: string
+  parentTrackIds: readonly string[]
+}
+
 /** Exact measured state for the surface an optimizer is learning from.
  *  Unlike a model-authored expected gain, every value here comes from a
  *  completed campaign over the designed denominator. */
@@ -308,6 +317,8 @@ export interface ProposeContext<TFindings = unknown> {
   populationSize: number
   generation: number
   signal: AbortSignal
+  /** Present when a multi-track lineage requests this proposal. */
+  track?: ProposalTrackContext
   /** Measured baseline for this optimization run. `runOptimization` always
    *  supplies it; optional for standalone proposer callers. */
   baselineOutcome?: ScoredSurfaceOutcome
