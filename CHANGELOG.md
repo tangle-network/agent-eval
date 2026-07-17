@@ -4,6 +4,12 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ---
 
+## [0.120.2] — 2026-07-16 — canonical cost receipts
+
+### Fixed
+
+- Preserve absent optional fields when cloning pending and settled cost records so strict canonical serialization retains unknown-cost failures instead of masking the original provider error.
+
 ## [0.120.1] — 2026-07-15 — configurable improvement deadlines
 
 ### Fixed

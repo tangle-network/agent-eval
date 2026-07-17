@@ -4,7 +4,7 @@ requires-python = ">=3.10"
 
 [[package]]
 name = "agent-eval-rpc"
-version = "0.120.1"
+version = "0.120.2"
 source = { editable = "." }
 dependencies = [
     { name = "httpx" },
