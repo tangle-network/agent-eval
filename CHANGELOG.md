@@ -4,6 +4,13 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ---
 
+## [0.120.4] — 2026-07-17 — premeasured optimization continuation
+
+### Added
+
+- Let `runOptimization()` continue from a complete prior baseline campaign after validating the exact surface, scenario split, seed, replicate count, judge coverage, and retained campaign identity.
+- Preserve the imported campaign and its artifacts for baseline analysis while skipping both a duplicate baseline dispatch and any resumability-cache lookup.
+
 ## [0.120.3] — 2026-07-16 — complete compatibility package
 
 ### Fixed

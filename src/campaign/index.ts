@@ -226,6 +226,7 @@ export {
   type SurfaceScore,
 } from './presets/run-lineage-loop'
 export {
+  type PremeasuredOptimizationBaseline,
   type RunOptimizationOptions,
   type RunOptimizationResult,
   runOptimization,
