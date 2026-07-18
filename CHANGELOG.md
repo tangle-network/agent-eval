@@ -6,6 +6,10 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ## [Unreleased]
 
+### Added
+
+- `CostLedger.listPending()` exposes immutable pending paid calls and distinguishes calls that are active, late after cancellation, or interrupted by a prior process so durable workflows can reconcile exact reservations before resuming.
+
 ### Changed
 
 - Keep one live tip per lineage track when another track branches or merges from it, and compare those track tips when building the frontier.
