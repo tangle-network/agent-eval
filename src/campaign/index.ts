@@ -36,7 +36,7 @@ export {
   type PolicyEditCandidateRecord,
   validatePolicyEditCandidateRecord,
 } from '../analyst/policy-edit'
-export type { CostLedgerHandle } from '../cost-ledger'
+export type { CostLedgerHandle, PendingCostCallView } from '../cost-ledger'
 // ── Judge builders (single-call bridge to a canonical JudgeConfig) ────
 export type { LlmJudgeDimension, LlmJudgeOptions } from '../llm-judge'
 export { llmJudge } from '../llm-judge'

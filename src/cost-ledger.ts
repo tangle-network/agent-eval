@@ -31,6 +31,10 @@ export interface PendingCostCall extends CostCallBase {
   status: 'pending'
 }
 
+export interface PendingCostCallView extends PendingCostCall {
+  state: 'active' | 'late' | 'interrupted'
+}
+
 export interface CostReceipt extends CostCallBase, CostUsage {
   status: 'settled'
   costUsd: number
@@ -422,6 +426,21 @@ export class CostLedger {
       .map(cloneReceipt)
   }
 
+  /** Read pending calls without exposing mutable ledger state. */
+  listPending(filter?: CostLedgerFilter): PendingCostCallView[] {
+    return [...this.records.values()]
+      .filter((record): record is PendingCostCall => record.status === 'pending')
+      .filter((record) => matches(record, filter))
+      .map((record) => ({
+        ...clonePendingCall(record),
+        state: this.lateCallIds.has(record.callId)
+          ? 'late'
+          : this.activeCallIds.has(record.callId)
+            ? 'active'
+            : 'interrupted',
+      }))
+  }
+
   summary(filter?: CostLedgerFilter): CostLedgerSummary {
     const records = [...this.records.values()].filter((record) => matches(record, filter))
     const pending = records.filter(
@@ -748,8 +767,11 @@ export class CostLedger {
  * Keeping callback contracts structural lets those subpaths compose while the
  * concrete {@link CostLedger} retains its private durable state.
  */
-export type CostLedgerHandle = Pick<CostLedger, Exclude<keyof CostLedger, 'waitForIdle'>> &
-  Partial<Pick<CostLedger, 'waitForIdle'>>
+export type CostLedgerHandle = Pick<
+  CostLedger,
+  Exclude<keyof CostLedger, 'listPending' | 'waitForIdle'>
+> &
+  Partial<Pick<CostLedger, 'listPending' | 'waitForIdle'>>
 
 /** Return the canonical pricing-table key, or null when the model is unpriced. */
 export function modelPriceKey(model: string): string | null {
@@ -1092,6 +1114,10 @@ function matches(record: CostCallBase, filter: CostLedgerFilter | undefined): bo
 
 function cloneRecord(record: CostLedgerRecord): CostLedgerRecord {
   if (record.status === 'settled') return cloneReceipt(record)
+  return clonePendingCall(record)
+}
+
+function clonePendingCall(record: PendingCostCall): PendingCostCall {
   const { tags, ...rest } = record
   return { ...rest, ...(tags ? { tags: { ...tags } } : {}) }
 }

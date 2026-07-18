@@ -791,6 +791,8 @@ export type {
   CostUsage,
   MaximumCharge,
   PaidCallResult,
+  PendingCostCall,
+  PendingCostCallView,
   RunPaidCallInput,
 } from './cost-ledger'
 export {

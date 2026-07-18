@@ -537,6 +537,7 @@ describe('CostLedger', () => {
       phase: 'search',
       actor: 'worker',
       model: 'gpt-4o',
+      tags: { run: 'crash-resume' },
       signal: controller.signal,
       maximumCharge: { model: 'gpt-4o', inputTokens: 0, outputTokens: 50_000 },
       async execute(_signal, callId) {
@@ -550,9 +551,24 @@ describe('CostLedger', () => {
     expect(persistedRecords(state.events)).toEqual([
       expect.objectContaining({ status: 'pending', callId: 'provider-request-1' }),
     ])
+    const active = first.listPending()
+    expect(active).toEqual([
+      expect.objectContaining({
+        callId: 'provider-request-1',
+        state: 'active',
+        tags: { run: 'crash-resume' },
+      }),
+    ])
+    active[0]!.tags!.run = 'mutated'
+    expect(first.listPending()[0]?.tags).toEqual({ run: 'crash-resume' })
 
     let resumedCalls = 0
     const resumed = new CostLedger({ costCeilingUsd: 1, persistence })
+    expect(resumed.listPending()).toEqual([
+      expect.objectContaining({ callId: 'provider-request-1', state: 'interrupted' }),
+    ])
+    expect(resumed.listPending({ tags: { run: 'crash-resume' } })).toHaveLength(1)
+    expect(resumed.listPending({ tags: { run: 'other' } })).toHaveLength(0)
     const denied = await resumed.runPaidCall({
       callId: 'provider-request-2',
       channel: 'agent',
@@ -575,6 +591,9 @@ describe('CostLedger', () => {
 
     controller.abort(new Error('simulated process exit'))
     await inFlight
+    expect(first.listPending()).toEqual([
+      expect.objectContaining({ callId: 'provider-request-1', state: 'late' }),
+    ])
   })
 
   it('allows only one file-backed ledger instance to reserve a shared revision', async () => {
