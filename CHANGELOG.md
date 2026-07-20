@@ -9,9 +9,11 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 ### Added
 
 - `CostLedger.listPending()` exposes immutable pending paid calls and distinguishes calls that are active, late after cancellation, or interrupted by a prior process so durable workflows can reconcile exact reservations before resuming.
+- `traceAnalystProposer()` accepts an opt-in `resolvePriorFindings` callback that forwards canonical prior findings into the existing analyst registry.
 
 ### Changed
 
+- Trace-analysis actors are instructed to emit one executable JavaScript program per turn, report named turn-limit exhaustion, and preserve per-analyst failure details when a proposer produces no findings.
 - Keep one live tip per lineage track when another track branches or merges from it, and compare those track tips when building the frontier.
 - Pass track identity, operation, vision, ancestry, and proposer choice to candidate generation so independent tracks can pursue distinct strategies.
 - Route named tracks to caller-supplied proposers, with the default proposer as fallback, and make heuristic branches inherit their parent track's proposer.

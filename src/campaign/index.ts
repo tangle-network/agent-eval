@@ -318,7 +318,11 @@ export {
   SkillPatchParseError,
   skillOptProposer,
 } from './proposers/skill-opt'
-export { type TraceAnalystProposerOptions, traceAnalystProposer } from './proposers/trace-analyst'
+export {
+  type TraceAnalystPriorFindings,
+  type TraceAnalystProposerOptions,
+  traceAnalystProposer,
+} from './proposers/trace-analyst'
 // ── Loop provenance (durable record + OTLP spans) ────────────────────
 export {
   type BuildLoopProvenanceArgs,

@@ -4,6 +4,7 @@ import {
   readTraceAnalysisCompletion,
   runTraceAnalysisLoop,
   TRACE_ANALYSIS_FINAL_TASK,
+  TraceAnalysisTurnLimitError,
 } from './loop'
 
 describe('runTraceAnalysisLoop', () => {
@@ -59,6 +60,59 @@ describe('runTraceAnalysisLoop', () => {
     )
     expect(prompts?.join('\n')).toContain('What failed?')
     expect(prompts?.join('\n')).toContain('there is no downstream responder for this run')
+    expect(prompts?.join('\n')).toContain('exactly one executable JavaScript program per turn')
+  })
+
+  it('replays max-turn exhaustion as a named error without external calls', async () => {
+    let mockCalls = 0
+    const ai = new AxMockAIService<string>({
+      features: { functions: false, streaming: false },
+      chatResponse: async (): Promise<AxChatResponse> => {
+        mockCalls += 1
+        return {
+          results: [
+            {
+              index: 0,
+              content: 'Javascript Code: console.log("partial evidence")',
+              finishReason: 'stop',
+            },
+          ],
+          modelUsage: {
+            ai: 'mock-ai',
+            model: 'mock-model',
+            tokens: { promptTokens: 1, completionTokens: 1, totalTokens: 2 },
+          },
+        }
+      },
+    })
+
+    let failure: unknown
+    try {
+      await runTraceAnalysisLoop({
+        id: 'turn-limited-analyst',
+        description: 'Replays a model response that never calls final.',
+        prompt: 'Inspect the supplied traces.',
+        question: 'What failed?',
+        ai,
+        tools: [],
+        findingType: 'string',
+        maxSubqueries: 0,
+        maxParallelSubqueries: 1,
+        maxTurns: 1,
+        maxRuntimeChars: 6000,
+      })
+    } catch (error) {
+      failure = error
+    }
+
+    expect(failure).toBeInstanceOf(TraceAnalysisTurnLimitError)
+    expect(failure).toMatchObject({
+      name: 'TraceAnalysisTurnLimitError',
+      analystId: 'turn-limited-analyst',
+      maxTurns: 1,
+    })
+    expect((failure as Error).message).toContain('reached maxTurns=1')
+    expect(mockCalls).toBe(1)
   })
 
   it('rejects Ax max-turn fallback text instead of treating it as a result', () => {

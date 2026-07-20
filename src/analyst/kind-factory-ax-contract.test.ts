@@ -5,6 +5,8 @@ import { createAnalystAi } from './ax-service'
 import { RAW_FINDING_SCHEMA_PROMPT, RawAnalystFindingSchema } from './finding-signature'
 import { createTraceAnalystKind, type TraceAnalystKindSpec } from './kind-factory'
 import { DEFAULT_TRACE_ANALYST_KINDS } from './kinds'
+import { IMPROVEMENT_KIND_SPEC } from './kinds/improvement'
+import { AnalystRegistry } from './registry'
 import { type AnalystUsageReceipt, makeFinding } from './types'
 
 const axMock = vi.hoisted(() => ({
@@ -696,6 +698,39 @@ describe('createTraceAnalystKind Ax contract', () => {
     expect(actor).toContain('action=deduplicate identical calls')
     expect(actor).toContain('evidence=span://trace/tool-call')
     expect(actor).not.toContain('PRIOR FINDINGS (from a previous run')
+  })
+
+  it('renders registry-forwarded prior findings into the improvement actor input', async () => {
+    axMock.agentCalls.length = 0
+    axMock.forwardResult = { report: '', findings: [] }
+    const prior = makeFinding({
+      analyst_id: 'failure-mode',
+      area: 'failure-mode',
+      claim: 'the worker stopped after executing only the first JavaScript block',
+      severity: 'high',
+      confidence: 0.99,
+      evidence_refs: [{ kind: 'span', uri: 'span://trace/worker-turn-7' }],
+    })
+    const registry = new AnalystRegistry()
+    registry.register(
+      createTraceAnalystKind(
+        { ...IMPROVEMENT_KIND_SPEC, buildTools: () => [], subqueries: { maxCalls: 0 } },
+        { ai: testAi() },
+      ),
+    )
+
+    await registry.run(
+      'prior-finding-render',
+      { traceStore: {} as never },
+      { priorFindings: { '*': [prior] } },
+    )
+
+    const actor = (
+      axMock.agentCalls[0]?.options.executorOptions as { description?: string } | undefined
+    )?.description
+    expect(actor).toContain('PRIOR FINDINGS (from a previous run on related data)')
+    expect(actor).toContain(`id=${prior.finding_id} high`)
+    expect(actor).toContain('the worker stopped after executing only the first JavaScript block')
   })
 })
 
