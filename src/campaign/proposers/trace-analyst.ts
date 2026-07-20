@@ -19,15 +19,17 @@ import type { AxAIArgs } from '@ax-llm/ax'
 import { createAnalystAi } from '../../analyst/ax-service'
 import { createTraceAnalystKind, type TraceAnalystKindSpec } from '../../analyst/kind-factory'
 import { DEFAULT_TRACE_ANALYST_KINDS } from '../../analyst/kinds'
-import { AnalystRegistry } from '../../analyst/registry'
-import type { AnalystFinding } from '../../analyst/types'
+import { AnalystRegistry, type RegistryRunOpts } from '../../analyst/registry'
+import type { AnalystFinding, AnalystRunResult } from '../../analyst/types'
 import type { CostLedgerHandle, CostReceiptInput, MaximumCharge } from '../../cost-ledger'
 import type { LlmClientOptions } from '../../llm-client'
 import { OtlpFileTraceStore } from '../../trace-analyst/store-otlp'
 import type { ProposeContext, SurfaceProposer } from '../types'
 import { analysisEditProposer } from './analysis-edit'
 
-export interface TraceAnalystProposerOptions {
+export type TraceAnalystPriorFindings = NonNullable<RegistryRunOpts['priorFindings']>
+
+export interface TraceAnalystProposerOptions<TFindings = unknown> {
   /** OpenAI-compatible base URL for BOTH the analyst's agentic reads and the
    *  apply step (e.g. `https://api.deepseek.com/v1` or the Tangle router). */
   baseUrl: string
@@ -50,10 +52,19 @@ export interface TraceAnalystProposerOptions {
   kinds?: readonly TraceAnalystKindSpec[]
   /** Resolve the OTLP traces (JSONL string) the analyst should read for THIS
    *  generation — identical contract to `haloProposer.resolveTraces`. */
-  resolveTraces: (ctx: ProposeContext) => string | Promise<string>
+  resolveTraces: (ctx: ProposeContext<TFindings>) => string | Promise<string>
+  /** Opt in to forwarding historical findings into every registered analyst.
+   *  Return an array to route by analyst id or `{ '*': findings }` to broadcast.
+   *  No findings are forwarded when this resolver is absent. */
+  resolvePriorFindings?: (
+    ctx: ProposeContext<TFindings>,
+  ) => TraceAnalystPriorFindings | undefined | Promise<TraceAnalystPriorFindings | undefined>
   /** Override the findings producer. Default: the shipped `AnalystRegistry`
    *  over `kinds`. The unit suite injects canned findings here. */
-  analyze?: (tracePath: string, ctx: ProposeContext) => Promise<ReadonlyArray<AnalystFinding>>
+  analyze?: (
+    tracePath: string,
+    ctx: ProposeContext<TFindings>,
+  ) => Promise<ReadonlyArray<AnalystFinding>>
   /** Test seam: inject a fetch for the apply-step `callLlm`. */
   fetchImpl?: LlmClientOptions['fetch']
 }
@@ -71,14 +82,21 @@ function renderFindings(findings: ReadonlyArray<AnalystFinding>): string {
 }
 
 /** Wrap agent-eval's trace-analyst registry as a SurfaceProposer (prompt-tier). */
-export function traceAnalystProposer(opts: TraceAnalystProposerOptions): SurfaceProposer {
+export function traceAnalystProposer<TFindings = unknown>(
+  opts: TraceAnalystProposerOptions<TFindings>,
+): SurfaceProposer<TFindings> {
   if (!opts.apiKey) throw new Error('traceAnalystProposer: apiKey is required')
   if (!opts.model) throw new Error('traceAnalystProposer: model is required')
+  if (opts.analyze && opts.resolvePriorFindings) {
+    throw new TypeError(
+      'traceAnalystProposer: resolvePriorFindings only applies to the default registry; custom analyze callbacks must consume ctx.findings directly',
+    )
+  }
   const kinds = opts.kinds ?? DEFAULT_TRACE_ANALYST_KINDS
 
   const produceFindings =
     opts.analyze ??
-    (async (path: string, c: ProposeContext): Promise<ReadonlyArray<AnalystFinding>> => {
+    (async (path: string, c: ProposeContext<TFindings>): Promise<ReadonlyArray<AnalystFinding>> => {
       const aiService = createAnalystAi({
         provider: opts.provider ?? 'openai',
         apiKey: opts.apiKey,
@@ -89,6 +107,7 @@ export function traceAnalystProposer(opts: TraceAnalystProposerOptions): Surface
       for (const spec of kinds) {
         registry.register(createTraceAnalystKind(spec, { ai: aiService, model: opts.model }))
       }
+      const priorFindings = await opts.resolvePriorFindings?.(c)
       const result = await registry.run(
         `trace-analyst-gen-${c.generation}`,
         { traceStore: new OtlpFileTraceStore({ path }) },
@@ -97,8 +116,10 @@ export function traceAnalystProposer(opts: TraceAnalystProposerOptions): Surface
           chainFindings: true,
           costLedger: c.costLedger,
           costPhase: c.costPhase,
+          ...(priorFindings === undefined ? {} : { priorFindings }),
         },
       )
+      if (result.findings.length === 0) throw noFindingsError(result)
       return result.findings
     })
 
@@ -134,4 +155,20 @@ export function traceAnalystProposer(opts: TraceAnalystProposerOptions): Surface
       return renderFindings(findings)
     },
   })
+}
+
+function noFindingsError(result: AnalystRunResult): Error {
+  const failed = result.per_analyst.filter((summary) => summary.status === 'failed')
+  const details = failed
+    .map((summary) => {
+      const error = summary.error
+      return error
+        ? `${summary.analyst_id} [${error.class}: ${error.message}]`
+        : `${summary.analyst_id} [error details unavailable]`
+    })
+    .join('; ')
+  const suffix = details ? `; failures: ${details}` : ''
+  return new Error(
+    `traceAnalystProposer: analyst engine produced no findings — ${failed.length}/${result.per_analyst.length} analysts failed${suffix}`,
+  )
 }

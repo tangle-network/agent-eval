@@ -11,7 +11,24 @@ export const TRACE_ANALYSIS_FINAL_TASK = 'Submit the completed trace analysis.'
 
 const TRACE_ANALYSIS_COMPLETION_INSTRUCTION = `This host consumes your executor result directly; there is no downstream responder for this run. Ignore generic executor guidance that says a responder will format the answer. You must produce the final report and findings yourself.
 
+Return exactly one executable JavaScript program per turn. Never emit multiple JavaScript or code fences; put every tool call and the final call in that one program.
+
 When the analysis is complete, call \`await final(${JSON.stringify(TRACE_ANALYSIS_FINAL_TASK)}, { report, findings })\` exactly once. Do not return a one-argument string from \`final(...)\`.`
+
+export class TraceAnalysisTurnLimitError extends Error {
+  readonly analystId: string
+  readonly maxTurns: number
+
+  constructor(analystId: string, maxTurns: number, cause: unknown) {
+    super(
+      `Trace analyst '${analystId}' reached maxTurns=${maxTurns} without a structured final result`,
+      { cause },
+    )
+    this.name = 'TraceAnalysisTurnLimitError'
+    this.analystId = analystId
+    this.maxTurns = maxTurns
+  }
+}
 
 export interface TraceAnalysisLoopResult<TFinding> {
   report: string
@@ -93,6 +110,9 @@ export async function runTraceAnalysisLoop(
         ? readTraceAnalysisCompletion(state.executorResult, 'string')
         : readTraceAnalysisCompletion(state.executorResult, 'object')
   } catch (error) {
+    if (state.turnCount >= options.maxTurns) {
+      throw new TraceAnalysisTurnLimitError(options.id, options.maxTurns, error)
+    }
     throw new Error(`Trace analyst '${options.id}' stopped without a structured final result`, {
       cause: error,
     })
