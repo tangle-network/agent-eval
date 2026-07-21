@@ -519,6 +519,7 @@ describe('selfImprove — deferred holdout', () => {
 
   it('dispatches zero holdout cells, forces hold, and omits lift', async () => {
     const dispatched: Array<{ surface: unknown; scenarioId: string }> = []
+    const events: SelfImproveProgressEvent[] = []
     const proposer: SurfaceProposer = { kind: 'stub', propose: async () => ['BETTER'] }
 
     const result = await selfImprove<Scenario, { text: string }>({
@@ -531,6 +532,7 @@ describe('selfImprove — deferred holdout', () => {
       baselineSurface: 'base',
       proposer,
       budget: { generations: 1, populationSize: 1, holdout: 'deferred' },
+      onProgress: (event) => events.push(event),
     })
 
     // ALL scenarios train (no split), and only search campaigns dispatch:
@@ -547,6 +549,12 @@ describe('selfImprove — deferred holdout', () => {
     ])
     expect('lift' in result).toBe(false)
     expect(result.lift).toBeUndefined()
+
+    // The gate.decided progress event also omits `lift` — the search-split
+    // delta must not masquerade as a held-out lift.
+    const gateEvents = events.filter((e) => e.kind === 'gate.decided')
+    expect(gateEvents).toHaveLength(1)
+    expect(gateEvents[0]).toEqual({ kind: 'gate.decided', decision: 'hold' })
 
     // Provenance records the mode instead of a fabricated 0-lift.
     expect(result.provenance.holdout).toBe('deferred')

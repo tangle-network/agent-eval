@@ -116,7 +116,9 @@ export type SelfImproveProgressEvent =
   | { kind: 'baseline.completed'; compositeMean: number; durationMs: number }
   | { kind: 'generation.started'; index: number; populationSize: number }
   | { kind: 'generation.completed'; index: number; bestComposite: number; durationMs: number }
-  | { kind: 'gate.decided'; decision: string; lift: number }
+  // `lift` is absent when `budget.holdout === 'deferred'` — no held-out
+  // measurement ran, and the search-split delta must not masquerade as one.
+  | { kind: 'gate.decided'; decision: string; lift?: number }
   | { kind: 'power.estimated'; n: number; sd: number; mde: number; underpowered: boolean }
 
 export interface SelfImproveOptions<TScenario extends Scenario, TArtifact> {
@@ -617,7 +619,10 @@ async function runSelfImprove<TScenario extends Scenario, TArtifact>(
     opts.onProgress({
       kind: 'gate.decided',
       decision: result.gateResult.decision,
-      lift: winnerStats.compositeMean - baseline.compositeMean,
+      // Deferred holdout has no held-out measurement: in that mode the summary
+      // stats are search-split numbers, and emitting their delta as `lift`
+      // would misreport a train-split delta as a held-out one. Omit instead.
+      ...(holdoutDeferred ? {} : { lift: winnerStats.compositeMean - baseline.compositeMean }),
     })
   }
 
