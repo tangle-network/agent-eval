@@ -8,6 +8,8 @@
  */
 
 import { describe, expect, it } from 'vitest'
+import { runCampaign } from '../campaign/run-campaign'
+import { inMemoryCampaignStorage } from '../campaign/storage'
 import { surfaceHash } from '../campaign/surface-identity'
 import type { CodeSurface, Gate, JudgeConfig, SurfaceProposer } from '../campaign/types'
 import { CostLedger, type CostLedgerHandle } from '../cost-ledger'
@@ -390,5 +392,210 @@ describe('selfImprove — run-wide spend account', () => {
       }),
     ).rejects.toThrow(/costCeilingUsd/)
     expect(calls).toBe(0)
+  })
+})
+
+describe('selfImprove — premeasured baseline passthrough', () => {
+  const premeasuredScenarios: Scenario[] = Array.from({ length: 4 }, (_, i) => ({
+    id: `p${i}`,
+    kind: 'fixture',
+  }))
+  const holdoutScenarios = [premeasuredScenarios[3]!]
+  const trainScenarios = premeasuredScenarios.slice(0, 3)
+  const winJudge: JudgeConfig<{ text: string }, Scenario> = {
+    name: 'win-judge',
+    dimensions: [{ key: 'q', description: 'fixture quality' }],
+    score: ({ artifact }) => {
+      const good = artifact.text === 'BETTER' ? 1 : 0
+      return { dimensions: { q: good }, composite: good, notes: '' }
+    },
+  }
+
+  it('forwards premeasuredBaseline and skips the baseline search dispatch', async () => {
+    // Premeasure the baseline over the exact TRAIN split (seed 42 = the
+    // selfImprove default) with the same judge.
+    const premeasured = await runCampaign<Scenario, { text: string }>({
+      scenarios: trainScenarios,
+      dispatch: (scenario, ctx) => stubAgent('BASE', scenario, ctx),
+      dispatchRef: 'test:selfimprove-premeasured',
+      judges: [winJudge],
+      seed: 42,
+      reps: 1,
+      resumable: false,
+      runDir: '/premeasured/self-improve-source',
+      storage: inMemoryCampaignStorage(),
+      tracing: 'off',
+      expectUsage: 'off',
+    })
+
+    const dispatched: Array<{ surface: unknown; scenarioId: string }> = []
+    const proposer: SurfaceProposer = { kind: 'stub', propose: async () => ['BETTER'] }
+    const result = await selfImprove<Scenario, { text: string }>({
+      agent: (surface, scenario, ctx) => {
+        dispatched.push({ surface, scenarioId: scenario.id })
+        return stubAgent(surface, scenario, ctx)
+      },
+      scenarios: premeasuredScenarios,
+      judge: winJudge,
+      baselineSurface: 'BASE',
+      premeasuredBaseline: { surfaceHash: surfaceHash('BASE'), campaign: premeasured },
+      proposer,
+      budget: { generations: 1, populationSize: 1, holdoutScenarios },
+    })
+
+    // The baseline surface is NEVER dispatched on the train split — the
+    // premeasured campaign replaced that entire arm. It still runs on the
+    // holdout arm, which premeasuredBaseline does not cover.
+    const baselineDispatches = dispatched.filter((d) => d.surface === 'BASE')
+    expect(baselineDispatches.map((d) => d.scenarioId)).toEqual(['p3'])
+    // Candidate: train (3 scenarios) + winner holdout (1 scenario).
+    expect(dispatched.filter((d) => d.surface === 'BETTER')).toHaveLength(4)
+    // The imported campaign is the baseline search measurement, by identity.
+    expect(result.raw.baselineCampaign).toBe(premeasured)
+    expect(result.winner.surface).toBe('BETTER')
+  })
+})
+
+describe('selfImprove — maxImprovementShots passthrough', () => {
+  it('forwards budget.maxImprovementShots to the proposer ctx', async () => {
+    const seen: Array<number | undefined> = []
+    const proposer: SurfaceProposer = {
+      kind: 'shots-probe',
+      propose: async (ctx) => {
+        seen.push(ctx.maxImprovementShots)
+        return ['BETTER']
+      },
+    }
+
+    await selfImprove({
+      agent: stubAgent,
+      scenarios,
+      judge,
+      baselineSurface: 'base',
+      proposer,
+      budget: {
+        generations: 1,
+        populationSize: 1,
+        holdoutFraction: 0.5,
+        maxImprovementShots: 7,
+      },
+    })
+
+    expect(seen).toEqual([7])
+  })
+
+  it('leaves ctx.maxImprovementShots unset when the budget omits it', async () => {
+    const seen: Array<number | undefined> = []
+    const proposer: SurfaceProposer = {
+      kind: 'shots-probe',
+      propose: async (ctx) => {
+        seen.push(ctx.maxImprovementShots)
+        return ['BETTER']
+      },
+    }
+
+    await selfImprove({
+      agent: stubAgent,
+      scenarios,
+      judge,
+      baselineSurface: 'base',
+      proposer,
+      budget: { generations: 1, populationSize: 1, holdoutFraction: 0.5 },
+    })
+
+    expect(seen).toEqual([undefined])
+  })
+})
+
+describe('selfImprove — deferred holdout', () => {
+  const winJudge: JudgeConfig<{ text: string }, Scenario> = {
+    name: 'win-judge',
+    dimensions: [{ key: 'q', description: 'fixture quality' }],
+    score: ({ artifact }) => {
+      const good = artifact.text === 'BETTER' ? 1 : 0
+      return { dimensions: { q: good }, composite: good, notes: '' }
+    },
+  }
+
+  it('dispatches zero holdout cells, forces hold, and omits lift', async () => {
+    const dispatched: Array<{ surface: unknown; scenarioId: string }> = []
+    const events: SelfImproveProgressEvent[] = []
+    const proposer: SurfaceProposer = { kind: 'stub', propose: async () => ['BETTER'] }
+
+    const result = await selfImprove<Scenario, { text: string }>({
+      agent: (surface, scenario, ctx) => {
+        dispatched.push({ surface, scenarioId: scenario.id })
+        return stubAgent(surface, scenario, ctx)
+      },
+      scenarios,
+      judge: winJudge,
+      baselineSurface: 'base',
+      proposer,
+      budget: { generations: 1, populationSize: 1, holdout: 'deferred' },
+      onProgress: (event) => events.push(event),
+    })
+
+    // ALL scenarios train (no split), and only search campaigns dispatch:
+    // baseline (8) + one candidate (8). Zero holdout cells.
+    expect(dispatched).toHaveLength(16)
+    expect(result.raw.baselineOnHoldout.cells).toHaveLength(0)
+    expect(result.raw.winnerOnHoldout.cells).toHaveLength(0)
+    expect(result.raw.holdout).toBe('deferred')
+
+    // Forced hold, absent (not zero) lift.
+    expect(result.gateDecision).toBe('hold')
+    expect(result.raw.gateResult.contributingGates).toEqual([
+      { name: 'holdout-deferred', passed: false, detail: { holdout: 'deferred' } },
+    ])
+    expect('lift' in result).toBe(false)
+    expect(result.lift).toBeUndefined()
+
+    // The gate.decided progress event also omits `lift` — the search-split
+    // delta must not masquerade as a held-out lift.
+    const gateEvents = events.filter((e) => e.kind === 'gate.decided')
+    expect(gateEvents).toHaveLength(1)
+    expect(gateEvents[0]).toEqual({ kind: 'gate.decided', decision: 'hold' })
+
+    // Provenance records the mode instead of a fabricated 0-lift.
+    expect(result.provenance.holdout).toBe('deferred')
+    expect(result.provenance.heldOutLift).toBeUndefined()
+    expect(result.provenance.baselineHoldoutComposite).toBeUndefined()
+    expect(result.provenance.winnerHoldoutComposite).toBeUndefined()
+
+    // Search promotion still ran: summary stats come from the search split.
+    expect(result.winner.surface).toBe('BETTER')
+    expect(result.winner.compositeMean).toBe(1)
+    expect(result.baseline.compositeMean).toBe(0)
+    // No holdout cells ⇒ no power analysis.
+    expect(result.power).toBeUndefined()
+  })
+
+  it('keeps an explicitly reserved holdout set out of training even when deferred', async () => {
+    const dispatched: string[] = []
+    const proposer: SurfaceProposer = { kind: 'stub', propose: async () => ['BETTER'] }
+    const reserved = [scenarios[0]!]
+
+    const result = await selfImprove<Scenario, { text: string }>({
+      agent: (surface, scenario, ctx) => {
+        dispatched.push(scenario.id)
+        return stubAgent(surface, scenario, ctx)
+      },
+      scenarios,
+      judge: winJudge,
+      baselineSurface: 'base',
+      proposer,
+      budget: {
+        generations: 1,
+        populationSize: 1,
+        holdout: 'deferred',
+        holdoutScenarios: reserved,
+      },
+    })
+
+    // The reserved scenario is excluded from training AND never dispatched.
+    expect(dispatched).not.toContain('s0')
+    expect(dispatched).toHaveLength(14) // baseline (7) + candidate (7)
+    expect(result.raw.baselineOnHoldout.cells).toHaveLength(0)
+    expect(result.gateDecision).toBe('hold')
   })
 })

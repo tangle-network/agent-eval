@@ -150,12 +150,18 @@ export interface LoopProvenanceRecord {
     delta?: number
     contributingGates: Array<{ name: string; passed: boolean; detail: unknown }>
   }
-  /** baseline-on-holdout composite mean. */
-  baselineHoldoutComposite: number
-  /** winner-on-holdout composite mean. */
-  winnerHoldoutComposite: number
-  /** winnerHoldout - baselineHoldout — RECOMPUTABLE from this record. */
-  heldOutLift: number
+  /** Present iff the loop ran with `holdout: 'deferred'` — the held-out
+   *  comparison was intentionally not measured in this run, so the holdout
+   *  composites and `heldOutLift` are ABSENT rather than recorded as a
+   *  meaningless 0. */
+  holdout?: 'deferred'
+  /** baseline-on-holdout composite mean. Absent when `holdout === 'deferred'`. */
+  baselineHoldoutComposite?: number
+  /** winner-on-holdout composite mean. Absent when `holdout === 'deferred'`. */
+  winnerHoldoutComposite?: number
+  /** winnerHoldout - baselineHoldout — RECOMPUTABLE from this record. Absent
+   *  when `holdout === 'deferred'` (no held-out measurement ran). */
+  heldOutLift?: number
   /** Backend provenance: stub-vs-real verdict + worker call count + models. */
   backend: LoopProvenanceBackend
   totalCostUsd: number
@@ -186,6 +192,10 @@ export interface BuildLoopProvenanceArgs<TArtifact, TScenario extends Scenario> 
     }>
   }>
   gate: GateResult
+  /** Holdout policy the loop ran with. `'deferred'` ⇒ the holdout campaigns
+   *  below are the shared empty campaign and the record omits the holdout
+   *  composites + `heldOutLift`. Default `'measured'`. */
+  holdout?: 'measured' | 'deferred'
   baselineOnHoldout: CampaignResult<TArtifact, TScenario>
   winnerOnHoldout: CampaignResult<TArtifact, TScenario>
   neutralizedSurface?: MutableSurface
@@ -232,6 +242,7 @@ export function loopProvenanceArgsFromResult<TArtifact, TScenario extends Scenar
       })),
     })),
     gate: result.gateResult,
+    ...(result.holdout === 'deferred' ? { holdout: 'deferred' as const } : {}),
     baselineOnHoldout: result.baselineOnHoldout,
     winnerOnHoldout: result.winnerOnHoldout,
     ...(result.neutralizedSurface && result.neutralizedOnHoldout
@@ -381,6 +392,7 @@ export function buildLoopProvenanceRecord<TArtifact, TScenario extends Scenario>
     )
   }
 
+  const holdoutDeferred = args.holdout === 'deferred'
   const baselineHoldoutComposite = meanHoldoutComposite(args.baselineOnHoldout)
   const winnerHoldoutComposite = meanHoldoutComposite(args.winnerOnHoldout)
   if (args.baselineOnHoldout.splitDigest !== args.winnerOnHoldout.splitDigest) {
@@ -454,9 +466,15 @@ export function buildLoopProvenanceRecord<TArtifact, TScenario extends Scenario>
         detail: durableGateDetail(g.detail),
       })),
     },
-    baselineHoldoutComposite,
-    winnerHoldoutComposite,
-    heldOutLift: winnerHoldoutComposite - baselineHoldoutComposite,
+    // Deferred holdout records the MODE, never a fabricated 0-lift: the
+    // held-out comparison intentionally did not run in this loop.
+    ...(holdoutDeferred
+      ? { holdout: 'deferred' as const }
+      : {
+          baselineHoldoutComposite,
+          winnerHoldoutComposite,
+          heldOutLift: winnerHoldoutComposite - baselineHoldoutComposite,
+        }),
     backend: {
       verdict: integrity.verdict,
       workerCallCount: integrity.totalRecords,
@@ -683,24 +701,26 @@ export function loopProvenanceSpans(
   const spans: TraceSpanEvent[] = []
 
   const rootSpanId = hashId(['root', record.runId]).slice(0, 16)
+  const rootAttributes: TraceSpanEvent['attributes'] = {
+    'tangle.runId': record.runId,
+    'tangle.runDir': record.runDir,
+    'tangle.baselineContentHash': record.baselineContentHash,
+    'tangle.winnerContentHash': record.winnerContentHash,
+    'tangle.baselineSearchComposite': record.baselineSearchComposite,
+    'tangle.gateDecision': record.gate.decision,
+    'tangle.backendVerdict': record.backend.verdict,
+    'tangle.workerCallCount': record.backend.workerCallCount,
+    'tangle.totalCostUsd': record.totalCostUsd,
+  }
+  if (record.heldOutLift !== undefined) rootAttributes['tangle.heldOutLift'] = record.heldOutLift
+  if (record.holdout) rootAttributes['tangle.holdout'] = record.holdout
   spans.push({
     traceId,
     spanId: rootSpanId,
     name: 'improvement-loop',
     startTimeUnixNano: baseNano,
     endTimeUnixNano: endNano,
-    attributes: {
-      'tangle.runId': record.runId,
-      'tangle.runDir': record.runDir,
-      'tangle.baselineContentHash': record.baselineContentHash,
-      'tangle.winnerContentHash': record.winnerContentHash,
-      'tangle.baselineSearchComposite': record.baselineSearchComposite,
-      'tangle.heldOutLift': record.heldOutLift,
-      'tangle.gateDecision': record.gate.decision,
-      'tangle.backendVerdict': record.backend.verdict,
-      'tangle.workerCallCount': record.backend.workerCallCount,
-      'tangle.totalCostUsd': record.totalCostUsd,
-    },
+    attributes: rootAttributes,
     status: gateStatus(record.gate.decision),
     'tangle.runId': record.runId,
   })
@@ -776,6 +796,21 @@ export function loopProvenanceSpans(
   // Gate span — child of root, carries the decision/reasons/delta the audit
   // needs and pivots back to the run.
   const gateSpanId = hashId(['gate', record.runId]).slice(0, 16)
+  const gateAttributes: TraceSpanEvent['attributes'] = {
+    'tangle.runId': record.runId,
+    'tangle.gateDecision': record.gate.decision,
+    'tangle.gateReasons': JSON.stringify(record.gate.reasons),
+  }
+  const gateDelta = record.gate.delta ?? record.heldOutLift
+  if (gateDelta !== undefined) gateAttributes['tangle.gateDelta'] = gateDelta
+  if (record.heldOutLift !== undefined) gateAttributes['tangle.heldOutLift'] = record.heldOutLift
+  if (record.baselineHoldoutComposite !== undefined) {
+    gateAttributes['tangle.baselineHoldoutComposite'] = record.baselineHoldoutComposite
+  }
+  if (record.winnerHoldoutComposite !== undefined) {
+    gateAttributes['tangle.winnerHoldoutComposite'] = record.winnerHoldoutComposite
+  }
+  if (record.holdout) gateAttributes['tangle.holdout'] = record.holdout
   spans.push({
     traceId,
     spanId: gateSpanId,
@@ -783,15 +818,7 @@ export function loopProvenanceSpans(
     name: 'gate-decision',
     startTimeUnixNano: endNano,
     endTimeUnixNano: endNano,
-    attributes: {
-      'tangle.runId': record.runId,
-      'tangle.gateDecision': record.gate.decision,
-      'tangle.gateDelta': record.gate.delta ?? record.heldOutLift,
-      'tangle.gateReasons': JSON.stringify(record.gate.reasons),
-      'tangle.heldOutLift': record.heldOutLift,
-      'tangle.baselineHoldoutComposite': record.baselineHoldoutComposite,
-      'tangle.winnerHoldoutComposite': record.winnerHoldoutComposite,
-    },
+    attributes: gateAttributes,
     status: gateStatus(record.gate.decision),
     'tangle.runId': record.runId,
   })
@@ -892,7 +919,9 @@ function buildEvalRunEvent<TArtifact, TScenario extends Scenario>(
       snapshotFromHoldout(1, record.winnerContentHash, args.winnerSurface, args.winnerOnHoldout),
     ],
     gateDecision: args.gate.decision,
-    holdoutLift: record.heldOutLift,
+    // Deferred holdout ships NO lift — the wire field is optional and a 0
+    // would read downstream as a measured no-improvement.
+    ...(record.heldOutLift !== undefined ? { holdoutLift: record.heldOutLift } : {}),
     totalCostUsd: args.totalCostUsd,
     totalDurationMs: args.totalDurationMs,
   }

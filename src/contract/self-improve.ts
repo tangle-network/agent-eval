@@ -29,7 +29,10 @@ import {
   type RunImprovementLoopResult,
   runImprovementLoop,
 } from '../campaign/presets/run-improvement-loop'
-import type { RunOptimizationOptions } from '../campaign/presets/run-optimization'
+import type {
+  PremeasuredOptimizationBaseline,
+  RunOptimizationOptions,
+} from '../campaign/presets/run-optimization'
 import { gepaProposer } from '../campaign/proposers/gepa'
 import {
   emitLoopProvenance,
@@ -77,8 +80,22 @@ export interface SelfImproveBudget {
   holdoutFraction?: number
   /** Explicit held-out scenarios; overrides `holdoutFraction`. */
   holdoutScenarios?: Scenario[]
+  /** Holdout policy. Default `'measured'`: split, re-score baseline vs winner
+   *  on the held-out set, gate on that comparison. `'deferred'`: run the
+   *  improvement-set campaigns + search promotion, dispatch ZERO holdout cells,
+   *  force the gate to `'hold'`, return `lift: undefined`, and record
+   *  `holdout: 'deferred'` in the provenance record — for callers that measure
+   *  the held-out comparison in a separate later run instead of faking a
+   *  static holdout scenario and recording a meaningless lift. Unless
+   *  `holdoutScenarios` reserves an explicit set, ALL scenarios train. */
+  holdout?: 'measured' | 'deferred'
   /** Per-scenario replicates per cell — raises bootstrap-CI tightness. Default 1. */
   reps?: number
+  /** DEPTH dial forwarded to the proposer's `propose()` as
+   *  `ctx.maxImprovementShots` — max iterations an agentic candidate generator
+   *  may take per candidate (verify-in-session retries). Unset ⇒ the
+   *  proposer's own default. */
+  maxImprovementShots?: number
   /** @deprecated Must be 1 when supplied. The loop promotes only a candidate
    *  that replaces its single global incumbent. */
   promoteTopK?: number
@@ -99,7 +116,9 @@ export type SelfImproveProgressEvent =
   | { kind: 'baseline.completed'; compositeMean: number; durationMs: number }
   | { kind: 'generation.started'; index: number; populationSize: number }
   | { kind: 'generation.completed'; index: number; bestComposite: number; durationMs: number }
-  | { kind: 'gate.decided'; decision: string; lift: number }
+  // `lift` is absent when `budget.holdout === 'deferred'` — no held-out
+  // measurement ran, and the search-split delta must not masquerade as one.
+  | { kind: 'gate.decided'; decision: string; lift?: number }
   | { kind: 'power.estimated'; n: number; sd: number; mde: number; underpowered: boolean }
 
 export interface SelfImproveOptions<TScenario extends Scenario, TArtifact> {
@@ -132,6 +151,19 @@ export interface SelfImproveOptions<TScenario extends Scenario, TArtifact> {
 
   /** Budget + loop shape. All fields optional. */
   budget?: SelfImproveBudget
+
+  /**
+   * Complete prior measurement of `baselineSurface` over the TRAIN split.
+   * Forwarded to the loop body, which validates its surface hash, scenario
+   * split, seed (42), reps, and coverage, then skips the baseline search
+   * campaign entirely — no baseline dispatch, no resumability lookup. The
+   * train split is `scenarios` minus the holdout split, so premeasure with
+   * exactly that scenario set (explicit `budget.holdoutScenarios`, or
+   * `budget.holdout: 'deferred'` with no reserved set, makes the train split
+   * deterministic). Prior spend stays in the imported campaign aggregates and
+   * is not re-added to this run's cost ledger.
+   */
+  premeasuredBaseline?: PremeasuredOptimizationBaseline<TArtifact, TScenario>
 
   /** Custom surface proposer. Default is `gepaProposer` configured from `llm` +
    *  `mutationPrimitives`. */
@@ -251,12 +283,16 @@ export interface SelfImproveOptions<TScenario extends Scenario, TArtifact> {
 }
 
 export interface SelfImproveResult<TScenario extends Scenario, TArtifact> {
-  /** Composite mean across all scenarios, baseline run. */
+  /** Composite mean across all scenarios, baseline run. When
+   *  `budget.holdout === 'deferred'` this is measured on the improvement
+   *  (search) split — no holdout campaign ran. */
   baseline: {
     compositeMean: number
     perScenario: Record<string, number>
   }
-  /** Composite mean on the held-out set, winner run. */
+  /** Composite mean on the held-out set, winner run. When
+   *  `budget.holdout === 'deferred'` this is the winner's improvement-set
+   *  (search) measurement — no holdout campaign ran. */
   winner: {
     compositeMean: number
     perScenario: Record<string, number>
@@ -270,8 +306,10 @@ export interface SelfImproveResult<TScenario extends Scenario, TArtifact> {
     rationale?: string
   }
   /** `winner.compositeMean - baselineOnHoldout.compositeMean`. Positive
-   *  means the gate observed improvement. */
-  lift: number
+   *  means the gate observed improvement. Absent iff
+   *  `budget.holdout === 'deferred'` — no held-out measurement ran, so there
+   *  is no lift to report (never a fabricated 0). */
+  lift?: number
   /** The explicit baseline→winner unified diff. Always present (empty string
    *  when winner == baseline). */
   diff: string
@@ -369,6 +407,23 @@ function meanComposite(byScenario: Record<string, { meanComposite: number }>): {
 }
 
 /**
+ * Latest search campaign measured for the winner surface; the baseline search
+ * campaign when the winner IS the baseline. Used by the deferred-holdout
+ * summary, where no holdout campaign exists to summarize.
+ */
+function winnerSearchCampaign<TScenario extends Scenario, TArtifact>(
+  result: RunImprovementLoopResult<TArtifact, TScenario>,
+): RunImprovementLoopResult<TArtifact, TScenario>['baselineCampaign'] {
+  for (let i = result.generations.length - 1; i >= 0; i--) {
+    const measured = result.generations[i]?.surfaces.find(
+      (s) => s.surfaceHash === result.winnerSurfaceHash,
+    )
+    if (measured) return measured.campaign
+  }
+  return result.baselineCampaign
+}
+
+/**
  * One-shot self-improvement loop. See module docstring for defaults +
  * extension points.
  *
@@ -425,22 +480,30 @@ async function runSelfImprove<TScenario extends Scenario, TArtifact>(
   const populationSize = budget.populationSize ?? 2
   const maxConcurrency = budget.maxConcurrency ?? 2
   const holdoutFraction = budget.holdoutFraction ?? 0.25
+  const holdoutMode = budget.holdout ?? 'measured'
+  const holdoutDeferred = holdoutMode === 'deferred'
   const expectUsage = opts.expectUsage ?? 'assert'
 
+  // Deferred holdout without an explicitly reserved set trains on EVERYTHING:
+  // there is no held-out measurement in this run, so carving out a fraction
+  // would waste scenarios. An explicit `holdoutScenarios` set stays reserved
+  // (excluded from training) even when deferred, for the later measured run.
   const explicitHoldout = budget.holdoutScenarios
   const { train, holdout } = explicitHoldout
     ? {
         train: opts.scenarios.filter((s) => !explicitHoldout.some((h) => h.id === s.id)),
         holdout: explicitHoldout as TScenario[],
       }
-    : splitTrainHoldout(opts.scenarios, holdoutFraction)
+    : holdoutDeferred
+      ? { train: opts.scenarios, holdout: [] as TScenario[] }
+      : splitTrainHoldout(opts.scenarios, holdoutFraction)
 
   if (train.length === 0) {
     throw new Error(
       'selfImprove: train split is empty. Reduce holdoutFraction or pass more scenarios.',
     )
   }
-  if (holdout.length === 0) {
+  if (holdout.length === 0 && !holdoutDeferred) {
     throw new Error('selfImprove: holdout split is empty. Pass more scenarios.')
   }
 
@@ -474,6 +537,7 @@ async function runSelfImprove<TScenario extends Scenario, TArtifact>(
   const result = await runImprovementLoop<TScenario, TArtifact>({
     scenarios: train,
     baselineSurface: opts.baselineSurface,
+    premeasuredBaseline: opts.premeasuredBaseline,
     dispatchWithSurface: opts.agent,
     proposer,
     judges: [opts.judge],
@@ -481,7 +545,9 @@ async function runSelfImprove<TScenario extends Scenario, TArtifact>(
     maxGenerations: generations,
     promoteTopK: budget.promoteTopK,
     reps: budget.reps,
+    maxImprovementShots: budget.maxImprovementShots,
     holdoutScenarios: holdout,
+    holdout: holdoutMode,
     gate,
     neutralize: opts.neutralize,
     autoOnPromote: opts.autoOnPromote ?? 'none',
@@ -500,8 +566,14 @@ async function runSelfImprove<TScenario extends Scenario, TArtifact>(
     findings: opts.findings,
   })
 
-  const baseline = meanComposite(result.baselineOnHoldout.aggregates.byScenario)
-  const winnerStats = meanComposite(result.winnerOnHoldout.aggregates.byScenario)
+  // Deferred holdout ran zero holdout cells, so the summary stats come from
+  // the improvement-set (search) campaigns — labeled as such on the result
+  // type — and `lift` is omitted rather than fabricated from empty campaigns.
+  const winnerSearch = holdoutDeferred ? winnerSearchCampaign(result) : undefined
+  const baseline = meanComposite(
+    (holdoutDeferred ? result.baselineCampaign : result.baselineOnHoldout).aggregates.byScenario,
+  )
+  const winnerStats = meanComposite((winnerSearch ?? result.winnerOnHoldout).aggregates.byScenario)
 
   // Power analysis from the baseline holdout cells — the number that says whether
   // this budget could ship ANY effect. Attached to every result; loud when the
@@ -547,7 +619,10 @@ async function runSelfImprove<TScenario extends Scenario, TArtifact>(
     opts.onProgress({
       kind: 'gate.decided',
       decision: result.gateResult.decision,
-      lift: winnerStats.compositeMean - baseline.compositeMean,
+      // Deferred holdout has no held-out measurement: in that mode the summary
+      // stats are search-split numbers, and emitting their delta as `lift`
+      // would misreport a train-split delta as a held-out one. Omit instead.
+      ...(holdoutDeferred ? {} : { lift: winnerStats.compositeMean - baseline.compositeMean }),
     })
   }
 
@@ -561,7 +636,12 @@ async function runSelfImprove<TScenario extends Scenario, TArtifact>(
   const insight = await analyzeRuns({
     runs: [
       ...cellsToRunRecords(result.baselineCampaign.cells, 'baseline', runDir, opts.baselineSurface),
-      ...cellsToRunRecords(result.winnerOnHoldout.cells, 'winner', runDir, result.winnerSurface),
+      ...cellsToRunRecords(
+        (winnerSearch ?? result.winnerOnHoldout).cells,
+        'winner',
+        runDir,
+        result.winnerSurface,
+      ),
     ],
     baselineCandidateId: 'baseline',
     candidateCandidateId: 'winner',
@@ -594,7 +674,7 @@ async function runSelfImprove<TScenario extends Scenario, TArtifact>(
       ...(result.winnerLabel ? { label: result.winnerLabel } : {}),
       ...(result.winnerRationale ? { rationale: result.winnerRationale } : {}),
     },
-    lift: winnerStats.compositeMean - baseline.compositeMean,
+    ...(holdoutDeferred ? {} : { lift: winnerStats.compositeMean - baseline.compositeMean }),
     diff: result.promotedDiff,
     provenance,
     gateDecision: result.gateResult.decision,
