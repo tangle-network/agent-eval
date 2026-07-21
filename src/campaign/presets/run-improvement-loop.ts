@@ -46,6 +46,15 @@ export type RunImprovementLoopOptions<
   /** Holdout scenarios kept OUT of the training optimization pool — used
    *  ONLY to score baseline vs winner for the gate. */
   holdoutScenarios: TScenario[]
+  /** Holdout policy. Default `'measured'`: baseline + winner are re-scored on
+   *  `holdoutScenarios` and the gate decides on that held-out comparison.
+   *  `'deferred'`: the improvement-set (search) campaigns run exactly as usual,
+   *  but ZERO holdout cells are dispatched, the gate is forced to `'hold'`, and
+   *  the result + provenance record carry `holdout: 'deferred'` with NO
+   *  held-out lift — for callers that measure the held-out comparison in a
+   *  separate later run instead of faking a static holdout scenario and
+   *  recording a meaningless lift. */
+  holdout?: 'measured' | 'deferred'
   /** Promotion gate. Substrate strongly recommends `defaultProductionGate`
    *  for production wiring (composes red-team / reward-hacking / canary /
    *  heldout). */
@@ -75,6 +84,10 @@ export interface RunImprovementLoopResult<TArtifact, TScenario extends Scenario>
   neutralizedOnHoldout?: CampaignResult<TArtifact, TScenario>
   neutralizedSurface?: MutableSurface
   gateResult: Awaited<ReturnType<Gate<TArtifact, TScenario>['decide']>>
+  /** Present iff the loop ran with `holdout: 'deferred'`. When set,
+   *  `baselineOnHoldout`/`winnerOnHoldout` are the shared EMPTY campaign (zero
+   *  cells dispatched) and the gate verdict is the forced `'hold'`. */
+  holdout?: 'deferred'
   /** Unified baseline→winner surface diff. Computed UNCONDITIONALLY (not only
    *  when `autoOnPromote === 'pr'`) so the diff that the gate decided on is
    *  always present on the result + in the emitted provenance record. Empty
@@ -156,32 +169,51 @@ export async function runImprovementLoop<TScenario extends Scenario, TArtifact>(
 
   // ── (2) baseline + winner re-scored on the holdout set ─────────────
   const { runCampaign } = await import('../run-campaign')
+  const holdoutDeferred = (opts.holdout ?? 'measured') === 'deferred'
 
-  const baselineOnHoldout = await runCampaign<TScenario, TArtifact>({
-    ...opts,
-    costLedger,
-    costPhase: 'holdout.baseline',
-    dispatchTimeoutMs,
-    scenarios: opts.holdoutScenarios,
-    dispatch: (scenario, ctx) => opts.dispatchWithSurface(opts.baselineSurface, scenario, ctx),
-    runDir: `${opts.runDir}/holdout-baseline`,
-  })
-
-  // When the winner == baseline, scoring it again would just be a second noisy
-  // sample of the same surface. Reuse the baseline holdout — the gate is forced
-  // to `hold` below regardless, and we save a full campaign.
-  const winnerOnHoldout = winnerIsBaseline
-    ? baselineOnHoldout
+  // Deferred holdout: the held-out comparison happens in a separate later run,
+  // so dispatch ZERO holdout cells here. One empty-scenario campaign (shared by
+  // both arms) keeps every identity field (manifestHash, splitDigest, seed,
+  // aggregates) real without inventing a synthetic CampaignResult.
+  const baselineOnHoldout = holdoutDeferred
+    ? await runCampaign<TScenario, TArtifact>({
+        ...opts,
+        costLedger,
+        costPhase: 'holdout.deferred',
+        dispatchTimeoutMs,
+        scenarios: [],
+        dispatch: async () => {
+          throw new Error('runImprovementLoop: unreachable dispatch — holdout is deferred')
+        },
+        runDir: `${opts.runDir}/holdout-deferred`,
+      })
     : await runCampaign<TScenario, TArtifact>({
         ...opts,
         costLedger,
-        costPhase: 'holdout.winner',
+        costPhase: 'holdout.baseline',
         dispatchTimeoutMs,
         scenarios: opts.holdoutScenarios,
-        dispatch: (scenario, ctx) =>
-          opts.dispatchWithSurface(optimization.winnerSurface, scenario, ctx),
-        runDir: `${opts.runDir}/holdout-winner`,
+        dispatch: (scenario, ctx) => opts.dispatchWithSurface(opts.baselineSurface, scenario, ctx),
+        runDir: `${opts.runDir}/holdout-baseline`,
       })
+
+  // When the winner == baseline, scoring it again would just be a second noisy
+  // sample of the same surface. Reuse the baseline holdout — the gate is forced
+  // to `hold` below regardless, and we save a full campaign. Deferred mode
+  // reuses the shared empty campaign for the same reason.
+  const winnerOnHoldout =
+    winnerIsBaseline || holdoutDeferred
+      ? baselineOnHoldout
+      : await runCampaign<TScenario, TArtifact>({
+          ...opts,
+          costLedger,
+          costPhase: 'holdout.winner',
+          dispatchTimeoutMs,
+          scenarios: opts.holdoutScenarios,
+          dispatch: (scenario, ctx) =>
+            opts.dispatchWithSurface(optimization.winnerSurface, scenario, ctx),
+          runDir: `${opts.runDir}/holdout-winner`,
+        })
 
   // A final comparison is valid only when both arms scored every designed
   // (scenario × rep) cell with the same complete judge set. Otherwise an arm
@@ -207,8 +239,10 @@ export async function runImprovementLoop<TScenario extends Scenario, TArtifact>(
       )
     }
   }
-  assertCompleteHoldout('baseline', baselineOnHoldout)
-  assertCompleteHoldout('winner', winnerOnHoldout)
+  if (!holdoutDeferred) {
+    assertCompleteHoldout('baseline', baselineOnHoldout)
+    assertCompleteHoldout('winner', winnerOnHoldout)
+  }
 
   // ── (3) gate verdict ───────────────────────────────────────────────
   // Candidate + baseline share cellIds (same holdout scenarios), so their
@@ -242,7 +276,7 @@ export async function runImprovementLoop<TScenario extends Scenario, TArtifact>(
   let neutralizedJudgeScores: ScoreMap | undefined
   let neutralizedOnHoldout: CampaignResult<TArtifact, TScenario> | undefined
   let neutralizedSurface: MutableSurface | undefined
-  if (opts.neutralize && !winnerIsBaseline) {
+  if (opts.neutralize && !winnerIsBaseline && !holdoutDeferred) {
     const surface = opts.neutralize(optimization.winnerSurface, opts.baselineSurface)
     neutralizedSurface = surface
     neutralizedOnHoldout = await runCampaign<TScenario, TArtifact>({
@@ -267,33 +301,47 @@ export async function runImprovementLoop<TScenario extends Scenario, TArtifact>(
   // it never reaches the gate — otherwise the gate scores baseline-vs-itself,
   // sees model noise as a delta, and can "ship" an empty diff (the observed
   // false positive: a +4 held-out "lift" with `diff: ''`). Force `hold`.
-  const gateResult = winnerIsBaseline
+  // Deferred holdout forces `hold` WITHOUT consulting the gate: there is no
+  // held-out measurement to decide on, so any decision other than `hold` would
+  // be ungrounded. No `delta` is recorded — a 0 here would read as a measured
+  // no-lift, which is exactly the meaningless number this mode exists to avoid.
+  const gateResult = holdoutDeferred
     ? {
         decision: 'hold' as const,
         reasons: [
-          'no candidate beat the training baseline — winner == baseline (empty diff); nothing to promote',
+          'holdout deferred — improvement-set search completed without a held-out measurement; nothing to promote from this run',
         ],
         contributingGates: [
-          { name: 'no-op-guard', passed: false, detail: { winnerIsBaseline: true } },
+          { name: 'holdout-deferred', passed: false, detail: { holdout: 'deferred' } },
         ],
-        delta: 0,
       }
-    : await opts.gate.decide({
-        candidateArtifacts,
-        baselineArtifacts,
-        judgeScores,
-        baselineJudgeScores,
-        neutralizedArtifacts,
-        neutralizedJudgeScores,
-        scenarios: opts.holdoutScenarios,
-        cost: {
-          candidate: winnerOnHoldout.aggregates.totalCostUsd,
-          baseline: baselineOnHoldout.aggregates.totalCostUsd,
-        },
-        costLedger,
-        costPhase: 'promotion.gate',
-        signal: new AbortController().signal,
-      })
+    : winnerIsBaseline
+      ? {
+          decision: 'hold' as const,
+          reasons: [
+            'no candidate beat the training baseline — winner == baseline (empty diff); nothing to promote',
+          ],
+          contributingGates: [
+            { name: 'no-op-guard', passed: false, detail: { winnerIsBaseline: true } },
+          ],
+          delta: 0,
+        }
+      : await opts.gate.decide({
+          candidateArtifacts,
+          baselineArtifacts,
+          judgeScores,
+          baselineJudgeScores,
+          neutralizedArtifacts,
+          neutralizedJudgeScores,
+          scenarios: opts.holdoutScenarios,
+          cost: {
+            candidate: winnerOnHoldout.aggregates.totalCostUsd,
+            baseline: baselineOnHoldout.aggregates.totalCostUsd,
+          },
+          costLedger,
+          costPhase: 'promotion.gate',
+          signal: new AbortController().signal,
+        })
 
   // ── (4) baseline→winner diff (always) + auto-PR when gate ships ────
   // The diff is computed UNCONDITIONALLY — it's the human-auditable record of
@@ -322,6 +370,7 @@ export async function runImprovementLoop<TScenario extends Scenario, TArtifact>(
     ...(neutralizedOnHoldout && neutralizedSurface
       ? { neutralizedOnHoldout, neutralizedSurface }
       : {}),
+    ...(holdoutDeferred ? { holdout: 'deferred' as const } : {}),
     gateResult,
     promotedDiff,
     prResult,
