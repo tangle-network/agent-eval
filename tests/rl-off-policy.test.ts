@@ -83,11 +83,11 @@ describe('SNIPS', () => {
 })
 
 describe('Doubly-robust', () => {
-  it('recovers a stochastic target value of 0.8 with a perfect Q-function', () => {
+  it('recovers a stochastic target value of 0.8 with a perfect Q-function despite wrong propensities', () => {
     const trajectories: OffPolicyTrajectory[] = [
       {
         runId: 'action-a',
-        behaviorProb: 0.5,
+        behaviorProb: 0.9,
         targetProb: 0.75,
         reward: 1,
         qHatChosen: 1,
@@ -95,7 +95,7 @@ describe('Doubly-robust', () => {
       },
       {
         runId: 'action-b',
-        behaviorProb: 0.5,
+        behaviorProb: 0.1,
         targetProb: 0.25,
         reward: 0.2,
         qHatChosen: 0.2,

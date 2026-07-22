@@ -66,7 +66,8 @@ export interface OffPolicyTrajectory {
   /**
    * Expected model-based reward under the target policy:
    * `sum_action targetPolicy(action | context) * Q_hat(context, action)`.
-   * Supply this together with `qHatChosen`.
+   * Supply this together with `qHatChosen`. For an honest evaluation, both
+   * values must come from a model cross-fitted or trained outside this row.
    */
   vHatTarget?: number | null
   /**
@@ -224,6 +225,8 @@ export function selfNormalizedImportanceWeighting(
  * use the exact IPS contribution. Deprecated `qHat` rows preserve the scalar
  * formula, and a complete new pair takes precedence when both forms exist.
  * `contributionCounts` makes the mix explicit in the result.
+ * Callers must cross-fit the Q-function or train it on independent rows;
+ * fitting and evaluating Q on the same outcomes leaks the answer.
  */
 export function doublyRobust(
   trajectories: OffPolicyTrajectory[],
