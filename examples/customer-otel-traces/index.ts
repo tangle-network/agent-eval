@@ -1,11 +1,11 @@
 /**
- * Customer OTel traces — production logs → decision packet.
+ * Analyze production OpenTelemetry traces.
  *
  * Run with: pnpm tsx examples/customer-otel-traces/index.ts
  *
  * Synthesises 40 production agent runs as OTel `TraceSpanEvent[]`, runs them
  * through `fromOtelSpans()` to get RunRecord[], then calls analyzeRuns().
- * No closed loop required — this is the day-1 path for teams with logs but
+ * No improvement loop is required. This is the first path for teams with logs but
  * no eval discipline.
  */
 
@@ -59,7 +59,7 @@ async function main() {
   const runs = fromOtelSpans({ spans })
   const report = await analyzeRuns({ runs })
 
-  console.log('═══ Production OTel corpus — decision packet ═══')
+  console.log('Production trace report')
   console.log()
   console.log(`Runs analyzed:     ${report.n}`)
   console.log(
@@ -77,7 +77,7 @@ async function main() {
   // Failure surface
   const failureCount = runs.filter((r) => r.failureMode !== undefined).length
   if (failureCount > 0) {
-    console.log('── Failures ──')
+    console.log('Failures')
     const byName = new Map<string, number>()
     for (const r of runs) {
       if (r.failureMode) byName.set(r.failureMode, (byName.get(r.failureMode) ?? 0) + 1)
@@ -89,7 +89,7 @@ async function main() {
     console.log()
   }
 
-  console.log('── Cost-quality Pareto ──')
+  console.log('Cost and quality')
   console.log(
     `${report.costQuality.pareto.points.length} candidate(s) plotted; ` +
       `${report.costQuality.pareto.points.filter((p) => p.onFrontier).length} on the frontier`,
@@ -102,10 +102,10 @@ async function main() {
   }
   console.log()
 
-  console.log('── Recommendations ──')
+  console.log('Recommendations')
   if (report.recommendations.length === 0) {
     console.log(
-      `[medium] expand-corpus — Mean composite ${report.composite.mean.toFixed(3)} has room`,
+      `[medium] expand-corpus: Mean composite ${report.composite.mean.toFixed(3)} has room`,
     )
     console.log(
       '  Composite distribution sits below 0.80; investigate the failures and the lower tail',
@@ -113,12 +113,12 @@ async function main() {
     console.log('  of the histogram before claiming the agent is healthy.')
   } else {
     for (const r of report.recommendations) {
-      console.log(`[${r.priority}] ${r.kind} — ${r.title}`)
+      console.log(`[${r.priority}] ${r.kind}: ${r.title}`)
       console.log(`  ${r.detail}`)
     }
   }
   console.log()
-  console.log('═══ end ═══')
+  console.log('End')
 }
 
 main().catch((err) => {

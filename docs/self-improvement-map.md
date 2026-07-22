@@ -1,7 +1,7 @@
 # The self-improvement map
 
 One loop. Four roles. A proposer catalog of pluggable strategies. A bench rig that
-proves the loop produces real lift. Nothing here is duplicated — it is one engine
+proves the loop produces real lift. Nothing here is duplicated: it is one engine
 pointed at different surfaces. This map exists because the surface count makes it
 *look* like many competing systems when it is one.
 
@@ -26,11 +26,11 @@ product imports the same function. Each generation it does four things:
                               repeat N generations
 ```
 
-## The four roles — keep them separate and the confusion clears
+## The four roles: keep them separate and the confusion clears
 
 | Role | What it is | Plain meaning |
 |---|---|---|
-| **Surface** | a *string* — an agent directive, a `SKILL.md`, a playbook, a memory, a judge rubric | **what** gets improved |
+| **Surface** | a *string*: an agent directive, a `SKILL.md`, a playbook, a memory, a judge rubric | **what** gets improved |
 | **Proposer** | a `SurfaceProposer` (the catalog below) | **how** candidate surfaces are proposed |
 | **Gate** | held-out split + significance (`paretoSignificanceGate` / `heldOutGate` / `defaultProductionGate`) | **did it actually get better**, vs noise |
 | **Judge** | scores a run | **how good** any version is |
@@ -44,7 +44,7 @@ surface; **bench-only proposers** exist solely to be raced inside
 
 | Proposer factory | Surface | Strategy | Role | Notes |
 |---|---|---|---|---|
-| `gepaProposer` | prompt | reflective full-surface rewrite + Pareto frontier | **production default** | consumes trace-analysis findings — see below |
+| `gepaProposer` | prompt | reflective full-surface rewrite + Pareto frontier | **production default** | consumes trace-analysis findings: see below |
 | `fapoProposer` | prompt/config/code | reviewed escalation policy over prompt → parameter → structural proposers | production, benchmark | encodes FAPO's scope + reviewer + prompt-first escalation rules; structural generator is injected |
 | `parameterSweepProposer` | config | JSON config patch/sweep | production, benchmark | middle FAPO level for parameter/config edits such as `retrieval.k`, `temperature`, `max_tokens` |
 | `skillOptProposer` | skill-doc | anchored add/delete/replace patch | production | preserves earlier rules; edit budget = "textual learning rate" |
@@ -58,29 +58,29 @@ Default choice: start with `gepaProposer` for prompt surfaces, add
 `parameterSweepProposer` when config knobs are the likely failure mode, and wrap
 them with `fapoProposer` when evidence should decide when to escalate.
 
-## Trace analysis — what it is and the three places it is used
+## Trace analysis: what it is and the three places it is used
 
 "Trace analysis" is the **evidence layer**: it turns raw OTLP traces into "here is
 exactly *why* the agent failed" (failure clusters → findings). The engine is
 `analyzeRuns()` + the analyst registry (`src/contract/analyze-runs.ts`). It is used in
-three places — this is the answer to "if GEPA does its own thing, what is trace
+three places: this is the answer to "if GEPA does its own thing, what is trace
 analysis *for*?":
 
-1. **Ships to customers** — `analyzeRuns()` → `InsightReport`, the Intelligence product.
-2. **Feeds the proposer** — `gepaProposer` calls `renderAnalystEvidence(ctx.findings,
+1. **Ships to customers**: `analyzeRuns()` → `InsightReport`, the Intelligence product.
+2. **Feeds the proposer**: `gepaProposer` calls `renderAnalystEvidence(ctx.findings,
    ctx.report)` (`src/campaign/proposers/gepa.ts`). GEPA's rewrites are grounded
    in the diagnosis instead of guessing blind. Trace analysis
    **is** on the GEPA side.
-3. **Races HALO** — wrapped as `traceAnalystProposer` so our analysis competes
+3. **Races HALO**: wrapped as `traceAnalystProposer` so our analysis competes
    head-to-head with the external SOTA inside `compareProposers`.
 
 ## Where HALO fits (and why it feels "removed")
 
 `haloProposer` is alive (`src/campaign/proposers/halo.ts`, exported from the campaign
 barrel) but it is **never in the product loop**. It shells out to an *external* engine
-(`halo-engine`) — so the analysis genuinely lives outside this repo; we only wrap it.
+(`halo-engine`): so the analysis genuinely lives outside this repo; we only wrap it.
 
-Its only job is the **bake-off**. HALO's real opponent is **not** `gepaProposer` — it is
+Its only job is the **bake-off**. HALO's real opponent is **not** `gepaProposer`: it is
 `traceAnalystProposer`. `compareProposers` holds the apply step identical (same
 `APPLY_SYSTEM`, same `traces.jsonl`, same held-out scoring) so the only variable is
 **analysis quality: HALO vs ours.** A measuring stick, like a benchmark baseline.
@@ -90,7 +90,7 @@ Its only job is the **bake-off**. HALO's real opponent is **not** `gepaProposer`
 `agent-runtime/bench/src/gepa-refine.ts` runs **this same loop** against a *public
 benchmark* (AppWorld, CAD, …) instead of product data. Why a separate rig:
 
-- On product traces, "+4 lift" can be model noise or a judge flattering itself — no
+- On product traces, "+4 lift" can be model noise or a judge flattering itself: no
   ground truth.
 - On a benchmark the score is **objective and ungameable** (AppWorld runs the agent's
   code against its own unit tests). If a GEPA-optimized directive beats a deliberately
@@ -110,6 +110,6 @@ The code is well-factored; the confusion is narrative:
 - **The real gap is the missing proof, not the design.** The loop kept being proved on
   benchmarks too easy to show value: when a capable model ceilings an extraction task,
   **0 findings fire** and the whole trace-analysis→optimizer apparatus is inert. It
-  earns its keep only on **hard agentic tasks** — which is why the AppWorld REPL run
+  earns its keep only on **hard agentic tasks**: which is why the AppWorld REPL run
   (multi-turn, real tool execution, unbounded turns) is the one that can finally
   separate the evidence-grounded optimizer from baseline.

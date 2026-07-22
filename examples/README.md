@@ -1,44 +1,57 @@
 # Examples
 
-New here? Read these three in order — they cover the whole substrate.
+Start with the [root quickstart](../README.md#quickstart).
+It is the shortest install-to-result path and runs without an API key.
 
-1. **[`substrate-lift-proof/`](./substrate-lift-proof)** — start here. `gepaProposer` promotes a *real* held-out gain (0.667 → 1.0, n=6 holdout, real Tangle Router backend, ~$0.02). This is the substrate doing its one job, end to end, with a number you can reproduce.
-2. **[`selfimprove-quickstart/`](./selfimprove-quickstart)** — `defineAgentEval().improve()`: define scenarios, agent, judge, and baseline once, then run the closed loop.
-3. **[`foreign-agent-quickstart/`](./foreign-agent-quickstart)** — bring your own agent: wrap an existing API, record runs, get the same decision packet back.
+Use this index when you have a specific integration task.
 
-## Pick by what you already have
+| Goal | Example | Requirements |
+|---|---|---|
+| Evaluate and improve a prompt | [`selfimprove-quickstart`](./selfimprove-quickstart) | Offline |
+| Wrap an existing agent | [`foreign-agent-quickstart`](./foreign-agent-quickstart) | Offline; optional LLM key |
+| Load folder-based eval cases | [`eval-fixtures-quickstart`](./eval-fixtures-quickstart) | Offline |
+| Analyze human approvals and rejections | [`customer-feedback-loop`](./customer-feedback-loop) | Offline |
+| Analyze OpenTelemetry spans | [`customer-otel-traces`](./customer-otel-traces) | Offline |
+| Compare candidate-generation methods | [`compare-proposers-canonical`](./compare-proposers-canonical) | LLM endpoint |
+| Package runs as training data | [`publish-rl-dataset`](./publish-rl-dataset) | Offline |
+| Fine-tune with Prime Intellect | [`fine-tune-with-prime-rl`](./fine-tune-with-prime-rl) | Prime Intellect checkout |
 
-The three top-level entry points map to three starting situations — same decision-packet shape out of each:
+Run an offline example from the repository root:
 
-| You have… | Call | Example |
-|-----------|------|---------|
-| A closed improvement loop | `defineAgentEval().improve()` | [`selfimprove-quickstart`](./selfimprove-quickstart) |
-| Vercel-style eval folders | `loadEvalFixtureScenarios()` + `planEvalFixtureRun()` | [`eval-fixtures-quickstart`](./eval-fixtures-quickstart) |
-| Production traces (OTel) | `analyzeRuns()` | [`customer-otel-traces`](./customer-otel-traces) |
-| An approve/reject label corpus | `analyzeRuns()` | [`customer-feedback-loop`](./customer-feedback-loop) |
+```sh
+pnpm tsx examples/selfimprove-quickstart/index.ts
+```
 
-## By topic
+## Evaluation And Improvement
 
-**Proof & benchmarks** — does it actually work, and which approach wins?
-- [`substrate-lift-proof`](./substrate-lift-proof) — the flagship: a real, reproducible held-out lift.
-- [`eval-fixtures-quickstart`](./eval-fixtures-quickstart) — folder-per-eval UX with cache-safe dry-run planning.
-- [`compare-proposers-canonical`](./compare-proposers-canonical) — `compareProposers` head-to-head.
-- [`findings-ablation`](./findings-ablation) — measures whether feeding findings into GEPA helps.
-- [`held-out-gate`](./held-out-gate) — the promotion gate in isolation.
-- [`scorecard`](./scorecard) — render an eval scorecard.
-- [`benchmarks`](./benchmarks) — public-benchmark wrappers.
+- [`selfimprove-quickstart`](./selfimprove-quickstart) defines one evaluation and calls `.improve()`.
+- [`foreign-agent-quickstart`](./foreign-agent-quickstart) adapts an agent that already has its own runtime.
+- [`multi-shot-optimization`](./multi-shot-optimization) evaluates several attempts per scenario.
+- [`held-out-gate`](./held-out-gate) demonstrates a release rule without a full search loop.
+- [`marketing-agent-canonical`](./marketing-agent-canonical) applies the same flow to a product-specific agent.
+- [`findings-ablation`](./findings-ablation) compares improvement with and without prior failure findings.
 
-**Proposers & optimization** — the improvement engines.
-- [`multi-shot-optimization`](./multi-shot-optimization) — `runImprovementLoop`: surface optimization with a held-out promotion gate.
-- [`distributed-driver`](./distributed-driver) / [`user-simulation-driver`](./user-simulation-driver) — execution-driver examples, not surface proposers.
-- [`marketing-agent-canonical`](./marketing-agent-canonical) / [`auto-research-with-agent-builder`](./auto-research-with-agent-builder) — full product-agent demos.
+## Existing Data
 
-**RL datasets** — turn graded runs into training data.
-- [`publish-rl-dataset`](./publish-rl-dataset) — package graded runs into a publishable RL dataset.
-- [`fine-tune-with-prime-rl`](./fine-tune-with-prime-rl) — fine-tune with Prime Intellect's `prime-rl`.
+- [`customer-feedback-loop`](./customer-feedback-loop) converts multiple human ratings into run records and reports disagreement.
+- [`customer-otel-traces`](./customer-otel-traces) converts OpenTelemetry spans into run records.
+- [`scorecard`](./scorecard) records and compares scores over time.
+- [`eval-fixtures-quickstart`](./eval-fixtures-quickstart) loads file-based cases and demonstrates cache reuse.
 
-**Hosted & infra** — the wire protocol and sandbox harnesses.
-- [`hosted-ingest-server`](./hosted-ingest-server) — a reference ingest receiver.
-- [`same-sandbox-harness`](./same-sandbox-harness) — co-located sandbox eval harness.
+## Benchmarks And Training
 
-`_shared/` holds fixtures (e.g. the extraction-task corpus) reused across examples — not a standalone example.
+- [`benchmarks`](./benchmarks) contains adapters for public benchmarks.
+- [`compare-proposers-canonical`](./compare-proposers-canonical) compares candidate-generation methods on one shared task.
+- [`substrate-lift-proof`](./substrate-lift-proof) is a live-provider research run, not a quickstart.
+- [`publish-rl-dataset`](./publish-rl-dataset) exports supervised and preference-training rows.
+- [`fine-tune-with-prime-rl`](./fine-tune-with-prime-rl) consumes those rows in a separate trainer checkout.
+
+## Execution And Infrastructure
+
+- [`distributed-driver`](./distributed-driver) coordinates work across processes.
+- [`user-simulation-driver`](./user-simulation-driver) drives a multi-turn agent with a simulated user.
+- [`same-sandbox-harness`](./same-sandbox-harness) runs setup, build, test, and scoring in one work directory.
+- [`hosted-ingest-server`](./hosted-ingest-server) is a reference receiver for optional hosted events.
+
+`_shared/` contains fixtures reused by multiple examples.
+It is not a standalone example.

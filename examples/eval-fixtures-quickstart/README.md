@@ -21,8 +21,8 @@ Mean:   1.000
 
 ## Files
 
-- `evals/*/PROMPT.md` — task prompt for one eval.
-- `evals/*/EVAL.ts` — deterministic validation file. The fixture loader
+- `evals/*/PROMPT.md`: task prompt for one eval.
+- `evals/*/EVAL.ts`: deterministic validation file. The fixture loader
   validates it exists; your dispatch decides how to execute it.
-- `index.ts` — loads fixtures, previews the run, executes `runCampaign`, then
+- `index.ts`: loads fixtures, previews the run, executes `runCampaign`, then
   previews cache reuse.

@@ -3,7 +3,7 @@
 `@tangle-network/agent-eval` ships its own OpenTelemetry pipeline
 (`@tangle-network/agent-eval/telemetry`) that emits spans for every
 cell, judge invocation, mutator proposal, and gate decision. **It's
-just OTel** — same protocol as Langfuse SDK, OpenLLMetry, Arize
+just OTel**: same protocol as Langfuse SDK, OpenLLMetry, Arize
 Phoenix, TraceAI, and the OpenTelemetry GenAI semantic conventions.
 
 That means: if you already instrument your agent with any OTel-native
@@ -11,14 +11,14 @@ observability tool, the two compose **for free at the protocol layer**.
 This doc shows the composition pattern; no agent-eval-specific adapter
 code required.
 
-## TL;DR — one OTel context, two emitters
+## TL;DR: one OTel context, two emitters
 
 1. Set up a shared OTel tracer provider in your process (or service mesh).
 2. Configure your observability tool (TraceAI / Langfuse / OpenLLMetry /
    Phoenix) to register its instrumentations against that provider.
 3. Configure agent-eval's `/telemetry` exporter against the same provider.
 4. Run a campaign. Both sets of spans land at your OTel collector.
-5. Filter / route / fan-out at the collector layer — Jaeger, Tempo,
+5. Filter / route / fan-out at the collector layer: Jaeger, Tempo,
    Phoenix, Langfuse cloud, your private collector, whatever.
 
 The Tangle substrate doesn't compete with the observability tool;
@@ -92,7 +92,7 @@ provider.addSpanProcessor(new SimpleSpanProcessor(
 provider.register()
 
 // 2. Your observability tool registers against the global provider.
-//    Example for TraceAI / OpenLLMetry / Langfuse — call their init.
+//    Example for TraceAI / OpenLLMetry / Langfuse: call their init.
 //    (See each tool's docs.)
 
 // 3. agent-eval is already OTel-native; it picks up the same global
@@ -101,12 +101,12 @@ provider.register()
 import { setOtelExporter } from '@tangle-network/agent-eval/telemetry'
 setOtelExporter({ kind: 'otel-global' })  // use the global provider
 
-// 4. Run your campaign — both sets of spans land at the collector.
+// 4. Run your campaign: both sets of spans land at the collector.
 import { runEval } from '@tangle-network/agent-eval/contract'
 await runEval({ /* ... */ })
 ```
 
-That's it. No new adapter shipping required — the libs are already
+That's it. No new adapter shipping required: the libs are already
 designed to live in the same OTel ecosystem.
 
 ## When you'd want a deeper, code-level adapter

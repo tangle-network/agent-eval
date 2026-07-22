@@ -11,6 +11,7 @@
  * One request per process invocation. To pipeline many calls, the client
  * writes JSONL to stdin and reads JSONL from stdout — see batch mode below.
  */
+import type { LlmClientOptions, LlmRouteRequirements } from '../llm-client'
 import { handleJudge, handleListRubrics, handleVersion, WireError } from './handlers'
 import { JudgeRequestSchema } from './schemas'
 
@@ -27,7 +28,16 @@ interface RpcError {
   error: { code: string; message: string; details?: unknown }
 }
 
-export async function dispatchRpc(req: RpcRequest): Promise<RpcSuccess | RpcError> {
+export interface RpcOptions {
+  llm?: LlmClientOptions
+  judgeModel?: string
+  llmRouteRequirements?: LlmRouteRequirements
+}
+
+export async function dispatchRpc(
+  req: RpcRequest,
+  options: RpcOptions = {},
+): Promise<RpcSuccess | RpcError> {
   try {
     switch (req.method) {
       case 'judge': {
@@ -41,7 +51,13 @@ export async function dispatchRpc(req: RpcRequest): Promise<RpcSuccess | RpcErro
             },
           }
         }
-        return { result: await handleJudge(parsed.data) }
+        return {
+          result: await handleJudge(parsed.data, {
+            llm: options.llm,
+            defaultModel: options.judgeModel,
+            routeRequirements: options.llmRouteRequirements,
+          }),
+        }
       }
       case 'listRubrics':
         return { result: handleListRubrics() }
@@ -75,7 +91,7 @@ async function readAll(stream: NodeJS.ReadableStream): Promise<string> {
 }
 
 /** Read one JSON request from stdin, write one JSON response to stdout. */
-export async function runRpcOnce(method?: string): Promise<number> {
+export async function runRpcOnce(method?: string, options: RpcOptions = {}): Promise<number> {
   const raw = await readAll(process.stdin)
   let req: RpcRequest
   try {
@@ -92,13 +108,13 @@ export async function runRpcOnce(method?: string): Promise<number> {
     )
     return 1
   }
-  const out = await dispatchRpc(req)
+  const out = await dispatchRpc(req, options)
   process.stdout.write(`${JSON.stringify(out)}\n`)
   return 'error' in out ? 1 : 0
 }
 
 /** Read JSONL requests from stdin, write JSONL responses to stdout. */
-export async function runRpcBatch(method?: string): Promise<number> {
+export async function runRpcBatch(method?: string, options: RpcOptions = {}): Promise<number> {
   const raw = await readAll(process.stdin)
   const lines = raw.split('\n').filter((l) => l.trim().length > 0)
   let exitCode = 0
@@ -119,7 +135,7 @@ export async function runRpcBatch(method?: string): Promise<number> {
       exitCode = 1
       continue
     }
-    const out = await dispatchRpc(req)
+    const out = await dispatchRpc(req, options)
     process.stdout.write(`${JSON.stringify(out)}\n`)
     if ('error' in out) exitCode = 1
   }

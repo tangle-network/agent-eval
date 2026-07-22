@@ -1,7 +1,7 @@
 # same-sandbox-harness
 
 Wrap a real build/test pipeline as a single eval run that produces both
-structured spans (build exit code, test output) and judge evidence — all
+structured spans (build exit code, test output) and judge evidence: all
 inside one workspace so later checks can inspect the artifacts.
 
 ## What it shows
@@ -28,7 +28,7 @@ pnpm exec tsx -e "
 Or import `runSameSandboxExample(workdir)` from your own runner.
 
 Runtime: depends on what's in `workdir`. With an empty dir the install/build
-commands will error — the example is meant to be wrapped around a real
+commands will error: the example is meant to be wrapped around a real
 generated app, browser-checkout, or remote computer-use workspace.
 
 ## Expected output

@@ -1,6 +1,6 @@
 # User-simulation driver
 
-`decideNextUserTurn` — the reactive turn-generator behind `AgentDriver`,
+`decideNextUserTurn`: the reactive turn-generator behind `AgentDriver`,
 exposed standalone so any harness can drive a simulated multi-turn
 conversation against an in-process agent.
 

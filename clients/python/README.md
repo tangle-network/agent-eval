@@ -1,226 +1,180 @@
-# agent-eval-rpc — Python client
+# `agent-eval-rpc` Python Client
 
-Python client for [`@tangle-network/agent-eval`](https://github.com/tangle-network/agent-eval) — a content/code judging framework written in TypeScript. This package is a **thin transport adapter**: every judgement runs in the Node runtime, marshalled over HTTP or stdio RPC. Two languages, one implementation. No drift.
+`agent-eval-rpc` lets Python programs call the judging and ingestion APIs implemented by `@tangle-network/agent-eval`.
+The Python package validates requests and responses with Pydantic.
+The Node package owns rubric execution, model calls, and scoring.
 
-## What you get
+## Install
 
-A function-call interface to score any string against a rubric:
+Python 3.10 or newer and Node.js 20 or newer are required.
+Install matching package versions:
+
+```sh
+pip install agent-eval-rpc
+npm install --global @tangle-network/agent-eval
+```
+
+Configure an OpenAI-compatible model endpoint for judge calls:
+
+```sh
+export AGENT_EVAL_LLM_BASE_URL=https://api.openai.com/v1
+export AGENT_EVAL_LLM_API_KEY="$YOUR_API_KEY"
+export AGENT_EVAL_LLM_MODEL=gpt-4.1-mini
+```
+
+`OPENAI_BASE_URL`, `OPENAI_API_KEY`, and `OPENAI_MODEL` are also accepted.
+The endpoint receives the content, rubric, and context passed to `client.judge()`.
+
+## Judge Content
 
 ```python
 from agent_eval_rpc import Client
 
-client = Client()  # auto-detects HTTP server, falls back to subprocess
+client = Client()
 result = client.judge(
-    content="We just launched zero-copy IO between agents and their workdir",
+    content="The retry budget is checked before each provider call.",
     rubric_name="anti-slop",
 )
 
-print(result.composite)         # 0.0..1.0 — single number to gate on
-print(result.dimensions)        # {"buyer_quality": 0.7, "voice": 0.8, "signal": 0.9}
-print(result.failure_modes)     # [] or ["ai-cadence", "marketing-tone", ...]
-print(result.wins)              # ["specific-component", "earned-detail", ...]
-print(result.rationale)         # "The post names a real architectural detail..."
+print(result.composite)
+print(result.dimensions)
+print(result.failure_modes)
+print(result.rationale)
 ```
 
-That's the entire surface for content judging. A self-contained runnable
-example with pytest invariants lives at
-[`examples/judge_anti_slop.py`](./examples/judge_anti_slop.py).
+`Client()` first checks for an HTTP server at `http://127.0.0.1:5005`.
+If none is running, it invokes `agent-eval rpc` as a subprocess.
+Inspect `client.transport` to see which path was selected.
 
-## Hosted-tier ingest
-
-Ship eval-run events + OTel-shape trace spans to any orchestrator that
-speaks the wire format frozen at `HOSTED_WIRE_VERSION = '2026-05-26.v1'`.
-Same contract as the TypeScript client at `src/hosted/client.ts`; same
-reference receiver at `examples/hosted-ingest-server/`.
-
-```python
-from agent_eval_rpc import (
-    HostedClient, EvalRunEvent, EvalRunGenerationSnapshot,
-    EvalRunCellScore, make_trace_span,
-)
-
-with HostedClient(
-    endpoint="http://localhost:8080",
-    api_key="dev-token",
-    tenant_id="acme",
-) as client:
-    res = client.ingest_eval_run(EvalRunEvent(
-        runId="run-py-1",
-        runDir="/runs/run-py-1",
-        timestamp="2026-05-27T00:00:00Z",
-        status="finished",
-        labels={"env": "test"},
-        baseline=EvalRunGenerationSnapshot(
-            index=0, surfaceHash="h-base",
-            cells=[EvalRunCellScore(scenarioId="s1", rep=0, compositeMean=0.5,
-                                     dimensions={"llm": {"accuracy": 0.5}})],
-            compositeMean=0.5, costUsd=0.1, durationMs=1000,
-        ),
-        generations=[],
-        gateDecision="hold",
-        totalCostUsd=0.1, totalDurationMs=1000,
-    ))
-    assert res.accepted == 1
-
-    spans = [make_trace_span(
-        trace_id="t", span_id="s-0", name="dispatch",
-        start_time_unix_nano=1_700_000_000_000_000_000,
-        end_time_unix_nano=1_700_000_001_000_000_000,
-        attributes={"step": 0},
-        tangle_run_id="run-py-1", tangle_scenario_id="s1", tangle_generation=0,
-    )]
-    client.ingest_traces(spans)
-```
-
-Bearer auth, per-tenant idempotency, capped exponential backoff on
-5xx/408/429. The `tangle.*` pivot keys are first-class on `make_trace_span`
-so the dashboard can stitch traces back to their owning run.
-
-End-to-end tests at `tests/test_hosted.py` spawn the TypeScript reference
-receiver and prove binary compat across languages; if either side drifts,
-both test suites fail.
-
-## Install
+For repeated or concurrent calls, start the server once:
 
 ```sh
-cd clients/python
-pip install -e .
+agent-eval serve --port 5005
 ```
 
-To use it, **one of**:
+Then force HTTP from Python when desired:
 
-- `npm install -g @tangle-network/agent-eval` — gives you the `agent-eval` binary, used by the subprocess transport (works offline, slower per call due to Node startup ~500ms).
-- Run a server: `agent-eval serve --port 5005` — gives you HTTP transport (~10ms per call once up).
+```python
+client = Client(transport="http", base_url="http://127.0.0.1:5005")
+```
 
-The Python client picks whichever is available. Force one with `Client(transport="http")` or `Client(transport="subprocess")`.
+## Define A Rubric
 
-## Why the architecture works this way
+Use a built-in rubric by name or pass an inline rubric.
+Exactly one is required.
 
-The TypeScript package is the source of truth for evaluation logic. We don't reimplement rubrics, scoring, or judges in Python — we marshal JSON to the canonical runtime over a versioned wire protocol (defined as Zod schemas, exported as OpenAPI, mirrored in this package as pydantic models).
+```python
+from agent_eval_rpc import Client, FailureMode, Rubric, RubricDimension
 
-Adding a new method to the API means: define a Zod schema in `src/wire/schemas.ts`, write the handler in `src/wire/handlers.ts`, and the Python client picks it up on the next regeneration. **There is no separate Python implementation to maintain.**
+rubric = Rubric(
+    name="commit-message",
+    description="Checks whether a commit message explains why the change exists.",
+    systemPrompt="Score the commit message using the supplied response schema.",
+    dimensions=[
+        RubricDimension(
+            id="explains_why",
+            description="The message states the reason for the change.",
+            weight=1.0,
+        ),
+    ],
+    failureModes=[
+        FailureMode(
+            id="what-only",
+            description="The message states the edit without its reason.",
+        ),
+    ],
+)
 
-This is the same pattern as the Anthropic SDK, Stripe SDK, and gRPC: one canonical implementation, language-specific transport clients.
+result = Client().judge(content="fix retry accounting", rubric=rubric)
+```
 
-## API
+List the built-in rubrics and their version hashes:
 
-### `Client`
+```python
+for rubric in Client().list_rubrics().rubrics:
+    print(rubric.name, rubric.rubric_version)
+```
+
+## Client Options
 
 ```python
 Client(
-    base_url: str | None = None,        # AGENT_EVAL_URL or http://127.0.0.1:5005
-    cli_path: str | None = None,        # AGENT_EVAL_CLI or 'agent-eval'
+    base_url: str | None = None,
+    cli_path: str | None = None,
     transport: "auto" | "http" | "subprocess" = "auto",
-    timeout_s: float = 120.0,
+    timeout_s: float = 200.0,
 )
 ```
 
-### `client.judge(...)`
+`client.judge()` returns:
 
-Score a piece of content against a rubric.
+| Field | Meaning |
+|---|---|
+| `composite` | Weighted score from `0` to `1` |
+| `dimensions` | Score for each rubric dimension |
+| `failure_modes` | Detected negative-pattern IDs |
+| `wins` | Detected positive-pattern IDs |
+| `rationale` | Model explanation |
+| `rubric_version` | Stable rubric hash used for comparison |
+| `model` | Model reported by the provider |
+| `duration_ms` | Total call duration |
 
-```python
-def judge(
-    *,
-    content: str,                                  # the text being judged
-    rubric_name: str | None = None,                # OR
-    rubric: Rubric | dict | None = None,           # an inline rubric definition
-    context: dict | None = None,                   # free-form metadata for the judge
-    model: str | None = None,                      # override the judge LLM
-) -> JudgeResult
-```
+## Hosted Event Ingestion
 
-**Either** `rubric_name` (use a built-in like `"anti-slop"`) **or** `rubric` (an inline definition with your own dimensions/prompt). Not both.
-
-**Returns** `JudgeResult`:
-- `composite: float` — weighted score in 0..1. The single number to gate on.
-- `dimensions: dict[str, float]` — per-axis scores (e.g. `{"buyer_quality": 0.7}`).
-- `failure_modes: list[str]` — ids of negative patterns detected.
-- `wins: list[str]` — ids of positive patterns detected.
-- `rationale: str` — plain-English explanation.
-- `rubric_version: str` — stable hash of the rubric used. Compare scores only when this matches.
-- `model: str` — LLM that produced the judgement.
-- `duration_ms: int` — wall-clock latency.
-
-### `client.list_rubrics()`
-
-Return every rubric the server has registered, with their dimensions and stable `rubric_version`.
+`HostedClient` sends evaluation events and trace spans to a server that implements the hosted ingest format.
+This is separate from `Client`, which calls the local judging API.
 
 ```python
-rubrics = client.list_rubrics()
-for r in rubrics.rubrics:
-    print(r.name, r.description, r.rubric_version)
+from agent_eval_rpc import HostedClient
+
+with HostedClient(
+    endpoint="https://your-ingest.example",
+    api_key="tenant-token",
+    tenant_id="acme",
+) as client:
+    response = client.ingest_eval_run(event)
+    assert response.accepted == 1
 ```
 
-### `client.version()`
-
-Return server + wire-protocol version. Match your `pip install` version to `version`; check `wire_version` for compatibility.
-
-```python
-v = client.version()
-assert v.version.startswith("0.20")
-assert v.wire_version == "1.0.0"
-```
-
-## Defining a custom rubric
-
-Built-in `anti-slop` is tuned for technical-buyer audiences. For different scoring, pass a `Rubric` inline:
-
-```python
-from agent_eval_rpc import Client, Rubric, RubricDimension, FailureMode
-
-rubric = Rubric(
-    name="my-rubric",
-    description="Does this commit message explain WHY, not just what?",
-    systemPrompt="You score commit messages. Score 0..1 on whether the WHY is clear...",
-    dimensions=[
-        RubricDimension(id="explains_why", description="Does the message say *why*?", weight=1.0),
-    ],
-    failureModes=[
-        FailureMode(id="what-not-why", description="States the change but not the reason"),
-    ],
-)
-
-result = client.judge(content="bumped the version", rubric=rubric)
-```
+Review [`hosted.py`](./src/agent_eval_rpc/hosted.py) for the typed event fields and retry behavior.
+The event payload can include run paths, scenario IDs, candidate values, scores, errors, costs, summaries, and trace attributes.
 
 ## Errors
 
-| Exception | When |
+| Exception | Meaning |
 |---|---|
-| `ValidationError` | Server (or pydantic) rejected the request as malformed. Fix your inputs. |
-| `RubricNotFoundError` | Unknown `rubric_name`. Call `list_rubrics()` to see what's registered. |
-| `TransportError` | HTTP unreachable or subprocess failed. Retry or check the server. |
-| `AgentEvalError` | Base class — catches everything above. |
+| `ValidationError` | The request does not match the Python or server schema |
+| `RubricNotFoundError` | The named built-in rubric does not exist |
+| `TransportError` | The HTTP server or subprocess could not be reached |
+| `AgentEvalError` | Base class for client errors |
 
-All errors carry `.code` and `.details` (the structured payload from the server).
+Errors include `.code` and `.details` when the server returned structured error data.
 
-## Versioning
+## Versions
 
-This package is **version-locked** to the npm package. `agent-eval-rpc==0.21.0` ↔ `@tangle-network/agent-eval@0.21.0`. CI verifies the npm package, Python package, runtime `__version__`, and release tag all agree before publish. If one registry publish fails after the other succeeds, retry the failed publish from the same tag or supersede with the next patch release.
+The Python and npm packages are released with the same version.
+Use `client.version()` to check the running Node package and wire-format version:
 
-`wire_version` is separate. It bumps only on breaking schema changes. Package versions can differ across releases as long as `wire_version` is the same.
+```python
+version = Client().version()
+print(version.version, version.wire_version)
+```
 
 ## Development
 
 ```sh
-# install in editable mode
+cd clients/python
 pip install -e ".[dev]"
-
-# unit tests (no Node required)
-pytest tests/test_models.py
-
-# integration tests against the bundled CLI
-cd ../.. && pnpm build         # build the agent-eval CLI in repo root
-cd clients/python && pytest    # runs subprocess tests against dist/cli.js
+pytest
 ```
 
-## Adding a new method
+Run the cross-language tests after building the Node package:
 
-When the TS side adds a new endpoint (say `evaluateScenario`):
-1. Update `src/wire/schemas.ts` with `EvaluateScenarioRequestSchema` and `EvaluateScenarioResponseSchema`.
-2. Add a handler in `src/wire/handlers.ts`, route in `src/wire/server.ts`, and case in `src/wire/rpc.ts`.
-3. In this client, add the matching pydantic model in `models.py` and method on `Client`. The pattern is mechanical — copy the shape from `judge`.
-4. Test in both languages. Bump versions together.
+```sh
+cd ../..
+pnpm build
+cd clients/python
+pytest
+```
 
-A future iteration moves step 3 to `datamodel-code-generator -i openapi.json` so it's mechanical-and-automatic instead of mechanical-by-hand. Until the surface grows past ~10 endpoints, hand-written models are more readable.
+The runnable Python example is [`examples/judge_anti_slop.py`](./examples/judge_anti_slop.py).

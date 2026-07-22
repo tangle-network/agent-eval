@@ -5,13 +5,13 @@ Two-process demo showing how `runEval` / `runCampaign` /
 runs in one terminal; worker(s) run in another (or many others, in other
 regions).
 
-## Two terminals — single worker
+## Two terminals: single worker
 
 ```sh
-# Terminal 1 — worker
+# Terminal 1: worker
 pnpm tsx examples/distributed-driver/worker.ts
 
-# Terminal 2 — coordinator
+# Terminal 2: coordinator
 pnpm tsx examples/distributed-driver/driver.ts
 ```
 
@@ -22,7 +22,7 @@ everything were in-process.
 ## Multi-region fan-out
 
 Start three workers (different ports, different machines, different
-regions — doesn't matter):
+regions: doesn't matter):
 
 ```sh
 PORT=8081 WORKER_ID=us pnpm tsx examples/distributed-driver/worker.ts
@@ -48,7 +48,7 @@ each to its target region.
 
 - **`Dispatch` is location-transparent.** Worker can be local-loopback,
   cross-region, cross-cloud, behind a load balancer, in an autoscaling
-  fleet — the coordinator doesn't know and doesn't care.
+  fleet: the coordinator doesn't know and doesn't care.
 - **`cellPlacement` is a pure function.** Substrate calls it per cell;
   whatever string it returns becomes `ctx.placement` on the Dispatch.
   `httpDispatch.resolveUrl` reads that and picks a URL.
@@ -67,7 +67,7 @@ In production you'd swap:
   OpenAI Agents call, your sandbox runtime).
 - The `dev-token` for a real bearer credential or rotating creds via
   the `auth: () => Promise<string>` form.
-- The coordinator running locally as a long-lived service — same
+- The coordinator running locally as a long-lived service: same
   binary, deployed on its own infrastructure, holding the
   optimization state across many campaign cycles.
 - The console-logged `onRequest` worker callback for an OTel exporter
