@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import type { AgentProfileJson } from '../../agent-profile-cell'
+import type { AgentProfileJson, AgentProfileJsonObject } from '../../agent-profile-cell'
 import {
   makePolicyEdit,
   POLICY_EDIT_AXES,
@@ -49,6 +49,10 @@ const JSON_POLICY_EDIT_TARGET_SURFACES = [
 export type JsonPolicyEditTargetSurface = (typeof JSON_POLICY_EDIT_TARGET_SURFACES)[number]
 
 const NonEmptyStringSchema = z.string().trim().min(1)
+const JsonObjectKeySchema = z
+  .string()
+  .min(1)
+  .refine((key) => key.trim() === key, 'JSON object keys must not have surrounding whitespace')
 
 const JsonValueSchema: z.ZodType<AgentProfileJson> = z.lazy(() =>
   z.union([
@@ -57,7 +61,7 @@ const JsonValueSchema: z.ZodType<AgentProfileJson> = z.lazy(() =>
     z.boolean(),
     z.null(),
     z.array(JsonValueSchema),
-    z.record(NonEmptyStringSchema, JsonValueSchema),
+    z.record(JsonObjectKeySchema, JsonValueSchema),
   ]),
 )
 
@@ -424,6 +428,13 @@ export interface LlmPolicyEditProposerOptions {
   maxAuthorContextChars?: number
   /** Optional one-to-one pseudonymizer applied to every author-visible evidence field. */
   scenarioIdTransform?: (scenarioId: string) => string
+  /**
+   * Remove credentials or unrelated fields from the current surface before it
+   * is sent to the model. The callback receives a clone and must preserve every
+   * editable path unchanged. Validated edits apply to the complete original.
+   * This callback does not redact findings or scored history.
+   */
+  redactCurrentSurfaceForModel?: (surface: AgentProfileJsonObject) => AgentProfileJsonObject
   onAdmission?: (admission: PolicyEditAdmission) => void
 }
 
@@ -504,6 +515,12 @@ export function llmPolicyEditProposer(
         { currentSurface, allowedJsonPaths, objectives, targetSurface: opts.targetSurface },
         scenarioIds,
       )
+      const modelSurface = redactCurrentSurfaceForModel(
+        currentSurface,
+        allowedJsonPaths,
+        opts.redactCurrentSurfaceForModel,
+      )
+      assertSurfaceIsTaskAgnostic(modelSurface, scenarioIds)
       const measuredSources = measuredSourceMeasurements(ctx)
       const findings = citableFindings(ctx.findings, measuredSources, maxFindings)
       const findingByKey = new Map(
@@ -516,7 +533,7 @@ export function llmPolicyEditProposer(
         objectives,
         candidateCount: limit,
         generation: ctx.generation,
-        currentSurface,
+        currentSurface: modelSurface,
         findings: findings.map((finding, index) =>
           renderFinding(finding, `finding-${index + 1}`, scenarioIds, measuredSources),
         ),
@@ -1251,7 +1268,7 @@ function bindAuthoredEdit(
   return makePolicyEdit(init)
 }
 
-function parseJsonSurface(surface: MutableSurface): AgentProfileJson {
+function parseJsonSurface(surface: MutableSurface): AgentProfileJsonObject {
   if (typeof surface !== 'string') {
     throw new Error('llmPolicyEditProposer: currentSurface must be serialized JSON')
   }
@@ -1264,7 +1281,89 @@ function parseJsonSurface(surface: MutableSurface): AgentProfileJson {
   if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
     throw new Error('llmPolicyEditProposer: currentSurface JSON root must be an object')
   }
-  return parsed as AgentProfileJson
+  return parsed as AgentProfileJsonObject
+}
+
+function redactCurrentSurfaceForModel(
+  surface: AgentProfileJsonObject,
+  allowedJsonPaths: readonly string[],
+  redact: LlmPolicyEditProposerOptions['redactCurrentSurfaceForModel'],
+): AgentProfileJsonObject {
+  if (!redact) return surface
+  const redacted = redact(structuredClone(surface))
+  const parsed = JsonValueSchema.safeParse(redacted)
+  if (!parsed.success) {
+    const detail = formatJsonValidationError(parsed.error)
+    throw new Error(
+      `llmPolicyEditProposer: redactCurrentSurfaceForModel returned invalid JSON (${detail})`,
+    )
+  }
+  if (!parsed.data || typeof parsed.data !== 'object' || Array.isArray(parsed.data)) {
+    throw new Error('llmPolicyEditProposer: redactCurrentSurfaceForModel must return a JSON object')
+  }
+  for (const path of allowedJsonPaths) {
+    if (!jsonValuesEqual(readJsonPath(surface, path), readJsonPath(parsed.data, path))) {
+      throw new Error(
+        `llmPolicyEditProposer: redactCurrentSurfaceForModel must not change or hide editable JSON path '${path}'`,
+      )
+    }
+  }
+  return parsed.data as AgentProfileJsonObject
+}
+
+function formatJsonValidationError(error: z.ZodError): string {
+  const messages = [...new Set(collectZodMessages(error.issues))]
+  const informative = messages.filter(
+    (message) => message !== 'Invalid input' && message !== 'Invalid key in record',
+  )
+  const custom = informative.filter((message) => !message.startsWith('Invalid input: expected'))
+  return (custom.length > 0 ? custom : informative).join('; ') || 'invalid JSON value'
+}
+
+function collectZodMessages(value: unknown): string[] {
+  if (Array.isArray(value)) return value.flatMap(collectZodMessages)
+  if (!value || typeof value !== 'object') return []
+  const issue = value as Record<string, unknown>
+  return [
+    ...(typeof issue.message === 'string' ? [issue.message] : []),
+    ...collectZodMessages(issue.errors),
+    ...collectZodMessages(issue.issues),
+  ]
+}
+
+function readJsonPath(root: AgentProfileJsonObject, path: string): AgentProfileJson | undefined {
+  let cursor: AgentProfileJson | undefined = root
+  for (const part of path
+    .split('.')
+    .map((segment) => segment.trim())
+    .filter(Boolean)) {
+    if (!cursor || typeof cursor !== 'object' || Array.isArray(cursor)) return undefined
+    cursor = cursor[part]
+  }
+  return cursor
+}
+
+function jsonValuesEqual(
+  left: AgentProfileJson | undefined,
+  right: AgentProfileJson | undefined,
+): boolean {
+  if (left === right) return true
+  if (left === undefined || right === undefined || left === null || right === null) return false
+  if (Array.isArray(left) || Array.isArray(right)) {
+    return (
+      Array.isArray(left) &&
+      Array.isArray(right) &&
+      left.length === right.length &&
+      left.every((value, index) => jsonValuesEqual(value, right[index]))
+    )
+  }
+  if (typeof left !== 'object' || typeof right !== 'object') return false
+  const leftKeys = Object.keys(left)
+  const rightKeys = Object.keys(right)
+  return (
+    leftKeys.length === rightKeys.length &&
+    leftKeys.every((key) => Object.hasOwn(right, key) && jsonValuesEqual(left[key], right[key]))
+  )
 }
 
 interface CitableFinding {

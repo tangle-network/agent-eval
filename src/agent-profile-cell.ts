@@ -4,13 +4,15 @@ import { hashJson } from './pre-registration'
 
 export type AgentProfileCellSchemaVersion = 'agent-profile-cell/v1'
 
+export type AgentProfileJsonObject = { [key: string]: AgentProfileJson }
+
 export type AgentProfileJson =
   | string
   | number
   | boolean
   | null
   | AgentProfileJson[]
-  | { [key: string]: AgentProfileJson }
+  | AgentProfileJsonObject
 
 export type AgentProfileDimensionValue = string | number | boolean | null
 

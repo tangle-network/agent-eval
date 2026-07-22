@@ -26,8 +26,10 @@ import {
   emitLoopProvenance,
   fsCampaignStorage,
   gepaProposer,
+  loopProvenanceArgsFromResult,
   runImprovementLoop,
 } from '../../src/campaign'
+import { CostLedger } from '../../src/cost-ledger'
 import { assertRealBackend, summarizeBackendIntegrity } from '../../src/integrity/backend-integrity'
 import type { LlmClientOptions } from '../../src/llm-client'
 import type { RunRecord } from '../../src/run-record'
@@ -81,6 +83,7 @@ async function main() {
   mkdirSync(runRoot, { recursive: true })
 
   const startedAt = Date.now()
+  const costLedger = new CostLedger()
   console.log('Substrate lift proof — GEPA proposer + defaultProductionGate, real router')
   console.log(`  worker=${WORKER_MODEL}  proposer=${PROPOSER_MODEL}  base=${BASE_URL}`)
   console.log(`  search=${SEARCH.length}  holdout=${HOLDOUT.length}`)
@@ -117,6 +120,7 @@ async function main() {
     runDir: runRoot,
     maxConcurrency: 4,
     seed: 42,
+    costLedger,
   })
 
   // ── Backend integrity: the proof is worthless on a stub. ───────────────
@@ -125,29 +129,25 @@ async function main() {
 
   // ── Provenance: emit the durable record + OTel spans, then re-derive the
   // held-out lift FROM the emitted record (not the in-memory return). ───────
+  const totalDurationMs = Date.now() - startedAt
+  const totalCostUsd = costLedger.summary().totalCostUsd
   const { record: provenance, spans } = await emitLoopProvenance({
-    runId: `substrate-lift-proof#${startedAt}`,
-    runDir: runRoot,
-    timestamp: new Date(startedAt).toISOString(),
-    baselineSurface: BASELINE_SURFACE,
-    winnerSurface: result.winnerSurface,
-    winnerLabel: result.winnerLabel,
-    winnerRationale: result.winnerRationale,
-    diff: result.promotedDiff,
-    generations: result.generations.map((g) => ({
-      generationIndex: g.record.generationIndex,
-      candidates: g.record.candidates,
-      promoted: g.record.promoted,
-      surfaces: g.surfaces.map((s) => ({ surfaceHash: s.surfaceHash, surface: s.surface })),
-    })),
-    gate: result.gateResult,
-    baselineOnHoldout: result.baselineOnHoldout,
-    winnerOnHoldout: result.winnerOnHoldout,
-    workerRecords: records,
-    totalCostUsd: records.reduce((a, r) => a + r.costUsd, 0),
-    totalDurationMs: Date.now() - startedAt,
+    ...loopProvenanceArgsFromResult({
+      runId: `substrate-lift-proof#${startedAt}`,
+      runDir: runRoot,
+      timestamp: new Date(startedAt).toISOString(),
+      baselineSurface: BASELINE_SURFACE,
+      result,
+      costReceipts: costLedger.list(),
+      totalCostUsd,
+      totalDurationMs,
+    }),
     storage: fsCampaignStorage(),
   })
+  if (provenance.heldOutLift === undefined) {
+    throw new Error('expected a measured held-out comparison')
+  }
+  const heldOutLift = provenance.heldOutLift
 
   // ── Honest numbers ─────────────────────────────────────────────────────
   const baselineHeldOut = meanComposite(result.baselineOnHoldout)
@@ -158,8 +158,7 @@ async function main() {
       ? result.winnerSurface
       : JSON.stringify(result.winnerSurface)
   const rewrote = winnerSurface !== BASELINE_SURFACE
-  const elapsedSec = Math.round((Date.now() - startedAt) / 1000)
-  const totalCostUsd = records.reduce((a, r) => a + r.costUsd, 0)
+  const elapsedSec = Math.round(totalDurationMs / 1000)
 
   let honestVerdict: 'lift-proven' | 'no-lift-but-real' | 'blocked'
   if (delta > 0 && result.gateResult.decision === 'ship') honestVerdict = 'lift-proven'
@@ -211,8 +210,8 @@ async function main() {
       hashesDistinguishBaselineFromWinner:
         provenance.baselineContentHash !== provenance.winnerContentHash,
       backend: provenance.backend,
-      heldOutLiftFromRecord: round(provenance.heldOutLift),
-      recomputeMatchesLiveDelta: Math.abs(provenance.heldOutLift - delta) < 1e-9,
+      heldOutLiftFromRecord: round(heldOutLift),
+      recomputeMatchesLiveDelta: Math.abs(heldOutLift - delta) < 1e-9,
       candidatesWithRationale: provenance.candidates.filter((c) => c.rationale).length,
       candidateCount: provenance.candidates.length,
     },

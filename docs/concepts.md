@@ -16,17 +16,17 @@ can; drop to the raw functions when you need lower-level control.
 
 | Function | When to call it | What you give it | What you get back |
 |---|---|---|---|
-| **`defineAgentEval()`** | You have scenarios, an agent, a judge, and a baseline surface, and you want one object you can score or improve. | scenarios, agent, judge, baseline surface | `{ evaluate(), improve() }` where `evaluate()` returns a campaign result and `improve()` returns a decision packet |
-| **`selfImprove()`** | You have a closed loop — scenarios, judge, agent in hand, and you want the substrate to propose better candidates + gate them. | scenarios, agent, judge, baseline surface | `SelfImproveResult.insight: InsightReport` + ship/hold verdict + winner surface |
+| **`defineAgentEval()`** | You have scenarios, an agent, a judge, and a baseline surface, and you want one object you can score or improve. | scenarios, agent, judge, baseline surface | `{ evaluate(), improve() }` where `evaluate()` returns a campaign result and `improve()` returns a report |
+| **`selfImprove()`** | You have a closed loop: scenarios, judge, agent in hand, and you want the substrate to propose better candidates + gate them. | scenarios, agent, judge, baseline surface | `SelfImproveResult.insight: InsightReport` + ship/hold verdict + winner surface |
 | **`loadEvalFixtureScenarios()`** | You want agents to add evals as folders with `PROMPT.md`, checks, and starter files. | `evals/<name>/PROMPT.md + EVAL.ts + package.json` | `Scenario[]` that runs through `runCampaign`; pair with `planEvalFixtureRun()` before spending tokens |
 | **`analyzeRuns()`** | You have observed runs (production traces, an approve/reject corpus, a CSV gold set) and want the same rigor packet without invoking an agent. | `RunRecord[]` + optional flags | `InsightReport` |
-| **Intake adapters** (`fromFeedbackTable`, `fromOtelSpans`) | Your data isn't already in `RunRecord` shape — it's in Obsidian, Sheets, an OTel collector, etc. | source-specific input | `RunRecord[]` ready to pipe into `analyzeRuns()` |
+| **Intake adapters** (`fromFeedbackTable`, `fromOtelSpans`) | Your data isn't already in `RunRecord` shape: it's in Obsidian, Sheets, an OTel collector, etc. | source-specific input | `RunRecord[]` ready to pipe into `analyzeRuns()` |
 
-The customer maturity stages — logs only → ratings → closed loop — map to these
+The customer maturity stages: logs only → ratings → closed loop: map to these
 entry points. See [`customer-journeys.md`](./customer-journeys.md) for the
 runnable walkthroughs.
 
-The shape of the answer — `InsightReport` — is identical across all three paths. Distributional summary, paired-bootstrap lift CI, judge stats, inter-rater agreement, cost-quality Pareto, failure clusters, contamination check, outcome correlation, release axes, and a ranked recommendations array. Walked through section-by-section in [`insight-report.md`](./insight-report.md).
+The shape of the answer: `InsightReport`: is identical across all three paths. Distributional summary, paired-bootstrap lift CI, judge stats, inter-rater agreement, cost-quality Pareto, failure clusters, contamination check, outcome correlation, release axes, and a ranked recommendations array. Walked through section-by-section in [`insight-report.md`](./insight-report.md).
 
 ## The layering rule
 
@@ -39,7 +39,7 @@ The test: *does this concept make sense WITHOUT a running agent loop?* If yes, i
 | Thing | What it is | One-line example |
 |---|---|---|
 | **Judge** | A function that scores one piece of output. | "Did this scaffold implement async fetching?" |
-| **Rubric** | The recipe a judge uses — what to score on, with what weights. | "Score on buyer_quality (0.5), voice (0.3), signal (0.2)." |
+| **Rubric** | The recipe a judge uses: what to score on, with what weights. | "Score on buyer_quality (0.5), voice (0.3), signal (0.2)." |
 | **Verifier** | A pipeline of judges run in order, with dependencies. | "install → typecheck → build → semantic" |
 | **Feedback trajectory** | A multi-shot record of attempts, approvals, rejections, edits, metrics, and policy outcomes. | "draft → user rejects → revised draft → approved → measured" |
 
@@ -66,7 +66,7 @@ that can seed memory, replay scenarios, and optimization.
 | **Harness** | A description of *how to run* the artifact: setup command, test command, working dir, timeout. |
 | **Sandbox driver** | The thing that actually executes commands inside the harness. Local subprocess, or remote container. |
 | **Layer** | One stage of a verifier pipeline (install, typecheck, build, semantic, …). |
-| **Finding** | A specific issue a judge found — file, line, severity, message. |
+| **Finding** | A specific issue a judge found: file, line, severity, message. |
 | **Trace store** | The append-only log of every span/event during a run. Replay = read this back. |
 | **Composite score** | A 0..1 number combining all dimensions. The single number you gate on. |
 | **Rubric version** | A stable hash of the rubric. Scores from different rubric versions are not comparable. |
@@ -103,30 +103,30 @@ L1  app-build      Does the artifact build / typecheck / test?
                               │
                               ▼
 L2  app-runtime    Does the artifact actually run end-to-end?
-                   (Dynamic signal — only worth checking if L1 passed.)
+                   (Dynamic signal: only worth checking if L1 passed.)
 ```
 
 `BuilderSession` orchestrates this. It opens at `startChat`, runs the build at `ship`, runs the runtime check at `runAppScenario`. Each layer emits a trace span. Composite score aggregates them with `scoreProject`.
 
 Why three? Because each catches a different failure mode:
-- L0 misses — agent crashed mid-generation, you have a half-written file.
-- L1 misses — files exist but typecheck fails. LLM judges can't reliably catch this.
-- L2 misses — code compiles but does the wrong thing at runtime.
+- L0 misses: agent crashed mid-generation, you have a half-written file.
+- L1 misses: files exist but typecheck fails. LLM judges can't reliably catch this.
+- L2 misses: code compiles but does the wrong thing at runtime.
 
 If you only check one layer, you ship the bugs that the other two layers would have caught.
 
 ## How rubrics work
 
 A rubric describes:
-1. **Dimensions** — the axes you score on (e.g. `buyer_quality`, `voice`, `signal`).
-2. **Weights** — how to combine dimensions into a composite (`0.5 * buyer_quality + 0.3 * voice + 0.2 * signal`).
-3. **Failure modes** — named patterns the judge looks for ("ai-cadence", "vague-claim").
-4. **Wins** — named positive patterns ("specific-component", "earned-detail").
-5. **System prompt** — what to tell the judging LLM about the persona and the task.
+1. **Dimensions**: the axes you score on (e.g. `buyer_quality`, `voice`, `signal`).
+2. **Weights**: how to combine dimensions into a composite (`0.5 * buyer_quality + 0.3 * voice + 0.2 * signal`).
+3. **Failure modes**: named patterns the judge looks for ("ai-cadence", "vague-claim").
+4. **Wins**: named positive patterns ("specific-component", "earned-detail").
+5. **System prompt**: what to tell the judging LLM about the persona and the task.
 
-Built-in rubrics ship in `src/wire/rubrics.ts` (e.g. `anti-slop` for technical-buyer voice). You can also pass a rubric inline — the same shape, just defined at the call site.
+Built-in rubrics ship in `src/wire/rubrics.ts` (e.g. `anti-slop` for technical-buyer voice). You can also pass a rubric inline: the same shape, just defined at the call site.
 
-A rubric is plain data. The hash of that data is the `rubricVersion`. Two scores are only comparable if they used the same `rubricVersion` — change the rubric and you start a new comparison series.
+A rubric is plain data. The hash of that data is the `rubricVersion`. Two scores are only comparable if they used the same `rubricVersion`: change the rubric and you start a new comparison series.
 
 ## How verifiers work
 
@@ -141,14 +141,14 @@ const verifier = new MultiLayerVerifier([
 ])
 
 const report = await verifier.run({ env: { runner, workdir, ... } })
-report.allPass        // boolean — every layer passed
-report.blendedScore   // 0..1 — weighted aggregate
+report.allPass        // boolean: every layer passed
+report.blendedScore   // 0..1: weighted aggregate
 report.layers         // per-layer status, findings, duration
 ```
 
 Two rules that will save you bugs:
 
-1. **Run both gates.** Build gates catch code that doesn't compile; structural assertions catch missing files. Run both unconditionally — they catch orthogonal failures.
+1. **Run both gates.** Build gates catch code that doesn't compile; structural assertions catch missing files. Run both unconditionally: they catch orthogonal failures.
 
 2. **Pair LLM judges with build outcomes.** An LLM judge will rate non-compiling code as "looks right" (0.8). Always short-circuit on `buildOutcome.passed === false` before any LLM judging.
 
@@ -159,7 +159,7 @@ Two questions to answer before trusting any LLM judge:
 1. **Does it agree with humans?** `calibrateJudge(golden, candidate)` reports Pearson, MAE, integer-rounded κ, and worst-N miscalibrations vs a human golden set.
 2. **Does it agree with itself / other judges?** `continuousAgreement(scores)` and `calibrateJudgeContinuous(golden, candidate)` report κ_w + ICC(2,1) + Pearson + Spearman with bootstrap 95% CIs on the raw [0,1] scores.
 
-Why two κ flavours: the original `calibrateJudge` rounds scores to ints before computing κ. For fine-grained judges that loses information — 0.78 vs 0.81 both round to "1" and look perfectly agreed. Use `calibrateJudgeContinuous` (or `continuousAgreement` for N≥2 raters) when scores are continuous. ICC(2,1) catches systematic bias that Pearson misses: if judge B scores 2× judge A, Pearson stays ≈ 1 while ICC drops — that's the signal.
+Why two κ flavours: the original `calibrateJudge` rounds scores to ints before computing κ. For fine-grained judges that loses information: 0.78 vs 0.81 both round to "1" and look perfectly agreed. Use `calibrateJudgeContinuous` (or `continuousAgreement` for N≥2 raters) when scores are continuous. ICC(2,1) catches systematic bias that Pearson misses: if judge B scores 2× judge A, Pearson stays ≈ 1 while ICC drops: that's the signal.
 
 Bias probes (`positionalBias`, `verbosityBias`, `selfPreference`) cover the orthogonal failure modes: position-dependent scoring, length-correlated scoring, and judge-prefers-its-own-family.
 
@@ -178,7 +178,7 @@ builder-session                 [span]
     └── scenario.run            [span]
 ```
 
-Spans are append-only and have stable ids — replay is reading the same store back. OTLP export ships them out for distributed tracing.
+Spans are append-only and have stable ids: replay is reading the same store back. OTLP export ships them out for distributed tracing.
 
 You usually should not build this tree by hand. Product runtimes,
 `runAgentControlLoop`, harnesses, and verifiers should emit it while they run.
@@ -188,11 +188,11 @@ release decision.
 ## Where to go next
 
 - **Choosing a candidate-generation method?** Read [campaign-proposers.md](./campaign-proposers.md) for the available methods, their inputs, and runnable composition examples.
-- **Which `run*` primitive do I use, and how do I grade produced state?** → [eval-surface-map.md](./eval-surface-map.md) — the campaign/matrix/optimization/gate primitives as a pick-by-"use-when" table, plus the produced-state grading composition (verifyCompletion-as-judge — there is no persona-dispatch wrapper) and the in-band body contract.
-- **Need the layman feature map?** → [feature-guide.md](./feature-guide.md) — what each primitive does, when to use it, integration patterns, and guardrails.
-- **Just want to score a string against a rubric?** → [wire-protocol.md](./wire-protocol.md) — HTTP/RPC interface, pluggable from any language.
-- **Need a reusable driver/worker/evaluator loop?** → [control-runtime.md](./control-runtime.md) — generic runtime plus coding, browser, computer-use, and research integration patterns.
-- **Want review feedback to become eval/optimization data?** → [feedback-trajectories.md](./feedback-trajectories.md) — turn feedback into datasets, optimizer rows, and preference memory.
+- **Choosing a `run*` function or grading produced state?** Read [eval-surface-map.md](./eval-surface-map.md) for a use-case table and complete grading composition.
+- **Need the feature map?** Read [feature-guide.md](./feature-guide.md) for integration patterns and operational limits.
+- **Scoring a string from another language?** Read [wire-protocol.md](./wire-protocol.md) for the HTTP/RPC interface.
+- **Building a driver and worker loop?** Read [control-runtime.md](./control-runtime.md) for coding, browser, computer-use, and research patterns.
+- **Turning review feedback into reusable data?** Read [feedback-trajectories.md](./feedback-trajectories.md) for dataset, optimization, and preference-memory examples.
 - **Building a code-generator eval?** → Start with `BuilderSession`, `SandboxHarness`, and `MultiLayerVerifier`.
 - **Multi-layer verifier?** → Use [control-runtime.md](./control-runtime.md) and `MultiLayerVerifier` for ordered gates with dependencies.
 - **Adding a new judge or rubric?** → `src/wire/rubrics.ts` for the cross-language path; `src/anti-slop.ts` and `src/judges.ts` for the in-process path.

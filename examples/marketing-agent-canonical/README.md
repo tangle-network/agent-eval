@@ -16,7 +16,7 @@ held-out gate.
 ## Run it
 
 ```sh
-# Stub mode (heuristic judge, deterministic agent — wiring check):
+# Stub mode (heuristic judge, deterministic agent: wiring check):
 pnpm tsx examples/marketing-agent-canonical/index.ts
 
 # Live mode against any OpenAI-compatible endpoint:
@@ -34,22 +34,21 @@ Output:
 
 - Console: baseline composite, generation-by-generation progress, gate
   decision, holdout baseline vs winner.
-- `.marketing-agent-runs/<timestamp>/marketing-agent-report.md` —
+- `.marketing-agent-runs/<timestamp>/marketing-agent-report.md` -
   per-scenario lift table, shipped prompt, original prompt.
 
 ## What to look at after a run
 
 1. Did the gate ship? (`gateResult.decision === 'ship'`)
 2. Is the holdout lift > 0.05? (the canonical `deltaThreshold`)
-3. Read 3+ winner outputs side-by-side with the baselines. Are they
-   genuinely better, or is the judge gaming itself?
+3. Compare at least three winner outputs with their baselines and check whether the change is genuinely better.
 4. Diff the shipped prompt vs baseline. Does the mutation make
-   editorial sense, or did it just over-fit the judge's literal words?
+   editorial sense and generalize beyond the judge's literal wording?
 
 If 1+2+3 all look good, the demo is ready to show.
 
 If the judge looks like it's gaming itself (3 fails), tune the judge
-dimensions — `voice_match` + `audience_specificity` are the noisiest;
+dimensions: `voice_match` + `audience_specificity` are the noisiest;
 make them more anchored ("0.0 = X, 0.5 = Y, 1.0 = Z").
 
 ## Swap for a real product
@@ -57,7 +56,7 @@ make them more anchored ("0.0 = X, 0.5 = Y, 1.0 = Z").
 When the founder is ready, this becomes the template:
 
 1. Replace `runMarketingAgent` with their agent (wrap their existing
-   API or framework via a `Dispatch` — see
+   API or framework via a `Dispatch`: see
    [`examples/foreign-agent-quickstart`](../foreign-agent-quickstart/)).
 2. Replace `MARKETING_SCENARIOS` with theirs (8-15 scenarios spanning
    their real product surfaces).

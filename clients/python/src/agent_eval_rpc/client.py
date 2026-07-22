@@ -35,7 +35,8 @@ Transport = Literal["http", "subprocess", "auto"]
 
 DEFAULT_BASE_URL = "http://127.0.0.1:5005"
 DEFAULT_CLI = "agent-eval"
-DEFAULT_TIMEOUT_S = 120.0
+DEFAULT_TIMEOUT_S = 200.0
+SUPPORTED_WIRE_MAJOR = 1
 
 
 class Client:
@@ -52,8 +53,8 @@ class Client:
     transport:
         'auto' (default), 'http', or 'subprocess'.
     timeout_s:
-        Per-call timeout, default 120 seconds. Judges are allowed up to
-        ~60s server-side, so 120s is comfortably above that.
+        Per-call timeout, default 200 seconds. A judge call can make up to
+        three 60-second provider attempts before returning.
     auto_probe_timeout:
         How long to wait for the HTTP /healthz check during auto-detect.
     """
@@ -67,7 +68,9 @@ class Client:
         timeout_s: float = DEFAULT_TIMEOUT_S,
         auto_probe_timeout: float = 1.0,
     ) -> None:
-        self.base_url = (base_url or os.environ.get("AGENT_EVAL_URL") or DEFAULT_BASE_URL).rstrip("/")
+        self.base_url = (
+            base_url or os.environ.get("AGENT_EVAL_URL") or DEFAULT_BASE_URL
+        ).rstrip("/")
         self.cli_path = cli_path or os.environ.get("AGENT_EVAL_CLI") or DEFAULT_CLI
         self.timeout_s = timeout_s
         self._transport = self._resolve_transport(transport, auto_probe_timeout)
@@ -122,17 +125,32 @@ class Client:
             return "http"
         if requested == "subprocess":
             return "subprocess"
-        # auto: probe HTTP first
+        # Auto mode identifies the service before selecting HTTP. A generic
+        # health endpoint is not enough because another local service may own
+        # the configured port.
+        probe_problem = f"no service responded at {self.base_url}"
         try:
             with httpx.Client(timeout=probe_timeout) as c:
-                r = c.get(f"{self.base_url}/healthz")
+                r = c.get(f"{self.base_url}/v1/version")
                 if r.status_code == 200:
-                    return "http"
-        except (httpx.HTTPError, OSError):
-            pass
+                    version = VersionResponse.model_validate(r.json())
+                    if version.package != "@tangle-network/agent-eval":
+                        probe_problem = f"{self.base_url} is package {version.package!r}"
+                    elif _wire_major(version.wire_version) != SUPPORTED_WIRE_MAJOR:
+                        probe_problem = (
+                            f"{self.base_url} uses unsupported wire version "
+                            f"{version.wire_version!r}"
+                        )
+                    else:
+                        return "http"
+                else:
+                    probe_problem = f"{self.base_url}/v1/version returned HTTP {r.status_code}"
+        except (httpx.HTTPError, OSError, ValueError) as error:
+            probe_problem = f"{self.base_url}/v1/version failed: {error}"
         if shutil.which(self.cli_path) is None:
             raise TransportError(
-                f"No HTTP server at {self.base_url} and no `{self.cli_path}` binary on PATH. "
+                f"No compatible agent-eval server ({probe_problem}) and no "
+                f"`{self.cli_path}` binary on PATH. "
                 "Either run `agent-eval serve` or `npm i -g @tangle-network/agent-eval`."
             )
         return "subprocess"
@@ -154,9 +172,10 @@ class Client:
             raise TransportError(f"HTTP transport failed: {e}") from e
         if r.status_code >= 400:
             try:
-                raise from_error_body(r.status_code, r.json())
-            except (ValueError, json.JSONDecodeError):
-                raise TransportError(f"HTTP {r.status_code}: {r.text[:500]}")
+                error_body = r.json()
+            except json.JSONDecodeError as error:
+                raise TransportError(f"HTTP {r.status_code}: {r.text[:500]}") from error
+            raise from_error_body(r.status_code, error_body)
         try:
             return r.json()
         except json.JSONDecodeError as e:
@@ -213,3 +232,10 @@ def _http_path_for(method: str) -> _HttpPath:
         return _PATHS[method]
     except KeyError as e:
         raise AgentEvalError(f"Unknown method: {method}") from e
+
+
+def _wire_major(version: str) -> int:
+    try:
+        return int(version.split(".", 1)[0])
+    except (TypeError, ValueError) as error:
+        raise ValueError(f"Invalid wire version: {version!r}") from error

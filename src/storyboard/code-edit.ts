@@ -148,7 +148,7 @@ export function codeEditsForStoryboard(
  *  then the added lines of a diff, then a minimal placeholder so the scene is
  *  never blank. */
 export function editAnimationText(edit: CodeEdit): string {
-  if (edit.after && edit.after.trim()) return edit.after
+  if (edit.after?.trim()) return edit.after
   if (edit.diff) {
     const added = edit.diff
       .split('\n')

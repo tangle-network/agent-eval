@@ -6,10 +6,8 @@ layers, and the layers were getting conflated. Every role below has exactly
 one meaning. Use these words and nothing else.
 
 Cross-links: [`concepts.md`](../concepts.md) (eval mental model),
-[`campaign-proposers.md`](../campaign-proposers.md) (proposer catalog),
-[`multi-shot-optimization.md`](../multi-shot-optimization.md) (GEPA), and
-[`auto-research-loop-end-to-end.md`](../auto-research-loop-end-to-end.md)
-(analyst / autoresearch).
+[`campaign-proposers.md`](../campaign-proposers.md) (proposer catalog), and
+[`multi-shot-optimization.md`](../multi-shot-optimization.md) (GEPA).
 
 ## Core Roles
 
@@ -18,12 +16,12 @@ Cross-links: [`concepts.md`](../concepts.md) (eval mental model),
 | **Execution driver** | The thing that decides or routes the next turn/action inside a sandbox or worker conversation. | Inner layer only |
 | **Surface proposer** | The thing that proposes the next prompt/config/code surface for the improvement loop to measure. | Outer layer only |
 | **Worker** | An agent harness instance (Claude Code, Codex, OpenCode, …) running inside a sandbox. Does the actual work; responds in chat. | Inner layer only |
-| **Sandbox** | A multi-harness VM. Hosts **1..N workers**, which can share a workspace. Not an agent — the substrate an agent runs in. | Inner layer only |
+| **Sandbox** | A multi-harness VM. Hosts **1..N workers**, which can share a workspace. Not an agent: the substrate an agent runs in. | Inner layer only |
 | **Measurement** | Runs the worker over a set of scenarios and judges the outputs into a scorecard with confidence intervals. This is `runCampaign`. | Outer layer |
 
 Two facts that trip people up:
 
-1. **A sandbox is not a worker.** One sandbox can hold ten workers — a driver
+1. **A sandbox is not a worker.** One sandbox can hold ten workers: a driver
    can coordinate CC + Codex + OpenCode siblings sharing one workspace, or a
    fleet spread across machines. `runLoop`'s placement encodes exactly this:
    `{ sibling, sandboxId }` = co-located workers; `{ fleet, fleetId,
@@ -38,21 +36,21 @@ Two facts that trip people up:
 There are two loops. The outer one improves the thing the inner one runs.
 
 ```
-runImprovementLoop                         OUTER loop — improve the agent over time
+runImprovementLoop                         OUTER loop: improve the agent over time
 │
 ├─ PROPOSER = SurfaceProposer              proposes a candidate SURFACE
 │           (evolutionary mutator |        (the worker's system prompt / tools / config)
-│            reflective analyst)            — NOT a conversation turn
+│            reflective analyst)           : NOT a conversation turn
 │
 └─ for each candidate surface:
      │
-     runCampaign                           a MEASUREMENT — scores ONE surface
+     runCampaign                           a MEASUREMENT: scores ONE surface
      │
      └─ for each scenario × rep:
           │
-          dispatch(scenario)               THE SEAM — topology-opaque, returns an artifact
+          dispatch(scenario)               THE SEAM: topology-opaque, returns an artifact
           │
-          └─ runLoop / runMultishot        INNER loop — one conversation
+          └─ runLoop / runMultishot        INNER loop: one conversation
                ├─ DRIVER  = persona / user / planner    chats with ↓
                └─ WORKERS = 1..N agent harnesses in 1..M sandboxes
                │
@@ -82,18 +80,18 @@ opinion about execution topology: the topology lives inside `dispatch`.
 - The worker is the agent in the sandbox. The driver talks to it. ✓
 - `runCampaign` is a **measurement**, not a worker. It *runs the worker* (via
   `dispatch`); the worker does not "run the eval".
-- The outer improvement loop has **no single worker** — its proposer proposes a
+- The outer improvement loop has **no single worker**: its proposer proposes a
   *surface*, and each surface is scored by a *measurement* that drives the
   inner workers.
 
-## The dataset flywheel — why every loop run matters
+## The dataset flywheel: why every loop run matters
 
 **Every loop run, regardless of why it ran, feeds the same dataset.** This is
 the through-line that ties measurement and improvement together.
 
 When `runCampaign` runs with a `labeledStore`, each cell captures
 `(scenario, artifact, judgeScore, source)` into the `LabeledScenarioStore`.
-The `source` discriminates *why* the run happened — but the captured tuple is
+The `source` discriminates *why* the run happened: but the captured tuple is
 identical in shape:
 
 | `captureSource` | The run that produced it |
@@ -109,7 +107,7 @@ production conversation, and an autoresearch loop all deposit the same
 `(input, output, reward)` tuples. The optimization proposer later samples from
 that corpus to evolve the surface. So:
 
-> Running *any* loop — even one whose purpose is not optimization — builds the
+> Running *any* loop: even one whose purpose is not optimization: builds the
 > dataset that optimization needs. The flywheel turns whether or not you are
 > currently optimizing.
 
@@ -147,7 +145,7 @@ interface SurfaceProposer<TFindings = unknown> {
 | Implementation | Strategy | How it proposes | Where it lives |
 |---|---|---|---|
 | `evolutionaryProposer` | Evolutionary (GEPA / AxGEPA) | Standalone `SurfaceProposer`. Mutates the current best surface into N candidates, blind to history beyond the current best. Optimizes against the dataset's rewards. | **agent-eval** (pure: dataset → surface, no sandbox) |
-| Runtime reflective proposer | Reflective | Cheap generator: drafts patches from the report and applies them into a worktree (shots=1, no sandbox). | **agent-runtime** — implements agent-eval's proposer contract |
+| Runtime reflective proposer | Reflective | Cheap generator: drafts patches from the report and applies them into a worktree (shots=1, no sandbox). | **agent-runtime**: implements agent-eval's proposer contract |
 | Runtime agentic proposer | Agentic | Full generator: runs a coding harness in the worktree (≤ `maxImprovementShots`) to edit in place. | **agent-runtime** |
 
 This resolves the prior duplication where `runImprovementLoop` (evolutionary,
@@ -158,7 +156,7 @@ same cost dial, not separate outer loops. The dependency direction permits this
 cleanly: agent-eval is the leaf and owns the proposer contract; agent-runtime
 imports agent-eval and implements it.
 
-## What "the surface" is — improvement tiers
+## What "the surface" is: improvement tiers
 
 `MutableSurface` is the thing the proposer changes. It has tiers, least → most
 invasive. `MutableSurface = string | CodeSurface` spans all of them: `string`
@@ -179,36 +177,36 @@ not represented by the candidate tree.
 
 The cost/capability distinction:
 
-- **`reflectiveGenerator`** updates the *signatures* — prompt + tool surface
+- **`reflectiveGenerator`** updates the *signatures*: prompt + tool surface
   (tiers 1–2). Cheap (drafts patches, no sandbox), reversible, measured
   directly against the dataset.
 - **`agenticGenerator`** updates the *code* (tier 4). A coding harness reads
   the repository + the report, edits in a worktree, iterates up to
-  `maxImprovementShots` — measured by re-running the inner loop against the
+  `maxImprovementShots`: measured by re-running the inner loop against the
   changed code.
 
 Both are implementations of the one proposer contract (propose → measure → gate
-→ PR). They differ only in *what* they edit and *how invasive* it is — and both
+→ PR). They differ only in *what* they edit and *how invasive* it is: and both
 consume the **same dataset** the flywheel builds.
 
 ## Vocabulary quick reference
 
-- **shot** — one conversational turn (driver says X, worker responds Y). Used
+- **shot**: one conversational turn (driver says X, worker responds Y). Used
   in `runMultishot`. Never used to mean a whole eval run.
-- **runMultishot** — many shots in one conversation; persona-driver ↔ one
+- **runMultishot**: many shots in one conversation; persona-driver ↔ one
   router-agent. agent-eval.
-- **runLoop** — driver ↔ workers in sandboxes; topology-agnostic execution.
+- **runLoop**: driver ↔ workers in sandboxes; topology-agnostic execution.
   agent-runtime.
-- **runCampaign** — a measurement: a surface scored over N scenarios × M reps.
+- **runCampaign**: a measurement: a surface scored over N scenarios × M reps.
   agent-eval. (A "campaign" = a coordinated batch of measurements.)
-- **runOptimization** — the improvement loop body: proposer suggests surfaces, each is measured, and only a candidate that beats the global incumbent is promoted. agent-eval.
-- **runImprovementLoop** — `runOptimization` + holdout re-score + release gate
+- **runOptimization**: the improvement loop body: proposer suggests surfaces, each is measured, and only a candidate that beats the global incumbent is promoted. agent-eval.
+- **runImprovementLoop**: `runOptimization` + holdout re-score + release gate
   + optional PR. agent-eval.
-- **runAnalystLoop** — reflective autoresearch: findings + knowledge updates +
+- **runAnalystLoop**: reflective autoresearch: findings + knowledge updates +
   improvement proposals. agent-runtime.
-- **SurfaceProposer** — the contract a surface proposer implements.
+- **SurfaceProposer**: the contract a surface proposer implements.
   `evolutionaryProposer` (agent-eval) is one; agent-runtime can provide
   reflective or agentic implementations.
-- **CandidateGenerator** — the byte-producing seam inside a runtime proposer;
+- **CandidateGenerator**: the byte-producing seam inside a runtime proposer;
   `reflectiveGenerator` (cheap, no sandbox) and `agenticGenerator` (coding
   harness in the worktree) are the two cost settings. agent-runtime.

@@ -229,7 +229,7 @@ function expectRunRecordShape(value: unknown, path: string): RunRecord {
     throw new ValidationError(`${path}: run record tokenUsage.input/output must be numbers`)
   }
   const outcome = obj.outcome as Record<string, unknown> | undefined
-  if (!outcome || !outcome.raw || typeof outcome.raw !== 'object') {
+  if (!outcome?.raw || typeof outcome.raw !== 'object') {
     throw new ValidationError(`${path}: run record outcome.raw must be an object`)
   }
   return value as RunRecord

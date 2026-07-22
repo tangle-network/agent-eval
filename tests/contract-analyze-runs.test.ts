@@ -315,6 +315,28 @@ describe('fromFeedbackTable → analyzeRuns: multi-rater approve/reject corpus',
     expect(report.interRater!.raters).toBe(3)
     expect(report.interRater!.jointlyRated).toBe(3)
     expect(report.interRater!.disagreementCases.length).toBeGreaterThan(0)
+    expect(Number.isFinite(report.interRater!.kappa)).toBe(true)
+    expect(Number.isFinite(report.interRater!.pearson)).toBe(true)
+  })
+
+  it('reports absolute agreement separately from correlation', async () => {
+    const ratings = [
+      { runId: 'r1', rater: 'alice', rating: 0 },
+      { runId: 'r1', rater: 'bob', rating: 0.2 },
+      { runId: 'r2', rater: 'alice', rating: 0 },
+      { runId: 'r2', rater: 'bob', rating: 0.2 },
+      { runId: 'r3', rater: 'alice', rating: 1 },
+      { runId: 'r3', rater: 'bob', rating: 1 },
+      { runId: 'r4', rater: 'alice', rating: 1 },
+      { runId: 'r4', rater: 'bob', rating: 1 },
+    ]
+    const { runs, raterScores } = fromFeedbackTable({ ratings })
+
+    const report = await analyzeRuns({ runs, raterScores })
+
+    expect(report.interRater!.pearson).toBeCloseTo(1, 9)
+    expect(report.interRater!.kappa).toBeLessThan(1)
+    expect(report.interRater!.perPair['alice::bob']).toBeCloseTo(report.interRater!.kappa, 9)
   })
 
   it('normalises non-0..1 rating scales when scale is provided', () => {

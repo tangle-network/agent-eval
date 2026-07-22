@@ -69,12 +69,12 @@ uv run sft @ /path/to/agent-eval/examples/fine-tune-with-prime-rl/prime-rl-sft.t
 
 `export-sft.ts` produces three artifacts:
 
-1. **`sft-data.jsonl`** — one row per filtered run, in the messages-list format
+1. **`sft-data.jsonl`**: one row per filtered run, in the messages-list format
    prime-rl's SFT trainer consumes:
    ```json
    {"messages": [{"role": "system", "content": "..."}, {"role": "user", "content": "..."}, {"role": "assistant", "content": "..."}]}
    ```
-2. **`prime-rl-sft.toml`** — a 15-line config pointing at the JSONL file:
+2. **`prime-rl-sft.toml`**: a 15-line config pointing at the JSONL file:
    ```toml
    max_steps = 100
    [model]
@@ -91,14 +91,14 @@ uv run sft @ /path/to/agent-eval/examples/fine-tune-with-prime-rl/prime-rl-sft.t
 
 ## Adapting for your real campaign
 
-Replace `synthetic-runs.jsonl` with the output of any real `runEvalCampaign`
-or `analyzeOptimizationResult`. The script reads NDJSON of `RunRecord`s; every
+Replace `synthetic-runs.jsonl` with the `RunRecord` rows from a real `runEvalCampaign`.
+The script reads NDJSON; every
 record needs a `runId`, `outcome.holdoutScore`, and either:
 
 - `outcome.raw.prompt` + `outcome.raw.completion` (if you stash the text on the record), OR
 - a custom `--prompt-key` and `--completion-key` flag pointing at where the
   text lives in your run's metadata, OR
-- a custom lookup callback (read the source — this is a 5-line change).
+- a custom lookup callback (read the source: this is a 5-line change).
 
 Most consumers store prompt/completion text in their `TraceStore` or raw
 event log, not on the `RunRecord` directly (which only carries hashes). For
@@ -119,8 +119,8 @@ event log and join it back to the run records by `runId`.
 
 ## Files
 
-- `README.md` — this file.
-- `export-sft.ts` — the export script (~150 LoC).
-- `synthetic-runs.jsonl` — example input data; replace with your own
+- `README.md`: this file.
+- `export-sft.ts`: the export script (~150 LoC).
+- `synthetic-runs.jsonl`: example input data; replace with your own
   campaign output.
-- `prime-rl-sft.toml` — generated config; not checked in (see `.gitignore`).
+- `prime-rl-sft.toml`: generated config; not checked in (see `.gitignore`).

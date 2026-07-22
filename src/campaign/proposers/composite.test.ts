@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { CodeSurface, ProposeContext, SurfaceProposer } from '../types'
 import { compositeProposer } from './composite'
+import { parameterSweepProposer } from './fapo'
 
 function ctxOf(populationSize: number): ProposeContext {
   return {
@@ -103,6 +104,49 @@ describe('compositeProposer (N proposers, one generation pool)', () => {
     expect((pool[0] as { surface: CodeSurface }).surface.worktreeRef).toBe(first.worktreeRef)
   })
 
+  it('lets stateful members recognize their own prior labels', async () => {
+    const composite = compositeProposer({
+      proposers: [
+        parameterSweepProposer({
+          candidates: [
+            { label: 'low', rationale: 'try low', patch: { effort: 'low' } },
+            { label: 'high', rationale: 'try high', patch: { effort: 'high' } },
+          ],
+        }),
+      ],
+    })
+    const first = await composite.propose({
+      ...ctxOf(1),
+      currentSurface: '{"effort":"medium"}',
+    })
+    const firstCandidate = first[0] as { surface: string; label: string; rationale: string }
+    const second = await composite.propose({
+      ...ctxOf(2),
+      currentSurface: '{"effort":"medium"}',
+      history: [
+        {
+          generationIndex: 0,
+          promoted: [],
+          candidates: [
+            {
+              surfaceHash: 'first',
+              label: firstCandidate.label,
+              rationale: firstCandidate.rationale,
+              composite: 0.5,
+              ci95: [0.5, 0.5],
+              dimensions: {},
+              scenarios: [],
+            },
+          ],
+        },
+      ],
+    })
+
+    expect(firstCandidate.label).toBe('parameter-sweep:low')
+    expect(second).toHaveLength(1)
+    expect((second[0] as { label: string }).label).toBe('parameter-sweep:high')
+  })
+
   it('isolates a failing member; throws only when ALL members fail', async () => {
     const oneDown = compositeProposer({
       proposers: [stub('boom', [], { fail: true }), stub('ok', ['x1', 'x2'])],
@@ -132,10 +176,62 @@ describe('compositeProposer (N proposers, one generation pool)', () => {
     expect(unanimous.decide?.({ history: [] })?.stop).toBe(true)
   })
 
+  it('restores member labels before asking members whether to stop', () => {
+    let observedLabel: string | undefined
+    const member: SurfaceProposer = {
+      kind: 'stateful',
+      propose: async () => [],
+      decide: ({ history }) => {
+        observedLabel = history[0]?.candidates[0]?.label
+        return { stop: true }
+      },
+    }
+    const composite = compositeProposer({ proposers: [member] })
+
+    composite.decide?.({
+      history: [
+        {
+          generationIndex: 0,
+          promoted: [],
+          candidates: [
+            {
+              surfaceHash: 'first',
+              label: 'stateful:attempt-1',
+              composite: 0.5,
+              ci95: [0.5, 0.5],
+              dimensions: {},
+              scenarios: [],
+            },
+          ],
+        },
+      ],
+    })
+
+    expect(observedLabel).toBe('attempt-1')
+  })
+
+  it('rejects member kinds that make history ownership ambiguous', () => {
+    expect(() =>
+      compositeProposer({ proposers: [stub('same', ['a']), stub('same', ['b'])] }),
+    ).toThrow(/duplicate member kind 'same'/)
+    expect(() => compositeProposer({ proposers: [stub('a:b', ['a'])] })).toThrow(
+      /must not contain ':'/,
+    )
+    expect(() => compositeProposer({ proposers: [stub(' spaced ', ['a'])] })).toThrow(
+      /trimmed and non-empty/,
+    )
+  })
+
   it('fails loud on empty membership or bad weights', () => {
     expect(() => compositeProposer({ proposers: [] })).toThrow(/at least one/)
     expect(() => compositeProposer({ proposers: [stub('a', ['x'])], weights: [0] })).toThrow(
-      /positive/,
+      /finite and positive/,
     )
+    expect(() =>
+      compositeProposer({ proposers: [stub('a', ['x'])], weights: [Number.POSITIVE_INFINITY] }),
+    ).toThrow(/finite and positive/)
+    expect(() =>
+      compositeProposer({ proposers: [stub('a', ['x'])], weights: [Number.NaN] }),
+    ).toThrow(/finite and positive/)
   })
 })

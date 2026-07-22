@@ -3,7 +3,7 @@ import {
   SandboxHarness,
   SubprocessSandboxDriver,
   TraceEmitter,
-} from '@tangle-network/agent-eval'
+} from '../../src/index'
 
 /**
  * Same-sandbox pattern:
@@ -51,6 +51,7 @@ export async function runSameSandboxExample(workdir: string) {
   await emitter.recordJudge({
     judgeId: 'same-sandbox-evidence',
     name: 'same-sandbox-evidence',
+    targetSpanId: emitter.runId,
     dimension: 'evidence',
     score: judged.score,
     rationale: judged.rationale,

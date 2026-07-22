@@ -16,7 +16,7 @@
 import { type ServerType, serve } from '@hono/node-server'
 import { Hono } from 'hono'
 import { cors } from 'hono/cors'
-
+import type { LlmClientOptions, LlmRouteRequirements } from '../llm-client'
 import {
   handleFeedbackIngest,
   handleJudge,
@@ -34,6 +34,12 @@ const STARTED_AT = Date.now()
 export interface CreateAppOptions {
   /** Stores wired to the ingestion endpoints. */
   stores?: IngestionStores
+  /** Model provider used by `/v1/judge`. */
+  llm?: LlmClientOptions
+  /** Default judge model when a request does not provide one. */
+  judgeModel?: string
+  /** Model route checks applied before every judge call. */
+  llmRouteRequirements?: LlmRouteRequirements
   /**
    * Bearer-token auth. When provided, every endpoint EXCEPT `/healthz`
    * and `/v1/version` requires `Authorization: Bearer <token>`. The
@@ -114,7 +120,11 @@ export function createApp(opts: CreateAppOptions = {}) {
         parsed.error.issues,
       )
     }
-    const result = await handleJudge(parsed.data)
+    const result = await handleJudge(parsed.data, {
+      llm: opts.llm,
+      defaultModel: opts.judgeModel,
+      routeRequirements: opts.llmRouteRequirements,
+    })
     return c.json(result)
   })
 

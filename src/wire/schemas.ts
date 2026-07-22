@@ -98,10 +98,7 @@ export const JudgeRequestSchema = z
       .describe(
         'Free-form metadata for the rubric to use — analytics, source URL, author, etc. Surfaced to the LLM.',
       ),
-    model: z
-      .string()
-      .optional()
-      .describe('Override the judge model (default routes via tcloud). e.g. "claude-opus-4-7".'),
+    model: z.string().optional().describe('Override the judge model configured by the server.'),
   })
   .refine((v) => Boolean(v.rubricName) !== Boolean(v.rubric), {
     message: 'Provide exactly one of `rubricName` or `rubric`.',

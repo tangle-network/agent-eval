@@ -8,6 +8,7 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ### Added
 
+- `llmPolicyEditProposer({ redactCurrentSurfaceForModel })` can remove credentials and unrelated fields from the current surface sent to the model while applying validated edits to the complete original surface.
 - `CostLedger.listPending()` exposes immutable pending paid calls and distinguishes calls that are active, late after cancellation, or interrupted by a prior process so durable workflows can reconcile exact reservations before resuming.
 - `traceAnalystProposer()` accepts an opt-in `resolvePriorFindings` callback that forwards canonical prior findings into the existing analyst registry.
 
@@ -23,6 +24,9 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 - `compareProposers()` now owns three non-empty, pairwise-disjoint scenario partitions.
   Optimizers receive train and adaptive selection rows, while only the untouched test rows determine final lift intervals and proposer ranking.
   Every optimizer finishes before the first test dispatch; built-in GEPA, SkillOpt, and FAPO entries use selection for acceptance and cannot receive test rows.
+- `compositeProposer` restores each member's original labels when replaying history, so stateful members do not repeat candidates whose labels were decorated for provenance.
+- `InsightReport.interRater.kappa` now reports quadratic weighted kappa instead of Pearson correlation.
+  Read `interRater.pearson` for the previous correlation measure; `icc` and `spearman` are now reported separately.
 - Compute contextual-bandit doubly robust estimates with separate logged-action and target-policy value terms, expose how many rows use DR versus IPS or the deprecated scalar path, and carry both values through belief-state records.
 
 ### Breaking

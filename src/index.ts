@@ -20,6 +20,7 @@ export type {
   AgentProfileDimensionValue,
   AgentProfileHarness,
   AgentProfileJson,
+  AgentProfileJsonObject,
   AgentProfileKind,
   AgentProfileSource,
   AgentProfileSourceInput,
