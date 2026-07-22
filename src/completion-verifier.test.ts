@@ -22,6 +22,7 @@ import {
   type TaskGold,
   verifyCompletion,
 } from './completion-verifier'
+import { CostLedger } from './cost-ledger'
 import { JudgeParseError } from './judges'
 import type { RawProviderEvent, RawProviderSink } from './trace/raw-provider-sink'
 
@@ -476,6 +477,29 @@ describe('createLlmCorrectnessChecker', () => {
     expect(r).toEqual({ correct: true, reason: 'fulfils it' })
   })
 
+  it('preserves caller attribution on correctness-checker receipts', async () => {
+    const ledger = new CostLedger()
+    const tc = {
+      chat: async () => ({
+        model: 'gpt-4o',
+        choices: [{ message: { content: '{"correct": true, "reason": "ok"}' } }],
+        usage: { prompt_tokens: 10, completion_tokens: 2, total_tokens: 12 },
+      }),
+    } as unknown as TCloud
+    const check = createLlmCorrectnessChecker(tc, {
+      costLedger: ledger,
+      costTags: { runDir: '/run-a' },
+    })
+
+    await check(DISPUTE_REQ, LONG)
+
+    expect(ledger.list()[0]?.tags).toMatchObject({
+      runDir: '/run-a',
+      requirementId: DISPUTE_REQ.reqId,
+      attempt: '0',
+    })
+  })
+
   it('fails loud after retries on an unparseable model response', async () => {
     let calls = 0
     const tc = {
@@ -526,7 +550,15 @@ describe('createLlmCorrectnessChecker', () => {
         return { choices: [{ message: { content: '{"correct": false, "reason": "thin"}' } }] }
       },
     } as unknown as TCloud
-    const check = createLlmCorrectnessChecker(tc, { rawSink: sink })
+    const check = createLlmCorrectnessChecker(tc, {
+      rawSink: sink,
+      receiptFromError: () => ({
+        model: 'claude-sonnet-4-6',
+        inputTokens: 0,
+        outputTokens: 0,
+        actualCostUsd: 0,
+      }),
+    })
     await check(DISPUTE_REQ, LONG)
     expect(events.map((e) => [e.direction, e.attemptIndex])).toEqual([
       ['request', 0],

@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { CostLedger } from './cost-ledger'
 import { createSemanticConceptJudge, runSemanticConceptJudge } from './semantic-concept-judge'
 
 function mockFetch(bodies: Array<object | { status: number; body: string }>) {
@@ -35,6 +36,7 @@ const BASE_INPUT = {
 
 describe('semantic-concept-judge', () => {
   it('parses a happy-path response + computes score from per-concept averages', async () => {
+    const costLedger = new CostLedger()
     const fetch = mockFetch([
       {
         summary: 'mint button wired, supply counter absent',
@@ -56,7 +58,7 @@ describe('semantic-concept-judge', () => {
         ],
       },
     ])
-    const r = await runSemanticConceptJudge(BASE_INPUT, { llm: { fetch } })
+    const r = await runSemanticConceptJudge(BASE_INPUT, { llm: { fetch }, costLedger })
     expect(r.available).toBe(true)
     expect(r.totalCount).toBe(2)
     expect(r.presentCount).toBe(1)
@@ -65,6 +67,9 @@ describe('semantic-concept-judge', () => {
     expect(r.findings).toHaveLength(2)
     const critical = r.findings.find((f) => f.severity === 'critical')
     expect(critical?.concept).toBe('supply counter')
+    expect(costLedger.list()).toEqual([
+      expect.objectContaining({ channel: 'judge', actor: 'semantic-concept' }),
+    ])
   })
 
   it('clamps out-of-range scores to 0..10', async () => {

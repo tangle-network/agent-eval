@@ -18,7 +18,7 @@ import { AnalystRegistry, type AnalystRegistryOptions } from './registry'
 export interface DefaultAnalystRegistryOptions {
   /** Ax service for the agentic RLM kinds. Omit → only the deterministic analyst. */
   ai?: AxAIService
-  /** Model for the agentic kinds (falls back to the ai service default). */
+  /** Required unless `ai` was created by `createAnalystAi`. */
   model?: string
   /** Which agentic kinds to register when `ai` is present. Default = the shipped suite. */
   kinds?: readonly TraceAnalystKindSpec[]

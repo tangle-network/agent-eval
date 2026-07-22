@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { gepaProposer } from '../../src/campaign/proposers/gepa'
 import { surfaceHash } from '../../src/campaign/surface-identity'
 import type { GenerationRecord, ParetoParent, ProposeContext } from '../../src/campaign/types'
+import { CostLedger } from '../../src/cost-ledger'
 
 /** A fake router fetch that echoes the reflection user-prompt back so the test
  *  can assert the proposer fed the right evidence, and returns N proposals. */
@@ -26,6 +27,8 @@ function ctxWith(history: GenerationRecord[], populationSize: number): ProposeCo
     populationSize,
     generation: history.length,
     signal: new AbortController().signal,
+    costLedger: new CostLedger(),
+    costPhase: 'search.proposal',
   }
 }
 
@@ -193,6 +196,37 @@ describe('gepaProposer', () => {
     expect(out).toEqual([{ surface: 'G0', label: 'c0', rationale: 'r' }])
     expect(capture.userPrompt).not.toContain('weakest dimensions')
   })
+
+  it('charges the returned proposal cost before parsing malformed output', async () => {
+    const ledger = new CostLedger(1)
+    const fetch = (async () =>
+      new Response(
+        JSON.stringify({
+          choices: [{ message: { content: 'not-json' } }],
+          usage: { prompt_tokens: 20, completion_tokens: 10, total_tokens: 30 },
+          model: 'provider-priced-model',
+          _response_cost: 0.3,
+        }),
+        { status: 200, headers: { 'content-type': 'application/json' } },
+      )) as typeof globalThis.fetch
+    const proposer = gepaProposer({
+      llm: { apiKey: 'k', baseUrl: 'https://router.test/v1', fetch },
+      model: 'gpt-4o',
+      maxTokens: 30_000,
+      target: 'system-directive',
+    })
+    const ctx = ctxWith([], 1)
+    ctx.costLedger = ledger
+    ctx.costPhase = 'search.proposal'
+
+    await expect(proposer.propose(ctx)).resolves.toEqual([])
+    expect(ledger.summary().totalCostUsd).toBeCloseTo(0.3, 9)
+    expect(ledger.list()[0]).toMatchObject({
+      channel: 'driver',
+      phase: 'search.proposal',
+      actor: 'gepa.reflect',
+    })
+  })
 })
 
 // ── GEPA combine-complementary-lessons (#101) ──────────────────────────────
@@ -260,6 +294,8 @@ function ctxWithParents(parents: ParetoParent[], populationSize: number): Propos
     generation: 1,
     signal: new AbortController().signal,
     paretoParents: parents,
+    costLedger: new CostLedger(),
+    costPhase: 'search.proposal',
   }
 }
 
@@ -363,6 +399,8 @@ describe('gepaProposer — combine complementary lessons', () => {
       populationSize: 1,
       generation: 0,
       signal: new AbortController().signal,
+      costLedger: new CostLedger(),
+      costPhase: 'search.proposal',
     })
     expect(out).toEqual([{ surface: 'NEW', label: 'c0', rationale: 'r' }])
     expect(capture.userPrompt).toContain('Diagnosed findings')

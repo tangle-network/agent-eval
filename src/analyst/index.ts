@@ -39,11 +39,19 @@ export {
   buildDefaultAnalystRegistry,
   type DefaultAnalystRegistryOptions,
 } from './default-registry'
-export type { RawAnalystFinding } from './finding-signature'
+export type {
+  CanonicalRawAnalystFinding,
+  RawAnalystEvidence,
+  RawAnalystFinding,
+} from './finding-signature'
 export {
   ANALYST_SEVERITIES,
+  CanonicalRawAnalystFindingSchema,
+  evidenceRefsFromRawFinding,
+  parseCanonicalRawFinding,
   parseRawFinding,
   RAW_FINDING_SCHEMA_PROMPT,
+  RawAnalystEvidenceSchema,
   RawAnalystFindingSchema,
 } from './finding-signature'
 export type { FindingSubject, FindingSubjectKind } from './finding-subject'
@@ -64,7 +72,7 @@ export type {
   TraceAnalystGolden,
   TraceAnalystKindSpec,
 } from './kind-factory'
-export { createTraceAnalystKind, renderPriorFindings } from './kind-factory'
+export { createTraceAnalystKind, renderPriorFindings, renderUpstreamFindings } from './kind-factory'
 export {
   DEFAULT_TRACE_ANALYST_KINDS,
   FAILURE_MODE_KIND_SPEC,
@@ -146,6 +154,7 @@ export type {
   AnalystRunResult,
   AnalystRunSummary,
   AnalystSeverity,
+  AnalystUsageReceipt,
   EvidenceRef,
 } from './types'
 export { computeFindingId, makeFinding } from './types'

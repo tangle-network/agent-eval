@@ -1,7 +1,7 @@
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-
+import type { AxAIService } from '@ax-llm/ax'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { analyzeTraces } from './analyst'
@@ -10,7 +10,7 @@ import type { DatasetOverview } from './types'
 
 const axMock = vi.hoisted(() => ({
   agentCalls: [] as Array<{ signature: string; options: Record<string, unknown> }>,
-  forwardCalls: [] as Array<{ ai: unknown; values: unknown }>,
+  forwardCalls: [] as Array<{ ai: unknown; values: unknown; options: unknown }>,
   forwardError: undefined as Error | undefined,
 }))
 
@@ -92,16 +92,17 @@ vi.mock('@ax-llm/ax', () => {
         throw new TypeError('functions must be iterable')
       }
       axMock.agentCalls.push({ signature, options })
-      return {
-        async forward(ai: unknown, values: unknown) {
-          axMock.forwardCalls.push({ ai, values })
+      const executor = {
+        async run(ai: unknown, values: unknown, runOptions: unknown) {
+          axMock.forwardCalls.push({ ai, values, options: runOptions })
           const onTurn = options.actorTurnCallback
           if (typeof onTurn === 'function') {
             await onTurn({
+              stage: 'executor',
               turn: 1,
               actionLogEntryCount: 1,
               guidanceLogEntryCount: 0,
-              actorResult: {},
+              executorResult: {},
               code: 'const overview = await traces.getDatasetOverview({})',
               result: {},
               output: 'overview loaded',
@@ -111,18 +112,27 @@ vi.mock('@ax-llm/ax', () => {
           }
           if (axMock.forwardError) throw axMock.forwardError
           return {
-            answer: 'publish_finding hits MaxTurnsExceeded in t000000000001/s004',
-            findings: ['t000000000001/s004: publish_finding hit MaxTurnsExceeded'],
+            executorResult: {
+              type: 'final',
+              args: [
+                'Submit the completed trace analysis.',
+                {
+                  report: 'publish_finding hits MaxTurnsExceeded in t000000000001/s004',
+                  findings: ['t000000000001/s004: publish_finding hit MaxTurnsExceeded'],
+                },
+              ],
+            },
           }
         },
         getUsage() {
-          return { actor: [{ tokens: { totalTokens: 10 } }], responder: [] }
+          return [{ tokens: { totalTokens: 10 } }]
         },
         getChatLog() {
-          return { actor: [{ role: 'assistant' }], responder: [] }
+          return [{ role: 'assistant' }]
         },
         resetUsage() {},
       }
+      return { executor }
     },
   }
 })
@@ -191,17 +201,18 @@ describe('analyzeTraces', () => {
       },
     }
 
-    const ai = { provider: 'test' }
+    const ai = { provider: 'test' } as unknown as AxAIService
+    const signal = new AbortController().signal
     const result = await analyzeTraces(
       { question: 'Which harness failure mode blocks success?' },
-      { source: store, ai, model: 'rlm-test', maxDepth: 1 },
+      { source: store, ai, model: 'rlm-test', maxSubqueries: 3, signal },
     )
 
     expect(axMock.agentCalls).toHaveLength(1)
     expect(axMock.agentCalls[0]!.signature).toBe(
-      'question:string -> reasoning!:string, answer:string, findings:string[]',
+      'question:string -> report:string, findings:string[]',
     )
-    expect(axMock.agentCalls[0]!.options.mode).toBe('advanced')
+    expect(axMock.agentCalls[0]!.options.maxSubAgentCalls).toBe(3)
     expect(axMock.agentCalls[0]!.options.functions).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ namespace: 'traces', name: 'getDatasetOverview' }),
@@ -212,6 +223,7 @@ describe('analyzeTraces', () => {
       {
         ai,
         values: { question: 'Which harness failure mode blocks success?' },
+        options: { abortSignal: signal },
       },
     ])
     expect(result.answer).toContain('MaxTurnsExceeded')
@@ -240,7 +252,7 @@ describe('analyzeTraces', () => {
           { question: 'What broke?' },
           {
             source: store,
-            ai: { provider: 'test' },
+            ai: { provider: 'test' } as unknown as AxAIService,
             progressLogPath,
             onTurn: (turn) => {
               turns.push(turn)
@@ -260,6 +272,21 @@ describe('analyzeTraces', () => {
     } finally {
       rmSync(tmpDir, { recursive: true, force: true })
     }
+  })
+
+  it.each([
+    ['maxDepth', 2, 'maxSubqueries'],
+    ['maxParallelSubagents', 3, 'maxParallelSubqueries'],
+    ['subagentDescription', 'old prompt', 'actorDescription'],
+  ])('rejects removed option %s instead of silently using defaults', async (name, value, replacement) => {
+    await expect(
+      analyzeTraces({ question: 'What failed?' }, {
+        source: minimalStore(),
+        ai: { provider: 'test' } as unknown as AxAIService,
+        [name]: value,
+      } as never),
+    ).rejects.toThrow(`'${name}' is unsupported; use '${replacement}'`)
+    expect(axMock.agentCalls).toHaveLength(0)
   })
 })
 

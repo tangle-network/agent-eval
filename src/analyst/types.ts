@@ -16,7 +16,8 @@
  */
 
 import { createHash } from 'node:crypto'
-import type { RunRecord } from '../run-record'
+import type { CostLedgerHandle } from '../cost-ledger'
+import type { RunCostProvenance, RunRecord, RunTokenUsage } from '../run-record'
 import type { TraceAnalysisStore } from '../trace-analyst/store'
 import type { JudgeInput } from '../types'
 import type { ChatClient } from './chat-client'
@@ -106,6 +107,8 @@ export interface AnalystCost {
   est_usd_per_run?: number
   /** Models the analyst expects to use (informational). */
   models?: string[]
+  /** Maximum post-cancellation wait for provider usage. Model analysts default to 5 seconds. */
+  settlement_timeout_ms?: number
 }
 
 export interface AnalystRequirements {
@@ -132,10 +135,14 @@ export interface AnalystContext {
   runId: string
   /** Stable correlation id so logs from a single registry.run() share a tag. */
   correlationId: string
-  /** Wall-clock deadline (epoch ms). Analysts SHOULD honor for graceful cancel. */
+  /** Enforced wall-clock deadline (epoch ms). */
   deadlineMs?: number
   /** Per-analyst USD budget. Analysts MAY check before issuing LLM calls. */
   budgetUsd?: number
+  /** Shared paid-call account when the analyst runs inside a larger campaign. */
+  costLedger?: CostLedgerHandle
+  /** Attribution phase used when writing to the shared paid-call account. */
+  costPhase?: string
   /**
    * Shared chat client. Analysts that call an LLM go through this so
    * the operator picks transport (sandbox-sdk | router | cli-bridge |
@@ -153,6 +160,18 @@ export interface AnalystContext {
    * filter. Empty / absent means no cross-run context.
    */
   priorFindings?: ReadonlyArray<AnalystFinding>
+  /**
+   * Findings emitted by analysts that completed earlier in this registry run.
+   * This is separate from `priorFindings`: upstream findings are dependency
+   * context for the current pass, while prior findings are cross-run memory.
+   * The registry populates this only when `RegistryRunOpts.chainFindings` is on.
+   */
+  upstreamFindings?: ReadonlyArray<AnalystFinding>
+  /**
+   * Report metered work independently of findings. This keeps an empty finding
+   * set from erasing token/cost telemetry. Multiple receipts are accumulated.
+   */
+  recordUsage?: (receipt: AnalystUsageReceipt) => void
   /** Free-form runtime tags (env, host, op). Findings can echo these into metadata. */
   tags?: Record<string, string>
   /** Logger callback — analysts SHOULD prefer this over console.* for testability. */
@@ -178,6 +197,18 @@ export interface Analyst<TInput = unknown> {
   /** Bump on breaking changes to claim wording or area so old finding_ids don't collide. */
   readonly version: string
   analyze(input: TInput, ctx: AnalystContext): Promise<AnalystFinding[]>
+}
+
+/** Metered work performed by one analyst call. */
+export interface AnalystUsageReceipt {
+  /** Number of model-usage records observed at the provider boundary. */
+  calls: number | null
+  /** Null when the provider did not return token accounting. */
+  tokens: RunTokenUsage | null
+  /** Observed, estimated, or explicitly uncaptured dollar cost. */
+  cost: RunCostProvenance
+  /** Known lower bound when one or more calls have uncaptured cost. */
+  knownCostUsd?: number
 }
 
 // ── finding_id stability ─────────────────────────────────────────────
@@ -252,6 +283,12 @@ export interface AnalystRunSummary {
   findings_count: number
   latency_ms: number
   cost_usd: number
+  /**
+   * Additive receipt for model usage. Registry-produced summaries populate it
+   * even when the analyst emits no findings. `cost_usd` remains the legacy
+   * numeric field; inspect `usage.cost` before treating zero as observed.
+   */
+  usage?: AnalystUsageReceipt
   /** When `status='failed'`: the error class + message, never the full stack. */
   error?: { class: string; message: string }
 }
@@ -265,6 +302,11 @@ export interface AnalystRunResult {
   per_analyst: AnalystRunSummary[]
   /** Total LLM cost in USD across all analysts in this registry.run(). */
   total_cost_usd: number
+  /**
+   * Provenance for `total_cost_usd`. When uncaptured, the numeric field is only
+   * the known subtotal and must not be treated as the run's total spend.
+   */
+  total_cost_provenance?: RunCostProvenance
 }
 
 // ── Streaming event envelope ────────────────────────────────────────

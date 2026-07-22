@@ -17,7 +17,7 @@
  * be rendered into an agent-interface profile's `prompt.systemPrompt`.
  */
 
-import { surfaceContentHash } from '../campaign/provenance'
+import { surfaceContentHash } from '../campaign/surface-identity'
 import { BASELINE_ROLES, type BaselineRoleKey } from './baselines'
 
 export {

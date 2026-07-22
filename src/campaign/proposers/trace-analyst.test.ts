@@ -1,5 +1,7 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
+import { AnalystRegistry } from '../../analyst/registry'
 import type { AnalystFinding } from '../../analyst/types'
+import { CostLedger } from '../../cost-ledger'
 import { isProposedCandidate, type ProposeContext, type ProposedCandidate } from '../types'
 import { traceAnalystProposer } from './trace-analyst'
 
@@ -35,11 +37,11 @@ function stubFetch(revisedPrompt: string): typeof fetch {
     })) as unknown as typeof fetch
 }
 
-const ctx = (currentSurface: string): ProposeContext =>
+const ctx = (currentSurface: string, findings: unknown[] = []): ProposeContext =>
   ({
     currentSurface,
     history: [],
-    findings: [],
+    findings,
     populationSize: 1,
     generation: 1,
     signal: new AbortController().signal,
@@ -77,6 +79,150 @@ describe('traceAnalystProposer — wraps our trace-analyst registry as a Surface
     expect(typeof d.propose).toBe('function')
   })
 
+  it('enables same-run chaining on the default analyst registry path', async () => {
+    const run = vi.spyOn(AnalystRegistry.prototype, 'run').mockResolvedValue({
+      run_id: 'trace-analyst-gen-1',
+      correlation_id: 'ar_test',
+      started_at: '2026-01-01T00:00:00.000Z',
+      ended_at: '2026-01-01T00:00:01.000Z',
+      findings: [finding({})],
+      per_analyst: [],
+      total_cost_usd: 0,
+      total_cost_provenance: { kind: 'uncaptured', usd: null },
+    })
+    try {
+      const proposer = traceAnalystProposer({
+        baseUrl: 'https://x/v1',
+        apiKey: 'sk-test',
+        model: 'm',
+        resolveTraces: () => '{"name":"agent.Assistant","trace_id":"t1"}',
+        fetchImpl: stubFetch('IMPROVED'),
+      })
+      const input = ctx('BASE')
+      const costLedger = new CostLedger()
+      input.costLedger = costLedger
+
+      await proposer.propose(input)
+
+      expect(run).toHaveBeenCalledWith(
+        'trace-analyst-gen-1',
+        expect.objectContaining({ traceStore: expect.anything() }),
+        expect.objectContaining({
+          chainFindings: true,
+          signal: expect.any(AbortSignal),
+          costLedger,
+        }),
+      )
+      expect(run.mock.calls[0]?.[2]?.priorFindings).toBeUndefined()
+      expect(costLedger.list().map((receipt) => receipt.actor)).toEqual(['trace-analyst.apply'])
+    } finally {
+      run.mockRestore()
+    }
+  })
+
+  it('forwards context findings only through the explicit prior-findings resolver', async () => {
+    const prior = [finding({ finding_id: 'prior-1', analyst_id: 'failure-mode' })]
+    const run = vi.spyOn(AnalystRegistry.prototype, 'run').mockResolvedValue({
+      run_id: 'trace-analyst-gen-1',
+      correlation_id: 'ar_test',
+      started_at: '2026-01-01T00:00:00.000Z',
+      ended_at: '2026-01-01T00:00:01.000Z',
+      findings: [finding({ finding_id: 'new-1' })],
+      per_analyst: [],
+      total_cost_usd: 0,
+      total_cost_provenance: { kind: 'uncaptured', usd: null },
+    })
+    try {
+      const proposer = traceAnalystProposer<AnalystFinding>({
+        baseUrl: 'https://x/v1',
+        apiKey: 'sk-test',
+        model: 'm',
+        resolveTraces: () => '{"name":"agent.Assistant","trace_id":"t1"}',
+        resolvePriorFindings: (input) => ({ '*': input.findings }),
+        fetchImpl: stubFetch('IMPROVED'),
+      })
+
+      await proposer.propose(ctx('BASE', prior) as ProposeContext<AnalystFinding>)
+
+      expect(run).toHaveBeenCalledWith(
+        'trace-analyst-gen-1',
+        expect.objectContaining({ traceStore: expect.anything() }),
+        expect.objectContaining({ priorFindings: { '*': prior } }),
+      )
+    } finally {
+      run.mockRestore()
+    }
+  })
+
+  it('preserves every registry failure and the failed/total count without applying an edit', async () => {
+    const run = vi.spyOn(AnalystRegistry.prototype, 'run').mockResolvedValue({
+      run_id: 'trace-analyst-gen-1',
+      correlation_id: 'ar_test',
+      started_at: '2026-01-01T00:00:00.000Z',
+      ended_at: '2026-01-01T00:00:01.000Z',
+      findings: [],
+      per_analyst: [
+        {
+          analyst_id: 'failure-mode',
+          status: 'failed',
+          findings_count: 0,
+          latency_ms: 1,
+          cost_usd: 0,
+          error: {
+            class: 'TraceAnalysisTurnLimitError',
+            message: "Trace analyst 'failure-mode' reached maxTurns=24",
+          },
+        },
+        {
+          analyst_id: 'knowledge-gap',
+          status: 'failed',
+          findings_count: 0,
+          latency_ms: 1,
+          cost_usd: 0,
+          error: { class: 'Error', message: 'provider response was malformed' },
+        },
+        {
+          analyst_id: 'knowledge-poisoning',
+          status: 'ok',
+          findings_count: 0,
+          latency_ms: 1,
+          cost_usd: 0,
+        },
+        {
+          analyst_id: 'improvement',
+          status: 'ok',
+          findings_count: 0,
+          latency_ms: 1,
+          cost_usd: 0,
+        },
+      ],
+      total_cost_usd: 0,
+      total_cost_provenance: { kind: 'uncaptured', usd: null },
+    })
+    const apply = vi.fn(stubFetch('MUST NOT APPLY'))
+    try {
+      const proposer = traceAnalystProposer({
+        baseUrl: 'https://x/v1',
+        apiKey: 'sk-test',
+        model: 'm',
+        resolveTraces: () => '{"name":"agent.Assistant","trace_id":"t1"}',
+        fetchImpl: apply,
+      })
+
+      const proposal = proposer.propose(ctx('BASE'))
+      await expect(proposal).rejects.toThrow(/2\/4 analysts failed/)
+      await expect(proposal).rejects.toThrow(
+        /failure-mode \[TraceAnalysisTurnLimitError:.*reached maxTurns=24\]/,
+      )
+      await expect(proposal).rejects.toThrow(
+        /knowledge-gap \[Error: provider response was malformed\]/,
+      )
+      expect(apply).not.toHaveBeenCalled()
+    } finally {
+      run.mockRestore()
+    }
+  })
+
   it('FAILS LOUD at construction when apiKey or model is missing (Ax has no env fallback)', () => {
     expect(() =>
       traceAnalystProposer({
@@ -94,6 +240,19 @@ describe('traceAnalystProposer — wraps our trace-analyst registry as a Surface
         resolveTraces: () => 'x',
       }),
     ).toThrow(/model is required/)
+  })
+
+  it('rejects a prior-findings resolver that a custom analyzer would bypass', () => {
+    expect(() =>
+      traceAnalystProposer({
+        baseUrl: 'https://x/v1',
+        apiKey: 'sk-test',
+        model: 'm',
+        resolveTraces: () => 'x',
+        resolvePriorFindings: () => ({ '*': [] }),
+        analyze: async () => [],
+      }),
+    ).toThrow(/custom analyze callbacks must consume ctx\.findings directly/)
   })
 
   it('FAILS LOUD when there are no traces (never fabricates a candidate)', async () => {

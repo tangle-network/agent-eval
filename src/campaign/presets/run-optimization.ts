@@ -16,10 +16,20 @@
  * re-score + release gate + optional PR.
  */
 
+import { mapConcurrent } from '../../concurrency'
+import type { CostLedgerHandle, CostLedgerSummary } from '../../cost-ledger'
 import { type Objective, paretoFrontier } from '../../pareto'
-import { type CampaignCoverage, campaignCoverage, formatCoverageFailures } from '../coverage'
+import {
+  assertCampaignSplitIdentity,
+  type CampaignCoverage,
+  campaignCoverage,
+  campaignSplitDigest,
+  formatCoverageFailures,
+} from '../coverage'
 import { type RunCampaignOptions, runCampaign } from '../run-campaign'
+import { resolveRunDir } from '../run-dir'
 import { campaignBreakdown, campaignMeanComposite } from '../score-utils'
+import { createRunCostLedger, fsCampaignStorage } from '../storage'
 import { surfaceHash } from '../surface-identity'
 import {
   type CampaignResult,
@@ -33,10 +43,26 @@ import {
   type SurfaceProposer,
 } from '../types'
 
+export interface PremeasuredOptimizationBaseline<TArtifact, TScenario extends Scenario> {
+  /** Hash of the exact surface that produced `campaign`. */
+  surfaceHash: string
+  /** Complete prior measurement reused by identity, including artifactsByPath. */
+  campaign: CampaignResult<TArtifact, TScenario>
+}
+
 export interface RunOptimizationBaseOptions<TScenario extends Scenario, TArtifact>
   extends Omit<RunCampaignOptions<TScenario, TArtifact>, 'dispatch'> {
   /** Initial mutable surface (typically system prompt or addendum). */
   baselineSurface: MutableSurface
+  /**
+   * Complete prior measurement of `baselineSurface`. When present,
+   * `runOptimization` validates its surface, scenario split, seed, reps, and
+   * normal campaign coverage, then skips the baseline campaign entirely — no
+   * dispatch or resumability-cache lookup. Candidate campaigns still run
+   * normally. Prior spend remains in the imported campaign aggregates and is
+   * not added again to this continuation's CostLedger.
+   */
+  premeasuredBaseline?: PremeasuredOptimizationBaseline<TArtifact, TScenario>
   /** Dispatcher that takes the CURRENT surface + scenario → artifact. */
   dispatchWithSurface: (
     surface: MutableSurface,
@@ -49,6 +75,9 @@ export interface RunOptimizationBaseOptions<TScenario extends Scenario, TArtifac
   proposer: SurfaceProposer
   populationSize: number
   maxGenerations: number
+  /** Candidate campaigns run at once. Default 1. Total concurrent cells are
+   *  bounded by candidateConcurrency * maxConcurrency. */
+  candidateConcurrency?: number
   /** @deprecated The loop has one global incumbent and can promote only the
    *  single candidate that beats it. Retained for source compatibility. */
   promoteTopK?: number
@@ -82,6 +111,9 @@ export interface RunOptimizationBaseOptions<TScenario extends Scenario, TArtifac
       composite: number
     }>
     history: GenerationRecord[]
+    /** Shared run spend account and receipt attribution phase. */
+    costLedger?: CostLedgerHandle
+    costPhase?: string
   }) => Promise<unknown[]>
 }
 
@@ -110,6 +142,8 @@ export interface RunOptimizationResult<TArtifact, TScenario extends Scenario> {
    *  emitted provenance record. Absent when the winner is the baseline. */
   winnerRationale?: string
   baselineCampaign: CampaignResult<TArtifact, TScenario>
+  /** Run-wide spend, including agents, proposers, analysts, and judges. */
+  cost: CostLedgerSummary
   /** The GEPA Pareto frontier across every scored surface (baseline + all
    *  generations) by per-scenario objective vector — the non-dominated set.
    *  Each generation's `propose()` received the frontier-so-far as
@@ -125,31 +159,56 @@ export async function runOptimization<TScenario extends Scenario, TArtifact>(
   opts: RunOptimizationOptions<TScenario, TArtifact>,
 ): Promise<RunOptimizationResult<TArtifact, TScenario>> {
   const { proposer } = opts
+  const candidateConcurrency = opts.candidateConcurrency ?? 1
   if (typeof opts.runDir !== 'string' || opts.runDir.trim().length === 0) {
     throw new Error('runOptimization: runDir is required and must be a non-empty string')
   }
+  if (!Number.isInteger(candidateConcurrency) || candidateConcurrency < 1) {
+    throw new Error('runOptimization: candidateConcurrency must be a positive integer')
+  }
+  opts.runDir = resolveRunDir(opts.runDir, opts.repo)
+  const storage = opts.storage ?? fsCampaignStorage()
+  const costLedger =
+    opts.costLedger ??
+    createRunCostLedger({
+      storage,
+      runDir: opts.runDir,
+      costCeilingUsd: opts.costCeiling,
+    })
   if (opts.promoteTopK !== undefined && opts.promoteTopK !== 1) {
     throw new Error(
       'runOptimization: promoteTopK must be 1 because the loop has one global incumbent',
     )
   }
 
-  // Baseline run
-  const baselineCampaign = await runCampaign<TScenario, TArtifact>({
-    ...opts,
-    dispatch: (scenario, ctx) => opts.dispatchWithSurface(opts.baselineSurface, scenario, ctx),
-    runDir: `${opts.runDir}/baseline`,
-  })
   const requireJudgeScore = (opts.judges?.length ?? 0) > 0
+  const reps = opts.reps ?? 1
+  const premeasuredBaseline = opts.premeasuredBaseline
+  const baselineCampaign = premeasuredBaseline
+    ? validatedPremeasuredBaseline({
+        input: premeasuredBaseline,
+        baselineSurface: opts.baselineSurface,
+        scenarios: opts.scenarios,
+        reps,
+        seed: opts.seed ?? 42,
+      })
+    : await runCampaign<TScenario, TArtifact>({
+        ...opts,
+        costLedger,
+        costPhase: 'search.baseline',
+        dispatch: (scenario, ctx) => opts.dispatchWithSurface(opts.baselineSurface, scenario, ctx),
+        runDir: `${opts.runDir}/baseline`,
+      })
   const baselineCoverage = campaignCoverage(
     baselineCampaign.cells,
     opts.scenarios,
-    opts.reps ?? 1,
+    reps,
     requireJudgeScore,
   )
   if (!baselineCoverage.complete) {
+    const label = opts.premeasuredBaseline ? 'premeasured baseline' : 'baseline'
     throw new Error(
-      `runOptimization: baseline is incomplete (${baselineCoverage.scorableCellIds.length}/${baselineCoverage.expectedCellIds.length} designed cells scorable) — ${formatCoverageFailures(baselineCoverage)}. Refusing to optimize against an incomplete incumbent.`,
+      `runOptimization: ${label} is incomplete (${baselineCoverage.scorableCellIds.length}/${baselineCoverage.expectedCellIds.length} designed cells scorable) — ${formatCoverageFailures(baselineCoverage)}. Refusing to optimize against an incomplete incumbent.`,
     )
   }
 
@@ -190,11 +249,13 @@ export async function runOptimization<TScenario extends Scenario, TArtifact>(
   if (opts.analyzeGeneration && opts.maxGenerations > 0 && baselineCampaign.cells.length > 0) {
     const fresh = await opts.analyzeGeneration({
       generation: -1,
-      runDir: `${opts.runDir}/baseline`,
+      runDir: baselineCampaign.runDir,
       candidates: [
         { surfaceHash: winnerSurfaceHash, campaign: baselineCampaign, composite: winnerComposite },
       ],
       history,
+      costLedger,
+      costPhase: 'analysis.baseline',
     })
     if (Array.isArray(fresh)) currentFindings = fresh
   }
@@ -225,7 +286,10 @@ export async function runOptimization<TScenario extends Scenario, TArtifact>(
       dataset: opts.labeledStore && opts.labeledStore !== 'off' ? opts.labeledStore : undefined,
       maxImprovementShots: opts.maxImprovementShots,
       paretoParents,
+      costLedger,
+      costPhase: 'search.proposal',
     })
+    if (proposed.length === 0) break
 
     // Normalize: a proposer may return bare surfaces (blind mutators) or
     // `ProposedCandidate`s carrying {label, rationale}. Keep the rationale so
@@ -235,7 +299,7 @@ export async function runOptimization<TScenario extends Scenario, TArtifact>(
     )
 
     // Run each candidate as its own campaign.
-    const surfaceResults: Array<{
+    type SurfaceResult = {
       surfaceHash: string
       surface: MutableSurface
       label: string
@@ -244,32 +308,40 @@ export async function runOptimization<TScenario extends Scenario, TArtifact>(
       campaign: CampaignResult<TArtifact, TScenario>
       composite: number
       coverage: CampaignCoverage
-    }> = []
-    for (let i = 0; i < candidates.length; i++) {
-      const { surface, label, rationale, candidateRecord } = candidates[i]!
-      const hash = surfaceHash(surface)
-      const campaign = await runCampaign<TScenario, TArtifact>({
-        ...opts,
-        dispatch: (scenario, ctx) => opts.dispatchWithSurface(surface, scenario, ctx),
-        runDir: `${opts.runDir}/gen-${gen}/candidate-${i}`,
-      })
-      const composite = campaignMeanComposite(campaign)
-      const coverage = campaignCoverage(
-        campaign.cells,
-        opts.scenarios,
-        opts.reps ?? 1,
-        requireJudgeScore,
-      )
-      surfaceResults.push({
-        surfaceHash: hash,
-        surface,
-        label,
-        rationale,
-        ...(candidateRecord ? { candidateRecord } : {}),
-        campaign,
-        composite,
-        coverage,
-      })
+    }
+    const surfaceResults = await mapConcurrent(
+      candidates,
+      candidateConcurrency,
+      async ({ surface, label, rationale, candidateRecord }, i): Promise<SurfaceResult> => {
+        const hash = surfaceHash(surface)
+        const campaign = await runCampaign<TScenario, TArtifact>({
+          ...opts,
+          costLedger,
+          costPhase: 'search.candidate',
+          dispatch: (scenario, ctx) => opts.dispatchWithSurface(surface, scenario, ctx),
+          runDir: `${opts.runDir}/gen-${gen}/candidate-${i}`,
+        })
+        const composite = campaignMeanComposite(campaign)
+        const coverage = campaignCoverage(
+          campaign.cells,
+          opts.scenarios,
+          opts.reps ?? 1,
+          requireJudgeScore,
+        )
+        return {
+          surfaceHash: hash,
+          surface,
+          label,
+          rationale,
+          ...(candidateRecord ? { candidateRecord } : {}),
+          campaign,
+          composite,
+          coverage,
+        }
+      },
+    )
+    for (const result of surfaceResults) {
+      const { surface, surfaceHash: hash, campaign, coverage, label, rationale } = result
       if (coverage.complete) {
         // Incomplete candidates retain their raw campaign and history row but
         // cannot gain Pareto value by avoiding a difficult cell.
@@ -350,6 +422,8 @@ export async function runOptimization<TScenario extends Scenario, TArtifact>(
           composite: s.composite,
         })),
         history,
+        costLedger,
+        costPhase: 'analysis.generation',
       })
       if (Array.isArray(fresh)) currentFindings = fresh
     }
@@ -363,7 +437,49 @@ export async function runOptimization<TScenario extends Scenario, TArtifact>(
     winnerRationale,
     baselineCampaign,
     paretoFrontier: computeParetoFrontier(scored),
+    cost: costLedger.summary(),
   }
+}
+
+function validatedPremeasuredBaseline<TScenario extends Scenario, TArtifact>(args: {
+  input: PremeasuredOptimizationBaseline<TArtifact, TScenario>
+  baselineSurface: MutableSurface
+  scenarios: TScenario[]
+  reps: number
+  seed: number
+}): CampaignResult<TArtifact, TScenario> {
+  const { input } = args
+  if (input.surfaceHash !== surfaceHash(args.baselineSurface)) {
+    throw new Error(
+      'runOptimization: premeasured baseline surface hash does not match baselineSurface',
+    )
+  }
+
+  const campaign = input.campaign
+  if (campaign.reps !== args.reps) {
+    throw new Error(
+      `runOptimization: premeasured baseline reps ${campaign.reps} do not match requested reps ${args.reps}`,
+    )
+  }
+  if (campaign.seed !== args.seed) {
+    throw new Error(
+      `runOptimization: premeasured baseline seed ${campaign.seed} does not match requested seed ${args.seed}`,
+    )
+  }
+
+  try {
+    assertCampaignSplitIdentity(campaign.scenarios, campaign.reps, campaign.splitDigest)
+  } catch (error) {
+    throw new Error(
+      `runOptimization: premeasured baseline has an invalid retained split identity — ${error instanceof Error ? error.message : String(error)}`,
+    )
+  }
+  if (campaign.splitDigest !== campaignSplitDigest(args.scenarios, args.reps)) {
+    throw new Error(
+      'runOptimization: premeasured baseline split does not match the requested scenarios',
+    )
+  }
+  return campaign
 }
 
 /** Build a `ParetoParent` from a scored campaign — objective vector =
@@ -421,8 +537,6 @@ function computeParetoFrontier(scored: ParetoParent[]): ParetoParent[] {
   }))
   return paretoFrontier(scored, objectives).frontier
 }
-
-export { surfaceHash } from '../surface-identity'
 
 function toScoredSurfaceOutcome<TArtifact, TScenario extends Scenario>(
   surfaceHash: string,

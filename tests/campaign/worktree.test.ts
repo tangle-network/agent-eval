@@ -12,8 +12,7 @@ import {
 import { devNull, tmpdir } from 'node:os'
 import { basename, dirname, join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { surfaceHash } from '../../src/campaign/presets/run-optimization'
-import { surfaceContentHash } from '../../src/campaign/provenance'
+import { surfaceContentHash, surfaceHash } from '../../src/campaign/surface-identity'
 import {
   gitWorktreeAdapter,
   resolveWorktreePath,
@@ -23,6 +22,14 @@ import {
 
 function git(args: string[], cwd: string): string {
   return execFileSync('git', args, { cwd, encoding: 'utf8' }).trim()
+}
+
+function gitBytes(args: string[], cwd: string, env?: Readonly<Record<string, string>>): Buffer {
+  return execFileSync('git', args, {
+    cwd,
+    env: { ...process.env, ...env },
+    maxBuffer: 256 * 1024 * 1024,
+  })
 }
 
 let repoRoot: string
@@ -547,6 +554,57 @@ describe('gitWorktreeAdapter — real git worktrees', () => {
 
     expect(git(['worktree', 'list'], repoRoot)).not.toContain(wt.path)
     expect(git(['branch', '--list', wt.branch], repoRoot)).toBe('')
+  })
+
+  it('retries cleanup after worktree removal succeeds but branch deletion fails', async () => {
+    let failBranchDelete = true
+    const adapter = gitWorktreeAdapter({
+      repoRoot,
+      git(args, cwd, env) {
+        if (args[0] === 'branch' && args[1] === '-D' && failBranchDelete) {
+          failBranchDelete = false
+          throw new Error('injected branch deletion failure')
+        }
+        return gitBytes(args, cwd, env)
+      },
+    })
+    const wt = await adapter.create({ baseRef: 'main', label: 'retry-discard' })
+
+    await expect(adapter.discard(wt)).rejects.toThrow(WorktreeAdapterError)
+    expect(git(['worktree', 'list'], repoRoot)).not.toContain(wt.path)
+    expect(git(['branch', '--list', wt.branch], repoRoot)).toBe(wt.branch)
+
+    await expect(adapter.discard(wt)).resolves.toBeUndefined()
+    expect(git(['branch', '--list', wt.branch], repoRoot)).toBe('')
+    await expect(adapter.discard(wt)).resolves.toBeUndefined()
+  })
+
+  it('accepts removal errors when Git already reached the requested state', async () => {
+    let failAfterWorktreeRemoval = true
+    let failAfterBranchDeletion = true
+    const adapter = gitWorktreeAdapter({
+      repoRoot,
+      git(args, cwd, env) {
+        const output = gitBytes(args, cwd, env)
+        if (args[0] === 'worktree' && args[1] === 'remove' && failAfterWorktreeRemoval) {
+          failAfterWorktreeRemoval = false
+          throw new Error('injected error after worktree removal')
+        }
+        if (args[0] === 'branch' && args[1] === '-D' && failAfterBranchDeletion) {
+          failAfterBranchDeletion = false
+          throw new Error('injected error after branch deletion')
+        }
+        return output
+      },
+    })
+    const wt = await adapter.create({ baseRef: 'main', label: 'post-removal-error' })
+
+    await expect(adapter.discard(wt)).resolves.toBeUndefined()
+    expect(failAfterWorktreeRemoval).toBe(false)
+    expect(failAfterBranchDeletion).toBe(false)
+    expect(git(['worktree', 'list'], repoRoot)).not.toContain(wt.path)
+    expect(git(['branch', '--list', wt.branch], repoRoot)).toBe('')
+    await expect(adapter.discard(wt)).resolves.toBeUndefined()
   })
 
   it('two candidates get isolated worktrees off the same base', async () => {

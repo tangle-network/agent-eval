@@ -1,11 +1,9 @@
 /**
  * Traced analyst wrapper — instruments `analyzeTraces` with spans so the
- * analyst's internal LLM calls (actor + responder turns) appear in the
- * trace tree. Also wraps each actor turn callback with a span.
+ * analyst's internal model turns appear in the trace tree. Also wraps each
+ * actor turn callback with a span.
  *
- * Since the analyst uses @ax-llm/ax internally (an agent framework with
- * its own turn loop), we cannot wrap individual `tc.chat()` calls without
- * forking ax. Instead, we wrap at the boundary:
+ * The wrapper records the Ax turn loop at its public boundaries:
  *   1. A parent span for the entire analyst run.
  *   2. Per-turn child spans from the `onTurn` callback (captures code,
  *      output size, error status).
@@ -43,15 +41,13 @@ export async function tracedAnalyzeTraces(
     attributes: {
       'analyst.question_length': input.question.length,
       'analyst.max_turns': options.maxTurns ?? 12,
-      'analyst.max_depth': options.maxDepth ?? 1,
+      'analyst.max_subqueries': options.maxSubqueries ?? 4,
       'eval.phase': 'analyst',
     },
   })
 
   // Intercept onTurn to emit per-turn spans.
   const originalOnTurn = options.onTurn
-  const turnSpanIds: string[] = []
-
   const wrappedOptions: AnalyzeTracesOptions = {
     ...options,
     onTurn: async (turn: AnalyzeTracesTurnSnapshot) => {
@@ -60,6 +56,7 @@ export async function tracedAnalyzeTraces(
         name: `analyst:turn-${turn.turn}`,
         parentSpanId: parentSpan.span.spanId,
         attributes: {
+          'analyst.stage': turn.stage,
           'analyst.turn': turn.turn,
           'analyst.is_error': turn.isError,
           'analyst.code_length': turn.code.length,
@@ -67,7 +64,6 @@ export async function tracedAnalyzeTraces(
           'eval.phase': 'analyst',
         },
       })
-      turnSpanIds.push(turnSpan.span.spanId)
       if (turn.isError) {
         await turnSpan.fail('Turn produced an error')
       } else {

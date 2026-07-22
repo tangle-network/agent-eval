@@ -24,6 +24,7 @@ import {
   fromFeedbackTable,
   fromOtelSpans,
   type InsightReport,
+  summarizeExecution,
 } from '../src/contract'
 import type { TraceSpanEvent } from '../src/hosted/types'
 import type { RunRecord } from '../src/run-record'
@@ -129,6 +130,88 @@ describe('analyzeRuns — lift detection with paired bootstrap', () => {
     expect(report.lift).toBeDefined()
     const kinds = report.recommendations.map((r) => r.kind)
     expect(kinds).toContain('expand-corpus')
+  })
+})
+
+describe('analyzeRuns — execution facts', () => {
+  it('summarizes duration, queueing, token categories, models, and recorded failures', async () => {
+    const runs = [
+      makeRun({ id: 'exec-1', candidate: 'c', composite: 0.8 }),
+      makeRun({ id: 'exec-2', candidate: 'c', composite: 0.7, failureMode: 'tool failed' }),
+      makeRun({ id: 'exec-3', candidate: 'c', composite: 0.9 }),
+    ]
+    Object.assign(runs[0]!, {
+      wallMs: 100,
+      queueMs: 10,
+      tokenUsage: { input: 10, output: 4, reasoning: 1, cached: 100, cacheWrite: 20 },
+      outcome: {
+        ...runs[0]!.outcome,
+        raw: { error_span_count: 0, llm_span_count: 2 },
+      },
+    })
+    Object.assign(runs[1]!, {
+      wallMs: 200,
+      queueMs: 30,
+      tokenUsage: { input: 20, output: 5, cached: 200 },
+      outcome: {
+        ...runs[1]!.outcome,
+        raw: { error_span_count: 2, llm_span_count: 1 },
+      },
+    })
+    Object.assign(runs[2]!, {
+      wallMs: 300,
+      model: 'other@v',
+      failureClass: 'success',
+      tokenUsage: { input: 30, output: 6 },
+      outcome: {
+        ...runs[2]!.outcome,
+        raw: {
+          aggregate_prompt_tokens: 40,
+          aggregate_completion_tokens: 50,
+          aggregate_reasoning_tokens: 10,
+          aggregate_cached_tokens: 60,
+          aggregate_cache_write_tokens: 70,
+          aggregate_cost_usd: 0.2,
+        },
+      },
+    })
+
+    const { execution } = await analyzeRuns({ runs })
+    const executionOnly = summarizeExecution({ runs })
+
+    expect(executionOnly.execution).toEqual(execution)
+    expect(executionOnly.costProvenance.observed.n).toBe(3)
+    expect(execution.durationMs).toMatchObject({ n: 3, min: 100, p50: 200, max: 300 })
+    expect(execution.queueMs).toMatchObject({ n: 2, min: 10, p50: 20, max: 30 })
+    expect(execution.tokenUsage.totals).toEqual({
+      input: 60,
+      output: 15,
+      reasoning: 1,
+      cached: 300,
+      cacheWrite: 20,
+    })
+    expect(execution.tokenUsage.cached.n).toBe(2)
+    expect(execution.tokenUsage.cacheWrite.n).toBe(1)
+    expect(execution.aggregateUsage.runs).toBe(1)
+    expect(execution.aggregateUsage.tokenUsage.totals).toEqual({
+      input: 40,
+      output: 50,
+      reasoning: 10,
+      cached: 60,
+      cacheWrite: 70,
+    })
+    expect(execution.aggregateUsage.totalCostUsd).toBe(0.2)
+    expect(execution.models).toEqual([
+      { model: 'm@v', runs: 2 },
+      { model: 'other@v', runs: 1 },
+    ])
+    expect(execution.modelCalls).toEqual({ runs: 3, events: 3, reportingRuns: 2 })
+    expect(execution.failures).toEqual({
+      runs: 1,
+      fraction: 1 / 3,
+      reportedErrorEvents: 2,
+      reportingRuns: 2,
+    })
   })
 })
 
@@ -304,6 +387,195 @@ describe('fromOtelSpans → analyzeRuns: OTel observability corpus', () => {
     expect(report.n).toBe(2)
     expect(report.composite.n).toBe(2)
     expect(report.costQuality.cost.mean).toBeGreaterThan(0)
+  })
+
+  it('preserves a cost-only model call and an untyped run-total cost', () => {
+    const runs = fromOtelSpans({
+      spans: [
+        span({
+          traceId: 'cost-only-call',
+          spanId: 'call',
+          name: 'provider.request',
+          attributes: {
+            'gen_ai.request.model': 'gpt-4o-2024-11-20',
+            'tangle.cost.usd': 0.1,
+          },
+        }),
+        span({
+          traceId: 'run-total-cost',
+          spanId: 'run',
+          name: 'workflow.run',
+          attributes: { 'cost.usd': 0.2 },
+        }),
+      ],
+    })
+
+    const modelCall = runs.find((run) => run.runId === 'cost-only-call')!
+    expect(modelCall.costProvenance).toEqual({ kind: 'observed', usd: 0.1 })
+    expect(modelCall.outcome.raw.llm_span_count).toBe(1)
+
+    const runTotal = runs.find((run) => run.runId === 'run-total-cost')!
+    expect(runTotal.costProvenance).toEqual({ kind: 'observed', usd: 0.2 })
+    expect(runTotal.outcome.raw.llm_span_count).toBe(0)
+    expect(runTotal.outcome.raw.aggregate_cost_usd).toBe(0.2)
+  })
+
+  it('sums model-call usage without double-counting aggregate parent spans', () => {
+    const spans: TraceSpanEvent[] = [
+      span({
+        traceId: 'hierarchical',
+        spanId: 'root',
+        name: 'agent.run',
+        startTimeUnixNano: 0,
+        endTimeUnixNano: 2_000_000_000,
+        attributes: {
+          'gen_ai.usage.input_tokens': 9999,
+          'gen_ai.usage.output_tokens': 9999,
+          'tangle.cost.usd': 9,
+        },
+      }),
+      span({
+        traceId: 'hierarchical',
+        spanId: 'llm-1',
+        parentSpanId: 'root',
+        name: 'claude.llm_request',
+        attributes: {
+          'openinference.span.kind': 'LLM',
+          'gen_ai.request.model': 'claude-opus@2026-07-01',
+          'gen_ai.usage.input_tokens': 10,
+          'gen_ai.usage.output_tokens': 3,
+          cache_read_tokens: 100,
+          cache_creation_tokens: 7,
+          'tangle.cost.usd': 0.01,
+        },
+      }),
+      span({
+        traceId: 'hierarchical',
+        spanId: 'llm-2',
+        parentSpanId: 'root',
+        name: 'provider.request',
+        attributes: {
+          'gen_ai.request.model': 'claude-opus@2026-07-01',
+          'gen_ai.usage.input_tokens': 20,
+          'gen_ai.usage.output_tokens': 4,
+          cache_read_tokens: 200,
+          cache_creation_tokens: 8,
+          'tangle.cost.usd': 0.02,
+        },
+      }),
+    ]
+
+    const [run] = fromOtelSpans({ spans })
+
+    expect(run!.tokenUsage).toEqual({
+      input: 30,
+      output: 7,
+      cached: 300,
+      cacheWrite: 15,
+    })
+    expect(run!.costUsd).toBeCloseTo(0.03)
+    expect(run!.costProvenance).toEqual({ kind: 'observed', usd: 0.03 })
+  })
+
+  it('uses aggregate cost when model-call cost coverage is incomplete', () => {
+    const spans: TraceSpanEvent[] = [
+      span({
+        traceId: 'partial-cost',
+        spanId: 'root',
+        name: 'agent.run',
+        attributes: {
+          'gen_ai.usage.input_tokens': 999,
+          'gen_ai.usage.output_tokens': 999,
+          'tangle.cost.usd': 0.5,
+        },
+      }),
+      span({
+        traceId: 'partial-cost',
+        spanId: 'call-1',
+        parentSpanId: 'root',
+        name: 'provider.request',
+        attributes: {
+          'gen_ai.usage.input_tokens': 10,
+          'gen_ai.usage.output_tokens': 2,
+          'tangle.cost.usd': 0.1,
+        },
+      }),
+      span({
+        traceId: 'partial-cost',
+        spanId: 'call-2',
+        parentSpanId: 'root',
+        name: 'provider.request',
+        attributes: {
+          'gen_ai.usage.input_tokens': 20,
+          'gen_ai.usage.output_tokens': 3,
+        },
+      }),
+    ]
+
+    const [run] = fromOtelSpans({ spans })
+
+    expect(run!.tokenUsage).toEqual({ input: 30, output: 5 })
+    expect(run!.costProvenance).toEqual({ kind: 'observed', usd: 0.5 })
+  })
+
+  it('reconciles complementary parent and child measurements per field', () => {
+    const spans: TraceSpanEvent[] = [
+      span({
+        traceId: 'complementary',
+        spanId: 'root',
+        name: 'agent.run',
+        attributes: {
+          'gen_ai.usage.input_tokens': 50,
+          'gen_ai.usage.output_tokens': 8,
+        },
+      }),
+      span({
+        traceId: 'complementary',
+        spanId: 'provider',
+        parentSpanId: 'root',
+        name: 'provider.request',
+        attributes: {
+          'gen_ai.request.model': 'claude-opus@2026-07-01',
+          cache_read_tokens: 400,
+          cache_creation_tokens: 20,
+          'tangle.cost.usd': 0.04,
+        },
+      }),
+    ]
+
+    const [run] = fromOtelSpans({ spans })
+
+    expect(run!.tokenUsage).toEqual({ input: 50, output: 8, cached: 400, cacheWrite: 20 })
+    expect(run!.costProvenance).toEqual({ kind: 'observed', usd: 0.04 })
+    expect(run!.outcome.raw.llm_span_count).toBe(1)
+  })
+
+  it('marks incomplete model-call cost as uncaptured while retaining the observed partial', () => {
+    const spans: TraceSpanEvent[] = [
+      span({ traceId: 'partial-only', spanId: 'root', name: 'agent.run' }),
+      span({
+        traceId: 'partial-only',
+        spanId: 'call-1',
+        parentSpanId: 'root',
+        name: 'provider.request',
+        attributes: {
+          'gen_ai.usage.input_tokens': 10,
+          'tangle.cost.usd': 0.1,
+        },
+      }),
+      span({
+        traceId: 'partial-only',
+        spanId: 'call-2',
+        parentSpanId: 'root',
+        name: 'provider.request',
+        attributes: { 'gen_ai.usage.input_tokens': 20 },
+      }),
+    ]
+
+    const [run] = fromOtelSpans({ spans })
+
+    expect(run!.costProvenance).toEqual({ kind: 'uncaptured', usd: null })
+    expect(run!.outcome.raw.partial_observed_cost_usd).toBe(0.1)
   })
 })
 

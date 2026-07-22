@@ -37,6 +37,7 @@
  * Additive: no changes to `lineage.ts`, `run-optimization.ts`, or `gepa.ts`.
  */
 
+import { mapConcurrent } from '../../concurrency'
 import type { LlmClientOptions } from '../../llm-client'
 import {
   type Governor,
@@ -51,6 +52,7 @@ import { gepaProposer } from '../proposers/gepa'
 import { type RunCampaignOptions, runCampaign } from '../run-campaign'
 import { campaignBreakdown, campaignMeanComposite } from '../score-utils'
 import type { CampaignStorage } from '../storage'
+import { surfaceHash } from '../surface-identity'
 import {
   isProposedCandidate,
   type JudgeConfig,
@@ -60,7 +62,6 @@ import {
   type Scenario,
   type SurfaceProposer,
 } from '../types'
-import { surfaceHash } from './run-optimization'
 
 /** A seed track: the initial surface + track identity. Unlike
  *  {@link RunLineageSeed} there is NO `score` — `runLineageLoop` scores each
@@ -120,17 +121,22 @@ export interface RunLineageLoopOptions<TScenario extends Scenario, TArtifact> {
   /** Candidates proposed per extend/branch step (BREADTH within one step).
    *  Default 4. The merge always proposes a single crossover. */
   populationSize?: number
+  /** Candidate surfaces measured at once. Default 1. Total concurrent cells are
+   *  bounded by candidateConcurrency * maxConcurrency. */
+  candidateConcurrency?: number
 
   // ── DAG control ───────────────────────────────────────────────────────────
   /** Agent-managed decision layer. Default {@link heuristicGovernor}. */
   governor?: Governor
-  budget: { maxSteps: number }
+  budget: { maxSteps: number; maxNodes?: number }
   store?: LineageStore
 
   // ── Injectable seams (unit-testable without a live model) ─────────────────
   /** Override the per-step proposer. Default {@link gepaProposer}. Inject a
    *  pure stub to unit-test without an LLM. */
   proposer?: SurfaceProposer
+  /** Optional proposer implementations keyed by the labels carried by tracks. */
+  proposers?: Readonly<Record<string, SurfaceProposer>>
   /** Override how a surface is scored into a DAG-node fitness. Default is a
    *  {@link runCampaign} pass over `holdoutScenarios ?? scenarios`. Inject a
    *  deterministic function to unit-test without a campaign. */
@@ -177,25 +183,33 @@ export async function runLineageLoop<TScenario extends Scenario, TArtifact>(
 ): Promise<RunLineageLoopResult> {
   const governor = opts.governor ?? heuristicGovernor()
   const populationSize = opts.populationSize ?? 4
+  const candidateConcurrency = opts.candidateConcurrency ?? 1
   if (populationSize < 1) {
     throw new Error('runLineageLoop: populationSize must be >= 1')
   }
+  if (!Number.isInteger(candidateConcurrency) || candidateConcurrency < 1) {
+    throw new Error('runLineageLoop: candidateConcurrency must be a positive integer')
+  }
 
   // ── Resolve the proposer seam ─────────────────────────────────────────────
-  let proposer = opts.proposer
-  if (!proposer) {
-    if (!opts.llm || !opts.model) {
-      throw new Error(
-        'runLineageLoop: a proposer is required — either inject `proposer`, or provide `llm` + `model` for the default gepaProposer.',
-      )
-    }
-    proposer = gepaProposer({
+  let defaultProposer = opts.proposer
+  if (!defaultProposer && opts.llm && opts.model) {
+    defaultProposer = gepaProposer({
       llm: opts.llm,
       model: opts.model,
       target: opts.target ?? 'agent surface',
-      // GEPA combine-complementary-lessons is what the `merge` seam relies on.
       combineParents: true,
     })
+  }
+  if (!defaultProposer && !opts.proposers) {
+    throw new Error(
+      'runLineageLoop: a proposer is required — inject `proposer` or `proposers`, or provide `llm` + `model` for the default gepaProposer.',
+    )
+  }
+  const proposerFor = (name: string): SurfaceProposer => {
+    const resolved = opts.proposers?.[name] ?? defaultProposer
+    if (!resolved) throw new Error(`runLineageLoop: no proposer is registered for '${name}'`)
+    return resolved
   }
 
   // ── Resolve the scoreSurface seam ─────────────────────────────────────────
@@ -260,31 +274,42 @@ export async function runLineageLoop<TScenario extends Scenario, TArtifact>(
   }
 
   // ── (1) Score every seed surface → RunLineageSeed[] ───────────────────────
-  const scoredSeeds: RunLineageSeed[] = []
-  for (const seed of opts.seeds) {
+  const scoredSeeds = await mapConcurrent(opts.seeds, candidateConcurrency, async (seed) => {
     const measured = await scoreSurface(seed.surface)
-    scoredSeeds.push({
+    return {
       surface: seed.surface as string,
       track: seed.track,
       proposer: seed.proposer,
       score: measured.score,
       ...(seed.vision !== undefined ? { vision: seed.vision } : {}),
       ...(measured.scoreVector !== undefined ? { scoreVector: measured.scoreVector } : {}),
-    })
-  }
+    } satisfies RunLineageSeed
+  })
 
   // ── (2) The live `step` seam: propose from the tip, score, pick the best ──
   const step = async (args: {
+    track: string
+    proposer: string
     tip: LineageNode
+    operation: 'extend' | 'branch'
+    generation: number
+    vision?: string
   }): Promise<SurfaceScore & { surface: string; rationale?: string }> => {
-    const proposed = await proposer!.propose({
+    const proposed = await proposerFor(args.proposer).propose({
       currentSurface: args.tip.surface,
       history: [],
       findings: [],
       populationSize,
-      generation: 0,
+      generation: args.generation,
       signal: new AbortController().signal,
       paretoParents: [],
+      track: {
+        id: args.track,
+        operation: args.operation,
+        proposer: args.proposer,
+        parentTrackIds: [args.tip.track],
+        ...(args.vision !== undefined ? { vision: args.vision } : {}),
+      },
     })
 
     // Elitism: keep the tip in the pool so a step never regresses below its
@@ -305,16 +330,21 @@ export async function runLineageLoop<TScenario extends Scenario, TArtifact>(
         ...(args.tip.rationale !== undefined ? { rationale: args.tip.rationale } : {}),
       },
     ]
-    for (const p of proposed) {
-      const { surface, rationale } = toCandidate(p)
-      const measured = await scoreSurface!(surface)
-      pool.push({
-        surface,
-        score: measured.score,
-        ...(measured.scoreVector !== undefined ? { scoreVector: measured.scoreVector } : {}),
-        ...(rationale !== undefined ? { rationale } : {}),
-      })
-    }
+    const measuredCandidates = await mapConcurrent(
+      proposed,
+      candidateConcurrency,
+      async (p): Promise<PoolEntry> => {
+        const { surface, rationale } = toCandidate(p)
+        const measured = await scoreSurface!(surface)
+        return {
+          surface,
+          score: measured.score,
+          ...(measured.scoreVector !== undefined ? { scoreVector: measured.scoreVector } : {}),
+          ...(rationale !== undefined ? { rationale } : {}),
+        }
+      },
+    )
+    pool.push(...measuredCandidates)
 
     let best = pool[0]!
     for (const entry of pool) {
@@ -330,7 +360,11 @@ export async function runLineageLoop<TScenario extends Scenario, TArtifact>(
 
   // ── (3) The live `merge` seam: GEPA crossover of the parents, then score ──
   const merge = async (args: {
+    track: string
+    proposer: string
     parents: LineageNode[]
+    generation: number
+    vision?: string
   }): Promise<SurfaceScore & { surface: string; rationale?: string }> => {
     // Order parents best-first; the strongest surface is the reflection base and
     // GEPA reads each parent's per-scenario objectives to combine strengths.
@@ -343,7 +377,7 @@ export async function runLineageLoop<TScenario extends Scenario, TArtifact>(
       generation: node.generation,
     }))
 
-    const proposed = await proposer!.propose({
+    const proposed = await proposerFor(args.proposer).propose({
       currentSurface: ordered[0]!.surface,
       history: [],
       findings: [],
@@ -351,9 +385,16 @@ export async function runLineageLoop<TScenario extends Scenario, TArtifact>(
       // paretoParents has > 1 string member.
       populationSize: 1,
       // generation >= 1 keeps the combine slot semantically a "merge" step.
-      generation: 1,
+      generation: args.generation,
       signal: new AbortController().signal,
       paretoParents,
+      track: {
+        id: args.track,
+        operation: 'merge',
+        proposer: args.proposer,
+        parentTrackIds: [...new Set(ordered.map((parent) => parent.track))],
+        ...(args.vision !== undefined ? { vision: args.vision } : {}),
+      },
     })
 
     const first = proposed[0]

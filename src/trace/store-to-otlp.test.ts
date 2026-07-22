@@ -39,6 +39,9 @@ const LLM_SPAN = {
   status: 'ok',
   inputTokens: 120,
   outputTokens: 40,
+  reasoningTokens: 15,
+  cachedTokens: 300,
+  cacheWriteTokens: 25,
   costUsd: 0.001,
 }
 
@@ -99,6 +102,10 @@ describe('convertTraceStoresToOtlp', () => {
     expect(span!.attributes['openinference.span.kind']).toBe('LLM')
     expect(span!.attributes['llm.model_name']).toBe('openai/gpt-4o-mini')
     expect(span!.attributes['llm.token_count.prompt']).toBe(120)
+    expect(span!.attributes['llm.token_count.prompt_cache_hit']).toBe(300)
+    expect(span!.attributes['llm.token_count.prompt_cache_write']).toBe(25)
+    expect(span!.attributes['tangle.llm.context_tokens']).toBe(445)
+    expect(span!.attributes['llm.token_count.reasoning']).toBe(15)
     expect(span!.parent_span_id).toBe(anchor!.span_id)
     expect(span!.resource.attributes['test.persona_id']).toBe('p1')
   })
@@ -109,6 +116,45 @@ describe('convertTraceStoresToOtlp', () => {
     const [anchor] = read()
     expect(anchor!.resource.attributes['service.name']).toBe('agent-eval')
     expect(anchor!.resource.attributes['test.persona_id']).toBeUndefined()
+  })
+
+  it('preserves captured tool input and marks unavailable arguments', () => {
+    writeCell(root, 'p1')
+    const dir = join(root, 'p1')
+    const tools = [
+      {
+        spanId: 'tool-captured',
+        runId: 'run-1',
+        kind: 'tool',
+        name: 'search',
+        toolName: 'search',
+        args: { q: 'x' },
+        startedAt: 1_700_000_000_100,
+        endedAt: 1_700_000_000_200,
+      },
+      {
+        spanId: 'tool-unknown',
+        runId: 'run-1',
+        kind: 'tool',
+        name: 'search',
+        toolName: 'search',
+        argsCaptured: false,
+        startedAt: 1_700_000_000_300,
+        endedAt: 1_700_000_000_400,
+      },
+    ]
+    writeFileSync(
+      join(dir, 'spans.ndjson'),
+      `${tools.map((span) => JSON.stringify(span)).join('\n')}\n`,
+    )
+
+    convertTraceStoresToOtlp(root, out)
+    const [, captured, unknown] = read()
+
+    expect(captured!.attributes['tool.args_captured']).toBe(true)
+    expect(captured!.attributes['input.value']).toBe('{"q":"x"}')
+    expect(unknown!.attributes['tool.args_captured']).toBe(false)
+    expect(unknown!.attributes['input.value']).toBeUndefined()
   })
 
   it('pads ids to OTLP widths (32-hex trace, 16-hex span)', () => {

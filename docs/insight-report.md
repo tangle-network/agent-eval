@@ -2,6 +2,9 @@
 
 The single shape every analysis call returns. `selfImprove()` embeds it in `SelfImproveResult.insight`; `analyzeRuns()` returns it directly. The hosted-tier wire format carries it on `EvalRunEvent.insightReport?`.
 
+Use `summarizeExecution({ runs })` when observed traces have no task-quality labels.
+It returns only `execution` and `costProvenance`, so callers do not need to fabricate a quality score to report runtime facts.
+
 Every section is **opt-in based on what your data supports** — the function never invents signal. If your runs don't carry judge scores, `judges` is empty. If there's no baseline/candidate split, `lift` is undefined. The shape is consistent; population is honest.
 
 This page walks every section with a real (synthetic) example and explains how to act on it.
@@ -13,6 +16,7 @@ This page walks every section with a real (synthetic) example and explains how t
 ```ts
 interface InsightReport {
   n: number                              // runs analyzed
+  execution: ExecutionInsight            // duration, tokens, models, failures
   composite: ScalarDistribution          // always
   perDimension: Record<string, ScalarDistribution>   // when judgeScores carry dimensions
   costQuality: { cost: ScalarDistribution; pareto: ParetoFigureSpec }   // always
@@ -26,6 +30,46 @@ interface InsightReport {
   recommendations: Recommendation[]      // always — read this FIRST
 }
 ```
+
+---
+
+## `execution` — runtime facts, separate from quality
+
+Always present.
+It reports duration, optional queue time, direct input, output, reasoning, cache-read, and cache-write tokens, model-call coverage, model cohorts, explicit failures, and separately reported orchestration aggregates.
+These fields describe what ran; they do not claim whether the task succeeded.
+
+```jsonc
+{
+  "execution": {
+    "durationMs": { "n": 30, "p50": 5400, "p95": 82000, "min": 900, "max": 190000 },
+    "queueMs": { "n": 0, "histogram": [] },
+    "tokenUsage": {
+      "totals": { "input": 50132, "output": 471783, "reasoning": 12000, "cached": 60489565, "cacheWrite": 3032227 },
+      "input": { "n": 30, "p50": 25, "p95": 56 },
+      "output": { "n": 30, "p50": 230, "p95": 2651 },
+      "reasoning": { "n": 12, "p50": 800, "p95": 2400 },
+      "cached": { "n": 20, "p50": 94193, "p95": 310178 },
+      "cacheWrite": { "n": 20, "p50": 3070, "p95": 11148 }
+    },
+    "aggregateUsage": {
+      "runs": 2,
+      "tokenUsage": {
+        "totals": { "input": 5000, "output": 176829, "reasoning": 0, "cached": 0, "cacheWrite": 0 }
+      },
+      "costUsd": { "n": 0 },
+      "totalCostUsd": 0
+    },
+    "modelCalls": { "runs": 20, "events": 42, "reportingRuns": 30 },
+    "models": [{ "model": "claude-opus@2026-07-01", "runs": 20 }],
+    "failures": { "runs": 2, "fraction": 0.067, "reportedErrorEvents": 3, "reportingRuns": 30 }
+  }
+}
+```
+
+Use `distribution.n` for optional fields to distinguish an uncaptured category from a recorded zero.
+Never add `aggregateUsage` to direct `tokenUsage`: orchestration spans may repeat model-call usage from other traces.
+Cost remains in `costQuality`, where observed, estimated, and uncaptured USD stay separate.
 
 ---
 

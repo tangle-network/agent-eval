@@ -1,7 +1,10 @@
 import { describe, expect, it } from 'vitest'
+import type { CostReceipt } from '../src/cost-ledger'
 import {
+  assertRealAgentReceipts,
   assertRealBackend,
   BackendIntegrityError,
+  summarizeAgentReceiptIntegrity,
   summarizeBackendIntegrity,
 } from '../src/integrity/backend-integrity'
 import type { RunRecord } from '../src/run-record'
@@ -22,6 +25,27 @@ function makeRecord(input: number, output: number, costUsd: number): RunRecord {
     outcome: { holdoutScore: 0.5, raw: {} },
     splitTag: 'holdout',
     scenarioId: 'scn',
+  }
+}
+
+function makeReceipt(
+  channel: CostReceipt['channel'],
+  inputTokens: number,
+  outputTokens: number,
+  costUsd: number,
+): CostReceipt {
+  return {
+    callId: `${channel}-${inputTokens}-${outputTokens}-${costUsd}`,
+    channel,
+    phase: 'test',
+    actor: 'backend-integrity-test',
+    model: 'test-model@2026-01',
+    timestamp: 0,
+    status: 'settled',
+    inputTokens,
+    outputTokens,
+    costUsd,
+    costUnknown: false,
   }
 }
 
@@ -127,6 +151,39 @@ describe('backend-integrity', () => {
           expect(e.report.totalRecords).toBe(2)
         }
       }
+    })
+  })
+
+  describe('agent cost receipts', () => {
+    it('derives real backend usage from agent receipts only', () => {
+      const report = summarizeAgentReceiptIntegrity([
+        makeReceipt('agent', 500, 1_000, 0.01),
+        makeReceipt('agent', 600, 1_200, 0.012),
+        makeReceipt('judge', 9_999, 9_999, 1),
+      ])
+
+      expect(report).toMatchObject({
+        verdict: 'real',
+        totalRecords: 2,
+        totalInputTokens: 1_100,
+        totalOutputTokens: 2_200,
+        totalCostUsd: 0.022,
+      })
+    })
+
+    it('rejects mixed agent receipts when every call must be real', () => {
+      expect(() =>
+        assertRealAgentReceipts(
+          [makeReceipt('agent', 500, 1_000, 0.01), makeReceipt('agent', 0, 0, 0)],
+          { allowMixed: false },
+        ),
+      ).toThrow(BackendIntegrityError)
+    })
+
+    it('rejects ledgers that contain no agent execution', () => {
+      expect(() => assertRealAgentReceipts([makeReceipt('judge', 500, 1_000, 0.01)])).toThrow(
+        BackendIntegrityError,
+      )
     })
   })
 })

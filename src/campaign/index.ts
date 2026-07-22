@@ -1,5 +1,6 @@
 export {
   callbackGovernor,
+  campaignLineageStore,
   fsLineageStore,
   type Governor,
   type GovernorContext,
@@ -12,6 +13,7 @@ export {
   type LineageNode,
   type LineageNodeInput,
   type LineageStore,
+  LineageStoreConflictError,
   lineageNodeId,
   memLineageStore,
   type RunLineageOptions,
@@ -34,9 +36,15 @@ export {
   type PolicyEditCandidateRecord,
   validatePolicyEditCandidateRecord,
 } from '../analyst/policy-edit'
+export type { CostLedgerHandle, PendingCostCallView } from '../cost-ledger'
 // ── Judge builders (single-call bridge to a canonical JudgeConfig) ────
 export type { LlmJudgeDimension, LlmJudgeOptions } from '../llm-judge'
 export { llmJudge } from '../llm-judge'
+export type {
+  ReferenceEquivalenceJudgeOptions,
+  ReferenceEquivalenceScenario,
+} from '../reference-equivalence-judge'
+export { createReferenceEquivalenceJudge } from '../reference-equivalence-judge'
 // ── Meta-loop: optimize the analyst's OWN prompt as a surface ─────────
 export {
   type AnalystArtifact,
@@ -52,6 +60,13 @@ export {
   type OpenAutoPrResult,
   openAutoPr,
 } from './auto-pr'
+export {
+  assertCampaignDesign,
+  assertCampaignSplitIdentity,
+  campaignScenarioIdentity,
+  campaignSplitDigest,
+  campaignSplitDigestFromIdentities,
+} from './coverage'
 // ── Cross-surface interaction matrix + frozen bundle selection ──────
 export { analyzeCrossSurfaceInteractions } from './cross-surface-interaction'
 export type {
@@ -201,7 +216,6 @@ export {
 } from './presets/playback'
 export { type RunEvalOptions, runEval } from './presets/run-eval'
 export {
-  defaultRenderDiff,
   type RunImprovementLoopOptions,
   type RunImprovementLoopResult,
   runImprovementLoop,
@@ -214,10 +228,10 @@ export {
   type SurfaceScore,
 } from './presets/run-lineage-loop'
 export {
+  type PremeasuredOptimizationBaseline,
   type RunOptimizationOptions,
   type RunOptimizationResult,
   runOptimization,
-  surfaceHash,
 } from './presets/run-optimization'
 export {
   type ProfileDispatchFn,
@@ -304,21 +318,30 @@ export {
   SkillPatchParseError,
   skillOptProposer,
 } from './proposers/skill-opt'
-export { type TraceAnalystProposerOptions, traceAnalystProposer } from './proposers/trace-analyst'
+export {
+  type TraceAnalystPriorFindings,
+  type TraceAnalystProposerOptions,
+  traceAnalystProposer,
+} from './proposers/trace-analyst'
 // ── Loop provenance (durable record + OTLP spans) ────────────────────
 export {
   type BuildLoopProvenanceArgs,
   buildLoopProvenanceRecord,
+  campaignMeasurementDigest,
+  canonicalDigest,
   type EmitLoopProvenanceArgs,
   type EmitLoopProvenanceResult,
   emitLoopProvenance,
+  type LoopProvenanceArgsFromResult,
   type LoopProvenanceBackend,
   type LoopProvenanceCandidate,
+  type LoopProvenanceEvidence,
   type LoopProvenanceRecord,
+  loopProvenanceArgsFromResult,
   loopProvenanceSpans,
   provenanceRecordPath,
   provenanceSpansPath,
-  surfaceContentHash,
+  verifyLoopProvenanceRecord,
 } from './provenance'
 export {
   type CampaignRunPlan,
@@ -393,11 +416,19 @@ export {
   type SkillPatchOp,
   type SkillPatchRejection,
 } from './skill-patch'
-export { type CampaignStorage, fsCampaignStorage, inMemoryCampaignStorage } from './storage'
+export {
+  type CampaignStorage,
+  createRunCostLedger,
+  fsCampaignStorage,
+  inMemoryCampaignStorage,
+} from './storage'
 // ── Code-surface content identity ────────────────────────────────────
 export {
   assertCodeSurfaceIdentity,
   codeSurfaceIdentityMaterial,
+  renderSurfaceDiff,
+  surfaceContentHash,
+  surfaceHash,
 } from './surface-identity'
 export { isTransientTransportFailure, type TransientFailureOptions } from './transient-failure'
 export type {
@@ -406,6 +437,7 @@ export type {
   CampaignCellResult,
   CampaignCostMeter,
   CampaignResult,
+  CampaignScenarioIdentity,
   CampaignTokenUsage,
   CampaignTraceWriter,
   CodeSurface,
@@ -432,6 +464,7 @@ export type {
   OptimizationProposer,
   OptimizerConfig,
   ParetoParent,
+  ProposalTrackContext,
   ProposeContext,
   ProposedCandidate,
   RedactionStatus,

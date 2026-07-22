@@ -1,5 +1,7 @@
-import type { AxAIService } from '@ax-llm/ax'
+import type { AxAIArgs, AxAIService } from '@ax-llm/ax'
 import { ai } from '@ax-llm/ax'
+
+const configuredModels = new WeakMap<object, string>()
 
 export interface CreateAnalystAiConfig {
   /** OpenAI-compatible API key forwarded as `Authorization: Bearer`.
@@ -7,11 +9,13 @@ export interface CreateAnalystAiConfig {
   apiKey: string
   /** OpenAI-compatible base URL — e.g. `https://router.tangle.tools/v1` or a
    *  cli-bridge loopback. */
-  baseUrl: string
-  /** Model id forwarded to the analyst actor + responder. */
+  baseUrl?: string
+  /** Additional headers required by the gateway, such as tenant or execution policy. */
+  headers?: Record<string, string>
+  /** Model id forwarded to analyst calls. */
   model: string
   /** Ax provider name. Defaults to the OpenAI-compatible client. */
-  provider?: 'openai' | 'anthropic'
+  provider?: AxAIArgs<unknown>['name']
 }
 
 /**
@@ -27,10 +31,36 @@ export interface CreateAnalystAiConfig {
  * `@ax-llm/ax` dependency for it.
  */
 export function createAnalystAi(config: CreateAnalystAiConfig): AxAIService {
-  return ai({
+  const model = config.model.trim()
+  if (!model) throw new TypeError('createAnalystAi: model must be a non-empty string')
+  const args = {
     name: config.provider ?? 'openai',
     apiKey: config.apiKey,
-    apiURL: config.baseUrl,
-    config: { model: config.model },
-  })
+    ...(config.baseUrl ? { apiURL: config.baseUrl } : {}),
+    ...(config.headers ? { headers: config.headers } : {}),
+    config: { model },
+  } as unknown as AxAIArgs<unknown>
+  const service = ai(args)
+  configuredModels.set(service as object, model)
+  return service
+}
+
+export function getConfiguredAnalystModel(service: AxAIService): string | undefined {
+  return configuredModels.get(service as object)
+}
+
+/** Resolve the model before paid work so every request can be bounded and attributed. */
+export function resolveAnalystModel(service: AxAIService, override?: string): string {
+  if (override !== undefined) {
+    const model = override.trim()
+    if (!model) throw new TypeError('createTraceAnalystKind: model must be a non-empty string')
+    return model
+  }
+  const model = getConfiguredAnalystModel(service)?.trim()
+  if (!model) {
+    throw new TypeError(
+      'createTraceAnalystKind: model is required for Ax services not created by createAnalystAi()',
+    )
+  }
+  return model
 }

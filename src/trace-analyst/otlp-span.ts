@@ -62,7 +62,8 @@ export function projectOtlpFlatLine(raw: Record<string, unknown>): ProjectedOtlp
   const span_id = stringField(raw, 'span_id') ?? stringField(raw, 'spanId')
   if (!trace_id || !span_id) return null
 
-  const parent_id = stringField(raw, 'parent_span_id') ?? stringField(raw, 'parentSpanId') ?? null
+  const rawParentId = stringField(raw, 'parent_span_id') ?? stringField(raw, 'parentSpanId') ?? null
+  const parent_id = normalizeParentSpanId(trace_id, span_id, rawParentId)
   const name = stringField(raw, 'name') ?? 'unknown'
   const start_time = stringField(raw, 'start_time') ?? stringField(raw, 'startTime') ?? ''
   const end_time = stringField(raw, 'end_time') ?? stringField(raw, 'endTime') ?? start_time
@@ -86,9 +87,9 @@ export function projectOtlpFlatLine(raw: Record<string, unknown>): ProjectedOtlp
 
   let duration_ms = 0
   if (start_time && end_time) {
-    const a = Date.parse(start_time)
-    const b = Date.parse(end_time)
-    if (!Number.isNaN(a) && !Number.isNaN(b)) duration_ms = Math.max(0, b - a)
+    const a = spanEpochMillis(start_time)
+    const b = spanEpochMillis(end_time)
+    if (a !== null && b !== null) duration_ms = Math.max(0, b - a)
   }
 
   return {
@@ -108,6 +109,18 @@ export function projectOtlpFlatLine(raw: Record<string, unknown>): ProjectedOtlp
     tool_name,
     attributes,
   }
+}
+
+function normalizeParentSpanId(
+  traceId: string,
+  spanId: string,
+  parentId: string | null,
+): string | null {
+  if (!parentId) return null
+  const prefix = `${traceId}:`
+  return spanId.startsWith(prefix) && !parentId.startsWith(prefix)
+    ? `${prefix}${parentId}`
+    : parentId
 }
 
 export function readOtlpStatus(raw: Record<string, unknown>): {
@@ -180,28 +193,6 @@ export function stringField(raw: Record<string, unknown>, key: string): string |
 
 export function asString(v: unknown): string | null {
   return typeof v === 'string' && v.length > 0 ? v : null
-}
-
-/** Read a numeric attribute, tolerating numeric strings; `null` if absent/NaN. */
-export function asNumber(v: unknown): number | null {
-  if (typeof v === 'number') return Number.isFinite(v) ? v : null
-  if (typeof v === 'string' && v.length > 0) {
-    const n = Number(v)
-    return Number.isFinite(n) ? n : null
-  }
-  return null
-}
-
-/** First finite numeric value across a list of candidate attribute keys. */
-export function firstNumberAttr(
-  attrs: Record<string, unknown>,
-  keys: readonly string[],
-): number | null {
-  for (const k of keys) {
-    const n = asNumber(attrs[k])
-    if (n !== null) return n
-  }
-  return null
 }
 
 /** First non-empty string value across a list of candidate attribute keys. */

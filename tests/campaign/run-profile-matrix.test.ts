@@ -8,6 +8,7 @@ import {
 } from '../../src/agent-profile'
 import { groupRunsByAgentProfileCell } from '../../src/agent-profile-cell'
 import {
+  type DispatchContext,
   inMemoryCampaignStorage,
   type JudgeConfig,
   type ProfileDispatchFn,
@@ -26,6 +27,26 @@ interface FakeScenario extends Scenario {
 
 interface FakeArtifact {
   text: string
+}
+
+async function paidArtifact<T>(
+  ctx: DispatchContext,
+  artifact: T,
+  usage: {
+    model: string
+    inputTokens: number
+    outputTokens: number
+    actualCostUsd?: number
+  },
+): Promise<T> {
+  const paid = await ctx.cost.runPaidCall({
+    actor: 'llm',
+    model: usage.model,
+    execute: async () => artifact,
+    receipt: () => usage,
+  })
+  if (!paid.succeeded) throw paid.error
+  return paid.value
 }
 
 const PROFILES: AgentProfile[] = [
@@ -69,9 +90,16 @@ const realDispatch: ProfileDispatchFn<FakeScenario, FakeArtifact> = async (
   scenario,
   ctx,
 ) => {
-  ctx.cost.observe(0.001, 'llm')
-  ctx.cost.observeTokens({ input: 120, output: 40 })
-  return { text: `${profile.name}:${scenario.id}` }
+  return paidArtifact(
+    ctx,
+    { text: `${profile.name}:${scenario.id}` },
+    {
+      model: 'test-model@2025-01-01',
+      inputTokens: 120,
+      outputTokens: 40,
+      actualCostUsd: 0.001,
+    },
+  )
 }
 
 /** Stub dispatch — never reports tokens (the classic "eval ran blind" failure). */
@@ -167,9 +195,16 @@ describe('runProfileMatrix', () => {
       scenario,
       ctx,
     ) => {
-      ctx.cost.observe(0, 'llm')
-      ctx.cost.observeTokens({ input: 50, output: 10 })
-      return { text: `${profile.name}:${scenario.id}` }
+      return paidArtifact(
+        ctx,
+        { text: `${profile.name}:${scenario.id}` },
+        {
+          model: 'test-model@2025-01-01',
+          inputTokens: 50,
+          outputTokens: 10,
+          actualCostUsd: 0,
+        },
+      )
     }
     const result = await runProfileMatrix({
       ...baseOpts(),
@@ -200,9 +235,15 @@ describe('runProfileMatrix', () => {
       scenario,
       ctx,
     ) => {
-      ctx.cost.observe(0, 'llm') // provider/sandbox can't rate this model → $0
-      ctx.cost.observeTokens({ input: 160, output: 2086 }) // but real tokens flowed
-      return { text: `${profile.name}:${scenario.id}` }
+      return paidArtifact(
+        ctx,
+        { text: `${profile.name}:${scenario.id}` },
+        {
+          model: 'deepseek-v4-pro@2025-01-01',
+          inputTokens: 160,
+          outputTokens: 2086,
+        },
+      )
     }
     const result = await runProfileMatrix({
       ...baseOpts(),
@@ -334,7 +375,7 @@ describe('runProfileMatrix — HARNESS_NATIVE_MODEL provenance', () => {
   // A vendor-locked harness that supports none of the swept models snaps to the
   // `HARNESS_NATIVE_MODEL` sentinel (see expandProfileAxes): its profile declares
   // no concrete model — the backend resolves it at runtime, and the dispatch
-  // reports the resolved id via ctx.cost.observeModel.
+  // reports the resolved id in its paid-call receipt.
   function nativeProfile(): AgentProfile {
     return {
       name: 'agent',
@@ -351,10 +392,16 @@ describe('runProfileMatrix — HARNESS_NATIVE_MODEL provenance', () => {
       scenario,
       ctx,
     ) => {
-      ctx.cost.observe(0.001, 'llm')
-      ctx.cost.observeTokens({ input: 120, output: 40 })
-      ctx.cost.observeModel?.(resolved)
-      return { text: `${profile.name}:${scenario.id}` }
+      return paidArtifact(
+        ctx,
+        { text: `${profile.name}:${scenario.id}` },
+        {
+          model: resolved,
+          inputTokens: 120,
+          outputTokens: 40,
+          actualCostUsd: 0.001,
+        },
+      )
     }
 
     const result = await runProfileMatrix({
@@ -380,17 +427,14 @@ describe('runProfileMatrix — HARNESS_NATIVE_MODEL provenance', () => {
     const dispatch: ProfileDispatchFn<FakeScenario, FakeArtifact> = async (
       profile,
       scenario,
-      ctx,
+      _ctx,
     ) => {
-      ctx.cost.observe(0.001, 'llm')
-      ctx.cost.observeTokens({ input: 120, output: 40 })
-      // No observeModel — the provenance channel is silent.
       return { text: `${profile.name}:${scenario.id}` }
     }
 
     await expect(
       runProfileMatrix({ ...baseOpts(), profiles: [nativeProfile()], dispatch }),
-    ).rejects.toThrow(/reported no resolved model|observeModel/)
+    ).rejects.toThrow(/reported no resolved model|runPaidCall/)
   })
 
   it('FAILS LOUD when the resolved model lacks a snapshot version', async () => {
@@ -399,10 +443,16 @@ describe('runProfileMatrix — HARNESS_NATIVE_MODEL provenance', () => {
       scenario,
       ctx,
     ) => {
-      ctx.cost.observe(0.001, 'llm')
-      ctx.cost.observeTokens({ input: 120, output: 40 })
-      ctx.cost.observeModel?.('moonshot/kimi-k2') // bare alias, no snapshot
-      return { text: `${profile.name}:${scenario.id}` }
+      return paidArtifact(
+        ctx,
+        { text: `${profile.name}:${scenario.id}` },
+        {
+          model: 'moonshot/kimi-k2',
+          inputTokens: 120,
+          outputTokens: 40,
+          actualCostUsd: 0.001,
+        },
+      )
     }
 
     await expect(

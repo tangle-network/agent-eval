@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
+  campaignSplitDigestFromIdentities,
   type DispatchFn,
   FsLabeledScenarioStore,
   fsCampaignStorage,
@@ -13,6 +14,7 @@ import {
   runCampaign,
   type Scenario,
 } from '../../src/campaign/index'
+import { CostLedger } from '../../src/cost-ledger'
 import { BackendIntegrityError } from '../../src/integrity/backend-integrity'
 
 interface FakeScenario extends Scenario {
@@ -27,8 +29,22 @@ interface FakeArtifact {
 }
 
 const DISPATCH: DispatchFn<FakeScenario, FakeArtifact> = async (scenario, ctx) => {
-  ctx.cost.observe(0.01, 'fake-llm')
-  return { text: `dispatched-${scenario.id}-rep${ctx.rep}`, intent: scenario.intent }
+  const paid = await ctx.cost.runPaidCall({
+    actor: 'fake-llm',
+    model: 'fake-model',
+    execute: async () => ({
+      text: `dispatched-${scenario.id}-rep${ctx.rep}`,
+      intent: scenario.intent,
+    }),
+    receipt: () => ({
+      model: 'fake-model',
+      inputTokens: 0,
+      outputTokens: 0,
+      actualCostUsd: 0.01,
+    }),
+  })
+  if (!paid.succeeded) throw paid.error
+  return paid.value
 }
 
 const SCENARIOS: FakeScenario[] = [
@@ -100,10 +116,63 @@ describe('runCampaign — core primitive', () => {
     expect(result.aggregates.cellsFailed).toBe(0)
     expect(result.manifestHash).toMatch(/^[a-f0-9]{64}$/)
     expect(result.seed).toBe(42)
-    expect(result.scenarios).toEqual([
+    expect(result.scenarios.map(({ id, kind }) => ({ id, kind }))).toEqual([
       { id: 'a', kind: 'chat' },
       { id: 'b', kind: 'chat' },
     ])
+    expect(
+      result.scenarios.every(({ scenarioDigest }) => /^sha256:[a-f0-9]{64}$/.test(scenarioDigest)),
+    ).toBe(true)
+    expect(campaignSplitDigestFromIdentities(result.scenarios, result.reps)).toBe(
+      result.splitDigest,
+    )
+  })
+
+  it('uses common random seeds for scenario variants in the same seed group', async () => {
+    const observed = new Map<string, number>()
+    const scenarios: FakeScenario[] = [
+      { id: 'provider-a:case-1', kind: 'chat', intent: 'same task', seedGroup: 'case-1' },
+      { id: 'provider-b:case-1', kind: 'chat', intent: 'same task', seedGroup: 'case-1' },
+      { id: 'independent', kind: 'chat', intent: 'another task' },
+    ]
+    const result = await runCampaign({
+      scenarios,
+      reps: 2,
+      seed: 100,
+      runDir,
+      expectUsage: 'off',
+      dispatch: async (scenario, context) => {
+        observed.set(`${scenario.id}:${context.rep}`, context.seed)
+        return { text: String(context.seed), intent: scenario.intent }
+      },
+    })
+
+    expect(Object.fromEntries(observed)).toEqual({
+      'provider-a:case-1:0': 100,
+      'provider-a:case-1:1': 101,
+      'provider-b:case-1:0': 100,
+      'provider-b:case-1:1': 101,
+      'independent:0': 102,
+      'independent:1': 103,
+    })
+    expect(Object.fromEntries(result.cells.map((cell) => [cell.cellId, cell.seed]))).toEqual({
+      'provider-a:case-1:0': 100,
+      'provider-a:case-1:1': 101,
+      'provider-b:case-1:0': 100,
+      'provider-b:case-1:1': 101,
+      'independent:0': 102,
+      'independent:1': 103,
+    })
+  })
+
+  it.each(['', ' '])('rejects an empty seed group %#', async (seedGroup) => {
+    await expect(
+      runCampaign({
+        scenarios: [{ ...SCENARIOS[0]!, seedGroup }],
+        dispatch: DISPATCH,
+        runDir,
+      }),
+    ).rejects.toThrow('seedGroup to be a non-empty string')
   })
 
   it('produces a stable manifestHash for identical inputs', async () => {
@@ -127,30 +196,186 @@ describe('runCampaign — core primitive', () => {
     expect(r1.manifestHash).not.toBe(r2.manifestHash)
   })
 
-  it('threads cell-level seed = baseSeed + cellIndex', async () => {
-    const seenSeeds: number[] = []
-    const dispatch: DispatchFn<FakeScenario, FakeArtifact> = async (s, ctx) => {
-      seenSeeds.push(ctx.seed)
-      return { text: '', intent: s.intent }
-    }
-    await runCampaign({ scenarios: SCENARIOS, dispatch, seed: 100, reps: 2, runDir })
-    expect(seenSeeds.sort()).toEqual([100, 101, 102, 103])
+  it('retains the previous sequential seed schedule when seedGroup is unset', async () => {
+    const result = await runCampaign({
+      scenarios: SCENARIOS,
+      dispatch: DISPATCH,
+      seed: 100,
+      reps: 2,
+      runDir,
+    })
+
+    expect(Object.fromEntries(result.cells.map((cell) => [cell.cellId, cell.seed]))).toEqual({
+      'a:0': 100,
+      'a:1': 101,
+      'b:0': 102,
+      'b:1': 103,
+    })
   })
 
-  it('resumes cached cells on rerun (resumability)', async () => {
+  it('resumes cached cells with their durable receipts', async () => {
     let dispatchCount = 0
     const counting: DispatchFn<FakeScenario, FakeArtifact> = async (s, ctx) => {
-      dispatchCount += 1
-      return { text: `${s.id}-${ctx.rep}`, intent: s.intent }
+      const paid = await ctx.cost.runPaidCall({
+        actor: 'worker',
+        model: 'fake-model',
+        execute: async () => {
+          dispatchCount += 1
+          return { text: `${s.id}-${ctx.rep}`, intent: s.intent }
+        },
+        receipt: () => ({
+          model: 'fake-model',
+          inputTokens: 10,
+          outputTokens: 5,
+          actualCostUsd: 0.4,
+        }),
+      })
+      if (!paid.succeeded) throw paid.error
+      return paid.value
     }
     await runCampaign({ scenarios: SCENARIOS, dispatch: counting, runDir })
     expect(dispatchCount).toBe(2)
 
     // Second run with same runDir + scenarios should hit cache.
-    const r2 = await runCampaign({ scenarios: SCENARIOS, dispatch: counting, runDir })
+    const r2 = await runCampaign({
+      scenarios: SCENARIOS,
+      dispatch: counting,
+      runDir,
+    })
     expect(dispatchCount).toBe(2) // no new dispatches
     expect(r2.cells.every((c) => c.cached)).toBe(true)
     expect(r2.aggregates.cellsCached).toBe(2)
+    expect(r2.aggregates.totalCostUsd).toBe(0.8)
+    expect(r2.aggregates.cost.totalCalls).toBe(2)
+
+    await expect(
+      runCampaign({
+        scenarios: SCENARIOS,
+        dispatch: counting,
+        costLedger: new CostLedger(0),
+        runDir,
+      }),
+    ).rejects.toThrow(/cached cell.*missing ledger receipt/)
+  })
+
+  it('rejects a cached judge score when its exact paid receipt is missing', async () => {
+    const storage = inMemoryCampaignStorage()
+    const paidJudge: JudgeConfig<FakeArtifact, FakeScenario> = {
+      name: 'paid-judge',
+      dimensions: [{ key: 'quality', description: 'quality' }],
+      async score({ costLedger, costPhase, costTags, signal }) {
+        if (!costLedger || !costPhase || !costTags) throw new Error('missing cost context')
+        const paid = await costLedger.runPaidCall({
+          channel: 'judge',
+          phase: costPhase,
+          actor: 'paid-judge',
+          model: 'gpt-4o',
+          tags: costTags,
+          signal,
+          maximumCharge: { externallyEnforcedMaximumUsd: 0.2 },
+          execute: async () => 'score',
+          receipt: () => ({
+            model: 'gpt-4o',
+            inputTokens: 20,
+            outputTokens: 10,
+            actualCostUsd: 0.2,
+          }),
+        })
+        if (!paid.succeeded) throw paid.error
+        return { dimensions: { quality: 1 }, composite: 1, notes: 'ok' }
+      },
+    }
+    const options = {
+      scenarios: SCENARIOS.slice(0, 1),
+      dispatch: DISPATCH,
+      judges: [paidJudge],
+      runDir: '/paid-judge-cache',
+      storage,
+    }
+    const first = await runCampaign(options)
+    expect(first.cells[0]?.costCallIds).toHaveLength(2)
+
+    const path = '/paid-judge-cache/cost-ledger.jsonl'
+    const events = storage.read(path)!
+    storage.write(
+      path,
+      `${events
+        .split('\n')
+        .filter((line) => {
+          if (!line) return false
+          const event = JSON.parse(line) as { record?: { channel?: string } }
+          return event.record?.channel !== 'judge'
+        })
+        .join('\n')}\n`,
+    )
+
+    await expect(runCampaign(options)).rejects.toThrow(/missing ledger receipt/)
+  })
+
+  it('terminates when a judge reports a paid call without recording it', async () => {
+    const unmeteredJudge: JudgeConfig<FakeArtifact, FakeScenario> = {
+      name: 'unmetered-judge',
+      dimensions: [{ key: 'quality', description: 'quality' }],
+      score: async () => ({
+        dimensions: { quality: 1 },
+        composite: 1,
+        notes: 'not admissible',
+        llmCall: {
+          usage: {
+            promptTokens: 10,
+            completionTokens: 2,
+            totalTokens: 12,
+            captured: true,
+          },
+          costUsd: 0.2,
+          model: 'paid-model',
+          durationMs: 1,
+        },
+      }),
+    }
+
+    await expect(
+      runCampaign({
+        scenarios: SCENARIOS.slice(0, 1),
+        dispatch: DISPATCH,
+        judges: [unmeteredJudge],
+        runDir: '/unmetered-judge',
+        storage: inMemoryCampaignStorage(),
+      }),
+    ).rejects.toThrow(/paid LLM call without a CostLedger receipt/)
+  })
+
+  it('invalidates resumed cells when a judge revision changes', async () => {
+    const storage = inMemoryCampaignStorage()
+    let dispatchCalls = 0
+    const dispatch: DispatchFn<FakeScenario, FakeArtifact> = async (scenario) => {
+      dispatchCalls += 1
+      return { text: scenario.intent, intent: scenario.intent }
+    }
+    const judge = (
+      judgeVersion: string,
+      composite: number,
+    ): JudgeConfig<FakeArtifact, FakeScenario> => ({
+      name: 'versioned-judge',
+      dimensions: [{ key: 'quality', description: 'quality' }],
+      judgeVersion,
+      score: async () => ({ dimensions: { quality: composite }, composite, notes: 'ok' }),
+    })
+    const options = {
+      scenarios: SCENARIOS.slice(0, 1),
+      dispatch,
+      dispatchRef: 'stable-dispatch',
+      runDir: '/judge-version-cache',
+      storage,
+    }
+
+    const first = await runCampaign({ ...options, judges: [judge('v1', 0.2)] })
+    const second = await runCampaign({ ...options, judges: [judge('v2', 0.9)] })
+
+    expect(first.cells[0]?.judgeScores['versioned-judge']?.composite).toBe(0.2)
+    expect(second.cells[0]?.judgeScores['versioned-judge']?.composite).toBe(0.9)
+    expect(second.cells[0]?.cached).toBe(false)
+    expect(dispatchCalls).toBe(2)
   })
 
   it('does not resume cached cells when the manifest changes', async () => {
@@ -173,6 +398,32 @@ describe('runCampaign — core primitive', () => {
     expect(dispatchCount).toBe(2)
     expect(result.cells[0]?.cached).toBe(false)
     expect(result.cells[0]?.artifact.intent).toBe('second')
+  })
+
+  it('does not resume cached cells when a seed group changes', async () => {
+    let dispatchCount = 0
+    const dispatch: DispatchFn<FakeScenario, FakeArtifact> = async (scenario) => {
+      dispatchCount += 1
+      return { text: `fresh-${scenario.intent}`, intent: scenario.intent }
+    }
+    const ungrouped = [{ id: 'a', kind: 'chat', intent: 'same' }]
+    const grouped = [{ ...ungrouped[0]!, seedGroup: 'paired-case' }]
+
+    await runCampaign({
+      scenarios: ungrouped,
+      dispatch,
+      dispatchRef: 'stable-dispatch',
+      runDir,
+    })
+    const result = await runCampaign({
+      scenarios: grouped,
+      dispatch,
+      dispatchRef: 'stable-dispatch',
+      runDir,
+    })
+
+    expect(dispatchCount).toBe(2)
+    expect(result.cells[0]?.cached).toBe(false)
   })
 
   it('includes dispatchRef in the resume decision', async () => {
@@ -231,21 +482,68 @@ describe('runCampaign — core primitive', () => {
   })
 
   it('captures dispatch errors per cell without crashing campaign', async () => {
-    const flaky: DispatchFn<FakeScenario, FakeArtifact> = async (s) => {
-      if (s.id === 'a') throw new Error('boom')
-      return { text: 'ok', intent: s.intent }
+    const ledger = new CostLedger()
+    const flaky: DispatchFn<FakeScenario, FakeArtifact> = async (s, ctx) => {
+      const amount = s.id === 'a' ? 0.4 : 0.1
+      const paid = await ctx.cost.runPaidCall({
+        actor: 'worker',
+        model: 'fake-model',
+        execute: async () => {
+          if (s.id === 'a') throw new Error('boom after provider response')
+          return { text: 'ok', intent: s.intent }
+        },
+        receipt: () => ({
+          model: 'fake-model',
+          inputTokens: 0,
+          outputTokens: 0,
+          actualCostUsd: amount,
+        }),
+        receiptFromError: () => ({
+          model: 'fake-model',
+          inputTokens: 0,
+          outputTokens: 0,
+          actualCostUsd: amount,
+        }),
+      })
+      if (!paid.succeeded) throw paid.error
+      return paid.value
     }
-    const result = await runCampaign({ scenarios: SCENARIOS, dispatch: flaky, runDir })
+    const result = await runCampaign({
+      scenarios: SCENARIOS,
+      dispatch: flaky,
+      costLedger: ledger,
+      costPhase: 'search.baseline',
+      runDir,
+    })
     expect(result.cells).toHaveLength(2)
     expect(result.aggregates.cellsFailed).toBe(1)
     expect(result.cells.find((c) => c.scenarioId === 'a')?.error).toContain('boom')
     expect(result.cells.find((c) => c.scenarioId === 'b')?.error).toBeUndefined()
+    expect(result.cells.find((c) => c.scenarioId === 'a')?.costUsd).toBeCloseTo(0.4, 9)
+    expect(ledger.summary().totalCostUsd).toBeCloseTo(0.5, 9)
+    expect(ledger.list()[0]).toMatchObject({ phase: 'search.baseline', actor: 'worker' })
   })
 
-  it('respects costCeiling and marks excess cells skipped', async () => {
+  it('atomically reserves capped calls without constraining free dispatches', async () => {
+    let calls = 0
     const expensive: DispatchFn<FakeScenario, FakeArtifact> = async (s, ctx) => {
-      ctx.cost.observe(10, 'expensive')
-      return { text: '', intent: s.intent }
+      const paid = await ctx.cost.runPaidCall({
+        actor: 'expensive',
+        model: 'gpt-4o',
+        maximumCharge: { model: 'gpt-4o', inputTokens: 0, outputTokens: 1_500_000 },
+        execute: async () => {
+          calls += 1
+          return { text: '', intent: s.intent }
+        },
+        receipt: () => ({
+          model: 'fake-model',
+          inputTokens: 0,
+          outputTokens: 0,
+          actualCostUsd: 10,
+        }),
+      })
+      if (!paid.succeeded) throw paid.error
+      return paid.value
     }
     const result = await runCampaign({
       scenarios: [
@@ -255,11 +553,57 @@ describe('runCampaign — core primitive', () => {
       ],
       dispatch: expensive,
       costCeiling: 15,
-      maxConcurrency: 1, // serialize so cost-ceiling fires deterministically
+      maxConcurrency: 10,
       runDir,
     })
-    expect(result.aggregates.totalCostUsd).toBeGreaterThanOrEqual(10)
-    expect(result.aggregates.cellsSkipped).toBeGreaterThanOrEqual(1)
+    expect(calls).toBe(1)
+    expect(result.aggregates.totalCostUsd).toBe(10)
+    expect(result.aggregates.totalCostUsd).toBeLessThanOrEqual(15)
+    expect(result.aggregates.cellsFailed).toBe(2)
+
+    const free = await runCampaign({
+      scenarios: SCENARIOS.slice(0, 1),
+      dispatch: async (scenario) => ({ text: '', intent: scenario.intent }),
+      costCeiling: 15,
+      resumable: false,
+      runDir,
+    })
+    expect(free.aggregates.cellsExecuted).toBe(1)
+    expect(free.cells[0]?.costUsd).toBe(0)
+    expect(free.aggregates.totalCostUsd).toBe(10)
+  })
+
+  it('does not double-bill cached input when deriving a tokens-only receipt', async () => {
+    const ledger = new CostLedger(1)
+    await runCampaign({
+      scenarios: SCENARIOS.slice(0, 1),
+      dispatch: async (scenario, ctx) => {
+        const paid = await ctx.cost.runPaidCall({
+          actor: 'worker',
+          model: 'gpt-4o',
+          maximumCharge: {
+            model: 'gpt-4o',
+            inputTokens: 600,
+            outputTokens: 0,
+            cachedTokens: 400,
+          },
+          execute: async () => ({ text: '', intent: scenario.intent }),
+          receipt: () => ({
+            model: 'gpt-4o',
+            inputTokens: 600,
+            outputTokens: 0,
+            cachedTokens: 400,
+          }),
+        })
+        if (!paid.succeeded) throw paid.error
+        return paid.value
+      },
+      costLedger: ledger,
+      resumable: false,
+      runDir,
+    })
+
+    expect(ledger.summary().totalCostUsd).toBeCloseTo(0.0025, 9)
   })
 
   it('actually invokes judge.score and records the real composite', async () => {
@@ -688,9 +1032,19 @@ describe('runCampaign — expectUsage stub guard', () => {
 
   it('does NOT throw when the dispatch reports usage (real cell)', async () => {
     const real: DispatchFn<FakeScenario, FakeArtifact> = async (scenario, ctx) => {
-      ctx.cost.observe(0.002, 'llm')
-      ctx.cost.observeTokens({ input: 80, output: 20 })
-      return { text: scenario.id, intent: scenario.intent }
+      const paid = await ctx.cost.runPaidCall({
+        actor: 'llm',
+        model: 'fake-model',
+        execute: async () => ({ text: scenario.id, intent: scenario.intent }),
+        receipt: () => ({
+          model: 'fake-model',
+          inputTokens: 80,
+          outputTokens: 20,
+          actualCostUsd: 0.002,
+        }),
+      })
+      if (!paid.succeeded) throw paid.error
+      return paid.value
     }
     const result = await runCampaign({
       scenarios: SCENARIOS.slice(0, 1),

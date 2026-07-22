@@ -39,12 +39,31 @@ describe('captureFetchToRawSink onUsage wiring', () => {
   it('emits accumulated usage from an SSE response', async () => {
     const sink = new InMemoryRawProviderSink()
     const seen: ExtractedUsage[] = []
-    const sse = 'data: {"usage":{"input_tokens":2,"output_tokens":6}}\ndata: [DONE]\n'
+    const sse = 'data: {"usage":{"input_tokens":2,"output_tokens":6}}\n\ndata: [DONE]\n\n'
     const wrapped = captureFetchToRawSink(jsonFetch(sse, { sse: true }), sink, CTX, {
       onUsage: (u) => seen.push(u),
     })
     await wrapped('https://api.openai.com/v1/chat/completions', { method: 'POST' })
     expect(seen).toEqual([{ input: 2, output: 6 }])
+  })
+
+  it('supports providers that emit SSE usage as deltas', async () => {
+    const sink = new InMemoryRawProviderSink()
+    const seen: ExtractedUsage[] = []
+    const sse = [
+      'data: {"usage":{"input_tokens":2,"output_tokens":1}}',
+      '',
+      'data: {"usage":{"input_tokens":3,"output_tokens":4}}',
+      '',
+    ].join('\n')
+    const wrapped = captureFetchToRawSink(jsonFetch(sse, { sse: true }), sink, CTX, {
+      onUsage: (usage) => seen.push(usage),
+      sseUsageMode: 'delta',
+    })
+
+    await wrapped('https://api.openai.com/v1/chat/completions', { method: 'POST' })
+
+    expect(seen).toEqual([{ input: 5, output: 5 }])
   })
 
   it('does not call onUsage when the response carries no usage', async () => {

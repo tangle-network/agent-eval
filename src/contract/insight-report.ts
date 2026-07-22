@@ -37,6 +37,11 @@ export interface InsightReport {
   /** Number of runs analyzed. */
   n: number
 
+  /** Runtime facts carried by the run records. These describe execution,
+   *  not task quality: duration, queueing, token categories, models, and
+   *  explicitly recorded failures. */
+  execution: ExecutionInsight
+
   /** Composite-score distribution across all runs. Always present. */
   composite: ScalarDistribution
 
@@ -117,6 +122,57 @@ export interface CostProvenanceSummary {
   estimated: { n: number; totalUsd: number }
   uncaptured: { n: number }
   knownFraction: number
+}
+
+export interface ExecutionInsight {
+  /** End-to-end wall time for every run. */
+  durationMs: ScalarDistribution
+  /** Queue time for the subset of runs that recorded it. */
+  queueMs: ScalarDistribution
+  /** Token distributions plus corpus totals. Optional token categories use
+   *  distribution `n` to disclose how many runs recorded that category. */
+  tokenUsage: TokenUsageInsight
+  /** Usage reported only by orchestration or agent aggregate spans.
+   *  Kept separate because it may duplicate model-call telemetry in other traces. */
+  aggregateUsage: {
+    runs: number
+    tokenUsage: TokenUsageInsight
+    costUsd: ScalarDistribution
+    totalCostUsd: number
+  }
+  /** Stable model counts, largest cohort first. */
+  models: Array<{ model: string; runs: number }>
+  /** Model-call coverage. `events` is available only from producers that
+   *  record `outcome.raw.llm_span_count`; `runs` also recognizes non-zero
+   *  token usage from other producers. */
+  modelCalls: {
+    runs: number
+    events: number
+    reportingRuns: number
+  }
+  /** Failure counts remain separate from outcome scores. `reportedErrorEvents`
+   *  sums `outcome.raw.error_span_count` only where a producer supplied it. */
+  failures: {
+    runs: number
+    fraction: number
+    reportedErrorEvents: number
+    reportingRuns: number
+  }
+}
+
+export interface TokenUsageInsight {
+  input: ScalarDistribution
+  output: ScalarDistribution
+  reasoning: ScalarDistribution
+  cached: ScalarDistribution
+  cacheWrite: ScalarDistribution
+  totals: {
+    input: number
+    output: number
+    reasoning: number
+    cached: number
+    cacheWrite: number
+  }
 }
 
 // ── Building blocks ─────────────────────────────────────────────────
