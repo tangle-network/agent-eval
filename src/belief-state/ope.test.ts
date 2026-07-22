@@ -189,6 +189,37 @@ describe('belief-state off-policy evaluation', () => {
     expect(report.dr.contributionCounts).toEqual({ dr: 2, ipsFallback: 0, legacyScalar: 0 })
   })
 
+  it('marks deprecated scalar qHat contributions unsupported', () => {
+    const points: BeliefDecisionPoint[] = [
+      {
+        id: 'legacy-q',
+        runId: 'r-1',
+        stepIndex: 0,
+        kind: 'continue',
+        chosenAction: 'continue',
+        behaviorProb: 0.5,
+        evidence: [{ source: 'event', id: 'e-1' }],
+        outcome: { reward: 1 },
+      },
+    ]
+
+    const report = evaluateBeliefOffPolicy(
+      points,
+      {
+        id: 'legacy-policy',
+        targetProbOf: () => 0.5,
+        qHatOf: () => 0.8,
+      },
+      { minEffectiveSampleSize: 1, minEffectiveSampleRatio: 0 },
+    )
+
+    expect(report.dr.contributionCounts).toEqual({ dr: 0, ipsFallback: 0, legacyScalar: 1 })
+    expect(report.support.supported).toBe(false)
+    expect(report.support.reasons).toEqual([
+      '1 decision(s) used deprecated scalar qHat; supply qHatChosen and vHatTarget for contextual doubly robust estimation',
+    ])
+  })
+
   it('drops an incomplete contextual Q pair with a diagnostic', () => {
     const points: BeliefDecisionPoint[] = [
       {

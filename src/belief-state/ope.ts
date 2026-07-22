@@ -135,6 +135,7 @@ export function evaluateBeliefOffPolicy(
     minEffectiveSampleRatio: options.minEffectiveSampleRatio ?? 0.25,
     dropped: trajectoryReport.dropped,
     diagnostics: trajectoryReport.diagnostics,
+    legacyScalarContributions: estimates.dr.contributionCounts?.legacyScalar ?? 0,
   })
   return { targetPolicyId: targetPolicy.id, ...estimates, support }
 }
@@ -146,6 +147,7 @@ function supportDiagnostics(
     minEffectiveSampleRatio: number
     dropped: number
     diagnostics: string[]
+    legacyScalarContributions: number
   },
 ): BeliefOpeSupportDiagnostics {
   const ratio = estimate.n > 0 ? estimate.effectiveSampleSize / estimate.n : 0
@@ -155,6 +157,11 @@ function supportDiagnostics(
   }
   if (options.dropped > 0) {
     reasons.push(`dropped ${options.dropped} unsupported decision(s)`)
+  }
+  if (options.legacyScalarContributions > 0) {
+    reasons.push(
+      `${options.legacyScalarContributions} decision(s) used deprecated scalar qHat; supply qHatChosen and vHatTarget for contextual doubly robust estimation`,
+    )
   }
   if (estimate.effectiveSampleSize < options.minEffectiveSampleSize) {
     reasons.push(
