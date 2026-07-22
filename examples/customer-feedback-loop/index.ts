@@ -1,11 +1,11 @@
 /**
- * Customer feedback loop — multi-rater approve/reject corpus → decision packet.
+ * Analyze a multi-rater approve/reject corpus.
  *
  * Run with: pnpm tsx examples/customer-feedback-loop/index.ts
  *
  * Synthesises a 30-claim research corpus reviewed by 3 raters with realistic
  * agreement noise. Pipes through fromFeedbackTable() + analyzeRuns(), then
- * prints the decision packet — focus on the inter-rater agreement section
+ * prints the report. Focus on the inter-rater agreement section
  * and the top disagreement triage list.
  */
 
@@ -33,7 +33,7 @@ function synthesise(): FeedbackTableRow[] {
       } else if (tier === 'bad') {
         approve = pseudoRand(runId + rater) > 0.85 // 15% approve
       } else {
-        // Borderline — rater-specific bias: alice = pickier, carol = lenient.
+        // Borderline ratings differ by reviewer strictness.
         const bias = rater === 'alice' ? 0.7 : rater === 'carol' ? 0.3 : 0.5
         approve = pseudoRand(runId + rater) > bias
       }
@@ -57,7 +57,7 @@ async function main() {
   const { runs, raterScores } = fromFeedbackTable({ ratings: rows })
   const report = await analyzeRuns({ runs, raterScores })
 
-  console.log('═══ Customer feedback corpus — decision packet ═══')
+  console.log('Customer feedback report')
   console.log()
   console.log(`Runs analyzed:     ${report.n}`)
   console.log(
@@ -70,17 +70,19 @@ async function main() {
 
   if (report.interRater) {
     const ir = report.interRater
-    console.log('── Inter-rater agreement ──')
+    console.log('Inter-rater agreement')
     console.log(`Raters:               ${ir.raters} (${RATERS.join(', ')})`)
     console.log(`Jointly rated runs:   ${ir.jointlyRated}`)
-    console.log('Pairwise pearson κ:')
+    console.log('Pairwise weighted kappa:')
     for (const [pair, k] of Object.entries(ir.perPair)) {
       console.log(`  ${pair.padEnd(14)} ${k.toFixed(2)}`)
     }
-    console.log(`Mean κ:               ${ir.kappa.toFixed(2)}`)
+    console.log(`Weighted kappa:       ${ir.kappa.toFixed(2)}`)
+    console.log(`ICC(2,1):             ${ir.icc.toFixed(2)}`)
+    console.log(`Pearson correlation:  ${ir.pearson.toFixed(2)}`)
     console.log()
 
-    console.log('── Top 5 disagreement cases (worth a triage meeting) ──')
+    console.log('Top 5 disagreement cases')
     for (const c of ir.disagreementCases.slice(0, 5)) {
       const ratingStr = c.ratings
         .map((r) => `${r.rater}=${r.score.toFixed(0)}`)
@@ -90,13 +92,13 @@ async function main() {
     console.log()
   }
 
-  console.log('── Recommendations ──')
+  console.log('Recommendations')
   for (const r of report.recommendations) {
-    console.log(`[${r.priority}] ${r.kind} — ${r.title}`)
+    console.log(`[${r.priority}] ${r.kind}: ${r.title}`)
     console.log(`  ${r.detail}`)
   }
   console.log()
-  console.log('═══ end ═══')
+  console.log('End')
 }
 
 main().catch((err) => {

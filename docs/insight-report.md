@@ -1,11 +1,11 @@
-# `InsightReport` — the decision packet
+# `InsightReport`: the report
 
 The single shape every analysis call returns. `selfImprove()` embeds it in `SelfImproveResult.insight`; `analyzeRuns()` returns it directly. The hosted-tier wire format carries it on `EvalRunEvent.insightReport?`.
 
 Use `summarizeExecution({ runs })` when observed traces have no task-quality labels.
 It returns only `execution` and `costProvenance`, so callers do not need to fabricate a quality score to report runtime facts.
 
-Every section is **opt-in based on what your data supports** — the function never invents signal. If your runs don't carry judge scores, `judges` is empty. If there's no baseline/candidate split, `lift` is undefined. The shape is consistent; population is honest.
+Every section is **opt-in based on what your data supports**: the function never invents signal. If your runs don't carry judge scores, `judges` is empty. If there's no baseline/candidate split, `lift` is undefined. The shape is consistent; population is honest.
 
 This page walks every section with a real (synthetic) example and explains how to act on it.
 
@@ -27,13 +27,13 @@ interface InsightReport {
   contamination?: ContaminationInsight   // when canaryScenarios supplied
   outcomeCorrelation?: OutcomeCorrelationInsight   // when outcomeSignal supplied
   release: ReleaseSummary                // always
-  recommendations: Recommendation[]      // always — read this FIRST
+  recommendations: Recommendation[]      // always: read this FIRST
 }
 ```
 
 ---
 
-## `execution` — runtime facts, separate from quality
+## `execution`: runtime facts, separate from quality
 
 Always present.
 It reports duration, optional queue time, direct input, output, reasoning, cache-read, and cache-write tokens, model-call coverage, model cohorts, explicit failures, and separately reported orchestration aggregates.
@@ -73,7 +73,7 @@ Cost remains in `costQuality`, where observed, estimated, and uncaptured USD sta
 
 ---
 
-## `n` + `composite` + `perDimension` — distributional summary
+## `n` + `composite` + `perDimension`: distributional summary
 
 Always present. The basic "where are my numbers" view.
 
@@ -99,13 +99,13 @@ Always present. The basic "where are my numbers" view.
 
 **Read first:** the `composite.mean`. If it's < 0.5, your agent has a ceiling problem, not a tuning problem.
 
-**Read next:** `perDimension`. If `clarity` is high but `concision` is low, your prompts get the right ideas in too many words — different fix than "wrong ideas."
+**Read next:** `perDimension`. If `clarity` is high but `concision` is low, your prompts get the right ideas in too many words: different fix than "wrong ideas."
 
 **Use the histogram for:** finding bimodal failure modes. A bin with `count > 0` near zero and another > 0 near 1 means your agent has two distinct behaviors, not one noisy one.
 
 ---
 
-## `costQuality` — cost-vs-quality Pareto
+## `costQuality`: cost-vs-quality Pareto
 
 Always present. `cost.histogram` is the per-run cost distribution; `pareto` is the substrate's `ParetoFigureSpec`.
 
@@ -131,11 +131,11 @@ Always present. `cost.histogram` is the per-run cost distribution; `pareto` is t
 
 **Use this when:** comparing prompts, models, or candidate surfaces. The Pareto frontier is your menu of "best you can do at each cost level."
 
-**Render with:** any chart library — `points` is plain JSON. Hosted-tier dashboards render this as a scatter with the frontier highlighted.
+**Render with:** any chart library: `points` is plain JSON. Hosted-tier dashboards render this as a scatter with the frontier highlighted.
 
 ---
 
-## `judges` — per-judge mean
+## `judges`: per-judge mean
 
 Populated when run records carry `outcome.judgeScores`.
 
@@ -154,20 +154,23 @@ The substrate's full judge-calibration suite (positional bias, self-preference, 
 
 ---
 
-## `interRater` — multi-rater agreement + disagreement triage
+## `interRater`: multi-rater agreement and disagreement review
 
-Populated when `analyzeRuns({ raterScores })` is supplied — typically via `fromFeedbackTable()`.
+Populated when `analyzeRuns({ raterScores })` is supplied: typically via `fromFeedbackTable()`.
 
 ```jsonc
 {
   "interRater": {
     "raters": 3,
     "jointlyRated": 30,
-    "kappa": 0.71,
+    "kappa": 0.40,
+    "icc": 0.42,
+    "pearson": 0.43,
+    "spearman": 0.41,
     "perPair": {
-      "alice::bob":   0.78,
-      "alice::carol": 0.65,
-      "bob::carol":   0.69
+      "alice::bob":   0.53,
+      "alice::carol": 0.47,
+      "bob::carol":   0.19
     },
     "disagreementCases": [
       { "runId": "claim-7", "range": 1.00,
@@ -180,13 +183,15 @@ Populated when `analyzeRuns({ raterScores })` is supplied — typically via `fro
 }
 ```
 
-**Read first:** the mean `kappa`. < 0.5 means raters disagree on what "good" looks like — surface the disagreement cases at the next review meeting.
+**Read first:** `kappa` and `icc`, which measure absolute agreement.
+Pearson and Spearman measure correlation and can remain high when raters use different score levels.
+When absolute agreement is low, review the largest disagreement cases before automating the rubric.
 
 **Use this when:** building per-rater LLM judges. Each rater's individual scores are the gold signal you calibrate against. Once a calibrated LLM matches the human ≥85%, you can auto-grade and escalate only the disagreement cases.
 
 ---
 
-## `lift` — paired-bootstrap statistical lift
+## `lift`: paired-bootstrap statistical lift
 
 Populated when baseline + candidate candidates are present (auto-detected from two distinct `candidateId`s, or explicit via `baselineCandidateId` + `candidateCandidateId`).
 
@@ -211,13 +216,13 @@ Populated when baseline + candidate candidates are present (auto-detected from t
 - `ci95[0] ≤ threshold < ci95[1]` → **INCONCLUSIVE.** Expand the corpus or wait for more data.
 - `ci95[1] ≤ threshold` → **HOLD.** No evidence the candidate is better.
 
-The `recommendations` array surfaces exactly this decision (`kind: 'ship' | 'hold' | 'expand-corpus'`) — that's what consumers should read.
+The `recommendations` array surfaces exactly this decision (`kind: 'ship' | 'hold' | 'expand-corpus'`): that's what consumers should read.
 
 **Why bootstrap, not t-test alone:** paired bootstrap is distribution-free. Your judge scores are bounded in [0,1] and almost never normal; the bootstrap CI is the honest one.
 
 ---
 
-## `failureClusters` — grouped failure modes
+## `failureClusters`: grouped failure modes
 
 Populated when an `AnalystRegistry` is passed via `analyzeRuns({ analyst })`. The substrate runs each failed run through the registered analysts and groups findings by `analyst_id` / `area`.
 
@@ -245,7 +250,7 @@ Populated when an `AnalystRegistry` is passed via `analyzeRuns({ analyst })`. Th
 
 ---
 
-## `contamination` — canary check
+## `contamination`: canary check
 
 Populated when canary scenarios are passed via `analyzeRuns({ canaryScenarios })`. Each canary carries a sentinel string the agent should never emit; the report counts leaks.
 
@@ -277,7 +282,7 @@ When `leaks > 0`:
 
 ---
 
-## `outcomeCorrelation` — closing the loop on real outcomes
+## `outcomeCorrelation`: closing the loop on real outcomes
 
 Populated when `outcomeSignal: { metric, valueByRunId }` is supplied.
 
@@ -307,9 +312,9 @@ This is the layer that says **"does my judge's taste actually predict the metric
 
 ---
 
-## `release` — pass/warn/fail axes
+## `release`: pass/warn/fail axes
 
-Always present. Roll-up across three axes — quality lift, contamination, composite distribution.
+Always present. Roll-up across three axes: quality lift, contamination, composite distribution.
 
 ```jsonc
 {
@@ -334,7 +339,7 @@ Overall `status` is `fail` if any axis fails; `warn` if any warn; `pass` otherwi
 
 ---
 
-## `recommendations` — the actionable layer
+## `recommendations`: the actionable layer
 
 Always present. Read this first.
 
@@ -342,7 +347,7 @@ Always present. Read this first.
 {
   "recommendations": [
     { "priority": "critical", "kind": "ship",
-      "title": "Ship — lift 0.070 (95% CI 0.040..0.100)",
+      "title": "Ship: lift 0.070 (95% CI 0.040..0.100)",
       "detail": "Holdout lift exceeds threshold 0.02 with 95% bootstrap confidence (n=40, p=0.0008, d=0.41).",
       "evidencePath": "lift" },
     { "priority": "high", "kind": "investigate",
@@ -357,7 +362,7 @@ Always present. Read this first.
 |---|---|
 | `ship` | lift CI lower bound > threshold |
 | `hold` | lift CI upper bound ≤ threshold |
-| `expand-corpus` | lift CI straddles threshold — more data needed |
+| `expand-corpus` | lift CI straddles threshold: more data needed |
 | `fix` | canary contamination detected |
 | `recalibrate` | inter-rater κ < 0.5, OR outcome correlation < 0.3 |
 | `investigate` | top failure cluster > some-share |
@@ -378,4 +383,4 @@ Always present. Read this first.
 | `contamination` | `canaryScenarios` passed in |
 | `outcomeCorrelation` | `outcomeSignal` passed in |
 
-All sections beyond the always-present ones are `T | undefined`, never empty objects. If a section is missing, your inputs didn't support it — the report is honest about that.
+All sections beyond the always-present ones are `T | undefined`, never empty objects. If a section is missing, your inputs didn't support it: the report is honest about that.
