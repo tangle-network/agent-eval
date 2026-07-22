@@ -176,6 +176,40 @@ describe('compositeProposer (N proposers, one generation pool)', () => {
     expect(unanimous.decide?.({ history: [] })?.stop).toBe(true)
   })
 
+  it('restores member labels before asking members whether to stop', () => {
+    let observedLabel: string | undefined
+    const member: SurfaceProposer = {
+      kind: 'stateful',
+      propose: async () => [],
+      decide: ({ history }) => {
+        observedLabel = history[0]?.candidates[0]?.label
+        return { stop: true }
+      },
+    }
+    const composite = compositeProposer({ proposers: [member] })
+
+    composite.decide?.({
+      history: [
+        {
+          generationIndex: 0,
+          promoted: [],
+          candidates: [
+            {
+              surfaceHash: 'first',
+              label: 'stateful:attempt-1',
+              composite: 0.5,
+              ci95: [0.5, 0.5],
+              dimensions: {},
+              scenarios: [],
+            },
+          ],
+        },
+      ],
+    })
+
+    expect(observedLabel).toBe('attempt-1')
+  })
+
   it('fails loud on empty membership or bad weights', () => {
     expect(() => compositeProposer({ proposers: [] })).toThrow(/at least one/)
     expect(() => compositeProposer({ proposers: [stub('a', ['x'])], weights: [0] })).toThrow(
