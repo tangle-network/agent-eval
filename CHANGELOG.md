@@ -18,6 +18,10 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 - Pass track identity, operation, vision, ancestry, and proposer choice to candidate generation so independent tracks can pursue distinct strategies.
 - Route named tracks to caller-supplied proposers, with the default proposer as fallback, and make heuristic branches inherit their parent track's proposer.
 
+### Fixed
+
+- Compute contextual-bandit doubly robust estimates with separate logged-action and target-policy value terms, expose how many rows use DR versus IPS or the deprecated scalar path, and carry both values through belief-state records.
+
 ## [0.122.2] — 2026-07-17 — premeasured optimization continuation
 
 ### Added
