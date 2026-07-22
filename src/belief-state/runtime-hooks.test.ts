@@ -52,7 +52,8 @@ describe('belief runtime hooks bridge', () => {
       confidence: 0.7,
       behaviorProb: 0.5,
       targetProb: 0.8,
-      qHat: 0.6,
+      qHatChosen: 0.6,
+      vHatTarget: 0.65,
       outcome: { success: true, score: 1 },
       metadata: { observedAt: 'after-turn' },
     })
@@ -68,7 +69,8 @@ describe('belief runtime hooks bridge', () => {
       confidence: 0.7,
       behaviorProb: 0.5,
       targetProb: 0.8,
-      qHat: 0.6,
+      qHatChosen: 0.6,
+      vHatTarget: 0.65,
       outcome: { success: true, score: 1 },
       metadata: {
         target: 'failure-recovery',

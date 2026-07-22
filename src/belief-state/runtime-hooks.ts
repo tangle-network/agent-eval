@@ -77,6 +77,9 @@ export interface RuntimeBeliefDecisionPointOptions {
   confidence?: number
   behaviorProb?: number
   targetProb?: number
+  qHatChosen?: number | null
+  vHatTarget?: number | null
+  /** @deprecated Use `qHatChosen` and `vHatTarget` together. */
   qHat?: number | null
   costUsd?: number
   outcome?: BeliefDecisionOutcome
@@ -182,6 +185,10 @@ export function runtimeDecisionPointToBeliefDecisionPoint(
       confidence: unitProbabilityOrUndefined(options.confidence),
       behaviorProb: finiteNumberOrUndefined(options.behaviorProb),
       targetProb: finiteNumberOrUndefined(options.targetProb),
+      qHatChosen:
+        options.qHatChosen === null ? null : unitProbabilityOrUndefined(options.qHatChosen),
+      vHatTarget:
+        options.vHatTarget === null ? null : unitProbabilityOrUndefined(options.vHatTarget),
       qHat: options.qHat === null ? null : unitProbabilityOrUndefined(options.qHat),
       costUsd: nonNegativeNumberOrUndefined(options.costUsd),
       evidence: evidence.map((ref) => runtimeEvidenceToBeliefEvidence(ref, point)),

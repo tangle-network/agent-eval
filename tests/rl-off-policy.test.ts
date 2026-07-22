@@ -83,40 +83,139 @@ describe('SNIPS', () => {
 })
 
 describe('Doubly-robust', () => {
-  it('matches IPS when qHat is uniform constant', () => {
-    const trajectories = Array.from({ length: 50 }, () => traj(0.5, 0.5, 0.7, 0.5))
-    const dr = doublyRobust(trajectories)
-    const ips = inverseProbabilityWeighting(trajectories)
-    // Both unbiased; values should be close.
-    expect(Math.abs(dr.value - ips.value)).toBeLessThan(0.05)
-  })
-
-  it('falls back to IPS for entries missing qHat', () => {
+  it('recovers a stochastic target value of 0.8 with a perfect Q-function', () => {
     const trajectories: OffPolicyTrajectory[] = [
-      traj(0.5, 0.5, 1, undefined),
-      traj(0.5, 0.5, 0, 0.5),
+      {
+        runId: 'action-a',
+        behaviorProb: 0.5,
+        targetProb: 0.75,
+        reward: 1,
+        qHatChosen: 1,
+        vHatTarget: 0.8,
+      },
+      {
+        runId: 'action-b',
+        behaviorProb: 0.5,
+        targetProb: 0.25,
+        reward: 0.2,
+        qHatChosen: 0.2,
+        vHatTarget: 0.8,
+      },
     ]
+
     const dr = doublyRobust(trajectories)
-    expect(dr.n).toBe(2)
-    expect(Number.isFinite(dr.value)).toBe(true)
+
+    expect(dr.value).toBeCloseTo(0.8, 12)
+    expect(dr.contributionCounts).toEqual({ dr: 2, ipsFallback: 0, legacyScalar: 0 })
   })
 
-  it('lower MSE than IPS when qHat is informative (synthetic)', () => {
-    // Synthetic: reward = bernoulli with p depending on context; qHat = true p.
-    const trajectories: OffPolicyTrajectory[] = []
-    let s = 1
-    const rng = () => {
-      s = (s * 1664525 + 1013904223) % 0x100000000
-      return s / 0x100000000
-    }
-    for (let i = 0; i < 200; i++) {
-      const p = rng()
-      const reward = rng() < p ? 1 : 0
-      trajectories.push({ runId: `r-${i}`, behaviorProb: 0.5, targetProb: 0.5, reward, qHat: p })
-    }
+  it('is unbiased with correct propensities even when the Q-function is wrong', () => {
+    const trajectories: OffPolicyTrajectory[] = [
+      {
+        runId: 'action-a',
+        behaviorProb: 0.5,
+        targetProb: 0.8,
+        reward: 1,
+        qHatChosen: 0.4,
+        vHatTarget: 0.4,
+      },
+      {
+        runId: 'action-b',
+        behaviorProb: 0.5,
+        targetProb: 0.2,
+        reward: 0,
+        qHatChosen: 0.4,
+        vHatTarget: 0.4,
+      },
+    ]
+
+    const dr = doublyRobust(trajectories)
+
+    expect(dr.value).toBeCloseTo(0.8, 12)
+  })
+
+  it('handles a deterministic target policy', () => {
+    const trajectories: OffPolicyTrajectory[] = [
+      {
+        runId: 'selected-action',
+        behaviorProb: 0.5,
+        targetProb: 1,
+        reward: 1,
+        qHatChosen: 0.7,
+        vHatTarget: 0.7,
+      },
+      {
+        runId: 'rejected-action',
+        behaviorProb: 0.5,
+        targetProb: 0,
+        reward: 0,
+        qHatChosen: 0.3,
+        vHatTarget: 0.7,
+      },
+    ]
+
+    const dr = doublyRobust(trajectories)
+
+    expect(dr.value).toBeCloseTo(1, 12)
+  })
+
+  it.each([
+    { qHatChosen: 0.4 },
+    { vHatTarget: 0.4 },
+  ])('rejects an incomplete contextual Q pair: %o', (estimates) => {
+    expect(() =>
+      doublyRobust([
+        {
+          runId: 'partial-pair',
+          behaviorProb: 0.5,
+          targetProb: 0.5,
+          reward: 1,
+          ...estimates,
+        },
+      ]),
+    ).toThrow(/qHatChosen and vHatTarget must be supplied together/)
+  })
+
+  it('uses exact IPS and reports it when no reward-model estimate is supplied', () => {
+    const trajectories: OffPolicyTrajectory[] = [traj(0.5, 0.75, 1), traj(0.5, 0.25, 0)]
+
     const dr = doublyRobust(trajectories)
     const ips = inverseProbabilityWeighting(trajectories)
-    expect(dr.standardError).toBeLessThan(ips.standardError * 1.1)
+
+    expect(dr.value).toBe(ips.value)
+    expect(dr.contributionCounts).toEqual({ dr: 0, ipsFallback: 2, legacyScalar: 0 })
+  })
+
+  it('preserves the deprecated scalar formula', () => {
+    const dr = doublyRobust([
+      {
+        runId: 'legacy-scalar',
+        behaviorProb: 0.5,
+        targetProb: 0.75,
+        reward: 1,
+        qHat: 0.4,
+      },
+    ])
+
+    expect(dr.value).toBeCloseTo(1.3, 12)
+    expect(dr.contributionCounts).toEqual({ dr: 0, ipsFallback: 0, legacyScalar: 1 })
+  })
+
+  it('prefers the contextual pair when the deprecated scalar is also present', () => {
+    const dr = doublyRobust([
+      {
+        runId: 'gradual-migration',
+        behaviorProb: 0.5,
+        targetProb: 0.5,
+        reward: 1,
+        qHatChosen: 0.6,
+        vHatTarget: 0.8,
+        qHat: 0,
+      },
+    ])
+
+    expect(dr.value).toBeCloseTo(1.2, 12)
+    expect(dr.contributionCounts).toEqual({ dr: 1, ipsFallback: 0, legacyScalar: 0 })
   })
 })
 

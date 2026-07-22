@@ -113,6 +113,8 @@ function parseDecisionEvent(
       confidence: finiteUnitField(payload, 'confidence'),
       behaviorProb: numberField(payload, 'behaviorProb'),
       targetProb: numberField(payload, 'targetProb'),
+      qHatChosen: finiteUnitField(payload, 'qHatChosen'),
+      vHatTarget: finiteUnitField(payload, 'vHatTarget'),
       qHat: finiteUnitField(payload, 'qHat'),
       costUsd: nonNegativeNumberField(payload, 'costUsd'),
       evidence,

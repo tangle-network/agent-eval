@@ -29,6 +29,12 @@ export function embeddedBeliefOpeTargetPolicy(id = 'embedded-target-prob'): Beli
     targetProbOf(point) {
       return point.targetProb
     },
+    qHatChosenOf(point) {
+      return point.qHatChosen
+    },
+    vHatTargetOf(point) {
+      return point.vHatTarget
+    },
     qHatOf(point) {
       return point.qHat
     },
@@ -53,9 +59,13 @@ export function beliefDecisionsToOffPolicyTrajectories(
     }
 
     let targetProb: number | null | undefined
+    let qHatChosen: number | null | undefined
+    let vHatTarget: number | null | undefined
     let qHat: number | null | undefined
     try {
       targetProb = targetPolicy.targetProbOf(point)
+      qHatChosen = targetPolicy.qHatChosenOf?.(point)
+      vHatTarget = targetPolicy.vHatTargetOf?.(point)
       qHat = targetPolicy.qHatOf?.(point)
     } catch (error) {
       diagnostics.push(
@@ -67,7 +77,29 @@ export function beliefDecisionsToOffPolicyTrajectories(
       diagnostics.push(`${point.id}: invalid targetProb ${formatProbability(targetProb)}`)
       continue
     }
-    if (qHat !== null && qHat !== undefined && !isTargetProbability(qHat)) {
+    const hasQHatChosen = qHatChosen !== null && qHatChosen !== undefined
+    const hasVHatTarget = vHatTarget !== null && vHatTarget !== undefined
+    if (hasQHatChosen !== hasVHatTarget) {
+      diagnostics.push(`${point.id}: qHatChosen and vHatTarget must be supplied together`)
+      continue
+    }
+    if (
+      hasQHatChosen &&
+      hasVHatTarget &&
+      (!isTargetProbability(qHatChosen) || !isTargetProbability(vHatTarget))
+    ) {
+      diagnostics.push(
+        `${point.id}: invalid contextual Q pair qHatChosen=${formatProbability(qHatChosen)} vHatTarget=${formatProbability(vHatTarget)}`,
+      )
+      continue
+    }
+    if (
+      !hasQHatChosen &&
+      !hasVHatTarget &&
+      qHat !== null &&
+      qHat !== undefined &&
+      !isTargetProbability(qHat)
+    ) {
       diagnostics.push(`${point.id}: invalid qHat ${formatProbability(qHat)}; ignoring qHat`)
       qHat = null
     }
@@ -77,6 +109,8 @@ export function beliefDecisionsToOffPolicyTrajectories(
       reward: rewardOf(point),
       behaviorProb: point.behaviorProb,
       targetProb,
+      ...(qHatChosen !== undefined ? { qHatChosen } : {}),
+      ...(vHatTarget !== undefined ? { vHatTarget } : {}),
       qHat,
     })
   }

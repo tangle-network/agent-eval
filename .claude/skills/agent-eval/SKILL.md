@@ -432,7 +432,7 @@ import {
 ### When NOT to use these
 
 - The RL primitives don't replace `runEvalCampaign`. The campaign is the matrix runner with capture-integrity baked in; the RL primitives consume the campaign's `RunRecord[]` output. Keep the campaign as the entry point.
-- `doublyRobust` requires a Q-function. We don't ship a learned Q-function trainer — pass a heuristic (running mean per scenario), a regression fit you trained out-of-band, or `null` per-trajectory to fall back to IPS for that entry.
+- `doublyRobust` requires `qHatChosen = Q(context, loggedAction)` and `vHatTarget = sum_action targetPolicy(action | context) * Q(context, action)` together. We don't ship a learned Q-function trainer — compute both with a tabular estimate, regression fit, or learned reward model. Supplying neither uses exact IPS for that row. The deprecated scalar `qHat` remains migration-only and is reported separately in `contributionCounts`.
 - `prmTrainingPairs` matches trajectories by `(span name, span kind)` prefix. Production use should replace this with a token-level prefix hash; the heuristic is good for early-stage PRM scaffolding.
 - Contamination probe's per-scenario q-values use a heuristic pseudo-p — they're a display aid; the load-bearing test is the global Wilcoxon.
 

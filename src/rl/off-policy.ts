@@ -19,9 +19,10 @@
  *   - For LLM agents, propensity scores must be supplied by the caller
  *     (logged in the trace, recovered from token log-probs, or estimated
  *     via a learned propensity model). We do NOT estimate propensity here.
- *   - Doubly-robust requires a Q-function (model-based reward predictor).
- *     We accept any callable; consumers pass either a tabular average,
- *     a regression fit, or a learned reward model.
+ *   - Doubly-robust requires two outputs from a Q-function: its prediction
+ *     for the logged action and its expectation under the target policy.
+ *     Consumers compute these with a tabular estimate, regression fit, or
+ *     learned reward model before constructing the trajectories.
  *
  * Bias / variance tradeoffs:
  *   - IPS: unbiased; high variance for small overlap, infinite variance
@@ -57,10 +58,32 @@ export interface OffPolicyTrajectory {
    */
   targetProb: number
   /**
-   * Optional model-based reward prediction at the same context. Used by
-   * `doublyRobust`. Set to `null` for IPS-only evaluation.
+   * Model-based reward prediction for the action selected by the behavior
+   * policy: `Q_hat(context, loggedAction)`. Supply this together with
+   * `vHatTarget` for contextual-bandit doubly-robust estimation.
+   */
+  qHatChosen?: number | null
+  /**
+   * Expected model-based reward under the target policy:
+   * `sum_action targetPolicy(action | context) * Q_hat(context, action)`.
+   * Supply this together with `qHatChosen`.
+   */
+  vHatTarget?: number | null
+  /**
+   * @deprecated Use `qHatChosen` and `vHatTarget` together. When the new pair
+   * is absent, this scalar is used as both terms to preserve existing results.
+   * When the new pair is present, this field is ignored.
    */
   qHat?: number | null
+}
+
+export interface OffPolicyContributionCounts {
+  /** Contributions using the contextual-bandit doubly-robust formula. */
+  dr: number
+  /** Contributions using exact IPS because no reward-model estimate was supplied. */
+  ipsFallback: number
+  /** Contributions using the deprecated single-scalar formula. */
+  legacyScalar: number
 }
 
 export interface OffPolicyEstimate {
@@ -77,6 +100,8 @@ export interface OffPolicyEstimate {
    * mean) are a red flag — variance is dominated by a few outliers.
    */
   maxImportanceWeight: number
+  /** Populated by `doublyRobust` to expose which formula each row used. */
+  contributionCounts?: OffPolicyContributionCounts
 }
 
 export interface OffPolicyOptions {
@@ -184,7 +209,8 @@ export function selfNormalizedImportanceWeighting(
 /**
  * Doubly-robust off-policy estimator (Dudík, Langford, Li 2011).
  *
- *     V_DR = (1/N) * sum_i [ q_hat_i + (target_prob_i / behavior_prob_i) * (r_i - q_hat_i) ]
+ *     V_DR = (1/N) * sum_i [ v_hat_target_i
+ *              + (target_prob_i / behavior_prob_i) * (r_i - q_hat_chosen_i) ]
  *
  * Unbiased if EITHER:
  *   - the importance ratios are correct (IPS-style validity), OR
@@ -194,10 +220,10 @@ export function selfNormalizedImportanceWeighting(
  * of both errors — much smaller than either alone. This is why DR is the
  * default in production OPE pipelines.
  *
- * Requires `qHat` on every trajectory. If any are `null`, the estimator
- * falls back to SNIPS for those entries (loud-fallback behavior; the
- * report's `n` reflects the full set but `effectiveSampleSize` accounts
- * for the lost variance reduction).
+ * `qHatChosen` and `vHatTarget` must be supplied together. Rows with neither
+ * use the exact IPS contribution. Deprecated `qHat` rows preserve the scalar
+ * formula, and a complete new pair takes precedence when both forms exist.
+ * `contributionCounts` makes the mix explicit in the result.
  */
 export function doublyRobust(
   trajectories: OffPolicyTrajectory[],
@@ -205,9 +231,19 @@ export function doublyRobust(
 ): OffPolicyEstimate {
   const cap = opts.weightCap ?? Infinity
   const clip = opts.rewardClip ?? { low: 0, high: 1 }
-  if (trajectories.length === 0) return zeroEstimate()
+  if (trajectories.length === 0) {
+    return {
+      ...zeroEstimate(),
+      contributionCounts: { dr: 0, ipsFallback: 0, legacyScalar: 0 },
+    }
+  }
 
   const contributions: number[] = []
+  const contributionCounts: OffPolicyContributionCounts = {
+    dr: 0,
+    ipsFallback: 0,
+    legacyScalar: 0,
+  }
   let maxW = 0
   let sumW = 0
   let sumW2 = 0
@@ -217,14 +253,33 @@ export function doublyRobust(
     }
     const w = Math.min(cap, t.targetProb / t.behaviorProb)
     const r = clamp(t.reward, clip.low, clip.high)
-    const q =
-      typeof t.qHat === 'number' && Number.isFinite(t.qHat)
-        ? clamp(t.qHat, clip.low, clip.high)
-        : null
-    if (q === null) {
-      contributions.push(w * r) // fallback: IPS for this entry
+    const rawQHatChosen = t.qHatChosen
+    const rawVHatTarget = t.vHatTarget
+    const hasQHatChosen = rawQHatChosen !== null && rawQHatChosen !== undefined
+    const hasVHatTarget = rawVHatTarget !== null && rawVHatTarget !== undefined
+    if (hasQHatChosen !== hasVHatTarget) {
+      throw new ValidationError(
+        `doublyRobust: qHatChosen and vHatTarget must be supplied together (runId=${t.runId})`,
+      )
+    }
+
+    if (hasQHatChosen && hasVHatTarget) {
+      if (!Number.isFinite(rawQHatChosen) || !Number.isFinite(rawVHatTarget)) {
+        throw new ValidationError(
+          `doublyRobust: qHatChosen and vHatTarget must be finite (runId=${t.runId})`,
+        )
+      }
+      const qHatChosen = clamp(rawQHatChosen, clip.low, clip.high)
+      const vHatTarget = clamp(rawVHatTarget, clip.low, clip.high)
+      contributions.push(vHatTarget + w * (r - qHatChosen))
+      contributionCounts.dr += 1
+    } else if (typeof t.qHat === 'number' && Number.isFinite(t.qHat)) {
+      const qHat = clamp(t.qHat, clip.low, clip.high)
+      contributions.push(qHat + w * (r - qHat))
+      contributionCounts.legacyScalar += 1
     } else {
-      contributions.push(q + w * (r - q))
+      contributions.push(w * r)
+      contributionCounts.ipsFallback += 1
     }
     if (w > maxW) maxW = w
     sumW += w
@@ -240,6 +295,7 @@ export function doublyRobust(
     effectiveSampleSize: effN,
     n,
     maxImportanceWeight: maxW,
+    contributionCounts,
   }
 }
 

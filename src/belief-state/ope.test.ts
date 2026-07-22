@@ -17,7 +17,8 @@ describe('belief-state off-policy evaluation', () => {
         chosenAction: 'continue',
         behaviorProb: 0.5,
         targetProb: 0.5,
-        qHat: 0.8,
+        qHatChosen: 0.7,
+        vHatTarget: 0.8,
         evidence: [{ source: 'event', id: 'e-1' }],
         outcome: { score: 0.8 },
       },
@@ -44,7 +45,9 @@ describe('belief-state off-policy evaluation', () => {
         reward: 0.8,
         behaviorProb: 0.5,
         targetProb: 0.5,
-        qHat: 0.8,
+        qHatChosen: 0.7,
+        vHatTarget: 0.8,
+        qHat: undefined,
       },
     ])
     expect(report.dropped).toBe(1)
@@ -145,5 +148,71 @@ describe('belief-state off-policy evaluation', () => {
 
     expect(report.targetPolicyId).toBe('explicit-policy')
     expect(report.ips.value).toBe(1)
+  })
+
+  it('plumbs contextual Q callbacks into the doubly-robust estimate', () => {
+    const points: BeliefDecisionPoint[] = [
+      {
+        id: 'action-a',
+        runId: 'r-1',
+        stepIndex: 0,
+        kind: 'continue',
+        chosenAction: 'a',
+        behaviorProb: 0.5,
+        evidence: [{ source: 'event', id: 'e-1' }],
+        outcome: { reward: 1 },
+      },
+      {
+        id: 'action-b',
+        runId: 'r-2',
+        stepIndex: 0,
+        kind: 'continue',
+        chosenAction: 'b',
+        behaviorProb: 0.5,
+        evidence: [{ source: 'event', id: 'e-2' }],
+        outcome: { reward: 0.2 },
+      },
+    ]
+
+    const report = evaluateBeliefOffPolicy(
+      points,
+      {
+        id: 'stochastic-policy',
+        targetProbOf: (point) => (point.chosenAction === 'a' ? 0.75 : 0.25),
+        qHatChosenOf: (point) => (point.chosenAction === 'a' ? 1 : 0.2),
+        vHatTargetOf: () => 0.8,
+      },
+      { minEffectiveSampleSize: 1 },
+    )
+
+    expect(report.dr.value).toBeCloseTo(0.8, 12)
+    expect(report.dr.contributionCounts).toEqual({ dr: 2, ipsFallback: 0, legacyScalar: 0 })
+  })
+
+  it('drops an incomplete contextual Q pair with a diagnostic', () => {
+    const points: BeliefDecisionPoint[] = [
+      {
+        id: 'partial-pair',
+        runId: 'r-1',
+        stepIndex: 0,
+        kind: 'continue',
+        chosenAction: 'continue',
+        behaviorProb: 0.5,
+        evidence: [{ source: 'event', id: 'e-1' }],
+        outcome: { reward: 1 },
+      },
+    ]
+
+    const report = beliefDecisionsToOffPolicyTrajectories(points, {
+      id: 'invalid-target-policy',
+      targetProbOf: () => 0.5,
+      qHatChosenOf: () => 0.6,
+    })
+
+    expect(report.trajectories).toEqual([])
+    expect(report.dropped).toBe(1)
+    expect(report.diagnostics).toEqual([
+      'partial-pair: qHatChosen and vHatTarget must be supplied together',
+    ])
   })
 })
