@@ -7,7 +7,7 @@ import {
   type JudgeConfig,
   runImprovementLoop,
   type Scenario,
-} from '@tangle-network/agent-eval/contract'
+} from '../../src/contract'
 
 type DemoArtifact = { text: string }
 

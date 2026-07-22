@@ -3,7 +3,7 @@ import {
   SandboxHarness,
   SubprocessSandboxDriver,
   TraceEmitter,
-} from '@tangle-network/agent-eval'
+} from '../../src/index'
 
 /**
  * Same-sandbox pattern:
