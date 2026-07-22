@@ -81,6 +81,7 @@ try {
   const quickstart = readme.match(/## Quickstart[\s\S]*?```ts\n([\s\S]*?)\n```/)?.[1]
   if (!quickstart) throw new Error('README quickstart TypeScript block was not found')
   writeFileSync(join(appDir, 'quickstart.ts'), `${quickstart}\n`)
+  writeFileSync(join(appDir, 'package.json'), JSON.stringify({ type: 'module' }))
   writeFileSync(
     join(appDir, 'index.ts'),
     `
@@ -220,13 +221,13 @@ try {
         moduleResolution: 'NodeNext',
         strict: true,
         skipLibCheck: true,
-        noEmit: true,
+        outDir: 'dist',
       },
       include: ['index.ts', 'quickstart.ts'],
     }),
   )
   run(join(repoRoot, 'node_modules', '.bin', 'tsc'), ['-p', 'tsconfig.json'], appDir)
-  const quickstartOutput = run('pnpm', ['exec', 'tsx', join(appDir, 'quickstart.ts')], repoRoot)
+  const quickstartOutput = run(process.execPath, [join(appDir, 'dist', 'quickstart.js')], appDir)
   const plainQuickstartOutput = quickstartOutput.replace(/\x1b\[[0-9;]*m/g, '')
   if (!/baseline:\s+\{ 'cites-ticket': \{ mean: 0,/.test(plainQuickstartOutput)) {
     throw new Error(`README quickstart baseline output changed:\n${quickstartOutput}`)
