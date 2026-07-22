@@ -1,28 +1,7 @@
 /**
- * compareProposers canonical — the REAL head-to-head: gepa-reflection vs
- * gepa-pareto vs skill-opt on ONE corpus through a real LLM backend, scored
- * UNIFORMLY on an untouched test split, with paired-bootstrap lift CIs. This is the
- * empirical companion to the deterministic mechanism gate (the compareProposers
- * unit tests in CI): the tests prove the harness ranks correctly; THIS proves
- * the optimizers move a real test number and tells us which wins.
- *
- * Provider-agnostic: defaults to the Tangle router, but any OpenAI-compatible
- * endpoint works — set LLM_BASE_URL + LLM_API_KEY + LLM_MODEL (+ optional
- * PRICE_IN_PER_M / PRICE_OUT_PER_M for an honest $cost). The backend is
- * recorded honestly in the artifact. `assertRealBackend` aborts on a stub
- * (zero-token) run, so a fake $0 lift can never be reported.
- *
- * Bounded: population 2 × 2 generations (gepa), 3 epochs (skill-opt), 5 train
- * + 3 selection + 6 untouched test scenarios, deterministic exact-match judge
- * (no LLM-judge variance). Completes in a few minutes / cents.
- *
- * Run (DeepSeek example):
- *   LLM_BASE_URL=https://api.deepseek.com/v1 LLM_API_KEY=$DEEPSEEK_API_KEY \
- *   LLM_MODEL=deepseek-v4-pro PRICE_IN_PER_M=0.27 PRICE_OUT_PER_M=1.10 \
- *   pnpm tsx examples/compare-proposers-canonical/index.ts
- *
- * Run (Tangle router):
- *   TANGLE_API_KEY=$(cat /tmp/.tk) pnpm tsx examples/compare-proposers-canonical/index.ts
+ * Compare three optimization methods on shared train, selection, and test
+ * data. Candidate generation uses an OpenAI-compatible model endpoint; final
+ * scoring uses deterministic exact matching.
  */
 
 import { mkdirSync, writeFileSync } from 'node:fs'
@@ -49,9 +28,7 @@ import {
   SEARCH,
 } from '../_shared/extraction-task'
 
-// ── Config (provider-agnostic) ────────────────────────────────────────────
-// `||` (not `??`) throughout: CI passes empty strings for unset `vars`, and an
-// empty BASE_URL / NaN price would corrupt the run — empty must fall through.
+// CI may provide unset variables as empty strings, so these defaults use `||`.
 const API_KEY = (process.env.LLM_API_KEY || process.env.TANGLE_API_KEY)?.trim()
 const BASE_URL = (
   process.env.LLM_BASE_URL ||
@@ -103,9 +80,7 @@ async function main() {
   mkdirSync(runRoot, { recursive: true })
   const startedAt = Date.now()
 
-  console.log(
-    'compareProposers canonical — gepa-reflection vs gepa-pareto vs skill-opt, real backend',
-  )
+  console.log('compareProposers: gepa-reflection vs gepa-pareto vs skill-opt')
   console.log(`  model=${MODEL}  base=${BASE_URL}`)
   console.log(
     `  train=${TRAIN.length} selection=${SELECTION.length} test=${TEST.length}  pop=${POPULATION} gens=${GENERATIONS} epochs=${EPOCHS}`,
@@ -149,13 +124,11 @@ async function main() {
     expectUsage: 'assert',
   })
 
-  // ── Backend integrity: a benchmark on a stub is worthless. ─────────────
   const integrity = summarizeBackendIntegrity(records)
   assertRealBackend(records, { allowMixed: false })
 
   const best = comparison.best
-  // CI clears zero ⇒ a real measurable lift for the winning proposer.
-  const honestVerdict = best.liftCi.low > 0 ? 'lift-proven' : 'no-measurable-lift'
+  const testResult = best.liftCi.low > 0 ? 'positive' : 'inconclusive'
   const totalCostUsd = records.reduce((a, r) => a + r.costUsd, 0)
   const elapsedSec = Math.round((Date.now() - startedAt) / 1000)
 
@@ -200,7 +173,7 @@ async function main() {
     totalCostUsd: round6(totalCostUsd),
     llmCalls: records.length,
     elapsedSec,
-    honestVerdict,
+    testResult,
     publishedAt: new Date(startedAt).toISOString(),
   }
 
@@ -211,33 +184,33 @@ async function main() {
     JSON.stringify(artifact, null, 2),
   )
 
-  console.log('── PROPOSER COMPARISON (ranked by held-out lift) ─────────────')
+  console.log('Comparison results, ranked by test lift')
   for (const s of artifact.scores) {
     console.log(
       `  #${s.rank} ${s.name.padEnd(16)} lift=${s.lift >= 0 ? '+' : ''}${s.lift}  ` +
-        `CI[${s.liftCi.low}, ${s.liftCi.high}]  base=${s.baselineComposite}→win=${s.winnerComposite}  $${s.costUsd}`,
+        `CI[${s.liftCi.low}, ${s.liftCi.high}]  baseline=${s.baselineComposite} winner=${s.winnerComposite}  $${s.costUsd}`,
     )
   }
-  console.log('── PAIRWISE (best vs others) ───────────────────────────────')
+  console.log('Best method compared with each other method')
   for (const p of artifact.pairwise) {
     console.log(
-      `  ${p.a} − ${p.b}: Δ=${p.deltaMean} CI[${p.ci.low}, ${p.ci.high}] → favored: ${p.favored}`,
+      `  ${p.a} - ${p.b}: delta=${p.deltaMean} CI[${p.ci.low}, ${p.ci.high}] favored=${p.favored}`,
     )
   }
-  console.log('── INTEGRITY ───────────────────────────────────────────────')
+  console.log('Run details')
   console.log(
     `  backend verdict      : ${integrity.verdict} (${integrity.totalInputTokens}in/${integrity.totalOutputTokens}out tokens, ${records.length} calls)`,
   )
   console.log(`  total cost           : $${round6(totalCostUsd)}`)
   console.log(`  elapsed              : ${elapsedSec}s`)
   console.log(
-    `  BEST PROPOSER          : ${best.name} (lift=${round(best.lift)}, CI.low=${round(best.liftCi.low)})`,
+    `  best method          : ${best.name} (lift=${round(best.lift)}, CI.low=${round(best.liftCi.low)})`,
   )
-  console.log(`  HONEST VERDICT       : ${honestVerdict}`)
+  console.log(`  test result          : ${testResult}`)
   console.log(`  artifact: ${artifactPath}`)
 }
 
 main().catch((err) => {
-  console.error('COMPARE-PROPOSERS FAILED:', err instanceof Error ? err.message : err)
+  console.error('compareProposers failed:', err instanceof Error ? err.message : err)
   process.exitCode = 1
 })

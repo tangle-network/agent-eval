@@ -191,6 +191,54 @@ describe('compareProposers', () => {
     ).rejects.toThrow(/no proposers/)
   })
 
+  it.each([
+    [
+      'duplicate names',
+      [fixedEntry('same', 'a', 0), fixedEntry('same', 'b', 0)],
+      /duplicate proposer name/,
+    ],
+    [
+      'colliding run paths',
+      [fixedEntry('alpha beta', 'a', 0), fixedEntry('alpha-beta', 'b', 0)],
+      /same run path/,
+    ],
+    ['untrimmed names', [fixedEntry(' padded ', 'a', 0)], /trimmed and non-empty/],
+  ])('rejects %s before optimization', async (_label, proposers, expected) => {
+    await expect(
+      compareProposers<S, A>({
+        proposers,
+        baselineSurface: 'x',
+        ...PARTITIONS,
+        dispatchWithSurface: async (surface) => ({ text: String(surface) }),
+        judges: [judge],
+        runDir,
+        expectUsage: 'off',
+      }),
+    ).rejects.toThrow(expected)
+  })
+
+  it.each([
+    ['costUsd', { winnerSurface: 'x', costUsd: Number.NaN }],
+    ['durationMs', { winnerSurface: 'x', costUsd: 0, durationMs: -1 }],
+  ])('rejects an invalid optimizer %s before test scoring', async (_field, result) => {
+    let testDispatches = 0
+    await expect(
+      compareProposers<S, A>({
+        proposers: [{ name: 'invalid-output', optimize: async () => result }],
+        baselineSurface: 'x',
+        ...PARTITIONS,
+        dispatchWithSurface: async (surface) => {
+          testDispatches += 1
+          return { text: String(surface) }
+        },
+        judges: [judge],
+        runDir,
+        expectUsage: 'off',
+      }),
+    ).rejects.toThrow(/returned an invalid/)
+    expect(testDispatches).toBe(0)
+  })
+
   it('accepts compareProposers + proposers for the clearer public vocabulary', async () => {
     const result = await compareProposers<S, A>({
       proposers: [
@@ -280,6 +328,25 @@ describe('compareProposers', () => {
 
     expect(events.slice(0, 2)).toEqual(['optimize:a', 'optimize:b'])
     expect(events.slice(2).every((event) => event.startsWith('test:'))).toBe(true)
+  })
+
+  it('scores identical selected surfaces once', async () => {
+    let testDispatches = 0
+    const result = await compareProposers<S, A>({
+      proposers: [fixedEntry('first', 'SOLVE_h1', 1), fixedEntry('second', 'SOLVE_h1', 2)],
+      baselineSurface: 'nothing',
+      ...PARTITIONS,
+      dispatchWithSurface: async (surface) => {
+        testDispatches += 1
+        return { text: String(surface) }
+      },
+      judges: [judge],
+      runDir,
+      expectUsage: 'off',
+    })
+
+    expect(testDispatches).toBe(TEST.length * 2)
+    expect(result.scores[0]?.winnerComposite).toBe(result.scores[1]?.winnerComposite)
   })
 
   it.each([

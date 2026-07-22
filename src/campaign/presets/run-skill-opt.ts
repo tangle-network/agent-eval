@@ -1,24 +1,12 @@
 /**
- * `runSkillOpt` — the SkillOpt epoch hill-climb (Microsoft, arXiv:2605.23904).
- * Unlike `runOptimization`'s population search around one global incumbent,
- * SkillOpt is a sequential, selection-gated hill-climb on ONE skill document:
+ * Optimize one skill document with the repeated selection method from SkillOpt
+ * (Microsoft, arXiv:2605.23904).
  *
- *   each epoch:
- *     1. reflect on the CURRENT surface's weakest TRAIN scenarios/dimensions
- *        (never the selection split — proposals must not see the acceptance axis)
- *     2. propose ≤ `patchesPerEpoch` bounded patches (≤ `editBudget` ops each)
- *     3. apply each; score the candidate on the SELECTION split
- *     4. ACCEPT the first patch that STRICTLY improves the selection composite;
- *        otherwise push it to the rejected-edit buffer (fed back so the model
- *        does not re-propose dead ends)
- *     5. anneal the edit budget down after consecutive rejections (the
- *        "textual learning rate" decay); refresh the slow-update meta note
- *     6. stop at `maxEpochs` or after `patience` epochs with no acceptance
- *
- * The selection split is adaptively reused across epochs, so it is NOT an
- * untouched final test. `compareProposers` owns that third partition and never
- * passes it here. `runCampaign` is the measurement; `applySkillPatch` applies
- * the edits; `skillOptProposer` proposes them.
+ * Each round proposes bounded patches from item-level training evidence, then
+ * accepts the first patch that improves the selection score. Later rounds see
+ * aggregate acceptance feedback and prior rejected edits, so selection data is
+ * adaptively reused. It is not a final test. Use `compareProposers` when you
+ * need a separate test partition.
  */
 
 import type { CostLedgerHandle, CostLedgerSummary } from '../../cost-ledger'
@@ -41,8 +29,7 @@ export interface RunSkillOptOptions<TScenario extends Scenario, TArtifact>
     ctx: DispatchContext,
   ) => Promise<TArtifact>
   proposer: SkillOptProposer
-  /** Scenarios the optimizer reflects on for evidence. MUST be disjoint from
-   *  `selectionScenarios` — proposals never see the acceptance axis. */
+  /** Item-level evidence shown to the proposer. Must be disjoint from selection. */
   trainScenarios: TScenario[]
   /** Adaptively reused candidate-selection scenarios. An edit is accepted ONLY
    *  if it strictly improves the mean composite here. This is not a final test. */
@@ -94,9 +81,8 @@ export interface RunSkillOptResult {
   winnerSurface: string
   baselineSelectionComposite: number
   winnerSelectionComposite: number
-  /** `winnerSelectionComposite - baselineSelectionComposite` — monotonically ≥ 0
-   *  by construction (only strictly-improving edits are accepted). */
-  lift: number
+  /** `winnerSelectionComposite - baselineSelectionComposite`. This is not test lift. */
+  selectionLift: number
   acceptedEdits: AcceptedEdit[]
   rejectedEdits: RejectedEdit[]
   epochsRun: number
@@ -283,7 +269,7 @@ export async function runSkillOpt<TScenario extends Scenario, TArtifact>(
     winnerSurface: current,
     baselineSelectionComposite: baselineSelection,
     winnerSelectionComposite: currentSelection,
-    lift: currentSelection - baselineSelection,
+    selectionLift: currentSelection - baselineSelection,
     acceptedEdits,
     rejectedEdits: rejectedAll,
     epochsRun,

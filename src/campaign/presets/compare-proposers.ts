@@ -1,18 +1,8 @@
 /**
- * `compareProposers` — a head-to-head lift benchmark across surface proposers
- * on ONE corpus. This is the forcing function: optimizer quality (GEPA
- * reflection vs GEPA+Pareto vs SkillOpt) becomes a NUMBER with a confidence
- * interval, so a proposer regression — or shipping a simplified proposer and
- * calling it the real one — turns a build red instead of going
- * measurement-invisible.
- *
- * Every entrant receives the SAME train + selection partitions and is scored
- * the SAME way: each proposer returns the surface accepted on selection, then
- * the benchmark scores the baseline + every winner on the SAME untouched test
- * scenarios with the SAME judges. Apples-to-apples by construction — the
- * comparison never depends on how a proposer measured itself. The
- * per-scenario test composites feed a paired bootstrap (`statistics.ts`) for
- * each proposer's lift CI and for the pairwise "which proposer wins" CI.
+ * Compare optimization methods on shared train, selection, and test data.
+ * Optimizers receive only train and selection data. After every optimizer
+ * finishes, their selected surfaces are measured on the same untouched test
+ * data and compared with paired confidence intervals.
  */
 
 import type { LlmClientOptions } from '../../llm-client'
@@ -28,6 +18,7 @@ import { gepaProposer } from '../proposers/gepa'
 import { skillOptProposer } from '../proposers/skill-opt'
 import { type RunCampaignOptions, runCampaign } from '../run-campaign'
 import { campaignBreakdown } from '../score-utils'
+import { surfaceContentHash } from '../surface-identity'
 import type {
   CampaignResult,
   DispatchContext,
@@ -51,6 +42,7 @@ export interface ProposerOptimizationData<TScenario extends Scenario> {
 /** What an optimizer produced: the surface accepted on selection + what it
  *  cost to get there. The comparison does the untouched test scoring itself. */
 export interface ProposerEntry<TScenario extends Scenario = Scenario> {
+  /** Unique, trimmed display name. Its normalized form must also be unique. */
   name: string
   optimize: (
     data: ProposerOptimizationData<TScenario>,
@@ -123,7 +115,7 @@ export interface CompareProposersOptions<TScenario extends Scenario, TArtifact>
 export async function compareProposers<TScenario extends Scenario, TArtifact>(
   opts: CompareProposersOptions<TScenario, TArtifact>,
 ): Promise<ProposerComparison> {
-  if (opts.proposers.length === 0) throw new Error('compareProposers: no proposers to compare')
+  assertProposerEntries(opts.proposers)
   assertComparisonPartitions(opts)
   const seed = opts.seed ?? 42
   const resamples = opts.resamples ?? 2000
@@ -179,6 +171,7 @@ export async function compareProposers<TScenario extends Scenario, TArtifact>(
   }> = []
   for (const proposer of opts.proposers) {
     const out = await proposer.optimize(optimizationData)
+    assertOptimizationResult(proposer.name, out)
     optimized.push({
       name: proposer.name,
       winnerSurface: out.winnerSurface,
@@ -188,14 +181,23 @@ export async function compareProposers<TScenario extends Scenario, TArtifact>(
   }
 
   // Only after candidate selection is closed do we open the untouched test
-  // partition and uniformly score baseline + every selected winner.
+  // partition and uniformly score baseline + every distinct selected surface.
+  // Reusing one measurement for identical surfaces avoids charging twice and
+  // prevents random model variation from creating a difference where none exists.
   const baselineArr = align(await scoreOnTest(opts.baselineSurface, 'compare-baseline'), 'baseline')
+  const testScoresBySurface = new Map([[surfaceContentHash(opts.baselineSurface), baselineArr]])
   const winners: Array<(typeof optimized)[number] & { arr: number[] }> = []
   for (const winner of optimized) {
-    const byScenario = await scoreOnTest(winner.winnerSurface, `compare-${slug(winner.name)}`)
+    const surfaceKey = surfaceContentHash(winner.winnerSurface)
+    let arr = testScoresBySurface.get(surfaceKey)
+    if (!arr) {
+      const byScenario = await scoreOnTest(winner.winnerSurface, `compare-${slug(winner.name)}`)
+      arr = align(byScenario, `proposer "${winner.name}"`)
+      testScoresBySurface.set(surfaceKey, arr)
+    }
     winners.push({
       ...winner,
-      arr: align(byScenario, `proposer "${winner.name}"`),
+      arr,
     })
   }
 
@@ -249,6 +251,46 @@ export async function compareProposers<TScenario extends Scenario, TArtifact>(
   })
 
   return { scores, best, pairwise, testScenarioIds: scenarioIds }
+}
+
+function assertProposerEntries<TScenario extends Scenario>(
+  proposers: readonly ProposerEntry<TScenario>[],
+): void {
+  if (proposers.length === 0) throw new Error('compareProposers: no proposers to compare')
+  const names = new Set<string>()
+  const pathOwners = new Map<string, string>()
+  for (const proposer of proposers) {
+    if (!proposer.name || proposer.name.trim() !== proposer.name) {
+      throw new Error('compareProposers: proposer names must be trimmed and non-empty')
+    }
+    if (names.has(proposer.name)) {
+      throw new Error(`compareProposers: duplicate proposer name '${proposer.name}'`)
+    }
+    names.add(proposer.name)
+    const pathKey = slug(proposer.name)
+    const prior = pathOwners.get(pathKey)
+    if (prior) {
+      throw new Error(
+        `compareProposers: proposer names '${prior}' and '${proposer.name}' map to the same run path '${pathKey}'`,
+      )
+    }
+    pathOwners.set(pathKey, proposer.name)
+  }
+}
+
+function assertOptimizationResult(
+  name: string,
+  result: { winnerSurface: MutableSurface; costUsd: number; durationMs?: number },
+): void {
+  if (!Number.isFinite(result.costUsd) || result.costUsd < 0) {
+    throw new Error(`compareProposers: proposer '${name}' returned an invalid costUsd`)
+  }
+  if (
+    result.durationMs !== undefined &&
+    (!Number.isFinite(result.durationMs) || result.durationMs < 0)
+  ) {
+    throw new Error(`compareProposers: proposer '${name}' returned an invalid durationMs`)
+  }
 }
 
 function assertComparisonPartitions<TScenario extends Scenario>(
@@ -310,7 +352,12 @@ function mean(xs: number[]): number {
 }
 
 function slug(name: string): string {
-  return name.replace(/[^a-z0-9]+/gi, '-').toLowerCase()
+  return (
+    name
+      .replace(/[^a-z0-9]+/gi, '-')
+      .replace(/^-|-$/g, '')
+      .toLowerCase() || 'proposer'
+  )
 }
 
 // ── Built-in entries — wire the real optimizers for a live comparison ───────
@@ -350,12 +397,6 @@ export interface BuiltinProposerEntryConfig<TScenario extends Scenario, TArtifac
   /** Optional analysis report forwarded to `propose()` as `ctx.report`. */
   report?: unknown
 }
-
-/** @deprecated Use `BuiltinProposerEntryConfig`. */
-export type OptimizerEntryConfig<
-  TScenario extends Scenario,
-  TArtifact,
-> = BuiltinProposerEntryConfig<TScenario, TArtifact>
 
 /** GEPA, reflection-only (single-parent, no Pareto combine). */
 export function gepaReflectionEntry<TScenario extends Scenario, TArtifact>(

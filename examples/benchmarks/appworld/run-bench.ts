@@ -1,17 +1,7 @@
 /**
- * AppWorld proposer-comparison benchmark.
- *
- * Head-to-head lift of agent-eval's self-improvement proposers on a PUBLIC
- * benchmark (AppWorld), scored objectively by `world.evaluate()` (SGC/TGC):
- *
- *   baseline  vs  gepa-reflection  vs  gepa-pareto  vs  memory-curation  vs  halo
- *
- * Each arm optimizes the SAME baseline agent instruction prompt (the surface)
- * on a train split, accepts candidates on a separate selection split, then every
- * winner + the baseline are scored on an untouched test split via paired
- * bootstrap CIs (`compareProposers`). The agent itself is the real
- * non-MCP REPL worker (repl_agent.py) driving real AppWorld tasks through the
- * Tangle router — no mocks, objective scoring.
+ * Compare prompt optimization methods on AppWorld using separate train,
+ * selection, and test tasks. AppWorld's `world.evaluate()` scores the worker
+ * output, so no model-based judge is involved.
  *
  * Run (overnight):
  *   export OPENAI_BASE_URL=https://router.tangle.tools/v1 OPENAI_API_KEY=$(cat /tmp/.tk)
@@ -19,7 +9,7 @@
  *   BENCH_MODEL=gpt-5-mini TRAIN_N=4 SELECTION_N=4 TEST_N=6 MAX_GEN=2 \
  *   pnpm tsx examples/benchmarks/appworld/run-bench.ts > /tmp/appworld-bench/run.log 2>&1
  *
- * Output: a markdown report + the raw ProposerComparison JSON under OUT_DIR.
+ * Output: a Markdown report and the comparison JSON under OUT_DIR.
  */
 
 import { execFile } from 'node:child_process'
@@ -247,7 +237,7 @@ const appworldJudge: JudgeConfig<AppWorldArtifact, AppWorldScenario> = {
   },
 }
 
-/** memory-curation entry — runs runImprovementLoop with the curator proposer. */
+/** Run the memory-curation method with the shared comparison data. */
 function memoryEntry(
   config: BuiltinProposerEntryConfig<AppWorldScenario, AppWorldArtifact>,
 ): ProposerEntry<AppWorldScenario> {
@@ -273,23 +263,17 @@ function memoryEntry(
         runDir: `${config.runDir}/memory-loop`,
         seed: config.seed ?? SEED,
       })
-      const costUsd =
-        result.baselineCampaign.aggregates.totalCostUsd +
-        result.generations.reduce(
-          (s, g) => s + g.surfaces.reduce((a, sf) => a + sf.campaign.aggregates.totalCostUsd, 0),
-          0,
-        )
       return {
         winnerSurface:
           result.gateResult.decision === 'ship' ? result.winnerSurface : config.baselineSurface,
-        costUsd,
+        costUsd: result.cost.totalCostUsd,
         durationMs: Date.now() - started,
       }
     },
   }
 }
 
-/** halo entry — runs runImprovementLoop with the real halo-engine proposer. */
+/** Run the external HALO method with the shared comparison data. */
 function haloEntry(
   config: BuiltinProposerEntryConfig<AppWorldScenario, AppWorldArtifact>,
 ): ProposerEntry<AppWorldScenario> {
@@ -327,16 +311,10 @@ function haloEntry(
         runDir: `${config.runDir}/halo-loop`,
         seed: config.seed ?? SEED,
       })
-      const costUsd =
-        result.baselineCampaign.aggregates.totalCostUsd +
-        result.generations.reduce(
-          (s, g) => s + g.surfaces.reduce((a, sf) => a + sf.campaign.aggregates.totalCostUsd, 0),
-          0,
-        )
       return {
         winnerSurface:
           result.gateResult.decision === 'ship' ? result.winnerSurface : config.baselineSurface,
-        costUsd,
+        costUsd: result.cost.totalCostUsd,
         durationMs: Date.now() - started,
       }
     },
@@ -358,8 +336,7 @@ function resolveTrainTraces(): string {
   return lines.filter(Boolean).join('\n')
 }
 
-// Our trace-analyst engine as the symmetric opponent to HALO: identical loop,
-// gate, traces, and apply-step — only the findings producer differs.
+// Keep execution and data fixed so only the findings method differs from HALO.
 function traceAnalystEntry(
   config: BuiltinProposerEntryConfig<AppWorldScenario, AppWorldArtifact>,
 ): ProposerEntry<AppWorldScenario> {
@@ -395,16 +372,10 @@ function traceAnalystEntry(
         runDir: `${config.runDir}/trace-analyst-loop`,
         seed: config.seed ?? SEED,
       })
-      const costUsd =
-        result.baselineCampaign.aggregates.totalCostUsd +
-        result.generations.reduce(
-          (s, g) => s + g.surfaces.reduce((a, sf) => a + sf.campaign.aggregates.totalCostUsd, 0),
-          0,
-        )
       return {
         winnerSurface:
           result.gateResult.decision === 'ship' ? result.winnerSurface : config.baselineSurface,
-        costUsd,
+        costUsd: result.cost.totalCostUsd,
         durationMs: Date.now() - started,
       }
     },
@@ -520,24 +491,25 @@ function renderReport(c: Awaited<ReturnType<typeof compareProposers>>): string {
     .filter((s) => s.liftCi.low > 0)
     .map((s) => s.name)
     .join(', ')
-  return `# AppWorld proposer-comparison benchmark
+  return `# AppWorld Optimization Comparison
 
-Public benchmark (AppWorld dev), objective scoring (\`world.evaluate\` TGC/SGC), paired bootstrap CIs.
-Untouched test scenarios: ${c.testScenarioIds.length} — \`${c.testScenarioIds.join(', ')}\`
+Dataset: AppWorld ${BENCH_SPLIT}.
+Scoring: \`world.evaluate\` TGC/SGC.
+Test tasks (${c.testScenarioIds.length}): \`${c.testScenarioIds.join(', ')}\`.
 
-| rank | proposer | baseline | winner | lift | 95% CI | cost |
+| Rank | Method | Baseline | Winner | Lift | 95% interval | Optimization cost |
 |---|---|---|---|---|---|---|
 ${rows}
 
-**Best:** ${c.best.name} (lift ${(c.best.lift * 100).toFixed(1)}% [${(c.best.liftCi.low * 100).toFixed(1)}%, ${(c.best.liftCi.high * 100).toFixed(1)}%]).
-**Significant lift (CI lower bound > 0):** ${sig || 'none'}.
+Best test lift: ${c.best.name}, ${(c.best.lift * 100).toFixed(1)}% [${(c.best.liftCi.low * 100).toFixed(1)}%, ${(c.best.liftCi.high * 100).toFixed(1)}%].
+Methods with an interval above zero: ${sig || 'none'}.
 
-Pairwise vs best:
-${c.pairwise.map((p) => `- ${p.a} − ${p.b}: ${(p.deltaMean * 100).toFixed(1)}% [${(p.low * 100).toFixed(1)}%, ${(p.high * 100).toFixed(1)}%] → favored: ${p.favored}`).join('\n')}
+Best method compared with each other method:
+${c.pairwise.map((p) => `- ${p.a} - ${p.b}: ${(p.deltaMean * 100).toFixed(1)}% [${(p.low * 100).toFixed(1)}%, ${(p.high * 100).toFixed(1)}%], favored=${p.favored}`).join('\n')}
 `
 }
 
 main().catch((e) => {
-  console.error('[bench] FAILED:', e instanceof Error ? e.stack : e)
+  console.error('[bench] failed:', e instanceof Error ? e.stack : e)
   process.exit(1)
 })

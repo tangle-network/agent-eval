@@ -193,7 +193,6 @@ export {
   fapoEscalationEntry,
   gepaParetoEntry,
   gepaReflectionEntry,
-  type OptimizerEntryConfig,
   type ProposerComparison,
   type ProposerEntry,
   type ProposerOptimizationData,

@@ -293,7 +293,7 @@ describe('runSkillOpt', () => {
     // Baseline has neither marker → 0; winner has both → 1.0.
     expect(result.baselineSelectionComposite).toBe(0)
     expect(result.winnerSelectionComposite).toBe(1)
-    expect(result.lift).toBe(1)
+    expect(result.selectionLift).toBe(1)
     // Exactly the two marker edits were accepted; the two neutral edits rejected.
     expect(result.acceptedEdits.map((e) => e.label)).toEqual(['add-good-a', 'add-good-b'])
     expect(result.rejectedEdits.map((e) => e.label).sort()).toEqual(['neutral-1', 'neutral-2'])
@@ -344,7 +344,7 @@ describe('runSkillOpt', () => {
       runDir,
       expectUsage: 'off',
     })
-    expect(result.lift).toBe(0)
+    expect(result.selectionLift).toBe(0)
     expect(result.acceptedEdits).toEqual([])
     expect(result.winnerSurface).toBe('# Skill') // unchanged
     expect(result.epochsRun).toBe(2) // patience stopped it early

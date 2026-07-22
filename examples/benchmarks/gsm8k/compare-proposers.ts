@@ -1,25 +1,12 @@
 /**
- * GSM8K substrate proof — the empirical headline: do the optimization proposers move
- * a REAL untouched-test number on a HARD task (no ceiling), with a clean CI? Extraction
- * ceilings on a strong model (gepa 0.625→1.0, 0 findings); GSM8K with a
- * deliberately weak baseline (no chain-of-thought) leaves genuine headroom that
- * the optimizer recovers by evolving the system prompt (inject CoT + answer-format
- * discipline). DETERMINISTIC numeric judge (gsm8k/index.ts `evaluate`) → zero
- * LLM-judge variance, so the lift CI is defensible.
+ * Compare three prompt optimization methods on GSM8K with separate train,
+ * selection, and test data. Candidate generation uses a model endpoint; final
+ * scoring uses deterministic numeric answer matching.
  *
- * Proposers compete head-to-head through `compareProposers`: gepa-reflection,
- * gepa-pareto, skill-opt — each returns its promoted surface, all scored on the
- * SAME untouched test split with paired-bootstrap lift CIs + pairwise ranking.
- * `assertRealBackend` aborts a stub run; the artifact records integrity honestly.
- *
- * This run does NOT wire `analyzeGeneration` — GSM8K failures are per-problem, so
- * findings carry little (the findings-value claim rides on the AppWorld-d3 runner).
- * Here the claim is: the substrate moves a real held-out lift on a hard task.
- *
- * Run (DeepSeek, rate-limit-free; deepseek-v4-pro is the explicit listed id):
+ * Run with an OpenAI-compatible endpoint:
  *   AGENT_EVAL_GSM8K_PATH=~/.cache/agent-eval/gsm8k.jsonl \
  *   LLM_BASE_URL=https://api.deepseek.com/v1 LLM_API_KEY=$DEEPSEEK_API_KEY \
- *   LLM_MODEL=deepseek-v4-pro PRICE_IN_PER_M=0.27 PRICE_OUT_PER_M=1.10 \
+ *   LLM_MODEL=deepseek-chat PRICE_IN_PER_M=0.27 PRICE_OUT_PER_M=1.10 \
  *   pnpm tsx examples/benchmarks/gsm8k/compare-proposers.ts
  */
 
@@ -145,7 +132,7 @@ function makeWorker() {
     const costUsd = paid.receipt.costUsd
     records.push({
       runId: `${scenario.id}-${createHash('sha1').update(surface).digest('hex').slice(0, 8)}-${records.length}`,
-      experimentId: 'gsm8k-substrate-proof',
+      experimentId: 'gsm8k-proposer-comparison',
       candidateId: createHash('sha1').update(surface).digest('hex').slice(0, 12),
       seed: 42,
       model: res.model || MODEL,
@@ -209,11 +196,12 @@ async function main() {
   }
 
   const worker = makeWorker()
-  const runRoot = join(process.cwd(), '.evolve', 'substrate-proof', 'gsm8k', String(Date.now()))
+  const outputRoot = join(process.cwd(), '.evolve', 'benchmarks', 'gsm8k-proposer-comparison')
+  const runRoot = join(outputRoot, String(Date.now()))
   mkdirSync(runRoot, { recursive: true })
   const startedAt = Date.now()
 
-  console.log('GSM8K substrate proof — gepa-reflection vs gepa-pareto vs skill-opt')
+  console.log('GSM8K: gepa-reflection vs gepa-pareto vs skill-opt')
   console.log(`  model=${MODEL}  base=${BASE_URL}`)
   console.log(
     `  train=${trainScenarios.length} selection=${selectionScenarios.length} test=${testScenarios.length} pop=${POPULATION} gens=${GENERATIONS} epochs=${EPOCHS}`,
@@ -285,8 +273,8 @@ async function main() {
   const best = comparison.best
   const totalCostUsd = records.reduce((a, r) => a + r.costUsd, 0)
   const elapsedSec = Math.round((Date.now() - startedAt) / 1000)
-  const honestVerdict =
-    integrity.verdict === 'real' && best.liftCi.low > 0 ? 'lift-proven' : 'no-measurable-lift'
+  const testResult =
+    integrity.verdict === 'real' && best.liftCi.low > 0 ? 'positive' : 'inconclusive'
 
   const artifact = {
     task: {
@@ -343,31 +331,28 @@ async function main() {
       llmCalls: records.length,
       elapsedSec,
     },
-    honestVerdict,
+    testResult,
   }
 
-  const artifactPath = join(runRoot, 'proof.json')
+  const artifactPath = join(runRoot, 'comparison.json')
   writeFileSync(artifactPath, JSON.stringify(artifact, null, 2))
-  writeFileSync(
-    join(process.cwd(), '.evolve', 'substrate-proof', 'gsm8k', 'latest.json'),
-    JSON.stringify(artifact, null, 2),
-  )
+  writeFileSync(join(outputRoot, 'latest.json'), JSON.stringify(artifact, null, 2))
 
-  console.log('── GSM8K SUBSTRATE PROOF (ranked by held-out lift) ─────────')
+  console.log('GSM8K comparison results, ranked by test lift')
   for (const s of artifact.comparison.scores) {
     console.log(
-      `  #${s.rank} ${s.name.padEnd(16)} lift=${s.lift >= 0 ? '+' : ''}${s.lift} CI[${s.liftCi.low}, ${s.liftCi.high}] base=${s.baselineComposite}→win=${s.winnerComposite} $${s.costUsd}`,
+      `  #${s.rank} ${s.name.padEnd(16)} lift=${s.lift >= 0 ? '+' : ''}${s.lift} CI[${s.liftCi.low}, ${s.liftCi.high}] baseline=${s.baselineComposite} winner=${s.winnerComposite} $${s.costUsd}`,
     )
   }
   console.log(
     `  backend=${integrity.verdict} (${records.length} calls, $${round6(totalCostUsd)}, ${elapsedSec}s)`,
   )
-  console.log(`  BEST=${best.name} lift=${round(best.lift)} CI.low=${round(best.liftCi.low)}`)
-  console.log(`  VERDICT=${honestVerdict}`)
+  console.log(`  best=${best.name} lift=${round(best.lift)} CI.low=${round(best.liftCi.low)}`)
+  console.log(`  testResult=${testResult}`)
   console.log(`  artifact: ${artifactPath}`)
 }
 
 main().catch((err) => {
-  console.error('GSM8K-PROOF FAILED:', err instanceof Error ? err.message : err)
+  console.error('GSM8K comparison failed:', err instanceof Error ? err.message : err)
   process.exitCode = 1
 })

@@ -29,8 +29,9 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 - `compareProposers({ holdoutScenarios })` fails closed.
   Pass `trainScenarios`, `selectionScenarios`, and `testScenarios`; read `testScenarioIds` from the result.
+  `OptimizerEntryConfig` is renamed to `BuiltinProposerEntryConfig`.
 - `runSkillOpt({ holdoutScenarios })` fails closed because those rows are adaptively reused.
-  Pass `selectionScenarios`; selection result fields now use `Selection` instead of `Holdout`.
+  Pass `selectionScenarios`; selection result fields now use `Selection` instead of `Holdout`, and `lift` is now `selectionLift`.
 
 ## [0.122.2] — 2026-07-17 — premeasured optimization continuation
 

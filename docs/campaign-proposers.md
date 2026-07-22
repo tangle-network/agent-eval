@@ -1,4 +1,4 @@
-# Campaign Proposers, ELI5
+# Candidate Generation
 
 A campaign proposer is the part of an improvement loop that says: "try this
 candidate next."
@@ -79,6 +79,9 @@ policy:
 The simplest useful setup is prompt plus JSON config. Structural/code edits are
 optional and should be injected by the app or runtime layer.
 
+Every level must accept and return the same surface representation.
+For the JSON profile below, the prompt proposer must return the complete JSON profile rather than a bare prompt string.
+
 ```ts
 import {
   fapoProposer,
@@ -89,7 +92,11 @@ import {
 
 const proposer = fapoProposer({
   scope: { allowedLevels: ['prompt', 'parameter'] },
-  promptProposer: gepaProposer({ llm, model, target: 'agent prompt' }),
+  promptProposer: gepaProposer({
+    llm,
+    model,
+    target: 'complete JSON agent profile; edit prompt.systemPrompt and preserve valid JSON',
+  }),
   parameterProposer: parameterSweepProposer({
     candidates: [
       {
@@ -125,23 +132,14 @@ For side-by-side experiments with existing proposers, use the compare entry:
 ```ts
 import {
   compareProposers,
-  fapoEscalationEntry,
   gepaParetoEntry,
+  gepaReflectionEntry,
 } from '@tangle-network/agent-eval/campaign'
 
 await compareProposers({
   proposers: [
+    gepaReflectionEntry(config),
     gepaParetoEntry(config),
-    fapoEscalationEntry({
-      ...config,
-      parameterCandidates: [
-        {
-          label: 'raise-retrieval-k',
-          rationale: 'retrieval misses indicate the search budget may be too low',
-          changes: [{ path: 'retrieval.k', value: 10 }],
-        },
-      ],
-    }),
   ],
   baselineSurface,
   trainScenarios,
@@ -169,9 +167,6 @@ All three partitions must be non-empty and pairwise disjoint by scenario ID.
   code generation should be supplied as an injected `SurfaceProposer` from the
   runtime/app layer.
 
-## Simpler Mental Model
+## Summary
 
-Use this sentence when wiring a loop:
-
-> The proposer chooses candidates; the campaign measures them; the gate decides
-> whether the measured winner is safe to promote.
+The proposer creates candidates, the campaign measures them, and the release rule decides whether the measured winner meets the promotion criteria.
