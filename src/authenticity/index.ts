@@ -92,10 +92,11 @@ function declaredNames(content: string): string[] {
   const names = new Set<string>()
   const re =
     /\b(?:contract|library|interface|abstract\s+contract|class|enum|struct|module|package)\s+([A-Za-z_]\w*)/g
-  let m: RegExpExecArray | null
-  while ((m = re.exec(content))) {
+  let m = re.exec(content)
+  while (m) {
     const name = m[1]
     if (name && name.length >= 4) names.add(name)
+    m = re.exec(content)
   }
   return [...names]
 }

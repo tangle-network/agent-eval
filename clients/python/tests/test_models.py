@@ -10,7 +10,6 @@ import pytest
 
 from agent_eval_rpc.models import JudgeRequest, Rubric, RubricDimension
 
-
 MIN_RUBRIC = Rubric(
     name="r",
     description="d",
