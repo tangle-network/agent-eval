@@ -1,202 +1,159 @@
 # `@tangle-network/agent-eval`
 
-Evaluate and improve AI agents from the runs they already produce.
-
-`agent-eval` turns agent outputs, traces, judge scores, and production feedback into a decision packet: did this change help, what failed, what should ship, and what needs more data?
+A TypeScript library that measures whether your AI agent got better or worse, using the runs it already produces.
 
 [![npm](https://img.shields.io/npm/v/@tangle-network/agent-eval.svg)](https://www.npmjs.com/package/@tangle-network/agent-eval)
 [![pypi](https://img.shields.io/pypi/v/agent-eval-rpc.svg)](https://pypi.org/project/agent-eval-rpc/)
 [![tests](https://github.com/tangle-network/agent-eval/actions/workflows/ci.yml/badge.svg)](https://github.com/tangle-network/agent-eval/actions/workflows/ci.yml)
 [![license: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](./LICENSE)
 
+You give it agent runs — outputs, traces, scores, production feedback.
+It gives you numbers you can act on: did the new prompt beat the old one, is the difference statistically real, what failed and why, and whether the change should ship.
+
 Use it when you need to:
 
-- compare a candidate agent/prompt/model against a baseline,
-- turn production traces or human feedback into eval results,
-- run a gated self-improvement loop,
-- explain failures by cluster, cost, judge disagreement, and release risk.
+- compare a candidate prompt/model/config against a baseline, with confidence intervals instead of vibes,
+- turn production traces or human feedback you already collect into eval results,
+- run an automated improve-and-verify loop over a prompt, held to a promotion rule you choose,
+- explain failures by cluster, cost, and judge disagreement.
 
-It is a library, not a SaaS requirement. TypeScript is first-class; Python can call the same wire protocol through `agent-eval-rpc`.
+Everything runs in your process. No hosted service is required, and no data leaves your machine unless you explicitly wire an exporter.
+Python can drive the same engine over HTTP via [`agent-eval-rpc`](./clients/python/README.md).
 
 ---
 
 ## Install
 
 ```sh
-pnpm add @tangle-network/agent-eval
+pnpm add @tangle-network/agent-eval   # or npm / yarn
 ```
 
-Python clients can use the RPC package:
-
 ```sh
-pip install agent-eval-rpc
+pip install agent-eval-rpc            # optional Python client
 ```
 
 ---
 
-## Quick start
+## Quickstart
 
-### 1. Analyze runs you already have
-
-Start here if you already have production logs, benchmark rows, human ratings, or agent run records.
-
-```ts
-import { analyzeRuns } from '@tangle-network/agent-eval/contract'
-
-const report = await analyzeRuns({
-  runs, // RunRecord[]
-  baselineRuns,
-})
-
-console.log(report.recommendations)
-console.log(report.lift)
-console.log(report.failureClusters)
-```
-
-The output includes score distributions, lift confidence intervals, failure modes, cost-quality tradeoffs, judge agreement, contamination checks, and release recommendations when the input supports them.
-
-### 2. Define one eval, then score or improve
-
-Use this when you have scenarios, a runnable agent, and judges.
+Copy this into `quickstart.ts` and run `npx tsx quickstart.ts`. It is fully offline — the "agent" and "judge" are plain functions you replace with your own.
 
 ```ts
 import { defineAgentEval } from '@tangle-network/agent-eval/contract'
 
 const evalKit = defineAgentEval({
-  scenarios,
-  agent: async (surface, scenario, ctx) =>
-    myAgent.run({ scenario, systemPrompt: String(surface), signal: ctx.signal }),
-  judge: myJudge,
-  baselineSurface: currentPrompt,
+  scenarios: [
+    { id: 'refund', kind: 'support' },
+    { id: 'shipping', kind: 'support' },
+    { id: 'cancel', kind: 'support' },
+  ],
+  // Your agent: takes the prompt under test + one scenario, returns its output.
+  agent: async (prompt, scenario) =>
+    String(prompt).includes('ticket') ? `Re ${scenario.id}: on it.` : 'On it.',
+  // Your judge: scores one output 0..1. Swap in an LLM judge for real work.
+  judge: {
+    name: 'cites-ticket',
+    dimensions: [{ key: 'grounded', weight: 1 }],
+    score: ({ artifact, scenario }) => {
+      const grounded = artifact.includes(scenario.id) ? 1 : 0
+      return { dimensions: { grounded }, composite: grounded, notes: '' }
+    },
+  },
+  baselineSurface: 'Answer the customer politely.',
+  expectUsage: 'off',
 })
 
-const baseline = await evalKit.evaluate()
-const result = await evalKit.improve({ budget: { generations: 2 } })
-
-console.log(baseline.aggregates.byJudge)
-console.log(result.gateDecision)
-console.log(result.winner.surface)
-console.log(result.insight.recommendations)
+console.log('baseline: ', (await evalKit.evaluate()).aggregates.byJudge)
+const candidate = await evalKit.evaluate({ surface: 'Answer politely, cite the ticket id.' })
+console.log('candidate:', candidate.aggregates.byJudge)
 ```
 
-`defineAgentEval()` is a small wrapper over `runEval()` and `selfImprove()`. It lets you define scenarios, agent, judge, and baseline once, then either score one surface with `.evaluate()` or run the gated loop with `.improve()`.
+Output:
 
-### 3. Adapt existing data
-
-```ts
-import { analyzeRuns, fromFeedbackTable, fromOtelSpans } from '@tangle-network/agent-eval/contract'
-
-const { runs, raterScores } = fromFeedbackTable({
-  ratings: parseYourFeedbackTable(),
-})
-
-const traceRuns = fromOtelSpans({ spans: yourOtelSpans })
-
-await analyzeRuns({ runs: [...runs, ...traceRuns], raterScores })
 ```
+baseline:  { 'cites-ticket': { mean: 0, stdev: 0, ci95: [ 0, 0 ], n: 3 } }
+candidate: { 'cites-ticket': { mean: 1, stdev: 0, ci95: [ 1, 1 ], n: 3 } }
+```
+
+Each `evaluate()` call runs every scenario through the agent, scores each output with the judge, and returns per-judge score distributions.
+The "surface" is the thing you are changing — here a system-prompt string, in general any prompt or config value.
+From the same definition, `evalKit.improve()` runs the full loop: propose candidate prompts, measure each one, and check the winner against a held-back scenario set before recommending it.
+
+Already have run data and no runnable agent? Skip the loop and call [`analyzeRuns()`](./docs/concepts.md#the-top-level-functions) on your existing records instead.
 
 ---
 
-## Core concepts
+## What's in the box
 
-- **RunRecord**: the durable row for one agent run: model, prompt/config hashes, split, cost, tokens, outcome.
-- **Scenario**: one task or case the agent attempts.
-- **Judge**: a scoring function, rule-based or model-based.
-- **Surface**: the thing being changed, usually a prompt string or config object.
-- **InsightReport**: the decision packet returned by `analyzeRuns()` and embedded in `selfImprove()`.
-- **Gate**: the policy that decides `ship`, `hold`, or `need_more_work`.
+One-line tour of the primitives. All of these are plain functions and interfaces you compose; start from `/contract` and pull in more only when you need it.
 
-## Examples
+| Primitive | What it does |
+|---|---|
+| **Campaigns** (`runEval`, `runCampaign`) | Run agent × scenarios × repetitions, score every run, record every run as a durable `RunRecord` row. |
+| **Judges** (`JudgeConfig`, LLM judge helpers, calibration) | Score one output on weighted dimensions. Rule-based or model-based, plus tools to check a judge against human ratings before trusting it. |
+| **Gates** (`heldOutGate`, `paretoSignificanceGate`, `composeGate`, …) | The rule that decides whether a candidate ships: e.g. "must beat baseline on held-back scenarios with a confidence interval that excludes zero." |
+| **Proposers** (`gepaProposer`, `evolutionaryProposer`, …) | Generate candidate prompts/configs from what failed, for the improve loop to measure. |
+| **Run analysis** (`analyzeRuns`, `diffRuns`) | Turn any set of `RunRecord`s into a report: score distributions, baseline-vs-candidate lift with confidence intervals, failure clusters, cost breakdown, recommendations. |
+| **Intake adapters** (`fromFeedbackTable`, `fromOtelSpans`) | Convert data you already have — human ratings tables, OpenTelemetry spans — into `RunRecord`s. |
+| **Cost ledger** | Attribute every LLM call's tokens and dollars to the run, phase, and judge that spent them, including interrupted calls. |
+| **Labeled store** | Persist runs with labels (approved/rejected/edited) so review activity becomes training and eval data. |
+| **Statistics** (`pairedBootstrap`, `benjaminiHochberg`, sequential tests) | The release-decision math, usable standalone. |
+| **Trace tools** (`/traces`, `/analyst`) | Store and replay structured run traces; cluster failures with an LLM analyst panel. |
+| **Wire protocol** (`/wire`) | HTTP/RPC server + schemas so non-TypeScript stacks (Python today) can call the same engine. |
 
-| Journey | Example | Who it's for |
-|---|---|---|
-| **Closed loop** — improve a prompt under statistical confidence | [`examples/selfimprove-quickstart/`](./examples/selfimprove-quickstart/) | Teams with scenarios + judges + agent in hand |
-| **Multi-rater feedback corpus** — turn Obsidian/Sheets/CSV ratings into actionable insights | [`examples/customer-feedback-loop/`](./examples/customer-feedback-loop/) | Teams reviewing AI outputs by hand who want to compress that taste into per-member LLM judges + close the loop |
-| **Production OTel traces** — analyze logs you already have, no closed loop required | [`examples/customer-otel-traces/`](./examples/customer-otel-traces/) | Teams running agents in prod with observability, no eval discipline yet |
+Our own experiments with these primitives live in [`examples/`](./examples/README.md) — they are demonstrations, not part of the API.
 
-Each example: `README.md` + a single `index.ts` runnable via `pnpm tsx`. Prints the resulting `InsightReport` to stdout.
+| Runnable example | Shows |
+|---|---|
+| [`examples/selfimprove-quickstart/`](./examples/selfimprove-quickstart/) | The closed improve-and-verify loop, fully offline |
+| [`examples/customer-feedback-loop/`](./examples/customer-feedback-loop/) | Multi-rater human feedback (CSV/Sheets/Obsidian) → per-rater judges → report |
+| [`examples/customer-otel-traces/`](./examples/customer-otel-traces/) | Production OpenTelemetry traces → report, no closed loop required |
+
+Each is a single `index.ts` you run with `pnpm tsx`.
 
 ---
 
-## Subpath entry points
+## Entry points
+
+Import from `@tangle-network/agent-eval/<subpath>`. Every row below is verified importable from the published package.
 
 | Subpath | What it gives you |
 |---|---|
-| `…/contract` | **The headline, frozen surface — new code starts here.** `defineAgentEval`, `selfImprove`, `analyzeRuns`, `runEval`, `runCampaign`, `runImprovementLoop`, `diffRuns`; intake adapters (`fromFeedbackTable`, `fromOtelSpans`); proposers (`gepaProposer`, `evolutionaryProposer`); gates (`defaultProductionGate`, `heldOutGate`, `paretoSignificanceGate`, `neutralizationGate`, `composeGate`); the deployment-outcome store; storage; and the five core types `Scenario` / `Dispatch` / `JudgeConfig` / `SurfaceProposer` / `Gate`. |
-| `…/hosted` | `createHostedClient` / `hostedClientFromEnv` + the wire types to ship eval-run events + trace spans to a hosted orchestrator (ours or your own implementation of the spec) |
-| `…/adapters/otel` | `createOtelBridge` — forwards OpenTelemetry-shape spans into the hosted-tier ingest, no `@opentelemetry/*` dependency |
-| `…/adapters/langchain` | Wrap any LangChain `Runnable` as a `Dispatch` (or `JudgeConfig`), no `@langchain/core` peer dep |
-| `…/adapters/http` | `httpDispatch` + `runDispatchServer` — run a campaign's worker on another machine (multi-region, remote worker execution) |
-| `…/campaign` | **The measurement + improvement engine**: `runProfileMatrix`, `compareProposers`, `analyzeCrossSurfaceInteractions`, every surface proposer (`gepaProposer`, `fapoProposer`, `parameterSweepProposer`, `haloProposer`, `skillOptProposer`, `aceProposer`, `memoryCurationProposer`, …), the gates, storage backends, and loop provenance. `/contract` re-exports the app-facing subset. |
-| `…/rl` | Bridge from eval artifacts to training signal: verifiable rewards, preferences, OPE, tournaments, contamination, compute curves, trainer-format exporters, process rewards, plus the durable corpus + `buildRlDataset` / datasheet bundle |
-| `…/reporting` | Release-decision statistics: `pairedBootstrap`, `benjaminiHochberg`, anytime-valid sequential e-values, `evaluateReleaseConfidence`, and the report renderers |
-| `…/analyst` | The trace-analyst surface: `AnalystRegistry` + `buildDefaultAnalystRegistry` (run the failure-clustering panel), `FindingsStore`, and the LLM chat transports |
-| `…/traces` | Trace stores + emitters, OTLP-JSONL deterministic replay, `analyzeTraces`, and the `traceAnalystOnRunComplete` hook |
-| `…/control` | Agent control loop: `runAgentControlLoop` (observe → validate → decide → act), action policy, propose/review |
-| `…/matrix` | `runAgentMatrix` — an N-axis cartesian over caller-supplied substrate values, per-axis pass/score/cost/duration |
-| `…/multishot` | N-shot persona × shot matrix runner (`runMultishot` / `runMultishotMatrix`) |
-| `…/wire` | The cross-language HTTP/RPC server + Zod schemas (the source-of-truth protocol the Python client speaks) + the built-in rubric registry |
-| `…/benchmarks` | `BenchmarkAdapter` contract, `runBenchmarkAdapter`, `calibrateBenchmarkMetric`, standard retrieval parsers + ranked retrieval metrics, `deterministicSplit`, and the bundled `routing` reference benchmark |
+| `/contract` | **Start here.** The frozen app-facing API: `defineAgentEval`, `selfImprove`, `analyzeRuns`, `runEval`, `runCampaign`, `runImprovementLoop`, `diffRuns`, the intake adapters, the standard proposers and gates, and the core types. A `0.x` minor only adds to this surface; nothing changes shape or disappears. |
+| `/campaign` | The full measurement + improvement engine behind `/contract`: every proposer, gate, storage backend, and multi-axis comparison runner. |
+| `/reporting` | Release-decision statistics and report renderers. |
+| `/analyst` | LLM failure-clustering panel + findings store. |
+| `/traces` | Trace stores, emitters, deterministic replay, trace analysis. |
+| `/rl` | Export eval artifacts as training signal: rewards, preferences, trainer-format datasets. |
+| `/benchmarks` | Benchmark adapter contract + retrieval metrics + a bundled reference benchmark. |
+| `/wire` | The HTTP/RPC server and Zod schemas (what the Python client speaks). |
+| `/hosted` | Client for shipping eval-run events to a remote orchestrator (see below). |
+| `/control` | A generic observe → validate → decide → act agent loop with eval-backed stopping rules. |
+| `/matrix`, `/multishot` | N-axis configuration sweeps; multi-turn persona × turn-count runners. |
+| `/meta-eval`, `/belief-state`, `/builder-eval`, `/pipelines`, `/storyboard`, `/authenticity`, `/fuzz`, `/trace-attributes` | Specialized surfaces: judge calibration, decision-point extraction, code-generator grading, trace diagnostics, run replay rendering, anti-gaming output checks, input fuzzing, trace attribute vocabulary. |
 
-**Specialized surfaces** (subpath-only): `…/prm` (process-reward grading + best-of-N), `…/meta-eval` (judge calibration + the deployment-outcome store), `…/belief-state` (decision-point extraction + selective-policy reports), `…/pipelines` (trace-diagnostic views: budget breach, failure cluster, stuck loop, …), `…/governance` (EU AI Act / NIST AI RMF / SOC2 reports), `…/knowledge` (knowledge-readiness gating before a run), `…/builder-eval` (code-generator three-layer eval), `…/storyboard` (trace → watchable replay), `…/authenticity` (anti-Goodhart "real or convincing BS" scorer over produced files), `…/workflow` (workflow-trace eval + partner export), `…/telemetry` (Workers-safe telemetry client), `…/testing` (test-only reset helpers).
-
-The root export remains broad for compatibility; new code should prefer the focused subpaths above — `/contract` first.
+The root export (`@tangle-network/agent-eval`) remains broad for compatibility; prefer the subpaths for new code.
 
 ---
 
-## Composition with the stack
+## Documentation
 
-agent-eval is the bottom of the layering: consumers depend on it, it depends on none of them.
-
-```
-agent-runtime    Runs agents (chat turns, one-shot tasks, multi-attempt loops), captures every
-                 run as a trace, and calls optimizePrompt / runImprovementLoop. Produces the
-                 RunRecords + traces agent-eval scores. Depends on agent-eval.
-
-agent-eval       selfImprove, analyzeRuns, runCampaign + surface proposers (GEPA proposer, …), the gates
-   (this repo)   (heldOutGate, defaultProductionGate, paretoSignificanceGate), the InsightReport
-                 decision packet, the RL bridge, the wire protocol. Depends on neither consumer.
-
-agent-knowledge  proposeKnowledgeWrites / applyKnowledgeWriteBlocks. agent-eval's analyst findings
-                 feed it; the knowledge gate consumes them. Depends on agent-eval.
-
-sandbox          Sandbox.create, streamPrompt. One execution surface the runtime's
-                 loops run on; agent-eval scores what comes back.
-```
-
-The rule: **agent-eval has zero upward dependencies on a consumer.** A concept that makes sense *without* a running agent loop — a verdict, a run record, a scenario, a judge score — is substrate and lives here. Runtime execution details (a validation context with an abort signal, a concrete sandbox session) live in agent-runtime or sandbox. Agent profile shape is the shared `@tangle-network/agent-interface` contract.
+- [`docs/concepts.md`](./docs/concepts.md) — the mental model: runs, judges, verifiers, traces, and the top-level functions (5-minute read)
+- [`docs/customer-journeys.md`](./docs/customer-journeys.md) — three end-to-end adoption paths with code
+- [`docs/insight-report.md`](./docs/insight-report.md) — annotated walkthrough of every section of the `analyzeRuns()` report
+- [`docs/campaign-proposers.md`](./docs/campaign-proposers.md) — which proposer to use and when
+- [`docs/adapters-observability.md`](./docs/adapters-observability.md) — composing with LangSmith, Langfuse, Phoenix, OpenLLMetry
+- [`docs/wire-protocol.md`](./docs/wire-protocol.md) — the HTTP/RPC contract for other languages
+- [`docs/design.md`](./docs/design.md) — design rationale: how this package relates to the rest of the Tangle agent stack, and the dependency rules that keep it reusable
+- [`CHANGELOG.md`](./CHANGELOG.md) — every release, with what's new / additive / breaking
 
 ---
 
-## Concepts + design
+## Optional hosted tier
 
-- [`docs/concepts.md`](./docs/concepts.md) — the top-level entry points, the layering rule, and the wire-protocol contract (the five core contract types are documented in the `/contract` barrel itself)
-- [`docs/campaign-proposers.md`](./docs/campaign-proposers.md) — ELI5 proposer inputs/outputs, when to use each proposer, and the FAPO escalation policy
-- [`docs/insight-report.md`](./docs/insight-report.md) — annotated walkthrough of every section of the decision packet
-- [`docs/customer-journeys.md`](./docs/customer-journeys.md) — three end-to-end journeys with code + expected output
-- [`docs/adapters-observability.md`](./docs/adapters-observability.md) — composing agent-eval with LangSmith, Langfuse, Phoenix, OpenLLMetry, TraceAI
-- [`docs/wire-protocol.md`](./docs/wire-protocol.md) — the HTTP/RPC contract Python (and any future language) speaks
-- [`docs/hosted-ingest-spec.md`](./docs/hosted-ingest-spec.md) — the hosted-tier wire format, frozen at `2026-05-26.v1`
-- [`docs/design/loop-taxonomy.md`](./docs/design/loop-taxonomy.md) — plain-language vocabulary for execution drivers, workers, measurements, and proposers
-
-The `.claude/skills/agent-eval/SKILL.md` skill ships embedded directives so LLM agents writing integration code don't reintroduce historical bug classes.
-
----
-
-## Hosted tier
-
-Wire your loop to a hosted orchestrator (ours, or your own implementation of the spec) with one config:
+The library is complete without it. If you want a dashboard over many loops, point any run at a remote orchestrator — ours, or your own implementation of the [open ingest spec](./docs/hosted-ingest-spec.md):
 
 ```ts
-import { defineAgentEval } from '@tangle-network/agent-eval/contract'
-
-const evalKit = defineAgentEval({
-  scenarios,
-  agent,
-  judge,
-  baselineSurface,
-})
-
 await evalKit.improve({
   hostedTenant: {
     endpoint: 'https://intelligence.tangle.tools',
@@ -206,42 +163,20 @@ await evalKit.improve({
 })
 ```
 
-The substrate runs the loop in your process. Only the eval-run events + (optional) trace spans go to the orchestrator. Your scenarios, your judges, your raw data — never sent. Spec at [`docs/hosted-ingest-spec.md`](./docs/hosted-ingest-spec.md); reference receiver at [`examples/hosted-ingest-server/`](./examples/hosted-ingest-server/).
+The loop still runs in your process. Only eval-run events and (optionally) trace spans are sent — never your scenarios, judges, or raw data. A reference receiver you can self-host is at [`examples/hosted-ingest-server/`](./examples/hosted-ingest-server/).
 
 ---
 
 ## Development
 
-Run an example:
-
-```sh
-pnpm tsx examples/selfimprove-quickstart/index.ts
-pnpm tsx examples/customer-feedback-loop/index.ts
-pnpm tsx examples/customer-otel-traces/index.ts
-```
-
-Run the test suite:
-
 ```sh
 pnpm install
 pnpm build
-pnpm test
+pnpm test        # vitest, ~3300 tests
+pnpm typecheck
 ```
 
----
-
-## Public API
-
-The `/contract` surface is the **stability contract**: its barrel freezes the API — a `0.x` minor only *adds*; nothing there changes shape or disappears. Start there for app code.
-
-| Surface | Meaning |
-|---|---|
-| `/contract` | Frozen app-facing API. Prefer this first. |
-| Named subpaths | Public capability areas such as `/campaign`, `/rl`, `/prm`, `/meta-eval`, `/belief-state`, `/wire`, `/reporting`, `/traces`, and `/analyst`. |
-| `/testing` | Test-only helpers. Do not import from production code. |
-| Unexported source paths | Not public API. Open an issue if you need one promoted. |
-
-[`CHANGELOG.md`](./CHANGELOG.md) tracks every release with what's new / additive / breaking.
+Run any example: `pnpm tsx examples/selfimprove-quickstart/index.ts`
 
 ---
 
