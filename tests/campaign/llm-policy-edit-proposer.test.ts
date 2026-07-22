@@ -351,7 +351,6 @@ describe('llmPolicyEditProposer', () => {
       '"required":["axis","target","change","claim","expectedGain","confidence","risk","source","rationale","validationPlan"]',
     )
   })
-
   it('rejects a non-object redaction result before model dispatch', async () => {
     const capture: CapturedRequest = {}
     const configured = proposer({
