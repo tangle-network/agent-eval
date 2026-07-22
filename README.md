@@ -7,7 +7,7 @@ A TypeScript library that measures whether your AI agent got better or worse, us
 [![tests](https://github.com/tangle-network/agent-eval/actions/workflows/ci.yml/badge.svg)](https://github.com/tangle-network/agent-eval/actions/workflows/ci.yml)
 [![license: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](./LICENSE)
 
-You give it agent runs — outputs, traces, scores, production feedback.
+You give it agent runs: outputs, traces, scores, and production feedback.
 It gives you numbers you can act on: did the new prompt beat the old one, is the difference statistically real, what failed and why, and whether the change should ship.
 
 Use it when you need to:
@@ -17,7 +17,8 @@ Use it when you need to:
 - run an automated improve-and-verify loop over a prompt, held to a promotion rule you choose,
 - explain failures by cluster, cost, and judge disagreement.
 
-Everything runs in your process. No hosted service is required, and no data leaves your machine unless you explicitly wire an exporter.
+The core evaluator runs in your process.
+Data leaves only through integrations you configure, such as an LLM provider, trace exporter, or hosted ingest endpoint.
 Python can drive the same engine over HTTP via [`agent-eval-rpc`](./clients/python/README.md).
 
 ---
@@ -36,36 +37,44 @@ pip install agent-eval-rpc            # optional Python client
 
 ## Quickstart
 
-Copy this into `quickstart.ts` and run `npx tsx quickstart.ts`. It is fully offline — the "agent" and "judge" are plain functions you replace with your own.
+Copy this into `quickstart.ts` and run `npx tsx quickstart.ts`.
+It is fully offline; the "agent" and "judge" are plain functions you replace with your own.
 
 ```ts
 import { defineAgentEval } from '@tangle-network/agent-eval/contract'
 
-const evalKit = defineAgentEval({
-  scenarios: [
-    { id: 'refund', kind: 'support' },
-    { id: 'shipping', kind: 'support' },
-    { id: 'cancel', kind: 'support' },
-  ],
-  // Your agent: takes the prompt under test + one scenario, returns its output.
-  agent: async (prompt, scenario) =>
-    String(prompt).includes('ticket') ? `Re ${scenario.id}: on it.` : 'On it.',
-  // Your judge: scores one output 0..1. Swap in an LLM judge for real work.
-  judge: {
-    name: 'cites-ticket',
-    dimensions: [{ key: 'grounded', weight: 1 }],
-    score: ({ artifact, scenario }) => {
-      const grounded = artifact.includes(scenario.id) ? 1 : 0
-      return { dimensions: { grounded }, composite: grounded, notes: '' }
+async function main() {
+  const evalKit = defineAgentEval({
+    scenarios: [
+      { id: 'refund', kind: 'support' },
+      { id: 'shipping', kind: 'support' },
+      { id: 'cancel', kind: 'support' },
+    ],
+    // Your agent takes the prompt under test and one scenario, then returns its output.
+    agent: async (prompt, scenario) =>
+      String(prompt).includes('ticket') ? `Re ${scenario.id}: on it.` : 'On it.',
+    // Your judge scores one output from 0 to 1. Swap in an LLM judge for real work.
+    judge: {
+      name: 'cites-ticket',
+      dimensions: [{ key: 'grounded', weight: 1 }],
+      score: ({ artifact, scenario }) => {
+        const grounded = artifact.includes(scenario.id) ? 1 : 0
+        return { dimensions: { grounded }, composite: grounded, notes: '' }
+      },
     },
-  },
-  baselineSurface: 'Answer the customer politely.',
-  expectUsage: 'off',
-})
+    baselineSurface: 'Answer the customer politely.',
+    expectUsage: 'off',
+  })
 
-console.log('baseline: ', (await evalKit.evaluate()).aggregates.byJudge)
-const candidate = await evalKit.evaluate({ surface: 'Answer politely, cite the ticket id.' })
-console.log('candidate:', candidate.aggregates.byJudge)
+  console.log('baseline: ', (await evalKit.evaluate()).aggregates.byJudge)
+  const candidate = await evalKit.evaluate({ surface: 'Answer politely, cite the ticket id.' })
+  console.log('candidate:', candidate.aggregates.byJudge)
+}
+
+main().catch((error: unknown) => {
+  console.error(error)
+  process.exitCode = 1
+})
 ```
 
 Output:
@@ -76,7 +85,7 @@ candidate: { 'cites-ticket': { mean: 1, stdev: 0, ci95: [ 1, 1 ], n: 3 } }
 ```
 
 Each `evaluate()` call runs every scenario through the agent, scores each output with the judge, and returns per-judge score distributions.
-The "surface" is the thing you are changing — here a system-prompt string, in general any prompt or config value.
+The "surface" is the thing you are changing: here a system-prompt string, and in general any prompt or config value.
 From the same definition, `evalKit.improve()` runs the full loop: propose candidate prompts, measure each one, and check the winner against a held-back scenario set before recommending it.
 
 Already have run data and no runnable agent? Skip the loop and call [`analyzeRuns()`](./docs/concepts.md#the-top-level-functions) on your existing records instead.
@@ -94,14 +103,14 @@ One-line tour of the primitives. All of these are plain functions and interfaces
 | **Gates** (`heldOutGate`, `paretoSignificanceGate`, `composeGate`, …) | The rule that decides whether a candidate ships: e.g. "must beat baseline on held-back scenarios with a confidence interval that excludes zero." |
 | **Proposers** (`gepaProposer`, `evolutionaryProposer`, …) | Generate candidate prompts/configs from what failed, for the improve loop to measure. |
 | **Run analysis** (`analyzeRuns`, `diffRuns`) | Turn any set of `RunRecord`s into a report: score distributions, baseline-vs-candidate lift with confidence intervals, failure clusters, cost breakdown, recommendations. |
-| **Intake adapters** (`fromFeedbackTable`, `fromOtelSpans`) | Convert data you already have — human ratings tables, OpenTelemetry spans — into `RunRecord`s. |
+| **Intake adapters** (`fromFeedbackTable`, `fromOtelSpans`) | Convert data you already have, such as human ratings tables and OpenTelemetry spans, into `RunRecord`s. |
 | **Cost ledger** | Attribute every LLM call's tokens and dollars to the run, phase, and judge that spent them, including interrupted calls. |
 | **Labeled store** | Persist runs with labels (approved/rejected/edited) so review activity becomes training and eval data. |
 | **Statistics** (`pairedBootstrap`, `benjaminiHochberg`, sequential tests) | The release-decision math, usable standalone. |
 | **Trace tools** (`/traces`, `/analyst`) | Store and replay structured run traces; cluster failures with an LLM analyst panel. |
 | **Wire protocol** (`/wire`) | HTTP/RPC server + schemas so non-TypeScript stacks (Python today) can call the same engine. |
 
-Our own experiments with these primitives live in [`examples/`](./examples/README.md) — they are demonstrations, not part of the API.
+Our own experiments with these primitives live in [`examples/`](./examples/README.md); they are demonstrations, not part of the API.
 
 | Runnable example | Shows |
 |---|---|
@@ -138,20 +147,21 @@ The root export (`@tangle-network/agent-eval`) remains broad for compatibility; 
 
 ## Documentation
 
-- [`docs/concepts.md`](./docs/concepts.md) — the mental model: runs, judges, verifiers, traces, and the top-level functions (5-minute read)
-- [`docs/customer-journeys.md`](./docs/customer-journeys.md) — three end-to-end adoption paths with code
-- [`docs/insight-report.md`](./docs/insight-report.md) — annotated walkthrough of every section of the `analyzeRuns()` report
-- [`docs/campaign-proposers.md`](./docs/campaign-proposers.md) — which proposer to use and when
-- [`docs/adapters-observability.md`](./docs/adapters-observability.md) — composing with LangSmith, Langfuse, Phoenix, OpenLLMetry
-- [`docs/wire-protocol.md`](./docs/wire-protocol.md) — the HTTP/RPC contract for other languages
-- [`docs/design.md`](./docs/design.md) — design rationale: how this package relates to the rest of the Tangle agent stack, and the dependency rules that keep it reusable
-- [`CHANGELOG.md`](./CHANGELOG.md) — every release, with what's new / additive / breaking
+- [`docs/concepts.md`](./docs/concepts.md): the mental model for runs, judges, verifiers, traces, and the top-level functions (5-minute read)
+- [`docs/customer-journeys.md`](./docs/customer-journeys.md): three complete adoption paths with code
+- [`docs/insight-report.md`](./docs/insight-report.md): annotated walkthrough of every section of the `analyzeRuns()` report
+- [`docs/campaign-proposers.md`](./docs/campaign-proposers.md): which proposer to use and when
+- [`docs/adapters-observability.md`](./docs/adapters-observability.md): composing with LangSmith, Langfuse, Phoenix, and OpenLLMetry
+- [`docs/wire-protocol.md`](./docs/wire-protocol.md): the HTTP/RPC contract for other languages
+- [`docs/design.md`](./docs/design.md): how this package relates to the rest of the Tangle agent stack, and the dependency rules that keep it reusable
+- [`CHANGELOG.md`](./CHANGELOG.md): every release, with additive and breaking changes identified
 
 ---
 
 ## Optional hosted tier
 
-The library is complete without it. If you want a dashboard over many loops, point any run at a remote orchestrator — ours, or your own implementation of the [open ingest spec](./docs/hosted-ingest-spec.md):
+The library is complete without it.
+If you want a dashboard over many loops, point any run at our remote orchestrator or your own implementation of the [open ingest spec](./docs/hosted-ingest-spec.md):
 
 ```ts
 await evalKit.improve({
@@ -163,7 +173,10 @@ await evalKit.improve({
 })
 ```
 
-The loop still runs in your process. Only eval-run events and (optionally) trace spans are sent — never your scenarios, judges, or raw data. A reference receiver you can self-host is at [`examples/hosted-ingest-server/`](./examples/hosted-ingest-server/).
+The loop still runs in your process.
+Hosted ingest sends run identifiers and paths, scenario IDs, candidate surfaces, scores, errors, costs, summaries, and trace attributes.
+Review the [wire format](./docs/hosted-ingest-spec.md) before enabling it for sensitive inputs.
+A reference receiver you can self-host is at [`examples/hosted-ingest-server/`](./examples/hosted-ingest-server/).
 
 ---
 

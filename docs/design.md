@@ -1,7 +1,8 @@
 # Design rationale
 
 Why this package is shaped the way it is.
-This is background reading, not reference — the API itself is documented in [`concepts.md`](./concepts.md) and the [`README`](../README.md).
+This is background reading, not reference.
+The API itself is documented in [`concepts.md`](./concepts.md) and the [`README`](../README.md).
 
 ## Composition with the Tangle agent stack
 
@@ -10,8 +11,8 @@ It sits at the bottom of the layering: consumers depend on it, it depends on non
 
 ```
 agent-runtime    Runs agents (chat turns, one-shot tasks, multi-attempt loops), captures every
-                 run as a trace, and calls optimizePrompt / runImprovementLoop. Produces the
-                 RunRecords + traces agent-eval scores. Depends on agent-eval.
+                 run as a trace, and exposes improve(), which composes agent-eval's improvement
+                 loop. Produces the RunRecords + traces agent-eval scores. Depends on agent-eval.
 
 agent-eval       selfImprove, analyzeRuns, runCampaign + surface proposers (GEPA proposer, …),
    (this repo)   the gates (heldOutGate, defaultProductionGate, paretoSignificanceGate), the
@@ -24,18 +25,21 @@ sandbox          Sandbox.create, streamPrompt. One execution environment the run
                  loops run on; agent-eval scores what comes back.
 ```
 
-None of the sibling packages are required to use `agent-eval` — the library stands alone.
+None of the sibling packages are required to use `agent-eval`; the library stands alone.
 The stack context matters only if you adopt more of it later.
 
 ## The dependency rule
 
+This section is the public rationale.
+The enforceable maintainer rule lives in [`CLAUDE.md`](../CLAUDE.md#repo-layering--this-package-is-the-substrate).
+
 **`agent-eval` has zero upward dependencies on a consumer.**
-This is what keeps the package reusable outside our own stack: nothing in here imports from `agent-runtime`, `agent-knowledge`, or `sandbox` — not at runtime, not in dev dependencies, not even as type-only imports.
+This is what keeps the package reusable outside our own stack: nothing in here imports from `agent-runtime`, `agent-knowledge`, or `sandbox`, whether at runtime, in development dependencies, or as type-only imports.
 
 The placement test for any shared type: *does this concept make sense without a running agent loop?*
 
-- Yes → it lives here. A judge score, a run record, a scenario, a pass/fail verdict — all meaningful for a pile of logs with no agent attached.
-- No → it lives in the runtime layer. A validation context carrying an abort signal, a concrete sandbox session — these only exist mid-run.
+- Yes: it lives here. A judge score, a run record, a scenario, and a pass/fail verdict are all meaningful for a pile of logs with no agent attached.
+- No: it lives in the runtime layer. A validation context carrying an abort signal and a concrete sandbox session only exist mid-run.
 
 When in doubt, the type moves down into `agent-eval`: subtracting a dependency from a consumer is always cheaper than adding one here.
 Agent profile shape is the shared `@tangle-network/agent-interface` contract, so neither layer owns it.
@@ -51,15 +55,16 @@ Where a doc can say "prompt" concretely, it should; `surface` appears in API nam
 Every section of the `analyzeRuns()` report is opt-in based on what the input data supports.
 If runs carry no judge scores, the judge section is empty rather than defaulted.
 If there is no baseline/candidate split, no lift is reported.
-Missing evidence is never scored as zero — a judge that throws is recorded as a failed cell, not silently folded into the average.
+Missing evidence is never scored as zero; a judge that throws is recorded as a failed cell, not silently folded into the average.
 The reasoning: a fabricated zero poisons every statistic downstream, and an eval library that quietly fabricates is worse than no eval at all.
 
-## Internal doctrine
+## Maintainer docs
 
-Docs written for maintainers and for our own agents that build on this package — useful context, but not adoption reference:
+These files record operating conventions for maintainers and internal agents.
+They are not adoption reference:
 
-- [`building-doctrine.md`](./building-doctrine.md) — conventions our agents follow when consuming this package (reachable model defaults, probe-before-debug, experiment integrity checklist)
-- [`self-improvement-map.md`](./self-improvement-map.md) — how the one improvement loop is pointed at different surfaces, and the proposer bake-off narrative
-- [`design/loop-taxonomy.md`](./design/loop-taxonomy.md) — the internal vocabulary for execution drivers, workers, measurements, and proposers
-- [`research-report-methodology.md`](./research-report-methodology.md) — the evidence standard our own research reports are held to
-- [`.claude/skills/agent-eval/SKILL.md`](../.claude/skills/agent-eval/SKILL.md) — directives for LLM agents writing integration code, encoding bug classes we have already shipped and fixed once
+- [`building-doctrine.md`](./building-doctrine.md): conventions our agents follow when consuming this package (reachable model defaults, probe-before-debug, experiment integrity checklist)
+- [`self-improvement-map.md`](./self-improvement-map.md): how the one improvement loop is pointed at different surfaces, and the proposer bake-off narrative
+- [`design/loop-taxonomy.md`](./design/loop-taxonomy.md): the internal vocabulary for execution drivers, workers, measurements, and proposers
+- [`research-report-methodology.md`](./research-report-methodology.md): the evidence standard our own research reports are held to
+- [`.claude/skills/agent-eval/SKILL.md`](../.claude/skills/agent-eval/SKILL.md): directives for LLM agents writing integration code, encoding bug classes we have already shipped and fixed once
