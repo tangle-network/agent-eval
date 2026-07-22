@@ -134,6 +134,8 @@ export {
   type CreateChatClientOpts,
   createChatClient,
 } from '../analyst/chat-client'
+export type { LlmJudgeDimension, LlmJudgeOptions } from '../llm-judge'
+export { llmJudge } from '../llm-judge'
 export type {
   ReferenceEquivalenceJudgeInput,
   ReferenceEquivalenceJudgeOptions,

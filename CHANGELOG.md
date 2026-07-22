@@ -22,6 +22,8 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 ### Fixed
 
 - `compositeProposer` restores each member's original labels when replaying history, so stateful members do not repeat candidates whose labels were decorated for provenance.
+- `InsightReport.interRater.kappa` now reports quadratic weighted kappa instead of Pearson correlation.
+  Read `interRater.pearson` for the previous correlation measure; `icc` and `spearman` are now reported separately.
 - Compute contextual-bandit doubly robust estimates with separate logged-action and target-policy value terms, expose how many rows use DR versus IPS or the deprecated scalar path, and carry both values through belief-state records.
 
 ## [0.122.2] — 2026-07-17 — premeasured optimization continuation

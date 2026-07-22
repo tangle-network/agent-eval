@@ -29,9 +29,9 @@ Both transports talk to identical handlers. If you need a sustained connection (
 
 ## Methods
 
-The current surface is the smallest useful slice. Adding a method is mechanical — see [§Adding a method](#adding-a-method).
+The current surface is the smallest useful slice. Adding a method is mechanical: see [§Adding a method](#adding-a-method).
 
-### `judge` — score content against a rubric
+### `judge`: score content against a rubric
 
 ```http
 POST /v1/judge
@@ -63,7 +63,7 @@ Pass either `rubricName` (built-in) or `rubric` (inline definition). Not both. T
 
 `rubricVersion` is the stable hash of the rubric used. Scores are only comparable across runs when this matches.
 
-### `listRubrics` — discover what's registered
+### `listRubrics`: discover what's registered
 
 ```http
 GET /v1/rubrics
@@ -87,7 +87,7 @@ GET /v1/rubrics
 }
 ```
 
-### `version` — server + wire-protocol versions
+### `version`: server + wire-protocol versions
 
 ```http
 GET /v1/version
@@ -102,13 +102,13 @@ GET /v1/version
 }
 ```
 
-`version` matches the package version. `wireVersion` bumps independently — only on breaking request/response schema changes. Package versions can differ across releases as long as `wireVersion` matches.
+`version` matches the package version. `wireVersion` bumps independently: only on breaking request/response schema changes. Package versions can differ across releases as long as `wireVersion` matches.
 
-### `GET /healthz` — liveness
+### `GET /healthz`: liveness
 
 For probing whether a server is up. Returns `{ "status": "ok", "uptimeSec": <number> }`.
 
-### `GET /openapi.json` — full spec
+### `GET /openapi.json`: full spec
 
 Auto-generated from the Zod schemas. This is what code generators consume to produce typed clients in other languages.
 
@@ -168,11 +168,11 @@ echo '{}' | agent-eval rpc listRubrics
 # judge (one-shot)
 echo '{"rubricName":"anti-slop","content":"…"}' | agent-eval rpc judge
 
-# JSONL batch — one request per line
+# JSONL batch: one request per line
 cat requests.jsonl | agent-eval rpc-batch judge > results.jsonl
 ```
 
-Each invocation is one process — Node startup adds ~500 ms. For more than a few calls, stand up a server.
+Each invocation is one process: Node startup adds ~500 ms. For more than a few calls, stand up a server.
 
 ## Clients
 
@@ -182,13 +182,13 @@ Each invocation is one process — Node startup adds ~500 ms. For more than a fe
 
 ## Adding a method
 
-1. **Schema** — define `XRequestSchema` and `XResponseSchema` in `src/wire/schemas.ts`. Every field gets a `.describe()` so docs flow through to OpenAPI.
-2. **Handler** — pure function in `src/wire/handlers.ts`. Throws `WireError` for caller-fixable issues.
-3. **Server route** — `app.post('/v1/x', …)` in `src/wire/server.ts`.
-4. **RPC case** — add `case 'x':` in `dispatchRpc` in `src/wire/rpc.ts`.
-5. **OpenAPI route** — register in `src/wire/openapi.ts` so it shows up in the spec.
-6. **Test** — add to `tests/wire/`. At minimum: schema validation, happy-path, error-path.
-7. **Python client** — add a method on `Client` in `clients/python/src/agent_eval_rpc/client.py`, plus pydantic models in `models.py` mirroring the new schemas.
+1. **Schema**: define `XRequestSchema` and `XResponseSchema` in `src/wire/schemas.ts`. Every field gets a `.describe()` so docs flow through to OpenAPI.
+2. **Handler**: pure function in `src/wire/handlers.ts`. Throws `WireError` for caller-fixable issues.
+3. **Server route**: `app.post('/v1/x', …)` in `src/wire/server.ts`.
+4. **RPC case**: add `case 'x':` in `dispatchRpc` in `src/wire/rpc.ts`.
+5. **OpenAPI route**: register in `src/wire/openapi.ts` so it shows up in the spec.
+6. **Test**: add to `tests/wire/`. At minimum: schema validation, happy-path, error-path.
+7. **Python client**: add a method on `Client` in `clients/python/src/agent_eval_rpc/client.py`, plus pydantic models in `models.py` mirroring the new schemas.
 
 The pattern is mechanical. When the surface grows past ~10 methods, swap the hand-written Python models for `datamodel-code-generator -i openapi.json -o models.py`.
 

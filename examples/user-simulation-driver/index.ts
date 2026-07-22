@@ -39,7 +39,7 @@ const tc = {
 } as unknown as Parameters<typeof decideNextUserTurn>[0]
 
 // ── The persona the simulated user inhabits ────────────────────────────
-const persona = {
+const persona: PersonaConfig = {
   id: 'self-employed-taxpayer',
   role: 'Self-employed taxpayer filing a US return',
   goal: 'File a complete 2026 return with every required schedule',
@@ -55,18 +55,18 @@ const persona = {
   ],
   maxTurns: 5,
   rigor: 'demanding',
-} as unknown as PersonaConfig
+}
 
 // ── DriverState — `AgentDriver` keeps this updated from product side
 //    effects; in this offline demo we hold it constant. ────────────────
-const state = {
+const state: DriverState = {
   tasks: 0,
   events: 0,
   proposals: { pending: 0, approved: 0, rejected: 0 },
   vaultFiles: [],
   codeBlocks: 0,
   generations: 0,
-} as unknown as DriverState
+}
 
 // ── Scripted "agent" replies — what the product agent under test would
 //    produce. Real wiring drives the actual agent each turn. ───────────

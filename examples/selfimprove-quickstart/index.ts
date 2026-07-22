@@ -86,7 +86,7 @@ const syntheticProposer: SurfaceProposer = {
 }
 
 async function main() {
-  const evalKit = defineAgentEval({
+  const evalKit = defineAgentEval<CopyScenario, { text: string; quality: number }>({
     scenarios,
     agent: async (surface, scenario) =>
       dispatch({
@@ -96,8 +96,8 @@ async function main() {
     judge: {
       name: 'rubric',
       dimensions: [
-        { key: 'clarity', weight: 1 },
-        { key: 'concision', weight: 1 },
+        { key: 'clarity', description: 'The artifact is clear' },
+        { key: 'concision', description: 'The artifact is concise' },
       ],
       score: judge,
     },
@@ -110,16 +110,18 @@ async function main() {
   const result = await evalKit.improve()
 
   const i = result.insight
-  console.log('═══ selfImprove() decision packet ═══')
+  console.log('Improvement result')
   console.log()
-  console.log(`Gate decision:        ${result.gateDecision}`)
-  console.log(`Raw lift:             ${signed(result.lift)}`)
+  console.log(`Release decision:     ${result.gateDecision}`)
+  console.log(
+    `Raw lift:             ${result.lift === undefined ? 'not measured' : signed(result.lift)}`,
+  )
   console.log(`Generations explored: ${result.generationsExplored}`)
   console.log(`Total cost:           $${result.totalCostUsd.toFixed(3)}`)
   console.log()
 
   if (i.lift) {
-    console.log(`── Statistical lift (paired bootstrap, n=${i.lift.n}) ──`)
+    console.log(`Statistical comparison (paired bootstrap, n=${i.lift.n})`)
     console.log(`delta:    ${signed(i.lift.delta)}`)
     console.log(`CI95:     [${i.lift.ci95[0].toFixed(3)}, ${i.lift.ci95[1].toFixed(3)}]`)
     console.log(`pValue:   ${i.lift.pValue.toFixed(4)}`)
@@ -129,7 +131,7 @@ async function main() {
     console.log()
   }
 
-  console.log(`── Composite distribution (n=${i.composite.n} cells) ──`)
+  console.log(`Composite scores (n=${i.composite.n} cells)`)
   console.log(
     `mean: ${i.composite.mean.toFixed(3)}, ` +
       `p50: ${i.composite.p50.toFixed(3)}, ` +
@@ -138,28 +140,30 @@ async function main() {
   )
   console.log()
 
-  console.log('── Cost-quality Pareto ──')
-  console.log(
-    `${i.costQuality.pareto.points.length} candidates plotted; ` +
-      `${i.costQuality.pareto.points.filter((p) => p.onFrontier).length} on the frontier`,
-  )
-  console.log()
+  if (i.costQuality.pareto.points.length > 0) {
+    console.log('Cost and quality')
+    console.log(
+      `${i.costQuality.pareto.points.length} candidates plotted; ` +
+        `${i.costQuality.pareto.points.filter((p) => p.onFrontier).length} on the frontier`,
+    )
+    console.log()
+  }
 
   if (Object.keys(i.judges).length > 0) {
-    console.log('── Per-judge mean scores ──')
+    console.log('Judge scores')
     for (const [name, j] of Object.entries(i.judges)) {
       console.log(`  ${name}: ${j.meanScore.toFixed(3)} (n=${j.n})`)
     }
     console.log()
   }
 
-  console.log('── Recommendations ──')
+  console.log('Recommendations')
   for (const r of i.recommendations) {
-    console.log(`[${r.priority}] ${r.kind} — ${r.title}`)
+    console.log(`[${r.priority}] ${r.kind}: ${r.title}`)
     console.log(`  ${r.detail}`)
   }
   console.log()
-  console.log('═══ end ═══')
+  console.log('End')
 }
 
 function signed(n: number): string {

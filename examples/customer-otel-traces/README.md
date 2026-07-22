@@ -1,6 +1,7 @@
-# Customer OTel traces — production logs → decision packet
+# Analyze Production OpenTelemetry Traces
 
-The journey for teams running agents in prod with observability but **no eval discipline yet**. You have OTel spans piped to your collector. You want to know: which agent steps are unreliable, what's breaking and where, what's the cost-quality profile, where to fix next.
+Use this example when your agent already emits OpenTelemetry spans.
+It converts completed traces into failure, score, and cost summaries without running the agent again.
 
 ```sh
 pnpm tsx examples/customer-otel-traces/index.ts
@@ -8,47 +9,47 @@ pnpm tsx examples/customer-otel-traces/index.ts
 
 ## What this example does
 
-Synthesises 40 production runs as OTel `TraceSpanEvent[]`. Some succeed; some fail. Each carries the usual GenAI attributes — `tangle.model`, `tangle.cost.usd`, `gen_ai.usage.{input,output}_tokens`, `tangle.score`. Failed runs have `status.code: 'ERROR'`. Then:
+Synthesises 40 production runs as OTel `TraceSpanEvent[]`. Some succeed; some fail. Each carries the usual GenAI attributes: `tangle.model`, `tangle.cost.usd`, `gen_ai.usage.{input,output}_tokens`, `tangle.score`. Failed runs have `status.code: 'ERROR'`. Then:
 
 1. Pipes the spans through `fromOtelSpans()` to get `RunRecord[]`.
 2. Calls `analyzeRuns({ runs })`.
-3. Prints the decision packet — composite + cost distribution, Pareto, failure surfacing, recommendations.
+3. Prints score and cost distributions, failures grouped by span name, cost-quality tradeoffs, and recommended next actions.
 
-No agent invocation, no scenarios, no closed loop. **Just analysis of what already happened.** This is the day-1 product for teams without eval discipline.
+This path analyzes completed runs and does not invoke an agent.
 
 ## What you'll see
 
 ```
-═══ Production OTel corpus — decision packet ═══
+Production trace report
 
 Runs analyzed:     40
-Composite mean:    0.638 (p50: 0.715, p95: 0.910, stddev: 0.252)
-Cost mean:         $0.084 (p95: $0.142)
+Composite mean:    0.721 (p50: 0.717, p95: 0.925, stddev: 0.210)
+Cost mean:         $0.103 (p95: $0.131)
 
-── Failures ──
+Failures
 6 runs with status=ERROR or failureMode set:
-  agent.turn  (5x)
-  tool.search (1x)
+  tool.search  (3x)
+  agent.turn   (3x)
 
-── Cost-quality Pareto ──
-2 candidates plotted; 1 on the frontier
-  otel-default: cost=$0.084 quality=0.638  (frontier)
+Cost and quality
+1 candidate plotted; 1 on the frontier
+  otel-default: cost=$0.103 quality=0.721  (frontier)
 
-── Recommendations ──
-[medium] expand-corpus — Mean composite 0.638 has room
-  Composite distribution sits below 0.80; investigate the 6 failures and
-  the lower-tail tail of the histogram before claiming the agent is healthy.
+Recommendations
+[medium] expand-corpus: Mean composite 0.721 has room
+  Composite distribution sits below 0.80; investigate the failures and the
+  lower tail of the histogram before claiming the agent is healthy.
 
-═══ end ═══
+End
 ```
 
 ## What to do with the output
 
-1. **Read the failure surface first.** Which span names appear repeatedly under `status.code: ERROR`? That's where to dig.
-2. **Inspect the Pareto.** If multiple candidates appear (different models / prompts in prod), the frontier tells you which is cost-optimal at each quality level.
-3. **Wire an `AnalystRegistry`.** Pass `{ analyst }` to `analyzeRuns()` to cluster failures by root cause via LLM-driven analysis. The report's `failureClusters` section fills in.
-4. **Add `outcomeSignal`.** When you have downstream engagement / approval / pass-rate data, pass it as `outcomeSignal` and the report surfaces a Pearson + Spearman correlation between the judge composite and the real-world outcome, plus a fitted linear reward model. That's how you find out if your judge tastes match the customer's.
+1. Inspect the span names that repeatedly end with `status.code: ERROR`.
+2. When the data contains several models or prompts, compare their cost and quality points.
+3. Pass an `AnalystRegistry` as `{ analyst }` when you want model-based failure clustering.
+4. Pass downstream results as `outcomeSignal` to test whether eval scores predict the product metric you care about.
 
 ## Files
 
-- `index.ts` — the runnable script
+- `index.ts`: the runnable script

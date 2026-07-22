@@ -1,7 +1,7 @@
 # Package graded runs into a publishable RL dataset
 
 End-to-end demo: take the `RunRecord`s from a graded agent-eval campaign and
-package them into a dataset someone can **publish or buy** — the trainer JSONL
+package them into a dataset someone can **publish or buy**: the trainer JSONL
 plus a manifest and a datasheet.
 
 This is the step *after* [`../fine-tune-with-prime-rl`](../fine-tune-with-prime-rl).
@@ -16,10 +16,9 @@ The format exporters (`toGrpoRows` / `toSftRows` / `toDpoRows`) produce
 trainer-ready shapes. `buildRlDataset` composes them and attaches the
 provenance a buyer checks first:
 
-- **Reward provenance.** `deterministic` (a test / schema / XPath decided the
-  reward) vs `probabilistic` (an LLM judge). Deterministic reward is the
-  credibility axis — it gets a `✅ (decidable — not judge-noise)` marker on the
-  card. A dataset whose reward is just judge-noise is worth far less.
+- **Reward source.** `deterministic` means a test, schema, or XPath check decided the reward.
+  `probabilistic` means a model-based judge decided it.
+  The generated card records this distinction for downstream users.
 - **Split discipline.** Record counts per `search` / `dev` / `holdout`. A
   publishable dataset must declare its holdout.
 - **Reward distribution, models, prompt/agent versions, commits, tokens, cost.**
@@ -28,7 +27,7 @@ provenance a buyer checks first:
   be sold; `buildRlDataset` requires the license field.
 
 It fails loud on an empty corpus and on `format: 'dpo'` without preference
-triples — an empty or malformed dataset must never be packaged silently.
+triples: an empty or malformed dataset must never be packaged silently.
 
 ## Run it
 
@@ -70,18 +69,17 @@ completion into a paid dataset.
 ## Honest scope
 
 - The fixture is **holdout-only** (`holdout: 3`) because the three funded cases
-  were holdout-graded. A real published dataset carries the full
-  `search`/`dev`/`holdout` mix; the datasheet reports whatever split the records
-  actually have.
+  were holdout-graded.
+  The generated datasheet reports the split represented by the input records.
 - Reward here is **deterministic** (TaxCalcBench line-match). For domains with
   no objective scorer (e.g. open-ended writing), reward is `probabilistic` and
-  the card says so — buyers should price that difference in.
+  the card says so: buyers should price that difference in.
 
 ## Token rendering (downstream)
 
 For byte-faithful RL/SFT, tokenize the emitted `messages` / `completions` with
 the per-model renderer (DeepSeek-V3 / Kimi-K2 / Qwen3) so token identity and
-per-token loss masks survive across tool-call turns — see
+per-token loss masks survive across tool-call turns: see
 [`renderers`](https://github.com/PrimeIntellect-ai/renderers). For online
 GRPO/GSPO rollouts against a live policy, express the scorer as a
 [`verifiers`](https://github.com/willccbb/verifiers) `Environment` instead of

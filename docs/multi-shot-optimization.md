@@ -6,7 +6,7 @@
 > live API; see also [feature-guide.md](./feature-guide.md) and [concepts.md](./concepts.md).
 
 `runImprovementLoop` is the public entry for GEPA-style optimization over a whole
-task trajectory — the thing you improve is not a single model call but an agent
+task trajectory: the thing you improve is not a single model call but an agent
 system prompt, tool descriptions, a routing policy, or any scaffolding that affects
 the entire run. It is the OUTER loop: it improves the SURFACE the inner workers run.
 
@@ -15,13 +15,13 @@ the entire run. It is the OUTER loop: it improves the SURFACE the inner workers 
 You own a few seams; the loop owns the release-critical glue (paired seeds, the
 held-out re-score, the promotion gate, provenance):
 
-- **`baselineSurface`** — the current surface (a prompt string, or a `CodeSurface`).
-- **`dispatchWithSurface(surface, scenario, ctx)`** — run one task to completion
+- **`baselineSurface`**: the current surface (a prompt string, or a `CodeSurface`).
+- **`dispatchWithSurface(surface, scenario, ctx)`**: run one task to completion
   under a candidate surface; return the artifact the judges score.
-- **`judges`** — score the artifact (`{ composite, dimensions }`).
-- **`proposer`** — proposes candidate surfaces each generation: `gepaProposer`
+- **`judges`**: score the artifact (`{ composite, dimensions }`).
+- **`proposer`**: proposes candidate surfaces each generation: `gepaProposer`
   (reflective + Pareto frontier) or `evolutionaryProposer` (mutator).
-- **`gate`** — `defaultProductionGate` (held-out significance + red-team +
+- **`gate`**: `defaultProductionGate` (held-out significance + red-team +
   reward-hacking + canary). Ships ONLY on a CI-lower-bound held-out lift.
 
 ## Minimal example
@@ -36,7 +36,7 @@ import {
 const result = await runImprovementLoop({
   baselineSurface: currentSystemPrompt,
   scenarios: trainScenarios, // optimizer-visible
-  holdoutScenarios, // DISJOINT — only the gate sees these
+  holdoutScenarios, // DISJOINT: only the gate sees these
   dispatchWithSurface: async (surface, scenario) =>
     runYourAgentToCompletion({ scenario, prompt: String(surface) }),
   judges: [myJudge],
@@ -64,7 +64,7 @@ if (result.gateResult.decision === 'ship') {
   paired-bootstrap CI lower bound clears `deltaThreshold`; a few-instance swing at
   thin `n` is held (`few_runs`), not promoted.
 - **No-op never ships.** If no candidate beats the baseline, the winner IS the
-  baseline (empty diff) and the loop forces `hold` — it does not score
+  baseline (empty diff) and the loop forces `hold`: it does not score
   baseline-vs-itself and read model noise as lift.
 - **Provenance falls out.** `result.promotedDiff` + `emitLoopProvenance` give the
   auditable candidate→gate→promote chain (rationale, content hashes, a held-out lift

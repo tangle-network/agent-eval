@@ -1,4 +1,4 @@
-# researchReport — methodology
+# researchReport: methodology
 
 This document is the methodological brief for `researchReport` (exported from
 `@tangle-network/agent-eval` and `@tangle-network/agent-eval/reporting`). It
@@ -11,14 +11,14 @@ corresponding function or option so the doc and the code don't drift.
 
 ## Inputs
 
-- `runs: RunRecord[]` — every record carries `runId`, `candidateId`, `seed`,
+- `runs: RunRecord[]`: every record carries `runId`, `candidateId`, `seed`,
   `experimentId`, `splitTag`, and an `outcome` with the configured score.
-- `comparator: string` — the candidate id treated as the null reference. Must
+- `comparator: string`: the candidate id treated as the null reference. Must
   be selected before data inspection; `preregistrationHash` should pin this.
-- `split: 'search' | 'holdout'` — defaults to `holdout`. Decisions on `search`
+- `split: 'search' | 'holdout'`: defaults to `holdout`. Decisions on `search`
   are descriptive only; promotion calls require the holdout.
-- `rope: { low, high }` — Region of Practical Equivalence on the paired delta,
-  in score units. Must come from the domain owner — there is no
+- `rope: { low, high }`: Region of Practical Equivalence on the paired delta,
+  in score units. Must come from the domain owner: there is no
   statistically-defensible default.
 - `minPairs` (soft floor, default 20) and `RESEARCH_REPORT_HARD_PAIR_FLOOR`
   (hard floor, 6). Below the soft floor, the verdict is `needs_more_data` and
@@ -35,7 +35,7 @@ with non-finite scores are dropped before pairing.
 
 ## Decision rule
 
-In order — first match wins:
+In order: first match wins:
 
 1. `comparator` itself → `hold` (baseline).
 2. No comparator → `hold` if on the cost/quality Pareto frontier, else
@@ -46,7 +46,7 @@ In order — first match wins:
    "below hard floor" reason. Bootstrap CIs degenerate at this size.
 5. ROPE configured AND paired-delta CI ⊂ ROPE → `equivalent`.
 6. Paired-delta CI upper bound < 0 → `reject` (CI excludes a non-negative
-   effect). Note: this uses **paired delta only** — not the marginal mean.
+   effect). Note: this uses **paired delta only**: not the marginal mean.
 7. Paired N < `minPairs` (soft floor) → `needs_more_data` with the MDE at
    current N attached so the verdict is actionable.
 8. BH-adjusted q ≤ `fdr` AND CI lower bound > 0 → `promote`. The BH q-value
@@ -71,7 +71,7 @@ The Pr(Δ>0) and Pr(Δ∈ROPE) summaries use the bootstrap-prior duality of
 [Rubin 1981]: under a non-informative Dirichlet prior, the bootstrap
 distribution of a sample statistic is its posterior. We expose these as
 posterior summaries on the **mean** delta and the bootstrap CI on the
-**median** delta — the median is more robust to the heavy-tailed score
+**median** delta: the median is more robust to the heavy-tailed score
 distributions seen in agent benchmarks; the mean lets us read off the
 Bayesian-style probability of superiority in a single number.
 

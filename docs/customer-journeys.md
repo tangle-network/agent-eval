@@ -1,210 +1,135 @@
-# Customer journeys
+# Adoption Paths
 
-Three end-to-end journeys covering the surface of `@tangle-network/agent-eval`. Each one is a runnable example under `examples/` — clone the repo and `pnpm tsx examples/<journey>/index.ts` to see the actual output.
+Choose the path that matches the data and code you already have.
 
-The three journeys map to three customer-maturity stages:
+| Starting point | API | Result |
+|---|---|---|
+| Completed OpenTelemetry spans | `fromOtelSpans()` and `analyzeRuns()` | Failure, score, token, and cost summaries |
+| Human ratings | `fromFeedbackTable()` and `analyzeRuns()` | Reviewer agreement, largest disagreements, and score distributions |
+| A runnable agent, scenarios, and a judge | `defineAgentEval()` | Repeatable evaluation and optional prompt improvement |
 
-1. **Logs but no eval discipline** → [Production traces journey](#1-production-traces-journey-customer-otel-traces)
-2. **Ratings but no closed loop** → [Feedback corpus journey](#2-feedback-corpus-journey-customer-feedback-loop)
-3. **Scenarios, judge, agent — full closed loop** → [Closed-loop journey](#3-closed-loop-journey-selfimprove-quickstart)
+All three paths return plain objects and run in your process.
+They call a remote service only when you pass a model client, exporter, or hosted endpoint.
 
-Each section: what the customer has, what they want, the code, what the report looks like.
+## 1. Analyze Existing Traces
 
----
-
-## 1. Production traces journey — `customer-otel-traces`
-
-**The customer:** an agentic GTM-as-a-service company. Multiple agent steps in prod (social media posting, image generation, translation). OTel observability piped to their collector. Doesn't run formal evals. CTO hand-rolled their tracing.
-
-**The frustration:** "Which step is unreliable? What's our cost-quality profile? Where do we fix next?" They have the data; they don't have the answer.
-
-**What they need from agent-eval:** day-1 analysis of their existing logs. No scenarios, no judges, no closed loop. Just turn the trace stream into a decision packet.
-
-### The code
+Use this path when the agent already emits OpenTelemetry spans and you do not want to run it again.
 
 ```ts
 import { analyzeRuns, fromOtelSpans } from '@tangle-network/agent-eval/contract'
 
-const runs = fromOtelSpans({ spans: yourOtelStream })
+const runs = fromOtelSpans({ spans: yourOtelSpans })
 const report = await analyzeRuns({ runs })
 
-// report.failureClusters → root causes
-// report.costQuality.pareto → cost-vs-quality scatter
-// report.composite → distribution
-// report.recommendations → top-3 actions
+console.log(report.composite)
+console.log(report.costQuality)
+console.log(report.recommendations)
 ```
 
-### What the report shows
+`fromOtelSpans()` groups spans by run ID and reads recorded scores, failures, model IDs, token counts, and costs.
+It does not infer values that are missing from the spans.
 
-```
-Runs analyzed:     40
-Composite mean:    0.721 (p50: 0.717, p95: 0.925, stddev: 0.210)
-Cost mean:         $0.103 (p95: $0.131)
+Add model-based failure clustering only when you need it:
 
-── Failures ──
-6 runs with status=ERROR or failureMode set:
-  tool.search  (3x)
-  agent.turn   (3x)
+```ts
+const report = await analyzeRuns({
+  runs,
+  analyst,
+})
 
-── Cost-quality Pareto ──
-1 candidate(s) plotted; 1 on the frontier
-  otel-default: cost=$0.103 quality=0.721  (frontier)
-
-── Recommendations ──
-[medium] expand-corpus — Mean composite 0.721 has room
+console.log(report.failureClusters)
 ```
 
-### Next steps for this customer
+Runnable example: [`examples/customer-otel-traces`](../examples/customer-otel-traces/)
 
-1. Wire an `AnalystRegistry` to cluster the 6 failures by root cause via LLM analysis.
-2. Add `outcomeSignal` once they have downstream conversion / engagement / post-engagement data, and the report fits a reward model showing whether their score predicts the customer outcome.
-3. Once they identify a step worth optimizing (translation, say), graduate to journey #3 — wrap that step as an `agent(surface, scenario)` and call `defineAgentEval()`.
+## 2. Analyze Human Ratings
 
-**Runnable:** [`examples/customer-otel-traces/`](../examples/customer-otel-traces/)
-
----
-
-## 2. Feedback corpus journey — `customer-feedback-loop`
-
-**The customer:** a research-validation team. A GitHub Action fires `claude -p` against the next claim, writes the research output to Obsidian. Three reviewers (Alice, Bob, Carol) tag results `#approved` or `#rejected`. Outputs feed a knowledge base. Knowledge feeds content. Content feeds engagement. The founder wants more engagement faster.
-
-**The frustration:** "We disagree on what's good. We don't know if our 'good' actually drives engagement. Reviewing every claim is slow."
-
-**What they need from agent-eval:** turn the approve/reject corpus into actionable signal:
-- Where do reviewers disagree? (triage list)
-- Can we synthesize each reviewer's taste into an LLM judge? (auto-grade)
-- Does the taste actually predict downstream engagement? (close the loop)
-
-### The code
+Use this path when multiple people score the same outputs in a database, spreadsheet, or review tool.
 
 ```ts
 import { analyzeRuns, fromFeedbackTable } from '@tangle-network/agent-eval/contract'
 
-// 1. Parse Obsidian #approved / #rejected tags into a flat table:
-const ratings = parseObsidianVault('./research-vault')
-// [{ runId: 'claim-1', rater: 'alice', rating: true }, ...]
+const ratings = [
+  { runId: 'answer-1', rater: 'alice', rating: true },
+  { runId: 'answer-1', rater: 'bob', rating: false },
+  { runId: 'answer-2', rater: 'alice', rating: true },
+  { runId: 'answer-2', rater: 'bob', rating: true },
+]
 
-// 2. Pipe through the adapter:
 const { runs, raterScores } = fromFeedbackTable({ ratings })
+const report = await analyzeRuns({ runs, raterScores })
 
-// 3. Analyze:
-const report = await analyzeRuns({
-  runs,
-  raterScores,
-  // Optional: close the loop with engagement data once you have it.
-  outcomeSignal: { metric: 'engagement_rate', valueByRunId: enrichedFromProd },
-})
-
-// report.interRater.disagreementCases → top 20 claims worth a meeting
-// report.outcomeCorrelation → does team taste predict engagement?
-// report.recommendations → action list
+console.log(report.interRater?.kappa)
+console.log(report.interRater?.icc)
+console.log(report.interRater?.disagreementCases)
 ```
 
-### What the report shows
+Weighted kappa and ICC measure absolute agreement.
+Pearson and Spearman measure correlation and are reported separately because reviewers can correlate while using different score levels.
 
-```
-Runs analyzed:     30
-Composite mean:    0.756 (approve rate ~76%)
+Review the largest disagreements before using those labels to calibrate a model judge.
+Test the judge on human ratings that were not used during calibration.
 
-── Inter-rater agreement ──
-Raters:               3 (alice, bob, carol)
-Jointly rated runs:   30
-Pairwise pearson κ:
-  alice::bob     0.53
-  alice::carol   0.55
-  bob::carol     0.21
-Mean κ:               0.43
+Runnable example: [`examples/customer-feedback-loop`](../examples/customer-feedback-loop/)
 
-── Top 5 disagreement cases ──
-  claim-1   range=1.00  ratings: alice=0, bob=0, carol=1
-  claim-7   range=1.00  ratings: alice=0, bob=1, carol=0
-  ...
+## 3. Evaluate Or Improve A Runnable Agent
 
-── Recommendations ──
-[high] recalibrate — Inter-rater agreement κ=0.43 is below 0.5
-  Raters disagree on what 'good' looks like. Refine the rubric or triage the disagreement cases.
-```
-
-### Next steps for this customer
-
-1. **Triage meeting on the disagreement cases.** Mean κ=0.43 means the rubric is ambiguous; clarify it on the cases that split.
-2. **Calibrate one LLM judge per reviewer.** Each reviewer's history is the gold signal — substrate primitive `calibrateJudge` against `raterScores` filtered to that reviewer.
-3. **Add engagement as `outcomeSignal`** once the content downstream is instrumented. The `outcomeCorrelation` section tells the team whether their taste predicts the founder's token-max goal — and if not, the linear reward model says how to retarget.
-4. **Graduate to journey #3** — wrap the research-generation Claude-P call as an `agent(surface, scenario)`, use the calibrated judges, run `evalKit.improve()` nightly. Open a PR against the GitHub Action when the holdout approval rate beats baseline.
-
-**Runnable:** [`examples/customer-feedback-loop/`](../examples/customer-feedback-loop/)
-
----
-
-## 3. Closed-loop journey — `selfimprove-quickstart`
-
-**The customer:** a team with a scenario corpus, a judge, and an agent. Wants to improve the prompt under statistical confidence — propose better candidates, gate on holdout lift, ship the winner.
-
-**The frustration:** "We can run an A/B by hand but we don't know if the improvement is real. We don't have time to run paired bootstrap by hand. We want a function that decides."
-
-**What they need from agent-eval:** one reusable eval definition — propose, score, gate, ship — with the full rigor packet on the way out.
-
-### The code
+Use this path when you can call the agent for a scenario and score the returned artifact.
 
 ```ts
 import { defineAgentEval } from '@tangle-network/agent-eval/contract'
 
 const evalKit = defineAgentEval({
   scenarios,
-  agent: async (surface, scenario) =>
-    await myAgent.run({ systemPrompt: (surface as { systemPrompt: string }).systemPrompt, scenario }),
+  agent: async (prompt, scenario) => yourAgent.run({ prompt: String(prompt), scenario }),
   judge: {
-    name: 'rubric',
-    dimensions: [{ key: 'clarity', weight: 1 }, { key: 'concision', weight: 1 }],
-    score: async ({ artifact }) => myJudgeFn(artifact),
+    name: 'task-quality',
+    dimensions: [
+      { key: 'correct', description: 'The answer is correct' },
+      { key: 'complete', description: 'The answer covers the whole request' },
+    ],
+    score: ({ artifact, scenario }) => scoreArtifact(artifact, scenario),
   },
-  baselineSurface: { kind: 'prompt', systemPrompt: 'You write marketing copy...' },
-  budget: { generations: 3, populationSize: 2 },
+  baselineSurface: currentPrompt,
 })
 
-const result = await evalKit.improve()
-
-result.gateDecision   // 'ship' | 'hold' | ...
-result.insight        // full decision packet
+const baseline = await evalKit.evaluate()
+const candidate = await evalKit.evaluate({ surface: proposedPrompt })
 ```
 
-### What the report shows
+Call `.evaluate()` when you already have a candidate to compare.
+Call `.improve()` when you want the library to generate and test candidates:
 
-```
-═══ selfImprove() decision packet ═══
+```ts
+const result = await evalKit.improve({
+  llm: {
+    baseUrl: process.env.OPENAI_BASE_URL ?? 'https://api.openai.com/v1',
+    apiKey: process.env.OPENAI_API_KEY!,
+    model: 'gpt-4.1-mini',
+  },
+})
 
-Gate decision:        ship
-Raw lift:             +0.361
-
-── Statistical lift (paired bootstrap) ──
-delta:    +0.359
-CI95:     [0.311, 0.408]
-pValue:   0.0013
-Cohen's d: 8.58
-MDE @ 80% power: 1.401
-required n at observed effect: 122
-
-── Recommendations ──
-[critical] ship — Ship — lift 0.359 (95% CI 0.311..0.408)
+console.log(result.winner.surface)
+console.log(result.lift)
+console.log(result.gateDecision)
 ```
 
-### Next steps for this customer
+The default candidate generator calls the configured model.
+The agent and judge may make their own calls depending on your implementation.
+Set generation, population, concurrency, and dollar limits through `budget`.
 
-1. **Ship the winner.** Either accept `result.winner.surface` programmatically and roll it out, or pass `autoOnPromote: 'pr'` + a GitHub repo to have selfImprove open a PR for you.
-2. **Wire `hostedTenant`** to ship the decision packet to a dashboard (the hosted Intelligence orchestrator, or your own implementation of the wire spec).
-3. **Add `canaryScenarios`** to guard against the holdout leaking into the candidate prompt.
-4. **Add `outcomeSignal`** in `analyzeRuns()` for any post-deploy reruns to verify the predicted lift actually shows up in real outcomes.
+For production use, provide enough scenarios to keep candidate generation and final comparison disjoint.
+Use an explicit held-back scenario set when the split must remain stable across runs.
 
-**Runnable:** [`examples/selfimprove-quickstart/`](../examples/selfimprove-quickstart/)
+Runnable example: [`examples/selfimprove-quickstart`](../examples/selfimprove-quickstart/)
 
----
+## Moving Between Paths
 
-## How the three journeys compose
+The paths compose without changing data formats:
 
-Journey #1 + #2 + #3 are **maturity stages**, not exclusive products. A team typically:
+1. Convert traces or ratings into `RunRecord[]` and use `analyzeRuns()` to find recurring failures.
+2. Turn those failures into representative scenarios and deterministic checks where possible.
+3. Use `defineAgentEval()` to compare changes against the same scenarios.
+4. Use `.improve()` only after the evaluation reliably separates known-good from known-bad behavior.
 
-1. Starts with **#1** (analyze production logs) to find what's broken.
-2. Adds **#2** (feedback corpus) once they have a sense of where to improve, to calibrate what "good" means.
-3. Graduates to **#3** (closed loop) once they have scenarios + judges, to automate the improvement.
-
-Same substrate, same `InsightReport` shape, no rip-and-replace between stages. The data you collect in #1 informs the scenarios you derive in #2 which feed the loop in #3.
+See [`concepts.md`](./concepts.md) for data types and [`examples/README.md`](../examples/README.md) for the full runnable index.

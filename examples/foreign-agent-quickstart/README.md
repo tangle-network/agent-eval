@@ -1,229 +1,90 @@
-# Foreign-agent quickstart
+# Use Agent Eval With An Existing Agent
 
-**Goal:** wire any agent behind a `Dispatch`, define a few scenarios + a
-judge, and run a real self-improvement loop in 15 minutes. No Tangle
-sandbox. No Tangle account. No hosting.
-
-## What you get
-
-After this walkthrough you have:
-
-1. A repeatable evaluation harness against scenarios you control.
-2. A judge that scores agent output on dimensions you define.
-3. A closed self-improvement loop: campaign → judge → proposer → gate →
-   next generation. Stops when the gate ships or the budget exhausts.
-4. Traces + artifacts you own. Locally on disk or in-memory for edge
-   runtimes.
-
-No Tangle infrastructure required at any step.
+Your agent does not need to use Tangle's runtime or sandbox.
+Agent Eval only needs a function that accepts the candidate prompt or configuration plus one scenario, then returns the artifact to score.
 
 ## Install
 
 ```sh
-npm i @tangle-network/agent-eval
+npm install @tangle-network/agent-eval
 ```
 
-`agent-eval` depends on the shared `@tangle-network/agent-interface`
-profile contract and does not install sandbox or agent-runtime. Add those
-packages only when you want their execution backend or production-runtime
-helpers. This quickstart uses neither.
+## Run The Example
 
-## The five types
-
-```ts
-import {
-  type Dispatch,        // your agent, behind one function
-  type Scenario,        // what you evaluate against
-  type JudgeConfig,     // what "good" means
-  type SurfaceProposer, // how to propose the next surface
-  type Gate,            // promotion guard
-} from '@tangle-network/agent-eval/contract'
-```
-
-Every type in `/contract` is committed under semver — new minors only
-add, nothing here changes shape in a 0.x minor.
-
-## The four functions
-
-```ts
-import {
-  runEval,                  // one-off evaluation, returns a score
-  runCampaign,              // structured cells (scenarios × seeds × reps)
-  runImprovementLoop,       // closed self-improvement loop
-  defaultProductionGate,    // standard held-out promotion gate
-} from '@tangle-network/agent-eval/contract'
-```
-
-## Two storage backends
-
-```ts
-import {
-  fsCampaignStorage,        // writes to disk (Node default)
-  inMemoryCampaignStorage,  // no FS (Workers, edge, tests)
-} from '@tangle-network/agent-eval/contract'
-```
-
-## Wiring your agent — three steps
-
-### 1. Declare scenarios
-
-A scenario is just an `id` + `kind` + your domain fields. Whatever your
-agent eats, model it here.
-
-```ts
-interface MarketingScenario extends Scenario {
-  blurb: string
-  surface: 'landing-hero' | 'tweet' | 'email-subject'
-  audience: string
-}
-
-const scenarios: MarketingScenario[] = [
-  { id: 's1', kind: 'marketing-rewrite', blurb: '...', surface: 'tweet', audience: '...' },
-  // ...
-]
-```
-
-### 2. Wrap your agent as a `Dispatch`
-
-One function: scenario in, artifact out. Your agent stays exactly as it
-is — call OpenAI, LangChain, Anthropic, a local model, anything. The
-engine doesn't care.
-
-```ts
-const dispatch: Dispatch<MarketingScenario, MarketingArtifact> = async (scenario, ctx) => {
-  const rewrite = await callYourAgent(scenario, { signal: ctx.signal })
-  return { rewrite, modelUsed: 'whatever' }
-}
-```
-
-`ctx` carries a per-cell `signal` (cancel propagation), a scoped trace
-writer, an artifact writer, and a cost meter. Use them or ignore them.
-
-### 3. Bring a judge
-
-```ts
-const judge: JudgeConfig<MarketingArtifact, MarketingScenario> = {
-  name: 'marketing-quality',
-  dimensions: [
-    { key: 'hook_strength', description: '...' },
-    { key: 'voice_match', description: '...' },
-    { key: 'cta_clarity', description: '...' },
-    { key: 'factual_grounding', description: '...' },
-  ],
-  async score({ artifact, scenario, signal }) {
-    // your scoring — LLM, heuristic, ensemble, anything.
-    // Must return { dimensions, composite, notes }.
-    return { dimensions, composite, notes }
-  },
-}
-```
-
-Throw on judge failure — the substrate records it as a failed cell. Do
-not silently fold errors into a zero score.
-
-## Run a baseline
-
-```ts
-const baseline = await runEval({
-  scenarios,
-  dispatch,
-  judges: [judge],
-  storage: inMemoryCampaignStorage(),
-  runDir: 'mem://my-baseline',
-})
-
-const score = Object.values(baseline.aggregates.byScenario)
-  .reduce((sum, s) => sum + s.meanComposite, 0) / scenarios.length
-
-console.log(`Baseline composite: ${score.toFixed(3)}`)
-```
-
-## Run the closed self-improvement loop
-
-```ts
-import { gepaProposer, defaultProductionGate } from '@tangle-network/agent-eval/contract'
-
-const baselineSurface = 'You are a senior copywriter. ...'
-
-const result = await runImprovementLoop({
-  scenarios: trainScenarios,         // optimize against these
-  baselineSurface,
-  dispatchWithSurface: (surface, scenario, ctx) =>
-    yourAgent.runWithPrompt(surface as string, scenario, ctx),
-  proposer: gepaProposer({
-    llm: { apiKey: process.env.OPENAI_API_KEY, baseUrl: '...' },
-    model: 'gpt-4o-mini',
-    target: 'marketing copywriting system prompt',
-    mutationPrimitives: [
-      'Tighten the hook: lead with the concrete user outcome.',
-      // ...
-    ],
-  }),
-  judges: [judge],
-  populationSize: 2,
-  maxGenerations: 3,
-  holdoutScenarios,                  // kept out of training, used by the gate
-  gate: defaultProductionGate({
-    holdoutScenarios,
-    deltaThreshold: 0.05,
-  }),
-  autoOnPromote: 'none',             // 'pr' to auto-open a PR with the winner
-  storage: inMemoryCampaignStorage(),
-  runDir: 'mem://my-improve',
-})
-
-if (result.gateResult.decision === 'ship') {
-  console.log('Shipped:', result.winnerSurface)
-}
-```
-
-The gate's `decision` is `'ship'` | `'hold'` | `'need_more_work'` |
-`'model_ceiling'` | `'arch_ceiling'`. You decide what each means in your
-deploy pipeline — we don't push code without consent.
-
-## Try it now
+From this repository:
 
 ```sh
-cd examples/foreign-agent-quickstart
-pnpm tsx index.ts                            # heuristic-only — no API key needed
-OPENAI_API_KEY=sk-... pnpm tsx index.ts      # real LLM + real gepa-driven lift
+pnpm tsx examples/foreign-agent-quickstart/index.ts
 ```
 
-Without `OPENAI_API_KEY`, the example still runs end-to-end against a
-deterministic stub agent + heuristic judge so the wiring is verifiable
-in CI. With a key, you see the actual reflective-mutation loop earn
-its lift over the baseline.
+The default path is offline and deterministic.
+Set `OPENAI_API_KEY` to exercise the example's optional model-based candidate generator.
 
-## What this does NOT install
+## Adapt Your Agent
 
-- No `@tangle-network/sandbox` — nothing is provisioned, nothing runs in
-  a Tangle sandbox, no auth required.
-- No hosted orchestrator — traces stay on your machine.
-- No background daemons — `runEval` and `runImprovementLoop` complete
-  in-process and return.
+Define four inputs:
 
-If you later want hosted dashboards, cross-run intelligence, or our
-sandbox as a swap-in backend, those are opt-in. Start with the hosted
-ingest contract in [`docs/hosted-ingest-spec.md`](../../docs/hosted-ingest-spec.md)
-or the same-sandbox example in [`examples/same-sandbox-harness/`](../same-sandbox-harness/).
+1. `scenarios`: representative tasks with stable IDs.
+2. `agent`: calls your existing SDK, service, workflow, or local model.
+3. `judge`: returns dimension scores and a composite score from `0` to `1`.
+4. `baselineSurface`: the prompt or configuration you use today.
 
-## Common extensions
+```ts
+import {
+  defineAgentEval,
+  type JudgeConfig,
+  type Scenario,
+} from '@tangle-network/agent-eval/contract'
 
-| You want | Use |
-|---|---|
-| Multiple judges (ensemble) | `judges: [a, b, c]` — runEval averages across them per cell |
-| RL training data | `@tangle-network/agent-eval/rl` — `campaignToRunRecords`, `extractPreferences` |
-| Deployment outcomes feeding back into the gate | `OutcomeStore` + `predictiveValidityResearcher` from `/rl` |
-| Worker / edge runtime (no FS) | `inMemoryCampaignStorage()` instead of `fsCampaignStorage()` |
-| LangChain agent | `@tangle-network/agent-eval/adapters/langchain` (in the next release) |
-| Custom mutation strategy | Implement `SurfaceProposer` directly, or `evolutionaryProposer({ mutator })` |
-| Custom promotion logic | `composeGate(defaultProductionGate(...), yourCustomGate)` |
+interface SupportScenario extends Scenario {
+  question: string
+}
 
-## Where to go next
+interface SupportAnswer {
+  text: string
+}
 
-- `examples/production-loop/` — end-to-end demo with a real GitHub PR
-  on a successful promotion.
-- `docs/hosted-ingest-spec.md` — the hosted trace-ingest contract.
-- `examples/same-sandbox-harness/` — the sandbox-backed harness shape.
-- `README.md` — the shortest current path through `analyzeRuns()` and
-  `selfImprove()`.
+const judge: JudgeConfig<SupportAnswer, SupportScenario> = {
+  name: 'support-quality',
+  dimensions: [
+    { key: 'correct', description: 'The answer resolves the question correctly' },
+  ],
+  score: ({ artifact }) => {
+    const correct = artifact.text.includes('expected fact') ? 1 : 0
+    return { dimensions: { correct }, composite: correct, notes: '' }
+  },
+}
+
+const evalKit = defineAgentEval<SupportScenario, SupportAnswer>({
+  scenarios,
+  baselineSurface: 'Answer accurately and briefly.',
+  agent: async (surface, scenario, ctx) => ({
+    text: await yourAgent({
+      systemPrompt: String(surface),
+      question: scenario.question,
+      signal: ctx.signal,
+    }),
+  }),
+  judge,
+  expectUsage: 'off',
+})
+
+const baseline = await evalKit.evaluate()
+const candidate = await evalKit.evaluate({
+  surface: 'Answer accurately, briefly, and cite the relevant policy.',
+})
+```
+
+Wrap top-level calls in your application's existing async entry point.
+Use `evalKit.improve()` when you are ready to generate and evaluate candidates automatically.
+
+## Failure And Data Handling
+
+- Throw when the agent or judge cannot produce a valid result.
+- Pass `ctx.signal` to downstream calls so cancellation stops work already in progress.
+- Use in-memory storage for ephemeral runs or filesystem storage for resumable local runs.
+- No hosted service is required.
+- Data leaves your process only through providers and exporters you configure.
+
+The runnable implementation is [`index.ts`](./index.ts).
+For lower-level campaign control, read [`docs/campaign-proposers.md`](../../docs/campaign-proposers.md).

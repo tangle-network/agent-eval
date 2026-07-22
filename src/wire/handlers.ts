@@ -13,11 +13,14 @@
 import { CostLedger, type CostLedgerHandle } from '../cost-ledger'
 import type { FeedbackTrajectoryStore } from '../feedback-trajectory'
 import {
+  assertLlmRoute,
   callLlmJson,
   costReceiptFromLlm,
   costReceiptFromLlmError,
   type LlmCallRequest,
   type LlmClientOptions,
+  LlmRouteAssertionError,
+  type LlmRouteRequirements,
   maximumChargeForLlmRequest,
 } from '../llm-client'
 import type { TraceEvent as InternalTraceEvent } from '../trace/schema'
@@ -191,6 +194,8 @@ export interface HandleJudgeOptions {
   costLedger?: CostLedgerHandle
   costPhase?: string
   llm?: LlmClientOptions
+  defaultModel?: string
+  routeRequirements?: LlmRouteRequirements
   signal?: AbortSignal
 }
 
@@ -213,8 +218,25 @@ export async function handleJudge(
     throw new WireError('validation_error', 'Provide either `rubricName` or `rubric`.', 422)
   }
 
+  if (options.routeRequirements) {
+    try {
+      assertLlmRoute(options.llm ?? {}, options.routeRequirements)
+    } catch (error) {
+      if (!(error instanceof LlmRouteAssertionError)) throw error
+      const noEndpoint = error.reason === 'no_explicit_base_url'
+      throw new WireError(
+        noEndpoint ? 'llm_not_configured' : 'llm_route_rejected',
+        noEndpoint
+          ? 'No model endpoint is configured. Pass llm.baseUrl or configure the CLI provider environment variables.'
+          : error.message,
+        503,
+        { reason: error.reason },
+      )
+    }
+  }
+
   const startedAt = Date.now()
-  const model = req.model ?? DEFAULT_JUDGE_MODEL
+  const model = req.model ?? options.defaultModel ?? DEFAULT_JUDGE_MODEL
 
   const request = {
     model,

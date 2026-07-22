@@ -1,4 +1,4 @@
-# Hosted-ingest wire spec — `2026-05-26.v1`
+# Hosted-ingest wire spec: `2026-05-26.v1`
 
 The schema **every** orchestrator (ours, partners' self-hosted ones,
 any future open implementation) must accept. Frozen under semver:
@@ -149,7 +149,7 @@ Any orchestrator implementing this spec MUST:
 5. **Persist eval-runs durably**: at least the event + cell scores must
    survive an orchestrator restart. Trace spans MAY be best-effort.
 6. **Provide read access**: GET endpoints for the tenant to list + fetch
-   their own runs. Wire format for reads is NOT part of this spec — each
+   their own runs. Wire format for reads is NOT part of this spec: each
    orchestrator can pick its own (REST + JSON, gRPC, GraphQL).
 
 Servers SHOULD also:
@@ -163,7 +163,7 @@ Servers SHOULD also:
 
 ## Reference implementation
 
-`examples/hosted-ingest-server/` — a minimal hono-based receiver. ~200
+`examples/hosted-ingest-server/`: a minimal hono-based receiver. ~200
 LOC. Validates auth, accepts ingest, stores in memory, exposes a
 read endpoint. Runs anywhere Node runs.
 
@@ -200,4 +200,4 @@ receiver's `GET /v1/runs` lists it back.
 Servers MUST reject requests with `X-Tangle-Wire-Version` they don't
 support, with a 400 listing the versions they DO accept.
 
-The version string IS the spec id — pin against it.
+The version string IS the spec id: pin against it.
