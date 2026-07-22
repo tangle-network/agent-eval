@@ -29,7 +29,7 @@ across processes and platforms; bumping the seed is a breaking change.
 `evaluate` does case-insensitive exact match between the first
 `category.action`-shaped token in the response and the canonical
 route + synonyms. Hard negatives are reported in `raw` for analysis
-but do NOT change the score — the grader is binary by design.
+but do NOT change the score: the grader is binary by design.
 
 ## Why ship a synthetic dataset
 

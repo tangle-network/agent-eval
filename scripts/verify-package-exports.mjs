@@ -60,7 +60,28 @@ try {
     }
   }
 
+  const packedCli = join(packageDir, 'dist', 'cli.js')
+  const cliHelp = run(process.execPath, [packedCli, '--help'], appDir, { timeout: 5_000 })
+  if (!cliHelp.includes('agent-eval: evaluation RPC and HTTP server.')) {
+    throw new Error(`packed CLI help was incomplete:\n${cliHelp}`)
+  }
+  const serveHelp = run(process.execPath, [packedCli, 'serve', '--help'], appDir, {
+    timeout: 5_000,
+  })
+  if (!serveHelp.includes('serve [--port 5005]')) {
+    throw new Error(`packed CLI serve help was incomplete:\n${serveHelp}`)
+  }
+  const cliVersion = run(process.execPath, [packedCli, '--version'], appDir, { timeout: 5_000 })
+  if (cliVersion.trim() !== packageJson.version) {
+    throw new Error(`packed CLI version mismatch: ${cliVersion.trim()} != ${packageJson.version}`)
+  }
+
   symlinkSync(packageDir, join(appDir, 'node_modules', '@tangle-network', 'agent-eval'), 'dir')
+  const readme = readFileSync(join(repoRoot, 'README.md'), 'utf8')
+  const quickstart = readme.match(/## Quickstart[\s\S]*?```ts\n([\s\S]*?)\n```/)?.[1]
+  if (!quickstart) throw new Error('README quickstart TypeScript block was not found')
+  writeFileSync(join(appDir, 'quickstart.ts'), `${quickstart}\n`)
+  writeFileSync(join(appDir, 'package.json'), JSON.stringify({ type: 'module' }))
   writeFileSync(
     join(appDir, 'index.ts'),
     `
@@ -82,6 +103,7 @@ try {
       } from '@tangle-network/agent-eval/analyst'
       import {
         type CostLedgerHandle as ContractCostLedgerHandle,
+        type LlmJudgeOptions as ContractLlmJudgeOptions,
         type ReferenceEquivalenceJudgeOptions as ContractReferenceEquivalenceJudgeOptions,
         summarizeExecution,
         type ExecutionReport,
@@ -147,6 +169,7 @@ try {
       const campaignLlmOptions = null as unknown as CampaignLlmJudgeOptions<unknown>
       const rootLlmOptions: RootLlmJudgeOptions<unknown> = campaignLlmOptions
       const campaignLlmRoundTrip: CampaignLlmJudgeOptions<unknown> = rootLlmOptions
+      const contractLlmOptions: ContractLlmJudgeOptions<unknown> = rootLlmOptions
       const campaignReferenceOptions = null as unknown as CampaignReferenceEquivalenceJudgeOptions
       const contractReferenceOptions: ContractReferenceEquivalenceJudgeOptions = campaignReferenceOptions
       const rootReferenceOptions: RootReferenceEquivalenceJudgeOptions = contractReferenceOptions
@@ -175,6 +198,7 @@ try {
         runtimeRun,
         campaignRoundTrip,
         campaignLlmRoundTrip,
+        contractLlmOptions,
         campaignReferenceRoundTrip,
         rootCostLedger,
         campaignCostLedger,
@@ -197,12 +221,20 @@ try {
         moduleResolution: 'NodeNext',
         strict: true,
         skipLibCheck: true,
-        noEmit: true,
+        outDir: 'dist',
       },
-      include: ['index.ts'],
+      include: ['index.ts', 'quickstart.ts'],
     }),
   )
   run(join(repoRoot, 'node_modules', '.bin', 'tsc'), ['-p', 'tsconfig.json'], appDir)
+  const quickstartOutput = run(process.execPath, [join(appDir, 'dist', 'quickstart.js')], appDir)
+  const plainQuickstartOutput = quickstartOutput.replace(/\x1b\[[0-9;]*m/g, '')
+  if (!/baseline:\s+\{ 'cites-ticket': \{ mean: 0,/.test(plainQuickstartOutput)) {
+    throw new Error(`README quickstart baseline output changed:\n${quickstartOutput}`)
+  }
+  if (!/candidate:\s*\{ 'cites-ticket': \{ mean: 1,/.test(plainQuickstartOutput)) {
+    throw new Error(`README quickstart candidate output changed:\n${quickstartOutput}`)
+  }
   run(
     process.execPath,
     [
@@ -401,22 +433,24 @@ function matchVersion(source, pattern, path) {
   return match[1]
 }
 
-function run(command, args, cwd) {
+function run(command, args, cwd, options = {}) {
   const result = spawnSync(command, args, {
     cwd,
     encoding: 'utf8',
     stdio: ['ignore', 'pipe', 'pipe'],
+    timeout: options.timeout ?? 120_000,
   })
   if (result.status !== 0) {
     throw new Error(
       [
         `command failed: ${command} ${args.join(' ')}`,
-        result.stdout.trim(),
-        result.stderr.trim(),
+        result.error?.message,
+        String(result.stdout ?? '').trim(),
+        String(result.stderr ?? '').trim(),
       ]
         .filter(Boolean)
         .join('\n'),
     )
   }
-  return result.stdout
+  return String(result.stdout ?? '')
 }

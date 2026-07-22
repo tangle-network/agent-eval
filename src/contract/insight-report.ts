@@ -220,9 +220,15 @@ export interface InterRaterInsight {
   raters: number
   /** Number of runs every rater scored. */
   jointlyRated: number
-  /** Cohen's κ averaged across rater pairs. */
+  /** Multi-rater weighted kappa over the jointly rated runs. */
   kappa: number
-  /** Pairwise κ per rater pair (key = `"raterA::raterB"`). */
+  /** Absolute agreement across raters, using ICC(2,1). */
+  icc: number
+  /** Mean pairwise Pearson correlation. Correlation is not agreement. */
+  pearson: number
+  /** Mean pairwise Spearman rank correlation. */
+  spearman: number
+  /** Pairwise weighted kappa per rater pair (key = `"raterA::raterB"`). */
   perPair: Record<string, number>
   /** Run ids where raters disagree the most — the high-value triage list. */
   disagreementCases: Array<{

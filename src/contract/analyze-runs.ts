@@ -25,6 +25,7 @@ import type { AnalystFinding } from '../analyst/types'
 import { checkCanaries } from '../contamination-guard'
 import type { DatasetScenario } from '../dataset'
 import { summarizeBackendIntegrity } from '../integrity/backend-integrity'
+import { continuousAgreement } from '../judge-calibration'
 import { type RunRecord, type RunTokenUsage, resolveRunCostProvenance } from '../run-record'
 import {
   cohensD,
@@ -805,15 +806,18 @@ function computeInterRater(
           bScores.push(sb)
         }
       }
-      perPair[`${a}::${b}`] = pearsonR(aScores, bScores)
+      const agreement = continuousAgreement(
+        aScores.map((score, index) => [score, bScores[index]!]),
+        { bootstrap: 0 },
+      )
+      perPair[`${a}::${b}`] = agreement.weightedKappa
     }
   }
-  // Average only the finite pair correlations — a degenerate pair (a single
-  // jointly-rated run, or a rater whose scores are constant) yields NaN and
-  // carries no agreement signal, so it must not drag the mean toward 0.
-  const pairKappas = Object.values(perPair).filter((v) => Number.isFinite(v))
-  const kappa =
-    pairKappas.length === 0 ? 0 : pairKappas.reduce((s, v) => s + v, 0) / pairKappas.length
+  const matrix = jointlyRated.map((runId) => {
+    const ratingsByRater = new Map(byRun.get(runId)!.map((rating) => [rating.rater, rating.score]))
+    return raterList.map((rater) => ratingsByRater.get(rater)!)
+  })
+  const agreement = continuousAgreement(matrix, { bootstrap: 0 })
 
   const disagreementCases = jointlyRated
     .map((runId) => {
@@ -828,7 +832,10 @@ function computeInterRater(
   return {
     raters: raters.size,
     jointlyRated: jointlyRated.length,
-    kappa,
+    kappa: Number.isFinite(agreement.weightedKappa) ? agreement.weightedKappa : 0,
+    icc: agreement.icc,
+    pearson: agreement.pearson,
+    spearman: agreement.spearman,
     perPair,
     disagreementCases,
   }
@@ -1259,8 +1266,9 @@ function buildRecommendations(ctx: RecommendationContext): Recommendation[] {
     out.push({
       priority: 'high',
       kind: 'recalibrate',
-      title: `Inter-rater agreement κ=${ctx.interRater.kappa.toFixed(2)} is below 0.5`,
-      detail: `Raters disagree on what 'good' looks like. Top disagreement cases listed in interRater.disagreementCases — consider a triage meeting or refining the rubric.`,
+      title: `Inter-rater weighted kappa ${ctx.interRater.kappa.toFixed(2)} is below 0.5`,
+      detail:
+        'Raters disagree on what good looks like. Review the largest disagreement cases and refine the rubric before automating these decisions.',
       evidencePath: 'interRater',
     })
   }

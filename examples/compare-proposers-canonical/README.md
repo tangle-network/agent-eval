@@ -1,10 +1,10 @@
-# compareProposers canonical — the real proposer head-to-head
+# compareProposers canonical: the real proposer head-to-head
 
 The **live** companion to the deterministic mechanism gate. The unit tests
 (`tests/campaign/compare-proposers.test.ts`, run on every PR in `ci.yml`) prove
 the `compareProposers` harness *ranks* correctly with a faked LLM. This example
 proves the optimizers move a **real** held-out number on a **real** backend and
-records **which proposer wins** — the artifact a case study is made of.
+records **which proposer wins**: the artifact a case study is made of.
 
 It runs `gepa-reflection` vs `gepa-pareto` vs `skill-opt` on one corpus
 (transaction-field extraction, a **deterministic** exact-match judge → zero
@@ -13,7 +13,7 @@ and reports per-proposer lift + paired-bootstrap CIs. `assertRealBackend` aborts
 on a stub (zero-token) run, so a fake `$0` lift can never be reported.
 
 The corpus + judge + worker are shared with `substrate-lift-proof` via
-[`../_shared/extraction-task.ts`](../_shared/extraction-task.ts) — one copy, so
+[`../_shared/extraction-task.ts`](../_shared/extraction-task.ts): one copy, so
 both examples measure the same task.
 
 ## Run
@@ -46,14 +46,14 @@ artifact lands in `.evolve/compare-proposers-canonical/<ts>/lift-proposers.json`
 
 **Honest reading:** all three proposers produce a **statistically-clear** real
 lift (CI low = 0.208 > 0 → `lift-proven`), but they are **tied with each
-other** — this task saturates to the ceiling, so it can't separate the
+other**: this task saturates to the ceiling, so it can't separate the
 optimizers. To differentiate GEPA from SkillOpt you need a harder corpus with
 more headroom (a product persona suite is the next target). The instrument is
 proven; the separation experiment is the follow-on.
 
 ## Relationship to CI
 
-- `ci.yml` (every PR): deterministic mechanism gate — no LLM, no cost.
+- `ci.yml` (every PR): deterministic mechanism gate: no LLM, no cost.
 - `empirical-gate.yml` (weekly + manual): this script against a real backend,
   permissive (never blocks ship), uploads the lift artifact. Neutral-skips when
   no `LLM_API_KEY` / `TANGLE_API_KEY` secret is set.

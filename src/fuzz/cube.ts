@@ -90,7 +90,9 @@ export function buildCoverage(cells: Cell[], log: EvalRecord[], threshold: numbe
     const dimSamples: Record<string, number[]> = {}
     for (const r of recs) {
       for (const [k, v] of Object.entries(r.ev.scores ?? {})) {
-        ;(dimSamples[k] ??= []).push(v)
+        const samples = dimSamples[k] ?? []
+        samples.push(v)
+        dimSamples[k] = samples
       }
     }
     const dimensions: Record<string, Distribution> = {}

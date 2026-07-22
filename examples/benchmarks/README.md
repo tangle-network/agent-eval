@@ -1,13 +1,13 @@
 # Example benchmark wrappers
 
-Reference implementations of `BenchmarkAdapter` for two public benchmarks. They are NOT bundled — they're intentionally shipped as source you read, copy, and adapt.
+Reference implementations of `BenchmarkAdapter` for two public benchmarks. They are NOT bundled: they're intentionally shipped as source you read, copy, and adapt.
 
 | Wrapper | What it does | Why it's an example, not core |
 |---|---|---|
 | [`gsm8k/`](./gsm8k) | Exact-match grading on the final numeric answer of GSM8K (Cobbe et al.) | The dataset isn't ours and isn't bundled. The wrapper points to a local JSONL via `AGENT_EVAL_GSM8K_PATH`. |
 | [`swebench-lite/`](./swebench-lite) | Pass/fail grading via an external SWE-Bench grader command | The grader is a separate binary; the wrapper stubs the integration via `AGENT_EVAL_SWEBENCH_GRADER_CMD`. |
 
-The novel benchmark we ship and own — the synthetic routing task — lives in `src/benchmarks/routing/` and IS in the bundle.
+The novel benchmark we ship and own: the synthetic routing task: lives in `src/benchmarks/routing/` and IS in the bundle.
 
 ## Using these wrappers
 
@@ -24,7 +24,7 @@ evaluate(item, response): Promise<{ score: number, raw: Record<string, unknown> 
 assignSplit(itemId: string): 'search' | 'dev' | 'holdout'
 ```
 
-`assignSplit` uses `deterministicSplit(itemId, BENCHMARK_SPLIT_SEED)` — same item gets the same split everywhere. Don't change the seed; it's load-bearing for reproducibility.
+`assignSplit` uses `deterministicSplit(itemId, BENCHMARK_SPLIT_SEED)`: same item gets the same split everywhere. Don't change the seed; it's load-bearing for reproducibility.
 
 ## Running a benchmark
 

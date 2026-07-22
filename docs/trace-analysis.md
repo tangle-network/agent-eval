@@ -51,7 +51,7 @@ The analyst runs one Ax executor loop and accepts only an explicit structured `f
 ## Deterministic failure coverage (no LLM)
 
 Before (or alongside) the LLM analyst, `OtlpFileTraceStore.getOverview()` returns a
-`DatasetOverview` whose `error_clusters` are computed deterministically — error
+`DatasetOverview` whose `error_clusters` are computed deterministically: error
 spans are grouped by a normalized failure signature (uuids / hex ids / numbers /
 absolute paths / durations collapsed), each cluster carrying its prevalence,
 exemplar `trace_id`/`span_id`, and a verbatim sample. This is a zero-LLM,
@@ -60,7 +60,7 @@ reproducible failure checklist the analyst then explains and closes:
 ```ts
 const overview = await store.getOverview()
 for (const c of overview.error_clusters) {
-  console.log(`${c.trace_count}× ${c.signature} — e.g. trace ${c.exemplar_trace_ids[0]}`)
+  console.log(`${c.trace_count}× ${c.signature}: e.g. trace ${c.exemplar_trace_ids[0]}`)
 }
 ```
 
