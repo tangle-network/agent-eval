@@ -117,8 +117,11 @@ export interface LlmSpan extends SpanBase {
   messages: Message[]
   output?: string
   inputTokens?: number
+  /** All generated tokens, including the reasoning subset when present. */
   outputTokens?: number
   cachedTokens?: number
+  cacheWriteTokens?: number
+  /** Reasoning-token subset of `outputTokens`. */
   reasoningTokens?: number
   costUsd?: number
   finishReason?: string
@@ -128,6 +131,8 @@ export interface ToolSpan extends SpanBase {
   kind: 'tool'
   toolName: string
   args: unknown
+  /** False when the source observed the call but did not capture its arguments. */
+  argsCaptured?: boolean
   result?: unknown
   latencyMs?: number
 }

@@ -17,6 +17,7 @@
 
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
+import type { CostLedgerHandle, CostReceiptInput, MaximumCharge } from '../../cost-ledger'
 import type { LlmClientOptions } from '../../llm-client'
 import type { ProposeContext, SurfaceProposer } from '../types'
 import { analysisEditProposer } from './analysis-edit'
@@ -33,6 +34,11 @@ export interface HaloProposerOptions {
   model?: string
   /** Model used to APPLY halo's findings to the prompt surface. Default = `model`. */
   applyModel?: string
+  /** Optional ledger for direct proposer use. Campaign context takes precedence. */
+  costLedger?: CostLedgerHandle
+  analysisMaximumCharge?: MaximumCharge
+  analysisReceipt?: (report: string) => CostReceiptInput
+  applyMaxTokens?: number
   /** The real halo binary. Default 'halo' (from `pip install halo-engine`). */
   haloBin?: string
   /** Resolve the OTLP traces (JSONL string) halo should analyze for THIS
@@ -59,7 +65,12 @@ export function haloProposer(opts: HaloProposerOptions): SurfaceProposer {
     label: 'halo',
     baseUrl: opts.baseUrl,
     apiKey: opts.apiKey,
+    analysisModel: model,
     applyModel: opts.applyModel ?? model,
+    costLedger: opts.costLedger,
+    analysisMaximumCharge: opts.analysisMaximumCharge,
+    analysisReceipt: opts.analysisReceipt,
+    applyMaxTokens: opts.applyMaxTokens,
     fetchImpl: opts.fetchImpl,
     resolveTraces: opts.resolveTraces,
     noTracesError:

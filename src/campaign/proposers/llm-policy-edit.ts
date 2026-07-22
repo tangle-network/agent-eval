@@ -14,7 +14,15 @@ import {
 } from '../../analyst/policy-edit'
 import { assertNoJudgeVerdict } from '../../analyst/steer-firewall'
 import type { AnalystFinding, EvidenceRef } from '../../analyst/types'
-import { callLlmJson, type LlmClientOptions } from '../../llm-client'
+import { CostLedger, type CostLedgerHandle } from '../../cost-ledger'
+import {
+  callLlmJson,
+  costReceiptFromLlm,
+  costReceiptFromLlmError,
+  type LlmCallRequest,
+  type LlmClientOptions,
+  maximumChargeForLlmRequest,
+} from '../../llm-client'
 import type {
   GenerationCandidate,
   GenerationRecord,
@@ -385,6 +393,8 @@ const POLICY_EDIT_AUTHOR_SYSTEM = [
 export interface LlmPolicyEditProposerOptions {
   llm: LlmClientOptions
   model: string
+  /** Optional ledger for direct proposer use. Campaign context takes precedence. */
+  costLedger?: CostLedgerHandle
   /** Plain-language description of the JSON surface being improved. */
   target: string
   /** PolicyEdit target surface every authored edit must retain. */
@@ -472,6 +482,7 @@ export function llmPolicyEditProposer(
     opts.maxAuthorContextChars ?? DEFAULT_POLICY_EDIT_HISTORY_LIMITS.authorContextChars,
     'maxAuthorContextChars',
   )
+  const directCostLedger = opts.costLedger ?? new CostLedger()
 
   return {
     kind: 'llm-policy-edit',
@@ -538,26 +549,35 @@ export function llmPolicyEditProposer(
         maxAuthorContextChars,
       )
       const userContent = JSON.stringify(authorContext)
-      const { value } = await callLlmJson<unknown>(
-        {
-          model: opts.model,
-          messages: [
-            { role: 'system', content: POLICY_EDIT_AUTHOR_SYSTEM },
-            {
-              role: 'user',
-              content: userContent,
-            },
-          ],
-          jsonSchema: {
-            name: 'policy_edit_author',
-            schema: responseSchema,
-          },
-          temperature: opts.temperature ?? 0.2,
-          maxTokens: opts.maxTokens ?? 6_000,
-          timeoutMs: opts.timeoutMs,
+      const request: LlmCallRequest = {
+        model: opts.model,
+        messages: [
+          { role: 'system', content: POLICY_EDIT_AUTHOR_SYSTEM },
+          { role: 'user', content: userContent },
+        ],
+        jsonSchema: {
+          name: 'policy_edit_author',
+          schema: responseSchema,
         },
-        { ...opts.llm, signal: ctx.signal },
-      )
+        temperature: opts.temperature ?? 0.2,
+        maxTokens: opts.maxTokens ?? 6_000,
+        timeoutMs: opts.timeoutMs,
+      }
+      const paid = await (ctx.costLedger ?? directCostLedger).runPaidCall({
+        channel: 'driver',
+        phase: ctx.costPhase ?? 'search.proposal',
+        actor: 'llm-policy-edit.author',
+        model: opts.model,
+        maximumCharge: maximumChargeForLlmRequest(request, opts.llm),
+        tags: { generation: String(ctx.generation) },
+        signal: ctx.signal,
+        execute: (signal, callId) =>
+          callLlmJson<unknown>(request, { ...opts.llm, signal, idempotencyKey: callId }),
+        receipt: ({ result }) => costReceiptFromLlm(result),
+        receiptFromError: costReceiptFromLlmError,
+      })
+      if (!paid.succeeded) throw paid.error
+      const { value } = paid.value
       const response = parseAuthorResponse(value)
       if (response.edits.length > limit) {
         throw new Error(

@@ -45,6 +45,7 @@ import {
   type RunOptimizationOptions,
   runOptimization,
 } from '../../src/campaign'
+import { CostLedger } from '../../src/cost-ledger'
 import { assertRealBackend, summarizeBackendIntegrity } from '../../src/integrity/backend-integrity'
 import type { LlmClientOptions } from '../../src/llm-client'
 import type { RunRecord } from '../../src/run-record'
@@ -99,13 +100,18 @@ const worker = makeExtractionWorker({
 
 const judge = extractionJudge([...SEARCH, ...HOLDOUT])
 const round = (n: number) => Math.round(n * 1000) / 1000
+const scoringLedger = new CostLedger()
+const scoringCost: DispatchContext['cost'] = {
+  runPaidCall: (input) =>
+    scoringLedger.runPaidCall({ ...input, channel: input.channel ?? 'agent', phase: 'holdout' }),
+}
 
 /** A noop dispatch ctx for the standalone holdout scoring pass — the worker still
  *  appends a RunRecord (real tokens) so integrity stays verdictable. */
 function scoringCtx(cellId: string): DispatchContext {
   return {
     cellId,
-    cost: { observe: () => {}, observeTokens: () => {} },
+    cost: scoringCost,
   } as unknown as DispatchContext
 }
 

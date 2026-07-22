@@ -10,6 +10,7 @@
 import type { TCloud } from '@tangle-network/tcloud'
 import { describe, expect, it, vi } from 'vitest'
 
+import { CostLedger } from './cost-ledger'
 import { CaptureIntegrityError } from './errors'
 import { type ExecutorConfig, executeScenario, type JudgeFailure } from './executor'
 import { JudgeParseError } from './judges'
@@ -46,6 +47,72 @@ function config(overrides: Partial<ExecutorConfig> = {}): ExecutorConfig {
 }
 
 describe('executeScenario — malformed chat response is a loud capture defect', () => {
+  it('meters the scenario agent and rejects it before a capped run can overspend', async () => {
+    const tc = chatStub({
+      model: 'gpt-4o',
+      choices: [{ message: { content: 'measured' } }],
+      usage: { prompt_tokens: 10, completion_tokens: 2, total_tokens: 12 },
+    })
+    const blocked = new CostLedger(0)
+    await expect(
+      executeScenario(tc, scenario(), config({ costLedger: blocked, tcloudMaximumAttempts: 1 })),
+    ).rejects.toThrow(/would exceed ceiling/)
+    expect(tc.chat).not.toHaveBeenCalled()
+
+    const admitted = new CostLedger(1)
+    const result = await executeScenario(
+      tc,
+      scenario(),
+      config({
+        costLedger: admitted,
+        costTags: { benchmarkRunId: 'benchmark-a' },
+        tcloudMaximumAttempts: 1,
+      }),
+    )
+    expect(result.cost).toMatchObject({ totalCalls: 1, inputTokens: 10, outputTokens: 2 })
+    expect(admitted.list()[0]?.tags).toMatchObject({ benchmarkRunId: 'benchmark-a' })
+  })
+
+  it('marks omitted TCloud usage as incomplete instead of known zero spend', async () => {
+    const tc = chatStub({
+      model: 'gpt-4o',
+      choices: [{ message: { content: 'measured' } }],
+      usage: {},
+    })
+    const ledger = new CostLedger(1)
+    const result = await executeScenario(
+      tc,
+      scenario(),
+      config({ costLedger: ledger, tcloudMaximumAttempts: 1 }),
+    )
+
+    expect(result.cost).toMatchObject({
+      totalCalls: 1,
+      totalCostUsd: 0,
+      usageComplete: false,
+      accountingComplete: false,
+    })
+    if (!result.cost) throw new Error('expected the shared cost summary')
+    expect(result.cost.incompleteReasons).toEqual(
+      expect.arrayContaining([expect.stringContaining('token usage unknown')]),
+    )
+  })
+
+  it('marks inconsistent TCloud token totals as incomplete', async () => {
+    const tc = chatStub({
+      model: 'gpt-4o',
+      choices: [{ message: { content: 'measured' } }],
+      usage: { prompt_tokens: 10, completion_tokens: 2, total_tokens: 1 },
+    })
+    const result = await executeScenario(
+      tc,
+      scenario(),
+      config({ costLedger: new CostLedger(), tcloudMaximumAttempts: 1 }),
+    )
+
+    expect(result.cost).toMatchObject({ usageComplete: false, accountingComplete: false })
+  })
+
   it('throws CaptureIntegrityError when choices[0].message is absent', async () => {
     const tc = chatStub({ choices: [{}] })
     await expect(executeScenario(tc, scenario(), config())).rejects.toBeInstanceOf(

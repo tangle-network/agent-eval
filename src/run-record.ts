@@ -26,7 +26,7 @@
 import type { AgentProfileCell } from './agent-profile-cell'
 import { validateAgentProfileCell } from './agent-profile-cell'
 import { ValidationError } from './errors'
-import type { FailureClass } from './trace/schema'
+import { FAILURE_CLASSES, type FailureClass } from './trace/schema'
 
 /** Search/dev/holdout split tag. 'search' is the paper-grade alias for the
  *  combined train+test pool that the optimizer is allowed to read. */
@@ -34,8 +34,14 @@ export type RunSplitTag = 'search' | 'dev' | 'holdout'
 
 export interface RunTokenUsage {
   input: number
+  /** All generated tokens charged as output, including reasoning tokens. */
   output: number
+  /** Reasoning-token subset of `output`, when the provider reports it. */
+  reasoning?: number
+  /** Prompt tokens served from a provider cache. */
   cached?: number
+  /** Prompt tokens written into a provider cache. */
+  cacheWrite?: number
 }
 
 /**
@@ -263,9 +269,9 @@ export function validateRunRecord(input: unknown): RunRecord {
   expectString(obj.promptHash, 'promptHash')
   expectString(obj.configHash, 'configHash')
   expectString(obj.commitSha, 'commitSha')
-  expectFiniteNumber(obj.wallMs, 'wallMs')
-  if (obj.queueMs !== undefined) expectFiniteNumber(obj.queueMs, 'queueMs')
-  expectFiniteNumber(obj.costUsd, 'costUsd')
+  expectNonNegativeNumber(obj.wallMs, 'wallMs')
+  if (obj.queueMs !== undefined) expectNonNegativeNumber(obj.queueMs, 'queueMs')
+  expectNonNegativeNumber(obj.costUsd, 'costUsd')
   if (obj.costProvenance !== undefined) {
     validateCostProvenance(obj.costProvenance, obj.costUsd as number)
   }
@@ -284,9 +290,21 @@ export function validateRunRecord(input: unknown): RunRecord {
     throw new RunRecordValidationError('tokenUsage must be an object', 'tokenUsage')
   }
   const tuRec = tu as Record<string, unknown>
-  expectFiniteNumber(tuRec.input, 'tokenUsage.input')
-  expectFiniteNumber(tuRec.output, 'tokenUsage.output')
-  if (tuRec.cached !== undefined) expectFiniteNumber(tuRec.cached, 'tokenUsage.cached')
+  expectNonNegativeNumber(tuRec.input, 'tokenUsage.input')
+  expectNonNegativeNumber(tuRec.output, 'tokenUsage.output')
+  if (tuRec.reasoning !== undefined) {
+    expectNonNegativeNumber(tuRec.reasoning, 'tokenUsage.reasoning')
+    if ((tuRec.reasoning as number) > (tuRec.output as number)) {
+      throw new RunRecordValidationError(
+        'reasoning tokens must be a subset of output tokens',
+        'tokenUsage.reasoning',
+      )
+    }
+  }
+  if (tuRec.cached !== undefined) expectNonNegativeNumber(tuRec.cached, 'tokenUsage.cached')
+  if (tuRec.cacheWrite !== undefined) {
+    expectNonNegativeNumber(tuRec.cacheWrite, 'tokenUsage.cacheWrite')
+  }
 
   // Judge metadata, optional.
   if (obj.judgeMetadata !== undefined) {
@@ -351,6 +369,16 @@ export function validateRunRecord(input: unknown): RunRecord {
   }
 
   // Failure mode optional.
+  if (
+    obj.failureClass !== undefined &&
+    (typeof obj.failureClass !== 'string' ||
+      !FAILURE_CLASSES.includes(obj.failureClass as FailureClass))
+  ) {
+    throw new RunRecordValidationError(
+      `failureClass must be one of ${FAILURE_CLASSES.join(', ')}`,
+      'failureClass',
+    )
+  }
   if (obj.failureMode !== undefined) expectString(obj.failureMode, 'failureMode')
 
   if (obj.agentProfile !== undefined) {
@@ -487,6 +515,13 @@ function expectString(value: unknown, path: string): void {
 function expectFiniteNumber(value: unknown, path: string): void {
   if (typeof value !== 'number' || !Number.isFinite(value)) {
     throw new RunRecordValidationError(`expected finite number`, path)
+  }
+}
+
+function expectNonNegativeNumber(value: unknown, path: string): void {
+  expectFiniteNumber(value, path)
+  if ((value as number) < 0) {
+    throw new RunRecordValidationError('expected non-negative number', path)
   }
 }
 

@@ -7,7 +7,7 @@
  */
 
 import { describe, expect, it } from 'vitest'
-import { CrossFamilyError, ensembleJudge, type JudgeVerdict } from '../src/index'
+import { CostLedger, CrossFamilyError, ensembleJudge, type JudgeVerdict } from '../src/index'
 
 type Dim = 'accuracy' | 'tone'
 const DIMS: Dim[] = ['accuracy', 'tone']
@@ -75,6 +75,95 @@ describe('ensembleJudge — construction', () => {
 })
 
 describe('ensembleJudge — scoring', () => {
+  it('attributes reported usage and cost to judge receipts', async () => {
+    const costLedger = new CostLedger()
+    const judge = ensembleJudge({
+      name: 'panel',
+      dimensions: DIMS,
+      models: PANEL,
+      costLedger,
+      scoreWith: async (model) => ({
+        model,
+        perDimension: { accuracy: 1, tone: 1 },
+        costUsd: 0.25,
+        usage: {
+          promptTokens: 120,
+          completionTokens: 30,
+          totalTokens: 150,
+          cachedPromptTokens: 20,
+        },
+      }),
+    })
+
+    await judge.score({ artifact: 'text', scenario, signal })
+
+    expect(costLedger.summary()).toMatchObject({
+      totalCalls: 2,
+      inputTokens: 200,
+      outputTokens: 60,
+      cachedTokens: 40,
+      totalCostUsd: 0.5,
+      accountingComplete: true,
+      byChannel: [
+        {
+          channel: 'judge',
+          calls: 2,
+          inputTokens: 200,
+          outputTokens: 60,
+          cachedTokens: 40,
+          costUsd: 0.5,
+        },
+      ],
+    })
+  })
+
+  it('prices panel usage when the provider omits an explicit dollar amount', async () => {
+    const costLedger = new CostLedger()
+    const judge = ensembleJudge({
+      name: 'panel',
+      dimensions: DIMS,
+      models: PANEL,
+      costLedger,
+      scoreWith: async (model) => ({
+        model,
+        perDimension: { accuracy: 1, tone: 1 },
+        usage: { promptTokens: 120, completionTokens: 30, totalTokens: 150 },
+      }),
+    })
+
+    await judge.score({ artifact: 'text', scenario, signal })
+
+    expect(costLedger.summary()).toMatchObject({
+      totalCalls: 2,
+      inputTokens: 240,
+      outputTokens: 60,
+      fullyPriced: true,
+      usageComplete: true,
+      accountingComplete: true,
+    })
+    expect(costLedger.summary().totalCostUsd).toBeGreaterThan(0)
+  })
+
+  it('rejects opaque panel calls before spend when a capped run has no hard maximum', async () => {
+    let calls = 0
+    const costLedger = new CostLedger({ costCeilingUsd: 1 })
+    const judge = ensembleJudge({
+      name: 'panel',
+      dimensions: DIMS,
+      models: PANEL,
+      scoreWith: async (model) => {
+        calls++
+        return { model, perDimension: { accuracy: 1, tone: 1 } }
+      },
+    })
+
+    await expect(judge.score({ artifact: 'text', scenario, signal, costLedger })).rejects.toThrow(
+      /all 2 judges failed/,
+    )
+    expect(calls).toBe(0)
+    expect(costLedger.summary()).toMatchObject({ totalCalls: 0, totalCostUsd: 0 })
+  })
+
   it('aggregates per-dimension means + composite across the panel', async () => {
     const judge = ensembleJudge({
       name: 'panel',
@@ -175,6 +264,12 @@ describe('ensembleJudge — scoring', () => {
       dimensions: DIMS,
       models: PANEL,
       retry: { maxAttempts: 2, backoffMs: () => 0, isRetryable: () => true },
+      receiptFromError: (_error, model) => ({
+        model,
+        inputTokens: 0,
+        outputTokens: 0,
+        actualCostUsd: 0,
+      }),
       scoreWith: async (model) => {
         const n = (attemptsByModel.get(model) ?? 0) + 1
         attemptsByModel.set(model, n)

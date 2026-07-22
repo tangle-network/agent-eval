@@ -1,7 +1,13 @@
 import type { TCloud } from '@tangle-network/tcloud'
 import type { ProductClient } from './client'
 import { ConvergenceTracker } from './convergence'
+import { CostLedger, type CostLedgerHandle } from './cost-ledger'
 import { MetricsCollector } from './metrics'
+import {
+  costReceiptFromTCloud,
+  type MeteredTCloudRequest,
+  maximumChargeForTCloudRequest,
+} from './tcloud-cost'
 import type { DriverResult, DriverState, PersonaConfig, PersonaRigor, TurnMetrics } from './types'
 
 export interface AgentDriverConfig {
@@ -9,6 +15,10 @@ export interface AgentDriverConfig {
   driverModel?: string
   /** System prompt context for the driver LLM to understand the product */
   productContext?: string
+  /** Shared account for driver-model calls. */
+  costLedger?: CostLedgerHandle
+  /** Exact provider attempt count, required when costLedger has a cap. */
+  tcloudMaximumAttempts?: number
 }
 
 /**
@@ -36,12 +46,16 @@ export class AgentDriver {
   private client: ProductClient
   private driverModel: string
   private productContext: string
+  private costLedger: CostLedgerHandle
+  private tcloudMaximumAttempts?: number
 
   constructor(tc: TCloud, config: AgentDriverConfig) {
     this.tc = tc
     this.client = config.client
     this.driverModel = config.driverModel ?? 'claude-sonnet-4-6'
     this.productContext = config.productContext ?? ''
+    this.costLedger = config.costLedger ?? new CostLedger()
+    this.tcloudMaximumAttempts = config.tcloudMaximumAttempts
   }
 
   /**
@@ -51,6 +65,7 @@ export class AgentDriver {
    * quality curve, and convergence curve.
    */
   async run(persona: PersonaConfig): Promise<DriverResult> {
+    const costTags = { driverRunId: globalThis.crypto.randomUUID() }
     // Setup: create workspace + thread
     const email = `eval-driver-${Date.now()}@test.agent-eval.local`
     await this.client.signup(`Driver ${persona.role}`, email, 'eval-driver-pass')
@@ -72,7 +87,12 @@ export class AgentDriver {
       const state = await metrics.getState()
 
       // Ask driver LLM what to say
-      const userMessage = await this.decideNextMessage(persona, state, conversationHistory)
+      const userMessage = await this.decideNextMessage(
+        persona,
+        state,
+        conversationHistory,
+        costTags,
+      )
 
       if (userMessage === 'DONE') {
         completed = true
@@ -142,7 +162,7 @@ export class AgentDriver {
       metrics: turnMetrics,
       finalState,
       convergenceCurve: convergence.getCurve(),
-      totalCostUsd: 0,
+      totalCostUsd: this.costLedger.summary({ tags: costTags }).totalCostUsd,
       finalQualityScore: null,
     }
   }
@@ -152,6 +172,7 @@ export class AgentDriver {
     persona: PersonaConfig,
     state: DriverState,
     history: { role: string; content: string }[],
+    costTags: Record<string, string>,
   ): Promise<string> {
     return decideNextUserTurn(this.tc, {
       persona,
@@ -159,6 +180,9 @@ export class AgentDriver {
       history,
       productContext: this.productContext,
       model: this.driverModel,
+      costLedger: this.costLedger,
+      costTags,
+      tcloudMaximumAttempts: this.tcloudMaximumAttempts,
     })
   }
 
@@ -324,6 +348,12 @@ export interface DecideNextUserTurnOpts {
   productContext?: string
   /** Driver LLM model. Defaults to claude-sonnet-4-6. */
   model?: string
+  /** Shared account for the paid driver-model call. */
+  costLedger?: CostLedgerHandle
+  /** Attribution tags merged into the paid-call receipt. */
+  costTags?: Record<string, string>
+  /** Exact provider attempt count, required when costLedger has a cap. */
+  tcloudMaximumAttempts?: number
 }
 
 /**
@@ -349,7 +379,7 @@ export async function decideNextUserTurn(
     .map((h) => `${h.role}: ${h.content.slice(0, 500)}`)
     .join('\n\n')
 
-  const resp = await tc.chat({
+  const request = {
     model,
     messages: [
       { role: 'system', content: buildDriverSystemPrompt(persona, state, productContext) },
@@ -362,7 +392,19 @@ export async function decideNextUserTurn(
     ],
     temperature: 0.5,
     maxTokens: 700,
+  } satisfies MeteredTCloudRequest
+  const paid = await (opts.costLedger ?? new CostLedger()).runPaidCall({
+    channel: 'driver',
+    phase: 'driver-turn',
+    actor: 'decideNextUserTurn',
+    model,
+    tags: opts.costTags,
+    maximumCharge: maximumChargeForTCloudRequest(request, opts.tcloudMaximumAttempts),
+    execute: () => tc.chat(request),
+    receipt: (response) => costReceiptFromTCloud(response, model),
   })
+  if (!paid.succeeded) throw paid.error
+  const resp = paid.value
 
   const content =
     (resp as { choices?: { message?: { content?: string } }[] }).choices?.[0]?.message?.content ??

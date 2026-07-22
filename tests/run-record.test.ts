@@ -173,10 +173,37 @@ describe('validateRunRecord — mandatory field enforcement', () => {
     )
   })
 
+  it('rejects negative duration, queue time, and cost', () => {
+    expect(() => validateRunRecord(makeRecord({ wallMs: -1 }))).toThrow(/non-negative/)
+    expect(() => validateRunRecord(makeRecord({ queueMs: -1 }))).toThrow(/non-negative/)
+    expect(() => validateRunRecord(makeRecord({ costUsd: -0.01 }))).toThrow(/non-negative/)
+  })
+
+  it('rejects impossible token usage', () => {
+    for (const tokenUsage of [
+      { input: -1, output: 1 },
+      { input: 1, output: -1 },
+      { input: 1, output: 1, reasoning: -1 },
+      { input: 1, output: 1, cached: -1 },
+      { input: 1, output: 1, cacheWrite: -1 },
+    ]) {
+      expect(() => validateRunRecord(makeRecord({ tokenUsage }))).toThrow(/non-negative/)
+    }
+    expect(() =>
+      validateRunRecord(makeRecord({ tokenUsage: { input: 1, output: 2, reasoning: 3 } })),
+    ).toThrow(/subset of output/)
+  })
+
   it('rejects unknown splitTag', () => {
     const r = makeRecord() as Record<string, unknown>
     r.splitTag = 'train'
     expect(() => validateRunRecord(r)).toThrow(/splitTag/)
+  })
+
+  it('rejects an unknown failureClass', () => {
+    const r = makeRecord() as Record<string, unknown>
+    r.failureClass = 'made_up_failure'
+    expect(() => validateRunRecord(r)).toThrow(/failureClass must be one of/)
   })
 
   it('rejects empty string in mandatory fields', () => {

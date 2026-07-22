@@ -63,7 +63,10 @@ describe('belief-state policy report', () => {
           targetProbOf(point) {
             return point.confidence && point.confidence >= 0.5 ? 0.5 : 0
           },
-          qHatOf(point) {
+          qHatChosenOf(point) {
+            return point.confidence
+          },
+          vHatTargetOf(point) {
             return point.confidence
           },
         },

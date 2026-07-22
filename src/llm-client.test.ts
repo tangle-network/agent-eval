@@ -2,12 +2,120 @@ import { describe, expect, it, vi } from 'vitest'
 import {
   callLlm,
   callLlmJson,
+  costReceiptFromLlm,
   extractJsonPayload,
   isTransientLlmError,
   LlmCallError,
   LlmClient,
+  maximumChargeForLlmRequest,
   stripFencedJson,
 } from './llm-client'
+
+describe('maximumChargeForLlmRequest', () => {
+  it('bounds the exact text request and its enforced output limit', () => {
+    const maximum = maximumChargeForLlmRequest(
+      {
+        model: 'gpt-4o',
+        messages: [{ role: 'user', content: 'hello' }],
+        maxTokens: 400,
+      },
+      { maxRetries: 2 },
+    )
+
+    expect(maximum).toMatchObject({ model: 'gpt-4o', outputTokens: 800 })
+    expect(maximum && 'inputTokens' in maximum ? maximum.inputTokens : 0).toBeGreaterThan(5)
+  })
+
+  it('reserves both request batches when schema fallback is possible', () => {
+    const request = {
+      model: 'gpt-4o',
+      messages: [{ role: 'user' as const, content: 'hello' }],
+      maxTokens: 400,
+    }
+    const plain = maximumChargeForLlmRequest(request, { maxRetries: 2 })
+    const structured = maximumChargeForLlmRequest(
+      {
+        ...request,
+        jsonSchema: { name: 'answer', schema: { type: 'object' } },
+      },
+      { maxRetries: 2 },
+    )
+
+    expect(plain && 'outputTokens' in plain ? plain.outputTokens : 0).toBe(800)
+    expect(structured && 'outputTokens' in structured ? structured.outputTokens : 0).toBe(1_600)
+  })
+
+  it('returns no bound for unbounded output or image input', () => {
+    expect(
+      maximumChargeForLlmRequest({
+        model: 'gpt-4o',
+        messages: [{ role: 'user', content: 'hello' }],
+      }),
+    ).toBeUndefined()
+    expect(
+      maximumChargeForLlmRequest({
+        model: 'gpt-4o',
+        messages: [
+          {
+            role: 'user',
+            content: [{ type: 'image_url', image_url: { url: 'https://example.test/a.png' } }],
+          },
+        ],
+        maxTokens: 400,
+      }),
+    ).toBeUndefined()
+  })
+})
+
+describe('costReceiptFromLlm', () => {
+  it('marks omitted provider usage as incomplete instead of known zero tokens', async () => {
+    const result = await callLlm(
+      { model: 'gpt-4o', messages: [{ role: 'user', content: 'hello' }], maxTokens: 8 },
+      {
+        maxRetries: 1,
+        fetch: async () =>
+          mkOkResponse({
+            model: 'gpt-4o',
+            choices: [{ message: { content: 'ok' }, finish_reason: 'stop' }],
+          }),
+      },
+    )
+
+    expect(result.usage).toMatchObject({
+      promptTokens: 0,
+      completionTokens: 0,
+      captured: false,
+    })
+    expect(costReceiptFromLlm(result)).toMatchObject({
+      inputTokens: 0,
+      outputTokens: 0,
+      usageUnknown: true,
+    })
+  })
+
+  it('marks internally inconsistent provider usage as incomplete', async () => {
+    const result = await callLlm(
+      { model: 'gpt-4o', messages: [{ role: 'user', content: 'hello' }], maxTokens: 8 },
+      {
+        maxRetries: 1,
+        fetch: async () =>
+          mkOkResponse({
+            model: 'gpt-4o',
+            choices: [{ message: { content: 'ok' }, finish_reason: 'stop' }],
+            usage: {
+              prompt_tokens: 10,
+              completion_tokens: 1,
+              total_tokens: 2,
+              prompt_tokens_details: { cached_tokens: 20 },
+            },
+          }),
+      },
+    )
+
+    expect(result.usage.captured).toBe(false)
+    expect(costReceiptFromLlm(result).usageUnknown).toBe(true)
+  })
+})
 
 function mockFetch(handlers: Array<(url: string, init: RequestInit) => Promise<Response>>) {
   let call = 0
@@ -121,6 +229,7 @@ describe('llm-client — callLlm happy path', () => {
         fetch: fetch as unknown as typeof globalThis.fetch,
         baseUrl: 'https://r.example/v1',
         apiKey: 'sk-abc',
+        idempotencyKey: 'cost-call-123',
       },
     )
     expect(fetch).toHaveBeenCalledOnce()
@@ -129,6 +238,7 @@ describe('llm-client — callLlm happy path', () => {
     const init = call0[1]
     expect(url).toBe('https://r.example/v1/chat/completions')
     expect((init.headers as Record<string, string>).Authorization).toBe('Bearer sk-abc')
+    expect((init.headers as Record<string, string>)['Idempotency-Key']).toBe('cost-call-123')
   })
 
   it('uses max_completion_tokens for GPT-5 chat-completions models', async () => {

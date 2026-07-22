@@ -55,6 +55,11 @@ export function argHash(args: unknown): string {
   return stableStringify(args)
 }
 
+/** Whether argument-based comparisons are valid for this tool call. */
+export function hasCapturedToolArgs(span: ToolSpan): boolean {
+  return span.argsCaptured !== false
+}
+
 function stableStringify(value: unknown): string {
   // Must ALWAYS return a string: JSON.stringify(undefined) — and stringify of
   // functions/symbols — yields the JS value `undefined`, which would make
@@ -78,6 +83,7 @@ export function aggregateLlm(spans: LlmSpan[]): {
   inputTokens: number
   outputTokens: number
   cachedTokens: number
+  cacheWriteTokens: number
   reasoningTokens: number
   costUsd: number
 } {
@@ -86,12 +92,18 @@ export function aggregateLlm(spans: LlmSpan[]): {
       inputTokens: acc.inputTokens + (s.inputTokens ?? 0),
       outputTokens: acc.outputTokens + (s.outputTokens ?? 0),
       cachedTokens: acc.cachedTokens + (s.cachedTokens ?? 0),
-      // reasoningTokens is on LlmSpan but was omitted here — reasoning usage was
-      // invisible to any cost/perf analysis reading this aggregate.
+      cacheWriteTokens: acc.cacheWriteTokens + (s.cacheWriteTokens ?? 0),
       reasoningTokens: acc.reasoningTokens + (s.reasoningTokens ?? 0),
       costUsd: acc.costUsd + (s.costUsd ?? 0),
     }),
-    { inputTokens: 0, outputTokens: 0, cachedTokens: 0, reasoningTokens: 0, costUsd: 0 },
+    {
+      inputTokens: 0,
+      outputTokens: 0,
+      cachedTokens: 0,
+      cacheWriteTokens: 0,
+      reasoningTokens: 0,
+      costUsd: 0,
+    },
   )
 }
 

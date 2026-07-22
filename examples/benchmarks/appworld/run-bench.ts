@@ -151,70 +151,74 @@ async function dispatchWithSurface(
   const promptFile = join(dir, 'surface.txt')
   writeFileSync(promptFile, surface)
   const experiment = `bench_${scenario.taskId}_${n}` // unique → no AppWorld output-dir collision
-  const { stdout } = await execFileAsync(
-    PYTHON,
-    [
-      WORKER,
-      '--task-id',
-      scenario.taskId,
-      '--model',
-      MODEL,
-      '--system-prompt-file',
-      promptFile,
-      '--experiment-name',
-      experiment,
-      '--max-steps',
-      String(MAX_STEPS), // 0 = no cap (maxTurns=0): run until complete_task
-      '--max-wall-seconds',
-      String(MAX_WALL),
-      // Genuine independent shots: temperature>0 + a UNIQUE seed per dispatch so
-      // the router can't return a cached completion for an identical prompt
-      // (temp=0 + same seed collapses the 5 reps into 1 via cache).
-      '--temperature',
-      String(TEMPERATURE),
-      '--seed',
-      String(SEED + n),
-      '--call-timeout',
-      String(CALL_TIMEOUT),
-      '--max-tokens',
-      String(MAX_TOKENS),
-      '--rate-limit-budget',
-      '240',
-      '--out-dir',
-      dir,
-    ],
-    {
-      cwd: APPWORLD_DIR,
-      env: { ...process.env, OPENAI_BASE_URL: BASE_URL, OPENAI_API_KEY: API_KEY },
-      maxBuffer: 64 * 1024 * 1024,
-      signal: ctx.signal,
+  const paid = await ctx.cost.runPaidCall({
+    actor: 'appworld-worker',
+    model: MODEL,
+    execute: async (signal) => {
+      await execFileAsync(
+        PYTHON,
+        [
+          WORKER,
+          '--task-id',
+          scenario.taskId,
+          '--model',
+          MODEL,
+          '--system-prompt-file',
+          promptFile,
+          '--experiment-name',
+          experiment,
+          '--max-steps',
+          String(MAX_STEPS),
+          '--max-wall-seconds',
+          String(MAX_WALL),
+          '--temperature',
+          String(TEMPERATURE),
+          '--seed',
+          String(SEED + n),
+          '--call-timeout',
+          String(CALL_TIMEOUT),
+          '--max-tokens',
+          String(MAX_TOKENS),
+          '--rate-limit-budget',
+          '240',
+          '--out-dir',
+          dir,
+        ],
+        {
+          cwd: APPWORLD_DIR,
+          env: { ...process.env, OPENAI_BASE_URL: BASE_URL, OPENAI_API_KEY: API_KEY },
+          maxBuffer: 64 * 1024 * 1024,
+          signal,
+        },
+      )
+      return JSON.parse(readFileSync(join(dir, 'result.json'), 'utf8')) as {
+        tgc: number
+        sgc: number
+        completed: boolean
+        cost_usd: number
+        token_usage?: { input?: number; output?: number }
+        tokenUsage?: { input?: number; output?: number }
+        traces_path?: string
+      }
     },
-  )
-  // The worker prints a compact verdict line; the full record is result.json.
-  const result = JSON.parse(readFileSync(join(dir, 'result.json'), 'utf8')) as {
-    tgc: number
-    sgc: number
-    completed: boolean
-    cost_usd: number
-    token_usage?: { input?: number; output?: number }
-    tokenUsage?: { input?: number; output?: number }
-    traces_path?: string
-  }
+    receipt: (result) => {
+      if (Number.isNaN(result.cost_usd)) {
+        throw new Error(
+          `appworld bench: worker returned NaN cost for model "${MODEL}" — it is unpriced. Add it to PRICE_PER_M in repl_agent.py so the lift comparison has a real cost axis.`,
+        )
+      }
+      return {
+        model: MODEL,
+        inputTokens: result.token_usage?.input ?? result.tokenUsage?.input ?? 0,
+        outputTokens: result.token_usage?.output ?? result.tokenUsage?.output ?? 0,
+        actualCostUsd: result.cost_usd,
+      }
+    },
+  })
+  if (!paid.succeeded) throw paid.error
+  const result = paid.value
   const inTok = result.token_usage?.input ?? result.tokenUsage?.input ?? 0
   const outTok = result.token_usage?.output ?? result.tokenUsage?.output ?? 0
-  // Feed the cost meter so integrity:'assert' is satisfied (no silent stub).
-  ctx.cost.observeTokens({ input: inTok, output: outTok })
-  // The worker emits NaN cost for an UNPRICED model (price() returns NaN by
-  // design — no fabricated zero). Swallowing it here would silently drop the
-  // cell under integrity:'assert' with a misleading "cell errored". Fail loud
-  // with the actionable cause instead.
-  if (Number.isNaN(result.cost_usd)) {
-    throw new Error(
-      `appworld bench: worker returned NaN cost for model "${MODEL}" — it is unpriced. Add it to PRICE_PER_M in repl_agent.py so the lift comparison has a real cost axis.`,
-    )
-  }
-  if (result.cost_usd > 0) ctx.cost.observe(result.cost_usd, 'appworld-worker')
-  void stdout
   return {
     tgc: result.tgc,
     sgc: result.sgc,

@@ -36,11 +36,18 @@ import {
   type Scenario,
   skillOptEntry,
 } from '../../../src/campaign'
+import { CostLedger } from '../../../src/cost-ledger'
 import {
   assertRealBackend,
   summarizeBackendIntegrity,
 } from '../../../src/integrity/backend-integrity'
-import { callLlm, type LlmClientOptions } from '../../../src/llm-client'
+import {
+  callLlm,
+  costReceiptFromLlmError,
+  type LlmCallRequest,
+  type LlmClientOptions,
+  maximumChargeForLlmRequest,
+} from '../../../src/llm-client'
 import type { RunRecord } from '../../../src/run-record'
 import { evaluate, loadDataset } from './index'
 
@@ -107,25 +114,35 @@ function makeWorker() {
     scenario: GsmScenario,
     ctx: DispatchContext,
   ): Promise<Artifact> {
-    const res = await callLlm(
-      {
-        model: MODEL,
-        messages: [
-          { role: 'system' as const, content: surface },
-          { role: 'user' as const, content: scenario.question },
-        ],
-        temperature: 0,
-        maxTokens: 1024,
-        timeoutMs: CALL_TIMEOUT_MS,
-      },
-      llm,
-    )
-    const costUsd =
-      res.costUsd ??
-      (res.usage.promptTokens / 1_000_000) * PRICE_IN_PER_M +
-        (res.usage.completionTokens / 1_000_000) * PRICE_OUT_PER_M
-    ctx.cost.observe(costUsd, 'worker')
-    ctx.cost.observeTokens({ input: res.usage.promptTokens, output: res.usage.completionTokens })
+    const request: LlmCallRequest = {
+      model: MODEL,
+      messages: [
+        { role: 'system', content: surface },
+        { role: 'user', content: scenario.question },
+      ],
+      temperature: 0,
+      maxTokens: 1024,
+      timeoutMs: CALL_TIMEOUT_MS,
+    }
+    const paid = await ctx.cost.runPaidCall({
+      actor: 'worker',
+      model: MODEL,
+      maximumCharge: maximumChargeForLlmRequest(request, llm),
+      execute: (signal, callId) => callLlm(request, { ...llm, signal, idempotencyKey: callId }),
+      receipt: (res) => ({
+        model: res.model || MODEL,
+        inputTokens: res.usage.promptTokens,
+        outputTokens: res.usage.completionTokens,
+        actualCostUsd:
+          res.costUsd ??
+          (res.usage.promptTokens / 1_000_000) * PRICE_IN_PER_M +
+            (res.usage.completionTokens / 1_000_000) * PRICE_OUT_PER_M,
+      }),
+      receiptFromError: costReceiptFromLlmError,
+    })
+    if (!paid.succeeded) throw paid.error
+    const res = paid.value
+    const costUsd = paid.receipt.costUsd
     records.push({
       runId: `${scenario.id}-${createHash('sha1').update(surface).digest('hex').slice(0, 8)}-${records.length}`,
       experimentId: 'gsm8k-substrate-proof',
@@ -204,10 +221,15 @@ async function main() {
 
   // ── Baseline smoke on selection: confirm headroom without touching test. ──
   let baselineSmoke = 0
+  const smokeLedger = new CostLedger()
+  const smokeCost: DispatchContext['cost'] = {
+    runPaidCall: (input) =>
+      smokeLedger.runPaidCall({ ...input, channel: input.channel ?? 'agent', phase: 'smoke' }),
+  }
   for (const sc of selectionScenarios) {
     const art = await worker(BASELINE_SURFACE, sc, {
       cellId: `smoke-${sc.id}`,
-      cost: { observe: () => {}, observeTokens: () => {} },
+      cost: smokeCost,
     } as unknown as DispatchContext)
     baselineSmoke += (
       await judge.score({ artifact: art, scenario: sc } as Parameters<typeof judge.score>[0])

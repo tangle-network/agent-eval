@@ -1,4 +1,9 @@
-import type { CodeAgentSessionSource } from '../contract/intake/code-agent-session'
+import {
+  type CodeAgentSessionAction,
+  type CodeAgentSessionObservation,
+  type CodeAgentSessionSource,
+  observeCodeAgentSession,
+} from '../contract/intake/code-agent-session'
 import type { RunRecord } from '../run-record'
 import { embeddedBeliefOpeTargetPolicy } from './ope'
 import { type AnalyzeBeliefPolicyOptions, analyzeBeliefPolicy } from './report'
@@ -22,6 +27,8 @@ export type CodeAgentBeliefDecisionTargetId =
 export interface ExtractCodeAgentBeliefDecisionPointsOptions {
   source: CodeAgentSessionSource
   entries: unknown[]
+  /** Reuse intake's provider-neutral projection when available. */
+  observation?: CodeAgentSessionObservation
   run: Pick<RunRecord, 'runId' | 'scenarioId' | 'outcome' | 'costUsd'>
   sourcePath?: string
 }
@@ -272,302 +279,30 @@ function observedActionsFor(
   entries: Record<string, unknown>[],
   options: ExtractCodeAgentBeliefDecisionPointsOptions,
 ): ObservedAction[] {
-  switch (source) {
-    case 'codex':
-      return codexObservedActions(entries, options)
-    case 'claude-code':
-      return claudeObservedActions(entries, options)
-    case 'opencode':
-      return openCodeObservedActions(entries, options)
-    case 'kimi-code':
-      return kimiObservedActions(entries, options)
-    case 'pi':
-      return piObservedActions(entries, options)
+  const observation =
+    options.observation ??
+    observeCodeAgentSession({ source, entries, sourcePath: options.sourcePath })
+  if (observation.source !== source) {
+    throw new Error('code-agent observation source does not match extraction source')
   }
+  return observation.actions.map((action) => observedActionFromSession(action, options))
 }
 
-function codexObservedActions(
-  entries: Record<string, unknown>[],
+function observedActionFromSession(
+  action: CodeAgentSessionAction,
   options: ExtractCodeAgentBeliefDecisionPointsOptions,
-): ObservedAction[] {
-  const actions: ObservedAction[] = []
-  const calls = new Map<string, ObservedAction>()
-  for (const entry of entries) {
-    const payload = record(entry.payload) ?? {}
-    const entryType = stringField(entry, 'type')
-    const payloadType = stringField(payload, 'type')
-    const timestamp = timestampMs(entry.timestamp)
-    if (entryType === 'response_item') {
-      if (payloadType === 'function_call' || payloadType === 'custom_tool_call') {
-        const callId =
-          stringField(payload, 'call_id') ?? stringField(payload, 'id') ?? `${actions.length}`
-        const action = observedAction({
-          options,
-          localId: callId,
-          stepIndex: actions.length,
-          kind: 'tool',
-          action: stringField(payload, 'name') ?? payloadType,
-          timestamp,
-          metadata: { sourceEventType: entryType, payloadType },
-        })
-        calls.set(callId, action)
-        actions.push(action)
-      }
-      if (payloadType === 'function_call_output' || payloadType === 'custom_tool_call_output') {
-        const callId = stringField(payload, 'call_id') ?? stringField(payload, 'id')
-        const action = callId ? calls.get(callId) : undefined
-        if (action) action.success = !looksLikeError(payload.output)
-      }
-    }
-    if (entryType === 'event_msg') {
-      if (payloadType === 'patch_apply_end') {
-        actions.push(
-          observedAction({
-            options,
-            localId: stringField(payload, 'call_id') ?? `patch-${actions.length}`,
-            stepIndex: actions.length,
-            kind: 'patch',
-            action: 'patch',
-            timestamp,
-            success: typeof payload.success === 'boolean' ? payload.success : undefined,
-            metadata: { sourceEventType: entryType, payloadType },
-          }),
-        )
-      }
-      if (payloadType === 'task_complete' || payloadType === 'turn_aborted') {
-        actions.push(
-          observedAction({
-            options,
-            localId: `${payloadType}-${actions.length}`,
-            stepIndex: actions.length,
-            kind: 'terminal',
-            action: payloadType === 'task_complete' ? 'stop' : 'abort',
-            timestamp,
-            success: payloadType === 'task_complete',
-            metadata: { sourceEventType: entryType, payloadType },
-          }),
-        )
-      }
-    }
-  }
-  return actions
-}
-
-function claudeObservedActions(
-  entries: Record<string, unknown>[],
-  options: ExtractCodeAgentBeliefDecisionPointsOptions,
-): ObservedAction[] {
-  const actions: ObservedAction[] = []
-  const calls = new Map<string, ObservedAction>()
-  for (const entry of entries) {
-    const timestamp = timestampMs(entry.timestamp)
-    const message = record(entry.message)
-    const content = Array.isArray(message?.content) ? message.content : []
-    for (const item of content) {
-      const part = record(item)
-      if (!part) continue
-      const partType = stringField(part, 'type')
-      if (partType === 'tool_use') {
-        const id = stringField(part, 'id') ?? `tool-${actions.length}`
-        const action = observedAction({
-          options,
-          localId: id,
-          stepIndex: actions.length,
-          kind: 'tool',
-          action: stringField(part, 'name') ?? 'tool',
-          timestamp,
-          metadata: { sourceEventType: stringField(entry, 'type'), partType },
-        })
-        calls.set(id, action)
-        actions.push(action)
-      }
-      if (partType === 'tool_result') {
-        const id = stringField(part, 'tool_use_id')
-        const action = id ? calls.get(id) : undefined
-        if (action) action.success = part.is_error !== true
-      }
-    }
-    if (stringField(entry, 'type') === 'pr-link') {
-      actions.push(
-        observedAction({
-          options,
-          localId: `pr-link-${actions.length}`,
-          stepIndex: actions.length,
-          kind: 'terminal',
-          action: 'stop',
-          timestamp,
-          success: true,
-          metadata: { sourceEventType: 'pr-link' },
-        }),
-      )
-    }
-  }
-  return actions
-}
-
-function openCodeObservedActions(
-  entries: Record<string, unknown>[],
-  options: ExtractCodeAgentBeliefDecisionPointsOptions,
-): ObservedAction[] {
-  const actions: ObservedAction[] = []
-  for (const entry of entries) {
-    const type = stringField(entry, 'type')
-    const role = stringField(entry, 'role')
-    const time = record(entry.time)
-    const timestamp = timestampMs(time?.created)
-    if (type === 'tool') {
-      const state = record(entry.state)
-      const status = stringField(state ?? {}, 'status')
-      actions.push(
-        observedAction({
-          options,
-          localId: stringField(entry, 'id') ?? `tool-${actions.length}`,
-          stepIndex: actions.length,
-          kind: 'tool',
-          action: stringField(entry, 'tool') ?? 'tool',
-          timestamp,
-          success: status === 'completed' ? true : status === 'error' ? false : undefined,
-          metadata: { sourceEventType: type, status },
-        }),
-      )
-    }
-    if (type === 'patch') {
-      actions.push(
-        observedAction({
-          options,
-          localId: stringField(entry, 'id') ?? `patch-${actions.length}`,
-          stepIndex: actions.length,
-          kind: 'patch',
-          action: 'patch',
-          timestamp,
-          success: true,
-          metadata: { sourceEventType: type },
-        }),
-      )
-    }
-    if (role === 'assistant') {
-      const finish = stringField(entry, 'finish')
-      if (finish === 'stop' || finish === 'error') {
-        actions.push(
-          observedAction({
-            options,
-            localId: stringField(entry, 'id') ?? `terminal-${actions.length}`,
-            stepIndex: actions.length,
-            kind: 'terminal',
-            action: finish === 'stop' ? 'stop' : 'abort',
-            timestamp: timestampMs(time?.completed) ?? timestamp,
-            success: finish === 'stop',
-            costUsd: numberField(entry, 'cost'),
-            metadata: { sourceEventType: 'assistant', finish },
-          }),
-        )
-      }
-    }
-  }
-  return actions
-}
-
-function kimiObservedActions(
-  entries: Record<string, unknown>[],
-  options: ExtractCodeAgentBeliefDecisionPointsOptions,
-): ObservedAction[] {
-  const actions: ObservedAction[] = []
-  const calls = new Map<string, ObservedAction>()
-  for (const entry of entries) {
-    const timestamp = timestampMs(entry.timestamp)
-    const message = record(entry.message)
-    const messageType = stringField(message ?? {}, 'type')
-    const payload = record(message?.payload) ?? {}
-    if (messageType === 'ToolCall') {
-      const call = record(payload.function)
-      const id = stringField(payload, 'id') ?? `tool-${actions.length}`
-      const action = observedAction({
-        options,
-        localId: id,
-        stepIndex: actions.length,
-        kind: 'tool',
-        action: stringField(call ?? {}, 'name') ?? 'tool',
-        timestamp,
-        metadata: { sourceEventType: messageType },
-      })
-      calls.set(id, action)
-      actions.push(action)
-    }
-    if (messageType === 'ToolResult') {
-      const id = stringField(payload, 'tool_call_id')
-      const action = id ? calls.get(id) : undefined
-      if (action) action.success = record(payload.return_value)?.is_error !== true
-    }
-    if (messageType === 'TurnEnd' || messageType === 'StepInterrupted') {
-      actions.push(
-        observedAction({
-          options,
-          localId: `${messageType}-${actions.length}`,
-          stepIndex: actions.length,
-          kind: 'terminal',
-          action: messageType === 'TurnEnd' ? 'stop' : 'abort',
-          timestamp,
-          success: messageType === 'TurnEnd',
-          metadata: { sourceEventType: messageType },
-        }),
-      )
-    }
-  }
-  return actions
-}
-
-function piObservedActions(
-  entries: Record<string, unknown>[],
-  options: ExtractCodeAgentBeliefDecisionPointsOptions,
-): ObservedAction[] {
-  const actions: ObservedAction[] = []
-  for (const entry of entries) {
-    const nodes = Array.isArray(entry.nodes) ? entry.nodes : []
-    for (const node of nodes) {
-      const obj = record(node)
-      const ir = record(obj?.ir) ?? obj
-      const kind = stringField(ir ?? {}, 'kind')
-      if (kind === 'ToolInvocation') {
-        actions.push(
-          observedAction({
-            options,
-            localId:
-              stringField(ir ?? {}, 'id') ??
-              stringField(obj ?? {}, 'id') ??
-              `tool-${actions.length}`,
-            stepIndex: actions.length,
-            kind: 'tool',
-            action: 'graph-tool',
-            timestamp: timestampMs(ir?.createdAt),
-            success: undefined,
-            metadata: { sourceEventType: 'graph-node', graphKind: kind },
-          }),
-        )
-      }
-      if (kind === 'ToolResult') {
-        const prior = [...actions].reverse().find((action) => action.kind === 'tool')
-        if (prior) prior.success = true
-      }
-      if (kind === 'CompletionDecision') {
-        actions.push(
-          observedAction({
-            options,
-            localId:
-              stringField(ir ?? {}, 'id') ??
-              stringField(obj ?? {}, 'id') ??
-              `completion-${actions.length}`,
-            stepIndex: actions.length,
-            kind: 'graph-completion',
-            action: 'complete',
-            timestamp: timestampMs(ir?.createdAt),
-            success: true,
-            metadata: { sourceEventType: 'graph-node', graphKind: kind },
-          }),
-        )
-      }
-    }
-  }
-  return actions
+): ObservedAction {
+  return observedAction({
+    options,
+    localId: action.id,
+    stepIndex: action.stepIndex,
+    kind: action.kind,
+    action: action.name,
+    timestamp: action.timestampMs,
+    success: action.status === 'completed' ? true : action.status === 'failed' ? false : undefined,
+    costUsd: action.costUsd,
+    metadata: { surface: action.surface, status: action.status, ...action.metadata },
+  })
 }
 
 function toolSelectionDecision(
@@ -830,40 +565,6 @@ function groupBy<T, K>(values: T[], keyOf: (value: T) => K): Map<K, T[]> {
 
 function mean(values: number[]): number {
   return values.reduce((sum, value) => sum + value, 0) / values.length
-}
-
-function looksLikeError(value: unknown): boolean {
-  if (isRecord(value)) {
-    if (value.is_error === true || value.error === true) return true
-    if ('Err' in value) return true
-  }
-  if (typeof value !== 'string') return false
-  return /\b(error|failed|exception|traceback)\b/i.test(value)
-}
-
-function timestampMs(value: unknown): number | undefined {
-  if (typeof value === 'number' && Number.isFinite(value)) {
-    return value > 1_000_000_000_000 ? value : value * 1000
-  }
-  if (typeof value === 'string' && value.length > 0) {
-    const parsed = Date.parse(value)
-    return Number.isFinite(parsed) ? parsed : undefined
-  }
-  return undefined
-}
-
-function stringField(obj: Record<string, unknown>, key: string): string | undefined {
-  const value = obj[key]
-  return typeof value === 'string' && value.length > 0 ? value : undefined
-}
-
-function numberField(obj: Record<string, unknown>, key: string): number | undefined {
-  const value = obj[key]
-  return typeof value === 'number' && Number.isFinite(value) ? value : undefined
-}
-
-function record(value: unknown): Record<string, unknown> | null {
-  return isRecord(value) ? value : null
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

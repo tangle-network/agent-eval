@@ -24,6 +24,9 @@ export interface RuntimeBeliefDecisionLabel {
   confidence?: number
   behaviorProb?: number
   targetProb?: number
+  qHatChosen?: number | null
+  vHatTarget?: number | null
+  /** @deprecated Use `qHatChosen` and `vHatTarget` together. */
   qHat?: number | null
   costUsd?: number
   splitTag?: RunSplitTag
@@ -109,6 +112,8 @@ export function buildRuntimeBeliefPhase0Measurement(
         confidence: label.confidence,
         behaviorProb: label.behaviorProb,
         targetProb: label.targetProb,
+        qHatChosen: label.qHatChosen,
+        vHatTarget: label.vHatTarget,
         qHat: label.qHat,
         costUsd: label.costUsd,
         outcome: label.outcome,

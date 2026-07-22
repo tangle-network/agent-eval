@@ -19,6 +19,11 @@
 
 import { autoCloseTruncatedJson } from './json-recovery'
 
+/** Bound on rendered/carried `emitted` evidence. ONE constant shared by the
+ *  producer (campaignBreakdown's per-scenario excerpt) and this renderer — if
+ *  the two drifted, the tighter side would silently re-clip carried evidence. */
+export const EMITTED_EVIDENCE_MAX_CHARS = 2000
+
 export interface TrialTrace {
   /** Stable id for the trial — surfaces in the prompt for grounding. */
   id: string
@@ -97,7 +102,10 @@ export function buildReflectionPrompt(ctx: ReflectionContext): string {
       )
       if (trial.failureNote) {
         sections.push('')
-        sections.push(`**Why it scored low:** ${truncate(trial.failureNote, 600)}`)
+        // 1500 chars fits a real traceback / failing-assertion note; clipping
+        // mid-traceback would hide the executable-judge evidence the
+        // reflection targets.
+        sections.push(`**Why it scored low:** ${truncate(trial.failureNote, 1500)}`)
       }
       const missed = (trial.expectations ?? []).filter((e) => !e.matched)
       if (missed.length > 0) {
@@ -111,7 +119,7 @@ export function buildReflectionPrompt(ctx: ReflectionContext): string {
         sections.push('')
         sections.push('**What the agent emitted:**')
         sections.push('```')
-        sections.push(truncate(trial.emitted, 600))
+        sections.push(truncate(trial.emitted, EMITTED_EVIDENCE_MAX_CHARS))
         sections.push('```')
       }
       sections.push('')

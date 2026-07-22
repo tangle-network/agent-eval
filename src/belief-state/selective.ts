@@ -47,6 +47,8 @@ export function thresholdSelectivePolicy(options: {
         action: confidence >= threshold ? 'accept' : belowThresholdAction,
         confidence,
         targetProb: point.targetProb,
+        qHatChosen: point.qHatChosen,
+        vHatTarget: point.vHatTarget,
         qHat: point.qHat,
         reason:
           confidence >= threshold ? 'confidence threshold passed' : 'confidence threshold failed',

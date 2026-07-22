@@ -64,7 +64,11 @@ export {
   buildDefaultAnalystRegistry,
   type DefaultAnalystRegistryOptions,
 } from './analyst/default-registry'
-export type { RawAnalystFinding } from './analyst/finding-signature'
+export type {
+  CanonicalRawAnalystFinding,
+  RawAnalystEvidence,
+  RawAnalystFinding,
+} from './analyst/finding-signature'
 export type { FindingSubject, FindingSubjectKind } from './analyst/finding-subject'
 export {
   type DiffPolicy,
@@ -78,6 +82,7 @@ export {
   type CreateTraceAnalystKindOpts,
   createTraceAnalystKind,
   renderPriorFindings,
+  renderUpstreamFindings,
   type TraceAnalystGolden,
   type TraceAnalystKindSpec,
 } from './analyst/kind-factory'
@@ -143,6 +148,7 @@ export {
   type AnalystRunResult,
   type AnalystRunSummary,
   type AnalystSeverity,
+  type AnalystUsageReceipt,
   computeFindingId,
   type EvidenceRef,
   makeFinding,
@@ -289,8 +295,10 @@ export {
 // pass-rate never silently masks a misconfigured runtime.
 export type { BackendIntegrityReport } from './integrity/backend-integrity'
 export {
+  assertRealAgentReceipts,
   assertRealBackend,
   BackendIntegrityError,
+  summarizeAgentReceiptIntegrity,
   summarizeBackendIntegrity,
 } from './integrity/backend-integrity'
 // Pre-hoc complement to assertRealBackend: verify the campaign's models are
@@ -450,6 +458,7 @@ export {
 export * from './trace-analyst'
 export type {
   BehavioralMetrics,
+  BehavioralTokenSequence,
   SuboptimalCode,
   SuboptimalSignal,
 } from './trace-analyst/behavioral-metrics'
@@ -771,11 +780,32 @@ export type {
   ChannelRollup,
   CostChannel,
   CostLedgerEntry,
+  CostLedgerFilter,
+  CostLedgerHandle,
+  CostLedgerOptions,
+  CostLedgerPersistence,
   CostLedgerSummary,
+  CostReceipt,
+  CostReceiptInput,
   CostResult,
   CostUsage,
+  MaximumCharge,
+  PaidCallResult,
+  PendingCostCall,
+  PendingCostCallView,
+  RunPaidCallInput,
 } from './cost-ledger'
-export { CostLedger, costForUsage, modelPriceKey } from './cost-ledger'
+export {
+  CostAccountingIncompleteError,
+  CostCallConflictError,
+  CostCeilingReachedError,
+  CostLedger,
+  CostLedgerPersistenceError,
+  CostReceiptCaptureError,
+  CostReservationExceededError,
+  costForUsage,
+  modelPriceKey,
+} from './cost-ledger'
 export type { CostEntry, CostSummary, ScenarioCost, TokenSpec } from './cost-tracker'
 export { CostTracker } from './cost-tracker'
 export type {
@@ -1114,6 +1144,7 @@ export {
   runKeywordCoverageJudgeUrl,
 } from './keyword-coverage-judge'
 export type {
+  LlmCallMetadata,
   LlmCallRequest,
   LlmCallResult,
   LlmClientOptions,
@@ -1126,10 +1157,14 @@ export {
   backoffMs,
   callLlm,
   callLlmJson,
+  costReceiptFromLlm,
+  costReceiptFromLlmError,
   isTransientLlmError,
   LlmCallError,
   LlmClient,
+  LlmResponseError,
   LlmRouteAssertionError,
+  maximumChargeForLlmRequest,
   probeLlm,
   stripFencedJson,
 } from './llm-client'
@@ -1153,6 +1188,18 @@ export type {
   MultiToolchainLayerConfig,
 } from './multi-toolchain-layer'
 export { mergeLayerResults, multiToolchainLayer } from './multi-toolchain-layer'
+export type {
+  ReferenceEquivalenceJudgeInput,
+  ReferenceEquivalenceJudgeOptions,
+  ReferenceEquivalenceJudgeResult,
+  ReferenceEquivalenceScenario,
+} from './reference-equivalence-judge'
+export {
+  createReferenceEquivalenceJudge,
+  REFERENCE_EQUIVALENCE_INPUT_LIMITS,
+  REFERENCE_EQUIVALENCE_JUDGE_VERSION,
+  runReferenceEquivalenceJudge,
+} from './reference-equivalence-judge'
 // ── Reference replay ─────────────────────────────────────────────────
 export {
   compareReferenceReplay,
@@ -1215,7 +1262,7 @@ export type {
 } from './canary'
 export { runCanaries } from './canary'
 // ── Concurrency + persistence + telemetry primitives for evolution loops ──
-export { Mutex } from './concurrency'
+export { Mutex, mapConcurrent } from './concurrency'
 export type {
   DescriptionLengthCandidate,
   DescriptionLengthConfig,

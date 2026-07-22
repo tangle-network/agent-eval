@@ -45,6 +45,17 @@ describe('projectOtlpFlatLine', () => {
     expect(out!.duration_ms).toBe(2500)
   })
 
+  it('computes duration from epoch-millisecond timestamps', () => {
+    const out = projectOtlpFlatLine({
+      trace_id: 'te',
+      span_id: 'se',
+      start_time: '1704067200000',
+      end_time: '1704067200400',
+    })
+    expect(out).not.toBeNull()
+    expect(out!.duration_ms).toBe(400)
+  })
+
   it('span attributes override resource attributes on key overlap', () => {
     const out = projectOtlpFlatLine({
       trace_id: 't',

@@ -19,7 +19,15 @@
  * rather than "layer failed" in a multi-layer pipeline.
  */
 
-import { callLlmJson, type LlmClientOptions } from './llm-client'
+import { CostLedger, type CostLedgerHandle, type CostReceipt } from './cost-ledger'
+import {
+  callLlmJson,
+  costReceiptFromLlm,
+  costReceiptFromLlmError,
+  type LlmCallRequest,
+  type LlmClientOptions,
+  maximumChargeForLlmRequest,
+} from './llm-client'
 import type { Severity } from './multi-layer-verifier'
 
 // ─── Types ──────────────────────────────────────────────────────────────
@@ -115,6 +123,8 @@ export interface SemanticConceptJudgeOptions {
   model?: string
   /** Per-call timeout. Default 300s. */
   timeoutMs?: number
+  /** Provider-enforced output limit. Default 16000. */
+  maxTokens?: number
   /** Pipeline budget for the prompt (source blob truncation). Default 45000. */
   maxSourceChars?: number
   /** Per-file cap before inclusion. Default 20000. */
@@ -123,6 +133,10 @@ export interface SemanticConceptJudgeOptions {
   maxHtmlChars?: number
   /** LlmClient config (baseUrl, apiKey, authHeader, …). */
   llm?: LlmClientOptions
+  costLedger?: CostLedgerHandle
+  costPhase?: string
+  costTags?: Record<string, string>
+  signal?: AbortSignal
   /**
    * Score aggregation strategy. Default `mean` — uniform average across
    * concepts. Cross-vertical comparisons should use `complexity` to
@@ -141,6 +155,7 @@ const DEFAULT_MAX_SOURCE = 45_000
 const DEFAULT_MAX_HTML = 30_000
 const DEFAULT_MAX_PER_FILE = 20_000
 const DEFAULT_TIMEOUT = 300_000
+const DEFAULT_MAX_TOKENS = 16_000
 const DEFAULT_MODEL = 'claude-sonnet-4-6'
 
 const SEMANTIC_SCHEMA = {
@@ -258,10 +273,15 @@ export async function runSemanticConceptJudge(
   const opts: Required<SemanticConceptJudgeOptions> = {
     model: options.model ?? DEFAULT_MODEL,
     timeoutMs: options.timeoutMs ?? DEFAULT_TIMEOUT,
+    maxTokens: options.maxTokens ?? DEFAULT_MAX_TOKENS,
     maxSourceChars: options.maxSourceChars ?? DEFAULT_MAX_SOURCE,
     maxPerFileChars: options.maxPerFileChars ?? DEFAULT_MAX_PER_FILE,
     maxHtmlChars: options.maxHtmlChars ?? DEFAULT_MAX_HTML,
     llm: options.llm ?? {},
+    costLedger: options.costLedger ?? new CostLedger(),
+    costPhase: options.costPhase ?? 'judge.semantic-concept',
+    costTags: options.costTags ?? {},
+    signal: options.signal ?? new AbortController().signal,
     weightConcepts: options.weightConcepts ?? 'mean',
     complexityWeights: { ...DEFAULT_COMPLEXITY_WEIGHTS, ...(options.complexityWeights ?? {}) },
   }
@@ -282,27 +302,43 @@ export async function runSemanticConceptJudge(
     input.expectedConcepts.map((c) => [c.name, weightForConcept(c)]),
   )
 
+  let receipt: CostReceipt | undefined
   try {
-    const { value, result } = await callLlmJson<{
-      summary: string
-      concepts: ConceptFinding[]
-    }>(
-      {
-        model: opts.model,
-        messages: [
-          {
-            role: 'system',
-            content:
-              'You are a strict code-review judge. Return strict JSON only. No prose outside the JSON. A keyword in a comment is NOT a working implementation.',
-          },
-          { role: 'user', content: buildPrompt(input, opts) },
-        ],
-        jsonSchema: { name: 'semantic_concept_judge', schema: SEMANTIC_SCHEMA },
-        temperature: 0,
-        timeoutMs: opts.timeoutMs,
-      },
-      opts.llm,
-    )
+    const request = {
+      model: opts.model,
+      messages: [
+        {
+          role: 'system' as const,
+          content:
+            'You are a strict code-review judge. Return strict JSON only. No prose outside the JSON. A keyword in a comment is NOT a working implementation.',
+        },
+        { role: 'user' as const, content: buildPrompt(input, opts) },
+      ],
+      jsonSchema: { name: 'semantic_concept_judge', schema: SEMANTIC_SCHEMA },
+      temperature: 0,
+      maxTokens: opts.maxTokens,
+      timeoutMs: opts.timeoutMs,
+    } satisfies LlmCallRequest
+    const paid = await opts.costLedger.runPaidCall({
+      channel: 'judge',
+      phase: opts.costPhase,
+      actor: 'semantic-concept',
+      model: opts.model,
+      ...(Object.keys(opts.costTags).length > 0 ? { tags: opts.costTags } : {}),
+      maximumCharge: maximumChargeForLlmRequest(request, opts.llm),
+      signal: opts.signal,
+      execute: (signal, callId) =>
+        callLlmJson<{ summary: string; concepts: ConceptFinding[] }>(request, {
+          ...opts.llm,
+          signal,
+          idempotencyKey: callId,
+        }),
+      receipt: ({ result }) => costReceiptFromLlm(result),
+      receiptFromError: costReceiptFromLlmError,
+    })
+    receipt = paid.receipt
+    if (!paid.succeeded) throw paid.error
+    const { value } = paid.value
 
     if (!value?.concepts || !Array.isArray(value.concepts)) {
       throw new Error('judge returned malformed response — expected array under "concepts"')
@@ -340,7 +376,7 @@ export async function runSemanticConceptJudge(
       findings,
       summary: String(value.summary ?? ''),
       durationMs: Date.now() - start,
-      costUsd: result.costUsd ?? null,
+      costUsd: paid.receipt.costUnknown ? null : paid.receipt.costUsd,
       available: true,
     }
   } catch (err) {
@@ -353,7 +389,7 @@ export async function runSemanticConceptJudge(
       findings: [],
       summary: '',
       durationMs: Date.now() - start,
-      costUsd: null,
+      costUsd: receipt && !receipt.costUnknown ? receipt.costUsd : null,
       available: false,
       error: err instanceof Error ? err.message : String(err),
     }

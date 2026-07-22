@@ -1,4 +1,5 @@
 import type { TCloud } from '@tangle-network/tcloud'
+import { CostLedger } from './cost-ledger'
 import { executeScenario } from './executor'
 import type { BenchmarkReport, BenchmarkRunnerConfig, Scenario, ScenarioResult } from './types'
 
@@ -19,6 +20,8 @@ export class BenchmarkRunner {
   async run(scenarios?: Scenario[]): Promise<BenchmarkReport> {
     const toRun = scenarios ?? this.config.scenarios
     const passThreshold = this.config.passThreshold ?? 6.0
+    const costLedger = this.config.costLedger ?? new CostLedger()
+    const costTags = { benchmarkRunId: globalThis.crypto.randomUUID() }
 
     console.log('='.repeat(70))
     console.log(' AGENT EVAL — BENCHMARK')
@@ -41,6 +44,9 @@ export class BenchmarkRunner {
         systemPrompt: this.config.systemPrompt,
         model: this.config.model,
         judges: this.config.judges,
+        costLedger,
+        costTags,
+        tcloudMaximumAttempts: this.config.tcloudMaximumAttempts,
       })
       results.push(result)
 
@@ -173,6 +179,7 @@ export class BenchmarkRunner {
       promptVersion: this.config.promptVersion ?? 'v1',
       scenarioCount: toRun.length,
       results,
+      cost: costLedger.summary({ tags: costTags }),
       summary: { overallAvg, byPersona, byDimension, weakest, strongest },
     }
   }

@@ -212,6 +212,7 @@ export function cachedJudge<TArtifact, TScenario extends Scenario = Scenario>(
   const wrapped: CachedJudge<TArtifact, TScenario> = {
     name: judge.name,
     dimensions: judge.dimensions,
+    judgeVersion: options.judgeVersion,
     async score(input) {
       const key = contentHash({
         artifact: canonicalJson(input.artifact),

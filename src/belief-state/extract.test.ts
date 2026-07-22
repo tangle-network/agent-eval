@@ -31,6 +31,8 @@ describe('belief-state extraction', () => {
         chosenAction: 'run-check',
         confidence: 0.4,
         candidateActions: ['run-check', 'continue'],
+        qHatChosen: 0.6,
+        vHatTarget: 0.7,
         outcome: { success: true, score: 1 },
       },
     })
@@ -47,6 +49,8 @@ describe('belief-state extraction', () => {
       kind: 'verify',
       chosenAction: 'run-check',
       confidence: 0.4,
+      qHatChosen: 0.6,
+      vHatTarget: 0.7,
     })
     expect(report.decisions[0]!.evidence.map((evidence) => evidence.source)).toEqual([
       'event',

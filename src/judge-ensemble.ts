@@ -10,10 +10,10 @@
  *
  * Fail-loud: a judge that errored or returned malformed output is recorded in
  * `failedJudges` with `perDimension: null`, never folded into a zero. If EVERY
- * judge failed the reducer throws — a silent zero here would corrupt the gate's
- * number. A failed judge still burned tokens, so its `costUsd` is still summed.
+ * judge failed the reducer throws — a silent zero here would corrupt the result.
  */
 
+import type { LlmUsage } from './llm-client'
 import { clamp01 } from './run-score'
 import { weightedComposite } from './statistics'
 
@@ -26,8 +26,10 @@ export interface JudgeVerdict<D extends string = string> {
   perDimension: Record<D, number> | null
   /** Optional one-line rationale; the first non-empty one becomes the aggregate's. */
   rationale?: string
-  /** Optional reported cost — summed across ALL verdicts (failed included). */
+  /** Optional reported cost, committed by the caller's CostLedger. */
   costUsd?: number
+  /** Optional provider usage, committed by the caller's CostLedger. */
+  usage?: LlmUsage
   /** Optional per-dimension reasoning/evidence. Carried through to
    *  `EnsembleAggregate.verdicts` verbatim — never folded into the math. */
   detail?: Partial<Record<D, { reasoning?: string; evidence?: string }>>
@@ -45,8 +47,6 @@ export interface EnsembleAggregate<D extends string = string> {
   maxDisagreement: number
   /** Models whose verdict was null (failed). */
   failedJudges: string[]
-  /** Sum of `costUsd` over ALL verdicts, failed included. */
-  costUsd: number
   /** First non-empty survivor rationale, or `'llm-judge'`. */
   rationale: string
   /** The input verdicts, verbatim — drill-down to raw scores, `detail`
@@ -82,7 +82,6 @@ export function aggregateJudgeVerdicts<D extends string>(
   const dimAcc = {} as Record<D, number[]>
   for (const d of dimensionKeys) dimAcc[d] = []
   let rationale = ''
-  let costUsd = 0
 
   // Same model sampled k times (best-of-N judging) gets keys 'm', 'm#2',
   // 'm#3'… so repeat votes land as distinct perJudge/failedJudges entries
@@ -95,7 +94,6 @@ export function aggregateJudgeVerdicts<D extends string>(
   }
 
   for (const v of verdicts) {
-    costUsd += v.costUsd ?? 0
     const key = keyFor(v.model)
     if (!v.perDimension) {
       failedJudges.push(key)
@@ -142,7 +140,6 @@ export function aggregateJudgeVerdicts<D extends string>(
     perJudge,
     maxDisagreement,
     failedJudges,
-    costUsd,
     rationale: rationale || 'llm-judge',
     verdicts: [...verdicts],
   }

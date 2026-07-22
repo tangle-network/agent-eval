@@ -1,6 +1,6 @@
 {
   "name": "@tangle-network/agent-eval",
-  "version": "0.116.0",
+  "version": "0.123.1",
   "description": "Evaluate and improve AI agents from runs, traces, judges, and feedback. Compare candidates, cluster failures, measure lift, and gate releases.",
   "homepage": "https://github.com/tangle-network/agent-eval#readme",
   "repository": {
@@ -48,6 +48,11 @@
       "types": "./dist/traces.d.ts",
       "import": "./dist/traces.js",
       "default": "./dist/traces.js"
+    },
+    "./trace-attributes": {
+      "types": "./dist/trace-attributes.d.ts",
+      "import": "./dist/trace-attributes.js",
+      "default": "./dist/trace-attributes.js"
     },
     "./wire": {
       "types": "./dist/wire/index.d.ts",
@@ -130,7 +135,7 @@
     "access": "public"
   },
   "scripts": {
-    "build": "tsup && pnpm openapi",
+    "build": "tsup && node scripts/build-declarations.mjs && pnpm openapi",
     "dev": "tsup --watch",
     "prepare": "husky",
     "prepublishOnly": "pnpm build",
@@ -144,11 +149,12 @@
   },
   "dependencies": {
     "@asteasolutions/zod-to-openapi": "^8.5.0",
-    "@ax-llm/ax": "^19.0.25",
+    "@ax-llm/ax": "^23.0.0",
     "@hono/node-server": "^2.0.0",
-    "@tangle-network/agent-interface": "^0.22.0",
+    "@tangle-network/agent-core": "^0.4.11",
+    "@tangle-network/agent-interface": "^0.31.0",
     "@tangle-network/tcloud": "^0.4.14",
-    "hono": "^4.12.16",
+    "hono": "^4.12.30",
     "zod": "^4.3.6"
   },
   "devDependencies": {
@@ -165,7 +171,7 @@
     "minimumReleaseAge": 4320,
     "overrides": {
       "postcss@<8.5.10": "^8.5.10",
-      "ws@>=8.0.0 <8.20.1": "^8.20.1"
+      "ws@>=8.0.0 <8.21.0": "^8.21.0"
     }
   },
   "engines": {

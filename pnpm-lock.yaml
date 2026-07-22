@@ -6,7 +6,7 @@ settings:
 
 overrides:
   postcss@<8.5.10: ^8.5.10
-  ws@>=8.0.0 <8.20.1: ^8.20.1
+  ws@>=8.0.0 <8.21.0: ^8.21.0
 
 importers:
 
@@ -16,20 +16,23 @@ importers:
         specifier: ^8.5.0
         version: 8.5.0(zod@4.3.6)
       '@ax-llm/ax':
-        specifier: ^19.0.25
-        version: 19.0.45(zod@4.3.6)
+        specifier: ^23.0.0
+        version: 23.0.0(zod@4.3.6)
       '@hono/node-server':
         specifier: ^2.0.0
-        version: 2.0.0(hono@4.12.18)
+        version: 2.0.0(hono@4.12.30)
+      '@tangle-network/agent-core':
+        specifier: ^0.4.11
+        version: 0.4.11
       '@tangle-network/agent-interface':
-        specifier: ^0.22.0
-        version: 0.22.0
+        specifier: ^0.31.0
+        version: 0.31.0
       '@tangle-network/tcloud':
         specifier: ^0.4.14
         version: 0.4.14(typescript@5.9.3)(zod@4.3.6)
       hono:
-        specifier: ^4.12.16
-        version: 4.12.18
+        specifier: ^4.12.30
+        version: 4.12.30
       zod:
         specifier: ^4.3.6
         version: 4.3.6
@@ -69,8 +72,8 @@ packages:
     peerDependencies:
       zod: ^4.0.0
 
-  '@ax-llm/ax@19.0.45':
-    resolution: {integrity: sha512-zC/OqUutTV0omOuAxBgeCihmxP3e1eUcbA78FCaMF3pPXZ3/FgQDZf0R04LH/lVIxm5BH4/qDdNNYcIVGwii8Q==}
+  '@ax-llm/ax@23.0.0':
+    resolution: {integrity: sha512-CWL/vM9RfS0wvVvRbApjYfwhgLa5UOdJno5y2Ime+lWSLYBEwHOhiBJonx08jhh01KoyJYHWS+QcYeInqR7Fsw==}
     hasBin: true
     peerDependencies:
       zod: ^3.24.0 || ^4.0.0
@@ -476,14 +479,20 @@ packages:
   '@tangle-network/agent-core@0.3.8':
     resolution: {integrity: sha512-bZfVpdiFjXbcQwSxSQABdtXEmUuapWChCcXrHkP6fAnwqEy9hWEfeZLlMZUy+1XaOfpTaMLUOEAwYhXfN018wQ==}
 
+  '@tangle-network/agent-core@0.4.11':
+    resolution: {integrity: sha512-5B1IjrJ8xDR7w8Hv/MSk2ixul6NEJQ5Ftzo+z6l7ipeFpc0yaf1+Kkml4HDUEmGW/rqdrNpBf9/MpT7i/SY0PA==}
+
   '@tangle-network/agent-interface@0.13.0':
     resolution: {integrity: sha512-CeTPGRLoXqpt0h+BCyFgZPkfU1zyRpWmqfD+85i/uk+uvbqxkfI+JprfKVf3tBsQuCgJPSjPt5qjdW8n3h2BVg==}
 
   '@tangle-network/agent-interface@0.17.1':
     resolution: {integrity: sha512-B7dRJTo0HSUtgBCB1VMwkTFYkLUaRr/4BcRglrQuGhGUwOzKv1RYyMejOVh5M3a5AagY9N79f7GYbjcA3UmnIA==}
 
-  '@tangle-network/agent-interface@0.22.0':
-    resolution: {integrity: sha512-7fsJhNdvTmOB1X9E2owl06jzyrqaN+jMkOPVKbK7dvNqQvf627PowCtL/edhUqEEv+K0FWtkwG3R3xqjX7VNZg==}
+  '@tangle-network/agent-interface@0.26.0':
+    resolution: {integrity: sha512-/z4HavFr/9AbaHxi/13bFP9iSUt8oitZbw4wS9g9KAt2TeN2ec5/A2C106udWkKIETZLnu465TfU+K4KDVNkKw==}
+
+  '@tangle-network/agent-interface@0.31.0':
+    resolution: {integrity: sha512-OvP8OebhbFd4d/Mxt1QDPAckJdBIA9omxoXU17dBbyEwhZKsiM6rbuOPaPDcv0Sf4koNLI25CfOYuzqlDR6ypQ==}
 
   '@tangle-network/sandbox@0.9.5':
     resolution: {integrity: sha512-yvX2OX6uISBVnMQ+v6Upkesa3u8yj6BHxsfcS6p8Vze+M4WBpyhkwA+onzFHuo9rti557ItZn8yDu4a/klljvQ==}
@@ -635,9 +644,6 @@ packages:
     resolution: {integrity: sha512-5IKcdX0nnYavi6G7TtOhwkYzyjfJlatbjMjuLSfE2kYT5pMDOilZ4OvMhi637CcDICTmz3wARPoyhqyX1Y+XvA==}
     engines: {node: ^14.18.0 || >=16.10.0}
 
-  dayjs@1.11.20:
-    resolution: {integrity: sha512-YbwwqR/uYpeoP4pu043q+LTDLFBLApUP6VxRihdfNTqu4ubqMlGDLd6ErXhEgsyvY0K6nCs7nggYumAN+9uEuQ==}
-
   debug@4.4.3:
     resolution: {integrity: sha512-RGwwWnwQvkVfavKVt22FGLw+xYSdzARwm0ru6DhTVA3umU5hZc28V3kO4stgYryrTlLpuvgI9GiijltAjNbcqA==}
     engines: {node: '>=6.0'}
@@ -700,8 +706,8 @@ packages:
     resolution: {integrity: sha512-QRbvDIbx6YklUe6RxeTeleMR0yv3cYH6PsPZHcnVn7xv7zO1BHN8r0XETu8n6Ye3Q+ahtSarc3WgtNWmehIBfA==}
     engines: {node: '>=18'}
 
-  hono@4.12.18:
-    resolution: {integrity: sha512-RWzP96k/yv0PQfyXnWjs6zot20TqfpfsNXhOnev8d1InAxubW93L11/oNUc3tQqn2G0bSdAOBpX+2uDFHV7kdQ==}
+  hono@4.12.30:
+    resolution: {integrity: sha512-emn+JoJjrN9YTpRDS5it/UI2SO9BAE37T6I3d963RxcZ81G9A4pr2SZTEiiaiKbzx+NKRg5BZ89fCL7gCJCUog==}
     engines: {node: '>=16.9.0'}
 
   husky@9.1.7:
@@ -716,7 +722,7 @@ packages:
   isows@1.0.7:
     resolution: {integrity: sha512-I1fSfDCZL5P0v33sVqeTDSpcstAg/N+wF5HS033mogOVIp4B+oHC7oOCsA3axAbBSGTJ8QubbNmnIRN/h8U7hg==}
     peerDependencies:
-      ws: ^8.20.1
+      ws: ^8.21.0
 
   joycon@3.1.1:
     resolution: {integrity: sha512-34wB/Y7MW7bzjKRjUKTa46I2Z7eV62Rkhva+KkopW7Qvv/OSWBqvkSY7vusOPrNuZcUG3tApvdVgNB8POj3SPw==}
@@ -1072,8 +1078,8 @@ packages:
     resolution: {integrity: sha512-42AtmgqjV+X1VpdOfyTGOYRi0/zsoLqtXQckTmqTeybT+BDIbM/Guxo7x3pE2vtpr1ok6xRqM9OpBe+Jyoqyww==}
     engines: {node: '>=18'}
 
-  ws@8.20.1:
-    resolution: {integrity: sha512-It4dO0K5v//JtTXuPkfEOaI3uUN87iYPnqo/ZzqCoG3g8uhA66QUMs/SrM0YK7/NAu+r4LMh/9dq2A7k+rHs+w==}
+  ws@8.21.0:
+    resolution: {integrity: sha512-Vsp28b7DRcimFQvrqu2Wek3z1iYxDCWqHYB8Qsnk/S4RfaCQzPGPyBNuVjJV3cd6UiKtUtp6sNM77gWvzcCH+g==}
     engines: {node: '>=10.0.0'}
     peerDependencies:
       bufferutil: ^4.0.1
@@ -1109,10 +1115,9 @@ snapshots:
       openapi3-ts: 4.5.0
       zod: 4.3.6
 
-  '@ax-llm/ax@19.0.45(zod@4.3.6)':
+  '@ax-llm/ax@23.0.0(zod@4.3.6)':
     dependencies:
       '@opentelemetry/api': 1.9.1
-      dayjs: 1.11.20
     optionalDependencies:
       zod: 4.3.6
 
@@ -1229,9 +1234,9 @@ snapshots:
   '@esbuild/win32-x64@0.27.7':
     optional: true
 
-  '@hono/node-server@2.0.0(hono@4.12.18)':
+  '@hono/node-server@2.0.0(hono@4.12.30)':
     dependencies:
-      hono: 4.12.18
+      hono: 4.12.30
 
   '@jridgewell/gen-mapping@0.3.13':
     dependencies:
@@ -1369,6 +1374,11 @@ snapshots:
       '@tangle-network/agent-interface': 0.17.1
       zod: 4.4.3
 
+  '@tangle-network/agent-core@0.4.11':
+    dependencies:
+      '@tangle-network/agent-interface': 0.26.0
+      zod: 4.4.3
+
   '@tangle-network/agent-interface@0.13.0':
     dependencies:
       zod: 4.4.3
@@ -1377,8 +1387,14 @@ snapshots:
     dependencies:
       zod: 4.4.3
 
-  '@tangle-network/agent-interface@0.22.0':
+  '@tangle-network/agent-interface@0.26.0':
     dependencies:
+      '@noble/hashes': 1.8.0
+      zod: 4.4.3
+
+  '@tangle-network/agent-interface@0.31.0':
+    dependencies:
+      '@noble/hashes': 1.8.0
       zod: 4.4.3
 
   '@tangle-network/sandbox@0.9.5(viem@2.48.8(typescript@5.9.3)(zod@4.3.6))':
@@ -1520,8 +1536,6 @@ snapshots:
 
   consola@3.4.2: {}
 
-  dayjs@1.11.20: {}
-
   debug@4.4.3:
     dependencies:
       ms: 2.1.3
@@ -1588,7 +1602,7 @@ snapshots:
 
   get-east-asian-width@1.6.0: {}
 
-  hono@4.12.18: {}
+  hono@4.12.30: {}
 
   husky@9.1.7: {}
 
@@ -1596,9 +1610,9 @@ snapshots:
     dependencies:
       get-east-asian-width: 1.6.0
 
-  isows@1.0.7(ws@8.20.1):
+  isows@1.0.7(ws@8.21.0):
     dependencies:
-      ws: 8.20.1
+      ws: 8.21.0
 
   joycon@3.1.1: {}
 
@@ -1879,9 +1893,9 @@ snapshots:
       '@scure/bip32': 1.7.0
       '@scure/bip39': 1.6.0
       abitype: 1.2.3(typescript@5.9.3)(zod@4.3.6)
-      isows: 1.0.7(ws@8.20.1)
+      isows: 1.0.7(ws@8.21.0)
       ox: 0.14.20(typescript@5.9.3)(zod@4.3.6)
-      ws: 8.20.1
+      ws: 8.21.0
     optionalDependencies:
       typescript: 5.9.3
     transitivePeerDependencies:
@@ -1981,7 +1995,7 @@ snapshots:
       string-width: 7.2.0
       strip-ansi: 7.2.0
 
-  ws@8.20.1: {}
+  ws@8.21.0: {}
 
   yaml@2.8.3: {}
 

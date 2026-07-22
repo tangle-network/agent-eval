@@ -58,10 +58,11 @@ export function buildCodeAgentBeliefEvidenceCorpus(
     metrics.push(...intake.metrics)
     intakeDiagnostics.push(...intake.diagnostics)
 
-    for (const run of intake.runs) {
+    for (const [index, run] of intake.runs.entries()) {
       const extraction = extractCodeAgentBeliefDecisionPoints({
         source: session.source,
         entries: session.entries,
+        observation: intake.observations[index],
         run,
         sourcePath: session.sourcePath,
       })

@@ -15,7 +15,13 @@
 
 import { createHash } from 'node:crypto'
 import type { DispatchContext, JudgeConfig, JudgeScore, Scenario } from '../../src/campaign'
-import { callLlm, type LlmClientOptions } from '../../src/llm-client'
+import {
+  callLlm,
+  costReceiptFromLlmError,
+  type LlmCallRequest,
+  type LlmClientOptions,
+  maximumChargeForLlmRequest,
+} from '../../src/llm-client'
 import type { RunRecord } from '../../src/run-record'
 
 export interface ExtractScenario extends Scenario {
@@ -242,28 +248,37 @@ export function makeExtractionWorker(opts: ExtractionWorkerOptions) {
     scenario: ExtractScenario,
     ctx: DispatchContext,
   ): Promise<Artifact> {
-    const res = await callLlm(
-      {
-        model: opts.model,
-        messages: [
-          { role: 'system' as const, content: surface },
-          { role: 'user' as const, content: scenario.text },
-        ],
-        jsonMode: true,
-        temperature: 0,
-        maxTokens: 400,
-        timeoutMs,
-      },
-      opts.llm,
-    )
-    const costUsd =
-      res.costUsd ??
-      (res.usage.promptTokens / 1_000_000) * opts.priceInPerMTokens +
-        (res.usage.completionTokens / 1_000_000) * opts.priceOutPerMTokens
-    // Report BOTH so the cell carries real cost AND real tokens — the
-    // backend-integrity guard keys on tokens, the budget gate on cost.
-    ctx.cost.observe(costUsd, 'worker')
-    ctx.cost.observeTokens({ input: res.usage.promptTokens, output: res.usage.completionTokens })
+    const request: LlmCallRequest = {
+      model: opts.model,
+      messages: [
+        { role: 'system', content: surface },
+        { role: 'user', content: scenario.text },
+      ],
+      jsonMode: true,
+      temperature: 0,
+      maxTokens: 400,
+      timeoutMs,
+    }
+    const paid = await ctx.cost.runPaidCall({
+      actor: 'worker',
+      model: opts.model,
+      maximumCharge: maximumChargeForLlmRequest(request, opts.llm),
+      execute: (signal, callId) =>
+        callLlm(request, { ...opts.llm, signal, idempotencyKey: callId }),
+      receipt: (res) => ({
+        model: res.model || opts.model,
+        inputTokens: res.usage.promptTokens,
+        outputTokens: res.usage.completionTokens,
+        actualCostUsd:
+          res.costUsd ??
+          (res.usage.promptTokens / 1_000_000) * opts.priceInPerMTokens +
+            (res.usage.completionTokens / 1_000_000) * opts.priceOutPerMTokens,
+      }),
+      receiptFromError: costReceiptFromLlmError,
+    })
+    if (!paid.succeeded) throw paid.error
+    const res = paid.value
+    const costUsd = paid.receipt.costUsd
     opts.records.push({
       runId: `${scenario.id}-${createHash('sha1').update(surface).digest('hex').slice(0, 8)}-${opts.records.length}`,
       experimentId,

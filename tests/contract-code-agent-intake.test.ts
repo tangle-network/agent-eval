@@ -21,7 +21,7 @@ describe('code-agent session intake', () => {
 
   it('projects Codex session JSONL into a process-scored RunRecord without raw prompt text', async () => {
     const secretPrompt = 'fix the release without leaking secret-session-text'
-    const { runs, diagnostics, metrics } = fromCodexSession({
+    const { runs, diagnostics, metrics, observations } = fromCodexSession({
       entries: [
         {
           timestamp: '2026-06-05T00:00:00.000Z',
@@ -109,7 +109,12 @@ describe('code-agent session intake', () => {
     expect(run.model).toBe('claude-code/sonnet@observed-local')
     expect(run.costUsd).toBeGreaterThan(0)
     expect(run.costProvenance).toMatchObject({ kind: 'estimated', usd: run.costUsd })
-    expect(run.tokenUsage).toEqual({ input: 1000, output: 300, cached: 200 })
+    expect(run.tokenUsage).toEqual({
+      input: 1000,
+      output: 300,
+      reasoning: 120,
+      cached: 200,
+    })
     expect(run.outcome.holdoutScore).toBeGreaterThan(0)
     expect(run.outcome.holdoutScore).toBeLessThan(1)
     expect(run.failureMode).toBe('tool_error')
@@ -127,6 +132,12 @@ describe('code-agent session intake', () => {
       hasCost: true,
       costKind: 'estimated',
     })
+    expect(observations[0]).toMatchObject({
+      source: 'codex',
+      sessionId: 'codex-session-1',
+      finalText: null,
+      terminal: { status: 'completed', explicit: true },
+    })
     expect(diagnostics[0]!.warnings).toContain('outcome score is inferred from process telemetry')
     expect(metrics[0]!.patchFailures).toBe(1)
 
@@ -141,7 +152,7 @@ describe('code-agent session intake', () => {
       'utf8',
     )
     const parsed = parseCodeAgentJsonl(jsonl)
-    const { runs, diagnostics, metrics } = fromCodexSession({
+    const { runs, diagnostics, metrics, observations } = fromCodexSession({
       ...parsed,
       sourcePath: 'codex-exec-0.144.1.jsonl',
       model: 'gpt-5.4@2026-07-12',
@@ -164,12 +175,13 @@ describe('code-agent session intake', () => {
       turnsAborted: 0,
       inputTokens: 482267,
       outputTokens: 9006,
+      reasoningTokens: 4529,
       cachedTokens: 409600,
       processScore: 0.9,
     })
     expect(runs[0]).toMatchObject({
       runId: 'codex:00000000-0000-7000-8000-000000000144',
-      tokenUsage: { input: 482267, output: 9006, cached: 409600 },
+      tokenUsage: { input: 482267, output: 9006, reasoning: 4529, cached: 409600 },
       costProvenance: { kind: 'estimated' },
       failureMode: 'tool_error',
     })
@@ -179,6 +191,19 @@ describe('code-agent session intake', () => {
       hasTokenUsage: true,
       costKind: 'estimated',
     })
+    expect(observations[0]).toMatchObject({
+      source: 'codex',
+      sessionId: '00000000-0000-7000-8000-000000000144',
+      finalText: 'I found the failing path and am checking the implementation.',
+      terminal: { status: 'completed', explicit: true },
+    })
+    expect(observations[0]!.actions).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ surface: 'mcp', name: 'repository/search', status: 'completed' }),
+        expect.objectContaining({ surface: 'web', name: 'web_search', status: 'completed' }),
+        expect.objectContaining({ surface: 'code', name: 'file_change', status: 'completed' }),
+      ]),
+    )
   })
 
   it('preserves an explicitly uncaptured Codex cost instead of emitting observed $0', async () => {
@@ -295,7 +320,7 @@ describe('code-agent session intake', () => {
     expect(run.outcome.raw.pr_links).toBe(1)
     expect(run.outcome.raw.tool_errors).toBe(1)
     expect(run.failureMode).toBe('tool_error')
-    expect(diagnostics[0]!.hasExplicitTerminalSignal).toBe(true)
+    expect(diagnostics[0]!.hasExplicitTerminalSignal).toBe(false)
     expect(metrics[0]).toMatchObject({
       userMessages: 1,
       assistantMessages: 1,
@@ -306,6 +331,98 @@ describe('code-agent session intake', () => {
       prLinks: 1,
       fileSnapshots: 1,
       patchAttempts: 0,
+    })
+  })
+
+  it('captures Claude Code final output and classifies skills, MCP, subagents, and hooks', () => {
+    const { diagnostics, metrics, observations } = fromClaudeCodeSession({
+      entries: [
+        {
+          type: 'system',
+          subtype: 'hook_response',
+          hook_name: 'PostToolUse',
+          status: 'completed',
+          session_id: 'claude-exact-1',
+        },
+        {
+          type: 'assistant',
+          session_id: 'claude-exact-1',
+          message: {
+            role: 'assistant',
+            content: [
+              { type: 'tool_use', id: 'skill-1', name: 'Skill' },
+              { type: 'tool_use', id: 'mcp-1', name: 'mcp__linear__get_issue' },
+              { type: 'tool_use', id: 'agent-1', name: 'Task' },
+              { type: 'text', text: 'intermediate' },
+            ],
+          },
+        },
+        {
+          type: 'user',
+          session_id: 'claude-exact-1',
+          message: {
+            role: 'user',
+            content: [
+              { type: 'tool_result', tool_use_id: 'skill-1', content: 'loaded' },
+              { type: 'tool_result', tool_use_id: 'mcp-1', content: 'issue' },
+              { type: 'tool_result', tool_use_id: 'agent-1', content: 'done' },
+            ],
+          },
+        },
+        {
+          type: 'result',
+          subtype: 'success',
+          session_id: 'claude-exact-1',
+          result: 'exact final answer',
+        },
+      ],
+      execution: { exitCode: 0, startedAtMs: 10, completedAtMs: 20 },
+    })
+
+    expect(diagnostics[0]).toMatchObject({
+      hasExplicitTerminalSignal: true,
+      hasFinalOutput: true,
+    })
+    expect(metrics[0]).toMatchObject({ mcpCalls: 1, subagentCalls: 1, skillCalls: 1, hookCalls: 1 })
+    expect(observations[0]).toMatchObject({
+      finalText: 'exact final answer',
+      terminal: { status: 'completed', explicit: true },
+    })
+  })
+
+  it('parses OpenCode run JSON and binds its terminal state to the process receipt', () => {
+    const { diagnostics, metrics, observations } = fromOpenCodeSession({
+      entries: [
+        {
+          type: 'tool_use',
+          timestamp: 10,
+          sessionID: 'opencode-cli-1',
+          part: {
+            id: 'tool-1',
+            callID: 'call-1',
+            type: 'tool',
+            tool: 'task',
+            state: { status: 'completed' },
+          },
+        },
+        {
+          type: 'text',
+          timestamp: 20,
+          sessionID: 'opencode-cli-1',
+          part: { id: 'text-1', type: 'text', text: 'OpenCode final answer', time: { end: 20 } },
+        },
+      ],
+      execution: { exitCode: 0, startedAtMs: 10_000, completedAtMs: 20_000 },
+    })
+
+    expect(diagnostics[0]).toMatchObject({
+      hasExplicitTerminalSignal: true,
+      hasFinalOutput: true,
+    })
+    expect(metrics[0]).toMatchObject({ subagentCalls: 1 })
+    expect(observations[0]).toMatchObject({
+      finalText: 'OpenCode final answer',
+      terminal: { status: 'completed', explicit: true },
     })
   })
 
@@ -374,7 +491,7 @@ describe('code-agent session intake', () => {
     const run = validateRunRecord(runs[0])
     expect(run.runId).toBe('opencode:opencode-session-1')
     expect(run.model).toBe('kimi/kimi-k2-code@observed-local')
-    expect(run.tokenUsage).toEqual({ input: 1000, output: 150, cached: 40 })
+    expect(run.tokenUsage).toEqual({ input: 1000, output: 150, reasoning: 30, cached: 40 })
     expect(run.costUsd).toBe(0.42)
     expect(run.costProvenance).toEqual({ kind: 'observed', usd: 0.42 })
     expect(run.failureMode).toBe('tool_error')
@@ -390,6 +507,67 @@ describe('code-agent session intake', () => {
       observedCostUsd: 0.42,
       observedCostCaptured: true,
     })
+  })
+
+  it('prefers cache-only OpenCode message usage over duplicate part summaries', () => {
+    const { runs } = fromOpenCodeSession({
+      entries: [
+        {
+          id: 'msg-cache-only',
+          sessionID: 'opencode-cache-only',
+          role: 'assistant',
+          providerID: 'anthropic',
+          modelID: 'claude-opus',
+          tokens: { cache_read_tokens: 40, cache_creation_tokens: 5 },
+          cost: 0.1,
+          finish: 'stop',
+        },
+        {
+          id: 'part-duplicate',
+          messageID: 'msg-cache-only',
+          sessionID: 'opencode-cache-only',
+          type: 'step-finish',
+          tokens: { input: 999, output: 999 },
+          cost: 9,
+        },
+      ],
+    })
+
+    const run = validateRunRecord(runs[0])
+    expect(run.tokenUsage).toEqual({ input: 0, output: 0, cached: 40, cacheWrite: 5 })
+    expect(run.costUsd).toBe(0.1)
+  })
+
+  it('preserves OpenCode nested cache reads and writes', () => {
+    const { runs } = fromOpenCodeSession({
+      entries: [
+        {
+          id: 'msg-nested-cache',
+          sessionID: 'opencode-nested-cache',
+          role: 'assistant',
+          providerID: 'zai-coding-plan',
+          modelID: 'glm-5.1',
+          tokens: {
+            input: 250,
+            output: 1264,
+            reasoning: 41,
+            cache: { read: 12096, write: 7 },
+          },
+          cost: 0,
+          finish: 'stop',
+        },
+      ],
+    })
+
+    const run = validateRunRecord(runs[0])
+    expect(run.tokenUsage).toEqual({
+      input: 250,
+      output: 1305,
+      reasoning: 41,
+      cached: 12096,
+      cacheWrite: 7,
+    })
+    expect(run.costProvenance).toEqual({ kind: 'observed', usd: 0 })
   })
 
   it('keeps a source-reported zero-dollar OpenCode run observed', async () => {
@@ -509,7 +687,12 @@ describe('code-agent session intake', () => {
     const run = validateRunRecord(runs[0])
     expect(run.runId).toBe('kimi-code:kimi-session-1')
     expect(run.model).toBe('kimi-code@2026-05-01')
-    expect(run.tokenUsage).toEqual({ input: 700, output: 110, cached: 75 })
+    expect(run.tokenUsage).toEqual({
+      input: 700,
+      output: 110,
+      cached: 50,
+      cacheWrite: 25,
+    })
     expect(run.outcome.raw.turns_started).toBe(1)
     expect(run.outcome.raw.turns_completed).toBe(1)
     expect(run.outcome.raw.reasoning_items).toBe(2)
