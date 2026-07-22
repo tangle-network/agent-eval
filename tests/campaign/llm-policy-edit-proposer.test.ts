@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import type { AgentProfileJsonObject } from '../../src/agent-profile-cell'
 import {
   makePolicyEdit,
   makePolicyEditCandidateRecord,
@@ -158,7 +159,7 @@ function proposer(input: {
   targetSurface?: 'agent-profile' | 'code'
   admissionMode?: 'evidence-only' | 'strict'
   admission?: PolicyEditAdmissionOptions
-  projectAuthorSurface?: (surface: Record<string, unknown>) => Record<string, unknown>
+  redactCurrentSurfaceForModel?: (surface: AgentProfileJsonObject) => AgentProfileJsonObject
 }) {
   return llmPolicyEditProposer({
     llm: {
@@ -193,9 +194,9 @@ function proposer(input: {
       : { maxAuthorContextChars: input.maxAuthorContextChars }),
     ...(input.admissionMode === undefined ? {} : { admissionMode: input.admissionMode }),
     ...(input.admission === undefined ? {} : { admission: input.admission }),
-    ...(input.projectAuthorSurface === undefined
+    ...(input.redactCurrentSurfaceForModel === undefined
       ? {}
-      : { projectAuthorSurface: input.projectAuthorSurface }),
+      : { redactCurrentSurfaceForModel: input.redactCurrentSurfaceForModel }),
   })
 }
 
@@ -277,12 +278,12 @@ describe('llmPolicyEditProposer', () => {
     expect(providerSchema).toContain('"mode":{"const":"remove"}')
   })
 
-  it('authors from a private-field projection but applies edits to the complete surface', async () => {
+  it('redacts private fields from model input and applies edits to the complete surface', async () => {
     const capture: CapturedRequest = {}
     const out = await proposer({
       response: { edits: [authoredEdit('finding-1')] },
       capture,
-      projectAuthorSurface: (surface) => ({ prompt: surface.prompt }),
+      redactCurrentSurfaceForModel: (surface) => ({ prompt: surface.prompt }),
     }).propose(
       context({
         finding: finding(),
@@ -313,48 +314,27 @@ describe('llmPolicyEditProposer', () => {
     })
   })
 
-  it('rejects a non-object author projection before model dispatch', async () => {
-    let called = false
-    const configured = llmPolicyEditProposer({
-      llm: {
-        apiKey: 'test-key',
-        baseUrl: 'https://router.test/v1',
-        fetch: (async () => {
-          called = true
-          throw new Error('must not dispatch')
-        }) as typeof fetch,
-      },
-      model: 'test-model-snapshot',
-      target: 'canonical agent profile JSON',
-      targetSurface: 'agent-profile',
-      allowedJsonPaths: ['prompt.systemPrompt'],
-      objectives: OBJECTIVES,
-      projectAuthorSurface: () => [] as unknown as Record<string, unknown>,
+  it('rejects a non-object redaction result before model dispatch', async () => {
+    const capture: CapturedRequest = {}
+    const configured = proposer({
+      response: { edits: [] },
+      capture,
+      redactCurrentSurfaceForModel: () => [] as unknown as AgentProfileJsonObject,
     })
 
     await expect(configured.propose(context({ finding: finding() }))).rejects.toThrow(
-      /projectAuthorSurface must return a JSON object/,
+      /redactCurrentSurfaceForModel must return a JSON object/,
     )
-    expect(called).toBe(false)
+    expect(capture.user).toBeUndefined()
   })
 
-  it('rejects a projection that hides an editable subtree before model dispatch', async () => {
-    let called = false
-    const configured = llmPolicyEditProposer({
-      llm: {
-        apiKey: 'test-key',
-        baseUrl: 'https://router.test/v1',
-        fetch: (async () => {
-          called = true
-          throw new Error('must not dispatch')
-        }) as typeof fetch,
-      },
-      model: 'test-model-snapshot',
-      target: 'canonical agent profile JSON',
-      targetSurface: 'agent-profile',
+  it('rejects redaction that hides an editable subtree before model dispatch', async () => {
+    const capture: CapturedRequest = {}
+    const configured = proposer({
+      response: { edits: [] },
+      capture,
       allowedJsonPaths: ['mcp.linear'],
-      objectives: OBJECTIVES,
-      projectAuthorSurface: (surface) => ({ prompt: surface.prompt }),
+      redactCurrentSurfaceForModel: (surface) => ({ prompt: surface.prompt }),
     })
 
     await expect(
@@ -372,14 +352,14 @@ describe('llmPolicyEditProposer', () => {
           }),
         }),
       ),
-    ).rejects.toThrow(/must not change or hide allowed JSON path 'mcp\.linear'/)
-    expect(called).toBe(false)
+    ).rejects.toThrow(/must not change or hide editable JSON path 'mcp\.linear'/)
+    expect(capture.user).toBeUndefined()
   })
 
-  it('does not let a mutating projection alter the executable surface', async () => {
+  it('does not let a mutating redaction callback alter the executable surface', async () => {
     const out = await proposer({
       response: { edits: [authoredEdit('finding-1')] },
-      projectAuthorSurface: (surface) => {
+      redactCurrentSurfaceForModel: (surface) => {
         delete surface.mcp
         return { prompt: surface.prompt }
       },
@@ -398,33 +378,38 @@ describe('llmPolicyEditProposer', () => {
     })
   })
 
-  it('rejects projected JSON keys that validation would otherwise rewrite', async () => {
+  it('rejects redacted JSON keys that validation would otherwise rewrite', async () => {
     const configured = proposer({
       response: { edits: [] },
-      projectAuthorSurface: (surface) => ({ ...surface, ' mcp': {} }),
+      redactCurrentSurfaceForModel: (surface) => ({ ...surface, ' mcp': {} }),
     })
 
     await expect(configured.propose(context({ finding: finding() }))).rejects.toThrow(
-      /projectAuthorSurface must return a JSON object/,
+      /redactCurrentSurfaceForModel returned invalid JSON.*surrounding whitespace/,
     )
   })
 
-  it('does not let an author projection hide task identifiers in the executable surface', async () => {
+  it('rejects task identifiers introduced by model-surface redaction', async () => {
+    let redactionCalled = false
     const configured = proposer({
       response: { edits: [authoredEdit('finding-1')] },
       scenarioIdTransform: () => 'task-1',
-      projectAuthorSurface: () => ({}),
+      redactCurrentSurfaceForModel: (surface) => {
+        redactionCalled = true
+        return { ...surface, modelContext: { note: 'Handle private-task' } }
+      },
     })
 
     await expect(
       configured.propose(
         context({
           finding: finding(),
-          currentSurface: '{"prompt":{"systemPrompt":"Handle private-task"}}',
+          currentSurface: '{"prompt":{"systemPrompt":"Base"}}',
           baselineOutcome: measuredOutcome('baseline', 0.4, 'private-task'),
         }),
       ),
     ).rejects.toThrow(/raw scenario identifier/)
+    expect(redactionCalled).toBe(true)
   })
 
   it('shows the author measured baseline, incumbent, and exact parent deltas', async () => {

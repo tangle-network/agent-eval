@@ -8,7 +8,7 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ### Added
 
-- `llmPolicyEditProposer({ projectAuthorSurface })` can remove credentials and unrelated private fields outside editable paths from the current surface sent to the model while applying validated edits to the complete original surface.
+- `llmPolicyEditProposer({ redactCurrentSurfaceForModel })` can remove credentials and unrelated fields from the current surface sent to the model while applying validated edits to the complete original surface.
 - `CostLedger.listPending()` exposes immutable pending paid calls and distinguishes calls that are active, late after cancellation, or interrupted by a prior process so durable workflows can reconcile exact reservations before resuming.
 - `traceAnalystProposer()` accepts an opt-in `resolvePriorFindings` callback that forwards canonical prior findings into the existing analyst registry.
 

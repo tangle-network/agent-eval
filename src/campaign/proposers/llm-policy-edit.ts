@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import type { AgentProfileJson } from '../../agent-profile-cell'
+import type { AgentProfileJson, AgentProfileJsonObject } from '../../agent-profile-cell'
 import {
   makePolicyEdit,
   POLICY_EDIT_AXES,
@@ -429,12 +429,12 @@ export interface LlmPolicyEditProposerOptions {
   /** Optional one-to-one pseudonymizer applied to every author-visible evidence field. */
   scenarioIdTransform?: (scenarioId: string) => string
   /**
-   * Project the current JSON surface before it enters model context. Use this
-   * to remove credentials or unrelated private fields outside allowedJsonPaths.
-   * Every editable path must remain unchanged. Scored history is not projected.
-   * Authored edits are validated and applied to the original surface.
+   * Remove credentials or unrelated fields from the current surface before it
+   * is sent to the model. The callback receives a clone and must preserve every
+   * editable path unchanged. Validated edits apply to the complete original.
+   * This callback does not redact findings or scored history.
    */
-  projectAuthorSurface?: (surface: AgentProfileJson) => AgentProfileJson
+  redactCurrentSurfaceForModel?: (surface: AgentProfileJsonObject) => AgentProfileJsonObject
   onAdmission?: (admission: PolicyEditAdmission) => void
 }
 
@@ -515,12 +515,12 @@ export function llmPolicyEditProposer(
         { currentSurface, allowedJsonPaths, objectives, targetSurface: opts.targetSurface },
         scenarioIds,
       )
-      const authorSurface = projectAuthorSurface(
+      const modelSurface = redactCurrentSurfaceForModel(
         currentSurface,
         allowedJsonPaths,
-        opts.projectAuthorSurface,
+        opts.redactCurrentSurfaceForModel,
       )
-      assertSurfaceIsTaskAgnostic(authorSurface, scenarioIds)
+      assertSurfaceIsTaskAgnostic(modelSurface, scenarioIds)
       const measuredSources = measuredSourceMeasurements(ctx)
       const findings = citableFindings(ctx.findings, measuredSources, maxFindings)
       const findingByKey = new Map(
@@ -533,7 +533,7 @@ export function llmPolicyEditProposer(
         objectives,
         candidateCount: limit,
         generation: ctx.generation,
-        currentSurface: authorSurface,
+        currentSurface: modelSurface,
         findings: findings.map((finding, index) =>
           renderFinding(finding, `finding-${index + 1}`, scenarioIds, measuredSources),
         ),
@@ -1268,7 +1268,7 @@ function bindAuthoredEdit(
   return makePolicyEdit(init)
 }
 
-function parseJsonSurface(surface: MutableSurface): AgentProfileJson {
+function parseJsonSurface(surface: MutableSurface): AgentProfileJsonObject {
   if (typeof surface !== 'string') {
     throw new Error('llmPolicyEditProposer: currentSurface must be serialized JSON')
   }
@@ -1281,36 +1281,57 @@ function parseJsonSurface(surface: MutableSurface): AgentProfileJson {
   if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
     throw new Error('llmPolicyEditProposer: currentSurface JSON root must be an object')
   }
-  return parsed as AgentProfileJson
+  return parsed as AgentProfileJsonObject
 }
 
-function projectAuthorSurface(
-  surface: AgentProfileJson,
+function redactCurrentSurfaceForModel(
+  surface: AgentProfileJsonObject,
   allowedJsonPaths: readonly string[],
-  project: LlmPolicyEditProposerOptions['projectAuthorSurface'],
-): AgentProfileJson {
-  if (!project) return surface
-  const projected = project(structuredClone(surface))
-  const parsed = JsonValueSchema.safeParse(projected)
-  if (
-    !parsed.success ||
-    !parsed.data ||
-    typeof parsed.data !== 'object' ||
-    Array.isArray(parsed.data)
-  ) {
-    throw new Error('llmPolicyEditProposer: projectAuthorSurface must return a JSON object')
+  redact: LlmPolicyEditProposerOptions['redactCurrentSurfaceForModel'],
+): AgentProfileJsonObject {
+  if (!redact) return surface
+  const redacted = redact(structuredClone(surface))
+  const parsed = JsonValueSchema.safeParse(redacted)
+  if (!parsed.success) {
+    const detail = formatJsonValidationError(parsed.error)
+    throw new Error(
+      `llmPolicyEditProposer: redactCurrentSurfaceForModel returned invalid JSON (${detail})`,
+    )
+  }
+  if (!parsed.data || typeof parsed.data !== 'object' || Array.isArray(parsed.data)) {
+    throw new Error('llmPolicyEditProposer: redactCurrentSurfaceForModel must return a JSON object')
   }
   for (const path of allowedJsonPaths) {
     if (!jsonValuesEqual(readJsonPath(surface, path), readJsonPath(parsed.data, path))) {
       throw new Error(
-        `llmPolicyEditProposer: projectAuthorSurface must not change or hide allowed JSON path '${path}'`,
+        `llmPolicyEditProposer: redactCurrentSurfaceForModel must not change or hide editable JSON path '${path}'`,
       )
     }
   }
-  return parsed.data
+  return parsed.data as AgentProfileJsonObject
 }
 
-function readJsonPath(root: AgentProfileJson, path: string): AgentProfileJson | undefined {
+function formatJsonValidationError(error: z.ZodError): string {
+  const messages = [...new Set(collectZodMessages(error.issues))]
+  const informative = messages.filter(
+    (message) => message !== 'Invalid input' && message !== 'Invalid key in record',
+  )
+  const custom = informative.filter((message) => !message.startsWith('Invalid input: expected'))
+  return (custom.length > 0 ? custom : informative).join('; ') || 'invalid JSON value'
+}
+
+function collectZodMessages(value: unknown): string[] {
+  if (Array.isArray(value)) return value.flatMap(collectZodMessages)
+  if (!value || typeof value !== 'object') return []
+  const issue = value as Record<string, unknown>
+  return [
+    ...(typeof issue.message === 'string' ? [issue.message] : []),
+    ...collectZodMessages(issue.errors),
+    ...collectZodMessages(issue.issues),
+  ]
+}
+
+function readJsonPath(root: AgentProfileJsonObject, path: string): AgentProfileJson | undefined {
   let cursor: AgentProfileJson | undefined = root
   for (const part of path
     .split('.')

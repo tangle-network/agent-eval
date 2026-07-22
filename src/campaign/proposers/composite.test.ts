@@ -210,10 +210,28 @@ describe('compositeProposer (N proposers, one generation pool)', () => {
     expect(observedLabel).toBe('attempt-1')
   })
 
+  it('rejects member kinds that make history ownership ambiguous', () => {
+    expect(() =>
+      compositeProposer({ proposers: [stub('same', ['a']), stub('same', ['b'])] }),
+    ).toThrow(/duplicate member kind 'same'/)
+    expect(() => compositeProposer({ proposers: [stub('a:b', ['a'])] })).toThrow(
+      /must not contain ':'/,
+    )
+    expect(() => compositeProposer({ proposers: [stub(' spaced ', ['a'])] })).toThrow(
+      /trimmed and non-empty/,
+    )
+  })
+
   it('fails loud on empty membership or bad weights', () => {
     expect(() => compositeProposer({ proposers: [] })).toThrow(/at least one/)
     expect(() => compositeProposer({ proposers: [stub('a', ['x'])], weights: [0] })).toThrow(
-      /positive/,
+      /finite and positive/,
     )
+    expect(() =>
+      compositeProposer({ proposers: [stub('a', ['x'])], weights: [Number.POSITIVE_INFINITY] }),
+    ).toThrow(/finite and positive/)
+    expect(() =>
+      compositeProposer({ proposers: [stub('a', ['x'])], weights: [Number.NaN] }),
+    ).toThrow(/finite and positive/)
   })
 })
