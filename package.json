@@ -1,6 +1,6 @@
 {
   "name": "@tangle-network/agent-eval",
-  "version": "0.123.1",
+  "version": "0.123.2",
   "description": "Evaluate and improve AI agents from runs, traces, judges, and feedback. Compare candidates, cluster failures, measure lift, and gate releases.",
   "homepage": "https://github.com/tangle-network/agent-eval#readme",
   "repository": {

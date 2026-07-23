@@ -45,6 +45,20 @@ describe('maximumChargeForLlmRequest', () => {
     expect(structured && 'outputTokens' in structured ? structured.outputTokens : 0).toBe(1_600)
   })
 
+  it('reserves one request batch for explicit json-object schema transport', () => {
+    const maximum = maximumChargeForLlmRequest(
+      {
+        model: 'glm-5.2',
+        messages: [{ role: 'user', content: 'hello' }],
+        jsonSchema: { name: 'answer', schema: { type: 'object' } },
+        maxTokens: 400,
+      },
+      { maxRetries: 2, jsonSchemaTransport: 'json-object' },
+    )
+
+    expect(maximum && 'outputTokens' in maximum ? maximum.outputTokens : 0).toBe(800)
+  })
+
   it('returns no bound for unbounded output or image input', () => {
     expect(
       maximumChargeForLlmRequest({
@@ -577,6 +591,27 @@ describe('llm-client — callLlmJson + schema degrade', () => {
     const second = JSON.parse(bodies[1]!)
     expect(first.response_format?.type).toBe('json_schema')
     expect(second.response_format?.type).toBe('json_object')
+  })
+
+  it('uses one json_object request when the caller selects that schema transport', async () => {
+    const bodies: Array<Record<string, unknown>> = []
+    const fetch = vi.fn(async (_url: string, init: RequestInit) => {
+      bodies.push(JSON.parse(String(init.body)) as Record<string, unknown>)
+      return mkOkResponse({ choices: [{ message: { content: '{"ok": true}' } }], usage: {} })
+    }) as unknown as typeof globalThis.fetch
+
+    const { value } = await callLlmJson<{ ok: boolean }>(
+      {
+        model: 'glm-5.2',
+        messages: [{ role: 'user', content: 'Return the required JSON.' }],
+        jsonSchema: { name: 's', schema: { type: 'object' } },
+      },
+      { fetch, jsonSchemaTransport: 'json-object' },
+    )
+
+    expect(value.ok).toBe(true)
+    expect(bodies).toHaveLength(1)
+    expect(bodies[0]?.response_format).toEqual({ type: 'json_object' })
   })
 
   it('does NOT degrade on non-schema-related 400', async () => {

@@ -80,13 +80,14 @@ export function maximumChargeForLlmRequest(
   }
 
   const attempts = resolveMaximumAttempts(options.maxRetries)
+  const forceJsonObject = options.jsonSchemaTransport === 'json-object'
   // A byte-level tokenizer cannot emit more input tokens than request bytes.
   // Pricing the complete body also covers role/schema framing omitted from content-only estimates.
   const requestBytes = new TextEncoder().encode(
-    JSON.stringify(buildBody(request, false)),
+    JSON.stringify(buildBody(request, forceJsonObject)),
   ).byteLength
   // A rejected response schema can trigger one JSON-mode batch with the same output limit.
-  const batches = request.jsonSchema ? 2 : 1
+  const batches = request.jsonSchema && !forceJsonObject ? 2 : 1
   return {
     model: request.model,
     inputTokens: requestBytes * attempts * batches,
@@ -210,6 +211,13 @@ export interface LlmClientOptions {
   deadlineMs?: number
   /** Total provider attempts. Legacy option name; default 3 (1 initial + 2 retries). */
   maxRetries?: number
+  /**
+   * Transport for requests that declare `jsonSchema`. `native` sends
+   * `response_format: json_schema`; `json-object` sends the broadly supported
+   * JSON mode and relies on the caller to include the schema in model-visible
+   * instructions. Default: `native`.
+   */
+  jsonSchemaTransport?: 'native' | 'json-object'
   /** Fetch implementation — defaults to global `fetch`. Override for custom transport (e.g. tests). */
   fetch?: typeof fetch
   /**
@@ -532,7 +540,7 @@ export async function callLlm(
     const attemptSignal = linkSignals(controller, callerSignal)
     const timeoutHandle = setTimeout(() => controller.abort(), timeoutMs)
     const started = Date.now()
-    const requestBody = buildBody(req, false)
+    const requestBody = buildBody(req, opts.jsonSchemaTransport === 'json-object')
     let attemptErrorRecorded = false
     if (sink) {
       await recordRaw(sink, redactor, {
@@ -805,7 +813,12 @@ async function callLlmStructured(
   try {
     return await callLlm({ ...req, jsonMode: req.jsonMode ?? !req.jsonSchema }, opts)
   } catch (err) {
-    if (err instanceof LlmCallError && isSchemaRejection(err.status, err.body) && req.jsonSchema) {
+    if (
+      opts.jsonSchemaTransport !== 'json-object' &&
+      err instanceof LlmCallError &&
+      isSchemaRejection(err.status, err.body) &&
+      req.jsonSchema
+    ) {
       const degradedReq: LlmCallRequest = { ...req, jsonMode: true, jsonSchema: undefined }
       return await callLlm(degradedReq, opts)
     }

@@ -394,6 +394,14 @@ const POLICY_EDIT_AUTHOR_SYSTEM = [
   'Do not invent a finding, path, field, score, or task fact. Do not include schemaVersion, editId, metadata, prose, or undeclared keys.',
 ].join('\n')
 
+function policyEditAuthorSystem(responseSchema: Record<string, unknown>): string {
+  return [
+    POLICY_EDIT_AUTHOR_SYSTEM,
+    'The exact required response JSON Schema follows. Obey it even when the provider does not enforce response_format:',
+    JSON.stringify(responseSchema),
+  ].join('\n')
+}
+
 export interface LlmPolicyEditProposerOptions {
   llm: LlmClientOptions
   model: string
@@ -561,15 +569,16 @@ export function llmPolicyEditProposer(
         allowedJsonPaths,
         objectives,
       )
+      const system = policyEditAuthorSystem(responseSchema)
       assertPolicyEditAuthorContextBudget(
-        { system: POLICY_EDIT_AUTHOR_SYSTEM, authorContext, responseSchema },
+        { system, authorContext, responseSchema },
         maxAuthorContextChars,
       )
       const userContent = JSON.stringify(authorContext)
       const request: LlmCallRequest = {
         model: opts.model,
         messages: [
-          { role: 'system', content: POLICY_EDIT_AUTHOR_SYSTEM },
+          { role: 'system', content: system },
           { role: 'user', content: userContent },
         ],
         jsonSchema: {
