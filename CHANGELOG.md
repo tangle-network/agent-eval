@@ -53,6 +53,14 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 - `runSkillOpt({ holdoutScenarios })` fails closed because those rows are adaptively reused.
   Pass `selectionScenarios`; selection result fields now use `Selection` instead of `Holdout`, and `lift` is now `selectionLift`.
 
+## [0.123.6] — 2026-07-23 — optimization and rollout exports
+
+### Added
+
+- `mintRolloutRows()` joins existing run records and traces into `tangle.rollout.v1` rows; `toSftRows()`, `toRewardRows()`, and `toJsonl()` serialize clean-success and reward-labeled training data while preserving missing-trace and realness-block evidence.
+- `gepaOptimizationMethod()` delegates bounded single-engine and Omni-shaped `optimize_best_of()` then `optimize_anything()` recipes to GEPA through the optional `agent-eval-rpc[gepa]` bridge.
+  The caller chooses the train and selection fields sent to GEPA, final comparison cases remain inside `agent-eval`, and proposer spend without agent-eval receipts is reported as incomplete.
+
 ## [0.122.2] — 2026-07-17 — premeasured optimization continuation
 
 ### Added
