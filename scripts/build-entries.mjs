@@ -19,6 +19,7 @@ export const buildEntries = {
   'authenticity/index': 'src/authenticity/index.ts',
   'belief-state/index': 'src/belief-state/index.ts',
   'contract/index': 'src/contract/index.ts',
+  'rollout/index': 'src/rollout/index.ts',
   'hosted/index': 'src/hosted/index.ts',
   cli: 'src/cli.ts',
 }

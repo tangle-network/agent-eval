@@ -395,26 +395,38 @@ export {
 } from './pr-review-benchmark'
 export { ScenarioRegistry } from './registry'
 export { formatBenchmarkReport, formatDriverReport, printDriverSummary } from './reporter'
-// ── Rollout export ────────────────────────────────────────────────────
-// `tangle.rollout.v1` training rows minted from the records the substrate
-// already keeps: RunRecord × trace (joined on runId), realness-gate carried
-// into the reward so fine-tunes can't learn from gamed successes.
+// ── Rollout — `tangle.rollout.v1` ────────────────────────────────────
+// THE canonical rollout serialization: schema + ledger + minting from
+// RunRecord × trace (joined on runId, realness-gate carried into the
+// reward), harness-store readers, exporters, and the release pipeline.
+// Full surface on the `@tangle-network/agent-eval/rollout` subpath.
 export {
+  assertRolloutLine,
+  type ChatMessage,
+  type ChatToolCall,
+  isRolloutLine,
+  isTrainableSplit,
   type MintRolloutOptions,
   type MintRolloutResult,
   mintRolloutRows,
   type RewardRow,
   ROLLOUT_FORMAT,
-  type RolloutRow,
+  ROLLOUT_SCHEMA,
+  type RolloutCapture,
+  type RolloutLine,
+  type RolloutRole,
   type RolloutScrubber,
+  type RolloutSplit,
   type RolloutStep,
   rolloutReward,
   type SftExportOptions,
   type SftRow,
+  type ToolDef,
   toJsonl,
   toRewardRows,
   toSftRows,
-} from './rollout-export'
+  validateRolloutLine,
+} from './rollout/index'
 export type {
   ControlRunToRunRecordOptions,
   RunEvidenceMetadata,
