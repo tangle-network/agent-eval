@@ -148,6 +148,7 @@ function proposer(input: {
   maxHistoryCandidatesPerGeneration?: number
   scenarioIdTransform?: (scenarioId: string) => string
   maxScenariosPerCandidate?: number
+  scenarioOrder?: 'ranked' | 'input'
   maxFindings?: number
   maxAuthorContextChars?: number
   objectives?: PolicyEditObjective[]
@@ -187,6 +188,7 @@ function proposer(input: {
     ...(input.maxScenariosPerCandidate === undefined
       ? {}
       : { maxScenariosPerCandidate: input.maxScenariosPerCandidate }),
+    ...(input.scenarioOrder === undefined ? {} : { scenarioOrder: input.scenarioOrder }),
     ...(input.maxFindings === undefined ? {} : { maxFindings: input.maxFindings }),
     ...(input.maxAuthorContextChars === undefined
       ? {}
@@ -549,6 +551,86 @@ describe('llmPolicyEditProposer', () => {
     expect(capture.system).toContain('observedDeltaFromParent')
   })
 
+  it('preserves caller row order so shuffled outcome labels change no other author input', async () => {
+    const scenarioIds = ['input-first', 'input-second', 'input-third']
+    type AuthorScenarioRow = { scenarioId: string; composite: number; notes: null }
+    type CapturedAuthorContext = {
+      baselineOutcome: { scenarios: AuthorScenarioRow[] }
+      incumbentOutcome: { scenarios: AuthorScenarioRow[] }
+      history: Array<{ candidates: Array<{ scenarios: AuthorScenarioRow[] }> }>
+    }
+    const captureFor = async (
+      labels: readonly number[],
+      scenarioOrder?: 'ranked' | 'input',
+    ): Promise<CapturedAuthorContext> => {
+      const rows = scenarioIds.map((scenarioId, index) => ({
+        scenarioId,
+        composite: labels[index]!,
+        notes: null,
+      }))
+      const outcome = (surfaceHash: string, generation: number): ScoredSurfaceOutcome => ({
+        split: 'search',
+        generation,
+        surfaceHash,
+        composite: 0.5,
+        dimensions: { correctness: 0.5 },
+        scenarios: rows,
+        coverage: { expectedCells: 3, scorableCells: 3 },
+      })
+      const capture: CapturedRequest = {}
+      await proposer({ response: { edits: [] }, capture, scenarioOrder }).propose(
+        context({
+          finding: finding(),
+          generation: 1,
+          baselineOutcome: outcome('baseline', -1),
+          incumbentOutcome: outcome('candidate', 0),
+          history: [
+            historyGeneration(
+              0,
+              [
+                {
+                  ...historyCandidate('candidate', 0.5),
+                  scenarios: rows,
+                },
+              ],
+              ['candidate'],
+            ),
+          ],
+        }),
+      )
+      return capture.user as unknown as CapturedAuthorContext
+    }
+    const scenarioCollections = (authorContext: CapturedAuthorContext): AuthorScenarioRow[][] => [
+      authorContext.baselineOutcome.scenarios,
+      authorContext.incumbentOutcome.scenarios,
+      authorContext.history[0]!.candidates[0]!.scenarios,
+    ]
+    const eraseLabels = (authorContext: CapturedAuthorContext): CapturedAuthorContext => {
+      const clone = structuredClone(authorContext)
+      for (const rows of scenarioCollections(clone)) {
+        for (const row of rows) row.composite = 0
+      }
+      return clone
+    }
+
+    const observed = await captureFor([0.9, 0.1, 0.5], 'input')
+    const shuffled = await captureFor([0.1, 0.9, 0.5], 'input')
+    for (const rows of [...scenarioCollections(observed), ...scenarioCollections(shuffled)]) {
+      expect(rows.map((row) => row.scenarioId)).toEqual(scenarioIds)
+    }
+    expect(observed).not.toEqual(shuffled)
+    expect(eraseLabels(observed)).toEqual(eraseLabels(shuffled))
+
+    const rankedDefault = await captureFor([0.9, 0.1, 0.5])
+    for (const rows of scenarioCollections(rankedDefault)) {
+      expect(rows.map((row) => row.scenarioId)).toEqual([
+        'input-second',
+        'input-third',
+        'input-first',
+      ])
+    }
+  })
+
   it('includes later scored history and applies the exact authored merge operation', async () => {
     const source = finding()
     const history: GenerationRecord[] = [
@@ -881,6 +963,28 @@ describe('llmPolicyEditProposer', () => {
         .flatMap((generation) => generation.candidates)
         .some((candidate) => 'ci95' in candidate),
     ).toBe(false)
+  })
+
+  it('threads explicit input order through the public history projection', () => {
+    const candidate = {
+      ...historyCandidate('candidate', 0.5),
+      scenarios: [
+        { scenarioId: 'first-high', composite: 0.9 },
+        { scenarioId: 'second-low', composite: 0.1 },
+        { scenarioId: 'third-middle', composite: 0.5 },
+      ],
+    }
+    const history = [historyGeneration(0, [candidate])]
+
+    const defaultIds = projectPolicyEditHistory(history)[0]!.candidates[0]!.scenarios.map(
+      (row) => row.scenarioId,
+    )
+    const inputIds = projectPolicyEditHistory(history, {
+      scenarioOrder: 'input',
+    })[0]!.candidates[0]!.scenarios.map((row) => row.scenarioId)
+
+    expect(defaultIds).toEqual(['second-low', 'third-middle', 'first-high'])
+    expect(inputIds).toEqual(['first-high', 'second-low', 'third-middle'])
   })
 
   it('fails closed when scored history carries an invalid candidate record', () => {

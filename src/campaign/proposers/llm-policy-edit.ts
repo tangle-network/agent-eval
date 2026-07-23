@@ -35,6 +35,7 @@ import type {
 import { policyEditProposer } from './policy-edit'
 import {
   assertPolicyEditAuthorContextBudget,
+  type PolicyEditAuthorScenarioOrder,
   selectPolicyEditAuthorRows,
 } from './policy-edit-author-context'
 
@@ -296,8 +297,10 @@ export interface PolicyEditHistoryProjectionOptions {
   maxGenerations?: number
   /** Number of candidates retained per generation. Default: 16. */
   maxCandidatesPerGeneration?: number
-  /** Scored tasks retained per candidate/outcome after deterministic extreme selection. */
+  /** Maximum scored tasks retained per candidate/outcome. */
   maxScenariosPerCandidate?: number
+  /** Ranked evidence selection by default; `input` preserves first-occurrence caller order. */
+  scenarioOrder?: PolicyEditAuthorScenarioOrder
   /** Optional pseudonymizer applied before scenario IDs enter author text. */
   scenarioIdTransform?: (scenarioId: string) => string
   /** Objectives used to compute forecast residuals from measured composite deltas. */
@@ -406,8 +409,10 @@ export interface LlmPolicyEditProposerOptions {
   maxHistoryGenerations?: number
   /** Candidates retained per admitted generation. Default: 16. */
   maxHistoryCandidatesPerGeneration?: number
-  /** Scored tasks retained per candidate/outcome after deterministic extreme selection. */
+  /** Maximum scored tasks retained per candidate/outcome. */
   maxScenariosPerCandidate?: number
+  /** Ranked evidence selection by default; `input` preserves first-occurrence caller order. */
+  scenarioOrder?: PolicyEditAuthorScenarioOrder
   /** Evidence-bearing findings retained after deterministic severity/confidence ordering. */
   maxFindings?: number
   /** Hard character limit over system + schema + serialized author context. */
@@ -467,6 +472,7 @@ export function llmPolicyEditProposer(
     ...(opts.maxScenariosPerCandidate === undefined
       ? {}
       : { maxScenariosPerCandidate: opts.maxScenariosPerCandidate }),
+    ...(opts.scenarioOrder === undefined ? {} : { scenarioOrder: opts.scenarioOrder }),
     ...(opts.scenarioIdTransform === undefined
       ? {}
       : { scenarioIdTransform: opts.scenarioIdTransform }),
@@ -527,11 +533,13 @@ export function llmPolicyEditProposer(
           ctx.baselineOutcome,
           scenarioIds,
           historyLimits.maxScenariosPerCandidate,
+          historyLimits.scenarioOrder,
         ),
         incumbentOutcome: projectOutcome(
           ctx.incumbentOutcome,
           scenarioIds,
           historyLimits.maxScenariosPerCandidate,
+          historyLimits.scenarioOrder,
           ctx.baselineOutcome,
         ),
         history: projectPolicyEditHistoryWithProjector(
@@ -662,6 +670,7 @@ function projectPolicyEditHistoryWithProjector(
           candidate,
           scenarioIds,
           limits.maxScenariosPerCandidate,
+          limits.scenarioOrder,
           candidate.parentSurfaceHash
             ? candidateByHash.get(candidate.parentSurfaceHash)?.scenarios
             : undefined,
@@ -699,6 +708,7 @@ function projectHistoryCandidate(
   candidate: GenerationCandidate,
   scenarioIds: ScenarioIdProjector,
   maxScenarios: number,
+  scenarioOrder: PolicyEditAuthorScenarioOrder,
   parentScenarios: GenerationCandidate['scenarios'] | undefined,
   objectiveByKey: ReadonlyMap<string, PolicyEditObjective>,
 ): PolicyEditHistoryCandidateContext {
@@ -707,6 +717,7 @@ function projectHistoryCandidate(
     : undefined
   const selectedScenarios = selectPolicyEditAuthorRows(candidate.scenarios, {
     limit: maxScenarios,
+    scenarioOrder,
     ...(referenceByScenario ? { referenceByScenario } : {}),
   })
   const validatedRecord = candidate.candidateRecord
@@ -754,6 +765,7 @@ function projectOutcome(
   outcome: ScoredSurfaceOutcome | undefined,
   scenarioIds: ScenarioIdProjector,
   maxScenarios: number,
+  scenarioOrder: PolicyEditAuthorScenarioOrder,
   reference: ScoredSurfaceOutcome | undefined = undefined,
 ): PolicyEditOutcomeContext | null {
   if (!outcome) return null
@@ -762,6 +774,7 @@ function projectOutcome(
     : undefined
   const selectedScenarios = selectPolicyEditAuthorRows(outcome.scenarios, {
     limit: maxScenarios,
+    scenarioOrder,
     ...(referenceByScenario ? { referenceByScenario } : {}),
   })
   return {
@@ -1075,6 +1088,7 @@ function validateHistoryLimits(options: PolicyEditHistoryProjectionOptions): {
   maxGenerations: number
   maxCandidatesPerGeneration: number
   maxScenariosPerCandidate: number
+  scenarioOrder: PolicyEditAuthorScenarioOrder
   scenarioIdTransform: (scenarioId: string) => string
 } {
   const maxGenerations = options.maxGenerations ?? DEFAULT_POLICY_EDIT_HISTORY_LIMITS.generations
@@ -1082,6 +1096,7 @@ function validateHistoryLimits(options: PolicyEditHistoryProjectionOptions): {
     options.maxCandidatesPerGeneration ?? DEFAULT_POLICY_EDIT_HISTORY_LIMITS.candidatesPerGeneration
   const maxScenariosPerCandidate =
     options.maxScenariosPerCandidate ?? DEFAULT_POLICY_EDIT_HISTORY_LIMITS.scenariosPerCandidate
+  const scenarioOrder = options.scenarioOrder ?? 'ranked'
   if (!Number.isSafeInteger(maxGenerations) || maxGenerations <= 0) {
     throw new Error('llmPolicyEditProposer: maxHistoryGenerations must be a positive safe integer')
   }
@@ -1095,10 +1110,14 @@ function validateHistoryLimits(options: PolicyEditHistoryProjectionOptions): {
       'llmPolicyEditProposer: maxScenariosPerCandidate must be a positive safe integer',
     )
   }
+  if (scenarioOrder !== 'ranked' && scenarioOrder !== 'input') {
+    throw new Error("llmPolicyEditProposer: scenarioOrder must be 'ranked' or 'input'")
+  }
   return {
     maxGenerations,
     maxCandidatesPerGeneration,
     maxScenariosPerCandidate,
+    scenarioOrder,
     scenarioIdTransform: options.scenarioIdTransform ?? ((scenarioId) => scenarioId),
   }
 }

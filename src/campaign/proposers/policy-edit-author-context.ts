@@ -4,11 +4,15 @@ export interface PolicyEditAuthorScenarioRow {
   composite: number
 }
 
+export type PolicyEditAuthorScenarioOrder = 'ranked' | 'input'
+
 export interface SelectPolicyEditAuthorRowsOptions {
   /** Maximum returned rows. Must be a positive safe integer. */
   limit: number
   /** Optional score to compare against, keyed by scenario ID. */
   referenceByScenario?: ReadonlyMap<string, number>
+  /** Ranked evidence selection by default; `input` preserves first-occurrence caller order. */
+  scenarioOrder?: PolicyEditAuthorScenarioOrder
 }
 
 export interface SerializedJsonBudget {
@@ -25,15 +29,19 @@ interface RankedRow<T> {
 /**
  * Select a bounded, deterministic evidence slice for a PolicyEdit author.
  *
- * Rows are deduplicated by scenario ID, keeping the first measured row. The
- * result then interleaves three ranked views: hardest score, largest regression,
- * and largest improvement. A row selected by multiple views appears once.
+ * Rows are deduplicated by scenario ID, keeping the first measured row. Ranked
+ * selection (the default) interleaves hardest score, largest regression, and
+ * largest improvement. Input selection retains first-occurrence caller order.
  */
 export function selectPolicyEditAuthorRows<T extends PolicyEditAuthorScenarioRow>(
   rows: readonly T[],
   options: SelectPolicyEditAuthorRowsOptions,
 ): T[] {
   assertPositiveSafeInteger(options.limit, 'limit')
+  const scenarioOrder = options.scenarioOrder ?? 'ranked'
+  if (scenarioOrder !== 'ranked' && scenarioOrder !== 'input') {
+    throw new Error("selectPolicyEditAuthorRows: scenarioOrder must be 'ranked' or 'input'")
+  }
 
   const unique = new Map<string, RankedRow<T>>()
   for (const row of rows) {
@@ -57,6 +65,10 @@ export function selectPolicyEditAuthorRows<T extends PolicyEditAuthorScenarioRow
       row,
       delta: reference === undefined ? null : row.composite - reference,
     })
+  }
+
+  if (scenarioOrder === 'input') {
+    return [...unique.values()].slice(0, options.limit).map(({ row }) => row)
   }
 
   const hardest = [...unique.values()].sort(

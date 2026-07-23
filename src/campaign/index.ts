@@ -310,6 +310,7 @@ export {
 } from './proposers/policy-edit'
 export {
   assertPolicyEditAuthorContextBudget,
+  type PolicyEditAuthorScenarioOrder,
   type PolicyEditAuthorScenarioRow,
   type SelectPolicyEditAuthorRowsOptions,
   type SerializedJsonBudget,
