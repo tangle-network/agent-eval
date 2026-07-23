@@ -7,6 +7,7 @@ import {
   isTransientLlmError,
   LlmCallError,
   LlmClient,
+  LlmResponseError,
   maximumChargeForLlmRequest,
   stripFencedJson,
 } from './llm-client'
@@ -772,6 +773,35 @@ describe('llm-client — callLlmJson + schema degrade', () => {
       { fetch },
     )
     expect(value.wrapped).toBe(true)
+  })
+
+  it('requires one complete JSON value in exact payload mode', async () => {
+    const exactFetch = mockFetch([
+      async () =>
+        mkOkResponse({ choices: [{ message: { content: ' \n {"wrapped": true}\t' } }], usage: {} }),
+    ])
+    const { value } = await callLlmJson<{ wrapped: boolean }>(
+      { model: 'm', messages: [{ role: 'user', content: 'x' }] },
+      { fetch: exactFetch, jsonPayloadMode: 'exact' },
+    )
+    expect(value.wrapped).toBe(true)
+
+    for (const content of [
+      'before {"wrapped":true}',
+      '{"wrapped":true} after',
+      '```json\n{"wrapped":true}\n```',
+      '{"wrapped":true}{"second":true}',
+    ]) {
+      const fetch = mockFetch([
+        async () => mkOkResponse({ choices: [{ message: { content } }], usage: {} }),
+      ])
+      await expect(
+        callLlmJson(
+          { model: 'm', messages: [{ role: 'user', content: 'x' }] },
+          { fetch, jsonPayloadMode: 'exact' },
+        ),
+      ).rejects.toBeInstanceOf(LlmResponseError)
+    }
   })
 })
 
