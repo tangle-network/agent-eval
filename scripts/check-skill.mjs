@@ -16,11 +16,26 @@ const maxDescriptionChars = 96
 const maxSkillBytes = 20_000
 const errors = []
 
+function frontmatterField(frontmatter, key) {
+  if (!frontmatter) return undefined
+  const lines = frontmatter.split('\n')
+  const index = lines.findIndex((line) => line.startsWith(`${key}:`))
+  if (index === -1) return undefined
+
+  const value = lines[index].slice(key.length + 1).trim()
+  if (!/^[>|][0-9+-]*$/.test(value)) return value.replace(/^["']|["']$/g, '')
+
+  const continuation = []
+  for (const line of lines.slice(index + 1)) {
+    if (line && !/^\s/.test(line)) break
+    continuation.push(line.trim())
+  }
+  return (value.startsWith('>') ? continuation.join(' ') : continuation.join('\n')).trim()
+}
+
 const frontmatter = content.match(/^---\n([\s\S]*?)\n---(?:\n|$)/)?.[1]
-const name = frontmatter?.match(/^name:\s*["']?([^"'\n]+)["']?$/m)?.[1]
-const description = frontmatter
-  ?.match(/^description:\s*(.+)$/m)?.[1]
-  ?.replace(/^["']|["']$/g, '')
+const name = frontmatterField(frontmatter, 'name')
+const description = frontmatterField(frontmatter, 'description')
 
 if (name !== 'agent-eval') {
   errors.push(`skill frontmatter name is ${JSON.stringify(name)}`)
