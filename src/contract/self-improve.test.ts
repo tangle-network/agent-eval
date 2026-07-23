@@ -507,6 +507,58 @@ describe('selfImprove — maxImprovementShots passthrough', () => {
   })
 })
 
+describe('selfImprove — candidate concurrency passthrough', () => {
+  async function observedCandidateConcurrency(candidateConcurrency?: number): Promise<number> {
+    let active = 0
+    let maxActive = 0
+    const expected = candidateConcurrency ?? 1
+    let releaseExpected: () => void = () => undefined
+    const expectedActive = new Promise<void>((resolve) => {
+      releaseExpected = resolve
+    })
+    const proposer: SurfaceProposer = {
+      kind: 'concurrency-probe',
+      propose: async () => ['CANDIDATE-1', 'CANDIDATE-2', 'CANDIDATE-3'],
+    }
+
+    await selfImprove({
+      agent: async (surface, scenario, ctx) => {
+        if (surface === 'BASELINE') return stubAgent(surface, scenario, ctx)
+        active += 1
+        maxActive = Math.max(maxActive, active)
+        if (active === expected) releaseExpected()
+        try {
+          await expectedActive
+          return await stubAgent(surface, scenario, ctx)
+        } finally {
+          active -= 1
+        }
+      },
+      scenarios,
+      judge,
+      baselineSurface: 'BASELINE',
+      proposer,
+      budget: {
+        generations: 1,
+        populationSize: 3,
+        maxConcurrency: 1,
+        holdout: 'deferred',
+        ...(candidateConcurrency === undefined ? {} : { candidateConcurrency }),
+      },
+    })
+
+    return maxActive
+  }
+
+  it('scores one candidate campaign at a time by default', async () => {
+    expect(await observedCandidateConcurrency()).toBe(1)
+  })
+
+  it('forwards an explicit concurrent candidate count', async () => {
+    expect(await observedCandidateConcurrency(2)).toBe(2)
+  })
+})
+
 describe('selfImprove — deferred holdout', () => {
   const winJudge: JudgeConfig<{ text: string }, Scenario> = {
     name: 'win-judge',
