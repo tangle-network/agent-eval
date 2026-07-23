@@ -139,6 +139,19 @@ with HostedClient(
 Review [`hosted.py`](./src/agent_eval_rpc/hosted.py) for the typed event fields and retry behavior.
 The event payload can include run paths, scenario IDs, candidate values, scores, errors, costs, summaries, and trace attributes.
 
+## Optional GEPA Candidate Search
+
+Install `agent-eval-rpc[gepa]` to use `gepaOptimizationMethod()` from the Node campaign API.
+This extra pins GEPA commit `f919db0` because the published `gepa==0.1.4` package does not yet include its four-engine Optimize Anything API.
+The Python bridge calls GEPA's own Optimize Anything recipes for text candidates, then calls a loopback endpoint that runs the real TypeScript agent and judges.
+It starts GEPA in an empty run directory and gives it only caller-described train and selection cases.
+`compareOptimizationMethods()` keeps final test cases in Node and scores them after GEPA exits.
+
+The bridge maps the documented Omni shape directly to GEPA's `optimize_best_of()` followed by `optimize_anything()`.
+It does not reproduce GEPA's search loop.
+Each GEPA engine run requires its own evaluation limit and proposer-dollar cap.
+GEPA's proposer cost is still reported separately from agent-eval's receipt log, so method comparisons mark its cost accounting incomplete rather than treating a reported zero as confirmed spend.
+
 ## Errors
 
 | Exception | Meaning |

@@ -168,6 +168,13 @@ export {
   type PairedHoldout,
   pairHoldout,
 } from './gates/statistical-heldout'
+export {
+  type GepaEngineRun,
+  type GepaOptimizationMethodConfig,
+  type GepaOptimizationRecipe,
+  type GepaRunnerCommand,
+  gepaOptimizationMethod,
+} from './gepa-optimization-method'
 // ── Grounded reflection + run hygiene (lifted from agent-lab R357/R358) ──
 export {
   classifyUngroundedLiterals,

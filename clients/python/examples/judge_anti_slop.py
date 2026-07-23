@@ -15,6 +15,8 @@ judge LLM.
 
 from __future__ import annotations
 
+import pytest
+
 from agent_eval_rpc import Client, RubricNotFoundError, ValidationError
 
 
@@ -35,8 +37,6 @@ def main() -> None:
 
 # ── tests ───────────────────────────────────────────────────────────────────
 # Treat the example as a pytest-runnable contract: shape, types, error paths.
-
-import pytest
 
 
 def test_judge_returns_composite_in_range():
