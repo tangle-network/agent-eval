@@ -92,6 +92,72 @@ const comparison = await compareOptimizationMethods<MyScenario, MyArtifact>({
 
 The runnable version is [`examples/compare-optimization-methods`](../examples/compare-optimization-methods/).
 
+## External GEPA
+
+`gepaOptimizationMethod()` passes a text surface, such as a prompt or JSON retrieval policy, to GEPA's own `optimize_anything` API.
+GEPA remains the source of truth for built-in and caller-registered engine names.
+It does not edit a repository, ingest a knowledge base, or replace a retrieval engine.
+
+Install the optional Python bridge first:
+
+```sh
+pip install 'agent-eval-rpc[gepa]'
+```
+
+The extra pins a GEPA source commit because the published `gepa==0.1.4` package does not contain this multi-engine API.
+Update the pin only after repeating the integration smoke and comparison benchmarks.
+
+```ts
+import { gepaOptimizationMethod } from '@tangle-network/agent-eval/campaign'
+
+const externalGepa = gepaOptimizationMethod<MyScenario, MyArtifact>({
+  recipe: {
+    kind: 'best-of-then-continue',
+    explore: [
+      { engine: 'gepa', maxEvaluations: 6, maxProposerCostUsd: 5 },
+      { engine: 'autoresearch', maxEvaluations: 6, maxProposerCostUsd: 5 },
+      { engine: 'meta_harness', maxEvaluations: 6, maxProposerCostUsd: 5 },
+    ],
+    continueWith: { engine: 'gepa', maxEvaluations: 6, maxProposerCostUsd: 5 },
+  },
+  objective: 'Return a better retrieval policy as JSON.',
+  describeScenario: (scenario) => ({ id: scenario.id }),
+})
+
+const comparison = await compareOptimizationMethods({
+  methods: [gepaParetoMethod(methodConfig), externalGepa],
+  baselineSurface,
+  trainScenarios,
+  selectionScenarios,
+  testScenarios,
+  dispatchWithSurface,
+  judges,
+  runDir,
+})
+```
+
+This recipe is GEPA's published Omni shape: the bridge calls GEPA's `optimize_best_of(...)` for the parallel exploration stage, then its `optimize_anything(...)` for the fresh continuation stage.
+It does not implement a local optimizer or scheduler.
+GEPA reports Omni winning its matched-budget, 10-task Frontier-CS experiment, but that is not evidence that it wins your task.
+Run it alongside current methods and select only on fresh final cases.
+
+The bridge serializes only the values returned by `describeScenario()` for train and selection cases.
+Final test cases remain in `compareOptimizationMethods()` and are first scored after GEPA exits.
+By default, GEPA starts in its empty run directory.
+Do not set `runner.cwd` to a location that contains final cases.
+
+Each engine run declares its own `maxEvaluations` and `maxProposerCostUsd`.
+The local callback enforces the sum of the recipe's evaluation limits before it runs an agent or judge.
+The sum of `maxProposerCostUsd` values is a requested GEPA spend cap, but GEPA's reported cost is not an agent-eval receipt.
+The comparison therefore marks that method's cost accounting incomplete and never treats a reported `$0` as confirmed spend.
+
+Use `{ kind: 'engine', run: { ... } }` to call one GEPA engine directly.
+`engineConfig` is passed directly to that GEPA engine.
+The bridge accepts any trimmed engine string and GEPA validates whether it is installed or registered.
+
+For `agent-knowledge`, use this only to compare a text retrieval policy against `runRetrievalImprovementLoop()`.
+Keep source acquisition, knowledge writes, provenance, freshness, memory, and promotion in `agent-knowledge`.
+
 ## Data Use
 
 | Set | Who can read it | Purpose |
