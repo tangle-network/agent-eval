@@ -21,6 +21,7 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ### Fixed
 
+- Include the complete required response shape in `llmPolicyEditProposer` model instructions, and add `LlmClientOptions.jsonSchemaTransport: 'json-object'` for providers that do not implement native JSON Schema enforcement.
 - `compositeProposer` restores each member's original labels when replaying history, so stateful members do not repeat candidates whose labels were decorated for provenance.
 - `InsightReport.interRater.kappa` now reports quadratic weighted kappa instead of Pearson correlation.
   Read `interRater.pearson` for the previous correlation measure; `icc` and `spearman` are now reported separately.
