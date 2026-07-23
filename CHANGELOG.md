@@ -32,6 +32,7 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
   Bootstrap intervals adjust across all method contrasts, and the default resample count increases when needed to represent the adjusted tails.
   `optimizationConcurrency` can run independent methods in parallel.
 - `runSkillOpt()` validates every numeric control before scoring, enforces `patchesPerEpoch` for custom proposers, and no longer mutates the caller's `runDir`.
+- Include the complete required response shape in `llmPolicyEditProposer` model instructions, and add `LlmClientOptions.jsonSchemaTransport: 'json-object'` for providers that do not implement native JSON Schema enforcement.
 - `compositeProposer` restores each member's original labels when replaying history, so stateful members do not repeat candidates whose labels were decorated for provenance.
 - `InsightReport.interRater.kappa` now reports quadratic weighted kappa instead of Pearson correlation.
   Read `interRater.pearson` for the previous correlation measure; `icc` and `spearman` are now reported separately.

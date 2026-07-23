@@ -160,6 +160,7 @@ function proposer(input: {
   admissionMode?: 'evidence-only' | 'strict'
   admission?: PolicyEditAdmissionOptions
   redactCurrentSurfaceForModel?: (surface: AgentProfileJsonObject) => AgentProfileJsonObject
+  jsonSchemaTransport?: 'native' | 'json-object'
 }) {
   return llmPolicyEditProposer({
     llm: {
@@ -170,6 +171,9 @@ function proposer(input: {
         input.capture,
         input.finishReason,
       ),
+      ...(input.jsonSchemaTransport === undefined
+        ? {}
+        : { jsonSchemaTransport: input.jsonSchemaTransport }),
     },
     model: 'test-model-snapshot',
     target: 'canonical agent profile JSON',
@@ -276,6 +280,13 @@ describe('llmPolicyEditProposer', () => {
     expect(providerSchema).toContain('"mode":{"const":"set"}')
     expect(providerSchema).toContain('"mode":{"const":"merge"}')
     expect(providerSchema).toContain('"mode":{"const":"remove"}')
+    const schemaMarker =
+      'The exact required response JSON Schema follows. Obey it even when the provider does not enforce response_format:\n'
+    const textSchema = capture.system?.split(schemaMarker)
+    expect(textSchema).toHaveLength(2)
+    expect(JSON.parse(textSchema![1]!)).toEqual(
+      (capture.responseFormat?.json_schema as { schema: Record<string, unknown> }).schema,
+    )
   })
 
   it('redacts private fields from model input and applies edits to the complete surface', async () => {
@@ -312,6 +323,21 @@ describe('llmPolicyEditProposer', () => {
         },
       },
     })
+  })
+
+  it('sends the complete prompted schema through json-object-only providers', async () => {
+    const capture: CapturedRequest = {}
+    const out = await proposer({
+      response: { edits: [authoredEdit('finding-1')] },
+      capture,
+      jsonSchemaTransport: 'json-object',
+    }).propose(context({ finding: finding() }))
+
+    expect(out).toHaveLength(1)
+    expect(capture.responseFormat).toEqual({ type: 'json_object' })
+    expect(capture.system).toContain(
+      '"required":["axis","target","change","claim","expectedGain","confidence","risk","source","rationale","validationPlan"]',
+    )
   })
 
   it('rejects a non-object redaction result before model dispatch', async () => {
