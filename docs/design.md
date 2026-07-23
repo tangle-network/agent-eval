@@ -64,7 +64,6 @@ These files record operating conventions for maintainers and internal agents.
 They are not adoption reference:
 
 - [`building-doctrine.md`](./building-doctrine.md): conventions our agents follow when consuming this package (reachable model defaults, probe-before-debug, experiment integrity checklist)
-- [`self-improvement-map.md`](./self-improvement-map.md): how the one improvement loop is pointed at different surfaces, and the proposer bake-off narrative
 - [`design/loop-taxonomy.md`](./design/loop-taxonomy.md): the internal vocabulary for execution drivers, workers, measurements, and proposers
 - [`research-report-methodology.md`](./research-report-methodology.md): the evidence standard our own research reports are held to
 - [`.claude/skills/agent-eval/SKILL.md`](../.claude/skills/agent-eval/SKILL.md): directives for LLM agents writing integration code, encoding bug classes we have already shipped and fixed once

@@ -1,4 +1,4 @@
-"""Deterministic tests for the AppWorld non-MCP REPL worker.
+"""Deterministic tests for the AppWorld REPL worker.
 
 The router (OpenAI client) and AppWorld are stubbed at the process boundary —
 the only two external systems the worker touches. Everything in between (the
@@ -17,12 +17,18 @@ import json
 import math
 import os
 import sys
-from types import SimpleNamespace
+from types import ModuleType, SimpleNamespace
 from typing import Any
 
 import pytest
 
 sys.path.insert(0, os.path.dirname(__file__))
+try:
+    import appworld  # noqa: F401
+except ModuleNotFoundError:
+    appworld_stub = ModuleType("appworld")
+    appworld_stub.AppWorld = object  # type: ignore[attr-defined]
+    sys.modules["appworld"] = appworld_stub
 import repl_agent  # noqa: E402
 
 # ── Stubs at the two process boundaries ──────────────────────────────────
@@ -150,6 +156,7 @@ def test_completes_and_scores_success(monkeypatch: pytest.MonkeyPatch, tmp_path:
     assert res["sgc"] == 1.0
     assert res["num_tests"] == 2
     assert res["called_apis"] is True
+    assert res["token_usage"] == {"input": 180, "output": 35}
     # Cost is real, not a fabricated zero: 180 in + 35 out @ gpt-4o-mini pricing.
     expected = (180 * 0.15 + 35 * 0.60) / 1e6
     assert math.isclose(res["cost_usd"], expected, rel_tol=1e-9)
@@ -195,7 +202,7 @@ def test_otlp_lines_match_pinned_shape(monkeypatch: pytest.MonkeyPatch, tmp_path
             "STATUS_CODE_UNSET",
         }
         assert isinstance(ln["resource"]["attributes"], dict)
-    roots = [ln for ln in lines if ln["parent_span_id"] is None]
+    roots = [ln for ln in lines if ln["parent_span_id"] == ""]
     assert len(roots) == 1  # exactly one root agent span
     root = roots[0]
     assert root["attributes"]["span.kind"] == "agent"
@@ -204,7 +211,7 @@ def test_otlp_lines_match_pinned_shape(monkeypatch: pytest.MonkeyPatch, tmp_path
     kinds = {ln["attributes"]["span.kind"] for ln in lines}
     assert kinds == {"agent", "llm", "tool"}
     for ln in lines:
-        if ln["parent_span_id"] is not None:
+        if ln["parent_span_id"]:
             assert ln["parent_span_id"] == root["span_id"]
 
 
@@ -272,14 +279,14 @@ def test_stalled_llm_fails_loud(monkeypatch: pytest.MonkeyPatch, tmp_path: Any) 
     root = next(
         json.loads(l)
         for l in open(res["traces_path"]).read().splitlines()
-        if json.loads(l)["parent_span_id"] is None
+        if json.loads(l)["parent_span_id"] == ""
     )
     assert root["status"]["code"] == "STATUS_CODE_ERROR"
 
 
-def test_unpriced_model_is_nan_not_silent_zero(monkeypatch: pytest.MonkeyPatch, tmp_path: Any) -> None:
-    """Regression: an unpriced model must surface as NaN (a flaggable signal),
-    never a silent $0.00 that corrupts the cost axis downstream."""
+def test_unpriced_model_is_explicitly_uncaptured(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Any
+) -> None:
     scripted = [("```python\napis.supervisor.complete_task()\n```", 10, 2)]
     _patch(monkeypatch, scripted)
     res = repl_agent.run_task(
@@ -292,4 +299,10 @@ def test_unpriced_model_is_nan_not_silent_zero(monkeypatch: pytest.MonkeyPatch, 
         max_tokens=1500,
         out_dir=str(tmp_path),
     )
-    assert math.isnan(res["cost_usd"])
+    assert res["cost_usd"] is None
+    assert res["run_record"]["costUsd"] == 0
+    assert res["run_record"]["costProvenance"] == {"kind": "uncaptured", "usd": None}
+    with open(tmp_path / "result.json", encoding="utf-8") as handle:
+        persisted = json.load(handle)
+    assert persisted["cost_usd"] is None
+    assert persisted["token_usage"] == {"input": 10, "output": 2}

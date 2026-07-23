@@ -1,38 +1,36 @@
 # Concepts
 
-`agent-eval` is for deciding whether an agent run should pass, keep working, be
-replayed, be optimized, or be promoted.
+`agent-eval` records agent runs, scores their outputs, compares variants, and applies caller-defined release rules.
 
-It exists because agent output is not evidence. A model can say a task is done
-while the build fails, the browser flow is broken, the integration was never
-connected, or the answer lacks required sources. The package gives products a
-shared way to record runs, check outcomes, classify failures, compare variants,
-and make release decisions.
+A model can say a task is complete while the build fails, a browser flow is broken, an integration is disconnected, or required sources are missing.
+This package lets code, model judges, and human feedback check those outcomes through the same run format.
 
 ## The top-level functions
 
-Everything funnels through `/contract`. Start with `defineAgentEval()` when you
-can; drop to the raw functions when you need lower-level control.
+Start with `/contract` and `defineAgentEval()` for a new integration.
+Use the lower-level functions when you need direct control over execution, storage, or statistics.
 
 | Function | When to call it | What you give it | What you get back |
 |---|---|---|---|
 | **`defineAgentEval()`** | You have scenarios, an agent, a judge, and a baseline surface, and you want one object you can score or improve. | scenarios, agent, judge, baseline surface | `{ evaluate(), improve() }` where `evaluate()` returns a campaign result and `improve()` returns a report |
-| **`selfImprove()`** | You have a closed loop: scenarios, judge, agent in hand, and you want the substrate to propose better candidates + gate them. | scenarios, agent, judge, baseline surface | `SelfImproveResult.insight: InsightReport` + ship/hold verdict + winner surface |
+| **`selfImprove()`** | You want candidate generation, scoring, and a release decision in one call. | scenarios, agent, judge, baseline surface | report, ship/hold decision, winner surface |
 | **`loadEvalFixtureScenarios()`** | You want agents to add evals as folders with `PROMPT.md`, checks, and starter files. | `evals/<name>/PROMPT.md + EVAL.ts + package.json` | `Scenario[]` that runs through `runCampaign`; pair with `planEvalFixtureRun()` before spending tokens |
-| **`analyzeRuns()`** | You have observed runs (production traces, an approve/reject corpus, a CSV gold set) and want the same rigor packet without invoking an agent. | `RunRecord[]` + optional flags | `InsightReport` |
+| **`analyzeRuns()`** | You have existing runs and do not need to invoke an agent. | `RunRecord[]` and options | `InsightReport` |
 | **Intake adapters** (`fromFeedbackTable`, `fromOtelSpans`) | Your data isn't already in `RunRecord` shape: it's in Obsidian, Sheets, an OTel collector, etc. | source-specific input | `RunRecord[]` ready to pipe into `analyzeRuns()` |
 
-The customer maturity stages: logs only → ratings → closed loop: map to these
-entry points. See [`customer-journeys.md`](./customer-journeys.md) for the
-runnable walkthroughs.
+See [`customer-journeys.md`](./customer-journeys.md) for runnable paths from existing logs, human ratings, and a callable agent.
 
-The shape of the answer: `InsightReport`: is identical across all three paths. Distributional summary, paired-bootstrap lift CI, judge stats, inter-rater agreement, cost-quality Pareto, failure clusters, contamination check, outcome correlation, release axes, and a ranked recommendations array. Walked through section-by-section in [`insight-report.md`](./insight-report.md).
+`analyzeRuns()` and the high-level contract return the same `InsightReport` shape.
+It contains score distributions, paired lift intervals, judge agreement, cost, failure clusters, contamination checks, outcome correlation, and recommendations.
+[`insight-report.md`](./insight-report.md) defines every field.
 
-## The layering rule
+## Package Boundary
 
-`agent-eval` is the **substrate** at the bottom of the Tangle agent stack. `agent-runtime` and `agent-knowledge` depend on it; `agent-eval` MUST NOT import from either. Primitives that "feel like" they belong in a consumer but are actually substrate-shaped (validator verdicts, run records, scenarios, judge scores) live here. Primitives that genuinely require a running agent loop (`ValidationCtx` with iteration + signal + traceEmitter, sandbox `AgentRunSpec`) stay in `agent-runtime`.
+`agent-runtime` and `agent-knowledge` may import `agent-eval`.
+`agent-eval` must not import either package.
 
-The test: *does this concept make sense WITHOUT a running agent loop?* If yes, it's substrate. If no, it's runtime. The full rule is in [`/CLAUDE.md`](../CLAUDE.md#repo-layering--this-package-is-the-substrate).
+Run records, scenarios, judge scores, statistics, and release decisions belong here because they work without an agent runtime.
+Agent sessions, worker coordination, sandbox execution, and runtime-specific profiles belong in `agent-runtime`.
 
 ## Main Objects
 
@@ -43,8 +41,7 @@ The test: *does this concept make sense WITHOUT a running agent loop?* If yes, i
 | **Verifier** | A pipeline of judges run in order, with dependencies. | "install → typecheck → build → semantic" |
 | **Feedback trajectory** | A multi-shot record of attempts, approvals, rejections, edits, metrics, and policy outcomes. | "draft → user rejects → revised draft → approved → measured" |
 
-Everything else exists to make those objects useful in real product loops:
-traces, datasets, control runtime, optimizers, statistics, and reports.
+Traces, datasets, optimization, statistics, and reports build on these objects.
 
 When the thing being evaluated is an agent that should keep working, use
 [`runAgentControlLoop`](./control-runtime.md). It turns validators into a
@@ -52,30 +49,28 @@ runtime loop: observe typed state, validate it, decide the next action, act,
 and repeat until the task passes, blocks, times out, spends too much, or stops
 making progress.
 
-When normal agent usage should become reusable training/eval signal, use
+When normal agent usage should become reusable training or eval data, use
 [`FeedbackTrajectory`](./feedback-trajectories.md). It captures approvals,
 rejections, edits, option choices, metrics, and policy blocks as portable data
 that can seed memory, replay scenarios, and optimization.
 
-## Vocabulary, plain English
+## Terms
 
 | Term | Plain English |
 |---|---|
 | **Artifact** | The thing being judged. Often a workdir of files, sometimes a string of text. |
-| **Snapshot** | A frozen view of an artifact (every file path → content). What the judge actually reads. |
+| **Snapshot** | A frozen view of an artifact (every file path → content). This is the input the judge reads. |
 | **Harness** | A description of *how to run* the artifact: setup command, test command, working dir, timeout. |
-| **Sandbox driver** | The thing that actually executes commands inside the harness. Local subprocess, or remote container. |
+| **Sandbox driver** | Executes commands inside the harness, using a local subprocess or remote container. |
 | **Layer** | One stage of a verifier pipeline (install, typecheck, build, semantic, …). |
 | **Finding** | A specific issue a judge found: file, line, severity, message. |
 | **Trace store** | The append-only log of every span/event during a run. Replay = read this back. |
 | **Composite score** | A 0..1 number combining all dimensions. The single number you gate on. |
 | **Rubric version** | A stable hash of the rubric. Scores from different rubric versions are not comparable. |
-| **Muffled gate** | A check that should fail loud but silently passes (e.g. `command || true`). The most expensive bug class in this codebase. |
 
 ## The feedback trajectory loop
 
-For agentic systems, the highest-quality labels often come from normal review
-workflow, not a separate labeling UI:
+Normal review activity can provide labels without a separate labeling interface:
 
 ```text
 agent proposes -> user approves/rejects/edits/selects -> agent revises -> outcome is measured
@@ -124,7 +119,8 @@ A rubric describes:
 4. **Wins**: named positive patterns ("specific-component", "earned-detail").
 5. **System prompt**: what to tell the judging LLM about the persona and the task.
 
-Built-in rubrics ship in `src/wire/rubrics.ts` (e.g. `anti-slop` for technical-buyer voice). You can also pass a rubric inline: the same shape, just defined at the call site.
+Built-in rubrics ship in `src/wire/rubrics.ts`, including `anti-slop` for technical-buyer voice.
+You can also pass the same rubric shape inline at the call site.
 
 A rubric is plain data. The hash of that data is the `rubricVersion`. Two scores are only comparable if they used the same `rubricVersion`: change the rubric and you start a new comparison series.
 
@@ -187,12 +183,12 @@ release decision.
 
 ## Where to go next
 
-- **Confused by "GEPA / HALO / trace analysis / proposers everywhere"?** → [self-improvement-map.md](./self-improvement-map.md): one loop, four roles, the proposer catalog (production vs bench-only), and why `gepa-refine` is the same loop on a test bench.
-- **Which `run*` primitive do I use, and how do I grade produced state?** → [eval-surface-map.md](./eval-surface-map.md): the campaign/matrix/optimization/gate primitives as a pick-by-"use-when" table, plus the produced-state grading composition (verifyCompletion-as-judge: there is no persona-dispatch wrapper) and the in-band body contract.
-- **Need the layman feature map?** → [feature-guide.md](./feature-guide.md): what each primitive does, when to use it, integration patterns, and guardrails.
-- **Just want to score a string against a rubric?** → [wire-protocol.md](./wire-protocol.md): HTTP/RPC interface, pluggable from any language.
-- **Need a reusable driver/worker/evaluator loop?** → [control-runtime.md](./control-runtime.md): generic runtime plus coding, browser, computer-use, and research integration patterns.
-- **Want review feedback to become eval/optimization data?** → [feedback-trajectories.md](./feedback-trajectories.md): turn feedback into datasets, optimizer rows, and preference memory.
+- **Choosing a candidate-generation method?** Read [campaign-proposers.md](./campaign-proposers.md) for the available methods, their inputs, and runnable composition examples.
+- **Choosing a `run*` function or grading produced state?** Read [eval-surface-map.md](./eval-surface-map.md) for a use-case table and complete grading composition.
+- **Need the feature map?** Read [feature-guide.md](./feature-guide.md) for integration patterns and operational limits.
+- **Scoring a string from another language?** Read [wire-protocol.md](./wire-protocol.md) for the HTTP/RPC interface.
+- **Building a driver and worker loop?** Read [control-runtime.md](./control-runtime.md) for coding, browser, computer-use, and research patterns.
+- **Turning review feedback into reusable data?** Read [feedback-trajectories.md](./feedback-trajectories.md) for dataset, optimization, and preference-memory examples.
 - **Building a code-generator eval?** → Start with `BuilderSession`, `SandboxHarness`, and `MultiLayerVerifier`.
 - **Multi-layer verifier?** → Use [control-runtime.md](./control-runtime.md) and `MultiLayerVerifier` for ordered gates with dependencies.
 - **Adding a new judge or rubric?** → `src/wire/rubrics.ts` for the cross-language path; `src/anti-slop.ts` and `src/judges.ts` for the in-process path.

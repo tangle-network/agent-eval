@@ -2,7 +2,7 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { runSkillOpt } from '../../src/campaign/presets/run-skill-opt'
+import { type RunSkillOptOptions, runSkillOpt } from '../../src/campaign/presets/run-skill-opt'
 import {
   type ProposePatchesArgs,
   parseSkillPatchResponse,
@@ -10,6 +10,7 @@ import {
   skillOptProposer,
 } from '../../src/campaign/proposers/skill-opt'
 import type { SkillPatch } from '../../src/campaign/skill-patch'
+import { inMemoryCampaignStorage } from '../../src/campaign/storage'
 import type { JudgeConfig, ProposeContext, Scenario } from '../../src/campaign/types'
 
 interface S extends Scenario {
@@ -235,7 +236,7 @@ describe('runSkillOpt', () => {
     { id: 't1', kind: 'doc' },
     { id: 't2', kind: 'doc' },
   ]
-  const SCEN_HOLD: S[] = [
+  const SCEN_SELECTION: S[] = [
     { id: 'h1', kind: 'doc' },
     { id: 'h2', kind: 'doc' },
   ]
@@ -274,7 +275,7 @@ describe('runSkillOpt', () => {
     }
   }
 
-  it('accepts only held-out-improving edits, anneals the budget, and is monotonic', async () => {
+  it('accepts only selection-improving edits, anneals the budget, and is monotonic', async () => {
     const seen: ProposePatchesArgs[] = []
     const result = await runSkillOpt<S, A>({
       baselineSurface: '# Skill\n- base rule',
@@ -282,7 +283,7 @@ describe('runSkillOpt', () => {
       judges: [judge],
       proposer: scriptedProposer(seen),
       trainScenarios: SCEN_TRAIN,
-      holdoutScenarios: SCEN_HOLD,
+      selectionScenarios: SCEN_SELECTION,
       maxEpochs: 4,
       patchesPerEpoch: 1,
       editBudget: 3,
@@ -291,9 +292,9 @@ describe('runSkillOpt', () => {
     })
 
     // Baseline has neither marker → 0; winner has both → 1.0.
-    expect(result.baselineHoldoutComposite).toBe(0)
-    expect(result.winnerHoldoutComposite).toBe(1)
-    expect(result.lift).toBe(1)
+    expect(result.baselineSelectionComposite).toBe(0)
+    expect(result.winnerSelectionComposite).toBe(1)
+    expect(result.selectionLift).toBe(1)
     // Exactly the two marker edits were accepted; the two neutral edits rejected.
     expect(result.acceptedEdits.map((e) => e.label)).toEqual(['add-good-a', 'add-good-b'])
     expect(result.rejectedEdits.map((e) => e.label).sort()).toEqual(['neutral-1', 'neutral-2'])
@@ -302,10 +303,10 @@ describe('runSkillOpt', () => {
     expect(result.winnerSurface).toContain('GOOD_B')
     expect(result.winnerSurface).not.toContain('NEUTRAL_1') // rejected → never applied to winner
 
-    // Monotonic non-decreasing held-out across epochs (never ships a regression).
-    const holdouts = result.history.map((h) => h.holdoutComposite)
-    for (let i = 1; i < holdouts.length; i++)
-      expect(holdouts[i]!).toBeGreaterThanOrEqual(holdouts[i - 1]!)
+    // Monotonic non-decreasing selection score across epochs.
+    const selections = result.history.map((h) => h.selectionComposite)
+    for (let i = 1; i < selections.length; i++)
+      expect(selections[i]!).toBeGreaterThanOrEqual(selections[i - 1]!)
 
     // Budget annealed: after 2 consecutive rejected epochs (1 and 2), epoch 2's
     // recorded budget drops 3 → 2.
@@ -338,13 +339,13 @@ describe('runSkillOpt', () => {
       judges: [judge],
       proposer: onlyNeutral,
       trainScenarios: SCEN_TRAIN,
-      holdoutScenarios: SCEN_HOLD,
+      selectionScenarios: SCEN_SELECTION,
       maxEpochs: 3,
       patience: 2, // stop after 2 fruitless epochs
       runDir,
       expectUsage: 'off',
     })
-    expect(result.lift).toBe(0)
+    expect(result.selectionLift).toBe(0)
     expect(result.acceptedEdits).toEqual([])
     expect(result.winnerSurface).toBe('# Skill') // unchanged
     expect(result.epochsRun).toBe(2) // patience stopped it early
@@ -373,7 +374,7 @@ describe('runSkillOpt', () => {
       judges: [judge],
       proposer,
       trainScenarios: SCEN_TRAIN,
-      holdoutScenarios: SCEN_HOLD,
+      selectionScenarios: SCEN_SELECTION,
       maxEpochs: 2,
       editBudget: 3,
       runDir,
@@ -408,7 +409,7 @@ describe('runSkillOpt', () => {
       judges: [judge],
       proposer,
       trainScenarios: SCEN_TRAIN,
-      holdoutScenarios: SCEN_HOLD,
+      selectionScenarios: SCEN_SELECTION,
       maxEpochs: 1,
       runDir,
       expectUsage: 'off',
@@ -417,6 +418,37 @@ describe('runSkillOpt', () => {
     expect(result.rejectedEdits.map((r) => r.label)).toEqual(['bad-anchor'])
     expect(result.rejectedEdits[0]!.reason).toContain('no-op')
     expect(result.winnerSurface).toBe('# Skill')
+  })
+
+  it('scores no more patches than patchesPerEpoch when a custom proposer over-returns', async () => {
+    const proposer: SkillOptProposer = {
+      kind: 'over-returning',
+      async propose() {
+        return []
+      },
+      async proposePatches() {
+        return ['ONE', 'TWO', 'THREE'].map((text) => ({
+          label: text.toLowerCase(),
+          rationale: 'neutral edit',
+          ops: [{ op: 'add' as const, text }],
+        }))
+      },
+    }
+    const result = await runSkillOpt<S, A>({
+      baselineSurface: '# Skill',
+      dispatchWithSurface: async (surface) => ({ text: surface }),
+      judges: [judge],
+      proposer,
+      trainScenarios: SCEN_TRAIN,
+      selectionScenarios: SCEN_SELECTION,
+      maxEpochs: 1,
+      patchesPerEpoch: 1,
+      runDir,
+      expectUsage: 'off',
+    })
+
+    expect(result.history[0]!.proposed).toBe(1)
+    expect(result.rejectedEdits.map((edit) => edit.label)).toEqual(['one'])
   })
 
   const noopProposer: SkillOptProposer = {
@@ -443,31 +475,90 @@ describe('runSkillOpt', () => {
         ...guardBase,
         judges: [],
         trainScenarios: SCEN_TRAIN,
-        holdoutScenarios: SCEN_HOLD,
+        selectionScenarios: SCEN_SELECTION,
       }),
     ).rejects.toThrow(/at least one judge/)
   })
 
-  it('throws when train and holdout overlap (held-out leakage)', async () => {
+  it('throws when train and selection overlap', async () => {
     await expect(
       runSkillOpt<S, A>({
         ...guardBase,
         judges: [judge],
         trainScenarios: [{ id: 'h1', kind: 'doc' }, ...SCEN_TRAIN],
-        holdoutScenarios: SCEN_HOLD,
+        selectionScenarios: SCEN_SELECTION,
       }),
     ).rejects.toThrow(/disjoint/)
   })
 
-  it('throws on a negative minImprovement (would accept regressions)', async () => {
+  it('fails closed on the legacy holdoutScenarios name', async () => {
+    const legacy = {
+      ...guardBase,
+      judges: [judge],
+      trainScenarios: SCEN_TRAIN,
+      holdoutScenarios: SCEN_SELECTION,
+    } as unknown as RunSkillOptOptions<S, A>
+    await expect(runSkillOpt(legacy)).rejects.toThrow(/renamed to selectionScenarios/)
+  })
+
+  const invalidControls: Array<[string, Partial<RunSkillOptOptions<S, A>>, RegExp]> = [
+    ['zero maxEpochs', { maxEpochs: 0 }, /maxEpochs must be a positive safe integer/],
+    ['zero patchesPerEpoch', { patchesPerEpoch: 0 }, /patchesPerEpoch must be a positive/],
+    ['zero editBudget', { editBudget: 0 }, /editBudget must be a positive/],
+    ['negative minImprovement', { minImprovement: -0.1 }, /minImprovement must be a finite/],
+    ['NaN minImprovement', { minImprovement: Number.NaN }, /minImprovement must be a finite/],
+    ['zero patience', { patience: 0 }, /patience must be a positive/],
+    [
+      'negative rejectedBufferSize',
+      { rejectedBufferSize: -1 },
+      /rejectedBufferSize must be a non-negative/,
+    ],
+    ['negative slowMetaEvery', { slowMetaEvery: -1 }, /slowMetaEvery must be a non-negative/],
+    ['zero evidenceK', { evidenceK: 0 }, /evidenceK must be a positive/],
+    ['blank runDir', { runDir: ' ' }, /runDir must be a non-empty string/],
+  ]
+
+  it.each(
+    invalidControls,
+  )('rejects %s before scoring or proposing', async (_label, invalid, expected) => {
+    let dispatchCalls = 0
+    let proposalCalls = 0
     await expect(
       runSkillOpt<S, A>({
         ...guardBase,
+        dispatchWithSurface: async (surface) => {
+          dispatchCalls += 1
+          return { text: surface }
+        },
+        proposer: {
+          ...noopProposer,
+          async proposePatches() {
+            proposalCalls += 1
+            return []
+          },
+        },
         judges: [judge],
         trainScenarios: SCEN_TRAIN,
-        holdoutScenarios: SCEN_HOLD,
-        minImprovement: -0.1,
+        selectionScenarios: SCEN_SELECTION,
+        ...invalid,
       }),
-    ).rejects.toThrow(/minImprovement must be >= 0/)
+    ).rejects.toThrow(expected)
+    expect(dispatchCalls).toBe(0)
+    expect(proposalCalls).toBe(0)
+  })
+
+  it('does not mutate the caller runDir', async () => {
+    const options: RunSkillOptOptions<S, A> = {
+      ...guardBase,
+      judges: [judge],
+      trainScenarios: SCEN_TRAIN,
+      selectionScenarios: SCEN_SELECTION,
+      runDir: 'skill-opt-options-immutable',
+      storage: inMemoryCampaignStorage(),
+    }
+
+    await runSkillOpt(options)
+
+    expect(options.runDir).toBe('skill-opt-options-immutable')
   })
 })

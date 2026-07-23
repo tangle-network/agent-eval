@@ -1,75 +1,67 @@
-# Multi-Shot Optimization
+# Improve One Surface
 
-> **Renamed.** `runMultiShotOptimization` was retired. The live API is
-> `runImprovementLoop` (proposer-agnostic, gated promotion) driven by `gepaProposer`,
-> with `compareProposers` for head-to-head proposer lift. This doc was rewritten to the
-> live API; see also [feature-guide.md](./feature-guide.md) and [concepts.md](./concepts.md).
+`runImprovementLoop` generates candidate prompts or configs, runs them on training scenarios, and checks the selected candidate on separate holdout scenarios.
 
-`runImprovementLoop` is the public entry for GEPA-style optimization over a whole
-task trajectory: the thing you improve is not a single model call but an agent
-system prompt, tool descriptions, a routing policy, or any scaffolding that affects
-the entire run. It is the OUTER loop: it improves the SURFACE the inner workers run.
+Use it when the question is: "Can this method improve my current surface?"
+Use [`compareOptimizationMethods`](./campaign-proposers.md#compare-complete-methods) when the question is: "Which complete optimization method performs best?"
 
-## The shape
+## Inputs
 
-You own a few seams; the loop owns the release-critical glue (paired seeds, the
-held-out re-score, the promotion gate, provenance):
+| Input | Meaning |
+|---|---|
+| `baselineSurface` | Current prompt or config. |
+| `scenarios` | Training scenarios used to generate and score candidates. |
+| `holdoutScenarios` | Separate scenarios used by the release rule after search. |
+| `dispatchWithSurface` | Runs one scenario with one candidate surface. |
+| `judges` | Scores the returned artifact. |
+| `proposer` | Generates candidate surfaces. |
+| `gate` | Applies the caller's release rule to baseline and winner results. |
+| `runDir` | Stores run artifacts, traces, and resumable state. |
 
-- **`baselineSurface`**: the current surface (a prompt string, or a `CodeSurface`).
-- **`dispatchWithSurface(surface, scenario, ctx)`**: run one task to completion
-  under a candidate surface; return the artifact the judges score.
-- **`judges`**: score the artifact (`{ composite, dimensions }`).
-- **`proposer`**: proposes candidate surfaces each generation: `gepaProposer`
-  (reflective + Pareto frontier) or `evolutionaryProposer` (mutator).
-- **`gate`**: `defaultProductionGate` (held-out significance + red-team +
-  reward-hacking + canary). Ships ONLY on a CI-lower-bound held-out lift.
-
-## Minimal example
+## Example
 
 ```ts
 import {
-  runImprovementLoop,
-  gepaProposer,
   defaultProductionGate,
-} from '@tangle-network/agent-eval/contract'
+  gepaProposer,
+  runImprovementLoop,
+} from '@tangle-network/agent-eval/campaign'
 
 const result = await runImprovementLoop({
   baselineSurface: currentSystemPrompt,
-  scenarios: trainScenarios, // optimizer-visible
-  holdoutScenarios, // DISJOINT: only the gate sees these
-  dispatchWithSurface: async (surface, scenario) =>
-    runYourAgentToCompletion({ scenario, prompt: String(surface) }),
-  judges: [myJudge],
+  scenarios: trainScenarios,
+  holdoutScenarios,
+  dispatchWithSurface: async (surface, scenario, ctx) =>
+    runYourAgent({ prompt: String(surface), scenario, signal: ctx.signal }),
+  judges: [qualityJudge],
   proposer: gepaProposer({
     llm: { apiKey, baseUrl },
-    model: 'gpt-5',
-    target: 'enforce a strict output schema',
+    model,
+    target: 'the complete system prompt',
   }),
   populationSize: 4,
   maxGenerations: 4,
-  gate: defaultProductionGate({ holdoutScenarios, deltaThreshold: 0 }),
-  autoOnPromote: 'none', // or 'pr' (+ ghOwner/ghRepo) to open a PR on ship
+  gate: defaultProductionGate({
+    holdoutScenarios,
+    deltaThreshold: 0,
+  }),
+  autoOnPromote: 'none',
   runDir,
 })
 
 if (result.gateResult.decision === 'ship') {
-  deploy(result.winnerSurface) // the proposer's candidate, gated on a real held-out lift
+  deploy(result.winnerSurface)
 }
 ```
 
-## Discipline (what makes it trustworthy)
+## Behavior
 
-- **Holdout is disjoint + gated.** `holdoutScenarios` must not overlap the training
-  pool. The gate re-scores baseline vs winner on the holdout and ships only when the
-  paired-bootstrap CI lower bound clears `deltaThreshold`; a few-instance swing at
-  thin `n` is held (`few_runs`), not promoted.
-- **No-op never ships.** If no candidate beats the baseline, the winner IS the
-  baseline (empty diff) and the loop forces `hold`: it does not score
-  baseline-vs-itself and read model noise as lift.
-- **Provenance falls out.** `result.promotedDiff` + `emitLoopProvenance` give the
-  auditable candidate→gate→promote chain (rationale, content hashes, a held-out lift
-  recomputable from the emitted record).
+- Training and holdout scenario IDs must be disjoint.
+- Candidate generation cannot read holdout judge scores through `SurfaceProposer`.
+- The selected candidate is measured against the baseline on holdout scenarios.
+- A selected surface identical to the baseline is held instead of treating model variance as lift.
+- `result.cost` includes worker, candidate-generation, and judge calls recorded through the shared cost ledger.
+- `result.promotedDiff` describes the exact selected surface change.
 
-Reach for `compareProposers` when the question is "which proposer wins" rather than
-"improve this surface", and see `tests/campaign/presets.test.ts` for the executable
-contract (no-op guard, fail-loud holdout, gate promotion).
+The release decision is only as useful as the scenarios and judges supplied by the caller.
+Calibrate the judge on known strong and weak outputs before using it for promotion.

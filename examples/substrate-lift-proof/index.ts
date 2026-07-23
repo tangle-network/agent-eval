@@ -4,9 +4,9 @@
  * measured held-out lift through a real LLM backend.
  *
  * The transaction-extraction corpus + deterministic judge + worker live in
- * `examples/_shared/extraction-task.ts` (shared with `compare-proposers-canonical`
+ * `examples/_shared/extraction-task.ts` (shared with `compare-optimization-methods`
  * so both measure the SAME task). This script runs the single-proposer gated
- * loop; `compare-proposers-canonical` runs the head-to-head of all proposers.
+ * loop; `compare-optimization-methods` runs the head-to-head of all proposers.
  *
  * Real backend: token-emitting via the Tangle router (or any OpenAI-compatible
  * endpoint). `assertRealBackend` over the per-call RunRecords must verdict

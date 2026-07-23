@@ -1,40 +1,27 @@
 /**
- * GSM8K substrate proof — the empirical headline: do the optimization proposers move
- * a REAL held-out number on a HARD task (no ceiling), with a clean CI? Extraction
- * ceilings on a strong model (gepa 0.625→1.0, 0 findings); GSM8K with a
- * deliberately weak baseline (no chain-of-thought) leaves genuine headroom that
- * the optimizer recovers by evolving the system prompt (inject CoT + answer-format
- * discipline). DETERMINISTIC numeric judge (gsm8k/index.ts `evaluate`) → zero
- * LLM-judge variance, so the lift CI is defensible.
+ * Compare three prompt optimization methods on GSM8K with separate train,
+ * selection, and test data. Candidate generation uses a model endpoint; final
+ * scoring uses deterministic numeric answer matching.
  *
- * Proposers compete head-to-head through `compareProposers`: gepa-reflection,
- * gepa-pareto, skill-opt — each returns its promoted surface, all scored on the
- * SAME held-out split with paired-bootstrap lift CIs + pairwise ranking.
- * `assertRealBackend` aborts a stub run; the artifact records integrity honestly.
- *
- * This run does NOT wire `analyzeGeneration` — GSM8K failures are per-problem, so
- * findings carry little (the findings-value claim rides on the AppWorld-d3 runner).
- * Here the claim is: the substrate moves a real held-out lift on a hard task.
- *
- * Run (DeepSeek, rate-limit-free; deepseek-v4-pro is the explicit listed id):
+ * Run with an OpenAI-compatible endpoint:
  *   AGENT_EVAL_GSM8K_PATH=~/.cache/agent-eval/gsm8k.jsonl \
  *   LLM_BASE_URL=https://api.deepseek.com/v1 LLM_API_KEY=$DEEPSEEK_API_KEY \
- *   LLM_MODEL=deepseek-v4-pro PRICE_IN_PER_M=0.27 PRICE_OUT_PER_M=1.10 \
- *   pnpm tsx examples/benchmarks/gsm8k/compare-proposers.ts
+ *   LLM_MODEL=deepseek-chat \
+ *   pnpm tsx examples/benchmarks/gsm8k/compare-optimization-methods.ts
  */
 
 import { createHash } from 'node:crypto'
 import { mkdirSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import {
-  compareProposers,
+  type BuiltinOptimizationMethodConfig,
+  compareOptimizationMethods,
   type DispatchContext,
-  gepaParetoEntry,
-  gepaReflectionEntry,
+  gepaParetoMethod,
+  gepaReflectionMethod,
   type JudgeConfig,
-  type OptimizerEntryConfig,
   type Scenario,
-  skillOptEntry,
+  skillOptMethod,
 } from '../../../src/campaign'
 import { CostLedger } from '../../../src/cost-ledger'
 import {
@@ -43,12 +30,18 @@ import {
 } from '../../../src/integrity/backend-integrity'
 import {
   callLlm,
+  costReceiptFromLlm,
   costReceiptFromLlmError,
   type LlmCallRequest,
   type LlmClientOptions,
   maximumChargeForLlmRequest,
 } from '../../../src/llm-client'
 import type { RunRecord } from '../../../src/run-record'
+import {
+  optionalNonNegativeNumberEnv,
+  positiveIntegerEnv,
+  positiveNumberEnv,
+} from '../../_shared/env'
 import { evaluate, loadDataset } from './index'
 
 const API_KEY = (process.env.LLM_API_KEY || process.env.TANGLE_API_KEY)?.trim()
@@ -58,15 +51,28 @@ const BASE_URL = (
   'https://router.tangle.tools/v1'
 ).trim()
 const MODEL = process.env.LLM_MODEL || 'deepseek-v4-pro'
-const PRICE_IN_PER_M = Number(process.env.PRICE_IN_PER_M || '0.27')
-const PRICE_OUT_PER_M = Number(process.env.PRICE_OUT_PER_M || '1.10')
-const CALL_TIMEOUT_MS = Number(process.env.CALL_TIMEOUT_MS || '60000')
-const TRAIN_N = Number(process.env.TRAIN_N || '8')
-const HOLDOUT_N = Number(process.env.HOLDOUT_N || '20')
-const POPULATION = Number(process.env.POPULATION || '2')
-const GENERATIONS = Number(process.env.GENERATIONS || '2')
-const EPOCHS = Number(process.env.EPOCHS || '2')
+const PRICE_IN_PER_M = optionalNonNegativeNumberEnv('PRICE_IN_PER_M')
+const PRICE_OUT_PER_M = optionalNonNegativeNumberEnv('PRICE_OUT_PER_M')
+const CALL_TIMEOUT_MS = positiveIntegerEnv('CALL_TIMEOUT_MS', 60_000)
+const TRAIN_N = positiveIntegerEnv('TRAIN_N', 8)
+const SELECTION_N = positiveIntegerEnv('SELECTION_N', 8)
+const TEST_N = positiveIntegerEnv('TEST_N', 20)
+const POPULATION = positiveIntegerEnv('POPULATION', 2)
+const GENERATIONS = positiveIntegerEnv('GENERATIONS', 2)
+const EPOCHS = positiveIntegerEnv('EPOCHS', 2)
+const OPTIMIZATION_CONCURRENCY = positiveIntegerEnv('OPTIMIZATION_CONCURRENCY', 1)
+const MAX_SMOKE_COST_USD = positiveNumberEnv('MAX_SMOKE_COST_USD', 2)
+const MAX_OPTIMIZATION_COST_USD = positiveNumberEnv('MAX_OPTIMIZATION_COST_USD', 10)
+const MAX_TEST_COST_USD = positiveNumberEnv('MAX_TEST_COST_USD', 5)
 const SMOKE = process.env.SMOKE === '1'
+
+if ((PRICE_IN_PER_M === undefined) !== (PRICE_OUT_PER_M === undefined)) {
+  throw new Error('PRICE_IN_PER_M and PRICE_OUT_PER_M must be set together')
+}
+const CUSTOM_TOKEN_PRICING =
+  PRICE_IN_PER_M === undefined || PRICE_OUT_PER_M === undefined
+    ? undefined
+    : { inputUsdPerMillion: PRICE_IN_PER_M, outputUsdPerMillion: PRICE_OUT_PER_M }
 
 if (!API_KEY) {
   console.error('FATAL: set LLM_API_KEY (+ LLM_BASE_URL + LLM_MODEL) or TANGLE_API_KEY.')
@@ -103,6 +109,7 @@ const llm: LlmClientOptions = {
   baseUrl: BASE_URL,
   maxRetries: 2,
   defaultTimeoutMs: CALL_TIMEOUT_MS,
+  ...(CUSTOM_TOKEN_PRICING ? { customTokenPricing: CUSTOM_TOKEN_PRICING } : {}),
 }
 
 const records: RunRecord[] = []
@@ -128,15 +135,7 @@ function makeWorker() {
       model: MODEL,
       maximumCharge: maximumChargeForLlmRequest(request, llm),
       execute: (signal, callId) => callLlm(request, { ...llm, signal, idempotencyKey: callId }),
-      receipt: (res) => ({
-        model: res.model || MODEL,
-        inputTokens: res.usage.promptTokens,
-        outputTokens: res.usage.completionTokens,
-        actualCostUsd:
-          res.costUsd ??
-          (res.usage.promptTokens / 1_000_000) * PRICE_IN_PER_M +
-            (res.usage.completionTokens / 1_000_000) * PRICE_OUT_PER_M,
-      }),
+      receipt: costReceiptFromLlm,
       receiptFromError: costReceiptFromLlmError,
     })
     if (!paid.succeeded) throw paid.error
@@ -144,7 +143,7 @@ function makeWorker() {
     const costUsd = paid.receipt.costUsd
     records.push({
       runId: `${scenario.id}-${createHash('sha1').update(surface).digest('hex').slice(0, 8)}-${records.length}`,
-      experimentId: 'gsm8k-substrate-proof',
+      experimentId: 'gsm8k-proposer-comparison',
       candidateId: createHash('sha1').update(surface).digest('hex').slice(0, 12),
       seed: 42,
       model: res.model || MODEL,
@@ -192,33 +191,41 @@ async function main() {
   })
   const search = (await loadDataset('search')).sort((a, b) => a.id.localeCompare(b.id))
   const holdout = (await loadDataset('holdout')).sort((a, b) => a.id.localeCompare(b.id))
-  const trainScenarios = search.slice(0, TRAIN_N).map((it) => toScenario(it, 'search'))
-  const holdoutScenarios = holdout.slice(0, HOLDOUT_N).map((it) => toScenario(it, 'holdout'))
-  if (trainScenarios.length < TRAIN_N || holdoutScenarios.length < HOLDOUT_N) {
+  const trainScenarios = search.slice(0, TRAIN_N).map((it) => toScenario(it, 'train'))
+  const selectionScenarios = search
+    .slice(TRAIN_N, TRAIN_N + SELECTION_N)
+    .map((it) => toScenario(it, 'selection'))
+  const testScenarios = holdout.slice(0, TEST_N).map((it) => toScenario(it, 'test'))
+  if (
+    trainScenarios.length < TRAIN_N ||
+    selectionScenarios.length < SELECTION_N ||
+    testScenarios.length < TEST_N
+  ) {
     throw new Error(
-      `GSM8K corpus too small: train ${trainScenarios.length}/${TRAIN_N}, holdout ${holdoutScenarios.length}/${HOLDOUT_N}. Stage more rows.`,
+      `GSM8K corpus too small: train ${trainScenarios.length}/${TRAIN_N}, selection ${selectionScenarios.length}/${SELECTION_N}, test ${testScenarios.length}/${TEST_N}. Stage more rows.`,
     )
   }
 
   const worker = makeWorker()
-  const runRoot = join(process.cwd(), '.evolve', 'substrate-proof', 'gsm8k', String(Date.now()))
+  const outputRoot = join(process.cwd(), '.evolve', 'benchmarks', 'gsm8k-proposer-comparison')
+  const runRoot = join(outputRoot, String(Date.now()))
   mkdirSync(runRoot, { recursive: true })
   const startedAt = Date.now()
 
-  console.log('GSM8K substrate proof — gepa-reflection vs gepa-pareto vs skill-opt')
+  console.log('GSM8K: gepa-reflection vs gepa-pareto vs skill-opt')
   console.log(`  model=${MODEL}  base=${BASE_URL}`)
   console.log(
-    `  train=${trainScenarios.length} holdout=${holdoutScenarios.length} pop=${POPULATION} gens=${GENERATIONS} epochs=${EPOCHS}`,
+    `  train=${trainScenarios.length} selection=${selectionScenarios.length} test=${testScenarios.length} pop=${POPULATION} gens=${GENERATIONS} epochs=${EPOCHS}`,
   )
 
-  // ── Baseline smoke: confirm the weak baseline leaves headroom (< 0.85). ──
+  // ── Baseline smoke on selection: confirm headroom without touching test. ──
   let baselineSmoke = 0
-  const smokeLedger = new CostLedger()
+  const smokeLedger = new CostLedger(MAX_SMOKE_COST_USD)
   const smokeCost: DispatchContext['cost'] = {
     runPaidCall: (input) =>
       smokeLedger.runPaidCall({ ...input, channel: input.channel ?? 'agent', phase: 'smoke' }),
   }
-  for (const sc of holdoutScenarios) {
+  for (const sc of selectionScenarios) {
     const art = await worker(BASELINE_SURFACE, sc, {
       cellId: `smoke-${sc.id}`,
       cost: smokeCost,
@@ -227,66 +234,72 @@ async function main() {
       await judge.score({ artifact: art, scenario: sc } as Parameters<typeof judge.score>[0])
     ).composite
   }
-  baselineSmoke /= holdoutScenarios.length
+  baselineSmoke /= selectionScenarios.length
   console.log(
-    `  baseline holdout accuracy = ${round(baselineSmoke)} ${baselineSmoke >= 0.85 ? '⚠ CEILING RISK (weaken the baseline)' : '(headroom OK)'}`,
+    `  baseline selection accuracy = ${round(baselineSmoke)} ${baselineSmoke >= 0.85 ? '⚠ CEILING RISK (weaken the baseline)' : '(headroom OK)'}`,
   )
   if (SMOKE) {
     console.log('SMOKE=1 → baseline-only, stopping before the optimizer run.')
     return
   }
 
-  const config: OptimizerEntryConfig<GsmScenario, Artifact> = {
-    baselineSurface: BASELINE_SURFACE,
-    trainScenarios,
-    holdoutScenarios,
-    dispatchWithSurface: (surface, scenario, ctx) =>
-      worker(String(surface), scenario as GsmScenario, ctx),
-    judges: [judge],
+  const config: BuiltinOptimizationMethodConfig<GsmScenario, Artifact> = {
     llm,
     model: MODEL,
     target: DRIVER_TARGET,
     mutationPrimitives: MUTATION_PRIMITIVES,
-    runDir: join(runRoot, 'optimizers'),
-    seed: 42,
     populationSize: POPULATION,
     maxGenerations: GENERATIONS,
     maxEpochs: EPOCHS,
   }
 
-  const comparison = await compareProposers<GsmScenario, Artifact>({
-    proposers: [
-      gepaReflectionEntry(config, 'gepa-reflection'),
-      gepaParetoEntry(config, 'gepa-pareto'),
-      skillOptEntry(config, 'skill-opt'),
+  const comparison = await compareOptimizationMethods<GsmScenario, Artifact>({
+    methods: [
+      gepaReflectionMethod(config, 'gepa-reflection'),
+      gepaParetoMethod(config, 'gepa-pareto'),
+      skillOptMethod(config, 'skill-opt'),
     ],
     baselineSurface: BASELINE_SURFACE,
-    holdoutScenarios,
+    trainScenarios,
+    selectionScenarios,
+    testScenarios,
     dispatchWithSurface: (surface, scenario, ctx) =>
       worker(String(surface), scenario as GsmScenario, ctx),
     judges: [judge],
-    runDir: join(runRoot, 'score'),
+    runDir: join(runRoot, 'comparison'),
     seed: 42,
     resamples: 4000,
     confidence: 0.95,
+    optimizationConcurrency: OPTIMIZATION_CONCURRENCY,
+    optimizationRunOptions: {
+      costCeiling: MAX_OPTIMIZATION_COST_USD,
+      dispatchTimeoutMs: CALL_TIMEOUT_MS,
+      expectUsage: 'assert',
+    },
+    costCeiling: MAX_TEST_COST_USD,
+    dispatchTimeoutMs: CALL_TIMEOUT_MS,
     expectUsage: 'assert',
   })
 
   const integrity = summarizeBackendIntegrity(records)
   assertRealBackend(records, { allowMixed: false })
   const best = comparison.best
-  const totalCostUsd = records.reduce((a, r) => a + r.costUsd, 0)
+  const baselineSmokeCostUsd = smokeLedger.summary().totalCostUsd
+  const totalCostUsd = baselineSmokeCostUsd + comparison.totalCost.totalCostUsd
   const elapsedSec = Math.round((Date.now() - startedAt) / 1000)
-  const honestVerdict =
-    integrity.verdict === 'real' && best.liftCi.low > 0 ? 'lift-proven' : 'no-measurable-lift'
+  const testResult =
+    integrity.verdict === 'real' && best.liftCi.low > 0
+      ? 'interval-above-zero'
+      : 'interval-includes-zero-or-backend-invalid'
 
   const artifact = {
     task: {
       corpus: 'gsm8k',
       judge: 'deterministic-exact-match',
       trainN: trainScenarios.length,
-      holdoutN: holdoutScenarios.length,
-      holdoutScenarioIds: comparison.holdoutScenarioIds,
+      selectionN: selectionScenarios.length,
+      testN: testScenarios.length,
+      testScenarioIds: comparison.testScenarioIds,
     },
     model: { worker: MODEL, proposer: MODEL, provider: 'deepseek', baseUrl: BASE_URL },
     backendIntegrity: {
@@ -297,7 +310,7 @@ async function main() {
       outputTokens: integrity.totalOutputTokens,
       diagnosis: integrity.diagnosis,
     },
-    baselineHoldoutAccuracy: round(baselineSmoke),
+    baselineSelectionAccuracy: round(baselineSmoke),
     comparison: {
       scores: comparison.scores.map((s) => ({
         name: s.name,
@@ -307,7 +320,12 @@ async function main() {
         winnerComposite: round(s.winnerComposite),
         lift: round(s.lift),
         liftCi: { low: round(s.liftCi.low), high: round(s.liftCi.high) },
-        costUsd: round6(s.costUsd),
+        scenarioScores: s.scenarioScores,
+        optimizationCost: {
+          totalCostUsd: round6(s.optimizationCost.totalCostUsd),
+          accountingComplete: s.optimizationCost.accountingComplete,
+          incompleteReasons: s.optimizationCost.incompleteReasons,
+        },
         winnerSurface:
           typeof s.winnerSurface === 'string' ? s.winnerSurface : JSON.stringify(s.winnerSurface),
       })),
@@ -325,40 +343,53 @@ async function main() {
       })),
     },
     findingsAblation: null,
-    cost: { totalUsd: round6(totalCostUsd) },
-    stats: { resamples: 4000, confidence: 0.95, seed: 42 },
+    cost: {
+      baselineSmoke: round6(baselineSmokeCostUsd),
+      optimization: comparison.optimizationCost,
+      test: comparison.testCost,
+      comparisonTotal: comparison.totalCost,
+      total: round6(totalCostUsd),
+    },
+    stats: {
+      resamples: comparison.resamples,
+      reps: comparison.reps,
+      confidence: comparison.confidence,
+      intervalConfidence: comparison.intervalConfidence,
+      comparisonCount: comparison.comparisonCount,
+      seed: comparison.seed,
+    },
     provenance: {
       gitSha: process.env.GIT_SHA ?? 'local',
       publishedAt: new Date(startedAt).toISOString(),
-      command: 'examples/benchmarks/gsm8k/compare-proposers.ts',
-      llmCalls: records.length,
+      command: 'examples/benchmarks/gsm8k/compare-optimization-methods.ts',
+      workerLlmCalls: records.length,
       elapsedSec,
     },
-    honestVerdict,
+    testResult,
   }
 
-  const artifactPath = join(runRoot, 'proof.json')
+  const artifactPath = join(runRoot, 'comparison.json')
   writeFileSync(artifactPath, JSON.stringify(artifact, null, 2))
-  writeFileSync(
-    join(process.cwd(), '.evolve', 'substrate-proof', 'gsm8k', 'latest.json'),
-    JSON.stringify(artifact, null, 2),
-  )
+  writeFileSync(join(outputRoot, 'latest.json'), JSON.stringify(artifact, null, 2))
 
-  console.log('── GSM8K SUBSTRATE PROOF (ranked by held-out lift) ─────────')
+  console.log('GSM8K comparison results, ranked by test lift')
   for (const s of artifact.comparison.scores) {
     console.log(
-      `  #${s.rank} ${s.name.padEnd(16)} lift=${s.lift >= 0 ? '+' : ''}${s.lift} CI[${s.liftCi.low}, ${s.liftCi.high}] base=${s.baselineComposite}→win=${s.winnerComposite} $${s.costUsd}`,
+      `  #${s.rank} ${s.name.padEnd(16)} lift=${s.lift >= 0 ? '+' : ''}${s.lift} CI[${s.liftCi.low}, ${s.liftCi.high}] baseline=${s.baselineComposite} winner=${s.winnerComposite} $${s.optimizationCost.totalCostUsd}`,
     )
   }
   console.log(
     `  backend=${integrity.verdict} (${records.length} calls, $${round6(totalCostUsd)}, ${elapsedSec}s)`,
   )
-  console.log(`  BEST=${best.name} lift=${round(best.lift)} CI.low=${round(best.liftCi.low)}`)
-  console.log(`  VERDICT=${honestVerdict}`)
+  console.log(
+    `  cost: smoke=$${round6(baselineSmokeCostUsd)} optimization=$${round6(comparison.optimizationCost.totalCostUsd)} test=$${round6(comparison.testCost.totalCostUsd)}`,
+  )
+  console.log(`  best=${best.name} lift=${round(best.lift)} CI.low=${round(best.liftCi.low)}`)
+  console.log(`  testResult=${testResult}`)
   console.log(`  artifact: ${artifactPath}`)
 }
 
 main().catch((err) => {
-  console.error('GSM8K-PROOF FAILED:', err instanceof Error ? err.message : err)
+  console.error('GSM8K comparison failed:', err instanceof Error ? err.message : err)
   process.exitCode = 1
 })

@@ -1,18 +1,9 @@
 /**
- * `traceAnalystProposer` — wraps agent-eval's OWN trace-analyst engine
- * (`AnalystRegistry` over the agentic OTLP reader) as a `SurfaceProposer`.
- * It is the symmetric opponent to `haloProposer`: both run the SAME shared
- * `analysisEditProposer` pipeline (materialize identical traces → apply via one
- * identical LLM edit), so a `compareProposers` lift delta isolates a single
- * variable — ANALYSIS QUALITY. The benchmark answers "is our HALO clone as good
- * as the real HALO?" as a held-out lift CI, not a vibe.
+ * Adapt the built-in analyst registry to `SurfaceProposer`.
  *
- * Findings come from the REGISTRY (structured `AnalystFinding[]` carrying
- * area / severity / recommended_action), rendered into the report the shared
- * apply step consumes.
- *
- * Fail-loud: no traces → throw; analyst run errors → throw; zero findings →
- * throw. Never fabricate a candidate.
+ * The proposer produces structured findings from OTLP traces, then uses the
+ * same edit step as `haloProposer`. It rejects missing traces, analysis errors,
+ * and empty findings instead of returning a fabricated candidate.
  */
 
 import type { AxAIArgs } from '@ax-llm/ax'
@@ -28,6 +19,51 @@ import type { ProposeContext, SurfaceProposer } from '../types'
 import { analysisEditProposer } from './analysis-edit'
 
 export type TraceAnalystPriorFindings = NonNullable<RegistryRunOpts['priorFindings']>
+
+export interface AnalyzeOtlpTraceFileOptions {
+  tracePath: string
+  runId: string
+  baseUrl: string
+  apiKey: string
+  model: string
+  provider?: AxAIArgs<unknown>['name']
+  kinds?: readonly TraceAnalystKindSpec[]
+  signal?: AbortSignal
+  costLedger?: CostLedgerHandle
+  costPhase?: string
+  priorFindings?: TraceAnalystPriorFindings
+}
+
+/** Run the built-in analyst registry against one OTLP JSONL file. */
+export async function analyzeOtlpTraceFile(
+  opts: AnalyzeOtlpTraceFileOptions,
+): Promise<AnalystFinding[]> {
+  if (!opts.apiKey) throw new Error('analyzeOtlpTraceFile: apiKey is required')
+  if (!opts.model) throw new Error('analyzeOtlpTraceFile: model is required')
+  const aiService = createAnalystAi({
+    provider: opts.provider ?? 'openai',
+    apiKey: opts.apiKey,
+    baseUrl: opts.baseUrl,
+    model: opts.model,
+  })
+  const registry = new AnalystRegistry()
+  for (const spec of opts.kinds ?? DEFAULT_TRACE_ANALYST_KINDS) {
+    registry.register(createTraceAnalystKind(spec, { ai: aiService, model: opts.model }))
+  }
+  const result = await registry.run(
+    opts.runId,
+    { traceStore: new OtlpFileTraceStore({ path: opts.tracePath }) },
+    {
+      signal: opts.signal ?? new AbortController().signal,
+      chainFindings: true,
+      ...(opts.costLedger ? { costLedger: opts.costLedger } : {}),
+      ...(opts.costPhase ? { costPhase: opts.costPhase } : {}),
+      ...(opts.priorFindings === undefined ? {} : { priorFindings: opts.priorFindings }),
+    },
+  )
+  if (result.findings.length === 0) throw noFindingsError(result)
+  return result.findings
+}
 
 export interface TraceAnalystProposerOptions<TFindings = unknown> {
   /** OpenAI-compatible base URL for BOTH the analyst's agentic reads and the
@@ -97,30 +133,20 @@ export function traceAnalystProposer<TFindings = unknown>(
   const produceFindings =
     opts.analyze ??
     (async (path: string, c: ProposeContext<TFindings>): Promise<ReadonlyArray<AnalystFinding>> => {
-      const aiService = createAnalystAi({
+      const priorFindings = await opts.resolvePriorFindings?.(c)
+      return analyzeOtlpTraceFile({
+        tracePath: path,
+        runId: `trace-analyst-gen-${c.generation}`,
         provider: opts.provider ?? 'openai',
         apiKey: opts.apiKey,
         baseUrl: opts.baseUrl,
         model: opts.model,
+        kinds,
+        signal: c.signal,
+        costLedger: c.costLedger,
+        costPhase: c.costPhase,
+        ...(priorFindings === undefined ? {} : { priorFindings }),
       })
-      const registry = new AnalystRegistry()
-      for (const spec of kinds) {
-        registry.register(createTraceAnalystKind(spec, { ai: aiService, model: opts.model }))
-      }
-      const priorFindings = await opts.resolvePriorFindings?.(c)
-      const result = await registry.run(
-        `trace-analyst-gen-${c.generation}`,
-        { traceStore: new OtlpFileTraceStore({ path }) },
-        {
-          signal: c.signal,
-          chainFindings: true,
-          costLedger: c.costLedger,
-          costPhase: c.costPhase,
-          ...(priorFindings === undefined ? {} : { priorFindings }),
-        },
-      )
-      if (result.findings.length === 0) throw noFindingsError(result)
-      return result.findings
     })
 
   return analysisEditProposer({

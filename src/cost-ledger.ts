@@ -63,8 +63,15 @@ export interface CostReceiptInput extends CostUsage {
   usageUnknown?: boolean
 }
 
+/** Per-million token rates for a model or endpoint not covered by package pricing. */
+export interface CustomTokenPricing {
+  inputUsdPerMillion: number
+  outputUsdPerMillion: number
+}
+
 export type MaximumCharge =
   | { externallyEnforcedMaximumUsd: number }
+  | ({ customTokenPricing: CustomTokenPricing } & Pick<CostUsage, 'inputTokens' | 'outputTokens'>)
   | ({ model: string } & CostUsage)
 
 export interface RunPaidCallInput<T> {
@@ -76,7 +83,7 @@ export interface RunPaidCallInput<T> {
   model?: string
   tags?: Record<string, string>
   signal?: AbortSignal
-  /** Provider-enforced dollar maximum, or maximum priced token usage. Required when capped. */
+  /** Provider-enforced dollar maximum, or maximum token usage with known pricing. Required when capped. */
   maximumCharge?: MaximumCharge
   /** `callId` can be forwarded as the provider's idempotency key. */
   execute(signal: AbortSignal, callId: string): Promise<T>
@@ -700,6 +707,9 @@ export class CostLedger {
       )
       return maximum.externallyEnforcedMaximumUsd
     }
+    if ('customTokenPricing' in maximum) {
+      return costForTokenPricing(maximum.customTokenPricing, maximum)
+    }
     const priced = costForUsage(maximum.model, maximum)
     if (priced.costUnknown) {
       if (this.costCeilingUsd !== undefined) {
@@ -794,6 +804,21 @@ export function costForUsage(model: string, usage: CostUsage): CostResult {
     ),
     costUnknown: false,
   }
+}
+
+/** Price input and output token counts with caller-supplied per-million rates. */
+export function costForTokenPricing(
+  pricing: CustomTokenPricing,
+  usage: Pick<CostUsage, 'inputTokens' | 'outputTokens'>,
+): number {
+  assertTokenCount(usage.inputTokens, 'usage.inputTokens')
+  assertTokenCount(usage.outputTokens, 'usage.outputTokens')
+  assertNonNegative(pricing.inputUsdPerMillion, 'pricing.inputUsdPerMillion')
+  assertNonNegative(pricing.outputUsdPerMillion, 'pricing.outputUsdPerMillion')
+  return (
+    (usage.inputTokens / 1_000_000) * pricing.inputUsdPerMillion +
+    (usage.outputTokens / 1_000_000) * pricing.outputUsdPerMillion
+  )
 }
 
 type Settled<T> =

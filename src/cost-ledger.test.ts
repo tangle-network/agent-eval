@@ -12,6 +12,7 @@ import {
   CostLedgerPersistenceError,
   CostReceiptCaptureError,
   CostReservationExceededError,
+  costForTokenPricing,
   costForUsage,
   modelPriceKey,
 } from './cost-ledger'
@@ -182,6 +183,17 @@ describe('costForUsage', () => {
     expect(() => costForUsage('gpt-4o', { inputTokens: -1, outputTokens: 0 })).toThrow(
       /inputTokens/,
     )
+  })
+})
+
+describe('costForTokenPricing', () => {
+  it('prices caller-supplied per-million rates', () => {
+    expect(
+      costForTokenPricing(
+        { inputUsdPerMillion: 0.27, outputUsdPerMillion: 1.1 },
+        { inputTokens: 1_000_000, outputTokens: 500_000 },
+      ),
+    ).toBeCloseTo(0.82, 8)
   })
 })
 
@@ -371,6 +383,31 @@ describe('CostLedger', () => {
     })
     expect(callsStarted).toBe(0)
     expect(ledger.summary().totalCostUsd).toBe(0)
+  })
+
+  it('reserves an unrecognized model with caller-supplied token prices', async () => {
+    const ledger = new CostLedger(1)
+    const result = await ledger.runPaidCall({
+      channel: 'agent',
+      phase: 'search',
+      actor: 'custom-priced-call',
+      model: 'router/custom-model',
+      maximumCharge: {
+        customTokenPricing: { inputUsdPerMillion: 0.27, outputUsdPerMillion: 1.1 },
+        inputTokens: 1_000,
+        outputTokens: 1_000,
+      },
+      execute: async () => 'ok',
+      receipt: () => ({
+        model: 'router/custom-model',
+        inputTokens: 100,
+        outputTokens: 50,
+        actualCostUsd: 0.000082,
+      }),
+    })
+
+    expect(result).toMatchObject({ succeeded: true })
+    expect(ledger.summary()).toMatchObject({ totalCostUsd: 0.000082, accountingComplete: true })
   })
 
   it('atomically reserves concurrent calls so actual spend stays within the cap', async () => {

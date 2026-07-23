@@ -21,11 +21,33 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ### Fixed
 
+- `compareOptimizationMethods()` owns three non-empty, pairwise-disjoint scenario sets.
+  Methods receive independent copies of train and selection data, every method finishes before final test scoring starts, and final test data is absent from `OptimizationMethodInput`.
+  Built-in GEPA, SkillOpt, and FAPO methods read the shared baseline, runner, judges, directories, and execution settings from the comparison call instead of duplicating them in each method config.
+  Final test scoring uses one shared spend limit.
+  Reused cost ledgers isolate comparison receipts from unrelated calls, and final test scenarios are copied for each measured surface.
+  Results report optimization, test, and total cost with accounting completeness and reasons for unknown charges.
+  Per-method results include the paired scenario values used to compute lift.
+  Cost orders a tied-lift group only when every method in that group has complete accounting.
+  Bootstrap intervals adjust across all method contrasts, and the default resample count increases when needed to represent the adjusted tails.
+  `optimizationConcurrency` can run independent methods in parallel.
+- `runSkillOpt()` validates every numeric control before scoring, enforces `patchesPerEpoch` for custom proposers, and no longer mutates the caller's `runDir`.
 - Include the complete required response shape in `llmPolicyEditProposer` model instructions, and add `LlmClientOptions.jsonSchemaTransport: 'json-object'` for providers that do not implement native JSON Schema enforcement.
 - `compositeProposer` restores each member's original labels when replaying history, so stateful members do not repeat candidates whose labels were decorated for provenance.
 - `InsightReport.interRater.kappa` now reports quadratic weighted kappa instead of Pearson correlation.
   Read `interRater.pearson` for the previous correlation measure; `icc` and `spearman` are now reported separately.
 - Compute contextual-bandit doubly robust estimates with separate logged-action and target-policy value terms, expose how many rows use DR versus IPS or the deprecated scalar path, and carry both values through belief-state records.
+
+### Breaking
+
+- `compareProposers()` is replaced by `compareOptimizationMethods()`.
+  Rename `proposers` to `methods`, `ProposerEntry` to `OptimizationMethod`, and the built-in `*Entry` factories to `*Method`.
+  Pass `trainScenarios`, `selectionScenarios`, and `testScenarios`; the ambiguous `holdoutScenarios` option is rejected.
+  `OptimizerEntryConfig` is replaced by `BuiltinOptimizationMethodConfig`, which contains method-specific settings only.
+  Move shared method execution settings to `optimizationRunOptions` on the comparison call.
+  Read `optimizationCost`, `testCost`, and `totalCost`; each includes `totalCostUsd`, `accountingComplete`, and `incompleteReasons`.
+- `runSkillOpt({ holdoutScenarios })` fails closed because those rows are adaptively reused.
+  Pass `selectionScenarios`; selection result fields now use `Selection` instead of `Holdout`, and `lift` is now `selectionLift`.
 
 ## [0.122.2] — 2026-07-17 — premeasured optimization continuation
 

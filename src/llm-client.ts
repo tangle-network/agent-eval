@@ -20,7 +20,12 @@
  * that need free-form text use `callLlm` and parse output themselves.
  */
 
-import type { CostReceiptInput, MaximumCharge } from './cost-ledger'
+import {
+  type CostReceiptInput,
+  type CustomTokenPricing,
+  costForTokenPricing,
+  type MaximumCharge,
+} from './cost-ledger'
 import { AgentEvalError, CaptureIntegrityError } from './errors'
 import {
   defaultProviderRedactor,
@@ -61,7 +66,8 @@ export interface LlmCallRequest {
 
 /** Conservative priced bound for the exact text request sent to a provider.
  * Returns undefined when output or multimodal input is not bounded, causing a
- * capped CostLedger to reject the call before execution. */
+ * capped CostLedger to reject the call before execution. Pass
+ * `customTokenPricing` when package pricing does not cover the model or endpoint. */
 export function maximumChargeForLlmRequest(
   request: Pick<LlmCallRequest, 'model' | 'messages' | 'jsonSchema' | 'maxTokens'>,
   options: LlmClientOptions = {},
@@ -88,11 +94,13 @@ export function maximumChargeForLlmRequest(
   ).byteLength
   // A rejected response schema can trigger one JSON-mode batch with the same output limit.
   const batches = request.jsonSchema && !forceJsonObject ? 2 : 1
-  return {
-    model: request.model,
+  const usage = {
     inputTokens: requestBytes * attempts * batches,
     outputTokens: request.maxTokens * attempts * batches,
   }
+  return options.customTokenPricing
+    ? { customTokenPricing: options.customTokenPricing, ...usage }
+    : { model: request.model, ...usage }
 }
 
 export interface LlmUsage {
@@ -110,8 +118,8 @@ export interface LlmCallResult {
   content: string
   usage: LlmUsage
   /**
-   * Cost in USD. Pulled from proxy's `_response_cost` field when present;
-   * `null` when neither the proxy nor the caller can derive it.
+   * Cost in USD. Uses the provider's reported cost when present, otherwise
+   * caller-supplied token pricing. `null` when neither is available.
    */
   costUsd: number | null
   /** Model name actually used (echoed from response). */
@@ -141,21 +149,36 @@ export interface LlmCallResult {
 export type LlmCallMetadata = Pick<LlmCallResult, 'usage' | 'costUsd' | 'model' | 'durationMs'>
 
 /** Convert a provider result into the canonical paid-call receipt input. */
-export function costReceiptFromLlm(result: LlmCallResult): CostReceiptInput {
+export function costReceiptFromLlm(
+  result: LlmCallResult,
+  customTokenPricing?: CustomTokenPricing,
+): CostReceiptInput {
   const cachedTokens = result.usage.cachedPromptTokens ?? 0
+  const configuredCostUsd =
+    result.costUsd === null && customTokenPricing && result.usage.captured !== false
+      ? costForTokenPricing(customTokenPricing, {
+          inputTokens: result.usage.promptTokens,
+          outputTokens: result.usage.completionTokens,
+        })
+      : undefined
   return {
     model: result.model,
     inputTokens: Math.max(0, result.usage.promptTokens - cachedTokens),
     outputTokens: result.usage.completionTokens,
     cachedTokens: cachedTokens > 0 ? cachedTokens : undefined,
-    actualCostUsd: result.costUsd ?? undefined,
+    actualCostUsd: result.costUsd ?? configuredCostUsd,
     usageUnknown: result.usage.captured === false,
   }
 }
 
 /** Structured-response failures retain their completed provider receipt. */
-export function costReceiptFromLlmError(error: Error): CostReceiptInput | undefined {
-  return error instanceof LlmResponseError ? costReceiptFromLlm(error.result) : undefined
+export function costReceiptFromLlmError(
+  error: Error,
+  customTokenPricing?: CustomTokenPricing,
+): CostReceiptInput | undefined {
+  return error instanceof LlmResponseError
+    ? costReceiptFromLlm(error.result, customTokenPricing)
+    : undefined
 }
 
 export class LlmCallError extends AgentEvalError {
@@ -211,6 +234,8 @@ export interface LlmClientOptions {
   deadlineMs?: number
   /** Total provider attempts. Legacy option name; default 3 (1 initial + 2 retries). */
   maxRetries?: number
+  /** Token rates used when the provider omits cost or package pricing does not cover the model. */
+  customTokenPricing?: CustomTokenPricing
   /**
    * Transport for requests that declare `jsonSchema`. `native` sends
    * `response_format: json_schema`; `json-object` sends the broadly supported
@@ -523,6 +548,9 @@ export async function callLlm(
   const callerSignal = opts.signal
   const deadlineMs = opts.deadlineMs
   const deadlineStart = Date.now()
+  if (opts.customTokenPricing) {
+    costForTokenPricing(opts.customTokenPricing, { inputTokens: 0, outputTokens: 0 })
+  }
 
   let lastErr: unknown
   for (let attempt = 0; attempt < maximumAttempts; attempt++) {
@@ -687,6 +715,14 @@ export async function callLlm(
       const costFromProxy = (json._response_cost ?? json.cost_usd) as number | undefined
       const content = choice?.message?.content ?? ''
 
+      const configuredCost =
+        typeof costFromProxy !== 'number' && usageCaptured && opts.customTokenPricing
+          ? costForTokenPricing(opts.customTokenPricing, {
+              inputTokens: promptTokens!,
+              outputTokens: completionTokens!,
+            })
+          : undefined
+
       return {
         content,
         finishReason: choice?.finish_reason ?? null,
@@ -698,7 +734,7 @@ export async function callLlm(
           captured: usageCaptured,
           cachedPromptTokens,
         },
-        costUsd: typeof costFromProxy === 'number' ? costFromProxy : null,
+        costUsd: typeof costFromProxy === 'number' ? costFromProxy : (configuredCost ?? null),
         model: (json.model as string) ?? req.model,
         durationMs: Date.now() - started,
         raw: json,

@@ -68,7 +68,7 @@ describe('traceAnalystProposer — wraps our trace-analyst registry as a Surface
     expect(c.rationale).toContain('FIX:')
   })
 
-  it('is a SurfaceProposer of kind "trace-analyst" (drops into compareProposers next to halo)', () => {
+  it('is a SurfaceProposer of kind "trace-analyst" (drops into compareOptimizationMethods next to halo)', () => {
     const d = traceAnalystProposer({
       baseUrl: 'https://x/v1',
       apiKey: 'sk-test',

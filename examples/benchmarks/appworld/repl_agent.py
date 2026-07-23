@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Standalone non-MCP AppWorld REPL worker for the compareProposers benchmark.
+"""Standalone AppWorld REPL worker for compareOptimizationMethods.
 
 The wedged `openai_agents_mcp_agent` makes zero LLM calls on MCP-connect. This
 worker takes the DIRECT path: it drives AppWorld's stateful REPL itself. One
@@ -39,9 +39,8 @@ from openai import OpenAI, RateLimitError
 
 from appworld import AppWorld
 
-# Per-1M-token USD pricing for the router models we benchmark. Mirrors the
-# numbers in the demo's experiments/configs/_generator/models/openai.py so the
-# RunRecord costUsd is real, not a fabricated zero.
+# Per-1M-token USD estimates for the router models used by this example.
+# Unknown models remain explicitly uncaptured.
 PRICE_PER_M: dict[str, dict[str, float]] = {
     "gpt-4o-mini-2024-07-18": {"input": 0.15, "output": 0.60},
     "gpt-4o-2024-05-13": {"input": 5.0, "output": 15.0},
@@ -108,12 +107,10 @@ def extract_code(text: str) -> str:
     return ""
 
 
-def price(model: str, in_tok: int, out_tok: int) -> float:
+def price(model: str, in_tok: int, out_tok: int) -> float | None:
     p = PRICE_PER_M.get(model)
     if p is None:
-        # No fabricated zero: an unpriced model is recorded as a real NaN-free
-        # signal the TS side can flag, not silently as $0.00.
-        return float("nan")
+        return None
     return in_tok * p["input"] / 1e6 + out_tok * p["output"] / 1e6
 
 
@@ -421,7 +418,12 @@ def run_task(
         "seed": 100,
         "model": model,
         "wallMs": wall_ms,
-        "costUsd": cost,
+        "costUsd": cost if cost is not None else 0.0,
+        "costProvenance": (
+            {"kind": "estimated", "usd": cost}
+            if cost is not None
+            else {"kind": "uncaptured", "usd": None}
+        ),
         "tokenUsage": {"input": in_tok_total, "output": out_tok_total},
         "outcome": {
             "holdoutScore": sgc,
@@ -450,7 +452,7 @@ def run_task(
         "tgc": tgc,
         "sgc": sgc,
         "num_tests": num_tests,
-        "tokens": {"input": in_tok_total, "output": out_tok_total},
+        "token_usage": {"input": in_tok_total, "output": out_tok_total},
         "cost_usd": cost,
         "wall_ms": wall_ms,
         "last_error": last_error,
@@ -467,7 +469,7 @@ def run_task(
 
     result_path = os.path.join(out_dir, "result.json")
     with open(result_path, "w") as f:
-        json.dump(result, f, indent=2)
+        json.dump(result, f, indent=2, allow_nan=False)
 
     return result
 
@@ -480,9 +482,8 @@ def main() -> None:
     ap.add_argument(
         "--max-steps",
         type=int,
-        default=0,
-        help="Hard step cap; 0 (default) = NO cap, run until the agent calls complete_task "
-        "(maxTurns=0). The wall-clock budget is the only safety net.",
+        default=30,
+        help="Hard step cap. Set 0 to disable it and rely on the wall-clock limit.",
     )
     ap.add_argument(
         "--max-wall-seconds",
@@ -575,7 +576,8 @@ def main() -> None:
                 "n_spans": result["n_spans"],
                 "traces_path": result["traces_path"],
                 "last_error": result["last_error"],
-            }
+            },
+            allow_nan=False,
         )
     )
 

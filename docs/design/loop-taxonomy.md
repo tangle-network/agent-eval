@@ -6,9 +6,8 @@ layers, and the layers were getting conflated. Every role below has exactly
 one meaning. Use these words and nothing else.
 
 Cross-links: [`concepts.md`](../concepts.md) (eval mental model),
-[`campaign-proposers.md`](../campaign-proposers.md) (proposer catalog),
-[`multi-shot-optimization.md`](../multi-shot-optimization.md) (GEPA), and
-[`self-improvement-map.md`](../self-improvement-map.md) (supported improvement paths).
+[`campaign-proposers.md`](../campaign-proposers.md) (proposer catalog), and
+[`multi-shot-optimization.md`](../multi-shot-optimization.md) (GEPA).
 
 ## Core Roles
 

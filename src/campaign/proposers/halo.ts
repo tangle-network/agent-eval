@@ -1,18 +1,9 @@
 /**
- * `haloProposer` — wraps the REAL halo-engine (Inference.net's hierarchical
- * agentic trace analyzer, `pip install halo-engine`, repo context-labs/halo)
- * as an agent-eval `SurfaceProposer`, so HALO competes head-to-head with
- * `gepaProposer` — and with our own `traceAnalystProposer` — inside `compareProposers`
- * on identical traces / scenarios / held-out scoring.
+ * Adapt the published `halo-engine` CLI to `SurfaceProposer`.
  *
- * It PRESERVES halo's actual working usage — `analyze` shells out to the
- * published CLI (`halo <traces.jsonl> -p <prompt> -m <model>`) and uses its real
- * RLM findings verbatim. We do NOT reimplement its analysis; that would make the
- * benchmark meaningless. The materialize/apply pipeline is the shared
- * `analysisEditProposer` — identical to `traceAnalystProposer`, which is what makes
- * the comparison apples-to-apples.
- *
- * Fail-loud: no traces → throw; halo errors → throw; empty findings → throw.
+ * The proposer runs `halo <traces.jsonl> -p <prompt> -m <model>` and passes its
+ * findings to the shared edit step also used by `traceAnalystProposer`. It
+ * rejects missing traces, CLI errors, and empty findings.
  */
 
 import { execFile } from 'node:child_process'

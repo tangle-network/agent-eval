@@ -1,26 +1,12 @@
 /**
- * `runSkillOpt` — the SkillOpt epoch hill-climb (Microsoft, arXiv:2605.23904).
- * Unlike `runOptimization`'s population search around one global incumbent,
- * SkillOpt is a sequential, held-out-gated hill-climb on ONE skill document:
+ * Optimize one skill document with the repeated selection method from SkillOpt
+ * (Microsoft, arXiv:2605.23904).
  *
- *   each epoch:
- *     1. reflect on the CURRENT surface's weakest TRAIN scenarios/dimensions
- *        (never the held-out split — proposals must not see the acceptance axis)
- *     2. propose ≤ `patchesPerEpoch` bounded patches (≤ `editBudget` ops each)
- *     3. apply each; score the candidate on the HELD-OUT split
- *     4. ACCEPT the first patch that STRICTLY improves the held-out composite;
- *        otherwise push it to the rejected-edit buffer (fed back so the model
- *        does not re-propose dead ends)
- *     5. anneal the edit budget down after consecutive rejections (the
- *        "textual learning rate" decay); refresh the slow-update meta note
- *     6. stop at `maxEpochs` or after `patience` epochs with no acceptance
- *
- * The accept-only-if-held-out-improves rule is the same discipline as
- * `HeldOutGate`/`defaultProductionGate`, applied per edit instead of once at
- * the end — which is why the held-out composite is monotonically
- * non-decreasing and a regression can never ship. `runCampaign` is the
- * measurement; `applySkillPatch` applies the edits; `skillOptProposer` proposes
- * them.
+ * Each round proposes bounded patches from item-level training evidence, then
+ * accepts the first patch that improves the selection score. Later rounds see
+ * aggregate acceptance feedback and prior rejected edits, so selection data is
+ * adaptively reused. It is not a final test. Use `compareOptimizationMethods` when you
+ * need a separate test partition.
  */
 
 import type { CostLedgerHandle, CostLedgerSummary } from '../../cost-ledger'
@@ -43,18 +29,17 @@ export interface RunSkillOptOptions<TScenario extends Scenario, TArtifact>
     ctx: DispatchContext,
   ) => Promise<TArtifact>
   proposer: SkillOptProposer
-  /** Scenarios the optimizer reflects on for evidence. MUST be disjoint from
-   *  `holdoutScenarios` — proposals never see the acceptance axis. */
+  /** Item-level evidence shown to the proposer. Must be disjoint from selection. */
   trainScenarios: TScenario[]
-  /** Held-out scenarios. An edit is accepted ONLY if it strictly improves the
-   *  mean composite here. */
-  holdoutScenarios: TScenario[]
+  /** Adaptively reused candidate-selection scenarios. An edit is accepted ONLY
+   *  if it strictly improves the mean composite here. This is not a final test. */
+  selectionScenarios: TScenario[]
   maxEpochs: number
   /** Candidate patches proposed per epoch. Default 2. */
   patchesPerEpoch?: number
   /** Initial ops-per-patch cap (the textual learning rate). Default 3. */
   editBudget?: number
-  /** Strict acceptance margin: accept iff the held-out composite improves by
+  /** Strict acceptance margin: accept iff the selection composite improves by
    *  MORE than this. Default 0 (any strict improvement). */
   minImprovement?: number
   /** Stop after this many consecutive epochs with no acceptance. Default =
@@ -77,8 +62,8 @@ export interface AcceptedEdit {
   epoch: number
   label: string
   rationale: string
-  /** Held-out composite improvement vs the surface before this edit. */
-  holdoutDelta: number
+  /** Selection composite improvement vs the surface before this edit. */
+  selectionDelta: number
 }
 
 export interface SkillOptEpochRecord {
@@ -88,89 +73,121 @@ export interface SkillOptEpochRecord {
   /** The accepted edit this epoch, or null if every proposal was rejected. */
   accepted: AcceptedEdit | null
   rejected: RejectedEdit[]
-  /** Held-out composite of the CURRENT surface at the END of the epoch. */
-  holdoutComposite: number
+  /** Selection composite of the CURRENT surface at the END of the epoch. */
+  selectionComposite: number
 }
 
 export interface RunSkillOptResult {
   winnerSurface: string
-  baselineHoldoutComposite: number
-  winnerHoldoutComposite: number
-  /** `winnerHoldoutComposite - baselineHoldoutComposite` — monotonically ≥ 0
-   *  by construction (only strictly-improving edits are accepted). */
-  lift: number
+  baselineSelectionComposite: number
+  winnerSelectionComposite: number
+  /** `winnerSelectionComposite - baselineSelectionComposite`. This is not test lift. */
+  selectionLift: number
   acceptedEdits: AcceptedEdit[]
   rejectedEdits: RejectedEdit[]
   epochsRun: number
   history: SkillOptEpochRecord[]
-  /** Total cost across every scoring campaign (train evidence + holdout
-   *  acceptance) the hill-climb ran. */
+  /** Full run spend. Alias of `cost.totalCostUsd`; includes scoring, proposals,
+   *  and judges. */
   totalCostUsd: number
   /** Run-wide spend, including scoring, proposals, and judges. */
   cost: CostLedgerSummary
 }
 
 /**
- * SkillOpt sequential hill-climb: each epoch reflects on train-scenario weaknesses, proposes bounded patches, accepts the first patch that strictly improves the held-out composite, and anneals the edit budget on consecutive rejections.
+ * SkillOpt sequential hill-climb: each epoch reflects on train-scenario weaknesses, proposes bounded patches, accepts the first patch that strictly improves the selection composite, and anneals the edit budget on consecutive rejections.
  */
 export async function runSkillOpt<TScenario extends Scenario, TArtifact>(
   opts: RunSkillOptOptions<TScenario, TArtifact>,
 ): Promise<RunSkillOptResult> {
-  if (opts.trainScenarios.length === 0) throw new Error('runSkillOpt: trainScenarios is empty')
-  if (opts.holdoutScenarios.length === 0) throw new Error('runSkillOpt: holdoutScenarios is empty')
+  const legacy = opts as RunSkillOptOptions<TScenario, TArtifact> & {
+    holdoutScenarios?: unknown
+  }
+  if (legacy.holdoutScenarios !== undefined) {
+    throw new Error(
+      'runSkillOpt: holdoutScenarios was renamed to selectionScenarios because SkillOpt adaptively reuses it for edit acceptance. Provide selectionScenarios and score any final test outside runSkillOpt.',
+    )
+  }
+  if (!Array.isArray(opts.trainScenarios) || opts.trainScenarios.length === 0)
+    throw new Error('runSkillOpt: trainScenarios is empty')
+  if (!Array.isArray(opts.selectionScenarios) || opts.selectionScenarios.length === 0)
+    throw new Error('runSkillOpt: selectionScenarios is empty')
   if (!opts.judges || opts.judges.length === 0) {
     throw new Error(
       'runSkillOpt: at least one judge is required — scoring (and therefore acceptance) is meaningless without one, and would report a silent zero lift.',
     )
   }
-  // train ∩ holdout must be empty: proposals reflect on TRAIN evidence, so any
-  // overlap leaks the acceptance axis into the proposal (held-out contamination).
-  const holdoutIds = new Set(opts.holdoutScenarios.map((s) => s.id))
-  const overlap = opts.trainScenarios.filter((s) => holdoutIds.has(s.id)).map((s) => s.id)
+  // train ∩ selection must be empty: proposals reflect on TRAIN evidence, so any
+  // overlap leaks the acceptance axis into the proposal evidence.
+  const selectionIds = new Set(opts.selectionScenarios.map((s) => s.id))
+  const overlap = opts.trainScenarios.filter((s) => selectionIds.has(s.id)).map((s) => s.id)
   if (overlap.length > 0) {
     throw new Error(
-      `runSkillOpt: trainScenarios and holdoutScenarios must be disjoint (overlap: [${overlap.join(
+      `runSkillOpt: trainScenarios and selectionScenarios must be disjoint (overlap: [${overlap.join(
         ', ',
-      )}]) — a shared scenario leaks the held-out acceptance axis into the proposal evidence.`,
+      )}]) — a shared scenario leaks the selection axis into the proposal evidence.`,
     )
   }
 
+  const maxEpochs = opts.maxEpochs
   const patchesPerEpoch = opts.patchesPerEpoch ?? 2
   const initialBudget = opts.editBudget ?? 3
   const minImprovement = opts.minImprovement ?? 0
-  if (minImprovement < 0) {
-    throw new Error(
-      'runSkillOpt: minImprovement must be >= 0 — a negative threshold would accept held-out regressions, breaking the monotonic-lift contract.',
-    )
-  }
-  const patience = opts.patience ?? opts.maxEpochs
+  const patience = opts.patience ?? maxEpochs
   const budgetAnneal = opts.budgetAnneal ?? true
   const rejectedBufferSize = opts.rejectedBufferSize ?? 12
   const slowMetaEvery = opts.slowMetaEvery ?? 2
-  opts.runDir = resolveRunDir(opts.runDir, opts.repo)
+  const evidenceK = opts.evidenceK ?? 3
+
+  assertPositiveSafeInteger('maxEpochs', maxEpochs)
+  assertPositiveSafeInteger('patchesPerEpoch', patchesPerEpoch)
+  assertPositiveSafeInteger('editBudget', initialBudget)
+  assertFiniteNonNegative('minImprovement', minImprovement)
+  assertPositiveSafeInteger('patience', patience)
+  assertNonNegativeSafeInteger('rejectedBufferSize', rejectedBufferSize)
+  assertNonNegativeSafeInteger('slowMetaEvery', slowMetaEvery)
+  assertPositiveSafeInteger('evidenceK', evidenceK)
+  if (typeof opts.runDir !== 'string' || opts.runDir.trim().length === 0) {
+    throw new Error('runSkillOpt: runDir must be a non-empty string')
+  }
+
+  const runDir = resolveRunDir(opts.runDir, opts.repo)
   const storage = opts.storage ?? fsCampaignStorage()
   const costLedger =
     opts.costLedger ??
     createRunCostLedger({
       storage,
-      runDir: opts.runDir,
+      runDir,
       costCeilingUsd: opts.costCeiling,
     })
 
-  const scoreHoldout = async (surface: string, tag: string): Promise<number> => {
-    const campaign = await runScoringCampaign(opts, opts.holdoutScenarios, surface, tag, costLedger)
+  const scoreSelection = async (surface: string, tag: string): Promise<number> => {
+    const campaign = await runScoringCampaign(
+      opts,
+      opts.selectionScenarios,
+      surface,
+      tag,
+      costLedger,
+      runDir,
+    )
     return campaignMeanComposite(campaign)
   }
-  const evidenceK = opts.evidenceK ?? 3
   const trainEvidence = async (surface: string, tag: string): Promise<SkillOptEvidence> => {
-    const campaign = await runScoringCampaign(opts, opts.trainScenarios, surface, tag, costLedger)
+    const campaign = await runScoringCampaign(
+      opts,
+      opts.trainScenarios,
+      surface,
+      tag,
+      costLedger,
+      runDir,
+    )
     return toEvidence(campaign, evidenceK)
   }
 
   let current = opts.baselineSurface
   let currentEvidence = await trainEvidence(current, 'baseline-train')
-  const baselineHoldout = await scoreHoldout(current, 'baseline-holdout')
-  let currentHoldout = baselineHoldout
+  const baselineSelection = await scoreSelection(current, 'baseline-selection')
+  let currentSelection = baselineSelection
 
   const buffer: RejectedEdit[] = []
   const acceptedEdits: AcceptedEdit[] = []
@@ -181,9 +198,9 @@ export async function runSkillOpt<TScenario extends Scenario, TArtifact>(
   let metaNote: string | undefined
   let epochsRun = 0
 
-  for (let epoch = 0; epoch < opts.maxEpochs; epoch++) {
+  for (let epoch = 0; epoch < maxEpochs; epoch++) {
     epochsRun++
-    const patches = await opts.proposer.proposePatches({
+    const proposed = await opts.proposer.proposePatches({
       surface: current,
       evidence: currentEvidence,
       editBudget: budget,
@@ -194,6 +211,10 @@ export async function runSkillOpt<TScenario extends Scenario, TArtifact>(
       costLedger,
       costPhase: 'skill-opt.proposal',
     })
+    if (!Array.isArray(proposed)) {
+      throw new Error('runSkillOpt: proposer.proposePatches() must return an array')
+    }
+    const patches = proposed.slice(0, patchesPerEpoch)
 
     let accepted: AcceptedEdit | null = null
     const rejectedThisEpoch: RejectedEdit[] = []
@@ -208,16 +229,19 @@ export async function runSkillOpt<TScenario extends Scenario, TArtifact>(
         })
         continue
       }
-      const candidateHoldout = await scoreHoldout(candidate, `epoch-${epoch}-cand-${i}-holdout`)
-      if (candidateHoldout > currentHoldout + minImprovement) {
+      const candidateSelection = await scoreSelection(
+        candidate,
+        `epoch-${epoch}-cand-${i}-selection`,
+      )
+      if (candidateSelection > currentSelection + minImprovement) {
         accepted = {
           epoch,
           label: patch.label,
           rationale: patch.rationale,
-          holdoutDelta: candidateHoldout - currentHoldout,
+          selectionDelta: candidateSelection - currentSelection,
         }
         current = candidate
-        currentHoldout = candidateHoldout
+        currentSelection = candidateSelection
         // The surface changed — recompute evidence for the next epoch from it.
         currentEvidence = await trainEvidence(current, `epoch-${epoch}-train`)
         break // greedy: take the first strictly-improving edit
@@ -225,7 +249,7 @@ export async function runSkillOpt<TScenario extends Scenario, TArtifact>(
       rejectedThisEpoch.push({
         label: patch.label,
         rationale: patch.rationale,
-        reason: `held-out ${candidateHoldout.toFixed(3)} ≤ current ${currentHoldout.toFixed(3)}`,
+        reason: `selection ${candidateSelection.toFixed(3)} ≤ current ${currentSelection.toFixed(3)}`,
       })
     }
 
@@ -255,7 +279,7 @@ export async function runSkillOpt<TScenario extends Scenario, TArtifact>(
       proposed: patches.length,
       accepted,
       rejected: rejectedThisEpoch,
-      holdoutComposite: currentHoldout,
+      selectionComposite: currentSelection,
     })
 
     if (sinceAccept >= patience) break
@@ -264,9 +288,9 @@ export async function runSkillOpt<TScenario extends Scenario, TArtifact>(
   const cost = costLedger.summary()
   return {
     winnerSurface: current,
-    baselineHoldoutComposite: baselineHoldout,
-    winnerHoldoutComposite: currentHoldout,
-    lift: currentHoldout - baselineHoldout,
+    baselineSelectionComposite: baselineSelection,
+    winnerSelectionComposite: currentSelection,
+    selectionLift: currentSelection - baselineSelection,
     acceptedEdits,
     rejectedEdits: rejectedAll,
     epochsRun,
@@ -282,14 +306,33 @@ function runScoringCampaign<TScenario extends Scenario, TArtifact>(
   surface: string,
   tag: string,
   costLedger: CostLedgerHandle,
+  runDir: string,
 ): Promise<CampaignResult<TArtifact, TScenario>> {
   return runCampaign<TScenario, TArtifact>({
     ...opts,
     costLedger,
     scenarios,
     dispatch: (scenario, ctx) => opts.dispatchWithSurface(surface, scenario, ctx),
-    runDir: `${opts.runDir}/${tag}`,
+    runDir: `${runDir}/${tag}`,
   })
+}
+
+function assertPositiveSafeInteger(name: string, value: number): void {
+  if (!Number.isSafeInteger(value) || value <= 0) {
+    throw new Error(`runSkillOpt: ${name} must be a positive safe integer`)
+  }
+}
+
+function assertNonNegativeSafeInteger(name: string, value: number): void {
+  if (!Number.isSafeInteger(value) || value < 0) {
+    throw new Error(`runSkillOpt: ${name} must be a non-negative safe integer`)
+  }
+}
+
+function assertFiniteNonNegative(name: string, value: number): void {
+  if (!Number.isFinite(value) || value < 0) {
+    throw new Error(`runSkillOpt: ${name} must be a finite number greater than or equal to 0`)
+  }
 }
 
 function toEvidence<TArtifact, TScenario extends Scenario>(
@@ -309,8 +352,8 @@ function buildMetaNote(accepted: AcceptedEdit[], rejected: RejectedEdit[]): stri
   const parts: string[] = []
   if (accepted.length > 0) {
     parts.push(
-      `Edits that improved held-out so far: ${accepted
-        .map((a) => `"${a.label}" (+${a.holdoutDelta.toFixed(3)})`)
+      `Edits that improved selection so far: ${accepted
+        .map((a) => `"${a.label}" (+${a.selectionDelta.toFixed(3)})`)
         .join('; ')}. Build on these.`,
     )
   }

@@ -45,6 +45,25 @@ describe('maximumChargeForLlmRequest', () => {
     expect(structured && 'outputTokens' in structured ? structured.outputTokens : 0).toBe(1_600)
   })
 
+  it('uses caller-supplied prices for an unrecognized model', () => {
+    const maximum = maximumChargeForLlmRequest(
+      {
+        model: 'router/custom-model',
+        messages: [{ role: 'user', content: 'hello' }],
+        maxTokens: 400,
+      },
+      {
+        maxRetries: 1,
+        customTokenPricing: { inputUsdPerMillion: 0.27, outputUsdPerMillion: 1.1 },
+      },
+    )
+
+    expect(maximum).toMatchObject({
+      customTokenPricing: { inputUsdPerMillion: 0.27, outputUsdPerMillion: 1.1 },
+      outputTokens: 400,
+    })
+  })
+
   it('reserves one request batch for explicit json-object schema transport', () => {
     const maximum = maximumChargeForLlmRequest(
       {
@@ -57,6 +76,27 @@ describe('maximumChargeForLlmRequest', () => {
     )
 
     expect(maximum && 'outputTokens' in maximum ? maximum.outputTokens : 0).toBe(800)
+  })
+
+  it('combines custom pricing with json-object schema transport', () => {
+    const maximum = maximumChargeForLlmRequest(
+      {
+        model: 'router/custom-model',
+        messages: [{ role: 'user', content: 'hello' }],
+        jsonSchema: { name: 'answer', schema: { type: 'object' } },
+        maxTokens: 400,
+      },
+      {
+        maxRetries: 2,
+        jsonSchemaTransport: 'json-object',
+        customTokenPricing: { inputUsdPerMillion: 0.27, outputUsdPerMillion: 1.1 },
+      },
+    )
+
+    expect(maximum).toMatchObject({
+      customTokenPricing: { inputUsdPerMillion: 0.27, outputUsdPerMillion: 1.1 },
+      outputTokens: 800,
+    })
   })
 
   it('returns no bound for unbounded output or image input', () => {
@@ -87,6 +127,10 @@ describe('costReceiptFromLlm', () => {
       { model: 'gpt-4o', messages: [{ role: 'user', content: 'hello' }], maxTokens: 8 },
       {
         maxRetries: 1,
+        customTokenPricing: {
+          inputUsdPerMillion: 0.27,
+          outputUsdPerMillion: 1.1,
+        },
         fetch: async () =>
           mkOkResponse({
             model: 'gpt-4o',
@@ -105,6 +149,41 @@ describe('costReceiptFromLlm', () => {
       outputTokens: 0,
       usageUnknown: true,
     })
+    expect(
+      costReceiptFromLlm(result, { inputUsdPerMillion: 1, outputUsdPerMillion: 2 }).actualCostUsd,
+    ).toBeUndefined()
+  })
+
+  it('prices captured usage when the provider omits billed cost', async () => {
+    const result = await callLlm(
+      {
+        model: 'router/custom-model',
+        messages: [{ role: 'user', content: 'hello' }],
+        maxTokens: 8,
+      },
+      {
+        maxRetries: 1,
+        customTokenPricing: {
+          inputUsdPerMillion: 0.27,
+          outputUsdPerMillion: 1.1,
+        },
+        fetch: async () =>
+          mkOkResponse({
+            model: 'router/custom-model',
+            choices: [{ message: { content: 'ok' }, finish_reason: 'stop' }],
+            usage: { prompt_tokens: 100, completion_tokens: 50, total_tokens: 150 },
+          }),
+      },
+    )
+
+    const receipt = costReceiptFromLlm(result)
+    expect(receipt).toMatchObject({
+      model: 'router/custom-model',
+      inputTokens: 100,
+      outputTokens: 50,
+      usageUnknown: false,
+    })
+    expect(receipt.actualCostUsd).toBeCloseTo(0.000082, 12)
   })
 
   it('marks internally inconsistent provider usage as incomplete', async () => {
