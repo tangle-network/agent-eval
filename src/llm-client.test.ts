@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
+import { CostLedger } from './cost-ledger'
 import {
   callLlm,
   callLlmJson,
@@ -187,6 +188,66 @@ describe('costReceiptFromLlm', () => {
     expect(receipt.actualCostUsd).toBeCloseTo(0.000082, 12)
   })
 
+  it('preserves OpenAI-compatible reasoning usage through the cost ledger', async () => {
+    const result = await callLlm(
+      { model: 'glm-4.5', messages: [{ role: 'user', content: 'test' }], maxTokens: 3_323 },
+      {
+        maxRetries: 1,
+        fetch: async () =>
+          mkOkResponse({
+            id: 'chatcmpl-r431-fixture',
+            object: 'chat.completion',
+            model: 'glm-4.5',
+            choices: [
+              {
+                index: 0,
+                message: { role: 'assistant', content: 'ok' },
+                finish_reason: 'stop',
+              },
+            ],
+            usage: {
+              prompt_tokens: 428,
+              completion_tokens: 3_323,
+              total_tokens: 3_751,
+              completion_tokens_details: { reasoning_tokens: 2_072 },
+            },
+            cost_usd: 0.01,
+          }),
+      },
+    )
+
+    expect(result.usage).toMatchObject({
+      promptTokens: 428,
+      completionTokens: 3_323,
+      totalTokens: 3_751,
+      reasoningTokens: 2_072,
+      captured: true,
+    })
+    expect(costReceiptFromLlm(result)).toMatchObject({
+      inputTokens: 428,
+      outputTokens: 3_323,
+      reasoningTokens: 2_072,
+    })
+
+    const ledger = new CostLedger()
+    const paid = await ledger.runPaidCall({
+      channel: 'agent',
+      phase: 'fixture',
+      actor: 'fixture',
+      model: result.model,
+      execute: async () => result,
+      receipt: costReceiptFromLlm,
+    })
+
+    expect(paid.succeeded).toBe(true)
+    if (!paid.succeeded) throw paid.error
+    expect(paid.receipt.reasoningTokens).toBe(2_072)
+    expect(ledger.summary()).toMatchObject({
+      reasoningTokens: 2_072,
+      byChannel: [{ channel: 'agent', reasoningTokens: 2_072 }],
+    })
+  })
+
   it('marks internally inconsistent provider usage as incomplete', async () => {
     const result = await callLlm(
       { model: 'gpt-4o', messages: [{ role: 'user', content: 'hello' }], maxTokens: 8 },
@@ -201,6 +262,29 @@ describe('costReceiptFromLlm', () => {
               completion_tokens: 1,
               total_tokens: 2,
               prompt_tokens_details: { cached_tokens: 20 },
+            },
+          }),
+      },
+    )
+
+    expect(result.usage.captured).toBe(false)
+    expect(costReceiptFromLlm(result).usageUnknown).toBe(true)
+  })
+
+  it('marks reasoning usage larger than completion usage as incomplete', async () => {
+    const result = await callLlm(
+      { model: 'gpt-4o', messages: [{ role: 'user', content: 'hello' }], maxTokens: 8 },
+      {
+        maxRetries: 1,
+        fetch: async () =>
+          mkOkResponse({
+            model: 'gpt-4o',
+            choices: [{ message: { content: 'ok' }, finish_reason: 'stop' }],
+            usage: {
+              prompt_tokens: 10,
+              completion_tokens: 5,
+              total_tokens: 15,
+              completion_tokens_details: { reasoning_tokens: 6 },
             },
           }),
       },
