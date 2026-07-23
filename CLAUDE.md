@@ -3,7 +3,7 @@
 Two docs, two audiences:
 
 - **Humans onboarding** → [`docs/concepts.md`](./docs/concepts.md) (mental model, 5 min) and [`README.md`](./README.md) (entry points + quickstart).
-- **LLM agents writing integration code** → [`.claude/skills/agent-eval/SKILL.md`](./.claude/skills/agent-eval/SKILL.md). Auto-discovered by Claude Code as `/agent-eval`. Encodes shipped-bug directives that prevent regression — skipping one reintroduces the bug class.
+- **Agents maintaining this package** → [`.claude/skills/agent-eval/SKILL.md`](./.claude/skills/agent-eval/SKILL.md). It defines the maintainer workflow and points to current source; it does not duplicate the API reference.
 
 Wire-protocol consumers (any language other than TypeScript) → [`docs/wire-protocol.md`](./docs/wire-protocol.md) and [`clients/python/README.md`](./clients/python/README.md).
 
@@ -63,4 +63,3 @@ Sloppy fallbacks corrupt every signal downstream. No silent zeros, no `?? defaul
 External-boundary calls (LLM, network, FS, subprocess) return *typed outcomes* (`{ succeeded, value, error }`). Callers MUST inspect `succeeded` before using `value`. Named, opted-in fallback rotations (`policy.fallbackModels: [...]`) are fine; deep `?? "kimi"` helpers are not.
 
 Full doctrine: `~/dotfiles/claude/AGENTS.md` → "No fallbacks. Fail loud."
-
