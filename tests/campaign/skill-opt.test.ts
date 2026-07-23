@@ -10,6 +10,7 @@ import {
   skillOptProposer,
 } from '../../src/campaign/proposers/skill-opt'
 import type { SkillPatch } from '../../src/campaign/skill-patch'
+import { inMemoryCampaignStorage } from '../../src/campaign/storage'
 import type { JudgeConfig, ProposeContext, Scenario } from '../../src/campaign/types'
 
 interface S extends Scenario {
@@ -419,6 +420,37 @@ describe('runSkillOpt', () => {
     expect(result.winnerSurface).toBe('# Skill')
   })
 
+  it('scores no more patches than patchesPerEpoch when a custom proposer over-returns', async () => {
+    const proposer: SkillOptProposer = {
+      kind: 'over-returning',
+      async propose() {
+        return []
+      },
+      async proposePatches() {
+        return ['ONE', 'TWO', 'THREE'].map((text) => ({
+          label: text.toLowerCase(),
+          rationale: 'neutral edit',
+          ops: [{ op: 'add' as const, text }],
+        }))
+      },
+    }
+    const result = await runSkillOpt<S, A>({
+      baselineSurface: '# Skill',
+      dispatchWithSurface: async (surface) => ({ text: surface }),
+      judges: [judge],
+      proposer,
+      trainScenarios: SCEN_TRAIN,
+      selectionScenarios: SCEN_SELECTION,
+      maxEpochs: 1,
+      patchesPerEpoch: 1,
+      runDir,
+      expectUsage: 'off',
+    })
+
+    expect(result.history[0]!.proposed).toBe(1)
+    expect(result.rejectedEdits.map((edit) => edit.label)).toEqual(['one'])
+  })
+
   const noopProposer: SkillOptProposer = {
     kind: 'noop',
     async propose() {
@@ -469,15 +501,64 @@ describe('runSkillOpt', () => {
     await expect(runSkillOpt(legacy)).rejects.toThrow(/renamed to selectionScenarios/)
   })
 
-  it('throws on a negative minImprovement (would accept regressions)', async () => {
+  const invalidControls: Array<[string, Partial<RunSkillOptOptions<S, A>>, RegExp]> = [
+    ['zero maxEpochs', { maxEpochs: 0 }, /maxEpochs must be a positive safe integer/],
+    ['zero patchesPerEpoch', { patchesPerEpoch: 0 }, /patchesPerEpoch must be a positive/],
+    ['zero editBudget', { editBudget: 0 }, /editBudget must be a positive/],
+    ['negative minImprovement', { minImprovement: -0.1 }, /minImprovement must be a finite/],
+    ['NaN minImprovement', { minImprovement: Number.NaN }, /minImprovement must be a finite/],
+    ['zero patience', { patience: 0 }, /patience must be a positive/],
+    [
+      'negative rejectedBufferSize',
+      { rejectedBufferSize: -1 },
+      /rejectedBufferSize must be a non-negative/,
+    ],
+    ['negative slowMetaEvery', { slowMetaEvery: -1 }, /slowMetaEvery must be a non-negative/],
+    ['zero evidenceK', { evidenceK: 0 }, /evidenceK must be a positive/],
+    ['blank runDir', { runDir: ' ' }, /runDir must be a non-empty string/],
+  ]
+
+  it.each(
+    invalidControls,
+  )('rejects %s before scoring or proposing', async (_label, invalid, expected) => {
+    let dispatchCalls = 0
+    let proposalCalls = 0
     await expect(
       runSkillOpt<S, A>({
         ...guardBase,
+        dispatchWithSurface: async (surface) => {
+          dispatchCalls += 1
+          return { text: surface }
+        },
+        proposer: {
+          ...noopProposer,
+          async proposePatches() {
+            proposalCalls += 1
+            return []
+          },
+        },
         judges: [judge],
         trainScenarios: SCEN_TRAIN,
         selectionScenarios: SCEN_SELECTION,
-        minImprovement: -0.1,
+        ...invalid,
       }),
-    ).rejects.toThrow(/minImprovement must be >= 0/)
+    ).rejects.toThrow(expected)
+    expect(dispatchCalls).toBe(0)
+    expect(proposalCalls).toBe(0)
+  })
+
+  it('does not mutate the caller runDir', async () => {
+    const options: RunSkillOptOptions<S, A> = {
+      ...guardBase,
+      judges: [judge],
+      trainScenarios: SCEN_TRAIN,
+      selectionScenarios: SCEN_SELECTION,
+      runDir: 'skill-opt-options-immutable',
+      storage: inMemoryCampaignStorage(),
+    }
+
+    await runSkillOpt(options)
+
+    expect(options.runDir).toBe('skill-opt-options-immutable')
   })
 })

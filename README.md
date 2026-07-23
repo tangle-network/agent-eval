@@ -8,7 +8,7 @@ A TypeScript library that measures whether your AI agent got better or worse, us
 [![license: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](./LICENSE)
 
 You give it agent runs: outputs, traces, scores, and production feedback.
-It gives you numbers you can act on: did the new prompt beat the old one, is the difference statistically real, what failed and why, and whether the change should ship.
+It gives you numbers you can act on: how much the new prompt changed outcomes, how uncertain that estimate is, what failed and why, and whether the change meets your release rule.
 
 Use it when you need to:
 
@@ -132,11 +132,53 @@ const judge = llmJudge<string, SupportScenario>(
 Pass `judge` to `defineAgentEval()` in place of the offline judge.
 The model receives the scenario, artifact, scoring prompt, and dimension descriptions.
 
+### Compare Optimization Methods
+
+Use `compareOptimizationMethods()` when you need to compare complete search procedures rather than individual prompts.
+The function gives every method the same baseline, runner, judges, train data, and selection data, then ranks their selected surfaces on separate final test data.
+
+```ts
+import {
+  type BuiltinOptimizationMethodConfig,
+  compareOptimizationMethods,
+  gepaParetoMethod,
+  gepaReflectionMethod,
+  skillOptMethod,
+} from '@tangle-network/agent-eval/campaign'
+
+const methodConfig: BuiltinOptimizationMethodConfig<MyScenario, MyArtifact> = {
+  llm,
+  model,
+  target: 'the complete prompt being improved',
+}
+
+const result = await compareOptimizationMethods<MyScenario, MyArtifact>({
+  methods: [
+    gepaReflectionMethod(methodConfig),
+    gepaParetoMethod(methodConfig),
+    skillOptMethod(methodConfig),
+  ],
+  baselineSurface,
+  trainScenarios,
+  selectionScenarios,
+  testScenarios,
+  dispatchWithSurface,
+  judges,
+  runDir,
+})
+```
+
+Read `result.scores` for lift and intervals.
+Read `result.totalCost` for dollars plus whether every charge was known.
+Ranks follow estimated lift; use the intervals and pairwise results to determine whether the observed difference excludes zero.
+See the [method-comparison guide](./docs/campaign-proposers.md) and [runnable example](./examples/compare-optimization-methods/).
+
 ---
 
-## What's in the box
+## Core APIs
 
-One-line tour of the primitives. All of these are plain functions and interfaces you compose; start from `/contract` and pull in more only when you need it.
+Start from `/contract` for the common path.
+Use `/campaign` when you need direct control over runs, candidate generation, or method comparison.
 
 | Primitive | What it does |
 |---|---|
@@ -144,6 +186,7 @@ One-line tour of the primitives. All of these are plain functions and interfaces
 | **Scoring** (`JudgeConfig`, `llmJudge`, calibration) | Score one output on weighted dimensions with code or a model, then compare model scores against human ratings. |
 | **Release rules** (`heldOutGate`, `paretoSignificanceGate`, `composeGate`, …) | Decide whether a candidate ships, such as requiring an improvement on scenarios that candidate generation never saw. |
 | **Candidate generation** (`gepaProposer`, `evolutionaryProposer`, …) | Generate candidate prompts or configs from prior failures. |
+| **Method comparison** (`compareOptimizationMethods`) | Run complete optimization methods on shared train and selection data, then rank them on separate final test data. |
 | **Run analysis** (`analyzeRuns`, `diffRuns`) | Turn any set of `RunRecord`s into a report: score distributions, baseline-vs-candidate lift with confidence intervals, failure clusters, cost breakdown, recommendations. |
 | **Intake adapters** (`fromFeedbackTable`, `fromOtelSpans`) | Convert data you already have, such as human ratings tables and OpenTelemetry spans, into `RunRecord`s. |
 | **Cost tracking** | Attribute every model call's tokens and dollars to the run, phase, and judge that spent them, including interrupted calls. |
@@ -159,6 +202,7 @@ Our own experiments with these primitives live in [`examples/`](./examples/READM
 | [`examples/selfimprove-quickstart/`](./examples/selfimprove-quickstart/) | The closed improve-and-verify loop, fully offline |
 | [`examples/customer-feedback-loop/`](./examples/customer-feedback-loop/) | Multi-rater human feedback (CSV/Sheets/Obsidian) → per-rater judges → report |
 | [`examples/customer-otel-traces/`](./examples/customer-otel-traces/) | Production OpenTelemetry traces → report, no closed loop required |
+| [`examples/compare-optimization-methods/`](./examples/compare-optimization-methods/) | Compare complete optimization methods with separate train, selection, and test data |
 
 Each is a single `index.ts` you run with `pnpm tsx`.
 
@@ -192,7 +236,7 @@ The root export (`@tangle-network/agent-eval`) remains broad for compatibility; 
 - [`docs/concepts.md`](./docs/concepts.md): the mental model for runs, judges, verifiers, traces, and the top-level functions (5-minute read)
 - [`docs/customer-journeys.md`](./docs/customer-journeys.md): three complete adoption paths with code
 - [`docs/insight-report.md`](./docs/insight-report.md): annotated walkthrough of every section of the `analyzeRuns()` report
-- [`docs/campaign-proposers.md`](./docs/campaign-proposers.md): which proposer to use and when
+- [`docs/campaign-proposers.md`](./docs/campaign-proposers.md): candidate generation and fair comparison of complete optimization methods
 - [`docs/adapters-observability.md`](./docs/adapters-observability.md): composing with LangSmith, Langfuse, Phoenix, and OpenLLMetry
 - [`docs/wire-protocol.md`](./docs/wire-protocol.md): the HTTP/RPC contract for other languages
 - [`docs/design.md`](./docs/design.md): how this package relates to the rest of the Tangle agent stack, and the dependency rules that keep it reusable

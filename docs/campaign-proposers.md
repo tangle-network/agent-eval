@@ -1,145 +1,75 @@
-# Candidate Generation
+# Candidate Generation and Method Comparison
 
-A campaign proposer is the part of an improvement loop that says: "try this
-candidate next."
+`SurfaceProposer` generates candidate prompts or configs.
+It does not run an agent, score output, or choose a winner.
 
-It does not run your agent. It does not score anything. It only proposes a new
-surface to measure. A surface is the thing you are changing: a prompt string, a
-serialized config string, or a code/worktree surface.
+`OptimizationMethod` runs a complete search procedure on train and selection data.
+It returns one selected surface plus its optimization cost.
 
-Use **proposer** for this role. Older optimizer APIs used "driver"; that word is
-now reserved for execution, sandbox, and router agents that actually drive
-workers.
+`compareOptimizationMethods` runs multiple methods, waits for every method to finish, then scores their selected surfaces on the same final test data.
 
-## The Loop
-
-```text
-current surface
-  -> proposer suggests candidate surfaces
-  -> runCampaign runs each candidate on scenarios
-  -> judges score the artifacts
-  -> runOptimization picks the best candidate
-  -> runImprovementLoop re-scores on holdout and gates release
-```
-
-## Proposer Input
-
-Every `SurfaceProposer.propose(ctx)` receives:
-
-| Field | Plain meaning |
+| API | Responsibility |
 |---|---|
-| `currentSurface` | The prompt/config/code surface currently being improved. |
-| `history` | What candidates were tried before and how they scored. |
-| `findings` | Failure analysis or analyst findings from traces/eval runs. |
-| `populationSize` | How many candidates the loop asks for this generation. |
-| `generation` | Which generation number this is. |
-| `signal` | Abort signal for cancellation. |
-| `report` | Optional larger analysis report. |
-| `dataset` | Optional labeled scenario store. |
-| `paretoParents` | Optional non-dominated surfaces from prior generations. |
+| `SurfaceProposer` | Suggest the next candidate surface. |
+| `runOptimization` | Run and score candidates on training scenarios. |
+| `runImprovementLoop` | Optimize one surface and apply a release rule on separate scenarios. |
+| `OptimizationMethod` | Adapt one complete optimization procedure for comparison. |
+| `compareOptimizationMethods` | Compare selected surfaces on shared final test data. |
 
-## Proposer Output
+## Candidate Generators
 
-A proposer returns candidates:
+Every `SurfaceProposer.propose(ctx)` receives the current surface, prior candidate scores, findings, requested candidate count, generation number, and cancellation signal.
+It may also receive a larger analysis report, a labeled scenario store, or Pareto parents when the caller provides them.
+
+A proposer may return a bare surface or a labeled candidate:
 
 ```ts
 {
-  surface: 'the full new prompt or config',
-  label: 'short name',
-  rationale: 'why this change should help'
+  surface: 'the complete new prompt or config',
+  label: 'require-citations',
+  rationale: 'three training failures omitted source references',
 }
 ```
 
-Bare surfaces are still accepted, but `label` and `rationale` make results
-auditable, so new proposers should return `ProposedCandidate`.
+Use a labeled `ProposedCandidate` when you need the result to retain why the candidate was generated.
 
-## Which Proposer To Use
-
-| Proposer factory | Best when | Output surface |
+| Factory | Use it for | Surface |
 |---|---|---|
-| `gepaProposer` | You want a strong prompt rewrite driven by prior scores and findings. | prompt string |
-| `skillOptProposer` | You are editing a structured skill/runbook and want anchored small patches. | prompt/skill string |
-| `aceProposer` | You want append-only lessons from findings, preserving every distinct lesson. | prompt/playbook string |
-| `memoryCurationProposer` | You want compact deduped lessons from findings. | prompt/playbook string |
-| `parameterSweepProposer` | You want FAPO-style config/parameter edits from a JSON config surface. | JSON string |
-| `fapoProposer` | You want the FAPO policy: prompt first, then parameter, then structural only when evidence supports escalation. | whatever its level proposer returns |
+| `gepaProposer` | Rewrite a prompt from prior scores and findings. | string |
+| `skillOptProposer` | Apply bounded edits to a structured skill or runbook. | string |
+| `aceProposer` | Append distinct lessons from findings. | string |
+| `memoryCurationProposer` | Deduplicate and compact lessons from findings. | string |
+| `parameterSweepProposer` | Apply declared changes to a JSON config. | JSON string |
+| `fapoProposer` | Try prompt, parameter, and optional structural changes under one escalation policy. | caller-defined |
 
-## FAPO Proposer
+## Compare Complete Methods
 
-FAPO is not "another prompt mutator." The paper describes a reviewed escalation
-policy:
-
-1. evaluate the current workflow,
-2. attribute failures to prompt, parameter/config, or structure,
-3. propose one scoped change,
-4. review the change for scope/leakage/compatibility,
-5. measure it,
-6. keep moving or escalate only when the cheaper level is exhausted.
-
-The simplest useful setup is prompt plus JSON config. Structural/code edits are
-optional and should be injected by the app or runtime layer.
-
-Every level must accept and return the same surface representation.
-For the JSON profile below, the prompt proposer must return the complete JSON profile rather than a bare prompt string.
+The following call owns the shared baseline, runner, judges, directories, and three data sets.
+Method configuration contains only settings that differ by method.
 
 ```ts
 import {
-  fapoProposer,
-  gepaProposer,
-  parameterSweepProposer,
-  runImprovementLoop,
+  type BuiltinOptimizationMethodConfig,
+  compareOptimizationMethods,
+  gepaParetoMethod,
+  gepaReflectionMethod,
+  skillOptMethod,
 } from '@tangle-network/agent-eval/campaign'
 
-const proposer = fapoProposer({
-  scope: { allowedLevels: ['prompt', 'parameter'] },
-  promptProposer: gepaProposer({
-    llm,
-    model,
-    target: 'complete JSON agent profile; edit prompt.systemPrompt and preserve valid JSON',
-  }),
-  parameterProposer: parameterSweepProposer({
-    candidates: [
-      {
-        label: 'raise-retrieval-k',
-        rationale: 'retrieval misses indicate the search budget may be too low',
-        changes: [{ path: 'retrieval.k', value: 10 }],
-      },
-    ],
-  }),
-})
+const methodConfig: BuiltinOptimizationMethodConfig<MyScenario, MyArtifact> = {
+  llm,
+  model,
+  target: 'the complete prompt or config being improved',
+  populationSize: 2,
+  maxGenerations: 3,
+  maxEpochs: 6,
+}
 
-await runImprovementLoop({
-  scenarios: trainScenarios,
-  holdoutScenarios,
-  baselineSurface: JSON.stringify(currentConfig),
-  dispatchWithSurface,
-  judges,
-  proposer,
-  gate,
-  autoOnPromote: 'none',
-  runDir,
-  populationSize: 1,
-  maxGenerations: 10,
-})
-```
-
-If you do have a real code/worktree proposer, pass it as `structuralProposer`.
-`agent-eval` intentionally does not provide that proposer because this package
-measures candidates; the runtime or app owns code generation.
-
-For side-by-side experiments with existing proposers, use the compare entry:
-
-```ts
-import {
-  compareProposers,
-  gepaParetoEntry,
-  gepaReflectionEntry,
-} from '@tangle-network/agent-eval/campaign'
-
-await compareProposers({
-  proposers: [
-    gepaReflectionEntry(config),
-    gepaParetoEntry(config),
+const comparison = await compareOptimizationMethods<MyScenario, MyArtifact>({
+  methods: [
+    gepaReflectionMethod(methodConfig),
+    gepaParetoMethod(methodConfig),
+    skillOptMethod(methodConfig),
   ],
   baselineSurface,
   trainScenarios,
@@ -148,25 +78,104 @@ await compareProposers({
   dispatchWithSurface,
   judges,
   runDir,
+  optimizationRunOptions: {
+    costCeiling: 5,
+    dispatchTimeoutMs: 60_000,
+    maxConcurrency: 4,
+  },
+  optimizationConcurrency: 2,
+  costCeiling: 2,
+  maxConcurrency: 4,
+  confidence: 0.95,
 })
 ```
 
-`compareProposers` owns all three partitions.
-It passes only train and selection to each entry, where selection may drive acceptance or early stopping.
-It keeps test unreachable until every optimizer has returned a winner, then uses only test for lift intervals and final ranking.
-All three partitions must be non-empty and pairwise disjoint by scenario ID.
+The runnable version is [`examples/compare-optimization-methods`](../examples/compare-optimization-methods/).
 
-## Common Mistakes
+## Data Use
 
-- Do not put eval logic inside a proposer. Put it in `dispatch` and `judges`.
-- Do not let a proposer read untouched test rows or scores.
-  `compareProposers` omits them from `ProposerOptimizationData` by construction.
-- Do not call FAPO a prompt-only optimizer. Its main value is evidence-based
-  escalation beyond prompt edits.
-- Do not put Claude Code or sandbox-specific code in `agent-eval`. Structural
-  code generation should be supplied as an injected `SurfaceProposer` from the
-  runtime/app layer.
+| Set | Who can read it | Purpose |
+|---|---|---|
+| Train | Optimization methods and candidate generators | Generate and fit candidates. |
+| Selection | Optimization methods | Accept candidates, stop early, and select one surface per method. |
+| Test | `compareOptimizationMethods` only | Estimate final lift and rank methods. |
 
-## Summary
+All three sets must be non-empty and pairwise disjoint by scenario ID.
+Test must contain at least two scenarios.
+Two is only an API minimum; use enough scenarios to detect the effect size that matters for your product.
 
-The proposer creates candidates, the campaign measures them, and the release rule decides whether the measured winner meets the promotion criteria.
+Each method receives independent copies of train and selection scenarios.
+The final test set is absent from `OptimizationMethodInput`.
+Every method finishes before the first test call starts.
+When `optimizationConcurrency` is greater than one, the shared runner and judges must support concurrent calls.
+
+## Execution And Cost
+
+`optimizationConcurrency` controls how many methods run at once.
+`optimizationRunOptions.maxConcurrency` controls scenario calls inside each method.
+Top-level `maxConcurrency` controls scenario calls during final test scoring.
+
+`optimizationRunOptions.costCeiling` is a separate limit for each method.
+Top-level `costCeiling` is one shared limit across baseline and selected-surface scoring on final test.
+
+The result reports three cost objects:
+
+```ts
+comparison.optimizationCost
+comparison.testCost
+comparison.totalCost
+```
+
+Each object contains `totalCostUsd`, `accountingComplete`, and `incompleteReasons`.
+An unknown provider charge therefore cannot appear as a trustworthy zero-dollar total.
+Cost breaks a lift tie only when every method in that tied group reports complete accounting.
+
+## Read The Result
+
+```ts
+for (const method of comparison.scores) {
+  console.log({
+    rank: method.rank,
+    name: method.name,
+    lift: method.lift,
+    interval: method.liftCi,
+    scenarios: method.scenarioScores,
+    optimizationCostUsd: method.optimizationCost.totalCostUsd,
+    costComplete: method.optimizationCost.accountingComplete,
+  })
+}
+```
+
+`rank` orders methods by estimated lift, then by cost only when every method with that lift has complete cost accounting.
+It does not mean the higher-ranked method is conclusively better.
+Read `liftCi` and `comparison.pairwise[].favored` before making that claim.
+`scenarioScores` contains the paired values used to compute each method's result.
+
+Repetitions are averaged within each test scenario before scenarios are resampled.
+The intervals assume scenarios are the independent sampling units.
+
+`confidence: 0.95` applies to the complete family of method-vs-baseline and possible method-vs-method contrasts.
+The implementation adjusts each interval for that family and raises the default resample count when more methods require finer interval tails.
+An explicit resample count that is too small is rejected before optimization starts.
+
+The final test data is spent when this function ranks methods.
+If you choose a method from this result and later claim its deployed effect, confirm that claim on new data that was not used for this ranking.
+
+## FAPO
+
+`fapoProposer` can move from prompt edits to declared parameter edits and then to an injected structural proposer.
+Every level must accept and return the same surface representation.
+
+`agent-eval` does not generate repository code itself.
+Pass a code-capable `structuralProposer` from your runtime or application when structural edits are part of the comparison.
+
+Use `fapoEscalationMethod(config)` to compare the complete FAPO procedure with other methods.
+
+## Common Errors
+
+- Do not pass a raw `SurfaceProposer` to `compareOptimizationMethods`.
+- Do not let a custom `OptimizationMethod` load final test rows from another source.
+- Do not compare methods with different runners, judges, or final test scenarios.
+- Do not read `method.optimizationCost` as total comparison cost.
+- Do not report a dollar total as complete when `accountingComplete` is false.
+- Do not reuse the final test set for repeated method selection and continue calling it untouched.

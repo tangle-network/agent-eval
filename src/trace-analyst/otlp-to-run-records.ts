@@ -7,7 +7,7 @@
  *
  * This is the offline ingestion primitive the AppWorld proposer bench and the
  * hosted Intelligence product both stand on: traces in, paper-grade rows
- * out, ready for `compareProposers` / `analyzeRuns` / the promotion gate.
+ * out, ready for `compareOptimizationMethods` / `analyzeRuns` / the promotion gate.
  *
  * Aggregation per trace:
  *   - tokenUsage: reconcile input, output, cache-read, and cache-write across
@@ -59,7 +59,7 @@ export interface OtlpToRunRecordsOptions {
   /** Logical experiment grouping for every produced record. */
   experimentId: string
   /** Candidate (variant) id — the surface these traces exercised. The
-   *  bench passes the proposer label here so `compareProposers` can pair rows. */
+   *  bench passes the proposer label here so `compareOptimizationMethods` can pair rows. */
   candidateId: string
   /** Split assignment for every produced record. Default `'holdout'` —
    *  ingested traces are evidence, not the optimizer's training pool. */

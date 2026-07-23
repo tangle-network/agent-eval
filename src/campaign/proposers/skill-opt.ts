@@ -13,7 +13,7 @@
  * owns the epoch hill-climb. The proposer also conforms to `SurfaceProposer`
  * (`propose` applies its patches to the current surface and returns the
  * candidate surfaces) so it is a drop-in for `runOptimization` and a fair
- * entrant in `compareProposers`.
+ * entrant in `compareOptimizationMethods`.
  */
 
 import { CostLedger, type CostLedgerHandle } from '../../cost-ledger'

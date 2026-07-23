@@ -6,22 +6,22 @@
  * Run with an OpenAI-compatible endpoint:
  *   AGENT_EVAL_GSM8K_PATH=~/.cache/agent-eval/gsm8k.jsonl \
  *   LLM_BASE_URL=https://api.deepseek.com/v1 LLM_API_KEY=$DEEPSEEK_API_KEY \
- *   LLM_MODEL=deepseek-chat PRICE_IN_PER_M=0.27 PRICE_OUT_PER_M=1.10 \
- *   pnpm tsx examples/benchmarks/gsm8k/compare-proposers.ts
+ *   LLM_MODEL=deepseek-chat \
+ *   pnpm tsx examples/benchmarks/gsm8k/compare-optimization-methods.ts
  */
 
 import { createHash } from 'node:crypto'
 import { mkdirSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import {
-  type BuiltinProposerEntryConfig,
-  compareProposers,
+  type BuiltinOptimizationMethodConfig,
+  compareOptimizationMethods,
   type DispatchContext,
-  gepaParetoEntry,
-  gepaReflectionEntry,
+  gepaParetoMethod,
+  gepaReflectionMethod,
   type JudgeConfig,
   type Scenario,
-  skillOptEntry,
+  skillOptMethod,
 } from '../../../src/campaign'
 import { CostLedger } from '../../../src/cost-ledger'
 import {
@@ -30,12 +30,18 @@ import {
 } from '../../../src/integrity/backend-integrity'
 import {
   callLlm,
+  costReceiptFromLlm,
   costReceiptFromLlmError,
   type LlmCallRequest,
   type LlmClientOptions,
   maximumChargeForLlmRequest,
 } from '../../../src/llm-client'
 import type { RunRecord } from '../../../src/run-record'
+import {
+  optionalNonNegativeNumberEnv,
+  positiveIntegerEnv,
+  positiveNumberEnv,
+} from '../../_shared/env'
 import { evaluate, loadDataset } from './index'
 
 const API_KEY = (process.env.LLM_API_KEY || process.env.TANGLE_API_KEY)?.trim()
@@ -45,16 +51,28 @@ const BASE_URL = (
   'https://router.tangle.tools/v1'
 ).trim()
 const MODEL = process.env.LLM_MODEL || 'deepseek-v4-pro'
-const PRICE_IN_PER_M = Number(process.env.PRICE_IN_PER_M || '0.27')
-const PRICE_OUT_PER_M = Number(process.env.PRICE_OUT_PER_M || '1.10')
-const CALL_TIMEOUT_MS = Number(process.env.CALL_TIMEOUT_MS || '60000')
-const TRAIN_N = Number(process.env.TRAIN_N || '8')
-const SELECTION_N = Number(process.env.SELECTION_N || '8')
-const TEST_N = Number(process.env.TEST_N || '20')
-const POPULATION = Number(process.env.POPULATION || '2')
-const GENERATIONS = Number(process.env.GENERATIONS || '2')
-const EPOCHS = Number(process.env.EPOCHS || '2')
+const PRICE_IN_PER_M = optionalNonNegativeNumberEnv('PRICE_IN_PER_M')
+const PRICE_OUT_PER_M = optionalNonNegativeNumberEnv('PRICE_OUT_PER_M')
+const CALL_TIMEOUT_MS = positiveIntegerEnv('CALL_TIMEOUT_MS', 60_000)
+const TRAIN_N = positiveIntegerEnv('TRAIN_N', 8)
+const SELECTION_N = positiveIntegerEnv('SELECTION_N', 8)
+const TEST_N = positiveIntegerEnv('TEST_N', 20)
+const POPULATION = positiveIntegerEnv('POPULATION', 2)
+const GENERATIONS = positiveIntegerEnv('GENERATIONS', 2)
+const EPOCHS = positiveIntegerEnv('EPOCHS', 2)
+const OPTIMIZATION_CONCURRENCY = positiveIntegerEnv('OPTIMIZATION_CONCURRENCY', 1)
+const MAX_SMOKE_COST_USD = positiveNumberEnv('MAX_SMOKE_COST_USD', 2)
+const MAX_OPTIMIZATION_COST_USD = positiveNumberEnv('MAX_OPTIMIZATION_COST_USD', 10)
+const MAX_TEST_COST_USD = positiveNumberEnv('MAX_TEST_COST_USD', 5)
 const SMOKE = process.env.SMOKE === '1'
+
+if ((PRICE_IN_PER_M === undefined) !== (PRICE_OUT_PER_M === undefined)) {
+  throw new Error('PRICE_IN_PER_M and PRICE_OUT_PER_M must be set together')
+}
+const CUSTOM_TOKEN_PRICING =
+  PRICE_IN_PER_M === undefined || PRICE_OUT_PER_M === undefined
+    ? undefined
+    : { inputUsdPerMillion: PRICE_IN_PER_M, outputUsdPerMillion: PRICE_OUT_PER_M }
 
 if (!API_KEY) {
   console.error('FATAL: set LLM_API_KEY (+ LLM_BASE_URL + LLM_MODEL) or TANGLE_API_KEY.')
@@ -91,6 +109,7 @@ const llm: LlmClientOptions = {
   baseUrl: BASE_URL,
   maxRetries: 2,
   defaultTimeoutMs: CALL_TIMEOUT_MS,
+  ...(CUSTOM_TOKEN_PRICING ? { customTokenPricing: CUSTOM_TOKEN_PRICING } : {}),
 }
 
 const records: RunRecord[] = []
@@ -116,15 +135,7 @@ function makeWorker() {
       model: MODEL,
       maximumCharge: maximumChargeForLlmRequest(request, llm),
       execute: (signal, callId) => callLlm(request, { ...llm, signal, idempotencyKey: callId }),
-      receipt: (res) => ({
-        model: res.model || MODEL,
-        inputTokens: res.usage.promptTokens,
-        outputTokens: res.usage.completionTokens,
-        actualCostUsd:
-          res.costUsd ??
-          (res.usage.promptTokens / 1_000_000) * PRICE_IN_PER_M +
-            (res.usage.completionTokens / 1_000_000) * PRICE_OUT_PER_M,
-      }),
+      receipt: costReceiptFromLlm,
       receiptFromError: costReceiptFromLlmError,
     })
     if (!paid.succeeded) throw paid.error
@@ -209,7 +220,7 @@ async function main() {
 
   // ── Baseline smoke on selection: confirm headroom without touching test. ──
   let baselineSmoke = 0
-  const smokeLedger = new CostLedger()
+  const smokeLedger = new CostLedger(MAX_SMOKE_COST_USD)
   const smokeCost: DispatchContext['cost'] = {
     runPaidCall: (input) =>
       smokeLedger.runPaidCall({ ...input, channel: input.channel ?? 'agent', phase: 'smoke' }),
@@ -232,27 +243,21 @@ async function main() {
     return
   }
 
-  const config: BuiltinProposerEntryConfig<GsmScenario, Artifact> = {
-    baselineSurface: BASELINE_SURFACE,
-    dispatchWithSurface: (surface, scenario, ctx) =>
-      worker(String(surface), scenario as GsmScenario, ctx),
-    judges: [judge],
+  const config: BuiltinOptimizationMethodConfig<GsmScenario, Artifact> = {
     llm,
     model: MODEL,
     target: DRIVER_TARGET,
     mutationPrimitives: MUTATION_PRIMITIVES,
-    runDir: join(runRoot, 'optimizers'),
-    seed: 42,
     populationSize: POPULATION,
     maxGenerations: GENERATIONS,
     maxEpochs: EPOCHS,
   }
 
-  const comparison = await compareProposers<GsmScenario, Artifact>({
-    proposers: [
-      gepaReflectionEntry(config, 'gepa-reflection'),
-      gepaParetoEntry(config, 'gepa-pareto'),
-      skillOptEntry(config, 'skill-opt'),
+  const comparison = await compareOptimizationMethods<GsmScenario, Artifact>({
+    methods: [
+      gepaReflectionMethod(config, 'gepa-reflection'),
+      gepaParetoMethod(config, 'gepa-pareto'),
+      skillOptMethod(config, 'skill-opt'),
     ],
     baselineSurface: BASELINE_SURFACE,
     trainScenarios,
@@ -261,20 +266,31 @@ async function main() {
     dispatchWithSurface: (surface, scenario, ctx) =>
       worker(String(surface), scenario as GsmScenario, ctx),
     judges: [judge],
-    runDir: join(runRoot, 'score'),
+    runDir: join(runRoot, 'comparison'),
     seed: 42,
     resamples: 4000,
     confidence: 0.95,
+    optimizationConcurrency: OPTIMIZATION_CONCURRENCY,
+    optimizationRunOptions: {
+      costCeiling: MAX_OPTIMIZATION_COST_USD,
+      dispatchTimeoutMs: CALL_TIMEOUT_MS,
+      expectUsage: 'assert',
+    },
+    costCeiling: MAX_TEST_COST_USD,
+    dispatchTimeoutMs: CALL_TIMEOUT_MS,
     expectUsage: 'assert',
   })
 
   const integrity = summarizeBackendIntegrity(records)
   assertRealBackend(records, { allowMixed: false })
   const best = comparison.best
-  const totalCostUsd = records.reduce((a, r) => a + r.costUsd, 0)
+  const baselineSmokeCostUsd = smokeLedger.summary().totalCostUsd
+  const totalCostUsd = baselineSmokeCostUsd + comparison.totalCost.totalCostUsd
   const elapsedSec = Math.round((Date.now() - startedAt) / 1000)
   const testResult =
-    integrity.verdict === 'real' && best.liftCi.low > 0 ? 'positive' : 'inconclusive'
+    integrity.verdict === 'real' && best.liftCi.low > 0
+      ? 'interval-above-zero'
+      : 'interval-includes-zero-or-backend-invalid'
 
   const artifact = {
     task: {
@@ -304,7 +320,12 @@ async function main() {
         winnerComposite: round(s.winnerComposite),
         lift: round(s.lift),
         liftCi: { low: round(s.liftCi.low), high: round(s.liftCi.high) },
-        costUsd: round6(s.costUsd),
+        scenarioScores: s.scenarioScores,
+        optimizationCost: {
+          totalCostUsd: round6(s.optimizationCost.totalCostUsd),
+          accountingComplete: s.optimizationCost.accountingComplete,
+          incompleteReasons: s.optimizationCost.incompleteReasons,
+        },
         winnerSurface:
           typeof s.winnerSurface === 'string' ? s.winnerSurface : JSON.stringify(s.winnerSurface),
       })),
@@ -322,13 +343,26 @@ async function main() {
       })),
     },
     findingsAblation: null,
-    cost: { totalUsd: round6(totalCostUsd) },
-    stats: { resamples: 4000, confidence: 0.95, seed: 42 },
+    cost: {
+      baselineSmoke: round6(baselineSmokeCostUsd),
+      optimization: comparison.optimizationCost,
+      test: comparison.testCost,
+      comparisonTotal: comparison.totalCost,
+      total: round6(totalCostUsd),
+    },
+    stats: {
+      resamples: comparison.resamples,
+      reps: comparison.reps,
+      confidence: comparison.confidence,
+      intervalConfidence: comparison.intervalConfidence,
+      comparisonCount: comparison.comparisonCount,
+      seed: comparison.seed,
+    },
     provenance: {
       gitSha: process.env.GIT_SHA ?? 'local',
       publishedAt: new Date(startedAt).toISOString(),
-      command: 'examples/benchmarks/gsm8k/compare-proposers.ts',
-      llmCalls: records.length,
+      command: 'examples/benchmarks/gsm8k/compare-optimization-methods.ts',
+      workerLlmCalls: records.length,
       elapsedSec,
     },
     testResult,
@@ -341,11 +375,14 @@ async function main() {
   console.log('GSM8K comparison results, ranked by test lift')
   for (const s of artifact.comparison.scores) {
     console.log(
-      `  #${s.rank} ${s.name.padEnd(16)} lift=${s.lift >= 0 ? '+' : ''}${s.lift} CI[${s.liftCi.low}, ${s.liftCi.high}] baseline=${s.baselineComposite} winner=${s.winnerComposite} $${s.costUsd}`,
+      `  #${s.rank} ${s.name.padEnd(16)} lift=${s.lift >= 0 ? '+' : ''}${s.lift} CI[${s.liftCi.low}, ${s.liftCi.high}] baseline=${s.baselineComposite} winner=${s.winnerComposite} $${s.optimizationCost.totalCostUsd}`,
     )
   }
   console.log(
     `  backend=${integrity.verdict} (${records.length} calls, $${round6(totalCostUsd)}, ${elapsedSec}s)`,
+  )
+  console.log(
+    `  cost: smoke=$${round6(baselineSmokeCostUsd)} optimization=$${round6(comparison.optimizationCost.totalCostUsd)} test=$${round6(comparison.testCost.totalCostUsd)}`,
   )
   console.log(`  best=${best.name} lift=${round(best.lift)} CI.low=${round(best.liftCi.low)}`)
   console.log(`  testResult=${testResult}`)

@@ -62,7 +62,7 @@ describe('haloProposer — wraps the real halo-engine CLI as a SurfaceProposer',
     expect(c.rationale).toContain('api_predictor under-fetched')
   })
 
-  it('is a SurfaceProposer of kind "halo" (drops into compareProposers)', () => {
+  it('is a SurfaceProposer of kind "halo" (drops into compareOptimizationMethods)', () => {
     const d = haloProposer({ baseUrl: 'https://x/v1', resolveTraces: () => 'x' })
     expect(d.kind).toBe('halo')
     expect(typeof d.propose).toBe('function')

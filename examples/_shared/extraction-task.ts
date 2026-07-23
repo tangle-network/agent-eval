@@ -1,22 +1,14 @@
 /**
- * Shared canonical task for the substrate empirical-proof examples — ONE copy
- * of the transaction-extraction corpus + deterministic judge + real worker, so
- * `substrate-lift-proof` (single-proposer lift) and `compare-proposers-canonical`
- * (head-to-head proposer lift) measure the SAME thing and cannot drift apart.
- *
- * Task: structured field extraction. Each scenario is a short transaction
- * sentence; the worker emits `{merchant, amount, date, category}`. A
- * DETERMINISTIC checker scores per-field exact-match → composite in [0,1] — no
- * LLM judge, no variance, so a real prompt improvement moves the number and
- * nothing else can. The baseline prompt is deliberately weak (under-specified
- * format) so the search split scores low and a proposer has real failures to
- * reflect on.
+ * Shared transaction-extraction task used by the single-method lift example
+ * and the optimization-method comparison. The worker emits merchant, amount,
+ * date, and category fields; a deterministic judge scores exact field matches.
  */
 
 import { createHash } from 'node:crypto'
 import type { DispatchContext, JudgeConfig, JudgeScore, Scenario } from '../../src/campaign'
 import {
   callLlm,
+  costReceiptFromLlm,
   costReceiptFromLlmError,
   type LlmCallRequest,
   type LlmClientOptions,
@@ -228,9 +220,9 @@ export interface ExtractionWorkerOptions {
   model: string
   /** Per-call RunRecords sink — feeds `assertRealBackend` at the end. */
   records: RunRecord[]
-  /** Token rates for an honest $cost on the chosen provider. */
-  priceInPerMTokens: number
-  priceOutPerMTokens: number
+  /** Optional token rates used when the provider omits billed cost. Set both or neither. */
+  priceInPerMTokens?: number
+  priceOutPerMTokens?: number
   timeoutMs?: number
   experimentId?: string
 }
@@ -239,8 +231,22 @@ export interface ExtractionWorkerOptions {
  *  reports BOTH cost and token usage to the cell meter, and appends a
  *  `RunRecord` so the run's backend integrity is verdictable. Returns a
  *  `dispatchWithSurface` usable by every preset (runImprovementLoop,
- *  runSkillOpt, compareProposers). */
+ *  runSkillOpt, compareOptimizationMethods). */
 export function makeExtractionWorker(opts: ExtractionWorkerOptions) {
+  if ((opts.priceInPerMTokens === undefined) !== (opts.priceOutPerMTokens === undefined)) {
+    throw new Error('priceInPerMTokens and priceOutPerMTokens must be set together')
+  }
+  const customTokenPricing =
+    opts.priceInPerMTokens === undefined || opts.priceOutPerMTokens === undefined
+      ? undefined
+      : {
+          inputUsdPerMillion: opts.priceInPerMTokens,
+          outputUsdPerMillion: opts.priceOutPerMTokens,
+        }
+  const llm = {
+    ...opts.llm,
+    ...(customTokenPricing ? { customTokenPricing } : {}),
+  }
   const timeoutMs = opts.timeoutMs ?? 30_000
   const experimentId = opts.experimentId ?? 'extraction-task'
   return async function dispatchWithSurface(
@@ -262,18 +268,9 @@ export function makeExtractionWorker(opts: ExtractionWorkerOptions) {
     const paid = await ctx.cost.runPaidCall({
       actor: 'worker',
       model: opts.model,
-      maximumCharge: maximumChargeForLlmRequest(request, opts.llm),
-      execute: (signal, callId) =>
-        callLlm(request, { ...opts.llm, signal, idempotencyKey: callId }),
-      receipt: (res) => ({
-        model: res.model || opts.model,
-        inputTokens: res.usage.promptTokens,
-        outputTokens: res.usage.completionTokens,
-        actualCostUsd:
-          res.costUsd ??
-          (res.usage.promptTokens / 1_000_000) * opts.priceInPerMTokens +
-            (res.usage.completionTokens / 1_000_000) * opts.priceOutPerMTokens,
-      }),
+      maximumCharge: maximumChargeForLlmRequest(request, llm),
+      execute: (signal, callId) => callLlm(request, { ...llm, signal, idempotencyKey: callId }),
+      receipt: costReceiptFromLlm,
       receiptFromError: costReceiptFromLlmError,
     })
     if (!paid.succeeded) throw paid.error

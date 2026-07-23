@@ -184,22 +184,28 @@ export {
   LabeledScenarioStoreError,
 } from './labeled-store/fs-adapter'
 export { neutralizeText } from './neutralize'
+export {
+  type BuiltinOptimizationMethodConfig,
+  type FapoOptimizationMethodConfig,
+  fapoEscalationMethod,
+  gepaParetoMethod,
+  gepaReflectionMethod,
+  skillOptMethod,
+} from './presets/builtin-optimization-methods'
 // ── Presets (the documented public surface) ──────────────────────────
 export {
-  type BuiltinProposerEntryConfig,
-  type CompareProposersOptions,
-  compareProposers,
-  type FapoEntryConfig,
-  fapoEscalationEntry,
-  gepaParetoEntry,
-  gepaReflectionEntry,
-  type ProposerComparison,
-  type ProposerEntry,
-  type ProposerOptimizationData,
-  type ProposerPairwise,
-  type ProposerScore,
-  skillOptEntry,
-} from './presets/compare-proposers'
+  type CompareOptimizationMethodsOptions,
+  type ComparisonCost,
+  compareOptimizationMethods,
+  costFromLedgerSummary,
+  type OptimizationMethod,
+  type OptimizationMethodComparison,
+  type OptimizationMethodInput,
+  type OptimizationMethodPairwise,
+  type OptimizationMethodResult,
+  type OptimizationMethodRunOptions,
+  type OptimizationMethodScore,
+} from './presets/compare-optimization-methods'
 export {
   makePlaybackDispatch,
   type PlaybackContext,
@@ -320,6 +326,8 @@ export {
   skillOptProposer,
 } from './proposers/skill-opt'
 export {
+  type AnalyzeOtlpTraceFileOptions,
+  analyzeOtlpTraceFile,
   type TraceAnalystPriorFindings,
   type TraceAnalystProposerOptions,
   traceAnalystProposer,

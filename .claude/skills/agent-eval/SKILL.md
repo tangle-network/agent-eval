@@ -702,8 +702,8 @@ If you're skipping any of the four for a reason that isn't "this is a unit test,
 
 15. **Hook errors are swallowed and logged by default.** `TraceEmitterOptions.onRunComplete` hooks that throw don't crash the run — that's intentional, auto-orchestration must not fail the underlying flow. If a hook is *load-bearing* for the run's correctness (e.g. a gate that must pass before declaring success), set `hookErrors: 'throw'` or wire the gate as an explicit assertion outside the hook.
 
-16. **`compareProposers` requires three disjoint scenario sets.** Training data is used to create candidates, selection data may accept or stop candidates, and test data alone determines the final ranking.
-    Each method receives only training and selection data through `ProposerOptimizationData`.
+16. **`compareOptimizationMethods` requires three disjoint scenario sets.** Training data is used to create candidates, selection data may accept or stop candidates, and test data alone determines the final ranking.
+    Each method receives only training and selection data through `OptimizationMethodInput`.
     The old `holdoutScenarios` input is rejected because it does not distinguish selection from final testing.
 
 ---

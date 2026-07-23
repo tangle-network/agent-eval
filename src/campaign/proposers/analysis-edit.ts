@@ -1,10 +1,7 @@
 /**
- * Shared core for prompt-tier "analysis → one LLM edit" proposers. `haloProposer`
- * and `traceAnalystProposer` differ ONLY in who produces the findings; the
- * materialize-traces → apply-via-`APPLY_SYSTEM` → candidate pipeline is
- * identical. Keeping it in one place IS the fairness contract their head-to-head
- * (`compareProposers`) depends on — the apply step can no longer drift between the
- * two engines being compared.
+ * Shared analyze-then-edit pipeline for `haloProposer` and
+ * `traceAnalystProposer`. Both proposers materialize traces and apply findings
+ * through the same edit step, so comparisons vary the analysis source only.
  */
 
 import { mkdtempSync, writeFileSync } from 'node:fs'

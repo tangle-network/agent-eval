@@ -12,7 +12,7 @@ Use this index when you have a specific integration task.
 | Load folder-based eval cases | [`eval-fixtures-quickstart`](./eval-fixtures-quickstart) | Offline |
 | Analyze human approvals and rejections | [`customer-feedback-loop`](./customer-feedback-loop) | Offline |
 | Analyze OpenTelemetry spans | [`customer-otel-traces`](./customer-otel-traces) | Offline |
-| Compare candidate-generation methods | [`compare-proposers-canonical`](./compare-proposers-canonical) | LLM endpoint |
+| Compare complete optimization methods | [`compare-optimization-methods`](./compare-optimization-methods) | LLM endpoint |
 | Package runs as training data | [`publish-rl-dataset`](./publish-rl-dataset) | Offline |
 | Fine-tune with Prime Intellect | [`fine-tune-with-prime-rl`](./fine-tune-with-prime-rl) | Prime Intellect checkout |
 
@@ -41,7 +41,7 @@ pnpm tsx examples/selfimprove-quickstart/index.ts
 ## Benchmarks And Training
 
 - [`benchmarks`](./benchmarks) contains adapters for public benchmarks.
-- [`compare-proposers-canonical`](./compare-proposers-canonical) compares candidate-generation methods on one shared task.
+- [`compare-optimization-methods`](./compare-optimization-methods) compares complete methods with separate train, selection, and test data.
 - [`substrate-lift-proof`](./substrate-lift-proof) is a live-provider research run, not a quickstart.
 - [`publish-rl-dataset`](./publish-rl-dataset) exports supervised and preference-training rows.
 - [`fine-tune-with-prime-rl`](./fine-tune-with-prime-rl) consumes those rows in a separate trainer checkout.

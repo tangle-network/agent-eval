@@ -1,6 +1,6 @@
 /**
  * Shared campaign-score reductions used by every optimizer preset
- * (`runOptimization`, `runSkillOpt`, `compareProposers`). ONE definition of
+ * (`runOptimization`, `runSkillOpt`, `compareOptimizationMethods`). ONE definition of
  * "composite of a campaign" and "per-scenario / per-dimension breakdown" so
  * the optimizers cannot drift on how a surface's score is computed.
  */

@@ -1,33 +1,16 @@
 /**
- * Make the trace-analyst's OWN prompt a GEPA-optimizable surface.
+ * Treat the trace analyst's instructions as an optimizable text surface.
  *
- * The analyst that drives self-improvement is itself a prompt — and a
- * hand-tuned one (a hardcoded, hand-versioned `const`). This module lets the
- * loop optimize it: the analyst `actorDescription` becomes a `MutableSurface`
- * that `gepaProposer` / `haloProposer` / any `SurfaceProposer` can mutate inside
- * `runImprovementLoop` or `compareProposers`. That is the second-order loop —
- * optimizing the optimizer's eyes, not just the agent's prompt.
+ * `buildAnalystSurfaceDispatch` analyzes a fixed trace corpus using the
+ * supplied surface as `actorDescription`. `failureModeRecallJudge` scores the
+ * findings against failure labels derived independently from the analyst output.
  *
- * Two pieces, both deliberately small (the loop engine already exists — this
- * only supplies the analyst-shaped dispatch + an objective scorer):
- *
- *  - `buildAnalystSurfaceDispatch` — `dispatchWithSurface(surface, scenario)`
- *    runs `analyzeTraces` with `surface` as the actorDescription over the
- *    scenario's fixed trace corpus, returning its findings.
- *  - `failureModeRecallJudge` — a DETERMINISTIC judge (no LLM, no opinion)
- *    that scores those findings against the scenario's GROUND-TRUTH failure
- *    modes. This is what keeps optimizing the analyst prompt ungameable: the
- *    labels come from objective signal (e.g. AppWorld `world.evaluate()` tells
- *    us which task failed and which API calls were wrong), so we reward an
- *    analyst for surfacing the failures that really happened — not for
- *    pleasing a judge that could be talked into anything (Goodhart).
- *
- * Wiring (the loop is unchanged; you only pass these in):
+ * Example:
  *
  *   const dispatchWithSurface = buildAnalystSurfaceDispatch({ analystOptions: { ai } })
  *   await runImprovementLoop({
- *     baselineSurface: TRACE_ANALYST_ACTOR_DESCRIPTION,  // the prompt under optimization
- *     scenarios: trainScenarios,                          // labeled trace corpora
+ *     baselineSurface: TRACE_ANALYST_ACTOR_DESCRIPTION,
+ *     scenarios: trainScenarios,
  *     holdoutScenarios: heldOutScenarios,
  *     dispatchWithSurface,
  *     judges: [failureModeRecallJudge()],

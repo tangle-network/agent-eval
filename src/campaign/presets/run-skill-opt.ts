@@ -5,7 +5,7 @@
  * Each round proposes bounded patches from item-level training evidence, then
  * accepts the first patch that improves the selection score. Later rounds see
  * aggregate acceptance feedback and prior rejected edits, so selection data is
- * adaptively reused. It is not a final test. Use `compareProposers` when you
+ * adaptively reused. It is not a final test. Use `compareOptimizationMethods` when you
  * need a separate test partition.
  */
 
@@ -87,8 +87,8 @@ export interface RunSkillOptResult {
   rejectedEdits: RejectedEdit[]
   epochsRun: number
   history: SkillOptEpochRecord[]
-  /** Total cost across every scoring campaign (train evidence + selection
-   *  acceptance) the hill-climb ran. */
+  /** Full run spend. Alias of `cost.totalCostUsd`; includes scoring, proposals,
+   *  and judges. */
   totalCostUsd: number
   /** Run-wide spend, including scoring, proposals, and judges. */
   cost: CostLedgerSummary
@@ -129,25 +129,35 @@ export async function runSkillOpt<TScenario extends Scenario, TArtifact>(
     )
   }
 
+  const maxEpochs = opts.maxEpochs
   const patchesPerEpoch = opts.patchesPerEpoch ?? 2
   const initialBudget = opts.editBudget ?? 3
   const minImprovement = opts.minImprovement ?? 0
-  if (minImprovement < 0) {
-    throw new Error(
-      'runSkillOpt: minImprovement must be >= 0 — a negative threshold would accept selection regressions, breaking the monotonic-lift contract.',
-    )
-  }
-  const patience = opts.patience ?? opts.maxEpochs
+  const patience = opts.patience ?? maxEpochs
   const budgetAnneal = opts.budgetAnneal ?? true
   const rejectedBufferSize = opts.rejectedBufferSize ?? 12
   const slowMetaEvery = opts.slowMetaEvery ?? 2
-  opts.runDir = resolveRunDir(opts.runDir, opts.repo)
+  const evidenceK = opts.evidenceK ?? 3
+
+  assertPositiveSafeInteger('maxEpochs', maxEpochs)
+  assertPositiveSafeInteger('patchesPerEpoch', patchesPerEpoch)
+  assertPositiveSafeInteger('editBudget', initialBudget)
+  assertFiniteNonNegative('minImprovement', minImprovement)
+  assertPositiveSafeInteger('patience', patience)
+  assertNonNegativeSafeInteger('rejectedBufferSize', rejectedBufferSize)
+  assertNonNegativeSafeInteger('slowMetaEvery', slowMetaEvery)
+  assertPositiveSafeInteger('evidenceK', evidenceK)
+  if (typeof opts.runDir !== 'string' || opts.runDir.trim().length === 0) {
+    throw new Error('runSkillOpt: runDir must be a non-empty string')
+  }
+
+  const runDir = resolveRunDir(opts.runDir, opts.repo)
   const storage = opts.storage ?? fsCampaignStorage()
   const costLedger =
     opts.costLedger ??
     createRunCostLedger({
       storage,
-      runDir: opts.runDir,
+      runDir,
       costCeilingUsd: opts.costCeiling,
     })
 
@@ -158,12 +168,19 @@ export async function runSkillOpt<TScenario extends Scenario, TArtifact>(
       surface,
       tag,
       costLedger,
+      runDir,
     )
     return campaignMeanComposite(campaign)
   }
-  const evidenceK = opts.evidenceK ?? 3
   const trainEvidence = async (surface: string, tag: string): Promise<SkillOptEvidence> => {
-    const campaign = await runScoringCampaign(opts, opts.trainScenarios, surface, tag, costLedger)
+    const campaign = await runScoringCampaign(
+      opts,
+      opts.trainScenarios,
+      surface,
+      tag,
+      costLedger,
+      runDir,
+    )
     return toEvidence(campaign, evidenceK)
   }
 
@@ -181,9 +198,9 @@ export async function runSkillOpt<TScenario extends Scenario, TArtifact>(
   let metaNote: string | undefined
   let epochsRun = 0
 
-  for (let epoch = 0; epoch < opts.maxEpochs; epoch++) {
+  for (let epoch = 0; epoch < maxEpochs; epoch++) {
     epochsRun++
-    const patches = await opts.proposer.proposePatches({
+    const proposed = await opts.proposer.proposePatches({
       surface: current,
       evidence: currentEvidence,
       editBudget: budget,
@@ -194,6 +211,10 @@ export async function runSkillOpt<TScenario extends Scenario, TArtifact>(
       costLedger,
       costPhase: 'skill-opt.proposal',
     })
+    if (!Array.isArray(proposed)) {
+      throw new Error('runSkillOpt: proposer.proposePatches() must return an array')
+    }
+    const patches = proposed.slice(0, patchesPerEpoch)
 
     let accepted: AcceptedEdit | null = null
     const rejectedThisEpoch: RejectedEdit[] = []
@@ -285,14 +306,33 @@ function runScoringCampaign<TScenario extends Scenario, TArtifact>(
   surface: string,
   tag: string,
   costLedger: CostLedgerHandle,
+  runDir: string,
 ): Promise<CampaignResult<TArtifact, TScenario>> {
   return runCampaign<TScenario, TArtifact>({
     ...opts,
     costLedger,
     scenarios,
     dispatch: (scenario, ctx) => opts.dispatchWithSurface(surface, scenario, ctx),
-    runDir: `${opts.runDir}/${tag}`,
+    runDir: `${runDir}/${tag}`,
   })
+}
+
+function assertPositiveSafeInteger(name: string, value: number): void {
+  if (!Number.isSafeInteger(value) || value <= 0) {
+    throw new Error(`runSkillOpt: ${name} must be a positive safe integer`)
+  }
+}
+
+function assertNonNegativeSafeInteger(name: string, value: number): void {
+  if (!Number.isSafeInteger(value) || value < 0) {
+    throw new Error(`runSkillOpt: ${name} must be a non-negative safe integer`)
+  }
+}
+
+function assertFiniteNonNegative(name: string, value: number): void {
+  if (!Number.isFinite(value) || value < 0) {
+    throw new Error(`runSkillOpt: ${name} must be a finite number greater than or equal to 0`)
+  }
 }
 
 function toEvidence<TArtifact, TScenario extends Scenario>(

@@ -790,6 +790,7 @@ export type {
   CostReceiptInput,
   CostResult,
   CostUsage,
+  CustomTokenPricing,
   MaximumCharge,
   PaidCallResult,
   PendingCostCall,
@@ -804,6 +805,7 @@ export {
   CostLedgerPersistenceError,
   CostReceiptCaptureError,
   CostReservationExceededError,
+  costForTokenPricing,
   costForUsage,
   modelPriceKey,
 } from './cost-ledger'
