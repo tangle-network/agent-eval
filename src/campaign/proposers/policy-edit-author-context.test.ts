@@ -40,6 +40,23 @@ describe('selectPolicyEditAuthorRows', () => {
     expect(selected.filter((row) => row.scenarioId === 'duplicate')).toEqual([firstDuplicate])
   })
 
+  it('preserves first-occurrence caller order when explicitly requested', () => {
+    const firstDuplicate = { scenarioId: 'first', composite: 0.9, notes: 'first' }
+    const rows = [
+      firstDuplicate,
+      { scenarioId: 'second', composite: 0.1 },
+      { scenarioId: 'first', composite: 0, notes: 'duplicate' },
+      { scenarioId: 'third', composite: 0.5 },
+      { scenarioId: 'fourth', composite: 0.2 },
+    ]
+
+    expect(selectPolicyEditAuthorRows(rows, { limit: 3, scenarioOrder: 'input' })).toEqual([
+      firstDuplicate,
+      rows[1],
+      rows[3],
+    ])
+  })
+
   it('ranks hardest rows with scenario ID as the stable tie break', () => {
     const rows = [
       { scenarioId: 'z', composite: 0.1 },
@@ -93,6 +110,12 @@ describe('selectPolicyEditAuthorRows', () => {
         referenceByScenario: new Map([['bad', Number.POSITIVE_INFINITY]]),
       }),
     ).toThrow(/reference must be finite for 'bad'/)
+  })
+
+  it('rejects an unknown scenario order', () => {
+    expect(() =>
+      selectPolicyEditAuthorRows([], { limit: 1, scenarioOrder: 'unknown' as never }),
+    ).toThrow(/scenarioOrder must be 'ranked' or 'input'/)
   })
 })
 
