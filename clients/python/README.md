@@ -141,8 +141,15 @@ The event payload can include run paths, scenario IDs, candidate values, scores,
 
 ## Optional GEPA Candidate Search
 
-Install `agent-eval-rpc[gepa]` to use `gepaOptimizationMethod()` from the Node campaign API.
-This extra pins GEPA commit `f919db0` because the published `gepa==0.1.4` package does not yet include its four-engine Optimize Anything API.
+Install the Python client and GEPA's required source commit separately to use `gepaOptimizationMethod()` from the Node campaign API:
+
+```bash
+pip install agent-eval-rpc
+pip install "gepa @ git+https://github.com/gepa-ai/gepa.git@f919db0a622e2e9f9204779b81fe00cc1b2d808f"
+```
+
+PyPI does not accept packages whose metadata depends directly on a Git URL, and the published `gepa==0.1.4` package does not yet include its four-engine Optimize Anything API.
+From an agent-eval source checkout, `uv sync --group gepa-source` installs the same pinned commit.
 The Python bridge calls GEPA's own Optimize Anything recipes for text candidates, then calls a loopback endpoint that runs the real TypeScript agent and judges.
 It starts GEPA in an empty run directory and gives it only caller-described train and selection cases.
 `compareOptimizationMethods()` keeps final test cases in Node and scores them after GEPA exits.

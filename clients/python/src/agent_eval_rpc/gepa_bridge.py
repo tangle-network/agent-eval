@@ -30,8 +30,8 @@ def main() -> None:
         from gepa.optimize_anything import OptimizeAnythingConfig, optimize_anything
     except ImportError as error:
         raise RuntimeError(
-            "GEPA bridge requires the optional dependency. Install with "
-            "`pip install 'agent-eval-rpc[gepa]'`."
+            "GEPA bridge requires GEPA's Optimize Anything source version. "
+            "Install the commit documented in the agent-eval-rpc README."
         ) from error
 
     def evaluate(
@@ -128,7 +128,7 @@ def _run_recipe(
         raise RuntimeError(
             "GEPA bridge recipe 'best-of-then-continue' requires "
             "gepa.optimize_anything.optimize_best_of. Install the GEPA source "
-            "version pinned by agent-eval-rpc[gepa]."
+            "commit documented in the agent-eval-rpc README."
         ) from error
 
     explore_configs = [
