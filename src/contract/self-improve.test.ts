@@ -511,6 +511,11 @@ describe('selfImprove — candidate concurrency passthrough', () => {
   async function observedCandidateConcurrency(candidateConcurrency?: number): Promise<number> {
     let active = 0
     let maxActive = 0
+    const expected = candidateConcurrency ?? 1
+    let releaseExpected: () => void = () => undefined
+    const expectedActive = new Promise<void>((resolve) => {
+      releaseExpected = resolve
+    })
     const proposer: SurfaceProposer = {
       kind: 'concurrency-probe',
       propose: async () => ['CANDIDATE-1', 'CANDIDATE-2', 'CANDIDATE-3'],
@@ -521,8 +526,9 @@ describe('selfImprove — candidate concurrency passthrough', () => {
         if (surface === 'BASELINE') return stubAgent(surface, scenario, ctx)
         active += 1
         maxActive = Math.max(maxActive, active)
+        if (active === expected) releaseExpected()
         try {
-          await new Promise((resolve) => setTimeout(resolve, 5))
+          await expectedActive
           return await stubAgent(surface, scenario, ctx)
         } finally {
           active -= 1
