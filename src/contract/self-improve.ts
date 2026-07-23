@@ -75,6 +75,9 @@ export interface SelfImproveBudget {
   populationSize?: number
   /** Max concurrent cells across the loop. Default 2. */
   maxConcurrency?: number
+  /** Candidate campaigns scored in parallel. Default 1. Total concurrent
+   *  cells are bounded by `candidateConcurrency * maxConcurrency`. */
+  candidateConcurrency?: number
   /** Fraction of `scenarios` held out from training, used for the gate.
    *  Default 0.25. Ignored when `holdoutScenarios` is set explicitly. */
   holdoutFraction?: number
@@ -543,6 +546,7 @@ async function runSelfImprove<TScenario extends Scenario, TArtifact>(
     judges: [opts.judge],
     populationSize,
     maxGenerations: generations,
+    candidateConcurrency: budget.candidateConcurrency,
     promoteTopK: budget.promoteTopK,
     reps: budget.reps,
     maxImprovementShots: budget.maxImprovementShots,

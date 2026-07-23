@@ -8,6 +8,7 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ### Added
 
+- `selfImprove({ budget: { candidateConcurrency } })` exposes the existing `runOptimization()` control for scoring candidate campaigns in parallel; it remains opt-in and defaults to one candidate campaign at a time.
 - `llmPolicyEditProposer()` and `projectPolicyEditHistory()` accept `scenarioOrder: 'input'` when controlled comparisons must preserve first-occurrence caller order; ranked evidence selection remains the default.
 - `callLlmJson()` accepts `jsonPayloadMode: 'exact'` when callers must reject fenced, prose-wrapped, or multi-root responses instead of extracting a JSON value.
 - `llmPolicyEditProposer({ redactCurrentSurfaceForModel })` can remove credentials and unrelated fields from the current surface sent to the model while applying validated edits to the complete original surface.
