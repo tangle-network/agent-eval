@@ -145,8 +145,9 @@
     "typecheck:examples": "tsc -p tsconfig.examples.json",
     "lint": "biome check src",
     "format": "biome format --write src",
+    "check:skill": "node scripts/check-skill.mjs",
     "openapi": "node dist/cli.js openapi --out dist/openapi.json",
-    "verify:package": "node scripts/verify-package-exports.mjs"
+    "verify:package": "pnpm run check:skill && node scripts/verify-package-exports.mjs"
   },
   "dependencies": {
     "@asteasolutions/zod-to-openapi": "^8.5.0",
