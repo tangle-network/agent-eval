@@ -3,7 +3,7 @@ import type { AgentProfileJson, AgentProfileJsonObject } from '../../agent-profi
 import {
   makePolicyEdit,
   POLICY_EDIT_AXES,
-  POLICY_EDIT_TARGET_SURFACES,
+  type POLICY_EDIT_TARGET_SURFACES,
   type PolicyEdit,
   type PolicyEditAdmission,
   type PolicyEditAdmissionOptions,
@@ -68,25 +68,19 @@ const JsonValueSchema: z.ZodType<AgentProfileJson> = z.lazy(() =>
 const AuthoredJsonChangeSchema = z.discriminatedUnion('mode', [
   z
     .object({
-      kind: z.literal('json'),
       mode: z.literal('set'),
-      path: NonEmptyStringSchema,
       value: JsonValueSchema,
     })
     .strict(),
   z
     .object({
-      kind: z.literal('json'),
       mode: z.literal('merge'),
-      path: NonEmptyStringSchema,
       value: JsonValueSchema,
     })
     .strict(),
   z
     .object({
-      kind: z.literal('json'),
       mode: z.literal('remove'),
-      path: NonEmptyStringSchema,
     })
     .strict(),
 ])
@@ -96,7 +90,6 @@ const AuthoredPolicyEditSchema = z
     axis: z.enum(POLICY_EDIT_AXES),
     target: z
       .object({
-        surface: z.enum(POLICY_EDIT_TARGET_SURFACES),
         path: NonEmptyStringSchema,
         label: NonEmptyStringSchema.max(200).nullable(),
       })
@@ -105,10 +98,7 @@ const AuthoredPolicyEditSchema = z
     claim: NonEmptyStringSchema.max(2_000),
     expectedGain: z
       .object({
-        metric: NonEmptyStringSchema.max(400),
-        direction: z.enum(['increase', 'decrease']),
         amount: z.number().finite().positive(),
-        unit: z.enum(['absolute', 'relative', 'percent', 'score']).nullable(),
         rationale: NonEmptyStringSchema.max(2_000).nullable(),
       })
       .strict(),
@@ -162,11 +152,15 @@ const POLICY_EDIT_AUTHOR_JSON_SCHEMA: Record<string, unknown> = {
           target: {
             type: 'object',
             additionalProperties: false,
-            required: ['surface', 'path', 'label'],
+            required: ['path', 'label'],
             properties: {
-              surface: { type: 'string', enum: [...POLICY_EDIT_TARGET_SURFACES] },
               path: { type: 'string', minLength: 1 },
-              label: { type: ['string', 'null'], maxLength: 200 },
+              label: {
+                type: ['string', 'null'],
+                minLength: 1,
+                maxLength: 200,
+                pattern: '\\S',
+              },
             },
           },
           change: {
@@ -174,51 +168,44 @@ const POLICY_EDIT_AUTHOR_JSON_SCHEMA: Record<string, unknown> = {
               {
                 type: 'object',
                 additionalProperties: false,
-                required: ['kind', 'mode', 'path', 'value'],
+                required: ['mode', 'value'],
                 properties: {
-                  kind: { const: 'json' },
                   mode: { const: 'set' },
-                  path: { type: 'string', minLength: 1 },
                   value: {},
                 },
               },
               {
                 type: 'object',
                 additionalProperties: false,
-                required: ['kind', 'mode', 'path', 'value'],
+                required: ['mode', 'value'],
                 properties: {
-                  kind: { const: 'json' },
                   mode: { const: 'merge' },
-                  path: { type: 'string', minLength: 1 },
                   value: {},
                 },
               },
               {
                 type: 'object',
                 additionalProperties: false,
-                required: ['kind', 'mode', 'path'],
+                required: ['mode'],
                 properties: {
-                  kind: { const: 'json' },
                   mode: { const: 'remove' },
-                  path: { type: 'string', minLength: 1 },
                 },
               },
             ],
           },
-          claim: { type: 'string', minLength: 1, maxLength: 2_000 },
+          claim: { type: 'string', minLength: 1, maxLength: 2_000, pattern: '\\S' },
           expectedGain: {
             type: 'object',
             additionalProperties: false,
-            required: ['metric', 'direction', 'amount', 'unit', 'rationale'],
+            required: ['amount', 'rationale'],
             properties: {
-              metric: { type: 'string', minLength: 1, maxLength: 400 },
-              direction: { type: 'string', enum: ['increase', 'decrease'] },
               amount: { type: 'number', exclusiveMinimum: 0 },
-              unit: {
+              rationale: {
                 type: ['string', 'null'],
-                enum: ['absolute', 'relative', 'percent', 'score', null],
+                minLength: 1,
+                maxLength: 2_000,
+                pattern: '\\S',
               },
-              rationale: { type: ['string', 'null'], maxLength: 2_000 },
             },
           },
           confidence: { type: 'number', minimum: 0, maximum: 1 },
@@ -232,12 +219,22 @@ const POLICY_EDIT_AUTHOR_JSON_SCHEMA: Record<string, unknown> = {
                 type: 'array',
                 minItems: 1,
                 uniqueItems: true,
-                items: { type: 'string', minLength: 1 },
+                items: { type: 'string', minLength: 1, pattern: '\\S' },
               },
             },
           },
-          rationale: { type: ['string', 'null'], maxLength: 4_000 },
-          validationPlan: { type: ['string', 'null'], maxLength: 2_000 },
+          rationale: {
+            type: ['string', 'null'],
+            minLength: 1,
+            maxLength: 4_000,
+            pattern: '\\S',
+          },
+          validationPlan: {
+            type: ['string', 'null'],
+            minLength: 1,
+            maxLength: 2_000,
+            pattern: '\\S',
+          },
         },
       },
     },
@@ -246,9 +243,7 @@ const POLICY_EDIT_AUTHOR_JSON_SCHEMA: Record<string, unknown> = {
 
 function policyEditAuthorJsonSchema(
   maxItems: number,
-  targetSurface: JsonPolicyEditTargetSurface,
   allowedJsonPaths: readonly string[],
-  objectives: readonly PolicyEditObjective[],
 ): Record<string, unknown> {
   const schema = JSON.parse(JSON.stringify(POLICY_EDIT_AUTHOR_JSON_SCHEMA)) as Record<
     string,
@@ -261,24 +256,7 @@ function policyEditAuthorJsonSchema(
   const itemProperties = item.properties as Record<string, unknown>
   const target = itemProperties.target as Record<string, unknown>
   const targetProperties = target.properties as Record<string, unknown>
-  targetProperties.surface = { type: 'string', enum: [targetSurface] }
   targetProperties.path = { type: 'string', enum: [...allowedJsonPaths] }
-  const change = itemProperties.change as { anyOf: Array<Record<string, unknown>> }
-  for (const variant of change.anyOf) {
-    const variantProperties = variant.properties as Record<string, unknown>
-    variantProperties.path = { type: 'string', enum: [...allowedJsonPaths] }
-  }
-  const expectedGain = itemProperties.expectedGain as Record<string, unknown>
-  const gainProperties = expectedGain.properties as Record<string, unknown>
-  gainProperties.metric = { type: 'string', enum: objectives.map((objective) => objective.key) }
-  gainProperties.direction = {
-    type: 'string',
-    enum: [...new Set(objectives.map((objective) => objective.direction))],
-  }
-  gainProperties.unit = {
-    type: 'string',
-    enum: [...new Set(objectives.map((objective) => objective.unit))],
-  }
   return schema
 }
 
@@ -385,9 +363,9 @@ const POLICY_EDIT_AUTHOR_SYSTEM = [
   'You author strictly typed PolicyEdit candidates over one JSON surface.',
   'Return exactly one JSON object with shape {"edits":[...]}; emit an empty edits array when no evidence supports a change.',
   `axis must be one of: ${POLICY_EDIT_AXES.join(', ')}.`,
-  `target.surface must be one of: ${POLICY_EDIT_TARGET_SURFACES.join(', ')}.`,
-  'target.path and change.path must be the same caller-allowed JSON path.',
-  'change must be exactly one operation: {"kind":"json","mode":"set","path":string,"value":json}, {"kind":"json","mode":"merge","path":string,"value":json}, or {"kind":"json","mode":"remove","path":string}.',
+  'target.path must be one caller-allowed JSON path.',
+  'change must be exactly one operation: {"mode":"set","value":json}, {"mode":"merge","value":json}, or {"mode":"remove"}.',
+  'The caller binds target surface, JSON operation kind and path, and objective metric, direction, and unit; do not emit those fields.',
   'Nullable fields required by the response schema must be null when they do not apply.',
   'Every edit must cite one or more supplied finding keys in source.findingKeys. Do not emit persistent finding IDs, analyst IDs, or evidence references; the caller binds those from the cited findings.',
   'Treat expectedGain and confidence as forecasts, never as measured evidence. Learn from baselineOutcome, incumbentOutcome, and observedDeltaFromParent.',
@@ -413,7 +391,7 @@ export interface LlmPolicyEditProposerOptions {
   targetSurface: JsonPolicyEditTargetSurface
   /** Exact JSON paths the author may change. Prefix or fuzzy matches are not accepted. */
   allowedJsonPaths: readonly string[]
-  /** Exact search objectives forecasts may name. Unknown keys or mismatched directions fail. */
+  /** Caller-owned search objective bound into every authored forecast. */
   objectives: readonly PolicyEditObjective[]
   /** Default: evidence-only, so uncertain edits are measured rather than
    *  suppressed by their own model-authored predictions. */
@@ -563,12 +541,7 @@ export function llmPolicyEditProposer(
           objectiveByKey,
         ),
       }
-      const responseSchema = policyEditAuthorJsonSchema(
-        limit,
-        opts.targetSurface,
-        allowedJsonPaths,
-        objectives,
-      )
+      const responseSchema = policyEditAuthorJsonSchema(limit, allowedJsonPaths)
       const system = policyEditAuthorSystem(responseSchema)
       assertPolicyEditAuthorContextBudget(
         { system, authorContext, responseSchema },
@@ -598,7 +571,12 @@ export function llmPolicyEditProposer(
         tags: { generation: String(ctx.generation) },
         signal: ctx.signal,
         execute: (signal, callId) =>
-          callLlmJson<unknown>(request, { ...opts.llm, signal, idempotencyKey: callId }),
+          callLlmJson<unknown>(request, {
+            ...opts.llm,
+            jsonPayloadMode: 'exact',
+            signal,
+            idempotencyKey: callId,
+          }),
         receipt: ({ result }) => costReceiptFromLlm(result),
         receiptFromError: costReceiptFromLlmError,
       })
@@ -616,7 +594,7 @@ export function llmPolicyEditProposer(
           findingByKey,
           opts.targetSurface,
           allowedPathSet,
-          objectiveByKey,
+          objectives[0]!,
           ctx.incumbentOutcome?.composite ?? ctx.baselineOutcome?.composite,
         ),
       )
@@ -1190,20 +1168,12 @@ function bindAuthoredEdit(
   findingByKey: ReadonlyMap<string, CitableFinding>,
   targetSurface: JsonPolicyEditTargetSurface,
   allowedPaths: ReadonlySet<string>,
-  objectiveByKey: ReadonlyMap<string, PolicyEditObjective>,
+  objective: PolicyEditObjective,
   currentComposite: number | undefined,
 ): PolicyEdit {
-  if (draft.target.surface !== targetSurface) {
+  if (!allowedPaths.has(draft.target.path)) {
     throw new Error(
-      `llmPolicyEditProposer: target surface '${draft.target.surface}' does not match '${targetSurface}'`,
-    )
-  }
-  if (draft.target.path !== draft.change.path) {
-    throw new Error('llmPolicyEditProposer: target.path must equal change.path')
-  }
-  if (!allowedPaths.has(draft.change.path)) {
-    throw new Error(
-      `llmPolicyEditProposer: JSON path '${draft.change.path}' is outside allowedJsonPaths`,
+      `llmPolicyEditProposer: JSON path '${draft.target.path}' is outside allowedJsonPaths`,
     )
   }
 
@@ -1221,22 +1191,6 @@ function bindAuthoredEdit(
     throw new Error('llmPolicyEditProposer: authored edit has no cited evidence')
   }
 
-  const objective = objectiveByKey.get(draft.expectedGain.metric)
-  if (!objective) {
-    throw new Error(
-      `llmPolicyEditProposer: unknown forecast objective '${draft.expectedGain.metric}'`,
-    )
-  }
-  if (draft.expectedGain.direction !== objective.direction) {
-    throw new Error(
-      `llmPolicyEditProposer: forecast direction for '${objective.key}' must be '${objective.direction}'`,
-    )
-  }
-  if (draft.expectedGain.unit !== objective.unit) {
-    throw new Error(
-      `llmPolicyEditProposer: forecast unit for '${objective.key}' must be '${objective.unit}'`,
-    )
-  }
   const maxGain =
     currentComposite === undefined
       ? objective.scale.max - objective.scale.min
@@ -1248,20 +1202,29 @@ function bindAuthoredEdit(
   }
 
   const expectedGain: PolicyEditExpectedGain = {
-    metric: draft.expectedGain.metric,
-    direction: draft.expectedGain.direction,
+    metric: objective.key,
+    direction: objective.direction,
     amount: draft.expectedGain.amount,
-    ...(draft.expectedGain.unit ? { unit: draft.expectedGain.unit } : {}),
+    unit: objective.unit,
     ...(draft.expectedGain.rationale ? { rationale: draft.expectedGain.rationale } : {}),
   }
+  const change: PolicyEdit['change'] =
+    draft.change.mode === 'remove'
+      ? { kind: 'json', mode: 'remove', path: draft.target.path }
+      : {
+          kind: 'json',
+          mode: draft.change.mode,
+          path: draft.target.path,
+          value: draft.change.value,
+        }
   const init: PolicyEditInit = {
     axis: draft.axis,
     target: {
-      surface: draft.target.surface,
+      surface: targetSurface,
       path: draft.target.path,
       ...(draft.target.label ? { label: draft.target.label } : {}),
     },
-    change: draft.change,
+    change,
     claim: draft.claim,
     expectedGain,
     confidence: draft.confidence,

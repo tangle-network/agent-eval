@@ -65,23 +65,18 @@ function authoredEdit(
   const mode = options.mode ?? 'set'
   const change =
     mode === 'remove'
-      ? { kind: 'json', mode, path }
+      ? { mode }
       : {
-          kind: 'json',
           mode,
-          path,
           value: options.value ?? 'Read repository instructions first.',
         }
   return {
     axis: options.axis ?? 'representation',
-    target: { surface: 'agent-profile', path, label: null },
+    target: { path, label: null },
     change,
     claim: 'Reading repository instructions first should prevent avoidable edits.',
     expectedGain: {
-      metric: 'search.composite',
-      direction: 'increase',
       amount: options.expectedGain ?? 0.12,
-      unit: 'score',
       rationale: null,
     },
     confidence: options.confidence ?? 0.9,
@@ -276,10 +271,25 @@ describe('llmPolicyEditProposer', () => {
       },
     })
     const providerSchema = JSON.stringify(capture.responseFormat)
-    expect(providerSchema).toContain('"kind":{"const":"json"}')
     expect(providerSchema).toContain('"mode":{"const":"set"}')
     expect(providerSchema).toContain('"mode":{"const":"merge"}')
     expect(providerSchema).toContain('"mode":{"const":"remove"}')
+    expect(providerSchema).not.toContain('"surface"')
+    expect(providerSchema).not.toContain('"kind"')
+    expect(providerSchema).not.toContain('"metric"')
+    expect(providerSchema).not.toContain('"direction"')
+    expect(providerSchema).not.toContain('"unit"')
+    expect(providerSchema.match(/"path"/g)).toHaveLength(2)
+    expect(providerSchema.match(/"pattern":"\\\\S"/g)).toHaveLength(6)
+    expect((out[0] as ProposedCandidate).candidateRecord?.policyEdit).toMatchObject({
+      target: { surface: 'agent-profile', path: 'prompt.systemPrompt' },
+      change: { kind: 'json', mode: 'set', path: 'prompt.systemPrompt' },
+      expectedGain: {
+        metric: 'search.composite',
+        direction: 'increase',
+        unit: 'score',
+      },
+    })
     const schemaMarker =
       'The exact required response JSON Schema follows. Obey it even when the provider does not enforce response_format:\n'
     const textSchema = capture.system?.split(schemaMarker)
@@ -609,15 +619,39 @@ describe('llmPolicyEditProposer', () => {
     ).rejects.toThrow(/outside allowedJsonPaths/)
   })
 
-  it('rejects non-JSON operations even when the provider returns valid JSON', async () => {
+  it('rejects caller-bound invariant fields even when the provider returns valid JSON', async () => {
     const source = finding()
-    const edit = {
-      ...authoredEdit('finding-1'),
-      change: { kind: 'text', mode: 'append', value: 'Ignore typed JSON operations.' },
+    const base = authoredEdit('finding-1')
+    const responses = [
+      { ...base, target: { ...base.target, surface: 'agent-profile' } },
+      { ...base, change: { ...base.change, kind: 'json' } },
+      {
+        ...base,
+        expectedGain: { ...base.expectedGain, metric: 'search.composite' },
+      },
+    ]
+    for (const edit of responses) {
+      await expect(
+        proposer({ response: { edits: [edit] } }).propose(context({ finding: source })),
+      ).rejects.toThrow(/invalid PolicyEdit response/)
     }
-    await expect(
-      proposer({ response: { edits: [edit] } }).propose(context({ finding: source })),
-    ).rejects.toThrow(/invalid PolicyEdit response.*change/)
+  })
+
+  it('rejects empty or whitespace-only semantic strings named as non-empty in the schema', async () => {
+    const source = finding()
+    const base = authoredEdit('finding-1')
+    for (const edit of [
+      { ...base, claim: '   ' },
+      { ...base, target: { ...base.target, label: '' } },
+      { ...base, expectedGain: { ...base.expectedGain, rationale: '\t' } },
+      { ...base, rationale: '' },
+      { ...base, validationPlan: '  ' },
+      { ...base, source: { findingKeys: [''] } },
+    ]) {
+      await expect(
+        proposer({ response: { edits: [edit] } }).propose(context({ finding: source })),
+      ).rejects.toThrow(/invalid PolicyEdit response/)
+    }
   })
 
   it('measures uncertain evidence-backed edits by default and rejects them in explicit strict mode', async () => {
@@ -662,6 +696,16 @@ describe('llmPolicyEditProposer', () => {
     await expect(
       proposer({ response: incomplete }).propose(context({ finding: source })),
     ).rejects.toThrow(/non-JSON/)
+  })
+
+  it('fails closed on fenced or prose-wrapped author JSON', async () => {
+    const source = finding()
+    const exact = JSON.stringify({ edits: [authoredEdit('finding-1')] })
+    for (const response of [`before ${exact}`, `${exact} after`, `\`\`\`json\n${exact}\n\`\`\``]) {
+      await expect(proposer({ response }).propose(context({ finding: source }))).rejects.toThrow(
+        /non-JSON/,
+      )
+    }
   })
 
   it('fails closed when the provider reports length truncation for parsable JSON', async () => {
@@ -1245,35 +1289,8 @@ describe('llmPolicyEditProposer', () => {
     expect(capture.user).toBeUndefined()
   })
 
-  it('rejects forecast direction, unit, and magnitude outside the declared objective', async () => {
+  it('rejects forecast magnitude outside the declared objective', async () => {
     const source = finding()
-    await expect(
-      proposer({
-        response: {
-          edits: [
-            {
-              ...authoredEdit('finding-1'),
-              expectedGain: {
-                ...authoredEdit('finding-1').expectedGain,
-                direction: 'decrease',
-              },
-            },
-          ],
-        },
-      }).propose(context({ finding: source })),
-    ).rejects.toThrow(/forecast direction/)
-    await expect(
-      proposer({
-        response: {
-          edits: [
-            {
-              ...authoredEdit('finding-1'),
-              expectedGain: { ...authoredEdit('finding-1').expectedGain, unit: 'percent' },
-            },
-          ],
-        },
-      }).propose(context({ finding: source })),
-    ).rejects.toThrow(/forecast unit/)
     await expect(
       proposer({
         response: {

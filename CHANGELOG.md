@@ -8,6 +8,7 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ### Added
 
+- `callLlmJson()` accepts `jsonPayloadMode: 'exact'` when callers must reject fenced, prose-wrapped, or multi-root responses instead of extracting a JSON value.
 - `llmPolicyEditProposer({ redactCurrentSurfaceForModel })` can remove credentials and unrelated fields from the current surface sent to the model while applying validated edits to the complete original surface.
 - `CostLedger.listPending()` exposes immutable pending paid calls and distinguishes calls that are active, late after cancellation, or interrupted by a prior process so durable workflows can reconcile exact reservations before resuming.
 - `traceAnalystProposer()` accepts an opt-in `resolvePriorFindings` callback that forwards canonical prior findings into the existing analyst registry.
@@ -21,6 +22,7 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ### Fixed
 
+- `llmPolicyEditProposer()` asks the model only for semantic edit choices, deterministically binds caller-owned policy fields, and requires one exact whole-response JSON value before admission.
 - `compareOptimizationMethods()` owns three non-empty, pairwise-disjoint scenario sets.
   Methods receive independent copies of train and selection data, every method finishes before final test scoring starts, and final test data is absent from `OptimizationMethodInput`.
   Built-in GEPA, SkillOpt, and FAPO methods read the shared baseline, runner, judges, directories, and execution settings from the comparison call instead of duplicating them in each method config.

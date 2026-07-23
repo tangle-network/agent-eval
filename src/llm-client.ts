@@ -243,6 +243,12 @@ export interface LlmClientOptions {
    * instructions. Default: `native`.
    */
   jsonSchemaTransport?: 'native' | 'json-object'
+  /**
+   * JSON payload parsing policy. `extract` accepts fenced or prose-prefixed JSON.
+   * `exact` requires the complete response content to be one JSON value.
+   * Default: `extract`.
+   */
+  jsonPayloadMode?: 'extract' | 'exact'
   /** Fetch implementation — defaults to global `fetch`. Override for custom transport (e.g. tests). */
   fetch?: typeof fetch
   /**
@@ -837,7 +843,7 @@ export async function callLlmJson<T = unknown>(
   opts: LlmClientOptions = {},
 ): Promise<{ value: T; result: LlmCallResult }> {
   const result = await callLlmStructured(req, opts)
-  const value = parseJsonResult<T>(result)
+  const value = parseJsonResult<T>(result, opts.jsonPayloadMode ?? 'extract')
   return { value, result }
 }
 
@@ -862,14 +868,17 @@ async function callLlmStructured(
   }
 }
 
-function parseJsonResult<T>(result: LlmCallResult): T {
+function parseJsonResult<T>(
+  result: LlmCallResult,
+  jsonPayloadMode: NonNullable<LlmClientOptions['jsonPayloadMode']>,
+): T {
   try {
     if (result.finishReason === 'length') {
       throw new Error(
         `LLM returned truncated JSON content (model=${result.model}, finishReason=length)`,
       )
     }
-    return parseJsonSafely<T>(result.content, result.model)
+    return parseJsonSafely<T>(result.content, result.model, jsonPayloadMode)
   } catch (error) {
     if (error instanceof LlmResponseError) throw error
     const cause = error instanceof Error ? error : new Error(String(error))
@@ -877,10 +886,14 @@ function parseJsonResult<T>(result: LlmCallResult): T {
   }
 }
 
-function parseJsonSafely<T>(content: string, model: string): T {
-  const stripped = extractJsonPayload(content)
+function parseJsonSafely<T>(
+  content: string,
+  model: string,
+  jsonPayloadMode: NonNullable<LlmClientOptions['jsonPayloadMode']>,
+): T {
+  const payload = jsonPayloadMode === 'exact' ? content : extractJsonPayload(content)
   try {
-    return JSON.parse(stripped) as T
+    return JSON.parse(payload) as T
   } catch (err) {
     throw new Error(
       `LLM returned non-JSON content (model=${model}): ${
