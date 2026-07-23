@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "agent-eval-rpc"
-version = "0.123.6"
+version = "0.123.7"
 description = "Python RPC client for @tangle-network/agent-eval — judge content against rubrics over HTTP or stdio RPC. Eval logic runs in the Node runtime; this package is a thin wire client."
 readme = "README.md"
 requires-python = ">=3.10"
@@ -28,13 +28,15 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-gepa = [
-  "gepa @ git+https://github.com/gepa-ai/gepa.git@f919db0a622e2e9f9204779b81fe00cc1b2d808f",
-]
 dev = [
   "pytest>=8.0",
   "pytest-asyncio>=0.23",
   "ruff>=0.6",
+]
+
+[dependency-groups]
+gepa-source = [
+  "gepa @ git+https://github.com/gepa-ai/gepa.git@f919db0a622e2e9f9204779b81fe00cc1b2d808f",
 ]
 
 [project.urls]
@@ -44,9 +46,6 @@ Documentation = "https://github.com/tangle-network/agent-eval/blob/main/clients/
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/agent_eval_rpc"]
-
-[tool.hatch.metadata]
-allow-direct-references = true
 
 [tool.ruff]
 line-length = 100
