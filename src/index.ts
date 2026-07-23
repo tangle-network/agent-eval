@@ -395,6 +395,26 @@ export {
 } from './pr-review-benchmark'
 export { ScenarioRegistry } from './registry'
 export { formatBenchmarkReport, formatDriverReport, printDriverSummary } from './reporter'
+// ── Rollout export ────────────────────────────────────────────────────
+// `tangle.rollout.v1` training rows minted from the records the substrate
+// already keeps: RunRecord × trace (joined on runId), realness-gate carried
+// into the reward so fine-tunes can't learn from gamed successes.
+export {
+  type MintRolloutOptions,
+  type MintRolloutResult,
+  mintRolloutRows,
+  type RewardRow,
+  ROLLOUT_FORMAT,
+  type RolloutRow,
+  type RolloutScrubber,
+  type RolloutStep,
+  rolloutReward,
+  type SftExportOptions,
+  type SftRow,
+  toJsonl,
+  toRewardRows,
+  toSftRows,
+} from './rollout-export'
 export type {
   ControlRunToRunRecordOptions,
   RunEvidenceMetadata,
