@@ -453,6 +453,16 @@ describe('compareOptimizationMethods', () => {
       ['empty judges', { judges: [] }, /at least one judge/],
       ['blank runDir', { runDir: ' ' }, /runDir must be a non-empty string/],
       ['blank dispatchRef', { dispatchRef: ' ' }, /dispatchRef must be trimmed and non-empty/],
+      [
+        'blank optimization dispatchRef',
+        { optimizationRunOptions: { dispatchRef: ' ' } },
+        /optimizationRunOptions\.dispatchRef must be trimmed and non-empty/,
+      ],
+      [
+        'mismatched dispatchRef',
+        { dispatchRef: 'execution-a', optimizationRunOptions: { dispatchRef: 'execution-b' } },
+        /dispatchRef must match optimizationRunOptions\.dispatchRef/,
+      ],
       ['fractional seed', { seed: 1.5 }, /seed must be a safe integer/],
       ['zero resamples', { resamples: 0 }, /resamples must be a positive safe integer/],
       ['too few resamples', { resamples: 10 }, /resamples must be at least 40/],
@@ -513,6 +523,7 @@ describe('compareOptimizationMethods', () => {
         expect(input.selectionScenarios).not.toBe(SELECTION)
         expect(input.judges).toHaveLength(1)
         expect(input.runDir).toContain('/optimization/spy')
+        expect(input.runOptions.dispatchRef).toBeUndefined()
         return { winnerSurface: 'SOLVE_h1', cost: completeCost(0) }
       },
     }
@@ -526,6 +537,36 @@ describe('compareOptimizationMethods', () => {
       expectUsage: 'off',
     })
     expect(seen).toBeDefined()
+  })
+
+  it.each([
+    ['top-level', { dispatchRef: 'top-level-dispatch' }, 'top-level-dispatch'],
+    [
+      'optimization options',
+      { optimizationRunOptions: { dispatchRef: 'method-dispatch' } },
+      'method-dispatch',
+    ],
+  ] as const)('passes the %s dispatch identity to optimization methods', async (_, controls, expected) => {
+    let receivedDispatchRef: string | undefined
+    await compareOptimizationMethods<S, A>({
+      methods: [
+        {
+          name: 'dispatch-spy',
+          async optimize(input) {
+            receivedDispatchRef = input.runOptions.dispatchRef
+            return { winnerSurface: 'nothing', cost: completeCost(0) }
+          },
+        },
+      ],
+      baselineSurface: 'nothing',
+      ...PARTITIONS,
+      dispatchWithSurface: async (surface) => ({ text: String(surface) }),
+      judges: [judge],
+      runDir,
+      expectUsage: 'off',
+      ...controls,
+    })
+    expect(receivedDispatchRef).toBe(expected)
   })
 
   it('propagates the owning signal to optimization methods', async () => {
