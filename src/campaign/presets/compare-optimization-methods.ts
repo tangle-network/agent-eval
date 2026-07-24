@@ -630,6 +630,26 @@ function assertComparisonControls<TScenario extends Scenario, TArtifact>(
       'compareOptimizationMethods: dispatchRef must be trimmed and non-empty when provided',
     )
   }
+  const optimizationDispatchRef = opts.optimizationRunOptions?.dispatchRef
+  if (
+    optimizationDispatchRef !== undefined &&
+    (typeof optimizationDispatchRef !== 'string' ||
+      optimizationDispatchRef.trim().length === 0 ||
+      optimizationDispatchRef.trim() !== optimizationDispatchRef)
+  ) {
+    throw new Error(
+      'compareOptimizationMethods: optimizationRunOptions.dispatchRef must be trimmed and non-empty when provided',
+    )
+  }
+  if (
+    opts.dispatchRef !== undefined &&
+    optimizationDispatchRef !== undefined &&
+    opts.dispatchRef !== optimizationDispatchRef
+  ) {
+    throw new Error(
+      'compareOptimizationMethods: dispatchRef must match optimizationRunOptions.dispatchRef when both are provided',
+    )
+  }
   try {
     surfaceContentHash(opts.baselineSurface)
   } catch (cause) {
@@ -866,6 +886,9 @@ function createOptimizationMethodInput<TScenario extends Scenario, TArtifact>(
     seed,
     runOptions: Object.freeze({
       ...(opts.optimizationRunOptions ?? {}),
+      ...(opts.optimizationRunOptions?.dispatchRef === undefined && opts.dispatchRef !== undefined
+        ? { dispatchRef: opts.dispatchRef }
+        : {}),
       ...(signal ? { signal } : {}),
     }),
     costLedger,

@@ -249,6 +249,7 @@ export function gepaOptimizationMethod<TScenario extends Scenario, TArtifact>(
         runtime: runtimeIdentity,
         method: name,
         evaluationId: config.evaluationId,
+        dispatchRef: input.runOptions.dispatchRef ?? null,
         seed: input.seed,
         recipe: snapshotJson(config.recipe, 'GEPA run settings'),
         engineModules: config.engineModules ?? [],

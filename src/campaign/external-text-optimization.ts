@@ -110,28 +110,30 @@ export function externalTextOptimizationMethod<TScenario extends Scenario, TArti
         ),
       )
       const methodDir = `${input.runDir}/external/${safePathComponent(snapshot.name)}`
-      const runId = externalOptimizerRunKey({
-        material: {
-          optimizer: {
-            kind: snapshot.source.kind,
-            package: snapshot.source.package,
-            version: snapshot.source.version,
-            ...(snapshot.source.sourceUrl ? { sourceUrl: snapshot.source.sourceUrl } : {}),
-            ...(snapshot.source.revision ? { revision: snapshot.source.revision } : {}),
-          },
-          method: snapshot.name,
-          evaluationId: snapshot.evaluationId,
-          objective: snapshot.objective,
-          background: snapshot.background ?? '',
-          seed: input.seed,
-          seedCandidate,
-          trainSet,
-          selectionSet,
-          maxEvaluations: snapshot.maxEvaluations,
-          maxOptimizerCostUsd: snapshot.maxOptimizerCostUsd,
-          maxCandidateChars,
-          maxEvidenceChars,
+      const runMaterial = {
+        optimizer: {
+          kind: snapshot.source.kind,
+          package: snapshot.source.package,
+          version: snapshot.source.version,
+          ...(snapshot.source.sourceUrl ? { sourceUrl: snapshot.source.sourceUrl } : {}),
+          ...(snapshot.source.revision ? { revision: snapshot.source.revision } : {}),
         },
+        method: snapshot.name,
+        evaluationId: snapshot.evaluationId,
+        dispatchRef: input.runOptions.dispatchRef ?? null,
+        objective: snapshot.objective,
+        background: snapshot.background ?? '',
+        seed: input.seed,
+        seedCandidate,
+        trainSet,
+        selectionSet,
+        maxEvaluations: snapshot.maxEvaluations,
+        maxOptimizerCostUsd: snapshot.maxOptimizerCostUsd,
+        maxCandidateChars,
+        maxEvidenceChars,
+      }
+      const runId = externalOptimizerRunKey({
+        material: runMaterial,
         attemptId,
         resumeEnabled: resume !== 'never',
       })

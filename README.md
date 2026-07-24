@@ -117,7 +117,7 @@ Its `run` callback receives the starting candidate plus serialized train and sel
 The optimizer must score candidates through `context.evaluate()` so Agent Eval can enforce the evaluation limit and use the configured execution and judges.
 Every optimizer-owned paid call must use `context.cost.runPaidCall()`.
 Set `source` to the package version and revision, and set `evaluationId` to a commit, content hash, or other stable identity for the execution and scoring behavior.
-Agent Eval derives the run identity from those values, the optimizer settings, the starting surface, the described data, and the seed.
+Agent Eval derives the run identity from those values, the exact dispatch identity, the optimizer settings, the starting surface, the described data, and the seed.
 The callback returns the selected candidate, whether compatible state was restored, and how optimizer spend was recorded.
 
 See [Adapt A Third-Party Text Optimizer](./docs/campaign-proposers.md#adapt-a-third-party-text-optimizer) for a complete minimal adapter.
