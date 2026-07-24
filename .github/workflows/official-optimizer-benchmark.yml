@@ -46,6 +46,13 @@ on:
         default: '20'
         type: string
 
+permissions:
+  contents: read
+
+concurrency:
+  group: official-optimizer-benchmark
+  cancel-in-progress: false
+
 jobs:
   benchmark:
     runs-on: ubuntu-latest

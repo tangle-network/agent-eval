@@ -21,6 +21,8 @@ type WorkflowStep = {
 }
 const document = parse(workflow) as {
   on: { workflow_dispatch: { inputs: Record<string, unknown> } }
+  permissions: { contents: string }
+  concurrency: { group: string; 'cancel-in-progress': boolean }
   jobs: { benchmark: { steps: WorkflowStep[] } }
 }
 const steps = document.jobs.benchmark.steps
@@ -68,5 +70,13 @@ describe('official optimizer benchmark workflow', () => {
     expect(Object.keys(document.on.workflow_dispatch.inputs)).toEqual(
       expect.arrayContaining(['model', 'price_in_per_m', 'price_out_per_m']),
     )
+  })
+
+  it('serializes paid runs with read-only repository access', () => {
+    expect(document.permissions).toEqual({ contents: 'read' })
+    expect(document.concurrency).toEqual({
+      group: 'official-optimizer-benchmark',
+      'cancel-in-progress': false,
+    })
   })
 })
