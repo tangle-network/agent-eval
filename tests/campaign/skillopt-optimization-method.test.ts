@@ -274,8 +274,10 @@ describe('skillOptOptimizationMethod', () => {
       runner: fakeSkillOptRunner(join(runDir, 'observed.json'), resumeMarker),
     })
 
-    const first = await compareOptimizationMethods(skillOptComparisonOptions(method))
-    const second = await compareOptimizationMethods(skillOptComparisonOptions(method))
+    const first = await compareOptimizationMethods(skillOptComparisonOptions(method, 'execution-a'))
+    const second = await compareOptimizationMethods(
+      skillOptComparisonOptions(method, 'execution-a'),
+    )
 
     expect(first.scores[0]!.provenance).toMatchObject({
       resumed: false,
@@ -294,9 +296,19 @@ describe('skillOptOptimizationMethod', () => {
     })
     expect(first.scores[0]!.provenance?.runId).toBe(first.scores[0]!.provenance?.compatibleRunId)
     expect(second.scores[0]!.provenance?.runId).toBe(first.scores[0]!.provenance?.compatibleRunId)
-    await expect(compareOptimizationMethods(skillOptComparisonOptions(method))).rejects.toThrow(
-      'model failed: 429',
+    const changedExecution = await compareOptimizationMethods(
+      skillOptComparisonOptions(method, 'execution-b'),
     )
+    expect(changedExecution.scores[0]!.provenance).toMatchObject({
+      resumed: false,
+      evaluationCount: 1,
+    })
+    expect(changedExecution.scores[0]!.provenance?.compatibleRunId).not.toBe(
+      first.scores[0]!.provenance?.compatibleRunId,
+    )
+    await expect(
+      compareOptimizationMethods(skillOptComparisonOptions(method, 'execution-a')),
+    ).rejects.toThrow('model failed: 429')
   })
 })
 
@@ -338,8 +350,8 @@ function fakeSkillOptRunner(observedInputPath: string, resumeMarker?: string) {
     `fs.writeFileSync(${JSON.stringify(observedInputPath)}, JSON.stringify(input))`,
     ...(resumeMarker
       ? [
-          `const resumed = fs.existsSync(${JSON.stringify(resumeMarker)})`,
-          `fs.writeFileSync(${JSON.stringify(resumeMarker)}, "seen")`,
+          `const resumed = fs.existsSync(${JSON.stringify(resumeMarker)}) && fs.readFileSync(${JSON.stringify(resumeMarker)}, "utf8") === input.runId`,
+          `fs.writeFileSync(${JSON.stringify(resumeMarker)}, input.runId)`,
         ]
       : ['const resumed = false']),
     ';(async () => {',
@@ -382,6 +394,7 @@ function fakeSkillOptRunner(observedInputPath: string, resumeMarker?: string) {
 
 function skillOptComparisonOptions(
   method: ReturnType<typeof skillOptOptimizationMethod<TestScenario, TestArtifact>>,
+  dispatchRef = 'test:skillopt-optimization-method',
 ) {
   return {
     methods: [method],
@@ -400,6 +413,7 @@ function skillOptComparisonOptions(
     seed: 13,
     resamples: 40,
     expectUsage: 'off' as const,
+    dispatchRef,
   }
 }
 

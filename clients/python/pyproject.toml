@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "agent-eval-rpc"
-version = "0.126.2"
+version = "0.126.3"
 description = "Python RPC client, official optimizer bridge, and DSPy metric adapter for @tangle-network/agent-eval."
 readme = "README.md"
 requires-python = ">=3.10"

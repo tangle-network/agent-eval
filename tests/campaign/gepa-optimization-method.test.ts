@@ -299,8 +299,8 @@ describe('gepaOptimizationMethod', () => {
       runner: fakeMeteredGepaRunner(upstreamBaseUrl, resumeMarker),
     })
 
-    const first = await compareOptimizationMethods(gepaComparisonOptions(method))
-    const second = await compareOptimizationMethods(gepaComparisonOptions(method))
+    const first = await compareOptimizationMethods(gepaComparisonOptions(method, 'execution-a'))
+    const second = await compareOptimizationMethods(gepaComparisonOptions(method, 'execution-a'))
 
     expect(first.scores[0]!.provenance).toMatchObject({
       resumed: false,
@@ -319,9 +319,19 @@ describe('gepaOptimizationMethod', () => {
     })
     expect(first.scores[0]!.provenance?.runId).toBe(first.scores[0]!.provenance?.compatibleRunId)
     expect(second.scores[0]!.provenance?.runId).toBe(first.scores[0]!.provenance?.compatibleRunId)
-    await expect(compareOptimizationMethods(gepaComparisonOptions(method))).rejects.toThrow(
-      'model failed: 429',
+    const changedExecution = await compareOptimizationMethods(
+      gepaComparisonOptions(method, 'execution-b'),
     )
+    expect(changedExecution.scores[0]!.provenance).toMatchObject({
+      resumed: false,
+      evaluationCount: 1,
+    })
+    expect(changedExecution.scores[0]!.provenance?.compatibleRunId).not.toBe(
+      first.scores[0]!.provenance?.compatibleRunId,
+    )
+    await expect(
+      compareOptimizationMethods(gepaComparisonOptions(method, 'execution-a')),
+    ).rejects.toThrow('model failed: 429')
   })
 
   it('exposes only described train and selection cases to the external process', async () => {
@@ -594,8 +604,8 @@ function fakeMeteredGepaRunner(upstreamBaseUrl: string, resumeMarker?: string) {
     'if (input.modelProxy.apiKey === "provider-secret") throw new Error("upstream secret reached input")',
     ...(resumeMarker
       ? [
-          `const resumed = fs.existsSync(${JSON.stringify(resumeMarker)})`,
-          `fs.writeFileSync(${JSON.stringify(resumeMarker)}, "seen")`,
+          `const resumed = fs.existsSync(${JSON.stringify(resumeMarker)}) && fs.readFileSync(${JSON.stringify(resumeMarker)}, "utf8") === input.runId`,
+          `fs.writeFileSync(${JSON.stringify(resumeMarker)}, input.runId)`,
         ]
       : ['const resumed = false']),
     ';(async () => {',
@@ -640,6 +650,7 @@ function fakeMeteredGepaRunner(upstreamBaseUrl: string, resumeMarker?: string) {
 
 function gepaComparisonOptions(
   method: ReturnType<typeof gepaOptimizationMethod<TestScenario, TestArtifact>>,
+  dispatchRef = 'test:gepa-optimization-method',
 ) {
   return {
     methods: [method],
@@ -660,6 +671,7 @@ function gepaComparisonOptions(
     seed: 11,
     resamples: 40,
     expectUsage: 'off' as const,
+    dispatchRef,
   }
 }
 

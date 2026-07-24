@@ -4,12 +4,17 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ---
 
-## [Unreleased]
+## [0.126.3] - 2026-07-24 - execution-bound optimizer resume
 
 ### Added
 
 - `runCampaign({ abortOnCellError: true })` stops scheduling after the first dispatch or judge error, aborts and drains active sibling cells, then rejects with the original error.
 - Failed cells write `<cell>/failure-receipt.json` before cancellation, including the exact cell result, call IDs, and settled agent-plus-judge cost and token totals.
+
+### Fixed
+
+- Official GEPA and SkillOpt resume identities include the caller's exact dispatch identity, so changed agent, retrieval, judge, model, or service behavior cannot restore incompatible optimizer state.
+- `compareOptimizationMethods()` passes its final-scoring dispatch identity into method optimization and rejects conflicting identities.
 
 ## [0.126.2] - 2026-07-24 - fail-closed candidate ranking
 

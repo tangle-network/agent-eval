@@ -154,6 +154,7 @@ export function skillOptOptimizationMethod<TScenario extends Scenario, TArtifact
         runtime: runtimeIdentity,
         method: name,
         evaluationId: config.evaluationId,
+        dispatchRef: input.runOptions.dispatchRef ?? null,
         seed: input.seed,
         trainer: snapshotJson(config.trainer, 'SkillOpt run settings'),
         objective: config.objective,
