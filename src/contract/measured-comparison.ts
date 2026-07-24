@@ -80,6 +80,8 @@ export interface EvaluatePairedMeasurementsOptions<TRun> {
   measurements: readonly PairedMeasurement<TRun>[]
   policy: AgentCandidateEvaluationPolicy
   adapter: PairedMeasurementAdapter<TRun>
+  /** Whether both arms use the same scorer family as the promotion decision. */
+  sharedScorerChannel: boolean
   /** Search or preparation spend that belongs to the same frozen budget. */
   additionalCostUsd?: number
 }
@@ -209,22 +211,28 @@ export async function runCandidateExperiment(
 
 /**
  * Calculate the shared paired decision from any complete receipt shape.
- * Callers still own sealing their tasks and proving every expected cell exists.
+ *
+ * Callers still own sealing their tasks, verifying each receipt against its
+ * expected arm and state, and proving every expected cell exists. This function
+ * only validates the projected measurements and derives their shared decision.
  */
 export function evaluatePairedMeasurements<TRun>(
   options: EvaluatePairedMeasurementsOptions<TRun>,
 ): PairedMeasurementEvaluation {
-  const policy = agentCandidateEvaluationPolicySchema.parse(options.policy)
   if (options.measurements.length === 0) {
     throw new Error('paired measurement evaluation requires at least one paired cell')
   }
-  const measurements = options.measurements.map((measurement, index) =>
-    projectPairedMeasurement(measurement, index, options.adapter),
-  )
   const additionalCostUsd = options.additionalCostUsd ?? 0
   if (!Number.isFinite(additionalCostUsd) || additionalCostUsd < 0) {
     throw new Error('paired measurement evaluation additionalCostUsd must be a non-negative number')
   }
+  if (typeof options.sharedScorerChannel !== 'boolean') {
+    throw new Error('paired measurement evaluation sharedScorerChannel must be a boolean')
+  }
+  const policy = agentCandidateEvaluationPolicySchema.parse(options.policy)
+  const measurements = options.measurements.map((measurement, index) =>
+    projectPairedMeasurement(measurement, index, options.adapter),
+  )
   const cellIds = measurements.map((measurement) => measurement.cellId)
   if (new Set(cellIds).size !== cellIds.length) {
     throw new Error('paired measurement evaluation cell ids must be unique')
@@ -329,7 +337,7 @@ export function evaluatePairedMeasurements<TRun>(
           pairedN: baselineScores.length,
           deltaThreshold,
           confidence,
-          sharedScorerChannel: true,
+          sharedScorerChannel: options.sharedScorerChannel,
         })
       : undefined
   const powerSufficient =
@@ -422,7 +430,7 @@ export function evaluatePairedMeasurements<TRun>(
       minimumDetectableDelta: power?.mde ?? 1,
       confidenceLevel: confidence,
       scaleAssumed: power?.scaleAssumed ?? true,
-      sharedScorerChannel: true,
+      sharedScorerChannel: options.sharedScorerChannel,
       reason:
         power?.recommendation ?? `need at least ${Math.max(3, minProductiveRuns)} paired runs`,
     },
@@ -448,6 +456,7 @@ export function measuredComparisonFromCandidateExperiment(
   }
   verifyStableProfileMaterialization(measurements)
   if (!options.runId.trim()) throw new Error('candidate experiment runId is required')
+  const searchCostUsd = options.searchCostUsd ?? 0
   const evaluation = evaluatePairedMeasurements({
     measurements: measurements.map((measurement, index) => ({
       cellId: cellIds(experiment)[index]!,
@@ -455,9 +464,9 @@ export function measuredComparisonFromCandidateExperiment(
     })),
     policy: experiment.policy,
     adapter: candidateExecutionEvidenceAdapter,
-    additionalCostUsd: options.searchCostUsd ?? 0,
+    sharedScorerChannel: true,
+    additionalCostUsd: searchCostUsd,
   })
-  const searchCostUsd = options.searchCostUsd ?? 0
   const diff = deriveCandidateBundleDiff(experiment)
   const searchDurationMs = options.searchDurationMs ?? 0
   const totalCostUsd = evaluation.totalCostUsd
