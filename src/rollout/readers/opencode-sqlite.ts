@@ -39,11 +39,11 @@ export interface OpencodeSessionRow {
   timeUpdated: number
 }
 
-// Opaque specifier: esbuild rewrites analyzable dynamic imports and strips
-// the `node:` prefix under an es20xx target, which turns this builtin into
-// a bogus "sqlite" package lookup in the published bundle. A non-literal
-// specifier is left untouched by the bundler.
-const NODE_SQLITE_SPECIFIER = 'node:sqlite'
+// Opaque specifier: esbuild (bundling) and Vite (tests) both rewrite an
+// analyzable dynamic import and strip the `node:` prefix under an es20xx
+// target, which turns this builtin into a bogus "sqlite" package lookup.
+// Composing the string at runtime defeats that analysis in both.
+const NODE_SQLITE_SPECIFIER = ['node', 'sqlite'].join(':')
 
 /** Open the store read-only; null = unavailable/corrupt (caller records a gap). */
 export async function openOpencodeDb(

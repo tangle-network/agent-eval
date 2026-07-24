@@ -484,6 +484,32 @@ export {
   wilcoxonSignedRank,
   wilson,
 } from './statistics'
+// ── Supervisor-run analysis ──────────────────────────────────────────
+// Single-rollout trace analysis, one dimension up: a supervision tree's
+// steer count, spawn waves, concurrency, idle wall, cost by role and
+// accepted-vs-rejected accounting, with `Measured<T>` keeping a missing
+// artifact distinct from a measured zero. Nodes are `tangle.rollout.v1`
+// rows joined by `parent_rollout_id` — not a parallel shape.
+// Full surface on the `@tangle-network/agent-eval/supervisor-run` subpath.
+export {
+  analyzeSupervisorRun,
+  analyzeSupervisorRunSources,
+  isUnavailable,
+  type Measured,
+  renderSupervisorRunHeadline,
+  renderSupervisorRunMarkdown,
+  rollupSupervisorRuns,
+  SUPERVISOR_RUN_SCHEMA,
+  type SupervisorRunReader,
+  type SupervisorRunReport,
+  type SupervisorRunRollup,
+  type SupervisorRunSources,
+  type SupervisorRunTree,
+  showMeasured,
+  supervisorRunRolloutLines,
+  type Unavailable,
+  writeSupervisorRunReport,
+} from './supervisor-run/index'
 // ── Trace analyst surface (Ax RLM over OTLP-JSONL) ───────────────────
 // Direct re-export of the trace-analyst submodule so consumers don't have
 // to reach into subpaths. Used by agent canonical evals via the
