@@ -9,6 +9,12 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 ### Added
 
 - `callLlm()` and `callLlmJson()` accept request-level or client-default `thinking: 'enabled' | 'disabled'`; GEPA, SkillOpt, and policy-edit authors expose the same per-proposer override, and the exact mode is preserved in cost bounds, raw request capture, and provider traffic.
+- `@tangle-network/agent-eval/rollout` subpath: the single owner of the `tangle.rollout.v1` serialization — canonical schema + fail-loud validation, ledger file API (`writeRolloutLedger`/`appendRolloutLines`/`readRolloutLedger`), harness-store intake readers (opencode sqlite, Claude Code project jsonl), exporters (SFT, reward rows, Prime Intellect verifiers `RolloutOutput`, OpenAI RFT), deterministic 9-rule scrubber, HuggingFace dataset-card generation, and the `agent-eval rollout-release` CLI (build + optional `--push`). Ported from the agent-runtime bench rollout-ledger and reconciled with the PR #410 row shape; see `docs/rollout.md` for the decision table.
+
+### Changed
+
+- `mintRolloutRows` now emits canonical `tangle.rollout.v1` lines (snake_case wire shape) instead of the interim `RolloutRow`; records without trace spans become labeled gap lines AND are listed in `missingTraces` instead of being skipped. `toSftRows`/`toRewardRows` operate on the new lines; `toSftRows` additionally enforces the trainable-split filter (holdout/dev/canary never export). The realness gate still forces reward 0 and SFT exclusion.
+
 - `selfImprove({ budget: { candidateConcurrency } })` exposes the existing `runOptimization()` control for scoring candidate campaigns in parallel; it remains opt-in and defaults to one candidate campaign at a time.
 - `llmPolicyEditProposer()` and `projectPolicyEditHistory()` accept `scenarioOrder: 'input'` when controlled comparisons must preserve first-occurrence caller order; ranked evidence selection remains the default.
 - `callLlmJson()` accepts `jsonPayloadMode: 'exact'` when callers must reject fenced, prose-wrapped, or multi-root responses instead of extracting a JSON value.

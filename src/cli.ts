@@ -13,6 +13,7 @@
  */
 import { writeFileSync } from 'node:fs'
 import { resolveCliLlmConfig } from './cli-config'
+import { runRolloutReleaseCli } from './rollout/release/hf-dataset'
 import { handleVersion } from './wire/handlers'
 import { buildOpenApi } from './wire/openapi'
 import { runRpcBatch, runRpcOnce } from './wire/rpc'
@@ -70,6 +71,9 @@ Commands:
         Like 'rpc' but JSONL in / JSONL out.
   openapi [--out openapi.json]
         Write the OpenAPI 3.1 spec.
+  rollout-release <ledger.jsonl...> --out <dir> [--formats sft,verifiers,rft,raw] [--include-proposers] [--push <org/name>]
+        Build a HuggingFace-ready dataset dir from tangle.rollout.v1 ledgers:
+        validate, fail-closed split filter, scrub, export formats + card.
   version
         Print server + wire-protocol version JSON.
 
@@ -140,6 +144,11 @@ async function main(): Promise<number> {
       console.log(`[agent-eval] wrote OpenAPI 3.1 spec to ${out}`)
       return 0
     }
+    case 'rollout-release': {
+      // The subcommand owns its own flag grammar (multi-value --formats,
+      // boolean --include-proposers) — pass raw argv through untouched.
+      return await runRolloutReleaseCli(process.argv.slice(3))
+    }
     case 'version': {
       process.stdout.write(`${JSON.stringify(handleVersion(), null, 2)}\n`)
       return 0
@@ -174,6 +183,8 @@ const FLAGS_BY_COMMAND: Record<string, ReadonlySet<string>> = {
 }
 
 function assertKnownFlags(command: string, flags: Record<string, string>): void {
+  // rollout-release parses its own argv (multi-value flags).
+  if (command === 'rollout-release') return
   const allowed = FLAGS_BY_COMMAND[command]
   if (!allowed) return
   const unknown = Object.keys(flags).filter((flag) => !allowed.has(flag))

@@ -114,6 +114,11 @@
       "import": "./dist/contract/index.js",
       "default": "./dist/contract/index.js"
     },
+    "./rollout": {
+      "types": "./dist/rollout/index.d.ts",
+      "import": "./dist/rollout/index.js",
+      "default": "./dist/rollout/index.js"
+    },
     "./hosted": {
       "types": "./dist/hosted/index.d.ts",
       "import": "./dist/hosted/index.js",
