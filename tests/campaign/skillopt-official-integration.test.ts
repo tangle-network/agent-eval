@@ -1,5 +1,4 @@
 import { mkdtemp, rm } from 'node:fs/promises'
-import { createServer } from 'node:http'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { expect, it } from 'vitest'
@@ -9,6 +8,7 @@ import {
   type Scenario,
   skillOptOptimizationMethod,
 } from '../../src/campaign'
+import { startModelServer } from './official-optimizer-test-support'
 
 interface TestScenario extends Scenario {
   prompt: string
@@ -25,17 +25,8 @@ officialIt(
   'runs the installed SkillOpt optimizer without caller-supplied model environment',
   async () => {
     const runDir = await mkdtemp(join(tmpdir(), 'agent-eval-official-skillopt-'))
-    const modelRequests: Array<Record<string, unknown>> = []
-    const modelServer = createServer(async (request, response) => {
-      const chunks: Buffer[] = []
-      for await (const chunk of request) chunks.push(Buffer.from(chunk))
-      const body = JSON.parse(Buffer.concat(chunks).toString('utf8')) as Record<string, unknown>
-      modelRequests.push({
-        authorization: request.headers.authorization,
-        path: request.url,
-        body,
-      })
-      const content = JSON.stringify({
+    const modelServer = await startModelServer(
+      JSON.stringify({
         batch_size: 1,
         failure_summary: [
           {
@@ -53,32 +44,10 @@ officialIt(
           ],
           reasoning: 'Add the missing response rule.',
         },
-      })
-      response.writeHead(200, { 'content-type': 'application/json' })
-      response.end(
-        JSON.stringify({
-          choices: [
-            {
-              finish_reason: 'stop',
-              index: 0,
-              message: { content, role: 'assistant' },
-            },
-          ],
-          created: 0,
-          id: 'chatcmpl-local',
-          model: 'local-model',
-          object: 'chat.completion',
-          usage: {
-            completion_tokens: 13,
-            prompt_tokens: 11,
-            total_tokens: 24,
-          },
-        }),
-      )
-    })
+      }),
+    )
 
     try {
-      const baseUrl = await listen(modelServer)
       const method = skillOptOptimizationMethod<TestScenario, TestArtifact>({
         objective: 'Add the required response rule.',
         evaluationId: 'official-skillopt-typescript-integration',
@@ -95,7 +64,7 @@ officialIt(
         },
         optimizer: {
           model: 'local-model',
-          baseUrl,
+          baseUrl: modelServer.baseUrl,
           apiKey: 'provider-secret',
           budget: {
             maxCostUsd: 1,
@@ -128,10 +97,11 @@ officialIt(
         seed: 7,
         resamples: 40,
         expectUsage: 'off',
+        optimizationRunOptions: { expectUsage: 'off' },
       })
 
-      expect(modelRequests).toHaveLength(1)
-      expect(modelRequests[0]).toMatchObject({
+      expect(modelServer.requests).toHaveLength(1)
+      expect(modelServer.requests[0]).toMatchObject({
         authorization: 'Bearer provider-secret',
         path: '/v1/chat/completions',
         body: {
@@ -148,10 +118,7 @@ officialIt(
         calls: 1,
       })
     } finally {
-      modelServer.closeAllConnections?.()
-      await new Promise<void>((resolve, reject) => {
-        modelServer.close((error) => (error ? reject(error) : resolve()))
-      })
+      await modelServer.close()
       await rm(runDir, { recursive: true, force: true })
     }
   },
@@ -169,17 +136,4 @@ const requiredRuleJudge: JudgeConfig<TestArtifact, TestScenario> = {
       notes: score ? '' : 'The required response rule is absent.',
     }
   },
-}
-
-async function listen(server: ReturnType<typeof createServer>): Promise<string> {
-  await new Promise<void>((resolve, reject) => {
-    server.once('error', reject)
-    server.listen(0, '127.0.0.1', () => {
-      server.off('error', reject)
-      resolve()
-    })
-  })
-  const address = server.address()
-  if (!address || typeof address === 'string') throw new Error('model server failed to bind')
-  return `http://127.0.0.1:${address.port}/v1`
 }

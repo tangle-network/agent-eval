@@ -59,10 +59,13 @@ jobs:
         working-directory: clients/python
         run: uv run --frozen --extra dev --group skillopt-source --group gepa-source pytest -v
 
-      - name: Test TypeScript SkillOpt integration
+      - name: Test TypeScript official optimizer integrations
         env:
           AGENT_EVAL_TEST_PYTHON: ${{ github.workspace }}/clients/python/.venv/bin/python
-        run: pnpm exec vitest run tests/campaign/skillopt-official-integration.test.ts
+        run: >-
+          pnpm exec vitest run
+          tests/campaign/gepa-official-integration.test.ts
+          tests/campaign/skillopt-official-integration.test.ts
 
       - name: Install official DSPy
         working-directory: clients/python

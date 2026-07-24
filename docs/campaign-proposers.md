@@ -203,7 +203,7 @@ Install the bridge and the source revision tested by this release:
 
 ```sh
 python -m pip install agent-eval-rpc
-python -m pip install "gepa @ git+https://github.com/gepa-ai/gepa.git@f919db0a622e2e9f9204779b81fe00cc1b2d808f"
+python -m pip install "gepa[full] @ git+https://github.com/gepa-ai/gepa.git@f919db0a622e2e9f9204779b81fe00cc1b2d808f"
 ```
 
 The published `gepa==0.1.4` wheel does not contain the required Optimize Anything API.
