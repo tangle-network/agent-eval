@@ -12,6 +12,7 @@ import httpx
 import pytest
 
 from agent_eval_rpc import gepa_bridge, gepa_bridge_contract
+from agent_eval_rpc.gepa_api import GepaApi
 from agent_eval_rpc.gepa_compat_0_1_4 import (
     GEPA_REVISION,
     GEPA_VERSION,
@@ -61,11 +62,111 @@ def test_upstream_evaluation_limit_reserves_concurrent_overshoot() -> None:
         gepa_bridge._upstream_evaluation_limit(4, 4)
 
 
+def test_published_gepa_config_maps_budgets_and_result_fields(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    config_calls: list[dict[str, Any]] = []
+
+    class FakeLauncherConfig:
+        def __init__(self, **kwargs: Any) -> None:
+            config_calls.append(kwargs)
+            self.kwargs = kwargs
+
+    class FakeScoreThresholdStopper:
+        def __init__(self, threshold: float) -> None:
+            self.threshold = threshold
+
+    optimize_module = types.ModuleType("gepa.optimize_anything")
+    optimize_module.optimize_anything = lambda *_args, **_kwargs: None
+    optimize_module.GEPAConfig = FakeLauncherConfig
+    utils_module = types.ModuleType("gepa.utils")
+    utils_module.ScoreThresholdStopper = FakeScoreThresholdStopper
+    gepa_module = types.ModuleType("gepa")
+    gepa_module.__path__ = []  # type: ignore[attr-defined]
+    monkeypatch.setitem(sys.modules, "gepa", gepa_module)
+    monkeypatch.setitem(sys.modules, "gepa.utils", utils_module)
+
+    api = GepaApi(
+        module=optimize_module,
+        config_class=FakeLauncherConfig,
+        config_shape="launcher",
+    )
+    config = gepa_bridge._engine_config(
+        api,
+        {
+            "engine": "gepa",
+            "engineConfig": {
+                "engine": {
+                    "parallel": False,
+                    "seed": 7,
+                },
+                "reflection": {
+                    "reflection_minibatch_size": 1,
+                },
+            },
+            "maxConcurrency": 2,
+            "maxEvaluations": 8,
+            "maxProposerCostUsd": 1.25,
+            "stopAtScore": 0.9,
+        },
+        tmp_path / "published",
+        model_proxy=None,
+        proxy_usage=None,
+    )
+
+    assert config.kwargs == config_calls[0]
+    assert config_calls[0]["engine"] == {
+        "max_metric_calls": 8,
+        "max_reflection_cost": 1.25,
+        "max_workers": 2,
+        "parallel": False,
+        "run_dir": str(tmp_path / "published" / "state"),
+        "seed": 7,
+    }
+    assert config_calls[0]["reflection"] == {"reflection_minibatch_size": 1}
+    stoppers = config_calls[0]["stop_callbacks"]
+    assert len(stoppers) == 1
+    assert stoppers[0].threshold == 0.9
+
+    result = SimpleNamespace(
+        best_candidate="published-winner",
+        best_idx=1,
+        total_metric_calls=8,
+        val_aggregate_scores=[0.2, 0.9],
+    )
+    assert gepa_bridge._selected_candidate(result, "engine") == "published-winner"
+    assert gepa_bridge._selected_score(result, "engine") == 0.9
+    assert gepa_bridge._result_evaluations(result) == 8
+    assert gepa_bridge._reported_proposer_cost([result]) is None
+
+
+def test_published_gepa_rejects_source_only_engines(tmp_path: Path) -> None:
+    api = GepaApi(
+        module=types.ModuleType("gepa.optimize_anything"),
+        config_class=lambda **kwargs: kwargs,
+        config_shape="launcher",
+    )
+    with pytest.raises(RuntimeError, match="requires the documented official source revision"):
+        gepa_bridge._engine_config(
+            api,
+            {
+                "engine": "autoresearch",
+                "engineConfig": {},
+                "maxEvaluations": 2,
+                "maxProposerCostUsd": 1,
+            },
+            tmp_path,
+            model_proxy=None,
+            proxy_usage=None,
+        )
+
+
 def test_model_proxy_requires_full_gepa_dependencies(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setitem(sys.modules, "litellm", None)
-    with pytest.raises(RuntimeError, match=r"Install gepa\[full\]"):
+    with pytest.raises(RuntimeError, match=r"gepa\[full\]==0\.1\.4"):
         gepa_bridge._require_model_proxy_dependencies({"modelProxy": {}})
     gepa_bridge._require_model_proxy_dependencies({})
 
@@ -325,7 +426,10 @@ def test_bridge_runs_source_pinned_gepa_omni_recipe_without_a_model(
     monkeypatch,
     tmp_path: Path,
 ) -> None:
-    from gepa.optimize_anything import OptimizeAnythingConfig
+    try:
+        from gepa.optimize_anything import OptimizeAnythingConfig
+    except ImportError:
+        pytest.skip("requires GEPA's official source composition API")
 
     assert OptimizeAnythingConfig is not None
     input_path = tmp_path / "input.json"
@@ -427,6 +531,8 @@ def test_bridge_dispatches_best_of_and_vote_to_distinct_official_functions(
     optimize_module = types.ModuleType("gepa.optimize_anything")
     optimize_module.optimize_best_of = best_of
     optimize_module.optimize_vote = vote
+    optimize_module.optimize_anything = lambda *_args, **_kwargs: result("unexpected")
+    optimize_module.OptimizeAnythingConfig = lambda **kwargs: SimpleNamespace(**kwargs)
     monkeypatch.setitem(sys.modules, "gepa", gepa_module)
     monkeypatch.setitem(sys.modules, "gepa.optimize_anything", optimize_module)
 
@@ -438,8 +544,11 @@ def test_bridge_dispatches_best_of_and_vote_to_distinct_official_functions(
         "objective": "Improve.",
         "background": "",
         "output_dir": tmp_path,
-        "config_class": lambda **kwargs: SimpleNamespace(**kwargs),
-        "optimize_anything_fn": lambda *_args, **_kwargs: result("unexpected"),
+        "api": GepaApi(
+            module=optimize_module,
+            config_class=optimize_module.OptimizeAnythingConfig,
+            config_shape="engine",
+        ),
         "model_proxy": None,
         "proxy_usage": None,
     }

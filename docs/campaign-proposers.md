@@ -199,20 +199,25 @@ The runnable version is in [`examples/compare-optimization-methods`](../examples
 
 ## Install Official GEPA
 
-Install the bridge and the source revision tested by this release:
+Install the bridge and the published GEPA package for the standard engine:
 
 ```sh
 python -m pip install agent-eval-rpc
-python -m pip install "gepa[full] @ git+https://github.com/gepa-ai/gepa.git@f919db0a622e2e9f9204779b81fe00cc1b2d808f"
+python -m pip install "gepa[full]==0.1.4"
 ```
 
-The published `gepa==0.1.4` wheel does not contain the required Optimize Anything API.
-The Agent Eval Python package cannot declare a Git dependency in its PyPI metadata, so the GEPA source install is separate.
+Use the tested official source revision for composed recipes and the source-only engines:
+
+```sh
+python -m pip install \
+  "gepa[full] @ git+https://github.com/gepa-ai/gepa.git@f919db0a622e2e9f9204779b81fe00cc1b2d808f"
+```
 
 From this repository:
 
 ```sh
 cd clients/python
+uv sync --frozen --group gepa-release
 uv sync --frozen --group gepa-source
 ```
 

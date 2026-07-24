@@ -33,16 +33,21 @@ python -m pip install agent-eval-rpc
 python -m pip install \
   "skillopt @ git+https://github.com/microsoft/SkillOpt.git@61735e3922efc2b90c6d6cab561e62e98452ca90"
 
-# GEPA Optimize Anything at the source revision tested by this release
+# Standard GEPA engine from the published package
 python -m pip install agent-eval-rpc
-python -m pip install "gepa[full] @ git+https://github.com/gepa-ai/gepa.git@f919db0a622e2e9f9204779b81fe00cc1b2d808f"
+python -m pip install "gepa[full]==0.1.4"
+
+# GEPA Omni and source-only engines
+python -m pip install \
+  "gepa[full] @ git+https://github.com/gepa-ai/gepa.git@f919db0a622e2e9f9204779b81fe00cc1b2d808f"
 
 # DSPy 3.2.1 with Agent Eval metrics
 python -m pip install "agent-eval-rpc[dspy]"
 ```
 
-The published `gepa==0.1.4` wheel does not contain the Optimize Anything API used here.
-The Git revision is intentional and should move only after compatibility tests pass.
+The published GEPA package supports the standard `gepa` engine.
+Sequential, adaptive, best-of, vote, Omni, AutoResearch, Meta Harness, and Best-of-N currently require the tested official source revision.
+Move that revision only after both release and source compatibility tests pass.
 The published `skillopt==0.2.0` wheel omits the prompt files required by `ReflACTTrainer`, so the tested SkillOpt source revision is also intentional.
 DSPy 3.2.1 requires GEPA 0.0.27, while the general bridge requires GEPA 0.1.4.
 Install the DSPy adapter and the general GEPA bridge in separate Python environments.
@@ -373,6 +378,11 @@ Python compatibility tests use the locked dependencies:
 
 ```sh
 cd clients/python
+uv sync --frozen --extra dev --group gepa-release
+AGENT_EVAL_EXPECT_GEPA_RELEASE=1 \
+  uv run --frozen --extra dev --group gepa-release \
+  pytest tests/test_gepa_release_compatibility.py tests/test_gepa_bridge.py
+
 uv sync --frozen --extra dev --group skillopt-source --group gepa-source
 uv run --frozen pytest
 

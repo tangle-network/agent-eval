@@ -16,6 +16,7 @@ from typing import Any
 
 import httpx
 
+from agent_eval_rpc.gepa_api import GepaApi, load_gepa_api
 from agent_eval_rpc.gepa_bridge_contract import (
     _import_engine_modules as _import_engine_modules,
 )
@@ -49,7 +50,7 @@ def _require_model_proxy_dependencies(input_value: dict[str, Any]) -> None:
     except ImportError as error:
         raise RuntimeError(
             "GEPA model-backed reflection requires the full GEPA dependency set. "
-            "Install gepa[full] from the documented source revision."
+            'Install "gepa[full]==0.1.4" or the documented source revision.'
         ) from error
 
 
@@ -78,14 +79,7 @@ def _main() -> None:
         return
     _validate_input(input_value)
     _import_engine_modules(input_value["engineModules"])
-
-    try:
-        from gepa.optimize_anything import OptimizeAnythingConfig, optimize_anything
-    except ImportError as error:
-        raise RuntimeError(
-            "GEPA bridge requires GEPA's Optimize Anything source version. "
-            "Install the commit documented in the agent-eval-rpc README."
-        ) from error
+    api = load_gepa_api()
     _require_model_proxy_dependencies(input_value)
 
     evaluation_count = 0
@@ -129,9 +123,7 @@ def _main() -> None:
         return (
             sum(score for score, _ in rows) / len(rows),
             {
-                "comparison": (
-                    "selection-set" if selection_set else "train-set-fallback"
-                ),
+                "comparison": ("selection-set" if selection_set else "train-set-fallback"),
                 "examples": [
                     {"id": item["id"], "score": score, "info": info}
                     for item, (score, info) in zip(comparison_set, rows, strict=True)
@@ -190,8 +182,7 @@ def _main() -> None:
                 objective=input_value["objective"],
                 background=input_value.get("background", ""),
                 output_dir=run.run_dir,
-                config_class=OptimizeAnythingConfig,
-                optimize_anything_fn=optimize_anything,
+                api=api,
                 model_proxy=model_proxy,
                 proxy_usage=proxy_usage,
             )
@@ -207,8 +198,7 @@ def _main() -> None:
                     objective=input_value["objective"],
                     background=input_value.get("background", ""),
                     output_dir=run.run_dir,
-                    config_class=OptimizeAnythingConfig,
-                    optimize_anything_fn=optimize_anything,
+                    api=api,
                     model_proxy=model_proxy,
                     proxy_usage=proxy_usage,
                 )
@@ -238,10 +228,14 @@ def _main() -> None:
         proxy_snapshot = proxy_usage.snapshot() if proxy_usage is not None else None
         if proxy_snapshot is not None:
             proxy_cost = proxy_snapshot["costUsd"]
-            if (
-                proposer_cost is None
-                or not isinstance(proxy_cost, float)
-                or not math.isclose(proposer_cost, proxy_cost, rel_tol=1e-9, abs_tol=1e-12)
+            if proposer_cost is not None and (
+                not isinstance(proxy_cost, float)
+                or not math.isclose(
+                    proposer_cost,
+                    proxy_cost,
+                    rel_tol=1e-9,
+                    abs_tol=1e-12,
+                )
             ):
                 raise RuntimeError(
                     f"GEPA reported proposer cost {proposer_cost!r}, "
@@ -296,8 +290,7 @@ def _run_recipe(
     objective: str,
     background: str,
     output_dir: Path,
-    config_class: Any,
-    optimize_anything_fn: Any,
+    api: GepaApi,
     model_proxy: dict[str, Any] | None,
     proxy_usage: _ProxyUsage | None,
 ) -> tuple[Any, list[Any]]:
@@ -317,7 +310,7 @@ def _run_recipe(
                 bounded_run.get("maxConcurrency", 1) - 1,
             )
         return _engine_config(
-            config_class,
+            api,
             bounded_run,
             path,
             model_proxy=model_proxy,
@@ -325,7 +318,7 @@ def _run_recipe(
         )
 
     if recipe["kind"] == "engine":
-        result = optimize_anything_fn(
+        result = api.optimize_anything(
             seed_candidate,
             **task,
             config=engine_config(recipe["run"], output_dir / "engine"),
@@ -333,10 +326,9 @@ def _run_recipe(
         return result, [result]
 
     if recipe["kind"] == "sequential":
-        try:
-            from gepa.optimize_anything import optimize_sequential
-        except ImportError as error:
-            raise _missing_composition(recipe["kind"]) from error
+        optimize_sequential = api.composition("optimize_sequential")
+        if optimize_sequential is None:
+            raise _missing_composition(recipe["kind"])
         configs = [
             engine_config(run, output_dir / f"stage-{index}")
             for index, run in enumerate(recipe["runs"])
@@ -345,10 +337,9 @@ def _run_recipe(
         return result, _nested_results(result, "all_results")
 
     if recipe["kind"] == "adaptive-sequential":
-        try:
-            from gepa.optimize_anything import optimize_adaptive_sequential
-        except ImportError as error:
-            raise _missing_composition(recipe["kind"]) from error
+        optimize_adaptive_sequential = api.composition("optimize_adaptive_sequential")
+        if optimize_adaptive_sequential is None:
+            raise _missing_composition(recipe["kind"])
         configs = [
             engine_config(run, output_dir / f"stage-{index}")
             for index, run in enumerate(recipe["runs"])
@@ -373,10 +364,10 @@ def _run_recipe(
         return result, [result]
 
     if recipe["kind"] in {"best-of", "vote"}:
-        try:
-            from gepa.optimize_anything import optimize_best_of, optimize_vote
-        except ImportError as error:
-            raise _missing_composition(recipe["kind"]) from error
+        optimize_best_of = api.composition("optimize_best_of")
+        optimize_vote = api.composition("optimize_vote")
+        if optimize_best_of is None or optimize_vote is None:
+            raise _missing_composition(recipe["kind"])
         configs = [
             engine_config(run, output_dir / f"engine-{index}")
             for index, run in enumerate(recipe["runs"])
@@ -388,10 +379,9 @@ def _run_recipe(
         result = choose(seed_candidate, **task, **kwargs)
         return result, _nested_results(result, "all_results")
 
-    try:
-        from gepa.optimize_anything import optimize_best_of, optimize_vote
-    except ImportError as error:
-        raise _missing_composition(recipe["kind"]) from error
+    optimize_best_of = api.composition("optimize_best_of")
+    if optimize_best_of is None:
+        raise _missing_composition(recipe["kind"])
     explore_configs = [
         engine_config(run, output_dir / f"explore-{index}")
         for index, run in enumerate(recipe["explore"])
@@ -401,7 +391,7 @@ def _run_recipe(
         explore_kwargs["max_workers"] = recipe["maxWorkers"]
     explore = optimize_best_of(seed_candidate, **task, **explore_kwargs)
     explore_results = _nested_results(explore, "all_results")
-    continuation = optimize_anything_fn(
+    continuation = api.optimize_anything(
         explore.best_candidate,
         **task,
         config=engine_config(recipe["continueWith"], output_dir / "continue"),
@@ -420,17 +410,26 @@ def _upstream_evaluation_limit(hard_limit: int, concurrency_slack: int) -> int:
 
 
 def _selected_candidate(result: Any, recipe_kind: str) -> Any:
-    metadata = result.metadata if isinstance(result.metadata, dict) else {}
+    metadata = _result_metadata(result)
     if recipe_kind in {"sequential", "adaptive-sequential"}:
         return metadata.get("best_stage_candidate", result.best_candidate)
     return result.best_candidate
 
 
 def _selected_score(result: Any, recipe_kind: str) -> Any:
-    metadata = result.metadata if isinstance(result.metadata, dict) else {}
+    metadata = _result_metadata(result)
     if recipe_kind in {"sequential", "adaptive-sequential"}:
-        return metadata.get("best_stage_score", result.best_score)
-    return result.best_score
+        stage_score = metadata.get("best_stage_score")
+        if stage_score is not None:
+            return stage_score
+    best_score = getattr(result, "best_score", None)
+    if best_score is not None:
+        return best_score
+    scores = getattr(result, "val_aggregate_scores", None)
+    best_index = getattr(result, "best_idx", None)
+    if isinstance(scores, list) and isinstance(best_index, int) and 0 <= best_index < len(scores):
+        return scores[best_index]
+    return None
 
 
 def _missing_composition(kind: str) -> RuntimeError:
@@ -442,7 +441,7 @@ def _missing_composition(kind: str) -> RuntimeError:
 
 
 def _engine_config(
-    config_class: Any,
+    api: GepaApi,
     run: dict[str, Any],
     output_dir: Path,
     *,
@@ -469,26 +468,47 @@ def _engine_config(
             shared_usage=proxy_usage,
         )
 
-    kwargs: dict[str, Any] = {
-        "engine": run["engine"],
-        "max_evals": run.get("maxEvaluations"),
-        "max_token_cost": run["maxProposerCostUsd"],
-        "output_dir": output_dir / "evaluations",
-        "run_dir": str(output_dir / "state"),
-        "engine_config": engine_config,
-    }
-    kwargs["max_concurrency"] = run.get("maxConcurrency", 1)
+    if api.config_shape == "engine":
+        kwargs: dict[str, Any] = {
+            "engine": run["engine"],
+            "max_evals": run.get("maxEvaluations"),
+            "max_token_cost": run["maxProposerCostUsd"],
+            "output_dir": output_dir / "evaluations",
+            "run_dir": str(output_dir / "state"),
+            "engine_config": engine_config,
+            "max_concurrency": run.get("maxConcurrency", 1),
+        }
+        if run.get("stopAtScore") is not None:
+            kwargs["stop_at_score"] = run["stopAtScore"]
+        if run.get("sandbox") is not None:
+            kwargs["sandbox"] = run["sandbox"]
+        return api.config_class(**kwargs)
+
+    if run["engine"] != "gepa":
+        raise RuntimeError(
+            f"GEPA engine '{run['engine']}' requires the documented official source revision; "
+            "the published package supports the standard 'gepa' engine"
+        )
+    nested_engine = engine_config.setdefault("engine", {})
+    if not isinstance(nested_engine, dict):
+        raise ValueError("GEPA engineConfig.engine must be an object")
+    nested_engine["max_metric_calls"] = run.get("maxEvaluations")
+    nested_engine["max_reflection_cost"] = run["maxProposerCostUsd"]
+    nested_engine["run_dir"] = str(output_dir / "state")
+    nested_engine["max_workers"] = run.get("maxConcurrency", 1)
     if run.get("stopAtScore") is not None:
-        kwargs["stop_at_score"] = run["stopAtScore"]
-    if run.get("sandbox") is not None:
-        kwargs["sandbox"] = run["sandbox"]
-    return config_class(
-        **kwargs,
-    )
+        if "stop_callbacks" in engine_config:
+            raise ValueError(
+                "GEPA engineConfig.stop_callbacks cannot be serialized; use stopAtScore"
+            )
+        from gepa.utils import ScoreThresholdStopper
+
+        engine_config["stop_callbacks"] = [ScoreThresholdStopper(run["stopAtScore"])]
+    return api.config_class(**engine_config)
 
 
 def _nested_results(result: Any, key: str) -> list[Any]:
-    metadata = result.metadata if isinstance(result.metadata, dict) else {}
+    metadata = _result_metadata(result)
     results = metadata.get(key)
     if not isinstance(results, list) or not results:
         raise RuntimeError(f"GEPA recipe returned no {key}")
@@ -496,7 +516,9 @@ def _nested_results(result: Any, key: str) -> list[Any]:
 
 
 def _result_evaluations(result: Any) -> int:
-    total_evaluations = result.total_evals
+    total_evaluations = getattr(result, "total_evals", None)
+    if total_evaluations is None:
+        total_evaluations = getattr(result, "total_metric_calls", None)
     if (
         isinstance(total_evaluations, bool)
         or not isinstance(total_evaluations, int)
@@ -509,7 +531,7 @@ def _result_evaluations(result: Any) -> int:
 def _reported_proposer_cost(results: list[Any]) -> float | None:
     costs: list[float] = []
     for result in results:
-        metadata = result.metadata if isinstance(result.metadata, dict) else {}
+        metadata = _result_metadata(result)
         adapter_cost = metadata.get("adapter_cost")
         if isinstance(adapter_cost, bool) or not isinstance(adapter_cost, (float, int)):
             return None
@@ -518,6 +540,11 @@ def _reported_proposer_cost(results: list[Any]) -> float | None:
             return None
         costs.append(cost)
     return sum(costs)
+
+
+def _result_metadata(result: Any) -> dict[str, Any]:
+    metadata = getattr(result, "metadata", None)
+    return metadata if isinstance(metadata, dict) else {}
 
 
 def _supports_resume(recipe: dict[str, Any]) -> bool:
