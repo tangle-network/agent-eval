@@ -234,6 +234,8 @@ export function evaluatePairedMeasurements<TRun>(
   const candidateScores = measurements.map((measurement) => measurement.candidate.score)
   const {
     confidenceLevel: confidence,
+    resamples,
+    bootstrapSeed,
     deltaThreshold,
     minProductiveRuns,
     budgetUsd,
@@ -244,8 +246,8 @@ export function evaluatePairedMeasurements<TRun>(
     { before: baselineScores, after: candidateScores, cellIds },
     {
       confidence,
-      resamples: policy.resamples,
-      seed: policy.bootstrapSeed,
+      resamples,
+      seed: bootstrapSeed,
       statistic: 'mean',
       deltaThreshold,
       minProductiveRuns,
@@ -253,8 +255,8 @@ export function evaluatePairedMeasurements<TRun>(
   )
   const overall = measuredEstimate(baselineScores, candidateScores, {
     confidence,
-    resamples: policy.resamples,
-    seed: policy.bootstrapSeed,
+    resamples,
+    seed: bootstrapSeed,
   })
   const objectives: AgentImprovementMeasuredComparison['objectives'] = [
     {
@@ -277,8 +279,8 @@ export function evaluatePairedMeasurements<TRun>(
         measurements.map((measurement) => dimensionScore(measurement.candidate, name)),
         {
           confidence,
-          resamples: policy.resamples,
-          seed: policy.bootstrapSeed + index + 1,
+          resamples,
+          seed: bootstrapSeed + index + 1,
         },
       ),
     })),
@@ -288,8 +290,8 @@ export function evaluatePairedMeasurements<TRun>(
     measurements.map((measurement) => measurement.candidate.costUsd),
     {
       confidence,
-      resamples: policy.resamples,
-      seed: policy.bootstrapSeed + dimensions.length + 1,
+      resamples,
+      seed: bootstrapSeed + dimensions.length + 1,
     },
   )
   const latency = measuredEstimate(
@@ -297,8 +299,8 @@ export function evaluatePairedMeasurements<TRun>(
     measurements.map((measurement) => measurement.candidate.latencyMs),
     {
       confidence,
-      resamples: policy.resamples,
-      seed: policy.bootstrapSeed + dimensions.length + 2,
+      resamples,
+      seed: bootstrapSeed + dimensions.length + 2,
     },
   )
   objectives.push(
