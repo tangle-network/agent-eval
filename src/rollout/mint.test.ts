@@ -1,8 +1,10 @@
 import { describe, expect, it } from 'vitest'
-import { mintRolloutRows, rolloutReward, toJsonl, toRewardRows, toSftRows } from './rollout-export'
-import type { RunRecord } from './run-record'
-import type { LlmSpan, ToolSpan } from './trace/schema'
-import { InMemoryTraceStore } from './trace/store'
+import type { RunRecord } from '../run-record'
+import type { LlmSpan, ToolSpan } from '../trace/schema'
+import { InMemoryTraceStore } from '../trace/store'
+import { toRewardRows, toSftRows } from './exporters'
+import { mintRolloutRows, rolloutReward } from './mint'
+import { validateRolloutLine } from './schema'
 
 function record(overrides: Partial<RunRecord> = {}): RunRecord {
   return {
@@ -71,27 +73,64 @@ describe('rolloutReward', () => {
 })
 
 describe('mintRolloutRows', () => {
-  it('joins RunRecord identity with trace steps and the final conversation', async () => {
+  it('joins RunRecord identity with trace steps into a valid tangle.rollout.v1 line', async () => {
     const { rows, missingTraces } = await mintRolloutRows([record()], await seededStore())
     expect(missingTraces).toEqual([])
     expect(rows).toHaveLength(1)
-    const row = rows[0]!
-    expect(row.format).toBe('tangle.rollout.v1')
-    expect(row.candidateId).toBe('stripe-steer@v0')
-    expect(row.splitTag).toBe('holdout')
-    expect(row.totalTokens).toBe(1000)
-    expect(row.steps.map((s) => s.kind)).toEqual(['llm', 'tool'])
+    const line = rows[0]!
+    expect(validateRolloutLine(line)).toEqual([])
+    expect(line.schema).toBe('tangle.rollout.v1')
+    expect(line.run_id).toBe('run-1')
+    expect(line.experiment_id).toBe('exp-1')
+    expect(line.candidate_id).toBe('stripe-steer@v0')
+    expect(line.role).toBe('agent')
+    expect(line.task).toEqual({
+      suite: 'exp-1',
+      instance_id: 'stripe-checkout-session',
+      split: 'holdout',
+      seed: 7,
+      rep: 0,
+    })
+    expect(line.policy.model).toBe('glm-5.2@2026-05-01')
+    expect(line.policy.profile_commit).toBe('deadbeef')
+    expect(line.policy.prompt_hash).toBe('p'.repeat(64))
+    expect(line.outcome.reward).toBe(1)
+    expect(line.outcome.reward_source).toBe('run-record/holdout-score')
+    expect(line.outcome.realness_gated).toBe(false)
+    expect(line.cost).toEqual({
+      usd: 0.12,
+      tokens_in: 900,
+      tokens_out: 100,
+      tokens_reasoning: null,
+      cache_read: null,
+      cache_write: null,
+      wall_s: 1,
+    })
+    expect(line.steps!.map((s) => s.kind)).toEqual(['llm', 'tool'])
     // conversation = final llm span messages + its output as assistant turn
-    expect(row.conversation.map((m) => m.role)).toEqual(['system', 'user', 'assistant'])
+    expect(line.messages.map((m) => m.role)).toEqual(['system', 'user', 'assistant'])
+    expect(line.provenance.capture).toBe('mint')
   })
 
-  it('reports records with no spans in missingTraces instead of dropping them silently', async () => {
+  it('emits records with no spans as labeled gap lines AND lists them in missingTraces', async () => {
     const { rows, missingTraces } = await mintRolloutRows(
       [record(), record({ runId: 'run-untraced' })],
       await seededStore(),
     )
-    expect(rows).toHaveLength(1)
+    expect(rows).toHaveLength(2)
     expect(missingTraces).toEqual(['run-untraced'])
+    const gap = rows[1]!
+    expect(validateRolloutLine(gap)).toEqual([])
+    expect(gap.messages).toEqual([])
+    expect(gap.provenance.gap).toMatch(/no trace spans/)
+  })
+
+  it('reports an uncaptured cost as null, never a fake zero', async () => {
+    const { rows } = await mintRolloutRows(
+      [record({ costUsd: 0, costProvenance: { kind: 'uncaptured', usd: null } })],
+      await seededStore(),
+    )
+    expect(rows[0]!.cost.usd).toBeNull()
   })
 
   it('applies the scrubber to every exported string', async () => {
@@ -117,20 +156,21 @@ describe('mintRolloutRows', () => {
       } as ToolSpan)
     }
     const { rows } = await mintRolloutRows([record()], store, { maxSteps: 4 })
-    expect(rows[0]!.steps.map((s) => s.name)).toEqual(['t0', 't1', 't8', 't9'])
+    expect(rows[0]!.steps!.map((s) => s.name)).toEqual(['t0', 't1', 't8', 't9'])
   })
 })
 
-describe('exports', () => {
-  it('toSftRows keeps only clean successes (gated rows never qualify)', async () => {
+describe('minted lines through the exporters', () => {
+  it('toSftRows keeps only clean successes (gated runs never qualify)', async () => {
     const store = await seededStore()
     const gatedStore = await seededStore('run-gated')
     for (const span of await gatedStore.spans({ runId: 'run-gated' })) await store.appendSpan(span)
     const { rows } = await mintRolloutRows(
       [
-        record(),
+        record({ splitTag: 'search' }),
         record({
           runId: 'run-gated',
+          splitTag: 'search',
           outcome: { holdoutScore: 1, raw: {}, realness: { score: 1, gated: true } },
         }),
       ],
@@ -138,8 +178,14 @@ describe('exports', () => {
     )
     const sft = toSftRows(rows)
     expect(sft).toHaveLength(1)
-    expect(sft[0]!.metadata.runId).toBe('run-1')
+    expect(sft[0]!.metadata.run_id).toBe('run-1')
     expect(sft[0]!.messages.at(-1)!.role).toBe('assistant')
+  })
+
+  it('holdout-split minted lines never reach SFT even at reward 1', async () => {
+    const { rows } = await mintRolloutRows([record()], await seededStore())
+    expect(rows[0]!.task.split).toBe('holdout')
+    expect(toSftRows(rows)).toHaveLength(0)
   })
 
   it('toRewardRows keeps failures as signal with their scalar reward', async () => {
@@ -151,11 +197,6 @@ describe('exports', () => {
     expect(reward).toHaveLength(1)
     expect(reward[0]!.reward).toBe(0)
     expect(reward[0]!.prompt).toBe('Create a checkout session.')
-  })
-
-  it('toJsonl emits one object per line with a trailing newline', () => {
-    const out = toJsonl([{ a: 1 }, { b: 2 }])
-    expect(out).toBe('{"a":1}\n{"b":2}\n')
-    expect(toJsonl([])).toBe('')
+    expect(reward[0]!.steps).toHaveLength(2)
   })
 })
