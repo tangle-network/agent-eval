@@ -245,6 +245,7 @@ const POLICY_EDIT_AUTHOR_JSON_SCHEMA: Record<string, unknown> = {
 function policyEditAuthorJsonSchema(
   maxItems: number,
   allowedJsonPaths: readonly string[],
+  valueSchemaByJsonPath?: ReadonlyMap<string, PolicyEditJsonValueSchema>,
 ): Record<string, unknown> {
   const schema = JSON.parse(JSON.stringify(POLICY_EDIT_AUTHOR_JSON_SCHEMA)) as Record<
     string,
@@ -258,7 +259,36 @@ function policyEditAuthorJsonSchema(
   const target = itemProperties.target as Record<string, unknown>
   const targetProperties = target.properties as Record<string, unknown>
   targetProperties.path = { type: 'string', enum: [...allowedJsonPaths] }
+  if (valueSchemaByJsonPath) {
+    edits.items = {
+      anyOf: allowedJsonPaths.map((path) =>
+        policyEditAuthorItemJsonSchema(item, path, valueSchemaByJsonPath.get(path)!),
+      ),
+    }
+  }
   return schema
+}
+
+function policyEditAuthorItemJsonSchema(
+  item: Record<string, unknown>,
+  path: string,
+  valueSchema: PolicyEditJsonValueSchema,
+): Record<string, unknown> {
+  const branch = structuredClone(item)
+  const properties = branch.properties as Record<string, unknown>
+  const target = properties.target as Record<string, unknown>
+  const targetProperties = target.properties as Record<string, unknown>
+  targetProperties.path = { const: path }
+  const change = properties.change as Record<string, unknown>
+  const changeBranches = change.anyOf as Array<Record<string, unknown>>
+  for (const changeBranch of changeBranches) {
+    const changeProperties = changeBranch.properties as Record<string, unknown>
+    const mode = changeProperties.mode as { const: 'set' | 'merge' | 'remove' }
+    if (mode.const !== 'remove') {
+      changeProperties.value = structuredClone(valueSchema)
+    }
+  }
+  return branch
 }
 
 export const DEFAULT_POLICY_EDIT_HISTORY_LIMITS = Object.freeze({
@@ -284,6 +314,9 @@ export interface PolicyEditObjective {
 export type PolicyEditFindingSource =
   | { kind: 'surface'; surfaceHash: string; generation: number }
   | { kind: 'global'; label: string }
+
+/** Exact JSON Schema applied to authored `change.value` for one allowed path. */
+export type PolicyEditJsonValueSchema = Readonly<Record<string, unknown>>
 
 /** Trace-derived findings must name the measured profile that produced them.
  *  Cross-run doctrine can be explicitly global; an unwrapped finding is rejected. */
@@ -394,6 +427,12 @@ export interface LlmPolicyEditProposerOptions {
   targetSurface: JsonPolicyEditTargetSurface
   /** Exact JSON paths the author may change. Prefix or fuzzy matches are not accepted. */
   allowedJsonPaths: readonly string[]
+  /**
+   * Optional exact JSON Schema for `change.value` at every allowed path.
+   * When present, keys must exactly match `allowedJsonPaths`; both the provider
+   * response schema and local validation bind each path to its own value shape.
+   */
+  valueSchemaByJsonPath?: Readonly<Record<string, PolicyEditJsonValueSchema>>
   /** Caller-owned search objective bound into every authored forecast. */
   objectives: readonly PolicyEditObjective[]
   /** Default: evidence-only, so uncertain edits are measured rather than
@@ -442,6 +481,7 @@ export function llmPolicyEditProposer(
 ): SurfaceProposer<PolicyEditFindingInput> {
   const allowedJsonPaths = validateAllowedJsonPaths(opts.allowedJsonPaths)
   const allowedPathSet = new Set(allowedJsonPaths)
+  const pathValueSchemas = validatePathValueSchemas(opts.valueSchemaByJsonPath, allowedJsonPaths)
   const objectives = validateObjectives(opts.objectives)
   const objectiveByKey = new Map(objectives.map((objective) => [objective.key, objective]))
   requireNonEmpty(opts.model, 'model')
@@ -551,7 +591,11 @@ export function llmPolicyEditProposer(
           objectiveByKey,
         ),
       }
-      const responseSchema = policyEditAuthorJsonSchema(limit, allowedJsonPaths)
+      const responseSchema = policyEditAuthorJsonSchema(
+        limit,
+        allowedJsonPaths,
+        pathValueSchemas?.schemas,
+      )
       const system = policyEditAuthorSystem(responseSchema)
       assertPolicyEditAuthorContextBudget(
         { system, authorContext, responseSchema },
@@ -605,6 +649,7 @@ export function llmPolicyEditProposer(
           findingByKey,
           opts.targetSurface,
           allowedPathSet,
+          pathValueSchemas?.validators,
           objectives[0]!,
           ctx.incumbentOutcome?.composite ?? ctx.baselineOutcome?.composite,
         ),
@@ -1190,6 +1235,7 @@ function bindAuthoredEdit(
   findingByKey: ReadonlyMap<string, CitableFinding>,
   targetSurface: JsonPolicyEditTargetSurface,
   allowedPaths: ReadonlySet<string>,
+  valueValidatorByJsonPath: ReadonlyMap<string, z.ZodType> | undefined,
   objective: PolicyEditObjective,
   currentComposite: number | undefined,
 ): PolicyEdit {
@@ -1197,6 +1243,17 @@ function bindAuthoredEdit(
     throw new Error(
       `llmPolicyEditProposer: JSON path '${draft.target.path}' is outside allowedJsonPaths`,
     )
+  }
+  if (draft.change.mode !== 'remove') {
+    const valueValidator = valueValidatorByJsonPath?.get(draft.target.path)
+    if (valueValidator) {
+      const parsedValue = valueValidator.safeParse(draft.change.value)
+      if (!parsedValue.success) {
+        throw new Error(
+          `llmPolicyEditProposer: change.value for JSON path '${draft.target.path}' does not match valueSchemaByJsonPath (${formatJsonValidationError(parsedValue.error)})`,
+        )
+      }
+    }
   }
 
   const cited = draft.source.findingKeys.map((findingKey) => {
@@ -1523,6 +1580,61 @@ function validateAllowedJsonPaths(paths: readonly string[]): string[] {
     throw new Error('llmPolicyEditProposer: allowedJsonPaths must be unique')
   }
   return [...paths]
+}
+
+function validatePathValueSchemas(
+  input: LlmPolicyEditProposerOptions['valueSchemaByJsonPath'],
+  allowedJsonPaths: readonly string[],
+):
+  | {
+      schemas: ReadonlyMap<string, PolicyEditJsonValueSchema>
+      validators: ReadonlyMap<string, z.ZodType>
+    }
+  | undefined {
+  if (input === undefined) return undefined
+  if (!input || typeof input !== 'object' || Array.isArray(input)) {
+    throw new Error('llmPolicyEditProposer: valueSchemaByJsonPath must be a JSON object')
+  }
+  const allowed = new Set(allowedJsonPaths)
+  const suppliedPaths = Object.keys(input)
+  const missing = allowedJsonPaths.filter((path) => !Object.hasOwn(input, path))
+  const unexpected = suppliedPaths.filter((path) => !allowed.has(path))
+  if (missing.length > 0 || unexpected.length > 0) {
+    throw new Error(
+      `llmPolicyEditProposer: valueSchemaByJsonPath keys must exactly match allowedJsonPaths (missing: ${missing.join(', ') || 'none'}; unexpected: ${unexpected.join(', ') || 'none'})`,
+    )
+  }
+
+  const schemas = new Map<string, PolicyEditJsonValueSchema>()
+  const validators = new Map<string, z.ZodType>()
+  for (const path of allowedJsonPaths) {
+    const parsed = JsonValueSchema.safeParse(input[path])
+    if (
+      !parsed.success ||
+      !parsed.data ||
+      typeof parsed.data !== 'object' ||
+      Array.isArray(parsed.data)
+    ) {
+      const detail = parsed.success
+        ? 'expected a JSON object'
+        : formatJsonValidationError(parsed.error)
+      throw new Error(
+        `llmPolicyEditProposer: valueSchemaByJsonPath['${path}'] must be a valid JSON Schema object (${detail})`,
+      )
+    }
+    const schema = parsed.data as PolicyEditJsonValueSchema
+    let validator: z.ZodType
+    try {
+      validator = z.fromJSONSchema(schema as Parameters<typeof z.fromJSONSchema>[0])
+    } catch (error) {
+      throw new Error(
+        `llmPolicyEditProposer: valueSchemaByJsonPath['${path}'] is unsupported (${error instanceof Error ? error.message : String(error)})`,
+      )
+    }
+    schemas.set(path, schema)
+    validators.set(path, validator)
+  }
+  return { schemas, validators }
 }
 
 function requireNonEmpty(value: string, field: string): void {
