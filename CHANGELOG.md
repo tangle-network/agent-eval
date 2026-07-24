@@ -6,15 +6,7 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ## [Unreleased]
 
-### Added
-
-- `callLlm()` and `callLlmJson()` accept request-level or client-default `thinking: 'enabled' | 'disabled'`; GEPA, SkillOpt, and policy-edit authors expose the same per-proposer override, and the exact mode is preserved in cost bounds, raw request capture, and provider traffic.
-- `@tangle-network/agent-eval/supervisor-run` subpath: supervision-tree analysis alongside single-rollout trace analysis. `analyzeSupervisorRun(runDir | reader | sources)` returns a `SupervisorRunReport` — steer count with per-worker breakdown, spawn waves + sizes, max concurrency, respawns/repeated labels/delegation depth, supervisor wall + idle wall + worker utilization, accepted vs rejected vs empty-pass, evidence→respawn vs blind respawn, tokens/USD by role, judge verdict + patch stats — and `rollupSupervisorRuns` aggregates across runs. Every metric is `Measured<T> = T | {unavailable: reason}`, so a missing artifact never reads as a measured zero. The input contract is a `SupervisorRunReader` over already-read bytes; `loopsSupervisorRunReader` is one implementation (the loops `.loops/supervisor/*` on-disk layout). `supervisorRunRolloutLines` emits the tree as `tangle.rollout.v1` rows keyed by `parent_rollout_id`, so a supervision tree lands in the same ledger as solo rollouts. Ported from the agent-runtime bench run-report; byte-identical on both committed backfill fixtures.
-- `@tangle-network/agent-eval/rollout` subpath: the single owner of the `tangle.rollout.v1` serialization — canonical schema + fail-loud validation, ledger file API (`writeRolloutLedger`/`appendRolloutLines`/`readRolloutLedger`), harness-store intake readers (opencode sqlite, Claude Code project jsonl), exporters (SFT, reward rows, Prime Intellect verifiers `RolloutOutput`, OpenAI RFT), deterministic 9-rule scrubber, HuggingFace dataset-card generation, and the `agent-eval rollout-release` CLI (build + optional `--push`). Ported from the agent-runtime bench rollout-ledger and reconciled with the PR #410 row shape; see `docs/rollout.md` for the decision table.
-
 ### Changed
-
-- `mintRolloutRows` now emits canonical `tangle.rollout.v1` lines (snake_case wire shape) instead of the interim `RolloutRow`; records without trace spans become labeled gap lines AND are listed in `missingTraces` instead of being skipped. `toSftRows`/`toRewardRows` operate on the new lines; `toSftRows` additionally enforces the trainable-split filter (holdout/dev/canary never export). The realness gate still forces reward 0 and SFT exclusion.
 
 - `selfImprove({ budget: { candidateConcurrency } })` exposes the existing `runOptimization()` control for scoring candidate campaigns in parallel; it remains opt-in and defaults to one candidate campaign at a time.
 - `llmPolicyEditProposer()` and `projectPolicyEditHistory()` accept `scenarioOrder: 'input'` when controlled comparisons must preserve first-occurrence caller order; ranked evidence selection remains the default.
@@ -22,9 +14,6 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 - `llmPolicyEditProposer({ redactCurrentSurfaceForModel })` can remove credentials and unrelated fields from the current surface sent to the model while applying validated edits to the complete original surface.
 - `CostLedger.listPending()` exposes immutable pending paid calls and distinguishes calls that are active, late after cancellation, or interrupted by a prior process so durable workflows can reconcile exact reservations before resuming.
 - `traceAnalystProposer()` accepts an opt-in `resolvePriorFindings` callback that forwards canonical prior findings into the existing analyst registry.
-
-### Changed
-
 - Trace-analysis actors are instructed to emit one executable JavaScript program per turn, report named turn-limit exhaustion, and preserve per-analyst failure details when a proposer produces no findings.
 - Keep one live tip per lineage track when another track branches or merges from it, and compare those track tips when building the frontier.
 - Pass track identity, operation, vision, ancestry, and proposer choice to candidate generation so independent tracks can pursue distinct strategies.
@@ -60,6 +49,22 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
   Read `optimizationCost`, `testCost`, and `totalCost`; each includes `totalCostUsd`, `accountingComplete`, and `incompleteReasons`.
 - `runSkillOpt({ holdoutScenarios })` fails closed because those rows are adaptively reused.
   Pass `selectionScenarios`; selection result fields now use `Selection` instead of `Holdout`, and `lift` is now `selectionLift`.
+
+## [0.124.0] — 2026-07-24 — rollout and supervisor-run subpaths
+
+### Added
+
+- `callLlm()` and `callLlmJson()` accept request-level or client-default `thinking: 'enabled' | 'disabled'`; GEPA, SkillOpt, and policy-edit authors expose the same per-proposer override, and the exact mode is preserved in cost bounds, raw request capture, and provider traffic.
+- `@tangle-network/agent-eval/rollout` subpath: the single owner of the `tangle.rollout.v1` serialization — canonical schema + fail-loud validation, ledger file API (`writeRolloutLedger`/`appendRolloutLines`/`readRolloutLedger`), harness-store intake readers (opencode sqlite, Claude Code project jsonl), exporters (SFT, reward rows, Prime Intellect verifiers `RolloutOutput`, OpenAI RFT), deterministic 9-rule scrubber, HuggingFace dataset-card generation, and the `agent-eval rollout-release` CLI (build + optional `--push`). Ported from the agent-runtime bench rollout-ledger and reconciled with the PR #410 row shape; see `docs/rollout.md` for the decision table.
+- `@tangle-network/agent-eval/supervisor-run` subpath: supervision-tree analysis alongside single-rollout trace analysis. `analyzeSupervisorRun(runDir | reader | sources)` returns a `SupervisorRunReport` — steer count with per-worker breakdown, spawn waves + sizes, max concurrency, respawns/repeated labels/delegation depth, supervisor wall + idle wall + worker utilization, accepted vs rejected vs empty-pass, evidence→respawn vs blind respawn, tokens/USD by role, judge verdict + patch stats — and `rollupSupervisorRuns` aggregates across runs. Every metric is `Measured<T> = T | {unavailable: reason}`, so a missing artifact never reads as a measured zero. The input contract is a `SupervisorRunReader` over already-read bytes; `loopsSupervisorRunReader` is one implementation (the loops `.loops/supervisor/*` on-disk layout). `supervisorRunRolloutLines` emits the tree as `tangle.rollout.v1` rows keyed by `parent_rollout_id`, so a supervision tree lands in the same ledger as solo rollouts. Ported from the agent-runtime bench run-report; byte-identical on both committed backfill fixtures.
+
+### Changed
+
+- `mintRolloutRows` now emits canonical `tangle.rollout.v1` lines (snake_case wire shape) instead of the interim `RolloutRow`; records without trace spans become labeled gap lines AND are listed in `missingTraces` instead of being skipped. `toSftRows`/`toRewardRows` operate on the new lines; `toSftRows` additionally enforces the trainable-split filter (holdout/dev/canary never export). The realness gate still forces reward 0 and SFT exclusion.
+
+### Fixed
+
+- `openOpencodeDb` composes the `node:sqlite` specifier at runtime so neither esbuild nor Vite rewrites it, keeping the opencode rollout reader working in the bundled package.
 
 ## [0.123.8] — 2026-07-23 — reasoning-token accounting
 
