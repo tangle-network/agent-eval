@@ -94,7 +94,7 @@ Replace all four example rates with the exact rates charged by that endpoint.
 | `GEPA_MAX_PROPOSER_COST_USD` | `5` | Maximum GEPA model spend inside one engine stage. |
 | `GEPA_PRICE_IN_PER_M` | required | Exact GEPA input rate per million tokens. |
 | `GEPA_PRICE_OUT_PER_M` | required | Exact GEPA output rate per million tokens. |
-| `GEPA_MAX_MODEL_COST_USD` | `MAX_RUN_COST_USD` | Shared GEPA model spend limit. |
+| `GEPA_MAX_MODEL_COST_USD` | `MAX_OPTIMIZER_MODEL_COST_USD` | GEPA model spend limit. |
 | `GEPA_MAX_MODEL_REQUESTS` | `100` | Shared GEPA model request limit. |
 | `SKILLOPT_MODEL` | `LLM_MODEL` | Model used by SkillOpt reflection and editing. |
 | `SKILLOPT_EPOCHS` | `2` | SkillOpt training epochs. |
@@ -102,9 +102,10 @@ Replace all four example rates with the exact rates charged by that endpoint.
 | `SKILLOPT_MAX_EVALUATIONS` | core plan size | Maximum SkillOpt candidate-case calls. |
 | `SKILLOPT_PRICE_IN_PER_M` | required | Exact optimizer-model input rate per million tokens. |
 | `SKILLOPT_PRICE_OUT_PER_M` | required | Exact optimizer-model output rate per million tokens. |
-| `SKILLOPT_MAX_MODEL_COST_USD` | `MAX_RUN_COST_USD` | SkillOpt optimizer-model spend limit. |
+| `SKILLOPT_MAX_MODEL_COST_USD` | `MAX_OPTIMIZER_MODEL_COST_USD` | SkillOpt optimizer-model spend limit. |
 | `SKILLOPT_MAX_MODEL_REQUESTS` | `100` | SkillOpt optimizer-model request limit. |
-| `MAX_RUN_COST_USD` | `12` | Shared limit for all optimization and final-case spend. |
+| `MAX_OPTIMIZER_MODEL_COST_USD` | `5` | Equal optimizer-model spend limit per method. |
+| `MAX_TOTAL_COST_USD` | `20` | Shared limit for all optimization and final-case spend. |
 | `OPTIMIZATION_CONCURRENCY` | `1` | Methods allowed to optimize concurrently. |
 | `BILLING_NOTE` | inferred | Billing context saved with the result. |
 | `PRICE_SOURCE` | inferred | Source of the token prices saved with the result. |

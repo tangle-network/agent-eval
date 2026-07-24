@@ -1,0 +1,128 @@
+name: Official Optimizer Benchmark
+
+# This scheduled run compares the pinned upstream GEPA and SkillOpt projects
+# against the same task, data split, model, and candidate-case evaluation limit.
+# It records the full result without blocking pull requests on model variance.
+
+on:
+  schedule:
+    - cron: '17 6 * * 1'
+  workflow_dispatch:
+    inputs:
+      optimizers:
+        description: 'Comma-separated methods: gepa,skillopt'
+        default: 'gepa,skillopt'
+        type: string
+      model:
+        description: 'Exact worker and optimizer model; falls back to the LLM_MODEL repository variable'
+        required: false
+        type: string
+      base_url:
+        description: 'OpenAI-compatible endpoint; falls back to LLM_BASE_URL or TANGLE_ROUTER_URL'
+        required: false
+        type: string
+      price_in_per_m:
+        description: 'Exact input-token USD per million; falls back to PRICE_IN_PER_M'
+        required: false
+        type: string
+      price_out_per_m:
+        description: 'Exact output-token USD per million; falls back to PRICE_OUT_PER_M'
+        required: false
+        type: string
+      skillopt_epochs:
+        description: 'SkillOpt epochs'
+        default: '2'
+        type: string
+      skillopt_batch_size:
+        description: 'SkillOpt train cases per batch'
+        default: '2'
+        type: string
+      max_optimizer_model_cost_usd:
+        description: 'Equal optimizer-model spend limit per method'
+        default: '5'
+        type: string
+      max_total_cost_usd:
+        description: 'Stop the complete comparison before this total spend'
+        default: '20'
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: official-optimizer-benchmark
+  cancel-in-progress: false
+
+jobs:
+  benchmark:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+          cache-dependency-glob: clients/python/uv.lock
+      - name: Install JS deps
+        run: pnpm install --frozen-lockfile
+      - name: Install pinned official optimizers
+        working-directory: clients/python
+        run: uv sync --frozen --group skillopt-source --group gepa-source
+
+      - name: Check benchmark configuration
+        id: config
+        env:
+          KEY: ${{ secrets.LLM_API_KEY != '' && secrets.LLM_API_KEY || secrets.TANGLE_API_KEY }}
+          OPENAI_KEY: ${{ secrets.LLM_API_KEY }}
+          BASE_URL: ${{ github.event.inputs.base_url != '' && github.event.inputs.base_url || vars.LLM_BASE_URL != '' && vars.LLM_BASE_URL || vars.TANGLE_ROUTER_URL }}
+          MODEL: ${{ github.event.inputs.model != '' && github.event.inputs.model || vars.LLM_MODEL }}
+          PRICE_IN: ${{ github.event.inputs.price_in_per_m != '' && github.event.inputs.price_in_per_m || vars.PRICE_IN_PER_M }}
+          PRICE_OUT: ${{ github.event.inputs.price_out_per_m != '' && github.event.inputs.price_out_per_m || vars.PRICE_OUT_PER_M }}
+        run: |
+          if [ -n "$KEY" ]; then
+            if [ -z "$OPENAI_KEY" ] && [ -z "$BASE_URL" ]; then
+              echo "::error::TANGLE_API_KEY requires LLM_BASE_URL or TANGLE_ROUTER_URL."
+              exit 1
+            fi
+            if [ -z "$MODEL" ] || [ -z "$PRICE_IN" ] || [ -z "$PRICE_OUT" ]; then
+              echo "::error::Set the exact model and input/output token prices as workflow inputs or repository variables."
+              exit 1
+            fi
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::notice::No LLM_API_KEY or TANGLE_API_KEY secret is available. Skipping the paid benchmark."
+            echo "run=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Compare official GEPA and SkillOpt
+        if: steps.config.outputs.run == 'true'
+        env:
+          LLM_API_KEY: ${{ secrets.LLM_API_KEY != '' && secrets.LLM_API_KEY || secrets.TANGLE_API_KEY }}
+          LLM_BASE_URL: ${{ github.event.inputs.base_url != '' && github.event.inputs.base_url || vars.LLM_BASE_URL != '' && vars.LLM_BASE_URL || vars.TANGLE_ROUTER_URL }}
+          LLM_MODEL: ${{ github.event.inputs.model != '' && github.event.inputs.model || vars.LLM_MODEL }}
+          PRICE_IN_PER_M: ${{ github.event.inputs.price_in_per_m != '' && github.event.inputs.price_in_per_m || vars.PRICE_IN_PER_M }}
+          PRICE_OUT_PER_M: ${{ github.event.inputs.price_out_per_m != '' && github.event.inputs.price_out_per_m || vars.PRICE_OUT_PER_M }}
+          PRICE_SOURCE: 'Workflow inputs or repository variables recorded with the run.'
+          OPTIMIZERS: ${{ github.event.inputs.optimizers || 'gepa,skillopt' }}
+          SKILLOPT_EPOCHS: ${{ github.event.inputs.skillopt_epochs || '2' }}
+          SKILLOPT_BATCH_SIZE: ${{ github.event.inputs.skillopt_batch_size || '2' }}
+          MAX_OPTIMIZER_MODEL_COST_USD: ${{ github.event.inputs.max_optimizer_model_cost_usd || '5' }}
+          MAX_TOTAL_COST_USD: ${{ github.event.inputs.max_total_cost_usd || '20' }}
+          OPTIMIZER_PYTHON: ${{ github.workspace }}/clients/python/.venv/bin/python
+        run: pnpm tsx examples/compare-optimization-methods/index.ts
+
+      - name: Upload method comparison artifact
+        if: always() && steps.config.outputs.run == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: official-optimizer-benchmark-${{ github.run_number }}
+          path: .evolve/compare-optimization-methods/**/comparison.json
+          if-no-files-found: error
