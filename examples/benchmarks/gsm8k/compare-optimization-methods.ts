@@ -64,7 +64,12 @@ const OPTIMIZER_PYTHON = process.env.OPTIMIZER_PYTHON?.trim() || 'python'
 const OPTIMIZER_API_KEY = (process.env.OPTIMIZER_API_KEY || API_KEY)?.trim()
 const OPTIMIZER_BASE_URL = (process.env.OPTIMIZER_BASE_URL || BASE_URL).trim()
 const GEPA_MODEL = process.env.GEPA_MODEL || MODEL
-const GEPA_MAX_PROPOSER_COST_USD = positiveNumberEnv('GEPA_MAX_PROPOSER_COST_USD', 10)
+const MAX_OPTIMIZER_MODEL_COST_USD = positiveNumberEnv('MAX_OPTIMIZER_MODEL_COST_USD', 10)
+const MAX_TOTAL_COST_USD = positiveNumberEnv('MAX_TOTAL_COST_USD', 25)
+const GEPA_MAX_PROPOSER_COST_USD = positiveNumberEnv(
+  'GEPA_MAX_PROPOSER_COST_USD',
+  MAX_OPTIMIZER_MODEL_COST_USD,
+)
 const SKILLOPT_MODEL = process.env.SKILLOPT_MODEL || MODEL
 const SKILLOPT_EPOCHS = positiveIntegerEnv('SKILLOPT_EPOCHS', 2)
 const SKILLOPT_BATCH_SIZE = positiveIntegerEnv('SKILLOPT_BATCH_SIZE', 4)
@@ -80,7 +85,6 @@ const OPTIMIZATION_CONCURRENCY = positiveIntegerEnv('OPTIMIZATION_CONCURRENCY', 
 const TASK_CONCURRENCY = positiveIntegerEnv('TASK_CONCURRENCY', 2)
 const REPS = positiveIntegerEnv('REPS', 1)
 const MAX_SMOKE_COST_USD = positiveNumberEnv('MAX_SMOKE_COST_USD', 2)
-const MAX_RUN_COST_USD = positiveNumberEnv('MAX_RUN_COST_USD', 25)
 const SMOKE = process.env.SMOKE === '1'
 const SEED = 42
 const RESAMPLES = 4_000
@@ -284,12 +288,12 @@ async function main() {
 
   const gepaModelBudget = optimizerModelBudgetFromEnv(
     'GEPA',
-    MAX_RUN_COST_USD,
+    MAX_OPTIMIZER_MODEL_COST_USD,
     CUSTOM_TOKEN_PRICING,
   )
   const skillOptModelBudget = optimizerModelBudgetFromEnv(
     'SKILLOPT',
-    MAX_RUN_COST_USD,
+    MAX_OPTIMIZER_MODEL_COST_USD,
     CUSTOM_TOKEN_PRICING,
   )
   const runner = {
@@ -368,7 +372,7 @@ async function main() {
       maxConcurrency: TASK_CONCURRENCY,
       expectUsage: 'assert',
     },
-    costCeiling: MAX_RUN_COST_USD,
+    costCeiling: MAX_TOTAL_COST_USD,
     dispatchTimeoutMs: CALL_TIMEOUT_MS,
     expectUsage: 'assert',
   })
@@ -416,7 +420,8 @@ async function main() {
         coreEvaluations: SKILLOPT_CORE_EVALUATIONS,
       },
       smokeCostUsd: MAX_SMOKE_COST_USD,
-      allRunCostUsd: MAX_RUN_COST_USD,
+      optimizerModelCostUsdPerMethod: MAX_OPTIMIZER_MODEL_COST_USD,
+      allRunCostUsd: MAX_TOTAL_COST_USD,
       worker: {
         requestTimeoutMs: CALL_TIMEOUT_MS,
         maxOutputTokens: WORKER_MAX_TOKENS,
