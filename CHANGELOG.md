@@ -24,7 +24,6 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ### Fixed
 
-- Preserve OpenAI-compatible `completion_tokens_details.reasoning_tokens` through `LlmCallResult`, cost receipts, and cost-ledger summaries.
 - `llmPolicyEditProposer()` asks the model only for semantic edit choices, deterministically binds caller-owned policy fields, and requires one exact whole-response JSON value before admission.
 - `compareOptimizationMethods()` owns three non-empty, pairwise-disjoint scenario sets.
   Methods receive independent copies of train and selection data, every method finishes before final test scoring starts, and final test data is absent from `OptimizationMethodInput`.
@@ -53,6 +52,12 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
   Read `optimizationCost`, `testCost`, and `totalCost`; each includes `totalCostUsd`, `accountingComplete`, and `incompleteReasons`.
 - `runSkillOpt({ holdoutScenarios })` fails closed because those rows are adaptively reused.
   Pass `selectionScenarios`; selection result fields now use `Selection` instead of `Holdout`, and `lift` is now `selectionLift`.
+
+## [0.123.8] — 2026-07-23 — reasoning-token accounting
+
+### Fixed
+
+- Preserve OpenAI-compatible `completion_tokens_details.reasoning_tokens` through `LlmCallResult`, cost receipts, and cost-ledger summaries.
 
 ## [0.123.7] — 2026-07-23 — publishable GEPA bridge metadata
 
