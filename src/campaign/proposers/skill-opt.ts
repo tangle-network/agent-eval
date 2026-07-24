@@ -89,6 +89,8 @@ export interface SkillOptProposerOptions {
   editBudget?: number
   temperature?: number
   maxTokens?: number
+  /** Provider reasoning mode for each patch-authoring call. Omitted to preserve the provider default. */
+  thinking?: LlmCallRequest['thinking']
   /** Top-K weak scenarios/dimensions surfaced as evidence. Default 3. */
   evidenceK?: number
 }
@@ -127,6 +129,7 @@ export function skillOptProposer(opts: SkillOptProposerOptions): SkillOptPropose
       jsonMode: true,
       temperature: opts.temperature ?? 0.6,
       maxTokens: opts.maxTokens ?? 4000,
+      thinking: opts.thinking,
     }
     const paid = await (args.costLedger ?? directCostLedger).runPaidCall({
       channel: 'driver',

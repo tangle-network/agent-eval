@@ -109,10 +109,14 @@ describe('parseSkillPatchResponse', () => {
 // ── skillOptProposer (LLM-stubbed) ────────────────────────────────────────────
 
 describe('skillOptProposer', () => {
-  function patchFetch(capture: { user?: string }, patches: SkillPatch[]): typeof fetch {
+  function patchFetch(
+    capture: { user?: string; thinking?: unknown },
+    patches: SkillPatch[],
+  ): typeof fetch {
     return (async (_url: string, init?: RequestInit) => {
       const body = JSON.parse(String(init?.body ?? '{}'))
       capture.user = body.messages?.find((m: { role: string }) => m.role === 'user')?.content
+      capture.thinking = body.thinking
       const content = JSON.stringify({ patches })
       return new Response(JSON.stringify({ choices: [{ message: { content } }], usage: {} }), {
         status: 200,
@@ -124,11 +128,12 @@ describe('skillOptProposer', () => {
   const DOC = '# Skill\n- always cite a source'
 
   it('proposePatches feeds the surface + rejected buffer into the prompt', async () => {
-    const capture: { user?: string } = {}
+    const capture: { user?: string; thinking?: unknown } = {}
     const proposer = skillOptProposer({
       llm: { apiKey: 'k', baseUrl: 'https://router.test/v1', fetch: patchFetch(capture, []) },
       model: 'm',
       target: 'citation policy',
+      thinking: 'disabled',
     })
     await proposer.proposePatches({
       surface: DOC,
@@ -146,6 +151,7 @@ describe('skillOptProposer', () => {
     expect(capture.user).toContain('grounding') // weak dimension evidence
     expect(capture.user).toContain('tried-X') // rejected buffer
     expect(capture.user).toContain('at most 2') // the edit budget
+    expect(capture.thinking).toEqual({ type: 'disabled' })
   })
 
   it('propose() feeds ctx.findings + ctx.report into the patch prompt', async () => {

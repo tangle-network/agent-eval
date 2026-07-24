@@ -25,6 +25,7 @@ interface CapturedRequest {
   system?: string
   user?: Record<string, unknown>
   responseFormat?: Record<string, unknown>
+  thinking?: unknown
 }
 
 function finding(): AnalystFinding {
@@ -96,11 +97,13 @@ function fetchResponse(
     const body = JSON.parse(String(init?.body ?? '{}')) as {
       messages?: Array<{ role?: string; content?: string }>
       response_format?: Record<string, unknown>
+      thinking?: unknown
     }
     capture.system = body.messages?.find((message) => message.role === 'system')?.content
     const user = body.messages?.find((message) => message.role === 'user')?.content
     if (user) capture.user = JSON.parse(user) as Record<string, unknown>
     if (body.response_format) capture.responseFormat = body.response_format
+    capture.thinking = body.thinking
     return new Response(
       JSON.stringify({
         choices: [{ message: { content }, finish_reason: finishReason }],
@@ -157,6 +160,7 @@ function proposer(input: {
   admission?: PolicyEditAdmissionOptions
   redactCurrentSurfaceForModel?: (surface: AgentProfileJsonObject) => AgentProfileJsonObject
   jsonSchemaTransport?: 'native' | 'json-object'
+  thinking?: 'enabled' | 'disabled'
 }) {
   return llmPolicyEditProposer({
     llm: {
@@ -176,6 +180,7 @@ function proposer(input: {
     targetSurface: (input.targetSurface ?? 'agent-profile') as 'agent-profile',
     allowedJsonPaths: input.allowedJsonPaths ?? ['prompt.systemPrompt'],
     objectives: input.objectives ?? OBJECTIVES,
+    ...(input.thinking === undefined ? {} : { thinking: input.thinking }),
     ...(input.maxHistoryGenerations === undefined
       ? {}
       : { maxHistoryGenerations: input.maxHistoryGenerations }),
@@ -229,9 +234,11 @@ describe('llmPolicyEditProposer', () => {
     const source = finding()
     const capture: CapturedRequest = {}
     const edit = authoredEdit('finding-1')
-    const out = await proposer({ response: { edits: [edit] }, capture }).propose(
-      context({ finding: source }),
-    )
+    const out = await proposer({
+      response: { edits: [edit] },
+      capture,
+      thinking: 'disabled',
+    }).propose(context({ finding: source }))
 
     expect(out).toHaveLength(1)
     expect(out[0]).toMatchObject({ rationale: expect.stringContaining(source.finding_id) })
@@ -239,6 +246,7 @@ describe('llmPolicyEditProposer', () => {
       prompt: { systemPrompt: 'Read repository instructions first.' },
       resources: { keep: true },
     })
+    expect(capture.thinking).toEqual({ type: 'disabled' })
     expect(capture.user).toMatchObject({
       generation: 0,
       currentSurface: { prompt: { systemPrompt: 'Base' }, resources: { keep: true } },

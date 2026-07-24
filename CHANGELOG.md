@@ -8,6 +8,7 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ### Added
 
+- `callLlm()` and `callLlmJson()` accept `thinking: 'enabled' | 'disabled'` and preserve the explicit OpenAI-compatible reasoning mode in raw request capture.
 - `selfImprove({ budget: { candidateConcurrency } })` exposes the existing `runOptimization()` control for scoring candidate campaigns in parallel; it remains opt-in and defaults to one candidate campaign at a time.
 - `llmPolicyEditProposer()` and `projectPolicyEditHistory()` accept `scenarioOrder: 'input'` when controlled comparisons must preserve first-occurrence caller order; ranked evidence selection remains the default.
 - `callLlmJson()` accepts `jsonPayloadMode: 'exact'` when callers must reject fenced, prose-wrapped, or multi-root responses instead of extracting a JSON value.

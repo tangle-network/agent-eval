@@ -60,6 +60,8 @@ export interface LlmCallRequest {
   jsonSchema?: { name: string; schema: Record<string, unknown> }
   temperature?: number
   maxTokens?: number
+  /** OpenAI-compatible reasoning mode. Omitted when the provider default should apply. */
+  thinking?: 'enabled' | 'disabled'
   /** Per-call timeout, default 300s. */
   timeoutMs?: number
 }
@@ -408,6 +410,9 @@ function buildBody(req: LlmCallRequest, forceJsonObject: boolean): Record<string
   if (req.maxTokens != null) {
     if (usesMaxCompletionTokens(req.model)) body.max_completion_tokens = req.maxTokens
     else body.max_tokens = req.maxTokens
+  }
+  if (req.thinking !== undefined) {
+    body.thinking = { type: req.thinking }
   }
 
   if (req.jsonSchema && !forceJsonObject) {
