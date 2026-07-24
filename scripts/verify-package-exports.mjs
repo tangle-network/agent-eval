@@ -113,6 +113,7 @@ try {
       import {
         type CostLedgerHandle as CampaignCostLedgerHandle,
         type LlmJudgeOptions as CampaignLlmJudgeOptions,
+        type OptimizationMethodProvenance,
         type ReferenceEquivalenceJudgeOptions as CampaignReferenceEquivalenceJudgeOptions,
         type SurfaceProposer as CampaignSurfaceProposer,
       } from '@tangle-network/agent-eval/campaign'
@@ -179,6 +180,19 @@ try {
       const rootCostLedger: RootCostLedgerHandle = costLedger
       const campaignCostLedger: CampaignCostLedgerHandle = costLedger
       const contractCostLedger: ContractCostLedgerHandle = costLedger
+      const optimizationProvenance: OptimizationMethodProvenance = {
+        source: {
+          kind: 'package',
+          evidence: 'observed',
+          package: 'optimizer',
+          version: '1.0.0',
+        },
+        optimizerModel: 'provider/model@2026-07-24',
+        runId: 'run',
+        resumed: false,
+        evaluationCount: 1,
+        artifactDir: '/tmp/optimizer',
+      }
       const contextTokens = contextInputTokens({ inputTokens: 10, cachedTokens: 20 })
       const inputTokens = firstNumberAttr(
         { 'gen_ai.usage.input_tokens': '10' },
@@ -204,6 +218,7 @@ try {
         rootCostLedger,
         campaignCostLedger,
         contractCostLedger,
+        optimizationProvenance,
         LLM_INPUT_TOKENS,
         LLM_CONTEXT_TOKENS,
         contextTokens,

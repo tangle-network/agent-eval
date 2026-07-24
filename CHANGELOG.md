@@ -4,6 +4,12 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ---
 
+## [0.126.6] - 2026-07-24 - optimizer model provenance
+
+### Added
+
+- Proxied GEPA and SkillOpt runs now record the configured optimizer model in `OptimizationMethodProvenance.optimizerModel`; GEPA engines without a configured optimizer omit it.
+
 ## [0.126.5] - 2026-07-24 - published GEPA compatibility
 
 ### Fixed
