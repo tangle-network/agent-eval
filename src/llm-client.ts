@@ -160,16 +160,18 @@ export function costReceiptFromLlm(
   customTokenPricing?: CustomTokenPricing,
 ): CostReceiptInput {
   const cachedTokens = result.usage.cachedPromptTokens ?? 0
+  const inputTokens = Math.max(0, result.usage.promptTokens - cachedTokens)
   const configuredCostUsd =
     result.costUsd === null && customTokenPricing && result.usage.captured !== false
       ? costForTokenPricing(customTokenPricing, {
-          inputTokens: result.usage.promptTokens,
+          inputTokens,
+          ...(cachedTokens > 0 ? { cachedTokens } : {}),
           outputTokens: result.usage.completionTokens,
         })
       : undefined
   return {
     model: result.model,
-    inputTokens: Math.max(0, result.usage.promptTokens - cachedTokens),
+    inputTokens,
     outputTokens: result.usage.completionTokens,
     reasoningTokens: result.usage.reasoningTokens,
     cachedTokens: cachedTokens > 0 ? cachedTokens : undefined,
@@ -752,7 +754,8 @@ export async function callLlm(
       const configuredCost =
         typeof costFromProxy !== 'number' && usageCaptured && opts.customTokenPricing
           ? costForTokenPricing(opts.customTokenPricing, {
-              inputTokens: promptTokens!,
+              inputTokens: promptTokens! - (cachedPromptTokens ?? 0),
+              ...(cachedPromptTokens ? { cachedTokens: cachedPromptTokens } : {}),
               outputTokens: completionTokens!,
             })
           : undefined

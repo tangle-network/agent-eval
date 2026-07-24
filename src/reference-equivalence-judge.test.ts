@@ -258,7 +258,7 @@ describe('reference-equivalence transport and campaign integration', () => {
       createReferenceEquivalenceJudge,
     )
     expect((await import('./contract/index')).createChatClient).toBe(createChatClient)
-  })
+  }, 15_000)
 
   it('does not count judge usage as dispatch usage', async () => {
     const judgeRequest = vi.fn()

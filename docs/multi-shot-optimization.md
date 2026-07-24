@@ -1,31 +1,44 @@
 # Improve One Surface
 
-`runImprovementLoop` generates candidate prompts or configs, runs them on training scenarios, and checks the selected candidate on separate holdout scenarios.
+`runImprovementLoop()` evaluates candidates from a `SurfaceProposer`, selects one on training data, and compares it with the baseline on separate holdout cases.
 
-Use it when the question is: "Can this method improve my current surface?"
-Use [`compareOptimizationMethods`](./campaign-proposers.md#compare-complete-methods) when the question is: "Which complete optimization method performs best?"
+Use it when your application or runtime owns candidate generation.
+Use [`compareOptimizationMethods()`](./campaign-proposers.md) when GEPA, SkillOpt, or another external system owns the complete search procedure.
 
 ## Inputs
 
 | Input | Meaning |
 |---|---|
-| `baselineSurface` | Current prompt or config. |
-| `scenarios` | Training scenarios used to generate and score candidates. |
-| `holdoutScenarios` | Separate scenarios used by the release rule after search. |
-| `dispatchWithSurface` | Runs one scenario with one candidate surface. |
+| `baselineSurface` | Current prompt or serialized configuration. |
+| `scenarios` | Training cases used to generate and score candidates. |
+| `holdoutScenarios` | Separate cases used for the release decision after search. |
+| `dispatchWithSurface` | Runs one case with one candidate surface. |
 | `judges` | Scores the returned artifact. |
-| `proposer` | Generates candidate surfaces. |
-| `gate` | Applies the caller's release rule to baseline and winner results. |
-| `runDir` | Stores run artifacts, traces, and resumable state. |
+| `proposer` | Caller-owned candidate generator. |
+| `gate` | Caller-owned release rule for the baseline and selected candidate. |
+| `runDir` | Directory for run artifacts, traces, and resumable state. |
 
 ## Example
 
 ```ts
 import {
   defaultProductionGate,
-  gepaProposer,
   runImprovementLoop,
+  type SurfaceProposer,
 } from '@tangle-network/agent-eval/campaign'
+
+const proposer: SurfaceProposer = {
+  kind: 'product-rules',
+  async propose({ currentSurface, populationSize }) {
+    return [
+      {
+        surface: `${String(currentSurface)}\nReturn JSON only.`,
+        label: 'json-only',
+        rationale: 'Training failures contained prose around the JSON object.',
+      },
+    ].slice(0, populationSize)
+  },
+}
 
 const result = await runImprovementLoop({
   baselineSurface: currentSystemPrompt,
@@ -34,13 +47,9 @@ const result = await runImprovementLoop({
   dispatchWithSurface: async (surface, scenario, ctx) =>
     runYourAgent({ prompt: String(surface), scenario, signal: ctx.signal }),
   judges: [qualityJudge],
-  proposer: gepaProposer({
-    llm: { apiKey, baseUrl },
-    model,
-    target: 'the complete system prompt',
-  }),
-  populationSize: 4,
-  maxGenerations: 4,
+  proposer,
+  populationSize: 1,
+  maxGenerations: 1,
   gate: defaultProductionGate({
     holdoutScenarios,
     deltaThreshold: 0,
@@ -54,14 +63,13 @@ if (result.gateResult.decision === 'ship') {
 }
 ```
 
-## Behavior
+## Rules
 
-- Training and holdout scenario IDs must be disjoint.
-- Candidate generation cannot read holdout judge scores through `SurfaceProposer`.
-- The selected candidate is measured against the baseline on holdout scenarios.
-- A selected surface identical to the baseline is held instead of treating model variance as lift.
-- `result.cost` includes worker, candidate-generation, and judge calls recorded through the shared cost ledger.
-- `result.promotedDiff` describes the exact selected surface change.
+- Training and holdout case IDs must be disjoint.
+- Candidate generation cannot read holdout scores through `SurfaceProposer`.
+- An unchanged selected surface does not receive credit for model variance.
+- `result.cost` includes calls recorded through the shared cost ledger.
+- `result.promotedDiff` identifies the exact selected change.
 
-The release decision is only as useful as the scenarios and judges supplied by the caller.
-Calibrate the judge on known strong and weak outputs before using it for promotion.
+Calibrate the judge on known strong and weak artifacts before using its decision in production.
+The runnable offline example is [`examples/multi-shot-optimization`](../examples/multi-shot-optimization/).

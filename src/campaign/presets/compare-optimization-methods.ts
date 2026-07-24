@@ -7,7 +7,7 @@
 
 import { randomUUID } from 'node:crypto'
 import { mapConcurrent } from '../../concurrency'
-import type { CostLedgerSummary } from '../../cost-ledger'
+import type { CostLedgerHandle, CostLedgerSummary, CostReceipt } from '../../cost-ledger'
 import { pairedBootstrap } from '../../statistics'
 import { assertCampaignDesign } from '../coverage'
 import { type RunCampaignOptions, runCampaign } from '../run-campaign'
@@ -36,6 +36,60 @@ export interface ComparisonCost {
   incompleteReasons: string[]
 }
 
+export interface OptimizationPackageSource {
+  kind: 'package'
+  /** Whether package identity was inspected or supplied by caller code. */
+  evidence: 'observed' | 'declared'
+  package: string
+  version: string
+  sourceUrl?: string
+  revision?: string
+  /** SHA-256 of all installed module files observed before the run. */
+  sourceSha256?: string
+}
+
+export interface OptimizationModuleSource {
+  module: string
+  sourceSha256: string
+}
+
+export interface OptimizationPythonRuntime {
+  implementation: string
+  version: string
+}
+
+export interface OptimizationTokenUsage {
+  /** All input tokens, including cache reads and cache creation. */
+  inputTokens: number
+  /** Input tokens served from a provider cache. */
+  cachedInputTokens?: number
+  /** Input tokens used to create or write a provider cache entry. */
+  cacheWriteInputTokens?: number
+  outputTokens: number
+  /** Reasoning tokens included in `outputTokens`. */
+  reasoningTokens?: number
+  totalTokens: number
+  calls: number
+}
+
+export interface OptimizationMethodProvenance {
+  /** External optimizer package. */
+  source: OptimizationPackageSource
+  /** Python bridge package that invoked the optimizer. */
+  bridge?: OptimizationPackageSource
+  /** Custom engine modules imported by the optimizer. */
+  modules?: OptimizationModuleSource[]
+  /** Python implementation used by the bridge process. */
+  python?: OptimizationPythonRuntime
+  runId: string
+  /** Content identity shared by compatible resumptions. */
+  compatibleRunId?: string
+  resumed: boolean
+  evaluationCount: number
+  artifactDir: string
+  tokenUsage?: OptimizationTokenUsage
+}
+
 /** Shared inputs for one optimization method. Final test data is absent. */
 export interface OptimizationMethodInput<TScenario extends Scenario, TArtifact> {
   /** Surface every method starts from. */
@@ -57,6 +111,8 @@ export interface OptimizationMethodInput<TScenario extends Scenario, TArtifact> 
   readonly seed: number
   /** Shared defaults for every method. A method may override them explicitly. */
   readonly runOptions: Readonly<OptimizationMethodRunOptions<TScenario, TArtifact>>
+  /** Durable spend account shared by the method's model and evaluation calls. */
+  readonly costLedger: CostLedgerHandle
 }
 
 export interface OptimizationMethodResult {
@@ -66,6 +122,8 @@ export interface OptimizationMethodResult {
   cost: ComparisonCost
   /** Optimization duration. Excludes final test scoring. */
   durationMs?: number
+  /** Exact external implementation and run identity, when the method uses one. */
+  provenance?: OptimizationMethodProvenance
 }
 
 /** A complete optimization method, including candidate generation and selection. */
@@ -92,6 +150,8 @@ export interface OptimizationMethodScore {
   optimizationCost: ComparisonCost
   /** Optimization duration reported by the method. Excludes final test scoring. */
   durationMs?: number
+  /** Exact external implementation and run identity, when reported by the method. */
+  provenance?: OptimizationMethodProvenance
   /** Paired final-test values used to compute lift and its interval. */
   scenarioScores: Array<{
     scenarioId: string
@@ -251,6 +311,7 @@ export async function compareOptimizationMethods<TScenario extends Scenario, TAr
       winnerSurface,
       cost: out.cost,
       durationMs: out.durationMs,
+      provenance: out.provenance,
     }
   })
   // Reuse one final-test measurement for identical surfaces. This avoids duplicate
@@ -299,6 +360,7 @@ export async function compareOptimizationMethods<TScenario extends Scenario, TAr
       rank: 0,
     }
     if (w.durationMs !== undefined) score.durationMs = w.durationMs
+    if (w.provenance !== undefined) score.provenance = structuredClone(w.provenance)
     return score
   })
   scores.sort((a, b) => b.lift - a.lift)
@@ -396,7 +458,7 @@ function assertOptimizationMethods<TScenario extends Scenario, TArtifact>(
   }
 }
 
-function assertOptimizationResult(name: string, result: OptimizationMethodResult): void {
+export function assertOptimizationResult(name: string, result: OptimizationMethodResult): void {
   if (!result || typeof result !== 'object') {
     throw new Error(`compareOptimizationMethods: method '${name}' returned no result`)
   }
@@ -414,6 +476,79 @@ function assertOptimizationResult(name: string, result: OptimizationMethodResult
     (!Number.isFinite(result.durationMs) || result.durationMs < 0)
   ) {
     throw new Error(`compareOptimizationMethods: method '${name}' returned an invalid durationMs`)
+  }
+  if (result.provenance !== undefined) {
+    assertOptimizationProvenance(name, result.provenance)
+  }
+}
+
+function assertOptimizationProvenance(
+  methodName: string,
+  value: OptimizationMethodProvenance,
+): void {
+  const fail = (field: string): never => {
+    throw new Error(
+      `compareOptimizationMethods: method '${methodName}' returned invalid provenance.${field}`,
+    )
+  }
+  if (!value || typeof value !== 'object') fail('value')
+  if (
+    !value.source ||
+    value.source.kind !== 'package' ||
+    !['observed', 'declared'].includes(value.source.evidence) ||
+    typeof value.source.package !== 'string' ||
+    !value.source.package.trim() ||
+    typeof value.source.version !== 'string' ||
+    !value.source.version.trim()
+  ) {
+    fail('source')
+  }
+  for (const [field, entry] of [
+    ['sourceUrl', value.source.sourceUrl],
+    ['revision', value.source.revision],
+  ] as const) {
+    if (entry !== undefined && (typeof entry !== 'string' || !entry.trim())) fail(`source.${field}`)
+  }
+  if (typeof value.runId !== 'string' || !value.runId.trim()) fail('runId')
+  if (typeof value.resumed !== 'boolean') fail('resumed')
+  if (!Number.isSafeInteger(value.evaluationCount) || value.evaluationCount < 0) {
+    fail('evaluationCount')
+  }
+  if (typeof value.artifactDir !== 'string' || !value.artifactDir.trim()) fail('artifactDir')
+  if (value.tokenUsage !== undefined) {
+    for (const field of ['inputTokens', 'outputTokens', 'totalTokens', 'calls'] as const) {
+      if (!Number.isSafeInteger(value.tokenUsage[field]) || value.tokenUsage[field] < 0) {
+        fail(`tokenUsage.${field}`)
+      }
+    }
+    for (const field of [
+      'cachedInputTokens',
+      'cacheWriteInputTokens',
+      'reasoningTokens',
+    ] as const) {
+      const entry = value.tokenUsage[field]
+      if (entry !== undefined && (!Number.isSafeInteger(entry) || entry < 0)) {
+        fail(`tokenUsage.${field}`)
+      }
+    }
+    if (
+      (value.tokenUsage.cachedInputTokens ?? 0) + (value.tokenUsage.cacheWriteInputTokens ?? 0) >
+      value.tokenUsage.inputTokens
+    ) {
+      fail('tokenUsage.inputTokens')
+    }
+    if (
+      value.tokenUsage.reasoningTokens !== undefined &&
+      value.tokenUsage.reasoningTokens > value.tokenUsage.outputTokens
+    ) {
+      fail('tokenUsage.reasoningTokens')
+    }
+    if (
+      value.tokenUsage.totalTokens !==
+      value.tokenUsage.inputTokens + value.tokenUsage.outputTokens
+    ) {
+      fail('tokenUsage.totalTokens')
+    }
   }
 }
 
@@ -636,6 +771,8 @@ function createOptimizationMethodInput<TScenario extends Scenario, TArtifact>(
   resolvedRunDir: string,
   seed: number,
 ): OptimizationMethodInput<TScenario, TArtifact> {
+  const methodRunDir = `${resolvedRunDir}/optimization/${slug(methodName)}`
+  const storage = opts.storage ?? fsCampaignStorage()
   const cloneScenarios = (scenarios: readonly TScenario[]): readonly TScenario[] =>
     Object.freeze(scenarios.map((scenario) => structuredClone(scenario)))
   const judges = opts.judges.map((judge) =>
@@ -652,9 +789,14 @@ function createOptimizationMethodInput<TScenario extends Scenario, TArtifact>(
     selectionScenarios: cloneScenarios(opts.selectionScenarios),
     dispatchWithSurface: opts.dispatchWithSurface,
     judges: Object.freeze(judges),
-    runDir: `${resolvedRunDir}/optimization/${slug(methodName)}`,
+    runDir: methodRunDir,
     seed,
     runOptions: Object.freeze({ ...(opts.optimizationRunOptions ?? {}) }),
+    costLedger: createRunCostLedger({
+      storage,
+      runDir: `${methodRunDir}/cost`,
+      costCeilingUsd: opts.optimizationRunOptions?.costCeiling,
+    }),
   })
 }
 
@@ -667,6 +809,35 @@ export function costFromLedgerSummary(summary: CostLedgerSummary): ComparisonCos
   }
   assertComparisonCost(cost, 'cost ledger')
   return cost
+}
+
+/** Preserve every optimizer token class while keeping total input and output explicit. */
+export function optimizationTokenUsageFromSummary(
+  summary: CostLedgerSummary,
+  receipts: readonly CostReceipt[],
+): OptimizationTokenUsage | undefined {
+  if (!summary.usageComplete) return undefined
+  if (receipts.length !== summary.totalCalls) {
+    throw new Error('optimization token usage receipt count does not match the cost summary')
+  }
+  const cachedInputTokens = summary.cachedTokens
+  const cacheWriteInputTokens = summary.cacheWriteTokens ?? 0
+  const inputTokens = summary.inputTokens + cachedInputTokens + cacheWriteInputTokens
+  const cacheReadComplete =
+    receipts.length === 0 || receipts.every((receipt) => receipt.cachedTokens !== undefined)
+  const cacheWriteComplete =
+    receipts.length === 0 || receipts.every((receipt) => receipt.cacheWriteTokens !== undefined)
+  const reasoningComplete =
+    receipts.length === 0 || receipts.every((receipt) => receipt.reasoningTokens !== undefined)
+  return {
+    inputTokens,
+    ...(cacheReadComplete ? { cachedInputTokens } : {}),
+    ...(cacheWriteComplete ? { cacheWriteInputTokens } : {}),
+    outputTokens: summary.outputTokens,
+    ...(reasoningComplete ? { reasoningTokens: summary.reasoningTokens ?? 0 } : {}),
+    totalTokens: inputTokens + summary.outputTokens,
+    calls: summary.totalCalls,
+  }
 }
 
 function combineCosts(entries: Array<{ label: string; cost: ComparisonCost }>): ComparisonCost {

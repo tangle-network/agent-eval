@@ -89,6 +89,9 @@ function bundle(prompt: string): AgentCandidateBundle {
       launch: { kind: 'container-command' as const, executable: 'node' },
       instructionDelivery: { kind: 'stdin-utf8' as const },
       cwd: { workspace: 'task' as const, path: '.' },
+      env: {
+        PATH: { kind: 'public' as const, value: '/usr/local/bin:/usr/bin:/bin' },
+      },
       environment: { kind: 'evaluator-task-container' as const },
       isolation: {
         network: 'disabled' as const,
@@ -255,7 +258,9 @@ function executionEvidence(input: {
       launch: {
         executable: 'node',
         args: [],
-        env: {},
+        env: {
+          PATH: { kind: 'public' as const, value: '/usr/local/bin:/usr/bin:/bin' },
+        },
         cwd: { workspace: 'task' as const, path: '.' },
       },
       memory: { mode: 'disabled' as const },

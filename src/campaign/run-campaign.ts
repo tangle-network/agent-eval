@@ -43,6 +43,8 @@ import type {
 export interface RunCampaignOptions<TScenario extends Scenario, TArtifact> {
   scenarios: TScenario[]
   dispatch: DispatchFn<TScenario, TArtifact>
+  /** Abort active dispatches when the owning operation is cancelled. */
+  signal?: AbortSignal
   /**
    * Stable identity for the dispatch behavior, included in the manifest/cache
    * key. Set this when the same function name can run different models,
@@ -71,18 +73,25 @@ export interface RunCampaignOptions<TScenario extends Scenario, TArtifact> {
   costLedger?: CostLedgerHandle
   /** Attribution label for receipts recorded by this campaign. */
   costPhase?: string
+  /** Additional immutable receipt tags supplied by an owning workflow. */
+  costTags?: Readonly<Record<string, string>>
   /** Max concurrent cells. Default 2. */
   maxConcurrency?: number
   /**
    * Per-cell dispatch deadline in ms. A `dispatch` that neither resolves nor
    * rejects within this window is a hang (a stalled model request, an
    * exhausted runtime resource, a backend that never closes its stream). When
-   * set, the cell's `ctx.signal` is aborted and the cell is recorded as a LOUD
-   * error (`dispatch exceeded <N>ms`) so the campaign proceeds and the failure
-   * is visible — instead of one wedged cell silently hanging the whole run (and
-   * every loop/CI job above it) forever. `undefined`/`0` = unbounded (legacy).
+   * set, the cell's `ctx.signal` is aborted. A dispatch that stops is recorded
+   * as an error (`dispatch exceeded <N>ms`). A dispatch that ignores
+   * cancellation rejects the campaign without publishing incomplete cost data.
+   * `undefined`/`0` means unbounded.
    */
   dispatchTimeoutMs?: number
+  /**
+   * Time allowed for an aborted dispatch and its paid calls to stop before the
+   * campaign rejects without producing a result. Default 5 seconds.
+   */
+  dispatchShutdownTimeoutMs?: number
   /** Required: where artifacts + traces land. A bare name (not an absolute path)
    *  resolves to the shared `~/.tangle/traces/<repo>/runs/<name>` root so run
    *  bundles never pollute a repo working tree. Pass an absolute path to override. */
@@ -146,8 +155,12 @@ export async function runCampaign<TScenario extends Scenario, TArtifact>(
   const judges = opts.judges ?? []
   const storage = opts.storage ?? fsCampaignStorage()
   const costPhase = opts.costPhase ?? 'campaign'
+  const dispatchShutdownTimeoutMs = opts.dispatchShutdownTimeoutMs ?? 5_000
 
   assertCampaignDesign(opts.scenarios, reps)
+  if (!Number.isSafeInteger(dispatchShutdownTimeoutMs) || dispatchShutdownTimeoutMs <= 0) {
+    throw new Error('runCampaign: dispatchShutdownTimeoutMs must be a positive safe integer')
+  }
 
   if (typeof opts.runDir !== 'string' || opts.runDir.trim().length === 0) {
     throw new Error('runCampaign: runDir is required and must be a non-empty string')
@@ -184,58 +197,78 @@ export async function runCampaign<TScenario extends Scenario, TArtifact>(
   const schedule = buildCellSchedule(opts.scenarios, seed, reps)
 
   // Concurrency-limited execution.
-  const abortController = new AbortController()
+  const campaignAbort = new AbortController()
+  const onOwnerAbort = (): void => campaignAbort.abort(opts.signal?.reason)
+  if (opts.signal?.aborted) campaignAbort.abort(opts.signal.reason)
+  else opts.signal?.addEventListener('abort', onOwnerAbort, { once: true })
+  const campaignSignal = campaignAbort.signal
   // Concurrency lanes that drain the cell schedule. Named "lanes" — not
   // "workers" — to avoid clashing with the taxonomy's worker (= the agent
   // harness in a sandbox, invoked behind `dispatch`). See loop-taxonomy.md.
   const lanes: Promise<void>[] = []
   let nextIdx = 0
   const cellsRef = cells
+  let firstLaneError: unknown
 
   for (let i = 0; i < maxConcurrency; i++) {
     lanes.push(
       (async () => {
-        while (true) {
-          const myIdx = nextIdx++
-          if (myIdx >= schedule.length) return
-          const slot = schedule[myIdx]!
-          const result = await executeCell({
-            slot,
-            opts,
-            manifestHash,
-            resumable,
-            now,
-            storage,
-            buildTraceWriter: opts.buildTraceWriter ?? defaultBuildTraceWriter(storage),
-            signal: abortController.signal,
-            dispatchTimeoutMs: opts.dispatchTimeoutMs,
-            costLedger,
-            costPhase,
-            runAttemptId,
-          })
-          cellsRef.push(result.cell)
-          Object.assign(artifactsByPath, result.artifactsByPath)
-          // Capture into LabeledScenarioStore unless explicitly disabled.
-          if (opts.labeledStore && opts.labeledStore !== 'off' && !result.cell.error) {
-            await captureToStore({
-              store: opts.labeledStore,
-              cell: result.cell,
-              scenario: slot.scenario,
+        try {
+          while (true) {
+            if (campaignSignal.aborted) return
+            const myIdx = nextIdx++
+            if (myIdx >= schedule.length) return
+            const slot = schedule[myIdx]!
+            const result = await executeCell({
+              slot,
               opts,
+              manifestHash,
+              resumable,
               now,
-            }).catch((err) => {
-              // Capture failures are non-fatal — log but don't crash the campaign.
-              // (Trace would normally land here.)
-              console.warn(
-                `[runCampaign] capture failed for ${result.cell.cellId}: ${err instanceof Error ? err.message : String(err)}`,
-              )
+              storage,
+              buildTraceWriter: opts.buildTraceWriter ?? defaultBuildTraceWriter(storage),
+              signal: campaignSignal,
+              dispatchTimeoutMs: opts.dispatchTimeoutMs,
+              dispatchShutdownTimeoutMs,
+              costLedger,
+              costPhase,
+              runAttemptId,
             })
+            cellsRef.push(result.cell)
+            Object.assign(artifactsByPath, result.artifactsByPath)
+            // Capture into LabeledScenarioStore unless explicitly disabled.
+            if (opts.labeledStore && opts.labeledStore !== 'off' && !result.cell.error) {
+              await captureToStore({
+                store: opts.labeledStore,
+                cell: result.cell,
+                scenario: slot.scenario,
+                opts,
+                now,
+              }).catch((err) => {
+                // Capture failures are non-fatal — log but don't crash the campaign.
+                // (Trace would normally land here.)
+                console.warn(
+                  `[runCampaign] capture failed for ${result.cell.cellId}: ${err instanceof Error ? err.message : String(err)}`,
+                )
+              })
+            }
           }
+        } catch (error) {
+          if (firstLaneError === undefined) {
+            firstLaneError = error
+            campaignAbort.abort(error)
+          }
+          throw error
         }
       })(),
     )
   }
-  await Promise.all(lanes)
+  const laneResults = await Promise.allSettled(lanes)
+  opts.signal?.removeEventListener('abort', onOwnerAbort)
+  const failedLane = laneResults.find(
+    (result): result is PromiseRejectedResult => result.status === 'rejected',
+  )
+  if (failedLane) throw firstLaneError ?? failedLane.reason
 
   const endedAt = now()
   cellsRef.sort((a, b) => a.cellId.localeCompare(b.cellId))
@@ -276,6 +309,7 @@ interface ExecuteCellArgs<TScenario extends Scenario, TArtifact> {
   buildTraceWriter: (cellId: string, dir: string) => CampaignTraceWriter
   signal: AbortSignal
   dispatchTimeoutMs?: number
+  dispatchShutdownTimeoutMs: number
   costLedger: CostLedgerHandle
   costPhase: string
   runAttemptId: string
@@ -288,6 +322,7 @@ async function executeCell<TScenario extends Scenario, TArtifact>(
   const cellDir = join(args.opts.runDir, args.slot.cellId.replace(/[^a-zA-Z0-9_-]/g, '_'))
   storage.ensureDir(cellDir)
   const stableCostTags = {
+    ...(args.opts.costTags ?? {}),
     runDir: args.opts.runDir,
     cellId: args.slot.cellId,
     scenarioId: args.slot.scenario.id,
@@ -346,6 +381,7 @@ async function executeCell<TScenario extends Scenario, TArtifact>(
   const startMs = Date.now()
   const trace = args.buildTraceWriter(args.slot.cellId, cellDir)
   const artifactsByPath: Record<string, string> = {}
+  let paidCallStarted = false
   const artifacts: CampaignArtifactWriter = {
     async write(path, content) {
       const fullPath = join(cellDir, path)
@@ -360,6 +396,7 @@ async function executeCell<TScenario extends Scenario, TArtifact>(
   }
   const cost: CampaignCostMeter = {
     async runPaidCall(input) {
+      paidCallStarted = true
       const result = await args.costLedger.runPaidCall({
         ...input,
         channel: input.channel ?? 'agent',
@@ -402,10 +439,24 @@ async function executeCell<TScenario extends Scenario, TArtifact>(
 
   let artifact: TArtifact | undefined
   let errorMessage: string | undefined
+  let dispatched: Promise<TArtifact> | undefined
   const timeoutMs = args.dispatchTimeoutMs
   let timeoutTimer: ReturnType<typeof setTimeout> | undefined
+  let removeAbortListener: () => void = () => undefined
   try {
-    const dispatched = args.opts.dispatch(args.slot.scenario, ctx)
+    dispatched = Promise.resolve(args.opts.dispatch(args.slot.scenario, ctx))
+    const aborted = new Promise<never>((_resolve, reject) => {
+      const rejectAbort = () => {
+        const reason = cellAbort.signal.reason
+        reject(reason instanceof Error ? reason : new Error(String(reason ?? 'dispatch aborted')))
+      }
+      if (cellAbort.signal.aborted) {
+        rejectAbort()
+        return
+      }
+      cellAbort.signal.addEventListener('abort', rejectAbort, { once: true })
+      removeAbortListener = () => cellAbort.signal.removeEventListener('abort', rejectAbort)
+    })
     if (timeoutMs !== undefined && timeoutMs > 0) {
       // A dispatch that never settles (stalled model request, exhausted runtime
       // resource, a stream that never closes) must NOT hang the cell — and with
@@ -413,27 +464,56 @@ async function executeCell<TScenario extends Scenario, TArtifact>(
       // against the deadline; on timeout, abort the cell and fail it LOUD.
       artifact = await Promise.race([
         dispatched,
+        aborted,
         new Promise<never>((_, reject) => {
           timeoutTimer = setTimeout(() => {
-            cellAbort.abort(new Error('dispatch timeout'))
-            reject(
-              new Error(
-                `dispatch exceeded ${timeoutMs}ms for cell '${args.slot.cellId}' — aborted and failed loud (no silent hang)`,
-              ),
+            const timeoutError = new Error(
+              `dispatch exceeded ${timeoutMs}ms for cell '${args.slot.cellId}' — aborted and failed loud (no silent hang)`,
             )
+            reject(timeoutError)
+            cellAbort.abort(timeoutError)
           }, timeoutMs)
           if (typeof (timeoutTimer as { unref?: () => void }).unref === 'function')
             (timeoutTimer as { unref: () => void }).unref()
         }),
       ])
     } else {
-      artifact = await dispatched
+      artifact = await Promise.race([dispatched, aborted])
     }
   } catch (err) {
     errorMessage = err instanceof Error ? err.message : String(err)
   } finally {
     if (timeoutTimer) clearTimeout(timeoutTimer)
+    removeAbortListener()
     args.signal.removeEventListener('abort', onCampaignAbort)
+  }
+
+  if (dispatched) {
+    const dispatchSettled = await settlesWithin(dispatched, args.dispatchShutdownTimeoutMs)
+    if (!dispatchSettled) {
+      await trace.flush()
+      throw new CostAccountingIncompleteError(
+        `dispatch for cell '${args.slot.cellId}' ignored cancellation and did not stop within ${args.dispatchShutdownTimeoutMs}ms; no campaign result was produced`,
+      )
+    }
+  }
+  if (paidCallStarted) {
+    if (typeof args.costLedger.waitForIdle !== 'function') {
+      await trace.flush()
+      throw new CostAccountingIncompleteError(
+        `cost ledger for cell '${args.slot.cellId}' cannot prove that paid calls stopped`,
+      )
+    }
+    const paidCallsSettled = await args.costLedger.waitForIdle({
+      timeoutMs: args.dispatchShutdownTimeoutMs,
+      filter: { channel: 'agent', phase: args.costPhase, tags: costTags },
+    })
+    if (!paidCallsSettled) {
+      await trace.flush()
+      throw new CostAccountingIncompleteError(
+        `paid calls for cell '${args.slot.cellId}' did not settle within ${args.dispatchShutdownTimeoutMs}ms; no campaign result was produced`,
+      )
+    }
   }
 
   const agentReceipts = args.costLedger.list({ channel: 'agent', tags: costTags })
@@ -518,6 +598,24 @@ async function executeCell<TScenario extends Scenario, TArtifact>(
   }
 
   return { cell, artifactsByPath }
+}
+
+function settlesWithin(promise: Promise<unknown>, timeoutMs: number): Promise<boolean> {
+  return new Promise<boolean>((resolve) => {
+    let completed = false
+    let timer: ReturnType<typeof setTimeout> | undefined
+    const finish = (value: boolean): void => {
+      if (completed) return
+      completed = true
+      if (timer) clearTimeout(timer)
+      resolve(value)
+    }
+    timer = setTimeout(() => finish(false), timeoutMs)
+    promise.then(
+      () => finish(true),
+      () => finish(true),
+    )
+  })
 }
 
 export interface CampaignRunPlanCell {

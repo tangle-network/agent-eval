@@ -1,30 +1,21 @@
 /**
- * # `selfImprove()` - the one-call improvement loop.
+ * Run one complete improvement job.
  *
- * The cheapest possible call site to run a real closed-loop self-
- * improvement over your agent. Wraps `runImprovementLoop` with smart
- * defaults and a budget-shaped options API; every escape hatch the
- * substrate exposes is reachable from here without losing the
- * one-function feel.
- *
- * Defaults:
- *   - In-memory storage (no filesystem touch).
- *   - `gepaProposer` reflective mutation with domain-neutral engineering primitives
- *     (override `proposer` or `mutationPrimitives` for any domain).
- *   - `defaultProductionGate` with `deltaThreshold: 0.05`.
- *   - Held-out split = 25% of scenarios, deterministic by id hash.
- *   - 3 generations × population 2 (raise via `budget` for more search).
- *   - `autoOnPromote: 'none'` (we don't open PRs unless you ask).
- *
- * Want one-click? Provide `agent` + `scenarios` + `judge`. Done.
- * Want distributed? Pass `cellPlacement` + an `httpDispatch`-backed
- * agent. Want a code-tier surface? Pass a `MutableSurface` + your own
- * `proposer`. Same function.
+ * A caller-owned `proposer` can generate candidates across local generations.
+ * An external `method`, such as official GEPA or SkillOpt, owns its complete
+ * search and returns one candidate. Both paths remeasure the selected candidate
+ * against cases that candidate generation never receives.
  */
 
 import { createHash } from 'node:crypto'
 import { defaultProductionGate } from '../campaign/gates/default-production-gate'
 import { type PowerPreflight, powerPreflight } from '../campaign/gates/power-preflight'
+import {
+  assertOptimizationResult,
+  type OptimizationMethod,
+  type OptimizationMethodProvenance,
+  type OptimizationMethodResult,
+} from '../campaign/presets/compare-optimization-methods'
 import {
   type RunImprovementLoopResult,
   runImprovementLoop,
@@ -33,7 +24,6 @@ import type {
   PremeasuredOptimizationBaseline,
   RunOptimizationOptions,
 } from '../campaign/presets/run-optimization'
-import { gepaProposer } from '../campaign/proposers/gepa'
 import {
   emitLoopProvenance,
   type LoopProvenanceRecord,
@@ -68,8 +58,9 @@ export interface SelfImproveBudget {
   /** Hard spend cap across the full run. Each paid call reserves its enforced
    *  maximum before dispatch, so completed spend cannot cross this amount. */
   dollars?: number
-  /** How many improvement generations to explore. Default 3. Set 0 to
-   *  skip improvement entirely (selfImprove becomes a baseline-only run). */
+  /** Proposer generations. Default: 3. External methods own their rounds and
+   *  require this value to be omitted or set to 1. Set 0 only for a
+   *  proposer-free baseline run. */
   generations?: number
   /** Candidates the proposer emits per generation. Default 2. */
   populationSize?: number
@@ -81,6 +72,10 @@ export interface SelfImproveBudget {
   /** Fraction of `scenarios` held out from training, used for the gate.
    *  Default 0.25. Ignored when `holdoutScenarios` is set explicitly. */
   holdoutFraction?: number
+  /** Fraction of the non-final cases reserved for method selection.
+   *  Default 0.25. Used only with `method` and ignored when
+   *  `selectionScenarios` is supplied explicitly. */
+  selectionFraction?: number
   /** Explicit held-out scenarios; overrides `holdoutFraction`. */
   holdoutScenarios?: Scenario[]
   /** Holdout policy. Default `'measured'`: split, re-score baseline vs winner
@@ -99,19 +94,6 @@ export interface SelfImproveBudget {
    *  may take per candidate (verify-in-session retries). Unset ⇒ the
    *  proposer's own default. */
   maxImprovementShots?: number
-  /** @deprecated Must be 1 when supplied. The loop promotes only a candidate
-   *  that replaces its single global incumbent. */
-  promoteTopK?: number
-}
-
-export interface SelfImproveLlm {
-  /** Endpoint base URL. Default Tangle Router. */
-  baseUrl?: string
-  /** Bearer token. Default `process.env.OPENAI_API_KEY`. */
-  apiKey?: string
-  /** Model id used by `gepaProposer` reflection. Default
-   *  `anthropic/claude-sonnet-4.6`. */
-  model?: string
 }
 
 export type SelfImproveProgressEvent =
@@ -168,13 +150,22 @@ export interface SelfImproveOptions<TScenario extends Scenario, TArtifact> {
    */
   premeasuredBaseline?: PremeasuredOptimizationBaseline<TArtifact, TScenario>
 
-  /** Custom surface proposer. Default is `gepaProposer` configured from `llm` +
-   *  `mutationPrimitives`. */
+  /**
+   * Candidate generator for this local generation loop.
+   * Required when `budget.generations` is greater than zero.
+   */
   proposer?: SurfaceProposer
 
-  /** Default-proposer overrides — used when `proposer` is unset. */
-  mutationPrimitives?: string[]
-  proposerTarget?: string
+  /**
+   * Complete optimization method, such as official GEPA or SkillOpt.
+   * The method receives disjoint train and selection cases and never receives
+   * the final comparison cases. Mutually exclusive with `proposer`.
+   */
+  method?: OptimizationMethod<TScenario, TArtifact>
+
+  /** Explicit method-selection cases. They must also appear in `scenarios`
+   *  and must not overlap the final comparison cases. */
+  selectionScenarios?: TScenario[]
 
   /** Custom gate. Default is `defaultProductionGate` with
    *  `deltaThreshold: 0.05` on the held-out split. */
@@ -189,20 +180,14 @@ export interface SelfImproveOptions<TScenario extends Scenario, TArtifact> {
    *  campaign; omit to skip. Compose `neutralizationGate` into `gate` to act on it. */
   neutralize?: (winnerSurface: MutableSurface, baselineSurface: MutableSurface) => MutableSurface
 
-  /** LLM config consumed by the default `gepaProposer`. Ignored if you pass
-   *  your own `proposer`. */
-  llm?: SelfImproveLlm
-
-  /** Storage backend. Default is DURABLE: when a real (non-`mem://`) `runDir`
-   *  is available, the substrate defaults to `fsCampaignStorage()` so the
-   *  provenance record + OTel spans survive the call. Pass
-   *  `inMemoryCampaignStorage()` explicitly to opt OUT (tests, edge runtimes).
-   *  Default when `runDir` is `mem://...` (or unset): in-memory. */
+  /** Storage backend. A filesystem run directory uses `fsCampaignStorage()`;
+   *  a `mem://` directory uses in-memory storage. External methods default to
+   *  a filesystem directory because their official state must survive. */
   storage?: CampaignStorage
 
-  /** Run directory (logical for in-memory storage, real path for fs).
-   *  Default `mem://selfImprove-<timestamp>` (in-memory, non-durable). Pass a
-   *  real path to persist the provenance record + spans. */
+  /** Run directory. Proposer mode defaults to
+   *  `mem://selfImprove-<timestamp>`. External method mode defaults to
+   *  `.agent-eval/runs/self-improve-<timestamp>`. */
   runDir?: string
 
   /** Fires once the durable provenance record + OTel spans are emitted.
@@ -334,6 +319,13 @@ export interface SelfImproveResult<TScenario extends Scenario, TArtifact> {
   /** Run-wide receipts across proposal, search, holdout, judging, analysis,
    *  and promotion work, with phase and actor attribution. */
   receipts: CostReceipt[]
+  /** Exact external method and source identity, when `method` was used. */
+  optimization?: {
+    name: string
+    cost: OptimizationMethodResult['cost']
+    durationMs?: number
+    provenance?: OptimizationMethodProvenance
+  }
   /**
    * Rigor packet: distributional summary, paired-bootstrap lift CI,
    * judge stats, contamination check, recommendations. Wired through
@@ -368,6 +360,113 @@ export class SelfImproveRunError extends Error {
   }
 }
 
+function assertSelfImproveSearchMode<TScenario extends Scenario, TArtifact>(
+  opts: SelfImproveOptions<TScenario, TArtifact>,
+): void {
+  if (opts.method && opts.proposer) {
+    throw new Error('selfImprove: method and proposer are mutually exclusive')
+  }
+  if (!opts.method) {
+    if (opts.selectionScenarios !== undefined) {
+      throw new Error('selfImprove: selectionScenarios requires method')
+    }
+    return
+  }
+  if (
+    typeof opts.method.name !== 'string' ||
+    !opts.method.name.trim() ||
+    opts.method.name.trim() !== opts.method.name ||
+    typeof opts.method.optimize !== 'function'
+  ) {
+    throw new Error('selfImprove: method must have a trimmed name and optimize(input)')
+  }
+  const budget = opts.budget
+  if (budget?.generations !== undefined && budget.generations !== 1) {
+    throw new Error('selfImprove: method owns its rounds; budget.generations must be 1 when set')
+  }
+  if (budget?.populationSize !== undefined && budget.populationSize !== 1) {
+    throw new Error(
+      'selfImprove: method owns its candidates; budget.populationSize must be 1 when set',
+    )
+  }
+  if (
+    budget?.candidateConcurrency !== undefined ||
+    budget?.maxImprovementShots !== undefined ||
+    opts.analyzeGeneration !== undefined ||
+    opts.findings !== undefined
+  ) {
+    throw new Error(
+      'selfImprove: candidateConcurrency, maxImprovementShots, analyzeGeneration, and findings apply only to proposer mode',
+    )
+  }
+}
+
+function splitMethodPartitions<TScenario extends Scenario>(
+  searchScenarios: TScenario[],
+  explicitSelection: TScenario[] | undefined,
+  fraction: number,
+): { train: TScenario[]; selection: TScenario[] } {
+  if (!Number.isFinite(fraction) || fraction <= 0 || fraction >= 1) {
+    throw new Error('selfImprove: budget.selectionFraction must be in (0, 1)')
+  }
+  const byId = new Map<string, TScenario>()
+  for (const scenario of searchScenarios) {
+    if (byId.has(scenario.id)) {
+      throw new Error(`selfImprove: duplicate scenario id '${scenario.id}'`)
+    }
+    byId.set(scenario.id, scenario)
+  }
+  if (explicitSelection) {
+    if (explicitSelection.length === 0) {
+      throw new Error('selfImprove: selectionScenarios must not be empty')
+    }
+    const selectionIds = new Set<string>()
+    for (const scenario of explicitSelection) {
+      if (!byId.has(scenario.id)) {
+        throw new Error(
+          `selfImprove: selection scenario '${scenario.id}' is absent from the non-final cases`,
+        )
+      }
+      if (selectionIds.has(scenario.id)) {
+        throw new Error(`selfImprove: duplicate selection scenario id '${scenario.id}'`)
+      }
+      selectionIds.add(scenario.id)
+    }
+    const train = searchScenarios.filter((scenario) => !selectionIds.has(scenario.id))
+    if (train.length === 0) {
+      throw new Error('selfImprove: method train split is empty')
+    }
+    return {
+      train,
+      selection: explicitSelection.map((scenario) => byId.get(scenario.id)!),
+    }
+  }
+  if (searchScenarios.length < 2) {
+    throw new Error('selfImprove: method requires at least two non-final scenarios')
+  }
+  const sorted = [...searchScenarios].sort(
+    (a, b) => stableScenarioHash(a.id) - stableScenarioHash(b.id),
+  )
+  const count = Math.max(1, Math.min(sorted.length - 1, Math.round(sorted.length * fraction)))
+  return {
+    selection: sorted.slice(0, count),
+    train: sorted.slice(count),
+  }
+}
+
+function safeRunComponent(value: string): string {
+  return value.replace(/[^a-zA-Z0-9._-]/g, '_')
+}
+
+function stableScenarioHash(value: string): number {
+  let hash = 2166136261 >>> 0
+  for (let index = 0; index < value.length; index++) {
+    hash ^= value.charCodeAt(index)
+    hash = Math.imul(hash, 16777619) >>> 0
+  }
+  return hash
+}
+
 /**
  * Deterministic train/holdout split by a stable hash of `scenario.id`,
  * so the same scenario set always splits the same way across runs.
@@ -376,16 +475,7 @@ function splitTrainHoldout<TScenario extends Scenario>(
   scenarios: TScenario[],
   fraction: number,
 ): { train: TScenario[]; holdout: TScenario[] } {
-  // Stable fnv-1a-ish hash of the id for ordering.
-  function hash(s: string): number {
-    let h = 2166136261 >>> 0
-    for (let i = 0; i < s.length; i++) {
-      h ^= s.charCodeAt(i)
-      h = Math.imul(h, 16777619) >>> 0
-    }
-    return h
-  }
-  const sorted = [...scenarios].sort((a, b) => hash(a.id) - hash(b.id))
+  const sorted = [...scenarios].sort((a, b) => stableScenarioHash(a.id) - stableScenarioHash(b.id))
   const nHoldout = Math.max(1, Math.min(sorted.length - 1, Math.round(sorted.length * fraction)))
   return {
     holdout: sorted.slice(0, nHoldout),
@@ -437,6 +527,7 @@ function winnerSearchCampaign<TScenario extends Scenario, TArtifact>(
  *     scenarios,
  *     judge,
  *     baselineSurface: DEFAULT_PROMPT,
+ *     proposer,
  *   })
  *   console.log(`lift: ${result.lift.toFixed(3)} (${result.gateDecision})`)
  *
@@ -455,7 +546,9 @@ export async function selfImprove<TScenario extends Scenario, TArtifact>(
   opts: SelfImproveOptions<TScenario, TArtifact>,
 ): Promise<SelfImproveResult<TScenario, TArtifact>> {
   const startedAt = Date.now()
-  const requestedRunDir = opts.runDir ?? `mem://selfImprove-${startedAt}`
+  const requestedRunDir =
+    opts.runDir ??
+    (opts.method ? `.agent-eval/runs/self-improve-${startedAt}` : `mem://selfImprove-${startedAt}`)
   const runDir = resolveRunDir(requestedRunDir)
   const storage =
     opts.storage ?? (runDir.startsWith('mem://') ? inMemoryCampaignStorage() : fsCampaignStorage())
@@ -479,8 +572,9 @@ async function runSelfImprove<TScenario extends Scenario, TArtifact>(
   storage: CampaignStorage,
 ): Promise<SelfImproveResult<TScenario, TArtifact>> {
   const budget = opts.budget ?? {}
-  const generations = budget.generations ?? 3
-  const populationSize = budget.populationSize ?? 2
+  assertSelfImproveSearchMode(opts)
+  const generations = opts.method ? 1 : (budget.generations ?? 3)
+  const populationSize = opts.method ? 1 : (budget.populationSize ?? 2)
   const maxConcurrency = budget.maxConcurrency ?? 2
   const holdoutFraction = budget.holdoutFraction ?? 0.25
   const holdoutMode = budget.holdout ?? 'measured'
@@ -510,21 +604,59 @@ async function runSelfImprove<TScenario extends Scenario, TArtifact>(
     throw new Error('selfImprove: holdout split is empty. Pass more scenarios.')
   }
 
-  const proposer: SurfaceProposer =
-    opts.proposer ??
-    gepaProposer({
-      llm: {
-        baseUrl: opts.llm?.baseUrl ?? 'https://router.tangle.tools/v1',
-        apiKey: opts.llm?.apiKey ?? process.env.OPENAI_API_KEY ?? '',
-      },
-      model: opts.llm?.model ?? 'anthropic/claude-sonnet-4.6',
-      target:
-        opts.proposerTarget ??
-        'agent surface (system prompt or config) being optimized by selfImprove',
-      // Pass-through: when unset, gepaProposer falls back to its own
-      // domain-neutral engineering primitives.
-      mutationPrimitives: opts.mutationPrimitives,
-    })
+  if (generations > 0 && !opts.proposer && !opts.method) {
+    throw new Error(
+      'selfImprove: method or proposer is required when budget.generations is greater than zero',
+    )
+  }
+  let optimizationResult: OptimizationMethodResult | undefined
+  const methodPartitions = opts.method
+    ? splitMethodPartitions(train, opts.selectionScenarios, budget.selectionFraction ?? 0.25)
+    : undefined
+  const proposer: SurfaceProposer = opts.method
+    ? {
+        kind: `method:${opts.method.name}`,
+        propose: async (context) => {
+          if (context.generation > 0) return []
+          const result = await opts.method!.optimize(
+            Object.freeze({
+              baselineSurface: structuredClone(context.currentSurface),
+              trainScenarios: Object.freeze(
+                methodPartitions!.train.map((scenario) => structuredClone(scenario)),
+              ),
+              selectionScenarios: Object.freeze(
+                methodPartitions!.selection.map((scenario) => structuredClone(scenario)),
+              ),
+              dispatchWithSurface: opts.agent,
+              judges: Object.freeze([opts.judge]),
+              runDir: `${runDir}/optimization/${safeRunComponent(opts.method!.name)}`,
+              seed: 42,
+              runOptions: Object.freeze({
+                storage,
+                maxConcurrency,
+                reps: budget.reps,
+                dispatchTimeoutMs: opts.dispatchTimeoutMs,
+                expectUsage,
+                costCeiling: budget.dollars,
+              }),
+              costLedger,
+            }),
+          )
+          assertOptimizationResult(opts.method!.name, result)
+          optimizationResult = structuredClone(result)
+          return [
+            {
+              surface: structuredClone(result.winnerSurface),
+              label: opts.method!.name,
+              rationale: `${opts.method!.name} selected this surface without final cases.`,
+            },
+          ]
+        },
+      }
+    : (opts.proposer ?? {
+        kind: 'baseline-only',
+        propose: async () => [],
+      })
 
   const gate: Gate<TArtifact, TScenario> =
     opts.gate ??
@@ -547,7 +679,6 @@ async function runSelfImprove<TScenario extends Scenario, TArtifact>(
     populationSize,
     maxGenerations: generations,
     candidateConcurrency: budget.candidateConcurrency,
-    promoteTopK: budget.promoteTopK,
     reps: budget.reps,
     maxImprovementShots: budget.maxImprovementShots,
     holdoutScenarios: holdout,
@@ -665,6 +796,20 @@ async function runSelfImprove<TScenario extends Scenario, TArtifact>(
       totalCostUsd: totalCost,
       totalDurationMs: durationMs,
     }),
+    ...(optimizationResult
+      ? {
+          optimizationMethod: {
+            name: opts.method!.name,
+            cost: structuredClone(optimizationResult.cost),
+            ...(optimizationResult.durationMs === undefined
+              ? {}
+              : { durationMs: optimizationResult.durationMs }),
+            ...(optimizationResult.provenance === undefined
+              ? {}
+              : { provenance: structuredClone(optimizationResult.provenance) }),
+          },
+        }
+      : {}),
     storage,
     hostedClient: opts.hostedTenant ? createHostedClient(opts.hostedTenant) : undefined,
   })
@@ -687,6 +832,20 @@ async function runSelfImprove<TScenario extends Scenario, TArtifact>(
     totalCostUsd: totalCost,
     cost,
     receipts: costLedger.list(),
+    ...(optimizationResult
+      ? {
+          optimization: {
+            name: opts.method!.name,
+            cost: structuredClone(optimizationResult.cost),
+            ...(optimizationResult.durationMs === undefined
+              ? {}
+              : { durationMs: optimizationResult.durationMs }),
+            ...(optimizationResult.provenance === undefined
+              ? {}
+              : { provenance: structuredClone(optimizationResult.provenance) }),
+          },
+        }
+      : {}),
     insight,
     ...(power ? { power } : {}),
     raw: result,

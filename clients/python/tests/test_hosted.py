@@ -89,9 +89,7 @@ def receiver():
     env["TENANT_ID"] = TENANT_ID
     env["TENANT_KEY"] = TENANT_KEY
     runner = (
-        ["tsx", str(SERVER_TS)]
-        if shutil.which("tsx")
-        else ["pnpm", "exec", "tsx", str(SERVER_TS)]
+        ["tsx", str(SERVER_TS)] if shutil.which("tsx") else ["pnpm", "exec", "tsx", str(SERVER_TS)]
     )
     proc = subprocess.Popen(
         runner,
@@ -122,8 +120,11 @@ def _make_run_event(run_id: str) -> EvalRunEvent:
         baseline=EvalRunGenerationSnapshot(
             index=0,
             surfaceHash="h-base",
-            cells=[EvalRunCellScore(scenarioId="s1", rep=0, compositeMean=0.5,
-                                     dimensions={"llm": {"accuracy": 0.5}})],
+            cells=[
+                EvalRunCellScore(
+                    scenarioId="s1", rep=0, compositeMean=0.5, dimensions={"llm": {"accuracy": 0.5}}
+                )
+            ],
             compositeMean=0.5,
             costUsd=0.1,
             durationMs=1000,
@@ -132,8 +133,14 @@ def _make_run_event(run_id: str) -> EvalRunEvent:
             EvalRunGenerationSnapshot(
                 index=1,
                 surfaceHash="h-cand",
-                cells=[EvalRunCellScore(scenarioId="s1", rep=0, compositeMean=0.8,
-                                         dimensions={"llm": {"accuracy": 0.8}})],
+                cells=[
+                    EvalRunCellScore(
+                        scenarioId="s1",
+                        rep=0,
+                        compositeMean=0.8,
+                        dimensions={"llm": {"accuracy": 0.8}},
+                    )
+                ],
                 compositeMean=0.8,
                 costUsd=0.2,
                 durationMs=1200,
@@ -147,9 +154,7 @@ def _make_run_event(run_id: str) -> EvalRunEvent:
 
 
 def test_ingest_eval_run_roundtrip(receiver):
-    with HostedClient(
-        endpoint=receiver["url"], api_key=TENANT_KEY, tenant_id=TENANT_ID
-    ) as client:
+    with HostedClient(endpoint=receiver["url"], api_key=TENANT_KEY, tenant_id=TENANT_ID) as client:
         res = client.ingest_eval_run(_make_run_event("py-1"))
         assert res.accepted == 1
         assert res.rejected == []
@@ -169,9 +174,7 @@ def test_ingest_eval_run_roundtrip(receiver):
 
 
 def test_ingest_traces_roundtrip(receiver):
-    with HostedClient(
-        endpoint=receiver["url"], api_key=TENANT_KEY, tenant_id=TENANT_ID
-    ) as client:
+    with HostedClient(endpoint=receiver["url"], api_key=TENANT_KEY, tenant_id=TENANT_ID) as client:
         client.ingest_eval_run(_make_run_event("py-traces"))
         spans = [
             make_trace_span(
@@ -233,9 +236,7 @@ def test_rejects_bad_bearer(receiver):
 
 
 def test_idempotency(receiver):
-    with HostedClient(
-        endpoint=receiver["url"], api_key=TENANT_KEY, tenant_id=TENANT_ID
-    ) as client:
+    with HostedClient(endpoint=receiver["url"], api_key=TENANT_KEY, tenant_id=TENANT_ID) as client:
         first = client.ingest_eval_run(_make_run_event("idem-py"), idempotency_key="key-py")
         second = client.ingest_eval_run(_make_run_event("idem-py"), idempotency_key="key-py")
         assert first.accepted == second.accepted == 1

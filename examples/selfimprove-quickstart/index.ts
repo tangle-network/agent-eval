@@ -1,5 +1,5 @@
 /**
- * defineAgentEval() quickstart — closed-loop improvement with a decision packet.
+ * defineAgentEval() quickstart with a caller-owned candidate generator.
  *
  * Run with: pnpm tsx examples/selfimprove-quickstart/index.ts
  *
@@ -68,10 +68,8 @@ function clamp(x: number): number {
   return Math.max(0, Math.min(1, x))
 }
 
-// Synthetic proposer: deterministically proposes two variants per generation —
+// This deterministic proposer returns two variants per generation.
 // one adds 'tight,', the other adds 'specific,'. Lets the example run offline.
-// In real use, you'd use the default `gepaProposer` (reflective LLM mutation)
-// from `/contract`.
 const syntheticProposer: SurfaceProposer = {
   kind: 'synthetic-quickstart',
   async propose({ currentSurface, populationSize }) {

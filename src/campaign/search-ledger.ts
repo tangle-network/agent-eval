@@ -2,9 +2,8 @@
  * Durable append-only audit log for improvement searches.
  *
  * Existing campaign artifacts keep their own rich records: `RunRecord` owns a
- * measured run, `Lineage` owns the candidate graph, and `CostLedger` owns
- * per-call accounting. This ledger does not copy those structures. It binds
- * their immutable ids and receipts into one replayable event stream so a
+ * measured run and `CostLedger` owns per-call accounting. This ledger does not
+ * copy those structures. It binds their immutable ids and receipts into one replayable event stream so a
  * search can answer, after a crash, exactly which candidates and task attempts
  * existed, which surfaces actually fired, what they cost, and why they were
  * selected or rejected.

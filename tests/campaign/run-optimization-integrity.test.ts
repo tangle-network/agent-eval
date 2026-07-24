@@ -46,28 +46,6 @@ afterEach(() => {
 })
 
 describe('runOptimization selection integrity', () => {
-  it('fails before spending when legacy promoteTopK requests multiple incumbents', async () => {
-    let dispatchCalls = 0
-    await expect(
-      runOptimization<TestScenario, TestArtifact>({
-        scenarios,
-        baselineSurface: 'BASE',
-        dispatchWithSurface: async (surface) => {
-          dispatchCalls += 1
-          return { text: String(surface) }
-        },
-        judges: [scoreJudge(() => 0.5)],
-        proposer: { kind: 'unused', propose: async () => ['CANDIDATE'] },
-        populationSize: 1,
-        maxGenerations: 1,
-        promoteTopK: 2,
-        expectUsage: 'off',
-        runDir,
-      }),
-    ).rejects.toThrow(/promoteTopK must be 1/)
-    expect(dispatchCalls).toBe(0)
-  })
-
   it('attributes every measured delta to the complete incumbent it mutated', async () => {
     const seen: Array<{
       baseline: number | undefined
@@ -100,7 +78,6 @@ describe('runOptimization selection integrity', () => {
       },
       populationSize: 1,
       maxGenerations: 2,
-      promoteTopK: 1,
       expectUsage: 'off',
       runDir,
     })
@@ -146,7 +123,6 @@ describe('runOptimization selection integrity', () => {
       },
       populationSize: 1,
       maxGenerations: 2,
-      promoteTopK: 1,
       expectUsage: 'off',
       runDir,
     })
@@ -176,7 +152,6 @@ describe('runOptimization selection integrity', () => {
       proposer: { kind: 'partial', propose: async () => ['PARTIAL'] },
       populationSize: 1,
       maxGenerations: 1,
-      promoteTopK: 1,
       expectUsage: 'off',
       runDir,
     })
@@ -286,7 +261,6 @@ describe('runOptimization selection integrity', () => {
       proposer: { kind: 'partial', propose: async () => ['PARTIAL'] },
       populationSize: 1,
       maxGenerations: 1,
-      promoteTopK: 1,
       expectUsage: 'off',
       runDir,
     })
@@ -326,7 +300,6 @@ describe('runOptimization selection integrity', () => {
       },
       populationSize: 1,
       maxGenerations: 2,
-      promoteTopK: 1,
       expectUsage: 'off',
       runDir,
     })

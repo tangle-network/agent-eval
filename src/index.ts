@@ -95,41 +95,6 @@ export {
   KNOWLEDGE_POISONING_KIND_SPEC,
 } from './analyst/kinds'
 export { SKILL_USAGE_ANALYST, SkillUsageAnalyst } from './analyst/kinds/skill-usage'
-export type {
-  FindingToPolicyEditOptions,
-  PolicyEdit,
-  PolicyEditAdmission,
-  PolicyEditAdmissionOptions,
-  PolicyEditAxis,
-  PolicyEditCandidateRecord,
-  PolicyEditChange,
-  PolicyEditExpectedGain,
-  PolicyEditGainDirection,
-  PolicyEditGainUnit,
-  PolicyEditInit,
-  PolicyEditRisk,
-  PolicyEditSchemaVersion,
-  PolicyEditSource,
-  PolicyEditTarget,
-  PolicyEditTargetSurface,
-} from './analyst/policy-edit'
-export {
-  admitPolicyEdit,
-  applyPolicyEditToSurface,
-  computePolicyEditId,
-  isPolicyEdit,
-  makePolicyEdit,
-  makePolicyEditCandidateRecord,
-  POLICY_EDIT_AXES,
-  POLICY_EDIT_CANDIDATE_RECORD_SCHEMA,
-  POLICY_EDIT_TARGET_SURFACES,
-  PolicyEditValidationError,
-  policyEditFromFinding,
-  policyEditsFromFindings,
-  scorePolicyEditReadiness,
-  validatePolicyEdit,
-  validatePolicyEditCandidateRecord,
-} from './analyst/policy-edit'
 export {
   type AnalystHooks,
   AnalystRegistry,
@@ -1537,48 +1502,14 @@ export {
 
 export type { OtelPipelineHandle, OtelPipelineOptions } from './otel-pipeline'
 export { isOtelConfigured, withOtelPipeline } from './otel-pipeline'
-export type { TracedAnalystOptions } from './traced-analyst'
-export { tracedAnalyzeTraces } from './traced-analyst'
-export type { TracedJudgeOptions } from './traced-judges'
-export { traceJudge, traceJudgeEnsemble } from './traced-judges'
-
-// ── Teacher→student GEPA distillation ────────────────────────────────
-// Distill a cheap single-shot analyst's prompt toward an expensive workflow's
-// gold verdicts. Composes runImprovementLoop + gepaProposer + the gate.
-
-export type {
-  AgreementResult,
-  BuildAgreementJudgeOptions,
-  CompareLabels,
-  FieldAgreementSpec,
-} from './campaign/distillation/agreement-judge'
-export { buildAgreementJudge, fieldAgreement } from './campaign/distillation/agreement-judge'
-export type {
-  GoldScenario,
-  GoldSplit,
-  SplitGoldOptions,
-} from './campaign/distillation/gold-scenarios'
-export {
-  loadGoldScenarios,
-  parseGoldJsonl,
-  splitGold,
-} from './campaign/distillation/gold-scenarios'
-export type {
-  ParseStudentLabel,
-  RenderStudentPrompt,
-  RunDistillationOptions,
-  RunDistillationResult,
-} from './campaign/distillation/run-distillation'
-export {
-  defaultParseStudentLabel,
-  defaultRenderStudentPrompt,
-  runDistillation,
-} from './campaign/distillation/run-distillation'
-
 // Prompt-profile builder utilities are namespaced under `profile`. The
 // canonical public `AgentProfile` type is exported above from
 // `@tangle-network/agent-interface` via `./agent-profile`.
 export * as profile from './profile/index'
+export type { TracedAnalystOptions } from './traced-analyst'
+export { tracedAnalyzeTraces } from './traced-analyst'
+export type { TracedJudgeOptions } from './traced-judges'
+export { traceJudge, traceJudgeEnsemble } from './traced-judges'
 
 // ── Cost governance — model seating chart + program cost report ─────────
 

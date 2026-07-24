@@ -6,6 +6,7 @@
 
 import { createHash } from 'node:crypto'
 import type { DispatchContext, JudgeConfig, JudgeScore, Scenario } from '../../src/campaign'
+import type { CustomTokenPricing } from '../../src/cost-ledger'
 import {
   callLlm,
   costReceiptFromLlm,
@@ -133,14 +134,14 @@ export const HOLDOUT: ExtractScenario[] = [
   ),
 ]
 
-/** The deliberately WEAK baseline: no schema, no field names, no date format,
- *  no taxonomy — so the exact-match checker penalizes the model's drift and a
+/** The deliberately weak baseline has no schema, field names, date format, or
+ *  taxonomy, so the exact-match checker penalizes drift and a
  *  proposer has real room to improve. */
 export const BASELINE_SURFACE = 'Extract the transaction info from the message as JSON.'
 
 export const PROPOSER_TARGET =
   'a system prompt that makes the model extract transaction fields into strict JSON with keys ' +
-  'merchant, amount, date, category — amount as a bare number, date as ISO YYYY-MM-DD, ' +
+  'merchant, amount, date, category; amount as a bare number, date as ISO YYYY-MM-DD, ' +
   `category from {${CATEGORIES.join(', ')}}`
 
 export const MUTATION_PRIMITIVES = [
@@ -163,8 +164,7 @@ function normAmount(s: unknown): string {
   return Number.isFinite(n) ? String(n) : ''
 }
 
-/** Composite = fraction of the 4 fields that exactly match gold after light
- *  normalization. Objective, deterministic — no LLM. */
+/** Composite is the fraction of fields that exactly match after normalization. */
 export function extractionJudge(
   dataset: ExtractScenario[],
 ): JudgeConfig<Artifact, ExtractScenario> {
@@ -198,7 +198,7 @@ export function extractionJudge(
 
 /** Tolerant JSON extraction: strip a ```json fence if present, else grab the
  *  first balanced object. The field-level checker still penalizes wrong keys /
- *  casing / formats, so this loosening does not inflate the score — it only
+ *  casing and formats, so this loosening does not inflate the score. It only
  *  stops a uniform parse failure from collapsing the gradient a proposer reflects
  *  on. */
 export function parseJsonLoose(raw: string): Record<string, unknown> | null {
@@ -218,34 +218,21 @@ export function parseJsonLoose(raw: string): Record<string, unknown> | null {
 export interface ExtractionWorkerOptions {
   llm: LlmClientOptions
   model: string
-  /** Per-call RunRecords sink — feeds `assertRealBackend` at the end. */
+  /** Per-call RunRecord sink used by assertRealBackend at the end. */
   records: RunRecord[]
-  /** Optional token rates used when the provider omits billed cost. Set both or neither. */
-  priceInPerMTokens?: number
-  priceOutPerMTokens?: number
+  /** Optional token rates used when the provider omits billed cost. */
+  customTokenPricing?: CustomTokenPricing
   timeoutMs?: number
   experimentId?: string
 }
 
-/** Build the real worker: runs the extraction with a given prompt surface,
- *  reports BOTH cost and token usage to the cell meter, and appends a
- *  `RunRecord` so the run's backend integrity is verdictable. Returns a
- *  `dispatchWithSurface` usable by every preset (runImprovementLoop,
- *  runSkillOpt, compareOptimizationMethods). */
+/** Build the worker, report cost and token usage, and append a RunRecord.
+ *  The returned function can be passed to runImprovementLoop or
+ *  compareOptimizationMethods. */
 export function makeExtractionWorker(opts: ExtractionWorkerOptions) {
-  if ((opts.priceInPerMTokens === undefined) !== (opts.priceOutPerMTokens === undefined)) {
-    throw new Error('priceInPerMTokens and priceOutPerMTokens must be set together')
-  }
-  const customTokenPricing =
-    opts.priceInPerMTokens === undefined || opts.priceOutPerMTokens === undefined
-      ? undefined
-      : {
-          inputUsdPerMillion: opts.priceInPerMTokens,
-          outputUsdPerMillion: opts.priceOutPerMTokens,
-        }
   const llm = {
     ...opts.llm,
-    ...(customTokenPricing ? { customTokenPricing } : {}),
+    ...(opts.customTokenPricing ? { customTokenPricing: opts.customTokenPricing } : {}),
   }
   const timeoutMs = opts.timeoutMs ?? 30_000
   const experimentId = opts.experimentId ?? 'extraction-task'

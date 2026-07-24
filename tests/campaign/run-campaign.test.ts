@@ -1077,18 +1077,18 @@ describe('runCampaign — dispatchTimeoutMs (the no-silent-hang guard)', () => {
   it('fails a non-settling dispatch loud as an error cell instead of hanging', async () => {
     const neverSettles: DispatchFn<FakeScenario, FakeArtifact> = () =>
       new Promise<FakeArtifact>(() => {})
-    const result = await runCampaign<FakeScenario, FakeArtifact>({
-      scenarios: [{ id: 'hang', kind: 'chat', intent: 'never returns' }],
-      dispatch: neverSettles,
-      judges: [],
-      runDir: mkdtempSync(join(tmpdir(), 'run-campaign-timeout-')),
-      dispatchTimeoutMs: 50,
-      storage: inMemoryCampaignStorage(),
-      expectUsage: 'off',
-    })
-    expect(result.cells).toHaveLength(1)
-    expect(result.cells[0]!.error).toMatch(/dispatch exceeded 50ms/)
-    expect(result.cells[0]!.artifact).toBeNull()
+    await expect(
+      runCampaign<FakeScenario, FakeArtifact>({
+        scenarios: [{ id: 'hang', kind: 'chat', intent: 'never returns' }],
+        dispatch: neverSettles,
+        judges: [],
+        runDir: mkdtempSync(join(tmpdir(), 'run-campaign-timeout-')),
+        dispatchTimeoutMs: 50,
+        dispatchShutdownTimeoutMs: 25,
+        storage: inMemoryCampaignStorage(),
+        expectUsage: 'off',
+      }),
+    ).rejects.toThrow(/ignored cancellation.*no campaign result was produced/)
   }, 5_000)
 
   it("aborts the cell's signal on timeout so a signal-honoring dispatch releases its work", async () => {
@@ -1112,6 +1112,137 @@ describe('runCampaign — dispatchTimeoutMs (the no-silent-hang guard)', () => {
     expect(sawAbort).toBe(true)
     expect(result.cells[0]!.error).toBeTruthy()
   }, 5_000)
+
+  it('forwards an owning operation abort to active dispatches', async () => {
+    const owner = new AbortController()
+    let started = false
+    let sawAbort = false
+    const honorsSignal: DispatchFn<FakeScenario, FakeArtifact> = (_scenario, ctx) =>
+      new Promise<FakeArtifact>((_resolve, reject) => {
+        started = true
+        ctx.signal.addEventListener(
+          'abort',
+          () => {
+            sawAbort = true
+            reject(ctx.signal.reason)
+          },
+          { once: true },
+        )
+      })
+    const pending = runCampaign<FakeScenario, FakeArtifact>({
+      scenarios: [{ id: 'abortme', kind: 'chat', intent: 'waits for owner' }],
+      dispatch: honorsSignal,
+      signal: owner.signal,
+      judges: [],
+      runDir: mkdtempSync(join(tmpdir(), 'run-campaign-owner-abort-')),
+      storage: inMemoryCampaignStorage(),
+      expectUsage: 'off',
+    })
+    while (!started) await new Promise((resolve) => setTimeout(resolve, 1))
+    owner.abort(new Error('owner cancelled'))
+
+    const result = await pending
+    expect(sawAbort).toBe(true)
+    expect(result.cells[0]!.error).toBe('owner cancelled')
+  }, 5_000)
+
+  it('waits for a late paid-call receipt before returning an aborted cell', async () => {
+    const owner = new AbortController()
+    let providerStarted!: () => void
+    let finishProvider!: () => void
+    const started = new Promise<void>((resolve) => {
+      providerStarted = resolve
+    })
+    const provider = new Promise<string>((resolve) => {
+      finishProvider = () => resolve('late')
+    })
+    const pending = runCampaign<FakeScenario, FakeArtifact>({
+      scenarios: [{ id: 'late-cost', kind: 'chat', intent: 'waits for provider' }],
+      signal: owner.signal,
+      dispatch: async (_scenario, ctx) => {
+        const paid = await ctx.cost.runPaidCall({
+          actor: 'late-provider',
+          maximumCharge: { externallyEnforcedMaximumUsd: 0.25 },
+          async execute() {
+            providerStarted()
+            return provider
+          },
+          receipt: () => ({
+            model: 'late-model',
+            inputTokens: 10,
+            outputTokens: 5,
+            actualCostUsd: 0.25,
+          }),
+        })
+        if (!paid.succeeded) throw paid.error
+        return { text: paid.value, intent: 'late receipt' }
+      },
+      judges: [],
+      runDir: mkdtempSync(join(tmpdir(), 'run-campaign-late-cost-')),
+      storage: inMemoryCampaignStorage(),
+      expectUsage: 'off',
+    })
+
+    await started
+    owner.abort(new Error('owner cancelled'))
+    await new Promise((resolve) => setTimeout(resolve, 5))
+    finishProvider()
+
+    const result = await pending
+    expect(result.cells[0]).toMatchObject({
+      error: 'owner cancelled',
+      costUsd: 0.25,
+      tokenUsage: { input: 10, output: 5 },
+    })
+    expect(result.aggregates.cost.totalCostUsd).toBe(0.25)
+  })
+
+  it('aborts and drains sibling lanes before rejecting a campaign', async () => {
+    let siblingStarted!: () => void
+    const siblingReady = new Promise<void>((resolve) => {
+      siblingStarted = resolve
+    })
+    let siblingAborted = false
+    let siblingStopped = false
+
+    const pending = runCampaign<FakeScenario, FakeArtifact>({
+      scenarios: [
+        { id: 'fails', kind: 'chat', intent: 'fails' },
+        { id: 'sibling', kind: 'chat', intent: 'waits' },
+      ],
+      maxConcurrency: 2,
+      dispatch: async (scenario, ctx) => {
+        if (scenario.id === 'fails') {
+          await siblingReady
+          return { text: 'stub', intent: 'no usage' }
+        }
+        siblingStarted()
+        return new Promise<FakeArtifact>((_resolve, reject) => {
+          ctx.signal.addEventListener(
+            'abort',
+            () => {
+              siblingAborted = true
+              setTimeout(() => {
+                siblingStopped = true
+                reject(ctx.signal.reason)
+              }, 20)
+            },
+            { once: true },
+          )
+        })
+      },
+      judges: [],
+      runDir: mkdtempSync(join(tmpdir(), 'run-campaign-sibling-abort-')),
+      storage: inMemoryCampaignStorage(),
+      expectUsage: 'assert',
+    })
+
+    await expect(pending).rejects.toThrow(
+      /produced an artifact but reported zero cost and zero tokens/,
+    )
+    expect(siblingAborted).toBe(true)
+    expect(siblingStopped).toBe(true)
+  })
 
   it('leaves a fast dispatch untouched (timeout never trips on healthy work)', async () => {
     const result = await runCampaign<FakeScenario, FakeArtifact>({

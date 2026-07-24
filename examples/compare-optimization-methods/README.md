@@ -1,75 +1,119 @@
-# Compare Optimization Methods
+# Compare Official GEPA And SkillOpt
 
-This example compares GEPA reflection, GEPA with Pareto parents, and SkillOpt on one structured-extraction task.
+This example runs official GEPA, official SkillOpt, or both against the same transaction-extraction task.
+Each method receives five train cases and three selection cases.
+Agent Eval evaluates selected prompts on six separate final cases after optimization finishes.
 
-| Data | Used for |
-|---|---|
-| Train | Generate candidates from failures. |
-| Selection | Accept candidates and select one surface per method. |
-| Test | Measure final lift and rank methods. |
+The worker calls an OpenAI-compatible endpoint.
+The field-level judge is deterministic.
 
-Every method finishes before final test scoring starts.
-The worker calls an OpenAI-compatible model endpoint.
-The judge uses deterministic exact matching.
-The run fails when a successful worker call reports no model usage.
+## Install
 
-## Run
+Install the Node dependencies from the repository root:
 
-With DeepSeek's OpenAI-compatible endpoint:
+```sh
+pnpm install
+```
 
-```bash
-LLM_BASE_URL=https://api.deepseek.com/v1 \
-LLM_API_KEY="$DEEPSEEK_API_KEY" \
-LLM_MODEL=deepseek-chat \
+Install the Python bridge and the official optimizer packages:
+
+```sh
+python -m pip install agent-eval-rpc
+python -m pip install \
+  "skillopt @ git+https://github.com/microsoft/SkillOpt.git@61735e3922efc2b90c6d6cab561e62e98452ca90"
+python -m pip install \
+  "gepa[full] @ git+https://github.com/gepa-ai/gepa.git@f919db0a622e2e9f9204779b81fe00cc1b2d808f"
+```
+
+From this repository, the locked equivalent is:
+
+```sh
+cd clients/python
+uv sync --frozen --group skillopt-source --group gepa-source
+cd ../..
+export OPTIMIZER_PYTHON="$PWD/clients/python/.venv/bin/python"
+```
+
+## Run GEPA
+
+```sh
+export LLM_API_KEY="$OPENAI_API_KEY"
+export LLM_BASE_URL=https://api.openai.com/v1
+export LLM_MODEL=gpt-4.1-mini
+export GEPA_PRICE_IN_PER_M=0.4
+export GEPA_PRICE_OUT_PER_M=1.6
+
+OPTIMIZERS=gepa pnpm tsx examples/compare-optimization-methods/index.ts
+```
+
+Replace the example rates with the current exact endpoint rates.
+GEPA uses `LLM_MODEL` by default.
+Set `GEPA_MODEL` when reflection should use another model.
+
+## Run SkillOpt
+
+```sh
+export LLM_API_KEY="$OPENAI_API_KEY"
+export LLM_BASE_URL=https://api.openai.com/v1
+export LLM_MODEL=gpt-4.1-mini
+export SKILLOPT_PRICE_IN_PER_M=0.4
+export SKILLOPT_PRICE_OUT_PER_M=1.6
+
+OPTIMIZERS=skillopt pnpm tsx examples/compare-optimization-methods/index.ts
+```
+
+Set `SKILLOPT_PRICE_IN_PER_M` and `SKILLOPT_PRICE_OUT_PER_M` to the current exact rates for your endpoint before running SkillOpt.
+The example passes SkillOpt's `openai_compatible` traffic through Agent Eval's local model proxy.
+Set `SKILLOPT_MODEL` to use a different optimizer model.
+
+## Compare Both
+
+```sh
+OPTIMIZERS=gepa,skillopt \
+LLM_API_KEY="$OPENAI_API_KEY" \
+LLM_BASE_URL=https://api.openai.com/v1 \
+LLM_MODEL=gpt-4.1-mini \
+GEPA_PRICE_IN_PER_M=0.4 \
+GEPA_PRICE_OUT_PER_M=1.6 \
+SKILLOPT_PRICE_IN_PER_M=0.4 \
+SKILLOPT_PRICE_OUT_PER_M=1.6 \
 pnpm tsx examples/compare-optimization-methods/index.ts
 ```
 
-With the Tangle router defaults:
+Use `OPTIMIZER_API_KEY` and `OPTIMIZER_BASE_URL` when candidate generation should use a different endpoint from the worker.
+Replace all four example rates with the exact rates charged by that endpoint.
 
-```bash
-TANGLE_API_KEY="$TANGLE_API_KEY" \
-pnpm tsx examples/compare-optimization-methods/index.ts
-```
-
-Set `PRICE_IN_PER_M` and `PRICE_OUT_PER_M` together when the endpoint omits billed cost and the package does not recognize the model ID.
-Both values are USD per million tokens.
-If neither provider cost nor known model pricing is available, the output marks cost accounting incomplete.
-
-## Settings
+## Controls
 
 | Variable | Default | Meaning |
 |---|---:|---|
-| `POPULATION` | `2` | GEPA candidates per generation |
-| `GENERATIONS` | `2` | GEPA generations |
-| `EPOCHS` | `3` | SkillOpt rounds |
-| `OPTIMIZATION_CONCURRENCY` | `1` | Methods optimized concurrently |
-| `CALL_TIMEOUT_MS` | `30000` | Deadline for each model-backed scenario |
-| `MAX_OPTIMIZATION_COST_USD` | `5` | Separate spend limit for each method |
-| `MAX_TEST_COST_USD` | `2` | Shared spend limit for final test scoring |
-| `PRICE_IN_PER_M` | unset | Optional input-token price |
-| `PRICE_OUT_PER_M` | unset | Optional output-token price |
+| `OPTIMIZERS` | `gepa,skillopt` | Comma-separated methods to run. |
+| `OPTIMIZER_PYTHON` | `python` | Python executable containing the bridge and selected optimizers. |
+| `GEPA_MODEL` | `LLM_MODEL` | Endpoint model used by GEPA reflection. |
+| `GEPA_MAX_EVALUATIONS` | SkillOpt core plan size | Maximum GEPA candidate-case calls. Must match SkillOpt when both run. |
+| `GEPA_MAX_PROPOSER_COST_USD` | `5` | Maximum GEPA model spend inside one engine stage. |
+| `GEPA_PRICE_IN_PER_M` | required | Exact GEPA input rate per million tokens. |
+| `GEPA_PRICE_OUT_PER_M` | required | Exact GEPA output rate per million tokens. |
+| `GEPA_MAX_MODEL_COST_USD` | `5` | Shared GEPA model spend limit. |
+| `GEPA_MAX_MODEL_REQUESTS` | `100` | Shared GEPA model request limit. |
+| `SKILLOPT_MODEL` | `LLM_MODEL` | Model used by SkillOpt reflection and editing. |
+| `SKILLOPT_EPOCHS` | `2` | SkillOpt training epochs. |
+| `SKILLOPT_BATCH_SIZE` | `2` | SkillOpt train cases per step. |
+| `SKILLOPT_MAX_EVALUATIONS` | core plan size | Maximum SkillOpt candidate-case calls. |
+| `SKILLOPT_PRICE_IN_PER_M` | required | Exact optimizer-model input rate per million tokens. |
+| `SKILLOPT_PRICE_OUT_PER_M` | required | Exact optimizer-model output rate per million tokens. |
+| `SKILLOPT_MAX_MODEL_COST_USD` | `5` | SkillOpt optimizer-model spend limit. |
+| `SKILLOPT_MAX_MODEL_REQUESTS` | `100` | SkillOpt optimizer-model request limit. |
+| `MAX_OPTIMIZATION_COST_USD` | `5` | Worker and judge spend limit for each method. |
+| `MAX_TEST_COST_USD` | `2` | Shared final-case spend limit. |
+| `OPTIMIZATION_CONCURRENCY` | `1` | Methods allowed to optimize concurrently. |
+| `BILLING_NOTE` | inferred | Billing context saved with the result. |
+| `PRICE_SOURCE` | inferred | Source of the token prices saved with the result. |
 
-The current result is written to `.evolve/compare-optimization-methods/<timestamp>/comparison.json` and mirrored to `.evolve/compare-optimization-methods/latest.json`.
-It includes train, selection, and test counts; backend usage; per-method lift; simultaneous intervals; paired scenario scores; selected surfaces; cost completeness; token counts; and elapsed time.
-Rank follows estimated lift.
-Use the intervals and pairwise `favored` fields before claiming that one method is better than another.
-
-## Historical Artifact
-
-[`comparison.json`](./comparison.json) records a June 2026 run made before the three-set API existed.
-SkillOpt used the same six scenarios for candidate acceptance and final ranking.
-The artifact proves that the worker and scoring path ran, but it does not support a method ranking.
-
-| Method | Reused-set lift | Interval | Baseline to winner | Optimization cost |
-|---|---:|---:|---:|---:|
-| `gepa-reflection` | +0.417 | [0.208, 0.583] | 0.583 to 1.000 | $0.0028 |
-| `skill-opt` | +0.417 | [0.208, 0.583] | 0.583 to 1.000 | $0.0035 |
-| `gepa-pareto` | +0.375 | [0.208, 0.583] | 0.583 to 0.958 | $0.0028 |
-
-That run made 176 model calls, used 16,779 input tokens and 7,175 output tokens, reported $0.012, and took 131 seconds.
-Run the current example before citing a method ranking.
-
-## Automation
-
-`ci.yml` runs deterministic tests on every pull request.
-`empirical-gate.yml` runs this example weekly or on demand when credentials are available, then uploads `comparison.json` without blocking a release.
+The result is written to `.evolve/compare-optimization-methods/<timestamp>/comparison.json` and mirrored to `.evolve/compare-optimization-methods/latest.json`.
+It includes every method's selected surface, final-case scores, paired lift interval, duration, cost status, run limits, token prices, upstream package revision, run identity, token usage, and source model configuration.
+Optimizer model spend uses provider-reported billed cost when present.
+Otherwise it is estimated from complete token usage and the configured token rates.
+`accountingComplete` means every call was priced; it does not mean the total was reconciled to an invoice.
+The run fails when the endpoint omits usage instead of publishing an incomplete comparison.
+Set `BILLING_NOTE` and `PRICE_SOURCE` when declared token prices estimate subscription usage rather than actual billed dollars.

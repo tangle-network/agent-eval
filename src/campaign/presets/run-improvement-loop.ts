@@ -1,27 +1,7 @@
 /**
- * `runImprovementLoop` — the gated-promotion shell around the improvement
- * loop body (`runOptimization`). Proposes candidate surfaces via the
- * `SurfaceProposer`, re-scores the winner against the baseline on a
- * holdout set, runs the release gate, and optionally opens a PR.
- *
- * Role vocabulary (see docs/design/loop-taxonomy.md):
- *   - PROPOSER   = the `SurfaceProposer` (evolutionary GEPA mutator OR
- *                  reflective analyst). Proposes candidate SURFACES — the
- *                  worker's system prompt / tool config — NOT conversation
- *                  turns.
- *   - MEASUREMENT= `runCampaign`. Scores one surface by running the worker
- *                  (via `dispatch`) over scenarios and judging the output.
- *   - WORKER     = the agent harness in the sandbox, invoked behind the
- *                  topology-opaque `dispatch` seam — never referenced here.
- *
- * Distinct from `runLoop` in `@tangle-network/agent-runtime`, which is the
- * INNER conversation loop (execution driver ↔ workers in a sandbox). `runImprovementLoop`
- * is the OUTER loop: it improves the surface that those workers run.
- *
- * Hard-refuses unsafe configurations:
- *   - `tracing: 'off'` when a proposer is wired (improvement is unattributable)
- *   - `autoOnPromote: 'config'` — live mutation is unsupported without
- *     isolated deployment, rollback, and independent validation.
+ * Run a caller-owned candidate generator, compare its winner with the starting
+ * surface on separate cases, apply a release rule, and optionally open a pull
+ * request.
  */
 
 import { openAutoPr } from '../auto-pr'
@@ -108,10 +88,7 @@ export async function runImprovementLoop<TScenario extends Scenario, TArtifact>(
       "runImprovementLoop: autoOnPromote='config' requires isolated deployment, rollback, and independent validation. Use 'pr' or 'none'.",
     )
   }
-  // Refuse tracing=off whenever a proposer is wired. An improvement loop
-  // without traces is unattributable — its candidate surfaces cannot be
-  // cited back to the spans that motivated them, and the dataset flywheel
-  // (LabeledScenarioStore) that GEPA optimizes against goes unfed.
+  // Candidate history cannot be audited when tracing is disabled.
   if (opts.tracing === 'off' && opts.proposer) {
     throw new Error(
       "runImprovementLoop: tracing='off' is forbidden when a proposer is wired. The improvement loop without traces is unattributable; candidate surfaces cannot be cited back to spans and the optimization dataset goes unfed.",
@@ -125,7 +102,7 @@ export async function runImprovementLoop<TScenario extends Scenario, TArtifact>(
   // scenario means the optimizer adapted to a gate scenario, so the lift the gate
   // then reports is measured on data the optimization already saw — memorization
   // read as generalization. Fail loud before any rollout, not with an inflated
-  // gate decision. (Mirrors the runSkillOpt train/holdout guard.)
+  // gate decision. (Mirrors the three-part split in complete optimization methods.)
   const holdoutIds = new Set(opts.holdoutScenarios.map((s) => s.id))
   const leaked = opts.scenarios.filter((s) => holdoutIds.has(s.id)).map((s) => s.id)
   if (leaked.length > 0) {

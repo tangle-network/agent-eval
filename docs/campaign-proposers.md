@@ -1,247 +1,442 @@
-# Candidate Generation and Method Comparison
+# Optimization Methods And Candidate Generators
 
-`SurfaceProposer` generates candidate prompts or configs.
-It does not run an agent, score output, or choose a winner.
+Agent Eval supports two different extension points.
 
-`OptimizationMethod` runs a complete search procedure on train and selection data.
-It returns one selected surface plus its optimization cost.
+An `OptimizationMethod` owns a complete search procedure and returns one selected surface.
+Use it for official GEPA, official SkillOpt, or another optimizer with its own search and selection behavior.
 
-`compareOptimizationMethods` runs multiple methods, waits for every method to finish, then scores their selected surfaces on the same final test data.
+A `SurfaceProposer` suggests candidates inside Agent Eval's campaign loop.
+Use it for caller-defined logic, an agent-runtime worker, or declared parameter combinations.
 
-| API | Responsibility |
-|---|---|
-| `SurfaceProposer` | Suggest the next candidate surface. |
-| `runOptimization` | Run and score candidates on training scenarios. |
-| `runImprovementLoop` | Optimize one surface and apply a release rule on separate scenarios. |
-| `OptimizationMethod` | Adapt one complete optimization procedure for comparison. |
-| `compareOptimizationMethods` | Compare selected surfaces on shared final test data. |
+Do not wrap a complete external optimizer in `SurfaceProposer`.
+That would split its search state from its own selection behavior and make budgets harder to compare.
 
-## Candidate Generators
+## Adapt A Third-Party Text Optimizer
 
-Every `SurfaceProposer.propose(ctx)` receives the current surface, prior candidate scores, findings, requested candidate count, generation number, and cancellation signal.
-It may also receive a larger analysis report, a labeled scenario store, or Pareto parents when the caller provides them.
+`externalTextOptimizationMethod()` is the general adapter for a package that already owns text or component search.
+The starting candidate is a string for a text surface or a `Record<string, string>` for named components.
+The returned candidate must keep the same form.
 
-A proposer may return a bare surface or a labeled candidate:
+The `run` callback receives only `trainSet` and `selectionSet`.
+It does not receive final test cases.
+Pass `context.evaluate` to the optimizer so every candidate is executed and scored by the configured Agent Eval path.
+Unknown case IDs and calls beyond `maxEvaluations` are rejected.
+
+Optimizer-owned model or service calls must use `context.cost.runPaidCall()`.
+The example below assumes the upstream package enforces `maxCostUsd` for the complete run and returns aggregate usage.
+If the package exposes a model callback instead, wrap each model call separately with the same cost ledger and phase.
 
 ```ts
-{
-  surface: 'the complete new prompt or config',
-  label: 'require-citations',
-  rationale: 'three training failures omitted source references',
+import { externalTextOptimizationMethod } from '@tangle-network/agent-eval/campaign'
+import { optimize } from 'your-text-optimizer'
+
+interface SupportCase {
+  id: string
+  kind: 'support'
+  question: string
 }
+
+interface SupportArtifact {
+  answer: string
+}
+
+const method = externalTextOptimizationMethod<SupportCase, SupportArtifact>({
+  name: 'your-text-optimizer',
+  source: {
+    kind: 'package',
+    package: 'your-text-optimizer',
+    version: '2.3.1',
+    sourceUrl: 'https://github.com/your-org/your-text-optimizer',
+    revision: '4f17c2a',
+  },
+  objective: 'Improve answer accuracy and citation quality.',
+  evaluationId: 'support-quality',
+  maxEvaluations: 60,
+  maxOptimizerCostUsd: 2,
+  resume: 'if-compatible',
+  describeScenario: (scenario) => ({ question: scenario.question }),
+  describeArtifact: (artifact) => ({ answer: artifact.answer }),
+  run: async (context) => {
+    const paid = await context.cost.runPaidCall({
+      actor: context.name,
+      model: 'your-text-optimizer',
+      maximumCharge: { externallyEnforcedMaximumUsd: 2 },
+      execute: (signal) =>
+        optimize({
+          initialCandidate: context.seedCandidate,
+          train: context.trainSet,
+          selection: context.selectionSet,
+          evaluate: context.evaluate,
+          maxEvaluations: context.maxEvaluations,
+          maxCostUsd: 2,
+          seed: context.seed,
+          stateDir: context.stateDir,
+          resume: context.restoreRequested,
+          artifactDir: context.artifactDir,
+          signal,
+        }),
+      receipt: (result) => ({
+        model: 'your-text-optimizer',
+        inputTokens: result.usage.inputTokens,
+        outputTokens: result.usage.outputTokens,
+        actualCostUsd: result.usage.costUsd,
+      }),
+    })
+    if (!paid.succeeded) throw paid.error
+    if (context.restoreRequested && !paid.value.resumed) {
+      throw new Error('The optimizer could not restore the requested compatible state.')
+    }
+    return {
+      bestCandidate: paid.value.bestCandidate,
+      resumed: context.restoreRequested,
+      costAccounting: { kind: 'metered' },
+    }
+  },
+})
 ```
 
-Use a labeled `ProposedCandidate` when you need the result to retain why the candidate was generated.
-
-| Factory | Use it for | Surface |
-|---|---|---|
-| `gepaProposer` | Rewrite a prompt from prior scores and findings. | string |
-| `skillOptProposer` | Apply bounded edits to a structured skill or runbook. | string |
-| `aceProposer` | Append distinct lessons from findings. | string |
-| `memoryCurationProposer` | Deduplicate and compact lessons from findings. | string |
-| `parameterSweepProposer` | Apply declared changes to a JSON config. | JSON string |
-| `fapoProposer` | Try prompt, parameter, and optional structural changes under one escalation policy. | caller-defined |
+Replace the import and field names with the upstream package API.
+`source` records caller-declared package identity.
+`evaluationId` identifies the execution and scoring behavior; use a commit, content hash, or another stable identifier and change it whenever that behavior changes.
+Agent Eval derives the run ID from the complete compatible input instead of requiring a private schema number.
+The callback writes checkpoints under `stateDir`, restores them only when `restoreRequested` is true, and reports whether restoration occurred.
+Agent Eval adds the run ID, evaluation count, artifact directory, source identity, and optimizer token usage to the method result.
 
 ## Compare Complete Methods
 
-The following call owns the shared baseline, runner, judges, directories, and three data sets.
-Method configuration contains only settings that differ by method.
+`compareOptimizationMethods()` gives every method the same:
+
+- starting surface,
+- train cases,
+- selection cases,
+- execution function,
+- judges,
+- seed,
+- campaign defaults.
+
+An optimization method never receives the final test cases.
+After every method finishes, Agent Eval scores the selected surfaces on the same final cases and reports paired lift estimates.
 
 ```ts
 import {
-  type BuiltinOptimizationMethodConfig,
   compareOptimizationMethods,
-  gepaParetoMethod,
-  gepaReflectionMethod,
-  skillOptMethod,
+  gepaOptimizationMethod,
+  skillOptOptimizationMethod,
 } from '@tangle-network/agent-eval/campaign'
 
-const methodConfig: BuiltinOptimizationMethodConfig<MyScenario, MyArtifact> = {
-  llm,
-  model,
-  target: 'the complete prompt or config being improved',
-  populationSize: 2,
-  maxGenerations: 3,
-  maxEpochs: 6,
+const optimizer = {
+  model: 'gpt-4.1-mini',
+  baseUrl: 'https://api.openai.com/v1',
+  apiKey: process.env.OPENAI_API_KEY!,
+  budget: {
+    maxCostUsd: 5,
+    maxRequests: 100,
+    maxRequestBytes: 2_000_000,
+    maxResponseBytes: 2_000_000,
+    maxOutputTokensPerRequest: 32_768,
+    pricing: {
+      inputUsdPerMillion: Number(process.env.OPTIMIZER_INPUT_USD_PER_MILLION),
+      outputUsdPerMillion: Number(process.env.OPTIMIZER_OUTPUT_USD_PER_MILLION),
+    },
+  },
 }
 
-const comparison = await compareOptimizationMethods<MyScenario, MyArtifact>({
-  methods: [
-    gepaReflectionMethod(methodConfig),
-    gepaParetoMethod(methodConfig),
-    skillOptMethod(methodConfig),
-  ],
+const gepa = gepaOptimizationMethod<MyCase, MyArtifact>({
+  name: 'gepa',
+  objective: 'Improve the instructions so the agent emits valid JSON.',
+  evaluationId: 'json-agent',
+  recipe: {
+    kind: 'engine',
+    run: {
+      engine: 'gepa',
+      maxEvaluations: 40,
+      maxProposerCostUsd: 5,
+    },
+  },
+  optimizer,
+  describeScenario: (scenario) => ({ input: scenario.input }),
+  describeArtifact: (artifact) => ({ output: artifact.output }),
+})
+
+const skillopt = skillOptOptimizationMethod<MyCase, MyArtifact>({
+  name: 'skillopt',
+  objective: 'Improve the instructions so the agent emits valid JSON.',
+  evaluationId: 'json-agent',
+  trainer: {
+    epochs: 2,
+    batchSize: 4,
+  },
+  optimizer,
+  maxEvaluations: 80,
+  describeScenario: (scenario) => ({ input: scenario.input }),
+  describeArtifact: (artifact) => ({ output: artifact.output }),
+})
+
+const comparison = await compareOptimizationMethods({
+  methods: [gepa, skillopt],
   baselineSurface,
   trainScenarios,
   selectionScenarios,
   testScenarios,
   dispatchWithSurface,
   judges,
-  runDir,
+  runDir: '.agent-eval/optimizer-comparison',
   optimizationRunOptions: {
-    costCeiling: 5,
-    dispatchTimeoutMs: 60_000,
     maxConcurrency: 4,
+    costCeiling: 10,
   },
-  optimizationConcurrency: 2,
-  costCeiling: 2,
-  maxConcurrency: 4,
+  costCeiling: 3,
   confidence: 0.95,
 })
 ```
 
-The runnable version is [`examples/compare-optimization-methods`](../examples/compare-optimization-methods/).
+`comparison.scores` contains the final-case baseline score, selected score, lift, simultaneous interval, cost status, duration, and selected surface for each method.
+Official method scores contain optimizer and bridge package versions, source revisions and source-tree hashes, Python runtime, custom engine module hashes, compatible run ID, exact attempt ID, resume status, evaluation count, artifact directory, and available optimizer token usage.
+`comparison.pairwise` compares the highest-ranked method with every other method.
+Ranking follows estimated lift, so inspect intervals before claiming a difference.
 
-## External GEPA
+The runnable version is in [`examples/compare-optimization-methods`](../examples/compare-optimization-methods/).
 
-`gepaOptimizationMethod()` passes a text surface, such as a prompt or JSON retrieval policy, to GEPA's own `optimize_anything` API.
-GEPA remains the source of truth for built-in and caller-registered engine names.
-It does not edit a repository, ingest a knowledge base, or replace a retrieval engine.
+## Install Official GEPA
 
-Install the optional Python bridge first:
+Install the bridge and the source revision tested by this release:
 
 ```sh
-pip install 'agent-eval-rpc[gepa]'
+python -m pip install agent-eval-rpc
+python -m pip install "gepa @ git+https://github.com/gepa-ai/gepa.git@f919db0a622e2e9f9204779b81fe00cc1b2d808f"
 ```
 
-The extra pins a GEPA source commit because the published `gepa==0.1.4` package does not contain this multi-engine API.
-Update the pin only after repeating the integration smoke and comparison benchmarks.
+The published `gepa==0.1.4` wheel does not contain the required Optimize Anything API.
+The Agent Eval Python package cannot declare a Git dependency in its PyPI metadata, so the GEPA source install is separate.
+
+From this repository:
+
+```sh
+cd clients/python
+uv sync --frozen --group gepa-source
+```
+
+## Configure GEPA
+
+`gepaOptimizationMethod()` accepts text surfaces and component surfaces.
+A component surface has this shape:
 
 ```ts
-import { gepaOptimizationMethod } from '@tangle-network/agent-eval/campaign'
-
-const externalGepa = gepaOptimizationMethod<MyScenario, MyArtifact>({
-  recipe: {
-    kind: 'best-of-then-continue',
-    explore: [
-      { engine: 'gepa', maxEvaluations: 6, maxProposerCostUsd: 5 },
-      { engine: 'autoresearch', maxEvaluations: 6, maxProposerCostUsd: 5 },
-      { engine: 'meta_harness', maxEvaluations: 6, maxProposerCostUsd: 5 },
-    ],
-    continueWith: { engine: 'gepa', maxEvaluations: 6, maxProposerCostUsd: 5 },
+const baselineSurface = {
+  kind: 'components' as const,
+  components: {
+    planner: 'Plan the task.',
+    executor: 'Execute the plan.',
   },
-  objective: 'Return a better retrieval policy as JSON.',
-  describeScenario: (scenario) => ({ id: scenario.id }),
-})
-
-const comparison = await compareOptimizationMethods({
-  methods: [gepaParetoMethod(methodConfig), externalGepa],
-  baselineSurface,
-  trainScenarios,
-  selectionScenarios,
-  testScenarios,
-  dispatchWithSurface,
-  judges,
-  runDir,
-})
-```
-
-This recipe is GEPA's published Omni shape: the bridge calls GEPA's `optimize_best_of(...)` for the parallel exploration stage, then its `optimize_anything(...)` for the fresh continuation stage.
-It does not implement a local optimizer or scheduler.
-GEPA reports Omni winning its matched-budget, 10-task Frontier-CS experiment, but that is not evidence that it wins your task.
-Run it alongside current methods and select only on fresh final cases.
-
-The bridge serializes only the values returned by `describeScenario()` for train and selection cases.
-Final test cases remain in `compareOptimizationMethods()` and are first scored after GEPA exits.
-By default, GEPA starts in its empty run directory.
-Do not set `runner.cwd` to a location that contains final cases.
-
-Each engine run declares its own `maxEvaluations` and `maxProposerCostUsd`.
-The local callback enforces the sum of the recipe's evaluation limits before it runs an agent or judge.
-The sum of `maxProposerCostUsd` values is a requested GEPA spend cap, but GEPA's reported cost is not an agent-eval receipt.
-The comparison therefore marks that method's cost accounting incomplete and never treats a reported `$0` as confirmed spend.
-
-Use `{ kind: 'engine', run: { ... } }` to call one GEPA engine directly.
-`engineConfig` is passed directly to that GEPA engine.
-The bridge accepts any trimmed engine string and GEPA validates whether it is installed or registered.
-
-For `agent-knowledge`, use this only to compare a text retrieval policy against `runRetrievalImprovementLoop()`.
-Keep source acquisition, knowledge writes, provenance, freshness, memory, and promotion in `agent-knowledge`.
-
-## Data Use
-
-| Set | Who can read it | Purpose |
-|---|---|---|
-| Train | Optimization methods and candidate generators | Generate and fit candidates. |
-| Selection | Optimization methods | Accept candidates, stop early, and select one surface per method. |
-| Test | `compareOptimizationMethods` only | Estimate final lift and rank methods. |
-
-All three sets must be non-empty and pairwise disjoint by scenario ID.
-Test must contain at least two scenarios.
-Two is only an API minimum; use enough scenarios to detect the effect size that matters for your product.
-
-Each method receives independent copies of train and selection scenarios.
-The final test set is absent from `OptimizationMethodInput`.
-Every method finishes before the first test call starts.
-When `optimizationConcurrency` is greater than one, the shared runner and judges must support concurrent calls.
-
-## Execution And Cost
-
-`optimizationConcurrency` controls how many methods run at once.
-`optimizationRunOptions.maxConcurrency` controls scenario calls inside each method.
-Top-level `maxConcurrency` controls scenario calls during final test scoring.
-
-`optimizationRunOptions.costCeiling` is a separate limit for each method.
-Top-level `costCeiling` is one shared limit across baseline and selected-surface scoring on final test.
-
-The result reports three cost objects:
-
-```ts
-comparison.optimizationCost
-comparison.testCost
-comparison.totalCost
-```
-
-Each object contains `totalCostUsd`, `accountingComplete`, and `incompleteReasons`.
-An unknown provider charge therefore cannot appear as a trustworthy zero-dollar total.
-Cost breaks a lift tie only when every method in that tied group reports complete accounting.
-
-## Read The Result
-
-```ts
-for (const method of comparison.scores) {
-  console.log({
-    rank: method.rank,
-    name: method.name,
-    lift: method.lift,
-    interval: method.liftCi,
-    scenarios: method.scenarioScores,
-    optimizationCostUsd: method.optimizationCost.totalCostUsd,
-    costComplete: method.optimizationCost.accountingComplete,
-  })
 }
 ```
 
-`rank` orders methods by estimated lift, then by cost only when every method with that lift has complete cost accounting.
-It does not mean the higher-ranked method is conclusively better.
-Read `liftCi` and `comparison.pairwise[].favored` before making that claim.
-`scenarioScores` contains the paired values used to compute each method's result.
+The `recipe` maps directly to official GEPA operations:
 
-Repetitions are averaged within each test scenario before scenarios are resampled.
-The intervals assume scenarios are the independent sampling units.
+| Recipe | Official behavior |
+|---|---|
+| `engine` | Run one registered GEPA engine. |
+| `sequential` | Run engines in order and retain the best result across stages. |
+| `adaptive-sequential` | Switch engines after a configured period without improvement. |
+| `best-of` | Run independent engines and choose the highest selection score. |
+| `vote` | Run independent engines and use GEPA's vote composition. |
+| `omni` | Run official best-of exploration, then continue from its winner. |
 
-`confidence: 0.95` applies to the complete family of method-vs-baseline and possible method-vs-method contrasts.
-The implementation adjusts each interval for that family and raises the default resample count when more methods require finer interval tails.
-An explicit resample count that is too small is rejected before optimization starts.
+Each engine run requires `maxEvaluations` and `maxProposerCostUsd`.
+`engineConfig` carries the JSON-safe subset of configuration for the registered GEPA engine.
+GEPA validates the engine name and those values.
+Python callables, classes, custom loggers, and callbacks cannot be serialized through this TypeScript bridge.
+For a custom engine, set `engineModules` to public dotted Python modules that call GEPA's official `register_engine()` function when imported.
+The optimizer process imports those modules before GEPA resolves the engine name.
 
-The final test data is spent when this function ranks methods.
-If you choose a method from this result and later claim its deployed effect, confirm that claim on new data that was not used for this ranking.
+The standard GEPA engine accepts the official `GEPAConfig` fields.
+Give Agent Eval the model, exact endpoint rates, and provider connection separately:
 
-## FAPO
+```ts
+const method = gepaOptimizationMethod({
+  objective: 'Improve the complete system prompt.',
+  evaluationId: 'support-agent',
+  recipe: {
+    kind: 'engine',
+    run: {
+      engine: 'gepa',
+      maxEvaluations: 60,
+      maxProposerCostUsd: 8,
+      maxConcurrency: 8,
+    },
+  },
+  optimizer: {
+    model: 'gpt-4.1-mini',
+    baseUrl: 'https://api.openai.com/v1',
+    apiKey: process.env.OPENAI_API_KEY!,
+    budget: {
+      maxCostUsd: 8,
+      maxRequests: 100,
+      maxRequestBytes: 2_000_000,
+      maxResponseBytes: 2_000_000,
+      maxOutputTokensPerRequest: 32_768,
+      pricing: {
+        inputUsdPerMillion: 0.4,
+        outputUsdPerMillion: 1.6,
+      },
+    },
+  },
+  describeScenario: (scenario) => ({ input: scenario.input }),
+  describeArtifact: (artifact) => ({ output: artifact.output }),
+})
+```
 
-`fapoProposer` can move from prompt edits to declared parameter edits and then to an injected structural proposer.
-Every level must accept and return the same surface representation.
+Replace the rates with the exact rates charged by your endpoint.
+With `optimizer`, every recipe stage must use the standard `gepa` engine.
+Agent Eval keeps the provider key outside Python, enforces the shared model budget, and records exact provider usage.
+`maxProposerCostUsd` also limits each individual GEPA engine stage.
 
-`agent-eval` does not generate repository code itself.
-Pass a code-capable `structuralProposer` from your runtime or application when structural edits are part of the comparison.
+Other official engines can still receive their own settings:
 
-Use `fapoEscalationMethod(config)` to compare the complete FAPO procedure with other methods.
+```ts
+recipe: {
+  kind: 'engine',
+  run: {
+    engine: 'autoresearch',
+    maxEvaluations: 60,
+    maxProposerCostUsd: 8,
+    engineConfig: {
+      command: ['python', 'run_research.py'],
+    },
+  },
+}
+```
 
-## Common Errors
+Their external model spend remains incomplete unless that engine reports it.
+Keep API keys in environment variables or `runner.env`.
+Do not place credentials in `engineConfig` because run settings are persisted.
 
-- Do not pass a raw `SurfaceProposer` to `compareOptimizationMethods`.
-- Do not let a custom `OptimizationMethod` load final test rows from another source.
-- Do not compare methods with different runners, judges, or final test scenarios.
-- Do not read `method.optimizationCost` as total comparison cost.
-- Do not report a dollar total as complete when `accountingComplete` is false.
-- Do not reuse the final test set for repeated method selection and continue calling it untouched.
+`describeScenario()` controls the train and selection data sent to GEPA.
+`describeArtifact()` controls the execution evidence returned after a candidate is scored.
+Neither callback can receive a final test case.
+
+## Install Official SkillOpt
+
+Install the SkillOpt source revision tested by this release:
+
+```sh
+python -m pip install agent-eval-rpc
+python -m pip install \
+  "skillopt @ git+https://github.com/microsoft/SkillOpt.git@61735e3922efc2b90c6d6cab561e62e98452ca90"
+```
+
+From this repository:
+
+```sh
+cd clients/python
+uv sync --frozen --group skillopt-source
+```
+
+The published `skillopt==0.2.0` wheel omits the prompt files required by `ReflACTTrainer`.
+The tested source revision contains all 21 files.
+
+`skillOptOptimizationMethod()` runs SkillOpt's official `ReflACTTrainer`.
+Agent Eval supplies an environment adapter that sends each candidate and case back to the TypeScript execution and judging path.
+SkillOpt's own test evaluation is disabled.
+This integration uses SkillOpt's OpenAI-compatible optimizer backend so every model call can pass through the metered proxy.
+Use SkillOpt directly when you need one of its CLI or provider-specific backends.
+
+`maxEvaluations` is a hard callback limit, not a prediction of SkillOpt's internal work.
+The official trainer decides how many rollouts each enabled phase needs.
+The callback rejects the first request beyond the declared limit, including work from slow updates or meta-skill phases.
+
+SkillOpt connects to a local proxy rather than receiving the provider key.
+The proxy enforces the declared model limits before each call and records provider token usage at the rates supplied in `optimizer.budget`.
+Missing token usage, an oversized request or response, a wrong model, streaming, and a call beyond budget all fail loudly.
+
+## Use Official DSPy Optimizers
+
+Do not convert a DSPy program into an `OptimizationMethod`.
+Install `agent-eval-rpc[dspy]`, create `DspyJudgeMetric`, and pass it to official DSPy:
+
+```python
+import dspy
+
+from agent_eval_rpc import DspyJudgeMetric
+
+metric = DspyJudgeMetric(rubric_name="answer-quality")
+gepa = dspy.GEPA(
+    metric=metric.feedback,
+    reflection_lm=dspy.LM("openai/gpt-4.1-mini"),
+    max_metric_calls=100,
+)
+mipro = dspy.MIPROv2(metric=metric, auto="light")
+```
+
+This keeps program compilation, traces, demos, and optimizer state inside DSPy.
+Agent Eval supplies the shared rubric and returns rich feedback for `dspy.GEPA`.
+DSPy 3.2.1 requires GEPA 0.0.27.
+Run it in a separate Python environment from the general GEPA bridge, which uses GEPA 0.1.4.
+
+## Resume A Compatible Run
+
+Both official methods default to `resume: 'never'`.
+Use `resume: 'if-compatible'` to restore matching SkillOpt state or a matching direct GEPA engine.
+Use `resume: 'required'` when missing or incompatible state should fail.
+Direct GEPA resume also requires `trustResumeState: true` because upstream checkpoints use Python pickle.
+Set it only for checkpoints created locally in a directory you control.
+Composed GEPA recipes restart and never report that official state was restored.
+
+A match includes:
+
+- optimizer and bridge package versions, revisions, and source-tree hashes,
+- Python runtime and custom engine module hashes,
+- recipe or trainer settings,
+- starting surface,
+- train and selection descriptions,
+- evaluation ID for execution and scoring behavior,
+- seed,
+- limits that affect the run.
+
+Use a commit, content hash, or another stable value for `evaluationId`.
+Change it whenever dispatch behavior, judges, model settings, or scoring logic changes.
+Concurrent processes cannot write the same compatible run at the same time.
+
+## Write A Custom Candidate Generator
+
+Use `SurfaceProposer` when your code or runtime owns candidate creation.
+The proposer receives the current surface, prior campaign history, findings, generation number, requested population size, and cancellation signal.
+
+```ts
+import type { SurfaceProposer } from '@tangle-network/agent-eval/campaign'
+
+const proposer: SurfaceProposer = {
+  kind: 'product-rules',
+  async propose({ currentSurface, populationSize }) {
+    const prompt = String(currentSurface)
+    return [
+      {
+        surface: `${prompt}\nReturn JSON only.`,
+        label: 'json-only',
+        rationale: 'Training failures included prose around the JSON object.',
+      },
+      {
+        surface: `${prompt}\nInclude every required field, using null when unknown.`,
+        label: 'required-fields',
+        rationale: 'Training failures omitted fields.',
+      },
+    ].slice(0, populationSize)
+  },
+}
+```
+
+Return a label and rationale when they will help later analysis.
+Candidate creation must not read final test results.
+
+## Data And Cost Rules
+
+- Train and selection cases are visible to complete optimization methods.
+- Train and selection cases may influence candidate generation, selection, and stopping.
+- Final test cases may only compare surfaces after every method finishes.
+- The same dispatch and judges score every method.
+- Missing cost remains unknown.
+- A method must declare bounded work before it starts.
+- Credentials belong in process environment variables.
+- Resumed state must match every input that can change the result.
+
+These rules make method comparisons inspectable without pretending different optimizers have identical internals.

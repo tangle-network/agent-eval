@@ -59,7 +59,6 @@ function loopOptions(judges: JudgeConfig<TestArtifact, TestScenario>[]) {
       proposer,
       populationSize: 1,
       maxGenerations: 1,
-      promoteTopK: 1,
       gate: releaseDecision,
       autoOnPromote: 'none' as const,
       runDir: '/heldout-integrity-regression',

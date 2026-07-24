@@ -14,7 +14,7 @@
  *     holdoutScenarios: heldOutScenarios,
  *     dispatchWithSurface,
  *     judges: [failureModeRecallJudge()],
- *     proposer: gepaProposer({ baseUrl, apiKey }),
+ *     proposer: myProposer,
  *     gate: heldOutGate({ minDelta: 0.02 }),
  *     autoOnPromote: 'none',
  *   })
@@ -85,7 +85,7 @@ function surfaceToText(surface: MutableSurface): string {
   // silently analyzing with an empty actorDescription.
   throw new Error(
     'buildAnalystSurfaceDispatch: the analyst surface must be a string actorDescription, ' +
-      `got a ${surface.kind}-tier surface (${surface.worktreeRef}). The analyst prompt is prompt-tier.`,
+      `got a ${surface.kind}-tier surface. The analyst prompt is prompt-tier.`,
   )
 }
 

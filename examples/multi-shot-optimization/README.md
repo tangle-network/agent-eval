@@ -1,50 +1,26 @@
-# multi-shot-optimization
+# Improve A Surface With A Custom Candidate Generator
 
-Optimize a surface (a system prompt, tool descriptions, any scaffolding that
-affects the whole run) across a small candidate population with a **held-out
-promotion rule**.
-A candidate ships only if it beats the baseline on a separate holdout set.
-
-## What it shows
-
-- `runImprovementLoop`: the proposer-agnostic outer loop: optimize → re-score
-  baseline vs winner on the disjoint holdout → gate.
-- `evolutionaryProposer` wrapping a tiny deterministic `mutator` (the LLM-free
-  strategy). The reflective alternative is `gepaProposer`; both conform to
-  `SurfaceProposer` and the loop is identical.
-- `defaultProductionGate` separating *search* scenarios (selection) from
-  *holdout* scenarios (paired-delta promotion): it ships only on a
-  CI-lower-bound held-out lift over `deltaThreshold`.
-
-Imports come from the `@tangle-network/agent-eval/contract` subpath: the
-curated public entry for the closed self-improvement loop.
+This offline example runs a caller-owned `SurfaceProposer` through `runImprovementLoop()`.
+It measures candidates on training cases and evaluates the selected candidate on a separate holdout set.
 
 ## Run
 
 ```sh
-pnpm install
 pnpm exec tsx examples/multi-shot-optimization/index.ts
 ```
 
-Runtime: ~1s. No LLM calls: the dispatch echoes the surface and the judge is a
-deterministic string check, so the loop mechanics are visible without paying for
-inference.
+No API key is required.
+The agent echoes the candidate surface and the judge checks for one required directive.
 
-## Expected output
+## What It Shows
 
-```
-{ decision: 'ship', delta: 1, winnerShipped: true, promotedDiff: '--- baseline\n+++ winner\n- Complete the user task.\n+ Complete the user task. VERIFY_EVERY_STEP' }
-```
+- `SurfaceProposer` can be deterministic, model-backed, or delegated to another runtime.
+- Candidate generation sees training history but not holdout results.
+- The selected candidate is measured against the baseline on separate cases.
+- The exact selected change is available as `promotedDiff`.
 
-The baseline (no directive) scores 0 on the holdout; the proposer's candidate
-(directive appended) scores 1, so the gate ships it. You will also see
-`expectUsage` notices that each holdout cell reported zero cost because this example uses an offline function.
-A real dispatch reports usage through `ctx.cost`.
+The expected decision is `ship` because the candidate scores `1` and the baseline scores `0` on every holdout case.
+This proves the wiring, not the quality of a production evaluation.
 
-## Adapt this to your agent
-
-Replace `dispatchWithSurface` with your real agent invocation (report cost via
-`ctx.cost`), the `judge` with your deterministic check or model-based judge, and the
-`evolutionaryProposer` mutator with `gepaProposer` for model-generated
-proposals. Keep the holdout disjoint from the training scenarios: the gate's
-honesty depends on it.
+Replace `dispatchWithSurface` with your agent call, replace the judge with a calibrated check, and replace the proposer with your product-specific candidate logic.
+Use [`compareOptimizationMethods()`](../../docs/campaign-proposers.md) when the search procedure itself comes from GEPA, SkillOpt, or another complete optimizer.
