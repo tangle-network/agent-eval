@@ -28,22 +28,37 @@ export function campaignMeanComposite<TArtifact, TScenario extends Scenario>(
   return composites.length === 0 ? 0 : composites.reduce((a, b) => a + b, 0) / composites.length
 }
 
-/** Compare two lexicographic rank keys where EACH element is higher-is-better.
- *  Returns a positive number when `a` ranks ABOVE `b`, negative when below, 0
- *  when equal. First differing element decides; equal prefixes fall through to
- *  the next element, then to key length (a longer, more-specific key ranks
- *  above a shorter one that agrees on the shared prefix). Callers that select a
- *  winner by a fail-closed metric (`runOptimization`'s `selectionRankKey`) use
- *  this so selection and a downstream ship-gate rank on the identical key and
- *  cannot invert on a flaky per-cell mean. */
+/** Reject rank keys that cannot produce deterministic lexicographic ordering. */
+export function assertFiniteRankKey(
+  key: readonly number[],
+  label: string,
+  expectedLength?: number,
+): void {
+  if (!Array.isArray(key) || key.length === 0) {
+    throw new Error(`${label} must return a non-empty array`)
+  }
+  if (expectedLength !== undefined && key.length !== expectedLength) {
+    throw new Error(`${label} returned ${key.length} elements; expected ${expectedLength}`)
+  }
+  for (let index = 0; index < key.length; index++) {
+    if (!Number.isFinite(key[index])) {
+      throw new Error(`${label}[${index}] must be finite`)
+    }
+  }
+}
+
+/** Compare fixed-length lexicographic rank keys where each element is higher-is-better.
+ *  Returns a positive number when `a` ranks above `b`, negative when below, and
+ *  zero when equal. */
 export function compareRankKeys(a: readonly number[], b: readonly number[]): number {
-  const n = Math.min(a.length, b.length)
-  for (let i = 0; i < n; i++) {
-    const av = a[i] ?? 0
-    const bv = b[i] ?? 0
+  assertFiniteRankKey(a, 'rank key a')
+  assertFiniteRankKey(b, 'rank key b', a.length)
+  for (let i = 0; i < a.length; i++) {
+    const av = a[i]!
+    const bv = b[i]!
     if (av !== bv) return av - bv
   }
-  return a.length - b.length
+  return 0
 }
 
 export interface CampaignBreakdown {

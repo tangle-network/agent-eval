@@ -454,6 +454,15 @@ describe('compareRankKeys tie-breaking', () => {
   it('treats identical keys as a tie', () => {
     expect(compareRankKeys([2, -100, 0.5], [2, -100, 0.5])).toBe(0)
   })
+
+  it.each([
+    [[Number.NaN], [0], /rank key a\[0\] must be finite/],
+    [[0], [Number.POSITIVE_INFINITY], /rank key b\[0\] must be finite/],
+    [[], [0], /rank key a must return a non-empty array/],
+    [[0, 1], [0], /rank key b returned 1 elements; expected 2/],
+  ] as const)('rejects invalid rank keys', (a, b, expected) => {
+    expect(() => compareRankKeys(a, b)).toThrow(expected)
+  })
 })
 
 describe('runOptimization candidate concurrency', () => {

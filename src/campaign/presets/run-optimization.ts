@@ -21,7 +21,12 @@ import {
 } from '../coverage'
 import { type RunCampaignOptions, runCampaign } from '../run-campaign'
 import { resolveRunDir } from '../run-dir'
-import { campaignBreakdown, campaignMeanComposite, compareRankKeys } from '../score-utils'
+import {
+  assertFiniteRankKey,
+  campaignBreakdown,
+  campaignMeanComposite,
+  compareRankKeys,
+} from '../score-utils'
 import { createRunCostLedger, fsCampaignStorage } from '../storage'
 import { surfaceHash } from '../surface-identity'
 import {
@@ -229,6 +234,7 @@ export async function runOptimization<TScenario extends Scenario, TArtifact>(
   let winnerSurfaceHash = surfaceHash(opts.baselineSurface)
   let winnerComposite = campaignMeanComposite(baselineCampaign)
   let winnerRankKey = selectionRankKey(baselineCampaign)
+  assertFiniteRankKey(winnerRankKey, 'selectionRankKey for baseline')
   const baselineOutcome = toScoredSurfaceOutcome(
     winnerSurfaceHash,
     baselineCampaign,
@@ -333,6 +339,11 @@ export async function runOptimization<TScenario extends Scenario, TArtifact>(
         })
         const composite = campaignMeanComposite(campaign)
         const rankKey = selectionRankKey(campaign)
+        assertFiniteRankKey(
+          rankKey,
+          `selectionRankKey for generation ${gen} candidate ${i}`,
+          winnerRankKey.length,
+        )
         const coverage = campaignCoverage(
           campaign.cells,
           opts.scenarios,

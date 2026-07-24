@@ -6,6 +6,17 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ## [Unreleased]
 
+## [0.126.2] - 2026-07-24 - fail-closed candidate ranking
+
+### Added
+
+- `runOptimization()` and `selfImprove()` accept a fixed-length `selectionRankKey` so domain-specific reliability metrics can choose candidates during every generation.
+
+### Fixed
+
+- Candidate rank keys must be non-empty, fixed-length, and finite.
+- A candidate must strictly beat the incumbent on the configured rank key before it can become the next parent or final winner.
+
 ## [0.126.1] - 2026-07-24 - optimizer lifecycle integrity
 
 ### Changed
