@@ -121,14 +121,17 @@ def _main() -> None:
                 raise ValueError("GEPA requested an invalid example")
             return evaluate_one(candidate, example)
 
-        comparison_set = input_value["selectionSet"] or input_value["trainSet"]
+        selection_set = input_value["selectionSet"]
+        comparison_set = selection_set or input_value["trainSet"]
         if not comparison_set:
             raise ValueError("GEPA selection re-score requires at least one example")
         rows = [evaluate_one(candidate, item) for item in comparison_set]
         return (
             sum(score for score, _ in rows) / len(rows),
             {
-                "comparison": "selection-set",
+                "comparison": (
+                    "selection-set" if selection_set else "train-set-fallback"
+                ),
                 "examples": [
                     {"id": item["id"], "score": score, "info": info}
                     for item, (score, info) in zip(comparison_set, rows, strict=True)
