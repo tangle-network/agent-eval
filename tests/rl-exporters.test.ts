@@ -12,6 +12,8 @@ import {
 } from '../src/rl/exporters'
 import type { PreferenceTriple } from '../src/rl/preferences'
 import type { PrmTrainingTriple, StepReward } from '../src/rl/process-reward'
+import { fixtureRolloutLine } from '../src/rollout/fixtures'
+import type { MintedRolloutLine } from '../src/rollout/schema'
 import type { RunRecord } from '../src/run-record'
 
 const baseTriple: PreferenceTriple = {
@@ -160,6 +162,19 @@ describe('toSftRows', () => {
 })
 
 describe('toPrmRows', () => {
+  // `toPrmRows` requires the minted lines for every run its triples name: a
+  // triple carries a bare `chosenReward` number, so without them the exporter
+  // cannot see the realness gate or tell a complete trajectory from a capped
+  // one. These are ungated, fully-captured lines — the case that exports.
+  const prmLines = (...runIds: string[]): MintedRolloutLine[] =>
+    runIds.map((run_id) =>
+      fixtureRolloutLine({
+        run_id,
+        rollout_id: `rollout-${run_id}`,
+        steps: [{ kind: 'tool', name: 'compile', status: 'ok' }],
+      }),
+    )
+
   it('produces PRM training rows with prefix + chosen/rejected', async () => {
     const triples: PrmTrainingTriple[] = [
       {
@@ -173,11 +188,15 @@ describe('toPrmRows', () => {
         marginScore: 0.6,
       },
     ]
-    const rows = await toPrmRows(triples, {
-      promptOf: (id) => `p:${id}`,
-      stepTextOf: (rid, sid) => `step:${rid}/${sid}`,
-      prefixOf: () => ['span-0', 'span-1'],
-    })
+    const rows = await toPrmRows(
+      triples,
+      {
+        promptOf: (id) => `p:${id}`,
+        stepTextOf: (rid, sid) => `step:${rid}/${sid}`,
+        prefixOf: () => ['span-0', 'span-1'],
+      },
+      { lines: prmLines('prefix-run', 'other-run') },
+    )
     expect(rows[0]?.prompt).toBe('p:prefix-run')
     expect(rows[0]?.prefixStepText).toEqual(['step:prefix-run/span-0', 'step:prefix-run/span-1'])
     expect(rows[0]?.chosenStep).toBe('step:prefix-run/chosen-step')
@@ -198,10 +217,14 @@ describe('toPrmRows', () => {
         marginScore: 1,
       },
     ]
-    const rows = await toPrmRows(triples, {
-      promptOf: () => 'p',
-      stepTextOf: () => 's',
-    })
+    const rows = await toPrmRows(
+      triples,
+      {
+        promptOf: () => 'p',
+        stepTextOf: () => 's',
+      },
+      { lines: prmLines('r') },
+    )
     expect(rows[0]?.prefixSpanIds).toEqual([])
     expect(rows[0]?.prefixStepText).toEqual([])
   })

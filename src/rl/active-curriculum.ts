@@ -31,6 +31,7 @@
  * scenario pool.
  */
 
+import { observedScore } from '../rollout/reward'
 import type { RunRecord } from '../run-record'
 
 export interface CellObservation {
@@ -223,9 +224,14 @@ export function observationsFromRunRecords(
   const out: CellObservation[] = []
   for (const r of runs) {
     if (!r.scenarioId) continue
-    const score = useHoldout
-      ? (r.outcome.holdoutScore ?? r.outcome.searchScore)
-      : (r.outcome.searchScore ?? r.outcome.holdoutScore)
+    // Ungated on purpose, and the precedence is caller policy, not a default:
+    // `useHoldout: false` means "score this curriculum on the search split when
+    // both exist". This feeds sampling COUNTS, not an exported reward. Known
+    // risk: a gamed run's high score inflates the cell's Beta posterior, so the
+    // curriculum stops sampling a cell it wrongly believes is solved. The fix
+    // for that is an upstream filter on gated records — zeroing the score here
+    // would push the posterior the opposite way and be equally wrong.
+    const score = observedScore(r, useHoldout ? 'holdout' : 'search')
     if (typeof score !== 'number' || !Number.isFinite(score)) continue
     out.push({
       variantId: r.candidateId,

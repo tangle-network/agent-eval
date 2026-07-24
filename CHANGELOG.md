@@ -4,6 +4,249 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ---
 
+## [Unreleased] - anti-Goodhart gate applied on every training-data path
+
+### Fixed
+
+- **A run flagged as gamed exported at full positive reward through every RL path.** The realness gate
+  (`outcome.realness.gated`) existed in exactly one function, `rolloutReward`, called from exactly one
+  place — `mintRolloutRows`. The same derivation, `outcome.holdoutScore ?? outcome.searchScore`, was
+  hand-rolled at 20 other sites with no gate. Six of those sites feed exported training data: the GRPO
+  default reward and the SFT row metadata (`rl/exporters.ts`), the DPO preference ordering
+  (`rl/preferences.ts`), the probabilistic verifiable-reward fallback (`rl/verifiable-reward.ts`), the
+  corpus `minScore` filter (`rl/corpus.ts`), and the published datasheet's reward statistics
+  (`rl/dataset.ts`). A gamed run therefore trained at its claimed score, and in DPO it became the
+  *chosen* side of a pair against its honest sibling. Every one of those six now derives its reward
+  through the gate.
+
+### Added
+
+- `trainingScore`, `trainingReward`, `observedScore`, `isRealnessGated`, and the `ScorePreference`
+  type — the score derivation now lives once, in `src/rollout/reward.ts`, behind two names that force
+  the caller to state intent. `trainingScore` / `trainingReward` are gated and required for anything a
+  trainer or an exported dataset consumes; `observedScore` is raw and documented as unsafe for
+  training data. Raw is a legitimate choice — reward-hack detection, scorecards, and curriculum
+  allocation need the ungated number, and gating a detector's proxy would make it report "clean" on
+  precisely the population being gamed — so the fix names the choice rather than removing it.
+- A regression test (`src/rollout/reward-invariant.test.ts`) with two halves: a source-level check that
+  the bare derivation appears nowhere outside `rollout/reward.ts`, and a behavioural check that pushes
+  one gated record with a 0.95 score through mint, GRPO, SFT, DPO, verifiable reward, the dataset
+  bundle, and the corpus filter, asserting 0 in each. Against the pre-fix tree the source check reports
+  21 offending lines and 7 of the 10 tests fail.
+
+### Changed
+
+- `rolloutReward` is now a deprecated alias of `trainingReward`, re-exported from `rollout/mint` and
+  both barrels. Behaviour and signature are unchanged; no consumer needs to migrate.
+- The 14 analysis, reporting, and detection sites that legitimately want the raw number now call
+  `observedScore` explicitly. Behaviour is unchanged at all 14, including the two sites that
+  deliberately prefer the search split (`rl/active-curriculum.ts`, via the new `ScorePreference`
+  argument) and the one that keeps a third `raw.score` fallback (`description-length-gate.ts`).
+
+### Fixed — second pass (the waist now enforces its own invariant)
+
+An adversarial review of the pass above found the hole still open on 13 paths. Its core finding:
+`validateRolloutLine({outcome: {reward: 0.95, realness_gated: true}})` returned **zero errors**. It
+type-checked `reward` and it type-checked `realness_gated`, and never once checked the RELATIONSHIP
+between them. `RolloutLine` was a plain structural interface, so any object literal of that shape WAS
+one — "the input is a rollout line" guaranteed nothing, and the ledger round-tripped a poisoned line
+unchanged.
+
+- **The invariant now lives in the validator.** `validateRolloutLine` / `assertRolloutLine` reject
+  `reward > 0` together with `realness_gated: true`, with an error that explains the rule rather than
+  naming the fields. Because `writeRolloutLedger` and `readRolloutLedger` both assert, a poisoned line
+  can neither enter a ledger nor leave one — which closes the published-CLI path (`agent-eval
+  rollout-release`) at its entrance: `buildHfDataset` reads through `readRolloutLedger`, so the gated
+  line is refused before `verifiers/train.jsonl` and `rft/train.jsonl` are written. The dataset card's
+  claim about the flag was a **false claim on a published artifact** until now; it is now enforced, and
+  the card states the count of gated lines it shipped.
+- **And in the type system.** `MintedRolloutLine` brands the line with a phantom `unique symbol`
+  (nothing at runtime, identical JSON). It is produced only by `mintRolloutRows`, `readRolloutLedger`,
+  or an explicit `assertMinted` / `assertMintedLines`. The training exporters now require it:
+  `rollout/exporters` (`toSftRows`, `toRewardRows`, `toVerifiersRolloutOutput(s)`, `toRftItem(s)`),
+  `rl/exporters` (`toGrpoRows`, `toSftRows`, `PrmLineContext.lines`), `rl/preferences.extractPreferences`,
+  and `rl/dataset.buildRlDataset`. Belt and braces on purpose: the brand closes first-party call sites
+  at compile time, the validator closes data arriving at runtime.
+- **The regex guard is replaced, not extended.** `src/rollout/score-derivation-guard.ts` walks the
+  TypeScript AST of `src/**` and flags every READ of `outcome.holdoutScore` / `outcome.searchScore`
+  outside a *counted* allowlist (writes and declarations are untouched). The old line regex caught 2 of
+  the 7 re-derivations the review planted; the AST rule catches all 7, and they are kept as a permanent
+  fixture in `reward-invariant.test.ts` rather than a one-time demonstration.
+- **`supervisorRunRolloutLines` was a second minting door**, writing `outcome.reward` from the judge
+  score and omitting `realness_gated` entirely. It now states the flag explicitly on every supervisor
+  and worker row, and its rows are plain `RolloutLine`s — a caller putting them into a training export
+  has to run them through `assertMinted` first.
+- **`EvalTraceStore.getBest` ranked few-shot exemplars on the ungated score** while its doc comment
+  claimed otherwise. `runScore` is now gated, and `getBest` drops realness-gated runs outright instead
+  of ranking them: whatever it returns is pasted into the next agent's prompt as an example to imitate,
+  so the SFT rule applies. When every run for a scenario is gated the answer is `null`, not the
+  least-bad fake.
+- **`release-confidence.passRate` counted a gamed run as a pass.** Gated runs are now excluded from
+  both numerator and denominator, and the count ships beside the rate as `metrics.realnessGatedRuns`.
+  `HeldOutGate` gets the same treatment: gated runs are dropped from both sides before pairing, with
+  `evidence.realnessGatedRuns` surfacing how many. Never a silent 0 — a shrunken denominator has to say
+  by how much.
+- **Ten remaining hand-rolled derivations routed by classification**: `rl/sim-fidelity.ts` (×2, RAW —
+  gating a sim-vs-production divergence measure would report the simulator as more faithful precisely
+  where it is gamed), `belief-state/code-agent-corpus.ts` (GATED — its output becomes corpus labels),
+  `eval-trace-store.ts` (GATED, above), `contract/analyze-runs.ts` (×3, RAW), `summary-report.ts` (×4,
+  RAW), `release-confidence.ts` (RAW), `held-out-gate.ts` (RAW, over an already-degated set).
+- **`trainingReward` no longer collapses an unscored record to 0.** It returns `reward: null`, matching
+  the schema's own "a labeled gap, never 0" rule; a gated run still returns 0, because that IS a
+  verdict. Previously a run nobody graded was indistinguishable from one graded a total failure.
+
+### Fixed — the published dataset (`agent-eval rollout-release`)
+
+- **The card's gate claim is no longer a sentence; it is a rendering of measured counts.** A README that
+  STATES what the build does is a claim about bytes it never reads, and it drifts the moment an exporter
+  changes — to whoever downloads the dataset. `buildHfDataset` now exports the rows for every selected
+  format, measures the realness-gated rows among them (`measureFormatGate`, matched on `rollout_id`),
+  checks the measurement against the declared per-format policy, and only then writes. `buildDatasetCard`
+  requires that report, renders it, and **throws** if it disagrees with the lines it describes or with the
+  policy. A card that contradicts its own data files cannot be produced without failing the build first.
+  The measurement also ships on `BuildSummary.gate` and in the CLI's stdout JSON.
+- **Nothing is written when any config would ship a gated row above reward 0.** Formats used to be
+  exported and written one at a time; a build that failed halfway left a poisoned config on disk for
+  someone to `--push`. Rows are now computed and gate-checked for every format before the first byte.
+- **The per-format decision is stated once as data**, in `src/rollout/release/gate-report.ts`:
+  `sft: 'exclude'` (an SFT row is imitated verbatim — a gamed trajectory must not appear at any weight),
+  `verifiers` / `rft` / `raw`: `'zero-and-flag'`. Keeping gated rows in the last three is deliberate: in
+  `verifiers` the reward is a signed learning signal, so a gamed trajectory at reward 0 is a correct
+  negative, and dropping it would bias the negative population toward honest failures and leave a trainer
+  no example of gaming being penalized; `rft` re-samples the completion, so only the prompt and the grader
+  reference ship; `raw` is an audit dump, where the gated row is the one an auditor most wants.
+- **Reward 0 is never the only label.** Zeroing without the flag makes a faked success indistinguishable
+  from an honest failure — it hides the gamed population instead of disclosing it. `VerifiersRolloutOutput.
+  info.realness_gated`, `RftItem.reference.realness_gated`, and `RewardRow.metadata.realness_gated` are new
+  and always present, so a consumer can filter the population out or select it for a gaming detector.
+
+### Fixed — Harbor ATIF interchange (`src/rollout/interchange/harbor.ts`)
+
+- **Export emitted documents that violate ATIF MUST rule 2.** Tool results were folded into the
+  `observation` of whichever step happened to PRECEDE them, so an assistant turn that declared no tool
+  calls could carry a `source_call_id`, a result could be attached to a step that declared a different
+  call, and an unanswered result rode a synthetic `system` step carrying a `source_call_id` a system
+  step can never declare. Results now attach only to the step that declared their `tool_call_id`;
+  everything else becomes a carrier step whose observation states no call id and escrows it instead.
+  Message order is preserved exactly in every case, and `ruleTwoViolations` checks the whole tree in
+  the tests.
+- **`logprobs`, `prompt_token_ids`, `completion_token_ids` and per-step `llm_call_count` were adopted
+  onto our types but never wired through the interchange.** They were escrowed under
+  `extra.tangle.spans`, where no foreign consumer looks, and ATIF's own `step.metrics` /
+  `step.llm_call_count` were left empty in both directions — so a Harbor-native file's logprobs were
+  read, validated, and dropped. They now travel on the native channel both ways (escrow still wins on
+  import for exactness); a step carrying none of them still produces no span.
+- **`session_id` was invocation-scoped.** ATIF's `session_id` is RUN-scoped; export set it to the root
+  LINE's `rollout_id`, so two roots of one run got different session ids and foreign tooling grouping
+  by session split the run. It is now `run_id`, on every node.
+- **`is_copied_context` (RFC rule 7) was silently dropped on import.** It is now a field on
+  `ChatMessage`, validated, carried both ways on ATIF's native step field, and — the part the RFC
+  actually mandates — `toSftRows` excludes those turns, dropping the row entirely if nothing else is
+  left.
+- **An escrowed split was trusted from any document.** `extra.tangle.task.split: 'search'` in a
+  hand-written or third-party file imported as a TRAINABLE split; the escrow key is namespaced, not
+  authenticated. Import now forces `holdout` unconditionally, and promotion is an explicit, greppable
+  step (`relabelImportedSplit`) so `grep` enumerates every place foreign data was declared trainable.
+- **Round-tripping was not idempotent.** `provenance.gap` accreted one copy of the import note per
+  pass, and imported messages were assembled in an order that depended on which optional fields were
+  present, so a ledger hashed on serialized bytes saw a diff. The gap is now composed as a
+  de-duplicated ordered set and every imported message is built in the canonical schema key order.
+- **The interchange was not root-exported.** `import { toHarborTrajectory } from
+  '@tangle-network/agent-eval'` failed — the symbols existed only on the `/rollout` subpath while every
+  other rollout symbol was on both.
+- **The reward-absence test was a substring scan.** `expect(serialized).not.toContain('reward')` passed
+  only because the fixture happened to have no reward-shaped key in `outcome.metrics`; it says nothing
+  about WHERE a match is and false-positives on any metric named e.g. `reward_hack_rate`. It is now a
+  structural walk that reports the PATH of every label-shaped key, exempting the escrowed metrics bag
+  by path.
+
+### Known gap (not fixed here)
+
+- `mintRolloutRows` hardcodes `tool_defs: []`, so `agent.tool_definitions` is absent on every minted
+  line's ATIF export. This is a capture-side gap, not an interchange one: neither `RunRecord` nor the
+  trace-span projection carries a tool schema, so there is nothing for mint to read. Fixing it means
+  recording the harness's tool definitions at capture time.
+
+### Fixed — unrelated flake encountered on the way
+
+- `node:sqlite` is loaded through `createRequire` in `rollout/readers/opencode-sqlite.ts` and its test.
+  esbuild and Vite both rewrite an `import()` of a builtin and strip the `node:` prefix, producing a bogus
+  `sqlite` package lookup; composing the specifier at runtime did not reliably defeat it, so the failure
+  moved between workers whenever a test file was added. A require obtained from `createRequire` is not an
+  analyzable module reference in either tool.
+
+### Added — second pass
+
+- `MintedRolloutLine`, `MintedRolloutOutcome`, `assertMinted`, `assertMintedLines` (rollout barrel +
+  root barrel).
+- `observedSplitScore` (the raw score on ONE split, no cross-split fallback — what every split-scoped
+  report and promotion gate actually wants) and `scoreOrigin` / `ScoreOrigin` (which split carried the
+  score, or that none did — the provenance `reward_source` is built from).
+- `malformedRolloutLine` in `rollout/fixtures` for tests whose subject is the validator itself;
+  `fixtureRolloutLine` now validates on every construction and returns a `MintedRolloutLine`.
+- `rollout/release/gate-report`: `FORMAT_GATE_DISPOSITION`, `GateDisposition`, `GateReport`,
+  `FormatGateCounts`, `ReleaseRowRef`, `gatedRolloutIds`, `releaseRowRefs`, `measureFormatGate`,
+  `assertGateReport` (rollout barrel). `BuildSummary.gate` and `DatasetCardInputs.gate` are new;
+  `DatasetCardInputs.gate` is required, so a card cannot be rendered without the measurement.
+
+### Fixed — third pass (the paths the validator and the brand cannot reach)
+
+Both mechanisms above act on a `RolloutLine`. Three of the review's findings never involve one: they
+take `RunRecord[]` or a bare triple, so no brand constrains them and no line is ever validated. Each
+is closed at its own derivation.
+
+- **`extractPreferences(records, {rewardOf})` ignored the gate on the caller's hook**, so a custom
+  reward put a gamed run on the CHOSEN side of a DPO pair against its honest sibling — the trainer
+  taught to prefer the gaming trajectory. `rl/exporters.toGrpoRows` gated the SAME-NAMED hook and
+  `extractPreferences` did not; two hooks disagreeing was the defect, so there is now one
+  implementation, `trainingRewardOverride` in `rollout/reward.ts`, and both call it. The hook is
+  honoured and then gated, never gated instead of honoured: an ungated run keeps its custom number.
+- **`extractVerifiableRewardsFromRecords` gated only its judge-fallback branch.** The deterministic
+  branch — the highest-credibility channel the module emits, `determinism: 'deterministic'`,
+  `confidence: 1`, and what the module header calls "the RL training signal" — returned the layer
+  score untouched, so a gated run carrying `outcome.raw['layer.test'] = 1.0` exported at value 1 and
+  `filterDeterministicallyRewarded` kept it. That is exactly the shape of a reward-hacked coding run:
+  `realness.gated` means the success signal was faked, and a test suite reporting green on a stubbed
+  integration IS the deterministic layer being the thing that got faked. The gate applies to that
+  channel most, not least. `value` and every `components` entry are now 0 on a gated run — zeroing
+  `value` alone would let a consumer re-weighting per source reconstruct the refused reward — and the
+  new `VerifiableReward.realnessGated` distinguishes "measured a genuine failure" from "claimed a
+  success we refuse to believe", which a bare 0 cannot.
+- **`toPrmRows(triples, lookups)` — the deprecated 2-arg form — applied no gate and now fails
+  closed.** A `PrmTrainingTriple` carries a bare `chosenReward` number, so without the minted lines
+  the exporter has no way to learn that its chosen step belongs to a run that faked its success; the
+  rows it produced trained a process-reward model to prefer the gaming move at the exact step the
+  gaming happened. The overload is removed (TypeScript callers fail to compile) and the runtime
+  throws for everyone else.
+- **`supervisorRunRolloutLines` no longer writes the reward pair by hand.** `reward` and
+  `realness_gated` come out of one call in the module that owns the gate — `rolloutRewardFields` for
+  `mintRolloutRows`, `unscreenedRewardFields` for a producer with a score but no `RunRecord` behind
+  it. Two minting doors is the same class of defect as two reward derivations; there is now one
+  writer of the pair, so a future third door cannot state one field and forget the other.
+- **`EvalTraceStore.compareRuns` counted a gamed run as a silent zero.** Gating `runScore` (second
+  pass, above) fixed few-shot seeding and quietly changed this: a gamed run entered the paired
+  comparison at 0, which reads as "this candidate failed the scenario" when what happened is "this
+  candidate's result is not evidence". Gated runs are now excluded and counted in
+  `CandidateComparison.realnessGatedRuns` — the same never-a-silent-0 rule `passRate` follows.
+
+#### Deliberately NOT gated
+
+`rl/reward-hacking.ts` reads the deterministic reward through the new
+`VerifiableRewardExtractionOptions.applyRealnessGate: false`, which preserves its previous behaviour
+exactly. Its `judge_drift` and `reward_disagreement` signals measure the GAP between the judge reward
+and the deterministic one; a deterministic reward another gate already forced to 0 opens that gap by
+construction on the gamed population, so the detector would fire on its own input rather than on
+evidence it found. Same reasoning as its ungated `DEFAULT_PROXY`. The option defaults to `true` and an
+empty options object gates — the opt-out is explicit and greppable.
+
+### Known, not fixed here
+
+- `description-length-gate.ts` gives a gated run claiming `score: 1.0` the largest possible improvement
+  to its objective, and `product-benchmark/export.ts` publishes a gated run with `pass: true`. Each
+  site carries a comment naming the hole.
+- `extractVerifiableReward(report)` — the `VerificationReport` signature — cannot gate and does not
+  claim to: `realness` lives on the `RunRecord`, not on the report. Documented on the function.
+
 ## [0.126.5] - 2026-07-24 - published GEPA compatibility
 
 ### Fixed

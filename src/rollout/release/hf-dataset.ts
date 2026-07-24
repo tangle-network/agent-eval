@@ -21,8 +21,15 @@ import { mkdir, writeFile } from 'node:fs/promises'
 import { basename, dirname, join } from 'node:path'
 import { toJsonl, toRftItems, toSftRows, toVerifiersRolloutOutputs } from '../exporters'
 import { readRolloutLedger, writeRolloutLedger } from '../ledger'
-import { isTrainableSplit, type RolloutLine } from '../schema'
+import { isTrainableSplit, type MintedRolloutLine } from '../schema'
 import { buildDatasetCard, FORMAT_FILES, RELEASE_FORMATS, type ReleaseFormat } from './card'
+import {
+  assertGateReport,
+  type GateReport,
+  gatedRolloutIds,
+  measureFormatGate,
+  releaseRowRefs,
+} from './gate-report'
 import { addScrubCounts, emptyScrubCounts, type ScrubCounts, scrubLines } from './scrub'
 
 export interface BuildOptions {
@@ -44,6 +51,8 @@ export interface BuildSummary {
   kept: number
   scrub: ScrubReport
   formatCounts: Partial<Record<ReleaseFormat, number>>
+  /** Per-format anti-Goodhart accounting, measured on the rows written. */
+  gate: GateReport
   files: string[]
 }
 
@@ -59,7 +68,7 @@ export async function buildHfDataset(
     totals: emptyScrubCounts(),
     excluded: { proposers: 0, nonTrain: 0 },
   }
-  const kept: RolloutLine[] = []
+  const kept: MintedRolloutLine[] = []
   let read = 0
 
   for (const input of inputs) {
@@ -84,27 +93,45 @@ export async function buildHfDataset(
 
   const formatCounts: Partial<Record<ReleaseFormat, number>> = {}
   const files: string[] = []
+  const gated = gatedRolloutIds(kept)
+  const gate: GateReport = { gatedLines: gated.size, byFormat: {} }
+
+  // Every selected format's rows are exported and gate-measured BEFORE the
+  // first byte is written. A build that would ship a gamed run at a positive
+  // reward fails with nothing on disk, rather than leaving a poisoned config
+  // behind for someone to `--push`.
+  const pending: Array<{ path: string; write: () => Promise<void> }> = []
 
   for (const format of options.formats) {
     const path = join(options.out, FORMAT_FILES[format])
-    await mkdir(dirname(path), { recursive: true })
     if (format === 'raw') {
       // writeRolloutLedger re-validates every scrubbed line before it lands.
-      await writeRolloutLedger(path, kept)
+      gate.byFormat.raw = measureFormatGate(gated, releaseRowRefs.raw(kept))
       formatCounts.raw = kept.length
+      pending.push({ path, write: () => writeRolloutLedger(path, kept) })
     } else if (format === 'sft') {
       const rows = toSftRows(kept)
-      await writeFile(path, toJsonl(rows))
+      gate.byFormat.sft = measureFormatGate(gated, releaseRowRefs.sft(rows))
       formatCounts.sft = rows.length
+      pending.push({ path, write: () => writeFile(path, toJsonl(rows)) })
     } else if (format === 'verifiers') {
       const outputs = toVerifiersRolloutOutputs(kept)
-      await writeFile(path, toJsonl(outputs))
+      gate.byFormat.verifiers = measureFormatGate(gated, releaseRowRefs.verifiers(outputs))
       formatCounts.verifiers = outputs.length
+      pending.push({ path, write: () => writeFile(path, toJsonl(outputs)) })
     } else {
       const items = toRftItems(kept)
-      await writeFile(path, toJsonl(items))
+      gate.byFormat.rft = measureFormatGate(gated, releaseRowRefs.rft(items))
       formatCounts.rft = items.length
+      pending.push({ path, write: () => writeFile(path, toJsonl(items)) })
     }
+  }
+
+  assertGateReport(gate)
+
+  for (const { path, write } of pending) {
+    await mkdir(dirname(path), { recursive: true })
+    await write()
     files.push(path)
   }
 
@@ -123,11 +150,12 @@ export async function buildHfDataset(
       scrubTotals: report.totals,
       excluded: report.excluded,
       formatCounts,
+      gate,
     }),
   )
   files.push(cardPath)
 
-  return { inputs, read, kept: kept.length, scrub: report, formatCounts, files }
+  return { inputs, read, kept: kept.length, scrub: report, formatCounts, gate, files }
 }
 
 export function planPushCommand(repo: string, outDir: string): string[] {
@@ -215,6 +243,7 @@ export async function runRolloutReleaseCli(argv: string[]): Promise<number> {
         read: summary.read,
         kept: summary.kept,
         formatCounts: summary.formatCounts,
+        gate: summary.gate,
         scrub: summary.scrub,
       },
       null,

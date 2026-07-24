@@ -28,6 +28,7 @@ import {
   type RubricPredictiveValidityReport,
   rubricPredictiveValidity,
 } from '../meta-eval/rubric-predictive-validity'
+import { observedScore } from '../rollout/reward'
 import type { RunRecord } from '../run-record'
 import { evaluateInterimReleaseConfidence, type InterimReleaseConfidence } from '../sequential'
 import {
@@ -196,7 +197,10 @@ function collectPairedDeltaSeries(
   for (const r of runs) {
     if (r.candidateId !== comparator) continue
     const sid = r.scenarioId ?? r.experimentId
-    const score = r.outcome.holdoutScore ?? r.outcome.searchScore
+    // Ungated: this is a measurement of the paired delta between candidates, not
+    // a value any trainer consumes. Gating it would report a candidate as worse
+    // than it measured; the gamed run should be excluded upstream instead.
+    const score = observedScore(r)
     if (typeof score !== 'number' || !Number.isFinite(score)) continue
     baseline.set(`${sid}::${r.seed}`, score)
   }
@@ -204,7 +208,7 @@ function collectPairedDeltaSeries(
   for (const r of runs) {
     if (r.candidateId === comparator) continue
     const sid = r.scenarioId ?? r.experimentId
-    const score = r.outcome.holdoutScore ?? r.outcome.searchScore
+    const score = observedScore(r)
     if (typeof score !== 'number' || !Number.isFinite(score)) continue
     const baseScore = baseline.get(`${sid}::${r.seed}`)
     if (typeof baseScore !== 'number') continue

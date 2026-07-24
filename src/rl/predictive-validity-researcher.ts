@@ -32,6 +32,7 @@ import type {
   Researcher,
   SteeringChange,
 } from '../researcher'
+import { observedScore } from '../rollout/reward'
 import type { RunRecord } from '../run-record'
 
 export interface PredictiveValidityResearcherOptions {
@@ -68,8 +69,11 @@ export class PredictiveValidityResearcher implements Researcher {
   async inspectFailures(runs: RunRecord[]): Promise<FailureMode[]> {
     const threshold = this.opts.failureThreshold ?? 0.5
     const failures: FailureMode[] = []
+    // Ungated: the researcher reports what the runs actually scored. A gamed
+    // run scored high and is therefore NOT a low-score failure mode — calling it
+    // one here would attribute the wrong failure to the candidate.
     const failingRuns = runs.filter((r) => {
-      const score = r.outcome.holdoutScore ?? r.outcome.searchScore
+      const score = observedScore(r)
       return typeof score === 'number' && score < threshold
     })
     if (failingRuns.length === 0) return failures
@@ -86,7 +90,7 @@ export class PredictiveValidityResearcher implements Researcher {
     for (const [candidateId, group] of grouped.entries()) {
       const meanScore =
         group.reduce((s, r) => {
-          const x = r.outcome.holdoutScore ?? r.outcome.searchScore ?? 0
+          const x = observedScore(r) ?? 0
           return s + x
         }, 0) / group.length
       failures.push({
@@ -181,6 +185,7 @@ export class PredictiveValidityResearcher implements Researcher {
         baselineOverfitGap: 0,
         medianCandidateCost: Number.NaN,
         medianBaselineCost: Number.NaN,
+        realnessGatedRuns: 0,
       },
       reason:
         'predictive-validity researcher does not execute plans; the caller is expected to run the sweep and call rubricPredictiveValidity directly with the resulting RunRecord[].',

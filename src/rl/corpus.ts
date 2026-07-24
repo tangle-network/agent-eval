@@ -19,6 +19,7 @@ import { appendFileSync, existsSync, mkdirSync, readFileSync } from 'node:fs'
 import { dirname } from 'node:path'
 import type { RunRecord } from '../run-record'
 import { buildRlDataset, type RlDatasetBundle, type RlDatasetConfig } from './dataset'
+import { mintLinesFromRecords, trainableLineReward } from './rollout-input'
 
 /** A corpus record is a RunRecord carrying the trajectory text the harness
  *  captured. `prompt`/`completion` are top-level (the validator ignores extras). */
@@ -68,11 +69,6 @@ export function readCorpus(corpusPath: string): CorpusRecord[] {
   return out
 }
 
-function rewardOf(r: CorpusRecord): number {
-  const v = r.outcome.holdoutScore ?? r.outcome.searchScore
-  return typeof v === 'number' && Number.isFinite(v) ? v : 0
-}
-
 export interface HarvestOptions {
   /** Keep only records scoring >= this (rejection-sampling for SFT). */
   minScore?: number
@@ -86,6 +82,12 @@ export interface HarvestOptions {
  * missing either are excluded (a graded score with no trajectory can't train).
  * Optionally filters by score / split. Throws (via buildRlDataset) if nothing
  * survives — an empty dataset must never be published.
+ *
+ * The corpus is minted into rollout lines BEFORE `minScore` is applied, so the
+ * rejection-sampling threshold sees the gated reward: a gamed run cannot buy
+ * its way into the published bundle with its claimed score. `minScore` is also
+ * the door this closes for SFT, where a high threshold is exactly what a
+ * reward-hacked run clears.
  */
 export async function buildDatasetFromCorpus(
   corpusPath: string,
@@ -96,7 +98,13 @@ export async function buildDatasetFromCorpus(
     (r) => typeof r.prompt === 'string' && typeof r.completion === 'string',
   )
   if (opts.splits) records = records.filter((r) => opts.splits!.includes(r.splitTag))
-  if (opts.minScore != null) records = records.filter((r) => rewardOf(r) >= opts.minScore!)
+
+  let lines = (await mintLinesFromRecords(records)).map((m) => m.line)
+  if (opts.minScore != null) {
+    // `?? 0` keeps the historical treatment of an unscored rollout: it clears
+    // no positive threshold, and is dropped rather than published unlabelled.
+    lines = lines.filter((line) => (trainableLineReward(line) ?? 0) >= opts.minScore!)
+  }
 
   const text = new Map(
     records.map((r) => [r.runId, { prompt: r.prompt!, completion: r.completion! }]),
@@ -105,5 +113,5 @@ export async function buildDatasetFromCorpus(
     promptOf: (id: string) => text.get(id)?.prompt ?? '',
     completionOf: (id: string) => text.get(id)?.completion ?? '',
   }
-  return buildRlDataset(records, lookups, config)
+  return buildRlDataset(lines, lookups, config)
 }

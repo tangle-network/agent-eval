@@ -32,6 +32,7 @@
  *     specific promotion path (still useful for replay-style evals).
  */
 
+import { isRealnessGated, observedSplitScore, type ScorePreference } from './rollout/reward'
 import type { RunRecord } from './run-record'
 import { pairedBootstrap, wilcoxonSignedRank } from './statistics'
 
@@ -102,6 +103,13 @@ export interface GateEvidence {
   /** Median per-task USD cost across the baseline runs, for
    *  symmetric reporting. */
   medianBaselineCost: number
+  /**
+   * Runs (candidate + baseline) dropped before pairing because the
+   * authenticity gate flagged them as gamed. Surfaced rather than silent: a
+   * promotion decision computed over a shrunken pool has to say by how much,
+   * and a nonzero count here is itself the finding.
+   */
+  realnessGatedRuns: number
 }
 
 export interface GateDecision {
@@ -162,28 +170,37 @@ export class HeldOutGate {
     const candidateId = inferCandidateId(candidate, this.baselineKey)
     const baselineId = this.baselineKey
 
+    // Runs flagged as gamed are dropped from BOTH sides before anything is
+    // paired. This is a promotion decision, and the whole point of the
+    // authenticity gate is that a faked success must not buy a promotion; the
+    // count ships in the evidence so the shrunken pool is never invisible.
+    const realnessGatedRuns = [...candidate, ...baseline].filter(isRealnessGated).length
+    const honestCandidate = candidate.filter((run) => !isRealnessGated(run))
+    const honestBaseline = baseline.filter((run) => !isRealnessGated(run))
+
     // Pair holdout runs by (experimentId, seed).
-    const baselineHoldoutByKey = indexHoldoutByKey(baseline)
+    const baselineHoldoutByKey = indexHoldoutByKey(honestBaseline)
     const beforeHoldout: number[] = []
     const afterHoldout: number[] = []
-    for (const run of candidate) {
+    for (const run of honestCandidate) {
       if (run.splitTag !== 'holdout') continue
-      if (run.outcome.holdoutScore === undefined) continue
+      const score = observedSplitScore(run, 'holdout')
+      if (score === undefined) continue
       const key = pairKey(run)
       const counterpart = baselineHoldoutByKey.get(key)
       if (counterpart === undefined) continue
       beforeHoldout.push(counterpart)
-      afterHoldout.push(run.outcome.holdoutScore)
+      afterHoldout.push(score)
     }
 
     const productiveRuns = beforeHoldout.length
 
     // Always compute the gap numbers — useful even when we reject on
     // few_runs (you want to see why).
-    const candidateSearchMean = mean(scores(candidate, 'searchScore', 'search'))
-    const candidateHoldoutMean = mean(scores(candidate, 'holdoutScore', 'holdout'))
-    const baselineSearchMean = mean(scores(baseline, 'searchScore', 'search'))
-    const baselineHoldoutMean = mean(scores(baseline, 'holdoutScore', 'holdout'))
+    const candidateSearchMean = mean(scores(honestCandidate, 'search'))
+    const candidateHoldoutMean = mean(scores(honestCandidate, 'holdout'))
+    const baselineSearchMean = mean(scores(honestBaseline, 'search'))
+    const baselineHoldoutMean = mean(scores(honestBaseline, 'holdout'))
 
     const overfitGap = safeDiff(candidateSearchMean, candidateHoldoutMean)
     const baselineOverfitGap = safeDiff(baselineSearchMean, baselineHoldoutMean)
@@ -210,6 +227,7 @@ export class HeldOutGate {
           baselineOverfitGap,
           medianCandidateCost,
           medianBaselineCost,
+          realnessGatedRuns,
         },
         reason: `few_runs: ${productiveRuns} paired holdout observation(s) < min ${this.minProductiveRuns}`,
         rejectionCode: 'few_runs',
@@ -236,6 +254,7 @@ export class HeldOutGate {
       baselineOverfitGap,
       medianCandidateCost,
       medianBaselineCost,
+      realnessGatedRuns,
     }
 
     // Negative-delta gate (CI lower bound must clear the threshold).
@@ -324,8 +343,9 @@ function indexHoldoutByKey(runs: RunRecord[]): Map<string, number> {
   const out = new Map<string, number>()
   for (const r of runs) {
     if (r.splitTag !== 'holdout') continue
-    if (r.outcome.holdoutScore === undefined) continue
-    out.set(pairKey(r), r.outcome.holdoutScore)
+    const score = observedSplitScore(r, 'holdout')
+    if (score === undefined) continue
+    out.set(pairKey(r), score)
   }
   return out
 }
@@ -334,15 +354,17 @@ function pairKey(r: RunRecord): string {
   return `${r.experimentId}::${r.seed}`
 }
 
-function scores(
-  runs: RunRecord[],
-  field: 'searchScore' | 'holdoutScore',
-  splitFilter: 'search' | 'holdout',
-): number[] {
+/**
+ * Mean-input scores for one split. RAW (`observedSplitScore`) by choice: the
+ * gated runs are already removed by the caller, so applying the gate again
+ * here would only zero runs that are no longer in the set, and the reported
+ * means must describe the runs that actually decided the promotion.
+ */
+function scores(runs: RunRecord[], split: ScorePreference): number[] {
   const out: number[] = []
   for (const r of runs) {
-    if (r.splitTag !== splitFilter) continue
-    const v = r.outcome[field]
+    if (r.splitTag !== split) continue
+    const v = observedSplitScore(r, split)
     if (typeof v === 'number' && Number.isFinite(v)) out.push(v)
   }
   return out

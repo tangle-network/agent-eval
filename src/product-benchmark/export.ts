@@ -22,6 +22,7 @@ import { createHash } from 'node:crypto'
 import { cpSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { basename, dirname, isAbsolute, join, relative, resolve } from 'node:path'
 import { ValidationError } from '../errors'
+import { observedScore } from '../rollout/reward'
 import type { RunRecord } from '../run-record'
 import type {
   ProductBenchmarkManifest,
@@ -250,8 +251,13 @@ function splitOf(record: RunRecord, opts: ResolvedExportOptions): ProductBenchma
   return 'practice'
 }
 
+/** Ungated: a published benchmark record is audit evidence, so the score must
+ *  stay the measured one. KNOWN HOLE: a realness-gated run still publishes with
+ *  `pass: true`. The fix mirrors `RolloutLine` — carry the gate as a field on
+ *  `ProductBenchmarkRecord` and force `pass: false` — which is a schema change,
+ *  not a call swap, and is tracked separately from this correctness fix. */
 function scoreOf(record: RunRecord): number {
-  const score = record.outcome.holdoutScore ?? record.outcome.searchScore
+  const score = observedScore(record)
   if (typeof score === 'number' && Number.isFinite(score)) return clamp01(score)
   const rawScore = record.outcome.raw.score ?? record.outcome.raw.composite
   return typeof rawScore === 'number' && Number.isFinite(rawScore) ? clamp01(rawScore) : 0

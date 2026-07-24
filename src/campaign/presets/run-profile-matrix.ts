@@ -49,6 +49,7 @@ import {
   type BackendIntegrityReport,
   summarizeBackendIntegrity,
 } from '../../integrity/backend-integrity'
+import { observedScore } from '../../rollout/reward'
 import {
   modelHasSnapshot,
   type RunOutcome,
@@ -538,9 +539,10 @@ export async function runProfileMatrix<TScenario extends Scenario, TArtifact>(
   return { matrixId, experimentId, records, byProfile, byScenario, byPersona, integrity, campaigns }
 }
 
-/** Composite for a produced RunRecord (the split score it carries). */
+/** Composite for a produced RunRecord (the split score it carries). Ungated —
+ *  a matrix pivot reports measured scores; it is not a training input. */
 function compositeOf(r: RunRecord): number {
-  return r.outcome.holdoutScore ?? r.outcome.searchScore ?? 0
+  return observedScore(r) ?? 0
 }
 
 function rollup(

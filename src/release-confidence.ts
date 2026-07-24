@@ -15,6 +15,7 @@
 import type { DatasetManifest, DatasetScenario, DatasetSplit } from './dataset'
 import { VerificationError } from './errors'
 import type { GateDecision } from './held-out-gate'
+import { isRealnessGated, observedScore, observedSplitScore } from './rollout/reward'
 import type { RunRecord, RunSplitTag } from './run-record'
 
 /** Severity of an actionable finding attached to a run/trace. */
@@ -125,6 +126,13 @@ export interface ReleaseConfidenceMetrics {
   domainCounts: Record<string, number>
   failureModeCounts: Record<string, number>
   responsibleSurfaceCounts: Record<string, number>
+  /**
+   * Runs excluded from `passRate` because the authenticity gate flagged them as
+   * gamed. Surfaced, never silent: a release whose pass rate is computed over a
+   * shrunken denominator has to say by how much, or the exclusion is just a
+   * different way of hiding the same runs.
+   */
+  realnessGatedRuns: number
 }
 
 export interface ReleaseConfidenceScorecard {
@@ -180,6 +188,7 @@ export function evaluateReleaseConfidence(
     searchRuns,
     holdoutRuns,
     passRate: passRate(runs, traces, thresholds.failureScoreThreshold),
+    realnessGatedRuns: runs.filter(isRealnessGated).length,
     meanScore: mean(scoreUniverse),
     searchMeanScore,
     holdoutMeanScore,
@@ -476,7 +485,11 @@ function countFailureModes(
 ): Record<string, number> {
   const out: Record<string, number> = {}
   for (const run of runs) {
-    const score = run.outcome.holdoutScore ?? run.outcome.searchScore
+    // Ungated: a failure-mode census counts what the runs REPORTED, which is
+    // the only way a gamed run's inflated score is visible at all. It is not a
+    // promotion number — `passRate` is, and that one now excludes gated runs
+    // and publishes the excluded count as `metrics.realnessGatedRuns`.
+    const score = observedScore(run)
     if (run.failureMode || (score !== undefined && score < threshold)) {
       const mode = run.failureMode ?? 'low_score'
       out[mode] = (out[mode] ?? 0) + 1
@@ -513,7 +526,7 @@ function failedRows(
 ): Array<{ hasAsi: boolean }> {
   const out: Array<{ hasAsi: boolean }> = []
   for (const run of runs) {
-    const score = run.outcome.holdoutScore ?? run.outcome.searchScore
+    const score = observedScore(run)
     if (run.failureMode || (score !== undefined && score < threshold)) {
       const asiMetric = run.outcome.raw.asi
       out.push({ hasAsi: typeof asiMetric === 'number' && asiMetric > 0 })
@@ -531,16 +544,29 @@ function failedRows(
   return out
 }
 
+/**
+ * Fraction of runs and traces that cleared the failure threshold.
+ *
+ * Realness-gated runs are EXCLUDED from both numerator and denominator, and the
+ * count of what was dropped ships beside the rate as
+ * `metrics.realnessGatedRuns`. Counting a gamed run as a pass made faking a
+ * success the cheapest way to improve a release scorecard; scoring it 0 instead
+ * would be the other error, silently deflating the rate with a run the gate
+ * says carries no usable verdict at all. Neither belongs in a promotion number:
+ * the honest treatment is to remove it and say so.
+ */
 function passRate(
   runs: readonly RunRecord[],
   traces: readonly ReleaseTraceEvidence[],
   threshold: number,
 ): number {
   const outcomes = [
-    ...runs.map((run) => {
-      const score = run.outcome.holdoutScore ?? run.outcome.searchScore
-      return !run.failureMode && score !== undefined && score >= threshold
-    }),
+    ...runs
+      .filter((run) => !isRealnessGated(run))
+      .map((run) => {
+        const score = observedScore(run)
+        return !run.failureMode && score !== undefined && score >= threshold
+      }),
     ...traces.map(
       (trace) => trace.ok !== false && (trace.score === undefined || trace.score >= threshold),
     ),
@@ -550,10 +576,15 @@ function passRate(
 }
 
 function scoresFor(runs: readonly RunRecord[], split: RunSplitTag): number[] {
-  return runs
-    .filter((run) => run.splitTag === split)
-    .map((run) => (split === 'holdout' ? run.outcome.holdoutScore : run.outcome.searchScore))
-    .filter(isFiniteNumber)
+  return (
+    runs
+      .filter((run) => run.splitTag === split)
+      // RAW and split-exact: this feeds the per-split mean and the overfit gap on
+      // the scorecard, both of which are descriptions of what the runs reported.
+      // A gamed run inflating them is visible next to `realnessGatedRuns`.
+      .map((run) => observedSplitScore(run, split === 'holdout' ? 'holdout' : 'search'))
+      .filter(isFiniteNumber)
+  )
 }
 
 function mean(xs: readonly number[]): number {

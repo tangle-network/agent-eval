@@ -3,8 +3,9 @@
  * serialization: canonical schema + validation, ledger file API, minting
  * from RunRecord × trace, harness-store intake readers (opencode sqlite,
  * Claude Code jsonl), training-format exporters (SFT, reward rows, Prime
- * Intellect verifiers, OpenAI RFT), and the scrub + dataset-card release
- * pipeline. See `docs/rollout.md` for the schema decision table.
+ * Intellect verifiers, OpenAI RFT), Harbor ATIF-v1.7 interchange, and the
+ * scrub + dataset-card release pipeline. See `docs/rollout.md` for the
+ * schema decision table and the source → waist → sink map.
  */
 
 export {
@@ -23,6 +24,28 @@ export {
   type VerifiersTokenUsage,
 } from './exporters'
 
+export {
+  ATIF_SCHEMA_VERSION,
+  type FromHarborOptions,
+  fromHarborTrajectory,
+  HARBOR_IMPORT_GAP,
+  type HarborAgent,
+  type HarborContentPart,
+  type HarborFinalMetrics,
+  type HarborImageSource,
+  type HarborMetrics,
+  type HarborObservation,
+  type HarborObservationResult,
+  type HarborStep,
+  type HarborStepSource,
+  type HarborSubagentTrajectoryRef,
+  type HarborToolCall,
+  type HarborTrajectory,
+  relabelImportedSplit,
+  toHarborTrajectories,
+  toHarborTrajectory,
+} from './interchange/harbor'
+
 export { appendRolloutLines, readRolloutLedger, writeRolloutLedger } from './ledger'
 
 export {
@@ -30,7 +53,6 @@ export {
   type MintRolloutResult,
   mintRolloutRows,
   type RolloutScrubber,
-  rolloutReward,
 } from './mint'
 export {
   type ClaudeTranscript,
@@ -57,6 +79,17 @@ export {
   type ReleaseFormat,
 } from './release/card'
 export {
+  assertGateReport,
+  FORMAT_GATE_DISPOSITION,
+  type FormatGateCounts,
+  type GateDisposition,
+  type GateReport,
+  gatedRolloutIds,
+  measureFormatGate,
+  type ReleaseRowRef,
+  releaseRowRefs,
+} from './release/gate-report'
+export {
   type BuildOptions,
   type BuildSummary,
   buildHfDataset,
@@ -80,6 +113,19 @@ export {
   scrubText,
 } from './release/scrub'
 export {
+  isRealnessGated,
+  observedScore,
+  observedSplitScore,
+  rolloutReward,
+  type ScoreOrigin,
+  type ScorePreference,
+  scoreOrigin,
+  trainingReward,
+  trainingScore,
+} from './reward'
+export {
+  assertMinted,
+  assertMintedLines,
   assertRolloutLine,
   CHAT_ROLES,
   type ChatMessage,
@@ -87,6 +133,8 @@ export {
   type ChatToolCall,
   isRolloutLine,
   isTrainableSplit,
+  type MintedRolloutLine,
+  type MintedRolloutOutcome,
   ROLLOUT_CAPTURES,
   ROLLOUT_FORMAT,
   ROLLOUT_ROLES,

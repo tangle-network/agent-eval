@@ -26,6 +26,7 @@ import { checkCanaries } from '../contamination-guard'
 import type { DatasetScenario } from '../dataset'
 import { summarizeBackendIntegrity } from '../integrity/backend-integrity'
 import { continuousAgreement } from '../judge-calibration'
+import { observedSplitScore } from '../rollout/reward'
 import { type RunRecord, type RunTokenUsage, resolveRunCostProvenance } from '../run-record'
 import {
   cohensD,
@@ -630,17 +631,23 @@ function resolveSplit(
   pref: 'search' | 'holdout' | 'auto',
 ): 'search' | 'holdout' {
   if (pref !== 'auto') return pref
-  const hasHoldout = runs.some((r) => Number.isFinite(r.outcome.holdoutScore))
+  const hasHoldout = runs.some((r) => Number.isFinite(observedSplitScore(r, 'holdout')))
   return hasHoldout ? 'holdout' : 'search'
 }
 
+/**
+ * RAW (`observedSplitScore`): `analyzeRuns` describes what a set of runs
+ * reported, and every downstream reader of this composite — distributions,
+ * per-candidate summaries, the reward-hacking correlation — needs the ungated
+ * number to see an inflated run at all.
+ */
 function compositeOf(run: RunRecord, split: 'search' | 'holdout'): number {
-  const primary = split === 'holdout' ? run.outcome.holdoutScore : run.outcome.searchScore
+  const primary = observedSplitScore(run, split)
   if (Number.isFinite(primary)) return primary as number
   // Fall through to the other split if the preferred one is missing —
   // analyzeRuns shouldn't refuse to summarise a run just because the
   // caller asked for the split that wasn't recorded.
-  const alt = split === 'holdout' ? run.outcome.searchScore : run.outcome.holdoutScore
+  const alt = observedSplitScore(run, split === 'holdout' ? 'search' : 'holdout')
   return Number.isFinite(alt) ? (alt as number) : Number.NaN
 }
 

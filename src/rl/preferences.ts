@@ -36,9 +36,20 @@
  * The output `PreferenceTriple` is *agent-eval-canonical* but trivially
  * mappable to TRL's `DPODataset` shape (`prompt`, `chosen`, `rejected`)
  * via the `toTRLFormat` helper.
+ *
+ * Input discipline: the primary signature takes `MintedRolloutLine[]` — the
+ * `tangle.rollout.v1` waist, whose reward already carries the realness gate.
+ * The `RunRecord[]` signature stays as a deprecated overload. Unlike the
+ * exporters it does NOT mint internally: this function is synchronous and
+ * minting is not, so it feeds the same pairing implementation through a record
+ * adapter that applies the gate via `trainingScore`. One implementation, two
+ * adapters — the gate is in both, and the published signature stays sync.
  */
 
+import { trainingRewardOverride, trainingScore } from '../rollout/reward'
+import type { MintedRolloutLine, RolloutSplit } from '../rollout/schema'
 import type { RunRecord } from '../run-record'
+import { isRolloutLineInput, trainableLineReward } from './rollout-input'
 
 export type PreferenceStrategy =
   | 'paired-by-scenario-and-seed'
@@ -94,8 +105,28 @@ export interface ExtractPreferencesOptions {
    * Optional reward extractor that overrides `outcome.holdoutScore` /
    * `outcome.searchScore`. Use to drive preferences off a verifiable
    * reward instead of the headline score.
+   *
+   * The realness gate still wins: the value comes back through
+   * `trainingRewardOverride`, so a reward derived from a gamed run is forced to
+   * 0 exactly like the score it replaced. Identical treatment to the
+   * same-named hook on `rl/exporters.toGrpoRows`, which is the point — the two
+   * disagreeing was what let a gamed run become the CHOSEN side of a DPO pair.
    */
   rewardOf?: (run: RunRecord) => number | null
+}
+
+export interface ExtractPreferencesFromLinesOptions {
+  strategy?: PreferenceStrategy
+  /**
+   * Minimum score gap required to admit a pair. Pairs below this are
+   * dropped — they're noise, not signal. Default 0.05 (5% of [0,1]).
+   */
+  minMargin?: number
+  /**
+   * Optional split filter — restrict to lines from one split. Default
+   * `'holdout'` (the canonical "real" signal).
+   */
+  split?: RolloutSplit
 }
 
 export interface PreferenceExtractionReport {
@@ -108,63 +139,179 @@ export interface PreferenceExtractionReport {
   cellsSingleton: number
   /** Strategy used. */
   strategy: PreferenceStrategy
+  /**
+   * Lines dropped before pairing because they carry no `candidate_id`. A
+   * preference is a statement about two candidates, so a line that names none
+   * cannot be paired. Only ever non-zero on the `RolloutLine[]` path — mint
+   * always copies `RunRecord.candidateId`, which is mandatory.
+   */
+  linesWithoutCandidateId?: number
 }
 
 const SPLIT_TAG_DEFAULT: RunRecord['splitTag'] = 'holdout'
+const SPLIT_DEFAULT: RolloutSplit = 'holdout'
+
+/**
+ * The only shape the pairing strategies see. Both input adapters normalize
+ * into it, so `RolloutLine[]` and the deprecated `RunRecord[]` path run the
+ * exact same comparison code.
+ */
+interface PairingCandidate {
+  scenarioId: string
+  runId: string
+  candidateId: string
+  /** null only when a line records no seed; RunRecords always carry one. */
+  seed: number | null
+  score: number
+  promptHash: string
+  configHash: string
+  model: string
+}
 
 const DEFAULT_REWARD = (run: RunRecord): number | null => {
-  const v = run.outcome.holdoutScore ?? run.outcome.searchScore
+  // Orders chosen-vs-rejected in every exported DPO pair. Ungated, a gamed run
+  // with an inflated score becomes the `chosen` side and the trainer is taught
+  // to prefer the gaming trajectory over its honest sibling.
+  const v = trainingScore(run)
   return typeof v === 'number' && Number.isFinite(v) ? v : null
 }
 
 /**
- * Convert `RunRecord[]` to preference triples for RL training.
+ * Convert rollout lines to preference triples for RL training.
  *
  * Returns a structured report so callers can see how much data was
  * dropped and why (low-margin pairs, singleton cells). For production
  * pipelines, you usually want to:
  *
  *   1. Run a campaign producing 5–10 variants × 50–200 scenarios × 3 seeds
- *   2. Call this with `strategy: 'paired-by-scenario-and-seed'` and a
- *      verifiable-reward extractor as `rewardOf`
+ *   2. Mint the runs with `mintRolloutRows` and call this with
+ *      `strategy: 'paired-by-scenario-and-seed'`
  *   3. Pass `report.pairs` to `toTRLFormat` and pipe to your DPO trainer
+ *
+ * The gate is what makes a preference dataset safe: ordered on an ungated
+ * score, a gamed run with an inflated number becomes the `chosen` side and DPO
+ * is trained to prefer the gaming trajectory over its honest sibling. A gated
+ * line arrives here already scored 0, so it sinks to `rejected`.
+ */
+export function extractPreferences(
+  lines: MintedRolloutLine[],
+  opts?: ExtractPreferencesFromLinesOptions,
+): PreferenceExtractionReport
+/**
+ * @deprecated Pass `RolloutLine[]` (mint with `mintRolloutRows`). This
+ * signature applies the same gate through `trainingScore`, and keeps
+ * `rewardOf` — the one reward hook the line path deliberately drops.
  */
 export function extractPreferences(
   runs: RunRecord[],
-  opts: ExtractPreferencesOptions = {},
+  opts?: ExtractPreferencesOptions,
+): PreferenceExtractionReport
+export function extractPreferences(
+  input: MintedRolloutLine[] | RunRecord[],
+  opts: ExtractPreferencesFromLinesOptions | ExtractPreferencesOptions = {},
 ): PreferenceExtractionReport {
   const strategy = opts.strategy ?? 'paired-by-scenario-and-seed'
   const minMargin = opts.minMargin ?? 0.05
+  const candidates = isRolloutLineInput(input)
+    ? candidatesFromLines(
+        input,
+        (opts as ExtractPreferencesFromLinesOptions).split ?? SPLIT_DEFAULT,
+      )
+    : candidatesFromRecords(input, opts as ExtractPreferencesOptions)
+  const report = pairCandidates(candidates.rows, strategy, minMargin)
+  return candidates.withoutCandidateId === undefined
+    ? report
+    : { ...report, linesWithoutCandidateId: candidates.withoutCandidateId }
+}
+
+interface NormalizedInput {
+  rows: PairingCandidate[]
+  /** Undefined on the record path, where `candidateId` is mandatory. */
+  withoutCandidateId?: number
+}
+
+function candidatesFromRecords(
+  runs: RunRecord[],
+  opts: ExtractPreferencesOptions,
+): NormalizedInput {
   const splitTag = opts.splitTag ?? SPLIT_TAG_DEFAULT
-  const rewardOf = opts.rewardOf ?? DEFAULT_REWARD
-
-  const filtered = runs.filter((r) => r.splitTag === splitTag)
-  const scoredEntries: Array<{ run: RunRecord; score: number }> = []
-  for (const run of filtered) {
-    const s = rewardOf(run)
-    if (s === null) continue
-    scoredEntries.push({ run, score: s })
+  const custom = opts.rewardOf
+  const rows: PairingCandidate[] = []
+  for (const run of runs) {
+    if (run.splitTag !== splitTag) continue
+    // The caller's hook is honoured and then gated, never gated instead of
+    // honoured. Ungated it ordered chosen-vs-rejected on the number a gamed run
+    // claimed, which is the one ordering DPO must never be taught.
+    const score =
+      custom === undefined ? DEFAULT_REWARD(run) : trainingRewardOverride(run, custom(run))
+    if (score === null) continue
+    rows.push({
+      // Three-tier scenario fallback, which `RolloutLine.task.instance_id`
+      // cannot express (mint knows only `scenarioId ?? experimentId`). Kept on
+      // this path so records carrying only `outcome.raw.scenario_id` still
+      // group the way they always have.
+      scenarioId: scenarioOf(run),
+      runId: run.runId,
+      candidateId: run.candidateId,
+      seed: run.seed,
+      score,
+      promptHash: run.promptHash,
+      configHash: run.configHash,
+      model: run.model,
+    })
   }
+  return { rows }
+}
 
+function candidatesFromLines(lines: MintedRolloutLine[], split: RolloutSplit): NormalizedInput {
+  const rows: PairingCandidate[] = []
+  let withoutCandidateId = 0
+  for (const line of lines) {
+    if (line.task.split !== split) continue
+    const score = trainableLineReward(line)
+    if (score === null) continue
+    const candidateId = line.candidate_id
+    if (candidateId === null || candidateId === undefined || candidateId.length === 0) {
+      withoutCandidateId++
+      continue
+    }
+    rows.push({
+      scenarioId: line.task.instance_id,
+      runId: line.run_id,
+      candidateId,
+      seed: line.task.seed,
+      score,
+      // `policy.*` is nullable on the wire; a minted line always carries these
+      // (RunRecord makes them mandatory). Empty string marks "not recorded" so
+      // `toTRLFormat`'s hash lookup fails visibly instead of silently matching.
+      promptHash: line.policy.prompt_hash ?? '',
+      configHash: line.policy.config_hash ?? '',
+      model: line.policy.model ?? '',
+    })
+  }
+  return { rows, withoutCandidateId }
+}
+
+function pairCandidates(
+  scoredEntries: PairingCandidate[],
+  strategy: PreferenceStrategy,
+  minMargin: number,
+): PreferenceExtractionReport {
   const pairs: PreferenceTriple[] = []
   let pairsBelowMargin = 0
   let cellsSingleton = 0
   let cellsInspected = 0
 
   if (strategy === 'paired-by-scenario-and-seed') {
-    // Group by (scenarioId, seed). Canonical key is `run.scenarioId`,
-    // populated by `runEvalCampaign` and the adapters; falls back to
-    // `outcome.raw.scenario_id` then `experimentId` when absent.
-    const groups = new Map<string, Array<{ run: RunRecord; score: number }>>()
+    const groups = new Map<string, PairingCandidate[]>()
     for (const e of scoredEntries) {
-      const sid = scenarioOf(e.run)
-      const key = `${sid}::${e.run.seed}`
+      const key = `${e.scenarioId}::${e.seed}`
       const arr = groups.get(key) ?? []
       arr.push(e)
       groups.set(key, arr)
     }
 
-    for (const [key, members] of groups.entries()) {
+    for (const members of groups.values()) {
       cellsInspected++
       if (members.length < 2) {
         cellsSingleton++
@@ -174,8 +321,8 @@ export function extractPreferences(
         for (let j = i + 1; j < members.length; j++) {
           const a = members[i]!
           const b = members[j]!
-          if (a.run.candidateId === b.run.candidateId) continue
-          const result = makePair(a, b, key.split('::')[0]!, minMargin)
+          if (a.candidateId === b.candidateId) continue
+          const result = makePair(a, b, a.scenarioId, minMargin)
           if (result.kind === 'admit') pairs.push(result.pair)
           else pairsBelowMargin++
         }
@@ -185,27 +332,25 @@ export function extractPreferences(
     // Group by scenarioId → average per (variantId, scenarioId) across seeds.
     const byScenarioVariant = new Map<
       string,
-      Map<string, { run: RunRecord; sum: number; n: number }>
+      Map<string, { entry: PairingCandidate; sum: number; n: number }>
     >()
     for (const e of scoredEntries) {
-      const sid = scenarioOf(e.run)
-      let perScenario = byScenarioVariant.get(sid)
+      let perScenario = byScenarioVariant.get(e.scenarioId)
       if (!perScenario) {
         perScenario = new Map()
-        byScenarioVariant.set(sid, perScenario)
+        byScenarioVariant.set(e.scenarioId, perScenario)
       }
-      const cur = perScenario.get(e.run.candidateId)
+      const cur = perScenario.get(e.candidateId)
       if (cur) {
         cur.sum += e.score
         cur.n++
-      } else perScenario.set(e.run.candidateId, { run: e.run, sum: e.score, n: 1 })
+      } else perScenario.set(e.candidateId, { entry: e, sum: e.score, n: 1 })
     }
     for (const [sid, perVariant] of byScenarioVariant.entries()) {
       cellsInspected++
-      const arr = [...perVariant.entries()].map(([vid, agg]) => ({
-        run: agg.run,
+      const arr = [...perVariant.values()].map((agg) => ({
+        ...agg.entry,
         score: agg.sum / agg.n,
-        variantId: vid,
       }))
       if (arr.length < 2) {
         cellsSingleton++
@@ -221,12 +366,11 @@ export function extractPreferences(
     }
   } else {
     // top-vs-bottom: per scenario, top vs bottom only.
-    const byScenario = new Map<string, Array<{ run: RunRecord; score: number }>>()
+    const byScenario = new Map<string, PairingCandidate[]>()
     for (const e of scoredEntries) {
-      const sid = scenarioOf(e.run)
-      const arr = byScenario.get(sid) ?? []
+      const arr = byScenario.get(e.scenarioId) ?? []
       arr.push(e)
-      byScenario.set(sid, arr)
+      byScenario.set(e.scenarioId, arr)
     }
     for (const [sid, arr] of byScenario.entries()) {
       cellsInspected++
@@ -237,7 +381,7 @@ export function extractPreferences(
       const sorted = [...arr].sort((a, b) => a.score - b.score)
       const top = sorted[sorted.length - 1]!
       const bot = sorted[0]!
-      if (top.run.candidateId === bot.run.candidateId) {
+      if (top.candidateId === bot.candidateId) {
         cellsSingleton++
         continue
       }
@@ -285,32 +429,33 @@ export function toAnthropicFormat(
 // ── Helpers ──────────────────────────────────────────────────────────────
 
 function makePair(
-  a: { run: RunRecord; score: number },
-  b: { run: RunRecord; score: number },
+  a: PairingCandidate,
+  b: PairingCandidate,
   scenarioId: string,
   minMargin: number,
 ): { kind: 'admit'; pair: PreferenceTriple } | { kind: 'reject' } {
   const margin = Math.abs(a.score - b.score)
   if (margin < minMargin) return { kind: 'reject' }
   const [chosen, rejected] = a.score > b.score ? [a, b] : [b, a]
+  const seed = chosen.seed !== null && chosen.seed === rejected.seed ? chosen.seed : undefined
   return {
     kind: 'admit',
     pair: {
       scenarioId,
-      chosenRunId: chosen.run.runId,
-      rejectedRunId: rejected.run.runId,
-      chosenVariantId: chosen.run.candidateId,
-      rejectedVariantId: rejected.run.candidateId,
+      chosenRunId: chosen.runId,
+      rejectedRunId: rejected.runId,
+      chosenVariantId: chosen.candidateId,
+      rejectedVariantId: rejected.candidateId,
       marginScore: chosen.score - rejected.score,
       scores: { chosen: chosen.score, rejected: rejected.score },
-      seed: chosen.run.seed === rejected.run.seed ? chosen.run.seed : undefined,
+      seed,
       meta: {
-        chosenPromptHash: chosen.run.promptHash,
-        rejectedPromptHash: rejected.run.promptHash,
-        chosenConfigHash: chosen.run.configHash,
-        rejectedConfigHash: rejected.run.configHash,
-        chosenModel: chosen.run.model,
-        rejectedModel: rejected.run.model,
+        chosenPromptHash: chosen.promptHash,
+        rejectedPromptHash: rejected.promptHash,
+        chosenConfigHash: chosen.configHash,
+        rejectedConfigHash: rejected.configHash,
+        chosenModel: chosen.model,
+        rejectedModel: rejected.model,
       },
     },
   }

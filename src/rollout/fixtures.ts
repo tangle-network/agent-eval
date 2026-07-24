@@ -2,11 +2,27 @@
  * Hand-built fixture rollout line for exporter/ledger tests — a miniature but
  * fully-valid `tangle.rollout.v1` worker invocation with a real prompt →
  * assistant → tool → assistant transcript.
+ *
+ * Returns a `MintedRolloutLine` through `assertMinted`, which is exactly the
+ * escape hatch a hand-built line is supposed to use: the fixture is validated
+ * on every construction, so an override that breaks the schema or the
+ * anti-Goodhart invariant fails at the fixture rather than deep inside the
+ * exporter under test.
  */
 
-import type { RolloutLine } from './schema'
+import { assertMinted, type MintedRolloutLine, type RolloutLine } from './schema'
 
-export function fixtureRolloutLine(overrides: Partial<RolloutLine> = {}): RolloutLine {
+export function fixtureRolloutLine(overrides: Partial<RolloutLine> = {}): MintedRolloutLine {
+  return assertMinted(malformedRolloutLine(overrides), 'fixture rollout line')
+}
+
+/**
+ * The same fixture WITHOUT validation, for the tests whose subject is the
+ * validator itself — they need a line that is deliberately broken, which
+ * `fixtureRolloutLine` refuses to hand back by construction. Returns the plain
+ * type: a malformed line is not minted and must not be exportable.
+ */
+export function malformedRolloutLine(overrides: Partial<RolloutLine> = {}): RolloutLine {
   return {
     schema: 'tangle.rollout.v1',
     rollout_id: '11111111-2222-4333-8444-555555555555',

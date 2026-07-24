@@ -9,10 +9,23 @@
  * All exporters are pure functions of the lines — filtering (never train on
  * holdout, reward thresholds, the realness gate) happens HERE, on inline
  * labels, no joins.
+ *
+ * Every exporter takes `MintedRolloutLine[]`, not `RolloutLine[]`: the reward
+ * on a minted line has been checked against the anti-Goodhart invariant, and
+ * the brand is what stops a hand-built object literal claiming a positive
+ * reward on a gamed run from being handed to an exporter that copies it
+ * verbatim into training data.
  */
 
-import type { ChatMessage, RolloutLine, RolloutSplit, RolloutStep, ToolDef } from './schema'
-import { isTrainableSplit } from './schema'
+import type {
+  ChatMessage,
+  MintedRolloutLine,
+  RolloutLine,
+  RolloutSplit,
+  RolloutStep,
+  ToolDef,
+} from './schema'
+import { assertRewardGate, isTrainableSplit } from './schema'
 
 // ---------------------------------------------------------------------------
 // (a) SFT chat JSONL
@@ -38,10 +51,12 @@ export interface SftRow {
  * Supervised fine-tune rows: the completed conversation of each qualifying
  * line. Fail-closed filters: trainable split only (never holdout/canary),
  * reward ≥ minReward, realness-gated lines never qualify, gap lines carry
- * no trainable content.
+ * no trainable content, and copied-context turns are dropped from the
+ * transcript (Harbor ATIF RFC 0001 rule 7 — see `ChatMessage.is_copied_context`).
  */
-export function toSftRows(lines: RolloutLine[], options: SftExportOptions = {}): SftRow[] {
+export function toSftRows(lines: MintedRolloutLine[], options: SftExportOptions = {}): SftRow[] {
   const minReward = options.minReward ?? 1
+  for (const line of lines) assertRewardGate(line, 'SFT export')
   return lines
     .filter(
       (line) =>
@@ -52,7 +67,10 @@ export function toSftRows(lines: RolloutLine[], options: SftExportOptions = {}):
         line.messages.length > 0,
     )
     .map((line) => ({
-      messages: line.messages,
+      // Dropped, not kept-and-masked: a copied-context turn was authored by
+      // another agent, and an SFT trainer has no notion of "present but not a
+      // target" — every message it is handed is something to imitate.
+      messages: line.messages.filter((message) => message.is_copied_context !== true),
       metadata: {
         rollout_id: line.rollout_id,
         run_id: line.run_id,
@@ -61,6 +79,7 @@ export function toSftRows(lines: RolloutLine[], options: SftExportOptions = {}):
         reward: line.outcome.reward as number,
       },
     }))
+    .filter((row) => row.messages.length > 0)
 }
 
 // ---------------------------------------------------------------------------
@@ -78,6 +97,14 @@ export interface RewardRow {
     candidate_id: string | null
     instance_id: string
     split: RolloutSplit
+    /**
+     * The anti-Goodhart verdict, carried on the row rather than left implicit
+     * in a reward of 0. Zeroing alone is lossy: it makes a run that FAKED its
+     * success indistinguishable from one that honestly failed, so a consumer
+     * can neither drop the gamed population nor mine it (a labeled gamed
+     * trajectory is the training signal for a gaming detector).
+     */
+    realness_gated: boolean
   }
 }
 
@@ -88,7 +115,8 @@ export interface RewardRow {
  * no verdict (reward null) are excluded: an unlabeled example is a gap,
  * not a zero.
  */
-export function toRewardRows(lines: RolloutLine[]): RewardRow[] {
+export function toRewardRows(lines: MintedRolloutLine[]): RewardRow[] {
+  for (const line of lines) assertRewardGate(line, 'reward-row export')
   return lines
     .filter((line) => line.outcome.reward !== null)
     .map((line) => ({
@@ -101,6 +129,7 @@ export function toRewardRows(lines: RolloutLine[]): RewardRow[] {
         candidate_id: line.candidate_id ?? null,
         instance_id: line.task.instance_id,
         split: line.task.split,
+        realness_gated: line.outcome.realness_gated === true,
       },
     }))
 }
@@ -136,6 +165,8 @@ export interface VerifiersRolloutOutput {
     generation: number | null
     candidate_index: number | null
     role: RolloutLine['role']
+    /** See `RewardRow.metadata.realness_gated` — reward 0 alone is lossy. */
+    realness_gated: boolean
   }
 }
 
@@ -145,7 +176,8 @@ function firstAssistantIndex(messages: ChatMessage[]): number {
   return index === -1 ? messages.length : index
 }
 
-export function toVerifiersRolloutOutput(line: RolloutLine): VerifiersRolloutOutput {
+export function toVerifiersRolloutOutput(line: MintedRolloutLine): VerifiersRolloutOutput {
+  assertRewardGate(line, 'verifiers export')
   const split = firstAssistantIndex(line.messages)
   return {
     prompt: line.messages.slice(0, split),
@@ -170,11 +202,12 @@ export function toVerifiersRolloutOutput(line: RolloutLine): VerifiersRolloutOut
       generation: line.generation,
       candidate_index: line.candidate_index,
       role: line.role,
+      realness_gated: line.outcome.realness_gated === true,
     },
   }
 }
 
-export function toVerifiersRolloutOutputs(lines: RolloutLine[]): VerifiersRolloutOutput[] {
+export function toVerifiersRolloutOutputs(lines: MintedRolloutLine[]): VerifiersRolloutOutput[] {
   return lines.filter((line) => line.messages.length > 0).map(toVerifiersRolloutOutput)
 }
 
@@ -194,10 +227,13 @@ export interface RftItem {
     suite: string
     split: RolloutSplit
     rollout_id: string
+    /** See `RewardRow.metadata.realness_gated` — reward 0 alone is lossy. */
+    realness_gated: boolean
   }
 }
 
-export function toRftItem(line: RolloutLine): RftItem {
+export function toRftItem(line: MintedRolloutLine): RftItem {
+  assertRewardGate(line, 'RFT export')
   const split = firstAssistantIndex(line.messages)
   return {
     messages: line.messages.slice(0, split),
@@ -209,12 +245,13 @@ export function toRftItem(line: RolloutLine): RftItem {
       suite: line.task.suite,
       split: line.task.split,
       rollout_id: line.rollout_id,
+      realness_gated: line.outcome.realness_gated === true,
     },
   }
 }
 
 /** RFT needs a real prompt: lines whose transcript starts with prompt turns. */
-export function toRftItems(lines: RolloutLine[]): RftItem[] {
+export function toRftItems(lines: MintedRolloutLine[]): RftItem[] {
   return lines
     .filter((line) => line.messages.length > 0 && firstAssistantIndex(line.messages) > 0)
     .map(toRftItem)

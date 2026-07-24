@@ -13,7 +13,14 @@
  * Anti-Goodhart invariant: a run whose `outcome.realness.gated` is true
  * is never exported with a positive reward — the gate travels into the
  * training data (`reward` forced to 0, `realness_gated: true`), so a
- * fine-tune cannot learn from gamed successes.
+ * fine-tune cannot learn from gamed successes. Mint returns
+ * `MintedRolloutLine[]`: the brand the training exporters require, which only
+ * this function, `readRolloutLedger`, and an explicit `assertMinted` can mint.
+ *
+ * A record carrying NEITHER split score becomes `reward: null` (with
+ * `reward_source: 'run-record/unscored'`), never 0 — "nobody graded this" is
+ * not the same claim as "graded a total failure", and a trainer reading 0
+ * learns the second.
  *
  * Records without spans become labeled GAP LINES (messages: [],
  * provenance.gap) — present in the output AND surfaced in
@@ -24,10 +31,12 @@ import type { RunRecord } from '../run-record'
 import type { LlmSpan, Message, Span, ToolSpan } from '../trace/schema'
 import type { TraceStore } from '../trace/store'
 import { buildTrajectory } from '../trajectory'
+import { rolloutRewardFields, scoreOrigin } from './reward'
 import {
+  assertMinted,
   type ChatMessage,
+  type MintedRolloutLine,
   ROLLOUT_SCHEMA,
-  type RolloutLine,
   type RolloutRole,
   type RolloutSplit,
   type RolloutStep,
@@ -49,7 +58,7 @@ export interface MintRolloutOptions {
 }
 
 export interface MintRolloutResult {
-  rows: RolloutLine[]
+  rows: MintedRolloutLine[]
   /** runIds that had a RunRecord but no spans — emitted as gap lines AND listed here. */
   missingTraces: string[]
 }
@@ -94,16 +103,25 @@ function finalConversation(spans: Span[], scrub: RolloutScrubber): ChatMessage[]
   return messages
 }
 
-export function rolloutReward(record: RunRecord): { reward: number; gated: boolean } {
-  const gated = record.outcome.realness?.gated === true
-  const raw = record.outcome.holdoutScore ?? record.outcome.searchScore ?? 0
-  return { reward: gated ? 0 : raw, gated }
-}
+// The reward derivations live in the leaf module `./reward` so gate and
+// reporting code can import them without dragging in the trace store; they are
+// re-exported here because `rolloutReward` shipped from this path.
+export {
+  isRealnessGated,
+  observedScore,
+  observedSplitScore,
+  rolloutReward,
+  type ScoreOrigin,
+  type ScorePreference,
+  scoreOrigin,
+  trainingReward,
+  trainingScore,
+} from './reward'
 
-function rewardSource(record: RunRecord): string {
-  if (record.outcome.holdoutScore !== undefined) return 'run-record/holdout-score'
-  if (record.outcome.searchScore !== undefined) return 'run-record/search-score'
-  return 'run-record/unscored'
+const REWARD_SOURCE: Record<ReturnType<typeof scoreOrigin>, string> = {
+  holdout: 'run-record/holdout-score',
+  search: 'run-record/search-score',
+  unscored: 'run-record/unscored',
 }
 
 const SPLIT_FROM_TAG: Record<RunRecord['splitTag'], RolloutSplit> = {
@@ -119,66 +137,73 @@ function mintLine(
   options: MintRolloutOptions,
   capturedAt: string,
   gap?: string,
-): RolloutLine {
-  const { reward, gated } = rolloutReward(record)
+): MintedRolloutLine {
+  // `reward` and `realness_gated` come out of one call, so neither door into
+  // the waist can write one and forget the other.
+  const rewardFields = rolloutRewardFields(record)
   const uncaptured = record.costProvenance?.kind === 'uncaptured'
-  return {
-    schema: ROLLOUT_SCHEMA,
-    rollout_id: record.runId,
-    parent_rollout_id: null,
-    run_id: record.runId,
-    experiment_id: record.experimentId,
-    candidate_id: record.candidateId,
-    generation: null,
-    candidate_index: null,
-    role: options.role ?? 'agent',
-    task: {
-      suite: options.suite ?? record.experimentId,
-      instance_id: record.scenarioId ?? record.experimentId,
-      split: SPLIT_FROM_TAG[record.splitTag],
-      seed: record.seed,
-      rep: 0,
+  // `assertMinted` rather than a cast: mint is the producer the whole gate
+  // rests on, so it proves the line it just built is valid instead of asserting
+  // it by fiat. The brand is unforgeable precisely because nobody casts to it.
+  return assertMinted(
+    {
+      schema: ROLLOUT_SCHEMA,
+      rollout_id: record.runId,
+      parent_rollout_id: null,
+      run_id: record.runId,
+      experiment_id: record.experimentId,
+      candidate_id: record.candidateId,
+      generation: null,
+      candidate_index: null,
+      role: options.role ?? 'agent',
+      task: {
+        suite: options.suite ?? record.experimentId,
+        instance_id: record.scenarioId ?? record.experimentId,
+        split: SPLIT_FROM_TAG[record.splitTag],
+        seed: record.seed,
+        rep: 0,
+      },
+      policy: {
+        harness: null,
+        harness_version: null,
+        model: record.model,
+        provider: null,
+        profile_commit: record.commitSha,
+        prompt_hash: record.promptHash,
+        config_hash: record.configHash,
+        agent_profile_cell_id: record.agentProfile?.cellId ?? null,
+        sampling: null,
+      },
+      messages,
+      tool_defs: [],
+      ...(steps.length > 0 ? { steps } : {}),
+      outcome: {
+        ...rewardFields,
+        reward_source: REWARD_SOURCE[scoreOrigin(record)],
+        verdict: null,
+        metrics: { ...record.outcome.raw },
+        is_completed: true,
+        is_truncated: false,
+        error: null,
+      },
+      cost: {
+        usd: uncaptured ? null : record.costUsd,
+        tokens_in: record.tokenUsage.input,
+        tokens_out: record.tokenUsage.output,
+        tokens_reasoning: record.tokenUsage.reasoning ?? null,
+        cache_read: record.tokenUsage.cached ?? null,
+        cache_write: record.tokenUsage.cacheWrite ?? null,
+        wall_s: Math.round(record.wallMs / 1000),
+      },
+      artifacts: { patch_path: null, run_dir: null, transcript_ref: null },
+      provenance: {
+        captured_at: capturedAt,
+        capture: 'mint',
+        ...(gap !== undefined ? { gap } : {}),
+      },
     },
-    policy: {
-      harness: null,
-      harness_version: null,
-      model: record.model,
-      provider: null,
-      profile_commit: record.commitSha,
-      prompt_hash: record.promptHash,
-      config_hash: record.configHash,
-      agent_profile_cell_id: record.agentProfile?.cellId ?? null,
-      sampling: null,
-    },
-    messages,
-    tool_defs: [],
-    ...(steps.length > 0 ? { steps } : {}),
-    outcome: {
-      reward,
-      reward_source: rewardSource(record),
-      verdict: null,
-      metrics: { ...record.outcome.raw },
-      is_completed: true,
-      is_truncated: false,
-      error: null,
-      realness_gated: gated,
-    },
-    cost: {
-      usd: uncaptured ? null : record.costUsd,
-      tokens_in: record.tokenUsage.input,
-      tokens_out: record.tokenUsage.output,
-      tokens_reasoning: record.tokenUsage.reasoning ?? null,
-      cache_read: record.tokenUsage.cached ?? null,
-      cache_write: record.tokenUsage.cacheWrite ?? null,
-      wall_s: Math.round(record.wallMs / 1000),
-    },
-    artifacts: { patch_path: null, run_dir: null, transcript_ref: null },
-    provenance: {
-      captured_at: capturedAt,
-      capture: 'mint',
-      ...(gap !== undefined ? { gap } : {}),
-    },
-  }
+    `minted rollout line for run ${record.runId}`,
+  )
 }
 
 /**
@@ -193,7 +218,7 @@ export async function mintRolloutRows(
 ): Promise<MintRolloutResult> {
   const scrub = options.scrub ?? ((t) => t)
   const capturedAt = (options.now?.() ?? new Date()).toISOString()
-  const rows: RolloutLine[] = []
+  const rows: MintedRolloutLine[] = []
   const missingTraces: string[] = []
   for (const record of records) {
     const trajectory = await buildTrajectory(store, record.runId)

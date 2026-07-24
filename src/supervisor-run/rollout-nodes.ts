@@ -22,6 +22,7 @@
  * per-node facts.
  */
 
+import { unscreenedRewardFields } from '../rollout/reward'
 import {
   isRolloutLine,
   ROLLOUT_SCHEMA,
@@ -142,7 +143,18 @@ export function supervisorRunRolloutLines(
         sampling: null,
       },
       outcome: {
-        reward,
+        // `reward` and `realness_gated` are written by one call, in the module
+        // that owns the gate. This is the SECOND producer of rollout rewards —
+        // the judge verdict in the supervision run dir, not `mintRolloutRows` —
+        // and it wrote `reward` by hand while never stating the flag, so
+        // `isLineRealnessGated` was structurally false for every supervisor and
+        // worker row ever emitted here. `unscreenedRewardFields` is the honest
+        // name for what this producer can claim: a supervision journal carries
+        // no `RunRecord.outcome.realness`, so no authenticity gate has run on
+        // this score, and `realness_gated: false` states that rather than
+        // implying it by omission. These rows stay plain `RolloutLine`s, so a
+        // caller feeding them to a training exporter must `assertMinted` first.
+        ...unscreenedRewardFields(reward),
         reward_source: src.judgeSource,
         verdict: judge ?? null,
         metrics: {
@@ -225,7 +237,9 @@ export function supervisorRunRolloutLines(
         sampling: null,
       },
       outcome: {
-        reward,
+        // Same producer, same claim: a worker reward is a self-verify verdict
+        // from the journal that no realness gate has seen.
+        ...unscreenedRewardFields(reward),
         reward_source: reward === null ? null : 'worker-self-verify',
         verdict:
           close === null

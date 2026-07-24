@@ -29,11 +29,28 @@
  * artifact (specifically: prompt + completion text, since the package
  * stores only their hashes by design — full text is the consumer's
  * trace store / raw event log).
+ *
+ * Input discipline: the primary signature of every exporter that produces a
+ * training row takes `RolloutLine[]` — the `tangle.rollout.v1` waist. A line's
+ * reward is written once, by `mintRolloutRows`, with the realness gate applied;
+ * accepting nothing else is what makes the gate unbypassable rather than
+ * merely conventional. The `RunRecord[]` signatures remain as deprecated
+ * overloads that mint internally (see `./rollout-input`) and delegate, so
+ * published consumers keep compiling and silently gain the gate.
  */
 
+import { trainingRewardOverride, trainingScore } from '../rollout/reward'
+import { assertRewardGate, type MintedRolloutLine } from '../rollout/schema'
 import type { RunRecord } from '../run-record'
 import type { PreferenceTriple } from './preferences'
 import type { PrmTrainingTriple, StepReward } from './process-reward'
+import {
+  isLineRealnessGated,
+  isRolloutLineInput,
+  type MintedFromRecord,
+  mintLinesFromRecords,
+  trainableLineReward,
+} from './rollout-input'
 
 // ── DPO / IPO / KTO ──────────────────────────────────────────────────────
 
@@ -96,10 +113,22 @@ export function toDpoJsonl(rows: DpoExportRow[]): string {
 
 // ── GRPO offline ─────────────────────────────────────────────────────────
 
-export interface GrpoLookups {
+export interface GrpoLineLookups {
+  /** Resolve the prompt text for a rollout, keyed by `line.run_id`. */
   promptOf: (runId: string) => string | Promise<string>
+  /** Resolve the assistant completion text for a rollout. */
   completionOf: (runId: string) => string | Promise<string>
-  /** Optional: derive a custom reward from the run. Defaults to score. */
+}
+
+export interface GrpoLookups extends GrpoLineLookups {
+  /**
+   * Optional: derive a custom reward from the run. Defaults to score.
+   *
+   * Accepted only on the deprecated `RunRecord[]` path, and the realness gate
+   * still wins: a custom reward computed from a gamed run is a gamed reward, so
+   * it is forced to 0 exactly like the score it replaces. The `RolloutLine[]`
+   * path has no such hook by design — that is the door this retype closes.
+   */
   rewardOf?: (run: RunRecord) => number | null
 }
 
@@ -113,41 +142,70 @@ export interface GrpoExportRow {
 }
 
 /**
- * Convert RunRecord[] grouped by `(scenarioId)` into GRPO offline rows —
- * one row per scenario, with one completion per run on that scenario.
+ * Convert rollout lines grouped by `task.instance_id` into GRPO offline rows —
+ * one row per scenario, with one completion per rollout on that scenario.
  *
  * GRPO (Shao et al. 2024 / DeepSeek-R1) trains on relative advantages
  * within a group of completions for the same prompt; this is the
- * canonical input format.
+ * canonical input format. That relative baseline is exactly why the gate has
+ * to hold here: one gamed sibling exporting at full reward shifts the advantage
+ * of every honest run beside it.
+ *
+ * A realness-gated line stays in its group at reward 0 rather than being
+ * dropped. 0 is the honest label for a faked success and is usable signal;
+ * removing the line would also move the group's baseline, just in the other
+ * direction. (SFT differs — see `toSftRows`.)
  */
 export async function toGrpoRows(
-  runs: RunRecord[],
-  lookups: GrpoLookups,
+  lines: MintedRolloutLine[],
+  lookups: GrpoLineLookups,
+): Promise<GrpoExportRow[]>
+/**
+ * @deprecated Pass `RolloutLine[]` (mint with `mintRolloutRows`). This
+ * signature mints internally so the realness gate applies, but it cannot carry
+ * a trajectory: prompt/completion still come from your lookups.
+ */
+export async function toGrpoRows(runs: RunRecord[], lookups: GrpoLookups): Promise<GrpoExportRow[]>
+export async function toGrpoRows(
+  input: MintedRolloutLine[] | RunRecord[],
+  lookups: GrpoLineLookups | GrpoLookups,
 ): Promise<GrpoExportRow[]> {
-  const rewardOf = lookups.rewardOf ?? defaultReward
-  const grouped = new Map<string, RunRecord[]>()
-  for (const r of runs) {
-    const sid = r.scenarioId ?? r.experimentId
-    const arr = grouped.get(sid) ?? []
-    arr.push(r)
-    grouped.set(sid, arr)
+  if (isRolloutLineInput(input)) return grpoRowsFromLines(input, lookups, trainableLineReward)
+  const minted = await mintLinesFromRecords(input)
+  return grpoRowsFromLines(
+    minted.map((m) => m.line),
+    lookups,
+    legacyRewardOf(minted, (lookups as GrpoLookups).rewardOf),
+  )
+}
+
+async function grpoRowsFromLines(
+  lines: MintedRolloutLine[],
+  lookups: GrpoLineLookups,
+  rewardOf: (line: MintedRolloutLine) => number | null,
+): Promise<GrpoExportRow[]> {
+  const grouped = new Map<string, MintedRolloutLine[]>()
+  for (const line of lines) {
+    const arr = grouped.get(line.task.instance_id) ?? []
+    arr.push(line)
+    grouped.set(line.task.instance_id, arr)
   }
 
   const rows: GrpoExportRow[] = []
   for (const [scenarioId, group] of grouped.entries()) {
     if (group.length === 0) continue
     // Resolve prompt once per group (assumes all runs in a group share the prompt).
-    const prompt = await Promise.resolve(lookups.promptOf(group[0]!.runId))
+    const prompt = await Promise.resolve(lookups.promptOf(group[0]!.run_id))
     const completions: string[] = []
     const rewards: number[] = []
     const runIds: string[] = []
-    for (const r of group) {
-      const reward = rewardOf(r)
+    for (const line of group) {
+      const reward = rewardOf(line)
       if (reward === null) continue
-      const completion = await Promise.resolve(lookups.completionOf(r.runId))
+      const completion = await Promise.resolve(lookups.completionOf(line.run_id))
       completions.push(completion)
       rewards.push(reward)
-      runIds.push(r.runId)
+      runIds.push(line.run_id)
     }
     if (completions.length === 0) continue
     rows.push({
@@ -171,6 +229,17 @@ export function toGrpoJsonl(rows: GrpoExportRow[]): string {
 
 // ── SFT ──────────────────────────────────────────────────────────────────
 
+export interface SftLineLookups {
+  /** Resolve the prompt text for a rollout, keyed by `line.run_id`. */
+  promptOf: (runId: string) => string | Promise<string>
+  /** Resolve the assistant completion text for a rollout. */
+  completionOf: (runId: string) => string | Promise<string>
+  /** Optional system message. Default omits. */
+  systemOf?: (line: MintedRolloutLine) => string | null | undefined
+  /** Extra filter on top of the realness gate (e.g., low score, failed cases). */
+  include?: (line: MintedRolloutLine) => boolean
+}
+
 export interface SftLookups {
   promptOf: (runId: string) => string | Promise<string>
   completionOf: (runId: string) => string | Promise<string>
@@ -186,20 +255,61 @@ export interface SftExportRow {
 }
 
 /**
- * Convert RunRecord[] into Hugging Face / OpenAI / Anthropic-style
- * conversational SFT rows. By default every record becomes one row;
- * pass `include` to filter (e.g., keep only `score >= 0.8` for
+ * Convert rollout lines into Hugging Face / OpenAI / Anthropic-style
+ * conversational SFT rows. By default every qualifying line becomes one row;
+ * pass `include` to filter further (e.g., keep only `reward >= 0.8` for
  * rejection-sampling SFT).
+ *
+ * Realness-gated lines are dropped outright, not zeroed. SFT is imitation
+ * learning: unlike GRPO, where a 0 reward teaches "this trajectory was bad",
+ * every row here is a target to copy, so a gamed trajectory must not be in the
+ * file at all. Mirrors the waist filter in `rollout/exporters.toSftRows`.
+ *
+ * NOT filtered here: the split. `rollout/exporters.toSftRows` is fail-closed on
+ * `isTrainableSplit`; this path is deliberately not, because `RunRecord`-era
+ * consumers publish holdout-only eval bundles through it (see
+ * `buildDatasetFromCorpus({ splits: ['holdout'] })`). Filter with `include` when
+ * the output is training data.
  */
-export async function toSftRows(runs: RunRecord[], lookups: SftLookups): Promise<SftExportRow[]> {
+export async function toSftRows(
+  lines: MintedRolloutLine[],
+  lookups: SftLineLookups,
+): Promise<SftExportRow[]>
+/**
+ * @deprecated Pass `RolloutLine[]` (mint with `mintRolloutRows`). This
+ * signature mints internally so the realness gate applies; `systemOf` /
+ * `include` keep receiving the `RunRecord`.
+ */
+export async function toSftRows(runs: RunRecord[], lookups: SftLookups): Promise<SftExportRow[]>
+export async function toSftRows(
+  input: MintedRolloutLine[] | RunRecord[],
+  lookups: SftLineLookups | SftLookups,
+): Promise<SftExportRow[]> {
+  if (isRolloutLineInput(input)) return sftRowsFromLines(input, lookups as SftLineLookups)
+  const minted = await mintLinesFromRecords(input)
+  return sftRowsFromLines(
+    minted.map((m) => m.line),
+    adaptSftLookups(minted, lookups as SftLookups),
+  )
+}
+
+async function sftRowsFromLines(
+  lines: MintedRolloutLine[],
+  lookups: SftLineLookups,
+): Promise<SftExportRow[]> {
   const include = lookups.include ?? (() => true)
   const rows: SftExportRow[] = []
-  for (const r of runs) {
-    if (!include(r)) continue
-    const system = lookups.systemOf?.(r)
+  for (const line of lines) {
+    // Checked BEFORE the drop, so this path fails loud on an impossible line
+    // exactly like `rollout/exporters.toSftRows` does rather than quietly
+    // filtering it as if it were an ordinary gated row.
+    assertRewardGate(line, 'SFT export')
+    if (isLineRealnessGated(line)) continue
+    if (!include(line)) continue
+    const system = lookups.systemOf?.(line)
     const [prompt, completion] = await Promise.all([
-      Promise.resolve(lookups.promptOf(r.runId)),
-      Promise.resolve(lookups.completionOf(r.runId)),
+      Promise.resolve(lookups.promptOf(line.run_id)),
+      Promise.resolve(lookups.completionOf(line.run_id)),
     ])
     const messages: SftExportRow['messages'] = []
     if (system) messages.push({ role: 'system', content: system })
@@ -208,15 +318,43 @@ export async function toSftRows(runs: RunRecord[], lookups: SftLookups): Promise
     rows.push({
       messages,
       meta: {
-        runId: r.runId,
-        candidateId: r.candidateId,
-        scenarioId: r.scenarioId,
-        score: r.outcome.holdoutScore ?? r.outcome.searchScore,
-        model: r.model,
+        runId: line.run_id,
+        candidateId: line.candidate_id ?? null,
+        scenarioId: line.task.instance_id,
+        // `undefined` when unscored — JSON.stringify drops the key, and an
+        // absent score is the labeled gap, not a measured zero.
+        score: trainableLineReward(line) ?? undefined,
+        model: line.policy.model,
       },
     })
   }
   return rows
+}
+
+/** Re-point the deprecated `RunRecord`-typed callbacks at their minted line. */
+function adaptSftLookups(minted: MintedFromRecord[], lookups: SftLookups): SftLineLookups {
+  const recordOf = recordIndex(minted)
+  const { systemOf, include } = lookups
+  return {
+    promptOf: lookups.promptOf,
+    completionOf: lookups.completionOf,
+    systemOf:
+      systemOf === undefined
+        ? undefined
+        : (line) => {
+            const record = recordOf(line)
+            return record === undefined ? undefined : systemOf(record)
+          },
+    include:
+      include === undefined
+        ? undefined
+        : (line) => {
+            const record = recordOf(line)
+            // Fail closed: a line with no record behind it cannot be judged by
+            // a RunRecord-typed filter, so it is excluded rather than admitted.
+            return record !== undefined && include(record)
+          },
+  }
 }
 
 export function toSftJsonl(rows: SftExportRow[]): string {
@@ -247,16 +385,60 @@ export interface PrmExportRow {
   meta?: Record<string, unknown>
 }
 
+export interface PrmLineContext {
+  /**
+   * The minted lines for every run the triples reference. Supplying them is
+   * what lets this exporter see the realness gate and the capture quality of
+   * each trajectory; a triple naming a run with no line here is refused.
+   */
+  lines: MintedRolloutLine[]
+  /**
+   * The `maxSteps` cap the lines were minted with, if any.
+   *
+   * `mintRolloutRows` drops the MIDDLE of an over-long trajectory and leaves no
+   * marker on the line, so a capped trajectory is indistinguishable from a
+   * short one. Declaring the cap lets this exporter refuse any line sitting at
+   * it — a process-reward model trained on a trajectory with a hole in it
+   * learns credit assignment that never happened.
+   */
+  mintedWithMaxSteps?: number
+}
+
 /**
  * Convert PRM training triples to JSONL rows. Caller's `stepTextOf`
  * callback resolves span text from the consumer's trace store.
+ *
+ * Every referenced run is checked against its minted line before any row is
+ * emitted, and the export FAILS LOUD on a trajectory that was never fully
+ * captured (see `assertPrmTrainableLine`). Triples whose chosen or rejected
+ * side is realness-gated are dropped instead: a capture defect is the caller's
+ * mint configuration and must be fixed, whereas a gamed run is exactly the
+ * condition the gate exists to filter.
+ *
+ * `context` is REQUIRED. A two-argument call used to be accepted and produced
+ * rows with no gate applied at all — a `PrmTrainingTriple` carries a bare
+ * `chosenReward` number and nothing that says which run it came from is honest,
+ * so with no lines this exporter has no way to learn that its chosen step is a
+ * step from a run that faked its success. It now throws: fail closed, because
+ * the alternative is a process-reward model taught to prefer the gaming move at
+ * the exact step the gaming happened.
  */
 export async function toPrmRows(
   triples: PrmTrainingTriple[],
   lookups: PrmLookups,
+  context: PrmLineContext,
 ): Promise<PrmExportRow[]> {
+  // Reachable from JavaScript, and from a `toPrmRows as any` — the removed
+  // two-argument overload stops TypeScript callers at compile time, and this
+  // stops everyone else.
+  if (context === undefined || context === null) {
+    throw new Error(
+      'PRM export: a PrmLineContext is required — without the minted rollout lines this exporter cannot see the realness gate (a triple carries only a bare reward number) and cannot tell a fully-captured trajectory from a capped or empty one. Pass `{ lines: await mintRolloutRows(...).rows }`.',
+    )
+  }
+  const admitted = admitPrmTriples(triples, context)
   const rows: PrmExportRow[] = []
-  for (const t of triples) {
+  for (const t of admitted) {
     const prompt = await Promise.resolve(lookups.promptOf(t.prefixRunId))
     const prefixSpanIds = lookups.prefixOf
       ? await Promise.resolve(lookups.prefixOf(t.prefixRunId, t.prefixStepIndex))
@@ -288,6 +470,68 @@ export async function toPrmRows(
   return rows
 }
 
+/**
+ * Refuse to build a process-reward row from a trajectory we do not fully have.
+ *
+ * PRM training assigns credit step by step, so a missing or silently shortened
+ * step list is not degraded data — it is data about a trajectory that never
+ * existed. Every condition below throws rather than filters, because each one
+ * means the CALLER's capture or mint configuration is wrong.
+ */
+export function assertPrmTrainableLine(line: MintedRolloutLine, mintedWithMaxSteps?: number): void {
+  const id = line.rollout_id
+  if (line.provenance.gap !== undefined) {
+    throw new Error(
+      `PRM export: rollout ${id} is a gap line (${line.provenance.gap}) — refusing to build a process-reward row from a trajectory that was never captured`,
+    )
+  }
+  if (line.steps === undefined || line.steps.length === 0) {
+    throw new Error(
+      `PRM export: rollout ${id} carries no steps — refusing to build a process-reward row with no trajectory`,
+    )
+  }
+  if (line.outcome.is_truncated) {
+    throw new Error(
+      `PRM export: rollout ${id} is marked truncated — refusing to assign step-level credit over a partial trajectory`,
+    )
+  }
+  if (mintedWithMaxSteps !== undefined && line.steps.length >= mintedWithMaxSteps) {
+    throw new Error(
+      `PRM export: rollout ${id} has ${line.steps.length} steps at the mint cap of ${mintedWithMaxSteps} — its middle steps may have been dropped, and a capped trajectory carries no marker to prove otherwise`,
+    )
+  }
+}
+
+/**
+ * Validate every referenced line up front (fail loud, before a single row is
+ * written) and then drop the triples whose evidence is realness-gated.
+ */
+function admitPrmTriples(
+  triples: PrmTrainingTriple[],
+  context: PrmLineContext,
+): PrmTrainingTriple[] {
+  const byRunId = new Map(context.lines.map((line) => [line.run_id, line]))
+  const lineFor = (runId: string): MintedRolloutLine => {
+    const line = byRunId.get(runId)
+    if (line === undefined) {
+      throw new Error(
+        `PRM export: no rollout line supplied for run ${runId} — its realness gate and capture quality are unknown`,
+      )
+    }
+    return line
+  }
+  const admitted: PrmTrainingTriple[] = []
+  for (const t of triples) {
+    const chosen = lineFor(t.prefixRunId)
+    const rejected = lineFor(t.rejectedRunId)
+    assertPrmTrainableLine(chosen, context.mintedWithMaxSteps)
+    assertPrmTrainableLine(rejected, context.mintedWithMaxSteps)
+    if (isLineRealnessGated(chosen) || isLineRealnessGated(rejected)) continue
+    admitted.push(t)
+  }
+  return admitted
+}
+
 export function toPrmJsonl(rows: PrmExportRow[]): string {
   return rows.map((r) => JSON.stringify(r)).join('\n') + (rows.length > 0 ? '\n' : '')
 }
@@ -317,7 +561,43 @@ export function stepRewardsToJsonl(stepRewards: StepReward[]): string {
 
 // ── Helpers ──────────────────────────────────────────────────────────────
 
+/** Look a minted line's originating record back up (deprecated paths only). */
+function recordIndex(
+  minted: MintedFromRecord[],
+): (line: MintedRolloutLine) => RunRecord | undefined {
+  const byRollout = new Map(minted.map((m) => [m.line.rollout_id, m.record]))
+  return (line) => byRollout.get(line.rollout_id)
+}
+
+/**
+ * Reward for the deprecated `RunRecord[]` GRPO path: the caller's `rewardOf`
+ * when supplied, otherwise the record's gated score.
+ *
+ * The gate-on-top rule is `trainingRewardOverride`, shared with the same-named
+ * hook on `rl/preferences.extractPreferences`. It reads the gate off the RECORD
+ * rather than the line; the two always agree, because the line's
+ * `realness_gated` is written by mint from that record's `outcome.realness`.
+ * Deriving from the record also keeps this path's unscored/non-finite handling
+ * bit-identical to the pre-retype behaviour.
+ */
+function legacyRewardOf(
+  minted: MintedFromRecord[],
+  custom: ((run: RunRecord) => number | null) | undefined,
+): (line: MintedRolloutLine) => number | null {
+  const recordOf = recordIndex(minted)
+  return (line) => {
+    const record = recordOf(line)
+    if (record === undefined) return null
+    if (custom === undefined) return defaultReward(record)
+    return trainingRewardOverride(record, custom(record))
+  }
+}
+
 function defaultReward(run: RunRecord): number | null {
-  const v = run.outcome.holdoutScore ?? run.outcome.searchScore
+  // The default reward for every GRPO row. Gating matters most here: GRPO
+  // re-baselines advantage WITHIN a scenario group, so one gamed sibling
+  // exporting at full reward shifts the advantage of every honest run beside
+  // it. `null` (unscored) still drops the run — a gap is not a zero.
+  const v = trainingScore(run)
   return typeof v === 'number' && Number.isFinite(v) ? v : null
 }

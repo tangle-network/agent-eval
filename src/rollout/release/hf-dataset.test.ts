@@ -1,10 +1,11 @@
-import { mkdtemp, readFile, rm } from 'node:fs/promises'
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
-import { fixtureRolloutLine } from '../fixtures'
+import { fixtureRolloutLine, malformedRolloutLine } from '../fixtures'
 import { writeRolloutLedger } from '../ledger'
 import type { RolloutLine } from '../schema'
+import { FORMAT_FILES } from './card'
 import { buildHfDataset, parseRolloutReleaseArgs, planPushCommand } from './hf-dataset'
 
 const tempDirs: string[] = []
@@ -166,6 +167,105 @@ describe('buildHfDataset', () => {
         await readFile(join(outB, file), 'utf8'),
       )
     }
+  })
+
+  it('never ships a positive reward for a realness-gated run, in any config', async () => {
+    const base = fixtureRolloutLine()
+    const gamed = fixtureRolloutLine({
+      rollout_id: 'gamed-1',
+      outcome: { ...base.outcome, reward: 0, realness_gated: true },
+    })
+    const dir = await makeTempDir()
+    const ledger = join(dir, 'gated.jsonl')
+    await writeRolloutLedger(ledger, [base, gamed])
+    const out = join(dir, 'dataset')
+    const summary = await buildHfDataset([ledger], {
+      out,
+      formats: ['sft', 'verifiers', 'rft', 'raw'],
+      includeProposers: false,
+    })
+
+    // Every emitted row that belongs to the gamed run, read back off disk.
+    const gatedRewards: Record<string, Array<number | null>> = {}
+    for (const format of ['sft', 'verifiers', 'rft', 'raw'] as const) {
+      const rows = await readJsonl(join(out, FORMAT_FILES[format]))
+      gatedRewards[format] = rows
+        .filter((row) => JSON.stringify(row).includes('gamed-1'))
+        .map((row) => {
+          const r = row as {
+            reward?: number | null
+            metadata?: { reward: number }
+            reference?: { reward: number | null }
+            outcome?: { reward: number | null }
+          }
+          if (format === 'sft') return r.metadata?.reward ?? null
+          if (format === 'verifiers') return r.reward ?? null
+          if (format === 'rft') return r.reference?.reward ?? null
+          return r.outcome?.reward ?? null
+        })
+    }
+    expect(gatedRewards.sft).toEqual([])
+    expect(gatedRewards.verifiers).toEqual([0])
+    expect(gatedRewards.rft).toEqual([0])
+    expect(gatedRewards.raw).toEqual([0])
+    for (const rewards of Object.values(gatedRewards)) {
+      for (const reward of rewards) expect(reward === null || reward <= 0).toBe(true)
+    }
+
+    // The flag travels with every shipped gated row — reward 0 alone would be
+    // indistinguishable from an honest failure.
+    const verifiers = (await readJsonl(join(out, FORMAT_FILES.verifiers))) as Array<{
+      info: { rollout_id: string; realness_gated: boolean }
+    }>
+    expect(verifiers.find((r) => r.info.rollout_id === 'gamed-1')?.info.realness_gated).toBe(true)
+    expect(verifiers.find((r) => r.info.rollout_id !== 'gamed-1')?.info.realness_gated).toBe(false)
+    const rft = (await readJsonl(join(out, FORMAT_FILES.rft))) as Array<{
+      reference: { rollout_id: string; realness_gated: boolean }
+    }>
+    expect(rft.find((r) => r.reference.rollout_id === 'gamed-1')?.reference.realness_gated).toBe(
+      true,
+    )
+    const raw = (await readJsonl(join(out, FORMAT_FILES.raw))) as RolloutLine[]
+    expect(raw.find((l) => l.rollout_id === 'gamed-1')?.outcome.realness_gated).toBe(true)
+
+    // The card's stated counts equal the counts actually on disk.
+    expect(summary.gate).toEqual({
+      gatedLines: 1,
+      byFormat: {
+        sft: { input: 1, emitted: 0, excluded: 1, maxEmittedReward: null },
+        verifiers: { input: 1, emitted: 1, excluded: 0, maxEmittedReward: 0 },
+        rft: { input: 1, emitted: 1, excluded: 0, maxEmittedReward: 0 },
+        raw: { input: 1, emitted: 1, excluded: 0, maxEmittedReward: 0 },
+      },
+    })
+    const card = await readFile(join(out, 'README.md'), 'utf8')
+    expect(card).toContain('**1 of 2 lines in this release are gated.**')
+    expect(card).toContain('| sft | EXCLUDED — an SFT row is an imitation target | 0 | 1 | — |')
+    expect(card).toContain('| verifiers | INCLUDED, reward forced to 0, flagged | 1 | 0 | 0 |')
+    expect(card).toContain('| rft | INCLUDED, reward forced to 0, flagged | 1 | 0 | 0 |')
+    expect(card).toContain('| raw | INCLUDED verbatim, flagged | 1 | 0 | 0 |')
+    for (const format of ['sft', 'verifiers', 'rft', 'raw'] as const) {
+      const counts = summary.gate.byFormat[format]!
+      expect(card).toContain(`| ${format} | `)
+      expect(counts.emitted).toBe(gatedRewards[format]!.length)
+    }
+  })
+
+  it('refuses to write any file when a source ledger pairs a gated run with a reward', async () => {
+    const dir = await makeTempDir()
+    const ledger = join(dir, 'poisoned.jsonl')
+    const poisoned = malformedRolloutLine({ rollout_id: 'poison-1' })
+    poisoned.outcome = { ...poisoned.outcome, reward: 0.95, realness_gated: true }
+    await writeFile(ledger, `${JSON.stringify(poisoned)}\n`)
+    const out = join(dir, 'dataset')
+    await expect(
+      buildHfDataset([ledger], {
+        out,
+        formats: ['sft', 'verifiers', 'rft', 'raw'],
+        includeProposers: false,
+      }),
+    ).rejects.toThrow('may not carry a positive reward')
+    await expect(readFile(join(out, 'raw/train.jsonl'), 'utf8')).rejects.toThrow('ENOENT')
   })
 
   it('rejects empty inputs and empty formats', async () => {

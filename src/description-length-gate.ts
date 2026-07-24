@@ -1,4 +1,5 @@
 import { gzipSync } from 'node:zlib'
+import { observedScore } from './rollout/reward'
 import type { RunRecord } from './run-record'
 
 /**
@@ -99,8 +100,13 @@ export interface DescriptionLengthCandidate {
 /** Score a single run, preferring the held-out score, then search, then the
  *  raw `score` metric. Returns undefined when the run carries no score. */
 function runScore(run: RunRecord): number | undefined {
-  const o = run.outcome
-  const s = o.holdoutScore ?? o.searchScore ?? o.raw?.score
+  // Ungated, and the `raw.score` third fallback is preserved: dropping it would
+  // change the task denominator (`evidence.tasks`) and therefore the minTasks
+  // gate. KNOWN HOLE: the residual is -log2(s), so a gated run claiming s=1.0
+  // contributes zero surprise bits — the largest possible improvement to L_data.
+  // Excluding gated runs from this gate is a promotion-policy change, tracked
+  // separately from this correctness fix.
+  const s = observedScore(run) ?? run.outcome.raw?.score
   return typeof s === 'number' && Number.isFinite(s) ? s : undefined
 }
 

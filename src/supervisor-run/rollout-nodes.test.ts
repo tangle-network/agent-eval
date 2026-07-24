@@ -85,6 +85,21 @@ describe('supervisorRunRolloutLines — the tree IS rollout rows', () => {
     expect(passed?.cost.wall_s).toBe(190)
   })
 
+  it('states realness_gated on every node — this is the SECOND producer of rewards', () => {
+    // The supervision journal is a reward producer that is not
+    // `mintRolloutRows`: it writes `outcome.reward` from the official judge
+    // verdict. It used to omit `realness_gated` entirely, which made
+    // `isLineRealnessGated` structurally false for every supervisor and worker
+    // row and let the rows walk into a training export as if screened. The flag
+    // is now written by `unscreenedRewardFields`, the same module that owns the
+    // gate — `false` is the literal claim "nothing flagged this run", stated
+    // rather than implied by silence.
+    for (const node of tree.nodes) {
+      expect('realness_gated' in node.outcome).toBe(true)
+      expect(node.outcome.realness_gated).toBe(false)
+    }
+  })
+
   it('marks every node a transcript gap — messages live in the harness store', () => {
     for (const node of tree.nodes) {
       expect(node.messages).toEqual([])

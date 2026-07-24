@@ -17,18 +17,35 @@
  */
 
 import { ValidationError } from './errors'
+import { isRealnessGated, trainingScore } from './rollout/reward'
 import { isRunRecord, type RunRecord, type RunSplitTag, validateRunRecord } from './run-record'
 
-/** The score the query/compare layer ranks on: holdout when present (the
- *  gated number), else search. Throws when a record carries neither — a
- *  RunRecord is invalid without at least one, but a hand-built object might. */
+/**
+ * The score the query/compare layer ranks on: holdout when present, else
+ * search, with the anti-Goodhart gate applied — a run flagged as gamed reads 0
+ * however high it claims to have scored.
+ *
+ * The gate is load-bearing here and this function did not previously apply it,
+ * despite saying it did. `getBest` is few-shot exemplar selection: whatever it
+ * returns is pasted into the next agent's prompt as an example to imitate.
+ * Ranking on the raw number handed the highest-scoring gamed trajectory to
+ * every subsequent run — propagation through the context window rather than
+ * through a gradient, but propagation all the same.
+ *
+ * Analysis that needs to SEE the inflated number (reward-hack detection,
+ * per-run reporting) reads `observedScore` from `rollout/reward.ts` directly.
+ *
+ * Throws when a record carries neither score — a RunRecord is invalid without
+ * at least one, but a hand-built object might be.
+ */
 export function runScore(record: RunRecord): number {
-  const { holdoutScore, searchScore } = record.outcome
-  if (typeof holdoutScore === 'number') return holdoutScore
-  if (typeof searchScore === 'number') return searchScore
-  throw new ValidationError(
-    `EvalTraceStore: run ${record.runId} has neither holdoutScore nor searchScore`,
-  )
+  const score = trainingScore(record)
+  if (score === undefined) {
+    throw new ValidationError(
+      `EvalTraceStore: run ${record.runId} has neither holdoutScore nor searchScore`,
+    )
+  }
+  return score
 }
 
 export interface RunRecordFilter {
@@ -75,6 +92,17 @@ export interface CandidateComparison {
   bWins: number
   ties: number
   aWins: number
+  /**
+   * Runs of either candidate excluded from the comparison because the
+   * authenticity gate flagged them (`outcome.realness.gated`).
+   *
+   * Excluded rather than scored 0: `runScore` is gated, so leaving them in
+   * would have entered a gamed run as a silent zero, which reads as "this
+   * candidate failed the scenario" when what happened is "this candidate's
+   * result is not evidence". A non-zero count here is itself the finding — a
+   * comparison drawn over a shrunken scenario set has to say so.
+   */
+  realnessGatedRuns: number
 }
 
 /**
@@ -186,16 +214,24 @@ export class EvalTraceStore {
    * Highest-scoring run for a scenario (optionally restricted to a candidate).
    * Returns null when no run matches. Ties resolve to the earliest-appended run
    * so the result is stable.
+   *
+   * Runs flagged as gamed are DROPPED, not zeroed. The caller's use for this is
+   * few-shot seeding — the returned trajectory becomes an example to copy — so
+   * the same rule as SFT applies: a faked success must not be in the candidate
+   * set at all. When every run for the scenario is gated the honest answer is
+   * `null` (no exemplar), never the least-bad fake.
    */
   async getBest(
     scenarioId: string,
     opts: { candidateId?: string; splitTag?: RunSplitTag } = {},
   ): Promise<RunRecord | null> {
-    const rows = await this.query({
-      scenarioId,
-      candidateId: opts.candidateId,
-      splitTag: opts.splitTag,
-    })
+    const rows = (
+      await this.query({
+        scenarioId,
+        candidateId: opts.candidateId,
+        splitTag: opts.splitTag,
+      })
+    ).filter((r) => !isRealnessGated(r))
     if (rows.length === 0) return null
     let best = rows[0]!
     let bestScore = runScore(best)
@@ -214,6 +250,9 @@ export class EvalTraceStore {
    * ran a scenario more than once, its best `runScore` for that scenario is
    * used. Throws when there is no paired scenario — an unpaired "comparison" is
    * not one.
+   *
+   * Realness-gated runs are excluded and counted in `realnessGatedRuns`, never
+   * folded in as a zero.
    */
   async compareRuns(candidateA: string, candidateB: string): Promise<CandidateComparison> {
     if (candidateA === candidateB) {
@@ -222,12 +261,17 @@ export class EvalTraceStore {
       )
     }
     const rows = await this.backend.load()
+    let realnessGatedRuns = 0
     const bestByScenario = (candidate: string): Map<string, number> => {
       const m = new Map<string, number>()
       for (const r of rows) {
         if (r.candidateId !== candidate) continue
         const sid = r.scenarioId
         if (!sid) continue
+        if (isRealnessGated(r)) {
+          realnessGatedRuns++
+          continue
+        }
         const s = runScore(r)
         const prev = m.get(sid)
         if (prev === undefined || s > prev) m.set(sid, s)
@@ -268,6 +312,7 @@ export class EvalTraceStore {
       bWins,
       ties,
       aWins,
+      realnessGatedRuns,
     }
   }
 }

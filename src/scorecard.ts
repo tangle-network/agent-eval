@@ -20,6 +20,7 @@ import { dirname } from 'node:path'
 import type { AgentProfile } from './agent-profile'
 import { agentProfileHash, agentProfileModelId } from './agent-profile'
 import { welchsTTest } from './baseline'
+import { observedScore } from './rollout/reward'
 import type { RunRecord } from './run-record'
 import { cohensD } from './statistics'
 
@@ -82,9 +83,11 @@ function median(xs: number[]): number {
   return sorted.length % 2 === 0 ? (sorted[mid - 1]! + sorted[mid]!) / 2 : sorted[mid]!
 }
 
-/** The split score the run actually carries (`holdout` runs fill holdoutScore). */
+/** The split score the run actually carries (`holdout` runs fill holdoutScore).
+ *  Ungated on purpose — a scorecard reports the measurement, and hiding a gamed
+ *  run's score behind a 0 would make the gaming invisible in the report. */
 function runScore(run: RunRecord): number | undefined {
-  return run.outcome.holdoutScore ?? run.outcome.searchScore
+  return observedScore(run)
 }
 
 /** Mean of each judge dimension across the runs that reported one. */
