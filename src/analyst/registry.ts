@@ -17,6 +17,7 @@
  */
 
 import { randomUUID } from 'node:crypto'
+import { combineAbortSignals } from '../abort-signal'
 import type { CostLedgerHandle } from '../cost-ledger'
 import type { RunCostProvenance, RunTokenUsage } from '../run-record'
 import type { ChatClient } from './chat-client'
@@ -480,15 +481,6 @@ function validateTimeout(timeoutMs: number | undefined): number | undefined {
     )
   }
   return timeoutMs
-}
-
-function combineAbortSignals(
-  caller: AbortSignal | undefined,
-  timeout: AbortSignal | undefined,
-): AbortSignal | undefined {
-  if (!caller) return timeout
-  if (!timeout) return caller
-  return AbortSignal.any([caller, timeout])
 }
 
 async function waitForOperation<T>(

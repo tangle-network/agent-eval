@@ -5,6 +5,7 @@
  * data and compared with paired confidence intervals.
  */
 
+import { combineAbortSignals } from '../../abort-signal'
 import { mapConcurrent } from '../../concurrency'
 import type { CostLedgerHandle, CostLedgerSummary, CostReceipt } from '../../cost-ledger'
 import { pairedBootstrap } from '../../statistics'
@@ -832,15 +833,6 @@ function createOptimizationMethodInput<TScenario extends Scenario, TArtifact>(
     }),
     costLedger,
   })
-}
-
-function combineAbortSignals(
-  owner: AbortSignal | undefined,
-  method: AbortSignal | undefined,
-): AbortSignal | undefined {
-  if (!owner) return method
-  if (!method || method === owner) return owner
-  return AbortSignal.any([owner, method])
 }
 
 function finalCostPhase<TScenario extends Scenario, TArtifact>(
