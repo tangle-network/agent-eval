@@ -250,6 +250,7 @@ export {
   verifyLoopProvenanceRecord,
 } from './provenance'
 export {
+  type CampaignCellFailureReceipt,
   type CampaignRunPlan,
   type CampaignRunPlanCell,
   type PlanCampaignRunOptions,

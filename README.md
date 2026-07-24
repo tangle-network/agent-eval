@@ -90,6 +90,26 @@ console.log(
 Each call runs every case, records the artifact, applies the same judge, and returns score distributions.
 The surface is the value being changed, such as a prompt, skill, or serialized configuration.
 
+### Stop after the first failed cell
+
+`runCampaign()` normally records a dispatch or judge error on that cell and continues the remaining cases.
+Set `abortOnCellError: true` when another failed cell would only waste time or money:
+
+```ts
+await runCampaign({
+  scenarios,
+  dispatch,
+  judges: [judge],
+  runDir: 'release-candidate',
+  abortOnCellError: true,
+})
+```
+
+The failed cell is written first to `<runDir>/<cell>/failure-receipt.json`.
+That receipt contains the original error, the cell result, exact call IDs, and settled agent-plus-judge cost and token totals.
+Active sibling cells are cancelled and allowed to finish recording their own receipts before the campaign rejects with the original cell error.
+Leaving `abortOnCellError` unset preserves continue-on-error behavior.
+
 ## Adapt Another Text Optimizer
 
 Use `externalTextOptimizationMethod()` when an existing package owns search and selection for a text prompt or named text components.

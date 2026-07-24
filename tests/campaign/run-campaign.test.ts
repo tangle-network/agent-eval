@@ -1,8 +1,9 @@
-import { existsSync, mkdtempSync, readdirSync, rmSync } from 'node:fs'
+import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
+  type CampaignCellFailureReceipt,
   campaignSplitDigestFromIdentities,
   type DispatchFn,
   FsLabeledScenarioStore,
@@ -522,6 +523,46 @@ describe('runCampaign — core primitive', () => {
     expect(result.cells.find((c) => c.scenarioId === 'a')?.costUsd).toBeCloseTo(0.4, 9)
     expect(ledger.summary().totalCostUsd).toBeCloseTo(0.5, 9)
     expect(ledger.list()[0]).toMatchObject({ phase: 'search.baseline', actor: 'worker' })
+
+    const failureReceipt = JSON.parse(
+      readFileSync(join(runDir, 'a_0', 'failure-receipt.json'), 'utf8'),
+    ) as CampaignCellFailureReceipt<FakeArtifact>
+    const failedCallIds = ledger
+      .list({ tags: { scenarioId: 'a' } })
+      .map((receipt) => receipt.callId)
+      .sort()
+    expect(failureReceipt).toMatchObject({
+      schemaVersion: 1,
+      runAttemptId: expect.any(String),
+      recordedAt: expect.any(String),
+      failure: {
+        stage: 'dispatch',
+        error: {
+          name: 'Error',
+          message: 'boom after provider response',
+          stack: expect.any(String),
+        },
+      },
+      cell: {
+        cellId: 'a:0',
+        scenarioId: 'a',
+        error: 'boom after provider response',
+        costUsd: 0.4,
+        tokenUsage: { input: 0, output: 0 },
+        costCallIds: failedCallIds,
+      },
+      cost: {
+        totalCalls: 1,
+        pendingCalls: 0,
+        inputTokens: 0,
+        outputTokens: 0,
+        totalCostUsd: 0.4,
+        accountingComplete: true,
+      },
+    })
+    expect(result.artifactsByPath['a:0/failure-receipt.json']).toBe(
+      join(runDir, 'a_0', 'failure-receipt.json'),
+    )
   })
 
   it('atomically reserves capped calls without constraining free dispatches', async () => {
@@ -675,6 +716,102 @@ describe('runCampaign — core primitive', () => {
     // No fabricated composite:0 recorded for the failed judge.
     expect(cell.judgeScores.boom).toBeUndefined()
     expect(result.aggregates.cellsFailed).toBe(1)
+  })
+
+  it('persists dispatch and judge spend in a failed judge receipt', async () => {
+    const ledger = new CostLedger()
+    const judgeError = new Error('judge provider returned malformed output')
+    const paidJudge: JudgeConfig<FakeArtifact, FakeScenario> = {
+      name: 'paid-judge',
+      dimensions: [{ key: 'quality', description: 'quality' }],
+      async score({ costLedger, costPhase, costTags, signal }) {
+        if (!costLedger || !costPhase || !costTags) throw new Error('missing cost context')
+        const paid = await costLedger.runPaidCall({
+          channel: 'judge',
+          phase: costPhase,
+          actor: 'paid-judge',
+          model: 'judge-model',
+          tags: costTags,
+          signal,
+          execute: async () => {
+            throw judgeError
+          },
+          receipt: () => ({
+            model: 'judge-model',
+            inputTokens: 20,
+            outputTokens: 7,
+            actualCostUsd: 0.2,
+          }),
+          receiptFromError: () => ({
+            model: 'judge-model',
+            inputTokens: 20,
+            outputTokens: 7,
+            actualCostUsd: 0.2,
+          }),
+        })
+        if (!paid.succeeded) throw paid.error
+        return { dimensions: { quality: 1 }, composite: 1, notes: 'unreachable' }
+      },
+    }
+
+    const result = await runCampaign({
+      scenarios: SCENARIOS.slice(0, 1),
+      dispatch: async (scenario, ctx) => {
+        const paid = await ctx.cost.runPaidCall({
+          actor: 'worker',
+          model: 'agent-model',
+          execute: async () => ({ text: 'answer', intent: scenario.intent }),
+          receipt: () => ({
+            model: 'agent-model',
+            inputTokens: 10,
+            outputTokens: 5,
+            actualCostUsd: 0.1,
+          }),
+        })
+        if (!paid.succeeded) throw paid.error
+        return paid.value
+      },
+      judges: [paidJudge],
+      costLedger: ledger,
+      runDir,
+    })
+
+    const failureReceipt = JSON.parse(
+      readFileSync(join(runDir, 'a_0', 'failure-receipt.json'), 'utf8'),
+    ) as CampaignCellFailureReceipt<FakeArtifact>
+    expect(result.cells[0]?.error).toBe(
+      "judge 'paid-judge' failed: judge provider returned malformed output",
+    )
+    expect(failureReceipt).toMatchObject({
+      failure: {
+        stage: 'judge',
+        judge: 'paid-judge',
+        error: {
+          name: 'Error',
+          message: 'judge provider returned malformed output',
+        },
+      },
+      cell: {
+        costUsd: 0.1,
+        tokenUsage: { input: 10, output: 5 },
+        costCallIds: expect.arrayContaining([
+          ledger.list({ channel: 'agent' })[0]!.callId,
+          ledger.list({ channel: 'judge' })[0]!.callId,
+        ]),
+      },
+      cost: {
+        totalCalls: 2,
+        pendingCalls: 0,
+        inputTokens: 30,
+        outputTokens: 12,
+        accountingComplete: true,
+        byChannel: [
+          expect.objectContaining({ channel: 'agent', calls: 1, costUsd: 0.1 }),
+          expect.objectContaining({ channel: 'judge', calls: 1, costUsd: 0.2 }),
+        ],
+      },
+    })
+    expect(failureReceipt.cost.totalCostUsd).toBeCloseTo(0.3, 9)
   })
 
   it('writes spans.jsonl per cell', async () => {
@@ -1148,6 +1285,8 @@ describe('runCampaign — dispatchTimeoutMs (the no-silent-hang guard)', () => {
 
   it('waits for a late paid-call receipt before returning an aborted cell', async () => {
     const owner = new AbortController()
+    const storage = inMemoryCampaignStorage()
+    const lateCostRunDir = '/run-campaign-late-cost'
     let providerStarted!: () => void
     let finishProvider!: () => void
     const started = new Promise<void>((resolve) => {
@@ -1178,8 +1317,8 @@ describe('runCampaign — dispatchTimeoutMs (the no-silent-hang guard)', () => {
         return { text: paid.value, intent: 'late receipt' }
       },
       judges: [],
-      runDir: mkdtempSync(join(tmpdir(), 'run-campaign-late-cost-')),
-      storage: inMemoryCampaignStorage(),
+      runDir: lateCostRunDir,
+      storage,
       expectUsage: 'off',
     })
 
@@ -1195,6 +1334,23 @@ describe('runCampaign — dispatchTimeoutMs (the no-silent-hang guard)', () => {
       tokenUsage: { input: 10, output: 5 },
     })
     expect(result.aggregates.cost.totalCostUsd).toBe(0.25)
+    const failureReceipt = JSON.parse(
+      storage.read(join(lateCostRunDir, 'late-cost_0', 'failure-receipt.json'))!,
+    ) as CampaignCellFailureReceipt<FakeArtifact>
+    expect(failureReceipt).toMatchObject({
+      cell: {
+        costUsd: 0.25,
+        tokenUsage: { input: 10, output: 5 },
+        costCallIds: [expect.any(String)],
+      },
+      cost: {
+        totalCalls: 1,
+        pendingCalls: 0,
+        inputTokens: 10,
+        outputTokens: 5,
+        totalCostUsd: 0.25,
+      },
+    })
   })
 
   it('aborts and drains sibling lanes before rejecting a campaign', async () => {
@@ -1242,6 +1398,137 @@ describe('runCampaign — dispatchTimeoutMs (the no-silent-hang guard)', () => {
     )
     expect(siblingAborted).toBe(true)
     expect(siblingStopped).toBe(true)
+  })
+
+  it('abortOnCellError preserves the first dispatch error, drains siblings, and starts no later cells', async () => {
+    const firstError = new Error('first cell failed')
+    let siblingStarted!: () => void
+    const siblingReady = new Promise<void>((resolve) => {
+      siblingStarted = resolve
+    })
+    let siblingAborted = false
+    let siblingStopped = false
+    let failureReceiptExistedBeforeSiblingAbort = false
+    let laterStarted = false
+    const failFastRunDir = mkdtempSync(join(tmpdir(), 'run-campaign-cell-fail-fast-'))
+
+    const pending = runCampaign<FakeScenario, FakeArtifact>({
+      scenarios: [
+        { id: 'fails', kind: 'chat', intent: 'fails' },
+        { id: 'sibling', kind: 'chat', intent: 'waits' },
+        { id: 'later', kind: 'chat', intent: 'must not start' },
+      ],
+      maxConcurrency: 2,
+      abortOnCellError: true,
+      dispatch: async (scenario, ctx) => {
+        if (scenario.id === 'fails') {
+          await siblingReady
+          throw firstError
+        }
+        if (scenario.id === 'later') {
+          laterStarted = true
+          return { text: 'should not run', intent: scenario.intent }
+        }
+        siblingStarted()
+        return new Promise<FakeArtifact>((_resolve, reject) => {
+          ctx.signal.addEventListener(
+            'abort',
+            () => {
+              siblingAborted = true
+              failureReceiptExistedBeforeSiblingAbort = existsSync(
+                join(failFastRunDir, 'fails_0', 'failure-receipt.json'),
+              )
+              setTimeout(() => {
+                siblingStopped = true
+                reject(ctx.signal.reason)
+              }, 20)
+            },
+            { once: true },
+          )
+        })
+      },
+      judges: [],
+      runDir: failFastRunDir,
+      expectUsage: 'off',
+    })
+
+    const outcome = await pending.then(
+      () => ({ kind: 'resolved' as const }),
+      (error: unknown) => ({ kind: 'rejected' as const, error }),
+    )
+    expect(outcome).toEqual({ kind: 'rejected', error: firstError })
+    expect(siblingAborted).toBe(true)
+    expect(siblingStopped).toBe(true)
+    expect(failureReceiptExistedBeforeSiblingAbort).toBe(true)
+    expect(laterStarted).toBe(false)
+    expect(
+      JSON.parse(readFileSync(join(failFastRunDir, 'fails_0', 'failure-receipt.json'), 'utf8')),
+    ).toMatchObject({
+      failure: {
+        stage: 'dispatch',
+        error: { message: firstError.message },
+      },
+      cell: { cellId: 'fails:0', error: firstError.message },
+      cost: { pendingCalls: 0 },
+    })
+    expect(
+      JSON.parse(readFileSync(join(failFastRunDir, 'sibling_0', 'failure-receipt.json'), 'utf8')),
+    ).toMatchObject({
+      failure: {
+        stage: 'dispatch',
+        error: { message: firstError.message },
+      },
+      cell: { cellId: 'sibling:0', error: firstError.message },
+      cost: { pendingCalls: 0 },
+    })
+    expect(existsSync(join(failFastRunDir, 'later_0'))).toBe(false)
+  })
+
+  it('abortOnCellError rejects with the original judge error before scheduling another cell', async () => {
+    const judgeError = new Error('judge failed exactly')
+    let dispatches = 0
+    const judgeFailFastRunDir = mkdtempSync(join(tmpdir(), 'run-campaign-judge-fail-fast-'))
+    const judge: JudgeConfig<FakeArtifact, FakeScenario> = {
+      name: 'first-judge',
+      dimensions: [{ key: 'quality', description: 'quality' }],
+      score: () => {
+        throw judgeError
+      },
+    }
+
+    const pending = runCampaign<FakeScenario, FakeArtifact>({
+      scenarios: SCENARIOS,
+      maxConcurrency: 1,
+      abortOnCellError: true,
+      dispatch: async (scenario) => {
+        dispatches += 1
+        return { text: 'answer', intent: scenario.intent }
+      },
+      judges: [judge],
+      runDir: judgeFailFastRunDir,
+      expectUsage: 'off',
+    })
+
+    const outcome = await pending.then(
+      () => ({ kind: 'resolved' as const }),
+      (error: unknown) => ({ kind: 'rejected' as const, error }),
+    )
+    expect(outcome).toEqual({ kind: 'rejected', error: judgeError })
+    expect(dispatches).toBe(1)
+    expect(
+      JSON.parse(readFileSync(join(judgeFailFastRunDir, 'a_0', 'failure-receipt.json'), 'utf8')),
+    ).toMatchObject({
+      failure: {
+        stage: 'judge',
+        judge: 'first-judge',
+        error: { message: judgeError.message },
+      },
+      cell: {
+        cellId: 'a:0',
+        error: "judge 'first-judge' failed: judge failed exactly",
+      },
+    })
+    expect(existsSync(join(judgeFailFastRunDir, 'b_0'))).toBe(false)
   })
 
   it('leaves a fast dispatch untouched (timeout never trips on healthy work)', async () => {

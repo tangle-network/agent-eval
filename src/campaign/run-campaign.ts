@@ -78,6 +78,14 @@ export interface RunCampaignOptions<TScenario extends Scenario, TArtifact> {
   /** Max concurrent cells. Default 2. */
   maxConcurrency?: number
   /**
+   * Stop after the first dispatch or judge error. The failed cell is persisted
+   * before active sibling cells are aborted and drained, then the campaign
+   * rejects with the exact error thrown by that dispatch or judge.
+   * Default false preserves the normal behavior of returning failed cells and
+   * continuing the remaining schedule.
+   */
+  abortOnCellError?: boolean
+  /**
    * Per-cell dispatch deadline in ms. A `dispatch` that neither resolves nor
    * rejects within this window is a hang (a stalled model request, an
    * exhausted runtime resource, a backend that never closes its stream). When
@@ -140,6 +148,27 @@ export interface RunCampaignOptions<TScenario extends Scenario, TArtifact> {
     rep: number
     generation?: number
   }) => string | undefined
+}
+
+/** Durable `<cell>/failure-receipt.json` written before a failed cell can
+ * trigger campaign-wide cancellation. The cell keeps its dispatch-only usage
+ * fields for compatibility; `cost` covers every settled agent and judge call
+ * attributed to this exact run attempt. */
+export interface CampaignCellFailureReceipt<TArtifact = unknown> {
+  schemaVersion: 1
+  runAttemptId: string
+  recordedAt: string
+  failure: {
+    stage: 'dispatch' | 'judge'
+    judge?: string
+    error: {
+      name: string
+      message: string
+      stack?: string
+    }
+  }
+  cell: CampaignCellResult<TArtifact>
+  cost: CostLedgerSummary
 }
 
 /**
@@ -209,6 +238,7 @@ export async function runCampaign<TScenario extends Scenario, TArtifact>(
   let nextIdx = 0
   const cellsRef = cells
   let firstLaneError: unknown
+  let firstCellFailure: CellFailure | undefined
 
   for (let i = 0; i < maxConcurrency; i++) {
     lanes.push(
@@ -233,6 +263,14 @@ export async function runCampaign<TScenario extends Scenario, TArtifact>(
               costLedger,
               costPhase,
               runAttemptId,
+              onFailure: opts.abortOnCellError
+                ? (failure) => {
+                    if (firstCellFailure === undefined) {
+                      firstCellFailure = failure
+                      campaignAbort.abort(failure.cause)
+                    }
+                  }
+                : undefined,
             })
             cellsRef.push(result.cell)
             Object.assign(artifactsByPath, result.artifactsByPath)
@@ -252,6 +290,9 @@ export async function runCampaign<TScenario extends Scenario, TArtifact>(
                 )
               })
             }
+            if (opts.abortOnCellError && result.failure) {
+              return
+            }
           }
         } catch (error) {
           if (firstLaneError === undefined) {
@@ -268,6 +309,7 @@ export async function runCampaign<TScenario extends Scenario, TArtifact>(
   const failedLane = laneResults.find(
     (result): result is PromiseRejectedResult => result.status === 'rejected',
   )
+  if (firstCellFailure) throw firstCellFailure.cause
   if (failedLane) throw firstLaneError ?? failedLane.reason
 
   const endedAt = now()
@@ -313,11 +355,24 @@ interface ExecuteCellArgs<TScenario extends Scenario, TArtifact> {
   costLedger: CostLedgerHandle
   costPhase: string
   runAttemptId: string
+  onFailure?: (failure: CellFailure) => void
+}
+
+interface CellFailure {
+  stage: 'dispatch' | 'judge'
+  judge?: string
+  cause: unknown
+}
+
+interface ExecuteCellResult<TArtifact> {
+  cell: CampaignCellResult<TArtifact>
+  artifactsByPath: Record<string, string>
+  failure?: CellFailure
 }
 
 async function executeCell<TScenario extends Scenario, TArtifact>(
   args: ExecuteCellArgs<TScenario, TArtifact>,
-): Promise<{ cell: CampaignCellResult<TArtifact>; artifactsByPath: Record<string, string> }> {
+): Promise<ExecuteCellResult<TArtifact>> {
   const storage = args.storage
   const cellDir = join(args.opts.runDir, args.slot.cellId.replace(/[^a-zA-Z0-9_-]/g, '_'))
   storage.ensureDir(cellDir)
@@ -439,6 +494,8 @@ async function executeCell<TScenario extends Scenario, TArtifact>(
 
   let artifact: TArtifact | undefined
   let errorMessage: string | undefined
+  let failure: CellFailure | undefined
+  let fatalCellError: unknown
   let dispatched: Promise<TArtifact> | undefined
   const timeoutMs = args.dispatchTimeoutMs
   let timeoutTimer: ReturnType<typeof setTimeout> | undefined
@@ -482,6 +539,7 @@ async function executeCell<TScenario extends Scenario, TArtifact>(
     }
   } catch (err) {
     errorMessage = err instanceof Error ? err.message : String(err)
+    failure = { stage: 'dispatch', cause: err }
   } finally {
     if (timeoutTimer) clearTimeout(timeoutTimer)
     removeAbortListener()
@@ -556,18 +614,23 @@ async function executeCell<TScenario extends Scenario, TArtifact>(
         })
         judgeScores[judge.name] = score
       } catch (err) {
-        if (err instanceof CostAccountingIncompleteError) {
-          await trace.flush()
-          throw err
-        }
         errorMessage = `judge '${judge.name}' failed: ${err instanceof Error ? err.message : String(err)}`
+        failure = { stage: 'judge', judge: judge.name, cause: err }
+        if (err instanceof CostAccountingIncompleteError) fatalCellError = err
         break
       }
     }
   }
 
-  await trace.flush()
-
+  if (failure) {
+    await waitForFailedCellCostSettlement({
+      costLedger: args.costLedger,
+      costPhase: args.costPhase,
+      costTags,
+      cellId: args.slot.cellId,
+      timeoutMs: args.dispatchShutdownTimeoutMs,
+    })
+  }
   const costCallIds = args.costLedger
     .list({ tags: costTags })
     .map((receipt) => receipt.callId)
@@ -593,11 +656,73 @@ async function executeCell<TScenario extends Scenario, TArtifact>(
     error: errorMessage,
   }
 
+  if (failure) {
+    const failurePath = join(cellDir, 'failure-receipt.json')
+    const receipt: CampaignCellFailureReceipt<TArtifact> = {
+      schemaVersion: 1,
+      runAttemptId: args.runAttemptId,
+      recordedAt: args.now().toISOString(),
+      failure: {
+        stage: failure.stage,
+        ...(failure.judge ? { judge: failure.judge } : {}),
+        error: serializeCellError(failure.cause),
+      },
+      cell,
+      cost: args.costLedger.summary({ phase: args.costPhase, tags: costTags }),
+    }
+    storage.write(failurePath, JSON.stringify(receipt, null, 2))
+    artifactsByPath[`${args.slot.cellId}/failure-receipt.json`] = failurePath
+    args.onFailure?.(failure)
+  }
+
+  await trace.flush()
+
   if (!errorMessage && args.resumable) {
     storage.write(cachePath, JSON.stringify(cell))
   }
 
-  return { cell, artifactsByPath }
+  if (fatalCellError !== undefined) throw fatalCellError
+  return { cell, artifactsByPath, ...(failure ? { failure } : {}) }
+}
+
+async function waitForFailedCellCostSettlement(input: {
+  costLedger: CostLedgerHandle
+  costPhase: string
+  costTags: Record<string, string>
+  cellId: string
+  timeoutMs: number
+}): Promise<void> {
+  const filter = { phase: input.costPhase, tags: input.costTags }
+  if (input.costLedger.summary(filter).pendingCalls === 0) return
+  if (typeof input.costLedger.waitForIdle !== 'function') {
+    throw new CostAccountingIncompleteError(
+      `cost ledger for failed cell '${input.cellId}' cannot prove that paid calls stopped`,
+    )
+  }
+  const settled = await input.costLedger.waitForIdle({
+    timeoutMs: input.timeoutMs,
+    filter,
+  })
+  if (!settled || input.costLedger.summary(filter).pendingCalls > 0) {
+    throw new CostAccountingIncompleteError(
+      `paid calls for failed cell '${input.cellId}' did not settle within ${input.timeoutMs}ms; no complete failure receipt was produced`,
+    )
+  }
+}
+
+function serializeCellError(error: unknown): {
+  name: string
+  message: string
+  stack?: string
+} {
+  if (error instanceof Error) {
+    return {
+      name: error.name,
+      message: error.message,
+      ...(error.stack ? { stack: error.stack } : {}),
+    }
+  }
+  return { name: 'NonErrorThrown', message: String(error) }
 }
 
 function settlesWithin(promise: Promise<unknown>, timeoutMs: number): Promise<boolean> {
