@@ -332,6 +332,16 @@ export async function compareOptimizationMethods<TScenario extends Scenario, TAr
       throw error
     }
   })
+  assertReportedCostWithinCeiling(
+    combineCosts(
+      optimized.map((result) => ({
+        label: `method '${result.name}'`,
+        cost: result.cost,
+      })),
+    ).totalCostUsd,
+    opts.costCeiling,
+    'optimization',
+  )
   const testCostPhase = finalCostPhase(opts, baselineSurface, optimized, seed)
   // Reuse one final-test measurement for identical surfaces. This avoids duplicate
   // spend and prevents model variance from inventing a difference between equal inputs.
@@ -434,6 +444,7 @@ export async function compareOptimizationMethods<TScenario extends Scenario, TAr
     { label: 'optimization', cost: optimizationCost },
     { label: 'final test', cost: testCost },
   ])
+  assertReportedCostWithinCeiling(totalCost.totalCostUsd, opts.costCeiling, 'total')
   return {
     scores,
     best,
@@ -448,6 +459,20 @@ export async function compareOptimizationMethods<TScenario extends Scenario, TAr
     seed,
     resamples,
     reps: opts.reps ?? 1,
+  }
+}
+
+function assertReportedCostWithinCeiling(
+  totalCostUsd: number,
+  costCeiling: number | undefined,
+  phase: 'optimization' | 'total',
+): void {
+  const tolerance =
+    Number.EPSILON * Math.max(1, Math.abs(totalCostUsd), Math.abs(costCeiling ?? 0)) * 8
+  if (costCeiling !== undefined && totalCostUsd > costCeiling + tolerance) {
+    throw new Error(
+      `compareOptimizationMethods: reported ${phase} cost ${totalCostUsd} exceeds costCeiling ${costCeiling}`,
+    )
   }
 }
 

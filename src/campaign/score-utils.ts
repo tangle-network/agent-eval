@@ -28,6 +28,39 @@ export function campaignMeanComposite<TArtifact, TScenario extends Scenario>(
   return composites.length === 0 ? 0 : composites.reduce((a, b) => a + b, 0) / composites.length
 }
 
+/** Reject rank keys that cannot produce deterministic lexicographic ordering. */
+export function assertFiniteRankKey(
+  key: readonly number[],
+  label: string,
+  expectedLength?: number,
+): void {
+  if (!Array.isArray(key) || key.length === 0) {
+    throw new Error(`${label} must return a non-empty array`)
+  }
+  if (expectedLength !== undefined && key.length !== expectedLength) {
+    throw new Error(`${label} returned ${key.length} elements; expected ${expectedLength}`)
+  }
+  for (let index = 0; index < key.length; index++) {
+    if (!Number.isFinite(key[index])) {
+      throw new Error(`${label}[${index}] must be finite`)
+    }
+  }
+}
+
+/** Compare fixed-length lexicographic rank keys where each element is higher-is-better.
+ *  Returns a positive number when `a` ranks above `b`, negative when below, and
+ *  zero when equal. */
+export function compareRankKeys(a: readonly number[], b: readonly number[]): number {
+  assertFiniteRankKey(a, 'rank key a')
+  assertFiniteRankKey(b, 'rank key b', a.length)
+  for (let i = 0; i < a.length; i++) {
+    const av = a[i]!
+    const bv = b[i]!
+    if (av !== bv) return av - bv
+  }
+  return 0
+}
+
 export interface CampaignBreakdown {
   /** Mean score per judge dimension across all cells. */
   dimensions: Record<string, number>

@@ -268,6 +268,14 @@ export interface SelfImproveOptions<TScenario extends Scenario, TArtifact> {
   /** Static findings forwarded to the proposer's `propose()` as `ctx.findings`
    *  (a findings-grounded proposer consumes them). Default: none. */
   findings?: unknown[]
+
+  /** Override how the WINNER is selected among coverage-complete candidates.
+   *  Defaults to the scalar mean composite (historical behavior). A binary-with-
+   *  replicates consumer whose ship-gate counts an instance resolved only when
+   *  every replicate resolved passes a fail-closed lexicographic key here so that
+   *  winner-selection and the ship-gate rank on the identical metric and cannot
+   *  invert. See `RunOptimizationOptions.selectionRankKey`. */
+  selectionRankKey?: RunOptimizationOptions<TScenario, TArtifact>['selectionRankKey']
 }
 
 export interface SelfImproveResult<TScenario extends Scenario, TArtifact> {
@@ -699,6 +707,7 @@ async function runSelfImprove<TScenario extends Scenario, TArtifact>(
     captureSource: opts.captureSource,
     analyzeGeneration: opts.analyzeGeneration,
     findings: opts.findings,
+    selectionRankKey: opts.selectionRankKey,
   })
 
   // Deferred holdout ran zero holdout cells, so the summary stats come from

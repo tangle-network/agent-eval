@@ -21,7 +21,12 @@ import {
 } from '../coverage'
 import { type RunCampaignOptions, runCampaign } from '../run-campaign'
 import { resolveRunDir } from '../run-dir'
-import { campaignBreakdown, campaignMeanComposite } from '../score-utils'
+import {
+  assertFiniteRankKey,
+  campaignBreakdown,
+  campaignMeanComposite,
+  compareRankKeys,
+} from '../score-utils'
 import { createRunCostLedger, fsCampaignStorage } from '../storage'
 import { surfaceHash } from '../surface-identity'
 import {
@@ -103,6 +108,24 @@ export interface RunOptimizationBaseOptions<TScenario extends Scenario, TArtifac
     costLedger?: CostLedgerHandle
     costPhase?: string
   }) => Promise<unknown[]>
+  /**
+   * Optional override for how the WINNER is selected among coverage-complete
+   * candidates (and how the incumbent bar is set). Returns a lexicographic rank
+   * key — each element higher-is-better; candidates are ranked by descending key
+   * (`compareRankKeys`) and the top must STRICTLY beat the incumbent's key to
+   * promote. Defaults to `[campaignMeanComposite(campaign)]`, i.e. the historical
+   * scalar-mean ranking (single-element key ⇒ identical behavior).
+   *
+   * A binary-with-replicates consumer (e.g. swe-arena, whose ship-gate counts an
+   * instance resolved only when EVERY replicate resolved) passes a fail-closed
+   * key built from the SAME reduction its gate uses, so winner-selection and the
+   * ship-gate rank on the identical metric and can never invert — the selector
+   * cannot promote a flaky per-cell-mean candidate the gate would reject over a
+   * fail-closed candidate the gate would accept. Only the winner CHOICE changes;
+   * the descriptive `composite` (mean) on every record and the Pareto objective
+   * vectors are untouched, so proposer diversity and reporting are unaffected.
+   */
+  selectionRankKey?: (campaign: CampaignResult<TArtifact, TScenario>) => number[]
 }
 
 export type RunOptimizationOptions<
@@ -199,9 +222,19 @@ export async function runOptimization<TScenario extends Scenario, TArtifact>(
   // Refreshed each generation by `analyzeGeneration`; seeded with the static
   // caller-supplied findings.
   let currentFindings: unknown[] = opts.findings ?? []
+  // Winner selection ranks candidates by a lexicographic key (higher-is-better
+  // per element). Default = the scalar mean composite, so a single-element key
+  // reproduces the historical `b.composite - a.composite` ordering exactly. A
+  // fail-closed consumer overrides it so selection and its ship-gate rank on the
+  // identical metric (see `selectionRankKey` docs).
+  const selectionRankKey =
+    opts.selectionRankKey ??
+    ((campaign: CampaignResult<TArtifact, TScenario>) => [campaignMeanComposite(campaign)])
   let winnerSurface = opts.baselineSurface
   let winnerSurfaceHash = surfaceHash(opts.baselineSurface)
   let winnerComposite = campaignMeanComposite(baselineCampaign)
+  let winnerRankKey = selectionRankKey(baselineCampaign)
+  assertFiniteRankKey(winnerRankKey, 'selectionRankKey for baseline')
   const baselineOutcome = toScoredSurfaceOutcome(
     winnerSurfaceHash,
     baselineCampaign,
@@ -288,6 +321,8 @@ export async function runOptimization<TScenario extends Scenario, TArtifact>(
       rationale: string
       campaign: CampaignResult<TArtifact, TScenario>
       composite: number
+      /** Lexicographic winner-selection key (higher-is-better per element). */
+      rankKey: number[]
       coverage: CampaignCoverage
     }
     const surfaceResults = await mapConcurrent(
@@ -303,6 +338,12 @@ export async function runOptimization<TScenario extends Scenario, TArtifact>(
           runDir: `${opts.runDir}/gen-${gen}/candidate-${i}`,
         })
         const composite = campaignMeanComposite(campaign)
+        const rankKey = selectionRankKey(campaign)
+        assertFiniteRankKey(
+          rankKey,
+          `selectionRankKey for generation ${gen} candidate ${i}`,
+          winnerRankKey.length,
+        )
         const coverage = campaignCoverage(
           campaign.cells,
           opts.scenarios,
@@ -316,6 +357,7 @@ export async function runOptimization<TScenario extends Scenario, TArtifact>(
           rationale,
           campaign,
           composite,
+          rankKey,
           coverage,
         }
       },
@@ -335,16 +377,17 @@ export async function runOptimization<TScenario extends Scenario, TArtifact>(
     // rows follow the eligible rows for auditability but never promote.
     surfaceResults.sort((a, b) => {
       if (a.coverage.complete !== b.coverage.complete) return a.coverage.complete ? -1 : 1
-      return b.composite - a.composite
+      return compareRankKeys(b.rankKey, a.rankKey)
     })
     const eligibleResults = surfaceResults.filter((result) => result.coverage.complete)
     const top = eligibleResults[0]
-    const promoted = top && top.composite > winnerComposite ? [top] : []
+    const promoted = top && compareRankKeys(top.rankKey, winnerRankKey) > 0 ? [top] : []
     if (promoted[0]) {
       const top = promoted[0]
       winnerSurface = top.surface
       winnerSurfaceHash = top.surfaceHash
       winnerComposite = top.composite
+      winnerRankKey = top.rankKey
       winnerOutcome = toScoredSurfaceOutcome(top.surfaceHash, top.campaign, top.coverage, gen)
       winnerLabel = top.label || undefined
       winnerRationale = top.rationale || undefined

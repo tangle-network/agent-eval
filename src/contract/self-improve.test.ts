@@ -670,6 +670,44 @@ describe('selfImprove — maxImprovementShots passthrough', () => {
   })
 })
 
+describe('selfImprove — candidate ranking passthrough', () => {
+  it('uses selectionRankKey for the loop winner', async () => {
+    const rankingJudge: JudgeConfig<{ text: string }, Scenario> = {
+      name: 'ranking',
+      dimensions: [{ key: 'quality', description: 'fixture quality' }],
+      score: ({ artifact }) => {
+        const quality =
+          artifact.text === 'MEAN-WINNER' ? 1 : artifact.text === 'RANK-WINNER' ? 0.5 : 0
+        return { dimensions: { quality }, composite: quality, notes: '' }
+      },
+    }
+    const proposer: SurfaceProposer = {
+      kind: 'ranking-probe',
+      propose: async () => ['MEAN-WINNER', 'RANK-WINNER'],
+    }
+    const rankedSurfaces: string[] = []
+
+    const result = await selfImprove({
+      agent: stubAgent,
+      scenarios,
+      judge: rankingJudge,
+      baselineSurface: 'BASELINE',
+      proposer,
+      budget: { generations: 1, populationSize: 2, holdoutFraction: 0.5 },
+      selectionRankKey: (campaign) => {
+        const surface = campaign.cells[0]?.artifact?.text ?? 'BASELINE'
+        rankedSurfaces.push(surface)
+        return [surface === 'RANK-WINNER' ? 2 : surface === 'MEAN-WINNER' ? 1 : 0]
+      },
+    })
+
+    expect(rankedSurfaces).toEqual(
+      expect.arrayContaining(['BASELINE', 'MEAN-WINNER', 'RANK-WINNER']),
+    )
+    expect(result.winner.surface).toBe('RANK-WINNER')
+  })
+})
+
 describe('selfImprove — candidate concurrency passthrough', () => {
   async function observedCandidateConcurrency(candidateConcurrency?: number): Promise<number> {
     let active = 0

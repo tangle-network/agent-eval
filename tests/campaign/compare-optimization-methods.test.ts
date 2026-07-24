@@ -319,6 +319,26 @@ describe('compareOptimizationMethods', () => {
     expect(finalDispatches).toBe(0)
   })
 
+  it('rejects method-reported spend above costCeiling before final scoring', async () => {
+    let finalDispatches = 0
+    await expect(
+      compareOptimizationMethods<S, A>({
+        methods: [fixedMethod('over-budget', 'SOLVE_h1', 100)],
+        baselineSurface: 'baseline',
+        ...PARTITIONS,
+        dispatchWithSurface: async (surface) => {
+          finalDispatches += 1
+          return { text: String(surface) }
+        },
+        judges: [judge],
+        runDir,
+        costCeiling: 1,
+        expectUsage: 'off',
+      }),
+    ).rejects.toThrow(/reported optimization cost 100 exceeds costCeiling 1/)
+    expect(finalDispatches).toBe(0)
+  })
+
   it('FAILS LOUD when a surface is missing a test scenario score (no fabricated 0)', async () => {
     // A judge that errors on h3 → that cell has no score → the baseline score
     // vector omits h3. compareOptimizationMethods must refuse to fabricate a 0 for the
