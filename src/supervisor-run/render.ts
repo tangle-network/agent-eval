@@ -125,13 +125,13 @@ export function renderSupervisorRunMarkdown(r: SupervisorRunReport): string {
 
   out.push('## Economics')
   out.push('')
-  out.push('| Role | Tokens in | Tokens out | USD | Source |')
-  out.push('|---|---:|---:|---:|---|')
+  out.push('| Role | Tokens in | Tokens out | Cache read | Cache write | USD | Source |')
+  out.push('|---|---:|---:|---:|---:|---:|---|')
   out.push(
-    `| brain | ${showMeasured(e.brain.tokensIn)} | ${showMeasured(e.brain.tokensOut)} | ${showMeasured(e.brain.usd)} | ${e.brain.source} |`,
+    `| brain | ${showMeasured(e.brain.tokensIn)} | ${showMeasured(e.brain.tokensOut)} | ${showMeasured(e.brain.cacheRead)} | ${showMeasured(e.brain.cacheWrite)} | ${showMeasured(e.brain.usd)} | ${e.brain.source} |`,
   )
   out.push(
-    `| workers | ${showMeasured(e.workers.tokensIn)} | ${showMeasured(e.workers.tokensOut)} | ${showMeasured(e.workers.usd)} | ${e.workers.source} |`,
+    `| workers | ${showMeasured(e.workers.tokensIn)} | ${showMeasured(e.workers.tokensOut)} | ${showMeasured(e.workers.cacheRead)} | ${showMeasured(e.workers.cacheWrite)} | ${showMeasured(e.workers.usd)} | ${e.workers.source} |`,
   )
   out.push('')
   if (!isUnavailable(e.brainTruncations) && e.brainTruncations > 0) {
@@ -156,11 +156,11 @@ export function renderSupervisorRunMarkdown(r: SupervisorRunReport): string {
   }
   out.push('')
   if (!isUnavailable(e.perWorker) && e.perWorker.length > 0) {
-    out.push('| Worker | Wall | Patch bytes | Verify passed |')
-    out.push('|---|---:|---:|---|')
+    out.push('| Worker | Wall | Tokens in | Tokens out | Patch bytes | Verify passed |')
+    out.push('|---|---:|---:|---:|---:|---|')
     for (const w of e.perWorker) {
       out.push(
-        `| \`${w.worker}\` | ${w.wallMs === null ? 'unavailable — no start/finish pair' : fmtMs(w.wallMs)} | ${w.patchBytes ?? 'unavailable — no worker patch file'} | ${w.passed === null ? 'unavailable — no finished event' : String(w.passed)} |`,
+        `| \`${w.worker}\` | ${w.wallMs === null ? 'unavailable — no start/finish pair' : fmtMs(w.wallMs)} | ${w.tokensIn ?? 'unavailable — store does not attribute tokens per worker'} | ${w.tokensOut ?? 'unavailable — store does not attribute tokens per worker'} | ${w.patchBytes ?? 'unavailable — no worker patch file'} | ${w.passed === null ? 'unavailable — no finished event' : String(w.passed)} |`,
       )
     }
     out.push('')

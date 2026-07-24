@@ -4,7 +4,7 @@
  * process, no filesystem, no network — so the fixtures are strings.
  */
 
-import type { SupervisorRunSources, WorkerLogSource } from './types'
+import { NO_SOURCE_LIMITS, type SupervisorRunSources, type WorkerLogSource } from './types'
 
 export const FIXTURE_T0 = Date.parse('2026-07-23T00:00:00.000Z')
 
@@ -200,6 +200,8 @@ export function fixtureSources(over: Partial<SupervisorRunSources> = {}): Superv
     driverLog: null,
     harnessWorkerTokens: null,
     harnessMissingReason: null,
+    limits: NO_SOURCE_LIMITS,
+    traceCommand: null,
     ...over,
   }
 }

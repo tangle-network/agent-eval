@@ -60,6 +60,66 @@ export interface ClaudeTranscript {
 const isRecord = (v: unknown): v is Record<string, unknown> =>
   typeof v === 'object' && v !== null && !Array.isArray(v)
 
+/**
+ * One conversation line of a transcript, still in Claude Code's own shape.
+ *
+ * This is the single line-level parse of the format. `readClaudeTranscript`
+ * projects it to canonical messages + usage; the supervision-tree reader
+ * (`src/supervisor-run/claude-code-reader.ts`) projects the SAME entries to
+ * spawn/settle/steer instants. Two projections, one parser — a second
+ * transcript parser is how the two views silently disagree.
+ */
+export interface ClaudeEntry {
+  readonly type: 'user' | 'assistant'
+  /** ISO instant of the line; null when the line carried none. */
+  readonly timestamp: string | null
+  /** The Anthropic message body (`role`, `content`, `model`, `usage`). */
+  readonly message: Record<string, unknown>
+  /** Claude Code's structured tool result, when the line carries one. */
+  readonly toolUseResult: unknown
+  /** True on subagent threads — a separate invocation, not this transcript's turn. */
+  readonly isSidechain: boolean
+  /** Subagent id Claude Code stamps on sidechain lines; null on main-thread lines. */
+  readonly agentId: string | null
+}
+
+/** Parse transcript jsonl text into conversation lines. Non-conversation lines are dropped. */
+export function parseClaudeEntries(raw: string): ClaudeEntry[] {
+  const out: ClaudeEntry[] = []
+  for (const line of raw.split('\n')) {
+    if (!line.trim()) continue
+    let entry: Record<string, unknown>
+    try {
+      const parsed: unknown = JSON.parse(line)
+      if (!isRecord(parsed)) continue
+      entry = parsed
+    } catch {
+      continue
+    }
+    if (entry.type !== 'user' && entry.type !== 'assistant') continue
+    const message = entry.message
+    if (!isRecord(message)) continue
+    out.push({
+      type: entry.type,
+      timestamp: typeof entry.timestamp === 'string' ? entry.timestamp : null,
+      message,
+      toolUseResult: entry.toolUseResult,
+      isSidechain: entry.isSidechain === true,
+      agentId: typeof entry.agentId === 'string' ? entry.agentId : null,
+    })
+  }
+  return out
+}
+
+export interface ReadClaudeTranscriptOptions {
+  /**
+   * Read the sidechain (subagent) thread instead of skipping it. Subagent
+   * transcripts under `<session>/subagents/agent-<id>.jsonl` are sidechain
+   * lines end to end, so their usage is invisible without this.
+   */
+  readonly includeSidechain?: boolean
+}
+
 function blockText(content: unknown): string {
   if (typeof content === 'string') return content
   if (!Array.isArray(content)) return ''
@@ -73,8 +133,19 @@ function blockText(content: unknown): string {
 }
 
 /** Parse one transcript jsonl into canonical messages + usage totals. */
-export async function readClaudeTranscript(path: string): Promise<ClaudeTranscript> {
-  const raw = await readFile(path, 'utf8')
+export async function readClaudeTranscript(
+  path: string,
+  options: ReadClaudeTranscriptOptions = {},
+): Promise<ClaudeTranscript> {
+  return transcriptFromEntries(parseClaudeEntries(await readFile(path, 'utf8')), options)
+}
+
+/** The messages+usage projection of already-parsed entries. */
+export function transcriptFromEntries(
+  entries: readonly ClaudeEntry[],
+  options: ReadClaudeTranscriptOptions = {},
+): ClaudeTranscript {
+  const wantSidechain = options.includeSidechain === true
   const messages: ChatMessage[] = []
   const usage: ClaudeUsageTotals = { tokensIn: 0, tokensOut: 0, cacheRead: 0, cacheWrite: 0 }
   let startedAt: string | null = null
@@ -86,21 +157,10 @@ export async function readClaudeTranscript(path: string): Promise<ClaudeTranscri
   let lastAssistantApiId: string | null = null
   let lastAssistantIndex = -1
 
-  for (const line of raw.split('\n')) {
-    if (!line.trim()) continue
-    let entry: Record<string, unknown>
-    try {
-      const parsed: unknown = JSON.parse(line)
-      if (!isRecord(parsed)) continue
-      entry = parsed
-    } catch {
-      continue
-    }
-    if (entry.type !== 'user' && entry.type !== 'assistant') continue
-    if (entry.isSidechain === true) continue
+  for (const entry of entries) {
+    if (entry.isSidechain !== wantSidechain) continue
     const message = entry.message
-    if (!isRecord(message)) continue
-    if (typeof entry.timestamp === 'string') {
+    if (entry.timestamp !== null) {
       if (startedAt === null) startedAt = entry.timestamp
       endedAt = entry.timestamp
     }
