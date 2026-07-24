@@ -72,8 +72,7 @@ Common settings:
 | `CALL_TIMEOUT` | `120` | Seconds per model request |
 | `MAX_TOKENS` | `6000` | Maximum output tokens per model request |
 | `RATE_LIMIT_BUDGET` | `240` | Seconds spent retrying rate limits per request |
-| `MAX_OPTIMIZATION_COST_USD` | `50` | Worker and judge spend limit for each method |
-| `MAX_TEST_COST_USD` | `25` | Shared worker and judge spend limit for final tasks |
+| `MAX_RUN_COST_USD` | `125` | Shared limit for all optimization and final-task spend |
 | `OUT_DIR` | `/tmp/appworld-bench` | Output directory |
 
 The defaults are sized to check the workflow.

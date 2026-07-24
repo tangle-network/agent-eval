@@ -195,6 +195,8 @@ export function gepaOptimizationMethod<TScenario extends Scenario, TArtifact>(
   return {
     name,
     async optimize(input) {
+      const signal = input.runOptions.signal
+      signal?.throwIfAborted()
       if (
         typeof input.baselineSurface !== 'string' &&
         input.baselineSurface.kind !== 'components'
@@ -229,6 +231,7 @@ export function gepaOptimizationMethod<TScenario extends Scenario, TArtifact>(
         engineModules: config.engineModules,
         ...(bridgeRunner ? { runner: bridgeRunner } : {}),
         timeoutMs: config.timeoutMs ?? GEPA_DEFAULT_TIMEOUT_MS,
+        ...(signal ? { signal } : {}),
       })
       const seedCandidate = encodeExternalTextCandidate(input.baselineSurface)
       const trainSet = input.trainScenarios.map((scenario) =>
@@ -302,6 +305,7 @@ export function gepaOptimizationMethod<TScenario extends Scenario, TArtifact>(
         maxEvaluations: evaluationLimit,
         acceptEvaluation: () => runBudget.acceptEvaluation(),
         evaluate,
+        ...(signal ? { signal } : {}),
       })
 
       const runnerEnv = bridgeRunner?.env ?? {}
@@ -334,6 +338,7 @@ export function gepaOptimizationMethod<TScenario extends Scenario, TArtifact>(
                 requests: priorOptimizerUsage.totalCalls,
                 costUsd: priorOptimizerUsage.totalCostUsd,
               },
+              ...(signal ? { signal } : {}),
             })
           }
           const outputDir = `${runDir}/external`
@@ -382,11 +387,13 @@ export function gepaOptimizationMethod<TScenario extends Scenario, TArtifact>(
                   }
                 : bridgeRunner,
             timeoutMs: config.timeoutMs ?? GEPA_DEFAULT_TIMEOUT_MS,
+            ...(signal ? { signal } : {}),
           })
           return { result, outputDir }
         },
         cleanup: closeResources,
       })
+      signal?.throwIfAborted()
       assertGepaBridgeOutput(
         result,
         name,

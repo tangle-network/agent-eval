@@ -75,8 +75,7 @@ const OPTIMIZATION_CONCURRENCY = positiveIntegerEnv('OPTIMIZATION_CONCURRENCY', 
 const CALL_TIMEOUT = positiveNumberEnv('CALL_TIMEOUT', 120)
 const MAX_TOKENS = positiveIntegerEnv('MAX_TOKENS', 6000)
 const RATE_LIMIT_BUDGET = positiveNumberEnv('RATE_LIMIT_BUDGET', 240)
-const MAX_OPTIMIZATION_COST_USD = positiveNumberEnv('MAX_OPTIMIZATION_COST_USD', 50)
-const MAX_TEST_COST_USD = positiveNumberEnv('MAX_TEST_COST_USD', 25)
+const MAX_RUN_COST_USD = positiveNumberEnv('MAX_RUN_COST_USD', 125)
 const OUT_DIR = stringEnv('OUT_DIR', join(tmpdir(), 'appworld-bench'))
 const SEED = safeIntegerEnv('SEED', 42)
 if (TEMPERATURE > 2) throw new Error('TEMPERATURE must be between 0 and 2')
@@ -366,10 +365,10 @@ async function main(): Promise<void> {
   )
   const budgets = {
     ...(selected.has('gepa')
-      ? { gepa: optimizerModelBudgetFromEnv('GEPA', MAX_OPTIMIZATION_COST_USD) }
+      ? { gepa: optimizerModelBudgetFromEnv('GEPA', MAX_RUN_COST_USD) }
       : {}),
     ...(selected.has('skillopt')
-      ? { skillopt: optimizerModelBudgetFromEnv('SKILLOPT', MAX_OPTIMIZATION_COST_USD) }
+      ? { skillopt: optimizerModelBudgetFromEnv('SKILLOPT', MAX_RUN_COST_USD) }
       : {}),
   }
   const methods = officialMethods(selected, budgets)
@@ -396,10 +395,9 @@ async function main(): Promise<void> {
     maxConcurrency: MAXCONC, // parallelize the test-scoring fan-out (the bulk of the run)
     optimizationRunOptions: {
       maxConcurrency: MAXCONC,
-      costCeiling: MAX_OPTIMIZATION_COST_USD,
       expectUsage: 'assert',
     },
-    costCeiling: MAX_TEST_COST_USD,
+    costCeiling: MAX_RUN_COST_USD,
     expectUsage: 'assert',
   })
 
@@ -428,8 +426,7 @@ async function main(): Promise<void> {
         skillopt: selected.has('skillopt') ? SKILLOPT_MAX_EVALUATIONS : null,
       },
       gepaMaxProposerCostUsd: selected.has('gepa') ? GEPA_MAX_PROPOSER_COST_USD : null,
-      workerAndJudgeOptimizationCostUsd: MAX_OPTIMIZATION_COST_USD,
-      finalCostUsd: MAX_TEST_COST_USD,
+      allRunCostUsd: MAX_RUN_COST_USD,
       repetitionsPerFinalTask: REPS,
       optimizationConcurrency: OPTIMIZATION_CONCURRENCY,
       taskConcurrency: MAXCONC,

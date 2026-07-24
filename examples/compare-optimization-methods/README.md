@@ -104,8 +104,7 @@ Replace all four example rates with the exact rates charged by that endpoint.
 | `SKILLOPT_PRICE_OUT_PER_M` | required | Exact optimizer-model output rate per million tokens. |
 | `SKILLOPT_MAX_MODEL_COST_USD` | `5` | SkillOpt optimizer-model spend limit. |
 | `SKILLOPT_MAX_MODEL_REQUESTS` | `100` | SkillOpt optimizer-model request limit. |
-| `MAX_OPTIMIZATION_COST_USD` | `5` | Worker and judge spend limit for each method. |
-| `MAX_TEST_COST_USD` | `2` | Shared final-case spend limit. |
+| `MAX_RUN_COST_USD` | `12` | Shared limit for all optimization and final-case spend. |
 | `OPTIMIZATION_CONCURRENCY` | `1` | Methods allowed to optimize concurrently. |
 | `BILLING_NOTE` | inferred | Billing context saved with the result. |
 | `PRICE_SOURCE` | inferred | Source of the token prices saved with the result. |

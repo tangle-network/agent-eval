@@ -183,13 +183,13 @@ const comparison = await compareOptimizationMethods({
   runDir: '.agent-eval/optimizer-comparison',
   optimizationRunOptions: {
     maxConcurrency: 4,
-    costCeiling: 10,
   },
-  costCeiling: 3,
+  costCeiling: 23,
   confidence: 0.95,
 })
 ```
 
+`costCeiling` is one limit shared by optimizer-model calls, train and selection evaluations, and final test scoring.
 `comparison.scores` contains the final-case baseline score, selected score, lift, simultaneous interval, cost status, duration, and selected surface for each method.
 Official method scores contain optimizer and bridge package versions, source revisions and source-tree hashes, Python runtime, custom engine module hashes, compatible run ID, exact attempt ID, resume status, evaluation count, artifact directory, and available optimizer token usage.
 `comparison.pairwise` compares the highest-ranked method with every other method.

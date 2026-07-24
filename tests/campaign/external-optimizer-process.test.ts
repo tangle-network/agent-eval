@@ -1,3 +1,4 @@
+import { existsSync } from 'node:fs'
 import { mkdtemp, readFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -236,6 +237,51 @@ describe('external optimizer process', () => {
       await new Promise((resolve) => setTimeout(resolve, 1_100))
       await expect(readFile(marker, 'utf8')).rejects.toMatchObject({ code: 'ENOENT' })
     } finally {
+      await rm(dir, { recursive: true, force: true })
+    }
+  }, 10_000)
+
+  it('terminates the detached process group promptly when the caller aborts', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'agent-eval-abort-descendant-'))
+    const ready = join(dir, 'ready.txt')
+    const marker = join(dir, 'descendant-survived.txt')
+    const descendant = [
+      "const { writeFileSync } = require('node:fs')",
+      `setTimeout(() => writeFileSync(${JSON.stringify(marker)}, 'survived'), 1_000)`,
+      'setInterval(() => {}, 1_000)',
+    ].join(';')
+    const parent = [
+      "const { spawn } = require('node:child_process')",
+      "const { writeFileSync } = require('node:fs')",
+      `spawn(process.execPath, ['-e', ${JSON.stringify(descendant)}], { stdio: 'ignore' })`,
+      `writeFileSync(${JSON.stringify(ready)}, 'ready')`,
+      'setInterval(() => {}, 1_000)',
+    ].join(';')
+    const owner = new AbortController()
+
+    try {
+      const running = runExternalOptimizerProcess({
+        label: 'aborted optimizer',
+        tempPrefix: 'agent-eval-aborted-',
+        module: 'unused',
+        input: {},
+        runner: {
+          command: process.execPath,
+          args: ['-e', parent, '--'],
+        },
+        timeoutMs: 10_000,
+        signal: owner.signal,
+      })
+      await waitFor(() => existsSync(ready))
+      const abortedAt = performance.now()
+      owner.abort(new Error('owner cancelled optimizer'))
+
+      await expect(running).rejects.toThrow('owner cancelled optimizer')
+      expect(performance.now() - abortedAt).toBeLessThan(1_000)
+      await new Promise((resolve) => setTimeout(resolve, 1_100))
+      expect(existsSync(marker)).toBe(false)
+    } finally {
+      owner.abort(new Error('test cleanup'))
       await rm(dir, { recursive: true, force: true })
     }
   }, 10_000)

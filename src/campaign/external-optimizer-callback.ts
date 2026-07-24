@@ -14,8 +14,10 @@ export async function startExternalOptimizerCallback<TResponse>(args: {
   maxEvaluations: number
   acceptEvaluation?: () => number | undefined
   evaluate: (request: ExternalTextEvaluationRequest, signal: AbortSignal) => Promise<TResponse>
+  signal?: AbortSignal
 }): Promise<ExternalOptimizerCallback> {
   assertCallbackConfig(args)
+  args.signal?.throwIfAborted()
   let evaluations = 0
   let accepting = true
   let closePromise: Promise<void> | undefined
@@ -30,6 +32,7 @@ export async function startExternalOptimizerCallback<TResponse>(args: {
     const controller = new AbortController()
     const abortRequest = (): void => {
       request.destroy()
+      response.destroy()
     }
     activeControllers.add(controller)
     controller.signal.addEventListener('abort', abortRequest, { once: true })
@@ -53,17 +56,24 @@ export async function startExternalOptimizerCallback<TResponse>(args: {
     void handler.catch(() => undefined)
   })
   const port = await listenLocal(server)
+  const close = (): Promise<void> => {
+    closePromise ??= closeCallbackServer()
+    return closePromise
+  }
+  const onAbort = (): void => {
+    void close().catch(() => undefined)
+  }
+  args.signal?.addEventListener('abort', onAbort, { once: true })
+  if (args.signal?.aborted) onAbort()
   return {
     url: `http://127.0.0.1:${port}/evaluate`,
     token: args.token,
     evaluations: () => evaluations,
-    close: () => {
-      closePromise ??= closeCallbackServer()
-      return closePromise
-    },
+    close,
   }
 
   async function closeCallbackServer(): Promise<void> {
+    args.signal?.removeEventListener('abort', onAbort)
     accepting = false
     const closingServer = closeServer(server)
     server.closeIdleConnections?.()
@@ -164,6 +174,7 @@ function assertCallbackConfig(args: {
   maxEvaluations: number
   acceptEvaluation?: () => number | undefined
   evaluate: (request: ExternalTextEvaluationRequest, signal: AbortSignal) => Promise<unknown>
+  signal?: AbortSignal
 }): void {
   if (typeof args.token !== 'string' || !args.token.trim()) {
     throw new Error('external optimizer callback: token must be non-empty')

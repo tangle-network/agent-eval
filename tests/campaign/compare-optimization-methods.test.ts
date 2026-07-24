@@ -189,6 +189,36 @@ describe('compareOptimizationMethods', () => {
     expect(result.totalCost.totalCostUsd).toBeCloseTo(0.58)
   })
 
+  it('reports cumulative final cost when compatible cells resume from cache', async () => {
+    let paidCalls = 0
+    const options = {
+      methods: [fixedMethod('same-as-baseline', 'same', 0)],
+      baselineSurface: 'same',
+      ...PARTITIONS,
+      dispatchWithSurface: paidDispatch(() => {
+        paidCalls += 1
+      }),
+      judges: [judge],
+      runDir,
+      costCeiling: 0.1,
+      maxConcurrency: 1,
+      expectUsage: 'assert' as const,
+    }
+
+    const first = await compareOptimizationMethods<S, A>(options)
+    expect(paidCalls).toBe(4)
+    const resumed = await compareOptimizationMethods<S, A>(options)
+
+    expect(paidCalls).toBe(4)
+    expect(first.testCost).toEqual({
+      totalCostUsd: 0.04,
+      accountingComplete: true,
+      incompleteReasons: [],
+    })
+    expect(resumed.testCost).toEqual(first.testCost)
+    expect(resumed.totalCost).toEqual(first.totalCost)
+  })
+
   it('excludes unrelated receipts from a caller-provided final-test cost ledger', async () => {
     const costLedger = new CostLedger()
     await costLedger.runPaidCall({
@@ -241,6 +271,52 @@ describe('compareOptimizationMethods', () => {
       }),
     ).rejects.toThrow(/produced no test score/)
     expect(paidCalls).toBe(5)
+  })
+
+  it('applies costCeiling to optimization before final scoring starts', async () => {
+    let optimizerExecutions = 0
+    let finalDispatches = 0
+    const spendingMethod = (name: string, costUsd: number): OptimizationMethod<S, A> => ({
+      name,
+      async optimize(input) {
+        const paid = await input.costLedger.runPaidCall({
+          channel: 'optimizer',
+          phase: `${name}.search`,
+          actor: name,
+          model: 'optimizer-model',
+          maximumCharge: { externallyEnforcedMaximumUsd: costUsd },
+          execute: async () => {
+            optimizerExecutions += 1
+          },
+          receipt: () => ({
+            model: 'optimizer-model',
+            inputTokens: 1,
+            outputTokens: 1,
+            actualCostUsd: costUsd,
+          }),
+        })
+        if (!paid.succeeded) throw paid.error
+        return { winnerSurface: name, cost: completeCost(costUsd) }
+      },
+    })
+
+    await expect(
+      compareOptimizationMethods<S, A>({
+        methods: [spendingMethod('first-method', 0.04), spendingMethod('second-method', 0.02)],
+        baselineSurface: 'baseline',
+        ...PARTITIONS,
+        dispatchWithSurface: async (surface) => {
+          finalDispatches += 1
+          return { text: String(surface) }
+        },
+        judges: [judge],
+        runDir,
+        costCeiling: 0.05,
+        expectUsage: 'off',
+      }),
+    ).rejects.toThrow(/would exceed ceiling 0\.05/)
+    expect(optimizerExecutions).toBe(1)
+    expect(finalDispatches).toBe(0)
   })
 
   it('FAILS LOUD when a surface is missing a test scenario score (no fabricated 0)', async () => {
@@ -356,6 +432,7 @@ describe('compareOptimizationMethods', () => {
     [
       ['empty judges', { judges: [] }, /at least one judge/],
       ['blank runDir', { runDir: ' ' }, /runDir must be a non-empty string/],
+      ['blank dispatchRef', { dispatchRef: ' ' }, /dispatchRef must be trimmed and non-empty/],
       ['fractional seed', { seed: 1.5 }, /seed must be a safe integer/],
       ['zero resamples', { resamples: 0 }, /resamples must be a positive safe integer/],
       ['too few resamples', { resamples: 10 }, /resamples must be at least 40/],
@@ -370,6 +447,11 @@ describe('compareOptimizationMethods', () => {
       ['zero concurrency', { maxConcurrency: 0 }, /maxConcurrency must be a positive/],
       ['negative timeout', { dispatchTimeoutMs: -1 }, /dispatchTimeoutMs must be a non-negative/],
       ['negative cost ceiling', { costCeiling: -1 }, /costCeiling must be a finite number/],
+      [
+        'removed per-method cost ceiling',
+        { optimizationRunOptions: { costCeiling: 1 } as never },
+        /optimizationRunOptions\.costCeiling is not supported/,
+      ],
     ]
 
   it.each(invalidControls)('rejects %s before optimization', async (_label, invalid, expected) => {
@@ -424,6 +506,30 @@ describe('compareOptimizationMethods', () => {
       expectUsage: 'off',
     })
     expect(seen).toBeDefined()
+  })
+
+  it('passes the owning signal to optimization methods', async () => {
+    const owner = new AbortController()
+    let receivedSignal: AbortSignal | undefined
+    await compareOptimizationMethods<S, A>({
+      methods: [
+        {
+          name: 'signal-spy',
+          optimize: async (input) => {
+            receivedSignal = input.runOptions.signal
+            return { winnerSurface: 'nothing', cost: completeCost(0) }
+          },
+        },
+      ],
+      baselineSurface: 'nothing',
+      ...PARTITIONS,
+      dispatchWithSurface: async (surface) => ({ text: String(surface) }),
+      judges: [judge],
+      runDir,
+      signal: owner.signal,
+      expectUsage: 'off',
+    })
+    expect(receivedSignal).toBe(owner.signal)
   })
 
   it('isolates scenario values between methods and from caller-owned data', async () => {
@@ -514,6 +620,71 @@ describe('compareOptimizationMethods', () => {
 
     expect(observedWinnerValues).toEqual([3, 4])
     expect(test.map((scenario) => scenario.payload.value)).toEqual([3, 4])
+  })
+
+  it('scores and returns immutable candidate snapshots with a fresh value per dispatch', async () => {
+    const baseline = {
+      kind: 'components' as const,
+      components: { policy: 'baseline' },
+    }
+    const selected = {
+      kind: 'components' as const,
+      components: { policy: 'winner' },
+    }
+    const received: object[] = []
+    const values: string[] = []
+    const snapshotJudge: JudgeConfig<A, S> = {
+      name: 'snapshot',
+      dimensions: [{ key: 'winner', description: 'candidate is the selected snapshot' }],
+      score: ({ artifact }) => {
+        const value = artifact.text === 'winner' ? 1 : 0
+        return { dimensions: { winner: value }, composite: value, notes: '' }
+      },
+    }
+
+    const result = await compareOptimizationMethods<S, A>({
+      methods: [
+        {
+          name: 'object-candidate',
+          optimize: async () => ({ winnerSurface: selected, cost: completeCost(0) }),
+        },
+      ],
+      baselineSurface: baseline,
+      ...PARTITIONS,
+      dispatchWithSurface: async (surface) => {
+        if (typeof surface === 'string' || surface.kind !== 'components') {
+          throw new Error('expected a component surface')
+        }
+        received.push(surface)
+        const value = surface.components.policy!
+        values.push(value)
+        ;(surface.components as Record<string, string>).policy = 'mutated-by-dispatch'
+        return { text: value }
+      },
+      judges: [snapshotJudge],
+      runDir,
+      maxConcurrency: 2,
+      expectUsage: 'off',
+    })
+
+    expect(values.filter((value) => value === 'baseline')).toHaveLength(TEST.length)
+    expect(values.filter((value) => value === 'winner')).toHaveLength(TEST.length)
+    expect(new Set(received).size).toBe(TEST.length * 2)
+    expect(baseline.components.policy).toBe('baseline')
+    expect(selected.components.policy).toBe('winner')
+    expect(result.best.winnerComposite).toBe(1)
+    expect(result.best.winnerSurface).toEqual({
+      kind: 'components',
+      components: { policy: 'winner' },
+    })
+
+    for (const surface of received) {
+      ;(surface as { components: Record<string, string> }).components.policy = 'mutated-later'
+    }
+    expect(result.best.winnerSurface).toEqual({
+      kind: 'components',
+      components: { policy: 'winner' },
+    })
   })
 
   it('finishes every optimization before the first test dispatch', async () => {
