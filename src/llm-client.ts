@@ -51,6 +51,8 @@ export interface LlmMessage {
       >
 }
 
+export type LlmThinkingMode = 'enabled' | 'disabled'
+
 export interface LlmCallRequest {
   model: string
   messages: LlmMessage[]
@@ -61,7 +63,7 @@ export interface LlmCallRequest {
   temperature?: number
   maxTokens?: number
   /** OpenAI-compatible reasoning mode. Omitted when the provider default should apply. */
-  thinking?: 'enabled' | 'disabled'
+  thinking?: LlmThinkingMode
   /** Per-call timeout, default 300s. */
   timeoutMs?: number
 }
@@ -71,7 +73,7 @@ export interface LlmCallRequest {
  * capped CostLedger to reject the call before execution. Pass
  * `customTokenPricing` when package pricing does not cover the model or endpoint. */
 export function maximumChargeForLlmRequest(
-  request: Pick<LlmCallRequest, 'model' | 'messages' | 'jsonSchema' | 'maxTokens'>,
+  request: Pick<LlmCallRequest, 'model' | 'messages' | 'jsonSchema' | 'maxTokens' | 'thinking'>,
   options: LlmClientOptions = {},
 ): MaximumCharge | undefined {
   if (request.maxTokens === undefined) return undefined
@@ -92,7 +94,7 @@ export function maximumChargeForLlmRequest(
   // A byte-level tokenizer cannot emit more input tokens than request bytes.
   // Pricing the complete body also covers role/schema framing omitted from content-only estimates.
   const requestBytes = new TextEncoder().encode(
-    JSON.stringify(buildBody(request, forceJsonObject)),
+    JSON.stringify(buildBody(request, forceJsonObject, options.thinking)),
   ).byteLength
   // A rejected response schema can trigger one JSON-mode batch with the same output limit.
   const batches = request.jsonSchema && !forceJsonObject ? 2 : 1
@@ -254,6 +256,8 @@ export interface LlmClientOptions {
    * Default: `extract`.
    */
   jsonPayloadMode?: 'extract' | 'exact'
+  /** Default provider reasoning mode. A per-call request value takes precedence. */
+  thinking?: LlmThinkingMode
   /** Fetch implementation — defaults to global `fetch`. Override for custom transport (e.g. tests). */
   fetch?: typeof fetch
   /**
@@ -401,7 +405,11 @@ function isSchemaRejection(status: number, body: string): boolean {
   )
 }
 
-function buildBody(req: LlmCallRequest, forceJsonObject: boolean): Record<string, unknown> {
+function buildBody(
+  req: LlmCallRequest,
+  forceJsonObject: boolean,
+  defaultThinking?: LlmThinkingMode,
+): Record<string, unknown> {
   const body: Record<string, unknown> = {
     model: req.model,
     messages: req.messages,
@@ -411,8 +419,9 @@ function buildBody(req: LlmCallRequest, forceJsonObject: boolean): Record<string
     if (usesMaxCompletionTokens(req.model)) body.max_completion_tokens = req.maxTokens
     else body.max_tokens = req.maxTokens
   }
-  if (req.thinking !== undefined) {
-    body.thinking = { type: req.thinking }
+  const thinking = req.thinking ?? defaultThinking
+  if (thinking !== undefined) {
+    body.thinking = { type: thinking }
   }
 
   if (req.jsonSchema && !forceJsonObject) {
@@ -582,7 +591,7 @@ export async function callLlm(
     const attemptSignal = linkSignals(controller, callerSignal)
     const timeoutHandle = setTimeout(() => controller.abort(), timeoutMs)
     const started = Date.now()
-    const requestBody = buildBody(req, opts.jsonSchemaTransport === 'json-object')
+    const requestBody = buildBody(req, opts.jsonSchemaTransport === 'json-object', opts.thinking)
     let attemptErrorRecorded = false
     if (sink) {
       await recordRaw(sink, redactor, {
