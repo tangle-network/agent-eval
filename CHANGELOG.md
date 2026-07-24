@@ -16,6 +16,7 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 - Candidate rank keys must be non-empty, fixed-length, and finite.
 - A candidate must strictly beat the incumbent on the configured rank key before it can become the next parent or final winner.
+- Method-reported spend above `costCeiling` is rejected before final scoring.
 
 ## [0.126.1] - 2026-07-24 - optimizer lifecycle integrity
 
