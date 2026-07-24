@@ -508,7 +508,7 @@ describe('compareOptimizationMethods', () => {
     expect(seen).toBeDefined()
   })
 
-  it('passes the owning signal to optimization methods', async () => {
+  it('propagates the owning signal to optimization methods', async () => {
     const owner = new AbortController()
     let receivedSignal: AbortSignal | undefined
     await compareOptimizationMethods<S, A>({
@@ -529,7 +529,13 @@ describe('compareOptimizationMethods', () => {
       signal: owner.signal,
       expectUsage: 'off',
     })
-    expect(receivedSignal).toBe(owner.signal)
+    expect(receivedSignal).toBeDefined()
+    expect(receivedSignal).not.toBe(owner.signal)
+
+    owner.abort(new Error('caller cancelled'))
+
+    expect(receivedSignal?.aborted).toBe(true)
+    expect(receivedSignal?.reason).toEqual(new Error('caller cancelled'))
   })
 
   it('isolates scenario values between methods and from caller-owned data', async () => {
@@ -745,6 +751,55 @@ describe('compareOptimizationMethods', () => {
     })
 
     expect(maxActive).toBe(2)
+  })
+
+  it('cancels in-flight optimization methods when a peer fails', async () => {
+    let releasePeerReady!: () => void
+    const peerReady = new Promise<void>((resolve) => {
+      releasePeerReady = resolve
+    })
+    let peerAborted = false
+    const failing: OptimizationMethod<S, A> = {
+      name: 'failing',
+      async optimize() {
+        await peerReady
+        throw new Error('optimizer failed')
+      },
+    }
+    const waiting: OptimizationMethod<S, A> = {
+      name: 'waiting',
+      async optimize(input) {
+        const signal = input.runOptions.signal
+        expect(signal).toBeDefined()
+        releasePeerReady()
+        await new Promise<void>((resolve) => {
+          signal!.addEventListener(
+            'abort',
+            () => {
+              peerAborted = true
+              resolve()
+            },
+            { once: true },
+          )
+        })
+        return { winnerSurface: 'nothing', cost: completeCost(0) }
+      },
+    }
+
+    await expect(
+      compareOptimizationMethods<S, A>({
+        methods: [failing, waiting],
+        baselineSurface: 'nothing',
+        ...PARTITIONS,
+        dispatchWithSurface: async (surface) => ({ text: String(surface) }),
+        judges: [judge],
+        runDir,
+        optimizationConcurrency: 2,
+        expectUsage: 'off',
+      }),
+    ).rejects.toThrow('optimizer failed')
+
+    expect(peerAborted).toBe(true)
   })
 
   it('scores identical selected surfaces once', async () => {

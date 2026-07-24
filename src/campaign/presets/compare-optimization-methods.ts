@@ -304,25 +304,32 @@ export async function compareOptimizationMethods<TScenario extends Scenario, TAr
 
   // Finish every method before the first final-test call. Each method gets
   // independent scenario values so one method cannot mutate another's input.
+  const optimizationOwner = new AbortController()
   const optimized = await mapConcurrent(opts.methods, optimizationConcurrency, async (method) => {
-    const out = await method.optimize(
-      createOptimizationMethodInput(
-        opts,
-        method.name,
-        resolvedRunDir,
-        seed,
-        baselineSurface,
-        costLedger,
-      ),
-    )
-    assertOptimizationResult(method.name, out)
-    const winnerSurface = structuredClone(out.winnerSurface)
-    return {
-      name: method.name,
-      winnerSurface,
-      cost: out.cost,
-      durationMs: out.durationMs,
-      provenance: out.provenance,
+    try {
+      const out = await method.optimize(
+        createOptimizationMethodInput(
+          opts,
+          method.name,
+          resolvedRunDir,
+          seed,
+          baselineSurface,
+          costLedger,
+          optimizationOwner.signal,
+        ),
+      )
+      assertOptimizationResult(method.name, out)
+      const winnerSurface = structuredClone(out.winnerSurface)
+      return {
+        name: method.name,
+        winnerSurface,
+        cost: out.cost,
+        durationMs: out.durationMs,
+        provenance: out.provenance,
+      }
+    } catch (error) {
+      if (!optimizationOwner.signal.aborted) optimizationOwner.abort(error)
+      throw error
     }
   })
   const testCostPhase = finalCostPhase(opts, baselineSurface, optimized, seed)
@@ -806,6 +813,7 @@ function createOptimizationMethodInput<TScenario extends Scenario, TArtifact>(
   seed: number,
   baselineSurface: MutableSurface,
   costLedger: CostLedgerHandle,
+  optimizationSignal: AbortSignal,
 ): OptimizationMethodInput<TScenario, TArtifact> {
   const methodRunDir = `${resolvedRunDir}/optimization/${slug(methodName)}`
   const cloneScenarios = (scenarios: readonly TScenario[]): readonly TScenario[] =>
@@ -818,7 +826,11 @@ function createOptimizationMethodInput<TScenario extends Scenario, TArtifact>(
       ),
     }),
   ) as JudgeConfig<TArtifact, TScenario>[]
-  const signal = combineAbortSignals(opts.signal, opts.optimizationRunOptions?.signal)
+  const signal = combineAbortSignals(
+    opts.signal,
+    opts.optimizationRunOptions?.signal,
+    optimizationSignal,
+  )
   return Object.freeze({
     baselineSurface: structuredClone(baselineSurface),
     trainScenarios: cloneScenarios(opts.trainScenarios),

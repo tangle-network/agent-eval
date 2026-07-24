@@ -53,14 +53,14 @@ Common settings:
 | `GEPA_MAX_PROPOSER_COST_USD` | `5` | GEPA model spend limit for one engine stage |
 | `GEPA_PRICE_IN_PER_M` | required | Exact GEPA input rate per million tokens |
 | `GEPA_PRICE_OUT_PER_M` | required | Exact GEPA output rate per million tokens |
-| `GEPA_MAX_MODEL_COST_USD` | `50` | Shared GEPA model spend limit |
+| `GEPA_MAX_MODEL_COST_USD` | `MAX_RUN_COST_USD` | Shared GEPA model spend limit |
 | `SKILLOPT_MODEL` | `BENCH_MODEL` | Model used by SkillOpt |
 | `SKILLOPT_EPOCHS` | `1` | SkillOpt training epochs |
 | `SKILLOPT_BATCH_SIZE` | `2` | SkillOpt train tasks per step |
 | `SKILLOPT_MAX_EVALUATIONS` | core plan size | Maximum SkillOpt candidate-task calls |
 | `SKILLOPT_PRICE_IN_PER_M` | required | Exact optimizer-model input rate per million tokens |
 | `SKILLOPT_PRICE_OUT_PER_M` | required | Exact optimizer-model output rate per million tokens |
-| `SKILLOPT_MAX_MODEL_COST_USD` | `50` | SkillOpt optimizer-model spend limit |
+| `SKILLOPT_MAX_MODEL_COST_USD` | `MAX_RUN_COST_USD` | SkillOpt optimizer-model spend limit |
 | `TRAIN_N` | `3` | Train tasks per method |
 | `SELECTION_N` | `3` | Tasks used to select one prompt per method |
 | `TEST_N` | `5` | Final comparison tasks |
