@@ -102,7 +102,7 @@ def test_bridge_calls_gepa_and_writes_a_cost_report(
                 "objective": "Return a better candidate.",
                 "seedCandidate": "baseline",
                 "trainSet": [{"id": "train", "data": {"prompt": "visible"}}],
-                "selectionSet": [{"id": "selection", "data": {"prompt": "also-visible"}}],
+                "selectionSet": [],
                 "maxCandidateChars": 100,
                 "maxEvidenceChars": 1_000,
                 "outputDir": str(tmp_path / "external"),
@@ -119,9 +119,18 @@ def test_bridge_calls_gepa_and_writes_a_cost_report(
     def fake_optimize(seed_candidate: str, **kwargs: Any) -> SimpleNamespace:
         calls["seedCandidate"] = seed_candidate
         calls["arguments"] = kwargs
-        score, info = kwargs["evaluator"]("better", kwargs["dataset"][0])
+        score, info = kwargs["evaluator"]("better")
         assert score == 0.75
-        assert info == {"source": "agent-eval"}
+        assert info == {
+            "comparison": "train-set-fallback",
+            "examples": [
+                {
+                    "id": "train",
+                    "score": 0.75,
+                    "info": {"source": "agent-eval"},
+                }
+            ],
+        }
         return SimpleNamespace(
             best_candidate="better",
             best_score=score,
@@ -156,7 +165,7 @@ def test_bridge_calls_gepa_and_writes_a_cost_report(
 
     assert calls["seedCandidate"] == "baseline"
     assert calls["arguments"]["dataset"] == [{"id": "train", "data": {"prompt": "visible"}}]
-    assert calls["arguments"]["valset"] == [{"id": "selection", "data": {"prompt": "also-visible"}}]
+    assert calls["arguments"]["valset"] == []
     config = calls["config"]
     output_dir = config.pop("output_dir")
     state_dir = config.pop("run_dir")
@@ -503,6 +512,18 @@ def test_input_requires_evaluation_identity(tmp_path: Path) -> None:
     del input_value["evaluationId"]
 
     with pytest.raises(ValueError, match="evaluationId"):
+        gepa_bridge._validate_input(input_value)
+
+
+def test_input_allows_train_only_optimization_but_requires_training_data(
+    tmp_path: Path,
+) -> None:
+    input_value = _valid_input(tmp_path)
+    input_value["selectionSet"] = []
+    gepa_bridge._validate_input(input_value)
+
+    input_value["trainSet"] = []
+    with pytest.raises(ValueError, match="non-empty trainSet"):
         gepa_bridge._validate_input(input_value)
 
 

@@ -4,6 +4,12 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ---
 
+## [0.126.4] - 2026-07-24 - train-only GEPA optimization
+
+### Fixed
+
+- Official GEPA optimization accepts an empty selection set, reuses the non-empty training set for candidate comparison, and labels that comparison as a training-set fallback.
+
 ## [0.126.3] - 2026-07-24 - execution-bound optimizer resume
 
 ### Added

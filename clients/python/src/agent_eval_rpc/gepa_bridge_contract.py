@@ -77,8 +77,8 @@ def _validate_input(value: dict[str, Any]) -> None:
         value.get("selectionSet"), list
     ):
         raise ValueError("GEPA bridge input requires trainSet and selectionSet arrays")
-    if not value["trainSet"] or not value["selectionSet"]:
-        raise ValueError("GEPA bridge requires non-empty trainSet and selectionSet")
+    if not value["trainSet"]:
+        raise ValueError("GEPA bridge requires a non-empty trainSet")
     validate_json_size(value["objective"], value["maxEvidenceChars"], "GEPA objective")
     validate_json_size(
         value.get("background", ""),
