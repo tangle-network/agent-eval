@@ -109,6 +109,8 @@ export interface LlmUsage {
   totalTokens: number
   /** False when the provider omitted or malformed prompt/completion usage. */
   captured?: boolean
+  /** Reasoning-token subset of completionTokens, when reported. */
+  reasoningTokens?: number
   /** Proxies populate this when prompt caching is on. */
   cachedPromptTokens?: number
 }
@@ -165,6 +167,7 @@ export function costReceiptFromLlm(
     model: result.model,
     inputTokens: Math.max(0, result.usage.promptTokens - cachedTokens),
     outputTokens: result.usage.completionTokens,
+    reasoningTokens: result.usage.reasoningTokens,
     cachedTokens: cachedTokens > 0 ? cachedTokens : undefined,
     actualCostUsd: result.costUsd ?? configuredCostUsd,
     usageUnknown: result.usage.captured === false,
@@ -705,6 +708,15 @@ export async function callLlm(
       const promptTokens = providerTokenCount(usageRaw?.prompt_tokens)
       const completionTokens = providerTokenCount(usageRaw?.completion_tokens)
       const totalTokens = providerTokenCount(usageRaw?.total_tokens)
+      const completionDetails =
+        usageRaw?.completion_tokens_details &&
+        typeof usageRaw.completion_tokens_details === 'object' &&
+        !Array.isArray(usageRaw.completion_tokens_details)
+          ? (usageRaw.completion_tokens_details as Record<string, unknown>)
+          : undefined
+      const reasoningRaw = completionDetails?.reasoning_tokens
+      const reasoningTokens =
+        reasoningRaw === undefined ? undefined : providerTokenCount(reasoningRaw)
       const cachedRaw =
         usageRaw?.prompt_tokens_details &&
         typeof usageRaw.prompt_tokens_details === 'object' &&
@@ -715,6 +727,8 @@ export async function callLlm(
       const usageCaptured =
         promptTokens !== undefined &&
         completionTokens !== undefined &&
+        (reasoningRaw === undefined ||
+          (reasoningTokens !== undefined && reasoningTokens <= completionTokens)) &&
         (cachedRaw === undefined ||
           (cachedPromptTokens !== undefined && cachedPromptTokens <= promptTokens)) &&
         (totalTokens === undefined || totalTokens === promptTokens + completionTokens)
@@ -738,6 +752,7 @@ export async function callLlm(
           completionTokens: completionTokens ?? 0,
           totalTokens: totalTokens ?? (promptTokens ?? 0) + (completionTokens ?? 0),
           captured: usageCaptured,
+          reasoningTokens,
           cachedPromptTokens,
         },
         costUsd: typeof costFromProxy === 'number' ? costFromProxy : (configuredCost ?? null),

@@ -60,6 +60,27 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 - `runSkillOpt({ holdoutScenarios })` fails closed because those rows are adaptively reused.
   Pass `selectionScenarios`; selection result fields now use `Selection` instead of `Holdout`, and `lift` is now `selectionLift`.
 
+## [0.123.8] — 2026-07-23 — reasoning-token accounting
+
+### Fixed
+
+- Preserve OpenAI-compatible `completion_tokens_details.reasoning_tokens` through `LlmCallResult`, cost receipts, and cost-ledger summaries.
+
+## [0.123.7] — 2026-07-23 — publishable GEPA bridge metadata
+
+### Fixed
+
+- Keep the unreleased GEPA Optimize Anything commit pinned as a source-checkout dependency group and document its explicit installation, instead of embedding a Git URL in the `agent-eval-rpc` wheel metadata that PyPI rejects.
+- Build and inspect Python distributions during pull-request and release verification so a direct-URL runtime dependency cannot split npm and PyPI releases again.
+
+## [0.123.6] — 2026-07-23 — optimization and rollout exports
+
+### Added
+
+- `mintRolloutRows()` joins existing run records and traces into `tangle.rollout.v1` rows; `toSftRows()`, `toRewardRows()`, and `toJsonl()` serialize clean-success and reward-labeled training data while preserving missing-trace and realness-block evidence.
+- `gepaOptimizationMethod()` delegates bounded single-engine and Omni-shaped `optimize_best_of()` then `optimize_anything()` recipes to GEPA through the Python bridge.
+  The caller chooses the train and selection fields sent to GEPA, final comparison cases remain inside `agent-eval`, and proposer spend without agent-eval receipts is reported as incomplete.
+
 ## [0.122.2] — 2026-07-17 — premeasured optimization continuation
 
 ### Added

@@ -218,7 +218,9 @@ def test_bridge_runs_source_pinned_gepa_omni_recipe_without_a_model(
     monkeypatch,
     tmp_path: Path,
 ) -> None:
-    pytest.importorskip("gepa.optimize_anything")
+    optimize_module = pytest.importorskip("gepa.optimize_anything")
+    if not hasattr(optimize_module, "OptimizeAnythingConfig"):
+        pytest.skip("requires the source-pinned GEPA Optimize Anything API")
     input_path = tmp_path / "input.json"
     output_path = tmp_path / "output.json"
     input_path.write_text(

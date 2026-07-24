@@ -4,7 +4,7 @@ requires-python = ">=3.10"
 
 [[package]]
 name = "agent-eval-rpc"
-version = "0.123.5"
+version = "0.123.8"
 source = { editable = "." }
 dependencies = [
     { name = "httpx" },
@@ -17,20 +17,24 @@ dev = [
     { name = "pytest-asyncio" },
     { name = "ruff" },
 ]
-gepa = [
+
+[package.dev-dependencies]
+gepa-source = [
     { name = "gepa" },
 ]
 
 [package.metadata]
 requires-dist = [
-    { name = "gepa", marker = "extra == 'gepa'", git = "https://github.com/gepa-ai/gepa.git?rev=f919db0a622e2e9f9204779b81fe00cc1b2d808f" },
     { name = "httpx", specifier = ">=0.27" },
     { name = "pydantic", specifier = ">=2.6" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0" },
     { name = "pytest-asyncio", marker = "extra == 'dev'", specifier = ">=0.23" },
     { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.6" },
 ]
-provides-extras = ["gepa", "dev"]
+provides-extras = ["dev"]
+
+[package.metadata.requires-dev]
+gepa-source = [{ name = "gepa", git = "https://github.com/gepa-ai/gepa.git?rev=f919db0a622e2e9f9204779b81fe00cc1b2d808f" }]
 
 [[package]]
 name = "annotated-types"

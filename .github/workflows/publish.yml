@@ -73,6 +73,14 @@ jobs:
         working-directory: clients/python
         run: pytest -v
 
+      - name: Verify publishable Python distributions
+        working-directory: clients/python
+        run: |
+          pip install build twine
+          python -m build
+          twine check dist/*
+          python scripts/verify_publishable_dist.py dist
+
       - name: Upload OpenAPI artifact
         uses: actions/upload-artifact@v4
         with:
