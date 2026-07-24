@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import {
   compareOptimizationMethods,
   type JudgeConfig,
+  type MutableSurface,
   type Scenario,
   skillOptOptimizationMethod,
 } from '../../src/campaign'
@@ -34,6 +35,28 @@ const OPTIMIZER_BUDGET = {
   },
 }
 
+const SKILLOPT_RUNTIME_IDENTITY = {
+  python: {
+    implementation: 'CPython',
+    version: '3.12.0',
+  },
+  bridge: {
+    package: 'agent-eval-rpc',
+    version: 'test-bridge',
+    sourceUrl: 'https://github.com/tangle-network/agent-eval',
+    revision: 'test-bridge-revision',
+    sourceSha256: 'a'.repeat(64),
+  },
+  optimizer: {
+    package: 'skillopt',
+    version: '0.2.0',
+    sourceUrl: 'https://github.com/microsoft/SkillOpt',
+    revision: 'test-skillopt-revision',
+    sourceSha256: 'c'.repeat(64),
+  },
+  engineModules: [],
+} as const
+
 beforeEach(() => {
   runDir = mkdtempSync(join(tmpdir(), 'skillopt-method-'))
 })
@@ -56,7 +79,7 @@ describe('skillOptOptimizationMethod', () => {
     expect(() =>
       skillOptOptimizationMethod({
         objective: 'Improve the skill.',
-        evaluationVersion: 'test-v1',
+        evaluationId: 'test',
         trainer: {
           epochs: 1,
           batchSize: 1,
@@ -72,7 +95,7 @@ describe('skillOptOptimizationMethod', () => {
     expect(() =>
       skillOptOptimizationMethod({
         objective: 'Improve the skill.',
-        evaluationVersion: 'test-v1',
+        evaluationId: 'test',
         trainer: {
           epochs: 1,
           batchSize: 1,
@@ -88,7 +111,7 @@ describe('skillOptOptimizationMethod', () => {
     expect(() =>
       skillOptOptimizationMethod({
         objective: 'Improve the skill.',
-        evaluationVersion: 'test-v1',
+        evaluationId: 'test',
         trainer: {
           epochs: 1,
           batchSize: 1,
@@ -107,7 +130,7 @@ describe('skillOptOptimizationMethod', () => {
     expect(() =>
       skillOptOptimizationMethod({
         objective: 'Improve the skill.',
-        evaluationVersion: 'test-v1',
+        evaluationId: 'test',
         trainer: {
           epochs: 1,
           batchSize: 1,
@@ -121,7 +144,7 @@ describe('skillOptOptimizationMethod', () => {
     expect(() =>
       skillOptOptimizationMethod({
         objective: 'Improve the skill.',
-        evaluationVersion: 'test-v1',
+        evaluationId: 'test',
         trainer: {
           epochs: 1,
           batchSize: 1,
@@ -139,7 +162,7 @@ describe('skillOptOptimizationMethod', () => {
     const upstreamBaseUrl = await startModelServer()
     const method = skillOptOptimizationMethod<TestScenario, TestArtifact>({
       objective: 'Improve the skill.',
-      evaluationVersion: 'test-v1',
+      evaluationId: 'test',
       trainer: {
         epochs: 1,
         batchSize: 1,
@@ -179,9 +202,8 @@ describe('skillOptOptimizationMethod', () => {
 
     const observed = JSON.parse(readFileSync(observedInputPath, 'utf8')) as Record<string, unknown>
     expect(observed).toMatchObject({
-      version: 2,
       resume: 'never',
-      evaluationVersion: 'test-v1',
+      evaluationId: 'test',
       seed: 13,
       optimizerModel: 'model',
       trainSet: [{ id: 'train', data: { prompt: 'visible train' } }],
@@ -200,8 +222,31 @@ describe('skillOptOptimizationMethod', () => {
       incompleteReasons: [],
     })
     expect(result.scores[0]!.provenance).toMatchObject({
-      source: { kind: 'package', package: 'skillopt', version: '0.2.0' },
-      runId: 'test-run',
+      source: {
+        kind: 'package',
+        evidence: 'observed',
+        package: 'skillopt',
+        version: '0.2.0',
+        sourceUrl: 'https://github.com/microsoft/SkillOpt',
+        revision: 'test-skillopt-revision',
+        sourceSha256: 'c'.repeat(64),
+      },
+      bridge: {
+        kind: 'package',
+        evidence: 'observed',
+        package: 'agent-eval-rpc',
+        version: 'test-bridge',
+        sourceUrl: 'https://github.com/tangle-network/agent-eval',
+        revision: 'test-bridge-revision',
+        sourceSha256: 'a'.repeat(64),
+      },
+      modules: [],
+      python: {
+        implementation: 'CPython',
+        version: '3.12.0',
+      },
+      compatibleRunId: expect.stringMatching(/^[0-9a-f]{64}$/),
+      runId: expect.stringMatching(/^[0-9a-f]{64}-[0-9a-f]{32}$/),
       resumed: false,
       evaluationCount: 1,
       tokenUsage: {
@@ -211,6 +256,47 @@ describe('skillOptOptimizationMethod', () => {
         calls: 1,
       },
     })
+    expect(result.scores[0]!.provenance?.runId).toMatch(
+      new RegExp(`^${result.scores[0]!.provenance?.compatibleRunId}-[0-9a-f]{32}$`),
+    )
+  })
+
+  it('keeps evaluation and optimizer-model budgets cumulative across resumes', async () => {
+    const upstreamBaseUrl = await startModelServer()
+    const resumeMarker = join(runDir, 'fake-skillopt-resume')
+    const method = skillOptOptimizationMethod<TestScenario, TestArtifact>({
+      objective: 'Improve the skill.',
+      evaluationId: 'resume-budget',
+      trainer: { epochs: 1, batchSize: 1 },
+      optimizer: optimizerModel(upstreamBaseUrl),
+      maxEvaluations: 2,
+      resume: 'if-compatible',
+      runner: fakeSkillOptRunner(join(runDir, 'observed.json'), resumeMarker),
+    })
+
+    const first = await compareOptimizationMethods(skillOptComparisonOptions(method))
+    const second = await compareOptimizationMethods(skillOptComparisonOptions(method))
+
+    expect(first.scores[0]!.provenance).toMatchObject({
+      resumed: false,
+      evaluationCount: 1,
+      tokenUsage: { inputTokens: 10, outputTokens: 5, totalTokens: 15, calls: 1 },
+    })
+    expect(second.scores[0]!.optimizationCost).toEqual({
+      totalCostUsd: 0.00004,
+      accountingComplete: true,
+      incompleteReasons: [],
+    })
+    expect(second.scores[0]!.provenance).toMatchObject({
+      resumed: true,
+      evaluationCount: 2,
+      tokenUsage: { inputTokens: 20, outputTokens: 10, totalTokens: 30, calls: 2 },
+    })
+    expect(first.scores[0]!.provenance?.runId).toBe(first.scores[0]!.provenance?.compatibleRunId)
+    expect(second.scores[0]!.provenance?.runId).toBe(first.scores[0]!.provenance?.compatibleRunId)
+    await expect(compareOptimizationMethods(skillOptComparisonOptions(method))).rejects.toThrow(
+      'model failed: 429',
+    )
   })
 })
 
@@ -223,17 +309,28 @@ const betterJudge: JudgeConfig<TestArtifact, TestScenario> = {
   },
 }
 
-function fakeSkillOptRunner(observedInputPath: string) {
+function fakeSkillOptRunner(observedInputPath: string, resumeMarker?: string) {
   const source = [
     "const fs = require('node:fs')",
     "const inputPath = process.argv[process.argv.indexOf('--input') + 1]",
     "const outputPath = process.argv[process.argv.indexOf('--output') + 1]",
     'const input = JSON.parse(fs.readFileSync(inputPath, "utf8"))',
-    `fs.writeFileSync(${JSON.stringify(observedInputPath)}, JSON.stringify(input))`,
+    `const runtime = ${JSON.stringify(SKILLOPT_RUNTIME_IDENTITY)}`,
     'if (process.env.OPENAI_API_KEY) throw new Error("upstream secret reached child")',
     'if (process.env.AWS_SECRET_ACCESS_KEY) throw new Error("AWS secret reached child")',
     'if (process.env.CUSTOM_AUTH_TOKEN) throw new Error("custom token reached child")',
     'if (process.env.OPENAI_COMPATIBLE_API_KEY === "provider-secret") throw new Error("proxy secret was not isolated")',
+    'if (input.operation === "inspect") {',
+    '  fs.writeFileSync(outputPath, JSON.stringify({ runtime }))',
+    '  process.exit(0)',
+    '}',
+    `fs.writeFileSync(${JSON.stringify(observedInputPath)}, JSON.stringify(input))`,
+    ...(resumeMarker
+      ? [
+          `const resumed = fs.existsSync(${JSON.stringify(resumeMarker)})`,
+          `fs.writeFileSync(${JSON.stringify(resumeMarker)}, "seen")`,
+        ]
+      : ['const resumed = false']),
     ';(async () => {',
     '  const completionResponse = await fetch(process.env.OPENAI_COMPATIBLE_BASE_URL + "/chat/completions", {',
     '    method: "POST",',
@@ -255,9 +352,9 @@ function fakeSkillOptRunner(observedInputPath: string) {
     '    totalEvaluations: 1,',
     '    totalSteps: 1,',
     '    tokenUsage: { inputTokens: completion.usage.prompt_tokens, outputTokens: completion.usage.completion_tokens, totalTokens: completion.usage.total_tokens, calls: 1 },',
-    '    upstream: { package: "skillopt", version: "0.2.0" },',
-    '    runId: "test-run",',
-    '    resumed: false,',
+    '    upstream: runtime.optimizer,',
+    '    runId: input.runId,',
+    '    resumed,',
     '  }))',
     '})().catch((error) => { console.error(error); process.exit(1) })',
   ].join('\n')
@@ -269,6 +366,29 @@ function fakeSkillOptRunner(observedInputPath: string) {
       AWS_SECRET_ACCESS_KEY: 'aws-secret',
       CUSTOM_AUTH_TOKEN: 'custom-secret',
     },
+  }
+}
+
+function skillOptComparisonOptions(
+  method: ReturnType<typeof skillOptOptimizationMethod<TestScenario, TestArtifact>>,
+) {
+  return {
+    methods: [method],
+    baselineSurface: 'baseline',
+    trainScenarios: [{ id: 'train', kind: 'qa', prompt: 'visible train', privateNote: '' }],
+    selectionScenarios: [
+      { id: 'selection', kind: 'qa', prompt: 'visible selection', privateNote: '' },
+    ],
+    testScenarios: [
+      { id: 'final', kind: 'qa', prompt: 'final', privateNote: '' },
+      { id: 'final-2', kind: 'qa', prompt: 'final 2', privateNote: '' },
+    ],
+    dispatchWithSurface: async (surface: MutableSurface) => ({ text: String(surface) }),
+    judges: [betterJudge],
+    runDir,
+    seed: 13,
+    resamples: 40,
+    expectUsage: 'off' as const,
   }
 }
 

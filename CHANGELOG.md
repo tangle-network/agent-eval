@@ -6,49 +6,51 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ## [Unreleased]
 
+## [0.126.0] - 2026-07-24 - official optimizer engines
+
+### Added
+
+- `skillOptOptimizationMethod()` delegates skill optimization to Microsoft's official `ReflACTTrainer`.
+- `gepaOptimizationMethod()` delegates sequential, adaptive, best-of, vote, and Omni recipes to the official GEPA package.
+- `engineModules` lets callers register custom engines through GEPA's public engine registry.
+- `DspyJudgeMetric` exposes an `agent-eval-rpc` judge as a native DSPy metric.
+- `externalTextOptimizationMethod()` adapts another optimizer to the same text or component-surface contract without adding a named local algorithm.
+- Optimizer runs record optimizer and bridge package identity, source commits and source-tree hashes, Python runtime, custom engine module hashes, recipe, configuration, evaluation count, tokens, cost, and resume compatibility.
+
 ### Changed
 
-- `selfImprove({ budget: { candidateConcurrency } })` exposes the existing `runOptimization()` control for scoring candidate campaigns in parallel; it remains opt-in and defaults to one candidate campaign at a time.
-- `llmPolicyEditProposer()` and `projectPolicyEditHistory()` accept `scenarioOrder: 'input'` when controlled comparisons must preserve first-occurrence caller order; ranked evidence selection remains the default.
-- `callLlmJson()` accepts `jsonPayloadMode: 'exact'` when callers must reject fenced, prose-wrapped, or multi-root responses instead of extracting a JSON value.
-- `llmPolicyEditProposer({ redactCurrentSurfaceForModel })` can remove credentials and unrelated fields from the current surface sent to the model while applying validated edits to the complete original surface.
-- `CostLedger.listPending()` exposes immutable pending paid calls and distinguishes calls that are active, late after cancellation, or interrupted by a prior process so durable workflows can reconcile exact reservations before resuming.
-- `traceAnalystProposer()` accepts an opt-in `resolvePriorFindings` callback that forwards canonical prior findings into the existing analyst registry.
-- Trace-analysis actors are instructed to emit one executable JavaScript program per turn, report named turn-limit exhaustion, and preserve per-analyst failure details when a proposer produces no findings.
-- Keep one live tip per lineage track when another track branches or merges from it, and compare those track tips when building the frontier.
-- Pass track identity, operation, vision, ancestry, and proposer choice to candidate generation so independent tracks can pursue distinct strategies.
-- Route named tracks to caller-supplied proposers, with the default proposer as fallback, and make heuristic branches inherit their parent track's proposer.
+- `selfImprove()` requires an explicit `OptimizationMethod` or caller-owned `SurfaceProposer`.
+- `selfImprove({ budget: { candidateConcurrency } })` can score independent candidate campaigns concurrently.
+- `callLlmJson()` accepts `jsonPayloadMode: 'exact'` to reject fenced, prose-wrapped, or multi-root responses.
+- `CostLedger.listPending()` distinguishes active, late, and interrupted paid calls so durable runs can reconcile reservations before resuming.
+- GEPA and SkillOpt share one OpenAI-compatible optimizer model configuration with request, output, response-size, timeout, and dollar limits.
+- Model credentials remain in the Node process.
+  Official Python libraries receive only a temporary loopback endpoint and credential.
+- `compareOptimizationMethods()` owns pairwise-disjoint train, selection, and final test sets.
+  Methods never receive final test rows, and final test scoring starts only after every method completes.
+- Independent methods and candidate campaigns can run concurrently under the same exact cost accounting.
+- Resume files use atomic writes, exclusive run locks, and one content-derived identity shared by Node and Python.
+- The Python package installs GEPA and SkillOpt from exact official source commits for compatibility testing.
+  DSPy remains a separate optional environment because DSPy 3.2.1 currently requires an older GEPA release.
 
 ### Fixed
 
-- `llmPolicyEditProposer()` asks the model only for semantic edit choices, deterministically binds caller-owned policy fields, and requires one exact whole-response JSON value before admission.
-- `compareOptimizationMethods()` owns three non-empty, pairwise-disjoint scenario sets.
-  Methods receive independent copies of train and selection data, every method finishes before final test scoring starts, and final test data is absent from `OptimizationMethodInput`.
-  Built-in GEPA, SkillOpt, and FAPO methods read the shared baseline, runner, judges, directories, and execution settings from the comparison call instead of duplicating them in each method config.
-  Final test scoring uses one shared spend limit.
-  Reused cost ledgers isolate comparison receipts from unrelated calls, and final test scenarios are copied for each measured surface.
-  Results report optimization, test, and total cost with accounting completeness and reasons for unknown charges.
-  Per-method results include the paired scenario values used to compute lift.
-  Cost orders a tied-lift group only when every method in that group has complete accounting.
-  Bootstrap intervals adjust across all method contrasts, and the default resample count increases when needed to represent the adjusted tails.
-  `optimizationConcurrency` can run independent methods in parallel.
-- `runSkillOpt()` validates every numeric control before scoring, enforces `patchesPerEpoch` for custom proposers, and no longer mutates the caller's `runDir`.
-- Include the complete required response shape in `llmPolicyEditProposer` model instructions, and add `LlmClientOptions.jsonSchemaTransport: 'json-object'` for providers that do not implement native JSON Schema enforcement.
-- `compositeProposer` restores each member's original labels when replaying history, so stateful members do not repeat candidates whose labels were decorated for provenance.
-- `InsightReport.interRater.kappa` now reports quadratic weighted kappa instead of Pearson correlation.
-  Read `interRater.pearson` for the previous correlation measure; `icc` and `spearman` are now reported separately.
-- Compute contextual-bandit doubly robust estimates with separate logged-action and target-policy value terms, expose how many rows use DR versus IPS or the deprecated scalar path, and carry both values through belief-state records.
+- Reserve worst-case optimizer spend before each provider call and settle it from provider-reported cost or complete token usage.
+- Preserve cached input, cache creation, reasoning, and output token classes without double counting.
+- Price cache-read tokens at the configured cache rate when providers omit billed cost.
+- Reject incomplete usage, conflicting token details, hidden provider endpoints, hidden credentials, unsupported streaming, oversized input or output, and process descendants that outlive any bridge exit.
+- Keep optimizer, evaluation, and final test costs separate when a shared cost ledger contains unrelated receipts.
+- `LlmClientOptions.jsonSchemaTransport: 'json-object'` supports providers that do not implement native JSON Schema enforcement.
+- `InsightReport.interRater.kappa` reports quadratic weighted kappa.
+  `interRater.pearson` preserves the previous correlation measure, with ICC and Spearman reported separately.
+- Contextual-bandit doubly robust estimates keep logged-action and target-policy value terms separate and report which rows use DR, IPS, or the deprecated scalar path.
 
 ### Breaking
 
-- `compareProposers()` is replaced by `compareOptimizationMethods()`.
-  Rename `proposers` to `methods`, `ProposerEntry` to `OptimizationMethod`, and the built-in `*Entry` factories to `*Method`.
-  Pass `trainScenarios`, `selectionScenarios`, and `testScenarios`; the ambiguous `holdoutScenarios` option is rejected.
-  `OptimizerEntryConfig` is replaced by `BuiltinOptimizationMethodConfig`, which contains method-specific settings only.
-  Move shared method execution settings to `optimizationRunOptions` on the comparison call.
-  Read `optimizationCost`, `testCost`, and `totalCost`; each includes `totalCostUsd`, `accountingComplete`, and `incompleteReasons`.
-- `runSkillOpt({ holdoutScenarios })` fails closed because those rows are adaptively reused.
-  Pass `selectionScenarios`; selection result fields now use `Selection` instead of `Holdout`, and `lift` is now `selectionLift`.
+- Remove the local GEPA, SkillOpt, ACE, FAPO, HALO, policy-edit, memory-curation, trace-analyst, evolutionary, and composite proposer implementations.
+  Use the official GEPA or SkillOpt method, `externalTextOptimizationMethod()`, or pass a caller-owned `SurfaceProposer`.
+- Remove `runSkillOpt()`, built-in optimization method factories, lineage loops, skill-patch parsing, analyst policy editing, and the experimental distillation workflow.
+- Remove stale examples and generated comparison results tied to the deleted local implementations.
 
 ## [0.125.0] — 2026-07-24 — Claude Code supervision reader and path-bound policy edits
 

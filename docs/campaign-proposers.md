@@ -11,6 +11,97 @@ Use it for caller-defined logic, an agent-runtime worker, or declared parameter 
 Do not wrap a complete external optimizer in `SurfaceProposer`.
 That would split its search state from its own selection behavior and make budgets harder to compare.
 
+## Adapt A Third-Party Text Optimizer
+
+`externalTextOptimizationMethod()` is the general adapter for a package that already owns text or component search.
+The starting candidate is a string for a text surface or a `Record<string, string>` for named components.
+The returned candidate must keep the same form.
+
+The `run` callback receives only `trainSet` and `selectionSet`.
+It does not receive final test cases.
+Pass `context.evaluate` to the optimizer so every candidate is executed and scored by the configured Agent Eval path.
+Unknown case IDs and calls beyond `maxEvaluations` are rejected.
+
+Optimizer-owned model or service calls must use `context.cost.runPaidCall()`.
+The example below assumes the upstream package enforces `maxCostUsd` for the complete run and returns aggregate usage.
+If the package exposes a model callback instead, wrap each model call separately with the same cost ledger and phase.
+
+```ts
+import { externalTextOptimizationMethod } from '@tangle-network/agent-eval/campaign'
+import { optimize } from 'your-text-optimizer'
+
+interface SupportCase {
+  id: string
+  kind: 'support'
+  question: string
+}
+
+interface SupportArtifact {
+  answer: string
+}
+
+const method = externalTextOptimizationMethod<SupportCase, SupportArtifact>({
+  name: 'your-text-optimizer',
+  source: {
+    kind: 'package',
+    package: 'your-text-optimizer',
+    version: '2.3.1',
+    sourceUrl: 'https://github.com/your-org/your-text-optimizer',
+    revision: '4f17c2a',
+  },
+  objective: 'Improve answer accuracy and citation quality.',
+  evaluationId: 'support-quality',
+  maxEvaluations: 60,
+  maxOptimizerCostUsd: 2,
+  resume: 'if-compatible',
+  describeScenario: (scenario) => ({ question: scenario.question }),
+  describeArtifact: (artifact) => ({ answer: artifact.answer }),
+  run: async (context) => {
+    const paid = await context.cost.runPaidCall({
+      actor: context.name,
+      model: 'your-text-optimizer',
+      maximumCharge: { externallyEnforcedMaximumUsd: 2 },
+      execute: (signal) =>
+        optimize({
+          initialCandidate: context.seedCandidate,
+          train: context.trainSet,
+          selection: context.selectionSet,
+          evaluate: context.evaluate,
+          maxEvaluations: context.maxEvaluations,
+          maxCostUsd: 2,
+          seed: context.seed,
+          stateDir: context.stateDir,
+          resume: context.restoreRequested,
+          artifactDir: context.artifactDir,
+          signal,
+        }),
+      receipt: (result) => ({
+        model: 'your-text-optimizer',
+        inputTokens: result.usage.inputTokens,
+        outputTokens: result.usage.outputTokens,
+        actualCostUsd: result.usage.costUsd,
+      }),
+    })
+    if (!paid.succeeded) throw paid.error
+    if (context.restoreRequested && !paid.value.resumed) {
+      throw new Error('The optimizer could not restore the requested compatible state.')
+    }
+    return {
+      bestCandidate: paid.value.bestCandidate,
+      resumed: context.restoreRequested,
+      costAccounting: { kind: 'metered' },
+    }
+  },
+})
+```
+
+Replace the import and field names with the upstream package API.
+`source` records caller-declared package identity.
+`evaluationId` identifies the execution and scoring behavior; use a commit, content hash, or another stable identifier and change it whenever that behavior changes.
+Agent Eval derives the run ID from the complete compatible input instead of requiring a private schema number.
+The callback writes checkpoints under `stateDir`, restores them only when `restoreRequested` is true, and reports whether restoration occurred.
+Agent Eval adds the run ID, evaluation count, artifact directory, source identity, and optimizer token usage to the method result.
+
 ## Compare Complete Methods
 
 `compareOptimizationMethods()` gives every method the same:
@@ -53,7 +144,7 @@ const optimizer = {
 const gepa = gepaOptimizationMethod<MyCase, MyArtifact>({
   name: 'gepa',
   objective: 'Improve the instructions so the agent emits valid JSON.',
-  evaluationVersion: 'json-agent-v1',
+  evaluationId: 'json-agent',
   recipe: {
     kind: 'engine',
     run: {
@@ -70,7 +161,7 @@ const gepa = gepaOptimizationMethod<MyCase, MyArtifact>({
 const skillopt = skillOptOptimizationMethod<MyCase, MyArtifact>({
   name: 'skillopt',
   objective: 'Improve the instructions so the agent emits valid JSON.',
-  evaluationVersion: 'json-agent-v1',
+  evaluationId: 'json-agent',
   trainer: {
     epochs: 2,
     batchSize: 4,
@@ -100,7 +191,7 @@ const comparison = await compareOptimizationMethods({
 ```
 
 `comparison.scores` contains the final-case baseline score, selected score, lift, simultaneous interval, cost status, duration, and selected surface for each method.
-Official method scores also contain package version, source revision, run ID, resume status, evaluation count, artifact directory, and available optimizer token usage.
+Official method scores contain optimizer and bridge package versions, source revisions and source-tree hashes, Python runtime, custom engine module hashes, compatible run ID, exact attempt ID, resume status, evaluation count, artifact directory, and available optimizer token usage.
 `comparison.pairwise` compares the highest-ranked method with every other method.
 Ranking follows estimated lift, so inspect intervals before claiming a difference.
 
@@ -164,7 +255,7 @@ Give Agent Eval the model, exact endpoint rates, and provider connection separat
 ```ts
 const method = gepaOptimizationMethod({
   objective: 'Improve the complete system prompt.',
-  evaluationVersion: 'support-agent-v2',
+  evaluationId: 'support-agent',
   recipe: {
     kind: 'engine',
     run: {
@@ -291,15 +382,17 @@ Composed GEPA recipes restart and never report that official state was restored.
 
 A match includes:
 
-- upstream package version and source revision,
+- optimizer and bridge package versions, revisions, and source-tree hashes,
+- Python runtime and custom engine module hashes,
 - recipe or trainer settings,
 - starting surface,
 - train and selection descriptions,
-- evaluation revision,
+- evaluation ID for execution and scoring behavior,
 - seed,
 - limits that affect the run.
 
-Change `evaluationVersion` whenever dispatch behavior, judges, model settings, or scoring logic changes.
+Use a commit, content hash, or another stable value for `evaluationId`.
+Change it whenever dispatch behavior, judges, model settings, or scoring logic changes.
 Concurrent processes cannot write the same compatible run at the same time.
 
 ## Write A Custom Candidate Generator

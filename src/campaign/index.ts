@@ -73,6 +73,14 @@ export type {
   CrossSurfaceSelections,
   CrossSurfaceTaskRow,
 } from './cross-surface-types'
+export {
+  type ExternalOptimizationExample,
+  type ExternalTextEvaluationResponse,
+  type ExternalTextOptimizationMethodConfig,
+  type ExternalTextOptimizerContext,
+  type ExternalTextOptimizerResult,
+  externalTextOptimizationMethod,
+} from './external-text-optimization'
 // ── Fixture UX / dry-run planning ────────────────────────────────────
 export {
   discoverEvalFixtures,
@@ -182,6 +190,7 @@ export {
   type OptimizationMethodScore,
   type OptimizationPackageSource,
   type OptimizationTokenUsage,
+  optimizationTokenUsageFromSummary,
 } from './presets/compare-optimization-methods'
 export {
   makePlaybackDispatch,

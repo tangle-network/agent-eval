@@ -7,7 +7,7 @@
 
 import { randomUUID } from 'node:crypto'
 import { mapConcurrent } from '../../concurrency'
-import type { CostLedgerHandle, CostLedgerSummary } from '../../cost-ledger'
+import type { CostLedgerHandle, CostLedgerSummary, CostReceipt } from '../../cost-ledger'
 import { pairedBootstrap } from '../../statistics'
 import { assertCampaignDesign } from '../coverage'
 import { type RunCampaignOptions, runCampaign } from '../run-campaign'
@@ -38,22 +38,52 @@ export interface ComparisonCost {
 
 export interface OptimizationPackageSource {
   kind: 'package'
+  /** Whether package identity was inspected or supplied by caller code. */
+  evidence: 'observed' | 'declared'
   package: string
   version: string
   sourceUrl?: string
   revision?: string
+  /** SHA-256 of the installed Python source tree observed before the run. */
+  sourceSha256?: string
+}
+
+export interface OptimizationModuleSource {
+  module: string
+  sourceSha256: string
+}
+
+export interface OptimizationPythonRuntime {
+  implementation: string
+  version: string
 }
 
 export interface OptimizationTokenUsage {
+  /** All input tokens, including cache reads and cache creation. */
   inputTokens: number
+  /** Input tokens served from a provider cache. */
+  cachedInputTokens?: number
+  /** Input tokens used to create or write a provider cache entry. */
+  cacheWriteInputTokens?: number
   outputTokens: number
+  /** Reasoning tokens included in `outputTokens`. */
+  reasoningTokens?: number
   totalTokens: number
   calls: number
 }
 
 export interface OptimizationMethodProvenance {
+  /** External optimizer package. */
   source: OptimizationPackageSource
+  /** Python bridge package that invoked the optimizer. */
+  bridge?: OptimizationPackageSource
+  /** Custom engine modules imported by the optimizer. */
+  modules?: OptimizationModuleSource[]
+  /** Python implementation used by the bridge process. */
+  python?: OptimizationPythonRuntime
   runId: string
+  /** Content identity shared by compatible resumptions. */
+  compatibleRunId?: string
   resumed: boolean
   evaluationCount: number
   artifactDir: string
@@ -465,6 +495,7 @@ function assertOptimizationProvenance(
   if (
     !value.source ||
     value.source.kind !== 'package' ||
+    !['observed', 'declared'].includes(value.source.evidence) ||
     typeof value.source.package !== 'string' ||
     !value.source.package.trim() ||
     typeof value.source.version !== 'string' ||
@@ -489,6 +520,28 @@ function assertOptimizationProvenance(
       if (!Number.isSafeInteger(value.tokenUsage[field]) || value.tokenUsage[field] < 0) {
         fail(`tokenUsage.${field}`)
       }
+    }
+    for (const field of [
+      'cachedInputTokens',
+      'cacheWriteInputTokens',
+      'reasoningTokens',
+    ] as const) {
+      const entry = value.tokenUsage[field]
+      if (entry !== undefined && (!Number.isSafeInteger(entry) || entry < 0)) {
+        fail(`tokenUsage.${field}`)
+      }
+    }
+    if (
+      (value.tokenUsage.cachedInputTokens ?? 0) + (value.tokenUsage.cacheWriteInputTokens ?? 0) >
+      value.tokenUsage.inputTokens
+    ) {
+      fail('tokenUsage.inputTokens')
+    }
+    if (
+      value.tokenUsage.reasoningTokens !== undefined &&
+      value.tokenUsage.reasoningTokens > value.tokenUsage.outputTokens
+    ) {
+      fail('tokenUsage.reasoningTokens')
     }
     if (
       value.tokenUsage.totalTokens !==
@@ -756,6 +809,35 @@ export function costFromLedgerSummary(summary: CostLedgerSummary): ComparisonCos
   }
   assertComparisonCost(cost, 'cost ledger')
   return cost
+}
+
+/** Preserve every optimizer token class while keeping total input and output explicit. */
+export function optimizationTokenUsageFromSummary(
+  summary: CostLedgerSummary,
+  receipts: readonly CostReceipt[],
+): OptimizationTokenUsage | undefined {
+  if (!summary.usageComplete) return undefined
+  if (receipts.length !== summary.totalCalls) {
+    throw new Error('optimization token usage receipt count does not match the cost summary')
+  }
+  const cachedInputTokens = summary.cachedTokens
+  const cacheWriteInputTokens = summary.cacheWriteTokens ?? 0
+  const inputTokens = summary.inputTokens + cachedInputTokens + cacheWriteInputTokens
+  const cacheReadComplete =
+    receipts.length === 0 || receipts.every((receipt) => receipt.cachedTokens !== undefined)
+  const cacheWriteComplete =
+    receipts.length === 0 || receipts.every((receipt) => receipt.cacheWriteTokens !== undefined)
+  const reasoningComplete =
+    receipts.length === 0 || receipts.every((receipt) => receipt.reasoningTokens !== undefined)
+  return {
+    inputTokens,
+    ...(cacheReadComplete ? { cachedInputTokens } : {}),
+    ...(cacheWriteComplete ? { cacheWriteInputTokens } : {}),
+    outputTokens: summary.outputTokens,
+    ...(reasoningComplete ? { reasoningTokens: summary.reasoningTokens ?? 0 } : {}),
+    totalTokens: inputTokens + summary.outputTokens,
+    calls: summary.totalCalls,
+  }
 }
 
 function combineCosts(entries: Array<{ label: string; cost: ComparisonCost }>): ComparisonCost {

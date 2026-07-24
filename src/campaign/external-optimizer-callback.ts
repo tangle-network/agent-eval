@@ -12,21 +12,70 @@ const MAX_CALLBACK_BODY_BYTES = 1_000_000
 export async function startExternalOptimizerCallback<TResponse>(args: {
   token: string
   maxEvaluations: number
+  acceptEvaluation?: () => number | undefined
   evaluate: (request: ExternalTextEvaluationRequest) => Promise<TResponse>
 }): Promise<ExternalOptimizerCallback> {
+  assertCallbackConfig(args)
   let evaluations = 0
+  let accepting = true
+  let closePromise: Promise<void> | undefined
+  const activeControllers = new Set<AbortController>()
+  const activeHandlers = new Set<Promise<void>>()
   const server = createServer((request, response) => {
-    void handleCallback(request, response, args, () => {
+    if (!accepting) {
+      sendJsonIfOpen(response, 503, { error: 'external optimizer callback is closing' })
+      return
+    }
+
+    const controller = new AbortController()
+    const abortRequest = (): void => {
+      request.destroy()
+    }
+    activeControllers.add(controller)
+    controller.signal.addEventListener('abort', abortRequest, { once: true })
+
+    let handler!: Promise<void>
+    handler = handleCallback(request, response, args, () => {
+      const accepted = args.acceptEvaluation ? args.acceptEvaluation() : evaluations + 1
+      if (accepted === undefined) return undefined
+      if (!Number.isSafeInteger(accepted) || accepted <= 0) {
+        throw new Error('external optimizer callback: invalid accepted evaluation count')
+      }
+      if (accepted > args.maxEvaluations) return undefined
       evaluations += 1
-      return evaluations
+      return accepted
+    }).finally(() => {
+      controller.signal.removeEventListener('abort', abortRequest)
+      activeControllers.delete(controller)
+      activeHandlers.delete(handler)
     })
+    activeHandlers.add(handler)
+    void handler.catch(() => undefined)
   })
   const port = await listenLocal(server)
   return {
     url: `http://127.0.0.1:${port}/evaluate`,
     token: args.token,
-    evaluations: () => Math.min(evaluations, args.maxEvaluations),
-    close: () => closeServer(server),
+    evaluations: () => evaluations,
+    close: () => {
+      closePromise ??= closeCallbackServer()
+      return closePromise
+    },
+  }
+
+  async function closeCallbackServer(): Promise<void> {
+    accepting = false
+    const closingServer = closeServer(server)
+    server.closeIdleConnections?.()
+    for (const controller of activeControllers) controller.abort()
+    const [serverResult] = await Promise.allSettled([
+      closingServer,
+      waitForActiveHandlers(activeHandlers),
+    ])
+    if (activeControllers.size !== 0 || activeHandlers.size !== 0) {
+      throw new Error('external optimizer callback closed with active request work')
+    }
+    if (serverResult?.status === 'rejected') throw serverResult.reason
   }
 }
 
@@ -36,17 +85,18 @@ async function handleCallback<TResponse>(
   args: {
     token: string
     maxEvaluations: number
+    acceptEvaluation?: () => number | undefined
     evaluate: (request: ExternalTextEvaluationRequest) => Promise<TResponse>
   },
-  nextEvaluation: () => number,
+  nextEvaluation: () => number | undefined,
 ): Promise<void> {
   try {
     if (request.method !== 'POST' || request.url !== '/evaluate') {
-      sendJson(response, 404, { error: 'not found' })
+      sendJsonIfOpen(response, 404, { error: 'not found' })
       return
     }
     if (request.headers.authorization !== `Bearer ${args.token}`) {
-      sendJson(response, 401, { error: 'unauthorized' })
+      sendJsonIfOpen(response, 401, { error: 'unauthorized' })
       return
     }
     const body = await readJson(request)
@@ -55,19 +105,30 @@ async function handleCallback<TResponse>(
       !isExternalTextCandidate(body.candidate) ||
       typeof body.exampleId !== 'string'
     ) {
-      sendJson(response, 400, { error: 'candidate and exampleId are required strings' })
+      sendJsonIfOpen(response, 400, { error: 'candidate and exampleId are required strings' })
       return
     }
     const count = nextEvaluation()
-    if (count > args.maxEvaluations) {
-      sendJson(response, 429, { error: 'evaluation limit reached' })
+    if (count === undefined) {
+      sendJsonIfOpen(response, 429, { error: 'evaluation limit reached' })
       return
     }
     const result = await args.evaluate({ candidate: body.candidate, exampleId: body.exampleId })
-    sendJson(response, 200, result)
+    sendJsonIfOpen(response, 200, result)
   } catch {
-    sendJson(response, 500, { error: 'evaluation failed' })
+    sendJsonIfOpen(response, 500, { error: 'evaluation failed' })
   }
+}
+
+async function waitForActiveHandlers(activeHandlers: Set<Promise<void>>): Promise<void> {
+  while (activeHandlers.size > 0) {
+    await Promise.allSettled([...activeHandlers])
+  }
+}
+
+function sendJsonIfOpen(response: ServerResponse, status: number, body: unknown): void {
+  if (response.destroyed || response.writableEnded) return
+  sendJson(response, status, body)
 }
 
 function readJson(request: IncomingMessage): Promise<unknown> {
@@ -92,4 +153,24 @@ function readJson(request: IncomingMessage): Promise<unknown> {
       }
     })
   })
+}
+
+function assertCallbackConfig(args: {
+  token: string
+  maxEvaluations: number
+  acceptEvaluation?: () => number | undefined
+  evaluate: (request: ExternalTextEvaluationRequest) => Promise<unknown>
+}): void {
+  if (typeof args.token !== 'string' || !args.token.trim()) {
+    throw new Error('external optimizer callback: token must be non-empty')
+  }
+  if (!Number.isSafeInteger(args.maxEvaluations) || args.maxEvaluations <= 0) {
+    throw new Error('external optimizer callback: maxEvaluations must be a positive safe integer')
+  }
+  if (args.acceptEvaluation !== undefined && typeof args.acceptEvaluation !== 'function') {
+    throw new Error('external optimizer callback: acceptEvaluation must be a function')
+  }
+  if (typeof args.evaluate !== 'function') {
+    throw new Error('external optimizer callback: evaluate must be a function')
+  }
 }

@@ -129,7 +129,7 @@ A compatible official run includes:
 - optimizer recipe or trainer settings,
 - starting surface,
 - train and selection descriptions,
-- evaluation revision,
+- evaluation ID for execution and scoring behavior,
 - seed,
 - work limits.
 

@@ -36,25 +36,49 @@ export async function startExternalOptimizerModelProxy(args: {
   costLedger: CostLedgerHandle
   phase: string
   actor: string
+  tags?: Record<string, string>
+  initialUsage?: {
+    requests: number
+    costUsd: number
+  }
   fetchImpl?: typeof fetch
 }): Promise<ExternalOptimizerModelProxy> {
   assertModelProxyConfig(args)
   const token = randomLocalToken()
   const fetchImpl = args.fetchImpl ?? fetch
   let requestCount = 0
-  let committedForBudget = 0
+  let successfulCompletionCount = 0
+  let totalRequestCount = args.initialUsage?.requests ?? 0
+  let committedForBudget = args.initialUsage?.costUsd ?? 0
   let reservedForBudget = 0
+  let accepting = true
+  let closePromise: Promise<void> | undefined
   const activeControllers = new Set<AbortController>()
+  const activeHandlers = new Set<Promise<void>>()
 
   const server = createServer((request, response) => {
-    void handleModelProxyRequest({
+    if (!accepting) {
+      sendJsonIfOpen(response, 503, { error: 'external optimizer model proxy is closing' })
+      return
+    }
+
+    const controller = new AbortController()
+    const abortRequest = (): void => {
+      request.destroy()
+    }
+    activeControllers.add(controller)
+    controller.signal.addEventListener('abort', abortRequest, { once: true })
+
+    let handler!: Promise<void>
+    handler = handleModelProxyRequest({
       request,
       response,
+      controller,
       token,
       args,
       fetchImpl,
       nextReservation: (maximumCostUsd) => {
-        if (requestCount >= args.budget.maxRequests) {
+        if (totalRequestCount >= args.budget.maxRequests) {
           return { accepted: false as const, reason: 'optimizer model request limit reached' }
         }
         if (
@@ -64,6 +88,7 @@ export async function startExternalOptimizerModelProxy(args: {
           return { accepted: false as const, reason: 'optimizer model cost limit reached' }
         }
         requestCount += 1
+        totalRequestCount += 1
         reservedForBudget += maximumCostUsd
         return { accepted: true as const }
       },
@@ -71,25 +96,49 @@ export async function startExternalOptimizerModelProxy(args: {
         reservedForBudget = Math.max(0, reservedForBudget - maximumCostUsd)
         committedForBudget += chargedCostUsd
       },
-      activeControllers,
+      recordSuccessfulCompletion: () => {
+        successfulCompletionCount += 1
+      },
+    }).finally(() => {
+      controller.signal.removeEventListener('abort', abortRequest)
+      activeControllers.delete(controller)
+      activeHandlers.delete(handler)
     })
+    activeHandlers.add(handler)
+    void handler.catch(() => undefined)
   })
   const port = await listenLocal(server)
   return {
     baseUrl: `http://127.0.0.1:${port}/v1`,
     apiKey: token,
-    requests: () => requestCount,
-    close: async () => {
-      for (const controller of activeControllers) controller.abort()
-      server.closeAllConnections?.()
-      await closeServer(server)
+    requestAttempts: () => requestCount,
+    successfulCompletions: () => successfulCompletionCount,
+    close: () => {
+      closePromise ??= closeModelProxy()
+      return closePromise
     },
+  }
+
+  async function closeModelProxy(): Promise<void> {
+    accepting = false
+    const closingServer = closeServer(server)
+    server.closeIdleConnections?.()
+    for (const controller of activeControllers) controller.abort()
+    const [serverResult] = await Promise.allSettled([
+      closingServer,
+      waitForActiveHandlers(activeHandlers),
+    ])
+    if (activeControllers.size !== 0 || activeHandlers.size !== 0) {
+      throw new Error('external optimizer model proxy closed with active request work')
+    }
+    if (serverResult?.status === 'rejected') throw serverResult.reason
   }
 }
 
 async function handleModelProxyRequest(args: {
   request: IncomingMessage
   response: ServerResponse
+  controller: AbortController
   token: string
   args: {
     upstreamBaseUrl: string
@@ -99,6 +148,7 @@ async function handleModelProxyRequest(args: {
     costLedger: CostLedgerHandle
     phase: string
     actor: string
+    tags?: Record<string, string>
   }
   fetchImpl: typeof fetch
   nextReservation: (maximumCostUsd: number) =>
@@ -108,17 +158,17 @@ async function handleModelProxyRequest(args: {
         reason: 'optimizer model request limit reached' | 'optimizer model cost limit reached'
       }
   settleReservation: (maximumCostUsd: number, chargedCostUsd: number) => void
-  activeControllers: Set<AbortController>
+  recordSuccessfulCompletion: () => void
 }): Promise<void> {
-  const { request, response } = args
+  const { controller, request, response } = args
   try {
     const path = request.url ? new URL(request.url, 'http://127.0.0.1').pathname : ''
     if (request.method !== 'POST' || !MODEL_PROXY_PATHS.has(path)) {
-      sendJson(response, 404, { error: 'not found' })
+      sendJsonIfOpen(response, 404, { error: 'not found' })
       return
     }
     if (request.headers.authorization !== `Bearer ${args.token}`) {
-      sendJson(response, 401, { error: 'unauthorized' })
+      sendJsonIfOpen(response, 401, { error: 'unauthorized' })
       return
     }
 
@@ -132,12 +182,10 @@ async function handleModelProxyRequest(args: {
     const maximumCostUsd = costForTokenPricing(args.args.budget.pricing, maximumUsage)
     const reservation = args.nextReservation(maximumCostUsd)
     if (!reservation.accepted) {
-      sendJson(response, 429, { error: reservation.reason })
+      sendJsonIfOpen(response, 429, { error: reservation.reason })
       return
     }
 
-    const controller = new AbortController()
-    args.activeControllers.add(controller)
     const timeout = setTimeout(
       () => controller.abort(),
       args.args.budget.requestTimeoutMs ?? 300_000,
@@ -148,13 +196,13 @@ async function handleModelProxyRequest(args: {
         channel: 'optimizer',
         phase: args.args.phase,
         actor: args.args.actor,
+        ...(args.args.tags ? { tags: args.args.tags } : {}),
         model: args.args.model,
         maximumCharge: {
           customTokenPricing: args.args.budget.pricing,
           ...maximumUsage,
         },
-        signal: controller.signal,
-        execute: async (signal) =>
+        execute: async () =>
           forwardModelProxyRequest({
             fetchImpl: args.fetchImpl,
             upstreamBaseUrl: args.args.upstreamBaseUrl,
@@ -164,7 +212,7 @@ async function handleModelProxyRequest(args: {
             model: args.args.model,
             pricing: args.args.budget.pricing,
             maxResponseBytes: args.args.budget.maxResponseBytes,
-            signal,
+            signal: controller.signal,
           }),
         receipt: (result) => result.receipt,
         receiptFromError: () => ({
@@ -181,7 +229,7 @@ async function handleModelProxyRequest(args: {
             ? maximumCostUsd
             : paid.receipt.costUsd
           : 0
-        sendJson(
+        sendJsonIfOpen(
           response,
           isAbortError(paid.error)
             ? 504
@@ -194,11 +242,15 @@ async function handleModelProxyRequest(args: {
       }
       chargedForBudget = paid.value.usageComplete ? paid.receipt.costUsd : maximumCostUsd
       if (!paid.value.usageComplete) {
-        sendJson(response, 502, {
+        sendJsonIfOpen(response, 502, {
           error: 'optimizer model response omitted complete token usage',
         })
         return
       }
+      if (paid.value.status >= 200 && paid.value.status < 300) {
+        args.recordSuccessfulCompletion()
+      }
+      if (response.destroyed || response.writableEnded) return
       response.writeHead(paid.value.status, {
         'content-type': paid.value.contentType,
         'content-length': String(paid.value.body.byteLength),
@@ -206,13 +258,28 @@ async function handleModelProxyRequest(args: {
       response.end(paid.value.body)
     } finally {
       clearTimeout(timeout)
-      args.activeControllers.delete(controller)
       args.settleReservation(maximumCostUsd, chargedForBudget)
     }
   } catch (error) {
-    const status = error instanceof RequestBodyTooLargeError ? 413 : 400
-    sendJson(response, status, { error: toErrorMessage(error) })
+    const status =
+      error instanceof RequestBodyTooLargeError
+        ? 413
+        : error instanceof Error && isAbortError(error)
+          ? 503
+          : 400
+    sendJsonIfOpen(response, status, { error: toErrorMessage(error) })
   }
+}
+
+async function waitForActiveHandlers(activeHandlers: Set<Promise<void>>): Promise<void> {
+  while (activeHandlers.size > 0) {
+    await Promise.allSettled([...activeHandlers])
+  }
+}
+
+function sendJsonIfOpen(response: ServerResponse, status: number, body: unknown): void {
+  if (response.destroyed || response.writableEnded) return
+  sendJson(response, status, body)
 }
 
 async function forwardModelProxyRequest(args: {
@@ -464,6 +531,11 @@ function assertModelProxyConfig(args: {
   budget: ExternalOptimizerModelBudget
   phase: string
   actor: string
+  tags?: Record<string, string>
+  initialUsage?: {
+    requests: number
+    costUsd: number
+  }
 }): void {
   for (const [label, value] of [
     ['upstreamBaseUrl', args.upstreamBaseUrl],
@@ -494,6 +566,31 @@ function assertModelProxyConfig(args: {
     )
   }
   assertExternalOptimizerModelBudget(args.budget, 'external optimizer model proxy: budget')
+  if (args.tags !== undefined) {
+    for (const [key, value] of Object.entries(args.tags)) {
+      if (!key.trim() || key.trim() !== key || !value.trim() || value.trim() !== value) {
+        throw new Error('external optimizer model proxy: tags must be trimmed and non-empty')
+      }
+    }
+  }
+  if (args.initialUsage !== undefined) {
+    if (
+      !Number.isSafeInteger(args.initialUsage.requests) ||
+      args.initialUsage.requests < 0 ||
+      !Number.isFinite(args.initialUsage.costUsd) ||
+      args.initialUsage.costUsd < 0
+    ) {
+      throw new Error(
+        'external optimizer model proxy: initialUsage must contain non-negative requests and cost',
+      )
+    }
+    if (
+      args.initialUsage.requests > args.budget.maxRequests ||
+      args.initialUsage.costUsd > args.budget.maxCostUsd + Number.EPSILON
+    ) {
+      throw new Error('external optimizer model proxy: initialUsage exceeds the configured budget')
+    }
+  }
 }
 
 class RequestBodyTooLargeError extends Error {}

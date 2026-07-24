@@ -17,4 +17,5 @@ export {
   safePathComponent,
 } from './external-optimizer-contracts'
 export { startExternalOptimizerModelProxy } from './external-optimizer-model-proxy'
+export { closeExternalOptimizerResources } from './external-optimizer-resources'
 export { runExternalOptimizerProcess } from './external-optimizer-subprocess'

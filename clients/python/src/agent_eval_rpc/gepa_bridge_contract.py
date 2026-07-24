@@ -5,6 +5,7 @@ from __future__ import annotations
 import importlib
 import json
 import math
+import re
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
@@ -25,19 +26,28 @@ def _read_json(path: Path) -> dict[str, Any]:
 
 
 def _validate_input(value: dict[str, Any]) -> None:
-    if value.get("version") != 6:
-        raise ValueError("GEPA bridge input requires version 6")
     required_strings = [
         "callbackUrl",
         "callbackToken",
         "objective",
-        "evaluationVersion",
+        "evaluationId",
         "attemptId",
+        "compatibleRunId",
+        "runId",
         "outputDir",
     ]
     for key in required_strings:
-        if not isinstance(value.get(key), str) or not value[key].strip():
+        if (
+            not isinstance(value.get(key), str)
+            or not value[key].strip()
+            or value[key].strip() != value[key]
+        ):
             raise ValueError(f"GEPA bridge input requires non-empty string {key}")
+    if not re.fullmatch(r"[0-9a-f]{64}", value["compatibleRunId"]):
+        raise ValueError("GEPA bridge input compatibleRunId must be a SHA-256 digest")
+    if not isinstance(value.get("runtimeIdentity"), dict):
+        raise ValueError("GEPA bridge input requires runtimeIdentity")
+    validate_no_secrets(value["runtimeIdentity"], "runtimeIdentity", "GEPA")
     if not _is_candidate(value.get("seedCandidate")):
         raise ValueError("GEPA bridge input requires a text seedCandidate")
     if value.get("resume") not in {"never", "if-compatible", "required"}:

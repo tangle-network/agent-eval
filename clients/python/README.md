@@ -200,12 +200,14 @@ It disables SkillOpt's test split because final cases remain private to `compare
 
 The TypeScript method requires:
 
-- an OpenAI-compatible endpoint and key in `runner.env`,
+- an OpenAI-compatible endpoint and key in the TypeScript method's `optimizer` option,
 - exact input and output rates,
 - maximum model dollars, requests, request bytes, response bytes, and output tokens,
 - a maximum candidate evaluation count.
 
 Agent Eval starts a local proxy, gives SkillOpt only the proxy credential, checks every request before forwarding it, and records provider token usage in the shared cost log.
+Before optimization starts, it records and hashes the installed optimizer source, bridge source, Python runtime, runner settings, endpoint settings, data, and evaluation ID into one run ID.
+The Python process checks that identity again before it restores any state.
 Missing provider usage fails the run instead of assuming zero cost.
 
 ### DSPy
@@ -251,7 +253,7 @@ uv run --frozen pytest tests/test_dspy_metric.py
 ```
 
 The bridge records the installed upstream package version and source revision with each run.
-SkillOpt and a direct GEPA engine can restore official state only when the package revision, settings, starting candidate, described data, evaluation revision, and seed match.
+SkillOpt and a direct GEPA engine can restore official state only when the package revision, settings, starting candidate, described data, evaluation ID, and seed match.
 Composed GEPA recipes restart and never claim that upstream state was restored.
 
 ## Errors

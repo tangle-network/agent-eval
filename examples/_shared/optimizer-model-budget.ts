@@ -1,19 +1,23 @@
 import type { OptimizerModelBudget } from '../../src/campaign'
+import type { CustomTokenPricing } from '../../src/cost-ledger'
 import { optionalNonNegativeNumberEnv, positiveIntegerEnv, positiveNumberEnv } from './env'
 
 export function optimizerModelBudgetFromEnv(
   prefix: 'GEPA' | 'SKILLOPT',
   defaultMaxCostUsd: number,
-  fallbackPricing?: {
-    inputUsdPerMillion: number
-    outputUsdPerMillion: number
-  },
+  fallbackPricing?: CustomTokenPricing,
 ): OptimizerModelBudget {
   const inputUsdPerMillion =
     optionalNonNegativeNumberEnv(`${prefix}_PRICE_IN_PER_M`) ?? fallbackPricing?.inputUsdPerMillion
   const outputUsdPerMillion =
     optionalNonNegativeNumberEnv(`${prefix}_PRICE_OUT_PER_M`) ??
     fallbackPricing?.outputUsdPerMillion
+  const cachedInputUsdPerMillion =
+    optionalNonNegativeNumberEnv(`${prefix}_PRICE_CACHED_IN_PER_M`) ??
+    fallbackPricing?.cachedInputUsdPerMillion
+  const cacheWriteUsdPerMillion =
+    optionalNonNegativeNumberEnv(`${prefix}_PRICE_CACHE_WRITE_IN_PER_M`) ??
+    fallbackPricing?.cacheWriteUsdPerMillion
   if (inputUsdPerMillion === undefined || outputUsdPerMillion === undefined) {
     throw new Error(
       `Set ${prefix}_PRICE_IN_PER_M and ${prefix}_PRICE_OUT_PER_M to the exact endpoint rates`,
@@ -31,6 +35,8 @@ export function optimizerModelBudgetFromEnv(
     requestTimeoutMs: positiveIntegerEnv(`${prefix}_MODEL_TIMEOUT_MS`, 300_000),
     pricing: {
       inputUsdPerMillion,
+      ...(cachedInputUsdPerMillion === undefined ? {} : { cachedInputUsdPerMillion }),
+      ...(cacheWriteUsdPerMillion === undefined ? {} : { cacheWriteUsdPerMillion }),
       outputUsdPerMillion,
     },
   }

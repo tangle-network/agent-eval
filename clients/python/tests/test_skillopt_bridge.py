@@ -18,7 +18,27 @@ from agent_eval_rpc.optimizer_bridge_common import (
     package_provenance,
 )
 
-UPSTREAM = {"package": "skillopt", "version": "0.2.0"}
+UPSTREAM = {
+    "package": "skillopt",
+    "version": "0.2.0",
+    "sourceSha256": "e" * 64,
+}
+COMPATIBLE_RUN_ID = "2" * 64
+RUNTIME_IDENTITY = {
+    "python": {
+        "implementation": "cpython",
+        "version": "3.12.0",
+    },
+    "bridge": {
+        "package": "agent-eval-rpc",
+        "version": "test",
+        "sourceUrl": "https://github.com/tangle-network/agent-eval.git",
+        "revision": "test-revision",
+        "sourceSha256": "d" * 64,
+    },
+    "optimizer": UPSTREAM,
+    "engineModules": [],
+}
 MODEL_BUDGET = {
     "maxCostUsd": 1,
     "maxRequests": 10,
@@ -32,6 +52,15 @@ MODEL_BUDGET = {
 }
 
 
+@pytest.fixture(autouse=True)
+def deterministic_runtime_identity(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        skillopt_bridge,
+        "_runtime_identity",
+        lambda: deepcopy(RUNTIME_IDENTITY),
+    )
+
+
 def test_bridge_runs_official_trainer_contract_without_final_cases(
     monkeypatch,
     tmp_path: Path,
@@ -41,10 +70,12 @@ def test_bridge_runs_official_trainer_contract_without_final_cases(
     input_path.write_text(
         json.dumps(
             {
-                "version": 2,
                 "attemptId": "attempt-one",
+                "compatibleRunId": COMPATIBLE_RUN_ID,
+                "runId": f"{COMPATIBLE_RUN_ID}-attempt-one",
+                "runtimeIdentity": RUNTIME_IDENTITY,
                 "resume": "never",
-                "evaluationVersion": "test-v1",
+                "evaluationId": "test-evaluation",
                 "seed": 42,
                 "callbackUrl": "http://127.0.0.1:9999/evaluate",
                 "callbackToken": "local-token",
@@ -116,7 +147,6 @@ def test_bridge_runs_official_trainer_contract_without_final_cases(
     monkeypatch.setitem(sys.modules, "skillopt.engine.trainer", trainer_module)
     monkeypatch.setitem(sys.modules, "skillopt.envs", envs_module)
     monkeypatch.setitem(sys.modules, "skillopt.envs.base", base_module)
-    monkeypatch.setattr(skillopt_bridge, "package_provenance", lambda package: UPSTREAM)
 
     def fake_post(*args: Any, **kwargs: Any) -> httpx.Response:
         candidate = kwargs["json"]["candidate"]
@@ -165,7 +195,7 @@ def test_bridge_runs_official_trainer_contract_without_final_cases(
     }
     assert output["upstream"] == UPSTREAM
     assert output["resumed"] is False
-    assert output["runId"].endswith("-attempt-one")
+    assert output["runId"] == f"{COMPATIBLE_RUN_ID}-attempt-one"
     conversations = list(
         (tmp_path / "external" / "runs").glob(
             "*/skillopt/selection/predictions/*/conversation.json"
@@ -175,6 +205,12 @@ def test_bridge_runs_official_trainer_contract_without_final_cases(
     conversation = json.loads(conversations[0].read_text())
     assert conversation[-1]["role"] == "system"
     assert '"quality":1.0' in conversation[-1]["content"]
+
+    mismatched_input = json.loads(input_path.read_text())
+    mismatched_input["runtimeIdentity"]["bridge"]["sourceSha256"] = "f" * 64
+    input_path.write_text(json.dumps(mismatched_input))
+    with pytest.raises(RuntimeError, match="runtime changed after source inspection"):
+        skillopt_bridge.main()
 
 
 def test_pinned_skillopt_exports_official_extension_points() -> None:
@@ -232,6 +268,7 @@ def test_bridge_reports_resume_only_after_official_trainer_restores_state(
     input_value = _valid_input(tmp_path)
     input_value["attemptId"] = "restored-attempt"
     input_value["resume"] = "if-compatible"
+    input_value["runId"] = input_value["compatibleRunId"]
     input_path = tmp_path / "input.json"
     output_path = tmp_path / "output.json"
     input_path.write_text(json.dumps(input_value))
@@ -239,8 +276,9 @@ def test_bridge_reports_resume_only_after_official_trainer_restores_state(
 
     with locked_run(
         label="SkillOpt",
-        schema="agent-eval.skillopt-run.v1",
-        material=skillopt_bridge._manifest_material(input_value, upstream),
+        compatible_run_id=input_value["compatibleRunId"],
+        run_id=input_value["runId"],
+        runtime_identity=input_value["runtimeIdentity"],
         resume=input_value["resume"],
         attempt_id=input_value["attemptId"],
         output_root=output_root,
@@ -306,14 +344,16 @@ def test_required_resume_fails_without_official_skillopt_state(
 ) -> None:
     input_value = _valid_input(tmp_path)
     input_value["resume"] = "required"
+    input_value["runId"] = input_value["compatibleRunId"]
     input_path = tmp_path / "input.json"
     output_path = tmp_path / "output.json"
     input_path.write_text(json.dumps(input_value))
     output_root = Path(input_value["outputDir"])
     with locked_run(
         label="SkillOpt",
-        schema="agent-eval.skillopt-run.v1",
-        material=skillopt_bridge._manifest_material(input_value, UPSTREAM),
+        compatible_run_id=input_value["compatibleRunId"],
+        run_id=input_value["runId"],
+        runtime_identity=input_value["runtimeIdentity"],
         resume="if-compatible",
         attempt_id=input_value["attemptId"],
         output_root=output_root,
@@ -322,7 +362,6 @@ def test_required_resume_fails_without_official_skillopt_state(
     ):
         pass
 
-    monkeypatch.setattr(skillopt_bridge, "package_provenance", lambda package: UPSTREAM)
     monkeypatch.setattr(
         sys,
         "argv",
@@ -410,16 +449,18 @@ def test_resume_rejects_missing_private_skillopt_function(
         skillopt_compat_v020.load_restore_tracker(trainer_module, tmp_path)
 
 
-def test_resume_identity_binds_every_behavioral_input(tmp_path: Path) -> None:
+def test_resume_uses_explicit_identity_for_every_behavioral_change(tmp_path: Path) -> None:
     input_value = _valid_input(tmp_path)
     input_value["resume"] = "if-compatible"
+    input_value["runId"] = input_value["compatibleRunId"]
     output_root = tmp_path / "external"
 
     def prepare(value: dict[str, Any]) -> tuple[Path, bool]:
         with locked_run(
             label="SkillOpt",
-            schema="agent-eval.skillopt-run.v1",
-            material=skillopt_bridge._manifest_material(value, UPSTREAM),
+            compatible_run_id=value["compatibleRunId"],
+            run_id=value["runId"],
+            runtime_identity=value["runtimeIdentity"],
             resume=value["resume"],
             attempt_id=value["attemptId"],
             output_root=output_root,
@@ -435,7 +476,7 @@ def test_resume_identity_binds_every_behavioral_input(tmp_path: Path) -> None:
     assert restore_requested is True
 
     mutations = [
-        lambda value: value.__setitem__("evaluationVersion", "test-v2"),
+        lambda value: value.__setitem__("evaluationId", "changed-evaluation"),
         lambda value: value.__setitem__("objective", "Different objective."),
         lambda value: value.__setitem__("background", "Different context."),
         lambda value: value.__setitem__("seed", 7),
@@ -449,12 +490,31 @@ def test_resume_identity_binds_every_behavioral_input(tmp_path: Path) -> None:
         lambda value: value.__setitem__("maxEvidenceChars", 10_001),
         lambda value: value["modelBudget"].__setitem__("maxRequests", 11),
     ]
-    for mutate in mutations:
+    for index, mutate in enumerate(mutations, start=2):
         changed = deepcopy(input_value)
         mutate(changed)
+        changed["compatibleRunId"] = f"{index:064x}"
+        changed["runId"] = changed["compatibleRunId"]
         changed_path, changed_restore_requested = prepare(changed)
         assert changed_path != base_path
         assert changed_restore_requested is False
+
+
+def test_locked_run_rejects_a_mismatched_run_id(tmp_path: Path) -> None:
+    input_value = _valid_input(tmp_path)
+    with pytest.raises(RuntimeError, match="run ID does not match"):
+        with locked_run(
+            label="SkillOpt",
+            compatible_run_id=input_value["compatibleRunId"],
+            run_id="mismatched-run-id",
+            runtime_identity=input_value["runtimeIdentity"],
+            resume=input_value["resume"],
+            attempt_id=input_value["attemptId"],
+            output_root=Path(input_value["outputDir"]),
+            resume_supported=True,
+            resume_scope="SkillOpt ReflACTTrainer",
+        ):
+            pass
 
 
 def test_token_usage_rejects_missing_invalid_and_inconsistent_totals() -> None:
@@ -497,6 +557,14 @@ def test_input_rejects_target_only_execution_backends(tmp_path: Path) -> None:
         skillopt_bridge._validate_input(input_value)
 
 
+def test_input_requires_evaluation_identity(tmp_path: Path) -> None:
+    input_value = _valid_input(tmp_path)
+    del input_value["evaluationId"]
+
+    with pytest.raises(ValueError, match="evaluationId"):
+        skillopt_bridge._validate_input(input_value)
+
+
 def test_input_allows_token_limits_but_rejects_credentials(tmp_path: Path) -> None:
     input_value = _valid_input(tmp_path)
     input_value["trainer"]["overrides"] = {
@@ -517,7 +585,6 @@ def test_input_allows_token_limits_but_rejects_credentials(tmp_path: Path) -> No
         ("learningRateControl", "random", "learningRateControl"),
         ("updateMode", "random", "updateMode"),
         ("failureOnly", "yes", "failureOnly"),
-        ("reasoningEffort", " ", "reasoningEffort"),
     ],
 )
 def test_input_rejects_invalid_trainer_controls(
@@ -541,10 +608,12 @@ def test_input_rejects_minimum_edit_budget_above_edit_budget(tmp_path: Path) -> 
 
 def _valid_input(tmp_path: Path) -> dict[str, Any]:
     return {
-        "version": 2,
         "attemptId": "test-attempt",
+        "compatibleRunId": COMPATIBLE_RUN_ID,
+        "runId": f"{COMPATIBLE_RUN_ID}-test-attempt",
+        "runtimeIdentity": RUNTIME_IDENTITY,
         "resume": "never",
-        "evaluationVersion": "test-v1",
+        "evaluationId": "test-evaluation",
         "seed": 42,
         "callbackUrl": "http://127.0.0.1:9999/evaluate",
         "callbackToken": "local-token",

@@ -71,6 +71,8 @@ export interface RunCampaignOptions<TScenario extends Scenario, TArtifact> {
   costLedger?: CostLedgerHandle
   /** Attribution label for receipts recorded by this campaign. */
   costPhase?: string
+  /** Additional immutable receipt tags supplied by an owning workflow. */
+  costTags?: Readonly<Record<string, string>>
   /** Max concurrent cells. Default 2. */
   maxConcurrency?: number
   /**
@@ -288,6 +290,7 @@ async function executeCell<TScenario extends Scenario, TArtifact>(
   const cellDir = join(args.opts.runDir, args.slot.cellId.replace(/[^a-zA-Z0-9_-]/g, '_'))
   storage.ensureDir(cellDir)
   const stableCostTags = {
+    ...(args.opts.costTags ?? {}),
     runDir: args.opts.runDir,
     cellId: args.slot.cellId,
     scenarioId: args.slot.scenario.id,

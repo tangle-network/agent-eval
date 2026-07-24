@@ -34,8 +34,9 @@ from agent_eval_rpc.gepa_model_proxy import _ProxyUsage as _ProxyUsage
 from agent_eval_rpc.optimizer_bridge_common import (
     archive_unrestorable_state,
     atomic_write_json,
+    inspect_optimizer_runtime,
     locked_run,
-    package_provenance,
+    validate_runtime_identity,
 )
 
 
@@ -46,6 +47,14 @@ def main() -> None:
     args = parser.parse_args()
 
     input_value = _read_json(Path(args.input))
+    if input_value.get("operation") == "inspect":
+        engine_modules = input_value.get("engineModules")
+        if not isinstance(engine_modules, list) or not all(
+            isinstance(module, str) for module in engine_modules
+        ):
+            raise ValueError("GEPA inspection requires engineModules")
+        atomic_write_json(Path(args.output), {"runtime": _runtime_identity(engine_modules)})
+        return
     _validate_input(input_value)
     _import_engine_modules(input_value["engineModules"])
 
@@ -107,14 +116,21 @@ def main() -> None:
 
     output_root = Path(input_value["outputDir"])
     output_root.mkdir(parents=True, exist_ok=True)
-    upstream = _upstream_provenance()
+    runtime_identity = _runtime_identity(input_value["engineModules"])
+    validate_runtime_identity(
+        input_value["runtimeIdentity"],
+        runtime_identity,
+        "GEPA",
+    )
+    upstream = runtime_identity["optimizer"]
     recipe = input_value["recipe"]
     model_proxy = input_value.get("modelProxy")
     proxy_usage = _ProxyUsage() if model_proxy is not None else None
     with locked_run(
         label="GEPA",
-        schema="agent-eval.gepa-run.v1",
-        material=_manifest_material(input_value, upstream),
+        compatible_run_id=input_value["compatibleRunId"],
+        run_id=input_value["runId"],
+        runtime_identity=runtime_identity,
         resume=input_value["resume"],
         attempt_id=input_value["attemptId"],
         output_root=output_root,
@@ -259,9 +275,15 @@ def _run_recipe(
     }
 
     def engine_config(run: dict[str, Any], path: Path) -> Any:
+        bounded_run = copy.deepcopy(run)
+        if bounded_run.get("maxEvaluations") is not None:
+            bounded_run["maxEvaluations"] = _upstream_evaluation_limit(
+                bounded_run["maxEvaluations"],
+                bounded_run.get("maxConcurrency", 1) - 1,
+            )
         return _engine_config(
             config_class,
-            run,
+            bounded_run,
             path,
             model_proxy=model_proxy,
             proxy_usage=proxy_usage,
@@ -301,13 +323,16 @@ def _run_recipe(
             **task,
             configs=configs,
             plateau_evals=recipe["plateauEvaluations"],
-            max_evals=recipe["maxEvaluations"],
+            max_evals=_upstream_evaluation_limit(
+                recipe["maxEvaluations"],
+                recipe.get("maxConcurrency", 1) - 1,
+            ),
             patience=recipe.get("patience", 1),
             min_evals_per_stage=recipe.get("minEvaluationsPerStage", 0),
             improvement_epsilon=recipe.get("improvementEpsilon", 0.0),
             cycle=recipe.get("cycle", True),
             max_switches=recipe.get("maxSwitches"),
-            max_concurrency=recipe.get("maxConcurrency", 8),
+            max_concurrency=recipe.get("maxConcurrency", 1),
             output_dir=output_dir / "adaptive-evaluations",
         )
         return result, [result]
@@ -347,6 +372,16 @@ def _run_recipe(
         config=engine_config(recipe["continueWith"], output_dir / "continue"),
     )
     return continuation, [*explore_results, continuation]
+
+
+def _upstream_evaluation_limit(hard_limit: int, concurrency_slack: int) -> int:
+    upstream_limit = hard_limit - concurrency_slack
+    if upstream_limit <= 0:
+        raise ValueError(
+            "GEPA maxEvaluations must exceed the possible concurrent evaluation overshoot "
+            f"of {concurrency_slack}"
+        )
+    return upstream_limit
 
 
 def _selected_candidate(result: Any, recipe_kind: str) -> Any:
@@ -407,8 +442,7 @@ def _engine_config(
         "run_dir": str(output_dir / "state"),
         "engine_config": engine_config,
     }
-    if run.get("maxConcurrency") is not None:
-        kwargs["max_concurrency"] = run["maxConcurrency"]
+    kwargs["max_concurrency"] = run.get("maxConcurrency", 1)
     if run.get("stopAtScore") is not None:
         kwargs["stop_at_score"] = run["stopAtScore"]
     if run.get("sandbox") is not None:
@@ -451,34 +485,6 @@ def _reported_proposer_cost(results: list[Any]) -> float | None:
     return sum(costs)
 
 
-def _manifest_material(
-    input_value: dict[str, Any],
-    upstream: dict[str, str],
-) -> dict[str, Any]:
-    return {
-        "upstream": upstream,
-        "evaluationVersion": input_value["evaluationVersion"],
-        "seed": input_value["seed"],
-        "recipe": input_value["recipe"],
-        "engineModules": input_value["engineModules"],
-        "objective": input_value["objective"],
-        "background": input_value.get("background", ""),
-        "seedCandidate": input_value["seedCandidate"],
-        "trainSet": input_value["trainSet"],
-        "selectionSet": input_value["selectionSet"],
-        "maxCandidateChars": input_value["maxCandidateChars"],
-        "maxEvidenceChars": input_value["maxEvidenceChars"],
-        "modelProxy": (
-            {
-                "model": input_value["modelProxy"]["model"],
-                "budget": input_value["modelProxy"]["budget"],
-            }
-            if input_value.get("modelProxy") is not None
-            else None
-        ),
-    }
-
-
 def _supports_resume(recipe: dict[str, Any]) -> bool:
     return recipe["kind"] == "engine" and recipe["run"]["engine"] == "gepa"
 
@@ -489,8 +495,12 @@ def _resume_scope(recipe: dict[str, Any]) -> str:
     return f"recipe '{recipe['kind']}'"
 
 
-def _upstream_provenance() -> dict[str, str]:
-    return package_provenance("gepa")
+def _runtime_identity(engine_modules: list[str]) -> dict[str, Any]:
+    return inspect_optimizer_runtime(
+        optimizer_package="gepa",
+        optimizer_module="gepa",
+        engine_modules=engine_modules,
+    )
 
 
 if __name__ == "__main__":

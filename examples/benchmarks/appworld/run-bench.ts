@@ -265,7 +265,7 @@ function officialMethods(
         objective: 'Improve the AppWorld agent system prompt to complete more requested tasks.',
         background:
           'The artifact includes AppWorld task scores and the execution trace for candidate feedback.',
-        evaluationVersion: 'appworld-repl-v1',
+        evaluationId: 'appworld-repl',
         recipe: {
           kind: 'engine',
           run: {
@@ -293,7 +293,7 @@ function officialMethods(
         objective: 'Improve the AppWorld agent system prompt to complete more requested tasks.',
         background:
           'The artifact includes AppWorld task scores and the execution trace for candidate feedback.',
-        evaluationVersion: 'appworld-repl-v1',
+        evaluationId: 'appworld-repl',
         trainer: {
           epochs: SKILLOPT_EPOCHS,
           batchSize: SKILLOPT_BATCH_SIZE,

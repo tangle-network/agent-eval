@@ -132,7 +132,7 @@ describe('external optimizer process', () => {
     const descendant = [
       "const { writeFileSync } = require('node:fs')",
       `setTimeout(() => writeFileSync(${JSON.stringify(marker)}, 'survived'), 1_000)`,
-      'setInterval(() => {}, 1_000)',
+      'setTimeout(() => process.exit(0), 2_000)',
     ].join(';')
     const parent = [
       "const { spawn } = require('node:child_process')",
@@ -154,6 +154,84 @@ describe('external optimizer process', () => {
           timeoutMs: 100,
         }),
       ).rejects.toThrow('timed optimizer exceeded 100ms')
+      await new Promise((resolve) => setTimeout(resolve, 1_100))
+      await expect(readFile(marker, 'utf8')).rejects.toMatchObject({ code: 'ENOENT' })
+    } finally {
+      await rm(dir, { recursive: true, force: true })
+    }
+  }, 10_000)
+
+  it('terminates optimizer descendants after a successful parent exit', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'agent-eval-success-descendant-'))
+    const marker = join(dir, 'descendant-survived.txt')
+    const descendant = [
+      "const { writeFileSync } = require('node:fs')",
+      `setTimeout(() => writeFileSync(${JSON.stringify(marker)}, 'survived'), 1_000)`,
+      'setTimeout(() => process.exit(0), 2_000)',
+    ].join(';')
+    const parent = [
+      "const { spawn } = require('node:child_process')",
+      "const { writeFileSync } = require('node:fs')",
+      "const output = process.argv[process.argv.indexOf('--output') + 1]",
+      `spawn(process.execPath, ['-e', ${JSON.stringify(descendant)}], { stdio: 'ignore' })`,
+      "writeFileSync(output, JSON.stringify({ status: 'complete' }))",
+      'process.exit(0)',
+    ].join(';')
+
+    try {
+      await expect(
+        runExternalOptimizerProcess({
+          label: 'successful optimizer',
+          tempPrefix: 'agent-eval-successful-',
+          module: 'unused',
+          input: {},
+          runner: {
+            command: process.execPath,
+            args: ['-e', parent, '--'],
+          },
+          timeoutMs: 5_000,
+        }),
+      ).resolves.toEqual({ status: 'complete' })
+      await new Promise((resolve) => setTimeout(resolve, 1_100))
+      await expect(readFile(marker, 'utf8')).rejects.toMatchObject({ code: 'ENOENT' })
+    } finally {
+      await rm(dir, { recursive: true, force: true })
+    }
+  }, 10_000)
+
+  it('terminates optimizer descendants after a nonzero parent exit', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'agent-eval-failed-descendant-'))
+    const marker = join(dir, 'descendant-survived.txt')
+    const descendant = [
+      "const { writeFileSync } = require('node:fs')",
+      `setTimeout(() => writeFileSync(${JSON.stringify(marker)}, 'survived'), 1_000)`,
+      'setTimeout(() => process.exit(0), 2_000)',
+    ].join(';')
+    const parent = [
+      "const { spawn } = require('node:child_process')",
+      `spawn(process.execPath, ['-e', ${JSON.stringify(descendant)}], { stdio: 'ignore' })`,
+      "process.stderr.write('PARENT_FAILURE_MARKER\\n')",
+      'process.exit(9)',
+    ].join(';')
+
+    try {
+      await expect(
+        runExternalOptimizerProcess({
+          label: 'failed optimizer',
+          tempPrefix: 'agent-eval-failed-',
+          module: 'unused',
+          input: {},
+          runner: {
+            command: process.execPath,
+            args: ['-e', parent, '--'],
+          },
+          timeoutMs: 5_000,
+        }),
+      ).rejects.toThrow(
+        expect.objectContaining({
+          message: expect.stringMatching(/exited 9.*PARENT_FAILURE_MARKER/),
+        }),
+      )
       await new Promise((resolve) => setTimeout(resolve, 1_100))
       await expect(readFile(marker, 'utf8')).rejects.toMatchObject({ code: 'ENOENT' })
     } finally {
@@ -205,7 +283,7 @@ describe('external optimizer model proxy', () => {
       })
       expect(upstreamUrl).toBe('https://provider.example/v1/chat/completions')
       expect(upstreamAuthorization).toBe('Bearer provider-secret')
-      expect(proxy.requests()).toBe(1)
+      expect(proxy.requestAttempts()).toBe(1)
       expect(ledger.list()).toEqual([
         expect.objectContaining({
           channel: 'optimizer',
@@ -624,10 +702,75 @@ describe('external optimizer model proxy', () => {
       expect(response.status).toBe(429)
       expect(await response.json()).toEqual({ error: 'optimizer model cost limit reached' })
       expect(providerCalls).toBe(0)
-      expect(proxy.requests()).toBe(0)
+      expect(proxy.requestAttempts()).toBe(0)
     } finally {
       await proxy.close()
     }
+  })
+
+  it('applies prior request and cost use to a resumed model budget', async () => {
+    const ledger = new CostLedger()
+    let providerCalls = 0
+    const proxy = await startExternalOptimizerModelProxy({
+      upstreamBaseUrl: 'https://provider.example/v1',
+      upstreamApiKey: 'provider-secret',
+      model: 'model-a',
+      budget: modelBudget({ maxRequests: 2 }),
+      costLedger: ledger,
+      phase: 'optimizer',
+      actor: 'official-library',
+      tags: { optimizerRun: 'run', optimizerAttempt: 'attempt-b' },
+      initialUsage: { requests: 1, costUsd: 0 },
+      fetchImpl: async () => {
+        providerCalls += 1
+        return new Response(
+          JSON.stringify({
+            choices: [{ message: { content: 'ok' } }],
+            usage: { prompt_tokens: 1, completion_tokens: 1 },
+          }),
+          { headers: { 'content-type': 'application/json' } },
+        )
+      },
+    })
+
+    try {
+      const first = await postModel(proxy, {
+        model: 'model-a',
+        messages: [],
+        max_tokens: 1,
+      })
+      const second = await postModel(proxy, {
+        model: 'model-a',
+        messages: [],
+        max_tokens: 1,
+      })
+      expect(first.status).toBe(200)
+      expect(second.status).toBe(429)
+      expect(await second.json()).toEqual({ error: 'optimizer model request limit reached' })
+      expect(providerCalls).toBe(1)
+      expect(proxy.requestAttempts()).toBe(1)
+      expect(ledger.list()[0]?.tags).toEqual({
+        optimizerRun: 'run',
+        optimizerAttempt: 'attempt-b',
+      })
+    } finally {
+      await proxy.close()
+    }
+  })
+
+  it('rejects resumed model use that already exceeds the configured limit', async () => {
+    await expect(
+      startExternalOptimizerModelProxy({
+        upstreamBaseUrl: 'https://provider.example/v1',
+        upstreamApiKey: 'provider-secret',
+        model: 'model-a',
+        budget: modelBudget({ maxRequests: 1 }),
+        costLedger: new CostLedger(),
+        phase: 'optimizer',
+        actor: 'official-library',
+        initialUsage: { requests: 2, costUsd: 0 },
+      }),
+    ).rejects.toThrow('initialUsage exceeds the configured budget')
   })
 
   it('reserves input at the most expensive configured cache class', async () => {
@@ -669,7 +812,7 @@ describe('external optimizer model proxy', () => {
       expect(response.status).toBe(429)
       expect(await response.json()).toEqual({ error: 'optimizer model cost limit reached' })
       expect(providerCalls).toBe(0)
-      expect(proxy.requests()).toBe(0)
+      expect(proxy.requestAttempts()).toBe(0)
       expect(ledger.list()).toEqual([])
     } finally {
       await proxy.close()
@@ -727,7 +870,7 @@ describe('external optimizer model proxy', () => {
       expect(providerCalls).toBe(1)
       releaseProvider?.()
       expect((await first).status).toBe(200)
-      expect(proxy.requests()).toBe(1)
+      expect(proxy.requestAttempts()).toBe(1)
       expect(ledger.summary().totalCostUsd).toBe(0.000002)
     } finally {
       releaseProvider?.()

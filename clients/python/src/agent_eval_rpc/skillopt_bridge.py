@@ -8,6 +8,7 @@ import importlib
 import json
 import math
 import random
+import re
 import threading
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
@@ -19,11 +20,12 @@ from agent_eval_rpc.optimizer_bridge_common import (
     archive_unrestorable_state,
     atomic_write_json,
     atomic_write_text,
+    inspect_optimizer_runtime,
     locked_run,
-    package_provenance,
     validate_json_size,
     validate_no_secrets,
     validate_optimizer_model_budget,
+    validate_runtime_identity,
 )
 from agent_eval_rpc.skillopt_compat_v020 import load_restore_tracker
 
@@ -35,6 +37,9 @@ def main() -> None:
     args = parser.parse_args()
 
     input_value = _read_json(Path(args.input))
+    if input_value.get("operation") == "inspect":
+        atomic_write_json(Path(args.output), {"runtime": _runtime_identity()})
+        return
     _validate_input(input_value)
     try:
         trainer_module = importlib.import_module("skillopt.engine.trainer")
@@ -47,11 +52,18 @@ def main() -> None:
 
     output_root = Path(input_value["outputDir"])
     output_root.mkdir(parents=True, exist_ok=True)
-    upstream = package_provenance("skillopt")
+    runtime_identity = _runtime_identity()
+    validate_runtime_identity(
+        input_value["runtimeIdentity"],
+        runtime_identity,
+        "SkillOpt",
+    )
+    upstream = runtime_identity["optimizer"]
     with locked_run(
         label="SkillOpt",
-        schema="agent-eval.skillopt-run.v1",
-        material=_manifest_material(input_value, upstream),
+        compatible_run_id=input_value["compatibleRunId"],
+        run_id=input_value["runId"],
+        runtime_identity=runtime_identity,
         resume=input_value["resume"],
         attempt_id=input_value["attemptId"],
         output_root=output_root,
@@ -284,7 +296,6 @@ def _trainer_config(
             "target_backend": "openai_compatible",
             "optimizer_model": optimizer_model,
             "target_model": optimizer_model,
-            "reasoning_effort": trainer.get("reasoningEffort", "medium"),
             "out_root": str(run_dir),
             "skill_init": str(seed_path),
             "num_epochs": trainer["epochs"],
@@ -312,26 +323,6 @@ def _trainer_config(
         }
     )
     return config
-
-
-def _manifest_material(input_value: dict[str, Any], upstream: dict[str, str]) -> dict[str, Any]:
-    return {
-        "upstream": upstream,
-        "evaluationVersion": input_value["evaluationVersion"],
-        "objective": input_value["objective"],
-        "background": input_value.get("background", ""),
-        "seed": input_value["seed"],
-        "trainer": input_value["trainer"],
-        "optimizerModel": input_value["optimizerModel"],
-        "modelBudget": input_value["modelBudget"],
-        "seedCandidate": input_value["seedCandidate"],
-        "trainSet": input_value["trainSet"],
-        "selectionSet": input_value["selectionSet"],
-        "hardScoreThreshold": input_value["hardScoreThreshold"],
-        "maxEvaluations": input_value["maxEvaluations"],
-        "maxCandidateChars": input_value["maxCandidateChars"],
-        "maxEvidenceChars": input_value["maxEvidenceChars"],
-    }
 
 
 def _token_usage(value: Any) -> dict[str, int] | None:
@@ -362,21 +353,39 @@ def _read_json(path: Path) -> dict[str, Any]:
     return payload
 
 
+def _runtime_identity() -> dict[str, Any]:
+    return inspect_optimizer_runtime(
+        optimizer_package="skillopt",
+        optimizer_module="skillopt",
+        engine_modules=[],
+    )
+
+
 def _validate_input(value: dict[str, Any]) -> None:
-    if value.get("version") != 2:
-        raise ValueError("SkillOpt bridge input requires version 2")
     for key in [
         "callbackUrl",
         "callbackToken",
         "objective",
-        "evaluationVersion",
+        "evaluationId",
         "attemptId",
+        "compatibleRunId",
+        "runId",
         "optimizerModel",
-        "seedCandidate",
         "outputDir",
     ]:
-        if not isinstance(value.get(key), str) or not value[key].strip():
+        if (
+            not isinstance(value.get(key), str)
+            or not value[key].strip()
+            or value[key].strip() != value[key]
+        ):
             raise ValueError(f"SkillOpt bridge input requires non-empty string {key}")
+    if not isinstance(value.get("seedCandidate"), str) or not value["seedCandidate"].strip():
+        raise ValueError("SkillOpt bridge input requires non-empty string seedCandidate")
+    if not re.fullmatch(r"[0-9a-f]{64}", value["compatibleRunId"]):
+        raise ValueError("SkillOpt bridge input compatibleRunId must be a SHA-256 digest")
+    if not isinstance(value.get("runtimeIdentity"), dict):
+        raise ValueError("SkillOpt bridge input requires runtimeIdentity")
+    validate_no_secrets(value["runtimeIdentity"], "runtimeIdentity", "SkillOpt")
     if value.get("resume") not in {"never", "if-compatible", "required"}:
         raise ValueError("SkillOpt bridge input resume must be never, if-compatible, or required")
     seed = value.get("seed")
@@ -442,13 +451,6 @@ def _validate_input(value: dict[str, Any]) -> None:
         and trainer["minEditBudget"] > trainer["editBudget"]
     ):
         raise ValueError("SkillOpt bridge trainer.minEditBudget must not exceed trainer.editBudget")
-    reasoning_effort = trainer.get("reasoningEffort")
-    if reasoning_effort is not None and (
-        not isinstance(reasoning_effort, str)
-        or not reasoning_effort.strip()
-        or reasoning_effort.strip() != reasoning_effort
-    ):
-        raise ValueError("SkillOpt bridge trainer.reasoningEffort must be trimmed and non-empty")
     _optional_choice(
         trainer,
         "learningRateSchedule",

@@ -39,6 +39,7 @@ try {
     '.': ['import', 'types'],
     './analyst': ['import', 'types'],
     './campaign': ['import', 'types'],
+    './contract': ['import', 'types'],
     './traces': ['import', 'types'],
     './trace-attributes': ['import', 'types'],
     './rl': ['import', 'types'],
@@ -272,6 +273,15 @@ try {
           throw new Error('missing belief-state export analyzeBeliefPolicy')
         }
         const campaign = await import('@tangle-network/agent-eval/campaign')
+        const contract = await import('@tangle-network/agent-eval/contract')
+        for (const name of [
+          'compareOptimizationMethods',
+          'externalTextOptimizationMethod',
+          'gepaOptimizationMethod',
+          'skillOptOptimizationMethod',
+        ]) {
+          if (!(name in contract)) throw new Error('missing contract export ' + name)
+        }
         for (const name of [
           'gitWorktreeAdapter',
           'verifyCodeSurface',
@@ -283,6 +293,7 @@ try {
           'surfaceContentHash',
           'componentSurfaceIdentityMaterial',
           'compareOptimizationMethods',
+          'externalTextOptimizationMethod',
           'gepaOptimizationMethod',
           'skillOptOptimizationMethod',
           'openSearchLedger',
@@ -307,6 +318,7 @@ try {
           'parameterSweepProposer',
           'runLineageLoop',
           'runLineage',
+          'runSkillOpt',
         ]) {
           if (removed in campaign) throw new Error('obsolete campaign export ' + removed)
         }

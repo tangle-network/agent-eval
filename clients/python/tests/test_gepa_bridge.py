@@ -19,7 +19,40 @@ UPSTREAM = {
     "version": "test",
     "sourceUrl": "https://github.com/gepa-ai/gepa.git",
     "revision": "test-revision",
+    "sourceSha256": "c" * 64,
 }
+COMPATIBLE_RUN_ID = "1" * 64
+RUNTIME_IDENTITY = {
+    "python": {
+        "implementation": "cpython",
+        "version": "3.12.0",
+    },
+    "bridge": {
+        "package": "agent-eval-rpc",
+        "version": "test",
+        "sourceUrl": "https://github.com/tangle-network/agent-eval.git",
+        "revision": "test-revision",
+        "sourceSha256": "b" * 64,
+    },
+    "optimizer": UPSTREAM,
+    "engineModules": [],
+}
+
+
+@pytest.fixture(autouse=True)
+def deterministic_runtime_identity(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        gepa_bridge,
+        "_runtime_identity",
+        lambda engine_modules: deepcopy(RUNTIME_IDENTITY),
+    )
+
+
+def test_upstream_evaluation_limit_reserves_concurrent_overshoot() -> None:
+    assert gepa_bridge._upstream_evaluation_limit(40, 0) == 40
+    assert gepa_bridge._upstream_evaluation_limit(40, 7) == 33
+    with pytest.raises(ValueError, match="must exceed"):
+        gepa_bridge._upstream_evaluation_limit(4, 4)
 
 
 def test_bridge_calls_gepa_and_writes_a_cost_report(
@@ -31,11 +64,13 @@ def test_bridge_calls_gepa_and_writes_a_cost_report(
     input_path.write_text(
         json.dumps(
             {
-                "version": 6,
                 "engineModules": [],
                 "attemptId": "attempt-one",
+                "compatibleRunId": COMPATIBLE_RUN_ID,
+                "runId": f"{COMPATIBLE_RUN_ID}-attempt-one",
+                "runtimeIdentity": RUNTIME_IDENTITY,
                 "resume": "never",
-                "evaluationVersion": "test-v1",
+                "evaluationId": "test-evaluation",
                 "seed": 42,
                 "callbackUrl": "http://127.0.0.1:9999/evaluate",
                 "callbackToken": "local-token",
@@ -85,7 +120,6 @@ def test_bridge_calls_gepa_and_writes_a_cost_report(
     optimize_module.optimize_anything = fake_optimize
     monkeypatch.setitem(sys.modules, "gepa", gepa_module)
     monkeypatch.setitem(sys.modules, "gepa.optimize_anything", optimize_module)
-    monkeypatch.setattr(gepa_bridge, "_upstream_provenance", lambda: UPSTREAM)
 
     def fake_post(*args: Any, **kwargs: Any) -> httpx.Response:
         calls["callback"] = {"args": args, "kwargs": kwargs}
@@ -113,6 +147,7 @@ def test_bridge_calls_gepa_and_writes_a_cost_report(
     assert config == {
         "engine": "best_of_n",
         "max_evals": 3,
+        "max_concurrency": 1,
         "max_token_cost": 1.5,
         "engine_config": {"num_candidates": 2},
     }
@@ -123,7 +158,7 @@ def test_bridge_calls_gepa_and_writes_a_cost_report(
     assert callback["kwargs"]["headers"] == {"Authorization": "Bearer local-token"}
     assert callback["kwargs"]["json"] == {"candidate": "better", "exampleId": "train"}
     output = json.loads(output_path.read_text())
-    assert output.pop("runId").endswith("-attempt-one")
+    assert output.pop("runId") == f"{COMPATIBLE_RUN_ID}-attempt-one"
     assert output.pop("resumed") is False
     assert output == {
         "bestCandidate": "better",
@@ -137,6 +172,12 @@ def test_bridge_calls_gepa_and_writes_a_cost_report(
     }
     assert json.loads((tmp_path / "external" / "upstream.json").read_text()) == UPSTREAM
 
+    mismatched_input = json.loads(input_path.read_text())
+    mismatched_input["runtimeIdentity"]["bridge"]["sourceSha256"] = "d" * 64
+    input_path.write_text(json.dumps(mismatched_input))
+    with pytest.raises(RuntimeError, match="runtime changed after source inspection"):
+        gepa_bridge.main()
+
 
 def test_bridge_calls_gepa_omni_recipe_without_reimplementing_its_search(
     monkeypatch,
@@ -147,11 +188,13 @@ def test_bridge_calls_gepa_omni_recipe_without_reimplementing_its_search(
     input_path.write_text(
         json.dumps(
             {
-                "version": 6,
                 "engineModules": [],
                 "attemptId": "attempt-two",
+                "compatibleRunId": COMPATIBLE_RUN_ID,
+                "runId": f"{COMPATIBLE_RUN_ID}-attempt-two",
+                "runtimeIdentity": RUNTIME_IDENTITY,
                 "resume": "never",
-                "evaluationVersion": "test-v1",
+                "evaluationId": "test-evaluation",
                 "seed": 42,
                 "callbackUrl": "http://127.0.0.1:9999/evaluate",
                 "callbackToken": "local-token",
@@ -217,7 +260,6 @@ def test_bridge_calls_gepa_omni_recipe_without_reimplementing_its_search(
     optimize_module.optimize_vote = fake_best_of
     monkeypatch.setitem(sys.modules, "gepa", gepa_module)
     monkeypatch.setitem(sys.modules, "gepa.optimize_anything", optimize_module)
-    monkeypatch.setattr(gepa_bridge, "_upstream_provenance", lambda: UPSTREAM)
     monkeypatch.setattr(
         sys,
         "argv",
@@ -239,7 +281,7 @@ def test_bridge_calls_gepa_omni_recipe_without_reimplementing_its_search(
     ]
     assert "test_set" not in calls["explore"]["arguments"]
     output = json.loads(output_path.read_text())
-    assert output.pop("runId").endswith("-attempt-two")
+    assert output.pop("runId") == f"{COMPATIBLE_RUN_ID}-attempt-two"
     assert output.pop("resumed") is False
     assert output == {
         "bestCandidate": "continued-winner",
@@ -265,11 +307,13 @@ def test_bridge_runs_source_pinned_gepa_omni_recipe_without_a_model(
     input_path.write_text(
         json.dumps(
             {
-                "version": 6,
                 "engineModules": [],
                 "attemptId": "attempt-three",
+                "compatibleRunId": COMPATIBLE_RUN_ID,
+                "runId": f"{COMPATIBLE_RUN_ID}-attempt-three",
+                "runtimeIdentity": RUNTIME_IDENTITY,
                 "resume": "if-compatible",
-                "evaluationVersion": "test-v1",
+                "evaluationId": "test-evaluation",
                 "seed": 42,
                 "callbackUrl": "http://127.0.0.1:9/evaluate",
                 "callbackToken": "unused",
@@ -307,6 +351,7 @@ def test_bridge_runs_source_pinned_gepa_omni_recipe_without_a_model(
 
     input_value = json.loads(input_path.read_text())
     input_value["attemptId"] = "attempt-four"
+    input_value["runId"] = f"{COMPATIBLE_RUN_ID}-attempt-four"
     input_path.write_text(json.dumps(input_value))
     second_output_path = tmp_path / "output-fresh.json"
     monkeypatch.setattr(
@@ -435,6 +480,14 @@ def test_component_candidates_require_gepa_engines_and_preserve_surface_shape(
         gepa_bridge._validate_selected_candidate("flattened", input_value["seedCandidate"], 100)
 
 
+def test_input_requires_evaluation_identity(tmp_path: Path) -> None:
+    input_value = _valid_input(tmp_path)
+    del input_value["evaluationId"]
+
+    with pytest.raises(ValueError, match="evaluationId"):
+        gepa_bridge._validate_input(input_value)
+
+
 def test_proxied_gepa_accepts_official_retry_configuration(tmp_path: Path) -> None:
     input_value = _valid_input(tmp_path)
     input_value["recipe"] = {
@@ -537,7 +590,7 @@ def test_proxied_gepa_rejects_proxy_transport_overrides(tmp_path: Path) -> None:
         gepa_bridge._validate_input(input_value)
 
 
-def test_proxied_gepa_resume_identity_binds_budget_without_local_credentials(
+def test_proxied_gepa_identity_excludes_local_credentials(
     tmp_path: Path,
 ) -> None:
     input_value = _valid_input(tmp_path)
@@ -562,14 +615,15 @@ def test_proxied_gepa_resume_identity_binds_budget_without_local_credentials(
         },
     }
 
-    material = gepa_bridge._manifest_material(input_value, UPSTREAM)
-    assert material["modelProxy"] == {
-        "model": "test-model",
-        "budget": input_value["modelProxy"]["budget"],
-    }
+    gepa_bridge._validate_input(input_value)
+    assert input_value["runtimeIdentity"] == RUNTIME_IDENTITY
+    assert "ephemeral-local-token" not in json.dumps(input_value["runtimeIdentity"])
+
     changed = deepcopy(input_value)
     changed["modelProxy"]["budget"]["maxRequests"] = 11
-    assert gepa_bridge._manifest_material(changed, UPSTREAM) != material
+    changed["compatibleRunId"] = "2" * 64
+    changed["runId"] = f"{changed['compatibleRunId']}-{changed['attemptId']}"
+    assert changed["compatibleRunId"] != input_value["compatibleRunId"]
 
 
 def test_resume_support_is_limited_to_one_core_gepa_engine() -> None:
@@ -598,8 +652,9 @@ def test_required_resume_fails_for_an_unsupported_gepa_engine(tmp_path: Path) ->
     with pytest.raises(RuntimeError, match="official upstream state restoration is not available"):
         with locked_run(
             label="GEPA",
-            schema="agent-eval.gepa-run.v1",
-            material=gepa_bridge._manifest_material(input_value, UPSTREAM),
+            compatible_run_id=input_value["compatibleRunId"],
+            run_id=input_value["runId"],
+            runtime_identity=input_value["runtimeIdentity"],
             resume=input_value["resume"],
             attempt_id=input_value["attemptId"],
             output_root=Path(input_value["outputDir"]),
@@ -616,6 +671,7 @@ def test_if_compatible_gepa_archives_unrestorable_state_and_starts_fresh(
     input_value = _valid_input(tmp_path)
     input_value["attemptId"] = "fresh-attempt"
     input_value["resume"] = "if-compatible"
+    input_value["runId"] = input_value["compatibleRunId"]
     input_value["recipe"] = {
         "kind": "engine",
         "run": _run(
@@ -632,8 +688,9 @@ def test_if_compatible_gepa_archives_unrestorable_state_and_starts_fresh(
 
     with locked_run(
         label="GEPA",
-        schema="agent-eval.gepa-run.v1",
-        material=gepa_bridge._manifest_material(input_value, UPSTREAM),
+        compatible_run_id=input_value["compatibleRunId"],
+        run_id=input_value["runId"],
+        runtime_identity=input_value["runtimeIdentity"],
         resume=input_value["resume"],
         attempt_id=input_value["attemptId"],
         output_root=output_root,
@@ -644,8 +701,6 @@ def test_if_compatible_gepa_archives_unrestorable_state_and_starts_fresh(
         corrupt_path.parent.mkdir(parents=True)
         corrupt_path.write_bytes(b"not a GEPA state")
         expected_run_dir = run.run_dir
-
-    monkeypatch.setattr(gepa_bridge, "_upstream_provenance", lambda: UPSTREAM)
 
     def fake_post(*args: Any, **kwargs: Any) -> httpx.Response:
         return httpx.Response(
@@ -671,17 +726,19 @@ def test_if_compatible_gepa_archives_unrestorable_state_and_starts_fresh(
     assert (archived[0] / "state" / "gepa_state.bin").read_bytes() == b"not a GEPA state"
 
 
-def test_resume_identity_binds_every_behavioral_input(tmp_path: Path) -> None:
+def test_resume_uses_explicit_identity_for_every_behavioral_change(tmp_path: Path) -> None:
     input_value = _valid_input(tmp_path)
     input_value["recipe"]["run"]["engine"] = "gepa"
     input_value["resume"] = "if-compatible"
+    input_value["runId"] = input_value["compatibleRunId"]
     output_root = tmp_path / "external"
 
-    def prepare(value: dict[str, Any], upstream: dict[str, str] = UPSTREAM) -> tuple[Path, bool]:
+    def prepare(value: dict[str, Any]) -> tuple[Path, bool]:
         with locked_run(
             label="GEPA",
-            schema="agent-eval.gepa-run.v1",
-            material=gepa_bridge._manifest_material(value, upstream),
+            compatible_run_id=value["compatibleRunId"],
+            run_id=value["runId"],
+            runtime_identity=value["runtimeIdentity"],
             resume=value["resume"],
             attempt_id=value["attemptId"],
             output_root=output_root,
@@ -697,7 +754,7 @@ def test_resume_identity_binds_every_behavioral_input(tmp_path: Path) -> None:
     assert restore_requested is True
 
     mutations = [
-        lambda value: value.__setitem__("evaluationVersion", "test-v2"),
+        lambda value: value.__setitem__("evaluationId", "changed-evaluation"),
         lambda value: value.__setitem__("seed", 7),
         lambda value: value["recipe"]["run"].__setitem__("maxEvaluations", 2),
         lambda value: value.__setitem__("objective", "A different objective."),
@@ -708,23 +765,47 @@ def test_resume_identity_binds_every_behavioral_input(tmp_path: Path) -> None:
         lambda value: value.__setitem__("maxCandidateChars", 101),
         lambda value: value.__setitem__("maxEvidenceChars", 1_001),
     ]
-    for mutate in mutations:
+    for index, mutate in enumerate(mutations, start=2):
         changed = deepcopy(input_value)
         mutate(changed)
+        changed["compatibleRunId"] = f"{index:064x}"
+        changed["runId"] = changed["compatibleRunId"]
         changed_path, changed_restore_requested = prepare(changed)
         assert changed_path != base_path
         assert changed_restore_requested is False
 
-    changed_upstream = {**UPSTREAM, "revision": "different-revision"}
-    changed_path, changed_restore_requested = prepare(input_value, changed_upstream)
+    changed_runtime = deepcopy(input_value)
+    changed_runtime["runtimeIdentity"]["optimizer"]["revision"] = "different-revision"
+    changed_runtime["compatibleRunId"] = "e" * 64
+    changed_runtime["runId"] = changed_runtime["compatibleRunId"]
+    changed_path, changed_restore_requested = prepare(changed_runtime)
     assert changed_path != base_path
     assert changed_restore_requested is False
 
     required = deepcopy(input_value)
     required["resume"] = "required"
     required["objective"] = "Missing compatible run."
+    required["compatibleRunId"] = "f" * 64
+    required["runId"] = required["compatibleRunId"]
     with pytest.raises(RuntimeError, match="compatible run .* does not exist"):
         prepare(required)
+
+
+def test_locked_run_rejects_a_mismatched_run_id(tmp_path: Path) -> None:
+    input_value = _valid_input(tmp_path)
+    with pytest.raises(RuntimeError, match="run ID does not match"):
+        with locked_run(
+            label="GEPA",
+            compatible_run_id=input_value["compatibleRunId"],
+            run_id="mismatched-run-id",
+            runtime_identity=input_value["runtimeIdentity"],
+            resume=input_value["resume"],
+            attempt_id=input_value["attemptId"],
+            output_root=Path(input_value["outputDir"]),
+            resume_supported=gepa_bridge._supports_resume(input_value["recipe"]),
+            resume_scope=gepa_bridge._resume_scope(input_value["recipe"]),
+        ):
+            pass
 
 
 def _run(
@@ -743,11 +824,13 @@ def _run(
 
 def _valid_input(tmp_path: Path) -> dict[str, Any]:
     return {
-        "version": 6,
         "engineModules": [],
         "attemptId": "test-attempt",
+        "compatibleRunId": COMPATIBLE_RUN_ID,
+        "runId": f"{COMPATIBLE_RUN_ID}-test-attempt",
+        "runtimeIdentity": RUNTIME_IDENTITY,
         "resume": "never",
-        "evaluationVersion": "test-v1",
+        "evaluationId": "test-evaluation",
         "seed": 42,
         "callbackUrl": "http://127.0.0.1:9999/evaluate",
         "callbackToken": "local-token",

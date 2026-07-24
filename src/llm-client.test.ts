@@ -212,6 +212,43 @@ describe('costReceiptFromLlm', () => {
     expect(receipt.actualCostUsd).toBeCloseTo(0.000082, 12)
   })
 
+  it('uses the cache-read rate for cached prompt tokens', async () => {
+    const result = await callLlm(
+      {
+        model: 'router/custom-model',
+        messages: [{ role: 'user', content: 'hello' }],
+        maxTokens: 8,
+      },
+      {
+        maxRetries: 1,
+        customTokenPricing: {
+          inputUsdPerMillion: 1,
+          cachedInputUsdPerMillion: 0.1,
+          outputUsdPerMillion: 2,
+        },
+        fetch: async () =>
+          mkOkResponse({
+            model: 'router/custom-model',
+            choices: [{ message: { content: 'ok' }, finish_reason: 'stop' }],
+            usage: {
+              prompt_tokens: 100,
+              completion_tokens: 50,
+              total_tokens: 150,
+              prompt_tokens_details: { cached_tokens: 80 },
+            },
+          }),
+      },
+    )
+
+    const receipt = costReceiptFromLlm(result)
+    expect(receipt).toMatchObject({
+      inputTokens: 20,
+      cachedTokens: 80,
+      outputTokens: 50,
+    })
+    expect(receipt.actualCostUsd).toBeCloseTo(0.000128, 12)
+  })
+
   it('preserves OpenAI-compatible reasoning usage through the cost ledger', async () => {
     const result = await callLlm(
       { model: 'glm-4.5', messages: [{ role: 'user', content: 'test' }], maxTokens: 3_323 },

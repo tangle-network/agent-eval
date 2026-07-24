@@ -1,10 +1,13 @@
 from __future__ import annotations
 
 import hashlib
+import importlib.util
 import json
 import math
 import os
+import platform
 import re
+import sys
 import tempfile
 from collections.abc import Iterator
 from contextlib import contextmanager
@@ -127,7 +130,7 @@ def package_provenance(package_name: str) -> dict[str, str]:
     except json.JSONDecodeError as error:
         raise RuntimeError(f"{package_name} direct_url.json is invalid") from error
     source_url = direct_url.get("url")
-    if isinstance(source_url, str) and source_url.strip():
+    if isinstance(source_url, str) and source_url.strip() and not source_url.startswith("file:"):
         provenance["sourceUrl"] = source_url
     vcs_info = direct_url.get("vcs_info")
     if isinstance(vcs_info, dict):
@@ -135,6 +138,71 @@ def package_provenance(package_name: str) -> dict[str, str]:
         if isinstance(revision, str) and revision.strip():
             provenance["revision"] = revision
     return provenance
+
+
+def inspect_optimizer_runtime(
+    *,
+    optimizer_package: str,
+    optimizer_module: str,
+    engine_modules: list[str],
+) -> dict[str, Any]:
+    return {
+        "python": {
+            "implementation": sys.implementation.name,
+            "version": platform.python_version(),
+        },
+        "bridge": {
+            **package_provenance("agent-eval-rpc"),
+            "sourceSha256": module_source_sha256("agent_eval_rpc"),
+        },
+        "optimizer": {
+            **package_provenance(optimizer_package),
+            "sourceSha256": module_source_sha256(optimizer_module),
+        },
+        "engineModules": [
+            {"module": module, "sourceSha256": module_source_sha256(module)}
+            for module in engine_modules
+        ],
+    }
+
+
+def module_source_sha256(module_name: str) -> str:
+    spec = importlib.util.find_spec(module_name)
+    if spec is None:
+        raise RuntimeError(f"module {module_name!r} is unavailable")
+
+    roots = [Path(path) for path in (spec.submodule_search_locations or [])]
+    if not roots:
+        if not spec.origin or spec.origin in {"built-in", "frozen"}:
+            raise RuntimeError(f"module {module_name!r} has no inspectable source")
+        roots = [Path(spec.origin)]
+
+    digest = hashlib.sha256()
+    files: list[tuple[str, Path]] = []
+    for root_index, root in enumerate(roots):
+        if root.is_file():
+            files.append((f"{root_index}/{root.name}", root))
+            continue
+        if not root.is_dir():
+            raise RuntimeError(f"module {module_name!r} source is unavailable")
+        files.extend(
+            (f"{root_index}/{path.relative_to(root).as_posix()}", path)
+            for path in root.rglob("*.py")
+            if "__pycache__" not in path.parts
+        )
+    if not files:
+        raise RuntimeError(f"module {module_name!r} has no Python source files")
+    for relative, path in sorted(files):
+        digest.update(relative.encode())
+        digest.update(b"\0")
+        digest.update(path.read_bytes())
+        digest.update(b"\0")
+    return digest.hexdigest()
+
+
+def validate_runtime_identity(value: Any, expected: dict[str, Any], label: str) -> None:
+    if value != expected:
+        raise RuntimeError(f"{label} runtime changed after source inspection")
 
 
 def _project_source_url(project_urls: list[str]) -> str | None:
@@ -153,17 +221,17 @@ def _project_source_url(project_urls: list[str]) -> str | None:
 def locked_run(
     *,
     label: str,
-    schema: str,
-    material: dict[str, Any],
+    compatible_run_id: str,
+    run_id: str,
+    runtime_identity: dict[str, Any],
     resume: str,
     attempt_id: str,
     output_root: Path,
     resume_supported: bool,
     resume_scope: str,
 ) -> Iterator[LockedRun]:
-    manifest_body = {"schema": schema, **material}
-    encoded = json.dumps(manifest_body, sort_keys=True, separators=(",", ":")).encode()
-    digest = hashlib.sha256(encoded).hexdigest()
+    if not re.fullmatch(r"[0-9a-f]{64}", compatible_run_id):
+        raise RuntimeError(f"{label} compatible run ID is invalid")
     if resume == "required" and not resume_supported:
         raise RuntimeError(
             f"{label} cannot resume {resume_scope}; official upstream state restoration "
@@ -171,12 +239,21 @@ def locked_run(
         )
 
     effective_resume = resume if resume_supported else "never"
-    run_id = digest if effective_resume != "never" else f"{digest}-{attempt_id}"
+    expected_run_id = (
+        compatible_run_id if effective_resume != "never" else f"{compatible_run_id}-{attempt_id}"
+    )
+    if run_id != expected_run_id:
+        raise RuntimeError(f"{label} run ID does not match its resume mode and attempt")
+    manifest_body = {
+        "optimizer": label,
+        "compatibleRunId": compatible_run_id,
+        "runtime": runtime_identity,
+    }
     runs_root = output_root / "runs"
     runs_root.mkdir(parents=True, exist_ok=True)
     run_dir = runs_root / run_id
     manifest_path = run_dir / "manifest.json"
-    manifest = {**manifest_body, "sha256": digest}
+    manifest = {**manifest_body, "runId": run_id}
 
     lock = FileLock(f"{run_dir}.lock")
     try:
@@ -187,7 +264,7 @@ def locked_run(
         run_dir_existed = run_dir.exists()
         manifest_existed = manifest_path.exists()
         if effective_resume == "required" and not manifest_existed:
-            raise RuntimeError(f"{label} compatible run '{digest}' does not exist")
+            raise RuntimeError(f"{label} compatible run '{compatible_run_id}' does not exist")
         if effective_resume == "never" and manifest_existed:
             raise RuntimeError(f"{label} fresh run '{run_id}' already exists; use a new attemptId")
         if manifest_existed:

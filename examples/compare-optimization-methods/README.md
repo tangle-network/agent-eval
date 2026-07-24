@@ -90,7 +90,7 @@ Replace all four example rates with the exact rates charged by that endpoint.
 | `OPTIMIZERS` | `gepa,skillopt` | Comma-separated methods to run. |
 | `OPTIMIZER_PYTHON` | `python` | Python executable containing the bridge and selected optimizers. |
 | `GEPA_MODEL` | `LLM_MODEL` | Endpoint model used by GEPA reflection. |
-| `GEPA_MAX_EVALUATIONS` | `40` | Maximum GEPA candidate-case calls. |
+| `GEPA_MAX_EVALUATIONS` | SkillOpt core plan size | Maximum GEPA candidate-case calls. Must match SkillOpt when both run. |
 | `GEPA_MAX_PROPOSER_COST_USD` | `5` | Maximum GEPA model spend inside one engine stage. |
 | `GEPA_PRICE_IN_PER_M` | required | Exact GEPA input rate per million tokens. |
 | `GEPA_PRICE_OUT_PER_M` | required | Exact GEPA output rate per million tokens. |
@@ -107,8 +107,11 @@ Replace all four example rates with the exact rates charged by that endpoint.
 | `MAX_OPTIMIZATION_COST_USD` | `5` | Worker and judge spend limit for each method. |
 | `MAX_TEST_COST_USD` | `2` | Shared final-case spend limit. |
 | `OPTIMIZATION_CONCURRENCY` | `1` | Methods allowed to optimize concurrently. |
+| `BILLING_NOTE` | inferred | Billing context saved with the result. |
+| `PRICE_SOURCE` | inferred | Source of the token prices saved with the result. |
 
 The result is written to `.evolve/compare-optimization-methods/<timestamp>/comparison.json` and mirrored to `.evolve/compare-optimization-methods/latest.json`.
-It includes every method's selected surface, final-case scores, paired lift interval, duration, cost status, upstream package revision, run identity, token usage, and source model configuration.
+It includes every method's selected surface, final-case scores, paired lift interval, duration, cost status, run limits, token prices, upstream package revision, run identity, token usage, and source model configuration.
 GEPA and SkillOpt model spend is exact when the endpoint returns token usage.
 The run fails when the endpoint omits usage instead of publishing an incomplete comparison.
+Set `BILLING_NOTE` and `PRICE_SOURCE` when declared token prices estimate subscription usage rather than actual billed dollars.

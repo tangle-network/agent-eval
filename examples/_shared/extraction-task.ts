@@ -6,6 +6,7 @@
 
 import { createHash } from 'node:crypto'
 import type { DispatchContext, JudgeConfig, JudgeScore, Scenario } from '../../src/campaign'
+import type { CustomTokenPricing } from '../../src/cost-ledger'
 import {
   callLlm,
   costReceiptFromLlm,
@@ -219,9 +220,8 @@ export interface ExtractionWorkerOptions {
   model: string
   /** Per-call RunRecord sink used by assertRealBackend at the end. */
   records: RunRecord[]
-  /** Optional token rates used when the provider omits billed cost. Set both or neither. */
-  priceInPerMTokens?: number
-  priceOutPerMTokens?: number
+  /** Optional token rates used when the provider omits billed cost. */
+  customTokenPricing?: CustomTokenPricing
   timeoutMs?: number
   experimentId?: string
 }
@@ -230,19 +230,9 @@ export interface ExtractionWorkerOptions {
  *  The returned function can be passed to runImprovementLoop or
  *  compareOptimizationMethods. */
 export function makeExtractionWorker(opts: ExtractionWorkerOptions) {
-  if ((opts.priceInPerMTokens === undefined) !== (opts.priceOutPerMTokens === undefined)) {
-    throw new Error('priceInPerMTokens and priceOutPerMTokens must be set together')
-  }
-  const customTokenPricing =
-    opts.priceInPerMTokens === undefined || opts.priceOutPerMTokens === undefined
-      ? undefined
-      : {
-          inputUsdPerMillion: opts.priceInPerMTokens,
-          outputUsdPerMillion: opts.priceOutPerMTokens,
-        }
   const llm = {
     ...opts.llm,
-    ...(customTokenPricing ? { customTokenPricing } : {}),
+    ...(opts.customTokenPricing ? { customTokenPricing: opts.customTokenPricing } : {}),
   }
   const timeoutMs = opts.timeoutMs ?? 30_000
   const experimentId = opts.experimentId ?? 'extraction-task'

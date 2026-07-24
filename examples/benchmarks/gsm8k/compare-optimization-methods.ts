@@ -6,7 +6,7 @@
  * Run with an OpenAI-compatible endpoint:
  *   AGENT_EVAL_GSM8K_PATH=~/.cache/agent-eval/gsm8k.jsonl \
  *   LLM_BASE_URL=https://api.deepseek.com/v1 LLM_API_KEY=$DEEPSEEK_API_KEY \
- *   LLM_MODEL=deepseek-chat \
+ *   LLM_MODEL=deepseek-v4-pro \
  *   pnpm tsx examples/benchmarks/gsm8k/compare-optimization-methods.ts
  */
 
@@ -52,6 +52,8 @@ const BASE_URL = (
 ).trim()
 const MODEL = process.env.LLM_MODEL || 'deepseek-v4-pro'
 const PRICE_IN_PER_M = optionalNonNegativeNumberEnv('PRICE_IN_PER_M')
+const PRICE_CACHED_IN_PER_M = optionalNonNegativeNumberEnv('PRICE_CACHED_IN_PER_M')
+const PRICE_CACHE_WRITE_IN_PER_M = optionalNonNegativeNumberEnv('PRICE_CACHE_WRITE_IN_PER_M')
 const PRICE_OUT_PER_M = optionalNonNegativeNumberEnv('PRICE_OUT_PER_M')
 const CALL_TIMEOUT_MS = positiveIntegerEnv('CALL_TIMEOUT_MS', 60_000)
 const TRAIN_N = positiveIntegerEnv('TRAIN_N', 8)
@@ -82,10 +84,25 @@ const SMOKE = process.env.SMOKE === '1'
 if ((PRICE_IN_PER_M === undefined) !== (PRICE_OUT_PER_M === undefined)) {
   throw new Error('PRICE_IN_PER_M and PRICE_OUT_PER_M must be set together')
 }
+if (
+  PRICE_IN_PER_M === undefined &&
+  (PRICE_CACHED_IN_PER_M !== undefined || PRICE_CACHE_WRITE_IN_PER_M !== undefined)
+) {
+  throw new Error('Cache token rates require PRICE_IN_PER_M and PRICE_OUT_PER_M')
+}
 const CUSTOM_TOKEN_PRICING =
   PRICE_IN_PER_M === undefined || PRICE_OUT_PER_M === undefined
     ? undefined
-    : { inputUsdPerMillion: PRICE_IN_PER_M, outputUsdPerMillion: PRICE_OUT_PER_M }
+    : {
+        inputUsdPerMillion: PRICE_IN_PER_M,
+        ...(PRICE_CACHED_IN_PER_M === undefined
+          ? {}
+          : { cachedInputUsdPerMillion: PRICE_CACHED_IN_PER_M }),
+        ...(PRICE_CACHE_WRITE_IN_PER_M === undefined
+          ? {}
+          : { cacheWriteUsdPerMillion: PRICE_CACHE_WRITE_IN_PER_M }),
+        outputUsdPerMillion: PRICE_OUT_PER_M,
+      }
 
 if (!API_KEY) {
   console.error('FATAL: set LLM_API_KEY (+ LLM_BASE_URL + LLM_MODEL) or TANGLE_API_KEY.')
@@ -94,6 +111,7 @@ if (!API_KEY) {
 if (!OPTIMIZER_API_KEY) {
   throw new Error('Set OPTIMIZER_API_KEY or LLM_API_KEY for GEPA and SkillOpt.')
 }
+const optimizerApiKey = OPTIMIZER_API_KEY
 if (SKILLOPT_MAX_EVALUATIONS < SKILLOPT_CORE_EVALUATIONS) {
   throw new Error(`SKILLOPT_MAX_EVALUATIONS must be at least ${SKILLOPT_CORE_EVALUATIONS}`)
 }
@@ -261,7 +279,7 @@ async function main() {
       name: 'gepa',
       objective: DRIVER_TARGET,
       background: 'The candidate is the complete system prompt for the math worker.',
-      evaluationVersion: 'gsm8k-exact-match-v1',
+      evaluationId: 'gsm8k-exact-match',
       recipe: {
         kind: 'engine',
         run: {
@@ -273,7 +291,7 @@ async function main() {
       optimizer: {
         model: GEPA_MODEL,
         baseUrl: OPTIMIZER_BASE_URL,
-        apiKey: OPTIMIZER_API_KEY,
+        apiKey: optimizerApiKey,
         budget: optimizerModelBudgetFromEnv(
           'GEPA',
           MAX_OPTIMIZATION_COST_USD,
@@ -291,7 +309,7 @@ async function main() {
       name: 'skillopt',
       objective: DRIVER_TARGET,
       background: 'The candidate is the complete system prompt for the math worker.',
-      evaluationVersion: 'gsm8k-exact-match-v1',
+      evaluationId: 'gsm8k-exact-match',
       trainer: {
         epochs: SKILLOPT_EPOCHS,
         batchSize: SKILLOPT_BATCH_SIZE,
@@ -299,7 +317,7 @@ async function main() {
       optimizer: {
         model: SKILLOPT_MODEL,
         baseUrl: OPTIMIZER_BASE_URL,
-        apiKey: OPTIMIZER_API_KEY,
+        apiKey: optimizerApiKey,
         budget: optimizerModelBudgetFromEnv(
           'SKILLOPT',
           MAX_OPTIMIZATION_COST_USD,

@@ -148,6 +148,7 @@ describe('selfImprove — complete optimization methods', () => {
           provenance: {
             source: {
               kind: 'package',
+              evidence: 'observed',
               package: 'official-test',
               version: '1.0.0',
               sourceUrl: 'https://example.test/official-test',
@@ -159,7 +160,10 @@ describe('selfImprove — complete optimization methods', () => {
             artifactDir: '/tmp/official-test',
             tokenUsage: {
               inputTokens: 10,
+              cachedInputTokens: 0,
+              cacheWriteInputTokens: 0,
               outputTokens: 5,
+              reasoningTokens: 0,
               totalTokens: 15,
               calls: 1,
             },

@@ -47,9 +47,10 @@ const OPTIMIZER_PYTHON = process.env.OPTIMIZER_PYTHON?.trim() || 'python'
 const GEPA_MODEL = process.env.GEPA_MODEL || MODEL
 const SKILLOPT_MODEL = process.env.SKILLOPT_MODEL || MODEL
 const PRICE_IN_PER_M = optionalNonNegativeNumberEnv('PRICE_IN_PER_M')
+const PRICE_CACHED_IN_PER_M = optionalNonNegativeNumberEnv('PRICE_CACHED_IN_PER_M')
+const PRICE_CACHE_WRITE_IN_PER_M = optionalNonNegativeNumberEnv('PRICE_CACHE_WRITE_IN_PER_M')
 const PRICE_OUT_PER_M = optionalNonNegativeNumberEnv('PRICE_OUT_PER_M')
 const CALL_TIMEOUT_MS = positiveIntegerEnv('CALL_TIMEOUT_MS', 30_000)
-const GEPA_MAX_EVALUATIONS = positiveIntegerEnv('GEPA_MAX_EVALUATIONS', 40)
 const GEPA_MAX_PROPOSER_COST_USD = positiveNumberEnv('GEPA_MAX_PROPOSER_COST_USD', 5)
 const SKILLOPT_EPOCHS = positiveIntegerEnv('SKILLOPT_EPOCHS', 2)
 const SKILLOPT_BATCH_SIZE = positiveIntegerEnv('SKILLOPT_BATCH_SIZE', 2)
@@ -69,6 +70,7 @@ const SKILLOPT_MAX_EVALUATIONS = positiveIntegerEnv(
   'SKILLOPT_MAX_EVALUATIONS',
   SKILLOPT_CORE_EVALUATIONS,
 )
+const GEPA_MAX_EVALUATIONS = positiveIntegerEnv('GEPA_MAX_EVALUATIONS', SKILLOPT_CORE_EVALUATIONS)
 
 if (!API_KEY) {
   throw new Error('Set LLM_API_KEY, or TANGLE_API_KEY with TANGLE_ROUTER_URL, for the worker.')
@@ -76,8 +78,15 @@ if (!API_KEY) {
 if (!OPTIMIZER_API_KEY) {
   throw new Error('Set OPTIMIZER_API_KEY or LLM_API_KEY for GEPA and SkillOpt.')
 }
+const optimizerApiKey = OPTIMIZER_API_KEY
 if ((PRICE_IN_PER_M === undefined) !== (PRICE_OUT_PER_M === undefined)) {
   throw new Error('PRICE_IN_PER_M and PRICE_OUT_PER_M must be set together')
+}
+if (
+  PRICE_IN_PER_M === undefined &&
+  (PRICE_CACHED_IN_PER_M !== undefined || PRICE_CACHE_WRITE_IN_PER_M !== undefined)
+) {
+  throw new Error('Cache token rates require PRICE_IN_PER_M and PRICE_OUT_PER_M')
 }
 if (SKILLOPT_MAX_EVALUATIONS < SKILLOPT_CORE_EVALUATIONS) {
   throw new Error(
@@ -95,11 +104,45 @@ if (selectedNames.length === 0 || unknownNames.length > 0) {
     `OPTIMIZERS must contain gepa, skillopt, or both; received ${selectedNames.join(',') || 'nothing'}`,
   )
 }
+if (
+  selectedNames.includes('gepa') &&
+  selectedNames.includes('skillopt') &&
+  GEPA_MAX_EVALUATIONS !== SKILLOPT_MAX_EVALUATIONS
+) {
+  throw new Error(
+    'GEPA_MAX_EVALUATIONS and SKILLOPT_MAX_EVALUATIONS must match when comparing both methods',
+  )
+}
 
 const customTokenPricing =
   PRICE_IN_PER_M === undefined || PRICE_OUT_PER_M === undefined
     ? undefined
-    : { inputUsdPerMillion: PRICE_IN_PER_M, outputUsdPerMillion: PRICE_OUT_PER_M }
+    : {
+        inputUsdPerMillion: PRICE_IN_PER_M,
+        ...(PRICE_CACHED_IN_PER_M === undefined
+          ? {}
+          : { cachedInputUsdPerMillion: PRICE_CACHED_IN_PER_M }),
+        ...(PRICE_CACHE_WRITE_IN_PER_M === undefined
+          ? {}
+          : { cacheWriteUsdPerMillion: PRICE_CACHE_WRITE_IN_PER_M }),
+        outputUsdPerMillion: PRICE_OUT_PER_M,
+      }
+const BILLING_NOTE =
+  process.env.BILLING_NOTE?.trim() ||
+  (customTokenPricing
+    ? 'Declared token prices; provider billing was not independently reconciled.'
+    : 'Provider-reported cost when available; package model pricing otherwise.')
+const PRICE_SOURCE =
+  process.env.PRICE_SOURCE?.trim() ||
+  (customTokenPricing
+    ? 'Caller-supplied PRICE_* environment variables.'
+    : 'Provider usage cost or Agent Eval package model pricing.')
+const gepaModelBudget = selectedNames.includes('gepa')
+  ? optimizerModelBudgetFromEnv('GEPA', MAX_OPTIMIZATION_COST_USD, customTokenPricing)
+  : undefined
+const skillOptModelBudget = selectedNames.includes('skillopt')
+  ? optimizerModelBudgetFromEnv('SKILLOPT', MAX_OPTIMIZATION_COST_USD, customTokenPricing)
+  : undefined
 
 const llm: LlmClientOptions = {
   apiKey: API_KEY,
@@ -114,9 +157,7 @@ const worker = makeExtractionWorker({
   llm,
   model: MODEL,
   records,
-  ...(PRICE_IN_PER_M === undefined || PRICE_OUT_PER_M === undefined
-    ? {}
-    : { priceInPerMTokens: PRICE_IN_PER_M, priceOutPerMTokens: PRICE_OUT_PER_M }),
+  ...(customTokenPricing ? { customTokenPricing } : {}),
   timeoutMs: CALL_TIMEOUT_MS,
   experimentId: 'compare-official-optimization-methods',
 })
@@ -134,7 +175,7 @@ function createMethods(): OptimizationMethod<ExtractScenario, Artifact>[] {
         objective: PROPOSER_TARGET,
         background:
           'The candidate is the complete system prompt for a transaction extraction agent.',
-        evaluationVersion: 'transaction-extraction-v1',
+        evaluationId: 'transaction-extraction',
         recipe: {
           kind: 'engine',
           run: {
@@ -146,12 +187,8 @@ function createMethods(): OptimizationMethod<ExtractScenario, Artifact>[] {
         optimizer: {
           model: GEPA_MODEL,
           baseUrl: OPTIMIZER_BASE_URL,
-          apiKey: OPTIMIZER_API_KEY,
-          budget: optimizerModelBudgetFromEnv(
-            'GEPA',
-            MAX_OPTIMIZATION_COST_USD,
-            customTokenPricing,
-          ),
+          apiKey: optimizerApiKey,
+          budget: gepaModelBudget!,
         },
         describeScenario,
         describeArtifact,
@@ -166,7 +203,7 @@ function createMethods(): OptimizationMethod<ExtractScenario, Artifact>[] {
         objective: PROPOSER_TARGET,
         background:
           'The candidate is the complete system prompt for a transaction extraction agent.',
-        evaluationVersion: 'transaction-extraction-v1',
+        evaluationId: 'transaction-extraction',
         trainer: {
           epochs: SKILLOPT_EPOCHS,
           batchSize: SKILLOPT_BATCH_SIZE,
@@ -174,12 +211,8 @@ function createMethods(): OptimizationMethod<ExtractScenario, Artifact>[] {
         optimizer: {
           model: SKILLOPT_MODEL,
           baseUrl: OPTIMIZER_BASE_URL,
-          apiKey: OPTIMIZER_API_KEY,
-          budget: optimizerModelBudgetFromEnv(
-            'SKILLOPT',
-            MAX_OPTIMIZATION_COST_USD,
-            customTokenPricing,
-          ),
+          apiKey: optimizerApiKey,
+          budget: skillOptModelBudget!,
         },
         maxEvaluations: SKILLOPT_MAX_EVALUATIONS,
         describeScenario,
@@ -257,8 +290,35 @@ async function main() {
     optimizer: {
       names: methods.map((method) => method.name),
       python: OPTIMIZER_PYTHON,
+      baseUrl: OPTIMIZER_BASE_URL,
       gepaModel: selectedNames.includes('gepa') ? GEPA_MODEL : null,
       skillOptModel: selectedNames.includes('skillopt') ? SKILLOPT_MODEL : null,
+    },
+    accounting: {
+      basis: customTokenPricing
+        ? 'declared-token-price-estimate'
+        : 'provider-reported-or-package-priced',
+      billingNote: BILLING_NOTE,
+      priceSource: PRICE_SOURCE,
+      workerPricing: customTokenPricing ?? null,
+      optimizerPricing: {
+        gepa: gepaModelBudget?.pricing ?? null,
+        skillopt: skillOptModelBudget?.pricing ?? null,
+      },
+    },
+    limits: {
+      candidateCaseEvaluations: {
+        gepa: selectedNames.includes('gepa') ? GEPA_MAX_EVALUATIONS : null,
+        skillopt: selectedNames.includes('skillopt') ? SKILLOPT_MAX_EVALUATIONS : null,
+      },
+      taskEvaluationCostUsdPerMethod: MAX_OPTIMIZATION_COST_USD,
+      finalEvaluationCostUsd: MAX_TEST_COST_USD,
+      optimizerModels: {
+        gepa: gepaModelBudget ?? null,
+        skillopt: skillOptModelBudget ?? null,
+      },
+      optimizationConcurrency: OPTIMIZATION_CONCURRENCY,
+      callTimeoutMs: CALL_TIMEOUT_MS,
     },
     dataset: { train: TRAIN.length, selection: SELECTION.length, final: TEST.length },
     scores: comparison.scores.map((score) => ({

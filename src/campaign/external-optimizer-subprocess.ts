@@ -8,6 +8,9 @@ const MAX_PROCESS_OUTPUT_CHARS = 64_000
 const MAX_PROCESS_INPUT_BYTES = 64 * 1024 * 1024
 const MAX_PROCESS_RESULT_BYTES = 4 * 1024 * 1024
 const PROCESS_TERMINATION_GRACE_MS = 5_000
+const PROCESS_TERMINATION_POLL_MS = 25
+const PROCESS_KILL_WAIT_MS = 1_000
+const MAX_TIMER_DELAY_MS = 2_147_483_647
 const PROCESS_OUTPUT_HEAD_CHARS = MAX_PROCESS_OUTPUT_CHARS / 2
 const PROCESS_OUTPUT_TAIL_CHARS = MAX_PROCESS_OUTPUT_CHARS - PROCESS_OUTPUT_HEAD_CHARS
 
@@ -26,6 +29,13 @@ export async function runExternalOptimizerProcess<TOutput>(args: {
   runner?: ExternalOptimizerRunnerCommand
   timeoutMs: number
 }): Promise<TOutput> {
+  if (
+    !Number.isSafeInteger(args.timeoutMs) ||
+    args.timeoutMs <= 0 ||
+    args.timeoutMs > MAX_TIMER_DELAY_MS
+  ) {
+    throw new Error(`${args.label} timeoutMs must be between 1 and ${MAX_TIMER_DELAY_MS}`)
+  }
   const dir = await mkdtemp(join(tmpdir(), args.tempPrefix))
   const inputPath = join(dir, 'input.json')
   const outputPath = join(dir, 'output.json')
@@ -108,24 +118,31 @@ function runProcess(args: {
     const stdout = createProcessOutputCapture()
     const stderr = createProcessOutputCapture()
     let settled = false
-    let timedOut = false
     let timeout: NodeJS.Timeout | undefined
-    let terminationGrace: NodeJS.Timeout | undefined
     const finish = (error?: Error) => {
       if (settled) return
       settled = true
       if (timeout) clearTimeout(timeout)
-      if (terminationGrace) clearTimeout(terminationGrace)
-      if (error) reject(error)
-      else resolvePromise()
+      void terminateProcessTree(child).then(
+        () => {
+          if (error) reject(error)
+          else resolvePromise()
+        },
+        (cleanupError: unknown) => {
+          if (error) {
+            reject(error)
+            return
+          }
+          reject(
+            new Error(
+              `${args.label} process cleanup failed: ${cleanupError instanceof Error ? cleanupError.message : String(cleanupError)}`,
+            ),
+          )
+        },
+      )
     }
     timeout = setTimeout(() => {
-      timedOut = true
-      terminateProcessTree(child, 'SIGTERM')
-      terminationGrace = setTimeout(() => {
-        terminateProcessTree(child, 'SIGKILL')
-        finish(new Error(`${args.label} exceeded ${args.timeoutMs}ms`))
-      }, PROCESS_TERMINATION_GRACE_MS)
+      finish(new Error(`${args.label} exceeded ${args.timeoutMs}ms`))
     }, args.timeoutMs)
     child.stdout.on('data', (chunk: Buffer) => {
       appendProcessOutput(stdout, chunk)
@@ -137,12 +154,6 @@ function runProcess(args: {
       finish(new Error(`${args.label} could not start: ${error.message}`))
     })
     child.on('close', (code) => {
-      if (timedOut) {
-        if (!terminationGrace) {
-          finish(new Error(`${args.label} exceeded ${args.timeoutMs}ms`))
-        }
-        return
-      }
       if (code === 0) {
         finish()
         return
@@ -184,31 +195,65 @@ function safeProcessEnvironment(): NodeJS.ProcessEnv {
   )
 }
 
-function terminateProcessTree(child: ChildProcess, signal: NodeJS.Signals): void {
-  if (!child.pid) return
-  if (process.platform !== 'win32') {
-    try {
-      process.kill(-child.pid, signal)
-      return
-    } catch (error) {
-      if (!isMissingProcessError(error)) {
-        child.kill(signal)
-        return
-      }
-    }
-    child.kill(signal)
+async function terminateProcessTree(child: ChildProcess): Promise<void> {
+  const pid = child.pid
+  if (!pid) return
+  if (process.platform === 'win32') {
+    await terminateWindowsProcessTree(child, pid)
     return
   }
 
-  const taskkill = spawn(
-    'taskkill',
-    ['/pid', String(child.pid), '/t', ...(signal === 'SIGKILL' ? ['/f'] : [])],
-    {
+  if (!signalProcessGroup(pid, 'SIGTERM')) return
+  if (await waitForProcessGroupExit(pid, PROCESS_TERMINATION_GRACE_MS)) return
+  if (!signalProcessGroup(pid, 'SIGKILL')) return
+  if (await waitForProcessGroupExit(pid, PROCESS_KILL_WAIT_MS)) return
+  throw new Error(`process group ${pid} remained alive after SIGKILL`)
+}
+
+function signalProcessGroup(pid: number, signal: NodeJS.Signals): boolean {
+  try {
+    process.kill(-pid, signal)
+    return true
+  } catch (error) {
+    if (isMissingProcessError(error)) return false
+    throw error
+  }
+}
+
+async function waitForProcessGroupExit(pid: number, timeoutMs: number): Promise<boolean> {
+  const deadline = Date.now() + timeoutMs
+  while (processGroupExists(pid)) {
+    const remainingMs = deadline - Date.now()
+    if (remainingMs <= 0) return false
+    await new Promise((resolve) =>
+      setTimeout(resolve, Math.min(PROCESS_TERMINATION_POLL_MS, remainingMs)),
+    )
+  }
+  return true
+}
+
+function processGroupExists(pid: number): boolean {
+  try {
+    process.kill(-pid, 0)
+    return true
+  } catch (error) {
+    if (isMissingProcessError(error)) return false
+    throw error
+  }
+}
+
+async function terminateWindowsProcessTree(child: ChildProcess, pid: number): Promise<void> {
+  await new Promise<void>((resolve) => {
+    const taskkill = spawn('taskkill', ['/pid', String(pid), '/t', '/f'], {
       stdio: 'ignore',
       windowsHide: true,
-    },
-  )
-  taskkill.on('error', () => child.kill(signal))
+    })
+    taskkill.once('error', () => {
+      child.kill('SIGKILL')
+      resolve()
+    })
+    taskkill.once('close', () => resolve())
+  })
 }
 
 function isMissingProcessError(error: unknown): boolean {

@@ -90,6 +90,18 @@ console.log(
 Each call runs every case, records the artifact, applies the same judge, and returns score distributions.
 The surface is the value being changed, such as a prompt, skill, or serialized configuration.
 
+## Adapt Another Text Optimizer
+
+Use `externalTextOptimizationMethod()` when an existing package owns search and selection for a text prompt or named text components.
+Its `run` callback receives the starting candidate plus serialized train and selection cases, but it never receives final test cases.
+The optimizer must score candidates through `context.evaluate()` so Agent Eval can enforce the evaluation limit and use the configured execution and judges.
+Every optimizer-owned paid call must use `context.cost.runPaidCall()`.
+Set `source` to the package version and revision, and set `evaluationId` to a commit, content hash, or other stable identity for the execution and scoring behavior.
+Agent Eval derives the run identity from those values, the optimizer settings, the starting surface, the described data, and the seed.
+The callback returns the selected candidate, whether compatible state was restored, and how optimizer spend was recorded.
+
+See [Adapt A Third-Party Text Optimizer](./docs/campaign-proposers.md#adapt-a-third-party-text-optimizer) for a complete minimal adapter.
+
 ## Optimize With Official GEPA
 
 `gepaOptimizationMethod()` delegates candidate search and recipe composition to the installed GEPA package.
@@ -105,7 +117,7 @@ const optimizerPricing = {
 
 const gepa = gepaOptimizationMethod<MyCase, MyArtifact>({
   objective: 'Improve the instructions so the agent returns valid, complete JSON.',
-  evaluationVersion: 'json-agent-v1',
+  evaluationId: 'json-agent',
   recipe: {
     kind: 'engine',
     run: {
@@ -164,7 +176,7 @@ const optimizerPricing = {
 
 const skillopt = skillOptOptimizationMethod<MyCase, MyArtifact>({
   objective: 'Improve the skill so the agent returns valid, complete JSON.',
-  evaluationVersion: 'json-agent-v1',
+  evaluationId: 'json-agent',
   trainer: {
     epochs: 2,
     batchSize: 4,
@@ -246,7 +258,7 @@ console.table(result.scores)
 Read `scores` for final-case lift and intervals.
 Read `pairwise` before claiming one method beat another.
 Read `totalCost.accountingComplete` before using the reported dollars as a complete total.
-Each official method score also records its package version, source revision, run ID, resume status, evaluation count, artifact directory, and available optimizer token usage in `provenance`.
+Each official method score records the optimizer and bridge package versions, source revisions and source-tree hashes, Python runtime, custom engine module hashes, compatible run ID, exact attempt ID, resume status, evaluation count, artifact directory, and available optimizer token usage in `provenance`.
 
 The [optimizer guide](./docs/campaign-proposers.md) covers recipes, budgets, resuming, and data separation.
 The [runnable comparison](./examples/compare-optimization-methods/) can run GEPA, SkillOpt, or both.

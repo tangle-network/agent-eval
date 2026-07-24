@@ -535,12 +535,15 @@ def test_agent_eval_gepa_bridge_resumes_state_from_a_real_prior_run(
         base_url,
         model_requests,
     ):
+        compatible_run_id = "a" * 64
         input_value = {
-            "version": 6,
             "engineModules": [],
             "attemptId": "first-run",
+            "compatibleRunId": compatible_run_id,
+            "runId": compatible_run_id,
+            "runtimeIdentity": gepa_bridge._runtime_identity([]),
             "resume": "if-compatible",
-            "evaluationVersion": "resume-test-v1",
+            "evaluationId": "resume-test",
             "seed": 7,
             "callbackUrl": "http://127.0.0.1:9/evaluate",
             "callbackToken": "local-callback-token",
@@ -635,6 +638,8 @@ def test_agent_eval_gepa_bridge_resumes_state_from_a_real_prior_run(
 def test_installed_skillopt_runs_reflact_with_packaged_prompts(
     tmp_path: Path,
 ) -> None:
+    from agent_eval_rpc import skillopt_bridge
+
     _assert_installed_git_package(
         "skillopt",
         "0.2.0",
@@ -658,13 +663,17 @@ def test_installed_skillopt_runs_reflact_with_packaged_prompts(
         _local_chat_server() as (base_url, model_requests),
         _skillopt_callback_server(callback_token) as (callback_url, callback_requests),
     ):
+        compatible_run_id = "b" * 64
+        attempt_id = "official-compatibility"
         input_path.write_text(
             json.dumps(
                 {
-                    "version": 2,
-                    "attemptId": "official-compatibility",
+                    "attemptId": attempt_id,
+                    "compatibleRunId": compatible_run_id,
+                    "runId": f"{compatible_run_id}-{attempt_id}",
+                    "runtimeIdentity": skillopt_bridge._runtime_identity(),
                     "resume": "never",
-                    "evaluationVersion": "official-compatibility-v1",
+                    "evaluationId": "official-compatibility",
                     "seed": 7,
                     "callbackUrl": callback_url,
                     "callbackToken": callback_token,
@@ -680,7 +689,6 @@ def test_installed_skillopt_runs_reflact_with_packaged_prompts(
                         "minibatchSize": 1,
                         "maxAnalystRounds": 1,
                         "evaluationWorkers": 1,
-                        "reasoningEffort": "none",
                     },
                     "modelBudget": {
                         "maxCostUsd": 1,

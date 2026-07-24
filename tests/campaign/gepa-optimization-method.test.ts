@@ -7,6 +7,7 @@ import {
   compareOptimizationMethods,
   gepaOptimizationMethod,
   type JudgeConfig,
+  type MutableSurface,
   type Scenario,
 } from '../../src/campaign'
 
@@ -35,6 +36,28 @@ const GEPA_MODEL_BUDGET = {
   },
 }
 
+const GEPA_RUNTIME_IDENTITY = {
+  python: {
+    implementation: 'CPython',
+    version: '3.12.0',
+  },
+  bridge: {
+    package: 'agent-eval-rpc',
+    version: 'test-bridge',
+    sourceUrl: 'https://github.com/tangle-network/agent-eval',
+    revision: 'test-bridge-revision',
+    sourceSha256: 'a'.repeat(64),
+  },
+  optimizer: {
+    package: 'gepa',
+    version: 'test',
+    sourceUrl: 'https://github.com/gepa-ai/gepa',
+    revision: 'test-revision',
+    sourceSha256: 'b'.repeat(64),
+  },
+  engineModules: [],
+} as const
+
 beforeEach(() => {
   runDir = mkdtempSync(join(tmpdir(), 'gepa-method-'))
 })
@@ -61,7 +84,7 @@ describe('gepaOptimizationMethod', () => {
           run: { engine: 'best_of_n', maxEvaluations: 1 },
         },
         objective: 'Return a better policy.',
-        evaluationVersion: 'test-v1',
+        evaluationId: 'test',
       } as never),
     ).toThrow('recipe.run.maxProposerCostUsd must be a positive finite number')
   })
@@ -81,7 +104,7 @@ describe('gepaOptimizationMethod', () => {
           },
         },
         objective: 'Return a better policy.',
-        evaluationVersion: 'test-v1',
+        evaluationId: 'test',
       }),
     ).toThrow('must be supplied through runner.env')
   })
@@ -98,7 +121,7 @@ describe('gepaOptimizationMethod', () => {
           },
         },
         objective: 'Return a better policy.',
-        evaluationVersion: 'test-v1',
+        evaluationId: 'test',
         optimizer: optimizerModel(),
       }),
     ).toThrow("optimizer requires GEPA's 'gepa' engine")
@@ -119,7 +142,7 @@ describe('gepaOptimizationMethod', () => {
           },
         },
         objective: 'Return a better policy.',
-        evaluationVersion: 'test-v1',
+        evaluationId: 'test',
         optimizer: optimizerModel(),
       }),
     ).toThrow('proxied reflection transport settings belong in optimizer')
@@ -146,7 +169,7 @@ describe('gepaOptimizationMethod', () => {
           },
         },
         objective: 'Return a better policy.',
-        evaluationVersion: 'test-v1',
+        evaluationId: 'test',
         optimizer: optimizerModel(),
       }),
     ).not.toThrow()
@@ -164,7 +187,7 @@ describe('gepaOptimizationMethod', () => {
           },
         },
         objective: 'Return a better policy.',
-        evaluationVersion: 'test-v1',
+        evaluationId: 'test',
         engineModules: ['my_engines.register', 'my_engines.register'],
       }),
     ).toThrow('engineModules must not contain duplicates')
@@ -182,7 +205,7 @@ describe('gepaOptimizationMethod', () => {
           },
         },
         objective: 'Return a better policy.',
-        evaluationVersion: 'test-v1',
+        evaluationId: 'test',
         optimizer: optimizerModel(),
         engineModules: ['my_engines.register'],
       }),
@@ -201,7 +224,7 @@ describe('gepaOptimizationMethod', () => {
         },
       },
       objective: 'Return the better policy.',
-      evaluationVersion: 'test-v1',
+      evaluationId: 'test',
       optimizer: optimizerModel(upstreamBaseUrl),
       runner: fakeMeteredGepaRunner(upstreamBaseUrl),
     })
@@ -238,6 +261,50 @@ describe('gepaOptimizationMethod', () => {
     })
   })
 
+  it('keeps evaluation and optimizer-model budgets cumulative across resumes', async () => {
+    const upstreamBaseUrl = await startModelServer()
+    const resumeMarker = join(runDir, 'fake-gepa-resume')
+    const method = gepaOptimizationMethod<TestScenario, TestArtifact>({
+      recipe: {
+        kind: 'engine',
+        run: {
+          engine: 'gepa',
+          maxEvaluations: 2,
+          maxProposerCostUsd: 0.1,
+        },
+      },
+      objective: 'Return the better policy.',
+      evaluationId: 'resume-budget',
+      optimizer: optimizerModel(upstreamBaseUrl),
+      resume: 'if-compatible',
+      runner: fakeMeteredGepaRunner(upstreamBaseUrl, resumeMarker),
+    })
+
+    const first = await compareOptimizationMethods(gepaComparisonOptions(method))
+    const second = await compareOptimizationMethods(gepaComparisonOptions(method))
+
+    expect(first.scores[0]!.provenance).toMatchObject({
+      resumed: false,
+      evaluationCount: 1,
+      tokenUsage: { inputTokens: 10, outputTokens: 5, totalTokens: 15, calls: 1 },
+    })
+    expect(second.scores[0]!.optimizationCost).toEqual({
+      totalCostUsd: 0.00004,
+      accountingComplete: true,
+      incompleteReasons: [],
+    })
+    expect(second.scores[0]!.provenance).toMatchObject({
+      resumed: true,
+      evaluationCount: 2,
+      tokenUsage: { inputTokens: 20, outputTokens: 10, totalTokens: 30, calls: 2 },
+    })
+    expect(first.scores[0]!.provenance?.runId).toBe(first.scores[0]!.provenance?.compatibleRunId)
+    expect(second.scores[0]!.provenance?.runId).toBe(first.scores[0]!.provenance?.compatibleRunId)
+    await expect(compareOptimizationMethods(gepaComparisonOptions(method))).rejects.toThrow(
+      'model failed: 429',
+    )
+  })
+
   it('exposes only described train and selection cases to the external process', async () => {
     const observedInputPath = join(runDir, 'external-input.json')
     const runner = fakeGepaRunner(observedInputPath)
@@ -251,7 +318,7 @@ describe('gepaOptimizationMethod', () => {
         },
       },
       objective: 'Return the better policy.',
-      evaluationVersion: 'test-v1',
+      evaluationId: 'test',
       describeScenario: (scenario) => ({ prompt: scenario.prompt }),
       runner,
     })
@@ -284,9 +351,8 @@ describe('gepaOptimizationMethod', () => {
 
     const observed = JSON.parse(readFileSync(observedInputPath, 'utf8')) as Record<string, unknown>
     expect(observed).toMatchObject({
-      version: 6,
       resume: 'never',
-      evaluationVersion: 'test-v1',
+      evaluationId: 'test',
       seed: 11,
       engineModules: [],
       recipe: {
@@ -316,14 +382,35 @@ describe('gepaOptimizationMethod', () => {
     expect(result.scores[0]!.provenance).toMatchObject({
       source: {
         kind: 'package',
+        evidence: 'observed',
         package: 'gepa',
         version: 'test',
+        sourceUrl: 'https://github.com/gepa-ai/gepa',
         revision: 'test-revision',
+        sourceSha256: 'b'.repeat(64),
       },
-      runId: 'test-run',
+      bridge: {
+        kind: 'package',
+        evidence: 'observed',
+        package: 'agent-eval-rpc',
+        version: 'test-bridge',
+        sourceUrl: 'https://github.com/tangle-network/agent-eval',
+        revision: 'test-bridge-revision',
+        sourceSha256: 'a'.repeat(64),
+      },
+      modules: [],
+      python: {
+        implementation: 'CPython',
+        version: '3.12.0',
+      },
+      compatibleRunId: expect.stringMatching(/^[0-9a-f]{64}$/),
+      runId: expect.stringMatching(/^[0-9a-f]{64}-[0-9a-f]{32}$/),
       resumed: false,
       evaluationCount: 1,
     })
+    expect(result.scores[0]!.provenance?.runId).toMatch(
+      new RegExp(`^${result.scores[0]!.provenance?.compatibleRunId}-[0-9a-f]{32}$`),
+    )
     expect(result.scores[0]!.provenance?.artifactDir).toContain('/gepa/external')
   })
 
@@ -340,7 +427,7 @@ describe('gepaOptimizationMethod', () => {
         },
       },
       objective: 'Improve both components.',
-      evaluationVersion: 'test-v1',
+      evaluationId: 'test',
       runner: fakeGepaRunner(observedInputPath, winner),
     })
 
@@ -395,7 +482,7 @@ describe('gepaOptimizationMethod', () => {
         },
       },
       objective: 'Improve both components.',
-      evaluationVersion: 'test-v1',
+      evaluationId: 'test',
     })
 
     await expect(
@@ -441,6 +528,11 @@ function fakeGepaRunner(
     "const inputPath = process.argv[process.argv.indexOf('--input') + 1]",
     "const outputPath = process.argv[process.argv.indexOf('--output') + 1]",
     'const input = JSON.parse(fs.readFileSync(inputPath, "utf8"))',
+    `const runtime = ${JSON.stringify(GEPA_RUNTIME_IDENTITY)}`,
+    'if (input.operation === "inspect") {',
+    '  fs.writeFileSync(outputPath, JSON.stringify({ runtime }))',
+    '  process.exit(0)',
+    '}',
     `fs.writeFileSync(${JSON.stringify(observedInputPath)}, JSON.stringify({ ...input, cwd: process.cwd() }))`,
     ';(async () => {',
     '  const response = await fetch(input.callbackUrl, {',
@@ -456,8 +548,8 @@ function fakeGepaRunner(
     '    totalEvaluations: 1,',
     '    recipeKind: input.recipe.kind,',
     '    proposerCostAccounting: "unavailable",',
-    '    upstream: { package: "gepa", version: "test", revision: "test-revision" },',
-    '    runId: "test-run",',
+    '    upstream: runtime.optimizer,',
+    '    runId: input.runId,',
     '    resumed: false,',
     '  }))',
     '})().catch((error) => { console.error(error); process.exit(1) })',
@@ -465,17 +557,28 @@ function fakeGepaRunner(
   return { command: process.execPath, args: ['-e', source, '--'] }
 }
 
-function fakeMeteredGepaRunner(upstreamBaseUrl: string) {
+function fakeMeteredGepaRunner(upstreamBaseUrl: string, resumeMarker?: string) {
   const source = [
     "const fs = require('node:fs')",
     "const inputPath = process.argv[process.argv.indexOf('--input') + 1]",
     "const outputPath = process.argv[process.argv.indexOf('--output') + 1]",
     'const input = JSON.parse(fs.readFileSync(inputPath, "utf8"))',
+    `const runtime = ${JSON.stringify(GEPA_RUNTIME_IDENTITY)}`,
     'if (process.env.OPENAI_API_KEY) throw new Error("upstream secret reached child")',
     'if (process.env.AWS_SECRET_ACCESS_KEY) throw new Error("AWS secret reached child")',
     'if (process.env.CUSTOM_AUTH_TOKEN) throw new Error("custom token reached child")',
+    'if (input.operation === "inspect") {',
+    '  fs.writeFileSync(outputPath, JSON.stringify({ runtime }))',
+    '  process.exit(0)',
+    '}',
     `if (input.modelProxy.baseUrl === ${JSON.stringify(upstreamBaseUrl)}) throw new Error("upstream URL reached child")`,
     'if (input.modelProxy.apiKey === "provider-secret") throw new Error("upstream secret reached input")',
+    ...(resumeMarker
+      ? [
+          `const resumed = fs.existsSync(${JSON.stringify(resumeMarker)})`,
+          `fs.writeFileSync(${JSON.stringify(resumeMarker)}, "seen")`,
+        ]
+      : ['const resumed = false']),
     ';(async () => {',
     '  const completionResponse = await fetch(input.modelProxy.baseUrl + "/chat/completions", {',
     '    method: "POST",',
@@ -499,9 +602,9 @@ function fakeMeteredGepaRunner(upstreamBaseUrl: string) {
     '    proposerCostUsd: 0.00002,',
     '    proposerCostAccounting: "metered",',
     '    tokenUsage: { inputTokens: completion.usage.prompt_tokens, outputTokens: completion.usage.completion_tokens, totalTokens: completion.usage.total_tokens, calls: 1 },',
-    '    upstream: { package: "gepa", version: "test", revision: "test-revision" },',
-    '    runId: "test-run",',
-    '    resumed: false,',
+    '    upstream: runtime.optimizer,',
+    '    runId: input.runId,',
+    '    resumed,',
     '  }))',
     '})().catch((error) => { console.error(error); process.exit(1) })',
   ].join('\n')
@@ -513,6 +616,31 @@ function fakeMeteredGepaRunner(upstreamBaseUrl: string) {
       AWS_SECRET_ACCESS_KEY: 'aws-secret',
       CUSTOM_AUTH_TOKEN: 'custom-secret',
     },
+  }
+}
+
+function gepaComparisonOptions(
+  method: ReturnType<typeof gepaOptimizationMethod<TestScenario, TestArtifact>>,
+) {
+  return {
+    methods: [method],
+    baselineSurface: 'baseline',
+    trainScenarios: [{ id: 'train', kind: 'qa', prompt: 'visible train', privateNote: '' }],
+    selectionScenarios: [
+      { id: 'selection', kind: 'qa', prompt: 'visible selection', privateNote: '' },
+    ],
+    testScenarios: [
+      { id: 'final', kind: 'qa', prompt: 'final', privateNote: '' },
+      { id: 'final-2', kind: 'qa', prompt: 'final 2', privateNote: '' },
+    ],
+    dispatchWithSurface: async (surface: MutableSurface) => ({
+      text: String(surface),
+    }),
+    judges: [betterJudge],
+    runDir,
+    seed: 11,
+    resamples: 40,
+    expectUsage: 'off' as const,
   }
 }
 

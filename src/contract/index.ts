@@ -13,7 +13,7 @@
 
 // ── Types: scenarios, dispatch, judges, gates, surfaces ──────────────
 
-// App-facing seam. `DispatchFn` remains the internal campaign type name;
+// App-facing alias. `DispatchFn` remains the internal campaign type name;
 // `/contract` exports it as `Dispatch`.
 export type {
   CampaignAggregates,
@@ -77,6 +77,14 @@ export {
 
 // ── Proposers ────────────────────────────────────────────────────────
 
+export {
+  type ExternalOptimizationExample,
+  type ExternalTextEvaluationResponse,
+  type ExternalTextOptimizationMethodConfig,
+  type ExternalTextOptimizerContext,
+  type ExternalTextOptimizerResult,
+  externalTextOptimizationMethod,
+} from '../campaign/external-text-optimization'
 export {
   type GepaAdaptiveEngineRun,
   type GepaEngineOptions,

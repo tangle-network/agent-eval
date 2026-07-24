@@ -1,6 +1,8 @@
 import type { CustomTokenPricing } from '../cost-ledger'
 import { costForTokenPricing } from '../cost-ledger'
 
+const MAX_TIMER_DELAY_MS = 2_147_483_647
+
 export interface ExternalOptimizerRunnerCommand {
   command?: string
   args?: readonly string[]
@@ -45,7 +47,10 @@ export interface ExternalOptimizerModelProxy {
   baseUrl: string
   /** Ephemeral credential supplied only to the local proxy. */
   apiKey: string
-  requests: () => number
+  /** Provider requests admitted during this proxy process, including failures. */
+  requestAttempts: () => number
+  /** Complete successful provider responses recorded during this proxy process. */
+  successfulCompletions: () => number
   close: () => Promise<void>
 }
 
@@ -142,9 +147,11 @@ export function assertExternalOptimizerModelBudget(
   }
   if (
     value.requestTimeoutMs !== undefined &&
-    (!Number.isSafeInteger(value.requestTimeoutMs) || value.requestTimeoutMs <= 0)
+    (!Number.isSafeInteger(value.requestTimeoutMs) ||
+      value.requestTimeoutMs <= 0 ||
+      value.requestTimeoutMs > MAX_TIMER_DELAY_MS)
   ) {
-    throw new Error(`${label}.requestTimeoutMs must be a positive safe integer`)
+    throw new Error(`${label}.requestTimeoutMs must be between 1 and ${MAX_TIMER_DELAY_MS}`)
   }
   costForTokenPricing(value.pricing, { inputTokens: 1, outputTokens: 1 })
 }
