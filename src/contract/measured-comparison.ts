@@ -4,6 +4,7 @@ import {
   type AgentCandidateBenchmarkTask,
   type AgentCandidateBenchmarkTaskMaterial,
   type AgentCandidateBundle,
+  type AgentCandidateEvaluationPolicy,
   type AgentCandidateExperiment,
   type AgentCandidateExperimentMaterial,
   type AgentCandidateExperimentMeasurement,
@@ -11,6 +12,7 @@ import {
   agentCandidateBenchmarkSuiteSchema,
   agentCandidateBenchmarkTaskSchema,
   agentCandidateBundleSchema,
+  agentCandidateEvaluationPolicySchema,
   agentCandidateExperimentSchema,
   agentImprovementMeasuredComparisonSchema,
   type CandidateExecutionEvidence,
@@ -55,6 +57,41 @@ export interface CompareCandidateExperimentOptions {
   searchDurationMs?: number
   searchCostUsd?: number
   metadata?: AgentImprovementMeasuredComparison['metadata']
+}
+
+/** One exact baseline/candidate observation of the same held-out cell. */
+export interface PairedMeasurement<TRun> {
+  cellId: string
+  baseline: TRun
+  candidate: TRun
+}
+
+/** Maps a product-owned run receipt into the measurements required for a fair paired decision. */
+export interface PairedMeasurementAdapter<TRun> {
+  score(run: TRun): number
+  dimensions(run: TRun): readonly { name: string; score: number }[]
+  costUsd(run: TRun): number
+  latencyMs(run: TRun): number
+  completed(run: TRun): boolean
+  passed(run: TRun): boolean
+}
+
+export interface EvaluatePairedMeasurementsOptions<TRun> {
+  measurements: readonly PairedMeasurement<TRun>[]
+  policy: AgentCandidateEvaluationPolicy
+  adapter: PairedMeasurementAdapter<TRun>
+  /** Search or preparation spend that belongs to the same frozen budget. */
+  additionalCostUsd?: number
+}
+
+/** Statistical and operational result derived from complete paired receipts. */
+export type PairedMeasurementEvaluation = Pick<
+  AgentImprovementMeasuredComparison,
+  'overall' | 'objectives' | 'decision' | 'power'
+> & {
+  executionCostUsd: number
+  totalCostUsd: number
+  executionDurationMs: number
 }
 
 /** Content-address one task before any measured execution can see it. */
@@ -170,41 +207,55 @@ export async function runCandidateExperiment(
   return measurements
 }
 
-/** Build the only publishable comparison: paired statistics over Runtime receipts. */
-export function measuredComparisonFromCandidateExperiment(
-  options: CompareCandidateExperimentOptions,
-): AgentImprovementMeasuredComparison {
-  const experiment = verifyCandidateExperiment(options.experiment)
-  const measurements = options.measurements.map((measurement, index) =>
-    verifyMeasurement(experiment, measurement, index),
-  )
-  const expectedN = experiment.benchmark.suite.taskDigests.length * experiment.benchmark.suite.reps
-  if (measurements.length !== expectedN) {
-    throw new Error(
-      `candidate experiment is incomplete (${measurements.length}/${expectedN} paired cells)`,
-    )
+/**
+ * Calculate the shared paired decision from any complete receipt shape.
+ * Callers still own sealing their tasks and proving every expected cell exists.
+ */
+export function evaluatePairedMeasurements<TRun>(
+  options: EvaluatePairedMeasurementsOptions<TRun>,
+): PairedMeasurementEvaluation {
+  const policy = agentCandidateEvaluationPolicySchema.parse(options.policy)
+  if (options.measurements.length === 0) {
+    throw new Error('paired measurement evaluation requires at least one paired cell')
   }
-  verifyStableProfileMaterialization(measurements)
-  if (!options.runId.trim()) throw new Error('candidate experiment runId is required')
-
+  const measurements = options.measurements.map((measurement, index) =>
+    projectPairedMeasurement(measurement, index, options.adapter),
+  )
+  const additionalCostUsd = options.additionalCostUsd ?? 0
+  if (!Number.isFinite(additionalCostUsd) || additionalCostUsd < 0) {
+    throw new Error('paired measurement evaluation additionalCostUsd must be a non-negative number')
+  }
+  const cellIds = measurements.map((measurement) => measurement.cellId)
+  if (new Set(cellIds).size !== cellIds.length) {
+    throw new Error('paired measurement evaluation cell ids must be unique')
+  }
+  const dimensions = sharedProjectedDimensions(measurements)
+  const baselineScores = measurements.map((measurement) => measurement.baseline.score)
+  const candidateScores = measurements.map((measurement) => measurement.candidate.score)
   const {
     confidenceLevel: confidence,
-    resamples,
-    bootstrapSeed,
     deltaThreshold,
     minProductiveRuns,
     budgetUsd,
     criticalDimensions,
     regressionTolerance,
-  } = experiment.policy
-  const baselineScores = measurements.map(scoreOf('baseline'))
-  const candidateScores = measurements.map(scoreOf('candidate'))
+  } = policy
+  const significance = heldoutSignificance(
+    { before: baselineScores, after: candidateScores, cellIds },
+    {
+      confidence,
+      resamples: policy.resamples,
+      seed: policy.bootstrapSeed,
+      statistic: 'mean',
+      deltaThreshold,
+      minProductiveRuns,
+    },
+  )
   const overall = measuredEstimate(baselineScores, candidateScores, {
     confidence,
-    resamples,
-    seed: bootstrapSeed,
+    resamples: policy.resamples,
+    seed: policy.bootstrapSeed,
   })
-  const dimensions = sharedDimensions(measurements)
   const objectives: AgentImprovementMeasuredComparison['objectives'] = [
     {
       kind: 'objective',
@@ -222,21 +273,33 @@ export function measuredComparisonFromCandidateExperiment(
       unit: 'score' as const,
       availability: 'measured' as const,
       ...measuredEstimate(
-        measurements.map(dimensionOf('baseline', name)),
-        measurements.map(dimensionOf('candidate', name)),
-        { confidence, resamples, seed: bootstrapSeed + index + 1 },
+        measurements.map((measurement) => dimensionScore(measurement.baseline, name)),
+        measurements.map((measurement) => dimensionScore(measurement.candidate, name)),
+        {
+          confidence,
+          resamples: policy.resamples,
+          seed: policy.bootstrapSeed + index + 1,
+        },
       ),
     })),
   ]
   const cost = measuredEstimate(
-    measurements.map(costOf('baseline')),
-    measurements.map(costOf('candidate')),
-    { confidence, resamples, seed: bootstrapSeed + dimensions.length + 1 },
+    measurements.map((measurement) => measurement.baseline.costUsd),
+    measurements.map((measurement) => measurement.candidate.costUsd),
+    {
+      confidence,
+      resamples: policy.resamples,
+      seed: policy.bootstrapSeed + dimensions.length + 1,
+    },
   )
   const latency = measuredEstimate(
-    measurements.map(latencyOf('baseline')),
-    measurements.map(latencyOf('candidate')),
-    { confidence, resamples, seed: bootstrapSeed + dimensions.length + 2 },
+    measurements.map((measurement) => measurement.baseline.latencyMs),
+    measurements.map((measurement) => measurement.candidate.latencyMs),
+    {
+      confidence,
+      resamples: policy.resamples,
+      seed: policy.bootstrapSeed + dimensions.length + 2,
+    },
   )
   objectives.push(
     {
@@ -257,17 +320,6 @@ export function measuredComparisonFromCandidateExperiment(
     },
   )
 
-  const significance = heldoutSignificance(
-    { before: baselineScores, after: candidateScores, cellIds: cellIds(experiment) },
-    {
-      confidence,
-      resamples,
-      seed: bootstrapSeed,
-      statistic: 'mean',
-      deltaThreshold,
-      minProductiveRuns,
-    },
-  )
   const power =
     baselineScores.length >= 3
       ? powerPreflight({
@@ -292,21 +344,21 @@ export function measuredComparisonFromCandidateExperiment(
       objective.confidenceInterval.lower < -regressionTolerance,
   )
   const executionCostUsd = measurements.reduce(
-    (sum, measurement) =>
-      sum + costFromEvidence(measurement.baseline) + costFromEvidence(measurement.candidate),
+    (sum, measurement) => sum + measurement.baseline.costUsd + measurement.candidate.costUsd,
     0,
   )
-  const searchCostUsd = options.searchCostUsd ?? 0
-  const totalCostUsd = executionCostUsd + searchCostUsd
-  const budgetPassed = budgetUsd === undefined || totalCostUsd <= budgetUsd
+  const executionDurationMs = measurements.reduce(
+    (sum, measurement) => sum + measurement.baseline.latencyMs + measurement.candidate.latencyMs,
+    0,
+  )
   const completedRuns = measurements.flatMap((measurement) => [
     measurement.baseline,
     measurement.candidate,
   ])
-  const incompleteRuns = completedRuns.filter((evidence) => !completedSuccessfully(evidence))
-  const failedCandidateResults = measurements.filter(
-    (measurement) => !measurement.candidate.receipt.benchmarkResult.material.passed,
-  )
+  const incompleteRuns = completedRuns.filter((run) => !run.completed)
+  const failedCandidateResults = measurements.filter((measurement) => !measurement.candidate.passed)
+  const totalCostUsd = executionCostUsd + additionalCostUsd
+  const budgetPassed = budgetUsd === undefined || totalCostUsd <= budgetUsd
   const checks = [
     { name: 'paired-significance', passed: significance.significant },
     { name: 'statistical-power', passed: powerSufficient },
@@ -344,18 +396,8 @@ export function measuredComparisonFromCandidateExperiment(
       : [`candidate failed ${failedCandidateResults.length} benchmark tasks`]),
     ...(budgetPassed ? [] : [`total cost ${totalCostUsd} exceeded budget ${budgetUsd}`]),
   ]
-  const diff = deriveCandidateBundleDiff(experiment)
-  const executionDurationMs = measurements.reduce(
-    (sum, measurement) =>
-      sum + latencyFromEvidence(measurement.baseline) + latencyFromEvidence(measurement.candidate),
-    0,
-  )
-  const searchDurationMs = options.searchDurationMs ?? 0
-  const durationMs = executionDurationMs + searchDurationMs
-  const provisional = agentImprovementMeasuredComparisonSchema.parse({
-    kind: 'agent-improvement-measured-comparison',
-    experiment,
-    measurements,
+
+  return {
     overall: {
       name: 'composite',
       direction: 'higher-is-better',
@@ -363,7 +405,6 @@ export function measuredComparisonFromCandidateExperiment(
       ...overall,
     },
     objectives,
-    ...(options.candidate ? { candidate: options.candidate } : {}),
     decision: {
       outcome: shipped
         ? 'ship'
@@ -383,6 +424,51 @@ export function measuredComparisonFromCandidateExperiment(
       reason:
         power?.recommendation ?? `need at least ${Math.max(3, minProductiveRuns)} paired runs`,
     },
+    executionCostUsd,
+    totalCostUsd,
+    executionDurationMs,
+  }
+}
+
+/** Build the only publishable comparison: paired statistics over Runtime receipts. */
+export function measuredComparisonFromCandidateExperiment(
+  options: CompareCandidateExperimentOptions,
+): AgentImprovementMeasuredComparison {
+  const experiment = verifyCandidateExperiment(options.experiment)
+  const measurements = options.measurements.map((measurement, index) =>
+    verifyMeasurement(experiment, measurement, index),
+  )
+  const expectedN = experiment.benchmark.suite.taskDigests.length * experiment.benchmark.suite.reps
+  if (measurements.length !== expectedN) {
+    throw new Error(
+      `candidate experiment is incomplete (${measurements.length}/${expectedN} paired cells)`,
+    )
+  }
+  verifyStableProfileMaterialization(measurements)
+  if (!options.runId.trim()) throw new Error('candidate experiment runId is required')
+  const evaluation = evaluatePairedMeasurements({
+    measurements: measurements.map((measurement, index) => ({
+      cellId: cellIds(experiment)[index]!,
+      ...measurement,
+    })),
+    policy: experiment.policy,
+    adapter: candidateExecutionEvidenceAdapter,
+    additionalCostUsd: options.searchCostUsd ?? 0,
+  })
+  const searchCostUsd = options.searchCostUsd ?? 0
+  const diff = deriveCandidateBundleDiff(experiment)
+  const searchDurationMs = options.searchDurationMs ?? 0
+  const totalCostUsd = evaluation.totalCostUsd
+  const durationMs = evaluation.executionDurationMs + searchDurationMs
+  const provisional = agentImprovementMeasuredComparisonSchema.parse({
+    kind: 'agent-improvement-measured-comparison',
+    experiment,
+    measurements,
+    overall: evaluation.overall,
+    objectives: evaluation.objectives,
+    ...(options.candidate ? { candidate: options.candidate } : {}),
+    decision: evaluation.decision,
+    power: evaluation.power,
     provenance: {
       kind: 'agent-eval-loop',
       schema: 'agent-candidate-experiment',
@@ -395,10 +481,10 @@ export function measuredComparisonFromCandidateExperiment(
     evaluation: {
       generationsExplored: options.generationsExplored ?? 0,
       searchDurationMs,
-      executionDurationMs,
+      executionDurationMs: evaluation.executionDurationMs,
       durationMs,
       searchCostUsd,
-      executionCostUsd,
+      executionCostUsd: evaluation.executionCostUsd,
       totalCostUsd,
     },
     ...(options.metadata ? { metadata: options.metadata } : {}),
@@ -671,6 +757,92 @@ function verifyMaterialAddressed(
   }
 }
 
+interface ProjectedRun {
+  score: number
+  dimensions: Map<string, number>
+  costUsd: number
+  latencyMs: number
+  completed: boolean
+  passed: boolean
+}
+
+interface ProjectedPairedMeasurement {
+  cellId: string
+  baseline: ProjectedRun
+  candidate: ProjectedRun
+}
+
+function projectPairedMeasurement<TRun>(
+  measurement: PairedMeasurement<TRun>,
+  index: number,
+  adapter: PairedMeasurementAdapter<TRun>,
+): ProjectedPairedMeasurement {
+  if (typeof measurement.cellId !== 'string' || !measurement.cellId.trim()) {
+    throw new Error(`paired measurement ${index} requires a cell id`)
+  }
+  return {
+    cellId: measurement.cellId,
+    baseline: projectRun(measurement.baseline, adapter, `paired measurement ${index} baseline`),
+    candidate: projectRun(measurement.candidate, adapter, `paired measurement ${index} candidate`),
+  }
+}
+
+function projectRun<TRun>(
+  run: TRun,
+  adapter: PairedMeasurementAdapter<TRun>,
+  label: string,
+): ProjectedRun {
+  const suppliedDimensions = adapter.dimensions(run)
+  if (!Array.isArray(suppliedDimensions)) {
+    throw new Error(`${label} dimensions must be an array`)
+  }
+  const dimensions = new Map<string, number>()
+  for (const dimension of suppliedDimensions) {
+    if (typeof dimension.name !== 'string' || !dimension.name.trim()) {
+      throw new Error(`${label} contains an unnamed dimension`)
+    }
+    if (dimensions.has(dimension.name)) {
+      throw new Error(`${label} repeats dimension '${dimension.name}'`)
+    }
+    dimensions.set(dimension.name, finiteMeasurement(dimension.score, `${label} ${dimension.name}`))
+  }
+  const completed = adapter.completed(run)
+  const passed = adapter.passed(run)
+  if (typeof completed !== 'boolean' || typeof passed !== 'boolean') {
+    throw new Error(`${label} completion and pass values must be booleans`)
+  }
+  return {
+    score: finiteMeasurement(adapter.score(run), `${label} score`),
+    dimensions,
+    costUsd: nonNegativeMeasurement(adapter.costUsd(run), `${label} cost`),
+    latencyMs: nonNegativeMeasurement(adapter.latencyMs(run), `${label} latency`),
+    completed,
+    passed,
+  }
+}
+
+function sharedProjectedDimensions(measurements: readonly ProjectedPairedMeasurement[]): string[] {
+  const expected = [...measurements[0]!.baseline.dimensions.keys()]
+  for (const [index, measurement] of measurements.entries()) {
+    for (const [arm, run] of [
+      ['baseline', measurement.baseline],
+      ['candidate', measurement.candidate],
+    ] as const) {
+      const actual = [...run.dimensions.keys()]
+      if (JSON.stringify(actual) !== JSON.stringify(expected)) {
+        throw new Error(`paired measurement ${index} ${arm} dimensions do not match the suite`)
+      }
+    }
+  }
+  return expected
+}
+
+function dimensionScore(run: ProjectedRun, name: string): number {
+  const value = run.dimensions.get(name)
+  if (value === undefined) throw new Error(`paired measurement is missing dimension '${name}'`)
+  return value
+}
+
 function measuredEstimate(
   baseline: number[],
   candidate: number[],
@@ -704,53 +876,23 @@ function measuredEstimate(
   }
 }
 
-function sharedDimensions(measurements: AgentCandidateExperimentMeasurement[]): string[] {
-  const expected = dimensionNames(measurements[0]?.baseline)
-  for (const [index, measurement] of measurements.entries()) {
-    for (const [arm, evidence] of [
-      ['baseline', measurement.baseline],
-      ['candidate', measurement.candidate],
-    ] as const) {
-      const actual = dimensionNames(evidence)
-      if (JSON.stringify(actual) !== JSON.stringify(expected)) {
-        throw new Error(
-          `candidate experiment measurement ${index} ${arm} dimensions do not match the suite`,
-        )
-      }
-    }
-  }
-  return expected
+function finiteMeasurement(value: number, label: string): number {
+  if (!Number.isFinite(value)) throw new Error(`${label} must be finite`)
+  return value
 }
 
-function dimensionNames(evidence: CandidateExecutionEvidence | undefined): string[] {
-  return (evidence?.receipt.benchmarkResult.material.dimensions ?? []).map(
-    (dimension) => dimension.name,
-  )
+function nonNegativeMeasurement(value: number, label: string): number {
+  if (!Number.isFinite(value) || value < 0) throw new Error(`${label} must be non-negative`)
+  return value
 }
 
-function scoreOf(arm: 'baseline' | 'candidate') {
-  return (measurement: AgentCandidateExperimentMeasurement): number =>
-    measurement[arm].receipt.benchmarkResult.material.score
-}
-
-function dimensionOf(arm: 'baseline' | 'candidate', name: string) {
-  return (measurement: AgentCandidateExperimentMeasurement): number => {
-    const dimension = measurement[arm].receipt.benchmarkResult.material.dimensions.find(
-      (entry) => entry.name === name,
-    )
-    if (!dimension) throw new Error(`candidate experiment is missing dimension '${name}'`)
-    return dimension.score
-  }
-}
-
-function costOf(arm: 'baseline' | 'candidate') {
-  return (measurement: AgentCandidateExperimentMeasurement): number =>
-    costFromEvidence(measurement[arm])
-}
-
-function latencyOf(arm: 'baseline' | 'candidate') {
-  return (measurement: AgentCandidateExperimentMeasurement): number =>
-    latencyFromEvidence(measurement[arm])
+const candidateExecutionEvidenceAdapter: PairedMeasurementAdapter<CandidateExecutionEvidence> = {
+  score: (evidence) => evidence.receipt.benchmarkResult.material.score,
+  dimensions: (evidence) => evidence.receipt.benchmarkResult.material.dimensions,
+  costUsd: costFromEvidence,
+  latencyMs: latencyFromEvidence,
+  completed: completedSuccessfully,
+  passed: (evidence) => evidence.receipt.benchmarkResult.material.passed,
 }
 
 function costFromEvidence(evidence: CandidateExecutionEvidence): number {
