@@ -6,6 +6,11 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ## [Unreleased]
 
+### Added
+
+- `runCampaign({ abortOnCellError: true })` stops scheduling after the first dispatch or judge error, aborts and drains active sibling cells, then rejects with the original error.
+- Failed cells write `<cell>/failure-receipt.json` before cancellation, including the exact cell result, call IDs, and settled agent-plus-judge cost and token totals.
+
 ## [0.126.2] - 2026-07-24 - fail-closed candidate ranking
 
 ### Added

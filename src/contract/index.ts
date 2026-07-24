@@ -51,7 +51,11 @@ export {
   type RunImprovementLoopResult,
   runImprovementLoop,
 } from '../campaign/presets/run-improvement-loop'
-export { type RunCampaignOptions, runCampaign } from '../campaign/run-campaign'
+export {
+  type CampaignCellFailureReceipt,
+  type RunCampaignOptions,
+  runCampaign,
+} from '../campaign/run-campaign'
 
 // ── Reference-answer judge ───────────────────────────────────────────
 
