@@ -154,6 +154,7 @@ describe('selfImprove — complete optimization methods', () => {
               sourceUrl: 'https://example.test/official-test',
               revision: 'abc123',
             },
+            optimizerModel: 'test-model@2026-07-24',
             runId: 'official-run',
             resumed: false,
             evaluationCount: 6,
@@ -209,10 +210,14 @@ describe('selfImprove — complete optimization methods', () => {
           package: 'official-test',
           revision: 'abc123',
         }),
+        optimizerModel: 'test-model@2026-07-24',
         runId: 'official-run',
       }),
     })
     expect(result.provenance.optimizationMethod).toEqual(result.optimization)
+    expect(result.provenance.optimizationMethod?.provenance?.optimizerModel).toBe(
+      'test-model@2026-07-24',
+    )
     expect(result.receipts).toEqual([
       expect.objectContaining({
         channel: 'optimizer',

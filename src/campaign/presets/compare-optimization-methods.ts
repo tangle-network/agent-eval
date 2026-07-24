@@ -82,6 +82,8 @@ export interface OptimizationMethodProvenance {
   modules?: OptimizationModuleSource[]
   /** Python implementation used by the bridge process. */
   python?: OptimizationPythonRuntime
+  /** Exact model identifier configured for optimizer-owned model calls. */
+  optimizerModel?: string
   runId: string
   /** Content identity shared by compatible resumptions. */
   compatibleRunId?: string
@@ -558,6 +560,14 @@ function assertOptimizationProvenance(
     if (entry !== undefined && (typeof entry !== 'string' || !entry.trim())) fail(`source.${field}`)
   }
   if (typeof value.runId !== 'string' || !value.runId.trim()) fail('runId')
+  if (
+    value.optimizerModel !== undefined &&
+    (typeof value.optimizerModel !== 'string' ||
+      !value.optimizerModel.trim() ||
+      value.optimizerModel.trim() !== value.optimizerModel)
+  ) {
+    fail('optimizerModel')
+  }
   if (typeof value.resumed !== 'boolean') fail('resumed')
   if (!Number.isSafeInteger(value.evaluationCount) || value.evaluationCount < 0) {
     fail('evaluationCount')

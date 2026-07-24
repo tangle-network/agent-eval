@@ -245,6 +245,7 @@ describe('skillOptOptimizationMethod', () => {
         implementation: 'CPython',
         version: '3.12.0',
       },
+      optimizerModel: 'model',
       compatibleRunId: expect.stringMatching(/^[0-9a-f]{64}$/),
       runId: expect.stringMatching(/^[0-9a-f]{64}-[0-9a-f]{32}$/),
       resumed: false,
