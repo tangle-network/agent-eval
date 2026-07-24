@@ -6,6 +6,7 @@ import {
   type PolicyEditAdmissionOptions,
 } from '../../src/analyst/policy-edit'
 import { type AnalystFinding, makeFinding } from '../../src/analyst/types'
+import type { PolicyEditJsonValueSchema } from '../../src/campaign'
 import {
   llmPolicyEditProposer,
   type PolicyEditFindingInput,
@@ -146,6 +147,7 @@ function proposer(input: {
   response: unknown
   capture?: CapturedRequest
   allowedJsonPaths?: string[]
+  valueSchemaByJsonPath?: Readonly<Record<string, PolicyEditJsonValueSchema>>
   finishReason?: string | null
   maxHistoryGenerations?: number
   maxHistoryCandidatesPerGeneration?: number
@@ -179,6 +181,9 @@ function proposer(input: {
     target: 'canonical agent profile JSON',
     targetSurface: (input.targetSurface ?? 'agent-profile') as 'agent-profile',
     allowedJsonPaths: input.allowedJsonPaths ?? ['prompt.systemPrompt'],
+    ...(input.valueSchemaByJsonPath === undefined
+      ? {}
+      : { valueSchemaByJsonPath: input.valueSchemaByJsonPath }),
     objectives: input.objectives ?? OBJECTIVES,
     ...(input.thinking === undefined ? {} : { thinking: input.thinking }),
     ...(input.maxHistoryGenerations === undefined
@@ -698,6 +703,178 @@ describe('llmPolicyEditProposer', () => {
       prompt: { systemPrompt: 'Base' },
       resources: { keep: true, instructions: ['READ_REPO.md'] },
     })
+  })
+
+  it('binds every allowed path to its exact value schema in provider and local validation', async () => {
+    const capture: CapturedRequest = {}
+    const valueSchemaByJsonPath = {
+      'prompt.systemPrompt': {
+        type: 'string',
+        minLength: 1,
+      },
+      'resources.instructions': {
+        type: 'object',
+        additionalProperties: false,
+        required: ['kind', 'name', 'content'],
+        properties: {
+          kind: { const: 'inline' },
+          name: { type: 'string', minLength: 1 },
+          content: { type: 'string', minLength: 1 },
+        },
+      },
+    } as const
+    const resource = {
+      kind: 'inline',
+      name: 'repository-guidance',
+      content: 'Read repository instructions before editing.',
+    }
+    const out = await proposer({
+      response: {
+        edits: [
+          authoredEdit('finding-1', {
+            path: 'resources.instructions',
+            value: resource,
+          }),
+        ],
+      },
+      capture,
+      allowedJsonPaths: ['prompt.systemPrompt', 'resources.instructions'],
+      valueSchemaByJsonPath,
+    }).propose(context({ finding: finding() }))
+
+    expect(JSON.parse(candidateSurface(out[0]!))).toEqual({
+      prompt: { systemPrompt: 'Base' },
+      resources: { keep: true, instructions: resource },
+    })
+    const providerSchema = (
+      capture.responseFormat?.json_schema as {
+        schema: {
+          properties: {
+            edits: {
+              items: {
+                anyOf: Array<{
+                  properties: {
+                    target: { properties: { path: { const: string } } }
+                    change: {
+                      anyOf: Array<{
+                        properties: {
+                          mode: { const: 'set' | 'merge' | 'remove' }
+                          value?: Record<string, unknown>
+                        }
+                      }>
+                    }
+                  }
+                }>
+              }
+            }
+          }
+        }
+      }
+    ).schema
+    const branches = providerSchema.properties.edits.items.anyOf
+    for (const [path, valueSchema] of Object.entries(valueSchemaByJsonPath)) {
+      const pathBranch = branches.find(
+        (branch) => branch.properties.target.properties.path.const === path,
+      )
+      expect(pathBranch).toBeDefined()
+      for (const mode of ['set', 'merge'] as const) {
+        expect(
+          pathBranch?.properties.change.anyOf.find(
+            (branch) => branch.properties.mode.const === mode,
+          )?.properties.value,
+        ).toEqual(valueSchema)
+      }
+    }
+
+    await expect(
+      proposer({
+        response: {
+          edits: [
+            authoredEdit('finding-1', {
+              path: 'resources.instructions',
+              value: ['READ_REPO.md'],
+            }),
+          ],
+        },
+        allowedJsonPaths: ['prompt.systemPrompt', 'resources.instructions'],
+        valueSchemaByJsonPath,
+      }).propose(context({ finding: finding() })),
+    ).rejects.toThrow(
+      /change\.value for JSON path 'resources\.instructions' does not match valueSchemaByJsonPath/,
+    )
+    await expect(
+      proposer({
+        response: {
+          edits: [
+            authoredEdit('finding-1', {
+              path: 'prompt.systemPrompt',
+              value: resource,
+            }),
+          ],
+        },
+        allowedJsonPaths: ['prompt.systemPrompt', 'resources.instructions'],
+        valueSchemaByJsonPath,
+      }).propose(context({ finding: finding() })),
+    ).rejects.toThrow(
+      /change\.value for JSON path 'prompt\.systemPrompt' does not match valueSchemaByJsonPath/,
+    )
+  })
+
+  it('preserves existing callers when path-specific value schemas are omitted', async () => {
+    const capture: CapturedRequest = {}
+    const out = await proposer({
+      response: { edits: [authoredEdit('finding-1')] },
+      capture,
+    }).propose(context({ finding: finding() }))
+
+    expect(out).toHaveLength(1)
+    const schema = (
+      capture.responseFormat?.json_schema as {
+        schema: {
+          properties: {
+            edits: {
+              items: {
+                properties: {
+                  change: {
+                    anyOf: Array<{
+                      properties: { mode: { const: string }; value?: Record<string, unknown> }
+                    }>
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    ).schema
+    expect(
+      schema.properties.edits.items.properties.change.anyOf.find(
+        (branch) => branch.properties.mode.const === 'set',
+      )?.properties.value,
+    ).toEqual({})
+  })
+
+  it('rejects incomplete or unsupported path-value schema maps before model dispatch', () => {
+    expect(() =>
+      proposer({
+        response: { edits: [] },
+        allowedJsonPaths: ['prompt.systemPrompt', 'resources.instructions'],
+        valueSchemaByJsonPath: {
+          'prompt.systemPrompt': { type: 'string' },
+        },
+      }),
+    ).toThrow(/keys must exactly match allowedJsonPaths.*missing: resources\.instructions/)
+    expect(() =>
+      proposer({
+        response: { edits: [] },
+        allowedJsonPaths: ['prompt.systemPrompt'],
+        valueSchemaByJsonPath: {
+          'prompt.systemPrompt': {
+            $ref: 'https://schemas.example.test/prompt.json',
+          },
+        },
+      }),
+    ).toThrow(/valueSchemaByJsonPath.*unsupported.*External \$ref/)
   })
 
   it('rejects authored edits outside the exact caller path allowlist', async () => {

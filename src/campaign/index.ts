@@ -306,6 +306,7 @@ export {
   type PolicyEditHistoryCandidateContext,
   type PolicyEditHistoryGenerationContext,
   type PolicyEditHistoryProjectionOptions,
+  type PolicyEditJsonValueSchema,
   type PolicyEditObjective,
   type PolicyEditOutcomeContext,
   projectPolicyEditHistory,
