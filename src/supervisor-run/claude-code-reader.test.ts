@@ -168,6 +168,38 @@ describe('claudeCodeSupervisorRunReader', () => {
     expect(report.orchestration.delegationDepth).toBe(1)
   })
 
+  it('counts a doubly-stopped worker once — a retry TaskStop is not a second cancel', async () => {
+    const sessionId = 'sess-dup-stop'
+    const transcriptPath = join(dir, `${sessionId}.jsonl`)
+    const subagentsDir = join(dir, sessionId, 'subagents')
+    await mkdir(subagentsDir, { recursive: true })
+    await writeFile(
+      transcriptPath,
+      jsonl([
+        { type: 'user', timestamp: at(0), message: { role: 'user', content: 'do the thing' } },
+        assistantTool(10, 'tu-a', 'Agent', {
+          description: 'build A',
+          subagent_type: 'general-purpose',
+        }),
+        toolResult(11, 'tu-a', {
+          agentId: 'ag-a',
+          status: 'async_launched',
+          resolvedModel: 'claude-x',
+        }),
+        assistantTool(70, 'tu-k1', 'TaskStop', { agentId: 'ag-a' }),
+        toolResult(71, 'tu-k1', { success: true }),
+        assistantTool(72, 'tu-k2', 'TaskStop', { agentId: 'ag-a' }),
+        toolResult(73, 'tu-k2', { success: true }),
+      ]),
+    )
+
+    const src = await readClaudeCodeSupervisorRun({ transcriptPath, subagentsDir })
+    const report = analyzeSupervisorRunSources(src)
+
+    expect(report.orchestration.workersSpawned).toBe(1)
+    expect(report.orchestration.workersCancelled).toBe(1)
+  })
+
   it('reports steers as a REAL count — Claude Code can message a live subagent', async () => {
     const s = await writeSession()
     const report = analyzeSupervisorRunSources(

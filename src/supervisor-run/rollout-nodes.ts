@@ -255,8 +255,16 @@ export function supervisorRunRolloutLines(
         usd: src.limits.spendUsd !== null || !close?.hasSpend ? null : close.spend.usd,
         tokens_in: workerSource?.tokensIn ?? (close?.hasSpend ? close.spend.tokens.input : null),
         tokens_out: workerSource?.tokensOut ?? (close?.hasSpend ? close.spend.tokens.output : null),
-        cache_read: workerSource?.cacheRead ?? null,
-        cache_write: workerSource?.cacheWrite ?? null,
+        // Mirror the tokens_in/out journal fallback so a loops-shaped store whose
+        // `settled` spend carries cache counters is not reported as null cache
+        // beside real tokens. Gate on `hasCache` — a spend object without cache
+        // counters must stay null, not a fabricated 0.
+        cache_read:
+          workerSource?.cacheRead ??
+          (close?.hasSpend && close.spend.tokens.hasCache ? close.spend.tokens.cacheRead : null),
+        cache_write:
+          workerSource?.cacheWrite ??
+          (close?.hasSpend && close.spend.tokens.hasCache ? close.spend.tokens.cacheWrite : null),
         wall_s: wallMs === null ? null : wallMs / 1000,
       },
       // A reader that knows where its worker artifacts live says so; only the

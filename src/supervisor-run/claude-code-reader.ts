@@ -382,7 +382,6 @@ export async function readClaudeCodeSupervisorRun(
   const steersByTarget = new Map<string, Array<{ at: string | null; delivered: boolean }>>()
   const cancels: Array<{ agentId: string; at: string | null }> = []
   const settles: TaskNotification[] = []
-  const labelOfAgent = new Map<string, string>()
 
   for (const thread of threads) {
     for (const use of thread.calls.uses) {
@@ -392,7 +391,6 @@ export async function readClaudeCodeSupervisorRun(
         if (agentId === null) continue
         const label =
           str(use.input.description) ?? childByAgentId.get(agentId)?.description ?? agentId
-        labelOfAgent.set(agentId, label)
         spawns.push({
           agentId,
           parentId: thread.id,
@@ -468,8 +466,16 @@ export async function readClaudeCodeSupervisorRun(
       }),
     )
   }
+  // One cancel per agent: Claude Code can emit a stop then a retry-stop for the
+  // same agentId, and each raw entry would otherwise mint a duplicate `cancelled`
+  // line that double-counts in `workersCancelled`. Keep the last, mirroring the
+  // last-notification dedup the settle path already does.
+  const lastCancel = new Map<string, { agentId: string; at: string | null }>()
   for (const c of cancels) {
     if (!spawnedIds.has(c.agentId)) continue
+    lastCancel.set(c.agentId, c)
+  }
+  for (const c of lastCancel.values()) {
     journalLines.push(
       line({ kind: 'cancelled', id: c.agentId, reason: 'stopped by supervisor', at: c.at }),
     )
