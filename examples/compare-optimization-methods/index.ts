@@ -56,8 +56,7 @@ const GEPA_MAX_PROPOSER_COST_USD = positiveNumberEnv('GEPA_MAX_PROPOSER_COST_USD
 const SKILLOPT_EPOCHS = positiveIntegerEnv('SKILLOPT_EPOCHS', 2)
 const SKILLOPT_BATCH_SIZE = positiveIntegerEnv('SKILLOPT_BATCH_SIZE', 2)
 const OPTIMIZATION_CONCURRENCY = positiveIntegerEnv('OPTIMIZATION_CONCURRENCY', 1)
-const MAX_OPTIMIZATION_COST_USD = positiveNumberEnv('MAX_OPTIMIZATION_COST_USD', 5)
-const MAX_TEST_COST_USD = positiveNumberEnv('MAX_TEST_COST_USD', 2)
+const MAX_RUN_COST_USD = positiveNumberEnv('MAX_RUN_COST_USD', 12)
 const SELECTION_N = 3
 const TRAIN = SEARCH.slice(0, -SELECTION_N)
 const SELECTION = SEARCH.slice(-SELECTION_N)
@@ -135,10 +134,10 @@ const PRICE_SOURCE =
     ? 'Caller-supplied PRICE_* environment variables.'
     : 'Provider usage cost or Agent Eval package model pricing.')
 const gepaModelBudget = selectedNames.includes('gepa')
-  ? optimizerModelBudgetFromEnv('GEPA', MAX_OPTIMIZATION_COST_USD, customTokenPricing)
+  ? optimizerModelBudgetFromEnv('GEPA', MAX_RUN_COST_USD, customTokenPricing)
   : undefined
 const skillOptModelBudget = selectedNames.includes('skillopt')
-  ? optimizerModelBudgetFromEnv('SKILLOPT', MAX_OPTIMIZATION_COST_USD, customTokenPricing)
+  ? optimizerModelBudgetFromEnv('SKILLOPT', MAX_RUN_COST_USD, customTokenPricing)
   : undefined
 
 const llm: LlmClientOptions = {
@@ -262,11 +261,10 @@ async function main() {
     confidence: 0.95,
     optimizationConcurrency: OPTIMIZATION_CONCURRENCY,
     optimizationRunOptions: {
-      costCeiling: MAX_OPTIMIZATION_COST_USD,
       dispatchTimeoutMs: CALL_TIMEOUT_MS,
       expectUsage: 'assert',
     },
-    costCeiling: MAX_TEST_COST_USD,
+    costCeiling: MAX_RUN_COST_USD,
     dispatchTimeoutMs: CALL_TIMEOUT_MS,
     expectUsage: 'assert',
   })
@@ -326,8 +324,7 @@ async function main() {
         gepa: selectedNames.includes('gepa') ? GEPA_MAX_EVALUATIONS : null,
         skillopt: selectedNames.includes('skillopt') ? SKILLOPT_MAX_EVALUATIONS : null,
       },
-      taskEvaluationCostUsdPerMethod: MAX_OPTIMIZATION_COST_USD,
-      finalEvaluationCostUsd: MAX_TEST_COST_USD,
+      allRunCostUsd: MAX_RUN_COST_USD,
       optimizerModels: {
         gepa: gepaModelBudget ?? null,
         skillopt: skillOptModelBudget ?? null,

@@ -37,6 +37,7 @@ export async function inspectExternalOptimizerRuntime<TPackage extends string>(a
   engineModules?: readonly string[]
   runner?: ExternalOptimizerRunnerCommand
   timeoutMs: number
+  signal?: AbortSignal
 }): Promise<ExternalOptimizerRuntimeIdentity<TPackage>> {
   const result = await runExternalOptimizerProcess<{ runtime: unknown }>({
     label: `${args.label} source inspection`,
@@ -48,6 +49,7 @@ export async function inspectExternalOptimizerRuntime<TPackage extends string>(a
     },
     ...(args.runner ? { runner: args.runner } : {}),
     timeoutMs: args.timeoutMs,
+    ...(args.signal ? { signal: args.signal } : {}),
   })
   assertExternalOptimizerRuntimeIdentity(result.runtime, args.package, args.label)
   return result.runtime

@@ -61,6 +61,15 @@ def test_upstream_evaluation_limit_reserves_concurrent_overshoot() -> None:
         gepa_bridge._upstream_evaluation_limit(4, 4)
 
 
+def test_model_proxy_requires_full_gepa_dependencies(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setitem(sys.modules, "litellm", None)
+    with pytest.raises(RuntimeError, match=r"Install gepa\[full\]"):
+        gepa_bridge._require_model_proxy_dependencies({"modelProxy": {}})
+    gepa_bridge._require_model_proxy_dependencies({})
+
+
 def test_bridge_calls_gepa_and_writes_a_cost_report(
     monkeypatch,
     tmp_path: Path,

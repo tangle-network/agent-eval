@@ -41,6 +41,18 @@ from agent_eval_rpc.optimizer_bridge_common import (
 )
 
 
+def _require_model_proxy_dependencies(input_value: dict[str, Any]) -> None:
+    if input_value.get("modelProxy") is None:
+        return
+    try:
+        import litellm  # noqa: F401
+    except ImportError as error:
+        raise RuntimeError(
+            "GEPA model-backed reflection requires the full GEPA dependency set. "
+            "Install gepa[full] from the documented source revision."
+        ) from error
+
+
 def main() -> None:
     previous_umask = os.umask(0o077)
     try:
@@ -74,6 +86,7 @@ def _main() -> None:
             "GEPA bridge requires GEPA's Optimize Anything source version. "
             "Install the commit documented in the agent-eval-rpc README."
         ) from error
+    _require_model_proxy_dependencies(input_value)
 
     evaluation_count = 0
 

@@ -5,10 +5,11 @@
  * data and compared with paired confidence intervals.
  */
 
-import { randomUUID } from 'node:crypto'
+import { combineAbortSignals } from '../../abort-signal'
 import { mapConcurrent } from '../../concurrency'
 import type { CostLedgerHandle, CostLedgerSummary, CostReceipt } from '../../cost-ledger'
 import { pairedBootstrap } from '../../statistics'
+import { contentHash } from '../../verdict-cache'
 import { assertCampaignDesign } from '../coverage'
 import { type RunCampaignOptions, runCampaign } from '../run-campaign'
 import { resolveRunDir } from '../run-dir'
@@ -23,10 +24,10 @@ import type {
   Scenario,
 } from '../types'
 
-/** Per-method campaign settings. Each method receives its own spend account. */
+/** Shared campaign settings applied to every optimization method. */
 export type OptimizationMethodRunOptions<TScenario extends Scenario, TArtifact> = Omit<
   RunCampaignOptions<TScenario, TArtifact>,
-  'costLedger' | 'dispatch' | 'judges' | 'runDir' | 'scenarios' | 'seed'
+  'costCeiling' | 'costLedger' | 'dispatch' | 'judges' | 'runDir' | 'scenarios' | 'seed'
 >
 
 /** Cost reported by a method or by final test scoring. */
@@ -111,7 +112,7 @@ export interface OptimizationMethodInput<TScenario extends Scenario, TArtifact> 
   readonly seed: number
   /** Shared defaults for every method. A method may override them explicitly. */
   readonly runOptions: Readonly<OptimizationMethodRunOptions<TScenario, TArtifact>>
-  /** Durable spend account shared by the method's model and evaluation calls. */
+  /** Durable spend account shared by every method and final scoring. */
   readonly costLedger: CostLedgerHandle
 }
 
@@ -230,8 +231,7 @@ export interface CompareOptimizationMethodsOptions<TScenario extends Scenario, T
   /** Simultaneous confidence across method-vs-baseline and method-vs-method contrasts.
    *  Each bootstrap interval is Bonferroni-adjusted. Default 0.95. */
   confidence?: number
-  /** Shared spend limit across baseline and winner scoring on the final test partition.
-   *  Each method owns its optimization budget through `optimizationRunOptions.costCeiling`. */
+  /** Shared spend limit across every method's optimizer and evaluation calls plus final scoring. */
   costCeiling?: number
 }
 
@@ -254,26 +254,30 @@ export async function compareOptimizationMethods<TScenario extends Scenario, TAr
   assertComparisonControls(opts, seed, resamples, confidence)
   const storage = opts.storage ?? fsCampaignStorage()
   const resolvedRunDir = resolveRunDir(opts.runDir, opts.repo)
-  const testCostPhase = `compareOptimizationMethods:test:${randomUUID()}`
-  const testCostLedger =
+  const baselineSurface = structuredClone(opts.baselineSurface)
+  const costLedger =
     opts.costLedger ??
     createRunCostLedger({
       storage,
-      runDir: `${resolvedRunDir}/test/cost`,
+      runDir: `${resolvedRunDir}/cost`,
       costCeilingUsd: opts.costCeiling,
     })
 
   const scoreOnTest = async (
     surface: MutableSurface,
     tag: string,
+    costPhase: string,
   ): Promise<Record<string, number>> => {
+    const measuredSurface = structuredClone(surface)
     const campaign: CampaignResult<TArtifact, TScenario> = await runCampaign<TScenario, TArtifact>({
       ...opts,
       storage,
-      costLedger: testCostLedger,
-      costPhase: testCostPhase,
+      costLedger,
+      costPhase,
       scenarios: opts.testScenarios.map((scenario) => structuredClone(scenario)),
-      dispatch: (scenario, ctx) => opts.dispatchWithSurface(surface, scenario, ctx),
+      dispatch: (scenario, ctx) =>
+        opts.dispatchWithSurface(structuredClone(measuredSurface), scenario, ctx),
+      dispatchRef: finalDispatchRef(opts, measuredSurface),
       runDir: `${resolvedRunDir}/${tag}`,
     })
     const byScenario: Record<string, number> = {}
@@ -300,24 +304,42 @@ export async function compareOptimizationMethods<TScenario extends Scenario, TAr
 
   // Finish every method before the first final-test call. Each method gets
   // independent scenario values so one method cannot mutate another's input.
+  const optimizationOwner = new AbortController()
   const optimized = await mapConcurrent(opts.methods, optimizationConcurrency, async (method) => {
-    const out = await method.optimize(
-      createOptimizationMethodInput(opts, method.name, resolvedRunDir, seed),
-    )
-    assertOptimizationResult(method.name, out)
-    const winnerSurface = structuredClone(out.winnerSurface)
-    return {
-      name: method.name,
-      winnerSurface,
-      cost: out.cost,
-      durationMs: out.durationMs,
-      provenance: out.provenance,
+    try {
+      const out = await method.optimize(
+        createOptimizationMethodInput(
+          opts,
+          method.name,
+          resolvedRunDir,
+          seed,
+          baselineSurface,
+          costLedger,
+          optimizationOwner.signal,
+        ),
+      )
+      assertOptimizationResult(method.name, out)
+      const winnerSurface = structuredClone(out.winnerSurface)
+      return {
+        name: method.name,
+        winnerSurface,
+        cost: out.cost,
+        durationMs: out.durationMs,
+        provenance: out.provenance,
+      }
+    } catch (error) {
+      if (!optimizationOwner.signal.aborted) optimizationOwner.abort(error)
+      throw error
     }
   })
+  const testCostPhase = finalCostPhase(opts, baselineSurface, optimized, seed)
   // Reuse one final-test measurement for identical surfaces. This avoids duplicate
   // spend and prevents model variance from inventing a difference between equal inputs.
-  const baselineArr = align(await scoreOnTest(opts.baselineSurface, 'test/baseline'), 'baseline')
-  const testScoresBySurface = new Map([[surfaceContentHash(opts.baselineSurface), baselineArr]])
+  const baselineArr = align(
+    await scoreOnTest(baselineSurface, 'test/baseline', testCostPhase),
+    'baseline',
+  )
+  const testScoresBySurface = new Map([[surfaceContentHash(baselineSurface), baselineArr]])
   const winners: Array<(typeof optimized)[number] & { arr: number[] }> = []
   for (const winner of optimized) {
     const surfaceKey = surfaceContentHash(winner.winnerSurface)
@@ -326,6 +348,7 @@ export async function compareOptimizationMethods<TScenario extends Scenario, TAr
       const byScenario = await scoreOnTest(
         winner.winnerSurface,
         `test/methods/${slug(winner.name)}`,
+        testCostPhase,
       )
       arr = align(byScenario, `method "${winner.name}"`)
       testScoresBySurface.set(surfaceKey, arr)
@@ -356,7 +379,7 @@ export async function compareOptimizationMethods<TScenario extends Scenario, TAr
         winnerComposite: w.arr[index]!,
         lift: w.arr[index]! - baselineArr[index]!,
       })),
-      winnerSurface: w.winnerSurface,
+      winnerSurface: structuredClone(w.winnerSurface),
       rank: 0,
     }
     if (w.durationMs !== undefined) score.durationMs = w.durationMs
@@ -406,7 +429,7 @@ export async function compareOptimizationMethods<TScenario extends Scenario, TAr
   const optimizationCost = combineCosts(
     scores.map((score) => ({ label: `method '${score.name}'`, cost: score.optimizationCost })),
   )
-  const testCost = costFromLedgerSummary(testCostLedger.summary({ phase: testCostPhase }))
+  const testCost = costFromLedgerSummary(costLedger.summary({ phase: testCostPhase }))
   const totalCost = combineCosts([
     { label: 'optimization', cost: optimizationCost },
     { label: 'final test', cost: testCost },
@@ -558,11 +581,29 @@ function assertComparisonControls<TScenario extends Scenario, TArtifact>(
   resamples: number,
   confidence: number,
 ): void {
+  if (
+    opts.optimizationRunOptions &&
+    'costCeiling' in (opts.optimizationRunOptions as unknown as Record<string, unknown>)
+  ) {
+    throw new Error(
+      'compareOptimizationMethods: optimizationRunOptions.costCeiling is not supported; costCeiling covers optimization and final scoring',
+    )
+  }
   if (!opts.judges || opts.judges.length === 0) {
     throw new Error('compareOptimizationMethods: at least one judge is required')
   }
   if (typeof opts.dispatchWithSurface !== 'function') {
     throw new Error('compareOptimizationMethods: dispatchWithSurface must be a function')
+  }
+  if (
+    opts.dispatchRef !== undefined &&
+    (typeof opts.dispatchRef !== 'string' ||
+      opts.dispatchRef.trim().length === 0 ||
+      opts.dispatchRef.trim() !== opts.dispatchRef)
+  ) {
+    throw new Error(
+      'compareOptimizationMethods: dispatchRef must be trimmed and non-empty when provided',
+    )
   }
   try {
     surfaceContentHash(opts.baselineSurface)
@@ -770,9 +811,11 @@ function createOptimizationMethodInput<TScenario extends Scenario, TArtifact>(
   methodName: string,
   resolvedRunDir: string,
   seed: number,
+  baselineSurface: MutableSurface,
+  costLedger: CostLedgerHandle,
+  optimizationSignal: AbortSignal,
 ): OptimizationMethodInput<TScenario, TArtifact> {
   const methodRunDir = `${resolvedRunDir}/optimization/${slug(methodName)}`
-  const storage = opts.storage ?? fsCampaignStorage()
   const cloneScenarios = (scenarios: readonly TScenario[]): readonly TScenario[] =>
     Object.freeze(scenarios.map((scenario) => structuredClone(scenario)))
   const judges = opts.judges.map((judge) =>
@@ -783,21 +826,68 @@ function createOptimizationMethodInput<TScenario extends Scenario, TArtifact>(
       ),
     }),
   ) as JudgeConfig<TArtifact, TScenario>[]
+  const signal = combineAbortSignals(
+    opts.signal,
+    opts.optimizationRunOptions?.signal,
+    optimizationSignal,
+  )
   return Object.freeze({
-    baselineSurface: structuredClone(opts.baselineSurface),
+    baselineSurface: structuredClone(baselineSurface),
     trainScenarios: cloneScenarios(opts.trainScenarios),
     selectionScenarios: cloneScenarios(opts.selectionScenarios),
     dispatchWithSurface: opts.dispatchWithSurface,
     judges: Object.freeze(judges),
     runDir: methodRunDir,
     seed,
-    runOptions: Object.freeze({ ...(opts.optimizationRunOptions ?? {}) }),
-    costLedger: createRunCostLedger({
-      storage,
-      runDir: `${methodRunDir}/cost`,
-      costCeilingUsd: opts.optimizationRunOptions?.costCeiling,
+    runOptions: Object.freeze({
+      ...(opts.optimizationRunOptions ?? {}),
+      ...(signal ? { signal } : {}),
     }),
+    costLedger,
   })
+}
+
+function finalCostPhase<TScenario extends Scenario, TArtifact>(
+  opts: CompareOptimizationMethodsOptions<TScenario, TArtifact>,
+  baselineSurface: MutableSurface,
+  winners: readonly { name: string; winnerSurface: MutableSurface }[],
+  seed: number,
+): string {
+  const identity = contentHash({
+    baseline: surfaceContentHash(baselineSurface),
+    winners: winners.map((winner) => ({
+      name: winner.name,
+      surface: surfaceContentHash(winner.winnerSurface),
+    })),
+    testScenarios: opts.testScenarios,
+    judges: opts.judges.map((judge) => ({
+      name: judge.name,
+      dimensions: judge.dimensions,
+      version:
+        judge.judgeVersion ??
+        contentHash({
+          score: judge.score.toString(),
+          appliesTo: judge.appliesTo?.toString() ?? null,
+        }),
+    })),
+    dispatch: callerDispatchRef(opts),
+    seed,
+    reps: opts.reps ?? 1,
+  })
+  return `compareOptimizationMethods.test:${identity}`
+}
+
+function finalDispatchRef<TScenario extends Scenario, TArtifact>(
+  opts: CompareOptimizationMethodsOptions<TScenario, TArtifact>,
+  surface: MutableSurface,
+): string {
+  return `compareOptimizationMethods:${callerDispatchRef(opts)}:${surfaceContentHash(surface)}`
+}
+
+function callerDispatchRef<TScenario extends Scenario, TArtifact>(
+  opts: CompareOptimizationMethodsOptions<TScenario, TArtifact>,
+): string {
+  return (opts.dispatchRef ?? opts.dispatchWithSurface.name) || 'anonymous'
 }
 
 /** Keep the cost fields a custom optimization method must report. */
