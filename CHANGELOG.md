@@ -13,7 +13,7 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ### Fixed
 
-- Official GEPA and SkillOpt resume identities include the caller's exact dispatch identity, so changed agent, retrieval, judge, model, or service behavior cannot restore incompatible optimizer state.
+- Official GEPA, SkillOpt, and generic external optimizer resume identities include the caller's exact dispatch identity, so changed agent, retrieval, judge, model, or service behavior cannot restore incompatible optimizer state.
 - `compareOptimizationMethods()` passes its final-scoring dispatch identity into method optimization and rejects conflicting identities.
 
 ## [0.126.2] - 2026-07-24 - fail-closed candidate ranking

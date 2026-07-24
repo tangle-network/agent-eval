@@ -375,6 +375,72 @@ describe('external text optimization', () => {
     }
   })
 
+  it('starts with fresh state and budget when the dispatch identity changes', async () => {
+    const runDir = mkdtempSync(join(tmpdir(), 'external-text-dispatch-identity-'))
+    const storage = inMemoryCampaignStorage()
+    const scenario: TestScenario = { id: 'train', kind: 'qa', prompt: 'test' }
+    const base = {
+      name: 'dispatch-identity',
+      source: { kind: 'package' as const, package: 'dispatch-identity', version: '1.0.0' },
+      objective: 'Improve the answer.',
+      evaluationId: 'qa',
+      maxEvaluations: 1,
+      maxOptimizerCostUsd: 0,
+      resume: 'if-compatible' as const,
+    }
+    let firstStateDir = ''
+    const interrupted = externalTextOptimizationMethod<TestScenario, { text: string }>({
+      ...base,
+      run: async (context) => {
+        firstStateDir = context.stateDir
+        expect(context.restoreRequested).toBe(false)
+        storage.write(`${context.stateDir}/checkpoint.json`, '{"candidate":"candidate"}\n')
+        await context.evaluate({ candidate: 'candidate', exampleId: 'train' })
+        throw new Error('simulated interruption')
+      },
+    })
+    const fresh = externalTextOptimizationMethod<TestScenario, { text: string }>({
+      ...base,
+      run: async (context) => {
+        expect(context.restoreRequested).toBe(false)
+        expect(context.stateDir).not.toBe(firstStateDir)
+        expect(storage.read(`${context.stateDir}/checkpoint.json`)).toBeUndefined()
+        await context.evaluate({ candidate: 'candidate', exampleId: 'train' })
+        return {
+          bestCandidate: 'candidate',
+          resumed: false,
+          costAccounting: { kind: 'no-paid-work' },
+        }
+      },
+    })
+
+    try {
+      await expect(
+        interrupted.optimize(
+          optimizationInput([scenario], [], {
+            runDir,
+            storage,
+            dispatchRef: 'execution-a',
+          }),
+        ),
+      ).rejects.toThrow('simulated interruption')
+      const result = await fresh.optimize(
+        optimizationInput([scenario], [], {
+          runDir,
+          storage,
+          dispatchRef: 'execution-b',
+        }),
+      )
+
+      expect(result.provenance).toMatchObject({
+        resumed: false,
+        evaluationCount: 1,
+      })
+    } finally {
+      rmSync(runDir, { recursive: true, force: true })
+    }
+  })
+
   it('rejects persisted state whose manifest does not match the compatible run', async () => {
     const runDir = mkdtempSync(join(tmpdir(), 'external-text-mismatched-manifest-'))
     const storage = inMemoryCampaignStorage()
@@ -722,6 +788,7 @@ function optimizationInput(
   options: {
     runDir?: string
     storage?: ReturnType<typeof inMemoryCampaignStorage>
+    dispatchRef?: string
   } = {},
 ): OptimizationMethodInput<TestScenario, { text: string }> {
   const storage = options.storage ?? inMemoryCampaignStorage()
@@ -743,7 +810,7 @@ function optimizationInput(
     ],
     runDir,
     seed: 42,
-    runOptions: { storage, expectUsage: 'off' },
+    runOptions: { storage, expectUsage: 'off', dispatchRef: options.dispatchRef },
     costLedger: createRunCostLedger({ storage, runDir: `${runDir}/cost` }),
   }
 }
