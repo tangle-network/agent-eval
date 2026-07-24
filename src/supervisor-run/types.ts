@@ -66,6 +66,42 @@ export interface WorkerLogSource {
   readonly inbox: string | null
   /** Worker patch byte length, or null when absent. */
   readonly patchBytes: number | null
+  /** Where this worker's transcript lives, for the rollout row. Null = no such artifact. */
+  readonly transcriptRef?: string | null
+  /** Where this worker's delivered patch lives. Null = the store keeps no patch per worker. */
+  readonly patchPath?: string | null
+  /** This worker's own inference tokens, when the store records them per worker. */
+  readonly tokensIn?: number | null
+  readonly tokensOut?: number | null
+  readonly cacheRead?: number | null
+  readonly cacheWrite?: number | null
+}
+
+/**
+ * Facts a SOURCE structurally cannot express, each with the reason.
+ *
+ * The difference between "the artifact is missing" and "this store never
+ * records that fact" is the difference between a run that spent $0 and a
+ * harness that does not price inference — and the second harness is where a
+ * loops-shaped assumption becomes a fabricated zero. A reader declares its
+ * limits once; the analyzer reports `unavailable` for everything downstream.
+ *
+ * `null` on a field means the source DOES carry that fact.
+ */
+export interface SourceLimits {
+  /** Reason inference spend has no price in this store (null = the store prices it). */
+  readonly spendUsd: string | null
+  /** Reason workers carry no pass/fail verdict (null = verdicts are recorded). */
+  readonly workerVerdicts: string | null
+  /** Reason no delivered artifact (patch/diff) is retained per worker (null = retained). */
+  readonly deliverables: string | null
+}
+
+/** A source that carries every fact the analyzer can use. */
+export const NO_SOURCE_LIMITS: SourceLimits = {
+  spendUsd: null,
+  workerVerdicts: null,
+  deliverables: null,
 }
 
 /**
@@ -121,8 +157,24 @@ export interface SupervisorRunSources {
     sessions: number
     input: number
     output: number
+    /** Cached prompt tokens, when the store counts them separately. */
+    cacheRead?: number
+    cacheWrite?: number
   } | null
   readonly harnessMissingReason: string | null
+  /** What this store structurally cannot record. See `SourceLimits`. */
+  readonly limits: SourceLimits
+  /**
+   * Where the ROOT invocation's transcript lives. Undefined lets the rollout
+   * minter fall back to the loops layout (`<supRunDir>/journal.jsonl`); any
+   * other store must say, or the row points at a path that never existed.
+   */
+  readonly rootTranscriptRef?: string | null
+  /**
+   * The `traces` CLI command that covers this run's harness-session layer.
+   * Null falls back to the analyzer's default (an opencode worker fleet).
+   */
+  readonly traceCommand: string | null
 }
 
 /**
@@ -204,6 +256,13 @@ export interface DecisionMetrics {
 export interface RoleSpend {
   readonly tokensIn: Measured<number>
   readonly tokensOut: Measured<number>
+  /**
+   * Cached prompt tokens read/written. On a harness that caches aggressively
+   * these dwarf `tokensIn`, so a report that omits them understates the context
+   * each invocation actually consumed. `unavailable` = the store has no such counter.
+   */
+  readonly cacheRead: Measured<number>
+  readonly cacheWrite: Measured<number>
   readonly usd: Measured<number>
   readonly source: string
 }
@@ -211,9 +270,10 @@ export interface RoleSpend {
 export interface PerWorkerRow {
   readonly worker: string
   readonly wallMs: number | null
-  readonly tokensIn: number
-  readonly tokensOut: number
-  readonly usd: number
+  /** `null` = this store does not attribute tokens per worker (NOT "zero tokens"). */
+  readonly tokensIn: number | null
+  readonly tokensOut: number | null
+  readonly usd: number | null
   readonly patchBytes: number | null
   readonly passed: boolean | null
 }

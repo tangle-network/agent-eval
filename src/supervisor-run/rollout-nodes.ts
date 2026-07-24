@@ -162,15 +162,27 @@ export function supervisorRunRolloutLines(
       },
       cost: {
         ...EMPTY_COST,
-        usd: typeof stateResult.spentUsd === 'number' ? stateResult.spentUsd : tree.brain.usd,
+        usd:
+          src.limits.spendUsd !== null
+            ? null
+            : typeof stateResult.spentUsd === 'number'
+              ? stateResult.spentUsd
+              : tree.brain.usd,
         tokens_in: tree.brain.tokensIn,
         tokens_out: tree.brain.tokensOut,
+        cache_read: tree.brain.hasCache ? tree.brain.cacheRead : null,
+        cache_write: tree.brain.hasCache ? tree.brain.cacheWrite : null,
         wall_s: wallMs === null ? null : wallMs / 1000,
       },
       artifacts: {
         patch_path: typeof result?.patchPath === 'string' ? result.patchPath : null,
         run_dir: src.supRunDir,
-        transcript_ref: src.supRunDir === null ? null : `${src.supRunDir}/journal.jsonl`,
+        transcript_ref:
+          src.rootTranscriptRef !== undefined
+            ? src.rootTranscriptRef
+            : src.supRunDir === null
+              ? null
+              : `${src.supRunDir}/journal.jsonl`,
       },
       provenance: {
         captured_at: capturedAt,
@@ -184,6 +196,7 @@ export function supervisorRunRolloutLines(
 
   // ── workers: one node per spawn, keyed to its spawner ───────────────────
   const closeById = new Map(tree.closes.map((c) => [c.id, c]))
+  const sourceByLabel = new Map((src.workers ?? []).map((w) => [w.label, w]))
   // Worker logs are keyed by label, the journal by id — the label is the only
   // join available. A repeated label is a literal retry of the same subtask, so
   // both attempts see the same log facts; the journal ids keep them distinct
@@ -191,6 +204,7 @@ export function supervisorRunRolloutLines(
   for (const spawn of tree.workerSpawns) {
     const close = closeById.get(spawn.id) ?? null
     const facts = tree.workerLogs.get(spawn.label) ?? null
+    const workerSource = sourceByLabel.get(spawn.label) ?? null
     const wallMs =
       facts?.started != null && facts.finishedAt != null ? facts.finishedAt - facts.started : null
     const reward = facts?.passed === null || facts === null ? null : facts.passed ? 1 : 0
@@ -234,23 +248,42 @@ export function supervisorRunRolloutLines(
         is_truncated: close?.kind === 'cancelled',
         error: close?.kind === 'cancelled' ? (close.verdict ?? 'cancelled') : null,
       },
+      // `close.spend` is only a measurement when the close event carried one;
+      // a store that never priced this worker must leave null, not 0.
       cost: {
         ...EMPTY_COST,
-        usd: close?.spend.usd ?? null,
-        tokens_in: close?.spend.tokens.input ?? null,
-        tokens_out: close?.spend.tokens.output ?? null,
+        usd: src.limits.spendUsd !== null || !close?.hasSpend ? null : close.spend.usd,
+        tokens_in: workerSource?.tokensIn ?? (close?.hasSpend ? close.spend.tokens.input : null),
+        tokens_out: workerSource?.tokensOut ?? (close?.hasSpend ? close.spend.tokens.output : null),
+        cache_read: workerSource?.cacheRead ?? null,
+        cache_write: workerSource?.cacheWrite ?? null,
         wall_s: wallMs === null ? null : wallMs / 1000,
       },
+      // A reader that knows where its worker artifacts live says so; only the
+      // loops layout is derivable from `supRunDir`, so guessing it for another
+      // store would mint rows pointing at paths that never existed.
       artifacts: {
-        patch_path: src.supRunDir === null ? null : `${src.supRunDir}/workers/${spawn.label}.patch`,
+        patch_path:
+          workerSource?.patchPath !== undefined
+            ? workerSource.patchPath
+            : src.supRunDir === null
+              ? null
+              : `${src.supRunDir}/workers/${spawn.label}.patch`,
         run_dir: src.supRunDir,
         transcript_ref:
-          src.supRunDir === null ? null : `${src.supRunDir}/workers/${spawn.label}.ndjson`,
+          workerSource?.transcriptRef !== undefined
+            ? workerSource.transcriptRef
+            : src.supRunDir === null
+              ? null
+              : `${src.supRunDir}/workers/${spawn.label}.ndjson`,
       },
       provenance: {
         captured_at: capturedAt,
         capture: 'backfill',
-        gap: 'worker transcript lives in the harness session store — hydrate via src/rollout/readers',
+        gap:
+          workerSource?.transcriptRef == null
+            ? 'worker transcript lives in the harness session store — hydrate via src/rollout/readers'
+            : 'worker transcript recorded by the harness; messages not inlined into this row',
       },
     })
   }

@@ -23,6 +23,14 @@ export {
   type WorkerLogFacts,
 } from './analyze'
 export {
+  type ClaudeCodeReaderOptions,
+  claudeCodeSupervisorRunReader,
+  DEFAULT_CANCEL_TOOLS,
+  DEFAULT_SPAWN_TOOLS,
+  DEFAULT_STEER_TOOLS,
+  readClaudeCodeSupervisorRun,
+} from './claude-code-reader'
+export {
   analyzeSupervisorRun,
   findSupervisorRunDirIn,
   findSupervisorRunDirs,
@@ -46,12 +54,14 @@ export {
   type EconomicsMetrics,
   isUnavailable,
   type Measured,
+  NO_SOURCE_LIMITS,
   type OrchestrationMetrics,
   type OutcomeMetrics,
   type PatchStats,
   type PerWorkerRow,
   type RoleSpend,
   type RollupCellRow,
+  type SourceLimits,
   type SteerBreakdown,
   SUPERVISOR_RUN_ROLLUP_SCHEMA,
   SUPERVISOR_RUN_SCHEMA,

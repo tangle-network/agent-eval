@@ -25,12 +25,13 @@ import {
   renderSupervisorRunHeadline,
   renderSupervisorRunMarkdown,
 } from './render'
-import type {
-  SupervisorRunReader,
-  SupervisorRunReport,
-  SupervisorRunRollup,
-  SupervisorRunSources,
-  WorkerLogSource,
+import {
+  NO_SOURCE_LIMITS,
+  type SupervisorRunReader,
+  type SupervisorRunReport,
+  type SupervisorRunRollup,
+  type SupervisorRunSources,
+  type WorkerLogSource,
 } from './types'
 
 async function readMaybe(path: string): Promise<string | null> {
@@ -169,6 +170,10 @@ export async function readLoopsSupervisorRun(
     driverLog: await readMaybe(join(runDir, 'driver.log')),
     harnessWorkerTokens,
     harnessMissingReason,
+    // loops prices its own inference, runs a verify per worker, and keeps each
+    // worker's patch — every fact the analyzer can use is expressible here.
+    limits: NO_SOURCE_LIMITS,
+    traceCommand: null,
   }
 }
 

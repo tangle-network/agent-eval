@@ -46,6 +46,10 @@ interface JournalEvent {
 interface Tokens {
   input: number
   output: number
+  cacheRead: number
+  cacheWrite: number
+  /** False when the event carried no cache counters at all — not "zero cached". */
+  hasCache: boolean
 }
 
 interface SpendLike {
@@ -64,8 +68,21 @@ function num(v: unknown): number {
 function readSpend(v: unknown): SpendLike {
   const rec = asRecord(v)
   const tok = asRecord(rec.tokens)
-  return { tokens: { input: num(tok.input), output: num(tok.output) }, usd: num(rec.usd) }
+  const cacheRead = tok.cacheRead ?? tok.cache_read
+  const cacheWrite = tok.cacheWrite ?? tok.cache_write
+  return {
+    tokens: {
+      input: num(tok.input),
+      output: num(tok.output),
+      cacheRead: num(cacheRead),
+      cacheWrite: num(cacheWrite),
+      hasCache: cacheRead !== undefined || cacheWrite !== undefined,
+    },
+    usd: num(rec.usd),
+  }
 }
+
+const NO_CACHE_COUNTERS = 'the journal carries no cache-token counters for this role'
 
 export function parseJsonl(text: string | null): Record<string, unknown>[] {
   if (text === null) return []
@@ -119,6 +136,8 @@ export interface CloseRow {
   verdict: string | null
   at: number | null
   spend: SpendLike
+  /** False when the close event carried no spend object — not "spent nothing". */
+  hasSpend: boolean
 }
 
 export interface WorkerLogFacts {
@@ -145,7 +164,16 @@ export interface SupervisorTreeFacts {
   readonly closes: readonly CloseRow[]
   readonly workerSpawns: readonly SpawnRow[]
   readonly workerCloses: readonly CloseRow[]
-  readonly brain: { tokensIn: number; tokensOut: number; usd: number; meteredCount: number }
+  readonly brain: {
+    tokensIn: number
+    tokensOut: number
+    cacheRead: number
+    cacheWrite: number
+    /** False when no metered event carried cache counters — not "nothing cached". */
+    hasCache: boolean
+    usd: number
+    meteredCount: number
+  }
   readonly workerLogs: ReadonlyMap<string, WorkerLogFacts>
   readonly startedAt: number | null
   readonly completedAt: number | null
@@ -159,6 +187,9 @@ export function parseSupervisorTree(src: SupervisorRunSources): SupervisorTreeFa
   const closes: CloseRow[] = []
   let brainIn = 0
   let brainOut = 0
+  let brainCacheRead = 0
+  let brainCacheWrite = 0
+  let brainHasCache = false
   let brainUsd = 0
   let meteredCount = 0
   let rootId: string | null = null
@@ -178,6 +209,7 @@ export function parseSupervisorTree(src: SupervisorRunSources): SupervisorTreeFa
         verdict: typeof ev.verdict === 'string' ? ev.verdict : null,
         at: ms(ev.at),
         spend: readSpend(ev.spent),
+        hasSpend: asRecord(ev.spent).tokens !== undefined,
       })
     } else if (kind === 'cancelled') {
       closes.push({
@@ -186,12 +218,19 @@ export function parseSupervisorTree(src: SupervisorRunSources): SupervisorTreeFa
         status: 'cancelled',
         verdict: typeof ev.reason === 'string' ? ev.reason : null,
         at: ms(ev.at),
-        spend: { tokens: { input: 0, output: 0 }, usd: 0 },
+        spend: {
+          tokens: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, hasCache: false },
+          usd: 0,
+        },
+        hasSpend: false,
       })
     } else if (kind === 'metered') {
       const s = readSpend(ev.spend)
       brainIn += s.tokens.input
       brainOut += s.tokens.output
+      brainCacheRead += s.tokens.cacheRead
+      brainCacheWrite += s.tokens.cacheWrite
+      brainHasCache = brainHasCache || s.tokens.hasCache
       brainUsd += s.usd
       meteredCount += 1
     }
@@ -254,7 +293,15 @@ export function parseSupervisorTree(src: SupervisorRunSources): SupervisorTreeFa
     closes,
     workerSpawns,
     workerCloses,
-    brain: { tokensIn: brainIn, tokensOut: brainOut, usd: brainUsd, meteredCount },
+    brain: {
+      tokensIn: brainIn,
+      tokensOut: brainOut,
+      cacheRead: brainCacheRead,
+      cacheWrite: brainCacheWrite,
+      hasCache: brainHasCache,
+      usd: brainUsd,
+      meteredCount,
+    },
     workerLogs,
     startedAt,
     completedAt,
@@ -455,6 +502,9 @@ export function analyzeSupervisorRunSources(
     if (c.verdict !== null) settledVerdicts[c.verdict] = (settledVerdicts[c.verdict] ?? 0) + 1
   }
 
+  // A store with no verify step never says pass or fail. Counting its silent
+  // workers as `rejected: 0 / accepted: 0` would read as "nothing was accepted".
+  const verdictLimit = src.limits.workerVerdicts
   let accepted = 0
   let rejected = 0
   let emptyPass = 0
@@ -493,10 +543,30 @@ export function analyzeSupervisorRunSources(
 
   const decision: DecisionMetrics = {
     settledByStatus: haveJournal ? settledByStatus : gap('settledByStatus', journalMissing),
-    settledVerdicts: haveJournal ? settledVerdicts : unavailable(journalMissing),
-    accepted: src.workers === null ? unavailable(workersGapReason) : accepted,
-    rejected: src.workers === null ? unavailable(workersGapReason) : rejected,
-    emptyPass: src.workers === null ? unavailable(workersGapReason) : emptyPass,
+    settledVerdicts:
+      verdictLimit !== null
+        ? unavailable(verdictLimit)
+        : haveJournal
+          ? settledVerdicts
+          : unavailable(journalMissing),
+    accepted:
+      verdictLimit !== null
+        ? gap('accepted', verdictLimit)
+        : src.workers === null
+          ? unavailable(workersGapReason)
+          : accepted,
+    rejected:
+      verdictLimit !== null
+        ? unavailable(verdictLimit)
+        : src.workers === null
+          ? unavailable(workersGapReason)
+          : rejected,
+    emptyPass:
+      verdictLimit !== null || src.limits.deliverables !== null
+        ? unavailable(verdictLimit ?? (src.limits.deliverables as string))
+        : src.workers === null
+          ? unavailable(workersGapReason)
+          : emptyPass,
     observeThenRespawn: haveJournal ? observeThenRespawn : unavailable(journalMissing),
     respawnWithoutEvidence: haveJournal ? respawnWithoutEvidence : unavailable(journalMissing),
     reviewActions:
@@ -508,6 +578,13 @@ export function analyzeSupervisorRunSources(
   const journalWorkerIn = workerCloses.reduce((a, c) => a + c.spend.tokens.input, 0)
   const journalWorkerOut = workerCloses.reduce((a, c) => a + c.spend.tokens.output, 0)
   const journalWorkerUsd = workerCloses.reduce((a, c) => a + c.spend.usd, 0)
+  const labelById = new Map(tree.workerSpawns.map((s) => [s.id, s.label]))
+  const workerUsdByLabel = new Map<string, number>()
+  for (const c of workerCloses) {
+    const label = labelById.get(c.id)
+    if (label === undefined) continue
+    workerUsdByLabel.set(label, (workerUsdByLabel.get(label) ?? 0) + c.spend.usd)
+  }
   const sq = src.harnessWorkerTokens
   const harnessGapReason =
     src.harnessMissingReason ?? 'harness session store unavailable and journal settled spend is 0'
@@ -526,21 +603,26 @@ export function analyzeSupervisorRunSources(
 
   const stateResult = asRecord(state?.result)
   const stateUsd = typeof stateResult.spentUsd === 'number' ? stateResult.spentUsd : null
+  // A store that logs tokens but never a price yields usd 0 from every sum. That
+  // 0 is the store's silence, not a free run, so the limit outranks the sum.
+  const usdLimit = src.limits.spendUsd
   const totalUsd: Measured<number> =
-    stateUsd !== null
-      ? round(stateUsd, 6)
-      : haveJournal
-        ? round(tree.brain.usd + journalWorkerUsd, 6)
-        : gap('totalUsd', journalMissing)
+    usdLimit !== null
+      ? gap('totalUsd', usdLimit)
+      : stateUsd !== null
+        ? round(stateUsd, 6)
+        : haveJournal
+          ? round(tree.brain.usd + journalWorkerUsd, 6)
+          : gap('totalUsd', journalMissing)
 
   const perWorker: PerWorkerRow[] = (src.workers ?? []).map((w) => {
     const f = tree.workerLogs.get(w.label)
     return {
       worker: w.label,
       wallMs: f?.started != null && f.finishedAt != null ? f.finishedAt - f.started : null,
-      tokensIn: 0,
-      tokensOut: 0,
-      usd: 0,
+      tokensIn: w.tokensIn ?? null,
+      tokensOut: w.tokensOut ?? null,
+      usd: usdLimit !== null ? null : (workerUsdByLabel.get(w.label) ?? null),
       patchBytes: w.patchBytes ?? f?.finishedPatchBytes ?? null,
       passed: f?.passed ?? null,
     }
@@ -555,7 +637,22 @@ export function analyzeSupervisorRunSources(
     brain: {
       tokensIn: haveJournal ? tree.brain.tokensIn : gap('brain.tokensIn', journalMissing),
       tokensOut: haveJournal ? tree.brain.tokensOut : unavailable(journalMissing),
-      usd: haveJournal ? round(tree.brain.usd, 6) : unavailable(journalMissing),
+      usd:
+        usdLimit !== null
+          ? unavailable(usdLimit)
+          : haveJournal
+            ? round(tree.brain.usd, 6)
+            : unavailable(journalMissing),
+      cacheRead: !haveJournal
+        ? unavailable(journalMissing)
+        : tree.brain.hasCache
+          ? tree.brain.cacheRead
+          : unavailable(NO_CACHE_COUNTERS),
+      cacheWrite: !haveJournal
+        ? unavailable(journalMissing)
+        : tree.brain.hasCache
+          ? tree.brain.cacheWrite
+          : unavailable(NO_CACHE_COUNTERS),
       source: haveJournal
         ? `journal metered events (n=${tree.brain.meteredCount})`
         : journalMissing,
@@ -572,7 +669,14 @@ export function analyzeSupervisorRunSources(
     workers: {
       tokensIn: workerIn,
       tokensOut: workerOut,
-      usd: haveJournal ? round(journalWorkerUsd, 6) : unavailable(journalMissing),
+      cacheRead: sq?.cacheRead !== undefined ? sq.cacheRead : unavailable(NO_CACHE_COUNTERS),
+      cacheWrite: sq?.cacheWrite !== undefined ? sq.cacheWrite : unavailable(NO_CACHE_COUNTERS),
+      usd:
+        usdLimit !== null
+          ? unavailable(usdLimit)
+          : haveJournal
+            ? round(journalWorkerUsd, 6)
+            : unavailable(journalMissing),
       source:
         sq !== null
           ? `journal settled spend + ${sq.store} sessions (n=${sq.sessions})`
@@ -580,11 +684,13 @@ export function analyzeSupervisorRunSources(
     },
     totalUsd,
     totalUsdSource:
-      stateUsd !== null
-        ? `state.json result.spentUsd${journalWorkerUsd === 0 ? ' — brain-priced only; worker CLI inference is unpriced (see worker token counts)' : ''}`
-        : haveJournal
-          ? 'journal metered + settled usd'
-          : journalMissing,
+      usdLimit !== null
+        ? usdLimit
+        : stateUsd !== null
+          ? `state.json result.spentUsd${journalWorkerUsd === 0 ? ' — brain-priced only; worker CLI inference is unpriced (see worker token counts)' : ''}`
+          : haveJournal
+            ? 'journal metered + settled usd'
+            : journalMissing,
     costPerAcceptedPatchUsd: isUnavailable(totalUsd)
       ? unavailable(totalUsd.unavailable)
       : isUnavailable(decision.accepted)
@@ -610,7 +716,9 @@ export function analyzeSupervisorRunSources(
 
   // ── outcome ────────────────────────────────────────────────────────────
   const patchStats: Measured<PatchStats> =
-    src.patch === null ? gap('patch', 'delivered patch file absent') : parsePatch(src.patch)
+    src.patch === null
+      ? gap('patch', src.limits.deliverables ?? 'delivered patch file absent')
+      : parsePatch(src.patch)
 
   const outcome: OutcomeMetrics = {
     supStatus:
@@ -676,6 +784,7 @@ export function analyzeSupervisorRunSources(
     outcome,
     gaps,
     traceCommand:
+      src.traceCommand ??
       'npx --yes @tangle-network/traces@latest analyze --harness opencode --cwd <worker-clone-cwd>',
   }
 }
