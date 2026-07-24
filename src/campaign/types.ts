@@ -16,7 +16,6 @@
  * can build dashboards / CI gates / regression diffs against a stable schema.
  */
 
-import type { PolicyEditCandidateRecord } from '../analyst/policy-edit'
 import type {
   CostChannel,
   CostLedgerHandle,
@@ -192,17 +191,25 @@ export interface CodeSurface {
   readonly summary?: string
 }
 
+/** Named text components optimized together as one candidate. */
+export interface ComponentSurface {
+  readonly kind: 'components'
+  readonly components: Readonly<Record<string, string>>
+}
+
 /** The mutable surface a proposer changes. Tiers (see
  *  `docs/design/loop-taxonomy.md`):
  *   - `string`      — tiers 1-2: system-prompt addendum / serialized tool
  *                     config. Cheap, reversible, text-diffable.
+ *   - `ComponentSurface` — named prompts, policies, and tool descriptions
+ *                          optimized together.
  *   - `CodeSurface` — tier 4: an implementation change behind a worktree ref.
  *  Tier 3 (knowledge) is owned by agent-knowledge and rides its own adapter,
  *  not this type. */
-export type MutableSurface = string | CodeSurface
+export type MutableSurface = string | ComponentSurface | CodeSurface
 
 /** A proposer output carrying the surface AND the WHY behind
- *  it. Reflective proposers (`gepaProposer`) parse a `{label, rationale, payload}`
+ *  it. Reflective proposers may parse a `{label, rationale, payload}`
  *  from the model; without this wrapper the loop keeps only `payload` and the
  *  rationale that motivated the change is lost — the candidate becomes
  *  unattributable. `propose()` may return either bare `MutableSurface`s (cheap
@@ -215,9 +222,6 @@ export interface ProposedCandidate {
    *  primitive it used. Survives to `GenerationCandidate.rationale` and the
    *  emitted provenance record. */
   rationale: string
-  /** Structured, JSON-safe cause for this exact candidate when the proposer
-   *  can provide one. Policy edits retain the full validated edit here. */
-  candidateRecord?: PolicyEditCandidateRecord
 }
 
 /** Type guard: a proposal carrying its rationale vs a bare
@@ -289,25 +293,11 @@ export interface ScoredSurfaceOutcome {
   }
 }
 
-/** Stateless surface mutation — given findings + current
- *  surface, return N candidate surfaces. Pure transform, no generation
- *  awareness. Reflective-mutation and `AxGEPA` mutators conform. Wrapped by
- *  `evolutionaryProposer` to become a `SurfaceProposer`. */
-export interface Mutator<TFindings = unknown> {
-  kind: string
-  mutate(args: {
-    findings: TFindings[]
-    currentSurface: MutableSurface
-    populationSize: number
-    signal: AbortSignal
-  }): Promise<Array<MutableSurface | ProposedCandidate>>
-}
-
 /** Everything a proposer may read to plan the next
  *  batch of candidates. The first six fields are always present; the rest are
- *  optional context the loop supplies when available, so cheap proposers
- *  (`evolutionaryProposer`) can ignore them while a code-tier agentic generator
- *  consumes the report + dataset to drive a coding harness.
+ *  optional context the loop supplies when available, so simple proposers can
+ *  ignore them while a code-tier agentic generator consumes the report and
+ *  dataset.
  *  See `docs/campaign-proposers.md`. */
 export interface ProposeContext<TFindings = unknown> {
   currentSurface: MutableSurface
@@ -360,16 +350,10 @@ export interface ProposeContext<TFindings = unknown> {
  *  findings, propose the next batch of candidate surfaces to measure.
  *  Optionally decide to stop early.
  *
- *  The evolutionary mutator (`evolutionaryProposer`, here) and agent-runtime's
- *  reflective / agentic generators both conform. They are proposers for the
- *  SAME loop, not separate loops. The loop body (`runOptimization`) and the
- *  gated promotion shell (`runImprovementLoop`) are proposer-agnostic.
- *
- *  This is THE optimization proposer — every optimizer is a factory
- *  `xProposer(opts): SurfaceProposer` (`evolutionaryProposer`, `aceProposer`,
- *  `gepaProposer`, `skillOptProposer`, `traceAnalystProposer`, `haloProposer`,
- *  `memoryCurationProposer`, `fapoProposer`), all exported from `/campaign` and
- *  drivable by `selfImprove({ proposer })`. Not to be confused with the
+ *  This is the local-loop candidate contract. Built-in neutral proposers and
+ *  runtime-owned agentic proposers conform to it and can be passed to
+ *  `selfImprove({ proposer })`. Complete external optimization engines conform
+ *  to `OptimizationMethod` instead. Not to be confused with the
  *  behavior-fuzzing `MutationProposer` (`fuzz/types`), a scenario generator for
  *  a different loop.
  */
@@ -686,8 +670,6 @@ export interface GenerationCandidate {
    *  "because rationale Z" the audit requires to survive to the result.
    *  Present when the proposer returned a `ProposedCandidate`. */
   rationale?: string
-  /** Exact structured cause threaded from the proposer, when available. */
-  candidateRecord?: PolicyEditCandidateRecord
 }
 
 export interface CampaignAggregates {

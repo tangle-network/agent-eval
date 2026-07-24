@@ -8,6 +8,7 @@
  */
 
 import { describe, expect, it } from 'vitest'
+import type { OptimizationMethod } from '../campaign/presets/compare-optimization-methods'
 import { runCampaign } from '../campaign/run-campaign'
 import { inMemoryCampaignStorage } from '../campaign/storage'
 import { surfaceHash } from '../campaign/surface-identity'
@@ -90,6 +91,164 @@ describe('selfImprove — power analysis wiring', () => {
 
     const powerEvents = events.filter((e) => e.kind === 'power.estimated')
     expect(powerEvents).toHaveLength(1)
+  })
+})
+
+describe('selfImprove — complete optimization methods', () => {
+  const methodJudge: JudgeConfig<{ text: string }, Scenario> = {
+    name: 'method-quality',
+    dimensions: [{ key: 'quality', description: 'candidate quality' }],
+    score: ({ artifact }) => {
+      const quality = artifact.text === 'BETTER' ? 1 : 0
+      return { dimensions: { quality }, composite: quality, notes: '' }
+    },
+  }
+  const shipGate: Gate<{ text: string }, Scenario> = {
+    name: 'ship',
+    decide: async () => ({ decision: 'ship', reasons: [], contributingGates: [] }),
+  }
+
+  it('gives a method only train and selection cases, shares spend, and retains source identity', async () => {
+    const all = Array.from({ length: 8 }, (_, index) => ({
+      id: `method-${index}`,
+      kind: 'fixture',
+    }))
+    const finalCases = all.slice(6)
+    const selectionCases = all.slice(4, 6)
+    let seenTrain: string[] = []
+    let seenSelection: string[] = []
+    const method: OptimizationMethod<Scenario, { text: string }> = {
+      name: 'official:test',
+      optimize: async (input) => {
+        seenTrain = input.trainScenarios.map((scenario) => scenario.id)
+        seenSelection = input.selectionScenarios.map((scenario) => scenario.id)
+        const paid = await input.costLedger.runPaidCall({
+          channel: 'optimizer',
+          phase: 'official.test',
+          actor: 'official:test',
+          model: 'test-model',
+          maximumCharge: { externallyEnforcedMaximumUsd: 0.02 },
+          execute: async () => 'BETTER',
+          receipt: () => ({
+            model: 'test-model',
+            inputTokens: 10,
+            outputTokens: 5,
+            actualCostUsd: 0.02,
+          }),
+        })
+        if (!paid.succeeded) throw paid.error
+        return {
+          winnerSurface: paid.value,
+          cost: {
+            totalCostUsd: 0.02,
+            accountingComplete: true,
+            incompleteReasons: [],
+          },
+          durationMs: 3,
+          provenance: {
+            source: {
+              kind: 'package',
+              package: 'official-test',
+              version: '1.0.0',
+              sourceUrl: 'https://example.test/official-test',
+              revision: 'abc123',
+            },
+            runId: 'official-run',
+            resumed: false,
+            evaluationCount: 6,
+            artifactDir: '/tmp/official-test',
+            tokenUsage: {
+              inputTokens: 10,
+              outputTokens: 5,
+              totalTokens: 15,
+              calls: 1,
+            },
+          },
+        }
+      },
+    }
+
+    const result = await selfImprove({
+      agent: async (surface) => ({ text: String(surface) }),
+      scenarios: all,
+      selectionScenarios: selectionCases,
+      judge: methodJudge,
+      baselineSurface: 'BASE',
+      method,
+      gate: shipGate,
+      runDir: 'mem://self-improve-method',
+      storage: inMemoryCampaignStorage(),
+      expectUsage: 'off',
+      budget: {
+        generations: 1,
+        populationSize: 1,
+        holdoutScenarios: finalCases,
+      },
+    })
+
+    expect(seenTrain).toEqual(all.slice(0, 4).map((scenario) => scenario.id))
+    expect(seenSelection).toEqual(selectionCases.map((scenario) => scenario.id))
+    expect([...seenTrain, ...seenSelection]).not.toContain(finalCases[0]!.id)
+    expect([...seenTrain, ...seenSelection]).not.toContain(finalCases[1]!.id)
+    expect(result.winner.surface).toBe('BETTER')
+    expect(result.totalCostUsd).toBe(0.02)
+    expect(result.optimization).toEqual({
+      name: 'official:test',
+      cost: {
+        totalCostUsd: 0.02,
+        accountingComplete: true,
+        incompleteReasons: [],
+      },
+      durationMs: 3,
+      provenance: expect.objectContaining({
+        source: expect.objectContaining({
+          package: 'official-test',
+          revision: 'abc123',
+        }),
+        runId: 'official-run',
+      }),
+    })
+    expect(result.provenance.optimizationMethod).toEqual(result.optimization)
+    expect(result.receipts).toEqual([
+      expect.objectContaining({
+        channel: 'optimizer',
+        phase: 'official.test',
+        costUsd: 0.02,
+      }),
+    ])
+  })
+
+  it('rejects ambiguous local-loop controls in method mode', async () => {
+    const method: OptimizationMethod<Scenario, { text: string }> = {
+      name: 'official:test',
+      optimize: async () => ({
+        winnerSurface: 'BETTER',
+        cost: { totalCostUsd: 0, accountingComplete: true, incompleteReasons: [] },
+      }),
+    }
+    await expect(
+      selfImprove({
+        agent: async (surface) => ({ text: String(surface) }),
+        scenarios,
+        judge: methodJudge,
+        baselineSurface: 'BASE',
+        method,
+        proposer: { kind: 'also-set', propose: async () => ['OTHER'] },
+        expectUsage: 'off',
+      }),
+    ).rejects.toThrow('method and proposer are mutually exclusive')
+
+    await expect(
+      selfImprove({
+        agent: async (surface) => ({ text: String(surface) }),
+        scenarios,
+        judge: methodJudge,
+        baselineSurface: 'BASE',
+        method,
+        expectUsage: 'off',
+        budget: { generations: 2 },
+      }),
+    ).rejects.toThrow('method owns its rounds')
   })
 })
 

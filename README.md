@@ -1,284 +1,353 @@
 # `@tangle-network/agent-eval`
 
-A TypeScript library that measures whether your AI agent got better or worse, using the runs it already produces.
+Measure agent behavior, compare changes on the same cases, and improve prompts or skills without exposing final test cases to the optimizer.
 
 [![npm](https://img.shields.io/npm/v/@tangle-network/agent-eval.svg)](https://www.npmjs.com/package/@tangle-network/agent-eval)
 [![pypi](https://img.shields.io/pypi/v/agent-eval-rpc.svg)](https://pypi.org/project/agent-eval-rpc/)
 [![tests](https://github.com/tangle-network/agent-eval/actions/workflows/ci.yml/badge.svg)](https://github.com/tangle-network/agent-eval/actions/workflows/ci.yml)
 [![license: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](./LICENSE)
 
-You give it agent runs: outputs, traces, scores, and production feedback.
-It gives you numbers you can act on: how much the new prompt changed outcomes, how uncertain that estimate is, what failed and why, and whether the change meets your release rule.
+Use this package to:
 
-Use it when you need to:
+- run an agent over representative cases and score every result,
+- compare a candidate with a baseline using paired statistics,
+- analyze existing runs, traces, or human feedback,
+- optimize a prompt or skill with official GEPA or SkillOpt,
+- supply your own candidate generator for product-specific changes.
 
-- compare a candidate prompt/model/config against a baseline, with confidence intervals instead of vibes,
-- turn production traces or human feedback you already collect into eval results,
-- run an automated improve-and-verify loop over a prompt, held to a promotion rule you choose,
-- explain failures by cluster, cost, and judge disagreement.
-
-The deterministic evaluator runs in your process and makes no network calls.
-Features that use a model send their inputs to the model client you pass.
-Trace exporters and hosted ingestion are also opt-in.
-Python can drive the same engine over HTTP via [`agent-eval-rpc`](./clients/python/README.md).
-
----
+The evaluation path runs in your TypeScript process.
+Model calls occur only through the clients and agents you configure.
 
 ## Install
 
 ```sh
-pnpm add @tangle-network/agent-eval   # or npm / yarn
+pnpm add @tangle-network/agent-eval
 ```
+
+The official optimizers use the Python bridge.
+Install only the optimizer you plan to run:
 
 ```sh
-pip install agent-eval-rpc            # optional Python client
+# Microsoft SkillOpt at the tested source revision
+python -m pip install agent-eval-rpc
+python -m pip install \
+  "skillopt @ git+https://github.com/microsoft/SkillOpt.git@61735e3922efc2b90c6d6cab561e62e98452ca90"
+
+# GEPA Optimize Anything at the source revision tested by this release
+python -m pip install agent-eval-rpc
+python -m pip install "gepa[full] @ git+https://github.com/gepa-ai/gepa.git@f919db0a622e2e9f9204779b81fe00cc1b2d808f"
+
+# DSPy 3.2.1 with Agent Eval metrics
+python -m pip install "agent-eval-rpc[dspy]"
 ```
 
----
+The published `gepa==0.1.4` wheel does not contain the Optimize Anything API used here.
+The Git revision is intentional and should move only after compatibility tests pass.
+The published `skillopt==0.2.0` wheel omits the prompt files required by `ReflACTTrainer`, so the tested SkillOpt source revision is also intentional.
+DSPy 3.2.1 requires GEPA 0.0.27, while the general bridge requires GEPA 0.1.4.
+Install the DSPy adapter and the general GEPA bridge in separate Python environments.
 
-## Quickstart
+## Evaluate An Agent
 
-Copy this into `quickstart.ts` and run `npx tsx quickstart.ts`.
-It is fully offline; the "agent" and "judge" are plain functions you replace with your own.
+This example is offline.
+Replace the agent and judge functions with your product code.
 
 ```ts
 import { defineAgentEval } from '@tangle-network/agent-eval/contract'
 
-interface SupportScenario {
+interface SupportCase {
   id: string
   kind: 'support'
 }
 
-async function main() {
-  const scenarios: SupportScenario[] = [
+const evalKit = defineAgentEval<SupportCase, string>({
+  scenarios: [
     { id: 'refund', kind: 'support' },
     { id: 'shipping', kind: 'support' },
     { id: 'cancel', kind: 'support' },
-  ]
-
-  const evalKit = defineAgentEval<SupportScenario, string>({
-    scenarios,
-    // Your agent takes the prompt under test and one scenario, then returns its output.
-    agent: async (prompt, scenario) =>
-      String(prompt).includes('ticket') ? `Re ${scenario.id}: on it.` : 'On it.',
-    // Your judge scores one output from 0 to 1. Swap in an LLM judge for real work.
-    judge: {
-      name: 'cites-ticket',
-      dimensions: [{ key: 'ticket_id', description: 'The answer includes the ticket id' }],
-      score: ({ artifact, scenario }) => {
-        const ticketId = artifact.includes(scenario.id) ? 1 : 0
-        return { dimensions: { ticket_id: ticketId }, composite: ticketId, notes: '' }
-      },
+  ],
+  agent: async (prompt, scenario) =>
+    String(prompt).includes('ticket') ? `Ticket ${scenario.id}: on it.` : 'On it.',
+  judge: {
+    name: 'ticket-id',
+    dimensions: [{ key: 'present', description: 'The answer includes the ticket id' }],
+    score: ({ artifact, scenario }) => {
+      const present = artifact.includes(scenario.id) ? 1 : 0
+      return { dimensions: { present }, composite: present, notes: '' }
     },
-    baselineSurface: 'Answer the customer politely.',
-    expectUsage: 'off',
-  })
-
-  console.log('baseline: ', (await evalKit.evaluate()).aggregates.byJudge)
-  const candidate = await evalKit.evaluate({ surface: 'Answer politely, cite the ticket id.' })
-  console.log('candidate:', candidate.aggregates.byJudge)
-}
-
-main().catch((error: unknown) => {
-  console.error(error)
-  process.exitCode = 1
-})
-```
-
-Output:
-
-```
-baseline:  { 'cites-ticket': { mean: 0, stdev: 0, ci95: [ 0, 0 ], n: 3 } }
-candidate: { 'cites-ticket': { mean: 1, stdev: 0, ci95: [ 1, 1 ], n: 3 } }
-```
-
-Each `evaluate()` call runs every scenario through the agent, scores each output with the judge, and returns per-judge score distributions.
-The "surface" is the thing you are changing: here a system-prompt string, and in general any prompt or config value.
-From the same definition, `evalKit.improve()` proposes candidate prompts, measures each one, and checks the winner against a held-back scenario set before recommending it.
-The default candidate generator calls a model, so pass `llm: { baseUrl, apiKey, model }` to `.improve()` or provide your own `proposer`.
-
-Already have run data and no runnable agent? Skip the loop and call [`analyzeRuns()`](./docs/concepts.md#the-top-level-functions) on your existing records instead.
-
-### Use A Model Judge
-
-`llmJudge()` converts one model call into the same `JudgeConfig` used above:
-
-```ts
-import { createChatClient, llmJudge } from '@tangle-network/agent-eval/contract'
-
-const apiKey = process.env.OPENAI_API_KEY
-if (!apiKey) throw new Error('OPENAI_API_KEY is required')
-
-const chat = createChatClient({
-  transport: 'direct-provider',
-  baseUrl: process.env.OPENAI_BASE_URL ?? 'https://api.openai.com/v1',
-  apiKey,
-  defaultModel: 'gpt-4.1-mini',
-})
-
-const judge = llmJudge<string, SupportScenario>(
-  'support-quality',
-  'Score whether the response resolves the request using only supported facts.',
-  {
-    chat,
-    dimensions: [
-      { key: 'correct', description: 'The answer is factually correct' },
-      { key: 'complete', description: 'The answer addresses the whole request' },
-    ],
   },
+  baselineSurface: 'Answer politely.',
+  expectUsage: 'off',
+})
+
+console.log((await evalKit.evaluate()).aggregates.byJudge)
+console.log(
+  (await evalKit.evaluate({ surface: 'Answer politely and cite the ticket id.' })).aggregates
+    .byJudge,
 )
 ```
 
-Pass `judge` to `defineAgentEval()` in place of the offline judge.
-The model receives the scenario, artifact, scoring prompt, and dimension descriptions.
+Each call runs every case, records the artifact, applies the same judge, and returns score distributions.
+The surface is the value being changed, such as a prompt, skill, or serialized configuration.
 
-### Compare Optimization Methods
+## Optimize With Official GEPA
 
-Use `compareOptimizationMethods()` when you need to compare complete search procedures rather than individual prompts.
-The function gives every method the same baseline, runner, judges, train data, and selection data, then ranks their selected surfaces on separate final test data.
+`gepaOptimizationMethod()` delegates candidate search and recipe composition to the installed GEPA package.
+Agent Eval supplies the train and selection cases, executes candidates, records cost, and evaluates the selected result on final cases after GEPA exits.
 
 ```ts
-import {
-  type BuiltinOptimizationMethodConfig,
-  compareOptimizationMethods,
-  gepaParetoMethod,
-  gepaReflectionMethod,
-  skillOptMethod,
-} from '@tangle-network/agent-eval/campaign'
+import { gepaOptimizationMethod } from '@tangle-network/agent-eval/campaign'
 
-const methodConfig: BuiltinOptimizationMethodConfig<MyScenario, MyArtifact> = {
-  llm,
-  model,
-  target: 'the complete prompt being improved',
+const optimizerPricing = {
+  inputUsdPerMillion: Number(process.env.OPTIMIZER_INPUT_USD_PER_MILLION),
+  outputUsdPerMillion: Number(process.env.OPTIMIZER_OUTPUT_USD_PER_MILLION),
 }
 
-const result = await compareOptimizationMethods<MyScenario, MyArtifact>({
-  methods: [
-    gepaReflectionMethod(methodConfig),
-    gepaParetoMethod(methodConfig),
-    skillOptMethod(methodConfig),
-  ],
+const gepa = gepaOptimizationMethod<MyCase, MyArtifact>({
+  objective: 'Improve the instructions so the agent returns valid, complete JSON.',
+  evaluationVersion: 'json-agent-v1',
+  recipe: {
+    kind: 'engine',
+    run: {
+      engine: 'gepa',
+      maxEvaluations: 40,
+      maxProposerCostUsd: 5,
+    },
+  },
+  optimizer: {
+    model: 'gpt-4.1-mini',
+    baseUrl: 'https://api.openai.com/v1',
+    apiKey: process.env.OPENAI_API_KEY!,
+    budget: {
+      maxCostUsd: 5,
+      maxRequests: 100,
+      maxRequestBytes: 2_000_000,
+      maxResponseBytes: 2_000_000,
+      maxOutputTokensPerRequest: 32_768,
+      pricing: optimizerPricing,
+    },
+  },
+  describeScenario: (scenario) => ({ input: scenario.input }),
+  describeArtifact: (artifact) => ({ output: artifact.output }),
+})
+```
+
+GEPA also supports official sequential, adaptive, best-of, vote, and Omni recipes through the same factory.
+When every recipe stage uses the standard GEPA engine, Agent Eval keeps the provider key outside Python and records exact reflection usage through a local proxy.
+Other official GEPA engines can still run through `engineConfig`, but their model spend remains incomplete unless the engine reports it.
+Custom engines can register through GEPA's official registry by listing their Python modules in `engineModules`.
+
+Run the repository example:
+
+```sh
+OPTIMIZERS=gepa \
+LLM_API_KEY="$OPENAI_API_KEY" \
+GEPA_PRICE_IN_PER_M=0.4 \
+GEPA_PRICE_OUT_PER_M=1.6 \
+pnpm tsx examples/compare-optimization-methods/index.ts
+```
+
+Replace the example rates with the exact endpoint rates.
+
+## Optimize With Official SkillOpt
+
+`skillOptOptimizationMethod()` runs Microsoft's `ReflACTTrainer` against the same TypeScript execution and scoring path.
+SkillOpt receives train and selection cases but never receives final cases.
+
+```ts
+import { skillOptOptimizationMethod } from '@tangle-network/agent-eval/campaign'
+
+const optimizerPricing = {
+  inputUsdPerMillion: Number(process.env.OPTIMIZER_INPUT_USD_PER_MILLION),
+  outputUsdPerMillion: Number(process.env.OPTIMIZER_OUTPUT_USD_PER_MILLION),
+}
+
+const skillopt = skillOptOptimizationMethod<MyCase, MyArtifact>({
+  objective: 'Improve the skill so the agent returns valid, complete JSON.',
+  evaluationVersion: 'json-agent-v1',
+  trainer: {
+    epochs: 2,
+    batchSize: 4,
+  },
+  optimizer: {
+    model: 'gpt-4.1-mini',
+    baseUrl: 'https://api.openai.com/v1',
+    apiKey: process.env.OPENAI_API_KEY!,
+    budget: {
+      maxCostUsd: 5,
+      maxRequests: 100,
+      maxRequestBytes: 2_000_000,
+      maxResponseBytes: 2_000_000,
+      maxOutputTokensPerRequest: 32_768,
+      pricing: optimizerPricing,
+    },
+  },
+  maxEvaluations: 80,
+  describeScenario: (scenario) => ({ input: scenario.input }),
+  describeArtifact: (artifact) => ({ output: artifact.output }),
+})
+```
+
+Replace the example rates with the exact rates for your endpoint.
+Agent Eval places a local OpenAI-compatible proxy between each standard optimizer and the provider.
+The proxy enforces request, byte, token, and dollar limits before forwarding calls, records exact usage from provider responses, and does not pass the provider key to the optimizer process.
+
+## Optimize A DSPy Program
+
+DSPy owns its program optimizers.
+`DspyJudgeMetric` lets them use the same Agent Eval rubric as TypeScript agents.
+
+```python
+import dspy
+
+from agent_eval_rpc import DspyJudgeMetric
+
+dspy.configure(lm=dspy.LM("openai/gpt-4.1-mini"))
+metric = DspyJudgeMetric(rubric_name="answer-quality")
+
+# GEPA needs both the numeric score and diagnostic feedback.
+optimizer = dspy.GEPA(
+    metric=metric.feedback,
+    reflection_lm=dspy.LM("openai/gpt-4.1-mini"),
+    max_metric_calls=100,
+)
+optimized_program = optimizer.compile(program, trainset=train, valset=selection)
+
+# MIPROv2, SIMBA, and few-shot optimizers use the numeric metric directly.
+mipro = dspy.MIPROv2(metric=metric, auto="light")
+```
+
+Use official DSPy directly for DSPy programs.
+Use `gepaOptimizationMethod()` for text or named component surfaces in non-DSPy agents.
+Use agent-runtime's worktree path for executable code changes.
+
+## Compare Complete Methods
+
+`compareOptimizationMethods()` gives each method the same starting surface, execution function, judges, train cases, and selection cases.
+It waits for optimization to finish before it evaluates any selected surface on the final cases.
+
+```ts
+import { compareOptimizationMethods } from '@tangle-network/agent-eval/campaign'
+
+const result = await compareOptimizationMethods({
+  methods: [gepa, skillopt],
   baselineSurface,
   trainScenarios,
   selectionScenarios,
   testScenarios,
   dispatchWithSurface,
   judges,
-  runDir,
+  runDir: '.agent-eval/optimizer-comparison',
 })
+
+console.table(result.scores)
 ```
 
-Read `result.scores` for lift and intervals.
-Read `result.totalCost` for dollars plus whether every charge was known.
-Ranks follow estimated lift; use the intervals and pairwise results to determine whether the observed difference excludes zero.
-See the [method-comparison guide](./docs/campaign-proposers.md) and [runnable example](./examples/compare-optimization-methods/).
+Read `scores` for final-case lift and intervals.
+Read `pairwise` before claiming one method beat another.
+Read `totalCost.accountingComplete` before using the reported dollars as a complete total.
+Each official method score also records its package version, source revision, run ID, resume status, evaluation count, artifact directory, and available optimizer token usage in `provenance`.
 
----
+The [optimizer guide](./docs/campaign-proposers.md) covers recipes, budgets, resuming, and data separation.
+The [runnable comparison](./examples/compare-optimization-methods/) can run GEPA, SkillOpt, or both.
 
-## Core APIs
+## Supply Your Own Candidate Generator
 
-Start from `/contract` for the common path.
-Use `/campaign` when you need direct control over runs, candidate generation, or method comparison.
-
-| Primitive | What it does |
-|---|---|
-| **Evaluation** (`runEval`, `runCampaign`) | Run agent × scenarios × repetitions, score every run, and record the result. |
-| **Scoring** (`JudgeConfig`, `llmJudge`, calibration) | Score one output on weighted dimensions with code or a model, then compare model scores against human ratings. |
-| **Release rules** (`heldOutGate`, `paretoSignificanceGate`, `composeGate`, …) | Decide whether a candidate ships, such as requiring an improvement on scenarios that candidate generation never saw. |
-| **Candidate generation** (`gepaProposer`, `evolutionaryProposer`, …) | Generate candidate prompts or configs from prior failures. |
-| **Method comparison** (`compareOptimizationMethods`) | Run complete optimization methods on shared train and selection data, then rank them on separate final test data. |
-| **Run analysis** (`analyzeRuns`, `diffRuns`) | Turn any set of `RunRecord`s into a report: score distributions, baseline-vs-candidate lift with confidence intervals, failure clusters, cost breakdown, recommendations. |
-| **Intake adapters** (`fromFeedbackTable`, `fromOtelSpans`) | Convert data you already have, such as human ratings tables and OpenTelemetry spans, into `RunRecord`s. |
-| **Cost tracking** | Attribute every model call's tokens and dollars to the run, phase, and judge that spent them, including interrupted calls. |
-| **Human feedback storage** | Persist runs with approved, rejected, or edited labels so review activity becomes training and eval data. |
-| **Statistics** (`pairedBootstrap`, `benjaminiHochberg`, sequential tests) | The release-decision math, usable standalone. |
-| **Trace tools** (`/traces`, `/analyst`) | Store and replay structured run traces; cluster failures with an LLM analyst panel. |
-| **HTTP and RPC** (`/wire`) | Expose judging and ingestion to non-TypeScript stacks, including the Python client. |
-
-Our own experiments with these primitives live in [`examples/`](./examples/README.md); they are demonstrations, not part of the API.
-
-| Runnable example | Shows |
-|---|---|
-| [`examples/selfimprove-quickstart/`](./examples/selfimprove-quickstart/) | The closed improve-and-verify loop, fully offline |
-| [`examples/customer-feedback-loop/`](./examples/customer-feedback-loop/) | Multi-rater human feedback (CSV/Sheets/Obsidian) → per-rater judges → report |
-| [`examples/customer-otel-traces/`](./examples/customer-otel-traces/) | Production OpenTelemetry traces → report, no closed loop required |
-| [`examples/compare-optimization-methods/`](./examples/compare-optimization-methods/) | Compare complete optimization methods with separate train, selection, and test data |
-
-Each is a single `index.ts` you run with `pnpm tsx`.
-
----
-
-## Entry points
-
-Import from `@tangle-network/agent-eval/<subpath>`. Every row below is verified importable from the published package.
-
-| Subpath | What it gives you |
-|---|---|
-| `/contract` | **Start here.** Stable APIs for defining an eval, running it, improving a prompt, judging outputs, analyzing existing runs, and storing results. |
-| `/campaign` | Lower-level control over candidate generation, release rules, storage, and comparisons. |
-| `/reporting` | Statistical comparisons and report renderers. |
-| `/analyst` | Model-based failure clustering and stored findings. |
-| `/traces` | Trace stores, emitters, deterministic replay, trace analysis. |
-| `/rl` | Export eval artifacts as training signal: rewards, preferences, trainer-format datasets. |
-| `/benchmarks` | Benchmark adapter contract + retrieval metrics + a bundled reference benchmark. |
-| `/wire` | The HTTP/RPC server and Zod schemas (what the Python client speaks). |
-| `/hosted` | Client for shipping eval-run events to a remote orchestrator (see below). |
-| `/control` | A generic observe → validate → decide → act agent loop with eval-backed stopping rules. |
-| `/matrix`, `/multishot` | N-axis configuration sweeps; multi-turn persona × turn-count runners. |
-| `/meta-eval`, `/belief-state`, `/builder-eval`, `/pipelines`, `/storyboard`, `/authenticity`, `/fuzz`, `/trace-attributes` | Specialized surfaces: judge calibration, decision-point extraction, code-generator grading, trace diagnostics, run replay rendering, anti-gaming output checks, input fuzzing, trace attribute vocabulary. |
-
-The root export (`@tangle-network/agent-eval`) remains broad for compatibility; prefer the subpaths for new code.
-
----
-
-## Documentation
-
-- [`docs/concepts.md`](./docs/concepts.md): the mental model for runs, judges, verifiers, traces, and the top-level functions (5-minute read)
-- [`docs/customer-journeys.md`](./docs/customer-journeys.md): three complete adoption paths with code
-- [`docs/insight-report.md`](./docs/insight-report.md): annotated walkthrough of every section of the `analyzeRuns()` report
-- [`docs/campaign-proposers.md`](./docs/campaign-proposers.md): candidate generation and fair comparison of complete optimization methods
-- [`docs/adapters-observability.md`](./docs/adapters-observability.md): composing with LangSmith, Langfuse, Phoenix, and OpenLLMetry
-- [`docs/wire-protocol.md`](./docs/wire-protocol.md): the HTTP/RPC contract for other languages
-- [`docs/design.md`](./docs/design.md): how this package relates to the rest of the Tangle agent stack, and the dependency rules that keep it reusable
-- [`CHANGELOG.md`](./CHANGELOG.md): every release, with additive and breaking changes identified
-
----
-
-## Optional hosted tier
-
-The library is complete without it.
-If you want a dashboard over many loops, point any run at our remote orchestrator or your own implementation of the [open ingest spec](./docs/hosted-ingest-spec.md):
+Use `SurfaceProposer` when candidate creation belongs to your product or an agent runtime.
+The campaign still owns execution, scoring, history, stopping, and release decisions.
 
 ```ts
-await evalKit.improve({
-  hostedTenant: {
-    endpoint: 'https://intelligence.tangle.tools',
-    apiKey: process.env.TANGLE_API_KEY!,
-    tenantId: 'your-tenant',
+import {
+  defineAgentEval,
+  type SurfaceProposer,
+} from '@tangle-network/agent-eval/contract'
+
+const proposer: SurfaceProposer = {
+  kind: 'product-rules',
+  async propose({ currentSurface, populationSize }) {
+    const prompt = String(currentSurface)
+    return [
+      {
+        surface: `${prompt}\nReturn JSON only.`,
+        label: 'json-only',
+        rationale: 'Training failures contained prose around the JSON object.',
+      },
+    ].slice(0, populationSize)
   },
-})
+}
+
+const result = await defineAgentEval({
+  scenarios,
+  agent,
+  judge,
+  baselineSurface,
+  proposer,
+  budget: { generations: 1, populationSize: 1, holdoutFraction: 0.3 },
+}).improve()
 ```
 
-The loop still runs in your process.
-Hosted ingest sends run identifiers and paths, scenario IDs, candidate surfaces, scores, errors, costs, summaries, and trace attributes.
-Review the [wire format](./docs/hosted-ingest-spec.md) before enabling it for sensitive inputs.
-A reference receiver you can self-host is at [`examples/hosted-ingest-server/`](./examples/hosted-ingest-server/).
+Run the complete offline example:
 
----
+```sh
+pnpm tsx examples/selfimprove-quickstart/index.ts
+```
+
+## Start From Existing Runs
+
+You do not need a runnable agent to analyze data you already captured.
+Use `analyzeRuns()` for `RunRecord[]`, or use the feedback and OpenTelemetry adapters to normalize existing data first.
+
+See [concepts](./docs/concepts.md), [customer paths](./docs/customer-journeys.md), and [trace analysis](./docs/trace-analysis.md).
+
+## Entry Points
+
+| Import | Use |
+|---|---|
+| `@tangle-network/agent-eval/contract` | Define an evaluation, run it, improve with a custom candidate generator, and analyze runs. |
+| `@tangle-network/agent-eval/campaign` | Control campaigns, official optimization methods, comparisons, storage, and release rules. |
+| `@tangle-network/agent-eval/reporting` | Statistical comparisons and report rendering. |
+| `@tangle-network/agent-eval/analyst` | Model-assisted failure analysis. |
+| `@tangle-network/agent-eval/traces` | Store, replay, and inspect structured traces. |
+| `@tangle-network/agent-eval/benchmarks` | Benchmark adapters and retrieval metrics. |
+| `@tangle-network/agent-eval/rl` | Export rewards, preferences, and training rows. |
+| `@tangle-network/agent-eval/wire` | HTTP and RPC schemas for other languages. |
+
+Prefer these subpaths for new code.
+The root export remains broad for compatibility.
+
+## Examples
+
+| Goal | Example |
+|---|---|
+| Evaluate and improve with a custom candidate generator | [`selfimprove-quickstart`](./examples/selfimprove-quickstart/) |
+| Run official GEPA or SkillOpt | [`compare-optimization-methods`](./examples/compare-optimization-methods/) |
+| Analyze human feedback | [`customer-feedback-loop`](./examples/customer-feedback-loop/) |
+| Analyze OpenTelemetry traces | [`customer-otel-traces`](./examples/customer-otel-traces/) |
+| Run public benchmark adapters | [`benchmarks`](./examples/benchmarks/) |
+
+See the [example index](./examples/README.md) for the full list.
 
 ## Development
 
 ```sh
 pnpm install
-pnpm build
-pnpm test        # vitest, ~3300 tests
 pnpm typecheck
+pnpm typecheck:examples
+pnpm test
+pnpm build
 ```
 
-Run any example: `pnpm tsx examples/selfimprove-quickstart/index.ts`
+Python compatibility tests use the locked dependencies:
 
----
+```sh
+cd clients/python
+uv sync --frozen --extra dev --group skillopt-source --group gepa-source
+uv run --frozen pytest
+
+uv sync --frozen --extra dev --extra dspy
+uv run --frozen pytest tests/test_dspy_metric.py
+```
 
 ## License
 
-MIT. See [`LICENSE`](./LICENSE).
+MIT.

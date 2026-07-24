@@ -1,19 +1,12 @@
 /**
- * `runOptimization` — the improvement loop body. Runs N generations: the
- * `SurfaceProposer` proposes K candidate surfaces per generation, each
- * candidate runs a campaign (the measurement), and only a candidate that beats
- * the single global incumbent becomes the next generation's parent.
- * Proposer-agnostic — the same loop runs an evolutionary population mutator
- * (`evolutionaryProposer`) or any reflective / agentic proposer; they differ
- * only in how `propose()` picks candidates.
+ * `runOptimization` runs a caller-owned candidate generator for a bounded
+ * number of rounds. Each candidate is measured on the same cases, and only a
+ * candidate that beats the current best becomes the next parent.
+ * The same loop accepts deterministic, model-backed, or agent-backed
+ * proposers; they differ only in how `propose()` picks candidates.
  *
- * This is `runLoop`'s shape (plan → measure → decide) specialized to surface
- * improvement: `proposer.propose` = plan, `runCampaign` = the measurement
- * (which runs the worker behind `dispatch`), the mean-composite ranking = the
- * validator, `proposer.decide` = the stop check.
- *
- * The gated-promotion shell (`runImprovementLoop`) wraps this with a holdout
- * re-score + release gate + optional PR.
+ * `runImprovementLoop` adds a separate final comparison, a release decision,
+ * and optional pull request creation.
  */
 
 import { mapConcurrent } from '../../concurrency'
@@ -69,18 +62,13 @@ export interface RunOptimizationBaseOptions<TScenario extends Scenario, TArtifac
     scenario: TScenario,
     ctx: Parameters<RunCampaignOptions<TScenario, TArtifact>['dispatch']>[1],
   ) => Promise<TArtifact>
-  /** The candidate-generation strategy. Wrap a population `Mutator` via
-   *  `evolutionaryProposer({ mutator })`, or pass any reflective / agentic
-   *  proposer that implements `SurfaceProposer`. */
+  /** The candidate-generation strategy. */
   proposer: SurfaceProposer
   populationSize: number
   maxGenerations: number
   /** Candidate campaigns run at once. Default 1. Total concurrent cells are
    *  bounded by candidateConcurrency * maxConcurrency. */
   candidateConcurrency?: number
-  /** @deprecated The loop has one global incumbent and can promote only the
-   *  single candidate that beats it. Retained for source compatibility. */
-  promoteTopK?: number
   /** DEPTH knob forwarded to the proposer's `propose()` — max iterations the
    *  agentic generator may take per candidate. */
   maxImprovementShots?: number
@@ -175,12 +163,6 @@ export async function runOptimization<TScenario extends Scenario, TArtifact>(
       runDir: opts.runDir,
       costCeilingUsd: opts.costCeiling,
     })
-  if (opts.promoteTopK !== undefined && opts.promoteTopK !== 1) {
-    throw new Error(
-      'runOptimization: promoteTopK must be 1 because the loop has one global incumbent',
-    )
-  }
-
   const requireJudgeScore = (opts.judges?.length ?? 0) > 0
   const reps = opts.reps ?? 1
   const premeasuredBaseline = opts.premeasuredBaseline
@@ -304,7 +286,6 @@ export async function runOptimization<TScenario extends Scenario, TArtifact>(
       surface: MutableSurface
       label: string
       rationale: string
-      candidateRecord?: ProposedCandidate['candidateRecord']
       campaign: CampaignResult<TArtifact, TScenario>
       composite: number
       coverage: CampaignCoverage
@@ -312,7 +293,7 @@ export async function runOptimization<TScenario extends Scenario, TArtifact>(
     const surfaceResults = await mapConcurrent(
       candidates,
       candidateConcurrency,
-      async ({ surface, label, rationale, candidateRecord }, i): Promise<SurfaceResult> => {
+      async ({ surface, label, rationale }, i): Promise<SurfaceResult> => {
         const hash = surfaceHash(surface)
         const campaign = await runCampaign<TScenario, TArtifact>({
           ...opts,
@@ -333,7 +314,6 @@ export async function runOptimization<TScenario extends Scenario, TArtifact>(
           surface,
           label,
           rationale,
-          ...(candidateRecord ? { candidateRecord } : {}),
           campaign,
           composite,
           coverage,
@@ -394,7 +374,6 @@ export async function runOptimization<TScenario extends Scenario, TArtifact>(
         }
         if (s.label) candidate.label = s.label
         if (s.rationale) candidate.rationale = s.rationale
-        if (s.candidateRecord) candidate.candidateRecord = s.candidateRecord
         return candidate
       }),
       promoted: promoted.map((p) => p.surfaceHash),

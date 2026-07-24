@@ -68,9 +68,9 @@ class Client:
         timeout_s: float = DEFAULT_TIMEOUT_S,
         auto_probe_timeout: float = 1.0,
     ) -> None:
-        self.base_url = (
-            base_url or os.environ.get("AGENT_EVAL_URL") or DEFAULT_BASE_URL
-        ).rstrip("/")
+        self.base_url = (base_url or os.environ.get("AGENT_EVAL_URL") or DEFAULT_BASE_URL).rstrip(
+            "/"
+        )
         self.cli_path = cli_path or os.environ.get("AGENT_EVAL_CLI") or DEFAULT_CLI
         self.timeout_s = timeout_s
         self._transport = self._resolve_transport(transport, auto_probe_timeout)

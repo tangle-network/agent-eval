@@ -3,10 +3,10 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import {
   defaultProductionGate,
-  evolutionaryProposer,
   type JudgeConfig,
   runImprovementLoop,
   type Scenario,
+  type SurfaceProposer,
 } from '../../src/contract'
 
 type DemoArtifact = { text: string }
@@ -16,7 +16,7 @@ const SCENARIOS: Scenario[] = [
   { id: 'brief', kind: 'chat' },
   { id: 'code-review', kind: 'chat' },
 ]
-// Disjoint holdout — only the promotion gate scores these. A candidate ships
+// Only the release rule scores this disjoint holdout. A candidate ships
 // only if it beats baseline HERE, not just on the search set it was selected on.
 const HOLDOUT: Scenario[] = [
   { id: 'holdout-brief', kind: 'chat' },
@@ -26,8 +26,8 @@ const HOLDOUT: Scenario[] = [
 
 // The directive the optimizer is meant to introduce. The weak baseline lacks it
 // (scores 0); any surface carrying it scores 1. A real judge would call a model
-// or verifier — here it is a deterministic string check so the loop mechanics
-// are visible offline.
+// or another semantic check. This deterministic string check keeps the example
+// visible offline.
 const COMPLETION_MARKER = 'VERIFY_EVERY_STEP'
 
 const judge: JudgeConfig<DemoArtifact> = {
@@ -39,20 +39,20 @@ const judge: JudgeConfig<DemoArtifact> = {
   },
 }
 
-// Deterministic, LLM-free proposer: an evolutionary mutator that appends the
-// completion directive to the current surface. The reflective alternative is
-// `gepaProposer` (LLM-backed, reasons over trace findings) — both conform to the
-// same `SurfaceProposer`, and the loop below is identical regardless.
-const proposer = evolutionaryProposer({
-  mutator: {
-    kind: 'append-completion-directive',
-    async mutate({ currentSurface, populationSize }) {
-      const base = String(currentSurface)
-      const child = base.includes(COMPLETION_MARKER) ? base : `${base} ${COMPLETION_MARKER}`
-      return Array.from({ length: populationSize }, () => child)
-    },
+// A caller-owned candidate generator can be deterministic, model-backed, or
+// delegated to agent-runtime. This one appends a known directive so it runs offline.
+const proposer: SurfaceProposer = {
+  kind: 'append-completion-directive',
+  async propose({ currentSurface, populationSize }) {
+    const base = String(currentSurface)
+    const surface = base.includes(COMPLETION_MARKER) ? base : `${base} ${COMPLETION_MARKER}`
+    return Array.from({ length: populationSize }, (_, index) => ({
+      surface,
+      label: `completion-directive-${index + 1}`,
+      rationale: 'Require explicit step verification.',
+    }))
   },
-})
+}
 
 const runDir = mkdtempSync(join(tmpdir(), 'multi-shot-'))
 try {
@@ -66,8 +66,7 @@ try {
     proposer,
     populationSize: 1,
     maxGenerations: 1,
-    promoteTopK: 1,
-    // Ships ONLY on a CI-lower-bound held-out lift over `deltaThreshold`.
+    // Ship only when the held-out lift meets this release rule.
     gate: defaultProductionGate<DemoArtifact, Scenario>({
       holdoutScenarios: HOLDOUT,
       deltaThreshold: 0.5,
@@ -78,7 +77,7 @@ try {
   })
 
   console.log({
-    decision: result.gateResult.decision, // 'ship' — the winner beat baseline on the disjoint holdout
+    decision: result.gateResult.decision,
     delta: result.gateResult.delta, // ~1
     winnerShipped: String(result.winnerSurface).includes(COMPLETION_MARKER),
     promotedDiff: result.promotedDiff,

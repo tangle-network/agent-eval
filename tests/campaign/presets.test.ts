@@ -11,22 +11,20 @@ import {
   type DispatchFn,
   defaultProductionGate,
   emitLoopProvenance,
-  evolutionaryProposer,
   FsLabeledScenarioStore,
   type Gate,
-  gepaProposer,
   heldOutGate,
   inMemoryCampaignStorage,
   type JudgeConfig,
   loopProvenanceSpans,
   type MutableSurface,
-  type Mutator,
   openAutoPr,
   type ProposeContext,
   runEval,
   runImprovementLoop,
   runOptimization,
   type Scenario,
+  type SurfaceProposer,
   surfaceContentHash,
   surfaceHash,
 } from '../../src/campaign/index'
@@ -45,6 +43,17 @@ function fakeCodeSurface(worktreeRef: string, identityDigit: string): CodeSurfac
       sha256: `sha256:${identityDigit.repeat(64)}`,
       byteLength: 1,
     },
+  }
+}
+
+function candidateProposer(
+  surface: MutableSurface,
+  label = 'candidate',
+  rationale = 'candidate rationale',
+): SurfaceProposer {
+  return {
+    kind: 'test-candidate',
+    propose: async () => [{ surface, label, rationale }],
   }
 }
 
@@ -218,19 +227,9 @@ describe('heldOutGate', () => {
   })
 })
 
-// ── gepaProposer end-to-end through runImprovementLoop + defaultProductionGate ─
+// ── SurfaceProposer end-to-end through runImprovementLoop + defaultProductionGate ─
 
-describe('gepaProposer → runImprovementLoop → defaultProductionGate (full wiring)', () => {
-  // The honesty gap (#101/#106): gepaProposer was only unit-tested in isolation
-  // with a fake fetch returning canned payloads — never driven through the
-  // whole loop to a measured held-out lift + a real gate promotion. This test
-  // closes the WIRING half of that gap deterministically (the live-router
-  // half lives in examples/substrate-lift-proof): a weak baseline scores 0,
-  // gepaProposer's reflected candidate scores 1, the holdout re-score sees the
-  // delta, and defaultProductionGate promotes. The regression it catches: any
-  // refactor that collapses the candidate/baseline holdout maps (delta→0) or
-  // drops the proposer's proposal before the gate (winner == baseline).
-
+describe('SurfaceProposer → runImprovementLoop → defaultProductionGate', () => {
   // The worker scores 1 iff the surface carries the schema directive the
   // proposer is supposed to introduce; the weak baseline lacks it → scores 0.
   const SCHEMA_MARKER = 'OUTPUT_STRICT_SCHEMA'
@@ -243,28 +242,8 @@ describe('gepaProposer → runImprovementLoop → defaultProductionGate (full wi
     },
   }
 
-  // Fake router for the proposer's reflection: returns one candidate surface
-  // that contains the marker. This is the LLM's job in the live proof —
-  // here it is stubbed so the wiring is deterministic + offline.
-  function proposerFetch(): typeof fetch {
-    return (async () => {
-      const proposals = [
-        { label: 'fix', rationale: 'add schema directive', payload: `BASE ${SCHEMA_MARKER}` },
-      ]
-      const content = JSON.stringify({ proposals })
-      return new Response(
-        JSON.stringify({ choices: [{ message: { content } }], usage: { total_tokens: 10 } }),
-        { status: 200, headers: { 'content-type': 'application/json' } },
-      )
-    }) as unknown as typeof fetch
-  }
-
   it('promotes a real proposer-proposed lift on the held-out split', async () => {
-    const proposer = gepaProposer({
-      llm: { apiKey: 'k', baseUrl: 'https://router.test/v1', fetch: proposerFetch() },
-      model: 'test-model',
-      target: 'enforce a strict output schema',
-    })
+    const proposer = candidateProposer(`BASE ${SCHEMA_MARKER}`, 'fix', 'add schema directive')
 
     const result = await runImprovementLoop<FakeScenario, FakeArtifact>({
       scenarios: SCENARIOS,
@@ -276,7 +255,6 @@ describe('gepaProposer → runImprovementLoop → defaultProductionGate (full wi
       proposer,
       populationSize: 1,
       maxGenerations: 1,
-      promoteTopK: 1,
       gate: defaultProductionGate<FakeArtifact, FakeScenario>({
         holdoutScenarios: HOLDOUT,
         deltaThreshold: 0.5,
@@ -305,11 +283,7 @@ describe('gepaProposer → runImprovementLoop → defaultProductionGate (full wi
     // crash (e.g. a scorer that threw on a malformed persona). The loop must
     // REFUSE and surface the underlying failure instead of emitting a verdict
     // over an empty holdout.
-    const proposer = gepaProposer({
-      llm: { apiKey: 'k', baseUrl: 'https://router.test/v1', fetch: proposerFetch() },
-      model: 'test-model',
-      target: 'enforce a strict output schema',
-    })
+    const proposer = candidateProposer(`BASE ${SCHEMA_MARKER}`)
     const holdoutIds = new Set(HOLDOUT.map((s) => s.id))
     await expect(
       runImprovementLoop<FakeScenario, FakeArtifact>({
@@ -326,7 +300,6 @@ describe('gepaProposer → runImprovementLoop → defaultProductionGate (full wi
         proposer,
         populationSize: 1,
         maxGenerations: 1,
-        promoteTopK: 1,
         gate: defaultProductionGate<FakeArtifact, FakeScenario>({
           holdoutScenarios: HOLDOUT,
           deltaThreshold: 0.5,
@@ -341,27 +314,13 @@ describe('gepaProposer → runImprovementLoop → defaultProductionGate (full wi
   it('holds when the proposer proposes no improvement (winner == baseline)', async () => {
     // Proposer returns only the parent surface → deduped to empty → winner stays
     // baseline → holdout delta 0 → gate holds. Guards the "nothing to ship" path.
-    const noopFetch = (async () => {
-      const content = JSON.stringify({
-        proposals: [{ label: 'x', rationale: 'r', payload: 'BASE' }],
-      })
-      return new Response(
-        JSON.stringify({ choices: [{ message: { content } }], usage: { total_tokens: 1 } }),
-        { status: 200, headers: { 'content-type': 'application/json' } },
-      )
-    }) as unknown as typeof fetch
-
     const result = await runImprovementLoop<FakeScenario, FakeArtifact>({
       scenarios: SCENARIOS,
       holdoutScenarios: HOLDOUT,
       baselineSurface: 'BASE',
       dispatchWithSurface: async (surface) => ({ text: String(surface) }),
       judges: [judge],
-      proposer: gepaProposer({
-        llm: { apiKey: 'k', baseUrl: 'https://router.test/v1', fetch: noopFetch },
-        model: 'test-model',
-        target: 'enforce a strict output schema',
-      }),
+      proposer: candidateProposer('BASE', 'x', 'r'),
       populationSize: 1,
       maxGenerations: 1,
       gate: defaultProductionGate<FakeArtifact, FakeScenario>({
@@ -395,9 +354,8 @@ describe('gepaProposer → runImprovementLoop → defaultProductionGate (full wi
 // ── Loop provenance: the full auditable candidate→gate→promote chain ─
 
 describe('loop provenance emission (transaction-extraction shape, offline)', () => {
-  // This is the deterministic, offline twin of examples/substrate-lift-proof:
-  // a weak baseline ('Extract the transaction info.') scores 0, gepaProposer's
-  // reflected candidate carries the schema marker and scores 1, the holdout
+  // A weak baseline scores 0, the proposed candidate carries the schema marker
+  // and scores 1, the holdout
   // re-score sees the +1 lift, defaultProductionGate ships. It then asserts
   // the FULL provenance chain the audit + ADC require is emitted + durable:
   //   1. the winner carries its rationale ("because Z" survives),
@@ -406,8 +364,8 @@ describe('loop provenance emission (transaction-extraction shape, offline)', () 
   //   4. the structured provenance record + OTel spans are emitted,
   //   5. backend provenance (verdict + worker call count + model) is captured,
   //   6. the held-out lift RECOMPUTES from the emitted record (not the live return).
-  // The regression each guards: gepa.ts dropping label+rationale; the
-  // 'sha256:cell' stub hashes; the diff being PR-only; cost-only spans; the
+  // The regression each guards: dropping label+rationale, stub hashes, the
+  // diff being PR-only, cost-only spans, and the
   // provenance record being non-durable.
   const SCHEMA_MARKER = 'OUTPUT_STRICT_SCHEMA'
   const RATIONALE = 'baseline omits the field schema; pin keys + ISO date'
@@ -420,17 +378,6 @@ describe('loop provenance emission (transaction-extraction shape, offline)', () 
       const ok = artifact.text.includes(SCHEMA_MARKER) ? 1 : 0
       return { dimensions: { schema: ok }, composite: ok, notes: '' }
     },
-  }
-
-  function proposerFetch(): typeof fetch {
-    return (async () => {
-      const proposals = [{ label: LABEL, rationale: RATIONALE, payload: `BASE ${SCHEMA_MARKER}` }]
-      const content = JSON.stringify({ proposals })
-      return new Response(
-        JSON.stringify({ choices: [{ message: { content } }], usage: { total_tokens: 10 } }),
-        { status: 200, headers: { 'content-type': 'application/json' } },
-      )
-    }) as unknown as typeof fetch
   }
 
   function costReceipts(): CostReceipt[] {
@@ -452,11 +399,7 @@ describe('loop provenance emission (transaction-extraction shape, offline)', () 
   }
 
   it('emits the full chain + the +lift recomputes from the emitted record', async () => {
-    const proposer = gepaProposer({
-      llm: { apiKey: 'k', baseUrl: 'https://router.test/v1', fetch: proposerFetch() },
-      model: 'test-model',
-      target: 'enforce a strict output schema',
-    })
+    const proposer = candidateProposer(`BASE ${SCHEMA_MARKER}`, LABEL, RATIONALE)
 
     const result = await runImprovementLoop<FakeScenario, FakeArtifact>({
       scenarios: SCENARIOS,
@@ -467,7 +410,6 @@ describe('loop provenance emission (transaction-extraction shape, offline)', () 
       proposer,
       populationSize: 1,
       maxGenerations: 1,
-      promoteTopK: 1,
       gate: defaultProductionGate<FakeArtifact, FakeScenario>({
         holdoutScenarios: HOLDOUT,
         deltaThreshold: 0.5,
@@ -477,7 +419,7 @@ describe('loop provenance emission (transaction-extraction shape, offline)', () 
       seed: 7,
     })
 
-    // (1) The rationale survived gepa.ts → GenerationCandidate → result.winner*.
+    // (1) The rationale survived proposer → GenerationCandidate → result.winner*.
     expect(result.winnerRationale).toBe(RATIONALE)
     expect(result.winnerLabel).toBe(LABEL)
     const winnerCandidate = result.generations[0]!.record.candidates[0]!
@@ -839,9 +781,9 @@ describe('defaultProductionGate', () => {
 // ── runImprovementLoop refuses unsafe configs ──────────────────────
 
 describe('runImprovementLoop — safety pre-flight', () => {
-  const noopMutator: Mutator = {
+  const noopProposer: SurfaceProposer = {
     kind: 'noop',
-    async mutate({ currentSurface, populationSize }) {
+    async propose({ currentSurface, populationSize }) {
       return new Array(populationSize).fill(currentSurface)
     },
   }
@@ -851,7 +793,7 @@ describe('runImprovementLoop — safety pre-flight', () => {
     holdoutScenarios: HOLDOUT,
     baselineSurface: 'You are helpful.',
     dispatchWithSurface: async (_s: string, sc: FakeScenario) => ({ text: sc.id }),
-    proposer: evolutionaryProposer({ mutator: noopMutator }),
+    proposer: noopProposer,
     populationSize: 1,
     maxGenerations: 1,
     gate: heldOutGate({ scenarios: HOLDOUT, deltaThreshold: -10 }),
@@ -898,9 +840,9 @@ describe('runOptimization', () => {
   it('fails closed on a missing runDir before writing under ./undefined', async () => {
     const spillDir = join(process.cwd(), 'undefined')
     rmSync(spillDir, { recursive: true, force: true })
-    const noopMutator: Mutator = {
+    const noopProposer: SurfaceProposer = {
       kind: 'noop',
-      async mutate({ currentSurface }) {
+      async propose({ currentSurface }) {
         return [currentSurface]
       },
     }
@@ -913,7 +855,7 @@ describe('runOptimization', () => {
           dispatchWithSurface: async (surface: string, s: FakeScenario) => ({
             text: `${surface}::${s.id}`,
           }),
-          proposer: evolutionaryProposer({ mutator: noopMutator }),
+          proposer: noopProposer,
           populationSize: 1,
           maxGenerations: 1,
           runDir: undefined as unknown as string,
@@ -926,9 +868,9 @@ describe('runOptimization', () => {
   })
 
   it('runs baseline + N generations and returns a winner', async () => {
-    const noopMutator: Mutator = {
+    const appendProposer: SurfaceProposer = {
       kind: 'append-letter',
-      async mutate({ currentSurface, populationSize }) {
+      async propose({ currentSurface, populationSize }) {
         return new Array(populationSize).fill(0).map((_, i) => `${currentSurface} +${i}`)
       },
     }
@@ -940,7 +882,7 @@ describe('runOptimization', () => {
       scenarios: SCENARIOS,
       baselineSurface: 'base',
       dispatchWithSurface,
-      proposer: evolutionaryProposer({ mutator: noopMutator }),
+      proposer: appendProposer,
       populationSize: 2,
       maxGenerations: 2,
       runDir,
@@ -967,9 +909,9 @@ describe('runOptimization', () => {
         notes: '',
       }),
     }
-    const noopMutator: Mutator = {
+    const candidateProposer: SurfaceProposer = {
       kind: 'noop',
-      async mutate({ currentSurface, populationSize }) {
+      async propose({ currentSurface, populationSize }) {
         return new Array(populationSize).fill(0).map((_, i) => `${currentSurface}+${i}`)
       },
     }
@@ -980,7 +922,7 @@ describe('runOptimization', () => {
         text: `${surface}::${s.id}`,
       }),
       judges: [judge],
-      proposer: evolutionaryProposer({ mutator: noopMutator }),
+      proposer: candidateProposer,
       populationSize: 2,
       maxGenerations: 1,
       runDir,
@@ -1411,8 +1353,8 @@ describe('emitLoopProvenance — hosted ingest (eval-run + traces)', () => {
 })
 
 describe('runImprovementLoop — no-op guard (empty-diff false-ship killer)', () => {
-  // Regression for the observed production false positive: the gepaProposer's
-  // candidate did NOT beat the training baseline, so the winner stayed the
+  // Regression for the observed production false positive: a candidate did not
+  // beat the training baseline, so the winner stayed the
   // baseline (empty diff) — yet the loop re-scored baseline-vs-itself on the
   // holdout, read model noise as a +4 "lift", and SHIPPED. A winner identical
   // to the baseline has nothing to promote and must HOLD, regardless of how
@@ -1426,17 +1368,6 @@ describe('runImprovementLoop — no-op guard (empty-diff false-ship killer)', ()
       return { dimensions: { q: ok }, composite: ok, notes: '' }
     },
   }
-  // Proposer proposes a STRICTLY WEAKER candidate (no marker → scores 0 < baseline 1).
-  const weakerProposalFetch = (async () => {
-    const content = JSON.stringify({
-      proposals: [{ label: 'weaker', rationale: 'r', payload: 'WEAKER_CANDIDATE' }],
-    })
-    return new Response(
-      JSON.stringify({ choices: [{ message: { content } }], usage: { total_tokens: 5 } }),
-      { status: 200, headers: { 'content-type': 'application/json' } },
-    )
-  }) as unknown as typeof fetch
-
   it('HOLDS when no candidate beats the baseline, even with a near-zero delta threshold', async () => {
     const result = await runImprovementLoop<FakeScenario, FakeArtifact>({
       scenarios: SCENARIOS,
@@ -1444,14 +1375,9 @@ describe('runImprovementLoop — no-op guard (empty-diff false-ship killer)', ()
       baselineSurface: STRONG,
       dispatchWithSurface: async (surface) => ({ text: String(surface) }),
       judges: [prefersBaseline],
-      proposer: gepaProposer({
-        llm: { apiKey: 'k', baseUrl: 'https://router.test/v1', fetch: weakerProposalFetch },
-        model: 'm',
-        target: 't',
-      }),
+      proposer: candidateProposer('WEAKER_CANDIDATE', 'weaker', 'r'),
       populationSize: 1,
       maxGenerations: 1,
-      promoteTopK: 1,
       // deltaThreshold so low it would ship ANY positive noise delta — the
       // no-op guard must fire FIRST and override it.
       gate: defaultProductionGate<FakeArtifact, FakeScenario>({
@@ -1498,7 +1424,6 @@ describe('runOptimization — analyzeGeneration feeds findings forward', () => {
       proposer,
       populationSize: 1,
       maxGenerations: 3,
-      promoteTopK: 1,
       runDir,
       seed: 1,
       findings: [{ claim: 'seed' }],
@@ -1539,7 +1464,6 @@ describe('runOptimization — analyzeGeneration feeds findings forward', () => {
       proposer,
       populationSize: 1,
       maxGenerations: 1,
-      promoteTopK: 1,
       runDir,
       seed: 1,
       findings: [{ claim: 'seed' }],
@@ -1588,7 +1512,6 @@ describe('runOptimization — analyzeGeneration feeds findings forward', () => {
       proposer,
       populationSize: 1,
       maxGenerations: 1,
-      promoteTopK: 1,
       runDir,
       seed: 1,
       findings: [{ claim: 'seed' }],
@@ -1618,7 +1541,6 @@ describe('runOptimization — analyzeGeneration feeds findings forward', () => {
       proposer,
       populationSize: 1,
       maxGenerations: 2,
-      promoteTopK: 1,
       runDir,
       seed: 1,
       findings: [{ claim: 'seed' }],

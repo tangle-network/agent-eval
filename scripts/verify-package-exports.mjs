@@ -78,7 +78,7 @@ try {
 
   symlinkSync(packageDir, join(appDir, 'node_modules', '@tangle-network', 'agent-eval'), 'dir')
   const readme = readFileSync(join(repoRoot, 'README.md'), 'utf8')
-  const quickstart = readme.match(/## Quickstart[\s\S]*?```ts\n([\s\S]*?)\n```/)?.[1]
+  const quickstart = readme.match(/## Evaluate An Agent[\s\S]*?```ts\n([\s\S]*?)\n```/)?.[1]
   if (!quickstart) throw new Error('README quickstart TypeScript block was not found')
   writeFileSync(join(appDir, 'quickstart.ts'), `${quickstart}\n`)
   writeFileSync(join(appDir, 'package.json'), JSON.stringify({ type: 'module' }))
@@ -229,10 +229,10 @@ try {
   run(join(repoRoot, 'node_modules', '.bin', 'tsc'), ['-p', 'tsconfig.json'], appDir)
   const quickstartOutput = run(process.execPath, [join(appDir, 'dist', 'quickstart.js')], appDir)
   const plainQuickstartOutput = quickstartOutput.replace(/\x1b\[[0-9;]*m/g, '')
-  if (!/baseline:\s+\{ 'cites-ticket': \{ mean: 0,/.test(plainQuickstartOutput)) {
+  if (!/\{ 'ticket-id': \{ mean: 0,/.test(plainQuickstartOutput)) {
     throw new Error(`README quickstart baseline output changed:\n${quickstartOutput}`)
   }
-  if (!/candidate:\s*\{ 'cites-ticket': \{ mean: 1,/.test(plainQuickstartOutput)) {
+  if (!/\{ 'ticket-id': \{ mean: 1,/.test(plainQuickstartOutput)) {
     throw new Error(`README quickstart candidate output changed:\n${quickstartOutput}`)
   }
   run(
@@ -273,7 +273,6 @@ try {
         }
         const campaign = await import('@tangle-network/agent-eval/campaign')
         for (const name of [
-          'compositeProposer',
           'gitWorktreeAdapter',
           'verifyCodeSurface',
           'resolveWorktreePath',
@@ -282,12 +281,34 @@ try {
           'analyzeCrossSurfaceInteractions',
           'surfaceHash',
           'surfaceContentHash',
+          'componentSurfaceIdentityMaterial',
+          'compareOptimizationMethods',
+          'gepaOptimizationMethod',
+          'skillOptOptimizationMethod',
           'openSearchLedger',
           'FileSearchLedger',
           'SearchLedgerIntegrityError',
           'validateSearchLedgerEvent',
         ]) {
           if (!(name in campaign)) throw new Error('missing campaign export ' + name)
+        }
+        for (const removed of [
+          'aceProposer',
+          'fapoProposer',
+          'gepaProposer',
+          'skillOptProposer',
+          'memoryCurationProposer',
+          'evolutionaryProposer',
+          'compositeProposer',
+          'haloProposer',
+          'traceAnalystProposer',
+          'llmPolicyEditProposer',
+          'policyEditProposer',
+          'parameterSweepProposer',
+          'runLineageLoop',
+          'runLineage',
+        ]) {
+          if (removed in campaign) throw new Error('obsolete campaign export ' + removed)
         }
         const ledger = campaign.openSearchLedger({
           path: './packed-search-ledger.jsonl',

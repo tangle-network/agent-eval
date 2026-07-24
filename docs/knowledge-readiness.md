@@ -77,8 +77,5 @@ Knowledge-related failures use the normal failure taxonomy:
 - `contradictory_evidence`
 - `ambiguous_user_intent`
 
-For optimization, scorers should use responsible surfaces such as
-`knowledge-requirements`, `data-acquisition`, `retrieval-policy`, and
-`user-question-policy` in actionable side information. That lets GEPA-style
-loops improve data acquisition and retrieval policy instead of blaming every
-failure on the prompt.
+For optimization, scorers should identify responsible surfaces such as `knowledge-requirements`, `data-acquisition`, `retrieval-policy`, and `user-question-policy`.
+That evidence lets an official optimization method or caller-owned `SurfaceProposer` improve acquisition and retrieval policy instead of blaming every failure on the prompt.

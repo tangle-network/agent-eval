@@ -64,7 +64,7 @@ const judge: JudgeConfig<A, S> = {
 }
 
 // Deterministic proposer: one candidate that introduces the marker, carrying the
-// rationale. This is what gepaProposer does with a real router; here it is fixed.
+// rationale. A runtime or external engine can author this; here it is fixed.
 const proposer: SurfaceProposer = {
   kind: 'fake:marker',
   async propose({ currentSurface, populationSize }) {

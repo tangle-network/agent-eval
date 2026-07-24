@@ -37,7 +37,8 @@ Only four tasks are held back, so do not use its release decision as a productio
 
 - Replace `agent` with the product call you want to improve.
 - Replace `judge.score` with a deterministic check or a calibrated model-based judge.
-- Replace the synthetic candidate generator with your own `SurfaceProposer`, or remove it and configure the built-in model-based proposer through `llm`.
+- Replace the synthetic candidate generator with your own `SurfaceProposer` or delegate candidate creation to agent-runtime.
+- Use `compareOptimizationMethods()` for official GEPA or SkillOpt instead of wrapping either complete optimizer as a proposer.
 - Increase the task corpus and repetitions until the score can distinguish known-good from known-bad behavior.
 
 The complete implementation is [`index.ts`](./index.ts).

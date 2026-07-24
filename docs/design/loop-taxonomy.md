@@ -1,212 +1,164 @@
-# Loop taxonomy: execution driver, worker, measurement, and surface proposer
+# Evaluation And Improvement Model
 
-This is the canonical vocabulary for the Tangle agent stack. It exists because
-the same word ("loop", "shot", "worker") was being used at three different
-layers, and the layers were getting conflated. Every role below has exactly
-one meaning. Use these words and nothing else.
+This document defines the package's internal terms and ownership boundaries.
+Public examples should use concrete words such as prompt, skill, case, and agent whenever possible.
 
-Cross-links: [`concepts.md`](../concepts.md) (eval mental model),
-[`campaign-proposers.md`](../campaign-proposers.md) (proposer catalog), and
-[`multi-shot-optimization.md`](../multi-shot-optimization.md) (GEPA).
+## The Evaluation Unit
 
-## Core Roles
+One evaluation cell contains:
 
-| Role | Definition | Lives at |
-|---|---|---|
-| **Execution driver** | The thing that decides or routes the next turn/action inside a sandbox or worker conversation. | Inner layer only |
-| **Surface proposer** | The thing that proposes the next prompt/config/code surface for the improvement loop to measure. | Outer layer only |
-| **Worker** | An agent harness instance (Claude Code, Codex, OpenCode, …) running inside a sandbox. Does the actual work; responds in chat. | Inner layer only |
-| **Sandbox** | A multi-harness VM. Hosts **1..N workers**, which can share a workspace. Not an agent: the substrate an agent runs in. | Inner layer only |
-| **Measurement** | Runs the worker over a set of scenarios and judges the outputs into a scorecard with confidence intervals. This is `runCampaign`. | Outer layer |
-
-Two facts that trip people up:
-
-1. **A sandbox is not a worker.** One sandbox can hold ten workers: a driver
-   can coordinate CC + Codex + OpenCode siblings sharing one workspace, or a
-   fleet spread across machines. `runLoop`'s placement encodes exactly this:
-   `{ sibling, sandboxId }` = co-located workers; `{ fleet, fleetId,
-   machineId, sandboxId }` = workers across machines.
-
-2. **"Driver" is reserved for execution.** The outer loop uses a
-   **surface proposer**: it proposes the next prompt / tool config / code
-   surface for the measurement loop.
-
-## The nesting
-
-There are two loops. The outer one improves the thing the inner one runs.
-
-```
-runImprovementLoop                         OUTER loop: improve the agent over time
-│
-├─ PROPOSER = SurfaceProposer              proposes a candidate SURFACE
-│           (evolutionary mutator |        (the worker's system prompt / tools / config)
-│            reflective analyst)           : NOT a conversation turn
-│
-└─ for each candidate surface:
-     │
-     runCampaign                           a MEASUREMENT: scores ONE surface
-     │
-     └─ for each scenario × rep:
-          │
-          dispatch(scenario)               THE SEAM: topology-opaque, returns an artifact
-          │
-          └─ runLoop / runMultishot        INNER loop: one conversation
-               ├─ DRIVER  = persona / user / planner    chats with ↓
-               └─ WORKERS = 1..N agent harnesses in 1..M sandboxes
-               │
-               → transcript / artifact
-        judge(artifact) → score
-   → scorecard + CIs
-  gate(winner vs baseline) → PR
+```text
+candidate surface
++ scenario
++ repetition
++ dispatch
++ judges
+= artifact, scores, trace, usage, cost, and status
 ```
 
-### `dispatch` is the topology-opaque seam
+The dispatch runs the system under test.
+A judge converts one artifact into dimension scores and a composite score.
+A campaign repeats this process across cases and candidates.
 
-`dispatch(scenario) → artifact` is the boundary between the measurement layer
-and the execution layer. The measurement does **not** know or care how the
-artifact was produced. Behind the seam can be:
+## The Value Being Changed
 
-- one LLM call,
-- one worker (CC) in one sandbox,
-- a conversation driver coordinating 10 workers (CC + Codex + OpenCode)
-  sharing a workspace in one sandbox,
-- a fleet across machines.
+`MutableSurface` is the API type for the value under optimization.
+It can be:
 
-All of it is invisible to `runCampaign`. This is why the substrate has no
-opinion about execution topology: the topology lives inside `dispatch`.
+- a prompt string,
+- a serialized configuration,
+- a code surface owned by a runtime,
+- a named component map for multi-part GEPA optimization.
 
-### Corrected statements (things that were said backwards)
+A campaign measures surfaces but does not decide how a product stores or activates them.
 
-- The worker is the agent in the sandbox. The driver talks to it. ✓
-- `runCampaign` is a **measurement**, not a worker. It *runs the worker* (via
-  `dispatch`); the worker does not "run the eval".
-- The outer improvement loop has **no single worker**: its proposer proposes a
-  *surface*, and each surface is scored by a *measurement* that drives the
-  inner workers.
+## Two Candidate Paths
 
-## The dataset flywheel: why every loop run matters
+### Complete Optimization Method
 
-**Every loop run, regardless of why it ran, feeds the same dataset.** This is
-the through-line that ties measurement and improvement together.
+`OptimizationMethod` owns search, candidate history, selection, and stopping.
+It receives train and selection cases and returns one selected surface.
 
-When `runCampaign` runs with a `labeledStore`, each cell captures
-`(scenario, artifact, judgeScore, source)` into the `LabeledScenarioStore`.
-The `source` discriminates *why* the run happened: but the captured tuple is
-identical in shape:
+Use this path for:
 
-| `captureSource` | The run that produced it |
+- `gepaOptimizationMethod()`, which calls official GEPA engines and composition functions,
+- `skillOptOptimizationMethod()`, which calls Microsoft's official `ReflACTTrainer`,
+- another optimizer that already owns its search behavior.
+
+Complete methods run through `compareOptimizationMethods()`.
+The comparison function scores selected surfaces on final cases after all optimization finishes.
+
+### Caller-Owned Candidate Generator
+
+`SurfaceProposer` suggests candidates inside Agent Eval's `runImprovementLoop()`.
+It receives the current surface, prior campaign history, findings, generation number, requested population size, and cancellation signal.
+
+Use this path when:
+
+- product rules generate candidates,
+- agent-runtime delegates candidate creation to a worker,
+- a human-authored list defines possible edits.
+
+Do not reproduce an upstream optimizer behind this interface.
+Use its complete method adapter so the upstream package retains control of its own search state.
+
+## Three Data Partitions
+
+| Partition | May author candidates | May select candidates | May rank final methods |
+|---|---:|---:|---:|
+| Train | yes | yes | no |
+| Selection | yes | yes | no |
+| Final test | no | no | yes |
+
+An `OptimizationMethodInput` has no final-test field.
+This structural omission prevents an optimizer from receiving final cases through the normal API.
+Official methods receive serialized train and selection cases, so both partitions are optimizer-visible.
+
+Change authors must still avoid indirect leaks through files, environment variables, cached artifacts, or custom scenario descriptions.
+
+## Main APIs
+
+| API | Responsibility |
 |---|---|
-| `'eval-run'` | a plain evaluation campaign |
-| `'production-trace'` | a real user conversation in production |
-| `'red-team'` | an adversarial probe |
-| `'synthetic'` | a generated scenario |
-| `'manual'` | a human-curated example |
+| `runCampaign()` | Execute and score a fixed set of candidate cells. |
+| `runImprovementLoop()` | Search with a caller-owned `SurfaceProposer` and apply a release rule. |
+| `compareOptimizationMethods()` | Run complete methods and compare selected surfaces on shared final cases. |
+| `gepaOptimizationMethod()` | Adapt official GEPA recipes to Agent Eval execution and scoring. |
+| `skillOptOptimizationMethod()` | Adapt official SkillOpt training to Agent Eval execution and scoring. |
 
-That captured corpus **is the GEPA training set.** A basic eval run, a
-production conversation, and an autoresearch loop all deposit the same
-`(input, output, reward)` tuples. The optimization proposer later samples from
-that corpus to evolve the surface. So:
+## Runtime Ownership
 
-> Running *any* loop: even one whose purpose is not optimization: builds the
-> dataset that optimization needs. The flywheel turns whether or not you are
-> currently optimizing.
+Agent Eval owns measurement:
 
-This is enforced, not aspirational: `runImprovementLoop` **refuses**
-`tracing: 'off'` whenever a proposer is wired, precisely because a loop that
-doesn't feed the dataset is a loop that breaks the flywheel.
+- scenarios,
+- dispatch contracts,
+- judges,
+- run records,
+- cost receipts,
+- statistics,
+- method comparison.
 
-Temporal-split discipline (train vs holdout, `capturedBefore`) and
-default-off-for-training of `production-trace` are enforced at the
-`LabeledScenarioStore.sample()` boundary so the flywheel cannot contaminate
-the holdout it is judged against. See `src/campaign/labeled-store/`.
+Agent Runtime owns execution policy:
 
-## One improvement loop, pluggable proposers
+- agent sessions,
+- worker creation,
+- steering,
+- code edits,
+- process placement,
+- activation in a running product.
 
-The improvement loop is **proposer-agnostic**. `runOptimization` (the loop body)
-and `runImprovementLoop` (the gated-promotion shell) call
-`proposer.propose(...)` → measure → `proposer.decide(...)`. They do not know
-which strategy proposed the candidate. The API interface is `SurfaceProposer`:
+Agent Knowledge owns knowledge state:
 
-```ts
-interface SurfaceProposer<TFindings = unknown> {
-  kind: string
-  propose(args: {
-    currentSurface: MutableSurface
-    history: GenerationRecord[]   // what's been tried + scored
-    findings: TFindings[]         // external signal (e.g. analyst output)
-    populationSize: number
-    generation: number
-    signal: AbortSignal
-  }): Promise<MutableSurface[]>
-  decide?(args: { history: GenerationRecord[] }): { stop: boolean; reason?: string }
-}
-```
+- sources,
+- retrieval,
+- memory adapters,
+- knowledge writes,
+- freshness and provenance.
 
-| Implementation | Strategy | How it proposes | Where it lives |
-|---|---|---|---|
-| `evolutionaryProposer` | Evolutionary (GEPA / AxGEPA) | Standalone `SurfaceProposer`. Mutates the current best surface into N candidates, blind to history beyond the current best. Optimizes against the dataset's rewards. | **agent-eval** (pure: dataset → surface, no sandbox) |
-| Runtime reflective proposer | Reflective | Cheap generator: drafts patches from the report and applies them into a worktree (shots=1, no sandbox). | **agent-runtime**: implements agent-eval's proposer contract |
-| Runtime agentic proposer | Agentic | Full generator: runs a coding harness in the worktree (≤ `maxImprovementShots`) to edit in place. | **agent-runtime** |
+Runtime and knowledge packages can expose their values as candidate surfaces and use Agent Eval to measure them.
+Agent Eval must not import either consumer package.
 
-This resolves the prior duplication where `runImprovementLoop` (evolutionary,
-agent-eval) and `runAnalystLoop` (reflective, agent-runtime) were two parallel
-loops doing "propose change → measure → gate → PR". There is **one loop** and
-one proposer contract. The reflective and agentic paths are two settings of the
-same cost dial, not separate outer loops. The dependency direction permits this
-cleanly: agent-eval is the leaf and owns the proposer contract; agent-runtime
-imports agent-eval and implements it.
+## Resume And Parallel Work
 
-## What "the surface" is: improvement tiers
+Campaign storage keeps cell-level results and cost receipts.
+Official optimizer adapters add their own compatible-run identity and process lock.
 
-`MutableSurface` is the thing the proposer changes. It has tiers, least → most
-invasive. `MutableSurface = string | CodeSurface` spans all of them: `string`
-for tiers 1–2, and a finalized `CodeSurface` for tier 4. A code surface's
-worktree path is only its locator; exact base/candidate commits, final tree,
-and binary-patch digest are its portable identity. Call `verifyCodeSurface`
-before executing the checkout so a moved ref or post-finalization mutation
-fails before measurement. Verification hashes raw files and executable modes
-without Git filters and rejects external symlinks or submodules whose bytes are
-not represented by the candidate tree.
+A compatible official run includes:
 
-| Tier | Surface | Generator that changes it | Blast radius |
-|---|---|---|---|
-| 1 | System prompt / prompt-signature addendum | `evolutionaryProposer` (GEPA), `reflectiveGenerator` | prompt only |
-| 2 | Tool config / tool signatures | `reflectiveGenerator` | which tools, their schemas |
-| 3 | Knowledge (wiki / knowledge graph) | agent-knowledge's knowledge adapter | what the agent *knows* |
-| 4 | Code / scaffolding | `agenticGenerator` (coding harness reads codebase + report) → worktree / PR | the implementation itself |
+- upstream package revision,
+- optimizer recipe or trainer settings,
+- starting surface,
+- train and selection descriptions,
+- evaluation revision,
+- seed,
+- work limits.
 
-The cost/capability distinction:
+SkillOpt and a direct GEPA engine can restore official state.
+Composed GEPA recipes restart and report `resumed: false`.
+Method-level concurrency and candidate-level concurrency are separate controls.
+Each method receives its own run directory and optimization spend account.
 
-- **`reflectiveGenerator`** updates the *signatures*: prompt + tool surface
-  (tiers 1–2). Cheap (drafts patches, no sandbox), reversible, measured
-  directly against the dataset.
-- **`agenticGenerator`** updates the *code* (tier 4). A coding harness reads
-  the repository + the report, edits in a worktree, iterates up to
-  `maxImprovementShots`: measured by re-running the inner loop against the
-  changed code.
+## Cost Accounting
 
-Both are implementations of the one proposer contract (propose → measure → gate
-→ PR). They differ only in *what* they edit and *how invasive* it is: and both
-consume the **same dataset** the flywheel builds.
+Agent and judge calls must report receipts through `DispatchContext.cost`.
+Unknown spend remains unknown.
 
-## Vocabulary quick reference
+Standard GEPA and SkillOpt model calls pass through Agent Eval's local proxy.
+The proxy enforces limits and records provider usage at caller-supplied rates.
+Other GEPA engines can report their own spend, but that amount remains incomplete because Agent Eval did not observe those model calls.
+Missing usage remains unknown instead of being treated as zero.
 
-- **shot**: one conversational turn (driver says X, worker responds Y). Used
-  in `runMultishot`. Never used to mean a whole eval run.
-- **runMultishot**: many shots in one conversation; persona-driver ↔ one
-  router-agent. agent-eval.
-- **runLoop**: driver ↔ workers in sandboxes; topology-agnostic execution.
-  agent-runtime.
-- **runCampaign**: a measurement: a surface scored over N scenarios × M reps.
-  agent-eval. (A "campaign" = a coordinated batch of measurements.)
-- **runOptimization**: the improvement loop body: proposer suggests surfaces, each is measured, and only a candidate that beats the global incumbent is promoted. agent-eval.
-- **runImprovementLoop**: `runOptimization` + holdout re-score + release gate
-  + optional PR. agent-eval.
-- **runAnalystLoop**: reflective autoresearch: findings + knowledge updates +
-  improvement proposals. agent-runtime.
-- **SurfaceProposer**: the contract a surface proposer implements.
-  `evolutionaryProposer` (agent-eval) is one; agent-runtime can provide
-  reflective or agentic implementations.
-- **CandidateGenerator**: the byte-producing seam inside a runtime proposer;
-  `reflectiveGenerator` (cheap, no sandbox) and `agenticGenerator` (coding
-  harness in the worktree) are the two cost settings. agent-runtime.
+## Promotion
+
+Optimization returns a candidate.
+Product activation remains a separate caller decision.
+
+The caller should require:
+
+- a calibrated score,
+- improvement on cases not used to author candidates,
+- acceptable regressions by dimension,
+- complete enough cost data for the decision,
+- an inspectable exact change.
+
+The package records the decision inputs but does not deploy a prompt, skill, model, code change, memory, or knowledge base.

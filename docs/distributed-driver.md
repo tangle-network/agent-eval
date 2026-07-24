@@ -1,10 +1,10 @@
 # Distributed campaign execution: coordinator-on-A, workers-on-B
 
-The coordinator process (running `runCampaign` / `runImprovementLoop` /
-`gepaProposer`) and the worker (running your actual agent) **do not have to live in the
-same process, machine, region, or cloud.** `Dispatch` is just a
-function: scenario in, artifact out. Whatever returns the artifact is
-the worker: local, remote, sandboxed, or fanned out across a fleet.
+The coordinator process runs `runCampaign()`, `runImprovementLoop()`, or `compareOptimizationMethods()`.
+The worker runs your actual agent.
+They do not have to live in the same process, machine, region, or cloud.
+`Dispatch` is a function from scenario to artifact.
+The implementation can be local, remote, sandboxed, or spread across a worker fleet.
 
 ## Why you'd want this
 
@@ -161,12 +161,9 @@ and using `cellPlacement` to fan across many of them.
   stay on the worker. We need to forward them in the response body so
   `defaultProductionGate`'s `budgetUsd` ceiling reflects total spend, not
   coordinator-side spend. Tracked as a 0.45.x follow-up.
-- **Per-cell artifact streaming**: when the worker writes intermediate
-  artifacts via `ctx.artifacts.write`, those land on the worker's
-  storage. For multi-worker campaigns you'll want a shared object store
-  (S3/GCS) reachable from both sides; today consumers wire that as a
-  `CampaignStorage` impl. A reference S3-backed storage is on the
-  roadmap.
+- **Per-cell artifact streaming**: when the worker writes intermediate artifacts through `ctx.artifacts.write`, those files remain in worker storage.
+  Multi-worker campaigns need a shared `CampaignStorage` implementation reachable from both sides.
+  This package does not include an S3 or GCS implementation.
 - **gRPC / NATS / Temporal transports**: the wire is HTTP today by
   default because everything speaks HTTP. Other transports can ship as
   additional adapters; the `Dispatch` interface itself is

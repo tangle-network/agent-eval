@@ -14,7 +14,7 @@ agent-runtime    Runs agents (chat turns, one-shot tasks, multi-attempt loops), 
                  run as a trace, and exposes improve(), which composes agent-eval's improvement
                  loop. Produces the RunRecords + traces agent-eval scores. Depends on agent-eval.
 
-agent-eval       selfImprove, analyzeRuns, runCampaign + surface proposers (GEPA proposer, …),
+agent-eval       selfImprove, analyzeRuns, runCampaign, official optimizer adapters,
    (this repo)   the gates (heldOutGate, defaultProductionGate, paretoSignificanceGate), the
                  InsightReport, the RL bridge, the wire protocol. Depends on neither consumer.
 

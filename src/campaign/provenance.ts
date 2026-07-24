@@ -26,10 +26,6 @@
 
 import { createHash } from 'node:crypto'
 import { join } from 'node:path'
-import {
-  type PolicyEditCandidateRecord,
-  validatePolicyEditCandidateRecord,
-} from '../analyst/policy-edit'
 import type { CostReceipt } from '../cost-ledger'
 import type { HostedClient } from '../hosted/client'
 import type {
@@ -41,6 +37,10 @@ import type {
 import { summarizeAgentReceiptIntegrity } from '../integrity/backend-integrity'
 import { canonicalJson, contentHash } from '../verdict-cache'
 import { assertCampaignSplitIdentity } from './coverage'
+import type {
+  ComparisonCost,
+  OptimizationMethodProvenance,
+} from './presets/compare-optimization-methods'
 import type { RunImprovementLoopResult } from './presets/run-improvement-loop'
 import { campaignMeanComposite } from './score-utils'
 import type { CampaignStorage } from './storage'
@@ -68,8 +68,6 @@ export interface LoopProvenanceCandidate {
   /** Proposer rationale — the "because Z". When the proposer returned a bare
    *  surface (blind mutator) this is absent. */
   rationale?: string
-  /** Exact validated cause when the proposer emitted a structured record. */
-  candidateRecord?: PolicyEditCandidateRecord
   /** Exact complete incumbent this candidate mutated. */
   parentSurfaceHash: string
   /** Search-split composite of the exact parent. */
@@ -117,6 +115,13 @@ export interface LoopProvenanceEvidence {
   costReceiptsDigest: `sha256:${string}`
 }
 
+export interface LoopProvenanceOptimizationMethod {
+  name: string
+  cost: ComparisonCost
+  durationMs?: number
+  provenance?: OptimizationMethodProvenance
+}
+
 /**
  * The durable provenance record. Aligns to the hosted `EvalRunEvent` path but
  * ADDS the rationale + the explicit baseline→candidate diff (both omitted from
@@ -139,6 +144,8 @@ export interface LoopProvenanceRecord {
   diff: string
   /** Every candidate across every generation, with its rationale and structured cause. */
   candidates: LoopProvenanceCandidate[]
+  /** Complete external method identity and spend, when one authored the candidate. */
+  optimizationMethod?: LoopProvenanceOptimizationMethod
   /** Exact campaign, split, surface, and receipt identities behind every summary. */
   evidence: LoopProvenanceEvidence
   /** Baseline composite on the search split that generated the candidates. */
@@ -204,6 +211,7 @@ export interface BuildLoopProvenanceArgs<TArtifact, TScenario extends Scenario> 
   costReceipts: ReadonlyArray<CostReceipt>
   totalCostUsd: number
   totalDurationMs: number
+  optimizationMethod?: LoopProvenanceOptimizationMethod
 }
 
 export interface LoopProvenanceArgsFromResult<TArtifact, TScenario extends Scenario> {
@@ -371,9 +379,6 @@ export function buildLoopProvenanceRecord<TArtifact, TScenario extends Scenario>
       }
       if (c.label) entry.label = c.label
       if (c.rationale) entry.rationale = c.rationale
-      if (c.candidateRecord) {
-        entry.candidateRecord = validatePolicyEditCandidateRecord(c.candidateRecord)
-      }
       if (c.observedDeltaFromParent !== undefined) {
         entry.observedDeltaFromParent = c.observedDeltaFromParent
       }
@@ -486,11 +491,52 @@ export function buildLoopProvenanceRecord<TArtifact, TScenario extends Scenario>
     totalCostUsd: args.totalCostUsd,
     totalDurationMs: args.totalDurationMs,
   }
+  if (args.optimizationMethod) {
+    recordWithoutDigest.optimizationMethod = durableOptimizationMethod(args.optimizationMethod)
+  }
   if (args.winnerLabel) recordWithoutDigest.winnerLabel = args.winnerLabel
   if (args.winnerRationale) recordWithoutDigest.winnerRationale = args.winnerRationale
   return {
     ...recordWithoutDigest,
     recordDigest: canonicalDigest(recordWithoutDigest),
+  }
+}
+
+function durableOptimizationMethod(
+  value: LoopProvenanceOptimizationMethod,
+): LoopProvenanceOptimizationMethod {
+  if (
+    !value ||
+    typeof value !== 'object' ||
+    typeof value.name !== 'string' ||
+    !value.name.trim() ||
+    value.name.trim() !== value.name
+  ) {
+    throw new Error('buildLoopProvenanceRecord: optimization method name is invalid')
+  }
+  if (
+    !value.cost ||
+    !Number.isFinite(value.cost.totalCostUsd) ||
+    value.cost.totalCostUsd < 0 ||
+    typeof value.cost.accountingComplete !== 'boolean' ||
+    !Array.isArray(value.cost.incompleteReasons) ||
+    value.cost.incompleteReasons.some((reason) => typeof reason !== 'string' || !reason.trim()) ||
+    value.cost.accountingComplete !== (value.cost.incompleteReasons.length === 0)
+  ) {
+    throw new Error('buildLoopProvenanceRecord: optimization method cost is invalid')
+  }
+  if (
+    value.durationMs !== undefined &&
+    (!Number.isFinite(value.durationMs) || value.durationMs < 0)
+  ) {
+    throw new Error('buildLoopProvenanceRecord: optimization method duration is invalid')
+  }
+  try {
+    return JSON.parse(canonicalJson(value)) as LoopProvenanceOptimizationMethod
+  } catch (cause) {
+    throw new Error('buildLoopProvenanceRecord: optimization method data must be canonical JSON', {
+      cause,
+    })
   }
 }
 
@@ -773,9 +819,6 @@ export function loopProvenanceSpans(
       }
       if (c.observedDeltaFromParent !== undefined) {
         attributes['tangle.observedDeltaFromParent'] = c.observedDeltaFromParent
-      }
-      if (c.candidateRecord) {
-        attributes['tangle.policyEditId'] = c.candidateRecord.policyEdit.editId
       }
       if (c.label) attributes['tangle.candidateLabel'] = c.label
       if (c.rationale) attributes['tangle.candidateRationale'] = c.rationale

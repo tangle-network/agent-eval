@@ -195,6 +195,79 @@ describe('costForTokenPricing', () => {
       ),
     ).toBeCloseTo(0.82, 8)
   })
+
+  it('prices normal input, cache reads, cache writes, and output independently', () => {
+    expect(
+      costForTokenPricing(
+        {
+          inputUsdPerMillion: 1,
+          cachedInputUsdPerMillion: 0.25,
+          cacheWriteUsdPerMillion: 1.5,
+          outputUsdPerMillion: 2,
+        },
+        {
+          inputTokens: 100,
+          cachedTokens: 50,
+          cacheWriteTokens: 25,
+          outputTokens: 10,
+        },
+      ),
+    ).toBeCloseTo(0.00017, 12)
+  })
+
+  it('falls back to the normal input rate for unspecified cache rates', () => {
+    expect(
+      costForTokenPricing(
+        { inputUsdPerMillion: 1, outputUsdPerMillion: 2 },
+        {
+          inputTokens: 100,
+          cachedTokens: 50,
+          cacheWriteTokens: 25,
+          outputTokens: 10,
+        },
+      ),
+    ).toBeCloseTo(0.000195, 12)
+  })
+
+  it('records caller-supplied token pricing as an estimate, not provider-billed cost', async () => {
+    const ledger = new CostLedger()
+    const result = await ledger.runPaidCall({
+      channel: 'optimizer',
+      phase: 'propose',
+      actor: 'official-package',
+      model: 'router/custom-model',
+      execute: async () => 'ok',
+      receipt: () => ({
+        model: 'router/custom-model',
+        inputTokens: 100,
+        cachedTokens: 50,
+        cacheWriteTokens: 25,
+        outputTokens: 10,
+        customTokenPricing: {
+          inputUsdPerMillion: 1,
+          cachedInputUsdPerMillion: 0.25,
+          cacheWriteUsdPerMillion: 1.5,
+          outputUsdPerMillion: 2,
+        },
+      }),
+    })
+
+    expect(result).toMatchObject({
+      succeeded: true,
+      receipt: {
+        costUsd: 0.00017,
+        costUnknown: false,
+        pricing: {
+          inputUsdPerThousand: 0.001,
+          cachedInputUsdPerThousand: 0.00025,
+          cacheWriteUsdPerThousand: 0.0015,
+          outputUsdPerThousand: 0.002,
+        },
+      },
+    })
+    if (!result.succeeded) throw result.error
+    expect(result.receipt.actualCostUsd).toBeUndefined()
+  })
 })
 
 let storedReceiptSequence = 0

@@ -11,7 +11,6 @@ import type {
 import type { HostedTenant } from '../hosted/client'
 import {
   type SelfImproveBudget,
-  type SelfImproveLlm,
   type SelfImproveOptions,
   type SelfImproveResult,
   selfImprove,
@@ -49,11 +48,10 @@ export interface AgentEvalEvaluateOptions<TScenario extends Scenario, TArtifact>
 
 export type AgentEvalImproveOptions<TScenario extends Scenario, TArtifact> = Omit<
   Partial<SelfImproveOptions<TScenario, TArtifact>>,
-  'budget' | 'hostedTenant' | 'llm'
+  'budget' | 'hostedTenant'
 > & {
   budget?: Partial<SelfImproveBudget>
   hostedTenant?: Partial<HostedTenant>
-  llm?: Partial<SelfImproveLlm>
 }
 
 export interface DefinedAgentEval<TScenario extends Scenario, TArtifact> {
@@ -70,7 +68,7 @@ export interface DefinedAgentEval<TScenario extends Scenario, TArtifact> {
   ): Promise<CampaignResult<TArtifact, TScenario>>
   /**
    * Run the closed improvement loop. Per-call overrides replace the definition
-   * except for nested config objects (`budget`, `llm`, `hostedTenant`), which
+   * except for nested config objects (`budget`, `hostedTenant`), which
    * are merged field-by-field so callers can override one knob without
    * repeating secrets or budget defaults.
    */
@@ -122,17 +120,14 @@ export function defineAgentEval<TScenario extends Scenario, TArtifact>(
       const {
         budget: budgetOverride,
         hostedTenant: hostedTenantOverride,
-        llm: llmOverride,
         ...topLevelOverrides
       } = opts
       const merged = mergeDefined(defaults, topLevelOverrides)
       const budget = mergeBudget(defaults.budget, budgetOverride)
-      const llm = mergeLlm(defaults.llm, llmOverride)
       const hostedTenant = mergeHostedTenant(defaults.hostedTenant, hostedTenantOverride)
       return selfImprove<TScenario, TArtifact>({
         ...merged,
         ...(budget ? { budget } : {}),
-        ...(llm ? { llm } : {}),
         ...(hostedTenant ? { hostedTenant } : {}),
       })
     },
@@ -168,13 +163,6 @@ function mergeBudget(
   const merged = mergeOptionalObject(defaults, overrides)
   if (merged?.reps !== undefined) merged.reps = requirePositiveInteger(merged.reps, 'budget.reps')
   return merged
-}
-
-function mergeLlm(
-  defaults: SelfImproveLlm | undefined,
-  overrides: Partial<SelfImproveLlm> | undefined,
-): SelfImproveLlm | undefined {
-  return mergeOptionalObject(defaults, overrides)
 }
 
 function mergeHostedTenant(

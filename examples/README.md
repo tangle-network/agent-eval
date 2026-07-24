@@ -1,20 +1,18 @@
 # Examples
 
-Start with the [root quickstart](../README.md#quickstart).
-It is the shortest install-to-result path and runs without an API key.
+Start with the [offline quickstart](./selfimprove-quickstart/).
+It defines cases, an agent, a judge, a starting prompt, and a custom candidate generator in one file.
 
-Use this index when you have a specific integration task.
+## Evaluation And Improvement
 
 | Goal | Example | Requirements |
 |---|---|---|
-| Evaluate and improve a prompt | [`selfimprove-quickstart`](./selfimprove-quickstart) | Offline |
-| Wrap an existing agent | [`foreign-agent-quickstart`](./foreign-agent-quickstart) | Offline; optional LLM key |
-| Load folder-based eval cases | [`eval-fixtures-quickstart`](./eval-fixtures-quickstart) | Offline |
-| Analyze human approvals and rejections | [`customer-feedback-loop`](./customer-feedback-loop) | Offline |
-| Analyze OpenTelemetry spans | [`customer-otel-traces`](./customer-otel-traces) | Offline |
-| Compare complete optimization methods | [`compare-optimization-methods`](./compare-optimization-methods) | LLM endpoint |
-| Package runs as training data | [`publish-rl-dataset`](./publish-rl-dataset) | Offline |
-| Fine-tune with Prime Intellect | [`fine-tune-with-prime-rl`](./fine-tune-with-prime-rl) | Prime Intellect checkout |
+| Improve with a custom `SurfaceProposer` | [`selfimprove-quickstart`](./selfimprove-quickstart/) | Offline |
+| Wrap an existing agent | [`foreign-agent-quickstart`](./foreign-agent-quickstart/) | Offline or an OpenAI-compatible endpoint |
+| Compare official GEPA and SkillOpt | [`compare-optimization-methods`](./compare-optimization-methods/) | Python optimizer packages and an LLM endpoint |
+| Evaluate several attempts per case | [`multi-shot-optimization`](./multi-shot-optimization/) | Offline |
+| Apply a release rule without search | [`held-out-gate`](./held-out-gate/) | Offline |
+| Load folder-based cases | [`eval-fixtures-quickstart`](./eval-fixtures-quickstart/) | Offline |
 
 Run an offline example from the repository root:
 
@@ -22,36 +20,45 @@ Run an offline example from the repository root:
 pnpm tsx examples/selfimprove-quickstart/index.ts
 ```
 
-## Evaluation And Improvement
+Run one official optimizer:
 
-- [`selfimprove-quickstart`](./selfimprove-quickstart) defines one evaluation and calls `.improve()`.
-- [`foreign-agent-quickstart`](./foreign-agent-quickstart) adapts an agent that already has its own runtime.
-- [`multi-shot-optimization`](./multi-shot-optimization) evaluates several attempts per scenario.
-- [`held-out-gate`](./held-out-gate) demonstrates a release rule without a full search loop.
-- [`marketing-agent-canonical`](./marketing-agent-canonical) applies the same flow to a product-specific agent.
-- [`findings-ablation`](./findings-ablation) compares improvement with and without prior failure findings.
+```sh
+OPTIMIZERS=gepa \
+LLM_API_KEY="$OPENAI_API_KEY" \
+GEPA_PRICE_IN_PER_M=0.4 \
+GEPA_PRICE_OUT_PER_M=1.6 \
+pnpm tsx examples/compare-optimization-methods/index.ts
+```
+
+Replace the example rates with the exact endpoint rates.
+Use `OPTIMIZERS=skillopt` for SkillOpt or `OPTIMIZERS=gepa,skillopt` for a shared comparison.
+Read the [optimizer install instructions](./compare-optimization-methods/README.md) first.
 
 ## Existing Data
 
-- [`customer-feedback-loop`](./customer-feedback-loop) converts multiple human ratings into run records and reports disagreement.
-- [`customer-otel-traces`](./customer-otel-traces) converts OpenTelemetry spans into run records.
-- [`scorecard`](./scorecard) records and compares scores over time.
-- [`eval-fixtures-quickstart`](./eval-fixtures-quickstart) loads file-based cases and demonstrates cache reuse.
+| Goal | Example |
+|---|---|
+| Analyze human approvals and rejections | [`customer-feedback-loop`](./customer-feedback-loop/) |
+| Analyze OpenTelemetry spans | [`customer-otel-traces`](./customer-otel-traces/) |
+| Record and compare scores over time | [`scorecard`](./scorecard/) |
+| Reuse file-based cases and cached results | [`eval-fixtures-quickstart`](./eval-fixtures-quickstart/) |
 
 ## Benchmarks And Training
 
-- [`benchmarks`](./benchmarks) contains adapters for public benchmarks.
-- [`compare-optimization-methods`](./compare-optimization-methods) compares complete methods with separate train, selection, and test data.
-- [`substrate-lift-proof`](./substrate-lift-proof) is a live-provider research run, not a quickstart.
-- [`publish-rl-dataset`](./publish-rl-dataset) exports supervised and preference-training rows.
-- [`fine-tune-with-prime-rl`](./fine-tune-with-prime-rl) consumes those rows in a separate trainer checkout.
+| Goal | Example |
+|---|---|
+| Run public benchmark adapters | [`benchmarks`](./benchmarks/) |
+| Export supervised and preference rows | [`publish-rl-dataset`](./publish-rl-dataset/) |
+| Fine-tune through Prime Intellect | [`fine-tune-with-prime-rl`](./fine-tune-with-prime-rl/) |
 
-## Execution And Infrastructure
+## Execution
 
-- [`distributed-driver`](./distributed-driver) coordinates work across processes.
-- [`user-simulation-driver`](./user-simulation-driver) drives a multi-turn agent with a simulated user.
-- [`same-sandbox-harness`](./same-sandbox-harness) runs setup, build, test, and scoring in one work directory.
-- [`hosted-ingest-server`](./hosted-ingest-server) is a reference receiver for optional hosted events.
+| Goal | Example |
+|---|---|
+| Coordinate workers across processes | [`distributed-driver`](./distributed-driver/) |
+| Evaluate a multi-turn simulated user | [`user-simulation-driver`](./user-simulation-driver/) |
+| Run setup, execution, and scoring in one work directory | [`same-sandbox-harness`](./same-sandbox-harness/) |
+| Receive optional hosted events | [`hosted-ingest-server`](./hosted-ingest-server/) |
 
 `_shared/` contains fixtures reused by multiple examples.
 It is not a standalone example.

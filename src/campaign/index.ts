@@ -1,28 +1,3 @@
-export {
-  callbackGovernor,
-  campaignLineageStore,
-  fsLineageStore,
-  type Governor,
-  type GovernorContext,
-  type GovernorOp,
-  type HeuristicGovernorOptions,
-  heuristicGovernor,
-  Lineage,
-  type LineageEdge,
-  type LineageGraph,
-  type LineageNode,
-  type LineageNodeInput,
-  type LineageStore,
-  LineageStoreConflictError,
-  lineageNodeId,
-  memLineageStore,
-  type RunLineageOptions,
-  type RunLineageResult,
-  type RunLineageSeed,
-  type RunLineageStepResult,
-  runLineage,
-} from './lineage'
-
 /**
  * `@tangle-network/agent-eval/campaign` — measurement + improvement loop.
  *
@@ -30,12 +5,6 @@ export {
  * `runImprovementLoop` is the proposer-agnostic improvement loop on top of it.
  */
 
-// ── Surface proposers ────────────────────────────────────────────────
-export {
-  POLICY_EDIT_CANDIDATE_RECORD_SCHEMA,
-  type PolicyEditCandidateRecord,
-  validatePolicyEditCandidateRecord,
-} from '../analyst/policy-edit'
 export type { CostLedgerHandle, PendingCostCallView } from '../cost-ledger'
 // ── Judge builders (single-call bridge to a canonical JudgeConfig) ────
 export type { LlmJudgeDimension, LlmJudgeOptions } from '../llm-judge'
@@ -169,6 +138,8 @@ export {
   pairHoldout,
 } from './gates/statistical-heldout'
 export {
+  type GepaAdaptiveEngineRun,
+  type GepaEngineOptions,
   type GepaEngineRun,
   type GepaOptimizationMethodConfig,
   type GepaOptimizationRecipe,
@@ -191,14 +162,10 @@ export {
   LabeledScenarioStoreError,
 } from './labeled-store/fs-adapter'
 export { neutralizeText } from './neutralize'
-export {
-  type BuiltinOptimizationMethodConfig,
-  type FapoOptimizationMethodConfig,
-  fapoEscalationMethod,
-  gepaParetoMethod,
-  gepaReflectionMethod,
-  skillOptMethod,
-} from './presets/builtin-optimization-methods'
+export type {
+  OpenAICompatibleOptimizerModel,
+  OptimizerModelBudget,
+} from './optimizer-model'
 // ── Presets (the documented public surface) ──────────────────────────
 export {
   type CompareOptimizationMethodsOptions,
@@ -209,9 +176,12 @@ export {
   type OptimizationMethodComparison,
   type OptimizationMethodInput,
   type OptimizationMethodPairwise,
+  type OptimizationMethodProvenance,
   type OptimizationMethodResult,
   type OptimizationMethodRunOptions,
   type OptimizationMethodScore,
+  type OptimizationPackageSource,
+  type OptimizationTokenUsage,
 } from './presets/compare-optimization-methods'
 export {
   makePlaybackDispatch,
@@ -235,13 +205,6 @@ export {
   runImprovementLoop,
 } from './presets/run-improvement-loop'
 export {
-  type RunLineageLoopOptions,
-  type RunLineageLoopResult,
-  type RunLineageLoopSeed,
-  runLineageLoop,
-  type SurfaceScore,
-} from './presets/run-lineage-loop'
-export {
   type PremeasuredOptimizationBaseline,
   type RunOptimizationOptions,
   type RunOptimizationResult,
@@ -256,91 +219,6 @@ export {
   runProfileMatrix,
   type ScenarioRollup,
 } from './presets/run-profile-matrix'
-export {
-  type AcceptedEdit,
-  type RunSkillOptOptions,
-  type RunSkillOptResult,
-  runSkillOpt,
-  type SkillOptEpochRecord,
-} from './presets/run-skill-opt'
-export { type AceProposerOptions, aceProposer } from './proposers/ace'
-export {
-  type CompositeProposerOptions,
-  compositeProposer,
-} from './proposers/composite'
-export { type EvolutionaryProposerOptions, evolutionaryProposer } from './proposers/evolutionary'
-export {
-  extractFapoAttributionSignals,
-  type FapoAttributionSignals,
-  type FapoFailureCluster,
-  type FapoOptimizationLevel,
-  type FapoProposerOptions,
-  type FapoReviewInput,
-  type FapoReviewIssue,
-  type FapoReviewResult,
-  type FapoScopeContract,
-  fapoProposer,
-  type JsonPrimitive,
-  type JsonValue,
-  type ParameterCandidate,
-  type ParameterChange,
-  type ParameterSweepProposerOptions,
-  parameterSweepProposer,
-} from './proposers/fapo'
-export {
-  countSentenceEdits,
-  extractH2Sections,
-  type GepaProposerConstraints,
-  type GepaProposerOptions,
-  gepaProposer,
-} from './proposers/gepa'
-export { type HaloProposerOptions, haloProposer } from './proposers/halo'
-export {
-  DEFAULT_POLICY_EDIT_HISTORY_LIMITS,
-  type JsonPolicyEditTargetSurface,
-  type LlmPolicyEditProposerOptions,
-  llmPolicyEditProposer,
-  type PolicyEditCandidateSummary,
-  type PolicyEditFindingInput,
-  type PolicyEditFindingSource,
-  type PolicyEditHistoryCandidateContext,
-  type PolicyEditHistoryGenerationContext,
-  type PolicyEditHistoryProjectionOptions,
-  type PolicyEditJsonValueSchema,
-  type PolicyEditObjective,
-  type PolicyEditOutcomeContext,
-  projectPolicyEditHistory,
-} from './proposers/llm-policy-edit'
-export { type MemoryCurationProposerOptions, memoryCurationProposer } from './proposers/memory'
-export {
-  type PolicyEditProposerOptions,
-  policyEditProposer,
-} from './proposers/policy-edit'
-export {
-  assertPolicyEditAuthorContextBudget,
-  type PolicyEditAuthorScenarioOrder,
-  type PolicyEditAuthorScenarioRow,
-  type SelectPolicyEditAuthorRowsOptions,
-  type SerializedJsonBudget,
-  selectPolicyEditAuthorRows,
-} from './proposers/policy-edit-author-context'
-export {
-  type ProposePatchesArgs,
-  parseSkillPatchResponse,
-  type RejectedEdit,
-  type SkillOptEvidence,
-  type SkillOptProposer,
-  type SkillOptProposerOptions,
-  SkillPatchParseError,
-  skillOptProposer,
-} from './proposers/skill-opt'
-export {
-  type AnalyzeOtlpTraceFileOptions,
-  analyzeOtlpTraceFile,
-  type TraceAnalystPriorFindings,
-  type TraceAnalystProposerOptions,
-  traceAnalystProposer,
-} from './proposers/trace-analyst'
 // ── Loop provenance (durable record + OTLP spans) ────────────────────
 export {
   type BuildLoopProvenanceArgs,
@@ -354,6 +232,7 @@ export {
   type LoopProvenanceBackend,
   type LoopProvenanceCandidate,
   type LoopProvenanceEvidence,
+  type LoopProvenanceOptimizationMethod,
   type LoopProvenanceRecord,
   loopProvenanceArgsFromResult,
   loopProvenanceSpans,
@@ -427,13 +306,11 @@ export {
   type SingleRunLockOptions,
 } from './single-run-lock'
 export {
-  type ApplySkillPatchResult,
-  applySkillPatch,
-  patchEditCount,
-  type SkillPatch,
-  type SkillPatchOp,
-  type SkillPatchRejection,
-} from './skill-patch'
+  type SkillOptOptimizationMethodConfig,
+  type SkillOptRunnerCommand,
+  type SkillOptTrainerConfig,
+  skillOptOptimizationMethod,
+} from './skillopt-optimization-method'
 export {
   type CampaignStorage,
   createRunCostLedger,
@@ -443,7 +320,9 @@ export {
 // ── Code-surface content identity ────────────────────────────────────
 export {
   assertCodeSurfaceIdentity,
+  assertComponentSurface,
   codeSurfaceIdentityMaterial,
+  componentSurfaceIdentityMaterial,
   renderSurfaceDiff,
   surfaceContentHash,
   surfaceHash,
@@ -459,6 +338,7 @@ export type {
   CampaignTokenUsage,
   CampaignTraceWriter,
   CodeSurface,
+  ComponentSurface,
   DispatchContext,
   DispatchFn,
   Gate,
@@ -478,7 +358,6 @@ export type {
   LabeledScenarioWrite,
   LabelTrust,
   MutableSurface,
-  Mutator,
   OptimizationProposer,
   OptimizerConfig,
   ParetoParent,

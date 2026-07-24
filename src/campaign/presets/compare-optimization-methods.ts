@@ -7,7 +7,7 @@
 
 import { randomUUID } from 'node:crypto'
 import { mapConcurrent } from '../../concurrency'
-import type { CostLedgerSummary } from '../../cost-ledger'
+import type { CostLedgerHandle, CostLedgerSummary } from '../../cost-ledger'
 import { pairedBootstrap } from '../../statistics'
 import { assertCampaignDesign } from '../coverage'
 import { type RunCampaignOptions, runCampaign } from '../run-campaign'
@@ -36,6 +36,30 @@ export interface ComparisonCost {
   incompleteReasons: string[]
 }
 
+export interface OptimizationPackageSource {
+  kind: 'package'
+  package: string
+  version: string
+  sourceUrl?: string
+  revision?: string
+}
+
+export interface OptimizationTokenUsage {
+  inputTokens: number
+  outputTokens: number
+  totalTokens: number
+  calls: number
+}
+
+export interface OptimizationMethodProvenance {
+  source: OptimizationPackageSource
+  runId: string
+  resumed: boolean
+  evaluationCount: number
+  artifactDir: string
+  tokenUsage?: OptimizationTokenUsage
+}
+
 /** Shared inputs for one optimization method. Final test data is absent. */
 export interface OptimizationMethodInput<TScenario extends Scenario, TArtifact> {
   /** Surface every method starts from. */
@@ -57,6 +81,8 @@ export interface OptimizationMethodInput<TScenario extends Scenario, TArtifact> 
   readonly seed: number
   /** Shared defaults for every method. A method may override them explicitly. */
   readonly runOptions: Readonly<OptimizationMethodRunOptions<TScenario, TArtifact>>
+  /** Durable spend account shared by the method's model and evaluation calls. */
+  readonly costLedger: CostLedgerHandle
 }
 
 export interface OptimizationMethodResult {
@@ -66,6 +92,8 @@ export interface OptimizationMethodResult {
   cost: ComparisonCost
   /** Optimization duration. Excludes final test scoring. */
   durationMs?: number
+  /** Exact external implementation and run identity, when the method uses one. */
+  provenance?: OptimizationMethodProvenance
 }
 
 /** A complete optimization method, including candidate generation and selection. */
@@ -92,6 +120,8 @@ export interface OptimizationMethodScore {
   optimizationCost: ComparisonCost
   /** Optimization duration reported by the method. Excludes final test scoring. */
   durationMs?: number
+  /** Exact external implementation and run identity, when reported by the method. */
+  provenance?: OptimizationMethodProvenance
   /** Paired final-test values used to compute lift and its interval. */
   scenarioScores: Array<{
     scenarioId: string
@@ -251,6 +281,7 @@ export async function compareOptimizationMethods<TScenario extends Scenario, TAr
       winnerSurface,
       cost: out.cost,
       durationMs: out.durationMs,
+      provenance: out.provenance,
     }
   })
   // Reuse one final-test measurement for identical surfaces. This avoids duplicate
@@ -299,6 +330,7 @@ export async function compareOptimizationMethods<TScenario extends Scenario, TAr
       rank: 0,
     }
     if (w.durationMs !== undefined) score.durationMs = w.durationMs
+    if (w.provenance !== undefined) score.provenance = structuredClone(w.provenance)
     return score
   })
   scores.sort((a, b) => b.lift - a.lift)
@@ -396,7 +428,7 @@ function assertOptimizationMethods<TScenario extends Scenario, TArtifact>(
   }
 }
 
-function assertOptimizationResult(name: string, result: OptimizationMethodResult): void {
+export function assertOptimizationResult(name: string, result: OptimizationMethodResult): void {
   if (!result || typeof result !== 'object') {
     throw new Error(`compareOptimizationMethods: method '${name}' returned no result`)
   }
@@ -414,6 +446,56 @@ function assertOptimizationResult(name: string, result: OptimizationMethodResult
     (!Number.isFinite(result.durationMs) || result.durationMs < 0)
   ) {
     throw new Error(`compareOptimizationMethods: method '${name}' returned an invalid durationMs`)
+  }
+  if (result.provenance !== undefined) {
+    assertOptimizationProvenance(name, result.provenance)
+  }
+}
+
+function assertOptimizationProvenance(
+  methodName: string,
+  value: OptimizationMethodProvenance,
+): void {
+  const fail = (field: string): never => {
+    throw new Error(
+      `compareOptimizationMethods: method '${methodName}' returned invalid provenance.${field}`,
+    )
+  }
+  if (!value || typeof value !== 'object') fail('value')
+  if (
+    !value.source ||
+    value.source.kind !== 'package' ||
+    typeof value.source.package !== 'string' ||
+    !value.source.package.trim() ||
+    typeof value.source.version !== 'string' ||
+    !value.source.version.trim()
+  ) {
+    fail('source')
+  }
+  for (const [field, entry] of [
+    ['sourceUrl', value.source.sourceUrl],
+    ['revision', value.source.revision],
+  ] as const) {
+    if (entry !== undefined && (typeof entry !== 'string' || !entry.trim())) fail(`source.${field}`)
+  }
+  if (typeof value.runId !== 'string' || !value.runId.trim()) fail('runId')
+  if (typeof value.resumed !== 'boolean') fail('resumed')
+  if (!Number.isSafeInteger(value.evaluationCount) || value.evaluationCount < 0) {
+    fail('evaluationCount')
+  }
+  if (typeof value.artifactDir !== 'string' || !value.artifactDir.trim()) fail('artifactDir')
+  if (value.tokenUsage !== undefined) {
+    for (const field of ['inputTokens', 'outputTokens', 'totalTokens', 'calls'] as const) {
+      if (!Number.isSafeInteger(value.tokenUsage[field]) || value.tokenUsage[field] < 0) {
+        fail(`tokenUsage.${field}`)
+      }
+    }
+    if (
+      value.tokenUsage.totalTokens !==
+      value.tokenUsage.inputTokens + value.tokenUsage.outputTokens
+    ) {
+      fail('tokenUsage.totalTokens')
+    }
   }
 }
 
@@ -636,6 +718,8 @@ function createOptimizationMethodInput<TScenario extends Scenario, TArtifact>(
   resolvedRunDir: string,
   seed: number,
 ): OptimizationMethodInput<TScenario, TArtifact> {
+  const methodRunDir = `${resolvedRunDir}/optimization/${slug(methodName)}`
+  const storage = opts.storage ?? fsCampaignStorage()
   const cloneScenarios = (scenarios: readonly TScenario[]): readonly TScenario[] =>
     Object.freeze(scenarios.map((scenario) => structuredClone(scenario)))
   const judges = opts.judges.map((judge) =>
@@ -652,9 +736,14 @@ function createOptimizationMethodInput<TScenario extends Scenario, TArtifact>(
     selectionScenarios: cloneScenarios(opts.selectionScenarios),
     dispatchWithSurface: opts.dispatchWithSurface,
     judges: Object.freeze(judges),
-    runDir: `${resolvedRunDir}/optimization/${slug(methodName)}`,
+    runDir: methodRunDir,
     seed,
     runOptions: Object.freeze({ ...(opts.optimizationRunOptions ?? {}) }),
+    costLedger: createRunCostLedger({
+      storage,
+      runDir: `${methodRunDir}/cost`,
+      costCeilingUsd: opts.optimizationRunOptions?.costCeiling,
+    }),
   })
 }
 

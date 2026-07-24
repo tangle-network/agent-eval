@@ -1,6 +1,6 @@
 /**
- * Compare three prompt optimization methods on GSM8K with separate train,
- * selection, and test data. Candidate generation uses a model endpoint; final
+ * Compare official GEPA and SkillOpt on GSM8K with separate train,
+ * selection, and final data. Candidate generation uses a model endpoint; final
  * scoring uses deterministic numeric answer matching.
  *
  * Run with an OpenAI-compatible endpoint:
@@ -14,14 +14,13 @@ import { createHash } from 'node:crypto'
 import { mkdirSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import {
-  type BuiltinOptimizationMethodConfig,
   compareOptimizationMethods,
   type DispatchContext,
-  gepaParetoMethod,
-  gepaReflectionMethod,
+  gepaOptimizationMethod,
   type JudgeConfig,
+  type OptimizationMethod,
   type Scenario,
-  skillOptMethod,
+  skillOptOptimizationMethod,
 } from '../../../src/campaign'
 import { CostLedger } from '../../../src/cost-ledger'
 import {
@@ -42,6 +41,7 @@ import {
   positiveIntegerEnv,
   positiveNumberEnv,
 } from '../../_shared/env'
+import { optimizerModelBudgetFromEnv } from '../../_shared/optimizer-model-budget'
 import { evaluate, loadDataset } from './index'
 
 const API_KEY = (process.env.LLM_API_KEY || process.env.TANGLE_API_KEY)?.trim()
@@ -57,9 +57,22 @@ const CALL_TIMEOUT_MS = positiveIntegerEnv('CALL_TIMEOUT_MS', 60_000)
 const TRAIN_N = positiveIntegerEnv('TRAIN_N', 8)
 const SELECTION_N = positiveIntegerEnv('SELECTION_N', 8)
 const TEST_N = positiveIntegerEnv('TEST_N', 20)
-const POPULATION = positiveIntegerEnv('POPULATION', 2)
-const GENERATIONS = positiveIntegerEnv('GENERATIONS', 2)
-const EPOCHS = positiveIntegerEnv('EPOCHS', 2)
+const OPTIMIZER_PYTHON = process.env.OPTIMIZER_PYTHON?.trim() || 'python'
+const OPTIMIZER_API_KEY = (process.env.OPTIMIZER_API_KEY || API_KEY)?.trim()
+const OPTIMIZER_BASE_URL = (process.env.OPTIMIZER_BASE_URL || BASE_URL).trim()
+const GEPA_MODEL = process.env.GEPA_MODEL || MODEL
+const GEPA_MAX_EVALUATIONS = positiveIntegerEnv('GEPA_MAX_EVALUATIONS', 60)
+const GEPA_MAX_PROPOSER_COST_USD = positiveNumberEnv('GEPA_MAX_PROPOSER_COST_USD', 10)
+const SKILLOPT_MODEL = process.env.SKILLOPT_MODEL || MODEL
+const SKILLOPT_EPOCHS = positiveIntegerEnv('SKILLOPT_EPOCHS', 2)
+const SKILLOPT_BATCH_SIZE = positiveIntegerEnv('SKILLOPT_BATCH_SIZE', 4)
+const SKILLOPT_CORE_EVALUATIONS =
+  SELECTION_N +
+  SKILLOPT_EPOCHS * Math.ceil(TRAIN_N / SKILLOPT_BATCH_SIZE) * (SKILLOPT_BATCH_SIZE + SELECTION_N)
+const SKILLOPT_MAX_EVALUATIONS = positiveIntegerEnv(
+  'SKILLOPT_MAX_EVALUATIONS',
+  SKILLOPT_CORE_EVALUATIONS,
+)
 const OPTIMIZATION_CONCURRENCY = positiveIntegerEnv('OPTIMIZATION_CONCURRENCY', 1)
 const MAX_SMOKE_COST_USD = positiveNumberEnv('MAX_SMOKE_COST_USD', 2)
 const MAX_OPTIMIZATION_COST_USD = positiveNumberEnv('MAX_OPTIMIZATION_COST_USD', 10)
@@ -78,23 +91,20 @@ if (!API_KEY) {
   console.error('FATAL: set LLM_API_KEY (+ LLM_BASE_URL + LLM_MODEL) or TANGLE_API_KEY.')
   process.exit(1)
 }
+if (!OPTIMIZER_API_KEY) {
+  throw new Error('Set OPTIMIZER_API_KEY or LLM_API_KEY for GEPA and SkillOpt.')
+}
+if (SKILLOPT_MAX_EVALUATIONS < SKILLOPT_CORE_EVALUATIONS) {
+  throw new Error(`SKILLOPT_MAX_EVALUATIONS must be at least ${SKILLOPT_CORE_EVALUATIONS}`)
+}
 
-// The DELIBERATELY WEAK baseline — no chain-of-thought, terse answer. On
-// multi-step GSM8K this scores well below ceiling, leaving real headroom for the
-// optimizer to recover by adding reasoning scaffold + answer-format discipline.
+// This intentionally weak baseline leaves room for instruction optimization.
 const BASELINE_SURFACE =
-  'You answer math questions. Reply with ONLY the final number — no working, no explanation, no units.'
+  'You answer math questions. Reply with only the final number, without working or units.'
 
 const DRIVER_TARGET =
   'a system prompt that maximizes correct final answers on grade-school math word problems ' +
   '(GSM8K), scored by exact numeric match of the final answer'
-
-const MUTATION_PRIMITIVES = [
-  'instruct the model to reason step by step before answering',
-  'require the final answer on its own line after the marker ####',
-  'tell the model to recheck its arithmetic before finalizing',
-  'instruct it to define variables and show intermediate sums',
-]
 
 interface GsmScenario extends Scenario {
   question: string
@@ -161,7 +171,7 @@ function makeWorker() {
   }
 }
 
-// Deterministic exact-match judge — reuses the GSM8K adapter's `evaluate`.
+// The GSM8K adapter supplies deterministic numeric answer matching.
 const judge: JudgeConfig<Artifact, GsmScenario> = {
   name: 'gsm8k-exact-match',
   dimensions: [{ key: 'correct', description: 'final numeric answer matches gold' }],
@@ -212,10 +222,10 @@ async function main() {
   mkdirSync(runRoot, { recursive: true })
   const startedAt = Date.now()
 
-  console.log('GSM8K: gepa-reflection vs gepa-pareto vs skill-opt')
+  console.log('GSM8K: official GEPA and SkillOpt')
   console.log(`  model=${MODEL}  base=${BASE_URL}`)
   console.log(
-    `  train=${trainScenarios.length} selection=${selectionScenarios.length} test=${testScenarios.length} pop=${POPULATION} gens=${GENERATIONS} epochs=${EPOCHS}`,
+    `  train=${trainScenarios.length} selection=${selectionScenarios.length} final=${testScenarios.length}`,
   )
 
   // ── Baseline smoke on selection: confirm headroom without touching test. ──
@@ -236,29 +246,78 @@ async function main() {
   }
   baselineSmoke /= selectionScenarios.length
   console.log(
-    `  baseline selection accuracy = ${round(baselineSmoke)} ${baselineSmoke >= 0.85 ? '⚠ CEILING RISK (weaken the baseline)' : '(headroom OK)'}`,
+    `  baseline selection accuracy = ${round(baselineSmoke)} ${baselineSmoke >= 0.85 ? '(low headroom)' : '(headroom available)'}`,
   )
   if (SMOKE) {
-    console.log('SMOKE=1 → baseline-only, stopping before the optimizer run.')
+    console.log('SMOKE=1: baseline only, stopping before optimization.')
     return
   }
 
-  const config: BuiltinOptimizationMethodConfig<GsmScenario, Artifact> = {
-    llm,
-    model: MODEL,
-    target: DRIVER_TARGET,
-    mutationPrimitives: MUTATION_PRIMITIVES,
-    populationSize: POPULATION,
-    maxGenerations: GENERATIONS,
-    maxEpochs: EPOCHS,
+  const runner = {
+    command: OPTIMIZER_PYTHON,
   }
+  const methods: OptimizationMethod<GsmScenario, Artifact>[] = [
+    gepaOptimizationMethod<GsmScenario, Artifact>({
+      name: 'gepa',
+      objective: DRIVER_TARGET,
+      background: 'The candidate is the complete system prompt for the math worker.',
+      evaluationVersion: 'gsm8k-exact-match-v1',
+      recipe: {
+        kind: 'engine',
+        run: {
+          engine: 'gepa',
+          maxEvaluations: GEPA_MAX_EVALUATIONS,
+          maxProposerCostUsd: GEPA_MAX_PROPOSER_COST_USD,
+        },
+      },
+      optimizer: {
+        model: GEPA_MODEL,
+        baseUrl: OPTIMIZER_BASE_URL,
+        apiKey: OPTIMIZER_API_KEY,
+        budget: optimizerModelBudgetFromEnv(
+          'GEPA',
+          MAX_OPTIMIZATION_COST_USD,
+          CUSTOM_TOKEN_PRICING,
+        ),
+      },
+      describeScenario: (scenario) => ({
+        question: scenario.question,
+        expectedAnswer: scenario.answer,
+      }),
+      describeArtifact: (artifact) => ({ answer: artifact.text }),
+      runner,
+    }),
+    skillOptOptimizationMethod<GsmScenario, Artifact>({
+      name: 'skillopt',
+      objective: DRIVER_TARGET,
+      background: 'The candidate is the complete system prompt for the math worker.',
+      evaluationVersion: 'gsm8k-exact-match-v1',
+      trainer: {
+        epochs: SKILLOPT_EPOCHS,
+        batchSize: SKILLOPT_BATCH_SIZE,
+      },
+      optimizer: {
+        model: SKILLOPT_MODEL,
+        baseUrl: OPTIMIZER_BASE_URL,
+        apiKey: OPTIMIZER_API_KEY,
+        budget: optimizerModelBudgetFromEnv(
+          'SKILLOPT',
+          MAX_OPTIMIZATION_COST_USD,
+          CUSTOM_TOKEN_PRICING,
+        ),
+      },
+      maxEvaluations: SKILLOPT_MAX_EVALUATIONS,
+      describeScenario: (scenario) => ({
+        question: scenario.question,
+        expectedAnswer: scenario.answer,
+      }),
+      describeArtifact: (artifact) => ({ answer: artifact.text }),
+      runner,
+    }),
+  ]
 
   const comparison = await compareOptimizationMethods<GsmScenario, Artifact>({
-    methods: [
-      gepaReflectionMethod(config, 'gepa-reflection'),
-      gepaParetoMethod(config, 'gepa-pareto'),
-      skillOptMethod(config, 'skill-opt'),
-    ],
+    methods,
     baselineSurface: BASELINE_SURFACE,
     trainScenarios,
     selectionScenarios,
@@ -301,7 +360,12 @@ async function main() {
       testN: testScenarios.length,
       testScenarioIds: comparison.testScenarioIds,
     },
-    model: { worker: MODEL, proposer: MODEL, provider: 'deepseek', baseUrl: BASE_URL },
+    model: { worker: MODEL, baseUrl: BASE_URL },
+    optimizers: {
+      python: OPTIMIZER_PYTHON,
+      gepaModel: GEPA_MODEL,
+      skillOptModel: SKILLOPT_MODEL,
+    },
     backendIntegrity: {
       verdict: integrity.verdict,
       realRecords: integrity.realRecords,
@@ -315,7 +379,6 @@ async function main() {
       scores: comparison.scores.map((s) => ({
         name: s.name,
         rank: s.rank,
-        findingsFed: false,
         baselineComposite: round(s.baselineComposite),
         winnerComposite: round(s.winnerComposite),
         lift: round(s.lift),
@@ -326,6 +389,8 @@ async function main() {
           accountingComplete: s.optimizationCost.accountingComplete,
           incompleteReasons: s.optimizationCost.incompleteReasons,
         },
+        durationMs: s.durationMs ?? null,
+        provenance: s.provenance ?? null,
         winnerSurface:
           typeof s.winnerSurface === 'string' ? s.winnerSurface : JSON.stringify(s.winnerSurface),
       })),
@@ -342,7 +407,6 @@ async function main() {
         favored: p.favored,
       })),
     },
-    findingsAblation: null,
     cost: {
       baselineSmoke: round6(baselineSmokeCostUsd),
       optimization: comparison.optimizationCost,

@@ -1,87 +1,14 @@
 /**
- * # `@tangle-network/agent-eval/contract` - the app-facing public surface.
+ * App-facing evaluation and improvement API.
  *
- * **Stability:** every export in this file is the frozen public API for
- * foreign-agent consumers. New minors only ADD; nothing here changes shape
- * or disappears in a 0.x minor. Wire your agent against these imports and
- * expect them to keep working across `agent-eval` upgrades.
+ * Start with `defineAgentEval()` when one agent, case set, judge, and starting
+ * surface belong together. Use `runEval()` for one measurement,
+ * `runImprovementLoop()` with a caller-owned `SurfaceProposer`, or pass an
+ * official `OptimizationMethod` to `selfImprove()`.
  *
- * ## What this gives you
- *
- * The minimum surface area to evaluate + self-improve any agent — yours,
- * a partner's, anything that returns text or a structured artifact. No
- * Tangle sandbox required. No Tangle account required. Local files,
- * stdout, your own LLM endpoint.
- *
- * ## The five types you need to know
- *
- * 1. **`Scenario`** — what you evaluate against. Stable `id` + `kind` +
- *    optional `tags`; extend with your domain fields.
- * 2. **`Dispatch<TScenario, TArtifact>`** — the seam. One function:
- *    scenario in, artifact out. Whatever your agent is, wrap it as a
- *    `Dispatch` and the eval engine drives it. The campaign internals call
- *    the same shape `DispatchFn`; `/contract` exports it as `Dispatch`.
- * 3. **`JudgeConfig<TArtifact, TScenario>`** — pluggable dimensional
- *    scorer. Bring an LLM judge, a deterministic check, an ensemble —
- *    the engine only cares about `score(input) → JudgeScore`.
- * 4. **`SurfaceProposer`** — proposes next candidate surfaces for the
- *    optimization loop. Use `gepaProposer` (reflective LLM proposal) or
- *    `evolutionaryProposer`, or write your own.
- * 5. **`Gate`** — promotion guard. Returns `'ship'` / `'hold'` /
- *    `'need_more_work'` / others for each candidate; the loop only ships
- *    what passes. `defaultProductionGate` is the composite default;
- *    `paretoSignificanceGate` decides over the multi-objective evidence
- *    vector (per-axis significance + Pareto dominance, no scalar collapse)
- *    and is itself factored as a pluggable `PromotionPolicy` over a
- *    `buildEvidenceVector` bus so competing strategies share one evidence set.
- *
- * ## The five functions you'll call
- *
- * 1. **`defineAgentEval(options)`** — define scenarios, agent, judge, and
- *    baseline once; call `.evaluate()` for a score or `.improve()` for the
- *    closed loop.
- * 2. **`runEval(options)`** — one-off evaluation across scenarios. Use
- *    when you just want a score.
- * 3. **`runCampaign(options)`** — structured set of cells (scenarios ×
- *    seeds × replicates) that emits a `CampaignResult` downstream tools
- *    can read.
- * 4. **`runImprovementLoop(options)`** — the closed self-improvement
- *    loop: campaign → judge → mutator → gate → next generation. Stops
- *    when the gate ships or the budget exhausts.
- * 5. **`defaultProductionGate(options)`** — the standard held-out gate
- *    most consumers want; compose with `composeGate` to add custom
- *    checks (regression deltas, cost caps, red-team signals).
- *
- * ## Two storage backends you'll pick from
- *
- * - **`fsCampaignStorage()`** — writes traces, artifacts, and campaign
- *   manifests to a local directory. The default for Node consumers.
- * - **`inMemoryCampaignStorage()`** — Cloudflare Workers, edge, tests,
- *   any environment without filesystem. Same interface; runs the same
- *   campaigns; nothing persists past the process.
- *
- * ## Optional: deployment-outcome store (predictive validity)
- *
- * Record which candidates shipped + whether downstream metrics actually
- * improved. Feeds back into the gate so promotion decisions calibrate
- * against observed reality, not just held-out scores.
- *
- * ## Optional: RL bridge
- *
- * If you want to feed campaign output into RL training (TRL, prime-rl,
- * in-house), the RL bridge converts a `CampaignResult` to canonical
- * `RunRecord` + preference shapes. Pull those from
- * `@tangle-network/agent-eval/rl` directly - RL is opt-in and not part
- * of the app-facing contract.
- *
- * ## What's NOT here
- *
- * Anything below this barrel is internal substrate that may move
- * between minors. If you find yourself reaching for an import path other
- * than `/contract`, `/campaign`, `/rl`, `/belief-state`, `/reporting`,
- * `/control`, `/telemetry`, `/analyst`, `/traces`, `/testing`, or another
- * named package export, you're using internals. Open an issue so we can
- * promote what you need into a named subpath.
+ * Import lower-level campaign controls from `@tangle-network/agent-eval/campaign`.
+ * Import reporting, trace, benchmark, and training-data APIs from their named
+ * package subpaths.
  */
 
 // ── Types: scenarios, dispatch, judges, gates, surfaces ──────────────
@@ -108,7 +35,6 @@ export type {
   JudgeDimension,
   JudgeScore,
   MutableSurface,
-  Mutator,
   OptimizationProposer,
   OptimizerConfig,
   Scenario,
@@ -152,10 +78,36 @@ export {
 // ── Proposers ────────────────────────────────────────────────────────
 
 export {
-  type EvolutionaryProposerOptions,
-  evolutionaryProposer,
-} from '../campaign/proposers/evolutionary'
-export { type GepaProposerOptions, gepaProposer } from '../campaign/proposers/gepa'
+  type GepaAdaptiveEngineRun,
+  type GepaEngineOptions,
+  type GepaEngineRun,
+  type GepaOptimizationMethodConfig,
+  type GepaOptimizationRecipe,
+  type GepaRunnerCommand,
+  gepaOptimizationMethod,
+} from '../campaign/gepa-optimization-method'
+export type {
+  OpenAICompatibleOptimizerModel,
+  OptimizerModelBudget,
+} from '../campaign/optimizer-model'
+export {
+  type CompareOptimizationMethodsOptions,
+  type ComparisonCost,
+  compareOptimizationMethods,
+  type OptimizationMethod,
+  type OptimizationMethodComparison,
+  type OptimizationMethodInput,
+  type OptimizationMethodProvenance,
+  type OptimizationMethodResult,
+  type OptimizationPackageSource,
+  type OptimizationTokenUsage,
+} from '../campaign/presets/compare-optimization-methods'
+export {
+  type SkillOptOptimizationMethodConfig,
+  type SkillOptRunnerCommand,
+  type SkillOptTrainerConfig,
+  skillOptOptimizationMethod,
+} from '../campaign/skillopt-optimization-method'
 
 // ── Gates ────────────────────────────────────────────────────────────
 
@@ -226,7 +178,6 @@ export {
 } from './measured-comparison'
 export {
   type SelfImproveBudget,
-  type SelfImproveLlm,
   type SelfImproveOptions,
   type SelfImproveProgressEvent,
   type SelfImproveResult,

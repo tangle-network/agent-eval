@@ -1,47 +1,27 @@
 /**
- * # Foreign-agent quickstart — 15-minute end-to-end.
+ * Wrap an existing agent, evaluate it, and improve its prompt with a
+ * caller-owned SurfaceProposer.
  *
- * The promise: wire your agent behind a `Dispatch`, define a few
- * scenarios + a judge, and run a real self-improvement loop in 15
- * minutes — no Tangle sandbox, no Tangle account, no hosting.
- *
- * What this file demonstrates with a runnable example:
- *
- *   1. A toy "marketing copy critique" agent calling any OpenAI-compatible
- *      endpoint via fetch (uses OPENAI_API_KEY + OPENAI_BASE_URL).
- *   2. 4 scenarios — short product blurbs that need a punchier rewrite.
- *   3. A 4-dimension LLM judge scoring hook strength, voice match, CTA
- *      clarity, factual grounding.
- *   4. `runEval` for a baseline score.
- *   5. `runImprovementLoop` with `gepaProposer` (reflective LLM mutation)
- *      + `defaultProductionGate` (held-out promotion guard) — the
- *      closed self-improvement loop.
- *
- * Without OPENAI_API_KEY the example still runs end-to-end against a
- * deterministic stub agent + heuristic judge so the wiring is verifiable
- * in CI; you just don't get a real lift. Set the env vars to see actual
- * gepa-driven improvement.
- *
- * Run: `pnpm tsx examples/foreign-agent-quickstart/index.ts`
+ * Run: pnpm tsx examples/foreign-agent-quickstart/index.ts
  */
 
 // IN-REPO: relative imports so the example typechecks against the workspace.
 // COPY-PASTE INTO YOUR OWN PROJECT: change this to
 //   import { ... } from '@tangle-network/agent-eval/contract'
-// — the public subpath exposes exactly these names with the same shapes.
+// The public subpath exposes these names with the same shapes.
 import {
   type Dispatch,
+  defaultProductionGate,
+  inMemoryCampaignStorage,
   type JudgeConfig,
   type MutableSurface,
-  type Scenario,
-  defaultProductionGate,
-  gepaProposer,
-  inMemoryCampaignStorage,
   runEval,
   runImprovementLoop,
+  type Scenario,
+  type SurfaceProposer,
 } from '../../src/contract'
 
-// ── 1. Your scenarios — what the agent gets evaluated on ────────────
+// 1. Representative cases.
 
 interface MarketingScenario extends Scenario {
   blurb: string
@@ -77,7 +57,7 @@ const scenarios: MarketingScenario[] = [
   {
     id: 's4',
     kind: 'marketing-rewrite',
-    blurb: 'Generate marketing copy with our AI agent — faster, on-brand, every time.',
+    blurb: 'Generate marketing copy with our AI agent, faster and on-brand.',
     surface: 'landing-hero',
     audience: 'marketing teams',
     tags: ['meta', 'marketing-tools'],
@@ -97,10 +77,32 @@ const modelId = process.env.MODEL_ID ?? 'gpt-4o-mini'
 
 const baselineSystemPrompt = `You are a senior copywriter. Rewrite the given product blurb for the surface (landing-hero / tweet / email-subject) and audience. One sentence for tweets and email subjects, two for landing hero. Be concrete, not generic; no AI slop ("revolutionary", "powerful", "seamless"). Lead with the value, not the technology.`
 
+const customProposer: SurfaceProposer = {
+  kind: 'marketing-constraints',
+  async propose({ currentSurface, populationSize }) {
+    const current = String(currentSurface)
+    return [
+      {
+        surface: `${current}\nName the audience in the opening phrase.`,
+        label: 'name-audience',
+        rationale: 'Training outputs did not make the audience explicit.',
+      },
+      {
+        surface: `${current}\nEnd with one explicit next step.`,
+        label: 'explicit-next-step',
+        rationale: 'Training outputs lacked a clear action.',
+      },
+    ].slice(0, populationSize)
+  },
+}
+
 async function callLLM(system: string, user: string, signal: AbortSignal): Promise<string> {
   if (!apiKey) {
-    // Deterministic stub so the example runs in CI without an API key.
-    return `[stub] ${user.slice(0, 120)}`
+    const audience = /Audience: ([^\n]+)/.exec(user)?.[1] ?? 'reader'
+    const blurb = /Blurb: ([^\n]+)/.exec(user)?.[1] ?? user
+    const prefix = system.includes('Name the audience') ? `For ${audience}: ` : ''
+    const suffix = system.includes('explicit next step') ? ' Try it today.' : ''
+    return `${prefix}${blurb}${suffix}`
   }
   const res = await fetch(`${baseUrl}/chat/completions`, {
     method: 'POST',
@@ -128,21 +130,34 @@ function buildDispatch(systemPrompt: string): Dispatch<MarketingScenario, Market
   }
 }
 
-// ── 3. Your judge — what "good" means ───────────────────────────────
+// 3. The scoring rule.
 
 const judge: JudgeConfig<MarketingArtifact, MarketingScenario> = {
   name: 'marketing-quality',
   dimensions: [
-    { key: 'hook_strength', description: 'Opens with a concrete value claim, not a category description.' },
-    { key: 'voice_match', description: 'Avoids AI slop ("revolutionary", "powerful", "seamless"); reads like a human wrote it.' },
+    {
+      key: 'hook_strength',
+      description: 'Opens with a concrete value claim, not a category description.',
+    },
+    {
+      key: 'voice_match',
+      description:
+        'Avoids AI slop ("revolutionary", "powerful", "seamless"); reads like a human wrote it.',
+    },
     { key: 'cta_clarity', description: 'Makes the next step obvious for the named audience.' },
-    { key: 'factual_grounding', description: 'Claims only what the blurb says or what is obviously true. No invented features.' },
+    {
+      key: 'factual_grounding',
+      description:
+        'Claims only what the blurb says or what is obviously true. No invented features.',
+    },
   ],
   async score({ artifact, scenario, signal }) {
     if (!apiKey) {
       // Heuristic judge so the wiring is verifiable without an LLM key.
       const text = artifact.rewrite.toLowerCase()
-      const slop = ['revolutionary', 'powerful', 'seamless', 'cutting-edge', 'next-gen'].filter((w) => text.includes(w))
+      const slop = ['revolutionary', 'powerful', 'seamless', 'cutting-edge', 'next-gen'].filter(
+        (w) => text.includes(w),
+      )
       const surfaceTargets: Record<MarketingScenario['surface'], [number, number]> = {
         'landing-hero': [60, 180],
         tweet: [40, 140],
@@ -159,7 +174,12 @@ const judge: JudgeConfig<MarketingArtifact, MarketingScenario> = {
       const voice = Math.max(0, 1 - slopPenalty * 2)
       const cta = audienceBonus > 0 ? 0.7 : 0.4
       const grounding = 0.7
-      const dims = { hook_strength: hook, voice_match: voice, cta_clarity: cta, factual_grounding: grounding }
+      const dims = {
+        hook_strength: hook,
+        voice_match: voice,
+        cta_clarity: cta,
+        factual_grounding: grounding,
+      }
       const composite = (hook + voice + cta + grounding) / 4
       return {
         dimensions: dims,
@@ -180,7 +200,11 @@ Surface: ${scenario.surface}
 Audience: ${scenario.audience}
 Original: ${scenario.blurb}
 Rewrite: ${artifact.rewrite}`
-    const raw = await callLLM('You are a strict copywriting judge. Respond with only JSON.', judgePrompt, signal)
+    const raw = await callLLM(
+      'You are a strict copywriting judge. Respond with only JSON.',
+      judgePrompt,
+      signal,
+    )
     const match = raw.match(/\{[\s\S]*\}/)
     if (!match) throw new Error(`Judge returned non-JSON: ${raw.slice(0, 200)}`)
     const parsed = JSON.parse(match[0]) as {
@@ -196,50 +220,43 @@ Rewrite: ${artifact.rewrite}`
       cta_clarity: parsed.cta_clarity,
       factual_grounding: parsed.factual_grounding,
     }
-    const composite = (dims.hook_strength + dims.voice_match + dims.cta_clarity + dims.factual_grounding) / 4
+    const composite =
+      (dims.hook_strength + dims.voice_match + dims.cta_clarity + dims.factual_grounding) / 4
     return { dimensions: dims, composite, notes: parsed.notes ?? '' }
   },
 }
 
-// ── 4. Helpers ──────────────────────────────────────────────────────
+// 4. Helpers.
 
-function meanComposite<TA, TS extends Scenario>(result: { aggregates: { byScenario: Record<string, { meanComposite: number }> } }): number {
+function meanComposite<TA, TS extends Scenario>(result: {
+  aggregates: { byScenario: Record<string, { meanComposite: number }> }
+}): number {
   const vs = Object.values(result.aggregates.byScenario).map((s) => s.meanComposite)
   return vs.length === 0 ? 0 : vs.reduce((a, b) => a + b, 0) / vs.length
 }
 
-// ── 5. Main ─────────────────────────────────────────────────────────
+// 5. Run the baseline and improvement loop.
 
 async function main() {
   const storage = inMemoryCampaignStorage()
   const runDir = `mem://quickstart-${Date.now()}`
 
-  // ── Baseline ────────────────────────────────────────────────────
-  console.log('═══ Baseline eval ═══')
+  console.log('Baseline evaluation')
   const baseline = await runEval<MarketingScenario, MarketingArtifact>({
     scenarios,
     dispatch: buildDispatch(baselineSystemPrompt),
     judges: [judge],
     storage,
     runDir,
+    dispatchRef: 'foreign-agent-baseline',
   })
   const baselineScore = meanComposite(baseline)
   console.log(`Baseline composite mean: ${baselineScore.toFixed(3)}`)
-  console.log(`Cells executed: ${baseline.aggregates.cellsExecuted}, cost: $${baseline.aggregates.totalCostUsd.toFixed(4)}`)
+  console.log(
+    `Cells executed: ${baseline.aggregates.cellsExecuted}, cost: $${baseline.aggregates.totalCostUsd.toFixed(4)}`,
+  )
 
-  if (!apiKey) {
-    console.log('\nNo OPENAI_API_KEY set — stopping after baseline. Set OPENAI_API_KEY (+ optional OPENAI_BASE_URL, MODEL_ID) and re-run to see the gepaProposer self-improvement loop with real lift.')
-    return
-  }
-
-  // ── Self-improvement loop ───────────────────────────────────────
-  //
-  // gepaProposer proposes the next system prompt via reflective LLM
-  // mutation (it reads the failures, writes a refined prompt).
-  // defaultProductionGate enforces held-out improvement before any
-  // candidate is allowed to ship.
-
-  console.log('\n═══ Self-improvement loop (gepaProposer + defaultProductionGate) ═══')
+  console.log('\nImprovement loop with a custom candidate generator')
   const holdout = scenarios.slice(0, 2)
   const train = scenarios.slice(2)
 
@@ -250,19 +267,10 @@ async function main() {
       const prompt = typeof surface === 'string' ? surface : JSON.stringify(surface)
       return buildDispatch(prompt)(scenario, ctx)
     },
-    proposer: gepaProposer({
-      llm: { apiKey, baseUrl },
-      model: modelId,
-      target: 'marketing copywriting system prompt',
-      mutationPrimitives: [
-        'Tighten the hook: lead with the concrete user outcome.',
-        'Replace generic adjectives with specific verbs.',
-        'Anchor every claim in something the blurb literally says.',
-      ],
-    }),
+    proposer: customProposer,
     judges: [judge],
     populationSize: 2,
-    maxGenerations: 3,
+    maxGenerations: 1,
     holdoutScenarios: holdout,
     gate: defaultProductionGate({
       holdoutScenarios: holdout,
@@ -271,6 +279,7 @@ async function main() {
     autoOnPromote: 'none',
     storage,
     runDir: `${runDir}/improve`,
+    dispatchRef: 'foreign-agent-with-surface',
   })
 
   const winnerScore = meanComposite(result.winnerOnHoldout)
@@ -279,14 +288,19 @@ async function main() {
   console.log(`Generations explored: ${result.generations.length}`)
   console.log(`Gate decision:        ${result.gateResult.decision}`)
   console.log(`Holdout baseline:     ${baselineHoldoutScore.toFixed(3)}`)
-  console.log(`Holdout winner:       ${winnerScore.toFixed(3)} (Δ ${lift >= 0 ? '+' : ''}${lift.toFixed(3)})`)
+  console.log(
+    `Holdout winner:       ${winnerScore.toFixed(3)} (lift ${lift >= 0 ? '+' : ''}${lift.toFixed(3)})`,
+  )
 
-  const shipped: MutableSurface | null = result.gateResult.decision === 'ship' ? result.winnerSurface : null
+  const shipped: MutableSurface | null =
+    result.gateResult.decision === 'ship' ? result.winnerSurface : null
   if (shipped) {
     const prompt = typeof shipped === 'string' ? shipped : JSON.stringify(shipped, null, 2)
     console.log(`\n--- Shipped prompt ---\n${prompt}\n`)
   } else {
-    console.log(`\nGate did not ship (${result.gateResult.decision}). Either raise maxGenerations, lower deltaThreshold, or revise the mutation primitives.`)
+    console.log(
+      `\nThe release rule returned ${result.gateResult.decision}. Revise the candidate logic or threshold before promotion.`,
+    )
   }
 }
 

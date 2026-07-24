@@ -1,45 +1,69 @@
 # AppWorld Method Comparison
 
-This example compares prompt optimization methods on AppWorld tasks.
-Each method may inspect train and selection tasks, but only `compareOptimizationMethods` evaluates the chosen prompts on the test tasks.
+This example compares official GEPA and SkillOpt on AppWorld tasks.
+Each method may inspect train and selection tasks, but only `compareOptimizationMethods()` evaluates the chosen prompts on final tasks.
 AppWorld's own `world.evaluate()` supplies the scores, so this benchmark does not use a model to grade answers.
 
 ## Run the comparison
 
 Install AppWorld and create its Python environment first.
+Install Agent Eval's Python bridge and the official optimizers in a separate Python environment:
+
+```sh
+python -m pip install agent-eval-rpc
+python -m pip install \
+  "skillopt @ git+https://github.com/microsoft/SkillOpt.git@61735e3922efc2b90c6d6cab561e62e98452ca90"
+python -m pip install \
+  "gepa[full] @ git+https://github.com/gepa-ai/gepa.git@f919db0a622e2e9f9204779b81fe00cc1b2d808f"
+```
+
 From this repository:
 
-```bash
+```sh
 export APPWORLD_DIR=/path/to/appworld
+export OPTIMIZER_PYTHON=/path/to/optimizer-venv/bin/python
 export OPENAI_BASE_URL=https://api.openai.com/v1
 export OPENAI_API_KEY="$YOUR_API_KEY"
 export BENCH_MODEL=gpt-5.1
-export BENCH_REFLECT_MODEL=gpt-5.1
+export GEPA_PRICE_IN_PER_M=0.4
+export GEPA_PRICE_OUT_PER_M=1.6
+export SKILLOPT_PRICE_IN_PER_M=0.4
+export SKILLOPT_PRICE_OUT_PER_M=1.6
 
 TRAIN_N=4 \
 SELECTION_N=4 \
 TEST_N=6 \
-MAX_GEN=2 \
 pnpm tsx examples/benchmarks/appworld/run-bench.ts
 ```
 
-The default methods are GEPA reflection, GEPA Pareto, and memory curation.
-Memory curation runs the built-in trace analyst on that method's train episodes, then deduplicates and stores the resulting lessons in the candidate prompt.
-Set `WITH_HALO=1` or `WITH_ANALYST=1` to include the optional trace-analysis methods when their dependencies are installed.
-Use `BENCH_METHODS=gepa-reflection,memory-curation` to run a subset.
-Each trace-analysis method reads only the traces produced by its own train runs, including when methods run in parallel.
+Replace the four example rates with the current exact endpoint rates for each optimizer model.
+The default methods are official GEPA and official SkillOpt.
+Use `BENCH_METHODS=gepa` or `BENCH_METHODS=skillopt` to run one method.
+Each optimizer receives AppWorld scores and the bounded execution trace from its own train and selection episodes.
+Final task IDs and traces are not passed to either optimizer.
 
 Common settings:
 
 | Variable | Default | Purpose |
 |---|---:|---|
 | `BENCH_MODEL` | `gpt-5.1` | Model that performs AppWorld tasks |
-| `BENCH_REFLECT_MODEL` | `BENCH_MODEL` | Model that proposes prompt changes |
+| `OPTIMIZER_PYTHON` | `python` | Python executable containing both optimizer packages |
+| `GEPA_MODEL` | `BENCH_MODEL` | Endpoint model used by GEPA |
+| `GEPA_MAX_EVALUATIONS` | `40` | Maximum GEPA candidate-task calls |
+| `GEPA_MAX_PROPOSER_COST_USD` | `5` | GEPA model spend limit for one engine stage |
+| `GEPA_PRICE_IN_PER_M` | required | Exact GEPA input rate per million tokens |
+| `GEPA_PRICE_OUT_PER_M` | required | Exact GEPA output rate per million tokens |
+| `GEPA_MAX_MODEL_COST_USD` | `50` | Shared GEPA model spend limit |
+| `SKILLOPT_MODEL` | `BENCH_MODEL` | Model used by SkillOpt |
+| `SKILLOPT_EPOCHS` | `1` | SkillOpt training epochs |
+| `SKILLOPT_BATCH_SIZE` | `2` | SkillOpt train tasks per step |
+| `SKILLOPT_MAX_EVALUATIONS` | core plan size | Maximum SkillOpt candidate-task calls |
+| `SKILLOPT_PRICE_IN_PER_M` | required | Exact optimizer-model input rate per million tokens |
+| `SKILLOPT_PRICE_OUT_PER_M` | required | Exact optimizer-model output rate per million tokens |
+| `SKILLOPT_MAX_MODEL_COST_USD` | `50` | SkillOpt optimizer-model spend limit |
 | `TRAIN_N` | `3` | Train tasks per method |
 | `SELECTION_N` | `3` | Tasks used to select one prompt per method |
 | `TEST_N` | `5` | Final comparison tasks |
-| `MAX_GEN` | `1` | Optimization rounds |
-| `POP` | `2` | Candidates per round |
 | `REPS` | `5` | Repeated episodes per task |
 | `MAX_STEPS` | `30` | Model calls per episode; `0` disables this limit |
 | `MAX_WALL` | `900` | Seconds per episode |
@@ -48,9 +72,11 @@ Common settings:
 | `CALL_TIMEOUT` | `120` | Seconds per model request |
 | `MAX_TOKENS` | `6000` | Maximum output tokens per model request |
 | `RATE_LIMIT_BUDGET` | `240` | Seconds spent retrying rate limits per request |
+| `MAX_OPTIMIZATION_COST_USD` | `50` | Worker and judge spend limit for each method |
+| `MAX_TEST_COST_USD` | `25` | Shared worker and judge spend limit for final tasks |
 | `OUT_DIR` | `/tmp/appworld-bench` | Output directory |
 
-The defaults are sized to check that the workflow runs.
+The defaults are sized to check the workflow.
 They are not enough to claim one method is better.
 Choose `TEST_N` from the smallest lift your product needs to detect, and confirm a selected method on new tasks before deployment.
 
@@ -82,8 +108,8 @@ The worker retries rate limits only within `--rate-limit-budget` and applies `--
 An exhausted retry budget, timeout, or transport error produces a failed episode with the original error and an error status on the root span.
 
 `MAX_STEPS` and `MAX_WALL` limit work before launch.
-This example does not set a dollar limit because the external Python process cannot provide a trustworthy maximum charge before it runs.
-Use a provider account limit when a hard dollar maximum is required.
+GEPA and SkillOpt calls pass through a local proxy that enforces model requests, bytes, output tokens, and dollars before forwarding them.
+The comparison records exact optimizer cost when the endpoint returns token usage and fails when usage is missing.
 
 Known model prices are estimates from `PRICE_PER_M` in `repl_agent.py`.
 For an unknown model, `result.json` contains `"cost_usd": null`, the TypeScript cost record sets `costUnknown: true`, and the comparison marks cost accounting incomplete.

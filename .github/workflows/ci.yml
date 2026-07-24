@@ -23,6 +23,11 @@ jobs:
         with:
           python-version: '3.12'
 
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+          cache-dependency-glob: clients/python/uv.lock
+
       - name: Install JS deps
         run: pnpm install --frozen-lockfile
 
@@ -48,11 +53,19 @@ jobs:
 
       - name: Install Python client
         working-directory: clients/python
-        run: pip install -e ".[dev]"
+        run: uv sync --frozen --extra dev --group skillopt-source --group gepa-source
 
-      - name: Test Python client
+      - name: Test Python client with official GEPA
         working-directory: clients/python
-        run: pytest -v
+        run: uv run --frozen --extra dev --group skillopt-source --group gepa-source pytest -v
+
+      - name: Install official DSPy
+        working-directory: clients/python
+        run: uv sync --frozen --extra dev --extra dspy
+
+      - name: Test DSPy metric compatibility
+        working-directory: clients/python
+        run: uv run --frozen --extra dev --extra dspy pytest -v tests/test_dspy_metric.py
 
       - name: Verify publishable Python distributions
         working-directory: clients/python

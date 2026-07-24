@@ -40,10 +40,14 @@ export interface CostReceipt extends CostCallBase, CostUsage {
   costUsd: number
   costUnknown: boolean
   usageUnknown?: boolean
+  /** Rates used to estimate cost locally. Absent when cost is provider-reported or unknown. */
   pricing?: {
     inputUsdPerThousand: number
+    cachedInputUsdPerThousand?: number
+    cacheWriteUsdPerThousand?: number
     outputUsdPerThousand: number
   }
+  /** Cost reported by the provider, not a local token-price calculation. */
   actualCostUsd?: number
   error?: string
 }
@@ -58,6 +62,8 @@ export type CostLedgerEntry = Omit<
 
 export interface CostReceiptInput extends CostUsage {
   model: string
+  /** Caller-supplied rates for a local estimate when the provider does not report billed cost. */
+  customTokenPricing?: CustomTokenPricing
   actualCostUsd?: number
   costUnknown?: boolean
   usageUnknown?: boolean
@@ -65,13 +71,20 @@ export interface CostReceiptInput extends CostUsage {
 
 /** Per-million token rates for a model or endpoint not covered by package pricing. */
 export interface CustomTokenPricing {
+  /** Non-cached input tokens. */
   inputUsdPerMillion: number
+  /** Cache-read tokens. Falls back to the normal input rate when omitted. */
+  cachedInputUsdPerMillion?: number
+  /** Cache-creation or cache-write tokens. Falls back to the normal input rate when omitted. */
+  cacheWriteUsdPerMillion?: number
   outputUsdPerMillion: number
 }
 
 export type MaximumCharge =
   | { externallyEnforcedMaximumUsd: number }
-  | ({ customTokenPricing: CustomTokenPricing } & Pick<CostUsage, 'inputTokens' | 'outputTokens'>)
+  | ({
+      customTokenPricing: CustomTokenPricing
+    } & Pick<CostUsage, 'inputTokens' | 'outputTokens' | 'cachedTokens' | 'cacheWriteTokens'>)
   | ({ model: string } & CostUsage)
 
 export interface RunPaidCallInput<T> {
@@ -806,17 +819,33 @@ export function costForUsage(model: string, usage: CostUsage): CostResult {
   }
 }
 
-/** Price input and output token counts with caller-supplied per-million rates. */
+/** Price token counts with caller-supplied per-million rates. */
 export function costForTokenPricing(
   pricing: CustomTokenPricing,
-  usage: Pick<CostUsage, 'inputTokens' | 'outputTokens'>,
+  usage: Pick<CostUsage, 'inputTokens' | 'outputTokens' | 'cachedTokens' | 'cacheWriteTokens'>,
 ): number {
   assertTokenCount(usage.inputTokens, 'usage.inputTokens')
   assertTokenCount(usage.outputTokens, 'usage.outputTokens')
+  if (usage.cachedTokens !== undefined) {
+    assertTokenCount(usage.cachedTokens, 'usage.cachedTokens')
+  }
+  if (usage.cacheWriteTokens !== undefined) {
+    assertTokenCount(usage.cacheWriteTokens, 'usage.cacheWriteTokens')
+  }
   assertNonNegative(pricing.inputUsdPerMillion, 'pricing.inputUsdPerMillion')
+  if (pricing.cachedInputUsdPerMillion !== undefined) {
+    assertNonNegative(pricing.cachedInputUsdPerMillion, 'pricing.cachedInputUsdPerMillion')
+  }
+  if (pricing.cacheWriteUsdPerMillion !== undefined) {
+    assertNonNegative(pricing.cacheWriteUsdPerMillion, 'pricing.cacheWriteUsdPerMillion')
+  }
   assertNonNegative(pricing.outputUsdPerMillion, 'pricing.outputUsdPerMillion')
+  const cachedInputRate = pricing.cachedInputUsdPerMillion ?? pricing.inputUsdPerMillion
+  const cacheWriteRate = pricing.cacheWriteUsdPerMillion ?? pricing.inputUsdPerMillion
   return (
     (usage.inputTokens / 1_000_000) * pricing.inputUsdPerMillion +
+    ((usage.cachedTokens ?? 0) / 1_000_000) * cachedInputRate +
+    ((usage.cacheWriteTokens ?? 0) / 1_000_000) * cacheWriteRate +
     (usage.outputTokens / 1_000_000) * pricing.outputUsdPerMillion
   )
 }
@@ -852,7 +881,21 @@ function buildReceipt(
 ): CostReceipt {
   assertUsage(observed)
   assertString(observed.model, 'receipt.model')
-  const estimated = costForUsage(observed.model, observed)
+  if (observed.actualCostUsd !== undefined && observed.customTokenPricing !== undefined) {
+    throw new ValidationError(
+      'CostLedger: a receipt cannot have both actualCostUsd and customTokenPricing',
+    )
+  }
+  const customPricingSnapshot =
+    observed.customTokenPricing === undefined
+      ? undefined
+      : pricingSnapshot(observed.customTokenPricing)
+  const estimated = customPricingSnapshot
+    ? {
+        costUsd: costFromPricing(observed, customPricingSnapshot),
+        costUnknown: false,
+      }
+    : costForUsage(observed.model, observed)
   const hasActual = observed.actualCostUsd !== undefined
   if (hasActual && observed.costUnknown === true) {
     throw new ValidationError(
@@ -863,7 +906,20 @@ function buildReceipt(
   const usageUnknown = observed.usageUnknown === true
   const costUnknown =
     observed.costUnknown === true || (!hasActual && (usageUnknown || estimated.costUnknown))
-  const resolvedPricing = !hasActual && !costUnknown ? resolveModelPricing(observed.model) : null
+  const resolvedModelPricing =
+    !customPricingSnapshot && !hasActual && !costUnknown
+      ? resolveModelPricing(observed.model)
+      : null
+  const receiptPricing =
+    !hasActual && !costUnknown
+      ? (customPricingSnapshot ??
+        (resolvedModelPricing
+          ? {
+              inputUsdPerThousand: resolvedModelPricing.input,
+              outputUsdPerThousand: resolvedModelPricing.output,
+            }
+          : undefined))
+      : undefined
   return parseReceipt(
     {
       status: 'settled',
@@ -884,14 +940,7 @@ function buildReceipt(
       costUsd: costUnknown ? 0 : hasActual ? observed.actualCostUsd! : estimated.costUsd,
       costUnknown,
       usageUnknown,
-      ...(resolvedPricing
-        ? {
-            pricing: {
-              inputUsdPerThousand: resolvedPricing.input,
-              outputUsdPerThousand: resolvedPricing.output,
-            },
-          }
-        : {}),
+      ...(receiptPricing ? { pricing: receiptPricing } : {}),
       ...(hasActual ? { actualCostUsd: observed.actualCostUsd } : {}),
       ...(pending.maximumCostUsd === undefined ? {} : { maximumCostUsd: pending.maximumCostUsd }),
       ...(error ? { error } : {}),
@@ -905,11 +954,12 @@ function buildReceipt(
 const NonEmptyString = z.string().refine((value) => value.trim().length > 0, 'must be non-empty')
 const TokenCount = z.number().int().nonnegative().finite()
 const NonNegative = z.number().nonnegative().finite()
-const Positive = z.number().positive().finite()
 const Tags = z.record(NonEmptyString, z.string())
 const CostPricingSchema = z.strictObject({
-  inputUsdPerThousand: Positive,
-  outputUsdPerThousand: Positive,
+  inputUsdPerThousand: NonNegative,
+  cachedInputUsdPerThousand: NonNegative.optional(),
+  cacheWriteUsdPerThousand: NonNegative.optional(),
+  outputUsdPerThousand: NonNegative,
 })
 const CostCallBaseShape = {
   callId: NonEmptyString,
@@ -1157,11 +1207,28 @@ function cloneReceipt(receipt: CostReceipt): CostReceipt {
 }
 
 function costFromPricing(usage: CostUsage, pricing: NonNullable<CostReceipt['pricing']>): number {
+  const cachedInputRate = pricing.cachedInputUsdPerThousand ?? pricing.inputUsdPerThousand
+  const cacheWriteRate = pricing.cacheWriteUsdPerThousand ?? pricing.inputUsdPerThousand
   return (
-    ((usage.inputTokens + (usage.cachedTokens ?? 0) + (usage.cacheWriteTokens ?? 0)) / 1000) *
-      pricing.inputUsdPerThousand +
+    (usage.inputTokens / 1000) * pricing.inputUsdPerThousand +
+    ((usage.cachedTokens ?? 0) / 1000) * cachedInputRate +
+    ((usage.cacheWriteTokens ?? 0) / 1000) * cacheWriteRate +
     (usage.outputTokens / 1000) * pricing.outputUsdPerThousand
   )
+}
+
+function pricingSnapshot(pricing: CustomTokenPricing): NonNullable<CostReceipt['pricing']> {
+  costForTokenPricing(pricing, { inputTokens: 0, outputTokens: 0 })
+  return {
+    inputUsdPerThousand: pricing.inputUsdPerMillion / 1000,
+    ...(pricing.cachedInputUsdPerMillion === undefined
+      ? {}
+      : { cachedInputUsdPerThousand: pricing.cachedInputUsdPerMillion / 1000 }),
+    ...(pricing.cacheWriteUsdPerMillion === undefined
+      ? {}
+      : { cacheWriteUsdPerThousand: pricing.cacheWriteUsdPerMillion / 1000 }),
+    outputUsdPerThousand: pricing.outputUsdPerMillion / 1000,
+  }
 }
 
 function emptyRollup(channel: CostChannel): ChannelRollup {

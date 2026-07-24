@@ -1,12 +1,11 @@
 /**
- * Compare prompt optimization methods on AppWorld using separate train,
- * selection, and test tasks. AppWorld's `world.evaluate()` scores the worker
- * output, so no model-based judge is involved.
+ * Compare official GEPA and SkillOpt on AppWorld with separate train,
+ * selection, and final tasks. AppWorld's world.evaluate() supplies scores.
  *
  * Run (overnight):
  *   export OPENAI_BASE_URL=https://router.tangle.tools/v1 OPENAI_API_KEY=$(cat /tmp/.tk)
  *   APPWORLD_DIR=/tmp/halo-repo/demo/appworld \
- *   BENCH_MODEL=gpt-5-mini TRAIN_N=4 SELECTION_N=4 TEST_N=6 MAX_GEN=2 \
+ *   BENCH_MODEL=gpt-5-mini TRAIN_N=4 SELECTION_N=4 TEST_N=6 \
  *   pnpm tsx examples/benchmarks/appworld/run-bench.ts > /tmp/appworld-bench/run.log 2>&1
  *
  * Output: a Markdown report and the comparison JSON under OUT_DIR.
@@ -20,28 +19,14 @@ import { fileURLToPath } from 'node:url'
 import { promisify } from 'node:util'
 import { z } from 'zod'
 import {
-  DEFAULT_TRACE_ANALYST_KINDS,
-  FAILURE_MODE_KIND_SPEC,
-  IMPROVEMENT_KIND_SPEC,
-} from '../../../src'
-import {
-  analyzeOtlpTraceFile,
-  type BuiltinOptimizationMethodConfig,
   compareOptimizationMethods,
-  costFromLedgerSummary,
   type DispatchContext,
-  defaultProductionGate,
-  gepaParetoMethod,
-  gepaReflectionMethod,
-  haloProposer,
+  gepaOptimizationMethod,
   type JudgeConfig,
   type MutableSurface,
-  memoryCurationProposer,
   type OptimizationMethod,
-  runImprovementLoop,
   type Scenario,
-  type SurfaceProposer,
-  traceAnalystProposer,
+  skillOptOptimizationMethod,
 } from '../../../src/campaign'
 import {
   nonNegativeIntegerEnv,
@@ -51,23 +36,35 @@ import {
   safeIntegerEnv,
   stringEnv,
 } from '../../_shared/env'
+import { optimizerModelBudgetFromEnv } from '../../_shared/optimizer-model-budget'
 
 const execFileAsync = promisify(execFile)
 
 // ── Config (env-overridable so the overnight run can be tuned) ───────────────
 const APPWORLD_DIR = stringEnv('APPWORLD_DIR', '/tmp/halo-repo/demo/appworld')
 const PYTHON = stringEnv('BENCH_PYTHON', `${APPWORLD_DIR}/.venv/bin/python`)
+const OPTIMIZER_PYTHON = stringEnv('OPTIMIZER_PYTHON', 'python')
 const HERE = dirname(fileURLToPath(import.meta.url))
 const WORKER = join(HERE, 'repl_agent.py')
 const MODEL = stringEnv('BENCH_MODEL', 'gpt-5.1')
-const REFLECT_MODEL = stringEnv('BENCH_REFLECT_MODEL', MODEL)
+const GEPA_MODEL = stringEnv('GEPA_MODEL', MODEL)
+const SKILLOPT_MODEL = stringEnv('SKILLOPT_MODEL', MODEL)
 const BASE_URL = stringEnv('OPENAI_BASE_URL', 'https://router.tangle.tools/v1')
 const API_KEY = process.env.OPENAI_API_KEY?.trim() ?? ''
 const TRAIN_N = positiveIntegerEnv('TRAIN_N', 3)
 const SELECTION_N = positiveIntegerEnv('SELECTION_N', 3)
 const TEST_N = positiveIntegerEnv('TEST_N', 5)
-const MAX_GEN = positiveIntegerEnv('MAX_GEN', 1)
-const POP = positiveIntegerEnv('POP', 2)
+const GEPA_MAX_EVALUATIONS = positiveIntegerEnv('GEPA_MAX_EVALUATIONS', 40)
+const GEPA_MAX_PROPOSER_COST_USD = positiveNumberEnv('GEPA_MAX_PROPOSER_COST_USD', 5)
+const SKILLOPT_EPOCHS = positiveIntegerEnv('SKILLOPT_EPOCHS', 1)
+const SKILLOPT_BATCH_SIZE = positiveIntegerEnv('SKILLOPT_BATCH_SIZE', 2)
+const SKILLOPT_CORE_EVALUATIONS =
+  SELECTION_N +
+  SKILLOPT_EPOCHS * Math.ceil(TRAIN_N / SKILLOPT_BATCH_SIZE) * (SKILLOPT_BATCH_SIZE + SELECTION_N)
+const SKILLOPT_MAX_EVALUATIONS = positiveIntegerEnv(
+  'SKILLOPT_MAX_EVALUATIONS',
+  SKILLOPT_CORE_EVALUATIONS,
+)
 const REPS = positiveIntegerEnv('REPS', 5)
 const MAX_STEPS = nonNegativeIntegerEnv('MAX_STEPS', 30)
 const MAX_WALL = positiveNumberEnv('MAX_WALL', 900)
@@ -77,27 +74,13 @@ const OPTIMIZATION_CONCURRENCY = positiveIntegerEnv('OPTIMIZATION_CONCURRENCY', 
 const CALL_TIMEOUT = positiveNumberEnv('CALL_TIMEOUT', 120)
 const MAX_TOKENS = positiveIntegerEnv('MAX_TOKENS', 6000)
 const RATE_LIMIT_BUDGET = positiveNumberEnv('RATE_LIMIT_BUDGET', 240)
+const MAX_OPTIMIZATION_COST_USD = positiveNumberEnv('MAX_OPTIMIZATION_COST_USD', 50)
+const MAX_TEST_COST_USD = positiveNumberEnv('MAX_TEST_COST_USD', 25)
 const OUT_DIR = stringEnv('OUT_DIR', join(tmpdir(), 'appworld-bench'))
 const SEED = safeIntegerEnv('SEED', 42)
-// HALO is opt-in (needs the halo-engine CLI + spends extra); off by default.
-const WITH_HALO = process.env.WITH_HALO === '1'
-// The halo binary. Default 'halo' (Responses API → OpenAI/router). For chat-
-// completions backends (DeepSeek), point at examples/.../halo-chat.sh and set
-// HALO_VENV_PY to the halo-engine venv python.
-const HALO_BIN = stringEnv('HALO_BIN', 'halo')
-const HALO_MAX_DEPTH = nonNegativeIntegerEnv('HALO_MAX_DEPTH', 0)
-const HALO_MAX_TURNS = positiveIntegerEnv('HALO_MAX_TURNS', 20)
-// Our trace-analyst is the symmetric opponent to HALO. Opt-in (it spends extra
-// on the agentic analyst reads); turn BOTH on for the head-to-head.
-const WITH_ANALYST = process.env.WITH_ANALYST === '1'
-// Which analyst kinds the trace-analyst proposer runs. Default = failure-mode +
-// improvement (the two that map to HALO's diagnose+fix, keeping turns/cost
-// comparable). Set BENCH_ANALYST_KINDS=all for the full shipped suite.
-const ANALYST_KINDS = stringEnv('BENCH_ANALYST_KINDS', 'focused')
-
 if (TEMPERATURE > 2) throw new Error('TEMPERATURE must be between 0 and 2')
-if (!['focused', 'all'].includes(ANALYST_KINDS)) {
-  throw new Error('BENCH_ANALYST_KINDS must be focused or all')
+if (SKILLOPT_MAX_EVALUATIONS < SKILLOPT_CORE_EVALUATIONS) {
+  throw new Error(`SKILLOPT_MAX_EVALUATIONS must be at least ${SKILLOPT_CORE_EVALUATIONS}`)
 }
 
 interface AppWorldScenario extends Scenario {
@@ -129,21 +112,19 @@ const AppWorldResult = z.object({
 if (!API_KEY) throw new Error('OPENAI_API_KEY must be set (point at the Tangle router)')
 mkdirSync(OUT_DIR, { recursive: true })
 
-// BENCH_DIFFICULTY filters AppWorld tasks by difficulty (1=easy … 3=hard).
-// A capable worker (deepseek-chat) CEILINGS at tgc=1.0 on difficulty 1–2, which
-// leaves zero lift headroom for the bake-off; difficulty 3 lands at tgc≈0 /
-// sgc≈0.9 (composite ~0.45) — the movable regime where a better prompt can win.
+// BENCH_DIFFICULTY filters AppWorld tasks by difficulty from 1 to 3.
+// A capable worker can saturate difficulty 1 and 2, leaving no room to measure lift.
+// Difficulty 3 is usually more useful for optimization comparisons.
 const BENCH_DIFFICULTY_RAW = process.env.BENCH_DIFFICULTY?.trim()
 const BENCH_DIFFICULTY = BENCH_DIFFICULTY_RAW ? Number(BENCH_DIFFICULTY_RAW) : undefined
 if (BENCH_DIFFICULTY !== undefined && ![1, 2, 3].includes(BENCH_DIFFICULTY)) {
   throw new Error('BENCH_DIFFICULTY must be 1, 2, or 3')
 }
-// Which AppWorld split to draw train+selection+test from. Default 'dev' (small). For a
-// difficulty-3 proof use 'train' (18 d3 tasks) — 'dev' has only 3 d3 tasks.
+// Draw all three disjoint partitions from this AppWorld split.
+// Use train for more difficulty-3 tasks; dev contains only three.
 const BENCH_SPLIT = stringEnv('BENCH_SPLIT', 'dev')
 
-/** AppWorld task ids — load deterministically from BENCH_SPLIT, take
- *  train+selection+test as disjoint slices. */
+/** Load AppWorld task ids deterministically, then take disjoint slices. */
 async function loadTaskIds(): Promise<string[]> {
   const { stdout } = await execFileAsync(
     PYTHON,
@@ -263,129 +244,75 @@ const appworldJudge: JudgeConfig<AppWorldArtifact, AppWorldScenario> = {
   },
 }
 
-function loopMethod(
-  name: string,
-  config: BuiltinOptimizationMethodConfig<AppWorldScenario, AppWorldArtifact>,
-  createProposer: (resolveTraces: () => string) => SurfaceProposer,
-): OptimizationMethod<AppWorldScenario, AppWorldArtifact> {
-  return {
-    name,
-    async optimize(input) {
-      const started = Date.now()
-      const selectionScenarios = [...input.selectionScenarios]
-      const trainIds = new Set(input.trainScenarios.map((scenario) => scenario.id))
-      const tracePaths: string[] = []
-      const methodDispatch: typeof input.dispatchWithSurface = async (surface, scenario, ctx) => {
-        const artifact = await input.dispatchWithSurface(surface, scenario, ctx)
-        if (trainIds.has(scenario.id)) tracePaths.push(artifact.tracesPath)
-        return artifact
-      }
-      const resolveTraces = () =>
-        tracePaths
-          .map((path) => readFileSync(path, 'utf8').trim())
-          .filter(Boolean)
-          .join('\n')
-      const result = await runImprovementLoop<AppWorldScenario, AppWorldArtifact>({
-        ...input.runOptions,
-        ...(config.runOptions ?? {}),
-        scenarios: [...input.trainScenarios],
-        holdoutScenarios: selectionScenarios,
-        baselineSurface: input.baselineSurface,
-        dispatchWithSurface: methodDispatch,
-        judges: [...input.judges],
-        proposer: createProposer(resolveTraces),
-        populationSize: config.populationSize ?? POP,
-        maxGenerations: config.maxGenerations ?? MAX_GEN,
-        gate: defaultProductionGate<AppWorldArtifact, AppWorldScenario>({
-          holdoutScenarios: selectionScenarios,
-          deltaThreshold: 0,
-        }),
-        autoOnPromote: 'none',
-        runDir: `${input.runDir}/loop`,
-        seed: config.seed ?? input.seed,
-        ...(config.findings !== undefined ? { findings: config.findings } : {}),
-        ...(config.analyzeGeneration ? { analyzeGeneration: config.analyzeGeneration } : {}),
-        ...(config.report !== undefined ? { report: config.report } : {}),
-      })
-      return {
-        winnerSurface:
-          result.gateResult.decision === 'ship' ? result.winnerSurface : input.baselineSurface,
-        cost: costFromLedgerSummary(result.cost),
-        durationMs: Date.now() - started,
-      }
-    },
+function officialMethods(
+  selected: ReadonlySet<string>,
+): OptimizationMethod<AppWorldScenario, AppWorldArtifact>[] {
+  const runner = {
+    command: OPTIMIZER_PYTHON,
   }
-}
-
-function memoryMethod(
-  config: BuiltinOptimizationMethodConfig<AppWorldScenario, AppWorldArtifact>,
-): OptimizationMethod<AppWorldScenario, AppWorldArtifact> {
-  const analyzeGeneration: NonNullable<typeof config.analyzeGeneration> = async ({
-    generation,
-    runDir,
-    candidates,
-    costLedger,
-    costPhase,
-  }) => {
-    const traceText = candidates
-      .flatMap((candidate) => candidate.campaign.cells.map((cell) => cell.artifact.tracesPath))
-      .map((path) => readFileSync(path, 'utf8').trim())
-      .filter(Boolean)
-      .join('\n')
-    if (!traceText) throw new Error('memory-curation: training runs produced no traces')
-    mkdirSync(runDir, { recursive: true })
-    const tracePath = join(runDir, 'memory-analysis-traces.jsonl')
-    writeFileSync(tracePath, traceText)
-    return analyzeOtlpTraceFile({
-      tracePath,
-      runId: `appworld-memory-${generation}`,
-      baseUrl: BASE_URL,
-      apiKey: API_KEY,
-      model: REFLECT_MODEL,
-      kinds: analystKinds(),
-      ...(costLedger ? { costLedger } : {}),
-      ...(costPhase ? { costPhase } : {}),
-    })
+  const describeScenario = (scenario: AppWorldScenario) => ({ taskId: scenario.taskId })
+  const describeArtifact = (artifact: AppWorldArtifact) => ({
+    taskGoalCompletion: artifact.tgc,
+    scenarioGoalCompletion: artifact.sgc,
+    completed: artifact.completed,
+    trace: readFileSync(artifact.tracesPath, 'utf8').slice(-80_000),
+  })
+  const methods: OptimizationMethod<AppWorldScenario, AppWorldArtifact>[] = []
+  if (selected.has('gepa')) {
+    methods.push(
+      gepaOptimizationMethod<AppWorldScenario, AppWorldArtifact>({
+        name: 'gepa',
+        objective: 'Improve the AppWorld agent system prompt to complete more requested tasks.',
+        background:
+          'The artifact includes AppWorld task scores and the execution trace for candidate feedback.',
+        evaluationVersion: 'appworld-repl-v1',
+        recipe: {
+          kind: 'engine',
+          run: {
+            engine: 'gepa',
+            maxEvaluations: GEPA_MAX_EVALUATIONS,
+            maxProposerCostUsd: GEPA_MAX_PROPOSER_COST_USD,
+          },
+        },
+        optimizer: {
+          model: GEPA_MODEL,
+          baseUrl: BASE_URL,
+          apiKey: API_KEY,
+          budget: optimizerModelBudgetFromEnv('GEPA', MAX_OPTIMIZATION_COST_USD),
+        },
+        describeScenario,
+        describeArtifact,
+        runner,
+      }),
+    )
   }
-  return loopMethod('memory-curation', { ...config, analyzeGeneration }, () =>
-    memoryCurationProposer({}),
-  )
-}
-
-function haloMethod(
-  config: BuiltinOptimizationMethodConfig<AppWorldScenario, AppWorldArtifact>,
-): OptimizationMethod<AppWorldScenario, AppWorldArtifact> {
-  return loopMethod('halo', config, (resolveTraces) =>
-    haloProposer({
-      baseUrl: BASE_URL,
-      apiKey: API_KEY,
-      model: REFLECT_MODEL,
-      haloBin: HALO_BIN,
-      maxDepth: HALO_MAX_DEPTH,
-      maxTurns: HALO_MAX_TURNS,
-      resolveTraces,
-    }),
-  )
-}
-
-function traceAnalystMethod(
-  config: BuiltinOptimizationMethodConfig<AppWorldScenario, AppWorldArtifact>,
-): OptimizationMethod<AppWorldScenario, AppWorldArtifact> {
-  return loopMethod('trace-analyst', config, (resolveTraces) =>
-    traceAnalystProposer({
-      baseUrl: BASE_URL,
-      apiKey: API_KEY,
-      model: REFLECT_MODEL,
-      kinds: analystKinds(),
-      resolveTraces,
-    }),
-  )
-}
-
-function analystKinds() {
-  return ANALYST_KINDS === 'all'
-    ? DEFAULT_TRACE_ANALYST_KINDS
-    : [FAILURE_MODE_KIND_SPEC, IMPROVEMENT_KIND_SPEC]
+  if (selected.has('skillopt')) {
+    methods.push(
+      skillOptOptimizationMethod<AppWorldScenario, AppWorldArtifact>({
+        name: 'skillopt',
+        objective: 'Improve the AppWorld agent system prompt to complete more requested tasks.',
+        background:
+          'The artifact includes AppWorld task scores and the execution trace for candidate feedback.',
+        evaluationVersion: 'appworld-repl-v1',
+        trainer: {
+          epochs: SKILLOPT_EPOCHS,
+          batchSize: SKILLOPT_BATCH_SIZE,
+        },
+        optimizer: {
+          model: SKILLOPT_MODEL,
+          baseUrl: BASE_URL,
+          apiKey: API_KEY,
+          budget: optimizerModelBudgetFromEnv('SKILLOPT', MAX_OPTIMIZATION_COST_USD),
+        },
+        maxEvaluations: SKILLOPT_MAX_EVALUATIONS,
+        maxEvidenceChars: 100_000,
+        describeScenario,
+        describeArtifact,
+        runner,
+      }),
+    )
+  }
+  return methods
 }
 
 async function main(): Promise<void> {
@@ -416,40 +343,22 @@ async function main(): Promise<void> {
     },
   )
 
-  const cfg: BuiltinOptimizationMethodConfig<AppWorldScenario, AppWorldArtifact> = {
-    llm: { baseUrl: BASE_URL, apiKey: API_KEY },
-    model: REFLECT_MODEL,
-    target: 'appworld-agent-system-prompt',
-    populationSize: POP,
-    maxGenerations: MAX_GEN,
-  }
-
-  let methods: OptimizationMethod<AppWorldScenario, AppWorldArtifact>[] = [
-    gepaReflectionMethod(cfg),
-    gepaParetoMethod(cfg),
-    memoryMethod(cfg),
-  ]
-  if (WITH_HALO) methods.push(haloMethod(cfg))
-  if (WITH_ANALYST) methods.push(traceAnalystMethod(cfg))
-  // BENCH_METHODS=gepa-reflection,memory-curation selects a subset.
   const only = (process.env.BENCH_METHODS ?? '')
     .split(',')
     .map((s) => s.trim())
     .filter(Boolean)
-  if (only.length > 0) {
-    const available = new Set(methods.map((method) => method.name))
-    const unknown = only.filter((name) => !available.has(name))
-    if (unknown.length > 0) {
-      throw new Error(`BENCH_METHODS contains unavailable methods: ${unknown.join(', ')}`)
-    }
-    methods = methods.filter((method) => only.includes(method.name))
+  const selected = new Set(only.length > 0 ? only : ['gepa', 'skillopt'])
+  const unknown = [...selected].filter((name) => name !== 'gepa' && name !== 'skillopt')
+  if (unknown.length > 0) {
+    throw new Error(`BENCH_METHODS contains unavailable methods: ${unknown.join(', ')}`)
   }
+  const methods = officialMethods(selected)
   if (methods.length === 0) {
     throw new Error(`BENCH_METHODS matched no methods: ${only.join(',')}`)
   }
 
   console.log(
-    `[bench] model=${MODEL} reflect=${REFLECT_MODEL} train=${TRAIN_N} selection=${SELECTION_N} test=${TEST_N} gen=${MAX_GEN} pop=${POP} methods=${methods.map((method) => method.name).join(',')}`,
+    `[bench] worker=${MODEL} gepa=${GEPA_MODEL} skillopt=${SKILLOPT_MODEL} train=${TRAIN_N} selection=${SELECTION_N} test=${TEST_N} methods=${methods.map((method) => method.name).join(',')}`,
   )
 
   const comparison = await compareOptimizationMethods<AppWorldScenario, AppWorldArtifact>({
@@ -467,8 +376,10 @@ async function main(): Promise<void> {
     maxConcurrency: MAXCONC, // parallelize the test-scoring fan-out (the bulk of the run)
     optimizationRunOptions: {
       maxConcurrency: MAXCONC,
+      costCeiling: MAX_OPTIMIZATION_COST_USD,
       expectUsage: 'assert',
     },
+    costCeiling: MAX_TEST_COST_USD,
     expectUsage: 'assert',
   })
 
