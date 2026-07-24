@@ -86,6 +86,26 @@ jobs:
           tests/campaign/gepa-official-integration.test.ts
           tests/campaign/skillopt-official-integration.test.ts
 
+      - name: Install published GEPA
+        working-directory: clients/python
+        run: uv sync --frozen --extra dev --group gepa-release
+
+      - name: Test published GEPA compatibility
+        working-directory: clients/python
+        env:
+          AGENT_EVAL_EXPECT_GEPA_RELEASE: '1'
+        run: >-
+          uv run --frozen --extra dev --group gepa-release
+          pytest -v
+          tests/test_gepa_release_compatibility.py
+          tests/test_gepa_bridge.py
+          tests/test_official_optimizer_compatibility.py::test_agent_eval_gepa_bridge_resumes_state_from_a_real_prior_run
+
+      - name: Test TypeScript bridge with published GEPA
+        env:
+          AGENT_EVAL_TEST_PYTHON: ${{ github.workspace }}/clients/python/.venv/bin/python
+        run: pnpm exec vitest run tests/campaign/gepa-official-integration.test.ts
+
       - name: Install DSPy environment
         working-directory: clients/python
         run: uv sync --frozen --extra dev --extra dspy

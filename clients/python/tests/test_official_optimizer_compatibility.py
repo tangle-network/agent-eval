@@ -60,6 +60,20 @@ def _assert_installed_git_package(
     }
 
 
+def _assert_installed_gepa_runtime() -> None:
+    if os.environ.get("AGENT_EVAL_EXPECT_GEPA_RELEASE") == "1":
+        assert version("gepa") == "0.1.4"
+        direct_url = distribution("gepa").read_text("direct_url.json")
+        assert direct_url is None or "vcs_info" not in json.loads(direct_url)
+        return
+    _assert_installed_git_package(
+        "gepa",
+        "0.1.4",
+        "https://github.com/gepa-ai/gepa.git",
+        "f919db0a622e2e9f9204779b81fe00cc1b2d808f",
+    )
+
+
 class _DeterministicReflectionModel:
     def __init__(self) -> None:
         self.prompts: list[Any] = []
@@ -408,8 +422,9 @@ def test_agent_eval_gepa_proxy_drives_the_official_engine(
     tmp_path: Path,
 ) -> None:
     from gepa.lm import LM
-    from gepa.optimize_anything import OptimizeAnythingConfig, optimize_anything
+    from gepa.optimize_anything import optimize_anything
 
+    from agent_eval_rpc.gepa_api import load_gepa_api
     from agent_eval_rpc.gepa_bridge import _engine_config, _ProxyUsage
 
     evaluations: list[tuple[str, str]] = []
@@ -425,7 +440,7 @@ def test_agent_eval_gepa_proxy_drives_the_official_engine(
         model_requests,
     ):
         config = _engine_config(
-            OptimizeAnythingConfig,
+            load_gepa_api(),
             {
                 "engine": "gepa",
                 "engineConfig": {
@@ -509,12 +524,7 @@ def test_agent_eval_gepa_bridge_resumes_state_from_a_real_prior_run(
     from agent_eval_rpc import gepa_bridge
     from agent_eval_rpc.gepa_compat_0_1_4 import load_restore_observer
 
-    _assert_installed_git_package(
-        "gepa",
-        "0.1.4",
-        "https://github.com/gepa-ai/gepa.git",
-        "f919db0a622e2e9f9204779b81fe00cc1b2d808f",
-    )
+    _assert_installed_gepa_runtime()
 
     def callback_post(url: str, **kwargs: Any) -> httpx.Response:
         candidate = kwargs["json"]["candidate"]
@@ -616,7 +626,7 @@ def test_agent_eval_gepa_bridge_resumes_state_from_a_real_prior_run(
 
         first = run_bridge("first-run")
         first_run_dir = output_root / "runs" / first["runId"]
-        with pytest.raises(RuntimeError, match="supports only version 0.1.4"):
+        with pytest.raises(RuntimeError, match="supports only the published 0.1.4"):
             load_restore_observer(
                 first_run_dir,
                 {

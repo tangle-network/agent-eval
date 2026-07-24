@@ -146,20 +146,25 @@ The Python client does not reimplement either algorithm.
 
 ### GEPA
 
-Install the client and the exact GEPA source revision tested by Agent Eval:
+Install the client and published GEPA package for the standard engine:
 
 ```sh
 python -m pip install agent-eval-rpc
+python -m pip install "gepa[full]==0.1.4"
+```
+
+The published package runs direct recipes with the standard `gepa` engine.
+Sequential, adaptive, best-of, vote, Omni, AutoResearch, Meta Harness, and Best-of-N currently require this tested official source revision:
+
+```sh
 python -m pip install \
   "gepa[full] @ git+https://github.com/gepa-ai/gepa.git@f919db0a622e2e9f9204779b81fe00cc1b2d808f"
 ```
 
-The published `gepa==0.1.4` wheel does not contain the Optimize Anything API used by `gepaOptimizationMethod()`.
-PyPI package metadata cannot depend directly on a Git URL, so GEPA is a separate install.
-
-From an Agent Eval source checkout, install the same revision with:
+From an Agent Eval source checkout:
 
 ```sh
+uv sync --frozen --group gepa-release
 uv sync --frozen --group gepa-source
 ```
 
@@ -245,6 +250,11 @@ DSPy 3.2.1 pins GEPA 0.0.27.
 The general Optimize Anything bridge uses GEPA 0.1.4, so repository checks install them in separate environments:
 
 ```sh
+uv sync --frozen --extra dev --group gepa-release
+AGENT_EVAL_EXPECT_GEPA_RELEASE=1 \
+  uv run --frozen --extra dev --group gepa-release \
+  pytest tests/test_gepa_release_compatibility.py tests/test_gepa_bridge.py
+
 uv sync --frozen --extra dev --group skillopt-source --group gepa-source
 uv run --frozen pytest
 

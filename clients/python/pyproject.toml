@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "agent-eval-rpc"
-version = "0.126.4"
+version = "0.126.5"
 description = "Python RPC client, official optimizer bridge, and DSPy metric adapter for @tangle-network/agent-eval."
 readme = "README.md"
 requires-python = ">=3.10"
@@ -45,6 +45,9 @@ skillopt-source = [
 gepa-source = [
   "gepa[full] @ git+https://github.com/gepa-ai/gepa.git@f919db0a622e2e9f9204779b81fe00cc1b2d808f",
 ]
+gepa-release = [
+  "gepa[full]==0.1.4",
+]
 
 [project.urls]
 Homepage = "https://github.com/tangle-network/agent-eval"
@@ -62,6 +65,14 @@ conflicts = [
   [
     { extra = "dspy" },
     { group = "gepa-source" },
+  ],
+  [
+    { extra = "dspy" },
+    { group = "gepa-release" },
+  ],
+  [
+    { group = "gepa-source" },
+    { group = "gepa-release" },
   ],
 ]
 

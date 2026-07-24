@@ -4,6 +4,13 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ---
 
+## [0.126.5] - 2026-07-24 - published GEPA compatibility
+
+### Fixed
+
+- The standard GEPA engine now runs against the published `gepa[full]==0.1.4` package instead of requiring an unreleased source API.
+- GEPA source-only engines and composition functions still fail explicitly unless the documented official source revision is installed.
+
 ## [0.126.4] - 2026-07-24 - train-only GEPA optimization
 
 ### Fixed

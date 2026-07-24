@@ -82,3 +82,46 @@ jobs:
           python -m build
           twine check dist/*
           python scripts/verify_publishable_dist.py dist
+
+  gepa-release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+          cache-dependency-glob: clients/python/uv.lock
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Install published GEPA
+        working-directory: clients/python
+        run: uv sync --frozen --extra dev --group gepa-release
+
+      - name: Test published GEPA compatibility
+        working-directory: clients/python
+        env:
+          AGENT_EVAL_EXPECT_GEPA_RELEASE: '1'
+        run: >-
+          uv run --frozen --extra dev --group gepa-release
+          pytest -v
+          tests/test_gepa_release_compatibility.py
+          tests/test_gepa_bridge.py
+          tests/test_official_optimizer_compatibility.py::test_agent_eval_gepa_bridge_resumes_state_from_a_real_prior_run
+
+      - name: Test TypeScript bridge with published GEPA
+        env:
+          AGENT_EVAL_TEST_PYTHON: ${{ github.workspace }}/clients/python/.venv/bin/python
+        run: pnpm exec vitest run tests/campaign/gepa-official-integration.test.ts

@@ -80,10 +80,11 @@ def load_restore_observer(
             "for state created locally in a directory you control"
         )
     _validate_local_state_permissions(run_dir, state_path)
-    if upstream.get("version") != GEPA_VERSION or upstream.get("revision") != GEPA_REVISION:
+    revision = upstream.get("revision")
+    if upstream.get("version") != GEPA_VERSION or revision not in {None, GEPA_REVISION}:
         raise RuntimeError(
-            "GEPA resume observation supports only "
-            f"version {GEPA_VERSION} at revision {GEPA_REVISION}"
+            "GEPA resume observation supports only the published "
+            f"{GEPA_VERSION} package or revision {GEPA_REVISION}"
         )
     try:
         from gepa.core.state import GEPAState
