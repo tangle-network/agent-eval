@@ -6,6 +6,8 @@ export interface ExternalOptimizerTokenUsage {
   outputTokens: number
   totalTokens: number
   calls: number
+  /** Provider requests, including failed attempts before a successful call. */
+  requestAttempts?: number
 }
 
 const TOKEN_USAGE_FIELDS = ['inputTokens', 'outputTokens', 'totalTokens', 'calls'] as const
@@ -42,6 +44,12 @@ export function assertExternalOptimizerTokenUsage(
   if (usage.totalTokens !== usage.inputTokens + usage.outputTokens) {
     throw new Error(`${name}: ${optimizer} bridge returned inconsistent tokenUsage.totalTokens`)
   }
+  if (
+    usage.requestAttempts !== undefined &&
+    (!Number.isSafeInteger(usage.requestAttempts) || usage.requestAttempts < usage.calls)
+  ) {
+    throw new Error(`${name}: ${optimizer} bridge returned invalid tokenUsage.requestAttempts`)
+  }
 }
 
 export function assertExternalOptimizerCompletionCount(
@@ -66,6 +74,11 @@ export function assertExternalOptimizerCompletionCount(
   if (upstream.calls !== successfulCompletions) {
     throw new Error(
       `${name}: ${optimizer} reported ${upstream.calls} successful model calls but the proxy completed ${successfulCompletions} across ${requestAttempts} attempts`,
+    )
+  }
+  if (upstream.requestAttempts !== undefined && upstream.requestAttempts !== requestAttempts) {
+    throw new Error(
+      `${name}: ${optimizer} reported ${upstream.requestAttempts} model attempts but the proxy received ${requestAttempts}`,
     )
   }
 }

@@ -12,6 +12,12 @@ import httpx
 import pytest
 
 from agent_eval_rpc import gepa_bridge, gepa_bridge_contract
+from agent_eval_rpc.gepa_compat_0_1_4 import (
+    GEPA_REVISION,
+    GEPA_VERSION,
+    load_restore_observer,
+)
+from agent_eval_rpc.gepa_model_proxy import _ProxyUsage
 from agent_eval_rpc.optimizer_bridge_common import locked_run
 
 UPSTREAM = {
@@ -70,6 +76,7 @@ def test_bridge_calls_gepa_and_writes_a_cost_report(
                 "runId": f"{COMPATIBLE_RUN_ID}-attempt-one",
                 "runtimeIdentity": RUNTIME_IDENTITY,
                 "resume": "never",
+                "trustedResumeState": False,
                 "evaluationId": "test-evaluation",
                 "seed": 42,
                 "callbackUrl": "http://127.0.0.1:9999/evaluate",
@@ -194,6 +201,7 @@ def test_bridge_calls_gepa_omni_recipe_without_reimplementing_its_search(
                 "runId": f"{COMPATIBLE_RUN_ID}-attempt-two",
                 "runtimeIdentity": RUNTIME_IDENTITY,
                 "resume": "never",
+                "trustedResumeState": False,
                 "evaluationId": "test-evaluation",
                 "seed": 42,
                 "callbackUrl": "http://127.0.0.1:9999/evaluate",
@@ -313,6 +321,7 @@ def test_bridge_runs_source_pinned_gepa_omni_recipe_without_a_model(
                 "runId": f"{COMPATIBLE_RUN_ID}-attempt-three",
                 "runtimeIdentity": RUNTIME_IDENTITY,
                 "resume": "if-compatible",
+                "trustedResumeState": True,
                 "evaluationId": "test-evaluation",
                 "seed": 42,
                 "callbackUrl": "http://127.0.0.1:9/evaluate",
@@ -646,6 +655,54 @@ def test_resume_support_is_limited_to_one_core_gepa_engine() -> None:
     assert all(not gepa_bridge._supports_resume(recipe) for recipe in unsupported)
 
 
+def test_gepa_pickle_resume_requires_explicit_trust(tmp_path: Path) -> None:
+    run_dir = tmp_path / "run"
+    state_path = run_dir / "engine" / "state" / "gepa_state.bin"
+    state_path.parent.mkdir(parents=True)
+    state_path.write_bytes(b"must not be deserialized")
+
+    with pytest.raises(RuntimeError, match="uses Python pickle"):
+        load_restore_observer(
+            run_dir,
+            {"version": GEPA_VERSION, "revision": GEPA_REVISION},
+            trusted=False,
+        )
+
+
+def test_gepa_pickle_resume_rejects_shared_writable_state(tmp_path: Path) -> None:
+    run_dir = tmp_path / "run"
+    state_path = run_dir / "engine" / "state" / "gepa_state.bin"
+    state_path.parent.mkdir(parents=True)
+    state_path.write_bytes(b"must not be deserialized")
+    state_path.chmod(0o666)
+
+    with pytest.raises(RuntimeError, match="writable by another user"):
+        load_restore_observer(
+            run_dir,
+            {"version": GEPA_VERSION, "revision": GEPA_REVISION},
+            trusted=True,
+        )
+
+
+def test_gepa_proxy_counts_failed_attempt_before_success_separately() -> None:
+    usage = _ProxyUsage()
+    request = httpx.Request("POST", "http://127.0.0.1/v1/chat/completions")
+    usage.observe_request(request)
+    usage.observe_response(httpx.Response(503, request=request))
+    usage.observe_request(request)
+    usage.observe_response(httpx.Response(200, request=request))
+    usage.models.append(SimpleNamespace(total_tokens_in=11, total_tokens_out=7, total_cost=0.01))
+
+    assert usage.snapshot() == {
+        "inputTokens": 11,
+        "outputTokens": 7,
+        "totalTokens": 18,
+        "calls": 1,
+        "requestAttempts": 2,
+        "costUsd": 0.01,
+    }
+
+
 def test_required_resume_fails_for_an_unsupported_gepa_engine(tmp_path: Path) -> None:
     input_value = _valid_input(tmp_path)
     input_value["resume"] = "required"
@@ -671,7 +728,15 @@ def test_if_compatible_gepa_archives_unrestorable_state_and_starts_fresh(
     input_value = _valid_input(tmp_path)
     input_value["attemptId"] = "fresh-attempt"
     input_value["resume"] = "if-compatible"
+    input_value["trustedResumeState"] = True
     input_value["runId"] = input_value["compatibleRunId"]
+    input_value["runtimeIdentity"]["optimizer"]["version"] = GEPA_VERSION
+    input_value["runtimeIdentity"]["optimizer"]["revision"] = GEPA_REVISION
+    monkeypatch.setattr(
+        gepa_bridge,
+        "_runtime_identity",
+        lambda _engine_modules: deepcopy(input_value["runtimeIdentity"]),
+    )
     input_value["recipe"] = {
         "kind": "engine",
         "run": _run(
@@ -700,6 +765,9 @@ def test_if_compatible_gepa_archives_unrestorable_state_and_starts_fresh(
         corrupt_path = run.run_dir / "engine" / "state" / "gepa_state.bin"
         corrupt_path.parent.mkdir(parents=True)
         corrupt_path.write_bytes(b"not a GEPA state")
+        for private_path in [run.run_dir, run.run_dir / "engine", corrupt_path.parent]:
+            private_path.chmod(0o700)
+        corrupt_path.chmod(0o600)
         expected_run_dir = run.run_dir
 
     def fake_post(*args: Any, **kwargs: Any) -> httpx.Response:
@@ -830,6 +898,7 @@ def _valid_input(tmp_path: Path) -> dict[str, Any]:
         "runId": f"{COMPATIBLE_RUN_ID}-test-attempt",
         "runtimeIdentity": RUNTIME_IDENTITY,
         "resume": "never",
+        "trustedResumeState": False,
         "evaluationId": "test-evaluation",
         "seed": 42,
         "callbackUrl": "http://127.0.0.1:9999/evaluate",

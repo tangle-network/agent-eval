@@ -44,7 +44,7 @@ export interface OptimizationPackageSource {
   version: string
   sourceUrl?: string
   revision?: string
-  /** SHA-256 of the installed Python source tree observed before the run. */
+  /** SHA-256 of all installed module files observed before the run. */
   sourceSha256?: string
 }
 

@@ -10,6 +10,7 @@ from __future__ import annotations
 import argparse
 import copy
 import math
+import os
 from pathlib import Path
 from typing import Any
 
@@ -41,6 +42,14 @@ from agent_eval_rpc.optimizer_bridge_common import (
 
 
 def main() -> None:
+    previous_umask = os.umask(0o077)
+    try:
+        _main()
+    finally:
+        os.umask(previous_umask)
+
+
+def _main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--input", required=True)
     parser.add_argument("--output", required=True)
@@ -139,7 +148,11 @@ def main() -> None:
     ) as run:
         restore_tracker: GepaRestoreObserver | None = None
         if run.restore_requested:
-            restore_tracker = load_restore_observer(run.run_dir, upstream)
+            restore_tracker = load_restore_observer(
+                run.run_dir,
+                upstream,
+                trusted=input_value["trustedResumeState"],
+            )
             if restore_tracker is None:
                 if input_value["resume"] == "required":
                     raise RuntimeError(
@@ -242,7 +255,13 @@ def main() -> None:
         output["proposerCostUsd"] = proxy_snapshot["costUsd"]
         output["tokenUsage"] = {
             key: proxy_snapshot[key]
-            for key in ("inputTokens", "outputTokens", "totalTokens", "calls")
+            for key in (
+                "inputTokens",
+                "outputTokens",
+                "totalTokens",
+                "calls",
+                "requestAttempts",
+            )
         }
     elif proposer_cost is not None:
         output["proposerCostUsd"] = proposer_cost

@@ -30,7 +30,11 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
   Methods never receive final test rows, and final test scoring starts only after every method completes.
 - Independent methods and candidate campaigns can run concurrently under the same exact cost accounting.
 - Resume files use atomic writes, exclusive run locks, and one content-derived identity shared by Node and Python.
-- The Python package installs GEPA and SkillOpt from exact official source commits for compatibility testing.
+- `runCampaign()` gives cancelled dispatches five seconds to stop by default.
+  `dispatchShutdownTimeoutMs` changes that bound.
+- AppWorld and GSM8K comparisons reject unequal candidate-evaluation limits and record every model, split, limit, rate, actual call count, and cost basis.
+- CI installs GEPA and SkillOpt from exact official source commits for compatibility testing.
+  Users install either optimizer separately when they need its bridge.
   DSPy remains a separate optional environment because DSPy 3.2.1 currently requires an older GEPA release.
 
 ### Fixed
@@ -39,6 +43,13 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 - Preserve cached input, cache creation, reasoning, and output token classes without double counting.
 - Price cache-read tokens at the configured cache rate when providers omit billed cost.
 - Reject incomplete usage, conflicting token details, hidden provider endpoints, hidden credentials, unsupported streaming, oversized input or output, and process descendants that outlive any bridge exit.
+- Abort active candidate evaluations when an optimizer exits or times out, and bind cached scores to the exact evaluation identity.
+- Require explicit trust and local ownership checks before restoring GEPA pickle state.
+- Hash packaged prompts and other behavior files in optimizer identity, and report failed model attempts separately from successful calls.
+- Reject native Windows optimizer subprocesses rather than claiming process-tree cleanup that cannot be proven; Linux and WSL use verified POSIX process groups.
+- Abort and drain sibling campaign lanes after the first lane failure.
+- Delay campaign results until cancelled dispatches and their paid calls settle, so late receipts cannot change reported cost after return.
+- Preserve both the primary operation error and any subprocess, temporary-directory, callback, or model-proxy cleanup error.
 - Keep optimizer, evaluation, and final test costs separate when a shared cost ledger contains unrelated receipts.
 - `LlmClientOptions.jsonSchemaTransport: 'json-object'` supports providers that do not implement native JSON Schema enforcement.
 - `InsightReport.interRater.kappa` reports quadratic weighted kappa.

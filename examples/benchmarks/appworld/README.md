@@ -49,7 +49,7 @@ Common settings:
 | `BENCH_MODEL` | `gpt-5.1` | Model that performs AppWorld tasks |
 | `OPTIMIZER_PYTHON` | `python` | Python executable containing both optimizer packages |
 | `GEPA_MODEL` | `BENCH_MODEL` | Endpoint model used by GEPA |
-| `GEPA_MAX_EVALUATIONS` | `40` | Maximum GEPA candidate-task calls |
+| `GEPA_MAX_EVALUATIONS` | SkillOpt core plan size | Maximum GEPA candidate-task calls |
 | `GEPA_MAX_PROPOSER_COST_USD` | `5` | GEPA model spend limit for one engine stage |
 | `GEPA_PRICE_IN_PER_M` | required | Exact GEPA input rate per million tokens |
 | `GEPA_PRICE_OUT_PER_M` | required | Exact GEPA output rate per million tokens |
@@ -78,13 +78,14 @@ Common settings:
 
 The defaults are sized to check the workflow.
 They are not enough to claim one method is better.
+When both methods run, their candidate-task limits must match or the command fails before spending money.
 Choose `TEST_N` from the smallest lift your product needs to detect, and confirm a selected method on new tasks before deployment.
 
 The command writes these files under `OUT_DIR`, which defaults to `/tmp/appworld-bench`:
 
 | File | Contents |
 |---|---|
-| `comparison.json` | Scores, uncertainty intervals, timing, and cost status for every method |
+| `comparison.json` | Data partitions, models, all limits and rates, actual calls, scores, intervals, timing, and cost status |
 | `report.md` | Human-readable comparison table |
 | `cell-*/result.json` | One AppWorld episode result |
 | `cell-*/traces.jsonl` | One root span plus model and tool spans for each step |
@@ -109,11 +110,14 @@ An exhausted retry budget, timeout, or transport error produces a failed episode
 
 `MAX_STEPS` and `MAX_WALL` limit work before launch.
 GEPA and SkillOpt calls pass through a local proxy that enforces model requests, bytes, output tokens, and dollars before forwarding them.
-The comparison records exact optimizer cost when the endpoint returns token usage and fails when usage is missing.
+The comparison uses provider-reported cost when present and otherwise estimates optimizer cost from complete token usage and the configured rates.
+It fails when usage is missing.
 
 Known model prices are estimates from `PRICE_PER_M` in `repl_agent.py`.
 For an unknown model, `result.json` contains `"cost_usd": null`, the TypeScript cost record sets `costUnknown: true`, and the comparison marks cost accounting incomplete.
 Unknown cost never participates in a tie as zero dollars.
+`accountingComplete: true` means every observed call was priced.
+It does not mean the estimate was reconciled to a provider invoice.
 
 ## Run one episode
 

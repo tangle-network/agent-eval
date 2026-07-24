@@ -163,7 +163,7 @@ describe('selfImprove provenance emission (durable by default)', () => {
     const recomputed = recordOnDisk.winnerHoldoutComposite - recordOnDisk.baselineHoldoutComposite
     expect(recomputed).toBeCloseTo(result.lift, 9)
     expect(recordOnDisk.heldOutLift).toBeCloseTo(result.lift, 9)
-  })
+  }, 10_000)
 
   it('a mem:// runDir keeps everything in-memory (explicit opt-out path)', async () => {
     const result = await selfImprove<S, A>({
@@ -211,11 +211,12 @@ describe('selfImprove — forwarded loop knobs', () => {
       selfImprove<S, A>({
         ...base,
         agent: (_surface, _scenario, ctx) =>
-          new Promise<A>(() => {
+          new Promise<A>((_resolve, reject) => {
             ctx.signal.addEventListener(
               'abort',
               () => {
                 observedAbort = true
+                reject(ctx.signal.reason)
               },
               { once: true },
             )

@@ -1,9 +1,10 @@
 import { mkdtemp, readFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   runExternalOptimizerProcess,
+  runWithCleanup,
   startExternalOptimizerCallback,
   startExternalOptimizerModelProxy,
 } from '../../src/campaign/external-optimizer-process'
@@ -44,9 +45,56 @@ describe('external optimizer callback', () => {
     expect(accepted).toBe(2)
     expect(callback.evaluations()).toBe(2)
   })
+
+  it('aborts active evaluation work before close resolves', async () => {
+    let started = false
+    let aborted = false
+    const callback = await startExternalOptimizerCallback({
+      token: 'secret',
+      maxEvaluations: 1,
+      evaluate: (_request, signal) =>
+        new Promise<never>((_resolve, reject) => {
+          started = true
+          signal.addEventListener(
+            'abort',
+            () => {
+              aborted = true
+              reject(signal.reason)
+            },
+            { once: true },
+          )
+        }),
+    })
+    openCallbacks.push(callback)
+
+    const pendingRequest = post(callback.url, 'secret')
+    await waitFor(() => started)
+    await callback.close()
+    await Promise.allSettled([pendingRequest])
+
+    expect(aborted).toBe(true)
+  })
 })
 
 describe('external optimizer process', () => {
+  it('preserves operation and cleanup failures together', async () => {
+    const error = await runWithCleanup({
+      label: 'optimizer resources',
+      run: async () => {
+        throw new Error('primary failure')
+      },
+      cleanup: async () => {
+        throw new Error('cleanup failure')
+      },
+    }).catch((caught: unknown) => caught)
+
+    expect(error).toBeInstanceOf(AggregateError)
+    expect(error).toMatchObject({
+      message: 'primary failure; optimizer resources cleanup failed: cleanup failure',
+      errors: [{ message: 'primary failure' }, { message: 'cleanup failure' }],
+    })
+  })
+
   it('passes only safe inherited variables plus explicit runner environment', async () => {
     process.env.AGENT_EVAL_TEST_SECRET = 'must-not-leak'
     const script = [
@@ -102,6 +150,37 @@ describe('external optimizer process', () => {
         message: expect.stringMatching(/HEAD_MARKER.*TAIL_MARKER/),
       }),
     )
+  })
+
+  it('reports process failure and cleanup failure together', async () => {
+    const denied = Object.assign(new Error('cleanup denied'), { code: 'EPERM' })
+    const processKill = vi.spyOn(process, 'kill').mockImplementation(((pid: number) => {
+      if (pid < 0) throw denied
+      return true
+    }) as typeof process.kill)
+    const script = "process.stderr.write('primary failure'); process.exit(9)"
+
+    try {
+      const error = await runExternalOptimizerProcess({
+        label: 'cleanup-failure optimizer',
+        tempPrefix: 'agent-eval-cleanup-failure-',
+        module: 'unused',
+        input: {},
+        runner: {
+          command: process.execPath,
+          args: ['-e', script, '--'],
+        },
+        timeoutMs: 5_000,
+      }).catch((caught: unknown) => caught)
+
+      expect(error).toBeInstanceOf(AggregateError)
+      expect(error).toMatchObject({
+        message: expect.stringMatching(/exited 9.*process cleanup failed.*cleanup denied/),
+      })
+      expect((error as AggregateError).errors).toHaveLength(2)
+    } finally {
+      processKill.mockRestore()
+    }
   })
 
   it('rejects an oversized result file before reading it', async () => {

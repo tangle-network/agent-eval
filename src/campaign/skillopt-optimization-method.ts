@@ -11,6 +11,7 @@ import {
   type ExternalOptimizerRunnerCommand,
   removeCredentialEnvironment,
   runExternalOptimizerProcess,
+  runWithCleanup,
   startExternalOptimizerCallback,
   startExternalOptimizerModelProxy,
 } from './external-optimizer-process'
@@ -190,6 +191,7 @@ export function skillOptOptimizationMethod<TScenario extends Scenario, TArtifact
         input,
         label: 'SkillOpt bridge',
         runDir,
+        compatibleRunId: runId,
         costPhase: 'skillopt.external-evaluation',
         costTags: runBudget.attemptTags,
         costLedger,
@@ -205,143 +207,145 @@ export function skillOptOptimizationMethod<TScenario extends Scenario, TArtifact
         evaluate,
       })
       const runnerEnv = bridgeRunner?.env ?? {}
-      let modelProxy: ExternalOptimizerModelProxy | undefined
+      let activeModelProxy: ExternalOptimizerModelProxy | undefined
       const closeResources = () =>
         closeExternalOptimizerResources({
           label: name,
           callback,
-          ...(modelProxy ? { modelProxy } : {}),
+          ...(activeModelProxy ? { modelProxy: activeModelProxy } : {}),
         })
-      try {
-        const priorOptimizerUsage = costLedger.summary({
-          phase: 'skillopt.optimizer-model',
-          tags: runBudget.runTags,
-        })
-        assertPriorExternalOptimizerUsage(priorOptimizerUsage, config.optimizer.budget, name)
-        modelProxy = await startExternalOptimizerModelProxy({
-          upstreamBaseUrl: config.optimizer.baseUrl,
-          upstreamApiKey: config.optimizer.apiKey,
-          model: config.optimizer.model,
-          budget: config.optimizer.budget,
-          costLedger,
-          phase: 'skillopt.optimizer-model',
-          actor: name,
-          tags: { ...runBudget.attemptTags },
-          initialUsage: {
-            requests: priorOptimizerUsage.totalCalls,
-            costUsd: priorOptimizerUsage.totalCostUsd,
-          },
-        })
-        const outputDir = `${runDir}/external`
-        await mkdir(outputDir, { recursive: true })
-        const result = await runExternalOptimizerProcess<SkillOptBridgeOutput>({
-          label: 'SkillOpt bridge',
-          tempPrefix: 'agent-eval-skillopt-',
-          module: 'agent_eval_rpc.skillopt_bridge',
-          input: {
-            attemptId,
-            compatibleRunId,
-            runId,
-            runtimeIdentity,
-            resume,
-            evaluationId: config.evaluationId,
-            seed: input.seed,
-            callbackUrl: callback.url,
-            callbackToken: callback.token,
-            objective: config.objective,
-            ...(config.background ? { background: config.background } : {}),
-            trainer: config.trainer,
-            optimizerModel: config.optimizer.model,
-            modelBudget: config.optimizer.budget,
-            seedCandidate: input.baselineSurface,
-            trainSet,
-            selectionSet,
-            maxEvaluations: config.maxEvaluations,
-            hardScoreThreshold: config.hardScoreThreshold ?? 1,
-            maxCandidateChars,
-            maxEvidenceChars,
-            outputDir,
-          },
-          runner: {
-            ...bridgeRunner,
-            env: {
-              ...removeCredentialEnvironment(runnerEnv),
-              OPENAI_COMPATIBLE_BASE_URL: modelProxy.baseUrl,
-              OPENAI_COMPATIBLE_API_KEY: modelProxy.apiKey,
-              OPTIMIZER_OPENAI_COMPATIBLE_BASE_URL: modelProxy.baseUrl,
-              OPTIMIZER_OPENAI_COMPATIBLE_API_KEY: modelProxy.apiKey,
-              TARGET_OPENAI_COMPATIBLE_BASE_URL: modelProxy.baseUrl,
-              TARGET_OPENAI_COMPATIBLE_API_KEY: modelProxy.apiKey,
+      const { result, outputDir, modelProxy } = await runWithCleanup({
+        label: `${name} optimizer resources`,
+        run: async () => {
+          const priorOptimizerUsage = costLedger.summary({
+            phase: 'skillopt.optimizer-model',
+            tags: runBudget.runTags,
+          })
+          assertPriorExternalOptimizerUsage(priorOptimizerUsage, config.optimizer.budget, name)
+          const modelProxy = await startExternalOptimizerModelProxy({
+            upstreamBaseUrl: config.optimizer.baseUrl,
+            upstreamApiKey: config.optimizer.apiKey,
+            model: config.optimizer.model,
+            budget: config.optimizer.budget,
+            costLedger,
+            phase: 'skillopt.optimizer-model',
+            actor: name,
+            tags: { ...runBudget.attemptTags },
+            initialUsage: {
+              requests: priorOptimizerUsage.totalCalls,
+              costUsd: priorOptimizerUsage.totalCostUsd,
             },
-          },
-          timeoutMs: config.timeoutMs ?? SKILLOPT_DEFAULT_TIMEOUT_MS,
-        })
-        await closeResources()
-        assertSkillOptBridgeOutput(result, name, maxCandidateChars, config.maxEvaluations)
-        assertExternalOptimizerRunBinding({
-          label: name,
-          runtime: runtimeIdentity,
-          returnedSource: result.upstream,
+          })
+          activeModelProxy = modelProxy
+          const outputDir = `${runDir}/external`
+          await mkdir(outputDir, { recursive: true })
+          const result = await runExternalOptimizerProcess<SkillOptBridgeOutput>({
+            label: 'SkillOpt bridge',
+            tempPrefix: 'agent-eval-skillopt-',
+            module: 'agent_eval_rpc.skillopt_bridge',
+            input: {
+              attemptId,
+              compatibleRunId,
+              runId,
+              runtimeIdentity,
+              resume,
+              evaluationId: config.evaluationId,
+              seed: input.seed,
+              callbackUrl: callback.url,
+              callbackToken: callback.token,
+              objective: config.objective,
+              ...(config.background ? { background: config.background } : {}),
+              trainer: config.trainer,
+              optimizerModel: config.optimizer.model,
+              modelBudget: config.optimizer.budget,
+              seedCandidate: input.baselineSurface,
+              trainSet,
+              selectionSet,
+              maxEvaluations: config.maxEvaluations,
+              hardScoreThreshold: config.hardScoreThreshold ?? 1,
+              maxCandidateChars,
+              maxEvidenceChars,
+              outputDir,
+            },
+            runner: {
+              ...bridgeRunner,
+              env: {
+                ...removeCredentialEnvironment(runnerEnv),
+                OPENAI_COMPATIBLE_BASE_URL: modelProxy.baseUrl,
+                OPENAI_COMPATIBLE_API_KEY: modelProxy.apiKey,
+                OPTIMIZER_OPENAI_COMPATIBLE_BASE_URL: modelProxy.baseUrl,
+                OPTIMIZER_OPENAI_COMPATIBLE_API_KEY: modelProxy.apiKey,
+                TARGET_OPENAI_COMPATIBLE_BASE_URL: modelProxy.baseUrl,
+                TARGET_OPENAI_COMPATIBLE_API_KEY: modelProxy.apiKey,
+              },
+            },
+            timeoutMs: config.timeoutMs ?? SKILLOPT_DEFAULT_TIMEOUT_MS,
+          })
+          return { result, outputDir, modelProxy }
+        },
+        cleanup: closeResources,
+      })
+      assertSkillOptBridgeOutput(result, name, maxCandidateChars, config.maxEvaluations)
+      assertExternalOptimizerRunBinding({
+        label: name,
+        runtime: runtimeIdentity,
+        returnedSource: result.upstream,
+        compatibleRunId,
+        runId,
+        returnedRunId: result.runId,
+        resume,
+        resumed: result.resumed,
+      })
+      if (callback.evaluations() !== result.totalEvaluations) {
+        throw new Error(
+          `${name}: SkillOpt reported ${result.totalEvaluations} evaluations but the callback received ${callback.evaluations()}`,
+        )
+      }
+
+      const evaluationCost = costFromLedgerSummary(
+        costLedger.summary({
+          phase: 'skillopt.external-evaluation',
+          tags: runBudget.runTags,
+        }),
+      )
+      const optimizerUsage = costLedger.summary({
+        phase: 'skillopt.optimizer-model',
+        tags: runBudget.runTags,
+      })
+      const optimizerReceipts = costLedger.list({
+        phase: 'skillopt.optimizer-model',
+        tags: runBudget.runTags,
+      })
+      const optimizerCost = costFromLedgerSummary(optimizerUsage)
+      assertExternalOptimizerCompletionCount(
+        result.tokenUsage,
+        modelProxy.requestAttempts(),
+        modelProxy.successfulCompletions(),
+        name,
+        'SkillOpt',
+      )
+      const tokenUsage = optimizationTokenUsageFromSummary(optimizerUsage, optimizerReceipts)
+      const runtime = observedExternalOptimizerRuntime(runtimeIdentity)
+      return {
+        winnerSurface: result.bestCandidate,
+        cost: {
+          totalCostUsd: evaluationCost.totalCostUsd + optimizerCost.totalCostUsd,
+          accountingComplete: evaluationCost.accountingComplete && optimizerCost.accountingComplete,
+          incompleteReasons: [
+            ...evaluationCost.incompleteReasons.map((reason) => `evaluation: ${reason}`),
+            ...optimizerCost.incompleteReasons.map((reason) => `optimizer model: ${reason}`),
+          ],
+        },
+        durationMs: Date.now() - started,
+        provenance: {
+          ...runtime,
           compatibleRunId,
           runId,
-          returnedRunId: result.runId,
-          resume,
           resumed: result.resumed,
-        })
-        if (callback.evaluations() !== result.totalEvaluations) {
-          throw new Error(
-            `${name}: SkillOpt reported ${result.totalEvaluations} evaluations but the callback received ${callback.evaluations()}`,
-          )
-        }
-
-        const evaluationCost = costFromLedgerSummary(
-          costLedger.summary({
-            phase: 'skillopt.external-evaluation',
-            tags: runBudget.runTags,
-          }),
-        )
-        const optimizerUsage = costLedger.summary({
-          phase: 'skillopt.optimizer-model',
-          tags: runBudget.runTags,
-        })
-        const optimizerReceipts = costLedger.list({
-          phase: 'skillopt.optimizer-model',
-          tags: runBudget.runTags,
-        })
-        const optimizerCost = costFromLedgerSummary(optimizerUsage)
-        assertExternalOptimizerCompletionCount(
-          result.tokenUsage,
-          modelProxy.requestAttempts(),
-          modelProxy.successfulCompletions(),
-          name,
-          'SkillOpt',
-        )
-        const tokenUsage = optimizationTokenUsageFromSummary(optimizerUsage, optimizerReceipts)
-        const runtime = observedExternalOptimizerRuntime(runtimeIdentity)
-        return {
-          winnerSurface: result.bestCandidate,
-          cost: {
-            totalCostUsd: evaluationCost.totalCostUsd + optimizerCost.totalCostUsd,
-            accountingComplete:
-              evaluationCost.accountingComplete && optimizerCost.accountingComplete,
-            incompleteReasons: [
-              ...evaluationCost.incompleteReasons.map((reason) => `evaluation: ${reason}`),
-              ...optimizerCost.incompleteReasons.map((reason) => `optimizer model: ${reason}`),
-            ],
-          },
-          durationMs: Date.now() - started,
-          provenance: {
-            ...runtime,
-            compatibleRunId,
-            runId,
-            resumed: result.resumed,
-            evaluationCount: runBudget.acceptedEvaluations(),
-            artifactDir: outputDir,
-            ...(tokenUsage ? { tokenUsage } : {}),
-          },
-        }
-      } finally {
-        await closeResources()
+          evaluationCount: runBudget.acceptedEvaluations(),
+          artifactDir: outputDir,
+          ...(tokenUsage ? { tokenUsage } : {}),
+        },
       }
     },
   }

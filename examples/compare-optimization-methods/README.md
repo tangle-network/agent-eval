@@ -112,6 +112,8 @@ Replace all four example rates with the exact rates charged by that endpoint.
 
 The result is written to `.evolve/compare-optimization-methods/<timestamp>/comparison.json` and mirrored to `.evolve/compare-optimization-methods/latest.json`.
 It includes every method's selected surface, final-case scores, paired lift interval, duration, cost status, run limits, token prices, upstream package revision, run identity, token usage, and source model configuration.
-GEPA and SkillOpt model spend is exact when the endpoint returns token usage.
+Optimizer model spend uses provider-reported billed cost when present.
+Otherwise it is estimated from complete token usage and the configured token rates.
+`accountingComplete` means every call was priced; it does not mean the total was reconciled to an invoice.
 The run fails when the endpoint omits usage instead of publishing an incomplete comparison.
 Set `BILLING_NOTE` and `PRICE_SOURCE` when declared token prices estimate subscription usage rather than actual billed dollars.

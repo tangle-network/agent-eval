@@ -3,6 +3,7 @@ import { lstat, mkdtemp, open, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { type ExternalOptimizerRunnerCommand, isRecord } from './external-optimizer-contracts'
+import { runWithCleanup } from './external-optimizer-resources'
 
 const MAX_PROCESS_OUTPUT_CHARS = 64_000
 const MAX_PROCESS_INPUT_BYTES = 64 * 1024 * 1024
@@ -36,46 +37,53 @@ export async function runExternalOptimizerProcess<TOutput>(args: {
   ) {
     throw new Error(`${args.label} timeoutMs must be between 1 and ${MAX_TIMER_DELAY_MS}`)
   }
+  if (process.platform === 'win32') {
+    throw new Error(
+      `${args.label} requires POSIX process-group cleanup; run the optimizer through WSL or Linux`,
+    )
+  }
   const dir = await mkdtemp(join(tmpdir(), args.tempPrefix))
   const inputPath = join(dir, 'input.json')
   const outputPath = join(dir, 'output.json')
-  try {
-    const serializedInput = JSON.stringify(args.input)
-    if (serializedInput === undefined) {
-      throw new Error(`${args.label} input must be JSON-serializable`)
-    }
-    const inputJson = `${serializedInput}\n`
-    const inputBytes = Buffer.byteLength(inputJson)
-    if (inputBytes > MAX_PROCESS_INPUT_BYTES) {
-      throw new Error(
-        `${args.label} input exceeds ${MAX_PROCESS_INPUT_BYTES} bytes (${inputBytes})`,
-      )
-    }
-    await writeFile(inputPath, inputJson)
-    const command = args.runner?.command ?? 'python'
-    const commandArgs = [
-      ...(args.runner?.args ?? ['-m', args.module]),
-      '--input',
-      inputPath,
-      '--output',
-      outputPath,
-    ]
-    await runProcess({
-      label: args.label,
-      command,
-      args: commandArgs,
-      cwd: dir,
-      env: args.runner?.env,
-      timeoutMs: args.timeoutMs,
-    })
-    const raw = JSON.parse(
-      await readBoundedTextFile(outputPath, MAX_PROCESS_RESULT_BYTES, `${args.label} output`),
-    ) as unknown
-    if (!isRecord(raw)) throw new Error(`${args.label} output must be a JSON object`)
-    return raw as TOutput
-  } finally {
-    await rm(dir, { recursive: true, force: true })
-  }
+  return runWithCleanup({
+    label: `${args.label} temporary directory`,
+    run: async () => {
+      const serializedInput = JSON.stringify(args.input)
+      if (serializedInput === undefined) {
+        throw new Error(`${args.label} input must be JSON-serializable`)
+      }
+      const inputJson = `${serializedInput}\n`
+      const inputBytes = Buffer.byteLength(inputJson)
+      if (inputBytes > MAX_PROCESS_INPUT_BYTES) {
+        throw new Error(
+          `${args.label} input exceeds ${MAX_PROCESS_INPUT_BYTES} bytes (${inputBytes})`,
+        )
+      }
+      await writeFile(inputPath, inputJson)
+      const command = args.runner?.command ?? 'python'
+      const commandArgs = [
+        ...(args.runner?.args ?? ['-m', args.module]),
+        '--input',
+        inputPath,
+        '--output',
+        outputPath,
+      ]
+      await runProcess({
+        label: args.label,
+        command,
+        args: commandArgs,
+        cwd: dir,
+        env: args.runner?.env,
+        timeoutMs: args.timeoutMs,
+      })
+      const raw = JSON.parse(
+        await readBoundedTextFile(outputPath, MAX_PROCESS_RESULT_BYTES, `${args.label} output`),
+      ) as unknown
+      if (!isRecord(raw)) throw new Error(`${args.label} output must be a JSON object`)
+      return raw as TOutput
+    },
+    cleanup: () => rm(dir, { recursive: true, force: true }),
+  })
 }
 
 async function readBoundedTextFile(path: string, maxBytes: number, label: string): Promise<string> {
@@ -130,7 +138,14 @@ function runProcess(args: {
         },
         (cleanupError: unknown) => {
           if (error) {
-            reject(error)
+            const cleanup =
+              cleanupError instanceof Error ? cleanupError : new Error(String(cleanupError))
+            reject(
+              new AggregateError(
+                [error, cleanup],
+                `${error.message}; ${args.label} process cleanup failed: ${cleanup.message}`,
+              ),
+            )
             return
           }
           reject(
@@ -199,8 +214,7 @@ async function terminateProcessTree(child: ChildProcess): Promise<void> {
   const pid = child.pid
   if (!pid) return
   if (process.platform === 'win32') {
-    await terminateWindowsProcessTree(child, pid)
-    return
+    throw new Error('native Windows process-tree cleanup is unsupported')
   }
 
   if (!signalProcessGroup(pid, 'SIGTERM')) return
@@ -240,20 +254,6 @@ function processGroupExists(pid: number): boolean {
     if (isMissingProcessError(error)) return false
     throw error
   }
-}
-
-async function terminateWindowsProcessTree(child: ChildProcess, pid: number): Promise<void> {
-  await new Promise<void>((resolve) => {
-    const taskkill = spawn('taskkill', ['/pid', String(pid), '/t', '/f'], {
-      stdio: 'ignore',
-      windowsHide: true,
-    })
-    taskkill.once('error', () => {
-      child.kill('SIGKILL')
-      resolve()
-    })
-    taskkill.once('close', () => resolve())
-  })
 }
 
 function isMissingProcessError(error: unknown): boolean {

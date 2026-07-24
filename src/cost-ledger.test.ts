@@ -1112,6 +1112,39 @@ describe('CostLedger', () => {
     })
   })
 
+  it('waits only for active calls matching the requested attribution', async () => {
+    const ledger = new CostLedger()
+    let finishA!: () => void
+    let finishB!: () => void
+    const call = (cellId: string, finish: (value: () => void) => void) =>
+      ledger.runPaidCall({
+        channel: 'agent',
+        phase: 'campaign',
+        actor: cellId,
+        tags: { cellId },
+        async execute() {
+          await new Promise<void>((resolve) => finish(resolve))
+          return cellId
+        },
+        receipt: () => ({ model: 'gpt-4o', inputTokens: 1, outputTokens: 1 }),
+      })
+    const callA = call('a', (resolve) => {
+      finishA = resolve
+    })
+    const callB = call('b', (resolve) => {
+      finishB = resolve
+    })
+    while (!finishA || !finishB) await new Promise((resolve) => setTimeout(resolve, 1))
+
+    const waitingForA = ledger.waitForIdle({ timeoutMs: 100, filter: { tags: { cellId: 'a' } } })
+    finishA()
+    await expect(waitingForA).resolves.toBe(true)
+    expect(ledger.summary()).toMatchObject({ pendingCalls: 1 })
+
+    finishB()
+    await Promise.all([callA, callB])
+  })
+
   it('rejects premature reconciliation while an aborted provider call is still running', async () => {
     const ledger = new CostLedger()
     const controller = new AbortController()

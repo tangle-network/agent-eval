@@ -52,6 +52,8 @@ def _validate_input(value: dict[str, Any]) -> None:
         raise ValueError("GEPA bridge input requires a text seedCandidate")
     if value.get("resume") not in {"never", "if-compatible", "required"}:
         raise ValueError("GEPA bridge input resume must be never, if-compatible, or required")
+    if not isinstance(value.get("trustedResumeState"), bool):
+        raise ValueError("GEPA bridge input trustedResumeState must be a boolean")
     seed = value.get("seed")
     if isinstance(seed, bool) or not isinstance(seed, int):
         raise ValueError("GEPA bridge input seed must be an integer")

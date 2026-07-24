@@ -395,7 +395,8 @@ def test_agent_eval_uses_official_gepa_lm_behavior(caplog) -> None:
     snapshot = usage.snapshot()
     assert math.isclose(snapshot.pop("costUsd"), 0.000111, abs_tol=1e-12)
     assert snapshot == {
-        "calls": 4,
+        "calls": 3,
+        "requestAttempts": 4,
         "inputTokens": 33,
         "outputTokens": 39,
         "totalTokens": 72,
@@ -483,6 +484,7 @@ def test_agent_eval_gepa_proxy_drives_the_official_engine(
     assert model_requests[0]["body"]["max_tokens"] == 256
     assert usage.snapshot() == {
         "calls": 1,
+        "requestAttempts": 1,
         "costUsd": 0.000037,
         "inputTokens": 11,
         "outputTokens": 13,
@@ -543,6 +545,7 @@ def test_agent_eval_gepa_bridge_resumes_state_from_a_real_prior_run(
             "runId": compatible_run_id,
             "runtimeIdentity": gepa_bridge._runtime_identity([]),
             "resume": "if-compatible",
+            "trustedResumeState": True,
             "evaluationId": "resume-test",
             "seed": 7,
             "callbackUrl": "http://127.0.0.1:9/evaluate",
@@ -621,6 +624,7 @@ def test_agent_eval_gepa_bridge_resumes_state_from_a_real_prior_run(
                     "revision": "different-revision",
                     "version": "0.1.4",
                 },
+                trusted=True,
             )
         second = run_bridge("second-run")
 

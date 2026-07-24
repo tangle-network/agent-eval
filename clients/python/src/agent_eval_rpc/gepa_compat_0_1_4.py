@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import os
+import stat
 from dataclasses import dataclass
 from pathlib import Path
 from types import ModuleType
@@ -61,25 +63,60 @@ class GepaRestoreObserver:
 def load_restore_observer(
     run_dir: Path,
     upstream: dict[str, str],
+    *,
+    trusted: bool,
 ) -> GepaRestoreObserver | None:
     state_dir = run_dir / "engine" / "state"
     state_path = state_dir / "gepa_state.bin"
-    if not state_path.is_file():
+    try:
+        state_info = state_path.lstat()
+    except FileNotFoundError:
         return None
+    if not stat.S_ISREG(state_info.st_mode):
+        raise RuntimeError("GEPA resume state must be a regular file")
+    if not trusted:
+        raise RuntimeError(
+            "GEPA resume state uses Python pickle; set trustedResumeState only "
+            "for state created locally in a directory you control"
+        )
+    _validate_local_state_permissions(run_dir, state_path)
+    if upstream.get("version") != GEPA_VERSION or upstream.get("revision") != GEPA_REVISION:
+        raise RuntimeError(
+            "GEPA resume observation supports only "
+            f"version {GEPA_VERSION} at revision {GEPA_REVISION}"
+        )
     try:
         from gepa.core.state import GEPAState
 
         state = GEPAState.load(str(state_dir))
     except Exception:
         return None
-    if upstream.get("version") != GEPA_VERSION or upstream.get("revision") != GEPA_REVISION:
-        raise RuntimeError(
-            "GEPA resume observation supports only "
-            f"version {GEPA_VERSION} at revision {GEPA_REVISION}"
-        )
     return GepaRestoreObserver(
         state_dir=state_dir,
         state_iteration=state.i,
         state_evaluations=state.total_num_evals,
         state_candidates=list(state.program_candidates),
     )
+
+
+def _validate_local_state_permissions(run_dir: Path, state_path: Path) -> None:
+    if os.name != "posix" or not hasattr(os, "geteuid"):
+        raise RuntimeError("GEPA pickle resume requires POSIX ownership checks")
+    expected_owner = os.geteuid()
+    paths = [
+        run_dir,
+        run_dir / "engine",
+        run_dir / "engine" / "state",
+        state_path,
+    ]
+    for path in paths:
+        try:
+            info = path.lstat()
+        except FileNotFoundError as error:
+            raise RuntimeError(f"GEPA resume path disappeared: {path}") from error
+        if stat.S_ISLNK(info.st_mode):
+            raise RuntimeError(f"GEPA resume path must not be a symlink: {path}")
+        if info.st_uid != expected_owner:
+            raise RuntimeError(f"GEPA resume path is not owned by the current user: {path}")
+        if info.st_mode & (stat.S_IWGRP | stat.S_IWOTH):
+            raise RuntimeError(f"GEPA resume path is writable by another user: {path}")

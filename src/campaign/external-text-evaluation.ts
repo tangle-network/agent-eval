@@ -31,6 +31,8 @@ export function createExternalTextEvaluator<TScenario extends Scenario, TArtifac
   input: OptimizationMethodInput<TScenario, TArtifact>
   label: string
   runDir: string
+  /** Identity of the exact execution and scoring behavior used by this evaluator. */
+  compatibleRunId: string
   costPhase: string
   costTags?: Readonly<Record<string, string>>
   costLedger: CostLedgerHandle
@@ -38,9 +40,12 @@ export function createExternalTextEvaluator<TScenario extends Scenario, TArtifac
   maxCandidateChars: number
   maxEvidenceChars: number
   describeArtifact?: (artifact: TArtifact, scenario: TScenario) => unknown
-}): (request: ExternalTextEvaluationRequest) => Promise<ExternalTextEvaluationResponse> {
+}): (
+  request: ExternalTextEvaluationRequest,
+  signal?: AbortSignal,
+) => Promise<ExternalTextEvaluationResponse> {
   const cached = new Map<string, Promise<ExternalTextEvaluationResponse>>()
-  return async ({ candidate, exampleId }) => {
+  return async ({ candidate, exampleId }, signal) => {
     if (!args.scenarioById.has(exampleId)) {
       throw new Error(`${args.label} requested unknown train or selection case '${exampleId}'`)
     }
@@ -61,7 +66,7 @@ export function createExternalTextEvaluator<TScenario extends Scenario, TArtifac
       throw new Error(`${args.label} submitted an invalid candidate`)
     }
     const scenario = args.scenarioById.get(exampleId)!
-    const cacheKey = `${surfaceContentHash(surface)}:${exampleId}`
+    const cacheKey = `${args.compatibleRunId}:${surfaceContentHash(surface)}:${exampleId}`
     const existing = cached.get(cacheKey)
     if (existing) return existing
 
@@ -71,11 +76,13 @@ export function createExternalTextEvaluator<TScenario extends Scenario, TArtifac
       candidate: surface,
       scenario,
       runDir: args.runDir,
+      compatibleRunId: args.compatibleRunId,
       costPhase: args.costPhase,
       costTags: args.costTags,
       costLedger: args.costLedger,
       maxEvidenceChars: args.maxEvidenceChars,
       describeArtifact: args.describeArtifact,
+      signal,
     })
     cached.set(cacheKey, result)
     void result.catch(() => {
@@ -139,24 +146,28 @@ async function scoreOneScenario<TScenario extends Scenario, TArtifact>(args: {
     | { readonly kind: 'components'; readonly components: Readonly<Record<string, string>> }
   scenario: TScenario
   runDir: string
+  compatibleRunId: string
   costPhase: string
   costTags?: Readonly<Record<string, string>>
   costLedger: CostLedgerHandle
   maxEvidenceChars: number
   describeArtifact?: (artifact: TArtifact, scenario: TScenario) => unknown
+  signal?: AbortSignal
 }): Promise<ExternalTextEvaluationResponse> {
   const campaign = await runCampaign<TScenario, TArtifact>({
     ...args.input.runOptions,
     scenarios: [structuredClone(args.scenario)],
     dispatch: (scenario, context) =>
       args.input.dispatchWithSurface(args.candidate, scenario, context),
+    dispatchRef: `external-text:${args.compatibleRunId}:${surfaceContentHash(args.candidate)}`,
     judges: [...args.input.judges],
-    runDir: `${args.runDir}/evaluations/${safePathComponent(surfaceContentHash(args.candidate))}/${safePathComponent(args.scenario.id)}`,
+    runDir: `${args.runDir}/evaluations/${safePathComponent(args.compatibleRunId)}/${safePathComponent(surfaceContentHash(args.candidate))}/${safePathComponent(args.scenario.id)}`,
     seed: args.input.seed,
     costLedger: args.costLedger,
     costPhase: args.costPhase,
     ...(args.costTags ? { costTags: args.costTags } : {}),
     maxConcurrency: 1,
+    ...(args.signal ? { signal: args.signal } : {}),
   })
   const breakdown = campaignBreakdown(campaign)
   const row = breakdown.scenarios[0]

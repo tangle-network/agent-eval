@@ -36,6 +36,7 @@ import {
   safeIntegerEnv,
   stringEnv,
 } from '../../_shared/env'
+import { assertMatchedMethodLimits } from '../../_shared/matched-method-limits'
 import { optimizerModelBudgetFromEnv } from '../../_shared/optimizer-model-budget'
 
 const execFileAsync = promisify(execFile)
@@ -54,7 +55,6 @@ const API_KEY = process.env.OPENAI_API_KEY?.trim() ?? ''
 const TRAIN_N = positiveIntegerEnv('TRAIN_N', 3)
 const SELECTION_N = positiveIntegerEnv('SELECTION_N', 3)
 const TEST_N = positiveIntegerEnv('TEST_N', 5)
-const GEPA_MAX_EVALUATIONS = positiveIntegerEnv('GEPA_MAX_EVALUATIONS', 40)
 const GEPA_MAX_PROPOSER_COST_USD = positiveNumberEnv('GEPA_MAX_PROPOSER_COST_USD', 5)
 const SKILLOPT_EPOCHS = positiveIntegerEnv('SKILLOPT_EPOCHS', 1)
 const SKILLOPT_BATCH_SIZE = positiveIntegerEnv('SKILLOPT_BATCH_SIZE', 2)
@@ -65,6 +65,7 @@ const SKILLOPT_MAX_EVALUATIONS = positiveIntegerEnv(
   'SKILLOPT_MAX_EVALUATIONS',
   SKILLOPT_CORE_EVALUATIONS,
 )
+const GEPA_MAX_EVALUATIONS = positiveIntegerEnv('GEPA_MAX_EVALUATIONS', SKILLOPT_CORE_EVALUATIONS)
 const REPS = positiveIntegerEnv('REPS', 5)
 const MAX_STEPS = nonNegativeIntegerEnv('MAX_STEPS', 30)
 const MAX_WALL = positiveNumberEnv('MAX_WALL', 900)
@@ -246,6 +247,10 @@ const appworldJudge: JudgeConfig<AppWorldArtifact, AppWorldScenario> = {
 
 function officialMethods(
   selected: ReadonlySet<string>,
+  budgets: {
+    gepa?: ReturnType<typeof optimizerModelBudgetFromEnv>
+    skillopt?: ReturnType<typeof optimizerModelBudgetFromEnv>
+  },
 ): OptimizationMethod<AppWorldScenario, AppWorldArtifact>[] {
   const runner = {
     command: OPTIMIZER_PYTHON,
@@ -259,6 +264,7 @@ function officialMethods(
   })
   const methods: OptimizationMethod<AppWorldScenario, AppWorldArtifact>[] = []
   if (selected.has('gepa')) {
+    if (!budgets.gepa) throw new Error('missing GEPA optimizer-model budget')
     methods.push(
       gepaOptimizationMethod<AppWorldScenario, AppWorldArtifact>({
         name: 'gepa',
@@ -278,7 +284,7 @@ function officialMethods(
           model: GEPA_MODEL,
           baseUrl: BASE_URL,
           apiKey: API_KEY,
-          budget: optimizerModelBudgetFromEnv('GEPA', MAX_OPTIMIZATION_COST_USD),
+          budget: budgets.gepa,
         },
         describeScenario,
         describeArtifact,
@@ -287,6 +293,7 @@ function officialMethods(
     )
   }
   if (selected.has('skillopt')) {
+    if (!budgets.skillopt) throw new Error('missing SkillOpt optimizer-model budget')
     methods.push(
       skillOptOptimizationMethod<AppWorldScenario, AppWorldArtifact>({
         name: 'skillopt',
@@ -302,7 +309,7 @@ function officialMethods(
           model: SKILLOPT_MODEL,
           baseUrl: BASE_URL,
           apiKey: API_KEY,
-          budget: optimizerModelBudgetFromEnv('SKILLOPT', MAX_OPTIMIZATION_COST_USD),
+          budget: budgets.skillopt,
         },
         maxEvaluations: SKILLOPT_MAX_EVALUATIONS,
         maxEvidenceChars: 100_000,
@@ -352,7 +359,20 @@ async function main(): Promise<void> {
   if (unknown.length > 0) {
     throw new Error(`BENCH_METHODS contains unavailable methods: ${unknown.join(', ')}`)
   }
-  const methods = officialMethods(selected)
+  assertMatchedMethodLimits(
+    selected,
+    { gepa: GEPA_MAX_EVALUATIONS, skillopt: SKILLOPT_MAX_EVALUATIONS },
+    'Candidate-task evaluation limits',
+  )
+  const budgets = {
+    ...(selected.has('gepa')
+      ? { gepa: optimizerModelBudgetFromEnv('GEPA', MAX_OPTIMIZATION_COST_USD) }
+      : {}),
+    ...(selected.has('skillopt')
+      ? { skillopt: optimizerModelBudgetFromEnv('SKILLOPT', MAX_OPTIMIZATION_COST_USD) }
+      : {}),
+  }
+  const methods = officialMethods(selected, budgets)
   if (methods.length === 0) {
     throw new Error(`BENCH_METHODS matched no methods: ${only.join(',')}`)
   }
@@ -383,7 +403,56 @@ async function main(): Promise<void> {
     expectUsage: 'assert',
   })
 
-  writeFileSync(join(OUT_DIR, 'comparison.json'), JSON.stringify(comparison, null, 2))
+  const artifact = {
+    task: {
+      corpus: 'appworld',
+      split: BENCH_SPLIT,
+      difficulty: BENCH_DIFFICULTY ?? null,
+      trainScenarioIds: trainScenarios.map(({ id }) => id),
+      selectionScenarioIds: selectionScenarios.map(({ id }) => id),
+      finalScenarioIds: comparison.testScenarioIds,
+    },
+    models: {
+      worker: { model: MODEL, baseUrl: BASE_URL },
+      optimizer: {
+        python: OPTIMIZER_PYTHON,
+        gepa: selected.has('gepa') ? { model: GEPA_MODEL, budget: budgets.gepa } : null,
+        skillopt: selected.has('skillopt')
+          ? { model: SKILLOPT_MODEL, budget: budgets.skillopt }
+          : null,
+      },
+    },
+    limits: {
+      candidateTaskEvaluations: {
+        gepa: selected.has('gepa') ? GEPA_MAX_EVALUATIONS : null,
+        skillopt: selected.has('skillopt') ? SKILLOPT_MAX_EVALUATIONS : null,
+      },
+      gepaMaxProposerCostUsd: selected.has('gepa') ? GEPA_MAX_PROPOSER_COST_USD : null,
+      workerAndJudgeOptimizationCostUsd: MAX_OPTIMIZATION_COST_USD,
+      finalCostUsd: MAX_TEST_COST_USD,
+      repetitionsPerFinalTask: REPS,
+      optimizationConcurrency: OPTIMIZATION_CONCURRENCY,
+      taskConcurrency: MAXCONC,
+      worker: {
+        maxSteps: MAX_STEPS,
+        maxWallSeconds: MAX_WALL,
+        callTimeoutSeconds: CALL_TIMEOUT,
+        maxOutputTokens: MAX_TOKENS,
+        rateLimitRetrySeconds: RATE_LIMIT_BUDGET,
+        temperature: TEMPERATURE,
+      },
+    },
+    costContext: {
+      worker:
+        'Estimated from the model price table in repl_agent.py; unknown models remain unpriced.',
+      optimizers:
+        'Provider-reported cost is used when present; otherwise configured token rates estimate cost.',
+      accountingComplete:
+        'Every observed call was priced; this does not mean the amount was reconciled to an invoice.',
+    },
+    comparison,
+  }
+  writeFileSync(join(OUT_DIR, 'comparison.json'), JSON.stringify(artifact, null, 2))
   const md = renderReport(comparison)
   writeFileSync(join(OUT_DIR, 'report.md'), md)
   console.log(`\n${md}\n[bench] artifacts in ${OUT_DIR}`)
@@ -391,10 +460,16 @@ async function main(): Promise<void> {
 
 function renderReport(c: Awaited<ReturnType<typeof compareOptimizationMethods>>): string {
   const rows = c.scores
-    .map(
-      (s) =>
-        `| ${s.rank} | ${s.name} | ${s.baselineComposite.toFixed(3)} | ${s.winnerComposite.toFixed(3)} | ${(s.lift * 100).toFixed(1)}% | [${(s.liftCi.low * 100).toFixed(1)}%, ${(s.liftCi.high * 100).toFixed(1)}%] | $${s.optimizationCost.totalCostUsd.toFixed(2)} | ${s.optimizationCost.accountingComplete ? 'yes' : 'no'} |`,
-    )
+    .map((s) => {
+      const allocated =
+        s.name === 'gepa'
+          ? GEPA_MAX_EVALUATIONS
+          : s.name === 'skillopt'
+            ? SKILLOPT_MAX_EVALUATIONS
+            : null
+      const actual = s.provenance?.evaluationCount ?? null
+      return `| ${s.rank} | ${s.name} | ${s.baselineComposite.toFixed(3)} | ${s.winnerComposite.toFixed(3)} | ${(s.lift * 100).toFixed(1)}% | [${(s.liftCi.low * 100).toFixed(1)}%, ${(s.liftCi.high * 100).toFixed(1)}%] | ${actual ?? 'unknown'}/${allocated ?? 'unknown'} | $${s.optimizationCost.totalCostUsd.toFixed(2)} | ${s.optimizationCost.accountingComplete ? 'yes' : 'no'} |`
+    })
     .join('\n')
   const sig = c.scores
     .filter((s) => s.liftCi.low > 0)
@@ -407,12 +482,13 @@ Scoring: \`world.evaluate\` TGC/SGC.
 Test tasks (${c.testScenarioIds.length}): \`${c.testScenarioIds.join(', ')}\`.
 ${c.reps} repetitions are averaged within each task before tasks are resampled.
 The ${Math.round(c.confidence * 100)}% simultaneous intervals adjust ${c.comparisonCount} method contrasts; each interval uses ${(c.intervalConfidence * 100).toFixed(3)}% confidence.
+Multi-method runs reject unequal candidate-task limits.
 
-| Rank | Method | Baseline | Winner | Lift | ${Math.round(c.confidence * 100)}% interval | Optimization cost | Cost complete |
-|---|---|---|---|---|---|---|---|
+| Rank | Method | Baseline | Winner | Lift | ${Math.round(c.confidence * 100)}% interval | Candidate calls used/limit | Optimization cost | Cost complete |
+|---|---|---|---|---|---|---|---|---|
 ${rows}
 
-Best test lift: ${c.best.name}, ${(c.best.lift * 100).toFixed(1)}% [${(c.best.liftCi.low * 100).toFixed(1)}%, ${(c.best.liftCi.high * 100).toFixed(1)}%].
+Top-ranked test result: ${c.best.name}, ${(c.best.lift * 100).toFixed(1)}% [${(c.best.liftCi.low * 100).toFixed(1)}%, ${(c.best.liftCi.high * 100).toFixed(1)}%].
 Methods with an interval above zero: ${sig || 'none'}.
 
 Optimization cost: $${c.optimizationCost.totalCostUsd.toFixed(2)} (${c.optimizationCost.accountingComplete ? 'complete' : 'incomplete'}).

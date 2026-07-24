@@ -623,6 +623,7 @@ describe('external text optimization', () => {
       input,
       label: 'test optimizer',
       runDir: 'run',
+      compatibleRunId: 'test-evaluation',
       costPhase: 'test',
       costLedger,
       scenarioById: new Map([[scenario.id, scenario]]),
@@ -649,6 +650,7 @@ describe('external text optimization', () => {
       input,
       label: 'retry optimizer',
       runDir: 'retry',
+      compatibleRunId: 'retry-evaluation',
       costPhase: 'retry',
       costLedger,
       scenarioById: new Map([[scenario.id, scenario]]),
@@ -667,6 +669,50 @@ describe('external text optimization', () => {
       evaluate({ candidate: 'candidate', exampleId: scenario.id }),
     ).resolves.toMatchObject({ score: 1 })
     expect(descriptions).toBe(2)
+  })
+
+  it('does not reuse a score after the evaluation identity changes', async () => {
+    const scenario: TestScenario = { id: 'train', kind: 'qa', prompt: 'test' }
+    const storage = inMemoryCampaignStorage()
+    const costLedger = createRunCostLedger({ storage, runDir: 'identity/cost' })
+    let score = 0
+    let dispatches = 0
+    const input: OptimizationMethodInput<TestScenario, { text: string }> = {
+      ...optimizationInput([scenario], [], { runDir: 'identity', storage }),
+      dispatchWithSurface: async () => {
+        dispatches += 1
+        return { text: 'candidate' }
+      },
+      judges: [
+        {
+          name: 'changing-evaluation',
+          dimensions: [{ key: 'quality', description: 'quality' }],
+          score: () => ({ dimensions: { quality: score }, composite: score }),
+        },
+      ],
+      costLedger,
+    }
+    const create = (compatibleRunId: string) =>
+      createExternalTextEvaluator({
+        input,
+        label: 'identity optimizer',
+        runDir: 'identity',
+        compatibleRunId,
+        costPhase: 'identity',
+        costLedger,
+        scenarioById: new Map([[scenario.id, scenario]]),
+        maxCandidateChars: 10_000,
+        maxEvidenceChars: 1_000,
+      })
+
+    await expect(
+      create('evaluation-a')({ candidate: 'candidate', exampleId: scenario.id }),
+    ).resolves.toMatchObject({ score: 0 })
+    score = 1
+    await expect(
+      create('evaluation-b')({ candidate: 'candidate', exampleId: scenario.id }),
+    ).resolves.toMatchObject({ score: 1 })
+    expect(dispatches).toBe(2)
   })
 })
 

@@ -198,6 +198,7 @@ export function externalTextOptimizationMethod<TScenario extends Scenario, TArti
           input,
           label: `${snapshot.name} optimizer`,
           runDir: artifactDir,
+          compatibleRunId: runId,
           costPhase: evaluationCostPhase,
           costTags: runBudget.attemptTags,
           costLedger: input.costLedger,
@@ -271,6 +272,7 @@ export function externalTextOptimizationMethod<TScenario extends Scenario, TArti
         Object.freeze(optimizerCostMeter)
         const evaluate = (
           request: ExternalTextEvaluationRequest,
+          signal = controller.signal,
         ): Promise<ExternalTextEvaluationResponse> => {
           if (!acceptingEvaluations) {
             throw new Error(`${snapshot.name}: evaluate cannot be called after run() completes`)
@@ -278,7 +280,11 @@ export function externalTextOptimizationMethod<TScenario extends Scenario, TArti
           if (runBudget.acceptEvaluation() === undefined) {
             throw new Error(`${snapshot.name}: maxEvaluations limit reached`)
           }
-          const pending = score(cloneExternalEvaluationRequest(request))
+          const combinedSignal =
+            signal === controller.signal
+              ? controller.signal
+              : AbortSignal.any([controller.signal, signal])
+          const pending = score(cloneExternalEvaluationRequest(request), combinedSignal)
           activeEvaluations.add(pending)
           const remove = () => activeEvaluations.delete(pending)
           void pending.then(remove, remove)

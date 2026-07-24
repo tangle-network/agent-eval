@@ -149,6 +149,8 @@ export interface CostLedgerFilter {
 export interface CostLedgerWaitOptions {
   /** Maximum time to wait for active provider calls. Default 5 seconds. */
   timeoutMs?: number
+  /** Wait only for calls matching this attribution filter. */
+  filter?: CostLedgerFilter
 }
 
 /** Append-only storage. `append` must atomically reject stale revisions. */
@@ -404,7 +406,12 @@ export class CostLedger {
 
   /** Wait until every call started by this ledger has produced a durable outcome. */
   async waitForIdle(options: CostLedgerWaitOptions = {}): Promise<boolean> {
-    if (this.activeCallIds.size === 0) return true
+    const hasActiveMatch = (): boolean =>
+      [...this.activeCallIds].some((callId) => {
+        const record = this.records.get(callId)
+        return record !== undefined && matches(record, options.filter)
+      })
+    if (!hasActiveMatch()) return true
     const timeoutMs = options.timeoutMs ?? 5_000
     assertTimeout(timeoutMs, 'waitForIdle.timeoutMs')
     return new Promise<boolean>((resolve) => {
@@ -414,10 +421,12 @@ export class CostLedger {
         if (timer !== undefined) clearTimeout(timer)
         resolve(settled)
       }
-      const onIdle = (): void => finish(true)
+      const onIdle = (): void => {
+        if (!hasActiveMatch()) finish(true)
+      }
       this.idleWaiters.add(onIdle)
       timer = setTimeout(() => finish(false), timeoutMs)
-      if (this.activeCallIds.size === 0) onIdle()
+      onIdle()
     })
   }
 
@@ -645,9 +654,7 @@ export class CostLedger {
 
   private releaseActiveCall(callId: string): void {
     this.activeCallIds.delete(callId)
-    if (this.activeCallIds.size > 0) return
-    for (const resolve of this.idleWaiters) resolve()
-    this.idleWaiters.clear()
+    for (const resolve of [...this.idleWaiters]) resolve()
   }
 
   private commitOutcome<T>(

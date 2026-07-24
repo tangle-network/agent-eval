@@ -15,12 +15,18 @@ import httpx
 class _ProxyUsage:
     models: list[Any] = field(default_factory=list)
     clients: list[httpx.Client] = field(default_factory=list)
-    calls: int = 0
+    request_attempts: int = 0
+    successful_completions: int = 0
     lock: threading.Lock = field(default_factory=threading.Lock)
 
     def observe_request(self, _request: httpx.Request) -> None:
         with self.lock:
-            self.calls += 1
+            self.request_attempts += 1
+
+    def observe_response(self, response: httpx.Response) -> None:
+        if response.is_success:
+            with self.lock:
+                self.successful_completions += 1
 
     def register(self, model: Any, client: httpx.Client) -> None:
         with self.lock:
@@ -30,14 +36,16 @@ class _ProxyUsage:
     def snapshot(self) -> dict[str, int | float]:
         with self.lock:
             models = list(self.models)
-            calls = self.calls
+            request_attempts = self.request_attempts
+            successful_completions = self.successful_completions
         input_tokens = sum(int(model.total_tokens_in) for model in models)
         output_tokens = sum(int(model.total_tokens_out) for model in models)
         return {
             "inputTokens": input_tokens,
             "outputTokens": output_tokens,
             "totalTokens": input_tokens + output_tokens,
-            "calls": calls,
+            "calls": successful_completions,
+            "requestAttempts": request_attempts,
             "costUsd": sum(float(model.total_cost) for model in models),
         }
 
@@ -65,7 +73,10 @@ def _official_reflection_model(
     request_options["output_cost_per_token"] = pricing["outputUsdPerMillion"] / 1_000_000
     request_timeout = budget.get("requestTimeoutMs", 300_000) / 1000
     http_client = httpx.Client(
-        event_hooks={"request": [shared_usage.observe_request]},
+        event_hooks={
+            "request": [shared_usage.observe_request],
+            "response": [shared_usage.observe_response],
+        },
         timeout=request_timeout,
     )
     try:

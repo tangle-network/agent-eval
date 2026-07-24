@@ -41,6 +41,7 @@ import {
   positiveIntegerEnv,
   positiveNumberEnv,
 } from '../../_shared/env'
+import { assertMatchedMethodLimits } from '../../_shared/matched-method-limits'
 import { optimizerModelBudgetFromEnv } from '../../_shared/optimizer-model-budget'
 import { evaluate, loadDataset } from './index'
 
@@ -63,7 +64,6 @@ const OPTIMIZER_PYTHON = process.env.OPTIMIZER_PYTHON?.trim() || 'python'
 const OPTIMIZER_API_KEY = (process.env.OPTIMIZER_API_KEY || API_KEY)?.trim()
 const OPTIMIZER_BASE_URL = (process.env.OPTIMIZER_BASE_URL || BASE_URL).trim()
 const GEPA_MODEL = process.env.GEPA_MODEL || MODEL
-const GEPA_MAX_EVALUATIONS = positiveIntegerEnv('GEPA_MAX_EVALUATIONS', 60)
 const GEPA_MAX_PROPOSER_COST_USD = positiveNumberEnv('GEPA_MAX_PROPOSER_COST_USD', 10)
 const SKILLOPT_MODEL = process.env.SKILLOPT_MODEL || MODEL
 const SKILLOPT_EPOCHS = positiveIntegerEnv('SKILLOPT_EPOCHS', 2)
@@ -75,11 +75,18 @@ const SKILLOPT_MAX_EVALUATIONS = positiveIntegerEnv(
   'SKILLOPT_MAX_EVALUATIONS',
   SKILLOPT_CORE_EVALUATIONS,
 )
+const GEPA_MAX_EVALUATIONS = positiveIntegerEnv('GEPA_MAX_EVALUATIONS', SKILLOPT_CORE_EVALUATIONS)
 const OPTIMIZATION_CONCURRENCY = positiveIntegerEnv('OPTIMIZATION_CONCURRENCY', 1)
+const TASK_CONCURRENCY = positiveIntegerEnv('TASK_CONCURRENCY', 2)
+const REPS = positiveIntegerEnv('REPS', 1)
 const MAX_SMOKE_COST_USD = positiveNumberEnv('MAX_SMOKE_COST_USD', 2)
 const MAX_OPTIMIZATION_COST_USD = positiveNumberEnv('MAX_OPTIMIZATION_COST_USD', 10)
 const MAX_TEST_COST_USD = positiveNumberEnv('MAX_TEST_COST_USD', 5)
 const SMOKE = process.env.SMOKE === '1'
+const SEED = 42
+const RESAMPLES = 4_000
+const CONFIDENCE = 0.95
+const WORKER_MAX_TOKENS = 1_024
 
 if ((PRICE_IN_PER_M === undefined) !== (PRICE_OUT_PER_M === undefined)) {
   throw new Error('PRICE_IN_PER_M and PRICE_OUT_PER_M must be set together')
@@ -115,6 +122,11 @@ const optimizerApiKey = OPTIMIZER_API_KEY
 if (SKILLOPT_MAX_EVALUATIONS < SKILLOPT_CORE_EVALUATIONS) {
   throw new Error(`SKILLOPT_MAX_EVALUATIONS must be at least ${SKILLOPT_CORE_EVALUATIONS}`)
 }
+assertMatchedMethodLimits(
+  ['gepa', 'skillopt'],
+  { gepa: GEPA_MAX_EVALUATIONS, skillopt: SKILLOPT_MAX_EVALUATIONS },
+  'Candidate-task evaluation limits',
+)
 
 // This intentionally weak baseline leaves room for instruction optimization.
 const BASELINE_SURFACE =
@@ -155,7 +167,7 @@ function makeWorker() {
         { role: 'user', content: scenario.question },
       ],
       temperature: 0,
-      maxTokens: 1024,
+      maxTokens: WORKER_MAX_TOKENS,
       timeoutMs: CALL_TIMEOUT_MS,
     }
     const paid = await ctx.cost.runPaidCall({
@@ -173,7 +185,7 @@ function makeWorker() {
       runId: `${scenario.id}-${createHash('sha1').update(surface).digest('hex').slice(0, 8)}-${records.length}`,
       experimentId: 'gsm8k-proposer-comparison',
       candidateId: createHash('sha1').update(surface).digest('hex').slice(0, 12),
-      seed: 42,
+      seed: SEED,
       model: res.model || MODEL,
       promptHash: createHash('sha256').update(surface).digest('hex'),
       configHash: 'gsm8k-cot',
@@ -271,6 +283,16 @@ async function main() {
     return
   }
 
+  const gepaModelBudget = optimizerModelBudgetFromEnv(
+    'GEPA',
+    MAX_OPTIMIZATION_COST_USD,
+    CUSTOM_TOKEN_PRICING,
+  )
+  const skillOptModelBudget = optimizerModelBudgetFromEnv(
+    'SKILLOPT',
+    MAX_OPTIMIZATION_COST_USD,
+    CUSTOM_TOKEN_PRICING,
+  )
   const runner = {
     command: OPTIMIZER_PYTHON,
   }
@@ -292,11 +314,7 @@ async function main() {
         model: GEPA_MODEL,
         baseUrl: OPTIMIZER_BASE_URL,
         apiKey: optimizerApiKey,
-        budget: optimizerModelBudgetFromEnv(
-          'GEPA',
-          MAX_OPTIMIZATION_COST_USD,
-          CUSTOM_TOKEN_PRICING,
-        ),
+        budget: gepaModelBudget,
       },
       describeScenario: (scenario) => ({
         question: scenario.question,
@@ -318,11 +336,7 @@ async function main() {
         model: SKILLOPT_MODEL,
         baseUrl: OPTIMIZER_BASE_URL,
         apiKey: optimizerApiKey,
-        budget: optimizerModelBudgetFromEnv(
-          'SKILLOPT',
-          MAX_OPTIMIZATION_COST_USD,
-          CUSTOM_TOKEN_PRICING,
-        ),
+        budget: skillOptModelBudget,
       },
       maxEvaluations: SKILLOPT_MAX_EVALUATIONS,
       describeScenario: (scenario) => ({
@@ -344,13 +358,16 @@ async function main() {
       worker(String(surface), scenario as GsmScenario, ctx),
     judges: [judge],
     runDir: join(runRoot, 'comparison'),
-    seed: 42,
-    resamples: 4000,
-    confidence: 0.95,
+    seed: SEED,
+    reps: REPS,
+    resamples: RESAMPLES,
+    confidence: CONFIDENCE,
     optimizationConcurrency: OPTIMIZATION_CONCURRENCY,
+    maxConcurrency: TASK_CONCURRENCY,
     optimizationRunOptions: {
       costCeiling: MAX_OPTIMIZATION_COST_USD,
       dispatchTimeoutMs: CALL_TIMEOUT_MS,
+      maxConcurrency: TASK_CONCURRENCY,
       expectUsage: 'assert',
     },
     costCeiling: MAX_TEST_COST_USD,
@@ -376,13 +393,51 @@ async function main() {
       trainN: trainScenarios.length,
       selectionN: selectionScenarios.length,
       testN: testScenarios.length,
+      trainScenarioIds: trainScenarios.map(({ id }) => id),
+      selectionScenarioIds: selectionScenarios.map(({ id }) => id),
       testScenarioIds: comparison.testScenarioIds,
     },
-    model: { worker: MODEL, baseUrl: BASE_URL },
-    optimizers: {
-      python: OPTIMIZER_PYTHON,
-      gepaModel: GEPA_MODEL,
-      skillOptModel: SKILLOPT_MODEL,
+    models: {
+      worker: { model: MODEL, baseUrl: BASE_URL },
+      optimizers: {
+        python: OPTIMIZER_PYTHON,
+        baseUrl: OPTIMIZER_BASE_URL,
+        gepa: { model: GEPA_MODEL, budget: gepaModelBudget },
+        skillopt: { model: SKILLOPT_MODEL, budget: skillOptModelBudget },
+      },
+    },
+    limits: {
+      candidateTaskEvaluations: {
+        gepa: GEPA_MAX_EVALUATIONS,
+        skillopt: SKILLOPT_MAX_EVALUATIONS,
+      },
+      gepaMaxProposerCostUsd: GEPA_MAX_PROPOSER_COST_USD,
+      skillOptTrainer: {
+        epochs: SKILLOPT_EPOCHS,
+        batchSize: SKILLOPT_BATCH_SIZE,
+        coreEvaluations: SKILLOPT_CORE_EVALUATIONS,
+      },
+      smokeCostUsd: MAX_SMOKE_COST_USD,
+      workerAndJudgeOptimizationCostUsd: MAX_OPTIMIZATION_COST_USD,
+      finalCostUsd: MAX_TEST_COST_USD,
+      worker: {
+        requestTimeoutMs: CALL_TIMEOUT_MS,
+        maxOutputTokens: WORKER_MAX_TOKENS,
+        maxRetries: llm.maxRetries,
+        temperature: 0,
+        customTokenPricing: CUSTOM_TOKEN_PRICING ?? null,
+      },
+      repetitionsPerFinalCase: REPS,
+      taskConcurrency: TASK_CONCURRENCY,
+      optimizationConcurrency: OPTIMIZATION_CONCURRENCY,
+    },
+    costContext: {
+      worker:
+        'Provider-reported cost is used when present; otherwise configured token rates estimate cost.',
+      optimizers:
+        'Provider-reported cost is used when present; otherwise each optimizer budget rate estimates cost.',
+      accountingComplete:
+        'Every observed call was priced; this does not mean the amount was reconciled to an invoice.',
     },
     backendIntegrity: {
       verdict: integrity.verdict,
@@ -443,7 +498,7 @@ async function main() {
     provenance: {
       gitSha: process.env.GIT_SHA ?? 'local',
       publishedAt: new Date(startedAt).toISOString(),
-      command: 'examples/benchmarks/gsm8k/compare-optimization-methods.ts',
+      command: process.argv,
       workerLlmCalls: records.length,
       elapsedSec,
     },

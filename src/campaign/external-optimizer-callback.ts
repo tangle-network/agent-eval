@@ -13,7 +13,7 @@ export async function startExternalOptimizerCallback<TResponse>(args: {
   token: string
   maxEvaluations: number
   acceptEvaluation?: () => number | undefined
-  evaluate: (request: ExternalTextEvaluationRequest) => Promise<TResponse>
+  evaluate: (request: ExternalTextEvaluationRequest, signal: AbortSignal) => Promise<TResponse>
 }): Promise<ExternalOptimizerCallback> {
   assertCallbackConfig(args)
   let evaluations = 0
@@ -35,7 +35,7 @@ export async function startExternalOptimizerCallback<TResponse>(args: {
     controller.signal.addEventListener('abort', abortRequest, { once: true })
 
     let handler!: Promise<void>
-    handler = handleCallback(request, response, args, () => {
+    handler = handleCallback(request, response, controller.signal, args, () => {
       const accepted = args.acceptEvaluation ? args.acceptEvaluation() : evaluations + 1
       if (accepted === undefined) return undefined
       if (!Number.isSafeInteger(accepted) || accepted <= 0) {
@@ -82,11 +82,12 @@ export async function startExternalOptimizerCallback<TResponse>(args: {
 async function handleCallback<TResponse>(
   request: IncomingMessage,
   response: ServerResponse,
+  signal: AbortSignal,
   args: {
     token: string
     maxEvaluations: number
     acceptEvaluation?: () => number | undefined
-    evaluate: (request: ExternalTextEvaluationRequest) => Promise<TResponse>
+    evaluate: (request: ExternalTextEvaluationRequest, signal: AbortSignal) => Promise<TResponse>
   },
   nextEvaluation: () => number | undefined,
 ): Promise<void> {
@@ -113,7 +114,10 @@ async function handleCallback<TResponse>(
       sendJsonIfOpen(response, 429, { error: 'evaluation limit reached' })
       return
     }
-    const result = await args.evaluate({ candidate: body.candidate, exampleId: body.exampleId })
+    const result = await args.evaluate(
+      { candidate: body.candidate, exampleId: body.exampleId },
+      signal,
+    )
     sendJsonIfOpen(response, 200, result)
   } catch {
     sendJsonIfOpen(response, 500, { error: 'evaluation failed' })
@@ -159,7 +163,7 @@ function assertCallbackConfig(args: {
   token: string
   maxEvaluations: number
   acceptEvaluation?: () => number | undefined
-  evaluate: (request: ExternalTextEvaluationRequest) => Promise<unknown>
+  evaluate: (request: ExternalTextEvaluationRequest, signal: AbortSignal) => Promise<unknown>
 }): void {
   if (typeof args.token !== 'string' || !args.token.trim()) {
     throw new Error('external optimizer callback: token must be non-empty')

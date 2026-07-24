@@ -32,6 +32,7 @@ import {
   PROPOSER_TARGET,
   SEARCH,
 } from '../_shared/extraction-task'
+import { assertMatchedMethodLimits } from '../_shared/matched-method-limits'
 import { optimizerModelBudgetFromEnv } from '../_shared/optimizer-model-budget'
 
 const API_KEY = (process.env.LLM_API_KEY || process.env.TANGLE_API_KEY)?.trim()
@@ -104,15 +105,11 @@ if (selectedNames.length === 0 || unknownNames.length > 0) {
     `OPTIMIZERS must contain gepa, skillopt, or both; received ${selectedNames.join(',') || 'nothing'}`,
   )
 }
-if (
-  selectedNames.includes('gepa') &&
-  selectedNames.includes('skillopt') &&
-  GEPA_MAX_EVALUATIONS !== SKILLOPT_MAX_EVALUATIONS
-) {
-  throw new Error(
-    'GEPA_MAX_EVALUATIONS and SKILLOPT_MAX_EVALUATIONS must match when comparing both methods',
-  )
-}
+assertMatchedMethodLimits(
+  selectedNames,
+  { gepa: GEPA_MAX_EVALUATIONS, skillopt: SKILLOPT_MAX_EVALUATIONS },
+  'Candidate-case evaluation limits',
+)
 
 const customTokenPricing =
   PRICE_IN_PER_M === undefined || PRICE_OUT_PER_M === undefined
@@ -295,15 +292,33 @@ async function main() {
       skillOptModel: selectedNames.includes('skillopt') ? SKILLOPT_MODEL : null,
     },
     accounting: {
-      basis: customTokenPricing
-        ? 'declared-token-price-estimate'
-        : 'provider-reported-or-package-priced',
       billingNote: BILLING_NOTE,
       priceSource: PRICE_SOURCE,
-      workerPricing: customTokenPricing ?? null,
-      optimizerPricing: {
-        gepa: gepaModelBudget?.pricing ?? null,
-        skillopt: skillOptModelBudget?.pricing ?? null,
+      worker: {
+        providerReportedCostPreferred: true,
+        fallback:
+          customTokenPricing === undefined
+            ? 'package-model-price-estimate'
+            : 'configured-token-price-estimate',
+        configuredTokenPricing: customTokenPricing ?? null,
+      },
+      optimizers: {
+        gepa:
+          gepaModelBudget === undefined
+            ? null
+            : {
+                providerReportedCostPreferred: true,
+                fallback: 'configured-token-price-estimate',
+                configuredTokenPricing: gepaModelBudget.pricing,
+              },
+        skillopt:
+          skillOptModelBudget === undefined
+            ? null
+            : {
+                providerReportedCostPreferred: true,
+                fallback: 'configured-token-price-estimate',
+                configuredTokenPricing: skillOptModelBudget.pricing,
+              },
       },
     },
     limits: {

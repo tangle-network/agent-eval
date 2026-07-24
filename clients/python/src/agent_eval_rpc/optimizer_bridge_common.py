@@ -185,13 +185,17 @@ def module_source_sha256(module_name: str) -> str:
             continue
         if not root.is_dir():
             raise RuntimeError(f"module {module_name!r} source is unavailable")
-        files.extend(
-            (f"{root_index}/{path.relative_to(root).as_posix()}", path)
-            for path in root.rglob("*.py")
-            if "__pycache__" not in path.parts
-        )
+        for path in root.rglob("*"):
+            if "__pycache__" in path.parts or path.suffix in {".pyc", ".pyo"}:
+                continue
+            if path.is_symlink():
+                raise RuntimeError(
+                    f"module {module_name!r} source contains unsupported symlink {path}"
+                )
+            if path.is_file():
+                files.append((f"{root_index}/{path.relative_to(root).as_posix()}", path))
     if not files:
-        raise RuntimeError(f"module {module_name!r} has no Python source files")
+        raise RuntimeError(f"module {module_name!r} has no inspectable source files")
     for relative, path in sorted(files):
         digest.update(relative.encode())
         digest.update(b"\0")
@@ -250,7 +254,7 @@ def locked_run(
         "runtime": runtime_identity,
     }
     runs_root = output_root / "runs"
-    runs_root.mkdir(parents=True, exist_ok=True)
+    runs_root.mkdir(parents=True, exist_ok=True, mode=0o700)
     run_dir = runs_root / run_id
     manifest_path = run_dir / "manifest.json"
     manifest = {**manifest_body, "runId": run_id}
@@ -274,7 +278,7 @@ def locked_run(
         else:
             if run_dir_existed:
                 archive_unrestorable_state(run_dir, attempt_id)
-            run_dir.mkdir(parents=True, exist_ok=True)
+            run_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
             atomic_write_json(manifest_path, manifest)
 
         yield LockedRun(

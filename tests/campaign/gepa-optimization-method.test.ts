@@ -89,6 +89,24 @@ describe('gepaOptimizationMethod', () => {
     ).toThrow('recipe.run.maxProposerCostUsd must be a positive finite number')
   })
 
+  it('requires explicit trust before enabling pickle-backed GEPA resume', () => {
+    expect(() =>
+      gepaOptimizationMethod({
+        recipe: {
+          kind: 'engine',
+          run: {
+            engine: 'gepa',
+            maxEvaluations: 1,
+            maxProposerCostUsd: 1,
+          },
+        },
+        objective: 'Return a better policy.',
+        evaluationId: 'test',
+        resume: 'if-compatible',
+      }),
+    ).toThrow('resumable GEPA pickle state requires trustResumeState: true')
+  })
+
   it('rejects credentials in persisted GEPA settings', () => {
     expect(() =>
       gepaOptimizationMethod({
@@ -277,6 +295,7 @@ describe('gepaOptimizationMethod', () => {
       evaluationId: 'resume-budget',
       optimizer: optimizerModel(upstreamBaseUrl),
       resume: 'if-compatible',
+      trustResumeState: true,
       runner: fakeMeteredGepaRunner(upstreamBaseUrl, resumeMarker),
     })
 
@@ -601,7 +620,7 @@ function fakeMeteredGepaRunner(upstreamBaseUrl: string, resumeMarker?: string) {
     '    recipeKind: input.recipe.kind,',
     '    proposerCostUsd: 0.00002,',
     '    proposerCostAccounting: "metered",',
-    '    tokenUsage: { inputTokens: completion.usage.prompt_tokens, outputTokens: completion.usage.completion_tokens, totalTokens: completion.usage.total_tokens, calls: 1 },',
+    '    tokenUsage: { inputTokens: completion.usage.prompt_tokens, outputTokens: completion.usage.completion_tokens, totalTokens: completion.usage.total_tokens, calls: 1, requestAttempts: 1 },',
     '    upstream: runtime.optimizer,',
     '    runId: input.runId,',
     '    resumed,',

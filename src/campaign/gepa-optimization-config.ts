@@ -70,7 +70,20 @@ export function assertGepaOptimizationConfig<TScenario extends Scenario, TArtifa
       "gepaOptimizationMethod: resume must be 'never', 'if-compatible', or 'required'",
     )
   }
+  if (config.trustResumeState !== undefined && typeof config.trustResumeState !== 'boolean') {
+    throw new Error('gepaOptimizationMethod: trustResumeState must be a boolean')
+  }
   assertRecipe(config.recipe)
+  if (
+    config.resume !== undefined &&
+    config.resume !== 'never' &&
+    gepaRecipeSupportsResume(config.recipe) &&
+    config.trustResumeState !== true
+  ) {
+    throw new Error(
+      'gepaOptimizationMethod: resumable GEPA pickle state requires trustResumeState: true',
+    )
+  }
   if (
     config.maxCandidateChars !== undefined &&
     (!Number.isSafeInteger(config.maxCandidateChars) || config.maxCandidateChars <= 0)

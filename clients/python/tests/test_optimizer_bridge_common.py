@@ -115,6 +115,25 @@ def test_module_source_hash_changes_with_source_content(
     assert second != first
 
 
+def test_module_source_hash_includes_packaged_prompt_files(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    package_path = tmp_path / "sample_prompt_optimizer"
+    prompt_path = package_path / "prompts" / "reflection.md"
+    prompt_path.parent.mkdir(parents=True)
+    (package_path / "__init__.py").write_text("VALUE = 1\n")
+    prompt_path.write_text("First reflection policy.\n")
+    monkeypatch.syspath_prepend(str(tmp_path))
+    importlib.invalidate_caches()
+
+    first = module_source_sha256("sample_prompt_optimizer")
+    prompt_path.write_text("Changed reflection policy.\n")
+    second = module_source_sha256("sample_prompt_optimizer")
+
+    assert second != first
+
+
 def test_runtime_identity_validation_requires_the_inspected_value() -> None:
     validate_runtime_identity(RUNTIME_IDENTITY, RUNTIME_IDENTITY, "test")
 

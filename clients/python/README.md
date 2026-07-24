@@ -254,7 +254,12 @@ uv run --frozen pytest tests/test_dspy_metric.py
 
 The bridge records the installed upstream package version and source revision with each run.
 SkillOpt and a direct GEPA engine can restore official state only when the package revision, settings, starting candidate, described data, evaluation ID, and seed match.
+Direct GEPA resume also requires `trustResumeState: true` because its upstream checkpoint uses Python pickle.
+Enable it only for a checkpoint created locally in a directory you control.
 Composed GEPA recipes restart and never claim that upstream state was restored.
+
+The official optimizer subprocess requires POSIX process-group cleanup.
+Use Linux or WSL rather than native Windows so a timeout can terminate the complete Python process tree.
 
 ## Errors
 

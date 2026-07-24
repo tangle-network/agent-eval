@@ -11,6 +11,7 @@ import {
   type ExternalOptimizerRunnerCommand,
   removeCredentialEnvironment,
   runExternalOptimizerProcess,
+  runWithCleanup,
   startExternalOptimizerCallback,
   startExternalOptimizerModelProxy,
 } from './external-optimizer-process'
@@ -168,6 +169,11 @@ export interface GepaOptimizationMethodConfig<TScenario extends Scenario, TArtif
   describeArtifact?: (artifact: TArtifact, scenario: TScenario) => unknown
   /** Default: `never`. Compatible runs resume only when explicitly enabled. */
   resume?: ExternalOptimizerResumeMode
+  /**
+   * Required for resumable direct GEPA runs because upstream state uses Python
+   * pickle. Enable only for state created locally in a directory you control.
+   */
+  trustResumeState?: boolean
   runner?: GepaRunnerCommand
 }
 
@@ -258,6 +264,7 @@ export function gepaOptimizationMethod<TScenario extends Scenario, TArtifact>(
             }
           : null,
         runner: externalOptimizerRunnerIdentity(bridgeRunner, 'agent_eval_rpc.gepa_bridge'),
+        trustResumeState: config.trustResumeState === true,
       }
       const compatibleRunId = externalOptimizerCompatibleRunKey(runMaterial)
       const runId = externalOptimizerRunKey({
@@ -281,6 +288,7 @@ export function gepaOptimizationMethod<TScenario extends Scenario, TArtifact>(
         input,
         label: 'GEPA bridge',
         runDir,
+        compatibleRunId: runId,
         costPhase: 'gepa.external-evaluation',
         costTags: runBudget.attemptTags,
         costLedger,
@@ -304,166 +312,169 @@ export function gepaOptimizationMethod<TScenario extends Scenario, TArtifact>(
           callback,
           ...(modelProxy ? { modelProxy } : {}),
         })
-      try {
-        if (config.optimizer) {
-          const priorOptimizerUsage = costLedger.summary({
-            phase: 'gepa.optimizer-model',
-            tags: runBudget.runTags,
-          })
-          assertPriorExternalOptimizerUsage(priorOptimizerUsage, config.optimizer.budget, name)
-          modelProxy = await startExternalOptimizerModelProxy({
-            upstreamBaseUrl: config.optimizer.baseUrl,
-            upstreamApiKey: config.optimizer.apiKey,
-            model: config.optimizer.model,
-            budget: config.optimizer.budget,
-            costLedger,
-            phase: 'gepa.optimizer-model',
-            actor: name,
-            tags: { ...runBudget.attemptTags },
-            initialUsage: {
-              requests: priorOptimizerUsage.totalCalls,
-              costUsd: priorOptimizerUsage.totalCostUsd,
+      const { result, outputDir } = await runWithCleanup({
+        label: `${name} optimizer resources`,
+        run: async () => {
+          if (config.optimizer) {
+            const priorOptimizerUsage = costLedger.summary({
+              phase: 'gepa.optimizer-model',
+              tags: runBudget.runTags,
+            })
+            assertPriorExternalOptimizerUsage(priorOptimizerUsage, config.optimizer.budget, name)
+            modelProxy = await startExternalOptimizerModelProxy({
+              upstreamBaseUrl: config.optimizer.baseUrl,
+              upstreamApiKey: config.optimizer.apiKey,
+              model: config.optimizer.model,
+              budget: config.optimizer.budget,
+              costLedger,
+              phase: 'gepa.optimizer-model',
+              actor: name,
+              tags: { ...runBudget.attemptTags },
+              initialUsage: {
+                requests: priorOptimizerUsage.totalCalls,
+                costUsd: priorOptimizerUsage.totalCostUsd,
+              },
+            })
+          }
+          const outputDir = `${runDir}/external`
+          await mkdir(outputDir, { recursive: true })
+          const result = await runExternalOptimizerProcess<GepaBridgeOutput>({
+            label: 'GEPA bridge',
+            tempPrefix: 'agent-eval-gepa-',
+            module: 'agent_eval_rpc.gepa_bridge',
+            input: {
+              attemptId,
+              compatibleRunId,
+              runId,
+              runtimeIdentity,
+              resume,
+              trustedResumeState: config.trustResumeState === true,
+              evaluationId: config.evaluationId,
+              seed: input.seed,
+              callbackUrl: callback.url,
+              callbackToken: callback.token,
+              engineModules: config.engineModules ?? [],
+              recipe: config.recipe,
+              objective: config.objective,
+              ...(config.background ? { background: config.background } : {}),
+              seedCandidate,
+              trainSet,
+              selectionSet,
+              maxCandidateChars,
+              maxEvidenceChars,
+              outputDir,
+              ...(modelProxy && config.optimizer
+                ? {
+                    modelProxy: {
+                      baseUrl: modelProxy.baseUrl,
+                      apiKey: modelProxy.apiKey,
+                      model: config.optimizer.model,
+                      budget: config.optimizer.budget,
+                    },
+                  }
+                : {}),
             },
+            runner:
+              modelProxy && bridgeRunner
+                ? {
+                    ...bridgeRunner,
+                    env: removeCredentialEnvironment(runnerEnv),
+                  }
+                : bridgeRunner,
+            timeoutMs: config.timeoutMs ?? GEPA_DEFAULT_TIMEOUT_MS,
           })
-        }
-        const outputDir = `${runDir}/external`
-        await mkdir(outputDir, { recursive: true })
-        const result = await runExternalOptimizerProcess<GepaBridgeOutput>({
-          label: 'GEPA bridge',
-          tempPrefix: 'agent-eval-gepa-',
-          module: 'agent_eval_rpc.gepa_bridge',
-          input: {
-            attemptId,
-            compatibleRunId,
-            runId,
-            runtimeIdentity,
-            resume,
-            evaluationId: config.evaluationId,
-            seed: input.seed,
-            callbackUrl: callback.url,
-            callbackToken: callback.token,
-            engineModules: config.engineModules ?? [],
-            recipe: config.recipe,
-            objective: config.objective,
-            ...(config.background ? { background: config.background } : {}),
-            seedCandidate,
-            trainSet,
-            selectionSet,
-            maxCandidateChars,
-            maxEvidenceChars,
-            outputDir,
-            ...(modelProxy && config.optimizer
-              ? {
-                  modelProxy: {
-                    baseUrl: modelProxy.baseUrl,
-                    apiKey: modelProxy.apiKey,
-                    model: config.optimizer.model,
-                    budget: config.optimizer.budget,
-                  },
-                }
-              : {}),
-          },
-          runner:
-            modelProxy && bridgeRunner
-              ? {
-                  ...bridgeRunner,
-                  env: removeCredentialEnvironment(runnerEnv),
-                }
-              : bridgeRunner,
-          timeoutMs: config.timeoutMs ?? GEPA_DEFAULT_TIMEOUT_MS,
-        })
-        await closeResources()
-        assertGepaBridgeOutput(
-          result,
-          name,
-          maxCandidateChars,
-          config.recipe.kind,
-          evaluationLimit,
-          expectsComponents,
+          return { result, outputDir }
+        },
+        cleanup: closeResources,
+      })
+      assertGepaBridgeOutput(
+        result,
+        name,
+        maxCandidateChars,
+        config.recipe.kind,
+        evaluationLimit,
+        expectsComponents,
+      )
+      assertExternalOptimizerRunBinding({
+        label: name,
+        runtime: runtimeIdentity,
+        returnedSource: result.upstream,
+        compatibleRunId,
+        runId,
+        returnedRunId: result.runId,
+        resume,
+        resumed: result.resumed,
+      })
+      if (callback.evaluations() !== result.totalEvaluations) {
+        throw new Error(
+          `${name}: GEPA reported ${result.totalEvaluations} evaluations but the callback received ${callback.evaluations()}`,
         )
-        assertExternalOptimizerRunBinding({
-          label: name,
-          runtime: runtimeIdentity,
-          returnedSource: result.upstream,
+      }
+
+      const evaluationCost = costFromLedgerSummary(
+        costLedger.summary({
+          phase: 'gepa.external-evaluation',
+          tags: runBudget.runTags,
+        }),
+      )
+      const optimizerSummary = costLedger.summary({
+        phase: 'gepa.optimizer-model',
+        tags: runBudget.runTags,
+      })
+      const optimizerReceipts = costLedger.list({
+        phase: 'gepa.optimizer-model',
+        tags: runBudget.runTags,
+      })
+      const optimizerCost = costFromLedgerSummary(optimizerSummary)
+      const reportedProposerCost = result.proposerCostUsd ?? 0
+      if (modelProxy) {
+        assertExternalOptimizerCompletionCount(
+          result.tokenUsage,
+          modelProxy.requestAttempts(),
+          modelProxy.successfulCompletions(),
+          name,
+          'GEPA',
+        )
+      }
+      const tokenUsage = modelProxy
+        ? optimizationTokenUsageFromSummary(optimizerSummary, optimizerReceipts)
+        : undefined
+      const runtime = observedExternalOptimizerRuntime(runtimeIdentity)
+      return {
+        winnerSurface: decodeExternalTextCandidate(result.bestCandidate),
+        cost: modelProxy
+          ? {
+              totalCostUsd: evaluationCost.totalCostUsd + optimizerCost.totalCostUsd,
+              accountingComplete:
+                evaluationCost.accountingComplete && optimizerCost.accountingComplete,
+              incompleteReasons: [
+                ...evaluationCost.incompleteReasons.map((reason) => `evaluation: ${reason}`),
+                ...optimizerCost.incompleteReasons.map((reason) => `optimizer model: ${reason}`),
+              ],
+            }
+          : {
+              totalCostUsd: evaluationCost.totalCostUsd + reportedProposerCost,
+              accountingComplete: false,
+              incompleteReasons: [
+                ...evaluationCost.incompleteReasons,
+                result.proposerCostAccounting === 'reported'
+                  ? 'GEPA proposer cost is externally reported and has no agent-eval receipt'
+                  : 'GEPA proposer cost is unavailable',
+                ...(result.resumed
+                  ? ['GEPA proposer cost before this resumed attempt is unavailable']
+                  : []),
+              ],
+            },
+        durationMs: Date.now() - started,
+        provenance: {
+          ...runtime,
           compatibleRunId,
           runId,
-          returnedRunId: result.runId,
-          resume,
           resumed: result.resumed,
-        })
-        if (callback.evaluations() !== result.totalEvaluations) {
-          throw new Error(
-            `${name}: GEPA reported ${result.totalEvaluations} evaluations but the callback received ${callback.evaluations()}`,
-          )
-        }
-
-        const evaluationCost = costFromLedgerSummary(
-          costLedger.summary({
-            phase: 'gepa.external-evaluation',
-            tags: runBudget.runTags,
-          }),
-        )
-        const optimizerSummary = costLedger.summary({
-          phase: 'gepa.optimizer-model',
-          tags: runBudget.runTags,
-        })
-        const optimizerReceipts = costLedger.list({
-          phase: 'gepa.optimizer-model',
-          tags: runBudget.runTags,
-        })
-        const optimizerCost = costFromLedgerSummary(optimizerSummary)
-        const reportedProposerCost = result.proposerCostUsd ?? 0
-        if (modelProxy) {
-          assertExternalOptimizerCompletionCount(
-            result.tokenUsage,
-            modelProxy.requestAttempts(),
-            modelProxy.successfulCompletions(),
-            name,
-            'GEPA',
-          )
-        }
-        const tokenUsage = modelProxy
-          ? optimizationTokenUsageFromSummary(optimizerSummary, optimizerReceipts)
-          : undefined
-        const runtime = observedExternalOptimizerRuntime(runtimeIdentity)
-        return {
-          winnerSurface: decodeExternalTextCandidate(result.bestCandidate),
-          cost: modelProxy
-            ? {
-                totalCostUsd: evaluationCost.totalCostUsd + optimizerCost.totalCostUsd,
-                accountingComplete:
-                  evaluationCost.accountingComplete && optimizerCost.accountingComplete,
-                incompleteReasons: [
-                  ...evaluationCost.incompleteReasons.map((reason) => `evaluation: ${reason}`),
-                  ...optimizerCost.incompleteReasons.map((reason) => `optimizer model: ${reason}`),
-                ],
-              }
-            : {
-                totalCostUsd: evaluationCost.totalCostUsd + reportedProposerCost,
-                accountingComplete: false,
-                incompleteReasons: [
-                  ...evaluationCost.incompleteReasons,
-                  result.proposerCostAccounting === 'reported'
-                    ? 'GEPA proposer cost is externally reported and has no agent-eval receipt'
-                    : 'GEPA proposer cost is unavailable',
-                  ...(result.resumed
-                    ? ['GEPA proposer cost before this resumed attempt is unavailable']
-                    : []),
-                ],
-              },
-          durationMs: Date.now() - started,
-          provenance: {
-            ...runtime,
-            compatibleRunId,
-            runId,
-            resumed: result.resumed,
-            evaluationCount: runBudget.acceptedEvaluations(),
-            artifactDir: outputDir,
-            ...(tokenUsage ? { tokenUsage } : {}),
-          },
-        }
-      } finally {
-        await closeResources()
+          evaluationCount: runBudget.acceptedEvaluations(),
+          artifactDir: outputDir,
+          ...(tokenUsage ? { tokenUsage } : {}),
+        },
       }
     },
   }

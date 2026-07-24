@@ -378,6 +378,8 @@ Run it in a separate Python environment from the general GEPA bridge, which uses
 Both official methods default to `resume: 'never'`.
 Use `resume: 'if-compatible'` to restore matching SkillOpt state or a matching direct GEPA engine.
 Use `resume: 'required'` when missing or incompatible state should fail.
+Direct GEPA resume also requires `trustResumeState: true` because upstream checkpoints use Python pickle.
+Set it only for checkpoints created locally in a directory you control.
 Composed GEPA recipes restart and never report that official state was restored.
 
 A match includes:
