@@ -278,16 +278,19 @@ describe('analyzeTraces', () => {
     ['maxDepth', 2, 'maxSubqueries'],
     ['maxParallelSubagents', 3, 'maxParallelSubqueries'],
     ['subagentDescription', 'old prompt', 'actorDescription'],
-  ])('rejects removed option %s instead of silently using defaults', async (name, value, replacement) => {
-    await expect(
-      analyzeTraces({ question: 'What failed?' }, {
-        source: minimalStore(),
-        ai: { provider: 'test' } as unknown as AxAIService,
-        [name]: value,
-      } as never),
-    ).rejects.toThrow(`'${name}' is unsupported; use '${replacement}'`)
-    expect(axMock.agentCalls).toHaveLength(0)
-  })
+  ])(
+    'rejects removed option %s instead of silently using defaults',
+    async (name, value, replacement) => {
+      await expect(
+        analyzeTraces({ question: 'What failed?' }, {
+          source: minimalStore(),
+          ai: { provider: 'test' } as unknown as AxAIService,
+          [name]: value,
+        } as never),
+      ).rejects.toThrow(`'${name}' is unsupported; use '${replacement}'`)
+      expect(axMock.agentCalls).toHaveLength(0)
+    },
+  )
 })
 
 function minimalStore(): TraceAnalysisStore {

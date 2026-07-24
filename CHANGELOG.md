@@ -4,6 +4,13 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ---
 
+## [0.126.7] - 2026-07-24 - dependency security refresh
+
+### Changed
+
+- Updated Ax, Hono, Zod, OpenAPI, Biome, Node types, lint-staged, and Vitest to their current compatible releases.
+- Pinned patched Vite, esbuild, PostCSS, and WebSocket transitive versions; the npm dependency audit now reports zero known vulnerabilities.
+
 ## [0.126.6] - 2026-07-24 - optimizer model provenance
 
 ### Added

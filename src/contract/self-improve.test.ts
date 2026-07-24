@@ -545,22 +545,20 @@ describe('selfImprove — run-wide spend account', () => {
     expect(accounted.receipts).toHaveLength(1)
   })
 
-  it.each([
-    -1,
-    Number.NaN,
-    Number.POSITIVE_INFINITY,
-    Number.NEGATIVE_INFINITY,
-  ])('rejects invalid dollar budgets before dispatch: %s', async (dollars) => {
-    let calls = 0
-    await expect(
-      selfImprove({
-        ...spendBase,
-        agent: paidAgent(0, () => calls++),
-        budget: { ...spendBase.budget, dollars },
-      }),
-    ).rejects.toThrow(/costCeilingUsd/)
-    expect(calls).toBe(0)
-  })
+  it.each([-1, Number.NaN, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY])(
+    'rejects invalid dollar budgets before dispatch: %s',
+    async (dollars) => {
+      let calls = 0
+      await expect(
+        selfImprove({
+          ...spendBase,
+          agent: paidAgent(0, () => calls++),
+          budget: { ...spendBase.budget, dollars },
+        }),
+      ).rejects.toThrow(/costCeilingUsd/)
+      expect(calls).toBe(0)
+    },
+  )
 })
 
 describe('selfImprove — premeasured baseline passthrough', () => {
