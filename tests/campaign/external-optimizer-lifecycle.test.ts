@@ -38,6 +38,40 @@ describe('external optimizer server lifecycle', () => {
     expect(activeEvaluations).toBe(0)
   })
 
+  it('closes the callback and aborts active evaluation work with the owner signal', async () => {
+    const owner = new AbortController()
+    const started = deferred<void>()
+    let evaluationAborted = false
+    const callback = await startExternalOptimizerCallback({
+      token: 'secret',
+      maxEvaluations: 1,
+      signal: owner.signal,
+      evaluate: async (_request, signal) =>
+        await new Promise<never>((_resolve, reject) => {
+          started.resolve()
+          signal.addEventListener(
+            'abort',
+            () => {
+              evaluationAborted = true
+              reject(signal.reason)
+            },
+            { once: true },
+          )
+        }),
+    })
+    const request = settled(postEvaluation(callback.url, callback.token))
+    await started.promise
+    const abortedAt = performance.now()
+
+    owner.abort(new Error('stop callback'))
+    await callback.close()
+    await request
+
+    expect(performance.now() - abortedAt).toBeLessThan(1_000)
+    expect(evaluationAborted).toBe(true)
+    expect(await postStatus(callback.url, callback.token)).toBe(0)
+  })
+
   it('waits for provider completion and cost settlement after aborting a request', async () => {
     const provider = deferred<void>()
     const started = deferred<void>()
@@ -123,6 +157,49 @@ describe('external optimizer server lifecycle', () => {
     } finally {
       await proxy.close()
     }
+  })
+
+  it('closes the model proxy and aborts provider work with the owner signal', async () => {
+    const owner = new AbortController()
+    const started = deferred<void>()
+    const ledger = new CostLedger()
+    let providerAborted = false
+    const proxy = await startExternalOptimizerModelProxy({
+      upstreamBaseUrl: 'https://provider.example/v1',
+      upstreamApiKey: 'provider-secret',
+      model: 'model-a',
+      budget: modelBudget(),
+      costLedger: ledger,
+      phase: 'optimizer',
+      actor: 'official-library',
+      signal: owner.signal,
+      fetchImpl: async (_input, init) =>
+        await new Promise<Response>((_resolve, reject) => {
+          const signal = init?.signal
+          if (!signal) throw new Error('provider signal missing')
+          started.resolve()
+          signal.addEventListener(
+            'abort',
+            () => {
+              providerAborted = true
+              reject(signal.reason)
+            },
+            { once: true },
+          )
+        }),
+    })
+    const request = settled(postModel(proxy, validModelRequest()))
+    await started.promise
+    const abortedAt = performance.now()
+
+    owner.abort(new Error('stop model proxy'))
+    await proxy.close()
+    await request
+
+    expect(performance.now() - abortedAt).toBeLessThan(1_000)
+    expect(providerAborted).toBe(true)
+    expect(ledger.summary().pendingCalls).toBe(0)
+    expect(await postModelStatus(proxy, validModelRequest())).toBe(0)
   })
 })
 

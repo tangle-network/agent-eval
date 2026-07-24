@@ -80,8 +80,7 @@ const OPTIMIZATION_CONCURRENCY = positiveIntegerEnv('OPTIMIZATION_CONCURRENCY', 
 const TASK_CONCURRENCY = positiveIntegerEnv('TASK_CONCURRENCY', 2)
 const REPS = positiveIntegerEnv('REPS', 1)
 const MAX_SMOKE_COST_USD = positiveNumberEnv('MAX_SMOKE_COST_USD', 2)
-const MAX_OPTIMIZATION_COST_USD = positiveNumberEnv('MAX_OPTIMIZATION_COST_USD', 10)
-const MAX_TEST_COST_USD = positiveNumberEnv('MAX_TEST_COST_USD', 5)
+const MAX_RUN_COST_USD = positiveNumberEnv('MAX_RUN_COST_USD', 25)
 const SMOKE = process.env.SMOKE === '1'
 const SEED = 42
 const RESAMPLES = 4_000
@@ -285,12 +284,12 @@ async function main() {
 
   const gepaModelBudget = optimizerModelBudgetFromEnv(
     'GEPA',
-    MAX_OPTIMIZATION_COST_USD,
+    MAX_RUN_COST_USD,
     CUSTOM_TOKEN_PRICING,
   )
   const skillOptModelBudget = optimizerModelBudgetFromEnv(
     'SKILLOPT',
-    MAX_OPTIMIZATION_COST_USD,
+    MAX_RUN_COST_USD,
     CUSTOM_TOKEN_PRICING,
   )
   const runner = {
@@ -365,12 +364,11 @@ async function main() {
     optimizationConcurrency: OPTIMIZATION_CONCURRENCY,
     maxConcurrency: TASK_CONCURRENCY,
     optimizationRunOptions: {
-      costCeiling: MAX_OPTIMIZATION_COST_USD,
       dispatchTimeoutMs: CALL_TIMEOUT_MS,
       maxConcurrency: TASK_CONCURRENCY,
       expectUsage: 'assert',
     },
-    costCeiling: MAX_TEST_COST_USD,
+    costCeiling: MAX_RUN_COST_USD,
     dispatchTimeoutMs: CALL_TIMEOUT_MS,
     expectUsage: 'assert',
   })
@@ -418,8 +416,7 @@ async function main() {
         coreEvaluations: SKILLOPT_CORE_EVALUATIONS,
       },
       smokeCostUsd: MAX_SMOKE_COST_USD,
-      workerAndJudgeOptimizationCostUsd: MAX_OPTIMIZATION_COST_USD,
-      finalCostUsd: MAX_TEST_COST_USD,
+      allRunCostUsd: MAX_RUN_COST_USD,
       worker: {
         requestTimeoutMs: CALL_TIMEOUT_MS,
         maxOutputTokens: WORKER_MAX_TOKENS,

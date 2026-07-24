@@ -29,6 +29,7 @@ export async function runExternalOptimizerProcess<TOutput>(args: {
   input: unknown
   runner?: ExternalOptimizerRunnerCommand
   timeoutMs: number
+  signal?: AbortSignal
 }): Promise<TOutput> {
   if (
     !Number.isSafeInteger(args.timeoutMs) ||
@@ -42,6 +43,7 @@ export async function runExternalOptimizerProcess<TOutput>(args: {
       `${args.label} requires POSIX process-group cleanup; run the optimizer through WSL or Linux`,
     )
   }
+  throwIfAborted(args.signal, args.label)
   const dir = await mkdtemp(join(tmpdir(), args.tempPrefix))
   const inputPath = join(dir, 'input.json')
   const outputPath = join(dir, 'output.json')
@@ -75,10 +77,13 @@ export async function runExternalOptimizerProcess<TOutput>(args: {
         cwd: dir,
         env: args.runner?.env,
         timeoutMs: args.timeoutMs,
+        signal: args.signal,
       })
+      throwIfAborted(args.signal, args.label)
       const raw = JSON.parse(
         await readBoundedTextFile(outputPath, MAX_PROCESS_RESULT_BYTES, `${args.label} output`),
       ) as unknown
+      throwIfAborted(args.signal, args.label)
       if (!isRecord(raw)) throw new Error(`${args.label} output must be a JSON object`)
       return raw as TOutput
     },
@@ -114,7 +119,9 @@ function runProcess(args: {
   cwd: string | undefined
   env: NodeJS.ProcessEnv | undefined
   timeoutMs: number
+  signal: AbortSignal | undefined
 }): Promise<void> {
+  throwIfAborted(args.signal, args.label)
   return new Promise((resolvePromise, reject) => {
     const child = spawn(args.command, args.args, {
       cwd: args.cwd,
@@ -127,10 +134,12 @@ function runProcess(args: {
     const stderr = createProcessOutputCapture()
     let settled = false
     let timeout: NodeJS.Timeout | undefined
+    const onAbort = () => finish(abortReason(args.signal!, args.label))
     const finish = (error?: Error) => {
       if (settled) return
       settled = true
       if (timeout) clearTimeout(timeout)
+      args.signal?.removeEventListener('abort', onAbort)
       void terminateProcessTree(child).then(
         () => {
           if (error) reject(error)
@@ -159,6 +168,8 @@ function runProcess(args: {
     timeout = setTimeout(() => {
       finish(new Error(`${args.label} exceeded ${args.timeoutMs}ms`))
     }, args.timeoutMs)
+    args.signal?.addEventListener('abort', onAbort, { once: true })
+    if (args.signal?.aborted) onAbort()
     child.stdout.on('data', (chunk: Buffer) => {
       appendProcessOutput(stdout, chunk)
     })
@@ -180,6 +191,16 @@ function runProcess(args: {
       )
     })
   })
+}
+
+function throwIfAborted(signal: AbortSignal | undefined, label: string): void {
+  if (signal?.aborted) throw abortReason(signal, label)
+}
+
+function abortReason(signal: AbortSignal, label: string): Error {
+  return signal.reason instanceof Error
+    ? signal.reason
+    : new Error(`${label} aborted`, { cause: signal.reason })
 }
 
 function safeProcessEnvironment(): NodeJS.ProcessEnv {

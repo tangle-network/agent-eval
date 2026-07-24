@@ -324,6 +324,17 @@ function fakeSkillOptRunner(observedInputPath: string, resumeMarker?: string) {
     '  fs.writeFileSync(outputPath, JSON.stringify({ runtime }))',
     '  process.exit(0)',
     '}',
+    `const expectedModelEnv = ${JSON.stringify({
+      OPENAI_COMPATIBLE_MODEL: 'model',
+      OPENAI_COMPATIBLE_MAX_TOKENS: '100',
+      OPTIMIZER_OPENAI_COMPATIBLE_MODEL: 'model',
+      OPTIMIZER_OPENAI_COMPATIBLE_MAX_TOKENS: '100',
+      TARGET_OPENAI_COMPATIBLE_MODEL: 'model',
+      TARGET_OPENAI_COMPATIBLE_MAX_TOKENS: '100',
+    })}`,
+    'for (const [key, value] of Object.entries(expectedModelEnv)) {',
+    '  if (process.env[key] !== value) throw new Error("missing automatic SkillOpt environment " + key)',
+    '}',
     `fs.writeFileSync(${JSON.stringify(observedInputPath)}, JSON.stringify(input))`,
     ...(resumeMarker
       ? [
@@ -335,7 +346,7 @@ function fakeSkillOptRunner(observedInputPath: string, resumeMarker?: string) {
     '  const completionResponse = await fetch(process.env.OPENAI_COMPATIBLE_BASE_URL + "/chat/completions", {',
     '    method: "POST",',
     '    headers: { authorization: "Bearer " + process.env.OPENAI_COMPATIBLE_API_KEY, "content-type": "application/json" },',
-    '    body: JSON.stringify({ model: "model", messages: [{ role: "user", content: "improve" }], max_tokens: 20 }),',
+    '    body: JSON.stringify({ model: process.env.OPTIMIZER_OPENAI_COMPATIBLE_MODEL, messages: [{ role: "user", content: "improve" }], max_tokens: Number(process.env.OPTIMIZER_OPENAI_COMPATIBLE_MAX_TOKENS) }),',
     '  })',
     '  if (!completionResponse.ok) throw new Error("model failed: " + completionResponse.status + " " + await completionResponse.text())',
     '  const completion = await completionResponse.json()',

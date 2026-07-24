@@ -42,8 +42,10 @@ export async function startExternalOptimizerModelProxy(args: {
     costUsd: number
   }
   fetchImpl?: typeof fetch
+  signal?: AbortSignal
 }): Promise<ExternalOptimizerModelProxy> {
   assertModelProxyConfig(args)
+  args.signal?.throwIfAborted()
   const token = randomLocalToken()
   const fetchImpl = args.fetchImpl ?? fetch
   let requestCount = 0
@@ -65,6 +67,7 @@ export async function startExternalOptimizerModelProxy(args: {
     const controller = new AbortController()
     const abortRequest = (): void => {
       request.destroy()
+      response.destroy()
     }
     activeControllers.add(controller)
     controller.signal.addEventListener('abort', abortRequest, { once: true })
@@ -108,18 +111,25 @@ export async function startExternalOptimizerModelProxy(args: {
     void handler.catch(() => undefined)
   })
   const port = await listenLocal(server)
+  const close = (): Promise<void> => {
+    closePromise ??= closeModelProxy()
+    return closePromise
+  }
+  const onAbort = (): void => {
+    void close().catch(() => undefined)
+  }
+  args.signal?.addEventListener('abort', onAbort, { once: true })
+  if (args.signal?.aborted) onAbort()
   return {
     baseUrl: `http://127.0.0.1:${port}/v1`,
     apiKey: token,
     requestAttempts: () => requestCount,
     successfulCompletions: () => successfulCompletionCount,
-    close: () => {
-      closePromise ??= closeModelProxy()
-      return closePromise
-    },
+    close,
   }
 
   async function closeModelProxy(): Promise<void> {
+    args.signal?.removeEventListener('abort', onAbort)
     accepting = false
     const closingServer = closeServer(server)
     server.closeIdleConnections?.()

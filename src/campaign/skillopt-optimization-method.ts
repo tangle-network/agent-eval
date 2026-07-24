@@ -114,6 +114,8 @@ export function skillOptOptimizationMethod<TScenario extends Scenario, TArtifact
   return {
     name,
     async optimize(input) {
+      const signal = input.runOptions.signal
+      signal?.throwIfAborted()
       if (typeof input.baselineSurface !== 'string') {
         throw new Error(`${name}: SkillOpt requires a string baselineSurface`)
       }
@@ -139,6 +141,7 @@ export function skillOptOptimizationMethod<TScenario extends Scenario, TArtifact
         module: 'agent_eval_rpc.skillopt_bridge',
         ...(bridgeRunner ? { runner: bridgeRunner } : {}),
         timeoutMs: config.timeoutMs ?? SKILLOPT_DEFAULT_TIMEOUT_MS,
+        ...(signal ? { signal } : {}),
       })
       const trainSet = input.trainScenarios.map((scenario) =>
         describeExternalScenario(scenario, 'SkillOpt', maxEvidenceChars, config.describeScenario),
@@ -205,6 +208,7 @@ export function skillOptOptimizationMethod<TScenario extends Scenario, TArtifact
         maxEvaluations: config.maxEvaluations,
         acceptEvaluation: () => runBudget.acceptEvaluation(),
         evaluate,
+        ...(signal ? { signal } : {}),
       })
       const runnerEnv = bridgeRunner?.env ?? {}
       let activeModelProxy: ExternalOptimizerModelProxy | undefined
@@ -235,6 +239,7 @@ export function skillOptOptimizationMethod<TScenario extends Scenario, TArtifact
               requests: priorOptimizerUsage.totalCalls,
               costUsd: priorOptimizerUsage.totalCostUsd,
             },
+            ...(signal ? { signal } : {}),
           })
           activeModelProxy = modelProxy
           const outputDir = `${runDir}/external`
@@ -277,14 +282,28 @@ export function skillOptOptimizationMethod<TScenario extends Scenario, TArtifact
                 OPTIMIZER_OPENAI_COMPATIBLE_API_KEY: modelProxy.apiKey,
                 TARGET_OPENAI_COMPATIBLE_BASE_URL: modelProxy.baseUrl,
                 TARGET_OPENAI_COMPATIBLE_API_KEY: modelProxy.apiKey,
+                OPENAI_COMPATIBLE_MODEL: config.optimizer.model,
+                OPENAI_COMPATIBLE_MAX_TOKENS: String(
+                  config.optimizer.budget.maxOutputTokensPerRequest,
+                ),
+                OPTIMIZER_OPENAI_COMPATIBLE_MODEL: config.optimizer.model,
+                OPTIMIZER_OPENAI_COMPATIBLE_MAX_TOKENS: String(
+                  config.optimizer.budget.maxOutputTokensPerRequest,
+                ),
+                TARGET_OPENAI_COMPATIBLE_MODEL: config.optimizer.model,
+                TARGET_OPENAI_COMPATIBLE_MAX_TOKENS: String(
+                  config.optimizer.budget.maxOutputTokensPerRequest,
+                ),
               },
             },
             timeoutMs: config.timeoutMs ?? SKILLOPT_DEFAULT_TIMEOUT_MS,
+            ...(signal ? { signal } : {}),
           })
           return { result, outputDir, modelProxy }
         },
         cleanup: closeResources,
       })
+      signal?.throwIfAborted()
       assertSkillOptBridgeOutput(result, name, maxCandidateChars, config.maxEvaluations)
       assertExternalOptimizerRunBinding({
         label: name,

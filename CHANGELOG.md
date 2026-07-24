@@ -6,6 +6,20 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ## [Unreleased]
 
+## [0.126.1] - 2026-07-24 - optimizer lifecycle integrity
+
+### Changed
+
+- `compareOptimizationMethods()` uses one caller-visible spend limit across optimizer models, train and selection evaluation, and final scoring.
+- Candidate surfaces are detached before every optimizer and scoring callback.
+- SkillOpt receives complete non-secret model settings automatically while provider credentials remain in the local Node proxy.
+
+### Fixed
+
+- Aborting a comparison now stops official optimizer subprocess groups, callback work, and model proxy requests.
+- Resumed final scoring retains the original cost identity and reports cumulative spend instead of resetting cached calls to zero.
+- Model-backed GEPA fails before search when the full upstream dependency set is missing instead of silently returning the baseline after swallowed reflection errors.
+
 ## [0.126.0] - 2026-07-24 - official optimizer engines
 
 ### Added
