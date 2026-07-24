@@ -175,7 +175,12 @@ export {
 export {
   type CandidateExperimentExecutionInput,
   type CompareCandidateExperimentOptions,
+  type EvaluatePairedMeasurementsOptions,
+  evaluatePairedMeasurements,
   measuredComparisonFromCandidateExperiment,
+  type PairedMeasurement,
+  type PairedMeasurementAdapter,
+  type PairedMeasurementEvaluation,
   type RunCandidateExperimentOptions,
   runCandidateExperiment,
   type SealCandidateBenchmarkSuiteOptions,

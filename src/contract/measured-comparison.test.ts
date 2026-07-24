@@ -11,6 +11,7 @@ import type {
 import { canonicalCandidateDigest } from '@tangle-network/agent-interface'
 import { describe, expect, it } from 'vitest'
 import {
+  evaluatePairedMeasurements,
   measuredComparisonFromCandidateExperiment,
   runCandidateExperiment,
   sealCandidateBenchmarkSuite,
@@ -399,7 +400,187 @@ function neverOutput(): never {
   throw new Error('fixture task must use an output contract')
 }
 
+interface PlatformProfileRun {
+  score: number
+  dimensions: Array<{ name: string; score: number }>
+  costUsd: number
+  latencyMs: number
+  completed: boolean
+  passed: boolean
+}
+
+function profileMeasurements(): Array<{
+  cellId: string
+  baseline: PlatformProfileRun
+  candidate: PlatformProfileRun
+}> {
+  return [0, 1, 2].map((index) => {
+    const baseline = 0.2 + index * 0.05
+    const candidate = baseline + 0.5
+    const run = (score: number): PlatformProfileRun => ({
+      score,
+      dimensions: [{ name: 'reliability', score }],
+      costUsd: 0.01,
+      latencyMs: 100,
+      completed: true,
+      passed: true,
+    })
+    return {
+      cellId: `platform-case:${index}`,
+      baseline: run(baseline),
+      candidate: run(candidate),
+    }
+  })
+}
+
+const profileRunAdapter = {
+  score: (run: PlatformProfileRun) => run.score,
+  dimensions: (run: PlatformProfileRun) => run.dimensions,
+  costUsd: (run: PlatformProfileRun) => run.costUsd,
+  latencyMs: (run: PlatformProfileRun) => run.latencyMs,
+  completed: (run: PlatformProfileRun) => run.completed,
+  passed: (run: PlatformProfileRun) => run.passed,
+}
+
 describe('candidate experiment comparison', () => {
+  it('evaluates ordinary profile receipts through the same paired decision path', () => {
+    const policy = experiment().policy
+    const measurements = profileMeasurements()
+
+    const result = evaluatePairedMeasurements({
+      measurements,
+      policy,
+      adapter: profileRunAdapter,
+      sharedScorerChannel: true,
+      additionalCostUsd: 0.25,
+    })
+
+    expect(result.overall).toMatchObject({ baseline: 0.25, candidate: 0.75, delta: 0.5, n: 3 })
+    expect(result.decision.outcome).toBe('ship')
+    expect(result.executionCostUsd).toBeCloseTo(0.06)
+    expect(result.totalCostUsd).toBeCloseTo(0.31)
+    expect(result.executionDurationMs).toBe(600)
+    expect(() =>
+      evaluatePairedMeasurements({
+        measurements: [measurements[0]!, measurements[0]!],
+        policy,
+        adapter: profileRunAdapter,
+        sharedScorerChannel: true,
+      }),
+    ).toThrow(/cell ids must be unique/)
+    expect(() =>
+      evaluatePairedMeasurements({
+        measurements,
+        policy: { ...policy, resamples: 0 } as unknown as typeof policy,
+        adapter: profileRunAdapter,
+        sharedScorerChannel: true,
+      }),
+    ).toThrow(/resamples/)
+  })
+
+  it.each([
+    {
+      label: 'an empty matrix',
+      input: () => ({ measurements: [] as ReturnType<typeof profileMeasurements> }),
+      error: /requires at least one paired cell/,
+    },
+    {
+      label: 'negative additional cost',
+      input: () => ({ additionalCostUsd: -0.01 }),
+      error: /additionalCostUsd must be a non-negative number/,
+    },
+    {
+      label: 'a non-boolean scorer-channel declaration',
+      input: () => ({ sharedScorerChannel: 'shared' as never }),
+      error: /sharedScorerChannel must be a boolean/,
+    },
+    {
+      label: 'a blank cell id',
+      input: () => ({
+        measurements: [
+          { ...profileMeasurements()[0]!, cellId: '' },
+          ...profileMeasurements().slice(1),
+        ],
+      }),
+      error: /requires a cell id/,
+    },
+    {
+      label: 'a non-finite score',
+      input: () => ({ adapter: { ...profileRunAdapter, score: () => Number.NaN } }),
+      error: /score must be finite/,
+    },
+    {
+      label: 'non-array dimensions',
+      input: () => ({
+        adapter: { ...profileRunAdapter, dimensions: () => 'reliability' as never },
+      }),
+      error: /dimensions must be an array/,
+    },
+    {
+      label: 'an unnamed dimension',
+      input: () => ({
+        adapter: { ...profileRunAdapter, dimensions: () => [{ name: '', score: 0.5 }] },
+      }),
+      error: /contains an unnamed dimension/,
+    },
+    {
+      label: 'a repeated dimension',
+      input: () => ({
+        adapter: {
+          ...profileRunAdapter,
+          dimensions: () => [
+            { name: 'reliability', score: 0.5 },
+            { name: 'reliability', score: 0.5 },
+          ],
+        },
+      }),
+      error: /repeats dimension 'reliability'/,
+    },
+    {
+      label: 'different arm dimensions',
+      input: () => ({
+        measurements: profileMeasurements().map((measurement, index) =>
+          index === 0
+            ? {
+                ...measurement,
+                candidate: {
+                  ...measurement.candidate,
+                  dimensions: [{ name: 'different', score: measurement.candidate.score }],
+                },
+              }
+            : measurement,
+        ),
+      }),
+      error: /dimensions do not match the suite/,
+    },
+    {
+      label: 'negative run cost',
+      input: () => ({ adapter: { ...profileRunAdapter, costUsd: () => -0.01 } }),
+      error: /cost must be non-negative/,
+    },
+    {
+      label: 'negative run latency',
+      input: () => ({ adapter: { ...profileRunAdapter, latencyMs: () => -1 } }),
+      error: /latency must be non-negative/,
+    },
+    {
+      label: 'non-boolean completion',
+      input: () => ({ adapter: { ...profileRunAdapter, completed: () => 'yes' as never } }),
+      error: /completion and pass values must be booleans/,
+    },
+  ])('rejects $label from generic receipt adapters', ({ input, error }) => {
+    const policy = experiment().policy
+    expect(() =>
+      evaluatePairedMeasurements({
+        measurements: profileMeasurements(),
+        policy,
+        adapter: profileRunAdapter,
+        sharedScorerChannel: false,
+        ...input(),
+      }),
+    ).toThrow(error)
+  })
+
   it('rejects an experiment whose candidate is identical to its baseline', () => {
     const frozen = experiment()
     const { digest: _digest, ...material } = frozen
@@ -460,6 +641,9 @@ describe('candidate experiment comparison', () => {
     })
     expect(comparison.evaluation.executionCostUsd).toBeCloseTo(0.06)
     expect(comparison.evaluation.totalCostUsd).toBeCloseTo(0.31)
+    expect(canonicalCandidateDigest(comparison)).toBe(
+      'sha256:a75abc57ab4ab7c02bd384a29be1771c93ae921d73411ae6b485b6973cf2f3d5',
+    )
     expect(comparison.objectives).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ kind: 'cost', baseline: 0.01, candidate: 0.01 }),
