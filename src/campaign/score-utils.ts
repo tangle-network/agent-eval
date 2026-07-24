@@ -28,6 +28,24 @@ export function campaignMeanComposite<TArtifact, TScenario extends Scenario>(
   return composites.length === 0 ? 0 : composites.reduce((a, b) => a + b, 0) / composites.length
 }
 
+/** Compare two lexicographic rank keys where EACH element is higher-is-better.
+ *  Returns a positive number when `a` ranks ABOVE `b`, negative when below, 0
+ *  when equal. First differing element decides; equal prefixes fall through to
+ *  the next element, then to key length (a longer, more-specific key ranks
+ *  above a shorter one that agrees on the shared prefix). Callers that select a
+ *  winner by a fail-closed metric (`runOptimization`'s `selectionRankKey`) use
+ *  this so selection and a downstream ship-gate rank on the identical key and
+ *  cannot invert on a flaky per-cell mean. */
+export function compareRankKeys(a: readonly number[], b: readonly number[]): number {
+  const n = Math.min(a.length, b.length)
+  for (let i = 0; i < n; i++) {
+    const av = a[i] ?? 0
+    const bv = b[i] ?? 0
+    if (av !== bv) return av - bv
+  }
+  return a.length - b.length
+}
+
 export interface CampaignBreakdown {
   /** Mean score per judge dimension across all cells. */
   dimensions: Record<string, number>

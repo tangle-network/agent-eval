@@ -265,7 +265,12 @@ export {
   scoreDiscrimination,
   selectDiscriminative,
 } from './scenario-selection'
-export { type CampaignBreakdown, campaignBreakdown, campaignMeanComposite } from './score-utils'
+export {
+  type CampaignBreakdown,
+  campaignBreakdown,
+  campaignMeanComposite,
+  compareRankKeys,
+} from './score-utils'
 // ── Durable improvement-search audit log ────────────────────────────
 export {
   FileSearchLedger,
