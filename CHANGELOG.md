@@ -50,6 +50,18 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 - `runSkillOpt({ holdoutScenarios })` fails closed because those rows are adaptively reused.
   Pass `selectionScenarios`; selection result fields now use `Selection` instead of `Holdout`, and `lift` is now `selectionLift`.
 
+## [0.125.0] — 2026-07-24 — Claude Code supervision reader and path-bound policy edits
+
+### Added
+
+- `claudeCodeSupervisorRunReader()` reads Claude Code root and subagent transcripts into the existing supervision-tree report and rollout formats, while declaring source limits instead of fabricating unavailable spend, verdict, or deliverable data.
+- `llmPolicyEditProposer({ valueSchemaByJsonPath })` binds each allowed edit path to an exact JSON Schema in both the provider response contract and local admission.
+
+### Fixed
+
+- Deduplicate repeated Claude Code worker cancellation events and preserve available worker cache-token counts.
+- Reject policy-edit values that do not match their target path before a candidate can enter a campaign.
+
 ## [0.124.0] — 2026-07-24 — rollout and supervisor-run subpaths
 
 ### Added
