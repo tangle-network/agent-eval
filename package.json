@@ -119,6 +119,11 @@
       "import": "./dist/rollout/index.js",
       "default": "./dist/rollout/index.js"
     },
+    "./supervisor-run": {
+      "types": "./dist/supervisor-run/index.d.ts",
+      "import": "./dist/supervisor-run/index.js",
+      "default": "./dist/supervisor-run/index.js"
+    },
     "./hosted": {
       "types": "./dist/hosted/index.d.ts",
       "import": "./dist/hosted/index.js",

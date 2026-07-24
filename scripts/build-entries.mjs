@@ -20,6 +20,7 @@ export const buildEntries = {
   'belief-state/index': 'src/belief-state/index.ts',
   'contract/index': 'src/contract/index.ts',
   'rollout/index': 'src/rollout/index.ts',
+  'supervisor-run/index': 'src/supervisor-run/index.ts',
   'hosted/index': 'src/hosted/index.ts',
   cli: 'src/cli.ts',
 }
