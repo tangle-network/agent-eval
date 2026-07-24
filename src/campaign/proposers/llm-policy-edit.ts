@@ -404,6 +404,8 @@ export interface LlmPolicyEditProposerOptions {
   maxCandidates?: number
   temperature?: number
   maxTokens?: number
+  /** Provider reasoning mode for each policy-authoring call. Omitted to preserve the provider default. */
+  thinking?: LlmCallRequest['thinking']
   timeoutMs?: number
   /** Number of most recent scored generations sent to the author. Default: 4. */
   maxHistoryGenerations?: number
@@ -568,6 +570,7 @@ export function llmPolicyEditProposer(
         },
         temperature: opts.temperature ?? 0.2,
         maxTokens: opts.maxTokens ?? 6_000,
+        thinking: opts.thinking,
         timeoutMs: opts.timeoutMs,
       }
       const paid = await (ctx.costLedger ?? directCostLedger).runPaidCall({

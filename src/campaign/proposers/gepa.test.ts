@@ -36,11 +36,14 @@ describe('gepaProposer reflection evidence', () => {
     // Capture the reflection request through the llm-client's fetch seam
     // instead of module mocking — the same transport override real callers use.
     let userPrompt = ''
+    let thinking: unknown
     const fakeFetch: typeof fetch = async (_url, init) => {
       const body = JSON.parse(String(init?.body)) as {
         messages: Array<{ role: string; content: string }>
+        thinking?: unknown
       }
       userPrompt = body.messages.find((m) => m.role === 'user')?.content ?? ''
+      thinking = body.thinking
       return new Response(
         JSON.stringify({
           choices: [
@@ -62,6 +65,7 @@ describe('gepaProposer reflection evidence', () => {
       llm: { baseUrl: 'https://fake.test/v1', apiKey: 'test', fetch: fakeFetch },
       model: 'test-model',
       target: 'test surface',
+      thinking: 'disabled',
     })
     const ctx: ProposeContext = {
       currentSurface: 'base surface',
@@ -89,5 +93,6 @@ describe('gepaProposer reflection evidence', () => {
     expect(userPrompt).toContain(FAILURE_NOTE)
     expect(userPrompt).toContain('Track objective (contrarian)')
     expect(userPrompt).toContain('challenge assumptions with a distinct retrieval strategy')
+    expect(thinking).toEqual({ type: 'disabled' })
   })
 })

@@ -12,6 +12,7 @@ import {
   maximumChargeForLlmRequest,
   stripFencedJson,
 } from './llm-client'
+import { InMemoryRawProviderSink } from './trace/raw-provider-sink'
 
 describe('maximumChargeForLlmRequest', () => {
   it('bounds the exact text request and its enforced output limit', () => {
@@ -45,6 +46,29 @@ describe('maximumChargeForLlmRequest', () => {
 
     expect(plain && 'outputTokens' in plain ? plain.outputTokens : 0).toBe(800)
     expect(structured && 'outputTokens' in structured ? structured.outputTokens : 0).toBe(1_600)
+  })
+
+  it('prices the exact thinking mode across retries and schema fallback', () => {
+    const request = {
+      model: 'glm-5.2',
+      messages: [{ role: 'user' as const, content: 'hello' }],
+      jsonSchema: { name: 'answer', schema: { type: 'object' } },
+      maxTokens: 400,
+    }
+    const providerDefault = maximumChargeForLlmRequest(request, { maxRetries: 2 })
+    const requestDisabled = maximumChargeForLlmRequest(
+      { ...request, thinking: 'disabled' },
+      { maxRetries: 2 },
+    )
+    const clientDisabled = maximumChargeForLlmRequest(request, {
+      maxRetries: 2,
+      thinking: 'disabled',
+    })
+    const inputTokens = (maximum: typeof providerDefault): number =>
+      maximum && 'inputTokens' in maximum ? maximum.inputTokens : 0
+
+    expect(inputTokens(requestDisabled) - inputTokens(providerDefault)).toBe(124)
+    expect(inputTokens(clientDisabled)).toBe(inputTokens(requestDisabled))
   })
 
   it('uses caller-supplied prices for an unrecognized model', () => {
@@ -455,6 +479,73 @@ describe('llm-client — callLlm happy path', () => {
     const body = JSON.parse(String(call[1].body)) as Record<string, unknown>
     expect(body.max_tokens).toBe(64)
     expect(body.max_completion_tokens).toBeUndefined()
+  })
+
+  it('sends and captures a client-default thinking mode', async () => {
+    const sink = new InMemoryRawProviderSink()
+    const fetch = vi.fn(async () =>
+      mkOkResponse({ choices: [{ message: { content: '{"ok":true}' } }], usage: {} }),
+    )
+    await callLlm(
+      {
+        model: 'glm-5.2',
+        messages: [{ role: 'user', content: 'Return JSON.' }],
+        jsonMode: true,
+        maxTokens: 64,
+      },
+      {
+        fetch: fetch as unknown as typeof globalThis.fetch,
+        baseUrl: 'https://api.z.ai/api/coding/paas/v4',
+        rawSink: sink,
+        provider: 'zai-coding-plan',
+        traceContext: { runId: 'thinking-control', spanId: 'structured-output' },
+        thinking: 'disabled',
+      },
+    )
+
+    const call = (fetch.mock.calls[0] ?? []) as unknown as [string, RequestInit]
+    const outboundBody = JSON.parse(String(call[1].body)) as Record<string, unknown>
+    expect(outboundBody.thinking).toEqual({ type: 'disabled' })
+    const [request] = await sink.list({ direction: 'request' })
+    expect(request?.requestBody).toMatchObject({
+      model: 'glm-5.2',
+      thinking: { type: 'disabled' },
+    })
+  })
+
+  it('lets a per-call thinking mode override the client default', async () => {
+    const fetch = vi.fn(async () =>
+      mkOkResponse({ choices: [{ message: { content: '' } }], usage: {} }),
+    )
+    await callLlm(
+      {
+        model: 'glm-5.2',
+        messages: [{ role: 'user', content: 'x' }],
+        thinking: 'enabled',
+      },
+      {
+        fetch: fetch as unknown as typeof globalThis.fetch,
+        thinking: 'disabled',
+      },
+    )
+
+    const call = (fetch.mock.calls[0] ?? []) as unknown as [string, RequestInit]
+    const body = JSON.parse(String(call[1].body)) as Record<string, unknown>
+    expect(body.thinking).toEqual({ type: 'enabled' })
+  })
+
+  it('omits thinking when the caller leaves provider behavior unchanged', async () => {
+    const fetch = vi.fn(async () =>
+      mkOkResponse({ choices: [{ message: { content: '' } }], usage: {} }),
+    )
+    await callLlm(
+      { model: 'glm-5.2', messages: [{ role: 'user', content: 'x' }] },
+      { fetch: fetch as unknown as typeof globalThis.fetch },
+    )
+
+    const call = (fetch.mock.calls[0] ?? []) as unknown as [string, RequestInit]
+    const body = JSON.parse(String(call[1].body)) as Record<string, unknown>
+    expect(body.thinking).toBeUndefined()
   })
 
   it('supports custom authHeader over apiKey', async () => {

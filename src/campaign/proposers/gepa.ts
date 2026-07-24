@@ -108,6 +108,8 @@ export interface GepaProposerOptions {
   temperature?: number
   /** Reflection max tokens. Default 6000. */
   maxTokens?: number
+  /** Provider reasoning mode for each reflection call. Omitted to preserve the provider default. */
+  thinking?: LlmCallRequest['thinking']
   /** Structured-doc constraints. Candidates violating any are rejected
    *  post-parse and dropped from the returned population. */
   constraints?: GepaProposerConstraints
@@ -191,6 +193,7 @@ export function gepaProposer(opts: GepaProposerOptions): SurfaceProposer {
           jsonMode: true,
           temperature: opts.temperature ?? 0.7,
           maxTokens,
+          thinking: opts.thinking,
         }
         const paid = await costLedger.runPaidCall({
           channel: 'driver',
@@ -245,6 +248,7 @@ export function gepaProposer(opts: GepaProposerOptions): SurfaceProposer {
           jsonMode: true,
           temperature: opts.temperature ?? 0.7,
           maxTokens,
+          thinking: opts.thinking,
         }
         const paid = await costLedger.runPaidCall({
           channel: 'driver',
