@@ -872,6 +872,28 @@ describe('fromOtelSpans → analyzeRuns: OTel observability corpus', () => {
         ],
       }),
     ).toThrow(/tangle\.task\.failure_mode/)
+
+    expect(() =>
+      fromOtelSpans({
+        spans: [
+          {
+            ...root,
+            attributes: {
+              'openinference.span.kind': 'AGENT',
+              'tangle.task.failure_class': 'instruction_following',
+            },
+          },
+          {
+            ...root,
+            spanId: 'second-root',
+            attributes: {
+              'openinference.span.kind': 'AGENT',
+              'tangle.task.failure_class': 'reasoning_error',
+            },
+          },
+        ],
+      }),
+    ).toThrow(/conflicting tangle\.task\.failure_class/)
   })
 
   it('preserves a cost-only model call and an untyped run-total cost', () => {

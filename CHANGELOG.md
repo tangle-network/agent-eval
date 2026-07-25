@@ -8,8 +8,8 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ### Changed
 
-- OTel intake reads `tangle.task.failure_class` and `tangle.task.failure_mode` from the run root.
-- Invalid root failure classes fail loudly, and child-span labels cannot become task failures.
+- Both OTel run-record import paths read `tangle.task.failure_class` and `tangle.task.failure_mode` from process roots.
+- Invalid or conflicting root labels fail loudly, and child-span labels cannot become task failures.
 
 ## [0.127.0] - 2026-07-25 - explicit run evidence and truthful release checks
 

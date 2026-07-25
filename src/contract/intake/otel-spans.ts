@@ -12,6 +12,7 @@
  *   - `runId` (the group key)
  *   - `wallMs` from `endTimeUnixNano - startTimeUnixNano`
  *   - `model` from `gen_ai.request.model` / `llm.model` / `tangle.model`
+ *   - task failure class and detail from explicit `tangle.task.*` attributes
  *   - cost from `cost.usd` / `gen_ai.usage.cost_usd` / `tangle.cost.usd`
  *   - token usage from model-call input, output, cache-read, and cache-write
  *     attributes without double-counting aggregate parent spans
@@ -46,7 +47,7 @@ import {
   LLM_MODEL_ATTR_KEYS,
   SPAN_KIND_ATTR_KEYS,
 } from '../../trace/otlp-attributes'
-import { FAILURE_CLASSES, type FailureClass } from '../../trace/schema'
+import { readTaskFailureLabels } from '../../trace/task-failure-attributes'
 
 const TASK_SCORE_ATTR_KEYS = [
   'gen_ai.evaluation.score.value',
@@ -57,8 +58,6 @@ const TASK_SCORE_ATTR_KEYS = [
 const MODEL_KEYS = ['tangle.model', ...LLM_MODEL_ATTR_KEYS, 'model']
 const PROMPT_HASH_KEYS = ['tangle.prompt_hash', 'prompt.hash']
 const CONFIG_HASH_KEYS = ['tangle.config_hash', 'config.hash']
-const TASK_FAILURE_CLASS_ATTR = 'tangle.task.failure_class'
-const TASK_FAILURE_MODE_ATTR = 'tangle.task.failure_mode'
 
 export interface FromOtelSpansOptions {
   spans: TraceSpanEvent[]
@@ -106,8 +105,10 @@ export function fromOtelSpans(opts: FromOtelSpansOptions): RunRecord[] {
     const promptHash = readAttrString(groupSpans, PROMPT_HASH_KEYS) ?? 'sha256:unknown'
     const configHash = readAttrString(groupSpans, CONFIG_HASH_KEYS) ?? 'sha256:unknown'
     const score = resolveTaskScore(groupKey, groupSpans, opts.scoreForRun)
-    const failureClass = readTaskFailureClass(root)
-    const failureMode = readRootString(root, TASK_FAILURE_MODE_ATTR)
+    const taskFailure = readTaskFailureLabels(
+      groupSpans.filter((span) => !span.parentSpanId && isTerminalRootCandidate(span)),
+      `fromOtelSpans: run '${groupKey}'`,
+    )
 
     const rawNumeric = collectNumericAttrs(groupSpans)
     const errorSummary = summarizeTraceErrors(
@@ -179,8 +180,7 @@ export function fromOtelSpans(opts: FromOtelSpansOptions): RunRecord[] {
         ? { terminalFailureReason: failedRoot.status?.message ?? failedRoot.name }
         : {}),
       outcome,
-      ...(failureClass ? { failureClass } : {}),
-      ...(failureMode ? { failureMode } : {}),
+      ...taskFailure,
       splitTag: defaultSplit,
       scenarioId,
     })
@@ -266,26 +266,6 @@ function readAttrString(spans: TraceSpanEvent[], keys: string[]): string | undef
     }
   }
   return undefined
-}
-
-function readRootString(root: TraceSpanEvent, key: string): string | undefined {
-  const value = root.attributes[key]
-  if (value === undefined) return undefined
-  if (typeof value !== 'string' || value.trim().length === 0) {
-    throw new ValidationError(`fromOtelSpans: ${key} must be a non-empty string`)
-  }
-  return value
-}
-
-function readTaskFailureClass(root: TraceSpanEvent): FailureClass | undefined {
-  const value = readRootString(root, TASK_FAILURE_CLASS_ATTR)
-  if (value === undefined) return undefined
-  if (!FAILURE_CLASSES.includes(value as FailureClass)) {
-    throw new ValidationError(
-      `fromOtelSpans: ${TASK_FAILURE_CLASS_ATTR} must be one of ${FAILURE_CLASSES.join(', ')}`,
-    )
-  }
-  return value as FailureClass
 }
 
 function readConsistentScenarioId(

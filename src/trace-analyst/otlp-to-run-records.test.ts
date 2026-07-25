@@ -806,6 +806,66 @@ describe('otlpToRunRecords', () => {
     })
   })
 
+  it('imports task failure labels from process roots and ignores child labels', () => {
+    const root = spanLine({
+      trace_id: 'task-failure-label',
+      span_id: 'agent',
+      parent_span_id: '',
+      name: 'agent.run',
+      start_time: '2026-04-23T05:32:00.000Z',
+      end_time: '2026-04-23T05:32:03.000Z',
+      status: { code: 'STATUS_CODE_OK' },
+      attributes: {
+        'openinference.span.kind': 'AGENT',
+        'tangle.task.failure_class': 'instruction_following',
+        'tangle.task.failure_mode': 'ignored output format',
+      },
+    })
+    const child = spanLine({
+      trace_id: 'task-failure-label',
+      span_id: 'tool',
+      parent_span_id: 'agent',
+      name: 'tool.call',
+      start_time: '2026-04-23T05:32:01.000Z',
+      end_time: '2026-04-23T05:32:02.000Z',
+      status: { code: 'STATUS_CODE_ERROR' },
+      attributes: {
+        'openinference.span.kind': 'TOOL',
+        'tangle.task.failure_class': 'hallucination',
+        'tangle.task.failure_mode': 42,
+      },
+    })
+
+    const record = otlpToRunRecords([root, child].join('\n'), baseOpts)[0]!
+    expect(record.failureClass).toBe('instruction_following')
+    expect(record.failureMode).toBe('ignored output format')
+    expect(record.terminalOutcome).toBe('succeeded')
+  })
+
+  it('rejects conflicting process-root task failure labels', () => {
+    const root = (spanId: string, failureClass: string) =>
+      spanLine({
+        trace_id: 'conflicting-task-failure',
+        span_id: spanId,
+        parent_span_id: '',
+        name: 'agent.run',
+        start_time: '2026-04-23T05:32:00.000Z',
+        end_time: '2026-04-23T05:32:03.000Z',
+        status: { code: 'STATUS_CODE_OK' },
+        attributes: {
+          'openinference.span.kind': 'AGENT',
+          'tangle.task.failure_class': failureClass,
+        },
+      })
+
+    expect(() =>
+      otlpToRunRecords(
+        [root('agent-a', 'instruction_following'), root('agent-b', 'reasoning_error')].join('\n'),
+        baseOpts,
+      ),
+    ).toThrow(/conflicting tangle\.task\.failure_class/)
+  })
+
   it('pads a bare-alias model to a snapshot the validator accepts', () => {
     const bare = FIXTURE.replaceAll('gpt-4o-mini-2024-07-18', 'gpt-4o-mini')
     const clean = otlpToRunRecords(bare, baseOpts)[0]!
