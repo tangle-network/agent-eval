@@ -164,6 +164,7 @@ describe('evaluateReleaseConfidence', () => {
         }),
         rec({
           splitTag: 'holdout',
+          failureClass: 'instruction_following',
           failureMode: 'wrong_answer',
           outcome: { holdoutScore: 0.99, raw: { score: 0.99, asi: 1 } },
         }),
@@ -172,9 +173,9 @@ describe('evaluateReleaseConfidence', () => {
 
     expect(scorecard.metrics.passRate).toBe(0)
     expect(scorecard.metrics.failedRows).toBe(2)
-    expect(scorecard.metrics.failureModeCounts).toEqual({
+    expect(scorecard.metrics.failureClassCounts).toEqual({
+      instruction_following: 1,
       reasoning_error: 1,
-      wrong_answer: 1,
     })
     expect(scorecard.issues.map((issue) => issue.code)).toContain('low_pass_rate')
     expect(scorecard.promote).toBe(false)
@@ -221,7 +222,7 @@ describe('evaluateReleaseConfidence', () => {
 
     expect(scorecard.metrics.passRate).toBe(1)
     expect(scorecard.metrics.failedRows).toBe(0)
-    expect(scorecard.metrics.failureModeCounts).toEqual({})
+    expect(scorecard.metrics.failureClassCounts).toEqual({})
     expect(scorecard.status).toBe('pass')
   })
 
@@ -277,7 +278,7 @@ describe('evaluateReleaseConfidence', () => {
       expect(failed.metrics.unscoredRuns).toBe(0)
       expect(failed.metrics.terminalFailureRuns).toBe(1)
       expect(failed.metrics.reliabilityRate).toBeCloseTo(2 / 3)
-      expect(failed.metrics.failureModeCounts).toEqual({})
+      expect(failed.metrics.failureClassCounts).toEqual({})
       expect(failedQuality).toEqual(baselineQuality)
       expect(failedQuality?.status).toBe('pass')
       expect(failedReliability?.status).toBe('fail')
@@ -366,12 +367,12 @@ describe('evaluateReleaseConfidence', () => {
       runs: [
         rec({
           splitTag: 'search',
-          costUsd: 0,
+          costUsd: null,
           costProvenance: { kind: 'uncaptured', usd: null },
         }),
         rec({
           splitTag: 'holdout',
-          costUsd: 0,
+          costUsd: null,
           costProvenance: { kind: 'uncaptured', usd: null },
         }),
       ],
@@ -419,6 +420,7 @@ describe('evaluateReleaseConfidence', () => {
         split: 'holdout',
         score: 0.2,
         ok: false,
+        failureClass: 'bad_retrieval',
         turnCount: 2,
         costUsd: 0.01,
         durationMs: 500,
@@ -451,7 +453,30 @@ describe('evaluateReleaseConfidence', () => {
 
     expect(scorecard.issues.map((i) => i.code)).not.toContain('missing_failure_asi')
     expect(scorecard.metrics.responsibleSurfaceCounts['tax-rubric']).toBe(1)
+    expect(scorecard.metrics.failureClassCounts).toEqual({ bad_retrieval: 1 })
     expect(scorecard.metrics.multiShotTraces).toBe(1)
+  })
+
+  it('rejects the removed free-form trace failure mode', () => {
+    expect(() =>
+      evaluateReleaseConfidence({
+        target: 'current-trace-contract',
+        traces: [
+          {
+            scenarioId: 'legacy',
+            failureMode: 'wrong-answer',
+          } as unknown as ReleaseTraceEvidence,
+        ],
+        thresholds: {
+          requireCorpus: false,
+          requireHoldout: false,
+          minScenarioCount: 0,
+          minSearchRuns: 0,
+          minHoldoutRuns: 0,
+          requireAsiForFailures: false,
+        },
+      }),
+    ).toThrow(/failureMode is not supported/)
   })
 
   it('uses explicit trace results for reliability when run rows are absent', () => {

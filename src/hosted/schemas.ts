@@ -1,6 +1,7 @@
 import { z } from 'zod'
 import type { MutableSurface } from '../campaign/types'
 import type { InsightReport } from '../contract/insight-report'
+import { FAILURE_CLASSES, type FailureClass } from '../trace/schema'
 import type {
   EvalRunCellScore,
   EvalRunEvent,
@@ -22,6 +23,10 @@ const nonEmptyString = z
   .refine((value) => value.trim().length > 0, 'must not be blank')
 const attributeValue = z.union([z.string(), finiteNumber, z.boolean()])
 const attributes = z.record(z.string(), attributeValue)
+const FailureClassSchema = z.custom<FailureClass>(
+  (value) => typeof value === 'string' && FAILURE_CLASSES.includes(value as FailureClass),
+  `expected one of ${FAILURE_CLASSES.join(', ')}`,
+)
 const UINT64_MAX = 18_446_744_073_709_551_615n
 
 export const UnixNanoTimestampSchema: z.ZodType<UnixNanoTimestamp> = z
@@ -417,11 +422,11 @@ export const InsightReportSchema: z.ZodType<InsightReport> = z
     outcomeCorrelation: OutcomeCorrelationInsightSchema.optional(),
     release: ReleaseSummarySchema,
     priorPeriodComparison: PriorPeriodComparisonSchema.optional(),
-    failureModes: z
+    failureClasses: z
       .array(
         z
           .object({
-            mode: nonEmptyString,
+            failureClass: FailureClassSchema,
             count: nonNegativeInteger,
             share: finiteNumber.min(0).max(1),
           })

@@ -34,6 +34,7 @@ function rec(
 describe('release report rendering', () => {
   it('combines scorecard, runs, issues, and TraceAnalyst findings', () => {
     const runs = [rec('baseline', 0.7), rec('candidate', 0.9), rec('candidate', 0.8, 'search')]
+    runs[2]!.failureClass = 'bad_retrieval'
     const scorecard = evaluateReleaseConfidence({
       target: 'agent-builder',
       candidateId: 'candidate',
@@ -49,6 +50,8 @@ describe('release report rendering', () => {
 
     expect(markdown).toContain('# Release Report: agent-builder')
     expect(markdown).toContain('## Metrics')
+    expect(markdown).toContain('## Failure Classes')
+    expect(markdown).toContain('bad_retrieval')
     expect(markdown).toContain('Summary Table')
     expect(markdown).toContain('TraceAnalyst Findings')
   })

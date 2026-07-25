@@ -2,6 +2,7 @@ import type { ControlEvalResult, ControlRunResult } from './control-runtime'
 import {
   type RunRecord,
   type RunSplitTag,
+  type RunTaskFailure,
   type RunTokenUsage,
   validateRunRecord,
 } from './run-record'
@@ -23,11 +24,11 @@ export interface RunEvidenceMetadata {
   raw?: Record<string, number>
 }
 
-export interface ControlRunToRunRecordOptions extends RunEvidenceMetadata {
-  runId?: string
-  score?: number
-  failureMode?: string
-}
+export type ControlRunToRunRecordOptions = RunEvidenceMetadata &
+  RunTaskFailure & {
+    runId?: string
+    score?: number
+  }
 
 /**
  * Project a completed control-loop run into the strict RunRecord shape used by
@@ -94,6 +95,7 @@ export function controlRunToRunRecord<
     ...(terminalOutcome !== 'succeeded' ? { terminalFailureReason: run.reason } : {}),
     ...(options.judgeMetadata ? { judgeMetadata: options.judgeMetadata } : {}),
     outcome,
+    ...(options.failureClass !== undefined ? { failureClass: options.failureClass } : {}),
     ...(options.failureMode !== undefined ? { failureMode: options.failureMode } : {}),
     splitTag: options.splitTag,
     scenarioId: options.scenarioId,

@@ -74,7 +74,9 @@ function makeRun(opts: {
     },
     splitTag: 'holdout' as const,
     scenarioId: opts.scenarioId ?? opts.id.replace(/^[bc]-/, ''),
-    ...(opts.failureMode ? { failureMode: opts.failureMode } : {}),
+    ...(opts.failureMode
+      ? { failureClass: 'unknown' as const, failureMode: opts.failureMode }
+      : {}),
   } satisfies RunRecord
   if (opts.metadata) Object.assign(run, { metadata: opts.metadata })
   return run
@@ -804,6 +806,140 @@ describe('fromOtelSpans → analyzeRuns: OTel observability corpus', () => {
     ).toBe('unknown')
   })
 
+  it('reads task failure labels only from the run root', async () => {
+    const root = span({
+      traceId: 'task-failure',
+      spanId: 'root',
+      name: 'agent.run',
+      attributes: {
+        'openinference.span.kind': 'AGENT',
+        'tangle.task.score': 0.2,
+        'tangle.task.failure_class': 'instruction_following',
+        'tangle.task.failure_mode': 'ignored the requested output format',
+      },
+      status: { code: 'OK' },
+    })
+    const child = span({
+      traceId: 'task-failure',
+      spanId: 'tool',
+      parentSpanId: 'root',
+      name: 'tool.call',
+      attributes: {
+        'openinference.span.kind': 'TOOL',
+        'tangle.task.failure_class': 'hallucination',
+        'tangle.task.failure_mode': 'child label must not escape',
+      },
+      status: { code: 'ERROR' },
+    })
+
+    const [run] = fromOtelSpans({ spans: [root, child] })
+    expect(run?.failureClass).toBe('instruction_following')
+    expect(run?.failureMode).toBe('ignored the requested output format')
+    expect(run?.terminalOutcome).toBe('succeeded')
+    const report = await analyzeRuns({ runs: [run!] })
+    expect(report.failureClasses?.[0]).toMatchObject({
+      failureClass: 'instruction_following',
+      count: 1,
+    })
+
+    const childOnly = fromOtelSpans({
+      spans: [{ ...root, attributes: { 'tangle.task.score': 0.2 } }, child],
+    })[0]!
+    expect(childOnly.failureClass).toBeUndefined()
+    expect(childOnly.failureMode).toBeUndefined()
+
+    const classOnly = fromOtelSpans({
+      spans: [
+        {
+          ...root,
+          attributes: {
+            'openinference.span.kind': 'AGENT',
+            'tangle.task.failure_class': 'instruction_following',
+          },
+        },
+      ],
+    })[0]!
+    expect(classOnly.failureClass).toBe('instruction_following')
+    expect(classOnly.failureMode).toBeUndefined()
+
+    expect(() =>
+      fromOtelSpans({
+        spans: [
+          {
+            ...root,
+            attributes: {
+              'openinference.span.kind': 'AGENT',
+              'tangle.task.failure_mode': 'domain-specific-failure',
+            },
+          },
+        ],
+      }),
+    ).toThrow(/failure_mode.*requires.*failure_class/)
+  })
+
+  it('rejects malformed root task failure labels', () => {
+    const root = span({
+      traceId: 'bad-task-failure',
+      spanId: 'root',
+      name: 'agent.run',
+      attributes: {
+        'openinference.span.kind': 'AGENT',
+        'tangle.task.failure_class': 'made-up-class',
+      },
+    })
+    expect(() => fromOtelSpans({ spans: [root] })).toThrow(/tangle\.task\.failure_class/)
+
+    expect(() =>
+      fromOtelSpans({
+        spans: [
+          {
+            ...root,
+            attributes: {
+              'openinference.span.kind': 'AGENT',
+              'tangle.task.failure_mode': 42,
+            },
+          },
+        ],
+      }),
+    ).toThrow(/tangle\.task\.failure_mode/)
+
+    expect(() =>
+      fromOtelSpans({
+        spans: [
+          {
+            ...root,
+            attributes: {
+              'openinference.span.kind': 'AGENT',
+              'tangle.task.failure_mode': '  ',
+            },
+          },
+        ],
+      }),
+    ).toThrow(/tangle\.task\.failure_mode/)
+
+    expect(() =>
+      fromOtelSpans({
+        spans: [
+          {
+            ...root,
+            attributes: {
+              'openinference.span.kind': 'AGENT',
+              'tangle.task.failure_class': 'instruction_following',
+            },
+          },
+          {
+            ...root,
+            spanId: 'second-root',
+            attributes: {
+              'openinference.span.kind': 'AGENT',
+              'tangle.task.failure_class': 'reasoning_error',
+            },
+          },
+        ],
+      }),
+    ).toThrow(/conflicting tangle\.task\.failure_class/)
+  })
+
   it('preserves a cost-only model call and an untyped run-total cost', () => {
     const runs = fromOtelSpans({
       spans: [
@@ -1161,6 +1297,17 @@ describe('analyzeRuns — recommendations are always actionable', () => {
 // ── analyzeRuns: failure clustering ─────────────────────────────────
 
 describe('analyzeRuns — failure clustering via the analyst registry', () => {
+  it('rejects failure detail without a canonical class at the analysis boundary', async () => {
+    const malformed = {
+      ...makeRun({ id: 'malformed', candidate: 'c', composite: 0.2 }),
+      failureMode: 'legacy-mode-only',
+    }
+
+    await expect(analyzeRuns({ runs: [malformed] })).rejects.toThrow(
+      /failureMode requires a non-success failureClass/,
+    )
+  })
+
   function failureRegistry(): AnalystRegistry {
     const registry = new AnalystRegistry()
     registry.register({
@@ -1208,7 +1355,6 @@ describe('analyzeRuns — failure clustering via the analyst registry', () => {
       id: 'recovered',
       candidate: 'c',
       composite: 0.9,
-      failureMode: 'tool retry',
       terminalOutcome: 'succeeded',
     })
     recovered.outcome.raw.execution_error_count = 1
@@ -1227,7 +1373,7 @@ describe('analyzeRuns — failure clustering via the analyst registry', () => {
 
     expect(report.failureClusters?.totalFailures).toBe(0)
     expect(report.failureClusters?.clusters).toEqual([])
-    expect(report.failureModes).toBeUndefined()
+    expect(report.failureClasses).toBeUndefined()
   })
 
   it('failureClusters stays undefined without an analyst', async () => {

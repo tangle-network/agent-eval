@@ -275,19 +275,33 @@ function rawPassOf(record: RunRecord): boolean | null {
 
 function passOf(record: RunRecord, score: number, threshold: number): boolean {
   const rawPass = rawPassOf(record)
-  if (rawPass !== null) return rawPass && !record.failureMode
-  return score >= threshold && !record.failureMode
+  const hasTaskFailure = record.failureClass !== undefined && record.failureClass !== 'success'
+  if (rawPass !== null) return rawPass && !hasTaskFailure
+  return score >= threshold && !hasTaskFailure
 }
 
-/** A failed row always carries a failure mode; synthesized when the harness left it empty. */
-function failureModeOf(record: RunRecord, score: number, threshold: number): string | null {
-  if (record.failureMode) return record.failureMode
+function failureOf(
+  record: RunRecord,
+  score: number,
+  threshold: number,
+): Pick<ProductBenchmarkRecord['outcome'], 'failureClass' | 'failureDetail'> {
+  if (record.failureClass !== undefined && record.failureClass !== 'success') {
+    return {
+      failureClass: record.failureClass,
+      failureDetail: record.failureMode ?? null,
+    }
+  }
   const belowThreshold = `quality-below-threshold: ${Math.round(score * 100)}% < ${Math.round(threshold * 100)}%`
   if (rawPassOf(record) === false) {
-    return score < threshold ? belowThreshold : 'product-pass-failed'
+    return {
+      failureClass: 'unknown',
+      failureDetail: score < threshold ? belowThreshold : 'product-pass-failed',
+    }
   }
-  if (passOf(record, score, threshold)) return null
-  return belowThreshold
+  if (passOf(record, score, threshold)) {
+    return { failureClass: null, failureDetail: null }
+  }
+  return { failureClass: 'unknown', failureDetail: belowThreshold }
 }
 
 function numericDimensions(record: RunRecord): Record<string, number> {
@@ -446,6 +460,7 @@ export function runRecordToProductBenchmarkRecord(
   const opts = resolveOptions(options)
   const runtime = runtimeResolution(record, opts)
   const score = scoreOf(record)
+  const failure = failureOf(record, score, opts.passThreshold)
   const armId = armIdOf(record)
   const inputTokens = record.tokenUsage.input
   const outputTokens = record.tokenUsage.output
@@ -480,7 +495,7 @@ export function runRecordToProductBenchmarkRecord(
       pass: passOf(record, score, opts.passThreshold),
       score,
       dimensions,
-      failureMode: failureModeOf(record, score, opts.passThreshold),
+      ...failure,
     },
     usage: {
       inputTokens,

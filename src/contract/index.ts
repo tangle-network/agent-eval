@@ -236,6 +236,7 @@ export type {
   CostProvenanceSummary,
   ExecutionErrorOutcomeCell,
   ExecutionInsight,
+  FailureClassTally,
   FailureClusterInsight,
   InsightReport,
   InterRaterInsight,

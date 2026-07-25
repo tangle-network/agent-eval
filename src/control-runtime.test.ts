@@ -64,7 +64,12 @@ describe('runAgentControlLoop', () => {
       ],
       decide: ({ history }) =>
         history.length > 0
-          ? { type: 'stop', pass: false, reason: 'worker did not change state' }
+          ? {
+              type: 'stop',
+              pass: false,
+              reason: 'worker did not change state',
+              failureClass: 'tool_recovery_failure',
+            }
           : { type: 'continue', action: { type: 'write_artifact', value: 'x' } },
       act: () => ({ count: 0 }),
     })
@@ -73,6 +78,7 @@ describe('runAgentControlLoop', () => {
     expect(result.completed).toBe(true)
     expect(result.stoppedBy).toBe('policy')
     expect(result.reason).toBe('worker did not change state')
+    expect(result.failureClass).toBe('tool_recovery_failure')
     expect(result.steps).toHaveLength(1)
   })
 
@@ -102,6 +108,19 @@ describe('runAgentControlLoop', () => {
     expect(result.stoppedBy).toBe('stop-policy')
     expect(result.steps).toHaveLength(2)
     expect(result.reason).toBe('all critical evals passed')
+  })
+
+  it('classifies a stop with omitted pass as a failed task', async () => {
+    const result = await runAgentControlLoop<TestState, TestAction, TestState>({
+      intent: 'stop without an explicit pass',
+      observe: () => ({ count: 0 }),
+      validate: () => [],
+      decide: () => ({ type: 'stop', reason: 'cannot continue' }),
+      act: () => ({ count: 0 }),
+    })
+
+    expect(result.pass).toBe(false)
+    expect(result.failureClass).toBe('unknown')
   })
 
   it('records action failures so a policy can recover on the next step', async () => {

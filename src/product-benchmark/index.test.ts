@@ -109,7 +109,8 @@ function fixtureRecord(overrides: Partial<ProductBenchmarkRecord> = {}): Product
       dimensions: {
         exact: 1,
       },
-      failureMode: null,
+      failureClass: null,
+      failureDetail: null,
     },
     usage: {
       inputTokens: 100,
@@ -188,6 +189,31 @@ describe('product benchmark contract', () => {
     expect(() => validateProductBenchmarkRecord(badRecord)).toThrow(
       /realBackend rows must carry non-zero token usage/,
     )
+  })
+
+  it.each([
+    {
+      pass: true,
+      failureClass: 'reasoning_error',
+      failureDetail: null,
+    },
+    {
+      pass: false,
+      failureClass: null,
+      failureDetail: 'incorrect result',
+    },
+    {
+      pass: false,
+      failureClass: 'not-a-failure-class',
+      failureDetail: null,
+    },
+  ])('rejects contradictory or non-canonical failure evidence: %j', (outcome) => {
+    expect(() =>
+      validateProductBenchmarkRecord({
+        ...fixtureRecord(),
+        outcome: { ...fixtureRecord().outcome, ...outcome },
+      }),
+    ).toThrow(ValidationError)
   })
 
   it('reports integrity failures and missing artifacts without hiding the row', () => {

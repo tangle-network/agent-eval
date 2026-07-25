@@ -13,9 +13,10 @@
  *   - tokenUsage: reconcile input, output, cache-read, and cache-write across
  *     nested model-call wrappers without double-counting parent aggregates.
  *   - costUsd: reconcile complete observed model-call cost when present; else priced via
- *     `opts.priceUsdPerToken` from the aggregated tokens; else 0 with a
- *     loud `raw.cost_unpriced = 1` marker so a missing price is visible, not
- *     a silent zero folded into a gate.
+ *     `opts.priceUsdPerToken` from the aggregated tokens; else `null` with a
+ *     loud `raw.cost_unpriced = 1` marker.
+ *   - task failure class and detail: read from process-root
+ *     `tangle.task.failure_*` attributes; malformed or conflicting values throw.
  *   - terminalFailureReason: the failed root's normalized status message,
  *     when one unambiguous root supplies terminal failure evidence.
  *   - terminalOutcome: reduced from root-span status only. Child tool errors
@@ -57,6 +58,7 @@ import {
   isOtlpModelCall,
   LLM_MODEL_ATTR_KEYS,
 } from '../trace/otlp-attributes'
+import { readTaskFailureLabels } from '../trace/task-failure-attributes'
 import {
   compareSpanTime,
   firstStringAttr,
@@ -92,8 +94,7 @@ export interface OtlpToRunRecordsOptions {
   /**
    * USD per total token (input+output) used to price a trace when no
    * per-span cost attribute is present. When unset, an unpriced trace
-   * records `costUsd: 0` AND `raw.cost_unpriced = 1` — the zero is flagged,
-   * never silent.
+   * records `costUsd: null` and `raw.cost_unpriced = 1`.
    */
   priceUsdPerToken?: number
   /**
@@ -276,6 +277,10 @@ function traceRunRecordsFromSpans(
 
     const { promptText, completionText } = extractPromptCompletion(spans, agg.callSpanIds)
     const judgeMetadata = opts.judgeMetadataForTrace?.(traceId)
+    const taskFailure = readTaskFailureLabels(
+      spans.filter((span) => span.parent_span_id === null && isTerminalRootCandidate(span)),
+      `otlpToRunRecords: run '${traceId}'`,
+    )
 
     const record = validateRunRecord({
       runId: `otlp:${opts.experimentId}:${opts.candidateId}:${traceId}`,
@@ -294,6 +299,7 @@ function traceRunRecordsFromSpans(
       ...(agg.terminalFailureMessage ? { terminalFailureReason: agg.terminalFailureMessage } : {}),
       ...(judgeMetadata ? { judgeMetadata } : {}),
       outcome,
+      ...taskFailure,
       splitTag,
       scenarioId: traceId,
     })

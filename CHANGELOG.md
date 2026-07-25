@@ -4,6 +4,21 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ---
 
+## [0.128.0] - 2026-07-25 - canonical task failure evidence
+
+### Changed
+
+- Both OTel run-record import paths read `tangle.task.failure_class` and `tangle.task.failure_mode` from process roots.
+- Invalid or conflicting root labels fail loudly, and child-span labels cannot become task failures.
+- `failureMode` is valid only as detail under a non-success `failureClass`.
+- Product benchmark rows expose canonical `failureClass` plus optional `failureDetail`; failed rows cannot omit classification.
+- `InsightReport.failureClasses` replaces `failureModes`; each row exposes `failureClass`, `count`, and `share`.
+- `ReleaseConfidenceMetrics.failureClassCounts` replaces `failureModeCounts`, and direct trace evidence accepts canonical `failureClass` instead of free-form `failureMode`.
+- Analysis and release decisions validate every `RunRecord`; campaign projections validate before returning.
+- `selfImprove()` uses the concrete model from paid-call receipts, or the new `model` option for unmetered agents, instead of writing a fabricated campaign model.
+- Failed control stop decisions can supply a canonical failure class that is preserved in the result.
+- A control stop that omits `pass` is recorded as a failed task with an `unknown` class.
+
 ## [0.127.0] - 2026-07-25 - explicit run evidence and truthful release checks
 
 ### Changed

@@ -12,6 +12,7 @@
  *   - `runId` (the group key)
  *   - `wallMs` from `endTimeUnixNano - startTimeUnixNano`
  *   - `model` from `gen_ai.request.model` / `llm.model` / `tangle.model`
+ *   - task failure class and detail from explicit `tangle.task.*` attributes
  *   - cost from `cost.usd` / `gen_ai.usage.cost_usd` / `tangle.cost.usd`
  *   - token usage from model-call input, output, cache-read, and cache-write
  *     attributes without double-counting aggregate parent spans
@@ -46,6 +47,7 @@ import {
   LLM_MODEL_ATTR_KEYS,
   SPAN_KIND_ATTR_KEYS,
 } from '../../trace/otlp-attributes'
+import { readTaskFailureLabels } from '../../trace/task-failure-attributes'
 
 const TASK_SCORE_ATTR_KEYS = [
   'gen_ai.evaluation.score.value',
@@ -103,6 +105,10 @@ export function fromOtelSpans(opts: FromOtelSpansOptions): RunRecord[] {
     const promptHash = readAttrString(groupSpans, PROMPT_HASH_KEYS) ?? 'sha256:unknown'
     const configHash = readAttrString(groupSpans, CONFIG_HASH_KEYS) ?? 'sha256:unknown'
     const score = resolveTaskScore(groupKey, groupSpans, opts.scoreForRun)
+    const taskFailure = readTaskFailureLabels(
+      groupSpans.filter((span) => !span.parentSpanId && isTerminalRootCandidate(span)),
+      `fromOtelSpans: run '${groupKey}'`,
+    )
 
     const rawNumeric = collectNumericAttrs(groupSpans)
     const errorSummary = summarizeTraceErrors(
@@ -174,6 +180,7 @@ export function fromOtelSpans(opts: FromOtelSpansOptions): RunRecord[] {
         ? { terminalFailureReason: failedRoot.status?.message ?? failedRoot.name }
         : {}),
       outcome,
+      ...taskFailure,
       splitTag: defaultSplit,
       scenarioId,
     })

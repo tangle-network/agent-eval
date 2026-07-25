@@ -61,9 +61,9 @@ export function renderReleaseReport(
     lines.push('')
   }
 
-  const failures = entries(scorecard.metrics.failureModeCounts)
+  const failures = entries(scorecard.metrics.failureClassCounts)
   if (failures.length > 0) {
-    lines.push('## Failure Modes')
+    lines.push('## Failure Classes')
     lines.push('')
     for (const [mode, count] of failures) lines.push(`- ${mode}: ${count}`)
     lines.push('')

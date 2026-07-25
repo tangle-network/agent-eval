@@ -190,15 +190,12 @@ export interface RunRecord {
   /** Per-split scores + raw bag. */
   outcome: RunOutcome
   /** Canonical task-failure class drawn from the shared
-   *  `FAILURE_CLASSES` taxonomy. This is the aggregation key that makes
-   *  "which failure dominates across the whole fleet" answerable in ONE
-   *  vocabulary — every agent classifies against the same enum. Producers
-   *  set it only from task-result evidence. Execution errors belong in
-   *  `outcome.raw.execution_error_count`, even when the run later fails. */
+   *  `FAILURE_CLASSES` taxonomy. Producers set it only from task-result
+   *  evidence. Execution errors belong in
+   *  `outcome.raw.execution_error_count`. */
   failureClass?: FailureClass
-  /** Free-form task-failure detail, scoped UNDER `failureClass`
-   *  (e.g. failureClass='tool_recovery_failure', failureMode='forge_build_unsatisfied').
-   *  Do not populate this from a child execution error alone. */
+  /** Free-form task-failure detail scoped under a non-success
+   *  `failureClass`. It is invalid without that class. */
   failureMode?: string
   /** Which split this run was drawn from. */
   splitTag: RunSplitTag
@@ -216,6 +213,21 @@ export interface RunRecord {
    */
   agentProfile?: AgentProfileCell
 }
+
+/**
+ * Canonical task-result classification.
+ *
+ * A producer may omit classification, record explicit success, or attach
+ * domain-specific detail to a non-success class. Detail can never stand alone.
+ * Execution errors belong in `outcome.raw.execution_error_count`.
+ */
+export type RunTaskFailure =
+  | { failureClass?: undefined; failureMode?: undefined }
+  | { failureClass: 'success'; failureMode?: undefined }
+  | {
+      failureClass: Exclude<FailureClass, 'success'>
+      failureMode?: string
+    }
 
 /** Return task quality, preferring held-out evidence when both scores exist. */
 export function runTaskScore(record: RunRecord): number | undefined {
@@ -387,7 +399,15 @@ export function validateRunRecord(input: unknown): RunRecord {
       'failureClass',
     )
   }
-  if (obj.failureMode !== undefined) expectString(obj.failureMode, 'failureMode')
+  if (obj.failureMode !== undefined) {
+    expectString(obj.failureMode, 'failureMode')
+    if (obj.failureClass === undefined || obj.failureClass === 'success') {
+      throw new RunRecordValidationError(
+        'failureMode requires a non-success failureClass',
+        'failureMode',
+      )
+    }
+  }
 
   if (
     typeof obj.terminalOutcome !== 'string' ||

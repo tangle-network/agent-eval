@@ -23,6 +23,7 @@ interface InsightReport {
   judges: Record<string, JudgeInsight>   // when runs carry judge scores
   interRater?: InterRaterInsight         // when raterScores supplied
   lift?: LiftInsight                     // when baseline + candidate present
+  failureClasses?: FailureClassTally[]   // canonical task-failure counts
   failureClusters?: FailureClusterInsight    // when AnalystRegistry wired
   contamination?: ContaminationInsight   // when canaryScenarios supplied
   outcomeCorrelation?: OutcomeCorrelationInsight   // when outcomeSignal supplied
@@ -269,6 +270,26 @@ Unmatched rows are reported and excluded from paired statistics.
 The `recommendations` array surfaces exactly this decision (`kind: 'ship' | 'hold' | 'expand-corpus'`): that's what consumers should read.
 
 **Why bootstrap, not t-test alone:** paired bootstrap is distribution-free. Your judge scores are bounded in [0,1] and almost never normal; the bootstrap CI is the honest one.
+
+---
+
+## `failureClasses`: canonical task-failure counts
+
+Populated when a run has a non-success `failureClass` or a measured task score below the failure threshold.
+Runs without an explicit class are counted as `unknown`.
+The optional `failureMode` remains domain-specific detail on the original run and is never used as a second grouping key.
+
+```jsonc
+{
+  "failureClasses": [
+    { "failureClass": "bad_retrieval", "count": 9, "share": 0.28 },
+    { "failureClass": "instruction_following", "count": 4, "share": 0.13 }
+  ]
+}
+```
+
+Use this section to compare failure causes across products without a model call.
+Use `failureClusters` when you need a semantic diagnosis within those classes.
 
 ---
 
