@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { validateRolloutLine } from '../rollout/schema'
+import { assertMinted, validateRolloutLine } from '../rollout/schema'
 import {
   fixtureJournal as journal,
   fixtureSources as sources,
@@ -97,6 +97,21 @@ describe('supervisorRunRolloutLines — the tree IS rollout rows', () => {
     for (const node of tree.nodes) {
       expect('realness_gated' in node.outcome).toBe(true)
       expect(node.outcome.realness_gated).toBe(false)
+    }
+  })
+
+  it('declares itself UNSCREENED — no gate has ever run on a journal reward', () => {
+    // `realness_gated: false` alone was still an overclaim: it is the gate's
+    // VERDICT, and on this path no gate ran at all. The screening claim is now
+    // carried separately, and `assertMinted` refuses to promote a positive
+    // unscreened reward into the training path.
+    for (const node of tree.nodes) {
+      expect(node.outcome.realness_screened).toBe(false)
+    }
+    const positive = tree.nodes.filter((n) => (n.outcome.reward ?? 0) > 0)
+    expect(positive.length).toBeGreaterThan(0)
+    for (const node of positive) {
+      expect(() => assertMinted(node)).toThrow(/realness_screened: false/)
     }
   })
 

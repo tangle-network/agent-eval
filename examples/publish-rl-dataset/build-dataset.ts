@@ -28,7 +28,7 @@
 
 import { promises as fs } from 'node:fs'
 import { resolve as resolvePath } from 'node:path'
-import { type RewardKind, buildRlDataset, type DatasetFormat } from '../../src/rl/dataset'
+import { buildRlDataset, type DatasetFormat, type RewardKind } from '../../src/rl/dataset'
 import type { RunRecord } from '../../src/run-record'
 
 interface CliArgs {

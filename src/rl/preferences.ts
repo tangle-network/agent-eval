@@ -49,7 +49,13 @@
 import { trainingRewardOverride, trainingScore } from '../rollout/reward'
 import type { MintedRolloutLine, RolloutSplit } from '../rollout/schema'
 import type { RunRecord } from '../run-record'
-import { isRolloutLineInput, trainableLineReward } from './rollout-input'
+import {
+  admitUngatedByInvocation,
+  isRolloutLineInput,
+  type LineContextRequirement,
+  type RolloutLineContext,
+  trainableLineReward,
+} from './rollout-input'
 
 export type PreferenceStrategy =
   | 'paired-by-scenario-and-seed'
@@ -394,16 +400,46 @@ function pairCandidates(
   return { pairs, cellsInspected, pairsBelowMargin, cellsSingleton, strategy }
 }
 
+const PREFERENCE_RUN_IDS = (t: PreferenceTriple): readonly string[] => [
+  t.chosenRunId,
+  t.rejectedRunId,
+]
+
+const TRL_CONTEXT_REQUIREMENT: LineContextRequirement = {
+  exporter: 'TRL preference export',
+  contextType: 'RolloutLineContext',
+  because:
+    'a PreferenceTriple carries only run ids and hashes, so without the minted rollout lines this exporter cannot see the realness gate and will put a run that faked its success on the CHOSEN side of a DPO pair.',
+}
+
+const ANTHROPIC_CONTEXT_REQUIREMENT: LineContextRequirement = {
+  exporter: 'Anthropic preference export',
+  contextType: 'RolloutLineContext',
+  because:
+    'a PreferenceTriple carries only run ids and a bare margin, so without the minted rollout lines this exporter cannot see the realness gate and will name a run that faked its success as the preferred one.',
+}
+
 /**
  * TRL-compatible export. TRL's `DPODataset` is `{ prompt, chosen, rejected }`
  * but the prompt isn't stored on the RunRecord — only its hash. The caller
  * passes a `promptOf(promptHash)` lookup that the TRL trainer can use.
+ *
+ * `context` is REQUIRED: this is the third exporter over the identical
+ * line-less input class, and the round that hardened `toPrmRows` while leaving
+ * `toDpoRows` open is why every one of them now takes the same argument and
+ * runs the same admission rule.
  */
 export function toTRLFormat(
   triples: PreferenceTriple[],
   promptOf: (hash: string) => string,
+  context: RolloutLineContext,
 ): Array<{ prompt: string; chosen: string; rejected: string }> {
-  return triples.map((t) => ({
+  return admitUngatedByInvocation(
+    triples,
+    PREFERENCE_RUN_IDS,
+    context,
+    TRL_CONTEXT_REQUIREMENT,
+  ).map((t) => ({
     prompt: promptOf(t.meta.chosenPromptHash),
     chosen: t.meta.chosenPromptHash, // caller substitutes the model output via the runId map
     rejected: t.meta.rejectedPromptHash,
@@ -414,11 +450,21 @@ export function toTRLFormat(
  * Anthropic finetuning JSONL export — `{ system, user, assistant_chosen, assistant_rejected }`
  * shape. Same caveat as TRL: prompt + outputs are content the caller has
  * to map back from the run record / raw event log.
+ *
+ * `context` is REQUIRED — see `toTRLFormat`. The emitted `margin` is a number
+ * derived from the two runs' rewards, so this row is training signal even
+ * though it ships no completion text.
  */
 export function toAnthropicFormat(
   triples: PreferenceTriple[],
+  context: RolloutLineContext,
 ): Array<{ scenarioId: string; chosenRunId: string; rejectedRunId: string; margin: number }> {
-  return triples.map((t) => ({
+  return admitUngatedByInvocation(
+    triples,
+    PREFERENCE_RUN_IDS,
+    context,
+    ANTHROPIC_CONTEXT_REQUIREMENT,
+  ).map((t) => ({
     scenarioId: t.scenarioId,
     chosenRunId: t.chosenRunId,
     rejectedRunId: t.rejectedRunId,

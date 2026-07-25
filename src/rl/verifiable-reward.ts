@@ -85,6 +85,24 @@ export interface VerifiableReward {
    * "claimed a success we refuse to believe", which a bare 0 cannot.
    */
   realnessGated?: boolean
+  /**
+   * Whether an authenticity screen COULD run on this reward at all — the same
+   * distinction `RolloutOutcome.realness_screened` draws, for the same reason.
+   *
+   * `false` on every reward from `extractVerifiableReward`, because a
+   * `VerificationReport` carries layer scores and nothing else: there is no
+   * `outcome.realness` to consult, so no gate has run, and `realnessGated`
+   * being absent there means "unknown", NOT "clean". Absent on the
+   * `RunRecord` path when the record itself carries no realness verdict.
+   *
+   * This matters most exactly where it is easiest to miss: a report whose
+   * deterministic layers all passed yields `determinism: 'deterministic'`,
+   * `confidence: 1` — the highest-credibility reward this module can emit —
+   * and a stubbed integration reporting green is precisely what a gamed run
+   * looks like. Consumers driving training off this shape must screen the run
+   * themselves; the flag is what tells them nobody has.
+   */
+  realnessScreened?: boolean
 }
 
 export interface VerifiableRewardExtractionOptions {
@@ -192,6 +210,7 @@ export function extractVerifiableReward(
       origin: layer.layer,
       components: { [layer.layer]: value },
       breakdown: layerBreakdown(layer),
+      realnessScreened: false,
     }
   }
 
@@ -214,6 +233,7 @@ export function extractVerifiableReward(
       origin: deterministic.map((l) => l.layer).join('+'),
       components,
       breakdown: { ...components },
+      realnessScreened: false,
     }
   }
 
@@ -237,6 +257,7 @@ export function extractVerifiableReward(
     origin: judge.layer,
     components: { [judge.layer]: judgeValue },
     breakdown: layerBreakdown(judge),
+    realnessScreened: false,
   }
 }
 
@@ -274,6 +295,10 @@ export function extractVerifiableRewardsFromRecords(
 
   return runs.map((run) => {
     const flagged = isRealnessGated(run)
+    // Present only when the record carries an actual realness verdict. Absent
+    // is the honest "unknown"; `false` is reserved for a producer that
+    // declares it HAS no screen, which is the report-shaped path above.
+    const screened = run.outcome.realness === undefined ? {} : ({ realnessScreened: true } as const)
     // Zeroed with `value`, never left at the measured number: `components`
     // exists so an RL consumer can re-weight per source, and a raw layer score
     // surviving there would let that re-weighting reconstruct the very reward
@@ -307,6 +332,7 @@ export function extractVerifiableRewardsFromRecords(
           origin: layer.name,
           components: { [layer.name]: value },
           realnessGated: flagged,
+          ...screened,
         },
       }
     }
@@ -326,6 +352,7 @@ export function extractVerifiableRewardsFromRecords(
           components,
           breakdown: { ...components },
           realnessGated: flagged,
+          ...screened,
         },
       }
     }
@@ -350,6 +377,7 @@ export function extractVerifiableRewardsFromRecords(
         origin: 'run.outcome.score',
         components: { 'run.outcome.score': primaryValue },
         realnessGated: flagged,
+        ...screened,
       },
     }
   })

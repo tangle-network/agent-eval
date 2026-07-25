@@ -289,12 +289,12 @@ describe('HeldOutGate — cost ceiling', () => {
   })
 
   it('throws on non-positive costPerTaskCeiling', () => {
-    expect(
-      () => new HeldOutGate({ baselineKey: 'baseline', costPerTaskCeiling: 0 }),
-    ).toThrow(/costPerTaskCeiling/)
-    expect(
-      () => new HeldOutGate({ baselineKey: 'baseline', costPerTaskCeiling: -1 }),
-    ).toThrow(/costPerTaskCeiling/)
+    expect(() => new HeldOutGate({ baselineKey: 'baseline', costPerTaskCeiling: 0 })).toThrow(
+      /costPerTaskCeiling/,
+    )
+    expect(() => new HeldOutGate({ baselineKey: 'baseline', costPerTaskCeiling: -1 })).toThrow(
+      /costPerTaskCeiling/,
+    )
     expect(
       () =>
         new HeldOutGate({

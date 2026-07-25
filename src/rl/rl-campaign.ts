@@ -48,6 +48,7 @@ import {
   type PreferenceExtractionReport,
 } from './preferences'
 import { detectRewardHacking, type RewardHackingReport } from './reward-hacking'
+import { mintLinesFromRecords } from './rollout-input'
 import {
   extractVerifiableRewardsFromRecords,
   type VerifiableReward,
@@ -155,7 +156,12 @@ export async function runRLCampaign<V>(
   // ── 7. Trainer-format export ───────────────────────────────────────
   const trainerRows: RLCampaignResult<V>['trainerRows'] = {}
   if (opts.trainerExport?.dpo) {
-    trainerRows.dpo = await toDpoRows(preferences.pairs, opts.trainerExport.dpo)
+    // Preference triples name run ids and nothing else, so the DPO exporter is
+    // handed the minted lines for this campaign's runs to read the gate off.
+    const minted = await mintLinesFromRecords(campaign.runs)
+    trainerRows.dpo = await toDpoRows(preferences.pairs, opts.trainerExport.dpo, {
+      lines: minted.map((m) => m.line),
+    })
   }
   if (opts.trainerExport?.grpo) {
     trainerRows.grpo = await toGrpoRows(campaign.runs, opts.trainerExport.grpo)

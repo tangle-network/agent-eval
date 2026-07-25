@@ -241,7 +241,10 @@ export async function buildRlDataset(
     if (!preferences) {
       throw new Error("buildRlDataset: format 'dpo' requires `preferences` (triples + lookups)")
     }
-    const rows = await toDpoRows(preferences.triples, preferences.lookups)
+    // The bundle's own lines are the gate context. Without them this call
+    // wrote `train.dpo.jsonl` with a gamed run on the CHOSEN side while the
+    // datasheet beside it reported that same run at reward 0.
+    const rows = await toDpoRows(preferences.triples, preferences.lookups, { lines })
     files['train.dpo.jsonl'] = toDpoJsonl(rows)
     rowCounts.dpo = rows.length
   }

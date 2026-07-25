@@ -13,7 +13,7 @@ import {
 import type { PreferenceTriple } from '../src/rl/preferences'
 import type { PrmTrainingTriple, StepReward } from '../src/rl/process-reward'
 import { fixtureRolloutLine } from '../src/rollout/fixtures'
-import type { MintedRolloutLine } from '../src/rollout/schema'
+import { assertMinted, type MintedRolloutLine } from '../src/rollout/schema'
 import type { RunRecord } from '../src/run-record'
 
 const baseTriple: PreferenceTriple = {
@@ -58,11 +58,37 @@ function rec(args: {
   }
 }
 
+/**
+ * Minted lines for the runs a line-less artifact names — the gate context every
+ * such exporter now requires. A triple carries run ids and a bare number; these
+ * are what let the exporter see whether either run faked its success.
+ */
+const linesFor = (...runIds: string[]): MintedRolloutLine[] =>
+  runIds.map((run_id) =>
+    fixtureRolloutLine({
+      run_id,
+      rollout_id: `rollout-${run_id}`,
+      steps: [{ kind: 'tool', name: 'compile', status: 'ok' }],
+    }),
+  )
+
+/** The same line, flagged by the authenticity gate. */
+const gatedLinesFor = (...runIds: string[]): MintedRolloutLine[] =>
+  linesFor(...runIds).map((line) =>
+    assertMinted({ ...line, outcome: { ...line.outcome, reward: 0, realness_gated: true } }),
+  )
+
 describe('toDpoRows', () => {
   it('produces TRL-compatible {prompt, chosen, rejected} rows', async () => {
     const promptOf = (id: string) => `prompt for ${id}`
     const completionOf = (id: string) => `completion for ${id}`
-    const rows = await toDpoRows([baseTriple], { promptOf, completionOf })
+    const rows = await toDpoRows(
+      [baseTriple],
+      { promptOf, completionOf },
+      {
+        lines: linesFor('run-A', 'run-B'),
+      },
+    )
     expect(rows[0]).toMatchObject({
       prompt: 'prompt for run-A',
       chosen: 'completion for run-A',
@@ -83,12 +109,45 @@ describe('toDpoRows', () => {
   })
 
   it('handles async lookups (Promise-returning callbacks)', async () => {
-    const rows = await toDpoRows([baseTriple], {
-      promptOf: async (id) => `[async] ${id}`,
-      completionOf: async (id) => `[async-c] ${id}`,
-    })
+    const rows = await toDpoRows(
+      [baseTriple],
+      {
+        promptOf: async (id) => `[async] ${id}`,
+        completionOf: async (id) => `[async-c] ${id}`,
+      },
+      { lines: linesFor('run-A', 'run-B') },
+    )
     expect(rows[0]?.prompt).toBe('[async] run-A')
     expect(rows[0]?.chosen).toBe('[async-c] run-A')
+  })
+
+  const dpoLookups = {
+    promptOf: (id: string) => `prompt for ${id}`,
+    completionOf: (id: string) => `completion for ${id}`,
+  }
+
+  it('drops a pair whose CHOSEN side is realness-gated — DPO would learn to prefer it', async () => {
+    const lines = [...gatedLinesFor('run-A'), ...linesFor('run-B')]
+    expect(await toDpoRows([baseTriple], dpoLookups, { lines })).toEqual([])
+  })
+
+  it('drops a pair whose REJECTED side is realness-gated — a gamed trajectory ships on neither side', async () => {
+    const lines = [...linesFor('run-A'), ...gatedLinesFor('run-B')]
+    expect(await toDpoRows([baseTriple], dpoLookups, { lines })).toEqual([])
+  })
+
+  it('refuses a triple naming a run with no supplied line (gate status unknown)', async () => {
+    await expect(toDpoRows([baseTriple], dpoLookups, { lines: linesFor('run-A') })).rejects.toThrow(
+      /no rollout line supplied for run run-B/,
+    )
+  })
+
+  it('refuses to export without a line context — it cannot see the gate there', async () => {
+    const untyped = toDpoRows as unknown as (
+      triples: PreferenceTriple[],
+      lookups: typeof dpoLookups,
+    ) => Promise<unknown>
+    await expect(untyped([baseTriple], dpoLookups)).rejects.toThrow(/a DpoLineContext is required/)
   })
 })
 
@@ -244,7 +303,7 @@ describe('stepRewardsToJsonl + JSONL helpers', () => {
         weight: 1,
       },
     ]
-    const jsonl = stepRewardsToJsonl(stepRewards)
+    const jsonl = stepRewardsToJsonl(stepRewards, { lines: linesFor('r') })
     expect(jsonl.trim().split('\n')).toHaveLength(1)
     const parsed = JSON.parse(jsonl.trim())
     expect(parsed).toMatchObject({
@@ -254,6 +313,27 @@ describe('stepRewardsToJsonl + JSONL helpers', () => {
       reward: 0.8,
       determinism: 'deterministic',
     })
+  })
+
+  it('drops the steps of a realness-gated run — the per-step rewards are the reward in pieces', () => {
+    const stepRewards: StepReward[] = [
+      {
+        spanId: 'sp',
+        runId: 'r',
+        stepIndex: 0,
+        kind: 'tool',
+        name: 'compile',
+        reward: 0.8,
+        determinism: 'deterministic',
+        weight: 1,
+      },
+    ]
+    expect(stepRewardsToJsonl(stepRewards, { lines: gatedLinesFor('r') })).toBe('')
+  })
+
+  it('refuses to serialize step rewards without a line context', () => {
+    const untyped = stepRewardsToJsonl as unknown as (rewards: StepReward[]) => string
+    expect(() => untyped([])).toThrow(/a RolloutLineContext is required/)
   })
 
   it('toGrpoJsonl, toSftJsonl, toPrmJsonl, toDpoJsonl all return empty string on empty input', () => {

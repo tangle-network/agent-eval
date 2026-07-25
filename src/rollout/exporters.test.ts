@@ -46,6 +46,11 @@ describe('SFT exporter', () => {
       candidate_id: 'gen0-cand1',
       instance_id: 'astropy__astropy-13033',
       reward: 1,
+      // Both realness claims ride on the row even here, where the gated verdict
+      // is always false — see `RealnessLabels`. `null` = the fixture's producer
+      // never stated whether a screen ran, which is not the same as "clean".
+      realness_gated: false,
+      realness_screened: null,
     })
   })
 
@@ -129,6 +134,7 @@ describe('OpenAI RFT items exporter', () => {
       split: 'search',
       rollout_id: line.rollout_id,
       realness_gated: false,
+      realness_screened: null,
     })
   })
 

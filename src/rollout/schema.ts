@@ -30,7 +30,24 @@
  * `{reward: 0.95, realness_gated: true}` validate clean and walk into every
  * training export. The relationship between the two IS the invariant, so it is
  * checked where every other structural claim about a line is checked.
+ *
+ * The invariant is about the OUTCOME, not about one field of it. Zeroing
+ * `reward` while `outcome.metrics` still carried the per-layer scores that
+ * reward was computed from exported the gamed signal anyway, in the dict the
+ * verifiers format reads as its per-rubric scores. So `gateGamedOutcome`
+ * transforms the whole outcome once, at `assertMinted` — the funnel every
+ * minted line passes — and the reward-bearing components are relocated to
+ * `provenance.gated_evidence`, which no exporter projects.
+ *
+ * WHICH checks each door applies is not decided in this file. `./gate-checks`
+ * owns the canonical list and the total per-entry-point policy; the three doors
+ * below (`validateRolloutLine`, `assertRewardGate`, `assertMinted`) each call
+ * `gateErrors` with their declared policy, so a check added to that list applies
+ * here without anyone editing this file, and a check deliberately skipped has to
+ * name itself there.
  */
+
+import { declaredSteps, GATE_POLICIES, gatedEvidenceOf, gateErrors } from './gate-checks'
 
 export const ROLLOUT_SCHEMA = 'tangle.rollout.v1'
 /** @deprecated alias kept for consumers of the pre-unification constant name. */
@@ -208,8 +225,34 @@ export interface RolloutOutcome {
    * validator rejects the line otherwise — and the line never qualifies for
    * SFT. Optional on the wire (absent = false) so pre-unification ledgers stay
    * readable; `assertMinted` fills it in explicitly on the way to an export.
+   *
+   * `true` ALSO requires `metrics` to be empty and `verdict` to be null: the
+   * numbers the reward was computed from are relocated to
+   * `provenance.gated_evidence` by `gateGamedOutcome`. See that function for
+   * why zeroing the scalar alone was not enough.
    */
   realness_gated?: boolean
+  /**
+   * Whether an authenticity SCREEN ever RAN on this reward — a different claim
+   * from `realness_gated`, which is the screen's VERDICT.
+   *
+   * `realness_gated: false` reads as "we looked and nothing fired". A producer
+   * with no screen at all was emitting exactly that, so a never-screened reward
+   * was indistinguishable on the wire from a screened-clean one, and the whole
+   * anti-Goodhart apparatus silently treated the first as the second. The two
+   * claims are now separable:
+   *
+   *   - `true`   — a screen ran; `realness_gated` is its verdict.
+   *   - `false`  — the producer declares it HAS no screen (`unscreenedRewardFields`).
+   *                `assertMinted` REFUSES such a line when its reward is above
+   *                zero: an unscreened positive reward is precisely the signal
+   *                the gate exists to qualify, and nothing has qualified it.
+   *   - absent   — not stated. Pre-unification ledgers land here, as does a
+   *                `RunRecord` carrying no `outcome.realness` at all. Absent is
+   *                read as "unknown", never as `false` (which would refuse most
+   *                of the existing corpus) and never as `true`.
+   */
+  realness_screened?: boolean
 }
 
 export interface RolloutCostBlock {
@@ -234,6 +277,27 @@ export interface RolloutArtifacts {
   transcript_ref: string | null
 }
 
+/**
+ * The reward-bearing half of a GATED line's outcome, moved off `outcome` and
+ * parked here verbatim. Diagnostics, never training input — see
+ * `gateGamedOutcome`.
+ */
+export interface GatedEvidence {
+  /** `outcome.metrics` exactly as the producer measured it. */
+  metrics?: Record<string, unknown>
+  /** `outcome.verdict` verbatim — the judge record that claimed the success. */
+  verdict?: unknown
+  /**
+   * The per-step fields `tangle.rollout.v1` does not declare, parked here when
+   * the gate projected `steps[]` down to the schema's own key set.
+   *
+   * A per-step reward is training signal exactly like the scalar, and `steps`
+   * rides through `toRewardRows` verbatim — so a gated line was shipping its
+   * step-level credit assignment at full value beside a `reward` of 0.
+   */
+  steps?: unknown
+}
+
 export interface RolloutProvenance {
   captured_at: string
   capture: RolloutCapture
@@ -244,6 +308,13 @@ export interface RolloutProvenance {
    * `outcome.reward` is null and this says why.
    */
   gap?: string
+  /**
+   * Present only on a realness-gated line: the outcome fields the gate
+   * relocated, kept so an auditor can still see WHY the run was gated and what
+   * it claimed. Deliberately OUTSIDE `outcome`, because every training exporter
+   * reads `outcome` and none reads `provenance`.
+   */
+  gated_evidence?: GatedEvidence
 }
 
 export interface RolloutLine {
@@ -348,47 +419,87 @@ function validateSection(
 }
 
 /**
- * THE anti-Goodhart invariant, checked as a RELATIONSHIP between two fields
- * rather than as two independent type checks.
+ * THE anti-Goodhart gate, applied to the WHOLE outcome as a TRANSFORMATION.
  *
- * Everything upstream of a training export is allowed to be wrong; this is the
- * one thing that cannot be. `realness_gated: true` means the run faked its
- * success signal, so its reward is a fabrication, and a fabrication above zero
- * is precisely what a trainer would learn to reproduce. Validating only that
- * `reward` is a number and `realness_gated` is a boolean is what let a line
- * claiming `{reward: 0.95, realness_gated: true}` validate clean and walk
- * through every exporter.
+ * Two prior rounds enforced the gate as a CHECK ON ONE FIELD at N call sites,
+ * and each round the next reward-bearing field leaked. The one that shipped:
+ * `mintRolloutRows` bulk-copied `RunRecord.outcome.raw` into `outcome.metrics`
+ * with no gate, so a gated run exported `reward: 0` (correct) while the
+ * deterministic per-layer scores that reward was COMPUTED FROM — the
+ * `layer.*` keys `rl/verifiable-reward.ts` calls the RL training signal —
+ * shipped at 1.0, in the top-level `metrics` dict of the Prime Intellect
+ * verifiers format, which IS that format's per-rubric score dict. `verdict`
+ * leaks the same way into `toRftItem`'s `reference.verdict`, where a grader
+ * author reads `resolved: true` off a run that faked it.
+ *
+ * So the rule is no longer "zero the field we remembered". It is: if the gate
+ * fired, the outcome that leaves here carries NOTHING positive that was derived
+ * from the reward, whichever field a present or future exporter decides to
+ * read. `reward` is already forced to 0 upstream (`trainingReward`) and
+ * REJECTED here if it is not; `metrics` and `verdict` are relocated.
+ *
+ * WHERE they go, and why relocation rather than deletion: zeroing destroys the
+ * audit trail that shows why the run was gated and what it claimed, which is
+ * the row an auditor most wants and the labeled example a gaming DETECTOR
+ * trains on. `provenance.gated_evidence` keeps every byte, at a path no
+ * training exporter reads — all four release configs and every `rl/exporters`
+ * shape project from `outcome`, `messages`, `cost` and `task`; none projects
+ * `provenance`. Auditability preserved, training signal removed, and a future
+ * exporter that reads a field nobody thought of is safe by construction because
+ * the field is empty rather than because the exporter remembered to check.
+ *
+ * Idempotent: a second application finds nothing left to move and returns the
+ * line unchanged, so re-minting a line read back off a ledger cannot clobber
+ * the evidence it already carries.
  */
-function rewardGateErrors(outcome: Record<string, unknown>): string[] {
-  const { reward, realness_gated: gated } = outcome
-  if (gated !== true) return []
-  if (typeof reward !== 'number' || !(reward > 0)) return []
-  return [
-    `outcome.reward: ${reward} with outcome.realness_gated: true — a run flagged as gamed ` +
-      'may not carry a positive reward. The anti-Goodhart gate forces the reward to 0 (a real ' +
-      'verdict: the gate decided) before the line is written, so a fine-tune cannot learn from a ' +
-      'faked success. Derive the reward with `trainingReward` / `trainingScore` from ' +
-      '`rollout/reward.ts`, or drop the line.',
-  ]
+export function gateGamedOutcome(line: RolloutLine): RolloutLine {
+  if (line.outcome.realness_gated !== true) return line
+  const moved = gatedEvidenceOf(line)
+  if (moved === undefined) return line
+  const kept = line.provenance.gated_evidence
+  const evidence: GatedEvidence = {}
+  const metrics = { ...kept?.metrics, ...moved.metrics }
+  if (Object.keys(metrics).length > 0) evidence.metrics = metrics
+  if (moved.verdict !== undefined) evidence.verdict = moved.verdict
+  else if (kept?.verdict !== undefined) evidence.verdict = kept.verdict
+  if (moved.steps !== undefined) evidence.steps = moved.steps
+  else if (kept?.steps !== undefined) evidence.steps = kept.steps
+  // The trajectory itself STAYS: a gamed transcript is the labeled example a
+  // gaming detector trains on, and the exporters are meant to ship it. Only the
+  // fields the wire format does not declare come off, which is the same
+  // partition `gatedEvidenceOf` applies to `metrics` — the producer's own,
+  // never a key-name guess.
+  const steps = moved.steps === undefined ? line.steps : declaredSteps(line.steps)
+  return {
+    ...line,
+    ...(steps === undefined ? {} : { steps }),
+    outcome: { ...line.outcome, metrics: {}, verdict: null },
+    provenance: { ...line.provenance, gated_evidence: evidence },
+  }
 }
 
 /**
- * The anti-Goodhart invariant ALONE, for the export path.
+ * EVERY gate check, for the export path — the runtime backstop.
  *
- * `validateRolloutLine` checks it too, but an exporter cannot afford to
- * re-validate every field of every line, and more importantly it is not the
- * exporter's job to re-check the schema — it is its job never to emit a reward
- * it was told is fabricated. Two field reads, thrown rather than filtered: an
+ * `validateRolloutLine` checks the reward relationship too, but an exporter
+ * cannot afford to re-validate every field of every line, and more importantly
+ * it is not the exporter's job to re-check the schema — it is its job never to
+ * emit a signal it was told is fabricated. Thrown rather than filtered: an
  * exporter silently dropping a poisoned line would hide the producer that made
  * it, and the producer is the actual defect.
  *
  * This is the third layer, and it exists for exactly one caller: JavaScript.
- * The brand stops TypeScript callers at compile time and the validator stops
+ * The brand stops TypeScript callers at compile time and `assertMinted` fixes
  * data arriving from disk, but neither is present for a plain JS consumer of
- * the published package handing an object literal to `toRewardRows`.
+ * the published package handing an object literal to `toRewardRows`. Which is
+ * exactly why this entry point's policy omits nothing: a check it skips is a
+ * check that never runs for those callers at all. It composed two of the three
+ * for one round, and a never-screened positive reward walked through all four
+ * waist exporters at full value. `GATE_POLICIES.assertRewardGate` is now the
+ * only place that list is written down.
  */
 export function assertRewardGate(line: RolloutLine, context: string): void {
-  const errors = rewardGateErrors(line.outcome as unknown as Record<string, unknown>)
+  const errors = gateErrors(line, GATE_POLICIES.assertRewardGate)
   if (errors.length > 0) {
     throw new Error(`${context}: rollout ${line.rollout_id} — ${errors[0]}`)
   }
@@ -516,13 +627,17 @@ export function validateRolloutLine(value: unknown): string[] {
   )
   if (isRecord(value.outcome)) {
     if (!('verdict' in value.outcome)) errors.push('outcome.verdict: field required (may be null)')
-    if (
-      value.outcome.realness_gated !== undefined &&
-      typeof value.outcome.realness_gated !== 'boolean'
-    ) {
-      errors.push('outcome.realness_gated: expected boolean when present')
+    for (const key of ['realness_gated', 'realness_screened'] as const) {
+      if (value.outcome[key] !== undefined && typeof value.outcome[key] !== 'boolean') {
+        errors.push(`outcome.${key}: expected boolean when present`)
+      }
     }
-    errors.push(...rewardGateErrors(value.outcome))
+    errors.push(
+      ...gateErrors(
+        { outcome: value.outcome, steps: value.steps },
+        GATE_POLICIES.validateRolloutLine,
+      ),
+    )
   }
 
   validateSection(
@@ -575,12 +690,18 @@ export function validateRolloutLine(value: unknown): string[] {
     ],
     errors,
   )
-  if (
-    isRecord(value.provenance) &&
-    value.provenance.gap !== undefined &&
-    typeof value.provenance.gap !== 'string'
-  ) {
-    errors.push('provenance.gap: must be string when present')
+  if (isRecord(value.provenance)) {
+    if (value.provenance.gap !== undefined && typeof value.provenance.gap !== 'string') {
+      errors.push('provenance.gap: must be string when present')
+    }
+    const evidence = value.provenance.gated_evidence
+    if (evidence !== undefined) {
+      if (!isRecord(evidence)) {
+        errors.push('provenance.gated_evidence: must be an object when present')
+      } else if (evidence.metrics !== undefined && !isRecord(evidence.metrics)) {
+        errors.push('provenance.gated_evidence.metrics: must be an object when present')
+      }
+    }
   }
 
   // A gap line must say WHY it is a gap; a full line must not carry a gap note.
@@ -618,7 +739,11 @@ export function isRolloutLine(value: unknown): value is RolloutLine {
  */
 declare const MINTED_ROLLOUT: unique symbol
 
-/** A minted outcome states the gate verdict — it is not allowed to stay silent. */
+/**
+ * A minted outcome states the gate verdict — it is not allowed to stay silent —
+ * and, when that verdict is `true`, carries nothing else the reward was derived
+ * from (`gateGamedOutcome` has run).
+ */
 export interface MintedRolloutOutcome extends RolloutOutcome {
   realness_gated: boolean
 }
@@ -649,22 +774,54 @@ export type MintedRolloutLine = Omit<RolloutLine, 'outcome'> & {
 }
 
 /**
- * Promote a line to the type the training exporters accept, checking the
- * invariant first. THE escape hatch — grep `assertMinted` to enumerate every
- * place a line enters the training path without coming from mint or a ledger.
+ * Promote a line to the type the training exporters accept, applying the
+ * anti-Goodhart gate to the WHOLE outcome on the way through. THE escape hatch
+ * — grep `assertMinted` to enumerate every place a line enters the training
+ * path without coming from mint or a ledger.
  *
- * Normalizes the optional wire flag to an explicit boolean. `realness_gated`
- * is absent on pre-unification ledgers and absent means "not flagged" per the
- * schema, so filling it in states a claim the line was already making, and
- * makes the flag readable on every published row instead of most of them.
+ * The gate runs HERE, once, rather than at each producer, because this is the
+ * single funnel every minted line passes: `mintRolloutRows` calls it,
+ * `readRolloutLedger` calls it per line off disk, `scrubLines` calls it on the
+ * way out of a release, and a hand-built line has no other door. One
+ * transformation at the funnel means an already-published ledger holding a
+ * gated line with populated `metrics` is RE-GATED when it is read, instead of
+ * being rejected (which would make every such artifact unreadable) or trusted
+ * (which is the leak). Three steps, in this order:
+ *
+ *   1. VALIDATE the schema.
+ *   2. REFUSE every check `GATE_POLICIES.assertMinted` marks `enforce` — today
+ *      the reward relationship (which stays a REJECTION: a caller claiming
+ *      `{reward: 0.95, realness_gated: true}` is a producer defect and must fail
+ *      loudly, since laundering it into `reward: 0` here would hide the
+ *      producer) and a positive reward the producer declared it never screened.
+ *   3. TRANSFORM the one check that policy marks `repair` — relocate the
+ *      reward's components off `outcome` (`gateGamedOutcome`), so no exporter
+ *      can leak them whichever field it reads.
+ *
+ * Step 2 enumerates nothing by hand: a check added to `GATE_CHECKS` is enforced
+ * here the moment its disposition in that policy says so.
+ *
+ * Also normalizes the optional wire flag to an explicit boolean.
+ * `realness_gated` is absent on pre-unification ledgers and absent means "not
+ * flagged" per the schema, so filling it in states a claim the line was already
+ * making, and makes the flag readable on every published row instead of most of
+ * them. `realness_screened` is NOT filled in: absent means "unknown", and
+ * inventing either value there would be the same overclaim this round removed.
  */
 export function assertMinted(value: unknown, context = 'rollout line'): MintedRolloutLine {
   assertRolloutLine(value, context)
-  const outcome = value.outcome
-  if (outcome.realness_gated === undefined) {
-    return { ...value, outcome: { ...outcome, realness_gated: false } } as MintedRolloutLine
+  const refused = gateErrors(value, GATE_POLICIES.assertMinted)
+  if (refused.length > 0) {
+    throw new Error(`invalid ${context}: rollout ${value.rollout_id} — ${refused[0]}`)
   }
-  return value as MintedRolloutLine
+  const gated = gateGamedOutcome(value)
+  if (gated.outcome.realness_gated === undefined) {
+    return {
+      ...gated,
+      outcome: { ...gated.outcome, realness_gated: false },
+    } as MintedRolloutLine
+  }
+  return gated as MintedRolloutLine
 }
 
 /** `assertMinted` over a batch, naming the offending index in the error. */

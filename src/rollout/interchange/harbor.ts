@@ -62,6 +62,7 @@ import {
   type ChatMessage,
   type ChatRole,
   type ChatToolCall,
+  type GatedEvidence,
   ROLLOUT_CAPTURES,
   ROLLOUT_ROLES,
   ROLLOUT_SCHEMA,
@@ -903,6 +904,16 @@ function nodeToLine(
         ? (capture as RolloutCapture)
         : 'backfill',
       gap: composeGap(escrowedGap, [HARBOR_IMPORT_GAP]),
+      // Restored for the same reason `realness_gated` is, and with the opposite
+      // risk profile from the reward: this is the gated run's own measurement
+      // bag, moved off `outcome` by `gateGamedOutcome` so no exporter reads it
+      // as training input. Dropping it here would silently destroy the audit
+      // trail that says WHY the run was flagged and what it claimed, on the one
+      // population an auditor most wants to inspect. It cannot be fail-open —
+      // nothing projects `provenance` into a training row.
+      ...(isRecord(provenance?.gated_evidence)
+        ? { gated_evidence: provenance.gated_evidence as GatedEvidence }
+        : {}),
     },
   }
   assertRolloutLine(line, `rollout line imported from ATIF trajectory ${rolloutId}`)

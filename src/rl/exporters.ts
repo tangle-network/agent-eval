@@ -45,12 +45,17 @@ import type { RunRecord } from '../run-record'
 import type { PreferenceTriple } from './preferences'
 import type { PrmTrainingTriple, StepReward } from './process-reward'
 import {
+  admitUngatedByInvocation,
   isLineRealnessGated,
   isRolloutLineInput,
+  type LineContextRequirement,
   type MintedFromRecord,
   mintLinesFromRecords,
+  type RolloutLineContext,
   trainableLineReward,
 } from './rollout-input'
+
+export type { RolloutLineContext } from './rollout-input'
 
 // ── DPO / IPO / KTO ──────────────────────────────────────────────────────
 
@@ -71,17 +76,44 @@ export interface DpoExportRow {
   meta?: Record<string, unknown>
 }
 
+/** The minted lines for the runs a `PreferenceTriple` names on each side. */
+export type DpoLineContext = RolloutLineContext
+
+export const DPO_CONTEXT_REQUIREMENT: LineContextRequirement = {
+  exporter: 'DPO export',
+  contextType: 'DpoLineContext',
+  because:
+    'a PreferenceTriple carries only run ids and a bare margin number, so without the minted rollout lines this exporter cannot see the realness gate and will write a run that faked its success onto the CHOSEN side of the pair — which is DPO trained to PREFER the gaming trajectory.',
+}
+
 /**
  * Convert preference triples to TRL-compatible DPO rows. The shape
  * `{prompt, chosen, rejected}` is the canonical HuggingFace DPODataset
  * entry; every major DPO trainer accepts it.
+ *
+ * `context` is REQUIRED, and for the same reason it is required on the sibling
+ * `toPrmRows`: a triple is a line-less artifact. It names two run ids and a
+ * margin, and nothing on it says whether either run was flagged as gamed —
+ * so a two-argument call applied NO gate at all and emitted the row verbatim,
+ * reachable straight through the published bundle builder
+ * (`buildRlDataset(lines, lookups, {formats:['dpo']}, {triples, lookups})`).
+ * Triples whose chosen or rejected side is realness-gated are dropped; a triple
+ * naming a run with no supplied line is refused. See `admitUngatedByInvocation` for
+ * why dropping, not zeroing, is the right disposition for a preference pair.
  */
 export async function toDpoRows(
   triples: PreferenceTriple[],
   lookups: DpoLookups,
+  context: DpoLineContext,
 ): Promise<DpoExportRow[]> {
+  const admitted = admitUngatedByInvocation(
+    triples,
+    (t) => [t.chosenRunId, t.rejectedRunId],
+    context,
+    DPO_CONTEXT_REQUIREMENT,
+  )
   const out: DpoExportRow[] = []
-  for (const t of triples) {
+  for (const t of admitted) {
     const [prompt, chosen, rejected] = await Promise.all([
       Promise.resolve(lookups.promptOf(t.chosenRunId)),
       Promise.resolve(lookups.completionOf(t.chosenRunId)),
@@ -385,13 +417,7 @@ export interface PrmExportRow {
   meta?: Record<string, unknown>
 }
 
-export interface PrmLineContext {
-  /**
-   * The minted lines for every run the triples reference. Supplying them is
-   * what lets this exporter see the realness gate and the capture quality of
-   * each trajectory; a triple naming a run with no line here is refused.
-   */
-  lines: MintedRolloutLine[]
+export interface PrmLineContext extends RolloutLineContext {
   /**
    * The `maxSteps` cap the lines were minted with, if any.
    *
@@ -428,14 +454,6 @@ export async function toPrmRows(
   lookups: PrmLookups,
   context: PrmLineContext,
 ): Promise<PrmExportRow[]> {
-  // Reachable from JavaScript, and from a `toPrmRows as any` — the removed
-  // two-argument overload stops TypeScript callers at compile time, and this
-  // stops everyone else.
-  if (context === undefined || context === null) {
-    throw new Error(
-      'PRM export: a PrmLineContext is required — without the minted rollout lines this exporter cannot see the realness gate (a triple carries only a bare reward number) and cannot tell a fully-captured trajectory from a capped or empty one. Pass `{ lines: await mintRolloutRows(...).rows }`.',
-    )
-  }
   const admitted = admitPrmTriples(triples, context)
   const rows: PrmExportRow[] = []
   for (const t of admitted) {
@@ -502,34 +520,31 @@ export function assertPrmTrainableLine(line: MintedRolloutLine, mintedWithMaxSte
   }
 }
 
+export const PRM_CONTEXT_REQUIREMENT: LineContextRequirement = {
+  exporter: 'PRM export',
+  contextType: 'PrmLineContext',
+  because:
+    'without the minted rollout lines this exporter cannot see the realness gate (a triple carries only a bare reward number) and cannot tell a fully-captured trajectory from a capped or empty one.',
+}
+
 /**
  * Validate every referenced line up front (fail loud, before a single row is
  * written) and then drop the triples whose evidence is realness-gated.
+ *
+ * The gate half is `admitUngatedByInvocation`, shared with `toDpoRows` and
+ * `stepRewardsToJsonl`; only the trajectory-completeness rules are PRM's own.
  */
 function admitPrmTriples(
   triples: PrmTrainingTriple[],
   context: PrmLineContext,
 ): PrmTrainingTriple[] {
-  const byRunId = new Map(context.lines.map((line) => [line.run_id, line]))
-  const lineFor = (runId: string): MintedRolloutLine => {
-    const line = byRunId.get(runId)
-    if (line === undefined) {
-      throw new Error(
-        `PRM export: no rollout line supplied for run ${runId} — its realness gate and capture quality are unknown`,
-      )
-    }
-    return line
-  }
-  const admitted: PrmTrainingTriple[] = []
-  for (const t of triples) {
-    const chosen = lineFor(t.prefixRunId)
-    const rejected = lineFor(t.rejectedRunId)
-    assertPrmTrainableLine(chosen, context.mintedWithMaxSteps)
-    assertPrmTrainableLine(rejected, context.mintedWithMaxSteps)
-    if (isLineRealnessGated(chosen) || isLineRealnessGated(rejected)) continue
-    admitted.push(t)
-  }
-  return admitted
+  return admitUngatedByInvocation(
+    triples,
+    (t) => [t.prefixRunId, t.rejectedRunId],
+    context,
+    PRM_CONTEXT_REQUIREMENT,
+    (line) => assertPrmTrainableLine(line, context.mintedWithMaxSteps),
+  )
 }
 
 export function toPrmJsonl(rows: PrmExportRow[]): string {
@@ -547,8 +562,31 @@ export interface StepRewardJsonlRow {
   weight: number
 }
 
-export function stepRewardsToJsonl(stepRewards: StepReward[]): string {
-  const rows: StepRewardJsonlRow[] = stepRewards.map((s) => ({
+export const STEP_REWARD_CONTEXT_REQUIREMENT: LineContextRequirement = {
+  exporter: 'step-reward export',
+  contextType: 'RolloutLineContext',
+  because:
+    'a StepReward carries a runId and a bare per-step reward, and nothing that says whether that run faked its success — so without the minted rollout lines this exporter ships the step-level components of a gamed run at full value while the run-level scalar sits at 0 elsewhere.',
+}
+
+/**
+ * Step-level reward rows as JSONL.
+ *
+ * `context` is REQUIRED for the same reason it is on `toDpoRows` and
+ * `toPrmRows`: this is a line-less input carrying a reward number. Steps
+ * belonging to a realness-gated run are dropped rather than zeroed — a
+ * per-step reward of 0 across a whole trajectory is a claim that every step was
+ * bad, which is a different (and false) statement from "this run's success was
+ * fabricated, so its step-level credit assignment is meaningless".
+ */
+export function stepRewardsToJsonl(stepRewards: StepReward[], context: RolloutLineContext): string {
+  const admitted = admitUngatedByInvocation(
+    stepRewards,
+    (s) => [s.runId],
+    context,
+    STEP_REWARD_CONTEXT_REQUIREMENT,
+  )
+  const rows: StepRewardJsonlRow[] = admitted.map((s) => ({
     runId: s.runId,
     spanId: s.spanId,
     stepIndex: s.stepIndex,

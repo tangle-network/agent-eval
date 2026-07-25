@@ -19,10 +19,10 @@
 
 import { httpDispatch } from '../../src/adapters/http'
 import {
-  type JudgeConfig,
-  type Scenario,
   inMemoryCampaignStorage,
+  type JudgeConfig,
   runEval,
+  type Scenario,
 } from '../../src/contract'
 
 interface MarketingScenario extends Scenario {
@@ -37,10 +37,38 @@ interface MarketingArtifact {
 }
 
 const scenarios: MarketingScenario[] = [
-  { id: 's-us-1', kind: 'marketing', blurb: 'B2B SaaS for engineers.', surface: 'landing-hero', audience: 'engineering leaders', tags: ['us'] },
-  { id: 's-eu-1', kind: 'marketing', blurb: 'Privacy-first analytics.', surface: 'tweet', audience: 'EU SMBs', tags: ['eu'] },
-  { id: 's-ap-1', kind: 'marketing', blurb: 'Mobile-first fintech.', surface: 'email-subject', audience: 'APAC consumers', tags: ['ap'] },
-  { id: 's-us-2', kind: 'marketing', blurb: 'Cloud cost optimization.', surface: 'landing-hero', audience: 'CTOs', tags: ['us'] },
+  {
+    id: 's-us-1',
+    kind: 'marketing',
+    blurb: 'B2B SaaS for engineers.',
+    surface: 'landing-hero',
+    audience: 'engineering leaders',
+    tags: ['us'],
+  },
+  {
+    id: 's-eu-1',
+    kind: 'marketing',
+    blurb: 'Privacy-first analytics.',
+    surface: 'tweet',
+    audience: 'EU SMBs',
+    tags: ['eu'],
+  },
+  {
+    id: 's-ap-1',
+    kind: 'marketing',
+    blurb: 'Mobile-first fintech.',
+    surface: 'email-subject',
+    audience: 'APAC consumers',
+    tags: ['ap'],
+  },
+  {
+    id: 's-us-2',
+    kind: 'marketing',
+    blurb: 'Cloud cost optimization.',
+    surface: 'landing-hero',
+    audience: 'CTOs',
+    tags: ['us'],
+  },
 ]
 
 const judge: JudgeConfig<MarketingArtifact, MarketingScenario> = {
@@ -51,7 +79,9 @@ const judge: JudgeConfig<MarketingArtifact, MarketingScenario> = {
   ],
   async score({ artifact, scenario }) {
     const lengthOk = artifact.rewrite.length > 10 && artifact.rewrite.length < 500
-    const audienceMention = artifact.rewrite.toLowerCase().includes(scenario.audience.split(' ')[0]?.toLowerCase() ?? '')
+    const audienceMention = artifact.rewrite
+      .toLowerCase()
+      .includes(scenario.audience.split(' ')[0]?.toLowerCase() ?? '')
     const dims = {
       length_ok: lengthOk ? 1 : 0,
       audience_mention: audienceMention ? 1 : 0,
@@ -114,9 +144,13 @@ async function main() {
   for (const [id, agg] of Object.entries(result.aggregates.byScenario)) {
     console.log(`  ${id}: ${agg.meanComposite.toFixed(3)} (n=${agg.n})`)
   }
-  const mean = Object.values(result.aggregates.byScenario).reduce((s, a) => s + a.meanComposite, 0) / scenarios.length
+  const mean =
+    Object.values(result.aggregates.byScenario).reduce((s, a) => s + a.meanComposite, 0) /
+    scenarios.length
   console.log(`\nOverall composite mean: ${mean.toFixed(3)}`)
-  console.log(`Cells executed: ${result.aggregates.cellsExecuted}, failed: ${result.aggregates.cellsFailed}`)
+  console.log(
+    `Cells executed: ${result.aggregates.cellsExecuted}, failed: ${result.aggregates.cellsFailed}`,
+  )
 }
 
 main().catch((err) => {

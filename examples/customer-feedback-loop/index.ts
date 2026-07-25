@@ -9,11 +9,7 @@
  * and the top disagreement triage list.
  */
 
-import {
-  analyzeRuns,
-  fromFeedbackTable,
-  type FeedbackTableRow,
-} from '../../src/contract'
+import { analyzeRuns, type FeedbackTableRow, fromFeedbackTable } from '../../src/contract'
 
 const N_CLAIMS = 30
 const RATERS = ['alice', 'bob', 'carol']
@@ -84,9 +80,7 @@ async function main() {
 
     console.log('Top 5 disagreement cases')
     for (const c of ir.disagreementCases.slice(0, 5)) {
-      const ratingStr = c.ratings
-        .map((r) => `${r.rater}=${r.score.toFixed(0)}`)
-        .join(', ')
+      const ratingStr = c.ratings.map((r) => `${r.rater}=${r.score.toFixed(0)}`).join(', ')
       console.log(`  ${c.runId.padEnd(10)} range=${c.range.toFixed(2)}  ratings: ${ratingStr}`)
     }
     console.log()

@@ -172,6 +172,7 @@
   "devDependencies": {
     "@biomejs/biome": "^2.4.15",
     "@types/node": "^25.6.0",
+    "fast-check": "^4.9.0",
     "husky": "^9.1.7",
     "lint-staged": "^17.0.5",
     "openapi3-ts": "^4.5.0",

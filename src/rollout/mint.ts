@@ -10,10 +10,12 @@
  *   - preference-pair export  → `feedbackTrajectoryToOptimizerRow` (feedback-trajectory.ts)
  *   - PRM / reward-model      → `reward-model-export.ts`
  *
- * Anti-Goodhart invariant: a run whose `outcome.realness.gated` is true
- * is never exported with a positive reward — the gate travels into the
- * training data (`reward` forced to 0, `realness_gated: true`), so a
- * fine-tune cannot learn from gamed successes. Mint returns
+ * Anti-Goodhart invariant: a run whose `outcome.realness.gated` is true is
+ * never exported with a positive reward OR with any of the numbers that reward
+ * was computed from. The gate travels into the training data (`reward` forced
+ * to 0, `realness_gated: true`) and the whole outcome is transformed by
+ * `gateGamedOutcome` inside `assertMinted` below, which relocates `metrics` and
+ * `verdict` to `provenance.gated_evidence`. Mint returns
  * `MintedRolloutLine[]`: the brand the training exporters require, which only
  * this function, `readRolloutLedger`, and an explicit `assertMinted` can mint.
  *
@@ -181,6 +183,15 @@ function mintLine(
         ...rewardFields,
         reward_source: REWARD_SOURCE[scoreOrigin(record)],
         verdict: null,
+        // A verbatim bulk copy, deliberately UNFILTERED here. `outcome.raw`
+        // holds the per-layer verifier scores (`layer.*`) that the reward was
+        // derived from, so on a gated run this dict is the reward signal in
+        // component form — but filtering it at this call site is the pattern
+        // that has now leaked twice, because the next producer to write a
+        // reward-bearing field forgets. The gate is applied to the whole
+        // outcome once, in `assertMinted` below (`gateGamedOutcome`), which
+        // moves the block to `provenance.gated_evidence` when the run is gated
+        // and leaves it here untouched when it is not.
         metrics: { ...record.outcome.raw },
         is_completed: true,
         is_truncated: false,

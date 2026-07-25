@@ -20,17 +20,19 @@ function synthesise(): TraceSpanEvent[] {
     const runId = `run-${i + 1}`
     const failed = i % 7 === 0 // ~14% failure rate
     const baseTime = 1_700_000_000_000_000_000 + i * 1_000_000_000
-    const cost = 0.05 + (pseudoRand(runId) * 0.12) // $0.05 .. $0.17
-    const score = failed ? 0.2 + pseudoRand(runId + 's') * 0.2 : 0.6 + pseudoRand(runId + 's') * 0.35
-    const inputTokens = 800 + Math.floor(pseudoRand(runId + 'i') * 1400)
-    const outputTokens = 200 + Math.floor(pseudoRand(runId + 'o') * 600)
+    const cost = 0.05 + pseudoRand(runId) * 0.12 // $0.05 .. $0.17
+    const score = failed
+      ? 0.2 + pseudoRand(`${runId}s`) * 0.2
+      : 0.6 + pseudoRand(`${runId}s`) * 0.35
+    const inputTokens = 800 + Math.floor(pseudoRand(`${runId}i`) * 1400)
+    const outputTokens = 200 + Math.floor(pseudoRand(`${runId}o`) * 600)
 
     spans.push({
       traceId: `trace-${i}`,
       spanId: `span-root-${i}`,
       name: failed && i % 14 === 0 ? 'tool.search' : 'agent.turn',
       startTimeUnixNano: baseTime,
-      endTimeUnixNano: baseTime + Math.floor(pseudoRand(runId + 'd') * 5_000_000_000),
+      endTimeUnixNano: baseTime + Math.floor(pseudoRand(`${runId}d`) * 5_000_000_000),
       attributes: {
         'tangle.runId': runId,
         'tangle.model': 'gpt-4o@2025-04-15',

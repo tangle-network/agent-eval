@@ -28,6 +28,47 @@ import type {
 import { assertRewardGate, isTrainableSplit } from './schema'
 
 // ---------------------------------------------------------------------------
+// The realness claims every emitted row carries.
+// ---------------------------------------------------------------------------
+
+/**
+ * The gate's two claims, which travel TOGETHER on every emitted row.
+ *
+ * `realness_gated` alone is ambiguous, and the ambiguity is exploitable:
+ * `false` reads as "we screened it and nothing fired", so a producer that has no
+ * screen at all emitted rows indistinguishable from screened-clean ones, and
+ * every consumer of the published dataset read them as clean. The second field
+ * is what separates the two claims, and it only removes the ambiguity if it
+ * reaches the WIRE — for a round it existed on `RolloutOutcome` and on no
+ * exported row shape at all, which left the published rows exactly as ambiguous
+ * as before.
+ *
+ * So there is one helper and every row shape spreads it. A row that states one
+ * claim without the other is not constructible by copying the pattern, and
+ * `exporters.test.ts` walks every emitted shape to prove none does.
+ */
+export interface RealnessLabels {
+  /** The screen's VERDICT: the run faked its success signal. */
+  realness_gated: boolean
+  /**
+   * Whether a screen RAN at all. `true` = it ran, so `realness_gated` is its
+   * verdict. `false` = the producer declares it has none. `null` = not stated
+   * (pre-unification producers), which is "unknown" and never "clean".
+   */
+  realness_screened: boolean | null
+}
+
+export function realnessLabels(line: MintedRolloutLine): RealnessLabels {
+  return {
+    realness_gated: line.outcome.realness_gated === true,
+    // `?? null` rather than `?? false`: absent means the producer never stated
+    // it, and `false` is a load-bearing claim ("no screen exists") that would be
+    // an invention here.
+    realness_screened: line.outcome.realness_screened ?? null,
+  }
+}
+
+// ---------------------------------------------------------------------------
 // (a) SFT chat JSONL
 // ---------------------------------------------------------------------------
 
@@ -44,7 +85,7 @@ export interface SftRow {
     candidate_id: string | null
     instance_id: string
     reward: number
-  }
+  } & RealnessLabels
 }
 
 /**
@@ -53,6 +94,13 @@ export interface SftRow {
  * reward ≥ minReward, realness-gated lines never qualify, gap lines carry
  * no trainable content, and copied-context turns are dropped from the
  * transcript (Harbor ATIF RFC 0001 rule 7 — see `ChatMessage.is_copied_context`).
+ *
+ * `realness_gated` is therefore always `false` on an emitted row. It is carried
+ * anyway: an SFT row is a pure imitation target, so the row states its realness
+ * claims instead of making the reader know the format's policy, and carrying
+ * both flags on all four shapes is what lets the release accounting measure
+ * every config with one rule rather than skipping the one whose row shape
+ * happened to omit the field.
  */
 export function toSftRows(lines: MintedRolloutLine[], options: SftExportOptions = {}): SftRow[] {
   const minReward = options.minReward ?? 1
@@ -77,6 +125,7 @@ export function toSftRows(lines: MintedRolloutLine[], options: SftExportOptions 
         candidate_id: line.candidate_id ?? null,
         instance_id: line.task.instance_id,
         reward: line.outcome.reward as number,
+        ...realnessLabels(line),
       },
     }))
     .filter((row) => row.messages.length > 0)
@@ -98,14 +147,15 @@ export interface RewardRow {
     instance_id: string
     split: RolloutSplit
     /**
-     * The anti-Goodhart verdict, carried on the row rather than left implicit
-     * in a reward of 0. Zeroing alone is lossy: it makes a run that FAKED its
-     * success indistinguishable from one that honestly failed, so a consumer
-     * can neither drop the gamed population nor mine it (a labeled gamed
-     * trajectory is the training signal for a gaming detector).
+     * The anti-Goodhart verdict AND whether a screen produced it, carried on the
+     * row rather than left implicit in a reward of 0. Zeroing alone is lossy: it
+     * makes a run that FAKED its success indistinguishable from one that
+     * honestly failed, so a consumer can neither drop the gamed population nor
+     * mine it (a labeled gamed trajectory is the training signal for a gaming
+     * detector). `realness_gated` alone is lossy the same way in the other
+     * direction — see `RealnessLabels`.
      */
-    realness_gated: boolean
-  }
+  } & RealnessLabels
 }
 
 /**
@@ -129,7 +179,7 @@ export function toRewardRows(lines: MintedRolloutLine[]): RewardRow[] {
         candidate_id: line.candidate_id ?? null,
         instance_id: line.task.instance_id,
         split: line.task.split,
-        realness_gated: line.outcome.realness_gated === true,
+        ...realnessLabels(line),
       },
     }))
 }
@@ -165,9 +215,7 @@ export interface VerifiersRolloutOutput {
     generation: number | null
     candidate_index: number | null
     role: RolloutLine['role']
-    /** See `RewardRow.metadata.realness_gated` — reward 0 alone is lossy. */
-    realness_gated: boolean
-  }
+  } & RealnessLabels
 }
 
 /** Index of the first assistant turn; messages.length when none exists. */
@@ -202,7 +250,7 @@ export function toVerifiersRolloutOutput(line: MintedRolloutLine): VerifiersRoll
       generation: line.generation,
       candidate_index: line.candidate_index,
       role: line.role,
-      realness_gated: line.outcome.realness_gated === true,
+      ...realnessLabels(line),
     },
   }
 }
@@ -227,9 +275,7 @@ export interface RftItem {
     suite: string
     split: RolloutSplit
     rollout_id: string
-    /** See `RewardRow.metadata.realness_gated` — reward 0 alone is lossy. */
-    realness_gated: boolean
-  }
+  } & RealnessLabels
 }
 
 export function toRftItem(line: MintedRolloutLine): RftItem {
@@ -245,7 +291,7 @@ export function toRftItem(line: MintedRolloutLine): RftItem {
       suite: line.task.suite,
       split: line.task.split,
       rollout_id: line.rollout_id,
-      realness_gated: line.outcome.realness_gated === true,
+      ...realnessLabels(line),
     },
   }
 }

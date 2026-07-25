@@ -93,6 +93,9 @@ function gateSection(formats: ReleaseFormat[], gate: GateReport, totalLines: num
       counts?.maxEmittedReward === null || counts === undefined
         ? '—'
         : formatReward(counts.maxEmittedReward),
+      counts?.maxEmittedEvidence == null
+        ? '—'
+        : `${counts.maxEmittedEvidence.path} = ${counts.maxEmittedEvidence.value}`,
       GATE_FLAG_FIELD[format],
     ]
   })
@@ -102,18 +105,26 @@ function gateSection(formats: ReleaseFormat[], gate: GateReport, totalLines: num
   return [
     `\`outcome.realness_gated: true\` marks a run whose success signal was faked (it satisfied the proxy without doing the work). **${gate.gatedLines} of ${totalLines} lines in this release are gated.**`,
     '',
-    'The gate is enforced, not asserted. A line pairing `realness_gated: true` with a reward above 0 is rejected by the schema validator, so it cannot be read out of a source ledger or written into `raw/train.jsonl` at all; the exporters re-check the same invariant on every line; and the release build measures the rows it is about to write and refuses to write ANY file if a gated row carries a positive reward in ANY config.',
+    'The gate is enforced, not asserted. A line pairing `realness_gated: true` with a reward above 0 is rejected by the schema validator, so it cannot be read out of a source ledger or written into `raw/train.jsonl` at all; on a gated line the numbers the reward was computed from (`outcome.metrics`, the verbatim judge `outcome.verdict`, and any per-step field the schema does not declare — a per-step reward is the same signal in credit-assignment form) are moved out of `outcome` and `steps[]` and into `provenance.gated_evidence`, where no config reads them as training input; the exporters re-check the same invariant on every line; and the release build measures the rows it is about to write and refuses to write ANY file if a gated row carries a positive reward — or any positive number derived from one — in ANY config.',
     '',
     'The table below is **measured on the rows in this release**, not a description of intent — the build counts the emitted rows and this card renders those counts:',
     '',
     markdownTable(
-      ['config', 'policy', 'gated rows written', 'gated rows not written', 'max reward', 'flag'],
+      [
+        'config',
+        'policy',
+        'gated rows written',
+        'gated rows not written',
+        'max reward',
+        'max reward-derived number',
+        'flag',
+      ],
       rows,
     ),
     '',
     'Why gated rows are kept where they are kept: an SFT row is imitated verbatim, so a gamed trajectory must never appear in one at any weight. In `verifiers` the reward is a signed learning signal, and a gamed trajectory at reward 0 is a correct negative — dropping it would bias the negative population toward honest failures and leave a trainer no example of gaming being penalized. `rft` re-samples the completion, so only the prompt and the grader reference ship. `raw` is a faithful audit dump, where the gated row is the one an auditor most wants.',
     '',
-    'Reward 0 is never the only label: every included config carries the flag on the row itself, because zeroing alone makes a faked success indistinguishable from an honest failure. Filter on the flag to drop the gamed population, or select on it to mine it.',
+    "Reward 0 is never the only label: every included config carries the flag on the row itself, because zeroing alone makes a faked success indistinguishable from an honest failure. Filter on the flag to drop the gamed population, or select on it to mine it. The gated run's own measurements are not destroyed either — they are parked verbatim under `provenance.gated_evidence` in `raw/train.jsonl`, which is where an auditor can see what the run claimed and why it was flagged.",
     mixedExclusion
       ? '\n"Gated rows not written" is not all gate: `verifiers` also drops gap lines (empty transcript) and `rft` drops lines with no prompt turn, so that column can mix both causes.'
       : '',

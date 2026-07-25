@@ -22,10 +22,10 @@
  */
 
 import { serve } from '@hono/node-server'
-import { Hono, type Context } from 'hono'
+import { type Context, Hono } from 'hono'
 import {
-  HOSTED_WIRE_VERSION,
   type EvalRunEvent,
+  HOSTED_WIRE_VERSION,
   type IngestEvalRunsRequest,
   type IngestResponse,
   type IngestTracesRequest,
@@ -152,7 +152,10 @@ export function createReferenceReceiverApp(opts: {
       // Dedup within the tenant on (runId, status). Later events for the
       // same lifecycle stage of the same run overwrite the prior snapshot.
       const existingIdx = stores.runs.findIndex(
-        (r) => r.tenantId === auth.id && r.event.runId === event.runId && r.event.status === event.status,
+        (r) =>
+          r.tenantId === auth.id &&
+          r.event.runId === event.runId &&
+          r.event.status === event.status,
       )
       if (existingIdx >= 0) {
         stores.runs[existingIdx] = { tenantId: auth.id, event, receivedAt: now }

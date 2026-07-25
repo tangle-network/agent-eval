@@ -9,8 +9,10 @@
  */
 
 export {
+  type RealnessLabels,
   type RewardRow,
   type RftItem,
+  realnessLabels,
   type SftExportOptions,
   type SftRow,
   toJsonl,
@@ -23,6 +25,20 @@ export {
   type VerifiersRolloutOutput,
   type VerifiersTokenUsage,
 } from './exporters'
+
+export {
+  GATE_CHECK_IDS,
+  GATE_CHECKS,
+  GATE_POLICIES,
+  type GateCheck,
+  type GateCheckDisposition,
+  type GateCheckedOutcome,
+  type GateCheckId,
+  type GateEntryPoint,
+  type GatePolicy,
+  gatedEvidenceOf,
+  gateErrors,
+} from './gate-checks'
 
 export {
   ATIF_SCHEMA_VERSION,
@@ -80,6 +96,7 @@ export {
 } from './release/card'
 export {
   assertGateReport,
+  type EmittedEvidence,
   FORMAT_GATE_DISPOSITION,
   type FormatGateCounts,
   type GateDisposition,
@@ -131,6 +148,8 @@ export {
   type ChatMessage,
   type ChatRole,
   type ChatToolCall,
+  type GatedEvidence,
+  gateGamedOutcome,
   isRolloutLine,
   isTrainableSplit,
   type MintedRolloutLine,

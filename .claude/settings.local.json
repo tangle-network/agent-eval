@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(mkdir -p /tmp/cadsearch)",
+      "Bash(rm -f /tmp/cadsearch/*)",
+      "Bash(rm -rf /home/drew/code/agent-builder/eval/.runs/*)",
+      "Bash(rtk ls *)"
+    ]
+  }
+}

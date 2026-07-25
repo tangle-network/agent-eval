@@ -162,30 +162,57 @@ export function trainingRewardOverride(record: Scored, value: number | null): nu
 export interface RolloutRewardFields {
   reward: number | null
   realness_gated: boolean
+  /**
+   * Whether a screen RAN, as distinct from its verdict. Omitted when the
+   * producer cannot tell — see `unscreenedRewardFields` and the field's own doc
+   * on `RolloutOutcome`.
+   */
+  realness_screened?: boolean
 }
 
 /**
  * `trainingReward` in the line's own field names — what `mintRolloutRows`
  * writes onto every row it produces.
+ *
+ * `realness_screened: true` is written only when the record actually carries an
+ * `outcome.realness` verdict, i.e. a screen genuinely ran and reported. A
+ * record without one gets the field OMITTED rather than `false`: the record
+ * cannot distinguish "the screen ran elsewhere and this pipeline did not record
+ * it" from "no screen exists", and `false` is a load-bearing claim that
+ * `assertMinted` refuses on. Absent = unknown, which is the truth here.
  */
 export function rolloutRewardFields(record: Scored): RolloutRewardFields {
   const { reward, gated } = trainingReward(record)
-  return { reward, realness_gated: gated }
+  const screened = record.outcome.realness !== undefined
+  return { reward, realness_gated: gated, ...(screened ? { realness_screened: true } : {}) }
 }
 
 /**
- * The same pair for a producer that has a graded score but NO `RunRecord`
+ * The same fields for a producer that has a graded score but NO `RunRecord`
  * behind it — a supervision journal, a harness session store, any second
- * intake. There is no `outcome.realness` to consult, so the gate has not run on
- * this score and the pair says so out loud: `realness_gated: false` is the
- * literal claim "nothing flagged this run", which is what the field means.
- * Leaving the field absent made the same claim silently.
+ * intake. There is no `outcome.realness` to consult, so no authenticity screen
+ * has run on this score.
+ *
+ * `realness_gated: false` alone was the WRONG way to say that. `false` is the
+ * gate's VERDICT, and a verdict is a claim that somebody looked; on this path
+ * nobody did, so the row asserted "screened and clean" about a score that had
+ * never been screened at all — indistinguishable on the wire from a genuinely
+ * clean one, which is exactly what an adversary needs. The two claims are now
+ * carried by two fields:
+ *
+ *   - `realness_screened: false` — no screen ran. Explicit, not inferable from
+ *     absence, and impossible to read as "clean" because it is not the gate's
+ *     verdict field.
+ *   - `realness_gated: false` — no gate fired, which is trivially true when no
+ *     gate ran, and is what a consumer filtering on the flag expects to see.
+ *
+ * `assertMinted` REFUSES a line carrying `realness_screened: false` with a
+ * reward above zero, so these rows can be written, read, reported and analysed,
+ * but a positive one cannot become training data until something screens it.
  *
  * A separate function from `rolloutRewardFields` on purpose: picking this one
- * is a producer declaring that its rewards were never screened. Rows built with
- * it are plain `RolloutLine`s, so a caller putting them into a training export
- * still has to run them through `assertMinted` first.
+ * is a producer declaring that its rewards were never screened.
  */
 export function unscreenedRewardFields(score: number | null): RolloutRewardFields {
-  return { reward: score, realness_gated: false }
+  return { reward: score, realness_gated: false, realness_screened: false }
 }
