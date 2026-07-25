@@ -81,10 +81,16 @@ export interface OtelLikeSpan {
 
 // ── Conversion ───────────────────────────────────────────────────────
 
-/** `[seconds, nanoseconds]` → unix-nano number. */
-export function hrTimeToUnixNano(hr: HrTime): number {
+/** Convert `[seconds, nanoseconds]` to an exact base-10 Unix-nanosecond string. */
+export function hrTimeToUnixNano(hr: HrTime): string {
   const [seconds, nanos] = hr
-  return seconds * 1_000_000_000 + nanos
+  if (!Number.isSafeInteger(seconds) || !Number.isSafeInteger(nanos)) {
+    throw new RangeError('OTel HrTime values must be safe integers')
+  }
+  if (seconds < 0 || nanos < 0 || nanos >= 1_000_000_000) {
+    throw new RangeError('OTel HrTime must contain non-negative seconds and nanoseconds < 1e9')
+  }
+  return (BigInt(seconds) * 1_000_000_000n + BigInt(nanos)).toString()
 }
 
 function statusCodeName(code: number | undefined): 'OK' | 'ERROR' | 'UNSET' {
@@ -210,7 +216,7 @@ export function createOtelBridge(opts: OtelBridgeOptions): OtelBridge {
       event.events = span.events.map((e) => {
         const eventAttrs = cleanAttributes(e.attributes)
         const node: {
-          timeUnixNano: number
+          timeUnixNano: string
           name: string
           attributes?: Record<string, string | number | boolean>
         } = {

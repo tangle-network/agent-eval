@@ -196,7 +196,7 @@ export function extractVerifiableReward(
   const judgeFloor = opts.judgeConfidenceFloor ?? 0.7
 
   const deterministic = report.layers.filter(
-    (l) => deterministicSet.has(l.layer) && typeof l.score === 'number' && Number.isFinite(l.score),
+    (layer) => deterministicSet.has(layer.layer) && isMeasuredLayer(layer),
   )
 
   if (deterministic.length === 1) {
@@ -240,10 +240,8 @@ export function extractVerifiableReward(
   if (!fallbackToJudge) return null
 
   const judge =
-    report.layers.find(
-      (l) =>
-        typeof l.score === 'number' && Number.isFinite(l.score) && sourceFor(l.layer) === 'judge',
-    ) ?? report.layers.find((l) => typeof l.score === 'number' && Number.isFinite(l.score))
+    report.layers.find((layer) => isMeasuredLayer(layer) && sourceFor(layer.layer) === 'judge') ??
+    report.layers.find(isMeasuredLayer)
 
   if (!judge) return null
 
@@ -259,6 +257,18 @@ export function extractVerifiableReward(
     breakdown: layerBreakdown(judge),
     realnessScreened: false,
   }
+}
+
+function isMeasuredLayer(
+  layer: LayerResult,
+): layer is LayerResult & { status: 'pass' | 'fail'; score: number } {
+  return (
+    (layer.status === 'pass' || layer.status === 'fail') &&
+    typeof layer.score === 'number' &&
+    Number.isFinite(layer.score) &&
+    layer.score >= 0 &&
+    layer.score <= 1
+  )
 }
 
 /**
@@ -361,7 +371,8 @@ export function extractVerifiableRewardsFromRecords(
     // Probabilistic fallback: the run's primary score. `trainingScore` already
     // carries the gate, so a gamed run falls to 0 rather than earning the
     // judge's number; `observedScore` is the ungated reader the detection
-    // opt-out asks for.
+    // opt-out asks for. Either way an unscored run stays a labeled gap
+    // (`reward: null`), never a fabricated 0.
     const primary = applyGate ? trainingScore(run) : observedScore(run)
     if (typeof primary !== 'number' || !Number.isFinite(primary)) {
       return { runId: run.runId, reward: null }

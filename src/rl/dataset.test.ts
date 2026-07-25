@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest'
 import type { RunRecord } from '../run-record'
-import { buildRlDataset, datasheetToMarkdown, type RlDatasetConfig } from './dataset'
+import {
+  buildRlDataset,
+  datasheetToMarkdown,
+  type RlDatasetConfig,
+  validateDatasetFormats,
+} from './dataset'
 import type { GrpoLookups, SftLookups } from './exporters'
 
 // Pins the dataset-as-product packaging: the graded RunRecords a campaign
@@ -27,10 +32,13 @@ function rec(
     commitSha: 'abc1234',
     wallMs: 100,
     costUsd: 0.01,
+    costProvenance: { kind: 'observed', usd: 0.01 },
     tokenUsage: { input: 100, output: 50 },
+    terminalOutcome: 'succeeded',
     splitTag,
     scenarioId: scenario,
-    outcome: { searchScore: score, raw: {} },
+    outcome:
+      splitTag === 'holdout' ? { holdoutScore: score, raw: {} } : { searchScore: score, raw: {} },
   }
 }
 
@@ -42,7 +50,7 @@ const records: RunRecord[] = [
 ]
 
 const lookups: GrpoLookups & SftLookups = {
-  promptOf: (id) => `prompt-for-${id}`,
+  promptOf: (id) => (id === 'r1' || id === 'r2' ? 'prompt-for-sA' : 'prompt-for-sB'),
   completionOf: (id) => `completion-for-${id}`,
 }
 
@@ -60,6 +68,7 @@ const config: RlDatasetConfig = {
   intendedUse: 'RL/SFT on M&A advisory tasks',
   outOfScope: 'medical or personal financial advice',
   limitations: 'synthetic personas; US-jurisdiction-weighted',
+  formats: ['grpo', 'sft'],
   qualityGates: { contaminationProbe: 'passed', dedup: true, verifiableRewardFilter: true },
 }
 
@@ -72,20 +81,27 @@ describe('buildRlDataset — dataset-as-product packaging', () => {
       'train.grpo.jsonl',
       'train.sft.jsonl',
     ])
-    // GRPO groups by scenario (sA, sB) → 2 rows; SFT is one row per record → 4.
-    expect(b.manifest.rowCounts.grpo).toBe(2)
-    expect(b.manifest.rowCounts.sft).toBe(4)
+    // Training rows exclude the held-out sB records by default.
+    expect(b.manifest.rowCounts.grpo).toBe(1)
+    expect(b.manifest.rowCounts.sft).toBe(2)
     const grpoLines = b.files['train.grpo.jsonl']!.trim().split('\n')
-    expect(grpoLines).toHaveLength(2)
+    expect(grpoLines).toHaveLength(1)
     const row = JSON.parse(grpoLines[0]!)
     expect(row).toHaveProperty('prompt')
     expect(row.completions).toHaveLength(row.rewards.length) // GRPO invariant
     expect(row.completions).toHaveLength(2) // 2 runs on sA
   })
 
+  it('includes held-out rows only through the named override', async () => {
+    const b = await buildRlDataset(records, { ...lookups, allowHeldOutTrainingData: true }, config)
+    expect(b.manifest.rowCounts.grpo).toBe(2)
+    expect(b.manifest.rowCounts.sft).toBe(4)
+  })
+
   it('computes provenance + reward statistics from the records', async () => {
     const { manifest } = await buildRlDataset(records, lookups, config)
     expect(manifest.stats.records).toBe(4)
+    expect(manifest.stats.scoredRecords).toBe(4)
     expect(manifest.stats.splits.search).toBe(2)
     expect(manifest.stats.splits.holdout).toBe(2)
     expect(manifest.stats.models).toEqual(['deepseek-v4-pro@2026-05-01'])
@@ -102,7 +118,7 @@ describe('buildRlDataset — dataset-as-product packaging', () => {
     const md = datasheetToMarkdown(manifest)
     expect(md).toContain('Tangle Commercial') // license
     expect(md).toContain('deterministic') // reward kind
-    expect(md).toContain('✅') // decidable-reward credibility marker
+    expect(md).toContain('decidable, not judge noise')
     expect(md).toContain('Records (trajectories):** 4')
     expect(md).toContain('`holdout`: 2') // declared holdout
     expect(md).toContain('renderers') // tokenization guidance
@@ -110,6 +126,56 @@ describe('buildRlDataset — dataset-as-product packaging', () => {
 
   it('refuses to package an empty corpus (no silent empty dataset)', async () => {
     await expect(buildRlDataset([], lookups, config)).rejects.toThrow(/empty dataset/)
+  })
+
+  it('rejects unknown formats at runtime', async () => {
+    const runtimeConfig = {
+      ...config,
+      formats: ['bogus'],
+    } as unknown as RlDatasetConfig
+
+    await expect(buildRlDataset(records, lookups, runtimeConfig)).rejects.toThrow(
+      /unsupported format "bogus"; expected exactly one of: grpo, sft, dpo/,
+    )
+  })
+
+  it('rejects duplicate formats at runtime', async () => {
+    const runtimeConfig = {
+      ...config,
+      formats: ['sft', 'sft'],
+    } as unknown as RlDatasetConfig
+
+    await expect(buildRlDataset(records, lookups, runtimeConfig)).rejects.toThrow(
+      /duplicate format "sft"; each format may be requested once/,
+    )
+  })
+
+  it('rejects an empty runtime format list', () => {
+    expect(() => validateDatasetFormats([])).toThrow(
+      /formats must contain at least one of: grpo, sft, dpo/,
+    )
+  })
+
+  it('emits a trainer file when formats use the default', async () => {
+    const defaultConfig: RlDatasetConfig = { ...config }
+    delete defaultConfig.formats
+
+    const bundle = await buildRlDataset(records, lookups, defaultConfig)
+    const trainerFiles = Object.keys(bundle.files).filter(
+      (name) => name.startsWith('train.') && name.endsWith('.jsonl'),
+    )
+
+    expect(bundle.manifest.formats).toEqual(['sft'])
+    expect(trainerFiles).toEqual(['train.sft.jsonl'])
+  })
+
+  it('refuses a requested format when no trainable rows can be produced', async () => {
+    const unscored = rec('unscored', 'sA', 'search', 0.9)
+    unscored.outcome = { raw: { score: 0.9 } }
+
+    await expect(
+      buildRlDataset([unscored], lookups, { ...config, formats: ['sft'] }),
+    ).rejects.toThrow(/'sft' format produced no trainable rows/)
   })
 
   it("format 'dpo' requires preference triples (fail loud)", async () => {
@@ -120,18 +186,24 @@ describe('buildRlDataset — dataset-as-product packaging', () => {
   // The datasheet ships INSIDE the bundle a buyer inspects. If a gamed run were
   // counted at its claimed score, the published reward distribution would
   // describe data the rows do not contain.
-  it('scores a realness-gated run 0 in the datasheet and drops it from SFT', async () => {
+  it('scores a realness-gated run 0 in the datasheet and keeps it out of every trainer row', async () => {
     const gamed = rec('r5', 'sC', 'search', 1.0)
     gamed.outcome.realness = { score: 0, gated: true, reason: 'faked the harness' }
     const b = await buildRlDataset([...records, gamed], lookups, config)
+    // The datasheet counts it at its GATED value: 0, never the claimed 1.0.
     expect(b.manifest.stats.reward.max).toBe(1.0) // r3 (honest) still tops out at 1.0
     expect(b.manifest.stats.reward.n).toBe(5)
     expect(b.manifest.stats.reward.mean).toBeCloseTo((0.8 + 0.4 + 1.0 + 0.6 + 0) / 5, 5)
-    expect(b.manifest.rowCounts.sft).toBe(4) // the gamed trajectory is not imitated
+    // Trainable rows: the two search runs; the gamed trajectory is dropped by
+    // the eligibility rule (and holdout still needs its named override).
+    expect(b.manifest.rowCounts.sft).toBe(2)
     const grpo = b.files['train.grpo.jsonl']!.trim()
       .split('\n')
       .map((l) => JSON.parse(l))
-    expect(grpo.find((r) => r.meta.scenarioId === 'sC').rewards).toEqual([0])
+    // The gamed run's scenario forms no group at all on the record path — its
+    // removal leaves nothing rewarded there. It never ships at ANY value.
+    expect(grpo.some((r) => r.meta.scenarioId === 'sC')).toBe(false)
+    expect(JSON.stringify(b.files)).not.toContain('completion-for-r5')
   })
 
   it('declares rollout-only splits and uncaptured cost the RunRecord path cannot express', async () => {

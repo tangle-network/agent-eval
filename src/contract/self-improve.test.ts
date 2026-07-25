@@ -91,6 +91,68 @@ describe('selfImprove — power analysis wiring', () => {
 
     const powerEvents = events.filter((e) => e.kind === 'power.estimated')
     expect(powerEvents).toHaveLength(1)
+    expect(result.insight.execution.terminalOutcomes.succeeded).toBe(result.insight.n)
+    expect(result.insight.execution.executionErrors).toMatchObject({
+      runs: 0,
+      events: 0,
+      reportingRuns: result.insight.n,
+    })
+  })
+})
+
+describe('selfImprove — report population', () => {
+  it('compares baseline and winner on the same held-out scenarios', async () => {
+    const searchScenarios: Scenario[] = Array.from({ length: 3 }, (_, index) => ({
+      id: `search-${index}`,
+      kind: 'fixture',
+    }))
+    const holdoutScenarios: Scenario[] = Array.from({ length: 3 }, (_, index) => ({
+      id: `holdout-${index}`,
+      kind: 'fixture',
+    }))
+    const qualityJudge: JudgeConfig<{ text: string }, Scenario> = {
+      name: 'quality',
+      dimensions: [{ key: 'quality', description: 'fixture quality' }],
+      score: ({ artifact }) => {
+        const quality = artifact.text === 'BETTER' ? 1 : 0
+        return { dimensions: { quality }, composite: quality, notes: '' }
+      },
+    }
+    const proposer: SurfaceProposer = {
+      kind: 'better-candidate',
+      propose: async () => ['BETTER'],
+    }
+
+    const result = await selfImprove({
+      agent: stubAgent,
+      scenarios: [...searchScenarios, ...holdoutScenarios],
+      judge: qualityJudge,
+      baselineSurface: 'BASELINE',
+      proposer,
+      budget: {
+        generations: 1,
+        populationSize: 1,
+        holdoutScenarios,
+      },
+    })
+
+    expect(result.raw.baselineCampaign.cells.map((cell) => cell.scenarioId).sort()).toEqual(
+      searchScenarios.map((scenario) => scenario.id).sort(),
+    )
+    expect(result.raw.baselineOnHoldout.cells.map((cell) => cell.scenarioId).sort()).toEqual(
+      holdoutScenarios.map((scenario) => scenario.id).sort(),
+    )
+    expect(result.raw.winnerOnHoldout.cells.map((cell) => cell.scenarioId).sort()).toEqual(
+      holdoutScenarios.map((scenario) => scenario.id).sort(),
+    )
+    expect(result.insight.lift).toMatchObject({
+      baselineMean: 0,
+      candidateMean: 1,
+      delta: 1,
+      n: holdoutScenarios.length,
+      unpairedBaseline: 0,
+      unpairedCandidate: 0,
+    })
   })
 })
 
@@ -154,6 +216,7 @@ describe('selfImprove — complete optimization methods', () => {
               sourceUrl: 'https://example.test/official-test',
               revision: 'abc123',
             },
+            optimizerModel: 'test-model@2026-07-24',
             runId: 'official-run',
             resumed: false,
             evaluationCount: 6,
@@ -209,10 +272,14 @@ describe('selfImprove — complete optimization methods', () => {
           package: 'official-test',
           revision: 'abc123',
         }),
+        optimizerModel: 'test-model@2026-07-24',
         runId: 'official-run',
       }),
     })
     expect(result.provenance.optimizationMethod).toEqual(result.optimization)
+    expect(result.provenance.optimizationMethod?.provenance?.optimizerModel).toBe(
+      'test-model@2026-07-24',
+    )
     expect(result.receipts).toEqual([
       expect.objectContaining({
         channel: 'optimizer',
@@ -262,8 +329,14 @@ describe('selfImprove — hosted code-surface identity', () => {
     const sameBytesElsewhere = codeSurface('/tmp/candidate-b')
     const payloads: Array<{
       events?: Array<{
-        baseline?: { surfaceHash: string }
-        generations: Array<{ surfaceHash: string }>
+        baseline?: {
+          surfaceHash: string
+          cells: Array<{ terminalOutcome: string; executionErrorCount: number | null }>
+        }
+        generations: Array<{
+          surfaceHash: string
+          cells: Array<{ terminalOutcome: string; executionErrorCount: number | null }>
+        }>
       }>
     }> = []
     const fetchImpl: typeof fetch = async (_input, init) => {
@@ -299,6 +372,14 @@ describe('selfImprove — hosted code-surface identity', () => {
       .find((candidate) => candidate.baseline?.surfaceHash === expected)
     expect(event).toBeDefined()
     expect(event?.generations[0]?.surfaceHash).toBe(expected)
+    expect(event?.baseline?.cells[0]).toMatchObject({
+      terminalOutcome: 'succeeded',
+      executionErrorCount: 0,
+    })
+    expect(event?.generations[0]?.cells[0]).toMatchObject({
+      terminalOutcome: 'succeeded',
+      executionErrorCount: 0,
+    })
     expect(surfaceHash(sameBytesElsewhere)).toBe(expected)
   })
 })
@@ -540,22 +621,20 @@ describe('selfImprove — run-wide spend account', () => {
     expect(accounted.receipts).toHaveLength(1)
   })
 
-  it.each([
-    -1,
-    Number.NaN,
-    Number.POSITIVE_INFINITY,
-    Number.NEGATIVE_INFINITY,
-  ])('rejects invalid dollar budgets before dispatch: %s', async (dollars) => {
-    let calls = 0
-    await expect(
-      selfImprove({
-        ...spendBase,
-        agent: paidAgent(0, () => calls++),
-        budget: { ...spendBase.budget, dollars },
-      }),
-    ).rejects.toThrow(/costCeilingUsd/)
-    expect(calls).toBe(0)
-  })
+  it.each([-1, Number.NaN, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY])(
+    'rejects invalid dollar budgets before dispatch: %s',
+    async (dollars) => {
+      let calls = 0
+      await expect(
+        selfImprove({
+          ...spendBase,
+          agent: paidAgent(0, () => calls++),
+          budget: { ...spendBase.budget, dollars },
+        }),
+      ).rejects.toThrow(/costCeilingUsd/)
+      expect(calls).toBe(0)
+    },
+  )
 })
 
 describe('selfImprove — premeasured baseline passthrough', () => {
@@ -798,7 +877,11 @@ describe('selfImprove — deferred holdout', () => {
     // Forced hold, absent (not zero) lift.
     expect(result.gateDecision).toBe('hold')
     expect(result.raw.gateResult.contributingGates).toEqual([
-      { name: 'holdout-deferred', passed: false, detail: { holdout: 'deferred' } },
+      {
+        name: 'holdout-deferred',
+        status: 'not_evaluated',
+        detail: { holdout: 'deferred' },
+      },
     ])
     expect('lift' in result).toBe(false)
     expect(result.lift).toBeUndefined()

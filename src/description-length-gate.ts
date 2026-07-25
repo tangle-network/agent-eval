@@ -1,6 +1,5 @@
 import { gzipSync } from 'node:zlib'
-import { observedScore } from './rollout/reward'
-import type { RunRecord } from './run-record'
+import { type RunRecord, runTaskScore } from './run-record'
 
 /**
  * DescriptionLengthGate — a Minimum-Description-Length promotion gate, the
@@ -97,22 +96,18 @@ export interface DescriptionLengthCandidate {
   runs: RunRecord[]
 }
 
-/** Score a single run, preferring the held-out score, then search, then the
- *  raw `score` metric. Returns undefined when the run carries no score. */
+/** Return the canonical task-quality score, if the run carries one. */
 function runScore(run: RunRecord): number | undefined {
-  // Ungated, and the `raw.score` third fallback is preserved: dropping it would
-  // change the task denominator (`evidence.tasks`) and therefore the minTasks
-  // gate. KNOWN HOLE: the residual is -log2(s), so a gated run claiming s=1.0
-  // contributes zero surprise bits — the largest possible improvement to L_data.
-  // Excluding gated runs from this gate is a promotion-policy change, tracked
-  // separately from this correctness fix.
-  const s = observedScore(run) ?? run.outcome.raw?.score
-  return typeof s === 'number' && Number.isFinite(s) ? s : undefined
+  // Ungated. KNOWN HOLE: the residual is -log2(s), so a gated run claiming
+  // s=1.0 contributes zero surprise bits — the largest possible improvement to
+  // L_data. Excluding gated runs from this gate is a promotion-policy change,
+  // tracked separately from this correctness fix.
+  return runTaskScore(run)
 }
 
 /** Pairing key — the same scenario/experiment identity HeldOutGate pairs on. */
 function taskKey(run: RunRecord): string {
-  return run.scenarioId ?? run.experimentId
+  return run.scenarioId
 }
 
 /** Mean per-task score for a model: { taskKey -> mean(score over its runs) }. */

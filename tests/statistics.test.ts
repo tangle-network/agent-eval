@@ -13,6 +13,7 @@ import {
   mcnemarRequiredN,
   normalizeScores,
   pairedBootstrap,
+  pairedCohensDz,
   pairedMde,
   pairedRiskDifference,
   pairedSignTest,
@@ -21,6 +22,7 @@ import {
   passAtK,
   pearsonR,
   ranks,
+  requiredPairedSampleSize,
   requiredSampleSize,
   spearmanR,
   weightedMean,
@@ -212,6 +214,22 @@ describe('cohensD', () => {
 
   it('returns 0 for under-sized groups', () => {
     expect(cohensD([1], [2])).toBe(0)
+  })
+})
+
+describe('pairedCohensDz', () => {
+  it('standardizes within-pair deltas', () => {
+    const value = pairedCohensDz([0.1, 0.4, 0.3, 0.8], [0.3, 0.5, 0.7, 0.9])
+    expect(value).not.toBeNull()
+    expect(value!).toBeGreaterThan(1)
+  })
+
+  it('returns null for a non-zero constant delta instead of a huge finite value', () => {
+    expect(pairedCohensDz([0.1, 0.1, 0.1], [0.9, 0.9, 0.9])).toBeNull()
+  })
+
+  it('rejects unequal vector lengths', () => {
+    expect(() => pairedCohensDz([0.1], [0.2, 0.3])).toThrow(/unequal sample sizes/)
   })
 })
 
@@ -418,6 +436,20 @@ describe('requiredSampleSize', () => {
     const small = requiredSampleSize({ effect: 0.2 })
     const large = requiredSampleSize({ effect: 0.8 })
     expect(large).toBeLessThan(small)
+  })
+})
+
+describe('requiredPairedSampleSize', () => {
+  it('uses the paired design formula', () => {
+    const paired = requiredPairedSampleSize({ effect: 0.5 })
+    const independent = requiredSampleSize({ effect: 0.5 })
+    expect(paired).toBeGreaterThan(0)
+    expect(paired).toBeLessThan(independent)
+  })
+
+  it('returns Infinity when no finite positive effect is available', () => {
+    expect(requiredPairedSampleSize({ effect: 0 })).toBe(Infinity)
+    expect(requiredPairedSampleSize({ effect: Number.NaN })).toBe(Infinity)
   })
 })
 

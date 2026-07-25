@@ -25,6 +25,7 @@ import { isTrainableSplit, type MintedRolloutLine } from '../schema'
 import { buildDatasetCard, FORMAT_FILES, RELEASE_FORMATS, type ReleaseFormat } from './card'
 import {
   assertGateReport,
+  FORMAT_GATE_DISPOSITION,
   type GateReport,
   gatedRolloutIds,
   measureFormatGate,
@@ -115,12 +116,16 @@ export async function buildHfDataset(
       formatCounts.sft = rows.length
       pending.push({ path, write: () => writeFile(path, toJsonl(rows)) })
     } else if (format === 'verifiers') {
-      const outputs = toVerifiersRolloutOutputs(kept)
+      // The declared disposition drives the exporter: 'zero-and-flag' ships
+      // gated lines and honest failures as labeled negatives at reward 0.
+      const outputs = toVerifiersRolloutOutputs(kept, {
+        gatedLines: FORMAT_GATE_DISPOSITION.verifiers,
+      })
       gate.byFormat.verifiers = measureFormatGate(gated, releaseRowRefs.verifiers(outputs))
       formatCounts.verifiers = outputs.length
       pending.push({ path, write: () => writeFile(path, toJsonl(outputs)) })
     } else {
-      const items = toRftItems(kept)
+      const items = toRftItems(kept, { gatedLines: FORMAT_GATE_DISPOSITION.rft })
       gate.byFormat.rft = measureFormatGate(gated, releaseRowRefs.rft(items))
       formatCounts.rft = items.length
       pending.push({ path, write: () => writeFile(path, toJsonl(items)) })

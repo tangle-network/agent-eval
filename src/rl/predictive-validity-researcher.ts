@@ -32,8 +32,7 @@ import type {
   Researcher,
   SteeringChange,
 } from '../researcher'
-import { observedScore } from '../rollout/reward'
-import type { RunRecord } from '../run-record'
+import { type RunRecord, runTaskScore } from '../run-record'
 
 export interface PredictiveValidityResearcherOptions {
   outcomes: OutcomeStore
@@ -73,7 +72,7 @@ export class PredictiveValidityResearcher implements Researcher {
     // run scored high and is therefore NOT a low-score failure mode — calling it
     // one here would attribute the wrong failure to the candidate.
     const failingRuns = runs.filter((r) => {
-      const score = observedScore(r)
+      const score = runTaskScore(r)
       return typeof score === 'number' && score < threshold
     })
     if (failingRuns.length === 0) return failures
@@ -90,8 +89,11 @@ export class PredictiveValidityResearcher implements Researcher {
     for (const [candidateId, group] of grouped.entries()) {
       const meanScore =
         group.reduce((s, r) => {
-          const x = observedScore(r) ?? 0
-          return s + x
+          const score = runTaskScore(r)
+          if (score === undefined) {
+            throw new Error(`failing run ${r.runId} unexpectedly has no task score`)
+          }
+          return s + score
         }, 0) / group.length
       failures.push({
         code: `low-score-${candidateId}`,
@@ -176,15 +178,17 @@ export class PredictiveValidityResearcher implements Researcher {
       baselineId: plan.baselineCandidateId,
       evidence: {
         productiveRuns: 0,
-        medianPairedDelta: 0,
-        pairedCI: { low: 0, high: 0 },
-        pairedPValue: 1,
-        searchScore: 0,
-        holdoutScore: 0,
-        overfitGap: 0,
-        baselineOverfitGap: 0,
-        medianCandidateCost: Number.NaN,
-        medianBaselineCost: Number.NaN,
+        unpairedCandidateRuns: 0,
+        unpairedBaselineRuns: 0,
+        medianPairedDelta: null,
+        pairedCI: null,
+        pairedPValue: null,
+        searchScore: null,
+        holdoutScore: null,
+        overfitGap: null,
+        baselineOverfitGap: null,
+        medianCandidateCost: null,
+        medianBaselineCost: null,
         realnessGatedRuns: 0,
       },
       reason:

@@ -359,6 +359,7 @@ export function skillOptOptimizationMethod<TScenario extends Scenario, TArtifact
         durationMs: Date.now() - started,
         provenance: {
           ...runtime,
+          optimizerModel: config.optimizer.model,
           compatibleRunId,
           runId,
           resumed: result.resumed,

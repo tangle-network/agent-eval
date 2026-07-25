@@ -12,12 +12,12 @@ import { InMemoryTraceStore } from '../trace/store'
 import { toGrpoRows, toPrmRows, toSftRows } from './exporters'
 import type { PrmTrainingTriple } from './process-reward'
 
-// Pins the structural guarantee: training-data exporters take `RolloutLine[]`,
-// whose reward is written once (by mint) with the realness gate applied. The
-// deprecated `RunRecord[]` signatures mint internally and delegate, so they must
-// produce IDENTICAL rows for an honest run — and must now zero (GRPO) or drop
-// (SFT) a run the authenticity gate flagged as gamed. A regression here means a
-// gamed success is back in the training file at full reward.
+// Pins the structural guarantee: the primary training-data exporters take
+// `RolloutLine[]`, whose reward is written once (by mint) with the realness
+// gate applied. The deprecated `RunRecord[]` signatures are implemented over
+// the records with the shared training-row eligibility rule, which DROPS a
+// gamed run outright. Either way, a regression here means a gamed success is
+// back in the training file at a positive reward.
 
 function rec(args: {
   runId: string
@@ -37,11 +37,13 @@ function rec(args: {
     commitSha: 'abcd',
     wallMs: 1,
     costUsd: 0,
+    costProvenance: { kind: 'observed', usd: 0 },
     tokenUsage: { input: 0, output: 0 },
-    splitTag: 'holdout',
+    terminalOutcome: 'succeeded',
+    splitTag: 'search',
     scenarioId: args.scenarioId,
     outcome: {
-      ...(args.score === undefined ? {} : { holdoutScore: args.score }),
+      ...(args.score === undefined ? {} : { searchScore: args.score }),
       raw: {},
       ...(args.gated === true ? { realness: { score: 0, gated: true, reason: 'faked' } } : {}),
     },
@@ -49,7 +51,7 @@ function rec(args: {
 }
 
 const lookups = {
-  promptOf: (id: string) => `prompt-${id}`,
+  promptOf: () => 'shared prompt',
   completionOf: (id: string) => `completion-${id}`,
 }
 
@@ -58,53 +60,56 @@ async function mint(records: RunRecord[]): Promise<MintedRolloutLine[]> {
   return rows
 }
 
-describe('toGrpoRows — line-based primary API vs deprecated RunRecord path', () => {
-  it('produces the same rows from lines and from records (ungated)', async () => {
-    const records = [
-      rec({ runId: 'a-1', scenarioId: 's1', score: 0.7, candidateId: 'A' }),
-      rec({ runId: 'b-1', scenarioId: 's1', score: 0.5, candidateId: 'B' }),
-      rec({ runId: 'a-2', scenarioId: 's2', score: 0.9, candidateId: 'A' }),
-    ]
-    const fromLines = await toGrpoRows(await mint(records), lookups)
-    const fromRecords = await toGrpoRows(records, lookups)
-    expect(fromLines).toEqual(fromRecords)
-    expect(fromLines).toHaveLength(2)
-    expect(fromLines.find((r) => r.meta?.scenarioId === 's1')?.rewards).toEqual([0.7, 0.5])
-  })
-
-  it('zeroes a realness-gated run on BOTH paths (anti-Goodhart gate)', async () => {
+describe('toGrpoRows — line path vs deprecated RunRecord path', () => {
+  it('keeps a realness-gated rollout in its group at reward 0 on the LINE path', async () => {
     const records = [
       rec({ runId: 'honest', scenarioId: 's', score: 0.4, candidateId: 'A' }),
       rec({ runId: 'gamed', scenarioId: 's', score: 1, candidateId: 'B', gated: true }),
     ]
-    const fromLines = await toGrpoRows(await mint(records), lookups)
-    const fromRecords = await toGrpoRows(records, lookups)
-    expect(fromLines).toEqual(fromRecords)
-    // The gamed run stays in the group (its absence would move the baseline too)
-    // but claims 0, not the 1.0 it reported.
-    expect(fromRecords[0]?.runIds).toEqual(['honest', 'gamed'])
-    expect(fromRecords[0]?.rewards).toEqual([0.4, 0])
+    const rows = await toGrpoRows(await mint(records), lookups)
+    // The gamed rollout stays in the group (its absence would move the
+    // baseline too) but claims 0, not the 1.0 it reported.
+    expect(rows[0]?.runIds).toEqual(['honest', 'gamed'])
+    expect(rows[0]?.rewards).toEqual([0.4, 0])
+  })
+
+  it('drops a realness-gated run outright on the RECORD path — never at a positive reward', async () => {
+    const records = [
+      rec({ runId: 'honest-1', scenarioId: 's', score: 0.4, candidateId: 'A' }),
+      rec({ runId: 'honest-2', scenarioId: 's', score: 0.6, candidateId: 'B' }),
+      rec({ runId: 'gamed', scenarioId: 's', score: 1, candidateId: 'C', gated: true }),
+    ]
+    const rows = await toGrpoRows(records, lookups)
+    expect(rows[0]?.runIds).toEqual(['honest-1', 'honest-2'])
+    expect(rows[0]?.rewards).toEqual([0.4, 0.6])
   })
 
   it('gates a custom rewardOf on the deprecated path', async () => {
-    const gamed = rec({ runId: 'gamed', scenarioId: 's', score: 1, gated: true })
+    const honestA = rec({ runId: 'ha', scenarioId: 's', score: 0.5, candidateId: 'A' })
+    const honestB = rec({ runId: 'hb', scenarioId: 's', score: 0.4, candidateId: 'B' })
+    const gamed = rec({ runId: 'gamed', scenarioId: 's', score: 1, candidateId: 'C', gated: true })
+    honestA.outcome.raw.bonus = 0.3
+    honestB.outcome.raw.bonus = 0.2
     gamed.outcome.raw.bonus = 0.9
-    const rows = await toGrpoRows([gamed], {
+    const rows = await toGrpoRows([honestA, honestB, gamed], {
       ...lookups,
       rewardOf: (r) => r.outcome.raw.bonus ?? 0,
     })
-    expect(rows[0]?.rewards).toEqual([0])
+    // The hook is honoured for honest runs and gated for the gamed one, which
+    // the eligibility rule then removes entirely: 0.9 never ships.
+    expect(rows[0]?.runIds).toEqual(['ha', 'hb'])
+    expect(rows[0]?.rewards).toEqual([0.3, 0.2])
   })
 
-  it('drops an unscored run instead of exporting it at reward 0', async () => {
+  it('never turns an unscored run into a reward 0 — skipped by records, refused by mint', async () => {
     const records = [rec({ runId: 'unscored', scenarioId: 's' })]
-    expect(await toGrpoRows(await mint(records), lookups)).toEqual([])
     expect(await toGrpoRows(records, lookups)).toEqual([])
+    await expect(mint(records)).rejects.toThrow(/task score is missing/)
   })
 })
 
-describe('toSftRows — line-based primary API vs deprecated RunRecord path', () => {
-  it('produces the same rows from lines and from records (ungated)', async () => {
+describe('toSftRows — line path vs deprecated RunRecord path', () => {
+  it('emits matching conversational rows from lines and from records (ungated)', async () => {
     const records = [
       rec({ runId: 'a', scenarioId: 's', score: 0.9 }),
       rec({ runId: 'b', scenarioId: 's', score: 0.3, candidateId: 'B' }),
@@ -129,7 +134,7 @@ describe('toSftRows — line-based primary API vs deprecated RunRecord path', ()
     ]
     const fromLines = await toSftRows(await mint(records), lookups)
     const fromRecords = await toSftRows(records, lookups)
-    expect(fromLines).toEqual(fromRecords)
+    expect(fromLines.map((r) => r.meta?.runId)).toEqual(['honest'])
     expect(fromRecords.map((r) => r.meta?.runId)).toEqual(['honest'])
   })
 
@@ -141,15 +146,20 @@ describe('toSftRows — line-based primary API vs deprecated RunRecord path', ()
     const rows = await toSftRows(records, {
       ...lookups,
       systemOf: (r) => `system-for-${r.candidateId}`,
-      include: (r) => (r.outcome.holdoutScore ?? 0) >= 0.5,
+      include: (r) => (r.outcome.searchScore ?? 0) >= 0.5,
     })
     expect(rows).toHaveLength(1)
     expect(rows[0]?.messages[0]).toEqual({ role: 'system', content: 'system-for-A' })
   })
 
-  it('omits the score key for an unscored run (a labeled gap, not a zero)', async () => {
-    const records = [rec({ runId: 'unscored', scenarioId: 's' })]
-    const [row] = await toSftRows(await mint(records), lookups)
+  it('omits the score key for an unlabeled LINE (a labeled gap, not a zero)', async () => {
+    // Mint refuses unscored records, but unlabeled LINES exist (interchange
+    // imports); the line path emits them with the score key absent.
+    const base = fixtureRolloutLine()
+    const unlabeled = fixtureRolloutLine({
+      outcome: { ...base.outcome, reward: null, reward_source: 'run-record/unscored' },
+    })
+    const [row] = await toSftRows([unlabeled], lookups)
     expect(row?.meta?.score).toBeUndefined()
     expect(JSON.stringify(row)).not.toContain('"score"')
   })

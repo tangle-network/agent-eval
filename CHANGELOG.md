@@ -36,12 +36,14 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ### Changed
 
-- `rolloutReward` is now a deprecated alias of `trainingReward`, re-exported from `rollout/mint` and
-  both barrels. Behaviour and signature are unchanged; no consumer needs to migrate.
+- `rolloutReward` is deprecated in favour of `trainingReward` / `rolloutRewardFields` and stays on
+  `rollout/mint` and both barrels. It keeps the 0.127.0 mint-door contract — a record with no task
+  score throws instead of minting a fake 0 — while a gated run still returns 0.
 - The 14 analysis, reporting, and detection sites that legitimately want the raw number now call
   `observedScore` explicitly. Behaviour is unchanged at all 14, including the two sites that
   deliberately prefer the search split (`rl/active-curriculum.ts`, via the new `ScorePreference`
-  argument) and the one that keeps a third `raw.score` fallback (`description-length-gate.ts`).
+  argument). (`description-length-gate.ts` reads through `runTaskScore`, which 0.127.0 stripped of
+  its obsolete `raw.score` fallback.)
 
 ### Fixed — second pass (the waist now enforces its own invariant)
 
@@ -246,6 +248,63 @@ empty options object gates — the opt-out is explicit and greppable.
   site carries a comment naming the hole.
 - `extractVerifiableReward(report)` — the `VerificationReport` signature — cannot gate and does not
   claim to: `realness` lives on the `RunRecord`, not on the report. Documented on the function.
+
+## [0.127.0] - 2026-07-25 - explicit run evidence and truthful release checks
+
+### Changed
+
+- Execution reports now separate runs with execution errors from explicit terminal outcomes.
+- `RunRecord` now requires `scenarioId`, `terminalOutcome`, and `costProvenance`.
+- Uncaptured cost is represented as `costUsd: null` with `{ kind: 'uncaptured', usd: null }`; it is never converted to zero.
+- `ExecutionInsight.failures` is replaced by `executionErrors` and `terminalOutcomes`; report renderers must label these independently.
+- `RunRecord.terminalOutcome` records `succeeded`, `failed`, `cancelled`, `incomplete`, or `unknown` only from root-run or process evidence.
+- `executionErrors.byTerminalOutcome` cross-tabulates reported errors, reported zeroes, and missing error telemetry without asserting recovery causality.
+- `executionErrors.fraction` is `null` when no run supplies error telemetry instead of reporting a false zero rate.
+- OTel and code-agent intake count tool, model, and child-agent failures as execution errors while keeping process, guardrail, evaluator, propagated parent, and unknown errors in separate raw counters.
+- OTel trace analysis preserves `EVALUATOR` as a distinct span kind instead of reducing it to `UNKNOWN`.
+- Execution-only `RunRecord` rows may omit both task scores; OTel and code-agent intake no longer derive task quality from internal errors or process telemetry.
+- Rollout, RL corpus, product-benchmark, and release-confidence paths no longer convert missing task scores into zero-quality labels.
+- Held-out promotion now rejects missing search or holdout evidence explicitly, and public statistics use `null` instead of fake zero or `NaN` values when no measurement exists.
+- Run comparisons now pair only on `(experimentId, scenarioId, seed)`, reject missing or duplicate identities, report unmatched rows, and never fall back to input order.
+- Trace ranking ignores unlabeled execution rows without dropping them from storage.
+- `MultiLayerVerifier.taskScore` is present only for a complete scoring panel; partial blends remain diagnostic, and errored or timed-out layers cannot become task or training labels.
+- RL exports require trainable rows: SFT is the safe default, GRPO must be requested and needs at least two rewarded completions per group, unscored trajectories require explicit SFT opt-in, and requested empty formats fail loudly.
+- RL and rollout training exports use only the `search` split by default.
+- `dev` remains evaluation-only, and held-out training requires `allowHeldOutTrainingData: true`.
+- Minted rollout terminal fields now reflect `RunRecord.terminalOutcome`, and SFT excludes failed, cancelled, incomplete, and unknown-terminal runs.
+- Release confidence reports quality and reliability separately; terminal process failure no longer becomes a low task-quality score, and missing measurements remain `null`.
+- Cost-bounded held-out and release decisions reject incomplete cost evidence instead of treating uncaptured cost as zero.
+- Release confidence uses run rows as the primary source for cost, latency, and pass rate, avoiding duplicate aggregation from trace summaries.
+- Campaign, profile-matrix, and self-improvement projections now share one mapper that records explicit terminal outcomes, execution-error counts, actual token usage, and unlabeled error cells.
+- Hosted campaign snapshots omit failed judge dimensions rather than publishing invalid values.
+- Hosted clients and the reference receiver validate complete request payloads, reject header/body version disagreement, scope retry keys by endpoint, and merge incremental generation snapshots without losing earlier generations.
+- Hosted trace timestamps are exact base-10 strings so JSON cannot truncate OTLP nanoseconds.
+- Rollout rows require experiment and candidate keys plus `outcome.realness_gated`; the obsolete `train` split and `ROLLOUT_FORMAT` alias were removed.
+- Paired reports use within-pair Cohen's dz and paired sample-size calculations.
+- Hosted ingest now emits wire version `2026-07-24.v1`; cells carry terminal outcomes and execution-error counts, missing task scores are `null`, and old aggregate reports must be recomputed from their original run rows because the former mixed failure count cannot be migrated losslessly.
+- `GateResult.contributingGates` now records `pass`, `fail`, or `not_evaluated` instead of a boolean that could not distinguish missing evidence from failure.
+- `defaultProductionGate` enables reward-hacking and canary monitoring independently through `rewardHacking` and `canary`.
+- Canary reports identify which enabled detectors had enough observations to run.
+- Loop provenance rejects obsolete boolean contributions instead of accepting a record whose runtime shape contradicts its TypeScript type.
+
+### Fixed
+
+- Missing or insufficient evidence remains `not_evaluated`; required unevaluated checks hold the release decision separately.
+- Valid run histories without independent truth observations or usable canary metadata cannot produce successful monitoring checks.
+- Empty critical-dimension configuration, incomplete cost accounting, unsupported red-team cases, and missing held-out evidence hold without being mislabeled as evaluated failures.
+
+## [0.126.7] - 2026-07-24 - dependency security refresh
+
+### Changed
+
+- Updated Ax, Hono, Zod, OpenAPI, Biome, Node types, lint-staged, and Vitest to their current compatible releases.
+- Pinned patched Vite, esbuild, PostCSS, and WebSocket transitive versions; the npm dependency audit now reports zero known vulnerabilities.
+
+## [0.126.6] - 2026-07-24 - optimizer model provenance
+
+### Added
+
+- Proxied GEPA and SkillOpt runs now record the configured optimizer model in `OptimizationMethodProvenance.optimizerModel`; GEPA engines without a configured optimizer omit it.
 
 ## [0.126.5] - 2026-07-24 - published GEPA compatibility
 

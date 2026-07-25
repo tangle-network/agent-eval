@@ -46,13 +46,24 @@ describe('measureFormatGate', () => {
   it('measures the rows an exporter actually produced, per format', () => {
     const kept = lines()
     const gated = gatedRolloutIds(kept)
+    // Exporters are driven exactly as the release build drives them: SFT under
+    // its always-exclude policy, verifiers/rft under their declared
+    // 'zero-and-flag' disposition (bare calls default to 'exclude').
     expect(measureFormatGate(gated, releaseRowRefs.sft(toSftRows(kept)))).toEqual(counts())
     expect(
-      measureFormatGate(gated, releaseRowRefs.verifiers(toVerifiersRolloutOutputs(kept))),
+      measureFormatGate(
+        gated,
+        releaseRowRefs.verifiers(
+          toVerifiersRolloutOutputs(kept, { gatedLines: FORMAT_GATE_DISPOSITION.verifiers }),
+        ),
+      ),
     ).toEqual(counts({ emitted: 1, excluded: 0, maxEmittedReward: 0 }))
-    expect(measureFormatGate(gated, releaseRowRefs.rft(toRftItems(kept)))).toEqual(
-      counts({ emitted: 1, excluded: 0, maxEmittedReward: 0 }),
-    )
+    expect(
+      measureFormatGate(
+        gated,
+        releaseRowRefs.rft(toRftItems(kept, { gatedLines: FORMAT_GATE_DISPOSITION.rft })),
+      ),
+    ).toEqual(counts({ emitted: 1, excluded: 0, maxEmittedReward: 0 }))
     expect(measureFormatGate(gated, releaseRowRefs.raw(kept))).toEqual(
       counts({ emitted: 1, excluded: 0, maxEmittedReward: 0 }),
     )

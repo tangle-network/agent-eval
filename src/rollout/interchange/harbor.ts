@@ -863,12 +863,10 @@ function nodeToLine(
     // pointer may reference a line outside this document and is preserved.
     parent_rollout_id: parentId ?? asString(escrow?.parent_rollout_id) ?? null,
     run_id: asString(escrow?.run_id) ?? trajectory.session_id ?? rolloutId,
-    ...(escrow?.experiment_id !== undefined
-      ? { experiment_id: asString(escrow.experiment_id) ?? null }
-      : {}),
-    ...(escrow?.candidate_id !== undefined
-      ? { candidate_id: asString(escrow.candidate_id) ?? null }
-      : {}),
+    // Required keys on the wire (0.127.0): a foreign document that never
+    // stated them imports as explicit `null`, not as an absent field.
+    experiment_id: asString(escrow?.experiment_id) ?? null,
+    candidate_id: asString(escrow?.candidate_id) ?? null,
     generation: asIntegerOrUndefined(escrow?.generation) ?? null,
     candidate_index: asIntegerOrUndefined(escrow?.candidate_index) ?? null,
     role: ROLLOUT_ROLES.includes(role as RolloutRole) ? (role as RolloutRole) : 'agent',
@@ -890,11 +888,12 @@ function nodeToLine(
           ? outcome.is_truncated
           : trajectory.continued_trajectory_ref !== undefined,
       error: asString(outcome?.error) ?? null,
-      ...(typeof outcome?.realness_gated === 'boolean'
-        ? // The anti-Goodhart flag is restored even though the reward is not:
-          // losing it would be fail-open on the one bit that matters most.
-          { realness_gated: outcome.realness_gated }
-        : {}),
+      // The anti-Goodhart flag is restored when the source document stated
+      // it; the wire schema requires the field, so a document that never did
+      // imports as `false`. That is safe here because the reward is already
+      // forced to `null` (not trainable) and `realness_screened` stays
+      // absent = unknown rather than claiming a screen ran.
+      realness_gated: outcome?.realness_gated === true,
     },
     cost: costFrom(trajectory.final_metrics),
     artifacts: artifactsFrom(escrow),

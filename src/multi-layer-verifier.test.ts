@@ -56,17 +56,20 @@ describe('MultiLayerVerifier — execution', () => {
     expect(r.failCount).toBe(0)
     expect(r.allPass).toBe(true)
     expect(r.blendedScore).toBeCloseTo(0.9, 2)
-    // Verdict spine: valid/score derive from allPass/blendedScore.
+    expect(r.taskScore).toBeCloseTo(0.9, 2)
+    // Generic verdict fields use only the complete task measurement.
     expect(r.valid).toBe(true)
     expect(r.score).toBeCloseTo(0.9, 2)
   })
 
-  it('spine fields mirror allPass/blendedScore on failure too', async () => {
+  it('keeps a partial blend diagnostic without publishing it as a task score', async () => {
     const v = new MultiLayerVerifier([failLayer('install', 0), passLayer('build', 0.7)])
     const r = await v.run({ env: null })
     expect(r.allPass).toBe(false)
     expect(r.valid).toBe(r.allPass)
-    expect(r.score).toBe(r.blendedScore)
+    expect(r.blendedScore).toBe(0.7)
+    expect(r.taskScore).toBeUndefined()
+    expect(r.score).toBe(0)
   })
 
   it('skips downstream layers when upstream fails', async () => {
@@ -123,7 +126,7 @@ describe('MultiLayerVerifier — execution', () => {
     expect(onLayer.mock.calls[1]![0]!.layer).toBe('b')
   })
 
-  it('wraps thrown errors as status=error with the message', async () => {
+  it('leaves an all-error report without a task score', async () => {
     const v = new MultiLayerVerifier([
       {
         name: 'boom',
@@ -136,9 +139,12 @@ describe('MultiLayerVerifier — execution', () => {
     expect(r.errorCount).toBe(1)
     expect(r.layers[0]!.status).toBe('error')
     expect(r.layers[0]!.findings[0]!.message).toBe('kaboom')
+    expect(r.layers[0]!.errorSource).toBe('execution')
+    expect(r.taskScore).toBeUndefined()
+    expect(r.score).toBe(0)
   })
 
-  it('per-layer capMs aborts a runaway layer as timeout', async () => {
+  it('leaves an all-timeout report without a task score', async () => {
     const v = new MultiLayerVerifier([
       {
         name: 'hang',
@@ -151,8 +157,116 @@ describe('MultiLayerVerifier — execution', () => {
       },
     ])
     const r = await v.run({ env: null })
-    expect(r.errorCount + r.failCount).toBeGreaterThan(0)
-    expect(['timeout', 'error']).toContain(r.layers[0]!.status)
+    expect(r.errorCount).toBe(1)
+    expect(r.layers[0]!.status).toBe('timeout')
+    expect(r.taskScore).toBeUndefined()
+    expect(r.score).toBe(0)
+  })
+
+  it('enforces a layer cap when the layer ignores its abort signal', async () => {
+    const v = new MultiLayerVerifier([
+      {
+        name: 'ignores-signal',
+        capMs: 5,
+        run: () => new Promise<LayerResult>(() => {}),
+      },
+    ])
+    const r = await v.run({ env: null })
+    expect(r.layers[0]!.status).toBe('timeout')
+    expect(r.layers[0]!.reason).toBe('layer ignores-signal cap')
+    expect(r.taskScore).toBeUndefined()
+  })
+
+  it('leaves an unscored pass without a task score', async () => {
+    const v = new MultiLayerVerifier([
+      {
+        name: 'diagnostic',
+        run: () => ({
+          layer: 'diagnostic',
+          status: 'pass',
+          durationMs: 5,
+          findings: [],
+        }),
+      },
+    ])
+    const r = await v.run({ env: null })
+    expect(r.passCount).toBe(1)
+    expect(r.allPass).toBe(false)
+    expect(r.taskScore).toBeUndefined()
+    expect(r.score).toBe(0)
+  })
+
+  it('preserves a partial panel without claiming complete task quality', async () => {
+    const v = new MultiLayerVerifier([
+      passLayer('tests', 0.8),
+      {
+        name: 'semantic',
+        errorSource: 'judge',
+        run: () => {
+          throw new Error('judge unavailable')
+        },
+      },
+    ])
+    const r = await v.run({ env: null })
+    expect(r.blendedScore).toBe(0.8)
+    expect(r.layers[0]!.score).toBe(0.8)
+    expect(r.layers[1]!.errorSource).toBe('judge')
+    expect(r.taskScore).toBeUndefined()
+    expect(r.allPass).toBe(false)
+    expect(r.score).toBe(0)
+  })
+
+  it('allows a successful non-scoring check beside a complete scored layer', async () => {
+    const v = new MultiLayerVerifier([
+      passLayer('tests', 0.8),
+      {
+        name: 'diagnostic',
+        run: () => ({
+          layer: 'diagnostic',
+          status: 'pass',
+          durationMs: 5,
+          findings: [],
+        }),
+      },
+    ])
+
+    const r = await v.run({ env: null })
+
+    expect(r.taskScore).toBe(0.8)
+    expect(r.allPass).toBe(true)
+    expect(r.score).toBe(0.8)
+  })
+
+  it('rejects a non-finite or out-of-range layer score as incomplete', async () => {
+    const v = new MultiLayerVerifier([
+      {
+        name: 'invalid',
+        run: () => ({
+          layer: 'invalid',
+          status: 'pass',
+          score: Number.POSITIVE_INFINITY,
+          durationMs: 5,
+          findings: [],
+        }),
+      },
+    ])
+
+    const r = await v.run({ env: null })
+
+    expect(r.taskScore).toBeUndefined()
+    expect(r.allPass).toBe(false)
+  })
+
+  it('publishes a complete score for an actual scored failure', async () => {
+    const v = new MultiLayerVerifier([
+      { ...failLayer('semantic', 0.3), failContributesToScore: true },
+    ])
+    const r = await v.run({ env: null })
+    expect(r.failCount).toBe(1)
+    expect(r.taskScore).toBe(0.3)
+    expect(r.blendedScore).toBe(0.3)
+    expect(r.allPass).toBe(false)
+    expect(r.score).toBe(0.3)
   })
 
   it('attaches layer name to findings that omit it', async () => {

@@ -71,27 +71,32 @@ Rule applied: where fields conflicted, RunRecord-derived semantics won; the ledg
 | `schema: "tangle.rollout.v1"` | ledger | wire key is `schema` (PR #410's `format` key retired) |
 | `rollout_id` / `parent_rollout_id` | ledger | minted lines use `runId` as `rollout_id` (deterministic); multi-agent producers mint UUIDs and point workers at their supervisor |
 | `run_id` | both | `RunRecord.runId` |
-| `experiment_id`, `candidate_id` | PR #410 | added to the wire (nullable, optional-on-read for pre-unification ledgers) |
+| `experiment_id`, `candidate_id` | PR #410 | required keys; `null` means the producer did not record the value |
 | `generation`, `candidate_index` | ledger | kept as improvement-loop coordinates; now `integer \| null` (`null` = not an improvement loop, `-1` = baseline) |
 | `role` | ledger | enum extended with `agent` for solo eval runs (mint default) |
-| `task.split` | conflict | **RunRecord semantics win**: canonical trainable value is `search` (the optimizer-readable pool); `dev`/`holdout` as in `RunSplitTag`; ledger's `canary` kept; ledger's `train` validates as a legacy alias of `search` and counts as trainable, but new producers emit `search` |
+| `task.split` | conflict | **RunRecord semantics win**: `search` is the trainable pool; `dev` and `holdout` follow `RunSplitTag`; `canary` is retained for release checks |
 | `task.seed`, `task.rep` | ledger | seed from `RunRecord.seed`; rep 0 for minted solo runs |
 | `policy.*` | ledger | + `prompt_hash`, `config_hash`, `agent_profile_cell_id` from PR #410's RunRecord provenance |
 | `messages` | ledger | canonical OpenAI chat-with-tools incl. `reasoning_content`; minted lines inline the final llm span's conversation |
 | `steps` | PR #410 | optional trace-span projections (llm/tool), absent on harness-store-derived lines |
-| `outcome.reward` | conflict | **merged**: `number \| null`; `null` means no verdict exists (a labeled gap, never 0). A minted line carries `trainingScore(record)`: forced to 0 when realness-gated, and `null` (with `reward_source: 'run-record/unscored'`) when the record carried neither split score — mint previously collapsed that case to 0, which is a grade nobody gave |
-| `outcome.realness_gated` | PR #410 | added (optional-on-read, absent = false); the anti-Goodhart gate travels into the data, the validator refuses it beside a positive reward, and SFT export refuses gated lines outright |
-| `outcome.reward_source` / `verdict` / `metrics` / `is_completed` / `is_truncated` / `error` | ledger | unchanged; mint fills `metrics` from `RunRecord.outcome.raw` |
+| `outcome.reward` | conflict | **merged**: `number \| null`; `null` means no verdict exists (a labeled gap, never 0 — interchange imports and unverdicted ledger lines carry it); minting requires an explicit RunRecord task score and rejects execution-only records instead of labeling them 0; realness-gated scores are forced to 0 |
+| `outcome.realness_gated` | PR #410 | required boolean; the anti-Goodhart gate travels into the data, the validator refuses it beside a positive reward, and SFT export refuses gated lines outright. `outcome.realness_screened` rides beside it (optional tri-state) so a screened-clean reward is distinguishable from a never-screened one |
+| `outcome.reward_source` / `verdict` / `metrics` | ledger | unchanged; mint fills `metrics` from `RunRecord.outcome.raw` |
+| `outcome.is_completed` / `is_truncated` / `error` | conflict | mint derives terminal fields from the required `RunRecord.terminalOutcome`; producers use the explicit `unknown` value when terminal evidence is unavailable |
 | `cost.*` | ledger | superset of PR #410's costUsd/totalTokens; `cost.usd` is `null` when `costProvenance.kind === 'uncaptured'` (never a fake 0) |
 | `artifacts.*`, `provenance.*` | ledger | `provenance.capture` gains `mint` alongside `settle-time` / `backfill` |
 | gap discipline | ledger | records without trace spans become labeled gap lines (`messages: []`, `provenance.gap`) AND are listed in `missingTraces`; PR #410's silent skip retired |
 
 ## Export filters (fail-closed)
 
-- SFT: `reward ≥ 1` (configurable) ∧ not realness-gated ∧ trainable split ∧ non-empty transcript. Rows are `{messages, metadata}`.
-- Reward rows: every line with a non-null reward, failures included; unlabeled lines excluded (a gap is not a zero).
-- Verifiers / RFT: transcript-bearing lines only; RFT additionally requires prompt turns before the first assistant turn.
-  A realness-gated line ships in both at reward 0 with the gate stated on the row (`info.realness_gated`, `reference.realness_gated`) — the reward there is a signed learning signal, and dropping the gamed population would bias the negatives toward honest failures while hiding the gaming from the buyer.
+- SFT, reward rows, Verifiers, and RFT default to completed, non-truncated, error-free, ungated `search` runs with reward greater than `0`.
+- `minimumQualityExclusive` can raise the quality floor.
+- Held-out rows require `allowHeldOutTrainingData: true`.
+- SFT also requires a non-empty transcript.
+- Reward rows require a non-empty user prompt.
+- Verifiers requires both prompt and completion turns.
+- RFT requires prompt turns before the first assistant turn.
+- Verifiers / RFT additionally accept `gatedLines: 'zero-and-flag'` — the dataset release's declared disposition — which keeps realness-gated lines and honest failures in the output at their non-positive reward with the gate stated on the row (`info.realness_gated`, `reference.realness_gated`): the reward in those formats is a signed learning signal, and dropping the gamed population would bias the negatives toward honest failures while hiding the gaming from the buyer. The split policy is NOT relaxed by the disposition.
   Reward rows carry the same flag at `metadata.realness_gated`, and SFT rows carry it too even though it is always `false` there.
   Every one of those four shapes also carries `realness_screened` beside it (`RealnessLabels`): the verdict alone cannot say whether a screen ever ran, and a row stating one claim without the other is what let never-screened rewards read as clean.
 - Harbor ATIF export: no filter, because the format carries no reward at all — it is an interchange/audit sink, never a training-data door. A realness-gated line is exported with the gate stated in `notes` and in `extra.tangle.outcome.realness_gated`.

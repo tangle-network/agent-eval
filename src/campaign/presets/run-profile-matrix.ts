@@ -49,15 +49,15 @@ import {
   type BackendIntegrityReport,
   summarizeBackendIntegrity,
 } from '../../integrity/backend-integrity'
-import { observedScore } from '../../rollout/reward'
 import {
   modelHasSnapshot,
-  type RunOutcome,
   type RunRecord,
   type RunSplitTag,
+  runTaskScore,
   validateRunRecord,
 } from '../../run-record'
 import { runCampaign } from '../run-campaign'
+import { campaignCellToRunRecord } from '../run-record'
 import type { CampaignStorage } from '../storage'
 import type {
   CampaignCellResult,
@@ -161,8 +161,8 @@ export interface ProfileSummary {
   model: string
   /** RunRecords produced for this profile (= scenarios × reps). */
   records: number
-  /** Mean composite across this profile's records. */
-  meanComposite: number
+  /** Mean across scored records, or null when the profile has no task labels. */
+  meanComposite: number | null
   totalCostUsd: number
   /** Per-profile integrity verdict — surfaces a single profile that ran stub
    *  even when the matrix as a whole looks real. */
@@ -201,11 +201,6 @@ function sha(input: unknown): string {
 
 function mean(xs: number[]): number {
   return xs.length === 0 ? 0 : xs.reduce((a, b) => a + b, 0) / xs.length
-}
-
-function cellComposite(cell: CampaignCellResult<unknown>): number {
-  const composites = Object.values(cell.judgeScores).map((s) => s.composite)
-  return composites.length === 0 ? 0 : mean(composites)
 }
 
 interface BuildRecordArgs<TScenario extends Scenario, TArtifact> {
@@ -267,73 +262,17 @@ function buildRunRecord<TScenario extends Scenario, TArtifact>(
   // model actually produced the row.
   const model =
     declaredModel === HARNESS_NATIVE_MODEL ? requireResolvedModel(cell, profileId) : declaredModel
-  const composite = cellComposite(cell)
-
-  // Flatten judge dimensions (judge-prefixed to avoid collisions) into raw.
-  const raw: Record<string, number> = { composite }
-  const perJudge: Record<string, Record<string, number>> = {}
-  const dimAccum: Record<string, number[]> = {}
-  const notes: string[] = []
-  for (const [judgeName, js] of Object.entries(cell.judgeScores)) {
-    perJudge[judgeName] = { ...js.dimensions }
-    for (const [dim, value] of Object.entries(js.dimensions)) {
-      raw[`${judgeName}.${dim}`] = value
-      dimAccum[dim] ??= []
-      dimAccum[dim]!.push(value)
-    }
-    if (js.notes) notes.push(`${judgeName}: ${js.notes}`)
-  }
-  const perDimMean: Record<string, number> = {}
-  for (const [dim, values] of Object.entries(dimAccum)) perDimMean[dim] = mean(values)
-
-  // Cost / efficiency guardrail dimensions — RAW-ONLY. The composite stays the
-  // judge objective (anti-Goodhart); these are tracked + dashboarded + carried
-  // into the dataset, never optimized. Makes every run multi-dimensional by
-  // construction (the cost/tokens/latency the cell already reports). Computed
-  // ratios are guarded so a zero-cost stub or zero-quality cell never writes a
-  // non-finite value into the raw bag.
-  //
-  const costUsd = cell.costUsd
-  raw.cost_usd = costUsd
-  raw.cost_estimated = cell.costEstimated ? 1 : 0
-  raw.tokens_input = cell.tokenUsage.input
-  raw.tokens_output = cell.tokenUsage.output
-  if (typeof cell.tokenUsage.cached === 'number') raw.tokens_cached = cell.tokenUsage.cached
-  raw.latency_ms = cell.durationMs
-  if (costUsd > 0) {
-    raw.tokens_per_dollar = (cell.tokenUsage.input + cell.tokenUsage.output) / costUsd
-  }
-  if (composite > 0.01) raw.cost_per_quality = costUsd / composite
-
-  const outcome: RunOutcome =
-    splitTag === 'holdout' ? { holdoutScore: composite, raw } : { searchScore: composite, raw }
-  if (Object.keys(perJudge).length > 0) {
-    outcome.judgeScores = {
-      perJudge,
-      perDimMean,
-      composite,
-      ...(notes.length > 0 ? { notes: notes.join(' | ') } : {}),
-    }
-  }
-
-  const record: RunRecord & { prompt?: string; completion?: string } = {
+  const record = campaignCellToRunRecord(cell, {
     runId: `${matrixId}:${profileId}:${cell.cellId}`,
     experimentId,
     candidateId: profileId,
-    seed: cell.seed,
     model,
     promptHash: profileHash,
     configHash,
     commitSha,
-    wallMs: cell.durationMs,
-    costUsd,
-    tokenUsage: cell.tokenUsage,
-    outcome,
     splitTag,
-    scenarioId: cell.scenarioId,
-    ...(args.agentProfileCell ? { agentProfile: args.agentProfileCell } : {}),
-    ...(cell.error ? { failureMode: cell.error } : {}),
-  }
+    agentProfile: args.agentProfileCell,
+  }) as RunRecord & { prompt?: string; completion?: string }
 
   // Corpus-by-default: stamp the trajectory text onto the record (CorpusRecord
   // shape — the validator ignores the extra keys) so the run is dataset-able
@@ -406,11 +345,13 @@ export async function runProfileMatrix<TScenario extends Scenario, TArtifact>(
         configHash: profileHash,
         commitSha: opts.commitSha,
         wallMs: 0,
-        costUsd: 0,
+        costUsd: null,
+        costProvenance: { kind: 'uncaptured', usd: null },
         tokenUsage: { input: 0, output: 0 },
-        outcome:
-          splitTag === 'holdout' ? { holdoutScore: 0, raw: {} } : { searchScore: 0, raw: {} },
+        terminalOutcome: 'succeeded',
+        outcome: { raw: { execution_error_count: 0 } },
         splitTag,
+        scenarioId: 'recordability-probe',
       })
     } catch (err) {
       throw new ProfileMatrixError(
@@ -513,7 +454,9 @@ export async function runProfileMatrix<TScenario extends Scenario, TArtifact>(
           ? (profileRecords[0]?.model ?? declaredModel)
           : declaredModel,
       records: profileRecords.length,
-      meanComposite: mean(profileRecords.map(compositeOf)),
+      meanComposite: meanOrNull(
+        profileRecords.map(scoreOf).filter((score): score is number => score !== undefined),
+      ),
       totalCostUsd,
       integrity: summarizeBackendIntegrity(profileRecords),
     }
@@ -539,10 +482,15 @@ export async function runProfileMatrix<TScenario extends Scenario, TArtifact>(
   return { matrixId, experimentId, records, byProfile, byScenario, byPersona, integrity, campaigns }
 }
 
-/** Composite for a produced RunRecord (the split score it carries). Ungated —
- *  a matrix pivot reports measured scores; it is not a training input. */
-function compositeOf(r: RunRecord): number {
-  return observedScore(r) ?? 0
+/** Score for a produced RunRecord, absent when the campaign cell was unscored.
+ *  Ungated (`runTaskScore` is raw) — a matrix pivot reports measured scores;
+ *  it is not a training input. */
+function scoreOf(r: RunRecord): number | undefined {
+  return runTaskScore(r)
+}
+
+function meanOrNull(values: number[]): number | null {
+  return values.length === 0 ? null : mean(values)
 }
 
 function rollup(
@@ -553,8 +501,10 @@ function rollup(
   for (const r of records) {
     const key = keyOf(r)
     if (key === undefined) continue
+    const score = scoreOf(r)
+    if (score === undefined) continue
     const arr = groups.get(key) ?? []
-    arr.push(compositeOf(r))
+    arr.push(score)
     groups.set(key, arr)
   }
   const out: Record<string, ScenarioRollup> = {}

@@ -17,6 +17,16 @@ describe('projectOtlpFlatLine', () => {
     expect(out!.span_id).toBe('s1')
   })
 
+  it('preserves evaluator spans as evaluator evidence', () => {
+    const out = projectOtlpFlatLine({
+      trace_id: 't1',
+      span_id: 'e1',
+      attributes: { 'openinference.span.kind': 'EVALUATOR' },
+    })
+
+    expect(out?.kind).toBe('EVALUATOR')
+  })
+
   it('resolves camelCase pivots (traceId/spanId/parentSpanId/startTime/endTime)', () => {
     const out = projectOtlpFlatLine({
       traceId: 'tc',

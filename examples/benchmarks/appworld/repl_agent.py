@@ -27,6 +27,7 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import re
@@ -108,7 +109,7 @@ def extract_code(text: str) -> str:
 
 
 def price(model: str, in_tok: int, out_tok: int) -> float | None:
-    p = PRICE_PER_M.get(model)
+    p = PRICE_PER_M.get(model) or PRICE_PER_M.get(model.split("@", 1)[0])
     if p is None:
         return None
     return in_tok * p["input"] / 1e6 + out_tok * p["output"] / 1e6
@@ -408,23 +409,42 @@ def run_task(
 
     cost = price(model, in_tok_total, out_tok_total)
     wall_ms = (run_end_ns - run_start_ns) / 1e6
+    terminal_outcome = "succeeded" if completed else ("failed" if last_error else "incomplete")
+    prompt_hash = hashlib.sha256(active_system_prompt.encode("utf-8")).hexdigest()
+    config_hash = hashlib.sha256(
+        json.dumps(
+            {
+                "model": model,
+                "max_steps": max_steps,
+                "max_tokens": max_tokens,
+                "max_wall_seconds": max_wall_seconds,
+                "temperature": temperature,
+            },
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("utf-8")
+    ).hexdigest()
 
-    # RunRecord-shaped projection (src/run-record.ts). The TS side does the
-    # final validateRunRecord(); this is the source row it shapes from.
+    # Canonical RunRecord projection. The TypeScript dispatcher validates this
+    # exact object before accepting the worker result.
     run_record = {
         "runId": str(uuid.uuid4()),
         "experimentId": experiment_name,
-        "candidateId": f"baseline::{model}",
-        "seed": 100,
+        "candidateId": f"prompt::{prompt_hash[:16]}",
+        "seed": seed,
         "model": model,
+        "promptHash": prompt_hash,
+        "configHash": config_hash,
+        "commitSha": os.environ.get("GIT_SHA", "local-appworld"),
         "wallMs": wall_ms,
-        "costUsd": cost if cost is not None else 0.0,
+        "costUsd": cost,
         "costProvenance": (
             {"kind": "estimated", "usd": cost}
             if cost is not None
             else {"kind": "uncaptured", "usd": None}
         ),
         "tokenUsage": {"input": in_tok_total, "output": out_tok_total},
+        "terminalOutcome": terminal_outcome,
         "outcome": {
             "holdoutScore": sgc,
             "raw": {
@@ -433,13 +453,14 @@ def run_task(
                 "num_tests": num_tests,
                 "llm_calls": n_llm_calls,
                 "completed": 1.0 if completed else 0.0,
+                "execution_error_count": 1.0 if last_error else 0.0,
             },
         },
         "splitTag": "holdout",
         "scenarioId": task_id,
     }
     if not completed:
-        run_record["failureMode"] = last_error or "task_not_completed"
+        run_record["terminalFailureReason"] = last_error or "task_not_completed"
 
     result = {
         "task_id": task_id,

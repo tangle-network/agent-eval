@@ -518,7 +518,11 @@ describe('runCampaign — core primitive', () => {
     })
     expect(result.cells).toHaveLength(2)
     expect(result.aggregates.cellsFailed).toBe(1)
+    expect(result.aggregates.cellsDispatchFailed).toBe(1)
+    expect(result.aggregates.cellsJudgeFailed).toBe(0)
+    expect(result.aggregates.cellsUnclassifiedFailed).toBe(0)
     expect(result.cells.find((c) => c.scenarioId === 'a')?.error).toContain('boom')
+    expect(result.cells.find((c) => c.scenarioId === 'a')?.errorStage).toBe('dispatch')
     expect(result.cells.find((c) => c.scenarioId === 'b')?.error).toBeUndefined()
     expect(result.cells.find((c) => c.scenarioId === 'a')?.costUsd).toBeCloseTo(0.4, 9)
     expect(ledger.summary().totalCostUsd).toBeCloseTo(0.5, 9)
@@ -546,6 +550,7 @@ describe('runCampaign — core primitive', () => {
       cell: {
         cellId: 'a:0',
         scenarioId: 'a',
+        errorStage: 'dispatch',
         error: 'boom after provider response',
         costUsd: 0.4,
         tokenUsage: { input: 0, output: 0 },
@@ -713,9 +718,17 @@ describe('runCampaign — core primitive', () => {
     })
     const cell = result.cells[0]!
     expect(cell.error).toMatch(/judge 'boom' failed: judge exploded/)
+    expect(cell.errorStage).toBe('judge')
+    expect(cell.errorJudge).toBe('boom')
     // No fabricated composite:0 recorded for the failed judge.
     expect(cell.judgeScores.boom).toBeUndefined()
     expect(result.aggregates.cellsFailed).toBe(1)
+    expect(result.aggregates.cellsExecuted).toBe(1)
+    expect(result.aggregates.cellsDispatchFailed).toBe(0)
+    expect(result.aggregates.cellsJudgeFailed).toBe(1)
+    expect(result.aggregates.cellsUnclassifiedFailed).toBe(0)
+    expect(result.aggregates.byJudge.boom).toBeUndefined()
+    expect(result.aggregates.byScenario).toEqual({})
   })
 
   it('persists dispatch and judge spend in a failed judge receipt', async () => {
@@ -782,6 +795,7 @@ describe('runCampaign — core primitive', () => {
     expect(result.cells[0]?.error).toBe(
       "judge 'paid-judge' failed: judge provider returned malformed output",
     )
+    expect(result.cells[0]?.errorStage).toBe('judge')
     expect(failureReceipt).toMatchObject({
       failure: {
         stage: 'judge',
@@ -792,6 +806,8 @@ describe('runCampaign — core primitive', () => {
         },
       },
       cell: {
+        errorStage: 'judge',
+        errorJudge: 'paid-judge',
         costUsd: 0.1,
         tokenUsage: { input: 10, output: 5 },
         costCallIds: expect.arrayContaining([

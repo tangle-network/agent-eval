@@ -15,8 +15,8 @@
  *     --min-score 0.7 \\
  *     --model-name Qwen/Qwen3-0.6B
  *
- * The script is intentionally small (~150 LoC). Adapt freely; the
- * load-bearing pieces are:
+ * Adapt freely.
+ * The essential pieces are:
  *   1. Reading `RunRecord`s
  *   2. `toSftRows(...)` from `@tangle-network/agent-eval/rl`
  *   3. `toSftJsonl(...)` (same)
@@ -26,7 +26,7 @@
 import { promises as fs } from 'node:fs'
 import { resolve as resolvePath } from 'node:path'
 import { toSftJsonl, toSftRows } from '../../src/rl/exporters'
-import type { RunRecord } from '../../src/run-record'
+import { type RunRecord, runTaskScore } from '../../src/run-record'
 
 interface CliArgs {
   runs: string
@@ -114,7 +114,7 @@ async function main(): Promise<void> {
   // is the most important hyperparameter — too low and the model learns to
   // mimic mediocre completions; too high and you starve it of data.
   const filtered = runs.filter((r) => {
-    const s = r.outcome.holdoutScore ?? r.outcome.searchScore
+    const s = runTaskScore(r)
     return typeof s === 'number' && s >= args.minScore
   })
   process.stdout.write(

@@ -1,6 +1,12 @@
 import { createHash } from 'node:crypto'
 import { estimateCost, isModelPriced } from '../../metrics'
-import type { RunCostProvenance, RunRecord, RunSplitTag, RunTokenUsage } from '../../run-record'
+import type {
+  RunCostProvenance,
+  RunRecord,
+  RunSplitTag,
+  RunTerminalOutcome,
+  RunTokenUsage,
+} from '../../run-record'
 import { extractUsage } from '../../trace/extract-usage'
 import {
   type CodeAgentSessionExecutionReceipt,
@@ -35,6 +41,7 @@ export interface CodeAgentSessionMetrics {
   toolCalls: number
   toolOutputs: number
   toolErrors: number
+  unclassifiedErrors: number
   patchAttempts: number
   patchSuccesses: number
   patchFailures: number
@@ -74,7 +81,6 @@ export interface CodeAgentSessionDiagnostic {
   sourcePath?: string
   entries: number
   malformedLines: number
-  inferredScore: boolean
   hasExplicitTerminalSignal: boolean
   hasFinalOutput: boolean
   hasQualityLabel: boolean
@@ -105,9 +111,7 @@ export interface CodeAgentSessionIntakeOptions {
   configHash?: string
   commitSha?: string
   score?: number
-  /** Explicit cost receipt. Use `uncaptured` when the source says dollars
-   *  were not captured; the adapter will not relabel its compatibility $0
-   *  sentinel as observed. When omitted, source-reported cost wins, then a
+  /** Explicit cost receipt. When omitted, source-reported cost wins, then a
    *  token-priced estimate, then uncaptured. */
   costProvenance?: RunCostProvenance
   /** Exact executor-owned process result. This is required when a provider's
@@ -177,7 +181,6 @@ function fromCodeAgentSession(
           sourcePath: options.sourcePath,
           entries: 0,
           malformedLines: options.malformedLines ?? 0,
-          inferredScore: true,
           hasExplicitTerminalSignal: false,
           hasFinalOutput: false,
           hasQualityLabel: false,
@@ -211,7 +214,8 @@ function fromCodeAgentSession(
     ...(metrics.cacheWriteTokens > 0 ? { cacheWrite: metrics.cacheWriteTokens } : {}),
   }
   const { costUsd, costProvenance } = resolveSessionCost(options.costProvenance, metrics, model)
-  const score = clamp01(options.score ?? metrics.processScore)
+  const qualityScore = finiteScore(options.score)
+  const invalidQualityScore = options.score !== undefined && qualityScore === undefined
   const promptHash =
     options.promptHash ?? hashString(`prompt:${source}:${firstUserText(entries) ?? ''}`)
   const configHash =
@@ -228,10 +232,14 @@ function fromCodeAgentSession(
     model,
     explicitTerminal,
     malformedLines: options.malformedLines ?? 0,
-    scoreOverridden: options.score !== undefined,
+    hasQualityLabel: qualityScore !== undefined,
+    invalidQualityScore,
     costKind: costProvenance.kind,
   })
 
+  const terminalOutcome = terminalOutcomeFromSession(observation.terminal)
+  const processExitCode = options.execution?.exitCode
+  const splitTag = options.splitTag ?? 'holdout'
   const run: RunRecord = {
     runId: `${source}:${sessionId}`,
     experimentId: options.experimentId ?? `${source}-local-sessions`,
@@ -245,8 +253,23 @@ function fromCodeAgentSession(
     costUsd,
     costProvenance,
     tokenUsage,
+    terminalOutcome,
+    ...(terminalOutcome === 'failed'
+      ? {
+          terminalFailureReason:
+            processExitCode !== undefined && processExitCode !== 0
+              ? `process exited with code ${processExitCode}`
+              : metrics.turnsAborted > 0
+                ? 'turn aborted'
+                : 'session reported terminal failure',
+        }
+      : {}),
     outcome: {
-      holdoutScore: score,
+      ...(qualityScore === undefined
+        ? {}
+        : splitTag === 'holdout'
+          ? { holdoutScore: qualityScore }
+          : { searchScore: qualityScore }),
       raw: {
         entries: metrics.entries,
         user_messages: metrics.userMessages,
@@ -255,6 +278,10 @@ function fromCodeAgentSession(
         tool_calls: metrics.toolCalls,
         tool_outputs: metrics.toolOutputs,
         tool_errors: metrics.toolErrors,
+        execution_error_count: metrics.toolErrors,
+        process_error_count: terminalOutcome === 'failed' ? 1 : 0,
+        unclassified_error_count: metrics.unclassifiedErrors,
+        ...(processExitCode !== undefined ? { process_exit_code: processExitCode } : {}),
         patch_attempts: metrics.patchAttempts,
         patch_successes: metrics.patchSuccesses,
         patch_failures: metrics.patchFailures,
@@ -284,22 +311,18 @@ function fromCodeAgentSession(
         cache_write_tokens: metrics.cacheWriteTokens,
         observed_cost_usd: metrics.observedCostUsd,
         observed_cost_captured: metrics.observedCostCaptured ? 1 : 0,
-        estimated_cost_usd: costProvenance.kind === 'estimated' ? costUsd : 0,
-        process_score: score,
-        inferred_score: options.score === undefined ? 1 : 0,
+        estimated_cost_usd: costProvenance.kind === 'estimated' ? costProvenance.usd : 0,
+        process_score: metrics.processScore,
         explicit_terminal_signal: explicitTerminal ? 1 : 0,
-        quality_label_present: options.score !== undefined ? 1 : 0,
+        quality_label_present: qualityScore !== undefined ? 1 : 0,
         cost_observed: costProvenance.kind === 'observed' ? 1 : 0,
         cost_estimated: costProvenance.kind === 'estimated' ? 1 : 0,
         cost_uncaptured: costProvenance.kind === 'uncaptured' ? 1 : 0,
         cost_unknown: costProvenance.kind === 'uncaptured' ? 1 : 0,
       },
     },
-    splitTag: options.splitTag ?? 'holdout',
-    ...(options.scenarioId ? { scenarioId: options.scenarioId } : {}),
-    ...(metrics.toolErrors > 0 || metrics.turnsAborted > 0
-      ? { failureMode: metrics.turnsAborted > 0 ? 'turn_aborted' : 'tool_error' }
-      : {}),
+    splitTag,
+    scenarioId: options.scenarioId ?? sessionId,
   }
 
   return {
@@ -311,10 +334,9 @@ function fromCodeAgentSession(
         sourcePath: options.sourcePath,
         entries: entries.length,
         malformedLines: options.malformedLines ?? 0,
-        inferredScore: options.score === undefined,
         hasExplicitTerminalSignal: explicitTerminal,
         hasFinalOutput: observation.finalText !== null,
-        hasQualityLabel: options.score !== undefined,
+        hasQualityLabel: qualityScore !== undefined,
         hasTokenUsage:
           metrics.inputTokens > 0 ||
           metrics.outputTokens > 0 ||
@@ -329,6 +351,15 @@ function fromCodeAgentSession(
     metrics: [metrics],
     observations: [{ ...observation, sessionId }],
   }
+}
+
+function terminalOutcomeFromSession(
+  terminal: CodeAgentSessionObservation['terminal'],
+): RunTerminalOutcome {
+  if (!terminal.explicit) return 'unknown'
+  if (terminal.status === 'completed') return 'succeeded'
+  if (terminal.status === 'failed') return 'failed'
+  return 'unknown'
 }
 
 function metricsFor(
@@ -371,7 +402,7 @@ function codexMetrics(entries: Record<string, unknown>[]): CodeAgentSessionMetri
       addCodexExecUsage(metrics, record(entry.usage))
     }
     if (entryType === 'turn.failed') metrics.turnsAborted += 1
-    if (entryType === 'error') metrics.toolErrors += 1
+    if (entryType === 'error') metrics.unclassifiedErrors += 1
 
     const item = record(entry.item)
     if (item && (entryType === 'item.started' || entryType === 'item.completed')) {
@@ -426,7 +457,7 @@ function codexMetrics(entries: Record<string, unknown>[]): CodeAgentSessionMetri
       if (payloadType === 'token_count')
         setCodexCumulativeUsage(metrics, record(record(payload.info)?.total_token_usage))
       const result = record(payload.result)
-      if (result && 'Err' in result) metrics.toolErrors += 1
+      if (result && 'Err' in result) metrics.unclassifiedErrors += 1
     }
   }
 
@@ -472,7 +503,8 @@ function addCodexExecItem(
       metrics.toolErrors += 1
     }
   }
-  if (itemType === 'error' || codexExecToolFailed(itemType, item)) metrics.toolErrors += 1
+  if (itemType === 'error') metrics.unclassifiedErrors += 1
+  else if (codexExecToolFailed(itemType, item)) metrics.toolErrors += 1
 }
 
 function codexExecToolFailed(itemType: string | undefined, item: Record<string, unknown>): boolean {
@@ -741,6 +773,7 @@ function emptyMetrics(entries: number): CodeAgentSessionMetrics {
     toolCalls: 0,
     toolOutputs: 0,
     toolErrors: 0,
+    unclassifiedErrors: 0,
     patchAttempts: 0,
     patchSuccesses: 0,
     patchFailures: 0,
@@ -862,11 +895,11 @@ function resolveSessionCost(
   explicit: RunCostProvenance | undefined,
   metrics: CodeAgentSessionMetrics,
   model: string,
-): { costUsd: number; costProvenance: RunCostProvenance } {
+): { costUsd: number | null; costProvenance: RunCostProvenance } {
   if (explicit) {
     if (explicit.kind === 'uncaptured') {
       if (explicit.usd !== null) throw new Error('uncaptured cost must have usd: null')
-      return { costUsd: 0, costProvenance: explicit }
+      return { costUsd: null, costProvenance: explicit }
     }
     if (!Number.isFinite(explicit.usd) || explicit.usd < 0) {
       throw new Error(`${explicit.kind} cost must be a finite, non-negative USD amount`)
@@ -885,7 +918,7 @@ function resolveSessionCost(
     return { costUsd, costProvenance: { kind: 'estimated', usd: costUsd } }
   }
 
-  return { costUsd: 0, costProvenance: { kind: 'uncaptured', usd: null } }
+  return { costUsd: null, costProvenance: { kind: 'uncaptured', usd: null } }
 }
 
 function diagnosticsFor(
@@ -894,12 +927,14 @@ function diagnosticsFor(
     model: string
     explicitTerminal: boolean
     malformedLines: number
-    scoreOverridden: boolean
+    hasQualityLabel: boolean
+    invalidQualityScore: boolean
     costKind: RunCostProvenance['kind']
   },
 ): string[] {
   const warnings: string[] = []
-  if (!options.scoreOverridden) warnings.push('outcome score is inferred from process telemetry')
+  if (options.invalidQualityScore) warnings.push('non-finite task quality score omitted')
+  else if (!options.hasQualityLabel) warnings.push('task quality score not supplied')
   if (!options.explicitTerminal) warnings.push('no explicit terminal success/failure signal')
   if (
     metrics.inputTokens === 0 &&
@@ -1071,6 +1106,10 @@ function maxOptional(current: number | undefined, next: number): number {
 function clamp01(value: number): number {
   if (!Number.isFinite(value)) return 0
   return Math.max(0, Math.min(1, value))
+}
+
+function finiteScore(value: number | undefined): number | undefined {
+  return value !== undefined && Number.isFinite(value) ? clamp01(value) : undefined
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

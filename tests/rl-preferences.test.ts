@@ -7,9 +7,11 @@ function rec(args: {
   candidateId: string
   scenarioId: string
   seed: number
-  score: number
+  score?: number
   splitTag?: RunRecord['splitTag']
+  terminalOutcome?: RunRecord['terminalOutcome']
 }): RunRecord {
+  const splitTag = args.splitTag ?? 'search'
   return {
     runId: args.runId,
     experimentId: 'exp',
@@ -21,12 +23,17 @@ function rec(args: {
     commitSha: 'abcd',
     wallMs: 100,
     costUsd: 0.01,
+    costProvenance: { kind: 'observed', usd: 0.01 },
     tokenUsage: { input: 1, output: 1 },
-    outcome: {
-      holdoutScore: args.score,
-      raw: { scenario_id: Number.NaN }, // intentionally non-numeric so we exercise the inferScenarioId path
-    },
-    splitTag: args.splitTag ?? 'holdout',
+    terminalOutcome: args.terminalOutcome ?? 'succeeded',
+    outcome:
+      args.score === undefined
+        ? { raw: {} }
+        : splitTag === 'holdout'
+          ? { holdoutScore: args.score, raw: {} }
+          : { searchScore: args.score, raw: {} },
+    splitTag,
+    scenarioId: args.scenarioId,
   }
 }
 
@@ -47,9 +54,6 @@ describe('extractPreferences — paired-by-scenario-and-seed', () => {
         )
       }
     }
-    // Hijack scenario_id back into raw via outcome.raw — emulate consumer behavior
-    for (const r of runs) r.outcome.raw.scenario_id = 1
-
     const report = extractPreferences(runs, {
       strategy: 'paired-by-scenario-and-seed',
       minMargin: 0.05,
@@ -65,8 +69,6 @@ describe('extractPreferences — paired-by-scenario-and-seed', () => {
       rec({ runId: 'a', candidateId: 'a', scenarioId: 's', seed: 0, score: 0.5 }),
       rec({ runId: 'b', candidateId: 'b', scenarioId: 's', seed: 0, score: 0.51 }),
     ]
-    runs[0]!.outcome.raw.scenario_id = 1
-    runs[1]!.outcome.raw.scenario_id = 1
     const report = extractPreferences(runs, {
       strategy: 'paired-by-scenario-and-seed',
       minMargin: 0.1,
@@ -77,7 +79,6 @@ describe('extractPreferences — paired-by-scenario-and-seed', () => {
 
   it('counts singleton cells where no comparison is possible', () => {
     const runs = [rec({ runId: 'a', candidateId: 'a', scenarioId: 's', seed: 0, score: 0.7 })]
-    runs[0]!.outcome.raw.scenario_id = 1
     const report = extractPreferences(runs, { strategy: 'paired-by-scenario-and-seed' })
     expect(report.pairs).toHaveLength(0)
     expect(report.cellsSingleton).toBe(1)
@@ -136,5 +137,96 @@ describe('extractPreferences — reward override', () => {
     })
     expect(report.pairs[0]?.chosenVariantId).toBe('b')
     expect(report.pairs[0]?.rejectedVariantId).toBe('a')
+  })
+})
+
+describe('extractPreferences — training-data selection', () => {
+  it('defaults to positive, completed search runs', () => {
+    const runs = [
+      rec({ runId: 'search-a', candidateId: 'a', scenarioId: 's', seed: 0, score: 0.9 }),
+      rec({ runId: 'search-b', candidateId: 'b', scenarioId: 's', seed: 0, score: 0.5 }),
+      rec({
+        runId: 'dev-a',
+        candidateId: 'a',
+        scenarioId: 'd',
+        seed: 0,
+        score: 0.8,
+        splitTag: 'dev',
+      }),
+      rec({
+        runId: 'dev-b',
+        candidateId: 'b',
+        scenarioId: 'd',
+        seed: 0,
+        score: 0.4,
+        splitTag: 'dev',
+      }),
+      rec({
+        runId: 'holdout-a',
+        candidateId: 'a',
+        scenarioId: 'h',
+        seed: 0,
+        score: 1,
+        splitTag: 'holdout',
+      }),
+      rec({
+        runId: 'holdout-b',
+        candidateId: 'b',
+        scenarioId: 'h',
+        seed: 0,
+        score: 0.1,
+        splitTag: 'holdout',
+      }),
+      rec({ runId: 'zero', candidateId: 'c', scenarioId: 's', seed: 0, score: 0 }),
+      rec({
+        runId: 'failed',
+        candidateId: 'd',
+        scenarioId: 's',
+        seed: 0,
+        score: 1,
+        terminalOutcome: 'failed',
+      }),
+    ]
+
+    const report = extractPreferences(runs, { strategy: 'top-vs-bottom' })
+    expect(report.pairs.map((pair) => pair.scenarioId)).toEqual(['s'])
+    expect(report.pairs.flatMap((pair) => [pair.chosenRunId, pair.rejectedRunId])).not.toContain(
+      'zero',
+    )
+  })
+
+  it('requires the named override for held-out preference data', () => {
+    const runs = [
+      rec({
+        runId: 'a',
+        candidateId: 'a',
+        scenarioId: 's',
+        seed: 0,
+        score: 0.9,
+        splitTag: 'holdout',
+      }),
+      rec({
+        runId: 'b',
+        candidateId: 'b',
+        scenarioId: 's',
+        seed: 0,
+        score: 0.5,
+        splitTag: 'holdout',
+      }),
+    ]
+
+    expect(() => extractPreferences(runs, { splitTag: 'holdout' })).toThrow(
+      /allowHeldOutTrainingData: true/,
+    )
+    expect(
+      extractPreferences(runs, {
+        splitTag: 'holdout',
+        allowHeldOutTrainingData: true,
+      }).pairs,
+    ).toHaveLength(1)
+  })
+
+  it('rejects dev as a training split', () => {
+    expect(() => extractPreferences([], { splitTag: 'dev' })).toThrow(/evaluation-only/)
   })
 })

@@ -26,6 +26,7 @@
  */
 
 import { ValidationError } from './errors'
+import type { RunRecord } from './run-record'
 import type { McNemarResult, PairedBootstrapOptions, PairedBootstrapResult } from './statistics'
 import {
   mcnemar,
@@ -141,7 +142,20 @@ export function pairArms(rows: readonly PairedArmRow[], opts: PairArmsOptions): 
 
     if (b.length <= 1 && t.length <= 1) {
       if (b.length === 1 && t.length === 1) {
-        pairs.push({ pairKey, repIndex: 0, baseline: b[0]!, treatment: t[0]! })
+        const baseline = b[0]!
+        const treatment = t[0]!
+        if (baseline.repKey !== undefined || treatment.repKey !== undefined) {
+          if (
+            baseline.repKey === undefined ||
+            treatment.repKey === undefined ||
+            baseline.repKey !== treatment.repKey
+          ) {
+            unpairedBaseline.push(baseline)
+            unpairedTreatment.push(treatment)
+            continue
+          }
+        }
+        pairs.push({ pairKey, repIndex: 0, baseline, treatment })
       } else {
         unpairedBaseline.push(...b)
         unpairedTreatment.push(...t)
@@ -215,10 +229,10 @@ export interface PairedMetricDelta {
   n: number
   /** Pairs where at least one side does not carry the metric. */
   nMissing: number
-  /** Median paired delta; NaN when `n === 0` (no data ≠ measured zero). */
-  medianDelta: number
-  /** Mean paired delta; NaN when `n === 0`. */
-  meanDelta: number
+  /** Median paired delta, or null when `n === 0`. */
+  medianDelta: number | null
+  /** Mean paired delta, or null when `n === 0`. */
+  meanDelta: number | null
   /** Bootstrap CI on the paired delta (`pairedBootstrap`); null when
    *  `n === 0` — a zero-width [0, 0] interval on no data would read as a
    *  measured tight null. */
@@ -313,8 +327,8 @@ export function comparePairedArms(
       name,
       n: before.length,
       nMissing,
-      medianDelta: bootstrapCi === null ? Number.NaN : bootstrapCi.median,
-      meanDelta: bootstrapCi === null ? Number.NaN : bootstrapCi.mean,
+      medianDelta: bootstrapCi?.median ?? null,
+      meanDelta: bootstrapCi?.mean ?? null,
       bootstrapCi,
       wilcoxon: before.length === 0 ? null : wilcoxonSignedRank(before, after),
     }
@@ -326,6 +340,96 @@ export function comparePairedArms(
     nUnpairedTreatment: unpairedTreatment.length,
     correctness,
     metricDeltas,
+  }
+}
+
+export interface MatchedRunRecordPair {
+  pairKey: string
+  repKey: string
+  baseline: RunRecord
+  treatment: RunRecord
+}
+
+export interface PairRunRecordsResult {
+  pairs: MatchedRunRecordPair[]
+  unpairedBaseline: RunRecord[]
+  unpairedTreatment: RunRecord[]
+}
+
+interface RunRecordArmRow extends PairedArmRow {
+  run: RunRecord
+  repKey: string
+}
+
+/**
+ * Pair two RunRecord arms by the identity of the evaluated work:
+ * `(experimentId, scenarioId, seed)`.
+ *
+ * Falling back to array order, candidate id, or experiment id can compare
+ * different tasks and fabricate lift. Duplicate identities throw.
+ */
+export function pairRunRecords(
+  baselineRuns: readonly RunRecord[],
+  treatmentRuns: readonly RunRecord[],
+): PairRunRecordsResult {
+  const baselineRows = runRecordArmRows(baselineRuns, 'baseline')
+  const treatmentRows = runRecordArmRows(treatmentRuns, 'treatment')
+  validateRunRecordArmRows(baselineRows, 'baseline')
+  validateRunRecordArmRows(treatmentRows, 'treatment')
+  if (baselineRows.length === 0 || treatmentRows.length === 0) {
+    return {
+      pairs: [],
+      unpairedBaseline: baselineRows.map((row) => row.run),
+      unpairedTreatment: treatmentRows.map((row) => row.run),
+    }
+  }
+
+  const result = pairArms([...baselineRows, ...treatmentRows], {
+    baselineArm: 'baseline',
+    treatmentArm: 'treatment',
+  })
+  return {
+    pairs: result.pairs.map((pair) => {
+      const baseline = pair.baseline as RunRecordArmRow
+      const treatment = pair.treatment as RunRecordArmRow
+      return {
+        pairKey: pair.pairKey,
+        repKey: baseline.repKey,
+        baseline: baseline.run,
+        treatment: treatment.run,
+      }
+    }),
+    unpairedBaseline: result.unpairedBaseline.map((row) => (row as RunRecordArmRow).run),
+    unpairedTreatment: result.unpairedTreatment.map((row) => (row as RunRecordArmRow).run),
+  }
+}
+
+function runRecordArmRows(runs: readonly RunRecord[], arm: string): RunRecordArmRow[] {
+  return runs.map((run) => {
+    const scenarioId = run.scenarioId.trim()
+    if (!scenarioId) {
+      throw new ValidationError(
+        `pairRunRecords: run '${run.runId}' is missing scenarioId; paired comparisons require explicit scenario identity`,
+      )
+    }
+    return {
+      pairKey: JSON.stringify([run.experimentId, scenarioId]),
+      repKey: String(run.seed),
+      arm,
+      run,
+    }
+  })
+}
+
+function validateRunRecordArmRows(rows: readonly RunRecordArmRow[], arm: string): void {
+  const byPairKey = new Map<string, RunRecordArmRow[]>()
+  for (const row of rows) {
+    const group = byPairKey.get(row.pairKey) ?? []
+    group.push(row)
+    byPairKey.set(row.pairKey, group)
+  }
+  for (const [pairKey, group] of byPairKey) {
+    if (group.length > 1) indexByRepKey(group, pairKey, arm)
   }
 }
 

@@ -120,7 +120,7 @@ event log and join it back to the run records by `runId`.
 ## Files
 
 - `README.md`: this file.
-- `export-sft.ts`: the export script (~150 LoC).
+- `export-sft.ts`: the export script.
 - `synthetic-runs.jsonl`: example input data; replace with your own
   campaign output.
 - `prime-rl-sft.toml`: generated config; not checked in (see `.gitignore`).

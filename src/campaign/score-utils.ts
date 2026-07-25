@@ -6,26 +6,31 @@
  */
 
 import { EMITTED_EVIDENCE_MAX_CHARS } from '../reflective-mutation'
+import { projectCampaignCellQuality } from './run-record'
 import type { CampaignResult, Scenario } from './types'
 
-/** Mean composite across a campaign: per cell, the mean of its finite,
- *  successful judge composites; then the mean across cells. Invalid scores
- *  remain visible on raw cells and coverage receipts but never poison the
- *  descriptive aggregate with NaN. Cells with no valid scores are skipped.
- *  Empty ⇒ 0. */
+/** Mean composite across cells with complete task-quality evidence.
+ *  Partial judge results remain on their cells but never enter this value.
+ *  A campaign with no complete score has no numeric mean and fails loudly. */
 export function campaignMeanComposite<TArtifact, TScenario extends Scenario>(
   campaign: CampaignResult<TArtifact, TScenario>,
 ): number {
-  const composites: number[] = []
-  for (const cell of campaign.cells) {
-    const cellComposites = Object.values(cell.judgeScores)
-      .filter((score) => score.failed !== true && Number.isFinite(score.composite))
-      .map((score) => score.composite)
-    if (cellComposites.length > 0) {
-      composites.push(cellComposites.reduce((a, b) => a + b, 0) / cellComposites.length)
-    }
+  const mean = campaignMeanCompositeOrNull(campaign)
+  if (mean === null) {
+    throw new Error('campaignMeanComposite: campaign has no complete cell-quality scores')
   }
-  return composites.length === 0 ? 0 : composites.reduce((a, b) => a + b, 0) / composites.length
+  return mean
+}
+
+/** Nullable campaign mean for wire and report fields that represent missing quality. */
+export function campaignMeanCompositeOrNull<TArtifact, TScenario extends Scenario>(
+  campaign: CampaignResult<TArtifact, TScenario>,
+): number | null {
+  const scores = campaign.cells.flatMap((cell) => {
+    const score = projectCampaignCellQuality(cell).score
+    return score === undefined ? [] : [score]
+  })
+  return scores.length === 0 ? null : scores.reduce((sum, score) => sum + score, 0) / scores.length
 }
 
 /** Reject rank keys that cannot produce deterministic lexicographic ordering. */
@@ -82,11 +87,10 @@ export function campaignBreakdown<TArtifact, TScenario extends Scenario>(
   const notesByScenario = new Map<string, Set<string>>()
   const emittedByScenario = new Map<string, { composite: number; text: string }>()
   for (const cell of campaign.cells) {
-    const judgeScores = Object.values(cell.judgeScores).filter(
-      (score) => score.failed !== true && Number.isFinite(score.composite),
-    )
-    if (judgeScores.length === 0) continue
-    const cellComposite = judgeScores.reduce((a, s) => a + s.composite, 0) / judgeScores.length
+    const quality = projectCampaignCellQuality(cell)
+    if (quality.score === undefined) continue
+    const judgeScores = Object.values(quality.successfulJudgeScores)
+    const cellComposite = quality.score
     const arr = byScenario.get(cell.scenarioId) ?? []
     arr.push(cellComposite)
     byScenario.set(cell.scenarioId, arr)

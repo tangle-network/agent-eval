@@ -28,6 +28,7 @@ import {
   type Scenario,
   skillOptOptimizationMethod,
 } from '../../../src/campaign'
+import { isRunRecord, type RunRecord } from '../../../src/run-record'
 import {
   nonNegativeIntegerEnv,
   nonNegativeNumberEnv,
@@ -47,7 +48,7 @@ const PYTHON = stringEnv('BENCH_PYTHON', `${APPWORLD_DIR}/.venv/bin/python`)
 const OPTIMIZER_PYTHON = stringEnv('OPTIMIZER_PYTHON', 'python')
 const HERE = dirname(fileURLToPath(import.meta.url))
 const WORKER = join(HERE, 'repl_agent.py')
-const MODEL = stringEnv('BENCH_MODEL', 'gpt-5.1')
+const MODEL = stringEnv('BENCH_MODEL', 'gpt-5.1-2025-11-13')
 const GEPA_MODEL = stringEnv('GEPA_MODEL', MODEL)
 const SKILLOPT_MODEL = stringEnv('SKILLOPT_MODEL', MODEL)
 const BASE_URL = stringEnv('OPENAI_BASE_URL', 'https://router.tangle.tools/v1')
@@ -111,6 +112,9 @@ const AppWorldResult = z.object({
     output: z.number().int().nonnegative(),
   }),
   traces_path: z.string().min(1),
+  run_record: z.custom<RunRecord>(isRunRecord, {
+    message: 'worker emitted an invalid RunRecord',
+  }),
 })
 
 if (!API_KEY) throw new Error('OPENAI_API_KEY must be set (point at the Tangle router)')

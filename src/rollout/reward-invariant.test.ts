@@ -94,9 +94,9 @@ const ALLOWED_RAW_READS: ReadonlyArray<{ file: string; reads: number; reason: st
   },
   {
     file: 'run-record.ts',
-    reads: 6,
+    reads: 4,
     reason:
-      'the RunRecord validator: presence/finiteness checks on an unknown object, before any score exists to derive. It computes nothing from the values.',
+      'the RunRecord validator: finiteness checks on an unknown object, before any score exists to derive. It computes nothing from the values; `runTaskScore` itself goes through `observedScore`.',
   },
 ]
 
@@ -208,10 +208,13 @@ function record(overrides: Partial<RunRecord> = {}): RunRecord {
     commitSha: 'deadbeef',
     wallMs: 1000,
     costUsd: 0.12,
+    costProvenance: { kind: 'observed', usd: 0.12 },
     tokenUsage: { input: 900, output: 100 },
-    splitTag: 'holdout',
+    terminalOutcome: 'succeeded',
+    // `search` — the split the training exporters admit by default (0.127.0).
+    splitTag: 'search',
     scenarioId: 'checkout-session',
-    outcome: { holdoutScore: HONEST_SCORE, raw: {} },
+    outcome: { searchScore: HONEST_SCORE, raw: {} },
     ...overrides,
   }
 }
@@ -222,7 +225,7 @@ function gamedRecord(): RunRecord {
     runId: 'run-gamed',
     candidateId: 'cand-gamed',
     outcome: {
-      holdoutScore: GAMED_SCORE,
+      searchScore: GAMED_SCORE,
       raw: {},
       realness: { score: 0.1, gated: true, reason: 'stubbed the integration' },
     },
@@ -272,14 +275,17 @@ describe('a realness-gated run exports at reward 0 on every training path', () =
     expect(rows[0]!.outcome.realness_gated).toBe(true)
   })
 
-  it('mints an UNSCORED record to reward null — a labeled gap, not a measured 0', async () => {
+  it('never turns an UNSCORED record into a measured 0 — null from trainingReward, refusal at mint', async () => {
     const unscored = record({ runId: 'run-unscored', outcome: { raw: {} } })
+    // The derivation labels the gap instead of inventing a zero…
     expect(trainingReward(unscored)).toEqual({ reward: null, gated: false })
-    const { rows } = await mintRolloutRows([unscored], new InMemoryTraceStore(), {
-      now: () => new Date('2026-07-24T00:00:00Z'),
-    })
-    expect(rows[0]!.outcome.reward).toBeNull()
-    expect(rows[0]!.outcome.reward_source).toBe('run-record/unscored')
+    // …and the mint door refuses the record outright: an execution-only run
+    // has no training label, so it cannot become a rollout line at all.
+    await expect(
+      mintRolloutRows([unscored], new InMemoryTraceStore(), {
+        now: () => new Date('2026-07-24T00:00:00Z'),
+      }),
+    ).rejects.toThrow(/run-unscored: task score is missing/)
     // A gated run is still 0: the gate IS a verdict, so it is not a gap.
     expect(trainingReward(gamed).reward).toBe(0)
   })
@@ -331,12 +337,18 @@ describe('a realness-gated run exports at reward 0 on every training path', () =
     expect(decision.evidence.holdoutScore).toBe(0.6)
   })
 
-  it('toGrpoRows gives it reward 0 inside its scenario group', async () => {
-    const rows = await toGrpoRows([honest, gamed], lookups)
-    expect(rows).toHaveLength(1)
-    const byRun = new Map(rows[0]!.runIds.map((id, i) => [id, rows[0]!.rewards[i]]))
+  it('toGrpoRows: reward 0 in the group on the line path, dropped outright on the record path', async () => {
+    const { rows: lines } = await mintRolloutRows([honest, gamed], new InMemoryTraceStore(), {
+      now: () => new Date('2026-07-24T00:00:00Z'),
+    })
+    const fromLines = await toGrpoRows(lines, lookups)
+    expect(fromLines).toHaveLength(1)
+    const byRun = new Map(fromLines[0]!.runIds.map((id, i) => [id, fromLines[0]!.rewards[i]]))
     expect(byRun.get('run-gamed')).toBe(0)
     expect(byRun.get('run-honest')).toBe(HONEST_SCORE)
+    // The record path removes the gamed run before grouping, which leaves the
+    // honest sibling alone (<2 rewarded completions) — no row, no gamed reward.
+    expect(await toGrpoRows([honest, gamed], lookups)).toEqual([])
   })
 
   it('toSftRows never emits the gamed trajectory as an imitation target', async () => {
@@ -348,12 +360,21 @@ describe('a realness-gated run exports at reward 0 on every training path', () =
     expect(rows.some((r) => r.meta?.runId === 'run-honest')).toBe(true)
   })
 
-  it('extractPreferences makes it the rejected side, never the chosen one', () => {
-    const report = extractPreferences([honest, gamed])
-    expect(report.pairs).toHaveLength(1)
-    expect(report.pairs[0]!.chosenRunId).toBe('run-honest')
-    expect(report.pairs[0]!.rejectedRunId).toBe('run-gamed')
-    expect(report.pairs[0]!.scores).toEqual({ chosen: HONEST_SCORE, rejected: 0 })
+  it('extractPreferences never makes it the chosen side on either path', async () => {
+    // Line path: the gated line arrives scored 0 and sinks to `rejected`.
+    const { rows: lines } = await mintRolloutRows([honest, gamed], new InMemoryTraceStore(), {
+      now: () => new Date('2026-07-24T00:00:00Z'),
+    })
+    const fromLines = extractPreferences(lines, {})
+    expect(fromLines.pairs).toHaveLength(1)
+    expect(fromLines.pairs[0]!.chosenRunId).toBe('run-honest')
+    expect(fromLines.pairs[0]!.rejectedRunId).toBe('run-gamed')
+    expect(fromLines.pairs[0]!.scores).toEqual({ chosen: HONEST_SCORE, rejected: 0 })
+    // Record path: the shared eligibility rule drops the gamed run before
+    // pairing, so its 0.95 claim bought it nothing — it appears on NO side.
+    const fromRecords = extractPreferences([honest, gamed])
+    expect(fromRecords.pairs).toHaveLength(0)
+    expect(fromRecords.cellsSingleton).toBe(1)
   })
 
   it('the probabilistic verifiable-reward fallback yields 0', () => {
@@ -363,7 +384,13 @@ describe('a realness-gated run exports at reward 0 on every training path', () =
   })
 
   it('buildRlDataset reports 0 in the datasheet stats and the trainer rows', async () => {
-    const bundle = await buildRlDataset([honest, gamed], lookups, datasetConfig)
+    const { rows: lines } = await mintRolloutRows([honest, gamed], new InMemoryTraceStore(), {
+      now: () => new Date('2026-07-24T00:00:00Z'),
+    })
+    const bundle = await buildRlDataset(lines, lineLookups, {
+      ...datasetConfig,
+      formats: ['grpo', 'sft'],
+    })
     expect(bundle.manifest.stats.reward.min).toBe(0)
     expect(bundle.manifest.stats.reward.max).toBe(HONEST_SCORE)
     const grpo = JSON.parse(bundle.files['train.grpo.jsonl']!.trim())
@@ -662,35 +689,45 @@ describe('the line-less preference exporters cannot ship a gamed run as the pref
     expect(toAnthropicFormat([triple], ctx)).toEqual([])
   })
 
-  it('buildRlDataset writes an EMPTY train.dpo.jsonl rather than the gamed pair', async () => {
+  it('buildRlDataset fails loudly rather than writing the gamed pair', async () => {
+    // 0.127.0: a requested format that produces no trainable rows aborts the
+    // build. With every pair dropped by the gate, nothing ships AND the caller
+    // is told — an empty train.dpo.jsonl would hide that the corpus was gamed.
     const { lines } = await context()
-    const bundle = await buildRlDataset(
-      lines,
-      lineLookups,
-      { ...datasetConfig, formats: ['dpo'] },
-      { triples: [triple], lookups },
-    )
-    expect(bundle.files['train.dpo.jsonl']).toBe('')
-    expect(bundle.manifest.rowCounts.dpo).toBe(0)
+    await expect(
+      buildRlDataset(
+        lines,
+        lineLookups,
+        { ...datasetConfig, formats: ['dpo'] },
+        { triples: [triple], lookups },
+      ),
+    ).rejects.toThrow(/'dpo' format produced no trainable rows/)
     // Symmetric with `toPrmRows`: a gamed trajectory ships on NEITHER side.
     const honestPair = { ...triple, chosenRunId: 'run-honest', rejectedRunId: 'run-gamed' }
-    const kept = await buildRlDataset(
-      lines,
-      lineLookups,
-      { ...datasetConfig, formats: ['dpo'] },
-      { triples: [honestPair], lookups },
-    )
-    expect(kept.manifest.rowCounts.dpo).toBe(0)
+    await expect(
+      buildRlDataset(
+        lines,
+        lineLookups,
+        { ...datasetConfig, formats: ['dpo'] },
+        { triples: [honestPair], lookups },
+      ),
+    ).rejects.toThrow(/'dpo' format produced no trainable rows/)
   })
 
   it('still exports a pair where neither side was flagged', async () => {
     const { rows } = await mintRolloutRows(
-      [honest, record({ runId: 'run-honest-2', outcome: { holdoutScore: 0.2, raw: {} } })],
+      [honest, record({ runId: 'run-honest-2', outcome: { searchScore: 0.2, raw: {} } })],
       new InMemoryTraceStore(),
       { now: () => new Date('2026-07-24T00:00:00Z') },
     )
     const clean = { ...triple, chosenRunId: 'run-honest', rejectedRunId: 'run-honest-2' }
-    expect(await toDpoRows([clean], lookups, { lines: rows })).toHaveLength(1)
+    // A DPO pair must share its prompt; the per-run lookup above would name
+    // two different ones, which `toDpoRows` now rejects.
+    const sharedPrompt = {
+      promptOf: () => 'prompt-shared',
+      completionOf: (id: string) => `completion-for-${id}`,
+    }
+    expect(await toDpoRows([clean], sharedPrompt, { lines: rows })).toHaveLength(1)
   })
 })
 
@@ -1044,7 +1081,13 @@ describe('both realness claims reach the wire, on every emitted row shape', () =
   it('distinguishes screened-clean from never-stated from declared-unscreened', () => {
     expect(toRewardRows([screened])[0]!.metadata.realness_screened).toBe(true)
     expect(toRewardRows([notStated])[0]!.metadata.realness_screened).toBeNull()
-    expect(toRewardRows([declaredUnscreened])[0]!.metadata.realness_screened).toBe(false)
+    // reward 0 (`assertMinted` refuses an unscreened POSITIVE reward), so the
+    // default quality floor is lowered to let the row out at all.
+    expect(
+      toRewardRows([declaredUnscreened], {
+        minimumQualityExclusive: Number.MIN_SAFE_INTEGER,
+      })[0]!.metadata.realness_screened,
+    ).toBe(false)
     expect(toVerifiersRolloutOutput(screened).info.realness_screened).toBe(true)
     expect(toVerifiersRolloutOutput(notStated).info.realness_screened).toBeNull()
     expect(toRftItem(screened).reference.realness_screened).toBe(true)

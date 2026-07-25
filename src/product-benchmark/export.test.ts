@@ -27,7 +27,9 @@ function fixtureRunRecord(overrides: Partial<RunRecord> = {}): RunRecord {
     commitSha: 'abc123',
     wallMs: 1200,
     costUsd: 0.002,
+    costProvenance: { kind: 'observed', usd: 0.002 },
     tokenUsage: { input: 100, output: 20 },
+    terminalOutcome: 'succeeded',
     outcome: { searchScore: 0.9, raw: { composite: 0.9 } },
     splitTag: 'dev',
     scenarioId: 'scenario-1',
@@ -275,6 +277,53 @@ describe('exportProductBenchmarkRuns', () => {
         outDir: outDirFixture(),
       }),
     ).toThrow(/missing .*records\.jsonl/)
+  })
+
+  it('rejects an unscored run instead of exporting a zero-quality row', () => {
+    const runDir = writeRunDir([
+      fixtureRunRecord({
+        runId: 'run-unscored',
+        outcome: { raw: {} },
+      }),
+    ])
+
+    expect(() =>
+      exportProductBenchmarkRuns({ ...baseOptions, runDirs: [runDir], outDir: outDirFixture() }),
+    ).toThrow(/run-unscored has no task score/)
+  })
+
+  it('does not promote raw score-like metrics to a task score', () => {
+    const runDir = writeRunDir([
+      fixtureRunRecord({
+        runId: 'run-raw-only',
+        outcome: { raw: { score: 0.99, composite: 0.99 } },
+      }),
+    ])
+
+    expect(() =>
+      exportProductBenchmarkRuns({ ...baseOptions, runDirs: [runDir], outDir: outDirFixture() }),
+    ).toThrow(/run-raw-only has no task score/)
+  })
+
+  it('rejects a partial judge composite instead of promoting it to a task score', () => {
+    const runDir = writeRunDir([
+      fixtureRunRecord({
+        runId: 'run-partial-judge',
+        outcome: {
+          raw: { composite: 0.8, judge_error_count: 1 },
+          judgeScores: {
+            perJudge: { first: { quality: 0.8 } },
+            perDimMean: { quality: 0.8 },
+            composite: 0.8,
+            failedJudges: ['second'],
+          },
+        },
+      }),
+    ])
+
+    expect(() =>
+      exportProductBenchmarkRuns({ ...baseOptions, runDirs: [runDir], outDir: outDirFixture() }),
+    ).toThrow(/run-partial-judge has incomplete judge evidence/)
   })
 
   it('reports unknown repo identity through validateProductBenchmarkRun', () => {

@@ -94,7 +94,7 @@ export function neutralizationGate<TArtifact, TScenario extends Scenario>(
           contributingGates: [
             {
               name: 'neutralizationGate',
-              passed: false,
+              status: 'fail',
               detail: { candidateLift: cand.lift, neutralizedLift: neut.lift, n: cand.n },
             },
           ],
@@ -117,7 +117,7 @@ export function neutralizationGate<TArtifact, TScenario extends Scenario>(
         contributingGates: [
           {
             name: 'neutralizationGate',
-            passed,
+            status: passed ? 'pass' : 'fail',
             detail: {
               candidateLift: cand.lift,
               neutralizedLift: neut.lift,

@@ -45,6 +45,7 @@ try {
     './rl': ['import', 'types'],
     './meta-eval': ['import', 'types'],
     './belief-state': ['import', 'types'],
+    './hosted': ['import', 'types'],
     './wire': ['import', 'types'],
     './openapi.json': ['default'],
   }
@@ -94,6 +95,8 @@ try {
         type ReferenceEquivalenceJudgeOptions as RootReferenceEquivalenceJudgeOptions,
         type Run,
         type RunRecord,
+        type RunTerminalOutcome,
+        runTaskScore,
       } from '@tangle-network/agent-eval'
       import {
         CanonicalRawAnalystFindingSchema,
@@ -113,9 +116,16 @@ try {
       import {
         type CostLedgerHandle as CampaignCostLedgerHandle,
         type LlmJudgeOptions as CampaignLlmJudgeOptions,
+        type OptimizationMethodProvenance,
         type ReferenceEquivalenceJudgeOptions as CampaignReferenceEquivalenceJudgeOptions,
         type SurfaceProposer as CampaignSurfaceProposer,
       } from '@tangle-network/agent-eval/campaign'
+      import {
+        EvalRunEventSchema,
+        IngestResponseSchema,
+        type InsightReport as HostedInsightReport,
+        TraceSpanEventSchema,
+      } from '@tangle-network/agent-eval/hosted'
       import { stuckLoopView, type StuckLoopReport } from '@tangle-network/agent-eval/pipelines'
       import {
         LLM_REASONING_TOKENS,
@@ -162,6 +172,12 @@ try {
         candidateId: 'candidate',
       })
       const report: ExecutionReport = summarizeExecution({ runs })
+      const terminalOutcome: RunTerminalOutcome = 'succeeded'
+      const taskScore: number | undefined = runs[0] ? runTaskScore(runs[0]) : undefined
+      const failedTerminalRuns: number = report.execution.terminalOutcomes.failed
+      const executionErrorEvents: number = report.execution.executionErrors.events
+      const succeededWithErrors: number =
+        report.execution.executionErrors.byTerminalOutcome.succeeded.withErrors
       const loop: Promise<StuckLoopReport> = stuckLoopView(new InMemoryTraceStore())
       const runtimeRun: Run | undefined = undefined
       const campaignProposer = null as unknown as CampaignSurfaceProposer
@@ -179,6 +195,48 @@ try {
       const rootCostLedger: RootCostLedgerHandle = costLedger
       const campaignCostLedger: CampaignCostLedgerHandle = costLedger
       const contractCostLedger: ContractCostLedgerHandle = costLedger
+      const optimizationProvenance: OptimizationMethodProvenance = {
+        source: {
+          kind: 'package',
+          evidence: 'observed',
+          package: 'optimizer',
+          version: '1.0.0',
+        },
+        optimizerModel: 'provider/model@2026-07-24',
+        runId: 'run',
+        resumed: false,
+        evaluationCount: 1,
+        artifactDir: '/tmp/optimizer',
+      }
+      const hostedInsight: HostedInsightReport = null as unknown as HostedInsightReport
+      const hostedEventValid = EvalRunEventSchema.safeParse({
+        runId: 'packed-run',
+        runDir: '/tmp/packed-run',
+        timestamp: '2026-07-24T00:00:00Z',
+        status: 'finished',
+        labels: {},
+        generations: [],
+        totalCostUsd: 0,
+        totalDurationMs: 0,
+      }).success
+      if (!hostedEventValid) throw new Error('packed hosted eval-run schema rejected a valid event')
+      const hostedTraceValid = TraceSpanEventSchema.safeParse({
+        traceId: 'packed-trace',
+        spanId: 'packed-span',
+        name: 'dispatch',
+        startTimeUnixNano: '1700000000000000000',
+        endTimeUnixNano: '1700000000000000001',
+        attributes: {},
+      }).success
+      if (!hostedTraceValid) throw new Error('packed hosted trace schema rejected a valid span')
+      if (
+        IngestResponseSchema.safeParse({
+          accepted: -1,
+          rejected: [{ index: 0, reason: '' }],
+        }).success
+      ) {
+        throw new Error('packed hosted response schema accepted an invalid response')
+      }
       const contextTokens = contextInputTokens({ inputTokens: 10, cachedTokens: 20 })
       const inputTokens = firstNumberAttr(
         { 'gen_ai.usage.input_tokens': '10' },
@@ -195,6 +253,11 @@ try {
         canonicalFinding,
         golden,
         report,
+        terminalOutcome,
+        taskScore,
+        failedTerminalRuns,
+        executionErrorEvents,
+        succeededWithErrors,
         loop,
         runtimeRun,
         campaignRoundTrip,
@@ -204,6 +267,9 @@ try {
         rootCostLedger,
         campaignCostLedger,
         contractCostLedger,
+        optimizationProvenance,
+        hostedInsight,
+        hostedEventValid,
         LLM_INPUT_TOKENS,
         LLM_CONTEXT_TOKENS,
         contextTokens,
@@ -271,6 +337,17 @@ try {
         const beliefState = await import('@tangle-network/agent-eval/belief-state')
         if (!('analyzeBeliefPolicy' in beliefState)) {
           throw new Error('missing belief-state export analyzeBeliefPolicy')
+        }
+        const hosted = await import('@tangle-network/agent-eval/hosted')
+        for (const name of [
+          'HOSTED_WIRE_VERSION',
+          'EvalRunEventSchema',
+          'IngestResponseSchema',
+          'InsightReportSchema',
+          'TraceSpanEventSchema',
+          'UnixNanoTimestampSchema',
+        ]) {
+          if (!(name in hosted)) throw new Error('missing hosted export ' + name)
         }
         const campaign = await import('@tangle-network/agent-eval/campaign')
         const contract = await import('@tangle-network/agent-eval/contract')

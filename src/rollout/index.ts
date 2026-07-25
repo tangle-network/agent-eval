@@ -69,6 +69,7 @@ export {
   type MintRolloutResult,
   mintRolloutRows,
   type RolloutScrubber,
+  rolloutReward,
 } from './mint'
 export {
   type ClaudeTranscript,
@@ -133,7 +134,6 @@ export {
   isRealnessGated,
   observedScore,
   observedSplitScore,
-  rolloutReward,
   type ScoreOrigin,
   type ScorePreference,
   scoreOrigin,
@@ -155,7 +155,6 @@ export {
   type MintedRolloutLine,
   type MintedRolloutOutcome,
   ROLLOUT_CAPTURES,
-  ROLLOUT_FORMAT,
   ROLLOUT_ROLES,
   ROLLOUT_SCHEMA,
   ROLLOUT_SPLITS,

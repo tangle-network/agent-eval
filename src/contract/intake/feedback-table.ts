@@ -9,8 +9,8 @@
  * `analyzeRuns({ runs, raterScores })` can produce inter-rater agreement,
  * disagreement triage, and downstream recommendations.
  *
- * Per-run `RunRecord.outcome.searchScore` is the rater-mean rating
- * (normalised to 0..1 when scale is supplied); `outcome.raw` carries the
+ * The rater mean is written to the score field matching the run split
+ * (normalised to 0..1 when a scale is supplied); `outcome.raw` carries
  * per-rater scores keyed by rater id for downstream attribution.
  */
 
@@ -37,9 +37,10 @@ export interface FeedbackTableMeta {
   experimentId?: string
   /** When omitted, defaults to `runId` — each run is its own candidate. */
   candidateId?: string
-  /** Cost in USD, when available. Set to 0 when unknown — the consumer's
-   *  cost analysis sections will collapse gracefully. */
+  /** Observed cost in USD, when available. */
   costUsd?: number
+  /** Stable scenario identity. Defaults to `runId`. */
+  scenarioId?: string
   /** Wall-clock ms, when available. Defaults to 0. */
   wallMs?: number
   /** Model identifier including snapshot. Default `unknown@unknown`. */
@@ -69,9 +70,8 @@ export interface FromFeedbackTableOptions {
    *  ratings are already 0..1. */
   scale?: { min: number; max: number }
   /** When true, the rater scores are emitted into `raterScores` (a sibling
-   *  array `analyzeRuns()` accepts) instead of being averaged into the
-   *  run's `outcome.searchScore`. Default `true` — preserves rater-level
-   *  signal for inter-rater analysis. */
+   *  array `analyzeRuns()` accepts) in addition to the aggregate run score.
+   *  Default `true` preserves rater-level signal for inter-rater analysis. */
   emitRaterScores?: boolean
 }
 
@@ -123,15 +123,14 @@ export function fromFeedbackTable(opts: FromFeedbackTableOptions): FromFeedbackT
       composite: meanScore,
     }
 
+    const splitTag = runMeta.splitTag ?? 'holdout'
     const outcome: RunOutcome = {
-      // Feedback corpora ARE the holdout signal — score lands on
-      // `holdoutScore` so downstream substrate primitives (`paretoChart`,
-      // promotion gates) read it correctly by default.
-      holdoutScore: meanScore,
+      ...(splitTag === 'holdout' ? { holdoutScore: meanScore } : { searchScore: meanScore }),
       raw: Object.fromEntries(normalised.map((r) => [`rater:${r.rater}`, r.score])),
       judgeScores,
     }
 
+    const costUsd = runMeta.costUsd ?? null
     runs.push({
       runId,
       experimentId: runMeta.experimentId ?? 'feedback-corpus',
@@ -142,11 +141,15 @@ export function fromFeedbackTable(opts: FromFeedbackTableOptions): FromFeedbackT
       configHash: runMeta.configHash ?? 'sha256:unknown',
       commitSha: runMeta.commitSha ?? 'unknown',
       wallMs: runMeta.wallMs ?? 0,
-      costUsd: runMeta.costUsd ?? 0,
+      costUsd,
+      costProvenance:
+        costUsd === null ? { kind: 'uncaptured', usd: null } : { kind: 'observed', usd: costUsd },
       tokenUsage: { input: 0, output: 0 },
+      terminalOutcome: 'unknown',
       outcome,
-      splitTag: runMeta.splitTag ?? 'holdout',
-    } as RunRecord)
+      splitTag,
+      scenarioId: runMeta.scenarioId ?? runId,
+    })
 
     if (emitRaterScores) {
       for (const r of normalised) raterScores.push({ runId, rater: r.rater, score: r.score })

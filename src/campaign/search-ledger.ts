@@ -1017,7 +1017,7 @@ function replayEntries(entries: SearchLedgerEntry[], campaignId: string): Search
         const generationOperation = event.plan.operations.find(
           (operation) => operation.operationId === slot.generationOperationId,
         )
-        if (!generationOperation || generationOperation.kind !== 'candidate-generation') {
+        if (generationOperation?.kind !== 'candidate-generation') {
           throw new SearchLedgerIntegrityError(
             `candidate slot ${slot.slotId} references unplanned candidate-generation operation ${slot.generationOperationId}`,
           )

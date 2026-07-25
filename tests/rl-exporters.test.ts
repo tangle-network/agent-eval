@@ -37,23 +37,34 @@ const baseTriple: PreferenceTriple = {
 function rec(args: {
   runId: string
   scenarioId: string
-  score: number
+  score?: number
   candidateId?: string
+  promptHash?: string
+  splitTag?: RunRecord['splitTag']
+  terminalOutcome?: RunRecord['terminalOutcome']
 }): RunRecord {
+  const splitTag = args.splitTag ?? 'search'
   return {
     runId: args.runId,
     experimentId: 'e',
     candidateId: args.candidateId ?? 'A',
     seed: 0,
     model: 'm@1',
-    promptHash: 'p'.repeat(64),
+    promptHash: args.promptHash ?? 'p'.repeat(64),
     configHash: 'c'.repeat(64),
     commitSha: 'abcd',
     wallMs: 1,
     costUsd: 0,
+    costProvenance: { kind: 'observed', usd: 0 },
     tokenUsage: { input: 0, output: 0 },
-    outcome: { holdoutScore: args.score, raw: {} },
-    splitTag: 'holdout',
+    terminalOutcome: args.terminalOutcome ?? 'succeeded',
+    outcome:
+      args.score === undefined
+        ? { raw: {} }
+        : splitTag === 'holdout'
+          ? { holdoutScore: args.score, raw: {} }
+          : { searchScore: args.score, raw: {} },
+    splitTag,
     scenarioId: args.scenarioId,
   }
 }
@@ -80,7 +91,7 @@ const gatedLinesFor = (...runIds: string[]): MintedRolloutLine[] =>
 
 describe('toDpoRows', () => {
   it('produces TRL-compatible {prompt, chosen, rejected} rows', async () => {
-    const promptOf = (id: string) => `prompt for ${id}`
+    const promptOf = () => 'shared prompt'
     const completionOf = (id: string) => `completion for ${id}`
     const rows = await toDpoRows(
       [baseTriple],
@@ -90,7 +101,7 @@ describe('toDpoRows', () => {
       },
     )
     expect(rows[0]).toMatchObject({
-      prompt: 'prompt for run-A',
+      prompt: 'shared prompt',
       chosen: 'completion for run-A',
       rejected: 'completion for run-B',
       margin: 0.2,
@@ -112,12 +123,12 @@ describe('toDpoRows', () => {
     const rows = await toDpoRows(
       [baseTriple],
       {
-        promptOf: async (id) => `[async] ${id}`,
+        promptOf: async () => '[async] prompt',
         completionOf: async (id) => `[async-c] ${id}`,
       },
       { lines: linesFor('run-A', 'run-B') },
     )
-    expect(rows[0]?.prompt).toBe('[async] run-A')
+    expect(rows[0]?.prompt).toBe('[async] prompt')
     expect(rows[0]?.chosen).toBe('[async-c] run-A')
   })
 
@@ -125,6 +136,12 @@ describe('toDpoRows', () => {
     promptOf: (id: string) => `prompt for ${id}`,
     completionOf: (id: string) => `completion for ${id}`,
   }
+
+  it('rejects a preference whose runs resolve to different prompts', async () => {
+    await expect(
+      toDpoRows([baseTriple], dpoLookups, { lines: linesFor('run-A', 'run-B') }),
+    ).rejects.toThrow(/resolves to different prompts/)
+  })
 
   it('drops a pair whose CHOSEN side is realness-gated — DPO would learn to prefer it', async () => {
     const lines = [...gatedLinesFor('run-A'), ...linesFor('run-B')]
@@ -152,31 +169,90 @@ describe('toDpoRows', () => {
 })
 
 describe('toGrpoRows', () => {
-  it('groups runs by scenarioId and produces one row per scenario', async () => {
+  it('groups positive search runs by scenario and canonical prompt identity', async () => {
     const runs = [
       rec({ runId: 'a-1', scenarioId: 's1', score: 0.7, candidateId: 'A' }),
       rec({ runId: 'b-1', scenarioId: 's1', score: 0.5, candidateId: 'B' }),
       rec({ runId: 'a-2', scenarioId: 's2', score: 0.9, candidateId: 'A' }),
     ]
     const rows = await toGrpoRows(runs, {
-      promptOf: (id) => `prompt-${id}`,
+      promptOf: (id) => (id.endsWith('-1') ? 'prompt-s1' : 'prompt-s2'),
       completionOf: (id) => `completion-${id}`,
     })
-    expect(rows).toHaveLength(2)
+    expect(rows).toHaveLength(1)
     const s1 = rows.find((r) => r.meta?.scenarioId === 's1')!
     expect(s1.completions).toHaveLength(2)
     expect(s1.rewards).toEqual([0.7, 0.5])
+    expect(s1.meta?.promptHash).toBe('p'.repeat(64))
   })
 
   it('honors a custom rewardOf callback', async () => {
-    const runs = [rec({ runId: 'a', scenarioId: 's', score: 0.5 })]
+    const runs = [
+      rec({ runId: 'a', scenarioId: 's', score: 0.5 }),
+      rec({ runId: 'b', scenarioId: 's', score: 0.4 }),
+    ]
     runs[0]!.outcome.raw.bonus = 0.3
+    runs[1]!.outcome.raw.bonus = 0.2
     const rows = await toGrpoRows(runs, {
       promptOf: () => 'p',
       completionOf: () => 'c',
       rewardOf: (r) => r.outcome.raw.bonus ?? 0,
     })
-    expect(rows[0]?.rewards).toEqual([0.3])
+    expect(rows[0]?.rewards).toEqual([0.3, 0.2])
+  })
+
+  it('skips groups with fewer than two scored completions', async () => {
+    const scored = rec({ runId: 'scored', scenarioId: 's', score: 0.8 })
+    const unscored = rec({ runId: 'unscored', scenarioId: 's' })
+
+    const rows = await toGrpoRows([scored, unscored], {
+      promptOf: () => 'p',
+      completionOf: () => 'c',
+    })
+
+    expect(rows).toEqual([])
+  })
+
+  it('rejects mixed prompt identities within one scenario', async () => {
+    const runs = [
+      rec({ runId: 'a', scenarioId: 's', score: 0.8, promptHash: 'a'.repeat(64) }),
+      rec({ runId: 'b', scenarioId: 's', score: 0.7, promptHash: 'b'.repeat(64) }),
+    ]
+
+    await expect(
+      toGrpoRows(runs, {
+        promptOf: () => 'same prompt',
+        completionOf: (id) => `completion-${id}`,
+      }),
+    ).rejects.toThrow(/mixed prompt identities/)
+  })
+
+  it('rejects one prompt identity resolving to different text', async () => {
+    const runs = [
+      rec({ runId: 'a', scenarioId: 's', score: 0.8 }),
+      rec({ runId: 'b', scenarioId: 's', score: 0.7 }),
+    ]
+
+    await expect(
+      toGrpoRows(runs, {
+        promptOf: (id) => `prompt-${id}`,
+        completionOf: (id) => `completion-${id}`,
+      }),
+    ).rejects.toThrow(/resolves to different text/)
+  })
+
+  it('requires an explicit override before using held-out runs', async () => {
+    const runs = [
+      rec({ runId: 'a', scenarioId: 's', score: 0.8, splitTag: 'holdout' }),
+      rec({ runId: 'b', scenarioId: 's', score: 0.7, splitTag: 'holdout' }),
+    ]
+    const lookups = {
+      promptOf: () => 'prompt',
+      completionOf: (id: string) => `completion-${id}`,
+    }
+
+    expect(await toGrpoRows(runs, lookups)).toEqual([])
+    expect(await toGrpoRows(runs, { ...lookups, allowHeldOutTrainingData: true })).toHaveLength(1)
   })
 })
 
@@ -203,7 +279,7 @@ describe('toSftRows', () => {
     const rows = await toSftRows(runs, {
       promptOf: () => 'p',
       completionOf: () => 'c',
-      include: (r) => (r.outcome.holdoutScore ?? 0) >= 0.5,
+      include: (r) => (r.outcome.searchScore ?? 0) >= 0.5,
     })
     expect(rows).toHaveLength(1)
     expect(rows[0]?.meta?.runId).toBe('good')
@@ -217,6 +293,53 @@ describe('toSftRows', () => {
       systemOf: () => null,
     })
     expect(rows[0]?.messages.map((m) => m.role)).toEqual(['user', 'assistant'])
+  })
+
+  it('defaults to positive, completed search runs', async () => {
+    const search = rec({ runId: 'search', scenarioId: 's', score: 0.8 })
+    const dev = rec({ runId: 'dev', scenarioId: 's', score: 0.7, splitTag: 'dev' })
+    const zero = rec({ runId: 'zero', scenarioId: 's', score: 0 })
+    const negative = rec({ runId: 'negative', scenarioId: 's', score: -0.1 })
+    const unscored = rec({ runId: 'unscored', scenarioId: 's' })
+    const failed = rec({
+      runId: 'failed',
+      scenarioId: 's',
+      score: 1,
+      terminalOutcome: 'failed',
+    })
+    const holdout = rec({
+      runId: 'holdout',
+      scenarioId: 's',
+      score: 1,
+      splitTag: 'holdout',
+    })
+    const base = {
+      promptOf: () => 'p',
+      completionOf: () => 'c',
+    }
+
+    const rows = await toSftRows([search, dev, zero, negative, unscored, failed, holdout], base)
+    expect(rows.map((row) => row.meta?.runId)).toEqual(['search'])
+  })
+
+  it('requires an explicit override before using held-out runs', async () => {
+    const holdout = rec({
+      runId: 'holdout',
+      scenarioId: 's',
+      score: 1,
+      splitTag: 'holdout',
+    })
+    const base = {
+      promptOf: () => 'p',
+      completionOf: () => 'c',
+    }
+
+    expect(await toSftRows([holdout], base)).toEqual([])
+    const rows = await toSftRows([holdout], {
+      ...base,
+      allowHeldOutTrainingData: true,
+    })
+    expect(rows.map((row) => row.meta?.runId)).toEqual(['holdout'])
   })
 })
 

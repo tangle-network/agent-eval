@@ -1,8 +1,8 @@
 /**
  * Hosted-ingest reference receiver.
  *
- * Minimal hono-based implementation of `docs/hosted-ingest-spec.md`.
- * ~250 lines. Run it locally with:
+ * Minimal Hono-based implementation of `docs/hosted-ingest-spec.md`.
+ * Run it locally with:
  *
  *   TENANT_KEY=dev-token TENANT_ID=acme pnpm tsx examples/hosted-ingest-server/server.ts
  *
@@ -21,14 +21,20 @@
  * so a wire-spec drift between client and reference receiver fails CI.
  */
 
+import { isDeepStrictEqual } from 'node:util'
 import { serve } from '@hono/node-server'
 import { type Context, Hono } from 'hono'
+import type { ZodError } from 'zod'
+import {
+  EvalRunEventSchema,
+  IngestEvalRunsEnvelopeSchema,
+  IngestTracesEnvelopeSchema,
+  TraceSpanEventSchema,
+} from '../../src/hosted/schemas'
 import {
   type EvalRunEvent,
   HOSTED_WIRE_VERSION,
-  type IngestEvalRunsRequest,
   type IngestResponse,
-  type IngestTracesRequest,
   type TraceSpanEvent,
 } from '../../src/hosted/types'
 
@@ -56,16 +62,90 @@ interface IdempotencyEntry {
 export interface ReferenceReceiverStores {
   runs: StoredRun[]
   traces: StoredSpan[]
-  /** key = `${tenantId}#${idempotencyKey}` — entries expire after 24h per
-   *  the wire spec. Prune-on-read keeps the map bounded without a timer. */
+  /** key = `${tenantId}#${endpoint}#${idempotencyKey}`. Entries expire after
+   *  24h per the wire spec. Prune-on-read keeps the map bounded without a timer. */
   idempotency: Map<string, IdempotencyEntry>
 }
 
 const IDEMPOTENCY_TTL_MS = 24 * 60 * 60 * 1000
+const MAX_IDEMPOTENCY_KEY_LENGTH = 256
+const STATUS_RANK: Record<EvalRunEvent['status'], number> = {
+  started: 0,
+  'baseline-complete': 1,
+  'generation-complete': 2,
+  'gate-decided': 3,
+  finished: 4,
+  errored: 4,
+}
+const TERMINAL_STATUSES = new Set<EvalRunEvent['status']>(['finished', 'errored'])
 
 export interface ReferenceReceiverHandle {
   app: Hono
   stores: ReferenceReceiverStores
+}
+
+function validationReason(error: ZodError): string {
+  return error.issues
+    .map((issue) => `${issue.path.length > 0 ? issue.path.join('.') : 'value'}: ${issue.message}`)
+    .join('; ')
+}
+
+function idempotencyCacheKey(
+  tenantId: string,
+  endpoint: 'eval-runs' | 'traces',
+  key: string,
+): string {
+  return `${tenantId}#${endpoint}#${key}`
+}
+
+function idempotencyKey(
+  c: Context,
+): { key: string } | { reject: { status: 400; message: string } } {
+  const key = c.req.header('idempotency-key')
+  if (!key?.trim()) {
+    return { reject: { status: 400, message: 'Idempotency-Key required' } }
+  }
+  if (key.length > MAX_IDEMPOTENCY_KEY_LENGTH) {
+    return {
+      reject: {
+        status: 400,
+        message: `Idempotency-Key must be at most ${MAX_IDEMPOTENCY_KEY_LENGTH} characters`,
+      },
+    }
+  }
+  return { key }
+}
+
+function incomingStateWins(previous: EvalRunEvent, incoming: EvalRunEvent): boolean {
+  if (TERMINAL_STATUSES.has(previous.status)) return false
+  const rankDifference = STATUS_RANK[incoming.status] - STATUS_RANK[previous.status]
+  if (rankDifference !== 0) return rankDifference > 0
+  return Date.parse(incoming.timestamp) >= Date.parse(previous.timestamp)
+}
+
+function mergeEvalRunEvents(previous: EvalRunEvent, incoming: EvalRunEvent): EvalRunEvent {
+  const useIncomingState = incomingStateWins(previous, incoming)
+  const generations = new Map(
+    previous.generations.map((generation) => [generation.index, generation] as const),
+  )
+  for (const generation of incoming.generations) {
+    if (useIncomingState || !generations.has(generation.index)) {
+      generations.set(generation.index, generation)
+    }
+  }
+
+  const state = useIncomingState ? { ...previous, ...incoming } : previous
+  return {
+    ...state,
+    labels: useIncomingState
+      ? { ...previous.labels, ...incoming.labels }
+      : { ...incoming.labels, ...previous.labels },
+    baseline:
+      useIncomingState && incoming.baseline
+        ? incoming.baseline
+        : (previous.baseline ?? incoming.baseline),
+    generations: [...generations.values()].sort((left, right) => left.index - right.index),
+  }
 }
 
 function authenticate(
@@ -120,57 +200,58 @@ export function createReferenceReceiverApp(opts: {
   app.post('/v1/ingest/eval-runs', async (c) => {
     const auth = authenticate(c, tenants)
     if ('reject' in auth) return c.json({ error: auth.reject.message }, auth.reject.status)
-
-    const idempotencyKey = c.req.header('idempotency-key')
-    const cacheKey = idempotencyKey ? `${auth.id}#${idempotencyKey}` : null
-    if (cacheKey) {
-      const entry = stores.idempotency.get(cacheKey)
-      if (entry) {
-        if (entry.expiresAt > Date.now()) return c.json(entry.response)
-        // Expired — prune-on-read.
-        stores.idempotency.delete(cacheKey)
-      }
+    const requestKey = idempotencyKey(c)
+    if ('reject' in requestKey) {
+      return c.json({ error: requestKey.reject.message }, requestKey.reject.status)
     }
 
-    const body = (await c.req.json().catch(() => null)) as IngestEvalRunsRequest | null
-    if (!body || !Array.isArray(body.events)) {
-      return c.json({ error: 'body must be { wireVersion, events: EvalRunEvent[] }' }, 400)
+    const cacheKey = idempotencyCacheKey(auth.id, 'eval-runs', requestKey.key)
+    const cached = stores.idempotency.get(cacheKey)
+    if (cached) {
+      if (cached.expiresAt > Date.now()) return c.json(cached.response)
+      stores.idempotency.delete(cacheKey)
+    }
+
+    const rawBody: unknown = await c.req.json().catch(() => null)
+    const envelope = IngestEvalRunsEnvelopeSchema.safeParse(rawBody)
+    if (!envelope.success) {
+      return c.json(
+        { error: `invalid eval-runs request: ${validationReason(envelope.error)}` },
+        400,
+      )
     }
 
     const rejected: IngestResponse['rejected'] = []
     const now = Date.now()
-    for (let i = 0; i < body.events.length; i++) {
-      const event = body.events[i]
-      if (!event || typeof event !== 'object') {
-        rejected.push({ index: i, reason: 'event is not an object' })
+    for (let i = 0; i < envelope.data.events.length; i++) {
+      const parsed = EvalRunEventSchema.safeParse(envelope.data.events[i])
+      if (!parsed.success) {
+        rejected.push({ index: i, reason: validationReason(parsed.error) })
         continue
       }
-      if (!event.runId || typeof event.runId !== 'string') {
-        rejected.push({ index: i, reason: 'event.runId missing or not a string' })
-        continue
-      }
-      // Dedup within the tenant on (runId, status). Later events for the
-      // same lifecycle stage of the same run overwrite the prior snapshot.
+      const event = parsed.data
       const existingIdx = stores.runs.findIndex(
-        (r) =>
-          r.tenantId === auth.id &&
-          r.event.runId === event.runId &&
-          r.event.status === event.status,
+        (run) => run.tenantId === auth.id && run.event.runId === event.runId,
       )
       if (existingIdx >= 0) {
-        stores.runs[existingIdx] = { tenantId: auth.id, event, receivedAt: now }
+        stores.runs[existingIdx] = {
+          tenantId: auth.id,
+          event: mergeEvalRunEvents(stores.runs[existingIdx]!.event, event),
+          receivedAt: now,
+        }
       } else {
         stores.runs.push({ tenantId: auth.id, event, receivedAt: now })
       }
     }
 
-    const response: IngestResponse = { accepted: body.events.length - rejected.length, rejected }
-    if (cacheKey) {
-      stores.idempotency.set(cacheKey, {
-        response,
-        expiresAt: Date.now() + IDEMPOTENCY_TTL_MS,
-      })
+    const response: IngestResponse = {
+      accepted: envelope.data.events.length - rejected.length,
+      rejected,
     }
+    stores.idempotency.set(cacheKey, {
+      response,
+      expiresAt: Date.now() + IDEMPOTENCY_TTL_MS,
+    })
     return c.json(response)
   })
 
@@ -179,24 +260,59 @@ export function createReferenceReceiverApp(opts: {
   app.post('/v1/ingest/traces', async (c) => {
     const auth = authenticate(c, tenants)
     if ('reject' in auth) return c.json({ error: auth.reject.message }, auth.reject.status)
+    const requestKey = idempotencyKey(c)
+    if ('reject' in requestKey) {
+      return c.json({ error: requestKey.reject.message }, requestKey.reject.status)
+    }
 
-    const body = (await c.req.json().catch(() => null)) as IngestTracesRequest | null
-    if (!body || !Array.isArray(body.spans)) {
-      return c.json({ error: 'body must be { wireVersion, spans: TraceSpanEvent[] }' }, 400)
+    const cacheKey = idempotencyCacheKey(auth.id, 'traces', requestKey.key)
+    const cached = stores.idempotency.get(cacheKey)
+    if (cached) {
+      if (cached.expiresAt > Date.now()) return c.json(cached.response)
+      stores.idempotency.delete(cacheKey)
+    }
+
+    const rawBody: unknown = await c.req.json().catch(() => null)
+    const envelope = IngestTracesEnvelopeSchema.safeParse(rawBody)
+    if (!envelope.success) {
+      return c.json({ error: `invalid traces request: ${validationReason(envelope.error)}` }, 400)
     }
 
     const rejected: IngestResponse['rejected'] = []
     const now = Date.now()
-    for (let i = 0; i < body.spans.length; i++) {
-      const span = body.spans[i]
-      if (!span || !span.traceId || !span.spanId) {
-        rejected.push({ index: i, reason: 'span missing traceId or spanId' })
+    for (let i = 0; i < envelope.data.spans.length; i++) {
+      const parsed = TraceSpanEventSchema.safeParse(envelope.data.spans[i])
+      if (!parsed.success) {
+        rejected.push({ index: i, reason: validationReason(parsed.error) })
         continue
       }
-      stores.traces.push({ tenantId: auth.id, span, receivedAt: now })
+      const existing = stores.traces.find(
+        (stored) =>
+          stored.tenantId === auth.id &&
+          stored.span.traceId === parsed.data.traceId &&
+          stored.span.spanId === parsed.data.spanId,
+      )
+      if (existing) {
+        if (!isDeepStrictEqual(existing.span, parsed.data)) {
+          rejected.push({
+            index: i,
+            reason: 'traceId and spanId identify a different stored span',
+          })
+        }
+        continue
+      }
+      stores.traces.push({ tenantId: auth.id, span: parsed.data, receivedAt: now })
     }
 
-    return c.json({ accepted: body.spans.length - rejected.length, rejected })
+    const response: IngestResponse = {
+      accepted: envelope.data.spans.length - rejected.length,
+      rejected,
+    }
+    stores.idempotency.set(cacheKey, {
+      response,
+      expiresAt: Date.now() + IDEMPOTENCY_TTL_MS,
+    })
+    return c.json(response)
   })
 
   // ── Read: list runs for a tenant ──────────────────────────────────

@@ -515,13 +515,25 @@ const DATASET_CONFIG: RlDatasetConfig = {
   outOfScope: 'everything',
   limitations: 'generated',
   createdAtIso: '2026-07-24T00:00:00.000Z',
-  formats: ['grpo', 'sft', 'dpo'],
+  // GRPO only: it is the one format whose line path legitimately EMITS gated
+  // rows (at reward 0) — the most leak-prone surface, and the one that keeps
+  // the bundle probe emitting on an all-gated corpus. `requireRows` fails the
+  // build loudly for a requested format with no trainable rows (sft/dpo on an
+  // all-gated corpus), which is refusal-at-the-door — separately pinned in
+  // reward-invariant.test.ts, but it would starve this probe's coverage.
+  formats: ['grpo'],
 }
 
 const EXPORTERS: { readonly [K in ExporterId]: ExporterProbe } = {
   'waist/toSftRows': {
     needsFs: false,
-    run: async (i) => toWaistSftRows(i.lines, { minReward: 0 }),
+    run: async (i) =>
+      // The widest legitimate surface: no quality floor, held-out admitted —
+      // the leak detector wants MORE rows out, and the gate must still hold.
+      toWaistSftRows(i.lines, {
+        minimumQualityExclusive: Number.MIN_SAFE_INTEGER,
+        allowHeldOutTrainingData: true,
+      }),
   },
   'waist/toRewardRows': { needsFs: false, run: async (i) => toRewardRows(i.lines) },
   'waist/toVerifiersRolloutOutputs': {

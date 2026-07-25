@@ -15,7 +15,7 @@
 import type { DatasetManifest, DatasetScenario, DatasetSplit } from './dataset'
 import { VerificationError } from './errors'
 import type { GateDecision } from './held-out-gate'
-import { isRealnessGated, observedScore, observedSplitScore } from './rollout/reward'
+import { isRealnessGated, observedSplitScore } from './rollout/reward'
 import type { RunRecord, RunSplitTag } from './run-record'
 
 /** Severity of an actionable finding attached to a run/trace. */
@@ -43,6 +43,7 @@ export type ReleaseConfidenceStatus = 'pass' | 'warn' | 'fail'
 export type ReleaseConfidenceAxisName =
   | 'corpus'
   | 'quality'
+  | 'reliability'
   | 'generalization'
   | 'diagnostics'
   | 'efficiency'
@@ -96,7 +97,7 @@ export interface ReleaseConfidenceInput {
 export interface ReleaseConfidenceAxis {
   name: ReleaseConfidenceAxisName
   status: ReleaseConfidenceStatus
-  score: number
+  score: number | null
   detail: string
 }
 
@@ -109,15 +110,25 @@ export interface ReleaseConfidenceIssue {
 
 export interface ReleaseConfidenceMetrics {
   scenarioCount: number
+  /** Search rows with a finite search score. */
   searchRuns: number
+  /** Holdout rows with a finite holdout score. */
   holdoutRuns: number
-  passRate: number
-  meanScore: number
-  searchMeanScore: number
-  holdoutMeanScore: number
-  overfitGap: number
-  meanCostUsd: number
-  p95WallMs: number
+  /** Runs with neither a split-matched score nor an explicit task failure. */
+  unscoredRuns: number
+  /** Run rows, or trace rows when no runs exist, with no classified terminal result. */
+  unclassifiedTerminalRuns: number
+  /** Run rows, or trace rows when no runs exist, that ended unsuccessfully. */
+  terminalFailureRuns: number
+  /** Success fraction when every run or fallback trace row has a classified result. */
+  reliabilityRate: number | null
+  passRate: number | null
+  meanScore: number | null
+  searchMeanScore: number | null
+  holdoutMeanScore: number | null
+  overfitGap: number | null
+  meanCostUsd: number | null
+  p95WallMs: number | null
   failedRows: number
   failuresWithAsi: number
   singleShotTraces: number
@@ -176,35 +187,74 @@ export function evaluateReleaseConfidence(
   const splitCounts = input.dataset?.splitCounts ?? countScenarioSplits(scenarios)
   const searchScores = scoresFor(runs, 'search')
   const holdoutScores = scoresFor(runs, 'holdout')
-  const allScores = [...searchScores, ...holdoutScores]
+  const runScores = runs.map(runSplitScore).filter(isFiniteNumber)
   const traceScores = traces.map((t) => t.score).filter(isFiniteNumber)
-  const scoreUniverse = allScores.length > 0 ? allScores : traceScores
-  const searchRuns = runs.filter((r) => r.splitTag === 'search').length
-  const holdoutRuns = runs.filter((r) => r.splitTag === 'holdout').length
-  const searchMeanScore = mean(searchScores)
-  const holdoutMeanScore = mean(holdoutScores)
+  const scoreUniverse = runs.length > 0 ? runScores : traceScores
+  const qualityRuns = runs.filter((run) => runSplitScore(run) !== undefined)
+  const unscoredRuns = runs.filter(
+    (run) =>
+      runSplitScore(run) === undefined &&
+      !hasExplicitTaskFailure(run) &&
+      !isFailedTerminalOutcome(run.terminalOutcome),
+  ).length
+  // Realness-gated runs are EXCLUDED from the pass rate — numerator AND
+  // denominator — and the count of what was dropped ships beside the rate as
+  // `metrics.realnessGatedRuns`. Counting a gamed run as a pass made faking a
+  // success the cheapest way to improve a release scorecard; scoring it 0
+  // instead would be the other error, silently deflating the rate with a run
+  // the gate says carries no usable verdict at all.
+  const honestRuns = runs.filter((run) => !isRealnessGated(run))
+  const passOutcomes =
+    runs.length > 0
+      ? honestRuns.map((run) => runPassOutcome(run, thresholds.failureScoreThreshold))
+      : traces.map((trace) => tracePassOutcome(trace, thresholds.failureScoreThreshold))
+  const reliabilityRows =
+    runs.length > 0
+      ? runs.map((run) => terminalSuccess(run.terminalOutcome))
+      : traces.map((trace) => trace.ok)
+  const unclassifiedTerminalRuns = reliabilityRows.filter((outcome) => outcome === undefined).length
+  const terminalFailureRuns = reliabilityRows.filter((outcome) => outcome === false).length
+  const reliabilityRate =
+    reliabilityRows.length === 0 || unclassifiedTerminalRuns > 0
+      ? null
+      : (reliabilityRows.length - terminalFailureRuns) / reliabilityRows.length
+  const searchRuns = qualityRuns.filter((r) => r.splitTag === 'search').length
+  const holdoutRuns = qualityRuns.filter((r) => r.splitTag === 'holdout').length
+  const failed = failedRows(runs, traces, thresholds.failureScoreThreshold)
+  const searchMeanScore = meanOrNull(searchScores)
+  const holdoutMeanScore = meanOrNull(holdoutScores)
+  const runCosts = runs.flatMap((run) =>
+    run.costProvenance.kind === 'uncaptured' ? [] : [run.costProvenance.usd],
+  )
+  const traceCosts = traces.map((trace) => trace.costUsd).filter(isFiniteNumber)
+  const meanCostUsd =
+    runs.length > 0
+      ? runCosts.length === runs.length
+        ? meanOrNull(runCosts)
+        : null
+      : meanOrNull(traceCosts)
+  const wallTimes =
+    runs.length > 0
+      ? runs.map((run) => run.wallMs)
+      : traces.map((trace) => trace.durationMs).filter(isFiniteNumber)
   const metrics: ReleaseConfidenceMetrics = {
     scenarioCount,
     searchRuns,
     holdoutRuns,
-    passRate: passRate(runs, traces, thresholds.failureScoreThreshold),
-    realnessGatedRuns: runs.filter(isRealnessGated).length,
-    meanScore: mean(scoreUniverse),
+    unscoredRuns,
+    unclassifiedTerminalRuns,
+    terminalFailureRuns,
+    reliabilityRate,
+    passRate: passOutcomeRate(passOutcomes),
+    realnessGatedRuns: runs.length - honestRuns.length,
+    meanScore: meanOrNull(scoreUniverse),
     searchMeanScore,
     holdoutMeanScore,
-    overfitGap: safeDiff(searchMeanScore, holdoutMeanScore),
-    meanCostUsd: mean([
-      ...runs.map((r) => r.costUsd),
-      ...traces.map((t) => t.costUsd).filter(isFiniteNumber),
-    ]),
-    p95WallMs: percentile(
-      [...runs.map((r) => r.wallMs), ...traces.map((t) => t.durationMs).filter(isFiniteNumber)],
-      0.95,
-    ),
-    failedRows: failedRows(runs, traces, thresholds.failureScoreThreshold).length,
-    failuresWithAsi: failedRows(runs, traces, thresholds.failureScoreThreshold).filter(
-      (row) => row.hasAsi,
-    ).length,
+    overfitGap: diffOrNull(searchMeanScore, holdoutMeanScore),
+    meanCostUsd,
+    p95WallMs: percentileOrNull(wallTimes, 0.95),
+    failedRows: failed.length,
+    failuresWithAsi: failed.filter((row) => row.hasAsi).length,
     singleShotTraces: traces.filter((t) => t.turnCount === 1).length,
     multiShotTraces: traces.filter((t) => (t.turnCount ?? 0) > 1).length,
     splitCounts,
@@ -216,11 +266,12 @@ export function evaluateReleaseConfidence(
   const issues: ReleaseConfidenceIssue[] = []
   checkCorpus(input, thresholds, metrics, issues)
   checkQuality(thresholds, metrics, issues)
+  checkReliability(metrics, issues)
   checkGeneralization(input.gateDecision ?? null, thresholds, metrics, issues)
   checkDiagnostics(thresholds, metrics, issues)
   checkEfficiency(thresholds, metrics, issues)
 
-  const axes = buildAxes(metrics, thresholds, input.gateDecision ?? null, issues)
+  const axes = buildAxes(metrics, thresholds, issues)
   const status = issues.some((i) => i.severity === 'critical')
     ? 'fail'
     : issues.length > 0
@@ -317,7 +368,23 @@ function checkQuality(
       detail: `${metrics.searchRuns} search run(s) < min ${thresholds.minSearchRuns}.`,
     })
   }
-  if (metrics.passRate < thresholds.minPassRate) {
+  if (metrics.unscoredRuns > 0) {
+    issues.push({
+      axis: 'quality',
+      severity: 'critical',
+      code: 'unscored_runs',
+      detail: `${metrics.unscoredRuns} supplied run(s) have no task result.`,
+    })
+  }
+  if (metrics.passRate === null || metrics.meanScore === null) {
+    issues.push({
+      axis: 'quality',
+      severity: 'critical',
+      code: 'missing_quality_scores',
+      detail: 'No task-quality scores are available for pass-rate and mean-score checks.',
+    })
+  }
+  if (metrics.passRate !== null && metrics.passRate < thresholds.minPassRate) {
     issues.push({
       axis: 'quality',
       severity: 'critical',
@@ -325,12 +392,37 @@ function checkQuality(
       detail: `passRate ${fmt(metrics.passRate)} < ${fmt(thresholds.minPassRate)}.`,
     })
   }
-  if (metrics.meanScore < thresholds.minMeanScore) {
+  if (metrics.meanScore !== null && metrics.meanScore < thresholds.minMeanScore) {
     issues.push({
       axis: 'quality',
       severity: 'critical',
       code: 'low_mean_score',
       detail: `meanScore ${fmt(metrics.meanScore)} < ${fmt(thresholds.minMeanScore)}.`,
+    })
+  }
+}
+
+function checkReliability(
+  metrics: ReleaseConfidenceMetrics,
+  issues: ReleaseConfidenceIssue[],
+): void {
+  if (metrics.reliabilityRate === null) {
+    issues.push({
+      axis: 'reliability',
+      severity: 'critical',
+      code: 'missing_reliability_evidence',
+      detail:
+        metrics.unclassifiedTerminalRuns > 0
+          ? `${metrics.unclassifiedTerminalRuns} supplied run(s) have no classified terminal result.`
+          : 'No classified terminal results are available.',
+    })
+  }
+  if (metrics.terminalFailureRuns > 0) {
+    issues.push({
+      axis: 'reliability',
+      severity: 'critical',
+      code: 'terminal_run_failures',
+      detail: `${metrics.terminalFailureRuns} run(s) ended failed, cancelled, or incomplete.`,
     })
   }
 }
@@ -349,7 +441,7 @@ function checkGeneralization(
       detail: `${metrics.holdoutRuns} holdout run(s) < min ${thresholds.minHoldoutRuns}.`,
     })
   }
-  if (Number.isFinite(metrics.overfitGap) && metrics.overfitGap > thresholds.maxOverfitGap) {
+  if (metrics.overfitGap !== null && metrics.overfitGap > thresholds.maxOverfitGap) {
     issues.push({
       axis: 'generalization',
       severity: 'critical',
@@ -388,7 +480,14 @@ function checkEfficiency(
   metrics: ReleaseConfidenceMetrics,
   issues: ReleaseConfidenceIssue[],
 ): void {
-  if (metrics.meanCostUsd > thresholds.maxMeanCostUsd) {
+  if (Number.isFinite(thresholds.maxMeanCostUsd) && metrics.meanCostUsd === null) {
+    issues.push({
+      axis: 'efficiency',
+      severity: 'critical',
+      code: 'missing_cost',
+      detail: 'A finite cost limit was configured but no cost evidence is available.',
+    })
+  } else if (metrics.meanCostUsd !== null && metrics.meanCostUsd > thresholds.maxMeanCostUsd) {
     issues.push({
       axis: 'efficiency',
       severity: 'critical',
@@ -396,7 +495,14 @@ function checkEfficiency(
       detail: `meanCostUsd ${fmt(metrics.meanCostUsd)} > ${fmt(thresholds.maxMeanCostUsd)}.`,
     })
   }
-  if (metrics.p95WallMs > thresholds.maxP95WallMs) {
+  if (Number.isFinite(thresholds.maxP95WallMs) && metrics.p95WallMs === null) {
+    issues.push({
+      axis: 'efficiency',
+      severity: 'critical',
+      code: 'missing_latency',
+      detail: 'A finite latency limit was configured but no latency evidence is available.',
+    })
+  } else if (metrics.p95WallMs !== null && metrics.p95WallMs > thresholds.maxP95WallMs) {
     issues.push({
       axis: 'efficiency',
       severity: 'critical',
@@ -409,7 +515,6 @@ function checkEfficiency(
 function buildAxes(
   metrics: ReleaseConfidenceMetrics,
   thresholds: Required<ReleaseConfidenceThresholds>,
-  gateDecision: GateDecision | null,
   issues: ReleaseConfidenceIssue[],
 ): ReleaseConfidenceAxis[] {
   return [
@@ -422,15 +527,21 @@ function buildAxes(
     axis(
       'quality',
       issues,
-      Math.min(metrics.passRate, metrics.meanScore),
+      metrics.passRate === null || metrics.meanScore === null
+        ? null
+        : Math.min(metrics.passRate, metrics.meanScore),
       `passRate=${fmt(metrics.passRate)} meanScore=${fmt(metrics.meanScore)}`,
+    ),
+    axis(
+      'reliability',
+      issues,
+      metrics.reliabilityRate,
+      `successRate=${fmt(metrics.reliabilityRate)} terminalFailures=${metrics.terminalFailureRuns} unclassified=${metrics.unclassifiedTerminalRuns}`,
     ),
     axis(
       'generalization',
       issues,
-      gateDecision && !gateDecision.promote
-        ? 0
-        : gapScore(metrics.overfitGap, thresholds.maxOverfitGap),
+      gapScore(metrics.overfitGap, thresholds.maxOverfitGap),
       `holdoutRuns=${metrics.holdoutRuns} overfitGap=${fmt(metrics.overfitGap)}`,
     ),
     axis(
@@ -451,7 +562,7 @@ function buildAxes(
 function axis(
   name: ReleaseConfidenceAxisName,
   issues: ReleaseConfidenceIssue[],
-  score: number,
+  score: number | null,
   detail: string,
 ): ReleaseConfidenceAxis {
   const own = issues.filter((i) => i.axis === name)
@@ -460,7 +571,7 @@ function axis(
     : own.length > 0
       ? 'warn'
       : 'pass'
-  return { name, status, score: bounded(score), detail }
+  return { name, status, score: score === null ? null : bounded(score), detail }
 }
 
 function countScenarioSplits(scenarios: readonly DatasetScenario[]): Record<DatasetSplit, number> {
@@ -487,20 +598,15 @@ function countFailureModes(
   for (const run of runs) {
     // Ungated: a failure-mode census counts what the runs REPORTED, which is
     // the only way a gamed run's inflated score is visible at all. It is not a
-    // promotion number — `passRate` is, and that one now excludes gated runs
-    // and publishes the excluded count as `metrics.realnessGatedRuns`.
-    const score = observedScore(run)
-    if (run.failureMode || (score !== undefined && score < threshold)) {
-      const mode = run.failureMode ?? 'low_score'
+    // promotion number — `passRate` is, and that one excludes gated runs and
+    // publishes the excluded count as `metrics.realnessGatedRuns`.
+    if (runPassOutcome(run, threshold) === false) {
+      const mode = run.failureMode ?? run.failureClass ?? 'low_score'
       out[mode] = (out[mode] ?? 0) + 1
     }
   }
   for (const trace of traces) {
-    if (
-      trace.failureMode ||
-      trace.ok === false ||
-      (trace.score !== undefined && trace.score < threshold)
-    ) {
+    if (tracePassOutcome(trace, threshold) === false) {
       const mode = trace.failureMode ?? (trace.ok === false ? 'not_ok' : 'low_score')
       out[mode] = (out[mode] ?? 0) + 1
     }
@@ -526,74 +632,82 @@ function failedRows(
 ): Array<{ hasAsi: boolean }> {
   const out: Array<{ hasAsi: boolean }> = []
   for (const run of runs) {
-    const score = observedScore(run)
-    if (run.failureMode || (score !== undefined && score < threshold)) {
+    if (runPassOutcome(run, threshold) === false) {
       const asiMetric = run.outcome.raw.asi
       out.push({ hasAsi: typeof asiMetric === 'number' && asiMetric > 0 })
     }
   }
   for (const trace of traces) {
-    if (
-      trace.failureMode ||
-      trace.ok === false ||
-      (trace.score !== undefined && trace.score < threshold)
-    ) {
+    if (tracePassOutcome(trace, threshold) === false) {
       out.push({ hasAsi: (trace.asi?.length ?? 0) > 0 })
     }
   }
   return out
 }
 
-/**
- * Fraction of runs and traces that cleared the failure threshold.
- *
- * Realness-gated runs are EXCLUDED from both numerator and denominator, and the
- * count of what was dropped ships beside the rate as
- * `metrics.realnessGatedRuns`. Counting a gamed run as a pass made faking a
- * success the cheapest way to improve a release scorecard; scoring it 0 instead
- * would be the other error, silently deflating the rate with a run the gate
- * says carries no usable verdict at all. Neither belongs in a promotion number:
- * the honest treatment is to remove it and say so.
- */
-function passRate(
-  runs: readonly RunRecord[],
-  traces: readonly ReleaseTraceEvidence[],
-  threshold: number,
-): number {
-  const outcomes = [
-    ...runs
-      .filter((run) => !isRealnessGated(run))
-      .map((run) => {
-        const score = observedScore(run)
-        return !run.failureMode && score !== undefined && score >= threshold
-      }),
-    ...traces.map(
-      (trace) => trace.ok !== false && (trace.score === undefined || trace.score >= threshold),
-    ),
-  ]
-  if (outcomes.length === 0) return 0
-  return outcomes.filter(Boolean).length / outcomes.length
+function passOutcomeRate(outcomes: readonly (boolean | null)[]): number | null {
+  const classified = outcomes.filter((outcome): outcome is boolean => outcome !== null)
+  if (classified.length === 0) return null
+  return classified.filter(Boolean).length / classified.length
 }
 
-function scoresFor(runs: readonly RunRecord[], split: RunSplitTag): number[] {
+function runPassOutcome(run: RunRecord, threshold: number): boolean | null {
+  if (hasExplicitTaskFailure(run)) return false
+  const score = runSplitScore(run)
+  return score === undefined ? null : score >= threshold
+}
+
+function hasExplicitTaskFailure(run: RunRecord): boolean {
   return (
-    runs
-      .filter((run) => run.splitTag === split)
-      // RAW and split-exact: this feeds the per-split mean and the overfit gap on
-      // the scorecard, both of which are descriptions of what the runs reported.
-      // A gamed run inflating them is visible next to `realnessGatedRuns`.
-      .map((run) => observedSplitScore(run, split === 'holdout' ? 'holdout' : 'search'))
-      .filter(isFiniteNumber)
+    (run.failureClass !== undefined && run.failureClass !== 'success') ||
+    run.failureMode !== undefined
   )
 }
 
-function mean(xs: readonly number[]): number {
-  if (xs.length === 0) return Number.NaN
+function tracePassOutcome(trace: ReleaseTraceEvidence, threshold: number): boolean | null {
+  if (trace.failureMode !== undefined) return false
+  if (trace.ok === false) return false
+  if (isFiniteNumber(trace.score)) return trace.score >= threshold
+  return trace.ok === true ? true : null
+}
+
+function isFailedTerminalOutcome(
+  outcome: RunRecord['terminalOutcome'],
+): outcome is 'failed' | 'cancelled' | 'incomplete' {
+  return outcome === 'failed' || outcome === 'cancelled' || outcome === 'incomplete'
+}
+
+function terminalSuccess(outcome: RunRecord['terminalOutcome']): boolean | undefined {
+  if (outcome === 'succeeded') return true
+  if (isFailedTerminalOutcome(outcome)) return false
+  return undefined
+}
+
+function scoresFor(runs: readonly RunRecord[], split: RunSplitTag): number[] {
+  return runs
+    .filter((run) => run.splitTag === split)
+    .map(runSplitScore)
+    .filter(isFiniteNumber)
+}
+
+/**
+ * RAW and split-exact (`observedSplitScore`): this feeds the per-split means,
+ * the overfit gap, and the pass threshold — descriptions of what the runs
+ * reported. A gamed run inflating them is visible next to `realnessGatedRuns`,
+ * and the promotion number (`passRate`) excludes gated runs entirely.
+ */
+function runSplitScore(run: RunRecord): number | undefined {
+  const score = observedSplitScore(run, run.splitTag === 'holdout' ? 'holdout' : 'search')
+  return isFiniteNumber(score) ? score : undefined
+}
+
+function meanOrNull(xs: readonly number[]): number | null {
+  if (xs.length === 0) return null
   return xs.reduce((sum, x) => sum + x, 0) / xs.length
 }
 
-function percentile(xs: readonly number[], p: number): number {
-  if (xs.length === 0) return Number.NaN
+function percentileOrNull(xs: readonly number[], p: number): number | null {
+  if (xs.length === 0) return null
   const sorted = [...xs].sort((a, b) => a - b)
   return sorted[Math.min(sorted.length - 1, Math.max(0, Math.ceil(p * sorted.length) - 1))]!
 }
@@ -602,13 +716,13 @@ function isFiniteNumber(value: unknown): value is number {
   return typeof value === 'number' && Number.isFinite(value)
 }
 
-function safeDiff(a: number, b: number): number {
-  if (!Number.isFinite(a) || !Number.isFinite(b)) return Number.NaN
+function diffOrNull(a: number | null, b: number | null): number | null {
+  if (a === null || b === null) return null
   return a - b
 }
 
-function gapScore(gap: number, maxGap: number): number {
-  if (!Number.isFinite(gap)) return 0
+function gapScore(gap: number | null, maxGap: number): number | null {
+  if (gap === null) return null
   if (maxGap <= 0) return gap <= 0 ? 1 : 0
   return bounded(1 - Math.max(0, gap) / maxGap)
 }
@@ -616,15 +730,18 @@ function gapScore(gap: number, maxGap: number): number {
 function efficiencyScore(
   metrics: ReleaseConfidenceMetrics,
   thresholds: Required<ReleaseConfidenceThresholds>,
-): number {
-  const cost =
-    Number.isFinite(thresholds.maxMeanCostUsd) && Number.isFinite(metrics.meanCostUsd)
-      ? bounded(thresholds.maxMeanCostUsd / Math.max(metrics.meanCostUsd, 1e-12))
-      : 1
-  const latency =
-    Number.isFinite(thresholds.maxP95WallMs) && Number.isFinite(metrics.p95WallMs)
-      ? bounded(thresholds.maxP95WallMs / Math.max(metrics.p95WallMs, 1e-12))
-      : 1
+): number | null {
+  const cost = Number.isFinite(thresholds.maxMeanCostUsd)
+    ? metrics.meanCostUsd === null
+      ? null
+      : bounded(thresholds.maxMeanCostUsd / Math.max(metrics.meanCostUsd, 1e-12))
+    : 1
+  const latency = Number.isFinite(thresholds.maxP95WallMs)
+    ? metrics.p95WallMs === null
+      ? null
+      : bounded(thresholds.maxP95WallMs / Math.max(metrics.p95WallMs, 1e-12))
+    : 1
+  if (cost === null || latency === null) return null
   return Math.min(cost, latency)
 }
 
@@ -645,7 +762,7 @@ function renderSummary(
   return `${prefix}; ${metricText}; issues=${issues.map((i) => i.code).join(',')}`
 }
 
-function fmt(x: number): string {
-  if (!Number.isFinite(x)) return String(x)
+function fmt(x: number | null): string {
+  if (x === null) return 'n/a'
   return x.toFixed(4)
 }

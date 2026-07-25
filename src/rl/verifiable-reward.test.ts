@@ -30,7 +30,9 @@ function rec(args: {
     commitSha: 'abcd',
     wallMs: 1,
     costUsd: 0,
+    costProvenance: { kind: 'observed', usd: 0 },
     tokenUsage: { input: 0, output: 0 },
+    terminalOutcome: 'succeeded',
     splitTag: 'holdout',
     scenarioId: 'scenario-1',
     outcome: {

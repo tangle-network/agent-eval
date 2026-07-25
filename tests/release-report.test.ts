@@ -11,6 +11,7 @@ function rec(
   return {
     runId: `${candidateId}-${splitTag}`,
     experimentId: 'exp-1',
+    scenarioId: 's1',
     candidateId,
     seed: 1,
     model: 'gpt-4o-2024-11-20',
@@ -19,12 +20,14 @@ function rec(
     commitSha: 'abc',
     wallMs: 1000,
     costUsd: 0.01,
+    costProvenance: { kind: 'observed', usd: 0.01 },
     tokenUsage: { input: 10, output: 10 },
     outcome:
       splitTag === 'holdout'
         ? { holdoutScore: score, raw: { score } }
         : { searchScore: score, raw: { score } },
     splitTag,
+    terminalOutcome: 'succeeded',
   }
 }
 

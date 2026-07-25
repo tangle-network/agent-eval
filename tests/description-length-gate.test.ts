@@ -136,4 +136,21 @@ describe('DescriptionLengthGate', () => {
     expect(decision.promote).toBe(false)
     expect(decision.rejectionCode).toBe('few_tasks')
   })
+
+  it('does not count raw score-like metrics as task evidence', () => {
+    const rawOnly = (id: string, task: string): RunRecord => {
+      const run = record(id, task, 0)
+      run.outcome = { raw: { score: 0.99, composite: 0.99 } }
+      return run
+    }
+    const gate = new DescriptionLengthGate({ baselineKey: 'baseline', minTasks: 1 })
+    const decision = gate.evaluate(
+      { content: small, runs: [rawOnly('cand', 'a')] },
+      { content: small, runs: [rawOnly('baseline', 'a')] },
+    )
+
+    expect(decision.promote).toBe(false)
+    expect(decision.rejectionCode).toBe('few_tasks')
+    expect(decision.evidence.tasks).toBe(0)
+  })
 })

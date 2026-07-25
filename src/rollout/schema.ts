@@ -50,8 +50,6 @@
 import { declaredSteps, GATE_POLICIES, gatedEvidenceOf, gateErrors } from './gate-checks'
 
 export const ROLLOUT_SCHEMA = 'tangle.rollout.v1'
-/** @deprecated alias kept for consumers of the pre-unification constant name. */
-export const ROLLOUT_FORMAT = ROLLOUT_SCHEMA
 
 /** `agent` = a solo evaluation run (no multi-agent topology). */
 export type RolloutRole = 'agent' | 'supervisor' | 'worker' | 'proposer' | 'judge' | 'analyst'
@@ -64,23 +62,11 @@ export const ROLLOUT_ROLES: readonly RolloutRole[] = [
   'analyst',
 ]
 
-/**
- * Split vocabulary follows `RunRecord.splitTag` ('search' is the pool the
- * optimizer may read — the trainable split), extended with the ledger's
- * 'canary'. 'train' is a legacy alias for 'search' emitted by
- * pre-unification ledgers; it validates and counts as trainable, but new
- * producers must emit 'search'.
- */
-export type RolloutSplit = 'search' | 'dev' | 'holdout' | 'canary' | 'train'
-export const ROLLOUT_SPLITS: readonly RolloutSplit[] = [
-  'search',
-  'dev',
-  'holdout',
-  'canary',
-  'train',
-]
+/** Split vocabulary follows `RunRecord.splitTag`, extended with `canary`. */
+export type RolloutSplit = 'search' | 'dev' | 'holdout' | 'canary'
+export const ROLLOUT_SPLITS: readonly RolloutSplit[] = ['search', 'dev', 'holdout', 'canary']
 /** Splits that may ship in training exports. Everything else is fail-closed excluded. */
-export const TRAINABLE_SPLITS: readonly RolloutSplit[] = ['search', 'train']
+export const TRAINABLE_SPLITS: readonly RolloutSplit[] = ['search']
 
 export function isTrainableSplit(split: RolloutSplit): boolean {
   return TRAINABLE_SPLITS.includes(split)
@@ -223,15 +209,15 @@ export interface RolloutOutcome {
    * Anti-Goodhart flag from `RunRecord.outcome.realness.gated`: the run faked
    * its success signal. `true` requires `reward` to be 0 or null — the
    * validator rejects the line otherwise — and the line never qualifies for
-   * SFT. Optional on the wire (absent = false) so pre-unification ledgers stay
-   * readable; `assertMinted` fills it in explicitly on the way to an export.
+   * SFT. Required on the wire: a line that does not state the flag does not
+   * validate, so no producer can dodge the gate by omitting it.
    *
    * `true` ALSO requires `metrics` to be empty and `verdict` to be null: the
    * numbers the reward was computed from are relocated to
    * `provenance.gated_evidence` by `gateGamedOutcome`. See that function for
    * why zeroing the scalar alone was not enough.
    */
-  realness_gated?: boolean
+  realness_gated: boolean
   /**
    * Whether an authenticity SCREEN ever RAN on this reward — a different claim
    * from `realness_gated`, which is the screen's VERDICT.
@@ -323,11 +309,10 @@ export interface RolloutLine {
   /** Spawning invocation within the same episode (worker → supervisor). */
   parent_rollout_id: string | null
   run_id: string
-  /** Logical experiment grouping from `RunRecord.experimentId`. Optional on
-   *  the wire (pre-unification ledgers lack it); null = not recorded. */
-  experiment_id?: string | null
+  /** Logical experiment grouping from `RunRecord.experimentId`; null = not recorded. */
+  experiment_id: string | null
   /** Stable candidate identity from `RunRecord.candidateId`; null = not recorded. */
-  candidate_id?: string | null
+  candidate_id: string | null
   /** Improvement-loop generation (-1 = baseline); null = not an improvement loop. */
   generation: number | null
   /** Improvement-loop candidate index (-1 = baseline); null = not an improvement loop. */
@@ -516,12 +501,8 @@ export function validateRolloutLine(value: unknown): string[] {
     errors.push('parent_rollout_id: expected string|null')
   if (typeof value.run_id !== 'string' || value.run_id.length === 0)
     errors.push('run_id: expected non-empty string')
-  if (value.experiment_id !== undefined && !isStringOrNull(value.experiment_id)) {
-    errors.push('experiment_id: expected string|null when present')
-  }
-  if (value.candidate_id !== undefined && !isStringOrNull(value.candidate_id)) {
-    errors.push('candidate_id: expected string|null when present')
-  }
+  if (!isStringOrNull(value.experiment_id)) errors.push('experiment_id: expected string|null')
+  if (!isStringOrNull(value.candidate_id)) errors.push('candidate_id: expected string|null')
   if (!isIntegerOrNull(value.generation)) errors.push('generation: expected integer|null')
   if (!isIntegerOrNull(value.candidate_index)) errors.push('candidate_index: expected integer|null')
   if (!ROLLOUT_ROLES.includes(value.role as RolloutRole))
@@ -627,10 +608,14 @@ export function validateRolloutLine(value: unknown): string[] {
   )
   if (isRecord(value.outcome)) {
     if (!('verdict' in value.outcome)) errors.push('outcome.verdict: field required (may be null)')
-    for (const key of ['realness_gated', 'realness_screened'] as const) {
-      if (value.outcome[key] !== undefined && typeof value.outcome[key] !== 'boolean') {
-        errors.push(`outcome.${key}: expected boolean when present`)
-      }
+    if (typeof value.outcome.realness_gated !== 'boolean') {
+      errors.push('outcome.realness_gated: expected boolean')
+    }
+    if (
+      value.outcome.realness_screened !== undefined &&
+      typeof value.outcome.realness_screened !== 'boolean'
+    ) {
+      errors.push('outcome.realness_screened: expected boolean when present')
     }
     errors.push(
       ...gateErrors(

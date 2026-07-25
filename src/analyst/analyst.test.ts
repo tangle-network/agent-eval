@@ -864,14 +864,14 @@ describe('AnalystRegistry.runStream', () => {
     const failedEv = events.find(
       (e) => e.type === 'analyst-completed' && e.summary.analyst_id === 'boom',
     )
-    if (!failedEv || failedEv.type !== 'analyst-completed') throw new Error('expected failed event')
+    if (failedEv?.type !== 'analyst-completed') throw new Error('expected failed event')
     expect(failedEv.summary.status).toBe('failed')
     expect(failedEv.summary.error?.class).toBe('TypeError')
 
     const afterEv = events.find(
       (e) => e.type === 'analyst-completed' && e.summary.analyst_id === 'after',
     )
-    if (!afterEv || afterEv.type !== 'analyst-completed') throw new Error('expected after event')
+    if (afterEv?.type !== 'analyst-completed') throw new Error('expected after event')
     expect(afterEv.summary.status).toBe('ok')
   })
 

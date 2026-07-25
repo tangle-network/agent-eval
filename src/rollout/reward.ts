@@ -122,9 +122,6 @@ export function trainingReward(record: Scored): { reward: number | null; gated: 
   return { reward: trainingScore(record) ?? null, gated: isRealnessGated(record) }
 }
 
-/** @deprecated Renamed to `trainingReward`, which now pairs with `observedScore`. */
-export const rolloutReward = trainingReward
-
 /**
  * A reward the CALLER computed, with the gate applied on top.
  *
@@ -153,11 +150,12 @@ export function trainingRewardOverride(record: Scored, value: number | null): nu
  * The two fields a rollout line's `outcome` has to state TOGETHER — the reward
  * and whether the authenticity gate fired on it.
  *
- * Stating them together is the point. `realness_gated` is optional on the wire,
- * so a producer that wrote `reward` and simply never thought about the flag
- * emitted a row on which `isLineRealnessGated` is structurally false — which is
- * how a second minting door existed for every supervisor and worker row without
- * anyone noticing it had never consulted the gate.
+ * Stating them together is the point. `realness_gated` used to be optional on
+ * the wire, so a producer that wrote `reward` and simply never thought about
+ * the flag emitted a row on which `isLineRealnessGated` was structurally false
+ * — which is how a second minting door existed for every supervisor and worker
+ * row without anyone noticing it had never consulted the gate. The wire schema
+ * now requires the flag, and this pair is how a producer states it.
  */
 export interface RolloutRewardFields {
   reward: number | null

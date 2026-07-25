@@ -99,7 +99,9 @@ export {
 // ── Gates ────────────────────────────────────────────────────────────
 export { composeGate } from './gates/compose'
 export {
+  type DefaultProductionGateCheck,
   type DefaultProductionGateOptions,
+  type DefaultProductionRewardHackingOptions,
   defaultProductionGate,
 } from './gates/default-production-gate'
 export { type HeldOutGateOptions, heldOutGate } from './gates/heldout-gate'
@@ -357,7 +359,9 @@ export type {
   DispatchContext,
   DispatchFn,
   Gate,
+  GateCheckStatus,
   GateContext,
+  GateContribution,
   GateDecision,
   GateResult,
   GenerationCandidate,

@@ -79,5 +79,6 @@ describe('heldOutGate', () => {
     } as never)
     expect(result.decision).toBe('hold')
     expect(result.reasons?.join(' ')).toMatch(/too few/)
+    expect(result.contributingGates[0]?.status).toBe('not_evaluated')
   })
 })

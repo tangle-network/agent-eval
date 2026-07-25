@@ -48,6 +48,7 @@ import { assertLlmRoute, type LlmClientOptions, type LlmRouteRequirements } from
 import { canonicalize, hashJson } from './pre-registration'
 import type {
   JudgeScoresRecord,
+  RunCostProvenance,
   RunJudgeMetadata,
   RunOutcome,
   RunRecord,
@@ -114,8 +115,10 @@ export interface CampaignRunOutcome {
   pass: boolean
   /** Score for the run on its split. Maps to `searchScore` or `holdoutScore`. */
   score: number
-  /** Mandatory cost in USD. Use 0 + raw.cost_unknown=1 only if truly unknown. */
-  costUsd: number
+  /** Cost in USD, or null when the runner could not capture it. */
+  costUsd: number | null
+  /** Source of the cost amount. */
+  costProvenance: RunCostProvenance
   tokenUsage: RunTokenUsage
   /** Snapshot model id (e.g. `claude-sonnet-4-6@2025-04-15`). */
   model: string
@@ -535,7 +538,9 @@ export async function runEvalCampaign<V>(
         commitSha: opts.commitSha,
         wallMs,
         costUsd: outcome.costUsd,
+        costProvenance: outcome.costProvenance,
         tokenUsage: outcome.tokenUsage,
+        terminalOutcome: 'succeeded',
         judgeMetadata: outcome.judgeMetadata,
         outcome: recordOutcome,
         ...(outcome.failureClass ? { failureClass: outcome.failureClass } : {}),

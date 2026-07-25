@@ -113,15 +113,12 @@ describe('parseFindingSubject — runtime surfaces', () => {
     expect(parseFindingSubject(raw)).toEqual(expected)
   })
 
-  it.each([
-    'skill:CodeReview',
-    'mcp:Linear',
-    'hook:',
-    'subagent:',
-    'workflow:',
-  ])('rejects malformed runtime subject %s', (raw) => {
-    expect(parseFindingSubject(raw)).toBeNull()
-  })
+  it.each(['skill:CodeReview', 'mcp:Linear', 'hook:', 'subagent:', 'workflow:'])(
+    'rejects malformed runtime subject %s',
+    (raw) => {
+      expect(parseFindingSubject(raw)).toBeNull()
+    },
+  )
 
   it('parses rag:<corpus>:<doc>', () => {
     expect(parseFindingSubject('rag:irs-rulings:rev-rul-2024-12')).toEqual({

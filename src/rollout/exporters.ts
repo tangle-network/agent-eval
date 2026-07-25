@@ -25,7 +25,7 @@ import type {
   RolloutStep,
   ToolDef,
 } from './schema'
-import { assertRewardGate, isTrainableSplit } from './schema'
+import { assertRewardGate } from './schema'
 
 // ---------------------------------------------------------------------------
 // The realness claims every emitted row carries.
@@ -72,10 +72,41 @@ export function realnessLabels(line: MintedRolloutLine): RealnessLabels {
 // (a) SFT chat JSONL
 // ---------------------------------------------------------------------------
 
-export interface SftExportOptions {
-  /** Export only lines with reward ≥ this (default 1 = clean successes only). */
-  minReward?: number
+export interface TrainingExportOptions {
+  /** Include held-out evaluation data in training output. Default false. */
+  allowHeldOutTrainingData?: boolean
+  /** Require reward to be strictly greater than this value. Default 0. */
+  minimumQualityExclusive?: number
 }
+
+/**
+ * What a signed-signal exporter (verifiers, RFT) does with lines that are not
+ * clean trainable successes — realness-gated lines above all.
+ *
+ *   - 'exclude'       — the default, the same fail-closed policy as every
+ *                       other training export: positive, completed,
+ *                       non-gated rows on a trainable split.
+ *   - 'zero-and-flag' — keep them, at their non-positive (or null) reward,
+ *                       with `RealnessLabels` on the row. The dataset release
+ *                       sets this per `FORMAT_GATE_DISPOSITION`: in these
+ *                       formats the reward is a signed learning signal, so a
+ *                       gamed trajectory at reward 0 is a correct negative,
+ *                       and dropping it would bias the negative population
+ *                       toward honest failures and leave a trainer no example
+ *                       of gaming being penalized. The split policy is NOT
+ *                       relaxed: held-out lines still need the named opt-in.
+ *
+ * SFT deliberately has no such option — an SFT row is an imitation target and
+ * a gamed trajectory must never appear in one at any weight.
+ */
+export type GatedLineDisposition = 'exclude' | 'zero-and-flag'
+
+export interface SignedSignalExportOptions extends TrainingExportOptions {
+  /** Disposition for non-trainable lines. Default 'exclude'. */
+  gatedLines?: GatedLineDisposition
+}
+
+export type SftExportOptions = TrainingExportOptions
 
 export interface SftRow {
   messages: ChatMessage[]
@@ -91,9 +122,10 @@ export interface SftRow {
 /**
  * Supervised fine-tune rows: the completed conversation of each qualifying
  * line. Fail-closed filters: trainable split only (never holdout/canary),
- * reward ≥ minReward, realness-gated lines never qualify, gap lines carry
- * no trainable content, and copied-context turns are dropped from the
- * transcript (Harbor ATIF RFC 0001 rule 7 — see `ChatMessage.is_copied_context`).
+ * reward strictly above `minimumQualityExclusive` (default 0), realness-gated
+ * lines never qualify, gap lines carry no trainable content, and
+ * copied-context turns are dropped from the transcript (Harbor ATIF RFC 0001
+ * rule 7 — see `ChatMessage.is_copied_context`).
  *
  * `realness_gated` is therefore always `false` on an emitted row. It is carried
  * anyway: an SFT row is a pure imitation target, so the row states its realness
@@ -103,17 +135,9 @@ export interface SftRow {
  * happened to omit the field.
  */
 export function toSftRows(lines: MintedRolloutLine[], options: SftExportOptions = {}): SftRow[] {
-  const minReward = options.minReward ?? 1
   for (const line of lines) assertRewardGate(line, 'SFT export')
   return lines
-    .filter(
-      (line) =>
-        line.outcome.reward !== null &&
-        line.outcome.reward >= minReward &&
-        line.outcome.realness_gated !== true &&
-        isTrainableSplit(line.task.split) &&
-        line.messages.length > 0,
-    )
+    .filter((line) => isTrainingLineEligible(line, options) && line.messages.length > 0)
     .map((line) => ({
       // Dropped, not kept-and-masked: a copied-context turn was authored by
       // another agent, and an SFT trainer has no notion of "present but not a
@@ -132,7 +156,7 @@ export function toSftRows(lines: MintedRolloutLine[], options: SftExportOptions 
 }
 
 // ---------------------------------------------------------------------------
-// (b) Reward rows — every scored line, failures included as signal.
+// (b) Reward rows
 // ---------------------------------------------------------------------------
 
 export interface RewardRow {
@@ -159,16 +183,24 @@ export interface RewardRow {
 }
 
 /**
- * Reward-labeled rows: every line with a scalar reward, success or
- * failure. Failures are signal here — only the realness-gate zeroing
- * (applied at mint time) touches the reward, never filtering. Lines with
- * no verdict (reward null) are excluded: an unlabeled example is a gap,
- * not a zero.
+ * Reward-labeled rows for completed, positive-quality training runs.
  */
-export function toRewardRows(lines: MintedRolloutLine[]): RewardRow[] {
+export function toRewardRows(
+  lines: MintedRolloutLine[],
+  options: TrainingExportOptions = {},
+): RewardRow[] {
   for (const line of lines) assertRewardGate(line, 'reward-row export')
   return lines
-    .filter((line) => line.outcome.reward !== null)
+    .filter(
+      (line) =>
+        isTrainingLineEligible(line, options) &&
+        line.messages.some(
+          (message) =>
+            message.role === 'user' &&
+            typeof message.content === 'string' &&
+            message.content.length > 0,
+        ),
+    )
     .map((line) => ({
       prompt: line.messages.find((m) => m.role === 'user')?.content ?? '',
       steps: line.steps ?? [],
@@ -255,8 +287,23 @@ export function toVerifiersRolloutOutput(line: MintedRolloutLine): VerifiersRoll
   }
 }
 
-export function toVerifiersRolloutOutputs(lines: MintedRolloutLine[]): VerifiersRolloutOutput[] {
-  return lines.filter((line) => line.messages.length > 0).map(toVerifiersRolloutOutput)
+export function toVerifiersRolloutOutputs(
+  lines: MintedRolloutLine[],
+  options: SignedSignalExportOptions = {},
+): VerifiersRolloutOutput[] {
+  if (options.gatedLines === 'zero-and-flag') {
+    return lines
+      .filter((line) => isSplitEligible(line, options) && line.messages.length > 0)
+      .map(toVerifiersRolloutOutput)
+  }
+  return lines
+    .filter(
+      (line) =>
+        isTrainingLineEligible(line, options) &&
+        firstAssistantIndex(line.messages) > 0 &&
+        firstAssistantIndex(line.messages) < line.messages.length,
+    )
+    .map(toVerifiersRolloutOutput)
 }
 
 // ---------------------------------------------------------------------------
@@ -297,9 +344,19 @@ export function toRftItem(line: MintedRolloutLine): RftItem {
 }
 
 /** RFT needs a real prompt: lines whose transcript starts with prompt turns. */
-export function toRftItems(lines: MintedRolloutLine[]): RftItem[] {
+export function toRftItems(
+  lines: MintedRolloutLine[],
+  options: SignedSignalExportOptions = {},
+): RftItem[] {
   return lines
-    .filter((line) => line.messages.length > 0 && firstAssistantIndex(line.messages) > 0)
+    .filter(
+      (line) =>
+        (options.gatedLines === 'zero-and-flag'
+          ? isSplitEligible(line, options)
+          : isTrainingLineEligible(line, options)) &&
+        line.messages.length > 0 &&
+        firstAssistantIndex(line.messages) > 0,
+    )
     .map(toRftItem)
 }
 
@@ -310,4 +367,37 @@ export function toRftItems(lines: MintedRolloutLine[]): RftItem[] {
 
 export function toJsonl(rows: ReadonlyArray<unknown>): string {
   return rows.map((r) => JSON.stringify(r)).join('\n') + (rows.length ? '\n' : '')
+}
+
+/**
+ * The split half of the training policy alone: `search` is trainable, held-out
+ * needs the named opt-in, `dev` and `canary` never ship. This is the ONE check
+ * `'zero-and-flag'` does not relax — a gated line is shipped as a labeled
+ * negative, not as a licence to train on evaluation data.
+ */
+function isSplitEligible(line: RolloutLine, options: TrainingExportOptions): boolean {
+  if (line.task.split === 'search') return true
+  return line.task.split === 'holdout' && options.allowHeldOutTrainingData === true
+}
+
+function isTrainingLineEligible(
+  line: RolloutLine,
+  options: TrainingExportOptions,
+): line is RolloutLine & { outcome: RolloutLine['outcome'] & { reward: number } } {
+  const minimumQualityExclusive = options.minimumQualityExclusive ?? 0
+  if (!Number.isFinite(minimumQualityExclusive)) {
+    throw new Error('minimumQualityExclusive must be finite')
+  }
+
+  const reward = line.outcome.reward
+  if (reward === null) return false
+  if (!Number.isFinite(reward)) {
+    throw new Error(`training reward for rollout "${line.rollout_id}" must be finite`)
+  }
+  if (reward <= minimumQualityExclusive) return false
+  if (!line.outcome.is_completed || line.outcome.is_truncated || line.outcome.error !== null) {
+    return false
+  }
+  if (line.outcome.realness_gated === true) return false
+  return isSplitEligible(line, options)
 }

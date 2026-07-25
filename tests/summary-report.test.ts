@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import type { GateDecision } from '../src/promotion-gate'
+import type { GateDecision } from '../src/held-out-gate'
 import type { RunRecord } from '../src/run-record'
 import { gainHistogram, paretoChart, researchReport, summaryTable } from '../src/summary-report'
 
@@ -8,7 +8,7 @@ function rec(
   seed: number,
   splitTag: 'search' | 'holdout',
   score: number,
-  costUsd = 0.01,
+  costUsd: number | null = 0.01,
   experimentId = 'exp1',
 ): RunRecord {
   return {
@@ -22,10 +22,14 @@ function rec(
     commitSha: 'abcd',
     wallMs: 1000,
     costUsd,
+    costProvenance:
+      costUsd === null ? { kind: 'uncaptured', usd: null } : { kind: 'observed', usd: costUsd },
     tokenUsage: { input: 100, output: 100 },
+    terminalOutcome: 'succeeded',
     outcome:
       splitTag === 'holdout' ? { holdoutScore: score, raw: {} } : { searchScore: score, raw: {} },
     splitTag,
+    scenarioId: `${experimentId}:scenario`,
   }
 }
 
@@ -44,19 +48,36 @@ describe('summaryTable', () => {
     expect(t.markdown).toContain('| B |')
   })
 
-  it("computes BH-adjusted q-values and Cohen's d versus comparator", () => {
+  it("computes BH-adjusted q-values and paired Cohen's dz versus comparator", () => {
     const runs: RunRecord[] = []
-    // baseline: ~0.5; cand: ~0.7 — strong, paired
     for (let i = 0; i < 8; i++) {
       runs.push(rec('baseline', i, 'holdout', 0.5 + i * 0.001))
-      runs.push(rec('cand', i, 'holdout', 0.7 + i * 0.001))
+      runs.push(rec('cand', i, 'holdout', 0.65 + i * 0.015))
     }
     const t = summaryTable(runs, { comparator: 'baseline', split: 'holdout' })
     const cand = t.rows.find((r) => r.candidateId === 'cand')!
-    expect(cand.qValue).toBeLessThan(0.05)
-    expect(cand.cohensD).toBeGreaterThan(0.8)
+    expect(cand.qValue).not.toBeNull()
+    expect(cand.qValue!).toBeLessThan(0.05)
+    expect(cand.cohensD).not.toBeNull()
+    expect(cand.cohensD!).toBeGreaterThan(0.8)
+    expect(cand.pairedN).toBe(8)
+    expect(cand.unpairedCandidateN).toBe(0)
+    expect(cand.unpairedComparatorN).toBe(0)
     const base = t.rows.find((r) => r.candidateId === 'baseline')!
-    expect(Number.isNaN(base.qValue)).toBe(true)
+    expect(base.qValue).toBeNull()
+  })
+
+  it('reports a constant non-zero paired effect as undefined instead of enormous', () => {
+    const runs: RunRecord[] = []
+    for (let i = 0; i < 8; i++) {
+      runs.push(rec('baseline', i, 'holdout', 0.5 + i * 0.001))
+      runs.push(rec('candidate', i, 'holdout', 0.7 + i * 0.001))
+    }
+
+    const table = summaryTable(runs, { comparator: 'baseline', split: 'holdout' })
+
+    expect(table.rows.find((row) => row.candidateId === 'candidate')?.cohensD).toBeNull()
+    expect(table.markdown).toContain("Cohen's dz")
   })
 
   it('skips candidates with no runs on the requested split', () => {
@@ -91,6 +112,8 @@ describe('paretoChart', () => {
       baselineId: 'base',
       evidence: {
         productiveRuns: 5,
+        unpairedCandidateRuns: 0,
+        unpairedBaselineRuns: 0,
         medianPairedDelta: 0.1,
         pairedCI: { low: 0.05, high: 0.15 },
         pairedPValue: 0.01,
@@ -98,6 +121,8 @@ describe('paretoChart', () => {
         holdoutScore: 0.8,
         overfitGap: 0.05,
         baselineOverfitGap: 0.05,
+        medianCandidateCost: 0.1,
+        medianBaselineCost: 0.08,
       },
       reason: 'ok',
       rejectionCode: null,
@@ -114,6 +139,8 @@ describe('gainHistogram', () => {
     const f = gainHistogram(runs, 'cand', 'baseline')
     expect(f.n).toBe(0)
     expect(f.bins).toHaveLength(0)
+    expect(f.median).toBeNull()
+    expect(f.ci).toBeNull()
   })
 
   it('histogram count matches pair count', () => {
@@ -126,8 +153,8 @@ describe('gainHistogram', () => {
     expect(f.n).toBe(12)
     const total = f.bins.reduce((s, b) => s + b.count, 0)
     expect(total).toBe(12)
-    expect(f.median).toBeGreaterThan(0)
-    expect(f.ci.high).toBeGreaterThanOrEqual(f.ci.low)
+    expect(f.median!).toBeGreaterThan(0)
+    expect(f.ci!.high).toBeGreaterThanOrEqual(f.ci!.low)
   })
 
   it('rejects bins ≤ 0', () => {
@@ -172,6 +199,106 @@ describe('researchReport', () => {
     expect(report.charts.gains).toHaveLength(2)
     expect(report.methodology.assumptions.length).toBeGreaterThan(0)
     expect(report.methodology.citations.some((c) => c.includes('Benjamini'))).toBe(true)
+  })
+
+  it('never recommends promotion from search-only evidence', async () => {
+    const runs: RunRecord[] = []
+    for (let i = 0; i < 24; i++) {
+      runs.push(rec('baseline', i, 'search', 0.5 + i * 0.001, 0.08, `task-${i}`))
+      runs.push(rec('candidate', i, 'search', 0.7 + i * 0.001, 0.1, `task-${i}`))
+    }
+
+    const report = await researchReport(runs, {
+      comparator: 'baseline',
+      split: 'search',
+      generatedAt: '2026-05-03T00:00:00.000Z',
+      seed: 1,
+    })
+
+    expect(
+      report.candidates.find((candidate) => candidate.candidateId === 'candidate')?.decision,
+    ).toBe('hold')
+    expect(report.recommendation.decision).toBe('hold')
+    expect(report.recommendation.nextActions.join('\n')).not.toMatch(/\bship\b/i)
+    expect(report.recommendation.nextActions.join('\n')).toMatch(/holdout/i)
+  })
+
+  it.each([
+    'few_runs',
+    'missing_split_scores',
+    'missing_cost',
+    'negative_delta',
+    'overfit_gap',
+    'cost_ceiling',
+  ] as const)('maps %s held-out decisions to rejection', async (rejectionCode) => {
+    const runs: RunRecord[] = []
+    const candidateCost = rejectionCode === 'missing_cost' ? null : 0.1
+    for (let i = 0; i < 24; i++) {
+      runs.push(rec('baseline', i, 'holdout', 0.5 + i * 0.001, 0.08, `task-${i}`))
+      runs.push(rec('candidate', i, 'holdout', 0.7 + i * 0.001, candidateCost, `task-${i}`))
+    }
+    const decision: GateDecision = {
+      promote: false,
+      candidateId: 'candidate',
+      baselineId: 'baseline',
+      evidence: {
+        productiveRuns: 24,
+        unpairedCandidateRuns: 0,
+        unpairedBaselineRuns: 0,
+        medianPairedDelta: 0.2,
+        pairedCI: { low: 0.18, high: 0.22 },
+        pairedPValue: 0.001,
+        searchScore: 0.7,
+        holdoutScore: 0.7,
+        overfitGap: 0,
+        baselineOverfitGap: 0,
+        medianCandidateCost: candidateCost,
+        medianBaselineCost: 0.08,
+      },
+      reason: rejectionCode,
+      rejectionCode,
+    }
+
+    const report = await researchReport(runs, {
+      comparator: 'baseline',
+      gateDecisions: { candidate: decision },
+      generatedAt: '2026-05-03T00:00:00.000Z',
+      seed: 1,
+    })
+    const candidate = report.candidates.find((row) => row.candidateId === 'candidate')!
+
+    expect(candidate.decision).toBe('reject')
+    expect(candidate.gate).toBe('reject')
+    expect(candidate.decisionReason).toContain(rejectionCode)
+    expect(report.recommendation.decision).toBe('reject')
+    if (rejectionCode === 'missing_cost') {
+      expect(report.charts.pareto.points.some((point) => point.candidateId === 'candidate')).toBe(
+        false,
+      )
+    }
+  })
+
+  it('uses Dirichlet weights for Bayesian-bootstrap posterior probabilities', async () => {
+    const runs: RunRecord[] = []
+    const deltas = [-0.4, 0.4, 0.4, 0.4, 0.4, 0.4]
+    for (let i = 0; i < deltas.length; i++) {
+      runs.push(rec('baseline', i, 'holdout', 0.5, 0.05, `task-${i}`))
+      runs.push(rec('candidate', i, 'holdout', 0.5 + deltas[i]!, 0.05, `task-${i}`))
+    }
+
+    const report = await researchReport(runs, {
+      comparator: 'baseline',
+      minPairs: 6,
+      generatedAt: '2026-05-03T00:00:00.000Z',
+      seed: 7,
+    })
+    const probability = report.candidates.find(
+      (candidate) => candidate.candidateId === 'candidate',
+    )?.prGreaterThanZero
+
+    expect(probability).not.toBeNull()
+    expect(probability!).toBeGreaterThan(0.95)
+    expect(probability!).toBeLessThan(0.99)
   })
 
   it('returns needs_more_data when paired coding runs are below the configured floor and reports an actionable MDE', async () => {
@@ -248,6 +375,8 @@ describe('researchReport', () => {
       baselineId: 'baseline',
       evidence: {
         productiveRuns: 24,
+        unpairedCandidateRuns: 0,
+        unpairedBaselineRuns: 0,
         medianPairedDelta: 0.2,
         pairedCI: { low: 0.18, high: 0.22 },
         pairedPValue: 0.001,
@@ -255,6 +384,8 @@ describe('researchReport', () => {
         holdoutScore: 0.7,
         overfitGap: 0.2,
         baselineOverfitGap: 0.05,
+        medianCandidateCost: 0.1,
+        medianBaselineCost: 0.08,
       },
       reason: 'overfit',
       rejectionCode: 'overfit_gap',

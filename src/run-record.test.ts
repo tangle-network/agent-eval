@@ -14,11 +14,13 @@ function base(): RunRecord {
     commitSha: 'abc1234',
     wallMs: 100,
     costUsd: 0.01,
+    costProvenance: { kind: 'observed', usd: 0.01 },
     tokenUsage: { input: 100, output: 50 },
+    terminalOutcome: 'succeeded',
     splitTag: 'holdout',
     scenarioId: 'sA',
     outcome: { holdoutScore: 0.8, raw: {} },
-  } as RunRecord
+  }
 }
 
 describe('RunRecord — optional realness verdict (corpus carries authenticity)', () => {

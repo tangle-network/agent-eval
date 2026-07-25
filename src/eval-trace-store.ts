@@ -35,17 +35,13 @@ import { isRunRecord, type RunRecord, type RunSplitTag, validateRunRecord } from
  * Analysis that needs to SEE the inflated number (reward-hack detection,
  * per-run reporting) reads `observedScore` from `rollout/reward.ts` directly.
  *
- * Throws when a record carries neither score — a RunRecord is invalid without
- * at least one, but a hand-built object might be.
+ * Returns `undefined` for an execution-only record (neither score present):
+ * such rows are valid RunRecords, but cannot participate in score-ranked
+ * queries. A gated run still reads 0 — the gate's verdict is a number, never
+ * a gap.
  */
-export function runScore(record: RunRecord): number {
-  const score = trainingScore(record)
-  if (score === undefined) {
-    throw new ValidationError(
-      `EvalTraceStore: run ${record.runId} has neither holdoutScore nor searchScore`,
-    )
-  }
-  return score
+export function runScore(record: RunRecord): number | undefined {
+  return trainingScore(record)
 }
 
 export interface RunRecordFilter {
@@ -70,8 +66,12 @@ function matches(record: RunRecord, f: RunRecordFilter): boolean {
   if (f.scenarioId && record.scenarioId !== f.scenarioId) return false
   if (f.model && record.model !== f.model) return false
   if (f.splitTag && record.splitTag !== f.splitTag) return false
-  if (f.minScore !== undefined && runScore(record) < f.minScore) return false
-  if (f.maxScore !== undefined && runScore(record) > f.maxScore) return false
+  if (f.minScore !== undefined || f.maxScore !== undefined) {
+    const score = runScore(record)
+    if (score === undefined) return false
+    if (f.minScore !== undefined && score < f.minScore) return false
+    if (f.maxScore !== undefined && score > f.maxScore) return false
+  }
   if (f.rawEquals && record.outcome.raw[f.rawEquals.key] !== f.rawEquals.value) return false
   if (f.where && !f.where(record)) return false
   return true
@@ -232,13 +232,17 @@ export class EvalTraceStore {
         splitTag: opts.splitTag,
       })
     ).filter((r) => !isRealnessGated(r))
-    if (rows.length === 0) return null
-    let best = rows[0]!
-    let bestScore = runScore(best)
-    for (let i = 1; i < rows.length; i++) {
-      const s = runScore(rows[i]!)
+    const scored = rows.flatMap((record) => {
+      const score = runScore(record)
+      return score === undefined ? [] : [{ record, score }]
+    })
+    if (scored.length === 0) return null
+    let best = scored[0]!.record
+    let bestScore = scored[0]!.score
+    for (let i = 1; i < scored.length; i++) {
+      const s = scored[i]!.score
       if (s > bestScore) {
-        best = rows[i]!
+        best = scored[i]!.record
         bestScore = s
       }
     }
@@ -273,6 +277,7 @@ export class EvalTraceStore {
           continue
         }
         const s = runScore(r)
+        if (s === undefined) continue
         const prev = m.get(sid)
         if (prev === undefined || s > prev) m.set(sid, s)
       }

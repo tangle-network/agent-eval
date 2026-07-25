@@ -476,6 +476,7 @@ export function gepaOptimizationMethod<TScenario extends Scenario, TArtifact>(
         durationMs: Date.now() - started,
         provenance: {
           ...runtime,
+          ...(config.optimizer ? { optimizerModel: config.optimizer.model } : {}),
           compatibleRunId,
           runId,
           resumed: result.resumed,

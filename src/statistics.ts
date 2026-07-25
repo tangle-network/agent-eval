@@ -258,6 +258,34 @@ export function cohensD(a: number[], b: number[]): number {
   return (meanB - meanA) / pooled
 }
 
+/**
+ * Cohen's dz for paired observations: mean(after - before) divided by the
+ * sample standard deviation of those within-pair deltas.
+ *
+ * Returns null when fewer than two pairs exist or a non-zero constant delta
+ * has zero observed variance. In that case the standardized effect is
+ * undefined, not an arbitrarily large finite number.
+ */
+export function pairedCohensDz(before: number[], after: number[]): number | null {
+  if (before.length !== after.length) {
+    throw new ValidationError(
+      `pairedCohensDz: unequal sample sizes (${before.length} vs ${after.length})`,
+    )
+  }
+  if (before.length < 2) return null
+  const deltas = before.map((value, index) => after[index]! - value)
+  if (deltas.some((value) => !Number.isFinite(value))) {
+    throw new ValidationError('pairedCohensDz: all paired values must be finite')
+  }
+  const meanDelta = deltas.reduce((sum, value) => sum + value, 0) / deltas.length
+  const variance =
+    deltas.reduce((sum, value) => sum + (value - meanDelta) ** 2, 0) / (deltas.length - 1)
+  const standardDeviation = Math.sqrt(variance)
+  const scale = Math.max(1, Math.abs(meanDelta), ...deltas.map(Math.abs))
+  if (standardDeviation <= Number.EPSILON * scale) return meanDelta === 0 ? 0 : null
+  return meanDelta / standardDeviation
+}
+
 export type CliffsMagnitude = 'negligible' | 'small' | 'medium' | 'large'
 
 /**
@@ -745,6 +773,26 @@ export function requiredSampleSize(opts: {
   const zBeta = zQuantile(power)
   const n = 2 * ((zAlpha + zBeta) / effect) ** 2
   return Math.ceil(n)
+}
+
+/**
+ * Required number of paired observations for a target Cohen's dz.
+ * Unlike the independent-groups formula, this has no two-arm factor of two.
+ */
+export function requiredPairedSampleSize(opts: {
+  effect: number
+  alpha?: number
+  power?: number
+  twoSided?: boolean
+}): number {
+  const effect = opts.effect
+  if (!Number.isFinite(effect) || effect <= 0) return Infinity
+  const alpha = opts.alpha ?? 0.05
+  const power = opts.power ?? 0.8
+  const twoSided = opts.twoSided ?? true
+  const zAlpha = zQuantile(twoSided ? 1 - alpha / 2 : 1 - alpha)
+  const zBeta = zQuantile(power)
+  return Math.ceil(((zAlpha + zBeta) / effect) ** 2)
 }
 
 /**

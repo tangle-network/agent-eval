@@ -19,10 +19,16 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { analyzeRuns, evalReportingSuite } from '../src/contract'
 import type { RunRecord } from '../src/run-record'
 
-function makeRun(opts: { id: string; candidate: string; composite: number }): RunRecord {
+function makeRun(opts: {
+  id: string
+  scenarioId: string
+  candidate: string
+  composite: number
+}): RunRecord {
   return {
     runId: opts.id,
     experimentId: 'exp',
+    scenarioId: opts.scenarioId,
     candidateId: opts.candidate,
     seed: 0,
     model: 'm@v',
@@ -31,17 +37,19 @@ function makeRun(opts: { id: string; candidate: string; composite: number }): Ru
     commitSha: 'abc',
     wallMs: 100,
     costUsd: 0.01,
+    costProvenance: { kind: 'observed', usd: 0.01 },
     tokenUsage: { input: 100, output: 50 },
+    terminalOutcome: 'succeeded',
     outcome: { holdoutScore: opts.composite, raw: {} },
     splitTag: 'holdout',
   } satisfies RunRecord
 }
 
 const runs: RunRecord[] = [
-  makeRun({ id: 'r1', candidate: 'base', composite: 0.4 }),
-  makeRun({ id: 'r2', candidate: 'base', composite: 0.5 }),
-  makeRun({ id: 'r3', candidate: 'cand', composite: 0.7 }),
-  makeRun({ id: 'r4', candidate: 'cand', composite: 0.8 }),
+  makeRun({ id: 'r1', scenarioId: 's1', candidate: 'base', composite: 0.4 }),
+  makeRun({ id: 'r2', scenarioId: 's2', candidate: 'base', composite: 0.5 }),
+  makeRun({ id: 'r3', scenarioId: 's1', candidate: 'cand', composite: 0.7 }),
+  makeRun({ id: 'r4', scenarioId: 's2', candidate: 'cand', composite: 0.8 }),
 ]
 
 let dir: string

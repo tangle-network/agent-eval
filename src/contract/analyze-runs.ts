@@ -24,17 +24,17 @@ import type { AnalystRegistry } from '../analyst/registry'
 import type { AnalystFinding } from '../analyst/types'
 import { checkCanaries } from '../contamination-guard'
 import type { DatasetScenario } from '../dataset'
-import { summarizeBackendIntegrity } from '../integrity/backend-integrity'
 import { continuousAgreement } from '../judge-calibration'
+import { pairRunRecords } from '../paired-arms'
 import { observedSplitScore } from '../rollout/reward'
-import { type RunRecord, type RunTokenUsage, resolveRunCostProvenance } from '../run-record'
+import type { RunRecord, RunTerminalOutcome, RunTokenUsage } from '../run-record'
 import {
-  cohensD,
   pairedBootstrap,
+  pairedCohensDz,
   pairedMde,
   pairedTTest,
   pearsonR,
-  requiredSampleSize,
+  requiredPairedSampleSize,
   spearmanR,
 } from '../statistics'
 import { type ParetoFigureSpec, paretoChart } from '../summary-report'
@@ -66,7 +66,8 @@ export interface AnalyzeRunsOptions {
   split?: 'search' | 'holdout' | 'auto'
   /** Pairwise analysis configuration. When both `baselineCandidateId` and
    *  `candidateCandidateId` are present, lift is computed on paired
-   *  (experimentId, seed) tuples shared between the two sides. */
+   *  (experimentId, scenarioId, seed) identities shared between the two sides.
+   *  Unmatched rows remain visible in the lift result. */
   baselineCandidateId?: string
   candidateCandidateId?: string
   /** Canary scenarios — checked against every run's raw output for
@@ -97,7 +98,7 @@ export interface AnalyzeRunsOptions {
    *  recommendations fire on statistically significant regressions.
    *  The two windows do NOT have to share scenarios — the comparison
    *  is two-sample unpaired (the substrate's `lift` field uses paired
-   *  bootstrap on shared (experimentId, seed) tuples; this is the
+   *  bootstrap on shared (experimentId, scenarioId, seed) identities; this is the
    *  shape for "this week vs last week" rather than "candidate vs
    *  baseline within a campaign"). */
   baselineRuns?: RunRecord[]
@@ -145,18 +146,15 @@ export async function analyzeRuns(opts: AnalyzeRunsOptions): Promise<InsightRepo
     runs,
     histogramBins: bins,
   })
-  const knownCostRuns = runs.filter((run) => resolveRunCostProvenance(run).kind !== 'uncaptured')
-  const costs = knownCostRuns.map((r) => r.costUsd).filter(Number.isFinite)
+  const knownCostRuns = runs.filter((run) => run.costProvenance.kind !== 'uncaptured')
+  const costs = knownCostRuns.map((r) => r.costUsd).filter(isFiniteNumber)
   const costDist = distributionOf(costs, bins)
   const pareto = paretoChart(knownCostRuns, { split })
   const degraded: { cost?: string; pareto?: string } = {}
   if (provenance.uncaptured.n > 0) {
     degraded.cost = diagnoseCostCoverage(runs, provenance)
   } else if (costs.length === 0 || costs.every((c) => c === 0)) {
-    degraded.cost =
-      runs.length > 0 && runs.every((run) => run.costProvenance !== undefined)
-        ? `all ${runs.length} explicitly observed or estimated USD values are $0`
-        : diagnoseZeroCost(runs)
+    degraded.cost = `all ${runs.length} explicitly observed or estimated USD values are $0`
   }
   if (pareto.points.length < 2) {
     degraded.pareto =
@@ -181,7 +179,7 @@ export async function analyzeRuns(opts: AnalyzeRunsOptions): Promise<InsightRepo
     ? await computeFailureClusters(runs, opts.analyst, split)
     : undefined
 
-  const failureModes = computeFailureModes(runs)
+  const failureModes = computeFailureModes(runs, split)
 
   const contamination = opts.canaryScenarios
     ? computeContamination(runs, opts.canaryScenarios)
@@ -238,18 +236,36 @@ function computeExecutionInsight(runs: RunRecord[], bins: number): ExecutionInsi
     row.costUsd !== undefined ? [row.costUsd] : [],
   )
   const modelCounts = new Map<string, number>()
-  let failureRuns = 0
-  let reportedErrorEvents = 0
+  let executionErrorRuns = 0
+  let executionErrorEvents = 0
   let errorReportingRuns = 0
+  let errorSpanEvents = 0
+  let errorSpanReportingRuns = 0
+  const terminalOutcomes: Record<RunTerminalOutcome, number> = {
+    succeeded: 0,
+    failed: 0,
+    cancelled: 0,
+    incomplete: 0,
+    unknown: 0,
+  }
+  const errorsByTerminalOutcome: ExecutionInsight['executionErrors']['byTerminalOutcome'] = {
+    succeeded: { withErrors: 0, withoutErrors: 0, unreported: 0 },
+    failed: { withErrors: 0, withoutErrors: 0, unreported: 0 },
+    cancelled: { withErrors: 0, withoutErrors: 0, unreported: 0 },
+    incomplete: { withErrors: 0, withoutErrors: 0, unreported: 0 },
+    unknown: { withErrors: 0, withoutErrors: 0, unreported: 0 },
+  }
   let modelCallRuns = 0
   let modelCallEvents = 0
   let modelCallReportingRuns = 0
 
   for (const run of runs) {
     modelCounts.set(run.model, (modelCounts.get(run.model) ?? 0) + 1)
-    const modelCalls = run.outcome.raw.llm_span_count
-    if (Number.isFinite(modelCalls)) {
-      modelCallEvents += modelCalls!
+    const terminalOutcome = run.terminalOutcome
+    terminalOutcomes[terminalOutcome] += 1
+    const modelCalls = nonNegativeCountRaw(run, 'llm_span_count')
+    if (modelCalls !== undefined) {
+      modelCallEvents += modelCalls
       modelCallReportingRuns += 1
     }
     const usage = run.tokenUsage
@@ -262,17 +278,19 @@ function computeExecutionInsight(runs: RunRecord[], bins: number): ExecutionInsi
     ) {
       modelCallRuns += 1
     }
-    const errorEvents = run.outcome.raw.error_span_count
-    if (Number.isFinite(errorEvents)) {
-      reportedErrorEvents += errorEvents!
+    const errorEvents = reportedExecutionErrorEvents(run)
+    if (errorEvents !== undefined) {
+      executionErrorEvents += errorEvents
       errorReportingRuns += 1
-    }
-    if (
-      (run.failureClass !== undefined && run.failureClass !== 'success') ||
-      run.failureMode !== undefined ||
-      (errorEvents ?? 0) > 0
-    ) {
-      failureRuns += 1
+      if (errorEvents > 0) {
+        executionErrorRuns += 1
+        errorsByTerminalOutcome[terminalOutcome].withErrors += 1
+      } else errorsByTerminalOutcome[terminalOutcome].withoutErrors += 1
+    } else errorsByTerminalOutcome[terminalOutcome].unreported += 1
+    const reportedErrorSpans = nonNegativeCountRaw(run, 'error_span_count')
+    if (reportedErrorSpans !== undefined) {
+      errorSpanEvents += reportedErrorSpans
+      errorSpanReportingRuns += 1
     }
   }
 
@@ -306,13 +324,32 @@ function computeExecutionInsight(runs: RunRecord[], bins: number): ExecutionInsi
       events: modelCallEvents,
       reportingRuns: modelCallReportingRuns,
     },
-    failures: {
-      runs: failureRuns,
-      fraction: runs.length > 0 ? failureRuns / runs.length : 0,
-      reportedErrorEvents,
+    executionErrors: {
+      runs: executionErrorRuns,
+      fraction: errorReportingRuns > 0 ? executionErrorRuns / errorReportingRuns : null,
+      events: executionErrorEvents,
       reportingRuns: errorReportingRuns,
+      errorSpanEvents,
+      errorSpanReportingRuns,
+      byTerminalOutcome: errorsByTerminalOutcome,
     },
+    terminalOutcomes,
   }
+}
+
+function reportedExecutionErrorEvents(run: RunRecord): number | undefined {
+  const canonical = nonNegativeCountRaw(run, 'execution_error_count')
+  if (canonical !== undefined) return canonical
+
+  // Legacy code-agent rows used `tool_errors` for the same event class.
+  // Generic span, process, abort, and runtime counters are not equivalent.
+  const toolErrors = nonNegativeCountRaw(run, 'tool_errors')
+  return toolErrors
+}
+
+function nonNegativeCountRaw(run: RunRecord, key: string): number | undefined {
+  const value = finiteRaw(run, key)
+  return value !== undefined && Number.isInteger(value) && value >= 0 ? value : undefined
 }
 
 function summarizeTokenUsage(usages: RunTokenUsage[], bins: number): TokenUsageInsight {
@@ -381,7 +418,7 @@ function summarizeCostProvenance(runs: RunRecord[]): CostProvenanceSummary {
     knownFraction: 0,
   }
   for (const run of runs) {
-    const cost = resolveRunCostProvenance(run)
+    const cost = run.costProvenance
     if (cost.kind === 'uncaptured') {
       summary.uncaptured.n += 1
     } else {
@@ -397,45 +434,26 @@ function summarizeCostProvenance(runs: RunRecord[]): CostProvenanceSummary {
 function diagnoseCostCoverage(runs: RunRecord[], provenance: CostProvenanceSummary): string {
   const uncaptured = provenance.uncaptured.n
   const known = provenance.observed.n + provenance.estimated.n
-  const explicitUncaptured = runs.some((run) => run.costProvenance?.kind === 'uncaptured')
-  if (uncaptured === runs.length && !explicitUncaptured) return diagnoseZeroCost(runs)
   if (uncaptured === runs.length) {
     return `USD cost uncaptured for all ${runs.length} runs — no observed or estimated USD values; token and wall-time metrics remain available.`
   }
   return `USD cost uncaptured for ${uncaptured}/${runs.length} runs; excluded those rows from cost statistics (${known}/${runs.length} retained: ${provenance.observed.n} observed, ${provenance.estimated.n} estimated).`
 }
 
-/** Model-free failure tally. Keys on the canonical cross-agent
- *  `failureClass` when present, falling back to the free-form `failureMode`
- *  for un-migrated producers — so the cross-fleet vocabulary is used the
- *  moment a producer adopts it, without breaking legacy corpora. Returns
- *  undefined when no run carries either tag. */
-/** Explain a zero-valued cost axis by its root cause, not just "no signal".
- *  Two distinct causes blank the axis and need opposite fixes:
- *    - stub-mode (tokenUsage 0/0): the backend never reported real LLM
- *      activity, so cost is unknowable — the fix is upstream (capture usage).
- *    - uncosted (output>0 but costUsd 0): tokens flowed but the model id was
- *      unpriced — the fix is pricing (isModelPriced / resolveModelPricing).
- *  Reuses the backend-integrity summary so the diagnosis stays in lockstep
- *  with the stub/uncosted detectors that gate canonical runs. */
-function diagnoseZeroCost(runs: RunRecord[]): string {
-  const integrity = summarizeBackendIntegrity(runs)
-  const { totalRecords, stubRecords, uncostedRecords } = integrity
-  if (totalRecords > 0 && stubRecords === totalRecords) {
-    return `no costUsd values recorded — all ${totalRecords} records are stub-mode (zero token usage). The backend never reported real LLM activity, so cost cannot be computed; verify the backend actually ran before trusting this corpus.`
-  }
-  if (uncostedRecords > 0) {
-    return `no costUsd values recorded — ${uncostedRecords}/${totalRecords} records have token usage but $0 cost (unpriced model). Check isModelPriced(model) for the run's model id and add it to FAMILY_PRICING.`
-  }
-  if (stubRecords > 0) {
-    return `no costUsd values recorded — ${stubRecords}/${totalRecords} records are stub-mode (zero token usage); the remainder reported neither tokens nor cost. Cost axis carries no signal.`
-  }
-  return 'no costUsd values recorded — cost axis carries no signal'
-}
-
-function computeFailureModes(runs: RunRecord[]): FailureModeTally[] | undefined {
+/**
+ * Model-free task-failure tally.
+ *
+ * A producer tag is counted only when the record also has task-failure
+ * evidence. This prevents producer records that copied a recovered child error
+ * into `failureMode` from being reported as failed tasks.
+ */
+function computeFailureModes(
+  runs: RunRecord[],
+  split: 'search' | 'holdout',
+): FailureModeTally[] | undefined {
   const counts = new Map<string, number>()
   for (const r of runs) {
+    if (!isTaskFailure(r, split)) continue
     const key = r.failureClass ?? r.failureMode
     if (key) counts.set(key, (counts.get(key) ?? 0) + 1)
   }
@@ -536,9 +554,13 @@ function computePriorPeriodComparison(
 
 function knownCostValues(runs: RunRecord[]): number[] {
   return runs
-    .filter((run) => resolveRunCostProvenance(run).kind !== 'uncaptured')
+    .filter((run) => run.costProvenance.kind !== 'uncaptured')
     .map((run) => run.costUsd)
-    .filter(Number.isFinite)
+    .filter(isFiniteNumber)
+}
+
+function isFiniteNumber(value: unknown): value is number {
+  return typeof value === 'number' && Number.isFinite(value)
 }
 
 /** Collect per-dimension values across runs (from outcome.judgeScores.perDimMean). */
@@ -642,13 +664,11 @@ function resolveSplit(
  * number to see an inflated run at all.
  */
 function compositeOf(run: RunRecord, split: 'search' | 'holdout'): number {
-  const primary = observedSplitScore(run, split)
-  if (Number.isFinite(primary)) return primary as number
-  // Fall through to the other split if the preferred one is missing —
-  // analyzeRuns shouldn't refuse to summarise a run just because the
-  // caller asked for the split that wasn't recorded.
-  const alt = observedSplitScore(run, split === 'holdout' ? 'search' : 'holdout')
-  return Number.isFinite(alt) ? (alt as number) : Number.NaN
+  // Split-exact, no cross-split fallthrough: answering "what did this run
+  // score on the split I am summarising" with the other split's number
+  // silently mixes populations.
+  const score = observedSplitScore(run, split)
+  return Number.isFinite(score) ? (score as number) : Number.NaN
 }
 
 // ── Distribution helpers ────────────────────────────────────────────
@@ -661,12 +681,12 @@ function distributionOf(
   if (values.length === 0) {
     return {
       n: 0,
-      mean: 0,
-      p50: 0,
-      p95: 0,
-      stddev: 0,
-      min: 0,
-      max: 0,
+      mean: null,
+      p50: null,
+      p95: null,
+      stddev: null,
+      min: null,
+      max: null,
       histogram: [],
     }
   }
@@ -864,8 +884,17 @@ function computeLift(
     const ids = [...new Set(runs.map((r) => r.candidateId))]
     if (ids.length !== 2) return undefined
     const [idA, idB] = ids as [string, string]
-    const meanA = mean(runs.filter((r) => r.candidateId === idA).map((r) => compositeOf(r, split)))
-    const meanB = mean(runs.filter((r) => r.candidateId === idB).map((r) => compositeOf(r, split)))
+    const scoresA = finiteCompositeScores(
+      runs.filter((run) => run.candidateId === idA),
+      split,
+    )
+    const scoresB = finiteCompositeScores(
+      runs.filter((run) => run.candidateId === idB),
+      split,
+    )
+    if (scoresA.length === 0 || scoresB.length === 0) return undefined
+    const meanA = mean(scoresA)
+    const meanB = mean(scoresB)
     bId = meanA <= meanB ? idA : idB
     cId = meanA <= meanB ? idB : idA
   }
@@ -874,35 +903,11 @@ function computeLift(
   const candidate = runs.filter((r) => r.candidateId === cId)
   if (baseline.length === 0 || candidate.length === 0) return undefined
 
-  // Pair on (experimentId, seed). When that key doesn't match, fall back
-  // to ordinal pairing — common for fresh runs from the same scenario list.
-  const baselineByKey = new Map(baseline.map((r) => [pairingKey(r), r]))
-  const pairedBaseline: number[] = []
-  const pairedCandidate: number[] = []
-  let usedKeyPairing = false
-  for (const cand of candidate) {
-    const b = baselineByKey.get(pairingKey(cand))
-    if (b) {
-      const bC = compositeOf(b, split)
-      const cC = compositeOf(cand, split)
-      if (Number.isFinite(bC) && Number.isFinite(cC)) {
-        pairedBaseline.push(bC)
-        pairedCandidate.push(cC)
-        usedKeyPairing = true
-      }
-    }
-  }
-  if (!usedKeyPairing) {
-    const n = Math.min(baseline.length, candidate.length)
-    for (let i = 0; i < n; i++) {
-      const bC = compositeOf(baseline[i]!, split)
-      const cC = compositeOf(candidate[i]!, split)
-      if (Number.isFinite(bC) && Number.isFinite(cC)) {
-        pairedBaseline.push(bC)
-        pairedCandidate.push(cC)
-      }
-    }
-  }
+  const scoredBaseline = baseline.filter((run) => Number.isFinite(compositeOf(run, split)))
+  const scoredCandidate = candidate.filter((run) => Number.isFinite(compositeOf(run, split)))
+  const pairing = pairRunRecords(scoredBaseline, scoredCandidate)
+  const pairedBaseline = pairing.pairs.map((pair) => compositeOf(pair.baseline, split))
+  const pairedCandidate = pairing.pairs.map((pair) => compositeOf(pair.treatment, split))
   if (pairedBaseline.length === 0) return undefined
 
   const baselineMean = mean(pairedBaseline)
@@ -915,13 +920,16 @@ function computeLift(
     statistic: 'mean',
   })
   const tTest = pairedTTest(pairedBaseline, pairedCandidate)
-  const d = cohensD(pairedBaseline, pairedCandidate)
+  const d = pairedCohensDz(pairedBaseline, pairedCandidate)
   const mde = pairedMde({ nPaired: pairedBaseline.length, power: 0.8, alpha: 0.05 })
-  const requiredN = requiredSampleSize({
-    effect: Math.max(Math.abs(delta), 1e-6),
-    power: 0.8,
-    alpha: 0.05,
-  })
+  const requiredN =
+    d === null || d === 0
+      ? null
+      : requiredPairedSampleSize({
+          effect: Math.abs(d),
+          power: 0.8,
+          alpha: 0.05,
+        })
 
   return {
     baselineMean,
@@ -930,14 +938,12 @@ function computeLift(
     ci95: [bootstrap.low, bootstrap.high],
     pValue: tTest.p,
     n: pairedBaseline.length,
+    unpairedBaseline: pairing.unpairedBaseline.length,
+    unpairedCandidate: pairing.unpairedTreatment.length,
     cohensD: d,
     mde,
     requiredN,
   }
-}
-
-function pairingKey(r: RunRecord): string {
-  return `${r.experimentId}::${r.seed}`
 }
 
 function mean(arr: number[]): number {
@@ -951,7 +957,7 @@ async function computeFailureClusters(
   analyst: AnalystRegistry,
   split: 'search' | 'holdout',
 ): Promise<FailureClusterInsight | undefined> {
-  const failed = runs.filter((r) => compositeOf(r, split) < 0.5 || r.failureMode !== undefined)
+  const failed = runs.filter((run) => isTaskFailure(run, split))
   if (failed.length === 0) return { clusters: [], totalFailures: 0 }
 
   const clusters = new Map<string, { exemplars: string[]; share: number }>()
@@ -981,6 +987,15 @@ async function computeFailureClusters(
   }))
   clusterList.sort((a, b) => b.share - a.share)
   return { clusters: clusterList, totalFailures: failed.length }
+}
+
+function finiteCompositeScores(runs: readonly RunRecord[], split: 'search' | 'holdout'): number[] {
+  return runs.map((run) => compositeOf(run, split)).filter(Number.isFinite)
+}
+
+function isTaskFailure(run: RunRecord, split: 'search' | 'holdout'): boolean {
+  const score = compositeOf(run, split)
+  return Number.isFinite(score) && score < 0.5
 }
 
 // ── Contamination ──────────────────────────────────────────────────
@@ -1075,11 +1090,13 @@ function buildReleaseScorecard(
   // directly when they want SLO-based axis evaluation.
   const axes: InsightReport['release']['axes'] = []
   const liftPass =
-    lift === undefined || lift.ci95[0] > 0
-      ? ('pass' as const)
-      : lift.delta > 0
-        ? ('warn' as const)
-        : ('fail' as const)
+    lift === undefined
+      ? ('not_evaluated' as const)
+      : lift.ci95[0] > 0
+        ? ('pass' as const)
+        : lift.delta > 0
+          ? ('warn' as const)
+          : ('fail' as const)
   axes.push({
     name: 'quality-lift',
     status: liftPass,
@@ -1088,20 +1105,40 @@ function buildReleaseScorecard(
       : 'no baseline/candidate pair available',
   })
   const contamPass =
-    contamination === undefined || contamination.leaks === 0 ? ('pass' as const) : ('fail' as const)
+    contamination === undefined
+      ? ('not_evaluated' as const)
+      : contamination.leaks === 0
+        ? ('pass' as const)
+        : ('fail' as const)
   axes.push({
     name: 'contamination',
     status: contamPass,
     detail: contamination ? `${contamination.leaks} canary leak(s)` : 'no canaries supplied',
   })
-  axes.push({
-    name: 'composite-distribution',
-    status: composite.mean >= 0.5 ? 'pass' : composite.mean >= 0.3 ? 'warn' : 'fail',
-    detail: `mean=${composite.mean.toFixed(3)}, p50=${composite.p50.toFixed(3)}, p95=${composite.p95.toFixed(3)} over n=${composite.n}`,
-  })
+  axes.push(
+    composite.n === 0
+      ? {
+          name: 'composite-distribution',
+          status: 'not_evaluated',
+          detail: 'no task-quality scores available',
+        }
+      : {
+          name: 'composite-distribution',
+          status:
+            composite.mean !== null && composite.mean >= 0.5
+              ? 'pass'
+              : composite.mean !== null && composite.mean >= 0.3
+                ? 'warn'
+                : 'fail',
+          detail:
+            composite.mean === null || composite.p50 === null || composite.p95 === null
+              ? 'task-quality distribution is internally incomplete'
+              : `mean=${composite.mean.toFixed(3)}, p50=${composite.p50.toFixed(3)}, p95=${composite.p95.toFixed(3)} over n=${composite.n}`,
+        },
+  )
   const status = axes.some((a) => a.status === 'fail')
     ? 'fail'
-    : axes.some((a) => a.status === 'warn')
+    : axes.some((a) => a.status === 'warn' || a.status === 'not_evaluated')
       ? 'warn'
       : 'pass'
   return {
@@ -1161,7 +1198,12 @@ function buildRecommendations(ctx: RecommendationContext): Recommendation[] {
   // Composite-distribution branch. Fires when the overall quality signal is
   // poor regardless of lift / contamination / clusters — the customer needs
   // to know they have a problem AND which specific runs to inspect.
-  if (ctx.composite.n > 0) {
+  if (
+    ctx.composite.n > 0 &&
+    ctx.composite.mean !== null &&
+    ctx.composite.p50 !== null &&
+    ctx.composite.p95 !== null
+  ) {
     if (ctx.composite.mean < 0.3) {
       const tail = ctx.composite.tailRuns ?? []
       const names = tail
@@ -1197,11 +1239,8 @@ function buildRecommendations(ctx: RecommendationContext): Recommendation[] {
     }
   }
 
-  // Dominant-failure-mode branch (model-free). A healthy-looking mean can
-  // hide a bimodal corpus — many perfect runs + a cluster of total failures
-  // sharing one named cause. Fires off the structured `failureMode` tags the
-  // harness already recorded, so a single batch with no analyst/baseline
-  // still gets a "go fix this" pointer.
+  // A healthy-looking mean can hide a group of failed tasks sharing one
+  // producer-reported cause. This path does not require an analyst.
   if (ctx.failureModes && ctx.failureModes.length > 0) {
     const top = ctx.failureModes[0]!
     if (top.count >= 3 && top.share >= 0.15) {
@@ -1230,6 +1269,10 @@ function buildRecommendations(ctx: RecommendationContext): Recommendation[] {
   }
 
   if (ctx.lift) {
+    const pairedEffect =
+      ctx.lift.cohensD === null ? 'undefined (zero delta variance)' : ctx.lift.cohensD.toFixed(2)
+    const requiredRuns =
+      ctx.lift.requiredN === null ? 'not estimable' : `~${ctx.lift.requiredN} paired runs`
     const decisive = ctx.lift.ci95[0] > ctx.threshold
     const inconclusive = ctx.lift.ci95[0] <= ctx.threshold && ctx.lift.ci95[1] > ctx.threshold
     if (decisive) {
@@ -1237,14 +1280,14 @@ function buildRecommendations(ctx: RecommendationContext): Recommendation[] {
         priority: 'critical',
         kind: 'ship',
         title: `Ship — lift ${ctx.lift.delta.toFixed(3)} (95% CI ${ctx.lift.ci95[0].toFixed(3)}..${ctx.lift.ci95[1].toFixed(3)})`,
-        detail: `Holdout lift exceeds threshold ${ctx.threshold} with 95% bootstrap confidence (n=${ctx.lift.n}, p=${ctx.lift.pValue.toFixed(4)}, d=${ctx.lift.cohensD.toFixed(2)}).`,
+        detail: `Holdout lift exceeds threshold ${ctx.threshold} with 95% bootstrap confidence (n=${ctx.lift.n}, p=${ctx.lift.pValue.toFixed(4)}, paired d=${pairedEffect}).`,
         evidencePath: 'lift',
       })
     } else if (inconclusive) {
       out.push({
         priority: 'high',
         kind: 'expand-corpus',
-        title: `Inconclusive — need ~${ctx.lift.requiredN} paired runs (have ${ctx.lift.n}) at current effect size`,
+        title: `Inconclusive — required sample is ${requiredRuns} (have ${ctx.lift.n}) at current effect size`,
         detail: `CI straddles threshold. Current MDE at 80% power is ${ctx.lift.mde.toFixed(3)}; observed delta is ${ctx.lift.delta.toFixed(3)}.`,
         evidencePath: 'lift',
       })

@@ -36,6 +36,7 @@ const defaultRunner: CampaignRunner<VariantPayload> = async (ctx) => {
     pass: true,
     score,
     costUsd: 0.001,
+    costProvenance: { kind: 'observed', usd: 0.001 },
     tokenUsage: { input: 5, output: 5 },
     model: 'test-model@2026-05-08',
     promptHash: 'p'.repeat(64),
@@ -63,6 +64,7 @@ describe('runRLCampaign', () => {
 
     expect(result.kind).toBe('agent-eval-rl-campaign')
     expect(result.campaign.runs.length).toBe(48) // 2 × 8 × 3
+    expect(new Set(result.campaign.runs.map((run) => run.splitTag))).toEqual(new Set(['search']))
     expect(result.preferences.pairs.length).toBeGreaterThan(0)
     expect(result.interimConfidence).not.toBeNull()
     expect(result.interimConfidence?.candidates[0]?.candidateId).toBe('cand')
@@ -88,7 +90,7 @@ describe('runRLCampaign', () => {
       report: { comparator: 'baseline' },
       trainerExport: {
         dpo: {
-          promptOf: (id) => `prompt-${id}`,
+          promptOf: () => 'shared scenario prompt',
           completionOf: (id) => `completion-${id}`,
         },
         sft: {
@@ -117,5 +119,27 @@ describe('runRLCampaign', () => {
     })
     expect(result.interimConfidence).toBeNull()
     expect(result.preferences.pairs.length).toBe(0)
+  })
+
+  it('forwards the explicit held-out training override to preference extraction', async () => {
+    const result = await runRLCampaign<VariantPayload>({
+      campaignId: 'held-out-preferences',
+      commitSha: 'abcd',
+      variants: [
+        { id: 'baseline', payload: { prompt: 'baseline' } },
+        { id: 'cand', payload: { prompt: 'better' } },
+      ],
+      scenarios: [{ scenarioId: 's' }],
+      seeds: [0],
+      splitTag: 'holdout',
+      preferences: { allowHeldOutTrainingData: true },
+      llmOpts: { baseUrl: 'https://api.test/v1', apiKey: 'sk-test' },
+      storeFactory: () => new InMemoryTraceStore(),
+      rawSinkFactory: () => new InMemoryRawProviderSink(),
+      runner: defaultRunner,
+    })
+
+    expect(result.preferences.pairs).toHaveLength(1)
+    expect(new Set(result.campaign.runs.map((run) => run.splitTag))).toEqual(new Set(['holdout']))
   })
 })

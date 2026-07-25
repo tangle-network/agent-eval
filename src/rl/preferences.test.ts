@@ -9,7 +9,9 @@ import { extractPreferences } from './preferences'
 // deprecated `RunRecord[]` path run the same pairing code, and both order the
 // pair on the GATED score. Ungated, a gamed run with an inflated score becomes
 // the `chosen` side and DPO learns to prefer the gaming trajectory over its
-// honest sibling — the exact inversion this test exists to catch.
+// honest sibling — the exact inversion this test exists to catch. The record
+// path additionally applies the shared training-row eligibility rule, so a
+// gamed run is dropped outright there rather than sunk to `rejected`.
 
 function rec(args: {
   runId: string
@@ -30,11 +32,13 @@ function rec(args: {
     commitSha: 'abcd',
     wallMs: 100,
     costUsd: 0.01,
+    costProvenance: { kind: 'observed', usd: 0.01 },
     tokenUsage: { input: 1, output: 1 },
-    splitTag: 'holdout',
+    terminalOutcome: 'succeeded',
+    splitTag: 'search',
     scenarioId: args.scenarioId,
     outcome: {
-      holdoutScore: args.score,
+      searchScore: args.score,
       raw: {},
       ...(args.gated === true ? { realness: { score: 0, gated: true, reason: 'faked' } } : {}),
     },
@@ -61,17 +65,27 @@ describe('extractPreferences — lines vs deprecated records', () => {
     expect(fromRecords.pairs[0]?.seed).toBe(0)
   })
 
-  it('sinks a realness-gated run to `rejected` on BOTH paths', async () => {
+  it('sinks a realness-gated line to `rejected` on the line path', async () => {
     const gamed = [
       rec({ runId: 'honest', candidateId: 'a', scenarioId: 's', seed: 0, score: 0.6 }),
       rec({ runId: 'gamed', candidateId: 'b', scenarioId: 's', seed: 0, score: 1, gated: true }),
     ]
     const fromLines = extractPreferences(await mint(gamed), {})
+    expect(fromLines.pairs[0]?.chosenRunId).toBe('honest')
+    expect(fromLines.pairs[0]?.rejectedRunId).toBe('gamed')
+    expect(fromLines.pairs[0]?.scores).toEqual({ chosen: 0.6, rejected: 0 })
+  })
+
+  it('drops a realness-gated run outright on the record path — never the chosen side', () => {
+    const gamed = [
+      rec({ runId: 'honest', candidateId: 'a', scenarioId: 's', seed: 0, score: 0.6 }),
+      rec({ runId: 'gamed', candidateId: 'b', scenarioId: 's', seed: 0, score: 1, gated: true }),
+    ]
     const fromRecords = extractPreferences(gamed, {})
-    expect(fromLines.pairs).toEqual(fromRecords.pairs)
-    expect(fromRecords.pairs[0]?.chosenRunId).toBe('honest')
-    expect(fromRecords.pairs[0]?.rejectedRunId).toBe('gamed')
-    expect(fromRecords.pairs[0]?.scores).toEqual({ chosen: 0.6, rejected: 0 })
+    // Eligibility removes the gamed run before pairing; its honest sibling is
+    // then a singleton, so the claimed 1.0 bought the gamed run nothing.
+    expect(fromRecords.pairs).toHaveLength(0)
+    expect(fromRecords.cellsSingleton).toBe(1)
   })
 
   it('gates a custom rewardOf, so a gamed run cannot become the CHOSEN side', () => {
@@ -84,11 +98,12 @@ describe('extractPreferences — lines vs deprecated records', () => {
       rec({ runId: 'gamed', candidateId: 'b', scenarioId: 's', seed: 0, score: 1, gated: true }),
     ]
     const report = extractPreferences(gamed, {
-      rewardOf: (r) => r.outcome.holdoutScore ?? null,
+      rewardOf: (r) => r.outcome.searchScore ?? null,
     })
-    expect(report.pairs[0]?.chosenRunId).toBe('honest')
-    expect(report.pairs[0]?.rejectedRunId).toBe('gamed')
-    expect(report.pairs[0]?.scores).toEqual({ chosen: 0.9, rejected: 0 })
+    // `trainingRewardOverride` forces the gamed hook value to 0, and the
+    // eligibility rule then drops the run entirely — it appears on NO side.
+    expect(report.pairs).toHaveLength(0)
+    expect(report.cellsSingleton).toBe(1)
   })
 
   it('keeps a custom rewardOf working on an ungated run (the gate is on top, not instead)', () => {
@@ -129,10 +144,20 @@ describe('extractPreferences — lines vs deprecated records', () => {
     expect(report.pairs).toHaveLength(0)
   })
 
-  it('filters lines by rollout split, not by RunRecord splitTag', async () => {
-    const searchRuns = records.map((r) => ({ ...r, splitTag: 'search' as const }))
-    const lines = await mint(searchRuns)
-    expect(extractPreferences(lines, {}).pairs).toHaveLength(0) // default split: holdout
-    expect(extractPreferences(lines, { split: 'search' }).pairs).toHaveLength(1)
+  it('pairs only the search split by default and gates holdout behind the named opt-in', async () => {
+    const holdoutRuns = records.map((r) => ({
+      ...r,
+      splitTag: 'holdout' as const,
+      outcome: { holdoutScore: r.outcome.searchScore, raw: {} },
+    }))
+    const lines = await mint(holdoutRuns)
+    expect(extractPreferences(lines, {}).pairs).toHaveLength(0) // default split: search
+    expect(() => extractPreferences(lines, { split: 'holdout' })).toThrow(
+      /allowHeldOutTrainingData: true/,
+    )
+    expect(
+      extractPreferences(lines, { split: 'holdout', allowHeldOutTrainingData: true }).pairs,
+    ).toHaveLength(1)
+    expect(() => extractPreferences(lines, { split: 'dev' })).toThrow(/evaluation-only/)
   })
 })

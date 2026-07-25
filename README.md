@@ -283,7 +283,7 @@ console.table(result.scores)
 Read `scores` for final-case lift and intervals.
 Read `pairwise` before claiming one method beat another.
 Read `totalCost.accountingComplete` before using the reported dollars as a complete total.
-Each official method score records the optimizer and bridge package versions, source revisions and source-tree hashes, Python runtime, custom engine module hashes, compatible run ID, exact attempt ID, resume status, evaluation count, artifact directory, and available optimizer token usage in `provenance`.
+Each official method score records the optimizer and bridge package versions, source revisions and source-tree hashes, Python runtime, configured optimizer model when present, custom engine module hashes, compatible run ID, exact attempt ID, resume status, evaluation count, artifact directory, and available optimizer token usage in `provenance`.
 
 The [optimizer guide](./docs/campaign-proposers.md) covers recipes, budgets, resuming, and data separation.
 The [runnable comparison](./examples/compare-optimization-methods/) can run GEPA, SkillOpt, or both.
@@ -349,8 +349,8 @@ See [concepts](./docs/concepts.md), [customer paths](./docs/customer-journeys.md
 | `@tangle-network/agent-eval/rl` | Export rewards, preferences, and training rows. |
 | `@tangle-network/agent-eval/wire` | HTTP and RPC schemas for other languages. |
 
-Prefer these subpaths for new code.
-The root export remains broad for compatibility.
+Use subpaths when you want an explicit capability boundary.
+Use the root import for common primitives.
 
 ## Examples
 

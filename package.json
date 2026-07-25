@@ -1,6 +1,6 @@
 {
   "name": "@tangle-network/agent-eval",
-  "version": "0.126.5",
+  "version": "0.127.0",
   "description": "Evaluate and improve AI agents from runs, traces, judges, and feedback. Compare candidates, cluster failures, measure lift, and gate releases.",
   "homepage": "https://github.com/tangle-network/agent-eval#readme",
   "repository": {
@@ -160,31 +160,38 @@
     "verify:package": "pnpm run check:skill && node scripts/verify-package-exports.mjs"
   },
   "dependencies": {
-    "@asteasolutions/zod-to-openapi": "^8.5.0",
-    "@ax-llm/ax": "^23.0.1",
-    "@hono/node-server": "^2.0.0",
+    "@asteasolutions/zod-to-openapi": "^9.1.0",
+    "@ax-llm/ax": "^23.0.5",
+    "@hono/node-server": "^2.0.11",
     "@tangle-network/agent-core": "^0.4.20",
     "@tangle-network/agent-interface": "^0.32.0",
     "@tangle-network/tcloud": "^0.4.14",
-    "hono": "^4.12.30",
-    "zod": "^4.3.6"
+    "hono": "^4.12.32",
+    "zod": "^4.4.3"
   },
   "devDependencies": {
-    "@biomejs/biome": "^2.4.15",
-    "@types/node": "^25.6.0",
+    "@biomejs/biome": "^2.5.5",
+    "@types/node": "^26.1.1",
+    "esbuild": "^0.28.1",
     "fast-check": "^4.9.0",
     "husky": "^9.1.7",
-    "lint-staged": "^17.0.5",
-    "openapi3-ts": "^4.5.0",
+    "lint-staged": "^17.2.0",
+    "openapi3-ts": "^4.6.0",
     "tsup": "^8.0.0",
-    "typescript": "^5.7.0",
-    "vitest": "^3.0.0",
+    "typescript": "^6.0.3",
+    "vitest": "^4.1.10",
     "yaml": "2.9.0"
   },
   "pnpm": {
     "minimumReleaseAge": 4320,
+    "minimumReleaseAgeExclude": [
+      "esbuild",
+      "vite"
+    ],
     "overrides": {
-      "postcss@<8.5.10": "^8.5.10",
+      "esbuild@>=0.27.3 <0.28.1": "^0.28.1",
+      "postcss@<8.5.18": "^8.5.18",
+      "vite@>=7.0.0 <=7.3.4": "^7.3.5",
       "ws@>=8.0.0 <8.21.0": "^8.21.0"
     }
   },
@@ -200,5 +207,5 @@
     ]
   },
   "license": "MIT",
-  "packageManager": "pnpm@10.22.0"
+  "packageManager": "pnpm@10.34.5"
 }

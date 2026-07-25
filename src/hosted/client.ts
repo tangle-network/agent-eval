@@ -17,6 +17,11 @@
  */
 
 import {
+  IngestEvalRunsRequestSchema,
+  IngestResponseSchema,
+  IngestTracesRequestSchema,
+} from './schemas'
+import {
   type EvalRunEvent,
   HOSTED_WIRE_VERSION,
   type HostedWireVersion,
@@ -54,71 +59,117 @@ interface RequestOptions {
   signal?: AbortSignal
 }
 
+const MAX_IDEMPOTENCY_KEY_LENGTH = 256
+
 function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => {
-    const t = setTimeout(resolve, ms)
-    if (typeof (t as { unref?: () => void }).unref === 'function')
-      (t as { unref: () => void }).unref()
-  })
+  return new Promise((resolve) => setTimeout(resolve, ms))
 }
 
-async function post<TReq, TRes>(
+function normalizeHostedBase(endpoint: string): string {
+  return endpoint.trim().replace(/\/+$/, '').replace(/\/v1$/, '')
+}
+
+function resolveIdempotencyKey(key: string | undefined): string {
+  const resolved = key ?? globalThis.crypto.randomUUID()
+  if (resolved.trim().length === 0) throw new Error('idempotency key must not be blank')
+  if (resolved.length > MAX_IDEMPOTENCY_KEY_LENGTH) {
+    throw new Error(`idempotency key must be at most ${MAX_IDEMPOTENCY_KEY_LENGTH} characters`)
+  }
+  return resolved
+}
+
+function responseValidationReason(error: {
+  issues: Array<{ path: PropertyKey[]; message: string }>
+}) {
+  return error.issues
+    .map(
+      (issue) =>
+        `${issue.path.length > 0 ? issue.path.map(String).join('.') : 'value'}: ${issue.message}`,
+    )
+    .join('; ')
+}
+
+async function post<TReq>(
   tenant: HostedTenant,
   path: string,
   body: TReq,
   opts: RequestOptions = {},
-): Promise<TRes> {
+): Promise<IngestResponse> {
   const timeoutMs = tenant.timeoutMs ?? 30_000
   const maxRetries = tenant.retries ?? 2
   const f: typeof fetch = tenant.fetchImpl ?? ((...args) => fetch(...args))
-  // `path` already carries the `/v1` version prefix (e.g. `/v1/ingest/eval-runs`).
-  // Strip a trailing slash AND a trailing `/v1` from the endpoint so a base of
-  // either `https://host` or `https://host/v1` resolves to the same correct URL
-  // — callers routinely pass the versioned base and would otherwise hit
-  // `/v1/v1/ingest/...` (404).
-  const base = tenant.endpoint.replace(/\/+$/, '').replace(/\/v1$/, '')
+  const base = normalizeHostedBase(tenant.endpoint)
   const url = `${base}${path}`
+  const idempotencyKey = resolveIdempotencyKey(opts.idempotencyKey)
+  const headers: Record<string, string> = {
+    'content-type': 'application/json',
+    authorization: `Bearer ${tenant.apiKey}`,
+    'x-tangle-tenant-id': tenant.tenantId,
+    'x-tangle-wire-version': HOSTED_WIRE_VERSION,
+    'idempotency-key': idempotencyKey,
+  }
 
   let lastError: unknown
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
     const ourTimeout = AbortSignal.timeout(timeoutMs)
     const combinedSignal = opts.signal ? AbortSignal.any([opts.signal, ourTimeout]) : ourTimeout
+    let res: Response
     try {
-      const headers: Record<string, string> = {
-        'content-type': 'application/json',
-        authorization: `Bearer ${tenant.apiKey}`,
-        'x-tangle-tenant-id': tenant.tenantId,
-        'x-tangle-wire-version': HOSTED_WIRE_VERSION,
-      }
-      if (opts.idempotencyKey) headers['idempotency-key'] = opts.idempotencyKey
-
-      const res = await f(url, {
+      res = await f(url, {
         method: 'POST',
         headers,
         body: JSON.stringify(body),
         signal: combinedSignal,
       })
-      if (!res.ok) {
-        const retryable = res.status >= 500 || res.status === 408 || res.status === 429
-        if (!retryable || attempt === maxRetries) {
-          const text = await res.text().catch(() => '')
-          throw new Error(`hosted ingest ${url} failed (${res.status}): ${text.slice(0, 500)}`)
-        }
-        await sleep(2 ** attempt * 200 + Math.random() * 200)
-        continue
-      }
-      return (await res.json()) as TRes
     } catch (err) {
       if (opts.signal?.aborted) throw err
       lastError = err
       if (attempt === maxRetries) throw err
       await sleep(2 ** attempt * 200 + Math.random() * 200)
+      continue
     }
+
+    if (!res.ok) {
+      const text = await res.text().catch(() => '')
+      const error = new Error(`hosted ingest ${url} failed (${res.status}): ${text.slice(0, 500)}`)
+      const retryable = res.status >= 500 || res.status === 408 || res.status === 429
+      if (!retryable || attempt === maxRetries) throw error
+      lastError = error
+      await sleep(2 ** attempt * 200 + Math.random() * 200)
+      continue
+    }
+
+    let rawResponse: unknown
+    try {
+      rawResponse = await res.json()
+    } catch (error) {
+      throw new Error(`hosted ingest ${url} returned invalid JSON`, { cause: error })
+    }
+    const parsed = IngestResponseSchema.safeParse(rawResponse)
+    if (!parsed.success) {
+      throw new Error(
+        `hosted ingest ${url} returned an invalid response: ${responseValidationReason(parsed.error)}`,
+      )
+    }
+    return parsed.data
   }
   throw lastError ?? new Error('hosted ingest exhausted retries')
 }
 
 export function createHostedClient(tenant: HostedTenant): HostedClient {
+  if (normalizeHostedBase(tenant.endpoint).length === 0) throw new Error('endpoint is required')
+  if (tenant.apiKey.trim().length === 0) throw new Error('apiKey is required')
+  if (tenant.tenantId.trim().length === 0) throw new Error('tenantId is required')
+  if (
+    tenant.timeoutMs !== undefined &&
+    (!Number.isFinite(tenant.timeoutMs) || tenant.timeoutMs <= 0)
+  ) {
+    throw new Error('timeoutMs must be greater than 0')
+  }
+  if (tenant.retries !== undefined && (!Number.isInteger(tenant.retries) || tenant.retries < 0)) {
+    throw new Error('retries must be a non-negative integer')
+  }
+
   return {
     tenant,
     wireVersion: HOSTED_WIRE_VERSION,
@@ -128,15 +179,21 @@ export function createHostedClient(tenant: HostedTenant): HostedClient {
     },
 
     async ingestEvalRuns(events, idempotencyKey) {
-      const body: IngestEvalRunsRequest = { wireVersion: HOSTED_WIRE_VERSION, events }
-      return post<IngestEvalRunsRequest, IngestResponse>(tenant, '/v1/ingest/eval-runs', body, {
+      const body: IngestEvalRunsRequest = IngestEvalRunsRequestSchema.parse({
+        wireVersion: HOSTED_WIRE_VERSION,
+        events,
+      })
+      return post<IngestEvalRunsRequest>(tenant, '/v1/ingest/eval-runs', body, {
         idempotencyKey,
       })
     },
 
     async ingestTraces(spans, idempotencyKey) {
-      const body: IngestTracesRequest = { wireVersion: HOSTED_WIRE_VERSION, spans }
-      return post<IngestTracesRequest, IngestResponse>(tenant, '/v1/ingest/traces', body, {
+      const body: IngestTracesRequest = IngestTracesRequestSchema.parse({
+        wireVersion: HOSTED_WIRE_VERSION,
+        spans,
+      })
+      return post<IngestTracesRequest>(tenant, '/v1/ingest/traces', body, {
         idempotencyKey,
       })
     },

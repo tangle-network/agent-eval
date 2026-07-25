@@ -1,7 +1,7 @@
 """Hosted-tier ingest client — Python parity for ``@tangle-network/agent-eval/hosted``.
 
 Ships eval-run events + trace spans to any orchestrator that speaks the
-wire format frozen at ``HOSTED_WIRE_VERSION = '2026-05-26.v1'``. Same
+wire format frozen at ``HOSTED_WIRE_VERSION = '2026-07-24.v1'``. Same
 contract as the TypeScript client; pydantic models mirror the TS types in
 ``src/hosted/types.ts``.
 
@@ -29,17 +29,27 @@ Quickstart
 from __future__ import annotations
 
 import random
-import re
 import time
-import warnings
-from typing import Any, Literal
+from datetime import datetime
+from typing import Annotated, Any, Literal
+from uuid import uuid4
 
 import httpx
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import (
+    AfterValidator,
+    BaseModel,
+    ConfigDict,
+    Field,
+    StringConstraints,
+    model_validator,
+)
+from pydantic import (
+    ValidationError as PydanticValidationError,
+)
 
 from .errors import TransportError
 
-HOSTED_WIRE_VERSION: Literal["2026-05-26.v1"] = "2026-05-26.v1"
+HOSTED_WIRE_VERSION: Literal["2026-07-24.v1"] = "2026-07-24.v1"
 
 EvalRunStatus = Literal[
     "started",
@@ -53,86 +63,124 @@ EvalRunStatus = Literal[
 GateDecision = Literal["ship", "hold", "need_more_work", "model_ceiling", "arch_ceiling"]
 
 
-_CAMEL_RE = re.compile(r"_([a-z])")
+def _not_blank(value: str) -> str:
+    if not value.strip():
+        raise ValueError("must not be blank")
+    return value
 
 
-def _snake_to_camel(name: str) -> str:
-    return _CAMEL_RE.sub(lambda m: m.group(1).upper(), name)
+def _iso_timestamp(value: str) -> str:
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError as error:
+        raise ValueError("must be an ISO-8601 timestamp with an offset") from error
+    if parsed.tzinfo is None:
+        raise ValueError("must include a timezone offset")
+    return value
+
+
+def _unix_nano_timestamp(value: str) -> str:
+    if not value.isascii() or not value.isdecimal():
+        raise ValueError("must be an unsigned base-10 integer string")
+    if len(value) > 1 and value.startswith("0"):
+        raise ValueError("must use canonical base-10 encoding")
+    if int(value) > 18_446_744_073_709_551_615:
+        raise ValueError("must fit in an unsigned 64-bit integer")
+    return value
+
+
+NonEmptyString = Annotated[
+    str,
+    StringConstraints(strict=True, min_length=1),
+    AfterValidator(_not_blank),
+]
+IsoTimestamp = Annotated[
+    str,
+    StringConstraints(strict=True, min_length=1),
+    AfterValidator(_iso_timestamp),
+]
+UnixNanoTimestamp = Annotated[
+    str,
+    StringConstraints(strict=True, pattern=r"^(0|[1-9][0-9]*)$"),
+    AfterValidator(_unix_nano_timestamp),
+]
+FiniteNumber = Annotated[float, Field(allow_inf_nan=False)]
+NonNegativeNumber = Annotated[float, Field(ge=0, allow_inf_nan=False)]
+NonNegativeInteger = Annotated[int, Field(strict=True, ge=0)]
 
 
 class _WireModel(BaseModel):
-    """Permissive on input (forward-compat), camelCase-aware on output.
+    """Strict current-version wire model with camelCase aliases."""
 
-    The TS substrate adds optional fields between minor versions; Python
-    consumers should silently accept those rather than reject the payload.
-    On serialise, we emit the exact camelCase keys the TS server expects.
-
-    To catch the cross-language drift case (a Python user types
-    ``run_id`` when the field is ``runId``), the model emits a
-    ``UserWarning`` at construction time when an unknown extra is the
-    snake_case shadow of a declared camelCase field. Forward-compat unknowns
-    that aren't snake_case-of-declared pass silently.
-    """
-
-    model_config = ConfigDict(populate_by_name=True, extra="allow")
-
-    @model_validator(mode="after")
-    def _warn_snake_case_typos(self) -> _WireModel:
-        extras = self.model_extra or {}
-        if not extras:
-            return self
-        declared = set(type(self).model_fields.keys())
-        for key in extras:
-            if "_" in key and _snake_to_camel(key) in declared:
-                warnings.warn(
-                    f"{type(self).__name__}: received snake_case field {key!r} "
-                    f"which shadows the declared camelCase field "
-                    f"{_snake_to_camel(key)!r}. The TS server expects camelCase "
-                    f"on the wire — rename to {_snake_to_camel(key)!r} to avoid "
-                    f"the server rejecting the payload.",
-                    UserWarning,
-                    stacklevel=4,
-                )
-        return self
+    model_config = ConfigDict(populate_by_name=True, extra="forbid", strict=True)
 
 
 class EvalRunCellScore(_WireModel):
     """One cell within a generation snapshot."""
 
-    scenarioId: str
-    rep: int = 0
-    compositeMean: float
-    dimensions: dict[str, dict[str, float]] = Field(default_factory=dict)
+    scenarioId: NonEmptyString
+    rep: NonNegativeInteger
+    compositeMean: FiniteNumber | None
+    dimensions: dict[str, dict[str, FiniteNumber]]
+    terminalOutcome: Literal["succeeded", "failed", "cancelled", "incomplete", "unknown"]
+    executionErrorCount: NonNegativeInteger | None
     errorMessage: str | None = None
 
 
 class EvalRunGenerationSnapshot(_WireModel):
     """A generation snapshot. ``index=0`` is baseline."""
 
-    index: int
-    surfaceHash: str
+    index: NonNegativeInteger
+    surfaceHash: NonEmptyString
     surface: Any = None
-    cells: list[EvalRunCellScore] = Field(default_factory=list)
-    compositeMean: float
-    costUsd: float = 0.0
-    durationMs: int = 0
+    cells: list[EvalRunCellScore]
+    compositeMean: FiniteNumber | None
+    costUsd: NonNegativeNumber
+    durationMs: NonNegativeNumber
 
 
 class EvalRunEvent(_WireModel):
     """Top-level eval-run event; one POST per logical run lifecycle stage."""
 
-    runId: str
-    runDir: str
-    timestamp: str
+    runId: NonEmptyString
+    runDir: NonEmptyString
+    timestamp: IsoTimestamp
     status: EvalRunStatus
-    labels: dict[str, str] = Field(default_factory=dict)
+    labels: dict[str, str]
     baseline: EvalRunGenerationSnapshot | None = None
-    generations: list[EvalRunGenerationSnapshot] = Field(default_factory=list)
+    generations: list[EvalRunGenerationSnapshot]
     gateDecision: GateDecision | None = None
-    holdoutLift: float | None = None
-    totalCostUsd: float = 0.0
-    totalDurationMs: int = 0
+    holdoutLift: FiniteNumber | None = None
+    totalCostUsd: NonNegativeNumber
+    totalDurationMs: NonNegativeNumber
     errorMessage: str | None = None
+    insightReport: dict[str, Any] | None = None
+
+    @model_validator(mode="after")
+    def _validate_lifecycle(self) -> EvalRunEvent:
+        if self.baseline is not None and self.baseline.index != 0:
+            raise ValueError("baseline index must be 0")
+        generation_indexes = [generation.index for generation in self.generations]
+        if len(set(generation_indexes)) != len(generation_indexes):
+            raise ValueError("generation indexes must be unique")
+        if self.status == "errored" and not self.errorMessage:
+            raise ValueError("errorMessage is required when status is errored")
+        return self
+
+
+class TraceSpanEventEntry(_WireModel):
+    """One timestamped event attached to an OTLP span."""
+
+    timeUnixNano: UnixNanoTimestamp
+    name: NonEmptyString
+    attributes: dict[str, str | int | float | bool] | None = None
+
+
+class TraceSpanStatus(_WireModel):
+    """OTLP span status."""
+
+    code: Literal["OK", "ERROR", "UNSET"]
+    message: str | None = None
 
 
 class TraceSpanEventOuter(_WireModel):
@@ -145,7 +193,7 @@ class TraceSpanEventOuter(_WireModel):
 
         TraceSpanEventOuter(
             traceId="t", spanId="s", name="dispatch",
-            startTimeUnixNano=0, endTimeUnixNano=1,
+            startTimeUnixNano="0", endTimeUnixNano="1",
             attributes={},
             tangle_run_id="run-1", tangle_scenario_id="s1",
         ).model_dump(by_alias=True, exclude_none=True)
@@ -157,19 +205,25 @@ class TraceSpanEventOuter(_WireModel):
     response payload).
     """
 
-    traceId: str
-    spanId: str
-    parentSpanId: str | None = None
-    name: str
-    startTimeUnixNano: int
-    endTimeUnixNano: int
+    traceId: NonEmptyString
+    spanId: NonEmptyString
+    parentSpanId: NonEmptyString | None = None
+    name: NonEmptyString
+    startTimeUnixNano: UnixNanoTimestamp
+    endTimeUnixNano: UnixNanoTimestamp
     attributes: dict[str, str | int | float | bool] = Field(default_factory=dict)
-    events: list[dict[str, Any]] | None = None
-    status: dict[str, Any] | None = None
-    tangle_run_id: str | None = Field(default=None, alias="tangle.runId")
-    tangle_generation: int | None = Field(default=None, alias="tangle.generation")
-    tangle_cell_id: str | None = Field(default=None, alias="tangle.cellId")
-    tangle_scenario_id: str | None = Field(default=None, alias="tangle.scenarioId")
+    events: list[TraceSpanEventEntry] | None = None
+    status: TraceSpanStatus | None = None
+    tangle_run_id: NonEmptyString | None = Field(default=None, alias="tangle.runId")
+    tangle_generation: NonNegativeInteger | None = Field(default=None, alias="tangle.generation")
+    tangle_cell_id: NonEmptyString | None = Field(default=None, alias="tangle.cellId")
+    tangle_scenario_id: NonEmptyString | None = Field(default=None, alias="tangle.scenarioId")
+
+    @model_validator(mode="after")
+    def _validate_time_order(self) -> TraceSpanEventOuter:
+        if int(self.endTimeUnixNano) < int(self.startTimeUnixNano):
+            raise ValueError("endTimeUnixNano must be greater than or equal to startTimeUnixNano")
+        return self
 
 
 def make_trace_span(
@@ -177,51 +231,52 @@ def make_trace_span(
     trace_id: str,
     span_id: str,
     name: str,
-    start_time_unix_nano: int,
-    end_time_unix_nano: int,
+    start_time_unix_nano: str,
+    end_time_unix_nano: str,
     attributes: dict[str, str | int | float | bool] | None = None,
     parent_span_id: str | None = None,
     tangle_run_id: str | None = None,
     tangle_generation: int | None = None,
     tangle_cell_id: str | None = None,
     tangle_scenario_id: str | None = None,
-    status: dict[str, Any] | None = None,
+    status: dict[str, Any] | TraceSpanStatus | None = None,
 ) -> dict[str, Any]:
     """Build a wire-shape trace span dict including ``tangle.*`` pivots."""
-    span: dict[str, Any] = {
-        "traceId": trace_id,
-        "spanId": span_id,
-        "name": name,
-        "startTimeUnixNano": start_time_unix_nano,
-        "endTimeUnixNano": end_time_unix_nano,
-        "attributes": dict(attributes or {}),
-    }
-    if parent_span_id is not None:
-        span["parentSpanId"] = parent_span_id
-    if status is not None:
-        span["status"] = status
-    if tangle_run_id is not None:
-        span["tangle.runId"] = tangle_run_id
-    if tangle_generation is not None:
-        span["tangle.generation"] = tangle_generation
-    if tangle_cell_id is not None:
-        span["tangle.cellId"] = tangle_cell_id
-    if tangle_scenario_id is not None:
-        span["tangle.scenarioId"] = tangle_scenario_id
-    return span
+    return TraceSpanEventOuter(
+        traceId=trace_id,
+        spanId=span_id,
+        parentSpanId=parent_span_id,
+        name=name,
+        startTimeUnixNano=start_time_unix_nano,
+        endTimeUnixNano=end_time_unix_nano,
+        attributes=dict(attributes or {}),
+        status=status,
+        tangle_run_id=tangle_run_id,
+        tangle_generation=tangle_generation,
+        tangle_cell_id=tangle_cell_id,
+        tangle_scenario_id=tangle_scenario_id,
+    ).model_dump(mode="json", by_alias=True, exclude_none=True)
+
+
+class IngestRejection(_WireModel):
+    """One rejected item in an ingest response."""
+
+    index: NonNegativeInteger
+    reason: NonEmptyString
 
 
 class IngestResponse(_WireModel):
     """Server response from any /v1/ingest endpoint."""
 
-    accepted: int
-    rejected: list[dict[str, Any]] = Field(default_factory=list)
+    accepted: NonNegativeInteger
+    rejected: list[IngestRejection]
 
 
 # ── Client ──────────────────────────────────────────────────────────
 
 
 _RETRYABLE_STATUSES: frozenset[int] = frozenset({408, 429, 500, 502, 503, 504})
+_MAX_IDEMPOTENCY_KEY_LENGTH = 256
 
 
 class HostedClient:
@@ -248,13 +303,21 @@ class HostedClient:
         retries: int = 2,
         http_client: httpx.Client | None = None,
     ) -> None:
+        endpoint = endpoint.strip()
+        api_key = api_key.strip()
+        tenant_id = tenant_id.strip()
         if not endpoint:
             raise ValueError("endpoint is required")
         if not api_key:
             raise ValueError("api_key is required")
         if not tenant_id:
             raise ValueError("tenant_id is required")
+        if timeout_s <= 0:
+            raise ValueError("timeout_s must be greater than 0")
+        if retries < 0:
+            raise ValueError("retries must be non-negative")
         self.endpoint = endpoint.rstrip("/")
+        self._base_url = self.endpoint.removesuffix("/v1")
         self.api_key = api_key
         self.tenant_id = tenant_id
         self.timeout_s = timeout_s
@@ -290,24 +353,38 @@ class HostedClient:
         events_json = [self._to_event_json(e) for e in events]
         body = {"wireVersion": HOSTED_WIRE_VERSION, "events": events_json}
         raw = self._post("/v1/ingest/eval-runs", body, idempotency_key)
-        return IngestResponse.model_validate(raw)
+        return self._validate_response(raw)
 
     def ingest_traces(
         self,
-        spans: list[dict[str, Any]],
+        spans: list[TraceSpanEventOuter | dict[str, Any]],
         idempotency_key: str | None = None,
     ) -> IngestResponse:
-        body = {"wireVersion": HOSTED_WIRE_VERSION, "spans": list(spans)}
+        spans_json = [
+            (
+                span
+                if isinstance(span, TraceSpanEventOuter)
+                else TraceSpanEventOuter.model_validate(span)
+            ).model_dump(mode="json", by_alias=True, exclude_none=True)
+            for span in spans
+        ]
+        body = {"wireVersion": HOSTED_WIRE_VERSION, "spans": spans_json}
         raw = self._post("/v1/ingest/traces", body, idempotency_key)
-        return IngestResponse.model_validate(raw)
+        return self._validate_response(raw)
 
     # ── Internals ───────────────────────────────────────────────────
 
     @staticmethod
     def _to_event_json(event: EvalRunEvent | dict[str, Any]) -> dict[str, Any]:
-        if isinstance(event, EvalRunEvent):
-            return event.model_dump(by_alias=True, exclude_none=True)
-        return event
+        validated = event if isinstance(event, EvalRunEvent) else EvalRunEvent.model_validate(event)
+        return validated.model_dump(mode="json", by_alias=True, exclude_none=True)
+
+    @staticmethod
+    def _validate_response(raw: Any) -> IngestResponse:
+        try:
+            return IngestResponse.model_validate(raw)
+        except PydanticValidationError as error:
+            raise TransportError(f"hosted ingest returned an invalid response: {error}") from error
 
     def _post(
         self,
@@ -315,15 +392,21 @@ class HostedClient:
         body: dict[str, Any],
         idempotency_key: str | None,
     ) -> Any:
-        url = f"{self.endpoint}{path}"
+        url = f"{self._base_url}{path}"
+        request_key = idempotency_key if idempotency_key is not None else str(uuid4())
+        if not request_key.strip():
+            raise ValueError("idempotency_key must not be blank")
+        if len(request_key) > _MAX_IDEMPOTENCY_KEY_LENGTH:
+            raise ValueError(
+                f"idempotency_key must be at most {_MAX_IDEMPOTENCY_KEY_LENGTH} characters"
+            )
         headers: dict[str, str] = {
             "content-type": "application/json",
             "authorization": f"Bearer {self.api_key}",
             "x-tangle-tenant-id": self.tenant_id,
             "x-tangle-wire-version": HOSTED_WIRE_VERSION,
+            "idempotency-key": request_key,
         }
-        if idempotency_key:
-            headers["idempotency-key"] = idempotency_key
 
         last_err: Exception | None = None
         for attempt in range(self.retries + 1):

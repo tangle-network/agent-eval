@@ -171,6 +171,7 @@ export function supervisorRunRolloutLines(
         is_completed: state?.status === 'completed',
         is_truncated: false,
         error: null,
+        realness_gated: false,
       },
       cost: {
         ...EMPTY_COST,
@@ -261,6 +262,7 @@ export function supervisorRunRolloutLines(
         is_completed: close?.kind === 'settled',
         is_truncated: close?.kind === 'cancelled',
         error: close?.kind === 'cancelled' ? (close.verdict ?? 'cancelled') : null,
+        realness_gated: false,
       },
       // `close.spend` is only a measurement when the close event carried one;
       // a store that never priced this worker must leave null, not 0.

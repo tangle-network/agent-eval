@@ -95,7 +95,8 @@ describe('paretoSignificanceGate — multi-objective promotion over the evidence
     expect(res.contributingGates).toHaveLength(2)
     const quality = res.contributingGates.find((g) => g.name === 'objective:quality')!
     const safety = res.contributingGates.find((g) => g.name === 'objective:safety')!
-    expect(quality.passed).toBe(true)
+    expect(quality.status).toBe('pass')
+    expect(safety.status).toBe('pass')
     expect((quality.detail as { verdict: string }).verdict).toBe('improved')
     expect((safety.detail as { verdict: string }).verdict).toBe('flat')
   })
@@ -247,7 +248,7 @@ describe('buildEvidenceVector + PromotionPolicy — one bus, plural competing st
         reasons: [allImproved ? 'all axes improved' : 'not every axis improved'],
         contributingGates: e.axes.map((a) => ({
           name: a.name,
-          passed: a.verdict === 'improved',
+          status: a.verdict === 'improved' ? ('pass' as const) : ('fail' as const),
           detail: a.verdict,
         })),
       }

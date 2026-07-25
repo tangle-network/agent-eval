@@ -388,6 +388,15 @@ export interface OptimizerConfig extends OptimizerConfigBase {
 /** Five-valued verdict taxonomy (MOSS-paper alignment). */
 export type GateDecision = 'ship' | 'hold' | 'need_more_work' | 'model_ceiling' | 'arch_ceiling'
 
+/** Outcome of one check that contributed to a release decision. */
+export type GateCheckStatus = 'pass' | 'fail' | 'not_evaluated'
+
+export interface GateContribution {
+  name: string
+  status: GateCheckStatus
+  detail: unknown
+}
+
 export interface GateContext<TArtifact, TScenario extends Scenario> {
   candidateArtifacts: Map<string, TArtifact>
   baselineArtifacts?: Map<string, TArtifact>
@@ -419,7 +428,7 @@ export interface GateContext<TArtifact, TScenario extends Scenario> {
 export interface GateResult {
   decision: GateDecision
   reasons: string[]
-  contributingGates: Array<{ name: string; passed: boolean; detail: unknown }>
+  contributingGates: GateContribution[]
   delta?: number
 }
 
@@ -600,6 +609,10 @@ export interface CampaignCellResult<TArtifact> {
   durationMs: number
   seed: number
   cached: boolean
+  /** Stage that produced `error`. Missing on successful cells. */
+  errorStage?: 'dispatch' | 'judge'
+  /** Judge that threw when `errorStage` is `judge`. */
+  errorJudge?: string
   error?: string
 }
 
@@ -628,8 +641,10 @@ export interface GenerationRecord {
  *  handled — the evidence a blind `Mutator` cannot see. */
 export interface GenerationCandidate {
   surfaceHash: string
-  composite: number
-  ci95: [number, number]
+  /** Mean over complete task-quality scores, or null when none were produced. */
+  composite: number | null
+  /** Descriptive interval for `composite`, or null when no score exists. */
+  ci95: [number, number] | null
   /** Exact surface this candidate mutated. */
   parentSurfaceHash?: string
   /** Measured search-split composite of the exact parent surface. */
@@ -639,13 +654,12 @@ export interface GenerationCandidate {
   observedDeltaFromParent?: number
   /** Whether this candidate had a scorable result for every designed campaign
    *  cell and was therefore eligible for ranking, promotion, and Pareto
-   *  selection. Older externally-authored records may omit this field; loop
-   *  records always populate it. */
-  eligibleForPromotion?: boolean
+   *  selection. */
+  eligibleForPromotion: boolean
   /** Exact denominator receipt for selection eligibility. Scores stay
    *  descriptive: an incomplete candidate is retained with its observed score
    *  and errors instead of receiving an invented penalty. */
-  coverage?: {
+  coverage: {
     expectedCells: number
     scorableCells: number
     unscorableCells: Array<{ cellId: string; reason: string }>
@@ -679,10 +693,18 @@ export interface CampaignAggregates {
   cost: CostLedgerSummary
   /** Compatibility alias of `cost.totalCostUsd`. */
   totalCostUsd: number
+  /** Cells whose dispatch completed, including cells whose later judge failed. */
   cellsExecuted: number
   cellsSkipped: number
   cellsCached: number
+  /** All non-skipped dispatch, judge, and unclassified cell failures. */
   cellsFailed: number
+  /** Present on results that record failure stages. */
+  cellsDispatchFailed?: number
+  /** Present on results that record failure stages. */
+  cellsJudgeFailed?: number
+  /** Legacy failures whose stage was not recorded. */
+  cellsUnclassifiedFailed?: number
 }
 
 export interface CampaignResult<TArtifact = unknown, TScenario extends Scenario = Scenario> {

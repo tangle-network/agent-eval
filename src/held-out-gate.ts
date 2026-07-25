@@ -32,12 +32,15 @@
  *     specific promotion path (still useful for replay-style evals).
  */
 
+import { pairRunRecords } from './paired-arms'
 import { isRealnessGated, observedSplitScore, type ScorePreference } from './rollout/reward'
 import type { RunRecord } from './run-record'
 import { pairedBootstrap, wilcoxonSignedRank } from './statistics'
 
 export type HeldOutGateRejectionCode =
   | 'few_runs'
+  | 'missing_split_scores'
+  | 'missing_cost'
   | 'negative_delta'
   | 'overfit_gap'
   | 'cost_ceiling'
@@ -72,8 +75,8 @@ export interface HeldOutGateConfig {
    *
    * This exists because "we ship the better prompt" is only an honest
    * pitch when the better prompt also fits a customer-stated budget.
-   * Cost is read from `RunRecord.costUsd` (already mandatory on every
-   * run) so no new schema is required.
+   * Cost is read from `RunRecord.costUsd`; a null amount rejects a
+   * configured cost check because the limit cannot be proven.
    */
   costPerTaskCeiling?: number
 }
@@ -81,28 +84,32 @@ export interface HeldOutGateConfig {
 export interface GateEvidence {
   /** Number of paired (candidate, baseline) holdout observations used. */
   productiveRuns: number
-  /** Median of (candidate − baseline) paired holdout deltas. */
-  medianPairedDelta: number
-  /** Bootstrap CI on the median paired holdout delta. */
-  pairedCI: { low: number; high: number }
-  /** Wilcoxon signed-rank p-value on the paired holdout deltas. */
-  pairedPValue: number
-  /** Mean candidate score on the search split (NaN if none). */
-  searchScore: number
-  /** Mean candidate score on the holdout split (NaN if none). */
-  holdoutScore: number
-  /** Candidate (search − holdout) gap. */
-  overfitGap: number
-  /** Baseline (search − holdout) gap. */
-  baselineOverfitGap: number
+  /** Candidate holdout rows with no baseline row at the same work identity. */
+  unpairedCandidateRuns: number
+  /** Baseline holdout rows with no candidate row at the same work identity. */
+  unpairedBaselineRuns: number
+  /** Median of paired holdout deltas, or null when there are no pairs. */
+  medianPairedDelta: number | null
+  /** Bootstrap CI on the median paired holdout delta, if computed. */
+  pairedCI: { low: number; high: number } | null
+  /** Wilcoxon signed-rank p-value, if computed. */
+  pairedPValue: number | null
+  /** Mean candidate score on the search split, or null when absent. */
+  searchScore: number | null
+  /** Mean candidate score on the holdout split, or null when absent. */
+  holdoutScore: number | null
+  /** Candidate (search − holdout) gap, or null when either side is absent. */
+  overfitGap: number | null
+  /** Baseline (search − holdout) gap, or null when either side is absent. */
+  baselineOverfitGap: number | null
   /** Median per-task USD cost across the candidate's runs. Recorded
    *  even when no `costPerTaskCeiling` is configured so downstream
    *  dashboards (intelligence.tangle.tools) can render \$/task per
    *  generation regardless of gating policy. */
-  medianCandidateCost: number
+  medianCandidateCost: number | null
   /** Median per-task USD cost across the baseline runs, for
    *  symmetric reporting. */
-  medianBaselineCost: number
+  medianBaselineCost: number | null
   /**
    * Runs (candidate + baseline) dropped before pairing because the
    * authenticity gate flagged them as gamed. Surfaced rather than silent: a
@@ -162,13 +169,13 @@ export class HeldOutGate {
     this.costPerTaskCeiling = config.costPerTaskCeiling
   }
 
-  /** Decide whether `candidate` should replace `baseline`. Pairing
-   *  is by (experimentId, seed) — identical experiment + seed pairs
-   *  the candidate run with the matching baseline run. Pairs without
-   *  a holdout score on both sides are dropped. */
+  /** Decide whether `candidate` should replace `baseline`.
+   *  Pairing is by `(experimentId, scenarioId, seed)`.
+   *  Missing or duplicate identities throw instead of comparing by position. */
   evaluate(candidate: RunRecord[], baseline: RunRecord[]): GateDecision {
     const candidateId = inferCandidateId(candidate, this.baselineKey)
     const baselineId = this.baselineKey
+    assertScenarioIdentities([...candidate, ...baseline])
 
     // Runs flagged as gamed are dropped from BOTH sides before anything is
     // paired. This is a promotion decision, and the whole point of the
@@ -178,60 +185,87 @@ export class HeldOutGate {
     const honestCandidate = candidate.filter((run) => !isRealnessGated(run))
     const honestBaseline = baseline.filter((run) => !isRealnessGated(run))
 
-    // Pair holdout runs by (experimentId, seed).
-    const baselineHoldoutByKey = indexHoldoutByKey(honestBaseline)
-    const beforeHoldout: number[] = []
-    const afterHoldout: number[] = []
-    for (const run of honestCandidate) {
-      if (run.splitTag !== 'holdout') continue
-      const score = observedSplitScore(run, 'holdout')
-      if (score === undefined) continue
-      const key = pairKey(run)
-      const counterpart = baselineHoldoutByKey.get(key)
-      if (counterpart === undefined) continue
-      beforeHoldout.push(counterpart)
-      afterHoldout.push(score)
-    }
+    const candidateSearch = scoredRuns(honestCandidate, 'search')
+    const baselineSearch = scoredRuns(honestBaseline, 'search')
+    const candidateHoldout = scoredRuns(honestCandidate, 'holdout')
+    const baselineHoldout = scoredRuns(honestBaseline, 'holdout')
+    const searchPairing = pairRunRecords(baselineSearch, candidateSearch)
+    const holdoutPairing = pairRunRecords(baselineHoldout, candidateHoldout)
+    // `scoredRuns` admits only rows whose split score is a finite number, so
+    // the non-null assertion below cannot fire on data the pairing saw.
+    const splitScoreOf = (run: RunRecord, split: ScorePreference): number =>
+      observedSplitScore(run, split) as number
+    const beforeSearch = searchPairing.pairs.map((pair) => splitScoreOf(pair.baseline, 'search'))
+    const afterSearch = searchPairing.pairs.map((pair) => splitScoreOf(pair.treatment, 'search'))
+    const beforeHoldout = holdoutPairing.pairs.map((pair) => splitScoreOf(pair.baseline, 'holdout'))
+    const afterHoldout = holdoutPairing.pairs.map((pair) => splitScoreOf(pair.treatment, 'holdout'))
 
     const productiveRuns = beforeHoldout.length
 
-    // Always compute the gap numbers — useful even when we reject on
-    // few_runs (you want to see why).
-    const candidateSearchMean = mean(scores(honestCandidate, 'search'))
-    const candidateHoldoutMean = mean(scores(honestCandidate, 'holdout'))
-    const baselineSearchMean = mean(scores(honestBaseline, 'search'))
-    const baselineHoldoutMean = mean(scores(honestBaseline, 'holdout'))
+    const candidateSearchMean = meanOrNull(afterSearch)
+    const candidateHoldoutMean = meanOrNull(afterHoldout)
+    const baselineSearchMean = meanOrNull(beforeSearch)
+    const baselineHoldoutMean = meanOrNull(beforeHoldout)
 
-    const overfitGap = safeDiff(candidateSearchMean, candidateHoldoutMean)
-    const baselineOverfitGap = safeDiff(baselineSearchMean, baselineHoldoutMean)
+    const overfitGap = diffOrNull(candidateSearchMean, candidateHoldoutMean)
+    const baselineOverfitGap = diffOrNull(baselineSearchMean, baselineHoldoutMean)
 
     // Cost summary — surfaced in evidence regardless of gating policy
     // so downstream dashboards always know what the candidate cost.
-    const medianCandidateCost = medianFinite(candidate.map((r) => r.costUsd))
-    const medianBaselineCost = medianFinite(baseline.map((r) => r.costUsd))
+    const medianCandidateCost = completeCostMedian(candidate)
+    const medianBaselineCost = completeCostMedian(baseline)
+    const commonEvidence = {
+      productiveRuns,
+      unpairedCandidateRuns: holdoutPairing.unpairedTreatment.length,
+      unpairedBaselineRuns: holdoutPairing.unpairedBaseline.length,
+      searchScore: candidateSearchMean,
+      holdoutScore: candidateHoldoutMean,
+      overfitGap,
+      baselineOverfitGap,
+      medianCandidateCost,
+      medianBaselineCost,
+      realnessGatedRuns,
+    }
 
-    // Few-runs gate.
+    const missingSplitScores = [
+      candidateSearch.length === 0 ? 'candidate search' : null,
+      candidateHoldout.length === 0 ? 'candidate holdout' : null,
+      baselineSearch.length === 0 ? 'baseline search' : null,
+      baselineHoldout.length === 0 ? 'baseline holdout' : null,
+    ].filter((label): label is string => label !== null)
+    if (missingSplitScores.length > 0) {
+      return {
+        promote: false,
+        candidateId,
+        baselineId,
+        evidence: {
+          ...commonEvidence,
+          medianPairedDelta: productiveRuns > 0 ? medianDelta(beforeHoldout, afterHoldout) : null,
+          pairedCI: null,
+          pairedPValue: null,
+        },
+        reason: `missing_split_scores: ${missingSplitScores.join(', ')} score evidence is absent`,
+        rejectionCode: 'missing_split_scores',
+      }
+    }
+
     if (productiveRuns < this.minProductiveRuns) {
       return {
         promote: false,
         candidateId,
         baselineId,
         evidence: {
-          productiveRuns,
-          medianPairedDelta: productiveRuns > 0 ? medianDelta(beforeHoldout, afterHoldout) : 0,
-          pairedCI: { low: 0, high: 0 },
-          pairedPValue: 1,
-          searchScore: candidateSearchMean,
-          holdoutScore: candidateHoldoutMean,
-          overfitGap,
-          baselineOverfitGap,
-          medianCandidateCost,
-          medianBaselineCost,
-          realnessGatedRuns,
+          ...commonEvidence,
+          medianPairedDelta: productiveRuns > 0 ? medianDelta(beforeHoldout, afterHoldout) : null,
+          pairedCI: null,
+          pairedPValue: null,
         },
         reason: `few_runs: ${productiveRuns} paired holdout observation(s) < min ${this.minProductiveRuns}`,
         rejectionCode: 'few_runs',
       }
+    }
+    if (overfitGap === null || baselineOverfitGap === null) {
+      throw new Error('HeldOutGate: complete split scores did not produce overfit gaps')
     }
 
     // Paired bootstrap on holdout deltas.
@@ -244,17 +278,10 @@ export class HeldOutGate {
     const wilcoxon = wilcoxonSignedRank(beforeHoldout, afterHoldout)
 
     const evidence: GateEvidence = {
-      productiveRuns,
+      ...commonEvidence,
       medianPairedDelta: ci.median,
       pairedCI: { low: ci.low, high: ci.high },
       pairedPValue: wilcoxon.p,
-      searchScore: candidateSearchMean,
-      holdoutScore: candidateHoldoutMean,
-      overfitGap,
-      baselineOverfitGap,
-      medianCandidateCost,
-      medianBaselineCost,
-      realnessGatedRuns,
     }
 
     // Negative-delta gate (CI lower bound must clear the threshold).
@@ -273,11 +300,7 @@ export class HeldOutGate {
 
     // Overfit-gap gate. We allow some absolute slack —
     // candidate.gap ≤ baseline.gap + overfitGapThreshold.
-    if (
-      Number.isFinite(overfitGap) &&
-      Number.isFinite(baselineOverfitGap) &&
-      overfitGap > baselineOverfitGap + this.overfitGapThreshold
-    ) {
+    if (overfitGap > baselineOverfitGap + this.overfitGapThreshold) {
       return {
         promote: false,
         candidateId,
@@ -292,13 +315,20 @@ export class HeldOutGate {
 
     // Cost-ceiling gate. Runs after quality gates so a cost-driven
     // rejection always carries a "you cleared quality but blew budget"
-    // story rather than masking a quality failure. NaN cost is treated
-    // as "unknown" and does NOT trip the ceiling — the data is just
-    // missing, and the operator's stated ceiling is for known cost,
-    // not for absent telemetry.
+    // story rather than masking a quality failure.
+    if (this.costPerTaskCeiling !== undefined && medianCandidateCost === null) {
+      return {
+        promote: false,
+        candidateId,
+        baselineId,
+        evidence,
+        reason: 'missing_cost: candidate cost evidence is incomplete',
+        rejectionCode: 'missing_cost',
+      }
+    }
     if (
       this.costPerTaskCeiling !== undefined &&
-      Number.isFinite(medianCandidateCost) &&
+      medianCandidateCost !== null &&
       medianCandidateCost > this.costPerTaskCeiling
     ) {
       return {
@@ -339,62 +369,64 @@ function inferCandidateId(candidate: RunRecord[], baselineKey: string): string {
   return candidate[0]?.candidateId ?? '(unknown candidate)'
 }
 
-function indexHoldoutByKey(runs: RunRecord[]): Map<string, number> {
-  const out = new Map<string, number>()
-  for (const r of runs) {
-    if (r.splitTag !== 'holdout') continue
-    const score = observedSplitScore(r, 'holdout')
-    if (score === undefined) continue
-    out.set(pairKey(r), score)
+function assertScenarioIdentities(runs: RunRecord[]): void {
+  for (const run of runs) {
+    if (typeof run.scenarioId !== 'string' || run.scenarioId.trim() === '') {
+      throw new Error(`HeldOutGate: run ${run.runId} is missing scenarioId`)
+    }
   }
-  return out
-}
-
-function pairKey(r: RunRecord): string {
-  return `${r.experimentId}::${r.seed}`
 }
 
 /**
- * Mean-input scores for one split. RAW (`observedSplitScore`) by choice: the
- * gated runs are already removed by the caller, so applying the gate again
- * here would only zero runs that are no longer in the set, and the reported
- * means must describe the runs that actually decided the promotion.
+ * Rows carrying a finite score on one split. RAW (`observedSplitScore`) by
+ * choice: the gated runs are already removed by the caller, so applying the
+ * gate again here would only zero runs that are no longer in the set, and the
+ * reported means must describe the runs that actually decided the promotion.
  */
-function scores(runs: RunRecord[], split: ScorePreference): number[] {
-  const out: number[] = []
-  for (const r of runs) {
-    if (r.splitTag !== split) continue
-    const v = observedSplitScore(r, split)
-    if (typeof v === 'number' && Number.isFinite(v)) out.push(v)
-  }
-  return out
+function scoredRuns(runs: RunRecord[], split: ScorePreference): RunRecord[] {
+  return runs.filter((run) => {
+    if (run.splitTag !== split) return false
+    const v = observedSplitScore(run, split)
+    return typeof v === 'number' && Number.isFinite(v)
+  })
 }
 
-function mean(xs: number[]): number {
-  if (xs.length === 0) return Number.NaN
+function meanOrNull(xs: number[]): number | null {
+  if (xs.length === 0) return null
   return xs.reduce((s, x) => s + x, 0) / xs.length
 }
 
-function safeDiff(a: number, b: number): number {
-  if (!Number.isFinite(a) || !Number.isFinite(b)) return Number.NaN
+function diffOrNull(a: number | null, b: number | null): number | null {
+  if (a === null || b === null) return null
   return a - b
 }
 
 function medianDelta(before: number[], after: number[]): number {
   const ds = before.map((b, i) => after[i]! - b).sort((x, y) => x - y)
-  if (ds.length === 0) return 0
+  if (ds.length === 0) throw new Error('HeldOutGate: median delta requires at least one pair')
   const mid = Math.floor(ds.length / 2)
   return ds.length % 2 === 0 ? (ds[mid - 1]! + ds[mid]!) / 2 : ds[mid]!
 }
 
-function medianFinite(xs: number[]): number {
+function medianFinite(xs: number[]): number | null {
   const ys = xs.filter((x) => Number.isFinite(x)).sort((x, y) => x - y)
-  if (ys.length === 0) return Number.NaN
+  if (ys.length === 0) return null
   const mid = Math.floor(ys.length / 2)
   return ys.length % 2 === 0 ? (ys[mid - 1]! + ys[mid]!) / 2 : ys[mid]!
 }
 
-function fmt(x: number): string {
-  if (!Number.isFinite(x)) return String(x)
+function completeCostMedian(runs: RunRecord[]): number | null {
+  if (runs.length === 0) return null
+  const costs: number[] = []
+  for (const run of runs) {
+    const provenance = run.costProvenance
+    if (provenance.kind === 'uncaptured') return null
+    costs.push(provenance.usd)
+  }
+  return medianFinite(costs)
+}
+
+function fmt(x: number | null): string {
+  if (x === null) return 'n/a'
   return x.toFixed(4)
 }

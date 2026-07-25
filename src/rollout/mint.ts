@@ -19,21 +19,23 @@
  * `MintedRolloutLine[]`: the brand the training exporters require, which only
  * this function, `readRolloutLedger`, and an explicit `assertMinted` can mint.
  *
- * A record carrying NEITHER split score becomes `reward: null` (with
- * `reward_source: 'run-record/unscored'`), never 0 — "nobody graded this" is
- * not the same claim as "graded a total failure", and a trainer reading 0
- * learns the second.
+ * A record carrying NEITHER split score is REJECTED (`ValidationError`), never
+ * minted at 0 — "nobody graded this" is not the same claim as "graded a total
+ * failure", and a trainer reading 0 learns the second. Lines that already
+ * carry `reward: null` (interchange imports, existing ledgers) remain valid on
+ * the wire; only the RunRecord→line door refuses.
  *
  * Records without spans become labeled GAP LINES (messages: [],
  * provenance.gap) — present in the output AND surfaced in
  * `missingTraces`; a capture gap is a finding, never a silent omission.
  */
 
-import type { RunRecord } from '../run-record'
+import { ValidationError } from '../errors'
+import { type RunRecord, runTaskScore } from '../run-record'
 import type { LlmSpan, Message, Span, ToolSpan } from '../trace/schema'
 import type { TraceStore } from '../trace/store'
 import { buildTrajectory } from '../trajectory'
-import { rolloutRewardFields, scoreOrigin } from './reward'
+import { rolloutRewardFields, scoreOrigin, trainingReward } from './reward'
 import {
   assertMinted,
   type ChatMessage,
@@ -107,12 +109,11 @@ function finalConversation(spans: Span[], scrub: RolloutScrubber): ChatMessage[]
 
 // The reward derivations live in the leaf module `./reward` so gate and
 // reporting code can import them without dragging in the trace store; they are
-// re-exported here because `rolloutReward` shipped from this path.
+// re-exported here because the derivations shipped from this path.
 export {
   isRealnessGated,
   observedScore,
   observedSplitScore,
-  rolloutReward,
   type ScoreOrigin,
   type ScorePreference,
   scoreOrigin,
@@ -124,6 +125,34 @@ const REWARD_SOURCE: Record<ReturnType<typeof scoreOrigin>, string> = {
   holdout: 'run-record/holdout-score',
   search: 'run-record/search-score',
   unscored: 'run-record/unscored',
+}
+
+/**
+ * The mint door refuses an execution-only record: a missing training label is
+ * not a zero reward, and not a mintable line either. Lines that already carry
+ * `reward: null` — interchange imports, existing ledgers — stay valid on the
+ * wire and keep their labeled gap; this guard is only about the
+ * RunRecord→line door, where the producer can still be told to go score the
+ * run instead of shipping an unlabeled row.
+ */
+function requireTaskScore(record: RunRecord): void {
+  if (runTaskScore(record) === undefined) {
+    throw new ValidationError(`Cannot mint rollout for run ${record.runId}: task score is missing`)
+  }
+}
+
+/**
+ * Legacy mint-door reward pair. Throws on a record with no task score (the
+ * mint door refuses execution-only records); a gated run returns 0, because
+ * the gate's verdict IS a number.
+ *
+ * @deprecated Use `trainingReward` (returns a labeled `reward: null` gap
+ * instead of throwing) or `rolloutRewardFields` (what mint itself writes).
+ */
+export function rolloutReward(record: RunRecord): { reward: number; gated: boolean } {
+  requireTaskScore(record)
+  const { reward, gated } = trainingReward(record)
+  return { reward: reward ?? 0, gated }
 }
 
 const SPLIT_FROM_TAG: Record<RunRecord['splitTag'], RolloutSplit> = {
@@ -140,10 +169,23 @@ function mintLine(
   capturedAt: string,
   gap?: string,
 ): MintedRolloutLine {
+  // A missing task score is refused before anything is built: an
+  // execution-only record has no training label, and a missing label is
+  // neither a zero reward nor a mintable row.
+  requireTaskScore(record)
   // `reward` and `realness_gated` come out of one call, so neither door into
   // the waist can write one and forget the other.
   const rewardFields = rolloutRewardFields(record)
-  const uncaptured = record.costProvenance?.kind === 'uncaptured'
+  const uncaptured = record.costProvenance.kind === 'uncaptured'
+  const terminalOutcome = record.terminalOutcome
+  const isCompleted = terminalOutcome === 'succeeded' || terminalOutcome === 'failed'
+  const isTruncated = terminalOutcome === 'cancelled' || terminalOutcome === 'incomplete'
+  const terminalError =
+    terminalOutcome === 'failed' ||
+    terminalOutcome === 'cancelled' ||
+    terminalOutcome === 'incomplete'
+      ? (record.terminalFailureReason ?? `run ended ${terminalOutcome}`)
+      : null
   // `assertMinted` rather than a cast: mint is the producer the whole gate
   // rests on, so it proves the line it just built is valid instead of asserting
   // it by fiat. The brand is unforgeable precisely because nobody casts to it.
@@ -160,7 +202,7 @@ function mintLine(
       role: options.role ?? 'agent',
       task: {
         suite: options.suite ?? record.experimentId,
-        instance_id: record.scenarioId ?? record.experimentId,
+        instance_id: record.scenarioId,
         split: SPLIT_FROM_TAG[record.splitTag],
         seed: record.seed,
         rep: 0,
@@ -193,9 +235,9 @@ function mintLine(
         // moves the block to `provenance.gated_evidence` when the run is gated
         // and leaves it here untouched when it is not.
         metrics: { ...record.outcome.raw },
-        is_completed: true,
-        is_truncated: false,
-        error: null,
+        is_completed: isCompleted,
+        is_truncated: isTruncated,
+        error: terminalError,
       },
       cost: {
         usd: uncaptured ? null : record.costUsd,
@@ -220,7 +262,8 @@ function mintLine(
 /**
  * Join RunRecords with their traces into canonical rollout lines. Records
  * without spans are emitted as labeled gap lines and reported in
- * `missingTraces` — a capture gap is a finding, not a silent omission.
+ * `missingTraces`. Execution-only records without a task score are rejected
+ * because a missing training label is not a zero reward.
  */
 export async function mintRolloutRows(
   records: RunRecord[],

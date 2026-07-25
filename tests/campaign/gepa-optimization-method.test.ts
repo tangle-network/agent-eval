@@ -271,11 +271,14 @@ describe('gepaOptimizationMethod', () => {
       accountingComplete: true,
       incompleteReasons: [],
     })
-    expect(result.scores[0]!.provenance?.tokenUsage).toEqual({
-      inputTokens: 10,
-      outputTokens: 5,
-      totalTokens: 15,
-      calls: 1,
+    expect(result.scores[0]!.provenance).toMatchObject({
+      optimizerModel: 'model',
+      tokenUsage: {
+        inputTokens: 10,
+        outputTokens: 5,
+        totalTokens: 15,
+        calls: 1,
+      },
     })
   })
 
@@ -440,6 +443,7 @@ describe('gepaOptimizationMethod', () => {
     expect(result.scores[0]!.provenance?.runId).toMatch(
       new RegExp(`^${result.scores[0]!.provenance?.compatibleRunId}-[0-9a-f]{32}$`),
     )
+    expect(result.scores[0]!.provenance).not.toHaveProperty('optimizerModel')
     expect(result.scores[0]!.provenance?.artifactDir).toContain('/gepa/external')
   })
 

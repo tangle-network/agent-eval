@@ -35,20 +35,27 @@
  *
  * The output `PreferenceTriple` is *agent-eval-canonical* but trivially
  * mappable to TRL's `DPODataset` shape (`prompt`, `chosen`, `rejected`)
- * via the `toTRLFormat` helper.
+ * via the `toTRLFormat` helper; resolve full text with `toDpoRows` from
+ * `./exporters`.
  *
  * Input discipline: the primary signature takes `MintedRolloutLine[]` — the
  * `tangle.rollout.v1` waist, whose reward already carries the realness gate.
  * The `RunRecord[]` signature stays as a deprecated overload. Unlike the
  * exporters it does NOT mint internally: this function is synchronous and
  * minting is not, so it feeds the same pairing implementation through a record
- * adapter that applies the gate via `trainingScore`. One implementation, two
- * adapters — the gate is in both, and the published signature stays sync.
+ * adapter that applies the gate via `trainingScore` plus the shared
+ * training-row eligibility rule (`isTrainingRunEligible`). One implementation,
+ * two adapters — the gate is in both, and the published signature stays sync.
+ *
+ * Split policy, both paths: `search` is the only split paired by default,
+ * held-out pairing requires `allowHeldOutTrainingData: true`, and `dev` is
+ * refused as evaluation-only — a preference pair IS training data.
  */
 
 import { trainingRewardOverride, trainingScore } from '../rollout/reward'
 import type { MintedRolloutLine, RolloutSplit } from '../rollout/schema'
 import type { RunRecord } from '../run-record'
+import { isTrainingRunEligible, type TrainingRunSelectionOptions } from './exporters'
 import {
   admitUngatedByInvocation,
   isRolloutLineInput,
@@ -95,7 +102,7 @@ export interface PreferenceTriple {
   }
 }
 
-export interface ExtractPreferencesOptions {
+export interface ExtractPreferencesOptions extends TrainingRunSelectionOptions {
   strategy?: PreferenceStrategy
   /**
    * Minimum score gap required to admit a pair. Pairs below this are
@@ -103,8 +110,8 @@ export interface ExtractPreferencesOptions {
    */
   minMargin?: number
   /**
-   * Optional split tag filter — restrict to runs from one split. Default
-   * `'holdout'` (the canonical "real" signal).
+   * Optional split tag filter. Without one, only search is included.
+   * Holdout requires `allowHeldOutTrainingData: true`; dev is evaluation-only.
    */
   splitTag?: RunRecord['splitTag']
   /**
@@ -130,9 +137,13 @@ export interface ExtractPreferencesFromLinesOptions {
   minMargin?: number
   /**
    * Optional split filter — restrict to lines from one split. Default
-   * `'holdout'` (the canonical "real" signal).
+   * `'search'`: a preference pair is training data, and training data comes
+   * from the search split. `'holdout'` requires `allowHeldOutTrainingData`;
+   * `'dev'` is refused as evaluation-only.
    */
   split?: RolloutSplit
+  /** Named opt-in required before held-out lines may be paired. */
+  allowHeldOutTrainingData?: boolean
 }
 
 export interface PreferenceExtractionReport {
@@ -154,8 +165,8 @@ export interface PreferenceExtractionReport {
   linesWithoutCandidateId?: number
 }
 
-const SPLIT_TAG_DEFAULT: RunRecord['splitTag'] = 'holdout'
-const SPLIT_DEFAULT: RolloutSplit = 'holdout'
+/** The split each path pairs by default: training data comes from search. */
+const SPLIT_DEFAULT: RolloutSplit = 'search'
 
 /**
  * The only shape the pairing strategies see. Both input adapters normalize
@@ -192,7 +203,8 @@ const DEFAULT_REWARD = (run: RunRecord): number | null => {
  *   1. Run a campaign producing 5–10 variants × 50–200 scenarios × 3 seeds
  *   2. Mint the runs with `mintRolloutRows` and call this with
  *      `strategy: 'paired-by-scenario-and-seed'`
- *   3. Pass `report.pairs` to `toTRLFormat` and pipe to your DPO trainer
+ *   3. Pass `report.pairs` to `toDpoRows` (or `toTRLFormat`) with
+ *      prompt/completion resolvers and pipe to your DPO trainer
  *
  * The gate is what makes a preference dataset safe: ordered on an ungated
  * score, a gamed run with an inflated number becomes the `chosen` side and DPO
@@ -205,8 +217,9 @@ export function extractPreferences(
 ): PreferenceExtractionReport
 /**
  * @deprecated Pass `RolloutLine[]` (mint with `mintRolloutRows`). This
- * signature applies the same gate through `trainingScore`, and keeps
- * `rewardOf` — the one reward hook the line path deliberately drops.
+ * signature applies the same gate through `trainingScore` and the shared
+ * eligibility rule (a gamed or non-positive run is dropped outright), and
+ * keeps `rewardOf` — the one reward hook the line path deliberately drops.
  */
 export function extractPreferences(
   runs: RunRecord[],
@@ -218,11 +231,20 @@ export function extractPreferences(
 ): PreferenceExtractionReport {
   const strategy = opts.strategy ?? 'paired-by-scenario-and-seed'
   const minMargin = opts.minMargin ?? 0.05
+  // The split guard runs before dispatch so it fires on either option
+  // spelling AND on an empty input (which dispatches as lines): asking for an
+  // evaluation split is wrong regardless of whether any rows came with it.
+  const requestedSplit =
+    (opts as ExtractPreferencesOptions).splitTag ??
+    (opts as ExtractPreferencesFromLinesOptions).split
+  if (requestedSplit === 'holdout' && opts.allowHeldOutTrainingData !== true) {
+    throw new Error('extractPreferences: split "holdout" requires allowHeldOutTrainingData: true')
+  }
+  if (requestedSplit === 'dev') {
+    throw new Error('extractPreferences: split "dev" is evaluation-only; train from "search"')
+  }
   const candidates = isRolloutLineInput(input)
-    ? candidatesFromLines(
-        input,
-        (opts as ExtractPreferencesFromLinesOptions).split ?? SPLIT_DEFAULT,
-      )
+    ? candidatesFromLines(input, opts as ExtractPreferencesFromLinesOptions)
     : candidatesFromRecords(input, opts as ExtractPreferencesOptions)
   const report = pairCandidates(candidates.rows, strategy, minMargin)
   return candidates.withoutCandidateId === undefined
@@ -240,17 +262,19 @@ function candidatesFromRecords(
   runs: RunRecord[],
   opts: ExtractPreferencesOptions,
 ): NormalizedInput {
-  const splitTag = opts.splitTag ?? SPLIT_TAG_DEFAULT
+  const splitTag = opts.splitTag
   const custom = opts.rewardOf
   const rows: PairingCandidate[] = []
   for (const run of runs) {
-    if (run.splitTag !== splitTag) continue
+    if (splitTag !== undefined && run.splitTag !== splitTag) continue
     // The caller's hook is honoured and then gated, never gated instead of
     // honoured. Ungated it ordered chosen-vs-rejected on the number a gamed run
-    // claimed, which is the one ordering DPO must never be taught.
+    // claimed, which is the one ordering DPO must never be taught. The shared
+    // eligibility rule then applies on top: gated, non-positive, non-succeeded
+    // and wrong-split runs are dropped outright.
     const score =
       custom === undefined ? DEFAULT_REWARD(run) : trainingRewardOverride(run, custom(run))
-    if (score === null) continue
+    if (!isTrainingRunEligible(run, score, opts)) continue
     rows.push({
       // Three-tier scenario fallback, which `RolloutLine.task.instance_id`
       // cannot express (mint knows only `scenarioId ?? experimentId`). Kept on
@@ -269,7 +293,11 @@ function candidatesFromRecords(
   return { rows }
 }
 
-function candidatesFromLines(lines: MintedRolloutLine[], split: RolloutSplit): NormalizedInput {
+function candidatesFromLines(
+  lines: MintedRolloutLine[],
+  opts: ExtractPreferencesFromLinesOptions,
+): NormalizedInput {
+  const split = opts.split ?? SPLIT_DEFAULT
   const rows: PairingCandidate[] = []
   let withoutCandidateId = 0
   for (const line of lines) {
@@ -309,6 +337,7 @@ function pairCandidates(
   let cellsInspected = 0
 
   if (strategy === 'paired-by-scenario-and-seed') {
+    // Group by the canonical (scenarioId, seed) identity.
     const groups = new Map<string, PairingCandidate[]>()
     for (const e of scoredEntries) {
       const key = `${e.scenarioId}::${e.seed}`
@@ -507,16 +536,6 @@ function makePair(
   }
 }
 
-/**
- * Canonical scenario key for a RunRecord. Three-tier fallback:
- *   1. `run.scenarioId` — populated by `runEvalCampaign` and every adapter
- *   2. `run.outcome.raw.scenario_id` — string or numeric, when present
- *   3. `run.experimentId` — worst-case bucket
- */
 function scenarioOf(run: RunRecord): string {
-  if (typeof run.scenarioId === 'string' && run.scenarioId.length > 0) return run.scenarioId
-  const fromRaw = run.outcome.raw.scenario_id
-  if (typeof fromRaw === 'number' && Number.isFinite(fromRaw)) return String(fromRaw)
-  if (typeof fromRaw === 'string') return fromRaw
-  return run.experimentId
+  return run.scenarioId
 }

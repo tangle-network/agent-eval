@@ -96,7 +96,7 @@ export function summarizeAgentReceiptIntegrity(
 interface BackendUsage {
   inputTokens: number
   outputTokens: number
-  costUsd: number
+  costUsd: number | null
 }
 
 function summarizeBackendUsage(records: readonly BackendUsage[]): BackendIntegrityReport {
@@ -110,10 +110,10 @@ function summarizeBackendUsage(records: readonly BackendUsage[]): BackendIntegri
   for (const rec of records) {
     totalInputTokens += rec.inputTokens
     totalOutputTokens += rec.outputTokens
-    totalCostUsd += rec.costUsd
+    totalCostUsd += rec.costUsd ?? 0
     if (rec.inputTokens === 0 && rec.outputTokens === 0) stubRecords++
     else realRecords++
-    if (rec.outputTokens > 0 && rec.costUsd === 0) uncostedRecords++
+    if (rec.outputTokens > 0 && (rec.costUsd === null || rec.costUsd === 0)) uncostedRecords++
   }
   const verdict: BackendIntegrityReport['verdict'] =
     totalRecords === 0

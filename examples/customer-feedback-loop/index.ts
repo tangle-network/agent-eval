@@ -48,6 +48,10 @@ function pseudoRand(s: string): number {
   return (h >>> 0) / 0xffffffff
 }
 
+function formatMetric(value: number | null, digits = 3): string {
+  return value === null ? 'n/a' : value.toFixed(digits)
+}
+
 async function main() {
   const rows = synthesise()
   const { runs, raterScores } = fromFeedbackTable({ ratings: rows })
@@ -57,11 +61,12 @@ async function main() {
   console.log()
   console.log(`Runs analyzed:     ${report.n}`)
   console.log(
-    `Composite mean:    ${report.composite.mean.toFixed(3)} ` +
-      `(p50: ${report.composite.p50.toFixed(3)}, p95: ${report.composite.p95.toFixed(3)})`,
+    `Composite mean:    ${formatMetric(report.composite.mean)} ` +
+      `(p50: ${formatMetric(report.composite.p50)}, p95: ${formatMetric(report.composite.p95)})`,
   )
-  const approveRate = (report.composite.mean * 100).toFixed(0)
-  console.log(`Approve rate:      ~${approveRate}%`)
+  const approveRate =
+    report.composite.mean === null ? 'n/a' : `~${(report.composite.mean * 100).toFixed(0)}%`
+  console.log(`Approve rate:      ${approveRate}`)
   console.log()
 
   if (report.interRater) {
