@@ -4,6 +4,12 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ---
 
+## [0.128.2] - 2026-07-25 - current core contract
+
+### Changed
+
+- Require `@tangle-network/agent-core` 0.4.21 so Eval cannot retain Interface 0.32 through an existing lockfile.
+
 ## [0.128.1] - 2026-07-25 - certified context contract
 
 ### Changed
