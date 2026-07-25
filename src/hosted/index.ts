@@ -17,6 +17,19 @@ export {
   hostedTenantFromEnv,
 } from './client'
 export {
+  EvalRunCellScoreSchema,
+  EvalRunEventSchema,
+  EvalRunGenerationSnapshotSchema,
+  IngestEvalRunsRequestSchema,
+  IngestResponseSchema,
+  IngestTracesRequestSchema,
+  InsightReportSchema,
+  MutableSurfaceSchema,
+  RunTerminalOutcomeSchema,
+  TraceSpanEventSchema,
+  UnixNanoTimestampSchema,
+} from './schemas'
+export {
   type EvalRunCellScore,
   type EvalRunEvent,
   type EvalRunGenerationSnapshot,
@@ -27,5 +40,7 @@ export {
   type IngestEvalRunsRequest,
   type IngestResponse,
   type IngestTracesRequest,
+  type InsightReport,
   type TraceSpanEvent,
+  type UnixNanoTimestamp,
 } from './types'

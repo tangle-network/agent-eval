@@ -1,9 +1,7 @@
-# Hosted-ingest wire spec: `2026-05-26.v1`
+# Hosted-ingest wire spec: `2026-07-24.v1`
 
-The schema **every** orchestrator (ours, partners' self-hosted ones,
-any future open implementation) must accept. Frozen under semver:
-**new minors only add optional fields. Breaking changes mean a major
-bump and a new `HostedWireVersion` literal.**
+This is the only hosted-ingest wire format implemented by the current package.
+Clients and servers reject every other wire version.
 
 This is the contract between `@tangle-network/agent-eval` and any hosted
 or self-hosted orchestrator. A builder can:
@@ -26,12 +24,12 @@ Two endpoints, both `POST`, both JSON. Headers on every request:
 | `Authorization` | `Bearer <tenant-key>` (the orchestrator issues this) |
 | `Content-Type` | `application/json` |
 | `X-Tangle-Tenant-Id` | The tenant's stable id (the orchestrator's primary key for the tenant) |
-| `X-Tangle-Wire-Version` | `2026-05-26.v1` (this spec) |
-| `Idempotency-Key` (optional) | UUID; servers MUST treat repeated keys as dedup |
+| `X-Tangle-Wire-Version` | `2026-07-24.v1` (this spec) |
+| `Idempotency-Key` | Non-empty request key, at most 256 characters; clients generate one per call and reuse it across retries |
 
-Responses are JSON of shape `{ accepted: number, rejected: Array<{ index, reason }> }`. The
-server SHOULD return 202 (accepted, async) or 200 (accepted, synchronous);
-both are equivalent for the wire's purposes.
+Responses are JSON of shape `{ accepted: number, rejected: Array<{ index, reason }> }`.
+Clients validate the complete response before returning it.
+The server can return 202 for asynchronous acceptance or 200 for synchronous acceptance.
 
 ### `POST /v1/ingest/eval-runs`
 
@@ -75,6 +73,7 @@ interface EvalRunEvent {
   totalCostUsd: number
   totalDurationMs: number
   errorMessage?: string              // present when status === 'errored'
+  insightReport?: InsightReport      // current report contract
 }
 ```
 
@@ -86,7 +85,7 @@ interface EvalRunGenerationSnapshot {
   surfaceHash: string                // stable hash of the candidate surface (pivot key)
   surface?: MutableSurface           // OMITTED to avoid PII when consumer prefers
   cells: EvalRunCellScore[]
-  compositeMean: number
+  compositeMean: number | null       // null when no cell has a task-quality label
   costUsd: number
   durationMs: number
 }
@@ -98,12 +97,14 @@ interface EvalRunGenerationSnapshot {
 interface EvalRunCellScore {
   scenarioId: string
   rep: number                        // 0 for the default; > 0 when reps > 1
-  compositeMean: number              // composite across all judges + dimensions
-  dimensions: Record<                // outer key = judge name; inner = dimension name → score
+  compositeMean: number | null       // null when the cell is unscored
+  dimensions: Record<                // successful scores; failed or missing judges are absent
     string,
     Record<string, number>
   >
-  errorMessage?: string              // present when the dispatch threw
+  terminalOutcome: 'succeeded' | 'failed' | 'cancelled' | 'incomplete' | 'unknown'
+  executionErrorCount: number | null // null when the producer cannot classify errors
+  errorMessage?: string              // present for a dispatch or judge error
 }
 ```
 
@@ -116,10 +117,14 @@ interface TraceSpanEvent {
   spanId: string
   parentSpanId?: string
   name: string
-  startTimeUnixNano: number
-  endTimeUnixNano: number
+  startTimeUnixNano: string // canonical unsigned 64-bit integer encoded in base 10
+  endTimeUnixNano: string   // canonical unsigned 64-bit integer encoded in base 10
   attributes: Record<string, string | number | boolean>
-  events?: Array<{ timeUnixNano, name, attributes? }>
+  events?: Array<{
+    timeUnixNano: string    // canonical unsigned 64-bit integer encoded in base 10
+    name: string
+    attributes?: Record<string, string | number | boolean>
+  }>
   status?: { code: 'OK' | 'ERROR' | 'UNSET', message? }
 
   // Tangle additions (all optional) for pivoting
@@ -143,12 +148,14 @@ Any orchestrator implementing this spec MUST:
    a clear error message). The major component is the breaking-change axis.
 3. **Validate tenant isolation**: queries with `tenantId` X never return
    data tagged with `tenantId` Y. Test this adversarially.
-4. **Honor idempotency**: when an `Idempotency-Key` matches a prior
-   request from the same tenant in the last 24h, return the same response
-   without double-processing.
-5. **Persist eval-runs durably**: at least the event + cell scores must
+4. **Honor idempotency**: require an `Idempotency-Key`; when it matches a prior request to the same endpoint from the same tenant in the last 24 hours, return the same response without processing the body again.
+5. **Deduplicate spans**: store at most one span for each `(tenantId, traceId, spanId)` identity.
+   Accept an exact duplicate as already stored and reject a conflicting payload with the same identity.
+6. **Keep run state monotonic**: accept forward lifecycle transitions, but never replace `finished` or `errored` with a late event.
+   Delayed events can add a missing generation without replacing terminal totals, labels, or status.
+7. **Persist eval-runs durably**: at least the event + cell scores must
    survive an orchestrator restart. Trace spans MAY be best-effort.
-6. **Provide read access**: GET endpoints for the tenant to list + fetch
+8. **Provide read access**: GET endpoints for the tenant to list + fetch
    their own runs. Wire format for reads is NOT part of this spec: each
    orchestrator can pick its own (REST + JSON, gRPC, GraphQL).
 
@@ -163,9 +170,9 @@ Servers SHOULD also:
 
 ## Reference implementation
 
-`examples/hosted-ingest-server/`: a minimal hono-based receiver. ~200
-LOC. Validates auth, accepts ingest, stores in memory, exposes a
-read endpoint. Runs anywhere Node runs.
+`examples/hosted-ingest-server/` is a Hono receiver for local development and contract tests.
+It validates auth, request and response shapes, versions, exact nanosecond strings, request keys, span identity, and monotonic run state.
+It is not production storage because process restart clears its in-memory data.
 
 ```sh
 TENANT_KEY=dev-token TENANT_ID=acme pnpm tsx examples/hosted-ingest-server/server.ts
@@ -185,19 +192,9 @@ receiver's `GET /v1/runs` lists it back.
 
 ---
 
-## Versioning
+## Version
 
-`HostedWireVersion` is `"2026-05-26.v1"`.
-
-- Adding an optional field → no version change.
-- Adding a new endpoint or new event type → minor wire bump
-  (`2026-05-26.v2`).
-- Changing the shape of an existing field, removing a field, or
-  changing semantics of an existing field → major wire bump
-  (`2026-11-XX.v1`); a server may accept both versions during a
-  transition window.
-
-Servers MUST reject requests with `X-Tangle-Wire-Version` they don't
-support, with a 400 listing the versions they DO accept.
-
-The version string IS the spec id: pin against it.
+`HostedWireVersion` is `"2026-07-24.v1"`.
+The current clients emit only this value.
+Servers return 400 for every other value and list the accepted version.
+There are no compatibility readers or migration branches.
