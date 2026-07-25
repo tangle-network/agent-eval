@@ -197,7 +197,7 @@ function collectPairedDeltaSeries(
   const baseline = new Map<string, number>()
   for (const r of runs) {
     if (r.candidateId !== comparator) continue
-    const sid = r.scenarioId ?? r.experimentId
+    const sid = r.scenarioId
     const score = runTaskScore(r)
     if (score === undefined) continue
     baseline.set(`${sid}::${r.seed}`, score)
@@ -205,7 +205,7 @@ function collectPairedDeltaSeries(
   const byCandidate = new Map<string, number[]>()
   for (const r of runs) {
     if (r.candidateId === comparator) continue
-    const sid = r.scenarioId ?? r.experimentId
+    const sid = r.scenarioId
     const score = runTaskScore(r)
     if (score === undefined) continue
     const baseScore = baseline.get(`${sid}::${r.seed}`)

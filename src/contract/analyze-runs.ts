@@ -260,7 +260,7 @@ function computeExecutionInsight(runs: RunRecord[], bins: number): ExecutionInsi
 
   for (const run of runs) {
     modelCounts.set(run.model, (modelCounts.get(run.model) ?? 0) + 1)
-    const terminalOutcome = run.terminalOutcome ?? 'unknown'
+    const terminalOutcome = run.terminalOutcome
     terminalOutcomes[terminalOutcome] += 1
     const modelCalls = nonNegativeCountRaw(run, 'llm_span_count')
     if (modelCalls !== undefined) {

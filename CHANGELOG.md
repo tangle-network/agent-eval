@@ -9,6 +9,8 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 ### Changed
 
 - Execution reports now separate runs with execution errors from explicit terminal outcomes.
+- `RunRecord` now requires `scenarioId`, `terminalOutcome`, and `costProvenance`.
+- Uncaptured cost is represented as `costUsd: null` with `{ kind: 'uncaptured', usd: null }`; it is never converted to zero.
 - `ExecutionInsight.failures` is replaced by `executionErrors` and `terminalOutcomes`; report renderers must label these independently.
 - `RunRecord.terminalOutcome` records `succeeded`, `failed`, `cancelled`, `incomplete`, or `unknown` only from root-run or process evidence.
 - `executionErrors.byTerminalOutcome` cross-tabulates reported errors, reported zeroes, and missing error telemetry without asserting recovery causality.
@@ -22,6 +24,8 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 - Trace ranking ignores unlabeled execution rows without dropping them from storage.
 - `MultiLayerVerifier.taskScore` is present only for a complete scoring panel; partial blends remain diagnostic, and errored or timed-out layers cannot become task or training labels.
 - RL exports require trainable rows: SFT is the safe default, GRPO must be requested and needs at least two rewarded completions per group, unscored trajectories require explicit SFT opt-in, and requested empty formats fail loudly.
+- RL and rollout training exports use only the `search` split by default.
+- `dev` remains evaluation-only, and held-out training requires `allowHeldOutTrainingData: true`.
 - Minted rollout terminal fields now reflect `RunRecord.terminalOutcome`, and SFT excludes failed, cancelled, incomplete, and unknown-terminal runs.
 - Release confidence reports quality and reliability separately; terminal process failure no longer becomes a low task-quality score, and missing measurements remain `null`.
 - Cost-bounded held-out and release decisions reject incomplete cost evidence instead of treating uncaptured cost as zero.
@@ -29,6 +33,9 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 - Campaign, profile-matrix, and self-improvement projections now share one mapper that records explicit terminal outcomes, execution-error counts, actual token usage, and unlabeled error cells.
 - Hosted campaign snapshots omit failed judge dimensions rather than publishing invalid values.
 - Hosted clients and the reference receiver validate complete request payloads, reject header/body version disagreement, scope retry keys by endpoint, and merge incremental generation snapshots without losing earlier generations.
+- Hosted trace timestamps are exact base-10 strings so JSON cannot truncate OTLP nanoseconds.
+- Rollout rows require experiment and candidate keys plus `outcome.realness_gated`; the obsolete `train` split and `ROLLOUT_FORMAT` alias were removed.
+- Paired reports use within-pair Cohen's dz and paired sample-size calculations.
 - Hosted ingest now emits wire version `2026-07-24.v1`; cells carry terminal outcomes and execution-error counts, missing task scores are `null`, and old aggregate reports must be recomputed from their original run rows because the former mixed failure count cannot be migrated losslessly.
 
 ## [0.126.7] - 2026-07-24 - dependency security refresh

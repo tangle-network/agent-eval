@@ -103,7 +103,7 @@ function runScore(run: RunRecord): number | undefined {
 
 /** Pairing key — the same scenario/experiment identity HeldOutGate pairs on. */
 function taskKey(run: RunRecord): string {
-  return run.scenarioId ?? run.experimentId
+  return run.scenarioId
 }
 
 /** Mean per-task score for a model: { taskKey -> mean(score over its runs) }. */
