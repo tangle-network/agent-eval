@@ -110,6 +110,19 @@ describe('runAgentControlLoop', () => {
     expect(result.reason).toBe('all critical evals passed')
   })
 
+  it('classifies a stop with omitted pass as a failed task', async () => {
+    const result = await runAgentControlLoop<TestState, TestAction, TestState>({
+      intent: 'stop without an explicit pass',
+      observe: () => ({ count: 0 }),
+      validate: () => [],
+      decide: () => ({ type: 'stop', reason: 'cannot continue' }),
+      act: () => ({ count: 0 }),
+    })
+
+    expect(result.pass).toBe(false)
+    expect(result.failureClass).toBe('unknown')
+  })
+
   it('records action failures so a policy can recover on the next step', async () => {
     const state: TestState = { count: 0 }
 

@@ -457,9 +457,10 @@ export async function runAgentControlLoop<
         })
       }
       if (decision.type === 'stop') {
+        const pass = decision.pass ?? false
         return finish(emitter, {
           intent: config.intent,
-          pass: decision.pass ?? false,
+          pass,
           completed: true,
           reason: decision.reason,
           score: decision.score,
@@ -469,7 +470,7 @@ export async function runAgentControlLoop<
           wallMs: Date.now() - started,
           spentCostUsd,
           runId: emitter?.runId ?? null,
-          failureClass: decision.pass === false ? (decision.failureClass ?? 'unknown') : undefined,
+          failureClass: pass ? undefined : (decision.failureClass ?? 'unknown'),
           runtimeErrors,
           stoppedBy: 'policy',
         })
