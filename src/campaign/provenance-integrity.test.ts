@@ -1,9 +1,16 @@
 import { describe, expect, it } from 'vitest'
+import { fromOtelSpans } from '../contract/intake/otel-spans'
 import { campaignScenarioIdentity, campaignSplitDigest } from './coverage'
 import type { BuildLoopProvenanceArgs } from './provenance'
-import { buildLoopProvenanceRecord } from './provenance'
+import {
+  buildLoopProvenanceRecord,
+  campaignMeasurementDigest,
+  canonicalDigest,
+  loopProvenanceSpans,
+  verifyLoopProvenanceRecord,
+} from './provenance'
 import { surfaceHash } from './surface-identity'
-import type { CampaignResult, GenerationCandidate, Scenario } from './types'
+import type { CampaignResult, GateDecision, GenerationCandidate, Scenario } from './types'
 
 interface TestScenario extends Scenario {
   kind: 'test'
@@ -223,11 +230,98 @@ describe('loop provenance measurement integrity', () => {
   it('rejects gate details that JSON serialization would silently change', () => {
     const input = args()
     input.gate.contributingGates = [
-      { name: 'strict-detail', passed: true, detail: { score: Number.NaN } },
+      { name: 'strict-detail', status: 'pass', detail: { score: Number.NaN } },
     ]
     expect(() => buildLoopProvenanceRecord(input)).toThrow(/gate detail must be canonical JSON/)
 
     input.gate.contributingGates[0]!.detail = { omitted: undefined }
     expect(() => buildLoopProvenanceRecord(input)).toThrow(/gate detail must be canonical JSON/)
+  })
+
+  it.each<GateDecision>(['hold', 'need_more_work', 'model_ceiling', 'arch_ceiling'])(
+    'records %s as a successful decision rather than an execution error',
+    (decision) => {
+      const input = args()
+      input.gate.decision = decision
+      const record = buildLoopProvenanceRecord(input)
+      const spans = loopProvenanceSpans(record)
+
+      expect(spans.find((span) => span.name === 'improvement-loop')?.status).toEqual({
+        code: 'OK',
+      })
+      expect(spans.find((span) => span.name === 'gate-decision')?.status).toEqual({
+        code: 'OK',
+      })
+
+      const [run] = fromOtelSpans({ spans })
+      expect(run).toMatchObject({
+        terminalOutcome: 'succeeded',
+        outcome: {
+          raw: {
+            error_span_count: 0,
+            execution_error_count: 0,
+            process_error_count: 0,
+            unclassified_error_count: 0,
+          },
+        },
+      })
+    },
+  )
+
+  it('binds failure stage and judge identity into the campaign digest', () => {
+    const dispatchFailure = campaign(0.5, '/same-run')
+    dispatchFailure.cells[0]!.error = 'same failure'
+    dispatchFailure.cells[0]!.errorStage = 'dispatch'
+
+    const judgeFailure = campaign(0.5, '/same-run')
+    judgeFailure.cells[0]!.error = 'same failure'
+    judgeFailure.cells[0]!.errorStage = 'judge'
+    judgeFailure.cells[0]!.errorJudge = 'judge-a'
+
+    const otherJudgeFailure = campaign(0.5, '/same-run')
+    otherJudgeFailure.cells[0]!.error = 'same failure'
+    otherJudgeFailure.cells[0]!.errorStage = 'judge'
+    otherJudgeFailure.cells[0]!.errorJudge = 'judge-b'
+
+    expect(campaignMeasurementDigest(dispatchFailure)).not.toBe(
+      campaignMeasurementDigest(judgeFailure),
+    )
+    expect(campaignMeasurementDigest(judgeFailure)).not.toBe(
+      campaignMeasurementDigest(otherJudgeFailure),
+    )
+  })
+
+  it('preserves tri-state check status without a boolean alias', () => {
+    const input = args()
+    input.gate.contributingGates = [
+      { name: 'measured', status: 'pass', detail: {} },
+      { name: 'missing', status: 'not_evaluated', detail: { reason: 'no input' } },
+    ]
+
+    const checks = buildLoopProvenanceRecord(input).gate.contributingGates
+    expect(checks).toEqual(input.gate.contributingGates)
+    expect(checks.every((check) => !('passed' in check))).toBe(true)
+  })
+
+  it('rejects obsolete boolean contributions at build and persisted-read boundaries', () => {
+    const input = args()
+    input.gate.contributingGates = [{ name: 'legacy', passed: true, detail: {} } as never]
+    expect(() => buildLoopProvenanceRecord(input)).toThrow(/must have status/)
+
+    const current = buildLoopProvenanceRecord(args())
+    const { recordDigest: _currentDigest, ...currentWithoutDigest } = current
+    const legacyWithoutDigest = {
+      ...currentWithoutDigest,
+      gate: {
+        ...currentWithoutDigest.gate,
+        contributingGates: [{ name: 'legacy', passed: true, detail: {} }],
+      },
+    }
+    const legacy = {
+      ...legacyWithoutDigest,
+      recordDigest: canonicalDigest(legacyWithoutDigest),
+    }
+
+    expect(() => verifyLoopProvenanceRecord(legacy as never)).toThrow(/must have status/)
   })
 })

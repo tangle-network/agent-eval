@@ -324,12 +324,14 @@ export {
 export type {
   ComparePairedArmsOptions,
   MatchedPair,
+  MatchedRunRecordPair,
   PairArmsOptions,
   PairArmsResult,
   PairedArmRow,
   PairedArmsComparison,
   PairedCorrectness,
   PairedMetricDelta,
+  PairRunRecordsResult,
 } from './paired-arms'
 // ── Matched-pair arm comparison ──────────────────────────────────────
 // Pairs run-record-like rows across two arms by pairKey (multi-rep items
@@ -337,7 +339,7 @@ export type {
 // estimators from `statistics` (mcnemar + pairedRiskDifference for
 // pass/fail, pairedBootstrap + wilcoxonSignedRank per metric). Arm names
 // are parameters — no domain literal ships here.
-export { comparePairedArms, pairArms } from './paired-arms'
+export { comparePairedArms, pairArms, pairRunRecords } from './paired-arms'
 export type {
   PrReviewAuditCase,
   PrReviewBenchmarkSummary,
@@ -375,7 +377,6 @@ export {
   type MintRolloutResult,
   mintRolloutRows,
   type RewardRow,
-  ROLLOUT_FORMAT,
   ROLLOUT_SCHEMA,
   type RolloutCapture,
   type RolloutLine,
@@ -434,6 +435,7 @@ export {
   mcnemarRequiredN,
   normalizeScores,
   pairedBootstrap,
+  pairedCohensDz,
   pairedMde,
   pairedRiskDifference,
   pairedSignTest,
@@ -442,6 +444,7 @@ export {
   passAtK,
   pearsonR,
   ranks,
+  requiredPairedSampleSize,
   requiredSampleSize,
   spearmanR,
   weightedComposite,
@@ -1284,6 +1287,7 @@ export {
 } from './benchmarks/types'
 export type {
   CanaryAlert,
+  CanaryEvaluation,
   CanaryKind,
   CanaryOptions,
   CanaryReport,
@@ -1444,6 +1448,7 @@ export type {
   RunOutcome,
   RunRecord,
   RunSplitTag,
+  RunTerminalOutcome,
   RunTokenUsage,
 } from './run-record'
 export {
@@ -1451,8 +1456,8 @@ export {
   modelHasSnapshot,
   parseRunRecordSafe,
   RunRecordValidationError,
-  resolveRunCostProvenance,
   roundTripRunRecord,
+  runTaskScore,
   validateRunRecord,
 } from './run-record'
 export type {

@@ -28,7 +28,7 @@
  */
 
 import type { LayerResult, VerificationReport } from '../multi-layer-verifier'
-import type { RunRecord } from '../run-record'
+import { type RunRecord, runTaskScore } from '../run-record'
 
 export type VerifiableRewardSource =
   | 'compile' // typecheck / build / lint passed
@@ -149,7 +149,7 @@ export function extractVerifiableReward(
   const judgeFloor = opts.judgeConfidenceFloor ?? 0.7
 
   const deterministic = report.layers.filter(
-    (l) => deterministicSet.has(l.layer) && typeof l.score === 'number' && Number.isFinite(l.score),
+    (layer) => deterministicSet.has(layer.layer) && isMeasuredLayer(layer),
   )
 
   if (deterministic.length === 1) {
@@ -191,10 +191,8 @@ export function extractVerifiableReward(
   if (!fallbackToJudge) return null
 
   const judge =
-    report.layers.find(
-      (l) =>
-        typeof l.score === 'number' && Number.isFinite(l.score) && sourceFor(l.layer) === 'judge',
-    ) ?? report.layers.find((l) => typeof l.score === 'number' && Number.isFinite(l.score))
+    report.layers.find((layer) => isMeasuredLayer(layer) && sourceFor(layer.layer) === 'judge') ??
+    report.layers.find(isMeasuredLayer)
 
   if (!judge) return null
 
@@ -209,6 +207,18 @@ export function extractVerifiableReward(
     components: { [judge.layer]: judgeValue },
     breakdown: layerBreakdown(judge),
   }
+}
+
+function isMeasuredLayer(
+  layer: LayerResult,
+): layer is LayerResult & { status: 'pass' | 'fail'; score: number } {
+  return (
+    (layer.status === 'pass' || layer.status === 'fail') &&
+    typeof layer.score === 'number' &&
+    Number.isFinite(layer.score) &&
+    layer.score >= 0 &&
+    layer.score <= 1
+  )
 }
 
 /**
@@ -283,8 +293,8 @@ export function extractVerifiableRewardsFromRecords(
     if (!fallbackToJudge) return { runId: run.runId, reward: null }
 
     // Probabilistic fallback: use the run's primary score.
-    const primary = run.outcome.holdoutScore ?? run.outcome.searchScore
-    if (typeof primary !== 'number' || !Number.isFinite(primary)) {
+    const primary = runTaskScore(run)
+    if (primary === undefined) {
       return { runId: run.runId, reward: null }
     }
     const primaryValue = clamp01(primary)

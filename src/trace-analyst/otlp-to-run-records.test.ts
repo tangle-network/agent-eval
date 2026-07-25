@@ -164,6 +164,8 @@ describe('otlpToRunRecords', () => {
     const [clean, error] = twoRecords(records)
     expect(clean.scenarioId).toBe(TASK_CLEAN)
     expect(error.scenarioId).toBe(TASK_ERROR)
+    expect(clean.terminalOutcome).toBe('succeeded')
+    expect(error.terminalOutcome).toBe('succeeded')
 
     // Every produced row passes the strict validator (regression: a
     // half-built record or a bare-alias model would throw here).
@@ -206,8 +208,8 @@ describe('otlpToRunRecords', () => {
     expect(clean.costUsd).toBeCloseTo(0.003, 6)
     expect(clean.costProvenance).toEqual({ kind: 'observed', usd: 0.003 })
     expect(clean.outcome.raw.cost_unpriced).toBeUndefined()
-    // error trace: no cost attribute anywhere → 0 BUT flagged loudly.
-    expect(error.costUsd).toBe(0)
+    // Error trace: no cost attribute anywhere, so the amount stays missing.
+    expect(error.costUsd).toBeNull()
     expect(error.costProvenance).toEqual({ kind: 'uncaptured', usd: null })
     expect(error.outcome.raw.cost_unpriced).toBe(1)
   })
@@ -660,16 +662,148 @@ describe('otlpToRunRecords', () => {
     expect(error.outcome.raw.cost_unpriced).toBeUndefined()
   })
 
-  it('maps STATUS_CODE_ERROR → failureMode and the error-derived default score', () => {
+  it('keeps a child STATUS_CODE_ERROR separate from the root terminal outcome', () => {
     const [clean, error] = twoRecords(otlpToRunRecords(FIXTURE, baseOpts))
-    // No-error trace: failureMode unset, default holdout score 1.
+    // Execution telemetry alone does not create task-quality labels.
     expect(clean.failureMode).toBeUndefined()
-    expect(clean.outcome.holdoutScore).toBe(1)
+    expect(clean.outcome.holdoutScore).toBeUndefined()
+    expect(clean.outcome.searchScore).toBeUndefined()
     expect(clean.outcome.raw.error_span_count).toBe(0)
-    // Error trace: failureMode carries the real status message; score 0.
-    expect(error.failureMode).toBe('Error running tool (non-fatal): No such file or directory')
-    expect(error.outcome.holdoutScore).toBe(0)
+    expect(clean.outcome.raw.execution_error_count).toBe(0)
+    // The child error remains visible without becoming a score, a task
+    // failure detail, or a failed terminal outcome.
+    expect(error.failureMode).toBeUndefined()
+    expect(error.outcome.holdoutScore).toBeUndefined()
+    expect(error.outcome.searchScore).toBeUndefined()
     expect(error.outcome.raw.error_span_count).toBe(1)
+    expect(error.outcome.raw.execution_error_count).toBe(1)
+    expect(error.terminalOutcome).toBe('succeeded')
+  })
+
+  it('classifies an errored model-metadata child as one execution error', () => {
+    const trace = [
+      spanLine({
+        trace_id: 'model-error',
+        span_id: 'root',
+        parent_span_id: '',
+        name: 'agent.run',
+        start_time: '2026-04-23T05:32:00.000Z',
+        end_time: '2026-04-23T05:32:03.000Z',
+        status: { code: 'STATUS_CODE_OK' },
+        attributes: { 'openinference.span.kind': 'AGENT' },
+      }),
+      spanLine({
+        trace_id: 'model-error',
+        span_id: 'model-call',
+        parent_span_id: 'root',
+        name: 'provider.request',
+        start_time: '2026-04-23T05:32:01.000Z',
+        end_time: '2026-04-23T05:32:02.000Z',
+        status: { code: 'STATUS_CODE_ERROR', message: 'provider unavailable' },
+        attributes: { 'gen_ai.request.model': 'gpt-5@2026-06-05' },
+      }),
+    ].join('\n')
+
+    const run = otlpToRunRecords(trace, baseOpts)[0]!
+
+    expect(run.outcome.raw).toMatchObject({
+      llm_span_count: 1,
+      execution_error_count: 1,
+      process_error_count: 0,
+      unclassified_error_count: 0,
+    })
+    expect(run.terminalOutcome).toBe('succeeded')
+  })
+
+  it('ignores a parentless tool error when one run root has terminal evidence', () => {
+    const agent = spanLine({
+      trace_id: 'tool-root',
+      span_id: 'agent',
+      parent_span_id: '',
+      name: 'agent.run',
+      start_time: '2026-04-23T05:32:00.000Z',
+      end_time: '2026-04-23T05:32:03.000Z',
+      status: { code: 'STATUS_CODE_OK' },
+      attributes: { 'openinference.span.kind': 'AGENT' },
+    })
+    const tool = spanLine({
+      trace_id: 'tool-root',
+      span_id: 'tool',
+      parent_span_id: '',
+      name: 'tool.call',
+      start_time: '2026-04-23T05:32:01.000Z',
+      end_time: '2026-04-23T05:32:02.000Z',
+      status: { code: 'STATUS_CODE_ERROR' },
+      attributes: {
+        'openinference.span.kind': 'TOOL',
+        'tool.name': 'filesystem.read',
+      },
+    })
+
+    const outcomes = [
+      otlpToRunRecords([agent, tool].join('\n'), baseOpts)[0]!.terminalOutcome,
+      otlpToRunRecords([tool, agent].join('\n'), baseOpts)[0]!.terminalOutcome,
+    ]
+    expect(outcomes).toEqual(['succeeded', 'succeeded'])
+  })
+
+  it('maps multiple run roots to unknown independent of input order', () => {
+    const ok = spanLine({
+      trace_id: 'ambiguous-roots',
+      span_id: 'agent-a',
+      parent_span_id: '',
+      name: 'agent.a',
+      start_time: '2026-04-23T05:32:00.000Z',
+      end_time: '2026-04-23T05:32:03.000Z',
+      status: { code: 'STATUS_CODE_OK' },
+      attributes: { 'openinference.span.kind': 'AGENT' },
+    })
+    const failed = spanLine({
+      trace_id: 'ambiguous-roots',
+      span_id: 'agent-b',
+      parent_span_id: '',
+      name: 'agent.b',
+      start_time: '2026-04-23T05:32:00.000Z',
+      end_time: '2026-04-23T05:32:03.000Z',
+      status: { code: 'STATUS_CODE_ERROR' },
+      attributes: { 'openinference.span.kind': 'AGENT' },
+    })
+
+    const outcomes = [
+      otlpToRunRecords([ok, failed].join('\n'), baseOpts)[0]!.terminalOutcome,
+      otlpToRunRecords([failed, ok].join('\n'), baseOpts)[0]!.terminalOutcome,
+      otlpToRunRecords(
+        [ok, failed.replace('STATUS_CODE_ERROR', 'STATUS_CODE_OK')].join('\n'),
+        baseOpts,
+      )[0]!.terminalOutcome,
+    ]
+    expect(outcomes).toEqual(['unknown', 'unknown', 'unknown'])
+  })
+
+  it('uses an unambiguous failed root as the task failure detail', () => {
+    const failed = spanLine({
+      trace_id: 'failed-root',
+      span_id: 'agent',
+      parent_span_id: '',
+      name: 'agent.run',
+      start_time: '2026-04-23T05:32:00.000Z',
+      end_time: '2026-04-23T05:32:03.000Z',
+      status: {
+        code: 'STATUS_CODE_ERROR',
+        message: 'worker exhausted retries',
+      },
+      attributes: { 'openinference.span.kind': 'AGENT' },
+    })
+
+    const record = otlpToRunRecords(failed, baseOpts)[0]!
+    expect(record.terminalOutcome).toBe('failed')
+    expect(record.failureMode).toBeUndefined()
+    expect(record.terminalFailureReason).toBe('worker exhausted retries')
+    expect(record.outcome.raw).toMatchObject({
+      error_span_count: 1,
+      execution_error_count: 0,
+      process_error_count: 1,
+    })
   })
 
   it('pads a bare-alias model to a snapshot the validator accepts', () => {
@@ -685,18 +819,21 @@ describe('otlpToRunRecords', () => {
     expect(clean.model).toBe('gpt-4o-mini-2024-07-18')
   })
 
-  it('honors an explicit per-trace score (AppWorld world.evaluate → TGC/SGC)', () => {
-    const records = otlpToRunRecords(FIXTURE, {
-      ...baseOpts,
-      splitTag: 'search',
-      scoreForTrace: (traceId) => (traceId === TASK_CLEAN ? 0.8 : 0.0),
-    })
-    const [clean, error] = twoRecords(records)
-    expect(clean.outcome.searchScore).toBe(0.8)
-    expect(clean.outcome.holdoutScore).toBeUndefined()
-    expect(error.outcome.searchScore).toBe(0.0)
-    expect(clean.splitTag).toBe('search')
-  })
+  it.each(['search', 'dev'] as const)(
+    'writes an explicit %s trace score only to searchScore',
+    (splitTag) => {
+      const records = otlpToRunRecords(FIXTURE, {
+        ...baseOpts,
+        splitTag,
+        scoreForTrace: (traceId) => (traceId === TASK_CLEAN ? 0.8 : 0.0),
+      })
+      const [clean, error] = twoRecords(records)
+      expect(clean.outcome.searchScore).toBe(0.8)
+      expect(clean.outcome.holdoutScore).toBeUndefined()
+      expect(error.outcome.searchScore).toBe(0.0)
+      expect(clean.splitTag).toBe(splitTag)
+    },
+  )
 
   it('folds provider trace fragments into one logical run without losing accounting', () => {
     const seen: Array<{
@@ -741,8 +878,10 @@ describe('otlpToRunRecords', () => {
       llm_span_count: 3,
       tool_span_count: 2,
       error_span_count: 1,
+      execution_error_count: 1,
     })
-    expect(run.failureMode).toBe('Error running tool (non-fatal): No such file or directory')
+    expect(run.failureMode).toBeUndefined()
+    expect(run.terminalOutcome).toBe('unknown')
     expect(run.judgeMetadata?.model).toBe('symphony-run-1@observed')
     expect(seen).toEqual([
       {

@@ -19,13 +19,17 @@ describe('validateRolloutLine', () => {
     expect(validateRolloutLine(fixtureRolloutLine())).toEqual([])
   })
 
-  it('accepts a pre-unification line (legacy train split, no experiment/candidate ids)', () => {
-    const legacy = fixtureRolloutLine() as unknown as Record<string, unknown>
-    ;(legacy.task as Record<string, unknown>).split = 'train'
-    delete legacy.experiment_id
-    delete legacy.candidate_id
-    delete (legacy.outcome as Record<string, unknown>).realness_gated
-    expect(validateRolloutLine(legacy)).toEqual([])
+  it('rejects obsolete split and omitted required fields', () => {
+    const obsolete = fixtureRolloutLine() as unknown as Record<string, unknown>
+    ;(obsolete.task as Record<string, unknown>).split = 'train'
+    delete obsolete.experiment_id
+    delete obsolete.candidate_id
+    delete (obsolete.outcome as Record<string, unknown>).realness_gated
+    const errors = validateRolloutLine(obsolete)
+    expect(errors.some((error) => error.startsWith('task.split:'))).toBe(true)
+    expect(errors).toContain('experiment_id: expected string|null')
+    expect(errors).toContain('candidate_id: expected string|null')
+    expect(errors).toContain('outcome.realness_gated: expected boolean')
   })
 
   it('rejects a wrong schema tag, bad role, and bad split with dotted paths', () => {

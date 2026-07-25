@@ -39,10 +39,12 @@ function makeRun(scenarioId: string, seed: number, score: number): RunRecord {
     commitSha: 'sha',
     wallMs: 1,
     costUsd: 0,
+    costProvenance: { kind: 'observed', usd: 0 },
     tokenUsage: { input: 1, output: 1 },
+    terminalOutcome: 'succeeded',
     outcome: { holdoutScore: score, raw: { score } },
     splitTag: 'holdout',
-  } as RunRecord
+  }
 }
 
 const tmpDirs: string[] = []

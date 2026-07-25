@@ -309,4 +309,48 @@ describe('runOptimization selection integrity', () => {
     expect(result.winnerSurface).toBe('BASE')
     expect(result.paretoFrontier.map((parent) => parent.surface)).toEqual(['BASE'])
   })
+
+  it('retains a fully failed candidate while another candidate completes and promotes', async () => {
+    const result = await runOptimization<TestScenario, TestArtifact>({
+      scenarios,
+      baselineSurface: 'BASE',
+      dispatchWithSurface: async (surface) => {
+        if (surface === 'FAILED') throw new Error('dispatch unavailable')
+        return { text: String(surface) }
+      },
+      judges: [
+        scoreJudge((surface) => {
+          if (surface === 'GOOD') return 0.8
+          return 0.5
+        }),
+      ],
+      proposer: { kind: 'mixed-results', propose: async () => ['FAILED', 'GOOD'] },
+      populationSize: 2,
+      candidateConcurrency: 2,
+      maxGenerations: 1,
+      expectUsage: 'off',
+      runDir,
+    })
+
+    const generation = result.generations[0]!
+    const failed = generation.record.candidates.find(
+      (candidate) => candidate.surfaceHash === surfaceHash('FAILED'),
+    )
+    expect(failed).toMatchObject({
+      composite: null,
+      ci95: null,
+      eligibleForPromotion: false,
+      coverage: {
+        expectedCells: 2,
+        scorableCells: 0,
+      },
+    })
+    expect(failed?.coverage.unscorableCells).toEqual([
+      { cellId: 'a:0', reason: 'dispatch unavailable; missing artifact' },
+      { cellId: 'b:0', reason: 'dispatch unavailable; missing artifact' },
+    ])
+    expect(generation.record.promoted).toEqual([surfaceHash('GOOD')])
+    expect(result.winnerSurface).toBe('GOOD')
+    expect(result.paretoFrontier.map((parent) => parent.surface)).toEqual(['GOOD'])
+  })
 })

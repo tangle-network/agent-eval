@@ -31,7 +31,7 @@ importers:
         version: 0.32.0
       '@tangle-network/tcloud':
         specifier: ^0.4.14
-        version: 0.4.14(typescript@5.9.3)(zod@4.4.3)
+        version: 0.4.14(typescript@6.0.3)(zod@4.4.3)
       hono:
         specifier: ^4.12.32
         version: 4.12.32
@@ -45,6 +45,9 @@ importers:
       '@types/node':
         specifier: ^26.1.1
         version: 26.1.1
+      esbuild:
+        specifier: ^0.28.1
+        version: 0.28.1
       husky:
         specifier: ^9.1.7
         version: 9.1.7
@@ -56,10 +59,10 @@ importers:
         version: 4.6.0
       tsup:
         specifier: ^8.0.0
-        version: 8.5.1(postcss@8.5.23)(typescript@5.9.3)(yaml@2.9.0)
+        version: 8.5.1(postcss@8.5.23)(typescript@6.0.3)(yaml@2.9.0)
       typescript:
-        specifier: ^5.9.3
-        version: 5.9.3
+        specifier: ^6.0.3
+        version: 6.0.3
       vitest:
         specifier: ^4.1.10
         version: 4.1.10(@opentelemetry/api@1.9.1)(@types/node@26.1.1)(vite@7.3.6(@types/node@26.1.1)(yaml@2.9.0))
@@ -1012,8 +1015,8 @@ packages:
       typescript:
         optional: true
 
-  typescript@5.9.3:
-    resolution: {integrity: sha512-jl1vZzPDinLr9eUt3J/t7V6FgNEw9QjvBPdysz9KfQDD41fQrC2Y4vKQdiaUpFT4bXlb1RHhLpp8wtm6M5TgSw==}
+  typescript@6.0.3:
+    resolution: {integrity: sha512-y2TvuxSZPDyQakkFRPZHKFm+KKVqIisdg9/CZwm9ftvKXLP8NRWj38/ODjNbr43SsoXqNuAisEf1GdCxqWcdBw==}
     engines: {node: '>=14.17'}
     hasBin: true
 
@@ -1500,23 +1503,23 @@ snapshots:
       '@noble/hashes': 1.8.0
       zod: 4.4.3
 
-  '@tangle-network/sandbox@0.9.5(viem@2.48.8(typescript@5.9.3)(zod@4.4.3))':
+  '@tangle-network/sandbox@0.9.5(viem@2.48.8(typescript@6.0.3)(zod@4.4.3))':
     dependencies:
       '@tangle-network/agent-core': 0.3.8
       '@tangle-network/agent-interface': 0.13.0
     optionalDependencies:
-      viem: 2.48.8(typescript@5.9.3)(zod@4.4.3)
+      viem: 2.48.8(typescript@6.0.3)(zod@4.4.3)
 
   '@tangle-network/tcloud-attestation@0.1.1': {}
 
-  '@tangle-network/tcloud@0.4.14(typescript@5.9.3)(zod@4.4.3)':
+  '@tangle-network/tcloud@0.4.14(typescript@6.0.3)(zod@4.4.3)':
     dependencies:
       '@scure/bip32': 2.2.0
       '@scure/bip39': 2.2.0
-      '@tangle-network/sandbox': 0.9.5(viem@2.48.8(typescript@5.9.3)(zod@4.4.3))
+      '@tangle-network/sandbox': 0.9.5(viem@2.48.8(typescript@6.0.3)(zod@4.4.3))
       '@tangle-network/tcloud-attestation': 0.1.1
       commander: 14.0.3
-      viem: 2.48.8(typescript@5.9.3)(zod@4.4.3)
+      viem: 2.48.8(typescript@6.0.3)(zod@4.4.3)
     transitivePeerDependencies:
       - '@mastra/core'
       - '@modelcontextprotocol/sdk'
@@ -1583,9 +1586,9 @@ snapshots:
       convert-source-map: 2.0.0
       tinyrainbow: 3.1.0
 
-  abitype@1.2.3(typescript@5.9.3)(zod@4.4.3):
+  abitype@1.2.3(typescript@6.0.3)(zod@4.4.3):
     optionalDependencies:
-      typescript: 5.9.3
+      typescript: 6.0.3
       zod: 4.4.3
 
   acorn@8.16.0: {}
@@ -1730,7 +1733,7 @@ snapshots:
     dependencies:
       yaml: 2.9.0
 
-  ox@0.14.20(typescript@5.9.3)(zod@4.4.3):
+  ox@0.14.20(typescript@6.0.3)(zod@4.4.3):
     dependencies:
       '@adraffy/ens-normalize': 1.11.1
       '@noble/ciphers': 1.3.0
@@ -1738,10 +1741,10 @@ snapshots:
       '@noble/hashes': 1.8.0
       '@scure/bip32': 1.7.0
       '@scure/bip39': 1.6.0
-      abitype: 1.2.3(typescript@5.9.3)(zod@4.4.3)
+      abitype: 1.2.3(typescript@6.0.3)(zod@4.4.3)
       eventemitter3: 5.0.1
     optionalDependencies:
-      typescript: 5.9.3
+      typescript: 6.0.3
     transitivePeerDependencies:
       - zod
 
@@ -1892,7 +1895,7 @@ snapshots:
 
   ts-interface-checker@0.1.13: {}
 
-  tsup@8.5.1(postcss@8.5.23)(typescript@5.9.3)(yaml@2.9.0):
+  tsup@8.5.1(postcss@8.5.23)(typescript@6.0.3)(yaml@2.9.0):
     dependencies:
       bundle-require: 5.1.0(esbuild@0.28.1)
       cac: 6.7.14
@@ -1913,31 +1916,31 @@ snapshots:
       tree-kill: 1.2.2
     optionalDependencies:
       postcss: 8.5.23
-      typescript: 5.9.3
+      typescript: 6.0.3
     transitivePeerDependencies:
       - jiti
       - supports-color
       - tsx
       - yaml
 
-  typescript@5.9.3: {}
+  typescript@6.0.3: {}
 
   ufo@1.6.3: {}
 
   undici-types@8.3.0: {}
 
-  viem@2.48.8(typescript@5.9.3)(zod@4.4.3):
+  viem@2.48.8(typescript@6.0.3)(zod@4.4.3):
     dependencies:
       '@noble/curves': 1.9.1
       '@noble/hashes': 1.8.0
       '@scure/bip32': 1.7.0
       '@scure/bip39': 1.6.0
-      abitype: 1.2.3(typescript@5.9.3)(zod@4.4.3)
+      abitype: 1.2.3(typescript@6.0.3)(zod@4.4.3)
       isows: 1.0.7(ws@8.21.0)
-      ox: 0.14.20(typescript@5.9.3)(zod@4.4.3)
+      ox: 0.14.20(typescript@6.0.3)(zod@4.4.3)
       ws: 8.21.0
     optionalDependencies:
-      typescript: 5.9.3
+      typescript: 6.0.3
     transitivePeerDependencies:
       - bufferutil
       - utf-8-validate

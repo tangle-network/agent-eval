@@ -28,6 +28,7 @@
  * actionable layer, ranked by priority. The numeric sections back it up.
  */
 
+import type { RunTerminalOutcome } from '../run-record'
 import type { GainDistributionBin, ParetoFigureSpec } from '../summary-report'
 import type { ContinuousAgreement } from './insight-types-fwd'
 
@@ -38,8 +39,8 @@ export interface InsightReport {
   n: number
 
   /** Runtime facts carried by the run records. These describe execution,
-   *  not task quality: duration, queueing, token categories, models, and
-   *  explicitly recorded failures. */
+   *  not task quality: duration, queueing, token categories, models,
+   *  execution errors, and terminal outcomes. */
   execution: ExecutionInsight
 
   /** Composite-score distribution across all runs. Always present. */
@@ -106,10 +107,9 @@ export interface InsightReport {
    *  per-dimension judge metric present in both windows. */
   priorPeriodComparison?: PriorPeriodComparison
 
-  /** Model-free failure-mode breakdown from `RunRecord.failureMode`, ranked
-   *  by count descending. Present when any run carries a `failureMode`.
-   *  Complements `failureClusters` (LLM-semantic) with the structured tags
-   *  the harness already recorded — actionable with no analyst wired. */
+  /** Model-free task-failure breakdown from `RunRecord.failureClass` or
+   *  `failureMode`, ranked by count descending. Tags from successful or
+   *  otherwise non-failed tasks are excluded. */
   failureModes?: FailureModeTally[]
 
   /** Top-N actionable recommendations, ranked by priority. The packet's
@@ -150,14 +150,46 @@ export interface ExecutionInsight {
     events: number
     reportingRuns: number
   }
-  /** Failure counts remain separate from outcome scores. `reportedErrorEvents`
-   *  sums `outcome.raw.error_span_count` only where a producer supplied it. */
-  failures: {
+  /** Runs with explicit execution-error telemetry. This is independent of
+   *  whether the root run ultimately succeeded, failed, or has no terminal
+   *  evidence. */
+  executionErrors: {
     runs: number
-    fraction: number
-    reportedErrorEvents: number
+    /** Share among runs that supplied an execution-error count.
+     *  `null` when no run supplied error telemetry. */
+    fraction: number | null
+    /** Execution-error events reported through the canonical count. */
+    events: number
+    /** Runs that supplied an execution-error count, including explicit zeroes. */
     reportingRuns: number
+    /** Exact sum of `outcome.raw.error_span_count`, kept separate from other errors. */
+    errorSpanEvents: number
+    /** Runs that supplied `outcome.raw.error_span_count`, including explicit zeroes. */
+    errorSpanReportingRuns: number
+    /**
+     * Error-telemetry coverage crossed with independently reported terminal
+     * outcomes. `unreported` is distinct from a reported zero.
+     */
+    byTerminalOutcome: Record<RunTerminalOutcome, ExecutionErrorOutcomeCell>
   }
+  /** Root-run or process outcomes. Missing `RunRecord.terminalOutcome` values
+   *  count as `unknown`; child-span status never changes these counts. */
+  terminalOutcomes: {
+    succeeded: number
+    failed: number
+    cancelled: number
+    incomplete: number
+    unknown: number
+  }
+}
+
+export interface ExecutionErrorOutcomeCell {
+  /** Runs that explicitly reported one or more execution errors. */
+  withErrors: number
+  /** Runs that explicitly reported zero execution errors. */
+  withoutErrors: number
+  /** Runs with no execution-error count from the producer. */
+  unreported: number
 }
 
 export interface TokenUsageInsight {
@@ -181,12 +213,18 @@ export interface TokenUsageInsight {
 export interface ScalarDistribution {
   /** Sample count after dropping non-finite values. */
   n: number
-  mean: number
-  p50: number
-  p95: number
-  stddev: number
-  min: number
-  max: number
+  /** Null when `n` is zero. */
+  mean: number | null
+  /** Null when `n` is zero. */
+  p50: number | null
+  /** Null when `n` is zero. */
+  p95: number | null
+  /** Null when `n` is zero. */
+  stddev: number | null
+  /** Null when `n` is zero. */
+  min: number | null
+  /** Null when `n` is zero. */
+  max: number | null
   /** Histogram bins using `agent-eval`'s `gainHistogram` primitive. */
   histogram: GainDistributionBin[]
   /** Worst-N runs by score, ascending. Populated for the composite
@@ -249,12 +287,16 @@ export interface LiftInsight {
   pValue: number
   /** Number of paired observations. */
   n: number
-  /** Cohen's d for the delta. */
-  cohensD: number
+  /** Scored baseline observations without a candidate match. */
+  unpairedBaseline: number
+  /** Scored candidate observations without a baseline match. */
+  unpairedCandidate: number
+  /** Cohen's dz for paired deltas; null when the observed delta variance is zero. */
+  cohensD: number | null
   /** Minimum detectable effect at current n, 80% power. */
   mde: number
-  /** Sample size needed to detect the observed delta at 80% power. */
-  requiredN: number
+  /** Paired sample size needed to detect the standardized effect at 80% power. */
+  requiredN: number | null
 }
 
 export interface FailureClusterInsight {
@@ -319,7 +361,7 @@ export interface ReleaseSummary {
   status: 'pass' | 'warn' | 'fail'
   axes: Array<{
     name: 'quality-lift' | 'contamination' | 'composite-distribution'
-    status: 'pass' | 'warn' | 'fail'
+    status: 'pass' | 'warn' | 'fail' | 'not_evaluated'
     detail: string
   }>
   /** Free-form issues surfaced beyond the standard axes. Empty by default;

@@ -26,7 +26,9 @@ export type {
   DispatchContext,
   DispatchFn as Dispatch,
   Gate,
+  GateCheckStatus,
   GateContext,
+  GateContribution,
   GateDecision,
   GateResult,
   GenerationCandidate,
@@ -125,7 +127,9 @@ export {
 
 export { composeGate } from '../campaign/gates/compose'
 export {
+  type DefaultProductionGateCheck,
   type DefaultProductionGateOptions,
+  type DefaultProductionRewardHackingOptions,
   defaultProductionGate,
 } from '../campaign/gates/default-production-gate'
 export { type HeldOutGateOptions, heldOutGate } from '../campaign/gates/heldout-gate'
@@ -230,6 +234,7 @@ export {
 } from './eval-reporting-suite'
 export type {
   CostProvenanceSummary,
+  ExecutionErrorOutcomeCell,
   ExecutionInsight,
   FailureClusterInsight,
   InsightReport,

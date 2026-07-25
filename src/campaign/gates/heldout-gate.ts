@@ -66,6 +66,7 @@ export function heldOutGate<TArtifact, TScenario extends Scenario>(
       // sample median here (as before) would pair a mean CI with a median value.
       const delta = sig.bootstrap.mean
       const passed = sig.significant
+      const status = sig.fewRuns ? 'not_evaluated' : passed ? 'pass' : 'fail'
       const tieNote =
         sig.tieFraction >= TIE_WARN_FRACTION ? `, ${(sig.tieFraction * 100).toFixed(0)}% tied` : ''
       const ci = `${(sig.bootstrap.confidence * 100).toFixed(0)}% CI [${sig.bootstrap.low.toFixed(3)}, ${sig.bootstrap.high.toFixed(3)}]`
@@ -83,7 +84,7 @@ export function heldOutGate<TArtifact, TScenario extends Scenario>(
         contributingGates: [
           {
             name: 'heldOutGate',
-            passed,
+            status,
             detail: {
               deltaMean: delta,
               deltaMedianDiagnostic: sig.medianBootstrap.median,

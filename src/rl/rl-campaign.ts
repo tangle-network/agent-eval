@@ -28,7 +28,7 @@ import {
   type RubricPredictiveValidityReport,
   rubricPredictiveValidity,
 } from '../meta-eval/rubric-predictive-validity'
-import type { RunRecord } from '../run-record'
+import { type RunRecord, runTaskScore } from '../run-record'
 import { evaluateInterimReleaseConfidence, type InterimReleaseConfidence } from '../sequential'
 import {
   type DpoExportRow,
@@ -103,8 +103,10 @@ export interface RLCampaignResult<V> {
 export async function runRLCampaign<V>(
   opts: RunRLCampaignOptions<V>,
 ): Promise<RLCampaignResult<V>> {
+  const splitTag = opts.splitTag ?? 'search'
+
   // ── 1. Run the matrix ──────────────────────────────────────────────
-  const campaign = await runEvalCampaign(opts)
+  const campaign = await runEvalCampaign({ ...opts, splitTag })
 
   // ── 2. Extract reward signals (deterministic-first) ────────────────
   const rewardSignals = extractVerifiableRewardsFromRecords(
@@ -114,10 +116,10 @@ export async function runRLCampaign<V>(
 
   // ── 3. Extract preference triples ──────────────────────────────────
   const preferences = extractPreferences(campaign.runs, {
+    ...opts.preferences,
     strategy: opts.preferences?.strategy ?? 'paired-by-scenario-and-seed',
     minMargin: opts.preferences?.minMargin ?? 0.05,
-    splitTag: opts.preferences?.splitTag ?? opts.splitTag ?? 'holdout',
-    rewardOf: opts.preferences?.rewardOf,
+    splitTag: opts.preferences?.splitTag ?? splitTag,
   })
 
   // ── 4. Sequential / anytime-valid interim verdict ──────────────────
@@ -195,17 +197,17 @@ function collectPairedDeltaSeries(
   const baseline = new Map<string, number>()
   for (const r of runs) {
     if (r.candidateId !== comparator) continue
-    const sid = r.scenarioId ?? r.experimentId
-    const score = r.outcome.holdoutScore ?? r.outcome.searchScore
-    if (typeof score !== 'number' || !Number.isFinite(score)) continue
+    const sid = r.scenarioId
+    const score = runTaskScore(r)
+    if (score === undefined) continue
     baseline.set(`${sid}::${r.seed}`, score)
   }
   const byCandidate = new Map<string, number[]>()
   for (const r of runs) {
     if (r.candidateId === comparator) continue
-    const sid = r.scenarioId ?? r.experimentId
-    const score = r.outcome.holdoutScore ?? r.outcome.searchScore
-    if (typeof score !== 'number' || !Number.isFinite(score)) continue
+    const sid = r.scenarioId
+    const score = runTaskScore(r)
+    if (score === undefined) continue
     const baseScore = baseline.get(`${sid}::${r.seed}`)
     if (typeof baseScore !== 'number') continue
     const arr = byCandidate.get(r.candidateId) ?? []

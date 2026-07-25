@@ -37,9 +37,9 @@ export interface EvalDimensionDelta {
 export interface EvalCellScoreDelta {
   scenarioId: string
   rep: number
-  compositeBefore: number
-  compositeAfter: number
-  compositeDelta: number
+  compositeBefore: number | null
+  compositeAfter: number | null
+  compositeDelta: number | null
   /** Per-judge → per-dimension deltas. Outer key = judge name from
    *  `EvalRunCellScore.dimensions`; inner key = dimension name. */
   dimensions: Record<string, Record<string, EvalDimensionDelta>>
@@ -59,10 +59,10 @@ export interface EvalGenerationDiff {
   removed: EvalRunCellScore[]
   /** Cells present in `after` but missing from `before`. */
   added: EvalRunCellScore[]
-  /** Aggregate composite mean across all cells in the snapshot. */
-  compositeBefore: number
-  compositeAfter: number
-  compositeDelta: number
+  /** Aggregate composite mean, null when that snapshot was unscored. */
+  compositeBefore: number | null
+  compositeAfter: number | null
+  compositeDelta: number | null
   costUsdBefore: number
   costUsdAfter: number
   costUsdDelta: number
@@ -169,7 +169,10 @@ export function diffGenerations(
       rep: beforeCell.rep,
       compositeBefore: beforeCell.compositeMean,
       compositeAfter: afterCell.compositeMean,
-      compositeDelta: afterCell.compositeMean - beforeCell.compositeMean,
+      compositeDelta:
+        beforeCell.compositeMean === null || afterCell.compositeMean === null
+          ? null
+          : afterCell.compositeMean - beforeCell.compositeMean,
       dimensions: diffDimensions(beforeCell.dimensions, afterCell.dimensions),
     })
   }
@@ -188,7 +191,10 @@ export function diffGenerations(
     added,
     compositeBefore: before.compositeMean,
     compositeAfter: after.compositeMean,
-    compositeDelta: after.compositeMean - before.compositeMean,
+    compositeDelta:
+      before.compositeMean === null || after.compositeMean === null
+        ? null
+        : after.compositeMean - before.compositeMean,
     costUsdBefore: before.costUsd,
     costUsdAfter: after.costUsd,
     costUsdDelta: after.costUsd - before.costUsd,

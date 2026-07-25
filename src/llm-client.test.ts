@@ -646,6 +646,48 @@ describe('llm-client — retry semantics', () => {
     expect(fetch).toHaveBeenCalledOnce()
   })
 
+  it('retries once at temperature 1 when the model explicitly requires it', async () => {
+    const requestBodies: Array<Record<string, unknown>> = []
+    const fetch = mockFetch([
+      async (_url, init) => {
+        requestBodies.push(JSON.parse(String(init.body)) as Record<string, unknown>)
+        return mkErrResponse(400, 'invalid temperature: only 1 is allowed for this model')
+      },
+      async (_url, init) => {
+        requestBodies.push(JSON.parse(String(init.body)) as Record<string, unknown>)
+        return mkOkResponse({ choices: [{ message: { content: 'ok' } }], usage: {} })
+      },
+    ])
+
+    const result = await callLlm(
+      {
+        model: 'kimi-k2',
+        messages: [{ role: 'user', content: 'x' }],
+        temperature: 0.2,
+      },
+      { fetch, maxRetries: 2 },
+    )
+
+    expect(result.content).toBe('ok')
+    expect(requestBodies).toHaveLength(2)
+    expect(requestBodies[0]?.temperature).toBe(0.2)
+    expect(requestBodies[1]?.temperature).toBe(1)
+  })
+
+  it('does not rewrite unrelated temperature validation errors', async () => {
+    const fetch = vi.fn(async () =>
+      mkErrResponse(400, 'invalid temperature: must be between 0 and 2'),
+    )
+
+    await expect(
+      callLlm(
+        { model: 'm', messages: [], temperature: 3 },
+        { fetch: fetch as unknown as typeof globalThis.fetch, maxRetries: 2 },
+      ),
+    ).rejects.toBeInstanceOf(LlmCallError)
+    expect(fetch).toHaveBeenCalledOnce()
+  })
+
   it('gives up after maxRetries on persistent 502', async () => {
     const fetch = vi.fn(async () => mkErrResponse(502, 'bad gateway'))
     await expect(

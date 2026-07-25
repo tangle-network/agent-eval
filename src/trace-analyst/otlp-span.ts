@@ -152,6 +152,7 @@ export function inferOtlpKind(attrs: Record<string, unknown>): TraceAnalystSpanK
       upper === 'LLM' ||
       upper === 'TOOL' ||
       upper === 'CHAIN' ||
+      upper === 'EVALUATOR' ||
       upper === 'GUARDRAIL' ||
       upper === 'SPAN'
     ) {

@@ -543,8 +543,7 @@ function assertOptimizationProvenance(
   }
   if (!value || typeof value !== 'object') fail('value')
   if (
-    !value.source ||
-    value.source.kind !== 'package' ||
+    value.source?.kind !== 'package' ||
     !['observed', 'declared'].includes(value.source.evidence) ||
     typeof value.source.package !== 'string' ||
     !value.source.package.trim() ||

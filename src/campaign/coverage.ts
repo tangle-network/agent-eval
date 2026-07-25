@@ -136,6 +136,12 @@ export function campaignCoverage<TArtifact, TScenario extends Scenario>(
     if (scoreEntries.some(([, score]) => score.failed === true)) {
       reasons.push('judge score marked failed')
     }
+    const failedPanelJudges = [
+      ...new Set(scoreEntries.flatMap(([, score]) => score.failedJudges ?? [])),
+    ].sort()
+    if (failedPanelJudges.length > 0) {
+      reasons.push(`judge panel incomplete: ${failedPanelJudges.join(', ')}`)
+    }
     if (nonFiniteScores.length > 0) {
       reasons.push(
         `non-finite judge score: ${nonFiniteScores

@@ -124,14 +124,14 @@ function renderPrBody<TArtifact, TScenario extends Scenario>(
   lines.push('')
   lines.push('### Contributing gates')
   lines.push('')
-  lines.push('| gate | passed | detail |')
+  lines.push('| gate | status | detail |')
   lines.push('|---|---|---|')
   for (const c of gate.contributingGates) {
     const detail =
       typeof c.detail === 'object'
         ? JSON.stringify(c.detail).slice(0, 80)
         : String(c.detail).slice(0, 80)
-    lines.push(`| ${c.name} | ${c.passed ? '✓' : '✗'} | ${detail} |`)
+    lines.push(`| ${c.name} | ${c.status} | ${detail} |`)
   }
   lines.push('')
   lines.push('### Promoted surface')

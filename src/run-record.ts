@@ -5,7 +5,8 @@
  * researcher loop SHOULD be recorded as a `RunRecord`. The mandatory
  * fields are exactly those the paper "Two Loops, Three Roles" requires
  * for reproducibility: who/what/when/cost/seed/hash, plus the search vs
- * holdout split tag and either a `searchScore` or a `holdoutScore`.
+ * holdout split tag. A task score is optional because execution-only records
+ * must preserve missing labels instead of converting errors into zero quality.
  *
  * This is intentionally NOT a replacement for the rich `Run` /
  * `ProposeReviewReport` / `ScenarioResult` types already in the
@@ -32,6 +33,14 @@ import { FAILURE_CLASSES, type FailureClass } from './trace/schema'
  *  combined train+test pool that the optimizer is allowed to read. */
 export type RunSplitTag = 'search' | 'dev' | 'holdout'
 
+/**
+ * Explicit execution-lifecycle result for a run.
+ *
+ * This is separate from task quality (`outcome`) and failure classification.
+ * Producers set it only from root-run or process evidence.
+ */
+export type RunTerminalOutcome = 'succeeded' | 'failed' | 'cancelled' | 'incomplete' | 'unknown'
+
 export interface RunTokenUsage {
   input: number
   /** All generated tokens charged as output, including reasoning tokens. */
@@ -46,11 +55,6 @@ export interface RunTokenUsage {
 
 /**
  * How a run's USD amount was obtained.
- *
- * `costUsd` remains mandatory for wire compatibility. New producers should
- * always populate this discriminated union so a missing bill is never
- * mistaken for an observed zero-dollar run. For `uncaptured`, `costUsd` uses
- * the legacy `0` sentinel while this field carries the truthful null.
  */
 export type RunCostProvenance =
   | { kind: 'observed'; usd: number }
@@ -92,8 +96,8 @@ export interface JudgeScoresRecord {
   perJudge: Record<string, Record<string, number>>
   /** Per-dim mean across judges. Convenience — derivable from `perJudge`. */
   perDimMean: Record<string, number>
-  /** Composite mean across all dims and judges. Mirrors the score
-   *  the gate sees on `outcome.searchScore` / `holdoutScore`. */
+  /** Composite mean across successful judges. Mirrors the task score only
+   *  when `failedJudges` is empty. */
   composite: number
   /** Judges that errored or returned an unparseable verdict. Recorded
    *  by id (e.g. `['glm-5.1']`) so a partial-failure case is explicit,
@@ -105,11 +109,11 @@ export interface JudgeScoresRecord {
 }
 
 export interface RunOutcome {
-  /** Score on the search/optimization split. Optional because a
-   *  holdout-only evaluation only fills `holdoutScore`. */
+  /** Score on the search/optimization split. Optional for holdout-only and
+   *  execution-only records. */
   searchScore?: number
-  /** Score on the held-out split. Optional because a search-only run
-   *  only fills `searchScore`. At least one must be present. */
+  /** Score on the held-out split. Optional for search-only and execution-only
+   *  records. When both scores are absent, the run is explicitly unlabeled. */
   holdoutScore?: number
   /** Bag of any other metric the run produced — judge dimensions,
    *  pass/fail counters, latency stats, etc. Numeric only — keeps
@@ -170,42 +174,39 @@ export interface RunRecord {
   wallMs: number
   /** Time spent queued before execution started, if known. */
   queueMs?: number
-  /** Total USD cost. Mandatory — runs without a cost number are
-   *  unbounded by definition and must not be admitted into the gate.
-   *  `0` is retained as the compatibility sentinel for an uncaptured amount;
-   *  inspect `costProvenance` before treating it as observed. */
-  costUsd: number
-  /** Observed, model-priced estimate, or genuinely uncaptured USD amount.
-   *  Optional only so existing serialized RunRecords remain valid. */
-  costProvenance?: RunCostProvenance
+  /** Total USD cost, or null when the producer could not capture one. */
+  costUsd: number | null
+  /** Whether `costUsd` came from billing data, a price calculation, or is unavailable. */
+  costProvenance: RunCostProvenance
   /** Token usage breakdown. */
   tokenUsage: RunTokenUsage
+  /** Root-run or process terminal result. Never inferred from a child span. */
+  terminalOutcome: RunTerminalOutcome
+  /** Root-run or process failure reason. Valid only for a failed, cancelled,
+   *  or incomplete terminal result; never populated from a child span. */
+  terminalFailureReason?: string
   /** Judge-side metadata, if a judge was used. */
   judgeMetadata?: RunJudgeMetadata
   /** Per-split scores + raw bag. */
   outcome: RunOutcome
-  /** Canonical, cross-agent failure class drawn from the shared
+  /** Canonical task-failure class drawn from the shared
    *  `FAILURE_CLASSES` taxonomy. This is the aggregation key that makes
    *  "which failure dominates across the whole fleet" answerable in ONE
    *  vocabulary — every agent classifies against the same enum. Producers
-   *  set it via the substrate classifier; leave unset only when the failure
-   *  genuinely can't be classified. */
+   *  set it only from task-result evidence. Execution errors belong in
+   *  `outcome.raw.execution_error_count`, even when the run later fails. */
   failureClass?: FailureClass
-  /** Free-form domain-specific failure detail, scoped UNDER `failureClass`
+  /** Free-form task-failure detail, scoped UNDER `failureClass`
    *  (e.g. failureClass='tool_recovery_failure', failureMode='forge_build_unsatisfied').
-   *  The within-agent drill-down; `failureClass` is the cross-agent key. */
+   *  Do not populate this from a child execution error alone. */
   failureMode?: string
   /** Which split this run was drawn from. */
   splitTag: RunSplitTag
   /**
-   * Stable scenario identifier the run was scored against. Optional for
-   * backwards compatibility, but **strongly recommended**: every primitive
-   * that pairs runs by scenario (preferences, paired stats, BT tournament)
-   * keys on this. The campaign artifact populates it canonically; legacy
-   * runs without it fall back to inference from `outcome.raw.scenario_id`
-   * or `experimentId`.
+   * Stable scenario identifier the run observed or was scored against.
+   * Comparison primitives match this identity rather than input order.
    */
-  scenarioId?: string
+  scenarioId: string
   /**
    * Canonical identity for the agent profile cell that produced this row:
    * profile artifact hash plus optional harness/model/prompt/reporting
@@ -214,6 +215,12 @@ export interface RunRecord {
    * candidate label or opaque config hash.
    */
   agentProfile?: AgentProfileCell
+}
+
+/** Return task quality, preferring held-out evidence when both scores exist. */
+export function runTaskScore(record: RunRecord): number | undefined {
+  const score = record.outcome.holdoutScore ?? record.outcome.searchScore
+  return typeof score === 'number' && Number.isFinite(score) ? score : undefined
 }
 
 // ── Validation ───────────────────────────────────────────────────────
@@ -229,12 +236,22 @@ const MANDATORY_TOP_LEVEL = [
   'commitSha',
   'wallMs',
   'costUsd',
+  'costProvenance',
   'tokenUsage',
+  'terminalOutcome',
   'outcome',
   'splitTag',
+  'scenarioId',
 ] as const
 
 const SPLIT_TAGS: ReadonlyArray<RunSplitTag> = ['search', 'dev', 'holdout']
+const TERMINAL_OUTCOMES: ReadonlyArray<RunTerminalOutcome> = [
+  'succeeded',
+  'failed',
+  'cancelled',
+  'incomplete',
+  'unknown',
+]
 
 export class RunRecordValidationError extends ValidationError {
   readonly path: string
@@ -271,10 +288,7 @@ export function validateRunRecord(input: unknown): RunRecord {
   expectString(obj.commitSha, 'commitSha')
   expectNonNegativeNumber(obj.wallMs, 'wallMs')
   if (obj.queueMs !== undefined) expectNonNegativeNumber(obj.queueMs, 'queueMs')
-  expectNonNegativeNumber(obj.costUsd, 'costUsd')
-  if (obj.costProvenance !== undefined) {
-    validateCostProvenance(obj.costProvenance, obj.costUsd as number)
-  }
+  validateCost(obj.costUsd, obj.costProvenance)
 
   // Snapshot discipline: bare model aliases are not paper-grade.
   if (!modelHasSnapshot(obj.model as string)) {
@@ -334,12 +348,6 @@ export function validateRunRecord(input: unknown): RunRecord {
     expectFiniteNumber(outRec.searchScore, 'outcome.searchScore')
   if (outRec.holdoutScore !== undefined)
     expectFiniteNumber(outRec.holdoutScore, 'outcome.holdoutScore')
-  if (outRec.searchScore === undefined && outRec.holdoutScore === undefined) {
-    throw new RunRecordValidationError(
-      'outcome must define searchScore or holdoutScore (or both)',
-      'outcome',
-    )
-  }
   const raw = outRec.raw
   if (raw === null || typeof raw !== 'object') {
     throw new RunRecordValidationError('outcome.raw must be an object', 'outcome.raw')
@@ -381,6 +389,29 @@ export function validateRunRecord(input: unknown): RunRecord {
   }
   if (obj.failureMode !== undefined) expectString(obj.failureMode, 'failureMode')
 
+  if (
+    typeof obj.terminalOutcome !== 'string' ||
+    !TERMINAL_OUTCOMES.includes(obj.terminalOutcome as RunTerminalOutcome)
+  ) {
+    throw new RunRecordValidationError(
+      `terminalOutcome must be one of ${TERMINAL_OUTCOMES.join(', ')}`,
+      'terminalOutcome',
+    )
+  }
+  if (obj.terminalFailureReason !== undefined) {
+    expectString(obj.terminalFailureReason, 'terminalFailureReason')
+    if (
+      obj.terminalOutcome !== 'failed' &&
+      obj.terminalOutcome !== 'cancelled' &&
+      obj.terminalOutcome !== 'incomplete'
+    ) {
+      throw new RunRecordValidationError(
+        'terminalFailureReason requires terminalOutcome failed, cancelled, or incomplete',
+        'terminalFailureReason',
+      )
+    }
+  }
+
   if (obj.agentProfile !== undefined) {
     try {
       const profile = validateAgentProfileCell(obj.agentProfile)
@@ -405,6 +436,8 @@ export function validateRunRecord(input: unknown): RunRecord {
     }
   }
 
+  expectString(obj.scenarioId, 'scenarioId')
+
   // Split tag.
   if (typeof obj.splitTag !== 'string' || !SPLIT_TAGS.includes(obj.splitTag as RunSplitTag)) {
     throw new RunRecordValidationError(
@@ -416,30 +449,11 @@ export function validateRunRecord(input: unknown): RunRecord {
   return input as RunRecord
 }
 
-/**
- * Resolve provenance for both new and legacy records.
- *
- * Legacy producers sometimes set `outcome.raw.cost_estimated = 1`. A positive
- * unlabeled amount is treated as observed, matching the historical contract.
- * Zero without an explicit label is conservatively uncaptured: claiming an
- * observed $0 would be stronger than the serialized evidence supports.
- */
-export function resolveRunCostProvenance(
-  run: Pick<RunRecord, 'costUsd' | 'costProvenance' | 'outcome'>,
-): RunCostProvenance {
-  if (run.costProvenance) return run.costProvenance
-  if (run.outcome.raw.cost_estimated === 1) {
-    return { kind: 'estimated', usd: run.costUsd }
-  }
-  if (run.costUsd > 0) return { kind: 'observed', usd: run.costUsd }
-  return { kind: 'uncaptured', usd: null }
-}
-
-function validateCostProvenance(input: unknown, costUsd: number): void {
-  if (input === null || typeof input !== 'object') {
+function validateCost(costUsd: unknown, provenance: unknown): void {
+  if (provenance === null || typeof provenance !== 'object') {
     throw new RunRecordValidationError('costProvenance must be an object', 'costProvenance')
   }
-  const value = input as Record<string, unknown>
+  const value = provenance as Record<string, unknown>
   if (value.kind !== 'observed' && value.kind !== 'estimated' && value.kind !== 'uncaptured') {
     throw new RunRecordValidationError(
       'costProvenance.kind must be observed, estimated, or uncaptured',
@@ -453,21 +467,13 @@ function validateCostProvenance(input: unknown, costUsd: number): void {
         'costProvenance.usd',
       )
     }
-    if (costUsd !== 0) {
-      throw new RunRecordValidationError(
-        'uncaptured costProvenance requires the compatibility costUsd sentinel 0',
-        'costUsd',
-      )
+    if (costUsd !== null) {
+      throw new RunRecordValidationError('uncaptured cost requires costUsd to be null', 'costUsd')
     }
     return
   }
-  expectFiniteNumber(value.usd, 'costProvenance.usd')
-  if ((value.usd as number) < 0) {
-    throw new RunRecordValidationError(
-      'costProvenance.usd must be non-negative',
-      'costProvenance.usd',
-    )
-  }
+  expectNonNegativeNumber(costUsd, 'costUsd')
+  expectNonNegativeNumber(value.usd, 'costProvenance.usd')
   if (value.usd !== costUsd) {
     throw new RunRecordValidationError(
       'costProvenance.usd must equal costUsd',

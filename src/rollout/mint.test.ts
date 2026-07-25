@@ -18,7 +18,9 @@ function record(overrides: Partial<RunRecord> = {}): RunRecord {
     commitSha: 'deadbeef',
     wallMs: 1000,
     costUsd: 0.12,
+    costProvenance: { kind: 'observed', usd: 0.12 },
     tokenUsage: { input: 900, output: 100 },
+    terminalOutcome: 'succeeded',
     outcome: { holdoutScore: 1, raw: {} },
     splitTag: 'holdout',
     scenarioId: 'stripe-checkout-session',
@@ -69,6 +71,14 @@ describe('rolloutReward', () => {
       outcome: { holdoutScore: 1, raw: {}, realness: { score: 0.9, gated: true } },
     })
     expect(rolloutReward(gated)).toEqual({ reward: 0, gated: true })
+  })
+
+  it('rejects an execution-only record instead of minting a zero reward', async () => {
+    const unscored = record({ outcome: { raw: {} } })
+    expect(() => rolloutReward(unscored)).toThrow(/run-1: task score is missing/)
+    await expect(mintRolloutRows([unscored], await seededStore())).rejects.toThrow(
+      /run-1: task score is missing/,
+    )
   })
 })
 
@@ -127,10 +137,55 @@ describe('mintRolloutRows', () => {
 
   it('reports an uncaptured cost as null, never a fake zero', async () => {
     const { rows } = await mintRolloutRows(
-      [record({ costUsd: 0, costProvenance: { kind: 'uncaptured', usd: null } })],
+      [record({ costUsd: null, costProvenance: { kind: 'uncaptured', usd: null } })],
       await seededStore(),
     )
     expect(rows[0]!.cost.usd).toBeNull()
+  })
+
+  it('maps root terminal outcomes without inventing completion', async () => {
+    const store = await seededStore()
+    const failedStore = await seededStore('run-failed')
+    const incompleteStore = await seededStore('run-incomplete')
+    for (const span of await failedStore.spans({ runId: 'run-failed' })) {
+      await store.appendSpan(span)
+    }
+    for (const span of await incompleteStore.spans({ runId: 'run-incomplete' })) {
+      await store.appendSpan(span)
+    }
+
+    const { rows } = await mintRolloutRows(
+      [
+        record({ terminalOutcome: 'unknown' }),
+        record({
+          runId: 'run-failed',
+          terminalOutcome: 'failed',
+          terminalFailureReason: 'worker exited 1',
+        }),
+        record({
+          runId: 'run-incomplete',
+          terminalOutcome: 'incomplete',
+          terminalFailureReason: 'time limit',
+        }),
+      ],
+      store,
+    )
+
+    expect(rows[0]!.outcome).toMatchObject({
+      is_completed: false,
+      is_truncated: false,
+      error: null,
+    })
+    expect(rows[1]!.outcome).toMatchObject({
+      is_completed: true,
+      is_truncated: false,
+      error: 'worker exited 1',
+    })
+    expect(rows[2]!.outcome).toMatchObject({
+      is_completed: false,
+      is_truncated: true,
+      error: 'time limit',
+    })
   })
 
   it('applies the scrubber to every exported string', async () => {
@@ -182,21 +237,46 @@ describe('minted lines through the exporters', () => {
     expect(sft[0]!.messages.at(-1)!.role).toBe('assistant')
   })
 
+  it('toSftRows excludes failed and unknown-terminal trajectories', async () => {
+    const store = await seededStore()
+    const failedStore = await seededStore('run-failed')
+    const unknownStore = await seededStore('run-unknown')
+    for (const span of await failedStore.spans({ runId: 'run-failed' })) {
+      await store.appendSpan(span)
+    }
+    for (const span of await unknownStore.spans({ runId: 'run-unknown' })) {
+      await store.appendSpan(span)
+    }
+    const { rows } = await mintRolloutRows(
+      [
+        record({ splitTag: 'search' }),
+        record({
+          runId: 'run-failed',
+          splitTag: 'search',
+          terminalOutcome: 'failed',
+          terminalFailureReason: 'worker exited 1',
+        }),
+        record({ runId: 'run-unknown', splitTag: 'search', terminalOutcome: 'unknown' }),
+      ],
+      store,
+    )
+
+    expect(toSftRows(rows).map((row) => row.metadata.run_id)).toEqual(['run-1'])
+    expect(toRewardRows(rows).map((row) => row.metadata.run_id)).toEqual(['run-1'])
+  })
+
   it('holdout-split minted lines never reach SFT even at reward 1', async () => {
     const { rows } = await mintRolloutRows([record()], await seededStore())
     expect(rows[0]!.task.split).toBe('holdout')
     expect(toSftRows(rows)).toHaveLength(0)
   })
 
-  it('toRewardRows keeps failures as signal with their scalar reward', async () => {
+  it('toRewardRows excludes non-positive quality by default', async () => {
     const { rows } = await mintRolloutRows(
       [record({ outcome: { holdoutScore: 0, raw: {} } })],
       await seededStore(),
     )
     const reward = toRewardRows(rows)
-    expect(reward).toHaveLength(1)
-    expect(reward[0]!.reward).toBe(0)
-    expect(reward[0]!.prompt).toBe('Create a checkout session.')
-    expect(reward[0]!.steps).toHaveLength(2)
+    expect(reward).toEqual([])
   })
 })

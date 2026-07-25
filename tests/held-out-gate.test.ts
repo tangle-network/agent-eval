@@ -14,11 +14,24 @@ function record(overrides: Partial<RunRecord>): RunRecord {
     commitSha: 'deadbeef',
     wallMs: 1000,
     costUsd: 0.01,
+    costProvenance: { kind: 'observed', usd: 0.01 },
     tokenUsage: { input: 100, output: 100 },
+    terminalOutcome: 'succeeded',
     outcome: { holdoutScore: 0.5, raw: {} },
     splitTag: 'holdout',
+    scenarioId: 'scenario',
   }
-  return { ...base, ...overrides, outcome: { ...base.outcome, ...(overrides.outcome ?? {}) } }
+  const costUsd = overrides.costUsd ?? base.costUsd
+  const costProvenance =
+    overrides.costProvenance ??
+    (costUsd === null ? { kind: 'uncaptured', usd: null } : { kind: 'observed', usd: costUsd })
+  return {
+    ...base,
+    ...overrides,
+    costUsd,
+    costProvenance,
+    outcome: { ...base.outcome, ...(overrides.outcome ?? {}) },
+  }
 }
 
 function makePair(
@@ -125,8 +138,8 @@ describe('HeldOutGate — rejection paths', () => {
     const d = g.evaluate(pairs.candidate, pairs.baseline)
     expect(d.promote).toBe(false)
     expect(d.rejectionCode).toBe('negative_delta')
-    expect(d.evidence.medianPairedDelta).toBeLessThan(0)
-    expect(d.evidence.pairedCI.high).toBeLessThanOrEqual(0)
+    expect(d.evidence.medianPairedDelta!).toBeLessThan(0)
+    expect(d.evidence.pairedCI!.high).toBeLessThanOrEqual(0)
   })
 
   it('rejects on excessive overfit gap', () => {
@@ -151,7 +164,79 @@ describe('HeldOutGate — rejection paths', () => {
     const d = g.evaluate(pairs.candidate, pairs.baseline)
     expect(d.promote).toBe(false)
     expect(d.rejectionCode).toBe('overfit_gap')
-    expect(d.evidence.overfitGap).toBeGreaterThan(d.evidence.baselineOverfitGap)
+    expect(d.evidence.overfitGap!).toBeGreaterThan(d.evidence.baselineOverfitGap!)
+  })
+
+  it('rejects when search scores are missing instead of skipping the overfit check', () => {
+    const g = new HeldOutGate({ baselineKey: 'baseline', minProductiveRuns: 3, seed: 1 })
+    const pairs = joinPairs(
+      makePair('cand', 0, 0.9, 0.8, 0.5, 0.5),
+      makePair('cand', 1, 0.9, 0.8, 0.5, 0.5),
+      makePair('cand', 2, 0.9, 0.8, 0.5, 0.5),
+      makePair('cand', 3, 0.9, 0.8, 0.5, 0.5),
+    )
+    const candidate = pairs.candidate.filter((run) => run.splitTag !== 'search')
+    const baseline = pairs.baseline.filter((run) => run.splitTag !== 'search')
+
+    const d = g.evaluate(candidate, baseline)
+
+    expect(d.promote).toBe(false)
+    expect(d.rejectionCode).toBe('missing_split_scores')
+    expect(d.evidence.searchScore).toBeNull()
+    expect(d.evidence.overfitGap).toBeNull()
+  })
+
+  it('reports missing holdout evidence before checking the pair count', () => {
+    const g = new HeldOutGate({ baselineKey: 'baseline', minProductiveRuns: 3, seed: 1 })
+    const pairs = joinPairs(
+      makePair('cand', 0, 0.9, 0.8, 0.5, 0.5),
+      makePair('cand', 1, 0.9, 0.8, 0.5, 0.5),
+    )
+    const candidate = pairs.candidate.filter((run) => run.splitTag === 'search')
+    const baseline = pairs.baseline.filter((run) => run.splitTag === 'search')
+
+    const decision = g.evaluate(candidate, baseline)
+
+    expect(decision.promote).toBe(false)
+    expect(decision.rejectionCode).toBe('missing_split_scores')
+    expect(decision.reason).toContain('candidate holdout')
+    expect(decision.reason).toContain('baseline holdout')
+    expect(decision.evidence.productiveRuns).toBe(0)
+  })
+
+  it('computes overfit gaps from matched scenarios only', () => {
+    const g = new HeldOutGate({
+      baselineKey: 'baseline',
+      minProductiveRuns: 3,
+      pairedDeltaThreshold: 0,
+      overfitGapThreshold: 0.05,
+      seed: 1,
+    })
+    const pairs = joinPairs(
+      makePair('cand', 0, 0.9, 0.6, 0.5, 0.5),
+      makePair('cand', 1, 0.9, 0.6, 0.5, 0.5),
+      makePair('cand', 2, 0.9, 0.6, 0.5, 0.5),
+    )
+    const matchedOnly = g.evaluate(pairs.candidate, pairs.baseline)
+    const unmatchedCandidateRows = Array.from({ length: 10 }, (_, index) =>
+      record({
+        candidateId: 'cand',
+        scenarioId: `unmatched-${index}`,
+        seed: 100 + index,
+        splitTag: 'holdout',
+        outcome: { holdoutScore: 0.95, raw: {} },
+      }),
+    )
+
+    const withUnmatched = g.evaluate(
+      [...pairs.candidate, ...unmatchedCandidateRows],
+      pairs.baseline,
+    )
+
+    expect(matchedOnly.rejectionCode).toBe('overfit_gap')
+    expect(withUnmatched.rejectionCode).toBe('overfit_gap')
+    expect(withUnmatched.evidence.overfitGap).toBeCloseTo(matchedOnly.evidence.overfitGap!)
+    expect(withUnmatched.evidence.unpairedCandidateRuns).toBe(10)
   })
 })
 
@@ -177,8 +262,8 @@ describe('HeldOutGate — promotion path', () => {
     const d = g.evaluate(pairs.candidate, pairs.baseline)
     expect(d.promote).toBe(true)
     expect(d.rejectionCode).toBeNull()
-    expect(d.evidence.medianPairedDelta).toBeGreaterThan(0)
-    expect(d.evidence.pairedCI.low).toBeGreaterThan(0)
+    expect(d.evidence.medianPairedDelta!).toBeGreaterThan(0)
+    expect(d.evidence.pairedCI!.low).toBeGreaterThan(0)
     expect(d.candidateId).toBe('cand')
     expect(d.baselineId).toBe('baseline')
   })
@@ -195,8 +280,8 @@ describe('HeldOutGate — promotion path', () => {
     )
     const a = g1.evaluate(pairs.candidate, pairs.baseline)
     const b = g2.evaluate(pairs.candidate, pairs.baseline)
-    expect(a.evidence.pairedCI.low).toBe(b.evidence.pairedCI.low)
-    expect(a.evidence.pairedCI.high).toBe(b.evidence.pairedCI.high)
+    expect(a.evidence.pairedCI!.low).toBe(b.evidence.pairedCI!.low)
+    expect(a.evidence.pairedCI!.high).toBe(b.evidence.pairedCI!.high)
   })
 
   it('drops candidate runs that have no matching baseline pair', () => {
@@ -224,9 +309,94 @@ describe('HeldOutGate — promotion path', () => {
         }),
       )
     }
+    candidate.push(
+      record({
+        candidateId: 'cand',
+        seed: 0,
+        splitTag: 'search',
+        outcome: { searchScore: 0.7, raw: {} },
+      }),
+    )
+    baseline.push(
+      record({
+        candidateId: 'baseline',
+        seed: 0,
+        splitTag: 'search',
+        outcome: { searchScore: 0.5, raw: {} },
+      }),
+    )
     const d = g.evaluate(candidate, baseline)
     expect(d.evidence.productiveRuns).toBe(2)
+    expect(d.evidence.unpairedCandidateRuns).toBe(3)
+    expect(d.evidence.unpairedBaselineRuns).toBe(0)
     expect(d.rejectionCode).toBe('few_runs')
+  })
+
+  it('does not pair different scenarios that share the same seed', () => {
+    const g = new HeldOutGate({ baselineKey: 'baseline', minProductiveRuns: 1, seed: 1 })
+    const candidate = [
+      record({
+        candidateId: 'cand',
+        scenarioId: 'shared-search-scenario',
+        seed: 7,
+        splitTag: 'search',
+        outcome: { searchScore: 0.9, raw: {} },
+      }),
+      record({
+        candidateId: 'cand',
+        scenarioId: 'candidate-scenario',
+        seed: 7,
+        outcome: { holdoutScore: 0.9, raw: {} },
+      }),
+    ]
+    const baseline = [
+      record({
+        candidateId: 'baseline',
+        scenarioId: 'shared-search-scenario',
+        seed: 7,
+        splitTag: 'search',
+        outcome: { searchScore: 0.5, raw: {} },
+      }),
+      record({
+        candidateId: 'baseline',
+        scenarioId: 'baseline-scenario',
+        seed: 7,
+        outcome: { holdoutScore: 0.1, raw: {} },
+      }),
+    ]
+
+    const decision = g.evaluate(candidate, baseline)
+
+    expect(decision.evidence.productiveRuns).toBe(0)
+    expect(decision.evidence.unpairedCandidateRuns).toBe(1)
+    expect(decision.evidence.unpairedBaselineRuns).toBe(1)
+    expect(decision.rejectionCode).toBe('few_runs')
+  })
+
+  it('is invariant to input order and rejects duplicate pair identities', () => {
+    const g = new HeldOutGate({ baselineKey: 'baseline', minProductiveRuns: 3, seed: 1 })
+    const pairs = joinPairs(
+      makePair('cand', 0, 0.7, 0.7, 0.5, 0.5),
+      makePair('cand', 1, 0.72, 0.72, 0.5, 0.5),
+      makePair('cand', 2, 0.74, 0.74, 0.5, 0.5),
+    )
+
+    const forward = g.evaluate(pairs.candidate, pairs.baseline)
+    const reversed = g.evaluate([...pairs.candidate].reverse(), [...pairs.baseline].reverse())
+    expect(reversed).toEqual(forward)
+
+    expect(() => g.evaluate([...pairs.candidate, pairs.candidate[1]!], pairs.baseline)).toThrow(
+      /duplicate repKey/,
+    )
+  })
+
+  it('rejects records without an explicit scenario identity', () => {
+    const g = new HeldOutGate({ baselineKey: 'baseline', minProductiveRuns: 1 })
+    const pair = makePair('cand', 0, 0.7, 0.7, 0.5, 0.5)
+    delete pair.candidate[0]!.scenarioId
+    delete pair.candidate[1]!.scenarioId
+
+    expect(() => g.evaluate(pair.candidate, pair.baseline)).toThrow(/missing scenarioId/)
   })
 })
 
@@ -249,8 +419,8 @@ describe('HeldOutGate — cost ceiling', () => {
     const d = g.evaluate(pairs.candidate, pairs.baseline)
     expect(d.promote).toBe(false)
     expect(d.rejectionCode).toBe('cost_ceiling')
-    expect(d.evidence.medianCandidateCost).toBeCloseTo(0.08, 6)
-    expect(d.evidence.medianBaselineCost).toBeCloseTo(0.02, 6)
+    expect(d.evidence.medianCandidateCost!).toBeCloseTo(0.08, 6)
+    expect(d.evidence.medianBaselineCost!).toBeCloseTo(0.02, 6)
     expect(d.reason).toMatch(/cost_ceiling/)
   })
 
@@ -271,7 +441,7 @@ describe('HeldOutGate — cost ceiling', () => {
     const d = g.evaluate(pairs.candidate, pairs.baseline)
     expect(d.promote).toBe(true)
     expect(d.rejectionCode).toBeNull()
-    expect(d.evidence.medianCandidateCost).toBeCloseTo(0.03, 6)
+    expect(d.evidence.medianCandidateCost!).toBeCloseTo(0.03, 6)
   })
 
   it('records cost in evidence regardless of whether costPerTaskCeiling is set', () => {
@@ -284,17 +454,60 @@ describe('HeldOutGate — cost ceiling', () => {
     const d = g.evaluate(pairs.candidate, pairs.baseline)
     // No ceiling configured → promote-or-reject depends only on quality;
     // cost is informational and surfaces unconditionally.
-    expect(d.evidence.medianCandidateCost).toBeCloseTo(0.05, 6)
-    expect(d.evidence.medianBaselineCost).toBeCloseTo(0.01, 6)
+    expect(d.evidence.medianCandidateCost!).toBeCloseTo(0.05, 6)
+    expect(d.evidence.medianBaselineCost!).toBeCloseTo(0.01, 6)
+  })
+
+  it('rejects a cost-bounded candidate when any cost is uncaptured', () => {
+    const g = new HeldOutGate({
+      baselineKey: 'baseline',
+      minProductiveRuns: 3,
+      seed: 1,
+      costPerTaskCeiling: 0.05,
+    })
+    const pairs = joinPairs(
+      makePair('cand', 0, 0.7, 0.7, 0.5, 0.5, { candidate: 0.03, baseline: 0.02 }),
+      makePair('cand', 1, 0.72, 0.72, 0.5, 0.5, { candidate: 0.03, baseline: 0.02 }),
+      makePair('cand', 2, 0.71, 0.71, 0.5, 0.5, { candidate: 0.03, baseline: 0.02 }),
+    )
+    pairs.candidate[0] = record({
+      ...pairs.candidate[0],
+      costUsd: null,
+      costProvenance: { kind: 'uncaptured', usd: null },
+    })
+
+    const decision = g.evaluate(pairs.candidate, pairs.baseline)
+
+    expect(decision.promote).toBe(false)
+    expect(decision.rejectionCode).toBe('missing_cost')
+    expect(decision.evidence.medianCandidateCost).toBeNull()
+  })
+
+  it('reports incomplete optional cost evidence as null', () => {
+    const g = new HeldOutGate({ baselineKey: 'baseline', minProductiveRuns: 3, seed: 1 })
+    const pairs = joinPairs(
+      makePair('cand', 0, 0.7, 0.7, 0.5, 0.5, { candidate: 0.03, baseline: 0.02 }),
+      makePair('cand', 1, 0.72, 0.72, 0.5, 0.5, { candidate: 0.03, baseline: 0.02 }),
+      makePair('cand', 2, 0.71, 0.71, 0.5, 0.5, { candidate: 0.03, baseline: 0.02 }),
+    )
+    pairs.candidate[0] = record({
+      ...pairs.candidate[0],
+      costUsd: null,
+      costProvenance: { kind: 'uncaptured', usd: null },
+    })
+
+    const decision = g.evaluate(pairs.candidate, pairs.baseline)
+
+    expect(decision.evidence.medianCandidateCost).toBeNull()
   })
 
   it('throws on non-positive costPerTaskCeiling', () => {
-    expect(
-      () => new HeldOutGate({ baselineKey: 'baseline', costPerTaskCeiling: 0 }),
-    ).toThrow(/costPerTaskCeiling/)
-    expect(
-      () => new HeldOutGate({ baselineKey: 'baseline', costPerTaskCeiling: -1 }),
-    ).toThrow(/costPerTaskCeiling/)
+    expect(() => new HeldOutGate({ baselineKey: 'baseline', costPerTaskCeiling: 0 })).toThrow(
+      /costPerTaskCeiling/,
+    )
+    expect(() => new HeldOutGate({ baselineKey: 'baseline', costPerTaskCeiling: -1 })).toThrow(
+      /costPerTaskCeiling/,
+    )
     expect(
       () =>
         new HeldOutGate({

@@ -2,12 +2,10 @@
 /**
  * Package graded agent-eval RunRecord[] → a publishable RL dataset bundle.
  *
- * This is the step AFTER `examples/fine-tune-with-prime-rl/export-sft.ts`:
- * instead of one trainer file, it emits the whole publishable/sellable
- * artifact via `buildRlDataset` — the trainer JSONL (GRPO + SFT) plus a
- * `manifest.json` and a "Datasheet for Datasets" card whose reward-provenance
- * section is the credibility axis a buyer checks first (deterministic
- * verifiable reward vs probabilistic judge).
+ * Build trainer JSONL, a manifest, and a datasheet from graded runs.
+ * SFT is the default because it needs one scored completion per scenario.
+ * Request GRPO only for corpora with multiple rewarded completions per
+ * scenario.
  *
  * Usage:
  *   pnpm tsx examples/publish-rl-dataset/build-dataset.ts \\
@@ -19,19 +17,26 @@
  *     --reward-source "TaxCalcBench XPath line-match" \\
  *     --reward-desc "fraction of 1040 lines matching ground truth"
  *
- * The load-bearing pieces (everything else is CLI plumbing):
+ * Core steps:
  *   1. Read `RunRecord`s that carry trajectory text.
  *   2. Build `{promptOf, completionOf}` lookups that resolve text by runId.
  *   3. `buildRlDataset(records, lookups, config)` (in `src/rl/dataset`).
  *   4. Write `bundle.files` to a directory.
  */
 
+import { createHash } from 'node:crypto'
 import { promises as fs } from 'node:fs'
 import { resolve as resolvePath } from 'node:path'
-import { type RewardKind, buildRlDataset, type DatasetFormat } from '../../src/rl/dataset'
-import type { RunRecord } from '../../src/run-record'
+import {
+  buildRlDataset,
+  type DatasetFormat,
+  type RewardKind,
+  validateDatasetFormats,
+} from '../../src/rl/dataset'
+import { isTrainingRunEligible } from '../../src/rl/exporters'
+import { type RunRecord, runTaskScore, validateRunRecord } from '../../src/run-record'
 
-interface CliArgs {
+export interface CliArgs {
   runs: string
   out: string
   name: string
@@ -49,9 +54,10 @@ interface CliArgs {
   /** Top-level record keys holding the trajectory text. */
   promptKey: string
   completionKey: string
+  allowHeldOutTrainingData: boolean
 }
 
-function parseArgs(argv: string[]): CliArgs {
+export function parseArgs(argv: string[]): CliArgs {
   const out: CliArgs = {
     runs: 'taxcalc-runs.jsonl',
     out: 'bundle',
@@ -62,19 +68,26 @@ function parseArgs(argv: string[]): CliArgs {
     rewardKind: 'deterministic',
     rewardSource: 'verifiable scorer',
     rewardDesc: 'objective, decidable reward (not judge-noise)',
-    intendedUse: 'SFT / GRPO on the task domain',
+    intendedUse: 'SFT on the task domain',
     outOfScope: 'production advice to end users',
     limitations: 'small sample; hosted-model generations',
-    formats: ['grpo', 'sft'],
+    formats: ['sft'],
     // Allowed here — this is a runnable script, not substrate code (the
     // substrate forbids Date.now() so callers pass the timestamp in).
     createdAtIso: new Date().toISOString(),
     promptKey: 'prompt',
     completionKey: 'completion',
+    allowHeldOutTrainingData: false,
   }
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i]!
-    const next = (): string => argv[++i]!
+    const next = (): string => {
+      const value = argv[++i]
+      if (value === undefined || value.startsWith('--')) {
+        throw new Error(`${a} requires a value`)
+      }
+      return value
+    }
     switch (a) {
       case '--runs':
         out.runs = next()
@@ -95,7 +108,15 @@ function parseArgs(argv: string[]): CliArgs {
         out.license = next()
         break
       case '--reward-kind':
-        out.rewardKind = next() as RewardKind
+        {
+          const value = next()
+          if (value !== 'deterministic' && value !== 'probabilistic' && value !== 'mixed') {
+            throw new Error(
+              `--reward-kind must be deterministic, probabilistic, or mixed; received "${value}"`,
+            )
+          }
+          out.rewardKind = value
+        }
         break
       case '--reward-source':
         out.rewardSource = next()
@@ -113,7 +134,15 @@ function parseArgs(argv: string[]): CliArgs {
         out.limitations = next()
         break
       case '--formats':
-        out.formats = next().split(',') as DatasetFormat[]
+        {
+          const formats = validateDatasetFormats(next().split(','))
+          if (formats.includes('dpo')) {
+            throw new Error(
+              '--formats dpo requires preference triples; this CLI accepts RunRecords only',
+            )
+          }
+          out.formats = formats
+        }
         break
       case '--created-at':
         out.createdAtIso = next()
@@ -124,10 +153,16 @@ function parseArgs(argv: string[]): CliArgs {
       case '--completion-key':
         out.completionKey = next()
         break
+      case '--allow-held-out-training-data':
+        out.allowHeldOutTrainingData = true
+        break
       case '--help':
       case '-h':
         printHelp()
         process.exit(0)
+        break
+      default:
+        throw new Error(`unknown option "${a}"`)
     }
   }
   return out
@@ -148,53 +183,125 @@ function printHelp(): void {
       '  --intended-use <s>     recommended uses\n' +
       '  --out-of-scope <s>     out-of-scope uses\n' +
       '  --limitations <s>      known limitations\n' +
-      '  --formats <a,b>        comma list of grpo,sft,dpo (default: grpo,sft)\n' +
+      '  --formats <a,b>        comma list of grpo,sft (default: sft)\n' +
       '  --created-at <iso>     ISO timestamp (default: now)\n' +
       '  --prompt-key <key>     top-level record key holding the prompt (default: prompt)\n' +
-      '  --completion-key <key> top-level record key holding the completion (default: completion)\n',
+      '  --completion-key <key> top-level record key holding the completion (default: completion)\n' +
+      '  --allow-held-out-training-data  explicitly include holdout runs\n',
   )
 }
 
-type WithText = RunRecord & Record<string, unknown>
+export type WithText = RunRecord & Record<string, unknown>
 
-async function readNdjson(path: string): Promise<WithText[]> {
+export async function readNdjson(path: string): Promise<WithText[]> {
   const body = await fs.readFile(path, 'utf8')
   const out: WithText[] = []
-  for (const line of body.split('\n')) {
+  for (const [index, line] of body.split('\n').entries()) {
     if (!line.trim()) continue
-    out.push(JSON.parse(line) as WithText)
+    try {
+      const parsed: unknown = JSON.parse(line)
+      out.push(validateRunRecord(parsed) as WithText)
+    } catch (error) {
+      throw new Error(
+        `invalid RunRecord at ${path}:${index + 1}: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      )
+    }
   }
   return out
+}
+
+export function selectTrainingRecords(
+  records: WithText[],
+  allowHeldOutTrainingData: boolean,
+): WithText[] {
+  return records.filter((record) =>
+    isTrainingRunEligible(record, runTaskScore(record), {
+      allowHeldOutTrainingData,
+    }),
+  )
+}
+
+export function collectTrajectoryText(
+  records: WithText[],
+  promptKey: string,
+  completionKey: string,
+): {
+  text: Map<string, { prompt: string; completion: string }>
+  dedupPassed: true
+} {
+  const text = new Map<string, { prompt: string; completion: string }>()
+  const exampleHashes = new Map<string, string>()
+  for (const record of records) {
+    if (text.has(record.runId)) {
+      throw new Error(`duplicate runId "${record.runId}"`)
+    }
+
+    const prompt = record[promptKey]
+    const completion = record[completionKey]
+    if (
+      typeof prompt !== 'string' ||
+      prompt.trim().length === 0 ||
+      typeof completion !== 'string' ||
+      completion.trim().length === 0
+    ) {
+      throw new Error(
+        `run ${record.runId} is missing non-empty string "${promptKey}"/"${completionKey}"; ` +
+          'capture trajectory text before packaging',
+      )
+    }
+
+    const exampleHash = createHash('sha256')
+      .update(prompt)
+      .update('\0')
+      .update(completion)
+      .digest('hex')
+    const duplicateRunId = exampleHashes.get(exampleHash)
+    if (duplicateRunId !== undefined) {
+      throw new Error(
+        `duplicate prompt/completion in runs "${duplicateRunId}" and "${record.runId}"`,
+      )
+    }
+
+    exampleHashes.set(exampleHash, record.runId)
+    text.set(record.runId, { prompt, completion })
+  }
+  return { text, dedupPassed: true }
 }
 
 async function main(): Promise<void> {
   const args = parseArgs(process.argv.slice(2))
   const records = await readNdjson(args.runs)
-  process.stdout.write(`✓ read ${records.length} runs from ${args.runs}\n`)
-
-  // The capture step persists prompt/completion at the record top level (see
-  // tax-agent's run_taxcalc.py). A real consumer storing text in a TraceStore
-  // would swap these two functions for `iterateRawCalls` lookups — a 5-line
-  // change. Fail loud if a record is missing the text rather than silently
-  // shipping an empty completion into a paid dataset.
-  const text = new Map<string, { prompt: string; completion: string }>()
-  for (const r of records) {
-    const prompt = r[args.promptKey]
-    const completion = r[args.completionKey]
-    if (typeof prompt !== 'string' || typeof completion !== 'string') {
-      throw new Error(
-        `run ${r.runId} is missing string "${args.promptKey}"/"${args.completionKey}" — ` +
-          'capture trajectory text before packaging (see README)',
-      )
-    }
-    text.set(r.runId, { prompt, completion })
+  const trainingRecords = selectTrainingRecords(records, args.allowHeldOutTrainingData)
+  if (trainingRecords.length === 0) {
+    throw new Error(
+      'no completed positive-quality search runs remain; ' +
+        'use --allow-held-out-training-data only when training on holdout is intentional',
+    )
   }
+  const { text, dedupPassed } = collectTrajectoryText(
+    trainingRecords,
+    args.promptKey,
+    args.completionKey,
+  )
+  const verifiableRewardFilterPassed =
+    args.rewardKind === 'deterministic' &&
+    trainingRecords.every((record) =>
+      isTrainingRunEligible(record, runTaskScore(record), {
+        allowHeldOutTrainingData: args.allowHeldOutTrainingData,
+      }),
+    )
+  process.stdout.write(`validated ${records.length} runs from ${args.runs}\n`)
+  process.stdout.write(`selected ${trainingRecords.length} training runs\n`)
+
   const lookups = {
     promptOf: (id: string) => text.get(id)!.prompt,
     completionOf: (id: string) => text.get(id)!.completion,
+    allowHeldOutTrainingData: args.allowHeldOutTrainingData,
   }
 
-  const bundle = await buildRlDataset(records, lookups, {
+  const bundle = await buildRlDataset(trainingRecords, lookups, {
     name: args.name,
     version: args.version,
     domain: args.domain,
@@ -205,7 +312,11 @@ async function main(): Promise<void> {
     limitations: args.limitations,
     formats: args.formats,
     createdAtIso: args.createdAtIso,
-    qualityGates: { contaminationProbe: 'not-run', dedup: true, verifiableRewardFilter: true },
+    qualityGates: {
+      contaminationProbe: 'not-run',
+      dedup: dedupPassed,
+      verifiableRewardFilter: verifiableRewardFilterPassed,
+    },
   })
 
   const outDir = resolvePath(args.out)
@@ -216,8 +327,9 @@ async function main(): Promise<void> {
   process.stdout.write(`✓ wrote bundle to ${outDir}\n`)
   process.stdout.write(`  files: ${Object.keys(bundle.files).join(', ')}\n`)
   const s = bundle.manifest.stats
+  const rewardMean = s.reward.mean === null ? 'n/a' : s.reward.mean.toFixed(3)
   process.stdout.write(
-    `  ${s.records} records · reward mean=${s.reward.mean.toFixed(3)} · holdout=${s.splits.holdout} · cost=$${s.totalCostUsd.toFixed(2)}\n`,
+    `  ${s.records} records · reward mean=${rewardMean} · holdout=${s.splits.holdout} · cost=$${s.totalCostUsd.toFixed(2)}\n`,
   )
   process.stdout.write(`\n--- DATASHEET.md ---\n${bundle.files['DATASHEET.md']}`)
 }

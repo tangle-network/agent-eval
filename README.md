@@ -349,8 +349,8 @@ See [concepts](./docs/concepts.md), [customer paths](./docs/customer-journeys.md
 | `@tangle-network/agent-eval/rl` | Export rewards, preferences, and training rows. |
 | `@tangle-network/agent-eval/wire` | HTTP and RPC schemas for other languages. |
 
-Prefer these subpaths for new code.
-The root export remains broad for compatibility.
+Use subpaths when you want an explicit capability boundary.
+Use the root import for common primitives.
 
 ## Examples
 

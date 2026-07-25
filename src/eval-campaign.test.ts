@@ -21,6 +21,7 @@ function passingOutcome(model = 'm@1', promptHash = 'p1'): CampaignRunOutcome {
     pass: true,
     score: 1,
     costUsd: 0,
+    costProvenance: { kind: 'observed', usd: 0 },
     tokenUsage: TOKENS,
     model,
     promptHash,

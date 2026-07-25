@@ -65,6 +65,7 @@ export function leaderboard(records: RunRecord[], opts: LeaderboardOptions): Lea
     const profile = rs[0]!.agentProfile
     const harness = profile?.harness?.id
     const model = profile?.model
+    const knownCosts = rs.map((r) => r.costUsd).filter(isFiniteNumber)
     return {
       key,
       label: harness && model ? `${harness} · ${model}` : key,
@@ -74,7 +75,7 @@ export function leaderboard(records: RunRecord[], opts: LeaderboardOptions): Lea
       n: rs.length,
       passRate: ci.estimate,
       passRateCi95: [ci.lower, ci.upper],
-      meanCostUsd: mean(rs.map((r) => r.costUsd)),
+      meanCostUsd: knownCosts.length === rs.length ? mean(knownCosts) : null,
       meanTokensIn: mean(rs.map((r) => r.tokenUsage.input)),
       meanTokensOut: mean(rs.map((r) => r.tokenUsage.output)),
       meanWallMs: mean(rs.map((r) => r.wallMs)),
@@ -88,4 +89,8 @@ export function leaderboard(records: RunRecord[], opts: LeaderboardOptions): Lea
     row.rank = i + 1
   })
   return rows
+}
+
+function isFiniteNumber(value: unknown): value is number {
+  return typeof value === 'number' && Number.isFinite(value)
 }

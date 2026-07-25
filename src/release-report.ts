@@ -33,13 +33,15 @@ export function renderReleaseReport(
   lines.push(`| Scenarios | ${scorecard.metrics.scenarioCount} |`)
   lines.push(`| Search runs | ${scorecard.metrics.searchRuns} |`)
   lines.push(`| Holdout runs | ${scorecard.metrics.holdoutRuns} |`)
+  lines.push(`| Unscored runs | ${scorecard.metrics.unscoredRuns} |`)
+  lines.push(`| Terminal failures | ${scorecard.metrics.terminalFailureRuns} |`)
   lines.push(`| Pass rate | ${pct(scorecard.metrics.passRate)} |`)
   lines.push(`| Mean score | ${num(scorecard.metrics.meanScore)} |`)
   lines.push(`| Search mean | ${num(scorecard.metrics.searchMeanScore)} |`)
   lines.push(`| Holdout mean | ${num(scorecard.metrics.holdoutMeanScore)} |`)
   lines.push(`| Overfit gap | ${num(scorecard.metrics.overfitGap)} |`)
   lines.push(`| Mean cost | $${num(scorecard.metrics.meanCostUsd)} |`)
-  lines.push(`| p95 wall time | ${Math.round(scorecard.metrics.p95WallMs)} ms |`)
+  lines.push(`| p95 wall time | ${duration(scorecard.metrics.p95WallMs)} |`)
   lines.push('')
 
   if (scorecard.issues.length > 0) {
@@ -110,10 +112,14 @@ function entries(values: Record<string, number>): Array<[string, number]> {
     .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
 }
 
-function pct(value: number): string {
-  return Number.isFinite(value) ? `${(value * 100).toFixed(1)}%` : 'n/a'
+function pct(value: number | null): string {
+  return value === null ? 'n/a' : `${(value * 100).toFixed(1)}%`
 }
 
-function num(value: number): string {
-  return Number.isFinite(value) ? value.toFixed(3) : 'n/a'
+function num(value: number | null): string {
+  return value === null ? 'n/a' : value.toFixed(3)
+}
+
+function duration(value: number | null): string {
+  return value === null ? 'n/a' : `${Math.round(value)} ms`
 }

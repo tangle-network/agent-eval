@@ -139,8 +139,7 @@ export function assertExternalTextOptimizationConfig<TScenario extends Scenario,
     )
   }
   if (
-    !config.source ||
-    config.source.kind !== 'package' ||
+    config.source?.kind !== 'package' ||
     typeof config.source.package !== 'string' ||
     !config.source.package.trim() ||
     config.source.package.trim() !== config.source.package ||

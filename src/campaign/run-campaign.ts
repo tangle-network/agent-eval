@@ -20,6 +20,7 @@ import { confidenceInterval } from '../statistics'
 import { contentHash } from '../verdict-cache'
 import { assertCampaignDesign, campaignScenarioIdentity, campaignSplitDigest } from './coverage'
 import { resolveRunDir } from './run-dir'
+import { projectCampaignCellQuality } from './run-record'
 import { type CampaignStorage, createRunCostLedger, fsCampaignStorage } from './storage'
 import type {
   CampaignAggregates,
@@ -653,6 +654,8 @@ async function executeCell<TScenario extends Scenario, TArtifact>(
     durationMs: Date.now() - startMs,
     seed: args.slot.cellSeed,
     cached: false,
+    ...(failure ? { errorStage: failure.stage } : {}),
+    ...(failure?.judge ? { errorJudge: failure.judge } : {}),
     error: errorMessage,
   }
 
@@ -1103,38 +1106,57 @@ function computeAggregates<TArtifact>(
   seed: number,
   cost: CostLedgerSummary,
 ): CampaignAggregates {
+  const cellQuality = cells.map((cell) => ({
+    cell,
+    quality: projectCampaignCellQuality(cell),
+  }))
   const byJudge: Record<string, JudgeAggregate> = {}
   for (const judge of judges) {
     const scores: number[] = []
-    for (const cell of cells) {
-      const s = cell.judgeScores[judge.name]
+    for (const { quality } of cellQuality) {
+      const s = quality.successfulJudgeScores[judge.name]
       if (s !== undefined) scores.push(s.composite)
     }
-    byJudge[judge.name] = aggregate(scores, seed)
+    if (scores.length > 0) byJudge[judge.name] = aggregate(scores, seed)
   }
   const byScenario: Record<string, ScenarioAggregate> = {}
   const scenarioGroups = new Map<string, number[]>()
-  for (const cell of cells) {
-    const composites = Object.values(cell.judgeScores).map((s) => s.composite)
-    if (composites.length === 0) continue
-    const mean = composites.reduce((a, b) => a + b, 0) / composites.length
+  for (const { cell, quality } of cellQuality) {
+    const score = quality.score
+    if (score === undefined) continue
     const arr = scenarioGroups.get(cell.scenarioId) ?? []
-    arr.push(mean)
+    arr.push(score)
     scenarioGroups.set(cell.scenarioId, arr)
   }
   for (const [scenarioId, samples] of scenarioGroups) {
     const ag = aggregate(samples, seed)
     byScenario[scenarioId] = { meanComposite: ag.mean, ci95: ag.ci95, n: ag.n }
   }
+  const dispatchFailures = cells.filter((cell) => cell.errorStage === 'dispatch')
+  const judgeFailures = cellQuality
+    .filter(({ cell, quality }) => cell.errorStage === 'judge' || quality.failedJudges.length > 0)
+    .map(({ cell }) => cell)
+  const unclassifiedFailures = cells.filter(
+    (cell) =>
+      Boolean(cell.error) && !cell.error?.startsWith('skipped:') && cell.errorStage === undefined,
+  )
   return {
     byJudge,
     byScenario,
     cost,
     totalCostUsd: cost.totalCostUsd,
-    cellsExecuted: cells.filter((c) => !c.error).length,
+    cellsExecuted: cells.filter(
+      (cell) =>
+        !cell.error?.startsWith('skipped:') &&
+        cell.errorStage !== 'dispatch' &&
+        !(cell.error && cell.errorStage === undefined),
+    ).length,
     cellsSkipped: cells.filter((c) => c.error?.startsWith('skipped:')).length,
     cellsCached: cells.filter((c) => c.cached).length,
-    cellsFailed: cells.filter((c) => c.error && !c.error.startsWith('skipped:')).length,
+    cellsFailed: new Set([...dispatchFailures, ...judgeFailures, ...unclassifiedFailures]).size,
+    cellsDispatchFailed: dispatchFailures.length,
+    cellsJudgeFailed: judgeFailures.length,
+    cellsUnclassifiedFailed: unclassifiedFailures.length,
   }
 }
 
@@ -1143,7 +1165,7 @@ function computeAggregates<TArtifact>(
 // degenerate intervals at n<=1 (the bootstrap is undefined there).
 function aggregate(samples: number[], seed: number): JudgeAggregate {
   const n = samples.length
-  if (n === 0) return { mean: 0, stdev: 0, ci95: [0, 0], n: 0 }
+  if (n === 0) throw new Error('aggregate requires at least one finite score')
   const mean = samples.reduce((a, b) => a + b, 0) / n
   const variance = samples.reduce((a, b) => a + (b - mean) ** 2, 0) / Math.max(1, n - 1)
   const stdev = Math.sqrt(variance)

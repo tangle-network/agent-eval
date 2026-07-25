@@ -19,18 +19,21 @@ function synthesise(): TraceSpanEvent[] {
   for (let i = 0; i < N_RUNS; i++) {
     const runId = `run-${i + 1}`
     const failed = i % 7 === 0 // ~14% failure rate
-    const baseTime = 1_700_000_000_000_000_000 + i * 1_000_000_000
-    const cost = 0.05 + (pseudoRand(runId) * 0.12) // $0.05 .. $0.17
-    const score = failed ? 0.2 + pseudoRand(runId + 's') * 0.2 : 0.6 + pseudoRand(runId + 's') * 0.35
-    const inputTokens = 800 + Math.floor(pseudoRand(runId + 'i') * 1400)
-    const outputTokens = 200 + Math.floor(pseudoRand(runId + 'o') * 600)
+    const baseTime = 1_700_000_000_000_000_000n + BigInt(i) * 1_000_000_000n
+    const duration = BigInt(Math.floor(pseudoRand(`${runId}d`) * 5_000_000_000))
+    const cost = 0.05 + pseudoRand(runId) * 0.12 // $0.05 .. $0.17
+    const score = failed
+      ? 0.2 + pseudoRand(`${runId}s`) * 0.2
+      : 0.6 + pseudoRand(`${runId}s`) * 0.35
+    const inputTokens = 800 + Math.floor(pseudoRand(`${runId}i`) * 1400)
+    const outputTokens = 200 + Math.floor(pseudoRand(`${runId}o`) * 600)
 
     spans.push({
       traceId: `trace-${i}`,
       spanId: `span-root-${i}`,
       name: failed && i % 14 === 0 ? 'tool.search' : 'agent.turn',
-      startTimeUnixNano: baseTime,
-      endTimeUnixNano: baseTime + Math.floor(pseudoRand(runId + 'd') * 5_000_000_000),
+      startTimeUnixNano: baseTime.toString(),
+      endTimeUnixNano: (baseTime + duration).toString(),
       attributes: {
         'tangle.runId': runId,
         'tangle.model': 'gpt-4o@2025-04-15',
@@ -54,6 +57,14 @@ function pseudoRand(s: string): number {
   return (h >>> 0) / 0xffffffff
 }
 
+function formatMetric(value: number | null, digits = 3): string {
+  return value === null ? 'n/a' : value.toFixed(digits)
+}
+
+function formatUsd(value: number | null): string {
+  return value === null ? 'n/a' : `$${value.toFixed(3)}`
+}
+
 async function main() {
   const spans = synthesise()
   const runs = fromOtelSpans({ spans })
@@ -63,14 +74,14 @@ async function main() {
   console.log()
   console.log(`Runs analyzed:     ${report.n}`)
   console.log(
-    `Composite mean:    ${report.composite.mean.toFixed(3)} ` +
-      `(p50: ${report.composite.p50.toFixed(3)}, ` +
-      `p95: ${report.composite.p95.toFixed(3)}, ` +
-      `stddev: ${report.composite.stddev.toFixed(3)})`,
+    `Composite mean:    ${formatMetric(report.composite.mean)} ` +
+      `(p50: ${formatMetric(report.composite.p50)}, ` +
+      `p95: ${formatMetric(report.composite.p95)}, ` +
+      `stddev: ${formatMetric(report.composite.stddev)})`,
   )
   console.log(
-    `Cost mean:         $${report.costQuality.cost.mean.toFixed(3)} ` +
-      `(p95: $${report.costQuality.cost.p95.toFixed(3)})`,
+    `Cost mean:         ${formatUsd(report.costQuality.cost.mean)} ` +
+      `(p95: ${formatUsd(report.costQuality.cost.p95)})`,
   )
   console.log()
 
@@ -105,7 +116,7 @@ async function main() {
   console.log('Recommendations')
   if (report.recommendations.length === 0) {
     console.log(
-      `[medium] expand-corpus: Mean composite ${report.composite.mean.toFixed(3)} has room`,
+      `[medium] expand-corpus: Mean composite ${formatMetric(report.composite.mean)} has room`,
     )
     console.log(
       '  Composite distribution sits below 0.80; investigate the failures and the lower tail',

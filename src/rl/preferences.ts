@@ -33,12 +33,11 @@
  *      per scenario but biggest score gap per pair. Useful for early
  *      bootstrapping when you have few variants.
  *
- * The output `PreferenceTriple` is *agent-eval-canonical* but trivially
- * mappable to TRL's `DPODataset` shape (`prompt`, `chosen`, `rejected`)
- * via the `toTRLFormat` helper.
+ * Resolve `PreferenceTriple` text with `toDpoRows` from `./exporters`.
  */
 
-import type { RunRecord } from '../run-record'
+import { type RunRecord, runTaskScore } from '../run-record'
+import { isTrainingRunEligible, type TrainingRunSelectionOptions } from './exporters'
 
 export type PreferenceStrategy =
   | 'paired-by-scenario-and-seed'
@@ -78,7 +77,7 @@ export interface PreferenceTriple {
   }
 }
 
-export interface ExtractPreferencesOptions {
+export interface ExtractPreferencesOptions extends TrainingRunSelectionOptions {
   strategy?: PreferenceStrategy
   /**
    * Minimum score gap required to admit a pair. Pairs below this are
@@ -86,8 +85,8 @@ export interface ExtractPreferencesOptions {
    */
   minMargin?: number
   /**
-   * Optional split tag filter — restrict to runs from one split. Default
-   * `'holdout'` (the canonical "real" signal).
+   * Optional split tag filter. Without one, only search is included.
+   * Holdout requires `allowHeldOutTrainingData: true`; dev is evaluation-only.
    */
   splitTag?: RunRecord['splitTag']
   /**
@@ -110,11 +109,8 @@ export interface PreferenceExtractionReport {
   strategy: PreferenceStrategy
 }
 
-const SPLIT_TAG_DEFAULT: RunRecord['splitTag'] = 'holdout'
-
 const DEFAULT_REWARD = (run: RunRecord): number | null => {
-  const v = run.outcome.holdoutScore ?? run.outcome.searchScore
-  return typeof v === 'number' && Number.isFinite(v) ? v : null
+  return runTaskScore(run) ?? null
 }
 
 /**
@@ -127,7 +123,7 @@ const DEFAULT_REWARD = (run: RunRecord): number | null => {
  *   1. Run a campaign producing 5–10 variants × 50–200 scenarios × 3 seeds
  *   2. Call this with `strategy: 'paired-by-scenario-and-seed'` and a
  *      verifiable-reward extractor as `rewardOf`
- *   3. Pass `report.pairs` to `toTRLFormat` and pipe to your DPO trainer
+ *   3. Pass `report.pairs` to `toDpoRows` with prompt/completion resolvers
  */
 export function extractPreferences(
   runs: RunRecord[],
@@ -135,14 +131,23 @@ export function extractPreferences(
 ): PreferenceExtractionReport {
   const strategy = opts.strategy ?? 'paired-by-scenario-and-seed'
   const minMargin = opts.minMargin ?? 0.05
-  const splitTag = opts.splitTag ?? SPLIT_TAG_DEFAULT
+  const splitTag = opts.splitTag
   const rewardOf = opts.rewardOf ?? DEFAULT_REWARD
 
-  const filtered = runs.filter((r) => r.splitTag === splitTag)
+  if (splitTag === 'holdout' && opts.allowHeldOutTrainingData !== true) {
+    throw new Error(
+      'extractPreferences: splitTag "holdout" requires allowHeldOutTrainingData: true',
+    )
+  }
+  if (splitTag === 'dev') {
+    throw new Error('extractPreferences: splitTag "dev" is evaluation-only; train from "search"')
+  }
+
   const scoredEntries: Array<{ run: RunRecord; score: number }> = []
-  for (const run of filtered) {
+  for (const run of runs) {
+    if (splitTag !== undefined && run.splitTag !== splitTag) continue
     const s = rewardOf(run)
-    if (s === null) continue
+    if (!isTrainingRunEligible(run, s, opts)) continue
     scoredEntries.push({ run, score: s })
   }
 
@@ -152,9 +157,7 @@ export function extractPreferences(
   let cellsInspected = 0
 
   if (strategy === 'paired-by-scenario-and-seed') {
-    // Group by (scenarioId, seed). Canonical key is `run.scenarioId`,
-    // populated by `runEvalCampaign` and the adapters; falls back to
-    // `outcome.raw.scenario_id` then `experimentId` when absent.
+    // Group by the canonical (scenarioId, seed) identity.
     const groups = new Map<string, Array<{ run: RunRecord; score: number }>>()
     for (const e of scoredEntries) {
       const sid = scenarioOf(e.run)
@@ -251,22 +254,6 @@ export function extractPreferences(
 }
 
 /**
- * TRL-compatible export. TRL's `DPODataset` is `{ prompt, chosen, rejected }`
- * but the prompt isn't stored on the RunRecord — only its hash. The caller
- * passes a `promptOf(promptHash)` lookup that the TRL trainer can use.
- */
-export function toTRLFormat(
-  triples: PreferenceTriple[],
-  promptOf: (hash: string) => string,
-): Array<{ prompt: string; chosen: string; rejected: string }> {
-  return triples.map((t) => ({
-    prompt: promptOf(t.meta.chosenPromptHash),
-    chosen: t.meta.chosenPromptHash, // caller substitutes the model output via the runId map
-    rejected: t.meta.rejectedPromptHash,
-  }))
-}
-
-/**
  * Anthropic finetuning JSONL export — `{ system, user, assistant_chosen, assistant_rejected }`
  * shape. Same caveat as TRL: prompt + outputs are content the caller has
  * to map back from the run record / raw event log.
@@ -316,16 +303,6 @@ function makePair(
   }
 }
 
-/**
- * Canonical scenario key for a RunRecord. Three-tier fallback:
- *   1. `run.scenarioId` — populated by `runEvalCampaign` and every adapter
- *   2. `run.outcome.raw.scenario_id` — string or numeric, when present
- *   3. `run.experimentId` — worst-case bucket
- */
 function scenarioOf(run: RunRecord): string {
-  if (typeof run.scenarioId === 'string' && run.scenarioId.length > 0) return run.scenarioId
-  const fromRaw = run.outcome.raw.scenario_id
-  if (typeof fromRaw === 'number' && Number.isFinite(fromRaw)) return String(fromRaw)
-  if (typeof fromRaw === 'string') return fromRaw
-  return run.experimentId
+  return run.scenarioId
 }

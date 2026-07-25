@@ -12,16 +12,19 @@
  */
 
 import type { ChatMessage, RolloutLine, RolloutSplit, RolloutStep, ToolDef } from './schema'
-import { isTrainableSplit } from './schema'
 
 // ---------------------------------------------------------------------------
 // (a) SFT chat JSONL
 // ---------------------------------------------------------------------------
 
-export interface SftExportOptions {
-  /** Export only lines with reward ≥ this (default 1 = clean successes only). */
-  minReward?: number
+export interface TrainingExportOptions {
+  /** Include held-out evaluation data in training output. Default false. */
+  allowHeldOutTrainingData?: boolean
+  /** Require reward to be strictly greater than this value. Default 0. */
+  minimumQualityExclusive?: number
 }
+
+export type SftExportOptions = TrainingExportOptions
 
 export interface SftRow {
   messages: ChatMessage[]
@@ -37,20 +40,12 @@ export interface SftRow {
 /**
  * Supervised fine-tune rows: the completed conversation of each qualifying
  * line. Fail-closed filters: trainable split only (never holdout/canary),
- * reward ≥ minReward, realness-gated lines never qualify, gap lines carry
+ * positive reward, realness-gated lines never qualify, gap lines carry
  * no trainable content.
  */
 export function toSftRows(lines: RolloutLine[], options: SftExportOptions = {}): SftRow[] {
-  const minReward = options.minReward ?? 1
   return lines
-    .filter(
-      (line) =>
-        line.outcome.reward !== null &&
-        line.outcome.reward >= minReward &&
-        line.outcome.realness_gated !== true &&
-        isTrainableSplit(line.task.split) &&
-        line.messages.length > 0,
-    )
+    .filter((line) => isTrainingLineEligible(line, options) && line.messages.length > 0)
     .map((line) => ({
       messages: line.messages,
       metadata: {
@@ -64,7 +59,7 @@ export function toSftRows(lines: RolloutLine[], options: SftExportOptions = {}):
 }
 
 // ---------------------------------------------------------------------------
-// (b) Reward rows — every scored line, failures included as signal.
+// (b) Reward rows
 // ---------------------------------------------------------------------------
 
 export interface RewardRow {
@@ -82,15 +77,23 @@ export interface RewardRow {
 }
 
 /**
- * Reward-labeled rows: every line with a scalar reward, success or
- * failure. Failures are signal here — only the realness-gate zeroing
- * (applied at mint time) touches the reward, never filtering. Lines with
- * no verdict (reward null) are excluded: an unlabeled example is a gap,
- * not a zero.
+ * Reward-labeled rows for completed, positive-quality training runs.
  */
-export function toRewardRows(lines: RolloutLine[]): RewardRow[] {
+export function toRewardRows(
+  lines: RolloutLine[],
+  options: TrainingExportOptions = {},
+): RewardRow[] {
   return lines
-    .filter((line) => line.outcome.reward !== null)
+    .filter(
+      (line) =>
+        isTrainingLineEligible(line, options) &&
+        line.messages.some(
+          (message) =>
+            message.role === 'user' &&
+            typeof message.content === 'string' &&
+            message.content.length > 0,
+        ),
+    )
     .map((line) => ({
       prompt: line.messages.find((m) => m.role === 'user')?.content ?? '',
       steps: line.steps ?? [],
@@ -174,8 +177,18 @@ export function toVerifiersRolloutOutput(line: RolloutLine): VerifiersRolloutOut
   }
 }
 
-export function toVerifiersRolloutOutputs(lines: RolloutLine[]): VerifiersRolloutOutput[] {
-  return lines.filter((line) => line.messages.length > 0).map(toVerifiersRolloutOutput)
+export function toVerifiersRolloutOutputs(
+  lines: RolloutLine[],
+  options: TrainingExportOptions = {},
+): VerifiersRolloutOutput[] {
+  return lines
+    .filter(
+      (line) =>
+        isTrainingLineEligible(line, options) &&
+        firstAssistantIndex(line.messages) > 0 &&
+        firstAssistantIndex(line.messages) < line.messages.length,
+    )
+    .map(toVerifiersRolloutOutput)
 }
 
 // ---------------------------------------------------------------------------
@@ -214,9 +227,14 @@ export function toRftItem(line: RolloutLine): RftItem {
 }
 
 /** RFT needs a real prompt: lines whose transcript starts with prompt turns. */
-export function toRftItems(lines: RolloutLine[]): RftItem[] {
+export function toRftItems(lines: RolloutLine[], options: TrainingExportOptions = {}): RftItem[] {
   return lines
-    .filter((line) => line.messages.length > 0 && firstAssistantIndex(line.messages) > 0)
+    .filter(
+      (line) =>
+        isTrainingLineEligible(line, options) &&
+        line.messages.length > 0 &&
+        firstAssistantIndex(line.messages) > 0,
+    )
     .map(toRftItem)
 }
 
@@ -227,4 +245,27 @@ export function toRftItems(lines: RolloutLine[]): RftItem[] {
 
 export function toJsonl(rows: ReadonlyArray<unknown>): string {
   return rows.map((r) => JSON.stringify(r)).join('\n') + (rows.length ? '\n' : '')
+}
+
+function isTrainingLineEligible(
+  line: RolloutLine,
+  options: TrainingExportOptions,
+): line is RolloutLine & { outcome: RolloutLine['outcome'] & { reward: number } } {
+  const minimumQualityExclusive = options.minimumQualityExclusive ?? 0
+  if (!Number.isFinite(minimumQualityExclusive)) {
+    throw new Error('minimumQualityExclusive must be finite')
+  }
+
+  const reward = line.outcome.reward
+  if (reward === null) return false
+  if (!Number.isFinite(reward)) {
+    throw new Error(`training reward for rollout "${line.rollout_id}" must be finite`)
+  }
+  if (reward <= minimumQualityExclusive) return false
+  if (!line.outcome.is_completed || line.outcome.is_truncated || line.outcome.error !== null) {
+    return false
+  }
+  if (line.outcome.realness_gated === true) return false
+  if (line.task.split === 'search') return true
+  return line.task.split === 'holdout' && options.allowHeldOutTrainingData === true
 }

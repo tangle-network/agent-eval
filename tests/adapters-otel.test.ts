@@ -16,7 +16,9 @@ import {
   type OtelAttributeValue,
   type OtelLikeSpan,
 } from '../src/adapters/otel'
+import { fromOtelSpans } from '../src/contract/intake/otel-spans'
 import { createHostedClient } from '../src/hosted/client'
+import type { TraceSpanEvent } from '../src/hosted/types'
 import { startReceiver } from './_fixtures/hosted-receiver'
 
 function makeSpan(overrides: Partial<OtelLikeSpan> = {}): OtelLikeSpan {
@@ -30,18 +32,30 @@ function makeSpan(overrides: Partial<OtelLikeSpan> = {}): OtelLikeSpan {
   return { ...base, ...overrides }
 }
 
+function makeTraceSpan(
+  overrides: Partial<TraceSpanEvent> & Pick<TraceSpanEvent, 'spanId' | 'name'>,
+): TraceSpanEvent {
+  return {
+    traceId: 'trace-score',
+    startTimeUnixNano: '0',
+    endTimeUnixNano: '1000000',
+    attributes: {},
+    ...overrides,
+  }
+}
+
 describe('hrTimeToUnixNano', () => {
   it('converts [s, ns] to unix-nano', () => {
-    expect(hrTimeToUnixNano([1, 0])).toBe(1_000_000_000)
-    expect(hrTimeToUnixNano([1, 500_000_000])).toBe(1_500_000_000)
-    expect(hrTimeToUnixNano([0, 1])).toBe(1)
+    expect(hrTimeToUnixNano([1, 0])).toBe('1000000000')
+    expect(hrTimeToUnixNano([1, 500_000_000])).toBe('1500000000')
+    expect(hrTimeToUnixNano([0, 1])).toBe('1')
   })
 })
 
 describe('createOtelBridge — spanToEvent conversion', () => {
   const fakeClient = {
     tenant: { endpoint: '', apiKey: '', tenantId: '' },
-    wireVersion: '2026-05-26.v1' as const,
+    wireVersion: '2026-07-24.v1' as const,
     ingestEvalRun: async () => ({ accepted: 0, rejected: [] }),
     ingestEvalRuns: async () => ({ accepted: 0, rejected: [] }),
     ingestTraces: async () => ({ accepted: 0, rejected: [] }),
@@ -60,8 +74,8 @@ describe('createOtelBridge — spanToEvent conversion', () => {
     expect(e.traceId).toBe('abc')
     expect(e.spanId).toBe('def')
     expect(e.name).toBe('my-op')
-    expect(e.startTimeUnixNano).toBe(2_000_000_100)
-    expect(e.endTimeUnixNano).toBe(3_000_000_200)
+    expect(e.startTimeUnixNano).toBe('2000000100')
+    expect(e.endTimeUnixNano).toBe('3000000200')
   })
 
   it('maps OTel status codes to wire-format strings', () => {
@@ -151,7 +165,7 @@ describe('createOtelBridge — spanToEvent conversion', () => {
     )
     expect(e.events).toHaveLength(1)
     expect(e.events?.[0]?.name).toBe('exception')
-    expect(e.events?.[0]?.timeUnixNano).toBe(1_700_000_001_000_000_000)
+    expect(e.events?.[0]?.timeUnixNano).toBe('1700000001000000000')
     expect(e.events?.[0]?.attributes).toEqual({ 'exception.message': 'oops' })
   })
 
@@ -177,6 +191,238 @@ describe('createOtelBridge — spanToEvent conversion', () => {
     expect(e.attributes['tool.names']).toBe('["search","read"]')
     expect(e.attributes.numbers).toBe('[1,2,3]')
     expect(e.attributes.bools).toBe('[true,false]')
+  })
+})
+
+describe('fromOtelSpans task-quality extraction', () => {
+  it('ignores generic root scores and score-like guardrail child attributes', () => {
+    const root = makeTraceSpan({
+      spanId: 'root',
+      name: 'agent.run',
+      attributes: {
+        'openinference.span.kind': 'AGENT',
+        score: 0.7,
+      },
+      status: { code: 'OK' },
+    })
+    const guardrail = makeTraceSpan({
+      spanId: 'guardrail',
+      parentSpanId: 'root',
+      name: 'guardrail.check',
+      attributes: {
+        'openinference.span.kind': 'GUARDRAIL',
+        'tangle.score': 0.99,
+        score: 1,
+      },
+      status: { code: 'ERROR' },
+    })
+
+    const [run] = fromOtelSpans({ spans: [guardrail, root] })
+
+    expect(run?.outcome.holdoutScore).toBeUndefined()
+    expect(run?.outcome.judgeScores).toBeUndefined()
+    expect(run?.terminalOutcome).toBe('succeeded')
+    expect(run?.outcome.raw).toMatchObject({
+      error_span_count: 1,
+      execution_error_count: 0,
+      guardrail_error_count: 1,
+    })
+  })
+
+  it('accepts the official evaluation score on an EVALUATOR span', () => {
+    const root = makeTraceSpan({
+      spanId: 'root',
+      name: 'agent.run',
+      attributes: {
+        'openinference.span.kind': 'AGENT',
+        score: 0.1,
+      },
+      status: { code: 'OK' },
+    })
+    const evaluator = makeTraceSpan({
+      spanId: 'evaluator',
+      parentSpanId: 'root',
+      name: 'evaluate.correctness',
+      attributes: {
+        'openinference.span.kind': 'EVALUATOR',
+        'gen_ai.evaluation.score.value': '0.84',
+        score: 0.2,
+      },
+      status: { code: 'OK' },
+    })
+
+    const [run] = fromOtelSpans({ spans: [root, evaluator] })
+
+    expect(run?.outcome.holdoutScore).toBe(0.84)
+    expect(run?.outcome.judgeScores?.composite).toBe(0.84)
+    expect(run?.terminalOutcome).toBe('succeeded')
+  })
+
+  it.each(['search', 'dev'] as const)(
+    'writes a %s trace score only to searchScore',
+    (defaultSplit) => {
+      const root = makeTraceSpan({
+        spanId: 'root',
+        name: 'agent.run',
+        attributes: {
+          'openinference.span.kind': 'AGENT',
+          'tangle.task.score': 0.73,
+        },
+        status: { code: 'OK' },
+      })
+
+      const [run] = fromOtelSpans({ spans: [root], defaultSplit })
+
+      expect(run?.splitTag).toBe(defaultSplit)
+      expect(run?.outcome.searchScore).toBe(0.73)
+      expect(run?.outcome.holdoutScore).toBeUndefined()
+    },
+  )
+
+  it('does not accept a task-quality label from an errored evaluator', () => {
+    const root = makeTraceSpan({
+      spanId: 'root',
+      name: 'agent.run',
+      attributes: { 'openinference.span.kind': 'AGENT' },
+      status: { code: 'OK' },
+    })
+    const evaluator = makeTraceSpan({
+      spanId: 'evaluator',
+      parentSpanId: 'root',
+      name: 'evaluate.correctness',
+      attributes: {
+        'openinference.span.kind': 'EVALUATOR',
+        'gen_ai.evaluation.score.value': 0.99,
+      },
+      status: { code: 'ERROR', message: 'judge timed out' },
+    })
+
+    const [run] = fromOtelSpans({ spans: [root, evaluator] })
+
+    expect(run?.outcome.searchScore).toBeUndefined()
+    expect(run?.outcome.holdoutScore).toBeUndefined()
+    expect(run?.outcome.judgeScores).toBeUndefined()
+    expect(run?.outcome.raw).toMatchObject({
+      judge_error_count: 1,
+      execution_error_count: 0,
+      process_error_count: 0,
+    })
+    expect(run?.terminalOutcome).toBe('succeeded')
+  })
+
+  it('classifies an errored model-metadata child as one execution error', () => {
+    const root = makeTraceSpan({
+      spanId: 'root',
+      name: 'agent.run',
+      attributes: { 'openinference.span.kind': 'AGENT' },
+      status: { code: 'OK' },
+    })
+    const modelCall = makeTraceSpan({
+      spanId: 'model-call',
+      parentSpanId: 'root',
+      name: 'provider.request',
+      attributes: { 'gen_ai.request.model': 'gpt-5@2026-06-05' },
+      status: { code: 'ERROR', message: 'provider unavailable' },
+    })
+
+    const [run] = fromOtelSpans({ spans: [root, modelCall] })
+
+    expect(run?.outcome.raw).toMatchObject({
+      llm_span_count: 1,
+      execution_error_count: 1,
+      process_error_count: 0,
+      unclassified_error_count: 0,
+    })
+    expect(run?.terminalOutcome).toBe('succeeded')
+  })
+
+  it('accepts an explicit caller score callback', () => {
+    const root = makeTraceSpan({
+      spanId: 'root',
+      name: 'agent.run',
+      status: { code: 'OK' },
+    })
+
+    const [run] = fromOtelSpans({
+      spans: [root],
+      scoreForRun: (runId, spans) => {
+        expect(runId).toBe('trace-score')
+        expect(spans.map((span) => span.spanId)).toEqual(['root'])
+        return 0.91
+      },
+    })
+
+    expect(run?.outcome.holdoutScore).toBe(0.91)
+  })
+
+  it('keeps root terminal status separate from task quality', () => {
+    const root = makeTraceSpan({
+      spanId: 'root',
+      name: 'agent.run',
+      attributes: { score: 0 },
+      status: { code: 'ERROR', message: 'process failed' },
+    })
+
+    const [run] = fromOtelSpans({ spans: [root] })
+
+    expect(run?.terminalOutcome).toBe('failed')
+    expect(run?.terminalFailureReason).toBe('process failed')
+    expect(run?.outcome.holdoutScore).toBeUndefined()
+    expect(run?.outcome.judgeScores).toBeUndefined()
+    expect(run?.outcome.raw).toMatchObject({
+      error_span_count: 1,
+      execution_error_count: 0,
+      process_error_count: 1,
+    })
+  })
+
+  it.each([
+    ['blank', '   '],
+    ['non-finite', Number.POSITIVE_INFINITY],
+  ])('rejects a %s designated task-quality score', (_name, score) => {
+    const root = makeTraceSpan({
+      spanId: 'root',
+      name: 'agent.run',
+      attributes: { 'gen_ai.evaluation.score.value': score },
+    })
+
+    expect(() => fromOtelSpans({ spans: [root] })).toThrow(
+      /task quality must be finite|not a finite/,
+    )
+  })
+
+  it('reports conflicting explicit sources independent of span order', () => {
+    const root = makeTraceSpan({
+      spanId: 'root',
+      name: 'agent.run',
+      attributes: { 'tangle.task.score': 0.2 },
+    })
+    const evaluator = makeTraceSpan({
+      spanId: 'evaluator',
+      parentSpanId: 'root',
+      name: 'evaluate.correctness',
+      attributes: {
+        'openinference.span.kind': 'EVALUATOR',
+        'gen_ai.evaluation.score.value': 0.8,
+      },
+    })
+    const messages = [
+      [root, evaluator],
+      [evaluator, root],
+    ].map((spans) => {
+      try {
+        fromOtelSpans({ spans, scoreForRun: () => 0.5 })
+        throw new Error('expected fromOtelSpans to reject conflicting task scores')
+      } catch (error) {
+        return error instanceof Error ? error.message : String(error)
+      }
+    })
+
+    expect(messages[0]).toBe(messages[1])
+    expect(messages[0]).toMatch(/conflicting task-quality scores/)
+    expect(messages[0]).toContain('scoreForRun=0.5')
+    expect(messages[0]).toContain("span 'root' attribute 'tangle.task.score'=0.2")
+    expect(messages[0]).toContain("span 'evaluator' attribute 'gen_ai.evaluation.score.value'=0.8")
   })
 })
 
@@ -219,7 +465,7 @@ describe('OTel bridge — E2E against reference receiver', () => {
       headers: {
         Authorization: `Bearer ${TENANT.key}`,
         'X-Tangle-Tenant-Id': TENANT.id,
-        'X-Tangle-Wire-Version': '2026-05-26.v1',
+        'X-Tangle-Wire-Version': '2026-07-24.v1',
       },
     })
     const body = (await res.json()) as { spans: Array<{ spanId: string; name: string }> }

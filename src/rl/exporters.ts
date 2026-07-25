@@ -31,7 +31,7 @@
  * trace store / raw event log).
  */
 
-import type { RunRecord } from '../run-record'
+import { type RunRecord, runTaskScore } from '../run-record'
 import type { PreferenceTriple } from './preferences'
 import type { PrmTrainingTriple, StepReward } from './process-reward'
 
@@ -65,13 +65,19 @@ export async function toDpoRows(
 ): Promise<DpoExportRow[]> {
   const out: DpoExportRow[] = []
   for (const t of triples) {
-    const [prompt, chosen, rejected] = await Promise.all([
+    const [chosenPrompt, rejectedPrompt, chosen, rejected] = await Promise.all([
       Promise.resolve(lookups.promptOf(t.chosenRunId)),
+      Promise.resolve(lookups.promptOf(t.rejectedRunId)),
       Promise.resolve(lookups.completionOf(t.chosenRunId)),
       Promise.resolve(lookups.completionOf(t.rejectedRunId)),
     ])
+    if (chosenPrompt !== rejectedPrompt) {
+      throw new Error(
+        `toDpoRows: preference "${t.chosenRunId}"/"${t.rejectedRunId}" resolves to different prompts`,
+      )
+    }
     out.push({
-      prompt,
+      prompt: chosenPrompt,
       chosen,
       rejected,
       margin: t.marginScore,
@@ -96,7 +102,14 @@ export function toDpoJsonl(rows: DpoExportRow[]): string {
 
 // ── GRPO offline ─────────────────────────────────────────────────────────
 
-export interface GrpoLookups {
+export interface TrainingRunSelectionOptions {
+  /** Include held-out evaluation data in training output. Default false. */
+  allowHeldOutTrainingData?: boolean
+  /** Require quality to be strictly greater than this value. Default 0. */
+  minimumQualityExclusive?: number
+}
+
+export interface GrpoLookups extends TrainingRunSelectionOptions {
   promptOf: (runId: string) => string | Promise<string>
   completionOf: (runId: string) => string | Promise<string>
   /** Optional: derive a custom reward from the run. Defaults to score. */
@@ -113,43 +126,68 @@ export interface GrpoExportRow {
 }
 
 /**
- * Convert RunRecord[] grouped by `(scenarioId)` into GRPO offline rows —
- * one row per scenario, with one completion per run on that scenario.
+ * Convert RunRecord[] grouped by canonical `(scenarioId, promptHash)` identity
+ * into GRPO offline rows.
  *
  * GRPO (Shao et al. 2024 / DeepSeek-R1) trains on relative advantages
  * within a group of completions for the same prompt; this is the
- * canonical input format.
+ * canonical input format. A scenario containing multiple prompt hashes, or a
+ * prompt hash that resolves to different text, is rejected rather than mixed.
  */
 export async function toGrpoRows(
   runs: RunRecord[],
   lookups: GrpoLookups,
 ): Promise<GrpoExportRow[]> {
   const rewardOf = lookups.rewardOf ?? defaultReward
-  const grouped = new Map<string, RunRecord[]>()
+  const promptHashByScenario = new Map<string, string>()
+  const grouped = new Map<
+    string,
+    {
+      scenarioId: string
+      promptHash: string
+      scored: Array<{ run: RunRecord; reward: number }>
+    }
+  >()
   for (const r of runs) {
-    const sid = r.scenarioId ?? r.experimentId
-    const arr = grouped.get(sid) ?? []
-    arr.push(r)
-    grouped.set(sid, arr)
+    const reward = rewardOf(r)
+    if (!isTrainingRunEligible(r, reward, lookups)) continue
+
+    const existingPromptHash = promptHashByScenario.get(r.scenarioId)
+    if (existingPromptHash !== undefined && existingPromptHash !== r.promptHash) {
+      throw new Error(
+        `toGrpoRows: scenario "${r.scenarioId}" contains mixed prompt identities ` +
+          `"${existingPromptHash}" and "${r.promptHash}"`,
+      )
+    }
+    promptHashByScenario.set(r.scenarioId, r.promptHash)
+
+    const key = `${r.scenarioId}\u0000${r.promptHash}`
+    const group = grouped.get(key) ?? {
+      scenarioId: r.scenarioId,
+      promptHash: r.promptHash,
+      scored: [],
+    }
+    group.scored.push({ run: r, reward: reward as number })
+    grouped.set(key, group)
   }
 
   const rows: GrpoExportRow[] = []
-  for (const [scenarioId, group] of grouped.entries()) {
-    if (group.length === 0) continue
-    // Resolve prompt once per group (assumes all runs in a group share the prompt).
-    const prompt = await Promise.resolve(lookups.promptOf(group[0]!.runId))
-    const completions: string[] = []
-    const rewards: number[] = []
-    const runIds: string[] = []
-    for (const r of group) {
-      const reward = rewardOf(r)
-      if (reward === null) continue
-      const completion = await Promise.resolve(lookups.completionOf(r.runId))
-      completions.push(completion)
-      rewards.push(reward)
-      runIds.push(r.runId)
+  for (const { scenarioId, promptHash, scored } of grouped.values()) {
+    if (scored.length < 2) continue
+    const prompts = await Promise.all(
+      scored.map(({ run }) => Promise.resolve(lookups.promptOf(run.runId))),
+    )
+    const prompt = prompts[0]!
+    if (prompts.some((value) => value !== prompt)) {
+      throw new Error(
+        `toGrpoRows: prompt identity "${promptHash}" resolves to different text within scenario "${scenarioId}"`,
+      )
     }
-    if (completions.length === 0) continue
+    const completions = await Promise.all(
+      scored.map(({ run }) => Promise.resolve(lookups.completionOf(run.runId))),
+    )
+    const rewards = scored.map(({ reward }) => reward)
+    const runIds = scored.map(({ run }) => run.runId)
     rows.push({
       prompt,
       completions,
@@ -157,6 +195,7 @@ export async function toGrpoRows(
       runIds,
       meta: {
         scenarioId,
+        promptHash,
         n: completions.length,
         meanReward: rewards.reduce((s, x) => s + x, 0) / rewards.length,
       },
@@ -171,7 +210,7 @@ export function toGrpoJsonl(rows: GrpoExportRow[]): string {
 
 // ── SFT ──────────────────────────────────────────────────────────────────
 
-export interface SftLookups {
+export interface SftLookups extends TrainingRunSelectionOptions {
   promptOf: (runId: string) => string | Promise<string>
   completionOf: (runId: string) => string | Promise<string>
   /** Optional system message. Default omits. */
@@ -187,14 +226,15 @@ export interface SftExportRow {
 
 /**
  * Convert RunRecord[] into Hugging Face / OpenAI / Anthropic-style
- * conversational SFT rows. By default every record becomes one row;
- * pass `include` to filter (e.g., keep only `score >= 0.8` for
- * rejection-sampling SFT).
+ * conversational SFT rows. By default, only completed, positive-quality
+ * search runs are eligible. Pass `include` for additional filtering.
  */
 export async function toSftRows(runs: RunRecord[], lookups: SftLookups): Promise<SftExportRow[]> {
   const include = lookups.include ?? (() => true)
   const rows: SftExportRow[] = []
   for (const r of runs) {
+    const score = runTaskScore(r)
+    if (!isTrainingRunEligible(r, score, lookups)) continue
     if (!include(r)) continue
     const system = lookups.systemOf?.(r)
     const [prompt, completion] = await Promise.all([
@@ -211,7 +251,7 @@ export async function toSftRows(runs: RunRecord[], lookups: SftLookups): Promise
         runId: r.runId,
         candidateId: r.candidateId,
         scenarioId: r.scenarioId,
-        score: r.outcome.holdoutScore ?? r.outcome.searchScore,
+        score,
         model: r.model,
       },
     })
@@ -318,6 +358,26 @@ export function stepRewardsToJsonl(stepRewards: StepReward[]): string {
 // ── Helpers ──────────────────────────────────────────────────────────────
 
 function defaultReward(run: RunRecord): number | null {
-  const v = run.outcome.holdoutScore ?? run.outcome.searchScore
-  return typeof v === 'number' && Number.isFinite(v) ? v : null
+  return runTaskScore(run) ?? null
+}
+
+export function isTrainingRunEligible(
+  run: RunRecord,
+  quality: number | null | undefined,
+  options: TrainingRunSelectionOptions = {},
+): quality is number {
+  const minimumQualityExclusive = options.minimumQualityExclusive ?? 0
+  if (!Number.isFinite(minimumQualityExclusive)) {
+    throw new Error('minimumQualityExclusive must be finite')
+  }
+  if (quality === null || quality === undefined) return false
+  if (!Number.isFinite(quality)) {
+    throw new Error(`training quality for run "${run.runId}" must be finite`)
+  }
+  if (quality <= minimumQualityExclusive) return false
+  if (run.terminalOutcome !== 'succeeded') return false
+  if (run.failureClass !== undefined || run.terminalFailureReason !== undefined) return false
+  if (run.outcome.realness?.gated === true) return false
+  if (run.splitTag === 'search') return true
+  return run.splitTag === 'holdout' && options.allowHeldOutTrainingData === true
 }

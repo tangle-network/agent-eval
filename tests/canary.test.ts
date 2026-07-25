@@ -43,6 +43,13 @@ describe('runCanaries — silent_judge_fallback', () => {
     ]
     const r = runCanaries(runs)
     expect(r.counts.silent_judge_fallback).toBe(1)
+    expect(r.evaluations.find((evaluation) => evaluation.kind === 'silent_judge_fallback')).toEqual(
+      {
+        kind: 'silent_judge_fallback',
+        status: 'evaluated',
+        observations: 4,
+      },
+    )
     expect(r.alerts[0]!.severity).toBe('error')
     expect(r.alerts[0]!.evidence.streakLength).toBe(3)
   })
@@ -82,6 +89,20 @@ describe('runCanaries — silent_judge_fallback', () => {
     const runs: RunRecord[] = [rec(0, null), rec(1, null), rec(2, null)]
     const r = runCanaries(runs)
     expect(r.counts.silent_judge_fallback).toBe(0)
+    expect(r.evaluations.find((evaluation) => evaluation.kind === 'silent_judge_fallback')).toEqual(
+      {
+        kind: 'silent_judge_fallback',
+        status: 'not_evaluated',
+        observations: 0,
+        reason: 'requires at least 3 run(s) with judge metadata',
+      },
+    )
+  })
+
+  it('coalesces one continuing fallback streak into one alert', () => {
+    const runs = Array.from({ length: 6 }, (_, index) => rec(index, { confidence: 0.3 }))
+    const r = runCanaries(runs)
+    expect(r.counts.silent_judge_fallback).toBe(1)
   })
 })
 
@@ -112,12 +133,18 @@ describe('runCanaries — judge_calibration_drift', () => {
     }
     const r = runCanaries(runs)
     expect(r.counts.judge_calibration_drift).toBe(0)
+    expect(
+      r.evaluations.find((evaluation) => evaluation.kind === 'judge_calibration_drift')?.status,
+    ).toBe('evaluated')
   })
 
   it('skips when sample is too small', () => {
     const runs: RunRecord[] = [rec(0, { confidence: 0.5 }), rec(1, { confidence: 0.5 })]
     const r = runCanaries(runs)
     expect(r.counts.judge_calibration_drift).toBe(0)
+    expect(
+      r.evaluations.find((evaluation) => evaluation.kind === 'judge_calibration_drift')?.status,
+    ).toBe('not_evaluated')
   })
 })
 
@@ -148,6 +175,7 @@ describe('runCanaries — distribution_shift', () => {
     const runs = Array.from({ length: 100 }, (_, i) => rec(i, { confidence: 0.8 }, 'A'))
     const r = runCanaries(runs)
     expect(r.counts.distribution_shift).toBe(0)
+    expect(r.evaluations.some((evaluation) => evaluation.kind === 'distribution_shift')).toBe(false)
   })
 
   it('does not fire on similar mixes', () => {

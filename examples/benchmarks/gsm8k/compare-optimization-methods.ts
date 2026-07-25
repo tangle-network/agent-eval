@@ -183,7 +183,13 @@ function makeWorker() {
     })
     if (!paid.succeeded) throw paid.error
     const res = paid.value
-    const costUsd = paid.receipt.costUsd
+    const costUsd = paid.receipt.costUnknown ? null : paid.receipt.costUsd
+    const costProvenance =
+      costUsd === null
+        ? ({ kind: 'uncaptured', usd: null } as const)
+        : paid.receipt.actualCostUsd !== undefined
+          ? ({ kind: 'observed', usd: costUsd } as const)
+          : ({ kind: 'estimated', usd: costUsd } as const)
     records.push({
       runId: `${scenario.id}-${createHash('sha1').update(surface).digest('hex').slice(0, 8)}-${records.length}`,
       experimentId: 'gsm8k-proposer-comparison',
@@ -195,7 +201,9 @@ function makeWorker() {
       commitSha: process.env.GIT_SHA ?? 'local',
       wallMs: res.durationMs,
       costUsd,
+      costProvenance,
       tokenUsage: { input: res.usage.promptTokens, output: res.usage.completionTokens },
+      terminalOutcome: 'succeeded',
       outcome: { raw: {} },
       splitTag: (scenario.tags?.[0] as RunRecord['splitTag']) ?? 'search',
       scenarioId: scenario.id,

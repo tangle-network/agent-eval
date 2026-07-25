@@ -88,7 +88,6 @@ export {
   isRolloutLine,
   isTrainableSplit,
   ROLLOUT_CAPTURES,
-  ROLLOUT_FORMAT,
   ROLLOUT_ROLES,
   ROLLOUT_SCHEMA,
   ROLLOUT_SPLITS,

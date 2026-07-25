@@ -306,6 +306,30 @@ describe('runProfileMatrix', () => {
     expect(result.records.every((r) => r.tokenUsage.input === 0)).toBe(true)
   })
 
+  it('keeps an execution failure unlabeled in records and profile summaries', async () => {
+    const result = await runProfileMatrix({
+      ...baseOpts(),
+      profiles: [PROFILES[0]!],
+      scenarios: [SCENARIOS[0]!],
+      reps: 1,
+      dispatch: async () => {
+        throw new Error('worker crashed')
+      },
+      integrity: 'off',
+    })
+
+    expect(result.records).toHaveLength(1)
+    expect(result.records[0]).toMatchObject({
+      terminalOutcome: 'failed',
+      terminalFailureReason: 'worker crashed',
+      outcome: { raw: { execution_error_count: 1 } },
+    })
+    expect(result.records[0]!.failureMode).toBeUndefined()
+    expect(result.records[0]!.outcome.searchScore).toBeUndefined()
+    expect(result.byProfile[BASELINE_PROFILE_ID]!.meanComposite).toBeNull()
+    expect(result.byScenario).toEqual({})
+  })
+
   it('byProfile separates the tuned profile from baseline; byScenario + byPersona pivot', async () => {
     const result = await runProfileMatrix({
       ...baseOpts(),

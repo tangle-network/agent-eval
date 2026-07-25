@@ -42,11 +42,13 @@ import type {
   OptimizationMethodProvenance,
 } from './presets/compare-optimization-methods'
 import type { RunImprovementLoopResult } from './presets/run-improvement-loop'
-import { campaignMeanComposite } from './score-utils'
+import { campaignCellExecutionEvidence, projectCampaignCellQuality } from './run-record'
+import { campaignMeanComposite, campaignMeanCompositeOrNull } from './score-utils'
 import type { CampaignStorage } from './storage'
 import { renderSurfaceDiff, surfaceContentHash, surfaceHash } from './surface-identity'
 import type {
   CampaignResult,
+  GateContribution,
   GateDecision,
   GateResult,
   GenerationCandidate,
@@ -78,8 +80,8 @@ export interface LoopProvenanceCandidate {
   eligibleForPromotion: boolean
   /** Designed-denominator receipt retained even for incomplete candidates. */
   coverage: NonNullable<GenerationCandidate['coverage']>
-  /** Mean composite this candidate scored on the search split. */
-  composite: number
+  /** Mean composite this candidate scored on the search split, or null when unscorable. */
+  composite: number | null
   /** Whether this candidate was promoted out of its generation. */
   promoted: boolean
 }
@@ -155,7 +157,7 @@ export interface LoopProvenanceRecord {
     decision: GateDecision
     reasons: string[]
     delta?: number
-    contributingGates: Array<{ name: string; passed: boolean; detail: unknown }>
+    contributingGates: GateContribution[]
   }
   /** Present iff the loop ran with `holdout: 'deferred'` — the held-out
    *  comparison was intentionally not measured in this run, so the holdout
@@ -268,13 +270,7 @@ export function loopProvenanceArgsFromResult<TArtifact, TScenario extends Scenar
 function meanHoldoutComposite<TArtifact, TScenario extends Scenario>(
   campaign: CampaignResult<TArtifact, TScenario>,
 ): number {
-  const xs: number[] = []
-  for (const cell of campaign.cells) {
-    if (cell.error) continue
-    const cs = Object.values(cell.judgeScores).map((s) => s.composite)
-    if (cs.length) xs.push(cs.reduce((a, b) => a + b, 0) / cs.length)
-  }
-  return xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : 0
+  return campaignMeanComposite(campaign)
 }
 
 /** Build the durable provenance record from a completed loop result. */
@@ -288,6 +284,7 @@ export function buildLoopProvenanceRecord<TArtifact, TScenario extends Scenario>
   if (!Number.isFinite(timestampMs) || new Date(timestampMs).toISOString() !== args.timestamp) {
     throw new Error('buildLoopProvenanceRecord: timestamp must be a canonical ISO instant')
   }
+  assertGateContributions(args.gate.contributingGates, 'buildLoopProvenanceRecord')
   const agentReceipts = args.costReceipts.filter((receipt) => receipt.channel === 'agent')
   const integrity = summarizeAgentReceiptIntegrity(agentReceipts)
   const models = [...new Set(agentReceipts.map((receipt) => receipt.model))].sort()
@@ -368,11 +365,11 @@ export function buildLoopProvenanceRecord<TArtifact, TScenario extends Scenario>
         campaignDigest: campaignMeasurementDigest(campaign),
         parentSurfaceHash: c.parentSurfaceHash!,
         parentComposite: c.parentComposite!,
-        eligibleForPromotion: c.eligibleForPromotion!,
+        eligibleForPromotion: c.eligibleForPromotion,
         coverage: {
-          expectedCells: c.coverage!.expectedCells,
-          scorableCells: c.coverage!.scorableCells,
-          unscorableCells: c.coverage!.unscorableCells.map((cell) => ({ ...cell })),
+          expectedCells: c.coverage.expectedCells,
+          scorableCells: c.coverage.scorableCells,
+          unscorableCells: c.coverage.unscorableCells.map((cell) => ({ ...cell })),
         },
         composite: c.composite,
         promoted: promotedSet.has(c.surfaceHash),
@@ -388,6 +385,9 @@ export function buildLoopProvenanceRecord<TArtifact, TScenario extends Scenario>
     if (promotedHash) {
       const promoted = candidateByHash.get(promotedHash)!
       incumbentSurfaceHash = promoted.surfaceHash
+      if (promoted.composite === null) {
+        throw new Error('buildLoopProvenanceRecord: promoted candidate is missing a composite')
+      }
       incumbentComposite = promoted.composite
     }
   }
@@ -398,8 +398,6 @@ export function buildLoopProvenanceRecord<TArtifact, TScenario extends Scenario>
   }
 
   const holdoutDeferred = args.holdout === 'deferred'
-  const baselineHoldoutComposite = meanHoldoutComposite(args.baselineOnHoldout)
-  const winnerHoldoutComposite = meanHoldoutComposite(args.winnerOnHoldout)
   if (args.baselineOnHoldout.splitDigest !== args.winnerOnHoldout.splitDigest) {
     throw new Error('buildLoopProvenanceRecord: baseline and winner use different holdout splits')
   }
@@ -416,9 +414,21 @@ export function buildLoopProvenanceRecord<TArtifact, TScenario extends Scenario>
       'buildLoopProvenanceRecord: neutralized campaign uses a different holdout split',
     )
   }
-  const neutralizedComposite = args.neutralizedOnHoldout
-    ? meanHoldoutComposite(args.neutralizedOnHoldout)
-    : undefined
+  if (holdoutDeferred && args.neutralizedOnHoldout) {
+    throw new Error(
+      'buildLoopProvenanceRecord: a deferred holdout cannot include a neutralized measurement',
+    )
+  }
+  const holdoutMeasurement = holdoutDeferred
+    ? { kind: 'deferred' as const }
+    : {
+        kind: 'measured' as const,
+        baseline: meanHoldoutComposite(args.baselineOnHoldout),
+        winner: meanHoldoutComposite(args.winnerOnHoldout),
+        ...(args.neutralizedOnHoldout
+          ? { neutralized: meanHoldoutComposite(args.neutralizedOnHoldout) }
+          : {}),
+      }
 
   const diff =
     surfaceContentHash(args.baselineSurface) === surfaceContentHash(args.winnerSurface)
@@ -445,13 +455,14 @@ export function buildLoopProvenanceRecord<TArtifact, TScenario extends Scenario>
         winnerCampaignDigest: campaignMeasurementDigest(args.winnerOnHoldout),
         ...(args.neutralizedSurface &&
         args.neutralizedOnHoldout &&
-        neutralizedComposite !== undefined
+        holdoutMeasurement.kind === 'measured' &&
+        holdoutMeasurement.neutralized !== undefined
           ? {
               neutralized: {
                 contentHash: surfaceContentHash(args.neutralizedSurface),
                 campaignDigest: campaignMeasurementDigest(args.neutralizedOnHoldout),
-                composite: neutralizedComposite,
-                lift: neutralizedComposite - baselineHoldoutComposite,
+                composite: holdoutMeasurement.neutralized,
+                lift: holdoutMeasurement.neutralized - holdoutMeasurement.baseline,
               },
             }
           : {}),
@@ -467,18 +478,18 @@ export function buildLoopProvenanceRecord<TArtifact, TScenario extends Scenario>
       delta: args.gate.delta,
       contributingGates: args.gate.contributingGates.map((g) => ({
         name: g.name,
-        passed: g.passed,
+        status: g.status,
         detail: durableGateDetail(g.detail),
       })),
     },
     // Deferred holdout records the MODE, never a fabricated 0-lift: the
     // held-out comparison intentionally did not run in this loop.
-    ...(holdoutDeferred
+    ...(holdoutMeasurement.kind === 'deferred'
       ? { holdout: 'deferred' as const }
       : {
-          baselineHoldoutComposite,
-          winnerHoldoutComposite,
-          heldOutLift: winnerHoldoutComposite - baselineHoldoutComposite,
+          baselineHoldoutComposite: holdoutMeasurement.baseline,
+          winnerHoldoutComposite: holdoutMeasurement.winner,
+          heldOutLift: holdoutMeasurement.winner - holdoutMeasurement.baseline,
         }),
     backend: {
       verdict: integrity.verdict,
@@ -570,6 +581,8 @@ export function campaignMeasurementDigest<TArtifact, TScenario extends Scenario>
         durationMs: cell.durationMs,
         seed: cell.seed,
         cached: cell.cached,
+        errorStage: cell.errorStage ?? null,
+        errorJudge: cell.errorJudge ?? null,
         error: cell.error ?? null,
       })),
   })
@@ -584,6 +597,7 @@ export function verifyLoopProvenanceRecord(record: LoopProvenanceRecord): LoopPr
   if (recordDigest !== canonicalDigest(recordWithoutDigest)) {
     throw new Error('loop provenance record digest does not match its contents')
   }
+  assertGateContributions(record.gate?.contributingGates, 'loop provenance')
   return record
 }
 
@@ -618,15 +632,41 @@ function durableGateDetail(detail: unknown): unknown {
   }
 }
 
+function assertGateContributions(
+  value: unknown,
+  source: string,
+): asserts value is GateContribution[] {
+  if (!Array.isArray(value)) {
+    throw new Error(`${source}: gate contributingGates must be an array`)
+  }
+  const statuses = new Set(['pass', 'fail', 'not_evaluated'])
+  for (const [index, contribution] of value.entries()) {
+    if (!contribution || typeof contribution !== 'object') {
+      throw new Error(`${source}: gate contribution ${index} must be an object`)
+    }
+    const item = contribution as Record<string, unknown>
+    if (typeof item.name !== 'string' || item.name.length === 0) {
+      throw new Error(`${source}: gate contribution ${index} must have a non-empty name`)
+    }
+    if (!statuses.has(String(item.status))) {
+      throw new Error(
+        `${source}: gate contribution '${item.name}' must have status pass, fail, or not_evaluated`,
+      )
+    }
+    if ('passed' in item) {
+      throw new Error(
+        `${source}: gate contribution '${item.name}' uses obsolete passed; use status instead`,
+      )
+    }
+  }
+}
+
 function validateCandidateMeasurement(
   candidate: GenerationCandidate,
   expectedParentHash: string,
   expectedParentComposite: number,
   promoted: boolean,
 ): void {
-  if (!Number.isFinite(candidate.composite)) {
-    throw new Error('buildLoopProvenanceRecord: candidate composite must be finite')
-  }
   if (!candidate.parentSurfaceHash || !/^[a-f0-9]{16}$/.test(candidate.parentSurfaceHash)) {
     throw new Error(
       'buildLoopProvenanceRecord: parentSurfaceHash must be 16 lowercase hex characters',
@@ -642,11 +682,6 @@ function validateCandidateMeasurement(
   ) {
     throw new Error(
       'buildLoopProvenanceRecord: candidate parentComposite does not match the incumbent',
-    )
-  }
-  if (candidate.eligibleForPromotion === undefined || !candidate.coverage) {
-    throw new Error(
-      'buildLoopProvenanceRecord: candidate measurement requires eligibility and coverage',
     )
   }
   if (candidate.observedDeltaFromParent !== undefined) {
@@ -689,12 +724,15 @@ function validateCandidateMeasurement(
   }
   const complete =
     coverage.scorableCells === coverage.expectedCells && coverage.unscorableCells.length === 0
-  if (candidate.eligibleForPromotion !== undefined && candidate.eligibleForPromotion !== complete) {
+  if (candidate.eligibleForPromotion !== complete) {
     throw new Error(
       'buildLoopProvenanceRecord: candidate eligibility contradicts its coverage receipt',
     )
   }
   if (complete) {
+    if (candidate.composite === null || !Number.isFinite(candidate.composite)) {
+      throw new Error('buildLoopProvenanceRecord: complete candidate composite must be finite')
+    }
     if (candidate.observedDeltaFromParent === undefined) {
       throw new Error(
         'buildLoopProvenanceRecord: complete candidate is missing observedDeltaFromParent',
@@ -704,8 +742,13 @@ function validateCandidateMeasurement(
     if (Math.abs(candidate.observedDeltaFromParent - recomputed) > 1e-12) {
       throw new Error('buildLoopProvenanceRecord: observed delta does not match measured scores')
     }
-  } else if (candidate.observedDeltaFromParent !== undefined) {
-    throw new Error('buildLoopProvenanceRecord: incomplete candidate cannot carry observed delta')
+  } else {
+    if (candidate.composite !== null && !Number.isFinite(candidate.composite)) {
+      throw new Error('buildLoopProvenanceRecord: candidate composite must be finite or null')
+    }
+    if (candidate.observedDeltaFromParent !== undefined) {
+      throw new Error('buildLoopProvenanceRecord: incomplete candidate cannot carry observed delta')
+    }
   }
   if (promoted && (!complete || (candidate.observedDeltaFromParent ?? 0) <= 0)) {
     throw new Error('buildLoopProvenanceRecord: promoted candidate must improve the incumbent')
@@ -714,16 +757,8 @@ function validateCandidateMeasurement(
 
 // ── OTel span emission ──────────────────────────────────────────────────
 
-const DECISION_OK: GateDecision[] = ['ship']
-
 function hashId(parts: string[]): string {
   return createHash('sha256').update(parts.join(':')).digest('hex')
-}
-
-function gateStatus(decision: GateDecision): { code: 'OK' | 'ERROR' | 'UNSET'; message?: string } {
-  return DECISION_OK.includes(decision)
-    ? { code: 'OK' }
-    : { code: 'ERROR', message: `gate decision: ${decision}` }
 }
 
 /**
@@ -742,8 +777,17 @@ export function loopProvenanceSpans(
   opts: { baseTimeMs?: number } = {},
 ): TraceSpanEvent[] {
   const traceId = hashId(['trace', record.runId]).slice(0, 32)
-  const baseNano = (opts.baseTimeMs ?? (Date.parse(record.timestamp) || Date.now())) * 1_000_000
-  const endNano = baseNano + Math.max(1, record.totalDurationMs) * 1_000_000
+  const baseTimeMs = opts.baseTimeMs ?? (Date.parse(record.timestamp) || Date.now())
+  const durationMs = Math.max(1, record.totalDurationMs)
+  if (!Number.isSafeInteger(baseTimeMs) || baseTimeMs < 0) {
+    throw new RangeError('loop provenance baseTimeMs must be a non-negative safe integer')
+  }
+  if (!Number.isSafeInteger(durationMs)) {
+    throw new RangeError('loop provenance duration must be a safe integer number of milliseconds')
+  }
+  const baseTime = BigInt(baseTimeMs)
+  const baseNano = (baseTime * 1_000_000n).toString()
+  const endNano = ((baseTime + BigInt(durationMs)) * 1_000_000n).toString()
   const spans: TraceSpanEvent[] = []
 
   const rootSpanId = hashId(['root', record.runId]).slice(0, 16)
@@ -767,7 +811,7 @@ export function loopProvenanceSpans(
     startTimeUnixNano: baseNano,
     endTimeUnixNano: endNano,
     attributes: rootAttributes,
-    status: gateStatus(record.gate.decision),
+    status: { code: 'OK' },
     'tangle.runId': record.runId,
   })
 
@@ -780,7 +824,9 @@ export function loopProvenanceSpans(
   }
   for (const [generation, cands] of [...byGen.entries()].sort((a, b) => a[0] - b[0])) {
     const genSpanId = hashId(['gen', record.runId, String(generation)]).slice(0, 16)
-    const bestComposite = Math.max(...cands.map((candidate) => candidate.composite))
+    const measuredComposites = cands.flatMap((candidate) =>
+      candidate.composite === null ? [] : [candidate.composite],
+    )
     spans.push({
       traceId,
       spanId: genSpanId,
@@ -792,7 +838,9 @@ export function loopProvenanceSpans(
         'tangle.runId': record.runId,
         'tangle.generation': generation,
         'tangle.populationSize': cands.length,
-        'tangle.bestComposite': bestComposite,
+        ...(measuredComposites.length > 0
+          ? { 'tangle.bestComposite': Math.max(...measuredComposites) }
+          : {}),
       },
       'tangle.runId': record.runId,
       'tangle.generation': generation,
@@ -810,13 +858,13 @@ export function loopProvenanceSpans(
         'tangle.contentHash': c.contentHash,
         'tangle.parentSurfaceHash': c.parentSurfaceHash,
         'tangle.parentComposite': c.parentComposite,
-        'tangle.composite': c.composite,
         'tangle.eligibleForPromotion': c.eligibleForPromotion,
         'tangle.expectedCells': c.coverage.expectedCells,
         'tangle.scorableCells': c.coverage.scorableCells,
         'tangle.unscorableCells': c.coverage.unscorableCells.length,
         'tangle.promoted': c.promoted,
       }
+      if (c.composite !== null) attributes['tangle.composite'] = c.composite
       if (c.observedDeltaFromParent !== undefined) {
         attributes['tangle.observedDeltaFromParent'] = c.observedDeltaFromParent
       }
@@ -862,7 +910,7 @@ export function loopProvenanceSpans(
     startTimeUnixNano: endNano,
     endTimeUnixNano: endNano,
     attributes: gateAttributes,
-    status: gateStatus(record.gate.decision),
+    status: { code: 'OK' },
     'tangle.runId': record.runId,
   })
 
@@ -909,30 +957,25 @@ function snapshotFromHoldout<TArtifact, TScenario extends Scenario>(
   campaign: CampaignResult<TArtifact, TScenario>,
 ): EvalRunGenerationSnapshot {
   const cells: EvalRunCellScore[] = campaign.cells.map((cell) => {
-    const judgeScores = Object.values(cell.judgeScores)
-    const composite =
-      judgeScores.length === 0
-        ? 0
-        : judgeScores.reduce((s, j) => s + j.composite, 0) / judgeScores.length
+    const execution = campaignCellExecutionEvidence(cell)
+    const quality = projectCampaignCellQuality(cell)
     const score: EvalRunCellScore = {
       scenarioId: cell.scenarioId,
       rep: cell.rep,
-      compositeMean: composite,
-      dimensions: Object.fromEntries(
-        Object.entries(cell.judgeScores).map(([name, s]) => [name, s.dimensions]),
-      ),
+      compositeMean: quality.score ?? null,
+      dimensions: quality.judgeScores?.perJudge ?? {},
+      terminalOutcome: execution.terminalOutcome,
+      executionErrorCount: execution.executionErrorCount ?? null,
     }
     if (cell.error) score.errorMessage = cell.error
     return score
   })
-  const compositeMean =
-    cells.length === 0 ? 0 : cells.reduce((s, c) => s + c.compositeMean, 0) / cells.length
   return {
     index,
     surfaceHash,
     surface,
     cells,
-    compositeMean,
+    compositeMean: campaignMeanCompositeOrNull(campaign),
     costUsd: campaign.aggregates.totalCostUsd,
     durationMs: campaign.durationMs,
   }

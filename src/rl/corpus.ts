@@ -17,7 +17,7 @@
 
 import { appendFileSync, existsSync, mkdirSync, readFileSync } from 'node:fs'
 import { dirname } from 'node:path'
-import type { RunRecord } from '../run-record'
+import { type RunRecord, runTaskScore } from '../run-record'
 import { buildRlDataset, type RlDatasetBundle, type RlDatasetConfig } from './dataset'
 
 /** A corpus record is a RunRecord carrying the trajectory text the harness
@@ -68,16 +68,17 @@ export function readCorpus(corpusPath: string): CorpusRecord[] {
   return out
 }
 
-function rewardOf(r: CorpusRecord): number {
-  const v = r.outcome.holdoutScore ?? r.outcome.searchScore
-  return typeof v === 'number' && Number.isFinite(v) ? v : 0
+function rewardOf(r: CorpusRecord): number | null {
+  return runTaskScore(r) ?? null
 }
 
 export interface HarvestOptions {
   /** Keep only records scoring >= this (rejection-sampling for SFT). */
   minScore?: number
-  /** Keep only these splits (e.g. ['holdout'] for an eval-only dataset). */
+  /** Keep only these source splits. Held-out rows still require the explicit override below. */
   splits?: RunRecord['splitTag'][]
+  /** Permit held-out rows in training files. Default false. */
+  allowHeldOutTrainingData?: boolean
 }
 
 /**
@@ -96,7 +97,13 @@ export async function buildDatasetFromCorpus(
     (r) => typeof r.prompt === 'string' && typeof r.completion === 'string',
   )
   if (opts.splits) records = records.filter((r) => opts.splits!.includes(r.splitTag))
-  if (opts.minScore != null) records = records.filter((r) => rewardOf(r) >= opts.minScore!)
+  records = records.filter((r) => rewardOf(r) !== null)
+  if (opts.minScore != null) {
+    records = records.filter((r) => {
+      const reward = rewardOf(r)
+      return reward !== null && reward >= opts.minScore!
+    })
+  }
 
   const text = new Map(
     records.map((r) => [r.runId, { prompt: r.prompt!, completion: r.completion! }]),
@@ -104,6 +111,7 @@ export async function buildDatasetFromCorpus(
   const lookups = {
     promptOf: (id: string) => text.get(id)?.prompt ?? '',
     completionOf: (id: string) => text.get(id)?.completion ?? '',
+    allowHeldOutTrainingData: opts.allowHeldOutTrainingData,
   }
   return buildRlDataset(records, lookups, config)
 }
