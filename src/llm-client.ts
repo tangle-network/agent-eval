@@ -4,6 +4,7 @@
  * OpenAI-compatible `/v1/chat/completions` client with:
  *   - Exponential-backoff retry on 429 + 5xx gateway errors (502/503/504).
  *   - Retry on transient network errors (fetch failed, AbortError, ECONNRESET).
+ *   - One retry at temperature 1 when a model explicitly requires it.
  *   - Graceful json_schema → json_object degrade on 400 with schema-reject body.
  *   - Fenced-JSON stripping (```json ... ```) for models that wrap structured output.
  *   - Configurable base URL + api key / bearer, works with LiteLLM proxies, OpenAI
@@ -407,6 +408,15 @@ function isSchemaRejection(status: number, body: string): boolean {
   )
 }
 
+function isTemperatureOneRejection(status: number, body: string): boolean {
+  if (status !== 400 || !/temperature/i.test(body)) return false
+  return (
+    /temperature[^.\n]{0,120}\b(?:only|must|should|required|requires?)\b[^.\n]{0,40}\b1(?:\.0+)?\b/i.test(
+      body,
+    ) || /\bonly\s+1(?:\.0+)?\s+is\s+allowed\b[^.\n]{0,120}\btemperature\b/i.test(body)
+  )
+}
+
 function buildBody(
   req: LlmCallRequest,
   forceJsonObject: boolean,
@@ -578,6 +588,7 @@ export async function callLlm(
   }
 
   let lastErr: unknown
+  let effectiveRequest = req
   for (let attempt = 0; attempt < maximumAttempts; attempt++) {
     // A caller cancel is fatal — never retried. Checking before each attempt
     // means an already-aborted signal short-circuits without firing fetch.
@@ -593,7 +604,11 @@ export async function callLlm(
     const attemptSignal = linkSignals(controller, callerSignal)
     const timeoutHandle = setTimeout(() => controller.abort(), timeoutMs)
     const started = Date.now()
-    const requestBody = buildBody(req, opts.jsonSchemaTransport === 'json-object', opts.thinking)
+    const requestBody = buildBody(
+      effectiveRequest,
+      opts.jsonSchemaTransport === 'json-object',
+      opts.thinking,
+    )
     let attemptErrorRecorded = false
     if (sink) {
       await recordRaw(sink, redactor, {
@@ -652,6 +667,16 @@ export async function callLlm(
           body,
           req.model,
         )
+        if (
+          isTemperatureOneRejection(res.status, body) &&
+          effectiveRequest.temperature !== 1 &&
+          attempt < maximumAttempts - 1 &&
+          !deadlineExceeded(deadlineStart, deadlineMs)
+        ) {
+          lastErr = err
+          effectiveRequest = { ...effectiveRequest, temperature: 1 }
+          continue
+        }
         if (
           RETRYABLE_STATUS.has(res.status) &&
           attempt < maximumAttempts - 1 &&
