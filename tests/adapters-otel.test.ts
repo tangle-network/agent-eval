@@ -258,6 +258,84 @@ describe('fromOtelSpans task-quality extraction', () => {
     expect(run?.terminalOutcome).toBe('succeeded')
   })
 
+  it.each(['search', 'dev'] as const)(
+    'writes a %s trace score only to searchScore',
+    (defaultSplit) => {
+      const root = makeTraceSpan({
+        spanId: 'root',
+        name: 'agent.run',
+        attributes: {
+          'openinference.span.kind': 'AGENT',
+          'tangle.task.score': 0.73,
+        },
+        status: { code: 'OK' },
+      })
+
+      const [run] = fromOtelSpans({ spans: [root], defaultSplit })
+
+      expect(run?.splitTag).toBe(defaultSplit)
+      expect(run?.outcome.searchScore).toBe(0.73)
+      expect(run?.outcome.holdoutScore).toBeUndefined()
+    },
+  )
+
+  it('does not accept a task-quality label from an errored evaluator', () => {
+    const root = makeTraceSpan({
+      spanId: 'root',
+      name: 'agent.run',
+      attributes: { 'openinference.span.kind': 'AGENT' },
+      status: { code: 'OK' },
+    })
+    const evaluator = makeTraceSpan({
+      spanId: 'evaluator',
+      parentSpanId: 'root',
+      name: 'evaluate.correctness',
+      attributes: {
+        'openinference.span.kind': 'EVALUATOR',
+        'gen_ai.evaluation.score.value': 0.99,
+      },
+      status: { code: 'ERROR', message: 'judge timed out' },
+    })
+
+    const [run] = fromOtelSpans({ spans: [root, evaluator] })
+
+    expect(run?.outcome.searchScore).toBeUndefined()
+    expect(run?.outcome.holdoutScore).toBeUndefined()
+    expect(run?.outcome.judgeScores).toBeUndefined()
+    expect(run?.outcome.raw).toMatchObject({
+      judge_error_count: 1,
+      execution_error_count: 0,
+      process_error_count: 0,
+    })
+    expect(run?.terminalOutcome).toBe('succeeded')
+  })
+
+  it('classifies an errored model-metadata child as one execution error', () => {
+    const root = makeTraceSpan({
+      spanId: 'root',
+      name: 'agent.run',
+      attributes: { 'openinference.span.kind': 'AGENT' },
+      status: { code: 'OK' },
+    })
+    const modelCall = makeTraceSpan({
+      spanId: 'model-call',
+      parentSpanId: 'root',
+      name: 'provider.request',
+      attributes: { 'gen_ai.request.model': 'gpt-5@2026-06-05' },
+      status: { code: 'ERROR', message: 'provider unavailable' },
+    })
+
+    const [run] = fromOtelSpans({ spans: [root, modelCall] })
+
+    expect(run?.outcome.raw).toMatchObject({
+      llm_span_count: 1,
+      execution_error_count: 1,
+      process_error_count: 0,
+      unclassified_error_count: 0,
+    })
+    expect(run?.terminalOutcome).toBe('succeeded')
+  })
+
   it('accepts an explicit caller score callback', () => {
     const root = makeTraceSpan({
       spanId: 'root',

@@ -640,6 +640,20 @@ describe('fromFeedbackTable → analyzeRuns: multi-rater approve/reject corpus',
     })
     expect(runs[0]!.outcome.holdoutScore).toBeCloseTo(0.875, 3)
   })
+
+  it.each(['search', 'dev'] as const)(
+    'writes a %s feedback score only to searchScore',
+    (splitTag) => {
+      const { runs } = fromFeedbackTable({
+        ratings: [{ runId: `${splitTag}-feedback`, rater: 'alice', rating: 0.7 }],
+        meta: [{ runId: `${splitTag}-feedback`, splitTag }],
+      })
+
+      expect(runs[0]!.splitTag).toBe(splitTag)
+      expect(runs[0]!.outcome.searchScore).toBe(0.7)
+      expect(runs[0]!.outcome.holdoutScore).toBeUndefined()
+    },
+  )
 })
 
 // ── fromOtelSpans: Customer B journey ──────────────────────────────
@@ -664,11 +678,23 @@ describe('fromOtelSpans → analyzeRuns: OTel observability corpus', () => {
         name: 'agent.turn',
         'tangle.runId': 'run-A',
         attributes: {
+          'openinference.span.kind': 'AGENT',
+          'tangle.score': 0.78,
+        },
+        status: { code: 'OK' },
+      }),
+      span({
+        traceId: 't1',
+        spanId: 's1-llm',
+        parentSpanId: 's1',
+        name: 'chat.completions',
+        'tangle.runId': 'run-A',
+        attributes: {
+          'openinference.span.kind': 'LLM',
           'tangle.model': 'gpt-4o@2025-04-15',
           'tangle.cost.usd': 0.42,
           'gen_ai.usage.input_tokens': 1200,
           'gen_ai.usage.output_tokens': 350,
-          'tangle.score': 0.78,
         },
         status: { code: 'OK' },
       }),
@@ -686,11 +712,23 @@ describe('fromOtelSpans → analyzeRuns: OTel observability corpus', () => {
         name: 'agent.turn',
         'tangle.runId': 'run-B',
         attributes: {
-          'tangle.model': 'gpt-4o@2025-04-15',
-          'tangle.cost.usd': 0.31,
+          'openinference.span.kind': 'AGENT',
           'tangle.score': 0.42,
         },
         status: { code: 'ERROR', message: 'worker exhausted retries' },
+      }),
+      span({
+        traceId: 't2',
+        spanId: 's2-llm',
+        parentSpanId: 's2',
+        name: 'chat.completions',
+        'tangle.runId': 'run-B',
+        attributes: {
+          'openinference.span.kind': 'LLM',
+          'tangle.model': 'gpt-4o@2025-04-15',
+          'tangle.cost.usd': 0.31,
+        },
+        status: { code: 'OK' },
       }),
     ]
     const runs = fromOtelSpans({ spans })

@@ -841,6 +841,25 @@ describe('code-agent session intake', () => {
     expect(diagnostics[0]!.hasQualityLabel).toBe(true)
   })
 
+  it.each(['search', 'dev'] as const)(
+    'writes a %s session score only to searchScore',
+    (splitTag) => {
+      const { runs } = fromCodexSession({
+        entries: [
+          { type: 'session_meta', payload: { id: `${splitTag}-session`, model_provider: 'codex' } },
+          { type: 'event_msg', payload: { type: 'task_complete', duration_ms: 1000 } },
+        ],
+        score: 0.81,
+        splitTag,
+        model: 'gpt-5@2026-06-05',
+      })
+
+      expect(runs[0]!.splitTag).toBe(splitTag)
+      expect(runs[0]!.outcome.searchScore).toBe(0.81)
+      expect(runs[0]!.outcome.holdoutScore).toBeUndefined()
+    },
+  )
+
   it.each([Number.NaN, Number.POSITIVE_INFINITY])(
     'omits a non-finite external quality score (%s)',
     (score) => {

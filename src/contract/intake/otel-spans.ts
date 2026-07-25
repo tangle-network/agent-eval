@@ -41,9 +41,10 @@ import {
   summarizeExecutionMeasurements,
 } from '../../trace/execution-measurements'
 import {
+  classifyOtlpSpanRole,
+  isOtlpModelCall,
   LLM_MODEL_ATTR_KEYS,
   SPAN_KIND_ATTR_KEYS,
-  TOOL_NAME_ATTR_KEYS,
 } from '../../trace/otlp-attributes'
 
 const TASK_SCORE_ATTR_KEYS = [
@@ -148,8 +149,8 @@ export function fromOtelSpans(opts: FromOtelSpansOptions): RunRecord[] {
       ...(judgeScores ? { judgeScores } : {}),
     }
     if (score !== undefined) {
-      if (defaultSplit === 'search') outcome.searchScore = score
-      else outcome.holdoutScore = score
+      if (defaultSplit === 'holdout') outcome.holdoutScore = score
+      else outcome.searchScore = score
     }
 
     runs.push({
@@ -201,27 +202,11 @@ function readSpanKind(span: TraceSpanEvent): string | undefined {
 }
 
 function errorRoleForSpan(span: TraceSpanEvent): TraceErrorRole {
-  const kind = readSpanKind(span)
-  if (
-    kind === 'AGENT' ||
-    kind === 'CHAIN' ||
-    kind === 'EVALUATOR' ||
-    kind === 'GUARDRAIL' ||
-    kind === 'LLM' ||
-    kind === 'SPAN' ||
-    kind === 'TOOL'
-  ) {
-    return kind
-  }
-  if (readAttrString([span], [...TOOL_NAME_ATTR_KEYS]) !== undefined) return 'TOOL'
-  if (/^(?:function|tool)[.:/]/i.test(span.name)) return 'TOOL'
-  if (
-    typeof span.attributes['gen_ai.operation.name'] === 'string' ||
-    /(?:^|[.:/])(?:chat[._-]?completions?|llm)(?:$|[.:/])/i.test(span.name)
-  ) {
-    return 'LLM'
-  }
-  return 'UNKNOWN'
+  return classifyOtlpSpanRole({
+    kind: readSpanKind(span),
+    name: span.name,
+    attributes: span.attributes,
+  })
 }
 
 function spanIdentity(span: TraceSpanEvent): string {
@@ -233,15 +218,11 @@ function parentIdentity(span: TraceSpanEvent): string {
 }
 
 function isExplicitModelCall(span: TraceSpanEvent): boolean {
-  const kind = readSpanKind(span)
-  if (kind !== undefined) return kind === 'LLM'
-  const spanType = span.attributes['span.type']
-  return (
-    (typeof spanType === 'string' && spanType.toLowerCase() === 'llm_request') ||
-    span.name.toLowerCase().includes('llm') ||
-    readAttrString([span], MODEL_KEYS) !== undefined ||
-    typeof span.attributes['gen_ai.operation.name'] === 'string'
-  )
+  return isOtlpModelCall({
+    kind: readSpanKind(span),
+    name: span.name,
+    attributes: span.attributes,
+  })
 }
 
 function isExplicitAggregate(span: TraceSpanEvent): boolean {
@@ -325,7 +306,9 @@ function resolveTaskScore(
   }
 
   for (const span of orderedSpans) {
-    if (span.parentSpanId && readSpanKind(span) !== 'EVALUATOR') continue
+    const role = errorRoleForSpan(span)
+    if (span.parentSpanId && role !== 'EVALUATOR') continue
+    if (role === 'EVALUATOR' && span.status?.code === 'ERROR') continue
     for (const key of TASK_SCORE_ATTR_KEYS) {
       if (!Object.hasOwn(span.attributes, key)) continue
       sources.push({

@@ -680,6 +680,41 @@ describe('otlpToRunRecords', () => {
     expect(error.terminalOutcome).toBe('succeeded')
   })
 
+  it('classifies an errored model-metadata child as one execution error', () => {
+    const trace = [
+      spanLine({
+        trace_id: 'model-error',
+        span_id: 'root',
+        parent_span_id: '',
+        name: 'agent.run',
+        start_time: '2026-04-23T05:32:00.000Z',
+        end_time: '2026-04-23T05:32:03.000Z',
+        status: { code: 'STATUS_CODE_OK' },
+        attributes: { 'openinference.span.kind': 'AGENT' },
+      }),
+      spanLine({
+        trace_id: 'model-error',
+        span_id: 'model-call',
+        parent_span_id: 'root',
+        name: 'provider.request',
+        start_time: '2026-04-23T05:32:01.000Z',
+        end_time: '2026-04-23T05:32:02.000Z',
+        status: { code: 'STATUS_CODE_ERROR', message: 'provider unavailable' },
+        attributes: { 'gen_ai.request.model': 'gpt-5@2026-06-05' },
+      }),
+    ].join('\n')
+
+    const run = otlpToRunRecords(trace, baseOpts)[0]!
+
+    expect(run.outcome.raw).toMatchObject({
+      llm_span_count: 1,
+      execution_error_count: 1,
+      process_error_count: 0,
+      unclassified_error_count: 0,
+    })
+    expect(run.terminalOutcome).toBe('succeeded')
+  })
+
   it('ignores a parentless tool error when one run root has terminal evidence', () => {
     const agent = spanLine({
       trace_id: 'tool-root',
@@ -784,18 +819,21 @@ describe('otlpToRunRecords', () => {
     expect(clean.model).toBe('gpt-4o-mini-2024-07-18')
   })
 
-  it('honors an explicit per-trace score (AppWorld world.evaluate → TGC/SGC)', () => {
-    const records = otlpToRunRecords(FIXTURE, {
-      ...baseOpts,
-      splitTag: 'search',
-      scoreForTrace: (traceId) => (traceId === TASK_CLEAN ? 0.8 : 0.0),
-    })
-    const [clean, error] = twoRecords(records)
-    expect(clean.outcome.searchScore).toBe(0.8)
-    expect(clean.outcome.holdoutScore).toBeUndefined()
-    expect(error.outcome.searchScore).toBe(0.0)
-    expect(clean.splitTag).toBe('search')
-  })
+  it.each(['search', 'dev'] as const)(
+    'writes an explicit %s trace score only to searchScore',
+    (splitTag) => {
+      const records = otlpToRunRecords(FIXTURE, {
+        ...baseOpts,
+        splitTag,
+        scoreForTrace: (traceId) => (traceId === TASK_CLEAN ? 0.8 : 0.0),
+      })
+      const [clean, error] = twoRecords(records)
+      expect(clean.outcome.searchScore).toBe(0.8)
+      expect(clean.outcome.holdoutScore).toBeUndefined()
+      expect(error.outcome.searchScore).toBe(0.0)
+      expect(clean.splitTag).toBe(splitTag)
+    },
+  )
 
   it('folds provider trace fragments into one logical run without losing accounting', () => {
     const seen: Array<{

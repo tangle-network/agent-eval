@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { summarizeTraceErrors, type TraceErrorSignal } from './error-classification'
+import { traceSpanKindToOpenInferenceKind } from './otlp-attributes'
 
 const signal = (
   id: string,
@@ -14,6 +15,10 @@ const signal = (
 })
 
 describe('summarizeTraceErrors', () => {
+  it('exports first-party judge spans as evaluators', () => {
+    expect(traceSpanKindToOpenInferenceKind('judge')).toBe('EVALUATOR')
+  })
+
   it('separates a failed process root from its failed tool action', () => {
     expect(
       summarizeTraceErrors([

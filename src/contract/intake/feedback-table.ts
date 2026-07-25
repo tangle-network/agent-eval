@@ -9,8 +9,8 @@
  * `analyzeRuns({ runs, raterScores })` can produce inter-rater agreement,
  * disagreement triage, and downstream recommendations.
  *
- * Per-run `RunRecord.outcome.searchScore` is the rater-mean rating
- * (normalised to 0..1 when scale is supplied); `outcome.raw` carries the
+ * The rater mean is written to the score field matching the run split
+ * (normalised to 0..1 when a scale is supplied); `outcome.raw` carries
  * per-rater scores keyed by rater id for downstream attribution.
  */
 
@@ -70,9 +70,8 @@ export interface FromFeedbackTableOptions {
    *  ratings are already 0..1. */
   scale?: { min: number; max: number }
   /** When true, the rater scores are emitted into `raterScores` (a sibling
-   *  array `analyzeRuns()` accepts) instead of being averaged into the
-   *  run's `outcome.searchScore`. Default `true` — preserves rater-level
-   *  signal for inter-rater analysis. */
+   *  array `analyzeRuns()` accepts) in addition to the aggregate run score.
+   *  Default `true` preserves rater-level signal for inter-rater analysis. */
   emitRaterScores?: boolean
 }
 
@@ -124,11 +123,9 @@ export function fromFeedbackTable(opts: FromFeedbackTableOptions): FromFeedbackT
       composite: meanScore,
     }
 
+    const splitTag = runMeta.splitTag ?? 'holdout'
     const outcome: RunOutcome = {
-      // Feedback corpora ARE the holdout signal — score lands on
-      // `holdoutScore` so downstream substrate primitives (`paretoChart`,
-      // promotion gates) read it correctly by default.
-      holdoutScore: meanScore,
+      ...(splitTag === 'holdout' ? { holdoutScore: meanScore } : { searchScore: meanScore }),
       raw: Object.fromEntries(normalised.map((r) => [`rater:${r.rater}`, r.score])),
       judgeScores,
     }
@@ -150,7 +147,7 @@ export function fromFeedbackTable(opts: FromFeedbackTableOptions): FromFeedbackT
       tokenUsage: { input: 0, output: 0 },
       terminalOutcome: 'unknown',
       outcome,
-      splitTag: runMeta.splitTag ?? 'holdout',
+      splitTag,
       scenarioId: runMeta.scenarioId ?? runId,
     })
 

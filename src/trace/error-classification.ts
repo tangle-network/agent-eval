@@ -1,12 +1,6 @@
-export type TraceErrorRole =
-  | 'AGENT'
-  | 'CHAIN'
-  | 'EVALUATOR'
-  | 'GUARDRAIL'
-  | 'LLM'
-  | 'SPAN'
-  | 'TOOL'
-  | 'UNKNOWN'
+import type { OtlpSpanRole } from './otlp-attributes'
+
+export type TraceErrorRole = OtlpSpanRole
 
 export interface TraceErrorSignal {
   id: string

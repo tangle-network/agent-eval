@@ -46,13 +46,17 @@ import {
   type RunTokenUsage,
   validateRunRecord,
 } from '../run-record'
-import { summarizeTraceErrors } from '../trace/error-classification'
+import { summarizeTraceErrors, type TraceErrorRole } from '../trace/error-classification'
 import {
   type MeasurementCoverage,
   recordAggregateMeasurements,
   summarizeExecutionMeasurements,
 } from '../trace/execution-measurements'
-import { LLM_MODEL_ATTR_KEYS } from '../trace/otlp-attributes'
+import {
+  classifyOtlpSpanRole,
+  isOtlpModelCall,
+  LLM_MODEL_ATTR_KEYS,
+} from '../trace/otlp-attributes'
 import {
   compareSpanTime,
   firstStringAttr,
@@ -389,11 +393,11 @@ function aggregateTrace(
       id: span.span_id,
       ...(span.parent_span_id ? { parentId: span.parent_span_id } : {}),
       attributes: span.attributes,
-      modelCall:
-        span.kind === 'LLM' ||
-        (span.kind === 'UNKNOWN' &&
-          (span.model_name !== null ||
-            typeof span.attributes['gen_ai.operation.name'] === 'string')),
+      modelCall: isOtlpModelCall({
+        kind: span.kind,
+        name: span.name,
+        attributes: span.attributes,
+      }),
       aggregate: span.kind !== 'LLM' && span.kind !== 'UNKNOWN',
     })),
   )
@@ -505,16 +509,12 @@ function isTerminalRootCandidate(span: ProjectedOtlpSpan): boolean {
   return role !== 'LLM' && role !== 'TOOL' && role !== 'EVALUATOR' && role !== 'GUARDRAIL'
 }
 
-function errorRoleForProjectedSpan(span: ProjectedOtlpSpan): ProjectedOtlpSpan['kind'] {
-  if (span.kind !== 'UNKNOWN') return span.kind
-  if (span.tool_name !== null || /^(?:function|tool)[.:/]/i.test(span.name)) return 'TOOL'
-  if (
-    typeof span.attributes['gen_ai.operation.name'] === 'string' ||
-    /(?:^|[.:/])(?:chat[._-]?completions?|llm)(?:$|[.:/])/i.test(span.name)
-  ) {
-    return 'LLM'
-  }
-  return 'UNKNOWN'
+function errorRoleForProjectedSpan(span: ProjectedOtlpSpan): TraceErrorRole {
+  return classifyOtlpSpanRole({
+    kind: span.kind,
+    name: span.name,
+    attributes: span.attributes,
+  })
 }
 
 function resolveScore(

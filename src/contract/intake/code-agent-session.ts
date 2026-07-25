@@ -239,6 +239,7 @@ function fromCodeAgentSession(
 
   const terminalOutcome = terminalOutcomeFromSession(observation.terminal)
   const processExitCode = options.execution?.exitCode
+  const splitTag = options.splitTag ?? 'holdout'
   const run: RunRecord = {
     runId: `${source}:${sessionId}`,
     experimentId: options.experimentId ?? `${source}-local-sessions`,
@@ -264,7 +265,11 @@ function fromCodeAgentSession(
         }
       : {}),
     outcome: {
-      ...(qualityScore !== undefined ? { holdoutScore: qualityScore } : {}),
+      ...(qualityScore === undefined
+        ? {}
+        : splitTag === 'holdout'
+          ? { holdoutScore: qualityScore }
+          : { searchScore: qualityScore }),
       raw: {
         entries: metrics.entries,
         user_messages: metrics.userMessages,
@@ -316,7 +321,7 @@ function fromCodeAgentSession(
         cost_unknown: costProvenance.kind === 'uncaptured' ? 1 : 0,
       },
     },
-    splitTag: options.splitTag ?? 'holdout',
+    splitTag,
     scenarioId: options.scenarioId ?? sessionId,
   }
 
