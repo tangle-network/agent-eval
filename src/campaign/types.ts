@@ -388,6 +388,15 @@ export interface OptimizerConfig extends OptimizerConfigBase {
 /** Five-valued verdict taxonomy (MOSS-paper alignment). */
 export type GateDecision = 'ship' | 'hold' | 'need_more_work' | 'model_ceiling' | 'arch_ceiling'
 
+/** Outcome of one check that contributed to a release decision. */
+export type GateCheckStatus = 'pass' | 'fail' | 'not_evaluated'
+
+export interface GateContribution {
+  name: string
+  status: GateCheckStatus
+  detail: unknown
+}
+
 export interface GateContext<TArtifact, TScenario extends Scenario> {
   candidateArtifacts: Map<string, TArtifact>
   baselineArtifacts?: Map<string, TArtifact>
@@ -419,7 +428,7 @@ export interface GateContext<TArtifact, TScenario extends Scenario> {
 export interface GateResult {
   decision: GateDecision
   reasons: string[]
-  contributingGates: Array<{ name: string; passed: boolean; detail: unknown }>
+  contributingGates: GateContribution[]
   delta?: number
 }
 

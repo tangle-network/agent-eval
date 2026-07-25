@@ -348,7 +348,7 @@ export function sequentialPairedGate<TArtifact = unknown, TScenario extends Scen
         return {
           decision: 'need_more_work',
           reasons: [`${name}: no paired holdout observations — nothing to test`],
-          contributingGates: [{ name, passed: false, detail }],
+          contributingGates: [{ name, status: 'not_evaluated', detail }],
         }
       }
       const decision =
@@ -360,7 +360,18 @@ export function sequentialPairedGate<TArtifact = unknown, TScenario extends Scen
       return {
         decision,
         reasons: [`${name}: ${last.reason}`],
-        contributingGates: [{ name, passed: decision === 'ship', detail }],
+        contributingGates: [
+          {
+            name,
+            status:
+              decision === 'ship'
+                ? 'pass'
+                : decision === 'need_more_work'
+                  ? 'not_evaluated'
+                  : 'fail',
+            detail,
+          },
+        ],
         delta: meanDelta,
       }
     },

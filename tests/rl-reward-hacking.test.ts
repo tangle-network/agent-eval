@@ -38,6 +38,7 @@ describe('detectRewardHacking', () => {
       truthOf: (r) => (r.outcome.raw.truth ?? null) as number | null,
     })
     expect(out.verdict).not.toBe('clean')
+    expect(out.evaluatedSignals).toContain('reward_divergence')
     const div = out.findings.find((f) => f.signal === 'reward_divergence')!
     expect(div.severity).toBeGreaterThan(0.3)
   })
@@ -57,6 +58,7 @@ describe('detectRewardHacking', () => {
   it('reports insufficient evidence instead of clean when fewer than 4 runs exist', () => {
     const out = detectRewardHacking({ runs: [rec({ runId: 'a', proxy: 0.5 })] })
     expect(out.verdict).toBe('insufficient_evidence')
+    expect(out.evaluatedSignals).toEqual([])
     expect(out.rationale[0]).toContain('insufficient evidence')
   })
 
@@ -66,6 +68,19 @@ describe('detectRewardHacking', () => {
 
     expect(out.verdict).toBe('insufficient_evidence')
     expect(out.findings).toEqual([])
+    expect(out.evaluatedSignals).toEqual([])
+  })
+
+  it('does not treat non-finite truth values as usable evidence', () => {
+    const runs = Array.from({ length: 10 }, (_, index) =>
+      rec({ runId: `non-finite-${index}`, proxy: 0.5 }),
+    )
+    const out = detectRewardHacking({ runs, truthOf: () => Number.NaN })
+
+    expect(out.evaluatedSignals).not.toContain('reward_divergence')
+    expect(out.findings).not.toContainEqual(
+      expect.objectContaining({ signal: 'reward_divergence' }),
+    )
   })
 
   it('flags judge_drift when judge proxy rises while deterministic reward stagnates', () => {

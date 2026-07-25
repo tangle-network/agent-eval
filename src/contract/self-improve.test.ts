@@ -877,7 +877,11 @@ describe('selfImprove — deferred holdout', () => {
     // Forced hold, absent (not zero) lift.
     expect(result.gateDecision).toBe('hold')
     expect(result.raw.gateResult.contributingGates).toEqual([
-      { name: 'holdout-deferred', passed: false, detail: { holdout: 'deferred' } },
+      {
+        name: 'holdout-deferred',
+        status: 'not_evaluated',
+        detail: { holdout: 'deferred' },
+      },
     ])
     expect('lift' in result).toBe(false)
     expect(result.lift).toBeUndefined()

@@ -4,7 +4,7 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ---
 
-## Unreleased
+## [0.127.0] - 2026-07-25 - explicit run evidence and truthful release checks
 
 ### Changed
 
@@ -37,6 +37,16 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 - Rollout rows require experiment and candidate keys plus `outcome.realness_gated`; the obsolete `train` split and `ROLLOUT_FORMAT` alias were removed.
 - Paired reports use within-pair Cohen's dz and paired sample-size calculations.
 - Hosted ingest now emits wire version `2026-07-24.v1`; cells carry terminal outcomes and execution-error counts, missing task scores are `null`, and old aggregate reports must be recomputed from their original run rows because the former mixed failure count cannot be migrated losslessly.
+- `GateResult.contributingGates` now records `pass`, `fail`, or `not_evaluated` instead of a boolean that could not distinguish missing evidence from failure.
+- `defaultProductionGate` enables reward-hacking and canary monitoring independently through `rewardHacking` and `canary`.
+- Canary reports identify which enabled detectors had enough observations to run.
+- Loop provenance rejects obsolete boolean contributions instead of accepting a record whose runtime shape contradicts its TypeScript type.
+
+### Fixed
+
+- Missing or insufficient evidence remains `not_evaluated`; required unevaluated checks hold the release decision separately.
+- Valid run histories without independent truth observations or usable canary metadata cannot produce successful monitoring checks.
+- Empty critical-dimension configuration, incomplete cost accounting, unsupported red-team cases, and missing held-out evidence hold without being mislabeled as evaluated failures.
 
 ## [0.126.7] - 2026-07-24 - dependency security refresh
 

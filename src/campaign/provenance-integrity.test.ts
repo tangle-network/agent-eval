@@ -5,7 +5,9 @@ import type { BuildLoopProvenanceArgs } from './provenance'
 import {
   buildLoopProvenanceRecord,
   campaignMeasurementDigest,
+  canonicalDigest,
   loopProvenanceSpans,
+  verifyLoopProvenanceRecord,
 } from './provenance'
 import { surfaceHash } from './surface-identity'
 import type { CampaignResult, GateDecision, GenerationCandidate, Scenario } from './types'
@@ -228,7 +230,7 @@ describe('loop provenance measurement integrity', () => {
   it('rejects gate details that JSON serialization would silently change', () => {
     const input = args()
     input.gate.contributingGates = [
-      { name: 'strict-detail', passed: true, detail: { score: Number.NaN } },
+      { name: 'strict-detail', status: 'pass', detail: { score: Number.NaN } },
     ]
     expect(() => buildLoopProvenanceRecord(input)).toThrow(/gate detail must be canonical JSON/)
 
@@ -287,5 +289,39 @@ describe('loop provenance measurement integrity', () => {
     expect(campaignMeasurementDigest(judgeFailure)).not.toBe(
       campaignMeasurementDigest(otherJudgeFailure),
     )
+  })
+
+  it('preserves tri-state check status without a boolean alias', () => {
+    const input = args()
+    input.gate.contributingGates = [
+      { name: 'measured', status: 'pass', detail: {} },
+      { name: 'missing', status: 'not_evaluated', detail: { reason: 'no input' } },
+    ]
+
+    const checks = buildLoopProvenanceRecord(input).gate.contributingGates
+    expect(checks).toEqual(input.gate.contributingGates)
+    expect(checks.every((check) => !('passed' in check))).toBe(true)
+  })
+
+  it('rejects obsolete boolean contributions at build and persisted-read boundaries', () => {
+    const input = args()
+    input.gate.contributingGates = [{ name: 'legacy', passed: true, detail: {} } as never]
+    expect(() => buildLoopProvenanceRecord(input)).toThrow(/must have status/)
+
+    const current = buildLoopProvenanceRecord(args())
+    const { recordDigest: _currentDigest, ...currentWithoutDigest } = current
+    const legacyWithoutDigest = {
+      ...currentWithoutDigest,
+      gate: {
+        ...currentWithoutDigest.gate,
+        contributingGates: [{ name: 'legacy', passed: true, detail: {} }],
+      },
+    }
+    const legacy = {
+      ...legacyWithoutDigest,
+      recordDigest: canonicalDigest(legacyWithoutDigest),
+    }
+
+    expect(() => verifyLoopProvenanceRecord(legacy as never)).toThrow(/must have status/)
   })
 })

@@ -43,6 +43,18 @@ Agent sessions, worker coordination, sandbox execution, and runtime-specific pro
 
 Traces, datasets, optimization, statistics, and reports build on these objects.
 
+## Release check results
+
+Every entry in `GateResult.contributingGates` has a `status` of `pass`, `fail`, or `not_evaluated`.
+`pass` and `fail` mean the check ran with sufficient input.
+`not_evaluated` means the check lacked enough evidence to run.
+`defaultProductionGate` always requires held-out significance.
+Its other checks are optional until their input is configured or their name is included in `requiredChecks`.
+A required check with missing or insufficient evidence remains `not_evaluated` and holds the release decision.
+An absent optional check records `not_evaluated` and never appears as a successful check.
+Run history is shared input only.
+Enable reward-hacking and canary monitoring independently with `rewardHacking` and `canary`.
+
 When the thing being evaluated is an agent that should keep working, use
 [`runAgentControlLoop`](./control-runtime.md). It turns validators into a
 runtime loop: observe typed state, validate it, decide the next action, act,

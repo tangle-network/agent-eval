@@ -179,7 +179,12 @@ export function buildEvidenceVector<TArtifact, TScenario extends Scenario>(
 export const paretoPolicy: PromotionPolicy = (ev) => {
   const contributingGates = ev.axes.map((ax) => ({
     name: `objective:${ax.name}`,
-    passed: ax.verdict === 'improved',
+    status:
+      ax.verdict === 'regressed'
+        ? ('fail' as const)
+        : ax.verdict === 'few_runs'
+          ? ('not_evaluated' as const)
+          : ('pass' as const),
     detail: {
       direction: ax.direction,
       source: ax.source,

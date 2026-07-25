@@ -289,7 +289,11 @@ export async function runImprovementLoop<TScenario extends Scenario, TArtifact>(
           'holdout deferred — improvement-set search completed without a held-out measurement; nothing to promote from this run',
         ],
         contributingGates: [
-          { name: 'holdout-deferred', passed: false, detail: { holdout: 'deferred' } },
+          {
+            name: 'holdout-deferred',
+            status: 'not_evaluated' as const,
+            detail: { holdout: 'deferred' },
+          },
         ],
       }
     : winnerIsBaseline
@@ -299,7 +303,7 @@ export async function runImprovementLoop<TScenario extends Scenario, TArtifact>(
             'no candidate beat the training baseline — winner == baseline (empty diff); nothing to promote',
           ],
           contributingGates: [
-            { name: 'no-op-guard', passed: false, detail: { winnerIsBaseline: true } },
+            { name: 'no-op-guard', status: 'fail' as const, detail: { winnerIsBaseline: true } },
           ],
           delta: 0,
         }

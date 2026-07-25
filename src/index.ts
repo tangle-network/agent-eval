@@ -1287,6 +1287,7 @@ export {
 } from './benchmarks/types'
 export type {
   CanaryAlert,
+  CanaryEvaluation,
   CanaryKind,
   CanaryOptions,
   CanaryReport,

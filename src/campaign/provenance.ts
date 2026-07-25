@@ -48,6 +48,7 @@ import type { CampaignStorage } from './storage'
 import { renderSurfaceDiff, surfaceContentHash, surfaceHash } from './surface-identity'
 import type {
   CampaignResult,
+  GateContribution,
   GateDecision,
   GateResult,
   GenerationCandidate,
@@ -156,7 +157,7 @@ export interface LoopProvenanceRecord {
     decision: GateDecision
     reasons: string[]
     delta?: number
-    contributingGates: Array<{ name: string; passed: boolean; detail: unknown }>
+    contributingGates: GateContribution[]
   }
   /** Present iff the loop ran with `holdout: 'deferred'` — the held-out
    *  comparison was intentionally not measured in this run, so the holdout
@@ -283,6 +284,7 @@ export function buildLoopProvenanceRecord<TArtifact, TScenario extends Scenario>
   if (!Number.isFinite(timestampMs) || new Date(timestampMs).toISOString() !== args.timestamp) {
     throw new Error('buildLoopProvenanceRecord: timestamp must be a canonical ISO instant')
   }
+  assertGateContributions(args.gate.contributingGates, 'buildLoopProvenanceRecord')
   const agentReceipts = args.costReceipts.filter((receipt) => receipt.channel === 'agent')
   const integrity = summarizeAgentReceiptIntegrity(agentReceipts)
   const models = [...new Set(agentReceipts.map((receipt) => receipt.model))].sort()
@@ -476,7 +478,7 @@ export function buildLoopProvenanceRecord<TArtifact, TScenario extends Scenario>
       delta: args.gate.delta,
       contributingGates: args.gate.contributingGates.map((g) => ({
         name: g.name,
-        passed: g.passed,
+        status: g.status,
         detail: durableGateDetail(g.detail),
       })),
     },
@@ -595,6 +597,7 @@ export function verifyLoopProvenanceRecord(record: LoopProvenanceRecord): LoopPr
   if (recordDigest !== canonicalDigest(recordWithoutDigest)) {
     throw new Error('loop provenance record digest does not match its contents')
   }
+  assertGateContributions(record.gate?.contributingGates, 'loop provenance')
   return record
 }
 
@@ -626,6 +629,35 @@ function durableGateDetail(detail: unknown): unknown {
     throw new Error('buildLoopProvenanceRecord: gate detail must be canonical JSON', {
       cause,
     })
+  }
+}
+
+function assertGateContributions(
+  value: unknown,
+  source: string,
+): asserts value is GateContribution[] {
+  if (!Array.isArray(value)) {
+    throw new Error(`${source}: gate contributingGates must be an array`)
+  }
+  const statuses = new Set(['pass', 'fail', 'not_evaluated'])
+  for (const [index, contribution] of value.entries()) {
+    if (!contribution || typeof contribution !== 'object') {
+      throw new Error(`${source}: gate contribution ${index} must be an object`)
+    }
+    const item = contribution as Record<string, unknown>
+    if (typeof item.name !== 'string' || item.name.length === 0) {
+      throw new Error(`${source}: gate contribution ${index} must have a non-empty name`)
+    }
+    if (!statuses.has(String(item.status))) {
+      throw new Error(
+        `${source}: gate contribution '${item.name}' must have status pass, fail, or not_evaluated`,
+      )
+    }
+    if ('passed' in item) {
+      throw new Error(
+        `${source}: gate contribution '${item.name}' uses obsolete passed; use status instead`,
+      )
+    }
   }
 }
 
