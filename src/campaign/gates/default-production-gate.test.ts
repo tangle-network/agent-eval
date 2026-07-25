@@ -81,7 +81,9 @@ function runRecord(
     commitSha: 'cafebabe',
     wallMs: 100,
     costUsd: 0.01,
+    costProvenance: { kind: 'observed', usd: 0.01 },
     tokenUsage: { input: 10, output: 5 },
+    terminalOutcome: 'succeeded',
     ...(options.judgeMetadata
       ? {
           judgeMetadata: {
@@ -94,6 +96,7 @@ function runRecord(
       : {}),
     outcome: { searchScore: options.score ?? 0.5, raw },
     splitTag: 'search',
+    scenarioId: `scenario-${index}`,
   })
 }
 
