@@ -27,8 +27,8 @@ importers:
         specifier: ^0.4.20
         version: 0.4.20
       '@tangle-network/agent-interface':
-        specifier: ^0.32.0
-        version: 0.32.0
+        specifier: 0.33.0
+        version: 0.33.0
       '@tangle-network/tcloud':
         specifier: ^0.4.14
         version: 0.4.14(typescript@6.0.3)(zod@4.4.3)
@@ -626,6 +626,9 @@ packages:
 
   '@tangle-network/agent-interface@0.32.0':
     resolution: {integrity: sha512-8GUiqdr9MZ+iedkx7KVL6jbiuW6jh7CzKPS3VDXbWherJjFbuf+ULsMKmc+wnfG7LvtjJgZGr5y+cZm+JN1YDA==}
+
+  '@tangle-network/agent-interface@0.33.0':
+    resolution: {integrity: sha512-lRIzaZgiCs1lBjOuLt2a+LgExPxpNUMxQgi/RTY+WpKyrxLVmlgKkOlwcpk2IQLvh8rwe0oZJkHGAgU35DRUIQ==}
 
   '@tangle-network/sandbox@0.9.5':
     resolution: {integrity: sha512-yvX2OX6uISBVnMQ+v6Upkesa3u8yj6BHxsfcS6p8Vze+M4WBpyhkwA+onzFHuo9rti557ItZn8yDu4a/klljvQ==}
@@ -1499,6 +1502,11 @@ snapshots:
       zod: 4.4.3
 
   '@tangle-network/agent-interface@0.32.0':
+    dependencies:
+      '@noble/hashes': 1.8.0
+      zod: 4.4.3
+
+  '@tangle-network/agent-interface@0.33.0':
     dependencies:
       '@noble/hashes': 1.8.0
       zod: 4.4.3

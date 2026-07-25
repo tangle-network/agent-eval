@@ -4,6 +4,12 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ---
 
+## [0.128.1] - 2026-07-25 - certified context contract
+
+### Changed
+
+- Require `@tangle-network/agent-interface` 0.33.0 so Eval, Knowledge, and Runtime use one certified context contract.
+
 ## [0.128.0] - 2026-07-25 - canonical task failure evidence
 
 ### Changed
