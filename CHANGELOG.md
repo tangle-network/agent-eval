@@ -11,7 +11,25 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 - Execution reports now separate runs with execution errors from explicit terminal outcomes.
 - `ExecutionInsight.failures` is replaced by `executionErrors` and `terminalOutcomes`; report renderers must label these independently.
 - `RunRecord.terminalOutcome` records `succeeded`, `failed`, `cancelled`, `incomplete`, or `unknown` only from root-run or process evidence.
-- Error-bearing runs report recovered, unrecovered, or unknown recovery without treating a child span error as a failed run.
+- `executionErrors.byTerminalOutcome` cross-tabulates reported errors, reported zeroes, and missing error telemetry without asserting recovery causality.
+- `executionErrors.fraction` is `null` when no run supplies error telemetry instead of reporting a false zero rate.
+- OTel and code-agent intake count tool, model, and child-agent failures as execution errors while keeping process, guardrail, evaluator, propagated parent, and unknown errors in separate raw counters.
+- OTel trace analysis preserves `EVALUATOR` as a distinct span kind instead of reducing it to `UNKNOWN`.
+- Execution-only `RunRecord` rows may omit both task scores; OTel and code-agent intake no longer derive task quality from internal errors or process telemetry.
+- Rollout, RL corpus, product-benchmark, and release-confidence paths no longer convert missing task scores into zero-quality labels.
+- Held-out promotion now rejects missing search or holdout evidence explicitly, and public statistics use `null` instead of fake zero or `NaN` values when no measurement exists.
+- Run comparisons now pair only on `(experimentId, scenarioId, seed)`, reject missing or duplicate identities, report unmatched rows, and never fall back to input order.
+- Trace ranking ignores unlabeled execution rows without dropping them from storage.
+- `MultiLayerVerifier.taskScore` is present only for a complete scoring panel; partial blends remain diagnostic, and errored or timed-out layers cannot become task or training labels.
+- RL exports require trainable rows: SFT is the safe default, GRPO must be requested and needs at least two rewarded completions per group, unscored trajectories require explicit SFT opt-in, and requested empty formats fail loudly.
+- Minted rollout terminal fields now reflect `RunRecord.terminalOutcome`, and SFT excludes failed, cancelled, incomplete, and unknown-terminal runs.
+- Release confidence reports quality and reliability separately; terminal process failure no longer becomes a low task-quality score, and missing measurements remain `null`.
+- Cost-bounded held-out and release decisions reject incomplete cost evidence instead of treating uncaptured cost as zero.
+- Release confidence uses run rows as the primary source for cost, latency, and pass rate, avoiding duplicate aggregation from trace summaries.
+- Campaign, profile-matrix, and self-improvement projections now share one mapper that records explicit terminal outcomes, execution-error counts, actual token usage, and unlabeled error cells.
+- Hosted campaign snapshots omit failed judge dimensions rather than publishing invalid values.
+- Hosted clients and the reference receiver validate complete request payloads, reject header/body version disagreement, scope retry keys by endpoint, and merge incremental generation snapshots without losing earlier generations.
+- Hosted ingest now emits wire version `2026-07-24.v1`; cells carry terminal outcomes and execution-error counts, missing task scores are `null`, and old aggregate reports must be recomputed from their original run rows because the former mixed failure count cannot be migrated losslessly.
 
 ## [0.126.7] - 2026-07-24 - dependency security refresh
 

@@ -16,15 +16,17 @@
  *     `opts.priceUsdPerToken` from the aggregated tokens; else 0 with a
  *     loud `raw.cost_unpriced = 1` marker so a missing price is visible, not
  *     a silent zero folded into a gate.
- *   - failureMode: the first `STATUS_CODE_ERROR` span's normalized status
- *     message (carries the real failure signature, not a generic class).
+ *   - terminalFailureReason: the failed root's normalized status message,
+ *     when one unambiguous root supplies terminal failure evidence.
  *   - terminalOutcome: reduced from root-span status only. Child tool errors
- *     remain visible in `error_span_count` without changing the run outcome.
+ *     remain visible in `error_span_count` and `execution_error_count` without
+ *     changing the run outcome. Root, guardrail, evaluator, propagated, and
+ *     unknown errors retain separate counters.
  *   - model: the dominant LLM model in the trace (snapshot-padded to satisfy
  *     `validateRunRecord` when the trace's model is a bare alias).
  *   - outcome score: `opts.scoreForTrace` (AppWorld `world.evaluate()` →
- *     TGC/SGC) when supplied; else 1 when the trace had no error span, 0
- *     when it did — a defensible default the caller can override.
+ *     TGC/SGC) when supplied. Traces without an external task-quality signal
+ *     remain unlabeled; execution errors never become a task score.
  *   - prompt / completion: carried into `raw` as token-count signals and,
  *     when the first/last LLM span exposes `input.value` / `output.value`,
  *     the verbatim text is preserved on the optional `promptText` /
@@ -44,6 +46,7 @@ import {
   type RunTokenUsage,
   validateRunRecord,
 } from '../run-record'
+import { summarizeTraceErrors } from '../trace/error-classification'
 import {
   type MeasurementCoverage,
   recordAggregateMeasurements,
@@ -102,9 +105,9 @@ export interface OtlpToRunRecordsOptions {
    * Score for a produced run's outcome (AppWorld `world.evaluate()` →
    * TGC/SGC, or
    * any [0,1] task-success signal). Keyed by the logical run id when
-   * `logicalRunIdForTrace` is supplied, otherwise by `trace_id`; falls through to
-   * the error-derived default (1 = no error span, 0 = had one) when the map
-   * has no entry or the function returns undefined.
+   * `logicalRunIdForTrace` is supplied, otherwise by `trace_id`. When the map
+   * has no entry or the function returns undefined, the record remains
+   * unlabeled.
    */
   scoreForTrace?: (runId: string, span: TraceAggregate) => number | undefined
   /**
@@ -138,6 +141,12 @@ export interface TraceAggregate {
   toolSpanCount: number
   agentSpanCount: number
   errorSpanCount: number
+  executionErrorCount: number
+  processErrorCount: number
+  guardrailErrorCount: number
+  judgeErrorCount: number
+  propagatedErrorCount: number
+  unclassifiedErrorCount: number
   tokenUsage: RunTokenUsage
   /** First error span's normalized status message, if any. */
   firstErrorMessage?: string
@@ -153,6 +162,7 @@ interface AggregatedTrace extends TraceAggregate {
   callSpanIds: string[]
   costMeasurement: MeasurementCoverage
   aggregateMeasurement?: ReturnType<typeof summarizeExecutionMeasurements>['aggregate']
+  terminalFailureMessage?: string
 }
 
 /**
@@ -234,6 +244,12 @@ function traceRunRecordsFromSpans(
       tool_span_count: agg.toolSpanCount,
       agent_span_count: agg.agentSpanCount,
       error_span_count: agg.errorSpanCount,
+      execution_error_count: agg.executionErrorCount,
+      process_error_count: agg.processErrorCount,
+      guardrail_error_count: agg.guardrailErrorCount,
+      judge_error_count: agg.judgeErrorCount,
+      propagated_error_count: agg.propagatedErrorCount,
+      unclassified_error_count: agg.unclassifiedErrorCount,
       prompt_tokens: agg.tokenUsage.input,
       completion_tokens: agg.tokenUsage.output,
     }
@@ -248,8 +264,11 @@ function traceRunRecordsFromSpans(
     recordAggregateMeasurements(raw, agg.aggregateMeasurement)
     if (costProvenance.kind === 'uncaptured') raw.cost_unpriced = 1
 
-    const outcome =
-      splitTag === 'holdout' ? { holdoutScore: score, raw } : { searchScore: score, raw }
+    const outcome: RunRecord['outcome'] = { raw }
+    if (score !== undefined) {
+      if (splitTag === 'holdout') outcome.holdoutScore = score
+      else outcome.searchScore = score
+    }
 
     const { promptText, completionText } = extractPromptCompletion(spans, agg.callSpanIds)
     const judgeMetadata = opts.judgeMetadataForTrace?.(traceId)
@@ -268,9 +287,9 @@ function traceRunRecordsFromSpans(
       costProvenance,
       tokenUsage: agg.tokenUsage,
       terminalOutcome: agg.terminalOutcome,
+      ...(agg.terminalFailureMessage ? { terminalFailureReason: agg.terminalFailureMessage } : {}),
       ...(judgeMetadata ? { judgeMetadata } : {}),
       outcome,
-      ...(agg.firstErrorMessage ? { failureMode: agg.firstErrorMessage } : {}),
       splitTag,
       scenarioId: traceId,
     })
@@ -380,7 +399,6 @@ function aggregateTrace(
   )
   let toolSpanCount = 0
   let agentSpanCount = 0
-  let errorSpanCount = 0
   let firstErrorMessage: string | undefined
   const modelVotes = new Map<string, number>()
   let earliest = ordered[0]?.start_time ?? ''
@@ -398,7 +416,6 @@ function aggregateTrace(
     }
 
     if (s.status === 'ERROR') {
-      errorSpanCount += 1
       if (firstErrorMessage === undefined) {
         firstErrorMessage = (s.status_message ?? `${s.name} — STATUS_CODE_ERROR`).slice(0, 500)
       }
@@ -425,6 +442,16 @@ function aggregateTrace(
 
   const sourceTraceIds = [...new Set(spans.map((span) => span.trace_id))].sort()
 
+  const terminal = terminalEvidenceFromRoots(ordered)
+  const errorSummary = summarizeTraceErrors(
+    ordered.map((span) => ({
+      id: span.span_id,
+      ...(span.parent_span_id ? { parentId: span.parent_span_id } : {}),
+      role: errorRoleForProjectedSpan(span),
+      error: span.status === 'ERROR',
+      processRoot: span.parent_span_id === null && isTerminalRootCandidate(span),
+    })),
+  )
   return {
     traceId,
     sourceTraceCount: sourceTraceIds.length,
@@ -433,29 +460,68 @@ function aggregateTrace(
     llmSpanCount: measurements.modelCallCount,
     toolSpanCount,
     agentSpanCount,
-    errorSpanCount,
+    errorSpanCount: errorSummary.total,
+    executionErrorCount: errorSummary.execution,
+    processErrorCount: errorSummary.process,
+    guardrailErrorCount: errorSummary.guardrail,
+    judgeErrorCount: errorSummary.evaluation,
+    propagatedErrorCount: errorSummary.propagated,
+    unclassifiedErrorCount: errorSummary.unclassified,
     tokenUsage: measurements.tokenUsage,
     firstErrorMessage,
     model,
     startTime: earliest,
     endTime: latest,
     wallMs,
-    terminalOutcome: terminalOutcomeFromRoots(ordered),
+    terminalOutcome: terminal.outcome,
+    ...(terminal.failureMessage ? { terminalFailureMessage: terminal.failureMessage } : {}),
     callSpanIds: measurements.callSpanIds,
     costMeasurement: measurements.cost,
     ...(measurements.aggregate ? { aggregateMeasurement: measurements.aggregate } : {}),
   }
 }
 
-function terminalOutcomeFromRoots(spans: ProjectedOtlpSpan[]): RunTerminalOutcome {
-  const roots = spans.filter((span) => span.parent_span_id === null)
-  if (roots.length === 0) return 'unknown'
-  if (roots.some((span) => span.status === 'ERROR')) return 'failed'
-  if (roots.every((span) => span.status === 'OK')) return 'succeeded'
-  return 'unknown'
+function terminalEvidenceFromRoots(spans: ProjectedOtlpSpan[]): {
+  outcome: RunTerminalOutcome
+  failureMessage?: string
+} {
+  const roots = spans.filter(
+    (span) => span.parent_span_id === null && isTerminalRootCandidate(span),
+  )
+  if (roots.length !== 1) return { outcome: 'unknown' }
+  const root = roots[0]!
+  if (root.status === 'ERROR') {
+    return {
+      outcome: 'failed',
+      failureMessage: (root.status_message ?? `${root.name} — STATUS_CODE_ERROR`).slice(0, 500),
+    }
+  }
+  if (root.status === 'OK') return { outcome: 'succeeded' }
+  return { outcome: 'unknown' }
 }
 
-function resolveScore(opts: OtlpToRunRecordsOptions, traceId: string, agg: TraceAggregate): number {
+function isTerminalRootCandidate(span: ProjectedOtlpSpan): boolean {
+  const role = errorRoleForProjectedSpan(span)
+  return role !== 'LLM' && role !== 'TOOL' && role !== 'EVALUATOR' && role !== 'GUARDRAIL'
+}
+
+function errorRoleForProjectedSpan(span: ProjectedOtlpSpan): ProjectedOtlpSpan['kind'] {
+  if (span.kind !== 'UNKNOWN') return span.kind
+  if (span.tool_name !== null || /^(?:function|tool)[.:/]/i.test(span.name)) return 'TOOL'
+  if (
+    typeof span.attributes['gen_ai.operation.name'] === 'string' ||
+    /(?:^|[.:/])(?:chat[._-]?completions?|llm)(?:$|[.:/])/i.test(span.name)
+  ) {
+    return 'LLM'
+  }
+  return 'UNKNOWN'
+}
+
+function resolveScore(
+  opts: OtlpToRunRecordsOptions,
+  traceId: string,
+  agg: TraceAggregate,
+): number | undefined {
   const supplied = opts.scoreForTrace?.(traceId, agg)
   if (supplied !== undefined) {
     if (!Number.isFinite(supplied)) {
@@ -465,14 +531,13 @@ function resolveScore(opts: OtlpToRunRecordsOptions, traceId: string, agg: Trace
     }
     return supplied
   }
-  // Default: error-derived. A trace with any error span scores 0; otherwise 1.
-  return agg.errorSpanCount > 0 ? 0 : 1
+  return undefined
 }
 
 function resolveCost(
   opts: OtlpToRunRecordsOptions,
   agg: AggregatedTrace,
-): { costUsd: number; costProvenance: RunCostProvenance } {
+): { costUsd: number | null; costProvenance: RunCostProvenance } {
   const observedCost = agg.costMeasurement
   if (observedCost.complete && observedCost.value !== undefined) {
     return {
@@ -493,9 +558,7 @@ function resolveCost(
     return { costUsd, costProvenance: { kind: 'estimated', usd: costUsd } }
   }
 
-  // No per-span cost, no price table — record 0 but flag it loudly so a
-  // missing price never silently flatters a cost axis.
-  return { costUsd: 0, costProvenance: { kind: 'uncaptured', usd: null } }
+  return { costUsd: null, costProvenance: { kind: 'uncaptured', usd: null } }
 }
 
 function extractPromptCompletion(

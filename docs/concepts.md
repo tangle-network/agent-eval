@@ -138,9 +138,14 @@ const verifier = new MultiLayerVerifier([
 
 const report = await verifier.run({ env: { runner, workdir, ... } })
 report.allPass        // boolean: every layer passed
-report.blendedScore   // 0..1: weighted aggregate
+report.taskScore      // complete task score, or undefined
+report.blendedScore   // diagnostic weighted aggregate, possibly partial
 report.layers         // per-layer status, findings, duration
 ```
+
+Use `taskScore` when creating task labels or training data.
+An errored, timed-out, skipped, or incomplete scoring panel leaves `taskScore` undefined.
+Use `blendedScore` only to inspect the measurements that did complete.
 
 Two rules that will save you bugs:
 

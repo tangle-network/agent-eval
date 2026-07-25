@@ -19,6 +19,7 @@ export type TraceAnalystSpanKind =
   | 'LLM'
   | 'TOOL'
   | 'CHAIN'
+  | 'EVALUATOR'
   | 'GUARDRAIL'
   | 'SPAN'
   | 'UNKNOWN'

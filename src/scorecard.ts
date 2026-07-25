@@ -20,7 +20,7 @@ import { dirname } from 'node:path'
 import type { AgentProfile } from './agent-profile'
 import { agentProfileHash, agentProfileModelId } from './agent-profile'
 import { welchsTTest } from './baseline'
-import type { RunRecord } from './run-record'
+import { type RunRecord, runTaskScore } from './run-record'
 import { cohensD } from './statistics'
 
 // ── Types ────────────────────────────────────────────────────────────
@@ -82,11 +82,6 @@ function median(xs: number[]): number {
   return sorted.length % 2 === 0 ? (sorted[mid - 1]! + sorted[mid]!) / 2 : sorted[mid]!
 }
 
-/** The split score the run actually carries (`holdout` runs fill holdoutScore). */
-function runScore(run: RunRecord): number | undefined {
-  return run.outcome.holdoutScore ?? run.outcome.searchScore
-}
-
 /** Mean of each judge dimension across the runs that reported one. */
 function aggregatePerDimension(runs: RunRecord[]): Record<string, number> | undefined {
   const sums = new Map<string, { total: number; count: number }>()
@@ -130,7 +125,7 @@ export function recordRuns(runs: RunRecord[], opts: RecordRunsOptions): Scorecar
   const lines: ScorecardLogLine[] = []
   for (const [scenarioId, scenarioRuns] of byScenario) {
     const scored = scenarioRuns
-      .map((run) => ({ run, score: runScore(run) }))
+      .map((run) => ({ run, score: runTaskScore(run) }))
       .filter((s): s is { run: RunRecord; score: number } => s.score !== undefined)
     if (scored.length === 0) continue
     const scores = scored.map((s) => s.score)

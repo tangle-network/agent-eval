@@ -123,18 +123,20 @@ async function main() {
     console.log(`delta:    ${signed(i.lift.delta)}`)
     console.log(`CI95:     [${i.lift.ci95[0].toFixed(3)}, ${i.lift.ci95[1].toFixed(3)}]`)
     console.log(`pValue:   ${i.lift.pValue.toFixed(4)}`)
-    console.log(`Cohen's d: ${i.lift.cohensD.toFixed(2)}`)
+    console.log(
+      `Paired Cohen's dz: ${i.lift.cohensD === null ? 'not estimable' : i.lift.cohensD.toFixed(2)}`,
+    )
     console.log(`MDE @ 80% power: ${i.lift.mde.toFixed(3)}`)
-    console.log(`required n at observed effect: ${i.lift.requiredN}`)
+    console.log(`required n at observed effect: ${i.lift.requiredN ?? 'not estimable'}`)
     console.log()
   }
 
   console.log(`Composite scores (n=${i.composite.n} cells)`)
   console.log(
-    `mean: ${i.composite.mean.toFixed(3)}, ` +
-      `p50: ${i.composite.p50.toFixed(3)}, ` +
-      `p95: ${i.composite.p95.toFixed(3)}, ` +
-      `stddev: ${i.composite.stddev.toFixed(3)}`,
+    `mean: ${formatMetric(i.composite.mean)}, ` +
+      `p50: ${formatMetric(i.composite.p50)}, ` +
+      `p95: ${formatMetric(i.composite.p95)}, ` +
+      `stddev: ${formatMetric(i.composite.stddev)}`,
   )
   console.log()
 
@@ -166,6 +168,10 @@ async function main() {
 
 function signed(n: number): string {
   return `${n >= 0 ? '+' : ''}${n.toFixed(3)}`
+}
+
+function formatMetric(value: number | null): string {
+  return value === null ? 'n/a' : value.toFixed(3)
 }
 
 main().catch((err) => {

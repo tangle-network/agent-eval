@@ -27,6 +27,7 @@ function makeRun(opts: {
       perDimMean[d] = (perDimMean[d] ?? 0) + v / Object.keys(perJudge).length
     }
   }
+  const costUsd = opts.cost ?? 0.01
   return {
     runId: opts.id,
     experimentId: opts.experimentId ?? 'exp',
@@ -37,14 +38,17 @@ function makeRun(opts: {
     configHash: 'sha256:c',
     commitSha: 'abc',
     wallMs: opts.wallMs ?? 100,
-    costUsd: opts.cost ?? 0.01,
+    costUsd,
+    costProvenance: { kind: 'observed', usd: costUsd },
     tokenUsage: { input: 100, output: 50 },
+    terminalOutcome: 'succeeded',
     outcome: {
       holdoutScore: opts.composite,
       raw: {},
       judgeScores: { perJudge, perDimMean, composite: opts.composite },
     },
     splitTag: 'holdout',
+    scenarioId: opts.id,
   }
 }
 

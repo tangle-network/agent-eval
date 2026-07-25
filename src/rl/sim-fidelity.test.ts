@@ -44,12 +44,15 @@ function rec(overrides: RecOverrides = {}): RunRecord {
     commitSha: 'abc1234',
     wallMs: overrides.wallMs ?? 1000,
     costUsd: 0.01,
+    costProvenance: { kind: 'observed', usd: 0.01 },
     tokenUsage: { input: 100, output: overrides.outputTokens ?? 50 },
+    terminalOutcome: 'succeeded',
     outcome: {
       holdoutScore: overrides.score ?? 0.8,
       raw: overrides.raw ?? {},
     },
     splitTag: 'holdout',
+    scenarioId: 'scenario',
     ...(overrides.failureClass ? { failureClass: overrides.failureClass } : {}),
   }
   if (overrides.completion !== undefined) record.completion = overrides.completion

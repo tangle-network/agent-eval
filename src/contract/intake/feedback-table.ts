@@ -37,9 +37,10 @@ export interface FeedbackTableMeta {
   experimentId?: string
   /** When omitted, defaults to `runId` — each run is its own candidate. */
   candidateId?: string
-  /** Cost in USD, when available. Set to 0 when unknown — the consumer's
-   *  cost analysis sections will collapse gracefully. */
+  /** Observed cost in USD, when available. */
   costUsd?: number
+  /** Stable scenario identity. Defaults to `runId`. */
+  scenarioId?: string
   /** Wall-clock ms, when available. Defaults to 0. */
   wallMs?: number
   /** Model identifier including snapshot. Default `unknown@unknown`. */
@@ -132,6 +133,7 @@ export function fromFeedbackTable(opts: FromFeedbackTableOptions): FromFeedbackT
       judgeScores,
     }
 
+    const costUsd = runMeta.costUsd ?? null
     runs.push({
       runId,
       experimentId: runMeta.experimentId ?? 'feedback-corpus',
@@ -142,12 +144,15 @@ export function fromFeedbackTable(opts: FromFeedbackTableOptions): FromFeedbackT
       configHash: runMeta.configHash ?? 'sha256:unknown',
       commitSha: runMeta.commitSha ?? 'unknown',
       wallMs: runMeta.wallMs ?? 0,
-      costUsd: runMeta.costUsd ?? 0,
+      costUsd,
+      costProvenance:
+        costUsd === null ? { kind: 'uncaptured', usd: null } : { kind: 'observed', usd: costUsd },
       tokenUsage: { input: 0, output: 0 },
       terminalOutcome: 'unknown',
       outcome,
       splitTag: runMeta.splitTag ?? 'holdout',
-    } as RunRecord)
+      scenarioId: runMeta.scenarioId ?? runId,
+    })
 
     if (emitRaterScores) {
       for (const r of normalised) raterScores.push({ runId, rater: r.rater, score: r.score })

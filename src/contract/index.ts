@@ -230,6 +230,7 @@ export {
 } from './eval-reporting-suite'
 export type {
   CostProvenanceSummary,
+  ExecutionErrorOutcomeCell,
   ExecutionInsight,
   FailureClusterInsight,
   InsightReport,

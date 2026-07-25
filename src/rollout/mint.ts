@@ -20,7 +20,8 @@
  * `missingTraces`; a capture gap is a finding, never a silent omission.
  */
 
-import type { RunRecord } from '../run-record'
+import { ValidationError } from '../errors'
+import { type RunRecord, runTaskScore } from '../run-record'
 import type { LlmSpan, Message, Span, ToolSpan } from '../trace/schema'
 import type { TraceStore } from '../trace/store'
 import { buildTrajectory } from '../trajectory'
@@ -94,16 +95,29 @@ function finalConversation(spans: Span[], scrub: RolloutScrubber): ChatMessage[]
   return messages
 }
 
-export function rolloutReward(record: RunRecord): { reward: number; gated: boolean } {
+function scoredReward(record: RunRecord): {
+  reward: number
+  gated: boolean
+  source: 'run-record/holdout-score' | 'run-record/search-score'
+} {
+  const score = runTaskScore(record)
+  if (score === undefined) {
+    throw new ValidationError(`Cannot mint rollout for run ${record.runId}: task score is missing`)
+  }
   const gated = record.outcome.realness?.gated === true
-  const raw = record.outcome.holdoutScore ?? record.outcome.searchScore ?? 0
-  return { reward: gated ? 0 : raw, gated }
+  return {
+    reward: gated ? 0 : score,
+    gated,
+    source:
+      record.outcome.holdoutScore !== undefined
+        ? 'run-record/holdout-score'
+        : 'run-record/search-score',
+  }
 }
 
-function rewardSource(record: RunRecord): string {
-  if (record.outcome.holdoutScore !== undefined) return 'run-record/holdout-score'
-  if (record.outcome.searchScore !== undefined) return 'run-record/search-score'
-  return 'run-record/unscored'
+export function rolloutReward(record: RunRecord): { reward: number; gated: boolean } {
+  const { reward, gated } = scoredReward(record)
+  return { reward, gated }
 }
 
 const SPLIT_FROM_TAG: Record<RunRecord['splitTag'], RolloutSplit> = {
@@ -120,8 +134,17 @@ function mintLine(
   capturedAt: string,
   gap?: string,
 ): RolloutLine {
-  const { reward, gated } = rolloutReward(record)
-  const uncaptured = record.costProvenance?.kind === 'uncaptured'
+  const { reward, gated, source } = scoredReward(record)
+  const uncaptured = record.costProvenance.kind === 'uncaptured'
+  const terminalOutcome = record.terminalOutcome
+  const isCompleted = terminalOutcome === 'succeeded' || terminalOutcome === 'failed'
+  const isTruncated = terminalOutcome === 'cancelled' || terminalOutcome === 'incomplete'
+  const terminalError =
+    terminalOutcome === 'failed' ||
+    terminalOutcome === 'cancelled' ||
+    terminalOutcome === 'incomplete'
+      ? (record.terminalFailureReason ?? `run ended ${terminalOutcome}`)
+      : null
   return {
     schema: ROLLOUT_SCHEMA,
     rollout_id: record.runId,
@@ -134,7 +157,7 @@ function mintLine(
     role: options.role ?? 'agent',
     task: {
       suite: options.suite ?? record.experimentId,
-      instance_id: record.scenarioId ?? record.experimentId,
+      instance_id: record.scenarioId,
       split: SPLIT_FROM_TAG[record.splitTag],
       seed: record.seed,
       rep: 0,
@@ -155,12 +178,12 @@ function mintLine(
     ...(steps.length > 0 ? { steps } : {}),
     outcome: {
       reward,
-      reward_source: rewardSource(record),
+      reward_source: source,
       verdict: null,
       metrics: { ...record.outcome.raw },
-      is_completed: true,
-      is_truncated: false,
-      error: null,
+      is_completed: isCompleted,
+      is_truncated: isTruncated,
+      error: terminalError,
       realness_gated: gated,
     },
     cost: {
@@ -184,7 +207,8 @@ function mintLine(
 /**
  * Join RunRecords with their traces into canonical rollout lines. Records
  * without spans are emitted as labeled gap lines and reported in
- * `missingTraces` — a capture gap is a finding, not a silent omission.
+ * `missingTraces`. Execution-only records without a task score are rejected
+ * because a missing training label is not a zero reward.
  */
 export async function mintRolloutRows(
   records: RunRecord[],

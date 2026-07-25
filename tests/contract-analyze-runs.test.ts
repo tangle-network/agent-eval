@@ -39,6 +39,7 @@ function makeRun(opts: {
   judges?: Record<string, Record<string, number>>
   failureMode?: string
   terminalOutcome?: RunTerminalOutcome
+  scenarioId?: string
   metadata?: Record<string, unknown>
 }): RunRecord {
   const perJudge = opts.judges ?? { default: { quality: opts.composite } }
@@ -59,7 +60,9 @@ function makeRun(opts: {
     commitSha: 'abc',
     wallMs: 100,
     costUsd: opts.cost ?? 0.01,
+    costProvenance: { kind: 'observed', usd: opts.cost ?? 0.01 },
     tokenUsage: { input: 100, output: 50 },
+    terminalOutcome: opts.terminalOutcome ?? 'succeeded',
     outcome: {
       holdoutScore: opts.composite,
       raw: {},
@@ -70,8 +73,8 @@ function makeRun(opts: {
       },
     },
     splitTag: 'holdout' as const,
+    scenarioId: opts.scenarioId ?? opts.id.replace(/^[bc]-/, ''),
     ...(opts.failureMode ? { failureMode: opts.failureMode } : {}),
-    ...(opts.terminalOutcome ? { terminalOutcome: opts.terminalOutcome } : {}),
   } satisfies RunRecord
   if (opts.metadata) Object.assign(run, { metadata: opts.metadata })
   return run
@@ -87,7 +90,7 @@ describe('analyzeRuns — lift detection with paired bootstrap', () => {
     const candidate = Array.from({ length: 20 }, (_, i) =>
       makeRun({ id: `c-${i}`, candidate: 'candidate', composite: 0.6 + i * 0.005 }),
     )
-    // Pair on (experimentId, seed) — make seeds match across the two sides.
+    // Match repeated runs by experiment, scenario, and seed.
     for (let i = 0; i < 20; i++) {
       baseline[i]!.seed = i
       candidate[i]!.seed = i
@@ -97,6 +100,10 @@ describe('analyzeRuns — lift detection with paired bootstrap', () => {
     expect(report.lift!.delta).toBeCloseTo(0.1, 1)
     expect(report.lift!.ci95[0]).toBeGreaterThan(0)
     expect(report.lift!.n).toBe(20)
+    expect(report.lift!.unpairedBaseline).toBe(0)
+    expect(report.lift!.unpairedCandidate).toBe(0)
+    expect(report.lift!.cohensD).toBeNull()
+    expect(report.lift!.requiredN).toBeNull()
     expect(report.recommendations.some((r) => r.kind === 'ship')).toBe(true)
   })
 
@@ -133,9 +140,117 @@ describe('analyzeRuns — lift detection with paired bootstrap', () => {
     const kinds = report.recommendations.map((r) => r.kind)
     expect(kinds).toContain('expand-corpus')
   })
+
+  it('ignores unscored rows when auto-detecting the lower-scoring baseline', async () => {
+    const baseline = [
+      makeRun({ id: 'b-0', candidate: 'baseline', composite: 0.4 }),
+      makeRun({ id: 'b-1', candidate: 'baseline', composite: 0.4 }),
+    ]
+    const candidate = [
+      makeRun({ id: 'c-0', candidate: 'candidate', composite: 0.8 }),
+      makeRun({ id: 'c-1', candidate: 'candidate', composite: 0.8 }),
+      makeRun({ id: 'c-unscored', candidate: 'candidate', composite: 0.8 }),
+    ]
+    for (let index = 0; index < 2; index++) {
+      baseline[index]!.seed = index
+      candidate[index]!.seed = index
+    }
+    candidate[2]!.seed = 2
+    candidate[2]!.terminalOutcome = 'succeeded'
+    candidate[2]!.outcome = { raw: {} }
+
+    const report = await analyzeRuns({ runs: [...baseline, ...candidate] })
+
+    expect(report.lift?.baselineMean).toBeCloseTo(0.4)
+    expect(report.lift?.candidateMean).toBeCloseTo(0.8)
+    expect(report.lift?.delta).toBeCloseTo(0.4)
+  })
+
+  it('pairs shared seeds by scenario and is independent of input order', async () => {
+    const baseline = [
+      makeRun({ id: 'baseline-a', candidate: 'baseline', composite: 0.2, scenarioId: 'a' }),
+      makeRun({ id: 'baseline-b', candidate: 'baseline', composite: 0.8, scenarioId: 'b' }),
+    ]
+    const candidate = [
+      makeRun({ id: 'candidate-b', candidate: 'candidate', composite: 0.9, scenarioId: 'b' }),
+      makeRun({ id: 'candidate-a', candidate: 'candidate', composite: 0.3, scenarioId: 'a' }),
+    ]
+    for (const run of [...baseline, ...candidate]) run.seed = 7
+
+    const forward = await analyzeRuns({ runs: [...baseline, ...candidate] })
+    const reversed = await analyzeRuns({
+      runs: [...baseline].reverse().concat([...candidate].reverse()),
+    })
+
+    expect(forward.lift?.delta).toBeCloseTo(0.1)
+    expect(reversed.lift).toEqual(forward.lift)
+  })
+
+  it('does not fall back to ordinal pairing for different scenarios', async () => {
+    const baseline = [
+      makeRun({ id: 'baseline-a', candidate: 'baseline', composite: 0.1, scenarioId: 'a' }),
+    ]
+    const candidate = [
+      makeRun({ id: 'candidate-b', candidate: 'candidate', composite: 0.9, scenarioId: 'b' }),
+    ]
+
+    const report = await analyzeRuns({ runs: [...baseline, ...candidate] })
+
+    expect(report.lift).toBeUndefined()
+  })
+
+  it('rejects duplicate pair identities', async () => {
+    const baseline = [
+      makeRun({ id: 'baseline-a', candidate: 'baseline', composite: 0.1, scenarioId: 'a' }),
+    ]
+    const candidate = [
+      makeRun({ id: 'candidate-a', candidate: 'candidate', composite: 0.9, scenarioId: 'a' }),
+      makeRun({
+        id: 'candidate-a-duplicate',
+        candidate: 'candidate',
+        composite: 0.8,
+        scenarioId: 'a',
+      }),
+    ]
+
+    await expect(analyzeRuns({ runs: [...baseline, ...candidate] })).rejects.toThrow(
+      /duplicate repKey/,
+    )
+  })
 })
 
 describe('analyzeRuns — execution facts', () => {
+  it('does not substitute a search score when holdout quality is requested', async () => {
+    const searchOnly = makeRun({
+      id: 'search-only',
+      candidate: 'c',
+      composite: 0.9,
+      terminalOutcome: 'succeeded',
+    })
+    searchOnly.splitTag = 'search'
+    searchOnly.outcome = { searchScore: 0.9, raw: {} }
+
+    const report = await analyzeRuns({ runs: [searchOnly], split: 'holdout' })
+
+    expect(report.composite).toEqual({
+      n: 0,
+      mean: null,
+      p50: null,
+      p95: null,
+      stddev: null,
+      min: null,
+      max: null,
+      histogram: [],
+    })
+    expect(JSON.parse(JSON.stringify(report.composite))).toEqual(report.composite)
+    expect(report.release.axes).toContainEqual({
+      name: 'composite-distribution',
+      status: 'not_evaluated',
+      detail: 'no task-quality scores available',
+    })
+    expect(report.release.status).toBe('warn')
+  })
+
   it('summarizes duration, queueing, token categories, models, and execution errors', async () => {
     const runs = [
       makeRun({
@@ -151,7 +266,7 @@ describe('analyzeRuns — execution facts', () => {
         failureMode: 'tool failed',
         terminalOutcome: 'succeeded',
       }),
-      makeRun({ id: 'exec-3', candidate: 'c', composite: 0.9 }),
+      makeRun({ id: 'exec-3', candidate: 'c', composite: 0.9, terminalOutcome: 'unknown' }),
     ]
     Object.assign(runs[0]!, {
       wallMs: 100,
@@ -159,7 +274,7 @@ describe('analyzeRuns — execution facts', () => {
       tokenUsage: { input: 10, output: 4, reasoning: 1, cached: 100, cacheWrite: 20 },
       outcome: {
         ...runs[0]!.outcome,
-        raw: { error_span_count: 0, llm_span_count: 2 },
+        raw: { error_span_count: 0, execution_error_count: 0, llm_span_count: 2 },
       },
     })
     Object.assign(runs[1]!, {
@@ -168,7 +283,7 @@ describe('analyzeRuns — execution facts', () => {
       tokenUsage: { input: 20, output: 5, cached: 200 },
       outcome: {
         ...runs[1]!.outcome,
-        raw: { error_span_count: 2, llm_span_count: 1 },
+        raw: { error_span_count: 2, execution_error_count: 2, llm_span_count: 1 },
       },
     })
     Object.assign(runs[2]!, {
@@ -226,10 +341,12 @@ describe('analyzeRuns — execution facts', () => {
       reportingRuns: 2,
       errorSpanEvents: 2,
       errorSpanReportingRuns: 2,
-      recovery: {
-        recoveredRuns: 1,
-        unrecoveredRuns: 0,
-        unknownRuns: 0,
+      byTerminalOutcome: {
+        succeeded: { withErrors: 1, withoutErrors: 1, unreported: 0 },
+        failed: { withErrors: 0, withoutErrors: 0, unreported: 0 },
+        cancelled: { withErrors: 0, withoutErrors: 0, unreported: 0 },
+        incomplete: { withErrors: 0, withoutErrors: 0, unreported: 0 },
+        unknown: { withErrors: 0, withoutErrors: 0, unreported: 1 },
       },
     })
     expect(execution.terminalOutcomes).toEqual({
@@ -249,7 +366,7 @@ describe('analyzeRuns — execution facts', () => {
         composite: 1,
         terminalOutcome: 'succeeded',
       }),
-      makeRun({ id: 'active', candidate: 'c', composite: 0.5 }),
+      makeRun({ id: 'active', candidate: 'c', composite: 0.5, terminalOutcome: 'unknown' }),
       makeRun({
         id: 'failed',
         candidate: 'c',
@@ -282,9 +399,13 @@ describe('analyzeRuns — execution facts', () => {
       }),
     ]
     runs[0]!.outcome.raw.error_span_count = 1
+    runs[0]!.outcome.raw.execution_error_count = 1
     runs[1]!.outcome.raw.error_span_count = 1
+    runs[1]!.outcome.raw.execution_error_count = 1
     runs[2]!.outcome.raw.error_span_count = 0
+    runs[2]!.outcome.raw.execution_error_count = 0
     runs[3]!.outcome.raw.error_span_count = 1
+    runs[3]!.outcome.raw.execution_error_count = 1
 
     const { execution } = summarizeExecution({ runs })
 
@@ -295,10 +416,12 @@ describe('analyzeRuns — execution facts', () => {
       reportingRuns: 4,
       errorSpanEvents: 3,
       errorSpanReportingRuns: 4,
-      recovery: {
-        recoveredRuns: 1,
-        unrecoveredRuns: 1,
-        unknownRuns: 1,
+      byTerminalOutcome: {
+        succeeded: { withErrors: 1, withoutErrors: 0, unreported: 0 },
+        failed: { withErrors: 1, withoutErrors: 1, unreported: 0 },
+        cancelled: { withErrors: 0, withoutErrors: 0, unreported: 1 },
+        incomplete: { withErrors: 0, withoutErrors: 0, unreported: 1 },
+        unknown: { withErrors: 1, withoutErrors: 0, unreported: 1 },
       },
     })
     expect(execution.terminalOutcomes).toEqual({
@@ -310,6 +433,56 @@ describe('analyzeRuns — execution facts', () => {
     })
   })
 
+  it('treats malformed negative or fractional counters as unreported', () => {
+    const run = makeRun({
+      id: 'malformed-counts',
+      candidate: 'c',
+      composite: 0.5,
+      terminalOutcome: 'failed',
+    })
+    run.outcome.raw.execution_error_count = -1
+    run.outcome.raw.error_span_count = -2
+    run.outcome.raw.llm_span_count = 0.5
+
+    const { execution } = summarizeExecution({ runs: [run] })
+    expect(execution.executionErrors).toMatchObject({
+      runs: 0,
+      fraction: null,
+      events: 0,
+      reportingRuns: 0,
+      errorSpanEvents: 0,
+      errorSpanReportingRuns: 0,
+      byTerminalOutcome: {
+        failed: { withErrors: 0, withoutErrors: 0, unreported: 1 },
+      },
+    })
+    expect(execution.modelCalls.reportingRuns).toBe(0)
+  })
+
+  it('does not relabel generic span or process counters as execution errors', () => {
+    const run = makeRun({
+      id: 'separate-error-kinds',
+      candidate: 'c',
+      composite: 0.5,
+      terminalOutcome: 'failed',
+    })
+    run.outcome.raw.error_span_count = 3
+    run.outcome.raw.process_error_count = 1
+    run.outcome.raw.turns_aborted = 1
+    run.outcome.raw.runtime_errors = 1
+
+    const { execution } = summarizeExecution({ runs: [run] })
+
+    expect(execution.executionErrors).toMatchObject({
+      runs: 0,
+      fraction: null,
+      events: 0,
+      reportingRuns: 0,
+      errorSpanEvents: 3,
+      errorSpanReportingRuns: 1,
+    })
+  })
+
   it('marks a rootless OTel fragment unknown even when its child span errors', () => {
     const [run] = fromOtelSpans({
       spans: [
@@ -318,9 +491,9 @@ describe('analyzeRuns — execution facts', () => {
           spanId: 'tool',
           parentSpanId: 'missing-root',
           name: 'tool.fragment',
-          startTimeUnixNano: 0,
-          endTimeUnixNano: 1_000_000_000,
-          attributes: {},
+          startTimeUnixNano: '0',
+          endTimeUnixNano: '1000000000',
+          attributes: { 'openinference.span.kind': 'TOOL' },
           status: { code: 'ERROR' },
         },
       ],
@@ -476,8 +649,8 @@ describe('fromOtelSpans → analyzeRuns: OTel observability corpus', () => {
     overrides: Partial<TraceSpanEvent> & Pick<TraceSpanEvent, 'traceId' | 'spanId' | 'name'>,
   ): TraceSpanEvent {
     return {
-      startTimeUnixNano: 0,
-      endTimeUnixNano: 1_000_000_000,
+      startTimeUnixNano: '0',
+      endTimeUnixNano: '1000000000',
       attributes: {},
       ...overrides,
     }
@@ -517,7 +690,7 @@ describe('fromOtelSpans → analyzeRuns: OTel observability corpus', () => {
           'tangle.cost.usd': 0.31,
           'tangle.score': 0.42,
         },
-        status: { code: 'ERROR' },
+        status: { code: 'ERROR', message: 'worker exhausted retries' },
       }),
     ]
     const runs = fromOtelSpans({ spans })
@@ -528,9 +701,11 @@ describe('fromOtelSpans → analyzeRuns: OTel observability corpus', () => {
     expect(runA.tokenUsage.input).toBe(1200)
     expect(runA.tokenUsage.output).toBe(350)
     expect(runA.terminalOutcome).toBe('succeeded')
+    expect(runA.failureMode).toBeUndefined()
 
     const runB = runs.find((r) => r.runId === 'run-B')!
-    expect(runB.failureMode).toBe('agent.turn')
+    expect(runB.failureMode).toBeUndefined()
+    expect(runB.terminalFailureReason).toBe('worker exhausted retries')
     expect(runB.terminalOutcome).toBe('failed')
 
     const report = await analyzeRuns({ runs })
@@ -538,8 +713,11 @@ describe('fromOtelSpans → analyzeRuns: OTel observability corpus', () => {
     expect(report.composite.n).toBe(2)
     expect(report.costQuality.cost.mean).toBeGreaterThan(0)
     expect(report.execution.executionErrors).toMatchObject({
-      runs: 2,
-      recovery: { recoveredRuns: 1, unrecoveredRuns: 1, unknownRuns: 0 },
+      runs: 1,
+      byTerminalOutcome: {
+        succeeded: { withErrors: 1, withoutErrors: 0, unreported: 0 },
+        failed: { withErrors: 0, withoutErrors: 1, unreported: 0 },
+      },
     })
     expect(report.execution.terminalOutcomes).toEqual({
       succeeded: 1,
@@ -548,6 +726,44 @@ describe('fromOtelSpans → analyzeRuns: OTel observability corpus', () => {
       incomplete: 0,
       unknown: 0,
     })
+  })
+
+  it('reduces terminal roots deterministically and ignores tool roots', () => {
+    const agent = span({
+      traceId: 'root-reduction',
+      spanId: 'agent',
+      name: 'agent.run',
+      attributes: { 'openinference.span.kind': 'AGENT' },
+      status: { code: 'OK' },
+    })
+    const tool = span({
+      traceId: 'root-reduction',
+      spanId: 'tool',
+      name: 'tool.call',
+      attributes: {
+        'openinference.span.kind': 'TOOL',
+        'tool.name': 'filesystem.read',
+      },
+      status: { code: 'ERROR' },
+    })
+
+    expect(fromOtelSpans({ spans: [agent, tool] })[0]!.terminalOutcome).toBe('succeeded')
+    expect(fromOtelSpans({ spans: [agent, tool] })[0]!.failureMode).toBeUndefined()
+    expect(fromOtelSpans({ spans: [tool, agent] })[0]!.terminalOutcome).toBe('succeeded')
+
+    const secondAgent = span({
+      traceId: 'root-reduction',
+      spanId: 'agent-2',
+      name: 'agent.second',
+      attributes: { 'openinference.span.kind': 'AGENT' },
+      status: { code: 'ERROR' },
+    })
+    expect(fromOtelSpans({ spans: [agent, secondAgent] })[0]!.terminalOutcome).toBe('unknown')
+    expect(fromOtelSpans({ spans: [secondAgent, agent] })[0]!.terminalOutcome).toBe('unknown')
+    expect(
+      fromOtelSpans({ spans: [agent, { ...secondAgent, status: { code: 'OK' } }] })[0]!
+        .terminalOutcome,
+    ).toBe('unknown')
   })
 
   it('preserves a cost-only model call and an untyped run-total cost', () => {
@@ -587,8 +803,8 @@ describe('fromOtelSpans → analyzeRuns: OTel observability corpus', () => {
         traceId: 'hierarchical',
         spanId: 'root',
         name: 'agent.run',
-        startTimeUnixNano: 0,
-        endTimeUnixNano: 2_000_000_000,
+        startTimeUnixNano: '0',
+        endTimeUnixNano: '2000000000',
         attributes: {
           'gen_ai.usage.input_tokens': 9999,
           'gen_ai.usage.output_tokens': 9999,
@@ -804,9 +1020,12 @@ describe('analyzeRuns — recommendations are always actionable', () => {
       commitSha: 'abc',
       wallMs: 100,
       costUsd: 0.01,
+      costProvenance: { kind: 'observed', usd: 0.01 },
       tokenUsage: { input: 100, output: 50 },
+      terminalOutcome: 'succeeded',
       outcome: { holdoutScore: 0.7, raw: {} },
       splitTag: 'holdout',
+      scenarioId: `nj-${i}`,
     }))
     const report = await analyzeRuns({ runs })
     expect(Object.keys(report.judges).length).toBe(0)
@@ -828,17 +1047,17 @@ describe('analyzeRuns — recommendations are always actionable', () => {
       commitSha: 'abc',
       wallMs: 100,
       costUsd: 0,
+      costProvenance: { kind: 'observed', usd: 0 },
       tokenUsage: { input: 100, output: 50 },
+      terminalOutcome: 'succeeded',
       outcome: { holdoutScore: 0.6, raw: {} },
       splitTag: 'holdout',
+      scenarioId: `z-${i}`,
     }))
     const report = await analyzeRuns({ runs })
     expect(report.costQuality.degraded).toBeDefined()
-    // tokens present (100/50) but cost 0 → uncosted (unpriced model), not stub.
-    expect(report.costQuality.degraded!.cost).toMatch(/no costUsd/)
-    expect(report.costQuality.degraded!.cost).toMatch(/unpriced model/)
-    expect(report.costQuality.degraded!.cost).toMatch(/5\/5 records have token usage/)
-    expect(report.costQuality.degraded!.pareto).toMatch(/no candidates/)
+    expect(report.costQuality.degraded!.cost).toMatch(/all 5 explicitly observed/)
+    expect(report.costQuality.degraded!.pareto).toMatch(/single candidate/)
   })
 
   it('separates observed, estimated, and uncaptured USD in cost analysis', async () => {
@@ -847,6 +1066,7 @@ describe('analyzeRuns — recommendations are always actionable', () => {
     const estimated = makeRun({ id: 'cost-estimated', candidate: 'c', composite: 0.8, cost: 0.2 })
     estimated.costProvenance = { kind: 'estimated', usd: 0.2 }
     const uncaptured = makeRun({ id: 'cost-uncaptured', candidate: 'c', composite: 0.9, cost: 0 })
+    uncaptured.costUsd = null
     uncaptured.costProvenance = { kind: 'uncaptured', usd: null }
 
     const report = await analyzeRuns({ runs: [observed, estimated, uncaptured] })
@@ -864,11 +1084,7 @@ describe('analyzeRuns — recommendations are always actionable', () => {
     expect(report.costQuality.degraded?.cost).toMatch(/1 observed, 1 estimated/)
   })
 
-  it('zero-cost diagnosis distinguishes stub-mode (no tokens) from uncosted (unpriced model)', async () => {
-    // Regression: a blank cost axis has two opposite root causes. Stub-mode
-    // (tokenUsage 0/0) means the backend never ran — fix is upstream. Uncosted
-    // (tokens but $0) means the model id was unpriced — fix is FAMILY_PRICING.
-    // A generic "no signal" note sends the reader to the wrong layer.
+  it('does not reinterpret an explicitly observed zero-dollar cost', async () => {
     const stubRuns: RunRecord[] = Array.from({ length: 4 }, (_, i) => ({
       runId: `s-${i}`,
       experimentId: 'exp',
@@ -880,14 +1096,15 @@ describe('analyzeRuns — recommendations are always actionable', () => {
       commitSha: 'abc',
       wallMs: 100,
       costUsd: 0,
+      costProvenance: { kind: 'observed', usd: 0 },
       tokenUsage: { input: 0, output: 0 },
+      terminalOutcome: 'succeeded',
       outcome: { holdoutScore: 0.6, raw: {} },
       splitTag: 'holdout',
+      scenarioId: `s-${i}`,
     }))
     const stubReport = await analyzeRuns({ runs: stubRuns })
-    expect(stubReport.costQuality.degraded!.cost).toMatch(/all 4 records are stub-mode/)
-    expect(stubReport.costQuality.degraded!.cost).toMatch(/backend never reported/)
-    expect(stubReport.costQuality.degraded!.cost).not.toMatch(/unpriced model/)
+    expect(stubReport.costQuality.degraded!.cost).toMatch(/all 4 explicitly observed/)
   })
 
   it('report is JSON-serialisable end-to-end (hosted wire format compatible)', async () => {
@@ -946,6 +1163,33 @@ describe('analyzeRuns — failure clustering via the analyst registry', () => {
     expect(cluster.id).toBe('timeout')
     expect(cluster.exemplars.sort()).toEqual(['f-1', 'f-2'])
     expect(cluster.share).toBeCloseTo(1, 5)
+  })
+
+  it('does not turn terminal execution failure or recovered child errors into task failures', async () => {
+    const recovered = makeRun({
+      id: 'recovered',
+      candidate: 'c',
+      composite: 0.9,
+      failureMode: 'tool retry',
+      terminalOutcome: 'succeeded',
+    })
+    recovered.outcome.raw.execution_error_count = 1
+    const failed = makeRun({
+      id: 'failed',
+      candidate: 'c',
+      composite: 0.9,
+      terminalOutcome: 'failed',
+    })
+    failed.outcome = { raw: { execution_error_count: 1 } }
+
+    const report = await analyzeRuns({
+      runs: [recovered, failed],
+      analyst: failureRegistry(),
+    })
+
+    expect(report.failureClusters?.totalFailures).toBe(0)
+    expect(report.failureClusters?.clusters).toEqual([])
+    expect(report.failureModes).toBeUndefined()
   })
 
   it('failureClusters stays undefined without an analyst', async () => {

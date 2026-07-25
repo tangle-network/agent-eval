@@ -20,6 +20,7 @@ import {
   type MutableSurface,
   openAutoPr,
   type ProposeContext,
+  runCampaign,
   runEval,
   runImprovementLoop,
   runOptimization,
@@ -28,6 +29,8 @@ import {
   surfaceContentHash,
   surfaceHash,
 } from '../../src/campaign/index'
+import { campaignCellToRunRecord } from '../../src/campaign/run-record'
+import { campaignMeanComposite } from '../../src/campaign/score-utils'
 
 function fakeCodeSurface(worktreeRef: string, identityDigit: string): CodeSurface {
   return {
@@ -82,6 +85,12 @@ const HOLDOUT: FakeScenario[] = [
   { id: 'h2', kind: 'chat', intent: 'H2' },
   { id: 'h3', kind: 'chat', intent: 'H3' },
 ]
+
+const COMPLETE_JUDGE: JudgeConfig<FakeArtifact, FakeScenario> = {
+  name: 'fixture-quality',
+  dimensions: [{ key: 'quality' }],
+  score: () => ({ composite: 1, dimensions: { quality: 1 }, notes: '' }),
+}
 
 const noopDispatch: DispatchFn<FakeScenario, FakeArtifact> = async (s) => ({
   text: `${s.id}-default`,
@@ -630,6 +639,9 @@ describe('openAutoPr', () => {
       cellsSkipped: 0,
       cellsCached: 0,
       cellsFailed: 0,
+      cellsDispatchFailed: 0,
+      cellsJudgeFailed: 0,
+      cellsUnclassifiedFailed: 0,
     },
     runDir: '/tmp/x',
     artifactsByPath: {},
@@ -882,6 +894,7 @@ describe('runOptimization', () => {
       scenarios: SCENARIOS,
       baselineSurface: 'base',
       dispatchWithSurface,
+      judges: [COMPLETE_JUDGE],
       proposer: appendProposer,
       populationSize: 2,
       maxGenerations: 2,
@@ -962,6 +975,7 @@ describe('runOptimization', () => {
       dispatchWithSurface: async (surface: string, s: FakeScenario) => ({
         text: `${surface}::${s.id}`,
       }),
+      judges: [COMPLETE_JUDGE],
       proposer: reflectiveProposer,
       populationSize: 2,
       maxGenerations: 3,
@@ -993,6 +1007,7 @@ describe('runOptimization', () => {
       dispatchWithSurface: async (surface: string, s: FakeScenario) => ({
         text: `${surface}::${s.id}`,
       }),
+      judges: [COMPLETE_JUDGE],
       proposer: stopAfterOneProposer,
       populationSize: 1,
       maxGenerations: 10,
@@ -1037,6 +1052,7 @@ describe('runOptimization', () => {
       dispatchWithSurface: async (surface: string, s: FakeScenario) => ({
         text: `${surface}::${s.id}`,
       }),
+      judges: [COMPLETE_JUDGE],
       proposer: contextSnoopProposer,
       populationSize: 1,
       maxGenerations: 1,
@@ -1241,6 +1257,7 @@ describe('MutableSurface widening', () => {
       scenarios: SCENARIOS,
       baselineSurface: fakeCodeSurface('/wt/main', 'f'),
       dispatchWithSurface,
+      judges: [COMPLETE_JUDGE],
       proposer: codeProposer,
       populationSize: 2,
       maxGenerations: 2,
@@ -1266,7 +1283,7 @@ describe('emitLoopProvenance — hosted ingest (eval-run + traces)', () => {
     const traceBatches: unknown[][] = []
     const mockClient = {
       tenant: { endpoint: 'https://x/v1', apiKey: 'k', tenantId: 't' },
-      wireVersion: '2026-05-26.v1' as const,
+      wireVersion: '2026-07-24.v1' as const,
       async ingestEvalRun(event: unknown) {
         evalRuns.push(event)
         return { accepted: 1, rejected: [] }
@@ -1336,19 +1353,170 @@ describe('emitLoopProvenance — hosted ingest (eval-run + traces)', () => {
       status: string
       gateDecision: string
       holdoutLift: number
-      baseline: { compositeMean: number }
-      generations: Array<{ compositeMean: number }>
+      baseline: {
+        compositeMean: number
+        cells: Array<{ terminalOutcome: string; executionErrorCount: number | null }>
+      }
+      generations: Array<{
+        compositeMean: number
+        cells: Array<{ terminalOutcome: string; executionErrorCount: number | null }>
+      }>
     }
     expect(ev.runId).toBe('hosted-ship#1')
     expect(ev.status).toBe('finished')
     expect(ev.gateDecision).toBe('ship')
     expect(ev.baseline.compositeMean).toBeCloseTo(0.5, 5)
     expect(ev.generations[0]!.compositeMean).toBeCloseTo(1.0, 5)
+    expect(ev.baseline.cells[0]).toMatchObject({
+      terminalOutcome: 'succeeded',
+      executionErrorCount: 0,
+    })
+    expect(ev.generations[0]!.cells[0]).toMatchObject({
+      terminalOutcome: 'succeeded',
+      executionErrorCount: 0,
+    })
     expect(ev.holdoutLift).toBeCloseTo(0.5, 5) // matches the record
     expect(ev.holdoutLift).toBeCloseTo(record.heldOutLift, 9)
     // Trace spans shipped too (the per-candidate drill-down).
     expect(traceBatches).toHaveLength(1)
     expect(traceBatches[0]!.length).toBeGreaterThan(0)
+  })
+
+  it('keeps one failed judge out of every task-quality composite', async () => {
+    const campaign = await runCampaign({
+      scenarios: [
+        { id: 'bad', kind: 'fixture', intent: 'partial judge result' },
+        { id: 'good', kind: 'fixture', intent: 'complete judge result' },
+      ],
+      dispatch: async (scenario) => ({ text: scenario.id }),
+      judges: [
+        {
+          name: 'quality',
+          dimensions: [{ key: 'q' }],
+          score: ({ scenario }) => {
+            const score = scenario.id === 'bad' ? 0.2 : 0.8
+            return { composite: score, dimensions: { q: score }, notes: 'diagnostic' }
+          },
+        },
+        {
+          name: 'reliability',
+          dimensions: [{ key: 'r' }],
+          score: ({ scenario }) => {
+            if (scenario.id === 'bad') throw new Error('judge unavailable')
+            return { composite: 1, dimensions: { r: 1 }, notes: '' }
+          },
+        },
+      ],
+      runDir: `${runDir}/partial-judge`,
+      storage: inMemoryCampaignStorage(),
+      expectUsage: 'off',
+    })
+
+    expect(campaignMeanComposite(campaign)).toBeCloseTo(0.9)
+    expect(campaign.aggregates.byScenario).toEqual({
+      good: { meanComposite: 0.9, ci95: [0.9, 0.9], n: 1 },
+    })
+    expect(campaign.aggregates.byJudge.quality).toMatchObject({ mean: 0.5, n: 2 })
+    expect(campaign.aggregates.byJudge.reliability).toMatchObject({ mean: 1, n: 1 })
+    expect(campaign.aggregates).toMatchObject({
+      cellsExecuted: 2,
+      cellsFailed: 1,
+      cellsDispatchFailed: 0,
+      cellsJudgeFailed: 1,
+      cellsUnclassifiedFailed: 0,
+    })
+
+    const failedCell = campaign.cells.find((cell) => cell.scenarioId === 'bad')!
+    const failedRecord = campaignCellToRunRecord(failedCell, {
+      runId: 'partial-judge:bad',
+      experimentId: 'partial-judge',
+      candidateId: 'baseline',
+      model: 'fixture-model@2026-07-24',
+      promptHash: 'prompt',
+      configHash: 'config',
+      commitSha: 'a'.repeat(40),
+      splitTag: 'holdout',
+    })
+    expect(failedRecord).toMatchObject({
+      terminalOutcome: 'succeeded',
+      outcome: {
+        judgeScores: {
+          composite: 0.2,
+          perJudge: { quality: { q: 0.2 } },
+          failedJudges: ['reliability'],
+        },
+        raw: {
+          execution_error_count: 0,
+          judge_error_count: 1,
+        },
+      },
+    })
+    expect(failedRecord.outcome.holdoutScore).toBeUndefined()
+    expect(failedRecord.terminalFailureReason).toBeUndefined()
+
+    const evalRuns: unknown[] = []
+    const mockClient = {
+      tenant: { endpoint: 'https://x/v1', apiKey: 'k', tenantId: 't' },
+      wireVersion: '2026-07-24.v1' as const,
+      async ingestEvalRun(event: unknown) {
+        evalRuns.push(event)
+        return { accepted: 1, rejected: [] }
+      },
+      async ingestEvalRuns(events: unknown[]) {
+        evalRuns.push(...events)
+        return { accepted: events.length, rejected: [] }
+      },
+      async ingestTraces(spans: unknown[]) {
+        return { accepted: spans.length, rejected: [] }
+      },
+    }
+    const { record } = await emitLoopProvenance({
+      runId: 'partial-judge',
+      runDir,
+      timestamp: '2026-07-24T00:00:00.000Z',
+      baselineSurface: 'BASE',
+      winnerSurface: 'BASE',
+      baselineSearchCampaign: campaign,
+      generations: [],
+      gate: {
+        decision: 'hold',
+        reasons: ['one holdout judge failed'],
+        contributingGates: [],
+      },
+      baselineOnHoldout: campaign,
+      winnerOnHoldout: campaign,
+      costReceipts: [],
+      totalCostUsd: campaign.aggregates.totalCostUsd,
+      totalDurationMs: campaign.durationMs,
+      storage: inMemoryCampaignStorage(),
+      hostedClient: mockClient,
+    })
+
+    expect(record.baselineSearchComposite).toBeCloseTo(0.9)
+    expect(record.baselineHoldoutComposite).toBeCloseTo(0.9)
+    expect(record.winnerHoldoutComposite).toBeCloseTo(0.9)
+    const event = evalRuns[0] as {
+      baseline: {
+        compositeMean: number | null
+        cells: Array<{
+          scenarioId: string
+          compositeMean: number | null
+          dimensions: Record<string, Record<string, number>>
+          terminalOutcome: string
+          executionErrorCount: number | null
+        }>
+      }
+    }
+    expect(event.baseline.compositeMean).toBeCloseTo(0.9)
+    expect(event.baseline.cells.find((cell) => cell.scenarioId === 'bad')).toEqual({
+      scenarioId: 'bad',
+      rep: 0,
+      compositeMean: null,
+      dimensions: { quality: { q: 0.2 } },
+      terminalOutcome: 'succeeded',
+      executionErrorCount: 0,
+      errorMessage: "judge 'reliability' failed: judge unavailable",
+    })
   })
 })
 
@@ -1492,7 +1660,7 @@ describe('runOptimization — analyzeGeneration feeds findings forward', () => {
     expect(result.generations).toHaveLength(1)
   })
 
-  it('skips the baseline analysis when the baseline produced no cells (nothing to analyze)', async () => {
+  it('rejects optimization when the baseline produced no scored cells', async () => {
     const seen: unknown[][] = []
     const analyzed: number[] = []
     const proposer = {
@@ -1502,26 +1670,26 @@ describe('runOptimization — analyzeGeneration feeds findings forward', () => {
         return [{ surface: 'S-gen0', label: 'g0', rationale: 'r' }]
       },
     }
-    await runOptimization<FakeScenario, FakeArtifact>({
-      // No scenarios → the baseline campaign has zero cells (the dry shape) —
-      // the producer must NOT run on it, and propose() sees the static seed.
-      scenarios: [],
-      baselineSurface: 'BASE',
-      dispatchWithSurface: async (surface) => ({ text: String(surface) }),
-      judges: [passJudge],
-      proposer,
-      populationSize: 1,
-      maxGenerations: 1,
-      runDir,
-      seed: 1,
-      findings: [{ claim: 'seed' }],
-      analyzeGeneration: async ({ generation }) => {
-        analyzed.push(generation)
-        return [{ claim: 'should not reach gen 0' }]
-      },
-    })
+    await expect(
+      runOptimization<FakeScenario, FakeArtifact>({
+        scenarios: [],
+        baselineSurface: 'BASE',
+        dispatchWithSurface: async (surface) => ({ text: String(surface) }),
+        judges: [passJudge],
+        proposer,
+        populationSize: 1,
+        maxGenerations: 1,
+        runDir,
+        seed: 1,
+        findings: [{ claim: 'seed' }],
+        analyzeGeneration: async ({ generation }) => {
+          analyzed.push(generation)
+          return [{ claim: 'should not run' }]
+        },
+      }),
+    ).rejects.toThrow(/no complete cell-quality scores/)
     expect(analyzed).toEqual([])
-    expect(seen).toEqual([[{ claim: 'seed' }]])
+    expect(seen).toEqual([])
   })
 
   it('without analyzeGeneration, findings stay the static seed every generation', async () => {

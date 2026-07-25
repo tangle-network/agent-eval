@@ -600,6 +600,11 @@ export interface CampaignCellResult<TArtifact> {
   durationMs: number
   seed: number
   cached: boolean
+  /** Stage that produced `error`. Missing on successful cells and legacy
+   *  persisted failures, where the terminal execution result is unknown. */
+  errorStage?: 'dispatch' | 'judge'
+  /** Judge that threw when `errorStage` is `judge`. */
+  errorJudge?: string
   error?: string
 }
 
@@ -679,10 +684,18 @@ export interface CampaignAggregates {
   cost: CostLedgerSummary
   /** Compatibility alias of `cost.totalCostUsd`. */
   totalCostUsd: number
+  /** Cells whose dispatch completed, including cells whose later judge failed. */
   cellsExecuted: number
   cellsSkipped: number
   cellsCached: number
+  /** All non-skipped dispatch, judge, and unclassified cell failures. */
   cellsFailed: number
+  /** Present on results that record failure stages. */
+  cellsDispatchFailed?: number
+  /** Present on results that record failure stages. */
+  cellsJudgeFailed?: number
+  /** Legacy failures whose stage was not recorded. */
+  cellsUnclassifiedFailed?: number
 }
 
 export interface CampaignResult<TArtifact = unknown, TScenario extends Scenario = Scenario> {

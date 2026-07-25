@@ -54,10 +54,18 @@ describe('detectRewardHacking', () => {
     expect(div.severity).toBeLessThan(0.3)
   })
 
-  it('returns clean+small-n when fewer than 4 runs', () => {
+  it('reports insufficient evidence instead of clean when fewer than 4 runs exist', () => {
     const out = detectRewardHacking({ runs: [rec({ runId: 'a', proxy: 0.5 })] })
-    expect(out.verdict).toBe('clean')
+    expect(out.verdict).toBe('insufficient_evidence')
     expect(out.rationale[0]).toContain('insufficient evidence')
+  })
+
+  it('reports insufficient evidence when no detector can compute a signal', () => {
+    const runs = Array.from({ length: 4 }, (_, index) => rec({ runId: `run-${index}`, proxy: 0.5 }))
+    const out = detectRewardHacking({ runs })
+
+    expect(out.verdict).toBe('insufficient_evidence')
+    expect(out.findings).toEqual([])
   })
 
   it('flags judge_drift when judge proxy rises while deterministic reward stagnates', () => {

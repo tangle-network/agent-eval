@@ -96,6 +96,7 @@ try {
         type Run,
         type RunRecord,
         type RunTerminalOutcome,
+        runTaskScore,
       } from '@tangle-network/agent-eval'
       import {
         CanonicalRawAnalystFindingSchema,
@@ -172,8 +173,11 @@ try {
       })
       const report: ExecutionReport = summarizeExecution({ runs })
       const terminalOutcome: RunTerminalOutcome = 'succeeded'
+      const taskScore: number | undefined = runs[0] ? runTaskScore(runs[0]) : undefined
       const failedTerminalRuns: number = report.execution.terminalOutcomes.failed
       const executionErrorEvents: number = report.execution.executionErrors.events
+      const succeededWithErrors: number =
+        report.execution.executionErrors.byTerminalOutcome.succeeded.withErrors
       const loop: Promise<StuckLoopReport> = stuckLoopView(new InMemoryTraceStore())
       const runtimeRun: Run | undefined = undefined
       const campaignProposer = null as unknown as CampaignSurfaceProposer
@@ -250,8 +254,10 @@ try {
         golden,
         report,
         terminalOutcome,
+        taskScore,
         failedTerminalRuns,
         executionErrorEvents,
+        succeededWithErrors,
         loop,
         runtimeRun,
         campaignRoundTrip,

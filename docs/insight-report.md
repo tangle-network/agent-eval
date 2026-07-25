@@ -41,12 +41,23 @@ These fields describe what ran; they do not claim whether the task succeeded.
 `executionErrors` counts child or internal errors reported by the producer.
 `terminalOutcomes` reads only `RunRecord.terminalOutcome`, which must come from root-run or process evidence.
 A child tool error can therefore appear in a run whose terminal outcome is `succeeded`.
+Current OTel and code-agent adapters also preserve process, guardrail, judge, propagated-parent, and unknown error counts in `RunRecord.outcome.raw`.
+These counters are diagnostic and never become task-quality scores.
 
 ```jsonc
 {
   "execution": {
     "durationMs": { "n": 30, "p50": 5400, "p95": 82000, "min": 900, "max": 190000 },
-    "queueMs": { "n": 0, "histogram": [] },
+    "queueMs": {
+      "n": 0,
+      "mean": null,
+      "p50": null,
+      "p95": null,
+      "stddev": null,
+      "min": null,
+      "max": null,
+      "histogram": []
+    },
     "tokenUsage": {
       "totals": { "input": 50132, "output": 471783, "reasoning": 12000, "cached": 60489565, "cacheWrite": 3032227 },
       "input": { "n": 30, "p50": 25, "p95": 56 },
@@ -72,7 +83,13 @@ A child tool error can therefore appear in a run whose terminal outcome is `succ
       "reportingRuns": 30,
       "errorSpanEvents": 3,
       "errorSpanReportingRuns": 30,
-      "recovery": { "recoveredRuns": 1, "unrecoveredRuns": 0, "unknownRuns": 1 }
+      "byTerminalOutcome": {
+        "succeeded": { "withErrors": 1, "withoutErrors": 26, "unreported": 0 },
+        "failed": { "withErrors": 0, "withoutErrors": 1, "unreported": 0 },
+        "cancelled": { "withErrors": 0, "withoutErrors": 0, "unreported": 0 },
+        "incomplete": { "withErrors": 0, "withoutErrors": 0, "unreported": 0 },
+        "unknown": { "withErrors": 1, "withoutErrors": 1, "unreported": 0 }
+      }
     },
     "terminalOutcomes": {
       "succeeded": 27,
@@ -86,9 +103,12 @@ A child tool error can therefore appear in a run whose terminal outcome is `succ
 ```
 
 Use `distribution.n` for optional fields to distinguish an uncaptured category from a recorded zero.
+When `distribution.n` is zero, `mean`, percentiles, standard deviation, minimum, and maximum are `null`.
 Use `executionErrors.reportingRuns` to assess error-telemetry coverage.
 `errorSpanEvents` preserves the exact child-span error count separately from other reported execution errors.
-The error fraction uses `reportingRuns` as its denominator, so missing telemetry is not treated as a clean run.
+The error fraction uses `reportingRuns` as its denominator and is `null` when no run reported error telemetry, so missing telemetry is not treated as a clean run.
+`byTerminalOutcome` is a cross-tab, not a causal recovery claim.
+It keeps reported errors, reported zeroes, and missing error telemetry separate for every terminal result.
 Missing terminal evidence counts as `unknown`, not `failed`.
 Never add `aggregateUsage` to direct `tokenUsage`: orchestration spans may repeat model-call usage from other traces.
 Cost remains in `costQuality`, where observed, estimated, and uncaptured USD stay separate.
@@ -119,7 +139,9 @@ Always present. The basic "where are my numbers" view.
 }
 ```
 
-**Read first:** the `composite.mean`. If it's < 0.5, your agent has a ceiling problem, not a tuning problem.
+Read `composite.mean` only when `composite.n > 0`.
+A `null` mean means task quality was not measured, not that quality was zero.
+When a measured mean is below 0.5, inspect the lowest-scoring runs before tuning.
 
 **Read next:** `perDimension`. If `clarity` is high but `concision` is low, your prompts get the right ideas in too many words: different fix than "wrong ideas."
 
@@ -226,12 +248,18 @@ Populated when baseline + candidate candidates are present (auto-detected from t
     "ci95": [0.04, 0.10],          // bootstrap CI on the delta
     "pValue": 0.0008,              // paired t-test
     "n": 40,                       // paired observations
-    "cohensD": 0.41,
+    "unpairedBaselineRuns": 2,
+    "unpairedCandidateRuns": 1,
+    "cohensD": 0.41,              // paired Cohen's dz; null when delta variance is zero
     "mde": 0.06,                   // min detectable effect at current n, 80% power
-    "requiredN": 38                // n needed for observed delta at 80% power
+    "requiredN": 38                // paired n needed at 80% power; null when dz is undefined
   }
 }
 ```
+
+Rows pair only when `(experimentId, scenarioId, seed)` matches.
+Missing `scenarioId` and duplicate identities fail loudly.
+Unmatched rows are reported and excluded from paired statistics.
 
 **Decision rule:**
 - `ci95[0] > threshold` → **SHIP.** Lower bound above your delta threshold means the lift is real at 95% confidence.

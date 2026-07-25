@@ -42,7 +42,8 @@ import type {
   OptimizationMethodProvenance,
 } from './presets/compare-optimization-methods'
 import type { RunImprovementLoopResult } from './presets/run-improvement-loop'
-import { campaignMeanComposite } from './score-utils'
+import { campaignCellExecutionEvidence, projectCampaignCellQuality } from './run-record'
+import { campaignMeanComposite, campaignMeanCompositeOrNull } from './score-utils'
 import type { CampaignStorage } from './storage'
 import { renderSurfaceDiff, surfaceContentHash, surfaceHash } from './surface-identity'
 import type {
@@ -268,13 +269,7 @@ export function loopProvenanceArgsFromResult<TArtifact, TScenario extends Scenar
 function meanHoldoutComposite<TArtifact, TScenario extends Scenario>(
   campaign: CampaignResult<TArtifact, TScenario>,
 ): number {
-  const xs: number[] = []
-  for (const cell of campaign.cells) {
-    if (cell.error) continue
-    const cs = Object.values(cell.judgeScores).map((s) => s.composite)
-    if (cs.length) xs.push(cs.reduce((a, b) => a + b, 0) / cs.length)
-  }
-  return xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : 0
+  return campaignMeanComposite(campaign)
 }
 
 /** Build the durable provenance record from a completed loop result. */
@@ -398,8 +393,6 @@ export function buildLoopProvenanceRecord<TArtifact, TScenario extends Scenario>
   }
 
   const holdoutDeferred = args.holdout === 'deferred'
-  const baselineHoldoutComposite = meanHoldoutComposite(args.baselineOnHoldout)
-  const winnerHoldoutComposite = meanHoldoutComposite(args.winnerOnHoldout)
   if (args.baselineOnHoldout.splitDigest !== args.winnerOnHoldout.splitDigest) {
     throw new Error('buildLoopProvenanceRecord: baseline and winner use different holdout splits')
   }
@@ -416,9 +409,21 @@ export function buildLoopProvenanceRecord<TArtifact, TScenario extends Scenario>
       'buildLoopProvenanceRecord: neutralized campaign uses a different holdout split',
     )
   }
-  const neutralizedComposite = args.neutralizedOnHoldout
-    ? meanHoldoutComposite(args.neutralizedOnHoldout)
-    : undefined
+  if (holdoutDeferred && args.neutralizedOnHoldout) {
+    throw new Error(
+      'buildLoopProvenanceRecord: a deferred holdout cannot include a neutralized measurement',
+    )
+  }
+  const holdoutMeasurement = holdoutDeferred
+    ? { kind: 'deferred' as const }
+    : {
+        kind: 'measured' as const,
+        baseline: meanHoldoutComposite(args.baselineOnHoldout),
+        winner: meanHoldoutComposite(args.winnerOnHoldout),
+        ...(args.neutralizedOnHoldout
+          ? { neutralized: meanHoldoutComposite(args.neutralizedOnHoldout) }
+          : {}),
+      }
 
   const diff =
     surfaceContentHash(args.baselineSurface) === surfaceContentHash(args.winnerSurface)
@@ -445,13 +450,14 @@ export function buildLoopProvenanceRecord<TArtifact, TScenario extends Scenario>
         winnerCampaignDigest: campaignMeasurementDigest(args.winnerOnHoldout),
         ...(args.neutralizedSurface &&
         args.neutralizedOnHoldout &&
-        neutralizedComposite !== undefined
+        holdoutMeasurement.kind === 'measured' &&
+        holdoutMeasurement.neutralized !== undefined
           ? {
               neutralized: {
                 contentHash: surfaceContentHash(args.neutralizedSurface),
                 campaignDigest: campaignMeasurementDigest(args.neutralizedOnHoldout),
-                composite: neutralizedComposite,
-                lift: neutralizedComposite - baselineHoldoutComposite,
+                composite: holdoutMeasurement.neutralized,
+                lift: holdoutMeasurement.neutralized - holdoutMeasurement.baseline,
               },
             }
           : {}),
@@ -473,12 +479,12 @@ export function buildLoopProvenanceRecord<TArtifact, TScenario extends Scenario>
     },
     // Deferred holdout records the MODE, never a fabricated 0-lift: the
     // held-out comparison intentionally did not run in this loop.
-    ...(holdoutDeferred
+    ...(holdoutMeasurement.kind === 'deferred'
       ? { holdout: 'deferred' as const }
       : {
-          baselineHoldoutComposite,
-          winnerHoldoutComposite,
-          heldOutLift: winnerHoldoutComposite - baselineHoldoutComposite,
+          baselineHoldoutComposite: holdoutMeasurement.baseline,
+          winnerHoldoutComposite: holdoutMeasurement.winner,
+          heldOutLift: holdoutMeasurement.winner - holdoutMeasurement.baseline,
         }),
     backend: {
       verdict: integrity.verdict,
@@ -742,8 +748,17 @@ export function loopProvenanceSpans(
   opts: { baseTimeMs?: number } = {},
 ): TraceSpanEvent[] {
   const traceId = hashId(['trace', record.runId]).slice(0, 32)
-  const baseNano = (opts.baseTimeMs ?? (Date.parse(record.timestamp) || Date.now())) * 1_000_000
-  const endNano = baseNano + Math.max(1, record.totalDurationMs) * 1_000_000
+  const baseTimeMs = opts.baseTimeMs ?? (Date.parse(record.timestamp) || Date.now())
+  const durationMs = Math.max(1, record.totalDurationMs)
+  if (!Number.isSafeInteger(baseTimeMs) || baseTimeMs < 0) {
+    throw new RangeError('loop provenance baseTimeMs must be a non-negative safe integer')
+  }
+  if (!Number.isSafeInteger(durationMs)) {
+    throw new RangeError('loop provenance duration must be a safe integer number of milliseconds')
+  }
+  const baseTime = BigInt(baseTimeMs)
+  const baseNano = (baseTime * 1_000_000n).toString()
+  const endNano = ((baseTime + BigInt(durationMs)) * 1_000_000n).toString()
   const spans: TraceSpanEvent[] = []
 
   const rootSpanId = hashId(['root', record.runId]).slice(0, 16)
@@ -909,30 +924,25 @@ function snapshotFromHoldout<TArtifact, TScenario extends Scenario>(
   campaign: CampaignResult<TArtifact, TScenario>,
 ): EvalRunGenerationSnapshot {
   const cells: EvalRunCellScore[] = campaign.cells.map((cell) => {
-    const judgeScores = Object.values(cell.judgeScores)
-    const composite =
-      judgeScores.length === 0
-        ? 0
-        : judgeScores.reduce((s, j) => s + j.composite, 0) / judgeScores.length
+    const execution = campaignCellExecutionEvidence(cell)
+    const quality = projectCampaignCellQuality(cell)
     const score: EvalRunCellScore = {
       scenarioId: cell.scenarioId,
       rep: cell.rep,
-      compositeMean: composite,
-      dimensions: Object.fromEntries(
-        Object.entries(cell.judgeScores).map(([name, s]) => [name, s.dimensions]),
-      ),
+      compositeMean: quality.score ?? null,
+      dimensions: quality.judgeScores?.perJudge ?? {},
+      terminalOutcome: execution.terminalOutcome,
+      executionErrorCount: execution.executionErrorCount ?? null,
     }
     if (cell.error) score.errorMessage = cell.error
     return score
   })
-  const compositeMean =
-    cells.length === 0 ? 0 : cells.reduce((s, c) => s + c.compositeMean, 0) / cells.length
   return {
     index,
     surfaceHash,
     surface,
     cells,
-    compositeMean,
+    compositeMean: campaignMeanCompositeOrNull(campaign),
     costUsd: campaign.aggregates.totalCostUsd,
     durationMs: campaign.durationMs,
   }

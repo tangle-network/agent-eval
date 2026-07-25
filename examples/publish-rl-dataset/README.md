@@ -4,11 +4,11 @@ End-to-end demo: take the `RunRecord`s from a graded agent-eval campaign and
 package them into a dataset someone can **publish or buy**: the trainer JSONL
 plus a manifest and a datasheet.
 
-This is the step *after* [`../fine-tune-with-prime-rl`](../fine-tune-with-prime-rl).
-That example projects runs into a single SFT file you train on yourself. This
-one emits the whole artifact: GRPO + SFT JSONL, a `manifest.json`, and a
-"Datasheet for Datasets" card. The datasheet is the difference between a folder
-of JSONL and a dataset a buyer will trust.
+This is the step after [`../fine-tune-with-prime-rl`](../fine-tune-with-prime-rl).
+That example projects runs into one SFT file.
+This example also emits a `manifest.json` and `DATASHEET.md`.
+SFT is the default because it needs one scored completion per scenario.
+Request GRPO only when every scenario has at least two rewarded completions.
 
 ## What `buildRlDataset` adds over the raw exporters
 
@@ -26,8 +26,9 @@ provenance a buyer checks first:
 - **License + intended/out-of-scope/limitations.** An unlicensed dataset can't
   be sold; `buildRlDataset` requires the license field.
 
-It fails loud on an empty corpus and on `format: 'dpo'` without preference
-triples: an empty or malformed dataset must never be packaged silently.
+The CLI validates every input with `validateRunRecord`, rejects duplicate run IDs and duplicate prompt/completion pairs, and fails when a requested format has no trainable rows.
+It does not accept `dpo` because this example has no preference-triple input.
+Use `toDpoRows` directly when you have preference triples and text resolvers.
 
 ## Run it
 
@@ -45,32 +46,33 @@ pnpm tsx examples/publish-rl-dataset/build-dataset.ts \
   --license "Tangle Commercial" \
   --reward-kind deterministic \
   --reward-source "TaxCalcBench XPath line-match" \
-  --reward-desc "fraction of 1040 lines matching ground truth"
+  --reward-desc "fraction of 1040 lines matching ground truth" \
+  --allow-held-out-training-data
 ```
 
-You get `./bundle/{train.grpo.jsonl, train.sft.jsonl, manifest.json, DATASHEET.md}`.
+You get `./bundle/{train.sft.jsonl, manifest.json, DATASHEET.md}`.
+
+For a multi-completion corpus, add `--formats grpo,sft`.
 
 ## Capturing the trajectory text
 
-The exporters resolve prompt/completion text by `runId` through the
-`{promptOf, completionOf}` lookups. Records must therefore carry that text. The
-two common ways to supply it:
+The exporters resolve prompt/completion text by `runId` through the `{promptOf, completionOf}` lookups.
+Records must therefore carry that text.
+The two common ways to supply it:
 
 1. **Top-level fields** (what this example reads, via `--prompt-key` /
    `--completion-key`). The TaxCalcBench runner persists `prompt` + `completion`
    directly on each record.
-2. **A `TraceStore`.** Real campaigns usually store the message trajectory in a
-   trace and recover it with `iterateRawCalls`. That's a ~5-line swap of the two
-   lookup functions in `build-dataset.ts`.
+2. **A `TraceStore`.** Real campaigns usually store the message trajectory in a trace and recover it with `iterateRawCalls`.
 
 If a record is missing its text the script throws rather than ship an empty
 completion into a paid dataset.
 
 ## Honest scope
 
-- The fixture is **holdout-only** (`holdout: 3`) because the three funded cases
-  were holdout-graded.
-  The generated datasheet reports the split represented by the input records.
+- The fixture is **holdout-only** (`holdout: 3`) because the three funded cases were holdout-graded.
+  The command therefore requires `--allow-held-out-training-data`.
+  Normal training exports accept only `search` and `dev` runs.
 - Reward here is **deterministic** (TaxCalcBench line-match). For domains with
   no objective scorer (e.g. open-ended writing), reward is `probabilistic` and
   the card says so: buyers should price that difference in.

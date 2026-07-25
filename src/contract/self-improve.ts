@@ -7,7 +7,6 @@
  * against cases that candidate generation never receives.
  */
 
-import { createHash } from 'node:crypto'
 import { defaultProductionGate } from '../campaign/gates/default-production-gate'
 import { type PowerPreflight, powerPreflight } from '../campaign/gates/power-preflight'
 import {
@@ -31,6 +30,12 @@ import {
 } from '../campaign/provenance'
 import { resolveRunDir } from '../campaign/run-dir'
 import {
+  campaignCellExecutionEvidence,
+  campaignCellJudgeDimensions,
+  campaignCellTaskScore,
+  campaignCellToRunRecord,
+} from '../campaign/run-record'
+import {
   type CampaignStorage,
   createRunCostLedger,
   fsCampaignStorage,
@@ -50,7 +55,7 @@ import type {
 import type { CostLedgerHandle, CostLedgerSummary, CostReceipt } from '../cost-ledger'
 import { createHostedClient, type HostedTenant } from '../hosted/client'
 import type { EvalRunCellScore, EvalRunEvent, EvalRunGenerationSnapshot } from '../hosted/types'
-import type { JudgeScoresRecord, RunRecord } from '../run-record'
+import type { RunRecord, RunSplitTag } from '../run-record'
 import { analyzeRuns } from './analyze-runs'
 import type { InsightReport } from './insight-report'
 
@@ -713,11 +718,15 @@ async function runSelfImprove<TScenario extends Scenario, TArtifact>(
   // Deferred holdout ran zero holdout cells, so the summary stats come from
   // the improvement-set (search) campaigns — labeled as such on the result
   // type — and `lift` is omitted rather than fabricated from empty campaigns.
-  const winnerSearch = holdoutDeferred ? winnerSearchCampaign(result) : undefined
-  const baseline = meanComposite(
-    (holdoutDeferred ? result.baselineCampaign : result.baselineOnHoldout).aggregates.byScenario,
-  )
-  const winnerStats = meanComposite((winnerSearch ?? result.winnerOnHoldout).aggregates.byScenario)
+  const reportSplit: RunSplitTag = holdoutDeferred ? 'search' : 'holdout'
+  const reportBaselineCampaign = holdoutDeferred
+    ? result.baselineCampaign
+    : result.baselineOnHoldout
+  const reportWinnerCampaign = holdoutDeferred
+    ? winnerSearchCampaign(result)
+    : result.winnerOnHoldout
+  const baseline = meanComposite(reportBaselineCampaign.aggregates.byScenario)
+  const winnerStats = meanComposite(reportWinnerCampaign.aggregates.byScenario)
 
   // Power analysis from the baseline holdout cells — the number that says whether
   // this budget could ship ANY effect. Attached to every result; loud when the
@@ -779,12 +788,19 @@ async function runSelfImprove<TScenario extends Scenario, TArtifact>(
   // sections populate from the cells' judgeScores.
   const insight = await analyzeRuns({
     runs: [
-      ...cellsToRunRecords(result.baselineCampaign.cells, 'baseline', runDir, opts.baselineSurface),
       ...cellsToRunRecords(
-        (winnerSearch ?? result.winnerOnHoldout).cells,
+        reportBaselineCampaign.cells,
+        'baseline',
+        runDir,
+        opts.baselineSurface,
+        reportSplit,
+      ),
+      ...cellsToRunRecords(
+        reportWinnerCampaign.cells,
         'winner',
         runDir,
         result.winnerSurface,
+        reportSplit,
       ),
     ],
     baselineCandidateId: 'baseline',
@@ -891,23 +907,24 @@ async function shipEvalRunToHosted<TScenario extends Scenario, TArtifact>(
     durationMs: number,
   ): EvalRunGenerationSnapshot {
     const cells: EvalRunCellScore[] = campaign.cells.map((cell) => {
-      const judgeScores = Object.values(cell.judgeScores)
-      const composite =
-        judgeScores.length === 0
-          ? 0
-          : judgeScores.reduce((s, j) => s + j.composite, 0) / judgeScores.length
+      const execution = campaignCellExecutionEvidence(cell)
       return {
         scenarioId: cell.scenarioId,
         rep: cell.rep,
-        compositeMean: composite,
-        dimensions: Object.fromEntries(
-          Object.entries(cell.judgeScores).map(([name, score]) => [name, score.dimensions]),
-        ),
+        compositeMean: campaignCellTaskScore(cell) ?? null,
+        dimensions: campaignCellJudgeDimensions(cell),
+        terminalOutcome: execution.terminalOutcome,
+        executionErrorCount: execution.executionErrorCount ?? null,
         errorMessage: cell.error ?? undefined,
       }
     })
+    const scoredCells = cells.flatMap((cell) =>
+      cell.compositeMean === null ? [] : [cell.compositeMean],
+    )
     const compositeMean =
-      cells.length === 0 ? 0 : cells.reduce((s, c) => s + c.compositeMean, 0) / cells.length
+      scoredCells.length === 0
+        ? null
+        : scoredCells.reduce((sum, score) => sum + score, 0) / scoredCells.length
     return {
       index,
       surfaceHash: surfaceHash(surface),
@@ -976,7 +993,7 @@ function hashString(s: string): string {
 /**
  * Adapt campaign cells into the `RunRecord` shape `analyzeRuns()` consumes.
  * Each cell becomes one run; `candidateId` is the caller-supplied label so
- * baseline + winner pair cleanly on `(experimentId, seed)`.
+ * baseline + winner pair cleanly on `(experimentId, scenarioId, seed)`.
  *
  * `promptHash` is the REAL sha256 content hash of the surface this cell ran
  * (baseline vs winner are byte-distinguishable + byte-identical-verifiable);
@@ -989,44 +1006,16 @@ function cellsToRunRecords<TArtifact>(
   candidateId: 'baseline' | 'winner',
   runId: string,
   surface: MutableSurface,
+  splitTag: RunSplitTag,
 ): RunRecord[] {
   const promptHash = surfaceContentHash(surface)
-  const configHash = `sha256:${createHash('sha256').update(candidateId).digest('hex')}`
-  return cells.map((cell) => {
-    const perJudge: Record<string, Record<string, number>> = {}
-    const perDimMeanAccum: Record<string, { sum: number; n: number }> = {}
-    let compositeSum = 0
-    let compositeCount = 0
-    for (const [judgeId, score] of Object.entries(cell.judgeScores)) {
-      perJudge[judgeId] = { ...score.dimensions }
-      for (const [dim, value] of Object.entries(score.dimensions)) {
-        if (!Number.isFinite(value)) continue
-        const accum = perDimMeanAccum[dim] ?? { sum: 0, n: 0 }
-        accum.sum += value
-        accum.n += 1
-        perDimMeanAccum[dim] = accum
-      }
-      if (Number.isFinite(score.composite)) {
-        compositeSum += score.composite
-        compositeCount += 1
-      }
-    }
-    const perDimMean: Record<string, number> = {}
-    for (const [dim, { sum, n }] of Object.entries(perDimMeanAccum)) {
-      perDimMean[dim] = n === 0 ? 0 : sum / n
-    }
-    const composite = compositeCount === 0 ? 0 : compositeSum / compositeCount
-    const judgeScores: JudgeScoresRecord = {
-      perJudge,
-      perDimMean,
-      composite,
-    }
-    return {
+  const configHash = surfaceContentHash(candidateId)
+  return cells.map((cell) =>
+    campaignCellToRunRecord(cell, {
       runId: `${runId}::${candidateId}::${cell.cellId}`,
       experimentId: runId,
       candidateId,
-      // Pair on (scenarioId, rep) — analyzeRuns pairs on (experimentId, seed).
-      // Synthesize a stable seed for that pairing.
+      // scenarioId is explicit; seed keeps repeated runs distinct.
       seed:
         cell.rep * 1_000_000 +
         hashString(cell.scenarioId)
@@ -1037,26 +1026,7 @@ function cellsToRunRecords<TArtifact>(
       promptHash,
       configHash,
       commitSha: 'cell',
-      wallMs: cell.durationMs,
-      costUsd: cell.costUsd,
-      tokenUsage: {
-        input: cell.tokenUsage.input,
-        output: cell.tokenUsage.output,
-        ...(cell.tokenUsage.reasoning === undefined
-          ? {}
-          : { reasoning: cell.tokenUsage.reasoning }),
-        ...(cell.tokenUsage.cached === undefined ? {} : { cached: cell.tokenUsage.cached }),
-        ...(cell.tokenUsage.cacheWrite === undefined
-          ? {}
-          : { cacheWrite: cell.tokenUsage.cacheWrite }),
-      },
-      outcome: {
-        holdoutScore: composite,
-        raw: {},
-        judgeScores,
-      },
-      splitTag: 'holdout',
-      ...(cell.error ? { failureMode: cell.error } : {}),
-    } satisfies RunRecord
-  })
+      splitTag,
+    }),
+  )
 }

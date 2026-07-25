@@ -142,7 +142,7 @@ export function buildDatasetCard(inputs: DatasetCardInputs): string {
 
 One line per agent invocation (supervisor episode, worker session, proposer shot, judge call, analyst pass) captured by the \`${ROLLOUT_SCHEMA}\` rollout ledger, labeled with improvement-loop coordinates and the official-judge reward, with the full message transcript inline.
 
-This release contains the **trainable split only** (\`search\`, plus the legacy \`train\` alias). Holdout, dev, and canary splits are structurally excluded at build time (never exported), and the build additionally drops any non-trainable line as a fail-closed filter (${excluded.nonTrain} dropped here).
+This release contains the **trainable split only** (\`search\`). Holdout, dev, and canary splits are structurally excluded at build time, and the build additionally drops any non-trainable line as a fail-closed filter (${excluded.nonTrain} dropped here).
 
 ## Formats
 

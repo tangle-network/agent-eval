@@ -1,5 +1,5 @@
 import { gzipSync } from 'node:zlib'
-import type { RunRecord } from './run-record'
+import { type RunRecord, runTaskScore } from './run-record'
 
 /**
  * DescriptionLengthGate — a Minimum-Description-Length promotion gate, the
@@ -96,12 +96,9 @@ export interface DescriptionLengthCandidate {
   runs: RunRecord[]
 }
 
-/** Score a single run, preferring the held-out score, then search, then the
- *  raw `score` metric. Returns undefined when the run carries no score. */
+/** Return the canonical task-quality score, if the run carries one. */
 function runScore(run: RunRecord): number | undefined {
-  const o = run.outcome
-  const s = o.holdoutScore ?? o.searchScore ?? o.raw?.score
-  return typeof s === 'number' && Number.isFinite(s) ? s : undefined
+  return runTaskScore(run)
 }
 
 /** Pairing key — the same scenario/experiment identity HeldOutGate pairs on. */

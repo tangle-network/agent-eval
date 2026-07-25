@@ -41,7 +41,9 @@ function makeRun(id: string, composite: number): RunRecord {
     commitSha: 'abc',
     wallMs: 100,
     costUsd: 0.01,
+    costProvenance: { kind: 'observed', usd: 0.01 },
     tokenUsage: { input: 100, output: 50 },
+    terminalOutcome: 'succeeded',
     outcome: {
       holdoutScore: composite,
       raw: {},
@@ -52,6 +54,7 @@ function makeRun(id: string, composite: number): RunRecord {
       },
     },
     splitTag: 'holdout' as const,
+    scenarioId: id,
   }
 }
 

@@ -61,12 +61,13 @@ describe('empirical proof — analyzeRuns on a real agent corpus (agent-builder 
     const report = await analyzeRuns({ runs })
 
     // The structured `failureMode` tags are tallied without any LLM.
-    // forge_build_unsatisfied dominates (9 runs) in this real corpus.
+    // forge_build_unsatisfied dominates among task-failed runs. One tagged
+    // record scored above the task-failure threshold and is excluded.
     expect(report.failureModes).toBeDefined()
     const top = report.failureModes![0]!
     expect(top.mode).toBe('forge_build_unsatisfied')
-    expect(top.count).toBe(9)
-    expect(top.share).toBeCloseTo(9 / 32, 5)
+    expect(top.count).toBe(8)
+    expect(top.share).toBeCloseTo(8 / 32, 5)
   })
 
   it('fires a dominant-failure-mode recommendation even though mean (0.61) looks fine', async () => {
@@ -98,7 +99,7 @@ describe('empirical proof — analyzeRuns on a real agent corpus (agent-builder 
 
     const top = report.failureModes![0]!
     expect(top.mode).toBe('tool_recovery_failure') // canonical class, not the detail
-    expect(top.count).toBe(9)
+    expect(top.count).toBe(8)
     const rec = report.recommendations.find((r) => r.evidencePath === 'failureModes')
     expect(rec!.title).toContain('tool_recovery_failure')
   })

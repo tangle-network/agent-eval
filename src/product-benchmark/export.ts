@@ -22,7 +22,7 @@ import { createHash } from 'node:crypto'
 import { cpSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { basename, dirname, isAbsolute, join, relative, resolve } from 'node:path'
 import { ValidationError } from '../errors'
-import type { RunRecord } from '../run-record'
+import { type RunRecord, runTaskScore } from '../run-record'
 import type {
   ProductBenchmarkManifest,
   ProductBenchmarkRecord,
@@ -251,10 +251,19 @@ function splitOf(record: RunRecord, opts: ResolvedExportOptions): ProductBenchma
 }
 
 function scoreOf(record: RunRecord): number {
-  const score = record.outcome.holdoutScore ?? record.outcome.searchScore
-  if (typeof score === 'number' && Number.isFinite(score)) return clamp01(score)
-  const rawScore = record.outcome.raw.score ?? record.outcome.raw.composite
-  return typeof rawScore === 'number' && Number.isFinite(rawScore) ? clamp01(rawScore) : 0
+  const score = runTaskScore(record)
+  if (score !== undefined) return clamp01(score)
+  if (
+    (record.outcome.judgeScores?.failedJudges?.length ?? 0) > 0 ||
+    (record.outcome.raw.judge_error_count ?? 0) > 0
+  ) {
+    throw new ValidationError(
+      `Run ${record.runId} has incomplete judge evidence; product benchmark rows require a complete task score`,
+    )
+  }
+  throw new ValidationError(
+    `Run ${record.runId} has no task score; product benchmark rows require an explicit score`,
+  )
 }
 
 function rawPassOf(record: RunRecord): boolean | null {
@@ -442,13 +451,19 @@ export function runRecordToProductBenchmarkRecord(
   const outputTokens = record.tokenUsage.output
   const toolCallCount = toolCallsOf(record, runDir, opts)
   const dimensions = numericDimensions(record)
+  if (record.costUsd === null) {
+    throw new ValidationError(
+      `run '${record.runId}' has no USD cost; product benchmark exports require priced runs`,
+    )
+  }
+  const costUsd = record.costUsd
   if (!('tool_calls' in dimensions)) dimensions.tool_calls = toolCallCount
   const product: ProductBenchmarkRecord = {
     schemaVersion: 1,
     projectId: opts.projectId,
     benchmarkId: opts.benchmarkId,
     runId: record.runId,
-    scenarioId: record.scenarioId ?? record.experimentId,
+    scenarioId: record.scenarioId,
     split: splitOf(record, opts),
     armId,
     rep: Number(record.seed ?? 0) + 1,
@@ -470,7 +485,7 @@ export function runRecordToProductBenchmarkRecord(
     usage: {
       inputTokens,
       outputTokens,
-      costUsd: record.costUsd,
+      costUsd,
       // Rounded: the bundle contract requires integer milliseconds.
       wallMs: Math.round(record.wallMs),
       toolCalls: toolCallCount,
@@ -480,7 +495,7 @@ export function runRecordToProductBenchmarkRecord(
       rawCapture: existsArtifact(artifactRoot, artifacts.raws),
       traceCapture: existsArtifact(artifactRoot, artifacts.traces),
       noStubRows: inputTokens + outputTokens > 0,
-      priced: record.costUsd > 0,
+      priced: costUsd > 0,
       profileMaterialized: Boolean(record.agentProfile?.cellId),
     },
     artifacts,

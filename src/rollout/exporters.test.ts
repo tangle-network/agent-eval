@@ -12,11 +12,21 @@ import { fixtureRolloutLine } from './fixtures'
 describe('SFT exporter', () => {
   it('keeps only clean trainable successes with messages', () => {
     const keep = fixtureRolloutLine()
+    const dev = fixtureRolloutLine({ task: { ...keep.task, split: 'dev' } })
     const holdout = fixtureRolloutLine({ task: { ...keep.task, split: 'holdout' } })
     const failed = fixtureRolloutLine({ outcome: { ...keep.outcome, reward: 0 } })
     const partial = fixtureRolloutLine({ outcome: { ...keep.outcome, reward: 0.5 } })
     const unlabeled = fixtureRolloutLine({ outcome: { ...keep.outcome, reward: null } })
     const gated = fixtureRolloutLine({ outcome: { ...keep.outcome, realness_gated: true } })
+    const errored = fixtureRolloutLine({
+      outcome: { ...keep.outcome, error: 'worker exited 1' },
+    })
+    const truncated = fixtureRolloutLine({
+      outcome: { ...keep.outcome, is_truncated: true },
+    })
+    const incomplete = fixtureRolloutLine({
+      outcome: { ...keep.outcome, is_completed: false },
+    })
     const gap = fixtureRolloutLine({
       messages: [],
       provenance: {
@@ -25,8 +35,20 @@ describe('SFT exporter', () => {
         gap: 'store unavailable',
       },
     })
-    const rows = toSftRows([keep, holdout, failed, partial, unlabeled, gated, gap])
-    expect(rows).toHaveLength(1)
+    const rows = toSftRows([
+      keep,
+      dev,
+      holdout,
+      failed,
+      partial,
+      unlabeled,
+      gated,
+      errored,
+      truncated,
+      incomplete,
+      gap,
+    ])
+    expect(rows).toHaveLength(2)
     expect(rows[0]!.messages).toEqual(keep.messages)
     expect(rows[0]!.metadata).toEqual({
       rollout_id: keep.rollout_id,
@@ -37,14 +59,10 @@ describe('SFT exporter', () => {
     })
   })
 
-  it('never leaks a holdout line even at reward 1 (fail-closed filter)', () => {
+  it('requires the named override for held-out data', () => {
     const holdout = fixtureRolloutLine({ task: { ...fixtureRolloutLine().task, split: 'holdout' } })
     expect(toSftRows([holdout])).toHaveLength(0)
-  })
-
-  it('treats the legacy train split as trainable', () => {
-    const legacy = fixtureRolloutLine({ task: { ...fixtureRolloutLine().task, split: 'train' } })
-    expect(toSftRows([legacy])).toHaveLength(1)
+    expect(toSftRows([holdout], { allowHeldOutTrainingData: true })).toHaveLength(1)
   })
 
   it('toJsonl emits one JSON object per line with a trailing newline', () => {
@@ -55,13 +73,17 @@ describe('SFT exporter', () => {
 })
 
 describe('reward-rows exporter', () => {
-  it('keeps failures as signal with their scalar reward, drops unlabeled lines', () => {
+  it('keeps only positive, completed search rows by default', () => {
     const success = fixtureRolloutLine()
-    const failure = fixtureRolloutLine({ outcome: { ...success.outcome, reward: 0 } })
+    const dev = fixtureRolloutLine({ task: { ...success.task, split: 'dev' } })
+    const nonPositive = fixtureRolloutLine({ outcome: { ...success.outcome, reward: 0 } })
     const unlabeled = fixtureRolloutLine({ outcome: { ...success.outcome, reward: null } })
-    const rows = toRewardRows([success, failure, unlabeled])
-    expect(rows).toHaveLength(2)
-    expect(rows.map((r) => r.reward)).toEqual([1, 0])
+    const failed = fixtureRolloutLine({
+      outcome: { ...success.outcome, error: 'worker exited 1' },
+    })
+    const rows = toRewardRows([success, dev, nonPositive, unlabeled, failed])
+    expect(rows).toHaveLength(1)
+    expect(rows.map((r) => r.reward)).toEqual([1])
     expect(rows[0]!.prompt).toBe('Fix the misleading exception in TimeSeries.')
     expect(rows[0]!.metadata.split).toBe('search')
   })
@@ -101,6 +123,16 @@ describe('verifiers RolloutOutput exporter', () => {
     })
     expect(toVerifiersRolloutOutputs([gap, fixtureRolloutLine()])).toHaveLength(1)
   })
+
+  it('applies the same quality, completion, and split policy as other training exports', () => {
+    const base = fixtureRolloutLine()
+    const holdout = fixtureRolloutLine({ task: { ...base.task, split: 'holdout' } })
+    const failed = fixtureRolloutLine({ outcome: { ...base.outcome, error: 'failed' } })
+    const zero = fixtureRolloutLine({ outcome: { ...base.outcome, reward: 0 } })
+
+    expect(toVerifiersRolloutOutputs([base, holdout, failed, zero])).toHaveLength(1)
+    expect(toVerifiersRolloutOutputs([holdout], { allowHeldOutTrainingData: true })).toHaveLength(1)
+  })
 })
 
 describe('OpenAI RFT items exporter', () => {
@@ -123,5 +155,15 @@ describe('OpenAI RFT items exporter', () => {
     const line = fixtureRolloutLine()
     const assistantFirst = fixtureRolloutLine({ messages: line.messages.slice(2) })
     expect(toRftItems([assistantFirst])).toHaveLength(0)
+  })
+
+  it('excludes held-out, failed, and non-positive rows by default', () => {
+    const base = fixtureRolloutLine()
+    const holdout = fixtureRolloutLine({ task: { ...base.task, split: 'holdout' } })
+    const failed = fixtureRolloutLine({ outcome: { ...base.outcome, error: 'failed' } })
+    const zero = fixtureRolloutLine({ outcome: { ...base.outcome, reward: 0 } })
+
+    expect(toRftItems([base, holdout, failed, zero])).toHaveLength(1)
+    expect(toRftItems([holdout], { allowHeldOutTrainingData: true })).toHaveLength(1)
   })
 })

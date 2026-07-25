@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest'
-import { campaignBreakdown, campaignMeanComposite } from '../../src/campaign/score-utils'
+import { projectCampaignCellQuality } from '../../src/campaign/run-record'
+import {
+  campaignBreakdown,
+  campaignMeanComposite,
+  campaignMeanCompositeOrNull,
+} from '../../src/campaign/score-utils'
 import type { CampaignCellResult, CampaignResult, Scenario } from '../../src/campaign/types'
 import { buildReflectionPrompt } from '../../src/reflective-mutation'
 
@@ -52,7 +57,7 @@ describe('error-grounding — judge notes reach the reflective proposer', () => 
     expect(c?.notes).toBe('missed line 16') // deduped, not 'missed line 16 | missed line 16'
   })
 
-  it('keeps invalid judge values out of descriptive aggregates', () => {
+  it('keeps a partial finite judge diagnostic but leaves the cell unscored', () => {
     const mixed = cell('mixed', 0.6, 'finite result')
     mixed.judgeScores.invalid = {
       composite: Number.NaN,
@@ -61,14 +66,19 @@ describe('error-grounding — judge notes reach the reflective proposer', () => 
     }
     const campaign = { cells: [mixed] } as unknown as CampaignResult<unknown, Scenario>
 
-    expect(campaignMeanComposite(campaign)).toBe(0.6)
+    const quality = projectCampaignCellQuality(mixed)
+    expect(quality.score).toBeUndefined()
+    expect(quality.judgeScores?.perJudge).toEqual({ j: { d: 0.6 } })
+    expect(quality.failedJudges).toEqual(['invalid'])
+    expect(campaignMeanCompositeOrNull(campaign)).toBeNull()
+    expect(() => campaignMeanComposite(campaign)).toThrow(/no complete cell-quality scores/)
     expect(campaignBreakdown(campaign)).toEqual({
-      dimensions: { d: 0.6 },
-      scenarios: [{ scenarioId: 'mixed', composite: 0.6, notes: 'finite result' }],
+      dimensions: {},
+      scenarios: [],
     })
   })
 
-  it('excludes failed judge scores from means instead of folding them into zeros', () => {
+  it('does not promote a surviving judge score when another judge failed', () => {
     // JudgeScore contract (types.ts): `failed: true` composites carry no
     // signal — a judge-call error must not drag a candidate toward zero.
     const mixed = cell('mixed', 0.9, 'real verdict')
@@ -80,11 +90,14 @@ describe('error-grounding — judge notes reach the reflective proposer', () => 
     }
     const campaign = { cells: [mixed] } as unknown as CampaignResult<unknown, Scenario>
 
-    // Unfiltered folding would yield (0.9 + 0) / 2 = 0.45.
-    expect(campaignMeanComposite(campaign)).toBeCloseTo(0.9)
+    const quality = projectCampaignCellQuality(mixed)
+    expect(quality.score).toBeUndefined()
+    expect(quality.judgeScores?.composite).toBeCloseTo(0.9)
+    expect(quality.failedJudges).toEqual(['broken'])
+    expect(campaignMeanCompositeOrNull(campaign)).toBeNull()
     const bd = campaignBreakdown(campaign)
-    expect(bd.scenarios).toEqual([{ scenarioId: 'mixed', composite: 0.9, notes: 'real verdict' }])
-    expect(bd.dimensions).toEqual({ d: 0.9 })
+    expect(bd.scenarios).toEqual([])
+    expect(bd.dimensions).toEqual({})
   })
 
   it('buildReflectionPrompt quotes the failure note so the model targets it', () => {

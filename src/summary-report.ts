@@ -24,14 +24,15 @@
  */
 
 import type { GateDecision } from './held-out-gate'
+import { pairRunRecords } from './paired-arms'
 import type { FailureClusterReport } from './pipelines/failure-cluster'
 import { canonicalize, hashJson } from './pre-registration'
 import type { RunRecord } from './run-record'
 import {
   benjaminiHochberg,
-  cohensD,
   confidenceInterval,
   pairedBootstrap,
+  pairedCohensDz,
   pairedMde,
   wilcoxonSignedRank,
 } from './statistics'
@@ -39,7 +40,7 @@ import {
 // ── summaryTable ───────────────────────────────────────────────────────
 
 export interface SummaryTableOptions {
-  /** Comparator candidate id. Wilcoxon + Cohen's d are computed
+  /** Comparator candidate id. Wilcoxon + paired Cohen's dz are computed
    *  versus this candidate. Required for paired stats columns. */
   comparator?: string
   /** Which split to read scores from. Default 'holdout'. */
@@ -56,10 +57,16 @@ export interface SummaryTableRow {
   mean: number
   ciLow: number
   ciHigh: number
-  /** BH-adjusted q-value vs comparator. NaN if no comparator. */
-  qValue: number
-  /** Cohen's d vs comparator. NaN if no comparator. */
-  cohensD: number
+  /** BH-adjusted q-value vs comparator, or null when unavailable. */
+  qValue: number | null
+  /** Paired Cohen's dz vs comparator, or null when the paired variance is zero. */
+  cohensD: number | null
+  /** Matched observations used for paired comparison, or null on the comparator row. */
+  pairedN: number | null
+  /** Candidate observations without a comparator match. */
+  unpairedCandidateN: number | null
+  /** Comparator observations without a candidate match. */
+  unpairedComparatorN: number | null
 }
 
 export interface SummaryTable {
@@ -73,7 +80,7 @@ export interface SummaryTable {
 /**
  * Table 1 helper. Buckets runs by `candidateId`, computes mean +
  * bootstrap CI on the chosen split, and (when a comparator is given)
- * BH-adjusted Wilcoxon p + Cohen's d versus that comparator.
+ * BH-adjusted Wilcoxon p + paired Cohen's dz versus that comparator.
  */
 export function summaryTable(runs: RunRecord[], opts: SummaryTableOptions = {}): SummaryTable {
   const split = opts.split ?? 'holdout'
@@ -97,18 +104,24 @@ export function summaryTable(runs: RunRecord[], opts: SummaryTableOptions = {}):
   const compRuns = comparator ? byCandidate.get(comparator) : undefined
 
   // First pass: per-candidate means + CIs + raw p-values.
-  const tentative: Array<SummaryTableRow & { rawP: number }> = []
+  const tentative: Array<SummaryTableRow & { rawP: number | null }> = []
   for (const id of candidateIds) {
     const bucket = byCandidate.get(id)!
     const ci = confidenceInterval(bucket.scores, confidence)
-    let rawP = Number.NaN
-    let d = Number.NaN
+    let rawP: number | null = null
+    let d: number | null = null
+    let pairedN: number | null = null
+    let unpairedCandidateN: number | null = null
+    let unpairedComparatorN: number | null = null
     if (comparator && compRuns && id !== comparator) {
       const paired = pairScoresByKey(bucket.runs, compRuns.runs, scoreField)
+      pairedN = paired.before.length
+      unpairedCandidateN = paired.unpairedCandidateN
+      unpairedComparatorN = paired.unpairedComparatorN
       if (paired.before.length >= 6) {
         rawP = wilcoxonSignedRank(paired.before, paired.after).p
       }
-      d = cohensD(compRuns.scores, bucket.scores)
+      d = pairedCohensDz(paired.before, paired.after)
     }
     tentative.push({
       candidateId: id,
@@ -118,6 +131,9 @@ export function summaryTable(runs: RunRecord[], opts: SummaryTableOptions = {}):
       ciHigh: ci.upper,
       qValue: rawP,
       cohensD: d,
+      pairedN,
+      unpairedCandidateN,
+      unpairedComparatorN,
       rawP,
     })
   }
@@ -131,7 +147,7 @@ export function summaryTable(runs: RunRecord[], opts: SummaryTableOptions = {}):
     for (let i = 0; i < tentative.length; i++) {
       const r = tentative[i]!
       if (r.candidateId === comparator) continue
-      if (!Number.isFinite(r.rawP)) continue
+      if (r.rawP === null || !Number.isFinite(r.rawP)) continue
       idxs.push(i)
       ps.push(r.rawP)
     }
@@ -152,26 +168,21 @@ function pairScoresByKey(
   candidate: RunRecord[],
   baseline: RunRecord[],
   scoreField: 'searchScore' | 'holdoutScore',
-): { before: number[]; after: number[] } {
-  const baseIdx = new Map<string, number>()
-  for (const r of baseline) {
-    const v = r.outcome[scoreField]
-    if (typeof v === 'number' && Number.isFinite(v)) {
-      baseIdx.set(`${r.experimentId}::${r.seed}`, v)
-    }
+): {
+  before: number[]
+  after: number[]
+  unpairedCandidateN: number
+  unpairedComparatorN: number
+} {
+  const scoredCandidate = candidate.filter((run) => Number.isFinite(run.outcome[scoreField]))
+  const scoredBaseline = baseline.filter((run) => Number.isFinite(run.outcome[scoreField]))
+  const pairing = pairRunRecords(scoredBaseline, scoredCandidate)
+  return {
+    before: pairing.pairs.map((pair) => pair.baseline.outcome[scoreField]!),
+    after: pairing.pairs.map((pair) => pair.treatment.outcome[scoreField]!),
+    unpairedCandidateN: pairing.unpairedTreatment.length,
+    unpairedComparatorN: pairing.unpairedBaseline.length,
   }
-  const before: number[] = []
-  const after: number[] = []
-  for (const r of candidate) {
-    const v = r.outcome[scoreField]
-    if (typeof v !== 'number' || !Number.isFinite(v)) continue
-    const key = `${r.experimentId}::${r.seed}`
-    const b = baseIdx.get(key)
-    if (b === undefined) continue
-    before.push(b)
-    after.push(v)
-  }
-  return { before, after }
 }
 
 function renderSummaryTableMarkdown(
@@ -183,13 +194,20 @@ function renderSummaryTableMarkdown(
   const cmpLabel = comparator ? ` (vs ${comparator})` : ''
   lines.push(`Summary Table — ${split} split${cmpLabel}`)
   lines.push('')
-  lines.push("| Candidate | N | Mean | 95% CI | q (BH) | Cohen's d |")
-  lines.push('|---|---:|---:|---|---:|---:|')
+  lines.push("| Candidate | N | Pairs | Unpaired | Mean | 95% CI | q (BH) | Cohen's dz |")
+  lines.push('|---|---:|---:|---:|---:|---|---:|---:|')
   for (const r of rows) {
     const ci = `[${fmt(r.ciLow)}, ${fmt(r.ciHigh)}]`
-    const q = Number.isFinite(r.qValue) ? r.qValue.toFixed(4) : '—'
-    const d = Number.isFinite(r.cohensD) ? r.cohensD.toFixed(3) : '—'
-    lines.push(`| ${r.candidateId} | ${r.n} | ${fmt(r.mean)} | ${ci} | ${q} | ${d} |`)
+    const q = r.qValue !== null ? r.qValue.toFixed(4) : '—'
+    const d = r.cohensD !== null ? r.cohensD.toFixed(3) : '—'
+    const paired = r.pairedN ?? '—'
+    const unpaired =
+      r.unpairedCandidateN === null || r.unpairedComparatorN === null
+        ? '—'
+        : `${r.unpairedCandidateN}/${r.unpairedComparatorN}`
+    lines.push(
+      `| ${r.candidateId} | ${r.n} | ${paired} | ${unpaired} | ${fmt(r.mean)} | ${ci} | ${q} | ${d} |`,
+    )
   }
   return lines.join('\n')
 }
@@ -209,7 +227,7 @@ export interface ParetoPoint {
   onFrontier: boolean
   /** Optional gate verdict for this candidate, if a `GateDecision`
    *  for it was passed in. */
-  gate?: 'promote' | 'reject_few_runs' | 'reject_negative_delta' | 'reject_overfit_gap' | null
+  gate?: 'promote' | 'reject'
 }
 
 export interface ParetoFigureSpec {
@@ -239,6 +257,7 @@ export function paretoChart(
     if (r.splitTag !== split) continue
     const v = r.outcome[scoreField]
     if (typeof v !== 'number' || !Number.isFinite(v)) continue
+    if (r.costUsd === null) continue
     const bucket = buckets.get(r.candidateId) ?? { cost: [], quality: [] }
     bucket.cost.push(r.costUsd)
     bucket.quality.push(v)
@@ -279,11 +298,7 @@ function dominates(a: ParetoPoint, b: ParetoPoint): boolean {
 }
 
 function gateLabel(d: GateDecision): ParetoPoint['gate'] {
-  if (d.promote) return 'promote'
-  if (d.rejectionCode === 'few_runs') return 'reject_few_runs'
-  if (d.rejectionCode === 'negative_delta') return 'reject_negative_delta'
-  if (d.rejectionCode === 'overfit_gap') return 'reject_overfit_gap'
-  return null
+  return d.promote ? 'promote' : 'reject'
 }
 
 // ── gainHistogram ───────────────────────────────────────────
@@ -304,9 +319,13 @@ export interface GainDistributionFigureSpec {
   split: 'search' | 'holdout'
   /** Number of pairs used. */
   n: number
+  /** Candidate rows without a comparator match. */
+  unpairedCandidateN: number
+  /** Comparator rows without a candidate match. */
+  unpairedComparatorN: number
   bins: GainDistributionBin[]
-  median: number
-  ci: { low: number; high: number }
+  median: number | null
+  ci: { low: number; high: number } | null
 }
 
 export interface GainDistributionOptions {
@@ -340,10 +359,11 @@ export function gainHistogram(
 
   const candidate = runs.filter((r) => r.candidateId === candidateId && r.splitTag === split)
   const baseline = runs.filter((r) => r.candidateId === comparator && r.splitTag === split)
-  // pairScoresByKey returns before=baseline-score, after=candidate-score
-  // for each (experimentId, seed) pair where both sides recorded a
-  // valid score on this split. delta = after - before = candidate - baseline.
-  const { before, after } = pairScoresByKey(candidate, baseline, scoreField)
+  const { before, after, unpairedCandidateN, unpairedComparatorN } = pairScoresByKey(
+    candidate,
+    baseline,
+    scoreField,
+  )
   const n = before.length
 
   if (n === 0) {
@@ -353,9 +373,11 @@ export function gainHistogram(
       comparator,
       split,
       n: 0,
+      unpairedCandidateN,
+      unpairedComparatorN,
       bins: [],
-      median: 0,
-      ci: { low: 0, high: 0 },
+      median: null,
+      ci: null,
     }
   }
 
@@ -395,6 +417,8 @@ export function gainHistogram(
     comparator,
     split,
     n,
+    unpairedCandidateN,
+    unpairedComparatorN,
     bins,
     median,
     ci: { low: ci.low, high: ci.high },
@@ -486,18 +510,17 @@ export interface ResearchReportCandidate {
   mean: number
   ciLow: number
   ciHigh: number
-  qValue: number
-  cohensD: number
+  qValue: number | null
+  cohensD: number | null
   meanDeltaVsComparator: number | null
   pairedN: number
   medianGain: number | null
   meanGain: number | null
   gainCi: { low: number; high: number } | null
   /**
-   * Bayesian-bootstrap-style posterior summaries on the paired delta. Computed
-   * from the same resamples that produce the gain CI; interpretable as
-   * "fraction of resamples in which the candidate beats the comparator on
-   * matched pairs."
+   * Bayesian-bootstrap posterior summaries on the paired mean delta.
+   * Dirichlet(1, ..., 1) weights represent uncertainty over the empirical
+   * distribution of matched deltas.
    */
   prGreaterThanZero: number | null
   prInRope: number | null
@@ -562,9 +585,9 @@ export interface ResearchReport {
  * Internal: paired posterior summary on (candidate − comparator) deltas.
  *
  * Returns the bootstrap CI on the median (matching `gainHistogram`) plus
- * Bayesian-flavoured posterior summaries Pr(Δ>0) and Pr(Δ∈ROPE) computed
- * from a Bayesian-bootstrap-flavoured resample distribution on the mean
- * (Rubin 1981 — non-informative bootstrap-prior duality), and the
+ * Bayesian-bootstrap posterior summaries Pr(Δ>0) and Pr(Δ∈ROPE) computed
+ * from Dirichlet(1, ..., 1) weights on the observed paired deltas
+ * (Rubin 1981), and the
  * minimum detectable paired effect at the configured power and α.
  *
  * `null` is returned when no paired observations exist; callers must
@@ -612,10 +635,7 @@ function pairedPosterior(
     seed: opts.seed,
   })
 
-  // Enumerate bootstrap-mean samples to derive posterior summaries on the
-  // mean delta. Same RNG family as `pairedBootstrap` but kept local so we can
-  // examine the full sample distribution rather than just quantiles.
-  const meanSamples = bootstrapMeanSamples(deltas, 2000, opts.seed)
+  const meanSamples = bayesianBootstrapMeanSamples(deltas, 2000, opts.seed)
   const prGreaterThanZero =
     meanSamples.length === 0 ? 0 : meanSamples.filter((s) => s > 0).length / meanSamples.length
   const prInRope =
@@ -639,16 +659,25 @@ function pairedPosterior(
   }
 }
 
-function bootstrapMeanSamples(deltas: number[], resamples: number, seed?: number): number[] {
+function bayesianBootstrapMeanSamples(
+  deltas: number[],
+  resamples: number,
+  seed?: number,
+): number[] {
   const n = deltas.length
   if (n === 0) return []
   if (n === 1) return new Array<number>(resamples).fill(deltas[0]!)
   const rng = seedRng(seed)
   const samples = new Array<number>(resamples)
   for (let b = 0; b < resamples; b++) {
-    let sum = 0
-    for (let k = 0; k < n; k++) sum += deltas[Math.floor(rng() * n)]!
-    samples[b] = sum / n
+    let weightedSum = 0
+    let weightSum = 0
+    for (let k = 0; k < n; k++) {
+      const weight = -Math.log(Math.max(Number.MIN_VALUE, rng()))
+      weightedSum += deltas[k]! * weight
+      weightSum += weight
+    }
+    samples[b] = weightedSum / weightSum
   }
   return samples
 }
@@ -679,7 +708,7 @@ function stdev(xs: number[], mean: number): number {
  *   - `summaryTable`         marginal stats with BH-FDR-adjusted q-values
  *   - `paretoChart`           cost-vs-quality frontier with gate overlay
  *   - `gainHistogram`         per-candidate paired-delta distribution
- *   - paired posterior (this file): bootstrap CI on median, Pr(Δ>0),
+ *   - paired posterior (this file): bootstrap CI on median, Bayesian-bootstrap Pr(Δ>0),
  *                              Pr(Δ∈ROPE), MDE at the configured power
  *
  * Decisions are made on paired evidence — never on marginal means alone —
@@ -756,10 +785,13 @@ export async function researchReport(
       const gain = gainByCandidate.get(row.candidateId)
       const point = paretoByCandidate.get(row.candidateId)
       const posterior = posteriorByCandidate.get(row.candidateId) ?? null
+      const gateDecision = opts.gateDecisions?.[row.candidateId]
       const classified = classifyCandidate(row, {
         comparator,
         posterior,
         point,
+        gateDecision,
+        split,
         fdr,
         minPairs,
         rope,
@@ -781,7 +813,7 @@ export async function researchReport(
         prInRope: posterior ? posterior.prInRope : null,
         mde: posterior ? posterior.mde : null,
         onParetoFrontier: point?.onFrontier ?? false,
-        gate: point?.gate,
+        gate: gateDecision ? gateLabel(gateDecision) : undefined,
         decision: classified.decision,
         decisionReason: classified.reason,
       } satisfies ResearchReportCandidate
@@ -878,7 +910,7 @@ function buildMethodology(ctx: {
   mdeAlpha: number
 }): ResearchReportMethodology {
   const assumptions: string[] = [
-    'Pairs are matched by (experimentId, seed); the candidate and comparator see the same scenarios in the same order.',
+    'Pairs are matched by (experimentId, scenarioId, seed); input order does not affect the comparison.',
     'Paired deltas are exchangeable conditional on the matched scenario — no mid-run distribution shift.',
     `Decisions are pre-specified at fdr=${ctx.fdr}, minPairs=${ctx.minPairs}, confidence=${ctx.confidence}; deviating from these post-hoc invalidates the false-discovery control.`,
   ]
@@ -891,8 +923,8 @@ function buildMethodology(ctx: {
     assumptions.push('No comparator was configured; this run is descriptive, not causal.')
   }
   const methods: string[] = [
-    "Marginal scores summarised with BH-FDR-adjusted Wilcoxon signed-rank q-values and Cohen's d via summaryTable.",
-    'Paired evidence summarised with bootstrap CI on the median delta and Bayesian-bootstrap-style Pr(Δ>0) and Pr(Δ∈ROPE) on the mean delta.',
+    "Marginal scores summarised with BH-FDR-adjusted Wilcoxon signed-rank q-values and paired Cohen's dz via summaryTable.",
+    'Paired evidence summarised with a frequentist bootstrap CI on the median delta and a Dirichlet-weight Bayesian bootstrap for Pr(Δ>0) and Pr(Δ∈ROPE) on the mean delta.',
     `Minimum detectable effect reported per candidate at α=${ctx.mdeAlpha} (two-sided), power=${ctx.mdePower}, standardised by the observed paired-delta SD.`,
     'Pareto frontier flagged as a separate axis (cost vs quality); a candidate can be on-frontier without winning the paired test.',
     'Held-out gate decisions, when supplied, override the statistical verdict in the reject direction.',
@@ -929,6 +961,8 @@ function classifyCandidate(
     comparator: string | null
     posterior: ReturnType<typeof pairedPosterior> | null
     point?: ParetoPoint
+    gateDecision?: GateDecision
+    split: 'search' | 'holdout'
     fdr: number
     minPairs: number
     rope: { low: number; high: number } | null
@@ -937,17 +971,19 @@ function classifyCandidate(
   if (ctx.comparator && row.candidateId === ctx.comparator) {
     return { decision: 'hold', reason: 'Comparator baseline.' }
   }
+  if (ctx.gateDecision && !ctx.gateDecision.promote) {
+    const code = ctx.gateDecision.rejectionCode ?? 'rejected'
+    return {
+      decision: 'reject',
+      reason: `Held-out gate returned ${code}: ${ctx.gateDecision.reason}`,
+    }
+  }
   if (!ctx.comparator) {
     return {
       decision: ctx.point?.onFrontier ? 'hold' : 'needs_more_data',
       reason:
         'No comparator configured; report ranks candidates but cannot anchor a promotion call.',
     }
-  }
-  // Held-out gate is authoritative against — promote requires statistical
-  // evidence even if the gate said `promote` (gate is necessary, not sufficient).
-  if (ctx.point?.gate && ctx.point.gate !== 'promote') {
-    return { decision: 'reject', reason: `Held-out gate returned ${ctx.point.gate}.` }
   }
   if (!ctx.posterior || ctx.posterior.n < RESEARCH_REPORT_HARD_PAIR_FLOOR) {
     return {
@@ -956,13 +992,19 @@ function classifyCandidate(
     }
   }
   const ci = ctx.posterior.ci
+  if (ctx.split === 'search') {
+    return {
+      decision: 'hold',
+      reason:
+        'Search-split evidence is descriptive; release decisions require matched holdout runs.',
+    }
+  }
   if (ctx.rope && ci.low >= ctx.rope.low && ci.high <= ctx.rope.high) {
     return {
       decision: 'equivalent',
       reason: `Paired-delta CI [${fmt(ci.low)}, ${fmt(ci.high)}] is fully inside ROPE ${formatRope(ctx.rope)}; candidate is practically equivalent to comparator.`,
     }
   }
-  const significant = Number.isFinite(row.qValue) && row.qValue <= ctx.fdr
   const gainPositive = ci.low > 0
   const gainNegative = ci.high < 0
   if (gainNegative) {
@@ -977,7 +1019,7 @@ function classifyCandidate(
       reason: `Only ${ctx.posterior.n} paired observations; minimum detectable effect at this N is ${fmt(ctx.posterior.mde)} score units (need ≥ ${ctx.minPairs} pairs to issue a directional verdict).`,
     }
   }
-  if (significant && gainPositive) {
+  if (row.qValue !== null && row.qValue <= ctx.fdr && gainPositive) {
     return {
       decision: 'promote',
       reason: `BH-adjusted q=${fmt(row.qValue)} ≤ ${ctx.fdr} and paired-delta CI [${fmt(ci.low)}, ${fmt(ci.high)}] excludes zero; Pr(Δ>0)=${fmt(ctx.posterior.prGreaterThanZero)}.`,
@@ -1192,14 +1234,14 @@ function renderResearchMarkdown(report: {
   lines.push('## Candidate Decision Table')
   lines.push('')
   lines.push(
-    '| Candidate | Decision | Mean | Δ̄ | Pr(Δ>0) | q | d | Paired N | Median Gain CI | MDE | Pareto | Gate |',
+    '| Candidate | Decision | Mean | Δ̄ | Pr(Δ>0) | q | dz | Paired N | Median Gain CI | MDE | Pareto | Gate |',
   )
   lines.push('|---|---|---:|---:|---:|---:|---:|---:|---|---:|---|---|')
   for (const c of report.candidates) {
     const delta = c.meanDeltaVsComparator === null ? '-' : signed(c.meanDeltaVsComparator)
     const prGt = c.prGreaterThanZero === null ? '-' : c.prGreaterThanZero.toFixed(3)
-    const q = Number.isFinite(c.qValue) ? c.qValue.toFixed(4) : '-'
-    const d = Number.isFinite(c.cohensD) ? c.cohensD.toFixed(3) : '-'
+    const q = c.qValue !== null ? c.qValue.toFixed(4) : '-'
+    const d = c.cohensD !== null ? c.cohensD.toFixed(3) : '-'
     const gain = c.gainCi ? `[${fmt(c.gainCi.low)}, ${fmt(c.gainCi.high)}]` : '-'
     const mde = c.mde === null || !Number.isFinite(c.mde) ? '-' : fmt(c.mde)
     lines.push(

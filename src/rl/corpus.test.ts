@@ -30,7 +30,9 @@ function rec(
     commitSha: 'abc1234',
     wallMs: 100,
     costUsd: 0.01,
+    costProvenance: { kind: 'observed', usd: 0.01 },
     tokenUsage: { input: 100, output: 50 },
+    terminalOutcome: 'succeeded',
     splitTag: split,
     scenarioId: 'sA',
     outcome:
@@ -89,9 +91,20 @@ describe('rl corpus — datasets-for-free capture', () => {
       corpus,
     )
     const bundle = await buildDatasetFromCorpus(corpus, config)
-    // r3 has no prompt/completion → excluded; r1+r2 packaged.
+    // r3 has no prompt/completion and held-out r2 is excluded from training.
     expect(bundle.manifest.stats.records).toBe(2)
-    expect(bundle.files['train.sft.jsonl']!.trim().split('\n')).toHaveLength(2)
+    expect(bundle.files['train.sft.jsonl']!.trim().split('\n')).toHaveLength(1)
+  })
+
+  it('retains unscored records in the corpus but excludes them from training data', async () => {
+    const unscored = { ...rec('unscored', 'search', 0.8), outcome: { raw: {} } }
+    appendToCorpus([rec('scored', 'search', 0.8), unscored], corpus)
+
+    expect(readCorpus(corpus)).toHaveLength(2)
+    const bundle = await buildDatasetFromCorpus(corpus, config)
+    expect(bundle.manifest.stats.records).toBe(1)
+    expect(bundle.files['train.sft.jsonl']).toContain('completion-scored')
+    expect(bundle.files['train.sft.jsonl']).not.toContain('completion-unscored')
   })
 
   it('filters harvest by minScore and split', async () => {
@@ -101,7 +114,13 @@ describe('rl corpus — datasets-for-free capture', () => {
     )
     const highOnly = await buildDatasetFromCorpus(corpus, config, { minScore: 0.8 })
     expect(highOnly.manifest.stats.records).toBe(2) // hi + ho
-    const holdoutOnly = await buildDatasetFromCorpus(corpus, config, { splits: ['holdout'] })
+    await expect(buildDatasetFromCorpus(corpus, config, { splits: ['holdout'] })).rejects.toThrow(
+      /no trainable rows/,
+    )
+    const holdoutOnly = await buildDatasetFromCorpus(corpus, config, {
+      splits: ['holdout'],
+      allowHeldOutTrainingData: true,
+    })
     expect(holdoutOnly.manifest.stats.records).toBe(1) // ho
   })
 

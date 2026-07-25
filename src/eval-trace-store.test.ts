@@ -18,12 +18,21 @@ function rec(
     commitSha: 'sha',
     wallMs: 100,
     costUsd: 0.01,
+    costProvenance: { kind: 'observed', usd: 0.01 },
     tokenUsage: { input: 10, output: 10 },
+    terminalOutcome: 'succeeded',
     outcome: { searchScore: score, raw: {} },
     splitTag: 'search',
     scenarioId,
     ...rest,
-  } as RunRecord
+  }
+}
+
+function unscored(candidateId: string, scenarioId: string): RunRecord {
+  const record = rec({ candidateId, scenarioId, score: 0 })
+  record.terminalOutcome = 'succeeded'
+  record.outcome = { raw: { score: 0.99 } }
+  return record
 }
 
 describe('runScore', () => {
@@ -32,6 +41,10 @@ describe('runScore', () => {
     const holdout = rec({ candidateId: 'a', scenarioId: 's', score: 0.5 })
     holdout.outcome.holdoutScore = 0.9
     expect(runScore(holdout)).toBe(0.9)
+  })
+
+  it('does not treat raw metrics as a task score', () => {
+    expect(runScore(unscored('a', 's'))).toBeUndefined()
   })
 })
 
@@ -46,6 +59,15 @@ describe('EvalTraceStore query', () => {
     expect((await store.query({ scenarioId: 's1' })).length).toBe(2)
     expect((await store.query({ minScore: 0.5 })).length).toBe(2)
     expect((await store.query({ where: (r) => r.candidateId === 'b' })).length).toBe(1)
+  })
+
+  it('retains unlabeled runs but excludes them from score filters', async () => {
+    const store = new EvalTraceStore()
+    await store.append(unscored('a', 's1'))
+
+    expect(await store.query({ candidateId: 'a' })).toHaveLength(1)
+    expect(await store.query({ minScore: 0 })).toHaveLength(0)
+    expect(await store.query({ maxScore: 1 })).toHaveLength(0)
   })
 
   it('appending an invalid record fails loud', async () => {
@@ -72,6 +94,17 @@ describe('EvalTraceStore getBest', () => {
   it('returns null when no run matches', async () => {
     const store = new EvalTraceStore()
     expect(await store.getBest('nope')).toBeNull()
+  })
+
+  it('skips unlabeled runs and returns null when no scored run remains', async () => {
+    const store = new EvalTraceStore()
+    await store.append(unscored('a', 's1'))
+    await store.append(rec({ candidateId: 'a', scenarioId: 's1', score: 0.4 }))
+    expect(runScore((await store.getBest('s1'))!)).toBe(0.4)
+
+    const unlabeledOnly = new EvalTraceStore()
+    await unlabeledOnly.append(unscored('a', 's1'))
+    expect(await unlabeledOnly.getBest('s1')).toBeNull()
   })
 })
 
@@ -102,6 +135,25 @@ describe('EvalTraceStore compareRuns', () => {
     const cmp = await store.compareRuns('a', 'b')
     expect(cmp.meanA).toBe(0.8)
     expect(cmp.aWins).toBe(1)
+  })
+
+  it('ignores unlabeled rows when finding paired scenarios', async () => {
+    const store = new EvalTraceStore()
+    await store.append(unscored('a', 'unlabeled-shared'))
+    await store.append(unscored('b', 'unlabeled-shared'))
+    await store.append(rec({ candidateId: 'a', scenarioId: 'scored', score: 0.4 }))
+    await store.append(rec({ candidateId: 'b', scenarioId: 'scored', score: 0.6 }))
+
+    const cmp = await store.compareRuns('a', 'b')
+    expect(cmp.pairedScenarioIds).toEqual(['scored'])
+    expect(cmp.meanDelta).toBeCloseTo(0.2)
+  })
+
+  it('rejects a comparison backed only by unlabeled rows', async () => {
+    const store = new EvalTraceStore()
+    await store.append(unscored('a', 's1'))
+    await store.append(unscored('b', 's1'))
+    await expect(store.compareRuns('a', 'b')).rejects.toThrow(/share no scenario/)
   })
 
   it('throws when the candidates share no scenario', async () => {
