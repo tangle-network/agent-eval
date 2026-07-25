@@ -69,6 +69,14 @@ export function controlRunToRunRecord<
     ...(options.queueMs !== undefined ? { queueMs: options.queueMs } : {}),
     costUsd: run.spentCostUsd,
     tokenUsage: options.tokenUsage,
+    terminalOutcome:
+      run.stoppedBy === 'abort'
+        ? 'cancelled'
+        : run.stoppedBy === 'runtime-error'
+          ? 'failed'
+          : run.completed
+            ? 'succeeded'
+            : 'incomplete',
     ...(options.judgeMetadata ? { judgeMetadata: options.judgeMetadata } : {}),
     outcome,
     failureMode: options.failureMode ?? failureModeFromRun(run),
@@ -96,6 +104,9 @@ function normalizeRawMetrics<TState, TAction, TActionResult, TEval extends Contr
     completed: run.completed ? 1 : 0,
     steps: run.steps.length,
     runtimeErrors: run.runtimeErrors.length,
+    execution_error_count:
+      run.runtimeErrors.length +
+      run.steps.filter((step) => step.actionOutcome?.ok === false).length,
   }
 }
 

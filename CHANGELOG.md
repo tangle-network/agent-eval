@@ -4,6 +4,15 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ---
 
+## Unreleased
+
+### Changed
+
+- Execution reports now separate runs with execution errors from explicit terminal outcomes.
+- `ExecutionInsight.failures` is replaced by `executionErrors` and `terminalOutcomes`; report renderers must label these independently.
+- `RunRecord.terminalOutcome` records `succeeded`, `failed`, `cancelled`, `incomplete`, or `unknown` only from root-run or process evidence.
+- Error-bearing runs report recovered, unrecovered, or unknown recovery without treating a child span error as a failed run.
+
 ## [0.126.7] - 2026-07-24 - dependency security refresh
 
 ### Changed

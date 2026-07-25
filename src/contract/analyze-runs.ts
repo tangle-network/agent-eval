@@ -26,7 +26,12 @@ import { checkCanaries } from '../contamination-guard'
 import type { DatasetScenario } from '../dataset'
 import { summarizeBackendIntegrity } from '../integrity/backend-integrity'
 import { continuousAgreement } from '../judge-calibration'
-import { type RunRecord, type RunTokenUsage, resolveRunCostProvenance } from '../run-record'
+import {
+  type RunRecord,
+  type RunTerminalOutcome,
+  type RunTokenUsage,
+  resolveRunCostProvenance,
+} from '../run-record'
 import {
   cohensD,
   pairedBootstrap,
@@ -237,15 +242,29 @@ function computeExecutionInsight(runs: RunRecord[], bins: number): ExecutionInsi
     row.costUsd !== undefined ? [row.costUsd] : [],
   )
   const modelCounts = new Map<string, number>()
-  let failureRuns = 0
-  let reportedErrorEvents = 0
+  let executionErrorRuns = 0
+  let executionErrorEvents = 0
   let errorReportingRuns = 0
+  let errorSpanEvents = 0
+  let errorSpanReportingRuns = 0
+  let recoveredErrorRuns = 0
+  let unrecoveredErrorRuns = 0
+  let unknownRecoveryRuns = 0
+  const terminalOutcomes: Record<RunTerminalOutcome, number> = {
+    succeeded: 0,
+    failed: 0,
+    cancelled: 0,
+    incomplete: 0,
+    unknown: 0,
+  }
   let modelCallRuns = 0
   let modelCallEvents = 0
   let modelCallReportingRuns = 0
 
   for (const run of runs) {
     modelCounts.set(run.model, (modelCounts.get(run.model) ?? 0) + 1)
+    const terminalOutcome = run.terminalOutcome ?? 'unknown'
+    terminalOutcomes[terminalOutcome] += 1
     const modelCalls = run.outcome.raw.llm_span_count
     if (Number.isFinite(modelCalls)) {
       modelCallEvents += modelCalls!
@@ -261,17 +280,21 @@ function computeExecutionInsight(runs: RunRecord[], bins: number): ExecutionInsi
     ) {
       modelCallRuns += 1
     }
-    const errorEvents = run.outcome.raw.error_span_count
-    if (Number.isFinite(errorEvents)) {
-      reportedErrorEvents += errorEvents!
+    const errorEvents = reportedExecutionErrorEvents(run)
+    if (errorEvents !== undefined) {
+      executionErrorEvents += errorEvents
       errorReportingRuns += 1
+      if (errorEvents > 0) {
+        executionErrorRuns += 1
+        if (terminalOutcome === 'succeeded') recoveredErrorRuns += 1
+        else if (terminalOutcome === 'failed') unrecoveredErrorRuns += 1
+        else unknownRecoveryRuns += 1
+      }
     }
-    if (
-      (run.failureClass !== undefined && run.failureClass !== 'success') ||
-      run.failureMode !== undefined ||
-      (errorEvents ?? 0) > 0
-    ) {
-      failureRuns += 1
+    const reportedErrorSpans = finiteRaw(run, 'error_span_count')
+    if (reportedErrorSpans !== undefined) {
+      errorSpanEvents += reportedErrorSpans
+      errorSpanReportingRuns += 1
     }
   }
 
@@ -305,13 +328,37 @@ function computeExecutionInsight(runs: RunRecord[], bins: number): ExecutionInsi
       events: modelCallEvents,
       reportingRuns: modelCallReportingRuns,
     },
-    failures: {
-      runs: failureRuns,
-      fraction: runs.length > 0 ? failureRuns / runs.length : 0,
-      reportedErrorEvents,
+    executionErrors: {
+      runs: executionErrorRuns,
+      fraction: errorReportingRuns > 0 ? executionErrorRuns / errorReportingRuns : 0,
+      events: executionErrorEvents,
       reportingRuns: errorReportingRuns,
+      errorSpanEvents,
+      errorSpanReportingRuns,
+      recovery: {
+        recoveredRuns: recoveredErrorRuns,
+        unrecoveredRuns: unrecoveredErrorRuns,
+        unknownRuns: unknownRecoveryRuns,
+      },
     },
+    terminalOutcomes,
   }
+}
+
+function reportedExecutionErrorEvents(run: RunRecord): number | undefined {
+  const canonical = finiteRaw(run, 'execution_error_count')
+  if (canonical !== undefined) return canonical
+
+  const errorSpans = finiteRaw(run, 'error_span_count')
+  if (errorSpans !== undefined) return errorSpans
+
+  const toolErrors = finiteRaw(run, 'tool_errors')
+  const abortedTurns = finiteRaw(run, 'turns_aborted')
+  const runtimeErrors = finiteRaw(run, 'runtime_errors') ?? finiteRaw(run, 'runtimeErrors')
+  if (toolErrors === undefined && abortedTurns === undefined && runtimeErrors === undefined) {
+    return undefined
+  }
+  return (toolErrors ?? 0) + (abortedTurns ?? 0) + (runtimeErrors ?? 0)
 }
 
 function summarizeTokenUsage(usages: RunTokenUsage[], bins: number): TokenUsageInsight {

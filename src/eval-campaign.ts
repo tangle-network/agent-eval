@@ -536,6 +536,7 @@ export async function runEvalCampaign<V>(
         wallMs,
         costUsd: outcome.costUsd,
         tokenUsage: outcome.tokenUsage,
+        terminalOutcome: 'succeeded',
         judgeMetadata: outcome.judgeMetadata,
         outcome: recordOutcome,
         ...(outcome.failureClass ? { failureClass: outcome.failureClass } : {}),

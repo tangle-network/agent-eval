@@ -103,6 +103,11 @@ describe('validateRunRecord — happy path', () => {
     })
   })
 
+  it('round-trips an explicit terminal outcome', () => {
+    const r = makeRecord({ terminalOutcome: 'cancelled' })
+    expect(roundTripRunRecord(r).terminalOutcome).toBe('cancelled')
+  })
+
   it('resolves conservative provenance for legacy cost records', () => {
     expect(resolveRunCostProvenance(makeRecord({ costUsd: 0.02 })).kind).toBe('observed')
     expect(
@@ -164,6 +169,12 @@ describe('validateRunRecord — mandatory field enforcement', () => {
       },
     })
     expect(() => validateRunRecord(r)).toThrow(/finite number/)
+  })
+
+  it('rejects an unknown terminal outcome value', () => {
+    const r = makeRecord()
+    ;(r as Record<string, unknown>).terminalOutcome = 'completed'
+    expect(() => validateRunRecord(r)).toThrow(/terminalOutcome must be one of/)
   })
 
   it('throws on non-finite numeric (NaN, Infinity)', () => {

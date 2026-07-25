@@ -94,6 +94,7 @@ try {
         type ReferenceEquivalenceJudgeOptions as RootReferenceEquivalenceJudgeOptions,
         type Run,
         type RunRecord,
+        type RunTerminalOutcome,
       } from '@tangle-network/agent-eval'
       import {
         CanonicalRawAnalystFindingSchema,
@@ -163,6 +164,9 @@ try {
         candidateId: 'candidate',
       })
       const report: ExecutionReport = summarizeExecution({ runs })
+      const terminalOutcome: RunTerminalOutcome = 'succeeded'
+      const failedTerminalRuns: number = report.execution.terminalOutcomes.failed
+      const executionErrorEvents: number = report.execution.executionErrors.events
       const loop: Promise<StuckLoopReport> = stuckLoopView(new InMemoryTraceStore())
       const runtimeRun: Run | undefined = undefined
       const campaignProposer = null as unknown as CampaignSurfaceProposer
@@ -209,6 +213,9 @@ try {
         canonicalFinding,
         golden,
         report,
+        terminalOutcome,
+        failedTerminalRuns,
+        executionErrorEvents,
         loop,
         runtimeRun,
         campaignRoundTrip,

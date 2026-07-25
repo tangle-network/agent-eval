@@ -27,7 +27,7 @@ import {
   summarizeExecution,
 } from '../src/contract'
 import type { TraceSpanEvent } from '../src/hosted/types'
-import type { RunRecord } from '../src/run-record'
+import type { RunRecord, RunTerminalOutcome } from '../src/run-record'
 
 // ── Helpers ──────────────────────────────────────────────────────────
 
@@ -38,6 +38,7 @@ function makeRun(opts: {
   cost?: number
   judges?: Record<string, Record<string, number>>
   failureMode?: string
+  terminalOutcome?: RunTerminalOutcome
   metadata?: Record<string, unknown>
 }): RunRecord {
   const perJudge = opts.judges ?? { default: { quality: opts.composite } }
@@ -70,6 +71,7 @@ function makeRun(opts: {
     },
     splitTag: 'holdout' as const,
     ...(opts.failureMode ? { failureMode: opts.failureMode } : {}),
+    ...(opts.terminalOutcome ? { terminalOutcome: opts.terminalOutcome } : {}),
   } satisfies RunRecord
   if (opts.metadata) Object.assign(run, { metadata: opts.metadata })
   return run
@@ -134,10 +136,21 @@ describe('analyzeRuns — lift detection with paired bootstrap', () => {
 })
 
 describe('analyzeRuns — execution facts', () => {
-  it('summarizes duration, queueing, token categories, models, and recorded failures', async () => {
+  it('summarizes duration, queueing, token categories, models, and execution errors', async () => {
     const runs = [
-      makeRun({ id: 'exec-1', candidate: 'c', composite: 0.8 }),
-      makeRun({ id: 'exec-2', candidate: 'c', composite: 0.7, failureMode: 'tool failed' }),
+      makeRun({
+        id: 'exec-1',
+        candidate: 'c',
+        composite: 0.8,
+        terminalOutcome: 'succeeded',
+      }),
+      makeRun({
+        id: 'exec-2',
+        candidate: 'c',
+        composite: 0.7,
+        failureMode: 'tool failed',
+        terminalOutcome: 'succeeded',
+      }),
       makeRun({ id: 'exec-3', candidate: 'c', composite: 0.9 }),
     ]
     Object.assign(runs[0]!, {
@@ -206,12 +219,117 @@ describe('analyzeRuns — execution facts', () => {
       { model: 'other@v', runs: 1 },
     ])
     expect(execution.modelCalls).toEqual({ runs: 3, events: 3, reportingRuns: 2 })
-    expect(execution.failures).toEqual({
+    expect(execution.executionErrors).toEqual({
       runs: 1,
-      fraction: 1 / 3,
-      reportedErrorEvents: 2,
+      fraction: 1 / 2,
+      events: 2,
       reportingRuns: 2,
+      errorSpanEvents: 2,
+      errorSpanReportingRuns: 2,
+      recovery: {
+        recoveredRuns: 1,
+        unrecoveredRuns: 0,
+        unknownRuns: 0,
+      },
     })
+    expect(execution.terminalOutcomes).toEqual({
+      succeeded: 2,
+      failed: 0,
+      cancelled: 0,
+      incomplete: 0,
+      unknown: 1,
+    })
+  })
+
+  it('does not infer a failed terminal outcome from child execution errors', () => {
+    const runs = [
+      makeRun({
+        id: 'recovered',
+        candidate: 'c',
+        composite: 1,
+        terminalOutcome: 'succeeded',
+      }),
+      makeRun({ id: 'active', candidate: 'c', composite: 0.5 }),
+      makeRun({
+        id: 'failed',
+        candidate: 'c',
+        composite: 0,
+        terminalOutcome: 'failed',
+      }),
+      makeRun({
+        id: 'failed-with-error',
+        candidate: 'c',
+        composite: 0,
+        terminalOutcome: 'failed',
+      }),
+      makeRun({
+        id: 'cancelled',
+        candidate: 'c',
+        composite: 0,
+        terminalOutcome: 'cancelled',
+      }),
+      makeRun({
+        id: 'incomplete',
+        candidate: 'c',
+        composite: 0,
+        terminalOutcome: 'incomplete',
+      }),
+      makeRun({
+        id: 'unknown',
+        candidate: 'c',
+        composite: 0,
+        terminalOutcome: 'unknown',
+      }),
+    ]
+    runs[0]!.outcome.raw.error_span_count = 1
+    runs[1]!.outcome.raw.error_span_count = 1
+    runs[2]!.outcome.raw.error_span_count = 0
+    runs[3]!.outcome.raw.error_span_count = 1
+
+    const { execution } = summarizeExecution({ runs })
+
+    expect(execution.executionErrors).toEqual({
+      runs: 3,
+      fraction: 3 / 4,
+      events: 3,
+      reportingRuns: 4,
+      errorSpanEvents: 3,
+      errorSpanReportingRuns: 4,
+      recovery: {
+        recoveredRuns: 1,
+        unrecoveredRuns: 1,
+        unknownRuns: 1,
+      },
+    })
+    expect(execution.terminalOutcomes).toEqual({
+      succeeded: 1,
+      failed: 2,
+      cancelled: 1,
+      incomplete: 1,
+      unknown: 2,
+    })
+  })
+
+  it('marks a rootless OTel fragment unknown even when its child span errors', () => {
+    const [run] = fromOtelSpans({
+      spans: [
+        {
+          traceId: 'fragment',
+          spanId: 'tool',
+          parentSpanId: 'missing-root',
+          name: 'tool.fragment',
+          startTimeUnixNano: 0,
+          endTimeUnixNano: 1_000_000_000,
+          attributes: {},
+          status: { code: 'ERROR' },
+        },
+      ],
+    })
+
+    expect(run!.terminalOutcome).toBe('unknown')
+    const { execution } = summarizeExecution({ runs: [run!] })
+    expect(execution.executionErrors.runs).toBe(1)
+    expect(execution.terminalOutcomes).toMatchObject({ failed: 0, unknown: 1 })
   })
 })
 
@@ -382,6 +500,14 @@ describe('fromOtelSpans → analyzeRuns: OTel observability corpus', () => {
         status: { code: 'OK' },
       }),
       span({
+        traceId: 't1',
+        spanId: 's1-tool',
+        parentSpanId: 's1',
+        name: 'tool.retryable',
+        'tangle.runId': 'run-A',
+        status: { code: 'ERROR' },
+      }),
+      span({
         traceId: 't2',
         spanId: 's2',
         name: 'agent.turn',
@@ -401,14 +527,27 @@ describe('fromOtelSpans → analyzeRuns: OTel observability corpus', () => {
     expect(runA.costUsd).toBeCloseTo(0.42)
     expect(runA.tokenUsage.input).toBe(1200)
     expect(runA.tokenUsage.output).toBe(350)
+    expect(runA.terminalOutcome).toBe('succeeded')
 
     const runB = runs.find((r) => r.runId === 'run-B')!
     expect(runB.failureMode).toBe('agent.turn')
+    expect(runB.terminalOutcome).toBe('failed')
 
     const report = await analyzeRuns({ runs })
     expect(report.n).toBe(2)
     expect(report.composite.n).toBe(2)
     expect(report.costQuality.cost.mean).toBeGreaterThan(0)
+    expect(report.execution.executionErrors).toMatchObject({
+      runs: 2,
+      recovery: { recoveredRuns: 1, unrecoveredRuns: 1, unknownRuns: 0 },
+    })
+    expect(report.execution.terminalOutcomes).toEqual({
+      succeeded: 1,
+      failed: 1,
+      cancelled: 0,
+      incomplete: 0,
+      unknown: 0,
+    })
   })
 
   it('preserves a cost-only model call and an untyped run-total cost', () => {

@@ -18,6 +18,8 @@
  *     a silent zero folded into a gate.
  *   - failureMode: the first `STATUS_CODE_ERROR` span's normalized status
  *     message (carries the real failure signature, not a generic class).
+ *   - terminalOutcome: reduced from root-span status only. Child tool errors
+ *     remain visible in `error_span_count` without changing the run outcome.
  *   - model: the dominant LLM model in the trace (snapshot-padded to satisfy
  *     `validateRunRecord` when the trace's model is a bare alias).
  *   - outcome score: `opts.scoreForTrace` (AppWorld `world.evaluate()` →
@@ -38,6 +40,7 @@ import {
   type RunCostProvenance,
   type RunRecord,
   type RunSplitTag,
+  type RunTerminalOutcome,
   type RunTokenUsage,
   validateRunRecord,
 } from '../run-record'
@@ -142,6 +145,8 @@ export interface TraceAggregate {
   startTime: string
   endTime: string
   wallMs: number
+  /** Root-span terminal result. Child span errors do not change this value. */
+  terminalOutcome: RunTerminalOutcome
 }
 
 interface AggregatedTrace extends TraceAggregate {
@@ -262,6 +267,7 @@ function traceRunRecordsFromSpans(
       costUsd,
       costProvenance,
       tokenUsage: agg.tokenUsage,
+      terminalOutcome: agg.terminalOutcome,
       ...(judgeMetadata ? { judgeMetadata } : {}),
       outcome,
       ...(agg.firstErrorMessage ? { failureMode: agg.firstErrorMessage } : {}),
@@ -434,10 +440,19 @@ function aggregateTrace(
     startTime: earliest,
     endTime: latest,
     wallMs,
+    terminalOutcome: terminalOutcomeFromRoots(ordered),
     callSpanIds: measurements.callSpanIds,
     costMeasurement: measurements.cost,
     ...(measurements.aggregate ? { aggregateMeasurement: measurements.aggregate } : {}),
   }
+}
+
+function terminalOutcomeFromRoots(spans: ProjectedOtlpSpan[]): RunTerminalOutcome {
+  const roots = spans.filter((span) => span.parent_span_id === null)
+  if (roots.length === 0) return 'unknown'
+  if (roots.some((span) => span.status === 'ERROR')) return 'failed'
+  if (roots.every((span) => span.status === 'OK')) return 'succeeded'
+  return 'unknown'
 }
 
 function resolveScore(opts: OtlpToRunRecordsOptions, traceId: string, agg: TraceAggregate): number {

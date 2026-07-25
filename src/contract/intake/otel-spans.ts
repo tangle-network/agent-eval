@@ -20,10 +20,18 @@
  *
  * Spans that ERRORed (`status.code === 'ERROR'`) populate `failureMode`
  * with their `name` so `analyzeRuns()`'s failure clustering sees them.
+ * Only the root span sets `RunRecord.terminalOutcome`; a child error cannot
+ * turn an otherwise successful run into a failed terminal outcome.
  */
 
 import type { TraceSpanEvent } from '../../hosted/types'
-import type { JudgeScoresRecord, RunOutcome, RunRecord, RunSplitTag } from '../../run-record'
+import type {
+  JudgeScoresRecord,
+  RunOutcome,
+  RunRecord,
+  RunSplitTag,
+  RunTerminalOutcome,
+} from '../../run-record'
 import {
   recordAggregateMeasurements,
   summarizeExecutionMeasurements,
@@ -62,6 +70,7 @@ export function fromOtelSpans(opts: FromOtelSpansOptions): RunRecord[] {
     )
     const callSpanIds = new Set(measurements.callSpanIds)
     const callSpans = groupSpans.filter((span) => callSpanIds.has(span.spanId))
+    const terminalRoot = groupSpans.find((span) => !span.parentSpanId)
 
     const wallMs = Math.max(0, (root.endTimeUnixNano - root.startTimeUnixNano) / 1_000_000)
     const model =
@@ -116,12 +125,19 @@ export function fromOtelSpans(opts: FromOtelSpansOptions): RunRecord[] {
           ? { kind: 'uncaptured', usd: null }
           : { kind: 'observed', usd: capturedCost },
       tokenUsage: measurements.tokenUsage,
+      terminalOutcome: terminalOutcomeFromRoot(terminalRoot),
       outcome,
       splitTag: defaultSplit,
       ...(errorSpan ? { failureMode: errorSpan.name } : {}),
     } as RunRecord)
   }
   return runs
+}
+
+function terminalOutcomeFromRoot(root: TraceSpanEvent | undefined): RunTerminalOutcome {
+  if (root?.status?.code === 'OK') return 'succeeded'
+  if (root?.status?.code === 'ERROR') return 'failed'
+  return 'unknown'
 }
 
 function isExplicitModelCall(span: TraceSpanEvent): boolean {

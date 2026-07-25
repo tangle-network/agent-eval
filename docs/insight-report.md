@@ -16,7 +16,7 @@ This page walks every section with a real (synthetic) example and explains how t
 ```ts
 interface InsightReport {
   n: number                              // runs analyzed
-  execution: ExecutionInsight            // duration, tokens, models, failures
+  execution: ExecutionInsight            // duration, tokens, errors, terminal outcomes
   composite: ScalarDistribution          // always
   perDimension: Record<string, ScalarDistribution>   // when judgeScores carry dimensions
   costQuality: { cost: ScalarDistribution; pareto: ParetoFigureSpec }   // always
@@ -36,8 +36,11 @@ interface InsightReport {
 ## `execution`: runtime facts, separate from quality
 
 Always present.
-It reports duration, optional queue time, direct input, output, reasoning, cache-read, and cache-write tokens, model-call coverage, model cohorts, explicit failures, and separately reported orchestration aggregates.
+It reports duration, optional queue time, direct input, output, reasoning, cache-read, and cache-write tokens, model-call coverage, model cohorts, execution errors, terminal outcomes, and separately reported orchestration aggregates.
 These fields describe what ran; they do not claim whether the task succeeded.
+`executionErrors` counts child or internal errors reported by the producer.
+`terminalOutcomes` reads only `RunRecord.terminalOutcome`, which must come from root-run or process evidence.
+A child tool error can therefore appear in a run whose terminal outcome is `succeeded`.
 
 ```jsonc
 {
@@ -62,12 +65,31 @@ These fields describe what ran; they do not claim whether the task succeeded.
     },
     "modelCalls": { "runs": 20, "events": 42, "reportingRuns": 30 },
     "models": [{ "model": "claude-opus@2026-07-01", "runs": 20 }],
-    "failures": { "runs": 2, "fraction": 0.067, "reportedErrorEvents": 3, "reportingRuns": 30 }
+    "executionErrors": {
+      "runs": 2,
+      "fraction": 0.067,
+      "events": 3,
+      "reportingRuns": 30,
+      "errorSpanEvents": 3,
+      "errorSpanReportingRuns": 30,
+      "recovery": { "recoveredRuns": 1, "unrecoveredRuns": 0, "unknownRuns": 1 }
+    },
+    "terminalOutcomes": {
+      "succeeded": 27,
+      "failed": 1,
+      "cancelled": 0,
+      "incomplete": 0,
+      "unknown": 2
+    }
   }
 }
 ```
 
 Use `distribution.n` for optional fields to distinguish an uncaptured category from a recorded zero.
+Use `executionErrors.reportingRuns` to assess error-telemetry coverage.
+`errorSpanEvents` preserves the exact child-span error count separately from other reported execution errors.
+The error fraction uses `reportingRuns` as its denominator, so missing telemetry is not treated as a clean run.
+Missing terminal evidence counts as `unknown`, not `failed`.
 Never add `aggregateUsage` to direct `tokenUsage`: orchestration spans may repeat model-call usage from other traces.
 Cost remains in `costQuality`, where observed, estimated, and uncaptured USD stay separate.
 

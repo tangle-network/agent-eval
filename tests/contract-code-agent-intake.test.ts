@@ -118,6 +118,7 @@ describe('code-agent session intake', () => {
     expect(run.outcome.holdoutScore).toBeGreaterThan(0)
     expect(run.outcome.holdoutScore).toBeLessThan(1)
     expect(run.failureMode).toBe('tool_error')
+    expect(run.terminalOutcome).toBe('succeeded')
     expect(run.outcome.raw.patch_failures).toBe(1)
     expect(run.outcome.raw.inferred_score).toBe(1)
     expect(JSON.stringify(run)).not.toContain(secretPrompt)
@@ -144,6 +145,13 @@ describe('code-agent session intake', () => {
     const report = await analyzeRuns({ runs })
     expect(report.n).toBe(1)
     expect(report.composite.n).toBe(1)
+    expect(report.execution.executionErrors).toMatchObject({
+      runs: 1,
+      events: 1,
+      errorSpanEvents: 0,
+      recovery: { recoveredRuns: 1, unrecoveredRuns: 0, unknownRuns: 0 },
+    })
+    expect(report.execution.terminalOutcomes).toMatchObject({ succeeded: 1, failed: 0 })
   })
 
   it('projects Codex exec 0.144.1 JSONL lifecycle items and usage', () => {
@@ -184,6 +192,7 @@ describe('code-agent session intake', () => {
       tokenUsage: { input: 482267, output: 9006, reasoning: 4529, cached: 409600 },
       costProvenance: { kind: 'estimated' },
       failureMode: 'tool_error',
+      terminalOutcome: 'succeeded',
     })
     expect(diagnostics[0]).toMatchObject({
       sessionId: '00000000-0000-7000-8000-000000000144',
@@ -257,6 +266,7 @@ describe('code-agent session intake', () => {
       processScore: 0,
     })
     expect(runs[0]!.failureMode).toBe('turn_aborted')
+    expect(runs[0]!.terminalOutcome).toBe('failed')
     expect(diagnostics[0]!.hasExplicitTerminalSignal).toBe(true)
   })
 
@@ -320,6 +330,7 @@ describe('code-agent session intake', () => {
     expect(run.outcome.raw.pr_links).toBe(1)
     expect(run.outcome.raw.tool_errors).toBe(1)
     expect(run.failureMode).toBe('tool_error')
+    expect(run.terminalOutcome).toBe('unknown')
     expect(diagnostics[0]!.hasExplicitTerminalSignal).toBe(false)
     expect(metrics[0]).toMatchObject({
       userMessages: 1,

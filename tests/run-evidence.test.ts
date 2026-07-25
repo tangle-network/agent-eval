@@ -39,6 +39,7 @@ describe('run evidence bridges', () => {
     })
 
     expect(record.runId).toBe('run-1')
+    expect(record.terminalOutcome).toBe('succeeded')
     expect(record.outcome.holdoutScore).toBe(0.82)
     expect(record.outcome.raw).toMatchObject({
       pass: 1,
@@ -47,6 +48,26 @@ describe('run evidence bridges', () => {
       runtimeErrors: 0,
       deterministicChecks: 1,
     })
+  })
+
+  it.each([
+    [{ stoppedBy: 'abort', completed: false }, 'cancelled'],
+    [{ stoppedBy: 'runtime-error', completed: false }, 'failed'],
+    [{ stoppedBy: 'budget', completed: false }, 'incomplete'],
+  ] as const)('maps control stop state %o to %s', (overrides, expected) => {
+    const record = controlRunToRunRecord(controlRun(overrides), {
+      experimentId: 'exp-1',
+      candidateId: 'candidate-a',
+      seed: 7,
+      model: 'gpt-4o-2024-11-20',
+      promptHash: 'prompt-hash',
+      configHash: 'config-hash',
+      commitSha: 'abc123',
+      splitTag: 'holdout',
+      tokenUsage: { input: 100, output: 30 },
+    })
+
+    expect(record.terminalOutcome).toBe(expected)
   })
 
   it('uses eval scores when the control run has no explicit score', () => {

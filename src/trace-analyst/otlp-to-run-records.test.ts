@@ -164,6 +164,8 @@ describe('otlpToRunRecords', () => {
     const [clean, error] = twoRecords(records)
     expect(clean.scenarioId).toBe(TASK_CLEAN)
     expect(error.scenarioId).toBe(TASK_ERROR)
+    expect(clean.terminalOutcome).toBe('succeeded')
+    expect(error.terminalOutcome).toBe('succeeded')
 
     // Every produced row passes the strict validator (regression: a
     // half-built record or a bare-alias model would throw here).
@@ -660,7 +662,7 @@ describe('otlpToRunRecords', () => {
     expect(error.outcome.raw.cost_unpriced).toBeUndefined()
   })
 
-  it('maps STATUS_CODE_ERROR → failureMode and the error-derived default score', () => {
+  it('keeps a child STATUS_CODE_ERROR separate from the root terminal outcome', () => {
     const [clean, error] = twoRecords(otlpToRunRecords(FIXTURE, baseOpts))
     // No-error trace: failureMode unset, default holdout score 1.
     expect(clean.failureMode).toBeUndefined()
@@ -670,6 +672,7 @@ describe('otlpToRunRecords', () => {
     expect(error.failureMode).toBe('Error running tool (non-fatal): No such file or directory')
     expect(error.outcome.holdoutScore).toBe(0)
     expect(error.outcome.raw.error_span_count).toBe(1)
+    expect(error.terminalOutcome).toBe('succeeded')
   })
 
   it('pads a bare-alias model to a snapshot the validator accepts', () => {

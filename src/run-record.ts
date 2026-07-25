@@ -32,6 +32,15 @@ import { FAILURE_CLASSES, type FailureClass } from './trace/schema'
  *  combined train+test pool that the optimizer is allowed to read. */
 export type RunSplitTag = 'search' | 'dev' | 'holdout'
 
+/**
+ * Explicit execution-lifecycle result for a run.
+ *
+ * This is separate from task quality (`outcome`) and failure classification.
+ * Producers set it only from root-run or process evidence. Legacy records may
+ * omit it; execution summaries treat an omitted value as `unknown`.
+ */
+export type RunTerminalOutcome = 'succeeded' | 'failed' | 'cancelled' | 'incomplete' | 'unknown'
+
 export interface RunTokenUsage {
   input: number
   /** All generated tokens charged as output, including reasoning tokens. */
@@ -180,6 +189,8 @@ export interface RunRecord {
   costProvenance?: RunCostProvenance
   /** Token usage breakdown. */
   tokenUsage: RunTokenUsage
+  /** Root-run or process terminal result. Never inferred from a child span. */
+  terminalOutcome?: RunTerminalOutcome
   /** Judge-side metadata, if a judge was used. */
   judgeMetadata?: RunJudgeMetadata
   /** Per-split scores + raw bag. */
@@ -235,6 +246,13 @@ const MANDATORY_TOP_LEVEL = [
 ] as const
 
 const SPLIT_TAGS: ReadonlyArray<RunSplitTag> = ['search', 'dev', 'holdout']
+const TERMINAL_OUTCOMES: ReadonlyArray<RunTerminalOutcome> = [
+  'succeeded',
+  'failed',
+  'cancelled',
+  'incomplete',
+  'unknown',
+]
 
 export class RunRecordValidationError extends ValidationError {
   readonly path: string
@@ -380,6 +398,17 @@ export function validateRunRecord(input: unknown): RunRecord {
     )
   }
   if (obj.failureMode !== undefined) expectString(obj.failureMode, 'failureMode')
+
+  if (
+    obj.terminalOutcome !== undefined &&
+    (typeof obj.terminalOutcome !== 'string' ||
+      !TERMINAL_OUTCOMES.includes(obj.terminalOutcome as RunTerminalOutcome))
+  ) {
+    throw new RunRecordValidationError(
+      `terminalOutcome must be one of ${TERMINAL_OUTCOMES.join(', ')}`,
+      'terminalOutcome',
+    )
+  }
 
   if (obj.agentProfile !== undefined) {
     try {

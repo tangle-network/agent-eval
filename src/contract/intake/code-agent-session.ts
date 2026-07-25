@@ -1,6 +1,12 @@
 import { createHash } from 'node:crypto'
 import { estimateCost, isModelPriced } from '../../metrics'
-import type { RunCostProvenance, RunRecord, RunSplitTag, RunTokenUsage } from '../../run-record'
+import type {
+  RunCostProvenance,
+  RunRecord,
+  RunSplitTag,
+  RunTerminalOutcome,
+  RunTokenUsage,
+} from '../../run-record'
 import { extractUsage } from '../../trace/extract-usage'
 import {
   type CodeAgentSessionExecutionReceipt,
@@ -245,6 +251,7 @@ function fromCodeAgentSession(
     costUsd,
     costProvenance,
     tokenUsage,
+    terminalOutcome: terminalOutcomeFromSession(observation.terminal),
     outcome: {
       holdoutScore: score,
       raw: {
@@ -255,6 +262,7 @@ function fromCodeAgentSession(
         tool_calls: metrics.toolCalls,
         tool_outputs: metrics.toolOutputs,
         tool_errors: metrics.toolErrors,
+        execution_error_count: metrics.toolErrors + metrics.turnsAborted,
         patch_attempts: metrics.patchAttempts,
         patch_successes: metrics.patchSuccesses,
         patch_failures: metrics.patchFailures,
@@ -329,6 +337,15 @@ function fromCodeAgentSession(
     metrics: [metrics],
     observations: [{ ...observation, sessionId }],
   }
+}
+
+function terminalOutcomeFromSession(
+  terminal: CodeAgentSessionObservation['terminal'],
+): RunTerminalOutcome {
+  if (!terminal.explicit) return 'unknown'
+  if (terminal.status === 'completed') return 'succeeded'
+  if (terminal.status === 'failed') return 'failed'
+  return 'unknown'
 }
 
 function metricsFor(

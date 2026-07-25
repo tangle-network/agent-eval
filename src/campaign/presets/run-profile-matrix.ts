@@ -299,6 +299,7 @@ function buildRunRecord<TScenario extends Scenario, TArtifact>(
   raw.tokens_output = cell.tokenUsage.output
   if (typeof cell.tokenUsage.cached === 'number') raw.tokens_cached = cell.tokenUsage.cached
   raw.latency_ms = cell.durationMs
+  raw.execution_error_count = cell.error ? 1 : 0
   if (costUsd > 0) {
     raw.tokens_per_dollar = (cell.tokenUsage.input + cell.tokenUsage.output) / costUsd
   }
@@ -327,6 +328,7 @@ function buildRunRecord<TScenario extends Scenario, TArtifact>(
     wallMs: cell.durationMs,
     costUsd,
     tokenUsage: cell.tokenUsage,
+    terminalOutcome: cell.error ? 'failed' : 'succeeded',
     outcome,
     splitTag,
     scenarioId: cell.scenarioId,

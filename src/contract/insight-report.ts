@@ -38,8 +38,8 @@ export interface InsightReport {
   n: number
 
   /** Runtime facts carried by the run records. These describe execution,
-   *  not task quality: duration, queueing, token categories, models, and
-   *  explicitly recorded failures. */
+   *  not task quality: duration, queueing, token categories, models,
+   *  execution errors, and terminal outcomes. */
   execution: ExecutionInsight
 
   /** Composite-score distribution across all runs. Always present. */
@@ -150,13 +150,38 @@ export interface ExecutionInsight {
     events: number
     reportingRuns: number
   }
-  /** Failure counts remain separate from outcome scores. `reportedErrorEvents`
-   *  sums `outcome.raw.error_span_count` only where a producer supplied it. */
-  failures: {
+  /** Runs with explicit execution-error telemetry. This is independent of
+   *  whether the root run ultimately succeeded, failed, or has no terminal
+   *  evidence. */
+  executionErrors: {
     runs: number
+    /** Share among runs that supplied an execution-error count. */
     fraction: number
-    reportedErrorEvents: number
+    /** Execution-error events reported through a canonical or supported legacy count. */
+    events: number
+    /** Runs that supplied an execution-error count, including explicit zeroes. */
     reportingRuns: number
+    /** Exact sum of `outcome.raw.error_span_count`, kept separate from other errors. */
+    errorSpanEvents: number
+    /** Runs that supplied `outcome.raw.error_span_count`, including explicit zeroes. */
+    errorSpanReportingRuns: number
+    recovery: {
+      /** Error-bearing runs whose explicit terminal outcome is `succeeded`. */
+      recoveredRuns: number
+      /** Error-bearing runs whose explicit terminal outcome is `failed`. */
+      unrecoveredRuns: number
+      /** Error-bearing runs with cancelled, incomplete, or unknown outcomes. */
+      unknownRuns: number
+    }
+  }
+  /** Root-run or process outcomes. Missing `RunRecord.terminalOutcome` values
+   *  count as `unknown`; child-span status never changes these counts. */
+  terminalOutcomes: {
+    succeeded: number
+    failed: number
+    cancelled: number
+    incomplete: number
+    unknown: number
   }
 }
 

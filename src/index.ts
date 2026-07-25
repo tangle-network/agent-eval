@@ -1444,6 +1444,7 @@ export type {
   RunOutcome,
   RunRecord,
   RunSplitTag,
+  RunTerminalOutcome,
   RunTokenUsage,
 } from './run-record'
 export {

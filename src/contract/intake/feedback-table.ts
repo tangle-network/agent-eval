@@ -144,6 +144,7 @@ export function fromFeedbackTable(opts: FromFeedbackTableOptions): FromFeedbackT
       wallMs: runMeta.wallMs ?? 0,
       costUsd: runMeta.costUsd ?? 0,
       tokenUsage: { input: 0, output: 0 },
+      terminalOutcome: 'unknown',
       outcome,
       splitTag: runMeta.splitTag ?? 'holdout',
     } as RunRecord)
