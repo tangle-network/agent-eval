@@ -3,7 +3,7 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { hostname, tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
-import ts from 'typescript'
+import { transformSync } from 'esbuild'
 import { describe, expect, it, vi } from 'vitest'
 import { acquireSingleRunLock } from './single-run-lock'
 
@@ -21,9 +21,7 @@ async function synchronizedContenders(options: {
   const atomicModulePath = join(root, 'atomic-file-lock.mjs')
   const source = readFileSync(new URL('./single-run-lock.ts', import.meta.url), 'utf8')
   const transpile = (input: string): string =>
-    ts.transpileModule(input, {
-      compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 },
-    }).outputText
+    transformSync(input, { loader: 'ts', format: 'esm', target: 'es2022' }).code
   writeFileSync(
     modulePath,
     transpile(source).replace(/from ['"]\.\/atomic-file-lock['"]/, "from './atomic-file-lock.mjs'"),
