@@ -61,6 +61,7 @@ describe('defineAgentEval', () => {
     const evalKit = defineAgentEval({
       scenarios,
       agent,
+      model: 'deterministic-test-agent@2026-07-25',
       judge,
       baselineSurface: 'base',
       expectUsage: 'off',
@@ -114,6 +115,7 @@ describe('defineAgentEval', () => {
     const evalKit = defineAgentEval({
       scenarios,
       agent,
+      model: 'deterministic-test-agent@2026-07-25',
       judge,
       baselineSurface: 'base',
       expectUsage: 'off',
@@ -145,6 +147,7 @@ describe('defineAgentEval', () => {
     const evalKit = defineAgentEval({
       scenarios,
       agent,
+      model: 'deterministic-test-agent@2026-07-25',
       judge,
       baselineSurface: 'base',
       proposer,
@@ -166,6 +169,7 @@ describe('defineAgentEval', () => {
     const evalKit = defineAgentEval({
       scenarios,
       agent,
+      model: 'deterministic-test-agent@2026-07-25',
       judge,
       baselineSurface: 'base',
       hostedTenant: {

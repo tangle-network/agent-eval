@@ -168,6 +168,7 @@ describe('selfImprove provenance emission (durable by default)', () => {
   it('a mem:// runDir keeps everything in-memory (explicit opt-out path)', async () => {
     const result = await selfImprove<S, A>({
       agent,
+      model: 'deterministic-test-agent@2026-07-25',
       scenarios: SCENARIOS,
       judge,
       expectUsage: 'off', // deterministic offline mock — no real backend to assert
@@ -185,12 +186,24 @@ describe('selfImprove provenance emission (durable by default)', () => {
 describe('selfImprove — forwarded loop knobs', () => {
   const base = {
     agent, // echoes the surface, reports no cost via ctx → cells are {0,0}
+    model: 'deterministic-test-agent@2026-07-25',
     scenarios: SCENARIOS,
     judge,
     baselineSurface: 'BASE',
     proposer,
     budget: { generations: 1, populationSize: 1 },
   } as const
+
+  it('requires an explicit worker model when cells have no paid-call receipt', async () => {
+    await expect(
+      selfImprove<S, A>({
+        ...base,
+        model: undefined,
+        budget: { generations: 0, holdoutFraction: 0.5 },
+        expectUsage: 'off',
+      }),
+    ).rejects.toThrow(/selfImprove\.model is required/)
+  })
 
   it('defaults expectUsage to "assert" — a stub (zero-cost) cell fails loud', async () => {
     // No expectUsage → the new default 'assert'. The mock agent never reports

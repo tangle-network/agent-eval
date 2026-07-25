@@ -1448,6 +1448,7 @@ export type {
   RunOutcome,
   RunRecord,
   RunSplitTag,
+  RunTaskFailure,
   RunTerminalOutcome,
   RunTokenUsage,
 } from './run-record'

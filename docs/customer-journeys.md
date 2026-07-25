@@ -82,6 +82,7 @@ import { defineAgentEval } from '@tangle-network/agent-eval/contract'
 const evalKit = defineAgentEval({
   scenarios,
   agent: async (prompt, scenario) => yourAgent.run({ prompt: String(prompt), scenario }),
+  model: 'gpt-4.1-2025-04-14',
   judge: {
     name: 'task-quality',
     dimensions: [
@@ -91,22 +92,22 @@ const evalKit = defineAgentEval({
     score: ({ artifact, scenario }) => scoreArtifact(artifact, scenario),
   },
   baselineSurface: currentPrompt,
+  proposer: yourProposer,
 })
 
 const baseline = await evalKit.evaluate()
 const candidate = await evalKit.evaluate({ surface: proposedPrompt })
 ```
 
+`model` supplies the worker snapshot when the agent does not report paid calls through `ctx.cost.runPaidCall()`.
+Omit it when every cell reports a concrete model receipt.
+
 Call `.evaluate()` when you already have a candidate to compare.
 Call `.improve()` when you want the library to generate and test candidates:
 
 ```ts
 const result = await evalKit.improve({
-  llm: {
-    baseUrl: process.env.OPENAI_BASE_URL ?? 'https://api.openai.com/v1',
-    apiKey: process.env.OPENAI_API_KEY!,
-    model: 'gpt-4.1-mini',
-  },
+  budget: { generations: 2, populationSize: 3 },
 })
 
 console.log(result.winner.surface)
@@ -114,7 +115,7 @@ console.log(result.lift)
 console.log(result.gateDecision)
 ```
 
-The default candidate generator calls the configured model.
+The configured proposer or optimization method generates candidates.
 The agent and judge may make their own calls depending on your implementation.
 Set generation, population, concurrency, and dollar limits through `budget`.
 

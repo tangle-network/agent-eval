@@ -866,6 +866,24 @@ describe('otlpToRunRecords', () => {
     ).toThrow(/conflicting tangle\.task\.failure_class/)
   })
 
+  it('rejects task failure detail without a canonical class', () => {
+    const root = spanLine({
+      trace_id: 'unscoped-task-failure',
+      span_id: 'agent',
+      parent_span_id: '',
+      name: 'agent.run',
+      start_time: '2026-04-23T05:32:00.000Z',
+      end_time: '2026-04-23T05:32:03.000Z',
+      status: { code: 'STATUS_CODE_OK' },
+      attributes: {
+        'openinference.span.kind': 'AGENT',
+        'tangle.task.failure_mode': 'domain-specific-failure',
+      },
+    })
+
+    expect(() => otlpToRunRecords(root, baseOpts)).toThrow(/failure_mode.*requires.*failure_class/)
+  })
+
   it('pads a bare-alias model to a snapshot the validator accepts', () => {
     const bare = FIXTURE.replaceAll('gpt-4o-mini-2024-07-18', 'gpt-4o-mini')
     const clean = otlpToRunRecords(bare, baseOpts)[0]!

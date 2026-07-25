@@ -74,7 +74,9 @@ function makeRun(opts: {
     },
     splitTag: 'holdout' as const,
     scenarioId: opts.scenarioId ?? opts.id.replace(/^[bc]-/, ''),
-    ...(opts.failureMode ? { failureMode: opts.failureMode } : {}),
+    ...(opts.failureMode
+      ? { failureClass: 'unknown' as const, failureMode: opts.failureMode }
+      : {}),
   } satisfies RunRecord
   if (opts.metadata) Object.assign(run, { metadata: opts.metadata })
   return run
@@ -835,8 +837,8 @@ describe('fromOtelSpans → analyzeRuns: OTel observability corpus', () => {
     expect(run?.failureMode).toBe('ignored the requested output format')
     expect(run?.terminalOutcome).toBe('succeeded')
     const report = await analyzeRuns({ runs: [run!] })
-    expect(report.failureModes?.[0]).toMatchObject({
-      mode: 'instruction_following',
+    expect(report.failureClasses?.[0]).toMatchObject({
+      failureClass: 'instruction_following',
       count: 1,
     })
 
@@ -860,19 +862,19 @@ describe('fromOtelSpans → analyzeRuns: OTel observability corpus', () => {
     expect(classOnly.failureClass).toBe('instruction_following')
     expect(classOnly.failureMode).toBeUndefined()
 
-    const modeOnly = fromOtelSpans({
-      spans: [
-        {
-          ...root,
-          attributes: {
-            'openinference.span.kind': 'AGENT',
-            'tangle.task.failure_mode': 'domain-specific-failure',
+    expect(() =>
+      fromOtelSpans({
+        spans: [
+          {
+            ...root,
+            attributes: {
+              'openinference.span.kind': 'AGENT',
+              'tangle.task.failure_mode': 'domain-specific-failure',
+            },
           },
-        },
-      ],
-    })[0]!
-    expect(modeOnly.failureClass).toBeUndefined()
-    expect(modeOnly.failureMode).toBe('domain-specific-failure')
+        ],
+      }),
+    ).toThrow(/failure_mode.*requires.*failure_class/)
   })
 
   it('rejects malformed root task failure labels', () => {
@@ -1295,6 +1297,17 @@ describe('analyzeRuns — recommendations are always actionable', () => {
 // ── analyzeRuns: failure clustering ─────────────────────────────────
 
 describe('analyzeRuns — failure clustering via the analyst registry', () => {
+  it('rejects failure detail without a canonical class at the analysis boundary', async () => {
+    const malformed = {
+      ...makeRun({ id: 'malformed', candidate: 'c', composite: 0.2 }),
+      failureMode: 'legacy-mode-only',
+    }
+
+    await expect(analyzeRuns({ runs: [malformed] })).rejects.toThrow(
+      /failureMode requires a non-success failureClass/,
+    )
+  })
+
   function failureRegistry(): AnalystRegistry {
     const registry = new AnalystRegistry()
     registry.register({
@@ -1342,7 +1355,6 @@ describe('analyzeRuns — failure clustering via the analyst registry', () => {
       id: 'recovered',
       candidate: 'c',
       composite: 0.9,
-      failureMode: 'tool retry',
       terminalOutcome: 'succeeded',
     })
     recovered.outcome.raw.execution_error_count = 1
@@ -1361,7 +1373,7 @@ describe('analyzeRuns — failure clustering via the analyst registry', () => {
 
     expect(report.failureClusters?.totalFailures).toBe(0)
     expect(report.failureClusters?.clusters).toEqual([])
-    expect(report.failureModes).toBeUndefined()
+    expect(report.failureClasses).toBeUndefined()
   })
 
   it('failureClusters stays undefined without an analyst', async () => {

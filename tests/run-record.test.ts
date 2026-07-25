@@ -121,6 +121,24 @@ describe('validateRunRecord — happy path', () => {
     expect(r.failureMode).toBeUndefined()
   })
 
+  it('accepts failure detail only under a non-success canonical class', () => {
+    const record = makeRecord({
+      failureClass: 'tool_recovery_failure',
+      failureMode: 'forge_build_unsatisfied',
+    })
+
+    expect(roundTripRunRecord(record)).toMatchObject({
+      failureClass: 'tool_recovery_failure',
+      failureMode: 'forge_build_unsatisfied',
+    })
+    expect(() => validateRunRecord(makeRecord({ failureMode: 'unscoped' }))).toThrow(
+      /failureMode requires a non-success failureClass/,
+    )
+    expect(() =>
+      validateRunRecord(makeRecord({ failureClass: 'success', failureMode: 'contradiction' })),
+    ).toThrow(/failureMode requires a non-success failureClass/)
+  })
+
   it('rejects records without explicit terminal and cost evidence', () => {
     for (const field of ['terminalOutcome', 'costProvenance'] as const) {
       const incomplete = { ...makeRecord() } as Record<string, unknown>

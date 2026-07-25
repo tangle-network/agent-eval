@@ -8,10 +8,10 @@ interface AttributeCarrier {
   attributes: Record<string, unknown>
 }
 
-export interface TaskFailureLabels {
-  failureClass?: FailureClass
-  failureMode?: string
-}
+export type TaskFailureLabels =
+  | { failureClass?: undefined; failureMode?: undefined }
+  | { failureClass: 'success'; failureMode?: undefined }
+  | { failureClass: Exclude<FailureClass, 'success'>; failureMode?: string }
 
 export function readTaskFailureLabels(
   roots: readonly AttributeCarrier[],
@@ -25,9 +25,16 @@ export function readTaskFailureLabels(
       `${context}: ${TASK_FAILURE_CLASS_ATTR} must be one of ${FAILURE_CLASSES.join(', ')}`,
     )
   }
+  if (failureMode !== undefined && (failureClass === undefined || failureClass === 'success')) {
+    throw new ValidationError(
+      `${context}: ${TASK_FAILURE_MODE_ATTR} requires a non-success ${TASK_FAILURE_CLASS_ATTR}`,
+    )
+  }
 
+  if (failureClass === undefined) return {}
+  if (failureClass === 'success') return { failureClass }
   return {
-    ...(failureClass ? { failureClass: failureClass as FailureClass } : {}),
+    failureClass: failureClass as Exclude<FailureClass, 'success'>,
     ...(failureMode ? { failureMode } : {}),
   }
 }
