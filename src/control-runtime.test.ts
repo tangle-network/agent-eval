@@ -64,7 +64,12 @@ describe('runAgentControlLoop', () => {
       ],
       decide: ({ history }) =>
         history.length > 0
-          ? { type: 'stop', pass: false, reason: 'worker did not change state' }
+          ? {
+              type: 'stop',
+              pass: false,
+              reason: 'worker did not change state',
+              failureClass: 'tool_recovery_failure',
+            }
           : { type: 'continue', action: { type: 'write_artifact', value: 'x' } },
       act: () => ({ count: 0 }),
     })
@@ -73,6 +78,7 @@ describe('runAgentControlLoop', () => {
     expect(result.completed).toBe(true)
     expect(result.stoppedBy).toBe('policy')
     expect(result.reason).toBe('worker did not change state')
+    expect(result.failureClass).toBe('tool_recovery_failure')
     expect(result.steps).toHaveLength(1)
   })
 
