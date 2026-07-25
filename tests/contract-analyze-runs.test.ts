@@ -845,6 +845,34 @@ describe('fromOtelSpans → analyzeRuns: OTel observability corpus', () => {
     })[0]!
     expect(childOnly.failureClass).toBeUndefined()
     expect(childOnly.failureMode).toBeUndefined()
+
+    const classOnly = fromOtelSpans({
+      spans: [
+        {
+          ...root,
+          attributes: {
+            'openinference.span.kind': 'AGENT',
+            'tangle.task.failure_class': 'instruction_following',
+          },
+        },
+      ],
+    })[0]!
+    expect(classOnly.failureClass).toBe('instruction_following')
+    expect(classOnly.failureMode).toBeUndefined()
+
+    const modeOnly = fromOtelSpans({
+      spans: [
+        {
+          ...root,
+          attributes: {
+            'openinference.span.kind': 'AGENT',
+            'tangle.task.failure_mode': 'domain-specific-failure',
+          },
+        },
+      ],
+    })[0]!
+    expect(modeOnly.failureClass).toBeUndefined()
+    expect(modeOnly.failureMode).toBe('domain-specific-failure')
   })
 
   it('rejects malformed root task failure labels', () => {
@@ -867,6 +895,20 @@ describe('fromOtelSpans → analyzeRuns: OTel observability corpus', () => {
             attributes: {
               'openinference.span.kind': 'AGENT',
               'tangle.task.failure_mode': 42,
+            },
+          },
+        ],
+      }),
+    ).toThrow(/tangle\.task\.failure_mode/)
+
+    expect(() =>
+      fromOtelSpans({
+        spans: [
+          {
+            ...root,
+            attributes: {
+              'openinference.span.kind': 'AGENT',
+              'tangle.task.failure_mode': '  ',
             },
           },
         ],

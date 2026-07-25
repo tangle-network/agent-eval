@@ -196,9 +196,11 @@ export interface RunRecord {
    *  set it only from task-result evidence. Execution errors belong in
    *  `outcome.raw.execution_error_count`, even when the run later fails. */
   failureClass?: FailureClass
-  /** Free-form task-failure detail, scoped UNDER `failureClass`
-   *  (e.g. failureClass='tool_recovery_failure', failureMode='forge_build_unsatisfied').
-   *  Do not populate this from a child execution error alone. */
+  /** Free-form task-failure detail. When `failureClass` is present, this is
+   *  scoped under it (e.g. failureClass='tool_recovery_failure',
+   *  failureMode='forge_build_unsatisfied'). When no canonical class is
+   *  available, this may stand alone as the domain-specific aggregation key.
+   *  Do not populate it from a child execution error alone. */
   failureMode?: string
   /** Which split this run was drawn from. */
   splitTag: RunSplitTag
