@@ -146,18 +146,19 @@ describe('createReferenceEquivalenceJudge', () => {
     )
   })
 
-  it.each(
-    Object.entries(REFERENCE_EQUIVALENCE_INPUT_LIMITS),
-  )('bounds %s before the paid call', async (field, limit) => {
-    const handler = vi.fn(async () => response(verdict()))
-    const chat = createChatClient({ transport: 'mock', defaultModel: 'judge-model', handler })
-    const oversized = { ...INPUT, [field]: 'x'.repeat(limit + 1) }
+  it.each(Object.entries(REFERENCE_EQUIVALENCE_INPUT_LIMITS))(
+    'bounds %s before the paid call',
+    async (field, limit) => {
+      const handler = vi.fn(async () => response(verdict()))
+      const chat = createChatClient({ transport: 'mock', defaultModel: 'judge-model', handler })
+      const oversized = { ...INPUT, [field]: 'x'.repeat(limit + 1) }
 
-    await expect(runReferenceEquivalenceJudge(oversized, { chat })).rejects.toThrow(
-      `${field} exceeds ${limit} characters`,
-    )
-    expect(handler).not.toHaveBeenCalled()
-  })
+      await expect(runReferenceEquivalenceJudge(oversized, { chat })).rejects.toThrow(
+        `${field} exceeds ${limit} characters`,
+      )
+      expect(handler).not.toHaveBeenCalled()
+    },
+  )
 })
 
 describe('reference-equivalence transport and campaign integration', () => {

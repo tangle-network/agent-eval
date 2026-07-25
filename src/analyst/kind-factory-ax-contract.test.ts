@@ -101,12 +101,15 @@ describe('createTraceAnalystKind Ax contract', () => {
     ['maxDepth', 2, 'subqueries'],
     ['maxParallelSubagents', 3, 'subqueries.maxParallel'],
     ['subagentDescription', 'old prompt', 'actorDescription'],
-  ])('rejects removed kind option %s instead of silently using defaults', (name, value, replacement) => {
-    expect(() =>
-      createTraceAnalystKind({ ...testSpec(), [name]: value } as never, { ai: testAi() }),
-    ).toThrow(`'${name}' is unsupported; use '${replacement}'`)
-    expect(axMock.agentCalls).toHaveLength(0)
-  })
+  ])(
+    'rejects removed kind option %s instead of silently using defaults',
+    (name, value, replacement) => {
+      expect(() =>
+        createTraceAnalystKind({ ...testSpec(), [name]: value } as never, { ai: testAi() }),
+      ).toThrow(`'${name}' is unsupported; use '${replacement}'`)
+      expect(axMock.agentCalls).toHaveLength(0)
+    },
+  )
 
   it('requires an explicit model for opaque Ax services before paid work', () => {
     const chat = vi.fn()
