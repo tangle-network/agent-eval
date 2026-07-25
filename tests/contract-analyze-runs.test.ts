@@ -804,6 +804,76 @@ describe('fromOtelSpans → analyzeRuns: OTel observability corpus', () => {
     ).toBe('unknown')
   })
 
+  it('reads task failure labels only from the run root', async () => {
+    const root = span({
+      traceId: 'task-failure',
+      spanId: 'root',
+      name: 'agent.run',
+      attributes: {
+        'openinference.span.kind': 'AGENT',
+        'tangle.task.score': 0.2,
+        'tangle.task.failure_class': 'instruction_following',
+        'tangle.task.failure_mode': 'ignored the requested output format',
+      },
+      status: { code: 'OK' },
+    })
+    const child = span({
+      traceId: 'task-failure',
+      spanId: 'tool',
+      parentSpanId: 'root',
+      name: 'tool.call',
+      attributes: {
+        'openinference.span.kind': 'TOOL',
+        'tangle.task.failure_class': 'hallucination',
+        'tangle.task.failure_mode': 'child label must not escape',
+      },
+      status: { code: 'ERROR' },
+    })
+
+    const [run] = fromOtelSpans({ spans: [root, child] })
+    expect(run?.failureClass).toBe('instruction_following')
+    expect(run?.failureMode).toBe('ignored the requested output format')
+    expect(run?.terminalOutcome).toBe('succeeded')
+    const report = await analyzeRuns({ runs: [run!] })
+    expect(report.failureModes?.[0]).toMatchObject({
+      mode: 'instruction_following',
+      count: 1,
+    })
+
+    const childOnly = fromOtelSpans({
+      spans: [{ ...root, attributes: { 'tangle.task.score': 0.2 } }, child],
+    })[0]!
+    expect(childOnly.failureClass).toBeUndefined()
+    expect(childOnly.failureMode).toBeUndefined()
+  })
+
+  it('rejects malformed root task failure labels', () => {
+    const root = span({
+      traceId: 'bad-task-failure',
+      spanId: 'root',
+      name: 'agent.run',
+      attributes: {
+        'openinference.span.kind': 'AGENT',
+        'tangle.task.failure_class': 'made-up-class',
+      },
+    })
+    expect(() => fromOtelSpans({ spans: [root] })).toThrow(/tangle\.task\.failure_class/)
+
+    expect(() =>
+      fromOtelSpans({
+        spans: [
+          {
+            ...root,
+            attributes: {
+              'openinference.span.kind': 'AGENT',
+              'tangle.task.failure_mode': 42,
+            },
+          },
+        ],
+      }),
+    ).toThrow(/tangle\.task\.failure_mode/)
+  })
+
   it('preserves a cost-only model call and an untyped run-total cost', () => {
     const runs = fromOtelSpans({
       spans: [

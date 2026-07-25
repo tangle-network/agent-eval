@@ -4,6 +4,13 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ---
 
+## [0.127.1] - 2026-07-25 - OpenTelemetry task failure labels
+
+### Changed
+
+- OTel intake reads `tangle.task.failure_class` and `tangle.task.failure_mode` from the run root.
+- Invalid root failure classes fail loudly, and child-span labels cannot become task failures.
+
 ## [0.127.0] - 2026-07-25 - explicit run evidence and truthful release checks
 
 ### Changed
