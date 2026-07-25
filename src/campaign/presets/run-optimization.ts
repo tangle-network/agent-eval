@@ -25,6 +25,7 @@ import {
   assertFiniteRankKey,
   campaignBreakdown,
   campaignMeanComposite,
+  campaignMeanCompositeOrNull,
   compareRankKeys,
 } from '../score-utils'
 import { createRunCostLedger, fsCampaignStorage } from '../storage'
@@ -101,7 +102,7 @@ export interface RunOptimizationBaseOptions<TScenario extends Scenario, TArtifac
     candidates: Array<{
       surfaceHash: string
       campaign: CampaignResult<TArtifact, TScenario>
-      composite: number
+      composite: number | null
     }>
     history: GenerationRecord[]
     /** Shared run spend account and receipt attribution phase. */
@@ -320,9 +321,9 @@ export async function runOptimization<TScenario extends Scenario, TArtifact>(
       label: string
       rationale: string
       campaign: CampaignResult<TArtifact, TScenario>
-      composite: number
+      composite: number | null
       /** Lexicographic winner-selection key (higher-is-better per element). */
-      rankKey: number[]
+      rankKey: number[] | null
       coverage: CampaignCoverage
     }
     const surfaceResults = await mapConcurrent(
@@ -337,19 +338,21 @@ export async function runOptimization<TScenario extends Scenario, TArtifact>(
           dispatch: (scenario, ctx) => opts.dispatchWithSurface(surface, scenario, ctx),
           runDir: `${opts.runDir}/gen-${gen}/candidate-${i}`,
         })
-        const composite = campaignMeanComposite(campaign)
-        const rankKey = selectionRankKey(campaign)
-        assertFiniteRankKey(
-          rankKey,
-          `selectionRankKey for generation ${gen} candidate ${i}`,
-          winnerRankKey.length,
-        )
         const coverage = campaignCoverage(
           campaign.cells,
           opts.scenarios,
           opts.reps ?? 1,
           requireJudgeScore,
         )
+        const composite = campaignMeanCompositeOrNull(campaign)
+        const rankKey = coverage.complete ? selectionRankKey(campaign) : null
+        if (rankKey) {
+          assertFiniteRankKey(
+            rankKey,
+            `selectionRankKey for generation ${gen} candidate ${i}`,
+            winnerRankKey.length,
+          )
+        }
         return {
           surfaceHash: hash,
           surface,
@@ -377,9 +380,13 @@ export async function runOptimization<TScenario extends Scenario, TArtifact>(
     // rows follow the eligible rows for auditability but never promote.
     surfaceResults.sort((a, b) => {
       if (a.coverage.complete !== b.coverage.complete) return a.coverage.complete ? -1 : 1
-      return compareRankKeys(b.rankKey, a.rankKey)
+      if (a.rankKey && b.rankKey) return compareRankKeys(b.rankKey, a.rankKey)
+      return a.surfaceHash.localeCompare(b.surfaceHash)
     })
-    const eligibleResults = surfaceResults.filter((result) => result.coverage.complete)
+    const eligibleResults = surfaceResults.filter(
+      (result): result is SurfaceResult & { composite: number; rankKey: number[] } =>
+        result.coverage.complete && result.composite !== null && result.rankKey !== null,
+    )
     const top = eligibleResults[0]
     const promoted = top && compareRankKeys(top.rankKey, winnerRankKey) > 0 ? [top] : []
     if (promoted[0]) {
@@ -400,11 +407,11 @@ export async function runOptimization<TScenario extends Scenario, TArtifact>(
         const candidate: GenerationRecord['candidates'][number] = {
           surfaceHash: s.surfaceHash,
           composite: s.composite,
-          ci95: [s.composite, s.composite] as [number, number],
+          ci95: s.composite === null ? null : [s.composite, s.composite],
           parentSurfaceHash,
           parentComposite,
           ...(s.coverage.complete
-            ? { observedDeltaFromParent: s.composite - parentComposite }
+            ? { observedDeltaFromParent: s.composite! - parentComposite }
             : {}),
           eligibleForPromotion: s.coverage.complete,
           coverage: {

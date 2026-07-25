@@ -79,8 +79,8 @@ export interface LoopProvenanceCandidate {
   eligibleForPromotion: boolean
   /** Designed-denominator receipt retained even for incomplete candidates. */
   coverage: NonNullable<GenerationCandidate['coverage']>
-  /** Mean composite this candidate scored on the search split. */
-  composite: number
+  /** Mean composite this candidate scored on the search split, or null when unscorable. */
+  composite: number | null
   /** Whether this candidate was promoted out of its generation. */
   promoted: boolean
 }
@@ -363,11 +363,11 @@ export function buildLoopProvenanceRecord<TArtifact, TScenario extends Scenario>
         campaignDigest: campaignMeasurementDigest(campaign),
         parentSurfaceHash: c.parentSurfaceHash!,
         parentComposite: c.parentComposite!,
-        eligibleForPromotion: c.eligibleForPromotion!,
+        eligibleForPromotion: c.eligibleForPromotion,
         coverage: {
-          expectedCells: c.coverage!.expectedCells,
-          scorableCells: c.coverage!.scorableCells,
-          unscorableCells: c.coverage!.unscorableCells.map((cell) => ({ ...cell })),
+          expectedCells: c.coverage.expectedCells,
+          scorableCells: c.coverage.scorableCells,
+          unscorableCells: c.coverage.unscorableCells.map((cell) => ({ ...cell })),
         },
         composite: c.composite,
         promoted: promotedSet.has(c.surfaceHash),
@@ -383,6 +383,9 @@ export function buildLoopProvenanceRecord<TArtifact, TScenario extends Scenario>
     if (promotedHash) {
       const promoted = candidateByHash.get(promotedHash)!
       incumbentSurfaceHash = promoted.surfaceHash
+      if (promoted.composite === null) {
+        throw new Error('buildLoopProvenanceRecord: promoted candidate is missing a composite')
+      }
       incumbentComposite = promoted.composite
     }
   }
@@ -576,6 +579,8 @@ export function campaignMeasurementDigest<TArtifact, TScenario extends Scenario>
         durationMs: cell.durationMs,
         seed: cell.seed,
         cached: cell.cached,
+        errorStage: cell.errorStage ?? null,
+        errorJudge: cell.errorJudge ?? null,
         error: cell.error ?? null,
       })),
   })
@@ -630,9 +635,6 @@ function validateCandidateMeasurement(
   expectedParentComposite: number,
   promoted: boolean,
 ): void {
-  if (!Number.isFinite(candidate.composite)) {
-    throw new Error('buildLoopProvenanceRecord: candidate composite must be finite')
-  }
   if (!candidate.parentSurfaceHash || !/^[a-f0-9]{16}$/.test(candidate.parentSurfaceHash)) {
     throw new Error(
       'buildLoopProvenanceRecord: parentSurfaceHash must be 16 lowercase hex characters',
@@ -648,11 +650,6 @@ function validateCandidateMeasurement(
   ) {
     throw new Error(
       'buildLoopProvenanceRecord: candidate parentComposite does not match the incumbent',
-    )
-  }
-  if (candidate.eligibleForPromotion === undefined || !candidate.coverage) {
-    throw new Error(
-      'buildLoopProvenanceRecord: candidate measurement requires eligibility and coverage',
     )
   }
   if (candidate.observedDeltaFromParent !== undefined) {
@@ -695,12 +692,15 @@ function validateCandidateMeasurement(
   }
   const complete =
     coverage.scorableCells === coverage.expectedCells && coverage.unscorableCells.length === 0
-  if (candidate.eligibleForPromotion !== undefined && candidate.eligibleForPromotion !== complete) {
+  if (candidate.eligibleForPromotion !== complete) {
     throw new Error(
       'buildLoopProvenanceRecord: candidate eligibility contradicts its coverage receipt',
     )
   }
   if (complete) {
+    if (candidate.composite === null || !Number.isFinite(candidate.composite)) {
+      throw new Error('buildLoopProvenanceRecord: complete candidate composite must be finite')
+    }
     if (candidate.observedDeltaFromParent === undefined) {
       throw new Error(
         'buildLoopProvenanceRecord: complete candidate is missing observedDeltaFromParent',
@@ -710,8 +710,13 @@ function validateCandidateMeasurement(
     if (Math.abs(candidate.observedDeltaFromParent - recomputed) > 1e-12) {
       throw new Error('buildLoopProvenanceRecord: observed delta does not match measured scores')
     }
-  } else if (candidate.observedDeltaFromParent !== undefined) {
-    throw new Error('buildLoopProvenanceRecord: incomplete candidate cannot carry observed delta')
+  } else {
+    if (candidate.composite !== null && !Number.isFinite(candidate.composite)) {
+      throw new Error('buildLoopProvenanceRecord: candidate composite must be finite or null')
+    }
+    if (candidate.observedDeltaFromParent !== undefined) {
+      throw new Error('buildLoopProvenanceRecord: incomplete candidate cannot carry observed delta')
+    }
   }
   if (promoted && (!complete || (candidate.observedDeltaFromParent ?? 0) <= 0)) {
     throw new Error('buildLoopProvenanceRecord: promoted candidate must improve the incumbent')
@@ -720,16 +725,8 @@ function validateCandidateMeasurement(
 
 // ── OTel span emission ──────────────────────────────────────────────────
 
-const DECISION_OK: GateDecision[] = ['ship']
-
 function hashId(parts: string[]): string {
   return createHash('sha256').update(parts.join(':')).digest('hex')
-}
-
-function gateStatus(decision: GateDecision): { code: 'OK' | 'ERROR' | 'UNSET'; message?: string } {
-  return DECISION_OK.includes(decision)
-    ? { code: 'OK' }
-    : { code: 'ERROR', message: `gate decision: ${decision}` }
 }
 
 /**
@@ -782,7 +779,7 @@ export function loopProvenanceSpans(
     startTimeUnixNano: baseNano,
     endTimeUnixNano: endNano,
     attributes: rootAttributes,
-    status: gateStatus(record.gate.decision),
+    status: { code: 'OK' },
     'tangle.runId': record.runId,
   })
 
@@ -795,7 +792,9 @@ export function loopProvenanceSpans(
   }
   for (const [generation, cands] of [...byGen.entries()].sort((a, b) => a[0] - b[0])) {
     const genSpanId = hashId(['gen', record.runId, String(generation)]).slice(0, 16)
-    const bestComposite = Math.max(...cands.map((candidate) => candidate.composite))
+    const measuredComposites = cands.flatMap((candidate) =>
+      candidate.composite === null ? [] : [candidate.composite],
+    )
     spans.push({
       traceId,
       spanId: genSpanId,
@@ -807,7 +806,9 @@ export function loopProvenanceSpans(
         'tangle.runId': record.runId,
         'tangle.generation': generation,
         'tangle.populationSize': cands.length,
-        'tangle.bestComposite': bestComposite,
+        ...(measuredComposites.length > 0
+          ? { 'tangle.bestComposite': Math.max(...measuredComposites) }
+          : {}),
       },
       'tangle.runId': record.runId,
       'tangle.generation': generation,
@@ -825,13 +826,13 @@ export function loopProvenanceSpans(
         'tangle.contentHash': c.contentHash,
         'tangle.parentSurfaceHash': c.parentSurfaceHash,
         'tangle.parentComposite': c.parentComposite,
-        'tangle.composite': c.composite,
         'tangle.eligibleForPromotion': c.eligibleForPromotion,
         'tangle.expectedCells': c.coverage.expectedCells,
         'tangle.scorableCells': c.coverage.scorableCells,
         'tangle.unscorableCells': c.coverage.unscorableCells.length,
         'tangle.promoted': c.promoted,
       }
+      if (c.composite !== null) attributes['tangle.composite'] = c.composite
       if (c.observedDeltaFromParent !== undefined) {
         attributes['tangle.observedDeltaFromParent'] = c.observedDeltaFromParent
       }
@@ -877,7 +878,7 @@ export function loopProvenanceSpans(
     startTimeUnixNano: endNano,
     endTimeUnixNano: endNano,
     attributes: gateAttributes,
-    status: gateStatus(record.gate.decision),
+    status: { code: 'OK' },
     'tangle.runId': record.runId,
   })
 

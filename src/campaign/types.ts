@@ -600,8 +600,7 @@ export interface CampaignCellResult<TArtifact> {
   durationMs: number
   seed: number
   cached: boolean
-  /** Stage that produced `error`. Missing on successful cells and legacy
-   *  persisted failures, where the terminal execution result is unknown. */
+  /** Stage that produced `error`. Missing on successful cells. */
   errorStage?: 'dispatch' | 'judge'
   /** Judge that threw when `errorStage` is `judge`. */
   errorJudge?: string
@@ -633,8 +632,10 @@ export interface GenerationRecord {
  *  handled — the evidence a blind `Mutator` cannot see. */
 export interface GenerationCandidate {
   surfaceHash: string
-  composite: number
-  ci95: [number, number]
+  /** Mean over complete task-quality scores, or null when none were produced. */
+  composite: number | null
+  /** Descriptive interval for `composite`, or null when no score exists. */
+  ci95: [number, number] | null
   /** Exact surface this candidate mutated. */
   parentSurfaceHash?: string
   /** Measured search-split composite of the exact parent surface. */
@@ -644,13 +645,12 @@ export interface GenerationCandidate {
   observedDeltaFromParent?: number
   /** Whether this candidate had a scorable result for every designed campaign
    *  cell and was therefore eligible for ranking, promotion, and Pareto
-   *  selection. Older externally-authored records may omit this field; loop
-   *  records always populate it. */
-  eligibleForPromotion?: boolean
+   *  selection. */
+  eligibleForPromotion: boolean
   /** Exact denominator receipt for selection eligibility. Scores stay
    *  descriptive: an incomplete candidate is retained with its observed score
    *  and errors instead of receiving an invented penalty. */
-  coverage?: {
+  coverage: {
     expectedCells: number
     scorableCells: number
     unscorableCells: Array<{ cellId: string; reason: string }>

@@ -59,6 +59,12 @@ function genRecord(
     surfaceHash: `top-${generationIndex}`,
     composite: mean,
     ci95: [mean, mean] as [number, number],
+    eligibleForPromotion: true,
+    coverage: {
+      expectedCells: scenarios.length,
+      scorableCells: scenarios.length,
+      unscorableCells: [],
+    },
     dimensions: {},
     scenarios,
   }
@@ -72,6 +78,12 @@ function genRecord(
             surfaceHash: `decoy-${generationIndex}`,
             composite: decoyComposite,
             ci95: [decoyComposite, decoyComposite] as [number, number],
+            eligibleForPromotion: true,
+            coverage: {
+              expectedCells: scenarios.length,
+              scorableCells: scenarios.length,
+              unscorableCells: [],
+            },
             dimensions: {},
             scenarios: scenarios.map((s) => ({ ...s, composite: decoyComposite })),
           },

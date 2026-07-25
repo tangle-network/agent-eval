@@ -1,9 +1,14 @@
 import { describe, expect, it } from 'vitest'
+import { fromOtelSpans } from '../contract/intake/otel-spans'
 import { campaignScenarioIdentity, campaignSplitDigest } from './coverage'
 import type { BuildLoopProvenanceArgs } from './provenance'
-import { buildLoopProvenanceRecord } from './provenance'
+import {
+  buildLoopProvenanceRecord,
+  campaignMeasurementDigest,
+  loopProvenanceSpans,
+} from './provenance'
 import { surfaceHash } from './surface-identity'
-import type { CampaignResult, GenerationCandidate, Scenario } from './types'
+import type { CampaignResult, GateDecision, GenerationCandidate, Scenario } from './types'
 
 interface TestScenario extends Scenario {
   kind: 'test'
@@ -229,5 +234,58 @@ describe('loop provenance measurement integrity', () => {
 
     input.gate.contributingGates[0]!.detail = { omitted: undefined }
     expect(() => buildLoopProvenanceRecord(input)).toThrow(/gate detail must be canonical JSON/)
+  })
+
+  it.each<GateDecision>(['hold', 'need_more_work', 'model_ceiling', 'arch_ceiling'])(
+    'records %s as a successful decision rather than an execution error',
+    (decision) => {
+      const input = args()
+      input.gate.decision = decision
+      const record = buildLoopProvenanceRecord(input)
+      const spans = loopProvenanceSpans(record)
+
+      expect(spans.find((span) => span.name === 'improvement-loop')?.status).toEqual({
+        code: 'OK',
+      })
+      expect(spans.find((span) => span.name === 'gate-decision')?.status).toEqual({
+        code: 'OK',
+      })
+
+      const [run] = fromOtelSpans({ spans })
+      expect(run).toMatchObject({
+        terminalOutcome: 'succeeded',
+        outcome: {
+          raw: {
+            error_span_count: 0,
+            execution_error_count: 0,
+            process_error_count: 0,
+            unclassified_error_count: 0,
+          },
+        },
+      })
+    },
+  )
+
+  it('binds failure stage and judge identity into the campaign digest', () => {
+    const dispatchFailure = campaign(0.5, '/same-run')
+    dispatchFailure.cells[0]!.error = 'same failure'
+    dispatchFailure.cells[0]!.errorStage = 'dispatch'
+
+    const judgeFailure = campaign(0.5, '/same-run')
+    judgeFailure.cells[0]!.error = 'same failure'
+    judgeFailure.cells[0]!.errorStage = 'judge'
+    judgeFailure.cells[0]!.errorJudge = 'judge-a'
+
+    const otherJudgeFailure = campaign(0.5, '/same-run')
+    otherJudgeFailure.cells[0]!.error = 'same failure'
+    otherJudgeFailure.cells[0]!.errorStage = 'judge'
+    otherJudgeFailure.cells[0]!.errorJudge = 'judge-b'
+
+    expect(campaignMeasurementDigest(dispatchFailure)).not.toBe(
+      campaignMeasurementDigest(judgeFailure),
+    )
+    expect(campaignMeasurementDigest(judgeFailure)).not.toBe(
+      campaignMeasurementDigest(otherJudgeFailure),
+    )
   })
 })

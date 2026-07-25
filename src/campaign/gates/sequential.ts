@@ -427,7 +427,11 @@ export function sequentialDecide(options: SequentialDecideOptions = {}): Sequent
           'cannot extract a top candidate',
       )
     }
-    return record.candidates.reduce((best, c) => (c.composite > best.composite ? c : best))
+    return record.candidates.reduce((best, candidate) => {
+      if (best.composite === null) return candidate
+      if (candidate.composite === null) return best
+      return candidate.composite > best.composite ? candidate : best
+    })
   }
 
   const decide: SequentialDecideFn = ({ history }) => {
