@@ -8,9 +8,7 @@ import { evaluateReleaseConfidence } from '../release-confidence'
 import { appendToCorpus, buildDatasetFromCorpus } from '../rl/corpus'
 import { buildRlDataset, type RlDatasetConfig } from '../rl/dataset'
 import {
-  type GrpoLineLookups,
   type GrpoLookups,
-  type SftLineLookups,
   type SftLookups,
   stepRewardsToJsonl,
   toDpoRows,
@@ -61,13 +59,9 @@ import {
   findRawScoreReadsInSource,
 } from './score-derivation-guard'
 
-// The anti-Goodhart gate is a whole-codebase invariant, not a function. Before
-// this suite existed, `rolloutReward` enforced it at exactly ONE of the two
-// doors into training data while 20 hand-rolled copies of the same derivation
-// walked around it — so a run flagged as gamed exported at full positive reward
-// through every RL path. Both halves below exist to keep that from regrowing:
-// the source check stops a 21st copy from being written, the behavioural check
-// proves the gate actually reaches each exported artifact.
+// The anti-Goodhart rule spans the whole codebase. The source check prevents
+// another score derivation from appearing, and the behavior checks prove the
+// rule reaches each exported artifact.
 
 const SOURCE_ROOT = new URL('..', import.meta.url).pathname
 
@@ -239,12 +233,6 @@ const lookups: GrpoLookups & SftLookups = {
   completionOf: (runId) => `completion-for-${runId}`,
 }
 
-/** The same lookups typed for the `MintedRolloutLine[]` (non-deprecated) path. */
-const lineLookups: GrpoLineLookups & SftLineLookups = {
-  promptOf: () => 'checkout-session prompt',
-  completionOf: (runId) => `completion-for-${runId}`,
-}
-
 const datasetConfig: RlDatasetConfig = {
   name: 'gate-regression',
   version: '0.1.0',
@@ -337,7 +325,7 @@ describe('a realness-gated run exports at reward 0 on every training path', () =
     expect(decision.evidence.holdoutScore).toBe(0.6)
   })
 
-  it('toGrpoRows: reward 0 in the group on the line path, dropped outright on the record path', async () => {
+  it('toGrpoRows keeps the gated rollout in the group at reward 0', async () => {
     const { rows: lines } = await mintRolloutRows([honest, gamed], new InMemoryTraceStore(), {
       now: () => new Date('2026-07-24T00:00:00Z'),
     })
@@ -346,22 +334,16 @@ describe('a realness-gated run exports at reward 0 on every training path', () =
     const byRun = new Map(fromLines[0]!.runIds.map((id, i) => [id, fromLines[0]!.rewards[i]]))
     expect(byRun.get('run-gamed')).toBe(0)
     expect(byRun.get('run-honest')).toBe(HONEST_SCORE)
-    // The record path removes the gamed run before grouping, which leaves the
-    // honest sibling alone (<2 rewarded completions) — no row, no gamed reward.
-    expect(await toGrpoRows([honest, gamed], lookups)).toEqual([])
   })
 
   it('toSftRows never emits the gamed trajectory as an imitation target', async () => {
-    const rows = await toSftRows([honest, gamed], lookups)
-    // SFT rows are targets to copy, so the gate may drop the row outright
-    // rather than zero it. Either is correct; a positive score is not.
-    const gamedRow = rows.find((r) => r.meta?.runId === 'run-gamed')
-    expect(gamedRow?.meta?.score ?? 0).toBe(0)
+    const { rows: lines } = await mintRolloutRows([honest, gamed], new InMemoryTraceStore())
+    const rows = await toSftRows(lines, lookups)
+    expect(rows.some((r) => r.meta?.runId === 'run-gamed')).toBe(false)
     expect(rows.some((r) => r.meta?.runId === 'run-honest')).toBe(true)
   })
 
-  it('extractPreferences never makes it the chosen side on either path', async () => {
-    // Line path: the gated line arrives scored 0 and sinks to `rejected`.
+  it('extractPreferences never makes the gated rollout the chosen side', async () => {
     const { rows: lines } = await mintRolloutRows([honest, gamed], new InMemoryTraceStore(), {
       now: () => new Date('2026-07-24T00:00:00Z'),
     })
@@ -370,11 +352,6 @@ describe('a realness-gated run exports at reward 0 on every training path', () =
     expect(fromLines.pairs[0]!.chosenRunId).toBe('run-honest')
     expect(fromLines.pairs[0]!.rejectedRunId).toBe('run-gamed')
     expect(fromLines.pairs[0]!.scores).toEqual({ chosen: HONEST_SCORE, rejected: 0 })
-    // Record path: the shared eligibility rule drops the gamed run before
-    // pairing, so its 0.95 claim bought it nothing — it appears on NO side.
-    const fromRecords = extractPreferences([honest, gamed])
-    expect(fromRecords.pairs).toHaveLength(0)
-    expect(fromRecords.cellsSingleton).toBe(1)
   })
 
   it('the probabilistic verifiable-reward fallback yields 0', () => {
@@ -387,7 +364,7 @@ describe('a realness-gated run exports at reward 0 on every training path', () =
     const { rows: lines } = await mintRolloutRows([honest, gamed], new InMemoryTraceStore(), {
       now: () => new Date('2026-07-24T00:00:00Z'),
     })
-    const bundle = await buildRlDataset(lines, lineLookups, {
+    const bundle = await buildRlDataset(lines, lookups, {
       ...datasetConfig,
       formats: ['grpo', 'sft'],
     })
@@ -697,7 +674,7 @@ describe('the line-less preference exporters cannot ship a gamed run as the pref
     await expect(
       buildRlDataset(
         lines,
-        lineLookups,
+        lookups,
         { ...datasetConfig, formats: ['dpo'] },
         { triples: [triple], lookups },
       ),
@@ -707,7 +684,7 @@ describe('the line-less preference exporters cannot ship a gamed run as the pref
     await expect(
       buildRlDataset(
         lines,
-        lineLookups,
+        lookups,
         { ...datasetConfig, formats: ['dpo'] },
         { triples: [honestPair], lookups },
       ),
@@ -1029,7 +1006,7 @@ describe('the runtime backstop composes EVERY check, not the ones it remembered'
   })
 
   it('refuses it on the rl/ reward reader and the SFT path built on it', async () => {
-    await expect(toSftRows([forged], lineLookups)).rejects.toThrow(/realness_screened: false/)
+    await expect(toSftRows([forged], lookups)).rejects.toThrow(/realness_screened: false/)
   })
 
   it('refuses it when it arrives as CONTEXT to a line-less exporter', () => {

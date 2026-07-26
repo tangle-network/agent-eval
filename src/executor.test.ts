@@ -7,9 +7,9 @@
  *      fail deterministic faults immediately.
  */
 
-import type { TCloud } from '@tangle-network/tcloud'
 import { describe, expect, it, vi } from 'vitest'
 
+import { type ChatClient, type ChatResponse, createChatClient } from './analyst/chat-client'
 import { CostLedger } from './cost-ledger'
 import { CaptureIntegrityError } from './errors'
 import { type ExecutorConfig, executeScenario, type JudgeFailure } from './executor'
@@ -29,9 +29,30 @@ function scenario(overrides: Partial<Scenario> = {}): Scenario {
   }
 }
 
-/** A TCloud whose chat() returns whatever shape the test supplies. */
-function chatStub(resp: unknown): TCloud {
-  return { chat: vi.fn(async () => resp) } as unknown as TCloud
+type StubChat = ChatClient & { handler: ReturnType<typeof vi.fn> }
+
+function response(content: unknown, overrides: Partial<ChatResponse> = {}): ChatResponse {
+  return {
+    content: content as string,
+    usage: { promptTokens: 0, completionTokens: 0, totalTokens: 0 },
+    costUsd: null,
+    model: 'gpt-4o',
+    durationMs: 0,
+    raw: {},
+    ...overrides,
+  }
+}
+
+function chatStub(resp: ChatResponse): StubChat {
+  const handler = vi.fn(async () => resp)
+  return Object.assign(
+    createChatClient({
+      transport: 'mock',
+      defaultModel: 'gpt-4o',
+      handler,
+    }),
+    { handler },
+  )
 }
 
 /** No-op sleep so the retry policy runs without real backoff. */
@@ -46,45 +67,40 @@ function config(overrides: Partial<ExecutorConfig> = {}): ExecutorConfig {
   }
 }
 
-describe('executeScenario — malformed chat response is a loud capture defect', () => {
+describe('executeScenario — canonical chat responses preserve capture integrity', () => {
   it('meters the scenario agent and rejects it before a capped run can overspend', async () => {
-    const tc = chatStub({
-      model: 'gpt-4o',
-      choices: [{ message: { content: 'measured' } }],
-      usage: { prompt_tokens: 10, completion_tokens: 2, total_tokens: 12 },
-    })
+    const chat = chatStub(
+      response('measured', {
+        usage: { promptTokens: 10, completionTokens: 2, totalTokens: 12 },
+      }),
+    )
     const blocked = new CostLedger(0)
     await expect(
-      executeScenario(tc, scenario(), config({ costLedger: blocked, tcloudMaximumAttempts: 1 })),
+      executeScenario(chat, scenario(), config({ costLedger: blocked })),
     ).rejects.toThrow(/would exceed ceiling/)
-    expect(tc.chat).not.toHaveBeenCalled()
+    expect(chat.handler).not.toHaveBeenCalled()
 
     const admitted = new CostLedger(1)
     const result = await executeScenario(
-      tc,
+      chat,
       scenario(),
       config({
         costLedger: admitted,
         costTags: { benchmarkRunId: 'benchmark-a' },
-        tcloudMaximumAttempts: 1,
       }),
     )
     expect(result.cost).toMatchObject({ totalCalls: 1, inputTokens: 10, outputTokens: 2 })
     expect(admitted.list()[0]?.tags).toMatchObject({ benchmarkRunId: 'benchmark-a' })
   })
 
-  it('marks omitted TCloud usage as incomplete instead of known zero spend', async () => {
-    const tc = chatStub({
-      model: 'gpt-4o',
-      choices: [{ message: { content: 'measured' } }],
-      usage: {},
-    })
-    const ledger = new CostLedger(1)
-    const result = await executeScenario(
-      tc,
-      scenario(),
-      config({ costLedger: ledger, tcloudMaximumAttempts: 1 }),
+  it('marks explicitly uncaptured canonical usage as incomplete', async () => {
+    const chat = chatStub(
+      response('measured', {
+        usage: { promptTokens: 0, completionTokens: 0, totalTokens: 0, captured: false },
+      }),
     )
+    const ledger = new CostLedger(1)
+    const result = await executeScenario(chat, scenario(), config({ costLedger: ledger }))
 
     expect(result.cost).toMatchObject({
       totalCalls: 1,
@@ -98,60 +114,64 @@ describe('executeScenario — malformed chat response is a loud capture defect',
     )
   })
 
-  it('marks inconsistent TCloud token totals as incomplete', async () => {
-    const tc = chatStub({
-      model: 'gpt-4o',
-      choices: [{ message: { content: 'measured' } }],
-      usage: { prompt_tokens: 10, completion_tokens: 2, total_tokens: 1 },
+  it('uses canonical provider-reported cost and token usage', async () => {
+    const chat = chatStub(
+      response('measured', {
+        usage: { promptTokens: 10, completionTokens: 2, totalTokens: 12 },
+        costUsd: 0.01,
+      }),
+    )
+    const result = await executeScenario(chat, scenario(), config({ costLedger: new CostLedger() }))
+
+    expect(result.cost).toMatchObject({
+      totalCalls: 1,
+      inputTokens: 10,
+      outputTokens: 2,
+      totalCostUsd: 0.01,
+      usageComplete: true,
+      accountingComplete: true,
     })
-    const result = await executeScenario(
-      tc,
-      scenario(),
-      config({ costLedger: new CostLedger(), tcloudMaximumAttempts: 1 }),
-    )
-
-    expect(result.cost).toMatchObject({ usageComplete: false, accountingComplete: false })
   })
 
-  it('throws CaptureIntegrityError when choices[0].message is absent', async () => {
-    const tc = chatStub({ choices: [{}] })
-    await expect(executeScenario(tc, scenario(), config())).rejects.toBeInstanceOf(
+  it('throws CaptureIntegrityError when canonical content is absent', async () => {
+    const chat = chatStub(response(undefined))
+    await expect(executeScenario(chat, scenario(), config())).rejects.toBeInstanceOf(
       CaptureIntegrityError,
     )
   })
 
-  it('throws when content is missing entirely (collapsed to "" under the old code)', async () => {
-    const tc = chatStub({ choices: [{ message: { role: 'assistant' } }] })
-    await expect(executeScenario(tc, scenario(), config())).rejects.toBeInstanceOf(
+  it('throws when canonical content is null', async () => {
+    const chat = chatStub(response(null))
+    await expect(executeScenario(chat, scenario(), config())).rejects.toBeInstanceOf(
       CaptureIntegrityError,
     )
   })
 
-  it('throws when content is a non-string (e.g. null) instead of recording an empty turn', async () => {
-    const tc = chatStub({ choices: [{ message: { content: null } }] })
-    await expect(executeScenario(tc, scenario(), config())).rejects.toBeInstanceOf(
+  it('throws when canonical content is non-string', async () => {
+    const chat = chatStub(response({ text: 'wrong shape' }))
+    await expect(executeScenario(chat, scenario(), config())).rejects.toBeInstanceOf(
       CaptureIntegrityError,
     )
   })
 
   it('PRESERVES a legitimately-empty string — a model that chose to say nothing is real signal', async () => {
-    const tc = chatStub({ choices: [{ message: { content: '' } }] })
-    const result = await executeScenario(tc, scenario(), config())
+    const chat = chatStub(response(''))
+    const result = await executeScenario(chat, scenario(), config())
     expect(result.turns).toHaveLength(1)
     expect(result.turns[0]!.agentResponse).toBe('')
   })
 })
 
 describe('executeScenario — judge retry policy records the reason and gates on transience', () => {
-  const goodResp = { choices: [{ message: { content: 'hi there' } }] }
+  const goodResp = response('hi there')
 
   it('does NOT retry a deterministic judge error — calls the judge exactly once', async () => {
     const judge = vi.fn(async () => {
       throw new Error('rubric validation failed')
     }) as unknown as JudgeFn
-    const tc = chatStub(goodResp)
+    const chat = chatStub(goodResp)
 
-    const result = await executeScenario(tc, scenario(), config({ judges: [judge] }))
+    const result = await executeScenario(chat, scenario(), config({ judges: [judge] }))
 
     expect((judge as unknown as ReturnType<typeof vi.fn>).mock.calls).toHaveLength(1)
     expect(result.judgeErrors).toBe(1)
@@ -161,10 +181,10 @@ describe('executeScenario — judge retry policy records the reason and gates on
     const judge = vi.fn(async () => {
       throw new Error('rubric validation failed')
     }) as unknown as JudgeFn
-    const tc = chatStub(goodResp)
+    const chat = chatStub(goodResp)
 
     const result = (await executeScenario(
-      tc,
+      chat,
       scenario(),
       config({ judges: [judge] }),
     )) as ScenarioResult & {
@@ -188,10 +208,10 @@ describe('executeScenario — judge retry policy records the reason and gates on
       }
       return [{ judgeName: 'j', dimension: 'accuracy', score: 0.8, reasoning: 'ok' }]
     }) as unknown as JudgeFn
-    const tc = chatStub(goodResp)
+    const chat = chatStub(goodResp)
 
     const result = (await executeScenario(
-      tc,
+      chat,
       scenario(),
       config({ judges: [judge] }),
     )) as ScenarioResult & {
@@ -210,10 +230,10 @@ describe('executeScenario — judge retry policy records the reason and gates on
       err.status = 503
       throw err
     }) as unknown as JudgeFn
-    const tc = chatStub(goodResp)
+    const chat = chatStub(goodResp)
 
     const result = (await executeScenario(
-      tc,
+      chat,
       scenario(),
       config({ judges: [judge] }),
     )) as ScenarioResult & {
@@ -229,10 +249,10 @@ describe('executeScenario — judge retry policy records the reason and gates on
     const judge = vi.fn(async () => {
       throw new JudgeParseError('domain', 'not json at all')
     }) as unknown as JudgeFn
-    const tc = chatStub(goodResp)
+    const chat = chatStub(goodResp)
 
     const result = (await executeScenario(
-      tc,
+      chat,
       scenario(),
       config({ judges: [judge] }),
     )) as ScenarioResult & {

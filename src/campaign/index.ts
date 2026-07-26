@@ -377,7 +377,6 @@ export type {
   LabeledScenarioWrite,
   LabelTrust,
   MutableSurface,
-  OptimizationProposer,
   OptimizerConfig,
   ParetoParent,
   ProposalTrackContext,

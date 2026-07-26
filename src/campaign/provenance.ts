@@ -976,7 +976,7 @@ function snapshotFromHoldout<TArtifact, TScenario extends Scenario>(
     surface,
     cells,
     compositeMean: campaignMeanCompositeOrNull(campaign),
-    costUsd: campaign.aggregates.totalCostUsd,
+    costUsd: campaign.aggregates.cost.totalCostUsd,
     durationMs: campaign.durationMs,
   }
 }

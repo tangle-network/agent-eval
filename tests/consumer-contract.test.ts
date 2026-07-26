@@ -8,6 +8,7 @@ import type {
   ChatTransport,
   CliBridgeTransportOpts,
   CreateChatClientOpts,
+  CustomTransportOpts,
   DirectProviderTransportOpts,
   JudgeScoresRecord,
   MockTransportOpts,
@@ -151,7 +152,14 @@ describe('public-surface contract for consumers', () => {
   it('exposes root ChatClient API types used by consumers', async () => {
     const transport: ChatTransport = 'mock'
     const request: ChatRequest = { messages: [{ role: 'user', content: 'ping' }] }
-    const response: ChatResponse = { content: 'pong', raw: {} }
+    const response: ChatResponse = {
+      content: 'pong',
+      usage: { promptTokens: 1, completionTokens: 1, totalTokens: 2 },
+      costUsd: 0,
+      model: 'test-model',
+      durationMs: 1,
+      raw: {},
+    }
     const callOpts: ChatCallOpts = { correlationId: 'consumer-contract' }
 
     const mockOpts: MockTransportOpts = {
@@ -173,11 +181,20 @@ describe('public-surface contract for consumers', () => {
       transport: 'sandbox-sdk',
       chat: async () => response,
     }
+    const customOpts: CustomTransportOpts = {
+      transport: 'custom',
+      defaultModel: 'test-model',
+      maximumAttempts: 2,
+      chat: async () => response,
+    }
+    const custom = agentEval.createChatClient(customOpts)
 
     expect(routerOpts.transport).toBe('router')
     expect(cliBridgeOpts.transport).toBe('cli-bridge')
     expect(directProviderOpts.transport).toBe('direct-provider')
     expect(sandboxSdkOpts.transport).toBe('sandbox-sdk')
     expect(await client.chat(request, callOpts)).toBe(response)
+    expect(await custom.chat(request, callOpts)).toBe(response)
+    expect(custom.maximumAttempts).toBe(2)
   })
 })

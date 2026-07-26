@@ -5,8 +5,13 @@
  * would inflate every downstream agent score with no real improvement.
  */
 
-import type { TCloud } from '@tangle-network/tcloud'
 import { describe, expect, it } from 'vitest'
+import {
+  type ChatClient,
+  type ChatRequest,
+  type ChatResponse,
+  createChatClient,
+} from './analyst/chat-client'
 import { CostLedger } from './cost-ledger'
 import {
   buildDriverSystemPrompt,
@@ -157,24 +162,40 @@ describe('decideNextUserTurn', () => {
     user: string
   }
 
-  function mockTc(reply: string): { tc: TCloud; captured: CapturedRequest[] } {
+  function response(content: string, overrides: Partial<ChatResponse> = {}): ChatResponse {
+    return {
+      content,
+      usage: { promptTokens: 0, completionTokens: 0, totalTokens: 0 },
+      costUsd: null,
+      model: 'mock-model',
+      durationMs: 0,
+      raw: {},
+      ...overrides,
+    }
+  }
+
+  function mockChat(reply: string): { chat: ChatClient; captured: CapturedRequest[] } {
     const captured: CapturedRequest[] = []
-    const tc = {
-      chat: async (req: { model: string; messages: { role: string; content: string }[] }) => {
+    const chat = createChatClient({
+      transport: 'mock',
+      defaultModel: 'mock-model',
+      handler: async (req: ChatRequest) => {
+        const system = req.messages.find((m) => m.role === 'system')?.content
+        const user = req.messages.find((m) => m.role === 'user')?.content
         captured.push({
-          model: req.model,
-          system: req.messages.find((m) => m.role === 'system')?.content ?? '',
-          user: req.messages.find((m) => m.role === 'user')?.content ?? '',
+          model: req.model ?? 'mock-model',
+          system: typeof system === 'string' ? system : '',
+          user: typeof user === 'string' ? user : '',
         })
-        return { choices: [{ message: { content: reply } }] }
+        return response(reply, { model: req.model ?? 'mock-model' })
       },
-    } as unknown as TCloud
-    return { tc, captured }
+    })
+    return { chat, captured }
   }
 
   it('drives the adversarial system prompt and returns the next turn', async () => {
-    const { tc, captured } = mockTc('  What is your authority for that?  ')
-    const turn = await decideNextUserTurn(tc, {
+    const { chat, captured } = mockChat('  What is your authority for that?  ')
+    const turn = await decideNextUserTurn(chat, {
       persona: persona({ rigor: 'relentless' }),
       state: STATE,
       history: [
@@ -188,14 +209,14 @@ describe('decideNextUserTurn', () => {
   })
 
   it('opens with a first-message prompt when there is no history', async () => {
-    const { tc, captured } = mockTc('We are buying Acme for $120M.')
-    await decideNextUserTurn(tc, { persona: persona(), state: STATE, history: [] })
+    const { chat, captured } = mockChat('We are buying Acme for $120M.')
+    await decideNextUserTurn(chat, { persona: persona(), state: STATE, history: [] })
     expect(captured[0]!.user).toMatch(/no conversation yet/i)
   })
 
   it('passes the DONE sign-off sentinel through verbatim', async () => {
-    const { tc } = mockTc('DONE')
-    const turn = await decideNextUserTurn(tc, {
+    const { chat } = mockChat('DONE')
+    const turn = await decideNextUserTurn(chat, {
       persona: persona(),
       state: STATE,
       history: [{ role: 'assistant', content: 'Here is the finished, defensible notice.' }],
@@ -204,8 +225,8 @@ describe('decideNextUserTurn', () => {
   })
 
   it('honors the configured driver model', async () => {
-    const { tc, captured } = mockTc('next')
-    await decideNextUserTurn(tc, {
+    const { chat, captured } = mockChat('next')
+    await decideNextUserTurn(chat, {
       persona: persona(),
       state: STATE,
       history: [],
@@ -214,21 +235,22 @@ describe('decideNextUserTurn', () => {
     expect(captured[0]!.model).toBe('gpt-5.4')
   })
 
-  it('attributes driver-model usage and rejects unbounded capped calls before dispatch', async () => {
+  it('attributes canonical driver usage and rejects opaque capped calls before dispatch', async () => {
     let calls = 0
-    const tc = {
-      chat: async () => {
+    const chat = createChatClient({
+      transport: 'mock',
+      defaultModel: 'gpt-4o',
+      handler: async () => {
         calls++
-        return {
+        return response('next', {
           model: 'gpt-4o',
-          choices: [{ message: { content: 'next' } }],
-          usage: { prompt_tokens: 100, completion_tokens: 20 },
-        }
+          usage: { promptTokens: 100, completionTokens: 20, totalTokens: 120 },
+        })
       },
-    } as unknown as TCloud
+    })
     const ledger = new CostLedger()
 
-    await decideNextUserTurn(tc, {
+    await decideNextUserTurn(chat, {
       persona: persona(),
       state: STATE,
       history: [],
@@ -247,8 +269,17 @@ describe('decideNextUserTurn', () => {
     expect(ledger.summary({ tags: { driverRunId: 'driver-a' } }).totalCalls).toBe(1)
     expect(ledger.summary({ tags: { driverRunId: 'driver-b' } }).totalCalls).toBe(0)
 
+    let opaqueCalls = 0
+    const opaque = createChatClient({
+      transport: 'sandbox-sdk',
+      defaultModel: 'gpt-4o',
+      chat: async () => {
+        opaqueCalls++
+        return response('must not dispatch', { model: 'gpt-4o' })
+      },
+    })
     await expect(
-      decideNextUserTurn(tc, {
+      decideNextUserTurn(opaque, {
         persona: persona(),
         state: STATE,
         history: [],
@@ -257,6 +288,7 @@ describe('decideNextUserTurn', () => {
       }),
     ).rejects.toThrow(/hard maximumCharge/)
     expect(calls).toBe(1)
+    expect(opaqueCalls).toBe(0)
   })
 })
 

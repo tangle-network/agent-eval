@@ -239,7 +239,7 @@ describe('createTraceAnalystKind Ax contract', () => {
     ])
   })
 
-  it('keeps legacy postProcess callbacks source-compatible without dropping citations', async () => {
+  it('passes the full evidence list to postProcess', async () => {
     axMock.agentCalls.length = 0
     axMock.forwardResult = {
       report: '',
@@ -259,10 +259,10 @@ describe('createTraceAnalystKind Ax contract', () => {
       {
         ...testSpec(),
         postProcess: (row) => {
-          const exactLegacyRow = RawAnalystFindingSchema.parse(row)
+          const exactRow = RawAnalystFindingSchema.parse(row)
           return {
-            ...exactLegacyRow,
-            claim: `${exactLegacyRow.claim}; checked ${exactLegacyRow.evidence_uri}`,
+            ...exactRow,
+            claim: `${exactRow.claim}; checked ${exactRow.evidence[0]?.uri}`,
           }
         },
       },
@@ -281,7 +281,7 @@ describe('createTraceAnalystKind Ax contract', () => {
     })
   })
 
-  it('keeps secondary citations when a legacy callback replaces the primary citation', async () => {
+  it('lets postProcess replace one citation without losing the rest', async () => {
     axMock.forwardResult = {
       report: '',
       findings: [
@@ -299,7 +299,13 @@ describe('createTraceAnalystKind Ax contract', () => {
     const analyst = createTraceAnalystKind(
       {
         ...testSpec(),
-        postProcess: (row) => ({ ...row, evidence_uri: 'span://trace/reclassified' }),
+        postProcess: (row) => ({
+          ...row,
+          evidence: [
+            { ...row.evidence[0]!, uri: 'span://trace/reclassified' },
+            ...row.evidence.slice(1),
+          ],
+        }),
       },
       { ai: testAi() },
     )

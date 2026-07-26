@@ -255,7 +255,6 @@ export class AnalystRegistry {
           reason: `missing input of kind '${analyst.inputKind}'`,
           findings_count: 0,
           latency_ms: 0,
-          cost_usd: 0,
           usage: zeroUsage(),
         }
         summaries.push(summary)
@@ -326,7 +325,7 @@ export class AnalystRegistry {
           analystAbortGraceMs(analyst),
         )
         const latency = Date.now() - t0
-        const usage = resolveUsage(analyst, findings, usageReceipts)
+        const usage = resolveUsage(analyst, usageReceipts)
         const cost = knownCostUsd(usage)
         totalCost += cost
         if (typeof remainingUsd === 'number') {
@@ -338,7 +337,6 @@ export class AnalystRegistry {
           status: 'ok',
           findings_count: findings.length,
           latency_ms: latency,
-          cost_usd: cost,
           usage,
         }
         summaries.push(summary)
@@ -366,7 +364,7 @@ export class AnalystRegistry {
           ? []
           : ((await hooks.onError?.({ analyst, error: e, runId })) ?? [])
         if (hookFindings.length) allFindings.push(...hookFindings)
-        const usage = resolveUsage(analyst, hookFindings, usageReceipts)
+        const usage = resolveUsage(analyst, usageReceipts)
         const cost = knownCostUsd(usage)
         totalCost += cost
         if (typeof remainingUsd === 'number') {
@@ -377,7 +375,6 @@ export class AnalystRegistry {
           status: 'failed',
           findings_count: hookFindings.length,
           latency_ms: latency,
-          cost_usd: cost,
           usage,
           error: { class: e.constructor.name, message: e.message },
         }
@@ -564,7 +561,6 @@ function abortedBeforeStartSummary(
     reason: `${reason.name}: ${reason.message}`,
     findings_count: 0,
     latency_ms: latencyMs,
-    cost_usd: 0,
     usage: zeroUsage(),
   }
 }
@@ -665,31 +661,11 @@ function zeroUsage(): AnalystUsageReceipt {
   }
 }
 
-/**
- * Prefer receipts reported independently of findings. Legacy analysts that
- * annotate `metadata.cost_usd` retain their existing accounting, while an LLM
- * analyst with neither source is explicitly uncaptured rather than observed $0.
- */
 function resolveUsage(
   analyst: Analyst,
-  findings: AnalystFinding[],
   receipts: ReadonlyArray<AnalystUsageReceipt>,
 ): AnalystUsageReceipt {
-  const legacyCost = sumFindingCost(findings)
-  if (receipts.length > 0) {
-    const merged = mergeUsageReceipts(receipts)
-    return merged.cost.kind === 'uncaptured' && legacyCost.captured
-      ? { ...merged, knownCostUsd: Math.max(merged.knownCostUsd ?? 0, legacyCost.usd) }
-      : merged
-  }
-
-  if (legacyCost.captured) {
-    return {
-      calls: null,
-      tokens: null,
-      cost: { kind: 'observed', usd: legacyCost.usd },
-    }
-  }
+  if (receipts.length > 0) return mergeUsageReceipts(receipts)
   if (analyst.cost.kind === 'deterministic') return zeroUsage()
   return { calls: null, tokens: null, cost: { kind: 'uncaptured', usd: null } }
 }
@@ -786,27 +762,6 @@ function assertNonNegativeFinite(value: number, field: string): void {
   if (!Number.isFinite(value) || value < 0) {
     throw new Error(`AnalystContext.recordUsage: ${field} must be a non-negative finite number`)
   }
-}
-
-/**
- * Legacy analysts may carry chat-client cost in `metadata.cost_usd`.
- * Current adapters report usage independently of findings.
- */
-function sumFindingCost(findings: AnalystFinding[]): { usd: number; captured: boolean } {
-  let sum = 0
-  let captured = false
-  for (const f of findings) {
-    const c = f.metadata?.cost_usd
-    if (c === undefined) continue
-    if (typeof c !== 'number' || !Number.isFinite(c) || c < 0) {
-      throw new Error(
-        `Analyst finding '${f.finding_id}' metadata.cost_usd must be a non-negative finite number`,
-      )
-    }
-    sum += c
-    captured = true
-  }
-  return { usd: sum, captured }
 }
 
 /**

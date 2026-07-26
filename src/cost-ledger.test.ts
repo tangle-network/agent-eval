@@ -131,7 +131,34 @@ describe('costForUsage', () => {
     })
   })
 
-  it('preserves a provider error alongside the compatible usage extension', async () => {
+  it('rejects settled receipts in the removed event format', () => {
+    const events = eventFor({
+      status: 'settled',
+      callId: 'old-settled-format',
+      channel: 'agent',
+      phase: 'search',
+      actor: 'worker',
+      model: 'gpt-4o',
+      inputTokens: 0,
+      outputTokens: 0,
+      costUsd: 0,
+      costUnknown: false,
+      actualCostUsd: 0,
+      timestamp: 1,
+    })
+
+    expect(
+      () =>
+        new CostLedger({
+          persistence: {
+            read: () => ({ revision: revision(events), events }),
+            append: () => undefined,
+          },
+        }),
+    ).toThrow(/invalid persisted event/)
+  })
+
+  it('preserves a provider error alongside extended usage fields', async () => {
     const { persistence, state } = memoryPersistence()
     const ledger = new CostLedger({ persistence })
 
@@ -778,30 +805,6 @@ describe('CostLedger', () => {
     expect(() => createRunCostLedger({ storage, runDir: 'mem://unreadable' })).toThrow(
       CostLedgerPersistenceError,
     )
-  })
-
-  it('keeps legacy storage adapters usable until they attempt paid work', async () => {
-    const storage: CampaignStorage = {
-      ensureDir: () => undefined,
-      exists: () => false,
-      read: () => undefined,
-      write: () => undefined,
-    }
-    const ledger = createRunCostLedger({ storage, runDir: 'mem://legacy' })
-    expect(ledger.summary().totalCalls).toBe(0)
-
-    const result = await ledger.runPaidCall({
-      channel: 'agent',
-      phase: 'search',
-      actor: 'worker',
-      execute: async () => 'unexpected',
-      receipt: () => ({ model: 'gpt-4o', inputTokens: 0, outputTokens: 0 }),
-    })
-
-    expect(result).toMatchObject({
-      succeeded: false,
-      error: expect.any(CostLedgerPersistenceError),
-    })
   })
 
   it('blocks dispatch while another process holds the filesystem lock', async () => {
@@ -1551,20 +1554,23 @@ describe('CostLedger', () => {
   })
 
   it('strictly validates restored records and clones imported tags', () => {
-    const invalid = eventFor({
-      status: 'settled',
-      callId: 'bad',
-      channel: 'agent',
-      phase: 'search',
-      actor: 'worker',
-      model: 'gpt-4o',
-      inputTokens: -1,
-      outputTokens: 0,
-      costUsd: 0,
-      costUnknown: false,
-      timestamp: 1,
-      unexpected: true,
-    })
+    const invalid = eventFor(
+      {
+        status: 'settled',
+        callId: 'bad',
+        channel: 'agent',
+        phase: 'search',
+        actor: 'worker',
+        model: 'gpt-4o',
+        inputTokens: -1,
+        outputTokens: 0,
+        costUsd: 0,
+        costUnknown: false,
+        timestamp: 1,
+        unexpected: true,
+      },
+      2,
+    )
     expect(
       () =>
         new CostLedger({
@@ -1588,20 +1594,23 @@ describe('CostLedger', () => {
   })
 
   it('rejects a persisted estimated cost that disagrees with its token usage', () => {
-    const invalid = eventFor({
-      status: 'settled',
-      callId: 'forged-zero',
-      channel: 'agent',
-      phase: 'search',
-      actor: 'worker',
-      model: 'gpt-4o',
-      inputTokens: 1_000_000,
-      outputTokens: 1_000_000,
-      costUsd: 0,
-      costUnknown: false,
-      pricing: { inputUsdPerThousand: 0.0025, outputUsdPerThousand: 0.01 },
-      timestamp: 1,
-    })
+    const invalid = eventFor(
+      {
+        status: 'settled',
+        callId: 'forged-zero',
+        channel: 'agent',
+        phase: 'search',
+        actor: 'worker',
+        model: 'gpt-4o',
+        inputTokens: 1_000_000,
+        outputTokens: 1_000_000,
+        costUsd: 0,
+        costUnknown: false,
+        pricing: { inputUsdPerThousand: 0.0025, outputUsdPerThousand: 0.01 },
+        timestamp: 1,
+      },
+      2,
+    )
 
     expect(
       () =>

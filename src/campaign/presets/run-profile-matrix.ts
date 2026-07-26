@@ -440,7 +440,7 @@ export async function runProfileMatrix<TScenario extends Scenario, TArtifact>(
       records.push(record)
     }
 
-    const totalCostUsd = campaign.aggregates.totalCostUsd
+    const totalCostUsd = campaign.aggregates.cost.totalCostUsd
     campaigns[profileId] = campaign
 
     byProfile[profileId] = {

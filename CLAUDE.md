@@ -15,7 +15,7 @@ Update the doc closest to the change. Don't duplicate content across docs; cross
 
 - TypeScript strict, no semicolons, single quotes, 2-space indent
 - tsup (bundling), vitest (tests)
-- `@tangle-network/tcloud` for LLM calls (judges, driver)
+- `ChatClient` for provider-neutral LLM calls
 
 ## Repo layering — this package is the substrate
 

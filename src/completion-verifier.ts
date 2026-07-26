@@ -22,13 +22,16 @@
  */
 
 import { randomUUID } from 'node:crypto'
-import type { TCloud } from '@tangle-network/tcloud'
+import type { ChatClient, ChatRequest } from './analyst/chat-client'
 import type { Artifact } from './artifact-validator'
-import { CostLedger, type CostLedgerHandle, type CostReceiptInput } from './cost-ledger'
+import { CostLedger, type CostLedgerHandle } from './cost-ledger'
 import { recoverTruncatedJson } from './json-recovery'
 import { JudgeParseError } from './judges'
-import type { LlmCallRequest } from './llm-client'
-import { costReceiptFromTCloud, maximumChargeForTCloudRequest } from './tcloud-cost'
+import {
+  costReceiptFromLlm,
+  costReceiptFromLlmError,
+  maximumChargeForLlmRequest,
+} from './llm-client'
 import type { RawProviderEvent, RawProviderSink } from './trace/raw-provider-sink'
 import type { DefaultVerdict } from './verdict'
 
@@ -436,10 +439,6 @@ export interface LlmCorrectnessCheckerOpts {
   costPhase?: string
   costTags?: Record<string, string>
   signal?: AbortSignal
-  /** Exact maximum provider attempts configured on the supplied TCloud client. */
-  tcloudMaximumAttempts?: number
-  /** Usage/cost retained by a failed provider response; enables a safe retry. */
-  receiptFromError?: (error: Error, attempt: number) => CostReceiptInput | undefined
   /** Max chars of artifact content sent to the checker. */
   maxContentChars?: number
   /**
@@ -497,7 +496,7 @@ export function parseCorrectnessResponse(raw: string): { correct: boolean; reaso
  * fulfil a requirement — the artifact must BE the deliverable.
  */
 export function createLlmCorrectnessChecker(
-  tc: TCloud,
+  chat: ChatClient,
   opts: LlmCorrectnessCheckerOpts = {},
 ): CorrectnessChecker {
   const model = opts.model ?? 'claude-sonnet-4-6'
@@ -531,13 +530,13 @@ export function createLlmCorrectnessChecker(
       ],
       temperature: 0,
       maxTokens: 200,
-    } satisfies LlmCallRequest
+    } satisfies ChatRequest
     let lastErr: unknown
     for (let attempt = 0; attempt < maxAttempts; attempt++) {
       const started = Date.now()
       await record({
         eventId: randomUUID(),
-        provider: 'correctness-checker',
+        provider: chat.transport,
         model,
         endpoint: '/chat',
         baseUrl: '',
@@ -553,25 +552,26 @@ export function createLlmCorrectnessChecker(
           phase: opts.costPhase ?? 'completion.correctness',
           actor: 'correctness-checker',
           model,
-          maximumCharge: maximumChargeForTCloudRequest(request, opts.tcloudMaximumAttempts),
+          maximumCharge:
+            chat.maximumAttempts === undefined
+              ? undefined
+              : maximumChargeForLlmRequest(request, { maximumAttempts: chat.maximumAttempts }),
           tags: {
             ...opts.costTags,
             requirementId: requirement.reqId,
             attempt: String(attempt),
           },
           signal: opts.signal,
-          execute: () => tc.chat(request),
-          receipt: (response) => costReceiptFromTCloud(response, model),
-          receiptFromError: (error) => opts.receiptFromError?.(error, attempt),
+          execute: (signal, callId) => chat.chat(request, { signal, idempotencyKey: callId }),
+          receipt: costReceiptFromLlm,
+          receiptFromError: costReceiptFromLlmError,
         })
         if (!paid.succeeded) throw paid.error
         const resp = paid.value
-        const raw =
-          (resp as { choices?: { message?: { content?: string } }[] }).choices?.[0]?.message
-            ?.content ?? ''
+        const raw = resp.content
         await record({
           eventId: randomUUID(),
-          provider: 'correctness-checker',
+          provider: chat.transport,
           model,
           endpoint: '/chat',
           baseUrl: '',
@@ -587,7 +587,7 @@ export function createLlmCorrectnessChecker(
         lastErr = err
         await record({
           eventId: randomUUID(),
-          provider: 'correctness-checker',
+          provider: chat.transport,
           model,
           endpoint: '/chat',
           baseUrl: '',

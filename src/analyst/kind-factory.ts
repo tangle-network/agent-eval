@@ -5,7 +5,7 @@
  * and bounded Ax subqueries target one failure-mode lens (failure-mode
  * classification, knowledge gap discovery, knowledge poisoning,
  * self-improvement, ...). Kinds emit findings in the typed
- * `CanonicalRawAnalystFinding` shape via a JSON-array Ax output; the factory
+ * `RawAnalystFinding` shape via a JSON-array Ax output; the factory
  * validates each row with Zod and lifts it into `AnalystFinding[]`.
  *
  * Composition rules:
@@ -30,10 +30,8 @@ import type { TraceAnalysisStore } from '../trace-analyst/store'
 import { meterAxChatService } from './ax-cost-service'
 import { resolveAnalystModel } from './ax-service'
 import {
-  applyLegacyRawFindingCallback,
-  type CanonicalRawAnalystFinding,
   evidenceRefsFromRawFinding,
-  parseCanonicalRawFinding,
+  parseRawFinding,
   RAW_FINDING_SCHEMA_PROMPT,
   type RawAnalystFinding,
 } from './finding-signature'
@@ -86,7 +84,7 @@ export interface TraceAnalystKindSpec {
  */
 export interface TraceAnalystGolden {
   question: string
-  expected: ReadonlyArray<Omit<CanonicalRawAnalystFinding, 'confidence'>>
+  expected: ReadonlyArray<Omit<RawAnalystFinding, 'confidence'>>
 }
 
 export interface CreateTraceAnalystKindOpts {
@@ -199,16 +197,10 @@ export function createTraceAnalystKind(
         const rawRows = submittedFindings
         let rejectedWrongKind = 0
         let rejectedInsufficientEvidence = 0
-        const processRow = (
-          parsed: CanonicalRawAnalystFinding,
-        ): CanonicalRawAnalystFinding | null => {
-          const postProcessed = spec.postProcess
-            ? applyLegacyRawFindingCallback(
-                parsed,
-                (row) => spec.postProcess?.(row, ctx) ?? null,
-                ctx.log,
-              )
-            : parsed
+        const processRow = (parsed: RawAnalystFinding): RawAnalystFinding | null => {
+          const callbackResult = spec.postProcess ? spec.postProcess(parsed, ctx) : parsed
+          if (!callbackResult) return null
+          const postProcessed = parseRawFinding(callbackResult, ctx.log)
           if (!postProcessed) return null
           if (expectedSubjects && postProcessed.subject !== undefined) {
             const parsedSubject = parseFindingSubject(postProcessed.subject)
@@ -247,7 +239,7 @@ export function createTraceAnalystKind(
           return postProcessed
         }
         for (const row of rawRows) {
-          const parsed = parseCanonicalRawFinding(row, ctx.log)
+          const parsed = parseRawFinding(row, ctx.log)
           if (!parsed) continue
           const postProcessed = processRow(parsed)
           if (!postProcessed) continue
@@ -285,7 +277,7 @@ export function createTraceAnalystKind(
               costTags,
               signal: ctx.signal,
               maxTokens: Math.min(maxOutputTokens, 2_000),
-              processCanonicalRow: processRow,
+              processRow,
               findingMetadata: { kind_version: version },
             })
             out.push(...recovered.findings)
@@ -366,7 +358,7 @@ function deriveQuestion(ctx: AnalystContext, spec: TraceAnalystKindSpec): string
 function toAnalystFinding(
   spec: TraceAnalystKindSpec,
   version: string,
-  raw: CanonicalRawAnalystFinding,
+  raw: RawAnalystFinding,
   metadata: Record<string, unknown> = {},
 ): AnalystFinding {
   return makeFinding({

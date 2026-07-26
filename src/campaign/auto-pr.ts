@@ -115,7 +115,7 @@ function renderPrBody<TArtifact, TScenario extends Scenario>(
   lines.push(
     `**Cells**: executed ${result.aggregates.cellsExecuted}, cached ${result.aggregates.cellsCached}, skipped ${result.aggregates.cellsSkipped}, failed ${result.aggregates.cellsFailed}`,
   )
-  lines.push(`**Total spend**: $${result.aggregates.totalCostUsd.toFixed(2)}`)
+  lines.push(`**Total spend**: $${result.aggregates.cost.totalCostUsd.toFixed(2)}`)
   lines.push('')
   lines.push(`### Gate verdict: \`${gate.decision}\``)
   lines.push('')

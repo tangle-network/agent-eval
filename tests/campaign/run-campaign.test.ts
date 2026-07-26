@@ -246,7 +246,7 @@ describe('runCampaign — core primitive', () => {
     expect(dispatchCount).toBe(2) // no new dispatches
     expect(r2.cells.every((c) => c.cached)).toBe(true)
     expect(r2.aggregates.cellsCached).toBe(2)
-    expect(r2.aggregates.totalCostUsd).toBe(0.8)
+    expect(r2.aggregates.cost.totalCostUsd).toBe(0.8)
     expect(r2.aggregates.cost.totalCalls).toBe(2)
 
     await expect(
@@ -603,8 +603,8 @@ describe('runCampaign — core primitive', () => {
       runDir,
     })
     expect(calls).toBe(1)
-    expect(result.aggregates.totalCostUsd).toBe(10)
-    expect(result.aggregates.totalCostUsd).toBeLessThanOrEqual(15)
+    expect(result.aggregates.cost.totalCostUsd).toBe(10)
+    expect(result.aggregates.cost.totalCostUsd).toBeLessThanOrEqual(15)
     expect(result.aggregates.cellsFailed).toBe(2)
 
     const free = await runCampaign({
@@ -616,7 +616,7 @@ describe('runCampaign — core primitive', () => {
     })
     expect(free.aggregates.cellsExecuted).toBe(1)
     expect(free.cells[0]?.costUsd).toBe(0)
-    expect(free.aggregates.totalCostUsd).toBe(10)
+    expect(free.aggregates.cost.totalCostUsd).toBe(10)
   })
 
   it('does not double-bill cached input when deriving a tokens-only receipt', async () => {

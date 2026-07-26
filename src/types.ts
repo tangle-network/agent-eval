@@ -1,3 +1,4 @@
+import type { ChatClient } from './analyst/chat-client'
 import type { CostLedgerHandle, CostLedgerSummary } from './cost-ledger'
 
 // ── Scenario Definition ──
@@ -283,8 +284,6 @@ export interface BenchmarkRunnerConfig {
   promptVersion?: string
   /** Shared ledger for agent and judge calls made by the benchmark. */
   costLedger?: CostLedgerHandle
-  /** Exact maximum provider attempts configured on the supplied TCloud client. */
-  tcloudMaximumAttempts?: number
 }
 
 export interface JudgeInput {
@@ -296,16 +295,9 @@ export interface JudgeInput {
   costPhase?: string
   costTags?: Record<string, string>
   signal?: AbortSignal
-  /** Exact maximum provider attempts configured on the supplied TCloud client. */
-  tcloudMaximumAttempts?: number
 }
 
-export type JudgeFn = (tc: TCloud, input: JudgeInput) => Promise<JudgeScore[]>
-
-// Re-export TCloud type for convenience
-import type { TCloud } from '@tangle-network/tcloud'
-
-export type { TCloud }
+export type JudgeFn = (chat: ChatClient, input: JudgeInput) => Promise<JudgeScore[]>
 
 // ── E2E Test Types ──
 

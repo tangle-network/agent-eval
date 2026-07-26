@@ -1,7 +1,7 @@
 /**
  * @packageDocumentation
  *
- * Root barrel — broad compatibility surface.
+ * Root barrel for the broad public API.
  *
  * Reach for focused subpaths when they fit: `/contract`, `/campaign`,
  * `/analyst`, `/traces`, `/reporting`, `/rl`, `/prm`, `/meta-eval`,
@@ -43,7 +43,7 @@ export { type CreateAnalystAiConfig, createAnalystAi } from './analyst/ax-servic
 // ── Analyst (registry + findings) ─────────────────────────────────────
 // Consumer-facing happy path only: build a registry (or take the default
 // kinds), pass it to analyzeRuns/selfImprove, read AnalystFinding[], persist
-// with FindingsStore, or bind a ChatClient for analyst LLM calls. Deeper
+// with FindingsStore, or bind a ChatClient for package LLM calls. Deeper
 // machinery like finding-signature/subject parsers, tolerant JSON coercion, tool
 // groups, prose recovery, and judge/verifier adapters live on the `/analyst`
 // subpath (`@tangle-network/agent-eval/analyst`) to keep this surface legible.
@@ -55,6 +55,7 @@ export type {
   ChatTransport,
   CliBridgeTransportOpts,
   CreateChatClientOpts,
+  CustomTransportOpts,
   DirectProviderTransportOpts,
   MockTransportOpts,
   RouterTransportOpts,
@@ -66,7 +67,6 @@ export {
   type DefaultAnalystRegistryOptions,
 } from './analyst/default-registry'
 export type {
-  CanonicalRawAnalystFinding,
   RawAnalystEvidence,
   RawAnalystFinding,
 } from './analyst/finding-signature'
@@ -295,15 +295,7 @@ export {
   type JudgeFamily,
   judgeFamily,
 } from './judge-families'
-export {
-  adversarialJudge,
-  codeExecutionJudge,
-  coherenceJudge,
-  createCustomJudge,
-  createDomainExpertJudge,
-  defaultJudges,
-  JudgeParseError,
-} from './judges'
+export { JudgeParseError } from './judges'
 export * from './knowledge'
 export type {
   LiveProofArtifact,
@@ -409,7 +401,6 @@ export {
   type RolloutSplit,
   type RolloutStep,
   relabelImportedSplit,
-  rolloutReward,
   type ScoreOrigin,
   type ScorePreference,
   type SftExportOptions,
@@ -841,7 +832,6 @@ export { compareToBaseline, iqr, welchsTTest } from './baseline'
 export type {
   ChannelRollup,
   CostChannel,
-  CostLedgerEntry,
   CostLedgerFilter,
   CostLedgerHandle,
   CostLedgerOptions,

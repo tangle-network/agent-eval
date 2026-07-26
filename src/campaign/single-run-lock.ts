@@ -37,7 +37,7 @@ export interface SingleRunLock {
 }
 
 function assertAvailable(path: string): void {
-  const unavailable = probeAtomicFileLock({ lockPath: path, acceptLegacyPid: true })
+  const unavailable = probeAtomicFileLock({ lockPath: path })
   if (unavailable) throw unavailableError(path, unavailable)
 }
 
@@ -65,7 +65,6 @@ export function acquireSingleRunLock(opts: SingleRunLockOptions): SingleRunLock 
   const acquisition = tryAcquireAtomicFileLock({
     lockPath: opts.lockPath,
     pid,
-    acceptLegacyPid: true,
   })
   if (!acquisition.acquired) throw unavailableError(opts.lockPath, acquisition)
   const release = (): void => {

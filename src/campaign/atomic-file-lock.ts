@@ -37,7 +37,6 @@ export type AtomicFileLockAcquisition =
 export interface AtomicFileLockOptions {
   readonly lockPath: string
   readonly pid?: number
-  readonly acceptLegacyPid?: boolean
 }
 
 export class AtomicFileLockError extends Error {
@@ -54,7 +53,7 @@ export function probeAtomicFileLock(
   options: AtomicFileLockOptions,
 ): AtomicFileLockUnavailable | null {
   if (existsSync(recoveryPath(options.lockPath))) return { acquired: false, reason: 'recovery' }
-  const state = ownerState(options.lockPath, options.acceptLegacyPid ?? false)
+  const state = ownerState(options.lockPath)
   if (state.state === 'held') {
     return { acquired: false, reason: 'held', holder: state.owner }
   }
@@ -75,8 +74,6 @@ export function tryAcquireAtomicFileLock(
     throw new AtomicFileLockError('atomic file lock pid must be a positive integer')
   }
   const owner: AtomicFileLockOwner = { pid, host: hostname(), nonce: randomUUID() }
-  const acceptLegacyPid = options.acceptLegacyPid ?? false
-
   for (let attempt = 0; attempt < 8; attempt += 1) {
     if (existsSync(recoveryPath(options.lockPath))) {
       return { acquired: false, reason: 'recovery' }
@@ -85,7 +82,7 @@ export function tryAcquireAtomicFileLock(
       return acquired(options.lockPath, owner)
     }
 
-    const holder = ownerState(options.lockPath, acceptLegacyPid)
+    const holder = ownerState(options.lockPath)
     if (holder.state === 'missing') continue
     if (holder.state === 'held') {
       return { acquired: false, reason: 'held', holder: holder.owner }
@@ -96,7 +93,7 @@ export function tryAcquireAtomicFileLock(
       return { acquired: false, reason: 'recovery' }
     }
     try {
-      const current = ownerState(options.lockPath, acceptLegacyPid)
+      const current = ownerState(options.lockPath)
       if (current.state === 'held') {
         return { acquired: false, reason: 'held', holder: current.owner }
       }
@@ -158,8 +155,8 @@ function tryLinkOwner(lockPath: string, owner: AtomicFileLockOwner, suffix: stri
   }
 }
 
-function ownerState(lockPath: string, acceptLegacyPid: boolean): OwnerState {
-  const owner = readOwner(lockPath, acceptLegacyPid)
+function ownerState(lockPath: string): OwnerState {
+  const owner = readOwner(lockPath)
   if (!owner) return { state: 'missing' }
   if (owner.host !== hostname()) return { state: 'held', owner }
   try {
@@ -171,18 +168,13 @@ function ownerState(lockPath: string, acceptLegacyPid: boolean): OwnerState {
   }
 }
 
-function readOwner(lockPath: string, acceptLegacyPid: boolean): AtomicFileLockOwner | undefined {
+function readOwner(lockPath: string): AtomicFileLockOwner | undefined {
   let contents: string
   try {
     contents = readFileSync(lockPath, 'utf8').trim()
   } catch (error) {
     if (isMissing(error)) return undefined
     throw error
-  }
-
-  if (acceptLegacyPid && /^[1-9]\d*$/.test(contents)) {
-    const pid = Number(contents)
-    if (Number.isSafeInteger(pid)) return { pid, host: hostname(), nonce: 'legacy-pid' }
   }
 
   let value: unknown
@@ -218,7 +210,7 @@ function invalidOwner(lockPath: string, cause?: unknown): AtomicFileLockError {
 }
 
 function releaseOwnedPath(lockPath: string, owner: AtomicFileLockOwner): void {
-  const current = readOwner(lockPath, true)
+  const current = readOwner(lockPath)
   if (!current) return
   if (canonicalOwner(current) !== canonicalOwner(owner)) {
     throw new AtomicFileLockError(`atomic file lock owner changed before release (${lockPath})`)

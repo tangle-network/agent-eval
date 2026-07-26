@@ -16,9 +16,8 @@
  *     { baseUrl: 'https://router.tangle.tools/v1', apiKey: process.env.KEY },
  *   )
  *
- * This is THE llm-calling seam for agent-eval primitives that need structured
- * output (semantic concept judge, reviewer directives, critic scores). Primitives
- * that need free-form text use `callLlm` and parse output themselves.
+ * `createChatClient` wraps this implementation for provider-neutral package
+ * entry points. Direct callers can use `callLlm` or `callLlmJson`.
  */
 
 import {
@@ -90,7 +89,7 @@ export function maximumChargeForLlmRequest(
     return undefined
   }
 
-  const attempts = resolveMaximumAttempts(options.maxRetries)
+  const attempts = resolveMaximumAttempts(options.maximumAttempts)
   const forceJsonObject = options.jsonSchemaTransport === 'json-object'
   // A byte-level tokenizer cannot emit more input tokens than request bytes.
   // Pricing the complete body also covers role/schema framing omitted from content-only estimates.
@@ -242,8 +241,8 @@ export interface LlmClientOptions {
    * total attempts × `timeoutMs`.
    */
   deadlineMs?: number
-  /** Total provider attempts. Legacy option name; default 3 (1 initial + 2 retries). */
-  maxRetries?: number
+  /** Total provider attempts. Default 3. */
+  maximumAttempts?: number
   /** Token rates used when the provider omits cost or package pricing does not cover the model. */
   customTokenPricing?: CustomTokenPricing
   /**
@@ -294,10 +293,13 @@ const DEFAULT_BASE_URL = 'https://router.tangle.tools/v1'
 // TANGLE_LLM_TIMEOUT_MS. Per-call `req.timeoutMs` / `opts.defaultTimeoutMs`
 // still win for callers that know their model's latency.
 const DEFAULT_TIMEOUT_MS = Number(process.env.TANGLE_LLM_TIMEOUT_MS) || 300_000
-const DEFAULT_MAX_RETRIES = Number(process.env.TANGLE_LLM_MAX_RETRIES) || 3
+const DEFAULT_MAXIMUM_ATTEMPTS =
+  process.env.TANGLE_LLM_MAXIMUM_ATTEMPTS === undefined
+    ? 3
+    : Number(process.env.TANGLE_LLM_MAXIMUM_ATTEMPTS)
 
 function resolveMaximumAttempts(configured: number | undefined): number {
-  const attempts = configured ?? DEFAULT_MAX_RETRIES
+  const attempts = configured ?? DEFAULT_MAXIMUM_ATTEMPTS
   if (!Number.isInteger(attempts) || attempts <= 0) {
     throw new RangeError('LLM maximum attempts must be a positive integer')
   }
@@ -342,10 +344,9 @@ const TRANSIENT_ERROR_PATTERNS: readonly RegExp[] = [
  * name/message/code, then recurses into `error.cause` — undici nests the
  * real socket fault one or more levels under `.cause`.
  *
- * This is THE retry classifier for the package: `callLlm` and
- * `withJudgeRetry` both route through it, so a connection-class error is
- * treated identically whether it surfaces in the HTTP client or a
- * TCloud-backed judge.
+ * This is the retry classifier for the package: `callLlm` and
+ * `withJudgeRetry` both route through it, so connection failures are treated
+ * consistently across transports.
  */
 export function isTransientLlmError(err: unknown): boolean {
   return classifyTransient(err, 0)
@@ -354,8 +355,8 @@ export function isTransientLlmError(err: unknown): boolean {
 function classifyTransient(err: unknown, depth: number): boolean {
   if (err instanceof LlmCallError) return RETRYABLE_STATUS.has(err.status)
   if (!(err instanceof Error)) return false
-  // Foreign errors (e.g. a TCloud judge SDK error) can carry a numeric HTTP
-  // status without being an LlmCallError — a retryable status is decisive.
+  // Foreign transport errors can carry a numeric HTTP status without being an
+  // LlmCallError. A retryable status is decisive.
   const status = (err as { status?: unknown }).status
   if (typeof status === 'number' && RETRYABLE_STATUS.has(status)) return true
   const code = (err as { code?: unknown }).code
@@ -573,7 +574,7 @@ export async function callLlm(
   const url = `${baseUrl}/chat/completions`
   const endpoint = '/chat/completions'
   const timeoutMs = req.timeoutMs ?? opts.defaultTimeoutMs ?? DEFAULT_TIMEOUT_MS
-  const maximumAttempts = resolveMaximumAttempts(opts.maxRetries)
+  const maximumAttempts = resolveMaximumAttempts(opts.maximumAttempts)
   const fetchFn = opts.fetch ?? globalThis.fetch
   const headers = buildHeaders(opts)
   const provider = opts.provider ?? providerFromBaseUrl(baseUrl)
@@ -1119,7 +1120,7 @@ export class LlmClient {
 
   constructor(opts: LlmClientOptions = {}) {
     this.opts = opts
-    this.maximumAttempts = resolveMaximumAttempts(opts.maxRetries)
+    this.maximumAttempts = resolveMaximumAttempts(opts.maximumAttempts)
   }
 
   call(req: LlmCallRequest, per?: LlmClientOptions): Promise<LlmCallResult> {

@@ -12,6 +12,9 @@ import { fileURLToPath } from 'node:url'
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const tempRoot = mkdtempSync(join(repoRoot, '.tmp-package-exports-'))
+const removedSdkPackage = ['@tangle-network', 'tcloud'].join('/')
+const removedSdkType = ['T', 'Cloud'].join('')
+const removedRetryField = ['tcloud', 'MaximumAttempts'].join('')
 
 try {
   verifyVersionLock()
@@ -35,6 +38,37 @@ try {
   run('tar', ['-xzf', tarballs[0], '-C', unpackDir], repoRoot)
   const packageDir = join(unpackDir, 'package')
   const packageJson = JSON.parse(readFileSync(join(packageDir, 'package.json'), 'utf8'))
+  if (packageJson.dependencies?.[removedSdkPackage]) {
+    throw new Error(`packed package retains removed dependency ${removedSdkPackage}`)
+  }
+  const packedCodeFiles = run(
+    'find',
+    [
+      join(packageDir, 'dist'),
+      '-type',
+      'f',
+      '(',
+      '-name',
+      '*.js',
+      '-o',
+      '-name',
+      '*.d.ts',
+      ')',
+      '-print',
+    ],
+    repoRoot,
+  )
+    .trim()
+    .split('\n')
+    .filter(Boolean)
+  for (const file of packedCodeFiles) {
+    const source = readFileSync(file, 'utf8')
+    for (const removed of [removedSdkPackage, removedSdkType, removedRetryField]) {
+      if (source.includes(removed)) {
+        throw new Error(`packed output ${file} retains removed API ${removed}`)
+      }
+    }
+  }
   const requiredExports = {
     '.': ['import', 'types'],
     './analyst': ['import', 'types'],
@@ -90,18 +124,22 @@ try {
       import {
         CostLedger,
         InMemoryTraceStore,
+        type BenchmarkRunnerConfig,
+        type ChatClient,
         type CostLedgerHandle as RootCostLedgerHandle,
+        type ExecutorConfig,
+        type JudgeFn,
         type LlmJudgeOptions as RootLlmJudgeOptions,
+        type LlmClientOptions,
         type ReferenceEquivalenceJudgeOptions as RootReferenceEquivalenceJudgeOptions,
         type Run,
         type RunRecord,
         type RunTerminalOutcome,
+        type Scenario,
         runTaskScore,
       } from '@tangle-network/agent-eval'
       import {
-        CanonicalRawAnalystFindingSchema,
         RawAnalystFindingSchema,
-        type CanonicalRawAnalystFinding,
         type RawAnalystFinding,
         type TraceAnalystGolden,
       } from '@tangle-network/agent-eval/analyst'
@@ -115,6 +153,8 @@ try {
       } from '@tangle-network/agent-eval/contract'
       import {
         type CostLedgerHandle as CampaignCostLedgerHandle,
+        type CampaignStorage,
+        type CompareOptimizationMethodsOptions,
         type LlmJudgeOptions as CampaignLlmJudgeOptions,
         type OptimizationMethodProvenance,
         type ReferenceEquivalenceJudgeOptions as CampaignReferenceEquivalenceJudgeOptions,
@@ -141,21 +181,95 @@ try {
         LLM_INPUT_TOKENS,
         contextInputTokens,
       } from '@tangle-network/agent-eval/trace-attributes'
+      import {
+        buildRlDataset,
+        extractPreferences,
+        toGrpoRows,
+        toSftRows,
+      } from '@tangle-network/agent-eval/rl'
 
       const store: TraceAnalysisStore = new OtlpFileTraceStore({ path: 'spans.jsonl' })
-      const legacyFinding: RawAnalystFinding = RawAnalystFindingSchema.parse({
+      // @ts-expect-error provider SDK types are not part of the public API
+      type RemovedProviderSdk = import('@tangle-network/agent-eval')[${JSON.stringify(removedSdkType)}]
+      const removedProviderSdk: RemovedProviderSdk = {}
+      // @ts-expect-error retry count belongs to ChatClient.maximumAttempts
+      const removedBenchmarkRetry: BenchmarkRunnerConfig[${JSON.stringify(removedRetryField)}] = 1
+      // @ts-expect-error retry count belongs to ChatClient.maximumAttempts
+      const removedExecutorRetry: ExecutorConfig[${JSON.stringify(removedRetryField)}] = 1
+      // @ts-expect-error LlmClientOptions uses total maximumAttempts
+      type RemovedLlmMaxRetries = LlmClientOptions['maxRetries']
+      // @ts-expect-error CostLedgerEntry was removed from the current-only API
+      type RemovedCostLedgerEntry = import('@tangle-network/agent-eval').CostLedgerEntry
+      // @ts-expect-error fixed-prompt judge factories were removed
+      type RemovedCustomJudge = typeof import('@tangle-network/agent-eval').createCustomJudge
+      // @ts-expect-error fixed-prompt judge factory collections were removed
+      type RemovedDefaultJudges = typeof import('@tangle-network/agent-eval').defaultJudges
+      // @ts-expect-error campaign cost is available only at aggregates.cost.totalCostUsd
+      type RemovedCampaignCostAlias = import('@tangle-network/agent-eval/campaign').CampaignAggregates['totalCostUsd']
+      // @ts-expect-error scalar qHat was replaced by qHatChosen plus vHatTarget
+      type RemovedBeliefQHat = import('@tangle-network/agent-eval/belief-state').BeliefDecisionPoint['qHat']
+      // @ts-expect-error scalar qHat callbacks were removed
+      type RemovedBeliefQHatHook = import('@tangle-network/agent-eval/belief-state').BeliefOpeTargetPolicy['qHatOf']
+      // @ts-expect-error scalar off-policy qHat was removed
+      type RemovedOffPolicyQHat = import('@tangle-network/agent-eval/rl').OffPolicyTrajectory['qHat']
+      // @ts-expect-error scalar off-policy contribution counts were removed
+      type RemovedScalarContribution = import('@tangle-network/agent-eval/rl').OffPolicyContributionCounts['legacyScalar']
+      // @ts-expect-error reward components are the sole per-source aggregate
+      type RemovedRewardBreakdown = import('@tangle-network/agent-eval/rl').VerifiableReward['breakdown']
+      // @ts-expect-error rolloutReward was removed; use trainingReward or rolloutRewardFields
+      type RemovedRolloutReward = typeof import('@tangle-network/agent-eval').rolloutReward
+      // @ts-expect-error record-input rollout adapters were removed
+      type RemovedTrainingRunSelection = import('@tangle-network/agent-eval/rl').TrainingRunSelectionOptions
+      // @ts-expect-error duplicate line lookup type was folded into GrpoLookups
+      type RemovedGrpoLineLookups = import('@tangle-network/agent-eval/rl').GrpoLineLookups
+      // @ts-expect-error duplicate line lookup type was folded into SftLookups
+      type RemovedSftLineLookups = import('@tangle-network/agent-eval/rl').SftLineLookups
+      // @ts-expect-error duplicate preference options were folded into ExtractPreferencesOptions
+      type RemovedLinePreferenceOptions = import('@tangle-network/agent-eval/rl').ExtractPreferencesFromLinesOptions
+      // @ts-expect-error custom record rewards were removed with the record input
+      type RemovedGrpoRewardHook = import('@tangle-network/agent-eval/rl').GrpoLookups['rewardOf']
+      // @ts-expect-error preference split is named split on rollout lines
+      type RemovedPreferenceSplitTag = import('@tangle-network/agent-eval/rl').ExtractPreferencesOptions['splitTag']
+      // @ts-expect-error dataset stats expose one canonical split map
+      type RemovedDuplicateSplitMap = import('@tangle-network/agent-eval/rl').RlDatasetStats['rolloutSplits']
+      // @ts-expect-error analyst findings use one plural evidence field
+      type RemovedSingularEvidence = RawAnalystFinding['evidence_uri']
+      // @ts-expect-error the duplicate canonical finding type was removed
+      type RemovedCanonicalFinding = import('@tangle-network/agent-eval/analyst').CanonicalRawAnalystFinding
+      // @ts-expect-error the duplicate canonical finding schema was removed
+      type RemovedCanonicalFindingSchema = typeof import('@tangle-network/agent-eval/analyst').CanonicalRawAnalystFindingSchema
+      // @ts-expect-error analyst cost is reported through the usage receipt
+      type RemovedAnalystCostAlias = import('@tangle-network/agent-eval').AnalystRunSummary['cost_usd']
+      // @ts-expect-error recovery has one plural-evidence processRow callback
+      type RemovedCanonicalProcessRow = import('@tangle-network/agent-eval/analyst').StructureFindingsOptions['processCanonicalRow']
+      // @ts-expect-error comparison partitions use explicit train, selection, and test fields
+      type RemovedComparisonHoldout = CompareOptimizationMethodsOptions<Scenario, unknown>['holdoutScenarios']
+      // @ts-expect-error SurfaceProposer is the only candidate-proposal contract
+      type RemovedOptimizationProposer = import('@tangle-network/agent-eval/campaign').OptimizationProposer
+      // @ts-expect-error durable campaign storage must support atomic appends
+      const removedReadOnlyStorage: CampaignStorage = {
+        ensureDir() {},
+        exists() { return false },
+        read() { return undefined },
+        write() {},
+      }
+      const removedRecordInputs = [] as RunRecord[]
+      // @ts-expect-error GRPO accepts only MintedRolloutLine[]
+      const removedGrpoRecordInput: Parameters<typeof toGrpoRows>[0] = removedRecordInputs
+      // @ts-expect-error SFT accepts only MintedRolloutLine[]
+      const removedSftRecordInput: Parameters<typeof toSftRows>[0] = removedRecordInputs
+      // @ts-expect-error preference extraction accepts only MintedRolloutLine[]
+      const removedPreferenceRecordInput: Parameters<typeof extractPreferences>[0] = removedRecordInputs
+      // @ts-expect-error dataset packaging accepts only MintedRolloutLine[]
+      const removedDatasetRecordInput: Parameters<typeof buildRlDataset>[0] = removedRecordInputs
+      const canonicalChat = null as unknown as ChatClient
+      const canonicalJudge = null as unknown as JudgeFn
+      const rawFinding: RawAnalystFinding = RawAnalystFindingSchema.parse({
         severity: 'info',
-        claim: 'legacy',
-        evidence_uri: 'artifact://legacy',
+        claim: 'current',
+        evidence: [{ uri: 'artifact://current' }],
         confidence: 1,
       })
-      const canonicalFinding: CanonicalRawAnalystFinding =
-        CanonicalRawAnalystFindingSchema.parse({
-          severity: 'info',
-          claim: 'canonical',
-          evidence: [{ uri: 'artifact://canonical' }],
-          confidence: 1,
-        })
       const golden: TraceAnalystGolden = {
         question: 'find corroborated failures',
         expected: [{
@@ -249,8 +363,16 @@ try {
       })
       void [
         store,
-        legacyFinding,
-        canonicalFinding,
+        removedProviderSdk,
+        removedBenchmarkRetry,
+        removedExecutorRetry,
+        removedGrpoRecordInput,
+        removedSftRecordInput,
+        removedPreferenceRecordInput,
+        removedDatasetRecordInput,
+        canonicalChat,
+        canonicalJudge,
+        rawFinding,
         golden,
         report,
         terminalOutcome,
@@ -311,8 +433,10 @@ try {
         const root = await import('@tangle-network/agent-eval')
         const analyst = await import('@tangle-network/agent-eval/analyst')
         if (!('pairedSignTest' in root)) throw new Error('missing root export pairedSignTest')
-        if (!('CanonicalRawAnalystFindingSchema' in analyst)) {
-          throw new Error('missing analyst export CanonicalRawAnalystFindingSchema')
+        if ('rolloutReward' in root) throw new Error('obsolete root export rolloutReward')
+        if (!('RawAnalystFindingSchema' in analyst)) throw new Error('missing analyst export RawAnalystFindingSchema')
+        if ('CanonicalRawAnalystFindingSchema' in analyst) {
+          throw new Error('obsolete analyst export CanonicalRawAnalystFindingSchema')
         }
         const signTest = root.pairedSignTest([1, 0.5], 'greater')
         if (signTest.pValue !== 0.25) throw new Error('invalid packed pairedSignTest result')
@@ -329,6 +453,9 @@ try {
         const rl = await import('@tangle-network/agent-eval/rl')
         for (const name of ['campaignToRunRecords', 'extractPreferences', 'buildRlDataset', 'toSftRows', 'runRLCampaign']) {
           if (!(name in rl)) throw new Error('missing rl export ' + name)
+        }
+        if ('isTrainingRunEligible' in rl) {
+          throw new Error('obsolete rl export isTrainingRunEligible')
         }
         const metaEval = await import('@tangle-network/agent-eval/meta-eval')
         if (!('InMemoryOutcomeStore' in metaEval)) throw new Error('missing meta-eval export InMemoryOutcomeStore')

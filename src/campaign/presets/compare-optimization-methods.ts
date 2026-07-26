@@ -777,15 +777,6 @@ function assertComparisonControls<TScenario extends Scenario, TArtifact>(
 function assertComparisonPartitions<TScenario extends Scenario, TArtifact>(
   opts: CompareOptimizationMethodsOptions<TScenario, TArtifact>,
 ): void {
-  const legacy = opts as CompareOptimizationMethodsOptions<TScenario, TArtifact> & {
-    holdoutScenarios?: unknown
-  }
-  if (legacy.holdoutScenarios !== undefined) {
-    throw new Error(
-      'compareOptimizationMethods: holdoutScenarios is ambiguous and no longer accepted. Provide disjoint trainScenarios, selectionScenarios, and testScenarios; selection may be reused adaptively, test must remain untouched.',
-    )
-  }
-
   const partitions: Array<{
     name: 'trainScenarios' | 'selectionScenarios' | 'testScenarios'
     scenarios: TScenario[] | undefined

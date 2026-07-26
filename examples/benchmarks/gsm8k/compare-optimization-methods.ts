@@ -150,7 +150,7 @@ interface Artifact {
 const llm: LlmClientOptions = {
   apiKey: API_KEY,
   baseUrl: BASE_URL,
-  maxRetries: 2,
+  maximumAttempts: 2,
   defaultTimeoutMs: CALL_TIMEOUT_MS,
   ...(CUSTOM_TOKEN_PRICING ? { customTokenPricing: CUSTOM_TOKEN_PRICING } : {}),
 }
@@ -433,7 +433,7 @@ async function main() {
       worker: {
         requestTimeoutMs: CALL_TIMEOUT_MS,
         maxOutputTokens: WORKER_MAX_TOKENS,
-        maxRetries: llm.maxRetries,
+        maximumAttempts: llm.maximumAttempts,
         temperature: 0,
         customTokenPricing: CUSTOM_TOKEN_PRICING ?? null,
       },

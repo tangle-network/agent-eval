@@ -29,6 +29,7 @@ export type {
   ChatTransport,
   CliBridgeTransportOpts,
   CreateChatClientOpts,
+  CustomTransportOpts,
   DirectProviderTransportOpts,
   MockTransportOpts,
   RouterTransportOpts,
@@ -40,15 +41,12 @@ export {
   type DefaultAnalystRegistryOptions,
 } from './default-registry'
 export type {
-  CanonicalRawAnalystFinding,
   RawAnalystEvidence,
   RawAnalystFinding,
 } from './finding-signature'
 export {
   ANALYST_SEVERITIES,
-  CanonicalRawAnalystFindingSchema,
   evidenceRefsFromRawFinding,
-  parseCanonicalRawFinding,
   parseRawFinding,
   RAW_FINDING_SCHEMA_PROMPT,
   RawAnalystEvidenceSchema,

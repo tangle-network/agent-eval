@@ -1,8 +1,6 @@
 # Package graded runs into a publishable RL dataset
 
-End-to-end demo: take the `RunRecord`s from a graded agent-eval campaign and
-package them into a dataset someone can **publish or buy**: the trainer JSONL
-plus a manifest and a datasheet.
+Take the `RunRecord`s from a graded agent-eval campaign, mint canonical rollout lines, and package them into trainer JSONL with a manifest and datasheet.
 
 This is the step after [`../fine-tune-with-prime-rl`](../fine-tune-with-prime-rl).
 That example projects runs into one SFT file.
@@ -19,7 +17,7 @@ provenance a buyer checks first:
 - **Reward source.** `deterministic` means a test, schema, or XPath check decided the reward.
   `probabilistic` means a model-based judge decided it.
   The generated card records this distinction for downstream users.
-- **Split discipline.** Record counts per `search` / `dev` / `holdout`. A
+- **Split discipline.** Rollout counts per `search` / `dev` / `holdout` / `canary`. A
   publishable dataset must declare its holdout.
 - **Reward distribution, models, prompt/agent versions, commits, tokens, cost.**
   Everything a downstream consumer needs to reproduce or audit the data.
@@ -72,7 +70,7 @@ completion into a paid dataset.
 
 - The fixture is **holdout-only** (`holdout: 3`) because the three funded cases were holdout-graded.
   The command therefore requires `--allow-held-out-training-data`.
-  Normal training exports accept only `search` and `dev` runs.
+  Normal training exports accept only `search`; `dev` and `canary` remain evaluation-only.
 - Reward here is **deterministic** (TaxCalcBench line-match). For domains with
   no objective scorer (e.g. open-ended writing), reward is `probabilistic` and
   the card says so: buyers should price that difference in.

@@ -20,8 +20,8 @@ describe('structureFindings — free-form report → structured findings (any mo
   it('extracts findings from a FENCED JSON response (the wrapper that breaks naive parsing)', async () => {
     const fenced =
       '```json\n[{"severity":"high","claim":"no context compression — input grew 671→8776",' +
-      '"evidence_uri":"span://t1/s5","confidence":0.95},' +
-      '{"severity":"medium","claim":"no self-verification","evidence_uri":"report://summary","confidence":0.9}]\n```'
+      '"evidence":[{"uri":"span://t1/s5"}],"confidence":0.95},' +
+      '{"severity":"medium","claim":"no self-verification","evidence":[{"uri":"report://summary"}],"confidence":0.9}]\n```'
     const res = await structureFindings({
       report: REPORT,
       analystId: 'failure-mode',
@@ -83,7 +83,7 @@ describe('structureFindings — free-form report → structured findings (any mo
     expect(res.findings).toEqual([])
   })
 
-  it('gives original callbacks the exact singular shape without dropping extra citations', async () => {
+  it('passes every citation to processRow', async () => {
     const res = await structureFindings({
       report: REPORT,
       analystId: 'failure-mode',
@@ -111,6 +111,31 @@ describe('structureFindings — free-form report → structured findings (any mo
       claim: 'two sources support this finding; reviewed',
       evidence_refs: [{ uri: 'span://t/s' }, { uri: 'event://t/e' }],
     })
+  })
+
+  it('rejects malformed processRow output', async () => {
+    const response = JSON.stringify([
+      {
+        severity: 'high',
+        claim: 'valid model output',
+        evidence: [{ uri: 'span://t/s' }],
+        confidence: 0.9,
+      },
+    ])
+    const res = await structureFindings({
+      report: REPORT,
+      analystId: 'failure-mode',
+      area: 'failure-mode',
+      model: 'any',
+      baseUrl: 'https://x/v1',
+      fetchImpl: stubFetch(response),
+      processRow: (row) => {
+        const { evidence: _evidence, ...invalid } = row
+        return invalid as never
+      },
+    })
+
+    expect(res).toEqual({ findings: [], outcome: 'extraction_failed' })
   })
 
   it('forwards cancellation and does not start recovery work after abort', async () => {

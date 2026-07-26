@@ -1,13 +1,13 @@
-import type { TCloud } from '@tangle-network/tcloud'
+import type { ChatClient, ChatRequest } from './analyst/chat-client'
 import type { ProductClient } from './client'
 import { ConvergenceTracker } from './convergence'
 import { CostLedger, type CostLedgerHandle } from './cost-ledger'
-import { MetricsCollector } from './metrics'
 import {
-  costReceiptFromTCloud,
-  type MeteredTCloudRequest,
-  maximumChargeForTCloudRequest,
-} from './tcloud-cost'
+  costReceiptFromLlm,
+  costReceiptFromLlmError,
+  maximumChargeForLlmRequest,
+} from './llm-client'
+import { MetricsCollector } from './metrics'
 import type { DriverResult, DriverState, PersonaConfig, PersonaRigor, TurnMetrics } from './types'
 
 export interface AgentDriverConfig {
@@ -17,8 +17,6 @@ export interface AgentDriverConfig {
   productContext?: string
   /** Shared account for driver-model calls. */
   costLedger?: CostLedgerHandle
-  /** Exact provider attempt count, required when costLedger has a cap. */
-  tcloudMaximumAttempts?: number
 }
 
 /**
@@ -42,20 +40,18 @@ const RIGOR_STANCE: Record<PersonaRigor, string> = {
  * the next realistic user message.
  */
 export class AgentDriver {
-  private tc: TCloud
+  private chat: ChatClient
   private client: ProductClient
   private driverModel: string
   private productContext: string
   private costLedger: CostLedgerHandle
-  private tcloudMaximumAttempts?: number
 
-  constructor(tc: TCloud, config: AgentDriverConfig) {
-    this.tc = tc
+  constructor(chat: ChatClient, config: AgentDriverConfig) {
+    this.chat = chat
     this.client = config.client
     this.driverModel = config.driverModel ?? 'claude-sonnet-4-6'
     this.productContext = config.productContext ?? ''
     this.costLedger = config.costLedger ?? new CostLedger()
-    this.tcloudMaximumAttempts = config.tcloudMaximumAttempts
   }
 
   /**
@@ -174,7 +170,7 @@ export class AgentDriver {
     history: { role: string; content: string }[],
     costTags: Record<string, string>,
   ): Promise<string> {
-    return decideNextUserTurn(this.tc, {
+    return decideNextUserTurn(this.chat, {
       persona,
       state,
       history,
@@ -182,7 +178,6 @@ export class AgentDriver {
       model: this.driverModel,
       costLedger: this.costLedger,
       costTags,
-      tcloudMaximumAttempts: this.tcloudMaximumAttempts,
     })
   }
 
@@ -352,8 +347,6 @@ export interface DecideNextUserTurnOpts {
   costLedger?: CostLedgerHandle
   /** Attribution tags merged into the paid-call receipt. */
   costTags?: Record<string, string>
-  /** Exact provider attempt count, required when costLedger has a cap. */
-  tcloudMaximumAttempts?: number
 }
 
 /**
@@ -364,7 +357,7 @@ export interface DecideNextUserTurnOpts {
  * when the simulated professional would sign off.
  */
 export async function decideNextUserTurn(
-  tc: TCloud,
+  chat: ChatClient,
   opts: DecideNextUserTurnOpts,
 ): Promise<string> {
   const { persona, state, history, productContext = '', model = 'claude-sonnet-4-6' } = opts
@@ -392,23 +385,21 @@ export async function decideNextUserTurn(
     ],
     temperature: 0.5,
     maxTokens: 700,
-  } satisfies MeteredTCloudRequest
+  } satisfies ChatRequest
   const paid = await (opts.costLedger ?? new CostLedger()).runPaidCall({
     channel: 'driver',
     phase: 'driver-turn',
     actor: 'decideNextUserTurn',
     model,
     tags: opts.costTags,
-    maximumCharge: maximumChargeForTCloudRequest(request, opts.tcloudMaximumAttempts),
-    execute: () => tc.chat(request),
-    receipt: (response) => costReceiptFromTCloud(response, model),
+    maximumCharge:
+      chat.maximumAttempts === undefined
+        ? undefined
+        : maximumChargeForLlmRequest(request, { maximumAttempts: chat.maximumAttempts }),
+    execute: (signal, callId) => chat.chat(request, { signal, idempotencyKey: callId }),
+    receipt: costReceiptFromLlm,
+    receiptFromError: costReceiptFromLlmError,
   })
   if (!paid.succeeded) throw paid.error
-  const resp = paid.value
-
-  const content =
-    (resp as { choices?: { message?: { content?: string } }[] }).choices?.[0]?.message?.content ??
-    ''
-
-  return content.trim()
+  return paid.value.content.trim()
 }

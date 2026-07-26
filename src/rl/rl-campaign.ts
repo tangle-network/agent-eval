@@ -4,7 +4,7 @@
  *
  * Wires:
  *   1. `runEvalCampaign` for the matrix run (capture, integrity, hooks)
- *   2. `extractVerifiableReward` over each run, separating deterministic
+ *   2. `extractVerifiableRewardsFromRecords` over the runs, separating deterministic
  *      from probabilistic reward sources for the trainer
  *   3. `extractPreferences` to produce DPO/PPO/KTO triples
  *   4. `evaluateInterimReleaseConfidence` over paired deltas (anytime-valid)
@@ -14,8 +14,9 @@
  *
  * The output `RLCampaignResult` is a single, audit-ready artifact: every
  * stage's output is in there. The consumer's downstream fits in a single
- * line: pass `result.preferences` to their DPO trainer, `result.grpoRows`
- * to GRPO, `result.runs` plus `result.rewardSignals` to a custom RL loop.
+ * line: pass `result.preferences.pairs` to a DPO trainer,
+ * `result.trainerRows.grpo` to GRPO, or `result.campaign.runs` plus
+ * `result.rewardSignals` to a custom RL loop.
  */
 
 import {
@@ -28,8 +29,10 @@ import {
   type RubricPredictiveValidityReport,
   rubricPredictiveValidity,
 } from '../meta-eval/rubric-predictive-validity'
+import { mintRolloutRows } from '../rollout/mint'
 import { type RunRecord, runTaskScore } from '../run-record'
 import { evaluateInterimReleaseConfidence, type InterimReleaseConfidence } from '../sequential'
+import { InMemoryTraceStore } from '../trace/store'
 import {
   type DpoExportRow,
   type DpoLookups,
@@ -47,7 +50,6 @@ import {
   type PreferenceExtractionReport,
 } from './preferences'
 import { detectRewardHacking, type RewardHackingReport } from './reward-hacking'
-import { mintLinesFromRecords } from './rollout-input'
 import {
   extractVerifiableRewardsFromRecords,
   type VerifiableReward,
@@ -72,7 +74,7 @@ export interface RunRLCampaignOptions<V> extends EvalCampaignOptions<V> {
   }
 }
 
-export interface RLCampaignResult<V> {
+export interface RLCampaignResult {
   campaign: EvalCampaignResult
   /** Per-run verifiable reward (deterministic when available, probabilistic fallback otherwise). */
   rewardSignals: Array<{ runId: string; reward: VerifiableReward | null }>
@@ -98,12 +100,9 @@ export interface RLCampaignResult<V> {
    * Convenience type-tag — consumers can branch on `result.kind`.
    */
   kind: 'agent-eval-rl-campaign'
-  unusedVariant?: V
 }
 
-export async function runRLCampaign<V>(
-  opts: RunRLCampaignOptions<V>,
-): Promise<RLCampaignResult<V>> {
+export async function runRLCampaign<V>(opts: RunRLCampaignOptions<V>): Promise<RLCampaignResult> {
   const splitTag = opts.splitTag ?? 'search'
 
   // ── 1. Run the matrix ──────────────────────────────────────────────
@@ -115,12 +114,14 @@ export async function runRLCampaign<V>(
     opts.verifiableReward ?? {},
   )
 
-  // ── 3. Extract preference triples ──────────────────────────────────
-  const preferences = extractPreferences(campaign.runs, {
+  // ── 3. Mint the scored runs once, then derive all training artifacts ──
+  const scoredRuns = campaign.runs.filter((run) => runTaskScore(run) !== undefined)
+  const { rows: rolloutLines } = await mintRolloutRows(scoredRuns, new InMemoryTraceStore())
+  const preferences = extractPreferences(rolloutLines, {
     ...opts.preferences,
     strategy: opts.preferences?.strategy ?? 'paired-by-scenario-and-seed',
     minMargin: opts.preferences?.minMargin ?? 0.05,
-    splitTag: opts.preferences?.splitTag ?? splitTag,
+    split: opts.preferences?.split ?? splitTag,
   })
 
   // ── 4. Sequential / anytime-valid interim verdict ──────────────────
@@ -155,27 +156,17 @@ export async function runRLCampaign<V>(
   }
 
   // ── 7. Trainer-format export ───────────────────────────────────────
-  const trainerRows: RLCampaignResult<V>['trainerRows'] = {}
+  const trainerRows: RLCampaignResult['trainerRows'] = {}
   if (opts.trainerExport?.dpo) {
-    // Preference triples name run ids and nothing else, so the DPO exporter is
-    // handed only the minted lines they reference. Unscored campaign runs
-    // produce no preference and must not make an otherwise valid DPO export
-    // fail while minting unrelated context.
-    const referencedRunIds = new Set(
-      preferences.pairs.flatMap((pair) => [pair.chosenRunId, pair.rejectedRunId]),
-    )
-    const minted = await mintLinesFromRecords(
-      campaign.runs.filter((run) => referencedRunIds.has(run.runId)),
-    )
     trainerRows.dpo = await toDpoRows(preferences.pairs, opts.trainerExport.dpo, {
-      lines: minted.map((m) => m.line),
+      lines: rolloutLines,
     })
   }
   if (opts.trainerExport?.grpo) {
-    trainerRows.grpo = await toGrpoRows(campaign.runs, opts.trainerExport.grpo)
+    trainerRows.grpo = await toGrpoRows(rolloutLines, opts.trainerExport.grpo)
   }
   if (opts.trainerExport?.sft) {
-    trainerRows.sft = await toSftRows(campaign.runs, opts.trainerExport.sft)
+    trainerRows.sft = await toSftRows(rolloutLines, opts.trainerExport.sft)
   }
 
   const summary = buildSummary({

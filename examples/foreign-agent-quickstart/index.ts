@@ -253,7 +253,7 @@ async function main() {
   const baselineScore = meanComposite(baseline)
   console.log(`Baseline composite mean: ${baselineScore.toFixed(3)}`)
   console.log(
-    `Cells executed: ${baseline.aggregates.cellsExecuted}, cost: $${baseline.aggregates.totalCostUsd.toFixed(4)}`,
+    `Cells executed: ${baseline.aggregates.cellsExecuted}, cost: $${baseline.aggregates.cost.totalCostUsd.toFixed(4)}`,
   )
 
   console.log('\nImprovement loop with a custom candidate generator')

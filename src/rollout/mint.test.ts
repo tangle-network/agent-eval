@@ -3,7 +3,7 @@ import type { RunRecord } from '../run-record'
 import type { LlmSpan, ToolSpan } from '../trace/schema'
 import { InMemoryTraceStore } from '../trace/store'
 import { toRewardRows, toSftRows } from './exporters'
-import { mintRolloutRows, rolloutReward } from './mint'
+import { mintRolloutRows } from './mint'
 import { validateRolloutLine } from './schema'
 
 function record(overrides: Partial<RunRecord> = {}): RunRecord {
@@ -61,28 +61,14 @@ async function seededStore(runId = 'run-1'): Promise<InMemoryTraceStore> {
   return store
 }
 
-describe('rolloutReward', () => {
-  it('prefers holdoutScore and passes through when un-gated', () => {
-    expect(rolloutReward(record())).toEqual({ reward: 1, gated: false })
-  })
-
-  it('forces reward to 0 when realness-gated, regardless of score', () => {
-    const gated = record({
-      outcome: { holdoutScore: 1, raw: {}, realness: { score: 0.9, gated: true } },
-    })
-    expect(rolloutReward(gated)).toEqual({ reward: 0, gated: true })
-  })
-
+describe('mintRolloutRows', () => {
   it('rejects an execution-only record instead of minting a zero reward', async () => {
     const unscored = record({ outcome: { raw: {} } })
-    expect(() => rolloutReward(unscored)).toThrow(/run-1: task score is missing/)
     await expect(mintRolloutRows([unscored], await seededStore())).rejects.toThrow(
       /run-1: task score is missing/,
     )
   })
-})
 
-describe('mintRolloutRows', () => {
   it('joins RunRecord identity with trace steps into a valid tangle.rollout.v1 line', async () => {
     const { rows, missingTraces } = await mintRolloutRows([record()], await seededStore())
     expect(missingTraces).toEqual([])

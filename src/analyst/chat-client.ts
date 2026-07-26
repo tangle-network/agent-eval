@@ -1,22 +1,9 @@
 /**
- * ChatClient — the single LLM abstraction analysts call.
+ * Provider-neutral chat contract for every model call made by agent-eval.
  *
- * agent-eval already ships an `LlmClient` (OpenAI-compatible, retry,
- * graceful JSON-schema degrade) and judges that talk to `TCloud`. Two
- * mixed patterns force every analyst author to pick a transport, which
- * couples analyst code to runtime concerns (cli-bridge vs router vs
- * sandbox-sdk) it shouldn't know about.
- *
- * `ChatClient` is one interface every analyst takes via `AnalystContext.chat`.
- * The operator decides at the registry boundary which transport binds
- * to it. Analyst code stays transport-agnostic; swapping production
- * (sandbox-sdk) for local dev (cli-bridge) or tests (mock) is a one-
- * line factory call.
- *
- * Designed to coexist: existing `LlmClient` callers and existing
- * `TCloud`-based judges keep working untouched. New analyst code uses
- * `ChatClient`. When old call sites migrate, they pick up budgeting,
- * cancellation, and unified telemetry for free.
+ * Callers choose the transport at the package boundary with `createChatClient`.
+ * Evaluation code receives canonical requests and results without importing a
+ * provider SDK.
  */
 
 import {
@@ -27,14 +14,12 @@ import {
 } from '../llm-client'
 
 /**
- * Unified chat interface. Mirrors LlmCallRequest/Result so the OpenAI-
- * compatible mental model stays. Two methods: a one-shot `chat()` and
- * an `streamChat()` for future agentic loops (not yet exposed).
+ * Unified chat interface using the package's canonical LLM request and result.
  */
 export interface ChatClient {
-  /** Display name of the bound transport — included in telemetry. */
+  /** Display name of the bound transport, included in telemetry. */
   readonly transport: ChatTransport
-  /** Default model when caller omits — operators bind this per environment. */
+  /** Default model when the caller omits one. */
   readonly defaultModel?: string
   /** Total provider attempts this transport can make for one chat call. */
   readonly maximumAttempts?: number
@@ -48,6 +33,7 @@ export type ChatTransport =
   | 'sandbox-sdk' // box.streamPrompt() — chat completion via sandbox SDK
   | 'cli-bridge' // local cli-bridge for dev / local-only runs
   | 'direct-provider' // direct OpenAI / Anthropic / etc. — bypass router
+  | 'custom' // caller-adapted SDK or transport
   | 'mock' // test-time injection
 
 export interface ChatRequest extends Omit<LlmCallRequest, 'model'> {
@@ -75,6 +61,7 @@ export type CreateChatClientOpts =
   | CliBridgeTransportOpts
   | DirectProviderTransportOpts
   | SandboxSdkTransportOpts
+  | CustomTransportOpts
   | MockTransportOpts
 
 interface BaseTransportOpts {
@@ -102,13 +89,17 @@ export interface DirectProviderTransportOpts extends BaseTransportOpts {
 }
 
 /**
- * Sandbox-SDK transport. Provided as a thin pass-through: the caller
- * supplies a callable that mimics LlmClient.chat() against an already-
- * configured Sandbox handle. We don't import the SDK here to keep
- * agent-eval dep-free of @tangle-network/sandbox.
+ * Sandbox-SDK transport. The caller supplies a canonical chat function for an
+ * already-configured Sandbox handle, so agent-eval does not import the SDK.
  */
 export interface SandboxSdkTransportOpts extends BaseTransportOpts {
   transport: 'sandbox-sdk'
+  chat: (req: ChatRequest, opts?: ChatCallOpts) => Promise<ChatResponse>
+}
+
+/** Caller-adapted SDK or transport returning the canonical ChatResponse shape. */
+export interface CustomTransportOpts extends BaseTransportOpts {
+  transport: 'custom'
   chat: (req: ChatRequest, opts?: ChatCallOpts) => Promise<ChatResponse>
 }
 
@@ -134,7 +125,7 @@ export function createChatClient(opts: CreateChatClientOpts): ChatClient {
         new LlmClient({
           baseUrl: opts.baseUrl ?? 'https://router.tangle.tools/v1',
           apiKey: opts.apiKey,
-          maxRetries: opts.maximumAttempts,
+          maximumAttempts: opts.maximumAttempts,
         } as LlmClientOptions),
       )
     case 'cli-bridge':
@@ -144,7 +135,7 @@ export function createChatClient(opts: CreateChatClientOpts): ChatClient {
         new LlmClient({
           baseUrl: opts.baseUrl ?? 'http://127.0.0.1:3344/v1',
           apiKey: opts.bearer ?? '',
-          maxRetries: opts.maximumAttempts,
+          maximumAttempts: opts.maximumAttempts,
         } as LlmClientOptions),
       )
     case 'direct-provider':
@@ -154,12 +145,19 @@ export function createChatClient(opts: CreateChatClientOpts): ChatClient {
         new LlmClient({
           baseUrl: opts.baseUrl,
           apiKey: opts.apiKey,
-          maxRetries: opts.maximumAttempts,
+          maximumAttempts: opts.maximumAttempts,
         } as LlmClientOptions),
       )
     case 'sandbox-sdk':
       return {
         transport: 'sandbox-sdk',
+        defaultModel: opts.defaultModel,
+        maximumAttempts: opts.maximumAttempts,
+        chat: async (req, callOpts) => opts.chat(resolveModel(req, opts.defaultModel), callOpts),
+      }
+    case 'custom':
+      return {
+        transport: 'custom',
         defaultModel: opts.defaultModel,
         maximumAttempts: opts.maximumAttempts,
         chat: async (req, callOpts) => opts.chat(resolveModel(req, opts.defaultModel), callOpts),
@@ -192,6 +190,7 @@ function wrapLlmClient(
         jsonSchema: req.jsonSchema,
         temperature: req.temperature,
         maxTokens: req.maxTokens,
+        thinking: req.thinking,
         timeoutMs: req.timeoutMs,
       }
       return inner.call(request, {

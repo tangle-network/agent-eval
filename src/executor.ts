@@ -1,10 +1,14 @@
-import type { TCloud } from '@tangle-network/tcloud'
+import type { ChatClient, ChatRequest } from './analyst/chat-client'
 import { CostLedger, type CostLedgerHandle } from './cost-ledger'
 import { CaptureIntegrityError } from './errors'
 import { JudgeParseError } from './judges'
-import { isTransientLlmError } from './llm-client'
+import {
+  costReceiptFromLlm,
+  costReceiptFromLlmError,
+  isTransientLlmError,
+  maximumChargeForLlmRequest,
+} from './llm-client'
 import { normalizeScores, weightedMean } from './statistics'
-import { costReceiptFromTCloud, maximumChargeForTCloudRequest } from './tcloud-cost'
 import type {
   CollectedArtifacts,
   JudgeFn,
@@ -30,8 +34,6 @@ export interface ExecutorConfig {
   costLedger?: CostLedgerHandle
   costPhase?: string
   costTags?: Record<string, string>
-  /** Exact maximum provider attempts configured on the supplied TCloud client. */
-  tcloudMaximumAttempts?: number
   signal?: AbortSignal
   /** Regex patterns for detecting tool/API calls in responses */
   toolCallPatterns?: RegExp[]
@@ -50,11 +52,6 @@ export interface ExecutorConfig {
   sleep?: (ms: number) => Promise<void>
 }
 
-function describeShape(content: unknown, message: unknown): string {
-  if (message === undefined || message === null) return 'no choices[0].message'
-  return `message.content of type ${content === null ? 'null' : typeof content}`
-}
-
 function errMessage(err: unknown): string {
   if (err instanceof Error) return `${err.name}: ${err.message}`
   return String(err)
@@ -68,12 +65,12 @@ export interface JudgeFailure {
 }
 
 /**
- * Execute a scenario against an LLM via tcloud.
+ * Execute a scenario against an injected chat client.
  *
  * Runs multi-turn conversation, extracts artifacts, runs judges.
  */
 export async function executeScenario(
-  tc: TCloud,
+  chat: ChatClient,
   scenario: Scenario,
   config: ExecutorConfig,
 ): Promise<ScenarioResult> {
@@ -110,33 +107,30 @@ export async function executeScenario(
       messages,
       temperature: 0.4,
       maxTokens: 3000,
-    }
+    } satisfies ChatRequest
     const paid = await costLedger.runPaidCall({
       channel: 'agent',
       phase: config.costPhase ?? 'benchmark.agent',
       actor: 'scenario-agent',
       model,
-      maximumCharge: maximumChargeForTCloudRequest(request, config.tcloudMaximumAttempts),
+      maximumCharge:
+        chat.maximumAttempts === undefined
+          ? undefined
+          : maximumChargeForLlmRequest(request, { maximumAttempts: chat.maximumAttempts }),
       tags: costTags,
       signal: config.signal,
-      execute: () => tc.chat(request),
-      receipt: (response) => costReceiptFromTCloud(response, model),
+      execute: (signal, callId) => chat.chat(request, { signal, idempotencyKey: callId }),
+      receipt: costReceiptFromLlm,
+      receiptFromError: costReceiptFromLlmError,
     })
     if (!paid.succeeded) throw paid.error
-    const resp = paid.value
-
-    const message = (resp as { choices?: { message?: { content?: unknown } }[] }).choices?.[0]
-      ?.message
-    const rawContent = message?.content
-    // A legitimately-empty turn ('' from a model that chose to say nothing) is
-    // real signal and must survive. A missing choices[0].message, or a content
-    // that is not a string, is a capture defect — the chat call hung or returned
-    // a malformed shape — and is indistinguishable from a real empty turn once
-    // collapsed to ''. Fail loud so it is never scored as a real response.
-    if (message === undefined || message === null || typeof rawContent !== 'string') {
+    const rawContent = (paid.value as { content?: unknown }).content
+    if (typeof rawContent !== 'string') {
       throw new CaptureIntegrityError(
         `chat response for scenario "${scenario.id}" turn ${i} is malformed: ` +
-          `expected choices[0].message.content to be a string, got ${describeShape(rawContent, message)}`,
+          `expected content to be a string, got ${
+            rawContent === null ? 'null' : typeof rawContent
+          }`,
       )
     }
     const content = rawContent
@@ -243,7 +237,6 @@ export async function executeScenario(
     costPhase: config.costPhase ?? 'benchmark.judge',
     costTags,
     signal: config.signal,
-    tcloudMaximumAttempts: config.tcloudMaximumAttempts,
   }
   const judgeResults: JudgeScore[][] = []
   let failedJudges = 0
@@ -263,7 +256,7 @@ export async function executeScenario(
           console.log(`    ${judgeName} retry ${attempt}/2 (waiting ${wait / 1000}s)`)
           await sleep(wait)
         }
-        const scores = await judge(tc, judgeInput)
+        const scores = await judge(chat, judgeInput)
         judgeResults.push(scores)
         await sleep(3000)
         lastError = undefined

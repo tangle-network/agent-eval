@@ -54,12 +54,6 @@ export interface CostReceipt extends CostCallBase, CostUsage {
 
 export type CostLedgerRecord = PendingCostCall | CostReceipt
 
-/** @deprecated Read-only compatibility shape. New paid work uses `runPaidCall`. */
-export type CostLedgerEntry = Omit<
-  CostReceipt,
-  'status' | 'callId' | 'phase' | 'actor' | 'maximumCostUsd' | 'usageUnknown' | 'pricing' | 'error'
->
-
 export interface CostReceiptInput extends CostUsage {
   model: string
   /** Caller-supplied rates for a local estimate when the provider does not report billed cost. */
@@ -231,12 +225,12 @@ export class CostReceiptCaptureError extends ValidationError {
   }
 }
 
-interface CostCallEventV1 {
+interface PendingCostCallEvent {
   version: 1
-  record: CostLedgerRecord
+  record: PendingCostCall
 }
 
-interface CostCallEventV2 {
+interface SettledCostCallEvent {
   version: 2
   record: CostReceipt
 }
@@ -251,7 +245,7 @@ interface CostLimitEvent {
   costCeilingUsd: number
 }
 
-type CostCallEvent = CostCallEventV1 | CostCallEventV2
+type CostCallEvent = PendingCostCallEvent | SettledCostCallEvent
 type CostLedgerEvent = CostCallEvent | CompletedTasksEvent | CostLimitEvent
 
 /** Run-wide paid-call admission, durable call state, receipts, and summaries. */
@@ -757,10 +751,9 @@ export class CostLedger {
     const receipt = record.status === 'settled' ? record : undefined
     validateTransition(this.records, record)
     const event: CostCallEvent =
-      record.status === 'settled' &&
-      (record.reasoningTokens !== undefined || record.cacheWriteTokens !== undefined)
+      record.status === 'settled'
         ? { version: 2, record: cloneReceipt(record) }
-        : { version: 1, record: cloneRecord(record) }
+        : { version: 1, record: clonePendingCall(record) }
     this.appendEvent(event, callId, receipt)
     this.records.set(callId, cloneRecord(record))
   }
@@ -995,9 +988,6 @@ const CostReceiptBaseShape = {
   actualCostUsd: NonNegative.optional(),
   error: z.string().optional(),
 }
-const LegacyCostReceiptSchema = z
-  .strictObject(CostReceiptBaseShape)
-  .superRefine((receipt, ctx) => validateCostReceipt(receipt, ctx))
 const CostReceiptSchema = z
   .strictObject({
     ...CostReceiptBaseShape,
@@ -1060,7 +1050,7 @@ function validateCostReceipt(
 const CostLedgerEventSchema = z.union([
   z.strictObject({
     version: z.literal(1),
-    record: z.union([PendingCostCallSchema, LegacyCostReceiptSchema]),
+    record: PendingCostCallSchema,
   }),
   z.strictObject({
     version: z.literal(2),

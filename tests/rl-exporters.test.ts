@@ -13,8 +13,7 @@ import {
 import type { PreferenceTriple } from '../src/rl/preferences'
 import type { PrmTrainingTriple, StepReward } from '../src/rl/process-reward'
 import { fixtureRolloutLine } from '../src/rollout/fixtures'
-import { assertMinted, type MintedRolloutLine } from '../src/rollout/schema'
-import type { RunRecord } from '../src/run-record'
+import { assertMinted, type MintedRolloutLine, type RolloutSplit } from '../src/rollout/schema'
 
 const baseTriple: PreferenceTriple = {
   scenarioId: 's1',
@@ -34,39 +33,42 @@ const baseTriple: PreferenceTriple = {
   },
 }
 
-function rec(args: {
+const BASE = fixtureRolloutLine()
+
+function line(args: {
   runId: string
   scenarioId: string
   score?: number
   candidateId?: string
   promptHash?: string
-  splitTag?: RunRecord['splitTag']
-  terminalOutcome?: RunRecord['terminalOutcome']
-}): RunRecord {
-  const splitTag = args.splitTag ?? 'search'
-  return {
-    runId: args.runId,
-    experimentId: 'e',
-    candidateId: args.candidateId ?? 'A',
-    seed: 0,
-    model: 'm@1',
-    promptHash: args.promptHash ?? 'p'.repeat(64),
-    configHash: 'c'.repeat(64),
-    commitSha: 'abcd',
-    wallMs: 1,
-    costUsd: 0,
-    costProvenance: { kind: 'observed', usd: 0 },
-    tokenUsage: { input: 0, output: 0 },
-    terminalOutcome: args.terminalOutcome ?? 'succeeded',
-    outcome:
-      args.score === undefined
-        ? { raw: {} }
-        : splitTag === 'holdout'
-          ? { holdoutScore: args.score, raw: {} }
-          : { searchScore: args.score, raw: {} },
-    splitTag,
-    scenarioId: args.scenarioId,
-  }
+  split?: RolloutSplit
+  completed?: boolean
+}): MintedRolloutLine {
+  const score = args.score ?? null
+  return fixtureRolloutLine({
+    rollout_id: args.runId,
+    run_id: args.runId,
+    candidate_id: args.candidateId ?? 'A',
+    task: {
+      ...BASE.task,
+      instance_id: args.scenarioId,
+      split: args.split ?? 'search',
+      seed: 0,
+    },
+    policy: {
+      ...BASE.policy,
+      model: 'm@1',
+      prompt_hash: args.promptHash ?? 'p'.repeat(64),
+      config_hash: 'c'.repeat(64),
+    },
+    outcome: {
+      ...BASE.outcome,
+      reward: score,
+      reward_source: score === null ? 'test/unscored' : 'test/reward',
+      is_completed: args.completed ?? true,
+      error: args.completed === false ? 'run failed' : null,
+    },
+  })
 }
 
 /**
@@ -169,13 +171,13 @@ describe('toDpoRows', () => {
 })
 
 describe('toGrpoRows', () => {
-  it('groups positive search runs by scenario and canonical prompt identity', async () => {
-    const runs = [
-      rec({ runId: 'a-1', scenarioId: 's1', score: 0.7, candidateId: 'A' }),
-      rec({ runId: 'b-1', scenarioId: 's1', score: 0.5, candidateId: 'B' }),
-      rec({ runId: 'a-2', scenarioId: 's2', score: 0.9, candidateId: 'A' }),
+  it('groups scored search lines by scenario', async () => {
+    const lines = [
+      line({ runId: 'a-1', scenarioId: 's1', score: 0.7, candidateId: 'A' }),
+      line({ runId: 'b-1', scenarioId: 's1', score: 0.5, candidateId: 'B' }),
+      line({ runId: 'a-2', scenarioId: 's2', score: 0.9, candidateId: 'A' }),
     ]
-    const rows = await toGrpoRows(runs, {
+    const rows = await toGrpoRows(lines, {
       promptOf: (id) => (id.endsWith('-1') ? 'prompt-s1' : 'prompt-s2'),
       completionOf: (id) => `completion-${id}`,
     })
@@ -183,27 +185,11 @@ describe('toGrpoRows', () => {
     const s1 = rows.find((r) => r.meta?.scenarioId === 's1')!
     expect(s1.completions).toHaveLength(2)
     expect(s1.rewards).toEqual([0.7, 0.5])
-    expect(s1.meta?.promptHash).toBe('p'.repeat(64))
-  })
-
-  it('honors a custom rewardOf callback', async () => {
-    const runs = [
-      rec({ runId: 'a', scenarioId: 's', score: 0.5 }),
-      rec({ runId: 'b', scenarioId: 's', score: 0.4 }),
-    ]
-    runs[0]!.outcome.raw.bonus = 0.3
-    runs[1]!.outcome.raw.bonus = 0.2
-    const rows = await toGrpoRows(runs, {
-      promptOf: () => 'p',
-      completionOf: () => 'c',
-      rewardOf: (r) => r.outcome.raw.bonus ?? 0,
-    })
-    expect(rows[0]?.rewards).toEqual([0.3, 0.2])
   })
 
   it('skips groups with fewer than two scored completions', async () => {
-    const scored = rec({ runId: 'scored', scenarioId: 's', score: 0.8 })
-    const unscored = rec({ runId: 'unscored', scenarioId: 's' })
+    const scored = line({ runId: 'scored', scenarioId: 's', score: 0.8 })
+    const unscored = line({ runId: 'unscored', scenarioId: 's' })
 
     const rows = await toGrpoRows([scored, unscored], {
       promptOf: () => 'p',
@@ -213,53 +199,39 @@ describe('toGrpoRows', () => {
     expect(rows).toEqual([])
   })
 
-  it('rejects mixed prompt identities within one scenario', async () => {
-    const runs = [
-      rec({ runId: 'a', scenarioId: 's', score: 0.8, promptHash: 'a'.repeat(64) }),
-      rec({ runId: 'b', scenarioId: 's', score: 0.7, promptHash: 'b'.repeat(64) }),
+  it('rejects one scenario resolving to different prompt text', async () => {
+    const lines = [
+      line({ runId: 'a', scenarioId: 's', score: 0.8 }),
+      line({ runId: 'b', scenarioId: 's', score: 0.7 }),
     ]
 
     await expect(
-      toGrpoRows(runs, {
-        promptOf: () => 'same prompt',
-        completionOf: (id) => `completion-${id}`,
-      }),
-    ).rejects.toThrow(/mixed prompt identities/)
-  })
-
-  it('rejects one prompt identity resolving to different text', async () => {
-    const runs = [
-      rec({ runId: 'a', scenarioId: 's', score: 0.8 }),
-      rec({ runId: 'b', scenarioId: 's', score: 0.7 }),
-    ]
-
-    await expect(
-      toGrpoRows(runs, {
+      toGrpoRows(lines, {
         promptOf: (id) => `prompt-${id}`,
         completionOf: (id) => `completion-${id}`,
       }),
-    ).rejects.toThrow(/resolves to different text/)
+    ).rejects.toThrow(/resolves to different prompt text/)
   })
 
-  it('requires an explicit override before using held-out runs', async () => {
-    const runs = [
-      rec({ runId: 'a', scenarioId: 's', score: 0.8, splitTag: 'holdout' }),
-      rec({ runId: 'b', scenarioId: 's', score: 0.7, splitTag: 'holdout' }),
+  it('requires explicit consent before using held-out lines', async () => {
+    const lines = [
+      line({ runId: 'a', scenarioId: 's', score: 0.8, split: 'holdout' }),
+      line({ runId: 'b', scenarioId: 's', score: 0.7, split: 'holdout' }),
     ]
     const lookups = {
       promptOf: () => 'prompt',
       completionOf: (id: string) => `completion-${id}`,
     }
 
-    expect(await toGrpoRows(runs, lookups)).toEqual([])
-    expect(await toGrpoRows(runs, { ...lookups, allowHeldOutTrainingData: true })).toHaveLength(1)
+    expect(await toGrpoRows(lines, lookups)).toEqual([])
+    expect(await toGrpoRows(lines, { ...lookups, allowHeldOutTrainingData: true })).toHaveLength(1)
   })
 })
 
 describe('toSftRows', () => {
   it('produces conversational messages format with system + user + assistant', async () => {
-    const runs = [rec({ runId: 'a', scenarioId: 's', score: 0.9 })]
-    const rows = await toSftRows(runs, {
+    const lines = [line({ runId: 'a', scenarioId: 's', score: 0.9 })]
+    const rows = await toSftRows(lines, {
       promptOf: (id) => `user-prompt-${id}`,
       completionOf: (id) => `assistant-${id}`,
       systemOf: () => 'You are helpful.',
@@ -271,23 +243,23 @@ describe('toSftRows', () => {
     ])
   })
 
-  it('include callback filters runs (rejection-sampling SFT)', async () => {
-    const runs = [
-      rec({ runId: 'good', scenarioId: 's', score: 0.95 }),
-      rec({ runId: 'bad', scenarioId: 's', score: 0.2 }),
+  it('include callback filters lines', async () => {
+    const lines = [
+      line({ runId: 'good', scenarioId: 's', score: 0.95 }),
+      line({ runId: 'bad', scenarioId: 's', score: 0.2 }),
     ]
-    const rows = await toSftRows(runs, {
+    const rows = await toSftRows(lines, {
       promptOf: () => 'p',
       completionOf: () => 'c',
-      include: (r) => (r.outcome.searchScore ?? 0) >= 0.5,
+      include: (rollout) => (rollout.outcome.reward ?? 0) >= 0.5,
     })
     expect(rows).toHaveLength(1)
     expect(rows[0]?.meta?.runId).toBe('good')
   })
 
   it('omits system message when systemOf returns null', async () => {
-    const runs = [rec({ runId: 'a', scenarioId: 's', score: 0.5 })]
-    const rows = await toSftRows(runs, {
+    const lines = [line({ runId: 'a', scenarioId: 's', score: 0.5 })]
+    const rows = await toSftRows(lines, {
       promptOf: () => 'p',
       completionOf: () => 'c',
       systemOf: () => null,
@@ -295,39 +267,38 @@ describe('toSftRows', () => {
     expect(rows[0]?.messages.map((m) => m.role)).toEqual(['user', 'assistant'])
   })
 
-  it('defaults to positive, completed search runs', async () => {
-    const search = rec({ runId: 'search', scenarioId: 's', score: 0.8 })
-    const dev = rec({ runId: 'dev', scenarioId: 's', score: 0.7, splitTag: 'dev' })
-    const zero = rec({ runId: 'zero', scenarioId: 's', score: 0 })
-    const negative = rec({ runId: 'negative', scenarioId: 's', score: -0.1 })
-    const unscored = rec({ runId: 'unscored', scenarioId: 's' })
-    const failed = rec({
+  it('defaults to positive, completed search lines', async () => {
+    const search = line({ runId: 'search', scenarioId: 's', score: 0.8 })
+    const dev = line({ runId: 'dev', scenarioId: 's', score: 0.7, split: 'dev' })
+    const zero = line({ runId: 'zero', scenarioId: 's', score: 0 })
+    const unscored = line({ runId: 'unscored', scenarioId: 's' })
+    const failed = line({
       runId: 'failed',
       scenarioId: 's',
       score: 1,
-      terminalOutcome: 'failed',
+      completed: false,
     })
-    const holdout = rec({
+    const holdout = line({
       runId: 'holdout',
       scenarioId: 's',
       score: 1,
-      splitTag: 'holdout',
+      split: 'holdout',
     })
     const base = {
       promptOf: () => 'p',
       completionOf: () => 'c',
     }
 
-    const rows = await toSftRows([search, dev, zero, negative, unscored, failed, holdout], base)
+    const rows = await toSftRows([search, dev, zero, unscored, failed, holdout], base)
     expect(rows.map((row) => row.meta?.runId)).toEqual(['search'])
   })
 
-  it('requires an explicit override before using held-out runs', async () => {
-    const holdout = rec({
+  it('requires explicit consent before using held-out lines', async () => {
+    const holdout = line({
       runId: 'holdout',
       scenarioId: 's',
       score: 1,
-      splitTag: 'holdout',
+      split: 'holdout',
     })
     const base = {
       promptOf: () => 'p',
