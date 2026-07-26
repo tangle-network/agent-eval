@@ -94,6 +94,11 @@
       "import": "./dist/campaign/index.js",
       "default": "./dist/campaign/index.js"
     },
+    "./ledger-core": {
+      "types": "./dist/ledger-core/index.d.ts",
+      "import": "./dist/ledger-core/index.js",
+      "default": "./dist/ledger-core/index.js"
+    },
     "./storyboard": {
       "types": "./dist/storyboard/index.d.ts",
       "import": "./dist/storyboard/index.js",

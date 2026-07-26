@@ -15,6 +15,7 @@ export const buildEntries = {
   'matrix/index': 'src/matrix/index.ts',
   'multishot/index': 'src/multishot/index.ts',
   'campaign/index': 'src/campaign/index.ts',
+  'ledger-core/index': 'src/ledger-core/index.ts',
   'storyboard/index': 'src/storyboard/index.ts',
   'authenticity/index': 'src/authenticity/index.ts',
   'belief-state/index': 'src/belief-state/index.ts',
