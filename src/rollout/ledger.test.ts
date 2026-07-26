@@ -3,7 +3,13 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { fixtureRolloutLine, malformedRolloutLine } from './fixtures'
-import { appendRolloutLines, readRolloutLedger, writeRolloutLedger } from './ledger'
+import {
+  appendRolloutLines,
+  readRolloutJournal,
+  readRolloutLedger,
+  writeRolloutLedger,
+} from './ledger'
+import { unscreenedRewardFields } from './reward'
 import { assertRolloutLine, type RolloutLine, validateRolloutLine } from './schema'
 
 let dir: string
@@ -149,5 +155,34 @@ describe('ledger write/append/read', () => {
     const raw = await readFile(path, 'utf8')
     await writeFile(path, `${raw}{"schema":"tangle.rollout.v1"}\n`)
     await expect(readRolloutLedger(path)).rejects.toThrow(/:2/)
+  })
+
+  it('a supervision-journal row stays readable: what write accepts, readRolloutJournal returns', async () => {
+    // The documented journal shape: a positive reward with no realness screen
+    // behind it (`unscreenedRewardFields`). The write side accepts it, so a
+    // read API must exist that returns it — write-accepted but read-refused
+    // is a data-loss trap.
+    const base = malformedRolloutLine()
+    const journalRow: RolloutLine = {
+      ...base,
+      outcome: { ...base.outcome, ...unscreenedRewardFields(0.8) },
+    }
+    const path = join(dir, 'journal.jsonl')
+    await writeRolloutLedger(path, [journalRow])
+    // The mint-policy read still refuses it — promotion into training stays closed.
+    await expect(readRolloutLedger(path)).rejects.toThrow(/realness_screened/)
+    const rows = await readRolloutJournal(path)
+    expect(rows).toHaveLength(1)
+    expect(rows[0]!.outcome.reward).toBe(0.8)
+    expect(rows[0]!.outcome.realness_screened).toBe(false)
+  })
+
+  it('readRolloutJournal still refuses the anti-Goodhart poison (gated line, positive reward)', async () => {
+    const path = join(dir, 'ledger.jsonl')
+    const forged = malformedRolloutLine({
+      outcome: { ...malformedRolloutLine().outcome, reward: 0.95, realness_gated: true },
+    })
+    await writeFile(path, `${JSON.stringify(forged)}\n`)
+    await expect(readRolloutJournal(path)).rejects.toThrow(/may not carry a positive reward/)
   })
 })

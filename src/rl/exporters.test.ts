@@ -106,6 +106,27 @@ describe('toGrpoRows — line path vs deprecated RunRecord path', () => {
     expect(await toGrpoRows(records, lookups)).toEqual([])
     await expect(mint(records)).rejects.toThrow(/task score is missing/)
   })
+
+  it('emits no row for a single-completion scenario on the LINE path (no relative baseline)', async () => {
+    // GRPO's advantage is relative to the group mean; a group of one is
+    // degenerate. Mirrors the record path's `scored.length < 2` rule.
+    const alone = [rec({ runId: 'solo', scenarioId: 's-solo', score: 0.7 })]
+    expect(await toGrpoRows(await mint(alone), lookups)).toEqual([])
+  })
+
+  it('rejects a LINE group whose run ids resolve to different prompt text', async () => {
+    const lines = await mint([
+      rec({ runId: 'a', scenarioId: 's', score: 0.7 }),
+      rec({ runId: 'b', scenarioId: 's', score: 0.6, candidateId: 'B' }),
+    ])
+
+    await expect(
+      toGrpoRows(lines, {
+        ...lookups,
+        promptOf: (runId) => `prompt-${runId}`,
+      }),
+    ).rejects.toThrow(/resolves to different prompt text/)
+  })
 })
 
 describe('toSftRows — line path vs deprecated RunRecord path', () => {
@@ -136,6 +157,28 @@ describe('toSftRows — line path vs deprecated RunRecord path', () => {
     const fromRecords = await toSftRows(records, lookups)
     expect(fromLines.map((r) => r.meta?.runId)).toEqual(['honest'])
     expect(fromRecords.map((r) => r.meta?.runId)).toEqual(['honest'])
+  })
+
+  it('keeps holdout lines out of SFT output unless the named opt-in or an explicit splitFilter says so', async () => {
+    const search = rec({ runId: 'train-me', scenarioId: 's', score: 0.9 })
+    const holdout: RunRecord = {
+      ...rec({ runId: 'held-out', scenarioId: 's2', candidateId: 'B' }),
+      splitTag: 'holdout',
+      outcome: { holdoutScore: 0.8, raw: {} },
+    }
+    const lines = await mint([search, holdout])
+    // Default: trainable splits only — holdout must not ship in train.sft.jsonl.
+    expect((await toSftRows(lines, lookups)).map((r) => r.meta?.runId)).toEqual(['train-me'])
+    // Named opt-in: the same rule the record path and rollout/exporters use.
+    expect(
+      (await toSftRows(lines, { ...lookups, allowHeldOutTrainingData: true })).map(
+        (r) => r.meta?.runId,
+      ),
+    ).toEqual(['train-me', 'held-out'])
+    // Explicit selection replaces the default rule (e.g. a holdout eval bundle).
+    expect(
+      (await toSftRows(lines, { ...lookups, splitFilter: ['holdout'] })).map((r) => r.meta?.runId),
+    ).toEqual(['held-out'])
   })
 
   it('keeps the deprecated RunRecord-typed include/systemOf callbacks working', async () => {

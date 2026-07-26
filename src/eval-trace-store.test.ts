@@ -227,6 +227,46 @@ describe('EvalTraceStore compareRuns', () => {
     expect(cmp.aWins).toBe(0)
   })
 
+  it('drops a scenario where BOTH candidates are gated and counts each gated run', async () => {
+    // The dual-count + drop-out semantic: s2 contributes two gated runs to the
+    // count and vanishes from the paired set — never a manufactured 0-vs-0 pair.
+    const gated = (candidateId: string, scenarioId: string) =>
+      rec({
+        candidateId,
+        scenarioId,
+        score: 1,
+        outcome: { searchScore: 1, raw: {}, realness: { score: 0, gated: true, reason: 'faked' } },
+      })
+    const store = new EvalTraceStore()
+    await store.append(rec({ candidateId: 'a', scenarioId: 's1', score: 0.5 }))
+    await store.append(rec({ candidateId: 'b', scenarioId: 's1', score: 0.7 }))
+    await store.append(gated('a', 's2'))
+    await store.append(gated('b', 's2'))
+    const cmp = await store.compareRuns('a', 'b')
+    expect(cmp.realnessGatedRuns).toBe(2)
+    expect(cmp.pairedScenarioIds).toEqual(['s1'])
+  })
+
+  it('names the realness gate when the only shared scenarios lost a side to it', async () => {
+    // The candidates DO share a scenario — s1 — but not one with honest runs
+    // on both sides. The generic "share no scenario" message would send the
+    // operator hunting for a corpus labeling bug; the precise one points at
+    // the gated runs.
+    const store = new EvalTraceStore()
+    await store.append(rec({ candidateId: 'a', scenarioId: 's1', score: 0.5 }))
+    await store.append(
+      rec({
+        candidateId: 'b',
+        scenarioId: 's1',
+        score: 1,
+        outcome: { searchScore: 1, raw: {}, realness: { score: 0, gated: true, reason: 'faked' } },
+      }),
+    )
+    await expect(store.compareRuns('a', 'b')).rejects.toThrow(
+      /share no scenario with honest runs on both sides \(1 run\(s\) were realness-gated\)/,
+    )
+  })
+
   it('throws when comparing a candidate to itself', async () => {
     const store = new EvalTraceStore()
     await expect(store.compareRuns('a', 'a')).rejects.toThrow(/must differ/)

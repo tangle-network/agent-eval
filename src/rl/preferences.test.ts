@@ -3,7 +3,7 @@ import { mintRolloutRows } from '../rollout/mint'
 import { assertMinted, type MintedRolloutLine } from '../rollout/schema'
 import type { RunRecord } from '../run-record'
 import { InMemoryTraceStore } from '../trace/store'
-import { extractPreferences } from './preferences'
+import { extractPreferences, toTRLFormat } from './preferences'
 
 // Pins the preference-extraction retype: the `RolloutLine[]` path and the
 // deprecated `RunRecord[]` path run the same pairing code, and both order the
@@ -159,5 +159,37 @@ describe('extractPreferences — lines vs deprecated records', () => {
       extractPreferences(lines, { split: 'holdout', allowHeldOutTrainingData: true }).pairs,
     ).toHaveLength(1)
     expect(() => extractPreferences(lines, { split: 'dev' })).toThrow(/evaluation-only/)
+  })
+
+  it('toTRLFormat rows carry completion TEXT, never prompt hashes', async () => {
+    // TRL's DPODataset contract: chosen/rejected are the two completions. A
+    // trainer fed hashes would optimize the policy toward emitting hex digests.
+    const { pairs } = extractPreferences(records, {})
+    const lookups = {
+      promptOf: () => 'shared prompt text',
+      completionOf: (runId: string) => `completion-of-${runId}`,
+    }
+    const rows = await toTRLFormat(pairs, lookups, { lines: await mint(records) })
+    expect(rows).toEqual([
+      {
+        prompt: 'shared prompt text',
+        chosen: 'completion-of-b-0',
+        rejected: 'completion-of-a-0',
+      },
+    ])
+    // The prompt hashes the triple carries (`p-a` / `p-b`) appear nowhere.
+    expect(JSON.stringify(rows)).not.toContain('p-a')
+    expect(JSON.stringify(rows)).not.toContain('p-b')
+  })
+
+  it('toTRLFormat fails loud when the two sides resolve to different prompts', async () => {
+    const { pairs } = extractPreferences(records, {})
+    const lookups = {
+      promptOf: (runId: string) => `prompt-of-${runId}`, // lookup bug: differs per side
+      completionOf: (runId: string) => `completion-of-${runId}`,
+    }
+    await expect(toTRLFormat(pairs, lookups, { lines: await mint(records) })).rejects.toThrow(
+      /resolves to different prompts/,
+    )
   })
 })

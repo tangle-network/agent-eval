@@ -64,13 +64,28 @@ export async function mintLinesFromRecords(records: RunRecord[]): Promise<Minted
 /**
  * Discriminate the two accepted inputs at runtime. An empty array is reported
  * as lines: both paths return no rows, so the choice cannot change an outcome.
+ *
+ * A mixed array is refused outright. Deciding from `input[0]` alone would send
+ * trailing elements of the other type down the wrong path, where the failure
+ * surfaces later as a confusing brand-check error inside the gate — the caller
+ * built the bad array, so the error names that.
  */
 export function isRolloutLineInput(
   input: MintedRolloutLine[] | RunRecord[],
 ): input is MintedRolloutLine[] {
   const first = input[0]
   if (first === undefined) return true
-  return (first as { schema?: unknown }).schema === ROLLOUT_SCHEMA
+  const isLine = (first as { schema?: unknown }).schema === ROLLOUT_SCHEMA
+  for (let i = 1; i < input.length; i++) {
+    const elementIsLine = (input[i] as { schema?: unknown }).schema === ROLLOUT_SCHEMA
+    if (elementIsLine !== isLine) {
+      throw new Error(
+        `mixed input: element 0 is a ${isLine ? 'RolloutLine' : 'RunRecord'} but element ${i} ` +
+          `is a ${elementIsLine ? 'RolloutLine' : 'RunRecord'} — pass all lines or all records`,
+      )
+    }
+  }
+  return isLine
 }
 
 /** `reward_source` mint writes when a record carried neither split score. */

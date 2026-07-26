@@ -7,6 +7,11 @@
  * "Validate" includes the anti-Goodhart invariant (a realness-gated line may
  * not carry a positive reward), so a poisoned line can neither enter a ledger
  * nor leave one.
+ *
+ * Two read modes, matching the two write-side row classes: `readRolloutLedger`
+ * re-validates under the mint policy (training data), `readRolloutJournal`
+ * under the write policy (supervision journals, whose unscreened positive
+ * rewards are writable and must stay readable).
  */
 
 import { appendFile, mkdir, readFile, writeFile } from 'node:fs/promises'
@@ -44,8 +49,36 @@ export async function appendRolloutLines(path: string, lines: RolloutLine[]): Pr
  * line is refused rather than exported.
  */
 export async function readRolloutLedger(path: string): Promise<MintedRolloutLine[]> {
+  return readLines(path, (parsed, context) => assertMinted(parsed, context))
+}
+
+/**
+ * Read a ledger under the WRITE-side policy (`validateRolloutLine`), which
+ * omits the unscreened-reward check. `writeRolloutLedger` accepts a
+ * supervision-journal row (`realness_screened: false` with a positive reward
+ * — the documented `unscreenedRewardFields` shape), and `GATE_POLICIES` says
+ * such rows "must stay writable, readable and reportable"; a read API that
+ * only re-validated under `assertMinted` made every such file unreadable —
+ * write-accepted but read-refused is a data-loss trap.
+ *
+ * The result is `RolloutLine[]`, NOT `MintedRolloutLine[]`: nothing read here
+ * can reach a training exporter without passing `assertMinted`, so the
+ * promotion gate (which DOES enforce unscreened-reward) is exactly as closed
+ * as before. Use `readRolloutLedger` when the file is training data.
+ */
+export async function readRolloutJournal(path: string): Promise<RolloutLine[]> {
+  return readLines(path, (parsed, context): RolloutLine => {
+    assertRolloutLine(parsed, context)
+    return parsed
+  })
+}
+
+async function readLines<T>(
+  path: string,
+  admit: (parsed: unknown, context: string) => T,
+): Promise<T[]> {
   const raw = await readFile(path, 'utf8')
-  const lines: MintedRolloutLine[] = []
+  const lines: T[] = []
   const rawLines = raw.split('\n')
   for (let i = 0; i < rawLines.length; i++) {
     const text = rawLines[i]
@@ -58,7 +91,7 @@ export async function readRolloutLedger(path: string): Promise<MintedRolloutLine
         `${path}:${i + 1}: malformed JSON — ${error instanceof Error ? error.message : String(error)}`,
       )
     }
-    lines.push(assertMinted(parsed, `${path}:${i + 1}`))
+    lines.push(admit(parsed, `${path}:${i + 1}`))
   }
   return lines
 }

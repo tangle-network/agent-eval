@@ -374,8 +374,15 @@ export function toJsonl(rows: ReadonlyArray<unknown>): string {
  * needs the named opt-in, `dev` and `canary` never ship. This is the ONE check
  * `'zero-and-flag'` does not relax — a gated line is shipped as a labeled
  * negative, not as a licence to train on evaluation data.
+ *
+ * Exported as the single implementation of that rule: `rl/exporters` applies
+ * it on its line paths too, so the two waists cannot drift on which splits are
+ * trainable.
  */
-function isSplitEligible(line: RolloutLine, options: TrainingExportOptions): boolean {
+export function isSplitEligible(
+  line: RolloutLine,
+  options: Pick<TrainingExportOptions, 'allowHeldOutTrainingData'>,
+): boolean {
   if (line.task.split === 'search') return true
   return line.task.split === 'holdout' && options.allowHeldOutTrainingData === true
 }

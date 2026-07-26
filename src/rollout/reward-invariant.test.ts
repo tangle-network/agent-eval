@@ -235,13 +235,13 @@ function gamedRecord(): RunRecord {
 const honest = record()
 const gamed = gamedRecord()
 const lookups: GrpoLookups & SftLookups = {
-  promptOf: (runId) => `prompt-for-${runId}`,
+  promptOf: () => 'checkout-session prompt',
   completionOf: (runId) => `completion-for-${runId}`,
 }
 
 /** The same lookups typed for the `MintedRolloutLine[]` (non-deprecated) path. */
 const lineLookups: GrpoLineLookups & SftLineLookups = {
-  promptOf: (runId) => `prompt-for-${runId}`,
+  promptOf: () => 'checkout-session prompt',
   completionOf: (runId) => `completion-for-${runId}`,
 }
 
@@ -685,7 +685,7 @@ describe('the line-less preference exporters cannot ship a gamed run as the pref
 
   it('toTRLFormat and toAnthropicFormat drop it too', async () => {
     const ctx = await context()
-    expect(toTRLFormat([triple], (hash) => `prompt:${hash}`, ctx)).toEqual([])
+    expect(await toTRLFormat([triple], lookups, ctx)).toEqual([])
     expect(toAnthropicFormat([triple], ctx)).toEqual([])
   })
 
@@ -946,7 +946,7 @@ describe('the gate lookup names an INVOCATION, and cannot depend on array order'
       dpo: await toDpoRows([triple], lookups, { lines }),
       prm: await toPrmRows([prmTriple], prmLookups, { lines }),
       steps: stepRewardsToJsonl([stepReward], { lines }),
-      trl: toTRLFormat([triple], (hash) => `prompt:${hash}`, { lines }),
+      trl: await toTRLFormat([triple], lookups, { lines }),
       anthropic: toAnthropicFormat([triple], { lines }),
     }))
     const rendered = (await Promise.all(shapes)).map((s) => JSON.stringify(s))

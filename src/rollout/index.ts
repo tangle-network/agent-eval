@@ -62,7 +62,12 @@ export {
   toHarborTrajectory,
 } from './interchange/harbor'
 
-export { appendRolloutLines, readRolloutLedger, writeRolloutLedger } from './ledger'
+export {
+  appendRolloutLines,
+  readRolloutJournal,
+  readRolloutLedger,
+  writeRolloutLedger,
+} from './ledger'
 
 export {
   type MintRolloutOptions,

@@ -557,7 +557,7 @@ const EXPORTERS: { readonly [K in ExporterId]: ExporterProbe } = {
   },
   'rl/toTRLFormat': {
     needsFs: false,
-    run: async (i) => toTRLFormat(i.triples, () => 'PROMPT-TEXT', { lines: i.lines }),
+    run: async (i) => toTRLFormat(i.triples, LOOKUPS, { lines: i.lines }),
   },
   'rl/toAnthropicFormat': {
     needsFs: false,

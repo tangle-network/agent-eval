@@ -158,8 +158,15 @@ export async function runRLCampaign<V>(
   const trainerRows: RLCampaignResult<V>['trainerRows'] = {}
   if (opts.trainerExport?.dpo) {
     // Preference triples name run ids and nothing else, so the DPO exporter is
-    // handed the minted lines for this campaign's runs to read the gate off.
-    const minted = await mintLinesFromRecords(campaign.runs)
+    // handed only the minted lines they reference. Unscored campaign runs
+    // produce no preference and must not make an otherwise valid DPO export
+    // fail while minting unrelated context.
+    const referencedRunIds = new Set(
+      preferences.pairs.flatMap((pair) => [pair.chosenRunId, pair.rejectedRunId]),
+    )
+    const minted = await mintLinesFromRecords(
+      campaign.runs.filter((run) => referencedRunIds.has(run.runId)),
+    )
     trainerRows.dpo = await toDpoRows(preferences.pairs, opts.trainerExport.dpo, {
       lines: minted.map((m) => m.line),
     })

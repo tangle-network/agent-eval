@@ -287,8 +287,14 @@ export class EvalTraceStore {
     const bScores = bestByScenario(candidateB)
     const paired = [...aScores.keys()].filter((sid) => bScores.has(sid)).sort()
     if (paired.length === 0) {
+      // Distinguish "the corpora never overlapped" from "they overlap, but
+      // every shared scenario lost a side to the realness gate" — the second
+      // diagnosis points at gamed runs, not at a mislabeled corpus.
       throw new ValidationError(
-        `EvalTraceStore.compareRuns: "${candidateA}" and "${candidateB}" share no scenario (need scenarioId on records)`,
+        realnessGatedRuns > 0
+          ? `EvalTraceStore.compareRuns: "${candidateA}" and "${candidateB}" share no scenario ` +
+              `with honest runs on both sides (${realnessGatedRuns} run(s) were realness-gated)`
+          : `EvalTraceStore.compareRuns: "${candidateA}" and "${candidateB}" share no scenario (need scenarioId on records)`,
       )
     }
     let sumA = 0

@@ -348,8 +348,10 @@ export function extractVerifiableRewardsFromRecords(
     }
     if (det.length > 1) {
       const value = gate(clamp01(det.reduce((s, l) => s + l.score, 0) / det.length))
+      // Same clamp as the headline value: a producer writing layer.score 1.5
+      // into outcome.raw must not propagate 1.5 through a component either.
       const components: Record<string, number> = Object.fromEntries(
-        det.map((l) => [l.name, gate(l.score)]),
+        det.map((l) => [l.name, gate(clamp01(l.score))]),
       )
       return {
         runId: run.runId,

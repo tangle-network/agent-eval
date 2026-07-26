@@ -35,8 +35,9 @@
  *
  * The output `PreferenceTriple` is *agent-eval-canonical* but trivially
  * mappable to TRL's `DPODataset` shape (`prompt`, `chosen`, `rejected`)
- * via the `toTRLFormat` helper; resolve full text with `toDpoRows` from
- * `./exporters`.
+ * via the `toTRLFormat` helper, which resolves real prompt/completion text
+ * through the same lookups `toDpoRows` takes (`./exporters` carries the
+ * richer row with margin + metadata).
  *
  * Input discipline: the primary signature takes `MintedRolloutLine[]` — the
  * `tangle.rollout.v1` waist, whose reward already carries the realness gate.
@@ -55,7 +56,11 @@
 import { trainingRewardOverride, trainingScore } from '../rollout/reward'
 import type { MintedRolloutLine, RolloutSplit } from '../rollout/schema'
 import type { RunRecord } from '../run-record'
-import { isTrainingRunEligible, type TrainingRunSelectionOptions } from './exporters'
+import {
+  type DpoLookups,
+  isTrainingRunEligible,
+  type TrainingRunSelectionOptions,
+} from './exporters'
 import {
   admitUngatedByInvocation,
   isRolloutLineInput,
@@ -450,29 +455,48 @@ const ANTHROPIC_CONTEXT_REQUIREMENT: LineContextRequirement = {
 
 /**
  * TRL-compatible export. TRL's `DPODataset` is `{ prompt, chosen, rejected }`
- * but the prompt isn't stored on the RunRecord — only its hash. The caller
- * passes a `promptOf(promptHash)` lookup that the TRL trainer can use.
+ * where `chosen`/`rejected` are completion TEXT — a trainer fed prompt hashes
+ * would optimize the policy toward emitting hex digests. Neither the prompt
+ * nor the completions live on the triple (it carries only run ids and hashes),
+ * so the caller supplies the same `promptOf`/`completionOf` lookups `toDpoRows`
+ * takes, keyed by run id, and this function resolves real text.
+ *
+ * The chosen and rejected sides of a valid pair share one prompt; resolving
+ * both and comparing catches lookup bugs (a stale map keyed by the wrong id)
+ * before they ship a row whose prompt does not match its rejected completion.
  *
  * `context` is REQUIRED: this is the third exporter over the identical
  * line-less input class, and the round that hardened `toPrmRows` while leaving
  * `toDpoRows` open is why every one of them now takes the same argument and
  * runs the same admission rule.
  */
-export function toTRLFormat(
+export async function toTRLFormat(
   triples: PreferenceTriple[],
-  promptOf: (hash: string) => string,
+  lookups: DpoLookups,
   context: RolloutLineContext,
-): Array<{ prompt: string; chosen: string; rejected: string }> {
-  return admitUngatedByInvocation(
+): Promise<Array<{ prompt: string; chosen: string; rejected: string }>> {
+  const admitted = admitUngatedByInvocation(
     triples,
     PREFERENCE_RUN_IDS,
     context,
     TRL_CONTEXT_REQUIREMENT,
-  ).map((t) => ({
-    prompt: promptOf(t.meta.chosenPromptHash),
-    chosen: t.meta.chosenPromptHash, // caller substitutes the model output via the runId map
-    rejected: t.meta.rejectedPromptHash,
-  }))
+  )
+  const out: Array<{ prompt: string; chosen: string; rejected: string }> = []
+  for (const t of admitted) {
+    const [chosenPrompt, rejectedPrompt, chosen, rejected] = await Promise.all([
+      Promise.resolve(lookups.promptOf(t.chosenRunId)),
+      Promise.resolve(lookups.promptOf(t.rejectedRunId)),
+      Promise.resolve(lookups.completionOf(t.chosenRunId)),
+      Promise.resolve(lookups.completionOf(t.rejectedRunId)),
+    ])
+    if (chosenPrompt !== rejectedPrompt) {
+      throw new Error(
+        `toTRLFormat: preference "${t.chosenRunId}"/"${t.rejectedRunId}" resolves to different prompts`,
+      )
+    }
+    out.push({ prompt: chosenPrompt, chosen, rejected })
+  }
+  return out
 }
 
 /**
