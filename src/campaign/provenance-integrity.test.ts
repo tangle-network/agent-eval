@@ -64,7 +64,6 @@ function campaign(composite: number, runDir: string): CampaignResult<unknown, Te
         accountingComplete: true,
         incompleteReasons: [],
       },
-      totalCostUsd: 0,
       cellsExecuted: 1,
       cellsSkipped: 0,
       cellsCached: 0,

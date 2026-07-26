@@ -942,7 +942,7 @@ async function shipEvalRunToHosted<TScenario extends Scenario, TArtifact>(
       surface,
       cells,
       compositeMean,
-      costUsd: campaign.aggregates.totalCostUsd,
+      costUsd: campaign.aggregates.cost.totalCostUsd,
       durationMs,
     }
   }

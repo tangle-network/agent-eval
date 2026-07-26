@@ -222,7 +222,7 @@ export function summarizeBenchmarkCampaign<TPayload, TArtifact>(input: {
     totalCells: input.campaign.cells.length,
     cellsFailed: input.campaign.aggregates.cellsFailed,
     cellsCached: input.campaign.aggregates.cellsCached,
-    totalCostUsd: input.campaign.aggregates.totalCostUsd,
+    totalCostUsd: input.campaign.aggregates.cost.totalCostUsd,
     splits: summarizeSlices(successful, (row) => row.scenario?.splitTag ?? 'unknown', [
       'search',
       'dev',

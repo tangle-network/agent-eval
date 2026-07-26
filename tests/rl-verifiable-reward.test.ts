@@ -59,8 +59,8 @@ describe('extractVerifiableReward', () => {
     expect(r?.source).toBe('composite')
     expect(r?.determinism).toBe('deterministic')
     expect(r?.value).toBeCloseTo(0.9, 5)
-    expect(r?.breakdown?.test).toBe(0.8)
-    expect(r?.breakdown?.compile).toBe(1)
+    expect(r?.components.test).toBe(0.8)
+    expect(r?.components.compile).toBe(1)
   })
 
   it('falls back to judge when no deterministic layer is present', () => {

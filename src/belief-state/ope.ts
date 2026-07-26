@@ -35,9 +35,6 @@ export function embeddedBeliefOpeTargetPolicy(id = 'embedded-target-prob'): Beli
     vHatTargetOf(point) {
       return point.vHatTarget
     },
-    qHatOf(point) {
-      return point.qHat
-    },
   }
 }
 
@@ -61,12 +58,10 @@ export function beliefDecisionsToOffPolicyTrajectories(
     let targetProb: number | null | undefined
     let qHatChosen: number | null | undefined
     let vHatTarget: number | null | undefined
-    let qHat: number | null | undefined
     try {
       targetProb = targetPolicy.targetProbOf(point)
       qHatChosen = targetPolicy.qHatChosenOf?.(point)
       vHatTarget = targetPolicy.vHatTargetOf?.(point)
-      qHat = targetPolicy.qHatOf?.(point)
     } catch (error) {
       diagnostics.push(
         `${point.id}: target policy ${targetPolicy.id} threw (${errorMessage(error)})`,
@@ -93,17 +88,6 @@ export function beliefDecisionsToOffPolicyTrajectories(
       )
       continue
     }
-    if (
-      !hasQHatChosen &&
-      !hasVHatTarget &&
-      qHat !== null &&
-      qHat !== undefined &&
-      !isTargetProbability(qHat)
-    ) {
-      diagnostics.push(`${point.id}: invalid qHat ${formatProbability(qHat)}; ignoring qHat`)
-      qHat = null
-    }
-
     trajectories.push({
       runId: point.id,
       reward: rewardOf(point),
@@ -111,7 +95,6 @@ export function beliefDecisionsToOffPolicyTrajectories(
       targetProb,
       ...(qHatChosen !== undefined ? { qHatChosen } : {}),
       ...(vHatTarget !== undefined ? { vHatTarget } : {}),
-      qHat,
     })
   }
   return {
@@ -135,7 +118,6 @@ export function evaluateBeliefOffPolicy(
     minEffectiveSampleRatio: options.minEffectiveSampleRatio ?? 0.25,
     dropped: trajectoryReport.dropped,
     diagnostics: trajectoryReport.diagnostics,
-    legacyScalarContributions: estimates.dr.contributionCounts?.legacyScalar ?? 0,
   })
   return { targetPolicyId: targetPolicy.id, ...estimates, support }
 }
@@ -147,7 +129,6 @@ function supportDiagnostics(
     minEffectiveSampleRatio: number
     dropped: number
     diagnostics: string[]
-    legacyScalarContributions: number
   },
 ): BeliefOpeSupportDiagnostics {
   const ratio = estimate.n > 0 ? estimate.effectiveSampleSize / estimate.n : 0
@@ -157,11 +138,6 @@ function supportDiagnostics(
   }
   if (options.dropped > 0) {
     reasons.push(`dropped ${options.dropped} unsupported decision(s)`)
-  }
-  if (options.legacyScalarContributions > 0) {
-    reasons.push(
-      `${options.legacyScalarContributions} decision(s) used deprecated scalar qHat; supply qHatChosen and vHatTarget for contextual doubly robust estimation`,
-    )
   }
   if (estimate.effectiveSampleSize < options.minEffectiveSampleSize) {
     reasons.push(

@@ -188,6 +188,24 @@ try {
       const removedBenchmarkRetry: BenchmarkRunnerConfig[${JSON.stringify(removedRetryField)}] = 1
       // @ts-expect-error retry count belongs to ChatClient.maximumAttempts
       const removedExecutorRetry: ExecutorConfig[${JSON.stringify(removedRetryField)}] = 1
+      // @ts-expect-error CostLedgerEntry was removed from the current-only API
+      type RemovedCostLedgerEntry = import('@tangle-network/agent-eval').CostLedgerEntry
+      // @ts-expect-error fixed-prompt judge factories were removed
+      type RemovedCustomJudge = typeof import('@tangle-network/agent-eval').createCustomJudge
+      // @ts-expect-error fixed-prompt judge factory collections were removed
+      type RemovedDefaultJudges = typeof import('@tangle-network/agent-eval').defaultJudges
+      // @ts-expect-error campaign cost is available only at aggregates.cost.totalCostUsd
+      type RemovedCampaignCostAlias = import('@tangle-network/agent-eval/campaign').CampaignAggregates['totalCostUsd']
+      // @ts-expect-error scalar qHat was replaced by qHatChosen plus vHatTarget
+      type RemovedBeliefQHat = import('@tangle-network/agent-eval/belief-state').BeliefDecisionPoint['qHat']
+      // @ts-expect-error scalar qHat callbacks were removed
+      type RemovedBeliefQHatHook = import('@tangle-network/agent-eval/belief-state').BeliefOpeTargetPolicy['qHatOf']
+      // @ts-expect-error scalar off-policy qHat was removed
+      type RemovedOffPolicyQHat = import('@tangle-network/agent-eval/rl').OffPolicyTrajectory['qHat']
+      // @ts-expect-error scalar off-policy contribution counts were removed
+      type RemovedScalarContribution = import('@tangle-network/agent-eval/rl').OffPolicyContributionCounts['legacyScalar']
+      // @ts-expect-error reward components are the sole per-source aggregate
+      type RemovedRewardBreakdown = import('@tangle-network/agent-eval/rl').VerifiableReward['breakdown']
       const canonicalChat = null as unknown as ChatClient
       const canonicalJudge = null as unknown as JudgeFn
       const legacyFinding: RawAnalystFinding = RawAnalystFindingSchema.parse({

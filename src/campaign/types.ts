@@ -691,8 +691,6 @@ export interface CampaignAggregates {
   byScenario: Record<string, ScenarioAggregate>
   /** Canonical campaign accounting, including worker and judge calls. */
   cost: CostLedgerSummary
-  /** Compatibility alias of `cost.totalCostUsd`. */
-  totalCostUsd: number
   /** Cells whose dispatch completed, including cells whose later judge failed. */
   cellsExecuted: number
   cellsSkipped: number

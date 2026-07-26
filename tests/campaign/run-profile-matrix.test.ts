@@ -268,7 +268,7 @@ describe('runProfileMatrix', () => {
     )
     // Every cost surface agrees — the embedded campaign aggregate is reconciled
     // to the priced total, not runCampaign's raw ctx.cost ledger ($0).
-    expect(result.campaigns[pricedProfileId]!.aggregates.totalCostUsd).toBeCloseTo(
+    expect(result.campaigns[pricedProfileId]!.aggregates.cost.totalCostUsd).toBeCloseTo(
       expected * result.records.length,
       6,
     )

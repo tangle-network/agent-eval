@@ -65,15 +65,8 @@ export interface VerifiableReward {
    * rewards carry one entry (`{ [origin]: value }`); composite rewards carry
    * every contributing layer's score — the anti-scalar-collapse surface RL
    * consumers weight per-source instead of trusting one blended number.
-   */
+  */
   components: Record<string, number>
-  /**
-   * @deprecated Read `components` for per-source reward values. Kept for
-   * published-API compatibility: single-source rewards carry the layer's
-   * diagnostics here (e.g. `{ tests_passed: 7 }`); composite rewards carry
-   * the same per-layer scores `components` now holds.
-   */
-  breakdown?: Record<string, number>
   /**
    * The run carries `outcome.realness.gated` — the authenticity gate flagged
    * its success signal as faked.
@@ -209,7 +202,6 @@ export function extractVerifiableReward(
       confidence: 1,
       origin: layer.layer,
       components: { [layer.layer]: value },
-      breakdown: layerBreakdown(layer),
       realnessScreened: false,
     }
   }
@@ -232,7 +224,6 @@ export function extractVerifiableReward(
       confidence: 1,
       origin: deterministic.map((l) => l.layer).join('+'),
       components,
-      breakdown: { ...components },
       realnessScreened: false,
     }
   }
@@ -254,7 +245,6 @@ export function extractVerifiableReward(
     confidence: typeof confFromDetail === 'number' ? confFromDetail : judgeFloor,
     origin: judge.layer,
     components: { [judge.layer]: judgeValue },
-    breakdown: layerBreakdown(judge),
     realnessScreened: false,
   }
 }
@@ -362,7 +352,6 @@ export function extractVerifiableRewardsFromRecords(
           confidence: 1,
           origin: det.map((l) => l.name).join('+'),
           components,
-          breakdown: { ...components },
           realnessGated: flagged,
           ...screened,
         },
@@ -420,19 +409,7 @@ export function filterDeterministicallyRewarded(
   return out
 }
 
-// ── Helpers ──────────────────────────────────────────────────────────────
-
 function clamp01(x: number): number {
   if (!Number.isFinite(x)) return 0
   return Math.max(0, Math.min(1, x))
-}
-
-function layerBreakdown(l: LayerResult): Record<string, number> {
-  const out: Record<string, number> = {}
-  if (l.diagnostics) {
-    for (const [k, v] of Object.entries(l.diagnostics)) {
-      if (typeof v === 'number' && Number.isFinite(v)) out[k] = v
-    }
-  }
-  return out
 }

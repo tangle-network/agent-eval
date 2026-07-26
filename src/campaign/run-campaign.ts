@@ -1144,7 +1144,6 @@ function computeAggregates<TArtifact>(
     byJudge,
     byScenario,
     cost,
-    totalCostUsd: cost.totalCostUsd,
     cellsExecuted: cells.filter(
       (cell) =>
         !cell.error?.startsWith('skipped:') &&

@@ -54,12 +54,6 @@ export interface CostReceipt extends CostCallBase, CostUsage {
 
 export type CostLedgerRecord = PendingCostCall | CostReceipt
 
-/** @deprecated Read-only compatibility shape. New paid work uses `runPaidCall`. */
-export type CostLedgerEntry = Omit<
-  CostReceipt,
-  'status' | 'callId' | 'phase' | 'actor' | 'maximumCostUsd' | 'usageUnknown' | 'pricing' | 'error'
->
-
 export interface CostReceiptInput extends CostUsage {
   model: string
   /** Caller-supplied rates for a local estimate when the provider does not report billed cost. */

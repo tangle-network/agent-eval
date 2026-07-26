@@ -23,6 +23,8 @@ describe('belief shadow probe', () => {
           evidenceRefs: ['event-1'],
           wouldChangeMindIf: ['typecheck passes'],
           targetProb: 0.8,
+          qHatChosen: 0.7,
+          vHatTarget: 0.75,
         }
       },
     })
@@ -43,6 +45,8 @@ describe('belief shadow probe', () => {
       agreesWithObservedAction: true,
       confidence: 0.72,
       targetProb: 0.8,
+      qHatChosen: 0.7,
+      vHatTarget: 0.75,
       outcome: { success: true },
     })
     expect(result.summary).toMatchObject({
@@ -71,6 +75,23 @@ describe('belief shadow probe', () => {
     expect(result.diagnostics.map((diagnostic) => diagnostic.reason)).toEqual([
       'predictedAction hallucinated-action is not in candidateActions',
       'invalid confidence 1.2',
+    ])
+  })
+
+  it('rejects an incomplete contextual reward estimate', async () => {
+    const result = await runBeliefShadowProbe({
+      probeId: 'partial-q-shadow',
+      points: [decisionPoint()],
+      probe: () => ({
+        predictedAction: 'verify',
+        confidence: 0.7,
+        qHatChosen: 0.6,
+      }),
+    })
+
+    expect(result.records).toEqual([])
+    expect(result.diagnostics.map((diagnostic) => diagnostic.reason)).toEqual([
+      'qHatChosen and vHatTarget must be supplied together',
     ])
   })
 

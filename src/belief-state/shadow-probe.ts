@@ -34,7 +34,8 @@ export interface BeliefShadowProbeResponse {
   evidenceRefs?: string[]
   wouldChangeMindIf?: string[]
   targetProb?: number
-  qHat?: number | null
+  qHatChosen?: number | null
+  vHatTarget?: number | null
   metadata?: Record<string, unknown>
 }
 
@@ -146,7 +147,8 @@ export function formatBeliefShadowProbePrompt(input: BeliefShadowProbeInput): st
       evidenceRefs: ['evidence id'],
       wouldChangeMindIf: ['observable evidence'],
       targetProb: 'optional number in [0,1]',
-      qHat: 'optional number in [0,1]',
+      qHatChosen: 'optional number in [0,1], paired with vHatTarget',
+      vHatTarget: 'optional number in [0,1], paired with qHatChosen',
     }),
   ]
     .filter(Boolean)
@@ -267,11 +269,27 @@ function normalizeProbeResponse(
       reason: `invalid targetProb ${String(response.targetProb)}`,
     })
   }
-  if (response.qHat !== undefined && response.qHat !== null && !isUnitProbability(response.qHat)) {
+  const hasQHatChosen = response.qHatChosen !== undefined && response.qHatChosen !== null
+  const hasVHatTarget = response.vHatTarget !== undefined && response.vHatTarget !== null
+  if (hasQHatChosen !== hasVHatTarget) {
     diagnostics.push({
       decisionId: options.point.id,
       severity: 'error',
-      reason: `invalid qHat ${String(response.qHat)}`,
+      reason: 'qHatChosen and vHatTarget must be supplied together',
+    })
+  }
+  if (hasQHatChosen && !isUnitProbability(response.qHatChosen)) {
+    diagnostics.push({
+      decisionId: options.point.id,
+      severity: 'error',
+      reason: `invalid qHatChosen ${String(response.qHatChosen)}`,
+    })
+  }
+  if (hasVHatTarget && !isUnitProbability(response.vHatTarget)) {
+    diagnostics.push({
+      decisionId: options.point.id,
+      severity: 'error',
+      reason: `invalid vHatTarget ${String(response.vHatTarget)}`,
     })
   }
   if (diagnostics.length > 0 || !predictedAction) return { diagnostics }
@@ -285,7 +303,8 @@ function normalizeProbeResponse(
       evidenceRefs: compactStrings(response.evidenceRefs),
       wouldChangeMindIf: compactStrings(response.wouldChangeMindIf),
       ...(response.targetProb !== undefined ? { targetProb: response.targetProb } : {}),
-      ...(response.qHat !== undefined ? { qHat: response.qHat } : {}),
+      ...(response.qHatChosen !== undefined ? { qHatChosen: response.qHatChosen } : {}),
+      ...(response.vHatTarget !== undefined ? { vHatTarget: response.vHatTarget } : {}),
       ...(response.metadata ? { metadata: response.metadata } : {}),
     },
     diagnostics,

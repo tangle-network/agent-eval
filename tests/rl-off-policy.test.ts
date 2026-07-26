@@ -7,18 +7,12 @@ import {
   selfNormalizedImportanceWeighting,
 } from '../src/rl/off-policy'
 
-function traj(
-  behavior: number,
-  target: number,
-  reward: number,
-  qHat?: number,
-): OffPolicyTrajectory {
+function traj(behavior: number, target: number, reward: number): OffPolicyTrajectory {
   return {
     runId: `t-${Math.random()}`,
     behaviorProb: behavior,
     targetProb: target,
     reward,
-    qHat,
   }
 }
 
@@ -106,7 +100,7 @@ describe('Doubly-robust', () => {
     const dr = doublyRobust(trajectories)
 
     expect(dr.value).toBeCloseTo(0.8, 12)
-    expect(dr.contributionCounts).toEqual({ dr: 2, ipsFallback: 0, legacyScalar: 0 })
+    expect(dr.contributionCounts).toEqual({ dr: 2, ipsFallback: 0 })
   })
 
   it('is unbiased with correct propensities even when the Q-function is wrong', () => {
@@ -159,22 +153,22 @@ describe('Doubly-robust', () => {
     expect(dr.value).toBeCloseTo(1, 12)
   })
 
-  it.each([
-    { qHatChosen: 0.4 },
-    { vHatTarget: 0.4 },
-  ])('rejects an incomplete contextual Q pair: %o', (estimates) => {
-    expect(() =>
-      doublyRobust([
-        {
-          runId: 'partial-pair',
-          behaviorProb: 0.5,
-          targetProb: 0.5,
-          reward: 1,
-          ...estimates,
-        },
-      ]),
-    ).toThrow(/qHatChosen and vHatTarget must be supplied together/)
-  })
+  it.each([{ qHatChosen: 0.4 }, { vHatTarget: 0.4 }])(
+    'rejects an incomplete contextual Q pair: %o',
+    (estimates) => {
+      expect(() =>
+        doublyRobust([
+          {
+            runId: 'partial-pair',
+            behaviorProb: 0.5,
+            targetProb: 0.5,
+            reward: 1,
+            ...estimates,
+          },
+        ]),
+      ).toThrow(/qHatChosen and vHatTarget must be supplied together/)
+    },
+  )
 
   it('uses exact IPS and reports it when no reward-model estimate is supplied', () => {
     const trajectories: OffPolicyTrajectory[] = [traj(0.5, 0.75, 1), traj(0.5, 0.25, 0)]
@@ -183,45 +177,13 @@ describe('Doubly-robust', () => {
     const ips = inverseProbabilityWeighting(trajectories)
 
     expect(dr.value).toBe(ips.value)
-    expect(dr.contributionCounts).toEqual({ dr: 0, ipsFallback: 2, legacyScalar: 0 })
-  })
-
-  it('preserves the deprecated scalar formula', () => {
-    const dr = doublyRobust([
-      {
-        runId: 'legacy-scalar',
-        behaviorProb: 0.5,
-        targetProb: 0.75,
-        reward: 1,
-        qHat: 0.4,
-      },
-    ])
-
-    expect(dr.value).toBeCloseTo(1.3, 12)
-    expect(dr.contributionCounts).toEqual({ dr: 0, ipsFallback: 0, legacyScalar: 1 })
-  })
-
-  it('prefers the contextual pair when the deprecated scalar is also present', () => {
-    const dr = doublyRobust([
-      {
-        runId: 'gradual-migration',
-        behaviorProb: 0.5,
-        targetProb: 0.5,
-        reward: 1,
-        qHatChosen: 0.6,
-        vHatTarget: 0.8,
-        qHat: 0,
-      },
-    ])
-
-    expect(dr.value).toBeCloseTo(1.2, 12)
-    expect(dr.contributionCounts).toEqual({ dr: 1, ipsFallback: 0, legacyScalar: 0 })
+    expect(dr.contributionCounts).toEqual({ dr: 0, ipsFallback: 2 })
   })
 })
 
 describe('offPolicyEstimateAll', () => {
   it('runs all three estimators side-by-side', () => {
-    const trajectories = Array.from({ length: 30 }, () => traj(0.5, 0.5, 0.5, 0.5))
+    const trajectories = Array.from({ length: 30 }, () => traj(0.5, 0.5, 0.5))
     const out = offPolicyEstimateAll(trajectories)
     expect(out.ips.n).toBe(30)
     expect(out.snips.n).toBe(30)

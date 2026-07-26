@@ -115,7 +115,6 @@ function parseDecisionEvent(
       targetProb: numberField(payload, 'targetProb'),
       qHatChosen: finiteUnitField(payload, 'qHatChosen'),
       vHatTarget: finiteUnitField(payload, 'vHatTarget'),
-      qHat: finiteUnitField(payload, 'qHat'),
       costUsd: nonNegativeNumberField(payload, 'costUsd'),
       evidence,
       outcome: parseOutcome(payload),

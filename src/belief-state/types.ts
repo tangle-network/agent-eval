@@ -185,8 +185,6 @@ export interface BeliefDecisionPoint {
   targetProb?: number
   qHatChosen?: number | null
   vHatTarget?: number | null
-  /** @deprecated Use `qHatChosen` and `vHatTarget` together. */
-  qHat?: number | null
   costUsd?: number
   evidence: BeliefEvidenceRef[]
   outcome?: BeliefDecisionOutcome
@@ -214,8 +212,6 @@ export interface BeliefPolicyDecision {
   targetProb?: number
   qHatChosen?: number | null
   vHatTarget?: number | null
-  /** @deprecated Use `qHatChosen` and `vHatTarget` together. */
-  qHat?: number | null
   reason?: string
   reasons?: BeliefDecisionReason[]
 }
@@ -230,8 +226,6 @@ export interface BeliefOpeTargetPolicy {
   targetProbOf(point: BeliefDecisionPoint): number | null | undefined
   qHatChosenOf?(point: BeliefDecisionPoint): number | null | undefined
   vHatTargetOf?(point: BeliefDecisionPoint): number | null | undefined
-  /** @deprecated Use `qHatChosenOf` and `vHatTargetOf` together. */
-  qHatOf?(point: BeliefDecisionPoint): number | null | undefined
 }
 
 export interface BeliefUtilityOptions {

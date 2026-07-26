@@ -296,15 +296,7 @@ export {
   type JudgeFamily,
   judgeFamily,
 } from './judge-families'
-export {
-  adversarialJudge,
-  codeExecutionJudge,
-  coherenceJudge,
-  createCustomJudge,
-  createDomainExpertJudge,
-  defaultJudges,
-  JudgeParseError,
-} from './judges'
+export { JudgeParseError } from './judges'
 export * from './knowledge'
 export type {
   LiveProofArtifact,
@@ -842,7 +834,6 @@ export { compareToBaseline, iqr, welchsTTest } from './baseline'
 export type {
   ChannelRollup,
   CostChannel,
-  CostLedgerEntry,
   CostLedgerFilter,
   CostLedgerHandle,
   CostLedgerOptions,

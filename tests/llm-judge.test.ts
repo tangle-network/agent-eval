@@ -141,15 +141,20 @@ describe('llmJudge — single-call canonical bridge', () => {
       chat: client,
       dimensions: ['quality'],
     })
-    await expect(
-      judge.score({
+    const error = await judge
+      .score({
         artifact,
         scenario,
         signal: new AbortController().signal,
         costLedger: ledger,
         costPhase: 'holdout.winner',
-      }),
-    ).rejects.toBeInstanceOf(JudgeParseError)
+      })
+      .then(
+        () => undefined,
+        (cause: unknown) => cause,
+      )
+    expect(error).toBeInstanceOf(JudgeParseError)
+    expect(error).toMatchObject({ judgeName: 'bad', raw: 'not json at all' })
     expect(ledger.summary().totalCostUsd).toBeCloseTo(0.0025, 9)
     expect(ledger.list()[0]).toMatchObject({
       channel: 'judge',

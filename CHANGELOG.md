@@ -255,6 +255,8 @@ empty options object gates — the opt-out is explicit and greppable.
 
 - **Breaking:** benchmark, driver, executor, judge, completion-checker, tracing, and analyst APIs now accept `ChatClient`.
 - **Breaking:** removed the exported provider SDK type, direct provider SDK dependency, provider-specific retry fields, and custom completion-checker error receipt callback.
+- **Breaking:** removed scalar belief-state and off-policy `qHat` fields; contextual estimates require `qHatChosen` and `vHatTarget` together.
+- **Breaking:** removed `CampaignAggregates.totalCostUsd`, `CostLedgerEntry`, `VerifiableReward.breakdown`, and the fixed-prompt `JudgeFn` factories.
 - Paid calls read canonical `ChatResponse.content`, usage, model, duration, and cost.
 - Cost reservations derive provider retries from `ChatClient.maximumAttempts`; capped calls reject clients that do not declare a finite attempt count.
 - `createChatClient({ transport: 'custom' })` adapts external SDKs and transports without importing them into Agent Eval.

@@ -316,8 +316,8 @@ export async function runImprovementLoop<TScenario extends Scenario, TArtifact>(
           neutralizedJudgeScores,
           scenarios: opts.holdoutScenarios,
           cost: {
-            candidate: winnerOnHoldout.aggregates.totalCostUsd,
-            baseline: baselineOnHoldout.aggregates.totalCostUsd,
+            candidate: winnerOnHoldout.aggregates.cost.totalCostUsd,
+            baseline: baselineOnHoldout.aggregates.cost.totalCostUsd,
           },
           costLedger,
           costPhase: 'promotion.gate',
