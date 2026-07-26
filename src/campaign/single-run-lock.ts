@@ -18,7 +18,7 @@ import {
   type AtomicFileLockUnavailable,
   probeAtomicFileLock,
   tryAcquireAtomicFileLock,
-} from './atomic-file-lock'
+} from '../ledger-core/atomic-file-lock'
 
 export interface SingleRunLockOptions {
   /** Lockfile this runner writes (and checks). */

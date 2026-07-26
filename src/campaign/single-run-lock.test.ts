@@ -24,11 +24,14 @@ async function synchronizedContenders(options: {
     transformSync(input, { loader: 'ts', format: 'esm', target: 'es2022' }).code
   writeFileSync(
     modulePath,
-    transpile(source).replace(/from ['"]\.\/atomic-file-lock['"]/, "from './atomic-file-lock.mjs'"),
+    transpile(source).replace(
+      /from ['"]\.\.\/ledger-core\/atomic-file-lock['"]/,
+      "from './atomic-file-lock.mjs'",
+    ),
   )
   writeFileSync(
     atomicModulePath,
-    transpile(readFileSync(new URL('./atomic-file-lock.ts', import.meta.url), 'utf8')),
+    transpile(readFileSync(new URL('../ledger-core/atomic-file-lock.ts', import.meta.url), 'utf8')),
   )
   if (options.stale) {
     writeFileSync(
