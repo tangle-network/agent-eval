@@ -24,6 +24,24 @@ Model calls occur only through the clients and agents you configure.
 pnpm add @tangle-network/agent-eval
 ```
 
+## Configure Model Calls
+
+Benchmarks, user drivers, executors, built-in judges, completion checkers, and judge adapters accept the same `ChatClient`.
+
+```ts
+import { createChatClient } from '@tangle-network/agent-eval'
+
+const chat = createChatClient({
+  transport: 'router',
+  apiKey: process.env.TANGLE_API_KEY!,
+  defaultModel: 'openai/gpt-4.1',
+  maximumAttempts: 3,
+})
+```
+
+Use `direct-provider` for an OpenAI-compatible endpoint, `cli-bridge` for a local subscription, `sandbox-sdk` for Sandbox, or `custom` to adapt another SDK.
+A custom adapter must return `ChatResponse` and declare `maximumAttempts` before a capped cost ledger can dispatch it.
+
 The official optimizers use the Python bridge.
 Install only the optimizer you plan to run:
 

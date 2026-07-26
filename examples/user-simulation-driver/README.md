@@ -9,9 +9,9 @@ interrogates the product agent until either its `completionCriteria` are
 met or `maxTurns` is reached. It signals completion with the literal
 `DONE` token.
 
-This example wires it offline by injecting a scripted `TCloud` mock in
-place of a real LLM client. Swap the mock for a real client (e.g.
-`@tangle-network/tcloud`) and the same loop drives the real driver.
+This example wires it offline with `createChatClient({ transport: 'mock' })`.
+Use the `router`, `cli-bridge`, `direct-provider`, or `sandbox-sdk` transport
+for a real model.
 
 In a real eval harness:
 

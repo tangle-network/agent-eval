@@ -16,9 +16,8 @@
  *     { baseUrl: 'https://router.tangle.tools/v1', apiKey: process.env.KEY },
  *   )
  *
- * This is THE llm-calling seam for agent-eval primitives that need structured
- * output (semantic concept judge, reviewer directives, critic scores). Primitives
- * that need free-form text use `callLlm` and parse output themselves.
+ * `createChatClient` wraps this implementation for provider-neutral package
+ * entry points. Direct callers can use `callLlm` or `callLlmJson`.
  */
 
 import {
@@ -342,10 +341,9 @@ const TRANSIENT_ERROR_PATTERNS: readonly RegExp[] = [
  * name/message/code, then recurses into `error.cause` — undici nests the
  * real socket fault one or more levels under `.cause`.
  *
- * This is THE retry classifier for the package: `callLlm` and
- * `withJudgeRetry` both route through it, so a connection-class error is
- * treated identically whether it surfaces in the HTTP client or a
- * TCloud-backed judge.
+ * This is the retry classifier for the package: `callLlm` and
+ * `withJudgeRetry` both route through it, so connection failures are treated
+ * consistently across transports.
  */
 export function isTransientLlmError(err: unknown): boolean {
   return classifyTransient(err, 0)
@@ -354,8 +352,8 @@ export function isTransientLlmError(err: unknown): boolean {
 function classifyTransient(err: unknown, depth: number): boolean {
   if (err instanceof LlmCallError) return RETRYABLE_STATUS.has(err.status)
   if (!(err instanceof Error)) return false
-  // Foreign errors (e.g. a TCloud judge SDK error) can carry a numeric HTTP
-  // status without being an LlmCallError — a retryable status is decisive.
+  // Foreign transport errors can carry a numeric HTTP status without being an
+  // LlmCallError. A retryable status is decisive.
   const status = (err as { status?: unknown }).status
   if (typeof status === 'number' && RETRYABLE_STATUS.has(status)) return true
   const code = (err as { code?: unknown }).code

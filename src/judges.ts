@@ -1,12 +1,17 @@
-import type { TCloud } from '@tangle-network/tcloud'
+import type { ChatClient, ChatRequest, ChatResponse } from './analyst/chat-client'
 import { CostLedger } from './cost-ledger'
 import { JudgeError } from './errors'
-import type { LlmCallMetadata, LlmCallRequest } from './llm-client'
-import { costReceiptFromTCloud, maximumChargeForTCloudRequest } from './tcloud-cost'
+import {
+  costReceiptFromLlm,
+  costReceiptFromLlmError,
+  type LlmCallMetadata,
+  maximumChargeForLlmRequest,
+} from './llm-client'
 import type { JudgeFn, JudgeInput, JudgeScore } from './types'
 
 type JudgeParseErrorOptions = { cause?: unknown; llmCall?: LlmCallMetadata }
-type PaidJudgeRequest = Pick<LlmCallRequest, 'model' | 'temperature'> & {
+type PaidJudgeRequest = Pick<ChatRequest, 'temperature'> & {
+  model: string
   messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }>
   maxTokens: number
 }
@@ -45,7 +50,7 @@ export class JudgeParseError extends JudgeError {
  * pluggable, fail-loud, and drive the campaign/improvement-loop engines.
  */
 export function createDomainExpertJudge(domain: string): JudgeFn {
-  return async (tc: TCloud, input: JudgeInput): Promise<JudgeScore[]> => {
+  return async (chat: ChatClient, input: JudgeInput): Promise<JudgeScore[]> => {
     const { scenario, turns } = input
     const conversation = turns
       .map(
@@ -54,7 +59,7 @@ export function createDomainExpertJudge(domain: string): JudgeFn {
       )
       .join('\n\n---\n\n')
 
-    const resp = await runJudgeChat(tc, input, 'domain_expert', {
+    const resp = await runJudgeChat(chat, input, 'domain_expert', {
       model: 'gpt-4o',
       messages: [
         {
@@ -89,7 +94,7 @@ Respond with JSON only: [{"dimension":"domain_accuracy","score":N,"reasoning":".
  * Build judges as campaign `JudgeConfig`s (src/campaign/types.ts) — or
  * multi-model panels via `ensembleJudge` (src/judge-panel.ts).
  */
-export const codeExecutionJudge: JudgeFn = async (tc, input) => {
+export const codeExecutionJudge: JudgeFn = async (chat, input) => {
   const { scenario, artifacts } = input
   const codeBlocks = artifacts.codeBlocks
   if (codeBlocks.length === 0) {
@@ -110,7 +115,7 @@ export const codeExecutionJudge: JudgeFn = async (tc, input) => {
     )
     .join('\n\n')
 
-  const resp = await runJudgeChat(tc, input, 'code_execution', {
+  const resp = await runJudgeChat(chat, input, 'code_execution', {
     model: 'gpt-4o',
     messages: [
       {
@@ -143,7 +148,7 @@ Respond with JSON only: [{"dimension":"executability","score":N,"reasoning":"...
  * Build judges as campaign `JudgeConfig`s (src/campaign/types.ts) — or
  * multi-model panels via `ensembleJudge` (src/judge-panel.ts).
  */
-export const coherenceJudge: JudgeFn = async (tc, input) => {
+export const coherenceJudge: JudgeFn = async (chat, input) => {
   const { scenario, turns } = input
   if (turns.length < 2) {
     // Single-turn scenarios carry no multi-turn signal. Emit no judge
@@ -159,7 +164,7 @@ export const coherenceJudge: JudgeFn = async (tc, input) => {
     )
     .join('\n\n---\n\n')
 
-  const resp = await runJudgeChat(tc, input, 'coherence', {
+  const resp = await runJudgeChat(chat, input, 'coherence', {
     model: 'gpt-4o',
     messages: [
       {
@@ -192,7 +197,7 @@ Respond with JSON only: [{"dimension":"consistency","score":N,"reasoning":"..."}
  * Build judges as campaign `JudgeConfig`s (src/campaign/types.ts) — or
  * multi-model panels via `ensembleJudge` (src/judge-panel.ts).
  */
-export const adversarialJudge: JudgeFn = async (tc, input) => {
+export const adversarialJudge: JudgeFn = async (chat, input) => {
   const { scenario, turns } = input
   const conversation = turns
     .map(
@@ -200,7 +205,7 @@ export const adversarialJudge: JudgeFn = async (tc, input) => {
     )
     .join('\n\n---\n\n')
 
-  const resp = await runJudgeChat(tc, input, 'adversarial', {
+  const resp = await runJudgeChat(chat, input, 'adversarial', {
     model: 'gpt-4o',
     messages: [
       {
@@ -239,7 +244,7 @@ export function createCustomJudge(
   systemPrompt: string,
   opts?: { model?: string; temperature?: number; maxTokens?: number },
 ): JudgeFn {
-  return async (tc, input) => {
+  return async (chat, input) => {
     const { scenario, turns } = input
     const conversation = turns
       .map(
@@ -248,7 +253,7 @@ export function createCustomJudge(
       )
       .join('\n\n---\n\n')
 
-    const resp = await runJudgeChat(tc, input, name, {
+    const resp = await runJudgeChat(chat, input, name, {
       model: opts?.model ?? 'gpt-4o',
       messages: [
         {
@@ -281,10 +286,14 @@ export function defaultJudges(domain: string): JudgeFn[] {
 
 // ── Helpers ──
 
-function parseJudgeResponse(judgeName: string, resp: unknown): JudgeScore[] {
-  const content =
-    (resp as { choices?: { message?: { content?: string } }[] }).choices?.[0]?.message?.content ??
-    ''
+function parseJudgeResponse(judgeName: string, response: ChatResponse): JudgeScore[] {
+  const { content } = response
+  const llmCall: LlmCallMetadata = {
+    usage: response.usage,
+    costUsd: response.costUsd,
+    model: response.model,
+    durationMs: response.durationMs,
+  }
   try {
     let cleaned = content.replace(/```json\n?|\n?```/g, '').trim()
     const arrayMatch = cleaned.match(/\[[\s\S]*\]/)
@@ -305,26 +314,30 @@ function parseJudgeResponse(judgeName: string, resp: unknown): JudgeScore[] {
   } catch (err) {
     // Throw rather than fabricate a zero-score row: a synthetic
     // `{ dimension: 'parse_error', score: 0 }` poisons composites downstream.
-    throw new JudgeParseError(judgeName, content, { cause: err })
+    throw new JudgeParseError(judgeName, content, { cause: err, llmCall })
   }
 }
 
 async function runJudgeChat(
-  tc: TCloud,
+  chat: ChatClient,
   input: JudgeInput,
   judgeName: string,
   request: PaidJudgeRequest,
-): Promise<Awaited<ReturnType<TCloud['chat']>>> {
+): Promise<ChatResponse> {
   const paid = await (input.costLedger ?? new CostLedger()).runPaidCall({
     channel: 'judge',
     phase: input.costPhase ?? 'judge',
-    actor: `legacy-judge.${judgeName}`,
+    actor: `judge.${judgeName}`,
     model: request.model,
-    maximumCharge: maximumChargeForTCloudRequest(request, input.tcloudMaximumAttempts),
+    maximumCharge:
+      chat.maximumAttempts === undefined
+        ? undefined
+        : maximumChargeForLlmRequest(request, { maxRetries: chat.maximumAttempts }),
     tags: input.costTags,
     signal: input.signal,
-    execute: () => tc.chat(request),
-    receipt: (response) => costReceiptFromTCloud(response, request.model),
+    execute: (signal, callId) => chat.chat(request, { signal, idempotencyKey: callId }),
+    receipt: costReceiptFromLlm,
+    receiptFromError: costReceiptFromLlmError,
   })
   if (!paid.succeeded) throw paid.error
   return paid.value

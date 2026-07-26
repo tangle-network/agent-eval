@@ -12,6 +12,9 @@ import { fileURLToPath } from 'node:url'
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const tempRoot = mkdtempSync(join(repoRoot, '.tmp-package-exports-'))
+const removedSdkPackage = ['@tangle-network', 'tcloud'].join('/')
+const removedSdkType = ['T', 'Cloud'].join('')
+const removedRetryField = ['tcloud', 'MaximumAttempts'].join('')
 
 try {
   verifyVersionLock()
@@ -35,6 +38,37 @@ try {
   run('tar', ['-xzf', tarballs[0], '-C', unpackDir], repoRoot)
   const packageDir = join(unpackDir, 'package')
   const packageJson = JSON.parse(readFileSync(join(packageDir, 'package.json'), 'utf8'))
+  if (packageJson.dependencies?.[removedSdkPackage]) {
+    throw new Error(`packed package retains removed dependency ${removedSdkPackage}`)
+  }
+  const packedCodeFiles = run(
+    'find',
+    [
+      join(packageDir, 'dist'),
+      '-type',
+      'f',
+      '(',
+      '-name',
+      '*.js',
+      '-o',
+      '-name',
+      '*.d.ts',
+      ')',
+      '-print',
+    ],
+    repoRoot,
+  )
+    .trim()
+    .split('\n')
+    .filter(Boolean)
+  for (const file of packedCodeFiles) {
+    const source = readFileSync(file, 'utf8')
+    for (const removed of [removedSdkPackage, removedSdkType, removedRetryField]) {
+      if (source.includes(removed)) {
+        throw new Error(`packed output ${file} retains removed API ${removed}`)
+      }
+    }
+  }
   const requiredExports = {
     '.': ['import', 'types'],
     './analyst': ['import', 'types'],
@@ -90,7 +124,11 @@ try {
       import {
         CostLedger,
         InMemoryTraceStore,
+        type BenchmarkRunnerConfig,
+        type ChatClient,
         type CostLedgerHandle as RootCostLedgerHandle,
+        type ExecutorConfig,
+        type JudgeFn,
         type LlmJudgeOptions as RootLlmJudgeOptions,
         type ReferenceEquivalenceJudgeOptions as RootReferenceEquivalenceJudgeOptions,
         type Run,
@@ -143,6 +181,15 @@ try {
       } from '@tangle-network/agent-eval/trace-attributes'
 
       const store: TraceAnalysisStore = new OtlpFileTraceStore({ path: 'spans.jsonl' })
+      // @ts-expect-error provider SDK types are not part of the public API
+      type RemovedProviderSdk = import('@tangle-network/agent-eval')[${JSON.stringify(removedSdkType)}]
+      const removedProviderSdk: RemovedProviderSdk = {}
+      // @ts-expect-error retry count belongs to ChatClient.maximumAttempts
+      const removedBenchmarkRetry: BenchmarkRunnerConfig[${JSON.stringify(removedRetryField)}] = 1
+      // @ts-expect-error retry count belongs to ChatClient.maximumAttempts
+      const removedExecutorRetry: ExecutorConfig[${JSON.stringify(removedRetryField)}] = 1
+      const canonicalChat = null as unknown as ChatClient
+      const canonicalJudge = null as unknown as JudgeFn
       const legacyFinding: RawAnalystFinding = RawAnalystFindingSchema.parse({
         severity: 'info',
         claim: 'legacy',
@@ -249,6 +296,11 @@ try {
       })
       void [
         store,
+        removedProviderSdk,
+        removedBenchmarkRetry,
+        removedExecutorRetry,
+        canonicalChat,
+        canonicalJudge,
         legacyFinding,
         canonicalFinding,
         golden,

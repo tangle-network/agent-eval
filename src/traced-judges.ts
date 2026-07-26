@@ -7,7 +7,7 @@
  * gets its own child span with model + score as attributes.
  */
 
-import type { TCloud } from '@tangle-network/tcloud'
+import type { ChatClient } from './analyst/chat-client'
 import { JudgeParseError } from './judges'
 import type { TraceEmitter } from './trace/emitter'
 import type { JudgeFn, JudgeInput, JudgeScore } from './types'
@@ -23,7 +23,7 @@ export interface TracedJudgeOptions {
  * Wrap a single JudgeFn so its LLM call emits a traced span.
  */
 export function traceJudge(judge: JudgeFn, judgeName: string, opts: TracedJudgeOptions): JudgeFn {
-  return async (tc: TCloud, input: JudgeInput): Promise<JudgeScore[]> => {
+  return async (chat: ChatClient, input: JudgeInput): Promise<JudgeScore[]> => {
     const span = await opts.emitter.span({
       kind: 'llm',
       name: `judge:${judgeName}`,
@@ -34,7 +34,7 @@ export function traceJudge(judge: JudgeFn, judgeName: string, opts: TracedJudgeO
       },
     })
     try {
-      const scores = await judge(tc, input)
+      const scores = await judge(chat, input)
       const composite =
         scores.length > 0 ? scores.reduce((sum, s) => sum + s.score, 0) / scores.length : 0
       await span.end({
@@ -63,7 +63,7 @@ export function traceJudgeEnsemble(
   judgeNames: string[],
   opts: TracedJudgeOptions,
 ): JudgeFn {
-  return async (tc: TCloud, input: JudgeInput) => {
+  return async (chat: ChatClient, input: JudgeInput) => {
     const ensembleSpan = await opts.emitter.span({
       kind: 'custom',
       name: 'judge:ensemble',
@@ -84,7 +84,7 @@ export function traceJudgeEnsemble(
           parentSpanId: ensembleSpan.span.spanId,
         })
         try {
-          const scores = await tracedFn(tc, input)
+          const scores = await tracedFn(chat, input)
           allScores.push(...scores)
         } catch (err) {
           // One unparseable judge must not sink the whole ensemble — its

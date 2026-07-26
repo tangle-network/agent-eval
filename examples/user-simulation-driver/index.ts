@@ -8,15 +8,15 @@
  * are met or `maxTurns` is reached. The driver signals completion with
  * the literal `DONE` token.
  *
- * This example wires it offline by injecting a scripted `TCloud` mock in
- * place of a real LLM. Swap the mock for a real client (e.g.
- * `@tangle-network/tcloud`) and the loop runs against the real driver.
+ * This example wires it offline with the `mock` ChatClient transport.
+ * Swap its factory options for `router`, `cli-bridge`, `direct-provider`,
+ * or `sandbox-sdk` to run against a real model.
  *
  * Run with:
  *   pnpm tsx examples/user-simulation-driver/index.ts
  */
 
-import { decideNextUserTurn } from '../../src/index'
+import { createChatClient, decideNextUserTurn } from '../../src/index'
 import type { DriverState, PersonaConfig } from '../../src/types'
 
 // ── Scripted simulated-user replies — what the driver LLM would
@@ -29,14 +29,21 @@ const userReplies = [
 ]
 let scriptIndex = 0
 
-// Minimal TCloud mock. Real wiring imports `TCloud` from
-// `@tangle-network/tcloud` and constructs a real client.
-const tc = {
-  async chat() {
+const chat = createChatClient({
+  transport: 'mock',
+  defaultModel: 'scripted-user',
+  handler: async () => {
     const content = userReplies[scriptIndex++] ?? 'DONE'
-    return { choices: [{ message: { content } }] }
+    return {
+      content,
+      usage: { promptTokens: 0, completionTokens: 0, totalTokens: 0 },
+      costUsd: 0,
+      model: 'scripted-user',
+      durationMs: 0,
+      raw: {},
+    }
   },
-} as unknown as Parameters<typeof decideNextUserTurn>[0]
+})
 
 // ── The persona the simulated user inhabits ────────────────────────────
 const persona: PersonaConfig = {
@@ -79,7 +86,7 @@ const agentReplies = [
 async function main() {
   const history: { role: string; content: string }[] = []
   for (let turn = 0; turn < persona.maxTurns; turn++) {
-    const userMsg = await decideNextUserTurn(tc, { persona, state, history })
+    const userMsg = await decideNextUserTurn(chat, { persona, state, history })
     console.log(`[turn ${turn}] user:  ${userMsg}`)
     if (userMsg.toUpperCase().includes('DONE')) {
       console.log('\nuser signed off — completion criteria satisfied')

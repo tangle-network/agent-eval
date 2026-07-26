@@ -43,7 +43,7 @@ export { type CreateAnalystAiConfig, createAnalystAi } from './analyst/ax-servic
 // ── Analyst (registry + findings) ─────────────────────────────────────
 // Consumer-facing happy path only: build a registry (or take the default
 // kinds), pass it to analyzeRuns/selfImprove, read AnalystFinding[], persist
-// with FindingsStore, or bind a ChatClient for analyst LLM calls. Deeper
+// with FindingsStore, or bind a ChatClient for package LLM calls. Deeper
 // machinery like finding-signature/subject parsers, tolerant JSON coercion, tool
 // groups, prose recovery, and judge/verifier adapters live on the `/analyst`
 // subpath (`@tangle-network/agent-eval/analyst`) to keep this surface legible.
@@ -55,6 +55,7 @@ export type {
   ChatTransport,
   CliBridgeTransportOpts,
   CreateChatClientOpts,
+  CustomTransportOpts,
   DirectProviderTransportOpts,
   MockTransportOpts,
   RouterTransportOpts,

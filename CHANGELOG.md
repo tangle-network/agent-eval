@@ -249,6 +249,17 @@ empty options object gates — the opt-out is explicit and greppable.
 - `extractVerifiableReward(report)` — the `VerificationReport` signature — cannot gate and does not
   claim to: `realness` lives on the `RunRecord`, not on the report. Documented on the function.
 
+## [0.129.0] - 2026-07-25 - provider-neutral chat API
+
+### Changed
+
+- **Breaking:** benchmark, driver, executor, judge, completion-checker, tracing, and analyst APIs now accept `ChatClient`.
+- **Breaking:** removed the exported provider SDK type, direct provider SDK dependency, provider-specific retry fields, and custom completion-checker error receipt callback.
+- Paid calls read canonical `ChatResponse.content`, usage, model, duration, and cost.
+- Cost reservations derive provider retries from `ChatClient.maximumAttempts`; capped calls reject clients that do not declare a finite attempt count.
+- `createChatClient({ transport: 'custom' })` adapts external SDKs and transports without importing them into Agent Eval.
+- No aliases or fallback call paths preserve the removed API.
+
 ## [0.128.2] - 2026-07-25 - current core contract
 
 ### Changed

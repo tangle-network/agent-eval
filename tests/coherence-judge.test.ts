@@ -1,10 +1,19 @@
-import type { TCloud } from '@tangle-network/tcloud'
 import { describe, expect, it } from 'vitest'
+import { createChatClient } from '../src/analyst/chat-client'
 import { coherenceJudge } from '../src/judges'
 
-const noopTc = {
-  chat: async () => ({ choices: [{ message: { content: '[]' } }] }),
-} as unknown as TCloud
+const noopChat = createChatClient({
+  transport: 'mock',
+  defaultModel: 'gpt-4o',
+  handler: async () => ({
+    content: '[]',
+    usage: { promptTokens: 0, completionTokens: 0, totalTokens: 0 },
+    costUsd: null,
+    model: 'gpt-4o',
+    durationMs: 0,
+    raw: {},
+  }),
+})
 
 const baseScenario = {
   thesis: 'test',
@@ -25,7 +34,7 @@ describe('coherenceJudge', () => {
     // pinning the coherence dimension to a non-signal value that still
     // folded into the aggregate. Result: every single-turn scenario was
     // implicitly penalized to a 5/10 ceiling on coherence.
-    const out = await coherenceJudge(noopTc, {
+    const out = await coherenceJudge(noopChat, {
       scenario: baseScenario as never,
       turns: [turn('hello', 'hi there')],
     })
@@ -33,7 +42,7 @@ describe('coherenceJudge', () => {
   })
 
   it('still emits no scores for empty-turn cases', async () => {
-    const out = await coherenceJudge(noopTc, { scenario: baseScenario as never, turns: [] })
+    const out = await coherenceJudge(noopChat, { scenario: baseScenario as never, turns: [] })
     expect(out).toEqual([])
   })
 })

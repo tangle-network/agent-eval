@@ -29,6 +29,7 @@ export type {
   ChatTransport,
   CliBridgeTransportOpts,
   CreateChatClientOpts,
+  CustomTransportOpts,
   DirectProviderTransportOpts,
   MockTransportOpts,
   RouterTransportOpts,
