@@ -35,7 +35,7 @@ import { type RunRecord, runTaskScore } from '../run-record'
 import type { LlmSpan, Message, Span, ToolSpan } from '../trace/schema'
 import type { TraceStore } from '../trace/store'
 import { buildTrajectory } from '../trajectory'
-import { rolloutRewardFields, scoreOrigin, trainingReward } from './reward'
+import { rolloutRewardFields, scoreOrigin } from './reward'
 import {
   assertMinted,
   type ChatMessage,
@@ -139,20 +139,6 @@ function requireTaskScore(record: RunRecord): void {
   if (runTaskScore(record) === undefined) {
     throw new ValidationError(`Cannot mint rollout for run ${record.runId}: task score is missing`)
   }
-}
-
-/**
- * Legacy mint-door reward pair. Throws on a record with no task score (the
- * mint door refuses execution-only records); a gated run returns 0, because
- * the gate's verdict IS a number.
- *
- * @deprecated Use `trainingReward` (returns a labeled `reward: null` gap
- * instead of throwing) or `rolloutRewardFields` (what mint itself writes).
- */
-export function rolloutReward(record: RunRecord): { reward: number; gated: boolean } {
-  requireTaskScore(record)
-  const { reward, gated } = trainingReward(record)
-  return { reward: reward ?? 0, gated }
 }
 
 const SPLIT_FROM_TAG: Record<RunRecord['splitTag'], RolloutSplit> = {

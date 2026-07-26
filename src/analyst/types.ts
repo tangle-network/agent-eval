@@ -282,13 +282,8 @@ export interface AnalystRunSummary {
   reason?: string
   findings_count: number
   latency_ms: number
-  cost_usd: number
-  /**
-   * Additive receipt for model usage. Registry-produced summaries populate it
-   * even when the analyst emits no findings. `cost_usd` remains the legacy
-   * numeric field; inspect `usage.cost` before treating zero as observed.
-   */
-  usage?: AnalystUsageReceipt
+  /** Additive model usage and cost provenance for this analyst. */
+  usage: AnalystUsageReceipt
   /** When `status='failed'`: the error class + message, never the full stack. */
   error?: { class: string; message: string }
 }

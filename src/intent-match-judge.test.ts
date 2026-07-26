@@ -66,7 +66,7 @@ describe('runIntentMatchJudge', () => {
     const fetch = mockFetch([{ status: 500, body: 'upstream error' }])
     const r = await runIntentMatchJudge(
       { userRequest: 'x', sourceFiles: [{ path: 'a.ts', content: 'x' }] },
-      { llm: { fetch, maxRetries: 1 } },
+      { llm: { fetch, maximumAttempts: 1 } },
     )
     expect(r.available).toBe(false)
     expect(r.error).toMatch(/500|upstream/i)

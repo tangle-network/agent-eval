@@ -138,7 +138,7 @@ describe('createDefaultReviewer', () => {
     const fetch = mockFetch([{ status: 500, body: 'upstream oops' }])
     const r = await createDefaultReviewer({
       model: 'm',
-      llm: { fetch, maxRetries: 1 },
+      llm: { fetch, maximumAttempts: 1 },
     })(BASE_INPUT)
     expect(r.available).toBe(false)
     expect(r.error).toMatch(/500/)
@@ -151,7 +151,7 @@ describe('createDefaultReviewer', () => {
     const fetch = mockFetch([{ status: 503, body: 'rate-limited' }])
     const r = await createDefaultReviewer({
       model: 'm',
-      llm: { fetch, maxRetries: 1 },
+      llm: { fetch, maximumAttempts: 1 },
       softFailDefaults: { shouldContinue: false, confidence: 0 },
     })(BASE_INPUT)
     expect(r.shouldContinue).toBe(false)

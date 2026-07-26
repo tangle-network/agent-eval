@@ -125,7 +125,7 @@ export function createChatClient(opts: CreateChatClientOpts): ChatClient {
         new LlmClient({
           baseUrl: opts.baseUrl ?? 'https://router.tangle.tools/v1',
           apiKey: opts.apiKey,
-          maxRetries: opts.maximumAttempts,
+          maximumAttempts: opts.maximumAttempts,
         } as LlmClientOptions),
       )
     case 'cli-bridge':
@@ -135,7 +135,7 @@ export function createChatClient(opts: CreateChatClientOpts): ChatClient {
         new LlmClient({
           baseUrl: opts.baseUrl ?? 'http://127.0.0.1:3344/v1',
           apiKey: opts.bearer ?? '',
-          maxRetries: opts.maximumAttempts,
+          maximumAttempts: opts.maximumAttempts,
         } as LlmClientOptions),
       )
     case 'direct-provider':
@@ -145,7 +145,7 @@ export function createChatClient(opts: CreateChatClientOpts): ChatClient {
         new LlmClient({
           baseUrl: opts.baseUrl,
           apiKey: opts.apiKey,
-          maxRetries: opts.maximumAttempts,
+          maximumAttempts: opts.maximumAttempts,
         } as LlmClientOptions),
       )
     case 'sandbox-sdk':
@@ -190,6 +190,7 @@ function wrapLlmClient(
         jsonSchema: req.jsonSchema,
         temperature: req.temperature,
         maxTokens: req.maxTokens,
+        thinking: req.thinking,
         timeoutMs: req.timeoutMs,
       }
       return inner.call(request, {

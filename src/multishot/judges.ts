@@ -10,8 +10,8 @@
 import type { JudgeScore } from '../campaign/types'
 import { defaultRouterBaseUrl, requireRouterApiKey, routerCompletion } from './router'
 
-// Canonical declaration lives in campaign/types.ts — multishot emits the same
-// shape on its legacy 0-10 scale (scale is producer-defined; see the type doc).
+// Canonical declaration lives in campaign/types.ts. Multishot emits the same
+// shape on its producer-defined 0-10 scale.
 export type { JudgeScore } from '../campaign/types'
 
 export const DEFAULT_JUDGE_MODEL = 'openai/gpt-4o-mini'

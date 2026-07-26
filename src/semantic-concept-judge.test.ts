@@ -117,7 +117,7 @@ describe('semantic-concept-judge', () => {
 
   it('soft-fails available=false on LLM 500', async () => {
     const fetch = mockFetch([{ status: 500, body: 'upstream oops' }])
-    const r = await runSemanticConceptJudge(BASE_INPUT, { llm: { fetch, maxRetries: 1 } })
+    const r = await runSemanticConceptJudge(BASE_INPUT, { llm: { fetch, maximumAttempts: 1 } })
     expect(r.available).toBe(false)
     expect(r.error).toMatch(/500/)
   })

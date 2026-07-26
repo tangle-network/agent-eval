@@ -152,9 +152,9 @@ export interface RunCampaignOptions<TScenario extends Scenario, TArtifact> {
 }
 
 /** Durable `<cell>/failure-receipt.json` written before a failed cell can
- * trigger campaign-wide cancellation. The cell keeps its dispatch-only usage
- * fields for compatibility; `cost` covers every settled agent and judge call
- * attributed to this exact run attempt. */
+ * trigger campaign-wide cancellation. The cell records dispatch measurements;
+ * `cost` covers every settled agent and judge call attributed to this exact run
+ * attempt. */
 export interface CampaignCellFailureReceipt<TArtifact = unknown> {
   schemaVersion: 1
   runAttemptId: string

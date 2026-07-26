@@ -116,7 +116,7 @@ export async function executeScenario(
       maximumCharge:
         chat.maximumAttempts === undefined
           ? undefined
-          : maximumChargeForLlmRequest(request, { maxRetries: chat.maximumAttempts }),
+          : maximumChargeForLlmRequest(request, { maximumAttempts: chat.maximumAttempts }),
       tags: costTags,
       signal: config.signal,
       execute: (signal, callId) => chat.chat(request, { signal, idempotencyKey: callId }),

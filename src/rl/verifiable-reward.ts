@@ -65,7 +65,7 @@ export interface VerifiableReward {
    * rewards carry one entry (`{ [origin]: value }`); composite rewards carry
    * every contributing layer's score — the anti-scalar-collapse surface RL
    * consumers weight per-source instead of trusting one blended number.
-  */
+   */
   components: Record<string, number>
   /**
    * The run carries `outcome.realness.gated` — the authenticity gate flagged

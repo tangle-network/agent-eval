@@ -443,7 +443,7 @@ export function weightedComposite(input: WeightedCompositeInput): WeightedCompos
 
 // ── Corpus-wide inter-rater agreement ──────────────────────────────
 //
-// The legacy `interRaterReliability(judgeScores)` computes a within-item
+// `interRaterReliability(judgeScores)` computes a within-item
 // Krippendorff α — multiple judges score *the same item* and we ask
 // "how much do their scores agree on that item?" Useful for a single
 // scenario, but it cannot answer "how reliable are these judges across

@@ -147,7 +147,7 @@ const skillOptModelBudget = selectedNames.includes('skillopt')
 const llm: LlmClientOptions = {
   apiKey: API_KEY,
   baseUrl: BASE_URL,
-  maxRetries: 2,
+  maximumAttempts: 2,
   defaultTimeoutMs: CALL_TIMEOUT_MS,
   ...(customTokenPricing ? { customTokenPricing } : {}),
 }

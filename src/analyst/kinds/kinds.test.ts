@@ -1,10 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import {
-  CanonicalRawAnalystFindingSchema,
-  parseCanonicalRawFinding,
-  parseRawFinding,
-  RawAnalystFindingSchema,
-} from '../finding-signature'
+import { parseRawFinding, RawAnalystFindingSchema } from '../finding-signature'
 import { createTraceAnalystKind, type TraceAnalystKindSpec } from '../kind-factory'
 import { buildTraceToolsForGroup } from '../tool-groups'
 import { computeFindingId, makeFinding } from '../types'
@@ -16,9 +11,9 @@ import {
   KNOWLEDGE_POISONING_KIND_SPEC,
 } from './index'
 
-describe('CanonicalRawAnalystFindingSchema', () => {
+describe('RawAnalystFindingSchema', () => {
   it('accepts a complete finding', () => {
-    const parsed = CanonicalRawAnalystFindingSchema.safeParse({
+    const parsed = RawAnalystFindingSchema.safeParse({
       severity: 'high',
       claim: 'agent looped on tool foo',
       subject: 'tool-doc:foo',
@@ -35,55 +30,8 @@ describe('CanonicalRawAnalystFindingSchema', () => {
     expect(parsed.success).toBe(true)
   })
 
-  it('normalizes legacy single-citation rows into the plural contract', () => {
-    const parsed = CanonicalRawAnalystFindingSchema.safeParse({
-      severity: 'medium',
-      claim: 'legacy finding',
-      evidence_uri: 'span://legacy/action',
-      evidence_excerpt: 'legacy excerpt',
-      confidence: 0.7,
-    })
-    expect(parsed.success).toBe(true)
-    if (!parsed.success) throw new Error('test setup invariant')
-    expect(parsed.data.evidence).toEqual([
-      { uri: 'span://legacy/action', excerpt: 'legacy excerpt' },
-    ])
-    expect(parsed.data).not.toHaveProperty('evidence_uri')
-  })
-
-  it('preserves both citations when a provider mixes plural and singular fields', () => {
-    const parsed = CanonicalRawAnalystFindingSchema.parse({
-      severity: 'medium',
-      claim: 'mixed finding',
-      evidence: [{ uri: 'span://canonical/action' }],
-      evidence_uri: 'event://legacy/result',
-      evidence_excerpt: 'legacy corroboration',
-      confidence: 0.7,
-    })
-
-    expect(parsed.evidence).toEqual([
-      { uri: 'span://canonical/action' },
-      { uri: 'event://legacy/result', excerpt: 'legacy corroboration' },
-    ])
-  })
-
-  it('keeps a legacy excerpt when mixed fields cite the same source', () => {
-    const parsed = CanonicalRawAnalystFindingSchema.parse({
-      severity: 'medium',
-      claim: 'mixed finding',
-      evidence: [{ uri: 'span://canonical/action' }],
-      evidence_uri: 'span://canonical/action',
-      evidence_excerpt: 'exact corroboration',
-      confidence: 0.7,
-    })
-
-    expect(parsed.evidence).toEqual([
-      { uri: 'span://canonical/action', excerpt: 'exact corroboration' },
-    ])
-  })
-
   it('requires at least one citation', () => {
-    const parsed = CanonicalRawAnalystFindingSchema.safeParse({
+    const parsed = RawAnalystFindingSchema.safeParse({
       severity: 'high',
       claim: 'x',
       evidence: [],
@@ -93,7 +41,7 @@ describe('CanonicalRawAnalystFindingSchema', () => {
   })
 
   it('rejects whitespace-only citation identifiers', () => {
-    const parsed = CanonicalRawAnalystFindingSchema.safeParse({
+    const parsed = RawAnalystFindingSchema.safeParse({
       severity: 'high',
       claim: 'x',
       evidence: [{ uri: 'span://a/b' }, { uri: '   ' }],
@@ -103,7 +51,7 @@ describe('CanonicalRawAnalystFindingSchema', () => {
   })
 
   it('rejects out-of-range confidence', () => {
-    const parsed = CanonicalRawAnalystFindingSchema.safeParse({
+    const parsed = RawAnalystFindingSchema.safeParse({
       severity: 'high',
       claim: 'x',
       evidence: [{ uri: 'span://a/b' }],
@@ -113,7 +61,7 @@ describe('CanonicalRawAnalystFindingSchema', () => {
   })
 
   it('rejects unknown severity', () => {
-    const parsed = CanonicalRawAnalystFindingSchema.safeParse({
+    const parsed = RawAnalystFindingSchema.safeParse({
       severity: 'catastrophic',
       claim: 'x',
       evidence: [{ uri: 'span://a/b' }],
@@ -123,7 +71,7 @@ describe('CanonicalRawAnalystFindingSchema', () => {
   })
 
   it('rejects unknown extra fields (strict mode)', () => {
-    const parsed = CanonicalRawAnalystFindingSchema.safeParse({
+    const parsed = RawAnalystFindingSchema.safeParse({
       severity: 'low',
       claim: 'x',
       evidence: [{ uri: 'span://a/b' }],
@@ -131,46 +79,6 @@ describe('CanonicalRawAnalystFindingSchema', () => {
       unexpected: 'field',
     })
     expect(parsed.success).toBe(false)
-  })
-})
-
-describe('RawAnalystFindingSchema compatibility', () => {
-  it('retains the original singular evidence result', () => {
-    const parsed = RawAnalystFindingSchema.parse({
-      severity: 'medium',
-      claim: 'legacy finding',
-      evidence_uri: 'span://legacy/action',
-      evidence_excerpt: 'legacy excerpt',
-      confidence: 0.7,
-    })
-
-    expect(parsed).toEqual({
-      severity: 'medium',
-      claim: 'legacy finding',
-      evidence_uri: 'span://legacy/action',
-      evidence_excerpt: 'legacy excerpt',
-      confidence: 0.7,
-    })
-    expect(parsed).not.toHaveProperty('evidence')
-  })
-
-  it('rejects blank identifiers without rewriting accepted legacy values', () => {
-    const parsed = RawAnalystFindingSchema.parse({
-      severity: 'medium',
-      claim: 'legacy finding',
-      evidence_uri: '  span://legacy/action  ',
-      confidence: 0.7,
-    })
-
-    expect(parsed.evidence_uri).toBe('  span://legacy/action  ')
-    expect(
-      RawAnalystFindingSchema.safeParse({
-        severity: 'medium',
-        claim: 'legacy finding',
-        evidence_uri: '   ',
-        confidence: 0.7,
-      }).success,
-    ).toBe(false)
   })
 })
 
@@ -191,26 +99,14 @@ describe('parseRawFinding logs the rejection reason on schema failure', () => {
       {
         severity: 'low',
         claim: 'test',
-        evidence_uri: 'span://t/s',
+        evidence: [{ uri: 'span://t/s' }],
         confidence: 0.4,
       },
       log,
     )
     expect(out?.claim).toBe('test')
-    expect(out).toHaveProperty('evidence_uri', 'span://t/s')
-    expect(out).not.toHaveProperty('evidence')
+    expect(out).toHaveProperty('evidence', [{ uri: 'span://t/s' }])
     expect(log).not.toHaveBeenCalled()
-  })
-
-  it('keeps canonical parsing explicit and separate', () => {
-    expect(
-      parseCanonicalRawFinding({
-        severity: 'low',
-        claim: 'canonical',
-        evidence: [{ uri: 'span://t/s' }],
-        confidence: 0.4,
-      }),
-    ).toMatchObject({ evidence: [{ uri: 'span://t/s' }] })
   })
 })
 

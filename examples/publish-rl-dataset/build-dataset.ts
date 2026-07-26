@@ -1,6 +1,6 @@
 #!/usr/bin/env tsx
 /**
- * Package graded agent-eval RunRecord[] → a publishable RL dataset bundle.
+ * Package graded agent-eval runs into a publishable RL dataset bundle.
  *
  * Build trainer JSONL, a manifest, and a datasheet from graded runs.
  * SFT is the default because it needs one scored completion per scenario.
@@ -20,8 +20,8 @@
  * Core steps:
  *   1. Read `RunRecord`s that carry trajectory text.
  *   2. Build `{promptOf, completionOf}` lookups that resolve text by runId.
- *   3. `buildRlDataset(records, lookups, config)` (in `src/rl/dataset`).
- *   4. Write `bundle.files` to a directory.
+ *   3. Mint canonical rollout lines with `mintRolloutRows`.
+ *   4. `buildRlDataset(lines, lookups, config)` and write the bundle.
  */
 
 import { createHash } from 'node:crypto'
@@ -33,8 +33,9 @@ import {
   type RewardKind,
   validateDatasetFormats,
 } from '../../src/rl/dataset'
-import { isTrainingRunEligible } from '../../src/rl/exporters'
+import { mintRolloutRows } from '../../src/rollout/mint'
 import { type RunRecord, runTaskScore, validateRunRecord } from '../../src/run-record'
+import { InMemoryTraceStore } from '../../src/trace/store'
 
 export interface CliArgs {
   runs: string
@@ -138,7 +139,7 @@ export function parseArgs(argv: string[]): CliArgs {
           const formats = validateDatasetFormats(next().split(','))
           if (formats.includes('dpo')) {
             throw new Error(
-              '--formats dpo requires preference triples; this CLI accepts RunRecords only',
+              '--formats dpo requires preference triples; this CLI does not accept them',
             )
           }
           out.formats = formats
@@ -212,17 +213,6 @@ export async function readNdjson(path: string): Promise<WithText[]> {
   return out
 }
 
-export function selectTrainingRecords(
-  records: WithText[],
-  allowHeldOutTrainingData: boolean,
-): WithText[] {
-  return records.filter((record) =>
-    isTrainingRunEligible(record, runTaskScore(record), {
-      allowHeldOutTrainingData,
-    }),
-  )
-}
-
 export function collectTrajectoryText(
   records: WithText[],
   promptKey: string,
@@ -273,27 +263,24 @@ export function collectTrajectoryText(
 async function main(): Promise<void> {
   const args = parseArgs(process.argv.slice(2))
   const records = await readNdjson(args.runs)
-  const trainingRecords = selectTrainingRecords(records, args.allowHeldOutTrainingData)
-  if (trainingRecords.length === 0) {
-    throw new Error(
-      'no completed positive-quality search runs remain; ' +
-        'use --allow-held-out-training-data only when training on holdout is intentional',
-    )
+  const scoredRecords = records.filter((record) => runTaskScore(record) !== undefined)
+  if (scoredRecords.length === 0) {
+    throw new Error('no scored runs remain; grade the runs before packaging them')
   }
   const { text, dedupPassed } = collectTrajectoryText(
-    trainingRecords,
+    scoredRecords,
     args.promptKey,
     args.completionKey,
   )
+  const { rows: rolloutLines } = await mintRolloutRows(
+    scoredRecords,
+    new InMemoryTraceStore(),
+  )
   const verifiableRewardFilterPassed =
     args.rewardKind === 'deterministic' &&
-    trainingRecords.every((record) =>
-      isTrainingRunEligible(record, runTaskScore(record), {
-        allowHeldOutTrainingData: args.allowHeldOutTrainingData,
-      }),
-    )
+    rolloutLines.every((line) => line.outcome.reward !== null)
   process.stdout.write(`validated ${records.length} runs from ${args.runs}\n`)
-  process.stdout.write(`selected ${trainingRecords.length} training runs\n`)
+  process.stdout.write(`minted ${rolloutLines.length} scored rollout lines\n`)
 
   const lookups = {
     promptOf: (id: string) => text.get(id)!.prompt,
@@ -301,7 +288,7 @@ async function main(): Promise<void> {
     allowHeldOutTrainingData: args.allowHeldOutTrainingData,
   }
 
-  const bundle = await buildRlDataset(trainingRecords, lookups, {
+  const bundle = await buildRlDataset(rolloutLines, lookups, {
     name: args.name,
     version: args.version,
     domain: args.domain,

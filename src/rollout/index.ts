@@ -74,7 +74,6 @@ export {
   type MintRolloutResult,
   mintRolloutRows,
   type RolloutScrubber,
-  rolloutReward,
 } from './mint'
 export {
   type ClaudeTranscript,

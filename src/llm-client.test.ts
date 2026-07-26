@@ -22,7 +22,7 @@ describe('maximumChargeForLlmRequest', () => {
         messages: [{ role: 'user', content: 'hello' }],
         maxTokens: 400,
       },
-      { maxRetries: 2 },
+      { maximumAttempts: 2 },
     )
 
     expect(maximum).toMatchObject({ model: 'gpt-4o', outputTokens: 800 })
@@ -35,13 +35,13 @@ describe('maximumChargeForLlmRequest', () => {
       messages: [{ role: 'user' as const, content: 'hello' }],
       maxTokens: 400,
     }
-    const plain = maximumChargeForLlmRequest(request, { maxRetries: 2 })
+    const plain = maximumChargeForLlmRequest(request, { maximumAttempts: 2 })
     const structured = maximumChargeForLlmRequest(
       {
         ...request,
         jsonSchema: { name: 'answer', schema: { type: 'object' } },
       },
-      { maxRetries: 2 },
+      { maximumAttempts: 2 },
     )
 
     expect(plain && 'outputTokens' in plain ? plain.outputTokens : 0).toBe(800)
@@ -55,13 +55,13 @@ describe('maximumChargeForLlmRequest', () => {
       jsonSchema: { name: 'answer', schema: { type: 'object' } },
       maxTokens: 400,
     }
-    const providerDefault = maximumChargeForLlmRequest(request, { maxRetries: 2 })
+    const providerDefault = maximumChargeForLlmRequest(request, { maximumAttempts: 2 })
     const requestDisabled = maximumChargeForLlmRequest(
       { ...request, thinking: 'disabled' },
-      { maxRetries: 2 },
+      { maximumAttempts: 2 },
     )
     const clientDisabled = maximumChargeForLlmRequest(request, {
-      maxRetries: 2,
+      maximumAttempts: 2,
       thinking: 'disabled',
     })
     const inputTokens = (maximum: typeof providerDefault): number =>
@@ -79,7 +79,7 @@ describe('maximumChargeForLlmRequest', () => {
         maxTokens: 400,
       },
       {
-        maxRetries: 1,
+        maximumAttempts: 1,
         customTokenPricing: { inputUsdPerMillion: 0.27, outputUsdPerMillion: 1.1 },
       },
     )
@@ -98,7 +98,7 @@ describe('maximumChargeForLlmRequest', () => {
         jsonSchema: { name: 'answer', schema: { type: 'object' } },
         maxTokens: 400,
       },
-      { maxRetries: 2, jsonSchemaTransport: 'json-object' },
+      { maximumAttempts: 2, jsonSchemaTransport: 'json-object' },
     )
 
     expect(maximum && 'outputTokens' in maximum ? maximum.outputTokens : 0).toBe(800)
@@ -113,7 +113,7 @@ describe('maximumChargeForLlmRequest', () => {
         maxTokens: 400,
       },
       {
-        maxRetries: 2,
+        maximumAttempts: 2,
         jsonSchemaTransport: 'json-object',
         customTokenPricing: { inputUsdPerMillion: 0.27, outputUsdPerMillion: 1.1 },
       },
@@ -152,7 +152,7 @@ describe('costReceiptFromLlm', () => {
     const result = await callLlm(
       { model: 'gpt-4o', messages: [{ role: 'user', content: 'hello' }], maxTokens: 8 },
       {
-        maxRetries: 1,
+        maximumAttempts: 1,
         customTokenPricing: {
           inputUsdPerMillion: 0.27,
           outputUsdPerMillion: 1.1,
@@ -188,7 +188,7 @@ describe('costReceiptFromLlm', () => {
         maxTokens: 8,
       },
       {
-        maxRetries: 1,
+        maximumAttempts: 1,
         customTokenPricing: {
           inputUsdPerMillion: 0.27,
           outputUsdPerMillion: 1.1,
@@ -220,7 +220,7 @@ describe('costReceiptFromLlm', () => {
         maxTokens: 8,
       },
       {
-        maxRetries: 1,
+        maximumAttempts: 1,
         customTokenPricing: {
           inputUsdPerMillion: 1,
           cachedInputUsdPerMillion: 0.1,
@@ -253,7 +253,7 @@ describe('costReceiptFromLlm', () => {
     const result = await callLlm(
       { model: 'glm-4.5', messages: [{ role: 'user', content: 'test' }], maxTokens: 3_323 },
       {
-        maxRetries: 1,
+        maximumAttempts: 1,
         fetch: async () =>
           mkOkResponse({
             id: 'chatcmpl-r431-fixture',
@@ -313,7 +313,7 @@ describe('costReceiptFromLlm', () => {
     const result = await callLlm(
       { model: 'gpt-4o', messages: [{ role: 'user', content: 'hello' }], maxTokens: 8 },
       {
-        maxRetries: 1,
+        maximumAttempts: 1,
         fetch: async () =>
           mkOkResponse({
             model: 'gpt-4o',
@@ -336,7 +336,7 @@ describe('costReceiptFromLlm', () => {
     const result = await callLlm(
       { model: 'gpt-4o', messages: [{ role: 'user', content: 'hello' }], maxTokens: 8 },
       {
-        maxRetries: 1,
+        maximumAttempts: 1,
         fetch: async () =>
           mkOkResponse({
             model: 'gpt-4o',
@@ -617,7 +617,7 @@ describe('llm-client — retry semantics', () => {
     ])
     const r = await callLlm(
       { model: 'm', messages: [{ role: 'user', content: 'x' }] },
-      { fetch, maxRetries: 3 },
+      { fetch, maximumAttempts: 3 },
     )
     expect(r.content).toBe('ok')
     expect(calls).toEqual([429, 200])
@@ -630,7 +630,7 @@ describe('llm-client — retry semantics', () => {
     ])
     const r = await callLlm(
       { model: 'm', messages: [{ role: 'user', content: 'x' }] },
-      { fetch, maxRetries: 3 },
+      { fetch, maximumAttempts: 3 },
     )
     expect(r.content).toBe('ok')
   })
@@ -640,7 +640,7 @@ describe('llm-client — retry semantics', () => {
     await expect(
       callLlm(
         { model: 'm', messages: [] },
-        { fetch: fetch as unknown as typeof globalThis.fetch, maxRetries: 3 },
+        { fetch: fetch as unknown as typeof globalThis.fetch, maximumAttempts: 3 },
       ),
     ).rejects.toBeInstanceOf(LlmCallError)
     expect(fetch).toHaveBeenCalledOnce()
@@ -665,7 +665,7 @@ describe('llm-client — retry semantics', () => {
         messages: [{ role: 'user', content: 'x' }],
         temperature: 0.2,
       },
-      { fetch, maxRetries: 2 },
+      { fetch, maximumAttempts: 2 },
     )
 
     expect(result.content).toBe('ok')
@@ -682,18 +682,18 @@ describe('llm-client — retry semantics', () => {
     await expect(
       callLlm(
         { model: 'm', messages: [], temperature: 3 },
-        { fetch: fetch as unknown as typeof globalThis.fetch, maxRetries: 2 },
+        { fetch: fetch as unknown as typeof globalThis.fetch, maximumAttempts: 2 },
       ),
     ).rejects.toBeInstanceOf(LlmCallError)
     expect(fetch).toHaveBeenCalledOnce()
   })
 
-  it('gives up after maxRetries on persistent 502', async () => {
+  it('gives up after maximumAttempts on persistent 502', async () => {
     const fetch = vi.fn(async () => mkErrResponse(502, 'bad gateway'))
     await expect(
       callLlm(
         { model: 'm', messages: [] },
-        { fetch: fetch as unknown as typeof globalThis.fetch, maxRetries: 2 },
+        { fetch: fetch as unknown as typeof globalThis.fetch, maximumAttempts: 2 },
       ),
     ).rejects.toBeInstanceOf(LlmCallError)
     expect(fetch).toHaveBeenCalledTimes(2)
@@ -710,7 +710,7 @@ describe('llm-client — retry semantics', () => {
       }
       return mkOkResponse({ choices: [{ message: { content: 'recovered' } }], usage: {} })
     }) as unknown as typeof globalThis.fetch
-    const r = await callLlm({ model: 'm', messages: [] }, { fetch, maxRetries: 3 })
+    const r = await callLlm({ model: 'm', messages: [] }, { fetch, maximumAttempts: 3 })
     expect(r.content).toBe('recovered')
   })
 
@@ -728,7 +728,7 @@ describe('llm-client — retry semantics', () => {
       }
       return mkOkResponse({ choices: [{ message: { content: 'recovered' } }], usage: {} })
     }) as unknown as typeof globalThis.fetch
-    const r = await callLlm({ model: 'm', messages: [] }, { fetch, maxRetries: 3 })
+    const r = await callLlm({ model: 'm', messages: [] }, { fetch, maximumAttempts: 3 })
     expect(r.content).toBe('recovered')
     expect(call).toBe(2)
   })
@@ -764,7 +764,10 @@ describe('llm-client — caller AbortSignal + cross-attempt deadline', () => {
     }) as unknown as typeof globalThis.fetch
 
     await expect(
-      callLlm({ model: 'm', messages: [] }, { fetch, signal: controller.signal, maxRetries: 3 }),
+      callLlm(
+        { model: 'm', messages: [] },
+        { fetch, signal: controller.signal, maximumAttempts: 3 },
+      ),
     ).rejects.toThrow(/abort/i)
     expect(calls).toBe(1)
   })
@@ -797,7 +800,7 @@ describe('llm-client — caller AbortSignal + cross-attempt deadline', () => {
     }) as unknown as typeof globalThis.fetch
 
     await expect(
-      callLlm({ model: 'm', messages: [] }, { fetch, maxRetries: 5, deadlineMs: 10 }),
+      callLlm({ model: 'm', messages: [] }, { fetch, maximumAttempts: 5, deadlineMs: 10 }),
     ).rejects.toBeInstanceOf(LlmCallError)
     // Without the deadline this would retry up to 5 times; the budget caps it at 1.
     expect(calls).toBe(1)
@@ -1074,7 +1077,7 @@ describe('llm-client — probeLlm', () => {
   it('returns ok=false with error message on 4xx', async () => {
     const fetch = mockFetch([async () => mkErrResponse(401, 'Invalid Authentication')])
     const { probeLlm } = await import('./llm-client')
-    const r = await probeLlm('m', { fetch, maxRetries: 1 })
+    const r = await probeLlm('m', { fetch, maximumAttempts: 1 })
     expect(r.ok).toBe(false)
     expect(r.error).toMatch(/401|Invalid Authentication/)
   })
@@ -1084,7 +1087,7 @@ describe('llm-client — probeLlm', () => {
       throw new Error('fetch failed')
     }) as unknown as typeof globalThis.fetch
     const { probeLlm } = await import('./llm-client')
-    const r = await probeLlm('m', { fetch: failingFetch, maxRetries: 1 })
+    const r = await probeLlm('m', { fetch: failingFetch, maximumAttempts: 1 })
     expect(r.ok).toBe(false)
     expect(r.error).toMatch(/fetch failed/)
   })

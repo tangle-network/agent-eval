@@ -17,8 +17,10 @@
 
 import { appendFileSync, existsSync, mkdirSync, readFileSync } from 'node:fs'
 import { dirname } from 'node:path'
+import { mintRolloutRows } from '../rollout/mint'
 import { trainingScore } from '../rollout/reward'
 import type { RunRecord } from '../run-record'
+import { InMemoryTraceStore } from '../trace/store'
 import { buildRlDataset, type RlDatasetBundle, type RlDatasetConfig } from './dataset'
 
 /** A corpus record is a RunRecord carrying the trajectory text the harness
@@ -126,5 +128,6 @@ export async function buildDatasetFromCorpus(
     completionOf: (id: string) => text.get(id)?.completion ?? '',
     allowHeldOutTrainingData: opts.allowHeldOutTrainingData,
   }
-  return buildRlDataset(records, lookups, config)
+  const { rows } = await mintRolloutRows(records, new InMemoryTraceStore())
+  return buildRlDataset(rows, lookups, config)
 }

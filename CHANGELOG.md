@@ -4,7 +4,32 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ---
 
-## [Unreleased] - anti-Goodhart gate applied on every training-data path
+## [0.129.0] - 2026-07-25 - provider-neutral chat and canonical rollout training
+
+### Changed
+
+- **Breaking:** benchmark, driver, executor, judge, completion-checker, tracing, and analyst APIs now accept `ChatClient`.
+- **Breaking:** removed the exported provider SDK type, direct provider SDK dependency, provider-specific retry fields, and custom completion-checker error receipt callback.
+- **Breaking:** `LlmClientOptions.maximumAttempts` replaces the misleading `maxRetries` name, which already represented total attempts.
+- **Breaking:** `toGrpoRows`, `toSftRows`, `extractPreferences`, and `buildRlDataset` accept only `MintedRolloutLine[]`.
+  Convert run records once with `mintRolloutRows`.
+- **Breaking:** removed `rolloutReward`, record-input training overloads, record-only reward hooks, duplicate line lookup and preference option types, and the duplicate dataset split map.
+- **Breaking:** removed scalar belief-state and off-policy `qHat` fields; contextual estimates require `qHatChosen` and `vHatTarget` together.
+- **Breaking:** removed `CampaignAggregates.totalCostUsd`, `CostLedgerEntry`, `VerifiableReward.breakdown`, and the fixed-prompt `JudgeFn` factories.
+- **Breaking:** removed the unused `OptimizationProposer` alias; use `SurfaceProposer`.
+- **Breaking:** `CampaignStorage.append` is required; read/write-only storage adapters are no longer accepted.
+- **Breaking:** `RawAnalystFinding` now has one plural `evidence` field.
+  Removed the duplicate `CanonicalRawAnalystFinding` names, singular-evidence adapters, the second
+  recovery callback, `AnalystRunSummary.cost_usd`, and finding-metadata cost accounting.
+- Paid calls read canonical `ChatResponse.content`, usage, model, duration, and cost.
+- Cost reservations derive provider retries from `ChatClient.maximumAttempts`; capped calls reject clients that do not declare a finite attempt count.
+- `createChatClient({ transport: 'custom' })` adapts external SDKs and transports without importing them into Agent Eval.
+- Updated Agent Core to `0.4.22` and Agent Interface to `0.34.0`.
+- No compatibility aliases, overloads, environment fallbacks, or alternate readers preserve these
+  removed fields and functions.
+- Settled cost events accept one current receipt shape, and execution summaries read only
+  `outcome.raw.execution_error_count`.
+- Single-run locks accept only structured owner records; plain-PID lock files are rejected.
 
 ### Fixed
 
@@ -36,9 +61,8 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ### Changed
 
-- `rolloutReward` is deprecated in favour of `trainingReward` / `rolloutRewardFields` and stays on
-  `rollout/mint` and both barrels. It keeps the 0.127.0 mint-door contract — a record with no task
-  score throws instead of minting a fake 0 — while a gated run still returns 0.
+- `rolloutReward` was removed.
+  Use `trainingReward` for score derivation or `rolloutRewardFields` when producing a rollout outcome.
 - The 14 analysis, reporting, and detection sites that legitimately want the raw number now call
   `observedScore` explicitly. Behaviour is unchanged at all 14, including the two sites that
   deliberately prefer the search split (`rl/active-curriculum.ts`, via the new `ScorePreference`
@@ -191,18 +215,14 @@ unchanged.
   `assertGateReport` (rollout barrel). `BuildSummary.gate` and `DatasetCardInputs.gate` are new;
   `DatasetCardInputs.gate` is required, so a card cannot be rendered without the measurement.
 
-### Fixed — third pass (the paths the validator and the brand cannot reach)
+### Fixed — third pass (one canonical training input)
 
-Both mechanisms above act on a `RolloutLine`. Three of the review's findings never involve one: they
-take `RunRecord[]` or a bare triple, so no brand constrains them and no line is ever validated. Each
-is closed at its own derivation.
+Trainer-facing APIs now accept canonical minted lines only.
+Artifacts that carry run ids without embedded reward state still require explicit line context.
 
-- **`extractPreferences(records, {rewardOf})` ignored the gate on the caller's hook**, so a custom
-  reward put a gamed run on the CHOSEN side of a DPO pair against its honest sibling — the trainer
-  taught to prefer the gaming trajectory. `rl/exporters.toGrpoRows` gated the SAME-NAMED hook and
-  `extractPreferences` did not; two hooks disagreeing was the defect, so there is now one
-  implementation, `trainingRewardOverride` in `rollout/reward.ts`, and both call it. The hook is
-  honoured and then gated, never gated instead of honoured: an ungated run keeps its custom number.
+- **Record-input preference and trainer overloads were removed.**
+  Their custom reward hooks and independent filtering rules created alternate paths around the canonical rollout checks.
+  Callers now mint once and every downstream transform reads the same reward and split fields.
 - **`extractVerifiableRewardsFromRecords` gated only its judge-fallback branch.** The deterministic
   branch — the highest-credibility channel the module emits, `determinism: 'deterministic'`,
   `confidence: 1`, and what the module header calls "the RL training signal" — returned the layer
@@ -248,19 +268,6 @@ empty options object gates — the opt-out is explicit and greppable.
   site carries a comment naming the hole.
 - `extractVerifiableReward(report)` — the `VerificationReport` signature — cannot gate and does not
   claim to: `realness` lives on the `RunRecord`, not on the report. Documented on the function.
-
-## [0.129.0] - 2026-07-25 - provider-neutral chat API
-
-### Changed
-
-- **Breaking:** benchmark, driver, executor, judge, completion-checker, tracing, and analyst APIs now accept `ChatClient`.
-- **Breaking:** removed the exported provider SDK type, direct provider SDK dependency, provider-specific retry fields, and custom completion-checker error receipt callback.
-- **Breaking:** removed scalar belief-state and off-policy `qHat` fields; contextual estimates require `qHatChosen` and `vHatTarget` together.
-- **Breaking:** removed `CampaignAggregates.totalCostUsd`, `CostLedgerEntry`, `VerifiableReward.breakdown`, and the fixed-prompt `JudgeFn` factories.
-- Paid calls read canonical `ChatResponse.content`, usage, model, duration, and cost.
-- Cost reservations derive provider retries from `ChatClient.maximumAttempts`; capped calls reject clients that do not declare a finite attempt count.
-- `createChatClient({ transport: 'custom' })` adapts external SDKs and transports without importing them into Agent Eval.
-- No aliases or fallback call paths preserve the removed API.
 
 ## [0.128.2] - 2026-07-25 - current core contract
 

@@ -198,10 +198,10 @@ describe('AnalystRegistry', () => {
     expect(skipB.per_analyst.map((s) => s.analyst_id).sort()).toEqual(['a', 'c'])
   })
 
-  it('attributes cost from finding metadata into per-analyst + total', async () => {
+  it('requires an explicit usage receipt for model cost', async () => {
     const reg = new AnalystRegistry()
     reg.register({
-      id: 'cost-attributor',
+      id: 'unmetered',
       description: '',
       inputKind: 'run-record',
       cost: { kind: 'llm' },
@@ -209,78 +209,20 @@ describe('AnalystRegistry', () => {
       async analyze() {
         return [
           makeFinding({
-            analyst_id: 'cost-attributor',
+            analyst_id: 'unmetered',
             area: 'x',
-            claim: 'a',
+            claim: 'metadata is not accounting',
             severity: 'info',
             confidence: 1,
             evidence_refs: [],
             metadata: { cost_usd: 0.04 },
-          }),
-          makeFinding({
-            analyst_id: 'cost-attributor',
-            area: 'x',
-            claim: 'b',
-            severity: 'info',
-            confidence: 1,
-            evidence_refs: [],
-            metadata: { cost_usd: 0.06 },
           }),
         ]
       },
     })
     const fakeRunRecord = { id: 'r' } as unknown as AnalystRunInputs['runRecord']
     const result = await reg.run('run-1', { runRecord: fakeRunRecord })
-    expect(result.per_analyst[0]?.cost_usd).toBeCloseTo(0.1, 5)
-    expect(result.total_cost_usd).toBeCloseTo(0.1, 5)
-  })
-
-  it('rejects a negative legacy cost without expanding the remaining budget', async () => {
-    const secondBudgets: Array<number | undefined> = []
-    const reg = new AnalystRegistry()
-    reg.register({
-      id: 'invalid-cost',
-      description: '',
-      inputKind: 'run-record',
-      cost: { kind: 'llm' },
-      version: '1',
-      async analyze() {
-        return [
-          makeFinding({
-            analyst_id: 'invalid-cost',
-            area: 'x',
-            claim: 'invalid cost',
-            severity: 'info',
-            confidence: 1,
-            evidence_refs: [],
-            metadata: { cost_usd: -3 },
-          }),
-        ]
-      },
-    })
-    reg.register({
-      id: 'second',
-      description: '',
-      inputKind: 'run-record',
-      cost: { kind: 'deterministic' },
-      version: '1',
-      async analyze(_input, ctx) {
-        secondBudgets.push(ctx.budgetUsd)
-        return []
-      },
-    })
-
-    const result = await reg.run(
-      'run-1',
-      { runRecord: { id: 'r' } as unknown as AnalystRunInputs['runRecord'] },
-      { budget: { totalUsd: 1, allocate: ({ remainingUsd }) => remainingUsd } },
-    )
-
-    expect(result.per_analyst[0]).toMatchObject({
-      status: 'failed',
-      error: { message: expect.stringContaining('metadata.cost_usd') },
-    })
-    expect(secondBudgets).toEqual([0])
+    expect(result.per_analyst[0]?.usage.cost).toEqual({ kind: 'uncaptured', usd: null })
     expect(result.total_cost_usd).toBe(0)
   })
 })
@@ -635,7 +577,6 @@ describe('AnalystHooks', () => {
       reason: 'AbortError: cancelled',
       findings_count: 0,
       latency_ms: 0,
-      cost_usd: 0,
       usage: {
         calls: 0,
         tokens: { input: 0, output: 0 },
@@ -1108,7 +1049,6 @@ describe('AnalystRegistry usage receipts', () => {
     expect(result.per_analyst[0]).toMatchObject({
       status: 'ok',
       findings_count: 0,
-      cost_usd: 0,
       usage: {
         calls: 2,
         tokens: { input: 120, output: 30, reasoning: 5, cached: 20, cacheWrite: 3 },
@@ -1142,8 +1082,7 @@ describe('AnalystRegistry usage receipts', () => {
 
     const result = await registry.run('run-1', { custom: { priced: 1 } })
 
-    expect(result.per_analyst[0]?.cost_usd).toBe(0.025)
-    expect(result.per_analyst[0]?.usage?.cost).toEqual({ kind: 'observed', usd: 0.025 })
+    expect(result.per_analyst[0]?.usage.cost).toEqual({ kind: 'observed', usd: 0.025 })
     expect(result.total_cost_usd).toBe(0.025)
     expect(result.total_cost_provenance).toEqual({ kind: 'observed', usd: 0.025 })
   })
@@ -1175,7 +1114,6 @@ describe('AnalystRegistry usage receipts', () => {
     const result = await registry.run('run-1', { custom: { partial: 1 } })
 
     expect(result.per_analyst[0]).toMatchObject({
-      cost_usd: 0.035,
       usage: {
         cost: { kind: 'uncaptured', usd: null },
         knownCostUsd: 0.035,

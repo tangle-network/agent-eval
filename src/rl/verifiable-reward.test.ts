@@ -68,7 +68,6 @@ describe('extractVerifiableRewardsFromRecords — the realness gate on the deter
     expect(signal?.reward?.value).toBe(0)
     expect(signal?.reward?.source).toBe('composite')
     expect(signal?.reward?.components).toEqual({ test: 0, typecheck: 0 })
-    expect(signal?.reward?.breakdown).toEqual({ test: 0, typecheck: 0 })
     expect(signal?.reward?.realnessGated).toBe(true)
   })
 

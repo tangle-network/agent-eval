@@ -15,7 +15,8 @@ RunRecord × trace   ─┐                          ┌─→ SFT chat JSONL   
 opencode sqlite     ─┤                          ├─→ reward rows           (toRewardRows)
 Claude Code jsonl   ─┼─→  tangle.rollout.v1 ────┼─→ Prime Intellect       (toVerifiersRolloutOutputs)
 domain backfills    ─┤     (RolloutLine)        ├─→ OpenAI RFT            (toRftItems)
-Harbor ATIF import  ─┘                          ├─→ HF dataset release    (buildHfDataset)
+Harbor ATIF import  ─┘                          ├─→ DPO / GRPO / PRM       (rl exporters)
+                                                ├─→ HF dataset release    (buildHfDataset)
                                                 └─→ Harbor ATIF export    (toHarborTrajectory)
 ```
 
@@ -43,7 +44,7 @@ Where each invariant lives:
 | never-screened ≠ screened-clean | `assertMinted` + `RealnessLabels` on every emitted row | `realness_gated: false` is the screen's VERDICT, so a producer with no screen was claiming "we looked and nothing fired". `realness_screened` separates the claims (`true` ran / `false` declared absent / `null` not stated) and travels beside `realness_gated` on every exported row shape. `assertMinted` refuses a positive reward carrying `realness_screened: false`; supervision-journal rows stay writable and readable, only promotion into training is closed |
 | a line-less artifact names ONE invocation | `admitUngatedByInvocation` | `PreferenceTriple` / `PrmTrainingTriple` / `StepReward` carry run ids, and many invocations share a `run_id`. References resolve against `rollout_id` first and fall back to `run_id` only when that run holds exactly one invocation; an ambiguous reference DROPS the item and announces the count, a missing one throws. Keying on `run_id` alone was last-wins, which made the gate depend on array order |
 | no hand-rolled score derivation | `src/rollout/score-derivation-guard.ts`, asserted by `reward-invariant.test.ts` | an AST walk over `src/**` flags every READ of `outcome.holdoutScore` / `outcome.searchScore` outside a counted allowlist. It replaced a line regex that seven ordinary reformattings walked past |
-| split fail-closed | `isTrainableSplit` at every training sink | only `search` / `train` ship; `dev` / `holdout` / `canary` never do, including at reward 1 |
+| split fail-closed | `isTrainableSplit` at every training sink | only `search` ships by default; held-out data requires explicit consent, while `dev` and `canary` never train |
 | unlabeled ≠ zero | schema | `outcome.reward: null` is a labeled gap; reward-row and SFT exporters drop null, they never coerce it to 0 |
 | capture gap is a finding | mint | records without spans become `messages: []` lines with `provenance.gap` AND are listed in `missingTraces` |
 | scrub | release pipeline | `scrubLines` applies the 9 deterministic rules to every string before publication |
@@ -59,6 +60,7 @@ Where each invariant lives:
 | harness-store intake | `src/rollout/readers/` | `openOpencodeDb` + `readOpencodeSessionMessages` (opencode sqlite), `findClaudeTranscripts` + `readClaudeTranscript` (Claude Code project jsonl) |
 | interchange | `src/rollout/interchange/harbor.ts` | `toHarborTrajectory` / `toHarborTrajectories` / `fromHarborTrajectory` / `relabelImportedSplit` (Harbor ATIF-v1.7); all root-exported as well as on the `/rollout` subpath |
 | exporters | `src/rollout/exporters.ts` | `toSftRows`, `toRewardRows`, `toVerifiersRolloutOutputs` (Prime Intellect), `toRftItems` (OpenAI RFT), `toJsonl` |
+| RL exporters | `src/rl/exporters.ts` | `toDpoRows`, `toGrpoRows`, `toSftRows`, `toPrmRows`; all training inputs are `MintedRolloutLine[]` or line-referenced artifacts with explicit line context |
 | release pipeline | `src/rollout/release/` | `scrubLines` (9 deterministic rules), `buildDatasetCard`, `buildHfDataset`, CLI `agent-eval rollout-release … [--push org/name]` |
 
 ## Schema decision table

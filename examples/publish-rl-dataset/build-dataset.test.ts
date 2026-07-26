@@ -7,7 +7,6 @@ import {
   collectTrajectoryText,
   parseArgs,
   readNdjson,
-  selectTrainingRecords,
   type WithText,
 } from './build-dataset'
 
@@ -55,22 +54,6 @@ function record(
 describe('publish RL dataset CLI', () => {
   it('rejects DPO because the CLI has no preference input', () => {
     expect(() => parseArgs(['--formats', 'dpo'])).toThrow(/requires preference triples/)
-  })
-
-  it('requires an explicit flag before selecting held-out runs', () => {
-    const runs = [
-      record('search'),
-      record('dev', { splitTag: 'dev' }),
-      record('holdout', { splitTag: 'holdout' }),
-      record('zero', { score: 0 }),
-      record('failed', { terminalOutcome: 'failed' }),
-    ]
-
-    expect(selectTrainingRecords(runs, false).map((run) => run.runId)).toEqual(['search'])
-    expect(selectTrainingRecords(runs, true).map((run) => run.runId)).toEqual([
-      'search',
-      'holdout',
-    ])
   })
 
   it('validates every input line as a RunRecord', async () => {

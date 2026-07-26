@@ -37,7 +37,6 @@ export type {
   JudgeDimension,
   JudgeScore,
   MutableSurface,
-  OptimizationProposer,
   OptimizerConfig,
   Scenario,
   SessionScript,

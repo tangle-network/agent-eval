@@ -55,7 +55,7 @@ describe('callLlm raw capture', () => {
           baseUrl: 'https://api.openai.com/v1',
           apiKey: 'sk-test',
           rawSink: sink,
-          maxRetries: 2,
+          maximumAttempts: 2,
           fetch: makeFetchSequence([
             { status: 503, body: '<<gateway>>' },
             { status: 200, body: SUCCESS_BODY },
@@ -85,7 +85,7 @@ describe('callLlm raw capture', () => {
           baseUrl: 'https://api.openai.com/v1',
           apiKey: 'sk-test',
           rawSink: sink,
-          maxRetries: 1,
+          maximumAttempts: 1,
           fetch: makeFetchSequence([{ status: 200, body: 'not json' }]),
         },
       ),

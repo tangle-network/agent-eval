@@ -35,7 +35,7 @@ export interface OtlpFlatLine {
 }
 
 export interface FlattenOtlpOptions {
-  /** `'openinference'` (default) mirrors legacy per-span attributes into the
+  /** `'openinference'` (default) maps source per-span attributes into the
    *  canonical OpenInference vocabulary the analyst readers consume. `'none'`
    *  passes attributes through untouched. */
   attributeVocabulary?: 'openinference' | 'none'

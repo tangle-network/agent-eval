@@ -555,7 +555,7 @@ export function createLlmCorrectnessChecker(
           maximumCharge:
             chat.maximumAttempts === undefined
               ? undefined
-              : maximumChargeForLlmRequest(request, { maxRetries: chat.maximumAttempts }),
+              : maximumChargeForLlmRequest(request, { maximumAttempts: chat.maximumAttempts }),
           tags: {
             ...opts.costTags,
             requirementId: requirement.reqId,

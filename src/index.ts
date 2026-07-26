@@ -1,7 +1,7 @@
 /**
  * @packageDocumentation
  *
- * Root barrel — broad compatibility surface.
+ * Root barrel for the broad public API.
  *
  * Reach for focused subpaths when they fit: `/contract`, `/campaign`,
  * `/analyst`, `/traces`, `/reporting`, `/rl`, `/prm`, `/meta-eval`,
@@ -67,7 +67,6 @@ export {
   type DefaultAnalystRegistryOptions,
 } from './analyst/default-registry'
 export type {
-  CanonicalRawAnalystFinding,
   RawAnalystEvidence,
   RawAnalystFinding,
 } from './analyst/finding-signature'
@@ -402,7 +401,6 @@ export {
   type RolloutSplit,
   type RolloutStep,
   relabelImportedSplit,
-  rolloutReward,
   type ScoreOrigin,
   type ScorePreference,
   type SftExportOptions,

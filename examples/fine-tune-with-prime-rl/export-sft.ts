@@ -1,6 +1,6 @@
 #!/usr/bin/env tsx
 /**
- * Export agent-eval RunRecord[] → prime-rl SFT JSONL.
+ * Export agent-eval run records through canonical rollout lines to prime-rl SFT JSONL.
  *
  * Reads `--runs <ndjson-file>` of `RunRecord`s, filters to high-quality
  * completions, projects through `toSftRows` into the messages-list format
@@ -18,15 +18,17 @@
  * Adapt freely.
  * The essential pieces are:
  *   1. Reading `RunRecord`s
- *   2. `toSftRows(...)` from `@tangle-network/agent-eval/rl`
- *   3. `toSftJsonl(...)` (same)
+ *   2. Minting them with `mintRolloutRows(...)`
+ *   3. `toSftRows(...)` and `toSftJsonl(...)`
  *   4. Writing a templated TOML
  */
 
 import { promises as fs } from 'node:fs'
 import { resolve as resolvePath } from 'node:path'
 import { toSftJsonl, toSftRows } from '../../src/rl/exporters'
+import { mintRolloutRows } from '../../src/rollout/mint'
 import { type RunRecord, runTaskScore } from '../../src/run-record'
+import { InMemoryTraceStore } from '../../src/trace/store'
 
 interface CliArgs {
   runs: string
@@ -128,23 +130,25 @@ async function main(): Promise<void> {
     process.exit(1)
   }
 
-  // Project to SFT rows. The lookups here read prompt/completion text out
-  // of `outcome.raw`. Real consumers usually store the text in a
-  // `TraceStore` and recover it via `iterateRawCalls`; that's a 5-line
-  // change to the lookups below.
-  const rows = await toSftRows(filtered, {
+  const byId = new Map(filtered.map((run) => [run.runId, run]))
+  const { rows: rolloutLines } = await mintRolloutRows(filtered, new InMemoryTraceStore())
+
+  // The lookups read prompt/completion text from the records. Production
+  // callers can resolve the same ids from their trace store.
+  const rows = await toSftRows(rolloutLines, {
     promptOf: (runId) => {
-      const run = filtered.find((r) => r.runId === runId)!
+      const run = byId.get(runId)!
       const text = run.outcome.raw[args.promptKey]
       return typeof text === 'string' ? text : `<no prompt for ${runId}>`
     },
     completionOf: (runId) => {
-      const run = filtered.find((r) => r.runId === runId)!
+      const run = byId.get(runId)!
       const text = run.outcome.raw[args.completionKey]
       return typeof text === 'string' ? text : `<no completion for ${runId}>`
     },
     systemOf: args.systemKey
-      ? (run) => {
+      ? (line) => {
+          const run = byId.get(line.run_id)!
           const text = run.outcome.raw[args.systemKey!]
           return typeof text === 'string' ? text : null
         }

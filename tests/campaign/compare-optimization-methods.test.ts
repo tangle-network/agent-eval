@@ -1069,19 +1069,4 @@ describe('compareOptimizationMethods', () => {
       }),
     ).rejects.toThrow(/testScenarios contains duplicate scenario id/)
   })
-
-  it('fails closed on the ambiguous legacy holdoutScenarios contract', async () => {
-    const legacy = {
-      methods: [fixedMethod('d', 'whatever', 1)],
-      baselineSurface: 'b',
-      holdoutScenarios: TEST,
-      dispatchWithSurface: async (surface: string) => ({ text: surface }),
-      judges: [judge],
-      runDir,
-      expectUsage: 'off',
-    } as unknown as CompareOptimizationMethodsOptions<S, A>
-    await expect(compareOptimizationMethods(legacy)).rejects.toThrow(
-      /holdoutScenarios is ambiguous/,
-    )
-  })
 })

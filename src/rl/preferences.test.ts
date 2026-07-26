@@ -5,13 +5,9 @@ import type { RunRecord } from '../run-record'
 import { InMemoryTraceStore } from '../trace/store'
 import { extractPreferences, toTRLFormat } from './preferences'
 
-// Pins the preference-extraction retype: the `RolloutLine[]` path and the
-// deprecated `RunRecord[]` path run the same pairing code, and both order the
-// pair on the GATED score. Ungated, a gamed run with an inflated score becomes
-// the `chosen` side and DPO learns to prefer the gaming trajectory over its
-// honest sibling — the exact inversion this test exists to catch. The record
-// path additionally applies the shared training-row eligibility rule, so a
-// gamed run is dropped outright there rather than sunk to `rejected`.
+// Preferences are ordered only from validated minted rewards. Ungated, a gamed
+// run with an inflated score becomes the chosen side and DPO learns to prefer
+// the gaming trajectory over its honest sibling.
 
 function rec(args: {
   runId: string
@@ -50,22 +46,20 @@ async function mint(records: RunRecord[]): Promise<MintedRolloutLine[]> {
   return rows
 }
 
-describe('extractPreferences — lines vs deprecated records', () => {
+describe('extractPreferences', () => {
   const records = [
     rec({ runId: 'a-0', candidateId: 'a', scenarioId: 's', seed: 0, score: 0.5 }),
     rec({ runId: 'b-0', candidateId: 'b', scenarioId: 's', seed: 0, score: 0.8 }),
   ]
 
-  it('produces the same report from lines and from records (ungated)', async () => {
-    const fromLines = extractPreferences(await mint(records), {})
-    const fromRecords = extractPreferences(records, {})
-    expect(fromLines.pairs).toEqual(fromRecords.pairs)
-    expect(fromRecords.pairs).toHaveLength(1)
-    expect(fromRecords.pairs[0]?.chosenVariantId).toBe('b')
-    expect(fromRecords.pairs[0]?.seed).toBe(0)
+  it('produces a preference from matching scored lines', async () => {
+    const report = extractPreferences(await mint(records))
+    expect(report.pairs).toHaveLength(1)
+    expect(report.pairs[0]?.chosenVariantId).toBe('b')
+    expect(report.pairs[0]?.seed).toBe(0)
   })
 
-  it('sinks a realness-gated line to `rejected` on the line path', async () => {
+  it('sinks a realness-gated line to `rejected`', async () => {
     const gamed = [
       rec({ runId: 'honest', candidateId: 'a', scenarioId: 's', seed: 0, score: 0.6 }),
       rec({ runId: 'gamed', candidateId: 'b', scenarioId: 's', seed: 0, score: 1, gated: true }),
@@ -74,63 +68,6 @@ describe('extractPreferences — lines vs deprecated records', () => {
     expect(fromLines.pairs[0]?.chosenRunId).toBe('honest')
     expect(fromLines.pairs[0]?.rejectedRunId).toBe('gamed')
     expect(fromLines.pairs[0]?.scores).toEqual({ chosen: 0.6, rejected: 0 })
-  })
-
-  it('drops a realness-gated run outright on the record path — never the chosen side', () => {
-    const gamed = [
-      rec({ runId: 'honest', candidateId: 'a', scenarioId: 's', seed: 0, score: 0.6 }),
-      rec({ runId: 'gamed', candidateId: 'b', scenarioId: 's', seed: 0, score: 1, gated: true }),
-    ]
-    const fromRecords = extractPreferences(gamed, {})
-    // Eligibility removes the gamed run before pairing; its honest sibling is
-    // then a singleton, so the claimed 1.0 bought the gamed run nothing.
-    expect(fromRecords.pairs).toHaveLength(0)
-    expect(fromRecords.cellsSingleton).toBe(1)
-  })
-
-  it('gates a custom rewardOf, so a gamed run cannot become the CHOSEN side', () => {
-    // The hole this pins: `rewardOf` used to be called and its number used
-    // verbatim, so a caller driving preferences off a raw signal handed DPO a
-    // pair whose chosen completion came from the run the gate had flagged.
-    // Identical to the same-named hook on `toGrpoRows`, which already gated.
-    const gamed = [
-      rec({ runId: 'honest', candidateId: 'a', scenarioId: 's', seed: 0, score: 0.9 }),
-      rec({ runId: 'gamed', candidateId: 'b', scenarioId: 's', seed: 0, score: 1, gated: true }),
-    ]
-    const report = extractPreferences(gamed, {
-      rewardOf: (r) => r.outcome.searchScore ?? null,
-    })
-    // `trainingRewardOverride` forces the gamed hook value to 0, and the
-    // eligibility rule then drops the run entirely — it appears on NO side.
-    expect(report.pairs).toHaveLength(0)
-    expect(report.cellsSingleton).toBe(1)
-  })
-
-  it('keeps a custom rewardOf working on an ungated run (the gate is on top, not instead)', () => {
-    const runs = [
-      rec({ runId: 'lo', candidateId: 'a', scenarioId: 's', seed: 0, score: 0.9 }),
-      rec({ runId: 'hi', candidateId: 'b', scenarioId: 's', seed: 0, score: 0.1 }),
-    ]
-    runs[0]!.outcome.raw.bonus = 0.1
-    runs[1]!.outcome.raw.bonus = 0.9
-    const report = extractPreferences(runs, {
-      rewardOf: (r) => (r.outcome.raw.bonus as number | undefined) ?? null,
-    })
-    // Ordered by the custom signal, not the headline score.
-    expect(report.pairs[0]?.chosenRunId).toBe('hi')
-    expect(report.pairs[0]?.scores).toEqual({ chosen: 0.9, rejected: 0.1 })
-  })
-
-  it('drops a run whose custom rewardOf returns null or a non-finite number', () => {
-    const runs = [
-      rec({ runId: 'ok', candidateId: 'a', scenarioId: 's', seed: 0, score: 0.9 }),
-      rec({ runId: 'nan', candidateId: 'b', scenarioId: 's', seed: 0, score: 0.1 }),
-    ]
-    const report = extractPreferences(runs, {
-      rewardOf: (r) => (r.runId === 'nan' ? Number.NaN : 0.9),
-    })
-    expect(report.pairs).toHaveLength(0)
-    expect(report.cellsSingleton).toBe(1)
   })
 
   it('reports lines it cannot pair because they carry no candidate_id', async () => {
@@ -164,12 +101,13 @@ describe('extractPreferences — lines vs deprecated records', () => {
   it('toTRLFormat rows carry completion TEXT, never prompt hashes', async () => {
     // TRL's DPODataset contract: chosen/rejected are the two completions. A
     // trainer fed hashes would optimize the policy toward emitting hex digests.
-    const { pairs } = extractPreferences(records, {})
+    const lines = await mint(records)
+    const { pairs } = extractPreferences(lines)
     const lookups = {
       promptOf: () => 'shared prompt text',
       completionOf: (runId: string) => `completion-of-${runId}`,
     }
-    const rows = await toTRLFormat(pairs, lookups, { lines: await mint(records) })
+    const rows = await toTRLFormat(pairs, lookups, { lines })
     expect(rows).toEqual([
       {
         prompt: 'shared prompt text',
@@ -183,12 +121,13 @@ describe('extractPreferences — lines vs deprecated records', () => {
   })
 
   it('toTRLFormat fails loud when the two sides resolve to different prompts', async () => {
-    const { pairs } = extractPreferences(records, {})
+    const lines = await mint(records)
+    const { pairs } = extractPreferences(lines)
     const lookups = {
       promptOf: (runId: string) => `prompt-of-${runId}`, // lookup bug: differs per side
       completionOf: (runId: string) => `completion-of-${runId}`,
     }
-    await expect(toTRLFormat(pairs, lookups, { lines: await mint(records) })).rejects.toThrow(
+    await expect(toTRLFormat(pairs, lookups, { lines })).rejects.toThrow(
       /resolves to different prompts/,
     )
   })

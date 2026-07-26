@@ -395,7 +395,7 @@ export async function decideNextUserTurn(
     maximumCharge:
       chat.maximumAttempts === undefined
         ? undefined
-        : maximumChargeForLlmRequest(request, { maxRetries: chat.maximumAttempts }),
+        : maximumChargeForLlmRequest(request, { maximumAttempts: chat.maximumAttempts }),
     execute: (signal, callId) => chat.chat(request, { signal, idempotencyKey: callId }),
     receipt: costReceiptFromLlm,
     receiptFromError: costReceiptFromLlmError,

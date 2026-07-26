@@ -461,7 +461,7 @@ describe('analyzeRuns — execution facts', () => {
     expect(execution.modelCalls.reportingRuns).toBe(0)
   })
 
-  it('does not relabel generic span or process counters as execution errors', () => {
+  it('reads only the canonical execution-error counter', () => {
     const run = makeRun({
       id: 'separate-error-kinds',
       candidate: 'c',
@@ -472,6 +472,7 @@ describe('analyzeRuns — execution facts', () => {
     run.outcome.raw.process_error_count = 1
     run.outcome.raw.turns_aborted = 1
     run.outcome.raw.runtime_errors = 1
+    run.outcome.raw.tool_errors = 2
 
     const { execution } = summarizeExecution({ runs: [run] })
 

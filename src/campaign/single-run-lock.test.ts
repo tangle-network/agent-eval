@@ -112,7 +112,10 @@ describe('acquireSingleRunLock', () => {
 
   it('throws naming a live holder', () => {
     const lockPath = join(dir(), 'gym.lock')
-    writeFileSync(lockPath, String(process.pid)) // this test process IS the live holder
+    writeFileSync(
+      lockPath,
+      JSON.stringify({ host: hostname(), nonce: 'live-holder', pid: process.pid }),
+    )
     expect(() =>
       acquireSingleRunLock({ lockPath, pid: process.pid + 1, releaseOnExit: false }),
     ).toThrow(/held by live pid/)
@@ -130,7 +133,10 @@ describe('acquireSingleRunLock', () => {
 
   it('reclaims a stale lock whose holder pid is gone', () => {
     const lockPath = join(dir(), 'gym.lock')
-    writeFileSync(lockPath, '999999999') // beyond pid_max: never a live process
+    writeFileSync(
+      lockPath,
+      JSON.stringify({ host: hostname(), nonce: 'stale-holder', pid: 999_999_999 }),
+    )
     const lock = acquireSingleRunLock({ lockPath, releaseOnExit: false })
     expect(JSON.parse(readFileSync(lockPath, 'utf8'))).toMatchObject({ pid: process.pid })
     lock.release()
@@ -138,7 +144,8 @@ describe('acquireSingleRunLock', () => {
 
   it('treats a permission-denied owner probe as live', () => {
     const lockPath = join(dir(), 'gym.lock')
-    writeFileSync(lockPath, '12345')
+    const owner = { host: hostname(), nonce: 'permission-denied-holder', pid: 12345 }
+    writeFileSync(lockPath, JSON.stringify(owner))
     const kill = vi.spyOn(process, 'kill').mockImplementation(() => {
       throw Object.assign(new Error('denied'), { code: 'EPERM' })
     })
@@ -146,7 +153,7 @@ describe('acquireSingleRunLock', () => {
       expect(() => acquireSingleRunLock({ lockPath, releaseOnExit: false })).toThrow(
         /held by live pid 12345/,
       )
-      expect(readFileSync(lockPath, 'utf8')).toBe('12345')
+      expect(JSON.parse(readFileSync(lockPath, 'utf8'))).toEqual(owner)
     } finally {
       kill.mockRestore()
     }
@@ -166,7 +173,8 @@ describe('acquireSingleRunLock', () => {
     const d = dir()
     const mine = join(d, 'mine.lock')
     const theirs = join(d, 'theirs.lock')
-    writeFileSync(theirs, String(process.pid))
+    const owner = { host: hostname(), nonce: 'other-runner', pid: process.pid }
+    writeFileSync(theirs, JSON.stringify(owner))
     expect(() =>
       acquireSingleRunLock({
         lockPath: mine,
@@ -176,15 +184,16 @@ describe('acquireSingleRunLock', () => {
       }),
     ).toThrow(/theirs\.lock/)
     // their lock untouched
-    expect(readFileSync(theirs, 'utf8')).toBe(String(process.pid))
+    expect(JSON.parse(readFileSync(theirs, 'utf8'))).toEqual(owner)
   })
 
   it('does not release a lock another process re-acquired', () => {
     const lockPath = join(dir(), 'gym.lock')
     const lock = acquireSingleRunLock({ lockPath, releaseOnExit: false })
-    writeFileSync(lockPath, '999999998') // someone else took it over
+    const owner = { host: hostname(), nonce: 'replacement-owner', pid: 999_999_998 }
+    writeFileSync(lockPath, JSON.stringify(owner))
     lock.release()
-    expect(readFileSync(lockPath, 'utf8')).toBe('999999998')
+    expect(JSON.parse(readFileSync(lockPath, 'utf8'))).toEqual(owner)
   })
 
   it('admits exactly one of 32 synchronized processes', async () => {
@@ -212,6 +221,12 @@ describe('acquireSingleRunLock', () => {
     writeFileSync(lockPath, 'not-a-pid')
     expect(() => acquireSingleRunLock({ lockPath, releaseOnExit: false })).toThrow(/invalid owner/)
     expect(readFileSync(lockPath, 'utf8')).toBe('not-a-pid')
+  })
+
+  it('rejects the removed plain-pid owner format', () => {
+    const lockPath = join(dir(), 'gym.lock')
+    writeFileSync(lockPath, String(process.pid))
+    expect(() => acquireSingleRunLock({ lockPath, releaseOnExit: false })).toThrow(/invalid owner/)
   })
 
   it('rejects invalid owner pids', () => {

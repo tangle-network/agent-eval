@@ -345,13 +345,7 @@ function computeExecutionInsight(runs: RunRecord[], bins: number): ExecutionInsi
 }
 
 function reportedExecutionErrorEvents(run: RunRecord): number | undefined {
-  const canonical = nonNegativeCountRaw(run, 'execution_error_count')
-  if (canonical !== undefined) return canonical
-
-  // Legacy code-agent rows used `tool_errors` for the same event class.
-  // Generic span, process, abort, and runtime counters are not equivalent.
-  const toolErrors = nonNegativeCountRaw(run, 'tool_errors')
-  return toolErrors
+  return nonNegativeCountRaw(run, 'execution_error_count')
 }
 
 function nonNegativeCountRaw(run: RunRecord, key: string): number | undefined {

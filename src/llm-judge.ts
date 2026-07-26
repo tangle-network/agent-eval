@@ -192,7 +192,7 @@ export function llmJudge<TArtifact = unknown, TScenario extends Scenario = Scena
           opts.chat.maximumAttempts === undefined
             ? undefined
             : maximumChargeForLlmRequest(request, {
-                maxRetries: opts.chat.maximumAttempts,
+                maximumAttempts: opts.chat.maximumAttempts,
               }),
         tags: { ...costTags, scenarioId: scenario.id },
         signal,

@@ -24,10 +24,8 @@ import {
   maximumChargeForLlmRequest,
 } from '../llm-client'
 import {
-  applyLegacyRawFindingCallback,
-  type CanonicalRawAnalystFinding,
   evidenceRefsFromRawFinding,
-  parseCanonicalRawFinding,
+  parseRawFinding,
   RAW_FINDING_SCHEMA_PROMPT,
   type RawAnalystFinding,
 } from './finding-signature'
@@ -53,8 +51,6 @@ export interface StructureFindingsOptions {
   maxReasks?: number
   /** Apply the caller's normal finding rules before a recovered row is lifted. */
   processRow?: (row: RawAnalystFinding) => RawAnalystFinding | null
-  /** Apply canonical multi-citation rules after any original callback. */
-  processCanonicalRow?: (row: CanonicalRawAnalystFinding) => CanonicalRawAnalystFinding | null
   /** Provenance copied onto every recovered finding. */
   findingMetadata?: Record<string, unknown>
   /** Test seam: inject a fetch (no network in unit tests). */
@@ -78,15 +74,11 @@ function buildRows(raw: unknown, opts: StructureFindingsOptions): AnalystFinding
   const rows = coerceToFindingRows(raw)
   const out: AnalystFinding[] = []
   for (const row of rows) {
-    const parsed = parseCanonicalRawFinding(row)
+    const parsed = parseRawFinding(row)
     if (!parsed) continue
-    const callbackProcessed = opts.processRow
-      ? applyLegacyRawFindingCallback(parsed, opts.processRow)
-      : parsed
-    if (!callbackProcessed) continue
-    const processed = opts.processCanonicalRow
-      ? opts.processCanonicalRow(callbackProcessed)
-      : callbackProcessed
+    const callbackResult = opts.processRow ? opts.processRow(parsed) : parsed
+    if (!callbackResult) continue
+    const processed = parseRawFinding(callbackResult)
     if (!processed) continue
     out.push(
       makeFinding({

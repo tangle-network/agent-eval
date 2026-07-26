@@ -29,7 +29,7 @@ export interface CampaignStorage {
   write(path: string, content: string | Uint8Array): void
   /** Append only when the current UTF-8 byte length matches `expectedBytes`.
    * Returns the new length, or undefined when another writer won. */
-  append?(path: string, content: string, expectedBytes: number): number | undefined
+  append(path: string, content: string, expectedBytes: number): number | undefined
 }
 
 /** Node-filesystem storage — the default. Lazily requires `node:fs` so the
@@ -141,9 +141,6 @@ export function createRunCostLedger(input: {
         const expectedBytes = Number(expectedRevision)
         if (!Number.isSafeInteger(expectedBytes) || expectedBytes < 0) {
           throw new Error(`CostLedger: invalid storage revision '${expectedRevision}'`)
-        }
-        if (!input.storage.append) {
-          throw new Error('CostLedger: CampaignStorage.append is required for paid calls')
         }
         const next = input.storage.append(path, event, expectedBytes)
         return next === undefined ? undefined : String(next)
