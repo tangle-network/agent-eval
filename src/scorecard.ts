@@ -82,6 +82,10 @@ function median(xs: number[]): number {
   return sorted.length % 2 === 0 ? (sorted[mid - 1]! + sorted[mid]!) / 2 : sorted[mid]!
 }
 
+// Cells rank on `runTaskScore` — RAW on purpose: a scorecard reports the
+// measurement, and hiding a gamed run's score behind a 0 would make the gaming
+// invisible in the report.
+
 /** Mean of each judge dimension across the runs that reported one. */
 function aggregatePerDimension(runs: RunRecord[]): Record<string, number> | undefined {
   const sums = new Map<string, { total: number; count: number }>()

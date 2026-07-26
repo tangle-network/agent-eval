@@ -15,12 +15,22 @@
  * format. The renderers token-identity step (DeepSeek/Kimi/Qwen tokenization
  * with per-token loss masks) is a downstream Python stage that consumes the
  * `messages`/`completions` this bundle emits.
+ *
+ * Input discipline: the bundle is built from `MintedRolloutLine[]`. The datasheet's
+ * reward distribution ships INSIDE the published artifact, so it has to be
+ * derived from exactly the same gated number as the rows it describes —
+ * otherwise the provenance a buyer checks first is a lie. Taking the same
+ * gated input as the exporters is what guarantees that.
  */
 
+import { trainingRewardOverride, trainingScore } from '../rollout/reward'
+import type { MintedRolloutLine, RolloutSplit } from '../rollout/schema'
 import { type RunRecord, type RunSplitTag, runTaskScore } from '../run-record'
 import {
   type DpoLookups,
+  type GrpoLineLookups,
   type GrpoLookups,
+  type SftLineLookups,
   type SftLookups,
   toDpoJsonl,
   toDpoRows,
@@ -30,6 +40,7 @@ import {
   toSftRows,
 } from './exporters'
 import type { PreferenceTriple } from './preferences'
+import { isRolloutLineInput, mintLinesFromRecords, trainableLineReward } from './rollout-input'
 
 export type RewardKind = 'deterministic' | 'probabilistic' | 'mixed'
 const DATASET_FORMATS = ['grpo', 'sft', 'dpo'] as const
@@ -105,6 +116,12 @@ export interface RlDatasetStats {
   scoredRecords: number
   /** Record count per split — a publishable dataset must declare its holdout. */
   splits: Record<RunSplitTag, number>
+  /**
+   * Exact per-split counts, including the rollout-only splits a RunRecord
+   * cannot express: `splits` has no bucket for `'canary'` at all, so a canary
+   * line would vanish from the published split table without this.
+   */
+  rolloutSplits: Partial<Record<RolloutSplit, number>>
   reward: RewardStats
   /** Distinct snapshot-pinned models that produced the trajectories. */
   models: string[]
@@ -113,6 +130,12 @@ export interface RlDatasetStats {
   commitShas: string[]
   totalTokens: { input: number; output: number }
   totalCostUsd: number
+  /**
+   * Rollouts whose USD cost was never captured (`cost.usd === null`). When
+   * non-zero, `totalCostUsd` is a floor, not the bill — a published dataset
+   * must not present an unbilled run as a $0 one.
+   */
+  rolloutsWithoutCost: number
 }
 
 export interface RlDatasetManifest extends RlDatasetConfig {
@@ -127,16 +150,33 @@ export interface RlDatasetBundle {
   files: Record<string, string>
 }
 
-function reward(r: RunRecord, rewardOf?: GrpoLookups['rewardOf']): number | null {
-  const value = rewardOf ? rewardOf(r) : (runTaskScore(r) ?? null)
-  if (value !== null && !Number.isFinite(value)) {
-    throw new Error(`buildRlDataset: reward for run "${r.runId}" must be finite`)
-  }
-  return value
+function distinct(xs: Array<string | null | undefined>): string[] {
+  return [...new Set(xs.filter((x): x is string => typeof x === 'string' && x.length > 0))].sort()
 }
 
-function distinct(xs: string[]): string[] {
-  return [...new Set(xs)].sort()
+/**
+ * The reward a record contributes to the published reward distribution. The
+ * datasheet ships INSIDE the artifact, so it is derived from the same GATED
+ * number as the rows it describes: the caller's hook is honoured and then
+ * gated (`trainingRewardOverride`), the default is `trainingScore` — exactly
+ * what the exporters write.
+ */
+function recordReward(r: RunRecord, rewardOf?: GrpoLookups['rewardOf']): number | null {
+  if (rewardOf) {
+    const value = trainingRewardOverride(r, rewardOf(r))
+    if (value !== null && !Number.isFinite(value)) {
+      throw new Error(`buildRlDataset: reward for run "${r.runId}" must be finite`)
+    }
+    return value
+  }
+  const v = trainingScore(r)
+  return typeof v === 'number' && Number.isFinite(v) ? v : null
+}
+
+const RUN_SPLIT_OF: Partial<Record<RolloutSplit, RunSplitTag>> = {
+  search: 'search',
+  dev: 'dev',
+  holdout: 'holdout',
 }
 
 function computeRewardStats(values: number[]): RewardStats {
@@ -152,61 +192,129 @@ function computeRewardStats(values: number[]): RewardStats {
   return { n, mean, median, min: sorted[0]!, max: sorted[n - 1]!, std: Math.sqrt(variance) }
 }
 
-function computeStats(records: RunRecord[], rewardOf?: GrpoLookups['rewardOf']): RlDatasetStats {
+function computeStatsFromLines(lines: MintedRolloutLine[]): RlDatasetStats {
   const splits: Record<RunSplitTag, number> = { search: 0, dev: 0, holdout: 0 }
+  const rolloutSplits: Partial<Record<RolloutSplit, number>> = {}
   let inTok = 0
   let outTok = 0
   let cost = 0
+  let rolloutsWithoutCost = 0
+  const rewards: number[] = []
+  for (const line of lines) {
+    const split = line.task.split
+    rolloutSplits[split] = (rolloutSplits[split] ?? 0) + 1
+    const runSplit = RUN_SPLIT_OF[split]
+    if (runSplit !== undefined) splits[runSplit] += 1
+    inTok += line.cost.tokens_in ?? 0
+    outTok += line.cost.tokens_out ?? 0
+    if (line.cost.usd === null) rolloutsWithoutCost++
+    else cost += line.cost.usd
+    const rw = trainableLineReward(line)
+    if (rw !== null) rewards.push(rw)
+  }
+  return {
+    records: lines.length,
+    scoredRecords: rewards.length,
+    splits,
+    rolloutSplits,
+    reward: computeRewardStats(rewards),
+    models: distinct(lines.map((l) => l.policy.model)),
+    promptHashes: distinct(lines.map((l) => l.policy.prompt_hash)),
+    commitShas: distinct(lines.map((l) => l.policy.profile_commit)),
+    totalTokens: { input: inTok, output: outTok },
+    totalCostUsd: cost,
+    rolloutsWithoutCost,
+  }
+}
+
+function computeStatsFromRecords(
+  records: RunRecord[],
+  rewardOf?: GrpoLookups['rewardOf'],
+): RlDatasetStats {
+  const splits: Record<RunSplitTag, number> = { search: 0, dev: 0, holdout: 0 }
+  const rolloutSplits: Partial<Record<RolloutSplit, number>> = {}
+  let inTok = 0
+  let outTok = 0
+  let cost = 0
+  let rolloutsWithoutCost = 0
   const rewards: number[] = []
   for (const r of records) {
     splits[r.splitTag] = (splits[r.splitTag] ?? 0) + 1
+    rolloutSplits[r.splitTag] = (rolloutSplits[r.splitTag] ?? 0) + 1
     inTok += r.tokenUsage.input
     outTok += r.tokenUsage.output
-    cost += r.costUsd ?? 0
-    const rw = reward(r, rewardOf)
+    // An uncaptured bill is a labeled gap on the card, never a $0 run.
+    if (r.costUsd === null) rolloutsWithoutCost++
+    else cost += r.costUsd
+    const rw = recordReward(r, rewardOf)
     if (rw !== null) rewards.push(rw)
   }
   return {
     records: records.length,
     scoredRecords: rewards.length,
     splits,
+    rolloutSplits,
     reward: computeRewardStats(rewards),
     models: distinct(records.map((r) => r.model)),
     promptHashes: distinct(records.map((r) => r.promptHash)),
     commitShas: distinct(records.map((r) => r.commitSha)),
     totalTokens: { input: inTok, output: outTok },
     totalCostUsd: cost,
+    rolloutsWithoutCost,
   }
 }
 
 /**
- * Package graded `RunRecord[]` into a publishable RL dataset bundle: the
+ * Package graded rollout lines into a publishable RL dataset bundle: the
  * trainer-format JSONL files + a manifest + a datasheet. DPO requires
  * pre-extracted preference triples (pass `preferences`); GRPO/SFT derive from
- * the records directly via the supplied lookups. Throws on an empty corpus —
+ * the lines directly via the supplied lookups. Throws on an empty corpus —
  * an empty dataset must never be published.
+ */
+export async function buildRlDataset(
+  lines: MintedRolloutLine[],
+  lookups: GrpoLineLookups & SftLineLookups,
+  config: RlDatasetConfig,
+  preferences?: { triples: PreferenceTriple[]; lookups: DpoLookups },
+): Promise<RlDatasetBundle>
+/**
+ * @deprecated Pass `RolloutLine[]` (mint with `mintRolloutRows`). This
+ * signature mints internally so the realness gate reaches both the rows and the
+ * datasheet's reward distribution.
  */
 export async function buildRlDataset(
   records: RunRecord[],
   lookups: GrpoLookups & SftLookups,
   config: RlDatasetConfig,
   preferences?: { triples: PreferenceTriple[]; lookups: DpoLookups },
+): Promise<RlDatasetBundle>
+export async function buildRlDataset(
+  input: MintedRolloutLine[] | RunRecord[],
+  lookups: (GrpoLineLookups & SftLineLookups) | (GrpoLookups & SftLookups),
+  config: RlDatasetConfig,
+  preferences?: { triples: PreferenceTriple[]; lookups: DpoLookups },
 ): Promise<RlDatasetBundle> {
-  if (records.length === 0) {
+  if (input.length === 0) {
     throw new Error('buildRlDataset: no records — refusing to package an empty dataset')
   }
   const formats = validateDatasetFormats(config.formats === undefined ? ['sft'] : config.formats)
   const files: Record<string, string> = {}
   const rowCounts: Partial<Record<DatasetFormat, number>> = {}
 
+  const fromLines = isRolloutLineInput(input)
+
   if (formats.includes('grpo')) {
-    const rows = await toGrpoRows(records, lookups)
+    const rows = fromLines
+      ? await toGrpoRows(input, lookups as GrpoLineLookups)
+      : await toGrpoRows(input, lookups as GrpoLookups)
     requireRows('grpo', rows.length)
     files['train.grpo.jsonl'] = toGrpoJsonl(rows)
     rowCounts.grpo = rows.length
   }
   if (formats.includes('sft')) {
-    const rows = await toSftRows(records, lookups)
+    const rows = fromLines
+      ? await toSftRows(input, lookups as SftLineLookups)
+      : await toSftRows(input, lookups as SftLookups)
     requireRows('sft', rows.length)
     files['train.sft.jsonl'] = toSftJsonl(rows)
     rowCounts.sft = rows.length
@@ -215,7 +323,18 @@ export async function buildRlDataset(
     if (!preferences) {
       throw new Error("buildRlDataset: format 'dpo' requires `preferences` (triples + lookups)")
     }
-    const rows = await toDpoRows(preferences.triples, preferences.lookups)
+    // The bundle's own lines are the gate context. Without them this call
+    // wrote `train.dpo.jsonl` with a gamed run on the CHOSEN side while the
+    // datasheet beside it reported that same run at reward 0. On the
+    // deprecated path the context is minted from the scored records — mint
+    // refuses execution-only records, and a triple referencing one is refused
+    // by the admission rule as a run with no line ("gate status unknown").
+    const lines = fromLines
+      ? input
+      : (await mintLinesFromRecords(input.filter((r) => runTaskScore(r) !== undefined))).map(
+          (m) => m.line,
+        )
+    const rows = await toDpoRows(preferences.triples, preferences.lookups, { lines })
     requireRows('dpo', rows.length)
     files['train.dpo.jsonl'] = toDpoJsonl(rows)
     rowCounts.dpo = rows.length
@@ -228,7 +347,9 @@ export async function buildRlDataset(
     ...config,
     formats,
     rowCounts,
-    stats: computeStats(records, lookups.rewardOf),
+    stats: fromLines
+      ? computeStatsFromLines(input as MintedRolloutLine[])
+      : computeStatsFromRecords(input as RunRecord[], (lookups as GrpoLookups).rewardOf),
   }
   files['manifest.json'] = `${JSON.stringify(manifest, null, 2)}\n`
   files['DATASHEET.md'] = datasheetToMarkdown(manifest)
@@ -256,6 +377,16 @@ export function datasheetToMarkdown(m: RlDatasetManifest): string {
   const splitLines = (['search', 'dev', 'holdout'] as RunSplitTag[])
     .map((k) => `  - \`${k}\`: ${s.splits[k]} (${pct(s.splits[k] / total)})`)
     .join('\n')
+  // Splits with no RunRecord equivalent would otherwise be invisible in the
+  // table above even though they are counted in `records`.
+  const extraSplitLines = (['canary'] as RolloutSplit[])
+    .filter((k) => (s.rolloutSplits[k] ?? 0) > 0)
+    .map((k) => `\n  - \`${k}\`: ${s.rolloutSplits[k]} (${pct((s.rolloutSplits[k] ?? 0) / total)})`)
+    .join('')
+  const costNote =
+    s.rolloutsWithoutCost > 0
+      ? ` (floor — ${s.rolloutsWithoutCost} rollout(s) never captured a cost)`
+      : ''
   const deterministic = m.reward.kind === 'deterministic'
   return [
     `# Dataset: ${m.name} \`v${m.version}\``,
@@ -272,7 +403,7 @@ export function datasheetToMarkdown(m: RlDatasetManifest): string {
     `- **Scored records:** ${s.scoredRecords}`,
     `- **Formats:** ${m.formats.map((f) => `${f} (${m.rowCounts[f] ?? 0} rows)`).join(', ')}`,
     '- **Splits:**',
-    splitLines,
+    `${splitLines}${extraSplitLines}`,
     '',
     '## Reward distribution',
     `- n=${s.reward.n} | mean=${stat(s.reward.mean)} | median=${stat(s.reward.median)} | min=${stat(s.reward.min)} | max=${stat(s.reward.max)} | std=${stat(s.reward.std)}`,
@@ -281,7 +412,7 @@ export function datasheetToMarkdown(m: RlDatasetManifest): string {
     `- **Models:** ${s.models.join(', ')}`,
     `- **Prompt/agent versions (sha256):** ${s.promptHashes.length} distinct`,
     `- **Commits:** ${s.commitShas.join(', ')}`,
-    `- **Tokens:** ${s.totalTokens.input} in / ${s.totalTokens.output} out | **Cost:** $${s.totalCostUsd.toFixed(2)}`,
+    `- **Tokens:** ${s.totalTokens.input} in / ${s.totalTokens.output} out | **Cost:** $${s.totalCostUsd.toFixed(2)}${costNote}`,
     '',
     '## Quality gates',
     `- Contamination probe: ${m.qualityGates?.contaminationProbe ?? 'not-run'}`,

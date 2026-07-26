@@ -33,6 +33,7 @@
  */
 
 import { pairRunRecords } from './paired-arms'
+import { isRealnessGated, observedSplitScore, type ScorePreference } from './rollout/reward'
 import type { RunRecord } from './run-record'
 import { pairedBootstrap, wilcoxonSignedRank } from './statistics'
 
@@ -109,6 +110,13 @@ export interface GateEvidence {
   /** Median per-task USD cost across the baseline runs, for
    *  symmetric reporting. */
   medianBaselineCost: number | null
+  /**
+   * Runs (candidate + baseline) dropped before pairing because the
+   * authenticity gate flagged them as gamed. Surfaced rather than silent: a
+   * promotion decision computed over a shrunken pool has to say by how much,
+   * and a nonzero count here is itself the finding.
+   */
+  realnessGatedRuns: number
 }
 
 export interface GateDecision {
@@ -169,16 +177,28 @@ export class HeldOutGate {
     const baselineId = this.baselineKey
     assertScenarioIdentities([...candidate, ...baseline])
 
-    const candidateSearch = scoredRuns(candidate, 'searchScore', 'search')
-    const baselineSearch = scoredRuns(baseline, 'searchScore', 'search')
-    const candidateHoldout = scoredRuns(candidate, 'holdoutScore', 'holdout')
-    const baselineHoldout = scoredRuns(baseline, 'holdoutScore', 'holdout')
+    // Runs flagged as gamed are dropped from BOTH sides before anything is
+    // paired. This is a promotion decision, and the whole point of the
+    // authenticity gate is that a faked success must not buy a promotion; the
+    // count ships in the evidence so the shrunken pool is never invisible.
+    const realnessGatedRuns = [...candidate, ...baseline].filter(isRealnessGated).length
+    const honestCandidate = candidate.filter((run) => !isRealnessGated(run))
+    const honestBaseline = baseline.filter((run) => !isRealnessGated(run))
+
+    const candidateSearch = scoredRuns(honestCandidate, 'search')
+    const baselineSearch = scoredRuns(honestBaseline, 'search')
+    const candidateHoldout = scoredRuns(honestCandidate, 'holdout')
+    const baselineHoldout = scoredRuns(honestBaseline, 'holdout')
     const searchPairing = pairRunRecords(baselineSearch, candidateSearch)
     const holdoutPairing = pairRunRecords(baselineHoldout, candidateHoldout)
-    const beforeSearch = searchPairing.pairs.map((pair) => pair.baseline.outcome.searchScore!)
-    const afterSearch = searchPairing.pairs.map((pair) => pair.treatment.outcome.searchScore!)
-    const beforeHoldout = holdoutPairing.pairs.map((pair) => pair.baseline.outcome.holdoutScore!)
-    const afterHoldout = holdoutPairing.pairs.map((pair) => pair.treatment.outcome.holdoutScore!)
+    // `scoredRuns` admits only rows whose split score is a finite number, so
+    // the non-null assertion below cannot fire on data the pairing saw.
+    const splitScoreOf = (run: RunRecord, split: ScorePreference): number =>
+      observedSplitScore(run, split) as number
+    const beforeSearch = searchPairing.pairs.map((pair) => splitScoreOf(pair.baseline, 'search'))
+    const afterSearch = searchPairing.pairs.map((pair) => splitScoreOf(pair.treatment, 'search'))
+    const beforeHoldout = holdoutPairing.pairs.map((pair) => splitScoreOf(pair.baseline, 'holdout'))
+    const afterHoldout = holdoutPairing.pairs.map((pair) => splitScoreOf(pair.treatment, 'holdout'))
 
     const productiveRuns = beforeHoldout.length
 
@@ -204,6 +224,7 @@ export class HeldOutGate {
       baselineOverfitGap,
       medianCandidateCost,
       medianBaselineCost,
+      realnessGatedRuns,
     }
 
     const missingSplitScores = [
@@ -356,17 +377,18 @@ function assertScenarioIdentities(runs: RunRecord[]): void {
   }
 }
 
-function scoredRuns(
-  runs: RunRecord[],
-  field: 'searchScore' | 'holdoutScore',
-  splitFilter: 'search' | 'holdout',
-): RunRecord[] {
-  return runs.filter(
-    (run) =>
-      run.splitTag === splitFilter &&
-      typeof run.outcome[field] === 'number' &&
-      Number.isFinite(run.outcome[field]),
-  )
+/**
+ * Rows carrying a finite score on one split. RAW (`observedSplitScore`) by
+ * choice: the gated runs are already removed by the caller, so applying the
+ * gate again here would only zero runs that are no longer in the set, and the
+ * reported means must describe the runs that actually decided the promotion.
+ */
+function scoredRuns(runs: RunRecord[], split: ScorePreference): RunRecord[] {
+  return runs.filter((run) => {
+    if (run.splitTag !== split) return false
+    const v = observedSplitScore(run, split)
+    return typeof v === 'number' && Number.isFinite(v)
+  })
 }
 
 function meanOrNull(xs: number[]): number | null {

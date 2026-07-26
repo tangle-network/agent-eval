@@ -36,7 +36,95 @@ function cardInputs(overrides: Partial<DatasetCardInputs> = {}): DatasetCardInpu
     scrubTotals,
     excluded: { proposers: 0, nonTrain: 2 },
     formatCounts: { sft: 2, raw: 4 },
+    gate: {
+      gatedLines: 0,
+      byFormat: {
+        sft: {
+          input: 0,
+          emitted: 0,
+          excluded: 0,
+          maxEmittedReward: null,
+          maxEmittedEvidence: null,
+          unscreenedPositiveRows: 0,
+          maxUnscreenedReward: null,
+          maxEmittedStepEvidence: null,
+        },
+        raw: {
+          input: 0,
+          emitted: 0,
+          excluded: 0,
+          maxEmittedReward: null,
+          maxEmittedEvidence: null,
+          unscreenedPositiveRows: 0,
+          maxUnscreenedReward: null,
+          maxEmittedStepEvidence: null,
+        },
+      },
+    },
     ...overrides,
+  }
+}
+
+/** A card whose lines include one gated run, with a consistent gate report. */
+function gatedCardInputs(): DatasetCardInputs {
+  const base = cardInputs()
+  const gamed = fixtureRolloutLine({
+    rollout_id: 'gamed-1',
+    role: 'worker',
+    run_id: 'run-b',
+    generation: 0,
+    outcome: { ...fixtureRolloutLine().outcome, reward: 0, realness_gated: true },
+  })
+  return {
+    ...base,
+    lines: [...base.lines, gamed],
+    formats: ['sft', 'verifiers', 'rft', 'raw'],
+    formatCounts: { sft: 2, verifiers: 5, rft: 5, raw: 5 },
+    gate: {
+      gatedLines: 1,
+      byFormat: {
+        sft: {
+          input: 1,
+          emitted: 0,
+          excluded: 1,
+          maxEmittedReward: null,
+          maxEmittedEvidence: null,
+          unscreenedPositiveRows: 0,
+          maxUnscreenedReward: null,
+          maxEmittedStepEvidence: null,
+        },
+        verifiers: {
+          input: 1,
+          emitted: 1,
+          excluded: 0,
+          maxEmittedReward: 0,
+          maxEmittedEvidence: null,
+          unscreenedPositiveRows: 0,
+          maxUnscreenedReward: null,
+          maxEmittedStepEvidence: null,
+        },
+        rft: {
+          input: 1,
+          emitted: 1,
+          excluded: 0,
+          maxEmittedReward: 0,
+          maxEmittedEvidence: null,
+          unscreenedPositiveRows: 0,
+          maxUnscreenedReward: null,
+          maxEmittedStepEvidence: null,
+        },
+        raw: {
+          input: 1,
+          emitted: 1,
+          excluded: 0,
+          maxEmittedReward: 0,
+          maxEmittedEvidence: null,
+          unscreenedPositiveRows: 0,
+          maxUnscreenedReward: null,
+          maxEmittedStepEvidence: null,
+        },
+      },
+    },
   }
 }
 
@@ -101,5 +189,52 @@ describe('dataset card', () => {
 
   it('is deterministic for the same inputs', () => {
     expect(buildDatasetCard(cardInputs())).toBe(buildDatasetCard(cardInputs()))
+  })
+})
+
+describe('dataset card — anti-Goodhart gate section', () => {
+  it('renders the measured per-format counts, not a static claim', () => {
+    const card = buildDatasetCard(gatedCardInputs())
+    expect(card).toContain('**1 of 5 lines in this release are gated.**')
+    expect(card).toContain('| sft | EXCLUDED — an SFT row is an imitation target | 0 | 1 | — |')
+    expect(card).toContain('| verifiers | INCLUDED, reward forced to 0, flagged | 1 | 0 | 0 |')
+    expect(card).toContain('| rft | INCLUDED, reward forced to 0, flagged | 1 | 0 | 0 |')
+    expect(card).toContain('| raw | INCLUDED verbatim, flagged | 1 | 0 | 0 |')
+    expect(card).toContain('`info.realness_gated`')
+    expect(card).toContain('`reference.realness_gated`')
+  })
+
+  it('states zero gated lines when the release has none', () => {
+    const card = buildDatasetCard(cardInputs())
+    expect(card).toContain('**0 of 4 lines in this release are gated.**')
+  })
+
+  it('refuses to render a gate report that disagrees with the lines it describes', () => {
+    const drifted = { ...gatedCardInputs(), lines: cardInputs().lines }
+    expect(() => buildDatasetCard(drifted)).toThrow('measured different data')
+  })
+
+  it('refuses to render a gate report that violates the release policy', () => {
+    const base = gatedCardInputs()
+    const poisoned: DatasetCardInputs = {
+      ...base,
+      gate: {
+        gatedLines: 1,
+        byFormat: {
+          ...base.gate.byFormat,
+          verifiers: {
+            input: 1,
+            emitted: 1,
+            excluded: 0,
+            maxEmittedReward: 0.95,
+            maxEmittedEvidence: null,
+            unscreenedPositiveRows: 0,
+            maxUnscreenedReward: null,
+            maxEmittedStepEvidence: null,
+          },
+        },
+      },
+    }
+    expect(() => buildDatasetCard(poisoned)).toThrow('may not ship a positive reward')
   })
 })

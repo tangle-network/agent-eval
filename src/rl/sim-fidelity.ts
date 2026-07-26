@@ -30,6 +30,7 @@
  */
 
 import { ValidationError } from '../errors'
+import { observedSplitScore } from '../rollout/reward'
 import type { RunRecord } from '../run-record'
 import type { FailureClass } from '../trace/schema'
 import type { CorpusRecord } from './corpus'
@@ -89,7 +90,15 @@ export const defaultBehaviorFeatures: BehaviorFeatures = (record) => {
   const turnsAborted = finiteOrNull(raw.turns_aborted)
   const completion = (record as CorpusRecord).completion
   return {
-    score: finiteOrNull(record.outcome?.holdoutScore) ?? finiteOrNull(record.outcome?.searchScore),
+    // RAW (`observedSplitScore`), deliberately: this feature vector is one
+    // half of a sim-vs-production divergence measurement. Gating a gamed run to
+    // 0 would move the simulated distribution toward production and report the
+    // simulator as MORE faithful precisely where it is being gamed. Each split
+    // is read separately rather than through `observedScore` so a non-finite
+    // holdout score falls back to search instead of poisoning the bucket.
+    score:
+      finiteOrNull(observedSplitScore(record, 'holdout')) ??
+      finiteOrNull(observedSplitScore(record, 'search')),
     failure_class: record.failureClass ?? null,
     wall_ms: finiteOrNull(record.wallMs),
     output_tokens: finiteOrNull(record.tokenUsage?.output),
@@ -411,7 +420,12 @@ export function easyModeCheck(
   const passRate = (records: RunRecord[], side: string): number => {
     let passes = 0
     for (const r of records) {
-      const score = finiteOrNull(r.outcome?.holdoutScore) ?? finiteOrNull(r.outcome?.searchScore)
+      // RAW, same reason as `defaultBehaviorFeatures`: this rate exists to
+      // catch a simulator that reports easier successes than production. Gating
+      // would zero the inflated runs and hide the inflation being measured.
+      const score =
+        finiteOrNull(observedSplitScore(r, 'holdout')) ??
+        finiteOrNull(observedSplitScore(r, 'search'))
       if (score === null) {
         throw new ValidationError(
           `easyModeCheck: ${side} run "${r.runId}" carries neither holdoutScore nor searchScore`,

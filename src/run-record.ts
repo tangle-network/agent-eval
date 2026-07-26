@@ -27,6 +27,10 @@
 import type { AgentProfileCell } from './agent-profile-cell'
 import { validateAgentProfileCell } from './agent-profile-cell'
 import { ValidationError } from './errors'
+// Value import of a leaf module that itself imports only this file's TYPES —
+// no runtime cycle. It keeps the raw split-score derivation spelled in exactly
+// one place (see `rollout/score-derivation-guard`).
+import { observedScore } from './rollout/reward'
 import { FAILURE_CLASSES, type FailureClass } from './trace/schema'
 
 /** Search/dev/holdout split tag. 'search' is the paper-grade alias for the
@@ -229,9 +233,16 @@ export type RunTaskFailure =
       failureMode?: string
     }
 
-/** Return task quality, preferring held-out evidence when both scores exist. */
+/**
+ * Return task quality, preferring held-out evidence when both scores exist.
+ *
+ * RAW: no realness protection is applied. Built on `observedScore` rather
+ * than repeating the split derivation, so only `rollout/reward.ts` reads the
+ * raw fields. Anything that becomes training data must use `trainingScore` or
+ * `trainingReward` instead.
+ */
 export function runTaskScore(record: RunRecord): number | undefined {
-  const score = record.outcome.holdoutScore ?? record.outcome.searchScore
+  const score = observedScore(record)
   return typeof score === 'number' && Number.isFinite(score) ? score : undefined
 }
 

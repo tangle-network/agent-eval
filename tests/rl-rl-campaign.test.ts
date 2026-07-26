@@ -105,6 +105,41 @@ describe('runRLCampaign', () => {
     expect(result.trainerRows.sft!.length).toBe(16)
   })
 
+  it('does not let an unrelated unscored run crash DPO export', async () => {
+    const runner: CampaignRunner<VariantPayload> = async (ctx) => {
+      const outcome = await defaultRunner(ctx)
+      return ctx.variantId === 'unscored'
+        ? { ...outcome, score: undefined as unknown as number }
+        : outcome
+    }
+
+    const result = await runRLCampaign<VariantPayload>({
+      campaignId: 'rl-export-unscored',
+      commitSha: 'b'.repeat(40),
+      variants: [
+        { id: 'baseline', payload: { prompt: 'baseline' } },
+        { id: 'cand', payload: { prompt: 'better' } },
+        { id: 'unscored', payload: { prompt: 'unscored' } },
+      ],
+      scenarios: [{ scenarioId: 's-0' }],
+      seeds: [0],
+      llmOpts: { baseUrl: 'https://api.test/v1', apiKey: 'sk-test' },
+      storeFactory: () => new InMemoryTraceStore(),
+      rawSinkFactory: () => new InMemoryRawProviderSink(),
+      runner,
+      trainerExport: {
+        dpo: {
+          promptOf: () => 'shared scenario prompt',
+          completionOf: (id) => `completion-${id}`,
+        },
+      },
+    })
+
+    expect(result.campaign.runs).toHaveLength(3)
+    expect(result.preferences.pairs).toHaveLength(1)
+    expect(result.trainerRows.dpo).toHaveLength(1)
+  })
+
   it('returns null interimConfidence when no comparator is configured', async () => {
     const result = await runRLCampaign<VariantPayload>({
       campaignId: 'no-comp',

@@ -4,6 +4,7 @@ import {
   type CodeAgentSessionSource,
   observeCodeAgentSession,
 } from '../contract/intake/code-agent-session'
+import { trainingScore } from '../rollout/reward'
 import type { RunRecord } from '../run-record'
 import { embeddedBeliefOpeTargetPolicy } from './ope'
 import { type AnalyzeBeliefPolicyOptions, analyzeBeliefPolicy } from './report'
@@ -542,10 +543,15 @@ function outcomeScore(outcome: BeliefDecisionOutcome | undefined): number | null
   return null
 }
 
+/**
+ * GATED (`trainingScore`). The number this returns becomes a belief-decision
+ * point's `outcome.score` AND its `outcome.reward` — corpus labels, i.e.
+ * training data by another name. A run flagged as gamed would otherwise label
+ * every decision on its trajectory a success and teach a belief model to
+ * predict that the gaming path works.
+ */
 function scoreFromRun(run: Pick<RunRecord, 'outcome'>): number | null {
-  if (typeof run.outcome.holdoutScore === 'number') return run.outcome.holdoutScore
-  if (typeof run.outcome.searchScore === 'number') return run.outcome.searchScore
-  return null
+  return trainingScore(run) ?? null
 }
 
 function sortBuckets(a: BeliefDecisionInventoryBucket, b: BeliefDecisionInventoryBucket): number {

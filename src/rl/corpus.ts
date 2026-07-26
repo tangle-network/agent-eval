@@ -17,7 +17,8 @@
 
 import { appendFileSync, existsSync, mkdirSync, readFileSync } from 'node:fs'
 import { dirname } from 'node:path'
-import { type RunRecord, runTaskScore } from '../run-record'
+import { trainingScore } from '../rollout/reward'
+import type { RunRecord } from '../run-record'
 import { buildRlDataset, type RlDatasetBundle, type RlDatasetConfig } from './dataset'
 
 /** A corpus record is a RunRecord carrying the trajectory text the harness
@@ -68,8 +69,14 @@ export function readCorpus(corpusPath: string): CorpusRecord[] {
   return out
 }
 
+/**
+ * The harvest's score reader is GATED: a gamed run reads 0, so it cannot buy
+ * its way past `minScore` into the published bundle with its claimed score.
+ * `null` = unscored (a labeled gap, dropped before packaging, never a 0).
+ */
 function rewardOf(r: CorpusRecord): number | null {
-  return runTaskScore(r) ?? null
+  const v = trainingScore(r)
+  return typeof v === 'number' && Number.isFinite(v) ? v : null
 }
 
 export interface HarvestOptions {
@@ -87,6 +94,12 @@ export interface HarvestOptions {
  * missing either are excluded (a graded score with no trajectory can't train).
  * Optionally filters by score / split. Throws (via buildRlDataset) if nothing
  * survives — an empty dataset must never be published.
+ *
+ * `minScore` is applied to the GATED reward (`trainingScore`), so a gamed run
+ * cannot buy its way into the published bundle with its claimed score —
+ * `minScore` is exactly the door a reward-hacked run would otherwise clear for
+ * SFT. Unscored records are dropped before packaging: a missing label is not a
+ * zero, and it is not publishable either.
  */
 export async function buildDatasetFromCorpus(
   corpusPath: string,

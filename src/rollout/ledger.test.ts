@@ -2,9 +2,15 @@ import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { fixtureRolloutLine } from './fixtures'
-import { appendRolloutLines, readRolloutLedger, writeRolloutLedger } from './ledger'
-import { type RolloutLine, validateRolloutLine } from './schema'
+import { fixtureRolloutLine, malformedRolloutLine } from './fixtures'
+import {
+  appendRolloutLines,
+  readRolloutJournal,
+  readRolloutLedger,
+  writeRolloutLedger,
+} from './ledger'
+import { unscreenedRewardFields } from './reward'
+import { assertRolloutLine, type RolloutLine, validateRolloutLine } from './schema'
 
 let dir: string
 beforeEach(async () => {
@@ -33,7 +39,7 @@ describe('validateRolloutLine', () => {
   })
 
   it('rejects a wrong schema tag, bad role, and bad split with dotted paths', () => {
-    const bad = fixtureRolloutLine() as unknown as Record<string, unknown>
+    const bad = malformedRolloutLine() as unknown as Record<string, unknown>
     bad.schema = 'tangle.rollout.v0'
     bad.role = 'manager'
     ;(bad.task as Record<string, unknown>).split = 'test'
@@ -44,7 +50,7 @@ describe('validateRolloutLine', () => {
   })
 
   it('rejects non-integer generation and non-boolean realness_gated', () => {
-    const bad = fixtureRolloutLine() as unknown as Record<string, unknown>
+    const bad = malformedRolloutLine() as unknown as Record<string, unknown>
     bad.generation = 1.5
     ;(bad.outcome as Record<string, unknown>).realness_gated = 'yes'
     const errors = validateRolloutLine(bad)
@@ -53,7 +59,7 @@ describe('validateRolloutLine', () => {
   })
 
   it('requires a gap note on empty-messages lines', () => {
-    const gapless = fixtureRolloutLine({ messages: [] })
+    const gapless = malformedRolloutLine({ messages: [] })
     expect(validateRolloutLine(gapless)).toContain(
       'provenance.gap: required when messages is empty',
     )
@@ -68,8 +74,25 @@ describe('validateRolloutLine', () => {
     expect(validateRolloutLine(labeled)).toEqual([])
   })
 
+  it('rejects a positive reward on a realness-gated line (the anti-Goodhart invariant)', () => {
+    const forged = malformedRolloutLine({
+      outcome: { ...malformedRolloutLine().outcome, reward: 0.95, realness_gated: true },
+    })
+    const errors = validateRolloutLine(forged)
+    expect(errors.some((e) => e.startsWith('outcome.reward: 0.95'))).toBe(true)
+    expect(() => assertRolloutLine(forged, 'forged')).toThrow(/may not carry a positive reward/)
+    // reward 0 with the same flag is the CORRECT encoding of a gamed run.
+    expect(
+      validateRolloutLine(
+        malformedRolloutLine({
+          outcome: { ...malformedRolloutLine().outcome, reward: 0, realness_gated: true },
+        }),
+      ),
+    ).toEqual([])
+  })
+
   it('requires tool_call_id on role:"tool" messages and rejects malformed tool_calls', () => {
-    const line = fixtureRolloutLine() as unknown as { messages: Array<Record<string, unknown>> }
+    const line = malformedRolloutLine() as unknown as { messages: Array<Record<string, unknown>> }
     delete line.messages[3]!.tool_call_id
     line.messages[2]!.tool_calls = [{ id: 'x' }]
     const errors = validateRolloutLine(line)
@@ -106,9 +129,24 @@ describe('ledger write/append/read', () => {
 
   it('refuses to write an invalid line (nothing lands on disk)', async () => {
     const path = join(dir, 'ledger.jsonl')
-    const bad = fixtureRolloutLine({ role: 'manager' as unknown as RolloutLine['role'] })
+    const bad = malformedRolloutLine({ role: 'manager' as unknown as RolloutLine['role'] })
     await expect(writeRolloutLedger(path, [bad])).rejects.toThrow(/role: invalid role/)
     await expect(readFile(path, 'utf8')).rejects.toThrow()
+  })
+
+  it('refuses to write OR read a realness-gated line at a positive reward', async () => {
+    const path = join(dir, 'ledger.jsonl')
+    const forged = malformedRolloutLine({
+      outcome: { ...malformedRolloutLine().outcome, reward: 0.95, realness_gated: true },
+    })
+    // Write: rejected before anything touches disk.
+    await expect(
+      writeRolloutLedger(path, [forged as unknown as ReturnType<typeof fixtureRolloutLine>]),
+    ).rejects.toThrow(/may not carry a positive reward/)
+    await expect(readFile(path, 'utf8')).rejects.toThrow()
+    // Read: a ledger poisoned by another process is refused on the way in too.
+    await writeFile(path, `${JSON.stringify(forged)}\n`)
+    await expect(readRolloutLedger(path)).rejects.toThrow(/may not carry a positive reward/)
   })
 
   it('read fails loud with the line number on a corrupt line', async () => {
@@ -117,5 +155,34 @@ describe('ledger write/append/read', () => {
     const raw = await readFile(path, 'utf8')
     await writeFile(path, `${raw}{"schema":"tangle.rollout.v1"}\n`)
     await expect(readRolloutLedger(path)).rejects.toThrow(/:2/)
+  })
+
+  it('a supervision-journal row stays readable: what write accepts, readRolloutJournal returns', async () => {
+    // The documented journal shape: a positive reward with no realness screen
+    // behind it (`unscreenedRewardFields`). The write side accepts it, so a
+    // read API must exist that returns it — write-accepted but read-refused
+    // is a data-loss trap.
+    const base = malformedRolloutLine()
+    const journalRow: RolloutLine = {
+      ...base,
+      outcome: { ...base.outcome, ...unscreenedRewardFields(0.8) },
+    }
+    const path = join(dir, 'journal.jsonl')
+    await writeRolloutLedger(path, [journalRow])
+    // The mint-policy read still refuses it — promotion into training stays closed.
+    await expect(readRolloutLedger(path)).rejects.toThrow(/realness_screened/)
+    const rows = await readRolloutJournal(path)
+    expect(rows).toHaveLength(1)
+    expect(rows[0]!.outcome.reward).toBe(0.8)
+    expect(rows[0]!.outcome.realness_screened).toBe(false)
+  })
+
+  it('readRolloutJournal still refuses the anti-Goodhart poison (gated line, positive reward)', async () => {
+    const path = join(dir, 'ledger.jsonl')
+    const forged = malformedRolloutLine({
+      outcome: { ...malformedRolloutLine().outcome, reward: 0.95, realness_gated: true },
+    })
+    await writeFile(path, `${JSON.stringify(forged)}\n`)
+    await expect(readRolloutJournal(path)).rejects.toThrow(/may not carry a positive reward/)
   })
 })

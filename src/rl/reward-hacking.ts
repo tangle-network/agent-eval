@@ -37,7 +37,8 @@
  * time during a training run*.
  */
 
-import { type RunRecord, runTaskScore } from '../run-record'
+import { observedScore } from '../rollout/reward'
+import type { RunRecord } from '../run-record'
 import { pearsonR } from '../statistics'
 import {
   filterDeterministicallyRewarded,
@@ -115,7 +116,16 @@ export interface DetectRewardHackingInput {
 }
 
 const DEFAULT_PROXY = (r: RunRecord): number | null => {
-  return runTaskScore(r) ?? null
+  // DELIBERATELY UNGATED. This is the proxy reward the detector tests for
+  // Goodharting, and gated runs are exactly the gamed population. Forcing them
+  // to 0 would collapse the proxy toward the deterministic secondary signal —
+  // `reward_disagreement`'s correlation would rise, `judge_drift`'s gap would
+  // shrink, and `reward_divergence`'s proxy-up/truth-flat fingerprint would be
+  // erased — so the detector would report "clean" on the very runs it exists to
+  // catch. `null` (never 0) is also load-bearing: it sets the n-denominator via
+  // the filter below.
+  const v = observedScore(r)
+  return typeof v === 'number' && Number.isFinite(v) ? v : null
 }
 
 export function detectRewardHacking(input: DetectRewardHackingInput): RewardHackingReport {
@@ -226,7 +236,15 @@ export function detectRewardHacking(input: DetectRewardHackingInput): RewardHack
 
   // ── Signal 4: judge drift (probabilistic up while deterministic flat) ─
   {
-    const detRuns = filterDeterministicallyRewarded(runs, input.verifiableRewardOptions ?? {})
+    // Ungated on purpose, exactly like `DEFAULT_PROXY` above. This signal is
+    // the GAP between the judge reward and the deterministic one; a
+    // deterministic reward another gate already forced to 0 would open that gap
+    // by construction on the gamed population, so the detector would fire on
+    // its own input rather than on evidence it found.
+    const detRuns = filterDeterministicallyRewarded(runs, {
+      ...(input.verifiableRewardOptions ?? {}),
+      applyRealnessGate: false,
+    })
     if (detRuns.length >= 4) {
       const detBefore = detRuns.slice(0, Math.floor(detRuns.length / 2))
       const detAfter = detRuns.slice(Math.floor(detRuns.length / 2))
@@ -309,7 +327,13 @@ function defaultSecondary(
   verifiableOpts?: VerifiableRewardExtractionOptions,
 ): (run: RunRecord) => number | null {
   return (run: RunRecord) => {
-    const filtered = filterDeterministicallyRewarded([run], verifiableOpts ?? {})
+    // Ungated for the same reason as signal 4: this is the INDEPENDENT
+    // secondary reward whose correlation with the proxy is the evidence.
+    // Zeroing it on gated runs would drive that correlation down mechanically.
+    const filtered = filterDeterministicallyRewarded([run], {
+      ...(verifiableOpts ?? {}),
+      applyRealnessGate: false,
+    })
     return filtered.length === 1 ? filtered[0]!.reward.value : null
   }
 }

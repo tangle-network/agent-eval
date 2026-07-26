@@ -15,6 +15,7 @@
 import type { DatasetManifest, DatasetScenario, DatasetSplit } from './dataset'
 import { ValidationError, VerificationError } from './errors'
 import type { GateDecision } from './held-out-gate'
+import { isRealnessGated, observedSplitScore } from './rollout/reward'
 import { type RunRecord, type RunSplitTag, validateRunRecord } from './run-record'
 import { FAILURE_CLASSES, type FailureClass } from './trace/schema'
 
@@ -138,6 +139,13 @@ export interface ReleaseConfidenceMetrics {
   domainCounts: Record<string, number>
   failureClassCounts: Partial<Record<FailureClass, number>>
   responsibleSurfaceCounts: Record<string, number>
+  /**
+   * Runs excluded from `passRate` because the authenticity gate flagged them as
+   * gamed. Surfaced, never silent: a release whose pass rate is computed over a
+   * shrunken denominator has to say by how much, or the exclusion is just a
+   * different way of hiding the same runs.
+   */
+  realnessGatedRuns: number
 }
 
 export interface ReleaseConfidenceScorecard {
@@ -199,9 +207,16 @@ export function evaluateReleaseConfidence(
       !hasExplicitTaskFailure(run) &&
       !isFailedTerminalOutcome(run.terminalOutcome),
   ).length
+  // Realness-gated runs are EXCLUDED from the pass rate — numerator AND
+  // denominator — and the count of what was dropped ships beside the rate as
+  // `metrics.realnessGatedRuns`. Counting a gamed run as a pass made faking a
+  // success the cheapest way to improve a release scorecard; scoring it 0
+  // instead would be the other error, silently deflating the rate with a run
+  // the gate says carries no usable verdict at all.
+  const honestRuns = runs.filter((run) => !isRealnessGated(run))
   const passOutcomes =
     runs.length > 0
-      ? runs.map((run) => runPassOutcome(run, thresholds.failureScoreThreshold))
+      ? honestRuns.map((run) => runPassOutcome(run, thresholds.failureScoreThreshold))
       : traces.map((trace) => tracePassOutcome(trace, thresholds.failureScoreThreshold))
   const reliabilityRows =
     runs.length > 0
@@ -241,6 +256,7 @@ export function evaluateReleaseConfidence(
     terminalFailureRuns,
     reliabilityRate,
     passRate: passOutcomeRate(passOutcomes),
+    realnessGatedRuns: runs.length - honestRuns.length,
     meanScore: meanOrNull(scoreUniverse),
     searchMeanScore,
     holdoutMeanScore,
@@ -608,6 +624,10 @@ function countFailureClasses(
 ): Partial<Record<FailureClass, number>> {
   const out: Partial<Record<FailureClass, number>> = {}
   for (const run of runs) {
+    // Ungated: a failure-mode census counts what the runs REPORTED, which is
+    // the only way a gamed run's inflated score is visible at all. It is not a
+    // promotion number — `passRate` is, and that one excludes gated runs and
+    // publishes the excluded count as `metrics.realnessGatedRuns`.
     if (runPassOutcome(run, threshold) === false) {
       const failureClass =
         run.failureClass !== undefined && run.failureClass !== 'success'
@@ -701,8 +721,14 @@ function scoresFor(runs: readonly RunRecord[], split: RunSplitTag): number[] {
     .filter(isFiniteNumber)
 }
 
+/**
+ * RAW and split-exact (`observedSplitScore`): this feeds the per-split means,
+ * the overfit gap, and the pass threshold — descriptions of what the runs
+ * reported. A gamed run inflating them is visible next to `realnessGatedRuns`,
+ * and the promotion number (`passRate`) excludes gated runs entirely.
+ */
 function runSplitScore(run: RunRecord): number | undefined {
-  const score = run.splitTag === 'holdout' ? run.outcome.holdoutScore : run.outcome.searchScore
+  const score = observedSplitScore(run, run.splitTag === 'holdout' ? 'holdout' : 'search')
   return isFiniteNumber(score) ? score : undefined
 }
 

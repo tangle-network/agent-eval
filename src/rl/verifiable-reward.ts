@@ -28,7 +28,8 @@
  */
 
 import type { LayerResult, VerificationReport } from '../multi-layer-verifier'
-import { type RunRecord, runTaskScore } from '../run-record'
+import { isRealnessGated, observedScore, trainingScore } from '../rollout/reward'
+import type { RunRecord } from '../run-record'
 
 export type VerifiableRewardSource =
   | 'compile' // typecheck / build / lint passed
@@ -73,6 +74,35 @@ export interface VerifiableReward {
    * the same per-layer scores `components` now holds.
    */
   breakdown?: Record<string, number>
+  /**
+   * The run carries `outcome.realness.gated` — the authenticity gate flagged
+   * its success signal as faked.
+   *
+   * With the gate applied (the default) `value` and every `components` entry
+   * are 0 on such a run; with `applyRealnessGate: false` the observed numbers
+   * come back untouched and this flag is the only marker that they are not to
+   * be trusted. Either way it distinguishes "measured a genuine failure" from
+   * "claimed a success we refuse to believe", which a bare 0 cannot.
+   */
+  realnessGated?: boolean
+  /**
+   * Whether an authenticity screen COULD run on this reward at all — the same
+   * distinction `RolloutOutcome.realness_screened` draws, for the same reason.
+   *
+   * `false` on every reward from `extractVerifiableReward`, because a
+   * `VerificationReport` carries layer scores and nothing else: there is no
+   * `outcome.realness` to consult, so no gate has run, and `realnessGated`
+   * being absent there means "unknown", NOT "clean". Absent on the
+   * `RunRecord` path when the record itself carries no realness verdict.
+   *
+   * This matters most exactly where it is easiest to miss: a report whose
+   * deterministic layers all passed yields `determinism: 'deterministic'`,
+   * `confidence: 1` — the highest-credibility reward this module can emit —
+   * and a stubbed integration reporting green is precisely what a gamed run
+   * looks like. Consumers driving training off this shape must screen the run
+   * themselves; the flag is what tells them nobody has.
+   */
+  realnessScreened?: boolean
 }
 
 export interface VerifiableRewardExtractionOptions {
@@ -100,6 +130,18 @@ export interface VerifiableRewardExtractionOptions {
    * doesn't report one. Default `0.7`.
    */
   judgeConfidenceFloor?: number
+  /**
+   * Whether the anti-Goodhart realness gate applies. Default `true`, and the
+   * default is the one every training path must keep.
+   *
+   * Set `false` ONLY for detection and analysis. `rl/reward-hacking.ts` does,
+   * for the same reason it reads `observedScore` for its proxy: it measures the
+   * DIVERGENCE between the judge signal and the deterministic one, and a
+   * deterministic reward that another gate already forced to 0 manufactures
+   * exactly that divergence on exactly the gamed population. The detector would
+   * then be re-reporting a verdict it was supposed to reach independently.
+   */
+  applyRealnessGate?: boolean
 }
 
 const DEFAULT_DETERMINISTIC_LAYERS = new Set([
@@ -138,6 +180,11 @@ const DEFAULT_SOURCE_FOR = (name: string): VerifiableRewardSource => {
  * schema → sandbox), fall back to the judge layer if `fallbackToJudge` is
  * true, return `null` if no signal qualifies. When multiple deterministic
  * layers contribute, return a `'composite'` source with a weighted blend.
+ *
+ * NO realness gate is applied and none can be: a `VerificationReport` carries
+ * layer scores and nothing about whether the run faked them — `realness` lives
+ * on the `RunRecord`. Use `extractVerifiableRewardsFromRecords` for anything
+ * that becomes training data; this signature is for scoring a report in hand.
  */
 export function extractVerifiableReward(
   report: VerificationReport,
@@ -163,6 +210,7 @@ export function extractVerifiableReward(
       origin: layer.layer,
       components: { [layer.layer]: value },
       breakdown: layerBreakdown(layer),
+      realnessScreened: false,
     }
   }
 
@@ -185,6 +233,7 @@ export function extractVerifiableReward(
       origin: deterministic.map((l) => l.layer).join('+'),
       components,
       breakdown: { ...components },
+      realnessScreened: false,
     }
   }
 
@@ -206,6 +255,7 @@ export function extractVerifiableReward(
     origin: judge.layer,
     components: { [judge.layer]: judgeValue },
     breakdown: layerBreakdown(judge),
+    realnessScreened: false,
   }
 }
 
@@ -232,6 +282,16 @@ function isMeasuredLayer(
  * verifiable reward becomes a training datum, every record that doesn't
  * gets filtered out (or kept with `'probabilistic'` determinism for
  * separate downstream handling).
+ *
+ * The realness gate applies to EVERY channel here, and to the deterministic one
+ * MOST. It is tempting to reason that a decidable signal cannot be gamed, so
+ * the gate is redundant on it — that reasoning is backwards. `realness.gated`
+ * means the run's success signal was FAKED, and a test suite reporting green on
+ * a stubbed integration is precisely what that looks like: the deterministic
+ * layer is the thing that got faked. Exporting it ungated hands a trainer the
+ * highest-credibility reward the module can emit (`determinism: 'deterministic'`,
+ * `confidence: 1`) for the one population the gate exists to catch. Pass
+ * `applyRealnessGate: false` only to look at the ungated numbers for detection.
  */
 export function extractVerifiableRewardsFromRecords(
   runs: RunRecord[],
@@ -241,8 +301,20 @@ export function extractVerifiableRewardsFromRecords(
   const deterministicSet = new Set(opts.deterministicLayers ?? [...DEFAULT_DETERMINISTIC_LAYERS])
   const fallbackToJudge = opts.fallbackToJudge ?? true
   const judgeFloor = opts.judgeConfidenceFloor ?? 0.7
+  const applyGate = opts.applyRealnessGate ?? true
 
   return runs.map((run) => {
+    const flagged = isRealnessGated(run)
+    // Present only when the record carries an actual realness verdict. Absent
+    // is the honest "unknown"; `false` is reserved for a producer that
+    // declares it HAS no screen, which is the report-shaped path above.
+    const screened = run.outcome.realness === undefined ? {} : ({ realnessScreened: true } as const)
+    // Zeroed with `value`, never left at the measured number: `components`
+    // exists so an RL consumer can re-weight per source, and a raw layer score
+    // surviving there would let that re-weighting reconstruct the very reward
+    // the gate just refused. The measured layer scores stay on
+    // `run.outcome.raw['layer.*']`, which is where analysis reads them.
+    const gate = (value: number): number => (applyGate && flagged ? 0 : value)
     // Recover per-layer scores from outcome.raw['layer.<name>']
     const layerScores: Array<{ name: string; score: number }> = []
     for (const [k, v] of Object.entries(run.outcome.raw)) {
@@ -259,7 +331,7 @@ export function extractVerifiableRewardsFromRecords(
 
     if (det.length === 1) {
       const layer = det[0]!
-      const value = clamp01(layer.score)
+      const value = gate(clamp01(layer.score))
       return {
         runId: run.runId,
         reward: {
@@ -269,32 +341,42 @@ export function extractVerifiableRewardsFromRecords(
           confidence: 1,
           origin: layer.name,
           components: { [layer.name]: value },
+          realnessGated: flagged,
+          ...screened,
         },
       }
     }
     if (det.length > 1) {
-      const value = det.reduce((s, l) => s + l.score, 0) / det.length
+      const value = gate(clamp01(det.reduce((s, l) => s + l.score, 0) / det.length))
+      // Same clamp as the headline value: a producer writing layer.score 1.5
+      // into outcome.raw must not propagate 1.5 through a component either.
       const components: Record<string, number> = Object.fromEntries(
-        det.map((l) => [l.name, l.score]),
+        det.map((l) => [l.name, gate(clamp01(l.score))]),
       )
       return {
         runId: run.runId,
         reward: {
-          value: clamp01(value),
+          value,
           source: 'composite',
           determinism: 'deterministic',
           confidence: 1,
           origin: det.map((l) => l.name).join('+'),
           components,
           breakdown: { ...components },
+          realnessGated: flagged,
+          ...screened,
         },
       }
     }
     if (!fallbackToJudge) return { runId: run.runId, reward: null }
 
-    // Probabilistic fallback: use the run's primary score.
-    const primary = runTaskScore(run)
-    if (primary === undefined) {
+    // Probabilistic fallback: the run's primary score. `trainingScore` already
+    // carries the gate, so a gamed run falls to 0 rather than earning the
+    // judge's number; `observedScore` is the ungated reader the detection
+    // opt-out asks for. Either way an unscored run stays a labeled gap
+    // (`reward: null`), never a fabricated 0.
+    const primary = applyGate ? trainingScore(run) : observedScore(run)
+    if (typeof primary !== 'number' || !Number.isFinite(primary)) {
       return { runId: run.runId, reward: null }
     }
     const primaryValue = clamp01(primary)
@@ -307,12 +389,22 @@ export function extractVerifiableRewardsFromRecords(
         confidence: judgeFloor,
         origin: 'run.outcome.score',
         components: { 'run.outcome.score': primaryValue },
+        realnessGated: flagged,
+        ...screened,
       },
     }
   })
 }
 
-/** Filter `RunRecord[]` to those with deterministic verifiable rewards. */
+/**
+ * Filter `RunRecord[]` to those with deterministic verifiable rewards.
+ *
+ * A realness-gated run is KEPT, at reward 0 with `realnessGated: true` — the
+ * same rule GRPO uses on a gated line. 0 is the honest label for a faked
+ * success and is usable signal, whereas dropping the run would move a group
+ * baseline without saying so. (SFT differs: there every row is a target to
+ * imitate, so a gated row is removed outright.)
+ */
 export function filterDeterministicallyRewarded(
   runs: RunRecord[],
   opts: VerifiableRewardExtractionOptions = {},

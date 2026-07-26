@@ -47,6 +47,7 @@ import {
   type PreferenceExtractionReport,
 } from './preferences'
 import { detectRewardHacking, type RewardHackingReport } from './reward-hacking'
+import { mintLinesFromRecords } from './rollout-input'
 import {
   extractVerifiableRewardsFromRecords,
   type VerifiableReward,
@@ -156,7 +157,19 @@ export async function runRLCampaign<V>(
   // ── 7. Trainer-format export ───────────────────────────────────────
   const trainerRows: RLCampaignResult<V>['trainerRows'] = {}
   if (opts.trainerExport?.dpo) {
-    trainerRows.dpo = await toDpoRows(preferences.pairs, opts.trainerExport.dpo)
+    // Preference triples name run ids and nothing else, so the DPO exporter is
+    // handed only the minted lines they reference. Unscored campaign runs
+    // produce no preference and must not make an otherwise valid DPO export
+    // fail while minting unrelated context.
+    const referencedRunIds = new Set(
+      preferences.pairs.flatMap((pair) => [pair.chosenRunId, pair.rejectedRunId]),
+    )
+    const minted = await mintLinesFromRecords(
+      campaign.runs.filter((run) => referencedRunIds.has(run.runId)),
+    )
+    trainerRows.dpo = await toDpoRows(preferences.pairs, opts.trainerExport.dpo, {
+      lines: minted.map((m) => m.line),
+    })
   }
   if (opts.trainerExport?.grpo) {
     trainerRows.grpo = await toGrpoRows(campaign.runs, opts.trainerExport.grpo)
@@ -198,6 +211,10 @@ function collectPairedDeltaSeries(
   for (const r of runs) {
     if (r.candidateId !== comparator) continue
     const sid = r.scenarioId
+    // Ungated (`runTaskScore` is raw): this is a measurement of the paired
+    // delta between candidates, not a value any trainer consumes. Gating it
+    // would report a candidate as worse than it measured; the gamed run should
+    // be excluded upstream instead.
     const score = runTaskScore(r)
     if (score === undefined) continue
     baseline.set(`${sid}::${r.seed}`, score)

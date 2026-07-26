@@ -96,6 +96,45 @@ describe('EvalTraceStore getBest', () => {
     expect(await store.getBest('nope')).toBeNull()
   })
 
+  it('never returns a realness-gated run as the exemplar, even on a tie', async () => {
+    // getBest seeds few-shot prompting: whatever it returns is pasted into the
+    // next agent's context as an example to imitate. Ranking on the ungated
+    // number handed the highest-scoring GAMED trajectory to every subsequent
+    // run — propagation through the context window rather than a gradient, but
+    // propagation all the same.
+    //
+    // Zeroing the gamed run is not enough on its own, which is why it is
+    // DROPPED. Scored 0 it still ties every honest run that also scored 0, and
+    // ties resolve to the earliest-appended row — so a gamed run that ran first
+    // is handed back as the exemplar on the strength of its arrival order.
+    const store = new EvalTraceStore()
+    await store.append(
+      rec({
+        candidateId: 'gamed',
+        scenarioId: 's1',
+        score: 1,
+        outcome: { searchScore: 1, raw: {}, realness: { score: 0, gated: true, reason: 'faked' } },
+      }),
+    )
+    await store.append(rec({ candidateId: 'honest', scenarioId: 's1', score: 0 }))
+    const best = await store.getBest('s1')
+    expect(best?.candidateId).toBe('honest')
+    expect(best && runScore(best)).toBe(0)
+  })
+
+  it('returns null rather than the least-bad fake when every run is gated', async () => {
+    const store = new EvalTraceStore()
+    await store.append(
+      rec({
+        candidateId: 'a',
+        scenarioId: 'all-gamed',
+        score: 1,
+        outcome: { searchScore: 1, raw: {}, realness: { score: 0, gated: true, reason: 'faked' } },
+      }),
+    )
+    expect(await store.getBest('all-gamed')).toBeNull()
+  })
+
   it('skips unlabeled runs and returns null when no scored run remains', async () => {
     const store = new EvalTraceStore()
     await store.append(unscored('a', 's1'))
@@ -161,6 +200,71 @@ describe('EvalTraceStore compareRuns', () => {
     await store.append(rec({ candidateId: 'a', scenarioId: 's1', score: 0.5 }))
     await store.append(rec({ candidateId: 'b', scenarioId: 's2', score: 0.5 }))
     await expect(store.compareRuns('a', 'b')).rejects.toThrow(/share no scenario/)
+  })
+
+  it('excludes realness-gated runs and surfaces the count, never a silent zero', async () => {
+    // `runScore` is gated, so leaving these in would enter a gamed run as 0 —
+    // which reads as "this candidate failed the scenario" when what happened is
+    // "this candidate's result is not evidence". A comparison drawn over a
+    // shrunken scenario set has to say the set shrank.
+    const store = new EvalTraceStore()
+    await store.append(rec({ candidateId: 'a', scenarioId: 's1', score: 0.5 }))
+    await store.append(rec({ candidateId: 'a', scenarioId: 's2', score: 0.5 }))
+    await store.append(rec({ candidateId: 'b', scenarioId: 's1', score: 0.7 }))
+    await store.append(
+      rec({
+        candidateId: 'b',
+        scenarioId: 's2',
+        score: 1,
+        outcome: { searchScore: 1, raw: {}, realness: { score: 0, gated: true, reason: 'faked' } },
+      }),
+    )
+    const cmp = await store.compareRuns('a', 'b')
+    expect(cmp.realnessGatedRuns).toBe(1)
+    expect(cmp.pairedScenarioIds).toEqual(['s1'])
+    expect(cmp.meanB).toBe(0.7)
+    expect(cmp.bWins).toBe(1)
+    expect(cmp.aWins).toBe(0)
+  })
+
+  it('drops a scenario where BOTH candidates are gated and counts each gated run', async () => {
+    // The dual-count + drop-out semantic: s2 contributes two gated runs to the
+    // count and vanishes from the paired set — never a manufactured 0-vs-0 pair.
+    const gated = (candidateId: string, scenarioId: string) =>
+      rec({
+        candidateId,
+        scenarioId,
+        score: 1,
+        outcome: { searchScore: 1, raw: {}, realness: { score: 0, gated: true, reason: 'faked' } },
+      })
+    const store = new EvalTraceStore()
+    await store.append(rec({ candidateId: 'a', scenarioId: 's1', score: 0.5 }))
+    await store.append(rec({ candidateId: 'b', scenarioId: 's1', score: 0.7 }))
+    await store.append(gated('a', 's2'))
+    await store.append(gated('b', 's2'))
+    const cmp = await store.compareRuns('a', 'b')
+    expect(cmp.realnessGatedRuns).toBe(2)
+    expect(cmp.pairedScenarioIds).toEqual(['s1'])
+  })
+
+  it('names the realness gate when the only shared scenarios lost a side to it', async () => {
+    // The candidates DO share a scenario — s1 — but not one with honest runs
+    // on both sides. The generic "share no scenario" message would send the
+    // operator hunting for a corpus labeling bug; the precise one points at
+    // the gated runs.
+    const store = new EvalTraceStore()
+    await store.append(rec({ candidateId: 'a', scenarioId: 's1', score: 0.5 }))
+    await store.append(
+      rec({
+        candidateId: 'b',
+        scenarioId: 's1',
+        score: 1,
+        outcome: { searchScore: 1, raw: {}, realness: { score: 0, gated: true, reason: 'faked' } },
+      }),
+    )
+    await expect(store.compareRuns('a', 'b')).rejects.toThrow(
+      /share no scenario with honest runs on both sides \(1 run\(s\) were realness-gated\)/,
+    )
   })
 
   it('throws when comparing a candidate to itself', async () => {

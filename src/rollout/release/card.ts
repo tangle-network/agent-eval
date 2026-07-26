@@ -8,7 +8,8 @@
  * inherited/contribution caveat, and a role × reward counts table.
  */
 
-import { ROLLOUT_ROLES, ROLLOUT_SCHEMA, type RolloutLine, type RolloutRole } from '../schema'
+import { type MintedRolloutLine, ROLLOUT_ROLES, ROLLOUT_SCHEMA, type RolloutRole } from '../schema'
+import { assertGateReport, FORMAT_GATE_DISPOSITION, type GateReport } from './gate-report'
 import type { ScrubCounts } from './scrub'
 
 export const RELEASE_FORMATS = ['sft', 'verifiers', 'rft', 'raw'] as const
@@ -32,7 +33,7 @@ const FORMAT_DESCRIPTIONS: Record<ReleaseFormat, string> = {
 
 export interface DatasetCardInputs {
   /** Scrubbed, release-filtered lines (what actually ships). */
-  lines: RolloutLine[]
+  lines: MintedRolloutLine[]
   formats: ReleaseFormat[]
   includeProposers: boolean
   /** Source ledger basenames, for provenance. */
@@ -40,6 +41,13 @@ export interface DatasetCardInputs {
   scrubTotals: ScrubCounts
   excluded: { proposers: number; nonTrain: number }
   formatCounts: Partial<Record<ReleaseFormat, number>>
+  /**
+   * Per-format anti-Goodhart accounting MEASURED on the rows the build wrote.
+   * Required, not optional: the card's only statement about the gate is a
+   * render of these numbers, so a card cannot be produced without them and
+   * cannot drift from the data files it ships beside.
+   */
+  gate: GateReport
 }
 
 function unique(values: Array<string | null>): string[] {
@@ -59,7 +67,73 @@ function markdownTable(header: string[], rows: string[][]): string {
   ].join('\n')
 }
 
-function roleRewardRows(lines: RolloutLine[]): string[][] {
+/** Where the anti-Goodhart flag lives on each format's emitted row. */
+const GATE_FLAG_FIELD: Record<ReleaseFormat, string> = {
+  sft: '— (no gated row is written)',
+  verifiers: '`info.realness_gated`',
+  rft: '`reference.realness_gated`',
+  raw: '`outcome.realness_gated`',
+}
+
+const GATE_POLICY_LABEL: Record<ReleaseFormat, string> = {
+  sft: 'EXCLUDED — an SFT row is an imitation target',
+  verifiers: 'INCLUDED, reward forced to 0, flagged',
+  rft: 'INCLUDED, reward forced to 0, flagged',
+  raw: 'INCLUDED verbatim, flagged',
+}
+
+function gateSection(formats: ReleaseFormat[], gate: GateReport, totalLines: number): string {
+  const rows = formats.map((format) => {
+    const counts = gate.byFormat[format]
+    return [
+      format,
+      GATE_POLICY_LABEL[format],
+      String(counts?.emitted ?? 0),
+      String(counts?.excluded ?? 0),
+      counts?.maxEmittedReward === null || counts === undefined
+        ? '—'
+        : formatReward(counts.maxEmittedReward),
+      counts?.maxEmittedEvidence == null
+        ? '—'
+        : `${counts.maxEmittedEvidence.path} = ${counts.maxEmittedEvidence.value}`,
+      GATE_FLAG_FIELD[format],
+    ]
+  })
+  const mixedExclusion = formats.some(
+    (format) => FORMAT_GATE_DISPOSITION[format] === 'zero-and-flag',
+  )
+  return [
+    `\`outcome.realness_gated: true\` marks a run whose success signal was faked (it satisfied the proxy without doing the work). **${gate.gatedLines} of ${totalLines} lines in this release are gated.**`,
+    '',
+    'The gate is enforced, not asserted. A line pairing `realness_gated: true` with a reward above 0 is rejected by the schema validator, so it cannot be read out of a source ledger or written into `raw/train.jsonl` at all; on a gated line the numbers the reward was computed from (`outcome.metrics`, the verbatim judge `outcome.verdict`, and any per-step field the schema does not declare — a per-step reward is the same signal in credit-assignment form) are moved out of `outcome` and `steps[]` and into `provenance.gated_evidence`, where no config reads them as training input; the exporters re-check the same invariant on every line; and the release build measures the rows it is about to write and refuses to write ANY file if a gated row carries a positive reward — or any positive number derived from one — in ANY config.',
+    '',
+    'The table below is **measured on the rows in this release**, not a description of intent — the build counts the emitted rows and this card renders those counts:',
+    '',
+    markdownTable(
+      [
+        'config',
+        'policy',
+        'gated rows written',
+        'gated rows not written',
+        'max reward',
+        'max reward-derived number',
+        'flag',
+      ],
+      rows,
+    ),
+    '',
+    'Why gated rows are kept where they are kept: an SFT row is imitated verbatim, so a gamed trajectory must never appear in one at any weight. In `verifiers` the reward is a signed learning signal, and a gamed trajectory at reward 0 is a correct negative — dropping it would bias the negative population toward honest failures and leave a trainer no example of gaming being penalized. `rft` re-samples the completion, so only the prompt and the grader reference ship. `raw` is a faithful audit dump, where the gated row is the one an auditor most wants.',
+    '',
+    "Reward 0 is never the only label: every included config carries the flag on the row itself, because zeroing alone makes a faked success indistinguishable from an honest failure. Filter on the flag to drop the gamed population, or select on it to mine it. The gated run's own measurements are not destroyed either — they are parked verbatim under `provenance.gated_evidence` in `raw/train.jsonl`, which is where an auditor can see what the run claimed and why it was flagged.",
+    mixedExclusion
+      ? '\n"Gated rows not written" is not all gate: `verifiers` also drops gap lines (empty transcript) and `rft` drops lines with no prompt turn, so that column can mix both causes.'
+      : '',
+  ]
+    .join('\n')
+    .trimEnd()
+}
+
+function roleRewardRows(lines: MintedRolloutLine[]): string[][] {
   const counts = new Map<RolloutRole, Map<string, number>>()
   for (const line of lines) {
     const byReward = counts.get(line.role) ?? new Map<string, number>()
@@ -82,8 +156,19 @@ function roleRewardRows(lines: RolloutLine[]): string[][] {
 }
 
 export function buildDatasetCard(inputs: DatasetCardInputs): string {
-  const { lines, formats, includeProposers, sourceFiles, scrubTotals, excluded, formatCounts } =
-    inputs
+  const {
+    lines,
+    formats,
+    includeProposers,
+    sourceFiles,
+    scrubTotals,
+    excluded,
+    formatCounts,
+    gate,
+  } = inputs
+  // The card is the artifact a buyer reads; it may not render a gate report
+  // that violates the release policy even when called outside the build.
+  assertGateReport(gate)
 
   const runIds = unique(lines.map((line) => line.run_id))
   const generations = [...new Set(lines.map((line) => line.generation))]
@@ -94,6 +179,13 @@ export function buildDatasetCard(inputs: DatasetCardInputs): string {
   const captures = unique(lines.map((line) => line.provenance.capture))
   const rewardSources = unique(lines.map((line) => line.outcome.reward_source))
   const gapLines = lines.filter((line) => line.messages.length === 0).length
+  const gatedLines = lines.filter((line) => line.outcome.realness_gated).length
+  if (gatedLines !== gate.gatedLines) {
+    throw new Error(
+      `dataset card: gate report claims ${gate.gatedLines} realness-gated line(s) but the lines ` +
+        `it describes contain ${gatedLines} — the card and the build measured different data.`,
+    )
+  }
 
   const configs = formats
     .map((format) =>
@@ -148,6 +240,10 @@ This release contains the **trainable split only** (\`search\`). Holdout, dev, a
 
 ${formatsTable}
 
+## Anti-Goodhart gate (\`realness_gated\`)
+
+${gateSection(formats, gate, lines.length)}
+
 ## Schema (\`${ROLLOUT_SCHEMA}\`)
 
 Each raw line carries:
@@ -159,7 +255,7 @@ Each raw line carries:
 - \`task\` — suite, instance id, split, seed, replicate index.
 - \`policy\` — harness, model, provider, profile commit, prompt/config hashes, sampling params.
 - \`messages\` / \`tool_defs\` — full transcript in canonical OpenAI chat-with-tools form (including \`reasoning_content\`). An empty \`messages\` array is a labeled gap line; \`provenance.gap\` says why the transcript could not be recovered (${gapLines} gap lines in this release).
-- \`outcome\` — \`reward\` (the single scalar), \`reward_source\`, the verbatim judge \`verdict\`, non-scalar \`metrics\`, and \`realness_gated\` (anti-Goodhart flag: reward forced to 0, never SFT-eligible).
+- \`outcome\` — \`reward\` (the single scalar), \`reward_source\`, the verbatim judge \`verdict\`, non-scalar \`metrics\`, and \`realness_gated\` (anti-Goodhart flag; see [Anti-Goodhart gate](#anti-goodhart-gate-realness_gated) for the per-config treatment and the measured counts).
 - \`cost\` — usd, token counts, wall time.
 - \`artifacts\` / \`provenance\` — patch/run-dir/transcript pointers (scrubbed) and capture metadata.
 

@@ -7,9 +7,19 @@ import {
   toVerifiersRolloutOutput,
   toVerifiersRolloutOutputs,
 } from './exporters'
-import { fixtureRolloutLine } from './fixtures'
+import { fixtureRolloutLine, malformedRolloutLine } from './fixtures'
 
 describe('SFT exporter', () => {
+  it('cannot even be handed a gated line at a positive reward', () => {
+    // The case this used to test — `{reward: 1, realness_gated: true}` reaching
+    // an exporter and being filtered there — is no longer reachable: the line
+    // is invalid, so the filter is a second line of defence, not the only one.
+    const base = malformedRolloutLine()
+    expect(() =>
+      fixtureRolloutLine({ outcome: { ...base.outcome, reward: 1, realness_gated: true } }),
+    ).toThrow(/may not carry a positive reward/)
+  })
+
   it('keeps only clean trainable successes with messages', () => {
     const keep = fixtureRolloutLine()
     const dev = fixtureRolloutLine({ task: { ...keep.task, split: 'dev' } })
@@ -17,7 +27,11 @@ describe('SFT exporter', () => {
     const failed = fixtureRolloutLine({ outcome: { ...keep.outcome, reward: 0 } })
     const partial = fixtureRolloutLine({ outcome: { ...keep.outcome, reward: 0.5 } })
     const unlabeled = fixtureRolloutLine({ outcome: { ...keep.outcome, reward: null } })
-    const gated = fixtureRolloutLine({ outcome: { ...keep.outcome, realness_gated: true } })
+    // Reward 0 stated explicitly: the fixture validates on construction, and a
+    // gated line with a positive reward is not a constructible value at all.
+    const gated = fixtureRolloutLine({
+      outcome: { ...keep.outcome, reward: 0, realness_gated: true },
+    })
     const errored = fixtureRolloutLine({
       outcome: { ...keep.outcome, error: 'worker exited 1' },
     })
@@ -56,6 +70,11 @@ describe('SFT exporter', () => {
       candidate_id: 'gen0-cand1',
       instance_id: 'astropy__astropy-13033',
       reward: 1,
+      // Both realness claims ride on the row even here, where the gated verdict
+      // is always false — see `RealnessLabels`. `null` = the fixture's producer
+      // never stated whether a screen ran, which is not the same as "clean".
+      realness_gated: false,
+      realness_screened: null,
     })
   })
 
@@ -148,6 +167,8 @@ describe('OpenAI RFT items exporter', () => {
       suite: 'swe-bench-verified',
       split: 'search',
       rollout_id: line.rollout_id,
+      realness_gated: false,
+      realness_screened: null,
     })
   })
 

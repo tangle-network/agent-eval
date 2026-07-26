@@ -482,7 +482,9 @@ export async function runProfileMatrix<TScenario extends Scenario, TArtifact>(
   return { matrixId, experimentId, records, byProfile, byScenario, byPersona, integrity, campaigns }
 }
 
-/** Score for a produced RunRecord, absent when the campaign cell was unscored. */
+/** Score for a produced RunRecord, absent when the campaign cell was unscored.
+ *  Ungated (`runTaskScore` is raw) — a matrix pivot reports measured scores;
+ *  it is not a training input. */
 function scoreOf(r: RunRecord): number | undefined {
   return runTaskScore(r)
 }

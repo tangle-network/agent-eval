@@ -26,6 +26,7 @@ import { checkCanaries } from '../contamination-guard'
 import type { DatasetScenario } from '../dataset'
 import { continuousAgreement } from '../judge-calibration'
 import { pairRunRecords } from '../paired-arms'
+import { observedSplitScore } from '../rollout/reward'
 import {
   type RunRecord,
   type RunTerminalOutcome,
@@ -663,12 +664,21 @@ function resolveSplit(
   pref: 'search' | 'holdout' | 'auto',
 ): 'search' | 'holdout' {
   if (pref !== 'auto') return pref
-  const hasHoldout = runs.some((r) => Number.isFinite(r.outcome.holdoutScore))
+  const hasHoldout = runs.some((r) => Number.isFinite(observedSplitScore(r, 'holdout')))
   return hasHoldout ? 'holdout' : 'search'
 }
 
+/**
+ * RAW (`observedSplitScore`): `analyzeRuns` describes what a set of runs
+ * reported, and every downstream reader of this composite — distributions,
+ * per-candidate summaries, the reward-hacking correlation — needs the ungated
+ * number to see an inflated run at all.
+ */
 function compositeOf(run: RunRecord, split: 'search' | 'holdout'): number {
-  const score = split === 'holdout' ? run.outcome.holdoutScore : run.outcome.searchScore
+  // Split-exact, no cross-split fallthrough: answering "what did this run
+  // score on the split I am summarising" with the other split's number
+  // silently mixes populations.
+  const score = observedSplitScore(run, split)
   return Number.isFinite(score) ? (score as number) : Number.NaN
 }
 

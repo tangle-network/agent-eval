@@ -182,4 +182,33 @@ describe('buildRlDataset — dataset-as-product packaging', () => {
     const dpoConfig: RlDatasetConfig = { ...config, formats: ['dpo'] }
     await expect(buildRlDataset(records, lookups, dpoConfig)).rejects.toThrow(/preferences/)
   })
+
+  // The datasheet ships INSIDE the bundle a buyer inspects. If a gamed run were
+  // counted at its claimed score, the published reward distribution would
+  // describe data the rows do not contain.
+  it('scores a realness-gated run 0 in the datasheet and keeps it out of every trainer row', async () => {
+    const gamed = rec('r5', 'sC', 'search', 1.0)
+    gamed.outcome.realness = { score: 0, gated: true, reason: 'faked the harness' }
+    const b = await buildRlDataset([...records, gamed], lookups, config)
+    // The datasheet counts it at its GATED value: 0, never the claimed 1.0.
+    expect(b.manifest.stats.reward.max).toBe(1.0) // r3 (honest) still tops out at 1.0
+    expect(b.manifest.stats.reward.n).toBe(5)
+    expect(b.manifest.stats.reward.mean).toBeCloseTo((0.8 + 0.4 + 1.0 + 0.6 + 0) / 5, 5)
+    // Trainable rows: the two search runs; the gamed trajectory is dropped by
+    // the eligibility rule (and holdout still needs its named override).
+    expect(b.manifest.rowCounts.sft).toBe(2)
+    const grpo = b.files['train.grpo.jsonl']!.trim()
+      .split('\n')
+      .map((l) => JSON.parse(l))
+    // The gamed run's scenario forms no group at all on the record path — its
+    // removal leaves nothing rewarded there. It never ships at ANY value.
+    expect(grpo.some((r) => r.meta.scenarioId === 'sC')).toBe(false)
+    expect(JSON.stringify(b.files)).not.toContain('completion-for-r5')
+  })
+
+  it('declares rollout-only splits and uncaptured cost the RunRecord path cannot express', async () => {
+    const b = await buildRlDataset(records, lookups, config)
+    expect(b.manifest.stats.rolloutSplits).toEqual({ search: 2, holdout: 2 })
+    expect(b.manifest.stats.rolloutsWithoutCost).toBe(0)
+  })
 })

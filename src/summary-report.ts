@@ -27,6 +27,7 @@ import type { GateDecision } from './held-out-gate'
 import { pairRunRecords } from './paired-arms'
 import type { FailureClusterReport } from './pipelines/failure-cluster'
 import { canonicalize, hashJson } from './pre-registration'
+import { observedSplitScore, type ScorePreference } from './rollout/reward'
 import type { RunRecord } from './run-record'
 import {
   benjaminiHochberg,
@@ -87,12 +88,15 @@ export function summaryTable(runs: RunRecord[], opts: SummaryTableOptions = {}):
   const confidence = opts.confidence ?? 0.95
   const fdr = opts.fdr ?? 0.05
   const comparator = opts.comparator ?? null
-  const scoreField = split === 'holdout' ? 'holdoutScore' : 'searchScore'
 
   const byCandidate = new Map<string, { runs: RunRecord[]; scores: number[] }>()
   for (const r of runs) {
     if (r.splitTag !== split) continue
-    const v = r.outcome[scoreField]
+    // RAW (`observedSplitScore`): every figure in this module reports what the
+    // runs scored. Zeroing a gamed run here would erase it from the very table
+    // a reviewer reads to notice it, and the split is already filtered above,
+    // so the exact-split reader is the right one — no cross-split fallback.
+    const v = observedSplitScore(r, split)
     if (typeof v !== 'number' || !Number.isFinite(v)) continue
     const bucket = byCandidate.get(r.candidateId) ?? { runs: [], scores: [] }
     bucket.runs.push(r)
@@ -114,7 +118,7 @@ export function summaryTable(runs: RunRecord[], opts: SummaryTableOptions = {}):
     let unpairedCandidateN: number | null = null
     let unpairedComparatorN: number | null = null
     if (comparator && compRuns && id !== comparator) {
-      const paired = pairScoresByKey(bucket.runs, compRuns.runs, scoreField)
+      const paired = pairScoresByKey(bucket.runs, compRuns.runs, split)
       pairedN = paired.before.length
       unpairedCandidateN = paired.unpairedCandidateN
       unpairedComparatorN = paired.unpairedComparatorN
@@ -167,19 +171,25 @@ export function summaryTable(runs: RunRecord[], opts: SummaryTableOptions = {}):
 function pairScoresByKey(
   candidate: RunRecord[],
   baseline: RunRecord[],
-  scoreField: 'searchScore' | 'holdoutScore',
+  split: ScorePreference,
 ): {
   before: number[]
   after: number[]
   unpairedCandidateN: number
   unpairedComparatorN: number
 } {
-  const scoredCandidate = candidate.filter((run) => Number.isFinite(run.outcome[scoreField]))
-  const scoredBaseline = baseline.filter((run) => Number.isFinite(run.outcome[scoreField]))
+  // RAW, split-exact reads through `observedSplitScore` — the single allowed
+  // spelling of the split-score derivation (see rollout/score-derivation-guard).
+  const scoreOf = (run: RunRecord): number | undefined => {
+    const v = observedSplitScore(run, split)
+    return typeof v === 'number' && Number.isFinite(v) ? v : undefined
+  }
+  const scoredCandidate = candidate.filter((run) => scoreOf(run) !== undefined)
+  const scoredBaseline = baseline.filter((run) => scoreOf(run) !== undefined)
   const pairing = pairRunRecords(scoredBaseline, scoredCandidate)
   return {
-    before: pairing.pairs.map((pair) => pair.baseline.outcome[scoreField]!),
-    after: pairing.pairs.map((pair) => pair.treatment.outcome[scoreField]!),
+    before: pairing.pairs.map((pair) => scoreOf(pair.baseline) as number),
+    after: pairing.pairs.map((pair) => scoreOf(pair.treatment) as number),
     unpairedCandidateN: pairing.unpairedTreatment.length,
     unpairedComparatorN: pairing.unpairedBaseline.length,
   }
@@ -250,12 +260,11 @@ export function paretoChart(
   } = {},
 ): ParetoFigureSpec {
   const split = opts.split ?? 'holdout'
-  const scoreField = split === 'holdout' ? 'holdoutScore' : 'searchScore'
 
   const buckets = new Map<string, { cost: number[]; quality: number[] }>()
   for (const r of runs) {
     if (r.splitTag !== split) continue
-    const v = r.outcome[scoreField]
+    const v = observedSplitScore(r, split)
     if (typeof v !== 'number' || !Number.isFinite(v)) continue
     if (r.costUsd === null) continue
     const bucket = buckets.get(r.candidateId) ?? { cost: [], quality: [] }
@@ -353,16 +362,18 @@ export function gainHistogram(
   opts: GainDistributionOptions = {},
 ): GainDistributionFigureSpec {
   const split = opts.split ?? 'holdout'
-  const scoreField = split === 'holdout' ? 'holdoutScore' : 'searchScore'
   const binCount = opts.bins ?? 11
   if (binCount < 1) throw new Error('gainHistogram: bins must be ≥ 1')
 
   const candidate = runs.filter((r) => r.candidateId === candidateId && r.splitTag === split)
   const baseline = runs.filter((r) => r.candidateId === comparator && r.splitTag === split)
+  // pairScoresByKey returns before=baseline-score, after=candidate-score
+  // for each canonical work-identity pair where both sides recorded a
+  // valid score on this split. delta = after - before = candidate - baseline.
   const { before, after, unpairedCandidateN, unpairedComparatorN } = pairScoresByKey(
     candidate,
     baseline,
-    scoreField,
+    split,
   )
   const n = before.length
 
@@ -615,10 +626,9 @@ function pairedPosterior(
   prInRope: number | null
   mde: number
 } | null {
-  const scoreField = opts.split === 'holdout' ? 'holdoutScore' : 'searchScore'
   const candidate = runs.filter((r) => r.candidateId === candidateId && r.splitTag === opts.split)
   const baseline = runs.filter((r) => r.candidateId === comparator && r.splitTag === opts.split)
-  const { before, after } = pairScoresByKey(candidate, baseline, scoreField)
+  const { before, after } = pairScoresByKey(candidate, baseline, opts.split)
   const n = before.length
   if (n === 0) return null
 

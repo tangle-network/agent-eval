@@ -1,4 +1,5 @@
 import { mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { createRequire } from 'node:module'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
@@ -16,9 +17,13 @@ afterEach(async () => {
   await rm(dir, { recursive: true, force: true })
 })
 
+// Same CommonJS require as the module under test — see the comment there for
+// why an `import()` of this builtin is rewritten out from under both tools.
+const nodeRequire = createRequire(import.meta.url)
+
 /** Miniature opencode.db with the observed session/message/part schema. */
 async function buildFixtureDb(path: string): Promise<void> {
-  const { DatabaseSync } = await import('node:sqlite')
+  const { DatabaseSync } = nodeRequire('node:sqlite') as typeof import('node:sqlite')
   const db = new DatabaseSync(path)
   db.exec(`
     CREATE TABLE session (

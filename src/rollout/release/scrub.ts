@@ -10,7 +10,7 @@
  * the bare-key rule so one secret is never counted twice.
  */
 
-import type { RolloutLine } from '../schema'
+import { assertMinted, type MintedRolloutLine } from '../schema'
 
 export interface ScrubRule {
   name: string
@@ -118,12 +118,22 @@ function scrubValue(value: unknown, counts: ScrubCounts): unknown {
   return value
 }
 
-/** Scrub every string value in a line; structure and key order are preserved. */
-export function scrubRolloutLine(line: RolloutLine, counts: ScrubCounts): RolloutLine {
-  return scrubValue(line, counts) as RolloutLine
+/**
+ * Scrub every string value in a line; structure and key order are preserved.
+ *
+ * `assertMinted` on the way out rather than a cast: scrubbing rebuilds the
+ * object, so the brand has to be re-earned, and re-validating proves the rules
+ * did not rewrite a field the schema constrains (`reward` is a number, not a
+ * string, so no rule should ever touch it — this is what checks that).
+ */
+export function scrubRolloutLine(line: MintedRolloutLine, counts: ScrubCounts): MintedRolloutLine {
+  return assertMinted(scrubValue(line, counts), `scrubbed rollout line ${line.rollout_id}`)
 }
 
-export function scrubLines(lines: RolloutLine[]): { lines: RolloutLine[]; counts: ScrubCounts } {
+export function scrubLines(lines: MintedRolloutLine[]): {
+  lines: MintedRolloutLine[]
+  counts: ScrubCounts
+} {
   const counts = emptyScrubCounts()
   return { lines: lines.map((line) => scrubRolloutLine(line, counts)), counts }
 }

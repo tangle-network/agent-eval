@@ -3,13 +3,16 @@
  * serialization: canonical schema + validation, ledger file API, minting
  * from RunRecord × trace, harness-store intake readers (opencode sqlite,
  * Claude Code jsonl), training-format exporters (SFT, reward rows, Prime
- * Intellect verifiers, OpenAI RFT), and the scrub + dataset-card release
- * pipeline. See `docs/rollout.md` for the schema decision table.
+ * Intellect verifiers, OpenAI RFT), Harbor ATIF-v1.7 interchange, and the
+ * scrub + dataset-card release pipeline. See `docs/rollout.md` for the
+ * schema decision table and the source → waist → sink map.
  */
 
 export {
+  type RealnessLabels,
   type RewardRow,
   type RftItem,
+  realnessLabels,
   type SftExportOptions,
   type SftRow,
   toJsonl,
@@ -23,7 +26,48 @@ export {
   type VerifiersTokenUsage,
 } from './exporters'
 
-export { appendRolloutLines, readRolloutLedger, writeRolloutLedger } from './ledger'
+export {
+  GATE_CHECK_IDS,
+  GATE_CHECKS,
+  GATE_POLICIES,
+  type GateCheck,
+  type GateCheckDisposition,
+  type GateCheckedOutcome,
+  type GateCheckId,
+  type GateEntryPoint,
+  type GatePolicy,
+  gatedEvidenceOf,
+  gateErrors,
+} from './gate-checks'
+
+export {
+  ATIF_SCHEMA_VERSION,
+  type FromHarborOptions,
+  fromHarborTrajectory,
+  HARBOR_IMPORT_GAP,
+  type HarborAgent,
+  type HarborContentPart,
+  type HarborFinalMetrics,
+  type HarborImageSource,
+  type HarborMetrics,
+  type HarborObservation,
+  type HarborObservationResult,
+  type HarborStep,
+  type HarborStepSource,
+  type HarborSubagentTrajectoryRef,
+  type HarborToolCall,
+  type HarborTrajectory,
+  relabelImportedSplit,
+  toHarborTrajectories,
+  toHarborTrajectory,
+} from './interchange/harbor'
+
+export {
+  appendRolloutLines,
+  readRolloutJournal,
+  readRolloutLedger,
+  writeRolloutLedger,
+} from './ledger'
 
 export {
   type MintRolloutOptions,
@@ -57,6 +101,18 @@ export {
   type ReleaseFormat,
 } from './release/card'
 export {
+  assertGateReport,
+  type EmittedEvidence,
+  FORMAT_GATE_DISPOSITION,
+  type FormatGateCounts,
+  type GateDisposition,
+  type GateReport,
+  gatedRolloutIds,
+  measureFormatGate,
+  type ReleaseRowRef,
+  releaseRowRefs,
+} from './release/gate-report'
+export {
   type BuildOptions,
   type BuildSummary,
   buildHfDataset,
@@ -80,13 +136,29 @@ export {
   scrubText,
 } from './release/scrub'
 export {
+  isRealnessGated,
+  observedScore,
+  observedSplitScore,
+  type ScoreOrigin,
+  type ScorePreference,
+  scoreOrigin,
+  trainingReward,
+  trainingScore,
+} from './reward'
+export {
+  assertMinted,
+  assertMintedLines,
   assertRolloutLine,
   CHAT_ROLES,
   type ChatMessage,
   type ChatRole,
   type ChatToolCall,
+  type GatedEvidence,
+  gateGamedOutcome,
   isRolloutLine,
   isTrainableSplit,
+  type MintedRolloutLine,
+  type MintedRolloutOutcome,
   ROLLOUT_CAPTURES,
   ROLLOUT_ROLES,
   ROLLOUT_SCHEMA,

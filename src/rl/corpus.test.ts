@@ -131,6 +131,19 @@ describe('rl corpus — datasets-for-free capture', () => {
     )
   })
 
+  // minScore is rejection sampling: a high threshold is exactly what a
+  // reward-hacked run clears, so the threshold must see the gated reward.
+  it('a realness-gated run cannot buy its way past minScore', async () => {
+    const gamed = rec('gamed', 'search', 1.0)
+    gamed.outcome.realness = { score: 0, gated: true, reason: 'faked the harness' }
+    appendToCorpus([rec('honest', 'search', 0.9), gamed], corpus)
+    const bundle = await buildDatasetFromCorpus(corpus, config, { minScore: 0.8 })
+    expect(bundle.manifest.stats.records).toBe(1)
+    expect(bundle.files['train.sft.jsonl']!.trim().split('\n')).toHaveLength(1)
+    expect(bundle.files['train.sft.jsonl']).toContain('honest')
+    expect(bundle.files['train.sft.jsonl']).not.toContain('gamed')
+  })
+
   it('persists the trajectory text through a write/read round-trip', () => {
     appendToCorpus([rec('r1', 'search', 0.8)], corpus)
     const [back] = readCorpus(corpus)

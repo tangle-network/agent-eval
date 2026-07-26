@@ -98,6 +98,10 @@ export interface DescriptionLengthCandidate {
 
 /** Return the canonical task-quality score, if the run carries one. */
 function runScore(run: RunRecord): number | undefined {
+  // Ungated. KNOWN HOLE: the residual is -log2(s), so a gated run claiming
+  // s=1.0 contributes zero surprise bits — the largest possible improvement to
+  // L_data. Excluding gated runs from this gate is a promotion-policy change,
+  // tracked separately from this correctness fix.
   return runTaskScore(run)
 }
 

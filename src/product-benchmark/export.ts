@@ -250,6 +250,11 @@ function splitOf(record: RunRecord, opts: ResolvedExportOptions): ProductBenchma
   return 'practice'
 }
 
+/** Ungated: a published benchmark record is audit evidence, so the score must
+ *  stay the measured one. KNOWN HOLE: a realness-gated run still publishes with
+ *  `pass: true`. The fix mirrors `RolloutLine` — carry the gate as a field on
+ *  `ProductBenchmarkRecord` and force `pass: false` — which is a schema change,
+ *  not a call swap, and is tracked separately from this correctness fix. */
 function scoreOf(record: RunRecord): number {
   const score = runTaskScore(record)
   if (score !== undefined) return clamp01(score)

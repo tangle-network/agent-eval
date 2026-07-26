@@ -622,28 +622,31 @@ describe('compareOptimizationMethods', () => {
       { optimizationRunOptions: { dispatchRef: 'method-dispatch' } },
       'method-dispatch',
     ],
-  ] as const)('passes the %s dispatch identity to optimization methods', async (_, controls, expected) => {
-    let receivedDispatchRef: string | undefined
-    await compareOptimizationMethods<S, A>({
-      methods: [
-        {
-          name: 'dispatch-spy',
-          async optimize(input) {
-            receivedDispatchRef = input.runOptions.dispatchRef
-            return { winnerSurface: 'nothing', cost: completeCost(0) }
+  ] as const)(
+    'passes the %s dispatch identity to optimization methods',
+    async (_, controls, expected) => {
+      let receivedDispatchRef: string | undefined
+      await compareOptimizationMethods<S, A>({
+        methods: [
+          {
+            name: 'dispatch-spy',
+            async optimize(input) {
+              receivedDispatchRef = input.runOptions.dispatchRef
+              return { winnerSurface: 'nothing', cost: completeCost(0) }
+            },
           },
-        },
-      ],
-      baselineSurface: 'nothing',
-      ...PARTITIONS,
-      dispatchWithSurface: async (surface) => ({ text: String(surface) }),
-      judges: [judge],
-      runDir,
-      expectUsage: 'off',
-      ...controls,
-    })
-    expect(receivedDispatchRef).toBe(expected)
-  })
+        ],
+        baselineSurface: 'nothing',
+        ...PARTITIONS,
+        dispatchWithSurface: async (surface) => ({ text: String(surface) }),
+        judges: [judge],
+        runDir,
+        expectUsage: 'off',
+        ...controls,
+      })
+      expect(receivedDispatchRef).toBe(expected)
+    },
+  )
 
   it('propagates the owning signal to optimization methods', async () => {
     const owner = new AbortController()
@@ -1009,24 +1012,23 @@ describe('compareOptimizationMethods', () => {
     ).rejects.toThrow(/must be pairwise disjoint/)
   })
 
-  it.each([
-    'trainScenarios',
-    'selectionScenarios',
-    'testScenarios',
-  ] as const)('rejects an empty %s partition', async (partition) => {
-    await expect(
-      compareOptimizationMethods<S, A>({
-        methods: [fixedMethod('d', 'whatever', 1)],
-        baselineSurface: 'b',
-        ...PARTITIONS,
-        [partition]: [],
-        dispatchWithSurface: async (surface) => ({ text: String(surface) }),
-        judges: [judge],
-        runDir,
-        expectUsage: 'off',
-      }),
-    ).rejects.toThrow(new RegExp(`${partition} is empty`))
-  })
+  it.each(['trainScenarios', 'selectionScenarios', 'testScenarios'] as const)(
+    'rejects an empty %s partition',
+    async (partition) => {
+      await expect(
+        compareOptimizationMethods<S, A>({
+          methods: [fixedMethod('d', 'whatever', 1)],
+          baselineSurface: 'b',
+          ...PARTITIONS,
+          [partition]: [],
+          dispatchWithSurface: async (surface) => ({ text: String(surface) }),
+          judges: [judge],
+          runDir,
+          expectUsage: 'off',
+        }),
+      ).rejects.toThrow(new RegExp(`${partition} is empty`))
+    },
+  )
 
   it('rejects a one-scenario test partition before optimization', async () => {
     let optimizeCalls = 0

@@ -68,6 +68,9 @@ export class PredictiveValidityResearcher implements Researcher {
   async inspectFailures(runs: RunRecord[]): Promise<FailureMode[]> {
     const threshold = this.opts.failureThreshold ?? 0.5
     const failures: FailureMode[] = []
+    // Ungated: the researcher reports what the runs actually scored. A gamed
+    // run scored high and is therefore NOT a low-score failure mode — calling it
+    // one here would attribute the wrong failure to the candidate.
     const failingRuns = runs.filter((r) => {
       const score = runTaskScore(r)
       return typeof score === 'number' && score < threshold
@@ -186,6 +189,7 @@ export class PredictiveValidityResearcher implements Researcher {
         baselineOverfitGap: null,
         medianCandidateCost: null,
         medianBaselineCost: null,
+        realnessGatedRuns: 0,
       },
       reason:
         'predictive-validity researcher does not execute plans; the caller is expected to run the sweep and call rubricPredictiveValidity directly with the resulting RunRecord[].',
