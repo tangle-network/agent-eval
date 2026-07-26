@@ -39,10 +39,10 @@ async function stubAgent(
 ): Promise<{ text: string }> {
   const paid = await ctx.cost.runPaidCall({
     actor: 'stub-agent',
-    model: 'stub-model',
+    model: 'stub-model@2026-07-25',
     execute: async () => ({ text: String(surface) }),
     receipt: () => ({
-      model: 'stub-model',
+      model: 'stub-model@2026-07-25',
       inputTokens: 1,
       outputTokens: 1,
       actualCostUsd: 0.0001,
@@ -237,6 +237,7 @@ describe('selfImprove — complete optimization methods', () => {
 
     const result = await selfImprove({
       agent: async (surface) => ({ text: String(surface) }),
+      model: 'deterministic-test-agent@2026-07-25',
       scenarios: all,
       selectionScenarios: selectionCases,
       judge: methodJudge,
@@ -466,13 +467,17 @@ describe('selfImprove — run-wide spend account', () => {
       channel: 'agent',
       phase: 'search.baseline',
       actor: 'worker',
-      model: 'provider-receipt',
+      model: 'provider-receipt@2026-07-25',
       execute: async () => {
         throw frozen
       },
-      receipt: () => ({ model: 'provider-receipt', inputTokens: 0, outputTokens: 0 }),
+      receipt: () => ({
+        model: 'provider-receipt@2026-07-25',
+        inputTokens: 0,
+        outputTokens: 0,
+      }),
       receiptFromError: () => ({
-        model: 'provider-receipt',
+        model: 'provider-receipt@2026-07-25',
         inputTokens: 10,
         outputTokens: 5,
         actualCostUsd: 0.4,
@@ -492,14 +497,14 @@ describe('selfImprove — run-wide spend account', () => {
     return async (surface: unknown, _scenario: Scenario, ctx: DispatchContext) => {
       const paid = await ctx.cost.runPaidCall({
         actor: 'worker',
-        model: 'provider-receipt',
+        model: 'provider-receipt@2026-07-25',
         maximumCharge: { externallyEnforcedMaximumUsd: amount },
         execute: async () => {
           onCall?.()
           return { text: String(surface) }
         },
         receipt: () => ({
-          model: 'provider-receipt',
+          model: 'provider-receipt@2026-07-25',
           inputTokens: 10,
           outputTokens: 5,
           actualCostUsd: amount,
@@ -545,10 +550,10 @@ describe('selfImprove — run-wide spend account', () => {
         channel,
         phase: context.costPhase,
         actor,
-        model: 'provider-receipt',
+        model: 'provider-receipt@2026-07-25',
         execute: async () => undefined,
         receipt: () => ({
-          model: 'provider-receipt',
+          model: 'provider-receipt@2026-07-25',
           inputTokens: 0,
           outputTokens: 0,
           actualCostUsd: amount,

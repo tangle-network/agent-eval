@@ -1,6 +1,7 @@
 import { existsSync, readFileSync, statSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { ValidationError } from '../errors'
+import { FAILURE_CLASSES, type FailureClass } from '../trace/schema'
 
 export const productBenchmarkSplits = ['practice', 'dev', 'holdout', 'safety', 'sentinel'] as const
 
@@ -96,7 +97,8 @@ export interface ProductBenchmarkRecord {
     readonly pass: boolean
     readonly score: number
     readonly dimensions: Record<string, number>
-    readonly failureMode: string | null
+    readonly failureClass: Exclude<FailureClass, 'success'> | null
+    readonly failureDetail: string | null
   }
   readonly usage: {
     readonly inputTokens: number
@@ -183,6 +185,14 @@ function expectString(value: unknown, path: string): string {
   if (typeof value !== 'string' || value.trim().length === 0)
     fail(path, 'must be a non-empty string')
   return value
+}
+
+function expectFailureClass(value: unknown, path: string): Exclude<FailureClass, 'success'> {
+  const parsed = expectString(value, path)
+  if (parsed === 'success' || !FAILURE_CLASSES.includes(parsed as FailureClass)) {
+    fail(path, `expected a non-success FailureClass, received ${JSON.stringify(parsed)}`)
+  }
+  return parsed as Exclude<FailureClass, 'success'>
 }
 
 function expectBoolean(value: unknown, path: string): boolean {
@@ -344,6 +354,24 @@ export function validateProductBenchmarkRecord(value: unknown): ProductBenchmark
   const usage = expectObject(obj.usage, 'record.usage')
   const integrity = expectObject(obj.integrity, 'record.integrity')
   const artifacts = expectObject(obj.artifacts, 'record.artifacts')
+  const outcomePass = expectBoolean(outcome.pass, 'record.outcome.pass')
+  const failureClass =
+    outcome.failureClass === null
+      ? null
+      : expectFailureClass(outcome.failureClass, 'record.outcome.failureClass')
+  const failureDetail =
+    outcome.failureDetail === null
+      ? null
+      : expectString(outcome.failureDetail, 'record.outcome.failureDetail')
+  if (outcomePass && (failureClass !== null || failureDetail !== null)) {
+    fail('record.outcome', 'a passing row cannot carry failure evidence')
+  }
+  if (!outcomePass && failureClass === null) {
+    fail('record.outcome.failureClass', 'a failed row requires a failure class')
+  }
+  if (failureClass === null && failureDetail !== null) {
+    fail('record.outcome.failureDetail', 'failure detail requires a failure class')
+  }
   const record: ProductBenchmarkRecord = {
     schemaVersion: 1,
     projectId: expectString(obj.projectId, 'record.projectId'),
@@ -369,13 +397,11 @@ export function validateProductBenchmarkRecord(value: unknown): ProductBenchmark
       version: expectString(backend.version, 'record.backend.version'),
     },
     outcome: {
-      pass: expectBoolean(outcome.pass, 'record.outcome.pass'),
+      pass: outcomePass,
       score: expectNumber(outcome.score, 'record.outcome.score', { min: 0, max: 1 }),
       dimensions: expectDimensions(outcome.dimensions, 'record.outcome.dimensions'),
-      failureMode:
-        outcome.failureMode === null
-          ? null
-          : expectString(outcome.failureMode, 'record.outcome.failureMode'),
+      failureClass,
+      failureDetail,
     },
     usage: {
       inputTokens: expectNumber(usage.inputTokens, 'record.usage.inputTokens', {

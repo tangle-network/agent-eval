@@ -52,6 +52,38 @@ describe('run evidence bridges', () => {
     })
   })
 
+  it('adds task failure detail only when the caller supplies its canonical class', () => {
+    const metadata = {
+      experimentId: 'exp-1',
+      scenarioId: 'scenario-1',
+      candidateId: 'candidate-a',
+      seed: 7,
+      model: 'gpt-4o-2024-11-20',
+      promptHash: 'prompt-hash',
+      configHash: 'config-hash',
+      commitSha: 'abc123',
+      splitTag: 'holdout' as const,
+      tokenUsage: { input: 100, output: 30 },
+      costProvenance: { kind: 'observed' as const, usd: 0.04 },
+    }
+    const record = controlRunToRunRecord(controlRun(), {
+      ...metadata,
+      failureClass: 'instruction_following',
+      failureMode: 'ignored output format',
+    })
+
+    expect(record).toMatchObject({
+      failureClass: 'instruction_following',
+      failureMode: 'ignored output format',
+    })
+    expect(() =>
+      controlRunToRunRecord(controlRun(), {
+        ...metadata,
+        failureMode: 'unscoped detail',
+      }),
+    ).toThrow(/failureMode requires a non-success failureClass/)
+  })
+
   it.each([
     [{ stoppedBy: 'abort', completed: false }, 'cancelled'],
     [{ stoppedBy: 'runtime-error', completed: false }, 'failed'],

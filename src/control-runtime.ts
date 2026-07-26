@@ -92,6 +92,8 @@ export type ControlDecision<TAction> =
       reason: string
       pass?: boolean
       score?: number
+      /** Canonical task-failure class when this stop represents a failed task. */
+      failureClass?: FailureClass
     }
 
 export interface StopDecision {
@@ -455,9 +457,10 @@ export async function runAgentControlLoop<
         })
       }
       if (decision.type === 'stop') {
+        const pass = decision.pass ?? false
         return finish(emitter, {
           intent: config.intent,
-          pass: decision.pass ?? false,
+          pass,
           completed: true,
           reason: decision.reason,
           score: decision.score,
@@ -467,7 +470,7 @@ export async function runAgentControlLoop<
           wallMs: Date.now() - started,
           spentCostUsd,
           runId: emitter?.runId ?? null,
-          failureClass: decision.pass === false ? 'unknown' : undefined,
+          failureClass: pass ? undefined : (decision.failureClass ?? 'unknown'),
           runtimeErrors,
           stoppedBy: 'policy',
         })

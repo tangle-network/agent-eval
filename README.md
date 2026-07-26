@@ -316,12 +316,16 @@ const proposer: SurfaceProposer = {
 const result = await defineAgentEval({
   scenarios,
   agent,
+  model: 'gpt-4.1-2025-04-14',
   judge,
   baselineSurface,
   proposer,
   budget: { generations: 1, populationSize: 1, holdoutFraction: 0.3 },
 }).improve()
 ```
+
+`model` supplies the worker snapshot when the agent does not report paid calls through `ctx.cost.runPaidCall()`.
+When every cell reports a concrete model receipt, omit it.
 
 Run the complete offline example:
 

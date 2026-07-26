@@ -13,10 +13,11 @@
  */
 
 import type { DatasetManifest, DatasetScenario, DatasetSplit } from './dataset'
-import { VerificationError } from './errors'
+import { ValidationError, VerificationError } from './errors'
 import type { GateDecision } from './held-out-gate'
 import { isRealnessGated, observedSplitScore } from './rollout/reward'
-import type { RunRecord, RunSplitTag } from './run-record'
+import { type RunRecord, type RunSplitTag, validateRunRecord } from './run-record'
+import { FAILURE_CLASSES, type FailureClass } from './trace/schema'
 
 /** Severity of an actionable finding attached to a run/trace. */
 export type AsiSeverity = 'info' | 'warning' | 'error' | 'critical'
@@ -57,7 +58,8 @@ export interface ReleaseTraceEvidence {
   turnCount?: number
   costUsd?: number
   durationMs?: number
-  failureMode?: string
+  /** Canonical task-failure class. Free-form detail belongs in ASI. */
+  failureClass?: FailureClass
   asi?: ActionableSideInfo[]
   metadata?: Record<string, unknown>
 }
@@ -135,7 +137,7 @@ export interface ReleaseConfidenceMetrics {
   multiShotTraces: number
   splitCounts: Record<DatasetSplit, number>
   domainCounts: Record<string, number>
-  failureModeCounts: Record<string, number>
+  failureClassCounts: Partial<Record<FailureClass, number>>
   responsibleSurfaceCounts: Record<string, number>
   /**
    * Runs excluded from `passRate` because the authenticity gate flagged them as
@@ -180,8 +182,16 @@ export function evaluateReleaseConfidence(
 ): ReleaseConfidenceScorecard {
   const thresholds = { ...DEFAULT_THRESHOLDS, ...input.thresholds }
   const candidateId = input.candidateId ?? null
-  const runs = filterCandidate(input.runs ?? [], candidateId, input.baselineId)
-  const traces = filterTraceCandidate(input.traces ?? [], candidateId, input.baselineId)
+  const runs = filterCandidate(
+    (input.runs ?? []).map(validateRunRecord),
+    candidateId,
+    input.baselineId,
+  )
+  const traces = filterTraceCandidate(
+    (input.traces ?? []).map(validateReleaseTraceEvidence),
+    candidateId,
+    input.baselineId,
+  )
   const scenarios = input.scenarios ?? []
   const scenarioCount = input.dataset?.scenarioCount ?? scenarios.length
   const splitCounts = input.dataset?.splitCounts ?? countScenarioSplits(scenarios)
@@ -259,7 +269,7 @@ export function evaluateReleaseConfidence(
     multiShotTraces: traces.filter((t) => (t.turnCount ?? 0) > 1).length,
     splitCounts,
     domainCounts: countDomains(scenarios),
-    failureModeCounts: countFailureModes(runs, traces, thresholds.failureScoreThreshold),
+    failureClassCounts: countFailureClasses(runs, traces, thresholds.failureScoreThreshold),
     responsibleSurfaceCounts: countResponsibleSurfaces(traces),
   }
 
@@ -321,6 +331,24 @@ function filterTraceCandidate(
   if (baselineId)
     return traces.filter((t) => t.candidateId === undefined || t.candidateId !== baselineId)
   return [...traces]
+}
+
+function validateReleaseTraceEvidence(
+  trace: ReleaseTraceEvidence,
+  index: number,
+): ReleaseTraceEvidence {
+  const value = trace as unknown as Record<string, unknown>
+  if (Object.hasOwn(value, 'failureMode')) {
+    throw new ValidationError(
+      `traces[${index}].failureMode is not supported; use canonical failureClass`,
+    )
+  }
+  if (trace.failureClass !== undefined && !FAILURE_CLASSES.includes(trace.failureClass)) {
+    throw new ValidationError(
+      `traces[${index}].failureClass must be one of ${FAILURE_CLASSES.join(', ')}`,
+    )
+  }
+  return trace
 }
 
 function checkCorpus(
@@ -589,26 +617,32 @@ function countDomains(scenarios: readonly DatasetScenario[]): Record<string, num
   return out
 }
 
-function countFailureModes(
+function countFailureClasses(
   runs: readonly RunRecord[],
   traces: readonly ReleaseTraceEvidence[],
   threshold: number,
-): Record<string, number> {
-  const out: Record<string, number> = {}
+): Partial<Record<FailureClass, number>> {
+  const out: Partial<Record<FailureClass, number>> = {}
   for (const run of runs) {
     // Ungated: a failure-mode census counts what the runs REPORTED, which is
     // the only way a gamed run's inflated score is visible at all. It is not a
     // promotion number — `passRate` is, and that one excludes gated runs and
     // publishes the excluded count as `metrics.realnessGatedRuns`.
     if (runPassOutcome(run, threshold) === false) {
-      const mode = run.failureMode ?? run.failureClass ?? 'low_score'
-      out[mode] = (out[mode] ?? 0) + 1
+      const failureClass =
+        run.failureClass !== undefined && run.failureClass !== 'success'
+          ? run.failureClass
+          : 'unknown'
+      out[failureClass] = (out[failureClass] ?? 0) + 1
     }
   }
   for (const trace of traces) {
     if (tracePassOutcome(trace, threshold) === false) {
-      const mode = trace.failureMode ?? (trace.ok === false ? 'not_ok' : 'low_score')
-      out[mode] = (out[mode] ?? 0) + 1
+      const failureClass =
+        trace.failureClass !== undefined && trace.failureClass !== 'success'
+          ? trace.failureClass
+          : 'unknown'
+      out[failureClass] = (out[failureClass] ?? 0) + 1
     }
   }
   return out
@@ -658,14 +692,11 @@ function runPassOutcome(run: RunRecord, threshold: number): boolean | null {
 }
 
 function hasExplicitTaskFailure(run: RunRecord): boolean {
-  return (
-    (run.failureClass !== undefined && run.failureClass !== 'success') ||
-    run.failureMode !== undefined
-  )
+  return run.failureClass !== undefined && run.failureClass !== 'success'
 }
 
 function tracePassOutcome(trace: ReleaseTraceEvidence, threshold: number): boolean | null {
-  if (trace.failureMode !== undefined) return false
+  if (trace.failureClass !== undefined && trace.failureClass !== 'success') return false
   if (trace.ok === false) return false
   if (isFiniteNumber(trace.score)) return trace.score >= threshold
   return trace.ok === true ? true : null

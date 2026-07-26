@@ -27,7 +27,12 @@ import type { DatasetScenario } from '../dataset'
 import { continuousAgreement } from '../judge-calibration'
 import { pairRunRecords } from '../paired-arms'
 import { observedSplitScore } from '../rollout/reward'
-import type { RunRecord, RunTerminalOutcome, RunTokenUsage } from '../run-record'
+import {
+  type RunRecord,
+  type RunTerminalOutcome,
+  type RunTokenUsage,
+  validateRunRecord,
+} from '../run-record'
 import {
   pairedBootstrap,
   pairedCohensDz,
@@ -38,12 +43,13 @@ import {
   spearmanR,
 } from '../statistics'
 import { type ParetoFigureSpec, paretoChart } from '../summary-report'
+import type { FailureClass } from '../trace/schema'
 
 import type {
   CostProvenanceSummary,
   ExecutionInsight,
+  FailureClassTally,
   FailureClusterInsight,
-  FailureModeTally,
   InsightReport,
   InterRaterInsight,
   JudgeInsight,
@@ -119,15 +125,16 @@ export interface ExecutionReport {
 
 /** Summarize runtime facts without interpreting task quality or promotion readiness. */
 export function summarizeExecution(opts: SummarizeExecutionOptions): ExecutionReport {
+  const runs = opts.runs.map(validateRunRecord)
   const bins = opts.histogramBins ?? 12
   return {
-    execution: computeExecutionInsight(opts.runs, bins),
-    costProvenance: summarizeCostProvenance(opts.runs),
+    execution: computeExecutionInsight(runs, bins),
+    costProvenance: summarizeCostProvenance(runs),
   }
 }
 
 export async function analyzeRuns(opts: AnalyzeRunsOptions): Promise<InsightReport> {
-  const runs = opts.runs
+  const runs = opts.runs.map(validateRunRecord)
   const bins = opts.histogramBins ?? 12
   const threshold = opts.decisionThreshold ?? 0.02
   const split = resolveSplit(runs, opts.split ?? 'auto')
@@ -179,7 +186,7 @@ export async function analyzeRuns(opts: AnalyzeRunsOptions): Promise<InsightRepo
     ? await computeFailureClusters(runs, opts.analyst, split)
     : undefined
 
-  const failureModes = computeFailureModes(runs, split)
+  const failureClasses = computeFailureClasses(runs, split)
 
   const contamination = opts.canaryScenarios
     ? computeContamination(runs, opts.canaryScenarios)
@@ -201,7 +208,7 @@ export async function analyzeRuns(opts: AnalyzeRunsOptions): Promise<InsightRepo
     interRater,
     lift,
     failureClusters,
-    failureModes,
+    failureClasses,
     contamination,
     outcomeCorrelation,
     priorPeriodComparison,
@@ -221,7 +228,7 @@ export async function analyzeRuns(opts: AnalyzeRunsOptions): Promise<InsightRepo
     contamination,
     outcomeCorrelation,
     release,
-    ...(failureModes ? { failureModes } : {}),
+    ...(failureClasses ? { failureClasses } : {}),
     ...(priorPeriodComparison ? { priorPeriodComparison } : {}),
     recommendations,
   }
@@ -443,25 +450,29 @@ function diagnoseCostCoverage(runs: RunRecord[], provenance: CostProvenanceSumma
 /**
  * Model-free task-failure tally.
  *
- * A producer tag is counted only when the record also has task-failure
- * evidence. This prevents producer records that copied a recovered child error
- * into `failureMode` from being reported as failed tasks.
+ * Explicit non-success classes are task-failure evidence.
+ * A low task score without a class is counted as `unknown`.
  */
-function computeFailureModes(
+function computeFailureClasses(
   runs: RunRecord[],
   split: 'search' | 'holdout',
-): FailureModeTally[] | undefined {
-  const counts = new Map<string, number>()
+): FailureClassTally[] | undefined {
+  const counts = new Map<FailureClass, number>()
   for (const r of runs) {
     if (!isTaskFailure(r, split)) continue
-    const key = r.failureClass ?? r.failureMode
-    if (key) counts.set(key, (counts.get(key) ?? 0) + 1)
+    const key =
+      r.failureClass !== undefined && r.failureClass !== 'success' ? r.failureClass : 'unknown'
+    counts.set(key, (counts.get(key) ?? 0) + 1)
   }
   if (counts.size === 0) return undefined
   const n = runs.length
   return [...counts.entries()]
-    .map(([mode, count]) => ({ mode, count, share: n > 0 ? count / n : 0 }))
-    .sort((a, b) => b.count - a.count || a.mode.localeCompare(b.mode))
+    .map(([failureClass, count]) => ({
+      failureClass,
+      count,
+      share: n > 0 ? count / n : 0,
+    }))
+    .sort((a, b) => b.count - a.count || a.failureClass.localeCompare(b.failureClass))
 }
 
 // ── Prior-period comparison ─────────────────────────────────────────
@@ -994,6 +1005,7 @@ function finiteCompositeScores(runs: readonly RunRecord[], split: 'search' | 'ho
 }
 
 function isTaskFailure(run: RunRecord, split: 'search' | 'holdout'): boolean {
+  if (run.failureClass !== undefined && run.failureClass !== 'success') return true
   const score = compositeOf(run, split)
   return Number.isFinite(score) && score < 0.5
 }
@@ -1156,7 +1168,7 @@ interface RecommendationContext {
   interRater?: InterRaterInsight
   lift?: LiftInsight
   failureClusters?: FailureClusterInsight
-  failureModes?: FailureModeTally[]
+  failureClasses?: FailureClassTally[]
   contamination?: InsightReport['contamination']
   outcomeCorrelation?: OutcomeCorrelationInsight
   priorPeriodComparison?: PriorPeriodComparison
@@ -1241,15 +1253,15 @@ function buildRecommendations(ctx: RecommendationContext): Recommendation[] {
 
   // A healthy-looking mean can hide a group of failed tasks sharing one
   // producer-reported cause. This path does not require an analyst.
-  if (ctx.failureModes && ctx.failureModes.length > 0) {
-    const top = ctx.failureModes[0]!
+  if (ctx.failureClasses && ctx.failureClasses.length > 0) {
+    const top = ctx.failureClasses[0]!
     if (top.count >= 3 && top.share >= 0.15) {
       out.push({
         priority: top.share >= 0.25 ? 'high' : 'medium',
         kind: 'investigate',
-        title: `'${top.mode}' is the dominant failure mode — ${top.count} runs (${(top.share * 100).toFixed(0)}% of the corpus)`,
-        detail: `The mean composite can look acceptable while one named failure dominates the lower tail. ${top.count} of ${ctx.composite.n} runs failed with '${top.mode}'${ctx.failureModes.length > 1 ? ` (next: '${ctx.failureModes[1]!.mode}' ×${ctx.failureModes[1]!.count})` : ''}. Fix this cause first.`,
-        evidencePath: 'failureModes',
+        title: `'${top.failureClass}' is the dominant failure class — ${top.count} runs (${(top.share * 100).toFixed(0)}% of the corpus)`,
+        detail: `The mean composite can look acceptable while one failure class dominates the lower tail. ${top.count} of ${ctx.composite.n} runs failed with '${top.failureClass}'${ctx.failureClasses.length > 1 ? ` (next: '${ctx.failureClasses[1]!.failureClass}' ×${ctx.failureClasses[1]!.count})` : ''}. Fix this cause first.`,
+        evidencePath: 'failureClasses',
       })
     }
   }

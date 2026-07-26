@@ -145,7 +145,12 @@ export function verificationReportToRunRecord(
     tokenUsage: { input: 0, output: 0 },
     terminalOutcome: 'succeeded',
     outcome,
-    failureMode: firstScoredFailure ? `layer_${firstScoredFailure.layer}_fail` : undefined,
+    ...(firstScoredFailure
+      ? {
+          failureClass: 'unknown' as const,
+          failureMode: `layer_${firstScoredFailure.layer}_fail`,
+        }
+      : {}),
     splitTag,
     scenarioId: ctx.scenarioId,
   }

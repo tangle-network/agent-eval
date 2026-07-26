@@ -24,11 +24,11 @@ importers:
         specifier: ^2.0.11
         version: 2.0.11(hono@4.12.32)
       '@tangle-network/agent-core':
-        specifier: ^0.4.20
-        version: 0.4.20
+        specifier: 0.4.21
+        version: 0.4.21
       '@tangle-network/agent-interface':
-        specifier: ^0.32.0
-        version: 0.32.0
+        specifier: 0.33.0
+        version: 0.33.0
       '@tangle-network/tcloud':
         specifier: ^0.4.14
         version: 0.4.14(typescript@6.0.3)(zod@4.4.3)
@@ -648,8 +648,8 @@ packages:
   '@tangle-network/agent-core@0.3.8':
     resolution: {integrity: sha512-bZfVpdiFjXbcQwSxSQABdtXEmUuapWChCcXrHkP6fAnwqEy9hWEfeZLlMZUy+1XaOfpTaMLUOEAwYhXfN018wQ==}
 
-  '@tangle-network/agent-core@0.4.20':
-    resolution: {integrity: sha512-gJzZh5PqPJtWW6kMEfm3IP7CGibvHdVXM4uqCAuCy+Kvg9TlVVkzXqZPRt9gU44mjdw5hDGoVzZotFsPoHAlFw==}
+  '@tangle-network/agent-core@0.4.21':
+    resolution: {integrity: sha512-i+fTC8TxpjSlZiq6qc8JY6JssfZcsPtJtt3V7pTGVaBCyuxOllW2C4E7Uho8HOz5AmExjFL5yN4AAJ3nmH1DGA==}
 
   '@tangle-network/agent-interface@0.13.0':
     resolution: {integrity: sha512-CeTPGRLoXqpt0h+BCyFgZPkfU1zyRpWmqfD+85i/uk+uvbqxkfI+JprfKVf3tBsQuCgJPSjPt5qjdW8n3h2BVg==}
@@ -657,8 +657,8 @@ packages:
   '@tangle-network/agent-interface@0.17.1':
     resolution: {integrity: sha512-B7dRJTo0HSUtgBCB1VMwkTFYkLUaRr/4BcRglrQuGhGUwOzKv1RYyMejOVh5M3a5AagY9N79f7GYbjcA3UmnIA==}
 
-  '@tangle-network/agent-interface@0.32.0':
-    resolution: {integrity: sha512-8GUiqdr9MZ+iedkx7KVL6jbiuW6jh7CzKPS3VDXbWherJjFbuf+ULsMKmc+wnfG7LvtjJgZGr5y+cZm+JN1YDA==}
+  '@tangle-network/agent-interface@0.33.0':
+    resolution: {integrity: sha512-lRIzaZgiCs1lBjOuLt2a+LgExPxpNUMxQgi/RTY+WpKyrxLVmlgKkOlwcpk2IQLvh8rwe0oZJkHGAgU35DRUIQ==}
 
   '@tangle-network/sandbox@0.9.5':
     resolution: {integrity: sha512-yvX2OX6uISBVnMQ+v6Upkesa3u8yj6BHxsfcS6p8Vze+M4WBpyhkwA+onzFHuo9rti557ItZn8yDu4a/klljvQ==}
@@ -1525,9 +1525,9 @@ snapshots:
       '@tangle-network/agent-interface': 0.17.1
       zod: 4.4.3
 
-  '@tangle-network/agent-core@0.4.20':
+  '@tangle-network/agent-core@0.4.21':
     dependencies:
-      '@tangle-network/agent-interface': 0.32.0
+      '@tangle-network/agent-interface': 0.33.0
       zod: 4.4.3
 
   '@tangle-network/agent-interface@0.13.0':
@@ -1538,7 +1538,7 @@ snapshots:
     dependencies:
       zod: 4.4.3
 
-  '@tangle-network/agent-interface@0.32.0':
+  '@tangle-network/agent-interface@0.33.0':
     dependencies:
       '@noble/hashes': 1.8.0
       zod: 4.4.3

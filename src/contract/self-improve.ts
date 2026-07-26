@@ -53,9 +53,10 @@ import type {
   SurfaceProposer,
 } from '../campaign/types'
 import type { CostLedgerHandle, CostLedgerSummary, CostReceipt } from '../cost-ledger'
+import { ValidationError } from '../errors'
 import { createHostedClient, type HostedTenant } from '../hosted/client'
 import type { EvalRunCellScore, EvalRunEvent, EvalRunGenerationSnapshot } from '../hosted/types'
-import type { RunRecord, RunSplitTag } from '../run-record'
+import { modelHasSnapshot, type RunRecord, type RunSplitTag } from '../run-record'
 import { analyzeRuns } from './analyze-runs'
 import type { InsightReport } from './insight-report'
 
@@ -126,6 +127,14 @@ export interface SelfImproveOptions<TScenario extends Scenario, TArtifact> {
    * baseline-only run (set `budget.generations = 0`).
    */
   agent: (surface: MutableSurface, scenario: TScenario, ctx: DispatchContext) => Promise<TArtifact>
+
+  /**
+   * Snapshot-bearing model identity for agents that do not report a paid-call
+   * receipt through `ctx.cost.runPaidCall()`.
+   *
+   * Omit this when every cell reports its concrete model in a receipt.
+   */
+  model?: string
 
   /** Scenarios to evaluate against. Train/holdout split is computed from
    *  these unless `budget.holdoutScenarios` is set explicitly. */
@@ -794,6 +803,7 @@ async function runSelfImprove<TScenario extends Scenario, TArtifact>(
         runDir,
         opts.baselineSurface,
         reportSplit,
+        opts.model,
       ),
       ...cellsToRunRecords(
         reportWinnerCampaign.cells,
@@ -801,6 +811,7 @@ async function runSelfImprove<TScenario extends Scenario, TArtifact>(
         runDir,
         result.winnerSurface,
         reportSplit,
+        opts.model,
       ),
     ],
     baselineCandidateId: 'baseline',
@@ -1007,11 +1018,23 @@ function cellsToRunRecords<TArtifact>(
   runId: string,
   surface: MutableSurface,
   splitTag: RunSplitTag,
+  fallbackModel?: string,
 ): RunRecord[] {
   const promptHash = surfaceContentHash(surface)
   const configHash = surfaceContentHash(candidateId)
-  return cells.map((cell) =>
-    campaignCellToRunRecord(cell, {
+  return cells.map((cell) => {
+    const model = cell.resolvedModel ?? fallbackModel
+    if (!model) {
+      throw new ValidationError(
+        `selfImprove.model is required when cell ${cell.cellId} has no paid-call model receipt`,
+      )
+    }
+    if (!modelHasSnapshot(model)) {
+      throw new ValidationError(
+        `selfImprove model "${model}" lacks a snapshot version for cell ${cell.cellId}`,
+      )
+    }
+    return campaignCellToRunRecord(cell, {
       runId: `${runId}::${candidateId}::${cell.cellId}`,
       experimentId: runId,
       candidateId,
@@ -1022,11 +1045,11 @@ function cellsToRunRecords<TArtifact>(
           .slice(0, 6)
           .split('')
           .reduce((a, c) => (a * 31 + c.charCodeAt(0)) >>> 0, 0),
-      model: 'campaign-cell',
+      model,
       promptHash,
       configHash,
       commitSha: 'cell',
       splitTag,
-    }),
-  )
+    })
+  })
 }

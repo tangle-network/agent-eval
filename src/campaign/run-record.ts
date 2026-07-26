@@ -6,6 +6,7 @@ import type {
   RunSplitTag,
   RunTerminalOutcome,
 } from '../run-record'
+import { validateRunRecord } from '../run-record'
 import type { CampaignCellResult, JudgeScore } from './types'
 
 export interface CampaignCellRunRecordOptions {
@@ -108,7 +109,7 @@ export function campaignCellToRunRecord<TArtifact>(
     else outcome.searchScore = quality.score
   }
 
-  return {
+  return validateRunRecord({
     runId: options.runId,
     experimentId: options.experimentId,
     candidateId: options.candidateId,
@@ -129,7 +130,7 @@ export function campaignCellToRunRecord<TArtifact>(
     splitTag: options.splitTag,
     scenarioId: options.scenarioId ?? cell.scenarioId,
     ...(options.agentProfile ? { agentProfile: options.agentProfile } : {}),
-  }
+  })
 }
 
 export function campaignCellExecutionEvidence<TArtifact>(

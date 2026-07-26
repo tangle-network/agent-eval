@@ -91,6 +91,7 @@ async function main() {
         scenario,
         systemPrompt: String(surface),
       }),
+    model: 'deterministic-copy-agent@2026-07-25',
     judge: {
       name: 'rubric',
       dimensions: [

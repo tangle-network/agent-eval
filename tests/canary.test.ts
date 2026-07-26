@@ -29,6 +29,7 @@ function rec(
       : undefined,
     outcome: { holdoutScore: 0.5, raw: bucket ? { bucket: 1 } : {} },
     splitTag: 'holdout',
+    failureClass: bucket ? 'unknown' : undefined,
     failureMode: bucket ?? undefined,
   }
 }

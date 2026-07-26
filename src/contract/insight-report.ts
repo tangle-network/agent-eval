@@ -30,6 +30,7 @@
 
 import type { RunTerminalOutcome } from '../run-record'
 import type { GainDistributionBin, ParetoFigureSpec } from '../summary-report'
+import type { FailureClass } from '../trace/schema'
 import type { ContinuousAgreement } from './insight-types-fwd'
 
 // ── Top-level report ────────────────────────────────────────────────
@@ -107,10 +108,10 @@ export interface InsightReport {
    *  per-dimension judge metric present in both windows. */
   priorPeriodComparison?: PriorPeriodComparison
 
-  /** Model-free task-failure breakdown from `RunRecord.failureClass` or
-   *  `failureMode`, ranked by count descending. Tags from successful or
-   *  otherwise non-failed tasks are excluded. */
-  failureModes?: FailureModeTally[]
+  /** Model-free task-failure breakdown from `RunRecord.failureClass`, ranked
+   *  by count descending. Domain-specific `failureMode` detail is retained on
+   *  each record but never creates a second aggregation vocabulary. */
+  failureClasses?: FailureClassTally[]
 
   /** Top-N actionable recommendations, ranked by priority. The packet's
    *  human-readable layer; the numeric sections are the evidence. */
@@ -314,15 +315,13 @@ export interface FailureClusterInsight {
   totalFailures: number
 }
 
-/** Model-free failure breakdown over the structured `RunRecord.failureMode`
- *  enum. Unlike `failureClusters` (semantic, requires an LLM analyst), this
- *  is computed directly from the tags the harness already recorded — so a
- *  customer ingesting one batch with no judge/analyst still learns which
- *  named failure dominates. */
-export interface FailureModeTally {
-  /** The `failureMode` tag. */
-  mode: string
-  /** Number of runs carrying this tag. */
+/** Model-free task-failure breakdown over canonical `RunRecord.failureClass`
+ *  values. Unlike semantic failure clusters, this is computed directly from
+ *  run records and does not require a model analyst. */
+export interface FailureClassTally {
+  /** Canonical task-failure class. */
+  failureClass: FailureClass
+  /** Number of failed runs carrying this class. */
   count: number
   /** Share of the whole corpus, 0..1. */
   share: number
