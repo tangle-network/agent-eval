@@ -41,7 +41,7 @@ Use the profile improvement functions from `/contract` when a host owns immutabl
 
 This API never activates a candidate or runs an agent itself.
 The host owns authorization, billing, task isolation, profile materialization, execution, and durable evidence.
-The first portable profile contract accepts prompt and inline-skill changes only; a host must add its own exact-state adapter before measuring tools, MCP servers, hooks, subagents, or external knowledge.
+The first portable profile contract accepts prompt and skill changes only; a host must add its own exact-state adapter before measuring tools, MCP servers, hooks, subagents, or external knowledge.
 
 ## Main Objects
 
