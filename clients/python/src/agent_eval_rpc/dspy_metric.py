@@ -26,6 +26,13 @@ DspyContextBuilder = Callable[
     dict[str, Any] | None,
 ]
 
+_UNSAFE_DSPY_CACHE_MESSAGE = (
+    "DSPy disk caching uses unrestricted pickle or an unknown disk serializer. "
+    "Before creating or using `DspyJudgeMetric`, call "
+    "`dspy.configure_cache(restrict_pickle=True)` or disable disk caching with "
+    "`dspy.configure_cache(enable_disk_cache=False)`."
+)
+
 
 class DspyJudgeMetric:
     """Use one Agent Eval rubric as a native DSPy metric.
@@ -65,6 +72,8 @@ class DspyJudgeMetric:
         ):
             if not isinstance(value, int) or isinstance(value, bool) or value <= 0:
                 raise ValueError(f"`{label}` must be a positive integer.")
+
+        _assert_dspy_cache_is_safe()
 
         self._rubric_name = rubric_name
         self._rubric = Rubric.model_validate(rubric) if isinstance(rubric, dict) else rubric
@@ -132,6 +141,7 @@ class DspyJudgeMetric:
         pred_name: str | None,
         pred_trace: Any | None,
     ) -> JudgeResult:
+        _assert_dspy_cache_is_safe()
         content = self._content_builder(prediction)
         if not isinstance(content, str) or not content:
             raise ValueError("`content_builder` must return a non-empty string.")
@@ -285,6 +295,30 @@ def _require_dspy() -> Any:
         import dspy
     except ImportError as error:
         raise ImportError(
-            "DSPy is required for rich GEPA feedback. Install `agent-eval-rpc[dspy]`."
+            "DSPy is required for `DspyJudgeMetric`. Install `agent-eval-rpc[dspy]`."
         ) from error
     return dspy
+
+
+def _assert_dspy_cache_is_safe() -> None:
+    dspy = _require_dspy()
+
+    try:
+        from dspy.clients.cache import Cache
+        from dspy.clients.disk_serialization import _RestrictedDisk
+    except (ImportError, AttributeError) as error:
+        raise RuntimeError(_UNSAFE_DSPY_CACHE_MESSAGE) from error
+
+    cache = getattr(dspy, "cache", None)
+    if not isinstance(cache, Cache):
+        raise RuntimeError(_UNSAFE_DSPY_CACHE_MESSAGE)
+    if cache.enable_disk_cache in (False, None):
+        return
+    if cache.enable_disk_cache is not True:
+        raise RuntimeError(_UNSAFE_DSPY_CACHE_MESSAGE)
+
+    shards = getattr(cache.disk_cache, "_shards", None)
+    if not isinstance(shards, (list, tuple)) or not shards:
+        raise RuntimeError(_UNSAFE_DSPY_CACHE_MESSAGE)
+    if not all(isinstance(getattr(shard, "disk", None), _RestrictedDisk) for shard in shards):
+        raise RuntimeError(_UNSAFE_DSPY_CACHE_MESSAGE)
