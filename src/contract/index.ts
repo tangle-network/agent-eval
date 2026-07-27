@@ -197,6 +197,21 @@ export {
   verifyCandidateExperimentComparison,
 } from './measured-comparison'
 export {
+  type AgentProfileImprovementExperimentExecutionInput,
+  type CompareAgentProfileImprovementExperimentOptions,
+  measuredComparisonFromAgentProfileImprovementExperiment,
+  type RunAgentProfileImprovementExperimentOptions,
+  runAgentProfileImprovementExperiment,
+  type SealAgentProfileImprovementSuiteOptions,
+  sealAgentProfileImprovementExperiment,
+  sealAgentProfileImprovementSuite,
+  sealAgentProfileImprovementTask,
+  verifyAgentProfileImprovementExperiment,
+  verifyAgentProfileImprovementExperimentComparison,
+  verifyAgentProfileImprovementSuiteInputs,
+  verifyAgentProfileImprovementTask,
+} from './profile-measured-comparison'
+export {
   type SelfImproveBudget,
   type SelfImproveOptions,
   type SelfImproveProgressEvent,

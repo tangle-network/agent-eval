@@ -4,6 +4,12 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ---
 
+## [Unreleased]
+
+### Added
+
+- Profile improvement measurement contracts in `/contract` that seal an exact profile diff and held-out task set, execute paired host-owned cells, and recompute the published score, uncertainty, cost, latency, and decision from complete receipts.
+
 ## [0.130.0] - 2026-07-26 - current dependency and build cohort
 
 ### Changed

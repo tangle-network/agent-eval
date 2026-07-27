@@ -32,6 +32,17 @@ It contains score distributions, paired lift intervals, judge agreement, cost, f
 Run records, scenarios, judge scores, statistics, and release decisions belong here because they work without an agent runtime.
 Agent sessions, worker coordination, sandbox execution, and runtime-specific profiles belong in `agent-runtime`.
 
+## Measuring a complete profile
+
+Use the profile improvement functions from `/contract` when a host owns immutable agent-profile snapshots.
+`sealAgentProfileImprovementExperiment()` freezes the exact baseline, candidate diff, held-out tasks, model, limits, and policy.
+`runAgentProfileImprovementExperiment()` asks the host to execute every frozen baseline/candidate cell and requires one complete receipt per execution.
+`measuredComparisonFromAgentProfileImprovementExperiment()` recomputes scores, uncertainty, cost, latency, and the release decision from those receipts.
+
+This API never activates a candidate or runs an agent itself.
+The host owns authorization, billing, task isolation, profile materialization, execution, and durable evidence.
+The first portable profile contract accepts prompt and inline-skill changes only; a host must add its own exact-state adapter before measuring tools, MCP servers, hooks, subagents, or external knowledge.
+
 ## Main Objects
 
 | Thing | What it is | One-line example |
