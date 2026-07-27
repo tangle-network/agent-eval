@@ -4,7 +4,7 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ---
 
-## [Unreleased]
+## [0.131.0] - 2026-07-27 - profile improvement measurements
 
 ### Added
 
