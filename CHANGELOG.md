@@ -4,6 +4,13 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ---
 
+## [0.133.0] - 2026-07-27 - remove unused belief-state API
+
+### Removed
+
+- Removed `@tangle-network/agent-eval/belief-state`, which had no producers or consumers.
+  Use `@tangle-network/agent-eval/rl` for off-policy analysis and `@tangle-network/agent-eval/meta-eval` for calibration.
+
 ## [0.132.0] - 2026-07-27 - sealed profile improvement execution
 
 ### Added

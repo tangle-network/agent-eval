@@ -5,7 +5,7 @@
  *
  * Reach for focused subpaths when they fit: `/contract`, `/campaign`,
  * `/analyst`, `/traces`, `/reporting`, `/rl`, `/prm`, `/meta-eval`,
- * `/belief-state`, `/wire`, and `/testing`.
+ * `/wire`, and `/testing`.
  */
 
 // ── Core types ───────────────────────────────────────────────────────
