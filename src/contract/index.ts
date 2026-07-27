@@ -177,6 +177,7 @@ export {
 } from './define-agent-eval'
 export {
   type CandidateExperimentExecutionInput,
+  type CandidateExperimentRun,
   type CompareCandidateExperimentOptions,
   type EvaluatePairedMeasurementsOptions,
   evaluatePairedMeasurements,
@@ -198,6 +199,7 @@ export {
 } from './measured-comparison'
 export {
   type AgentProfileImprovementExperimentExecutionInput,
+  type AgentProfileImprovementExperimentRun,
   type CompareAgentProfileImprovementExperimentOptions,
   measuredComparisonFromAgentProfileImprovementExperiment,
   type RunAgentProfileImprovementExperimentOptions,

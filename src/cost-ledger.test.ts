@@ -409,6 +409,38 @@ describe('CostLedger', () => {
     expect(ledger.summary().fullyPriced).toBe(true)
   })
 
+  it('retains a host-provided estimate without inventing token pricing', async () => {
+    const ledger = new CostLedger(1)
+    const result = await ledger.runPaidCall({
+      channel: 'agent',
+      phase: 'measurement',
+      actor: 'host-executor',
+      model: 'platform-profile-runner',
+      maximumCharge: { externallyEnforcedMaximumUsd: 0.5 },
+      execute: async () => 'done',
+      receipt: () => ({
+        model: 'platform-profile-runner',
+        inputTokens: 0,
+        outputTokens: 0,
+        estimatedCostUsd: 0.25,
+      }),
+    })
+
+    expect(result).toMatchObject({
+      succeeded: true,
+      receipt: {
+        costUsd: 0.25,
+        estimatedCostUsd: 0.25,
+        costUnknown: false,
+      },
+    })
+    expect(result.succeeded && result.receipt.pricing).toBeUndefined()
+    expect(ledger.summary()).toMatchObject({
+      accountingComplete: true,
+      costProvenance: { kind: 'estimated', usd: 0.25 },
+    })
+  })
+
   it('persists completed tasks so resumed cost-per-task remains correct', () => {
     const { persistence } = memoryPersistence()
     const ledger = new CostLedger({

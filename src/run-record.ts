@@ -26,6 +26,7 @@
 
 import type { AgentProfileCell } from './agent-profile-cell'
 import { validateAgentProfileCell } from './agent-profile-cell'
+import type { CostProvenance } from './cost-ledger'
 import { ValidationError } from './errors'
 // Value import of a leaf module that itself imports only this file's TYPES —
 // no runtime cycle. It keeps the raw split-score derivation spelled in exactly
@@ -57,13 +58,8 @@ export interface RunTokenUsage {
   cacheWrite?: number
 }
 
-/**
- * How a run's USD amount was obtained.
- */
-export type RunCostProvenance =
-  | { kind: 'observed'; usd: number }
-  | { kind: 'estimated'; usd: number }
-  | { kind: 'uncaptured'; usd: null }
+/** How a run's USD amount was obtained. */
+export type RunCostProvenance = CostProvenance
 
 export interface RunJudgeMetadata {
   model: string
