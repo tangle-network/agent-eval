@@ -19,6 +19,7 @@ import {
   canonicalCandidateJson,
   type Sha256Digest,
 } from '@tangle-network/agent-interface'
+import { mapConcurrent } from './concurrent-map'
 import { evaluatePairedMeasurements, type PairedMeasurementAdapter } from './measured-comparison'
 
 export interface SealAgentProfileImprovementSuiteOptions {
@@ -128,20 +129,12 @@ export async function runAgentProfileImprovementExperiment(
   const experiment = verifyAgentProfileImprovementExperiment(options.experiment)
   const expectedCount =
     experiment.benchmark.suite.taskDigests.length * experiment.benchmark.suite.reps
-  const maxConcurrency = options.maxConcurrency ?? 2
-  if (!Number.isSafeInteger(maxConcurrency) || maxConcurrency < 1) {
-    throw new Error('profile improvement maxConcurrency must be a positive integer')
-  }
-
-  const measurements = new Array<AgentProfileImprovementMeasurement>(expectedCount)
-  let nextIndex = 0
-  const lanes = Array.from({ length: Math.min(maxConcurrency, expectedCount) }, async () => {
-    while (true) {
-      if (options.signal?.aborted) throw abortError(options.signal)
-      const index = nextIndex
-      nextIndex += 1
-      if (index >= expectedCount) return
-
+  return mapConcurrent({
+    count: expectedCount,
+    maxConcurrency: options.maxConcurrency ?? 2,
+    label: 'profile improvement experiment',
+    ...(options.signal ? { signal: options.signal } : {}),
+    async map(index) {
       const [baselineInput, candidateInput] = [
         profileExecutionInput(experiment, 'baseline', index, options.signal),
         profileExecutionInput(experiment, 'candidate', index, options.signal),
@@ -150,11 +143,9 @@ export async function runAgentProfileImprovementExperiment(
         options.execute(baselineInput),
         options.execute(candidateInput),
       ])
-      measurements[index] = verifyProfileMeasurement(experiment, { baseline, candidate }, index)
-    }
+      return verifyProfileMeasurement(experiment, { baseline, candidate }, index)
+    },
   })
-  await Promise.all(lanes)
-  return measurements
 }
 
 /** Build the only publishable profile comparison from complete host receipts. */
@@ -302,10 +293,29 @@ function verifyProfileMeasurement(
   ) {
     throw new Error(`profile improvement measurement ${index} substituted a measured arm`)
   }
+  verifyProfileReceiptTaskContract(baseline, expectedBaseline, index)
+  verifyProfileReceiptTaskContract(candidate, expectedCandidate, index)
   if (baseline.executionId === candidate.executionId || baseline.digest === candidate.digest) {
     throw new Error(`profile improvement measurement ${index} reused one execution across arms`)
   }
   return { baseline, candidate }
+}
+
+function verifyProfileReceiptTaskContract(
+  receipt: AgentProfileImprovementRunReceipt,
+  expected: AgentProfileImprovementExperimentExecutionInput,
+  index: number,
+): void {
+  const task = expected.task
+  if (
+    canonicalCandidateDigest(receipt.resolvedModel) !== canonicalCandidateDigest(task.model) ||
+    canonicalCandidateDigest(receipt.limits) !== canonicalCandidateDigest(task.limits) ||
+    canonicalCandidateDigest(receipt.grading.grader) !== canonicalCandidateDigest(task.grader)
+  ) {
+    throw new Error(
+      `profile improvement measurement ${index} substituted its ${expected.arm} task contract`,
+    )
+  }
 }
 
 function profileCell(
@@ -347,10 +357,4 @@ function nonNegative(value: number, label: string): number {
     throw new Error(`${label} must be a non-negative number`)
   }
   return value
-}
-
-function abortError(signal: AbortSignal): Error {
-  return signal.reason instanceof Error
-    ? signal.reason
-    : new Error('profile improvement experiment aborted')
 }

@@ -24,6 +24,7 @@ import {
 import { powerPreflight } from '../campaign/gates/power-preflight'
 import { heldoutSignificance } from '../campaign/gates/statistical-heldout'
 import { pairedBootstrap } from '../statistics'
+import { mapConcurrent } from './concurrent-map'
 
 export interface SealCandidateBenchmarkSuiteOptions {
   tasks: [AgentCandidateBenchmarkTask, ...AgentCandidateBenchmarkTask[]]
@@ -154,20 +155,12 @@ export async function runCandidateExperiment(
 ): Promise<AgentCandidateExperimentMeasurement[]> {
   const experiment = verifyCandidateExperiment(options.experiment)
   const { suite, tasks } = experiment.benchmark
-  const maxConcurrency = options.maxConcurrency ?? 2
-  if (!Number.isSafeInteger(maxConcurrency) || maxConcurrency < 1) {
-    throw new Error('candidate experiment maxConcurrency must be a positive integer')
-  }
-  const measurements = new Array<AgentCandidateExperimentMeasurement>(
-    suite.taskDigests.length * suite.reps,
-  )
-  let nextIndex = 0
-  const lanes = Array.from({ length: Math.min(maxConcurrency, measurements.length) }, async () => {
-    while (true) {
-      if (options.signal?.aborted) throw abortError(options.signal)
-      const index = nextIndex
-      nextIndex += 1
-      if (index >= measurements.length) return
+  return mapConcurrent({
+    count: suite.taskDigests.length * suite.reps,
+    maxConcurrency: options.maxConcurrency ?? 2,
+    label: 'candidate experiment',
+    ...(options.signal ? { signal: options.signal } : {}),
+    async map(index) {
       const taskIndex = Math.floor(index / suite.reps)
       const repetition = index % suite.reps
       const task = tasks[taskIndex]
@@ -202,11 +195,9 @@ export async function runCandidateExperiment(
       ])
       const measurement = { baseline, candidate }
       verifyMeasurement(experiment, measurement, index)
-      measurements[index] = measurement
-    }
+      return measurement
+    },
   })
-  await Promise.all(lanes)
-  return measurements
 }
 
 /**
@@ -942,8 +933,4 @@ function cellIds(experiment: AgentCandidateExperiment): string[] {
 function mean(values: number[]): number {
   if (values.length === 0) throw new Error('candidate experiment requires measured values')
   return values.reduce((sum, value) => sum + value, 0) / values.length
-}
-
-function abortError(signal: AbortSignal): Error {
-  return signal.reason instanceof Error ? signal.reason : new Error('candidate experiment aborted')
 }

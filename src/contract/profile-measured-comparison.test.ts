@@ -314,4 +314,60 @@ describe('profile improvement measured comparison', () => {
       }),
     ).toThrow()
   })
+
+  it('rejects forged receipts and receipts bound to a different task contract', async () => {
+    const frozen = experiment()
+    const measurements = await runAgentProfileImprovementExperiment({
+      experiment: frozen,
+      async execute(input) {
+        return receipt(input, input.arm === 'baseline' ? 0.2 : 0.8)
+      },
+    })
+    const first = measurements[0]!
+
+    expect(() =>
+      measuredComparisonFromAgentProfileImprovementExperiment({
+        experiment: frozen,
+        measurements: [
+          { ...first, candidate: { ...first.candidate, steps: 2 } },
+          ...measurements.slice(1),
+        ],
+        runId: 'forged-receipt',
+      }),
+    ).toThrow(/profile improvement run receipt digest is invalid/)
+
+    const { digest: _digest, ...candidateMaterial } = first.candidate
+    const substitutedModel = signed({
+      ...candidateMaterial,
+      resolvedModel: { ...candidateMaterial.resolvedModel, model: 'claude-opus-4-6' },
+    })
+    expect(() =>
+      measuredComparisonFromAgentProfileImprovementExperiment({
+        experiment: frozen,
+        measurements: [{ ...first, candidate: substitutedModel }, ...measurements.slice(1)],
+        runId: 'substituted-task-contract',
+      }),
+    ).toThrow(/substituted its candidate task contract/)
+  })
+
+  it('rejects invalid suite schedules and concurrency before execution', async () => {
+    expect(() =>
+      sealAgentProfileImprovementSuite({
+        splitDigest: sha('2'),
+        tasks: [profileTask()],
+        reps: 2,
+        seeds: [11],
+      }),
+    ).toThrow(/one seed per task and repetition/)
+
+    await expect(
+      runAgentProfileImprovementExperiment({
+        experiment: experiment(),
+        maxConcurrency: 0,
+        async execute(input) {
+          return receipt(input, 1)
+        },
+      }),
+    ).rejects.toThrow(/maxConcurrency must be a positive integer/)
+  })
 })
