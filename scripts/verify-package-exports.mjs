@@ -1,5 +1,6 @@
 import { spawnSync } from 'node:child_process'
 import {
+  existsSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
@@ -79,7 +80,6 @@ try {
     './trace-attributes': ['import', 'types'],
     './rl': ['import', 'types'],
     './meta-eval': ['import', 'types'],
-    './belief-state': ['import', 'types'],
     './hosted': ['import', 'types'],
     './wire': ['import', 'types'],
     './openapi.json': ['default'],
@@ -95,6 +95,12 @@ try {
       }
       run('test', ['-f', join(packageDir, relativeTarget)], repoRoot)
     }
+  }
+  if (packageJson.exports?.['./belief-state']) {
+    throw new Error('packed package retains removed belief-state export')
+  }
+  if (existsSync(join(packageDir, 'dist', 'belief-state'))) {
+    throw new Error('packed package retains removed belief-state files')
   }
 
   const profileCellTarget = packageJson.exports['./profile-cell'].import
@@ -215,10 +221,6 @@ try {
       type RemovedDefaultJudges = typeof import('@tangle-network/agent-eval').defaultJudges
       // @ts-expect-error campaign cost is available only at aggregates.cost.totalCostUsd
       type RemovedCampaignCostAlias = import('@tangle-network/agent-eval/campaign').CampaignAggregates['totalCostUsd']
-      // @ts-expect-error scalar qHat was replaced by qHatChosen plus vHatTarget
-      type RemovedBeliefQHat = import('@tangle-network/agent-eval/belief-state').BeliefDecisionPoint['qHat']
-      // @ts-expect-error scalar qHat callbacks were removed
-      type RemovedBeliefQHatHook = import('@tangle-network/agent-eval/belief-state').BeliefOpeTargetPolicy['qHatOf']
       // @ts-expect-error scalar off-policy qHat was removed
       type RemovedOffPolicyQHat = import('@tangle-network/agent-eval/rl').OffPolicyTrajectory['qHat']
       // @ts-expect-error scalar off-policy contribution counts were removed
@@ -481,10 +483,6 @@ try {
         if (!('InMemoryOutcomeStore' in metaEval)) throw new Error('missing meta-eval export InMemoryOutcomeStore')
         const wire = await import('@tangle-network/agent-eval/wire')
         if (!('dispatchRpc' in wire)) throw new Error('missing wire export dispatchRpc')
-        const beliefState = await import('@tangle-network/agent-eval/belief-state')
-        if (!('analyzeBeliefPolicy' in beliefState)) {
-          throw new Error('missing belief-state export analyzeBeliefPolicy')
-        }
         const hosted = await import('@tangle-network/agent-eval/hosted')
         for (const name of [
           'HOSTED_WIRE_VERSION',

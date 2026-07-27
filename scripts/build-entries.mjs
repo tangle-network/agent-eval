@@ -19,7 +19,6 @@ export const buildEntries = {
   'ledger-core/index': 'src/ledger-core/index.ts',
   'storyboard/index': 'src/storyboard/index.ts',
   'authenticity/index': 'src/authenticity/index.ts',
-  'belief-state/index': 'src/belief-state/index.ts',
   'contract/index': 'src/contract/index.ts',
   'rollout/index': 'src/rollout/index.ts',
   'supervisor-run/index': 'src/supervisor-run/index.ts',
