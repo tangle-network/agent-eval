@@ -24,14 +24,14 @@
  * string literal instead of an identifier. WRITES are untouched: constructing a
  * `RunRecord` obviously assigns the fields, and that is not a derivation.
  *
- * DEV-ONLY MODULE. It imports `typescript`, a devDependency, to parse. It is
+ * DEV-ONLY MODULE. It imports `oxc-parser`, a devDependency, to parse. It is
  * not a package entry point and nothing under `src/` may import it outside a
- * test — doing so would put the compiler in the published bundle.
+ * test, which keeps the parser out of the published bundle.
  */
 
 import { readdirSync, readFileSync, statSync } from 'node:fs'
 import { join, relative, sep } from 'node:path'
-import ts from 'typescript'
+import { type Node, parseSync, visitorKeys } from 'oxc-parser'
 
 /** The two fields whose raw reads only `rollout/reward.ts` may spell. */
 export const GUARDED_FIELDS: readonly string[] = ['holdoutScore', 'searchScore']
@@ -54,52 +54,56 @@ export interface ScoreReadSite {
   text: string
 }
 
-const ASSIGNMENT_OPERATORS = new Set<ts.SyntaxKind>([
-  ts.SyntaxKind.EqualsToken,
-  ts.SyntaxKind.QuestionQuestionEqualsToken,
-  ts.SyntaxKind.BarBarEqualsToken,
-  ts.SyntaxKind.AmpersandAmpersandEqualsToken,
-  ts.SyntaxKind.PlusEqualsToken,
-  ts.SyntaxKind.MinusEqualsToken,
-  ts.SyntaxKind.AsteriskEqualsToken,
-  ts.SyntaxKind.SlashEqualsToken,
-])
-
 /** `x.holdoutScore = v` and friends are writes, not derivations. */
-function isAssignmentTarget(node: ts.Node): boolean {
-  const parent = node.parent
-  if (parent === undefined) return false
-  if (ts.isBinaryExpression(parent) && parent.left === node) {
-    return ASSIGNMENT_OPERATORS.has(parent.operatorToken.kind)
-  }
-  return false
+function isAssignmentTarget(node: Node, parent: Node | undefined): boolean {
+  return (
+    (parent?.type === 'AssignmentExpression' && parent.left === node) ||
+    (parent?.type === 'UpdateExpression' && parent.argument === node)
+  )
 }
 
 /** A string literal inside a type (`'searchScore' | 'holdoutScore'`) names no value. */
-function inTypePosition(node: ts.Node): boolean {
-  for (let cur: ts.Node | undefined = node.parent; cur !== undefined; cur = cur.parent) {
-    if (ts.isTypeNode(cur)) return true
+function inTypePosition(ancestors: readonly Node[]): boolean {
+  return ancestors.some((node) => node.type === 'TSLiteralType')
+}
+
+/** `{ holdoutScore: 1 }` / `{ 'holdoutScore': 1 }` — the key is a write target. */
+function isPropertyNamePosition(node: Node, parent: Node | undefined): boolean {
+  if (parent?.type === 'Property' || parent?.type === 'TSPropertySignature') {
+    return parent.key === node
+  }
+  if (parent?.type === 'PropertyDefinition' || parent?.type === 'MethodDefinition') {
+    return parent.key === node
   }
   return false
 }
 
-/** `{ holdoutScore: 1 }` / `{ 'holdoutScore': 1 }` — the key is a write target. */
-function isPropertyNamePosition(node: ts.Node): boolean {
-  const parent = node.parent
-  if (parent === undefined) return false
-  if (ts.isPropertyAssignment(parent) && parent.name === node) return true
-  if (ts.isPropertySignature(parent) && parent.name === node) return true
-  return false
+function fieldName(node: Node): string | undefined {
+  if (node.type === 'Identifier') return node.name
+  if (node.type === 'Literal' && typeof node.value === 'string') return node.value
+  return undefined
 }
 
-function lineText(source: ts.SourceFile, node: ts.Node): string {
-  const { line } = source.getLineAndCharacterOfPosition(node.getStart(source))
-  const lines = source.getFullText().split('\n')
-  return (lines[line] ?? '').trim()
+function lineText(source: string, node: Node): string {
+  const start = source.lastIndexOf('\n', node.start - 1) + 1
+  const end = source.indexOf('\n', node.start)
+  return source.slice(start, end === -1 ? source.length : end).trim()
 }
 
-function lineOf(source: ts.SourceFile, node: ts.Node): number {
-  return source.getLineAndCharacterOfPosition(node.getStart(source)).line + 1
+function lineOf(source: string, node: Node): number {
+  let line = 1
+  for (let index = 0; index < node.start; index += 1) {
+    if (source.charCodeAt(index) === 10) line += 1
+  }
+  return line
+}
+
+function isNode(value: unknown): value is Node {
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    typeof (value as { type?: unknown }).type === 'string'
+  )
 }
 
 /**
@@ -107,60 +111,88 @@ function lineOf(source: ts.SourceFile, node: ts.Node): number {
  * so the same rule runs over the repo and over a fixture of planted bypasses.
  */
 export function findRawScoreReadsInSource(file: string, source: string): ScoreReadSite[] {
-  const sourceFile = ts.createSourceFile(
-    file,
-    source,
-    ts.ScriptTarget.ES2022,
-    true,
-    ts.ScriptKind.TS,
-  )
+  const parsed = parseSync(file, source)
+  if (parsed.errors.length > 0) {
+    throw new SyntaxError(
+      `Cannot inspect ${file}: ${parsed.errors.map((error) => error.message).join('; ')}`,
+    )
+  }
   const found: ScoreReadSite[] = []
-  const push = (node: ts.Node, field: string, kind: ScoreReadKind): void => {
+  const push = (node: Node, field: string, kind: ScoreReadKind): void => {
     found.push({
       file,
-      line: lineOf(sourceFile, node),
+      line: lineOf(source, node),
       field,
       kind,
-      text: lineText(sourceFile, node),
+      text: lineText(source, node),
     })
   }
 
-  const visit = (node: ts.Node): void => {
+  const ancestors: Node[] = []
+  const visit = (node: Node, parent: Node | undefined): void => {
     // `record.outcome.holdoutScore`, including `record.outcome?.holdoutScore`.
-    if (ts.isPropertyAccessExpression(node) && GUARDED_FIELDS.includes(node.name.text)) {
-      if (!isAssignmentTarget(node)) push(node, node.name.text, 'property-access')
+    if (node.type === 'MemberExpression' && !node.computed) {
+      const field = fieldName(node.property)
+      if (
+        field !== undefined &&
+        GUARDED_FIELDS.includes(field) &&
+        !isAssignmentTarget(node, parent)
+      ) {
+        push(node, field, 'property-access')
+      }
     }
     // `record.outcome['holdoutScore']`.
     else if (
-      ts.isElementAccessExpression(node) &&
-      ts.isStringLiteralLike(node.argumentExpression) &&
-      GUARDED_FIELDS.includes(node.argumentExpression.text)
+      node.type === 'MemberExpression' &&
+      node.computed &&
+      fieldName(node.property) !== undefined
     ) {
-      if (!isAssignmentTarget(node)) {
-        push(node, node.argumentExpression.text, 'element-access')
+      const field = fieldName(node.property)
+      if (
+        field !== undefined &&
+        GUARDED_FIELDS.includes(field) &&
+        !isAssignmentTarget(node, parent)
+      ) {
+        push(node, field, 'element-access')
       }
     }
     // `const { holdoutScore, searchScore } = record.outcome`.
-    else if (ts.isBindingElement(node)) {
-      const name = node.propertyName ?? node.name
-      const text = ts.isIdentifier(name) || ts.isStringLiteralLike(name) ? name.text : undefined
-      if (text !== undefined && GUARDED_FIELDS.includes(text)) push(node, text, 'destructure')
+    else if (node.type === 'Property' && parent?.type === 'ObjectPattern') {
+      const field = fieldName(node.key)
+      if (field !== undefined && GUARDED_FIELDS.includes(field)) {
+        push(node, field, 'destructure')
+      }
     }
     // `const field = 'holdoutScore'` — the dynamic form's field name. Caught as
     // a bare string because that is the only place it is visible: by the time
     // it reaches `outcome[field]` the syntax says nothing about which field.
     else if (
-      ts.isStringLiteralLike(node) &&
-      GUARDED_FIELDS.includes(node.text) &&
-      !inTypePosition(node) &&
-      !isPropertyNamePosition(node) &&
-      !(node.parent !== undefined && ts.isElementAccessExpression(node.parent))
+      node.type === 'Literal' &&
+      typeof node.value === 'string' &&
+      GUARDED_FIELDS.includes(node.value) &&
+      !inTypePosition(ancestors) &&
+      !isPropertyNamePosition(node, parent) &&
+      parent?.type !== 'MemberExpression'
     ) {
-      push(node, node.text, 'dynamic-field-name')
+      push(node, node.value, 'dynamic-field-name')
     }
-    ts.forEachChild(node, visit)
+
+    ancestors.push(node)
+    const keys = visitorKeys[node.type] ?? []
+    const record = node as Node & Record<string, unknown>
+    for (const key of keys) {
+      const value = record[key]
+      if (isNode(value)) {
+        visit(value, node)
+      } else if (Array.isArray(value)) {
+        for (const child of value) {
+          if (isNode(child)) visit(child, node)
+        }
+      }
+    }
+    ancestors.pop()
   }
-  visit(sourceFile)
+  visit(parsed.program, undefined)
   return found
 }
 

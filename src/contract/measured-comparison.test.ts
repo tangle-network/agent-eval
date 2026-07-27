@@ -377,6 +377,7 @@ function executionEvidence(input: {
       endedAtMs: startedAtMs + durationMs,
       durationMs,
     },
+    steps: 1,
     memory: { mode: 'disabled' as const },
     trace: {
       artifact: artifact(`traces/${executionId}.json`, sha('9'), 20),
@@ -642,7 +643,7 @@ describe('candidate experiment comparison', () => {
     expect(comparison.evaluation.executionCostUsd).toBeCloseTo(0.06)
     expect(comparison.evaluation.totalCostUsd).toBeCloseTo(0.31)
     expect(canonicalCandidateDigest(comparison)).toBe(
-      'sha256:a75abc57ab4ab7c02bd384a29be1771c93ae921d73411ae6b485b6973cf2f3d5',
+      'sha256:0132e0f2859cde53b38c2951f6b39700aa0af1175f17601636a462149f039137',
     )
     expect(comparison.objectives).toEqual(
       expect.arrayContaining([
