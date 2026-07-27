@@ -71,6 +71,7 @@ try {
   }
   const requiredExports = {
     '.': ['import', 'types'],
+    './profile-cell': ['import', 'types'],
     './analyst': ['import', 'types'],
     './campaign': ['import', 'types'],
     './contract': ['import', 'types'],
@@ -93,6 +94,14 @@ try {
         throw new Error(`missing ${field} target for package export ${subpath}`)
       }
       run('test', ['-f', join(packageDir, relativeTarget)], repoRoot)
+    }
+  }
+
+  const profileCellTarget = packageJson.exports['./profile-cell'].import
+  const profileCellSource = readFileSync(join(packageDir, profileCellTarget), 'utf8')
+  for (const nodeOnlyModule of ['node:module', 'node:sqlite', 'opencode-sqlite', 'claude-jsonl']) {
+    if (profileCellSource.includes(nodeOnlyModule)) {
+      throw new Error(`packed profile-cell entry imports Node-only rollout code: ${nodeOnlyModule}`)
     }
   }
 
@@ -431,6 +440,7 @@ try {
       '--eval',
       `
         const root = await import('@tangle-network/agent-eval')
+        const profileCell = await import('@tangle-network/agent-eval/profile-cell')
         const analyst = await import('@tangle-network/agent-eval/analyst')
         if (!('pairedSignTest' in root)) throw new Error('missing root export pairedSignTest')
         if ('rolloutReward' in root) throw new Error('obsolete root export rolloutReward')
@@ -440,6 +450,16 @@ try {
         }
         const signTest = root.pairedSignTest([1, 0.5], 'greater')
         if (signTest.pValue !== 0.25) throw new Error('invalid packed pairedSignTest result')
+        const cell = await profileCell.buildAgentProfileCell({
+          profileId: 'packed-profile',
+          sourceProfile: {
+            kind: 'packed',
+            hash: '0'.repeat(64),
+          },
+        })
+        if (!profileCell.validateAgentProfileCell(cell).cellId.startsWith('agent-profile-cell:sha256:')) {
+          throw new Error('packed profile-cell entry rejected its generated cell')
+        }
       `,
     ],
     appDir,

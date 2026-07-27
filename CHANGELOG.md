@@ -4,6 +4,12 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ---
 
+## [0.131.1] - 2026-07-27 - worker-safe profile cells
+
+### Added
+
+- `@tangle-network/agent-eval/profile-cell` exports the portable agent-profile identity API without importing local transcript readers or Node-only SQLite support.
+
 ## [0.131.0] - 2026-07-27 - profile improvement measurements
 
 ### Added

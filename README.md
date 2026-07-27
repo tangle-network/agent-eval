@@ -365,6 +365,7 @@ See [concepts](./docs/concepts.md), [customer paths](./docs/customer-journeys.md
 |---|---|
 | `@tangle-network/agent-eval/contract` | Define an evaluation, run it, improve with a custom candidate generator, and analyze runs. |
 | `@tangle-network/agent-eval/campaign` | Control campaigns, official optimization methods, comparisons, storage, and release rules. |
+| `@tangle-network/agent-eval/profile-cell` | Create and validate portable agent-profile identities. |
 | `@tangle-network/agent-eval/ledger-core` | Generic hash-chained append-only journal: idempotent append, chain verification, replay-to-projection, cross-process locking. |
 | `@tangle-network/agent-eval/reporting` | Statistical comparisons and report rendering. |
 | `@tangle-network/agent-eval/analyst` | Model-assisted failure analysis. |
