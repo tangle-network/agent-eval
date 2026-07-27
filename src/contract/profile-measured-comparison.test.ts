@@ -1,3 +1,4 @@
+import { setTimeout as delay } from 'node:timers/promises'
 import type {
   AgentProfileImprovementExperiment,
   AgentProfileImprovementRunReceipt,
@@ -369,5 +370,60 @@ describe('profile improvement measured comparison', () => {
         },
       }),
     ).rejects.toThrow(/maxConcurrency must be a positive integer/)
+  })
+
+  it('limits simultaneous host executions rather than paired cells', async () => {
+    let active = 0
+    let peakActive = 0
+    const measurements = await runAgentProfileImprovementExperiment({
+      experiment: experiment(),
+      maxConcurrency: 1,
+      async execute(input) {
+        active += 1
+        peakActive = Math.max(peakActive, active)
+        await delay(1)
+        active -= 1
+        return receipt(input, input.arm === 'baseline' ? 0.2 : 0.8)
+      },
+    })
+
+    expect(measurements).toHaveLength(3)
+    expect(peakActive).toBe(1)
+  })
+
+  it('cancels and settles a sibling arm before rejecting a failed cell', async () => {
+    const frozen = experiment()
+    const failure = new Error('baseline execution failed')
+    let calls = 0
+    let candidateAborted = false
+    let candidateSettled = false
+
+    const run = runAgentProfileImprovementExperiment({
+      experiment: frozen,
+      maxConcurrency: 2,
+      async execute(input) {
+        calls += 1
+        if (input.runCell.repetition > 0) {
+          throw new Error('dispatched work after the first failed cell')
+        }
+        if (input.arm === 'baseline') {
+          await delay(1)
+          throw failure
+        }
+        await new Promise<void>((resolve) => {
+          if (input.signal?.aborted) resolve()
+          else input.signal?.addEventListener('abort', () => resolve(), { once: true })
+        })
+        candidateAborted = input.signal?.aborted ?? false
+        await delay(20)
+        candidateSettled = true
+        return receipt(input, 0.8)
+      },
+    })
+
+    await expect(run).rejects.toBe(failure)
+    expect(candidateAborted).toBe(true)
+    expect(candidateSettled).toBe(true)
+    expect(calls).toBe(2)
   })
 })

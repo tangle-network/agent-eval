@@ -19,7 +19,7 @@ import {
   canonicalCandidateJson,
   type Sha256Digest,
 } from '@tangle-network/agent-interface'
-import { mapConcurrent } from './concurrent-map'
+import { mapPairedConcurrent } from './concurrent-map'
 import { evaluatePairedMeasurements, type PairedMeasurementAdapter } from './measured-comparison'
 
 export interface SealAgentProfileImprovementSuiteOptions {
@@ -44,6 +44,7 @@ export interface RunAgentProfileImprovementExperimentOptions {
   execute(
     input: AgentProfileImprovementExperimentExecutionInput,
   ): Promise<AgentProfileImprovementRunReceipt>
+  /** Maximum number of simultaneous execute calls across both arms. */
   maxConcurrency?: number
   signal?: AbortSignal
 }
@@ -129,23 +130,18 @@ export async function runAgentProfileImprovementExperiment(
   const experiment = verifyAgentProfileImprovementExperiment(options.experiment)
   const expectedCount =
     experiment.benchmark.suite.taskDigests.length * experiment.benchmark.suite.reps
-  return mapConcurrent({
+  const measurements = await mapPairedConcurrent({
     count: expectedCount,
     maxConcurrency: options.maxConcurrency ?? 2,
     label: 'profile improvement experiment',
     ...(options.signal ? { signal: options.signal } : {}),
-    async map(index) {
-      const [baselineInput, candidateInput] = [
-        profileExecutionInput(experiment, 'baseline', index, options.signal),
-        profileExecutionInput(experiment, 'candidate', index, options.signal),
-      ]
-      const [baseline, candidate] = await Promise.all([
-        options.execute(baselineInput),
-        options.execute(candidateInput),
-      ])
-      return verifyProfileMeasurement(experiment, { baseline, candidate }, index)
+    map(index, arm, signal) {
+      return options.execute(profileExecutionInput(experiment, arm, index, signal))
     },
   })
+  return measurements.map((measurement, index) =>
+    verifyProfileMeasurement(experiment, measurement, index),
+  )
 }
 
 /** Build the only publishable profile comparison from complete host receipts. */

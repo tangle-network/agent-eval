@@ -479,6 +479,40 @@ describe('candidate experiment comparison', () => {
     ).toThrow(/resamples/)
   })
 
+  it('uses observed paired precision instead of baseline-only variance', () => {
+    const template = profileMeasurements()[0]!.baseline
+    const baselines = [0.1, 0.9, 0.1, 0.9]
+    const measurements = baselines.map((baseline, index) => {
+      const run = (score: number): PlatformProfileRun => ({
+        ...template,
+        score,
+        dimensions: [{ name: 'reliability', score }],
+      })
+      return {
+        cellId: `paired-precision:${index}`,
+        baseline: run(baseline),
+        candidate: run(baseline + 0.1),
+      }
+    })
+
+    const result = evaluatePairedMeasurements({
+      measurements,
+      policy: {
+        ...experiment().policy,
+        deltaThreshold: 0.05,
+        minProductiveRuns: 4,
+      },
+      adapter: profileRunAdapter,
+      sharedScorerChannel: true,
+    })
+
+    expect(result.overall.confidenceInterval.lower).toBeCloseTo(0.1)
+    expect(result.overall.confidenceInterval.upper).toBeCloseTo(0.1)
+    expect(result.power.minimumDetectableDelta).toBeCloseTo(0.05)
+    expect(result.power.sufficient).toBe(true)
+    expect(result.decision.outcome).toBe('ship')
+  })
+
   it.each([
     {
       label: 'an empty matrix',
@@ -643,7 +677,7 @@ describe('candidate experiment comparison', () => {
     expect(comparison.evaluation.executionCostUsd).toBeCloseTo(0.06)
     expect(comparison.evaluation.totalCostUsd).toBeCloseTo(0.31)
     expect(canonicalCandidateDigest(comparison)).toBe(
-      'sha256:0132e0f2859cde53b38c2951f6b39700aa0af1175f17601636a462149f039137',
+      'sha256:a8da1aa802c5e1b3dc3034869fc83918347839e9cd5bd4245e11bc067d3267a9',
     )
     expect(comparison.objectives).toEqual(
       expect.arrayContaining([

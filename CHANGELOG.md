@@ -10,6 +10,12 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 - Profile improvement measurement contracts in `/contract` that seal an exact profile diff and held-out task set, execute paired host-owned cells, and recompute the published score, uncertainty, cost, latency, and decision from complete receipts.
 
+### Fixed
+
+- `maxConcurrency` now limits individual host executions across both experiment arms.
+- A failed or cancelled execution stops new work, cancels active siblings, and settles them before returning.
+- Final sufficiency uses the observed paired interval instead of a conservative baseline-only planning estimate.
+
 ## [0.130.1] - 2026-07-26 - safe DSPy disk caching
 
 ### Fixed
