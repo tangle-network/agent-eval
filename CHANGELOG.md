@@ -10,6 +10,13 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 - Profile improvement measurement contracts in `/contract` that seal an exact profile diff and held-out task set, execute paired host-owned cells, and recompute the published score, uncertainty, cost, latency, and decision from complete receipts.
 
+## [0.130.1] - 2026-07-26 - safe DSPy disk caching
+
+### Fixed
+
+- `DspyJudgeMetric` now rejects DSPy's unrestricted disk-cache pickle mode at construction and on every metric call.
+- Configure DSPy's official restricted cache with `dspy.configure_cache(restrict_pickle=True)`, or disable disk caching before creating the metric.
+
 ## [0.130.0] - 2026-07-26 - current dependency and build cohort
 
 ### Changed

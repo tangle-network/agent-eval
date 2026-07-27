@@ -364,6 +364,7 @@ import dspy
 
 from agent_eval_rpc import DspyJudgeMetric
 
+dspy.configure_cache(restrict_pickle=True)
 metric = DspyJudgeMetric(rubric_name="answer-quality")
 gepa = dspy.GEPA(
     metric=metric.feedback,
