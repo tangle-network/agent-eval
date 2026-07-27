@@ -55,6 +55,64 @@ export class Mutex {
   }
 }
 
+export interface MapConcurrentRangeOptions<R> {
+  count: number
+  maxConcurrency: number
+  label: string
+  signal?: AbortSignal
+  map(index: number, signal: AbortSignal): Promise<R>
+}
+
+/** Map an integer range with bounded work, cancellation, and first-error cleanup. */
+export async function mapConcurrentRange<R>(options: MapConcurrentRangeOptions<R>): Promise<R[]> {
+  if (!Number.isSafeInteger(options.count) || options.count < 0) {
+    throw new Error(`${options.label} count must be a non-negative integer`)
+  }
+  if (!Number.isSafeInteger(options.maxConcurrency) || options.maxConcurrency < 1) {
+    throw new Error(`${options.label} maxConcurrency must be a positive integer`)
+  }
+
+  const controller = new AbortController()
+  const abortFromCaller = () => controller.abort(options.signal?.reason)
+  if (options.signal?.aborted) abortFromCaller()
+  else options.signal?.addEventListener('abort', abortFromCaller, { once: true })
+
+  const results = new Array<R>(options.count)
+  let nextIndex = 0
+  let failed = false
+  let firstFailure: unknown
+  const workers = Array.from(
+    { length: Math.min(options.maxConcurrency, options.count) },
+    async () => {
+      while (!controller.signal.aborted) {
+        const index = nextIndex
+        nextIndex += 1
+        if (index >= options.count) return
+        try {
+          results[index] = await options.map(index, controller.signal)
+        } catch (error) {
+          if (!failed) {
+            failed = true
+            firstFailure = error
+            controller.abort(error)
+          }
+          return
+        }
+      }
+    },
+  )
+
+  try {
+    await Promise.all(workers)
+    if (options.signal?.aborted) throw abortError(options.signal, options.label)
+    if (failed) throw firstFailure
+    if (controller.signal.aborted) throw abortError(controller.signal, options.label)
+    return results
+  } finally {
+    options.signal?.removeEventListener('abort', abortFromCaller)
+  }
+}
+
 /**
  * Map independent work with a fixed worker count while preserving input order.
  * After the first rejection, no new items start; already-running work is allowed
@@ -65,36 +123,16 @@ export async function mapConcurrent<T, R>(
   concurrency: number,
   map: (item: T, index: number) => Promise<R>,
 ): Promise<R[]> {
-  if (!Number.isInteger(concurrency) || concurrency < 1) {
-    throw new Error(`mapConcurrent: concurrency must be a positive integer, got ${concurrency}`)
-  }
-  if (items.length === 0) return []
+  return mapConcurrentRange({
+    count: items.length,
+    maxConcurrency: concurrency,
+    label: 'mapConcurrent',
+    map(index) {
+      return map(items[index]!, index)
+    },
+  })
+}
 
-  const results = new Array<R>(items.length)
-  let nextIndex = 0
-  let stopped = false
-  let failed = false
-  let failure: unknown
-
-  const worker = async (): Promise<void> => {
-    while (!stopped) {
-      const index = nextIndex
-      nextIndex += 1
-      if (index >= items.length) return
-
-      try {
-        results[index] = await map(items[index]!, index)
-      } catch (error) {
-        stopped = true
-        if (!failed) {
-          failed = true
-          failure = error
-        }
-      }
-    }
-  }
-
-  await Promise.all(Array.from({ length: Math.min(concurrency, items.length) }, () => worker()))
-  if (failed) throw failure
-  return results
+function abortError(signal: AbortSignal, label: string): Error {
+  return signal.reason instanceof Error ? signal.reason : new Error(`${label} aborted`)
 }

@@ -21,9 +21,9 @@ import {
   omitTopLevelDigest,
   type Sha256Digest,
 } from '@tangle-network/agent-interface'
-import { powerPreflight } from '../campaign/gates/power-preflight'
 import { heldoutSignificance } from '../campaign/gates/statistical-heldout'
 import { pairedBootstrap } from '../statistics'
+import { mapPairedConcurrent } from './concurrent-map'
 
 export interface SealCandidateBenchmarkSuiteOptions {
   tasks: [AgentCandidateBenchmarkTask, ...AgentCandidateBenchmarkTask[]]
@@ -44,6 +44,7 @@ export interface CandidateExperimentExecutionInput {
 export interface RunCandidateExperimentOptions {
   experiment: AgentCandidateExperiment
   execute(input: CandidateExperimentExecutionInput): Promise<CandidateExecutionEvidence>
+  /** Maximum number of simultaneous execute calls across both arms. */
   maxConcurrency?: number
   signal?: AbortSignal
 }
@@ -154,20 +155,12 @@ export async function runCandidateExperiment(
 ): Promise<AgentCandidateExperimentMeasurement[]> {
   const experiment = verifyCandidateExperiment(options.experiment)
   const { suite, tasks } = experiment.benchmark
-  const maxConcurrency = options.maxConcurrency ?? 2
-  if (!Number.isSafeInteger(maxConcurrency) || maxConcurrency < 1) {
-    throw new Error('candidate experiment maxConcurrency must be a positive integer')
-  }
-  const measurements = new Array<AgentCandidateExperimentMeasurement>(
-    suite.taskDigests.length * suite.reps,
-  )
-  let nextIndex = 0
-  const lanes = Array.from({ length: Math.min(maxConcurrency, measurements.length) }, async () => {
-    while (true) {
-      if (options.signal?.aborted) throw abortError(options.signal)
-      const index = nextIndex
-      nextIndex += 1
-      if (index >= measurements.length) return
+  const measurements = await mapPairedConcurrent({
+    count: suite.taskDigests.length * suite.reps,
+    maxConcurrency: options.maxConcurrency ?? 2,
+    label: 'candidate experiment',
+    ...(options.signal ? { signal: options.signal } : {}),
+    async map(index, arm, signal) {
       const taskIndex = Math.floor(index / suite.reps)
       const repetition = index % suite.reps
       const task = tasks[taskIndex]
@@ -180,33 +173,18 @@ export async function runCandidateExperiment(
         taskIndex,
         repetition,
       }
-      const [baseline, candidate] = await Promise.all([
-        options.execute({
-          experiment,
-          arm: 'baseline',
-          bundle: experiment.baseline,
-          task,
-          benchmarkCell,
-          seed,
-          ...(options.signal ? { signal: options.signal } : {}),
-        }),
-        options.execute({
-          experiment,
-          arm: 'candidate',
-          bundle: experiment.candidate,
-          task,
-          benchmarkCell,
-          seed,
-          ...(options.signal ? { signal: options.signal } : {}),
-        }),
-      ])
-      const measurement = { baseline, candidate }
-      verifyMeasurement(experiment, measurement, index)
-      measurements[index] = measurement
-    }
+      return options.execute({
+        experiment,
+        arm,
+        bundle: experiment[arm],
+        task,
+        benchmarkCell,
+        seed,
+        signal,
+      })
+    },
   })
-  await Promise.all(lanes)
-  return measurements
+  return measurements.map((measurement, index) => verifyMeasurement(experiment, measurement, index))
 }
 
 /**
@@ -330,18 +308,17 @@ export function evaluatePairedMeasurements<TRun>(
     },
   )
 
-  const power =
-    baselineScores.length >= 3
-      ? powerPreflight({
-          baselineComposites: baselineScores,
-          pairedN: baselineScores.length,
-          deltaThreshold,
-          confidence,
-          sharedScorerChannel: options.sharedScorerChannel,
-        })
-      : undefined
-  const powerSufficient =
-    baselineScores.length >= minProductiveRuns && power !== undefined && !power.underpowered
+  const power = observedPairedPrecision({
+    baselineScores,
+    candidateScores,
+    delta: overall.delta,
+    lowerBound: overall.confidenceInterval.lower,
+    deltaThreshold,
+    minProductiveRuns,
+    confidence,
+    sharedScorerChannel: options.sharedScorerChannel,
+  })
+  const powerSufficient = power.sufficient
   const guardedDimensions = new Set(criticalDimensions)
   const missingCriticalDimensions = criticalDimensions.filter(
     (dimension) => !dimensions.includes(dimension),
@@ -371,7 +348,7 @@ export function evaluatePairedMeasurements<TRun>(
   const budgetPassed = budgetUsd === undefined || totalCostUsd <= budgetUsd
   const checks = [
     { name: 'paired-significance', passed: significance.significant },
-    { name: 'statistical-power', passed: powerSufficient },
+    { name: 'paired-precision', passed: powerSufficient },
     { name: 'all-runs-completed', passed: incompleteRuns.length === 0 },
     { name: 'candidate-task-pass', passed: failedCandidateResults.length === 0 },
     {
@@ -389,9 +366,7 @@ export function evaluatePairedMeasurements<TRun>(
             ? `only ${significance.n} paired runs; ${minProductiveRuns} required`
             : `paired interval lower bound ${significance.bootstrap.low} did not clear ${deltaThreshold}`,
         ]),
-    ...(powerSufficient
-      ? []
-      : [power?.recommendation ?? `need at least ${Math.max(3, minProductiveRuns)} paired runs`]),
+    ...(powerSufficient || significance.fewRuns ? [] : [power.reason]),
     ...(regressions.length === 0
       ? []
       : [`critical dimensions regressed: ${regressions.map((entry) => entry.name).join(', ')}`]),
@@ -427,12 +402,11 @@ export function evaluatePairedMeasurements<TRun>(
     power: {
       sufficient: powerSufficient,
       n: baselineScores.length,
-      minimumDetectableDelta: power?.mde ?? 1,
+      minimumDetectableDelta: power.minimumDetectableDelta,
       confidenceLevel: confidence,
-      scaleAssumed: power?.scaleAssumed ?? true,
+      scaleAssumed: power.scaleAssumed,
       sharedScorerChannel: options.sharedScorerChannel,
-      reason:
-        power?.recommendation ?? `need at least ${Math.max(3, minProductiveRuns)} paired runs`,
+      reason: power.reason,
     },
     executionCostUsd,
     totalCostUsd,
@@ -887,6 +861,59 @@ function measuredEstimate(
   }
 }
 
+function observedPairedPrecision(options: {
+  baselineScores: number[]
+  candidateScores: number[]
+  delta: number
+  lowerBound: number
+  deltaThreshold: number
+  minProductiveRuns: number
+  confidence: number
+  sharedScorerChannel: boolean
+}): { sufficient: boolean; minimumDetectableDelta: number; scaleAssumed: boolean; reason: string } {
+  const n = options.baselineScores.length
+  const lowerMargin = Math.max(0, options.delta - options.lowerBound)
+  const minimumDetectableDelta = options.deltaThreshold + lowerMargin
+  const allScores = [...options.baselineScores, ...options.candidateScores]
+  const scaleAssumed = allScores.every((score) => score >= -0.001 && score <= 1.001)
+  const headroom = Math.max(0, 1 - mean(options.baselineScores))
+  const enoughRuns = n >= options.minProductiveRuns
+  const attainable = !scaleAssumed || minimumDetectableDelta <= headroom
+  const sufficient = enoughRuns && attainable
+  const scorerNote = options.sharedScorerChannel
+    ? ' The same scorer evaluated both arms, so scorer bias is not measured.'
+    : ''
+
+  if (!enoughRuns) {
+    return {
+      sufficient,
+      minimumDetectableDelta,
+      scaleAssumed,
+      reason: `only ${n} paired runs; ${options.minProductiveRuns} required.${scorerNote}`,
+    }
+  }
+  if (!attainable) {
+    return {
+      sufficient,
+      minimumDetectableDelta,
+      scaleAssumed,
+      reason:
+        `observed paired uncertainty gives a minimum detectable delta of ` +
+        `${minimumDetectableDelta.toFixed(3)}, above the remaining score headroom ` +
+        `${headroom.toFixed(3)}.${scorerNote}`,
+    }
+  }
+  return {
+    sufficient,
+    minimumDetectableDelta,
+    scaleAssumed,
+    reason:
+      `observed paired uncertainty gives a minimum detectable delta of ` +
+      `${minimumDetectableDelta.toFixed(3)} at ${options.confidence.toFixed(2)} confidence ` +
+      `from ${n} runs.${scorerNote}`,
+  }
+}
+
 function finiteMeasurement(value: number, label: string): number {
   if (!Number.isFinite(value)) throw new Error(`${label} must be finite`)
   return value
@@ -942,8 +969,4 @@ function cellIds(experiment: AgentCandidateExperiment): string[] {
 function mean(values: number[]): number {
   if (values.length === 0) throw new Error('candidate experiment requires measured values')
   return values.reduce((sum, value) => sum + value, 0) / values.length
-}
-
-function abortError(signal: AbortSignal): Error {
-  return signal.reason instanceof Error ? signal.reason : new Error('candidate experiment aborted')
 }
