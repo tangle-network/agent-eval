@@ -26,6 +26,7 @@ import {
   type LedgerJournalCodec,
   type LedgerLineContext,
   type LedgerProjector,
+  type LedgerTrustedHead,
 } from '../ledger-core'
 import { modelHasSnapshot } from '../run-record'
 import {
@@ -790,23 +791,44 @@ export function validateSearchLedgerEvent(input: unknown): SearchLedgerEvent {
   return normalizeEvent(parsed.data as SearchLedgerEvent)
 }
 
+/**
+ * How this ledger uses its trusted head — the `(sequence, entryHash)` pin kept
+ * in the sibling `<path>.head` file that a hash chain needs to prove entries
+ * were not deleted from the end. `ledger-core/trusted-head.ts` holds the threat
+ * model.
+ *
+ * - `pin` (default): every append records the new head, and a pin that is
+ *   present is verified on every read.
+ * - `require`: additionally refuses to read a non-empty ledger whose pin is
+ *   gone, so deleting the sibling file cannot downgrade the guarantee. Only for
+ *   ledgers written under `pin` from their first entry.
+ * - `off`: chain verification only. Truncation to a valid shorter prefix is
+ *   undetectable.
+ */
+export type SearchLedgerTrustedHeadMode = 'pin' | 'require' | 'off'
+
 export interface OpenSearchLedgerOptions {
   path: string
   campaignId: string
+  trustedHead?: SearchLedgerTrustedHeadMode
 }
 
 export interface SearchLedger {
   readonly path: string
   readonly campaignId: string
+  /** Sibling file holding this ledger's trusted head. */
+  readonly trustedHeadPath: string
   append(event: SearchLedgerEvent): Promise<SearchLedgerAppendResult>
   replay(): Promise<SearchLedgerReplay>
+  /** The pinned head, or null when this ledger has never been pinned. */
+  trustedHead(): Promise<LedgerTrustedHead | null>
 }
 
 /** Open a durable filesystem search ledger. Construction performs no I/O; the
  * first `append` or `replay` validates the complete existing file. */
 export function openSearchLedger(options: OpenSearchLedgerOptions): SearchLedger {
   if (options.path.trim().length === 0) throw new SearchLedgerError('ledger path is empty')
-  return new FileSearchLedger(options.path, options.campaignId)
+  return new FileSearchLedger(options.path, options.campaignId, options.trustedHead)
 }
 
 interface SearchLedgerHeader {
@@ -837,21 +859,27 @@ function searchLedgerCodec(
 export class FileSearchLedger implements SearchLedger {
   readonly path: string
   readonly campaignId: string
+  readonly trustedHeadPath: string
+  private readonly trustedHeadMode: SearchLedgerTrustedHeadMode
   private readonly journal: FileLedgerJournal<
     SearchLedgerHeader,
     SearchLedgerEvent,
     SearchLedgerReplay
   >
 
-  constructor(path: string, campaignId: string) {
+  constructor(path: string, campaignId: string, trustedHead: SearchLedgerTrustedHeadMode = 'pin') {
     if (path.trim().length === 0) throw new SearchLedgerError('ledger path is empty')
     if (campaignId.length === 0) throw new SearchLedgerError('campaignId is empty')
     if (campaignId.trim() !== campaignId) {
       throw new SearchLedgerError('campaignId must not contain surrounding whitespace')
     }
     this.campaignId = campaignId
-    this.journal = new FileLedgerJournal(path, searchLedgerCodec(campaignId))
+    this.trustedHeadMode = trustedHead
+    this.journal = new FileLedgerJournal(path, searchLedgerCodec(campaignId), {
+      requireTrustedHead: trustedHead === 'require',
+    })
     this.path = this.journal.path
+    this.trustedHeadPath = this.journal.trustedHeadPath
   }
 
   async replay(): Promise<SearchLedgerReplay> {
@@ -862,8 +890,14 @@ export class FileSearchLedger implements SearchLedger {
     // Normalize before the journal hashes the event so retries from different
     // processes produce byte-identical entries.
     const event = validateSearchLedgerEvent(input)
-    const { entry, appended, projection } = await this.journal.append(event)
+    const { entry, appended, projection } = await this.journal.append(event, {
+      pinHead: this.trustedHeadMode !== 'off',
+    })
     return { entry, appended, replay: projection }
+  }
+
+  async trustedHead(): Promise<LedgerTrustedHead | null> {
+    return this.journal.trustedHead()
   }
 }
 

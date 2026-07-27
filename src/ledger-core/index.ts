@@ -1,11 +1,12 @@
 /**
  * @packageDocumentation
  *
- * Generic append-only journal machinery: canonical-JSON SHA-256 hash chain,
- * idempotent append, chain verification, replay-to-projection, cross-process
- * locking, and fsync discipline. Domain vocabulary (entry schemas, error
- * taxonomy, state machine) is supplied by each consumer's codec — see
- * `src/campaign/search-ledger.ts` for the campaign binding.
+ * Generic append-only journal machinery: RFC 8785 canonical-JSON SHA-256 hash
+ * chain, idempotent append, chain verification, trusted-head pinning,
+ * replay-to-projection, cross-process locking, and fsync discipline. Domain
+ * vocabulary (entry schemas, error taxonomy, state machine) is supplied by each
+ * consumer's codec — see `src/campaign/search-ledger.ts` for the campaign
+ * binding.
  */
 
 export {
@@ -20,13 +21,19 @@ export {
 } from './atomic-file-lock'
 export {
   canonicalString,
-  FileLedgerJournal,
   hashCanonical,
+  LEDGER_HASH_PATTERN,
+  LedgerCanonicalizationError,
+  type LedgerHash,
+} from './canonical'
+export {
+  FileLedgerJournal,
+  type FileLedgerJournalOptions,
+  type LedgerAppendOptions,
   type LedgerAppendResult,
   type LedgerChainFields,
   type LedgerEntryOf,
   type LedgerEventBase,
-  type LedgerHash,
   type LedgerJournalCodec,
   type LedgerLineContext,
   type LedgerProjector,
@@ -38,4 +45,11 @@ export {
   type LedgerFileContext,
   tryWithLedgerFileLock,
   withLedgerFileLock,
+  writeLedgerFileAtomically,
 } from './journal-file'
+export {
+  type LedgerAnchoredEntry,
+  type LedgerTrustedHead,
+  trustedHeadPathFor,
+  verifyEntriesAgainstTrustedHead,
+} from './trusted-head'
