@@ -4,7 +4,7 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ---
 
-## Unreleased
+## [0.130.1] - 2026-07-26 - safe DSPy disk caching
 
 ### Fixed
 
