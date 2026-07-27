@@ -1,6 +1,14 @@
 /** Filesystem durability and cross-process exclusion for append-only journal files. */
 
-import { closeSync, constants, fsyncSync, mkdirSync, openSync, writeSync } from 'node:fs'
+import {
+  closeSync,
+  constants,
+  fsyncSync,
+  mkdirSync,
+  openSync,
+  renameSync,
+  writeSync,
+} from 'node:fs'
 import { dirname } from 'node:path'
 import { AtomicFileLockError, tryAcquireAtomicFileLock } from './atomic-file-lock'
 
@@ -23,6 +31,32 @@ export function appendLedgerLine(path: string, line: string, context: LedgerFile
     closeSync(fd)
   }
   fsyncDirectory(dirname(path))
+}
+
+/** Replace a small sidecar file whole: write a temporary sibling, fsync it,
+ * then rename over the target. A reader therefore sees the previous contents
+ * or the new ones, never a partial file. */
+export function writeLedgerFileAtomically(
+  path: string,
+  contents: string,
+  context: LedgerFileContext,
+): void {
+  const directory = dirname(path)
+  mkdirSync(directory, { recursive: true })
+  const temporaryPath = `${path}.tmp`
+  const fd = openSync(
+    temporaryPath,
+    constants.O_CREAT | constants.O_WRONLY | constants.O_TRUNC,
+    0o600,
+  )
+  try {
+    writeAll(fd, Buffer.from(contents, 'utf8'), context)
+    fsyncSync(fd)
+  } finally {
+    closeSync(fd)
+  }
+  renameSync(temporaryPath, path)
+  fsyncDirectory(directory)
 }
 
 export function withLedgerFileLock<T>(path: string, context: LedgerFileContext, run: () => T): T {

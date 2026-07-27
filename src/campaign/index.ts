@@ -301,6 +301,7 @@ export {
   type SearchLedgerHash,
   SearchLedgerIntegrityError,
   type SearchLedgerReplay,
+  type SearchLedgerTrustedHeadMode,
   type SearchModelIdentity,
   type SearchOperationKind,
   type SearchOperationRecordedEvent,
