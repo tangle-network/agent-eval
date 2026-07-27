@@ -837,6 +837,7 @@ export type {
   CostLedgerOptions,
   CostLedgerPersistence,
   CostLedgerSummary,
+  CostProvenance,
   CostReceipt,
   CostReceiptInput,
   CostResult,

@@ -10,7 +10,9 @@ import type {
 } from '@tangle-network/agent-interface'
 import { canonicalCandidateDigest } from '@tangle-network/agent-interface'
 import { describe, expect, it } from 'vitest'
+import { CostCeilingReachedError, CostLedger } from '../cost-ledger'
 import {
+  type CandidateExperimentExecutionInput,
   evaluatePairedMeasurements,
   measuredComparisonFromCandidateExperiment,
   runCandidateExperiment,
@@ -163,7 +165,6 @@ function experiment(reps = 3): AgentCandidateExperiment {
       bootstrapSeed: 1_337,
       deltaThreshold: 0,
       minProductiveRuns: 3,
-      budgetUsd: 1,
       criticalDimensions: ['reliability'],
       regressionTolerance: 0.05,
     },
@@ -311,6 +312,7 @@ function executionEvidence(input: {
         reasoningTokens: 0,
         modelCalls: 0,
         costUsdNanos: 0,
+        costProvenance: 'observed' as const,
       },
     },
     `settlements/${executionId}.json`,
@@ -350,6 +352,7 @@ function executionEvidence(input: {
           reasoningTokens: 0,
           modelCalls: 0,
           costUsdNanos: 0,
+          costProvenance: 'observed' as const,
         },
         timing: {
           startedAtMs: 2_000,
@@ -438,9 +441,20 @@ const profileRunAdapter = {
   score: (run: PlatformProfileRun) => run.score,
   dimensions: (run: PlatformProfileRun) => run.dimensions,
   costUsd: (run: PlatformProfileRun) => run.costUsd,
+  costProvenance: () => 'observed' as const,
   latencyMs: (run: PlatformProfileRun) => run.latencyMs,
   completed: (run: PlatformProfileRun) => run.completed,
   passed: (run: PlatformProfileRun) => run.passed,
+}
+
+function comparisonAccounting(run: Awaited<ReturnType<typeof runCandidateExperiment>>) {
+  return {
+    preparation: {
+      wallDurationMs: 0,
+      cost: { usd: 0, provenance: 'observed' as const },
+    },
+    measurement: run.measurement,
+  }
 }
 
 describe('candidate experiment comparison', () => {
@@ -453,14 +467,16 @@ describe('candidate experiment comparison', () => {
       policy,
       adapter: profileRunAdapter,
       sharedScorerChannel: true,
-      additionalCostUsd: 0.25,
+      preparationCost: { usd: 0.25, provenance: 'observed' },
     })
 
     expect(result.overall).toMatchObject({ baseline: 0.25, candidate: 0.75, delta: 0.5, n: 3 })
     expect(result.decision.outcome).toBe('ship')
-    expect(result.executionCostUsd).toBeCloseTo(0.06)
-    expect(result.totalCostUsd).toBeCloseTo(0.31)
-    expect(result.executionDurationMs).toBe(600)
+    expect(result.measurementCost).toMatchObject({ provenance: 'observed' })
+    expect(result.measurementCost.usd).toBeCloseTo(0.06, 12)
+    expect(result.totalCost).toMatchObject({ provenance: 'observed' })
+    expect(result.totalCost.usd).toBeCloseTo(0.31, 12)
+    expect(result.measurementWorkDurationMs).toBe(600)
     expect(() =>
       evaluatePairedMeasurements({
         measurements: [measurements[0]!, measurements[0]!],
@@ -477,6 +493,15 @@ describe('candidate experiment comparison', () => {
         sharedScorerChannel: true,
       }),
     ).toThrow(/resamples/)
+    expect(() =>
+      evaluatePairedMeasurements({
+        measurements,
+        policy,
+        adapter: profileRunAdapter,
+        sharedScorerChannel: true,
+        measurementCost: { usd: 0.05, provenance: 'observed' },
+      }),
+    ).toThrow(/does not match its signed receipts/)
   })
 
   it('uses observed paired precision instead of baseline-only variance', () => {
@@ -520,9 +545,9 @@ describe('candidate experiment comparison', () => {
       error: /requires at least one paired cell/,
     },
     {
-      label: 'negative additional cost',
-      input: () => ({ additionalCostUsd: -0.01 }),
-      error: /additionalCostUsd must be a non-negative number/,
+      label: 'negative preparation cost',
+      input: () => ({ preparationCost: { usd: -0.01, provenance: 'observed' as const } }),
+      error: /preparation cost must be a non-negative number/,
     },
     {
       label: 'a non-boolean scorer-channel declaration',
@@ -630,7 +655,7 @@ describe('candidate experiment comparison', () => {
   it('runs the exact signed matrix and derives every statistic from Runtime receipts', async () => {
     const frozen = experiment()
     const observedSeeds: number[] = []
-    const measurements = await runCandidateExperiment({
+    const run = await runCandidateExperiment({
       experiment: frozen,
       maxConcurrency: 3,
       async execute(input) {
@@ -650,6 +675,7 @@ describe('candidate experiment comparison', () => {
             reasoningTokens: 0,
             modelCalls: 1,
             costUsdNanos: 10_000_000,
+            costProvenance: 'observed' as const,
           },
           graderDurationMs: 5,
         })
@@ -657,12 +683,15 @@ describe('candidate experiment comparison', () => {
     })
     const comparison = measuredComparisonFromCandidateExperiment({
       experiment: frozen,
-      measurements,
+      measurements: run.measurements,
+      ...comparisonAccounting(run),
       runId: 'candidate-experiment-1',
       candidate: { label: 'verified-claims prompt' },
       generationsExplored: 2,
-      searchDurationMs: 50,
-      searchCostUsd: 0.25,
+      preparation: {
+        wallDurationMs: 50,
+        cost: { usd: 0.25, provenance: 'observed' },
+      },
     })
 
     expect(comparison.overall).toMatchObject({ baseline: 0.25, candidate: 0.75, delta: 0.5, n: 3 })
@@ -671,14 +700,11 @@ describe('candidate experiment comparison', () => {
     expect(comparison.diff).toContain('verify every claim')
     expect(comparison.measurements).toHaveLength(3)
     expect(comparison.evaluation).toMatchObject({
-      executionDurationMs: 600,
-      durationMs: 650,
+      preparation: { wallDurationMs: 50, cost: { usd: 0.25, provenance: 'observed' } },
+      measurement: { workDurationMs: 600, cost: { usd: 0.06, provenance: 'observed' } },
     })
-    expect(comparison.evaluation.executionCostUsd).toBeCloseTo(0.06)
-    expect(comparison.evaluation.totalCostUsd).toBeCloseTo(0.31)
-    expect(canonicalCandidateDigest(comparison)).toBe(
-      'sha256:a8da1aa802c5e1b3dc3034869fc83918347839e9cd5bd4245e11bc067d3267a9',
-    )
+    expect(comparison.evaluation.total.cost).toEqual({ usd: 0.31, provenance: 'observed' })
+    expect(verifyCandidateExperimentComparison(comparison)).toEqual(comparison)
     expect(comparison.objectives).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ kind: 'cost', baseline: 0.01, candidate: 0.01 }),
@@ -690,9 +716,45 @@ describe('candidate experiment comparison', () => {
     ])
   })
 
+  it('refuses a budgeted suite before dispatch when its signed maximum cannot fit', async () => {
+    const initial = experiment()
+    const { digest: _digest, ...material } = initial
+    const budgeted = sealCandidateExperiment({
+      ...material,
+      policy: { ...material.policy, budgetUsd: 0.5 },
+    })
+    let calls = 0
+    const execute = async (input: CandidateExperimentExecutionInput) => {
+      calls += 1
+      return executionEvidence({
+        experiment: input.experiment,
+        arm: input.arm,
+        task: input.task,
+        benchmarkCell: input.benchmarkCell,
+        score: input.arm === 'baseline' ? 0.2 : 0.8,
+      })
+    }
+
+    await expect(runCandidateExperiment({ experiment: budgeted, execute })).rejects.toThrow(
+      /requires one shared CostLedger/,
+    )
+    expect(calls).toBe(0)
+
+    const ledger = new CostLedger(0.5)
+    await expect(
+      runCandidateExperiment({ experiment: budgeted, costLedger: ledger, execute }),
+    ).rejects.toThrow(CostCeilingReachedError)
+    expect(calls).toBe(0)
+    expect(ledger.summary()).toMatchObject({
+      totalCalls: 0,
+      pendingCalls: 0,
+      totalCostUsd: 0,
+    })
+  })
+
   it('keeps constant-score intervals numerically consistent with their measured delta', async () => {
     const frozen = experiment(10)
-    const measurements = await runCandidateExperiment({
+    const run = await runCandidateExperiment({
       experiment: frozen,
       async execute(input) {
         return executionEvidence({
@@ -706,7 +768,8 @@ describe('candidate experiment comparison', () => {
     })
     const comparison = measuredComparisonFromCandidateExperiment({
       experiment: frozen,
-      measurements,
+      measurements: run.measurements,
+      ...comparisonAccounting(run),
       runId: 'constant-score-interval',
     })
 
@@ -720,7 +783,7 @@ describe('candidate experiment comparison', () => {
 
   it('rejects missing cells, substituted arms, and changed signed task bytes', async () => {
     const frozen = experiment()
-    const measurements = await runCandidateExperiment({
+    const run = await runCandidateExperiment({
       experiment: frozen,
       async execute(input) {
         return executionEvidence({
@@ -732,10 +795,12 @@ describe('candidate experiment comparison', () => {
         })
       },
     })
+    const measurements = run.measurements
     expect(() =>
       measuredComparisonFromCandidateExperiment({
         experiment: frozen,
         measurements: measurements.slice(0, 2),
+        ...comparisonAccounting(run),
         runId: 'missing-cell',
       }),
     ).toThrow(/incomplete/)
@@ -748,6 +813,7 @@ describe('candidate experiment comparison', () => {
           { ...measurements[0]!, candidate: baselineAsCandidate },
           ...measurements.slice(1),
         ],
+        ...comparisonAccounting(run),
         runId: 'substituted-arm',
       }),
     ).toThrow(/substituted|bundle/)
@@ -766,7 +832,7 @@ describe('candidate experiment comparison', () => {
 
   it('holds an experiment with fewer than three paired cells', async () => {
     const frozen = experiment(2)
-    const measurements = await runCandidateExperiment({
+    const run = await runCandidateExperiment({
       experiment: frozen,
       async execute(input) {
         return executionEvidence({
@@ -780,7 +846,8 @@ describe('candidate experiment comparison', () => {
     })
     const comparison = measuredComparisonFromCandidateExperiment({
       experiment: frozen,
-      measurements,
+      measurements: run.measurements,
+      ...comparisonAccounting(run),
       runId: 'underpowered',
     })
     expect(comparison.decision.outcome).toBe('need_more_work')
@@ -789,7 +856,7 @@ describe('candidate experiment comparison', () => {
 
   it('binds decision policy before execution and recomputes the published verdict', async () => {
     const frozen = experiment()
-    const measurements = await runCandidateExperiment({
+    const run = await runCandidateExperiment({
       experiment: frozen,
       async execute(input) {
         return executionEvidence({
@@ -801,9 +868,11 @@ describe('candidate experiment comparison', () => {
         })
       },
     })
+    const measurements = run.measurements
     const comparison = measuredComparisonFromCandidateExperiment({
       experiment: frozen,
       measurements,
+      ...comparisonAccounting(run),
       runId: 'policy-binding',
     })
 
@@ -816,6 +885,7 @@ describe('candidate experiment comparison', () => {
       measuredComparisonFromCandidateExperiment({
         experiment: alteredExperiment,
         measurements,
+        ...comparisonAccounting(run),
         runId: 'changed-policy',
       }),
     ).toThrow(/substituted/)
@@ -834,7 +904,7 @@ describe('candidate experiment comparison', () => {
 
   it('binds the complete comparison record, not only its measurements', async () => {
     const frozen = experiment()
-    const measurements = await runCandidateExperiment({
+    const run = await runCandidateExperiment({
       experiment: frozen,
       async execute(input) {
         return executionEvidence({
@@ -848,13 +918,15 @@ describe('candidate experiment comparison', () => {
     })
     const first = measuredComparisonFromCandidateExperiment({
       experiment: frozen,
-      measurements,
+      measurements: run.measurements,
+      ...comparisonAccounting(run),
       runId: 'record-a',
       candidate: { label: 'first label' },
     })
     const second = measuredComparisonFromCandidateExperiment({
       experiment: frozen,
-      measurements,
+      measurements: run.measurements,
+      ...comparisonAccounting(run),
       runId: 'record-b',
       candidate: { label: 'second label' },
     })
@@ -875,7 +947,7 @@ describe('candidate experiment comparison', () => {
       ...material,
       policy: { ...material.policy, criticalDimensions: ['safety'] },
     })
-    const measurements = await runCandidateExperiment({
+    const run = await runCandidateExperiment({
       experiment: frozen,
       async execute(input) {
         return executionEvidence({
@@ -889,7 +961,8 @@ describe('candidate experiment comparison', () => {
     })
     const comparison = measuredComparisonFromCandidateExperiment({
       experiment: frozen,
-      measurements,
+      measurements: run.measurements,
+      ...comparisonAccounting(run),
       runId: 'missing-critical-dimension',
     })
     expect(comparison.decision.outcome).toBe('hold')
@@ -918,7 +991,7 @@ describe('candidate experiment comparison', () => {
   it('does not ship incomplete or grader-failed candidate runs', async () => {
     for (const failure of ['timeout', 'grader'] as const) {
       const frozen = experiment()
-      const measurements = await runCandidateExperiment({
+      const run = await runCandidateExperiment({
         experiment: frozen,
         async execute(input) {
           return executionEvidence({
@@ -936,7 +1009,8 @@ describe('candidate experiment comparison', () => {
       })
       const comparison = measuredComparisonFromCandidateExperiment({
         experiment: frozen,
-        measurements,
+        measurements: run.measurements,
+        ...comparisonAccounting(run),
         runId: `candidate-${failure}`,
       })
       expect(comparison.decision.outcome).toBe('hold')
@@ -991,7 +1065,7 @@ describe('candidate experiment comparison', () => {
       retryPolicy: 'pre-model-infrastructure-only',
     })
 
-    const measurements = await runCandidateExperiment({
+    const run = await runCandidateExperiment({
       experiment: frozen,
       async execute(input) {
         return executionEvidence({
@@ -1009,7 +1083,8 @@ describe('candidate experiment comparison', () => {
     expect(() =>
       measuredComparisonFromCandidateExperiment({
         experiment: frozen,
-        measurements,
+        measurements: run.measurements,
+        ...comparisonAccounting(run),
         runId: 'inconsistent-profile-plan',
       }),
     ).toThrow(/materialized a different profile/)

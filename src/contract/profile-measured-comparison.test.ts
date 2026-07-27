@@ -57,7 +57,7 @@ const model = {
 const limits = {
   timeoutMs: 30_000,
   maxSteps: 10,
-  maxModelCalls: 1,
+  maxModelCalls: 2,
   maxInputTokens: 1_000,
   maxOutputTokens: 1_000,
   maxCostUsd: 1,
@@ -94,6 +94,11 @@ function experiment(
       sourceIdentity: 'profile-support',
       sourceDigest: sha('5'),
       sourceRevision: 7,
+    },
+    executionRef: {
+      kind: 'agent-profile-improvement-execution-ref',
+      identity: 'platform-agent-profile-runner:fixture',
+      digest: sha('4'),
     },
     baseline: { stateDigest: sha('5') },
     candidate: { stateDigest: sha('8') },
@@ -146,6 +151,7 @@ function receipt(
     kind: 'agent-profile-improvement-run' as const,
     digestAlgorithm: 'rfc8785-sha256' as const,
     executionId,
+    executionRef: input.experiment.executionRef,
     runCell: input.runCell,
     runRecord: evidence('agent-eval-run-record', executionId),
     billing: [evidence('platform-billing', `bill-${executionId}`)] as [ReturnType<typeof evidence>],
@@ -164,6 +170,7 @@ function receipt(
       reasoningTokens: 0,
       modelCalls: 1,
       costUsdNanos: 100,
+      costProvenance: 'observed' as const,
     },
     trace: {
       evidence: evidence('platform-trace', `trace-${executionId}`),
@@ -187,12 +194,25 @@ function receipt(
         reasoningTokens: 0,
         modelCalls: 1,
         costUsdNanos: 10,
+        costProvenance: 'observed' as const,
       },
       score,
       passed: true,
       dimensions: [{ name: 'quality', score }],
     },
   })
+}
+
+function comparisonAccounting(
+  run: Awaited<ReturnType<typeof runAgentProfileImprovementExperiment>>,
+) {
+  return {
+    preparation: {
+      wallDurationMs: 0,
+      cost: { usd: 0, provenance: 'observed' as const },
+    },
+    measurement: run.measurement,
+  }
 }
 
 describe('profile improvement measured comparison', () => {
@@ -203,7 +223,7 @@ describe('profile improvement measured comparison', () => {
       stateDigest: Sha256Digest
       cellDigest: Sha256Digest
     }> = []
-    const measurements = await runAgentProfileImprovementExperiment({
+    const run = await runAgentProfileImprovementExperiment({
       experiment: frozen,
       maxConcurrency: 2,
       async execute(input) {
@@ -218,12 +238,15 @@ describe('profile improvement measured comparison', () => {
 
     const comparison = measuredComparisonFromAgentProfileImprovementExperiment({
       experiment: frozen,
-      measurements,
+      measurements: run.measurements,
+      ...comparisonAccounting(run),
       runId: 'profile-improvement-1',
       candidate: { label: 'source-grounded prompt' },
       generationsExplored: 2,
-      searchDurationMs: 50,
-      searchCostUsd: 0.25,
+      preparation: {
+        wallDurationMs: 50,
+        cost: { usd: 0.25, provenance: 'observed' },
+      },
     })
 
     expect(observed).toHaveLength(6)
@@ -244,19 +267,17 @@ describe('profile improvement measured comparison', () => {
     expect(comparison.overall.delta).toBeCloseTo(0.6)
     expect(comparison.decision.outcome).toBe('ship')
     expect(comparison.evaluation).toMatchObject({
-      executionDurationMs: 660,
-      durationMs: 710,
-      searchCostUsd: 0.25,
+      preparation: { wallDurationMs: 50, cost: { usd: 0.25, provenance: 'observed' } },
+      measurement: { workDurationMs: 660, cost: { usd: 0.00000066, provenance: 'observed' } },
     })
-    expect(comparison.evaluation.executionCostUsd).toBeCloseTo(0.00000066)
-    expect(comparison.evaluation.totalCostUsd).toBeCloseTo(0.25000066)
+    expect(comparison.evaluation.total.cost).toEqual({ usd: 0.25000066, provenance: 'observed' })
     expect(comparison.diff).toContain('add-source-and-uncertainty')
     expect(verifyAgentProfileImprovementExperimentComparison(comparison)).toEqual(comparison)
   })
 
   it('keeps distinct signed task positions when scenarios share a display id', async () => {
     const frozen = experiment(2, [profileTask(), profileTask(sha('a'))])
-    const measurements = await runAgentProfileImprovementExperiment({
+    const run = await runAgentProfileImprovementExperiment({
       experiment: frozen,
       async execute(input) {
         return receipt(
@@ -270,7 +291,8 @@ describe('profile improvement measured comparison', () => {
     expect(() =>
       measuredComparisonFromAgentProfileImprovementExperiment({
         experiment: frozen,
-        measurements,
+        measurements: run.measurements,
+        ...comparisonAccounting(run),
         runId: 'same-profile-scenario-id',
       }),
     ).not.toThrow()
@@ -278,17 +300,19 @@ describe('profile improvement measured comparison', () => {
 
   it('rejects missing cells, substituted states, and altered published summaries', async () => {
     const frozen = experiment()
-    const measurements = await runAgentProfileImprovementExperiment({
+    const run = await runAgentProfileImprovementExperiment({
       experiment: frozen,
       async execute(input) {
         return receipt(input, input.arm === 'baseline' ? 0.2 : 0.8)
       },
     })
+    const measurements = run.measurements
 
     expect(() =>
       measuredComparisonFromAgentProfileImprovementExperiment({
         experiment: frozen,
         measurements: measurements.slice(0, 2),
+        ...comparisonAccounting(run),
         runId: 'missing-cell',
       }),
     ).toThrow(/incomplete/)
@@ -299,6 +323,7 @@ describe('profile improvement measured comparison', () => {
           { ...measurements[0]!, candidate: measurements[0]!.baseline },
           ...measurements.slice(1),
         ],
+        ...comparisonAccounting(run),
         runId: 'substituted-state',
       }),
     ).toThrow(/substituted/)
@@ -306,6 +331,7 @@ describe('profile improvement measured comparison', () => {
     const comparison = measuredComparisonFromAgentProfileImprovementExperiment({
       experiment: frozen,
       measurements,
+      ...comparisonAccounting(run),
       runId: 'published-summary',
     })
     expect(() =>
@@ -318,12 +344,13 @@ describe('profile improvement measured comparison', () => {
 
   it('rejects forged receipts and receipts bound to a different task contract', async () => {
     const frozen = experiment()
-    const measurements = await runAgentProfileImprovementExperiment({
+    const run = await runAgentProfileImprovementExperiment({
       experiment: frozen,
       async execute(input) {
         return receipt(input, input.arm === 'baseline' ? 0.2 : 0.8)
       },
     })
+    const measurements = run.measurements
     const first = measurements[0]!
 
     expect(() =>
@@ -333,6 +360,7 @@ describe('profile improvement measured comparison', () => {
           { ...first, candidate: { ...first.candidate, steps: 2 } },
           ...measurements.slice(1),
         ],
+        ...comparisonAccounting(run),
         runId: 'forged-receipt',
       }),
     ).toThrow(/profile improvement run receipt digest is invalid/)
@@ -346,9 +374,29 @@ describe('profile improvement measured comparison', () => {
       measuredComparisonFromAgentProfileImprovementExperiment({
         experiment: frozen,
         measurements: [{ ...first, candidate: substitutedModel }, ...measurements.slice(1)],
+        ...comparisonAccounting(run),
         runId: 'substituted-task-contract',
       }),
     ).toThrow(/substituted its candidate task contract/)
+  })
+
+  it('rejects a receipt from another executor before publishing a comparison', async () => {
+    const frozen = experiment()
+
+    await expect(
+      runAgentProfileImprovementExperiment({
+        experiment: frozen,
+        async execute(input) {
+          const result = receipt(input, input.arm === 'baseline' ? 0.2 : 0.8)
+          if (input.arm !== 'candidate' || input.runCell.repetition !== 0) return result
+          const { digest: _digest, ...material } = result
+          return signed({
+            ...material,
+            executionRef: { ...material.executionRef, digest: sha('e') },
+          })
+        },
+      }),
+    ).rejects.toThrow(/substituted its candidate executor/)
   })
 
   it('rejects invalid suite schedules and concurrency before execution', async () => {
@@ -375,7 +423,7 @@ describe('profile improvement measured comparison', () => {
   it('limits simultaneous host executions rather than paired cells', async () => {
     let active = 0
     let peakActive = 0
-    const measurements = await runAgentProfileImprovementExperiment({
+    const run = await runAgentProfileImprovementExperiment({
       experiment: experiment(),
       maxConcurrency: 1,
       async execute(input) {
@@ -387,8 +435,10 @@ describe('profile improvement measured comparison', () => {
       },
     })
 
-    expect(measurements).toHaveLength(3)
+    expect(run.measurements).toHaveLength(3)
     expect(peakActive).toBe(1)
+    expect(run.measurement.wallDurationMs).toBeGreaterThan(0)
+    expect(run.measurement.wallDurationMs).toBeLessThan(660)
   })
 
   it('cancels and settles a sibling arm before rejecting a failed cell', async () => {

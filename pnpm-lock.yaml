@@ -27,8 +27,8 @@ importers:
         specifier: 0.4.24
         version: 0.4.24
       '@tangle-network/agent-interface':
-        specifier: 0.35.0
-        version: 0.35.0
+        specifier: 0.36.0
+        version: 0.36.0
       hono:
         specifier: ^4.12.32
         version: 4.12.32
@@ -750,6 +750,9 @@ packages:
 
   '@tangle-network/agent-interface@0.35.0':
     resolution: {integrity: sha512-ySgnHeARqyPcal3aG4bpUhyA0YRuu/zYFc2337afefqUUKtRdBTipM2i7OBUPlj676pgVRcgxnVR/VnOq3KGXA==}
+
+  '@tangle-network/agent-interface@0.36.0':
+    resolution: {integrity: sha512-l48SiAY5Atx6ZTL86/XP2wSUPfJJ1sga82/F6V0KqwVkE5MHWiFql6wsLoqk0lc7s4EJe6+cKky+2zzxFuxDpg==}
 
   '@tybys/wasm-util@0.10.3':
     resolution: {integrity: sha512-F3fo1MYrRJYL3zER0OUOmkutjr1Vp23m7OsSgp7nq4SP6OqX6C/56XFIPAl5bt3zaBRjmW7SGz3u/6LwFpYcOg==}
@@ -2003,6 +2006,11 @@ snapshots:
       zod: 4.4.3
 
   '@tangle-network/agent-interface@0.35.0':
+    dependencies:
+      '@noble/hashes': 1.8.0
+      zod: 4.4.3
+
+  '@tangle-network/agent-interface@0.36.0':
     dependencies:
       '@noble/hashes': 1.8.0
       zod: 4.4.3
