@@ -1,8 +1,12 @@
 from __future__ import annotations
 
 import json
+import os
 import threading
+from collections.abc import Iterator
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import contextmanager
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -12,6 +16,46 @@ from agent_eval_rpc import DspyJudgeMetric, JudgeResult
 dspy = pytest.importorskip("dspy")
 DummyLM = pytest.importorskip("dspy.utils").DummyLM
 dotdict = pytest.importorskip("dspy.utils.dummies").dotdict
+
+_DSPY_CACHE_ENV = ("DSPY_CACHEDIR", "DSPY_CACHE_LIMIT")
+_UNSAFE_CACHE_MESSAGE = r"dspy\.configure_cache\(restrict_pickle=True\)"
+
+
+def _close_disk_cache(cache: Any) -> None:
+    close = getattr(getattr(cache, "disk_cache", None), "close", None)
+    if callable(close):
+        close()
+
+
+@contextmanager
+def _configured_dspy_cache(cache_dir: Path, **options: Any) -> Iterator[None]:
+    original_cache = dspy.cache
+    original_env = {name: os.environ.get(name) for name in _DSPY_CACHE_ENV}
+    dspy.configure_cache(
+        enable_memory_cache=False,
+        disk_cache_dir=str(cache_dir),
+        **options,
+    )
+    configured_cache = dspy.cache
+    try:
+        yield
+    finally:
+        dspy.cache = original_cache
+        _close_disk_cache(configured_cache)
+        for name, value in original_env.items():
+            if value is None:
+                os.environ.pop(name, None)
+            else:
+                os.environ[name] = value
+
+
+@pytest.fixture(autouse=True)
+def _use_safe_dspy_cache(tmp_path: Path) -> Iterator[None]:
+    with _configured_dspy_cache(
+        tmp_path / "disabled-default",
+        enable_disk_cache=False,
+    ):
+        yield
 
 
 class _JudgeClient:
@@ -87,6 +131,89 @@ class _OutcomeJudgeClient:
             model="judge-model",
             durationMs=1,
         )
+
+
+def _write_marker(path: str) -> None:
+    Path(path).write_text("unsafe pickle executed", encoding="utf-8")
+
+
+class _PicklePayload:
+    def __init__(self, marker: Path) -> None:
+        self.marker = marker
+
+    def __reduce__(self) -> tuple[Any, tuple[str]]:
+        return _write_marker, (str(self.marker),)
+
+
+def test_unsafe_default_disk_cache_is_rejected(tmp_path: Path) -> None:
+    with _configured_dspy_cache(tmp_path / "unsafe-default", enable_disk_cache=True):
+        with pytest.raises(RuntimeError, match=_UNSAFE_CACHE_MESSAGE) as error:
+            DspyJudgeMetric(rubric_name="answer-quality", client=_JudgeClient())
+
+    assert "dspy.configure_cache(enable_disk_cache=False)" in str(error.value)
+
+
+def test_official_restricted_disk_cache_is_accepted(tmp_path: Path) -> None:
+    client = _JudgeClient()
+    with _configured_dspy_cache(
+        tmp_path / "restricted",
+        enable_disk_cache=True,
+        restrict_pickle=True,
+    ):
+        metric = DspyJudgeMetric(rubric_name="answer-quality", client=client)
+        score = metric(dspy.Example(answer="Denver"), dspy.Prediction(answer="Denver"))
+
+    assert score == 0.75
+    assert len(client.calls) == 1
+
+
+def test_disabled_disk_cache_is_accepted(tmp_path: Path) -> None:
+    with _configured_dspy_cache(tmp_path / "disabled", enable_disk_cache=False):
+        metric = DspyJudgeMetric(rubric_name="answer-quality", client=_JudgeClient())
+
+    assert isinstance(metric, DspyJudgeMetric)
+
+
+def test_metric_rechecks_global_cache_before_use(tmp_path: Path) -> None:
+    client = _JudgeClient()
+    metric = DspyJudgeMetric(rubric_name="answer-quality", client=client)
+
+    with _configured_dspy_cache(tmp_path / "unsafe-after-construction", enable_disk_cache=True):
+        with pytest.raises(RuntimeError, match=_UNSAFE_CACHE_MESSAGE):
+            metric(dspy.Example(answer="Denver"), dspy.Prediction(answer="Denver"))
+
+    assert client.calls == []
+
+
+def test_restricted_upstream_cache_rejects_an_executable_pickle(tmp_path: Path) -> None:
+    marker = tmp_path / "pickle-executed"
+    request = {"model": "test", "prompt": "adversarial cache entry"}
+
+    with _configured_dspy_cache(
+        tmp_path / "restricted-adversarial",
+        enable_disk_cache=True,
+        restrict_pickle=True,
+    ):
+        key = dspy.cache.cache_key(request)
+        dspy.cache.put(request, _PicklePayload(marker), enable_memory_cache=False)
+
+        assert key in dspy.cache.disk_cache
+        assert dspy.cache.get(request) is None
+        assert key not in dspy.cache.disk_cache
+    assert not marker.exists()
+
+
+def test_cache_scenario_restores_global_cache_and_environment(tmp_path: Path) -> None:
+    original_cache = dspy.cache
+    original_env = {name: os.environ.get(name) for name in _DSPY_CACHE_ENV}
+
+    with _configured_dspy_cache(tmp_path / "isolated", enable_disk_cache=False):
+        assert dspy.cache is not original_cache
+        os.environ["DSPY_CACHEDIR"] = str(tmp_path / "changed")
+        os.environ["DSPY_CACHE_LIMIT"] = "1"
+
+    assert dspy.cache is original_cache
+    assert {name: os.environ.get(name) for name in _DSPY_CACHE_ENV} == original_env
 
 
 def test_numeric_metric_works_with_dspy_examples_and_predictions() -> None:
@@ -255,7 +382,6 @@ def test_metric_drives_an_official_dspy_gepa_compile() -> None:
 
     judge = _OutcomeJudgeClient()
     metric = DspyJudgeMetric(rubric_name="answer-quality", client=judge)
-    dspy.configure(lm=_InstructionAwareLM())
     optimizer = dspy.GEPA(
         metric.feedback,
         max_metric_calls=6,

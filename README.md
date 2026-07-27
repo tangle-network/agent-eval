@@ -258,6 +258,7 @@ import dspy
 from agent_eval_rpc import DspyJudgeMetric
 
 dspy.configure(lm=dspy.LM("openai/gpt-4.1-mini"))
+dspy.configure_cache(restrict_pickle=True)
 metric = DspyJudgeMetric(rubric_name="answer-quality")
 
 # GEPA needs both the numeric score and diagnostic feedback.

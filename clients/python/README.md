@@ -229,6 +229,7 @@ import dspy
 
 from agent_eval_rpc import DspyJudgeMetric
 
+dspy.configure_cache(restrict_pickle=True)
 metric = DspyJudgeMetric(rubric_name="answer-quality")
 
 gepa = dspy.GEPA(
@@ -245,6 +246,8 @@ Use `metric.feedback` for `dspy.GEPA`.
 It returns `dspy.Prediction(score=..., feedback=...)` with dimension scores, failure modes, wins, and rationale.
 Use the metric object directly for MIPROv2, SIMBA, bootstrap, and evaluation APIs that expect a number.
 Identical calls share one judge result, including concurrent calls.
+`DspyJudgeMetric` rejects DSPy's default unrestricted disk-cache pickle handling.
+Configure the official restricted cache as shown above, or call `dspy.configure_cache(enable_disk_cache=False)` before creating the metric.
 
 DSPy 3.2.1 pins GEPA 0.0.27.
 The general Optimize Anything bridge uses GEPA 0.1.4, so repository checks install them in separate environments:
