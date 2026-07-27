@@ -8,6 +8,8 @@ import {
   type AgentCandidateExperiment,
   type AgentCandidateExperimentMaterial,
   type AgentCandidateExperimentMeasurement,
+  type AgentCandidateFixedSpend,
+  type AgentImprovementCost,
   type AgentImprovementMeasuredComparison,
   agentCandidateBenchmarkSuiteSchema,
   agentCandidateBenchmarkTaskSchema,
@@ -18,12 +20,14 @@ import {
   type CandidateExecutionEvidence,
   candidateExecutionEvidenceSchema,
   canonicalCandidateDigest,
+  numbersApproximatelyEqual,
   omitTopLevelDigest,
   type Sha256Digest,
 } from '@tangle-network/agent-interface'
 import { heldoutSignificance } from '../campaign/gates/statistical-heldout'
+import type { CostLedgerHandle, CostReceiptInput } from '../cost-ledger'
 import { pairedBootstrap } from '../statistics'
-import { mapPairedConcurrent } from './concurrent-map'
+import { runPaidPairedMeasurement } from './paid-paired-measurement'
 
 export interface SealCandidateBenchmarkSuiteOptions {
   tasks: [AgentCandidateBenchmarkTask, ...AgentCandidateBenchmarkTask[]]
@@ -46,17 +50,30 @@ export interface RunCandidateExperimentOptions {
   execute(input: CandidateExperimentExecutionInput): Promise<CandidateExecutionEvidence>
   /** Maximum number of simultaneous execute calls across both arms. */
   maxConcurrency?: number
+  /** Shared run budget that also accounts for analysis and candidate search. */
+  costLedger?: CostLedgerHandle
   signal?: AbortSignal
+}
+
+export interface CandidateExperimentRun {
+  measurements: AgentCandidateExperimentMeasurement[]
+  measurement: {
+    wallDurationMs: number
+    cost: AgentImprovementCost
+  }
 }
 
 export interface CompareCandidateExperimentOptions {
   experiment: AgentCandidateExperiment
   measurements: AgentCandidateExperimentMeasurement[]
+  preparation: {
+    wallDurationMs: number
+    cost: AgentImprovementCost
+  }
+  measurement: CandidateExperimentRun['measurement']
   runId: string
   candidate?: AgentImprovementMeasuredComparison['candidate']
   generationsExplored?: number
-  searchDurationMs?: number
-  searchCostUsd?: number
   metadata?: AgentImprovementMeasuredComparison['metadata']
 }
 
@@ -72,6 +89,7 @@ export interface PairedMeasurementAdapter<TRun> {
   score(run: TRun): number
   dimensions(run: TRun): readonly { name: string; score: number }[]
   costUsd(run: TRun): number
+  costProvenance(run: TRun): AgentImprovementCost['provenance']
   latencyMs(run: TRun): number
   completed(run: TRun): boolean
   passed(run: TRun): boolean
@@ -83,8 +101,10 @@ export interface EvaluatePairedMeasurementsOptions<TRun> {
   adapter: PairedMeasurementAdapter<TRun>
   /** Whether both arms use the same scorer family as the promotion decision. */
   sharedScorerChannel: boolean
-  /** Search or preparation spend that belongs to the same frozen budget. */
-  additionalCostUsd?: number
+  /** Analysis and candidate-search spend that belongs to the same frozen budget. */
+  preparationCost?: AgentImprovementCost
+  /** Settled aggregate receipt for this exact paired suite, when an executor provides one. */
+  measurementCost?: AgentImprovementCost
 }
 
 /** Statistical and operational result derived from complete paired receipts. */
@@ -92,9 +112,9 @@ export type PairedMeasurementEvaluation = Pick<
   AgentImprovementMeasuredComparison,
   'overall' | 'objectives' | 'decision' | 'power'
 > & {
-  executionCostUsd: number
-  totalCostUsd: number
-  executionDurationMs: number
+  measurementCost: AgentImprovementCost
+  totalCost: AgentImprovementCost
+  measurementWorkDurationMs: number
 }
 
 /** Content-address one task before any measured execution can see it. */
@@ -152,15 +172,26 @@ export function verifyCandidateExperiment(input: unknown): AgentCandidateExperim
 /** Execute each signed cell for both arms. The callback is Runtime's one executor. */
 export async function runCandidateExperiment(
   options: RunCandidateExperimentOptions,
-): Promise<AgentCandidateExperimentMeasurement[]> {
+): Promise<CandidateExperimentRun> {
   const experiment = verifyCandidateExperiment(options.experiment)
   const { suite, tasks } = experiment.benchmark
-  const measurements = await mapPairedConcurrent({
+  const run = await runPaidPairedMeasurement({
     count: suite.taskDigests.length * suite.reps,
     maxConcurrency: options.maxConcurrency ?? 2,
     label: 'candidate experiment',
+    budgetUsd: experiment.policy.budgetUsd,
+    ...(options.costLedger ? { costLedger: options.costLedger } : {}),
+    maximumCostUsd: candidateMeasurementMaximumCostUsd(experiment),
+    call: {
+      callId: `candidate-measurement:${experiment.digest}`,
+      channel: 'measurement',
+      phase: 'heldout',
+      actor: experiment.digest,
+      model: candidateMeasurementModel(experiment),
+      tags: { experimentDigest: experiment.digest },
+    },
     ...(options.signal ? { signal: options.signal } : {}),
-    async map(index, arm, signal) {
+    async execute(index, arm, signal) {
       const taskIndex = Math.floor(index / suite.reps)
       const repetition = index % suite.reps
       const task = tasks[taskIndex]
@@ -173,18 +204,31 @@ export async function runCandidateExperiment(
         taskIndex,
         repetition,
       }
-      return options.execute({
-        experiment,
-        arm,
-        bundle: experiment[arm],
-        task,
-        benchmarkCell,
-        seed,
-        signal,
-      })
+      return verifyExecutionEvidence(
+        await options.execute({
+          experiment,
+          arm,
+          bundle: experiment[arm],
+          task,
+          benchmarkCell,
+          seed,
+          signal,
+        }),
+      )
+    },
+    receipt(measurements) {
+      return candidateMeasurementCostReceipt(measurements, candidateMeasurementModel(experiment))
     },
   })
-  return measurements.map((measurement, index) => verifyMeasurement(experiment, measurement, index))
+  return {
+    measurements: run.measurements.map((measurement, index) =>
+      verifyMeasurement(experiment, measurement, index),
+    ),
+    measurement: {
+      wallDurationMs: run.wallDurationMs,
+      cost: { usd: run.cost.usd, provenance: run.cost.kind },
+    },
+  }
 }
 
 /**
@@ -200,9 +244,9 @@ export function evaluatePairedMeasurements<TRun>(
   if (options.measurements.length === 0) {
     throw new Error('paired measurement evaluation requires at least one paired cell')
   }
-  const additionalCostUsd = options.additionalCostUsd ?? 0
-  if (!Number.isFinite(additionalCostUsd) || additionalCostUsd < 0) {
-    throw new Error('paired measurement evaluation additionalCostUsd must be a non-negative number')
+  const preparationCost = options.preparationCost ?? { usd: 0, provenance: 'observed' as const }
+  if (!Number.isFinite(preparationCost.usd) || preparationCost.usd < 0) {
+    throw new Error('paired measurement evaluation preparation cost must be a non-negative number')
   }
   if (typeof options.sharedScorerChannel !== 'boolean') {
     throw new Error('paired measurement evaluation sharedScorerChannel must be a boolean')
@@ -330,11 +374,11 @@ export function evaluatePairedMeasurements<TRun>(
       objective.availability === 'measured' &&
       objective.confidenceInterval.lower < -regressionTolerance,
   )
-  const executionCostUsd = measurements.reduce(
+  const measurementCostUsd = measurements.reduce(
     (sum, measurement) => sum + measurement.baseline.costUsd + measurement.candidate.costUsd,
     0,
   )
-  const executionDurationMs = measurements.reduce(
+  const measurementWorkDurationMs = measurements.reduce(
     (sum, measurement) => sum + measurement.baseline.latencyMs + measurement.candidate.latencyMs,
     0,
   )
@@ -344,8 +388,36 @@ export function evaluatePairedMeasurements<TRun>(
   ])
   const incompleteRuns = completedRuns.filter((run) => !run.completed)
   const failedCandidateResults = measurements.filter((measurement) => !measurement.candidate.passed)
-  const totalCostUsd = executionCostUsd + additionalCostUsd
-  const budgetPassed = budgetUsd === undefined || totalCostUsd <= budgetUsd
+  const derivedMeasurementCost: AgentImprovementCost = {
+    usd: measurementCostUsd,
+    provenance: measurements.every(
+      (measurement) =>
+        measurement.baseline.costProvenance === 'observed' &&
+        measurement.candidate.costProvenance === 'observed',
+    )
+      ? 'observed'
+      : 'estimated',
+  }
+  const measurementCost = options.measurementCost ?? derivedMeasurementCost
+  assertKnownCost(measurementCost, 'paired measurement cost')
+  if (
+    options.measurementCost !== undefined &&
+    (measurementCost.provenance !== derivedMeasurementCost.provenance ||
+      !numbersApproximatelyEqual(measurementCost.usd, derivedMeasurementCost.usd))
+  ) {
+    throw new Error('paired measurement cost does not match its signed receipts')
+  }
+  const totalCost: AgentImprovementCost = {
+    usd: preparationCost.usd + measurementCost.usd,
+    provenance:
+      preparationCost.provenance === 'observed' && measurementCost.provenance === 'observed'
+        ? 'observed'
+        : 'estimated',
+  }
+  const budgetPassed =
+    budgetUsd === undefined ||
+    totalCost.usd < budgetUsd ||
+    numbersApproximatelyEqual(totalCost.usd, budgetUsd)
   const checks = [
     { name: 'paired-significance', passed: significance.significant },
     { name: 'paired-precision', passed: powerSufficient },
@@ -379,7 +451,7 @@ export function evaluatePairedMeasurements<TRun>(
     ...(failedCandidateResults.length === 0
       ? []
       : [`candidate failed ${failedCandidateResults.length} benchmark tasks`]),
-    ...(budgetPassed ? [] : [`total cost ${totalCostUsd} exceeded budget ${budgetUsd}`]),
+    ...(budgetPassed ? [] : [`total cost ${totalCost.usd} exceeded budget ${budgetUsd}`]),
   ]
 
   return {
@@ -408,9 +480,9 @@ export function evaluatePairedMeasurements<TRun>(
       sharedScorerChannel: options.sharedScorerChannel,
       reason: power.reason,
     },
-    executionCostUsd,
-    totalCostUsd,
-    executionDurationMs,
+    measurementCost,
+    totalCost,
+    measurementWorkDurationMs,
   }
 }
 
@@ -430,7 +502,8 @@ export function measuredComparisonFromCandidateExperiment(
   }
   verifyStableProfileMaterialization(measurements)
   if (!options.runId.trim()) throw new Error('candidate experiment runId is required')
-  const searchCostUsd = options.searchCostUsd ?? 0
+  assertPhaseAccounting(options.preparation, 'candidate preparation')
+  assertMeasurementAccounting(options.measurement, 'candidate measurement')
   const evaluation = evaluatePairedMeasurements({
     measurements: measurements.map((measurement, index) => ({
       cellId: cellIds(experiment)[index]!,
@@ -439,12 +512,10 @@ export function measuredComparisonFromCandidateExperiment(
     policy: experiment.policy,
     adapter: candidateExecutionEvidenceAdapter,
     sharedScorerChannel: true,
-    additionalCostUsd: searchCostUsd,
+    preparationCost: options.preparation.cost,
+    measurementCost: options.measurement.cost,
   })
   const diff = deriveCandidateBundleDiff(experiment)
-  const searchDurationMs = options.searchDurationMs ?? 0
-  const totalCostUsd = evaluation.totalCostUsd
-  const durationMs = evaluation.executionDurationMs + searchDurationMs
   const provisional = agentImprovementMeasuredComparisonSchema.parse({
     kind: 'agent-improvement-measured-comparison',
     experiment,
@@ -465,12 +536,16 @@ export function measuredComparisonFromCandidateExperiment(
     diff,
     evaluation: {
       generationsExplored: options.generationsExplored ?? 0,
-      searchDurationMs,
-      executionDurationMs: evaluation.executionDurationMs,
-      durationMs,
-      searchCostUsd,
-      executionCostUsd: evaluation.executionCostUsd,
-      totalCostUsd,
+      preparation: options.preparation,
+      measurement: {
+        wallDurationMs: options.measurement.wallDurationMs,
+        workDurationMs: evaluation.measurementWorkDurationMs,
+        cost: evaluation.measurementCost,
+      },
+      total: {
+        wallDurationMs: options.preparation.wallDurationMs + options.measurement.wallDurationMs,
+        cost: evaluation.totalCost,
+      },
     },
     ...(options.metadata ? { metadata: options.metadata } : {}),
   })
@@ -495,14 +570,116 @@ export function verifyCandidateExperimentComparison(
     runId: comparison.provenance.runId,
     ...(comparison.candidate ? { candidate: comparison.candidate } : {}),
     generationsExplored: comparison.evaluation.generationsExplored,
-    searchDurationMs: comparison.evaluation.searchDurationMs,
-    searchCostUsd: comparison.evaluation.searchCostUsd,
+    preparation: comparison.evaluation.preparation,
+    measurement: {
+      wallDurationMs: comparison.evaluation.measurement.wallDurationMs,
+      cost: comparison.evaluation.measurement.cost,
+    },
     ...(comparison.metadata ? { metadata: comparison.metadata } : {}),
   })
   if (canonicalCandidateDigest(recomputed) !== canonicalCandidateDigest(comparison)) {
     throw new Error('candidate experiment comparison does not match its Runtime receipts')
   }
   return comparison
+}
+
+function candidateMeasurementMaximumCostUsd(experiment: AgentCandidateExperiment): number {
+  const maximum = experiment.benchmark.tasks.reduce(
+    (sum, task) => sum + task.limits.maxCostUsd * experiment.benchmark.suite.reps * 2,
+    0,
+  )
+  if (!Number.isFinite(maximum) || maximum < 0) {
+    throw new Error('candidate measurement maximum cost is invalid')
+  }
+  return maximum
+}
+
+function candidateMeasurementModel(experiment: AgentCandidateExperiment): string {
+  const models = [...new Set(experiment.benchmark.tasks.map((task) => task.model.model))]
+  return models.length === 1 ? models[0]! : 'multiple-models'
+}
+
+function candidateMeasurementCostReceipt(
+  measurements: Array<{
+    baseline: CandidateExecutionEvidence
+    candidate: CandidateExecutionEvidence
+  }>,
+  model: string,
+): CostReceiptInput {
+  const usage = measurements.reduce<AgentCandidateFixedSpend>(
+    (sum, measurement) =>
+      addFixedSpend(
+        addFixedSpend(sum, combinedUsage(measurement.baseline)),
+        combinedUsage(measurement.candidate),
+      ),
+    {
+      inputTokens: 0,
+      outputTokens: 0,
+      cachedInputTokens: 0,
+      reasoningTokens: 0,
+      modelCalls: 0,
+      costUsdNanos: 0,
+      costProvenance: 'observed',
+    },
+  )
+  const costUsd = usage.costUsdNanos / 1_000_000_000
+  return {
+    model,
+    inputTokens: usage.inputTokens,
+    outputTokens: usage.outputTokens,
+    cachedTokens: usage.cachedInputTokens,
+    reasoningTokens: usage.reasoningTokens,
+    ...(usage.costProvenance === 'observed'
+      ? { actualCostUsd: costUsd }
+      : { estimatedCostUsd: costUsd }),
+  }
+}
+
+function addFixedSpend(
+  left: AgentCandidateFixedSpend,
+  right: AgentCandidateFixedSpend,
+): AgentCandidateFixedSpend {
+  return {
+    inputTokens: left.inputTokens + right.inputTokens,
+    outputTokens: left.outputTokens + right.outputTokens,
+    cachedInputTokens: left.cachedInputTokens + right.cachedInputTokens,
+    reasoningTokens: left.reasoningTokens + right.reasoningTokens,
+    modelCalls: left.modelCalls + right.modelCalls,
+    costUsdNanos: left.costUsdNanos + right.costUsdNanos,
+    costProvenance:
+      left.costProvenance === 'observed' && right.costProvenance === 'observed'
+        ? 'observed'
+        : 'estimated',
+  }
+}
+
+function assertPhaseAccounting(
+  accounting: CompareCandidateExperimentOptions['preparation'],
+  label: string,
+): void {
+  if (!Number.isFinite(accounting.wallDurationMs) || accounting.wallDurationMs < 0) {
+    throw new Error(`${label} wall duration must be a non-negative number`)
+  }
+  assertKnownCost(accounting.cost, `${label} cost`)
+}
+
+function assertMeasurementAccounting(
+  accounting: CompareCandidateExperimentOptions['measurement'],
+  label: string,
+): void {
+  if (!Number.isFinite(accounting.wallDurationMs) || accounting.wallDurationMs < 0) {
+    throw new Error(`${label} wall duration must be a non-negative number`)
+  }
+  assertKnownCost(accounting.cost, `${label} cost`)
+}
+
+function assertKnownCost(cost: AgentImprovementCost, label: string): void {
+  if (!Number.isFinite(cost.usd) || cost.usd < 0) {
+    throw new Error(`${label} must be a non-negative number`)
+  }
+  if (cost.provenance !== 'observed' && cost.provenance !== 'estimated') {
+    throw new Error(`${label} provenance must be observed or estimated`)
+  }
 }
 
 function deriveCandidateBundleDiff(experiment: AgentCandidateExperiment): string {
@@ -746,6 +923,7 @@ interface ProjectedRun {
   score: number
   dimensions: Map<string, number>
   costUsd: number
+  costProvenance: AgentImprovementCost['provenance']
   latencyMs: number
   completed: boolean
   passed: boolean
@@ -796,10 +974,15 @@ function projectRun<TRun>(
   if (typeof completed !== 'boolean' || typeof passed !== 'boolean') {
     throw new Error(`${label} completion and pass values must be booleans`)
   }
+  const costProvenance = adapter.costProvenance(run)
+  if (costProvenance !== 'observed' && costProvenance !== 'estimated') {
+    throw new Error(`${label} cost provenance must be observed or estimated`)
+  }
   return {
     score: finiteMeasurement(adapter.score(run), `${label} score`),
     dimensions,
     costUsd: nonNegativeMeasurement(adapter.costUsd(run), `${label} cost`),
+    costProvenance,
     latencyMs: nonNegativeMeasurement(adapter.latencyMs(run), `${label} latency`),
     completed,
     passed,
@@ -928,6 +1111,7 @@ const candidateExecutionEvidenceAdapter: PairedMeasurementAdapter<CandidateExecu
   score: (evidence) => evidence.receipt.benchmarkResult.material.score,
   dimensions: (evidence) => evidence.receipt.benchmarkResult.material.dimensions,
   costUsd: costFromEvidence,
+  costProvenance: (evidence) => combinedUsage(evidence).costProvenance,
   latencyMs: latencyFromEvidence,
   completed: completedSuccessfully,
   passed: (evidence) => evidence.receipt.benchmarkResult.material.passed,
@@ -944,17 +1128,10 @@ function latencyFromEvidence(evidence: CandidateExecutionEvidence): number {
   )
 }
 
-function combinedUsage(evidence: CandidateExecutionEvidence) {
+function combinedUsage(evidence: CandidateExecutionEvidence): AgentCandidateFixedSpend {
   const candidate = evidence.receipt.modelSettlement.material.usage
   const grader = evidence.receipt.benchmarkResult.material.grading.usage
-  return {
-    inputTokens: candidate.inputTokens + grader.inputTokens,
-    outputTokens: candidate.outputTokens + grader.outputTokens,
-    cachedInputTokens: candidate.cachedInputTokens + grader.cachedInputTokens,
-    reasoningTokens: candidate.reasoningTokens + grader.reasoningTokens,
-    modelCalls: candidate.modelCalls + grader.modelCalls,
-    costUsdNanos: candidate.costUsdNanos + grader.costUsdNanos,
-  }
+  return addFixedSpend(candidate, grader)
 }
 
 function cellIds(experiment: AgentCandidateExperiment): string[] {

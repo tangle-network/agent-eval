@@ -57,6 +57,7 @@ function campaign(composite: number, runDir: string): CampaignResult<unknown, Te
         outputTokens: 0,
         cachedTokens: 0,
         totalCostUsd: 0,
+        costProvenance: { kind: 'observed', usd: 0 },
         byChannel: [],
         unpricedModels: [],
         fullyPriced: true,

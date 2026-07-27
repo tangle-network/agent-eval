@@ -4,6 +4,12 @@ import { estimateCost, isModelPriced, resolveModelPricing } from './metrics'
 
 export type CostChannel = 'agent' | 'judge' | 'verifier' | 'analyst' | 'driver' | (string & {})
 
+/** How a USD amount was obtained. */
+export type CostProvenance =
+  | { kind: 'observed'; usd: number }
+  | { kind: 'estimated'; usd: number }
+  | { kind: 'uncaptured'; usd: null }
+
 export interface CostUsage {
   inputTokens: number
   /** Includes reasoning tokens when the provider bills them as output. */
@@ -49,6 +55,8 @@ export interface CostReceipt extends CostCallBase, CostUsage {
   }
   /** Cost reported by the provider, not a local token-price calculation. */
   actualCostUsd?: number
+  /** Known non-provider amount supplied by an external executor. */
+  estimatedCostUsd?: number
   error?: string
 }
 
@@ -59,6 +67,8 @@ export interface CostReceiptInput extends CostUsage {
   /** Caller-supplied rates for a local estimate when the provider does not report billed cost. */
   customTokenPricing?: CustomTokenPricing
   actualCostUsd?: number
+  /** A known estimate from an external executor that cannot provide token pricing. */
+  estimatedCostUsd?: number
   costUnknown?: boolean
   usageUnknown?: boolean
 }
@@ -126,6 +136,7 @@ export interface CostLedgerSummary {
   cachedTokens: number
   cacheWriteTokens?: number
   totalCostUsd: number
+  costProvenance: CostProvenance
   byChannel: ChannelRollup[]
   unpricedModels: string[]
   fullyPriced: boolean
@@ -531,6 +542,12 @@ export class CostLedger {
       cachedTokens,
       cacheWriteTokens,
       totalCostUsd,
+      costProvenance:
+        pending.length > 0 || receipts.some((receipt) => receipt.costUnknown)
+          ? { kind: 'uncaptured', usd: null }
+          : receipts.every((receipt) => receipt.actualCostUsd !== undefined)
+            ? { kind: 'observed', usd: totalCostUsd }
+            : { kind: 'estimated', usd: totalCostUsd },
       byChannel: [...byChannel.values()].sort((a, b) => a.channel.localeCompare(b.channel)),
       unpricedModels: [...unpriced].sort(),
       fullyPriced: unpriced.size === 0,
@@ -881,9 +898,14 @@ function buildReceipt(
 ): CostReceipt {
   assertUsage(observed)
   assertString(observed.model, 'receipt.model')
-  if (observed.actualCostUsd !== undefined && observed.customTokenPricing !== undefined) {
+  const suppliedAmounts = [
+    observed.actualCostUsd,
+    observed.estimatedCostUsd,
+    observed.customTokenPricing,
+  ].filter((value) => value !== undefined)
+  if (suppliedAmounts.length > 1) {
     throw new ValidationError(
-      'CostLedger: a receipt cannot have both actualCostUsd and customTokenPricing',
+      'CostLedger: a receipt can have only one of actualCostUsd, estimatedCostUsd, or customTokenPricing',
     )
   }
   const customPricingSnapshot =
@@ -897,21 +919,29 @@ function buildReceipt(
       }
     : costForUsage(observed.model, observed)
   const hasActual = observed.actualCostUsd !== undefined
+  const hasExternalEstimate = observed.estimatedCostUsd !== undefined
   if (hasActual && observed.costUnknown === true) {
     throw new ValidationError(
       'CostLedger: a receipt cannot have both actualCostUsd and costUnknown=true',
     )
   }
   if (hasActual) assertNonNegative(observed.actualCostUsd!, 'actualCostUsd')
+  if (hasExternalEstimate) assertNonNegative(observed.estimatedCostUsd!, 'estimatedCostUsd')
+  if (hasExternalEstimate && observed.costUnknown === true) {
+    throw new ValidationError(
+      'CostLedger: a receipt cannot have both estimatedCostUsd and costUnknown=true',
+    )
+  }
   const usageUnknown = observed.usageUnknown === true
   const costUnknown =
-    observed.costUnknown === true || (!hasActual && (usageUnknown || estimated.costUnknown))
+    observed.costUnknown === true ||
+    (!hasActual && !hasExternalEstimate && (usageUnknown || estimated.costUnknown))
   const resolvedModelPricing =
-    !customPricingSnapshot && !hasActual && !costUnknown
+    !customPricingSnapshot && !hasActual && !hasExternalEstimate && !costUnknown
       ? resolveModelPricing(observed.model)
       : null
   const receiptPricing =
-    !hasActual && !costUnknown
+    !hasActual && !hasExternalEstimate && !costUnknown
       ? (customPricingSnapshot ??
         (resolvedModelPricing
           ? {
@@ -937,11 +967,18 @@ function buildReceipt(
       ...(observed.cacheWriteTokens === undefined
         ? {}
         : { cacheWriteTokens: observed.cacheWriteTokens }),
-      costUsd: costUnknown ? 0 : hasActual ? observed.actualCostUsd! : estimated.costUsd,
+      costUsd: costUnknown
+        ? 0
+        : hasActual
+          ? observed.actualCostUsd!
+          : hasExternalEstimate
+            ? observed.estimatedCostUsd!
+            : estimated.costUsd,
       costUnknown,
       usageUnknown,
       ...(receiptPricing ? { pricing: receiptPricing } : {}),
       ...(hasActual ? { actualCostUsd: observed.actualCostUsd } : {}),
+      ...(hasExternalEstimate ? { estimatedCostUsd: observed.estimatedCostUsd } : {}),
       ...(pending.maximumCostUsd === undefined ? {} : { maximumCostUsd: pending.maximumCostUsd }),
       ...(error ? { error } : {}),
       ...(pending.tags ? { tags: { ...pending.tags } } : {}),
@@ -986,6 +1023,7 @@ const CostReceiptBaseShape = {
   usageUnknown: z.boolean().default(false),
   pricing: CostPricingSchema.optional(),
   actualCostUsd: NonNegative.optional(),
+  estimatedCostUsd: NonNegative.optional(),
   error: z.string().optional(),
 }
 const CostReceiptSchema = z
@@ -1003,11 +1041,19 @@ function validateCostReceipt(
     usageUnknown: boolean
     pricing?: NonNullable<CostReceipt['pricing']>
     actualCostUsd?: number
+    estimatedCostUsd?: number
   },
   ctx: z.RefinementCtx,
 ): void {
   if (receipt.reasoningTokens !== undefined && receipt.reasoningTokens > receipt.outputTokens) {
     ctx.addIssue({ code: 'custom', message: 'reasoningTokens must not exceed outputTokens' })
+  }
+
+  if (receipt.actualCostUsd !== undefined && receipt.estimatedCostUsd !== undefined) {
+    ctx.addIssue({
+      code: 'custom',
+      message: 'actual and external estimated costs cannot both be present',
+    })
   }
 
   if (receipt.actualCostUsd !== undefined) {
@@ -1016,6 +1062,16 @@ function validateCostReceipt(
     }
     if (receipt.pricing !== undefined) {
       ctx.addIssue({ code: 'custom', message: 'actual cost must not include estimated pricing' })
+    }
+    return
+  }
+
+  if (receipt.estimatedCostUsd !== undefined) {
+    if (receipt.costUnknown || receipt.costUsd !== receipt.estimatedCostUsd) {
+      ctx.addIssue({ code: 'custom', message: 'external estimate must be known and equal costUsd' })
+    }
+    if (receipt.pricing !== undefined) {
+      ctx.addIssue({ code: 'custom', message: 'external estimate must not include token pricing' })
     }
     return
   }
@@ -1148,6 +1204,7 @@ function parseImportedReceipt(value: unknown, path: string): CostReceipt {
   if (
     candidate.status === 'settled' &&
     candidate.actualCostUsd === undefined &&
+    candidate.estimatedCostUsd === undefined &&
     candidate.costUnknown === false &&
     candidate.pricing === undefined &&
     typeof candidate.model === 'string'

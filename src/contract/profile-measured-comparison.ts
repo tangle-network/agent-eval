@@ -1,4 +1,6 @@
 import {
+  type AgentCandidateFixedSpend,
+  type AgentImprovementCost,
   type AgentProfileImprovementExperiment,
   type AgentProfileImprovementExperimentMaterial,
   type AgentProfileImprovementMeasuredComparison,
@@ -19,8 +21,9 @@ import {
   canonicalCandidateJson,
   type Sha256Digest,
 } from '@tangle-network/agent-interface'
-import { mapPairedConcurrent } from './concurrent-map'
+import type { CostLedgerHandle, CostReceiptInput } from '../cost-ledger'
 import { evaluatePairedMeasurements, type PairedMeasurementAdapter } from './measured-comparison'
+import { runPaidPairedMeasurement } from './paid-paired-measurement'
 
 export interface SealAgentProfileImprovementSuiteOptions {
   splitDigest: Sha256Digest
@@ -46,17 +49,30 @@ export interface RunAgentProfileImprovementExperimentOptions {
   ): Promise<AgentProfileImprovementRunReceipt>
   /** Maximum number of simultaneous execute calls across both arms. */
   maxConcurrency?: number
+  /** Shared run budget that also accounts for analysis and candidate search. */
+  costLedger?: CostLedgerHandle
   signal?: AbortSignal
+}
+
+export interface AgentProfileImprovementExperimentRun {
+  measurements: AgentProfileImprovementMeasurement[]
+  measurement: {
+    wallDurationMs: number
+    cost: AgentImprovementCost
+  }
 }
 
 export interface CompareAgentProfileImprovementExperimentOptions {
   experiment: AgentProfileImprovementExperiment
   measurements: AgentProfileImprovementMeasurement[]
+  preparation: {
+    wallDurationMs: number
+    cost: AgentImprovementCost
+  }
+  measurement: AgentProfileImprovementExperimentRun['measurement']
   runId: string
   candidate?: AgentProfileImprovementMeasuredComparison['candidate']
   generationsExplored?: number
-  searchDurationMs?: number
-  searchCostUsd?: number
   metadata?: AgentProfileImprovementMeasuredComparison['metadata']
 }
 
@@ -126,22 +142,45 @@ export function verifyAgentProfileImprovementExperiment(
  */
 export async function runAgentProfileImprovementExperiment(
   options: RunAgentProfileImprovementExperimentOptions,
-): Promise<AgentProfileImprovementMeasurement[]> {
+): Promise<AgentProfileImprovementExperimentRun> {
   const experiment = verifyAgentProfileImprovementExperiment(options.experiment)
   const expectedCount =
     experiment.benchmark.suite.taskDigests.length * experiment.benchmark.suite.reps
-  const measurements = await mapPairedConcurrent({
+  const run = await runPaidPairedMeasurement({
     count: expectedCount,
     maxConcurrency: options.maxConcurrency ?? 2,
     label: 'profile improvement experiment',
+    budgetUsd: experiment.policy.budgetUsd,
+    ...(options.costLedger ? { costLedger: options.costLedger } : {}),
+    maximumCostUsd: profileMeasurementMaximumCostUsd(experiment),
+    call: {
+      callId: `profile-improvement-measurement:${experiment.digest}`,
+      channel: 'measurement',
+      phase: 'heldout',
+      actor: experiment.executionRef.identity,
+      model: profileMeasurementModel(experiment),
+      tags: { experimentDigest: experiment.digest, executorDigest: experiment.executionRef.digest },
+    },
     ...(options.signal ? { signal: options.signal } : {}),
-    map(index, arm, signal) {
-      return options.execute(profileExecutionInput(experiment, arm, index, signal))
+    async execute(index, arm, signal) {
+      const expected = profileExecutionInput(experiment, arm, index, signal)
+      const receipt = agentProfileImprovementRunReceiptSchema.parse(await options.execute(expected))
+      verifyProfileReceiptContract(receipt, expected, index)
+      return receipt
+    },
+    receipt(measurements) {
+      return profileMeasurementCostReceipt(measurements, profileMeasurementModel(experiment))
     },
   })
-  return measurements.map((measurement, index) =>
-    verifyProfileMeasurement(experiment, measurement, index),
-  )
+  return {
+    measurements: run.measurements.map((measurement, index) =>
+      verifyProfileMeasurement(experiment, measurement, index),
+    ),
+    measurement: {
+      wallDurationMs: run.wallDurationMs,
+      cost: { usd: run.cost.usd, provenance: run.cost.kind },
+    },
+  }
 }
 
 /** Build the only publishable profile comparison from complete host receipts. */
@@ -163,8 +202,6 @@ export function measuredComparisonFromAgentProfileImprovementExperiment(
     throw new Error('profile improvement experiment runId is required')
   }
 
-  const searchCostUsd = nonNegative(options.searchCostUsd ?? 0, 'searchCostUsd')
-  const searchDurationMs = nonNegative(options.searchDurationMs ?? 0, 'searchDurationMs')
   const evaluation = evaluatePairedMeasurements({
     measurements: measurements.map((measurement, index) => ({
       cellId: profileCellId(experiment, index),
@@ -173,7 +210,8 @@ export function measuredComparisonFromAgentProfileImprovementExperiment(
     policy: experiment.policy,
     adapter: profileReceiptAdapter,
     sharedScorerChannel: true,
-    additionalCostUsd: searchCostUsd,
+    preparationCost: options.preparation.cost,
+    measurementCost: options.measurement.cost,
   })
   const provisional = agentProfileImprovementMeasuredComparisonSchema.parse({
     kind: 'agent-profile-improvement-measured-comparison',
@@ -195,12 +233,16 @@ export function measuredComparisonFromAgentProfileImprovementExperiment(
     diff: canonicalCandidateJson(experiment.change),
     evaluation: {
       generationsExplored: options.generationsExplored ?? 0,
-      searchDurationMs,
-      executionDurationMs: evaluation.executionDurationMs,
-      durationMs: evaluation.executionDurationMs + searchDurationMs,
-      searchCostUsd,
-      executionCostUsd: evaluation.executionCostUsd,
-      totalCostUsd: evaluation.totalCostUsd,
+      preparation: options.preparation,
+      measurement: {
+        wallDurationMs: options.measurement.wallDurationMs,
+        workDurationMs: evaluation.measurementWorkDurationMs,
+        cost: evaluation.measurementCost,
+      },
+      total: {
+        wallDurationMs: options.preparation.wallDurationMs + options.measurement.wallDurationMs,
+        cost: evaluation.totalCost,
+      },
     },
     ...(options.metadata ? { metadata: options.metadata } : {}),
   })
@@ -225,14 +267,94 @@ export function verifyAgentProfileImprovementExperimentComparison(
     runId: comparison.provenance.runId,
     ...(comparison.candidate ? { candidate: comparison.candidate } : {}),
     generationsExplored: comparison.evaluation.generationsExplored,
-    searchDurationMs: comparison.evaluation.searchDurationMs,
-    searchCostUsd: comparison.evaluation.searchCostUsd,
+    preparation: comparison.evaluation.preparation,
+    measurement: {
+      wallDurationMs: comparison.evaluation.measurement.wallDurationMs,
+      cost: comparison.evaluation.measurement.cost,
+    },
     ...(comparison.metadata ? { metadata: comparison.metadata } : {}),
   })
   if (canonicalCandidateDigest(recomputed) !== canonicalCandidateDigest(comparison)) {
     throw new Error('profile improvement comparison does not match its Runtime receipts')
   }
   return comparison
+}
+
+function profileMeasurementMaximumCostUsd(experiment: AgentProfileImprovementExperiment): number {
+  const pairs = experiment.benchmark.suite.reps
+  const maximum = experiment.benchmark.tasks.reduce(
+    (sum, task) => sum + task.limits.maxCostUsd * pairs * 2,
+    0,
+  )
+  if (!Number.isFinite(maximum) || maximum < 0) {
+    throw new Error('profile improvement measurement maximum cost is invalid')
+  }
+  return maximum
+}
+
+function profileMeasurementModel(experiment: AgentProfileImprovementExperiment): string {
+  const models = [...new Set(experiment.benchmark.tasks.map((task) => task.model.model))]
+  return models.length === 1 ? models[0]! : 'multiple-models'
+}
+
+function profileMeasurementCostReceipt(
+  measurements: Array<{
+    baseline: AgentProfileImprovementRunReceipt
+    candidate: AgentProfileImprovementRunReceipt
+  }>,
+  model: string,
+): CostReceiptInput {
+  const usage = measurements.reduce<AgentCandidateFixedSpend>(
+    (sum, measurement) =>
+      addFixedSpend(
+        addFixedSpend(sum, combinedProfileUsage(measurement.baseline)),
+        combinedProfileUsage(measurement.candidate),
+      ),
+    {
+      inputTokens: 0,
+      outputTokens: 0,
+      cachedInputTokens: 0,
+      reasoningTokens: 0,
+      modelCalls: 0,
+      costUsdNanos: 0,
+      costProvenance: 'observed',
+    },
+  )
+  const costUsd = usage.costUsdNanos / 1_000_000_000
+  return {
+    model,
+    inputTokens: usage.inputTokens,
+    outputTokens: usage.outputTokens,
+    cachedTokens: usage.cachedInputTokens,
+    reasoningTokens: usage.reasoningTokens,
+    ...(usage.costProvenance === 'observed'
+      ? { actualCostUsd: costUsd }
+      : { estimatedCostUsd: costUsd }),
+  }
+}
+
+function combinedProfileUsage(
+  receipt: AgentProfileImprovementRunReceipt,
+): AgentCandidateFixedSpend {
+  return addFixedSpend(receipt.usage, receipt.grading.usage)
+}
+
+function addFixedSpend(
+  left: AgentCandidateFixedSpend,
+  right: AgentCandidateFixedSpend,
+): AgentCandidateFixedSpend {
+  return {
+    inputTokens: left.inputTokens + right.inputTokens,
+    outputTokens: left.outputTokens + right.outputTokens,
+    cachedInputTokens: left.cachedInputTokens + right.cachedInputTokens,
+    reasoningTokens: left.reasoningTokens + right.reasoningTokens,
+    modelCalls: left.modelCalls + right.modelCalls,
+    costUsdNanos: left.costUsdNanos + right.costUsdNanos,
+    costProvenance:
+      left.costProvenance === 'observed' && right.costProvenance === 'observed'
+        ? 'observed'
+        : 'estimated',
+  }
 }
 
 function profileExecutionInput(
@@ -289,15 +411,15 @@ function verifyProfileMeasurement(
   ) {
     throw new Error(`profile improvement measurement ${index} substituted a measured arm`)
   }
-  verifyProfileReceiptTaskContract(baseline, expectedBaseline, index)
-  verifyProfileReceiptTaskContract(candidate, expectedCandidate, index)
+  verifyProfileReceiptContract(baseline, expectedBaseline, index)
+  verifyProfileReceiptContract(candidate, expectedCandidate, index)
   if (baseline.executionId === candidate.executionId || baseline.digest === candidate.digest) {
     throw new Error(`profile improvement measurement ${index} reused one execution across arms`)
   }
   return { baseline, candidate }
 }
 
-function verifyProfileReceiptTaskContract(
+function verifyProfileReceiptContract(
   receipt: AgentProfileImprovementRunReceipt,
   expected: AgentProfileImprovementExperimentExecutionInput,
   index: number,
@@ -310,6 +432,14 @@ function verifyProfileReceiptTaskContract(
   ) {
     throw new Error(
       `profile improvement measurement ${index} substituted its ${expected.arm} task contract`,
+    )
+  }
+  if (
+    canonicalCandidateDigest(receipt.executionRef) !==
+    canonicalCandidateDigest(expected.experiment.executionRef)
+  ) {
+    throw new Error(
+      `profile improvement measurement ${index} substituted its ${expected.arm} executor`,
     )
   }
 }
@@ -343,14 +473,12 @@ const profileReceiptAdapter: PairedMeasurementAdapter<AgentProfileImprovementRun
   dimensions: (receipt) => receipt.grading.dimensions,
   costUsd: (receipt) =>
     (receipt.usage.costUsdNanos + receipt.grading.usage.costUsdNanos) / 1_000_000_000,
+  costProvenance: (receipt) =>
+    receipt.usage.costProvenance === 'observed' &&
+    receipt.grading.usage.costProvenance === 'observed'
+      ? 'observed'
+      : 'estimated',
   latencyMs: (receipt) => receipt.timing.durationMs + receipt.grading.timing.durationMs,
   completed: (receipt) => receipt.outcome.status === 'succeeded',
   passed: (receipt) => receipt.grading.passed,
-}
-
-function nonNegative(value: number, label: string): number {
-  if (!Number.isFinite(value) || value < 0) {
-    throw new Error(`${label} must be a non-negative number`)
-  }
-  return value
 }

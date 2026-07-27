@@ -13,12 +13,7 @@ export function usageReceiptFromCostLedger(
   const receipts = ledger.list(resolvedFilter)
   const hasReasoningUsage = receipts.some((receipt) => receipt.reasoningTokens !== undefined)
   const hasCacheWriteUsage = receipts.some((receipt) => receipt.cacheWriteTokens !== undefined)
-  const costUncaptured = summary.pendingCalls > 0 || receipts.some((receipt) => receipt.costUnknown)
-  const cost = costUncaptured
-    ? { kind: 'uncaptured' as const, usd: null }
-    : receipts.every((receipt) => receipt.actualCostUsd !== undefined)
-      ? { kind: 'observed' as const, usd: summary.totalCostUsd }
-      : { kind: 'estimated' as const, usd: summary.totalCostUsd }
+  const cost = summary.costProvenance
   return {
     calls: summary.totalCalls + summary.pendingCalls,
     tokens: summary.usageComplete
