@@ -150,8 +150,8 @@
     "access": "public"
   },
   "scripts": {
-    "build": "tsup && node scripts/build-declarations.mjs && pnpm openapi",
-    "dev": "tsup --watch",
+    "build": "tsdown && pnpm openapi",
+    "dev": "tsdown --watch",
     "prepare": "husky",
     "prepublishOnly": "pnpm build",
     "test": "vitest run",
@@ -162,18 +162,19 @@
     "format": "biome format --write src",
     "check:skill": "node scripts/check-skill.mjs",
     "openapi": "node dist/cli.js openapi --out dist/openapi.json",
-    "verify:package": "pnpm run check:skill && node scripts/verify-package-exports.mjs"
+    "verify:package": "pnpm run check:skill && publint && attw --pack --profile esm-only . && node scripts/verify-package-exports.mjs"
   },
   "dependencies": {
     "@asteasolutions/zod-to-openapi": "^9.1.0",
     "@ax-llm/ax": "^23.0.5",
-    "@hono/node-server": "^2.0.11",
-    "@tangle-network/agent-core": "0.4.22",
-    "@tangle-network/agent-interface": "0.34.0",
+    "@hono/node-server": "^2.0.12",
+    "@tangle-network/agent-core": "0.4.24",
+    "@tangle-network/agent-interface": "0.35.0",
     "hono": "^4.12.32",
     "zod": "^4.4.3"
   },
   "devDependencies": {
+    "@arethetypeswrong/cli": "^0.18.5",
     "@biomejs/biome": "^2.5.5",
     "@types/node": "^26.1.1",
     "esbuild": "^0.28.1",
@@ -181,8 +182,10 @@
     "husky": "^9.1.7",
     "lint-staged": "^17.2.0",
     "openapi3-ts": "^4.6.0",
-    "tsup": "^8.0.0",
-    "typescript": "^6.0.3",
+    "oxc-parser": "^0.141.0",
+    "publint": "^0.3.22",
+    "tsdown": "^0.22.14",
+    "typescript": "^7.0.2",
     "vitest": "^4.1.10",
     "yaml": "2.9.0"
   },
