@@ -504,7 +504,7 @@ export function measuredComparisonFromCandidateExperiment(
   verifyStableProfileMaterialization(measurements)
   if (!options.runId.trim()) throw new Error('candidate experiment runId is required')
   assertPhaseAccounting(options.preparation, 'candidate preparation')
-  assertMeasurementAccounting(options.measurement, 'candidate measurement')
+  assertPhaseAccounting(options.measurement, 'candidate measurement')
   const evaluation = evaluatePairedMeasurements({
     measurements: measurements.map((measurement, index) => ({
       cellId: cellIds(experiment)[index]!,
@@ -638,16 +638,6 @@ function candidateMeasurementCostReceipt(
 
 function assertPhaseAccounting(
   accounting: CompareCandidateExperimentOptions['preparation'],
-  label: string,
-): void {
-  if (!Number.isFinite(accounting.wallDurationMs) || accounting.wallDurationMs < 0) {
-    throw new Error(`${label} wall duration must be a non-negative number`)
-  }
-  assertKnownCost(accounting.cost, `${label} cost`)
-}
-
-function assertMeasurementAccounting(
-  accounting: CompareCandidateExperimentOptions['measurement'],
   label: string,
 ): void {
   if (!Number.isFinite(accounting.wallDurationMs) || accounting.wallDurationMs < 0) {

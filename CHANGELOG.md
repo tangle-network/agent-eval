@@ -4,6 +4,13 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ---
 
+## [0.132.0] - 2026-07-27 - sealed profile improvement execution
+
+### Added
+
+- Paired profile-improvement measurements now reserve their complete signed spend before dispatch, retain observed versus estimated cost provenance, and record separate preparation, measurement, and total accounting.
+- Profile-improvement experiments and receipts bind the runner that performed the measurement, so a later activation can require the same runner evidence.
+
 ## [0.131.1] - 2026-07-27 - worker-safe profile cells
 
 ### Added
