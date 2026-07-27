@@ -27,6 +27,7 @@ import {
 import { heldoutSignificance } from '../campaign/gates/statistical-heldout'
 import type { CostLedgerHandle, CostReceiptInput } from '../cost-ledger'
 import { pairedBootstrap } from '../statistics'
+import { addFixedSpend } from './fixed-spend'
 import { runPaidPairedMeasurement } from './paid-paired-measurement'
 
 export interface SealCandidateBenchmarkSuiteOptions {
@@ -632,24 +633,6 @@ function candidateMeasurementCostReceipt(
     ...(usage.costProvenance === 'observed'
       ? { actualCostUsd: costUsd }
       : { estimatedCostUsd: costUsd }),
-  }
-}
-
-function addFixedSpend(
-  left: AgentCandidateFixedSpend,
-  right: AgentCandidateFixedSpend,
-): AgentCandidateFixedSpend {
-  return {
-    inputTokens: left.inputTokens + right.inputTokens,
-    outputTokens: left.outputTokens + right.outputTokens,
-    cachedInputTokens: left.cachedInputTokens + right.cachedInputTokens,
-    reasoningTokens: left.reasoningTokens + right.reasoningTokens,
-    modelCalls: left.modelCalls + right.modelCalls,
-    costUsdNanos: left.costUsdNanos + right.costUsdNanos,
-    costProvenance:
-      left.costProvenance === 'observed' && right.costProvenance === 'observed'
-        ? 'observed'
-        : 'estimated',
   }
 }
 

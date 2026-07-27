@@ -22,6 +22,7 @@ import {
   type Sha256Digest,
 } from '@tangle-network/agent-interface'
 import type { CostLedgerHandle, CostReceiptInput } from '../cost-ledger'
+import { addFixedSpend } from './fixed-spend'
 import { evaluatePairedMeasurements, type PairedMeasurementAdapter } from './measured-comparison'
 import { runPaidPairedMeasurement } from './paid-paired-measurement'
 
@@ -337,24 +338,6 @@ function combinedProfileUsage(
   receipt: AgentProfileImprovementRunReceipt,
 ): AgentCandidateFixedSpend {
   return addFixedSpend(receipt.usage, receipt.grading.usage)
-}
-
-function addFixedSpend(
-  left: AgentCandidateFixedSpend,
-  right: AgentCandidateFixedSpend,
-): AgentCandidateFixedSpend {
-  return {
-    inputTokens: left.inputTokens + right.inputTokens,
-    outputTokens: left.outputTokens + right.outputTokens,
-    cachedInputTokens: left.cachedInputTokens + right.cachedInputTokens,
-    reasoningTokens: left.reasoningTokens + right.reasoningTokens,
-    modelCalls: left.modelCalls + right.modelCalls,
-    costUsdNanos: left.costUsdNanos + right.costUsdNanos,
-    costProvenance:
-      left.costProvenance === 'observed' && right.costProvenance === 'observed'
-        ? 'observed'
-        : 'estimated',
-  }
 }
 
 function profileExecutionInput(
