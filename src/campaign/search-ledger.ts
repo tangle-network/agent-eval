@@ -833,6 +833,7 @@ function searchLedgerCodec(
   }
 }
 
+/** Append-only file-backed search ledger with idempotent writes and replay. */
 export class FileSearchLedger implements SearchLedger {
   readonly path: string
   readonly campaignId: string

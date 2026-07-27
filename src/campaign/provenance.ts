@@ -601,6 +601,7 @@ export function verifyLoopProvenanceRecord(record: LoopProvenanceRecord): LoopPr
   return record
 }
 
+/** Return the canonical SHA-256 digest of a JSON-serializable value. */
 export function canonicalDigest(value: unknown): `sha256:${string}` {
   const json = JSON.stringify(value, function strictJson(_key, item: unknown) {
     if (typeof item === 'number' && !Number.isFinite(item)) {
