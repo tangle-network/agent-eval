@@ -6,6 +6,7 @@
 
 import { openAutoPr } from '../auto-pr'
 import { campaignCoverage, formatCoverageFailures } from '../coverage'
+import { runCampaign } from '../run-campaign'
 import { resolveRunDir } from '../run-dir'
 import { createRunCostLedger, fsCampaignStorage } from '../storage'
 import { renderSurfaceDiff, surfaceHash } from '../surface-identity'
@@ -145,7 +146,6 @@ export async function runImprovementLoop<TScenario extends Scenario, TArtifact>(
   const winnerIsBaseline = optimization.winnerSurfaceHash === surfaceHash(opts.baselineSurface)
 
   // ── (2) baseline + winner re-scored on the holdout set ─────────────
-  const { runCampaign } = await import('../run-campaign')
   const holdoutDeferred = (opts.holdout ?? 'measured') === 'deferred'
 
   // Deferred holdout: the held-out comparison happens in a separate later run,

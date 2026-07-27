@@ -4,6 +4,20 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ---
 
+## [0.130.0] - 2026-07-26 - current dependency and build cohort
+
+### Changed
+
+- Updated Agent Core to `0.4.24` and Agent Interface to `0.35.0`.
+- Updated TypeScript to `7.0.2` and replaced the unsupported declaration build with `tsdown`.
+- Replaced the TypeScript compiler import in the score derivation source check with `oxc-parser`.
+- Updated GitHub Actions to their current stable major releases.
+
+### Fixed
+
+- Release checks now validate package metadata and every ESM and bundler type entrypoint before publish.
+- Removed two obsolete declaration build scripts and stale release instructions.
+
 ## [0.129.0] - 2026-07-25 - provider-neutral chat and canonical rollout training
 
 ### Changed
