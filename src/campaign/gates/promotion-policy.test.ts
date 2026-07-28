@@ -271,3 +271,75 @@ describe('buildEvidenceVector + PromotionPolicy — one bus, plural competing st
     }
   })
 })
+
+describe('buildEvidenceVector — binary (0/1) axes', () => {
+  /** `wins` candidate-only successes, `losses` baseline-only, `ties` both-pass. */
+  const binaryCtx = (wins: number, losses: number, ties: number): CellSpec[] => {
+    const cells: CellSpec[] = []
+    let i = 0
+    const put = (b: number, c: number) => {
+      cells.push({
+        scenarioId: `bin${i++}`,
+        reps: 1,
+        candidate: { composite: c },
+        baseline: { composite: b },
+      })
+    }
+    for (let k = 0; k < wins; k++) put(0, 1)
+    for (let k = 0; k < losses; k++) put(1, 0)
+    for (let k = 0; k < ties; k++) put(1, 1)
+    return cells
+  }
+  const objective: PromotionObjective[] = [
+    { name: 'pass', source: { kind: 'composite' }, direction: 'maximize' },
+  ]
+
+  it('sees a real +13.2pp gain the median CI reports as flat', () => {
+    const ev = buildEvidenceVector(ctxFrom(binaryCtx(15, 5, 56)), objective)
+    const axis = ev.axes[0]!
+    expect(axis.n).toBe(76)
+    expect(axis.bootstrapStatistic).toBe('mean')
+    // The literal median of the paired delta vector is 0 — that is why a
+    // median-CI axis was blind here.
+    expect(axis.bootstrap.median).toBe(0)
+    expect(axis.bootstrap.mean).toBeCloseTo(10 / 76, 6)
+    expect(axis.bootstrap.low).toBeGreaterThan(0)
+    expect(axis.verdict).toBe('improved')
+  })
+
+  it('sees a real -13.2pp regression the median CI reports as flat', () => {
+    const ev = buildEvidenceVector(ctxFrom(binaryCtx(5, 15, 56)), objective)
+    const axis = ev.axes[0]!
+    expect(axis.bootstrap.median).toBe(0)
+    expect(axis.bootstrap.low).toBeLessThan(-axis.floorTolerance)
+    expect(axis.verdict).toBe('regressed')
+  })
+
+  it('never calls binary noise an improvement', () => {
+    const noise = ctxFrom(binaryCtx(8, 8, 60)) // 8 wins, 8 losses ⇒ zero net shift
+    const axis = buildEvidenceVector(noise, objective).axes[0]!
+    expect(axis.bootstrap.mean).toBeCloseTo(0, 12)
+    expect(axis.verdict).not.toBe('improved')
+    // With the default 0.05 floor the axis reads `regressed`, not `flat`: at
+    // n=76 with 16 discordant pairs the CI is ±0.10, so the evidence cannot
+    // rule out a >5pp regression, and the floor rule is deliberately
+    // conservative ("block if the credible worst case exceeds tolerance").
+    // Widen the floor past the CI half-width and it reads flat.
+    const wide = buildEvidenceVector(noise, [{ ...objective[0]!, floorTolerance: 0.15 }])
+    expect(wide.axes[0]!.verdict).toBe('flat')
+  })
+
+  it('leaves continuous axes on the median statistic', () => {
+    const continuous = ctxFrom(
+      cells(
+        () => ({ composite: 0.8, dimensions: { speed: 0.5 } }),
+        () => ({ composite: 0.5, dimensions: { speed: 0.5 } }),
+      ),
+    )
+    const ev = buildEvidenceVector(continuous, [
+      QUALITY,
+      { name: 'speed', source: { kind: 'dimension', dimension: 'speed' }, direction: 'maximize' },
+    ])
+    for (const axis of ev.axes) expect(axis.bootstrapStatistic).toBe('median')
+  })
+})

@@ -517,3 +517,107 @@ describe('HeldOutGate — cost ceiling', () => {
     ).toThrow(/costPerTaskCeiling/)
   })
 })
+
+/**
+ * Binary (0/1) per-item outcomes — the regime a pass/fail eval produces.
+ *
+ * The paired delta vector then lives in {-1, 0, +1} and is dominated by zeros
+ * (both arms solve or both arms miss most items). Its MEDIAN is pinned at
+ * exactly 0 in essentially every bootstrap resample, so a gate that decides on
+ * the median CI can neither see a real gain nor a real regression.
+ *
+ * Shape used below is the one measured in supervisor-lab: 76 held-out items,
+ * 15 candidate wins, 5 candidate losses, 56 ties ⇒ a real +13.2pp lift
+ * (mean paired Δ = 10/76 = 0.1316) whose median paired Δ is 0.
+ */
+function binaryPairs(
+  wins: number,
+  losses: number,
+  ties: number,
+): { candidate: RunRecord[]; baseline: RunRecord[] } {
+  const pairs: ReturnType<typeof makePair>[] = []
+  let seed = 0
+  for (let i = 0; i < wins; i++, seed++) pairs.push(makePair('cand', seed, 1, 1, 0, 0))
+  for (let i = 0; i < losses; i++, seed++) pairs.push(makePair('cand', seed, 0, 0, 1, 1))
+  for (let i = 0; i < ties; i++, seed++) pairs.push(makePair('cand', seed, 1, 1, 1, 1))
+  return joinPairs(...pairs)
+}
+
+describe('HeldOutGate — binary (pass/fail) held-out outcomes', () => {
+  it('PROMOTES a real +13.2pp binary lift that the median paired delta cannot see', () => {
+    const g = new HeldOutGate({ baselineKey: 'baseline', seed: 1337 })
+    const pairs = binaryPairs(15, 5, 56)
+    const d = g.evaluate(pairs.candidate, pairs.baseline)
+
+    expect(d.promote).toBe(true)
+    expect(d.rejectionCode).toBeNull()
+    expect(d.evidence.productiveRuns).toBe(76)
+    // The median IS 0 — that is the whole point; it is reported as a diagnostic
+    // and must NOT be the statistic the promotion decision keys on.
+    expect(d.evidence.medianPairedDelta).toBe(0)
+    // 15 wins vs 5 losses out of 76 paired items = +0.1316 success-rate lift.
+    expect(d.evidence.decidingDelta).toBeCloseTo(10 / 76, 6)
+    expect(d.evidence.deltaStatistic).toBe('paired_risk_difference')
+    expect(d.evidence.pairedCI!.low).toBeGreaterThan(0)
+    expect(d.evidence.mcnemar).toMatchObject({ b: 15, c: 5, nDiscordant: 20 })
+    expect(d.evidence.mcnemar!.pValue).toBeLessThan(0.05)
+  })
+
+  it('still REFUSES a binary regression, including at a negative threshold', () => {
+    // The block-aggregation workaround callers reach for is `pairedDeltaThreshold < 0`.
+    // Pre-fix that made the gate fail OPEN: a median CI pinned at [0,0] clears any
+    // negative threshold, so a −13.2pp regression PROMOTED.
+    const pairs = binaryPairs(5, 15, 56)
+    const decisions = [0, -0.05, -0.1].map((pairedDeltaThreshold) =>
+      new HeldOutGate({ baselineKey: 'baseline', seed: 1337, pairedDeltaThreshold }).evaluate(
+        pairs.candidate,
+        pairs.baseline,
+      ),
+    )
+    expect(decisions.map((d) => d.promote)).toEqual([false, false, false])
+    expect(decisions.map((d) => d.rejectionCode)).toEqual([
+      'negative_delta',
+      'negative_delta',
+      'negative_delta',
+    ])
+    for (const d of decisions) expect(d.evidence.decidingDelta).toBeCloseTo(-10 / 76, 6)
+  })
+
+  it('REFUSES binary noise (equal wins and losses)', () => {
+    const g = new HeldOutGate({ baselineKey: 'baseline', seed: 1337 })
+    const pairs = binaryPairs(8, 8, 60)
+    const d = g.evaluate(pairs.candidate, pairs.baseline)
+    expect(d.promote).toBe(false)
+    expect(d.rejectionCode).toBe('negative_delta')
+    expect(d.evidence.decidingDelta).toBeCloseTo(0, 12)
+  })
+
+  it('keeps CONTINUOUS outcomes on the median bootstrap, byte-identical', () => {
+    const g = new HeldOutGate({
+      baselineKey: 'baseline',
+      minProductiveRuns: 3,
+      pairedDeltaThreshold: 0,
+      overfitGapThreshold: 0.5,
+      seed: 1,
+    })
+    const pairs = joinPairs(
+      makePair('cand', 0, 0.7, 0.7, 0.5, 0.5),
+      makePair('cand', 1, 0.72, 0.72, 0.5, 0.51),
+      makePair('cand', 2, 0.74, 0.74, 0.51, 0.5),
+      makePair('cand', 3, 0.71, 0.71, 0.5, 0.5),
+      makePair('cand', 4, 0.73, 0.73, 0.51, 0.5),
+      makePair('cand', 5, 0.75, 0.75, 0.5, 0.51),
+      makePair('cand', 6, 0.76, 0.76, 0.51, 0.5),
+      makePair('cand', 7, 0.74, 0.74, 0.5, 0.51),
+    )
+    const d = g.evaluate(pairs.candidate, pairs.baseline)
+    expect(d.evidence.deltaStatistic).toBe('median_bootstrap')
+    expect(d.evidence.mcnemar).toBeNull()
+    // Exact numbers pinned from the pre-fix gate so a future change to the
+    // continuous path cannot pass silently.
+    expect(d.evidence.medianPairedDelta).toBe(0.22999999999999998)
+    expect(d.evidence.decidingDelta).toBe(0.22999999999999998)
+    expect(d.evidence.pairedCI).toEqual({ low: 0.20999999999999996, high: 0.24 })
+    expect(d.promote).toBe(true)
+  })
+})

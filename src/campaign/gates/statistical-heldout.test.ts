@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { JudgeScore } from '../types'
-import { heldoutSignificance, pairHoldout } from './statistical-heldout'
+import { dimensionRegressions, heldoutSignificance, pairHoldout } from './statistical-heldout'
 
 /**
  * The promotion gate's decision core: pair candidate-vs-baseline holdout cells,
@@ -105,5 +105,55 @@ describe('pairHoldout + heldoutSignificance — promotion gate decision core', (
         ),
       )
     expect(mk()).toEqual(mk())
+  })
+})
+
+describe('dimensionRegressions — binary (0/1) safety dimensions', () => {
+  /** Cells scoring one dimension 0/1: `wins` candidate-only, `losses` baseline-only. */
+  const binaryDim = (dim: string, wins: number, losses: number, ties: number) => {
+    const cand = new Map<string, Record<string, JudgeScore>>()
+    const base = new Map<string, Record<string, JudgeScore>>()
+    let i = 0
+    const put = (b: number, c: number) => {
+      base.set(`sc${i}:0`, { quality: score(b, { [dim]: b }) })
+      cand.set(`sc${i}:0`, { quality: score(c, { [dim]: c }) })
+      i++
+    }
+    for (let k = 0; k < wins; k++) put(0, 1)
+    for (let k = 0; k < losses; k++) put(1, 0)
+    for (let k = 0; k < ties; k++) put(1, 1)
+    return { cand, base, ids: new Set(Array.from({ length: i }, (_, n) => `sc${n}`)) }
+  }
+
+  it('CATCHES a real -13.2pp regression on a binary dimension (guard failed open on the median)', () => {
+    const { cand, base, ids } = binaryDim('hallucination_free', 5, 15, 56)
+    const [reg] = dimensionRegressions(cand, base, ids, ['hallucination_free'])
+    expect(reg!.n).toBe(76)
+    expect(reg!.bootstrapStatistic).toBe('mean')
+    // The literal median of the paired delta vector is 0 — a median-CI guard
+    // could never drop below −tolerance, so it reported `regressed: false`.
+    expect(reg!.bootstrap.median).toBe(0)
+    expect(reg!.bootstrap.mean).toBeCloseTo(-10 / 76, 6)
+    expect(reg!.bootstrap.low).toBeLessThan(-reg!.tolerance)
+    expect(reg!.regressed).toBe(true)
+  })
+
+  it('does not flag a binary dimension that IMPROVED', () => {
+    const { cand, base, ids } = binaryDim('hallucination_free', 15, 5, 56)
+    const [reg] = dimensionRegressions(cand, base, ids, ['hallucination_free'])
+    expect(reg!.bootstrap.mean).toBeCloseTo(10 / 76, 6)
+    expect(reg!.regressed).toBe(false)
+  })
+
+  it('leaves continuous dimensions on the median statistic', () => {
+    const cand = new Map<string, Record<string, JudgeScore>>()
+    const base = new Map<string, Record<string, JudgeScore>>()
+    for (let i = 0; i < 6; i++) {
+      base.set(`sc${i}:0`, { quality: score(0.5, { safety: 0.8 }) })
+      cand.set(`sc${i}:0`, { quality: score(0.6, { safety: 0.3 }) })
+    }
+    const [reg] = dimensionRegressions(cand, base, scenarioIds(6), ['safety'])
+    expect(reg!.bootstrapStatistic).toBe('median')
+    expect(reg!.regressed).toBe(true)
   })
 })

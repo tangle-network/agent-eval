@@ -24,7 +24,11 @@
  */
 
 import type { Direction } from '../../pareto'
-import { type PairedBootstrapResult, pairedBootstrap } from '../../statistics'
+import {
+  isBinaryOutcomeVector,
+  type PairedBootstrapResult,
+  pairedBootstrap,
+} from '../../statistics'
 import type { Gate, GateContext, GateDecision, GateResult, JudgeScore, Scenario } from '../types'
 import { detectScale, pairHoldout } from './statistical-heldout'
 
@@ -59,6 +63,12 @@ export interface AxisEvidence {
   /** Paired bootstrap on the GOOD-DIRECTION delta (oriented by `direction`):
    *  a positive value means the candidate is better on this axis. */
   bootstrap: PairedBootstrapResult
+  /** Which paired statistic `bootstrap.low`/`.high` bracket, and therefore what
+   *  the axis verdict was decided on. `'median'` for continuous scores;
+   *  `'mean'` when the axis is binary (0/1), where the median — and its whole
+   *  CI — is pinned at 0 by tie domination and can see neither a gain nor a
+   *  regression. */
+  bootstrapStatistic: 'median' | 'mean'
   /** Paired observations contributing to this axis. */
   n: number
   gainThreshold: number
@@ -130,10 +140,17 @@ export function buildEvidenceVector<TArtifact, TScenario extends Scenario>(
     // positive bootstrap always reads as "candidate better on this axis".
     const before = obj.direction === 'maximize' ? paired.before : paired.after
     const after = obj.direction === 'maximize' ? paired.after : paired.before
+    // Binary (0/1) axes are decided on the MEAN paired delta — which for binary
+    // outcomes is exactly the change in success rate. The median is structurally
+    // blind there: the delta vector lives in {-1,0,+1} dominated by zeros, so
+    // its bootstrap CI collapses to [0,0] and every binary axis reads 'flat',
+    // hiding real gains AND real regressions. Continuous axes are unchanged.
+    const bootstrapStatistic: 'median' | 'mean' =
+      isBinaryOutcomeVector(before) && isBinaryOutcomeVector(after) ? 'mean' : 'median'
     const bootstrap = pairedBootstrap(before, after, {
       confidence,
       resamples,
-      statistic: 'median',
+      statistic: bootstrapStatistic,
       seed,
     })
     const n = paired.before.length
@@ -158,6 +175,7 @@ export function buildEvidenceVector<TArtifact, TScenario extends Scenario>(
       source: obj.source,
       direction: obj.direction,
       bootstrap,
+      bootstrapStatistic,
       n,
       gainThreshold,
       floorTolerance,
