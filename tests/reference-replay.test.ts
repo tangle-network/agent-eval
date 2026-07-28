@@ -237,7 +237,7 @@ describe('reference replay', () => {
     expect(decision.reason).toBe('Required split missing from baseline or candidate: dev')
   })
 
-  it('rejects promotion when holdout coverage is missing from either side', () => {
+  it('rejects promotion when holdout coverage is missing from one side', () => {
     const baseline = scoreReferenceReplay([scenario('dev-1', 'dev', false)], {
       includeHoldout: true,
     })
@@ -251,7 +251,89 @@ describe('reference replay', () => {
       requireHoldoutNonRegression: true,
     })
     expect(decision.promote).toBe(false)
-    expect(decision.reason).toBe('Holdout split is required for promotion')
+    // One side carrying a scenario the other does not is a coverage gap before
+    // it is a missing split — the two F1s were computed over different sets, and
+    // the refusal names the scenario rather than only the split.
+    expect(decision.rejectionCode).toBe('incomplete_coverage')
+    expect(decision.reason).toContain('holdout-1')
+    expect(decision.coverage.baselineMissing).toEqual(['holdout-1'])
+  })
+
+  it('still refuses on the holdout requirement when NEITHER side replayed holdout', () => {
+    const cases = [scenario('dev-1', 'dev', false), scenario('test-1', 'test', false)]
+    const decision = decideReferenceReplayPromotion(
+      scoreReferenceReplay(cases),
+      scoreReferenceReplay([scenario('dev-1', 'dev', true), scenario('test-1', 'test', true)]),
+      { requireHoldoutNonRegression: true },
+    )
+    expect(decision.promote).toBe(false)
+    expect(decision.rejectionCode).toBe('missing_holdout')
+    expect(decision.coverage.coverage).toBe(1)
+  })
+
+  // Two scores built from different scenario sets are not a comparison. Each
+  // side's F1 is computed over the scenarios IT was scored on, so replaying a
+  // subset raises the candidate's F1 by dropping every scenario it would have
+  // missed — no outcome changes.
+  it('rejects promotion when the two sides were scored on different scenarios', () => {
+    const all = [
+      ...Array.from({ length: 13 }, (_, i) => scenario(`dev-${i}`, 'dev', true)),
+      ...Array.from({ length: 13 }, (_, i) => scenario(`test-${i}`, 'test', true)),
+    ]
+    const baseline = scoreReferenceReplay(
+      all.map((s, i) => (i % 2 === 0 ? s : { ...s, candidates: [] })),
+    )
+    const subset = [...all.slice(0, 3), ...all.slice(13, 16)]
+    const candidate = scoreReferenceReplay(subset)
+
+    // The numbers the old gate promoted on: candidate F1 1.0 over its own 6
+    // scenarios against the baseline's 0.667 over 26.
+    expect(candidate.aggregate).toMatchObject({ matched: 6, total: 6, f1: 1 })
+    expect(baseline.aggregate).toMatchObject({ matched: 13, total: 26 })
+
+    const decision = decideReferenceReplayPromotion(baseline, candidate, {
+      requireHoldoutNonRegression: false,
+    })
+    expect(decision.promote).toBe(false)
+    expect(decision.rejectionCode).toBe('incomplete_coverage')
+    expect(decision.reason).toMatch(/scored 6 of 26/)
+    expect(decision.coverage).toMatchObject({
+      dealt: 26,
+      answered: 6,
+      candidateOnly: 0,
+      baselineOnly: 20,
+      coverage: 6 / 26,
+      baselineMissing: [],
+    })
+  })
+
+  it('reports full coverage when both sides replayed the same scenarios', () => {
+    const cases = [scenario('dev-1', 'dev', false), scenario('test-1', 'test', false)]
+    const decision = decideReferenceReplayPromotion(
+      scoreReferenceReplay(cases),
+      scoreReferenceReplay([scenario('dev-1', 'dev', true), scenario('test-1', 'test', true)]),
+      { requireHoldoutNonRegression: false },
+    )
+    expect(decision.promote).toBe(true)
+    expect(decision.rejectionCode).toBeNull()
+    expect(decision.coverage).toEqual({
+      dealt: 2,
+      answered: 2,
+      candidateOnly: 0,
+      baselineOnly: 0,
+      coverage: 1,
+      candidateMissing: [],
+      baselineMissing: [],
+    })
+  })
+
+  it('rejects a minCoverage outside [0,1] rather than clamping it', () => {
+    const cases = [scenario('dev-1', 'dev', false), scenario('test-1', 'test', false)]
+    expect(() =>
+      decideReferenceReplayPromotion(scoreReferenceReplay(cases), scoreReferenceReplay(cases), {
+        minCoverage: 1.5,
+      }),
+    ).toThrow(/minCoverage/)
   })
 
   it('runs adapters without exposing hidden references and persists full run records', async () => {

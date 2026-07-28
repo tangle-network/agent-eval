@@ -71,6 +71,117 @@ describe('runRLCampaign', () => {
     expect(result.rewardHacking.verdict).toBeDefined()
     expect(result.rewardSignals.length).toBe(48)
     expect(result.summary).toMatch(/rl-test:/)
+    expect(result.deltaCoverage).toEqual([
+      {
+        candidateId: 'cand',
+        dealt: 24,
+        answered: 24,
+        unscoredCandidate: 0,
+        unscoredComparator: 0,
+        unmatched: 0,
+        coverage: 1,
+      },
+    ])
+  })
+
+  // `collectPairedDeltaSeries` dropped an unscored candidate run, an unscored
+  // comparator run, and an unmatched cell — all three silently — and the
+  // survivors flowed into `evaluateInterimReleaseConfidence`, whose
+  // `recommendation.decision` can be `promote_now`. Same defect as the promotion
+  // gates, one call frame up.
+  describe('paired-delta coverage', () => {
+    /** Candidate RUNS every cell but produces no score past `answersUpTo` —
+     *  measured absence (the run happened, the judge produced nothing), which is
+     *  the case the old code turned into an absent cell. */
+    const partialRunner =
+      (answersUpTo: number): CampaignRunner<VariantPayload> =>
+      async (ctx) => {
+        await ctx.emitter.startRun({ scenarioId: ctx.scenarioId, layer: 'app-runtime' })
+        const handle = await ctx.emitter.llm({
+          name: 'judge',
+          model: 'test-model@2026-05-08',
+          messages: [{ role: 'user', content: ctx.variant.prompt }],
+          output: 'ok',
+        })
+        await ctx.rawSink.record({
+          eventId: `evt-${ctx.runId}`,
+          runId: ctx.runId,
+          spanId: handle.span.spanId,
+          provider: 'test',
+          model: 'test-model@2026-05-08',
+          endpoint: '/chat/completions',
+          baseUrl: ctx.llmOpts.baseUrl ?? '',
+          attemptIndex: 0,
+          direction: 'request',
+          timestamp: 1_000,
+          redactedFields: [],
+        })
+        await handle.end()
+        const index = Number(ctx.scenarioId.split('-')[1] ?? '0')
+        const dark = ctx.variantId === 'cand' && index >= answersUpTo
+        const score = ctx.variantId === 'cand' ? 0.9 : 0.5
+        if (dark) await ctx.emitter.endRun({ pass: false })
+        else await ctx.emitter.endRun({ pass: true, score })
+        return {
+          pass: !dark,
+          ...(dark ? {} : { score }),
+          costUsd: 0.001,
+          costProvenance: { kind: 'observed' as const, usd: 0.001 },
+          tokenUsage: { input: 5, output: 5 },
+          model: 'test-model@2026-05-08',
+          promptHash: 'p'.repeat(64),
+          configHash: 'c'.repeat(64),
+        }
+      }
+
+    const campaign = (answersUpTo: number, minDeltaCoverage?: number) =>
+      runRLCampaign<VariantPayload>({
+        campaignId: 'rl-coverage',
+        commitSha: 'cafebabe',
+        variants: [
+          { id: 'baseline', payload: { prompt: 'baseline' } },
+          { id: 'cand', payload: { prompt: 'better' } },
+        ],
+        scenarios: Array.from({ length: 8 }, (_, i) => ({ scenarioId: `task-${i}` })),
+        seeds: [0],
+        llmOpts: { baseUrl: 'https://api.test/v1', apiKey: 'sk-test' },
+        storeFactory: () => new InMemoryTraceStore(),
+        rawSinkFactory: () => new InMemoryRawProviderSink(),
+        runner: partialRunner(answersUpTo),
+        report: { comparator: 'baseline' },
+        ...(minDeltaCoverage === undefined ? {} : { sequential: { minDeltaCoverage } }),
+      })
+
+    it('withholds the interim verdict when the candidate scored 2 of 8 cells', async () => {
+      const result = await campaign(2)
+      expect(result.interimConfidence).toBeNull()
+      expect(result.deltaCoverage).toEqual([
+        {
+          candidateId: 'cand',
+          dealt: 8,
+          answered: 2,
+          unscoredCandidate: 6,
+          unscoredComparator: 0,
+          unmatched: 0,
+          coverage: 0.25,
+        },
+      ])
+      // Never a silent 0 — the summary says by how much, on the refused path.
+      expect(result.summary).toMatch(/paired-delta coverage: cand 2\/8/)
+      expect(result.summary).toMatch(/sequential verdict withheld/)
+    })
+
+    it('a declared minDeltaCoverage below 1 still ships the shrunken denominator', async () => {
+      const result = await campaign(2, 0.25)
+      expect(result.interimConfidence).not.toBeNull()
+      expect(result.deltaCoverage[0]?.answered).toBe(2)
+      expect(result.deltaCoverage[0]?.dealt).toBe(8)
+      expect(result.summary).toMatch(/paired-delta coverage: cand 2\/8/)
+    })
+
+    it('rejects a minDeltaCoverage outside [0,1] rather than clamping it', async () => {
+      await expect(campaign(8, 1.5)).rejects.toThrow(/minDeltaCoverage/)
+    })
   })
 
   it('produces trainer-export rows when lookups are supplied', async () => {
