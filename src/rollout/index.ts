@@ -74,6 +74,7 @@ export {
   type MintRolloutResult,
   mintRolloutRows,
   type RolloutScrubber,
+  unmintableReasons,
 } from './mint'
 export {
   type ClaudeTranscript,
