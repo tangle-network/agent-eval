@@ -1395,6 +1395,7 @@ export type {
   GateEvidence,
   HeldOutGateConfig,
   HeldOutGateRejectionCode,
+  SplitCoverage,
 } from './held-out-gate'
 export { HeldOutGate } from './held-out-gate'
 export type {

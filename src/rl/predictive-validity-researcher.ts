@@ -19,7 +19,7 @@
  * `runRLCampaign` for the full auto-research story.
  */
 
-import type { GateDecision } from '../held-out-gate'
+import type { GateDecision, SplitCoverage } from '../held-out-gate'
 import type { OutcomeStore } from '../meta-eval/outcome-store'
 import {
   type RubricPredictiveValidityReport,
@@ -190,6 +190,10 @@ export class PredictiveValidityResearcher implements Researcher {
         medianCandidateCost: null,
         medianBaselineCost: null,
         realnessGatedRuns: 0,
+        // Nothing was dealt, so nothing was answered — this researcher never
+        // runs the sweep, it only reports that the caller must.
+        holdoutCoverage: emptyCoverage(),
+        searchCoverage: emptyCoverage(),
       },
       reason:
         'predictive-validity researcher does not execute plans; the caller is expected to run the sweep and call rubricPredictiveValidity directly with the resulting RunRecord[].',
@@ -231,4 +235,9 @@ export class PredictiveValidityResearcher implements Researcher {
   getLastReport(): RubricPredictiveValidityReport | null {
     return this.lastReport
   }
+}
+
+/** Coverage of a split that was never dealt any work. */
+function emptyCoverage(): SplitCoverage {
+  return { dealt: 0, answered: 0, unscoredPairs: 0, candidateOnly: 0, baselineOnly: 0, coverage: 0 }
 }

@@ -249,10 +249,21 @@ describe('HeldOutGate — rejection paths', () => {
       }),
     )
 
-    const withUnmatched = g.evaluate(
-      [...pairs.candidate, ...unmatchedCandidateRows],
-      pairs.baseline,
-    )
+    // At the default coverage requirement the 10 unmatched rows are themselves
+    // disqualifying — 3 of 13 dealt holdout items scored on both arms.
+    expect(
+      g.evaluate([...pairs.candidate, ...unmatchedCandidateRows], pairs.baseline),
+    ).toMatchObject({ promote: false, rejectionCode: 'incomplete_coverage' })
+    // The arithmetic this test is about — unmatched rows never move the gap —
+    // is checked with the ragged set explicitly declared acceptable.
+    const withUnmatched = new HeldOutGate({
+      baselineKey: 'baseline',
+      minProductiveRuns: 3,
+      pairedDeltaThreshold: 0,
+      overfitGapThreshold: 0.05,
+      seed: 1,
+      minCoverage: 0,
+    }).evaluate([...pairs.candidate, ...unmatchedCandidateRows], pairs.baseline)
 
     expect(matchedOnly.rejectionCode).toBe('overfit_gap')
     expect(withUnmatched.rejectionCode).toBe('overfit_gap')
@@ -306,7 +317,7 @@ describe('HeldOutGate — promotion path', () => {
     expect(a.evidence.pairedCI!.high).toBe(b.evidence.pairedCI!.high)
   })
 
-  it('drops candidate runs that have no matching baseline pair', () => {
+  it('refuses — rather than silently drops — candidate runs with no matching baseline pair', () => {
     const g = new HeldOutGate({ baselineKey: 'baseline', minProductiveRuns: 3, seed: 1 })
     // Five candidate runs but baseline only paired on 2 of them.
     const candidate: RunRecord[] = []
@@ -351,7 +362,25 @@ describe('HeldOutGate — promotion path', () => {
     expect(d.evidence.productiveRuns).toBe(2)
     expect(d.evidence.unpairedCandidateRuns).toBe(3)
     expect(d.evidence.unpairedBaselineRuns).toBe(0)
-    expect(d.rejectionCode).toBe('few_runs')
+    expect(d.rejectionCode).toBe('incomplete_coverage')
+    expect(d.evidence.holdoutCoverage).toEqual({
+      dealt: 5,
+      answered: 2,
+      unscoredPairs: 0,
+      candidateOnly: 3,
+      baselineOnly: 0,
+      coverage: 2 / 5,
+    })
+    // Declaring the ragged set acceptable puts the old `few_runs` verdict back —
+    // 2 paired observations is still below the minimum.
+    expect(
+      new HeldOutGate({
+        baselineKey: 'baseline',
+        minProductiveRuns: 3,
+        seed: 1,
+        minCoverage: 0,
+      }).evaluate(candidate, baseline).rejectionCode,
+    ).toBe('few_runs')
   })
 
   it('does not pair different scenarios that share the same seed', () => {
@@ -392,7 +421,16 @@ describe('HeldOutGate — promotion path', () => {
     expect(decision.evidence.productiveRuns).toBe(0)
     expect(decision.evidence.unpairedCandidateRuns).toBe(1)
     expect(decision.evidence.unpairedBaselineRuns).toBe(1)
-    expect(decision.rejectionCode).toBe('few_runs')
+    expect(decision.rejectionCode).toBe('incomplete_coverage')
+    expect(decision.evidence.holdoutCoverage.coverage).toBe(0)
+    expect(
+      new HeldOutGate({
+        baselineKey: 'baseline',
+        minProductiveRuns: 1,
+        seed: 1,
+        minCoverage: 0,
+      }).evaluate(candidate, baseline).rejectionCode,
+    ).toBe('few_runs')
   })
 
   it('is invariant to input order and rejects duplicate pair identities', () => {
@@ -542,5 +580,449 @@ describe('HeldOutGate — cost ceiling', () => {
           costPerTaskCeiling: Number.POSITIVE_INFINITY,
         }),
     ).toThrow(/costPerTaskCeiling/)
+  })
+})
+
+// ── Coverage: a candidate that produced NO SCORE on most held-out items ──
+
+/**
+ * A held-out comparison over `n` scenarios where the candidate produced a real
+ * score on only the first `answered` of them.
+ *
+ * `mode` is HOW the other items came back empty — the three shapes a real
+ * harness produces, all of which used to shrink the denominator silently:
+ *   'no-row'       the harness wrote nothing for the crashed item
+ *   'unscored-row' the harness wrote a row with no score on it
+ *   'scored-zero'  the CONTROL — the same failures scored as the 0 they earned
+ */
+function partialCoverage(opts: {
+  n: number
+  answered: number
+  mode: 'no-row' | 'unscored-row' | 'scored-zero'
+  /** Which split the candidate went dark on. Default 'holdout'. */
+  darkSplit?: 'holdout' | 'search'
+  candidateHoldout?: number
+  baselineHoldout?: number
+}): { candidate: RunRecord[]; baseline: RunRecord[] } {
+  const darkSplit = opts.darkSplit ?? 'holdout'
+  const candidateHoldout = opts.candidateHoldout ?? 0.95
+  const baselineHoldout = opts.baselineHoldout ?? 0.6
+  const candidate: RunRecord[] = []
+  const baseline: RunRecord[] = []
+  for (let i = 0; i < opts.n; i += 1) {
+    const scenarioId = `s${String(i).padStart(2, '0')}`
+    baseline.push(
+      record({
+        candidateId: 'baseline',
+        scenarioId,
+        seed: i,
+        splitTag: 'search',
+        outcome: { searchScore: 0.62, raw: {} },
+      }),
+      record({
+        candidateId: 'baseline',
+        scenarioId,
+        seed: i,
+        splitTag: 'holdout',
+        outcome: { holdoutScore: baselineHoldout, raw: {} },
+      }),
+    )
+    const answered = i < opts.answered
+    for (const split of ['search', 'holdout'] as const) {
+      const live = answered || split !== darkSplit
+      const score = split === 'search' ? 0.96 : candidateHoldout
+      if (live) {
+        candidate.push(
+          record({
+            candidateId: 'cand',
+            scenarioId,
+            seed: i,
+            splitTag: split,
+            outcome:
+              split === 'search'
+                ? { searchScore: score, raw: {} }
+                : { holdoutScore: score, raw: {} },
+          }),
+        )
+        continue
+      }
+      if (opts.mode === 'no-row') continue
+      const crashed = record({
+        candidateId: 'cand',
+        scenarioId,
+        seed: i,
+        splitTag: split,
+        terminalOutcome: 'failed',
+        terminalFailureReason: 'process crashed before producing a score',
+        outcome:
+          opts.mode === 'scored-zero'
+            ? split === 'search'
+              ? { searchScore: 0, raw: {} }
+              : { holdoutScore: 0, raw: {} }
+            : { raw: {} },
+      })
+      if (opts.mode === 'unscored-row') {
+        // A crashed run carries NO score — `record()`'s defaults must not leak
+        // one back in, or the fixture would silently stop testing the bug.
+        const { searchScore: _s, holdoutScore: _h, ...unscored } = crashed.outcome
+        candidate.push({ ...crashed, outcome: unscored })
+        continue
+      }
+      candidate.push(crashed)
+    }
+  }
+  return { candidate, baseline }
+}
+
+describe('HeldOutGate — held-out coverage', () => {
+  const thresholds = [-0.05, 0, 0.01, 0.05, 0.1, 0.2, 0.3]
+
+  for (const mode of ['no-row', 'unscored-row'] as const) {
+    it(`REFUSES a candidate that scored 6 of 26 dealt holdout items (${mode}), at every threshold`, () => {
+      const runs = partialCoverage({ n: 26, answered: 6, mode })
+      const verdicts = thresholds.map((pairedDeltaThreshold) =>
+        new HeldOutGate({ baselineKey: 'baseline', pairedDeltaThreshold, seed: 1337 }).evaluate(
+          runs.candidate,
+          runs.baseline,
+        ),
+      )
+      expect(verdicts.map((v) => v.promote)).toEqual(thresholds.map(() => false))
+      expect(verdicts.map((v) => v.rejectionCode)).toEqual(
+        thresholds.map(() => 'incomplete_coverage'),
+      )
+      expect(verdicts[0]!.reason).toMatch(/6 of 26/)
+    })
+  }
+
+  it('REPORTS the coverage it decided on, so a shrunken denominator is visible', () => {
+    const noRow = new HeldOutGate({ baselineKey: 'baseline', seed: 1337 }).evaluate(
+      ...(([r]) => [r.candidate, r.baseline] as const)([
+        partialCoverage({ n: 26, answered: 6, mode: 'no-row' }),
+      ]),
+    )
+    expect(noRow.evidence.holdoutCoverage).toEqual({
+      dealt: 26,
+      answered: 6,
+      unscoredPairs: 0,
+      candidateOnly: 0,
+      baselineOnly: 20,
+      coverage: 6 / 26,
+    })
+
+    const unscored = new HeldOutGate({ baselineKey: 'baseline', seed: 1337 }).evaluate(
+      ...(([r]) => [r.candidate, r.baseline] as const)([
+        partialCoverage({ n: 26, answered: 6, mode: 'unscored-row' }),
+      ]),
+    )
+    expect(unscored.evidence.holdoutCoverage).toEqual({
+      dealt: 26,
+      answered: 6,
+      unscoredPairs: 20,
+      candidateOnly: 0,
+      baselineOnly: 0,
+      coverage: 6 / 26,
+    })
+    // The search split is fully covered in both — reported separately, not lumped.
+    expect(noRow.evidence.searchCoverage.coverage).toBe(1)
+    expect(unscored.evidence.searchCoverage.coverage).toBe(1)
+  })
+
+  it('CONTROL: the same failures scored as the 0 they earned are refused on the delta, not on coverage', () => {
+    const runs = partialCoverage({ n: 26, answered: 6, mode: 'scored-zero' })
+    const d = new HeldOutGate({ baselineKey: 'baseline', seed: 1337 }).evaluate(
+      runs.candidate,
+      runs.baseline,
+    )
+    expect(d.promote).toBe(false)
+    expect(d.rejectionCode).toBe('negative_delta')
+    expect(d.evidence.holdoutCoverage.coverage).toBe(1)
+    expect(d.evidence.productiveRuns).toBe(26)
+  })
+
+  it('a candidate the BASELINE went dark on is refused too — coverage is symmetric', () => {
+    const runs = partialCoverage({ n: 26, answered: 6, mode: 'no-row' })
+    // Swap the arms: now the BASELINE is the one missing 20 holdout rows.
+    const swapped = {
+      candidate: runs.baseline.map((r) => record({ ...r, candidateId: 'cand' })),
+      baseline: runs.candidate.map((r) => record({ ...r, candidateId: 'baseline' })),
+    }
+    const d = new HeldOutGate({ baselineKey: 'baseline', seed: 1337 }).evaluate(
+      swapped.candidate,
+      swapped.baseline,
+    )
+    expect(d.promote).toBe(false)
+    expect(d.rejectionCode).toBe('incomplete_coverage')
+    expect(d.evidence.holdoutCoverage.candidateOnly).toBe(20)
+    expect(d.evidence.holdoutCoverage.baselineOnly).toBe(0)
+  })
+
+  it('REFUSES when the SEARCH split is the shrunken one — the overfit gap reads it', () => {
+    const runs = partialCoverage({ n: 26, answered: 6, mode: 'no-row', darkSplit: 'search' })
+    const d = new HeldOutGate({ baselineKey: 'baseline', seed: 1337 }).evaluate(
+      runs.candidate,
+      runs.baseline,
+    )
+    expect(d.promote).toBe(false)
+    expect(d.rejectionCode).toBe('incomplete_coverage')
+    expect(d.evidence.searchCoverage.coverage).toBe(6 / 26)
+    expect(d.evidence.holdoutCoverage.coverage).toBe(1)
+  })
+
+  it('full coverage with a real lift still PROMOTES — the check adds no false refusal', () => {
+    const runs = partialCoverage({ n: 26, answered: 26, mode: 'no-row' })
+    const d = new HeldOutGate({ baselineKey: 'baseline', seed: 1337 }).evaluate(
+      runs.candidate,
+      runs.baseline,
+    )
+    expect(d.rejectionCode).toBeNull()
+    expect(d.promote).toBe(true)
+    expect(d.evidence.holdoutCoverage.coverage).toBe(1)
+  })
+
+  it('a caller may accept a shrunken denominator only by DECLARING it', () => {
+    const runs = partialCoverage({ n: 26, answered: 6, mode: 'no-row' })
+    const d = new HeldOutGate({
+      baselineKey: 'baseline',
+      seed: 1337,
+      minCoverage: 6 / 26,
+    }).evaluate(runs.candidate, runs.baseline)
+    expect(d.promote).toBe(true)
+    // …and the declaration does not hide the shrink: it is still in the evidence.
+    expect(d.evidence.holdoutCoverage).toMatchObject({ dealt: 26, answered: 6, baselineOnly: 20 })
+  })
+
+  it('rejects an out-of-range minCoverage instead of silently clamping', () => {
+    for (const minCoverage of [-0.1, 1.1, Number.NaN]) {
+      expect(() => new HeldOutGate({ baselineKey: 'baseline', minCoverage })).toThrow(/minCoverage/)
+    }
+  })
+})
+
+describe('HeldOutGate — coverage cannot be laundered', () => {
+  /** 26 items; the candidate answers 6 and disposes of the other 20 via `hide`. */
+  function laundered(hide: (scenarioId: string, seed: number) => RunRecord | null): {
+    candidate: RunRecord[]
+    baseline: RunRecord[]
+  } {
+    const candidate: RunRecord[] = []
+    const baseline: RunRecord[] = []
+    for (let i = 0; i < 26; i += 1) {
+      const scenarioId = `s${String(i).padStart(2, '0')}`
+      baseline.push(
+        record({
+          candidateId: 'baseline',
+          scenarioId,
+          seed: i,
+          splitTag: 'search',
+          outcome: { searchScore: 0.62, raw: {} },
+        }),
+        record({
+          candidateId: 'baseline',
+          scenarioId,
+          seed: i,
+          splitTag: 'holdout',
+          outcome: { holdoutScore: 0.6, raw: {} },
+        }),
+      )
+      candidate.push(
+        record({
+          candidateId: 'cand',
+          scenarioId,
+          seed: i,
+          splitTag: 'search',
+          outcome: { searchScore: 0.96, raw: {} },
+        }),
+      )
+      if (i < 6) {
+        candidate.push(
+          record({
+            candidateId: 'cand',
+            scenarioId,
+            seed: i,
+            splitTag: 'holdout',
+            outcome: { holdoutScore: 0.95, raw: {} },
+          }),
+        )
+        continue
+      }
+      const hidden = hide(scenarioId, i)
+      if (hidden !== null) candidate.push(hidden)
+    }
+    return { candidate, baseline }
+  }
+
+  const decide = (runs: { candidate: RunRecord[]; baseline: RunRecord[] }) =>
+    new HeldOutGate({ baselineKey: 'baseline', seed: 1337 }).evaluate(runs.candidate, runs.baseline)
+
+  it("re-tagging the failures splitTag:'dev' does not remove them from the denominator", () => {
+    const d = decide(
+      laundered((scenarioId, seed) =>
+        record({
+          candidateId: 'cand',
+          scenarioId,
+          seed,
+          splitTag: 'dev',
+          terminalOutcome: 'failed',
+          outcome: { raw: {} },
+        }),
+      ),
+    )
+    expect(d.promote).toBe(false)
+    expect(d.rejectionCode).toBe('incomplete_coverage')
+    // The baseline's 20 holdout rows keep the items in the dealt set — a
+    // candidate cannot shrink the denominator by relabelling its own rows.
+    expect(d.evidence.holdoutCoverage).toMatchObject({ dealt: 26, answered: 6, baselineOnly: 20 })
+  })
+
+  it('gamed "successes" removed by the authenticity filter still count as dealt', () => {
+    const runs = laundered((scenarioId, seed) =>
+      record({
+        candidateId: 'cand',
+        scenarioId,
+        seed,
+        splitTag: 'holdout',
+        outcome: { holdoutScore: 1, raw: {}, realness: { score: 0, gated: true, reason: 'faked' } },
+      }),
+    )
+    const decision = decide(runs)
+    expect(decision.promote).toBe(false)
+    expect(decision.rejectionCode).toBe('incomplete_coverage')
+    expect(decision.evidence.realnessGatedRuns).toBe(20)
+    expect(decision.evidence.holdoutCoverage).toMatchObject({
+      dealt: 26,
+      answered: 6,
+      baselineOnly: 20,
+    })
+  })
+
+  for (const [label, bad] of [
+    ['NaN', Number.NaN],
+    ['Infinity', Number.POSITIVE_INFINITY],
+  ] as const) {
+    it(`a ${label} score is missing data, not a measurement`, () => {
+      const d = decide(
+        laundered((scenarioId, seed) =>
+          record({
+            candidateId: 'cand',
+            scenarioId,
+            seed,
+            splitTag: 'holdout',
+            outcome: { holdoutScore: bad, raw: {} },
+          }),
+        ),
+      )
+      expect(d.promote).toBe(false)
+      expect(d.rejectionCode).toBe('incomplete_coverage')
+      expect(d.evidence.holdoutCoverage).toMatchObject({
+        dealt: 26,
+        answered: 6,
+        unscoredPairs: 20,
+      })
+    })
+  }
+
+  it('a holdout row carrying only a SEARCH score is unscored on holdout', () => {
+    const d = decide(
+      laundered((scenarioId, seed) => {
+        const row = record({
+          candidateId: 'cand',
+          scenarioId,
+          seed,
+          splitTag: 'holdout',
+          outcome: { searchScore: 0.95, raw: {} },
+        })
+        const { holdoutScore: _drop, ...searchOnly } = row.outcome
+        return { ...row, outcome: searchOnly }
+      }),
+    )
+    expect(d.promote).toBe(false)
+    expect(d.rejectionCode).toBe('incomplete_coverage')
+    expect(d.evidence.holdoutCoverage).toMatchObject({ dealt: 26, answered: 6, unscoredPairs: 20 })
+  })
+
+  it('is deterministic: 200 evaluations of the same rows in shuffled order agree', () => {
+    const runs = laundered(() => null)
+    const shuffle = <T>(xs: T[]): T[] => {
+      const a = [...xs]
+      for (let i = a.length - 1; i > 0; i -= 1) {
+        const j = Math.floor(Math.random() * (i + 1))
+        ;[a[i], a[j]] = [a[j] as T, a[i] as T]
+      }
+      return a
+    }
+    const verdicts = new Set<string>()
+    for (let k = 0; k < 200; k += 1) {
+      const d = new HeldOutGate({ baselineKey: 'baseline', seed: 1337 }).evaluate(
+        shuffle(runs.candidate),
+        shuffle(runs.baseline),
+      )
+      verdicts.add(`${d.promote}/${d.rejectionCode}/${JSON.stringify(d.evidence.holdoutCoverage)}`)
+    }
+    expect([...verdicts]).toEqual([
+      `false/incomplete_coverage/${JSON.stringify({
+        dealt: 26,
+        answered: 6,
+        unscoredPairs: 0,
+        candidateOnly: 0,
+        baselineOnly: 20,
+        coverage: 6 / 26,
+      })}`,
+    ])
+  })
+
+  it('a crashed attempt and a scored retry at the SAME identity throw, exactly as two scored rows do', () => {
+    const runs = laundered(() => null)
+    // Attach an unscored duplicate of an item the candidate DID answer.
+    const answered = runs.candidate.find(
+      (r) => r.splitTag === 'holdout' && r.scenarioId === 's00',
+    ) as RunRecord
+    const crashedAttempt = record({
+      ...answered,
+      runId: 'first-attempt',
+      terminalOutcome: 'failed',
+      outcome: { raw: {} },
+    })
+    const { holdoutScore: _drop, ...unscoredOutcome } = crashedAttempt.outcome
+    const g = new HeldOutGate({ baselineKey: 'baseline', seed: 1337, minCoverage: 0 })
+    expect(() =>
+      g.evaluate(
+        [...runs.candidate, { ...crashedAttempt, outcome: unscoredOutcome }],
+        runs.baseline,
+      ),
+    ).toThrow(/duplicate repKey/)
+    // Same shape with the duplicate SCORED — the pre-existing contract.
+    expect(() => g.evaluate([...runs.candidate, crashedAttempt], runs.baseline)).toThrow(
+      /duplicate repKey/,
+    )
+  })
+})
+
+describe('HeldOutGate — the coverage check does not move a COMPLETE verdict', () => {
+  it('pins the pre-0.134 numbers byte-for-byte on a fully covered comparison', () => {
+    const pairs = joinPairs(
+      makePair('cand', 0, 0.82, 0.78, 0.65, 0.6),
+      makePair('cand', 1, 0.82, 0.81, 0.65, 0.62),
+      makePair('cand', 2, 0.82, 0.79, 0.65, 0.61),
+      makePair('cand', 3, 0.82, 0.8, 0.65, 0.59),
+    )
+    const d = new HeldOutGate({
+      baselineKey: 'baseline',
+      minProductiveRuns: 3,
+      pairedDeltaThreshold: 0,
+      overfitGapThreshold: 0.15,
+      bootstrapResamples: 500,
+      seed: 42,
+    }).evaluate(pairs.candidate, pairs.baseline)
+
+    expect(d.promote).toBe(true)
+    expect(d.rejectionCode).toBeNull()
+    expect(d.evidence.productiveRuns).toBe(4)
+    expect(d.evidence.medianPairedDelta).toBe(0.18500000000000005)
+    expect(d.evidence.pairedCI).toEqual({
+      low: 0.18000000000000005,
+      high: 0.21000000000000008,
+    })
+    expect(d.evidence.holdoutCoverage.coverage).toBe(1)
+    expect(d.evidence.searchCoverage.coverage).toBe(1)
   })
 })
