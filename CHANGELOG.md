@@ -4,7 +4,7 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ---
 
-## [Unreleased] - statistics integrity
+## [Unreleased]
 
 ### Consumer notice — reported p-values were too small in every release from 0.1.0 to 0.133.0
 
@@ -118,6 +118,27 @@ Full evidence, per-statistic verdicts, and the dependency argument:
   improved / regressed / stable verdicts with nothing asserting their numbers.
 - Exported `normalCdf`, `studentTCdf`, `BOOTSTRAP_GATE_MIN_N`,
   `MANN_WHITNEY_EXACT_MAX_N`, `WILCOXON_EXACT_MAX_N`, `DEFAULT_PERMUTATIONS`.
+
+### Trusted-head recovery
+
+#### Fixed
+
+- A trusted-head pin write that fails after its journal row is already durable no longer leaves that row permanently unpinned.
+  Retrying the same `eventId` moves the pin up to the acknowledged entry when the entry is ahead of the pin, so the last row of a ledger — the promotion decision — cannot be truncated away undetected after a full disk or a read-only mount.
+- A pin whose journal was deleted or rebuilt is recoverable instead of refusing every later append and replay forever.
+  The refusal still stands, since a missing journal beside a live pin is the deletion the pin exists to catch, but it now names the sidecar file and the operation that resolves it.
+- Trusted-head read and write faults are reported through the journal codec's error taxonomy instead of escaping as raw Node filesystem errors.
+
+#### Added
+
+- `clearTrustedHeadFile`, exposed as `FileLedgerJournal.clearTrustedHead()` and `SearchLedger.clearTrustedHead()`, discards a pin and returns the guarantee it gave up.
+- `SearchLedger.pinTrustedHead()`, the campaign-level route to adopting a pin for a ledger that has none.
+- `readTrustedHeadFile` is exported from `@tangle-network/agent-eval/ledger-core`, so a consumer of `verifyEntriesAgainstTrustedHead` has a shape-validating way to load a pin.
+
+#### Changed
+
+- **Breaking:** `verifyEntriesAgainstTrustedHead` takes `{ subject, trustedHeadPath }` as its fourth argument instead of a bare `subject` string, so every refusal can name the sidecar file. Passing the old string throws a `TypeError`.
+- **Breaking:** `SearchLedger` declares `pinTrustedHead` and `clearTrustedHead`; an external implementation of the interface must supply them.
 
 ## [0.133.2] - 2026-07-27 - protect final evaluation data
 

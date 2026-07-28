@@ -50,6 +50,9 @@ export {
 export {
   type LedgerAnchoredEntry,
   type LedgerTrustedHead,
+  type LedgerTrustedHeadRemoval,
+  type LedgerTrustedHeadSubject,
+  readTrustedHeadFile,
   trustedHeadPathFor,
   verifyEntriesAgainstTrustedHead,
 } from './trusted-head'

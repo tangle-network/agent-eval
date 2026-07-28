@@ -1,4 +1,4 @@
-import { appendFileSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { appendFileSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { mkdtemp } from 'node:fs/promises'
 import { hostname, tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -488,6 +488,54 @@ describe('search ledger trusted head', () => {
 
     rmSync(`${path}.head`)
     await expect(strict.replay()).rejects.toThrow(/no trusted head/)
+    await expect(strict.pinTrustedHead()).resolves.toMatchObject({ sequence: 0 })
+    await expect(strict.replay()).resolves.toMatchObject({ entries: expect.any(Array) })
+  })
+
+  it('re-pins the decision on the retry of an append whose pin write failed', async () => {
+    const path = await ledgerPath('pin-write-failed')
+    const ledger = openSearchLedger({ path, campaignId: 'campaign-pin-retry' })
+    await ledger.append(plan())
+    await ledger.append(operation())
+    await ledger.append(candidate())
+    await ledger.append(attempt())
+
+    // Any fault on the pin write — a full disk, a read-only mount, a
+    // permission fault — after the decision row is already fsynced.
+    mkdirSync(`${path}.head.tmp`)
+    await expect(ledger.append(decision('candidate-a', 'selected'))).rejects.toThrow(
+      SearchLedgerIntegrityError,
+    )
+    rmSync(`${path}.head.tmp`, { recursive: true, force: true })
+    await expect(ledger.trustedHead()).resolves.toMatchObject({ sequence: 3 })
+
+    const retry = await ledger.append(decision('candidate-a', 'selected'))
+    expect(retry.appended).toBe(false)
+    await expect(ledger.trustedHead()).resolves.toMatchObject({ sequence: 4 })
+
+    const rows = readFileSync(path, 'utf8').trimEnd().split('\n')
+    writeFileSync(path, `${rows.slice(0, 4).join('\n')}\n`, 'utf8')
+    await expect(
+      openSearchLedger({ path, campaignId: 'campaign-pin-retry' }).replay(),
+    ).rejects.toThrow(/pins sequence 4 .* but the journal has 4 entries/)
+  })
+
+  it('names the pin file and clears it when the ledger file was deleted', async () => {
+    const path = await ledgerPath('orphan-pin')
+    const ledger = openSearchLedger({ path, campaignId: 'campaign-orphan' })
+    await ledger.append(plan())
+    await ledger.append(operation())
+    const pinned = await ledger.trustedHead()
+
+    rmSync(path)
+    const reopened = openSearchLedger({ path, campaignId: 'campaign-orphan' })
+    await expect(reopened.replay()).rejects.toThrow(new RegExp(`trusted head ${path}\\.head`))
+    await expect(reopened.append(plan())).rejects.toThrow(/clearTrustedHead/)
+
+    await expect(reopened.clearTrustedHead()).resolves.toEqual({ removed: true, head: pinned })
+    const restarted = await reopened.append(plan())
+    expect(restarted.appended).toBe(true)
+    await expect(reopened.trustedHead()).resolves.toMatchObject({ sequence: 0 })
   })
 })
 

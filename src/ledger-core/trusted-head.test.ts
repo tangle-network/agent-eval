@@ -1,4 +1,13 @@
-import { mkdtempSync, readFileSync, rmSync, unlinkSync, writeFileSync } from 'node:fs'
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  unlinkSync,
+  writeFileSync,
+} from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
@@ -276,5 +285,265 @@ describe('pin movement', () => {
     writeFileSync(path, `${rows(path).slice(0, 2).join('\n')}\n`)
 
     await expect(open(path).pinTrustedHead()).rejects.toThrow(TickIntegrityError)
+  })
+})
+
+/** Block the fixed temporary path `writeLedgerFileAtomically` uses, so the pin
+ * write fails the way a full disk, a read-only mount, or a permission fault
+ * fails it: after the journal row is already fsynced. */
+function blockPinWrite(path: string): () => void {
+  mkdirSync(`${path}.head.tmp`)
+  return () => rmSync(`${path}.head.tmp`, { recursive: true, force: true })
+}
+
+describe('a pin write that fails after the row is durable', () => {
+  it('is healed by the retry of the same event, which re-pins the acknowledged entry', async () => {
+    const path = journalPath()
+    await seed(path, 3, { pinHead: true })
+    const journal = open(path)
+
+    const unblock = blockPinWrite(path)
+    await expect(journal.append({ eventId: 'evt-3', value: 3 }, { pinHead: true })).rejects.toThrow(
+      TickIntegrityError,
+    )
+    unblock()
+    // The row is durable and acknowledged to nobody: the caller saw an error.
+    expect(rows(path)).toHaveLength(4)
+    await expect(journal.trustedHead()).resolves.toMatchObject({ sequence: 2 })
+
+    // Retrying the same eventId is what idempotency is for. It must not leave
+    // the last entry unpinned.
+    const retry = await journal.append({ eventId: 'evt-3', value: 3 }, { pinHead: true })
+    expect(retry.appended).toBe(false)
+    await expect(journal.trustedHead()).resolves.toEqual({
+      sequence: 3,
+      entryHash: retry.entry.entryHash,
+    })
+
+    writeFileSync(path, `${rows(path).slice(0, 3).join('\n')}\n`)
+    await expect(open(path).replay()).rejects.toThrow(
+      /pins sequence 3 .* but the journal has 3 entries/,
+    )
+  })
+
+  it('is healed by the retry of the first event, which had no pin to lag behind', async () => {
+    const path = journalPath()
+    const journal = open(path)
+
+    const unblock = blockPinWrite(path)
+    await expect(journal.append({ eventId: 'evt-0', value: 0 }, { pinHead: true })).rejects.toThrow(
+      TickIntegrityError,
+    )
+    unblock()
+    await expect(journal.trustedHead()).resolves.toBeNull()
+
+    const retry = await journal.append({ eventId: 'evt-0', value: 0 }, { pinHead: true })
+    expect(retry.appended).toBe(false)
+    await expect(journal.trustedHead()).resolves.toEqual({
+      sequence: 0,
+      entryHash: retry.entry.entryHash,
+    })
+  })
+
+  it('requires explicit recovery when the first pin write fails in strict mode', async () => {
+    const path = journalPath()
+    const journal = open(path, { requireTrustedHead: true })
+
+    const unblock = blockPinWrite(path)
+    await expect(journal.append({ eventId: 'evt-0', value: 0 }, { pinHead: true })).rejects.toThrow(
+      TickIntegrityError,
+    )
+    unblock()
+
+    await expect(journal.append({ eventId: 'evt-0', value: 0 }, { pinHead: true })).rejects.toThrow(
+      /no trusted head/,
+    )
+    await expect(journal.pinTrustedHead()).resolves.toMatchObject({ sequence: 0 })
+    await expect(
+      journal.append({ eventId: 'evt-0', value: 0 }, { pinHead: true }),
+    ).resolves.toMatchObject({ appended: false })
+  })
+
+  it('reports the write fault in the codec taxonomy, not as a raw fs error', async () => {
+    const path = journalPath()
+    await seed(path, 1, { pinHead: true })
+    const unblock = blockPinWrite(path)
+    await expect(
+      open(path).append({ eventId: 'evt-1', value: 1 }, { pinHead: true }),
+    ).rejects.toThrow(/trusted head .* could not be written/)
+    unblock()
+  })
+
+  it('reports an unreadable pin in the codec taxonomy, not as a raw fs error', async () => {
+    const path = journalPath()
+    await seed(path, 1, { pinHead: true })
+    rmSync(`${path}.head`)
+    mkdirSync(`${path}.head`)
+
+    await expect(open(path).replay()).rejects.toThrow(TickIntegrityError)
+    await expect(open(path).replay()).rejects.toThrow(/trusted head .* could not be read/)
+  })
+
+  it('leaves the pin alone when the caller did not ask to pin', async () => {
+    const path = journalPath()
+    await seed(path, 3, { pinHead: true })
+    const journal = open(path)
+    await journal.append({ eventId: 'evt-3', value: 3 })
+
+    const retry = await journal.append({ eventId: 'evt-3', value: 3 })
+    expect(retry.appended).toBe(false)
+    await expect(journal.trustedHead()).resolves.toMatchObject({ sequence: 2 })
+  })
+})
+
+describe('a pin left behind by a deleted journal', () => {
+  it('refuses every read, naming the sidecar and the way out', async () => {
+    const path = journalPath()
+    await seed(path, 3, { pinHead: true })
+    unlinkSync(path)
+    const journal = open(path)
+
+    for (const read of [() => journal.replay(), () => journal.append({ eventId: 'a', value: 0 })]) {
+      await expect(read()).rejects.toThrow(TickIntegrityError)
+      await expect(read()).rejects.toThrow(new RegExp(`trusted head ${path}\\.head`))
+      await expect(read()).rejects.toThrow(/clearTrustedHead/)
+    }
+  })
+
+  it('is recovered by clearing the pin, which reports what it discarded', async () => {
+    const path = journalPath()
+    await seed(path, 3, { pinHead: true })
+    const pinned = await open(path).trustedHead()
+    unlinkSync(path)
+
+    const journal = open(path)
+    await expect(journal.clearTrustedHead()).resolves.toEqual({ removed: true, head: pinned })
+    expect(existsSync(`${path}.head`)).toBe(false)
+
+    await journal.append({ eventId: 'fresh-0', value: 0 }, { pinHead: true })
+    await expect(journal.replay()).resolves.toMatchObject({ entries: expect.any(Array) })
+    await expect(journal.trustedHead()).resolves.toMatchObject({ sequence: 0 })
+  })
+
+  it('reports that nothing was removed when there was no pin', async () => {
+    const path = journalPath()
+    await seed(path, 2)
+    await expect(open(path).clearTrustedHead()).resolves.toEqual({ removed: false })
+    await expect(open(path).replay()).resolves.toMatchObject({ entries: expect.any(Array) })
+  })
+
+  it('clears a pin file that no longer parses, and says why it could not name it', async () => {
+    const path = journalPath()
+    await seed(path, 2, { pinHead: true })
+    writeFileSync(`${path}.head`, 'not json\n')
+    await expect(open(path).replay()).rejects.toThrow(/is not valid JSON/)
+
+    await expect(open(path).clearTrustedHead()).resolves.toEqual({
+      removed: true,
+      head: null,
+      unreadable: expect.stringMatching(/is not valid JSON/),
+    })
+    await expect(open(path).replay()).resolves.toMatchObject({ entries: expect.any(Array) })
+  })
+
+  it('clears a pin path occupied by something that is not a pin at all', async () => {
+    const path = journalPath()
+    await seed(path, 2, { pinHead: true })
+    rmSync(`${path}.head`)
+    mkdirSync(`${path}.head`)
+    await expect(open(path).replay()).rejects.toThrow(/could not be read/)
+
+    await expect(open(path).clearTrustedHead()).resolves.toEqual({
+      removed: true,
+      head: null,
+      unreadable: expect.stringMatching(/could not be read/),
+    })
+    await expect(open(path).replay()).resolves.toMatchObject({ entries: expect.any(Array) })
+  })
+
+  it('removes the atomic writer temporary sibling along with the pin', async () => {
+    const path = journalPath()
+    await seed(path, 2, { pinHead: true })
+    writeFileSync(`${path}.head.tmp`, 'stale\n')
+
+    await expect(open(path).clearTrustedHead()).resolves.toMatchObject({ removed: true })
+    expect(existsSync(`${path}.head.tmp`)).toBe(false)
+  })
+
+  it.runIf(process.platform !== 'win32' && process.getuid?.() !== 0)(
+    'clears the pin and reports a temporary sibling it cannot remove',
+    async () => {
+      const path = journalPath()
+      await seed(path, 2, { pinHead: true })
+      const temporaryPath = `${path}.head.tmp`
+      mkdirSync(temporaryPath)
+      writeFileSync(join(temporaryPath, 'blocked'), 'stale\n')
+      chmodSync(temporaryPath, 0o500)
+
+      try {
+        await expect(open(path).clearTrustedHead()).resolves.toEqual({
+          removed: true,
+          head: expect.any(Object),
+          cleanupError: expect.stringContaining(temporaryPath),
+        })
+        expect(existsSync(`${path}.head`)).toBe(false)
+        expect(existsSync(temporaryPath)).toBe(true)
+      } finally {
+        chmodSync(temporaryPath, 0o700)
+      }
+    },
+  )
+})
+
+describe('an unpinned journal is not given a misleading pin', () => {
+  it('refuses to pin a middle entry when there is no pin to repair', async () => {
+    const path = journalPath()
+    await seed(path, 20)
+    const journal = open(path)
+
+    // The pin file was deleted, or the journal predates pinning. Pinning the
+    // retried entry here would read as protection while 19 entries stayed
+    // truncatable.
+    const retry = await journal.append({ eventId: 'evt-0', value: 0 }, { pinHead: true })
+    expect(retry.appended).toBe(false)
+    await expect(journal.trustedHead()).resolves.toBeNull()
+
+    await expect(journal.pinTrustedHead()).resolves.toMatchObject({ sequence: 19 })
+  })
+
+  it('still repairs the head entry of an unpinned journal', async () => {
+    const path = journalPath()
+    await seed(path, 3)
+    const journal = open(path)
+
+    const retry = await journal.append({ eventId: 'evt-2', value: 2 }, { pinHead: true })
+    expect(retry.appended).toBe(false)
+    await expect(journal.trustedHead()).resolves.toEqual({
+      sequence: 2,
+      entryHash: retry.entry.entryHash,
+    })
+  })
+
+  it('keeps the pin monotone when concurrent retries of the same event race', async () => {
+    const path = journalPath()
+    await seed(path, 3, { pinHead: true })
+    const journal = open(path)
+    const unblock = blockPinWrite(path)
+    await expect(journal.append({ eventId: 'evt-3', value: 3 }, { pinHead: true })).rejects.toThrow(
+      TickIntegrityError,
+    )
+    unblock()
+
+    const retries = await Promise.all(
+      Array.from({ length: 8 }, () =>
+        journal.append({ eventId: 'evt-3', value: 3 }, { pinHead: true }),
+      ),
+    )
+    expect(retries.every((result) => result.appended === false)).toBe(true)
+    await expect(journal.trustedHead()).resolves.toEqual({
+      sequence: 3,
+      entryHash: retries[0]!.entry.entryHash,
+    })
+    expect(rows(path)).toHaveLength(4)
   })
 })
