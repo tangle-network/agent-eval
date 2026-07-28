@@ -73,6 +73,9 @@ export function trustedHeadPathFor(journalPath: string): string {
   return `${journalPath}.head`
 }
 
+const TRUSTED_HEAD_RECOVERY =
+  ' Restore the file, or discard the pin it held with clearTrustedHead().'
+
 /** The pin, or null when this journal has never been pinned. A pin that exists
  * but does not parse is corruption or tamper of the trust record itself and
  * fails loudly: reporting it as "no pin" would silently downgrade what the
@@ -87,7 +90,7 @@ export function readTrustedHeadFile(
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null
     throw context.integrityError(
-      `${context.subject} trusted head ${path} could not be read. Restore the file, or discard the pin it held with clearTrustedHead().`,
+      `${context.subject} trusted head ${path} could not be read.${TRUSTED_HEAD_RECOVERY}`,
       { cause: error },
     )
   }
@@ -96,29 +99,31 @@ export function readTrustedHeadFile(
     raw = JSON.parse(text)
   } catch (error) {
     throw context.integrityError(
-      `${context.subject} trusted head ${path} is not valid JSON. Restore the file, or discard the pin it held with clearTrustedHead().`,
+      `${context.subject} trusted head ${path} is not valid JSON.${TRUSTED_HEAD_RECOVERY}`,
       { cause: error },
     )
   }
   if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) {
-    throw context.integrityError(`${context.subject} trusted head ${path} is not an object`)
+    throw context.integrityError(
+      `${context.subject} trusted head ${path} is not an object.${TRUSTED_HEAD_RECOVERY}`,
+    )
   }
   const record = raw as Record<string, unknown>
   const keys = Object.keys(record).sort()
   if (keys.length !== 2 || keys[0] !== 'entryHash' || keys[1] !== 'sequence') {
     throw context.integrityError(
-      `${context.subject} trusted head ${path} has keys [${keys.join(', ')}], expected [entryHash, sequence]`,
+      `${context.subject} trusted head ${path} has keys [${keys.join(', ')}], expected [entryHash, sequence].${TRUSTED_HEAD_RECOVERY}`,
     )
   }
   const { sequence, entryHash } = record
   if (typeof sequence !== 'number' || !Number.isSafeInteger(sequence) || sequence < 0) {
     throw context.integrityError(
-      `${context.subject} trusted head ${path} sequence is not a non-negative integer`,
+      `${context.subject} trusted head ${path} sequence is not a non-negative integer.${TRUSTED_HEAD_RECOVERY}`,
     )
   }
   if (typeof entryHash !== 'string' || !LEDGER_HASH_PATTERN.test(entryHash)) {
     throw context.integrityError(
-      `${context.subject} trusted head ${path} entryHash is not a sha256 digest`,
+      `${context.subject} trusted head ${path} entryHash is not a sha256 digest.${TRUSTED_HEAD_RECOVERY}`,
     )
   }
   return { sequence, entryHash: entryHash as LedgerHash }

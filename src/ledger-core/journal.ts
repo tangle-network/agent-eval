@@ -104,7 +104,12 @@ export interface LedgerAppendOptions {
    * that entry only when the entry is ahead of it, along a chain this call has
    * just verified. So a pin write that failed after its row was fsynced is
    * repaired by the retry that idempotency already asks the caller for, and the
-   * pin still only ever moves forward over history it has checked. */
+   * pin still only ever moves forward over history it has checked.
+   *
+   * A strict journal whose first pin write failed still refuses the retry
+   * because it cannot distinguish that failure from a deleted pin. Recover it
+   * explicitly with `pinTrustedHead()`; silently adopting the current file
+   * would defeat `requireTrustedHead`. */
   pinHead?: boolean
 }
 

@@ -344,6 +344,25 @@ describe('a pin write that fails after the row is durable', () => {
     })
   })
 
+  it('requires explicit recovery when the first pin write fails in strict mode', async () => {
+    const path = journalPath()
+    const journal = open(path, { requireTrustedHead: true })
+
+    const unblock = blockPinWrite(path)
+    await expect(journal.append({ eventId: 'evt-0', value: 0 }, { pinHead: true })).rejects.toThrow(
+      TickIntegrityError,
+    )
+    unblock()
+
+    await expect(journal.append({ eventId: 'evt-0', value: 0 }, { pinHead: true })).rejects.toThrow(
+      /no trusted head/,
+    )
+    await expect(journal.pinTrustedHead()).resolves.toMatchObject({ sequence: 0 })
+    await expect(
+      journal.append({ eventId: 'evt-0', value: 0 }, { pinHead: true }),
+    ).resolves.toMatchObject({ appended: false })
+  })
+
   it('reports the write fault in the codec taxonomy, not as a raw fs error', async () => {
     const path = journalPath()
     await seed(path, 1, { pinHead: true })
