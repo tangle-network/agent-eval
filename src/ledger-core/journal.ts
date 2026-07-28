@@ -27,7 +27,9 @@ import { Mutex } from '../concurrency'
 import { canonicalString, hashCanonical, type LedgerHash } from './canonical'
 import { appendLedgerLine, type LedgerFileContext, withLedgerFileLock } from './journal-file'
 import {
+  clearTrustedHeadFile,
   type LedgerTrustedHead,
+  type LedgerTrustedHeadRemoval,
   readTrustedHeadFile,
   trustedHeadPathFor,
   verifyEntriesAgainstTrustedHead,
@@ -96,10 +98,13 @@ export interface LedgerAppendResult<Entry, Projection> {
 
 export interface LedgerAppendOptions {
   /** Record the appended entry as this journal's trusted head, so a later read
-   * can prove nothing was deleted from the end. Ignored on the idempotent
-   * path: acknowledging an event that was already durable writes nothing, and
-   * moving the pin there would jump trust forward past entries this caller
-   * never saw. */
+   * can prove nothing was deleted from the end.
+   *
+   * On the idempotent path — the event is already durable — the pin moves up to
+   * that entry only when the entry is ahead of it. The entry is the caller's
+   * own byte-identical event, so the pin never jumps forward past entries this
+   * caller did not see, and a pin write that failed after its row was fsynced
+   * is repaired by the retry that idempotency already asks the caller for. */
   pinHead?: boolean
 }
 
@@ -167,6 +172,7 @@ export class FileLedgerJournal<Header extends object, Event extends LedgerEventB
               `eventId ${event.eventId} already exists with different content`,
             )
           }
+          if (options.pinHead === true) this.pinAcknowledged(existing)
           return { entry: existing, appended: false, projection: before.projection }
         }
 
@@ -183,10 +189,12 @@ export class FileLedgerJournal<Header extends object, Event extends LedgerEventB
         const projection = this.project([...before.entries, entry])
         appendLedgerLine(this.path, `${canonicalString(entry)}\n`, this.codec)
         if (options.pinHead === true) {
-          // Journal first, pin second: a crash between them leaves the pin one
-          // entry behind, which still verifies and is healed by the next
-          // pinning append. The reverse order would leave a pin naming an
-          // entry the journal does not carry, locking the journal out.
+          // Journal first, pin second: a crash or a failed pin write between
+          // them leaves the pin one entry behind, which still verifies and is
+          // repaired by the next pinning append, including the idempotent
+          // retry of this same event. The reverse order would leave a pin
+          // naming an entry the journal does not carry, locking the journal
+          // out of its own history.
           writeTrustedHeadFile(
             this.trustedHeadPath,
             { sequence: entry.sequence, entryHash: entry.entryHash },
@@ -231,6 +239,35 @@ export class FileLedgerJournal<Header extends object, Event extends LedgerEventB
     )
   }
 
+  /** Discard this journal's pin, reporting what was discarded. The journal file
+   * is untouched and reads as unpinned afterwards, so the next pinning append
+   * opens a new pin at the entry it writes. It is the way out of a pin whose
+   * journal was deliberately deleted or rebuilt — every read of such a path is
+   * refused, correctly, because a pin naming history the file no longer carries
+   * is indistinguishable from a deletion. Clearing removes the deletion
+   * guarantee for every entry the pin covered. */
+  async clearTrustedHead(): Promise<LedgerTrustedHeadRemoval> {
+    return this.mutex.runExclusive(() =>
+      withLedgerFileLock(this.path, this.codec, () =>
+        clearTrustedHeadFile(this.trustedHeadPath, this.codec),
+      ),
+    )
+  }
+
+  /** Move the pin up to an entry this caller just acknowledged on the
+   * idempotent path, when a pin write that failed after its row was already
+   * fsynced left the pin behind. Every earlier entry is chain-bound to this
+   * one, so the move is monotone and proves exactly what the caller saw. */
+  private pinAcknowledged(entry: LedgerEntryOf<Header, Event>): void {
+    const pinned = readTrustedHeadFile(this.trustedHeadPath, this.codec)
+    if (pinned !== null && pinned.sequence >= entry.sequence) return
+    writeTrustedHeadFile(
+      this.trustedHeadPath,
+      { sequence: entry.sequence, entryHash: entry.entryHash },
+      this.codec,
+    )
+  }
+
   private replayLocked(): LedgerReplayResult<LedgerEntryOf<Header, Event>, Projection> {
     const entries = this.readEntries()
     const projection = this.project(entries)
@@ -251,12 +288,10 @@ export class FileLedgerJournal<Header extends object, Event extends LedgerEventB
       }
       return
     }
-    verifyEntriesAgainstTrustedHead(
-      entries,
-      pinned,
-      this.codec,
-      `${this.codec.subject} ${this.path}`,
-    )
+    verifyEntriesAgainstTrustedHead(entries, pinned, this.codec, {
+      subject: `${this.codec.subject} ${this.path}`,
+      trustedHeadPath: this.trustedHeadPath,
+    })
   }
 
   private readEntries(): LedgerEntryOf<Header, Event>[] {

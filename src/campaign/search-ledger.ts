@@ -27,6 +27,7 @@ import {
   type LedgerLineContext,
   type LedgerProjector,
   type LedgerTrustedHead,
+  type LedgerTrustedHeadRemoval,
 } from '../ledger-core'
 import { modelHasSnapshot } from '../run-record'
 import {
@@ -822,6 +823,16 @@ export interface SearchLedger {
   replay(): Promise<SearchLedgerReplay>
   /** The pinned head, or null when this ledger has never been pinned. */
   trustedHead(): Promise<LedgerTrustedHead | null>
+  /** Pin the current verified head: how a ledger written under `off`, or one
+   * whose pin file was removed, acquires a pin without rewriting a byte. */
+  pinTrustedHead(): Promise<LedgerTrustedHead>
+  /** Discard this ledger's pin, reporting what was discarded. Deleting or
+   * rebuilding the ledger file leaves a pin naming history the file no longer
+   * carries, and every later read is refused because that is exactly the
+   * deletion the pin exists to catch; clearing is the supported way to abandon
+   * that history on purpose. It gives up the deletion guarantee for every entry
+   * the pin covered. */
+  clearTrustedHead(): Promise<LedgerTrustedHeadRemoval>
 }
 
 /** Open a durable filesystem search ledger. Construction performs no I/O; the
@@ -898,6 +909,14 @@ export class FileSearchLedger implements SearchLedger {
 
   async trustedHead(): Promise<LedgerTrustedHead | null> {
     return this.journal.trustedHead()
+  }
+
+  async pinTrustedHead(): Promise<LedgerTrustedHead> {
+    return this.journal.pinTrustedHead()
+  }
+
+  async clearTrustedHead(): Promise<LedgerTrustedHeadRemoval> {
+    return this.journal.clearTrustedHead()
   }
 }
 

@@ -37,11 +37,21 @@
  * cannot be distinguished from a journal written before pinning existed. That
  * is what `requireTrustedHead` is for: a journal opened under it refuses to
  * read at all once a non-empty journal has no pin.
+ *
+ * ## Abandoning a pin
+ *
+ * A pin outlives the journal it attests: deleting or rebuilding the journal
+ * leaves a pin naming history the file no longer carries, and every read is
+ * refused because that is precisely the deletion the pin exists to catch. The
+ * refusal names the pin file, and `clearTrustedHeadFile` is the explicit,
+ * auditable way to discard it — the same downgrade a writer with filesystem
+ * access could already perform with `rm`, made reachable through the API so it
+ * is a decision in the code rather than an undocumented manual step.
  */
 
-import { existsSync, readFileSync } from 'node:fs'
+import { readFileSync } from 'node:fs'
 import { canonicalString, LEDGER_HASH_PATTERN, type LedgerHash } from './canonical'
-import { type LedgerFileContext, writeLedgerFileAtomically } from './journal-file'
+import { type LedgerFileContext, removeLedgerFile, writeLedgerFileAtomically } from './journal-file'
 
 /** A `(sequence, entryHash)` pair a writer pinned outside the journal. */
 export interface LedgerTrustedHead {
@@ -69,8 +79,15 @@ export function readTrustedHeadFile(
   path: string,
   context: LedgerFileContext,
 ): LedgerTrustedHead | null {
-  if (!existsSync(path)) return null
-  const text = readFileSync(path, 'utf8')
+  let text: string
+  try {
+    text = readFileSync(path, 'utf8')
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null
+    throw context.integrityError(`${context.subject} trusted head ${path} could not be read`, {
+      cause: error,
+    })
+  }
   let raw: unknown
   try {
     raw = JSON.parse(text)
@@ -111,7 +128,51 @@ export function writeTrustedHeadFile(
   head: LedgerTrustedHead,
   context: LedgerFileContext,
 ): void {
-  writeLedgerFileAtomically(path, `${canonicalString(head)}\n`, context)
+  try {
+    writeLedgerFileAtomically(path, `${canonicalString(head)}\n`, context)
+  } catch (error) {
+    throw context.integrityError(`${context.subject} trusted head ${path} could not be written`, {
+      cause: error,
+    })
+  }
+}
+
+/** Outcome of discarding a pin. `head` is null when the file was present but
+ * did not parse — the corruption case clearing exists to resolve. */
+export type LedgerTrustedHeadRemoval =
+  | { removed: true; head: LedgerTrustedHead | null }
+  | { removed: false }
+
+/** Discard a journal's pin, reporting what was discarded. The journal file is
+ * untouched and reads as unpinned afterwards, so the next pinning append opens
+ * a new pin at the entry it writes. This removes the deletion guarantee for
+ * every entry the pin covered; it is the recovery for a pin whose journal was
+ * deliberately deleted or rebuilt, and the only way past a pin file that no
+ * longer parses. */
+export function clearTrustedHeadFile(
+  path: string,
+  context: LedgerFileContext,
+): LedgerTrustedHeadRemoval {
+  let head: LedgerTrustedHead | null = null
+  try {
+    head = readTrustedHeadFile(path, context)
+  } catch {
+    // A pin file that no longer parses is precisely what clearing has to be
+    // able to get past, so the read fault is reported as `head: null` on a
+    // removal that still happens rather than raised.
+    head = null
+  }
+  if (!removeLedgerFile(path, context)) return { removed: false }
+  return { removed: true, head }
+}
+
+/** How a journal is named when a trusted-head check refuses it. */
+export interface LedgerTrustedHeadSubject {
+  /** The journal in error messages, e.g. `search ledger /runs/a/ledger.jsonl`. */
+  subject: string
+  /** The sibling pin file, named in every refusal so the operator can see which
+   * of the two files carries the claim being enforced. */
+  trustedHeadPath: string
 }
 
 /** The entry at exactly `head.sequence` must still carry `head.entryHash`.
@@ -121,22 +182,22 @@ export function verifyEntriesAgainstTrustedHead(
   entries: readonly LedgerAnchoredEntry[],
   head: LedgerTrustedHead,
   context: LedgerFileContext,
-  subject: string,
+  { subject, trustedHeadPath }: LedgerTrustedHeadSubject,
 ): void {
   const pinned = entries[head.sequence]
   if (pinned === undefined) {
     throw context.integrityError(
-      `${subject} trusted head pins sequence ${head.sequence} (${head.entryHash}) but the journal has ${entries.length} entries — pinned history is missing (truncation, rollback, or rewrite)`,
+      `${subject} trusted head ${trustedHeadPath} pins sequence ${head.sequence} (${head.entryHash}) but the journal has ${entries.length} entries — pinned history is missing (truncation, rollback, or rewrite). Restore the journal, or abandon the pinned history on purpose with clearTrustedHead().`,
     )
   }
   if (pinned.sequence !== head.sequence) {
     throw context.integrityError(
-      `${subject} entry at index ${head.sequence} carries sequence ${pinned.sequence}; the chain was not verified before the trusted head`,
+      `${subject} entry at index ${head.sequence} carries sequence ${pinned.sequence}; the chain was not verified before the trusted head ${trustedHeadPath}`,
     )
   }
   if (pinned.entryHash !== head.entryHash) {
     throw context.integrityError(
-      `${subject} entry at pinned sequence ${head.sequence} carries ${pinned.entryHash} but the trusted head recorded ${head.entryHash} — the journal was rewritten`,
+      `${subject} entry at pinned sequence ${head.sequence} carries ${pinned.entryHash} but the trusted head ${trustedHeadPath} recorded ${head.entryHash} — the journal was rewritten. Restore the journal, or abandon the pinned history on purpose with clearTrustedHead().`,
     )
   }
 }

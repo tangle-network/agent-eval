@@ -43,13 +43,19 @@ export {
   appendLedgerLine,
   type FileLockResult,
   type LedgerFileContext,
+  removeLedgerFile,
   tryWithLedgerFileLock,
   withLedgerFileLock,
   writeLedgerFileAtomically,
 } from './journal-file'
 export {
+  clearTrustedHeadFile,
   type LedgerAnchoredEntry,
   type LedgerTrustedHead,
+  type LedgerTrustedHeadRemoval,
+  type LedgerTrustedHeadSubject,
+  readTrustedHeadFile,
   trustedHeadPathFor,
   verifyEntriesAgainstTrustedHead,
+  writeTrustedHeadFile,
 } from './trusted-head'
