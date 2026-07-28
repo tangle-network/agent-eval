@@ -1293,3 +1293,61 @@ describe('HeldOutGate — cannot be talked into a promotion', () => {
     expect(verdicts).toEqual([false, false, false, true, true])
   })
 })
+
+describe('HeldOutGate — relaxing the bar never costs you a promotion', () => {
+  it('is monotone in pairedDeltaThreshold across every shape', () => {
+    // Lowering the threshold asks a strictly weaker question. If a promotion
+    // could vanish when the bar drops, some rule would be keyed on the
+    // threshold's SIGN rather than on the evidence — which is what the
+    // non-inferiority carve-out (no significance veto below zero) would be if it
+    // were a hole rather than a deliberate weakening.
+    const thresholds = [0.2, 0.05, 0.01, 0, -0.01, -0.05, -0.2, -1]
+    let seed = 99991
+    const rand = () => {
+      seed = (seed * 1664525 + 1013904223) % 4294967296
+      return seed / 4294967296
+    }
+    const violations: string[] = []
+    let promotedSomewhere = 0
+    let cases = 0
+    for (const levels of [
+      [0, 1],
+      [0, 1 / 3, 2 / 3, 1],
+      [0, 100],
+      [0.11, 0.37, 0.52, 0.94],
+    ]) {
+      for (const n of [3, 6, 12, 26]) {
+        for (let trial = 0; trial < 6; trial++) {
+          const before = Array.from(
+            { length: n },
+            () => levels[Math.floor(rand() * levels.length)]!,
+          )
+          const after = Array.from({ length: n }, () => levels[Math.floor(rand() * levels.length)]!)
+          const verdicts = thresholds.map(
+            (pairedDeltaThreshold) =>
+              new HeldOutGate({
+                baselineKey: 'baseline',
+                seed: 1337,
+                pairedDeltaThreshold,
+                overfitGapThreshold: 1e9,
+              }).evaluate(
+                ...((p) => [p.candidate, p.baseline] as const)(shiftedPairs(before, after, 0)),
+              ).promote,
+          )
+          cases++
+          if (verdicts.some(Boolean)) promotedSomewhere++
+          for (let i = 1; i < verdicts.length; i++) {
+            if (verdicts[i - 1] && !verdicts[i]) {
+              violations.push(
+                `n=${n} trial=${trial}: ${thresholds[i - 1]} promotes, ${thresholds[i]} does not`,
+              )
+            }
+          }
+        }
+      }
+    }
+    expect(violations).toEqual([])
+    expect(cases).toBe(96)
+    expect(promotedSomewhere).toBeGreaterThan(20) // not vacuous
+  })
+})
