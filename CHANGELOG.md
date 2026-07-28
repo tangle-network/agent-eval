@@ -4,7 +4,19 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ---
 
-## [0.134.3] - 2026-07-28 - mint refuses what nobody measured
+## [0.135.0] - 2026-07-28 - mint refuses what nobody measured
+
+### Why a MINOR and not a patch
+
+Two fields that MINTED on 0.134.2 now THROW: `terminalOutcome` and `outcome.raw`.
+A caller on pre-0.126 records who upgrades will see `mintRolloutRows` stop producing
+lines it produced yesterday, and that is the intended correction — but it is a
+behaviour change, not a bug fix, so the number says so.
+It is also **batch-fatal**: `mintRolloutRows` loops over `records` with no per-record
+`try`/`catch` (`src/rollout/mint.ts:413-437`), so ONE legacy record throws out of the
+whole call and no rows come back at all.
+Partition the store first with `unmintableReasons(record)` — see the API note below —
+rather than discovering this one record at a time.
 
 ### Consumer notice — minting a pre-0.126 RunRecord now names the field instead of crashing
 
