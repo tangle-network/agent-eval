@@ -9,6 +9,8 @@
  * and optional pull request creation.
  */
 
+import { assertProposalFindings } from '../../analyst/proposal-findings'
+import type { ProposalFinding } from '../../analyst/types'
 import { mapConcurrent } from '../../concurrency'
 import type { CostLedgerHandle, CostLedgerSummary } from '../../cost-ledger'
 import { type Objective, paretoFrontier } from '../../pareto'
@@ -36,6 +38,7 @@ import {
   isProposedCandidate,
   type MutableSurface,
   type ParetoParent,
+  type ProposeContext,
   type ProposedCandidate,
   type Scenario,
   type ScoredSurfaceOutcome,
@@ -69,7 +72,7 @@ export interface RunOptimizationBaseOptions<TScenario extends Scenario, TArtifac
     ctx: Parameters<RunCampaignOptions<TScenario, TArtifact>['dispatch']>[1],
   ) => Promise<TArtifact>
   /** The candidate-generation strategy. */
-  proposer: SurfaceProposer
+  proposer: SurfaceProposer<ProposalFinding>
   populationSize: number
   maxGenerations: number
   /** Candidate campaigns run at once. Default 1. Total concurrent cells are
@@ -78,14 +81,8 @@ export interface RunOptimizationBaseOptions<TScenario extends Scenario, TArtifac
   /** DEPTH knob forwarded to the proposer's `propose()` — max iterations the
    *  agentic generator may take per candidate. */
   maxImprovementShots?: number
-  /** Optional analysis report forwarded to `propose()`. Opaque here; the
-   *  proposer types it. */
-  report?: unknown
-  /** Structured findings forwarded to `propose()` as `ctx.findings`. A
-   *  findings producer emits these from the
-   *  generation's traces; findings-grounded proposers consume them. Opaque here;
-   *  the proposer types its `TFindings`. Empty when no producer is wired. */
-  findings?: unknown[]
+  /** Search or observed-production findings forwarded to candidate generation. */
+  findings?: ReadonlyArray<ProposalFinding>
   /** Per-generation findings producer. Runs once on the BASELINE campaign
    *  (as `generation: -1`, the baseline convention) before generation 0
    *  proposes — so even a single-generation run proposes with trace context —
@@ -108,7 +105,7 @@ export interface RunOptimizationBaseOptions<TScenario extends Scenario, TArtifac
     /** Shared run spend account and receipt attribution phase. */
     costLedger?: CostLedgerHandle
     costPhase?: string
-  }) => Promise<unknown[]>
+  }) => Promise<ReadonlyArray<ProposalFinding>>
   /**
    * Optional override for how the WINNER is selected among coverage-complete
    * candidates (and how the incumbent bar is set). Returns a lexicographic rank
@@ -143,6 +140,8 @@ export interface RunOptimizationResult<TArtifact, TScenario extends Scenario> {
       campaign: CampaignResult<TArtifact, TScenario>
     }>
   }>
+  /** Frozen snapshot of the exact starting surface measured by `baselineCampaign`. */
+  baselineSurface: MutableSurface
   winnerSurface: MutableSurface
   winnerSurfaceHash: string
   /** Proposer label for the promoted surface. Present when the winning
@@ -178,6 +177,11 @@ export async function runOptimization<TScenario extends Scenario, TArtifact>(
   if (!Number.isInteger(candidateConcurrency) || candidateConcurrency < 1) {
     throw new Error('runOptimization: candidateConcurrency must be a positive integer')
   }
+  const initialFindings = immutableProposalSnapshot(
+    assertProposalFindings(opts.findings ?? [], 'runOptimization initial proposal findings'),
+    'initial findings',
+  )
+  const baselineSurface = immutableProposalSnapshot(opts.baselineSurface, 'baseline surface')
   opts.runDir = resolveRunDir(opts.runDir, opts.repo)
   const storage = opts.storage ?? fsCampaignStorage()
   const costLedger =
@@ -193,7 +197,7 @@ export async function runOptimization<TScenario extends Scenario, TArtifact>(
   const baselineCampaign = premeasuredBaseline
     ? validatedPremeasuredBaseline({
         input: premeasuredBaseline,
-        baselineSurface: opts.baselineSurface,
+        baselineSurface,
         scenarios: opts.scenarios,
         reps,
         seed: opts.seed ?? 42,
@@ -202,7 +206,7 @@ export async function runOptimization<TScenario extends Scenario, TArtifact>(
         ...opts,
         costLedger,
         costPhase: 'search.baseline',
-        dispatch: (scenario, ctx) => opts.dispatchWithSurface(opts.baselineSurface, scenario, ctx),
+        dispatch: (scenario, ctx) => opts.dispatchWithSurface(baselineSurface, scenario, ctx),
         runDir: `${opts.runDir}/baseline`,
       })
   const baselineCoverage = campaignCoverage(
@@ -222,7 +226,7 @@ export async function runOptimization<TScenario extends Scenario, TArtifact>(
   const history: GenerationRecord[] = []
   // Refreshed each generation by `analyzeGeneration`; seeded with the static
   // caller-supplied findings.
-  let currentFindings: unknown[] = opts.findings ?? []
+  let currentFindings: ReadonlyArray<ProposalFinding> = initialFindings
   // Winner selection ranks candidates by a lexicographic key (higher-is-better
   // per element). Default = the scalar mean composite, so a single-element key
   // reproduces the historical `b.composite - a.composite` ordering exactly. A
@@ -231,8 +235,8 @@ export async function runOptimization<TScenario extends Scenario, TArtifact>(
   const selectionRankKey =
     opts.selectionRankKey ??
     ((campaign: CampaignResult<TArtifact, TScenario>) => [campaignMeanComposite(campaign)])
-  let winnerSurface = opts.baselineSurface
-  let winnerSurfaceHash = surfaceHash(opts.baselineSurface)
+  let winnerSurface = baselineSurface
+  let winnerSurfaceHash = surfaceHash(baselineSurface)
   let winnerComposite = campaignMeanComposite(baselineCampaign)
   let winnerRankKey = selectionRankKey(baselineCampaign)
   assertFiniteRankKey(winnerRankKey, 'selectionRankKey for baseline')
@@ -251,7 +255,7 @@ export async function runOptimization<TScenario extends Scenario, TArtifact>(
   // candidate is added after its campaign. The non-dominated set of this list
   // is recomputed before every `propose()` and handed to the proposer.
   const scored: ParetoParent[] = [
-    toParetoParent(opts.baselineSurface, winnerSurfaceHash, baselineCampaign, -1),
+    toParetoParent(baselineSurface, winnerSurfaceHash, baselineCampaign, -1),
   ]
 
   // Diagnose the BASELINE traces before generation 0 proposes. The
@@ -273,12 +277,19 @@ export async function runOptimization<TScenario extends Scenario, TArtifact>(
       costLedger,
       costPhase: 'analysis.baseline',
     })
-    if (Array.isArray(fresh)) currentFindings = fresh
+    if (!Array.isArray(fresh)) {
+      throw new TypeError('runOptimization: analyzeGeneration must return an array')
+    }
+    currentFindings = immutableProposalSnapshot(
+      assertProposalFindings(fresh, 'runOptimization baseline analysis findings'),
+      'baseline analysis findings',
+    )
   }
 
   for (let gen = 0; gen < opts.maxGenerations; gen++) {
+    const proposalHistory = immutableProposalSnapshot(history, 'history')
     // Decide: the proposer may stop early based on accumulated history.
-    if (proposer.decide?.({ history }).stop) break
+    if (proposer.decide?.({ history: proposalHistory }).stop) break
 
     // Plan: the proposer proposes N candidates from the current best surface,
     // the accumulated generation history, the Pareto frontier so far, and any
@@ -286,31 +297,37 @@ export async function runOptimization<TScenario extends Scenario, TArtifact>(
     const paretoParents = computeParetoFrontier(scored)
     const parentSurfaceHash = winnerSurfaceHash
     const parentComposite = winnerComposite
-    const proposed = await proposer.propose({
+    const proposalContext: ProposeContext<ProposalFinding> = Object.freeze({
       // The mutation anchor is always the best complete surface seen across the
       // whole run. Exploratory losers remain in history/Pareto evidence, but a
       // later generation never compounds a candidate already known to regress.
-      currentSurface: winnerSurface,
-      history,
-      findings: currentFindings,
+      currentSurface: immutableProposalSnapshot(winnerSurface, 'current surface'),
+      history: proposalHistory,
+      findings: immutableProposalSnapshot(
+        assertProposalFindings(currentFindings, 'runOptimization proposal findings'),
+        'findings',
+      ),
       populationSize: opts.populationSize,
       generation: gen,
-      signal: new AbortController().signal,
-      baselineOutcome,
-      incumbentOutcome: winnerOutcome,
-      report: opts.report,
-      dataset: opts.labeledStore && opts.labeledStore !== 'off' ? opts.labeledStore : undefined,
+      signal: opts.signal ?? new AbortController().signal,
+      baselineOutcome: immutableProposalSnapshot(baselineOutcome, 'baseline outcome'),
+      incumbentOutcome: immutableProposalSnapshot(winnerOutcome, 'incumbent outcome'),
       maxImprovementShots: opts.maxImprovementShots,
-      paretoParents,
+      paretoParents: immutableProposalSnapshot(paretoParents, 'Pareto parents'),
       costLedger,
       costPhase: 'search.proposal',
     })
-    if (proposed.length === 0) break
+    const proposed = await proposer.propose(proposalContext)
+    if (!Array.isArray(proposed)) {
+      throw new TypeError('runOptimization: proposer must return an array')
+    }
+    const proposalSnapshot = immutableProposalSnapshot(proposed, 'candidate outputs')
+    if (proposalSnapshot.length === 0) break
 
     // Normalize: a proposer may return bare surfaces (blind mutators) or
     // `ProposedCandidate`s carrying {label, rationale}. Keep the rationale so
     // each candidate stays attributable through to the result + provenance.
-    const candidates: ProposedCandidate[] = proposed.map((p) =>
+    const candidates: ProposedCandidate[] = proposalSnapshot.map((p) =>
       isProposedCandidate(p) ? p : { surface: p, label: '', rationale: '' },
     )
 
@@ -454,12 +471,19 @@ export async function runOptimization<TScenario extends Scenario, TArtifact>(
         costLedger,
         costPhase: 'analysis.generation',
       })
-      if (Array.isArray(fresh)) currentFindings = fresh
+      if (!Array.isArray(fresh)) {
+        throw new TypeError('runOptimization: analyzeGeneration must return an array')
+      }
+      currentFindings = immutableProposalSnapshot(
+        assertProposalFindings(fresh, 'runOptimization generation analysis findings'),
+        'generation analysis findings',
+      )
     }
   }
 
   return {
     generations,
+    baselineSurface,
     winnerSurface,
     winnerSurfaceHash,
     winnerLabel,
@@ -468,6 +492,25 @@ export async function runOptimization<TScenario extends Scenario, TArtifact>(
     paretoFrontier: computeParetoFrontier(scored),
     cost: costLedger.summary(),
   }
+}
+
+function immutableProposalSnapshot<T>(value: T, label: string): T {
+  try {
+    return deepFreeze(structuredClone(value))
+  } catch (cause) {
+    throw new TypeError(`runOptimization: proposal ${label} must contain snapshot-safe data`, {
+      cause,
+    })
+  }
+}
+
+function deepFreeze<T>(value: T, seen = new WeakSet<object>()): T {
+  if (typeof value !== 'object' || value === null || seen.has(value)) return value
+  seen.add(value)
+  for (const descriptor of Object.values(Object.getOwnPropertyDescriptors(value))) {
+    if ('value' in descriptor) deepFreeze(descriptor.value, seen)
+  }
+  return Object.freeze(value)
 }
 
 function validatedPremeasuredBaseline<TScenario extends Scenario, TArtifact>(args: {

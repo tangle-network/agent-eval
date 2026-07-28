@@ -118,6 +118,9 @@ export {
   computeFindingId,
   type EvidenceRef,
   makeFinding,
+  makeProposalFinding,
+  type ProposalFinding,
+  type ProposalFindingOrigin,
 } from './analyst/types'
 export type {
   AutoPrClient,

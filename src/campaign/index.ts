@@ -5,6 +5,11 @@
  * `runImprovementLoop` is the proposer-agnostic improvement loop on top of it.
  */
 
+export {
+  makeProposalFinding,
+  type ProposalFinding,
+  type ProposalFindingOrigin,
+} from '../analyst/types'
 export type { CostLedgerHandle, PendingCostCallView } from '../cost-ledger'
 // ── Judge builders (single-call bridge to a canonical JudgeConfig) ────
 export type { LlmJudgeDimension, LlmJudgeOptions } from '../llm-judge'

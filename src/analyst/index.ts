@@ -90,6 +90,7 @@ export {
   SkillUsageAnalyst,
 } from './kinds/skill-usage'
 export { coerceJson, coerceToFindingRows, stripCodeFences } from './parse-tolerant'
+export { assertProposalFindings, isProposalFinding } from './proposal-findings'
 export type {
   AnalystHooks,
   AnalystRegistryOptions,
@@ -97,7 +98,6 @@ export type {
   RegistryRunOpts,
 } from './registry'
 export { AnalystRegistry } from './registry'
-export { assertNoJudgeVerdict, isJudgeVerdict, isTraceObservable } from './steer-firewall'
 export {
   type StructureFindingsOptions,
   type StructureFindingsResult,
@@ -119,5 +119,7 @@ export type {
   AnalystSeverity,
   AnalystUsageReceipt,
   EvidenceRef,
+  ProposalFinding,
+  ProposalFindingOrigin,
 } from './types'
-export { computeFindingId, makeFinding } from './types'
+export { computeFindingId, makeFinding, makeProposalFinding } from './types'

@@ -7,6 +7,7 @@
  * against cases that candidate generation never receives.
  */
 
+import type { ProposalFinding } from '../analyst/types'
 import { defaultProductionGate } from '../campaign/gates/default-production-gate'
 import { type PowerPreflight, powerPreflight } from '../campaign/gates/power-preflight'
 import {
@@ -168,7 +169,7 @@ export interface SelfImproveOptions<TScenario extends Scenario, TArtifact> {
    * Candidate generator for this local generation loop.
    * Required when `budget.generations` is greater than zero.
    */
-  proposer?: SurfaceProposer
+  proposer?: SurfaceProposer<ProposalFinding>
 
   /**
    * Complete optimization method, such as official GEPA or SkillOpt.
@@ -252,9 +253,9 @@ export interface SelfImproveOptions<TScenario extends Scenario, TArtifact> {
    *  etc.). Ignored when `hostedTenant` is unset. */
   hostedLabels?: Record<string, string>
 
-  /** Capture every artifact + judge score to this store (labeled-example
-   *  corpus the proposer may read for few-shot, and the dataset you ship). Pass
-   *  `'off'` to disable. Default: off. */
+  /** Capture every search artifact and judge score to this store.
+   *  The store is output only and is never exposed to candidate generation.
+   *  Pass `'off'` to disable. Default: off. */
   labeledStore?: LabeledScenarioStore | 'off'
 
   /** Capture-source tag for `labeledStore`. Default `'eval-run'`. */
@@ -281,7 +282,7 @@ export interface SelfImproveOptions<TScenario extends Scenario, TArtifact> {
 
   /** Static findings forwarded to the proposer's `propose()` as `ctx.findings`
    *  (a findings-grounded proposer consumes them). Default: none. */
-  findings?: unknown[]
+  findings?: ProposalFinding[]
 
   /** Override how the WINNER is selected among coverage-complete candidates.
    *  Defaults to the scalar mean composite (historical behavior). A binary-with-
@@ -635,7 +636,7 @@ async function runSelfImprove<TScenario extends Scenario, TArtifact>(
   const methodPartitions = opts.method
     ? splitMethodPartitions(train, opts.selectionScenarios, budget.selectionFraction ?? 0.25)
     : undefined
-  const proposer: SurfaceProposer = opts.method
+  const proposer: SurfaceProposer<ProposalFinding> = opts.method
     ? {
         kind: `method:${opts.method.name}`,
         propose: async (context) => {
