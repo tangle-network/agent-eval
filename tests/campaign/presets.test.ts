@@ -77,13 +77,16 @@ const SCENARIOS: FakeScenario[] = [
   { id: 'b', kind: 'chat', intent: 'B' },
 ]
 
-// >=3 holdout scenarios so the rigorous gate's paired-bootstrap has the
-// minProductiveRuns (3) it needs to ever clear zero — a real lift on only 2
-// holdout cells is correctly held as too-few-runs.
 const HOLDOUT: FakeScenario[] = [
   { id: 'h1', kind: 'chat', intent: 'H1' },
   { id: 'h2', kind: 'chat', intent: 'H2' },
   { id: 'h3', kind: 'chat', intent: 'H3' },
+]
+const PROMOTION_HOLDOUT: FakeScenario[] = [
+  ...HOLDOUT,
+  { id: 'h4', kind: 'chat', intent: 'H4' },
+  { id: 'h5', kind: 'chat', intent: 'H5' },
+  { id: 'h6', kind: 'chat', intent: 'H6' },
 ]
 
 const COMPLETE_JUDGE: JudgeConfig<FakeArtifact, FakeScenario> = {
@@ -203,16 +206,19 @@ describe('heldOutGate', () => {
     ['h1:0', null],
     ['h2:0', null],
     ['h3:0', null],
+    ['h4:0', null],
+    ['h5:0', null],
+    ['h6:0', null],
   ])
 
   it('ships when the candidate-baseline CI lower bound clears deltaThreshold', async () => {
-    const gate = heldOutGate({ scenarios: HOLDOUT, deltaThreshold: 0.5 })
+    const gate = heldOutGate({ scenarios: PROMOTION_HOLDOUT, deltaThreshold: 0.5 })
     const result = await gate.decide({
       candidateArtifacts: artifacts as never,
       baselineArtifacts: artifacts as never,
-      judgeScores: mk(9, 8, 7),
-      baselineJudgeScores: mk(5, 4, 3),
-      scenarios: HOLDOUT,
+      judgeScores: mk(9, 8, 7, 9, 8, 7),
+      baselineJudgeScores: mk(5, 4, 3, 5, 4, 3),
+      scenarios: PROMOTION_HOLDOUT,
       cost: { candidate: 0, baseline: 0 },
       signal: new AbortController().signal,
     })
@@ -256,7 +262,7 @@ describe('SurfaceProposer → runImprovementLoop → defaultProductionGate', () 
 
     const result = await runImprovementLoop<FakeScenario, FakeArtifact>({
       scenarios: SCENARIOS,
-      holdoutScenarios: HOLDOUT,
+      holdoutScenarios: PROMOTION_HOLDOUT,
       baselineSurface: 'BASE',
       // The worker echoes the surface it was given — the judge keys on the marker.
       dispatchWithSurface: async (surface) => ({ text: String(surface) }),
@@ -265,7 +271,7 @@ describe('SurfaceProposer → runImprovementLoop → defaultProductionGate', () 
       populationSize: 1,
       maxGenerations: 1,
       gate: defaultProductionGate<FakeArtifact, FakeScenario>({
-        holdoutScenarios: HOLDOUT,
+        holdoutScenarios: PROMOTION_HOLDOUT,
         deltaThreshold: 0.5,
       }),
       autoOnPromote: 'none',
@@ -325,7 +331,7 @@ describe('SurfaceProposer → runImprovementLoop → defaultProductionGate', () 
     // baseline → holdout delta 0 → gate holds. Guards the "nothing to ship" path.
     const result = await runImprovementLoop<FakeScenario, FakeArtifact>({
       scenarios: SCENARIOS,
-      holdoutScenarios: HOLDOUT,
+      holdoutScenarios: PROMOTION_HOLDOUT,
       baselineSurface: 'BASE',
       dispatchWithSurface: async (surface) => ({ text: String(surface) }),
       judges: [judge],
@@ -333,7 +339,7 @@ describe('SurfaceProposer → runImprovementLoop → defaultProductionGate', () 
       populationSize: 1,
       maxGenerations: 1,
       gate: defaultProductionGate<FakeArtifact, FakeScenario>({
-        holdoutScenarios: HOLDOUT,
+        holdoutScenarios: PROMOTION_HOLDOUT,
         deltaThreshold: 0.5,
       }),
       autoOnPromote: 'none',
@@ -412,7 +418,7 @@ describe('loop provenance emission (transaction-extraction shape, offline)', () 
 
     const result = await runImprovementLoop<FakeScenario, FakeArtifact>({
       scenarios: SCENARIOS,
-      holdoutScenarios: HOLDOUT,
+      holdoutScenarios: PROMOTION_HOLDOUT,
       baselineSurface: 'BASE',
       dispatchWithSurface: async (surface) => ({ text: String(surface) }),
       judges: [judge],
@@ -420,7 +426,7 @@ describe('loop provenance emission (transaction-extraction shape, offline)', () 
       populationSize: 1,
       maxGenerations: 1,
       gate: defaultProductionGate<FakeArtifact, FakeScenario>({
-        holdoutScenarios: HOLDOUT,
+        holdoutScenarios: PROMOTION_HOLDOUT,
         deltaThreshold: 0.5,
       }),
       autoOnPromote: 'none',
@@ -716,41 +722,53 @@ describe('openAutoPr', () => {
 describe('defaultProductionGate', () => {
   it('ships on positive delta while reporting absent optional checks as not evaluated', async () => {
     const gate = defaultProductionGate<FakeArtifact, FakeScenario>({
-      holdoutScenarios: HOLDOUT,
+      holdoutScenarios: PROMOTION_HOLDOUT,
       deltaThreshold: 0.0,
     })
     const candidate = new Map<string, FakeArtifact>([
       ['h1:0', { text: 'normal' }],
       ['h2:0', { text: 'normal' }],
       ['h3:0', { text: 'normal' }],
+      ['h4:0', { text: 'normal' }],
+      ['h5:0', { text: 'normal' }],
+      ['h6:0', { text: 'normal' }],
     ])
     const baseline = new Map<string, FakeArtifact>([
       ['h1:0', { text: 'normal' }],
       ['h2:0', { text: 'normal' }],
       ['h3:0', { text: 'normal' }],
+      ['h4:0', { text: 'normal' }],
+      ['h5:0', { text: 'normal' }],
+      ['h6:0', { text: 'normal' }],
     ])
     const mk = (entries: Array<[string, number]>) =>
       new Map<
         string,
         Record<string, { composite: number; dimensions: Record<string, number>; notes: string }>
       >(entries.map(([c, v]) => [c, { judge: { composite: v, dimensions: {}, notes: '' } }]))
-    // A real, uniform +3 lift on 3 holdout cells ⇒ CI.low > 0 ⇒ ship.
+    // A real, uniform +3 lift on six holdout cells clears the exact sign test.
     const judgeScores = mk([
       ['h1:0', 8],
       ['h2:0', 9],
       ['h3:0', 7],
+      ['h4:0', 8],
+      ['h5:0', 9],
+      ['h6:0', 7],
     ])
     const baselineJudgeScores = mk([
       ['h1:0', 5],
       ['h2:0', 6],
       ['h3:0', 4],
+      ['h4:0', 5],
+      ['h5:0', 6],
+      ['h6:0', 4],
     ])
     const result = await gate.decide({
       candidateArtifacts: candidate,
       baselineArtifacts: baseline,
       judgeScores,
       baselineJudgeScores,
-      scenarios: HOLDOUT,
+      scenarios: PROMOTION_HOLDOUT,
       cost: { candidate: 1, baseline: 1 },
       signal: new AbortController().signal,
     })

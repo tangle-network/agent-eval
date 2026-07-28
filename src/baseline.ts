@@ -69,18 +69,31 @@ export type WelchTestStatus = 'ok' | 'insufficient-sample' | 'zero-variance'
  * variance cannot define a Student-t result. `status` makes that state
  * explicit so callers cannot mistake it for evidence of no difference.
  */
-export interface WelchTestResult {
-  status: WelchTestStatus
+interface WelchTestResultBase {
   meanA: number
   meanB: number
   delta: number
-  standardError: number
-  t: number
-  df: number
-  p: number
-  ci95: [number, number] | null
-  cohensD: number | null
 }
+
+export type WelchTestResult =
+  | (WelchTestResultBase & {
+      status: 'ok'
+      standardError: number
+      t: number
+      df: number
+      p: number
+      ci95: [number, number]
+      cohensD: number
+    })
+  | (WelchTestResultBase & {
+      status: 'insufficient-sample' | 'zero-variance'
+      standardError: number
+      t: number
+      df: number
+      p: number
+      ci95: null
+      cohensD: null
+    })
 
 /**
  * Compare candidate samples against baseline per metric. Verdict logic:
@@ -212,7 +225,7 @@ export function welchsTTest(a: number[], b: number[]): WelchTestResult {
       df: Number.NaN,
       p: Number.NaN,
       ci95: null,
-      cohensD: d,
+      cohensD: null,
     }
   }
 
@@ -222,6 +235,9 @@ export function welchsTTest(a: number[], b: number[]): WelchTestResult {
     (seSquared * seSquared) /
     ((vA / a.length) ** 2 / (a.length - 1) + (vB / b.length) ** 2 / (b.length - 1))
   const p = 2 * (1 - studentTCdf(Math.abs(t), df))
+  if (d === null) {
+    throw new Error('welchsTTest: non-zero standard error produced no pooled effect size')
+  }
   const halfWidth = studentTQuantile(0.975, df) * standardError
   return {
     status: 'ok',

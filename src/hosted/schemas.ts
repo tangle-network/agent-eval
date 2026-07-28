@@ -361,19 +361,32 @@ const ReleaseSummarySchema = z
   })
   .strict()
 
-const MetricDeltaSchema = z
+const MetricDeltaBaseSchema = z
   .object({
     current: finiteNumber,
     baseline: finiteNumber,
     delta: finiteNumber,
+    baselineN: nonNegativeInteger,
+    currentN: nonNegativeInteger,
+  })
+  .strict()
+
+const MetricDeltaSchema = z.discriminatedUnion('status', [
+  MetricDeltaBaseSchema.extend({
+    status: z.literal('ok'),
     ci95: z.tuple([finiteNumber, finiteNumber]),
     pValue: finiteNumber.min(0).max(1),
     cohensD: finiteNumber,
-    baselineN: nonNegativeInteger,
-    currentN: nonNegativeInteger,
     significant: z.boolean(),
-  })
-  .strict()
+  }),
+  MetricDeltaBaseSchema.extend({
+    status: z.enum(['insufficient-sample', 'zero-variance']),
+    ci95: z.null(),
+    pValue: z.null(),
+    cohensD: z.null(),
+    significant: z.literal(false),
+  }),
+])
 
 const PriorPeriodComparisonSchema = z
   .object({
@@ -383,6 +396,7 @@ const PriorPeriodComparisonSchema = z
     metrics: z.record(z.string(), MetricDeltaSchema),
     regressedMetrics: z.array(nonEmptyString),
     improvedMetrics: z.array(nonEmptyString),
+    inconclusiveMetrics: z.array(nonEmptyString),
   })
   .strict()
 

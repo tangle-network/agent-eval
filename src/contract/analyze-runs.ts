@@ -22,10 +22,10 @@
 
 import type { AnalystRegistry } from '../analyst/registry'
 import type { AnalystFinding } from '../analyst/types'
+import { welchsTTest } from '../baseline'
 import { checkCanaries } from '../contamination-guard'
 import type { DatasetScenario } from '../dataset'
 import { continuousAgreement } from '../judge-calibration'
-import { normalCdf } from '../math/normal'
 import { pairRunRecords } from '../paired-arms'
 import { observedSplitScore } from '../rollout/reward'
 import {
@@ -541,7 +541,12 @@ function computePriorPeriodComparison(
 
   const regressedMetrics: string[] = []
   const improvedMetrics: string[] = []
+  const inconclusiveMetrics: string[] = []
   for (const [name, delta] of Object.entries(metrics)) {
+    if (delta.status !== 'ok') {
+      inconclusiveMetrics.push(name)
+      continue
+    }
     if (!delta.significant) continue
     const dir = directions[name] ?? 'higher-is-better'
     const better = dir === 'higher-is-better' ? delta.delta > 0 : delta.delta < 0
@@ -556,6 +561,7 @@ function computePriorPeriodComparison(
     metrics,
     regressedMetrics,
     improvedMetrics,
+    inconclusiveMetrics,
   }
 }
 
@@ -585,57 +591,34 @@ function collectPerDimension(runs: RunRecord[]): Record<string, number[]> {
   return out
 }
 
-/** Two-sample Welch comparison: unequal-variance t-test + CI on the delta
- *  + Cohen's d (pooled stddev). Significance = p < 0.05 AND |d| >= 0.2. */
+/** Adapt the shared two-sample Welch result to the report contract. */
 function welchCompare(baseline: number[], current: number[]): MetricDelta {
-  const baselineMean = mean(baseline)
-  const currentMean = mean(current)
-  const baselineVar = sampleVariance(baseline, baselineMean)
-  const currentVar = sampleVariance(current, currentMean)
-  const baselineN = baseline.length
-  const currentN = current.length
-  const delta = currentMean - baselineMean
-
-  // Welch standard error
-  const se = Math.sqrt(baselineVar / baselineN + currentVar / currentN)
-  // For 95% CI we use z=1.96 (large-n approximation). Customers running
-  // analyzeRuns will typically have n >= 30; the t-correction is
-  // negligible vs the practical noise floor.
-  const halfWidth = 1.96 * (se > 0 ? se : 0)
-  const ci95: [number, number] = [delta - halfWidth, delta + halfWidth]
-
-  // p-value via normal approximation to the t-statistic.
-  const t = se > 0 ? delta / se : 0
-  const pValue = se > 0 ? 2 * (1 - normalCdf(Math.abs(t))) : 1
-
-  // Cohen's d — pooled stddev.
-  const pooledStddev = Math.sqrt(
-    ((baselineN - 1) * baselineVar + (currentN - 1) * currentVar) /
-      Math.max(1, baselineN + currentN - 2),
-  )
-  const cohensD = pooledStddev > 0 ? delta / pooledStddev : 0
-
-  // Significance: BOTH p < 0.05 AND |d| >= 0.2 (small-effect threshold).
-  const significant = pValue < 0.05 && Math.abs(cohensD) >= 0.2
-
-  return {
-    current: currentMean,
-    baseline: baselineMean,
-    delta,
-    ci95,
-    pValue,
-    cohensD,
-    baselineN,
-    currentN,
-    significant,
+  const result = welchsTTest(baseline, current)
+  const base = {
+    current: result.meanB,
+    baseline: result.meanA,
+    delta: result.delta,
+    baselineN: baseline.length,
+    currentN: current.length,
   }
-}
-
-function sampleVariance(xs: number[], xsMean: number): number {
-  if (xs.length < 2) return 0
-  let s = 0
-  for (const x of xs) s += (x - xsMean) ** 2
-  return s / (xs.length - 1)
+  if (result.status !== 'ok') {
+    return {
+      ...base,
+      status: result.status,
+      ci95: null,
+      pValue: null,
+      cohensD: null,
+      significant: false,
+    }
+  }
+  return {
+    ...base,
+    status: 'ok',
+    ci95: result.ci95,
+    pValue: result.p,
+    cohensD: result.cohensD,
+    significant: result.p < 0.05 && Math.abs(result.cohensD) >= 0.2,
+  }
 }
 
 // ── Composite + split selection ─────────────────────────────────────
@@ -1170,7 +1153,7 @@ function buildRecommendations(ctx: RecommendationContext): Recommendation[] {
     const label = ppc.windowLabel ?? 'baseline period'
     for (const name of ppc.regressedMetrics) {
       const d = ppc.metrics[name]
-      if (!d) continue
+      if (d?.status !== 'ok') continue
       out.push({
         priority: 'critical',
         kind: 'investigate',
@@ -1181,12 +1164,27 @@ function buildRecommendations(ctx: RecommendationContext): Recommendation[] {
     }
     for (const name of ppc.improvedMetrics) {
       const d = ppc.metrics[name]
-      if (!d) continue
+      if (d?.status !== 'ok') continue
       out.push({
         priority: 'low',
         kind: 'ship',
         title: `${name} improved from ${d.baseline.toFixed(3)} → ${d.current.toFixed(3)} vs ${label}`,
         detail: `Welch CI95 = [${d.ci95[0].toFixed(3)}, ${d.ci95[1].toFixed(3)}], p=${d.pValue.toFixed(4)}, Cohen's d=${d.cohensD.toFixed(2)} (n_current=${d.currentN}, n_baseline=${d.baselineN}). Statistically significant improvement worth flagging.`,
+        evidencePath: `priorPeriodComparison.metrics.${name}`,
+      })
+    }
+    for (const name of ppc.inconclusiveMetrics) {
+      const d = ppc.metrics[name]
+      if (!d || d.status === 'ok' || d.delta === 0) continue
+      const reason =
+        d.status === 'zero-variance'
+          ? 'both periods have zero observed variance'
+          : 'one or both periods have fewer than two observations'
+      out.push({
+        priority: 'high',
+        kind: 'investigate',
+        title: `${name} changed from ${d.baseline.toFixed(3)} → ${d.current.toFixed(3)} vs ${label}; inference unavailable`,
+        detail: `Observed delta ${d.delta.toFixed(3)} across n_current=${d.currentN} and n_baseline=${d.baselineN}, but ${reason}. The report does not fabricate a p-value, confidence interval, or effect size; inspect independence and data capture before acting.`,
         evidencePath: `priorPeriodComparison.metrics.${name}`,
       })
     }

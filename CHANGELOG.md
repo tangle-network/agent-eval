@@ -62,6 +62,10 @@ Full evidence, per-statistic verdicts, and the dependency argument:
   0.133.2, which changed no statistics math.
 - `mannWhitneyU` and `wilcoxonSignedRank` compute an EXACT conditional p by default
   inside the enumeration thresholds, conditioning on the observed tie pattern.
+- `mannWhitneyU` chooses exact computation from bounded state and work estimates,
+  so imbalanced designs such as 1 v 24 remain exact without admitting expensive
+  balanced designs. Its automatic permutation seed is invariant to observation
+  order and to swapping the two groups.
 - Deleted `wilcoxonSignedRank`'s `n < 6` hard return of `{w: 0, p: 1}`.
 - The asymptotic rank-test path applies the tie correction and the continuity
   correction; both were missing.
@@ -81,6 +85,16 @@ Full evidence, per-statistic verdicts, and the dependency argument:
   replicates were the same run. Non-finite seeds now throw.
 - Unseeded bootstraps derive their seed from the data instead of `Math.random`, so
   an interval is reproducible whether or not the caller passes a seed.
+- `studentTCdf` uses the regularized incomplete beta for every finite degree of
+  freedom. The deleted normal shortcut changed `df = 102, t = 1.98` from the true
+  two-sided `p = 0.050398` to `0.047703`.
+- At the default 95% confidence, campaign promotion decisions use an exact
+  one-sided sign test from 6 through 19 paired observations and the bootstrap
+  interval from 20 onward. Samples too small to attain the requested confidence
+  remain inconclusive.
+- Prior-period reports use the shared Welch implementation. Zero-variance and
+  under-sized comparisons carry an explicit status and null inferential fields
+  instead of fabricated `p = 1`, `d = 0`, and a zero-width interval.
 
 ### Changed — BREAKING
 
@@ -104,20 +118,26 @@ Full evidence, per-statistic verdicts, and the dependency argument:
 - `MetricVerdict.cohensD` and `LiftInsight.pValue` are nullable accordingly.
 - `PairedBootstrapResult` carries `gateEligible`, false below
   `BOOTSTRAP_GATE_MIN_N = 20`.
+- `welchsTTest` returns a status-tagged full result with means, delta, standard
+  error, degrees of freedom, Student-t interval, p-value, and Cohen's d.
+- Prior-period `MetricDelta` values carry the same status. Invalid inference has
+  null `ci95`, `pValue`, and `cohensD`, and the comparison lists those metric
+  names in `inconclusiveMetrics`.
 
 ### Added
 
 - `scripts/generate-statistics-oracle.py` + `tests/fixtures/statistics-oracle.json`:
-  153 scipy/statsmodels-generated golden values across 22 statistics, asserted by
+  154 scipy/statsmodels-generated golden values across 22 statistics, asserted by
   `tests/statistics-oracle.test.ts`. scipy is a CI oracle and is never a runtime
   dependency.
-- `tests/statistics-library-crosscheck.test.ts` cross-checks the three correction
-  functions against `@stdlib/stats-padjust` and the untied exact nulls against
-  `lib-r-math.js`, both devDependencies only.
+- `tests/statistics-library-crosscheck.test.ts` cross-checks untied exact null
+  distributions against `lib-r-math.js`. Multiple-comparison functions are pinned
+  to statsmodels-generated fixture values; `@stdlib/stats-padjust` was removed.
 - First test coverage for `welchsTTest` / `compareToBaseline`, which gated
   improved / regressed / stable verdicts with nothing asserting their numbers.
 - Exported `normalCdf`, `studentTCdf`, `BOOTSTRAP_GATE_MIN_N`,
-  `MANN_WHITNEY_EXACT_MAX_N`, `WILCOXON_EXACT_MAX_N`, `DEFAULT_PERMUTATIONS`.
+  `MANN_WHITNEY_EXACT_MAX_STATES`, `MANN_WHITNEY_EXACT_MAX_WORK`,
+  `WILCOXON_EXACT_MAX_N`, `DEFAULT_PERMUTATIONS`, and `pairedDeltaTest`.
 
 ### Trusted-head recovery
 

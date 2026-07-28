@@ -1343,6 +1343,15 @@ describe('rank tests: exact-versus-asymptotic policy', () => {
     expect(forward.p).toBe(reversed.p)
   })
 
+  it('permutation results are invariant when the two groups are swapped', () => {
+    const a = Array.from({ length: 13 }, (_, index) => index)
+    const b = a.map((value) => value + 3.5)
+    const forward = mannWhitneyU(a, b, { permutations: 10_000 })
+    const swapped = mannWhitneyU(b, a, { permutations: 10_000 })
+    expect(forward.p).toBe(swapped.p)
+    expect(forward.pFloor).toBe(swapped.pFloor)
+  })
+
   it('uses the conditional tie floor and never samples below it', () => {
     const a = Array<number>(13).fill(0)
     const b = [...Array<number>(7).fill(0), ...Array<number>(6).fill(1)]

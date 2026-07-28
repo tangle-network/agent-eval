@@ -373,7 +373,7 @@ export interface ReleaseSummary {
   issues: string[]
 }
 
-export interface MetricDelta {
+interface MetricDeltaBase {
   /** Current-period mean. */
   current: number
   /** Baseline-period mean. */
@@ -382,21 +382,31 @@ export interface MetricDelta {
    *  the consumer-side interpretation: "higher current" — semantic
    *  direction depends on the metric). */
   delta: number
-  /** Welch 95% confidence interval on the delta. Two-sample, unpaired —
-   *  the baseline and current run sets may have different scenarios. */
-  ci95: [number, number]
-  /** Welch t-test p-value (two-sided). */
-  pValue: number
-  /** Cohen's d (pooled stddev). Effect size, signed. */
-  cohensD: number
   /** Sample sizes. */
   baselineN: number
   currentN: number
-  /** True when p < 0.05 AND |d| >= 0.2 (small-effect threshold). The
-   *  conjunction prevents large-effect-but-noisy and significant-but-
-   *  tiny from triggering recommendations. */
-  significant: boolean
 }
+
+export type MetricDelta =
+  | (MetricDeltaBase & {
+      status: 'ok'
+      /** Welch 95% confidence interval on the delta. Two-sample, unpaired. */
+      ci95: [number, number]
+      /** Welch t-test p-value (two-sided). */
+      pValue: number
+      /** Cohen's d (pooled stddev). Effect size, signed. */
+      cohensD: number
+      /** True when p < 0.05 AND |d| >= 0.2. */
+      significant: boolean
+    })
+  | (MetricDeltaBase & {
+      status: 'insufficient-sample' | 'zero-variance'
+      /** Null because the observed data cannot define Welch inference. */
+      ci95: null
+      pValue: null
+      cohensD: null
+      significant: false
+    })
 
 export interface PriorPeriodComparison {
   /** Sample counts. */
@@ -413,6 +423,8 @@ export interface PriorPeriodComparison {
   regressedMetrics: string[]
   /** Metric names where current is significantly BETTER than baseline. */
   improvedMetrics: string[]
+  /** Metrics whose samples cannot define a Welch comparison. */
+  inconclusiveMetrics: string[]
 }
 
 export interface Recommendation {

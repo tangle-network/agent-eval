@@ -283,14 +283,7 @@ export function mannWhitneyU(
   }
 
   const permutations = resolvePermutations('mannWhitneyU', opts.permutations)
-  const rng =
-    opts.seed === undefined
-      ? makeRng(
-          undefined,
-          [...a].sort((left, right) => left - right),
-          [...b].sort((left, right) => left - right),
-        )
-      : makeRng(opts.seed)
+  const rng = opts.seed === undefined ? makeRng(symmetricTwoSampleSeed(a, b)) : makeRng(opts.seed)
   let atLeastAsExtreme = 0
   const pool = [...doubled]
   for (let iteration = 0; iteration < permutations; iteration++) {
@@ -2037,6 +2030,15 @@ function seedFromData(series: readonly (readonly number[])[]): number {
     hash = Math.imul(hash ^ 0xff, 0x01000193)
   }
   return hash | 0
+}
+
+/** Order-independent seed for a symmetric two-sample statistic. */
+function symmetricTwoSampleSeed(a: readonly number[], b: readonly number[]): number {
+  const sortedA = [...a].sort((left, right) => left - right)
+  const sortedB = [...b].sort((left, right) => left - right)
+  const forward = seedFromData([sortedA, sortedB]) >>> 0
+  const reversed = seedFromData([sortedB, sortedA]) >>> 0
+  return Math.min(forward, reversed)
 }
 
 /** Tiny seedable PRNG (mulberry32) — deterministic resampling/shuffling, not
