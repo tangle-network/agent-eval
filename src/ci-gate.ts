@@ -62,11 +62,25 @@ export async function evaluateContract(
   }
 
   const samples: MetricSamples[] = []
+  const measurementBreaches: string[] = []
   for (const m of contract.metrics) {
     const extract = m.extract ?? defaultExtract(m.metric)
     const baseline = await extractAll(baselineRuns, extract, store)
     const candidate = await extractAll(candidateRuns, extract, store)
-    if (baseline.length < 2 || candidate.length < 2) continue
+    if (baseline.length !== baselineRuns.length || candidate.length !== candidateRuns.length) {
+      measurementBreaches.push(
+        `metric "${m.metric}" measured ${candidate.length}/${candidateRuns.length} candidate ` +
+          `and ${baseline.length}/${baselineRuns.length} baseline run(s); every supplied run must report the metric`,
+      )
+      continue
+    }
+    if (baseline.length < 2 || candidate.length < 2) {
+      measurementBreaches.push(
+        `metric "${m.metric}" has too few comparable samples: baseline ${baseline.length}, ` +
+          `candidate ${candidate.length}; need at least 2 per arm`,
+      )
+      continue
+    }
     samples.push({ metric: m.metric, higherIsBetter: m.higherIsBetter, baseline, candidate })
   }
 
@@ -82,7 +96,7 @@ export async function evaluateContract(
     sloReport = checkSlos(agg, contract.slos)
   }
 
-  const breaches: string[] = []
+  const breaches: string[] = [...measurementBreaches]
   for (const metric of baselineReport.metrics) {
     const decl = contract.metrics.find((m) => m.metric === metric.metric)
     if (!decl) continue

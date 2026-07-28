@@ -55,6 +55,12 @@ describe('description-length primitives', () => {
     expect(bits).toBeCloseTo(10, 6) // −log2(2^-10)
     expect(Number.isFinite(bits)).toBe(true)
   })
+
+  it('rejects a residual request containing a task with no score', () => {
+    expect(() => dataDescriptionBits(new Map([['a', 1]]), ['a', 'b'], 2 ** -10)).toThrow(
+      /no score for task 'b'/,
+    )
+  })
 })
 
 describe('DescriptionLengthGate', () => {
@@ -135,6 +141,52 @@ describe('DescriptionLengthGate', () => {
     )
     expect(decision.promote).toBe(false)
     expect(decision.rejectionCode).toBe('few_tasks')
+  })
+
+  describe('missing task scores', () => {
+    const taskIds = Array.from({ length: 26 }, (_, index) => `t${String(index).padStart(2, '0')}`)
+    const scores = (ids: string[], score: number): Record<string, number> =>
+      Object.fromEntries(ids.map((id) => [id, score]))
+
+    it('refuses to decide on the 6 tasks a candidate answered out of 26 dealt', () => {
+      const decision = new DescriptionLengthGate({ baselineKey: 'baseline' }).evaluate(
+        candidate('cand', small, scores(taskIds.slice(0, 6), 1)),
+        candidate('baseline', small, scores(taskIds, 0.5)),
+      )
+
+      expect(decision.promote).toBe(false)
+      expect(decision.rejectionCode).toBe('missing_task_scores')
+      expect(decision.evidence.tasks).toBe(6)
+      expect(decision.reason).toMatch(/candidate answered 6\/26, 20 missing/)
+    })
+
+    it('refuses symmetrically when the baseline omitted task scores', () => {
+      const decision = new DescriptionLengthGate({ baselineKey: 'baseline' }).evaluate(
+        candidate('cand', small, scores(taskIds, 1)),
+        candidate('baseline', small, scores(taskIds.slice(0, 6), 0.5)),
+      )
+
+      expect(decision.promote).toBe(false)
+      expect(decision.rejectionCode).toBe('missing_task_scores')
+      expect(decision.reason).toMatch(/baseline answered 6\/26, 20 missing/)
+    })
+
+    it('counts unscored run records as dealt tasks', () => {
+      const answered = taskIds.slice(0, 6).map((task) => record('cand', task, 1))
+      const unscored = taskIds.slice(6).map((task) => {
+        const run = record('cand', task, 0)
+        run.outcome = { raw: { note: 'no score produced' } }
+        return run
+      })
+      const decision = new DescriptionLengthGate({ baselineKey: 'baseline' }).evaluate(
+        { content: small, runs: [...answered, ...unscored] },
+        candidate('baseline', small, scores(taskIds, 0.5)),
+      )
+
+      expect(decision.promote).toBe(false)
+      expect(decision.rejectionCode).toBe('missing_task_scores')
+      expect(decision.reason).toMatch(/candidate answered 6\/26, 20 missing/)
+    })
   })
 
   it('does not count raw score-like metrics as task evidence', () => {

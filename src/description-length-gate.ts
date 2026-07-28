@@ -1,4 +1,5 @@
 import { gzipSync } from 'node:zlib'
+import { ValidationError } from './errors'
 import { type RunRecord, runTaskScore } from './run-record'
 
 /**
@@ -40,7 +41,11 @@ import { type RunRecord, runTaskScore } from './run-record'
  * `evaluate` per (candidate, baseline) pair.
  */
 
-export type DescriptionLengthRejectionCode = 'few_tasks' | 'no_total_gain' | 'model_bloat'
+export type DescriptionLengthRejectionCode =
+  | 'few_tasks'
+  | 'missing_task_scores'
+  | 'no_total_gain'
+  | 'model_bloat'
 
 export interface DescriptionLengthConfig {
   /** Stable label of the baseline. Required — paper-grade evaluation never
@@ -110,19 +115,29 @@ function taskKey(run: RunRecord): string {
   return run.scenarioId
 }
 
-/** Mean per-task score for a model: { taskKey -> mean(score over its runs) }. */
-function perTaskMeanScore(runs: RunRecord[]): Map<string, number> {
+interface ArmTaskScores {
+  dealt: Set<string>
+  answered: Map<string, number>
+}
+
+/** Tasks one arm was dealt and the mean score for each task it answered. */
+function perTaskMeanScore(runs: RunRecord[]): ArmTaskScores {
+  const dealt = new Set<string>()
   const acc = new Map<string, { sum: number; n: number }>()
   for (const run of runs) {
+    const key = taskKey(run)
+    dealt.add(key)
     const s = runScore(run)
     if (s === undefined) continue
-    const key = taskKey(run)
     const cur = acc.get(key) ?? { sum: 0, n: 0 }
     cur.sum += s
     cur.n += 1
     acc.set(key, cur)
   }
-  return new Map([...acc].map(([k, v]) => [k, v.sum / v.n]))
+  return {
+    dealt,
+    answered: new Map([...acc].map(([key, value]) => [key, value.sum / value.n])),
+  }
 }
 
 /** Compressed-model bits — the model's description length L_model. gzip is a
@@ -142,7 +157,9 @@ export function dataDescriptionBits(
   let bits = 0
   for (const key of keys) {
     const s = scoreByTask.get(key)
-    if (s === undefined) continue
+    if (s === undefined) {
+      throw new ValidationError(`dataDescriptionBits: no score for task '${key}'`)
+    }
     bits += -Math.log2(Math.max(s, scoreFloor))
   }
   return bits
@@ -175,11 +192,14 @@ export class DescriptionLengthGate {
     baseline: DescriptionLengthCandidate,
   ): DescriptionLengthDecision {
     const candidateId = inferCandidateId(candidate.runs, this.baselineKey)
-    const candScores = perTaskMeanScore(candidate.runs)
-    const baseScores = perTaskMeanScore(baseline.runs)
-    // Enlarged evidence = tasks scored on BOTH sides (paired, like the paper's
-    // "both models refit on the same accumulated evidence").
-    const shared = [...candScores.keys()].filter((k) => baseScores.has(k))
+    const candidateTasks = perTaskMeanScore(candidate.runs)
+    const baselineTasks = perTaskMeanScore(baseline.runs)
+    const candScores = candidateTasks.answered
+    const baseScores = baselineTasks.answered
+    const dealt = [...new Set([...candidateTasks.dealt, ...baselineTasks.dealt])].sort()
+    const shared = dealt.filter((key) => candScores.has(key) && baseScores.has(key))
+    const candidateMissing = dealt.filter((key) => !candScores.has(key))
+    const baselineMissing = dealt.filter((key) => !baseScores.has(key))
 
     const modelBits = {
       candidate: this.lambda * modelDescriptionBits(candidate.content),
@@ -213,6 +233,24 @@ export class DescriptionLengthGate {
         rejectionCode: 'few_tasks',
       }
     }
+    if (candidateMissing.length > 0 || baselineMissing.length > 0) {
+      const missing = [
+        candidateMissing.length > 0
+          ? `candidate answered ${candScores.size}/${dealt.length}, ${candidateMissing.length} missing: ${formatTaskIds(candidateMissing)}`
+          : null,
+        baselineMissing.length > 0
+          ? `baseline answered ${baseScores.size}/${dealt.length}, ${baselineMissing.length} missing: ${formatTaskIds(baselineMissing)}`
+          : null,
+      ].filter((part): part is string => part !== null)
+      return {
+        ...base,
+        promote: false,
+        reason:
+          `missing_task_scores: ${missing.join('; ')}. ` +
+          `The decision cannot use only the ${shared.length} task(s) both arms answered`,
+        rejectionCode: 'missing_task_scores',
+      }
+    }
     if (!(evidence.deltaBits < -this.marginBits)) {
       // No net compression. Name the cause: did the model bloat eat a real
       // data gain, or was there no data gain at all?
@@ -236,6 +274,12 @@ export class DescriptionLengthGate {
       rejectionCode: null,
     }
   }
+}
+
+function formatTaskIds(ids: string[]): string {
+  const shown = ids.slice(0, 5)
+  const remaining = ids.length - shown.length
+  return remaining > 0 ? `${shown.join(', ')}, +${remaining} more` : shown.join(', ')
 }
 
 function inferCandidateId(runs: RunRecord[], baselineKey: string): string {

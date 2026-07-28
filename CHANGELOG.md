@@ -4,6 +4,14 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ---
 
+## Unreleased
+
+### Fixed
+
+- `DescriptionLengthGate` now returns `missing_task_scores` instead of evaluating only the tasks both arms happened to score.
+- `evaluateContract()` now fails when declared metrics are partially measured, under-sampled, or absent.
+- `decideReferenceReplayPromotion()` now refuses comparisons built from different scenario identities or duplicate counts.
+
 ## [0.134.0] - 2026-07-28 - isolated proposal inputs
 
 ### Changed
