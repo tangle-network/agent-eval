@@ -430,6 +430,7 @@ export {
   toSftRows,
   trainingReward,
   trainingScore,
+  unmintableReasons,
   validateRolloutLine,
 } from './rollout/index'
 export type {

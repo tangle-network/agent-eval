@@ -4,7 +4,7 @@ import type { RunRecord } from '../run-record'
 import type { LlmSpan, ToolSpan } from '../trace/schema'
 import { InMemoryTraceStore } from '../trace/store'
 import { toRewardRows, toSftRows } from './exporters'
-import { mintRolloutRows } from './mint'
+import { mintRolloutRows, unmintableReasons } from './mint'
 import { validateRolloutLine } from './schema'
 
 function record(overrides: Partial<RunRecord> = {}): RunRecord {
@@ -340,6 +340,28 @@ describe('the mint door on records older than the type', () => {
     const { rows } = await mintRolloutRows([record()], await seededStore())
     expect(rows).toHaveLength(1)
     expect(validateRolloutLine(rows[0]!)).toEqual([])
+  })
+
+  it('unmintableReasons partitions a ledger without an exception per record', async () => {
+    // What a caller holding 65 ledgers actually needs: which records predate
+    // 0.126, from the SAME list the door refuses on, so the two cannot drift.
+    const ledger = [
+      record(),
+      without(record({ runId: 'stale-1', costUsd: 0 }), 'costProvenance'),
+      without(record({ runId: 'stale-2' }), 'terminalOutcome', 'scenarioId'),
+    ]
+    expect(ledger.map((r) => unmintableReasons(r).length)).toEqual([0, 1, 2])
+
+    const mintable = ledger.filter((r) => unmintableReasons(r).length === 0)
+    const { rows } = await mintRolloutRows(mintable, await seededStore())
+    expect(rows).toHaveLength(1)
+    expect(rows[0]!.run_id).toBe('run-1')
+
+    // Every reason the inspector reports is a reason the door throws.
+    const stale = ledger[1]!
+    await expect(mintRolloutRows([stale], await seededStore())).rejects.toThrow(
+      unmintableReasons(stale)[0]!.split('.')[0],
+    )
   })
 })
 

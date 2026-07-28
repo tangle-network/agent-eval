@@ -4,6 +4,88 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ---
 
+## [0.134.3] - 2026-07-28 - mint refuses what nobody measured
+
+### Consumer notice — minting a pre-0.126 RunRecord now names the field instead of crashing
+
+`mintRolloutRows` reads `record.costProvenance.kind`.
+That field was OPTIONAL through 0.125 — documented verbatim as "Optional only so
+existing serialized RunRecords remain valid" — and became REQUIRED in 0.126, with
+no on-disk migration and with the optional chain dropped in the same commit.
+Every RunRecord a 0.125-era producer persisted therefore kills mint with
+`TypeError: Cannot read properties of undefined (reading "kind")`, naming neither
+the field nor the run.
+It typechecks clean on the caller's side because the TYPE says required; the
+RECORDS are simply older than the type.
+Measured in one consumer repo: 65 of 65 ledgers, 2742 of 2742 records, 100 %
+failure.
+
+The same record is now refused by name, and the refusal spells the backfill —
+verbatim, from the built package:
+
+```
+ValidationError: Cannot mint rollout for run run-0125-era: costProvenance is missing.
+Records written before agent-eval 0.126 predate this field and carry `costUsd: 0` as
+the documented uncaptured sentinel, which is NOT an observed zero. Backfill it as
+costProvenance: { kind: 'uncaptured', usd: null } WITH costUsd: null — an uncaptured
+cost whose costUsd is non-null is rejected by validateRunRecord, so provenance alone
+leaves the record invalid.
+  terminalOutcome is missing. It became required in agent-eval 0.126. Backfill it from
+root-run or process evidence, or as 'unknown' when the producer has none — mint will
+not decide the line's is_completed and is_truncated for you.
+```
+
+**Audit the rollout rows you already published.**
+Restoring the 0.125 optional chain would have made mint run again AND restored a
+false dollar figure, so it was not the fix.
+Under `record.costProvenance?.kind === 'uncaptured'` an absent provenance evaluates
+to `undefined === 'uncaptured'` → false, and the next line is
+`cost: { usd: uncaptured ? null : record.costUsd }` — so every 0.125-era record
+carrying the documented `costUsd: 0` uncaptured sentinel minted a line asserting
+`cost.usd: 0`.
+A rollout row whose `cost.usd` is `0` and whose source record was uncaptured **was
+never a measured zero**: it is a cost nobody captured, published into a dataset as a
+measurement.
+Re-mint those rows from backfilled records, or drop the column — do not average over
+them.
+
+Four more fields on the same record fail the same way in the same forty lines, and
+three of them fail silently:
+
+- `outcome` and `tokenUsage` are dereferenced unguarded — the same `TypeError`, with the same missing field name.
+- `terminalOutcome` (also newly required in 0.126) is safe on 0.134.2 only BY ACCIDENT: it is compared with `===` rather than dereferenced, so an absent value MINTS, as `is_completed: false, is_truncated: false, error: null` — three claims about how a run ended, made from no evidence.
+- `outcome.raw` MINTS as `metrics: {}`, because `{ ...undefined }` spreads without complaint. "This run reported no metrics" is a different claim from "this record predates the field".
+- `scenarioId` (also newly required in 0.126) reached `assertMinted` and threw a bare `Error` naming the LINE's empty `task.instance_id` — when the thing the caller has to fix is the RECORD.
+
+**The mint door throws; it does not normalise.**
+Normalising an absent `costProvenance` to `{kind: 'uncaptured', usd: null}` would be
+kinder to historical data and it is still wrong, for two reasons that are visible in
+the code.
+It cannot cover the record, only part of it: `terminalOutcome` feeds `is_completed`
+and `is_truncated`, which the rollout schema requires to be **boolean**, so there is
+no null to fall back to and every possible default is a claim about how the run
+ended.
+And normalising the cost requires knowing what `costUsd: 0` meant — a genuinely free
+run and an uncaptured one are the same bytes in a pre-0.126 record, and only the
+producer can tell them apart.
+That is the same guess the dropped optional chain was already making silently.
+The backfill belongs at your store, in one pass, where `costUsd` can be corrected
+alongside `costProvenance`; the refusal names the run, names **every** missing field
+at once, and spells the value to write.
+
+### Changed — behavior
+
+- `mintRolloutRows` refuses a record missing any field the rollout line is built from, with a `ValidationError` naming the run and each missing field: `costProvenance`, `tokenUsage` (+ `.input`, `.output`), `outcome` (+ `.raw`), `terminalOutcome`, `scenarioId`.
+  The check runs on the only constructor of a minted line, so the traced path and the untraced gap-line path are both covered.
+  It runs **before** the existing task-score guard, which reads `record.outcome.searchScore` on its way to an answer and would otherwise `TypeError` from inside the guard that exists to produce a clean refusal.
+- This is deliberately not `validateRunRecord`.
+  That validator answers "is this a valid RunRecord", a wider question than "can a rollout line be built from this one" — it also enforces model-snapshot discipline and the `costUsd === costProvenance.usd` agreement, and routing the mint door through it would refuse records mint can mint honestly today.
+
+### Changed — API (additive; no field changed meaning, none removed)
+
+- `unmintableReasons(record): string[]` (new export) — why a record cannot be minted, one entry per missing field, empty when it can.
+  Exported so a caller can partition a whole ledger without catching an exception per record, and without re-deriving the field list on their side: it is the same list the door refuses on, so the two cannot drift.
+
 ## [0.134.2] - 2026-07-28 - complete multishot cost accounting
 
 ### Fixed

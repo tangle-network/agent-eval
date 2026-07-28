@@ -141,6 +141,146 @@ function requireTaskScore(record: RunRecord): void {
   }
 }
 
+const isObject = (value: unknown): value is Record<string, unknown> =>
+  typeof value === 'object' && value !== null
+
+interface MintFieldCheck {
+  /** The RunRecord path, spelled the way the caller has to fix it. */
+  readonly field: string
+  /** True when the record carries something the line can honestly be built from. */
+  readonly present: (bag: Record<string, unknown>) => boolean
+  /** What the caller writes onto the record, and why that value and not another. */
+  readonly remedy: string
+}
+
+/**
+ * The RunRecord fields mint reads that a record can be missing even though the
+ * TYPE says it cannot. There are exactly two ways that happens:
+ *
+ *   1. The field was OPTIONAL when the record was serialized. `costProvenance`,
+ *      `terminalOutcome` and `scenarioId` were optional through agent-eval
+ *      0.125 and became required in 0.126, with no on-disk migration — so every
+ *      ledger written before 0.126 is full of records the type calls complete.
+ *   2. Mint reads a level DEEPER than the record's own type is checked at:
+ *      `outcome.raw`, `tokenUsage.input`, `tokenUsage.output`.
+ *
+ * Nothing else needs a check here. Every other field mint copies is a top-level
+ * scalar landing in a typed slot on the line, where an absent value arrives as
+ * `undefined` and `assertMinted` refuses it by name. These are the ones where an
+ * absent value instead kills the join with `TypeError: Cannot read properties of
+ * undefined`, or — worse — mints a line that reads as measured.
+ *
+ * This is deliberately NOT `validateRunRecord`. That validator answers "is this
+ * a valid RunRecord", which is a wider question than "can a rollout line be
+ * built from this one": it also enforces model-snapshot discipline, the
+ * `terminalFailureReason` coupling, and the `costUsd === costProvenance.usd`
+ * agreement. Routing the mint door through it would refuse records mint can
+ * mint honestly today (a model alias with no snapshot date, for one), which is
+ * a policy change with its own blast radius and not this bug. The door asks the
+ * narrower question and answers it precisely.
+ */
+const MINT_FIELD_CHECKS: readonly MintFieldCheck[] = [
+  {
+    field: 'costProvenance',
+    present: (bag) => isObject(bag.costProvenance) && typeof bag.costProvenance.kind === 'string',
+    remedy:
+      "Records written before agent-eval 0.126 predate this field and carry `costUsd: 0` as the documented uncaptured sentinel, which is NOT an observed zero. Backfill it as costProvenance: { kind: 'uncaptured', usd: null } WITH costUsd: null — an uncaptured cost whose costUsd is non-null is rejected by validateRunRecord, so provenance alone leaves the record invalid.",
+  },
+  {
+    field: 'tokenUsage',
+    present: (bag) => isObject(bag.tokenUsage),
+    remedy:
+      "The line's cost.tokens_in and cost.tokens_out are read from it. Backfill it from the provider's usage report; mint will not write 0 for tokens nobody counted.",
+  },
+  {
+    field: 'tokenUsage.input',
+    present: (bag) => !isObject(bag.tokenUsage) || typeof bag.tokenUsage.input === 'number',
+    remedy: "The line's cost.tokens_in is read from it, and a missing count is not a zero count.",
+  },
+  {
+    field: 'tokenUsage.output',
+    present: (bag) => !isObject(bag.tokenUsage) || typeof bag.tokenUsage.output === 'number',
+    remedy: "The line's cost.tokens_out is read from it, and a missing count is not a zero count.",
+  },
+  {
+    field: 'outcome',
+    present: (bag) => isObject(bag.outcome),
+    remedy:
+      "The line's reward, reward_source and metrics are all read from it. A record with no outcome carries no training label at all, and mint refuses an unlabeled row.",
+  },
+  {
+    field: 'outcome.raw',
+    // Reported only when `outcome` itself is present: one absent field should
+    // produce one reason per CAUSE, not one per path that dereferences it.
+    present: (bag) => !isObject(bag.outcome) || isObject(bag.outcome.raw),
+    remedy:
+      'It is the metric bag copied verbatim into the line\'s outcome.metrics. `{ ...undefined }` spreads to `{}` without complaint, so an absent bag would mint as "this run reported no metrics" — a different claim from "this record predates the field". Backfill it as {} only when that is what you mean.',
+  },
+  {
+    field: 'terminalOutcome',
+    present: (bag) => typeof bag.terminalOutcome === 'string',
+    remedy:
+      "It became required in agent-eval 0.126. Backfill it from root-run or process evidence, or as 'unknown' when the producer has none — mint will not decide the line's is_completed and is_truncated for you.",
+  },
+  {
+    field: 'scenarioId',
+    present: (bag) => typeof bag.scenarioId === 'string' && bag.scenarioId.length > 0,
+    remedy:
+      "It became required in agent-eval 0.126 and becomes the line's task.instance_id, which must be a non-empty string. Backfill it from the scenario the run was dealt (pre-0.126 producers often left it in outcome.raw.scenario_id).",
+  },
+]
+
+/**
+ * Why a record cannot be minted, one entry per missing field, empty when it can.
+ *
+ * Exported so a caller can partition a whole ledger — "which of my 2742 records
+ * predate 0.126" — without catching an exception per record, and without
+ * re-deriving the field list on their side. A re-derived list is a list that
+ * drifts from the door it is supposed to predict.
+ *
+ * Takes a `RunRecord` because that is what the caller holds and what the
+ * compiler agrees they hold. The type is precisely the thing that is wrong, so
+ * the checks read the record as the untyped bag it actually is on disk.
+ */
+export function unmintableReasons(record: RunRecord): string[] {
+  const bag = record as unknown as Record<string, unknown>
+  return MINT_FIELD_CHECKS.filter((check) => !check.present(bag)).map(
+    (check) => `${check.field} is missing. ${check.remedy}`,
+  )
+}
+
+/**
+ * The mint door THROWS on a record it cannot build a line from. It does NOT
+ * normalise an absent `costProvenance` to `{kind:'uncaptured', usd:null}`, and
+ * the choice is not stylistic:
+ *
+ *   - Normalising cannot cover the record, only part of it. `terminalOutcome`
+ *     feeds `is_completed` and `is_truncated`, which the rollout schema requires
+ *     to be BOOLEAN — there is no null to fall back to, so every possible
+ *     default is a claim about how the run ended. A door that quietly fixes the
+ *     cost and invents the ending is a door no caller can predict.
+ *   - Normalising the cost requires knowing what `costUsd: 0` meant, and mint
+ *     cannot know. A genuinely free run and an uncaptured one are the same bytes
+ *     in a pre-0.126 record; only the producer can tell them apart. Guessing is
+ *     exactly the failure this guard exists to stop — the 0.125 optional chain
+ *     `record.costProvenance?.kind === 'uncaptured'` already made that guess,
+ *     silently, and every record it touched minted `cost.usd: 0`: an unmeasured
+ *     cost published as a measured zero, into a training dataset.
+ *   - `requireTaskScore`, directly above, already refuses an unlabeled record
+ *     for the same reason: "nobody graded this" is not "graded zero". "Nobody
+ *     billed this" is not "billed zero".
+ *
+ * The caller who wants historical records minted backfills them at their store,
+ * in one pass, where `costUsd` can be corrected alongside `costProvenance` —
+ * which is the only place that decision can be made correctly. The refusal names
+ * the run, names every missing field, and spells the value to write.
+ */
+function requireMintableRecord(record: RunRecord): void {
+  const reasons = unmintableReasons(record)
+  if (reasons.length === 0) return
+  throw new ValidationError(`Cannot mint rollout for run ${record.runId}: ${reasons.join('\n  ')}`)
+}
+
 const SPLIT_FROM_TAG: Record<RunRecord['splitTag'], RolloutSplit> = {
   search: 'search',
   dev: 'dev',
@@ -155,6 +295,16 @@ function mintLine(
   capturedAt: string,
   gap?: string,
 ): MintedRolloutLine {
+  // Field presence first, and BEFORE `requireTaskScore`: that guard reads
+  // `record.outcome.searchScore` on its way to the answer, so an absent
+  // `outcome` would throw a bare TypeError from inside the guard whose whole
+  // job is to produce a clean refusal.
+  //
+  // Both branches of `mintRolloutRows` — the traced line and the gap line —
+  // land here, which is the point: `mintLine` is the only constructor of a
+  // `MintedRolloutLine` from a RunRecord, so there is no path into the waist
+  // that skips the check and no way to get this wrong from the outside.
+  requireMintableRecord(record)
   // A missing task score is refused before anything is built: an
   // execution-only record has no training label, and a missing label is
   // neither a zero reward nor a mintable row.
