@@ -48,13 +48,14 @@ export interface OpencodeSessionRow {
 // the failure moved around as test files were added). A require obtained from
 // `createRequire` is not an analyzable module reference in either tool, so
 // neither can rewrite it.
-const nodeRequire = createRequire(import.meta.url)
-
 /** Open the store read-only; null = unavailable/corrupt (caller records a gap). */
 export async function openOpencodeDb(
   path: string = DEFAULT_OPENCODE_DB,
 ): Promise<DatabaseSync | null> {
   try {
+    // Keep Node-only module initialization inside the Node-only operation.
+    // Root imports are shared with edge consumers that do not define import.meta.url.
+    const nodeRequire = createRequire(import.meta.url)
     const { DatabaseSync } = nodeRequire('node:sqlite') as typeof import('node:sqlite')
     const db = new DatabaseSync(path, { readOnly: true })
     // Probe: a corrupt store can open() fine and fail on first page read.

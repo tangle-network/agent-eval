@@ -11,6 +11,7 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 - Corrected the standard normal CDF used by the normal-approximation paths for Mann-Whitney, Wilcoxon, McNemar power, paired t, and Welch t calculations.
   A z-score of 1.96 now yields a two-sided p-value of approximately 0.05 instead of 0.038.
 - Removed duplicate normal and Student-t implementations so every caller uses the same internal functions.
+- Deferred the Node-only OpenCode SQLite loader until the reader is called, so importing the package in an edge runtime does not execute `createRequire(import.meta.url)`.
 
 ## [0.133.0] - 2026-07-27 - remove unused belief-state API
 
