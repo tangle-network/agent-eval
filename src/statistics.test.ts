@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest'
-import { isBinaryOutcomeVector, pairedBootstrap } from './statistics'
+import {
+  isBinaryOutcomeVector,
+  pairedBinaryScale,
+  pairedBootstrap,
+  pairedDeltaBootstrapStatistic,
+  pairedDeltaTieFraction,
+} from './statistics'
 
 /**
  * The load-bearing statistical core of the promotion gate: `pairedBootstrap`
@@ -85,5 +91,87 @@ describe('isBinaryOutcomeVector — the statistic discriminator', () => {
     expect(med.high).toBe(0)
     expect(avg.mean).toBeCloseTo(10 / 76, 6)
     expect(avg.low).toBeGreaterThan(0)
+  })
+})
+
+/**
+ * The DISCRIMINATOR a gate actually needs. `isBinaryOutcomeVector` answers
+ * "is this literally {0,1}", which is a strictly narrower question than "can
+ * the median see this data" — and every gap between the two was a measured
+ * fail-open: a 0-100 pass/fail dimension, one partial-credit score in an
+ * otherwise pass/fail vector, block scores averaged from pass/fail leaves, and
+ * a pass/fail baseline against a partial-credit candidate all read
+ * "not binary" and fell back to the blind median.
+ */
+describe('pairedBinaryScale — two-point outcomes on ANY encoding', () => {
+  it('returns the common positive level, whatever the encoding', () => {
+    expect(pairedBinaryScale([0, 1, 1], [1, 1, 0])).toBe(1)
+    expect(pairedBinaryScale([0, 100, 100], [100, 100, 0])).toBe(100)
+    expect(pairedBinaryScale([0, 5], [5, 5])).toBe(5)
+    expect(pairedBinaryScale([0, 0, 0], [0, 1, 0])).toBe(1) // level seen on one arm only
+  })
+
+  it('rejects anything that is not two-point at a COMMON level', () => {
+    expect(pairedBinaryScale([0, 1, 0.5], [1, 1, 1])).toBeNull() // partial credit
+    expect(pairedBinaryScale([0, 1], [0, 0.4])).toBeNull() // arms disagree on the level
+    expect(pairedBinaryScale([2 / 3, 1], [1, 1])).toBeNull() // block scores
+    expect(pairedBinaryScale([0, -1], [0, 0])).toBeNull() // negative
+    expect(pairedBinaryScale([0, Number.NaN], [0, 1])).toBeNull() // unusable
+    expect(pairedBinaryScale([0, 0], [0, 0])).toBeNull() // level not identified
+    expect(pairedBinaryScale([], [])).toBeNull()
+  })
+})
+
+describe('pairedDeltaTieFraction / pairedDeltaBootstrapStatistic', () => {
+  it('counts exact ties', () => {
+    expect(pairedDeltaTieFraction([1, 1, 0, 1], [1, 0, 0, 1])).toBe(0.75)
+    expect(pairedDeltaTieFraction([], [])).toBe(0)
+    expect(() => pairedDeltaTieFraction([1, 2], [1])).toThrow(/unequal sample sizes/)
+  })
+
+  it('switches off the median wherever ties pin it at 0', () => {
+    const bin = {
+      before: [...Array(15).fill(0), ...Array(5).fill(1), ...Array(56).fill(1)],
+      after: [...Array(15).fill(1), ...Array(5).fill(0), ...Array(56).fill(1)],
+    }
+    // {0,1}, and the same data on 0-100 — the same shape, one encoding over.
+    expect(pairedDeltaBootstrapStatistic(bin.before, bin.after)).toBe('mean')
+    expect(
+      pairedDeltaBootstrapStatistic(
+        bin.before.map((v) => v * 100),
+        bin.after.map((v) => v * 100),
+      ),
+    ).toBe('mean')
+    // One partial-credit pair: no longer {0,1}, median just as blind.
+    expect(pairedDeltaBootstrapStatistic([...bin.before, 0.5], [...bin.after, 0.5])).toBe('mean')
+    // Block scores in {2/3, 1} (a block scored as the mean of 3 pass/fail leaves).
+    expect(
+      pairedDeltaBootstrapStatistic(
+        [...Array(20).fill(1), ...Array(56).fill(1)],
+        [...Array(20).fill(2 / 3), ...Array(56).fill(1)],
+      ),
+    ).toBe('mean')
+    // Asymmetric arms: pass/fail baseline vs partial-credit candidate.
+    expect(
+      pairedDeltaBootstrapStatistic(
+        [...Array(20).fill(1), ...Array(56).fill(1)],
+        [...Array(20).fill(0.4), ...Array(56).fill(1)],
+      ),
+    ).toBe('mean')
+  })
+
+  it('leaves genuinely continuous data on the median', () => {
+    expect(pairedDeltaBootstrapStatistic([0.5, 0.55, 0.6, 0.52], [0.7, 0.72, 0.8, 0.71])).toBe(
+      'median',
+    )
+    // Ties present but not dominant (2 of 5).
+    expect(
+      pairedDeltaBootstrapStatistic([0.5, 0.5, 0.6, 0.7, 0.8], [0.5, 0.5, 0.7, 0.9, 0.6]),
+    ).toBe('median')
+  })
+
+  it('leaves an ALL-tie vector on the median — no shift exists for ties to hide', () => {
+    expect(pairedDeltaBootstrapStatistic([1, 1, 1], [1, 1, 1])).toBe('median')
+    expect(pairedDeltaBootstrapStatistic([0.5, 0.5], [0.5, 0.5])).toBe('median')
   })
 })

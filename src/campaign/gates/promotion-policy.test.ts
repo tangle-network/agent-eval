@@ -329,6 +329,43 @@ describe('buildEvidenceVector — binary (0/1) axes', () => {
     expect(wide.axes[0]!.verdict).toBe('flat')
   })
 
+  it('sees a 0-100 axis, not only a {0,1} one', () => {
+    // Same shape, one encoding over: a pass/fail axis emitted on 0-100 (which
+    // `detectScale` exists to support) read `flat` under a {0,1}-only detector,
+    // hiding a +13.16-POINT gain and, mirrored, a regression of the same size.
+    const hundred = (spec: CellSpec[]): CellSpec[] =>
+      spec.map((c) => ({
+        ...c,
+        candidate: { composite: c.candidate.composite * 100 },
+        baseline: { composite: c.baseline.composite * 100 },
+      }))
+    const gain = buildEvidenceVector(ctxFrom(hundred(binaryCtx(15, 5, 56))), objective).axes[0]!
+    expect(gain.verdict).toBe('improved')
+    expect(gain.bootstrapStatistic).toBe('mean')
+    expect(gain.floorTolerance).toBe(5)
+    expect(gain.bootstrap.median).toBe(0)
+    expect(gain.bootstrap.mean).toBeCloseTo((10 / 76) * 100, 6)
+
+    const drop = buildEvidenceVector(ctxFrom(hundred(binaryCtx(5, 15, 56))), objective).axes[0]!
+    expect(drop.verdict).toBe('regressed')
+  })
+
+  it('sees an axis that one partial-credit cell made non-binary', () => {
+    const contaminated: CellSpec[] = [
+      ...binaryCtx(5, 15, 56),
+      {
+        scenarioId: 'partial',
+        reps: 1,
+        candidate: { composite: 0.5 },
+        baseline: { composite: 0.5 },
+      },
+    ]
+    const axis = buildEvidenceVector(ctxFrom(contaminated), objective).axes[0]!
+    expect(axis.verdict).toBe('regressed')
+    expect(axis.n).toBe(77)
+    expect(axis.bootstrapStatistic).toBe('mean')
+  })
+
   it('leaves continuous axes on the median statistic', () => {
     const continuous = ctxFrom(
       cells(

@@ -25,9 +25,9 @@
 
 import type { Direction } from '../../pareto'
 import {
-  isBinaryOutcomeVector,
   type PairedBootstrapResult,
   pairedBootstrap,
+  pairedDeltaBootstrapStatistic,
 } from '../../statistics'
 import type { Gate, GateContext, GateDecision, GateResult, JudgeScore, Scenario } from '../types'
 import { detectScale, pairHoldout } from './statistical-heldout'
@@ -140,13 +140,14 @@ export function buildEvidenceVector<TArtifact, TScenario extends Scenario>(
     // positive bootstrap always reads as "candidate better on this axis".
     const before = obj.direction === 'maximize' ? paired.before : paired.after
     const after = obj.direction === 'maximize' ? paired.after : paired.before
-    // Binary (0/1) axes are decided on the MEAN paired delta — which for binary
-    // outcomes is exactly the change in success rate. The median is structurally
-    // blind there: the delta vector lives in {-1,0,+1} dominated by zeros, so
-    // its bootstrap CI collapses to [0,0] and every binary axis reads 'flat',
-    // hiding real gains AND real regressions. Continuous axes are unchanged.
-    const bootstrapStatistic: 'median' | 'mean' =
-      isBinaryOutcomeVector(before) && isBinaryOutcomeVector(after) ? 'mean' : 'median'
+    // TIE-DOMINATED axes are decided on the MEAN paired delta — which for a
+    // pass/fail axis is exactly the change in success rate. The median is
+    // structurally blind there: with most pairs tied its bootstrap CI collapses
+    // to [0,0] and the axis reads 'flat', hiding real gains AND real
+    // regressions. That covers pass/fail axes on ANY encoding ({0,1} and the
+    // 0-100 one `detectScale` exists for) plus low-cardinality axes.
+    // Continuous axes are unchanged.
+    const bootstrapStatistic = pairedDeltaBootstrapStatistic(before, after)
     const bootstrap = pairedBootstrap(before, after, {
       confidence,
       resamples,

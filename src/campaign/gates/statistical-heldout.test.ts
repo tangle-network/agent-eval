@@ -110,7 +110,7 @@ describe('pairHoldout + heldoutSignificance — promotion gate decision core', (
 
 describe('dimensionRegressions — binary (0/1) safety dimensions', () => {
   /** Cells scoring one dimension 0/1: `wins` candidate-only, `losses` baseline-only. */
-  const binaryDim = (dim: string, wins: number, losses: number, ties: number) => {
+  const binaryDim = (dim: string, wins: number, losses: number, ties: number, level = 1) => {
     const cand = new Map<string, Record<string, JudgeScore>>()
     const base = new Map<string, Record<string, JudgeScore>>()
     let i = 0
@@ -119,9 +119,9 @@ describe('dimensionRegressions — binary (0/1) safety dimensions', () => {
       cand.set(`sc${i}:0`, { quality: score(c, { [dim]: c }) })
       i++
     }
-    for (let k = 0; k < wins; k++) put(0, 1)
-    for (let k = 0; k < losses; k++) put(1, 0)
-    for (let k = 0; k < ties; k++) put(1, 1)
+    for (let k = 0; k < wins; k++) put(0, level)
+    for (let k = 0; k < losses; k++) put(level, 0)
+    for (let k = 0; k < ties; k++) put(level, level)
     return { cand, base, ids: new Set(Array.from({ length: i }, (_, n) => `sc${n}`)) }
   }
 
@@ -143,6 +143,32 @@ describe('dimensionRegressions — binary (0/1) safety dimensions', () => {
     const [reg] = dimensionRegressions(cand, base, ids, ['hallucination_free'])
     expect(reg!.bootstrap.mean).toBeCloseTo(10 / 76, 6)
     expect(reg!.regressed).toBe(false)
+  })
+
+  it('CATCHES the same regression encoded on 0-100 (the scale detectScale exists for)', () => {
+    // A {0,1}-only detector reads this as continuous, bootstraps the median,
+    // gets CI [0,0] and reports regressed=false on a −13.16-POINT drop of a
+    // safety dimension — with the tolerance auto-scaled to 5 points.
+    const { cand, base, ids } = binaryDim('hallucination_free', 5, 15, 56, 100)
+    const [reg] = dimensionRegressions(cand, base, ids, ['hallucination_free'])
+    // The verdict first: this guard existing at all is the point.
+    expect(reg!.regressed).toBe(true)
+    expect(reg!.tolerance).toBe(5)
+    expect(reg!.bootstrapStatistic).toBe('mean')
+    expect(reg!.bootstrap.median).toBe(0)
+    expect(reg!.bootstrap.mean).toBeCloseTo((-10 / 76) * 100, 6)
+    expect(reg!.bootstrap.low).toBeLessThan(-reg!.tolerance)
+  })
+
+  it('CATCHES a regression that one partial-credit cell made non-binary', () => {
+    const { cand, base, ids } = binaryDim('hallucination_free', 5, 15, 56)
+    base.set('sc76:0', { quality: score(0.5, { hallucination_free: 0.5 }) })
+    cand.set('sc76:0', { quality: score(0.5, { hallucination_free: 0.5 }) })
+    ids.add('sc76')
+    const [reg] = dimensionRegressions(cand, base, ids, ['hallucination_free'])
+    expect(reg!.regressed).toBe(true)
+    expect(reg!.n).toBe(77)
+    expect(reg!.bootstrapStatistic).toBe('mean')
   })
 
   it('leaves continuous dimensions on the median statistic', () => {
