@@ -1017,7 +1017,12 @@ export type { DefaultVerdict } from './verdict'
 
 export type { BehaviorAssertion, CallExpectation, Expectation, MatcherResult } from './behavior-dsl'
 export { expectAgent, runExpectations } from './behavior-dsl'
-export type { ContractMetric, ContractReport, ThresholdContract } from './ci-gate'
+export type {
+  ContractMetric,
+  ContractMetricCoverage,
+  ContractReport,
+  ThresholdContract,
+} from './ci-gate'
 export { evaluateContract, renderMarkdownReport } from './ci-gate'
 export type { CanaryLeak } from './contamination-guard'
 export {
@@ -1355,6 +1360,7 @@ export type {
   DescriptionLengthDecision,
   DescriptionLengthEvidence,
   DescriptionLengthRejectionCode,
+  TaskCoverage,
 } from './description-length-gate'
 export {
   DescriptionLengthGate,
@@ -1425,6 +1431,7 @@ export type {
   ReferenceReplayCandidate,
   ReferenceReplayCase,
   ReferenceReplayCaseRun,
+  ReferenceReplayCoverage,
   ReferenceReplayExecutionScenario,
   ReferenceReplayItem,
   ReferenceReplayMatch,
@@ -1432,6 +1439,7 @@ export type {
   ReferenceReplayMatchStrategy,
   ReferenceReplayPromotionDecision,
   ReferenceReplayPromotionPolicy,
+  ReferenceReplayRejectionCode,
   ReferenceReplayRun,
   ReferenceReplayRunContext,
   ReferenceReplayRunOptions,

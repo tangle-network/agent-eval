@@ -4,6 +4,97 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ---
 
+## [0.134.0] - 2026-07-28 - every verdict states its denominator
+
+### Consumer notice — gates that used to pass will now fail, and that is the fix
+
+If a gate or contract starts failing on this release without your code changing, it
+was passing on a shrunken denominator.
+Three exported decision functions computed a promote/pass verdict over the items
+that happened to produce a score, and dropped the rest without a word.
+An item an arm crashed on, timed out on, or never emitted a metric for simply left
+the comparison, and the verdict was read off whatever survived.
+Each now refuses instead, and reports the accounting on every path — promoting or
+not.
+
+Read the new `coverage` field before you lower a threshold.
+`answered` well below `dealt` means the run itself is broken, not the gate.
+
+**`DescriptionLengthGate.evaluate`** — the residual is a sum over the evidence set,
+so a task an arm never scored contributes nothing: an unanswered task is the
+cheapest possible residual, and silence beat a perfect score.
+Measured on a deterministic fixture, no model calls: 26 tasks, byte-identical model
+text on both arms (so the model term is exactly 0 bits), a candidate that produced
+no score at all on 20 of them.
+Published 0.133.3 PROMOTES it — `promote: true`, `total Δ=-6.0 bits ... over 6
+tasks`, `evidence.tasks: 6`, where the −6 bits IS the 20 residuals it never paid.
+The control, the same 20 failures scored as the 0 they earned, is correctly refused
+at Δ=+174 bits.
+
+**`evaluateContract`** (ci-gate) — worse, because it could pass on nothing at all.
+`extractAll` dropped every run that reported no value for a declared metric, then
+`if (baseline.length < 2 || candidate.length < 2) continue` dropped the whole
+metric, and `pass` was `breaches.length === 0`.
+Measured: a candidate reporting `score` on 3 of 10 runs returns `pass: true`,
+`breaches: []`, verdict `"improved"`, `candidateMean` 0.9899 read off 3 runs.
+The same candidate reporting it on **0 of 10 also returns `pass: true`** — a silent
+pass on zero evidence, with `hasUnstable: true` computed and never consulted.
+
+**`decideReferenceReplayPromotion`** — each side's F1 is computed over its OWN
+scenario set, and the two sets were never compared even though
+`ReferenceReplayScore.scenarios[].scenarioId` was right there.
+Replaying a subset raises the candidate's F1 by dropping every scenario it would
+have missed, with no outcome changing.
+Measured: a candidate scored on 6 of 26 scenarios returns `promote: true`, "Required
+splits improved by 33.4% with no regressions" — its `{matched: 6, total: 6, f1: 1}`
+against the baseline's `{matched: 13, total: 26, f1: 0.667}`.
+
+**`runRLCampaign`** — the same defect one call frame up.
+`collectPairedDeltaSeries` dropped an unscored comparator run, an unscored candidate
+run, and an unmatched cell, all three silently, and the survivors flowed into
+`evaluateInterimReleaseConfidence`, whose `recommendation.decision` can be
+`promote_now`.
+Cells that failed integrity never reached `campaign.runs` at all, so the failure the
+check exists to catch was invisible; the denominator now includes
+`campaign.failedRuns`.
+
+### Changed — behavior
+
+- Each gate takes a `minCoverage` (contract: `minCoverage`; RL: `sequential.minDeltaCoverage`), default **1**: every dealt item must carry a score on both arms.
+  Lowering it is a legitimate choice for a caller who accepts a known flake rate, but it must be **declared, not inherited** — the shrunken denominator still ships in the result either way.
+  A value outside `[0, 1]` throws rather than clamping.
+- `DescriptionLengthRejectionCode` gains `incomplete_coverage`; it is reported **ahead of** `few_tasks`, because "6 of 26 tasks produced no score" is the finding and "6 shared tasks" is only its shadow.
+- `evaluateContract` breaches name the ratio.
+  Partial coverage, a metric with too few comparable samples, and a contract declaring neither a metric nor an SLO are now all breaches — none of them can leave `breaches` empty.
+  A metric whose verdict is `unstable` is deliberately **not** a breach: that is a measurement that happened and came back noisy, not one that is missing.
+- `decideReferenceReplayPromotion` refuses on mismatched scenario identities, checked before any F1 is read.
+  A one-sided holdout now reports `incomplete_coverage` (naming the scenario) rather than `missing_holdout`; when NEITHER side replayed holdout, `missing_holdout` still fires.
+- `runRLCampaign` withholds `interimConfidence` (leaves it `null`) below `minDeltaCoverage`; `deltaCoverage` and the `summary` line say by how much.
+- `dataDescriptionBits` now **throws** on a key it has no score for instead of skipping it, so the residual cannot be summed over a shrunken denominator by a direct caller either.
+
+### Changed — API (additive; no field changed meaning, none removed)
+
+- `DescriptionLengthEvidence.coverage` (new required field) — `TaskCoverage`, exported.
+- `ContractReport.coverage` (new required field) — `ContractMetricCoverage[]`, exported.
+- `ReferenceReplayPromotionDecision.coverage` + `.rejectionCode` (new required fields) — `ReferenceReplayCoverage`, `ReferenceReplayRejectionCode`, exported.
+- `RLCampaignResult.deltaCoverage` (new required field) — `PairedDeltaCoverage`, exported.
+- Every coverage type is a mutually exclusive **partition** that sums to `dealt`, so nothing can leave a comparison without appearing in exactly one bucket — the same shape `HeldOutGate.SplitCoverage` reports.
+- `renderMarkdownReport` renders the measured/dealt ratio next to the verdict.
+
+The denominator is measured, never declared: an item counts as dealt because a
+record for it exists on at least one arm.
+There is no list of expected scenarios to keep in sync.
+Missing scores are **not** imputed — the gate does not know the failure value of
+your metric, and guessing one is the silent assumption these gates exist to remove.
+A caller who does know it writes it onto the record, where an auditor can see it.
+
+**Also first shipping here:** the `HeldOutGate` consumer notice filed under
+`[0.133.3]` below landed on `main` after the 0.133.3 release commit, so published
+0.133.3 does not contain it.
+It reaches consumers in this release.
+
+---
+
 ## [0.133.3] - 2026-07-27 - trustworthy statistical decisions
 
 ### Consumer notice — reported p-values were too small in every release from 0.1.0 to 0.133.0

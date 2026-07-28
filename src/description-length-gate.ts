@@ -1,4 +1,5 @@
 import { gzipSync } from 'node:zlib'
+import { ValidationError } from './errors'
 import { type RunRecord, runTaskScore } from './run-record'
 
 /**
@@ -36,11 +37,69 @@ import { type RunRecord, runTaskScore } from './run-record'
  * grows). `lambda` is the lever: λ<1 discounts model bits (more permissive),
  * λ>1 is stricter. A shrinking-or-equal model that does no worse always wins.
  *
+ * ## Missing scores are missing data
+ *
+ * The residual is a SUM over the evidence set, so a task an arm never scored
+ * contributes nothing — silence reads as agreement, and an unanswered task is
+ * therefore the cheapest possible residual. Deciding over "the tasks that
+ * happen to carry a score on both sides" shrinks the denominator to whatever
+ * the candidate managed to answer, and the candidate chose that subset by
+ * failing. Measured on the pre-0.134 gate: 26 tasks, byte-identical model text
+ * on both arms (so L_model cancels to exactly 0 bits), a candidate that
+ * produced no score at all on 20 of them PROMOTED on the 6 it answered at
+ * `total Δ=-6.0 bits over 6 tasks`; the control — the same 20 failures scored
+ * as the 0 they earned — is correctly refused at Δ=+174 bits.
+ *
+ * The gate now measures COVERAGE before it computes any verdict: `answered /
+ * dealt` must reach `minCoverage` (default 1) or it refuses with
+ * `incomplete_coverage`. The denominator is MEASURED, never assumed — it is
+ * keyed off the RUN RECORDS rather than off the scores, so a run that produced
+ * no usable score is an unanswered task rather than an absent one, and there is
+ * no list of expected tasks to keep in sync.
+ *
+ * Missing scores are not imputed. The gate does not know the failure value of
+ * the caller's metric; a caller who does writes it onto the record, where an
+ * auditor can see it. `DescriptionLengthEvidence.coverage` reports the full
+ * accounting on EVERY path, promoting or not, so a shrunken denominator can
+ * never be read without seeing it. Same rule `HeldOutGate` applies.
+ *
  * Stateless: construct once with the description-length budget, call
  * `evaluate` per (candidate, baseline) pair.
  */
 
-export type DescriptionLengthRejectionCode = 'few_tasks' | 'no_total_gain' | 'model_bloat'
+export type DescriptionLengthRejectionCode =
+  | 'few_tasks'
+  | 'incomplete_coverage'
+  | 'no_total_gain'
+  | 'model_bloat'
+
+/**
+ * How much of the DEALT task evidence the comparison actually measured.
+ *
+ * `answered + unscoredPairs + candidateOnly + baselineOnly === dealt` — a
+ * complete, mutually exclusive partition of the task slots the comparison was
+ * dealt, so nothing can leave the evidence set without appearing in exactly one
+ * bucket. The same partition `HeldOutGate.SplitCoverage` reports, over tasks
+ * rather than over one split's work items.
+ */
+export interface TaskCoverage {
+  /** Tasks the comparison was dealt: every task with a run on either arm. */
+  dealt: number
+  /** Dealt tasks carrying a usable score on BOTH arms — the only ones the
+   *  residual can be summed over. */
+  answered: number
+  /** Dealt tasks with a run on both arms where at least one arm produced no
+   *  usable score: a run happened and produced nothing (crash, timeout, judge
+   *  failure). Measured absence, not an absent task. */
+  unscoredPairs: number
+  /** Dealt tasks only the candidate produced a run for. */
+  candidateOnly: number
+  /** Dealt tasks only the baseline produced a run for. */
+  baselineOnly: number
+  /** `answered / dealt`, or 0 when nothing was dealt. 1 means every dealt task
+   *  was scored on both arms. */
+  coverage: number
+}
 
 export interface DescriptionLengthConfig {
   /** Stable label of the baseline. Required — paper-grade evaluation never
@@ -60,11 +119,38 @@ export interface DescriptionLengthConfig {
   /** Minimum number of shared (candidate, baseline) tasks before the gate will
    *  consider promoting. Default 3. */
   minTasks?: number
+  /**
+   * Smallest acceptable `answered / dealt` fraction over the dealt tasks.
+   * Default 1: every task the comparison was dealt must carry a usable score on
+   * both arms before the gate will decide anything.
+   *
+   * The default is 1 because an unanswered task costs 0 residual bits, so a
+   * verdict computed over "the tasks that happened to answer" is a verdict
+   * computed over a set the candidate selected by failing. Below `minCoverage`
+   * the gate rejects with `incomplete_coverage`.
+   *
+   * Lowering it is a real, defensible choice for a caller who accepts a known
+   * flake rate — but it must be DECLARED, not inherited: the shrunken
+   * denominator then still ships in `DescriptionLengthEvidence.coverage`, so
+   * the verdict can never be read without it. Must be in [0, 1]; anything else
+   * throws rather than clamping.
+   */
+  minCoverage?: number
 }
 
 export interface DescriptionLengthEvidence {
-  /** Shared tasks scored on both sides (the enlarged evidence D∪E). */
+  /** Tasks the residual was actually summed over — scored on BOTH arms. Equal
+   *  to `coverage.dealt` on every promoting path at the default `minCoverage`;
+   *  smaller means the evidence set had holes. */
   tasks: number
+  /**
+   * How much of the dealt task evidence carried a score on both arms — the
+   * denominator behind `dataBits`, `totalBits` and `deltaBits`. A `coverage`
+   * below 1 means those numbers describe a SUBSET of the tasks the comparison
+   * was dealt, and which tasks are in that subset was decided by whichever arm
+   * went dark.
+   */
+  coverage: TaskCoverage
   /** Compressed-model bits — L_model. */
   modelBits: { candidate: number; baseline: number }
   /** Residual surprise bits — L_data(D|M). */
@@ -110,19 +196,86 @@ function taskKey(run: RunRecord): string {
   return run.scenarioId
 }
 
-/** Mean per-task score for a model: { taskKey -> mean(score over its runs) }. */
-function perTaskMeanScore(runs: RunRecord[]): Map<string, number> {
+/**
+ * What one arm was DEALT and what it ANSWERED.
+ *
+ * `dealt` is keyed off the RUN RECORDS, not off the scores: an arm handed a
+ * task that produced no usable score dealt with that task and did not answer
+ * it, which is a different fact from never having been handed it at all.
+ * Collapsing the two is exactly what lets an unanswered task leave the
+ * denominator without anyone counting it.
+ */
+interface ArmEvidence {
+  /** Every task this arm has a run record for, scored or not. */
+  dealt: Set<string>
+  /** taskKey -> mean(score over its scored runs), for the tasks it answered. */
+  answered: Map<string, number>
+}
+
+function perTaskMeanScore(runs: RunRecord[]): ArmEvidence {
+  const dealt = new Set<string>()
   const acc = new Map<string, { sum: number; n: number }>()
   for (const run of runs) {
+    const key = taskKey(run)
+    dealt.add(key)
     const s = runScore(run)
     if (s === undefined) continue
-    const key = taskKey(run)
     const cur = acc.get(key) ?? { sum: 0, n: 0 }
     cur.sum += s
     cur.n += 1
     acc.set(key, cur)
   }
-  return new Map([...acc].map(([k, v]) => [k, v.sum / v.n]))
+  return { dealt, answered: new Map([...acc].map(([k, v]) => [k, v.sum / v.n])) }
+}
+
+/**
+ * Partition the dealt tasks into answered / unscored / one-armed.
+ *
+ * Derived from the same run records and the same `taskKey` identity the
+ * residual pairs on, so the denominator comes out of the same rules as the
+ * numerator and cannot drift from it. There is no list of expected tasks to
+ * trust — a task counts as dealt because a run for it exists on at least one
+ * arm.
+ */
+function taskCoverage(candidate: ArmEvidence, baseline: ArmEvidence): TaskCoverage {
+  const dealtKeys = new Set([...candidate.dealt, ...baseline.dealt])
+  let answered = 0
+  let unscoredPairs = 0
+  let candidateOnly = 0
+  let baselineOnly = 0
+  for (const key of dealtKeys) {
+    const onCandidate = candidate.dealt.has(key)
+    const onBaseline = baseline.dealt.has(key)
+    if (!onBaseline) candidateOnly += 1
+    else if (!onCandidate) baselineOnly += 1
+    else if (candidate.answered.has(key) && baseline.answered.has(key)) answered += 1
+    else unscoredPairs += 1
+  }
+  const dealt = dealtKeys.size
+  return {
+    dealt,
+    answered,
+    unscoredPairs,
+    candidateOnly,
+    baselineOnly,
+    coverage: dealt === 0 ? 0 : answered / dealt,
+  }
+}
+
+function describeCoverage(cov: TaskCoverage): string {
+  const dark = [
+    cov.unscoredPairs > 0 ? `${cov.unscoredPairs} ran on both arms but produced no score` : null,
+    cov.baselineOnly > 0 ? `${cov.baselineOnly} only the baseline produced a run for` : null,
+    cov.candidateOnly > 0 ? `${cov.candidateOnly} only the candidate produced a run for` : null,
+  ].filter((part): part is string => part !== null)
+  return (
+    `scored ${cov.answered} of ${cov.dealt} dealt task(s) (coverage ${fmtFraction(cov.coverage)})` +
+    (dark.length > 0 ? ` — ${dark.join(', ')}` : '')
+  )
+}
+
+function fmtFraction(x: number): string {
+  return x.toFixed(4)
 }
 
 /** Compressed-model bits — the model's description length L_model. gzip is a
@@ -133,7 +286,14 @@ export function modelDescriptionBits(content: string): number {
 }
 
 /** Residual surprise L_data(D|M) = −Σ_i log2(max(s_i, floor)) over the given
- *  per-task scores. Lower = the model more reliably succeeds. */
+ *  per-task scores. Lower = the model more reliably succeeds.
+ *
+ *  Throws on a key it has no score for rather than skipping it: skipping
+ *  charges the model 0 bits for a task it never answered, which is the cheapest
+ *  possible residual — silence would beat a perfect score. The caller must
+ *  decide what an unanswered task means (refuse, or score it the failure it
+ *  earned) before it reaches the sum, so the residual cannot be summed over a
+ *  shrunken denominator by a direct caller either. */
 export function dataDescriptionBits(
   scoreByTask: Map<string, number>,
   keys: Iterable<string>,
@@ -142,7 +302,11 @@ export function dataDescriptionBits(
   let bits = 0
   for (const key of keys) {
     const s = scoreByTask.get(key)
-    if (s === undefined) continue
+    if (s === undefined) {
+      throw new ValidationError(
+        `dataDescriptionBits: no score for task '${key}' — an unanswered task costs 0 residual bits, so it cannot be summed as if it were evidence`,
+      )
+    }
     bits += -Math.log2(Math.max(s, scoreFloor))
   }
   return bits
@@ -154,6 +318,7 @@ export class DescriptionLengthGate {
   private readonly marginBits: number
   private readonly scoreFloor: number
   private readonly minTasks: number
+  private readonly minCoverage: number
 
   constructor(config: DescriptionLengthConfig) {
     if (!config.baselineKey) throw new Error('DescriptionLengthGate: baselineKey is required')
@@ -162,6 +327,15 @@ export class DescriptionLengthGate {
     this.marginBits = config.marginBits ?? 0
     this.scoreFloor = config.scoreFloor ?? 2 ** -10
     this.minTasks = config.minTasks ?? 3
+    if (
+      config.minCoverage !== undefined &&
+      !(Number.isFinite(config.minCoverage) && config.minCoverage >= 0 && config.minCoverage <= 1)
+    ) {
+      throw new Error(
+        `DescriptionLengthGate: minCoverage must be a finite fraction in [0, 1], got ${config.minCoverage}`,
+      )
+    }
+    this.minCoverage = config.minCoverage ?? 1
     if (!(this.lambda >= 0)) throw new Error('DescriptionLengthGate: lambda must be ≥ 0')
     if (!(this.scoreFloor > 0 && this.scoreFloor < 1))
       throw new Error('DescriptionLengthGate: scoreFloor must be in (0,1)')
@@ -175,11 +349,20 @@ export class DescriptionLengthGate {
     baseline: DescriptionLengthCandidate,
   ): DescriptionLengthDecision {
     const candidateId = inferCandidateId(candidate.runs, this.baselineKey)
-    const candScores = perTaskMeanScore(candidate.runs)
-    const baseScores = perTaskMeanScore(baseline.runs)
-    // Enlarged evidence = tasks scored on BOTH sides (paired, like the paper's
-    // "both models refit on the same accumulated evidence").
-    const shared = [...candScores.keys()].filter((k) => baseScores.has(k))
+    const candArm = perTaskMeanScore(candidate.runs)
+    const baseArm = perTaskMeanScore(baseline.runs)
+    const candScores = candArm.answered
+    const baseScores = baseArm.answered
+    // The enlarged evidence D∪E is every task EITHER arm was DEALT — the
+    // paper's "both models refit on the same accumulated evidence". An arm that
+    // did not answer part of it has not been refit on it, and the tasks it
+    // skipped are missing DATA, not evidence that shrank. The residual can only
+    // be summed where both arms answered, so `shared` stays the summation set —
+    // but the coverage check below refuses before it is ever read as a verdict.
+    const coverage = taskCoverage(candArm, baseArm)
+    const shared = [...new Set([...candArm.dealt, ...baseArm.dealt])]
+      .sort()
+      .filter((k) => candScores.has(k) && baseScores.has(k))
 
     const modelBits = {
       candidate: this.lambda * modelDescriptionBits(candidate.content),
@@ -195,6 +378,7 @@ export class DescriptionLengthGate {
     }
     const evidence: DescriptionLengthEvidence = {
       tasks: shared.length,
+      coverage,
       modelBits,
       dataBits,
       totalBits,
@@ -205,6 +389,24 @@ export class DescriptionLengthGate {
     const base = { candidateId, baselineId: this.baselineKey, evidence }
     const fmt = (n: number) => n.toFixed(1)
 
+    // COVERAGE — ahead of every other check, because every number below is
+    // summed over `shared` alone. A candidate that went dark on most of its
+    // work does not get judged on the remainder; missing scores are missing
+    // data, and the gate refuses rather than shrinking the denominator to the
+    // subset that happened to answer. Checked ahead of `few_tasks` because
+    // "6 of 26 tasks produced no score" is the finding, and "6 shared tasks"
+    // is only its shadow — the same ordering `HeldOutGate` uses.
+    if (coverage.coverage < this.minCoverage) {
+      return {
+        ...base,
+        promote: false,
+        reason:
+          `incomplete_coverage: ${describeCoverage(coverage)}` +
+          ` — required ${fmtFraction(this.minCoverage)} of every dealt task scored on both arms.` +
+          ' An unanswered task costs 0 residual bits, so the gate will not decide on the subset that answered',
+        rejectionCode: 'incomplete_coverage',
+      }
+    }
     if (shared.length < this.minTasks) {
       return {
         ...base,

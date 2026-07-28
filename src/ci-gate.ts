@@ -11,6 +11,33 @@
  * Consumers wrap this in their own `gh pr comment` / CI integration —
  * we don't ship the GitHub Action binary, just the library call that
  * the action invokes.
+ *
+ * ## Missing measurements are missing data
+ *
+ * `extractAll` returns only the runs that reported a finite value for a
+ * declared metric. Without a coverage check that set is a SILENT FILTER: a run
+ * that crashed, timed out, or simply never emitted the metric left the
+ * comparison, and the verdict was computed over whatever survived. Worse, a
+ * metric with fewer than two comparable samples was dropped WHOLE, and `pass`
+ * was `breaches.length === 0` — so a corpus where nothing was measurable
+ * returned `pass: true` with an empty breach list. Measured on the pre-0.134
+ * gate: a candidate that reported `score` on 3 of 10 runs passed with verdict
+ * "improved" at `candidateMean` 0.99 read off those 3 runs; the same candidate
+ * reporting it on 0 of 10 ALSO passed, with `hasUnstable: true` computed and
+ * never consulted.
+ *
+ * The contract now measures COVERAGE per metric before any verdict is read:
+ * `answered / dealt` across both arms must reach `minCoverage` (default 1) or
+ * the metric breaches by name, with the ratio in the message. Too few
+ * comparable samples breaches as well, so a dropped metric can no longer leave
+ * `breaches` empty, and a contract that declares neither a metric nor an SLO
+ * asserts nothing and cannot pass. `ContractReport.coverage` reports the full
+ * accounting on EVERY path, passing or not.
+ *
+ * A metric whose verdict is `unstable` is deliberately NOT a breach: that is a
+ * measurement that happened and came back noisy, not a measurement that is
+ * missing. It is reported on `baselineReport.hasUnstable` for a caller who
+ * wants to treat it as blocking.
  */
 
 import type { BaselineReport } from './baseline'
@@ -36,12 +63,51 @@ export interface ThresholdContract {
   candidate: RunFilter
   metrics: ContractMetric[]
   slos?: Slo[]
+  /**
+   * Smallest acceptable `answered / dealt` fraction per declared metric, across
+   * both arms. Default 1: every run the contract was dealt must report every
+   * declared metric before the contract can pass on it.
+   *
+   * The default is 1 because a run that reported nothing is missing data, and a
+   * verdict computed over "the runs that happened to report" is a verdict
+   * computed over a set the candidate selected by failing. Below `minCoverage`
+   * the metric breaches by name with the ratio in the message.
+   *
+   * Lowering it is a real, defensible choice for a caller who accepts a known
+   * flake rate — but it must be DECLARED, not inherited: the shrunken
+   * denominator then still ships in `ContractReport.coverage`, so the verdict
+   * can never be read without it. Must be in [0, 1]; anything else throws
+   * rather than clamping.
+   */
+  minCoverage?: number
+}
+
+/**
+ * How many of the runs a contract was DEALT actually reported one declared
+ * metric. A contract can only pass on the runs it measured, so the ratio ships
+ * with the verdict rather than being inferable only from a missing table row.
+ */
+export interface ContractMetricCoverage {
+  metric: string
+  /** Baseline runs the contract was dealt. */
+  baselineDealt: number
+  /** Baseline runs that reported a finite value for this metric. */
+  baselineAnswered: number
+  /** Candidate runs the contract was dealt. */
+  candidateDealt: number
+  /** Candidate runs that reported a finite value for this metric. */
+  candidateAnswered: number
+  /** `answered / dealt` across both arms, or 0 when nothing was dealt. 1 means
+   *  every dealt run reported this metric on both arms. */
+  coverage: number
 }
 
 export interface ContractReport {
   name: string
   baselineReport: BaselineReport
   sloReport?: SloReport
+  /** Measured / dealt runs per declared metric — the denominator, stated. */
+  coverage: ContractMetricCoverage[]
   breaches: string[]
   pass: boolean
 }
@@ -50,23 +116,69 @@ export async function evaluateContract(
   store: TraceStore,
   contract: ThresholdContract,
 ): Promise<ContractReport> {
+  if (
+    contract.minCoverage !== undefined &&
+    !(
+      Number.isFinite(contract.minCoverage) &&
+      contract.minCoverage >= 0 &&
+      contract.minCoverage <= 1
+    )
+  ) {
+    throw new Error(
+      `evaluateContract: minCoverage must be a finite fraction in [0, 1], got ${contract.minCoverage}`,
+    )
+  }
+  const minCoverage = contract.minCoverage ?? 1
   const baselineRuns = await store.listRuns(contract.baseline)
   const candidateRuns = await store.listRuns(contract.candidate)
   if (candidateRuns.length === 0) {
     return {
       name: contract.name,
       baselineReport: { metrics: [], hasRegression: false, hasUnstable: true },
+      coverage: [],
       breaches: ['no candidate runs matched'],
       pass: false,
     }
   }
 
   const samples: MetricSamples[] = []
+  const coverage: ContractMetricCoverage[] = []
+  // A run that reported no value for a declared metric is missing DATA, not an
+  // absent run. Skipping it shrinks the denominator to the runs that reported,
+  // and skipping the whole metric used to leave `breaches` empty — so a corpus
+  // where nothing was measurable returned `pass: true`. Both are recorded here
+  // and both breach.
+  const unmeasured: string[] = []
   for (const m of contract.metrics) {
     const extract = m.extract ?? defaultExtract(m.metric)
     const baseline = await extractAll(baselineRuns, extract, store)
     const candidate = await extractAll(candidateRuns, extract, store)
-    if (baseline.length < 2 || candidate.length < 2) continue
+    const dealt = baselineRuns.length + candidateRuns.length
+    const cov: ContractMetricCoverage = {
+      metric: m.metric,
+      baselineDealt: baselineRuns.length,
+      baselineAnswered: baseline.length,
+      candidateDealt: candidateRuns.length,
+      candidateAnswered: candidate.length,
+      coverage: dealt === 0 ? 0 : (baseline.length + candidate.length) / dealt,
+    }
+    coverage.push(cov)
+    if (cov.coverage < minCoverage) {
+      unmeasured.push(
+        `metric "${m.metric}" was measured on ${candidate.length}/${candidateRuns.length} candidate ` +
+          `and ${baseline.length}/${baselineRuns.length} baseline run(s) (coverage ${cov.coverage.toFixed(4)}, ` +
+          `required ${minCoverage.toFixed(4)}) — an unmeasured run cannot be compared, so the contract ` +
+          'cannot pass on the subset that reported',
+      )
+      continue
+    }
+    if (baseline.length < 2 || candidate.length < 2) {
+      unmeasured.push(
+        `metric "${m.metric}" has too few comparable samples (baseline ${baseline.length}, ` +
+          `candidate ${candidate.length}; need ≥2 per arm) — no verdict is available for it`,
+      )
+      continue
+    }
     samples.push({ metric: m.metric, higherIsBetter: m.higherIsBetter, baseline, candidate })
   }
 
@@ -82,7 +194,15 @@ export async function evaluateContract(
     sloReport = checkSlos(agg, contract.slos)
   }
 
-  const breaches: string[] = []
+  const breaches: string[] = [...unmeasured]
+  // A contract that declares neither a metric nor an SLO asserts nothing. It
+  // used to return `pass: true` on an empty breach list, which is the same
+  // silent pass one level up: no evidence is not evidence of no problem.
+  if (contract.metrics.length === 0 && (contract.slos ?? []).length === 0) {
+    breaches.push(
+      'contract declares no metrics and no SLOs — nothing was asserted, so nothing can pass',
+    )
+  }
   for (const metric of baselineReport.metrics) {
     const decl = contract.metrics.find((m) => m.metric === metric.metric)
     if (!decl) continue
@@ -101,7 +221,14 @@ export async function evaluateContract(
     }
   }
 
-  return { name: contract.name, baselineReport, sloReport, breaches, pass: breaches.length === 0 }
+  return {
+    name: contract.name,
+    baselineReport,
+    sloReport,
+    coverage,
+    breaches,
+    pass: breaches.length === 0,
+  }
 }
 
 export function renderMarkdownReport(reports: ContractReport[]): string {
@@ -115,6 +242,19 @@ export function renderMarkdownReport(reports: ContractReport[]): string {
       lines.push('')
       lines.push('**Breaches:**')
       for (const b of r.breaches) lines.push(`- ${b}`)
+    }
+    // Never a silent 0 — a shrunken denominator has to say by how much.
+    const partial = r.coverage.filter(
+      (c) => c.baselineAnswered < c.baselineDealt || c.candidateAnswered < c.candidateDealt,
+    )
+    if (partial.length > 0) {
+      lines.push('')
+      lines.push('**Coverage (measured / dealt runs):**')
+      for (const c of partial) {
+        lines.push(
+          `- ${c.metric}: candidate ${c.candidateAnswered}/${c.candidateDealt}, baseline ${c.baselineAnswered}/${c.baselineDealt}`,
+        )
+      }
     }
     if (r.baselineReport.metrics.length > 0) {
       lines.push('')

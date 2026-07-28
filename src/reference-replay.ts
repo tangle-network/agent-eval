@@ -147,6 +147,23 @@ export interface ReferenceReplayPromotionPolicy {
   maxRegression?: number
   /** If true, holdout must be present and must not regress. Default true. */
   requireHoldoutNonRegression?: boolean
+  /**
+   * Smallest acceptable `answered / dealt` fraction over the dealt scenarios.
+   * Default 1: both sides must have been scored on the same scenarios before a
+   * delta between their F1s means anything.
+   *
+   * The default is 1 because each side's F1 is computed over its OWN scenario
+   * set: replaying a subset raises the candidate's F1 by dropping every
+   * scenario it would have missed, with no outcome changing. Below
+   * `minCoverage` the decision refuses with `incomplete_coverage`.
+   *
+   * Lowering it is a real, defensible choice for a caller who accepts a known
+   * flake rate — but it must be DECLARED, not inherited: the shrunken
+   * denominator then still ships in `ReferenceReplayPromotionDecision.coverage`,
+   * so the verdict can never be read without it. Must be in [0, 1]; anything
+   * else throws rather than clamping.
+   */
+  minCoverage?: number
 }
 
 export interface ReferenceReplaySplitComparison {
@@ -159,10 +176,51 @@ export interface ReferenceReplaySplitComparison {
   recallDelta: number
 }
 
+export type ReferenceReplayRejectionCode =
+  | 'missing_required_split'
+  | 'no_required_split_scores'
+  | 'incomplete_coverage'
+  | 'split_regression'
+  | 'missing_holdout'
+  | 'below_min_delta'
+
+/**
+ * How much of the DEALT scenario evidence both sides were scored on.
+ *
+ * `answered + candidateOnly + baselineOnly === dealt` — a complete, mutually
+ * exclusive partition of the scenario slots the comparison was dealt, so
+ * nothing can leave the comparison without appearing in exactly one bucket.
+ * The same partition `HeldOutGate.SplitCoverage` reports, over scenarios rather
+ * than over one split's work items. There is no `unscoredPairs` bucket because
+ * a scenario present in a `ReferenceReplayScore` always carries numbers — the
+ * way a scenario goes dark here is by not being replayed at all.
+ */
+export interface ReferenceReplayCoverage {
+  /** Scenarios the comparison was dealt: scored on either side. */
+  dealt: number
+  /** Scenarios scored on BOTH sides — the only ones a delta can be read from. */
+  answered: number
+  /** Dealt scenarios only the candidate was scored on. */
+  candidateOnly: number
+  /** Dealt scenarios only the baseline was scored on. */
+  baselineOnly: number
+  /** `answered / dealt`, or 0 when nothing was dealt. 1 means both sides
+   *  replayed exactly the same scenarios. */
+  coverage: number
+  /** Scenarios the baseline was scored on and the candidate was not, sorted. */
+  candidateMissing: string[]
+  /** Scenarios the candidate was scored on and the baseline was not, sorted. */
+  baselineMissing: string[]
+}
+
 export interface ReferenceReplayPromotionDecision {
   promote: boolean
   reason: string
+  /** Machine-readable refusal, or null when promoting. */
+  rejectionCode: ReferenceReplayRejectionCode | null
   aggregateDelta: number
+  /** Scored / dealt scenarios on each side — the denominator, stated. */
+  coverage: ReferenceReplayCoverage
   comparisons: ReferenceReplaySplitComparison[]
   regressions: ReferenceReplaySplitComparison[]
 }
@@ -419,6 +477,15 @@ export function decideReferenceReplayPromotion(
   const minF1Delta = policy.minF1Delta ?? 0
   const maxRegression = policy.maxRegression ?? 0
   const requireHoldout = policy.requireHoldoutNonRegression ?? true
+  if (
+    policy.minCoverage !== undefined &&
+    !(Number.isFinite(policy.minCoverage) && policy.minCoverage >= 0 && policy.minCoverage <= 1)
+  ) {
+    throw new Error(
+      `decideReferenceReplayPromotion: minCoverage must be a finite fraction in [0, 1], got ${policy.minCoverage}`,
+    )
+  }
+  const minCoverage = policy.minCoverage ?? 1
   const comparisons = compareReferenceReplay(baseline, candidate)
   const missingRequiredSplits = requiredSplits.filter(
     (split) => !hasSplit(baseline, split) || !hasSplit(candidate, split),
@@ -426,65 +493,133 @@ export function decideReferenceReplayPromotion(
   const compared = comparisons.filter((item) => requiredSplits.includes(item.split))
   const regressions = comparisons.filter((item) => item.f1Delta < -maxRegression)
   const aggregateDelta = candidate.aggregate.f1 - baseline.aggregate.f1
+  const coverage = scenarioCoverage(baseline, candidate)
+  const base = { aggregateDelta, coverage, comparisons, regressions }
 
   if (missingRequiredSplits.length > 0) {
     return {
+      ...base,
       promote: false,
       reason: `Required split missing from baseline or candidate: ${missingRequiredSplits.join(', ')}`,
-      aggregateDelta,
-      comparisons,
-      regressions,
+      rejectionCode: 'missing_required_split',
     }
   }
 
   if (compared.length === 0) {
     return {
+      ...base,
       promote: false,
       reason: `No required split scores found: ${requiredSplits.join(', ')}`,
-      aggregateDelta,
-      comparisons,
-      regressions,
+      rejectionCode: 'no_required_split_scores',
+    }
+  }
+
+  // COVERAGE — before any F1 is compared, because every number below is read
+  // off two aggregates computed over DIFFERENT scenario sets. The two structural
+  // checks above run first: a whole required split absent from one side is a
+  // strictly more specific finding than "some scenarios differ", and it is not
+  // a shadow of coverage the way `few_runs` is in `HeldOutGate`. Everything that
+  // reads an F1 comes after this.
+  if (coverage.coverage < minCoverage) {
+    return {
+      ...base,
+      promote: false,
+      reason:
+        `incomplete_coverage: ${describeCoverage(coverage)}` +
+        ` — required ${minCoverage.toFixed(4)} of every dealt scenario scored on both sides.` +
+        " Each side's F1 is computed over its own scenario set, so replaying a subset raises it by dropping" +
+        ' every scenario that would have been missed',
+      rejectionCode: 'incomplete_coverage',
     }
   }
 
   if (regressions.length > 0) {
     return {
+      ...base,
       promote: false,
       reason: `Regression in ${regressions.map((r) => r.split).join(', ')}`,
-      aggregateDelta,
-      comparisons,
-      regressions,
+      rejectionCode: 'split_regression',
     }
   }
 
   if (requireHoldout && (!hasSplit(baseline, 'holdout') || !hasSplit(candidate, 'holdout'))) {
     return {
+      ...base,
       promote: false,
       reason: 'Holdout split is required for promotion',
-      aggregateDelta,
-      comparisons,
-      regressions,
+      rejectionCode: 'missing_holdout',
     }
   }
 
   const requiredMeanDelta = mean(compared.map((item) => item.f1Delta))
   if (requiredMeanDelta < minF1Delta) {
     return {
+      ...base,
       promote: false,
       reason: `Required split F1 delta ${formatPct(requiredMeanDelta)} below ${formatPct(minF1Delta)}`,
-      aggregateDelta,
-      comparisons,
-      regressions,
+      rejectionCode: 'below_min_delta',
     }
   }
 
   return {
+    ...base,
     promote: true,
     reason: `Required splits improved by ${formatPct(requiredMeanDelta)} with no regressions`,
-    aggregateDelta,
-    comparisons,
-    regressions,
+    rejectionCode: null,
   }
+}
+
+/**
+ * Partition the dealt scenarios into answered / one-sided.
+ *
+ * Derived from the scenario identities the scorer already records
+ * (`ReferenceReplayScore.scenarios[].scenarioId`), so the denominator comes out
+ * of the same rows the F1s are computed from. There is no list of expected
+ * scenarios to trust — a scenario counts as dealt because at least one side was
+ * scored on it.
+ */
+function scenarioCoverage(
+  baseline: ReferenceReplayScore,
+  candidate: ReferenceReplayScore,
+): ReferenceReplayCoverage {
+  const baselineIds = new Set(baseline.scenarios.map((s) => s.scenarioId))
+  const candidateIds = new Set(candidate.scenarios.map((s) => s.scenarioId))
+  const candidateMissing = [...baselineIds].filter((id) => !candidateIds.has(id)).sort()
+  const baselineMissing = [...candidateIds].filter((id) => !baselineIds.has(id)).sort()
+  const answered = [...candidateIds].filter((id) => baselineIds.has(id)).length
+  const dealt = answered + candidateMissing.length + baselineMissing.length
+  return {
+    dealt,
+    answered,
+    candidateOnly: baselineMissing.length,
+    baselineOnly: candidateMissing.length,
+    coverage: dealt === 0 ? 0 : answered / dealt,
+    candidateMissing,
+    baselineMissing,
+  }
+}
+
+function describeCoverage(cov: ReferenceReplayCoverage): string {
+  const dark = [
+    cov.baselineOnly > 0
+      ? `${cov.baselineOnly} only the baseline was scored on (${listScenarios(cov.candidateMissing)})`
+      : null,
+    cov.candidateOnly > 0
+      ? `${cov.candidateOnly} only the candidate was scored on (${listScenarios(cov.baselineMissing)})`
+      : null,
+  ].filter((part): part is string => part !== null)
+  return (
+    `scored ${cov.answered} of ${cov.dealt} dealt scenario(s) on both sides (coverage ${cov.coverage.toFixed(4)})` +
+    (dark.length > 0 ? ` — ${dark.join(', ')}` : '')
+  )
+}
+
+/** Name the missing scenarios, capped so the reason stays readable while the
+ *  full list stays on `decision.coverage`. */
+function listScenarios(ids: string[]): string {
+  const shown = ids.slice(0, 5)
+  const rest = ids.length - shown.length
+  return rest > 0 ? `${shown.join(', ')}, +${rest} more` : shown.join(', ')
 }
 
 export function defaultReferenceReplayMatcher(

@@ -22,6 +22,7 @@
 import {
   type EvalCampaignOptions,
   type EvalCampaignResult,
+  type FailedRun,
   runEvalCampaign,
 } from '../eval-campaign'
 import type { OutcomeStore } from '../meta-eval/outcome-store'
@@ -65,7 +66,23 @@ export interface RunRLCampaignOptions<V> extends EvalCampaignOptions<V> {
   outcomeStore?: OutcomeStore
   outcomeMetrics?: string[]
   /** Anytime-valid sequential evaluation options. */
-  sequential?: { alpha?: number; bound?: number; rope?: { low: number; high: number } }
+  sequential?: {
+    alpha?: number
+    bound?: number
+    rope?: { low: number; high: number }
+    /**
+     * Smallest acceptable `answered / dealt` fraction of paired cells, required
+     * of EVERY candidate before the interim verdict is computed at all. Default
+     * 1: every cell the comparison was dealt must carry a score on both arms.
+     *
+     * The default is 1 because `recommendation.decision` can be `promote_now`,
+     * and a recommendation computed over "the cells that happened to pair" is
+     * computed over a set the candidate selected by failing. Below this,
+     * `interimConfidence` is null and `deltaCoverage` says by how much — never a
+     * silent 0. Must be in [0, 1]; anything else throws rather than clamping.
+     */
+    minDeltaCoverage?: number
+  }
   /** Trainer-format export lookups. When provided, the orchestrator builds the corresponding rows. */
   trainerExport?: {
     dpo?: DpoLookups
@@ -74,14 +91,45 @@ export interface RunRLCampaignOptions<V> extends EvalCampaignOptions<V> {
   }
 }
 
+/**
+ * How much of one candidate's DEALT paired work produced a usable delta.
+ *
+ * `answered + unscoredCandidate + unscoredComparator + unmatched === dealt` — a
+ * complete, mutually exclusive partition of the (scenarioId, seed) cells the
+ * comparison was dealt, so no cell can leave the delta series without appearing
+ * in exactly one bucket.
+ */
+export interface PairedDeltaCoverage {
+  candidateId: string
+  /** Cells the comparison was dealt: a run on either arm. */
+  dealt: number
+  /** Dealt cells scored on BOTH arms — the deltas the verdict is read from. */
+  answered: number
+  /** Dealt cells this candidate ran and produced no usable score for. */
+  unscoredCandidate: number
+  /** Dealt cells the comparator ran and produced no usable score for. */
+  unscoredComparator: number
+  /** Dealt cells only one of the two arms produced a run for. */
+  unmatched: number
+  /** `answered / dealt`, or 0 when nothing was dealt. */
+  coverage: number
+}
+
 export interface RLCampaignResult {
   campaign: EvalCampaignResult
   /** Per-run verifiable reward (deterministic when available, probabilistic fallback otherwise). */
   rewardSignals: Array<{ runId: string; reward: VerifiableReward | null }>
   /** Preference extraction report. */
   preferences: PreferenceExtractionReport
-  /** Anytime-valid interim verdict over the paired deltas (vs comparator). */
+  /** Anytime-valid interim verdict over the paired deltas (vs comparator).
+   *  Null when no comparator was configured, when nothing paired, or when a
+   *  candidate fell below `sequential.minDeltaCoverage` — read `deltaCoverage`
+   *  to tell those apart. */
   interimConfidence: InterimReleaseConfidence | null
+  /** Answered / dealt paired cells per candidate — the denominator behind
+   *  `interimConfidence`, reported on EVERY path including the ones where the
+   *  verdict was refused. Empty when no comparator was configured. */
+  deltaCoverage: PairedDeltaCoverage[]
   /** Standing reward-hacking hygiene check. */
   rewardHacking: RewardHackingReport
   /** Predictive validity, when an outcome store was supplied. */
@@ -126,12 +174,24 @@ export async function runRLCampaign<V>(opts: RunRLCampaignOptions<V>): Promise<R
 
   // ── 4. Sequential / anytime-valid interim verdict ──────────────────
   let interimConfidence: InterimReleaseConfidence | null = null
+  let deltaCoverage: PairedDeltaCoverage[] = []
+  const minDeltaCoverage = opts.sequential?.minDeltaCoverage ?? 1
+  if (!(Number.isFinite(minDeltaCoverage) && minDeltaCoverage >= 0 && minDeltaCoverage <= 1)) {
+    throw new Error(
+      `runRLCampaign: sequential.minDeltaCoverage must be a finite fraction in [0, 1], got ${minDeltaCoverage}`,
+    )
+  }
   if (opts.report?.comparator) {
     const comparator = opts.report.comparator
-    const deltaSeries = collectPairedDeltaSeries(campaign.runs, comparator)
-    if (deltaSeries.some((s) => s.deltas.length > 0)) {
+    const series = collectPairedDeltaSeries(campaign.runs, campaign.failedRuns, comparator)
+    deltaCoverage = series.map((s) => s.coverage)
+    // Fail closed on a shrunken denominator: the recommendation can be
+    // `promote_now`, so it does not get computed over the cells that happened
+    // to pair. The accounting ships either way.
+    const covered = series.every((s) => s.coverage.coverage >= minDeltaCoverage)
+    if (covered && series.some((s) => s.deltas.length > 0)) {
       interimConfidence = evaluateInterimReleaseConfidence({
-        deltaSeries,
+        deltaSeries: series.map(({ candidateId, deltas }) => ({ candidateId, deltas })),
         alpha: opts.sequential?.alpha,
         bound: opts.sequential?.bound,
         rope: opts.sequential?.rope ?? opts.report?.rope,
@@ -173,6 +233,7 @@ export async function runRLCampaign<V>(opts: RunRLCampaignOptions<V>): Promise<R
     campaign,
     preferences,
     interimConfidence,
+    deltaCoverage,
     rewardHacking,
     predictiveValidity,
   })
@@ -182,6 +243,7 @@ export async function runRLCampaign<V>(opts: RunRLCampaignOptions<V>): Promise<R
     rewardSignals,
     preferences,
     interimConfidence,
+    deltaCoverage,
     rewardHacking,
     predictiveValidity,
     trainerRows,
@@ -192,43 +254,125 @@ export async function runRLCampaign<V>(opts: RunRLCampaignOptions<V>): Promise<R
 
 // ── Helpers ──────────────────────────────────────────────────────────────
 
+/**
+ * Pair on (scenarioId, seed) and count what was DEALT, not only what paired.
+ *
+ * Every drop below used to be silent: a comparator run with no score never
+ * entered the map, a candidate run with no score was skipped, and a candidate
+ * cell with no comparator at the same identity was skipped. The surviving
+ * deltas then flowed into `evaluateInterimReleaseConfidence`, whose
+ * `recommendation.decision` can be `promote_now` — so a candidate that scored 6
+ * of 26 cells could be recommended for promotion off a series of length 6, with
+ * nothing in the result saying 20 cells went dark. Same defect as the promotion
+ * gates, one call frame up.
+ *
+ * The denominator is MEASURED: a cell counts as dealt because a run for it
+ * exists on either arm. Missing scores are not imputed — the caller who knows
+ * the failure value of its metric writes it onto the record.
+ */
 function collectPairedDeltaSeries(
   runs: RunRecord[],
+  failedRuns: FailedRun[],
   comparator: string,
-): Array<{ candidateId: string; deltas: number[] }> {
-  // Pair on (scenarioId, seed). For each candidate that isn't the comparator,
-  // compute candidate.score - comparator.score on matching cells.
-  const baseline = new Map<string, number>()
+): Array<{ candidateId: string; deltas: number[]; coverage: PairedDeltaCoverage }> {
+  const cellKey = (r: { scenarioId: string; seed: number }) => `${r.scenarioId}::${r.seed}`
+  // A cell that failed integrity or crashed never reaches `campaign.runs` at
+  // all, so counting only the surviving records would make the very failure this
+  // check exists to catch invisible. `failedRuns` carries the same
+  // (variantId, scenarioId, seed) identity — it is dealt work that produced no
+  // score, which is exactly what the denominator must hold.
+  const dealtFromFailures = new Map<string, Set<string>>()
+  for (const f of failedRuns) {
+    let set = dealtFromFailures.get(f.variantId)
+    if (!set) {
+      set = new Set<string>()
+      dealtFromFailures.set(f.variantId, set)
+    }
+    set.add(cellKey(f))
+  }
+  // Comparator side, split into what it was dealt and what it answered.
+  const comparatorDealt = new Set<string>(dealtFromFailures.get(comparator) ?? [])
+  const comparatorScore = new Map<string, number>()
   for (const r of runs) {
     if (r.candidateId !== comparator) continue
-    const sid = r.scenarioId
+    const key = cellKey(r)
+    comparatorDealt.add(key)
     // Ungated (`runTaskScore` is raw): this is a measurement of the paired
     // delta between candidates, not a value any trainer consumes. Gating it
     // would report a candidate as worse than it measured; the gamed run should
     // be excluded upstream instead.
     const score = runTaskScore(r)
     if (score === undefined) continue
-    baseline.set(`${sid}::${r.seed}`, score)
+    comparatorScore.set(key, score)
   }
-  const byCandidate = new Map<string, number[]>()
+  const dealtByCandidate = new Map<string, Set<string>>()
+  const scoreByCandidate = new Map<string, Map<string, number>>()
+  for (const [variantId, cells] of dealtFromFailures) {
+    if (variantId === comparator) continue
+    dealtByCandidate.set(variantId, new Set(cells))
+  }
   for (const r of runs) {
     if (r.candidateId === comparator) continue
-    const sid = r.scenarioId
+    const key = cellKey(r)
+    let dealt = dealtByCandidate.get(r.candidateId)
+    if (!dealt) {
+      dealt = new Set<string>()
+      dealtByCandidate.set(r.candidateId, dealt)
+    }
+    dealt.add(key)
     const score = runTaskScore(r)
     if (score === undefined) continue
-    const baseScore = baseline.get(`${sid}::${r.seed}`)
-    if (typeof baseScore !== 'number') continue
-    const arr = byCandidate.get(r.candidateId) ?? []
-    arr.push(score - baseScore)
-    byCandidate.set(r.candidateId, arr)
+    let scored = scoreByCandidate.get(r.candidateId)
+    if (!scored) {
+      scored = new Map<string, number>()
+      scoreByCandidate.set(r.candidateId, scored)
+    }
+    scored.set(key, score)
   }
-  return [...byCandidate.entries()].map(([candidateId, deltas]) => ({ candidateId, deltas }))
+
+  return [...dealtByCandidate.entries()].map(([candidateId, candidateDealt]) => {
+    const scored = scoreByCandidate.get(candidateId) ?? new Map<string, number>()
+    const deltas: number[] = []
+    let unscoredCandidate = 0
+    let unscoredComparator = 0
+    let unmatched = 0
+    // The dealt set is the union: a cell the comparator ran and this candidate
+    // never wrote a row for is still work the comparison was given.
+    for (const key of new Set([...candidateDealt, ...comparatorDealt])) {
+      const onCandidate = candidateDealt.has(key)
+      const onComparator = comparatorDealt.has(key)
+      if (!onCandidate || !onComparator) {
+        unmatched += 1
+        continue
+      }
+      const a = scored.get(key)
+      const b = comparatorScore.get(key)
+      if (a === undefined) unscoredCandidate += 1
+      else if (b === undefined) unscoredComparator += 1
+      else deltas.push(a - b)
+    }
+    const dealt = new Set([...candidateDealt, ...comparatorDealt]).size
+    return {
+      candidateId,
+      deltas,
+      coverage: {
+        candidateId,
+        dealt,
+        answered: deltas.length,
+        unscoredCandidate,
+        unscoredComparator,
+        unmatched,
+        coverage: dealt === 0 ? 0 : deltas.length / dealt,
+      },
+    }
+  })
 }
 
 function buildSummary(args: {
   campaign: EvalCampaignResult
   preferences: PreferenceExtractionReport
   interimConfidence: InterimReleaseConfidence | null
+  deltaCoverage: PairedDeltaCoverage[]
   rewardHacking: RewardHackingReport
   predictiveValidity: RubricPredictiveValidityReport | null
 }): string {
@@ -243,6 +387,16 @@ function buildSummary(args: {
         (args.interimConfidence.recommendation.candidateId
           ? ` ${args.interimConfidence.recommendation.candidateId}`
           : ''),
+    )
+  }
+  // Never a silent 0 — a shrunken denominator has to say by how much, including
+  // (especially) on the path where the verdict was refused for being shrunken.
+  const shortfall = args.deltaCoverage.filter((c) => c.answered < c.dealt)
+  if (shortfall.length > 0) {
+    lines.push(
+      `paired-delta coverage: ${shortfall
+        .map((c) => `${c.candidateId} ${c.answered}/${c.dealt}`)
+        .join(', ')}${args.interimConfidence ? '' : ' (sequential verdict withheld)'}`,
     )
   }
   lines.push(
