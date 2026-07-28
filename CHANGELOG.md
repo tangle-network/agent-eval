@@ -4,6 +4,15 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ---
 
+## [0.133.2] - 2026-07-27 - protect final evaluation data
+
+### Fixed
+
+- Disabled labeled-store capture for deferred, baseline, winner, and neutralized final-evaluation campaigns.
+  Search baseline and candidate campaigns continue to populate optimization data, while final cases remain unavailable to later proposal rounds.
+- Deferred OpenCode's SQLite dependency loading until a reader opens the database, so importing rollout readers remains safe in runtimes without Node's native module loader.
+- Rejected non-finite and zero-width paired intervals before threshold comparison, preventing tie-pinned regressions from clearing negative promotion thresholds.
+
 ## [0.133.1] - 2026-07-27 - correct asymptotic statistics
 
 ### Fixed
