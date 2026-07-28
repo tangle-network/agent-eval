@@ -1102,3 +1102,102 @@ describe('HeldOutGate — coverage accounting is complete', () => {
     }
   })
 })
+
+describe('HeldOutGate — the cost median has a denominator too', () => {
+  /** 12 fully-covered items at a real $5.00/task, plus `padRows` cheap rows on a
+   *  split the gate never scores. */
+  function padded(
+    padRows: number,
+    padSplit: 'dev' | 'holdout',
+  ): {
+    candidate: RunRecord[]
+    baseline: RunRecord[]
+  } {
+    const candidate: RunRecord[] = []
+    const baseline: RunRecord[] = []
+    for (let i = 0; i < 12; i += 1) {
+      const scenarioId = `s${String(i).padStart(2, '0')}`
+      baseline.push(
+        record({
+          candidateId: 'baseline',
+          scenarioId,
+          seed: i,
+          splitTag: 'search',
+          costUsd: 0.02,
+          outcome: { searchScore: 0.62, raw: {} },
+        }),
+        record({
+          candidateId: 'baseline',
+          scenarioId,
+          seed: i,
+          splitTag: 'holdout',
+          costUsd: 0.02,
+          outcome: { holdoutScore: 0.6, raw: {} },
+        }),
+      )
+      candidate.push(
+        record({
+          candidateId: 'cand',
+          scenarioId,
+          seed: i,
+          splitTag: 'search',
+          costUsd: 5,
+          outcome: { searchScore: 0.96, raw: {} },
+        }),
+        record({
+          candidateId: 'cand',
+          scenarioId,
+          seed: i,
+          splitTag: 'holdout',
+          costUsd: 5,
+          outcome: { holdoutScore: 0.95 + (i % 3) * 0.01, raw: {} },
+        }),
+      )
+    }
+    for (let k = 0; k < padRows; k += 1) {
+      candidate.push(
+        record({
+          candidateId: 'cand',
+          scenarioId: `pad${k}`,
+          seed: 9000 + k,
+          splitTag: padSplit,
+          costUsd: 0.0001,
+          outcome: { raw: {} },
+        }),
+      )
+    }
+    return { candidate, baseline }
+  }
+
+  const decide = (runs: { candidate: RunRecord[]; baseline: RunRecord[] }) =>
+    new HeldOutGate({
+      baselineKey: 'baseline',
+      seed: 1337,
+      costPerTaskCeiling: 1,
+      minProductiveRuns: 3,
+    }).evaluate(runs.candidate, runs.baseline)
+
+  it('cannot be dragged under the ceiling by rows the gate never scored', () => {
+    // 48 cheap `dev` rows used to move the median from $5.00 to $0.0001 and
+    // promote a candidate costing five times the ceiling.
+    for (const padRows of [0, 12, 24, 48, 200]) {
+      const d = decide(padded(padRows, 'dev'))
+      expect(d.evidence.medianCandidateCost).toBe(5)
+      expect(d.promote).toBe(false)
+      expect(d.rejectionCode).toBe('cost_ceiling')
+    }
+  })
+
+  it('padding on a SCORED split is caught by coverage instead', () => {
+    const d = decide(padded(48, 'holdout'))
+    expect(d.promote).toBe(false)
+    expect(d.rejectionCode).toBe('incomplete_coverage')
+    expect(d.evidence.holdoutCoverage.candidateOnly).toBe(48)
+  })
+
+  it('reports the cost of the runs that decided the verdict, unpadded', () => {
+    const d = decide(padded(0, 'dev'))
+    expect(d.evidence.medianCandidateCost).toBe(5)
+    expect(d.evidence.medianBaselineCost).toBe(0.02)
+  })
+})

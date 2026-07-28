@@ -81,6 +81,16 @@ threshold and should be re-run on this release.
 
 ### Fixed
 
+- `HeldOutGate`'s cost median is taken over the rows that DECIDED the verdict — the
+  matched pairs on both splits — instead of over every row the caller passed. The old
+  population was a denominator nobody measured and was trivially movable: 48 rows tagged
+  `dev` at \$0.0001, which the gate never scores, drag a real \$5.00/task candidate to a
+  reported \$0.0001 and clear a \$1.00 `costPerTaskCeiling`. Measured on `origin/main`
+  (2789970): 12 fully-covered items at \$5.00/task, ceiling \$1.00 — 0 pad rows rejects
+  with `cost_ceiling`, 24 pad rows reports \$2.50005, 48 pad rows reports \$0.0001 and
+  PROMOTES. The population is derived from the pairing rather than from a list of split
+  tags, so there is no tag that sits outside the rule. On a comparison with no rows
+  outside the two decided splits the reported number is unchanged.
 - `HeldOutGate` requires COVERAGE before it decides anything: on both the search and
   the holdout split, `answered / dealt` must be at least the new `minCoverage`
   (default **1** — every item the comparison was dealt carries a real score on both

@@ -323,10 +323,26 @@ export class HeldOutGate {
     const overfitGap = diffOrNull(candidateSearchMean, candidateHoldoutMean)
     const baselineOverfitGap = diffOrNull(baselineSearchMean, baselineHoldoutMean)
 
-    // Cost summary — surfaced in evidence regardless of gating policy
-    // so downstream dashboards always know what the candidate cost.
-    const medianCandidateCost = completeCostMedian(candidate)
-    const medianBaselineCost = completeCostMedian(baseline)
+    // Cost summary — surfaced in evidence regardless of gating policy so
+    // downstream dashboards always know what the candidate cost.
+    //
+    // The population is the rows that DECIDED this verdict: the matched pairs
+    // on both splits, and nothing else. Taking the median over every row the
+    // caller happened to pass is a denominator nobody measured, and it is
+    // trivially movable — 48 rows tagged `dev` at $0.0001, which the gate never
+    // scores and the coverage check never counts, drag a real $5.00/task
+    // candidate to a reported $0.0001 and clear a $1.00 ceiling. Deriving the
+    // population from the pairing rather than from a list of split tags means
+    // there is no tag to sit outside the rule: a row either decided the verdict
+    // or it does not describe its cost.
+    const medianCandidateCost = completeCostMedian([
+      ...searchPairing.pairs.map((pair) => pair.treatment),
+      ...holdoutPairing.pairs.map((pair) => pair.treatment),
+    ])
+    const medianBaselineCost = completeCostMedian([
+      ...searchPairing.pairs.map((pair) => pair.baseline),
+      ...holdoutPairing.pairs.map((pair) => pair.baseline),
+    ])
     const commonEvidence = {
       productiveRuns,
       unpairedCandidateRuns: holdoutPairing.unpairedTreatment.length,
