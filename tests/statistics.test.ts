@@ -1097,12 +1097,35 @@ describe('signFlipMeanTest — the veto, and why the binary test is a derived ca
     expect(a.method).toBe('monte_carlo')
     expect(a.resamples).toBe(10_000)
     expect(a.pValue).toBe(b.pValue) // same input, same verdict, always
+    expect(a.pValueUpperBound).toBeGreaterThanOrEqual(a.pValue)
     // The add-one estimator can never report 0, so it can never manufacture
     // significance out of a finite number of draws.
     expect(a.pValue).toBeGreaterThan(0)
     // All-tied input carries no signal at all.
     expect(signFlipMeanTest([0, 0, 0])).toMatchObject({ pValue: 1, improved: 0, worsened: 0 })
     expect(() => signFlipMeanTest([1, Number.NaN])).toThrow(/non-finite/)
+  })
+
+  it('a decision reads an upper BOUND on the Monte-Carlo p, not the draw itself', () => {
+    // A finite set of sign draws can land a hair under alpha by luck. The bound
+    // closes that: it is the largest true p consistent with the draws at 99.9%.
+    const clear = signFlipMeanTest(Array.from({ length: 40 }, (_, i) => 0.5 + i / 100))
+    expect(clear.method).toBe('monte_carlo')
+    // 0 of 10000 draws as extreme => bound 1 - 0.001^(1/10000) = 6.908e-4.
+    expect(clear.pValue).toBeCloseTo(1 / 10_001, 12)
+    expect(clear.pValueUpperBound).toBeCloseTo(6.908e-4, 6)
+    expect(clear.pValueUpperBound).toBeLessThan(0.05) // real significance survives
+
+    // An exact result is its own bound — no penalty where none is owed.
+    for (const deltas of [
+      [1, 1, 1, 1, 1],
+      [1, -1, 1, 0],
+      [0.5, 0.25, -0.25],
+    ]) {
+      const r = signFlipMeanTest(deltas)
+      expect(r.method).toBe('exact')
+      expect(r.pValueUpperBound).toBe(r.pValue)
+    }
   })
 
   it('is invariant to scaling every delta by a positive constant', () => {

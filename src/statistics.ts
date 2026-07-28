@@ -1366,6 +1366,46 @@ export function pairedRiskDifferenceExact(
   }
 }
 
+/**
+ * A 99.9%-style upper confidence bound on the success rate of a Binomial(n, p)
+ * that produced `successes`, via the Chernoff/KL tail bound
+ * `P(X ≤ k) ≤ exp(−n·KL(k/n ‖ p))`. Solved for the largest p whose lower tail at
+ * `successes` is still above `1 − confidence`.
+ *
+ * Deliberately arithmetic-only. The obvious route — a Clopper-Pearson bound via
+ * {@link regularizedIncompleteBeta} — is unusable here: that continued fraction
+ * has no symmetry swap, so at the parameters this needs (a = 1, b = 10000) it
+ * UNDERFLOWS AND RETURNS 0 for x ≥ ~0.5 rather than 1, and the inverse then
+ * walks the wrong way and answers ~1 for every input. Measured: it turned a
+ * clearly-significant Monte-Carlo p of 1e-4 into an upper bound of 1.0, which
+ * would have refused every Monte-Carlo promotion. (That defect is real and
+ * pre-existing; PR #458 repairs the beta function itself with a cross-checked
+ * oracle. This function does not depend on it either way.)
+ *
+ * The KL bound is a little conservative relative to Clopper-Pearson (0.0527 vs
+ * 0.0514 at 450/10000), which is the correct direction for a veto.
+ */
+function binomialRateUpperBound(successes: number, n: number, confidence: number): number {
+  if (n <= 0) return 1
+  const q = successes / n
+  if (q >= 1) return 1
+  const budget = -Math.log(1 - confidence) / n
+  const kl = (p: number): number => {
+    if (p >= 1) return Number.POSITIVE_INFINITY
+    const a = q === 0 ? 0 : q * Math.log(q / p)
+    const b = (1 - q) * Math.log((1 - q) / (1 - p))
+    return a + b
+  }
+  let lo = q
+  let hi = 1
+  for (let i = 0; i < 80; i++) {
+    const mid = (lo + hi) / 2
+    if (kl(mid) < budget) lo = mid
+    else hi = mid
+  }
+  return Math.min(1, (lo + hi) / 2)
+}
+
 /** Inverse regularized incomplete beta by bisection on
  *  {@link regularizedIncompleteBeta},
  *  which is monotone increasing in x. 80 halvings of [0,1] resolve well past the
@@ -1511,6 +1551,11 @@ export interface SignFlipTestResult {
    *  is as likely to have come out `+δ` as `−δ`. Exact, or a valid Monte-Carlo
    *  p-value — never an asymptotic approximation. */
   pValue: number
+  /** The number a DECISION must use. Equal to `pValue` when the test is exact.
+   *  When it is Monte-Carlo, a 99.9% upper confidence bound on the true p-value
+   *  given the draws — so a verdict is never the luck of the draw landing a hair
+   *  under α. Costs a little power within ~0.007 of α and nothing elsewhere. */
+  pValueUpperBound: number
   /** `'exact'` = the whole sign-flip distribution was enumerated.
    *  `'monte_carlo'` = estimated from `resamples` sign draws with the
    *  add-one correction, which keeps P(p ≤ α | H0) ≤ α exactly. */
@@ -1584,7 +1629,15 @@ export function signFlipMeanTest(
   // No non-tied pair carries any signal: the null distribution is the point mass
   // at 0, so nothing is more extreme than the observation. p = 1, refuse.
   if (nonTied.length === 0) {
-    return { pValue: 1, method: 'exact', resamples: null, improved, worsened, tied }
+    return {
+      pValue: 1,
+      pValueUpperBound: 1,
+      method: 'exact',
+      resamples: null,
+      improved,
+      worsened,
+      tied,
+    }
   }
   // Floating-point slack on "at least as extreme", scaled to the data so it is
   // meaningful on 0-100 dimensions as well as on [0,1] ones.
@@ -1631,8 +1684,10 @@ export function signFlipMeanTest(
     for (const [sum, prob] of dist) {
       if (Math.abs(sum) >= target) p += prob
     }
+    const exactP = Math.min(1, Math.max(0, p))
     return {
-      pValue: Math.min(1, Math.max(0, p)),
+      pValue: exactP,
+      pValueUpperBound: exactP,
       method: 'exact',
       resamples: null,
       improved,
@@ -1652,6 +1707,10 @@ export function signFlipMeanTest(
   }
   return {
     pValue: (1 + atLeastAsExtreme) / (resamples + 1),
+    // The draws are a sample, so the point estimate can sit a hair under α by
+    // luck. A decision uses the 99.9% upper bound on the true p-value instead,
+    // which turns "the RNG was kind" into "refuse".
+    pValueUpperBound: binomialRateUpperBound(atLeastAsExtreme, resamples, 0.999),
     method: 'monte_carlo',
     resamples,
     improved,

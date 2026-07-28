@@ -1231,3 +1231,61 @@ describe('HeldOutGate — fail closed on a directionless interval, at ANY locati
     expect(d.rejectionCode).toBe('indeterminate_delta')
   })
 })
+
+describe('HeldOutGate — cannot be talked into a promotion', () => {
+  it('adding TIED pairs never turns a refusal into a promotion', () => {
+    // Padding a holdout set with items both arms already solve adds no evidence.
+    // A rule keyed on a percentile of a resampled mean can be nudged by it; the
+    // sign-flip test cannot, because a tie contributes 0 to every sign pattern.
+    const bases: Array<[number[], number[]]> = [
+      [
+        [0, 0, 0, 0, 0],
+        [1, 1, 1, 1, 1],
+      ],
+      [
+        [0, 0, 0, 0],
+        [1, 1, 1, 0],
+      ],
+      [
+        [0, 0, 0, 0, 0, 0],
+        [1, 1, 1, 1, 1, 0],
+      ],
+    ]
+    const flips: string[] = []
+    for (const [b0, a0] of bases) {
+      let previous = false
+      for (let padding = 0; padding <= 40; padding++) {
+        const before = [...b0, ...Array.from({ length: padding }, () => 1)]
+        const after = [...a0, ...Array.from({ length: padding }, () => 1)]
+        const decision = new HeldOutGate({
+          baselineKey: 'baseline',
+          seed: 1337,
+          overfitGapThreshold: 1e9,
+        }).evaluate(...((p) => [p.candidate, p.baseline] as const)(shiftedPairs(before, after, 0)))
+        if (decision.promote && !previous && padding > 0) {
+          flips.push(`base ${a0.length} + ${padding} ties`)
+        }
+        previous = decision.promote
+      }
+    }
+    expect(flips).toEqual([])
+  })
+
+  it('needs six concordant pairs however the improvement is split up', () => {
+    // The same total lift spread over more pairs is genuinely more evidence, and
+    // the exact permutation floor is 2/2^m — so five all-improving pairs can
+    // never reach α = 0.05 and six can. This pins the boundary so a future
+    // estimator swap cannot quietly move it.
+    const verdicts = [3, 4, 5, 6, 8].map((k) => {
+      const before = Array.from({ length: 26 }, () => 0)
+      const after = before.map((_, i) => (i < k ? 2 / k : 0))
+      return new HeldOutGate({
+        baselineKey: 'baseline',
+        seed: 1337,
+        overfitGapThreshold: 1e9,
+      }).evaluate(...((p) => [p.candidate, p.baseline] as const)(shiftedPairs(before, after, 0)))
+        .promote
+    })
+    expect(verdicts).toEqual([false, false, false, true, true])
+  })
+})

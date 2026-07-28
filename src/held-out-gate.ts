@@ -193,6 +193,10 @@ export interface DeltaIntervalMethod {
 export interface SignFlipEvidence {
   /** Two-sided p-value for "the candidate changed nothing". */
   pValue: number
+  /** The number the veto actually reads: `pValue` when the test is exact, and
+   *  its 99.9% upper confidence bound when it is Monte-Carlo, so no verdict
+   *  turns on which way a finite set of draws happened to fall. */
+  pValueUpperBound: number
   /** Whether the whole sign-flip distribution was enumerated, or a valid
    *  Monte-Carlo p-value was drawn. Never an asymptotic approximation. */
   method: 'exact' | 'monte_carlo'
@@ -584,12 +588,16 @@ export class HeldOutGate {
     // whose calibration at a nonzero margin is what `empiricalLikelihoodMean-
     // Interval` was chosen for, decides alone.
     const alpha = 1 - this.confidence
-    const signFlipVetoes = this.pairedDeltaThreshold >= 0 && !(signFlip.pValue < alpha)
+    const signFlipVetoes = this.pairedDeltaThreshold >= 0 && !(signFlip.pValueUpperBound < alpha)
 
     // Negative-delta gate (CI lower bound must clear the threshold).
     if (!(low > this.pairedDeltaThreshold) || signFlipVetoes) {
       const detail = signFlipVetoes
-        ? ` Sign-flip ${signFlip.method} p=${signFlip.pValue.toExponential(2)} does not reject at α=${fmt(alpha)}.`
+        ? ` Sign-flip ${signFlip.method} p=${signFlip.pValue.toExponential(2)}` +
+          (signFlip.method === 'monte_carlo'
+            ? ` (99.9% upper bound ${signFlip.pValueUpperBound.toExponential(2)})`
+            : '') +
+          ` does not reject at α=${fmt(alpha)}.`
         : ''
       return {
         promote: false,
